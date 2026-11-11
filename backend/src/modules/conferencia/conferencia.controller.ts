@@ -76,4 +76,14 @@ export class ConferenciaController {
   tirarDoApp(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null, @Body() dto: unknown) {
     return this.service.tirarDoApp(user.tenantId, unidade, dto, ator(user));
   }
+
+  // "Ligar a um produto" e "Corrigir o código" (R3 F4b): o produto ganha o código do item do app e copia o preço e a pausa
+  // de lá (o preço muda no Regem: pede "Ver valores em R$").
+  @Post('ligar')
+  @HttpCode(200)
+  @Roles(...QUEM_CONFERE)
+  ligar(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null, @Body() dto: unknown) {
+    exigirVerValores(user);
+    return this.service.ligar(user.tenantId, unidade, dto, ator(user));
+  }
 }

@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **"Conferir com os apps": criar no Regem, ligar a um produto e corrigir o código (R3, fase F4b; mig 406 só nuvem; não
+  mexe no `sync-daemon`).** Na NUVEM com o merge: as três gavetas e a rota `catalogo/conferencia/ligar`. **No `.zip`
+  1.30.13:** as mesmas gavetas na tela do servidor da loja (o "ligar" pede à nuvem pela rota do token de sync; o "criar" é a
+  criação de produto de sempre, que roda na loja e sobe pelo sincronismo).
+
 - **Gestão do catálogo › "Conferir com os apps" (R3, fase F4a; mig 405 só nuvem; nasce DESLIGADA — o direito
   `conferir_apps`, ligado pela distribuição).** Na NUVEM com o merge: a aba, a leitura do iFood (pelo Orzuni) e da 99, a
   comparação pelo código PDV e as ações da linha. **No `.zip` 1.30.13:** a aba no servidor da loja, que pede tudo à nuvem

@@ -151,6 +151,150 @@ export function bateNaBusca(l: LinhaConferida, busca: string): boolean {
   return !b || s(`${l.nome} ${l.pdv ?? ''} ${l.regem?.nome ?? ''}`).includes(b);
 }
 
+// ── F4b: criar no Regem, ligar a um produto, corrigir o código ─────────────────────────────────────────────────
+
+/** O produto do Regem como a lista da Gestão do catálogo traz (só o que a ligação precisa). */
+export type ProdutoParaLigar = {
+  id: string;
+  nome: string;
+  codigo?: string | null;
+  categoriaNome?: string | null;
+  noIfood?: boolean;
+  na99?: boolean;
+};
+
+/** O que acontece ao ligar `p` à linha `l` do app (a gaveta mostra antes de confirmar — decisão 4 do protótipo). */
+export function efeitoDeLigar(p: ProdutoParaLigar, l: LinhaConferida, canal: CanalConferido): { tom: 'critico' | 'info'; frases: string[] } {
+  const a = APP[canal];
+  const outro: CanalConferido = canal === 'ifood' ? '99food' : 'ifood';
+  const codigo = (p.codigo ?? '').trim();
+  const marcadoNoOutro = outro === 'ifood' ? p.noIfood === true : p.na99 === true;
+  const frases: string[] = [];
+  if (codigo) {
+    frases.push(`O código de "${p.nome}" passa de ${codigo} para ${l.pdv}.`);
+    frases.push(`Os pedidos que chegarem com o código ${codigo} (dos apps, do totem ou de outro canal) não ligam mais a este produto.`);
+    if (marcadoNoOutro) frases.push(`${APP[outro].nome === '99' ? 'Na 99' : 'No iFood'}, ele passa a ligar ao item de código ${l.pdv} de lá.`);
+  } else {
+    frases.push(`"${p.nome}" ganha o código ${l.pdv} e passa a ser marcado "${a.marca}": a venda ${canal === 'ifood' ? 'pelo iFood' : 'pela 99'} baixa o estoque dele.`);
+  }
+  frases.push(
+    l.precos.length === 1
+      ? `O preço ${a.do} no Regem fica o de lá (${reais(l.precos[0])})${l.pausado ? ' e ele fica pausado, como lá' : ''}: nada muda ${a.no}.`
+      : `O preço ${a.do} no Regem fica como está${l.pausado ? ' e ele fica pausado, como lá' : ''}: nada muda ${a.no}.`,
+  );
+  return { tom: codigo ? 'critico' : 'info', frases };
+}
+
+/** "Corrigir o código": o código digitado é de qual item do app? Só o item "só no app" pode receber o produto. */
+export function itemDoCodigo(
+  itens: LinhaConferida[],
+  codigo: string,
+  canal: CanalConferido,
+): { linha: LinhaConferida | null; frase: string } {
+  const a = APP[canal];
+  const c = codigo.trim();
+  if (!c) return { linha: null, frase: `Digite o código: a tela diz qual item ${a.do} ele é.` };
+  const l = itens.find((x) => x.pdv === c && x.situacao !== 'soRegem');
+  if (!l) return { linha: null, frase: `Nenhum item ${a.do} tem esse código.` };
+  const preco = l.precos.length ? ` (${precoNoApp(l)})` : '';
+  if (l.situacao === 'soApp') return { linha: l, frase: `É "${l.nome}" ${a.no}${preco}.` };
+  if (l.situacao === 'ignorada') return { linha: null, frase: `É "${l.nome}" ${a.no}, mas a linha está ignorada: desfaça o "Ignorar" antes.` };
+  if (l.situacao === 'naoLiga') return { linha: null, frase: `É "${l.nome}" ${a.no}, mas o código está repetido lá.` };
+  return { linha: null, frase: `É "${l.nome}" ${a.no}, que já liga a "${l.regem?.nome ?? l.nome}" do Regem.` };
+}
+
+/** Preço digitado ("29,90", "R$ 29.90") → número com 2 casas; `null` = não dá para ler. */
+export function precoDigitado(v: string): number | null {
+  const s = v.replace(/R\$\s*/i, '').trim();
+  if (!/^\d{1,6}([.,]\d{1,2})?$/.test(s)) return null;
+  return Math.round(Number(s.replace(',', '.')) * 100) / 100;
+}
+
+export type BaixaDoCriar = 'ficha' | 'item' | 'combo' | 'nada';
+export type FormCriar = {
+  nome: string;
+  categoriaId: string;
+  precoRegem: string;
+  ondeRegem: boolean;
+  ondeIfood: boolean;
+  onde99: boolean;
+  baixa: BaixaDoCriar;
+  fichaId: string;
+  itemId: string;
+  itemUnidade: string;
+  combo: { componenteProdutoId: string; quantidade: string }[];
+};
+
+/**
+ * O formulário do "Criar no Regem" com o que vem do app (o protótipo: o app de onde veio marcado; o Regem não). A categoria
+ * do Regem com o mesmo nome da do app já vem escolhida (sem acento nem caixa).
+ */
+export function formDeCriar(l: LinhaConferida, canal: CanalConferido, categorias: { id: string; nome: string }[] = []): FormCriar {
+  const preco = l.precos.length === 1 ? l.precos[0] : null;
+  const s = (v: string) => v.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const doApp = l.grupos[0] ? s(l.grupos[0]) : '';
+  return {
+    nome: l.nome,
+    categoriaId: (doApp && categorias.find((c) => s(c.nome) === doApp)?.id) || '',
+    precoRegem: preco == null ? '' : preco.toFixed(2).replace('.', ','),
+    ondeRegem: false,
+    ondeIfood: canal === 'ifood',
+    onde99: canal === '99food',
+    baixa: 'ficha',
+    fichaId: '',
+    itemId: '',
+    itemUnidade: '',
+    combo: [{ componenteProdutoId: '', quantidade: '1' }],
+  };
+}
+
+/**
+ * O pedido de criar o produto (`POST /produtos`) a partir do item do app — ou o motivo de não dar. O código e o preço do
+ * app vêm da linha (não se editam); a pausa do app vem junto; o Regem desmarcado = fora do balcão e do cardápio digital.
+ */
+export function pedidoDeCriar(
+  f: FormCriar,
+  l: LinhaConferida,
+  canal: CanalConferido,
+  ligados: { comIfood: boolean; com99: boolean },
+): { ok: true; corpo: Record<string, unknown> } | { ok: false; erro: string } {
+  const nome = f.nome.trim();
+  if (!nome) return { ok: false, erro: 'Dê um nome ao produto.' };
+  if (!l.pdv) return { ok: false, erro: 'O item do app não tem código PDV.' };
+  // A mesma exigência do servidor (`exigirCategoria` na criação do produto).
+  if (!f.categoriaId) return { ok: false, erro: 'Escolha a categoria no Regem: ela organiza o produto no cardápio digital e no balcão.' };
+  const precoRegem = f.precoRegem.trim() === '' ? (f.ondeRegem ? null : 0) : precoDigitado(f.precoRegem);
+  if (precoRegem == null) return { ok: false, erro: 'Digite o preço no Regem (ex.: 29,90).' };
+  if (f.baixa === 'ficha' && !f.fichaId) return { ok: false, erro: 'Escolha a ficha técnica (ou outra forma de baixar o estoque).' };
+  if (f.baixa === 'item' && !f.itemId) return { ok: false, erro: 'Escolha o item de estoque (ou outra forma de baixar o estoque).' };
+  const combo = f.combo.filter((c) => c.componenteProdutoId);
+  if (f.baixa === 'combo' && !combo.length) return { ok: false, erro: 'Escolha ao menos um produto do combo.' };
+  const precoApp = l.precos.length === 1 ? l.precos[0].toFixed(2) : null;
+  return {
+    ok: true,
+    corpo: {
+      nome,
+      codigo: l.pdv,
+      categoriaId: f.categoriaId,
+      tipo: f.baixa === 'combo' ? 'combo' : 'simples',
+      precoVenda: precoRegem,
+      fichaId: f.baixa === 'ficha' ? f.fichaId : null,
+      itemId: f.baixa === 'item' ? f.itemId : null,
+      itemUnidade: f.baixa === 'item' ? f.itemUnidade || null : null,
+      controlaEstoque: f.baixa !== 'nada',
+      combo:
+        f.baixa === 'combo'
+          ? combo.map((c) => ({ componenteProdutoId: c.componenteProdutoId, quantidade: Number(String(c.quantidade).replace(',', '.')) || 1 }))
+          : [],
+      disponivelBalcao: f.ondeRegem,
+      disponivelCardapio: f.ondeRegem,
+      canaisPausados: l.pausado ? [canal] : [],
+      ...(ligados.comIfood ? { noIfood: f.ondeIfood, precoIfood: canal === 'ifood' && f.ondeIfood ? precoApp : null } : {}),
+      ...(ligados.com99 ? { na99: f.onde99, preco99: canal === '99food' && f.onde99 ? precoApp : null } : {}),
+    },
+  };
+}
+
 /** "Lido do iFood hoje às 14:30" / "em 10/11 às 09:12" (hora de Brasília). */
 export function quandoLido(iso: string | null, agora: Date = new Date()): string {
   if (!iso) return 'ainda não lido';

@@ -15445,6 +15445,24 @@
         }
       }
     },
+    "/api/v1/catalogo/conferencia/ligar": {
+      "post": {
+        "operationId": "ConferenciaController_ligar",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/catalogo/conferencia/loja": {
       "get": {
         "operationId": "ConferenciaLojaController_conferir",

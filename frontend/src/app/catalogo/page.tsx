@@ -283,7 +283,15 @@ export default function CatalogoPage() {
       )}
       {conferirLigada && aba === 'conferir' ? (
         <div role="tabpanel" id="painel-conferir" aria-labelledby="aba-conferir">
-          <ConferirApps podeMudarPreco={podeMudarPreco} aoMudarRegem={() => void carregar()} />
+          <ConferirApps
+            podeMudarPreco={podeMudarPreco}
+            aoMudarRegem={() => void carregar()}
+            produtos={produtos}
+            categorias={categorias}
+            comIfood={comIfood}
+            com99={com99}
+            aoNovaCategoria={(c) => setCategorias((l) => [...l, c])}
+          />
         </div>
       ) : (
       <div role={conferirLigada ? 'tabpanel' : undefined} id="painel-produtos" aria-labelledby={conferirLigada ? 'aba-produtos' : undefined}>

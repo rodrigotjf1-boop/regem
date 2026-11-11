@@ -112,7 +112,7 @@ descrever('"Publicar nas integrações" (Postgres real)', () => {
     delete process.env.EDGE_MODE;
     if (!process.env.SEGREDOS_CHAVE) process.env.SEGREDOS_CHAVE = randomBytes(32).toString('base64');
     // A fila do iFood (370/371/399/400/403), no `public`, pela conexão sem schema próprio — como a spec do Orzuni (ERR-377).
-    for (const n of ['370_orzuni_envio.sql', '371_orzuni_ocultar_pausa.sql', '399_onde_vende_sem_ocultar_no_ifood.sql', '400_orzuni_nome_descricao_codigo.sql', '403_opcao_pausa_por_canal.sql']) {
+    for (const n of ['370_orzuni_envio.sql', '371_orzuni_ocultar_pausa.sql', '399_onde_vende_sem_ocultar_no_ifood.sql', '400_orzuni_nome_descricao_codigo.sql', '403_opcao_pausa_por_canal.sql', '406_ligar_produto_ao_app.sql']) {
       const texto = readFileSync(join(MIGS, n), 'utf8');
       await repetirNaCorridaDeCatalogo(() => publico.query(comTravaDaEmpresa(texto)));
     }

@@ -839,6 +839,10 @@ export const api = {
   // Tirar o "Está no <app>" do produto que o app não tem.
   conferenciaTirarDoApp: (dto: { canal: CanalConferido; chave: string }) =>
     req('/catalogo/conferencia/tirar-do-app', { method: 'POST', body: JSON.stringify(dto) }) as Promise<{ ok: boolean; mudou: boolean }>,
+  // "Ligar a um produto" e "Corrigir o código" (R3 F4b): o produto ganha o código do item "só no app" e copia o preço e a
+  // pausa de lá (nada muda no app; pede "Ver valores em R$").
+  conferenciaLigar: (dto: { canal: CanalConferido; chave: string; produtoId: string }) =>
+    req('/catalogo/conferencia/ligar', { method: 'POST', body: JSON.stringify(dto) }) as Promise<{ ok: boolean; frase: string }>,
   // "Publicar nas integrações" (Cadastros › Cardápio): a situação de cada integração que usa o cardápio e o publicar
   // (GoGeM na hora; quem lê pela porta lê de novo; o iFood já vai sozinho). Só gestão; no servidor da loja vem da nuvem.
   integracoesDoCardapio: () => req('/integracoes/publicar') as Promise<SituacaoIntegracoes>,

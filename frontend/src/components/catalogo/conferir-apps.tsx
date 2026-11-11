@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, EyeOff, HelpCircle, MinusCircle, RefreshCw, Send, Undo2 } from 'lucide-react';
+import { Check, EyeOff, Hash, HelpCircle, Link2, MinusCircle, Plus, RefreshCw, Send, Undo2 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
@@ -14,9 +14,13 @@ import { PrecoNoLugar } from '@/components/catalogo/preco-no-lugar';
 import { UltimoEnvioIfood } from '@/components/produtos/ultimo-envio-ifood';
 import { ConferenciaComoCorrigir } from '@/components/catalogo/conferencia-como-corrigir';
 import { ConferenciaUsarPrecos } from '@/components/catalogo/conferencia-usar-precos';
+import { ConferenciaLigar } from '@/components/catalogo/conferencia-ligar';
+import { ConferenciaCorrigirCodigo } from '@/components/catalogo/conferencia-corrigir-codigo';
+import { ConferenciaCriar } from '@/components/catalogo/conferencia-criar';
+import type { CategoriaDaGestao } from '@/lib/catalogo-gestao';
 import {
   APP, bateNaBusca, entraNoUsarEmMassa, pendente, precoNoApp, quandoLido, reais, seloDa, situacoesDa,
-  type CanalConferido, type LinhaConferida, type RespostaDaConferencia, type TipoConferido,
+  type CanalConferido, type LinhaConferida, type ProdutoParaLigar, type RespostaDaConferencia, type TipoConferido,
 } from '@/lib/conferencia-apps';
 
 const ID_TITULO = 'conferir-titulo';
@@ -29,9 +33,25 @@ const contar = (n: number, um: string, varios: string) => `${n} ${n === 1 ? um :
 // DELIVERY › GESTÃO DO CATÁLOGO › "CONFERIR COM OS APPS" (R3 F4a; mig 405; protótipo `mockups/regem-conciliacao-ifood.html`,
 // aprovado em 11/11/2026): o cardápio do iFood (lido pelo Orzuni) ou da 99 desta loja × o Regem, pelo código PDV. Lê ao
 // abrir (no máximo uma leitura automática por dia) e pelo "Ler agora". Na linha: usar o preço do app, mandar o do Regem,
-// tirar o "Está no", ignorar e desfazer, "Como corrigir". Criar no Regem, ligar a um produto e corrigir o código chegam
-// na F4b; a calculadora, na F5.
-export function ConferirApps({ podeMudarPreco, aoMudarRegem }: { podeMudarPreco: boolean; aoMudarRegem: () => void }) {
+// tirar o "Está no", ignorar e desfazer, "Como corrigir"; e (F4b) criar no Regem, ligar a um produto e corrigir o código.
+// A calculadora chega na F5; criar a opção, na F4c.
+export function ConferirApps({
+  podeMudarPreco,
+  aoMudarRegem,
+  produtos,
+  categorias,
+  comIfood,
+  com99,
+  aoNovaCategoria,
+}: {
+  podeMudarPreco: boolean;
+  aoMudarRegem: () => void;
+  produtos: ProdutoParaLigar[];
+  categorias: CategoriaDaGestao[];
+  comIfood: boolean;
+  com99: boolean;
+  aoNovaCategoria: (c: CategoriaDaGestao) => void;
+}) {
   const [canal, setCanal] = useState<CanalConferido>('ifood');
   const [escolheuCanal, setEscolheuCanal] = useState(false);
   const [vista, setVista] = useState<TipoConferido>('item');
@@ -45,6 +65,9 @@ export function ConferirApps({ podeMudarPreco, aoMudarRegem }: { podeMudarPreco:
   const [enviados, setEnviados] = useState<Set<string>>(new Set()); // "<canal>|<tipo>|<id>" mandados ao app nesta visita
   const [corrigir, setCorrigir] = useState<LinhaConferida | null>(null);
   const [emMassa, setEmMassa] = useState(false);
+  const [criar, setCriar] = useState<LinhaConferida | null>(null);
+  const [ligarA, setLigarA] = useState<LinhaConferida | null>(null);
+  const [corrigirCodigo, setCorrigirCodigo] = useState<LinhaConferida | null>(null);
   const pedido = useRef(0);
   const espera = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voltas = useRef(0);
@@ -174,6 +197,19 @@ export function ConferirApps({ podeMudarPreco, aoMudarRegem }: { podeMudarPreco:
       throw e;
     }
   }
+  // "Ligar a um produto" (do item "só no app") e "Corrigir o código" (do produto "só no Regem"): a mesma ligação.
+  async function ligar(alvo: LinhaConferida, produtoId: string) {
+    try {
+      const r = await api.conferenciaLigar({ canal, chave: alvo.chave, produtoId });
+      toast.success(r.frase);
+      setLigarA(null);
+      setCorrigirCodigo(null);
+      aoMudarRegem();
+      await carregar(canal, false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Não foi possível ligar o produto.');
+    }
+  }
   async function usarEmMassa(linhas: LinhaConferida[]) {
     try {
       const r = await api.conferenciaUsarPreco({ canal, tipo: 'item', chaves: linhas.map((l) => l.chave) });
@@ -275,12 +311,20 @@ export function ConferirApps({ podeMudarPreco, aoMudarRegem }: { podeMudarPreco:
     const ignorarA: Acao<LinhaConferida> = { rotulo: 'Ignorar', icone: EyeOff, aoClicar: () => void ignorar(l), ocupada };
     switch (l.situacao) {
       case 'soApp':
+        // Item: criar no Regem ou ligar a um produto que já existe (F4b). Opção: "Como resolver" (criar a opção é a F4c).
+        if (l.tipo === 'item' && l.pdv)
+          return [
+            { rotulo: 'Criar no Regem', icone: Plus, tom: 'primaria', aoClicar: () => setCriar(l), ocupada },
+            ...(podeMudarPreco ? [{ rotulo: 'Ligar a um produto', icone: Link2, aoClicar: () => setLigarA(l), ocupada }] : []),
+            ignorarA,
+          ];
         return [{ rotulo: 'Como resolver', icone: HelpCircle, tom: 'primaria', aoClicar: () => setCorrigir(l), ocupada }, ignorarA];
       case 'soRegem':
         return [
-          ...(l.motivo === 'semCodigoNoRegem' ? [{ rotulo: 'Como resolver', icone: HelpCircle, aoClicar: () => setCorrigir(l), ocupada }] : []),
           { rotulo: `Tirar "${a.marca}"`, icone: MinusCircle, tom: 'primaria', aoClicar: () => void tirarDoApp(l), ocupada },
-          ...(l.motivo === 'semCodigoNoRegem' ? [] : [{ rotulo: 'Como resolver', icone: HelpCircle, aoClicar: () => setCorrigir(l), ocupada }]),
+          ...(podeMudarPreco
+            ? [{ rotulo: 'Corrigir o código', icone: Hash, aoClicar: () => setCorrigirCodigo(l), ocupada }]
+            : [{ rotulo: 'Como resolver', icone: HelpCircle, aoClicar: () => setCorrigir(l), ocupada }]),
           ignorarA,
         ];
       case 'preco': {
@@ -490,6 +534,33 @@ export function ConferirApps({ podeMudarPreco, aoMudarRegem }: { podeMudarPreco:
         />
       )}
       {emMassa && <ConferenciaUsarPrecos canal={canal} linhas={paraUsar} aoFechar={() => setEmMassa(false)} aoConfirmar={() => usarEmMassa(paraUsar)} />}
+      {criar && (
+        <ConferenciaCriar
+          linha={criar}
+          canal={canal}
+          categorias={categorias}
+          produtos={produtos}
+          comIfood={comIfood}
+          com99={com99}
+          aoNovaCategoria={aoNovaCategoria}
+          aoFechar={() => setCriar(null)}
+          aoCriar={() => {
+            setCriar(null);
+            aoMudarRegem();
+            void carregar(canal, false);
+          }}
+        />
+      )}
+      {ligarA && <ConferenciaLigar linha={ligarA} canal={canal} produtos={produtos} aoFechar={() => setLigarA(null)} aoLigar={(id) => ligar(ligarA, id)} />}
+      {corrigirCodigo && corrigirCodigo.regem && (
+        <ConferenciaCorrigirCodigo
+          linha={corrigirCodigo}
+          canal={canal}
+          itens={dados.itens}
+          aoFechar={() => setCorrigirCodigo(null)}
+          aoSalvar={(alvo) => ligar(alvo, corrigirCodigo.regem!.id)}
+        />
+      )}
     </section>
   );
 }

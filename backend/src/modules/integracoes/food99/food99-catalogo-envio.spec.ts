@@ -255,6 +255,11 @@ descrever('a 99 item a item — fila e envio (Postgres real, 99 falsa)', () => {
     const r404 = (await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(readFileSync(MIGRATION_404, 'utf8'))))) as unknown as any[];
     const conferencia404 = (Array.isArray(r404) ? r404[r404.length - 1] : r404).rows;
     if (conferencia404.length !== 3 || conferencia404.some((l: any) => l.ok !== true)) throw new Error(`conferência da 404: ${JSON.stringify(conferencia404)}`);
+    // 406 (R3 F4b): a guarda do "ligar" no gatilho do produto. Aplicada aqui também porque o banco do CI é dividido entre
+    // as specs: sem ela, a 402 desta spec trocaria a função no meio do teste da conferência (ERR-273).
+    await repetirNaCorridaDeCatalogo(() =>
+      pool.query(comTravaDaEmpresa(readFileSync(join(__dirname, '..', '..', '..', '..', '..', 'database', 'migrations', '406_ligar_produto_ao_app.sql'), 'utf8'))),
+    );
     // `edge_status` é só da nuvem; outras specs a criam com o mínimo — aqui ela ganha as colunas que a liberação lê.
     await pool
       .query(`create table if not exists edge_status (id uuid primary key default gen_random_uuid(), tenant_id uuid,
