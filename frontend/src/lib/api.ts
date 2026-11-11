@@ -939,10 +939,13 @@ export const api = {
     const q = p.toString();
     return req(`/producao/fila${q ? `?${q}` : ''}`);
   },
-  producaoAvancar: (id: string, escopo?: string, equipamentoId?: string) =>
+  // `de` = a etapa que a tela viu (o servidor só avança se o cartão ainda está nela). Se a tela é o KDS de entrega quem diz
+  // é o cadastro do `equipamentoId`, não a tela (auditoria do KDS, 11/11/2026). `escopo` só vai quando o KDS escolhido é o
+  // de entrega — o servidor novo ignora; o servidor da loja ainda sem o `.zip` precisa dele para concluir.
+  producaoAvancar: (id: string, equipamentoId?: string, de?: string, escopo?: 'entrega') =>
     req(`/producao/pedidos/${id}/avancar`, {
       method: 'POST',
-      body: JSON.stringify({ escopo, equipamentoId }),
+      body: JSON.stringify({ equipamentoId, de, escopo }),
     }),
   // Pedido alterado (mig 362): "Visto" no cartão — o aviso grande e o som param, o item tirado sai do cartão.
   producaoVisto: (id: string) => req(`/producao/pedidos/${id}/visto`, { method: 'POST', body: '{}' }),

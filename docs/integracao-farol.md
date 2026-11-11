@@ -278,7 +278,10 @@ A fila da cozinha da loja do token — o que o KDS mostra, sem o histórico.
   `numero` do dia para ver a venda inteira. O item que nenhum KDS mostra (sai só em papel) não vem aqui.
   Com "vai para" entre KDS (Chapa → Montagem → Despacho), o pedido passa ao KDS seguinte quando fica
   pronto no anterior, e o `status` **volta a `recebido`** lá; `iniciado_em` continua o do primeiro KDS
-  e `pronto_em` só chega quando ele termina no último (ou é liberado no despacho). Sem estações, nada
+  e `pronto_em` só chega quando ele termina no último (ou é liberado no despacho). **Desde 11/11/2026:** um
+  KDS desligado no meio do caminho é pulado (o pedido vai ao seguinte ligado), a tela de entrega (só senhas)
+  nunca recebe pedido em andamento, e a passagem também vale para a loja sem estações que ligou um KDS ao
+  outro (o seguinte só vê o pedido depois que o anterior termina). Sem estações e sem "vai para", nada
   disso muda: um pedido por venda, que só avança.
 - `origem`: `balcao`, `mesa`, `comanda`, `delivery` ou `totem`. `canal`: de onde veio o pedido de
   fora ("iFood", "Cardápio", "Totem"…), ou `null`. `consumo`: `local`, `viagem` ou `null`.

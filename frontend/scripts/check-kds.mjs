@@ -240,6 +240,18 @@ try {
     assert.equal(k.proximaAcaoNaEstacao('recebido', 'Montagem'), 'Iniciar');
   });
 
+  // Auditoria do KDS (11/11/2026): o botão segue as etapas que a loja usa, como o servidor.
+  caso('o botão segue as etapas da loja: sem "em preparo" diz Pronto; sem "entregue" o pronto não tem botão', () => {
+    const semPreparo = { usaPreparo: false, usaEntregue: true };
+    const semEntregue = { usaPreparo: true, usaEntregue: false };
+    assert.equal(k.proximaAcaoNaEstacao('recebido', null, semPreparo), 'Pronto');
+    assert.equal(k.proximaAcaoNaEstacao('recebido', 'Montagem', semPreparo), 'Pronto → Montagem');
+    assert.equal(k.proximaAcaoNaEstacao('pronto', null, semEntregue), null);
+    assert.equal(k.proximaAcaoNaEstacao('pronto', null, {}), 'Entregar');
+    assert.equal(k.proximaAcaoNaEstacao('recebido', null, {}), 'Iniciar');
+    assert.equal(k.proximaAcaoNaEstacao('preparo', null, semEntregue), 'Pronto');
+  });
+
   caso('despacho: Despachar / chamar a senha só com as estações prontas; o gestor libera antes; depois, Entregue', () => {
     const delivery = { origem: 'delivery' };
     const balcao = { origem: 'balcao' };

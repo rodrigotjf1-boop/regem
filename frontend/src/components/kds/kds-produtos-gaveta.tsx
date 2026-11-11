@@ -72,8 +72,9 @@ export function KdsProdutosGaveta({
     return [...mapa.entries()];
   }, [produtos, busca]);
 
-  // Para onde este KDS pode mandar: os outros KDS da loja. De quem ele recebe: quem manda para ele.
-  const destinos = telas.filter((t) => t.id !== kds.id);
+  // Para onde este KDS pode mandar: os outros KDS da loja, menos o de entrega (só senhas — mostra sozinho o que ficou
+  // pronto; o servidor recusa, auditoria do KDS de 11/11/2026). De quem ele recebe: quem manda para ele.
+  const destinos = telas.filter((t) => t.id !== kds.id && t.escopo !== 'entrega');
   const recebeDe = telas.filter((t) => t.id !== kds.id && t.proximoKdsId === kds.id).map((t) => t.nome);
 
   const alternar = (id: string) =>

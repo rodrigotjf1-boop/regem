@@ -19,6 +19,37 @@ export function lerEstacoes(valor: unknown): PassagemKds[] {
   return Array.isArray(valor) ? valor.filter((x: any) => x && typeof x.kds === 'string' && typeof x.pronto === 'string') : [];
 }
 
+/** Uma tela de KDS como a corrente precisa: para onde manda, se está ligada e o tipo. */
+export type TelaDaCorrente = { proximoKdsId: string | null; ativo: boolean; revogado: boolean; escopo: string | null };
+
+/**
+ * O próximo KDS DE VERDADE da estação (auditoria do KDS, 11/11/2026): segue o "vai para" pulando o KDS desligado ou
+ * revogado (Chapa → Montagem desligada → Despacho vai ao Despacho — antes a Chapa "terminava ali" e o pronto ia ao
+ * canal), e nunca entrega a corrente à tela de ENTREGA (só senhas: lá o cartão não aceita toque — vale como "termina
+ * aqui"). Um círculo antigo no cadastro não trava: cada KDS é visitado uma vez. null = termina aqui.
+ */
+export function proximoEfetivo(telas: Map<string, TelaDaCorrente>, estacaoId: string): string | null {
+  const vistos = new Set<string>([estacaoId]);
+  let atual: string | null = telas.get(estacaoId)?.proximoKdsId ?? null;
+  while (atual && !vistos.has(atual)) {
+    vistos.add(atual);
+    const t = telas.get(atual);
+    if (!t || t.escopo === 'entrega') return null;
+    if (t.ativo && !t.revogado) return atual;
+    atual = t.proximoKdsId ?? null;
+  }
+  return null;
+}
+
+/** Algum KDS ligado manda para `kdsId` (pela corrente de verdade)? Esse KDS só vê o que já passou pelo anterior. */
+export function recebeDeOutroKds(telas: Map<string, TelaDaCorrente>, kdsId: string): boolean {
+  for (const [id, t] of telas) {
+    if (id === kdsId || !t.ativo || t.revogado) continue;
+    if (proximoEfetivo(telas, id) === kdsId) return true;
+  }
+  return false;
+}
+
 /**
  * Os KDS cujo caminho ("vai para", um atrás do outro) chega a `alvoId` — ele incluso. Para o despacho saber quais
  * cartões vêm para ele. Um círculo antigo no cadastro não trava: cada KDS é visitado uma vez.
@@ -61,11 +92,18 @@ export async function conferirProximoKds(
       unidadeId: equipamento.unidadeId,
       proximoKdsId: equipamento.proximoKdsId,
       revogadoEm: equipamento.revogadoEm,
+      escopo: equipamento.escopo,
     })
     .from(equipamento)
     .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.tipo, 'kds')));
   const alvo = telas.find((t) => t.id === proximoId);
   if (!alvo || !alvo.ativo || alvo.revogadoEm) throw new BadRequestException('O KDS escolhido não existe ou está desligado.');
+  // A tela de ENTREGA (só senhas, Preparando/Pronto) não recebe pedido em andamento: lá o cartão chegava "recebido", não
+  // aceitava toque e o pedido ficava preso (auditoria do KDS, 11/11/2026, R3). Ela mostra sozinha o que ficou pronto.
+  if (alvo.escopo === 'entrega')
+    throw new BadRequestException(
+      'O KDS de entrega (só senhas) mostra sozinho o que ficou pronto: escolha um KDS de cozinha ou o despacho, ou deixe "termina aqui".',
+    );
   if (kds.unidadeId && alvo.unidadeId && alvo.unidadeId !== kds.unidadeId)
     throw new BadRequestException('O KDS escolhido é de outra loja.');
   const proximoDe = new Map<string, string | null>(telas.map((t) => [t.id, t.proximoKdsId ?? null]));

@@ -52,13 +52,19 @@ export class ProducaoPedidoController {
     });
   }
 
+  // Só o KDS avança o cartão — com o módulo KDS desligado, a fila já responde 403 e o avanço também (auditoria do KDS,
+  // 11/11/2026: avançar mandava "pronto" ao canal mesmo com o módulo desligado). `de` = a etapa que a tela viu; o
+  // `escopo` que a tela mandava não decide mais nada (quem diz se é o KDS de entrega é o cadastro do `equipamentoId`).
   @Post('pedidos/:id/avancar')
+  @RequireModulo('kds')
   avancar(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: any,
   ) {
-    return this.service.avancar(user.tenantId, user.colaboradorId, id, dto?.escopo, dto?.equipamentoId);
+    const de = typeof dto?.de === 'string' ? dto.de : undefined;
+    const equipamentoId = typeof dto?.equipamentoId === 'string' && dto.equipamentoId ? dto.equipamentoId : undefined;
+    return this.service.avancar(user.tenantId, user.colaboradorId, id, undefined, equipamentoId, de);
   }
 
   // Pedido ALTERADO (mig 362): a cozinha tocou em "Visto" no cartão — o aviso grande e o som param, o item tirado sai.

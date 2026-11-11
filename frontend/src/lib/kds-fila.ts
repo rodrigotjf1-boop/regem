@@ -50,6 +50,9 @@ const ETAPA: Record<string, string> = { recebido: 'A iniciar', preparo: 'Em prep
 export const rotuloEtapa = (status: string) => ETAPA[status] ?? status;
 export const proximaAcao = (status: string) => (status === 'recebido' ? 'Iniciar' : status === 'preparo' ? 'Pronto' : 'Entregar');
 
+/** As etapas que a loja usa (Configurações › Produção: "em preparo" e "entregue" podem estar desligadas). */
+export type EtapasDaLoja = { usaPreparo?: boolean; usaEntregue?: boolean };
+
 export type FiltroEtapa = 'todos' | 'recebido' | 'preparo' | 'pronto' | 'atrasados';
 export const FILTROS_ETAPA: { key: FiltroEtapa; label: string }[] = [
   { key: 'todos', label: 'Todos' },
@@ -113,8 +116,14 @@ export function cartaoNaTela(lista: any[], pedidoId: string, canal: string, sub:
 
 // ── Cozinha em estações, entrega 2: o "vai para" e o KDS de despacho ─────────────────────────────
 // O botão de avanço numa estação que manda o pedido para outro KDS diz para onde: "Pronto → Montagem".
-export function proximaAcaoNaEstacao(status: string, proximoNome?: string | null): string {
-  return status === 'preparo' && proximoNome ? `Pronto → ${proximoNome}` : proximaAcao(status);
+// O botão segue as ETAPAS DA LOJA, como o servidor (auditoria do KDS, 11/11/2026): com "em preparo" desligado, o toque em
+// "A iniciar" já marca pronto — o botão diz "Pronto" (antes dizia "Iniciar" e o cartão sumia para o KDS seguinte); com
+// "entregue" desligado, o pronto é a última etapa e não há botão (antes "Entregar" dava erro calado). null = sem botão.
+export function proximaAcaoNaEstacao(status: string, proximoNome?: string | null, etapas: EtapasDaLoja = {}): string | null {
+  const viraPronto = status === 'preparo' || (status === 'recebido' && etapas.usaPreparo === false);
+  if (viraPronto) return proximoNome ? `Pronto → ${proximoNome}` : 'Pronto';
+  if (status === 'pronto' && etapas.usaEntregue === false) return null;
+  return proximaAcao(status);
 }
 
 // O pedido do despacho que tem este cartão (o evento do tempo real vem por cartão; o despacho mostra o pedido inteiro) e

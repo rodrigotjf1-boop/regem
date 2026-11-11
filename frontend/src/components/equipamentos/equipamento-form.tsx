@@ -107,8 +107,10 @@ export function EquipamentoForm({
   const doWindows: string[] = Array.isArray(estacaoEscolhida?.estacao?.impressoras) ? estacaoEscolhida.estacao.impressoras : [];
   const impressorasDeCupom = ativos.filter((e) => e.tipo === 'impressora' && e.fazCupom && daUnidade(e));
   const pdvs = ativos.filter((e) => e.tipo === 'pdv' && !ehGogem(e) && daUnidade(e));
-  const impressoras = ativos.filter((e) => e.tipo === 'impressora');
-  const outrosKds = ativos.filter((e) => e.tipo === 'kds');
+  // Só as da loja deste KDS (ou da rede): a de outra loja recebia o ticket onde ninguém pega (auditoria do KDS, 11/11/2026).
+  const impressoras = ativos.filter((e) => e.tipo === 'impressora' && daUnidade(e));
+  // O KDS de entrega (só senhas) não recebe pedido em andamento — o servidor recusa (auditoria do KDS, 11/11/2026).
+  const outrosKds = ativos.filter((e) => e.tipo === 'kds' && e.escopo !== 'entrega' && daUnidade(e));
   const alternarSetor = (id: string) => muda({ setoresAtendidos: f.setoresAtendidos.includes(id) ? f.setoresAtendidos.filter((s) => s !== id) : [...f.setoresAtendidos, id] });
   /** A opção gravada que não está mais na lista (equipamento revogado, de outra loja…) continua visível. */
   const foraDaLista = (id: string, lista: any[], rotulo: string) => (id && !lista.some((e) => e.id === id) ? <option value={id}>{rotulo}</option> : null);

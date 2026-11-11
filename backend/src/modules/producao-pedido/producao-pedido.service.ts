@@ -54,6 +54,7 @@ import { dataHoraNoFuso, hojeISO } from '../../common/data';
 import { SONS_DO_ALTERADO, SOM_DO_ALTERADO_PADRAO, type SomDoAlterado } from '../pedido-alterado/pedido-alterado';
 import { logisticaDasComandas } from '../delivery/logistica-canal';
 import { ChegadaService } from '../chegada/chegada.service';
+import { ModuloService } from '../modulo/modulo.service';
 import {
   linhasDaViaDoRepetido,
   marcaAbertaDaComanda,
@@ -62,7 +63,7 @@ import {
   textoDoKds,
 } from '../pedido-repetido/pedido-repetido';
 import { autorizarPorSenhaDeGestor } from '../../common/autorizacao-gestor';
-import { conferirProximoKds, kdsQueChegamA, lerEstacoes } from '../../common/fluxo-kds';
+import { conferirProximoKds, kdsQueChegamA, lerEstacoes, proximoEfetivo, recebeDeOutroKds, type TelaDaCorrente } from '../../common/fluxo-kds';
 import { ACOES_KDS, type AtorKds } from './kds-auditoria';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -214,11 +215,31 @@ export class ProducaoPedidoService {
     private readonly events: EventEmitter2,
     // "Cheguei" na retirada (mig 354): a etiqueta "Cliente chegou" no cartão. Opcional: os testes montam sem ela.
     @Optional() private readonly chegadaInj?: ChegadaService,
+    // O módulo KDS ligado para a loja (plano + liga/desliga). Opcional: os testes montam sem ele.
+    @Optional() private readonly moduloInj?: ModuloService,
   ) {}
 
   private chegadaLocal?: ChegadaService;
   private get chegada(): ChegadaService {
     return this.chegadaInj ?? (this.chegadaLocal ??= new ChegadaService(this.db));
+  }
+
+  private moduloLocal?: ModuloService;
+  private get modulos(): ModuloService {
+    return this.moduloInj ?? (this.moduloLocal ??= new ModuloService(this.db, this.auditoria));
+  }
+
+  // O módulo KDS está ligado para a loja? Desligado (pelo presidente ou fora do plano), nenhuma tela da loja abre a fila
+  // (403) — então a venda não pode contar com KDS nenhum: nada de estações nem de adiar a via. Antes os itens marcados num
+  // KDS não saíam em papel e a cozinha não recebia nada (auditoria do KDS, 11/11/2026, R2). Na dúvida (falha ao ler),
+  // vale ligado — o comportamento de antes.
+  private async kdsLigadoNaLoja(tenantId: string, unidadeId: string | null): Promise<boolean> {
+    try {
+      return await this.modulos.ativo(tenantId, unidadeId, 'kds');
+    } catch (e: any) {
+      new Logger('KDS').warn(`módulo KDS da loja não lido (vale ligado): ${e?.message ?? e}`);
+      return true;
+    }
   }
 
   /** A chegada do cliente da retirada em cada cartão (pela comanda). Informação a mais — nunca derruba a fila. */
@@ -421,6 +442,7 @@ export class ProducaoPedidoService {
   // KDS ativo dela (ou da rede) tem produtos ou setores escolhidos — no "Configurar este KDS" ou no Direcionamento. Sem
   // isso, tudo segue como antes: um cartão por venda, sem destino, e as vias de sempre.
   private async modoEstacoes(db: any, tenantId: string, unidadeId: string | null): Promise<boolean> {
+    if (!(await this.kdsLigadoNaLoja(tenantId, unidadeId))) return false;
     const r: any = await db.execute(sql`
       select exists (
         select 1 from equipamento e
@@ -483,6 +505,8 @@ export class ProducaoPedidoService {
     };
     const kds = new Map<string, ItemProducao[]>();
     const setores = new Map<string, string | null>();
+    let semKds: boolean | undefined;
+    const kdsDesligado = async () => (semKds ??= !(await this.kdsLigadoNaLoja(tenantId, unidadeId)));
     for (const it of daProducao) {
       let roteado = false;
       const setor = await this.setorNaLoja(db, tenantId, it.produto?.setorProducaoId, unidadeId, setores);
@@ -515,8 +539,10 @@ export class ProducaoPedidoService {
         }
       }
       // (c) fallback: sem impressora → PADRÃO. Sem estações: só o item sem setor (ou sem equivalente nesta loja); em
-      // estações, todo item que nenhum KDS marcou (a reserva da cozinha).
-      if (!roteado && padraoId && (estacoes || !setor)) addImp(padraoId, it);
+      // estações, todo item que nenhum KDS marcou (a reserva da cozinha). O item com setor que só ia para o KDS fica sem
+      // papel por decisão da loja — MAS só com o KDS ligado: com o módulo KDS desligado nenhuma tela mostra, e ele cai na
+      // padrão (auditoria do KDS, 11/11/2026, R2). O módulo só é lido quando um item chega aqui.
+      if (!roteado && padraoId && (estacoes || !setor || (await kdsDesligado()))) addImp(padraoId, it);
     }
     return { impressoras, padraoId, kds };
   }
@@ -749,7 +775,8 @@ export class ProducaoPedidoService {
     // (imprime_ao_avancar) ativo na unidade — senão imprime no registro (não perde o ticket).
     // Em estações não se adia: o item de KDS já não sai em papel, e o de papel não tem KDS que o imprima depois.
     let emitirProducaoAgora = true;
-    if (!estacoes && cfgCupom.adiarProducao) {
+    // Com o módulo KDS desligado nenhum KDS abre: adiar a via deixaria a cozinha sem papel (R2).
+    if (!estacoes && cfgCupom.adiarProducao && (await this.kdsLigadoNaLoja(ctx.tenantId, ctx.unidadeId ?? null))) {
       const armados = await tx
         .select({ id: equipamento.id })
         .from(equipamento)
@@ -975,7 +1002,7 @@ export class ProducaoPedidoService {
       : null;
     // Adiar até o KDS? Só se houver KDS armado (imprime_ao_avancar) — igual a criarPedidos (em estações, não se adia).
     let emitirProducaoAgora = true;
-    if (!estacoes && cfgCupom.adiarProducao) {
+    if (!estacoes && cfgCupom.adiarProducao && (await this.kdsLigadoNaLoja(tenantId, ctx.unidadeId ?? null))) {
       const armados = await db
         .select({ id: equipamento.id })
         .from(equipamento)
@@ -2675,10 +2702,18 @@ export class ProducaoPedidoService {
         .from(equipamento)
         .where(and(eq(equipamento.id, opts.equipamentoId), eq(equipamento.tenantId, tenantId)));
       const setorKds = ekds?.setorId ?? null;
+      // O KDS que RECEBE de outro ("vai para" de um KDS ligado aponta para ele) só vê o que já passou por lá. Sem isso, no
+      // modo comum (sem estações) o cartão sem destino aparecia no KDS2 antes de o KDS1 terminar, e o KDS2 podia concluir
+      // pulando o KDS1 e o despacho (auditoria do KDS, 11/11/2026, R6). O começo da corrente segue vendo o cartão novo.
+      const recebeDeOutro = UUID_RE.test(String(opts.equipamentoId))
+        ? recebeDeOutroKds(await this.correnteDosKds(tenantId), opts.equipamentoId)
+        : false;
       conds.push(
-        sql`(destino_equipamento_id = ${opts.equipamentoId} or (destino_equipamento_id is null ${
-          setorKds ? sql`and setor_id = ${setorKds}` : sql``
-        }))` as any,
+        recebeDeOutro
+          ? (eq(producaoPedido.destinoEquipamentoId, opts.equipamentoId) as any)
+          : (sql`(destino_equipamento_id = ${opts.equipamentoId} or (destino_equipamento_id is null ${
+              setorKds ? sql`and setor_id = ${setorKds}` : sql``
+            }))` as any),
       );
     } else if (opts.setorId) {
       conds.push(eq(producaoPedido.setorId, opts.setorId));
@@ -3070,17 +3105,25 @@ export class ProducaoPedidoService {
 
   // ===== Transições =====
   // Avança o pedido para a próxima etapa HABILITADA da unidade. Só avança.
-  // 'entregue' só pelo KDS de entrega quando existe um (escopo='entrega').
+  // 'entregue' só pelo KDS de entrega quando existe um — e quem diz se a tela é o KDS de entrega é o CADASTRO dela, não o
+  // que a tela manda (auditoria do KDS, 11/11/2026: a tela mandava sempre 'entrega' e qualquer KDS concluía o pedido,
+  // tirando a senha da TV antes de o cliente retirar). `_escopoDaTela` fica na assinatura só pelos chamadores antigos.
+  // `de` = a etapa que a tela VIU: o toque só vale se o cartão ainda está nela. Sem isso, o segundo toque de um toque
+  // duplo (ou a tela velha de outro aparelho) relia a etapa nova e avançava mais uma — Iniciar virava Pronto e o "pronto"
+  // ia ao delivery (auditoria do KDS, 11/11/2026).
   async avancar(
     tenantId: string,
     atorId: string,
     pedidoId: string,
-    escopo?: string,
+    _escopoDaTela?: string,
     equipamentoId?: string, // KDS que operou o avanço (Fase E — roteamento p/ o próximo)
+    de?: string,
   ) {
     const p = await this.carregar(tenantId, pedidoId);
     if (p.status === 'cancelado')
       throw new BadRequestException('Pedido cancelado não avança.');
+    if (de !== undefined && de !== null && de !== '' && de !== p.status)
+      throw new ConflictException('O cartão já mudou de etapa.');
     // A venda foi desfeita (cancelada no painel, pelo canal ou pelo totem) e o card ficou para
     // trás: o cancelamento veio da nuvem e a cozinha tocou no card antes de o sincronismo
     // chegar, ou o aviso à produção falhou. Card de pedido cancelado não avança — sai da fila.
@@ -3102,7 +3145,7 @@ export class ProducaoPedidoService {
     const novo = fluxo[idx + 1];
     if (
       novo === 'entregue' &&
-      escopo !== 'entrega' &&
+      !(await this.ehKdsDeEntrega(tenantId, equipamentoId)) &&
       (await this.temKdsEntrega(tenantId, p.unidadeId))
     ) {
       throw new BadRequestException('A entrega é concluída no KDS de entrega.');
@@ -3128,8 +3171,9 @@ export class ProducaoPedidoService {
       .returning({ id: producaoPedido.id });
     if (!feito.length) throw new ConflictException('O cartão já mudou de etapa.');
     // Impressão guiada por etapa (mig 129): se o KDS deste pedido está configurado
-    // para imprimir ao chegar nesta etapa, o ticket sai agora (e não no PDV).
-    await this.imprimirNaEtapa(tenantId, p, novo).catch(() => {});
+    // para imprimir ao chegar nesta etapa, o ticket sai agora (e não no PDV). `equipamentoId` = o KDS que tocou: o cartão
+    // sem destino nem setor (o comum, sem estações) não tinha como achar o KDS e o ticket nunca saía (R1).
+    await this.imprimirNaEtapa(tenantId, p, novo, undefined, equipamentoId).catch((e) => this.falhaNaImpressaoDaEtapa(p, novo, e));
     this.events?.emit('producao.evento', {
       tenantId,
       unidadeId: p.unidadeId,
@@ -3148,17 +3192,61 @@ export class ProducaoPedidoService {
     return { ok: true, status: novo };
   }
 
-  // O "quando ficar pronto, vai para" da estação — só se o seguinte for um KDS ligado (o desligado ou revogado vale como
-  // "termina aqui": o cartão não vai para uma tela que ninguém vê).
+  // O "quando ficar pronto, vai para" da estação. Segue a CORRENTE até o primeiro KDS de cozinha ligado: um KDS desligado
+  // ou revogado no meio (Chapa → Montagem desligada → Despacho) é pulado — antes a Chapa "terminava ali", o pronto ia ao
+  // canal e o despacho mostrava o pedido como já despachado (auditoria do KDS, 11/11/2026, R9). A tela de ENTREGA (só
+  // senhas) nunca recebe pedido em andamento: lá o cartão chegava "recebido", não aceitava toque e o pedido ficava preso
+  // (R3) — vale como "termina aqui". Um círculo antigo no cadastro não trava (cada KDS é visitado uma vez).
   private async proximoDaEstacao(tenantId: string, estacaoId: string): Promise<string | null> {
     if (!UUID_RE.test(String(estacaoId))) return null;
+    return proximoEfetivo(await this.correnteDosKds(tenantId), estacaoId);
+  }
+
+  // As telas de KDS da empresa como a corrente precisa (regras em `common/fluxo-kds`).
+  private async correnteDosKds(tenantId: string): Promise<Map<string, TelaDaCorrente>> {
     const r: any = await this.db.execute(sql`
-      select prox.id
-        from equipamento e
-        join equipamento prox on prox.id = e.proximo_kds_id and prox.tenant_id = e.tenant_id
-       where e.tenant_id = ${tenantId} and e.id = ${estacaoId} and e.tipo = 'kds'
-         and prox.tipo = 'kds' and prox.ativo and prox.revogado_em is null`);
-    return ((r.rows ?? r)[0]?.id as string | undefined) ?? null;
+      select id, proximo_kds_id, ativo, revogado_em, escopo
+        from equipamento
+       where tenant_id = ${tenantId} and tipo = 'kds'`);
+    return new Map<string, TelaDaCorrente>(
+      ((r.rows ?? r) as any[]).map((t) => [
+        String(t.id),
+        { proximoKdsId: t.proximo_kds_id ?? null, ativo: t.ativo === true, revogado: !!t.revogado_em, escopo: t.escopo ?? null },
+      ]),
+    );
+  }
+
+  // O KDS que tocou é a tela de ENTREGA (só senhas)? Decide pelo cadastro — nunca pelo que a tela manda.
+  private async ehKdsDeEntrega(tenantId: string, equipamentoId?: string | null): Promise<boolean> {
+    if (!equipamentoId || !UUID_RE.test(String(equipamentoId))) return false;
+    const [k] = await this.db
+      .select({ escopo: equipamento.escopo })
+      .from(equipamento)
+      .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, equipamentoId), eq(equipamento.tipo, 'kds')));
+    return k?.escopo === 'entrega';
+  }
+
+  // A impressão da etapa nunca derruba o avanço, mas a falha não some calada (V11): fica no log com o motivo.
+  private falhaNaImpressaoDaEtapa(p: any, etapa: string, e: any) {
+    new Logger('KDS').warn(`ticket da etapa '${etapa}' do cartão ${p?.id ?? '?'} não saiu: ${e?.message ?? e}`);
+  }
+
+  // A impressora é uma impressora LIGADA desta empresa, da loja do pedido ou da rede?
+  private async impressoraServe(tenantId: string, impressoraId: string, unidadeId: string | null): Promise<boolean> {
+    if (!UUID_RE.test(String(impressoraId))) return false;
+    const [i] = await this.db
+      .select({ id: equipamento.id })
+      .from(equipamento)
+      .where(
+        and(
+          eq(equipamento.tenantId, tenantId),
+          eq(equipamento.id, impressoraId),
+          eq(equipamento.tipo, 'impressora'),
+          eq(equipamento.ativo, true),
+          lojaOuRede(unidadeId),
+        ),
+      );
+    return !!i;
   }
 
   // A estação marcou PRONTO e tem "próximo KDS": o cartão passa para lá e começa como recebido, e a passagem fica no
@@ -3179,7 +3267,9 @@ export class ProducaoPedidoService {
       .returning({ id: producaoPedido.id });
     if (!feito.length) throw new ConflictException('O cartão já mudou de etapa.');
     // A estação imprime ao marcar pronto, se o ajuste DELA pede (a etapa é dela).
-    await this.imprimirNaEtapa(tenantId, { ...p, destinoEquipamentoId: estacao }, 'pronto').catch(() => {});
+    await this.imprimirNaEtapa(tenantId, { ...p, destinoEquipamentoId: estacao }, 'pronto').catch((e) =>
+      this.falhaNaImpressaoDaEtapa(p, 'pronto', e),
+    );
     // Para o KDS seguinte é um cartão novo: ele apita (cada tela confere se o cartão é dela).
     this.events?.emit('producao.evento', {
       tenantId,
@@ -3286,7 +3376,7 @@ export class ProducaoPedidoService {
   // O KDS pode ser o destino explícito do pedido ou, no legado (sem equipamento),
   // qualquer KDS ativo do mesmo setor com a regra ligada. `cartoes`: os cartões cujos itens vão no ticket (o despacho
   // imprime o pedido inteiro num ticket só); sem ele, só os do próprio cartão.
-  private async imprimirNaEtapa(tenantId: string, p: any, novoStatus: string, cartoes?: string[]) {
+  private async imprimirNaEtapa(tenantId: string, p: any, novoStatus: string, cartoes?: string[], kdsQueTocou?: string | null) {
     const cond = [
       eq(equipamento.tenantId, tenantId),
       eq(equipamento.tipo, 'kds'),
@@ -3298,11 +3388,19 @@ export class ProducaoPedidoService {
     if (daLoja) cond.push(daLoja);
     if (p.destinoEquipamentoId) cond.push(eq(equipamento.id, p.destinoEquipamentoId));
     else if (p.setorId) cond.push(eq(equipamento.setorId, p.setorId));
-    else return; // sem como identificar o KDS de origem
-    const kdss = await this.db
+    let kdss = await this.db
       .select({ id: equipamento.id, impressoraDestinoId: equipamento.impressoraDestinoId })
       .from(equipamento)
-      .where(and(...cond));
+      .where(and(...cond))
+      .orderBy(equipamento.id);
+    // Cartão sem destino nem setor (o comum, sem estações: o balcão, a mesa e o totem nascem assim). A venda NÃO imprimiu
+    // a via porque a loja tem um KDS "armado" (`criarPedidos`, adiar a produção) — então o ticket tem de sair aqui, UMA vez:
+    // pelo KDS que tocou, se ele imprime nesta etapa, senão pelo primeiro KDS da loja que imprime nela. Antes a função
+    // voltava sem imprimir e a cozinha ficava sem o papel (auditoria do KDS, 11/11/2026, R1).
+    if (!p.destinoEquipamentoId && !p.setorId) {
+      const doToque = kdsQueTocou ? kdss.find((k: any) => k.id === kdsQueTocou) : undefined;
+      kdss = doToque ? [doToque] : kdss.slice(0, 1);
+    }
     if (!kdss.length) return;
 
     // O item tirado da comanda não sai no ticket (como já não aparece no cartão — ERR-260).
@@ -3349,8 +3447,14 @@ export class ProducaoPedidoService {
       ppEtapa,
     );
     for (const k of kdss) {
-      // Sem impressora explícita, cai na padrão do setor do pedido — DA LOJA do pedido.
+      // Sem impressora explícita, cai na padrão do setor do pedido — DA LOJA do pedido. A escolhida só vale se ainda é uma
+      // impressora ligada da empresa, da loja do pedido (ou da rede): desligada, excluída ou de outra loja, o ticket iria
+      // para onde ninguém pega (R10) — fica no log e cai na do setor.
       let alvo = k.impressoraDestinoId;
+      if (alvo && !(await this.impressoraServe(tenantId, alvo, p.unidadeId ?? null))) {
+        new Logger('KDS').warn(`ticket da etapa: a impressora escolhida no KDS ${k.id} não está ligada nesta loja — usando a do setor`);
+        alvo = null;
+      }
       if (!alvo && p.setorId) {
         const [padrao] = await this.db
           .select({ id: equipamento.id })
@@ -3955,6 +4059,11 @@ export class ProducaoPedidoService {
           if (!r.length) throw new ConflictException('O pedido mudou enquanto você entregava. A tela vai atualizar.');
         }
       });
+      // O despacho com "imprimir ao despachar/entregar" (etapa 'entregue') imprime aqui — o pedido inteiro num ticket só.
+      // Antes a ação "Entregue" não chamava a impressão e o ajuste nunca tinha efeito (auditoria do KDS, 11/11/2026, R5).
+      await this.imprimirNaEtapa(tenantId, { ...prontos[0], destinoEquipamentoId: k.id }, 'entregue', prontos.map((c) => c.id)).catch((e) =>
+        this.falhaNaImpressaoDaEtapa(prontos[0], 'entregue', e),
+      );
       for (const c of prontos) {
         this.events?.emit('producao.evento', {
           tenantId, unidadeId: c.unidadeId, setorId: c.setorId, destinoEquipamentoId: c.destinoEquipamentoId, pedidoId: c.id, tipo: 'status', status: 'entregue',
@@ -3994,7 +4103,9 @@ export class ProducaoPedidoService {
       }
     });
     // O despacho imprime ao ficar pronto, se o ajuste dele pede — o pedido inteiro num ticket só.
-    await this.imprimirNaEtapa(tenantId, { ...mover[0], destinoEquipamentoId: k.id }, 'pronto', mover.map((c) => c.id)).catch(() => {});
+    await this.imprimirNaEtapa(tenantId, { ...mover[0], destinoEquipamentoId: k.id }, 'pronto', mover.map((c) => c.id)).catch((e) =>
+      this.falhaNaImpressaoDaEtapa(mover[0], 'pronto', e),
+    );
     for (const c of mover) {
       this.events?.emit('producao.evento', {
         tenantId, unidadeId: c.unidadeId, setorId: c.setorId, destinoEquipamentoId: k.id, pedidoId: c.id, tipo: 'status', status: 'pronto',

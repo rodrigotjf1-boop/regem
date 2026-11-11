@@ -124,7 +124,13 @@ export default function KdsPage() {
   // sobrava um cartão "fantasma" (medido na tela de verdade, 21/10/2026).
   const [pedidosDespacho, setPedidosDespacho] = useState<any[]>([]);
   const [dialogoDespacho, setDialogoDespacho] = useState(false); // "… assim mesmo (gestor)" aberto: o teclado é dele
-  const [cores, setCores] = useState({ verdeAteMin: 5, amareloAteMin: 10 });
+  const [cores, setCores] = useState<{ verdeAteMin: number; amareloAteMin: number; usaPreparo?: boolean; usaEntregue?: boolean }>({
+    verdeAteMin: 5,
+    amareloAteMin: 10,
+  });
+  // Cartões com um toque a caminho do servidor: o segundo toque no mesmo cartão espera (toque duplo não pula etapa).
+  const avancandoRef = useRef<Set<string>>(new Set());
+  const [avancando, setAvancando] = useState<Set<string>>(() => new Set());
   const [setores, setSetores] = useState<any[]>([]);
   const [setorSel, setSetorSel] = useState('');
   const [kdsList, setKdsList] = useState<any[]>([]); // Fase E — KDS da loja p/ o seletor
@@ -604,15 +610,23 @@ export default function KdsPage() {
     await carregarFila();
   }
 
-  async function avancar(id: string) {
+  // Avança UM toque. Manda a etapa que esta tela viu (`de`): o servidor só avança se o cartão ainda está nela — o toque
+  // duplo e a tela velha de outro aparelho não pulam etapa. Enquanto a resposta não volta, o segundo toque no mesmo
+  // cartão é ignorado e o botão diz "Aguarde…" (auditoria do KDS, 11/11/2026). Quem diz se esta tela conclui o pedido
+  // (KDS de entrega) é o cadastro do KDS escolhido, no servidor — antes a tela mandava sempre 'entrega'.
+  async function avancar(id: string, de?: string) {
+    if (avancandoRef.current.has(id)) return;
+    avancandoRef.current.add(id);
+    setAvancando(new Set(avancandoRef.current));
     try {
-      // Board único por canal → permite concluir (entregue) no próprio KDS.
-      // Passa o KDS operado p/ o roteamento entre KDS (Fase E).
-      await api.producaoAvancar(id, 'entrega', kdsSel || undefined);
+      await api.producaoAvancar(id, kdsSel || undefined, de, modoEntrega ? 'entrega' : undefined);
       await carregarFila();
     } catch {
-      /* concorrência: outra tela avançou — o refetch corrige */
+      /* concorrência: outra tela avançou (409) — a releitura corrige */
       void carregarFila();
+    } finally {
+      avancandoRef.current.delete(id);
+      setAvancando(new Set(avancandoRef.current));
     }
   }
 
@@ -716,7 +730,7 @@ export default function KdsPage() {
     }
     setSenhaDigitada('');
     avisarSenha(`${identPedido(alvo)} avançou`, false);
-    void avancar(alvo.id);
+    void avancar(alvo.id, alvo.status);
     if (usoRef.current === 'teclado') senhaRef.current?.focus({ preventScroll: true });
   }
 
@@ -1400,6 +1414,8 @@ export default function KdsPage() {
                     realce={!itemAtivo ? 'nenhum' : pedidoTemItem(p, itemAtivo) ? 'destaque' : 'apagado'}
                     itemEmDestaque={itemAtivo}
                     onAvancar={avancar}
+                    etapas={cores}
+                    ocupado={avancando.has(p.id)}
                     proximoNome={proximoDoCartao(p)}
                     veioDe={veioDoCartao(p)}
                     onVisto={visto}
@@ -1526,7 +1542,7 @@ function EntregaBoard({
   esc,
 }: {
   pedidos: any[];
-  onEntregar: (id: string) => void;
+  onEntregar: (id: string, de?: string) => void;
   T: { panel: string; panel2: string; border: string; text: string; muted: string };
   esc: number;
 }) {
@@ -1554,7 +1570,7 @@ function EntregaBoard({
             key={p.id}
             type="button"
             disabled={!tocavel}
-            onClick={() => tocavel && onEntregar(p.id)}
+            onClick={() => tocavel && onEntregar(p.id, p.status)}
             className="grid place-items-center border font-extrabold tabular-nums disabled:cursor-default"
             style={{
               background: tocavel ? cor.fundo : T.panel,
