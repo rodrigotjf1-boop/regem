@@ -12,7 +12,7 @@ import { EquipamentoService } from '../equipamento/equipamento.service';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { chaveDoChat, chaveDoTeste } from '../../common/conversa-do-robo';
 import { PonteChatGuard, type PonteCtx } from './ponte-chat.guard';
-import { PonteChatService } from './ponte-chat.service';
+import { ERRO_A_LOJA_FALOU, PonteChatService } from './ponte-chat.service';
 import { AjustesDaPonteService } from './ajustes-da-ponte.service';
 import { CHAMEI_A_EQUIPE, FALAS_DO_ATENDENTE_POR_HORA } from './robo-do-chat';
 import { TEXTO_MAX, temContatoProibido } from './texto-do-chat';
@@ -150,7 +150,7 @@ descrever('o atendente virtual no chat do iFood e da 99 (Postgres + n8n de menti
     q(`select id from chat_plataforma_msg where tenant_id = $1 and pedido_externo = $2 and robo_entregue_em is not null`, [T, ext]);
 
   beforeAll(async () => {
-    for (const k of ['EDGE_MODE', 'BOT_RESOLVER_SECRET', 'N8N_ROBO_WEBHOOK_URL', 'ROBO_JUNTAR_MS']) antes[k] = process.env[k];
+    for (const k of ['EDGE_MODE', 'BOT_RESOLVER_SECRET', 'N8N_ROBO_WEBHOOK_URL', 'ROBO_JUNTAR_MS', 'ROBO_JUNTAR_CHAT_MS']) antes[k] = process.env[k];
     delete process.env.EDGE_MODE; // como NUVEM
     for (const m of [
       '342_robo_pausa_e_config.sql',
@@ -225,6 +225,7 @@ descrever('o atendente virtual no chat do iFood e da 99 (Postgres + n8n de menti
   });
   beforeEach(async () => {
     delete process.env.EDGE_MODE;
+    delete process.env.ROBO_JUNTAR_CHAT_MS; // no jest, cada lote vai na hora (o teste da junção liga)
     process.env.BOT_RESOLVER_SECRET = SENHA;
     process.env.N8N_ROBO_WEBHOOK_URL = `${base}/n8n`;
     n8nStatus = 200;
@@ -685,6 +686,168 @@ descrever('o atendente virtual no chat do iFood e da 99 (Postgres + n8n de menti
     msgs = (await treino.verTeste(ana, criado.id)).mensagens;
     expect(msgs[msgs.length - 1]).toMatchObject({ autor: 'sistema', texto: expect.stringContaining('abriria o caso do chat do iFood para a equipe') });
     expect(await q(`select 1 from atendimento_chamado where tenant_id = $1`, [T])).toHaveLength(0);
+  });
+
+  // ───────────────────────── a loja conversando e as falas em pedaços (10/11/2026, pedido 1948) ─────────────────────────
+
+  /** Uma fala da LOJA lida pela ponte (escrita no Gestor do iFood). */
+  const daLoja = async (ext: string, texto: string) =>
+    ponte.receber(await entrar(delivery), {
+      mensagens: [{ canal: 'ifood', id: `lj-${++n}-${randomUUID().slice(0, 6)}`, pedido: { externo: ext }, autor: 'loja', texto }],
+    });
+  /** Só grava o lote (sem esperar a entrega ao atendente). */
+  const soReceber = async (ext: string, texto: string) =>
+    ponte.receber(await entrar(delivery), {
+      mensagens: [{ canal: 'ifood', id: `pc-${++n}-${randomUUID().slice(0, 6)}`, pedido: { externo: ext }, cliente: 'Maria S.', autor: 'cliente', texto }],
+    });
+  const espera = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  it('a loja escreveu pelo Gestor: a fala do cliente NÃO vai ao atendente nem abre caso (quem conversa já vê); fora da pausa da loja, volta', async () => {
+    await pedido('lf-1');
+    await daLoja('lf-1', 'Oi, o entregador está no local, pode descer?');
+    const r = await fala('lf-1', 'já');
+    expect(r).toMatchObject({ recebidas: 1, casosNovos: 0, casosSomados: 0, roboRespondeu: 0 });
+    expect(r).not.toHaveProperty('paraOAtendente');
+    expect(aoRobo).toHaveLength(0);
+    expect(await casosDo('lf-1')).toHaveLength(0);
+    expect(await doRobo('lf-1')).toHaveLength(0);
+    expect(await marcas('lf-1')).toHaveLength(0);
+    // a pausa da loja é a do robô (`pausa_minutos`, a mesma do WhatsApp): passada, o atendente volta a responder
+    await q(`update robo_config set pausa_minutos = 10 where tenant_id = $1`, [T]);
+    await q(`update chat_plataforma_msg set criado_em = now() - interval '15 minutes' where tenant_id = $1 and pedido_externo = 'lf-1' and autor = 'loja'`, [T]);
+    try {
+      expect(await fala('lf-1', 'Alguém aí?')).toMatchObject({ paraOAtendente: 1 });
+      expect(aoRobo).toHaveLength(1);
+    } finally {
+      await q(`update robo_config set pausa_minutos = 60 where tenant_id = $1`, [T]);
+    }
+  });
+
+  it('a equipe pelo REGEM (caso resolvido) não cala — o caso é que cala (09/11); o ENTREGADOR pelo app, também não; o ECO do Regem, não', async () => {
+    await pedido('lf-2');
+    await q(
+      `insert into chat_plataforma_msg (tenant_id, unidade_id, canal, pedido_externo, direcao, autor, autor_id, texto, estado)
+       values ($1, $2, 'ifood', 'lf-2', 'saida', 'equipe', $3, 'Oi, Maria! Já vou ver para você.', 'enviada')`,
+      [T, loja, ANA],
+    );
+    // sem caso aberto (resolvido), a fala do cliente não fica sem ninguém: o atendente responde
+    expect(await fala('lf-2', 'Tem sobremesa?')).toMatchObject({ paraOAtendente: 1 });
+    expect(aoRobo).toHaveLength(1);
+    aoRobo.length = 0;
+    // o entregador escreveu há 20 min (fora dos 15 min dele, dentro dos 60 da loja): o atendente responde
+    const pedEnt = await pedido('lf-3');
+    await q(`update pedido_externo set entregador_id = $2 where id = $1`, [pedEnt, ANA]);
+    await q(
+      `insert into chat_plataforma_msg (tenant_id, unidade_id, canal, pedido_id, pedido_externo, direcao, autor, autor_id, texto, estado, criado_em)
+       values ($1, $2, 'ifood', $3, 'lf-3', 'saida', 'equipe', $4, 'Entregador: estou chegando', 'enviada', now() - interval '20 minutes')`,
+      [T, loja, pedEnt, ANA],
+    );
+    expect(await fala('lf-3', 'Cadê meu pedido?')).toMatchObject({ paraOAtendente: 1 });
+    expect(aoRobo).toHaveLength(1);
+    // o eco: a resposta do atendente sai; a ponte relê a mensagem enviada como "da loja" (com outro espaçamento) — não cala
+    await pedido('lf-4');
+    await fala('lf-4', 'Oi');
+    const chave = await chaveDe('lf-4');
+    expect(await responder(chave, 'Oi, Maria!  Em que posso ajudar?')).toMatchObject({ enviado: true });
+    await daLoja('lf-4', ' Oi, Maria! Em que posso ajudar? ');
+    expect(await fala('lf-4', 'Vem com sachê?')).toMatchObject({ paraOAtendente: 1 });
+    expect(aoRobo.map((a) => a.corpo.texto)).toEqual(['Cadê meu pedido?', 'Oi', 'Vem com sachê?']);
+  });
+
+  it('a resposta do atendente que chega DEPOIS de a loja falar não sai (a_loja_esta_conversando), sem caso, e a marca sai', async () => {
+    await pedido('lf-5');
+    await fala('lf-5', 'O entregador está aqui?');
+    const chave = await chaveDe('lf-5');
+    expect(await marcas('lf-5')).toHaveLength(1);
+    await daLoja('lf-5', 'ok avisei ao entregador');
+    expect(await responder(chave, 'Oi, Maria! Seu pedido já saiu.')).toEqual({ ok: true, enviado: false, motivo: 'a_loja_esta_conversando' });
+    expect(await doRobo('lf-5')).toHaveLength(0);
+    expect(await casosDo('lf-5')).toHaveLength(0);
+    expect(await marcas('lf-5')).toHaveLength(0);
+  });
+
+  it('a resposta do robô que esperava na FILA fica velha quando a loja fala depois: o `pegar` cancela; a de depois da loja e o eco não', async () => {
+    // a fila só com o que este teste põe (o `pegar` leva até 10 por vez)
+    await q(`update chat_plataforma_msg set estado = 'cancelada' where tenant_id = $1 and direcao = 'saida' and estado in ('pendente', 'enviando')`, [T]);
+    await pedido('lf-6');
+    await fala('lf-6', 'Oi');
+    expect(await responder(await chaveDe('lf-6'), 'Oi, Maria! Em que posso ajudar?')).toMatchObject({ enviado: true });
+    await daLoja('lf-6', 'Maria, o entregador já está no seu portão');
+    const { itens } = await ponte.pegar(await entrar(delivery), { canal: 'ifood' });
+    expect(itens.filter((i: any) => i.pedidoExterno === 'lf-6')).toHaveLength(0);
+    expect(await q(`select estado, erro from chat_plataforma_msg where tenant_id = $1 and pedido_externo = 'lf-6' and autor = 'robo'`, [T])).toEqual([
+      { estado: 'cancelada', erro: ERRO_A_LOJA_FALOU },
+    ]);
+    // a resposta criada DEPOIS da fala da loja segue; e o eco de uma resposta anterior (relida como "da loja") não a cancela
+    await pedido('lf-7');
+    await daLoja('lf-7', 'Oi, Maria!');
+    await q(`update chat_plataforma_msg set criado_em = now() - interval '2 minutes' where tenant_id = $1 and pedido_externo = 'lf-7'`, [T]);
+    await q(
+      `insert into chat_plataforma_msg (tenant_id, unidade_id, canal, pedido_externo, direcao, autor, texto, estado, criado_em)
+       values ($1, $2, 'ifood', 'lf-7', 'saida', 'robo', 'Primeira resposta.', 'enviada', now() - interval '1 minute'),
+              ($1, $2, 'ifood', 'lf-7', 'saida', 'robo', 'Segunda resposta.', 'pendente', now() - interval '30 seconds')`,
+      [T, loja],
+    );
+    await daLoja('lf-7', 'Primeira resposta.');
+    const r2 = await ponte.pegar(await entrar(delivery), { canal: 'ifood' });
+    expect(r2.itens.map((i: any) => i.texto)).toEqual(['Segunda resposta.']);
+    // na fila, a equipe pelo Regem depois da resposta também a deixa velha; o entregador do pedido, não
+    const pedEnt = await pedido('lf-8');
+    await q(`update pedido_externo set entregador_id = $2 where id = $1`, [pedEnt, ANA]);
+    const [{ id: outra }] = await q(`insert into colaborador (tenant_id, nome, unidade_id, status) values ($1, 'Bia', $2, 'ativo') returning id`, [T, loja]);
+    await q(
+      `insert into chat_plataforma_msg (tenant_id, unidade_id, canal, pedido_id, pedido_externo, direcao, autor, autor_id, texto, estado, criado_em)
+       values ($1, $2, 'ifood', $3, 'lf-8', 'saida', 'robo', null, 'Resposta velha.', 'pendente', now() - interval '1 minute'),
+              ($1, $2, 'ifood', $3, 'lf-8', 'saida', 'equipe', $4, 'Entregador: chegando', 'enviada', now() - interval '30 seconds')`,
+      [T, loja, pedEnt, ANA],
+    );
+    expect((await ponte.pegar(await entrar(delivery), { canal: 'ifood' })).itens.map((i: any) => i.texto)).toEqual(['Resposta velha.']);
+    await q(`update chat_plataforma_msg set estado = 'pendente', ponte_id = null, vence_em = null where tenant_id = $1 and texto = 'Resposta velha.'`, [T]);
+    await q(
+      `insert into chat_plataforma_msg (tenant_id, unidade_id, canal, pedido_id, pedido_externo, direcao, autor, autor_id, texto, estado)
+       values ($1, $2, 'ifood', $3, 'lf-8', 'saida', 'equipe', $4, 'Oi, Maria, aqui é a Bia da loja.', 'enviada')`,
+      [T, loja, pedEnt, outra],
+    );
+    expect((await ponte.pegar(await entrar(delivery), { canal: 'ifood' })).itens).toEqual([]);
+    expect((await q(`select estado from chat_plataforma_msg where tenant_id = $1 and texto = 'Resposta velha.'`, [T]))[0].estado).toBe('cancelada');
+  });
+
+  it('as falas em PEDAÇOS (lotes separados, como no pedido 1948) vão JUNTAS ao atendente numa entrega só, com as marcas de todas', async () => {
+    process.env.ROBO_JUNTAR_CHAT_MS = '400';
+    await pedido('jt-1');
+    await pedido('jt-2');
+    for (const t of ['Oi', 'meu pedido veio', 'sem o refri']) {
+      await soReceber('jt-1', t);
+      await espera(60);
+    }
+    await soReceber('jt-2', 'Outra conversa');
+    await soReceber('jt-1', 'e sem o sachê');
+    expect(aoRobo).toHaveLength(0); // ainda juntando
+    await ponte.esperarEntregas();
+    expect(aoRobo).toHaveLength(2); // uma por conversa
+    const j1 = aoRobo.find((a) => a.corpo.texto.startsWith('Oi'))!.corpo;
+    expect(j1).toMatchObject({ texto: 'Oi\nmeu pedido veio\nsem o refri\ne sem o sachê', mensagemId: await ultimaDe('jt-1'), mensagensJuntadas: 4 });
+    expect(j1.instancia).toBe(await chaveDe('jt-1'));
+    expect(aoRobo.find((a) => a.corpo.texto === 'Outra conversa')!.corpo).not.toHaveProperty('mensagensJuntadas');
+    expect(await marcas('jt-1')).toHaveLength(4);
+    // a resposta (uma) tira todas as marcas
+    expect(await responder(j1.instancia, 'Oi, Maria! Vou ver o refri e o sachê.')).toMatchObject({ enviado: true });
+    expect(await marcas('jt-1')).toHaveLength(0);
+  });
+
+  it('a entrega juntada que falha: TODAS as marcas saem e as falas seguem o robô por regras (um caso, um "já chamei")', async () => {
+    process.env.ROBO_JUNTAR_CHAT_MS = '300';
+    n8nStatus = 502;
+    await pedido('jt-3');
+    await soReceber('jt-3', 'Faltou');
+    await espera(50);
+    await soReceber('jt-3', 'o refrigerante');
+    await ponte.esperarEntregas();
+    expect(aoRobo).toHaveLength(1);
+    expect(aoRobo[0].corpo.texto).toBe('Faltou\no refrigerante');
+    expect(await marcas('jt-3')).toHaveLength(0);
+    expect(await casosDo('jt-3')).toHaveLength(1);
+    expect((await doRobo('jt-3')).map((d) => d.texto)).toEqual([CHAMEI_A_EQUIPE]);
   });
 
   // ───────────────────────── os ajustes e a tela ─────────────────────────
