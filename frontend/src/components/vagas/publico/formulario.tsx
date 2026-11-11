@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { ETAPAS, TOTAL_ETAPAS, errosDaEtapa, type Erro, type FichaForm, type PaginaPublica } from '@/lib/vagas-ficha';
 import { LogoDaLoja } from './capa';
 import type { Erros } from './campos';
@@ -12,8 +12,8 @@ import { EtapaEstudos } from './etapa-estudos';
 import { EtapaEndereco } from './etapa-endereco';
 import { EtapaFinal } from './etapa-final';
 
-// A ficha em 7 etapas: o topo com a marca da loja e o progresso em partes, a etapa da vez, o aviso de erros (recontado a
-// cada resposta e some quando a etapa fica completa) e o rodapé Voltar / Continuar. "Editar" do resumo abre a etapa e o
+// A ficha em 7 etapas: o topo com o anel do progresso e a marca da loja, a etapa da vez (entra deslizando), o aviso de
+// erros (recontado a cada resposta e some quando a etapa fica completa) e o rodapé Voltar / Continuar. "Editar" do resumo abre a etapa e o
 // botão vira "Salvar e voltar ao resumo".
 export function Formulario({ p, f, muda, hoje, enviando, erroDoEnvio, aoSair, aoEnviar }: {
   p: PaginaPublica;
@@ -81,22 +81,29 @@ export function Formulario({ p, f, muda, hoje, enviando, erroDoEnvio, aoSair, ao
     <form noValidate onSubmit={(e) => e.preventDefault()}>
       <div className="vg-topo">
         <div className="vg-topo-linha">
-          <span className="vg-marca">
-            {p.loja.logoRef && <LogoDaLoja p={p} classe="" />}
-            <span>{p.loja.nome}</span>
-          </span>
-          <span>
-            Etapa {etapa} de {TOTAL_ETAPAS}
-          </span>
+          <div
+            className="vg-anel"
+            style={{ '--vg-pct': `${(etapa / TOTAL_ETAPAS) * 100}%` } as CSSProperties}
+            role="progressbar"
+            aria-label={`Etapa ${etapa} de ${TOTAL_ETAPAS}`}
+            aria-valuemin={1}
+            aria-valuemax={TOTAL_ETAPAS}
+            aria-valuenow={etapa}
+          >
+            <span aria-hidden="true">
+              {etapa}/{TOTAL_ETAPAS}
+            </span>
+          </div>
+          <div className="vg-topo-txt">
+            <span className="vg-marca">
+              {p.loja.logoRef && <LogoDaLoja p={p} classe="" />}
+              <span>{p.loja.nome} · Ficha</span>
+            </span>
+            <h2 ref={titulo} tabIndex={-1}>
+              {info.titulo}
+            </h2>
+          </div>
         </div>
-        <div className="vg-progresso" role="progressbar" aria-label="Andamento da ficha" aria-valuemin={1} aria-valuemax={TOTAL_ETAPAS} aria-valuenow={etapa}>
-          {ETAPAS.map((_, i) => (
-            <i key={i} className={i < etapa - 1 ? 'feito' : i === etapa - 1 ? 'atual' : ''} />
-          ))}
-        </div>
-        <h2 ref={titulo} tabIndex={-1}>
-          {info.titulo}
-        </h2>
         <p className="vg-sub">{info.sub}</p>
       </div>
       {(faltam > 0 || erroDoEnvio) && (
@@ -104,7 +111,7 @@ export function Formulario({ p, f, muda, hoje, enviando, erroDoEnvio, aoSair, ao
           {faltam > 0 ? (faltam === 1 ? 'Falta 1 resposta nesta etapa.' : `Faltam ${faltam} respostas nesta etapa.`) : erroDoEnvio}
         </div>
       )}
-      <section className="vg-etapa">
+      <section className="vg-etapa" key={etapa}>
         {etapa === 1 && <EtapaVoce {...props} />}
         {etapa === 2 && <EtapaVaga {...props} />}
         {etapa === 3 && <EtapaHorarios {...props} />}
@@ -125,8 +132,12 @@ export function Formulario({ p, f, muda, hoje, enviando, erroDoEnvio, aoSair, ao
         <button type="button" className="vg-sec" onClick={voltar}>
           ← Voltar
         </button>
-        <button type="button" className="vg-pri" onClick={avancar} disabled={enviando}>
-          {etapa === TOTAL_ETAPAS ? (enviando ? 'Enviando…' : 'Enviar minha ficha ✓') : editando ? 'Salvar e voltar ao resumo ✓' : 'Continuar →'}
+        <button type="button" className="vg-cta" onClick={avancar} disabled={enviando}>
+          {etapa === TOTAL_ETAPAS ? (enviando ? 'Enviando…' : 'Enviar minha ficha ✓') : editando ? 'Salvar e voltar ao resumo ✓' : (
+            <>
+              Continuar <span className="vg-seta" aria-hidden="true">→</span>
+            </>
+          )}
         </button>
       </div>
     </form>

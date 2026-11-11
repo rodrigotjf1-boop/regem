@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regem — Página de vagas (proposta moderna)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800;900&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
+<style>
+/* ===== moldura do mockup (não vai para o app) ===== */
+body { margin: 0; background: #e9ecf1; font-family: Figtree, system-ui, sans-serif; color: #0F2230; }
+.mk-top { max-width: 1240px; margin: 0 auto; padding: 28px 20px 8px; }
+.mk-top h1 { font-family: Archivo, sans-serif; font-weight: 900; font-size: 26px; margin: 0 0 4px; }
+.mk-top p { margin: 0 0 14px; color: #4a5a68; max-width: 760px; }
+.mk-temas { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 14px; font-weight: 600; }
+.mk-temas button { display: inline-flex; align-items: center; gap: 8px; border: 2px solid #cfd6de; background: #fff; border-radius: 999px; padding: 6px 12px 6px 6px; font: inherit; cursor: pointer; }
+.mk-temas button[aria-pressed=true] { border-color: #0F2230; }
+.mk-temas i { width: 22px; height: 22px; border-radius: 50%; display: inline-block; box-shadow: inset -8px 0 0 var(--d); background: var(--p); }
+.mk-telas { max-width: 1240px; margin: 0 auto; padding: 18px 20px 60px; display: flex; flex-wrap: wrap; gap: 28px; justify-content: center; }
+.mk-cel { width: 390px; max-width: 100%; }
+.mk-cel > h2 { font-family: Archivo, sans-serif; font-size: 15px; letter-spacing: .06em; text-transform: uppercase; color: #4a5a68; margin: 0 0 10px; }
+.mk-frame { height: 820px; border-radius: 42px; border: 10px solid #0b141b; overflow: hidden; position: relative; background: #0b0b0d; box-shadow: 0 30px 70px rgba(15,34,48,.25); }
+.mk-scroll { height: 100%; overflow-y: auto; scrollbar-width: none; }
+.mk-scroll::-webkit-scrollbar { display: none; }
+.mk-notas { max-width: 1240px; margin: 0 auto; padding: 0 20px 60px; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.mk-notas section { background: #fff; border-radius: 16px; padding: 16px 18px; }
+.mk-notas h3 { font-family: Archivo, sans-serif; margin: 0 0 8px; font-size: 17px; }
+.mk-notas ul { margin: 0; padding-left: 18px; color: #33424f; font-size: 14.5px; line-height: 1.5; }
+
+/* ===== a página de vagas — proposta ===== */
+.vg { --p: #C8102E; --d: #F5B700; --on-p: #fff; --on-d: #1a1206;
+  --bg: #0d0d10; --card: rgba(255,255,255,.06); --ln: rgba(255,255,255,.1); --t: #f6f4f1; --t2: rgba(246,244,241,.66);
+  min-height: 100%; background: var(--bg); color: var(--t); font-size: 16px; line-height: 1.45; position: relative; isolation: isolate; }
+.vg * { box-sizing: border-box; }
+.vg h1, .vg h2, .vg h3 { font-family: Archivo, sans-serif; margin: 0; line-height: 1.05; }
+.vg button { font: inherit; color: inherit; cursor: pointer; }
+
+/* luz da marca ao fundo */
+.vg::before { content: ''; position: absolute; inset: 0 0 auto; height: 560px; z-index: -1;
+  background: radial-gradient(120% 70% at 50% 0%, color-mix(in srgb, var(--p) 75%, transparent) 0%, transparent 65%),
+              radial-gradient(60% 40% at 90% 30%, color-mix(in srgb, var(--d) 30%, transparent) 0%, transparent 70%); }
+.vg::after { content: ''; position: absolute; inset: 0 0 auto; height: 560px; z-index: -1; opacity: .22;
+  background-image: radial-gradient(rgba(255,255,255,.5) 1px, transparent 1.2px); background-size: 16px 16px;
+  mask-image: linear-gradient(#000, transparent 80%); -webkit-mask-image: linear-gradient(#000, transparent 80%); }
+
+/* CAPA */
+.hero { padding: 34px 22px 26px; text-align: center; }
+.logo { width: 112px; height: 112px; margin: 0 auto 18px; border-radius: 30px; display: grid; place-items: center; background: #fff; color: var(--p);
+  font-family: Archivo; font-weight: 900; font-size: 30px; letter-spacing: -.02em; box-shadow: 0 18px 40px rgba(0,0,0,.45), 0 0 0 6px rgba(255,255,255,.08); }
+.pill { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.18);
+  font-weight: 700; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; backdrop-filter: blur(8px); }
+.pulse { width: 9px; height: 9px; border-radius: 50%; background: #3ee08f; box-shadow: 0 0 0 0 rgba(62,224,143,.7); animation: pulse 1.8s infinite; }
+@keyframes pulse { 70% { box-shadow: 0 0 0 10px rgba(62,224,143,0); } 100% { box-shadow: 0 0 0 0 rgba(62,224,143,0); } }
+.hero h1 { margin: 16px 0 10px; font-size: 44px; font-weight: 900; letter-spacing: -.03em; text-wrap: balance; }
+.hero h1 em { font-style: normal; background: linear-gradient(90deg, var(--d), color-mix(in srgb, var(--d) 60%, #fff)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.hero p { margin: 0 auto 18px; max-width: 30ch; color: var(--t2); font-size: 17px; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 4px; }
+.stat { background: var(--card); border: 1px solid var(--ln); border-radius: 16px; padding: 10px 6px; }
+.stat b { display: block; font-family: Archivo; font-weight: 900; font-size: 22px; }
+.stat span { font-size: 12px; color: var(--t2); font-weight: 600; }
+
+.sec { padding: 8px 18px 4px; }
+.sec-tit { display: flex; justify-content: space-between; align-items: baseline; margin: 18px 4px 12px; }
+.sec-tit h2 { font-size: 22px; font-weight: 800; letter-spacing: -.01em; }
+.sec-tit small { color: var(--t2); font-size: 13px; font-weight: 600; }
+.vagas { display: grid; gap: 10px; }
+.vaga { display: grid; grid-template-columns: 52px 1fr auto; align-items: center; gap: 14px; padding: 14px; border-radius: 20px; background: var(--card); border: 1px solid var(--ln);
+  transition: transform .2s, border-color .2s; }
+.vaga:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--d) 60%, transparent); }
+.vaga .ic { width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; font-size: 26px; background: color-mix(in srgb, var(--p) 30%, transparent); }
+.vaga b { font-family: Archivo; font-size: 17px; display: block; }
+.vaga small { color: var(--t2); font-size: 13px; }
+.vaga .sal { text-align: right; font-family: Archivo; font-weight: 900; font-size: 19px; color: var(--d); line-height: 1; }
+.vaga .sal span { display: block; font-family: Figtree; font-weight: 600; font-size: 11px; color: var(--t2); margin-top: 3px; }
+.tag-lid { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 99px; font-size: 10.5px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; background: var(--d); color: var(--on-d); vertical-align: 2px; }
+
+.benef { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.bf { padding: 14px; border-radius: 18px; background: var(--card); border: 1px solid var(--ln); }
+.bf .e { font-size: 22px; }
+.bf b { display: block; margin-top: 6px; font-size: 14.5px; font-weight: 700; line-height: 1.25; }
+
+.passos { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; position: relative; }
+.passos li { display: grid; grid-template-columns: 36px 1fr; gap: 12px; align-items: start; padding: 0 0 16px; position: relative; }
+.passos li:not(:last-child)::after { content: ''; position: absolute; left: 17px; top: 36px; bottom: 0; width: 2px; background: var(--ln); }
+.passos .n { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; font-family: Archivo; font-weight: 900; background: var(--d); color: var(--on-d); }
+.passos b { display: block; font-size: 15.5px; margin-top: 2px; }
+.passos span { color: var(--t2); font-size: 14px; }
+
+.cta-bar { position: sticky; bottom: 0; padding: 14px 18px 18px; background: linear-gradient(transparent, var(--bg) 35%); }
+.cta { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 62px; border: 0; border-radius: 20px;
+  background: linear-gradient(135deg, var(--d), color-mix(in srgb, var(--d) 70%, #fff)); color: var(--on-d);
+  font-family: Archivo; font-weight: 900; font-size: 19px; letter-spacing: -.01em; position: relative; overflow: hidden;
+  box-shadow: 0 12px 30px color-mix(in srgb, var(--d) 40%, transparent); }
+.cta::after { content: ''; position: absolute; top: 0; left: -60%; width: 40%; height: 100%; background: linear-gradient(100deg, transparent, rgba(255,255,255,.55), transparent); animation: brilho 3.2s infinite; }
+@keyframes brilho { 0%, 60% { left: -60%; } 100% { left: 130%; } }
+.cta .seta { transition: transform .2s; } .cta:hover .seta { transform: translateX(4px); }
+.mini { text-align: center; color: var(--t2); font-size: 12.5px; margin: 10px 0 0; }
+
+/* FICHA */
+.f-top { position: sticky; top: 0; z-index: 3; padding: 14px 18px 16px; background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(14px); border-bottom: 1px solid var(--ln); }
+.f-linha { display: flex; align-items: center; gap: 12px; }
+.anel { --pct: 28.6; width: 54px; height: 54px; flex: none; border-radius: 50%; display: grid; place-items: center;
+  background: conic-gradient(var(--d) calc(var(--pct) * 1%), rgba(255,255,255,.1) 0); }
+.anel span { width: 44px; height: 44px; border-radius: 50%; background: var(--bg); display: grid; place-items: center; font-family: 'JetBrains Mono'; font-weight: 700; font-size: 13px; }
+.f-top small { color: var(--t2); font-weight: 700; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+.f-top h2 { font-size: 24px; font-weight: 900; letter-spacing: -.02em; margin-top: 2px; }
+.f-sub { margin: 10px 0 0; color: var(--t2); font-size: 14.5px; }
+.f-corpo { padding: 20px 18px 10px; animation: entra .35s ease both; }
+@keyframes entra { from { opacity: 0; transform: translateX(16px); } }
+.perg { font-weight: 700; font-size: 17px; margin: 0 0 4px; }
+.dica { color: var(--t2); font-size: 14px; margin: 0 0 12px; }
+.opcoes { display: grid; gap: 10px; margin-bottom: 26px; }
+.op { display: grid; grid-template-columns: 48px 1fr 26px; gap: 12px; align-items: center; text-align: left; padding: 14px; border-radius: 18px; background: var(--card); border: 2px solid var(--ln); transition: all .18s; }
+.op .ic { width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; font-size: 24px; background: rgba(255,255,255,.07); }
+.op b { font-family: Archivo; font-size: 17px; display: block; }
+.op small { color: var(--d); font-weight: 800; font-size: 14px; }
+.op .ck { width: 26px; height: 26px; border-radius: 50%; border: 2px solid rgba(255,255,255,.25); display: grid; place-items: center; font-weight: 900; font-size: 14px; color: transparent; }
+.op[aria-pressed=true] { border-color: var(--d); background: color-mix(in srgb, var(--d) 12%, transparent); }
+.op[aria-pressed=true] .ck { background: var(--d); border-color: var(--d); color: var(--on-d); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { min-height: 46px; padding: 0 16px; border-radius: 999px; background: var(--card); border: 2px solid var(--ln); font-weight: 600; font-size: 15px; }
+.chip[aria-pressed=true] { background: var(--d); border-color: var(--d); color: var(--on-d); }
+.campo { margin-top: 26px; }
+.campo label { display: block; font-weight: 700; margin-bottom: 8px; }
+.campo input { width: 100%; min-height: 56px; border-radius: 16px; border: 2px solid var(--ln); background: rgba(255,255,255,.04); color: var(--t); padding: 0 16px; font: inherit; font-size: 17px; }
+.campo input:focus { outline: none; border-color: var(--d); box-shadow: 0 0 0 4px color-mix(in srgb, var(--d) 22%, transparent); }
+.f-rodape { position: sticky; bottom: 0; display: flex; gap: 10px; padding: 14px 18px 18px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(14px); border-top: 1px solid var(--ln); }
+.sec-btn { min-height: 58px; padding: 0 18px; border-radius: 18px; border: 2px solid var(--ln); background: transparent; font-weight: 700; }
+.f-rodape .cta { min-height: 58px; flex: 1; font-size: 18px; }
+
+/* RECEBIDA */
+.ok { padding: 46px 22px 30px; text-align: center; position: relative; overflow: hidden; }
+.conf { position: absolute; inset: 0; pointer-events: none; }
+.conf i { position: absolute; top: -20px; width: 8px; height: 14px; border-radius: 2px; animation: cai 3.2s linear infinite; opacity: .9; }
+@keyframes cai { to { transform: translateY(860px) rotate(540deg); } }
+.selo { width: 128px; height: 128px; margin: 0 auto 20px; border-radius: 50%; position: relative; display: grid; place-items: center;
+  background: conic-gradient(from 0deg, var(--d), var(--p), var(--d)); animation: gira 6s linear infinite; }
+.selo > span { width: 112px; height: 112px; border-radius: 50%; display: grid; place-items: center; background: #fff; color: var(--p); font-family: Archivo; font-weight: 900; font-size: 28px; animation: gira 6s linear infinite reverse; }
+.selo .ck { position: absolute; right: 0; bottom: 4px; width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; background: #3ee08f; color: #062b18; font-weight: 900; font-size: 22px; border: 4px solid var(--bg); animation: none; }
+@keyframes gira { to { transform: rotate(360deg); } }
+.ok h2 { font-size: 34px; font-weight: 900; letter-spacing: -.02em; margin-bottom: 8px; }
+.ok p { color: var(--t2); margin: 0 0 14px; }
+.prot { display: inline-flex; gap: 6px; margin-bottom: 26px; }
+.prot span { width: 40px; height: 52px; border-radius: 12px; display: grid; place-items: center; background: var(--card); border: 1px solid var(--ln); font-family: 'JetBrains Mono'; font-weight: 700; font-size: 24px; color: var(--d); }
+.prot .h { width: 14px; background: none; border: 0; color: var(--t2); }
+.card { text-align: left; padding: 16px; border-radius: 20px; background: var(--card); border: 1px solid var(--ln); margin-bottom: 12px; }
+.card h3 { font-size: 17px; margin-bottom: 12px; }
+.zap { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px; border-radius: 16px; background: #25D366; color: #06210f; font-weight: 800; text-decoration: none; margin-top: 10px; }
+
+@media (prefers-reduced-motion: reduce) { .vg *, .vg *::before, .vg *::after { animation: none !important; transition: none !important; } .conf { display: none; } }
+</style>
+</head>
+<body>
+
+<header class="mk-top">
+  <h1>Página de vagas — proposta moderna</h1>
+  <p>Tema escuro imersivo com a luz da cor da loja ao fundo, títulos grandes, vagas em lista com o salário em destaque, botão fixo com brilho e animações leves (desligam com "reduzir movimento"). As cores continuam vindo da loja — troque abaixo para ver com outras marcas.</p>
+  <div class="mk-temas" role="group" aria-label="Cores da loja">
+    <span>Cores da loja:</span>
+    <button type="button" aria-pressed="true" data-p="#C8102E" data-d="#F5B700" data-on-d="#1a1206"><i style="--p:#C8102E;--d:#F5B700"></i>Vermelho + amarelo</button>
+    <button type="button" aria-pressed="false" data-p="#0F6647" data-d="#E8A845" data-on-d="#1a1206"><i style="--p:#0F6647;--d:#E8A845"></i>Padrão Regem</button>
+    <button type="button" aria-pressed="false" data-p="#6B2BD9" data-d="#FF5C8A" data-on-d="#1a0710"><i style="--p:#6B2BD9;--d:#FF5C8A"></i>Roxo + rosa</button>
+    <button type="button" aria-pressed="false" data-p="#E4572E" data-d="#FFD166" data-on-d="#1a1206"><i style="--p:#E4572E;--d:#FFD166"></i>Laranja + creme</button>
+  </div>
+</header>
+
+<div class="mk-telas">
+  <!-- 1. CAPA -->
+  <div class="mk-cel">
+    <h2>1 · Capa (primeira impressão)</h2>
+    <div class="mk-frame"><div class="mk-scroll"><main class="vg">
+      <div class="hero">
+        <div class="logo">MB</div>
+        <span class="pill"><span class="pulse"></span>Estamos contratando</span>
+        <h1>Venha fazer parte do <em>nosso time</em></h1>
+        <p>Ambiente jovem, crescimento de verdade e a melhor brasa da cidade.</p>
+        <div class="stats">
+          <div class="stat"><b>4</b><span>vagas abertas</span></div>
+          <div class="stat"><b>6 min</b><span>para se inscrever</span></div>
+          <div class="stat"><b>12x36</b><span>ou 5x2</span></div>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="sec-tit"><h2>Vagas abertas</h2><small>salário base</small></div>
+        <div class="vagas">
+          <div class="vaga"><span class="ic">🔥</span><div><b>Chapeiro</b><small>Cozinha · 12x36</small></div><div class="sal">R$ 2.100<span>/mês</span></div></div>
+          <div class="vaga"><span class="ic">🔪</span><div><b>Auxiliar de cozinha</b><small>Cozinha · 5x2</small></div><div class="sal">R$ 1.800<span>/mês</span></div></div>
+          <div class="vaga"><span class="ic">🙋</span><div><b>Atendente</b><small>Salão e caixa</small></div><div class="sal">R$ 1.750<span>/mês</span></div></div>
+          <div class="vaga"><span class="ic">⭐</span><div><b>Supervisor<span class="tag-lid">Liderança</span></b><small>Turno da noite</small></div><div class="sal">R$ 2.800<span>/mês</span></div></div>
+        </div>
+
+        <div class="sec-tit"><h2>Benefícios</h2></div>
+        <div class="benef">
+          <div class="bf"><span class="e">🍔</span><b>Refeição no turno</b></div>
+          <div class="bf"><span class="e">🚌</span><b>Vale-transporte</b></div>
+          <div class="bf"><span class="e">💰</span><b>Gorjeta dividida</b></div>
+          <div class="bf"><span class="e">📈</span><b>Plano de crescimento</b></div>
+        </div>
+
+        <div class="sec-tit"><h2>Como funciona</h2></div>
+        <ol class="passos">
+          <li><span class="n">1</span><div><b>Responda 7 etapas rápidas</b><span>Leva uns 6 minutos, direto do celular.</span></div></li>
+          <li><span class="n">2</span><div><b>A gerência analisa</b><span>Todas as fichas são lidas.</span></div></li>
+          <li><span class="n">3</span><div><b>Chamamos no WhatsApp</b><span>Se o seu perfil combinar com a vaga.</span></div></li>
+        </ol>
+      </div>
+
+      <div class="cta-bar">
+        <button type="button" class="cta">Quero me candidatar <span class="seta">→</span></button>
+        <p class="mini">🔒 Seus dados ficam só com Mister Burguer, para a seleção.</p>
+      </div>
+    </main></div></div>
+  </div>
+
+  <!-- 2. FICHA -->
+  <div class="mk-cel">
+    <h2>2 · Ficha (etapa 2 de 7)</h2>
+    <div class="mk-frame"><div class="mk-scroll"><main class="vg">
+      <div class="f-top">
+        <div class="f-linha">
+          <div class="anel" style="--pct:28.6"><span>2/7</span></div>
+          <div><small>Mister Burguer · Ficha</small><h2>A vaga</h2></div>
+        </div>
+        <p class="f-sub">Escolha as funções e os setores em que você se sai bem.</p>
+      </div>
+      <div class="f-corpo">
+        <p class="perg">Quais funções te interessam?</p>
+        <p class="dica">Marque quantas quiser.</p>
+        <div class="opcoes" role="group" aria-label="Funções">
+          <button type="button" class="op" aria-pressed="true"><span class="ic">🔥</span><span><b>Chapeiro</b><small>R$ 2.100,00</small></span><span class="ck">✓</span></button>
+          <button type="button" class="op" aria-pressed="false"><span class="ic">🔪</span><span><b>Auxiliar de cozinha</b><small>R$ 1.800,00</small></span><span class="ck">✓</span></button>
+          <button type="button" class="op" aria-pressed="true"><span class="ic">🙋</span><span><b>Atendente</b><small>R$ 1.750,00</small></span><span class="ck">✓</span></button>
+          <button type="button" class="op" aria-pressed="false"><span class="ic">⭐</span><span><b>Supervisor</b><small>R$ 2.800,00 · liderança</small></span><span class="ck">✓</span></button>
+        </div>
+        <p class="perg">Em quais setores você tem facilidade?</p>
+        <div class="chips" role="group" aria-label="Setores">
+          <button type="button" class="chip" aria-pressed="true">Chapa</button>
+          <button type="button" class="chip" aria-pressed="false">Fritadeira</button>
+          <button type="button" class="chip" aria-pressed="true">Montagem</button>
+          <button type="button" class="chip" aria-pressed="false">Caixa</button>
+          <button type="button" class="chip" aria-pressed="false">Salão</button>
+          <button type="button" class="chip" aria-pressed="false">Ainda não tenho prática</button>
+        </div>
+        <div class="campo"><label for="mk-x">Exemplo de campo de texto</label><input id="mk-x" placeholder="Seu nome completo"></div>
+      </div>
+      <div class="f-rodape">
+        <button type="button" class="sec-btn">←</button>
+        <button type="button" class="cta">Continuar <span class="seta">→</span></button>
+      </div>
+    </main></div></div>
+  </div>
+
+  <!-- 3. RECEBIDA -->
+  <div class="mk-cel">
+    <h2>3 · Ficha recebida</h2>
+    <div class="mk-frame"><div class="mk-scroll"><main class="vg">
+      <section class="ok">
+        <div class="conf" aria-hidden="true" id="conf"></div>
+        <div class="selo"><span>MB</span><b class="ck">✓</b></div>
+        <h2>Pronto, Ana!</h2>
+        <p>Sua ficha chegou. Guarde o número da inscrição:</p>
+        <div class="prot" aria-label="Inscrição 482-913"><span>4</span><span>8</span><span>2</span><span class="h">–</span><span>9</span><span>1</span><span>3</span></div>
+        <div class="card"><h3>O que acontece agora</h3>
+          <ol class="passos">
+            <li><span class="n">1</span><div><b>A gerência analisa as fichas</b></div></li>
+            <li><span class="n">2</span><div><b>Chamamos no WhatsApp</b><span>(32) 99999-0000, se o perfil combinar.</span></div></li>
+            <li><span class="n">3</span><div><b>Ficha guardada por 6 meses</b><span>Para as próximas vagas.</span></div></li>
+          </ol>
+        </div>
+        <div class="card"><h3>🤝 Conhece alguém que quer trabalhar aqui?</h3>
+          <span style="color:var(--t2);font-size:14.5px">Mande o link das vagas para um amigo.</span>
+          <a class="zap" href="#">Compartilhar no WhatsApp</a>
+        </div>
+      </section>
+    </main></div></div>
+  </div>
+</div>
+
+<div class="mk-notas">
+  <section><h3>O que muda</h3><ul>
+    <li>Fundo escuro com a luz da cor principal da loja (impacto logo ao abrir).</li>
+    <li>Título grande com a palavra de destaque em degradê; selo "Estamos contratando" com pontinho pulsando.</li>
+    <li>Números rápidos (vagas, minutos, escalas) logo na capa.</li>
+    <li>Vagas em lista com ícone, escala e salário grande na cor de destaque.</li>
+    <li>Botão principal fixo no rodapé, com brilho passando.</li>
+  </ul></section>
+  <section><h3>Na ficha</h3><ul>
+    <li>Anel de progresso (2/7) no lugar das barrinhas.</li>
+    <li>Cada etapa entra deslizando.</li>
+    <li>Cartões de escolha com o check à direita; chips marcados ficam cheios na cor de destaque.</li>
+    <li>Campos maiores com brilho de foco na cor da loja.</li>
+  </ul></section>
+  <section><h3>Continua igual</h3><ul>
+    <li>As 7 etapas, as perguntas, a validação e o envio — só muda o visual (CSS e marcação).</li>
+    <li>As cores vêm da loja; o contraste do texto continua calculado (WCAG).</li>
+    <li>Acessibilidade: aria-pressed, foco visível, "reduzir movimento" desliga as animações.</li>
+  </ul></section>
+</div>
+
+<script>
+// troca das cores da loja (só no mockup)
+document.querySelectorAll('.mk-temas button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.mk-temas button').forEach(x => x.setAttribute('aria-pressed', x === b));
+  document.querySelectorAll('.vg').forEach(v => { v.style.setProperty('--p', b.dataset.p); v.style.setProperty('--d', b.dataset.d); v.style.setProperty('--on-d', b.dataset.onD); });
+}));
+// escolhas clicáveis
+document.querySelectorAll('.op, .chip').forEach(b => b.addEventListener('click', () => b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') !== 'true')));
+// confete
+const c = document.getElementById('conf'), cores = ['var(--d)', 'var(--p)', '#fff', '#3ee08f'];
+for (let i = 0; i < 26; i++) { const e = document.createElement('i'); e.style.left = Math.random() * 100 + '%'; e.style.background = cores[i % 4]; e.style.animationDelay = (Math.random() * 3.2) + 's'; e.style.animationDuration = (2.6 + Math.random() * 1.6) + 's'; c.appendChild(e); }
+</script>
+</body>
+</html>
