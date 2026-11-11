@@ -6522,6 +6522,46 @@
         }
       }
     },
+    "/api/v1/producao/kds/rota": {
+      "get": {
+        "operationId": "ProducaoPedidoController_rotaKds",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "put": {
+        "operationId": "ProducaoPedidoController_salvarRotaKds",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/producao/kds/rota/simular": {
+      "get": {
+        "operationId": "ProducaoPedidoController_simularRotaKds",
+        "parameters": [
+          {
+            "name": "produtoId",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/producao/kds/{id}/produtos": {
       "get": {
         "operationId": "ProducaoPedidoController_produtosKds",
@@ -12636,6 +12676,26 @@
         }
       }
     },
+    "/api/v1/kds/alertas/{id}/testar": {
+      "post": {
+        "operationId": "KdsAlertaController_testar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/kds/alertas/disparar": {
       "post": {
         "operationId": "KdsAlertaController_disparar",
@@ -15483,6 +15543,24 @@
     "/api/v1/catalogo/conferencia/foto-99": {
       "post": {
         "operationId": "ConferenciaController_mandarFotoA99",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/catalogo/conferencia/foto-ifood": {
+      "post": {
+        "operationId": "ConferenciaController_mandarFotoAoIfood",
         "parameters": [],
         "responses": {
           "200": {

@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Gestão do catálogo: "Mandar esta foto ao iFood" (R3, fase F6b; SEM migration; não mexe no `sync-daemon`).** Na NUVEM
+  com o merge: a rota `POST catalogo/conferencia/foto-ifood` chama a porta do Orzuni na hora (`item_foto_definir`, com
+  `catalogo.escrever` na ligação da loja) e a gaveta de editar ganha o botão, com a medida da foto. **No `.zip` 1.30.13:** o
+  mesmo na tela do servidor da loja, que pede o envio à nuvem pela rota do token de sync (ação `foto-ifood`).
+
 - **Rota da cozinha (onda 2 da auditoria do KDS; mig 410 — coluna nova `kds_cor_config.rota`, numa tabela que já
   sincroniza; não mexe no `sync-daemon`).** Na NUVEM com o merge: Configurações › Rota da cozinha (ver a rota, editar a
   ordem, "Por onde o pedido passa?") para a loja sem servidor; com o servidor da loja ligado, a nuvem só mostra. **No

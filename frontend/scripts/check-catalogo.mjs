@@ -574,6 +574,11 @@ try {
     assert.equal(cf.situacaoDaFoto(true, 'https://a/1.jpg'), null);
     assert.equal(cf.situacaoDaFoto(true, undefined), null);
     assert.deepEqual([cf.medidaParaA99(800, 600), cf.medidaParaA99(100, 600), cf.medidaParaA99(3200, 1000), cf.medidaParaA99(150, 3000)], [true, false, false, true]);
+    // F6b: o iFood pede quadrada (folga de 2% do maior lado) e 300 px ou mais — os mesmos limites de `orzuni-foto.regras.ts`.
+    assert.deepEqual(
+      [cf.medidaParaOIfood(800, 800), cf.medidaParaOIfood(800, 815), cf.medidaParaOIfood(800, 830), cf.medidaParaOIfood(800, 600), cf.medidaParaOIfood(299, 299), cf.medidaParaOIfood(300, 300)],
+      [true, true, false, false, false, true],
+    );
   });
   caso('F5: os números digitados × os das vendas; sem vendas, os exemplos; e o que não dá para pagar', () => {
     const t = JSON.parse(JSON.stringify(TAXAS));

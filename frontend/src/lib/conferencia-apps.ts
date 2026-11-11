@@ -371,6 +371,12 @@ export function situacaoDaFoto(temNoRegem: boolean, noApp: string | null | undef
 /** A 99 pede de 150 a 3000 px de lado (protótipo, "Fotos"). */
 export const medidaParaA99 = (w: number, h: number) => Math.min(w, h) >= 150 && Math.max(w, h) <= 3000;
 
+/**
+ * O iFood (pela porta do Orzuni, R3 F6b): quadrada (folga de 2% do maior lado) e com 300 px de lado ou mais — a MESMA
+ * regra do servidor (`orzuni-foto.regras.ts`, V74), que confere de novo pelos bytes antes de mandar.
+ */
+export const medidaParaOIfood = (w: number, h: number) => Math.min(w, h) >= 300 && Math.abs(w - h) <= 0.02 * Math.max(w, h);
+
 /** "Lido do iFood hoje às 14:30" / "em 10/11 às 09:12" (hora de Brasília). */
 export function quandoLido(iso: string | null, agora: Date = new Date()): string {
   if (!iso) return 'ainda não lido';
