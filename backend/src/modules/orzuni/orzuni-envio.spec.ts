@@ -167,6 +167,11 @@ descrever('iFood pelo Orzuni — fila e envio (Postgres real, porta falsa)', () 
     const r403 = (await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(readFileSync(MIGRATION_403, 'utf8'))))) as unknown as any[];
     const conferencia403 = (Array.isArray(r403) ? r403[r403.length - 1] : r403).rows;
     if (conferencia403[0]?.ok !== true) throw new Error(`conferência da 403: ${JSON.stringify(conferencia403)}`);
+    // 406 (R3 F4b): a guarda do "ligar" no gatilho do produto. Aplicada aqui também porque o banco do CI é dividido entre
+    // as specs: sem ela, a 400 desta spec trocaria a função no meio do teste da conferência (ERR-273).
+    await repetirNaCorridaDeCatalogo(() =>
+      pool.query(comTravaDaEmpresa(readFileSync(join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '406_ligar_produto_ao_app.sql'), 'utf8'))),
+    );
     // `edge_status` é só da nuvem; outras specs a criam com o mínimo — aqui ela ganha as colunas que a liberação lê.
     await pool
       .query(`create table if not exists edge_status (id uuid primary key default gen_random_uuid(), tenant_id uuid,

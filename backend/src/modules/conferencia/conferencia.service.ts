@@ -530,6 +530,73 @@ export class ConferenciaService {
     return { ok: true, mudou: feito.length > 0 };
   }
 
+  /**
+   * "Ligar a um produto" (linha "só no app") e "Corrigir o código" (linha "só no Regem": o código de um item do app) — R3
+   * F4b, decisão 4: o produto passa a ter o código do item do app e COPIA o que o app tem — "Está no <app>", o preço e a
+   * pausa daquele app. Nada vai ao app por isso: a transação leva a marca `regem.ligando_ao_app` e o gatilho daquele app
+   * (mig 406) não enfileira. O código vale para todos os canais: o gatilho do OUTRO app segue como sempre. O código é
+   * único por empresa (índice `idx_produto_codigo`): quem pegou o mesmo código no mesmo instante recebe 409 com o motivo.
+   */
+  async ligar(tenantId: string, unidade: string | null, dto: any, ator: Ator) {
+    await this.exigirLigada(tenantId);
+    if (ehServidorLocal()) return this.agirPelaNuvem(tenantId, 'ligar', unidade, dto, ator);
+    const chave = this.chaveDoPedido(dto?.chave);
+    const produtoId = typeof dto?.produtoId === 'string' && UUID.test(dto.produtoId) ? dto.produtoId : null;
+    if (!produtoId) throw new BadRequestException('Escolha o produto do Regem.');
+    const { canal, loja, linhas } = await this.contextoDaAcao(tenantId, unidade, { ...dto, tipo: 'item' });
+    const l = linhas.find((x) => x.chave === chave);
+    if (!l || l.situacao !== 'soApp' || !l.pdv)
+      throw new ConflictException('Só o item que está só no app (com código) se liga a um produto do Regem — leia de novo.');
+    const marca = sql.raw(canal === 'ifood' ? 'no_ifood' : 'na_99');
+    const coluna = sql.raw(canal === 'ifood' ? 'preco_ifood' : 'preco_99');
+    // Um preço só no app vem para o Regem; sem preço (ou preços diferentes nos grupos) o do Regem fica como está.
+    const precoDoApp = l.precos.length === 1 ? l.precos[0].toFixed(2) : null;
+    let antes: any;
+    try {
+      antes = await this.db.transaction(async (tx: any) => {
+        await tx.execute(sql`select set_config('regem.ligando_ao_app', ${canal}, true)`);
+        const r: any = await tx.execute(sql`
+          select id, nome, codigo, ${coluna}::text as preco, ${marca} as marcado,
+                 jsonb_exists(coalesce(canais_pausados, '[]'::jsonb), ${canal}) as pausado
+            from produto
+           where id = ${produtoId} and tenant_id = ${tenantId} and deleted_at is null
+             and (unidade_id = ${loja.id} or unidade_id is null)
+           for update`);
+        const p = (r.rows ?? r)[0];
+        if (!p) throw new NotFoundException('Produto não encontrado nesta loja.');
+        await tx.execute(sql`
+          update produto
+             set codigo = ${l.pdv},
+                 ${marca} = true,
+                 ${coluna} = coalesce(${precoDoApp}::numeric, ${coluna}),
+                 canais_pausados = case
+                   when not ${l.pausado === true} then coalesce(canais_pausados, '[]'::jsonb) - ${canal}::text
+                   when jsonb_exists(coalesce(canais_pausados, '[]'::jsonb), ${canal}) then canais_pausados
+                   else coalesce(canais_pausados, '[]'::jsonb) || to_jsonb(${canal}::text) end,
+                 updated_at = now()
+           where id = ${produtoId}`);
+        return p;
+      });
+    } catch (e: any) {
+      if (e?.code === '23505' || e?.cause?.code === '23505')
+        throw new ConflictException(`O código ${l.pdv} já é de outro produto do Regem — leia ${canal === 'ifood' ? 'o iFood' : 'a 99'} de novo.`);
+      throw e;
+    }
+    await this.auditar(tenantId, loja, ator, 'conferencia_ligou_ao_app', {
+      canal,
+      id: produtoId,
+      nome: antes.nome,
+      item: l.nome,
+      codigo: { de: antes.codigo ?? null, para: l.pdv },
+      preco: { de: numeroOuNulo(antes.preco), para: precoDoApp == null ? numeroOuNulo(antes.preco) : Number(precoDoApp) },
+      pausado: { de: antes.pausado === true, para: l.pausado === true },
+    });
+    return {
+      ok: true,
+      frase: `"${antes.nome}" está ligado a "${l.nome}" ${canal === 'ifood' ? 'do iFood' : 'da 99'} (código ${l.pdv}). Nada mudou ${canal === 'ifood' ? 'no iFood' : 'na 99'}.`,
+    };
+  }
+
   private async auditar(tenantId: string, loja: Loja, ator: Ator, acao: string, detalhe: Record<string, unknown>) {
     await this.auditoria.registrar({
       tenantId,
@@ -569,6 +636,8 @@ export class ConferenciaService {
         return this.mandarPrecoAoApp(tenantId, unidade, dto, ator);
       case 'tirar-do-app':
         return this.tirarDoApp(tenantId, unidade, dto, ator);
+      case 'ligar':
+        return this.ligar(tenantId, unidade, dto, ator);
       default:
         throw new NotFoundException('Ação desconhecida.');
     }

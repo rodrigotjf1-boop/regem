@@ -402,6 +402,67 @@ try {
     assert.equal(cf.quandoLido(null, agora), 'ainda não lido');
   });
 
+  // ── F4b: criar no Regem, ligar, corrigir o código ─────────────────────────────────────────────────────────
+  const APPL = L({ chave: 'pdv:3000', nome: 'Combo do app', pdv: '3000', precos: [59.9], regem: null, situacao: 'soApp', pausado: false });
+  caso('F4b: ligar diz antes o que muda — o código de → para, quem usava o antigo, o outro app, o preço e a pausa de lá', () => {
+    const comCodigo = cf.efeitoDeLigar({ id: 'p', nome: 'X-Bacon', codigo: '2051', na99: true }, APPL, 'ifood');
+    assert.equal(comCodigo.tom, 'critico');
+    assert.deepEqual(comCodigo.frases.slice(0, 3), [
+      'O código de "X-Bacon" passa de 2051 para 3000.',
+      'Os pedidos que chegarem com o código 2051 (dos apps, do totem ou de outro canal) não ligam mais a este produto.',
+      'Na 99, ele passa a ligar ao item de código 3000 de lá.',
+    ]);
+    assert.match(comCodigo.frases[3], /^O preço do iFood no Regem fica o de lá \(R\$\s59,90\): nada muda no iFood\.$/);
+    const sem = cf.efeitoDeLigar({ id: 'p', nome: 'Combo da casa', codigo: '' }, { ...APPL, pausado: true }, '99food');
+    assert.equal(sem.tom, 'info');
+    assert.equal(sem.frases[0], '"Combo da casa" ganha o código 3000 e passa a ser marcado "Está na 99": a venda pela 99 baixa o estoque dele.');
+    assert.match(sem.frases[1], /e ele fica pausado, como lá: nada muda na 99\.$/);
+  });
+  caso('F4b: "Corrigir o código" só aceita o código de um item "só no app"; diz qual é e por que não', () => {
+    const itens = [
+      APPL,
+      L({ chave: 'pdv:2051', nome: 'X-Bacon', pdv: '2051', situacao: 'igual' }),
+      L({ chave: 'pdv:2060|a', nome: 'Smash', pdv: '2060', situacao: 'naoLiga', motivo: 'repetidoNoApp' }),
+      L({ chave: 'pdv:7', nome: 'Ignorado', pdv: '7', situacao: 'ignorada', regem: null }),
+      L({ chave: 'regem:p9', nome: 'Hot dog', pdv: '2080', situacao: 'soRegem' }),
+    ];
+    assert.match(cf.itemDoCodigo(itens, ' 3000 ', 'ifood').frase, /^É "Combo do app" no iFood \(R\$\s59,90\)\.$/);
+    assert.equal(cf.itemDoCodigo(itens, '3000', 'ifood').linha.chave, 'pdv:3000');
+    assert.equal(cf.itemDoCodigo(itens, '2051', 'ifood').linha, null);
+    assert.match(cf.itemDoCodigo(itens, '2051', 'ifood').frase, /já liga a "X-Salada" do Regem/);
+    assert.match(cf.itemDoCodigo(itens, '2060', 'ifood').frase, /código está repetido lá/);
+    assert.match(cf.itemDoCodigo(itens, '7', 'ifood').frase, /desfaça o "Ignorar" antes/);
+    assert.equal(cf.itemDoCodigo(itens, '2080', 'ifood').frase, 'Nenhum item do iFood tem esse código.');
+    assert.equal(cf.itemDoCodigo(itens, '', '99food').frase, 'Digite o código: a tela diz qual item da 99 ele é.');
+  });
+  caso('F4b: "Criar no Regem" — o pedido com o código e o preço do app, o "Onde vende", a pausa e a baixa; e o que falta', () => {
+    // A categoria do Regem com o nome da do app (sem acento nem caixa) já vem escolhida; sem ela, o servidor recusa.
+    const cats = [{ id: 'c1', nome: 'Burgers' }, { id: 'c2', nome: 'Combos da Casa' }];
+    assert.equal(cf.formDeCriar({ ...APPL, grupos: ['COMBOS DA CASA'] }, 'ifood', cats).categoriaId, 'c2');
+    const semCat = cf.formDeCriar({ ...APPL, grupos: ['Outra'] }, 'ifood', cats);
+    assert.equal(semCat.categoriaId, '');
+    assert.equal(cf.pedidoDeCriar({ ...semCat, baixa: 'nada' }, APPL, 'ifood', { comIfood: true, com99: false }).erro, 'Escolha a categoria no Regem: ela organiza o produto no cardápio digital e no balcão.');
+    const f = { ...cf.formDeCriar({ ...APPL, pausado: true }, 'ifood'), categoriaId: 'c1' };
+    assert.deepEqual([f.nome, f.precoRegem, f.ondeRegem, f.ondeIfood, f.onde99, f.baixa], ['Combo do app', '59,90', false, true, false, 'ficha']);
+    assert.equal(cf.pedidoDeCriar(f, APPL, 'ifood', { comIfood: true, com99: true }).erro, 'Escolha a ficha técnica (ou outra forma de baixar o estoque).');
+    const combo = { ...f, baixa: 'combo', combo: [{ componenteProdutoId: 'p1', quantidade: '2' }, { componenteProdutoId: '', quantidade: '1' }], ondeRegem: true, precoRegem: '62,5' };
+    const r = cf.pedidoDeCriar(combo, { ...APPL, pausado: true }, 'ifood', { comIfood: true, com99: true });
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.corpo, {
+      nome: 'Combo do app', codigo: '3000', categoriaId: 'c1', tipo: 'combo', precoVenda: 62.5, fichaId: null, itemId: null, itemUnidade: null,
+      controlaEstoque: true, combo: [{ componenteProdutoId: 'p1', quantidade: 2 }], disponivelBalcao: true, disponivelCardapio: true,
+      canaisPausados: ['ifood'], noIfood: true, precoIfood: '59.90', na99: false, preco99: null,
+    });
+    const nada = cf.pedidoDeCriar({ ...f, baixa: 'nada', precoRegem: '' }, APPL, '99food', { comIfood: false, com99: true });
+    assert.deepEqual([nada.corpo.controlaEstoque, nada.corpo.precoVenda, nada.corpo.disponivelBalcao, 'noIfood' in nada.corpo], [false, 0, false, false]);
+    assert.equal(cf.pedidoDeCriar({ ...f, baixa: 'nada', ondeRegem: true, precoRegem: '' }, APPL, 'ifood', { comIfood: true, com99: false }).erro, 'Digite o preço no Regem (ex.: 29,90).');
+    assert.equal(cf.pedidoDeCriar({ ...f, nome: '  ' }, APPL, 'ifood', { comIfood: true, com99: false }).erro, 'Dê um nome ao produto.');
+    assert.equal(cf.pedidoDeCriar({ ...f, baixa: 'item' }, APPL, 'ifood', { comIfood: true, com99: false }).erro, 'Escolha o item de estoque (ou outra forma de baixar o estoque).');
+    const item = cf.pedidoDeCriar({ ...f, baixa: 'item', itemId: 'i1', itemUnidade: 'fardo' }, APPL, 'ifood', { comIfood: true, com99: false });
+    assert.deepEqual([item.corpo.itemId, item.corpo.itemUnidade, item.corpo.fichaId], ['i1', 'fardo', null]);
+    assert.deepEqual([cf.precoDigitado('R$ 29,90'), cf.precoDigitado('29.9'), cf.precoDigitado('abc'), cf.precoDigitado('1,234')], [29.9, 29.9, null, null]);
+  });
+
   console.log(`\ncheck:catalogo — ${n} grupos de casos, todos certos.`);
 } finally {
   rmSync(tmp, { recursive: true, force: true });

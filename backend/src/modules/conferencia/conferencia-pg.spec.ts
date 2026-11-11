@@ -75,6 +75,10 @@ descrever('Conferir com os apps (Postgres real, Orzuni e 99 falsos)', () => {
     const r = (await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(readFileSync(MIG('405_conferencia_com_os_apps.sql'), 'utf8'))))) as unknown as any[];
     const conferencia = (Array.isArray(r) ? r[r.length - 1] : r).rows;
     if (conferencia.length !== 4 || conferencia.some((l: any) => l.ok !== true)) throw new Error(`conferência da 405: ${JSON.stringify(conferencia)}`);
+    // 406 (R3 F4b): a guarda dos gatilhos do produto ao ligar — a conferência tem de vir toda `ok`.
+    const r406 = (await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(readFileSync(MIG('406_ligar_produto_ao_app.sql'), 'utf8'))))) as unknown as any[];
+    const conferencia406 = (Array.isArray(r406) ? r406[r406.length - 1] : r406).rows;
+    if (conferencia406.length !== 2 || conferencia406.some((l: any) => l.ok !== true)) throw new Error(`conferência da 406: ${JSON.stringify(conferencia406)}`);
   });
 
   afterAll(async () => {
@@ -358,6 +362,58 @@ descrever('Conferir com os apps (Postgres real, Orzuni e 99 falsos)', () => {
     expect(situacoes((await svc.conferir(e.t, null, 'ifood', false)).itens)['Combo do app']).toBe('soApp');
     expect(auditados.map((a) => a.acao)).toEqual(['conferencia_tirou_do_app', 'conferencia_ignorou', 'conferencia_desfez_ignorar']);
     await expect(svc.ignorar(e.t, null, { canal: 'ifood', tipo: 'item', chave: 'qualquer' }, gestor)).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('ligar a um produto: o produto ganha o código do app e copia o "Está no", o preço e a pausa — nada vai a este app', async () => {
+    const e = await empresa({ lojas: 2 });
+    cardapioIfood.itens.push({ pdv: '2090', nome: 'Batata do app', categoria: 'Porções', preco: 18, promo: null, status: 'pausado', ordem: 3 });
+    const semCodigo = (await q(`insert into produto (tenant_id, nome, preco_venda) values ($1, 'Combo da casa', 50) returning id`, [e.t]))[0].id;
+    const daOutraLoja = (await q(`insert into produto (tenant_id, unidade_id, nome, preco_venda) values ($1, $2, 'Da loja 2', 10) returning id`, [e.t, e.lojas[1]]))[0].id;
+    await svc.conferir(e.t, e.lojas[0], 'ifood', false);
+    await q(`delete from orzuni_envio where tenant_id = $1`, [e.t]);
+    await q(`delete from food99_envio where tenant_id = $1`, [e.t]);
+
+    // "Ligar a um produto": o produto sem código vira o combo do app (código, "Está no iFood", preço; não pausado lá).
+    const r = await svc.ligar(e.t, e.lojas[0], { canal: 'ifood', chave: 'pdv:3000', produtoId: semCodigo }, gestor);
+    expect(r.frase).toBe('"Combo da casa" está ligado a "Combo do app" do iFood (código 3000). Nada mudou no iFood.');
+    expect(await q(`select codigo, no_ifood, preco_ifood::text as p, canais_pausados from produto where id = $1`, [semCodigo])).toEqual([
+      { codigo: '3000', no_ifood: true, p: '59.90', canais_pausados: [] },
+    ]);
+    // "Corrigir o código": o hot dog (só no Regem, 2080) vira a batata do app, que está PAUSADA lá — a pausa vem junto.
+    await svc.ligar(e.t, e.lojas[0], { canal: 'ifood', chave: 'pdv:2090', produtoId: e.p.hotdog }, gestor);
+    expect(await q(`select codigo, preco_ifood::text as p, canais_pausados from produto where id = $1`, [e.p.hotdog])).toEqual([
+      { codigo: '2090', p: '18.00', canais_pausados: ['ifood'] },
+    ]);
+    // Nada foi à fila do iFood (a marca da transação cala o gatilho dele — mig 406).
+    expect(await q(`select tipo from orzuni_envio where tenant_id = $1`, [e.t])).toEqual([]);
+    const linhas = (await svc.conferir(e.t, e.lojas[0], 'ifood', false)).itens;
+    expect(situacoes(linhas)).toMatchObject({ 'Combo do app': 'igual', 'Batata do app': 'igual' });
+    expect(linhas.find((x) => x.nome === 'Hot dog')).toBeUndefined();
+    expect(auditados.filter((a) => a.acao === 'conferencia_ligou_ao_app').map((a) => a.detalhe)).toEqual([
+      expect.objectContaining({ canal: 'ifood', nome: 'Combo da casa', codigo: { de: null, para: '3000' }, preco: { de: null, para: 59.9 }, pausado: { de: false, para: false } }),
+      expect.objectContaining({ nome: 'Hot dog', codigo: { de: '2080', para: '2090' }, preco: { de: 19.9, para: 18 }, pausado: { de: false, para: true } }),
+    ]);
+
+    // O código vale para todos os canais: o X-Bacon (também na 99) ligado a outro item do iFood muda de código, e o gatilho
+    // da 99 segue como sempre (o produto passa a ligar ao item da 99 com o código novo).
+    cardapioIfood.itens.push({ pdv: '4000', nome: 'Bacon duplo do app', categoria: 'Burgers', preco: 49.9, promo: null, status: 'no_ar', ordem: 4 });
+    await q(`update conferencia_app_leitura set lido_em = now() - interval '1 minute' where tenant_id = $1`, [e.t]);
+    await svc.conferir(e.t, e.lojas[0], 'ifood', true);
+    await svc.ligar(e.t, e.lojas[0], { canal: 'ifood', chave: 'pdv:4000', produtoId: e.p.xbacon }, gestor);
+    expect(await q(`select tipo from orzuni_envio where tenant_id = $1`, [e.t])).toEqual([]);
+    expect((await q(`select tipo from food99_envio where tenant_id = $1 order by tipo`, [e.t])).map((x) => x.tipo)).toEqual(['preco_item', 'status_item']);
+
+    // Recusas: a linha que não está "só no app", o produto de outra loja, sem produto.
+    await expect(svc.ligar(e.t, e.lojas[0], { canal: 'ifood', chave: 'pdv:2052', produtoId: semCodigo }, gestor)).rejects.toMatchObject({ status: 409 });
+    cardapioIfood.itens.push({ pdv: '5000', nome: 'Novo do app', categoria: 'Burgers', preco: 10, promo: null, status: 'no_ar', ordem: 5 });
+    await q(`update conferencia_app_leitura set lido_em = now() - interval '1 minute' where tenant_id = $1`, [e.t]);
+    await svc.conferir(e.t, e.lojas[0], 'ifood', true);
+    await expect(svc.ligar(e.t, e.lojas[0], { canal: 'ifood', chave: 'pdv:5000', produtoId: daOutraLoja }, gestor)).rejects.toMatchObject({ status: 404 });
+    await expect(svc.ligar(e.t, e.lojas[0], { canal: 'ifood', chave: 'pdv:5000' }, gestor)).rejects.toMatchObject({ status: 400 });
+    // Outro produto ganhou o código depois da leitura: a linha deixa de estar "só no app" e a ligação é recusada.
+    await q(`insert into produto (tenant_id, nome, codigo, preco_venda) values ($1, 'Pegou o 5000', '5000', 10)`, [e.t]);
+    await expect(svc.ligar(e.t, e.lojas[0], { canal: 'ifood', chave: 'pdv:5000', produtoId: semCodigo }, gestor)).rejects.toMatchObject({ status: 409 });
+    expect((await q(`select codigo from produto where id = $1`, [semCodigo]))[0].codigo).toBe('3000');
   });
 
   it('vindo do servidor da loja (na nuvem): quem agiu tem de ser da gestão e ativo; o servidor de uma loja não confere outra', async () => {
