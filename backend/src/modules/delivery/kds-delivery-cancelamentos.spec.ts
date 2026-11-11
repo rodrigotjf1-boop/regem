@@ -728,4 +728,103 @@ descrever('KDS × delivery: cancelamentos, pronto parcial, voltar e perda (Postg
       expect(await cartoesDe(outro.comandaId)).toEqual(['entregue']);
     });
   });
+
+  // ══════════════════════════════════════════════════════════════════════════════════════════
+  // Auditoria do KDS (11/11/2026, onda 1, PR 2b): o aceite e o avanço do pedido.
+  describe('Aceite e avanço do pedido: pagamento pendente e corridas', () => {
+    const vendasDaLoja = async (l: Loja) => Number((await q(`select count(*)::int as n from comanda where tenant_id = $1`, [l.t]))[0].n);
+
+    it('dois aceites ao mesmo tempo: UMA venda, UM cartão na cozinha', async () => {
+      const l = await loja();
+      const p = await chegou(l);
+      const r = await Promise.allSettled([delivery.aceitar(l.t, l.gestor, p.id), delivery.aceitar(l.t, l.gestor, p.id)]);
+      expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+      expect(String((r.find((x) => x.status === 'rejected') as any)?.reason?.message)).toMatch(/já foi aceito/);
+      expect(await vendasDaLoja(l)).toBe(1);
+      const ped = await pedido(p.id);
+      expect(ped.status).toBe('confirmado');
+      expect((await cards(ped.comanda_id)).length).toBe(1);
+    });
+
+    it('Pix/cartão online ainda não pago não vai à cozinha (nem pelo botão); depois de pago, vai', async () => {
+      const l = await loja();
+      const p = await chegou(l, { canal: 'cardapio' });
+      await q(`update pedido_externo set pago = false, status_pagamento = 'aguardando' where id = $1`, [p.id]);
+      await expect(delivery.aceitar(l.t, l.gestor, p.id)).rejects.toThrow(/espera o pagamento online/);
+      expect(await pedido(p.id)).toMatchObject({ status: 'novo', comanda_id: null });
+      expect(await vendasDaLoja(l)).toBe(0);
+      await q(`update pedido_externo set pago = true, status_pagamento = 'aprovado' where id = $1`, [p.id]);
+      await delivery.aceitar(l.t, l.gestor, p.id);
+      expect((await pedido(p.id)).status).toBe('confirmado');
+    });
+
+    it('a venda que falha devolve a reserva: o pedido segue "novo" e aceitável', async () => {
+      const l = await loja();
+      const p = await chegou(l);
+      const original = vendas.venderExterno;
+      (vendas as any).venderExterno = async () => {
+        throw new Error('falha de teste na venda');
+      };
+      try {
+        await expect(delivery.aceitar(l.t, l.gestor, p.id)).rejects.toThrow('falha de teste na venda');
+      } finally {
+        (vendas as any).venderExterno = original;
+      }
+      expect(await pedido(p.id)).toMatchObject({ status: 'novo', comanda_id: null });
+      await delivery.aceitar(l.t, l.gestor, p.id);
+      expect((await pedido(p.id)).status).toBe('confirmado');
+    });
+
+    it('o canal cancela enquanto o pedido é aceito: a venda que acabou de nascer é desfeita', async () => {
+      const l = await loja();
+      const p = await chegou(l);
+      const original = vendas.venderExterno;
+      (vendas as any).venderExterno = async (...a: any[]) => {
+        const v = await original.apply(vendas, a as any);
+        await delivery.refletirStatusExterno(l.t, 'ifood', p.externalId, 'cancelado'); // chega no meio do aceite
+        return v;
+      };
+      let comandaDaVenda: string | null = null;
+      try {
+        await expect(delivery.aceitar(l.t, l.gestor, p.id)).rejects.toThrow(/cancelado enquanto era aceito/);
+        comandaDaVenda = (await q(`select id from comanda where tenant_id = $1`, [l.t]))[0]?.id ?? null;
+      } finally {
+        (vendas as any).venderExterno = original;
+      }
+      expect((await pedido(p.id)).status).toBe('cancelado');
+      expect(comandaDaVenda).not.toBeNull();
+      expect((await comanda(comandaDaVenda as string)).status).toBe('cancelada');
+      expect((await cards(comandaDaVenda as string)).map((c) => c.status)).toEqual(['cancelado']);
+    });
+
+    it('aceite automático da ENTRADA: o pedido com Pix pendente espera (sem marcar "falhou"); o de pagar na entrega entra', async () => {
+      const l = await loja();
+      await q(`insert into delivery_config (tenant_id, unidade_id, auto_aceitar) values ($1,$2,true)`, [l.t, l.u]);
+      const bruto = (cliente: string) => ({
+        cliente,
+        clienteTelefone: '5521900000000',
+        tipo: 'retirada',
+        formaPagamento: 'pix',
+        total: 20,
+        itens: [{ codigo: 'XT1', descricao: 'Lanche de teste', quantidade: 1, precoUnitario: 20 }],
+      });
+      const esperando: any = await delivery.ingest(l.t, l.u, 'cardapio', bruto('Cliente Pix'), { statusPagamento: 'aguardando', repetidoConferido: true } as any);
+      expect((await q(`select status, comanda_id, auto_aceite_falhou from pedido_externo where id = $1`, [esperando.id]))[0]).toMatchObject({
+        status: 'novo',
+        comanda_id: null,
+        auto_aceite_falhou: false,
+      });
+      const naEntrega: any = await delivery.ingest(l.t, l.u, 'cardapio', bruto('Cliente dinheiro'), { statusPagamento: 'na_entrega', repetidoConferido: true } as any);
+      expect((await pedido(naEntrega.id)).status).toBe('confirmado');
+      await q(`delete from delivery_config where tenant_id = $1`, [l.t]);
+    });
+
+    it('dois "pronto" ao mesmo tempo no delivery: o pedido fica pronto (não pula para despachado)', async () => {
+      const l = await loja();
+      const p = await aceito(l);
+      const r = await Promise.allSettled([delivery.avancar(l.t, p.id), delivery.avancar(l.t, p.id)]);
+      expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+      expect((await pedido(p.id)).status).toBe('pronto');
+    });
+  });
 });

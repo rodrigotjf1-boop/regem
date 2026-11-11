@@ -45,6 +45,9 @@ export class EdgePedidosProcessor {
         isNull(pedidoExterno.comandaId),
         // Só pedidos ONLINE (têm cliente/canal externo) — evita mexer em rascunhos.
         sql`(${pedidoExterno.canal} is not null and ${pedidoExterno.canal} <> 'balcao')`,
+        // Pix/cartão online (ou o sinal) ainda não pago espera FORA da leitura: com o pulo só no laço, 50 deles na frente
+        // (o `limit`) travariam o aceite dos outros (V84). `deveMaterializar` confere de novo.
+        sql`coalesce(${pedidoExterno.statusPagamento}, '') <> 'aguardando' and coalesce(${pedidoExterno.sinalStatus}, '') <> 'pendente'`,
       ];
       // F2: escopo por unidade quando o edge é de uma loja específica (nunca matriz→filial).
       if (this.unidadeId) conds.push(eq(pedidoExterno.unidadeId, this.unidadeId));
@@ -56,6 +59,8 @@ export class EdgePedidosProcessor {
           pago: pedidoExterno.pago,
           // Retido de cartão/PIX nunca vai para a cozinha antes de aprovar (deveMaterializar).
           formaPagamento: pedidoExterno.formaPagamento,
+          statusPagamento: pedidoExterno.statusPagamento,
+          sinalStatus: pedidoExterno.sinalStatus,
         })
         .from(pedidoExterno)
         .where(and(...conds))
