@@ -238,6 +238,31 @@ descrever('KDS × delivery: cancelamentos, pronto parcial, voltar e perda (Postg
       expect(auditado).toEqual([]);
     });
 
+    // Auditoria do KDS (11/11/2026, O11): o "Pronto" marcado NA LOJA pelo painel fecha a etapa na cozinha — a TV de senhas
+    // mostra a senha em "Pronto" e o tempo de preparo fica medido. O reflexo do canal (o teste abaixo) segue sem mexer.
+    it('o "Pronto" do painel deixa os cartões ainda abertos prontos (com a hora); o cartão já pronto não muda', async () => {
+      const l = await loja();
+      const p = await aceito(l);
+      const [card] = await cards(p.comandaId);
+      expect(card.status).toBe('recebido');
+      // Outra empresa não alcança os cartões desta (com o cartão ainda aberto).
+      expect(await producao.prontoPeloPedido(randomUUID(), p.comandaId)).toBe(0);
+      expect((await cards(p.comandaId))[0].status).toBe('recebido');
+      emitidos.length = 0;
+      await delivery.avancar(l.t, p.id); // confirmado → pronto, pela tela do Delivery
+      expect((await pedido(p.id)).status).toBe('pronto');
+      const [depois] = await q(`select status, pronto_em from producao_pedido where id = $1`, [card.id]);
+      expect(depois.status).toBe('pronto');
+      expect(depois.pronto_em).not.toBeNull();
+      // O KDS e a TV ficam sabendo (um aviso por cartão), e nada volta para o painel em laço.
+      expect(
+        emitidos.filter((e) => e.nome === 'producao.evento' && e.dado?.pedidoId === card.id && e.dado?.tipo === 'status' && e.dado?.status === 'pronto'),
+      ).toHaveLength(1);
+      expect(emitidos.filter((e) => e.nome === 'producao.pronto')).toHaveLength(0);
+      // De novo: o cartão já pronto não muda pelo "pronto".
+      expect(await producao.prontoPeloPedido(l.t, p.comandaId)).toBe(0);
+    });
+
     it('os outros reflexos do canal não desfazem a venda: pronto não mexe na cozinha; despachado fecha o cartão (mig 330)', async () => {
       const l = await loja();
       const p = await aceito(l);

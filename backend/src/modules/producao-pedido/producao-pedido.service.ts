@@ -3313,6 +3313,46 @@ export class ProducaoPedidoService {
     return { ok: true, status: novo };
   }
 
+  /**
+   * O pedido ficou PRONTO pela mão de quem está na loja, FORA do KDS — o "Pronto" do painel do Delivery ou do PDV ›
+   * Retirada (auditoria do KDS, 11/11/2026, O11): os cartões de KDS da comanda que ainda estavam "a iniciar" ou "em
+   * preparo" ficam prontos também. Antes eles ficavam para trás: a TV de senhas mostrava "Preparando" para quem já podia
+   * retirar, e o tempo de preparo não era medido. Gravação condicional (só os que ainda não terminaram). Não imprime a via
+   * da etapa (ninguém tocou no KDS) nem reavisa o painel (foi ele quem chamou). O reflexo do CANAL não passa por aqui.
+   * Devolve quantos cartões mudaram.
+   */
+  async prontoPeloPedido(tenantId: string, comandaId: string): Promise<number> {
+    const agora = new Date();
+    const feitos = await this.db
+      .update(producaoPedido)
+      .set({ status: 'pronto', prontoEm: agora, updatedAt: agora })
+      .where(
+        and(
+          eq(producaoPedido.tenantId, tenantId),
+          eq(producaoPedido.comandaId, comandaId),
+          eq(producaoPedido.destinoTipo, 'kds'),
+          inArray(producaoPedido.status, ['recebido', 'preparo']),
+        ),
+      )
+      .returning({
+        id: producaoPedido.id,
+        unidadeId: producaoPedido.unidadeId,
+        setorId: producaoPedido.setorId,
+        destinoEquipamentoId: producaoPedido.destinoEquipamentoId,
+      });
+    for (const c of feitos)
+      this.events?.emit('producao.evento', {
+        tenantId,
+        unidadeId: c.unidadeId,
+        setorId: c.setorId,
+        destinoEquipamentoId: c.destinoEquipamentoId,
+        pedidoId: c.id,
+        tipo: 'status',
+        status: 'pronto',
+      });
+    return feitos.length;
+  }
+
   // O "quando ficar pronto, vai para" da estação. Segue a CORRENTE até o primeiro KDS de cozinha ligado: um KDS desligado
   // ou revogado no meio (Chapa → Montagem desligada → Despacho) é pulado — antes a Chapa "terminava ali", o pronto ia ao
   // canal e o despacho mostrava o pedido como já despachado (auditoria do KDS, 11/11/2026, R9). A tela de ENTREGA (só
