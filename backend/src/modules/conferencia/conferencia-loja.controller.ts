@@ -17,6 +17,14 @@ export class ConferenciaLojaController {
     return this.service.conferirVindoDaLoja(ctx.tenantId, ctx.unidadeId, q ?? {});
   }
 
+  // As fotos dos apps pela última leitura (R3 F6) — só leitura.
+  @Get('fotos')
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  fotos(@SyncCtx() ctx: SyncCtxData, @Query('unidade') unidade?: string) {
+    return this.service.fotosVindoDaLoja(ctx.tenantId, ctx.unidadeId, unidade);
+  }
+
   @Post(':acao')
   @HttpCode(200)
   @CloudOnly()

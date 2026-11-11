@@ -36,8 +36,14 @@ export type DoApp = {
   /** iFood: o "de" da promoção de/por (o preço é o "por"). */
   promoDe: number | null;
   pausado: boolean;
+  /** A foto no app (R3 F6): `imagem` no Orzuni, `head_img` na 99; `null` = sem foto lá; ausente = leitura de antes da F6. */
+  imagem?: string | null;
 };
 export type LeituraDoApp = { itens: DoApp[]; opcoes: DoApp[] };
+const foto = (v: unknown): string | null => {
+  const s = texto(v);
+  return /^https?:\/\//i.test(s) ? s : null;
+};
 
 /** O lado do Regem: o produto (item) ou a opção, com o preço daquele app. */
 export type DoRegem = {
@@ -75,6 +81,8 @@ export type Linha = {
   promoDe: number | null;
   /** Pausado no app (`null` na linha "só no Regem"). */
   pausado: boolean | null;
+  /** A foto no app (R3 F6); `null` = sem foto lá; ausente = leitura de antes da F6 ou linha "só no Regem". */
+  imagem?: string | null;
   regem: { id: string; nome: string; preco: number | null; ativo: boolean } | null;
   /** Na 99, o item sem código liga pelo id do produto (o "Exportar catálogo" manda o id quando falta o código). */
   ligaPeloId: boolean;
@@ -133,6 +141,7 @@ export function leituraDoIfood(cardapio: unknown, complementos: unknown): Leitur
       precos: preco == null ? [] : [duasCasas(preco)],
       promoDe: de == null ? null : duasCasas(de),
       pausado: pausadoNoIfood(it?.status),
+      imagem: foto(it?.imagem),
     };
   });
   const porChave = new Map<string, DoApp>();
@@ -149,6 +158,7 @@ export function leituraDoIfood(cardapio: unknown, complementos: unknown): Leitur
         if (grupo && !ja.grupos.includes(grupo)) ja.grupos.push(grupo);
         if (preco != null) ja.precos.push(duasCasas(preco));
         ja.pausado = ja.pausado || pausadoNoIfood(o?.status);
+        ja.imagem = ja.imagem ?? foto(o?.imagem);
         continue;
       }
       porChave.set(chave, {
@@ -159,6 +169,7 @@ export function leituraDoIfood(cardapio: unknown, complementos: unknown): Leitur
         precos: preco == null ? [] : [duasCasas(preco)],
         promoDe: null,
         pausado: pausadoNoIfood(o?.status),
+        imagem: foto(o?.imagem),
       });
     }
   }
@@ -209,6 +220,7 @@ export function leituraDa99(data: unknown): LeituraDoApp | null {
       nome: texto(it?.item_name) || 'Sem nome',
       promoDe: null,
       pausado: numero(it?.status) === 2,
+      imagem: foto(it?.head_img),
     };
     const sozinho = it?.is_sold_separately !== false;
     if (sozinho) {
@@ -321,6 +333,7 @@ export function comparar(o: {
       precos,
       promoDe: a.promoDe,
       pausado: a.pausado,
+      ...(a.imagem !== undefined ? { imagem: a.imagem } : {}),
       regem: r ? { id: r.id, nome: r.nome, preco: r.preco, ativo: r.ativo } : null,
       ligaPeloId,
       situacao,

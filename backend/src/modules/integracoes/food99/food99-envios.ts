@@ -12,7 +12,7 @@ export type EnvioDa99 = {
   /** A chave da linha na tela: a integração da 99 (= a loja na 99). */
   unidadeId: string;
   loja: string | null;
-  oQue: 'preco' | 'pausa' | 'cadastro';
+  oQue: 'preco' | 'pausa' | 'cadastro' | 'foto';
   /** na_fila | enviando | aplicado | nao_encontrado | recusado | nao_enviado | desistiu */
   situacao: string;
   frase: string | null;
@@ -52,7 +52,8 @@ export function envioDa99ParaTela(r: any): EnvioDa99 {
   return {
     unidadeId: String(r.integracao_id),
     loja: r.loja ?? null,
-    oQue: tipo === 'preco_item' ? 'preco' : tipo === 'cadastro_item' ? 'cadastro' : 'pausa',
+    // Só a foto (R3 F6): diz "foto"; com nome ou descrição junto, "cadastro".
+    oQue: tipo === 'preco_item' ? 'preco' : tipo === 'cadastro_item' ? (resp.foto === true && !resp.nome && !resp.descricao ? 'foto' : 'cadastro') : 'pausa',
     situacao,
     frase,
     antes: numero(resp.antes),

@@ -597,6 +597,71 @@ export class ConferenciaService {
     };
   }
 
+  // ── as fotos (R3 F6) ───────────────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * A foto de cada produto em cada app, pela ÚLTIMA leitura guardada (nunca lê o app por aqui): `produtoId → endereço` (ou
+   * `null`, sem foto lá). Só os produtos que ligam ao item do app. Sem a conferência ligada ou sem leitura: nada (a tela
+   * não mostra a situação das fotos).
+   */
+  async fotos(tenantId: string, unidade: string | null): Promise<{ canais: Record<CanalConferido, { lidoEm: string; porProduto: Record<string, string | null> } | null> }> {
+    const vazio = { canais: { ifood: null, '99food': null } as Record<CanalConferido, null> };
+    if (!(await conferirAppsLigado(this.db, tenantId))) return vazio;
+    if (ehServidorLocal()) {
+      const qs = new URLSearchParams(unidade ? { unidade } : {});
+      const r = await this.naNuvem('GET', `/catalogo/conferencia/loja/fotos?${qs.toString()}`);
+      if (r.ok && r.j?.tenantId === tenantId && r.j?.canais) return { canais: r.j.canais };
+      return vazio;
+    }
+    let loja: Loja;
+    try {
+      loja = await this.loja(tenantId, unidade);
+    } catch {
+      return vazio;
+    }
+    const lado = await this.regem(tenantId, loja.id);
+    const canais = {} as Record<CanalConferido, { lidoEm: string; porProduto: Record<string, string | null> } | null>;
+    for (const c of CANAIS_CONFERIDOS) {
+      const g = await this.leituraGuardada(tenantId, loja.id, c);
+      if (!g?.lido_em) {
+        canais[c] = null;
+        continue;
+      }
+      const { itens } = await this.linhas(tenantId, loja.id, c, g, lado);
+      const porProduto: Record<string, string | null> = {};
+      for (const l of itens) if (l.regem && l.situacao !== 'soRegem' && l.imagem !== undefined) porProduto[l.regem.id] = l.imagem;
+      canais[c] = { lidoEm: iso(g.lido_em)!, porProduto };
+    }
+    return { canais };
+  }
+
+  /**
+   * "Mandar esta foto à 99" (R3 F6): a foto do Regem do produto vai à 99 pelo endereço público dela (`head_img` no
+   * `updateItem`) — a fila da 99 (cadastro do item com `dados.foto`). Não depende da conferência ligada: pede o "Preço e
+   * pausa na 99", a loja conectada à 99 e o produto na 99 com código. A foto ainda só no servidor da loja (sem o endereço
+   * da nuvem) não vai: ela sobe sozinha em instantes.
+   */
+  async mandarFotoA99(tenantId: string, unidade: string | null, dto: any, ator: Ator) {
+    if (ehServidorLocal()) return this.agirPelaNuvem(tenantId, 'foto-99', unidade, dto, ator);
+    const produtoId = typeof dto?.produtoId === 'string' && UUID.test(dto.produtoId) ? dto.produtoId : null;
+    if (!produtoId) throw new BadRequestException('Escolha o produto.');
+    const loja = await this.loja(tenantId, unidade);
+    const disp = await this.disponivel(tenantId, loja.id, '99food');
+    if (!disp.ok) throw new ConflictException(disp.motivo);
+    const [p] = await this.rows(sql`
+      select id, nome, codigo, na_99, imagem_ref from produto
+       where id = ${produtoId} and tenant_id = ${tenantId} and deleted_at is null and (unidade_id = ${loja.id} or unidade_id is null)`);
+    if (!p) throw new NotFoundException('Produto não encontrado nesta loja.');
+    if (!p.na_99 || !String(p.codigo ?? '').trim()) throw new ConflictException(`"${p.nome}" não está na 99 com código PDV: a foto não tem para onde ir.`);
+    const url = String(p.imagem_ref ?? '').trim();
+    if (!url) throw new ConflictException(`"${p.nome}" não tem foto no Regem.`);
+    if (!/^https:\/\//i.test(url))
+      throw new ConflictException('A foto ainda está só no servidor da loja: ela sobe para a nuvem em instantes. Mande de novo daqui a pouco.');
+    await this.db.execute(sql`select food99_marcar(${tenantId}::uuid, null::uuid, 'cadastro_item', ${produtoId}::uuid, '{"foto": true}'::jsonb)`);
+    await this.auditar(tenantId, loja, ator, 'mandou_foto_a_99', { canal: '99food', id: produtoId, nome: p.nome });
+    return { ok: true, frase: `A foto de "${p.nome}" vai à 99 agora — o resultado aparece no "Último envio à 99".` };
+  }
+
   private async auditar(tenantId: string, loja: Loja, ator: Ator, acao: string, detalhe: Record<string, unknown>) {
     await this.auditoria.registrar({
       tenantId,
@@ -622,6 +687,11 @@ export class ConferenciaService {
     return { tenantId, ...(await this.conferirNaLoja(tenantId, loja, q.canal, q?.ler === '1' || q?.ler === true)) };
   }
 
+  /** As fotos dos apps (F6), pedidas pelo servidor da loja (só leitura). */
+  async fotosVindoDaLoja(tenantId: string, lojaDoToken: string | null, unidade: unknown) {
+    return { tenantId, ...(await this.fotos(tenantId, this.lojaDaLoja(lojaDoToken, unidade))) };
+  }
+
   async agirVindoDaLoja(tenantId: string, lojaDoToken: string | null, acao: string, dto: any) {
     const ator = await this.atorDaLoja(tenantId, dto?.atorId);
     const unidade = this.lojaDaLoja(lojaDoToken, dto?.unidade);
@@ -638,6 +708,8 @@ export class ConferenciaService {
         return this.tirarDoApp(tenantId, unidade, dto, ator);
       case 'ligar':
         return this.ligar(tenantId, unidade, dto, ator);
+      case 'foto-99':
+        return this.mandarFotoA99(tenantId, unidade, dto, ator);
       default:
         throw new NotFoundException('Ação desconhecida.');
     }

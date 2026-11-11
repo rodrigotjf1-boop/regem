@@ -432,6 +432,32 @@ descrever('a 99 item a item — fila e envio (Postgres real, 99 falsa)', () => {
     expect((await fila(l.t)).filter((x: any) => x.tipo === 'cadastro_item')).toHaveLength(1);
   });
 
+  it('a foto (R3 F6): o endereço público da foto do Regem vai como head_img (o nome de lá fica); a foto só local e a sem foto não vão', async () => {
+    const l = await loja({ lojas: 1 });
+    const url = 'https://projeto.supabase.co/storage/v1/object/public/midia/t/x-bacon.jpg';
+    const p = await produto(l, { imagem_ref: url });
+    await q(`delete from food99_envio where tenant_id = $1`, [l.t]);
+    await q(`select food99_marcar($1::uuid, null::uuid, 'cadastro_item', $2::uuid, '{"foto": true}'::jsonb)`, [l.t, p]);
+    expect((await fila(l.t))[0]).toMatchObject({ tipo: 'cadastro_item', dados: { foto: true } });
+    await despachar(l);
+    expect(chamadas[0].corpo).toEqual(itemParaAtualizar(ITEM_DA_99, { foto: url }));
+    expect(chamadas[0].corpo).toMatchObject({ head_img: url, item_name: 'X-Bacon da 99' });
+    const [f] = await fila(l.t);
+    expect(f).toMatchObject({ resultado: 'aplicado', resposta: { foto: true } });
+    expect(envioDa99ParaTela({ ...f, integracao_id: 'i', loja: 'L', quando: new Date().toISOString() })).toMatchObject({ oQue: 'foto', situacao: 'aplicado' });
+    // A foto ainda no servidor da loja (endereço local) e o produto sem foto: não vão, com o motivo.
+    chamadas = [];
+    await q(`update produto set imagem_ref = '/api/v1/publico/midia/t/x.jpg' where id = $1`, [p]);
+    await q(`select food99_marcar($1::uuid, null::uuid, 'cadastro_item', $2::uuid, '{"foto": true}'::jsonb)`, [l.t, p]);
+    expect(await despachar(l)).toMatchObject({ dispensados: 1 });
+    expect((await fila(l.t)).find((x: any) => x.tipo === 'cadastro_item').resposta.motivo).toMatch(/ainda está só no servidor da loja/);
+    await q(`update produto set imagem_ref = null where id = $1`, [p]);
+    await q(`select food99_marcar($1::uuid, null::uuid, 'cadastro_item', $2::uuid, '{"foto": true}'::jsonb)`, [l.t, p]);
+    expect(await despachar(l)).toMatchObject({ dispensados: 1 });
+    expect((await fila(l.t)).find((x: any) => x.tipo === 'cadastro_item').resposta.motivo).toBe('o produto não tem foto no Regem');
+    expect(chamadas).toHaveLength(0);
+  });
+
   it('item que a 99 não tem: "não encontrado" com a frase, sem chamar o updateItem; o status que a 99 recusa também', async () => {
     const l = await loja({ lojas: 1 });
     const p = await produto(l, { codigo: '9999' });

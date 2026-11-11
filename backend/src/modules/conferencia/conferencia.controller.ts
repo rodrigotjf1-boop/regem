@@ -77,6 +77,21 @@ export class ConferenciaController {
     return this.service.tirarDoApp(user.tenantId, unidade, dto, ator(user));
   }
 
+  // As fotos dos apps pela última leitura (R3 F6): `produtoId → endereço` por app. Sem a conferência ligada, vazio.
+  @Get('fotos')
+  @Roles(...QUEM_CONFERE)
+  fotos(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
+    return this.service.fotos(user.tenantId, unidade);
+  }
+
+  // "Mandar esta foto à 99" (R3 F6): a foto do Regem vai à 99 pelo endereço público dela (a fila da 99).
+  @Post('foto-99')
+  @HttpCode(200)
+  @Roles(...QUEM_CONFERE)
+  mandarFotoA99(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null, @Body() dto: unknown) {
+    return this.service.mandarFotoA99(user.tenantId, unidade, dto, ator(user));
+  }
+
   // "Ligar a um produto" e "Corrigir o código" (R3 F4b): o produto ganha o código do item do app e copia o preço e a pausa
   // de lá (o preço muda no Regem: pede "Ver valores em R$").
   @Post('ligar')

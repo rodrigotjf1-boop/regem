@@ -416,6 +416,36 @@ descrever('Conferir com os apps (Postgres real, Orzuni e 99 falsos)', () => {
     expect((await q(`select codigo from produto where id = $1`, [semCodigo]))[0].codigo).toBe('3000');
   });
 
+  it('as fotos (F6): a de cada app pela última leitura, por produto; "Mandar esta foto à 99" põe a foto na fila da 99', async () => {
+    const e = await empresa();
+    cardapioIfood.itens[0].imagem = 'https://static.ifood-static.com.br/x-bacon.jpg';
+    cardapio99.items[0].head_img = 'https://img.99app.com/x-bacon.png';
+    // Sem leitura: nada (a tela não diz nada das fotos).
+    expect(await svc.fotos(e.t, null)).toEqual({ canais: { ifood: null, '99food': null } });
+    await svc.conferir(e.t, null, 'ifood', false);
+    await svc.conferir(e.t, null, '99food', false);
+    const f = await svc.fotos(e.t, null);
+    expect(f.canais.ifood!.porProduto).toEqual({ [e.p.xbacon]: 'https://static.ifood-static.com.br/x-bacon.jpg', [e.p.xsalada]: null });
+    expect(f.canais['99food']!.porProduto).toEqual({ [e.p.xbacon]: 'https://img.99app.com/x-bacon.png' });
+    expect(f.canais.ifood!.lidoEm).toEqual(expect.any(String));
+    // Sem a conferência ligada: vazio.
+    await q(`update entitlement set ativo = false where tenant_id = $1 and modulo = $2`, [e.t, MODULO_CONFERIR_APPS]);
+    expect(await svc.fotos(e.t, null)).toEqual({ canais: { ifood: null, '99food': null } });
+    await q(`update entitlement set ativo = true where tenant_id = $1 and modulo = $2`, [e.t, MODULO_CONFERIR_APPS]);
+
+    // Mandar a foto à 99: só com o endereço público da nuvem; sem foto, foto ainda local e fora da 99 = 409 com o porquê.
+    await expect(svc.mandarFotoA99(e.t, null, { produtoId: e.p.xbacon }, gestor)).rejects.toMatchObject({ status: 409, response: { message: expect.stringMatching(/não tem foto no Regem/) } });
+    await q(`update produto set imagem_ref = '/api/v1/publico/midia/t/x.jpg' where id = $1`, [e.p.xbacon]);
+    await expect(svc.mandarFotoA99(e.t, null, { produtoId: e.p.xbacon }, gestor)).rejects.toMatchObject({ status: 409, response: { message: expect.stringMatching(/só no servidor da loja/) } });
+    await expect(svc.mandarFotoA99(e.t, null, { produtoId: e.p.xsalada }, gestor)).rejects.toMatchObject({ status: 409, response: { message: expect.stringMatching(/não está na 99/) } });
+    await q(`update produto set imagem_ref = 'https://projeto.supabase.co/storage/v1/object/public/midia/t/x.jpg' where id = $1`, [e.p.xbacon]);
+    await q(`delete from food99_envio where tenant_id = $1`, [e.t]);
+    const r = await svc.mandarFotoA99(e.t, null, { produtoId: e.p.xbacon }, gestor);
+    expect(r.frase).toMatch(/A foto de "X-Bacon" vai à 99 agora/);
+    expect(await q(`select tipo, dados from food99_envio where tenant_id = $1 and ref_id = $2`, [e.t, e.p.xbacon])).toEqual([{ tipo: 'cadastro_item', dados: { foto: true } }]);
+    expect(auditados.find((a) => a.acao === 'mandou_foto_a_99')).toMatchObject({ detalhe: expect.objectContaining({ nome: 'X-Bacon' }) });
+  });
+
   it('vindo do servidor da loja (na nuvem): quem agiu tem de ser da gestão e ativo; o servidor de uma loja não confere outra', async () => {
     const e = await empresa({ lojas: 2 });
     const funcao = async (cat: string) => (await q(`insert into funcao (tenant_id, nome, categoria) values ($1, $2, $3) returning id`, [e.t, `F ${cat}`, cat]))[0].id;

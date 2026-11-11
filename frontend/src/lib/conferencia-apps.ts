@@ -25,6 +25,8 @@ export type LinhaConferida = {
   precos: number[];
   promoDe: number | null;
   pausado: boolean | null;
+  /** A foto no app (F6); `null` = sem foto lá; ausente = leitura antiga. */
+  imagem?: string | null;
   regem: { id: string; nome: string; preco: number | null; ativo: boolean } | null;
   ligaPeloId: boolean;
   situacao: SituacaoConferida;
@@ -342,6 +344,32 @@ export function pedidoDeCriarOpcao(
     pausar: l.pausado === true,
   };
 }
+
+// ── F6: as fotos ─────────────────────────────────────────────────────────────────────────────────────────────
+
+/** A foto do produto em cada app, pela última leitura: endereço, `null` (sem foto lá) ou ausente (não lido / não liga). */
+export type FotosDoProduto = Partial<Record<CanalConferido, string | null>>;
+export type FotosDaLoja = { canais: Record<CanalConferido, { lidoEm: string; porProduto: Record<string, string | null> } | null> };
+
+/** As fotos de um produto nos apps (só os apps com leitura e em que o produto liga). */
+export function fotosDoProduto(f: FotosDaLoja | null, produtoId: string): FotosDoProduto {
+  const r: FotosDoProduto = {};
+  for (const c of ['ifood', '99food'] as const) {
+    const m = f?.canais[c]?.porProduto;
+    if (m && produtoId in m) r[c] = m[produtoId];
+  }
+  return r;
+}
+
+/** A situação da foto num app: falta lá (o Regem tem), só lá (o Regem não tem) — ou nada a dizer. */
+export function situacaoDaFoto(temNoRegem: boolean, noApp: string | null | undefined): 'faltaNoApp' | 'soNoApp' | null {
+  if (noApp === undefined) return null;
+  if (noApp === null) return 'faltaNoApp';
+  return temNoRegem ? null : 'soNoApp';
+}
+
+/** A 99 pede de 150 a 3000 px de lado (protótipo, "Fotos"). */
+export const medidaParaA99 = (w: number, h: number) => Math.min(w, h) >= 150 && Math.max(w, h) <= 3000;
 
 /** "Lido do iFood hoje às 14:30" / "em 10/11 às 09:12" (hora de Brasília). */
 export function quandoLido(iso: string | null, agora: Date = new Date()): string {

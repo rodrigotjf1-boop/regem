@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Gestão do catálogo: a foto de cada app e "Mandar esta foto à 99" (R3, fase F6; SEM migration; não mexe no
+  `sync-daemon`).** Na NUVEM com o merge: os selos "sem foto no/na <app>" e "foto só no/na <app>" em Produtos e preços, a
+  situação "Foto faltando num app", as fotos lado a lado na gaveta de editar e o envio da foto à 99 (`head_img` no
+  `updateItem`, pela fila da 99). **No `.zip` 1.30.13:** o mesmo na tela do servidor da loja, que pede as fotos e o envio à
+  nuvem pela rota do token de sync. A foto recém-trocada no servidor da loja só vai à 99 depois de subir para a nuvem (o
+  envio diz isso).
+
 - **Gestão do catálogo: a calculadora de preço e "％ Taxas e margem" de cada loja (R3, fase F5; mig 407 só nuvem; mexe no
   `sync-daemon` só na lista `SO_NUVEM`).** Na NUVEM com o merge: a gaveta das taxas, os números das vendas e a calculadora
   (Produtos e preços e Conferir com os apps). **No `.zip` 1.30.13:** as mesmas gavetas na tela do servidor da loja, que pede
