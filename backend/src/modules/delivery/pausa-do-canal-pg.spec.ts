@@ -80,21 +80,22 @@ descrever('pausa por canal (Postgres)', () => {
     const menu: any = await cardapio.menu(tokens[0]);
     expect(menu.abertaAgora).toBe(false);
     expect(menu.abertoPorTipo).toEqual({ entrega: false, retirada: false, local: false });
-    expect(menu.horarioLabel).toBe(`Pedidos pausados até ${p.volta.hora}`);
+    // Perto da meia-noite a volta é "amanhã" (o CI de 10/11 às 23:48 pegou o teste que supunha o mesmo dia — ERR-434).
+    expect(menu.horarioLabel).toBe(`Pedidos pausados até ${p.volta.amanha ? 'amanhã às ' : ''}${p.volta.hora}`);
     expect(menu.proximaAbertura).toEqual({ entrega: p.volta.hora, retirada: p.volta.hora });
     expect(menu.pausa).toMatchObject({ rotulo: 'Muitos pedidos agora', frase: 'Estamos com *muitos pedidos agora*' });
 
     const resumo: any = resumoDaLoja(menu, 'https://link');
-    expect(resumo).toMatchObject({ abertaAgora: false, pausadaPelaLoja: true, pausa: { motivo: 'Muitos pedidos agora', volta: `às ${p.volta.hora}` } });
+    expect(resumo).toMatchObject({ abertaAgora: false, pausadaPelaLoja: true, pausa: { motivo: 'Muitos pedidos agora', volta: p.volta.texto } });
     // F3 (mig 394): a mensagem pronta (sem nome, sem o destaque) no resumo, e ela é a "mensagem de ausência" durante a pausa
     // — o atendente do n8n já usa a de ausência com a loja fechada.
-    const semDestaque = `⏸️ Pedidos pausados por alguns minutos\n\nOi! Estamos com muitos pedidos agora e pausamos os pedidos para não atrasar ninguém.\n\n🕒 Voltamos às ${p.volta.hora}.`;
+    const semDestaque = `⏸️ Pedidos pausados por alguns minutos\n\nOi! Estamos com muitos pedidos agora e pausamos os pedidos para não atrasar ninguém.\n\n🕒 Voltamos ${p.volta.texto}.`;
     expect(resumo.pausa.mensagem.startsWith(semDestaque)).toBe(true);
     expect(resumo.robo.ausencia).toBe(resumo.pausa.mensagem);
     expect(menu.pausa).toMatchObject({ mensagemPersonalizada: false, mensagem: expect.stringContaining('Estamos com *muitos pedidos agora*') });
 
     await expect(cardapio.receberPedido(tokens[0], pedido)).rejects.toThrow(
-      `Pedidos pausados agora: estamos com muitos pedidos agora. Voltamos às ${p.volta.hora}.`,
+      `Pedidos pausados agora: estamos com muitos pedidos agora. Voltamos ${p.volta.texto}.`,
     );
     // O agendado passa pela pausa (como pela loja fechada no horário) — e para no que vem depois.
     await expect(cardapio.receberPedido(tokens[0], { ...pedido, agendamento: '2026-12-01T12:00:00-03:00' })).rejects.toThrow(

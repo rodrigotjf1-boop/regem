@@ -144,7 +144,8 @@ descrever('pausa no atendimento (Postgres)', () => {
     const { gestor, msg } = await loja('Oi, {nome}! {motivo}. Voltamos {volta}. 🙏');
     await pausas.pausar(gestor, null, { canais: ['cardapio'], motivo: 'energia', tempo: { minutos: 15 } });
     expect(await porteiro.decidir(msg('5521999990005'))).toBe('respondido');
-    expect(enviados[0].texto).toMatch(/^Oi, Ana! Estamos \*sem energia ou internet\*\. Voltamos às \*\d\d:\d\d\*\. 🙏$/);
+    // perto da meia-noite a volta é "amanhã às" (ERR-434)
+    expect(enviados[0].texto).toMatch(/^Oi, Ana! Estamos \*sem energia ou internet\*\. Voltamos (amanhã )?às \*\d\d:\d\d\*\. 🙏$/);
   });
 
   it('estender é a mesma pausa (não avisa de novo); pausar de novo é outra (avisa)', async () => {
