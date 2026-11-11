@@ -421,7 +421,10 @@ descrever('registro dos envios do pedido (Postgres real)', () => {
         { url: 'https://nuvem.teste/api/v1/delivery/aviso-da-loja', token: 'token-da-loja', corpo: expect.objectContaining({ pedidoId: row.id, evento: 'codigo_entrega' }) },
       ]);
       // O código NÃO viaja no pedido à nuvem: a nuvem usa o do pedido dela (é o que o app do entregador confere).
-      expect(JSON.stringify(chamadas[0].corpo)).not.toContain(String(row.codigoEntrega));
+      // Os ids (UUID aleatório) ficam de fora da conferência: "d80733dc-…" contém "8073" por acaso e o teste ficava
+      // vermelho sem motivo (CI do #905, 11/11/2026).
+      const semIds = JSON.stringify(chamadas[0].corpo, (_k, v) => (typeof v === 'string' && /^[0-9a-f-]{36}$/i.test(v) ? '<id>' : v));
+      expect(semIds).not.toContain(String(row.codigoEntrega));
       // Registrado com o nome do aviso — antes saía como "confirmado" (o status do pedido).
       expect(await ate(t, row.id, 1)).toMatchObject([{ destino: 'nuvem', acao: 'codigo_entrega', resultado: 'enviado', servidor: 'loja' }]);
 

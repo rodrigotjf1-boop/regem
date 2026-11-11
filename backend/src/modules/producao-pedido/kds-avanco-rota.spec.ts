@@ -271,6 +271,15 @@ descrever('KDS — avanço e rota (Postgres)', () => {
     expect((await jobs(v.cmd)).filter((j: any) => j.eq === IMP_E).length).toBe(antesDeEntregar + 1);
   });
 
+  it('L2: "Finalizar todos" só avança os cartões que a tela mostra (os ids); sem ids, a fila inteira como antes', async () => {
+    const visivel = await vender(TC, UC, [prod.lanche]);
+    const escondido = await vender(TC, UC, [prod.lanche]);
+    // Tela sem KDS escolhido (vê a fila inteira da loja): aqui o K3 já recebe do K2 pela corrente (R6) e não veria o novo.
+    await svc.limparFila(TC, ATOR.id, { unidadeId: UC, ids: [visivel.cartao, 'id-que-nao-e-da-fila'] });
+    expect((await ler(visivel.cartao)).status).not.toBe('recebido');
+    expect((await ler(escondido.cartao)).status).toBe('recebido'); // o sub-filtro o escondia: não sai
+  });
+
   it('R2: módulo KDS desligado — sem estações e sem cartão de KDS: os itens saem em papel na padrão', async () => {
     const ligado = await vender(TE, UE, [prod.burger]);
     expect(ligado.cartoes.find((c: any) => c.destino_tipo === 'kds')?.destino).toBe(A);

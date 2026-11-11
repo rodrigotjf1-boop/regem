@@ -253,6 +253,16 @@ try {
     assert.equal(k.escolherAlertaDoRodape([]), null);
   });
 
+  caso('letreiro: o texto é título — detalhe; o longo leva mais tempo (velocidade constante), nunca menos de 10 s', () => {
+    assert.equal(k.textoDoAlerta({ titulo: 'Pedido alterado', detalhe: 'Senha D-12' }), 'Pedido alterado — Senha D-12');
+    assert.equal(k.textoDoAlerta({ titulo: 'Lavar as mãos' }), 'Lavar as mãos');
+    const curto = k.duracaoDoLetreiro('Lavar as mãos');
+    const longo = k.duracaoDoLetreiro('! PEDIDO ALTERADO — Senha D-123 — troca de 1 Coca-Cola lata por 1 Guaraná 2 L e tira 1 batata média');
+    assert.ok(curto >= 10, `curto ${curto}`);
+    assert.ok(longo > curto, `longo ${longo} > curto ${curto}`);
+    assert.equal(k.duracaoDoLetreiro(''), 12); // só a faixa: 1100 px a 90 px/s
+  });
+
   // Auditoria do KDS (11/11/2026): o botão segue as etapas que a loja usa, como o servidor.
   caso('o botão segue as etapas da loja: sem "em preparo" diz Pronto; sem "entregue" o pronto não tem botão', () => {
     const semPreparo = { usaPreparo: false, usaEntregue: true };

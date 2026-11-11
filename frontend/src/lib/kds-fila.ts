@@ -51,6 +51,20 @@ export function estaAtrasado(p: any, min: number, limites: LimitesTempo): boolea
 // 11/11/2026). O servidor também normaliza (`prioridadeDoKds`).
 const RANK_ALERTA: Record<string, number> = { danger: 3, alta: 2, info: 1, ok: 0 };
 export const rankDoAlerta = (p: unknown): number => RANK_ALERTA[String(p)] ?? RANK_ALERTA.alta;
+/** O texto do letreiro: título e, quando há, o detalhe. */
+export const textoDoAlerta = (a: { titulo?: string | null; detalhe?: string | null }): string =>
+  `${a.titulo ?? ''}${a.detalhe ? ` — ${a.detalhe}` : ''}`;
+
+/**
+ * Quantos segundos o letreiro leva para passar inteiro: velocidade constante (~90 px/s, ~15 px por letra a 26 px, mais
+ * a largura da faixa que o texto atravessa ao entrar), nunca menos de 10 s. Antes era 16 s para qualquer texto: o curto
+ * passava lento e o longo, rápido demais (e cortado — auditoria do KDS, 11/11/2026).
+ */
+export function duracaoDoLetreiro(texto: string, larguraDaFaixa = 1100): number {
+  const percurso = String(texto ?? '').length * 15 + larguraDaFaixa;
+  return Math.max(10, Math.round(percurso / 90));
+}
+
 export function escolherAlertaDoRodape<T extends { prioridade: unknown; em: string }>(as: T[]): T | null {
   if (!as.length) return null;
   return [...as].sort(

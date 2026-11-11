@@ -3291,11 +3291,17 @@ export class ProducaoPedidoService {
   async limparFila(
     tenantId: string,
     atorId: string,
-    opts: { setorId?: string; unidadeId?: string; canal?: string; equipamentoId?: string } = {},
+    opts: { setorId?: string; unidadeId?: string; canal?: string; equipamentoId?: string; ids?: string[] } = {},
     atorPerfil?: string,
   ) {
     const { pedidos } = await this.filaKds(tenantId, opts);
-    const ativos = (pedidos as any[]).filter((p) => p.status !== 'cancelado' && p.status !== 'entregue');
+    // `ids` = os cartões que a tela mostra: com o sub-filtro "Totens" (ou uma etapa) escolhido, o "Finalizar todos"
+    // finalizava também o PDV e as mesas que a tela escondia (auditoria do KDS, 11/11/2026). Sem `ids` (tela antiga),
+    // a fila inteira, como antes. Sempre dentro da fila deste KDS (o id de fora dela é ignorado).
+    const daTela = opts.ids ? new Set(opts.ids) : null;
+    const ativos = (pedidos as any[]).filter(
+      (p) => p.status !== 'cancelado' && p.status !== 'entregue' && (!daTela || daTela.has(p.id)),
+    );
     let avancados = 0;
     // Avança um card até ele sair desta fila (concluído/cancelado ou roteado p/ outro KDS).
     const finalizarUm = async (p: any) => {
