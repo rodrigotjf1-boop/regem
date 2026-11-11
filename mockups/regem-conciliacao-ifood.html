@@ -169,6 +169,9 @@ tr:last-child td{border-bottom:none}
 .neg{color:var(--crit)} .pos{color:var(--ok)}
 .formula{font-size:13px;color:var(--ink-2);background:var(--soft);border-radius:8px;padding:8px 10px}
 .formula code{font-family:var(--mono);font-size:12.5px;color:var(--ink)}
+.quatro{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:12px}
+.sugestoes{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.sugestoes .bt[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
 .trocar{display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px}
 .trocar input{width:20px;height:20px}
 fieldset.grupo{border:1px solid var(--line);border-radius:12px;padding:12px;margin:0;display:grid;gap:10px;min-width:0}
@@ -356,7 +359,8 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
         <li>Parte do <b>custo real da ficha técnica</b> (com a perda) + a <b>embalagem</b>. O preço recomendado é <code>(custo + embalagem + entrega por item) ÷ (1 − comissão − pagamento − antecipação − imposto − margem)</code>; o mínimo é a mesma conta sem a margem (empata).</li>
         <li>Mostra os dois jeitos de entregar de cada app (a loja entrega × o app entrega), com o <b>plano da loja</b> marcado, e o que o preço de hoje deixa (você recebe, lucro, margem).</li>
         <li>As taxas vêm preenchidas com <b>valores públicos de referência</b> e a loja ajusta pelo contrato dela: iFood — Plano Básico 12% e Plano Entrega 23%, mais 3,2% de pagamento online; 99 — 10,9% com entrega da loja e 8,9% com entrega da 99, mais cerca de 3,2% de pagamento. A mensalidade não entra (é por mês, não por item). <span class="sub">Fontes nas decisões abaixo.</span></li>
-        <li><b>Promoção do app:</b> o desconto no item e quanto dele a loja banca. A conta mostra o que o cliente paga, o que a loja vende, cada taxa, o imposto, o custo e o <b>ganho líquido</b>; o preço cheio que mantém a margem escolhida com a promoção; e o maior desconto que a loja aguenta sem prejuízo.</li>
+        <li><b>Promoção do app:</b> o desconto ao cliente em <b>% no item</b>, em <b>valor fixo no item</b> ou em <b>valor fixo no pedido</b> (cupom); e quem banca — <b>a loja uma parte (%)</b> ou <b>o app um valor fixo</b> (campo aberto para a média das campanhas, com os atalhos R$ 5, R$ 7 e R$ 9; o resto a loja banca). A conta mostra o que o cliente paga, a parte de cada um, o que a loja vende, cada taxa, o imposto, o custo e o <b>ganho líquido</b>; o preço cheio que mantém a margem com a promoção; e o maior desconto que a loja aguenta sem prejuízo (em % e em R$ por item).</li>
+        <li><b>Taxa fixa por entrega:</b> no jeito em que o app entrega, um valor por pedido além da comissão (quando o app cobra pela distância, a média dos pedidos). O que é por pedido entra dividido pelos <b>itens de um pedido médio</b>.</li>
         <li><b>Imposto:</b> uma média informada ou o <b>Simples Nacional pelo faturamento dos últimos 12 meses</b> (Anexo I — comércio, onde ficam bares e restaurantes: alíquota efetiva = (faturamento × nominal − parcela a deduzir) ÷ faturamento). <b>Cartão:</b> nos pedidos pagos na entrega, a taxa da maquininha entra no lugar do pagamento online.</li>
         <li>É sugestão: nada muda sem o clique em "Usar este preço".</li>
       </ul>
@@ -369,7 +373,7 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
         <li><b>Quem vê o quê:</b> "Produtos e preços" vale para todas as lojas (o Regem sempre; as colunas dos apps com a integração ligada). "Conferir com os apps" <b>nasce desligada</b>: uma chave por empresa no console da distribuição, além da ligação de cada app. Recomendo.</li>
         <li><b>99 com preço próprio:</b> hoje o Regem manda à 99 o preço do balcão e não sabe o que "está na 99". Recomendo pôr no produto <b>"Preço na 99"</b> e <b>"Está na 99"</b>, como já existe para o iFood (uma migration), e o envio do preço, do nome, da descrição e da pausa à 99 pela API dela. (Alternativa: comparar com o preço do balcão — não recomendo: a maioria cobra mais nos apps.)</li>
         <li><b>Taxas por loja:</b> as taxas e a margem ficam nos ajustes de cada loja (uma tabela nova), preenchidas com os valores de referência e editáveis. Recomendo.</li>
-        <li><b>Faturamento para o Simples:</b> o Regem preenche o faturamento dos últimos 12 meses com as vendas registradas (a loja pode trocar pelo número do contador). Recomendo. (Alternativa: só digitado.)</li>
+        <li><b>Faturamento para o Simples e itens por pedido:</b> o Regem preenche o faturamento dos últimos 12 meses e a média de itens por pedido de cada app com as vendas registradas (a loja pode trocar pelo número do contador ou pelo dela). Recomendo. (Alternativa: só digitado.)</li>
         <li><b>A calculadora fica na Gestão do catálogo</b> (em "Produtos e preços", por produto e com o app escolhido, e na conferência), não no Cadastros — o cadastro só cria. Recomendo.</li>
         <li><b>Pedir ao Orzuni a ferramenta de editar nome e descrição do item do iFood</b> (a permissão de escrever no catálogo já existe; falta a ferramenta). Até lá, o nome e a descrição do iFood mudam no Gestor de Pedidos, e a gaveta avisa. Recomendo pedir pelo HUB.</li>
         <li><b>Código PDV editável aqui</b>, com os avisos de quem usa o código antigo e a recusa de código que já é de outro produto. Recomendo.</li>
@@ -519,14 +523,18 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
 
   // ── as taxas e a margem da loja (exemplo: valores públicos de referência, a loja ajusta) ─────────────────
   const TAXAS = {
-    ifood: { plano: 'loja', loja: { rot: 'A loja entrega', plano: 'Plano Básico', com: 12, pag: 3.2, entrega: 0 }, app: { rot: 'O iFood entrega', plano: 'Plano Entrega', com: 23, pag: 3.2, entrega: 0 } },
-    n99: { plano: 'app', loja: { rot: 'A loja entrega', plano: 'entrega própria', com: 10.9, pag: 3.2, entrega: 0 }, app: { rot: 'A 99 entrega', plano: 'logística da 99', com: 8.9, pag: 3.2, entrega: 0 } },
+    // taxaFixa = o valor por PEDIDO que alguns apps cobram além da % quando ELES entregam (muda com a distância: a média)
+    ifood: { plano: 'loja', loja: { rot: 'A loja entrega', plano: 'Plano Básico', com: 12, pag: 3.2, entrega: 0, taxaFixa: 0 }, app: { rot: 'O iFood entrega', plano: 'Plano Entrega', com: 23, pag: 3.2, entrega: 0, taxaFixa: 0 } },
+    n99: { plano: 'app', loja: { rot: 'A loja entrega', plano: 'entrega própria', com: 10.9, pag: 3.2, entrega: 0, taxaFixa: 0 }, app: { rot: 'A 99 entrega', plano: 'logística da 99', com: 8.9, pag: 3.2, entrega: 0, taxaFixa: 0 } },
     geral: {
       impostoModo: 'simples', imposto: 6, rbt12: 540000, margem: 20, antecipa: false, antec: 2.5, entregaLoja: 0.8, arred: true,
       // pedidos do app pagos NA ENTREGA (só quando a loja entrega): a taxa da maquininha no lugar do pagamento online
       parteNaEntrega: 30, maquininha: 2.9,
-      // a promoção do app: desconto no item e quanto dele a loja banca
-      promo: false, desconto: 30, lojaBanca: 100,
+      // o pedido médio: divide por item o que é cobrado por pedido (a taxa fixa da entrega, o cupom)
+      itensPedido: 2,
+      // a promoção do app. O desconto ao cliente: % no item | R$ no item | R$ no pedido (cupom). Quem banca: a loja banca
+      // uma % do desconto (o resto o app) | o app banca um valor FIXO (o resto a loja), no mesmo jeito do desconto.
+      promo: false, promoTipo: 'pct', desconto: 30, descontoRs: 10, quemBanca: 'parte', lojaBanca: 100, appFixo: 5,
     },
   };
 
@@ -546,22 +554,48 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
   const impostoDe = (g) => (g.impostoModo === 'simples' ? simples(g.rbt12)?.efetiva ?? g.imposto : g.imposto);
 
   /**
-   * A CONTA da calculadora (uma só, a mesma da tela real depois). P = preço cheio no app; a promoção tira `desconto`% do
-   * item, e a loja banca `lojaBanca`% desse desconto (o resto o app banca). A loja vende B = P × (1 − desconto × lojaBanca);
-   * a comissão, o pagamento, a antecipação e o imposto incidem sobre B. Ganho líquido = B − taxas − custo − embalagem −
-   * entrega por item. Preço recomendado = fixo ÷ ((1 − desconto da loja) × (1 − taxas − margem)); mínimo = sem a margem.
+   * A CONTA da calculadora (uma só, a mesma da tela real depois), por ITEM. P = preço cheio no app.
+   * - Custo fixo do item = custo da ficha + embalagem + entrega da loja por item + taxa fixa da entrega do app ÷ itens por
+   *   pedido.
+   * - A promoção dá ao cliente um desconto (% de P, R$ no item, ou R$ no pedido ÷ itens por pedido, nunca mais que P);
+   *   o app banca uma parte (o resto da % que a loja não banca, ou um valor fixo até o desconto inteiro) e a loja, o resto.
+   * - A loja vende B = P − a parte dela; a comissão, o pagamento, a antecipação e o imposto incidem sobre B.
+   *   Ganho líquido = B − taxas − custo fixo do item.
+   * - Recomendado: o P em que B × (1 − taxas − margem) = custo fixo; mínimo: o mesmo sem a margem. Com desconto fixo ou com
+   *   teto, B não é uma conta simples de P — por isso o P sai por busca (B só cresce com P).
    */
   function calcular(base, cen, g) {
-    const fixo = base.custo + base.emb + (cen.entrega || 0);
+    const n = Math.max(1, g.itensPedido || 1);
+    const taxaFixaItem = (cen.taxaFixa || 0) / n;
+    const fixo = base.custo + base.emb + (cen.entrega || 0) + taxaFixaItem;
     const imposto = impostoDe(g);
     // pagamento: no plano em que a loja entrega, parte dos pedidos é paga na entrega (maquininha); o resto, online
     const pag = cen.k === 'loja' ? (1 - g.parteNaEntrega / 100) * cen.pag + (g.parteNaEntrega / 100) * g.maquininha : cen.pag;
     const partes = { comissao: cen.com, pagamento: pag, antecipacao: g.antecipa ? g.antec : 0, imposto };
     const taxas = (partes.comissao + partes.pagamento + partes.antecipacao + partes.imposto) / 100;
-    const dLoja = g.promo ? (g.desconto / 100) * (g.lojaBanca / 100) : 0;
-    const dApp = g.promo ? (g.desconto / 100) * (1 - g.lojaBanca / 100) : 0;
-    const denRec = (1 - dLoja) * (1 - taxas - g.margem / 100);
-    const denMin = (1 - dLoja) * (1 - taxas);
+    const porPedido = g.promoTipo === 'rsPedido';
+    // o desconto de um item no preço p, e quem banca
+    const promo = (p) => {
+      if (!g.promo) return { cliente: 0, app: 0, loja: 0 };
+      const cliente = g.promoTipo === 'pct' ? (p * g.desconto) / 100 : Math.min(p, porPedido ? g.descontoRs / n : g.descontoRs);
+      const app = g.quemBanca === 'appFixo' ? Math.min(cliente, porPedido ? g.appFixo / n : g.appFixo) : cliente * (1 - g.lojaBanca / 100);
+      return { cliente, app, loja: cliente - app };
+    };
+    const vendeDe = (p) => p - promo(p).loja;
+    // o menor preço cheio em que a loja vende `alvo`
+    const precoPara = (alvo) => {
+      let lo = 0;
+      let hi = alvo * 10 + 200;
+      if (!(alvo > 0) || vendeDe(hi) < alvo) return null;
+      for (let i = 0; i < 60; i++) {
+        const meio = (lo + hi) / 2;
+        if (vendeDe(meio) >= alvo) hi = meio;
+        else lo = meio;
+      }
+      return hi;
+    };
+    const denRec = 1 - taxas - g.margem / 100;
+    const denMin = 1 - taxas;
     const arred = (v) => {
       if (!g.arred) return Math.round(v * 100) / 100;
       let r = Math.floor(v) + 0.9;
@@ -569,23 +603,29 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
       return Math.round(r * 100) / 100;
     };
     const resultado = (p) => {
-      const vende = p * (1 - dLoja);
+      const d = promo(p);
+      const vende = p - d.loja;
       const r = (k) => (vende * partes[k]) / 100;
       const taxasR = vende * taxas;
       const lucro = vende - taxasR - fixo;
       return {
-        preco: p, clientePaga: p * (1 - dLoja - dApp), descontoLoja: p * dLoja, descontoApp: p * dApp, vende,
+        preco: p, clientePaga: p - d.cliente, descontoLoja: d.loja, descontoApp: d.app, vende,
         comissao: r('comissao'), pagamento: r('pagamento'), antecipacao: r('antecipacao'), imposto: r('imposto'), taxasR,
         lucro, margem: vende > 0 ? (lucro / vende) * 100 : 0,
       };
     };
-    // o maior desconto que a loja aguenta bancar sem prejuízo, no preço dado
-    const descontoMax = (p) => Math.max(0, Math.min(100, (1 - fixo / (p * (1 - taxas))) * 100));
+    // o maior desconto que a loja aguenta bancar sem prejuízo, no preço dado: em R$ por item e em % do preço
+    const descontoMax = (p) => {
+      const rs = Math.max(0, p - fixo / (1 - taxas));
+      return { rs, pct: Math.min(100, (rs / p) * 100) };
+    };
+    const rec = denRec > 0.05 ? precoPara(fixo / denRec) : null;
+    const min = denMin > 0.05 ? precoPara(fixo / denMin) : null;
     return {
-      fixo, partes, imposto, dLoja,
+      fixo, taxaFixaItem, n, partes, imposto,
       taxas: taxas * 100,
-      recomendado: denRec > 0.05 ? arred(fixo / denRec) : null,
-      minimo: denMin > 0.05 ? Math.round((fixo / denMin) * 100) / 100 : null,
+      recomendado: rec == null ? null : arred(rec),
+      minimo: min == null ? null : Math.round(min * 100) / 100,
       com: resultado,
       descontoMax,
     };
@@ -827,17 +867,34 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
     return `
       <div class="custo"><span>Custo da ficha <b>${brl(base.custo)}</b></span><span>Embalagem <b>${brl(base.emb)}</b></span><span class="sub">o custo real da ficha técnica, com a perda</span></div>
       <div class="custo"><span>Imposto: ${textoImposto}</span><span class="sub">muda em ％ Taxas e margem</span></div>
-      <div class="tres">
-        <div class="campo"><label for="cMargem">Margem que você quer ganhar</label><div class="pct"><input id="cMargem" data-taxa="margem" inputmode="decimal" value="${g.margem}"><span>%</span></div><span class="ajuda">Sobre o que a loja vende, depois de tudo.</span></div>
+      <div class="quatro">
+        <div class="campo"><label for="cMargem">Margem que você quer ganhar</label><div class="pct"><input id="cMargem" data-taxa="margem" inputmode="decimal" value="${dec(g.margem)}"><span>%</span></div><span class="ajuda">Sobre o que a loja vende, depois de tudo.</span></div>
         <div class="campo"><label for="cAntec">Antecipação do repasse</label><div class="pct"><input id="cAntec" data-taxa="antec" inputmode="decimal" value="${dec(g.antec)}" ${g.antecipa ? '' : 'disabled'}><span>%</span></div>
           <label class="trocar"><input type="checkbox" id="cAntecipa" ${g.antecipa ? 'checked' : ''}> Antecipo o repasse</label></div>
+        <div class="campo"><label for="cItens">Itens por pedido (média)</label><div class="pct"><input id="cItens" data-taxa="itensPedido" data-min="1" data-max="50" inputmode="decimal" value="${dec(g.itensPedido)}"><span>itens</span></div><span class="ajuda">Divide por item o que é cobrado por pedido (taxa fixa, cupom).</span></div>
         <div class="campo"><span class="rot">Preço</span><label class="trocar" style="min-height:40px"><input type="checkbox" id="cArred" ${g.arred ? 'checked' : ''}> Arredondar para ,90</label></div>
       </div>
       <fieldset class="grupo"><legend>Promoção ${c.do}</legend>
-        <label class="trocar"><input type="checkbox" id="cPromo" ${g.promo ? 'checked' : ''}> Simular uma promoção (o app pede um desconto no item)</label>
+        <label class="trocar"><input type="checkbox" id="cPromo" ${g.promo ? 'checked' : ''}> Simular uma promoção (o app pede um desconto)</label>
         ${g.promo ? `<div class="duas">
-          <div class="campo"><label for="cDesc">Desconto no item</label><div class="pct"><input id="cDesc" data-taxa="desconto" inputmode="decimal" value="${g.desconto}"><span>%</span></div></div>
-          <div class="campo"><label for="cBanca">Quanto do desconto a loja banca</label><div class="pct"><input id="cBanca" data-taxa="lojaBanca" inputmode="decimal" value="${g.lojaBanca}"><span>%</span></div><span class="ajuda">100% = a loja paga o desconto inteiro; o resto o app banca.</span></div>
+          <div class="campo"><label for="cPromoTipo">Desconto ao cliente</label><select id="cPromoTipo">
+            <option value="pct" ${g.promoTipo === 'pct' ? 'selected' : ''}>% no preço do item</option>
+            <option value="rsItem" ${g.promoTipo === 'rsItem' ? 'selected' : ''}>Valor fixo no item (R$)</option>
+            <option value="rsPedido" ${g.promoTipo === 'rsPedido' ? 'selected' : ''}>Valor fixo no pedido — cupom (R$)</option></select></div>
+          <div class="campo"><label for="cDesc">${g.promoTipo === 'pct' ? 'Desconto no item' : g.promoTipo === 'rsItem' ? 'Desconto por item' : 'Desconto no pedido'}</label>${g.promoTipo === 'pct'
+            ? `<div class="pct"><input id="cDesc" data-taxa="desconto" inputmode="decimal" value="${dec(g.desconto)}"><span>%</span></div>`
+            : `<div class="pct"><span>R$</span><input id="cDesc" data-taxa="descontoRs" data-max="1000" inputmode="decimal" value="${dec(g.descontoRs)}"></div>`}
+            ${g.promoTipo === 'rsPedido' ? `<span class="ajuda">${brl(g.descontoRs)} ÷ ${dec(g.itensPedido)} itens = ${brl(g.descontoRs / Math.max(1, g.itensPedido))} por item.</span>` : ''}</div>
+        </div>
+        <div class="duas">
+          <div class="campo"><label for="cQuem">Quem banca o desconto</label><select id="cQuem">
+            <option value="parte" ${g.quemBanca === 'parte' ? 'selected' : ''}>A loja banca uma parte (%)</option>
+            <option value="appFixo" ${g.quemBanca === 'appFixo' ? 'selected' : ''}>O app banca um valor fixo (R$)</option></select></div>
+          ${g.quemBanca === 'parte'
+            ? `<div class="campo"><label for="cBanca">Quanto do desconto a loja banca</label><div class="pct"><input id="cBanca" data-taxa="lojaBanca" inputmode="decimal" value="${dec(g.lojaBanca)}"><span>%</span></div><span class="ajuda">100% = a loja paga o desconto inteiro; o resto o app banca.</span></div>`
+            : `<div class="campo"><label for="cAppFixo">Quanto o app banca ${g.promoTipo === 'rsPedido' ? 'por pedido' : 'por item'} (valor médio)</label><div class="pct"><span>R$</span><input id="cAppFixo" data-taxa="appFixo" data-max="1000" inputmode="decimal" value="${dec(g.appFixo)}"></div>
+              <div class="sugestoes" role="group" aria-label="Valores comuns"><span class="sub">Comuns:</span>${[5, 7, 9].map((v) => `<button type="button" class="bt peq" data-app-banca="${v}" aria-pressed="${g.appFixo === v}">${brl(v)}</button>`).join('')}</div>
+              <span class="ajuda">Muda de campanha para campanha: use a média. O resto do desconto a loja banca.</span></div>`}
         </div>` : ''}
       </fieldset>
       <div class="cenarios">${['loja', 'app'].map((k) => {
@@ -849,7 +906,8 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
         const tit = precoHoje != null ? `Com o preço de hoje (${brl(precoHoje)})` : `Com o preço recomendado (${brl(r.recomendado)})`;
         return `<div class="cenario${seu ? ' seu' : ''}">
           <h4>${cc.rot}${seu ? ' <span class="selo info">o seu plano</span>' : ''}</h4>
-          <div class="taxas">${esc(cc.plano)} · comissão ${pct(r.partes.comissao)} · pagamento e cartão ${pct(r.partes.pagamento)}${k === 'loja' && g.parteNaEntrega ? ` (${pct(g.parteNaEntrega)} pagos na entrega, maquininha ${pct(g.maquininha)})` : ''}${g.antecipa ? ` · antecipação ${pct(g.antec)}` : ''} · imposto ${pct(r.imposto)}${cc.entrega ? ` · entrega ${brl(cc.entrega)}/item` : ''}</div>
+          <div class="taxas">${esc(cc.plano)} · comissão ${pct(r.partes.comissao)} · pagamento e cartão ${pct(r.partes.pagamento)}${k === 'loja' && g.parteNaEntrega ? ` (${pct(g.parteNaEntrega)} pagos na entrega, maquininha ${pct(g.maquininha)})` : ''}${g.antecipa ? ` · antecipação ${pct(g.antec)}` : ''} · imposto ${pct(r.imposto)}${cc.entrega ? ` · entrega ${brl(cc.entrega)}/item` : ''}${cc.taxaFixa ? ` · taxa fixa ${brl(cc.taxaFixa)}/pedido` : ''}</div>
+          ${k === 'app' ? `<div class="campo"><label for="cFixa">Taxa fixa por entrega (média pela distância)</label><div class="pct"><span>R$</span><input id="cFixa" data-taxa="taxaFixa" data-canal-taxa="${canal}" data-max="200" inputmode="decimal" value="${dec(cc.taxaFixa || 0)}"></div><span class="ajuda">Por pedido, além da comissão, quando o app cobra pela distância. Se não cobra, deixe 0.</span></div>` : ''}
           ${r.recomendado == null
             ? '<div class="aviso crit">As taxas, o desconto e a margem passam do preço: não há preço que pague. Baixe a margem ou o desconto.</div>'
             : `<div><div class="sub">${g.promo ? `Preço cheio para ganhar ${pct(g.margem)} com a promoção` : `Preço recomendado ${c.no}`}</div><div class="preco-rec">${brl(r.recomendado)}</div><div class="sub">mínimo para não ter prejuízo: <span class="num">${brl(r.minimo)}</span></div></div>`}
@@ -866,13 +924,14 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
             ${linha('Custo do produto', `− ${brl(base.custo)}`)}
             ${base.emb ? linha('Embalagem', `− ${brl(base.emb)}`) : ''}
             ${cc.entrega ? linha('Entrega por item', `− ${brl(cc.entrega)}`) : ''}
+            ${r.taxaFixaItem ? linha(`Taxa fixa da entrega (${brl(cc.taxaFixa)} ÷ ${dec(r.n)} itens)`, `− ${brl(r.taxaFixaItem)}`) : ''}
             ${linha('Ganho líquido', `<span class="${v.lucro < 0 ? 'neg' : 'pos'}">${brl(v.lucro)} · ${pct(v.margem)}</span>`, 'total')}
           </div>
-          <div class="sub">Neste preço, a loja aguenta bancar até <b class="num">${pct(r.descontoMax(ref))}</b> de desconto sem prejuízo.</div>` : ''}
+          <div class="sub">Neste preço, a loja aguenta bancar até <b class="num">${pct(r.descontoMax(ref).pct)}</b> de desconto (<span class="num">${brl(r.descontoMax(ref).rs)}</span> por item) sem prejuízo.</div>` : ''}
           ${r.recomendado != null && alvoId ? `<button class="bt peq${seu ? ' pri' : ''}" data-acao="${acao}" data-id="${alvoId}" data-para="${canal}" data-valor="${r.recomendado}">Usar ${brl(r.recomendado)} como preço ${c.no}</button>` : ''}
         </div>`;
       }).join('')}</div>
-      <div class="formula">Como a conta é feita: a loja vende <code>preço × (1 − desconto que ela banca)</code>; sobre isso saem a comissão, o pagamento e o cartão${g.antecipa ? ', a antecipação' : ''} e o imposto; depois, o custo e a embalagem. O preço recomendado é o que deixa a margem escolhida: <code>(custo + embalagem${g.entregaLoja ? ' + entrega' : ''}) ÷ ((1 − desconto da loja) × (1 − taxas − imposto − margem))</code>; o mínimo é a mesma conta sem a margem. A mensalidade do app não entra (é por mês, não por item). Confira no seu app sobre qual valor a comissão incide na promoção (a 99 diz que é sobre o valor depois do desconto).</div>`;
+      <div class="formula">Como a conta é feita: a loja vende <code>preço − a parte do desconto que ela banca</code>; sobre isso saem a comissão, o pagamento e o cartão${g.antecipa ? ', a antecipação' : ''} e o imposto; depois, o custo, a embalagem, a entrega e a taxa fixa por entrega (o que é por pedido entra dividido pelos itens de um pedido médio). O preço recomendado é o preço cheio em que <code>a loja vende × (1 − taxas − imposto − margem) = custo + embalagem + entrega + taxa fixa</code>; o mínimo é a mesma conta sem a margem. A mensalidade do app não entra (é por mês, não por item). Confira no seu app sobre qual valor a comissão incide na promoção (a 99 diz que é sobre o valor depois do desconto).</div>`;
   }
 
   function gavetaCalcular(x) {
@@ -888,25 +947,48 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
   }
 
   // Os campos da calculadora (margem, antecipação, promoção…) redesenham a conta na hora, sem perder o cursor.
-  function ligarCalc(desenharCalc) {
-    $('#gCorpo').oninput = (e) => {
+  // O campo guarda o que a pessoa DIGITOU ("2," no meio de "2,5" não vira "2"); cada campo tem o seu mínimo e máximo
+  // (% até 100; R$ até o data-max; itens por pedido a partir de 1); a taxa fixa é do app em que se está calculando.
+  function ligarCalc(desenharCalc, outroClique) {
+    const g = TAXAS.geral;
+    const corpo = $('#gCorpo');
+    corpo.oninput = (e) => {
       const k = e.target.dataset.taxa;
       if (!k) return;
-      const v = Number(String(e.target.value).replace(',', '.'));
-      if (Number.isFinite(v) && v >= 0 && v <= 100) {
-        TAXAS.geral[k] = v;
-        const pos = e.target.selectionStart;
-        const id = e.target.id;
-        desenharCalc();
-        const f = document.getElementById(id);
-        f.focus();
-        f.setSelectionRange?.(pos, pos);
-      }
+      const bruto = e.target.value;
+      const v = Number(String(bruto).replace(',', '.'));
+      const min = Number(e.target.dataset.min ?? 0);
+      const max = Number(e.target.dataset.max ?? 100);
+      if (!(Number.isFinite(v) && v >= min && v <= max)) return;
+      const alvo = e.target.dataset.canalTaxa ? TAXAS[e.target.dataset.canalTaxa].app : g;
+      alvo[k] = v;
+      const pos = e.target.selectionStart;
+      const id = e.target.id;
+      desenharCalc();
+      const f = document.getElementById(id);
+      f.value = bruto;
+      f.focus();
+      f.setSelectionRange?.(pos, pos);
     };
-    $('#gCorpo').onchange = (e) => {
-      if (e.target.id === 'cAntecipa') { TAXAS.geral.antecipa = e.target.checked; desenharCalc(); }
-      if (e.target.id === 'cArred') { TAXAS.geral.arred = e.target.checked; desenharCalc(); }
-      if (e.target.id === 'cPromo') { TAXAS.geral.promo = e.target.checked; desenharCalc(); }
+    corpo.onchange = (e) => {
+      const id = e.target.id;
+      if (id === 'cAntecipa') g.antecipa = e.target.checked;
+      else if (id === 'cArred') g.arred = e.target.checked;
+      else if (id === 'cPromo') g.promo = e.target.checked;
+      else if (id === 'cPromoTipo') g.promoTipo = e.target.value;
+      else if (id === 'cQuem') g.quemBanca = e.target.value;
+      else return;
+      desenharCalc();
+      focar(`#${id}`);
+    };
+    corpo.onclick = (e) => {
+      const b = e.target.closest('[data-app-banca]');
+      if (b) {
+        g.appFixo = Number(b.dataset.appBanca);
+        desenharCalc();
+        return focar(`[data-app-banca="${b.dataset.appBanca}"]`);
+      }
+      outroClique?.(e);
     };
   }
 
@@ -919,7 +1001,8 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
         <div class="duas">
           <div class="campo"><label for="t-${canal}-${k}-com">${t[k].rot}: comissão</label><div class="pct"><input id="t-${canal}-${k}-com" inputmode="decimal" value="${dec(t[k].com)}"><span>%</span></div></div>
           <div class="campo"><label for="t-${canal}-${k}-pag">${t[k].rot}: pagamento online</label><div class="pct"><input id="t-${canal}-${k}-pag" inputmode="decimal" value="${dec(t[k].pag)}"><span>%</span></div></div>
-        </div>`;
+        </div>
+        ${k === 'app' ? `<div class="campo"><label for="t-${canal}-app-fixa">${t.app.rot}: taxa fixa por entrega (média pela distância)</label><div class="pct"><span>R$</span><input id="t-${canal}-app-fixa" inputmode="decimal" value="${dec(t.app.taxaFixa)}"></div><span class="ajuda">Por pedido, além da comissão. Se o app cobra por faixa de distância, use a média dos seus pedidos; 0 se não cobra.</span></div>` : ''}`;
       return `<fieldset class="grupo"><legend>${n.nome}</legend>
         <div class="campo"><label for="t-${canal}-plano">O seu plano ${n.no}</label><select id="t-${canal}-plano"><option ${t.plano === 'loja' ? 'selected' : ''}>${t.loja.rot} (${t.loja.plano})</option><option ${t.plano === 'app' ? 'selected' : ''}>${t.app.rot} (${t.app.plano})</option></select><span class="ajuda">A calculadora marca o seu plano e mostra o outro para comparar.</span></div>
         ${cen('loja')}${cen('app')}</fieldset>`;
@@ -940,6 +1023,7 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
         </div>
       </fieldset>
       <fieldset class="grupo"><legend>Margem e repasse</legend>
+        <div class="campo"><label for="t-itens">Itens por pedido (média)</label><div class="pct"><input id="t-itens" inputmode="decimal" value="${dec(TAXAS.geral.itensPedido)}"><span>itens</span></div><span class="ajuda">Divide por item o que é cobrado por pedido (a taxa fixa por entrega, o cupom). O Regem pode preencher com as vendas (decisão 8).</span></div>
         <div class="tres">
           <div class="campo"><label for="t-margem">Margem que você quer ganhar</label><div class="pct"><input id="t-margem" inputmode="decimal" value="${TAXAS.geral.margem}"><span>%</span></div></div>
           <div class="campo"><label for="t-antec">Antecipação do repasse</label><div class="pct"><input id="t-antec" inputmode="decimal" value="${dec(TAXAS.geral.antec)}"><span>%</span></div><label class="trocar"><input type="checkbox" id="t-antecipa" ${TAXAS.geral.antecipa ? 'checked' : ''}> Antecipo</label></div>
@@ -1494,14 +1578,13 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
     desenharCalc();
     $('#gRodape').innerHTML = '<button class="bt" data-fechar2>Fechar</button>';
     abrir($('#gaveta'));
-    ligarCalc(desenharCalc);
-    $('#gCorpo').onclick = (e) => {
+    ligarCalc(desenharCalc, (e) => {
       const b = e.target.closest('[data-calc-canal]');
       if (!b) return;
       k = b.dataset.calcCanal;
       desenharCalc();
       focar(`[data-calc-canal="${k}"]`);
-    };
+    });
   }
 
   function salvarConf(id) {
