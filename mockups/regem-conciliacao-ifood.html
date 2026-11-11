@@ -3,21 +3,21 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Regem — Cardápio do iFood × Regem (conciliação, protótipo R3)</title>
+<title>Regem — Cardápio dos apps × Regem (conciliação e preço, protótipo R3)</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <style>
-/* PROTÓTIPO R3 — a conciliação do cardápio do iFood (lido pelo Orzuni) com o cadastro do Regem, por CÓDIGO PDV.
-   Dados inventados; nada aqui fala com o Regem. Tokens do Regem (.app-light), no modelo do Estoque (mockups
-   regem-estoque-produtos.html e regem-estoque-abas.html): título com a contagem, situações com quantidade que filtram,
-   busca e filtro, ações na linha, gaveta para o que tem mais de um passo, diálogo para a ação em massa. A lista vira
-   cartões pelo ESPAÇO dela (@container) — nenhuma barra de rolagem horizontal em largura nenhuma.
-   Onde fica: Delivery › Gestão do catálogo, aba "iFood × Regem" (a aba só aparece com o iFood pelo Orzuni ligado na
-   loja). As decisões que esperam o dono estão no fim da página. */
+/* PROTÓTIPO R3 — a conferência do cardápio do iFood (lido pelo Orzuni) e da 99 (lido direto pela integração da 99) com o
+   cadastro do Regem, por CÓDIGO PDV, e a CALCULADORA DE PREÇO por canal (pedido do dono, 11/11): o preço recomendado a
+   partir do custo real da ficha, com as taxas do app, a antecipação, o imposto e a margem, nos dois jeitos de entregar
+   (a loja entrega × o app entrega). Dados e taxas de exemplo; nada aqui fala com o Regem. Tokens do Regem (.app-light), no
+   modelo do Estoque (mockups regem-estoque-produtos.html e regem-estoque-abas.html). A lista vira cartões pelo ESPAÇO dela
+   (@container) — nenhuma barra de rolagem horizontal em largura nenhuma. As decisões que esperam o dono estão no fim. */
 :root{
   --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --ink-3:#5F7286; --line:#DEE5EC; --line-2:#C8D2DC;
   --gold:#E8A845; --on-gold:#281B06; --navy:#0F2230; --ok:#157F5A; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9;
-  --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8; --ifood:#C8102E; --radius:12px;
+  --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8; --ifood:#C8102E; --n99:#E0A800; --radius:12px;
+  --soft:#F7F9FB; --chip:#EEF2F6; --sel:#F2F6FA; --foco:#3A7FB8;
   --display:'Archivo',sans-serif; --body:'Figtree',sans-serif; --mono:'JetBrains Mono',monospace;
 }
 *{box-sizing:border-box}
@@ -25,7 +25,7 @@ html,body{margin:0}
 body{font-family:var(--body);background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45}
 button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer}
-:focus-visible{outline:3px solid #3A7FB8;outline-offset:2px}
+:focus-visible{outline:3px solid var(--foco);outline-offset:2px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 [hidden]{display:none!important}
 
@@ -41,7 +41,7 @@ main{min-width:0;padding:20px 24px 80px;container-type:inline-size}
 h1{font-family:var(--display);font-size:26px;margin:2px 0 14px}
 .prot{display:flex;flex-wrap:wrap;align-items:center;gap:6px;background:#FFF8EA;border:1px dashed #D9A649;border-radius:10px;padding:8px 10px;margin-bottom:14px;font-size:13px}
 .prot b{color:#6B4505}
-.prot button{min-height:32px;padding:0 10px;border-radius:8px;border:1px solid #D9A649;background:#fff;font-weight:600;font-size:13px}
+.prot button{min-height:32px;padding:0 10px;border-radius:8px;border:1px solid #D9A649;background:var(--card);font-weight:600;font-size:13px}
 .prot button[aria-pressed="true"]{background:#6B4505;border-color:#6B4505;color:#fff}
 
 .abas{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
@@ -55,18 +55,22 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 14px}
 .bt{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px;padding:0 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);font-weight:600;font-size:14px;text-align:center}
 .bt:hover{border-color:var(--ink-3)}
 .bt.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
-.bt.fantasma{border-color:transparent;background:transparent}
 .bt[disabled]{opacity:.5;cursor:not-allowed}
 .bt.peq{min-height:36px;padding:0 10px;font-size:13.5px}
 
+.canais{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.canal{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 14px;border-radius:12px;border:1.5px solid var(--line-2);background:var(--card);font-weight:700}
+.canal .ponto{width:10px;height:10px;border-radius:50%;flex:none}
+.canal[aria-pressed="true"]{border-color:var(--navy);box-shadow:inset 0 0 0 1px var(--navy);background:var(--sel)}
+.canal small{font-weight:600;color:var(--ink-2)}
 .seg{display:inline-grid;grid-auto-flow:column;border:1px solid var(--line-2);border-radius:10px;overflow:hidden;margin-bottom:12px;max-width:100%}
-.seg button{min-height:40px;padding:0 14px;border:none;background:#fff;font-weight:600;border-right:1px solid var(--line-2);white-space:nowrap}
+.seg button{min-height:40px;padding:0 14px;border:none;background:var(--card);font-weight:600;border-right:1px solid var(--line-2);white-space:nowrap}
 .seg button:last-child{border-right:none}
 .seg button[aria-pressed="true"]{background:var(--navy);color:#fff}
 
 .sits{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
 .sit{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0 12px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);font-weight:600;font-size:14px;color:var(--ink-2)}
-.sit b{font-family:var(--mono);font-size:13px;background:#EEF2F6;color:var(--ink);border-radius:999px;padding:1px 8px}
+.sit b{font-family:var(--mono);font-size:13px;background:var(--chip);color:var(--ink);border-radius:999px;padding:1px 8px}
 .sit[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
 .sit[aria-pressed="true"] b{background:rgba(255,255,255,.18);color:#fff}
 .sit.crit b{background:var(--crit-bg);color:var(--crit)} .sit.warn b{background:var(--warn-bg);color:var(--warn)} .sit.ok b{background:var(--ok-bg);color:var(--ok)}
@@ -75,57 +79,61 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 14px}
 .filtros{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:10px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-bottom:12px}
 .campo{display:flex;flex-direction:column;gap:4px;min-width:0}
 .campo label,.rot{font-size:12.5px;font-weight:700;color:var(--ink-2)}
-.campo input,.campo select{min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 12px;background:#fff;width:100%;min-width:0}
+.campo input,.campo select{min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 12px;background:var(--card);width:100%;min-width:0}
 .campo .ajuda{font-size:12.5px;color:var(--ink-2)}
+.pct{display:flex;align-items:center;gap:6px}
+.pct input{text-align:right;font-family:var(--mono)}
+.pct span{font-family:var(--mono);color:var(--ink-2)}
 
 .tabela{background:var(--card);border:1px solid var(--line);border-radius:var(--radius)}
 table{width:100%;border-collapse:collapse}
-th{font-size:12px;letter-spacing:.06em;text-transform:uppercase;text-align:left;color:var(--ink-2);background:#F7F9FB;padding:10px 12px;border-bottom:1px solid var(--line)}
+th{font-size:12px;letter-spacing:.06em;text-transform:uppercase;text-align:left;color:var(--ink-2);background:var(--soft);padding:10px 12px;border-bottom:1px solid var(--line)}
 td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
 tr:last-child td{border-bottom:none}
 .nome{font-weight:700}
 .sub{font-size:12.5px;color:var(--ink-2)}
-.num{font-family:var(--mono);font-size:13.5px;white-space:nowrap}
+.num{font-family:var(--mono);font-size:13.5px;white-space:nowrap;font-variant-numeric:tabular-nums}
 .selo{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;font-weight:700;font-size:12.5px;white-space:nowrap}
 .selo.ok{background:var(--ok-bg);color:var(--ok)} .selo.crit{background:var(--crit-bg);color:var(--crit)}
-.selo.warn{background:var(--warn-bg);color:var(--warn)} .selo.neutro{background:#EEF2F6;color:var(--ink-2)} .selo.info{background:var(--info-bg);color:var(--info)}
+.selo.warn{background:var(--warn-bg);color:var(--warn)} .selo.neutro{background:var(--chip);color:var(--ink-2)} .selo.info{background:var(--info-bg);color:var(--info)}
 .motivo{font-size:13px;color:var(--ink);margin-top:4px}
 .linha-acoes{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
-.diff{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
 .diff s{color:var(--ink-3)}
 .vazio{padding:36px 16px;text-align:center;color:var(--ink)}
 .vazio p{margin:6px 0 0;color:var(--ink-2)}
 .estado-tela{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:28px 18px;text-align:center}
 .estado-tela h3{font-family:var(--display);margin:0 0 6px;font-size:18px}
 .estado-tela p{margin:0 auto 12px;max-width:560px;color:var(--ink-2)}
-.esqueleto{height:52px;border-radius:10px;background:linear-gradient(90deg,#EEF2F6,#F7F9FB,#EEF2F6);background-size:200% 100%;animation:esq 1.2s infinite;margin:8px 0}
+.esqueleto{height:52px;border-radius:10px;background:linear-gradient(90deg,var(--chip),var(--soft),var(--chip));background-size:200% 100%;animation:esq 1.2s infinite;margin:8px 0}
 @keyframes esq{to{background-position:-200% 0}}
 @media (prefers-reduced-motion:reduce){.esqueleto{animation:none}}
 
 /* sobrepostos */
 .fundo{position:fixed;inset:0;background:rgba(15,34,48,.45);z-index:40}
-.gaveta{position:fixed;top:0;right:0;bottom:0;width:min(680px,100%);background:var(--card);z-index:50;display:flex;flex-direction:column;box-shadow:-12px 0 32px rgba(15,34,48,.18)}
+.gaveta{position:fixed;top:0;right:0;bottom:0;width:min(720px,100%);background:var(--card);z-index:50;display:flex;flex-direction:column;box-shadow:-12px 0 32px rgba(15,34,48,.18)}
 .gaveta header,.dialogo header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line)}
 .gaveta h3,.dialogo h3{font-family:var(--display);font-size:19px;margin:0;min-width:0}
 .gaveta .corpo{flex:1;overflow-y:auto;padding:16px 20px;display:grid;gap:14px;align-content:start;container-type:inline-size}
-.gaveta footer,.dialogo footer{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;padding:14px 20px;border-top:1px solid var(--line);background:#F7F9FB}
+.gaveta footer,.dialogo footer{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;padding:14px 20px;border-top:1px solid var(--line);background:var(--soft)}
 .ic{display:inline-flex;align-items:center;justify-content:center;min-width:40px;min-height:40px;border-radius:10px;border:1px solid transparent;background:transparent;font-size:16px;color:var(--ink-2)}
-.ic:hover{background:#EEF2F6}
+.ic:hover{background:var(--chip)}
 .duas{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-@container (max-width:520px){ .duas{grid-template-columns:1fr} }
-.caixa-ifood{border:1px solid var(--line);border-left:4px solid var(--ifood);border-radius:10px;padding:10px 12px;background:#FFF8F8}
-.caixa-ifood dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;margin:6px 0 0}
-.caixa-ifood dt{font-size:12.5px;font-weight:700;color:var(--ink-2)}
-.caixa-ifood dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.tres{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@container (max-width:560px){ .duas,.tres{grid-template-columns:1fr} }
+.caixa-canal{border:1px solid var(--line);border-left:4px solid var(--ifood);border-radius:10px;padding:10px 12px;background:var(--soft)}
+.caixa-canal.n99{border-left-color:var(--n99)}
+.caixa-canal dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;margin:6px 0 0}
+.caixa-canal dt{font-size:12.5px;font-weight:700;color:var(--ink-2)}
+.caixa-canal dd{margin:0;min-width:0;overflow-wrap:anywhere}
 .escolhas{display:grid;gap:8px}
-.escolha{display:flex;gap:10px;align-items:flex-start;border:1.5px solid var(--line-2);border-radius:10px;padding:10px 12px;background:#fff;text-align:left;width:100%}
-.escolha[aria-pressed="true"]{border-color:var(--navy);background:#F2F6FA;box-shadow:inset 0 0 0 1px var(--navy)}
+.escolha{display:flex;gap:10px;align-items:flex-start;border:1.5px solid var(--line-2);border-radius:10px;padding:10px 12px;background:var(--card);text-align:left;width:100%}
+.escolha[aria-pressed="true"]{border-color:var(--navy);background:var(--sel);box-shadow:inset 0 0 0 1px var(--navy)}
 .escolha .bola{width:18px;height:18px;border-radius:50%;border:2px solid var(--line-2);flex:none;margin-top:2px}
 .escolha[aria-pressed="true"] .bola{border:6px solid var(--navy)}
 .escolha b{display:block}
 .escolha small{color:var(--ink-2)}
 .compo{display:grid;grid-template-columns:minmax(0,1fr) 84px auto;gap:6px;align-items:center}
-.compo select,.compo input{min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 10px;background:#fff;width:100%;min-width:0}
+.compo select,.compo input{min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 10px;background:var(--card);width:100%;min-width:0}
 .aviso{border-left:4px solid var(--warn);background:var(--warn-bg);padding:10px 12px;border-radius:8px;font-size:14px}
 .aviso.info{border-color:var(--info);background:var(--info-bg)}
 .aviso.crit{border-color:var(--crit);background:var(--crit-bg)}
@@ -136,8 +144,29 @@ tr:last-child td{border-bottom:none}
 .lista-simples{margin:0;padding:0;list-style:none;display:grid;gap:6px}
 .lista-simples li{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;border:1px solid var(--line);border-radius:10px;padding:8px 10px}
 .prod-busca{display:grid;gap:6px}
-.prod{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;border:1.5px solid var(--line-2);border-radius:10px;padding:9px 12px;background:#fff;text-align:left;width:100%}
-.prod[aria-pressed="true"]{border-color:var(--navy);background:#F2F6FA}
+.prod{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;border:1.5px solid var(--line-2);border-radius:10px;padding:9px 12px;background:var(--card);text-align:left;width:100%}
+.prod[aria-pressed="true"]{border-color:var(--navy);background:var(--sel)}
+
+/* calculadora */
+.custo{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:baseline;background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.custo b{font-family:var(--mono)}
+.cenarios{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:10px}
+.cenario{border:1.5px solid var(--line-2);border-radius:12px;padding:12px;display:grid;gap:8px;align-content:start;background:var(--card)}
+.cenario.seu{border-color:var(--navy);box-shadow:inset 0 0 0 1px var(--navy)}
+.cenario h4{margin:0;font-family:var(--display);font-size:15px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.cenario .taxas{font-size:12.5px;color:var(--ink-2)}
+.preco-rec{font-family:var(--mono);font-size:26px;font-weight:700;line-height:1.1}
+.linhas-calc{display:grid;gap:3px;font-size:13.5px}
+.linhas-calc div{display:flex;justify-content:space-between;gap:10px}
+.linhas-calc div span:last-child{font-family:var(--mono);white-space:nowrap}
+.linhas-calc .total{border-top:1px solid var(--line);padding-top:4px;font-weight:700}
+.neg{color:var(--crit)} .pos{color:var(--ok)}
+.formula{font-size:13px;color:var(--ink-2);background:var(--soft);border-radius:8px;padding:8px 10px}
+.formula code{font-family:var(--mono);font-size:12.5px;color:var(--ink)}
+.trocar{display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px}
+.trocar input{width:20px;height:20px}
+fieldset.grupo{border:1px solid var(--line);border-radius:12px;padding:12px;margin:0;display:grid;gap:10px;min-width:0}
+fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
 #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:11px 18px;border-radius:12px;font-weight:600;z-index:60;box-shadow:0 10px 26px rgba(0,0,0,.25);display:flex;gap:12px;align-items:center;max-width:calc(100% - 24px)}
 #toast button{background:none;border:1px solid rgba(255,255,255,.5);color:#fff;border-radius:8px;min-height:32px;padding:0 10px;font-weight:700}
 
@@ -146,9 +175,9 @@ tr:last-child td{border-bottom:none}
 .notas h3{font-family:var(--display);font-size:15px;margin:14px 0 4px}
 .notas ol,.notas ul{margin:4px 0;padding-left:20px;display:grid;gap:6px}
 .notas p{margin:4px 0}
+.notas a{color:var(--info)}
 
 @media (max-width:1000px){ .app{grid-template-columns:1fr} .lado{display:none} main{padding:16px 16px 80px} }
-/* A lista vira cartões pelo ESPAÇO dela (com o menu lateral, a tabela não cabe em janelas de até ~1200 px). */
 @container (max-width:980px){
   main .tabela{border:none;background:none} main thead{display:none}
   main tbody tr{display:block;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-bottom:10px}
@@ -179,25 +208,28 @@ tr:last-child td{border-bottom:none}
     <div class="prot" role="group" aria-label="Estado do protótipo">
       <b>Protótipo — ver a tela:</b>
       <button data-estado="normal" aria-pressed="true">com diferenças</button>
-      <button data-estado="lendo" aria-pressed="false">lendo o iFood</button>
-      <button data-estado="fora" aria-pressed="false">Orzuni fora do ar</button>
+      <button data-estado="lendo" aria-pressed="false">lendo o app</button>
+      <button data-estado="fora" aria-pressed="false">app fora do ar</button>
       <button data-estado="semLigacao" aria-pressed="false">loja sem ligação</button>
       <button data-estado="tudoIgual" aria-pressed="false">tudo igual</button>
     </div>
 
     <div class="abas" role="tablist" aria-label="Gestão do catálogo">
       <button class="aba" role="tab" aria-selected="false">Catálogo</button>
-      <button class="aba" role="tab" aria-selected="true">iFood × Regem</button>
+      <button class="aba" role="tab" aria-selected="true">Apps × Regem</button>
     </div>
+
+    <div class="canais" role="group" aria-label="Qual app conferir" id="canais"></div>
 
     <div class="barra">
       <div>
-        <h2 id="titulo">Cardápio do iFood × Regem</h2>
+        <h2 id="titulo"></h2>
         <p class="resumo" id="resumo" role="status" aria-live="polite"></p>
       </div>
       <div class="acoes">
+        <button class="bt" id="bTaxas" type="button">％ Taxas e margem</button>
         <button class="bt" id="bPrecos" type="button"></button>
-        <button class="bt pri" id="bAtualizar" type="button">↻ Ler o iFood agora</button>
+        <button class="bt pri" id="bAtualizar" type="button"></button>
       </div>
     </div>
 
@@ -207,23 +239,41 @@ tr:last-child td{border-bottom:none}
       <h2 id="tNotas">Notas e decisões para o dono</h2>
       <h3>Onde fica e como lê</h3>
       <ul>
-        <li><b>Delivery › Gestão do catálogo › aba "iFood × Regem"</b> — só aparece com o iFood pelo Orzuni ligado na loja. A aba "Catálogo" é a tela de hoje.</li>
-        <li>Lê o iFood <b>ao abrir a aba</b> e pelo botão <b>"Ler o iFood agora"</b> (no máximo uma leitura automática por dia; nada de leitura de minuto em minuto). A leitura usa o limite do Orzuni com folga: 2 chamadas (itens e opções).</li>
-        <li>Na loja com servidor, a tela pede à nuvem (a ligação com o Orzuni só existe lá); sem internet, diz "sem conexão com a nuvem" — não "não tem diferença".</li>
-        <li>Compara pelo <b>código PDV</b> (o código do produto no Regem = o código do item no iFood). Nome e categoria só ajudam a achar; não ligam nada.</li>
-        <li>Cada resolução vai para a auditoria (quem, o quê, de → para). "Ignorar" é por loja e se desfaz.</li>
+        <li><b>Delivery › Gestão do catálogo › aba "Apps × Regem"</b>, com o app escolhido no topo (iFood ou 99). Cada app só aparece com a integração dele ligada na loja: o iFood pelo Orzuni; a 99 pela integração direta que o Regem já tem.</li>
+        <li><b>iFood:</b> lido pelo Orzuni (<code>cardapio_listar</code> e <code>complementos_listar</code>, 2 chamadas). <b>99:</b> lido direto da 99 (<code>GET /v3/item/item/list</code>: itens, preços em centavos, situação e complementos numa chamada); "mandar o preço do Regem à 99" usa <code>POST /v3/item/item/updateItem</code> da 99.</li>
+        <li>Lê o app <b>ao abrir</b> e pelo botão <b>"Ler agora"</b> (no máximo uma leitura automática por dia; nada de leitura de minuto em minuto). Na loja com servidor, a tela pede à nuvem (as credenciais só existem lá); sem internet, diz "sem conexão com a nuvem".</li>
+        <li>Compara pelo <b>código PDV</b> (o código do produto no Regem = o código do item no app). Na 99, o cardápio enviado pelo Regem usa o código do produto (ou o id dele, sem código): os dois ligam.</li>
+        <li>Cada resolução vai para a auditoria (quem, o quê, de → para). "Ignorar" é por loja e por app, e se desfaz.</li>
+      </ul>
+      <h3>A calculadora de preço</h3>
+      <ul>
+        <li>Parte do <b>custo real da ficha técnica</b> (com a perda) + a <b>embalagem</b>. O preço recomendado é <code>(custo + embalagem + entrega por item) ÷ (1 − comissão − pagamento − antecipação − imposto − margem)</code>; o mínimo é a mesma conta sem a margem (empata).</li>
+        <li>Mostra os dois jeitos de entregar de cada app (a loja entrega × o app entrega), com o <b>plano da loja</b> marcado, e o que o preço de hoje deixa (você recebe, lucro, margem).</li>
+        <li>As taxas vêm preenchidas com <b>valores públicos de referência</b> e a loja ajusta pelo contrato dela: iFood — Plano Básico 12% e Plano Entrega 23%, mais 3,2% de pagamento online; 99 — 10,9% com entrega da loja e 8,9% com entrega da 99, mais cerca de 3,2% de pagamento. A mensalidade não entra (é por mês, não por item). <span class="sub">Fontes nas decisões abaixo.</span></li>
+        <li><b>Promoção do app:</b> o desconto no item e quanto dele a loja banca. A conta mostra o que o cliente paga, o que a loja vende, cada taxa, o imposto, o custo e o <b>ganho líquido</b>; o preço cheio que mantém a margem escolhida com a promoção; e o maior desconto que a loja aguenta sem prejuízo.</li>
+        <li><b>Imposto:</b> uma média informada ou o <b>Simples Nacional pelo faturamento dos últimos 12 meses</b> (Anexo I — comércio, onde ficam bares e restaurantes: alíquota efetiva = (faturamento × nominal − parcela a deduzir) ÷ faturamento). <b>Cartão:</b> nos pedidos pagos na entrega, a taxa da maquininha entra no lugar do pagamento online.</li>
+        <li>É sugestão: nada muda sem o clique em "Usar este preço".</li>
       </ul>
       <h3>Decisões que esperam você (a recomendada primeiro)</h3>
       <ol>
-        <li><b>Produto "só no iFood" precisa de uma marca própria.</b> Ele fica fora do balcão e do cardápio digital — e hoje o "Ocultar" do Regem (balcão E cardápio desligados) <b>pausa no iFood</b> (decisão de 06/11). Recomendo uma marca nova no produto, <b>"Vende só no iFood"</b>, que tira dele o balcão e o cardápio digital sem pausar no iFood. (Alternativa: deixar o produto visível no balcão — não recomendo.)</li>
-        <li><b>Combo do iFood:</b> criar no Regem como <b>combo</b> com os produtos que o compõem (cada um baixa o estoque dele). Recomendo. (Alternativa: uma ficha técnica só do combo.)</li>
-        <li><b>Preço diferente:</b> as duas direções ficam na linha — "usar o do iFood no Regem" ou "mandar o do Regem ao iFood". A ação em massa só existe para "usar o do iFood" (é a mais comum depois de mexer no Gestor). Recomendo assim.</li>
-        <li><b>"Ligar a um produto que já existe"</b> troca o código do produto do Regem para o do iFood. Se ele já tinha outro código, a gaveta mostra quem usa esse código (venda, totem, GoGeM, Farol) e pede confirmação. Recomendo.</li>
-        <li><b>Nasce desligada:</b> uma chave por empresa no console da distribuição ("Conciliação do iFood"), além da ligação da loja. Recomendo.</li>
+        <li><b>Produto "só nos apps" precisa de uma marca própria.</b> Ele fica fora do balcão e do cardápio digital — e hoje o "Ocultar" do Regem (balcão E cardápio desligados) <b>pausa no iFood</b> (decisão de 06/11). Recomendo uma marca nova no produto, <b>"Vende só nos apps"</b>, que tira dele o balcão e o cardápio digital sem pausar no iFood nem na 99.</li>
+        <li><b>Combo do app:</b> criar no Regem como <b>combo</b> com os produtos que o compõem (cada um baixa o estoque dele). Recomendo.</li>
+        <li><b>Preço diferente:</b> as duas direções ficam na linha — "usar o do app no Regem" ou "mandar o do Regem ao app". A ação em massa só existe para "usar o do app". Recomendo.</li>
+        <li><b>"Ligar a um produto que já existe"</b> troca o código do produto do Regem para o do app. Se ele já tinha outro código, a gaveta mostra quem usa esse código e pede confirmação. Recomendo.</li>
+        <li><b>Nasce desligada:</b> uma chave por empresa no console da distribuição ("Conferência dos apps"), além da ligação de cada app. Recomendo.</li>
+        <li><b>99 com preço próprio:</b> hoje o Regem manda à 99 o preço do balcão e não sabe o que "está na 99". Recomendo pôr no produto <b>"Preço na 99"</b> e <b>"Está na 99"</b>, como já existe para o iFood (uma migration), e o envio do preço à 99 pela API dela. (Alternativa: comparar com o preço do balcão — não recomendo: a maioria cobra mais nos apps.)</li>
+        <li><b>Taxas por loja:</b> as taxas e a margem ficam nos ajustes de cada loja (uma tabela nova), preenchidas com os valores de referência e editáveis. Recomendo.</li>
+        <li><b>Faturamento para o Simples:</b> o Regem preenche o faturamento dos últimos 12 meses com as vendas registradas (a loja pode trocar pelo número do contador). Recomendo. (Alternativa: só digitado.)</li>
+        <li><b>A calculadora também no cadastro do produto</b> (Cadastros › Cardápio, seção iFood/99), não só aqui. Recomendo, na mesma entrega.</li>
       </ol>
+      <h3>Fontes das taxas de referência (consultadas em 11/11/2026)</h3>
+      <ul>
+        <li><a href="https://www.serasa.com.br/blog/abrir-loja-no-ifood/" target="_blank" rel="noopener">Serasa — planos do iFood</a> · <a href="https://diariodopara.com.br/seu-bolso/veja-como-cadastrar-uma-loja-escolher-plano-e-calcular-taxas-no-ifood/" target="_blank" rel="noopener">Diário do Pará — taxas do iFood</a></li>
+        <li><a href="https://99app.com/99food/restaurantes/guias/entendendo-as-cobrancas-da-99food/" target="_blank" rel="noopener">99Food — entendendo as cobranças</a> · <a href="https://www.infomoney.com.br/business/nova-guerra-de-tarifas-nao-envolve-trump-mas-os-apps-de-entrega-de-comida/" target="_blank" rel="noopener">InfoMoney — tarifas dos apps</a></li>
+      </ul>
       <h3>Fora desta entrega</h3>
       <ul>
-        <li>Pausado no iFood × ativo no Regem (o R2 já leva a pausa do Regem ao iFood); foto e descrição do item; o contexto INDOOR/WHITELABEL (só o DEFAULT).</li>
+        <li>Pausado no app × ativo no Regem (o R2 já leva a pausa do Regem ao iFood); foto e descrição do item; o contexto INDOOR/WHITELABEL do iFood; promoções do app (o preço "de/por").</li>
       </ul>
     </section>
   </main>
@@ -248,199 +298,343 @@ tr:last-child td{border-bottom:none}
 <script>
 (() => {
   const brl = (n) => n == null ? '—' : n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const pct = (n) => `${n.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
+  // número para um campo de digitar, com a vírgula do Brasil (a leitura aceita vírgula e ponto)
+  const dec = (v) => String(v).replace('.', ',');
   const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-  // ── os dados (inventados) ──────────────────────────────────────────────────────────────────────────────
-  // iFood: o que o Orzuni devolve (cardapio_listar / complementos_listar). Regem: o produto com o mesmo código.
-  const ITENS = [
-    { id: 'i1', pdv: '2051', nome: 'X-Bacon Duplo', cat: 'Burgers', preco: 45.0, regem: { nome: 'X-Bacon Duplo', precoIfood: 50.0, baixa: 'Ficha técnica: X-Bacon Duplo' } },
-    { id: 'i2', pdv: '2052', nome: 'X-Salada', cat: 'Burgers', preco: 32.9, regem: { nome: 'X-Salada', precoIfood: 32.9, baixa: 'Ficha técnica: X-Salada' } },
-    { id: 'i3', pdv: '2053', nome: 'Smash Cheddar', cat: 'Burgers', preco: 36.9, regem: { nome: 'Smash Cheddar', precoIfood: 36.9, baixa: 'Ficha técnica: Smash' } },
-    { id: 'i4', pdv: '3001', nome: 'Combo Duplo Bacon + Fritas + Refri', cat: 'Combos', preco: 59.9, regem: null, combo: true },
-    { id: 'i5', pdv: '3002', nome: 'Combo Kids', cat: 'Combos', preco: 34.9, regem: null, combo: true },
-    { id: 'i6', pdv: '4010', nome: 'Batata rústica G', cat: 'Acompanhamentos', preco: 24.0, regem: { nome: 'Batata rústica G', precoIfood: null, baixa: 'Ficha técnica: Batata rústica' } },
-    { id: 'i7', pdv: '5001', nome: 'Coca-Cola lata 350 ml', cat: 'Bebidas', preco: 7.5, regem: { nome: 'Coca-Cola lata', precoIfood: 7.0, baixa: 'Item de estoque: Coca-Cola lata (1 un)' } },
-    { id: 'i8', pdv: '5003', nome: 'Água sem gás 500 ml', cat: 'Bebidas', preco: 4.5, regem: { nome: 'Água sem gás', precoIfood: 4.5, baixa: 'Item de estoque: Água 500 ml (1 un)' } },
-    { id: 'i9', pdv: '', nome: 'Molho especial extra (porção)', cat: 'Adicionais', preco: 3.0, regem: null, semCodigo: true },
-    { id: 'i10', pdv: '2060', nome: 'Smash Duplo', cat: 'Burgers', preco: 44.9, regem: null, repetido: 'Smash Duplo Cheddar' },
-    { id: 'i11', pdv: '2060', nome: 'Smash Duplo Cheddar', cat: 'Burgers', preco: 47.9, regem: null, repetido: 'Smash Duplo' },
-    { id: 'i12', pdv: '6002', nome: 'Milkshake de Ovomaltine 400 ml', cat: 'Sobremesas', preco: 21.9, regem: null },
-    { id: 'i13', pdv: '6003', nome: 'Petit gâteau', cat: 'Sobremesas', preco: 19.9, regem: { nome: 'Petit gâteau', precoIfood: 19.9, baixa: 'Ficha técnica: Petit gâteau' } },
-  ];
-  // Produtos do Regem marcados "está no iFood" SEM item no iFood com o código
-  const SO_REGEM = [
-    { id: 'r1', pdv: '2099', nome: 'X-Tudo', cat: 'Burgers', regem: { nome: 'X-Tudo', precoIfood: 48.0, baixa: 'Ficha técnica: X-Tudo' } },
-    { id: 'r2', pdv: '6001', nome: 'Brownie com sorvete', cat: 'Sobremesas', regem: { nome: 'Brownie com sorvete', precoIfood: 18.9, baixa: 'Ficha técnica: Brownie' } },
-  ];
-  const OPCOES = [
-    { id: 'o1', pdv: 'A01', nome: 'Bacon extra', grupo: 'Adicionais', preco: 5.0, regem: { nome: 'Bacon extra', precoIfood: 5.0 } },
-    { id: 'o2', pdv: 'A02', nome: 'Cheddar extra', grupo: 'Adicionais', preco: 4.0, regem: { nome: 'Cheddar extra', precoIfood: 4.5 } },
-    { id: 'o3', pdv: '', orz: 'ORZ-7F2A', nome: 'Ao ponto', grupo: 'Ponto da carne', preco: 0, regem: null, semCodigo: true },
-    { id: 'o4', pdv: '', orz: 'ORZ-7F2B', nome: 'Bem passado', grupo: 'Ponto da carne', preco: 0, regem: null, semCodigo: true },
-    { id: 'o5', pdv: '5002', nome: 'Guaraná lata', grupo: 'Bebida do combo', preco: 0, regem: null },
-    { id: 'o6', pdv: 'M01', nome: 'Maionese da casa', grupo: 'Molhos', preco: 0, regem: null, repetido: 'Barbecue' },
-    { id: 'o7', pdv: 'M01', nome: 'Barbecue', grupo: 'Molhos', preco: 0, regem: null, repetido: 'Maionese da casa' },
-    { id: 'o8', pdv: 'A03', nome: 'Ovo', grupo: 'Adicionais', preco: 3.0, regem: { nome: 'Ovo', precoIfood: 3.0 } },
-  ];
+  // ── os canais ─────────────────────────────────────────────────────────────────────────────────────────
+  const CN = {
+    ifood: { nome: 'iFood', no: 'no iFood', do: 'do iFood', ao: 'ao iFood', pelo: 'pelo Orzuni', marca: 'está no iFood', cor: 'var(--ifood)', classe: '' },
+    n99: { nome: '99', no: 'na 99', do: 'da 99', ao: 'à 99', pelo: 'direto da 99', marca: 'está na 99', cor: 'var(--n99)', classe: 'n99' },
+  };
+
+  // ── os dados (inventados) ─────────────────────────────────────────────────────────────────────────────
+  // O cadastro do Regem por código: custo real da ficha (com a perda), embalagem, o preço de cada app e as marcas.
+  const REGEM = {
+    '2051': { nome: 'X-Bacon Duplo', custo: 16.8, emb: 1.2, baixa: 'Ficha técnica: X-Bacon Duplo', ifood: 50.0, n99: 44.9, noIfood: true, na99: true },
+    '2052': { nome: 'X-Salada', custo: 11.4, emb: 1.2, baixa: 'Ficha técnica: X-Salada', ifood: 32.9, n99: 29.9, noIfood: true, na99: true },
+    '2053': { nome: 'Smash Cheddar', custo: 12.9, emb: 1.2, baixa: 'Ficha técnica: Smash', ifood: 36.9, n99: null, noIfood: true, na99: true },
+    '4010': { nome: 'Batata rústica G', custo: 6.1, emb: 0.8, baixa: 'Ficha técnica: Batata rústica', ifood: null, n99: 22.0, noIfood: true, na99: true },
+    '5001': { nome: 'Coca-Cola lata', custo: 3.4, emb: 0, baixa: 'Item de estoque: Coca-Cola lata (1 un)', ifood: 7.0, n99: 7.5, noIfood: true, na99: true },
+    '5003': { nome: 'Água sem gás', custo: 1.5, emb: 0, baixa: 'Item de estoque: Água 500 ml (1 un)', ifood: 4.5, n99: 4.5, noIfood: true, na99: true },
+    '6003': { nome: 'Petit gâteau', custo: 7.9, emb: 1.5, baixa: 'Ficha técnica: Petit gâteau', ifood: 19.9, n99: 19.9, noIfood: true, na99: true },
+    '2099': { nome: 'X-Tudo', custo: 18.2, emb: 1.2, baixa: 'Ficha técnica: X-Tudo', ifood: 48.0, n99: null, noIfood: true, na99: false },
+    '6001': { nome: 'Brownie com sorvete', custo: 6.4, emb: 1.5, baixa: 'Ficha técnica: Brownie', ifood: 18.9, n99: 18.9, noIfood: true, na99: true },
+  };
+  const OPC_REGEM = {
+    A01: { nome: 'Bacon extra', custo: 1.6, emb: 0, ifood: 5.0, n99: 5.0 },
+    A02: { nome: 'Cheddar extra', custo: 1.1, emb: 0, ifood: 4.5, n99: 4.0 },
+    A03: { nome: 'Ovo', custo: 0.7, emb: 0, ifood: 3.0, n99: 3.0 },
+  };
+  // O que cada app devolve.
+  const APP = {
+    ifood: {
+      itens: [
+        { id: 'i1', pdv: '2051', nome: 'X-Bacon Duplo', cat: 'Burgers', preco: 45.0 },
+        { id: 'i2', pdv: '2052', nome: 'X-Salada', cat: 'Burgers', preco: 32.9 },
+        { id: 'i3', pdv: '2053', nome: 'Smash Cheddar', cat: 'Burgers', preco: 36.9 },
+        { id: 'i4', pdv: '3001', nome: 'Combo Duplo Bacon + Fritas + Refri', cat: 'Combos', preco: 59.9, combo: true },
+        { id: 'i5', pdv: '3002', nome: 'Combo Kids', cat: 'Combos', preco: 34.9, combo: true },
+        { id: 'i6', pdv: '4010', nome: 'Batata rústica G', cat: 'Acompanhamentos', preco: 24.0 },
+        { id: 'i7', pdv: '5001', nome: 'Coca-Cola lata 350 ml', cat: 'Bebidas', preco: 7.5 },
+        { id: 'i8', pdv: '5003', nome: 'Água sem gás 500 ml', cat: 'Bebidas', preco: 4.5 },
+        { id: 'i9', pdv: '', nome: 'Molho especial extra (porção)', cat: 'Adicionais', preco: 3.0, semCodigo: true },
+        { id: 'i10', pdv: '2060', nome: 'Smash Duplo', cat: 'Burgers', preco: 44.9, repetido: 'Smash Duplo Cheddar' },
+        { id: 'i11', pdv: '2060', nome: 'Smash Duplo Cheddar', cat: 'Burgers', preco: 47.9, repetido: 'Smash Duplo' },
+        { id: 'i12', pdv: '6002', nome: 'Milkshake de Ovomaltine 400 ml', cat: 'Sobremesas', preco: 21.9 },
+        { id: 'i13', pdv: '6003', nome: 'Petit gâteau', cat: 'Sobremesas', preco: 19.9 },
+        { id: 'i14', pdv: '6001', nome: 'Brownie com sorvete', cat: 'Sobremesas', preco: 18.9 },
+      ],
+      opcoes: [
+        { id: 'o1', pdv: 'A01', nome: 'Bacon extra', grupo: 'Adicionais', preco: 5.0 },
+        { id: 'o2', pdv: 'A02', nome: 'Cheddar extra', grupo: 'Adicionais', preco: 4.0 },
+        { id: 'o3', pdv: '', orz: 'ORZ-7F2A', nome: 'Ao ponto', grupo: 'Ponto da carne', preco: 0, semCodigo: true },
+        { id: 'o4', pdv: '', orz: 'ORZ-7F2B', nome: 'Bem passado', grupo: 'Ponto da carne', preco: 0, semCodigo: true },
+        { id: 'o5', pdv: '5002', nome: 'Guaraná lata', grupo: 'Bebida do combo', preco: 0 },
+        { id: 'o6', pdv: 'M01', nome: 'Maionese da casa', grupo: 'Molhos', preco: 0, repetido: 'Barbecue' },
+        { id: 'o7', pdv: 'M01', nome: 'Barbecue', grupo: 'Molhos', preco: 0, repetido: 'Maionese da casa' },
+        { id: 'o8', pdv: 'A03', nome: 'Ovo', grupo: 'Adicionais', preco: 3.0 },
+      ],
+      lidoAs: '01:20',
+    },
+    n99: {
+      itens: [
+        { id: 'n1', pdv: '2051', nome: 'X-Bacon Duplo', cat: 'Burgers', preco: 44.9 },
+        { id: 'n2', pdv: '2052', nome: 'X-Salada', cat: 'Burgers', preco: 31.9 },
+        { id: 'n3', pdv: '2053', nome: 'Smash Cheddar', cat: 'Burgers', preco: 35.9 },
+        { id: 'n4', pdv: '3001', nome: 'Combo Duplo Bacon', cat: 'Combos', preco: 54.9, combo: true },
+        { id: 'n5', pdv: '4010', nome: 'Batata rústica G', cat: 'Acompanhamentos', preco: 22.0 },
+        { id: 'n6', pdv: '5001', nome: 'Coca-Cola lata', cat: 'Bebidas', preco: 7.5 },
+        { id: 'n7', pdv: '6001', nome: 'Brownie com sorvete', cat: 'Sobremesas', preco: 18.9 },
+        { id: 'n8', pdv: '6003', nome: 'Petit gâteau', cat: 'Sobremesas', preco: 19.9 },
+      ],
+      opcoes: [
+        { id: 'p1', pdv: 'A01', nome: 'Bacon extra', grupo: 'Adicionais', preco: 5.0 },
+        { id: 'p2', pdv: 'A02', nome: 'Cheddar extra', grupo: 'Adicionais', preco: 4.5 },
+        { id: 'p3', pdv: 'M01', nome: 'Maionese da casa', grupo: 'Molhos', preco: 0, repetido: 'Barbecue' },
+        { id: 'p4', pdv: 'M01', nome: 'Barbecue', grupo: 'Molhos', preco: 0, repetido: 'Maionese da casa' },
+      ],
+      lidoAs: '01:21',
+    },
+  };
   const PRODUTOS_REGEM = [
     { id: 'p1', nome: 'Milkshake Ovomaltine', codigo: '', cat: 'Sobremesas' },
     { id: 'p2', nome: 'Milkshake de chocolate', codigo: '6010', cat: 'Sobremesas', usos: 'vendido no balcão e no totem; o GoGeM conhece este código' },
     { id: 'p3', nome: 'Molho especial', codigo: '', cat: 'Adicionais' },
   ];
 
-  // ── o estado da tela ───────────────────────────────────────────────────────────────────────────────────
-  const est = { vista: 'itens', sit: 'todas', busca: '', cat: '', estado: 'normal', ignorados: new Set(), resolvidos: new Map(), lidoAs: '01:20' };
+  // ── as taxas e a margem da loja (exemplo: valores públicos de referência, a loja ajusta) ─────────────────
+  const TAXAS = {
+    ifood: { plano: 'loja', loja: { rot: 'A loja entrega', plano: 'Plano Básico', com: 12, pag: 3.2, entrega: 0 }, app: { rot: 'O iFood entrega', plano: 'Plano Entrega', com: 23, pag: 3.2, entrega: 0 } },
+    n99: { plano: 'app', loja: { rot: 'A loja entrega', plano: 'entrega própria', com: 10.9, pag: 3.2, entrega: 0 }, app: { rot: 'A 99 entrega', plano: 'logística da 99', com: 8.9, pag: 3.2, entrega: 0 } },
+    geral: {
+      impostoModo: 'simples', imposto: 6, rbt12: 540000, margem: 20, antecipa: false, antec: 2.5, entregaLoja: 0.8, arred: true,
+      // pedidos do app pagos NA ENTREGA (só quando a loja entrega): a taxa da maquininha no lugar do pagamento online
+      parteNaEntrega: 30, maquininha: 2.9,
+      // a promoção do app: desconto no item e quanto dele a loja banca
+      promo: false, desconto: 30, lojaBanca: 100,
+    },
+  };
 
-  function situacao(x, tipo) {
-    if (est.ignorados.has(x.id)) return 'ignorada';
-    const r = est.resolvidos.get(x.id);
-    if (r) return 'igual';
+  /**
+   * Simples Nacional, Anexo I (comércio — onde ficam bares e restaurantes; LC 123/2006 com a LC 155/2016): a alíquota
+   * efetiva pelo faturamento dos últimos 12 meses (RBT12) = (RBT12 × nominal − parcela a deduzir) ÷ RBT12.
+   */
+  const FAIXAS_SIMPLES = [
+    [180000, 4.0, 0], [360000, 7.3, 5940], [720000, 9.5, 13860], [1800000, 10.7, 22500], [3600000, 14.3, 87300], [4800000, 19.0, 378000],
+  ];
+  function simples(rbt12) {
+    const i = FAIXAS_SIMPLES.findIndex(([teto]) => rbt12 <= teto);
+    if (!(rbt12 > 0) || i < 0) return null;
+    const [, nom, ded] = FAIXAS_SIMPLES[i];
+    return { faixa: i + 1, nominal: nom, efetiva: Math.max(0, (rbt12 * (nom / 100) - ded) / rbt12) * 100 };
+  }
+  const impostoDe = (g) => (g.impostoModo === 'simples' ? simples(g.rbt12)?.efetiva ?? g.imposto : g.imposto);
+
+  /**
+   * A CONTA da calculadora (uma só, a mesma da tela real depois). P = preço cheio no app; a promoção tira `desconto`% do
+   * item, e a loja banca `lojaBanca`% desse desconto (o resto o app banca). A loja vende B = P × (1 − desconto × lojaBanca);
+   * a comissão, o pagamento, a antecipação e o imposto incidem sobre B. Ganho líquido = B − taxas − custo − embalagem −
+   * entrega por item. Preço recomendado = fixo ÷ ((1 − desconto da loja) × (1 − taxas − margem)); mínimo = sem a margem.
+   */
+  function calcular(base, cen, g) {
+    const fixo = base.custo + base.emb + (cen.entrega || 0);
+    const imposto = impostoDe(g);
+    // pagamento: no plano em que a loja entrega, parte dos pedidos é paga na entrega (maquininha); o resto, online
+    const pag = cen.k === 'loja' ? (1 - g.parteNaEntrega / 100) * cen.pag + (g.parteNaEntrega / 100) * g.maquininha : cen.pag;
+    const partes = { comissao: cen.com, pagamento: pag, antecipacao: g.antecipa ? g.antec : 0, imposto };
+    const taxas = (partes.comissao + partes.pagamento + partes.antecipacao + partes.imposto) / 100;
+    const dLoja = g.promo ? (g.desconto / 100) * (g.lojaBanca / 100) : 0;
+    const dApp = g.promo ? (g.desconto / 100) * (1 - g.lojaBanca / 100) : 0;
+    const denRec = (1 - dLoja) * (1 - taxas - g.margem / 100);
+    const denMin = (1 - dLoja) * (1 - taxas);
+    const arred = (v) => {
+      if (!g.arred) return Math.round(v * 100) / 100;
+      let r = Math.floor(v) + 0.9;
+      if (r < v - 1e-9) r += 1;
+      return Math.round(r * 100) / 100;
+    };
+    const resultado = (p) => {
+      const vende = p * (1 - dLoja);
+      const r = (k) => (vende * partes[k]) / 100;
+      const taxasR = vende * taxas;
+      const lucro = vende - taxasR - fixo;
+      return {
+        preco: p, clientePaga: p * (1 - dLoja - dApp), descontoLoja: p * dLoja, descontoApp: p * dApp, vende,
+        comissao: r('comissao'), pagamento: r('pagamento'), antecipacao: r('antecipacao'), imposto: r('imposto'), taxasR,
+        lucro, margem: vende > 0 ? (lucro / vende) * 100 : 0,
+      };
+    };
+    // o maior desconto que a loja aguenta bancar sem prejuízo, no preço dado
+    const descontoMax = (p) => Math.max(0, Math.min(100, (1 - fixo / (p * (1 - taxas))) * 100));
+    return {
+      fixo, partes, imposto, dLoja,
+      taxas: taxas * 100,
+      recomendado: denRec > 0.05 ? arred(fixo / denRec) : null,
+      minimo: denMin > 0.05 ? Math.round((fixo / denMin) * 100) / 100 : null,
+      com: resultado,
+      descontoMax,
+    };
+  }
+
+  // ── o estado da tela ──────────────────────────────────────────────────────────────────────────────────
+  const est = { canal: 'ifood', vista: 'itens', sit: 'todas', busca: '', cat: '', estado: 'normal', ignorados: new Set(), resolvidos: new Map() };
+  const C = () => CN[est.canal];
+  const reg = (x) => (est.vista === 'itens' ? REGEM[x.pdv] : OPC_REGEM[x.pdv]) || null;
+  const precoRegem = (r) => (r ? r[est.canal] : null);
+  const chave = (x) => `${est.canal}:${x.id}`;
+
+  function soRegemDo(canal) {
+    const marca = canal === 'ifood' ? 'noIfood' : 'na99';
+    const cods = new Set(APP[canal].itens.map((i) => i.pdv));
+    return Object.entries(REGEM)
+      .filter(([pdv, r]) => r[marca] && !cods.has(pdv))
+      .map(([pdv, r]) => ({ id: `r-${canal}-${pdv}`, pdv, nome: r.nome, cat: '—', soRegem: true }));
+  }
+  const lista = () => (est.vista === 'itens' ? [...APP[est.canal].itens, ...soRegemDo(est.canal)] : APP[est.canal].opcoes);
+  const grupoDe = (x) => (est.vista === 'itens' ? x.cat : x.grupo);
+
+  function situacao(x) {
+    if (est.ignorados.has(chave(x))) return 'ignorada';
+    if (est.resolvidos.get(chave(x))) return 'igual';
     if (x.soRegem) return 'soRegem';
     if (x.semCodigo || x.repetido) return 'naoLiga';
-    if (!x.regem) return 'soIfood';
-    if (x.regem.precoIfood !== x.preco) return 'preco';
+    const r = reg(x);
+    if (!r) return 'soApp';
+    if (precoRegem(r) !== x.preco) return 'preco';
     return 'igual';
   }
-  const SITS = {
-    itens: [
-      ['soIfood', 'Só no iFood', 'crit'],
+  function sits() {
+    const c = C();
+    const s = [
+      ['soApp', `Só ${c.no}`, 'crit'],
       ['soRegem', 'Só no Regem', 'warn'],
       ['preco', 'Preço diferente', 'warn'],
       ['naoLiga', 'Não dá para ligar', 'crit'],
       ['igual', 'Iguais', 'ok'],
       ['ignorada', 'Ignoradas', ''],
-    ],
-    opcoes: [
-      ['soIfood', 'Só no iFood', 'crit'],
-      ['preco', 'Preço diferente', 'warn'],
-      ['naoLiga', 'Não dá para ligar', 'crit'],
-      ['igual', 'Iguais', 'ok'],
-      ['ignorada', 'Ignoradas', ''],
-    ],
+    ];
+    return est.vista === 'itens' ? s : s.filter((k) => k[0] !== 'soRegem');
+  }
+  const pendentes = (canal) => {
+    const antes = est.canal;
+    est.canal = canal;
+    const v = est.vista;
+    est.vista = 'itens';
+    const n = [...APP[canal].itens, ...soRegemDo(canal)].filter((x) => !['igual', 'ignorada'].includes(situacao(x))).length;
+    est.vista = 'opcoes';
+    const o = APP[canal].opcoes.filter((x) => !['igual', 'ignorada'].includes(situacao(x))).length;
+    est.vista = v;
+    est.canal = antes;
+    return n + o;
   };
-  const lista = () => (est.vista === 'itens' ? [...ITENS, ...SO_REGEM.map((x) => ({ ...x, soRegem: true }))] : OPCOES);
-  const grupoDe = (x) => (est.vista === 'itens' ? x.cat : x.grupo);
 
-  // ── o que cada situação diz e oferece ─────────────────────────────────────────────────────────────────
   function linhaSit(x, s) {
-    const nomeR = x.regem?.nome;
+    const c = C();
+    const r = reg(x);
     switch (s) {
-      case 'soIfood':
-        return { selo: ['crit', 'Só no iFood'], motivo: x.combo ? 'Combo do iFood sem produto no Regem com este código: a venda pelo iFood não baixa o estoque.' : 'Nenhum produto do Regem tem este código: a venda pelo iFood não baixa o estoque.' };
+      case 'soApp':
+        return { selo: ['crit', `Só ${c.no}`], motivo: `${x.combo ? `Combo ${c.do}` : 'Item'} sem produto no Regem com este código: a venda ${c.no.replace(/^n[oa] /, (m) => (m === 'no ' ? 'pelo ' : 'pela '))} não baixa o estoque.` };
       case 'soRegem':
-        return { selo: ['warn', 'Só no Regem'], motivo: `"${esc(nomeR)}" está marcado "está no iFood", mas o iFood não tem item com o código ${esc(x.pdv)}.` };
+        return { selo: ['warn', 'Só no Regem'], motivo: `"${esc(x.nome)}" está marcado "${c.marca}", mas ${c.nome === '99' ? 'a 99' : 'o iFood'} não tem item com o código ${esc(x.pdv)}.` };
       case 'preco':
-        return x.regem.precoIfood == null
-          ? { selo: ['warn', 'Sem preço no Regem'], motivo: 'No Regem o preço do iFood está em branco (o Regem não mexe no preço de lá).' }
-          : { selo: ['warn', 'Preço diferente'], motivo: `iFood ${brl(x.preco)} · Regem ${brl(x.regem.precoIfood)}` };
+        return precoRegem(r) == null
+          ? { selo: ['warn', 'Sem preço no Regem'], motivo: `No Regem o preço ${c.do} está em branco.` }
+          : { selo: ['warn', 'Preço diferente'], motivo: `${c.nome} ${brl(x.preco)} · Regem ${brl(precoRegem(r))}` };
       case 'naoLiga':
         return x.semCodigo
-          ? { selo: ['crit', 'Sem código'], motivo: x.orz ? `O iFood não tem código PDV nesta opção (o Orzuni mostra ${esc(x.orz)}, que não liga a nada).` : 'O item não tem código PDV no iFood.' }
-          : { selo: ['crit', 'Código repetido'], motivo: `O código ${esc(x.pdv)} está em dois ${est.vista === 'itens' ? 'itens' : 'complementos'} do iFood: "${esc(x.nome)}" e "${esc(x.repetido)}".` };
+          ? { selo: ['crit', 'Sem código'], motivo: x.orz ? `Sem código PDV no iFood (o Orzuni mostra ${esc(x.orz)}, que não liga a nada).` : `O item não tem código PDV ${c.no}.` }
+          : { selo: ['crit', 'Código repetido'], motivo: `O código ${esc(x.pdv)} está em dois ${est.vista === 'itens' ? 'itens' : 'complementos'} ${c.do}: "${esc(x.nome)}" e "${esc(x.repetido)}".` };
       case 'ignorada':
         return { selo: ['neutro', 'Ignorada'], motivo: 'Fica fora das contagens até você desfazer.' };
       default:
-        return { selo: ['ok', 'Igual'], motivo: est.resolvidos.get(x.id) || (x.regem?.baixa ? `Baixa: ${esc(x.regem.baixa)}` : 'Código e preço iguais.') };
+        return { selo: ['ok', 'Igual'], motivo: est.resolvidos.get(chave(x)) || (r?.baixa ? `Baixa: ${esc(r.baixa)}` : 'Código e preço iguais.') };
     }
   }
   function acoesDa(x, s) {
+    const c = C();
     const b = (acao, texto, pri) => `<button class="bt peq${pri ? ' pri' : ''}" data-acao="${acao}" data-id="${x.id}">${texto}</button>`;
+    const r = reg(x);
+    const calc = r && r.custo != null ? b('calcular', 'Calcular o preço') : '';
     switch (s) {
-      case 'soIfood':
+      case 'soApp':
         return est.vista === 'itens'
           ? b('criar', 'Criar no Regem', true) + b('ligar', 'Ligar a um produto') + b('ignorar', 'Ignorar')
           : b('criarOpcao', 'Criar a opção no Regem', true) + b('ignorar', 'Ignorar');
       case 'soRegem':
-        return b('desmarcar', 'Tirar "está no iFood"', true) + b('codigo', 'Corrigir o código') + b('ignorar', 'Ignorar');
+        return b('desmarcar', `Tirar "${c.marca}"`, true) + b('codigo', 'Corrigir o código') + b('ignorar', 'Ignorar');
       case 'preco':
-        return x.regem.precoIfood == null
-          ? b('usarIfood', `Guardar ${brl(x.preco)} no Regem`, true) + b('ignorar', 'Ignorar')
-          : b('usarIfood', `Usar ${brl(x.preco)} (iFood)`, true) + b('mandarRegem', `Mandar ${brl(x.regem.precoIfood)} ao iFood`) + b('ignorar', 'Ignorar');
+        return precoRegem(r) == null
+          ? b('usarApp', `Guardar ${brl(x.preco)} no Regem`, true) + calc + b('ignorar', 'Ignorar')
+          : b('usarApp', `Usar ${brl(x.preco)} (${c.nome})`, true) + b('mandarRegem', `Mandar ${brl(precoRegem(r))} ${c.ao}`) + calc + b('ignorar', 'Ignorar');
       case 'naoLiga':
         return b('comoCorrigir', 'Como corrigir', true) + b('ignorar', 'Ignorar');
       case 'ignorada':
         return b('desfazer', 'Desfazer');
       default:
-        return '';
+        return calc;
     }
   }
 
   // ── desenhar ──────────────────────────────────────────────────────────────────────────────────────────
   const $ = (s) => document.querySelector(s);
   function desenhar() {
-    const c = $('#conteudo');
-    const todos = lista();
-    const nItens = ITENS.length;
+    const c = C();
+    $('#canais').innerHTML = Object.entries(CN)
+      .map(([k, v]) => `<button class="canal" data-canal="${k}" aria-pressed="${est.canal === k}"><span class="ponto" style="background:${v.cor}" aria-hidden="true"></span>${v.nome} <small>${est.estado === 'tudoIgual' ? 'tudo certo' : `${pendentes(k)} a resolver`}</small></button>`)
+      .join('');
+    $('#titulo').textContent = `Cardápio ${c.do} × Regem`;
+    $('#bAtualizar').textContent = `↻ Ler ${c.nome === '99' ? 'a 99' : 'o iFood'} agora`;
     $('#resumo').textContent =
-      est.estado === 'lendo' ? 'Lendo o cardápio do iFood pelo Orzuni…'
-      : est.estado === 'fora' || est.estado === 'semLigacao' ? 'Não deu para ler o iFood agora.'
-      : `Lido do iFood hoje às ${est.lidoAs}, pelo Orzuni · loja Mister aletita · ${nItens} itens e ${OPCOES.length} opções no iFood`;
-    const nPreco = ITENS.filter((x) => situacao(x) === 'preco' && x.regem?.precoIfood != null).length;
+      est.estado === 'lendo' ? `Lendo o cardápio ${c.do} ${c.pelo}…`
+      : est.estado === 'fora' || est.estado === 'semLigacao' ? `Não deu para ler ${c.nome === '99' ? 'a 99' : 'o iFood'} agora.`
+      : `Lido ${c.do} hoje às ${APP[est.canal].lidoAs}, ${c.pelo} · loja Mister aletita · ${APP[est.canal].itens.length} itens e ${APP[est.canal].opcoes.length} opções ${c.no}`;
+    const nPreco = APP[est.canal].itens.filter((x) => situacao(x) === 'preco' && precoRegem(REGEM[x.pdv]) != null).length;
     const bp = $('#bPrecos');
-    bp.textContent = `Usar os preços do iFood (${nPreco})`;
+    bp.textContent = `Usar os preços ${c.do} (${nPreco})`;
     bp.hidden = est.estado !== 'normal' || nPreco === 0 || est.vista !== 'itens';
 
+    const cont = $('#conteudo');
     if (est.estado === 'lendo') {
-      c.innerHTML = `<div aria-busy="true" aria-label="Lendo o iFood">${'<div class="esqueleto"></div>'.repeat(6)}</div>`;
+      cont.innerHTML = `<div aria-busy="true" aria-label="Lendo ${c.nome}">${'<div class="esqueleto"></div>'.repeat(6)}</div>`;
       return;
     }
     if (est.estado === 'fora') {
-      c.innerHTML = `<div class="estado-tela" role="alert"><h3>O Orzuni não respondeu agora</h3><p>O cardápio do iFood é lido pelo Orzuni, e ele não respondeu (pode estar fora do ar ou no limite de leituras). Nada foi mudado. Tente de novo em instantes.</p><button class="bt pri" data-acao="tentar">Tentar de novo</button></div>`;
+      cont.innerHTML = `<div class="estado-tela" role="alert"><h3>${est.canal === 'ifood' ? 'O Orzuni não respondeu agora' : 'A 99 não respondeu agora'}</h3><p>O cardápio ${c.do} é lido ${c.pelo}, e ${est.canal === 'ifood' ? 'ele' : 'ela'} não respondeu (pode estar fora do ar ou no limite de leituras). Nada foi mudado. Tente de novo em instantes.</p><button class="bt pri" data-acao="tentar">Tentar de novo</button></div>`;
       return;
     }
     if (est.estado === 'semLigacao') {
-      c.innerHTML = `<div class="estado-tela"><h3>Esta loja não está ligada ao iFood pelo Orzuni</h3><p>A conferência compara o cardápio do iFood com o do Regem, e o iFood é lido pelo Orzuni. A ligação da loja é feita pela distribuição Regem — fale com o suporte. Se a sua empresa tem outra loja ligada, escolha-a no topo da tela.</p></div>`;
+      cont.innerHTML = est.canal === 'ifood'
+        ? '<div class="estado-tela"><h3>Esta loja não está ligada ao iFood pelo Orzuni</h3><p>A conferência do iFood lê o cardápio pelo Orzuni. A ligação da loja é feita pela distribuição Regem — fale com o suporte. Se a sua empresa tem outra loja ligada, escolha-a no topo da tela.</p></div>'
+        : '<div class="estado-tela"><h3>Esta loja não está conectada à 99</h3><p>A conferência da 99 lê o cardápio pela integração da 99. Conecte a loja em Delivery › Integrações › 99Food e volte aqui.</p></div>';
       return;
     }
 
-    const base = est.estado === 'tudoIgual' ? todos.filter((x) => situacao(x) === 'igual') : todos;
+    const base = est.estado === 'tudoIgual' ? lista().filter((x) => situacao(x) === 'igual') : lista();
     const conta = (k) => base.filter((x) => situacao(x) === k).length;
     const pend = base.filter((x) => !['igual', 'ignorada'].includes(situacao(x))).length;
-    const sits = SITS[est.vista];
-    const cats = [...new Set(base.map(grupoDe))].sort();
+    const cats = [...new Set(base.map(grupoDe))].filter((k) => k !== '—').sort();
     let visiveis = base.filter((x) => est.sit === 'todas' || situacao(x) === est.sit);
     const q = est.busca.trim().toLowerCase();
-    if (q) visiveis = visiveis.filter((x) => `${x.nome} ${x.pdv} ${x.regem?.nome ?? ''}`.toLowerCase().includes(q));
+    if (q) visiveis = visiveis.filter((x) => `${x.nome} ${x.pdv} ${reg(x)?.nome ?? ''}`.toLowerCase().includes(q));
     if (est.cat) visiveis = visiveis.filter((x) => grupoDe(x) === est.cat);
+    const nIt = [...APP[est.canal].itens, ...soRegemDo(est.canal)].filter((x) => !['igual', 'ignorada'].includes((() => { const v = est.vista; est.vista = 'itens'; const s = situacao(x); est.vista = v; return s; })())).length;
+    const nOp = APP[est.canal].opcoes.filter((x) => !['igual', 'ignorada'].includes((() => { const v = est.vista; est.vista = 'opcoes'; const s = situacao(x); est.vista = v; return s; })())).length;
 
-    const nOp = OPCOES.filter((x) => !['igual', 'ignorada'].includes(situacao(x))).length;
-    const nIt = [...ITENS, ...SO_REGEM.map((x) => ({ ...x, soRegem: true }))].filter((x) => !['igual', 'ignorada'].includes(situacao(x))).length;
-    const vazioTexto = pend === 0
-      ? `<div class="vazio"><b>Tudo certo: o iFood e o Regem batem.</b><p>Todos os ${est.vista === 'itens' ? 'itens' : 'opções'} com código têm o mesmo preço nos dois lados. A próxima leitura automática é amanhã; o botão lê na hora.</p></div>`
-      : '<div class="vazio"><b>Nada nesta situação.</b><p>Troque a situação ou limpe a busca.</p></div>';
-
-    c.innerHTML = `
+    cont.innerHTML = `
       <div class="seg" role="group" aria-label="O que conferir">
         <button data-vista="itens" aria-pressed="${est.vista === 'itens'}">Itens · ${est.estado === 'tudoIgual' ? 0 : nIt} a resolver</button>
         <button data-vista="opcoes" aria-pressed="${est.vista === 'opcoes'}">Opções · ${est.estado === 'tudoIgual' ? 0 : nOp} a resolver</button>
       </div>
       <div class="sits" role="group" aria-label="Situação">
         <button class="sit" data-sit="todas" aria-pressed="${est.sit === 'todas'}">Todas <b>${base.length}</b></button>
-        ${sits.map(([k, rot, cor]) => `<button class="sit ${cor}" data-sit="${k}" aria-pressed="${est.sit === k}">${rot} <b>${conta(k)}</b></button>`).join('')}
+        ${sits().map(([k, rot, cor]) => `<button class="sit ${cor}" data-sit="${k}" aria-pressed="${est.sit === k}">${rot} <b>${conta(k)}</b></button>`).join('')}
       </div>
       <div class="filtros">
         <div class="campo"><label for="fBusca">Buscar por nome ou código</label><input id="fBusca" type="search" value="${esc(est.busca)}" placeholder="Ex.: bacon, 2051" autocomplete="off"></div>
-        <div class="campo"><label for="fCat">${est.vista === 'itens' ? 'Categoria no iFood' : 'Grupo de complementos'}</label><select id="fCat"><option value="">Todas</option>${cats.map((k) => `<option ${est.cat === k ? 'selected' : ''}>${esc(k)}</option>`).join('')}</select></div>
+        <div class="campo"><label for="fCat">${est.vista === 'itens' ? `Categoria ${c.no}` : 'Grupo de complementos'}</label><select id="fCat"><option value="">Todas</option>${cats.map((k) => `<option ${est.cat === k ? 'selected' : ''}>${esc(k)}</option>`).join('')}</select></div>
       </div>
-      ${pend === 0 ? `<div class="aviso ok" role="status" style="margin-bottom:12px"><b>Tudo certo: o iFood e o Regem batem.</b> Todos os ${est.vista === 'itens' ? 'itens' : 'opções'} com código têm o mesmo preço nos dois lados. A próxima leitura automática é amanhã; o botão lê na hora.</div>` : ''}
+      ${pend === 0 ? `<div class="aviso ok" role="status" style="margin-bottom:12px"><b>Tudo certo: ${c.nome === '99' ? 'a 99' : 'o iFood'} e o Regem batem.</b> Todos os ${est.vista === 'itens' ? 'itens' : 'opções'} com código têm o mesmo preço nos dois lados. A próxima leitura automática é amanhã; o botão lê na hora.</div>` : ''}
       <div class="tabela">
         <table>
-          <caption class="sr">${est.vista === 'itens' ? 'Itens do iFood e produtos do Regem' : 'Opções dos complementos do iFood e do Regem'}, com a situação e o que fazer</caption>
-          <thead><tr><th>${est.vista === 'itens' ? 'Item' : 'Opção'}</th><th>Código PDV</th><th>No iFood</th><th>No Regem (preço iFood)</th><th>Situação</th><th><span class="sr">Ações</span></th></tr></thead>
+          <caption class="sr">${est.vista === 'itens' ? `Itens ${c.do} e produtos do Regem` : `Opções dos complementos ${c.do} e do Regem`}, com a situação e o que fazer</caption>
+          <thead><tr><th>${est.vista === 'itens' ? 'Item' : 'Opção'}</th><th>Código PDV</th><th>${c.no.replace(/^./, (l) => l.toUpperCase())}</th><th>No Regem (preço ${c.nome})</th><th>Situação</th><th><span class="sr">Ações</span></th></tr></thead>
           <tbody>${visiveis.map((x) => {
             const s = situacao(x);
             const l = linhaSit(x, s);
+            const r = reg(x);
             return `<tr>
-              <td class="c-item"><div class="nome">${esc(x.nome)}</div><div class="sub">${esc(grupoDe(x))}${x.regem && x.regem.nome !== x.nome ? ` · no Regem: ${esc(x.regem.nome)}` : ''}</div></td>
+              <td class="c-item"><div class="nome">${esc(x.nome)}</div><div class="sub">${grupoDe(x) !== '—' ? esc(grupoDe(x)) : 'no Regem'}${r && r.nome !== x.nome ? ` · no Regem: ${esc(r.nome)}` : ''}${r && r.custo != null ? ` · custo ${brl(r.custo + r.emb)}` : ''}</div></td>
               <td data-rot="Código PDV"><span class="v num">${x.pdv ? esc(x.pdv) : x.orz ? `<span class="sub">sem código (${esc(x.orz)})</span>` : '<span class="sub">sem código</span>'}</span></td>
-              <td data-rot="No iFood"><span class="v num">${x.soRegem ? '<span class="sub">não está</span>' : brl(x.preco)}</span></td>
-              <td data-rot="No Regem (preço iFood)"><span class="v num">${x.regem ? (x.regem.precoIfood == null ? '<span class="sub">em branco</span>' : brl(x.regem.precoIfood)) : '<span class="sub">não tem</span>'}</span></td>
+              <td data-rot="${c.no.replace(/^./, (lt) => lt.toUpperCase())}"><span class="v num">${x.soRegem ? `<span class="sub">não ${c.nome === '99' ? 'está' : 'está'}</span>` : brl(x.preco)}</span></td>
+              <td data-rot="No Regem (preço ${c.nome})"><span class="v num">${r ? (precoRegem(r) == null ? '<span class="sub">em branco</span>' : brl(precoRegem(r))) : '<span class="sub">não tem</span>'}</span></td>
               <td class="c-sit" data-rot="Situação"><span class="selo ${l.selo[0]}">${l.selo[1]}</span><div class="motivo">${l.motivo}</div></td>
               <td class="c-acoes"><div class="linha-acoes">${acoesDa(x, s)}</div></td>
             </tr>`;
           }).join('')}</tbody>
         </table>
-        ${visiveis.length ? '' : vazioTexto}
+        ${visiveis.length ? '' : '<div class="vazio"><b>Nada nesta situação.</b><p>Troque a situação ou limpe a busca.</p></div>'}
       </div>`;
   }
 
@@ -458,43 +652,208 @@ tr:last-child td{border-bottom:none}
     $('#dialogo').hidden = true;
     anterior?.focus?.();
   }
-  const achar = (id) => [...ITENS, ...SO_REGEM.map((x) => ({ ...x, soRegem: true })), ...OPCOES].find((x) => x.id === id);
-  const caixaIfood = (x) => `<div class="caixa-ifood"><b>No iFood</b><dl>
+  const achar = (id) => lista().find((x) => x.id === id) || [...APP.ifood.itens, ...APP.n99.itens, ...APP.ifood.opcoes, ...APP.n99.opcoes].find((x) => x.id === id);
+  const caixaApp = (x) => {
+    const c = C();
+    return `<div class="caixa-canal ${c.classe}"><b>${c.no.replace(/^./, (l) => l.toUpperCase())}</b><dl>
       <dt>Nome</dt><dd>${esc(x.nome)}</dd><dt>Código PDV</dt><dd class="num">${esc(x.pdv)}</dd>
       <dt>Categoria</dt><dd>${esc(x.cat)}</dd><dt>Preço</dt><dd class="num">${brl(x.preco)}</dd>
       ${x.combo ? '<dt>Complementos</dt><dd>Escolha a bebida (Coca-Cola lata, Guaraná lata)</dd>' : ''}</dl></div>`;
+  };
+
+  // A calculadora: os dois jeitos de entregar do app, o plano da loja marcado; com a promoção, quanto sobra.
+  function blocoCalculadora(base, precoHoje, alvoId) {
+    const c = C();
+    const t = TAXAS[est.canal];
+    const g = TAXAS.geral;
+    const cen = (k) => ({ ...t[k], k, entrega: k === 'loja' ? g.entregaLoja : t[k].entrega });
+    const sn = simples(g.rbt12);
+    const textoImposto = g.impostoModo === 'simples'
+      ? (sn ? `Simples Nacional, faixa ${sn.faixa}: <b class="num">${pct(sn.efetiva)}</b> <span class="sub">(faturamento de 12 meses ${brl(g.rbt12)})</span>` : '<span class="neg">Faturamento acima do Simples: informe a média em ％ Taxas e margem</span>')
+      : `Média informada: <b class="num">${pct(g.imposto)}</b>`;
+    const linha = (rot, v, cls = '') => `<div class="${cls}"><span>${rot}</span><span>${v}</span></div>`;
+    return `
+      <div class="custo"><span>Custo da ficha <b>${brl(base.custo)}</b></span><span>Embalagem <b>${brl(base.emb)}</b></span><span class="sub">o custo real da ficha técnica, com a perda</span></div>
+      <div class="custo"><span>Imposto: ${textoImposto}</span><span class="sub">muda em ％ Taxas e margem</span></div>
+      <div class="tres">
+        <div class="campo"><label for="cMargem">Margem que você quer ganhar</label><div class="pct"><input id="cMargem" data-taxa="margem" inputmode="decimal" value="${g.margem}"><span>%</span></div><span class="ajuda">Sobre o que a loja vende, depois de tudo.</span></div>
+        <div class="campo"><label for="cAntec">Antecipação do repasse</label><div class="pct"><input id="cAntec" data-taxa="antec" inputmode="decimal" value="${dec(g.antec)}" ${g.antecipa ? '' : 'disabled'}><span>%</span></div>
+          <label class="trocar"><input type="checkbox" id="cAntecipa" ${g.antecipa ? 'checked' : ''}> Antecipo o repasse</label></div>
+        <div class="campo"><span class="rot">Preço</span><label class="trocar" style="min-height:40px"><input type="checkbox" id="cArred" ${g.arred ? 'checked' : ''}> Arredondar para ,90</label></div>
+      </div>
+      <fieldset class="grupo"><legend>Promoção ${c.do}</legend>
+        <label class="trocar"><input type="checkbox" id="cPromo" ${g.promo ? 'checked' : ''}> Simular uma promoção (o app pede um desconto no item)</label>
+        ${g.promo ? `<div class="duas">
+          <div class="campo"><label for="cDesc">Desconto no item</label><div class="pct"><input id="cDesc" data-taxa="desconto" inputmode="decimal" value="${g.desconto}"><span>%</span></div></div>
+          <div class="campo"><label for="cBanca">Quanto do desconto a loja banca</label><div class="pct"><input id="cBanca" data-taxa="lojaBanca" inputmode="decimal" value="${g.lojaBanca}"><span>%</span></div><span class="ajuda">100% = a loja paga o desconto inteiro; o resto o app banca.</span></div>
+        </div>` : ''}
+      </fieldset>
+      <div class="cenarios">${['loja', 'app'].map((k) => {
+        const cc = cen(k);
+        const r = calcular(base, cc, g);
+        const ref = precoHoje != null ? precoHoje : r.recomendado;
+        const v = ref != null ? r.com(ref) : null;
+        const seu = t.plano === k;
+        const tit = precoHoje != null ? `Com o preço de hoje (${brl(precoHoje)})` : `Com o preço recomendado (${brl(r.recomendado)})`;
+        return `<div class="cenario${seu ? ' seu' : ''}">
+          <h4>${cc.rot}${seu ? ' <span class="selo info">o seu plano</span>' : ''}</h4>
+          <div class="taxas">${esc(cc.plano)} · comissão ${pct(r.partes.comissao)} · pagamento e cartão ${pct(r.partes.pagamento)}${k === 'loja' && g.parteNaEntrega ? ` (${pct(g.parteNaEntrega)} pagos na entrega, maquininha ${pct(g.maquininha)})` : ''}${g.antecipa ? ` · antecipação ${pct(g.antec)}` : ''} · imposto ${pct(r.imposto)}${cc.entrega ? ` · entrega ${brl(cc.entrega)}/item` : ''}</div>
+          ${r.recomendado == null
+            ? '<div class="aviso crit">As taxas, o desconto e a margem passam do preço: não há preço que pague. Baixe a margem ou o desconto.</div>'
+            : `<div><div class="sub">${g.promo ? `Preço cheio para ganhar ${pct(g.margem)} com a promoção` : `Preço recomendado ${c.no}`}</div><div class="preco-rec">${brl(r.recomendado)}</div><div class="sub">mínimo para não ter prejuízo: <span class="num">${brl(r.minimo)}</span></div></div>`}
+          ${v ? `<div class="linhas-calc">
+            ${linha(`<b>${tit}</b>`, '')}
+            ${g.promo ? linha('Cliente paga', brl(v.clientePaga)) : ''}
+            ${g.promo && v.descontoLoja ? linha(`Desconto bancado pela loja`, `− ${brl(v.descontoLoja)}`) : ''}
+            ${g.promo && v.descontoApp ? linha(`Desconto bancado pelo app`, `<span class="sub">${brl(v.descontoApp)}</span>`) : ''}
+            ${linha('A loja vende', brl(v.vende), 'total')}
+            ${linha(`Comissão (${pct(r.partes.comissao)})`, `− ${brl(v.comissao)}`)}
+            ${linha(`Pagamento e cartão (${pct(r.partes.pagamento)})`, `− ${brl(v.pagamento)}`)}
+            ${g.antecipa ? linha(`Antecipação (${pct(r.partes.antecipacao)})`, `− ${brl(v.antecipacao)}`) : ''}
+            ${linha(`Imposto (${pct(r.imposto)})`, `− ${brl(v.imposto)}`)}
+            ${linha('Custo do produto', `− ${brl(base.custo)}`)}
+            ${base.emb ? linha('Embalagem', `− ${brl(base.emb)}`) : ''}
+            ${cc.entrega ? linha('Entrega por item', `− ${brl(cc.entrega)}`) : ''}
+            ${linha('Ganho líquido', `<span class="${v.lucro < 0 ? 'neg' : 'pos'}">${brl(v.lucro)} · ${pct(v.margem)}</span>`, 'total')}
+          </div>
+          <div class="sub">Neste preço, a loja aguenta bancar até <b class="num">${pct(r.descontoMax(ref))}</b> de desconto sem prejuízo.</div>` : ''}
+          ${r.recomendado != null && alvoId ? `<button class="bt peq${seu ? ' pri' : ''}" data-acao="usarSugerido" data-id="${alvoId}" data-valor="${r.recomendado}">Usar ${brl(r.recomendado)} como preço ${c.no}</button>` : ''}
+        </div>`;
+      }).join('')}</div>
+      <div class="formula">Como a conta é feita: a loja vende <code>preço × (1 − desconto que ela banca)</code>; sobre isso saem a comissão, o pagamento e o cartão${g.antecipa ? ', a antecipação' : ''} e o imposto; depois, o custo e a embalagem. O preço recomendado é o que deixa a margem escolhida: <code>(custo + embalagem${g.entregaLoja ? ' + entrega' : ''}) ÷ ((1 − desconto da loja) × (1 − taxas − imposto − margem))</code>; o mínimo é a mesma conta sem a margem. A mensalidade do app não entra (é por mês, não por item). Confira no seu app sobre qual valor a comissão incide na promoção (a 99 diz que é sobre o valor depois do desconto).</div>`;
+  }
+
+  function gavetaCalcular(x) {
+    const r = reg(x);
+    $('#gTitulo').textContent = `Calcular o preço: ${r.nome}`;
+    const desenharCalc = () => {
+      $('#gCorpo').innerHTML = `<p style="margin:0">${C().no.replace(/^./, (l) => l.toUpperCase())} hoje: <b class="num">${brl(x.soRegem ? precoRegem(r) : x.preco)}</b>${precoRegem(r) != null ? ` · no Regem: <b class="num">${brl(precoRegem(r))}</b>` : ''}</p>${blocoCalculadora({ custo: r.custo, emb: r.emb }, x.soRegem ? precoRegem(r) : x.preco, x.id)}`;
+    };
+    desenharCalc();
+    $('#gRodape').innerHTML = '<button class="bt" data-fechar2>Fechar</button>';
+    abrir($('#gaveta'));
+    $('#gCorpo').oninput = (e) => {
+      const k = e.target.dataset.taxa;
+      if (!k) return;
+      const v = Number(String(e.target.value).replace(',', '.'));
+      if (Number.isFinite(v) && v >= 0 && v <= 100) {
+        TAXAS.geral[k] = v;
+        const pos = e.target.selectionStart;
+        const id = e.target.id;
+        desenharCalc();
+        const f = document.getElementById(id);
+        f.focus();
+        f.setSelectionRange?.(pos, pos);
+      }
+    };
+    $('#gCorpo').onchange = (e) => {
+      if (e.target.id === 'cAntecipa') { TAXAS.geral.antecipa = e.target.checked; desenharCalc(); }
+      if (e.target.id === 'cArred') { TAXAS.geral.arred = e.target.checked; desenharCalc(); }
+      if (e.target.id === 'cPromo') { TAXAS.geral.promo = e.target.checked; desenharCalc(); }
+    };
+  }
+
+  function gavetaTaxas() {
+    $('#gTitulo').textContent = 'Taxas e margem desta loja';
+    const linhaCanal = (canal) => {
+      const t = TAXAS[canal];
+      const n = CN[canal];
+      const cen = (k) => `
+        <div class="duas">
+          <div class="campo"><label for="t-${canal}-${k}-com">${t[k].rot}: comissão</label><div class="pct"><input id="t-${canal}-${k}-com" inputmode="decimal" value="${dec(t[k].com)}"><span>%</span></div></div>
+          <div class="campo"><label for="t-${canal}-${k}-pag">${t[k].rot}: pagamento online</label><div class="pct"><input id="t-${canal}-${k}-pag" inputmode="decimal" value="${dec(t[k].pag)}"><span>%</span></div></div>
+        </div>`;
+      return `<fieldset class="grupo"><legend>${n.nome}</legend>
+        <div class="campo"><label for="t-${canal}-plano">O seu plano ${n.no}</label><select id="t-${canal}-plano"><option ${t.plano === 'loja' ? 'selected' : ''}>${t.loja.rot} (${t.loja.plano})</option><option ${t.plano === 'app' ? 'selected' : ''}>${t.app.rot} (${t.app.plano})</option></select><span class="ajuda">A calculadora marca o seu plano e mostra o outro para comparar.</span></div>
+        ${cen('loja')}${cen('app')}</fieldset>`;
+    };
+    $('#gCorpo').innerHTML = `<div class="aviso info">Os valores vêm preenchidos com <b>referências públicas</b> (iFood: Plano Básico 12% e Plano Entrega 23%, mais 3,2% de pagamento online; 99: 10,9% com entrega da loja e 8,9% com entrega da 99, mais cerca de 3,2%). <b>Confira no seu contrato</b> e ajuste: as taxas mudam por região e por campanha.</div>
+      ${linhaCanal('ifood')}${linhaCanal('n99')}
+      <fieldset class="grupo"><legend>Imposto</legend>
+        <div class="duas">
+          <div class="campo"><label for="t-imp-modo">Como calcular</label><select id="t-imp-modo"><option value="simples" ${TAXAS.geral.impostoModo === 'simples' ? 'selected' : ''}>Simples Nacional, pelo faturamento</option><option value="media" ${TAXAS.geral.impostoModo === 'media' ? 'selected' : ''}>Uma média que eu informo</option></select></div>
+          <div class="campo" id="t-imp-campo"></div>
+        </div>
+        <div id="t-imp-res" aria-live="polite"></div>
+      </fieldset>
+      <fieldset class="grupo"><legend>Pagamento na entrega (quando a loja entrega)</legend>
+        <div class="duas">
+          <div class="campo"><label for="t-parte">Pedidos do app pagos na entrega</label><div class="pct"><input id="t-parte" inputmode="decimal" value="${TAXAS.geral.parteNaEntrega}"><span>%</span></div><span class="ajuda">Nesses, não há a taxa de pagamento online do app: entra a da maquininha.</span></div>
+          <div class="campo"><label for="t-maq">Taxa da maquininha (média débito e crédito)</label><div class="pct"><input id="t-maq" inputmode="decimal" value="${dec(TAXAS.geral.maquininha)}"><span>%</span></div></div>
+        </div>
+      </fieldset>
+      <fieldset class="grupo"><legend>Margem e repasse</legend>
+        <div class="tres">
+          <div class="campo"><label for="t-margem">Margem que você quer ganhar</label><div class="pct"><input id="t-margem" inputmode="decimal" value="${TAXAS.geral.margem}"><span>%</span></div></div>
+          <div class="campo"><label for="t-antec">Antecipação do repasse</label><div class="pct"><input id="t-antec" inputmode="decimal" value="${dec(TAXAS.geral.antec)}"><span>%</span></div><label class="trocar"><input type="checkbox" id="t-antecipa" ${TAXAS.geral.antecipa ? 'checked' : ''}> Antecipo</label></div>
+          <div class="campo"><label for="t-entrega">Entrega da loja: custo por item</label><input id="t-entrega" inputmode="decimal" value="${brl(TAXAS.geral.entregaLoja)}"><span class="ajuda">O que a entrega custa à loja e a taxa de entrega não cobre, dividido pelos itens de um pedido médio.</span></div>
+        </div>
+      </fieldset>`;
+    $('#gRodape').innerHTML = '<button class="bt" data-fechar2>Cancelar</button><button class="bt pri" data-acao="salvarTaxas">Salvar</button>';
+    abrir($('#gaveta'));
+    const desenharImposto = () => {
+      const modo = $('#t-imp-modo').value;
+      const g = TAXAS.geral;
+      $('#t-imp-campo').innerHTML = modo === 'simples'
+        ? `<label for="t-rbt">Faturamento dos últimos 12 meses</label><input id="t-rbt" inputmode="decimal" value="${g.rbt12.toLocaleString('pt-BR')}"><span class="ajuda">O Regem pode preencher com as vendas registradas (decisão 8).</span>`
+        : `<label for="t-imp">Imposto médio sobre a venda</label><div class="pct"><input id="t-imp" inputmode="decimal" value="${dec(g.imposto)}"><span>%</span></div>`;
+      const sn = simples(g.rbt12);
+      $('#t-imp-res').innerHTML = modo === 'simples'
+        ? sn
+          ? `<div class="aviso info">Simples Nacional, Anexo I (comércio — bares e restaurantes), <b>faixa ${sn.faixa}</b>: alíquota nominal ${pct(sn.nominal)}, <b>efetiva ${pct(sn.efetiva)}</b>. Confirme com o seu contador (o anexo depende da atividade).</div>`
+          : '<div class="aviso">Faturamento acima de R$ 4,8 milhões em 12 meses: fora do Simples. Use a média.</div>'
+        : '';
+      const rbt = $('#t-rbt');
+      if (rbt) rbt.oninput = (e) => {
+        const v = Number(String(e.target.value).replace(/\./g, '').replace(',', '.'));
+        if (Number.isFinite(v)) { g.rbt12 = v; const s = simples(v); $('#t-imp-res').innerHTML = s ? `<div class="aviso info">Simples Nacional, Anexo I (comércio — bares e restaurantes), <b>faixa ${s.faixa}</b>: alíquota nominal ${pct(s.nominal)}, <b>efetiva ${pct(s.efetiva)}</b>. Confirme com o seu contador (o anexo depende da atividade).</div>` : '<div class="aviso">Faturamento acima de R$ 4,8 milhões em 12 meses: fora do Simples. Use a média.</div>'; }
+      };
+    };
+    desenharImposto();
+    $('#gCorpo').onchange = (e) => {
+      if (e.target.id === 't-imp-modo') { TAXAS.geral.impostoModo = e.target.value; desenharImposto(); }
+    };
+    $('#gCorpo').oninput = null;
+  }
 
   let baixa = 'ficha';
   function gavetaCriar(x) {
+    const c = C();
     baixa = x.combo ? 'combo' : 'ficha';
     $('#gTitulo').textContent = `Criar no Regem: ${x.nome}`;
     const desenharBaixa = () => {
       const alvo = $('#gBaixa');
       alvo.innerHTML =
         baixa === 'ficha'
-          ? `<div class="campo"><label for="gFicha">Ficha técnica</label><select id="gFicha"><option>Escolha a ficha…</option><option>Milkshake 400 ml</option><option>Milkshake Ovomaltine 400 ml</option><option>＋ Criar a ficha (abre Estoque › Fichas técnicas)</option></select><span class="ajuda">Cada venda baixa os insumos da ficha.</span></div>`
+          ? `<div class="campo"><label for="gFicha">Ficha técnica</label><select id="gFicha"><option>Milkshake Ovomaltine 400 ml (custo R$ 6,90)</option><option>Milkshake 400 ml (custo R$ 6,20)</option><option>＋ Criar a ficha (abre Estoque › Fichas técnicas)</option></select><span class="ajuda">Cada venda baixa os insumos da ficha.</span></div>`
           : baixa === 'item'
-            ? `<div class="duas"><div class="campo"><label for="gItem">Item de estoque (revenda)</label><select id="gItem"><option>Escolha o item…</option><option>Coca-Cola lata</option><option>Água 500 ml</option></select></div><div class="campo"><label for="gFator">Sai a cada venda</label><select id="gFator"><option>1 unidade</option><option>1/6 do fardo</option><option>1/12 do fardo</option></select></div></div>`
+            ? `<div class="duas"><div class="campo"><label for="gItem">Item de estoque (revenda)</label><select id="gItem"><option>Coca-Cola lata</option><option>Água 500 ml</option></select></div><div class="campo"><label for="gFator">Sai a cada venda</label><select id="gFator"><option>1 unidade</option><option>1/6 do fardo</option><option>1/12 do fardo</option></select></div></div>`
             : baixa === 'combo'
               ? `<div><div class="rot">Os produtos do combo</div><p class="sub" style="margin:2px 0 6px">Cada um baixa o estoque dele, como se fosse vendido sozinho.</p>
                   <div style="display:grid;gap:6px">
                     <div class="compo"><select aria-label="Produto 1 do combo"><option>X-Bacon Duplo</option></select><input aria-label="Quantidade do produto 1" value="1" inputmode="numeric"><button class="ic" aria-label="Tirar o produto 1">✕</button></div>
                     <div class="compo"><select aria-label="Produto 2 do combo"><option>Batata rústica G</option></select><input aria-label="Quantidade do produto 2" value="1" inputmode="numeric"><button class="ic" aria-label="Tirar o produto 2">✕</button></div>
-                    <div class="compo"><select aria-label="Produto 3 do combo"><option>A bebida escolhida no iFood (Coca-Cola lata ou Guaraná lata)</option></select><input aria-label="Quantidade do produto 3" value="1" inputmode="numeric"><button class="ic" aria-label="Tirar o produto 3">✕</button></div>
+                    <div class="compo"><select aria-label="Produto 3 do combo"><option>A bebida escolhida no app (Coca-Cola lata ou Guaraná lata)</option></select><input aria-label="Quantidade do produto 3" value="1" inputmode="numeric"><button class="ic" aria-label="Tirar o produto 3">✕</button></div>
                   </div><button class="bt peq" type="button" style="margin-top:6px">＋ Produto do combo</button></div>`
-              : '<div class="aviso">A venda pelo iFood <b>não</b> vai baixar estoque deste produto. Use só para o que não tem estoque (ex.: taxa, brinde).</div>';
+              : '<div class="aviso">A venda pelo app <b>não</b> vai baixar estoque deste produto. Use só para o que não tem estoque (ex.: taxa, brinde).</div>';
       for (const b of document.querySelectorAll('[data-baixa]')) b.setAttribute('aria-pressed', String(b.dataset.baixa === baixa));
+      // o preço sugerido com o custo do que foi escolhido (exemplo)
+      const custos = { ficha: { custo: 6.9, emb: 1.5 }, item: { custo: 3.4, emb: 0 }, combo: { custo: 16.8 + 6.1 + 3.4, emb: 2.0 }, nada: null };
+      const base = custos[baixa];
+      $('#gCalc').innerHTML = base
+        ? `<details><summary class="rot" style="cursor:pointer">Preço sugerido com este custo (calculadora)</summary><div style="display:grid;gap:10px;margin-top:8px">${blocoCalculadora(base, x.preco, null)}</div></details>`
+        : '';
     };
-    $('#gCorpo').innerHTML = `${caixaIfood(x)}
+    $('#gCorpo').innerHTML = `${caixaApp(x)}
       <div class="duas">
         <div class="campo"><label for="gNome">Nome no Regem</label><input id="gNome" value="${esc(x.nome)}"><span class="ajuda">É o nome nos relatórios e na cozinha.</span></div>
-        <div class="campo"><label for="gCod">Código PDV</label><input id="gCod" value="${esc(x.pdv)}" readonly aria-readonly="true"><span class="ajuda">Vem do iFood: é por ele que a venda se liga.</span></div>
+        <div class="campo"><label for="gCod">Código PDV</label><input id="gCod" value="${esc(x.pdv)}" readonly aria-readonly="true"><span class="ajuda">Vem ${c.do}: é por ele que a venda se liga.</span></div>
       </div>
       <div class="duas">
         <div class="campo"><label for="gCat">Categoria no Regem</label><select id="gCat"><option>${esc(x.cat)}</option><option>Burgers</option><option>＋ Nova categoria</option></select></div>
-        <div class="campo"><label for="gPreco">Preço no iFood</label><input id="gPreco" value="${brl(x.preco)}" readonly aria-readonly="true"><span class="ajuda">O do iFood agora. Mudar o preço se faz depois, no cadastro.</span></div>
+        <div class="campo"><label for="gPreco">Preço ${c.no}</label><input id="gPreco" value="${brl(x.preco)}" readonly aria-readonly="true"><span class="ajuda">O ${c.do} agora. Mudar o preço se faz depois, no cadastro ou pela calculadora.</span></div>
       </div>
-      <div class="aviso info"><b>Vende só no iFood.</b> O produto não aparece no balcão nem no cardápio digital, e o Regem não o pausa no iFood por isso (decisão 1 no fim da página).</div>
+      <div class="aviso info"><b>Vende só nos apps.</b> O produto não aparece no balcão nem no cardápio digital, e o Regem não o pausa ${c.no} por isso (decisão 1 no fim da página).</div>
       <div><div class="rot" id="rBaixa">Como a venda baixa o estoque</div>
         <div class="escolhas" role="group" aria-labelledby="rBaixa" style="margin-top:6px">
           <button type="button" class="escolha" data-baixa="ficha" aria-pressed="false"><span class="bola" aria-hidden="true"></span><span><b>Ficha técnica</b><small>Feito na loja: baixa os insumos da receita.</small></span></button>
@@ -502,7 +861,8 @@ tr:last-child td{border-bottom:none}
           <button type="button" class="escolha" data-baixa="combo" aria-pressed="false"><span class="bola" aria-hidden="true"></span><span><b>Combo</b><small>Baixa cada produto que o compõe.</small></span></button>
           <button type="button" class="escolha" data-baixa="nada" aria-pressed="false"><span class="bola" aria-hidden="true"></span><span><b>Não baixa estoque</b><small>Só para o que não tem estoque.</small></span></button>
         </div></div>
-      <div id="gBaixa"></div>`;
+      <div id="gBaixa"></div>
+      <div id="gCalc"></div>`;
     $('#gRodape').innerHTML = `<button class="bt" data-fechar2>Cancelar</button><button class="bt pri" data-acao="confirmarCriar" data-id="${x.id}">Criar o produto</button>`;
     abrir($('#gaveta'));
     desenharBaixa();
@@ -510,6 +870,8 @@ tr:last-child td{border-bottom:none}
       const b = e.target.closest('[data-baixa]');
       if (b) { baixa = b.dataset.baixa; desenharBaixa(); }
     };
+    $('#gCorpo').oninput = null;
+    $('#gCorpo').onchange = null;
   }
 
   let escolhido = null;
@@ -522,11 +884,11 @@ tr:last-child td{border-bottom:none}
       const p = PRODUTOS_REGEM.find((y) => y.id === escolhido);
       $('#gEfeito').innerHTML = !p ? '' : p.codigo
         ? `<div class="aviso crit"><b>O código de "${esc(p.nome)}" passa de ${esc(p.codigo)} para ${esc(x.pdv)}.</b> Quem usa o ${esc(p.codigo)} hoje: ${esc(p.usos)}. Depois da troca, o ${esc(p.codigo)} não liga mais a este produto.</div>`
-        : `<div class="aviso info">"${esc(p.nome)}" ganha o código <b class="num">${esc(x.pdv)}</b> e passa a ser marcado "está no iFood". A venda pelo iFood baixa o estoque dele.</div>`;
+        : `<div class="aviso info">"${esc(p.nome)}" ganha o código <b class="num">${esc(x.pdv)}</b> e passa a ser marcado "${C().marca}". A venda ${C().no.startsWith('na') ? 'pela 99' : 'pelo iFood'} baixa o estoque dele.</div>`;
       $('#bLigar').disabled = !p;
     };
-    $('#gCorpo').innerHTML = `${caixaIfood(x)}
-      <div class="campo"><label for="gBusca">Buscar o produto do Regem</label><input id="gBusca" type="search" placeholder="Ex.: milkshake" autocomplete="off"><span class="ajuda">Mostra os do cardápio; o código vai ser o do iFood.</span></div>
+    $('#gCorpo').innerHTML = `${caixaApp(x)}
+      <div class="campo"><label for="gBusca">Buscar o produto do Regem</label><input id="gBusca" type="search" placeholder="Ex.: milkshake" autocomplete="off"><span class="ajuda">Mostra os do cardápio; o código vai ser o ${C().do}.</span></div>
       <div class="prod-busca" id="gLista" role="group" aria-label="Produtos do Regem"></div>
       <div id="gEfeito" aria-live="polite"></div>`;
     $('#gRodape').innerHTML = `<button class="bt" data-fechar2>Cancelar</button><button class="bt pri" id="bLigar" data-acao="confirmarLigar" data-id="${x.id}" disabled>Ligar</button>`;
@@ -537,48 +899,58 @@ tr:last-child td{border-bottom:none}
       const b = e.target.closest('[data-prod]');
       if (b) { escolhido = b.dataset.prod; desenharLista($('#gBusca').value); }
     };
+    $('#gCorpo').oninput = null;
+    $('#gCorpo').onchange = null;
   }
 
   function gavetaCodigo(x) {
-    $('#gTitulo').textContent = `Corrigir o código: ${x.regem.nome}`;
-    $('#gCorpo').innerHTML = `<div class="aviso">O iFood não tem item com o código <b class="num">${esc(x.pdv)}</b>. Se o item existe lá com outro código, ponha aqui o código de lá.</div>
-      <div class="campo"><label for="gNovo">Código PDV no iFood</label><input id="gNovo" inputmode="numeric" placeholder="Ex.: 2098" autocomplete="off"><span class="ajuda" id="gConf" aria-live="polite">Digite o código: a tela diz qual item do iFood ele é.</span></div>`;
+    const c = C();
+    $('#gTitulo').textContent = `Corrigir o código: ${x.nome}`;
+    $('#gCorpo').innerHTML = `<div class="aviso">${c.nome === '99' ? 'A 99' : 'O iFood'} não tem item com o código <b class="num">${esc(x.pdv)}</b>. Se o item existe lá com outro código, ponha aqui o código de lá.</div>
+      <div class="campo"><label for="gNovo">Código PDV ${c.no}</label><input id="gNovo" inputmode="numeric" placeholder="Ex.: 2098" autocomplete="off"><span class="ajuda" id="gConf" aria-live="polite">Digite o código: a tela diz qual item ${c.do} ele é.</span></div>`;
     $('#gRodape').innerHTML = `<button class="bt" data-fechar2>Cancelar</button><button class="bt pri" data-acao="confirmarCodigo" data-id="${x.id}" id="bCod" disabled>Salvar o código</button>`;
     abrir($('#gaveta'));
+    $('#gCorpo').oninput = null;
+    $('#gCorpo').onchange = null;
     $('#gNovo').oninput = (e) => {
       const v = e.target.value.trim();
-      const it = ITENS.find((i) => i.pdv === v);
-      $('#gConf').textContent = !v ? 'Digite o código: a tela diz qual item do iFood ele é.' : it ? `É "${it.nome}" no iFood (${brl(it.preco)}).` : 'Nenhum item do iFood tem esse código.';
+      const it = APP[est.canal].itens.find((i) => i.pdv === v);
+      $('#gConf').textContent = !v ? `Digite o código: a tela diz qual item ${c.do} ele é.` : it ? `É "${it.nome}" ${c.no} (${brl(it.preco)}).` : `Nenhum item ${c.do} tem esse código.`;
       $('#bCod').disabled = !it;
     };
   }
 
   function gavetaComoCorrigir(x) {
-    $('#gTitulo').textContent = `Como corrigir: ${x.nome}`;
+    const c = C();
     const opc = est.vista === 'opcoes';
+    const onde = est.canal === 'ifood' ? 'No <b>Gestor de Pedidos do iFood</b>, abra o cardápio e' : 'No <b>portal da 99 para lojas</b> (ou envie de novo o cardápio do Regem à 99), abra';
+    $('#gTitulo').textContent = `Como corrigir: ${x.nome}`;
     $('#gCorpo').innerHTML = x.semCodigo
-      ? `<div class="aviso crit">Sem código PDV no iFood, ${opc ? 'esta opção' : 'este item'} não se liga a nada do Regem: ${opc ? 'o adicional não é cobrado nem baixa estoque' : 'a venda não baixa estoque'}.</div>
+      ? `<div class="aviso crit">Sem código PDV ${c.no}, ${opc ? 'esta opção' : 'este item'} não se liga a nada do Regem: ${opc ? 'o adicional não é cobrado nem baixa estoque' : 'a venda não baixa estoque'}.</div>
          <ol class="passos">
-           <li>No <b>Gestor de Pedidos do iFood</b>, abra o cardápio e ${opc ? `o complemento "<b>${esc(x.grupo)}</b>"` : `o item "<b>${esc(x.nome)}</b>"`}.</li>
+           <li>${onde} ${opc ? `o complemento "<b>${esc(x.grupo)}</b>"` : `o item "<b>${esc(x.nome)}</b>"`}.</li>
            <li>No campo <b>"Código PDV"</b>${opc ? ' da opção' : ''}, ponha o mesmo código ${opc ? 'da opção' : 'do produto'} no Regem (${opc ? 'Cadastros › Cardápio › Opções' : 'Cadastros › Cardápio'}).</li>
-           <li>Volte aqui e toque em <b>"Ler o iFood agora"</b>.</li>
+           <li>Volte aqui e toque em <b>"Ler agora"</b>.</li>
          </ol>
          ${x.orz ? `<p class="sub">O "${esc(x.orz)}" é um código que o Orzuni gera para mostrar a opção; ele não existe no iFood e não serve para ligar.</p>` : ''}`
-      : `<div class="aviso crit">O código <b class="num">${esc(x.pdv)}</b> está em "${esc(x.nome)}" e em "${esc(x.repetido)}" no iFood. Com o código repetido, a venda de um baixaria o estoque do outro — por isso nenhum dos dois é ligado.</div>
+      : `<div class="aviso crit">O código <b class="num">${esc(x.pdv)}</b> está em "${esc(x.nome)}" e em "${esc(x.repetido)}" ${c.no}. Com o código repetido, a venda de um baixaria o estoque do outro — por isso nenhum dos dois é ligado.</div>
          <ol class="passos">
-           <li>No <b>Gestor de Pedidos do iFood</b>, dê um código diferente a um dos dois.</li>
+           <li>${onde} dê um código diferente a um dos dois.</li>
            <li>No Regem, confira que cada um tem o seu produto com o mesmo código (${opc ? 'Cadastros › Cardápio › Opções' : 'Cadastros › Cardápio'}).</li>
-           <li>Volte aqui e toque em <b>"Ler o iFood agora"</b>.</li>
+           <li>Volte aqui e toque em <b>"Ler agora"</b>.</li>
          </ol>`;
     $('#gRodape').innerHTML = '<button class="bt pri" data-fechar2>Entendi</button>';
     abrir($('#gaveta'));
+    $('#gCorpo').oninput = null;
+    $('#gCorpo').onchange = null;
   }
 
   function dialogoPrecos() {
-    const alvos = ITENS.filter((x) => situacao(x) === 'preco' && x.regem?.precoIfood != null);
-    $('#dTitulo').textContent = `Usar os preços do iFood em ${alvos.length} produtos?`;
-    $('#dCorpo').innerHTML = `<p style="margin:0">O preço do iFood no Regem passa a ser o que está no iFood agora. Nada muda no iFood.</p>
-      <ul class="lista-simples">${alvos.map((x) => `<li><span>${esc(x.nome)}</span><span class="num diff"><s>${brl(x.regem.precoIfood)}</s> → ${brl(x.preco)}</span></li>`).join('')}</ul>
+    const c = C();
+    const alvos = APP[est.canal].itens.filter((x) => situacao(x) === 'preco' && precoRegem(REGEM[x.pdv]) != null);
+    $('#dTitulo').textContent = `Usar os preços ${c.do} em ${alvos.length} produtos?`;
+    $('#dCorpo').innerHTML = `<p style="margin:0">O preço ${c.do} no Regem passa a ser o que está ${c.no} agora. Nada muda ${c.no}.</p>
+      <ul class="lista-simples">${alvos.map((x) => `<li><span>${esc(x.nome)}</span><span class="num diff"><s>${brl(precoRegem(REGEM[x.pdv]))}</s> → ${brl(x.preco)}</span></li>`).join('')}</ul>
       <p class="sub" style="margin:0">Cada troca vai para a auditoria (de → para).</p>`;
     $('#dRodape').innerHTML = `<button class="bt" data-fechar2>Cancelar</button><button class="bt pri" data-acao="confirmarPrecos">Usar os ${alvos.length} preços</button>`;
     abrir($('#dialogo'));
@@ -606,11 +978,14 @@ tr:last-child td{border-bottom:none}
       for (const b of document.querySelectorAll('[data-estado]')) b.setAttribute('aria-pressed', String(b === st));
       return desenhar();
     }
+    const cn = t.closest('[data-canal]');
+    if (cn) { est.canal = cn.dataset.canal; est.sit = 'todas'; est.cat = ''; est.busca = ''; return desenhar(); }
     const v = t.closest('[data-vista]');
     if (v) { est.vista = v.dataset.vista; est.sit = 'todas'; est.cat = ''; return desenhar(); }
     const s = t.closest('[data-sit]');
     if (s) { est.sit = s.dataset.sit; return desenhar(); }
     if (t.closest('#bPrecos')) return dialogoPrecos();
+    if (t.closest('#bTaxas')) return gavetaTaxas();
     if (t.closest('#bAtualizar') || t.closest('[data-acao="tentar"]')) {
       const antes = est.estado;
       est.estado = 'lendo';
@@ -618,64 +993,80 @@ tr:last-child td{border-bottom:none}
       setTimeout(() => {
         est.estado = antes === 'lendo' || antes === 'fora' ? 'normal' : antes;
         const d = new Date();
-        est.lidoAs = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        APP[est.canal].lidoAs = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
         for (const b of document.querySelectorAll('[data-estado]')) b.setAttribute('aria-pressed', String(b.dataset.estado === est.estado));
         desenhar();
-        toast('Cardápio do iFood lido agora.');
+        toast(`Cardápio ${C().do} lido agora.`);
       }, 1200);
       return;
     }
     const a = t.closest('[data-acao]');
     if (!a) return;
     const x = a.dataset.id ? achar(a.dataset.id) : null;
+    const c = C();
     switch (a.dataset.acao) {
       case 'criar': return gavetaCriar(x);
-      case 'criarOpcao': return toast('Abre a gaveta da opção (Cadastros › Cardápio › Opções), já com o nome, o código e o preço do iFood.');
+      case 'criarOpcao': return toast(`Abre a gaveta da opção (Cadastros › Cardápio › Opções), já com o nome, o código e o preço ${c.do}.`);
       case 'ligar': return gavetaLigar(x);
       case 'codigo': return gavetaCodigo(x);
       case 'comoCorrigir': return gavetaComoCorrigir(x);
+      case 'calcular': return gavetaCalcular(x);
       case 'ignorar':
-        est.ignorados.add(x.id);
+        est.ignorados.add(chave(x));
         desenhar();
-        return toast(`"${esc(x.nome)}" ignorado.`, () => est.ignorados.delete(x.id));
+        return toast(`"${esc(x.nome)}" ignorado.`, () => est.ignorados.delete(chave(x)));
       case 'desfazer':
-        est.ignorados.delete(x.id);
+        est.ignorados.delete(chave(x));
         return desenhar();
-      case 'usarIfood':
-        est.resolvidos.set(x.id, `Preço do iFood no Regem: ${brl(x.preco)} (era ${brl(x.regem.precoIfood)}).`);
+      case 'usarApp': {
+        const r = reg(x);
+        est.resolvidos.set(chave(x), `Preço ${c.do} no Regem: ${brl(x.preco)} (era ${brl(precoRegem(r))}).`);
         desenhar();
-        return toast(`Preço do iFood no Regem: ${brl(x.preco)}.`, () => est.resolvidos.delete(x.id));
-      case 'mandarRegem':
-        est.resolvidos.set(x.id, `Enviado ao iFood: ${brl(x.regem.precoIfood)} — confira o "Último envio ao iFood" no cadastro.`);
+        return toast(`Preço ${c.do} no Regem: ${brl(x.preco)}.`, () => est.resolvidos.delete(chave(x)));
+      }
+      case 'mandarRegem': {
+        const r = reg(x);
+        est.resolvidos.set(chave(x), `Enviado ${c.ao}: ${brl(precoRegem(r))} — confira o último envio no cadastro.`);
         desenhar();
-        return toast(`${brl(x.regem.precoIfood)} vai ao iFood pelo Orzuni em instantes.`);
+        return toast(`${brl(precoRegem(r))} vai ${c.ao} em instantes.`);
+      }
+      case 'usarSugerido': {
+        const valor = Number(a.dataset.valor);
+        est.resolvidos.set(chave(x), `Preço ${c.do} pela calculadora: ${brl(valor)} — enviado ${c.ao}.`);
+        fechar();
+        desenhar();
+        return toast(`${brl(valor)} vira o preço ${c.no} (no Regem e ${c.ao}).`, () => est.resolvidos.delete(chave(x)));
+      }
+      case 'salvarTaxas':
+        fechar();
+        return toast('Taxas e margem salvas para esta loja.');
       case 'desmarcar':
-        est.resolvidos.set(x.id, '"Está no iFood" desmarcado no Regem.');
+        est.resolvidos.set(chave(x), `"${c.marca}" desmarcado no Regem.`);
         desenhar();
-        return toast(`"${esc(x.regem.nome)}" não está mais marcado "está no iFood".`, () => est.resolvidos.delete(x.id));
+        return toast(`"${esc(x.nome)}" não está mais marcado "${c.marca}".`, () => est.resolvidos.delete(chave(x)));
       case 'confirmarCriar':
-        est.resolvidos.set(x.id, `Criado no Regem (só no iFood) · baixa: ${baixa === 'combo' ? 'combo' : baixa === 'item' ? 'item de estoque' : baixa === 'ficha' ? 'ficha técnica' : 'não baixa'}.`);
+        est.resolvidos.set(chave(x), `Criado no Regem (só nos apps) · baixa: ${baixa === 'combo' ? 'combo' : baixa === 'item' ? 'item de estoque' : baixa === 'ficha' ? 'ficha técnica' : 'não baixa'}.`);
         fechar();
         desenhar();
         return toast(`"${esc(x.nome)}" criado no Regem com o código ${esc(x.pdv)}.`);
       case 'confirmarLigar': {
         const p = PRODUTOS_REGEM.find((y) => y.id === escolhido);
-        est.resolvidos.set(x.id, `Ligado a "${esc(p.nome)}" (código ${esc(x.pdv)}).`);
+        est.resolvidos.set(chave(x), `Ligado a "${esc(p.nome)}" (código ${esc(x.pdv)}).`);
         fechar();
         desenhar();
         return toast(`"${esc(p.nome)}" agora tem o código ${esc(x.pdv)}.`);
       }
       case 'confirmarCodigo':
-        est.resolvidos.set(x.id, `Código corrigido para ${esc($('#gNovo').value)}.`);
+        est.resolvidos.set(chave(x), `Código corrigido para ${esc($('#gNovo').value)}.`);
         fechar();
         desenhar();
         return toast('Código salvo. Na próxima leitura ele aparece como igual.');
       case 'confirmarPrecos': {
-        const alvos = ITENS.filter((y) => situacao(y) === 'preco' && y.regem?.precoIfood != null);
-        for (const y of alvos) est.resolvidos.set(y.id, `Preço do iFood no Regem: ${brl(y.preco)} (era ${brl(y.regem.precoIfood)}).`);
+        const alvos = APP[est.canal].itens.filter((y) => situacao(y) === 'preco' && precoRegem(REGEM[y.pdv]) != null);
+        for (const y of alvos) est.resolvidos.set(chave(y), `Preço ${c.do} no Regem: ${brl(y.preco)} (era ${brl(precoRegem(REGEM[y.pdv]))}).`);
         fechar();
         desenhar();
-        return toast(alvos.length === 1 ? '1 preço atualizado.' : `${alvos.length} preços atualizados.`, () => alvos.forEach((y) => est.resolvidos.delete(y.id)));
+        return toast(alvos.length === 1 ? '1 preço atualizado.' : `${alvos.length} preços atualizados.`, () => alvos.forEach((y) => est.resolvidos.delete(chave(y))));
       }
     }
   });
