@@ -95,6 +95,7 @@ Variáveis do serviço da API, no EasyPanel — nada disso é da loja:
 | `DMS_ID_EMISSOR` | o `iss` dos tokens: o endereço `https` do DMS ID com `/oidc` |
 | `DMS_ID_RECURSO` | o identificador do recurso do Regem no DMS ID, **exatamente** `https://api.dmsregem.com/api/v1/integracao` |
 | `DMS_ID_APLICATIVOS` | JSON cliente → client_id dos aplicativos cadastrados no DMS ID, como `{"liame":"<client_id>"}` |
+| `LIAME_ESCRITA_SO_PELA_LIGACAO` | `true`: o `rgm_it_` do Liame só lê — criar e desativar cupom vão só pela ligação (seção 13) |
 
 Configuração torta não liga a via, e o log da API diz o que corrigir ("via do DMS ID desligada: …"). Tirar um
 aplicativo de `DMS_ID_APLICATIVOS` corta as ligações dele na chamada seguinte. Trocar o aplicativo de um cliente
@@ -417,3 +418,25 @@ loja apagada; e o Liame sem mudança).
 
 **Para ligar (distribuição):** o mesmo da seção 10 — a migration 340 na nuvem antes do merge e `PARCEIROS_LIGADOS`. Sem a
 340 na nuvem, o job do parceiro para sozinho por 10 min de cada vez, com o aviso no log, e os dos produtos da DMS seguem.
+
+## 13. A escrita sai do token antigo (F5, parte E — sem migration, nasce desligada)
+
+A escrita que um produto da DMS faz na loja passa a ir **só pela ligação** (decisão F5-8): ali a pessoa da loja
+autorizou com um clique, e a recusa por falta de aprovação não se contorna pelo token antigo.
+
+- **Com `LIAME_ESCRITA_SO_PELA_LIGACAO=true`**, o `rgm_it_` do Liame continua lendo tudo o que lia, mas perde
+  `cupons.criar` (criar e desativar cupom): 403 `escopo-insuficiente` com a frase "Este token só lê: cupons.criar vai só
+  pela ligação da loja…" e o desafio `insufficient_scope`. As permissões que o token mostra (`GET /integracao/loja`) já vêm
+  sem a escrita. A ligação da mesma loja não muda.
+- **O GoGeM** segue gravando pelo `rgm_it_` (a venda e a pausa do totem) até a F6 (decisão F3-1); os outros aplicativos
+  não gravam no Regem.
+- **Onde:** `escrita-pela-ligacao.ts` (a lista do que sai de cada aplicativo e a chave), aplicado no
+  `IntegracaoTokenGuard`, antes da conferência das permissões da rota. Testes: `escrita-pela-ligacao.spec.ts` e
+  `dms-id.http.spec.ts` (o mesmo acesso pelo token e pela ligação, com a chave desligada e ligada).
+
+**Para ligar (distribuição):** quando o Liame já grava pela ligação (`REGEM_PELA_LIGACAO=true` no `liame-api` e no
+`liame-worker`), cada loja que cria cupom pelo Liame tem a ligação com a permissão de criar cupom, e um cupom de teste
+criado pelo Liame JÁ SAIU pela ligação (no `audit_log`, `integracao.cupom_criado` com o prefixo `dms_lg_regem_`; até
+11/11/2026, o único cupom por integração saiu pelo `rgm_it_`): no EasyPanel do `regem-api`,
+`LIAME_ESCRITA_SO_PELA_LIGACAO=true` e reiniciar. Loja sem a ligação continua lendo pelo token, mas o
+cupom pelo Liame só volta a sair depois do clique de autorização com "Criar cupom" marcado.

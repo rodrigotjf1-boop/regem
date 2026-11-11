@@ -156,13 +156,17 @@ export function desafioDaRecusa(
   });
 }
 
-/** O 403 da rota: a credencial não tem uma das permissões que ela exige. `faltando` traz todas de uma vez. */
+/**
+ * O 403 da rota: a credencial não tem uma das permissões que ela exige. `faltando` traz todas de uma vez. `detalhe`
+ * troca a frase quando o motivo é outro (a escrita que saiu do token antigo, F5 parte E).
+ */
 export class EscopoFaltando extends ProblemaException {
   constructor(
     readonly faltando: readonly string[],
     credencial: 'token' | 'ligacao',
+    detalhe?: string,
   ) {
-    super(403, 'escopo-insuficiente', `${credencial === 'token' ? 'Este token' : 'Esta ligação'} não tem o escopo ${faltando.join(', ')}.`);
+    super(403, 'escopo-insuficiente', detalhe ?? `${credencial === 'token' ? 'Este token' : 'Esta ligação'} não tem o escopo ${faltando.join(', ')}.`);
   }
 }
 

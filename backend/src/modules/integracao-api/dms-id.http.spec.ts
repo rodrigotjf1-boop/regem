@@ -458,6 +458,39 @@ descrever('API de integração — a via do DMS ID (Hub DMS, F3)', () => {
     ).toBe(true);
   });
 
+  it('a escrita do Liame só pela ligação (F5 parte E, LIAME_ESCRITA_SO_PELA_LIGACAO): o rgm_it_ lê e não grava; a ligação grava', async () => {
+    // Empresa só deste teste: a chave muda o processo inteiro enquanto o teste roda.
+    const E = await empresa('Empresa E', ['E1 escrita']);
+    const presE = await presidente(E.tenant, 'Eva Presidente', 'presidente.e@exemplo.test');
+    const { token, ligacao } = await ligada(E.tenant, E.lojas[0], presE, ['pedidos.ler', 'cupons.ler', 'cupons.criar']);
+    const original = process.env.LIAME_ESCRITA_SO_PELA_LIGACAO;
+    try {
+      // Desligada (o padrão): o token antigo grava, como sempre.
+      delete process.env.LIAME_ESCRITA_SO_PELA_LIGACAO;
+      expect((await chamar('/api/v1/integracao/teste-escopo', { token: token.token })).status).toBe(200);
+
+      process.env.LIAME_ESCRITA_SO_PELA_LIGACAO = 'true';
+      const recusa = await chamar('/api/v1/integracao/teste-escopo', { token: token.token });
+      expect(recusa.status).toBe(403);
+      expect(await recusa.json()).toMatchObject({
+        type: `${BASE_TIPO_PROBLEMA}escopo-insuficiente`,
+        detail: 'Este token só lê: cupons.criar vai só pela ligação da loja (Hub DMS). Grave pela ligação, com o token do DMS ID e o segredo no cabeçalho DMS-Ligacao.',
+      });
+      expect(recusa.headers.get('www-authenticate')).toContain('error="insufficient_scope", scope="cupons.criar"');
+      // O token segue lendo, e as permissões que ele mostra já vêm sem a escrita.
+      const loja = await chamar('/api/v1/integracao/loja', { token: token.token });
+      expect(loja.status).toBe(200);
+      const escopos: string[] = (await loja.json()).escopos;
+      expect(escopos).toEqual(expect.arrayContaining(['pedidos.ler', 'cupons.ler']));
+      expect(escopos).not.toContain('cupons.criar');
+      // A ligação da mesma loja grava.
+      expect((await chamar('/api/v1/integracao/teste-escopo', { token: dmsId.emitir(), ligacao })).status).toBe(200);
+    } finally {
+      if (original === undefined) delete process.env.LIAME_ESCRITA_SO_PELA_LIGACAO;
+      else process.env.LIAME_ESCRITA_SO_PELA_LIGACAO = original;
+    }
+  });
+
   it('repetir a troca gira o segredo: o anterior para de valer na hora, e o dono não é avisado de novo', async () => {
     // Empresa só deste teste: o aviso sai sem esperar, e o de outro teste pode chegar a qualquer momento.
     const G = await empresa('Empresa G', ['G1 giro']);

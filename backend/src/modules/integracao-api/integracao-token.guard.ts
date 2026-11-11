@@ -19,6 +19,7 @@ import { ErroTokenDmsId, problemaDaParada } from '../../dms/integracao-dms';
 import { anotarChamada } from './chamada-integracao';
 import { DmsIdService, type TokenDmsIdDoRegem } from './dms-id.service';
 import { EscopoIntegracao } from './escopos';
+import { escritaForaDoToken, fraseEscritaSoPelaLigacao } from './escrita-pela-ligacao';
 import { aceitaIntegracoes, ferramentaDaRota } from './hub.regras';
 import { HubDmsService } from './hub-dms.service';
 import { CABECALHO_LIGACAO_NO_NODE, desafioDaRecusa, EscopoFaltando, LIGACAO_INVALIDA, ligacaoDoCabecalho } from './ligacao.regras';
@@ -187,13 +188,20 @@ export class IntegracaoTokenGuard implements CanActivate {
         context.getHandler(),
         context.getClass(),
       ]) ?? [];
-    const faltam = exigidos.filter((e) => !t.escopos.includes(e));
-    if (faltam.length) desafiar(new EscopoFaltando(faltam, t.via === 'ligacao' ? 'ligacao' : 'token'));
+    // A escrita que saiu do token antigo (Hub DMS, F5 parte E; `LIAME_ESCRITA_SO_PELA_LIGACAO`): pelo `rgm_it_`, ela não
+    // vale mais — nem na rota, nem no contexto (quem lê as permissões do acesso vê sem ela). A ligação não muda.
+    const foraDoToken = escritaForaDoToken(t.cliente, t.via);
+    const escopos = foraDoToken.length ? t.escopos.filter((e) => !foraDoToken.includes(e)) : t.escopos;
+    const faltam = exigidos.filter((e) => !escopos.includes(e));
+    if (faltam.length) {
+      const soPelaLigacao = faltam.every((e) => foraDoToken.includes(e) && t.escopos.includes(e));
+      desafiar(new EscopoFaltando(faltam, t.via === 'ligacao' ? 'ligacao' : 'token', soPelaLigacao ? fraseEscritaSoPelaLigacao(faltam) : undefined));
+    }
 
     // Último uso: no máximo 1×/min, sem esperar e sem derrubar a chamada (V3).
     if (t.via === 'ligacao') this.tokens.marcarUsoLigacao(t.tokenId, ipDe(req));
     else this.tokens.marcarUso(t.tokenId, ipDe(req));
-    req.integracao = t satisfies IntegracaoCtxData;
+    req.integracao = (escopos === t.escopos ? t : { ...t, escopos }) satisfies IntegracaoCtxData;
     return true;
   }
 
