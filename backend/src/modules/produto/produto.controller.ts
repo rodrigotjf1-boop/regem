@@ -26,6 +26,13 @@ import { CreateCategoriaDto } from './dto/create-categoria.dto';
 
 const GESTOR = ['presidente', 'gerente', 'supervisao'];
 
+/** Mudar preço pede "Ver valores em R$" (o presidente sempre) — a regra da tela, no servidor. */
+function exigirVerValores(user: AuthUser) {
+  if (user.categoria !== 'presidente' && !user.permissoes?.ver_financeiro) {
+    throw new ForbiddenException('Seu perfil não tem "Ver valores em R$": quem tem pode mudar o preço.');
+  }
+}
+
 @Controller('produtos')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
 @RequirePerm('loja')
@@ -174,6 +181,40 @@ export class ProdutoController {
     return this.service.listarComplementos(user.tenantId);
   }
 
+  // ----- Gestão do catálogo › Complementos (R3 F3a): o preço no grupo, o preço de cada app e a pausa de cada canal -----
+
+  // Os grupos com as opções e os produtos que os usam (antes de `:id`, que pegaria "complementos-gestao").
+  @Get('complementos-gestao')
+  gestaoDosComplementos(@CurrentUser() user: AuthUser) {
+    return this.service.gestaoDosComplementos(user.tenantId);
+  }
+
+  // O preço do complemento num grupo do Regem: pede "Ver valores em R$" (o presidente sempre), como o do produto.
+  @Put('complementos-catalogo/:id/opcoes/:opcaoId/preco')
+  @Roles(...GESTOR)
+  precoDaOpcaoNoGrupo(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('opcaoId') opcaoId: string,
+    @Body() dto: { valor?: unknown },
+  ) {
+    exigirVerValores(user);
+    return this.service.precoDaOpcaoNoGrupo(user.tenantId, id, opcaoId, dto?.valor, { id: user.colaboradorId ?? null, perfil: user.categoria ?? null });
+  }
+
+  @Put('opcoes/:id/preco-canal')
+  @Roles(...GESTOR)
+  precoDaOpcaoNoCanal(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { canal?: unknown; valor?: unknown }) {
+    exigirVerValores(user);
+    return this.service.precoDaOpcaoNoCanal(user.tenantId, id, dto?.canal, dto?.valor, { id: user.colaboradorId ?? null, perfil: user.categoria ?? null });
+  }
+
+  @Put('opcoes/:id/pausa-canal')
+  @Roles(...GESTOR)
+  pausaDaOpcaoNoCanal(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { canal?: unknown; pausado?: unknown }) {
+    return this.service.pausaDaOpcaoNoCanal(user.tenantId, id, dto?.canal, dto?.pausado, { id: user.colaboradorId ?? null, perfil: user.categoria ?? null });
+  }
+
   @Post('complementos-catalogo')
   @Roles(...GESTOR)
   criarComplementoCatalogo(@CurrentUser() user: AuthUser, @Body() dto: any) {
@@ -257,9 +298,7 @@ export class ProdutoController {
   @Put(':id/preco-canal')
   @Roles(...GESTOR)
   precoDoCanal(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { canal?: unknown; valor?: unknown }) {
-    if (user.categoria !== 'presidente' && !user.permissoes?.ver_financeiro) {
-      throw new ForbiddenException('Seu perfil não tem "Ver valores em R$": quem tem pode mudar o preço.');
-    }
+    exigirVerValores(user);
     return this.service.precoDoCanal(user.tenantId, id, dto?.canal, dto?.valor, { id: user.colaboradorId ?? null, perfil: user.categoria ?? null });
   }
 

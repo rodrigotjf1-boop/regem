@@ -81,3 +81,49 @@ export function preco99DoCanal(valor: unknown): string | null {
   if (v === '0.00') throw new BadRequestException('Preço zero na 99 sairia de graça para o cliente: informe o preço ou deixe em branco.');
   return v ?? null;
 }
+
+// ── O COMPLEMENTO (opção do catálogo) por canal — R3 F3a ───────────────────────────────────────────────────────────
+// O preço do complemento no Regem é POR GRUPO (`complemento_item.preco`: o balcão e o cardápio digital cobram o do grupo
+// em que ele aparece); nos apps é UM por código PDV (`opcao.preco_ifood`, mig 369; `opcao.preco_99`, mig 401), o mesmo em
+// todos os grupos. A pausa é por canal (`opcao.canais_pausados`: 'regem', 'ifood', '99food' — decisão 14); o "Em falta"
+// (`opcao.esgotado`) segue valendo em TODOS os canais, como sempre.
+
+/** O id do complemento (ou do grupo) na rota: um uuid (senão, 400 — nunca chega ao banco). */
+export function exigirIdDaOpcao(id: unknown, motivo = 'Complemento inválido.'): string {
+  if (typeof id !== 'string' || !ID.test(id)) throw new BadRequestException(motivo);
+  return id;
+}
+
+export const CANAIS_DE_PRECO_DA_OPCAO = ['ifood', '99food'] as const;
+export type CanalDePrecoDaOpcao = (typeof CANAIS_DE_PRECO_DA_OPCAO)[number];
+
+export function exigirCanalDePrecoDaOpcao(v: unknown): CanalDePrecoDaOpcao {
+  if (typeof v === 'string' && (CANAIS_DE_PRECO_DA_OPCAO as readonly string[]).includes(v)) return v as CanalDePrecoDaOpcao;
+  throw new BadRequestException('Canal inválido para o preço do complemento: use "ifood" ou "99food" (o do Regem é o de cada grupo).');
+}
+
+/**
+ * O preço de um COMPLEMENTO num app: a regra do preço no app (vazio limpa — o Regem deixa de mexer no preço de lá; até 2
+ * casas) e zero VALE (o complemento grátis lá, como a maionese da casa). Ausente é erro: a rota existe para mudar o preço.
+ */
+export function precoDaOpcaoNoApp(valor: unknown, canal: CanalDePrecoDaOpcao): string | null {
+  const onde = canal === 'ifood' ? 'no iFood' : 'na 99';
+  if (valor === undefined) throw new BadRequestException(`Informe o preço ${onde} (ou deixe em branco para o Regem não mexer nele).`);
+  const v = canal === 'ifood' ? precoIfoodDoPedido(valor) : preco99DoPedido(valor);
+  return v ?? null;
+}
+
+/**
+ * O preço do complemento NUM GRUPO do Regem (`complemento_item.preco`): obrigatório, de zero (grátis) até R$ 999.999,99,
+ * com até 2 casas (aceita vírgula). Qualquer outra coisa é recusada com o motivo.
+ */
+export function precoNoGrupoDoPedido(valor: unknown): string {
+  const n =
+    typeof valor === 'number' ? valor : typeof valor === 'string' && valor.trim() !== '' ? Number(valor.trim().replace(',', '.')) : NaN;
+  if (!Number.isFinite(n) || n < 0) throw new BadRequestException('Preço do complemento inválido: informe um valor de zero para cima (ex.: 4,50).');
+  if (n > PRECO_MAXIMO) throw new BadRequestException('Preço do complemento acima de R$ 999.999,99: confira o valor digitado.');
+  if (Math.abs(Math.round(n * 100) - n * 100) > 1e-6) {
+    throw new BadRequestException('Preço do complemento com mais de 2 casas decimais: use centavos (ex.: 4,50).');
+  }
+  return n.toFixed(2);
+}

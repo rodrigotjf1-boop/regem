@@ -272,6 +272,64 @@ try {
     assert.match(esg.n99Atencao[0], /segue pausado na 99/);
   });
 
+  // ── os complementos (R3 F3a) ──
+  const OPC = { opcaoId: 'o1', nome: 'Bacon extra', codigoPdv: 'A01', preco: '5', esgotado: false, canaisPausados: [], precoIfood: '5.00' };
+  const GRS = [{ id: 'g1', nome: 'Adicionais', preco: '5' }, { id: 'g2', nome: 'Adicionais da batata', preco: '4.5' }];
+  const planoOpc = (mudar, ctx = { comIfood: true, podeMudarPreco: true }, o = OPC) =>
+    c.analisarEdicaoDaOpcao(o, GRS, { ...c.edicaoInicialDaOpcao(o, GRS), ...mudar }, ctx);
+
+  caso('complemento: pausa por canal e "Em falta" (todos os canais); informativo = sem código', () => {
+    assert.equal(c.opcaoPausadaNo({ ...OPC, canaisPausados: ['regem'] }, 'regem'), true);
+    assert.equal(c.opcaoPausadaNo({ ...OPC, canaisPausados: ['regem'] }, 'ifood'), false);
+    assert.equal(c.opcaoPausadaNo({ ...OPC, esgotado: true }, 'ifood'), true);
+    assert.equal(c.opcaoPausadaEmAlgumCanal({ ...OPC, canaisPausados: ['ifood'] }, false), false); // sem o iFood, só o Regem conta
+    assert.equal(c.opcaoPausadaEmAlgumCanal({ ...OPC, canaisPausados: ['ifood'] }, true), true);
+    assert.equal(c.informativa({ codigoPdv: ' ' }), true);
+    assert.equal(c.opcaoSemPrecoNoIfood({ ...OPC, precoIfood: null }), true);
+    assert.equal(c.opcaoSemPrecoNoIfood({ codigoPdv: '', precoIfood: null }), false);
+    const grupos = [
+      { id: 'g1', nome: 'Adicionais', produtos: [], opcoes: [OPC, { ...OPC, opcaoId: 'o2' }] },
+      { id: 'g2', nome: 'Batata', produtos: [], opcoes: [{ ...OPC, preco: '4.5' }] },
+    ];
+    assert.deepEqual(c.gruposDaOpcao(grupos, 'o1').map((g) => [g.id, g.preco]), [['g1', '5'], ['g2', '4.5']]);
+  });
+
+  caso('preço do complemento digitado: zero vale (grátis); vazio só nos apps', () => {
+    assert.deepEqual(c.precoDoComplementoDigitado('0', false), { valor: '0.00' });
+    assert.deepEqual(c.precoDoComplementoDigitado('4,5', false), { valor: '4.50' });
+    assert.match(c.precoDoComplementoDigitado('', false).erro, /0 para grátis/);
+    assert.deepEqual(c.precoDoComplementoDigitado('', true), { valor: null });
+    assert.match(c.precoDoComplementoDigitado('4,555', false).erro, /2 casas/);
+  });
+
+  caso('a gaveta do complemento: o preço de cada grupo, o do iFood e as pausas; "Ao salvar" em palavras', () => {
+    assert.equal(planoOpc({}).mudou, false);
+    assert.deepEqual(c.edicaoInicialDaOpcao(OPC, GRS).precos, { g1: '5,00', g2: '4,50' });
+    const r = planoOpc({ precos: { g1: '6', g2: '4,50' }, precoIfood: '5,5', pausaRegem: true, pausaIfood: true });
+    assert.deepEqual(r.precosGrupo, [{ grupoId: 'g1', valor: '6.00' }]);
+    assert.deepEqual(r.precosApp, [{ canal: 'ifood', valor: '5.50' }]);
+    assert.deepEqual(r.pausas, [{ canal: 'regem', pausado: true }, { canal: 'ifood', pausado: true }]);
+    assert.match(r.regem[0], /^preço em "Adicionais" R\$\s5,00 → R\$\s6,00$/);
+    assert.match(r.regem[1], /pausado no balcão e no cardápio digital/);
+    assert.match(r.ifoodVai[0], /em todos os grupos com o código A01/);
+    assert.equal(r.ifoodVai[1], 'pausa');
+    // Erros antes de gravar; sem "Ver valores em R$" nenhum preço entra; sem o iFood, nada do iFood.
+    assert.match(planoOpc({ precos: { g1: '', g2: '4,5' } }).erros[0], /^Preço em "Adicionais":/);
+    assert.deepEqual(planoOpc({ precos: { g1: '9', g2: '9' } }, { comIfood: true, podeMudarPreco: false }).precosGrupo, []);
+    const semIfood = planoOpc({ precoIfood: '1', pausaIfood: true }, { comIfood: false, podeMudarPreco: true });
+    assert.deepEqual([semIfood.precosApp, semIfood.pausas, semIfood.mudou], [[], [], false]);
+    // "Em falta": reativar a pausa do Regem avisa que segue fora; o do iFood, que segue pausado lá.
+    const emFalta = planoOpc({ pausaRegem: false, pausaIfood: false }, undefined, { ...OPC, esgotado: true, canaisPausados: ['regem', 'ifood'] });
+    assert.match(emFalta.regem.join(' | '), /segue fora: está "Em falta"/);
+    assert.match(emFalta.ifoodAtencao[0], /segue pausado no iFood/);
+    // Sem preço antes: só o novo (nada de "sem preço → …").
+    assert.match(planoOpc({ precoIfood: '5' }, undefined, { ...OPC, precoIfood: null }).ifoodVai[0], /^preço R\$\s5,00, em todos os grupos/);
+    // Preço em branco no iFood = aviso, não envio.
+    const branco = planoOpc({ precoIfood: '' });
+    assert.deepEqual([branco.precosApp, branco.ifoodVai], [[{ canal: 'ifood', valor: null }], []]);
+    assert.match(branco.ifoodAtencao[0], /preço em branco/);
+  });
+
   console.log(`\ncheck:catalogo — ${n} grupos de casos, todos certos.`);
 } finally {
   rmSync(tmp, { recursive: true, force: true });

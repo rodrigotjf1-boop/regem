@@ -5,7 +5,7 @@ import { Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { brl } from '@/components/ui/lista';
-import { precoDigitado, precoNoCampo } from '@/lib/catalogo-gestao';
+import { precoDigitado, precoDoComplementoDigitado, precoNoCampo } from '@/lib/catalogo-gestao';
 
 // O PREÇO NO LUGAR (Gestão do catálogo › Produtos e preços; protótipo `regem-conciliacao-ifood.html`): o lápis abre o
 // campo ali mesmo — Enter salva, Esc cancela, o erro aparece no campo e o foco volta ao lápis. Sem a permissão de
@@ -15,6 +15,7 @@ export function PrecoNoLugar({
   qual,
   nome,
   permiteVazio = false,
+  zeroVale = false,
   podeEditar,
   aoSalvar,
 }: {
@@ -23,6 +24,8 @@ export function PrecoNoLugar({
   qual: string;
   nome: string;
   permiteVazio?: boolean;
+  /** O preço do complemento: zero vale (grátis). */
+  zeroVale?: boolean;
   podeEditar: boolean;
   /** Grava; erro = `throw` com a mensagem (fica no campo). */
   aoSalvar: (valor: string | null) => Promise<void>;
@@ -54,7 +57,7 @@ export function PrecoNoLugar({
     setEditando(false);
   };
   async function salvar() {
-    const r = precoDigitado(texto, permiteVazio);
+    const r = zeroVale ? precoDoComplementoDigitado(texto, permiteVazio) : precoDigitado(texto, permiteVazio);
     if ('erro' in r) {
       setErro(r.erro);
       campo.current?.focus();

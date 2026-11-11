@@ -163,6 +163,11 @@ export const LIMITE_DESCRICAO_99 = 1500;
 const reais = (v: string | number | null | undefined) =>
   v === null || v === undefined || v === '' ? 'sem preço' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const doisDecimais = (v: unknown) => (temValor(v) && Number.isFinite(Number(v)) ? Number(v).toFixed(2) : null);
+/** "R$ 45,00 → R$ 49,90"; sem preço antes, só o novo ("R$ 49,90") — nada de "sem preço → …". */
+const deAte = (antes: unknown, depois: string | null) => {
+  const a = doisDecimais(antes);
+  return a === null ? reais(depois) : `${reais(a)} → ${reais(depois)}`;
+};
 
 /**
  * O que salvar a gaveta faz — a mesma conta que a tela mostra em "Ao salvar" e que o salvar executa. Os erros vêm ANTES
@@ -248,7 +253,7 @@ export function analisarEdicao(
         precos.push({ canal: 'ifood', valor: r.valor });
         if (!e.noIfood || !liga) regem.push(`preço no iFood ${reais(doisDecimais(p.precoIfood))} → ${reais(r.valor)} (guardado)`);
         else if (r.valor === null) ifoodAtencao.push('preço em branco: o Regem deixa de mexer no preço de lá');
-        else ifoodVai.push(`preço ${reais(doisDecimais(p.precoIfood))} → ${reais(r.valor)}`);
+        else ifoodVai.push(`preço ${deAte(p.precoIfood, r.valor)}`);
       }
     }
     if (e.noIfood && e.pausaIfood !== pausadoNoIfood(p)) {
@@ -289,7 +294,7 @@ export function analisarEdicao(
         precos.push({ canal: '99food', valor: r.valor });
         if (!e.na99 || !liga) regem.push(`preço na 99 ${reais(doisDecimais(p.preco99))} → ${reais(r.valor)} (guardado)`);
         else if (r.valor === null) n99Atencao.push('preço em branco: o Regem deixa de mexer no preço de lá');
-        else n99Vai.push(`preço ${reais(doisDecimais(p.preco99))} → ${reais(r.valor)}`);
+        else n99Vai.push(`preço ${deAte(p.preco99, r.valor)}`);
       }
     }
     if (e.na99 && e.pausa99 !== pausadoNa99(p)) {
@@ -334,4 +339,144 @@ export function agruparPorCategoria<T extends ProdutoDaGestao>(produtos: T[], ca
   const sem = produtos.filter((p) => !p.categoriaId || !existe.has(p.categoriaId)).sort(porNome);
   if (sem.length) grupos.push({ id: '', nome: 'Sem categoria', produtos: sem });
   return grupos;
+}
+
+// ══ COMPLEMENTOS (R3, fase F3a; protótipo, "Produtos | Complementos") ═══════════════════════════════════════════════
+// O complemento é a OPÇÃO do catálogo (Cadastros › Cardápio › Opções) dentro de um grupo (a etapa). O preço no Regem é
+// POR GRUPO (o que o balcão e o cardápio digital cobram nele); nos apps é UM por código PDV, em todos os grupos. A pausa
+// é por canal ('regem', 'ifood', '99food' em `canaisPausados`) e vale em todos os grupos; o "Em falta" (`esgotado`, do
+// Cadastros) pausa em TODOS os canais. Opção sem código PDV é informativa: vai como observação, sem preço nem apps.
+
+export type OpcaoDoGrupo = {
+  opcaoId: string;
+  nome: string;
+  codigoPdv?: string | null;
+  /** O preço NESTE grupo (Regem). */
+  preco?: string | number | null;
+  esgotado?: boolean;
+  ativo?: boolean;
+  canaisPausados?: unknown;
+  precoIfood?: string | number | null;
+  preco99?: string | number | null;
+  imagemRef?: string | null;
+};
+export type GrupoDeComplementos = { id: string; nome: string; ativo?: boolean; produtos: { id: string; nome: string }[]; opcoes: OpcaoDoGrupo[] };
+
+/** Opção sem código PDV: informativa (vai como observação, sem preço nem estoque, não liga aos apps). */
+export const informativa = (o: Pick<OpcaoDoGrupo, 'codigoPdv'>) => !(o.codigoPdv ?? '').trim();
+
+/** O complemento está pausado NESTE canal: pela pausa do canal ou pelo "Em falta" (todos os canais). */
+export function opcaoPausadaNo(o: OpcaoDoGrupo, canal: 'regem' | 'ifood' | '99food'): boolean {
+  return o.esgotado === true || canaisPausados(o).includes(canal);
+}
+
+/** Pausado em algum canal visível (o Regem sempre; o iFood só com ele ligado). */
+export function opcaoPausadaEmAlgumCanal(o: OpcaoDoGrupo, comIfood: boolean): boolean {
+  return opcaoPausadaNo(o, 'regem') || (comIfood && !informativa(o) && opcaoPausadaNo(o, 'ifood'));
+}
+
+/** Com código e sem o preço do iFood (só com o iFood pelo Orzuni ligado): o Regem não manda preço nenhum. */
+export const opcaoSemPrecoNoIfood = (o: OpcaoDoGrupo) => !informativa(o) && !temValor(o.precoIfood);
+
+/** Os grupos em que a opção aparece (para a gaveta: o preço do Regem em cada um). */
+export function gruposDaOpcao(grupos: GrupoDeComplementos[], opcaoId: string): { id: string; nome: string; preco: string | number | null | undefined }[] {
+  return grupos.flatMap((g) => g.opcoes.filter((o) => o.opcaoId === opcaoId).map((o) => ({ id: g.id, nome: g.nome, preco: o.preco })));
+}
+
+export type EdicaoDaOpcao = {
+  /** O preço digitado em cada grupo (grupoId → texto). */
+  precos: Record<string, string>;
+  precoIfood: string;
+  pausaRegem: boolean;
+  pausaIfood: boolean;
+};
+
+export function edicaoInicialDaOpcao(o: OpcaoDoGrupo, grupos: { id: string; preco: string | number | null | undefined }[]): EdicaoDaOpcao {
+  return {
+    precos: Object.fromEntries(grupos.map((g) => [g.id, precoNoCampo(g.preco) || '0,00'])),
+    precoIfood: precoNoCampo(o.precoIfood),
+    pausaRegem: canaisPausados(o).includes('regem'),
+    pausaIfood: canaisPausados(o).includes('ifood'),
+  };
+}
+
+/**
+ * O preço do complemento digitado: zero VALE (grátis); vazio só onde vale ("o Regem não mexe", nos apps). Até 2 casas.
+ * Devolve o valor com ponto (o que a API recebe) ou o erro para mostrar no campo.
+ */
+export function precoDoComplementoDigitado(texto: string, permiteVazio: boolean): { valor: string | null } | { erro: string } {
+  const t = String(texto ?? '').replace(/R\$\s?/i, '').trim();
+  if (!t) return permiteVazio ? { valor: null } : { erro: 'Digite o preço (0 para grátis), ex.: 4,50.' };
+  const normal = t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t;
+  if (!/^\d+(\.\d+)?$/.test(normal)) return { erro: 'Use só números, ex.: 4,50.' };
+  const n = Number(normal);
+  if (Math.abs(Math.round(n * 100) - n * 100) > 1e-6) return { erro: 'Use no máximo 2 casas, ex.: 4,50.' };
+  if (n > 999_999.99) return { erro: 'Preço alto demais: confira o valor.' };
+  return { valor: n.toFixed(2) };
+}
+
+export type PlanoDaOpcao = {
+  erros: string[];
+  regem: string[];
+  ifoodVai: string[];
+  ifoodAtencao: string[];
+  mudou: boolean;
+  /** As gravações, na ordem: os preços de cada grupo, o preço do app, as pausas. */
+  precosGrupo: { grupoId: string; valor: string }[];
+  precosApp: { canal: 'ifood'; valor: string | null }[];
+  pausas: { canal: 'regem' | 'ifood'; pausado: boolean }[];
+};
+
+/**
+ * O que salvar a gaveta do complemento faz — a mesma conta que a tela mostra em "Ao salvar" e que o salvar executa. Os
+ * erros vêm ANTES de qualquer gravação (V86). O "Em falta" não muda aqui (é do Cadastros) e segue pausando tudo.
+ */
+export function analisarEdicaoDaOpcao(
+  o: OpcaoDoGrupo,
+  grupos: { id: string; nome: string; preco: string | number | null | undefined }[],
+  e: EdicaoDaOpcao,
+  ctx: { comIfood: boolean; podeMudarPreco: boolean },
+): PlanoDaOpcao {
+  const erros: string[] = [];
+  const regem: string[] = [];
+  const ifoodVai: string[] = [];
+  const ifoodAtencao: string[] = [];
+  const precosGrupo: PlanoDaOpcao['precosGrupo'] = [];
+  const precosApp: PlanoDaOpcao['precosApp'] = [];
+  const pausas: PlanoDaOpcao['pausas'] = [];
+  const liga = !informativa(o);
+
+  if (ctx.podeMudarPreco && liga) {
+    for (const g of grupos) {
+      const r = precoDoComplementoDigitado(e.precos[g.id] ?? '', false);
+      if ('erro' in r) erros.push(`Preço em "${g.nome}": ${r.erro}`);
+      else if (r.valor !== doisDecimais(g.preco ?? 0)) {
+        precosGrupo.push({ grupoId: g.id, valor: r.valor as string });
+        regem.push(`preço em "${g.nome}" ${reais(doisDecimais(g.preco ?? 0))} → ${reais(r.valor)}`);
+      }
+    }
+  }
+  if (e.pausaRegem !== canaisPausados(o).includes('regem')) {
+    pausas.push({ canal: 'regem', pausado: e.pausaRegem });
+    regem.push(e.pausaRegem ? 'pausado no balcão e no cardápio digital, em todos os grupos' : 'volta ao balcão e ao cardápio digital');
+    if (!e.pausaRegem && o.esgotado) regem.push('segue fora: está "Em falta" (Cadastros › Cardápio › Opções)');
+  }
+  if (ctx.comIfood && liga) {
+    if (ctx.podeMudarPreco) {
+      const r = precoDoComplementoDigitado(e.precoIfood, true);
+      if ('erro' in r) erros.push(`Preço no iFood: ${r.erro}`);
+      else if (r.valor !== doisDecimais(o.precoIfood)) {
+        precosApp.push({ canal: 'ifood', valor: r.valor });
+        if (r.valor === null) ifoodAtencao.push('preço em branco: o Regem deixa de mexer no preço de lá');
+        else ifoodVai.push(`preço ${deAte(o.precoIfood, r.valor)}, em todos os grupos com o código ${o.codigoPdv}`);
+      }
+    }
+    if (e.pausaIfood !== canaisPausados(o).includes('ifood')) {
+      pausas.push({ canal: 'ifood', pausado: e.pausaIfood });
+      ifoodVai.push(e.pausaIfood ? 'pausa' : 'reativa');
+      if (!e.pausaIfood && o.esgotado) ifoodAtencao.push('está "Em falta": segue pausado no iFood');
+    }
+  }
+  const mudou = precosGrupo.length > 0 || precosApp.length > 0 || pausas.length > 0;
+  return { erros, regem, ifoodVai, ifoodAtencao, mudou, precosGrupo, precosApp, pausas };
 }

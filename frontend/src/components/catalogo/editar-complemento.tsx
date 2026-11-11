@@ -1,0 +1,206 @@
+'use client';
+
+import { useMemo, useState } from 'react';
+import { api } from '@/lib/api';
+import { toast } from '@/lib/toast';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Gaveta } from '@/components/ui/sobreposto';
+import { texto2 } from '@/components/ui/lista';
+import { UltimoEnvioIfood } from '@/components/produtos/ultimo-envio-ifood';
+import { analisarEdicaoDaOpcao, edicaoInicialDaOpcao, informativa, type EdicaoDaOpcao, type OpcaoDoGrupo } from '@/lib/catalogo-gestao';
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+// EDITAR O COMPLEMENTO (Gestão do catálogo › Complementos — protótipo `regem-conciliacao-ifood.html`, a gaveta do
+// complemento): o preço do Regem em CADA grupo em que ele aparece, o preço do iFood (um por código) e a pausa de cada
+// canal. Antes de salvar, diz o que muda no Regem e o que vai (e o que não vai) ao iFood. O nome, o código PDV e o "Em
+// falta" são do Cadastros (a opção do catálogo); aqui aparecem para conferir. Toda recusa conhecida aparece ANTES da 1ª
+// gravação; grava pelas rotas do canal (preço e pausa, com auditoria).
+export function EditarComplemento({
+  opcao: o,
+  grupos,
+  comIfood,
+  podeMudarPreco,
+  bloqueio,
+  voltarPara,
+  aoFechar,
+  aoSalvar,
+}: {
+  opcao: OpcaoDoGrupo;
+  grupos: { id: string; nome: string; preco: string | number | null | undefined }[];
+  comIfood: boolean;
+  podeMudarPreco: boolean;
+  /** Por que a pausa por canal ainda não vale nesta empresa (servidor da loja desatualizado); null = vale. */
+  bloqueio: string | null;
+  voltarPara?: string;
+  aoFechar: () => void;
+  aoSalvar: (fechar: boolean, foiAoIfood: boolean) => void;
+}) {
+  const [e, setE] = useState<EdicaoDaOpcao>(() => edicaoInicialDaOpcao(o, grupos));
+  const [salvando, setSalvando] = useState(false);
+  const [falha, setFalha] = useState('');
+  const mudar = (m: Partial<EdicaoDaOpcao>) => {
+    setFalha('');
+    setE((x) => ({ ...x, ...m }));
+  };
+  const plano = useMemo(() => analisarEdicaoDaOpcao(o, grupos, e, { comIfood, podeMudarPreco }), [o, grupos, e, comIfood, podeMudarPreco]);
+  const pausaTravada = !!bloqueio || o.esgotado === true;
+
+  async function salvar() {
+    if (plano.erros.length || !plano.mudou) return;
+    setSalvando(true);
+    setFalha('');
+    const feito: string[] = [];
+    const passo = async (oQue: string, fn: () => Promise<unknown>) => {
+      try {
+        await fn();
+        feito.push(oQue);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'erro ao salvar';
+        throw new Error(feito.length ? `Salvo: ${feito.join(', ')}. Não salvou ${oQue}: ${msg}` : msg);
+      }
+    };
+    try {
+      for (const x of plano.precosGrupo) {
+        const nome = grupos.find((g) => g.id === x.grupoId)?.nome ?? 'o grupo';
+        await passo(`o preço em "${nome}"`, () => api.precoDaOpcaoNoGrupo(x.grupoId, o.opcaoId, x.valor));
+      }
+      for (const x of plano.precosApp) await passo('o preço no iFood', () => api.precoDaOpcaoNoCanal(o.opcaoId, x.canal, x.valor));
+      for (const x of plano.pausas) await passo(x.canal === 'regem' ? 'a pausa do Regem' : 'a pausa do iFood', () => api.pausaDaOpcaoNoCanal(o.opcaoId, x.canal, x.pausado));
+      toast.success(`"${o.nome}" salvo.${plano.ifoodVai.length ? ' O que é do iFood vai em instantes pelo Orzuni.' : ''}`);
+      aoSalvar(true, plano.ifoodVai.length > 0);
+    } catch (err) {
+      setFalha(err instanceof Error ? err.message : 'Não foi possível salvar.');
+      if (feito.length) aoSalvar(false, plano.ifoodVai.length > 0);
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  const caixa = 'h-5 w-5 flex-none accent-primary';
+  const liga = !informativa(o);
+  return (
+    <Gaveta
+      media
+      titulo={`Editar o complemento: ${o.nome}`}
+      aoFechar={aoFechar}
+      voltarPara={voltarPara}
+      rodape={
+        <>
+          <Button type="button" variant="outline" onClick={aoFechar} disabled={salvando}>Cancelar</Button>
+          <Button type="button" onClick={() => void salvar()} disabled={salvando || !plano.mudou || plano.erros.length > 0}>
+            {salvando ? 'Salvando…' : plano.ifoodVai.length ? 'Salvar e enviar' : 'Salvar'}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <dl className="grid grid-cols-1 gap-3 rounded-lg border border-border p-3 text-sm sm:grid-cols-2">
+          <div className="min-w-0">
+            <dt className={`text-xs ${texto2}`}>Nome</dt>
+            <dd className="break-words font-semibold">{o.nome}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className={`text-xs ${texto2}`}>Código PDV</dt>
+            <dd className="break-words font-mono">{liga ? o.codigoPdv : 'sem código (informativo)'}</dd>
+          </div>
+          <p className={`text-xs sm:col-span-2 ${texto2}`}>
+            O nome, o código PDV e o &quot;Em falta&quot; mudam em Cadastros › Cardápio › Opções.
+          </p>
+        </dl>
+
+        <fieldset className="space-y-3 rounded-lg border border-border p-3">
+          <legend className="px-1 text-sm font-bold">Preço em cada canal</legend>
+          {!podeMudarPreco && <p className={`text-xs ${texto2}`}>Seu perfil não muda preço: pede &quot;Ver valores em R$&quot;.</p>}
+          <p className="text-sm font-bold">Regem <span className={`font-normal ${texto2}`}>(o preço em cada grupo: balcão e cardápio digital)</span></p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {grupos.map((g) => (
+              <div key={g.id} className="min-w-0 space-y-1">
+                <Label htmlFor={`ec-g-${g.id}`}>Em &quot;{g.nome}&quot;</Label>
+                <Input
+                  id={`ec-g-${g.id}`}
+                  inputMode="decimal"
+                  autoComplete="off"
+                  value={e.precos[g.id] ?? ''}
+                  disabled={!podeMudarPreco}
+                  onChange={(x) => mudar({ precos: { ...e.precos, [g.id]: x.target.value } })}
+                  className="font-mono"
+                />
+              </div>
+            ))}
+          </div>
+          {comIfood && liga && (
+            <div className="space-y-1 border-t border-border pt-3">
+              <Label htmlFor="ec-p-ifood">Preço no iFood</Label>
+              <Input
+                id="ec-p-ifood"
+                inputMode="decimal"
+                autoComplete="off"
+                value={e.precoIfood}
+                disabled={!podeMudarPreco}
+                onChange={(x) => mudar({ precoIfood: x.target.value })}
+                placeholder="Em branco: o Regem não mexe"
+                className="font-mono"
+              />
+              <p className={`text-xs ${texto2}`}>Um por código ({o.codigoPdv}), em todos os grupos. Vai ao iFood pelo Orzuni.</p>
+            </div>
+          )}
+        </fieldset>
+
+        <fieldset className="space-y-3 rounded-lg border border-border p-3">
+          <legend className="px-1 text-sm font-bold">Pausa (em todos os grupos)</legend>
+          {o.esgotado && (
+            <p className="rounded-md bg-warn/15 px-3 py-2 text-xs">
+              <b>Em falta</b>: pausado em todos os canais até sair do &quot;Em falta&quot; em Cadastros › Cardápio › Opções.
+            </p>
+          )}
+          {bloqueio && <p className="rounded-md bg-warn/15 px-3 py-2 text-xs">{bloqueio}</p>}
+          <div className="flex flex-wrap gap-x-6">
+            <label className={`flex min-h-10 items-center gap-2 text-sm ${pausaTravada ? 'opacity-60' : ''}`}>
+              <input type="checkbox" className={caixa} checked={e.pausaRegem} disabled={pausaTravada} onChange={(x) => mudar({ pausaRegem: x.target.checked })} />
+              Pausado no Regem
+            </label>
+            {comIfood && liga && (
+              <label className={`flex min-h-10 items-center gap-2 text-sm ${pausaTravada ? 'opacity-60' : ''}`}>
+                <input type="checkbox" className={caixa} checked={e.pausaIfood} disabled={pausaTravada} onChange={(x) => mudar({ pausaIfood: x.target.checked })} />
+                Pausado no iFood
+              </label>
+            )}
+          </div>
+          <p className={`text-xs ${texto2}`}>A pausa do Regem tira o complemento do balcão e do cardápio digital; a do iFood, só de lá.</p>
+        </fieldset>
+
+        <div aria-live="polite" className="space-y-2">
+          {plano.erros.length > 0 && (
+            <div role="alert" className="rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-sm">
+              <b>Corrija antes de salvar:</b>
+              <ul className="ml-5 list-disc">{plano.erros.map((m) => <li key={m}>{m}</li>)}</ul>
+            </div>
+          )}
+          {falha && <div role="alert" className="rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-sm">{falha}</div>}
+          {!plano.mudou ? (
+            <p className={`text-sm ${texto2}`}>Nada mudou ainda.</p>
+          ) : (
+            <div className="rounded-md border border-info bg-info/10 px-3 py-2 text-sm">
+              <b>Ao salvar:</b>
+              <ul className="ml-5 list-disc">
+                {plano.regem.length > 0 && <li><b>Regem:</b> {plano.regem.join(', ')}.</li>}
+                {(plano.ifoodVai.length > 0 || plano.ifoodAtencao.length > 0) && (
+                  <li>
+                    <b>iFood</b>
+                    {plano.ifoodVai.length > 0 && <> — vai agora pelo Orzuni: {plano.ifoodVai.join(', ')}.</>}
+                    {plano.ifoodAtencao.length > 0 && <> Atenção: {plano.ifoodAtencao.join('; ')}.</>}
+                  </li>
+                )}
+              </ul>
+            </div>
+          )}
+        </div>
+
+        {comIfood && liga && <UltimoEnvioIfood alvo="opcao" id={o.opcaoId} />}
+      </div>
+    </Gaveta>
+  );
+}

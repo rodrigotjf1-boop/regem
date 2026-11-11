@@ -97,7 +97,7 @@ descrever('a pausa no iFood e na 99 (Postgres + canais de mentira)', () => {
     Object.assign(process.env, ENV);
     delete process.env.EDGE_MODE;
     if (!process.env.SEGREDOS_CHAVE) process.env.SEGREDOS_CHAVE = randomBytes(32).toString('base64');
-    for (const m of ['370_orzuni_envio.sql', '371_orzuni_ocultar_pausa.sql', '399_onde_vende_sem_ocultar_no_ifood.sql', '400_orzuni_nome_descricao_codigo.sql']) {
+    for (const m of ['370_orzuni_envio.sql', '371_orzuni_ocultar_pausa.sql', '399_onde_vende_sem_ocultar_no_ifood.sql', '400_orzuni_nome_descricao_codigo.sql', '403_opcao_pausa_por_canal.sql']) {
       const texto = readFileSync(MIG(m), 'utf8');
       await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(texto)));
     }

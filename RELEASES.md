@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Gestão do catálogo › Complementos — preço no grupo, preço do iFood e pausa por canal (R3, fase F3a; mig 403 só
+  nuvem; não mexe no `sync-daemon`).** Na NUVEM com o merge: a aba, as rotas, o cardápio digital servido pela nuvem e o
+  envio ao iFood. **No `.zip` 1.30.13:** o balcão, as comandas e o cardápio servidos pelo servidor da loja passam a
+  esconder o complemento pausado no Regem. A nuvem só grava a pausa por canal com todos os servidores de loja da empresa
+  na 1.30.13 (a coluna `opcao.canais_pausados` vem da mig 401, no mesmo `.zip`).
+
 - **A 99 na Gestão do catálogo — preço, pausa, nome e descrição item a item (R3, fase F2; ⚠️ MIG 401 vai no `.zip`;
   a 402 é só nuvem).** Na NUVEM com o merge: a fila e o envio à 99 (`updateItem`/`updateItemStatus`), a coluna "99" em
   Produtos e preços, o "Exportar catálogo" com o preço na 99 — tudo atrás do direito `precos_na_99` (nasce desligado).

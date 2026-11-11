@@ -1913,7 +1913,14 @@ export class CardapioService {
       // materializado não guarda imagem). E se ela está fora de venda (esgotada, desativada, apagada).
       opcaoOrigemIdsPre.length
         ? this.db
-            .select({ id: opcao.id, imagemRef: opcao.imagemRef, ativo: opcao.ativo, esgotado: opcao.esgotado, deletedAt: opcao.deletedAt })
+            .select({
+              id: opcao.id,
+              imagemRef: opcao.imagemRef,
+              ativo: opcao.ativo,
+              esgotado: opcao.esgotado,
+              deletedAt: opcao.deletedAt,
+              canaisPausados: opcao.canaisPausados,
+            })
             .from(opcao)
             .where(and(eq(opcao.tenantId, cfg.tenantId), inArray(opcao.id, opcaoOrigemIdsPre)))
         : Promise.resolve([] as any[]),
@@ -3292,7 +3299,7 @@ export class CardapioService {
     const origensEscolhidas = [...new Set(distintas.map((id) => porId.get(id)?.origemOpcaoId).filter(Boolean))] as string[];
     if (origensEscolhidas.length) {
       const origens = await this.db
-        .select({ id: opcao.id, ativo: opcao.ativo, esgotado: opcao.esgotado, deletedAt: opcao.deletedAt })
+        .select({ id: opcao.id, ativo: opcao.ativo, esgotado: opcao.esgotado, deletedAt: opcao.deletedAt, canaisPausados: opcao.canaisPausados })
         .from(opcao)
         .where(and(eq(opcao.tenantId, tenantId), inArray(opcao.id, origensEscolhidas)));
       const fora = new Set(origens.filter((o) => opcaoForaDeVenda(o)).map((o) => o.id));

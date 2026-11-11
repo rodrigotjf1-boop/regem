@@ -25,3 +25,19 @@ export async function servidoresDaEmpresa(db: any, tenantId: string, versaoMinim
     pronto: !!s.versao && compararVersao(String(s.versao), versaoMinima) >= 0,
   }));
 }
+
+/**
+ * Os servidores de loja ATIVOS da empresa abaixo da `versaoMinima` (vazio = todos prontos, ou a empresa não tem servidor
+ * de loja). Banco sem a tabela `edge_status` (só da nuvem; o de loja e o de alguns testes não a têm) = nenhum atrasado.
+ */
+export async function servidoresAtrasados(db: any, tenantId: string, versaoMinima: string): Promise<ServidorDaEmpresa[]> {
+  const r: any = await db.execute(sql`select to_regclass('edge_status') is not null as tem`);
+  if ((r.rows ?? r)[0]?.tem !== true) return [];
+  return (await servidoresDaEmpresa(db, tenantId, versaoMinima)).filter((s) => !s.pronto);
+}
+
+/** A frase de "atualize o servidor da loja" para os atrasados. */
+export function fraseDosAtrasados(atrasados: ServidorDaEmpresa[], versaoMinima: string): string {
+  const lista = atrasados.map((s) => `"${s.nome}" (${s.versao ? `versão ${s.versao}` : 'sem versão informada'})`).join(', ');
+  return `o servidor da loja ${lista} precisa estar na ${versaoMinima} ou mais nova`;
+}
