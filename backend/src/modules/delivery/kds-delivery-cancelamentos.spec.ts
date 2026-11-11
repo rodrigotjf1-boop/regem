@@ -826,5 +826,25 @@ descrever('KDS × delivery: cancelamentos, pronto parcial, voltar e perda (Postg
       expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
       expect((await pedido(p.id)).status).toBe('pronto');
     });
+
+    // Auditoria do KDS (11/11/2026, O7; regra do ERR-257): o item do canal sem cadastro ficava fora do cartão da cozinha.
+    it('item do canal sem produto no cadastro vai para o cartão da cozinha, com o nome que o canal mandou', async () => {
+      const l = await loja();
+      const p = await aceito(l, {
+        itens: [
+          { codigo: 'XT1', descricao: 'Lanche de teste', quantidade: 1 },
+          { codigo: 'SEM-CADASTRO-99', descricao: 'Guaraviton 500 ml', quantidade: 2 },
+        ],
+      });
+      const itens = await q(
+        `select i.descricao, i.quantidade::float as q from producao_pedido_item i
+           join producao_pedido c on c.id = i.pedido_id where c.comanda_id = $1 order by i.descricao`,
+        [p.comandaId],
+      );
+      expect(itens).toEqual([
+        { descricao: 'Guaraviton 500 ml', q: 2 },
+        { descricao: 'Lanche de teste', q: 1 },
+      ]);
+    });
   });
 });

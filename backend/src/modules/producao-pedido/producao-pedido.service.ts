@@ -51,6 +51,7 @@ import { idConfigDaLoja } from '../../common/id-deterministico';
 import { ESTADOS_IMPRESSORA, MARCA_REIMPRESSAO } from '../../common/impressao-marca';
 import { gravarOuEncaminharImpressao } from '../../common/impressao-destino';
 import { dataHoraNoFuso, hojeISO } from '../../common/data';
+import { FUSO_SQL } from '../../common/fuso-sql';
 import { SONS_DO_ALTERADO, SOM_DO_ALTERADO_PADRAO, type SomDoAlterado } from '../pedido-alterado/pedido-alterado';
 import { logisticaDasComandas } from '../delivery/logistica-canal';
 import { ChegadaService } from '../chegada/chegada.service';
@@ -71,6 +72,15 @@ import { ACOES_KDS, type AtorKds } from './kds-auditoria';
 const logImpressao = new Logger('Impressao'); // P4 — logs do expurgo da fila
 
 // Item pronto para roteamento (montado pela venda a partir da comanda).
+/**
+ * O "produto" de um item de canal que não casou com nenhum cadastro (código PDV sem produto): vai para a cozinha com o
+ * nome que o canal mandou, sem destino marcado nem setor — no papel, a impressora padrão. Sem id: nada de estoque nem de
+ * destino por produto. Antes o item ficava fora do cartão do KDS (auditoria do KDS, 11/11/2026; regra do ERR-257).
+ */
+export function produtoDoCanalSemCadastro(descricao: string) {
+  return { id: null, nome: descricao, tipo: null, vaiParaProducao: true, setorProducaoId: null, tempoPreparoMin: null };
+}
+
 export interface ItemProducao {
   produto: any; // linha de produto (precisa: id, vaiParaProducao, setorProducaoId, tempoPreparoMin)
   descricao: string;
@@ -266,9 +276,9 @@ export class ProducaoPedidoService {
     unidadeId: string | null = null,
     setorLocal?: string | null,
   ): Promise<Destino[]> {
-    const setorProd = setorLocal !== undefined ? setorLocal : p.setorProducaoId;
-    // (1) destinos explícitos do produto
-    const proprios = await tx
+    const setorProd = setorLocal !== undefined ? setorLocal : p?.setorProducaoId;
+    // (1) destinos explícitos do produto — o item de canal sem cadastro (sem id) não tem destino próprio
+    const proprios = !p?.id ? [] : await tx
       .select({
         equipamentoId: equipamento.id,
         tipo: equipamento.tipo,
@@ -909,10 +919,13 @@ export class ProducaoPedidoService {
    * o servidor da loja (`materializarProducaoLocal`) e para a via do pedido ALTERADO (`viasDaAlteracao`, mig 362).
    */
   private async contextoDaComanda(tenantId: string, comandaId: string) {
+    // O cartão MAIS ANTIGO da venda dá o cabeçalho (número, senha, origem): com estações há vários, e `limit(1)` sem ordem
+    // podia pegar qualquer um (V33; auditoria do KDS, 11/11/2026).
     const [ped] = await this.db
       .select()
       .from(producaoPedido)
       .where(and(eq(producaoPedido.comandaId, comandaId), eq(producaoPedido.tenantId, tenantId)))
+      .orderBy(producaoPedido.criadoEm, producaoPedido.id)
       .limit(1);
     if (!ped) return null;
 
@@ -931,7 +944,8 @@ export class ProducaoPedidoService {
             .from(produto)
             .where(and(eq(produto.id, ci.produtoId), eq(produto.tenantId, tenantId)))
         : [];
-      if (!p || !p.vaiParaProducao) {
+      // O item do canal sem cadastro (sem produto) vai à cozinha como na venda da nuvem (`produtoDoCanalSemCadastro`).
+      if (p && !p.vaiParaProducao) {
         resto.push({ quantidade: Number(ci.quantidade), descricao: ci.descricao });
         continue;
       }
@@ -945,7 +959,7 @@ export class ProducaoPedidoService {
         .where(eq(comandaItemComplemento.comandaItemId, ci.id));
       const compTexto = textoDasEscolhas(comps, ci.descricao);
       daProducao.push({
-        produto: p,
+        produto: p ?? produtoDoCanalSemCadastro(ci.descricao),
         descricao: ci.descricao,
         quantidade: Number(ci.quantidade),
         complementosTexto: compTexto,
@@ -2431,11 +2445,14 @@ export class ProducaoPedidoService {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtext(${`pnum:${tenantId}:${unidadeId ?? ''}`})::bigint)`,
     );
+    // O "dia" é o da OPERAÇÃO (fuso escrito na consulta — ERR-120): com `criado_em::date = current_date` a nuvem (sessão
+    // UTC) zerava a numeração às 21h de Brasília e o servidor da loja contava outro dia (auditoria do KDS, 11/11/2026).
+    // Desde o começo do dia no fuso da operação, como intervalo (o índice por data serve).
     const r: any = await tx.execute(sql`
       select coalesce(max(numero), 0) + 1 as n
       from producao_pedido
       where tenant_id = ${tenantId}
-        and criado_em::date = current_date
+        and criado_em >= (((now() at time zone ${FUSO_SQL})::date)::timestamp at time zone ${FUSO_SQL})
         and unidade_id is not distinct from ${unidadeId ?? null}
     `);
     return Number((r.rows ?? r)[0].n) || 1;
@@ -3058,7 +3075,7 @@ export class ProducaoPedidoService {
       .where(
         and(
           ...conds,
-          sql`(status in ('recebido','preparo','pronto')
+          sql`(${this.ativosNaJanela()}
                or (status in ('entregue','cancelado')
                    and coalesce(pronto_em, criado_em) > now() - interval '${sql.raw(
                      String(JANELA_ACAO_MIN),
@@ -3932,13 +3949,20 @@ export class ProducaoPedidoService {
   // Cartão que a fila do KDS mostra: os abertos das últimas 12 horas (a encomenda cujo horário ainda não passou fica) e os
   // cancelados recentes (riscados por um tempo). A MESMA janela na fila de cada KDS e na do despacho.
   private janelaDaFila(): SQL {
-    return sql`((status in ('recebido','preparo','pronto')
+    return sql`(${this.ativosNaJanela()}
+           or (status = 'cancelado'
+               and coalesce(cancelado_em, criado_em) > now() - interval '${sql.raw(String(JANELA_ACAO_MIN))} minutes'))`;
+  }
+
+  // Os cartões EM ANDAMENTO que ainda contam: das últimas 12 h (ou a encomenda cujo horário ainda não passou). A mesma
+  // regra no KDS e na fila de produção do PDV — nesta, o cartão de papel (que só fecha pelo KDS) aparecia "em produção"
+  // ou "atrasado" para sempre (auditoria do KDS, 11/11/2026).
+  private ativosNaJanela(): SQL {
+    return sql`(status in ('recebido','preparo','pronto')
             and (criado_em > now() - interval '${sql.raw(String(JANELA_FILA_HORAS))} hours'
                  or exists (select 1 from pedido_externo pe
                              where pe.tenant_id = producao_pedido.tenant_id and pe.comanda_id = producao_pedido.comanda_id
-                               and pe.agendamento > now() - interval '${sql.raw(String(JANELA_FILA_HORAS))} hours')))
-           or (status = 'cancelado'
-               and coalesce(cancelado_em, criado_em) > now() - interval '${sql.raw(String(JANELA_ACAO_MIN))} minutes'))`;
+                               and pe.agendamento > now() - interval '${sql.raw(String(JANELA_FILA_HORAS))} hours')))`;
   }
 
   // KDS DE DESPACHO: um cartão por PEDIDO (comanda), com o andamento de cada estação e os itens de todas. Entra o pedido
