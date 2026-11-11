@@ -99,6 +99,21 @@ export function tamanhosValidos(v: unknown): Tamanhos {
   return t;
 }
 
+// ── Muitas senhas numa coluna (auditoria do KDS, 11/11/2026, T2; protótipo aprovado — `mockups/regem-kds-cozinha.html`,
+// aba 4; decisão do dono, a recomendada): a letra da coluna diminui até caber todas, até LETRA_MINIMA do tamanho dos
+// ajustes; se nem assim couber (pico), a coluna alterna páginas a cada TROCA_DE_PAGINA_MS, a página 1 com as mais novas.
+// Nenhuma senha some — antes, a coluna cheia escondia as mais antigas (de quem espera há mais tempo) atrás de "+N".
+export const LETRA_MINIMA = 0.6;
+export const TROCA_DE_PAGINA_MS = 8000;
+
+/** A página `pagina` (que dá a volta) de uma coluna com `porPagina` senhas por página; sem divisão, todas. */
+export function paginaDaColuna<T>(senhas: readonly T[], porPagina: number | null, pagina: number): { itens: T[]; paginas: number; atual: number } {
+  if (!porPagina || porPagina < 1 || senhas.length <= porPagina) return { itens: [...senhas], paginas: 1, atual: 0 };
+  const paginas = Math.ceil(senhas.length / porPagina);
+  const atual = ((pagina % paginas) + paginas) % paginas;
+  return { itens: senhas.slice(atual * porPagina, atual * porPagina + porPagina), paginas, atual };
+}
+
 /** As iniciais da loja, para o círculo quando ela não tem logo (ou a imagem não carrega). */
 export function iniciais(nome: string): string {
   const partes = nome.trim().split(/\s+/).filter(Boolean);
