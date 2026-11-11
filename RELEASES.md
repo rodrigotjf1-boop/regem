@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **A senha não repete entre a nuvem e o servidor da loja (auditoria do KDS, O13; SEM migration; não mexe no
+  `sync-daemon`).** Na NUVEM com o merge: a senha que a nuvem dá (o delivery com o servidor da loja fora) sai acima da
+  maior já usada no período naquela loja e origem — os cartões e as vendas que o servidor mandou. **No `.zip` 1.30.13:** o
+  mesmo no servidor da loja (ao voltar, continua acima do que a nuvem deu enquanto ele estava fora). Sem o `.zip`, a loja
+  ainda pode repetir uma senha D que a nuvem deu durante a queda.
+
 - **Pedido cancelado pelo canal enquanto o servidor da loja aceitava + cartão cancelado mais velho (auditoria do KDS,
   O3 e O14; SEM migration; ⚠️ MEXE NO `sync-daemon` → pede `.exe` além do `.zip`).** Na NUVEM com o merge: o envio da
   loja não tira mais o pedido de 'cancelado' (só para 'concluido'), o 'cancelado'/'concluido' de maior precedência entra
