@@ -21,6 +21,16 @@ import { FaixasCard } from '@/components/produtos/faixas-card';
 import { ComplementosCard } from '@/components/produtos/complementos-card';
 import { ProdutosLista } from '@/components/produtos/produtos-lista';
 import { PublicarIntegracoes } from '@/components/produtos/publicar-integracoes';
+import Link from 'next/link';
+import {
+  ONDE_VENDE_NOVO,
+  camposDoOndeVende,
+  estadoDeVenda,
+  linkDaGestao,
+  mudancasAoEditar,
+  type EstadoDeVenda,
+  type OndeVende,
+} from '@/lib/cadastro-onde-vende';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -55,6 +65,11 @@ export default function ProdutosPage() {
   // iFood pelo Orzuni (mig 369): o direito é ligado pela distribuição; desligado, a tela não mostra
   // nem manda os campos do iFood (o servidor também não os grava).
   const [ifoodLigado, setIfoodLigado] = useState(false);
+  // R3 F7: "Preço e pausa na 99" ligado (o "Onde vende" ao criar ganha a 99); o "Onde vende" do produto novo; e o estado de
+  // venda que o formulário de editar leu (ao salvar, só o que mudou vai — a Gestão do catálogo pode ter mudado no meio).
+  const [com99, setCom99] = useState(false);
+  const [ondeVende, setOndeVende] = useState<OndeVende>(ONDE_VENDE_NOVO);
+  const [antesDeVenda, setAntesDeVenda] = useState<EstadoDeVenda | null>(null);
 
   // categoria rápida
   const [catNome, setCatNome] = useState('');
@@ -79,6 +94,7 @@ export default function ProdutosPage() {
     api.cardapioConfig().then(setCardapio).catch(() => {});
     api.integracoesDelivery().then((r: any) => setIntegracoes(Array.isArray(r) ? r : [])).catch(() => {});
     api.ifoodPeloOrzuni().then((r: any) => setIfoodLigado(r?.ligado === true)).catch(() => setIfoodLigado(false));
+    api.precosNa99().then((r: any) => setCom99(r?.ligado === true)).catch(() => setCom99(false));
     reload();
   }, [reload, router]);
 
@@ -93,6 +109,8 @@ export default function ProdutosPage() {
   function novo() {
     setEditId(null);
     setF(vazio());
+    setOndeVende(ONDE_VENDE_NOVO);
+    setAntesDeVenda(null);
     setComps([]);
     setFichaIngs([]);
     setDestinosSel([]);
@@ -181,6 +199,7 @@ export default function ProdutosPage() {
       // O custo calculado só vem na LISTA (a rota de um produto não o calcula): sem isto o campo
       // "Custo (calculado)" ficava sempre em "Calculado ao salvar" ao editar.
       const daLista: any = (produtos as any[]).find((x) => x.id === id);
+      setAntesDeVenda(estadoDeVenda(p));
       setEditId(id);
       setModalAba('info');
       setFormAberto(true);
@@ -341,8 +360,29 @@ export default function ProdutosPage() {
                 }))
             : [],
       };
-      if (editId) await api.atualizarProduto(editId, body);
-      else await api.criarProduto(body);
+      const canaisQueFalharam: string[] = [];
+      if (editId) {
+        // R3 F7 (decisão 14 do protótipo): ao editar, o preço muda só na Gestão do catálogo — não vai daqui. A pausa e o
+        // "onde vende" vão só se a pessoa MUDOU (regravar o lido desfaria o que a Gestão ou o totem mudaram no meio), e os
+        // canais da lista um por vez, pela pausa por canal (a lista nunca é regravada inteira).
+        for (const k of ['precoVenda', 'precoIfood', 'disponivelBalcao', 'disponivelCardapio', 'noIfood', 'canaisPausados']) delete body[k];
+        const { patch, canais } = mudancasAoEditar(antesDeVenda ?? estadoDeVenda(f), estadoDeVenda(f), ifoodLigado);
+        Object.assign(body, patch);
+        await api.atualizarProduto(editId, body);
+        for (const c of canais) {
+          try {
+            await api.pausaDoCanal(editId, c.canal, c.pausado);
+          } catch (err) {
+            canaisQueFalharam.push(`${CANAL_LABEL[c.canal] ?? c.canal}: ${err instanceof Error ? err.message : 'não foi possível'}`);
+          }
+        }
+      } else {
+        // R3 F7: o "Onde vende" decide o balcão e o cardápio digital (Regem), o "Está no iFood" e o "Está na 99".
+        Object.assign(body, camposDoOndeVende(ondeVende, ifoodLigado, com99));
+        await api.criarProduto(body);
+      }
+      if (canaisQueFalharam.length) toast.error(`Produto salvo, mas a pausa não mudou — ${canaisQueFalharam.join('; ')}`);
+      else toast.success(editId ? 'Produto salvo.' : 'Produto cadastrado.');
       novo();
       setFormAberto(false);
       await reload();
@@ -406,17 +446,6 @@ export default function ProdutosPage() {
       await reload();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao duplicar');
-    }
-  }
-
-  // Ocultar/retomar = tira/devolve o produto dos dois canais (balcão + cardápio).
-  async function pausar(p: any, ativar: boolean) {
-    try {
-      await api.atualizarProduto(p.id, { disponivelBalcao: ativar, disponivelCardapio: ativar });
-      toast.success(ativar ? 'Produto retomado.' : 'Produto ocultado.');
-      await reload();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Erro ao alterar');
     }
   }
 
@@ -573,6 +602,9 @@ export default function ProdutosPage() {
                   catLabel={catLabel}
                   canaisAtivos={canaisAtivos}
                   ifoodLigado={ifoodLigado}
+                  com99={com99}
+                  ondeVende={ondeVende}
+                  setOndeVende={setOndeVende}
                   onSubmit={salvar}
                   onCancel={fecharForm}
                 />
@@ -686,6 +718,14 @@ export default function ProdutosPage() {
                 </div>
                 {/* Lista de produtos agrupada por categoria — rola sozinha */}
                 <div className="scroll-fino min-w-0 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
+                  {/* R3 F7: o preço depois de criado e a pausa de cada canal ficam na Gestão do catálogo. */}
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    O preço e a pausa de cada canal mudam em{' '}
+                    <Link href="/catalogo" className="font-semibold text-foreground underline underline-offset-2">
+                      Delivery › Gestão do catálogo
+                    </Link>{' '}
+                    (&quot;Preço e pausa&quot; no menu ⋮ de cada produto).
+                  </p>
                   <ProdutosLista
                     produtos={produtosFiltrados}
                     categorias={categorias}
@@ -693,7 +733,7 @@ export default function ProdutosPage() {
                     onRemover={remover}
                     onReativar={reativar}
                     onDuplicar={duplicar}
-                    onPausar={pausar}
+                    onPrecoEPausa={(p) => router.push(linkDaGestao(p.nome))}
                     onCopiarLink={copiarLink}
                   />
                 </div>

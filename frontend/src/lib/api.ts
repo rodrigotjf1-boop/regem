@@ -776,14 +776,15 @@ export const api = {
   opcao99Envios: (id: string) => req(`/produtos/opcoes/${id}/99-envios`) as Promise<{ envios: any[]; semConexao: boolean }>,
   // Gestão do catálogo (R3 F1/F2): o preço e a pausa de UM canal, com auditoria. Preço: 'regem' (venda), 'ifood' ou
   // '99food' (vazio = "o Regem não mexe"; pede "Ver valores em R$"). Pausa: 'regem' desliga balcão e cardápio digital
-  // juntos; 'ifood' e '99food' pausam só o seu canal. `mudou: false` = já estava assim.
+  // juntos; 'ifood' e '99food' pausam só o seu canal. `mudou: false` = já estava assim. R3 F7: a pausa aceita também o
+  // canal das outras integrações do Cadastros (anotaai, keeta…), um por vez — o formulário de editar não regrava a lista.
   precoDoCanal: (id: string, canal: 'regem' | 'ifood' | '99food', valor: string | null) =>
     req(`/produtos/${id}/preco-canal`, { method: 'PUT', body: JSON.stringify({ canal, valor }) }) as Promise<{
       canal: string;
       valor: string | null;
       mudou: boolean;
     }>,
-  pausaDoCanal: (id: string, canal: 'regem' | 'ifood' | '99food', pausado: boolean) =>
+  pausaDoCanal: (id: string, canal: string, pausado: boolean) =>
     req(`/produtos/${id}/pausa-canal`, { method: 'PUT', body: JSON.stringify({ canal, pausado }) }) as Promise<{
       canal: string;
       pausado: boolean;

@@ -99,6 +99,9 @@ export default function CatalogoPage() {
     }
     // A permissão vem do token: lida depois da carga (o primeiro desenho é igual no servidor e no navegador).
     setPodeMudarPreco(getCategoria() === 'presidente' || podeVerFinanceiro());
+    // R3 F7: "Preço e pausa" do Cadastros › Cardápio abre aqui com o produto na busca (`?busca=`), lida depois da carga.
+    const vinda = new URLSearchParams(window.location.search).get('busca');
+    if (vinda) setBusca(vinda.slice(0, 120));
     void carregar();
   }, [carregar, router]);
 

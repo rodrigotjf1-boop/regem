@@ -34,6 +34,14 @@ writeFileSync(
   }).outputText,
 );
 const calc = await import(pathToFileURL(join(tmp, 'calculadora-preco.mjs')).href);
+// Cadastros › Cardápio depois da Gestão (R3 F7): o "Onde vende" ao criar e o "só o que mudou" ao editar.
+writeFileSync(
+  join(tmp, 'cadastro-onde-vende.mjs'),
+  ts.transpileModule(readFileSync(join(raiz, 'cadastro-onde-vende.ts'), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
+  }).outputText,
+);
+const ov = await import(pathToFileURL(join(tmp, 'cadastro-onde-vende.mjs')).href);
 const prototipo = (() => {
   const html = readFileSync(join(raiz, '..', '..', '..', 'mockups', 'regem-conciliacao-ifood.html'), 'utf8');
   const ini = html.indexOf('  const FAIXAS_SIMPLES = [');
@@ -582,6 +590,33 @@ try {
     const caro = calc.calcular({ custo: 5, emb: 0 }, 'ifood', 'app', TAXAS, VENDAS, calc.PROMO_PADRAO, 80);
     assert.equal(caro.recomendado, null);
     assert.deepEqual([calc.numeroDigitado('540.000,00'), calc.numeroDigitado('12,5'), calc.numeroDigitado('12.5'), calc.numeroDigitado('abc'), calc.numeroDigitado('')], [540000, 12.5, 12.5, null, null]);
+  });
+
+  caso('F7: "Onde vende" ao criar — Regem = balcão E cardápio digital; o campo de um app só vai com o app ligado', () => {
+    assert.deepEqual(ov.camposDoOndeVende(ov.ONDE_VENDE_NOVO, true, true), { disponivelBalcao: true, disponivelCardapio: true, noIfood: true, na99: true });
+    assert.deepEqual(ov.camposDoOndeVende({ regem: false, ifood: true, n99: false }, true, true), { disponivelBalcao: false, disponivelCardapio: false, noIfood: true, na99: false });
+    // Sem o app ligado, o campo nem vai (ausente = o servidor guarda o padrão; sem o direito, nem grava).
+    assert.deepEqual(ov.camposDoOndeVende({ regem: true, ifood: true, n99: true }, false, false), { disponivelBalcao: true, disponivelCardapio: true });
+    assert.deepEqual(ov.ondeNaoVende({ regem: false, ifood: true, n99: false }, true, true), ['no Regem', 'na 99']);
+    assert.deepEqual(ov.ondeNaoVende({ regem: true, ifood: false, n99: false }, false, false), []);
+    assert.equal(ov.linkDaGestao('X-Bacon & cia'), '/catalogo?busca=X-Bacon%20%26%20cia');
+  });
+  caso('F7: ao editar, só o que a pessoa mudou — nada que a Gestão possa ter mudado no meio; os canais um por vez', () => {
+    const lido = ov.estadoDeVenda({ disponivelBalcao: true, disponivelCardapio: false, noIfood: true, canaisPausados: ['gogem', 'ifood'] });
+    assert.deepEqual(lido, { disponivelBalcao: true, disponivelCardapio: false, noIfood: true, canaisPausados: ['gogem', 'ifood'] });
+    // Nada mexido: nada vai (nem a lista, nem os booleanos).
+    assert.deepEqual(ov.mudancasAoEditar(lido, { ...lido }, true), { patch: {}, canais: [] });
+    // Despausou o iFood e pausou o Keeta; o totem (gogem) não aparece porque não mudou.
+    const agora = { ...lido, disponivelCardapio: true, canaisPausados: ['gogem', 'keeta'] };
+    assert.deepEqual(ov.mudancasAoEditar(lido, agora, true), {
+      patch: { disponivelCardapio: true },
+      canais: [{ canal: 'keeta', pausado: true }, { canal: 'ifood', pausado: false }],
+    });
+    // "Está no iFood" mudado só vai com o iFood ligado.
+    assert.deepEqual(ov.mudancasAoEditar(lido, { ...lido, noIfood: false }, true).patch, { noIfood: false });
+    assert.deepEqual(ov.mudancasAoEditar(lido, { ...lido, noIfood: false }, false).patch, {});
+    // Ausente = disponível; lista ausente = vazia.
+    assert.deepEqual(ov.estadoDeVenda({}), { disponivelBalcao: true, disponivelCardapio: true, noIfood: false, canaisPausados: [] });
   });
 
   console.log(`\ncheck:catalogo — ${n} grupos de casos, todos certos.`);
