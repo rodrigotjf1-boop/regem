@@ -8,6 +8,7 @@ import {
   lerPedidoDoCliente,
   registrarPedidoDoCliente,
 } from './food99-pedido-cliente';
+import { lerCancelamentoParcial, registrarCancelamentoParcial } from './food99-parcial';
 import { and, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../../db/drizzle.module';
 import { integracao } from '../../../db/schema';
@@ -1078,8 +1079,15 @@ export class Food99Service {
         // cancelamento com o ajuste DESLIGADO é aceito na hora, como antes (o caso nasce resolvido; se a 99 recusar a
         // resposta, o caso fica aberto para alguém ver). Antes daqui o Regem aceitava tudo sozinho (`agree_type` errado).
         await this.receberPedidoDoCliente(ig, raw, ev === 'ordercancelapply' ? 'cancelamento' : 'reembolso');
-      } else if (ev === 'ordercancel' || ev === 'orderpartialcancel') {
+      } else if (ev === 'ordercancel') {
         if (orderId) await this.delivery.refletirStatusExterno(ig.tenantId, CANAL, orderId, 'cancelado');
+      } else if (ev === 'orderpartialcancel') {
+        // PARTE do pedido saiu (achado O8 da auditoria do KDS, 11/11/2026): antes era tratado como o pedido inteiro —
+        // estornava a venda e tirava o pedido da cozinha. Sem o detalhe agora, ou com o pedido ainda fora do Regem →
+        // errno≠0: a 99 reenvia (ERR-061).
+        if (orderId && !(await this.cancelamentoParcial(ig, orderId))) {
+          return { errno: 1, errmsg: 'cancelamento parcial ainda não lido — reenviar' };
+        }
       } else if (ev === 'orderfinish') {
         if (orderId) await this.delivery.refletirStatusExterno(ig.tenantId, CANAL, orderId, 'concluido');
       } else if (ev === 'ordernew' || (!ev && orderId)) {
@@ -1111,6 +1119,33 @@ export class Food99Service {
       return { errno: 1, errmsg: 'falha ao processar — reenviar' };
     }
     return { errno: 0, errmsg: 'ok' };
+  }
+
+  /**
+   * O cancelamento PARCIAL (`orderPartialCancel`, `food99-parcial.ts`): lê o detalhe autenticado — o aviso só traz o
+   * `order_id`, e o corpo é forjável (CL-3). A 99 cancelou o pedido (situação 9xx) ou não sobrou item → o cancelamento de
+   * sempre (`refletirStatusExterno`, V43); senão, o caso "Mudança no pedido" com o que saiu, urgente enquanto o pedido está
+   * na loja. A venda não muda sozinha (decisão 4A do pedido alterado). false = a 99 reenvia o aviso.
+   */
+  private async cancelamentoParcial(ig: IntegFood99, orderId: string): Promise<boolean> {
+    const detalhe = await this.pedido(ig, orderId);
+    if (!detalhe) {
+      this.logger.warn(`orderPartialCancel ${orderId}: sem o detalhe autenticado — pedindo reenvio à 99`);
+      return false;
+    }
+    const c = lerCancelamentoParcial(detalhe);
+    if (c.cancelado) {
+      this.logger.log(`orderPartialCancel ${orderId}: a 99 cancelou o pedido inteiro (ou não sobrou item) — cancelando`);
+      await this.delivery.refletirStatusExterno(ig.tenantId, CANAL, orderId, 'cancelado');
+      return true;
+    }
+    const r = await registrarCancelamentoParcial(this.db, (e: string, d: any) => this.events?.emit(e, d), ig, orderId, c);
+    if (!r.achou) {
+      this.logger.warn(`orderPartialCancel ${orderId}: o pedido ainda não chegou ao Regem — pedindo reenvio à 99`);
+      return false;
+    }
+    if (r.aberto) this.logger.log(`loja ${ig.tenantId}: a 99 tirou ${c.tirados.length} item(ns) do pedido ${orderId} — caso na central`);
+    return true;
   }
 
   // Ingestão de um pedido novo (orderNew) pelo detail. true = gravado (ou já existia).
