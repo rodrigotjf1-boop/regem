@@ -53,6 +53,32 @@ export function situacaoNoCanal(canal: string, e: ExternoDaPausa): { texto: stri
   return { texto: `Pedindo a pausa ${ao}…${e.erro ? ` (${e.erro})` : ''}`, tom: 'espera' };
 }
 
+/**
+ * O cartão "Todos os canais" (pedido do dono, 11/11): marca todos os que dá para pausar daqui ou, se já estão todos
+ * marcados, desmarca todos. A combinação segue livre — marcar um a um também chega a "todos".
+ */
+export function alternarTodos(marcados: ReadonlySet<string>, disponiveis: readonly string[]): Set<string> {
+  return todosMarcados(marcados, disponiveis) ? new Set() : new Set(disponiveis);
+}
+
+/** Todos os canais que dá para pausar estão marcados (com pelo menos dois — com um só, não há "todos"). */
+export function todosMarcados(marcados: ReadonlySet<string>, disponiveis: readonly string[]): boolean {
+  return disponiveis.length > 1 && disponiveis.every((c) => marcados.has(c));
+}
+
+/** "Cardápio digital, iFood e 99". */
+export function listaDeNomes(nomes: readonly string[]): string {
+  return nomes.length <= 1 ? (nomes[0] ?? '') : `${nomes.slice(0, -1).join(', ')} e ${nomes[nomes.length - 1]}`;
+}
+
+/** O botão de confirmar: "⏸ Pausar o iFood", "⏸ Pausar 2 canais", "⏸ Pausar todos os canais". */
+export function rotuloDoPausar(marcados: readonly string[], disponiveis: readonly string[]): string {
+  const n = marcados.length;
+  if (n === 0) return '⏸ Pausar';
+  if (n === 1) return `⏸ Pausar ${NOME_NA_FRASE[marcados[0]] ?? 'o canal'}`;
+  return todosMarcados(new Set(marcados), disponiveis) ? '⏸ Pausar todos os canais' : `⏸ Pausar ${n} canais`;
+}
+
 /** A 99 pausada "até o fim do dia" não estende (faltam mais de 35 min: só pode ser ela). */
 export const daPraEstender = (canal: string, segundos: number) => canal !== 'food99' || segundos <= 35 * 60;
 
