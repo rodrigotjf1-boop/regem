@@ -10,6 +10,8 @@ import { exigirBooleano } from '../../common/exigir';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Os pedidos em andamento de uma loja (o condicional olha cada loja). */
 export type ContagemDaLoja = { balcao: number; delivery: number; total: number };
 
@@ -71,9 +73,31 @@ export class KdsAlertaService {
     return id;
   }
 
+  /**
+   * Os KDS que recebem o alerta (onda 2 da auditoria do KDS, A9; mig 409): nulo = todos os KDS da loja do alerta. A lista
+   * vale só com KDS desta empresa e da loja do alerta (ou da rede, sem loja); lista vazia não vale — "nenhum KDS" seria um
+   * alerta que não aparece em lugar nenhum.
+   */
+  private async kdsDoAlerta(tenantId: string, unidadeId: string | null, kdsIds: unknown): Promise<string[] | null> {
+    if (kdsIds === undefined || kdsIds === null) return null;
+    if (!Array.isArray(kdsIds)) throw new BadRequestException('Escolha os KDS da lista, ou "Todos os KDS".');
+    if (!kdsIds.length) throw new BadRequestException('Marque ao menos um KDS, ou "Todos os KDS".');
+    const ids = [...new Set(kdsIds.map((x) => String(x)))];
+    if (ids.length > 50 || ids.some((id) => !UUID_RE.test(id))) throw new BadRequestException('Escolha os KDS da lista.');
+    const r: any = await this.db.execute(sql`
+      select id from equipamento
+       where tenant_id = ${tenantId} and tipo = 'kds'
+         and id in (${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)})
+         ${unidadeId ? sql`and (unidade_id is null or unidade_id = ${unidadeId}::uuid)` : sql``}`);
+    if ((r.rows ?? r).length !== ids.length)
+      throw new BadRequestException('Algum KDS da lista não é da loja deste alerta ou foi excluído. Abra a lista de novo.');
+    return ids;
+  }
+
   async criar(tenantId: string, criadoPor: string | null, dto: any, ator?: AtorKds) {
     this.valida(dto);
     const unidadeId = await this.lojaDoAlerta(tenantId, dto.unidadeId);
+    const kdsIds = await this.kdsDoAlerta(tenantId, unidadeId, dto.kdsIds);
     const [row] = await this.db
       .insert(kdsAlertaConfig)
       .values({
@@ -87,12 +111,21 @@ export class KdsAlertaService {
         diasSemana: Array.isArray(dto.diasSemana) ? dto.diasSemana : [0, 1, 2, 3, 4, 5, 6],
         condicao: dto.condicao ?? null,
         duracaoSeg: Math.max(3, Math.min(3600, Number(dto.duracaoSeg) || 60)),
+        kdsIds,
+        // Fica no rodapé até o "Ciente" (A7) — liga/desliga explícito (V15).
+        ateCiente: dto.ateCiente != null ? exigirBooleano(dto.ateCiente, 'ateCiente') : false,
         // Liga/desliga explícito (V15): "false" em texto não pode virar ligado.
         ativo: dto.ativo != null ? exigirBooleano(dto.ativo, 'ativo') : true,
         criadoPor,
       })
       .returning();
-    await this.auditar(tenantId, ator, 'criou_alerta_kds', row, { tipo: row.tipo, prioridade: row.prioridade, ativo: row.ativo });
+    await this.auditar(tenantId, ator, 'criou_alerta_kds', row, {
+      tipo: row.tipo,
+      prioridade: row.prioridade,
+      ativo: row.ativo,
+      kds: row.kdsIds ?? 'todos',
+      ateCiente: row.ateCiente,
+    });
     return row;
   }
 
@@ -115,6 +148,12 @@ export class KdsAlertaService {
       });
     const patch: any = { updatedAt: new Date() };
     if (dto.unidadeId !== undefined) patch.unidadeId = await this.lojaDoAlerta(tenantId, dto.unidadeId);
+    // Os KDS valem para a loja como ela FICA: trocar a loja confere de novo os KDS que já estavam marcados (A9).
+    if (dto.kdsIds !== undefined || dto.unidadeId !== undefined) {
+      const loja = dto.unidadeId !== undefined ? patch.unidadeId : (atual.unidadeId ?? null);
+      patch.kdsIds = await this.kdsDoAlerta(tenantId, loja, dto.kdsIds !== undefined ? dto.kdsIds : atual.kdsIds);
+    }
+    if (dto.ateCiente != null) patch.ateCiente = exigirBooleano(dto.ateCiente, 'ateCiente');
     if (dto.titulo != null) patch.titulo = String(dto.titulo).slice(0, 200);
     if (dto.detalhe !== undefined) patch.detalhe = dto.detalhe ? String(dto.detalhe).slice(0, 500) : null;
     if (dto.prioridade != null) patch.prioridade = this.prio(dto.prioridade);
@@ -143,6 +182,22 @@ export class KdsAlertaService {
       .returning();
     if (row) await this.auditar(tenantId, ator, 'excluiu_alerta_kds', row, { tipo: row.tipo });
     return { ok: true };
+  }
+
+  /**
+   * "Testar" um alerta cadastrado (onda 2 da auditoria do KDS): dispara ESTE alerta agora, com a loja, os KDS e o "até o
+   * Ciente" dele — o que a pessoa vai ver na hora de verdade. Devolve em quais KDS ele aparece (nulo = todos da loja).
+   */
+  async testar(tenantId: string, id: string, ator?: AtorKds) {
+    if (!UUID_RE.test(String(id))) throw new BadRequestException('Alerta não encontrado.');
+    const [c] = await this.db
+      .select()
+      .from(kdsAlertaConfig)
+      .where(and(eq(kdsAlertaConfig.id, id), eq(kdsAlertaConfig.tenantId, tenantId)));
+    if (!c) throw new BadRequestException('Alerta não encontrado.');
+    this.emitir(tenantId, c, '', c.unidadeId ?? null);
+    await this.auditar(tenantId, ator, 'disparou_alerta_kds', c, { teste: true, kds: c.kdsIds ?? 'todos' });
+    return { ok: true, kds: Array.isArray(c.kdsIds) && c.kdsIds.length ? c.kdsIds : null };
   }
 
   // Dispara um alerta AGORA (teste / disparo manual pela tela do KDS).
@@ -279,6 +334,9 @@ export class KdsAlertaService {
       prioridade: this.prio(c.prioridade),
       duracaoSeg: Math.max(3, Math.min(3600, Number(c.duracaoSeg) || 60)),
       tipo: 'loja', // os cadastrados em Configurações › Alertas do KDS (mig 408)
+      // Para quais KDS (nulo = todos da loja) e se fica até o "Ciente" (mig 409; A9 e A7). A tela filtra pelo KDS dela.
+      kds: Array.isArray(c.kdsIds) && c.kdsIds.length ? c.kdsIds : null,
+      fica: c.ateCiente === true,
     });
   }
 

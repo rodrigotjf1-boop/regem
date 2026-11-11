@@ -119,4 +119,60 @@ descrever('Alertas do KDS — motor por loja (Postgres)', () => {
     expect((await svc.atualizar(T, a.id, { ativo: 'false' })).ativo).toBe(false); // texto "false" desliga (não liga)
     expect((await svc.atualizar(T, a.id, { ativo: true })).ativo).toBe(true);
   });
+
+  // Onda 2 da auditoria do KDS (mig 409): o alerta vai para os KDS escolhidos (A9) e pode ficar até o "Ciente" (A7).
+  it('os KDS de cada alerta (da loja dele) e o "até o Ciente" vão no aviso; o teste dispara este alerta com eles', async () => {
+    const [FRITA, CHAPA, DE_B, DA_REDE, DE_OUTRA] = [randomUUID(), randomUUID(), randomUUID(), randomUUID(), randomUUID()];
+    const kds = (id: string, tenant: string, loja: string | null, nome: string) =>
+      q(`insert into equipamento (id, tenant_id, unidade_id, nome, token, tipo) values ($1,$2,$3,$4,$5,'kds')`, [id, tenant, loja, nome, 'tok-' + id]);
+    await kds(FRITA, T, A, 'Fritadeira');
+    await kds(CHAPA, T, A, 'Chapa');
+    await kds(DE_B, T, B, 'Chapa da B');
+    await kds(DA_REDE, T, null, 'KDS da rede');
+    await kds(DE_OUTRA, OUTRA, null, 'KDS de outra empresa');
+    try {
+      const oleo = await svc.criar(T, null, {
+        titulo: 'Trocar o óleo',
+        unidadeId: A,
+        tipo: 'agendado',
+        horarios: ['20:15'],
+        kdsIds: [FRITA, DA_REDE],
+        ateCiente: true,
+      });
+      expect(oleo).toMatchObject({ kdsIds: [FRITA, DA_REDE], ateCiente: true });
+      (svc as any).tickAgendado(oleo, '20:15', 1, '2026-11-09');
+      expect(doTeste()).toEqual([expect.objectContaining({ unidadeId: A, titulo: 'Trocar o óleo', kds: [FRITA, DA_REDE], fica: true, tipo: 'loja' })]);
+      // Sem lista = todos os KDS da loja (kds nulo), e sai pelo tempo (fica falso) — o que valia antes.
+      emitidos.length = 0;
+      const todos = await svc.criar(T, null, { titulo: 'Lavar as mãos', unidadeId: A, tipo: 'agendado', horarios: ['20:15'] });
+      expect(todos).toMatchObject({ kdsIds: null, ateCiente: false });
+      (svc as any).tickAgendado(todos, '20:15', 1, '2026-11-09');
+      expect(doTeste()[0]).toMatchObject({ kds: null, fica: false });
+
+      // Recusas: lista vazia, KDS de outra loja, de outra empresa, id inválido, "até o Ciente" que não é booleano.
+      const base = { titulo: 'x', unidadeId: A, tipo: 'agendado', horarios: ['10:00'] };
+      await expect(svc.criar(T, null, { ...base, kdsIds: [] })).rejects.toThrow(/ao menos um KDS/);
+      await expect(svc.criar(T, null, { ...base, kdsIds: [DE_B] })).rejects.toThrow(/não é da loja/);
+      await expect(svc.criar(T, null, { ...base, kdsIds: [DE_OUTRA] })).rejects.toThrow(/não é da loja/);
+      await expect(svc.criar(T, null, { ...base, kdsIds: ['nao-e-uuid'] })).rejects.toThrow(/da lista/);
+      await expect(svc.criar(T, null, { ...base, ateCiente: 'sim' })).rejects.toThrow(/true ou false/);
+      // Trocar a loja confere de novo os KDS marcados (a Fritadeira é da loja A, não da B).
+      await expect(svc.atualizar(T, oleo.id, { unidadeId: B })).rejects.toThrow(/não é da loja/);
+      expect((await svc.atualizar(T, oleo.id, { unidadeId: B, kdsIds: [DE_B] })).kdsIds).toEqual([DE_B]);
+      expect((await svc.atualizar(T, oleo.id, { kdsIds: null })).kdsIds).toBeNull(); // voltar para "todos"
+      expect((await svc.atualizar(T, oleo.id, { ateCiente: false })).ateCiente).toBe(false);
+
+      // "Testar" dispara ESTE alerta, com a loja e os KDS dele, e diz em quais aparece.
+      await svc.atualizar(T, oleo.id, { kdsIds: [DE_B], ateCiente: true });
+      emitidos.length = 0;
+      expect(await svc.testar(T, oleo.id)).toEqual({ ok: true, kds: [DE_B] });
+      expect(doTeste()).toEqual([expect.objectContaining({ unidadeId: B, titulo: 'Trocar o óleo', kds: [DE_B], fica: true })]);
+      await expect(svc.testar(OUTRA, oleo.id)).rejects.toThrow(/não encontrado/); // de outra empresa
+      await expect(svc.testar(T, 'nao-e-uuid')).rejects.toThrow(/não encontrado/);
+    } finally {
+      await q(`update kds_alerta_config set ativo = false where tenant_id = $1`, [T]);
+      await q(`delete from kds_alerta_config where tenant_id = $1`, [T]);
+      await q(`delete from equipamento where tenant_id = any($1::uuid[])`, [[T, OUTRA]]);
+    }
+  });
 });

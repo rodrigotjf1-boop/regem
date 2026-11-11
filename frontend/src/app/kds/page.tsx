@@ -23,6 +23,7 @@ import {
   avisosPadrao,
   faixaDaPausa,
   recebeAviso,
+  alertaParaEstaTela,
   TIPOS_DE_AVISO,
   type AvisosDoKds,
   type CanalPausadoNoKds,
@@ -693,6 +694,8 @@ export default function KdsPage() {
     socket.on('kds:alerta', (a: any) => {
       // Cada tela escolhe os tipos que recebe (aba "Avisos" do ⚙, mig 408): o de gestão não toca na tela de preparo.
       if (!recebeAviso(avisosRef.current, a.tipo ?? 'loja')) return;
+      // O alerta cadastrado para outros KDS (a troca do óleo só na Fritadeira — mig 409) não toca aqui.
+      if (!alertaParaEstaTela(a, kdsRef.current)) return;
       const prioridade = prioridadeDoRodape(a.prioridade ?? 'alta');
       setAlertas((prev) => [
         {
@@ -702,7 +705,9 @@ export default function KdsPage() {
           prioridade,
           em: a.em,
           restanteSeg: Number(a.duracaoSeg) > 0 ? Number(a.duracaoSeg) : 60,
-          ciente: prioridade === 'danger',
+          // "Até o Ciente" no cadastro (mig 409): fica até alguém tocar, sem contar o tempo.
+          fica: a.fica === true,
+          ciente: prioridade === 'danger' || a.fica === true,
           origem: ORIGEM_DO_AVISO[String(a.tipo)] ?? 'Alertas da loja',
         },
         ...prev.filter((x) => x.id !== a.id),
