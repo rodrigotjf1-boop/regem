@@ -592,13 +592,14 @@ export class DeliveryService {
   // a comanda, tira os cards do KDS (com o alerta de cancelado) e registra na auditoria.
   // Não há operador para dizer "perda ou reaproveitado": o estoque fica como está (no delivery a
   // baixa só acontece na conclusão) — a comida que já tinha sido feita se lança em Desperdício.
-  // Nunca derruba o cancelamento do pedido, mas a falha não passa em silêncio.
+  // Nunca derruba o cancelamento do pedido, mas a falha não passa em silêncio. Diz o que FEZ (o servidor da loja só segue
+  // para os benefícios quando desfez — `desfazerCanceladoQueDesceu`); os outros chamadores ignoram a resposta.
   private async desfazerVendaDoCancelado(
     tenantId: string,
     ped: { id: string; comandaId: string | null },
     motivo: string,
-  ) {
-    if (!ped.comandaId) return; // nunca foi aceito: não há venda nem cozinha
+  ): Promise<'desfeita' | 'sem_venda' | 'falhou'> {
+    if (!ped.comandaId) return 'sem_venda'; // nunca foi aceito: não há venda nem cozinha
     try {
       const [c] = await this.db
         .select({ status: comanda.status })
@@ -606,13 +607,34 @@ export class DeliveryService {
         .where(and(eq(comanda.id, ped.comandaId), eq(comanda.tenantId, tenantId)));
       // Sem a venda aqui (ainda não desceu pelo sincronismo), ou já desfeita por outro caminho
       // (totem sem cupom fiscal): nada a estornar de novo.
-      if (!c || c.status === 'cancelada') return;
+      if (!c || c.status === 'cancelada') return 'sem_venda';
       await this.vendas.estornarVendaExterna(tenantId, null, 'servico', ped.comandaId, motivo, true);
+      return 'desfeita';
     } catch (e: any) {
       this.logger.error(
         `pedido ${ped.id} cancelado, mas a venda/cozinha NÃO foi desfeita (comanda ${ped.comandaId}): ${e?.message ?? e}`,
       );
+      return 'falhou';
     }
+  }
+
+  // PEDIDO QUE DESCEU CANCELADO COM A VENDA DE PÉ NO SERVIDOR DA LOJA (auditoria do KDS, 11/11/2026, O3). O canal cancelou
+  // na nuvem antes de o aceite deste servidor subir: lá não havia venda para desfazer (`desfazerVendaDoCancelado` desiste
+  // sem a comanda), e aqui a venda, o lançamento e o cartão na cozinha continuavam. Quem chama é o `EdgePedidosProcessor`,
+  // só no servidor da loja. O MESMO desfazer do cancelamento pelo canal na nuvem: estorna a venda, cancela a comanda, tira
+  // os cartões do KDS com o alerta de cancelado e audita; e devolve o cashback e os pontos que o aceite daqui creditou
+  // (estornos com id tirado do pedido — V42 —, o mesmo lançamento se a nuvem também estornar). Idempotente: a venda
+  // desfeita sai da consulta do processador (comanda 'cancelada'). Nunca rejeita.
+  async desfazerCanceladoQueDesceu(
+    tenantId: string,
+    ped: { id: string; comandaId: string | null; clienteTelefone?: string | null; motivoCancelamento?: string | null; canal?: string | null },
+  ): Promise<'desfeita' | 'sem_venda' | 'falhou'> {
+    const motivo = ped.motivoCancelamento || `Cancelado pelo ${ped.canal ?? 'canal'}`;
+    const r = await this.desfazerVendaDoCancelado(tenantId, ped, motivo);
+    if (r !== 'desfeita') return r;
+    await this.estornarBeneficiosDoCancelado(tenantId, ped);
+    this.events?.emit?.('pedido.cancelado', { tenantId, pedidoId: ped.id }); // sai do roteiro do entregador (ERR-338)
+    return r;
   }
 
   // Cancelamento estorna o cashback e os pontos de fidelidade do pedido — o mesmo em TODO caminho (painel, canal,

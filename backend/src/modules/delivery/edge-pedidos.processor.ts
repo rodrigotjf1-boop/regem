@@ -3,8 +3,15 @@ import { Interval } from '@nestjs/schedule';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { pedidoExterno } from '../../db/schema';
+import { ehServidorLocal } from '../../common/modo';
 import { DeliveryService } from './delivery.service';
 import { deveMaterializar } from './deve-materializar';
+
+// Pedido que desceu cancelado com a venda de pé (O3): a janela olhada e a espera pela nuvem (ver `desfazerCanceladosQueDesceram`).
+const CANCELADO_JANELA = '2 days';
+const CANCELADO_ESPERA_NUVEM = '3 minutes';
+const CANCELADO_POR_CICLO = 20;
+const CANCELADO_NOVA_TENTATIVA_MS = 10 * 60 * 1000;
 
 /**
  * P1b — Processador de pedidos ONLINE no EDGE.
@@ -23,7 +30,11 @@ export class EdgePedidosProcessor {
   private readonly logger = new Logger('EdgePedidos');
   private rodando = false;
   private ultimoAvisoOrfaos = 0; // throttle do aviso de comanda ausente (ms)
-  private readonly isEdge = String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
+  // A pergunta "este processo é o servidor da loja?" num lugar só (V2): `true`/`1`, sem diferença de caixa ou espaço.
+  private readonly isEdge = ehServidorLocal();
+  // Pedido cancelado cuja venda não se desfez (erro do banco): fica FORA da consulta até esta hora (ms), para não ocupar
+  // a frente dos outros nem repetir o erro a cada 15 s (V84).
+  private readonly canceladoFalhouAte = new Map<string, number>();
   // Unidade DESTE edge (F2 — roteamento por loja). Setada → só materializa/imprime os
   // pedidos DESTA loja (o edge da matriz NUNCA pega o pedido da filial). Vazia (1 loja
   // ou edge antigo sem EDGE_UNIDADE_ID) → tenant-wide, comportamento atual preservado.
@@ -84,6 +95,8 @@ export class EdgePedidosProcessor {
         }
       }
 
+      await this.desfazerCanceladosQueDesceram();
+
       await this.imprimirAceitosFora();
 
       // Reconciliação (SÓ observabilidade — NÃO re-materializa p/ não duplicar estoque/
@@ -116,6 +129,67 @@ export class EdgePedidosProcessor {
       this.logger.warn(`ciclo falhou: ${e?.message ?? e}`);
     } finally {
       this.rodando = false;
+    }
+  }
+
+  /**
+   * PEDIDO QUE DESCEU CANCELADO COM A VENDA DE PÉ (auditoria do KDS, 11/11/2026, O3). O canal cancelou NA NUVEM (lá ainda
+   * sem venda) e este servidor, que ainda não tinha recebido o cancelamento, aceitou segundos depois: venda, lançamento e
+   * cartão na cozinha AQUI. O sincronismo faz o cancelamento descer mesmo mais velho (sync-daemon, `condicaoSobrescrever`:
+   * concluido > cancelado > os demais) e guarda o vínculo com a venda daqui (`valorDaNuvem`); quem desfaz a venda é esta
+   * rotina, pelo MESMO serviço do cancelamento pelo canal na nuvem (`desfazerCanceladoQueDesceu`). Uma vez: a venda
+   * desfeita (comanda 'cancelada') sai da consulta. Tudo o que decide quem entra está na CONSULTA (V84):
+   *  • pedido de canal 'cancelado' com a venda NESTE banco ainda não cancelada, da loja deste servidor (F2);
+   *  • cancelado nos últimos 2 dias: a loja que volta de uma queda longa não mexe em histórico;
+   *  • QUEM DESFAZ: quando a nuvem CONHECIA a venda (o aceite daqui subiu antes do cancelamento), ela mesma a desfaz e o
+   *    desfeito desce — se esta rotina também desfizesse, o estorno do caixa sairia em DOBRO (o lançamento de estorno tem
+   *    id próprio em cada lado). A cópia cancelada de uma nuvem que nunca viu o aceite chega SEM `confirmado_em` (lá o
+   *    pedido nunca foi confirmado; o vínculo com a venda é o daqui, guardado no pull): essa é desfeita na hora. As outras
+   *    esperam 3 min depois do cancelamento — o ciclo do sincronismo é de 1 min e o desfeito pela nuvem chega antes; o que
+   *    continua de pé depois disso é desfeito aqui (repara também o cancelamento daqui cuja venda não se desfez);
+   *  • a que falhou (erro do banco) volta à consulta só depois de 10 min, fora da frente das outras.
+   * Nunca derruba o ciclo: a falha vira log com o motivo.
+   */
+  private async desfazerCanceladosQueDesceram() {
+    try {
+      const agora = Date.now();
+      for (const [id, ate] of this.canceladoFalhouAte) if (ate <= agora) this.canceladoFalhouAte.delete(id);
+      const fora = [...this.canceladoFalhouAte.keys()];
+      const r: any = await this.db.execute(sql`
+        select pe.id, pe.tenant_id as "tenantId", pe.comanda_id as "comandaId", pe.canal,
+               pe.cliente_telefone as "clienteTelefone", pe.motivo_cancelamento as "motivoCancelamento"
+          from pedido_externo pe
+          join comanda c on c.id = pe.comanda_id and c.tenant_id = pe.tenant_id
+         where pe.status = 'cancelado'
+           and pe.comanda_id is not null
+           and pe.deleted_at is null
+           and pe.canal is not null and pe.canal <> 'balcao'
+           and c.status <> 'cancelada'
+           ${this.unidadeId ? sql`and pe.unidade_id = ${this.unidadeId}` : sql``}
+           and coalesce(pe.cancelado_em, pe.updated_at) > now() - ${CANCELADO_JANELA}::interval
+           and (pe.confirmado_em is null or coalesce(pe.cancelado_em, pe.updated_at) < now() - ${CANCELADO_ESPERA_NUVEM}::interval)
+           ${fora.length ? sql`and pe.id not in (${sql.join(fora.map((id) => sql`${id}::uuid`), sql`, `)})` : sql``}
+         order by coalesce(pe.cancelado_em, pe.updated_at) asc
+         limit ${CANCELADO_POR_CICLO}
+      `);
+      for (const p of r.rows ?? r) {
+        let feito: 'desfeita' | 'sem_venda' | 'falhou' = 'falhou';
+        try {
+          feito = await this.delivery.desfazerCanceladoQueDesceu(p.tenantId, p);
+        } catch (e: any) {
+          this.logger.error(`pedido ${p.id} desceu cancelado, mas a venda (comanda ${p.comandaId}) NÃO foi desfeita: ${e?.message ?? e}`);
+        }
+        if (feito === 'desfeita') {
+          this.logger.warn(
+            `pedido ${p.id} (${p.canal}) desceu CANCELADO com a venda de pé neste servidor: venda estornada e cozinha avisada ` +
+              `aqui (comanda ${p.comandaId}) — ${p.motivoCancelamento ?? 'sem motivo informado'}`,
+          );
+        } else if (feito === 'falhou') {
+          this.canceladoFalhouAte.set(p.id, Date.now() + CANCELADO_NOVA_TENTATIVA_MS);
+        }
+      }
+    } catch (e: any) {
+      this.logger.warn(`pedidos que desceram cancelados: a conferência falhou (tenta no próximo ciclo) — ${e?.message ?? e}`);
     }
   }
 

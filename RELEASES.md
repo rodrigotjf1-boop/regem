@@ -12,6 +12,15 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Pedido cancelado pelo canal enquanto o servidor da loja aceitava + cartão cancelado mais velho (auditoria do KDS,
+  O3 e O14; SEM migration; ⚠️ MEXE NO `sync-daemon` → pede `.exe` além do `.zip`).** Na NUVEM com o merge: o envio da
+  loja não tira mais o pedido de 'cancelado' (só para 'concluido'), o 'cancelado'/'concluido' de maior precedência entra
+  mesmo mais velho, e o cartão cancelado da loja entra mesmo mais velho. **No `.zip` 1.30.13 + `.exe`:** o
+  `edge/sync-daemon.mjs` (o pull/restore deixa descer o cancelado mais velho do pedido e do cartão e guarda o vínculo do
+  pedido com a venda daqui) e o `EdgePedidosProcessor` (desfaz a venda e o cartão do pedido que desceu cancelado). Sem os
+  dois na loja, o cancelamento de canal que chega depois do aceite do servidor segue sem descer — a nuvem já não deixa o
+  pedido voltar a "confirmado", mas a venda e o cartão da loja só são desfeitos com o servidor novo.
+
 - **KDS — achados restantes (auditoria do KDS, onda 1, PR 5; SEM migration; não mexe no `sync-daemon`).** Na NUVEM com o
   merge. **No `.zip` 1.30.13:** no servidor da loja, o item de canal sem cadastro na cozinha (também na via que ele monta
   da venda da nuvem), o número no dia da operação, a fila do PDV com janela e a mesa do QR na própria loja.

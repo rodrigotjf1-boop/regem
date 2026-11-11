@@ -459,7 +459,10 @@ const ESTADOS_TERMINAIS = { comanda: ['fechada', 'cancelada'], producao_pedido: 
 //    local pareça mais nova — o terminal em uso renova o updated_at local a cada requisição, e o
 //    LWW sozinho deixava a revogação sem descer (e a loja a devolvia "ativa" para a nuvem).
 //    E o contrário: equipamento revogado aqui não volta a ativo por uma cópia antiga — só por um
-//    pareamento novo depois da revogação ("Trocar máquina" gera código; o PC pareia de novo).
+//    pareamento novo depois da revogação ("Trocar máquina" gera código; o PC pareia de novo);
+//  • ESTADO FINAL DO PEDIDO DE CANAL e CARTÃO CANCELADO vencem pela PRECEDÊNCIA, não pela data (auditoria do KDS,
+//    11/11/2026, O3 e O14) — ver os blocos abaixo; a mesma regra no push (sync.service, `finalDoPedido*` e
+//    `canceladoDoCartaoVence`).
 function condicaoSobrescrever(tabela, cols) {
   const cond = [];
   const revogacao = tabela === 'equipamento' && cols.has('revogado_em');
@@ -480,6 +483,23 @@ function condicaoSobrescrever(tabela, cols) {
     if (cadastro && cols.has('deleted_at')) vence.push(`(excluded.deleted_at is not null and ${q(tabela)}.deleted_at is null)`);
     if (cadastro && tabela === 'colaborador' && cols.has('status'))
       vence.push(`(excluded.status <> 'ativo' and ${q(tabela)}.status = 'ativo')`);
+    // PEDIDO DE CANAL — PRECEDÊNCIA DOS ESTADOS FINAIS: concluido > cancelado > os demais (auditoria do KDS, 11/11/2026,
+    // O3). O canal cancela NA NUVEM (ainda sem venda lá) e este servidor, que ainda não recebeu o cancelamento, aceita
+    // segundos depois: a cópia daqui fica "confirmado", com venda e cartão na cozinha e a data MAIS NOVA. Pela data o
+    // cancelamento não descia nunca — a cozinha fazia um pedido cancelado e a venda ficava de pé. Agora o 'cancelado' da
+    // nuvem entra mesmo mais velho (menos sobre o 'concluido', que vence o cancelamento — o `refletirStatusExterno` da
+    // nuvem já ignora o cancelamento de pedido concluído), e o 'concluido' da nuvem entra mesmo mais velho sobre o
+    // 'cancelado' daqui. Quem desfaz a venda e o cartão daqui é o `EdgePedidosProcessor` (desfazerCanceladosQueDesceram).
+    if (tabela === 'pedido_externo' && cols.has('status')) {
+      vence.push(`(excluded.status = 'cancelado' and ${q(tabela)}.status not in ('cancelado','concluido'))`);
+      vence.push(`(excluded.status = 'concluido' and ${q(tabela)}.status = 'cancelado')`);
+    }
+    // CARTÃO CANCELADO VENCE, MESMO MAIS VELHO (auditoria do KDS, 11/11/2026, O14; ERR-262): o canal cancelou e a venda
+    // foi desfeita lá enquanto a cozinha daqui mexia no cartão (ou batia "entregue") — a data daqui fica mais nova e, só
+    // pelo LWW, o cancelamento não descia. Cancelado vence entregue e vence a fila, nos dois lados.
+    if (tabela === 'producao_pedido' && cols.has('status')) {
+      vence.push(`(excluded.status = 'cancelado' and ${q(tabela)}.status <> 'cancelado')`);
+    }
     cond.push(vence.length > 1 ? `(${vence.join(' or ')})` : maisNova);
   }
   if (revogacao && cols.has('pareamento_codigo') && cols.has('pareado_em')) {
@@ -496,6 +516,11 @@ function condicaoSobrescrever(tabela, cols) {
   // desce (não é "novo"). Mesma regra no envio para a nuvem (sync.service, `naoVoltaANovo`).
   if (tabela === 'pedido_externo' && cols.has('status')) {
     cond.push(`not (${q(tabela)}.status <> 'novo' and excluded.status = 'novo')`);
+    // E o estado final daqui não sai por uma cópia de precedência menor (auditoria do KDS, 11/11/2026, O3): o
+    // 'cancelado' só por 'concluido'; o 'concluido' não por 'cancelado'. O 'concluido' segue saindo para "em rota" ou
+    // "pronto" pela data — é o `voltarPedido` (reabrir um concluído por engano), caminho legítimo.
+    cond.push(`not (${q(tabela)}.status = 'cancelado' and excluded.status not in ('cancelado','concluido'))`);
+    cond.push(`not (${q(tabela)}.status = 'concluido' and excluded.status = 'cancelado')`);
   }
   // ALTERAÇÃO DO PEDIDO DECIDIDA AQUI NÃO VOLTA A "PEDIDA" (mig 362): quem decide (aplicada | recusada) é este servidor; a
   // cópia "pedida" da nuvem — mais nova pela data com o relógio daqui atrasado — faria o EdgeAlteracoesProcessor aplicar
@@ -510,6 +535,17 @@ function condicaoSobrescrever(tabela, cols) {
     if (tabela === 'producao_pedido') cond.push(`not (${q(tabela)}.status = 'cancelado' and excluded.status <> 'cancelado')`);
   }
   return cond.length ? ` where ${cond.join(' and ')}` : '';
+}
+
+// O valor de cada coluna quando a linha da nuvem sobrescreve a daqui (pull e restore). Em geral, o da nuvem. A exceção:
+// O VÍNCULO DO PEDIDO COM A VENDA DAQUI não se apaga (auditoria do KDS, 11/11/2026, O3). O canal cancela na nuvem antes
+// de o aceite daqui subir: a cópia cancelada da nuvem vem com `comanda_id` vazio (lá a venda nunca existiu) e, copiada
+// por cima, soltava a venda e o cartão daqui do pedido — ninguém mais os achava para desfazer. Nenhum caminho do app
+// esvazia o `comanda_id` de um pedido (a reserva do aceite só volta com ele vazio): vazio na nuvem = "lá não sei", não
+// "desfiz o vínculo".
+function valorDaNuvem(tabela, k) {
+  if (tabela === 'pedido_externo' && k === 'comanda_id') return `coalesce(excluded.${q(k)}, ${q(tabela)}.${q(k)})`;
+  return `excluded.${q(k)}`;
 }
 
 // exec = executor da query: `pool` no pull/restore normal; um CLIENT de transação no
@@ -532,7 +568,7 @@ async function upsertLocal(tabela, row, exec = pool, condicaoExtra = null) {
     );
     return;
   }
-  const setSql = `do update set ${setCols.map((k) => `${q(k)}=excluded.${q(k)}`).join(',')}`;
+  const setSql = `do update set ${setCols.map((k) => `${q(k)}=${valorDaNuvem(tabela, k)}`).join(',')}`;
   // LWW no PULL: só sobrescreve o local se a linha da nuvem for ESTRITAMENTE mais
   // nova (updated_at). Antes o update era incondicional → uma linha velha da nuvem
   // apagava um estado mais recente do edge (causa do dashboard/espelho inconsistente).
@@ -583,7 +619,7 @@ async function upsertLote(tabela, rows, exec = pool) {
   if (!setCols.length) {
     setSql = 'do nothing';
   } else {
-    setSql = `do update set ${setCols.map((k) => `${q(k)}=excluded.${q(k)}`).join(',')}${condicaoSobrescrever(tabela, cols)}`;
+    setSql = `do update set ${setCols.map((k) => `${q(k)}=${valorDaNuvem(tabela, k)}`).join(',')}${condicaoSobrescrever(tabela, cols)}`;
   }
   await exec.query(
     `insert into ${q(tabela)} (${keys.map(q).join(',')}) values ${ph.join(',')} on conflict (id) ${setSql}`,

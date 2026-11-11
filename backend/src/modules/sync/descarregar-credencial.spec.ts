@@ -863,6 +863,51 @@ descrever('conferência rápida dos pedidos (ERR-280)', () => {
     }
   });
 
+  it('O3: o cancelamento do canal MAIS VELHO que o aceite daqui desce e o vínculo com a venda daqui fica; o cancelado daqui não volta a "pronto"', async () => {
+    // Auditoria do KDS, 11/11/2026. O canal cancelou NA NUVEM (lá sem venda: comanda vazia, nunca confirmado) 1 min antes
+    // de este servidor aceitar — a cópia daqui é a MAIS NOVA. Pela data o cancelamento não descia; e, copiada por cima, a
+    // linha da nuvem soltava a venda daqui do pedido (ninguém mais a achava para desfazer).
+    const cancelado = await novoPedido('#701');
+    await comoSync(
+      `update pedido_externo set status = 'cancelado', cancelado_em = now() - interval '1 minute', motivo_cancelamento = 'Cancelado pelo ifood',
+              updated_at = now() - interval '1 minute' where id = $1`,
+      [cancelado],
+    );
+    const jCancelado = await naNuvem(cancelado);
+    const venda = randomUUID();
+    await comoSync(
+      `update pedido_externo set status = 'confirmado', comanda_id = $2, confirmado_em = now(), cancelado_em = null,
+              motivo_cancelamento = null, updated_at = now() where id = $1`,
+      [cancelado, venda],
+    );
+    // E o contrário: cancelado AQUI (1 min atrás) e a nuvem, que ainda não soube, com uma versão "pronto" mais nova.
+    const canceladoAqui = await novoPedido('#702');
+    const jPronto = { ...(await naNuvem(canceladoAqui)), status: 'pronto' };
+    await comoSync(`update pedido_externo set status = 'cancelado', updated_at = now() - interval '1 minute' where id = $1`, [canceladoAqui]);
+    const futuro = '2999-01-01T00:00:00Z|ffffffff-ffff-ffff-ffff-ffffffffffff';
+    const tabelas = (await q(`select distinct table_name from information_schema.columns
+                               where table_schema = current_schema() and column_name = 'tenant_id'`)).map((t: any) => t.table_name);
+    for (const t of tabelas) {
+      await q(`insert into sync_state (chave, valor) values ($1, $2) on conflict (chave) do update set valor = excluded.valor`, [`push_${t}`, futuro]);
+    }
+    const nuvem = await nuvemDaConferencia({
+      lista: () => ({ status: 200, corpo: { pedidos: [] } }),
+      pull: () => ({ tabelas: { pedido_externo: [jCancelado, jPronto] }, cursores: {} }),
+    });
+    try {
+      const r = await rodarDaemon('--um-ciclo', nuvem.url, {});
+      expect(r.saida).toMatch(/sync ok/);
+      expect(r.codigo).toBe(0);
+      const [p] = await q(`select status, comanda_id, confirmado_em, motivo_cancelamento from pedido_externo where id = $1`, [cancelado]);
+      // Cancelado, com a venda DAQUI ainda ligada (o `EdgePedidosProcessor` a desfaz) e sem `confirmado_em` — a marca de
+      // que a nuvem nunca viu o aceite (e por isso não desfaz nada lá).
+      expect(p).toEqual({ status: 'cancelado', comanda_id: venda, confirmado_em: null, motivo_cancelamento: 'Cancelado pelo ifood' });
+      expect((await q(`select status from pedido_externo where id = $1`, [canceladoAqui]))[0].status).toBe('cancelado');
+    } finally {
+      nuvem.srv.close();
+    }
+  });
+
   it('nuvem sem a rota (404, antes do deploy): não é erro — o pedido segue descendo pelo ciclo', async () => {
     const nuvem = await nuvemDaConferencia({ lista: () => ({ status: 404, corpo: { message: 'Cannot GET' } }) });
     try {
