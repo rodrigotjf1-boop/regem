@@ -665,4 +665,67 @@ descrever('KDS × delivery: cancelamentos, pronto parcial, voltar e perda (Postg
       expect((await lancamentos(v.comandaId)).filter((x) => x.categoria === 'estorno')).toHaveLength(0);
     });
   });
+
+  // ══════════════════════════════════════════════════════════════════════════════════════════
+  // Auditoria do KDS (11/11/2026): a loja finaliza a RETIRADA no painel do canal (Anota Aí check 3) e não no balcão do
+  // Regem — o pedido ficava "pronto" para sempre, com o cartão aberto e o estoque sem baixar (610 em 60 dias).
+  describe('Retirada finalizada pelo canal', () => {
+    const cartoesDe = async (comandaId: string) => (await cards(comandaId)).map((c) => c.status);
+    const fechouNaCozinha = () =>
+      emitidos.filter((e) => e.nome === 'producao.evento' && e.dado?.tipo === 'status' && e.dado?.status === 'entregue').length;
+
+    it('JÁ PAGA: conclui de verdade — baixa o estoque e o cartão fecha', async () => {
+      const l = await loja();
+      const p = await aceito(l, { canal: 'anotaai', tipo: 'retirada' });
+      expect(await delivery.refletirStatusExterno(l.t, 'anotaai', p.externalId, 'concluido')).toBe('aplicado');
+      expect((await pedido(p.id)).status).toBe('concluido');
+      expect(await cartoesDe(p.comandaId)).toEqual(['entregue']);
+      expect(await saldo(l)).toBe(99);
+    });
+
+    it('A PAGAR NA RETIRADA: segue "pronto" para o balcão cobrar, mas o cartão sai da cozinha — uma vez só', async () => {
+      const l = await loja();
+      const p = await aceito(l, { canal: 'anotaai', tipo: 'retirada' });
+      await q(`update pedido_externo set pago = false, status_pagamento = 'na_entrega' where id = $1`, [p.id]);
+      // "Prontos para entrega" da Anota (check 2): na retirada vira pronto; a cozinha ainda pode estar no balcão.
+      expect(await delivery.refletirStatusExterno(l.t, 'anotaai', p.externalId, 'despachado')).toBe('aplicado');
+      expect(await cartoesDe(p.comandaId)).toEqual(['recebido']);
+      // Finalizado (check 3): o cliente levou. Nada de dinheiro lançado: o pedido segue pronto no balcão.
+      await delivery.refletirStatusExterno(l.t, 'anotaai', p.externalId, 'concluido');
+      expect((await pedido(p.id)).status).toBe('pronto');
+      expect(await cartoesDe(p.comandaId)).toEqual(['entregue']);
+      expect(fechouNaCozinha()).toBe(1);
+      expect(await saldo(l)).toBe(100); // a baixa é na conclusão (o "Cobrar e entregar" do balcão)
+      // A Anota repete o check 3 a cada leitura: nada muda de novo.
+      emitidos.length = 0;
+      expect(await delivery.refletirStatusExterno(l.t, 'anotaai', p.externalId, 'concluido')).toBe('ignorado');
+      expect(fechouNaCozinha()).toBe(0);
+      expect((await lancamentos(p.comandaId)).filter((x) => x.categoria === 'estorno')).toHaveLength(0);
+    });
+
+    it('o delivery (não retirada) e o cancelado não mudam', async () => {
+      const l = await loja();
+      const entrega = await aceito(l, { canal: 'anotaai', tipo: 'delivery' });
+      await q(`update pedido_externo set pago = false, status_pagamento = 'na_entrega' where id = $1`, [entrega.id]);
+      await delivery.refletirStatusExterno(l.t, 'anotaai', entrega.externalId, 'concluido');
+      expect((await pedido(entrega.id)).status).toBe('concluido'); // como sempre: o entregador recebeu
+      const cancelada = await aceito(l, { canal: 'anotaai', tipo: 'retirada' });
+      await q(`update pedido_externo set pago = false, status_pagamento = 'na_entrega' where id = $1`, [cancelada.id]);
+      await delivery.refletirStatusExterno(l.t, 'anotaai', cancelada.externalId, 'cancelado');
+      await delivery.refletirStatusExterno(l.t, 'anotaai', cancelada.externalId, 'concluido');
+      expect(await cartoesDe(cancelada.comandaId)).toEqual(['cancelado']); // o finalizado tardio não "entrega" o cancelado
+    });
+
+    it('fechar os cartões entregues mexe só nos abertos (o cancelado e o já entregue ficam como estão)', async () => {
+      const l = await loja();
+      const p = await aceito(l, { canal: 'anotaai', tipo: 'retirada' });
+      await q(`update producao_pedido set status = 'cancelado' where comanda_id = $1`, [p.comandaId]);
+      expect(await producao.fecharCartoesEntregues(l.t, p.comandaId)).toBe(0);
+      expect(await cartoesDe(p.comandaId)).toEqual(['cancelado']);
+      const outro = await aceito(l, { canal: 'anotaai', tipo: 'retirada' });
+      expect(await producao.fecharCartoesEntregues(l.t, outro.comandaId)).toBe(1);
+      expect(await producao.fecharCartoesEntregues(l.t, outro.comandaId)).toBe(0);
+      expect(await cartoesDe(outro.comandaId)).toEqual(['entregue']);
+    });
+  });
 });

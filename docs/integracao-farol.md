@@ -283,6 +283,8 @@ A fila da cozinha da loja do token — o que o KDS mostra, sem o histórico.
   nunca recebe pedido em andamento, e a passagem também vale para a loja sem estações que ligou um KDS ao
   outro (o seguinte só vê o pedido depois que o anterior termina). Sem estações e sem "vai para", nada
   disso muda: um pedido por venda, que só avança.
+- **Retirada finalizada pelo canal** (desde 11/11/2026; ex.: a loja finaliza na Anota Aí): o pedido da cozinha sai como
+  `entregue` mesmo quando a cobrança ainda fica no balcão do Regem (retirada a pagar) — antes ficava `recebido` para sempre.
 - `origem`: `balcao`, `mesa`, `comanda`, `delivery` ou `totem`. `canal`: de onde veio o pedido de
   fora ("iFood", "Cardápio", "Totem"…), ou `null`. `consumo`: `local`, `viagem` ou `null`.
 - `numero`: o número do pedido na fila da loja, no dia.

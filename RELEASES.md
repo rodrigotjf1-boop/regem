@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Retirada finalizada pelo canal (auditoria do KDS, onda 1, PR 2a; SEM migration; não mexe no `sync-daemon`).** Na
+  NUVEM com o merge (é lá que a Anota Aí e o Cardápio Web refletem o status): a retirada paga que o canal finaliza conclui
+  (estoque e cartão); a "a pagar" fecha só o cartão da cozinha. O cartão fechado desce ao servidor da loja pelo sync. **No
+  `.zip` 1.30.13:** o mesmo no servidor da loja quando é ele que lê o canal.
+
 - **KDS — avanço e rota (auditoria do KDS de 11/11, onda 1, PR 1; SEM migration; não mexe no `sync-daemon`).** Na NUVEM
   com o merge (KDS que opera pela nuvem). **No `.zip` 1.30.13** (o KDS da loja com servidor fala com o servidor dela): o
   toque com a etapa vista (toque duplo não pula etapa), "Entregar" só no KDS de entrega pelo cadastro, o ticket da etapa no

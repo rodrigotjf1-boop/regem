@@ -505,13 +505,24 @@ export class DeliveryService {
     // (ex.: "Prontos para entrega" da Anota, que acumula retirada pronta + delivery
     // em rota) vira 'pronto' quando o pedido é retirada — aguardando o cliente buscar.
     if (novoStatus === 'despachado' && row.tipo === 'retirada') novoStatus = 'pronto';
-    // RETIRADA: a LOJA conclui no balcão, não a plataforma. Um 'concluido' vindo do
-    // integrado/marketplace (ex.: Anota Aí check 3 = finalizado) NÃO deve fechar o
-    // pedido no Regem — senão os botões (avisar pronto / cobrar e entregar / cancelar)
-    // do hub de Retirada somem antes de a loja entregar. Vira 'pronto' (fica acionável);
-    // a conclusão real é o "Entregar/Cobrar e entregar" do balcão (entregarBalcao). O
-    // 'cancelado' da plataforma continua encerrando (não é rebaixado).
-    if (novoStatus === 'concluido' && row.tipo === 'retirada') novoStatus = 'pronto';
+    // RETIRADA FINALIZADA PELO CANAL (ex.: Anota Aí check 3, "finalizado" = o cliente já levou). Auditoria do KDS
+    // (11/11/2026): a loja finaliza a retirada no painel do canal e não no balcão do Regem — 610 retiradas da Anota Aí em
+    // 60 dias ficaram "pronto" para sempre, com o cartão da cozinha aberto e o estoque sem baixar.
+    //  · JÁ PAGA (online): conclui de verdade — baixa o estoque, concilia, e o gatilho da mig 330 fecha o cartão;
+    //  · A PAGAR NA RETIRADA: continua 'pronto' no Regem, porque concluir aqui lançaria um dinheiro que ninguém recebeu
+    //    em caixa nenhum — a cobrança fica no balcão ("Cobrar e entregar", entregarBalcao). Mas a COZINHA terminou: o
+    //    cartão sai do KDS como entregue.
+    // O 'cancelado' da plataforma continua encerrando (não é rebaixado).
+    const retiradaFinalizadaPeloCanal = novoStatus === 'concluido' && row.tipo === 'retirada';
+    if (retiradaFinalizadaPeloCanal && !DeliveryService.retiradaPaga(row)) {
+      novoStatus = 'pronto';
+      // Só os cartões ABERTOS fecham (o cancelado fica cancelado — `fecharCartoesEntregues`).
+      if (row.comandaId) {
+        await this.producao
+          .fecharCartoesEntregues(tenantId, row.comandaId)
+          .catch((e: any) => this.logger.warn(`retirada ${externalId.slice(0, 8)} finalizada pelo ${canal}: cartão não fechou — ${e?.message ?? e}`));
+      }
+    }
     // Idempotente: já está no estado alvo ou já é terminal (não regride).
     if (row.status === novoStatus) return 'ignorado';
     if (row.status === 'cancelado' || row.status === 'concluido') return 'ignorado';
@@ -1992,6 +2003,11 @@ export class DeliveryService {
       totemAlertaMinutos: MINUTOS_ALERTA_TOTEM,
       cheguei: ajusteCheguei ? { ativo: ajusteCheguei.ativo, deNovoMin: ajusteCheguei.deNovoMin } : null,
     };
+  }
+
+  /** A retirada já está paga (online, pelo canal ou já cobrada no balcão)? Só ela conclui quando o canal finaliza. */
+  static retiradaPaga(p: { pago?: boolean | null; statusPagamento?: string | null }): boolean {
+    return p.pago === true || p.statusPagamento === 'aprovado';
   }
 
   /**

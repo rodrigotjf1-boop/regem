@@ -3595,6 +3595,42 @@ export class ProducaoPedidoService {
     return Number((r.rows ?? r)[0]?.n ?? 0) === 0;
   }
 
+  // O pedido já foi ENTREGUE ao cliente por outro caminho (o canal finalizou a retirada): os cartões ainda abertos da venda
+  // saem da cozinha como entregues — o mesmo que o gatilho da mig 330 faz quando o pedido muda para concluído, mas sem mudar
+  // o pedido (a retirada a pagar segue no balcão para cobrar). Idempotente: só mexe no que está aberto. Devolve quantos.
+  // (auditoria do KDS, 11/11/2026: 610 retiradas da Anota Aí em 60 dias ficaram com o cartão aberto para sempre).
+  async fecharCartoesEntregues(tenantId: string, comandaId: string): Promise<number> {
+    const fechados = await this.db
+      .update(producaoPedido)
+      // `updated_at` escrito (como o gatilho da mig 330): é a data nova que leva o cartão fechado ao outro lado do sync.
+      .set({ status: 'entregue', entregueEm: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(producaoPedido.tenantId, tenantId),
+          eq(producaoPedido.comandaId, comandaId),
+          inArray(producaoPedido.status, ['recebido', 'preparo', 'pronto']),
+        ),
+      )
+      .returning({
+        id: producaoPedido.id,
+        unidadeId: producaoPedido.unidadeId,
+        setorId: producaoPedido.setorId,
+        destinoEquipamentoId: producaoPedido.destinoEquipamentoId,
+      });
+    for (const c of fechados) {
+      this.events?.emit('producao.evento', {
+        tenantId,
+        unidadeId: c.unidadeId,
+        setorId: c.setorId,
+        destinoEquipamentoId: c.destinoEquipamentoId,
+        pedidoId: c.id,
+        tipo: 'status',
+        status: 'entregue',
+      });
+    }
+    return fechados.length;
+  }
+
   // Cancela TODOS os pedidos de produção de uma comanda (ao cancelar o cupom):
   // marca 'cancelado' e avisa o KDS por cada destino.
   async cancelarPorComanda(
