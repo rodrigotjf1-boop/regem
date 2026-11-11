@@ -240,6 +240,19 @@ try {
     assert.equal(k.proximaAcaoNaEstacao('recebido', 'Montagem'), 'Iniciar');
   });
 
+  // Auditoria do KDS (11/11/2026): prioridade desconhecida ('baixa', 'media') não passa na frente do cancelado.
+  caso('rodapé: o urgente vence; prioridade desconhecida vale como alta (nunca na frente do CANCELADO)', () => {
+    const cancelado = { id: 'c', prioridade: 'danger', em: '2026-11-11T10:00:00Z' };
+    const compra = { id: 'b', prioridade: 'baixa', em: '2026-11-11T10:05:00Z' }; // mais nova, mas não urgente
+    assert.equal(k.escolherAlertaDoRodape([cancelado, compra]).id, 'c');
+    assert.equal(k.escolherAlertaDoRodape([compra, cancelado]).id, 'c');
+    const info = { id: 'i', prioridade: 'info', em: '2026-11-11T10:06:00Z' };
+    assert.equal(k.escolherAlertaDoRodape([info, compra]).id, 'b'); // desconhecida = alta > info
+    const alta = { id: 'a', prioridade: 'alta', em: '2026-11-11T10:07:00Z' };
+    assert.equal(k.escolherAlertaDoRodape([compra, alta]).id, 'a'); // empate: o mais recente
+    assert.equal(k.escolherAlertaDoRodape([]), null);
+  });
+
   // Auditoria do KDS (11/11/2026): o botão segue as etapas que a loja usa, como o servidor.
   caso('o botão segue as etapas da loja: sem "em preparo" diz Pronto; sem "entregue" o pronto não tem botão', () => {
     const semPreparo = { usaPreparo: false, usaEntregue: true };

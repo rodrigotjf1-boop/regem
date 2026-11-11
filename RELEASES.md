@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Alertas do KDS (auditoria do KDS, onda 1, PR 3; SEM migration; não mexe no `sync-daemon`).** Na NUVEM com o merge.
+  **No `.zip` 1.30.13:** o KDS da loja com servidor fala com o tempo real DELE — a sala da loja, a prioridade normalizada e
+  o condicional por loja só valem lá com o `.zip` (a tela nova manda `unidade` no handshake; servidor velho ignora).
+
 - **Pagamento pendente, aceite e avanço do pedido (auditoria do KDS, onda 1, PR 2b; SEM migration; não mexe no
   `sync-daemon`).** Na NUVEM com o merge (entrada, aceite, resgate). **No `.zip` 1.30.13 — importante para a loja com
   servidor:** é o servidor da loja que aceita em 15 s os pedidos que descem; sem o `.zip` ele continua aceitando o Pix/cartão

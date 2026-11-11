@@ -45,6 +45,19 @@ export function estaAtrasado(p: any, min: number, limites: LimitesTempo): boolea
   return faixaTempo(min, limites) === 'atrasado';
 }
 
+// ── Rodapé de alertas ─────────────────────────────────────────────────────────────────────────
+// O de maior prioridade aparece; empate = o mais recente. Prioridade desconhecida vale como ALTA: antes o rank ficava
+// indefinido, a conta dava NaN e a "Compra recebida" ('baixa') passava na frente do "❌ CANCELADO" (auditoria do KDS,
+// 11/11/2026). O servidor também normaliza (`prioridadeDoKds`).
+const RANK_ALERTA: Record<string, number> = { danger: 3, alta: 2, info: 1, ok: 0 };
+export const rankDoAlerta = (p: unknown): number => RANK_ALERTA[String(p)] ?? RANK_ALERTA.alta;
+export function escolherAlertaDoRodape<T extends { prioridade: unknown; em: string }>(as: T[]): T | null {
+  if (!as.length) return null;
+  return [...as].sort(
+    (a, b) => rankDoAlerta(b.prioridade) - rankDoAlerta(a.prioridade) || new Date(b.em).getTime() - new Date(a.em).getTime(),
+  )[0];
+}
+
 // ── Etapas ────────────────────────────────────────────────────────────────────────────────
 const ETAPA: Record<string, string> = { recebido: 'A iniciar', preparo: 'Em preparo', pronto: 'Pronto', cancelado: 'Cancelado' };
 export const rotuloEtapa = (status: string) => ETAPA[status] ?? status;
