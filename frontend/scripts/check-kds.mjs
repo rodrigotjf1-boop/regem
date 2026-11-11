@@ -29,6 +29,14 @@ const k = await import(pathToFileURL(join(tmp, 'kds-fila.mjs')).href);
 const o = await import(pathToFileURL(join(tmp, 'origem-api.mjs')).href);
 const tema = await import(pathToFileURL(join(tmp, 'kds-tema.mjs')).href);
 const servidor = await import(pathToFileURL(join(tmp, 'adicionais-servidor.mjs')).href);
+// Os avisos de cada KDS (mig 408): a regra do servidor e a cópia da tela, comparadas nos mesmos casos.
+writeFileSync(
+  join(tmp, 'avisos-servidor.mjs'),
+  ts.transpileModule(readFileSync(join(raiz, '..', '..', '..', 'backend', 'src', 'common', 'avisos-do-kds.ts'), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
+  }).outputText,
+);
+const avisosServidor = await import(pathToFileURL(join(tmp, 'avisos-servidor.mjs')).href);
 
 let n = 0;
 const caso = (nome, fn) => {
@@ -342,6 +350,56 @@ try {
     assert.equal(k.atrasadoAgora(comum, AGORA, LIM), true);
     // Cancelada nunca "aguarda".
     assert.equal(k.encomendaAguarda({ ...enc, status: 'cancelado' }, AGORA), false);
+  });
+
+  // Onda 2 (A13, mig 408; decisão do dono: gestão desligada no preparo, ligada no despacho).
+  caso('avisos de cada tela: a MESMA regra do servidor (backend/src/common/avisos-do-kds.ts)', () => {
+    assert.deepEqual([...k.TIPOS_DE_AVISO], [...avisosServidor.TIPOS_DE_AVISO]);
+    for (const escopo of ['producao', 'despacho', 'entrega', 'avisos', null, undefined, ''])
+      assert.deepEqual(k.avisosPadrao(escopo), avisosServidor.avisosPadrao(escopo), `padrão de ${escopo}`);
+    const salvos = [{ gestao: true }, { chegou: true, estoque: false }, { gestao: 'sim', xyz: false }, [true], null, undefined, 'x'];
+    for (const s of salvos)
+      for (const escopo of ['producao', 'despacho', null])
+        assert.deepEqual(k.avisosDoKds(escopo, s), avisosServidor.avisosDoKds(escopo, s), `${escopo} + ${JSON.stringify(s)}`);
+    assert.equal(k.avisosPadrao('producao').gestao, false);
+    assert.equal(k.avisosPadrao('despacho').gestao, true);
+  });
+
+  caso('avisos de cada tela: cancelado e alterado sempre; tipo desconhecido vale como alerta da loja', () => {
+    const preparo = k.avisosPadrao('producao');
+    assert.equal(k.recebeAviso(preparo, 'gestao'), false);
+    assert.equal(k.recebeAviso(preparo, 'chegou'), false);
+    assert.equal(k.recebeAviso(preparo, 'estoque'), true);
+    assert.equal(k.recebeAviso({ ...preparo, loja: false }, 'cancelado'), true);
+    assert.equal(k.recebeAviso({ ...preparo, loja: false }, 'alterado'), true);
+    assert.equal(k.recebeAviso({ ...preparo, loja: false }, 'algo-novo'), false, 'desconhecido segue o "alertas da loja"');
+    assert.equal(k.recebeAviso(preparo, undefined), true);
+    // A aba "Avisos" mostra todos os tipos, e só cancelado/alterado travados.
+    assert.deepEqual(k.AVISOS_DA_TELA.filter((t) => t.trava).map((t) => t.k), ['cancelado', 'alterado']);
+    assert.deepEqual(k.AVISOS_DA_TELA.filter((t) => !t.trava).map((t) => t.k), [...k.TIPOS_DE_AVISO]);
+  });
+
+  caso('faixa da pausa: até quando e o contador; "reabre em" nos minutos do aviso; fim do dia sem contador; passou = reabriu', () => {
+    const daqui = (s) => new Date(AGORA + s * 1000).toISOString();
+    const ifood = { canal: 'ifood', nome: 'iFood', ate: daqui(754), motivo: 'Trocando o gás' };
+    const f = k.faixaDaPausa(ifood, AGORA, 5);
+    assert.match(f.texto, /^iFood pausado até \d{2}:\d{2}$/);
+    assert.equal(f.detalhe, ' · Trocando o gás');
+    assert.equal(f.contador, '12:34');
+    assert.equal(f.logo, false);
+    const logo = k.faixaDaPausa({ ...ifood, ate: daqui(299) }, AGORA, 5);
+    assert.equal(logo.texto, 'iFood reabre em 5 min');
+    assert.match(logo.detalhe, /^ · às \d{2}:\d{2} · Trocando o gás$/);
+    assert.equal(logo.contador, '04:59');
+    assert.equal(logo.logo, true);
+    assert.equal(k.faixaDaPausa({ ...ifood, ate: daqui(299) }, AGORA, 0).logo, false, 'aviso desligado na loja: nunca âmbar');
+    assert.equal(k.faixaDaPausa({ ...ifood, ate: daqui(2 * 3600 + 5) }, AGORA, 5).contador, '2:00:05');
+    const da99 = k.faixaDaPausa({ canal: 'food99', nome: '99', ate: daqui(6 * 3600), fimDoDia: true, motivo: 'Sem entregador' }, AGORA, 5);
+    assert.deepEqual(da99, { texto: '99 pausada até o fim do dia', detalhe: ' · Sem entregador', contador: null, logo: false });
+    assert.equal(k.faixaDaPausa({ ...ifood, ate: daqui(0) }, AGORA, 5), null, 'a hora chegou: reabriu');
+    assert.equal(k.faixaDaPausa({ ...ifood, ate: daqui(-30) }, AGORA, 5), null);
+    assert.equal(k.faixaDaPausa({ ...ifood, ate: 'lixo' }, AGORA, 5), null);
+    assert.equal(k.faixaDaPausa({ ...ifood, motivo: null }, AGORA, 5).detalhe, '');
   });
 
   caso('complementos um por linha: a MESMA regra da via impressa (backend/src/common/adicionais.ts)', () => {

@@ -1004,6 +1004,19 @@ export const api = {
     req(`/estoque/categorias-item/${id}`, { method: 'DELETE' }),
   // Cozinha em estações (entrega 1): as telas de KDS da loja e os produtos que cada uma mostra.
   kdsTelas: () => req('/producao/kds/telas'),
+  // Os avisos que este KDS recebe (onda 2 da auditoria do KDS, mig 408): só os tipos que mudaram (ausente fica).
+  salvarKdsAvisos: (id: string, avisos: Record<string, boolean>) =>
+    req(`/producao/kds/${id}/avisos`, { method: 'PUT', body: JSON.stringify({ avisos }) }) as Promise<{
+      id: string;
+      avisos: Record<string, boolean>;
+      mudou: boolean;
+    }>,
+  // A faixa da pausa no KDS: os canais pausados agora na loja (onda 2 da auditoria do KDS).
+  kdsPausas: () =>
+    req('/delivery/pausas/kds') as Promise<{
+      canais: { canal: string; nome: string; ate: string; fimDoDia?: boolean; motivo?: string | null }[];
+      avisoMinutos: number;
+    }>,
   kdsProdutos: (id: string) => req(`/producao/kds/${id}/produtos`),
   salvarKdsProdutos: (id: string, produtoIds: string[]) =>
     req(`/producao/kds/${id}/produtos`, { method: 'PUT', body: JSON.stringify({ produtoIds }) }),

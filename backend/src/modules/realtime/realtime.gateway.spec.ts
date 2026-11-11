@@ -123,6 +123,19 @@ describe('RealtimeGateway — salas da loja, prioridade e quem manda alerta', ()
     ]);
   });
 
+  // Onda 2 da auditoria do KDS (mig 408): cada tela escolhe os tipos de aviso que recebe — o tipo vai junto.
+  it('alerta do sistema leva o tipo (estoque, gestão…); sem tipo ou desconhecido = alerta da loja', () => {
+    const g = comBanco();
+    const server = (g as any).server;
+    g.onAlertaSistema({ tenantId: 't1', titulo: 'Compra recebida', prioridade: 'baixa', tipo: 'gestao' });
+    g.onAlertaSistema({ tenantId: 't1', titulo: 'Produto esgotado', prioridade: 'alta', tipo: 'estoque' });
+    g.onAlertaSistema({ tenantId: 't1', titulo: 'Lavar as mãos', prioridade: 'info' });
+    g.onAlertaSistema({ tenantId: 't1', titulo: 'Inventado', prioridade: 'info', tipo: 'cancelado' });
+    expect(server.emits.map((e: any) => e.payload.tipo)).toEqual(['gestao', 'estoque', 'loja', 'loja']);
+    const gerente: any = { data: { ctx: { tenantId: 't1', role: 'gestor', categoria: 'gerente', unidadeId: U1 } } };
+    expect((g.onAlerta(gerente, { titulo: 'Mesa 7', tipo: 'gestao' }) as any).alerta.tipo).toBe('loja');
+  });
+
   it('pelo socket só presidente e gerente mandam alerta; vai para a loja de quem mandou', () => {
     const g = comBanco();
     const server = (g as any).server;

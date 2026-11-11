@@ -567,6 +567,7 @@ export class ContagemService {
           ? 'Estoque ajustado pela contagem.'
           : 'Contagem registrada.',
       prioridade: nSusp ? 'media' : 'baixa',
+      tipo: 'gestao', // aviso de gestão: as telas de preparo não recebem por padrão (mig 408)
     });
     return {
       ok: true,
@@ -614,6 +615,7 @@ export class ContagemService {
         titulo: `Contagem: ${l.nome}`,
         detalhe: `Hora de contar o estoque desta lista${alvo}.`,
         prioridade: 'media',
+        tipo: 'gestao',
       });
     }
   }

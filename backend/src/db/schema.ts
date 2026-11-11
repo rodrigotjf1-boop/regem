@@ -2102,6 +2102,9 @@ export const kdsTelaAjuste = pgTable('kds_tela_ajuste', {
     .notNull()
     .references(() => empresa.id, { onDelete: 'cascade' }),
   mostraMapa: boolean('mostra_mapa').notNull().default(false),
+  // Os avisos que este KDS recebe (mig 408): {loja, farol, pausa, estoque, chegou, gestao}; nulo = o padrão do tipo de tela
+  // (`common/avisos-do-kds.ts`). Só a gaveta do KDS grava esta coluna.
+  avisos: jsonb('avisos'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

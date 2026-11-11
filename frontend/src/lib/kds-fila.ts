@@ -133,6 +133,82 @@ export function textoDoToque(
   return `${ident} avançou`;
 }
 
+// ── Os avisos que cada KDS recebe (onda 2, A13; mig 408) ─────────────────────────────────────────
+// A MESMA regra do servidor (`backend/src/common/avisos-do-kds.ts` — o check:kds compara as duas): cada tela liga e desliga
+// os tipos; cancelado e alterado não desligam. Decisão do dono (a recomendada): os de gestão nascem desligados nas telas
+// de preparo e ligados no despacho; o "cliente chegou" é do despacho e do balcão. Loja com um KDS só: só sem os de gestão.
+export const TIPOS_DE_AVISO = ['loja', 'farol', 'pausa', 'estoque', 'chegou', 'gestao'] as const;
+export type TipoDeAviso = (typeof TIPOS_DE_AVISO)[number];
+export type AvisosDoKds = Record<TipoDeAviso, boolean>;
+
+export function avisosPadrao(escopo: string | null | undefined): AvisosDoKds {
+  const tudo: AvisosDoKds = { loja: true, farol: true, pausa: true, estoque: true, chegou: true, gestao: true };
+  if (escopo == null || escopo === '') return { ...tudo, gestao: false };
+  if (escopo === 'producao') return { ...tudo, gestao: false, chegou: false };
+  return tudo;
+}
+
+export function avisosDoKds(escopo: string | null | undefined, salvo: unknown): AvisosDoKds {
+  const r = avisosPadrao(escopo);
+  if (salvo && typeof salvo === 'object' && !Array.isArray(salvo)) {
+    for (const t of TIPOS_DE_AVISO) {
+      const v = (salvo as Record<string, unknown>)[t];
+      if (v === true || v === false) r[t] = v;
+    }
+  }
+  return r;
+}
+
+/** Esta tela recebe o aviso? Cancelado e alterado sempre; tipo desconhecido (servidor mais novo) vale como alerta da loja. */
+export function recebeAviso(avisos: AvisosDoKds, tipo: unknown): boolean {
+  if (tipo === 'cancelado' || tipo === 'alterado') return true;
+  const t = (TIPOS_DE_AVISO as readonly string[]).includes(tipo as string) ? (tipo as TipoDeAviso) : 'loja';
+  return avisos[t] !== false;
+}
+
+/** A aba "Avisos" da gaveta ⚙: o que cada tipo traz e como aparece (protótipo, aba 3). */
+export const AVISOS_DA_TELA: { k: TipoDeAviso | 'cancelado' | 'alterado'; ic: string; nome: string; det: string; pri: string; trava?: boolean }[] = [
+  { k: 'cancelado', ic: '❌', nome: 'Pedido cancelado', det: 'Não preparar; descartar o que já saiu. Bipe forte.', pri: 'Urgente · fica até o Ciente', trava: true },
+  { k: 'alterado', ic: '!', nome: 'Pedido alterado', det: 'O cartão mostra o que mudou até alguém tocar em "Visto".', pri: 'Urgente · fica até o Visto', trava: true },
+  { k: 'loja', ic: '🔔', nome: 'Alertas da loja', det: 'Os cadastrados em Configurações › Alertas do KDS.', pri: 'Pela prioridade de cada um' },
+  { k: 'farol', ic: '📹', nome: 'Alertas do Farol (câmeras)', det: 'Emergência e urgente ficam até o Ciente; os outros saem no tempo deles.', pri: 'Pela severidade do Farol' },
+  { k: 'pausa', ic: '⏸', nome: 'Pausa dos canais', det: 'Faixa fixa enquanto o iFood, a 99 ou o cardápio digital estão pausados; aviso antes e ao reabrir.', pri: 'Faixa · informativo' },
+  { k: 'estoque', ic: '🧊', nome: 'Estoque da cozinha', det: 'Produto esgotado, validade vencendo, ponto de pedido.', pri: 'Atenção' },
+  { k: 'chegou', ic: '🙋', nome: 'Cliente chegou (retirada)', det: 'O "Cheguei" do cardápio e do WhatsApp. Útil no despacho e no balcão.', pri: 'Atenção' },
+  { k: 'gestao', ic: '📦', nome: 'Avisos de gestão', det: 'Compra recebida, contagem, fechamento do ponto.', pri: 'Informativo' },
+];
+
+// ── A faixa da pausa dos canais (onda 2; "incluir o status das lojas de delivery pausadas nos alertas") ──────────────────
+export type CanalPausadoNoKds = { canal: string; nome: string; ate: string; fimDoDia?: boolean; motivo?: string | null };
+const PAUSADA: Record<string, string> = { food99: 'pausada' }; // "a 99"; "o iFood", "o cardápio digital"
+
+/**
+ * O texto de um canal na faixa: "iFood pausado até 20:30" com o contador "faltam 12:34"; nos minutos do aviso da loja,
+ * "iFood reabre em 5 min · às 20:30" e o contador fica em âmbar (`logo`); a 99 "até o fim do dia" não conta. `null` =
+ * já passou da hora (o canal reabriu).
+ */
+export function faixaDaPausa(
+  c: CanalPausadoNoKds,
+  agoraMs: number,
+  avisoMinutos: number,
+): { texto: string; detalhe: string; contador: string | null; logo: boolean } | null {
+  const ate = new Date(c.ate).getTime();
+  const resta = Math.ceil((ate - agoraMs) / 1000);
+  if (!Number.isFinite(ate) || resta <= 0) return null;
+  const hora = new Date(ate).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const motivo = c.motivo ? ` · ${c.motivo}` : '';
+  if (c.fimDoDia) return { texto: `${c.nome} ${PAUSADA[c.canal] ?? 'pausado'} até o fim do dia`, detalhe: motivo, contador: null, logo: false };
+  const logo = avisoMinutos > 0 && resta <= avisoMinutos * 60;
+  const h = Math.floor(resta / 3600);
+  const m = Math.floor((resta % 3600) / 60);
+  const s = resta % 60;
+  const dois = (n: number) => String(n).padStart(2, '0');
+  const contador = h > 0 ? `${h}:${dois(m)}:${dois(s)}` : `${dois(m)}:${dois(s)}`;
+  return logo
+    ? { texto: `${c.nome} reabre em ${Math.ceil(resta / 60)} min`, detalhe: ` · às ${hora}${motivo}`, contador, logo }
+    : { texto: `${c.nome} ${PAUSADA[c.canal] ?? 'pausado'} até ${hora}`, detalhe: motivo, contador, logo };
+}
+
 // ── Etapas ────────────────────────────────────────────────────────────────────────────────
 const ETAPA: Record<string, string> = { recebido: 'A iniciar', preparo: 'Em preparo', pronto: 'Pronto', cancelado: 'Cancelado' };
 export const rotuloEtapa = (status: string) => ETAPA[status] ?? status;

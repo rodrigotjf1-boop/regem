@@ -47,6 +47,13 @@
   `sync-daemon` só na lista `SO_NUVEM` (a fila `food99_envio`, que a loja não tem): nada muda na loja por isso; o `.exe`
   já está pendente pelo O3/O14.
 
+- **KDS: os avisos de cada tela e a faixa da pausa dos canais (onda 2 da auditoria do KDS; mig 408 — coluna nova em
+  `kds_tela_ajuste`, que sincroniza; não mexe no `sync-daemon`).** Na NUVEM com o merge: cada aviso ao KDS leva o tipo, a
+  gaveta ⚙ tem a aba "Avisos" e a faixa da pausa aparece no KDS aberto pela nuvem. **No `.zip` 1.30.13:** a migration 408
+  no banco da loja (sem ela, a escolha feita na nuvem não desce — o sync só copia as colunas que existem dos dois lados —
+  e o KDS da loja usa o padrão do tipo de tela), a faixa da pausa no KDS servido pelo servidor da loja e o tipo nos avisos
+  que ele manda.
+
 - **KDS para a cozinha enxergar — a tela na versão 2 (onda 2 da auditoria do KDS; SEM migration; não mexe no
   `sync-daemon`).** Na NUVEM com o merge: cartão neutro com a cor só no selo do tempo, letra maior, cabeçalho compacto
   (o do aparelho no ⚙), faixas claras, rodapé parado com "Ciente", aviso curto a cada toque, "Finalizar todos" em
