@@ -23,6 +23,7 @@ import {
   casoQueCalaSql,
   desmarcarEntregues,
   enfileirarNoChat,
+  lojaFalouSql,
   marcarEntregues,
   mensagemDoChatParaORobo,
   quemRespondePeloCanalNoBanco,
@@ -58,6 +59,8 @@ const AVISOS_DO_CAMINHO = ['saiu', 'chegando'] as const;
 /** O pedido que já não está a caminho. */
 const PEDIDO_ENCERRADO = ['entregue', 'concluido', 'cancelado'] as const;
 export const ERRO_AVISO_SEM_SENTIDO = 'o pedido já tinha sido entregue, concluído ou cancelado: o aviso perdeu o sentido';
+/** A resposta do robô que esperava na fila e uma pessoa da loja falou na conversa depois dela. */
+export const ERRO_A_LOJA_FALOU = 'a loja falou na conversa antes de o robô enviar: a resposta perdeu o sentido';
 /** Condição SQL (na linha `alias` de `chat_plataforma_msg`): aviso do caminho cujo pedido já foi encerrado. */
 const avisoSemSentido = (alias: string) => sql`(${sql.raw(alias)}.autor = 'aviso'
   and ${sql.raw(alias)}.motivo in (${sql.join(AVISOS_DO_CAMINHO.map((m) => sql`${m}`), sql`, `)})
@@ -83,8 +86,57 @@ const clienteDa99 = (v: unknown): string | null => {
 
 export type PapelNoCanal = 'responde' | 'reserva' | 'fora';
 
-/** Uma conversa que vai ao atendente virtual (F5): a mensagem pronta e as falas, para cair nas regras se a entrega falhar. */
-type ParaOAtendente = { msgId: string; mensagem: any; falas: MensagemDoCliente[] };
+/**
+ * Uma conversa que vai ao atendente virtual (F5): a mensagem pronta e as falas, para cair nas regras se a entrega falhar.
+ * `ids` = as falas marcadas como entregues (`robo_entregue_em`) — juntadas, mais de uma; sem ele, só `msgId`.
+ */
+export type ParaOAtendente = { msgId: string; mensagem: any; falas: MensagemDoCliente[]; ids?: string[] };
+
+// JUNTAR AS FALAS SEGUIDAS DO CLIENTE NO CHAT (10/11/2026, pedido 1948): o cliente escreveu uma frase em 4 pedaços em 15 s;
+// cada pedaço chegou num lote da ponte e foi SOZINHO ao atendente — 4 execuções da IA ao mesmo tempo, cada uma lendo a
+// memória da conversa (Redis do n8n, por `de`) antes de as outras gravarem: 4 respostas fora de contexto. Como no WhatsApp
+// (`whatsapp/juntar-mensagens.ts`), a conversa espera `ROBO_JUNTAR_CHAT_MS` (padrão 10 s — o chat da plataforma é mais lento
+// que o WhatsApp e quem digita no app manda em pedaços) por mais falas; chegando outra, a espera recomeça, até o teto de 30 s
+// contado da primeira; parando, vai UMA mensagem com os textos em linhas. Em memória deste processo (como no WhatsApp): o
+// processo que cai antes de soltar deixa as falas marcadas, e a rotina "o atendente não respondeu" (V88) abre o caso.
+export const ESPERA_PARA_JUNTAR_PADRAO_MS = 10_000;
+export const TETO_PARA_JUNTAR_MS = 30_000;
+
+/** A espera para juntar (0 = entrega na hora). No jest, 0 — salvo se o teste definir a env. */
+export function esperaParaJuntar(env: NodeJS.ProcessEnv = process.env): number {
+  const v = env.ROBO_JUNTAR_CHAT_MS;
+  if (v === undefined || v.trim() === '') return env.NODE_ENV === 'test' ? 0 : ESPERA_PARA_JUNTAR_PADRAO_MS;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? Math.min(n, TETO_PARA_JUNTAR_MS) : ESPERA_PARA_JUNTAR_PADRAO_MS;
+}
+
+/** Quanto ainda esperar por mais falas: a espera inteira, até o teto contado da primeira fala do grupo. */
+export function esperaDaVez(ms: number, desde: number, agora: number): number {
+  return Math.max(0, Math.min(ms, desde + TETO_PARA_JUNTAR_MS - agora));
+}
+
+/** As entregas da mesma conversa numa só: os textos em linhas, a fala respondida = a última, todas as falas e marcas. */
+export function juntarFalas(itens: ParaOAtendente[]): ParaOAtendente {
+  if (itens.length === 1) return itens[0];
+  const ultimo = itens[itens.length - 1];
+  const ids = itens.flatMap((i) => i.ids ?? [i.msgId]);
+  return {
+    msgId: ultimo.msgId,
+    ids,
+    falas: itens.flatMap((i) => i.falas),
+    mensagem: {
+      ...ultimo.mensagem,
+      texto: itens
+        .map((i) => String(i.mensagem?.texto ?? '').trim())
+        .filter(Boolean)
+        .join('\n'),
+      mensagensJuntadas: ids.length,
+      mensagemIds: ids,
+    },
+  };
+}
+
+type Juntando = { itens: ParaOAtendente[]; desde: number; timer: ReturnType<typeof setTimeout> | null; fim: Promise<void>; soltar: () => void };
 
 @Injectable()
 export class PonteChatService {
@@ -93,6 +145,8 @@ export class PonteChatService {
   buscar: typeof fetch = (url, init) => fetch(url, init);
   /** As entregas ao atendente em andamento (rodam depois da resposta à ponte; o teste espera por elas). */
   private readonly entregas = new Set<Promise<void>>();
+  /** As conversas que esperam mais falas antes de ir ao atendente (por empresa e conversa). */
+  private readonly juntando = new Map<string, Juntando>();
 
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
@@ -341,6 +395,38 @@ export class PonteChatService {
    * (a conversa pode ter mudado no meio: caso aberto, outra fala). Nunca rejeita (V3); o motivo vai para o log.
    */
   private entregarAoAtendente(tenantId: string, itens: ParaOAtendente[]): void {
+    const ms = esperaParaJuntar();
+    if (!ms) {
+      this.entregarAgora(tenantId, itens);
+      return;
+    }
+    for (const it of itens) {
+      const k = `${tenantId}|${it.mensagem?.de ?? it.msgId}`;
+      let g = this.juntando.get(k);
+      if (!g) {
+        let soltar: () => void = () => {};
+        const fim = new Promise<void>((r) => (soltar = r));
+        g = { itens: [], desde: Date.now(), timer: null, fim, soltar };
+        this.juntando.set(k, g);
+        // O teste espera pelo grupo que ainda junta (`esperarEntregas`); ao soltar, a entrega dele já entrou na lista.
+        this.entregas.add(fim);
+        void fim.finally(() => this.entregas.delete(fim));
+      }
+      if (g.timer) clearTimeout(g.timer);
+      g.itens.push(it);
+      // Cada fala nova recomeça a espera, até o teto contado da primeira (quem digita sem parar não espera para sempre).
+      const falta = esperaDaVez(ms, g.desde, Date.now());
+      const grupo = g;
+      grupo.timer = setTimeout(() => {
+        this.juntando.delete(k);
+        this.entregarAgora(tenantId, [juntarFalas(grupo.itens)]);
+        grupo.soltar();
+      }, falta);
+    }
+  }
+
+  /** A entrega de fato (as conversas já juntadas). */
+  private entregarAgora(tenantId: string, itens: ParaOAtendente[]): void {
     const tarefa = (async () => {
       const falharam: ParaOAtendente[] = [];
       await Promise.all(
@@ -356,7 +442,7 @@ export class PonteChatService {
         await desmarcarEntregues(
           tx,
           tenantId,
-          falharam.map((f) => f.msgId),
+          falharam.flatMap((f) => f.ids ?? [f.msgId]),
         );
         return this.roboECasos(tx, tenantId, falas, equipe, 'regras');
       });
@@ -460,6 +546,9 @@ export class PonteChatService {
                    where m.tenant_id = ${tenantId}::uuid and m.pedido_id = pe.id and m.direcao = 'saida' and m.autor = 'equipe'
                      and m.autor_id = pe.entregador_id
                      and m.criado_em > now() - make_interval(mins => ${MIN_CONVERSA_DO_ENTREGADOR}))) as "entregadorFalou",
+               -- uma pessoa da LOJA está conversando com o cliente pela plataforma (Gestor do iFood, app da 99 — o eco do
+               -- que o Regem mandou não conta), dentro da pausa da loja: o robô fica quieto (10/11/2026, pedido 1948)
+               ${lojaFalouSql({ tenantId, canal: sql`g.canal`, chave: sql`g.chave` })} as "lojaFalou",
                pe.id as "pedidoId", pe.status, pe.despachado_em as "despachadoEm", pe.cliente_nome as "clienteDoPedido",
                pe.tipo, pe.canal as "canalDoPedido", pe.raw, pe.display_id as "numeroDoPedido"
           from g
@@ -477,6 +566,13 @@ export class PonteChatService {
       const podeEnviar = await envia(canal, c.unidade_id ?? null);
       // O entregador conversando com o cliente cala o robô como o caso aberto (a fala vai para o caso e para o app dele).
       const calado = d?.casoAberto === true || d?.entregadorFalou === true;
+      // A LOJA conversando pela plataforma (escreveu no Gestor do iFood ou no app da 99, dentro da pausa da loja): nem robô
+      // nem caso — quem está na conversa já vê a fala do cliente lá. Com caso aberto ou o entregador falando, segue a regra
+      // deles.
+      if (!calado && d?.lojaFalou === true) {
+        semCaso.add(k);
+        continue;
+      }
       const card = disponivel && !calado && intencao !== 'agradecimento' ? await cardapio(c.unidade_id ?? null) : null;
       // O atendente recebe o pedido com a previsão sempre que a loja entrega (ele pode precisar dela para qualquer pergunta).
       const paraOAtendenteAgora = !!card && podeEnviar;
@@ -556,6 +652,15 @@ export class PonteChatService {
          set estado = 'cancelada', erro = ${ERRO_AVISO_SEM_SENTIDO}
        where m.tenant_id = ${p.tenantId}::uuid and m.canal = ${canal} and m.direcao = 'saida'
          and m.estado = 'pendente' and ${daLoja} and ${avisoSemSentido('m')}`);
+    // A resposta do ROBÔ na fila que ficou velha: uma pessoa da loja falou na conversa depois de ela ser criada — pela
+    // plataforma ou pelo Regem (10/11/2026, pedido 1948 — as 4 respostas saíram depois do "ok avisei ao entregador" da loja
+    // pelo Gestor). Não sai.
+    await this.db.execute(sql`
+      update chat_plataforma_msg m
+         set estado = 'cancelada', erro = ${ERRO_A_LOJA_FALOU}
+       where m.tenant_id = ${p.tenantId}::uuid and m.canal = ${canal} and m.direcao = 'saida'
+         and m.estado = 'pendente' and m.autor = 'robo' and ${daLoja}
+         and ${lojaFalouSql({ tenantId: p.tenantId, canal: sql`m.canal`, chave: chaveSql('m'), desde: sql`m.criado_em`, equipeDoRegem: true })}`);
     const itens = linhas(await this.db.execute(sql`
       with alvo as (
         select m.id from chat_plataforma_msg m

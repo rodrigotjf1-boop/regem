@@ -115,6 +115,48 @@ export async function alguemEnviaPeloCanal(db: any, tenantId: string, unidadeId:
 export const casoQueCalaSql = (a: string): SQL =>
   sql`(${sql.raw(a)}.tipo = 'chat' and ${sql.raw(a)}.status = 'aberto' and not ${recadoAtivoSql(a)} and not ${responsavelNaEsperaSql(a)})`;
 
+/** O padrão da pausa do robô quando a loja fala (o mesmo do WhatsApp — `robo-pausa.ts` › PAUSA_PADRAO_MINUTOS). */
+export const MIN_CONVERSA_DA_LOJA_PADRAO = 60;
+const textoNormal = (col: string) => sql.raw(`regexp_replace(btrim(${col}), '\\s+', ' ', 'g')`);
+
+/**
+ * SQL: A LOJA ESTÁ CONVERSANDO com o cliente nesta conversa (10/11/2026, pedido 1948 do iFood: a loja escreveu pelo
+ * Gestor "entregador no local…", o cliente respondeu em 4 falas e o atendente virtual respondeu às 4, depois de a loja já
+ * ter dito "ok avisei ao entregador"). Uma pessoa da loja escreveu ao cliente PELA PLATAFORMA — no Gestor do iFood ou no
+ * app da 99 (a ponte lê como `entrada` de autor 'loja') — dentro da pausa da loja (`robo_config.pausa_minutos`, a MESMA do
+ * WhatsApp; 0 ou sem linha = 60 min). O ECO do que o próprio Regem mandou (a ponte relê a mensagem enviada como "da loja"
+ * até a confirmação apagá-la) NÃO conta: entrada de autor 'loja' com o mesmo texto de uma saída da conversa — senão o robô
+ * se calaria sozinho depois de cada resposta (o ERR-332, no WhatsApp).
+ * A equipe pelo REGEM (`saida` de autor 'equipe') responde por um caso, e o caso aberto já cala o robô; resolvido, o robô
+ * volta (09/11) — por isso ela não conta aqui, senão o cliente que escreve depois do caso resolvido ficaria sem robô e sem
+ * caso. Só na FILA (`equipeDoRegem`) ela conta: a resposta do robô criada antes dela ficou velha. O entregador pelo app
+ * também grava 'equipe' e tem a regra dele (`entregadorFalou`): nunca conta.
+ * `desde`: só a fala da loja depois deste instante (a resposta do robô na fila ficou velha).
+ */
+export function lojaFalouSql(o: { tenantId: string; canal: SQL; chave: SQL; desde?: SQL; equipeDoRegem?: boolean }): SQL {
+  return sql`exists (
+    select 1 from chat_plataforma_msg lf
+     where lf.tenant_id = ${o.tenantId}::uuid and lf.canal = ${o.canal} and ${chaveSql('lf')} = ${o.chave}
+       and lf.criado_em > now() - make_interval(mins => coalesce(
+             (select nullif(rcp.pausa_minutos, 0) from robo_config rcp where rcp.tenant_id = ${o.tenantId}::uuid),
+             ${MIN_CONVERSA_DA_LOJA_PADRAO}))
+       ${o.desde ? sql`and lf.criado_em > ${o.desde}` : sql``}
+       and ((lf.direcao = 'entrada' and lf.autor = 'loja'
+             and not exists (
+               select 1 from chat_plataforma_msg eco
+                where eco.tenant_id = lf.tenant_id and eco.canal = lf.canal and eco.direcao = 'saida'
+                  and ${chaveSql('eco')} = ${o.chave}
+                  and eco.criado_em > lf.criado_em - interval '30 minutes'
+                  and ${textoNormal('eco.texto')} = ${textoNormal('lf.texto')}))
+         ${
+           o.equipeDoRegem
+             ? sql`or (lf.direcao = 'saida' and lf.autor = 'equipe'
+                       and not exists (select 1 from pedido_externo lpe
+                                        where lpe.tenant_id = lf.tenant_id and lpe.id = lf.pedido_id and lpe.entregador_id = lf.autor_id))`
+             : sql``
+         }))`;
+}
+
 // ───────────────────────── o atendente pode rodar? ─────────────────────────
 
 /** O robô com IA pode rodar NESTA instalação: só na nuvem, com o endereço do fluxo único do robô e a senha dele. */
@@ -442,9 +484,17 @@ export async function responderNoChatDaPlataforma(db: any, emitir: Emitir | unde
                (select m.texto from chat_plataforma_msg m where ${falasDoClienteSql(c)} order by m.criado_em desc, m.id desc limit 1) as fala,
                (select row_to_json(p) from (
                   select pe.status, pe.despachado_em as "despachadoEm", pe.cliente_nome as cliente, pe.tipo, pe.canal, pe.raw
-                    from pedido_externo pe where pe.tenant_id = ${c.tenantId}::uuid and pe.id = ${c.pedidoId}::uuid) p) as pedido`),
+                    from pedido_externo pe where pe.tenant_id = ${c.tenantId}::uuid and pe.id = ${c.pedidoId}::uuid) p) as pedido,
+               -- uma pessoa da loja está conversando pela plataforma (Gestor do iFood, app da 99) — 10/11/2026, pedido 1948
+               ${lojaFalouSql({ tenantId: c.tenantId, canal: sql`${c.canal}`, chave: sql`${c.chave}` })} as "lojaFalou"`),
     );
     const fala = String(l?.fala ?? c.texto);
+    // A LOJA ESTÁ CONVERSANDO com o cliente (escreveu pelo Gestor, pelo app da 99 ou pelo Regem, dentro da pausa da loja):
+    // a resposta do atendente virtual não sai — ela foi pensada sem o que a loja disse.
+    if (l?.lojaFalou === true && !l?.caso) {
+      await limparMarcas(tx, c);
+      return { resposta: { enviado: false, motivo: 'a_loja_esta_conversando' }, ...nada };
+    }
     // CASO ABERTO COM A EQUIPE: quieto — salvo UMA vez o "já chamei" que o "chamar atendente" liberou (lido antes de abrir, V83).
     let liberado = false;
     if (l?.caso) {
