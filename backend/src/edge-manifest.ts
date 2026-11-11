@@ -60,6 +60,9 @@ export const SYNC_MODULES = [
   'IbptModule',
   // "Publicar nas integrações" (Cardápio): a situação e o envio são da nuvem; no servidor da loja só repassa à nuvem.
   'PublicarIntegracoesModule',
+  // "Conferir com os apps" (R3 F4a; mig 405): a leitura dos apps e a conferência são da nuvem; no servidor da loja só
+  // repassa à nuvem (rota do token de sync).
+  'ConferenciaModule',
 ] as const;
 
 // Infra sempre presente (auth, orm, agendador, sync, edge, realtime).

@@ -6,6 +6,7 @@ import { clearDistToken, distApi, getDistToken, setToken } from '@/lib/api';
 import { TokensIntegracao } from '@/components/distribuicao/tokens-integracao';
 import { IfoodPeloOrzuni } from '@/components/distribuicao/ifood-pelo-orzuni';
 import { PrecosNa99 } from '@/components/distribuicao/precos-na-99';
+import { ConferirComOsApps } from '@/components/distribuicao/conferir-com-os-apps';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -766,6 +767,9 @@ export default function DistHome() {
 
             {/* Preço e pausa na 99 (mig 401/402) — só Diretoria: a liberação da empresa e os envios à 99. */}
             {ehDiretoria && <PrecosNa99 empresas={frota ?? []} />}
+
+            {/* Conferir com os apps (mig 405) — só Diretoria: a liberação da empresa e a última leitura de cada loja. */}
+            {ehDiretoria && <ConferirComOsApps empresas={frota ?? []} />}
 
             {modalIfood && (
               <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={() => setModalIfood(null)}>

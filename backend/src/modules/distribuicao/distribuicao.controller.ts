@@ -21,6 +21,7 @@ import { IbptService } from '../fiscal/ibpt/ibpt.service';
 import { IntegracaoTokenService } from '../integracao-api/integracao-token.service';
 import { OrzuniLigacaoService } from '../orzuni/orzuni-ligacao.service';
 import { PrecosNa99Service } from './precos-na-99.service';
+import { ConferirAppsService } from './conferir-apps.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -34,6 +35,7 @@ export class DistribuicaoController {
     private readonly integracao: IntegracaoTokenService,
     private readonly orzuni: OrzuniLigacaoService,
     private readonly precos99: PrecosNa99Service,
+    private readonly conferirApps: ConferirAppsService,
   ) {}
 
   // iFood pelo Orzuni (R2a; mig 370) — só Diretoria. A chave `orz_live_` da loja entra aqui UMA vez e é trocada
@@ -94,6 +96,23 @@ export class DistribuicaoController {
   async liberacaoPrecosNa99(@DistUser() u: DistCtx, @Body() dto: any) {
     const r = await this.precos99.liberacao(dto, u);
     await this.service.auditar(u, r.liberado ? 'ligou_precos_na_99' : 'desligou_precos_na_99', r.tenantId, {});
+    return r;
+  }
+
+  // "Conferir com os apps" (R3 F4a; mig 405) — só Diretoria: o direito `conferir_apps` da empresa (nasce desligado).
+  @Get('conferir-apps')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  painelConferirApps(@Query('tenantId') tenantId: string) {
+    return this.conferirApps.painel(tenantId);
+  }
+
+  @Post('conferir-apps/liberacao')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  async liberacaoConferirApps(@DistUser() u: DistCtx, @Body() dto: any) {
+    const r = await this.conferirApps.liberacao(dto, u);
+    await this.service.auditar(u, r.liberado ? 'ligou_conferir_apps' : 'desligou_conferir_apps', r.tenantId, {});
     return r;
   }
 

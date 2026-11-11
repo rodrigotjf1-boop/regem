@@ -2403,6 +2403,9 @@ const SO_NUVEM = new Set([
   // A fila do envio à 99, item a item (mig 402, @cloud-only; R3 F2): só a nuvem fala com a 99 (o auth_token é dela); a
   // edição feita na loja chega lá pelo sincronismo do produto e enfileira lá. A loja não tem esta tabela.
   'food99_envio',
+  // "Conferir com os apps" (mig 405, @cloud-only; R3 F4a): a última leitura do iFood (pelo Orzuni) e da 99 de cada loja e o
+  // "Ignorar" das linhas — só a nuvem lê os apps (as credenciais são dela); a tela do servidor da loja pede à nuvem.
+  'conferencia_app_leitura', 'conferencia_app_ignorado',
   // O estorno do Pix no cancelamento (mig 372, @cloud-only): a rotina da nuvem pede o estorno ao gateway (o token é da
   // nuvem); o cancelamento feito na loja chega lá pelo sincronismo do pedido. A loja não tem esta tabela.
   'pedido_estorno',

@@ -16,6 +16,7 @@ import { PrecoNoLugar } from '@/components/catalogo/preco-no-lugar';
 import { ChipPausa } from '@/components/catalogo/chip-pausa';
 import { EditarProduto } from '@/components/catalogo/editar-produto';
 import { ComplementosGestao } from '@/components/catalogo/complementos-gestao';
+import { ConferirApps } from '@/components/catalogo/conferir-apps';
 import { UltimoEnvioIfood } from '@/components/produtos/ultimo-envio-ifood';
 import {
   agruparPorCategoria, esgotado, pausaNoRegem, pausadoEmAlgumCanal, pausadoNa99, pausadoNoIfood, semPrecoNa99, semPrecoNoIfood,
@@ -44,6 +45,9 @@ export default function CatalogoPage() {
   const [sit, setSit] = useState(-1);
   const [editando, setEditando] = useState<any | null>(null);
   const [vista, setVista] = useState<'produtos' | 'complementos'>('produtos');
+  // As abas do protótipo: "Produtos e preços" | "Conferir com os apps" (R3 F4a; a 2ª só com o direito ligado na empresa).
+  const [aba, setAba] = useState<'produtos' | 'conferir'>('produtos');
+  const [conferirLigada, setConferirLigada] = useState(false);
   const [ocupado, setOcupado] = useState<Set<string>>(new Set());
   const [enviados, setEnviados] = useState<Set<string>>(new Set()); // produtos com mudança ao iFood nesta visita
   const [enviados99, setEnviados99] = useState<Set<string>>(new Set()); // produtos com mudança à 99 nesta visita
@@ -53,17 +57,19 @@ export default function CatalogoPage() {
     const minha = ++leitura.current; // só a leitura mais nova vale (V64)
     setErro('');
     try {
-      const [ps, cs, ifood, n99] = await Promise.all([
+      const [ps, cs, ifood, n99, conferir] = await Promise.all([
         api.produtos(),
         api.produtoCategorias(),
         api.ifoodPeloOrzuni().catch(() => ({ ligado: false })),
         api.precosNa99().catch(() => ({ ligado: false })),
+        api.conferenciaLigada().catch(() => ({ ligada: false })),
       ]);
       if (minha !== leitura.current) return;
       setProdutos(Array.isArray(ps) ? (ps as any[]) : []);
       setCategorias(Array.isArray(cs) ? (cs as CategoriaDaGestao[]) : []);
       setComIfood(ifood?.ligado === true);
       setCom99(n99?.ligado === true);
+      setConferirLigada(conferir?.ligada === true);
     } catch (e) {
       if (minha !== leitura.current) return;
       // Erro não é "nenhum produto": a tela diz que não leu e oferece de novo.
@@ -250,6 +256,37 @@ export default function CatalogoPage() {
 
   return (
     <Shell eyebrow="Delivery" title="Gestão do catálogo">
+      {conferirLigada && (
+        <div role="tablist" aria-label="Gestão do catálogo" className="mb-4 flex flex-wrap gap-x-1 gap-y-2 border-b border-border">
+          {(
+            [
+              ['produtos', 'Produtos e preços'],
+              ['conferir', 'Conferir com os apps'],
+            ] as const
+          ).map(([k, rotulo]) => (
+            <button
+              key={k}
+              type="button"
+              role="tab"
+              id={`aba-${k}`}
+              aria-selected={aba === k}
+              aria-controls={`painel-${k}`}
+              onClick={() => setAba(k)}
+              className={`-mb-px min-h-10 border-b-2 px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                aba === k ? 'border-primary text-foreground' : `border-transparent ${texto2} hover:text-foreground`
+              }`}
+            >
+              {rotulo}
+            </button>
+          ))}
+        </div>
+      )}
+      {conferirLigada && aba === 'conferir' ? (
+        <div role="tabpanel" id="painel-conferir" aria-labelledby="aba-conferir">
+          <ConferirApps podeMudarPreco={podeMudarPreco} aoMudarRegem={() => void carregar()} />
+        </div>
+      ) : (
+      <div role={conferirLigada ? 'tabpanel' : undefined} id="painel-produtos" aria-labelledby={conferirLigada ? 'aba-produtos' : undefined}>
       {/* Produtos | Complementos (protótipo: o seletor acima da lista; R3 F3a). */}
       <div role="group" aria-label="O que mostrar" className="mb-3 flex flex-wrap gap-2">
         {(
@@ -376,6 +413,8 @@ export default function CatalogoPage() {
           </>
         )}
       </section>
+      )}
+      </div>
       )}
 
       {editando && (

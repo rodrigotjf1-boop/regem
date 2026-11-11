@@ -1,5 +1,6 @@
 import { baseDaApi } from './origem-api';
 import { VERSAO_DA_TELA } from './versao-da-tela';
+import type { CanalConferido, RespostaDaConferencia, TipoConferido } from './conferencia-apps';
 
 // Base da API. Nuvem: NEXT_PUBLIC_API_URL (fixado no build). Edge
 // (NEXT_PUBLIC_EDGE=1): cada loja tem IP proprio, entao a API fica no MESMO host
@@ -622,6 +623,10 @@ export const distApi = {
   precosNa99Painel: (tenantId: string) => distReq(`/distribuicao/precos-na-99?tenantId=${encodeURIComponent(tenantId)}`),
   precosNa99Liberacao: (tenantId: string, ligar: boolean) =>
     distReq('/distribuicao/precos-na-99/liberacao', { method: 'POST', body: JSON.stringify({ tenantId, ligar }) }),
+  // Conferir com os apps (R3 F4a; mig 405): o direito da empresa (nasce desligado) e a última leitura de cada loja.
+  conferirAppsPainel: (tenantId: string) => distReq(`/distribuicao/conferir-apps?tenantId=${encodeURIComponent(tenantId)}`),
+  conferirAppsLiberacao: (tenantId: string, ligar: boolean) =>
+    distReq('/distribuicao/conferir-apps/liberacao', { method: 'POST', body: JSON.stringify({ tenantId, ligar }) }),
 };
 
 // Upload multipart: NÃO define Content-Type (o browser injeta o boundary).
@@ -812,6 +817,28 @@ export const api = {
       canaisPausados: string[];
       esgotado: boolean;
     }>,
+  // "Conferir com os apps" (R3 F4a; mig 405): a última leitura do iFood (pelo Orzuni) ou da 99 da loja do topo, comparada
+  // com o Regem pelo código PDV. Lê ao abrir (no máximo uma vez por dia) e com `ler` ("Ler agora"). Nasce desligada (a
+  // distribuição liga); no servidor da loja, vem da nuvem.
+  conferenciaLigada: () => req('/catalogo/conferencia/ligada') as Promise<{ ligada: boolean }>,
+  conferencia: (canal: CanalConferido, ler = false) =>
+    req(`/catalogo/conferencia?canal=${canal}${ler ? '&ler=1' : ''}`) as Promise<RespostaDaConferencia>,
+  conferenciaIgnorar: (dto: { canal: CanalConferido; tipo: TipoConferido; chave: string; nome: string }) =>
+    req('/catalogo/conferencia/ignorar', { method: 'POST', body: JSON.stringify(dto) }) as Promise<{ ok: boolean }>,
+  conferenciaDesfazer: (dto: { canal: CanalConferido; tipo: TipoConferido; chave: string }) =>
+    req('/catalogo/conferencia/desfazer', { method: 'POST', body: JSON.stringify(dto) }) as Promise<{ ok: boolean }>,
+  // Usar o preço do app no Regem (uma linha ou várias; pede "Ver valores em R$"): o que não deu volta em `recusas`.
+  conferenciaUsarPreco: (dto: { canal: CanalConferido; tipo: TipoConferido; chaves: string[] }) =>
+    req('/catalogo/conferencia/usar-preco-do-app', { method: 'POST', body: JSON.stringify(dto) }) as Promise<{
+      feitos: number;
+      recusas: { chave: string; motivo: string }[];
+    }>,
+  // Mandar o preço do Regem ao app: a linha volta à fila do envio daquele app nesta loja.
+  conferenciaMandarPreco: (dto: { canal: CanalConferido; tipo: TipoConferido; chave: string }) =>
+    req('/catalogo/conferencia/mandar-preco-ao-app', { method: 'POST', body: JSON.stringify(dto) }) as Promise<{ ok: boolean; frase: string }>,
+  // Tirar o "Está no <app>" do produto que o app não tem.
+  conferenciaTirarDoApp: (dto: { canal: CanalConferido; chave: string }) =>
+    req('/catalogo/conferencia/tirar-do-app', { method: 'POST', body: JSON.stringify(dto) }) as Promise<{ ok: boolean; mudou: boolean }>,
   // "Publicar nas integrações" (Cadastros › Cardápio): a situação de cada integração que usa o cardápio e o publicar
   // (GoGeM na hora; quem lê pela porta lê de novo; o iFood já vai sozinho). Só gestão; no servidor da loja vem da nuvem.
   integracoesDoCardapio: () => req('/integracoes/publicar') as Promise<SituacaoIntegracoes>,

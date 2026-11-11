@@ -15309,6 +15309,180 @@
         }
       }
     },
+    "/api/v1/catalogo/conferencia/ligada": {
+      "get": {
+        "operationId": "ConferenciaController_ligada",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/catalogo/conferencia": {
+      "get": {
+        "operationId": "ConferenciaController_conferir",
+        "parameters": [
+          {
+            "name": "canal",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ler",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/catalogo/conferencia/ignorar": {
+      "post": {
+        "operationId": "ConferenciaController_ignorar",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/catalogo/conferencia/desfazer": {
+      "post": {
+        "operationId": "ConferenciaController_desfazer",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/catalogo/conferencia/usar-preco-do-app": {
+      "post": {
+        "operationId": "ConferenciaController_usarPrecoDoApp",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/catalogo/conferencia/mandar-preco-ao-app": {
+      "post": {
+        "operationId": "ConferenciaController_mandarPrecoAoApp",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/catalogo/conferencia/tirar-do-app": {
+      "post": {
+        "operationId": "ConferenciaController_tirarDoApp",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/catalogo/conferencia/loja": {
+      "get": {
+        "operationId": "ConferenciaLojaController_conferir",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/catalogo/conferencia/loja/{acao}": {
+      "post": {
+        "operationId": "ConferenciaLojaController_agir",
+        "parameters": [
+          {
+            "name": "acao",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/edge/rede": {
       "get": {
         "operationId": "EdgeController_redeDoServidor",
@@ -19408,6 +19582,37 @@
     "/api/v1/distribuicao/precos-na-99/liberacao": {
       "post": {
         "operationId": "DistribuicaoController_liberacaoPrecosNa99",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/conferir-apps": {
+      "get": {
+        "operationId": "DistribuicaoController_painelConferirApps",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/conferir-apps/liberacao": {
+      "post": {
+        "operationId": "DistribuicaoController_liberacaoConferirApps",
         "parameters": [],
         "responses": {
           "201": {

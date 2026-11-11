@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Gestão do catálogo › "Conferir com os apps" (R3, fase F4a; mig 405 só nuvem; nasce DESLIGADA — o direito
+  `conferir_apps`, ligado pela distribuição).** Na NUVEM com o merge: a aba, a leitura do iFood (pelo Orzuni) e da 99, a
+  comparação pelo código PDV e as ações da linha. **No `.zip` 1.30.13:** a aba no servidor da loja, que pede tudo à nuvem
+  pela rota do token de sync (sem o `.zip`, a tela da loja não tem a aba; a da nuvem funciona para todas). Mexe no
+  `sync-daemon` só na lista `SO_NUVEM` (as duas tabelas da 405, que a loja não tem): nada muda na loja por isso; o `.exe`
+  já está pendente pelo O3/O14.
+
 - **A 99 nos complementos — preço por código e pausa (R3, fase F3b; mig 404 só nuvem; SEM mudança na loja).** Tudo na
   NUVEM com o merge (o envio à 99 só sai da nuvem). Nada a empacotar por esta entrega: a pausa e o preço da opção gravados
   na loja chegam à nuvem pelo sincronismo, que enfileira lá.
