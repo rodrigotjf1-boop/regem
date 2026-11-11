@@ -67,6 +67,23 @@ try {
     assert.deepEqual(tela.tamanhosValidos(null), { pronto: 100, preparando: 100, titulos: 100 });
   });
 
+  // Onda 2 da auditoria do KDS (T2): nenhuma senha some — a coluna cheia vira páginas, a primeira com as mais novas.
+  caso('coluna cheia: páginas que cobrem TODAS as senhas, a primeira com as mais novas; a página dá a volta', () => {
+    const s = Array.from({ length: 60 }, (_, i) => `s${i}`);
+    assert.deepEqual(tela.paginaDaColuna(s, null, 3), { itens: s, paginas: 1, atual: 0 }, 'sem divisão: todas');
+    assert.deepEqual(tela.paginaDaColuna(s.slice(0, 8), 20, 1), { itens: s.slice(0, 8), paginas: 1, atual: 0 }, 'cabe numa página');
+    const p0 = tela.paginaDaColuna(s, 25, 0);
+    assert.equal(p0.paginas, 3);
+    assert.deepEqual(p0.itens, s.slice(0, 25), 'a primeira página tem as mais novas (a lista vem da mais nova)');
+    const vistas = [0, 1, 2].flatMap((p) => tela.paginaDaColuna(s, 25, p).itens);
+    assert.deepEqual(vistas, s, 'as 3 páginas juntas mostram as 60, sem repetir');
+    assert.equal(tela.paginaDaColuna(s, 25, 3).atual, 0, 'depois da última volta para a primeira');
+    assert.equal(tela.paginaDaColuna(s, 25, -1).atual, 2);
+    assert.equal(tela.paginaDaColuna(s, 0, 0).paginas, 1, 'por página inválido não divide');
+    assert.equal(tela.LETRA_MINIMA, 0.6);
+    assert.equal(tela.TROCA_DE_PAGINA_MS, 8000);
+  });
+
   caso('iniciais da loja sem logo', () => {
     assert.equal(tela.iniciais('Burger da Esquina'), 'BE');
     assert.equal(tela.iniciais('Regem'), 'RE');
