@@ -227,7 +227,7 @@ export function KdsProdutosGaveta({
                 <section key={cat} className="overflow-hidden border" style={linha} aria-label={cat}>
                   <div className="flex items-center justify-between gap-2 px-3 py-2" style={{ background: T.panel2 }}>
                     <span className="text-[14px] font-bold">{cat}</span>
-                    <button type="button" onClick={() => alternarCategoria(lista)} className="min-h-[36px] px-1 text-[13px] font-bold" style={{ color: T.link }}>
+                    <button type="button" onClick={() => alternarCategoria(lista)} className="min-h-[48px] px-2 text-[13px] font-bold" style={{ color: T.link }}>
                       {todos ? 'Desmarcar todos' : 'Marcar todos'}
                     </button>
                   </div>
