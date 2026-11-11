@@ -370,13 +370,19 @@ export function opcaoPausadaNo(o: OpcaoDoGrupo, canal: 'regem' | 'ifood' | '99fo
   return o.esgotado === true || canaisPausados(o).includes(canal);
 }
 
-/** Pausado em algum canal visível (o Regem sempre; o iFood só com ele ligado). */
-export function opcaoPausadaEmAlgumCanal(o: OpcaoDoGrupo, comIfood: boolean): boolean {
-  return opcaoPausadaNo(o, 'regem') || (comIfood && !informativa(o) && opcaoPausadaNo(o, 'ifood'));
+/** Pausado em algum canal visível (o Regem sempre; o iFood e a 99 só com eles ligados). */
+export function opcaoPausadaEmAlgumCanal(o: OpcaoDoGrupo, comIfood: boolean, com99 = false): boolean {
+  return (
+    opcaoPausadaNo(o, 'regem') ||
+    (comIfood && !informativa(o) && opcaoPausadaNo(o, 'ifood')) ||
+    (com99 && !informativa(o) && opcaoPausadaNo(o, '99food'))
+  );
 }
 
 /** Com código e sem o preço do iFood (só com o iFood pelo Orzuni ligado): o Regem não manda preço nenhum. */
 export const opcaoSemPrecoNoIfood = (o: OpcaoDoGrupo) => !informativa(o) && !temValor(o.precoIfood);
+/** Com código e sem o preço da 99 (só com o preço e a pausa na 99 ligados): o Regem não muda o preço lá. */
+export const opcaoSemPrecoNa99 = (o: OpcaoDoGrupo) => !informativa(o) && !temValor(o.preco99);
 
 /** Os grupos em que a opção aparece (para a gaveta: o preço do Regem em cada um). */
 export function gruposDaOpcao(grupos: GrupoDeComplementos[], opcaoId: string): { id: string; nome: string; preco: string | number | null | undefined }[] {
@@ -389,6 +395,8 @@ export type EdicaoDaOpcao = {
   precoIfood: string;
   pausaRegem: boolean;
   pausaIfood: boolean;
+  preco99: string;
+  pausa99: boolean;
 };
 
 export function edicaoInicialDaOpcao(o: OpcaoDoGrupo, grupos: { id: string; preco: string | number | null | undefined }[]): EdicaoDaOpcao {
@@ -397,6 +405,8 @@ export function edicaoInicialDaOpcao(o: OpcaoDoGrupo, grupos: { id: string; prec
     precoIfood: precoNoCampo(o.precoIfood),
     pausaRegem: canaisPausados(o).includes('regem'),
     pausaIfood: canaisPausados(o).includes('ifood'),
+    preco99: precoNoCampo(o.preco99),
+    pausa99: canaisPausados(o).includes('99food'),
   };
 }
 
@@ -420,11 +430,13 @@ export type PlanoDaOpcao = {
   regem: string[];
   ifoodVai: string[];
   ifoodAtencao: string[];
+  n99Vai: string[];
+  n99Atencao: string[];
   mudou: boolean;
-  /** As gravações, na ordem: os preços de cada grupo, o preço do app, as pausas. */
+  /** As gravações, na ordem: os preços de cada grupo, o preço de cada app, as pausas. */
   precosGrupo: { grupoId: string; valor: string }[];
-  precosApp: { canal: 'ifood'; valor: string | null }[];
-  pausas: { canal: 'regem' | 'ifood'; pausado: boolean }[];
+  precosApp: { canal: 'ifood' | '99food'; valor: string | null }[];
+  pausas: { canal: 'regem' | 'ifood' | '99food'; pausado: boolean }[];
 };
 
 /**
@@ -435,12 +447,14 @@ export function analisarEdicaoDaOpcao(
   o: OpcaoDoGrupo,
   grupos: { id: string; nome: string; preco: string | number | null | undefined }[],
   e: EdicaoDaOpcao,
-  ctx: { comIfood: boolean; podeMudarPreco: boolean },
+  ctx: { comIfood: boolean; com99?: boolean; podeMudarPreco: boolean },
 ): PlanoDaOpcao {
   const erros: string[] = [];
   const regem: string[] = [];
   const ifoodVai: string[] = [];
   const ifoodAtencao: string[] = [];
+  const n99Vai: string[] = [];
+  const n99Atencao: string[] = [];
   const precosGrupo: PlanoDaOpcao['precosGrupo'] = [];
   const precosApp: PlanoDaOpcao['precosApp'] = [];
   const pausas: PlanoDaOpcao['pausas'] = [];
@@ -477,6 +491,23 @@ export function analisarEdicaoDaOpcao(
       if (!e.pausaIfood && o.esgotado) ifoodAtencao.push('está "Em falta": segue pausado no iFood');
     }
   }
+  // A 99 (R3 F3b): o preço por código vai a CADA grupo da 99 que tem o complemento; a pausa, como a do item.
+  if (ctx.com99 && liga) {
+    if (ctx.podeMudarPreco) {
+      const r = precoDoComplementoDigitado(e.preco99, true);
+      if ('erro' in r) erros.push(`Preço na 99: ${r.erro}`);
+      else if (r.valor !== doisDecimais(o.preco99)) {
+        precosApp.push({ canal: '99food', valor: r.valor });
+        if (r.valor === null) n99Atencao.push('preço em branco: o Regem deixa de mexer no preço de lá');
+        else n99Vai.push(`preço ${deAte(o.preco99, r.valor)}, em cada grupo da 99 com o código ${o.codigoPdv}`);
+      }
+    }
+    if (e.pausa99 !== canaisPausados(o).includes('99food')) {
+      pausas.push({ canal: '99food', pausado: e.pausa99 });
+      n99Vai.push(e.pausa99 ? 'pausa' : 'reativa');
+      if (!e.pausa99 && o.esgotado) n99Atencao.push('está "Em falta": segue pausado na 99');
+    }
+  }
   const mudou = precosGrupo.length > 0 || precosApp.length > 0 || pausas.length > 0;
-  return { erros, regem, ifoodVai, ifoodAtencao, mudou, precosGrupo, precosApp, pausas };
+  return { erros, regem, ifoodVai, ifoodAtencao, n99Vai, n99Atencao, mudou, precosGrupo, precosApp, pausas };
 }

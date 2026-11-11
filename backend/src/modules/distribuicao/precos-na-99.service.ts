@@ -46,12 +46,14 @@ export class PrecosNa99Service {
       this.rows(sql`select exists (select 1 from integracao where tenant_id = ${emp.id} and canal = '99food' and ativo) as ligada`),
       // A fila da 99 (mig 402, só nuvem — o console também).
       this.rows(sql`
-        select e.id, e.tipo, e.situacao, e.resultado, e.resposta, e.ultimo_erro, e.tentativas, e.marcado_em, e.enviado_em,
-               coalesce(u.nome, nullif(i.config ->> 'shopName', '')) as loja, p.nome as alvo, p.codigo
+        select e.id, e.tipo, e.alvo as "alvoTipo", e.situacao, e.resultado, e.resposta, e.ultimo_erro, e.tentativas, e.marcado_em, e.enviado_em,
+               coalesce(u.nome, nullif(i.config ->> 'shopName', '')) as loja, coalesce(p.nome, o.nome) as alvo,
+               coalesce(p.codigo, o.codigo_pdv) as codigo
           from food99_envio e
           join integracao i on i.id = e.integracao_id
           left join unidade u on u.id = i.unidade_id
-          left join produto p on p.id = e.ref_id
+          left join produto p on p.id = e.ref_id and e.alvo = 'produto'
+          left join opcao o on o.id = e.ref_id and e.alvo = 'opcao'
          where e.tenant_id = ${emp.id}
          order by e.marcado_em desc
          limit 30`),
@@ -65,6 +67,7 @@ export class PrecosNa99Service {
       envios: envios.map((e) => ({
         id: String(e.id),
         tipo: String(e.tipo),
+        alvoTipo: e.alvoTipo === 'opcao' ? 'opcao' : 'produto',
         situacao: String(e.situacao),
         resultado: e.resultado ?? null,
         resposta: e.resposta ?? null,

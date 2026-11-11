@@ -20,6 +20,7 @@ type Painel = {
   envios: {
     id: string;
     tipo: string;
+    alvoTipo?: 'produto' | 'opcao';
     situacao: string;
     resultado: string | null;
     resposta: any;
@@ -39,9 +40,15 @@ const TIPO: Record<string, string> = {
   status_item: 'Pausa do item',
   cadastro_item: 'Nome e descrição do item',
 };
+// O complemento (mig 404): o preço vai grupo a grupo; a pausa, como a do item.
+const TIPO_DO_COMPLEMENTO: Record<string, string> = {
+  preco_item: 'Preço do complemento (nos grupos)',
+  status_item: 'Pausa do complemento',
+};
 const RESULTADO: Record<string, { rotulo: string; cor: string }> = {
   aplicado: { rotulo: 'aplicado', cor: 'bg-emerald-500/15 text-emerald-300' },
   nao_encontrado: { rotulo: 'não existe na 99', cor: 'bg-amber-500/15 text-amber-300' },
+  parcial: { rotulo: 'parcial', cor: 'bg-amber-500/15 text-amber-300' },
   recusado: { rotulo: 'recusado', cor: 'bg-red-500/15 text-red-300' },
   dispensado: { rotulo: 'não enviado', cor: 'bg-slate-700/60 text-slate-300' },
   erro: { rotulo: 'desistiu', cor: 'bg-red-500/15 text-red-300' },
@@ -166,7 +173,7 @@ export function PrecosNa99({ empresas }: { empresas: Empresa[] }) {
                   return (
                     <li key={e.id} className="rounded-lg border border-slate-800 px-3 py-2 text-xs">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-slate-300">{TIPO[e.tipo] ?? e.tipo}</span>
+                        <span className="text-slate-300">{(e.alvoTipo === 'opcao' ? TIPO_DO_COMPLEMENTO : TIPO)[e.tipo] ?? e.tipo}</span>
                         <span className="min-w-0 break-words text-slate-100">
                           {e.alvo ?? '—'}
                           {e.codigo ? ` (PDV ${e.codigo})` : ''}

@@ -766,6 +766,8 @@ export const api = {
   precosNa99: () => req('/produtos/precos-na-99') as Promise<{ ligado: boolean }>,
   // O "último envio à 99" do produto, por loja (mig 402) — o mesmo formato do iFood.
   produto99Envios: (id: string) => req(`/produtos/${id}/99-envios`) as Promise<{ envios: any[]; semConexao: boolean }>,
+  // O "último envio à 99" de um complemento (mig 404 — a mesma fila, pelo id da opção).
+  opcao99Envios: (id: string) => req(`/produtos/opcoes/${id}/99-envios`) as Promise<{ envios: any[]; semConexao: boolean }>,
   // Gestão do catálogo (R3 F1/F2): o preço e a pausa de UM canal, com auditoria. Preço: 'regem' (venda), 'ifood' ou
   // '99food' (vazio = "o Regem não mexe"; pede "Ver valores em R$"). Pausa: 'regem' desliga balcão e cardápio digital
   // juntos; 'ifood' e '99food' pausam só o seu canal. `mudou: false` = já estava assim.

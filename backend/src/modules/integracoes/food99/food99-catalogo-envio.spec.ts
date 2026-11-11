@@ -11,7 +11,7 @@ import { DeliveryService } from '../../delivery/delivery.service';
 import { Food99Service } from './food99.service';
 import { Food99CatalogoEnvioService } from './food99-catalogo-envio.service';
 import { Food99LojaController } from './food99-loja.controller';
-import { desfechoDoErrno, itemParaAtualizar, recuoMinutos99 } from './food99-catalogo.regras';
+import { desfechoDoErrno, grupoParaAtualizar, gruposComOItem, itemParaAtualizar, recuoMinutos99 } from './food99-catalogo.regras';
 import { envioDa99ParaTela, enviosDa99 } from './food99-envios';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -26,6 +26,7 @@ if (!URL_PG) console.warn('food99-catalogo-envio.spec: sem TEST_PG_URL — PULAD
 jest.setTimeout(180_000);
 
 const MIGRATION_402 = join(__dirname, '..', '..', '..', '..', '..', 'database', 'migrations', '402_food99_envio.sql');
+const MIGRATION_404 = join(__dirname, '..', '..', '..', '..', '..', 'database', 'migrations', '404_food99_envio_opcao.sql');
 
 // O item como a doc 1961 ("Get Store Menu Details") devolve, com os campos que a doc 1967 aceita de volta.
 const ITEM_DA_99 = {
@@ -106,6 +107,36 @@ describe('regras do envio à 99 (sem banco)', () => {
     });
     expect(envioDa99ParaTela({ ...base, tipo: 'cadastro_item', situacao: 'desistiu' })).toMatchObject({ oQue: 'cadastro', situacao: 'desistiu' });
   });
+  it('updateModifierGroup (doc 1971): o grupo INTEIRO como a 99 tem, só o preço da opção do código trocado', () => {
+    // O grupo como a doc 1961 devolve (modifier_groups), com o campo livre do PDV.
+    const g = {
+      app_modifier_group_id: 'mg4',
+      modifier_group_name: 'mg4',
+      app_external_id: '{"k":"v"}',
+      is_required: 1,
+      quantity_min_permitted: 1,
+      quantity_max_permitted: 1,
+      buy_mode: 0,
+      app_mg_items: [{ app_item_id: 'item_in_mg4', price: 0 }, { app_item_id: 'A01', price: 300 }, { app_item_id: 'sem_preco' }],
+    };
+    const corpo = grupoParaAtualizar(g, 'A01', 450);
+    expect(corpo).toEqual({
+      modifier_group_name: 'mg4',
+      app_modifier_group_id: 'mg4',
+      app_external_id: '{"k":"v"}',
+      is_required: 1,
+      quantity_min_permitted: 1,
+      quantity_max_permitted: 1,
+      buy_mode: 0,
+      app_mg_items: [{ app_item_id: 'item_in_mg4', price: 0 }, { app_item_id: 'A01', price: 450 }, { app_item_id: 'sem_preco' }],
+    });
+    // Só campos da doc 1971 (fora o auth_token); os dois obrigatórios além do id sempre.
+    const DOC_1971 = ['modifier_group_name', 'app_modifier_group_id', 'app_external_id', 'is_required', 'quantity_min_permitted', 'quantity_max_permitted', 'buy_mode', 'app_mg_items'];
+    expect(Object.keys(corpo).every((k) => DOC_1971.includes(k))).toBe(true);
+    expect(grupoParaAtualizar({ app_modifier_group_id: 7, app_mg_items: [] }, 'x', 1)).toEqual({ modifier_group_name: '', app_modifier_group_id: '7', buy_mode: 0, app_mg_items: [] });
+    // Os grupos que têm a opção.
+    expect(gruposComOItem([g, { app_mg_items: [{ app_item_id: 'B' }] }, null, { app_mg_items: 'x' }], 'A01')).toEqual([g]);
+  });
 });
 
 describe('as chamadas à 99 (o corpo que sai, contra a doc — V20)', () => {
@@ -136,6 +167,16 @@ describe('as chamadas à 99 (o corpo que sai, contra a doc — V20)', () => {
     // Sem a lista que a doc promete: não diz "não existe" — é falha (tenta de novo).
     respostas.push({ errno: 0, errmsg: 'ok', data: {} });
     expect((await svc.itensDoCardapio(ig)).errno).toBe(-3);
+  });
+  it('a leitura traz também os grupos de complementos (modifier_groups); Update Modifier Group: POST com o grupo no corpo', async () => {
+    const mg = { app_modifier_group_id: 'mg1', modifier_group_name: 'mg1', buy_mode: 0, app_mg_items: [{ app_item_id: 'A01', price: 100 }] };
+    respostas.push({ errno: 0, errmsg: 'ok', data: { items: [], modifier_groups: [mg] } });
+    expect((await svc.itensDoCardapio(ig)).grupos).toEqual([mg]);
+    const corpo = grupoParaAtualizar(mg, 'A01', 250);
+    expect(await svc.atualizarGrupo(ig, corpo)).toEqual({ errno: 0, errmsg: 'ok' });
+    expect(pedidos[1].url).toMatch(/\/v3\/item\/item\/updateModifierGroup$/);
+    expect(pedidos[1].metodo).toBe('POST');
+    expect(pedidos[1].corpo).toEqual({ auth_token: 'tk-1', ...corpo });
   });
   it('Update One Item: POST /v3/item/item/updateItem com o auth_token e o item no corpo, como o exemplo da doc', async () => {
     const corpo = itemParaAtualizar(ITEM_DA_99, { preco: 4990 });
@@ -176,16 +217,27 @@ descrever('a 99 item a item — fila e envio (Postgres real, 99 falsa)', () => {
 
   // ── a 99 falsa: o cardápio por loja (integração) e o que chegou ─────────────────────────────────────────────────
   let cardapio: Record<string, any[]> = {};
+  let gruposDa99: Record<string, any[]> = {}; // os grupos de complementos de cada loja na 99 (mig 404)
   let chamadas: { tipo: string; ig: string; corpo: any }[] = [];
   let respostaDoItem: () => { errno: number; errmsg: string | null } = () => ({ errno: 0, errmsg: 'ok' });
+  let respostaDoGrupo: (corpo: any) => { errno: number; errmsg: string | null } = () => ({ errno: 0, errmsg: 'ok' });
   let leituras = 0;
   food99.itensDoCardapio = (async (ig: any) => {
     leituras++;
-    return { errno: 0, errmsg: 'ok', itens: new Map((cardapio[ig.id] ?? []).map((it) => [String(it.app_item_id), { ...it }])) };
+    return {
+      errno: 0,
+      errmsg: 'ok',
+      itens: new Map((cardapio[ig.id] ?? []).map((it) => [String(it.app_item_id), { ...it }])),
+      grupos: (gruposDa99[ig.id] ?? []).map((g) => JSON.parse(JSON.stringify(g))),
+    };
   }) as any;
   food99.atualizarItem = (async (ig: any, corpo: any) => {
     chamadas.push({ tipo: 'item', ig: ig.id, corpo });
     return respostaDoItem();
+  }) as any;
+  food99.atualizarGrupo = (async (ig: any, corpo: any) => {
+    chamadas.push({ tipo: 'grupo', ig: ig.id, corpo });
+    return respostaDoGrupo(corpo);
   }) as any;
   food99.situacaoDosItens = (async (ig: any, ids: string[], status: 1 | 2) => {
     chamadas.push({ tipo: 'situacao', ig: ig.id, corpo: { ids, status } });
@@ -199,6 +251,10 @@ descrever('a 99 item a item — fila e envio (Postgres real, 99 falsa)', () => {
     const r = (await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(readFileSync(MIGRATION_402, 'utf8'))))) as unknown as any[];
     const conferencia = (Array.isArray(r) ? r[r.length - 1] : r).rows;
     if (conferencia.length !== 4 || conferencia.some((l: any) => l.ok !== true)) throw new Error(`conferência da 402: ${JSON.stringify(conferencia)}`);
+    // 404 (R3 F3b): a opção na mesma fila (`alvo`) e o gatilho da opção — a conferência tem de vir toda `ok`.
+    const r404 = (await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(readFileSync(MIGRATION_404, 'utf8'))))) as unknown as any[];
+    const conferencia404 = (Array.isArray(r404) ? r404[r404.length - 1] : r404).rows;
+    if (conferencia404.length !== 3 || conferencia404.some((l: any) => l.ok !== true)) throw new Error(`conferência da 404: ${JSON.stringify(conferencia404)}`);
     // `edge_status` é só da nuvem; outras specs a criam com o mínimo — aqui ela ganha as colunas que a liberação lê.
     await pool
       .query(`create table if not exists edge_status (id uuid primary key default gen_random_uuid(), tenant_id uuid,
@@ -212,7 +268,7 @@ descrever('a 99 item a item — fila e envio (Postgres real, 99 falsa)', () => {
   afterAll(async () => {
     if (empresas.length) {
       await pool.query(`delete from edge_status where tenant_id = any($1::uuid[])`, [empresas]).catch(() => {});
-      for (const t of ['food99_envio', 'produto_pausa_estoque', 'produto', 'categoria_produto', 'integracao', 'entitlement', 'equipamento', 'unidade'])
+      for (const t of ['food99_envio', 'produto_pausa_estoque', 'produto', 'opcao', 'categoria_produto', 'integracao', 'entitlement', 'equipamento', 'unidade'])
         await pool.query(`delete from ${t} where tenant_id = any($1::uuid[])`, [empresas]).catch(() => {});
       await pool.query('delete from empresa where id = any($1::uuid[])', [empresas]).catch(() => {});
     }
@@ -224,6 +280,7 @@ descrever('a 99 item a item — fila e envio (Postgres real, 99 falsa)', () => {
     auditados.length = 0;
     leituras = 0;
     respostaDoItem = () => ({ errno: 0, errmsg: 'ok' });
+    respostaDoGrupo = () => ({ errno: 0, errmsg: 'ok' });
   });
 
   // ── a loja de teste ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -444,6 +501,91 @@ descrever('a 99 item a item — fila e envio (Postgres real, 99 falsa)', () => {
     // Outra empresa não vê.
     expect((await ctrl.envios({ tenantId: (await loja({ lojas: 1 })).t } as any, p)).envios).toEqual([]);
     await expect(ctrl.envios({ tenantId: l.t } as any, 'x')).rejects.toThrow(/Informe o produto/);
+  });
+
+  // ── o COMPLEMENTO (R3 F3b, mig 404): a mesma fila, `alvo = 'opcao'` ─────────────────────────────────────────────
+  const GRUPOS_DA_99 = [
+    { app_modifier_group_id: 'mg1', modifier_group_name: 'Adicionais', is_required: 2, quantity_min_permitted: 0, quantity_max_permitted: 3, buy_mode: 1,
+      app_mg_items: [{ app_item_id: 'A01', price: 500 }, { app_item_id: 'A02', price: 400 }] },
+    { app_modifier_group_id: 'mg2', modifier_group_name: 'Adicionais da batata', is_required: 2, quantity_min_permitted: 0, quantity_max_permitted: 2, buy_mode: 0,
+      app_mg_items: [{ app_item_id: 'A02', price: 350 }, { app_item_id: 'A01', price: 450 }] },
+    { app_modifier_group_id: 'mg3', modifier_group_name: 'Molhos', is_required: 1, quantity_min_permitted: 1, quantity_max_permitted: 1, buy_mode: 0,
+      app_mg_items: [{ app_item_id: 'M01', price: 0 }] },
+  ];
+  const opcao = async (l: Loja, codigo = 'A01') =>
+    (await q(`insert into opcao (tenant_id, nome, codigo_pdv) values ($1, 'Bacon extra', $2) returning id`, [l.t, codigo]))[0].id as string;
+
+  it('complemento: o preço na 99 vai a CADA grupo da 99 que o tem, com o grupo inteiro e só o preço dele trocado', async () => {
+    const l = await loja({ lojas: 1 });
+    gruposDa99[l.igs[0]] = GRUPOS_DA_99;
+    const o = await opcao(l);
+    await q(`update opcao set preco_99 = 5.5 where id = $1`, [o]);
+    expect((await q(`select tipo, alvo, situacao from food99_envio where ref_id = $1`, [o]))).toEqual([{ tipo: 'preco_item', alvo: 'opcao', situacao: 'pendente' }]);
+    expect(await despachar(l)).toMatchObject({ enviados: 1 });
+    expect(chamadas.map((c) => c.tipo)).toEqual(['grupo', 'grupo']);
+    expect(chamadas.map((c) => c.corpo)).toEqual([grupoParaAtualizar(GRUPOS_DA_99[0], 'A01', 550), grupoParaAtualizar(GRUPOS_DA_99[1], 'A01', 550)]);
+    expect(chamadas[0].corpo.app_mg_items).toEqual([{ app_item_id: 'A01', price: 550 }, { app_item_id: 'A02', price: 400 }]); // a outra opção fica
+    const linha = (await q(`select resultado, resposta from food99_envio where ref_id = $1`, [o]))[0];
+    expect(linha).toMatchObject({ resultado: 'aplicado', resposta: { grupos: 2, antes: 5, depois: 5.5 } });
+    expect(auditados.find((a) => a.acao === 'enviou_a_99')).toMatchObject({ entidadeTipo: 'opcao', entidadeId: o, detalhe: { chamada: 'updateModifierGroup', grupos: 2, preco: 550 } });
+    // Zero vale (o complemento grátis lá).
+    chamadas = [];
+    await q(`update opcao set preco_99 = 0 where id = $1`, [o]);
+    await despachar(l);
+    expect(chamadas.map((c) => c.corpo.app_mg_items.find((it: any) => it.app_item_id === 'A01').price)).toEqual([0, 0]);
+  });
+
+  it('complemento: pausa na 99 e "Em falta" pelo updateItemStatus; o que a 99 não tem em grupo nenhum = "não encontrado"', async () => {
+    const l = await loja({ lojas: 1 });
+    gruposDa99[l.igs[0]] = GRUPOS_DA_99;
+    cardapio[l.igs[0]] = [{ ...ITEM_DA_99 }, { app_item_id: 'A01', item_name: 'Bacon extra', price: 500, status: 1, is_sold_separately: false }];
+    const o = await opcao(l);
+    // Só no Regem e só no iFood: nada vai à 99.
+    await q(`update opcao set canais_pausados = '["regem","ifood"]'::jsonb where id = $1`, [o]);
+    expect(await q(`select 1 from food99_envio where ref_id = $1`, [o])).toHaveLength(0);
+    await q(`update opcao set canais_pausados = '["regem","ifood","99food"]'::jsonb where id = $1`, [o]);
+    await despachar(l);
+    expect(chamadas).toEqual([{ tipo: 'situacao', ig: l.igs[0], corpo: { ids: ['A01'], status: 2 } }]);
+    chamadas = [];
+    await q(`update opcao set canais_pausados = '[]'::jsonb where id = $1`, [o]);
+    await despachar(l);
+    await q(`update opcao set esgotado = true where id = $1`, [o]);
+    await despachar(l);
+    expect(chamadas.map((c) => c.corpo.status)).toEqual([1, 2]);
+    // Fora de qualquer grupo da 99: não encontrado, sem chamar.
+    const outra = await opcao(l, 'Z99');
+    chamadas = [];
+    await q(`update opcao set preco_99 = 3 where id = $1`, [outra]);
+    await despachar(l);
+    expect(chamadas).toHaveLength(0);
+    expect((await q(`select resultado, resposta from food99_envio where ref_id = $1`, [outra]))[0]).toMatchObject({
+      resultado: 'nao_encontrado',
+      resposta: { frase: expect.stringMatching(/não tem o complemento com o código Z99 em nenhum grupo/) },
+    });
+    // Sem o direito: nada entra na fila.
+    const sem = await loja({ lojas: 1, direito: false });
+    const o2 = await opcao(sem);
+    await q(`update opcao set preco_99 = 4, canais_pausados = '["99food"]'::jsonb where id = $1`, [o2]);
+    expect(await q(`select 1 from food99_envio where ref_id = $1`, [o2])).toHaveLength(0);
+  });
+
+  it('complemento: um grupo recusa e o outro aceita = "aplicado em parte"; a 99 fora adia o envio inteiro', async () => {
+    const l = await loja({ lojas: 1 });
+    gruposDa99[l.igs[0]] = GRUPOS_DA_99;
+    const o = await opcao(l);
+    respostaDoGrupo = (corpo) => (corpo.app_modifier_group_id === 'mg2' ? { errno: 10002, errmsg: 'Parameter error.' } : { errno: 0, errmsg: 'ok' });
+    await q(`update opcao set preco_99 = 6 where id = $1`, [o]);
+    await despachar(l);
+    expect((await q(`select resultado, resposta from food99_envio where ref_id = $1`, [o]))[0]).toMatchObject({
+      resultado: 'parcial',
+      resposta: { frase: expect.stringMatching(/aplicou o preço em 1 de 2 grupos/) },
+    });
+    respostaDoGrupo = () => ({ errno: -1, errmsg: null });
+    await q(`update opcao set preco_99 = 7 where id = $1`, [o]);
+    expect(await despachar(l)).toMatchObject({ adiados: 1 });
+    expect((await q(`select situacao, tentativas from food99_envio where ref_id = $1`, [o]))[0]).toMatchObject({ situacao: 'pendente', tentativas: 1 });
+    // A tela lê o "último envio à 99" do complemento pela mesma leitura.
+    expect((await enviosDa99(db, l.t, o))[0]).toMatchObject({ oQue: 'preco', situacao: 'na_fila' });
   });
 
   it('console da distribuição: ligar exige os servidores de loja na versão da mig 401; o painel mostra os envios', async () => {

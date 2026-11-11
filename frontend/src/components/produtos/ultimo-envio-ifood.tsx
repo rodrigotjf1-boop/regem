@@ -58,7 +58,9 @@ export function UltimoEnvioIfood({ alvo, id, canal = 'ifood' }: { alvo: 'produto
     try {
       const r =
         canal === '99food'
-          ? await api.produto99Envios(id)
+          ? alvo === 'produto'
+            ? await api.produto99Envios(id)
+            : await api.opcao99Envios(id)
           : alvo === 'produto'
             ? await api.produtoIfoodEnvios(id)
             : await api.opcaoIfoodEnvios(id);

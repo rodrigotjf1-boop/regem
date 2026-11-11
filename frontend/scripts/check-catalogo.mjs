@@ -330,6 +330,28 @@ try {
     assert.match(branco.ifoodAtencao[0], /preço em branco/);
   });
 
+  caso('a 99 nos complementos (F3b): preço por código a cada grupo da 99, pausa, "Em falta"; sem a 99 nada entra', () => {
+    const o99 = { ...OPC, preco99: '4.00' };
+    const ctx = { comIfood: true, com99: true, podeMudarPreco: true };
+    const r = planoOpc({ preco99: '4,5', pausa99: true }, ctx, o99);
+    assert.deepEqual(r.precosApp, [{ canal: '99food', valor: '4.50' }]);
+    assert.deepEqual(r.pausas, [{ canal: '99food', pausado: true }]);
+    assert.match(r.n99Vai[0], /^preço R\$\s4,00 → R\$\s4,50, em cada grupo da 99 com o código A01$/);
+    assert.equal(r.n99Vai[1], 'pausa');
+    assert.deepEqual(r.ifoodVai, []);
+    // Zero vale (grátis); em branco = aviso; "Em falta" segue pausado lá.
+    assert.deepEqual(planoOpc({ preco99: '0' }, ctx, o99).precosApp, [{ canal: '99food', valor: '0.00' }]);
+    assert.match(planoOpc({ preco99: '' }, ctx, o99).n99Atencao[0], /preço em branco/);
+    const falta = planoOpc({ pausa99: false }, ctx, { ...o99, esgotado: true, canaisPausados: ['99food'] });
+    assert.match(falta.n99Atencao[0], /segue pausado na 99/);
+    // Sem a 99 ligada: nada da 99 (a mesma edição).
+    const sem = planoOpc({ preco99: '4,5', pausa99: true }, { comIfood: true, podeMudarPreco: true }, o99);
+    assert.deepEqual([sem.precosApp, sem.pausas, sem.n99Vai], [[], [], []]);
+    assert.equal(c.opcaoSemPrecoNa99({ ...OPC, preco99: null }), true);
+    assert.equal(c.opcaoPausadaEmAlgumCanal({ ...OPC, canaisPausados: ['99food'] }, true, true), true);
+    assert.equal(c.opcaoPausadaEmAlgumCanal({ ...OPC, canaisPausados: ['99food'] }, true, false), false);
+  });
+
   console.log(`\ncheck:catalogo — ${n} grupos de casos, todos certos.`);
 } finally {
   rmSync(tmp, { recursive: true, force: true });

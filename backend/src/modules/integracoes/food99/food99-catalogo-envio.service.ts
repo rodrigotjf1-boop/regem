@@ -15,6 +15,8 @@ import {
   RESERVA_99_MINUTOS,
   centavos,
   desfechoDoErrno,
+  grupoParaAtualizar,
+  gruposComOItem,
   itemParaAtualizar,
   recuoMinutos99,
 } from './food99-catalogo.regras';
@@ -32,16 +34,20 @@ type Envio99 = {
   tentativas: number;
   /** cadastro_item: os campos que mudaram ({nome, descricao}). */
   dados: Record<string, unknown> | null;
+  /** O que mudou: o produto ou a opção do catálogo (o complemento — mig 404). */
+  alvo: 'produto' | 'opcao';
 };
 
 /** O que mandar à 99 (ou por que não mandar). `pausadoNoRegem` = o Regem quer o item pausado lá. */
 type Chamada99 =
   | { dispensar: string }
   | { tipo: 'item'; codigo: string; mudar: MudancaNoItem; pausadoNoRegem: boolean }
-  | { tipo: 'situacao'; codigo: string; status: 1 | 2 };
+  | { tipo: 'situacao'; codigo: string; status: 1 | 2 }
+  // O preço do complemento: em cada grupo da 99 que o tem (centavos).
+  | { tipo: 'grupos'; codigo: string; preco: number };
 
 /** O cardápio da loja na 99, lido UMA vez por volta (por integração) e mantido em dia com o que a volta já mandou. */
-type Cardapio99 = { errno: number; errmsg: string | null; itens: Map<string, any> };
+type Cardapio99 = { errno: number; errmsg: string | null; itens: Map<string, any>; grupos: any[] };
 
 export type ResumoDo99 = { enviados: number; dispensados: number; adiados: number; desistidos: number };
 
@@ -166,13 +172,14 @@ export class Food99CatalogoEnvioService implements OnModuleInit, OnModuleDestroy
           order by f.proxima_em, f.id
           limit ${limite}
           for update of f skip locked)
-      returning e.id, e.tenant_id, e.integracao_id, e.tipo, e.ref_id, e.versao, e.tentativas, e.dados`);
+      returning e.id, e.tenant_id, e.integracao_id, e.tipo, e.ref_id, e.versao, e.tentativas, e.dados, e.alvo`);
     return ((r.rows ?? r) as any[])
       .map((x) => ({
         ...x,
         versao: Number(x.versao),
         tentativas: Number(x.tentativas),
         dados: x.dados && typeof x.dados === 'object' ? x.dados : null,
+        alvo: x.alvo === 'opcao' ? ('opcao' as const) : ('produto' as const),
       }))
       .sort((a, b) => (a.id < b.id ? -1 : 1));
   }
@@ -241,7 +248,7 @@ export class Food99CatalogoEnvioService implements OnModuleInit, OnModuleDestroy
     if (!ig || ig.tenantId !== envio.tenant_id) return this.dispensar(envio, 'a loja não está mais conectada à 99');
     if (ig.unidadeId && !ctx.lojaViva) return this.dispensar(envio, 'loja excluída');
 
-    const chamada = await this.montarChamada(envio, ig);
+    const chamada = envio.alvo === 'opcao' ? await this.montarChamadaDaOpcao(envio) : await this.montarChamada(envio, ig);
     if ('dispensar' in chamada) return this.dispensar(envio, chamada.dispensar);
 
     if (chamada.tipo === 'situacao') {
@@ -262,7 +269,8 @@ export class Food99CatalogoEnvioService implements OnModuleInit, OnModuleDestroy
       return 'enviados';
     }
 
-    // preço / nome / descrição: o item INTEIRO, como a 99 tem, com a mudança do Regem por cima.
+    // preço / nome / descrição: o item INTEIRO, como a 99 tem, com a mudança do Regem por cima. O cardápio da loja na 99
+    // é lido UMA vez por volta (os itens e os grupos de complementos).
     let lido = cardapios.get(ig.id);
     if (!lido) {
       lido = this.food99.itensDoCardapio(ig);
@@ -276,6 +284,7 @@ export class Food99CatalogoEnvioService implements OnModuleInit, OnModuleDestroy
       await this.finalizar(envio, d);
       return 'enviados';
     }
+    if (chamada.tipo === 'grupos') return this.enviarPrecoNosGrupos(envio, ig, chamada, cardapio);
     const daLista = cardapio.itens.get(chamada.codigo);
     if (!daLista) {
       const d: Desfecho99 = {
@@ -303,6 +312,66 @@ export class Food99CatalogoEnvioService implements OnModuleInit, OnModuleDestroy
     if (d.resultado === 'aplicado') this.anotarNoCardapio(cardapios, ig.id, chamada.codigo, corpo);
     await this.finalizar(envio, d);
     await this.auditar(envio, ig, 'updateItem', chamada.codigo, { preco: chamada.mudar.preco ?? null, nome: chamada.mudar.nome !== undefined, descricao: chamada.mudar.descricao !== undefined }, d);
+    return 'enviados';
+  }
+
+  /**
+   * O preço do COMPLEMENTO (mig 404): em CADA grupo da 99 que tem a opção, o "Update Modifier Group" com o grupo inteiro
+   * como a 99 tem e só o preço dela trocado. Uma falha que vale repetir adia o envio inteiro (os grupos já trocados
+   * recebem o mesmo preço de novo — nada muda); recusa num grupo e aplicado noutro = "aplicado em parte", com a frase.
+   */
+  private async enviarPrecoNosGrupos(
+    envio: Envio99,
+    ig: IntegFood99,
+    chamada: { codigo: string; preco: number },
+    cardapio: Cardapio99,
+  ): Promise<keyof ResumoDo99> {
+    const grupos = gruposComOItem(cardapio.grupos, chamada.codigo);
+    if (!grupos.length) {
+      await this.finalizar(envio, {
+        resultado: 'nao_encontrado',
+        repetir: false,
+        resposta: { frase: `A 99 não tem o complemento com o código ${chamada.codigo} em nenhum grupo desta loja: o preço vai quando ele estiver num grupo lá.` },
+        erro: null,
+      });
+      return 'enviados';
+    }
+    const antesCent = grupos
+      .map((g) => g.app_mg_items.find((it: any) => String(it?.app_item_id) === chamada.codigo)?.price)
+      .find((v: unknown) => v !== undefined && v !== null);
+    const extra = {
+      grupos: grupos.length,
+      antes: antesCent !== undefined && Number.isFinite(Number(antesCent)) ? Number(antesCent) / 100 : null,
+      depois: chamada.preco / 100,
+    };
+    let aplicados = 0;
+    let recusa: Desfecho99 | null = null;
+    for (const g of grupos) {
+      const corpo = grupoParaAtualizar(g, chamada.codigo, chamada.preco);
+      const r = await this.food99.atualizarGrupo(ig, corpo);
+      const d = desfechoDoErrno(r.errno, r.errmsg);
+      if (d.repetir) return this.falhou(envio, d);
+      if (d.resultado === 'aplicado') {
+        aplicados++;
+        g.app_mg_items = corpo.app_mg_items; // o grupo lido (o da volta) passa a ter o preço novo
+      } else recusa = recusa ?? d;
+    }
+    const d: Desfecho99 = !recusa
+      ? { resultado: 'aplicado', repetir: false, resposta: { errno: 0, ...extra }, erro: null }
+      : aplicados
+        ? {
+            resultado: 'parcial',
+            repetir: false,
+            resposta: {
+              ...recusa.resposta,
+              ...extra,
+              frase: `A 99 aplicou o preço em ${aplicados} de ${grupos.length} grupos. ${String(recusa.resposta.frase ?? '')}`.trim(),
+            },
+            erro: recusa.erro,
+          }
+        : { ...recusa, resposta: { ...recusa.resposta, ...extra } };
+    await this.finalizar(envio, d);
+    await this.auditar(envio, ig, 'updateModifierGroup', chamada.codigo, { preco: chamada.preco, grupos: grupos.length }, d);
     return 'enviados';
   }
 
@@ -338,6 +407,29 @@ export class Food99CatalogoEnvioService implements OnModuleInit, OnModuleDestroy
                         and u.deleted_at is null) as loja_viva`);
     const x = (r.rows ?? r)[0] ?? {};
     return { empresaViva: x.empresa_viva === true, liberado: x.liberado === true, lojaViva: x.loja_viva === true };
+  }
+
+  /**
+   * O COMPLEMENTO (a opção do catálogo — mig 404), lido NA HORA: a situação (pausado na 99 = "Em falta" ou `'99food'` em
+   * `canais_pausados`) ou o preço na 99 (um por código, para os grupos — zero vale, o complemento grátis).
+   */
+  private async montarChamadaDaOpcao(envio: Envio99): Promise<Chamada99> {
+    const r: any = await this.db.execute(sql`
+      select o.codigo_pdv, o.preco_99::text as preco, o.esgotado, o.deleted_at,
+             coalesce(jsonb_exists(o.canais_pausados, '99food'), false) as pausado_na_99
+        from opcao o where o.id = ${envio.ref_id} and o.tenant_id = ${envio.tenant_id}`);
+    const o = (r.rows ?? r)[0];
+    if (!o || o.deleted_at) return { dispensar: 'complemento excluído' };
+    const codigo = String(o.codigo_pdv ?? '').trim();
+    if (!codigo) return { dispensar: 'complemento sem código PDV' };
+    if (envio.tipo === 'status_item') return { tipo: 'situacao', codigo, status: o.esgotado === true || o.pausado_na_99 === true ? 2 : 1 };
+    if (envio.tipo === 'preco_item') {
+      if (o.preco == null) return { dispensar: 'sem preço na 99 (em branco: o Regem não mexe no preço de lá)' };
+      const valor = centavos(o.preco);
+      if (!(valor >= 0)) return { dispensar: 'preço inválido' };
+      return { tipo: 'grupos', codigo, preco: valor };
+    }
+    return { dispensar: 'o nome do complemento não vai à 99 por aqui' };
   }
 
   /** O que mandar, lido NA HORA (o valor mais novo). Fora das condições: dispensa, com o motivo. */
@@ -398,7 +490,7 @@ export class Food99CatalogoEnvioService implements OnModuleInit, OnModuleDestroy
       atorPerfil: 'sistema',
       tipo: 'integracao',
       acao: 'enviou_a_99',
-      entidadeTipo: 'produto',
+      entidadeTipo: envio.alvo === 'opcao' ? 'opcao' : 'produto',
       entidadeId: envio.ref_id,
       origem: '99food',
       detalhe: { chamada, codigoPdv: codigo, ...detalhe, resultado: d.resultado, errno: d.resposta.errno ?? null },

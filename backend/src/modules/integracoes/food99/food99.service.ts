@@ -535,18 +535,38 @@ export class Food99Service {
     return { errno: Number(j?.errno ?? -1), errmsg: j?.errmsg ? String(j.errmsg).slice(0, 200) : null };
   }
 
-  /** O cardápio da loja na 99 (doc 1961 "Get Store Menu Details", `GET /v3/item/item/list`): os itens por `app_item_id`. */
-  async itensDoCardapio(ig: IntegFood99): Promise<{ errno: number; errmsg: string | null; itens: Map<string, any> }> {
+  /**
+   * O cardápio da loja na 99 (doc 1961 "Get Store Menu Details", `GET /v3/item/item/list`): os itens por `app_item_id` e
+   * os grupos de complementos (`modifier_groups`, cada um com as opções e o preço delas NO grupo).
+   */
+  async itensDoCardapio(ig: IntegFood99): Promise<{ errno: number; errmsg: string | null; itens: Map<string, any>; grupos: any[] }> {
     const j = await this.comToken(ig, async (tk) => {
       const res = await fetchExterno(`${BASE}/v3/item/item/list?${new URLSearchParams({ auth_token: tk }).toString()}`, { method: 'GET' });
       return res.json();
     });
     const r = Food99Service.resposta(j);
     const itens = new Map<string, any>();
-    if (r.errno !== 0) return { ...r, itens };
-    if (!Array.isArray(j?.data?.items)) return { errno: -3, errmsg: 'a 99 respondeu sem a lista de itens', itens };
+    if (r.errno !== 0) return { ...r, itens, grupos: [] };
+    if (!Array.isArray(j?.data?.items)) return { errno: -3, errmsg: 'a 99 respondeu sem a lista de itens', itens, grupos: [] };
     for (const it of j.data.items) if (it?.app_item_id != null) itens.set(String(it.app_item_id), it);
-    return { ...r, itens };
+    const grupos = Array.isArray(j?.data?.modifier_groups) ? (j.data.modifier_groups as any[]) : [];
+    return { ...r, itens, grupos };
+  }
+
+  /**
+   * "Update Modifier Group" (doc 1971, `POST /v3/item/item/updateModifierGroup`): manda o grupo de complementos INTEIRO
+   * (nome, regra de escolha e a lista das opções com o preço delas no grupo — quem monta é `grupoParaAtualizar`).
+   */
+  async atualizarGrupo(ig: IntegFood99, grupo: Record<string, unknown>): Promise<{ errno: number; errmsg: string | null }> {
+    const j = await this.comToken(ig, async (tk) => {
+      const res = await fetchExterno(`${BASE}/v3/item/item/updateModifierGroup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auth_token: tk, ...grupo }),
+      });
+      return res.json();
+    });
+    return Food99Service.resposta(j);
   }
 
   /**
