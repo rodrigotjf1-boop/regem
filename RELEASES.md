@@ -18,6 +18,10 @@
   as taxas à nuvem pela rota do token de sync (sem o `.zip`, a tela da loja não tem a calculadora). O `.exe` já está
   pendente pelo O3/O14.
 
+- **TV de senhas: medida pela largura em px e nenhuma senha escondida (onda 2 da auditoria do KDS, T1/T2; SEM migration;
+  só tela).** Na NUVEM com o merge: a TV aberta pela nuvem. **No `.zip` 1.30.13:** a TV servida pelo servidor da loja (a
+  TV de senhas da loja fala com ele) — sem o `.zip`, ela segue com o "+N senhas" e as medidas em `cqi`.
+
 - **"Conferir com os apps": criar a opção do complemento no Regem (R3, fase F4c; SEM migration; só tela).** Na NUVEM com
   o merge. **No `.zip` 1.30.13:** a mesma gaveta na tela do servidor da loja (a criação de opção de sempre roda na loja).
 
