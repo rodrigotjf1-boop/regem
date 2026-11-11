@@ -60,6 +60,7 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
     pool = new Pool({ connectionString: URL_PG });
     db = drizzle(pool, { schema });
     await aplicar('389_vagas_e_candidatos.sql');
+    await aplicar('397_candidato_distancia.sql'); // F2: o serviço grava as colunas da distância (ERR-273: toda spec que monta a 389)
     const registrar = { registrar: async (e: any) => void auditoria.push(e) } as any;
     svc = new VagasService(db, registrar, new ModuloService(db, registrar));
     await q(`insert into empresa (id, nome) values ($1, 'teste vagas'), ($2, 'outra empresa das vagas')`, [T, T2]);
@@ -276,5 +277,112 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
     expect(sobrou.sort()).toEqual([contratada, emDia, outraEmpresa].sort());
     expect(auditoria.map((a) => [a.tenantId, a.acao, a.detalhe.apagadas])).toEqual([[T, 'candidato.expurgo', 1]]);
     expect((await svc.expurgar({ tenantIds: [T] })).apagadas).toBe(0); // idempotente
+  });
+
+  // ── F2: a distância até a loja (mig 397) — o mapa é o OSRM da VPS; aqui o Nominatim e o OSRM são de mentira ─────────
+  describe('F2 · a distância até a loja', () => {
+    const PONTO_DA_LOJA = { lat: -22.9, lng: -43.2 };
+    const PONTO_DO_CANDIDATO = { lat: -22.95, lng: -43.25 };
+    let localizar: jest.SpyInstance;
+    let rota: jest.SpyInstance;
+    const idDe = async (tel: string) => (await q(`select id from candidato where tenant_id = $1 and telefone = $2`, [T, tel.replace(/\D/g, '')]))[0].id as string;
+    // Roda a rotina até não sobrar o que medir agora (cada volta reserva antes de medir).
+    const medirTudo = async () => {
+      for (let i = 0; i < 6; i++) {
+        const r = await svc.medirPendentes(50);
+        if (!r.medidas && !r.falhas) return;
+      }
+    };
+    const daLista = async (id: string) => (await svc.lista(T, lojaA)).find((l: any) => l.id === id);
+
+    beforeAll(async () => {
+      await q(`update cardapio_config set end_lat = $3, end_lng = $4 where tenant_id = $1 and unidade_id = $2`, [T, lojaA, PONTO_DA_LOJA.lat, PONTO_DA_LOJA.lng]);
+      // o que já estava na base (as outras specs desta empresa) sai da frente: medido de mentira
+      await q(`update candidato set distancia_em = now() where distancia_em is null`);
+    });
+    beforeEach(() => {
+      localizar = jest.spyOn(svc as any, 'localizar').mockResolvedValue(PONTO_DO_CANDIDATO);
+      rota = jest.spyOn(svc as any, 'rotaDeCarro').mockResolvedValue({ metros: 12345, segundos: 1490 });
+    });
+    afterEach(() => jest.restoreAllMocks());
+
+    it('a 397 é idempotente e a conferência vem toda ok', async () => {
+      const r: any = await aplicar('397_candidato_distancia.sql');
+      const conferencia = (Array.isArray(r) ? r[r.length - 1] : r).rows;
+      expect(conferencia.length).toBe(3);
+      expect(conferencia.filter((l: any) => l.ok !== true)).toEqual([]);
+    });
+
+    it('mede depois de gravar: a lista e a ficha mostram km e minutos; o mesmo endereço no reenvio mantém, outro zera', async () => {
+      await svc.receberFicha(codigo, fichaValida({ whatsapp: '(21) 3333-0301' }));
+      const id = await idDe('(21) 3333-0301');
+      expect(await daLista(id)).toMatchObject({ distanciaKm: null, minutosCarro: null, distanciaMedindo: true, distanciaFalha: null });
+      expect(localizar).not.toHaveBeenCalled(); // o candidato não espera pela medida
+
+      await medirTudo();
+      expect(rota).toHaveBeenCalledWith(PONTO_DO_CANDIDATO, PONTO_DA_LOJA);
+      expect(await daLista(id)).toMatchObject({ distanciaKm: 12.3, minutosCarro: 25, distanciaMedindo: false, distanciaFalha: null });
+      expect((await svc.ficha(T, lojaA, id)).distancia).toMatchObject({ km: 12.3, minutos: 25, falha: null, medindo: false });
+      const [p] = await q(`select lat, lng from candidato where id = $1`, [id]);
+      expect([p.lat, p.lng]).toEqual([PONTO_DO_CANDIDATO.lat, PONTO_DO_CANDIDATO.lng]);
+
+      await svc.receberFicha(codigo, fichaValida({ whatsapp: '(21) 3333-0301' })); // mesmo endereço
+      expect((await svc.ficha(T, lojaA, id)).distancia).toMatchObject({ km: 12.3, medindo: false });
+      await svc.receberFicha(codigo, fichaValida({ whatsapp: '(21) 3333-0301', numero: '999' })); // outro endereço
+      expect((await svc.ficha(T, lojaA, id)).distancia).toMatchObject({ km: null, minutos: null, medindo: true });
+      await medirTudo();
+      expect((await svc.ficha(T, lojaA, id)).distancia).toMatchObject({ km: 12.3, medindo: false });
+    });
+
+    it('sem o ponto da loja: o motivo aparece, para em 3 tentativas; "Medir de novo" depois do ponto mede na hora', async () => {
+      await q(`update cardapio_config set end_lat = null, end_lng = null where tenant_id = $1 and unidade_id = $2`, [T, lojaA]);
+      try {
+        await svc.receberFicha(codigo, fichaValida({ whatsapp: '(21) 3333-0302' }));
+        const id = await idDe('(21) 3333-0302');
+        for (let i = 0; i < 4; i++) {
+          await medirTudo();
+          await q(`update candidato set distancia_tentada_em = now() - interval '1 hour' where id = $1`, [id]); // passa a espera
+        }
+        const [t] = await q(`select distancia_tentativas from candidato where id = $1`, [id]);
+        expect(t.distancia_tentativas).toBe(3);
+        expect(await daLista(id)).toMatchObject({ distanciaKm: null, distanciaFalha: 'sem_ponto_da_loja', distanciaMedindo: false });
+        expect(localizar).not.toHaveBeenCalled(); // sem a loja no mapa nem busca o endereço
+
+        await q(`update cardapio_config set end_lat = $3, end_lng = $4 where tenant_id = $1 and unidade_id = $2`, [T, lojaA, PONTO_DA_LOJA.lat, PONTO_DA_LOJA.lng]);
+        expect(await svc.medirDeNovo(T, lojaA, id)).toMatchObject({ km: 12.3, minutos: 25, falha: null, medindo: false });
+        await expect(svc.medirDeNovo(T2, null, id)).rejects.toThrow(NotFoundException); // outra empresa não mexe
+      } finally {
+        await q(`update cardapio_config set end_lat = $3, end_lng = $4 where tenant_id = $1 and unidade_id = $2`, [T, lojaA, PONTO_DA_LOJA.lat, PONTO_DA_LOJA.lng]);
+      }
+    });
+
+    it('endereço que o mapa não acha e mapa fora: cada um com o seu motivo (o ponto achado fica)', async () => {
+      localizar.mockResolvedValueOnce(null);
+      await svc.receberFicha(codigo, fichaValida({ whatsapp: '(21) 3333-0303' }));
+      await medirTudo();
+      expect(await daLista(await idDe('(21) 3333-0303'))).toMatchObject({ distanciaKm: null, distanciaFalha: 'endereco_nao_achado', distanciaMedindo: true });
+
+      rota.mockResolvedValueOnce(null);
+      await svc.receberFicha(codigo, fichaValida({ whatsapp: '(21) 3333-0304' }));
+      await medirTudo();
+      const id = await idDe('(21) 3333-0304');
+      expect(await daLista(id)).toMatchObject({ distanciaKm: null, distanciaFalha: 'mapa_fora' });
+      const [p] = await q(`select lat from candidato where id = $1`, [id]);
+      expect(p.lat).toBe(PONTO_DO_CANDIDATO.lat);
+    });
+
+    it('o candidato muda o endereço enquanto a rotina mede: a medida do endereço velho não grava', async () => {
+      await svc.receberFicha(codigo, fichaValida({ whatsapp: '(21) 3333-0305' }));
+      const id = await idDe('(21) 3333-0305');
+      localizar.mockImplementationOnce(async () => {
+        await svc.receberFicha(codigo, fichaValida({ whatsapp: '(21) 3333-0305', numero: '777' })); // reenvio no meio
+        return PONTO_DO_CANDIDATO;
+      });
+      await svc.medirPendentes(50);
+      expect((await svc.ficha(T, lojaA, id)).distancia).toMatchObject({ km: null, falha: null, medindo: true });
+      await medirTudo(); // a rotina mede o endereço novo
+      const [c] = await q(`select numero, distancia_km::float8 as km from candidato where id = $1`, [id]);
+      expect([c.numero, c.km]).toEqual(['777', 12.3]);
+    });
   });
 });

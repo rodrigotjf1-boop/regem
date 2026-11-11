@@ -2293,6 +2293,8 @@ export const api = {
     req(`/vagas/candidatos/${id}/anotacao`, { method: 'POST', body: JSON.stringify({ texto }) }),
   vagasEntrevista: (id: string, quando: string) =>
     req(`/vagas/candidatos/${id}/entrevista`, { method: 'POST', body: JSON.stringify({ quando }) }),
+  // F2: medir de novo a distância até a loja (o mapa auto-hospedado) — devolve { km, minutos, falha, medindo, em }
+  vagasMedirDistancia: (id: string) => req(`/vagas/candidatos/${id}/distancia`, { method: 'POST' }),
   vagasApagar: (id: string) => req(`/vagas/candidatos/${id}`, { method: 'DELETE' }),
   vagasAjustes: () => req('/vagas/pagina'),
   vagasSalvarAjustes: (body: Record<string, unknown>) => req('/vagas/pagina', { method: 'PUT', body: JSON.stringify(body) }),

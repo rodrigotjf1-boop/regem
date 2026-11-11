@@ -53,6 +53,21 @@ export function nomeDaOrigem(codigo: string | null, nomeDoQr: string | null | un
   if (!codigo) return '';
   return nomeDoQr || ORIGEM_LINK_ROTULO[codigo] || legivel(codigo);
 }
+
+/** F2 (mig 397): por que a distância não saiu — as chaves são as do servidor (`FALHAS_DE_DISTANCIA`, o `check:vagas` compara). */
+export const FALHA_DISTANCIA_ROTULO: Record<string, string> = {
+  sem_ponto_da_loja: 'Falta o "Ponto da loja no mapa" em Configurações › Loja',
+  endereco_nao_achado: 'O mapa não achou este endereço',
+  mapa_fora: 'O mapa não respondeu agora',
+};
+export interface Distancia { km: number | null; minutos: number | null; falha: string | null; medindo: boolean }
+export const kmBr = (km: number) => `${km.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km`;
+/** "≈ 12,3 km da loja · 25 min de carro" (pelo nosso mapa, OSRM) — ou o que falta. */
+export function distanciaTexto(d: Distancia): string {
+  if (d.km !== null && d.km !== undefined) return `≈ ${kmBr(d.km)} da loja${d.minutos ? ` · ${d.minutos} min de carro` : ''}`;
+  if (d.falha) return `${FALHA_DISTANCIA_ROTULO[d.falha] ?? 'Distância não medida'}${d.medindo ? ' — tenta de novo sozinho' : ''}`;
+  return d.medindo ? 'Medindo a distância…' : 'Distância não medida';
+}
 export const SUGESTOES_DE_CURSO =['Boas práticas / manipulação de alimentos', 'Cozinha', 'Atendimento ao cliente', 'Barista', 'Informática'];
 
 export interface HorarioPublico { ativa: boolean; inicio: string; fim: string }

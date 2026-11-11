@@ -1,7 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
 import {
+  buscasDoEndereco,
   gerarProtocolo,
   idadeEm,
+  kmDeMetros,
   lerFicha,
   lerOrigem,
   lerPagina,
@@ -158,5 +160,22 @@ describe('vagas · pequenas regras', () => {
     expect(lerSituacao('entrevista')).toBe('entrevista');
     expect(() => lerSituacao('demitido')).toThrow(BadRequestException);
     expect(termoDaComunicacao('Lanchonete Teste').texto.join(' ')).toContain('SAIR');
+  });
+});
+
+describe('vagas · F2, a distância até a loja', () => {
+  it('as buscas do endereço no mapa: da exata (rua e número) à larga (bairro e cidade), sem repetir', () => {
+    expect(buscasDoEndereco({ rua: 'Rua Teste', numero: '120', bairro: 'Centro', cidade: 'Rio de Janeiro – RJ' })).toEqual([
+      'Rua Teste, 120, Centro, Rio de Janeiro, RJ, Brasil',
+      'Centro, Rio de Janeiro, RJ, Brasil',
+    ]);
+    // sem rua o número não localiza nada: só a busca larga
+    expect(buscasDoEndereco({ rua: '', numero: '120', bairro: 'Centro', cidade: 'Rio de Janeiro – RJ' })).toEqual(['Centro, Rio de Janeiro, RJ, Brasil']);
+    expect(buscasDoEndereco({ rua: 'Rua Teste', numero: null, bairro: null, cidade: 'Niterói' })).toEqual(['Rua Teste, Niterói, Brasil']);
+    expect(buscasDoEndereco({ rua: 'Rua Teste', numero: '1', bairro: 'Centro', cidade: '' })).toEqual([]); // sem cidade não busca
+  });
+
+  it('metros do OSRM viram km com uma casa', () => {
+    expect([kmDeMetros(12345), kmDeMetros(950), kmDeMetros(0)]).toEqual([12.3, 1, 0]);
   });
 });

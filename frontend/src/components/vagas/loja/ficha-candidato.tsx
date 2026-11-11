@@ -2,14 +2,14 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { mascaraTelefone } from '@/lib/br';
+import { mascaraCep, mascaraTelefone } from '@/lib/br';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialogo, Gaveta } from '@/components/ui/sobreposto';
 import { Selo, hojeIso, texto2 } from '@/components/ui/lista';
 import {
-  brl, CARGO_ROTULO, COMECA_ROTULO, CURSO_SITUACAO_ROTULO, EQUIPE_ROTULO, GRAU_ATUAL_ROTULO, GRAU_FINAL_ROTULO, idadeEm, MEIO_ROTULO,
+  brl, CARGO_ROTULO, COMECA_ROTULO, CURSO_SITUACAO_ROTULO, distanciaTexto, EQUIPE_ROTULO, GRAU_ATUAL_ROTULO, GRAU_FINAL_ROTULO, idadeEm, MEIO_ROTULO, type Distancia,
   nomeDaFuncao, nomeDaOrigem, ORIGEM_ROTULO, SETOR_ROTULO, SEXO_ROTULO, SITUACAO_ROTULO, TEMPO_ROTULO, TURNO_ESTUDO_ROTULO, UBER_ROTULO, VINCULO_ROTULO,
 } from '@/lib/vagas-ficha';
 import { vagaDoCandidato } from './lista-candidatos';
@@ -73,6 +73,22 @@ export function FichaCandidato({ id, nomesDasFuncoes, aoFechar, aoMudar, aoApaga
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Não deu certo. Tente de novo.');
       return false;
+    } finally {
+      setOcupado(false);
+    }
+  };
+
+  // F2: medir de novo a distância (a loja acabou de pôr o ponto no mapa, por exemplo) — a resposta já diz se mediu
+  const medirDeNovo = async () => {
+    setOcupado(true);
+    try {
+      const d = (await api.vagasMedirDistancia(id)) as Distancia;
+      if (d.km !== null) toast.success('Distância medida.');
+      else toast.error(distanciaTexto({ ...d, medindo: false }));
+      await carregar();
+      aoMudar();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Não deu para medir agora. Tente de novo.');
     } finally {
       setOcupado(false);
     }
@@ -240,7 +256,15 @@ export function FichaCandidato({ id, nomesDasFuncoes, aoFechar, aoMudar, aoApaga
         <Secao titulo="Como chega à loja">
           <Lista>
             <Item rotulo="Endereço">
-              {[c.endereco?.rua, c.endereco?.numero, c.endereco?.complemento].filter(Boolean).join(', ')} · CEP {c.endereco?.cep}
+              {[c.endereco?.rua, c.endereco?.numero, c.endereco?.complemento].filter(Boolean).join(', ')}{c.endereco?.cep ? ` · CEP ${mascaraCep(c.endereco.cep)}` : ''}
+            </Item>
+            <Item rotulo="Distância até a loja (pela rua)">
+              <span className="block">{c.distancia ? distanciaTexto(c.distancia) : 'Distância não medida'}</span>
+              {c.distancia && c.distancia.km === null && (!c.distancia.medindo || c.distancia.falha) && (
+                <Button type="button" size="sm" variant="outline" className="mt-1" disabled={ocupado} onClick={() => void medirDeNovo()}>
+                  Medir de novo
+                </Button>
+              )}
             </Item>
             <Item rotulo="Como vem">{c.meios.map((m: string) => MEIO_ROTULO[m]).join(' + ')}</Item>
             {c.conducoes && <Item rotulo="Conduções (informou)">{c.conducoes >= 4 ? '4 ou mais' : c.conducoes}</Item>}

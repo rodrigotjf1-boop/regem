@@ -58,6 +58,7 @@ try {
       ['CARGOS', v.CARGO_ROTULO], ['EQUIPES', v.EQUIPE_ROTULO], ['GRAU_ATUAL', v.GRAU_ATUAL_ROTULO], ['GRAU_FINAL', v.GRAU_FINAL_ROTULO],
       ['TURNOS_ESTUDO', v.TURNO_ESTUDO_ROTULO], ['MEIOS', v.MEIO_ROTULO], ['UBER_MOTIVOS', v.UBER_ROTULO], ['COMECA', v.COMECA_ROTULO],
       ['SEXOS', v.SEXO_ROTULO], ['ORIGENS_DECLARADAS', v.ORIGEM_ROTULO], ['SITUACOES', v.SITUACAO_ROTULO],
+      ['FALHAS_DE_DISTANCIA', v.FALHA_DISTANCIA_ROTULO],
     ];
     for (const [nome, mapa] of pares) assert.deepEqual(Object.keys(mapa).sort(), listaDoServidor(nome).sort(), nome);
   });
@@ -106,6 +107,14 @@ try {
     assert.equal(c.valor_ida, undefined); // a pé não manda valor
     assert.equal(c.estuda, false);
     assert.equal(c.origem, 'balcao');
+  });
+
+  caso('F2: a distância pelo nosso mapa vira texto (medida, medindo, cada falha)', () => {
+    assert.equal(v.distanciaTexto({ km: 12.3, minutos: 25, falha: null, medindo: false }), '≈ 12,3 km da loja · 25 min de carro');
+    assert.equal(v.distanciaTexto({ km: 1, minutos: null, falha: null, medindo: false }), '≈ 1,0 km da loja');
+    assert.equal(v.distanciaTexto({ km: null, minutos: null, falha: null, medindo: true }), 'Medindo a distância…');
+    assert.equal(v.distanciaTexto({ km: null, minutos: null, falha: 'endereco_nao_achado', medindo: true }), 'O mapa não achou este endereço — tenta de novo sozinho');
+    assert.match(v.distanciaTexto({ km: null, minutos: null, falha: 'sem_ponto_da_loja', medindo: false }), /Configurações › Loja/);
   });
 
   caso('a origem do link vira "como ficou sabendo"', () => {
