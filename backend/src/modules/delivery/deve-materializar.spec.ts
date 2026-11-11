@@ -44,4 +44,18 @@ describe('deveMaterializar (edge)', () => {
       expect(deveMaterializar({ canal, pago: false, formaPagamento: 'cartao' }, false)).toBe(true);
     }
   });
+
+  // Auditoria do KDS (11/11/2026): o Pix/cartão online do nosso cardápio (e o sinal da encomenda) ainda não pago ia para a
+  // cozinha em 15 s no servidor da loja — com qualquer canal e qualquer configuração, ele espera o pagamento.
+  it('pagamento online ainda não pago (ou sinal pendente) nunca vira produção', () => {
+    for (const canal of ['cardapio', 'whatsapp', 'totem', 'ifood']) {
+      for (const config of [true, false]) {
+        expect(deveMaterializar({ canal, pago: false, statusPagamento: 'aguardando' }, config)).toBe(false);
+        expect(deveMaterializar({ canal, pago: false, sinalStatus: 'pendente' }, config)).toBe(false);
+      }
+    }
+    expect(deveMaterializar({ canal: 'cardapio', pago: true, statusPagamento: 'aprovado' }, true)).toBe(true);
+    expect(deveMaterializar({ canal: 'cardapio', pago: false, statusPagamento: 'na_entrega' }, true)).toBe(true);
+    expect(deveMaterializar({ canal: 'cardapio', pago: false, statusPagamento: 'sinal_pago', sinalStatus: 'pago' }, true)).toBe(true);
+  });
 });

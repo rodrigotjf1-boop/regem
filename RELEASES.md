@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Pagamento pendente, aceite e avanço do pedido (auditoria do KDS, onda 1, PR 2b; SEM migration; não mexe no
+  `sync-daemon`).** Na NUVEM com o merge (entrada, aceite, resgate). **No `.zip` 1.30.13 — importante para a loja com
+  servidor:** é o servidor da loja que aceita em 15 s os pedidos que descem; sem o `.zip` ele continua aceitando o Pix/cartão
+  online ainda não pago e o aceite segue sem a trava (o resgate da nuvem já respeita).
+
 - **Retirada finalizada pelo canal (auditoria do KDS, onda 1, PR 2a; SEM migration; não mexe no `sync-daemon`).** Na
   NUVEM com o merge (é lá que a Anota Aí e o Cardápio Web refletem o status): a retirada paga que o canal finaliza conclui
   (estoque e cartão); a "a pagar" fecha só o cartão da cozinha. O cartão fechado desce ao servidor da loja pelo sync. **No

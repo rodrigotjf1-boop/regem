@@ -959,7 +959,13 @@ export class DeliveryService {
     const cfg = await this.configRaw(tenantId, unidadeId);
     // P1: se a loja tem servidor edge ativo (modo local), a nuvem NÃO materializa —
     // o pedido desce pelo sync e o edge o processa localmente (KDS/estoque).
-    if (cfg?.autoAceitar && !extra?.naoAutoAceitar && !(await this.deferirParaEdge(tenantId, unidadeId))) {
+    // Pedido que espera o pagamento online não é aceito na entrada: vai à cozinha quando pagar (aoConfirmarPagamento).
+    if (
+      cfg?.autoAceitar &&
+      !extra?.naoAutoAceitar &&
+      !DeliveryService.aguardandoPagamentoOnline(row) &&
+      !(await this.deferirParaEdge(tenantId, unidadeId))
+    ) {
       try {
         return await this.aceitar(tenantId, null, row.id);
       } catch {
@@ -1417,6 +1423,12 @@ export class DeliveryService {
       throw new BadRequestException(
         'Este pedido está sendo pago no totem (cartão/PIX): ele vai para a produção sozinho quando o pagamento for aprovado.',
       );
+    // Pix/cartão online do nosso cardápio (ou o sinal da encomenda) ainda não pago: idem — vale para o botão, o aceite
+    // automático, o servidor da loja e o resgate da nuvem (todos passam por aqui).
+    if (DeliveryService.aguardandoPagamentoOnline(ped))
+      throw new BadRequestException(
+        'Este pedido espera o pagamento online (Pix/cartão): ele vai para a produção sozinho quando o pagamento for aprovado.',
+      );
 
     const itens = (ped.itens as any[]) ?? [];
     const codigos = itens.map((i) => i.codigo).filter(Boolean);
@@ -1472,9 +1484,21 @@ export class DeliveryService {
     const cfg = await this.configRaw(tenantId, ped.unidadeId);
     // Pedido IGUAL ainda sem o "São dois pedidos" (mig 360): a via da cozinha sai com o aviso no alto.
     const repetido = await marcaAbertaDoPedido(this.db, tenantId, ped);
+    // TRAVA DO ACEITE (auditoria do KDS, 11/11/2026): o pedido é RESERVADO antes de a venda nascer — gravação condicional
+    // de 'novo' para 'confirmado'. Antes, dois aceites ao mesmo tempo (o automático com o evento do canal, o servidor da
+    // loja com o resgate da nuvem, dois cliques) liam 'novo', criavam DUAS vendas e dois cartões na cozinha, e a venda
+    // órfã contava como balcão (ERR-251). Quem perde a reserva recebe "já foi aceito"; se a venda falhar, a reserva volta.
+    const reservado = await this.db
+      .update(pedidoExterno)
+      .set({ status: 'confirmado', confirmadoEm: new Date() })
+      .where(and(eq(pedidoExterno.id, id), eq(pedidoExterno.status, 'novo'), isNull(pedidoExterno.comandaId)))
+      .returning({ id: pedidoExterno.id });
+    if (!reservado.length) throw new BadRequestException('Pedido já foi aceito.');
     // Retirada/consumo no local = produção do BALCÃO; entrega (courier) = DELIVERY.
     // A plataforma (iFood/Cardápio/Totem) segue no rótulo do card em ambos.
-    const venda = await this.vendas.venderExterno(tenantId, atorId, {
+    let venda: Awaited<ReturnType<VendasService['venderExterno']>>;
+    try {
+      venda = await this.vendas.venderExterno(tenantId, atorId, {
       unidadeId: ped.unidadeId,
       cliente: ped.clienteNome,
       // Normaliza a forma crua do canal → rótulo unificado do Regem (dinheiro/pix/
@@ -1518,6 +1542,15 @@ export class DeliveryService {
         };
       }),
     });
+    } catch (e) {
+      // A venda não nasceu (produto sem cadastro, banco…): a reserva volta — o pedido segue 'novo' e aceitável.
+      await this.db
+        .update(pedidoExterno)
+        .set({ status: 'novo', confirmadoEm: null })
+        .where(and(eq(pedidoExterno.id, id), eq(pedidoExterno.status, 'confirmado'), isNull(pedidoExterno.comandaId)))
+        .catch((err: any) => this.logger.error(`aceite do pedido ${id}: a reserva não voltou para 'novo' — ${err?.message ?? err}`));
+      throw e;
+    }
 
     const [row] = await this.db
       .update(pedidoExterno)
@@ -1527,8 +1560,14 @@ export class DeliveryService {
         confirmadoEm: new Date(),
         autoAceiteFalhou: false,
       })
-      .where(eq(pedidoExterno.id, id))
+      // Só o pedido ainda reservado por ESTE aceite: se o canal cancelou no meio (o reflexo do cancelado achou a reserva
+      // sem venda), a venda que acabou de nascer é desfeita aqui.
+      .where(and(eq(pedidoExterno.id, id), eq(pedidoExterno.status, 'confirmado'), isNull(pedidoExterno.comandaId)))
       .returning();
+    if (!row) {
+      await this.desfazerVendaDoCancelado(tenantId, { id, comandaId: venda.comandaId }, 'Pedido cancelado enquanto era aceito');
+      throw new ConflictException('O pedido foi cancelado enquanto era aceito: a venda foi desfeita.');
+    }
     void this.dispararWebhook(tenantId, row);
     // Código de entrega própria: avisa o cliente por WhatsApp que ele precisará informar o código ao entregador.
     void this.avisarCodigoDeEntrega(tenantId, row);
@@ -1652,11 +1691,15 @@ export class DeliveryService {
     }
     if (novo === 'concluido') patch.concluidoEm = new Date();
     patch.updatedAt = new Date(); // bump explícito → sync edge→nuvem pega a transição (LWW/cursor)
+    // Gravação CONDICIONAL à etapa lida (V43): dois "pronto" ao mesmo tempo (duas estações terminando juntas, o "Finalizar
+    // todos" com 8 em paralelo, dois cliques) faziam o segundo reler 'pronto' e avançar para despachado — mandando o
+    // dispatch ao canal e o rastreio ao cliente (auditoria do KDS, 11/11/2026). Só um avança; o outro recebe 409.
     const [row] = await this.db
       .update(pedidoExterno)
       .set(patch)
-      .where(eq(pedidoExterno.id, id))
+      .where(and(eq(pedidoExterno.id, id), eq(pedidoExterno.status, ped.status)))
       .returning();
+    if (!row) throw new ConflictException('O pedido mudou de etapa enquanto você avançava. A tela vai atualizar.');
     // Ao concluir (entrega): baixa o estoque e concilia o dinheiro na gaveta.
     if (novo === 'concluido' && row.comandaId) {
       await this.vendas
@@ -2003,6 +2046,15 @@ export class DeliveryService {
       totemAlertaMinutos: MINUTOS_ALERTA_TOTEM,
       cheguei: ajusteCheguei ? { ativo: ajusteCheguei.ativo, deNovoMin: ajusteCheguei.deNovoMin } : null,
     };
+  }
+
+  /**
+   * O pedido ESPERA o pagamento online (Pix/cartão do nosso cardápio, ou o sinal da encomenda)? Ele não vai para a cozinha
+   * antes de pagar: quando o pagamento é aprovado, `aoConfirmarPagamento` o aceita; vencido, o Pix é cancelado. Antes o
+   * aceite automático da entrada, o servidor da loja e o resgate da nuvem aceitavam na hora (auditoria do KDS, 11/11/2026).
+   */
+  static aguardandoPagamentoOnline(p: { statusPagamento?: string | null; sinalStatus?: string | null }): boolean {
+    return p.statusPagamento === 'aguardando' || p.sinalStatus === 'pendente';
   }
 
   /** A retirada já está paga (online, pelo canal ou já cobrada no balcão)? Só ela conclui quando o canal finaliza. */

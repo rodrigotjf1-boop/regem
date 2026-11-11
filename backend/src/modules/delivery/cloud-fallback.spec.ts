@@ -50,6 +50,8 @@ descrever('resgate da nuvem de pedido online preso', () => {
         aceitos.push(id);
         await q("update pedido_externo set status = 'confirmado' where id = $1", [id]);
       },
+      // "Produz só depois do pagamento" (totem em dinheiro) — a configuração padrão das lojas.
+      totemAposPagamento: async () => true,
     } as any);
   });
   const criadas: string[] = [];
@@ -129,6 +131,36 @@ descrever('resgate da nuvem de pedido online preso', () => {
     const id = await pedidoNovo(t, u);
     await proc.processar();
     expect(aceitos).toContain(id);
+  });
+
+  // Auditoria do KDS (11/11/2026): o resgate aceitava o que a loja não aceitaria — a cozinha recebia sem pagamento.
+  it('servidor caiu: Pix/cartão online ainda NÃO pago e o sinal pendente NÃO são resgatados (esperam o pagamento)', async () => {
+    const { t, u } = await empresa();
+    await servidorLocal(t, u);
+    await q(`insert into edge_status (equipamento_id, tenant_id, unidade_id, versao, recebido_em) values ($1,$2,$3,'1.30.0', now() - interval '10 minutes')`, [randomUUID(), t, u]);
+    const pix = await pedidoNovo(t, u, 'cardapio');
+    await q(`update pedido_externo set status_pagamento = 'aguardando' where id = $1`, [pix]);
+    const sinal = await pedidoNovo(t, u, 'cardapio');
+    await q(`update pedido_externo set sinal_status = 'pendente' where id = $1`, [sinal]);
+    const pago = await pedidoNovo(t, u, 'cardapio');
+    await q(`update pedido_externo set status_pagamento = 'aprovado', pago = true where id = $1`, [pago]);
+    await proc.processar();
+    expect(aceitos).not.toContain(pix);
+    expect(aceitos).not.toContain(sinal);
+    expect(aceitos).toContain(pago);
+  });
+
+  it('servidor caiu: totem em DINHEIRO numa loja que "produz só depois de pagar" NÃO vai à cozinha pelo resgate', async () => {
+    const { t, u } = await empresa();
+    await servidorLocal(t, u);
+    await q(`insert into edge_status (equipamento_id, tenant_id, unidade_id, versao, recebido_em) values ($1,$2,$3,'1.30.0', now() - interval '10 minutes')`, [randomUUID(), t, u]);
+    const dinheiro = await pedidoNovo(t, u, 'totem');
+    await q(`update pedido_externo set pago = false, forma_pagamento = 'dinheiro' where id = $1`, [dinheiro]);
+    const totemPago = await pedidoNovo(t, u, 'totem');
+    await q(`update pedido_externo set pago = true, forma_pagamento = 'pix' where id = $1`, [totemPago]);
+    await proc.processar();
+    expect(aceitos).not.toContain(dinheiro);
+    expect(aceitos).toContain(totemPago);
   });
 
   it('loja que só usa o GoGeM na nuvem: a credencial dele NÃO é servidor de loja → NÃO aceita no lugar da loja', async () => {

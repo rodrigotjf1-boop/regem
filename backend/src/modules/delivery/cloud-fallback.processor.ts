@@ -4,6 +4,7 @@ import { and, eq, gte, isNull, lt, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { pedidoExterno, edgeHeartbeat } from '../../db/schema';
 import { DeliveryService } from './delivery.service';
+import { deveMaterializar } from './deve-materializar';
 
 /**
  * P2 — Rede de segurança da NUVEM para pedidos online presos.
@@ -63,7 +64,15 @@ export class CloudFallbackProcessor {
       // `servidor_local` contando, a loja que só usa o GoGeM na nuvem passava por "servidor morto"
       // e a nuvem aceitava os pedidos do iFood/99 no lugar dela (ERR-108).
       const presos = await this.db
-        .select({ id: pedidoExterno.id, tenantId: pedidoExterno.tenantId })
+        .select({
+          id: pedidoExterno.id,
+          tenantId: pedidoExterno.tenantId,
+          canal: pedidoExterno.canal,
+          pago: pedidoExterno.pago,
+          formaPagamento: pedidoExterno.formaPagamento,
+          statusPagamento: pedidoExterno.statusPagamento,
+          sinalStatus: pedidoExterno.sinalStatus,
+        })
         .from(pedidoExterno)
         .where(
           and(
@@ -71,6 +80,9 @@ export class CloudFallbackProcessor {
             isNull(pedidoExterno.comandaId),
             lt(pedidoExterno.criadoEm, corteIdade),
             sql`(${pedidoExterno.canal} is not null and ${pedidoExterno.canal} <> 'balcao')`,
+            // Pix/cartão online (ou o sinal) ainda não pago espera FORA da leitura (V84): na nuvem quem aceita depois é
+            // o pagamento aprovado.
+            sql`coalesce(${pedidoExterno.statusPagamento}, '') <> 'aguardando' and coalesce(${pedidoExterno.sinalStatus}, '') <> 'pendente'`,
             sql`exists (select 1 from equipamento e
                          where e.tenant_id = ${pedidoExterno.tenantId} and e.tipo = 'servidor_local'
                            and e.ativo = true
@@ -93,8 +105,13 @@ export class CloudFallbackProcessor {
         )
         .limit(50);
 
+      // A MESMA regra do servidor da loja (`deveMaterializar`): o totem em dinheiro de loja que "produz só depois de pagar"
+      // não vai à cozinha pelo resgate (antes ia — ERR-091 por outro caminho; auditoria do KDS, 11/11/2026).
+      const aposPagamento = new Map<string, boolean>();
       for (const p of presos) {
         try {
+          if (!aposPagamento.has(p.tenantId)) aposPagamento.set(p.tenantId, await this.delivery.totemAposPagamento(p.tenantId));
+          if (!deveMaterializar(p, aposPagamento.get(p.tenantId) ?? true)) continue;
           await this.delivery.aceitar(p.tenantId, null, p.id);
           this.logger.warn(`pedido online ${p.id} resgatado na nuvem (edge inativo)`);
         } catch (e: any) {

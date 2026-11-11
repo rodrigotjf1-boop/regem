@@ -15,12 +15,18 @@ export type PedidoParaMaterializar = {
   canal?: string | null;
   pago?: boolean | null;
   formaPagamento?: string | null;
+  // Pagamento ONLINE do nosso cardápio (mig do Pix) e sinal da encomenda: enquanto esperam, nada de cozinha.
+  statusPagamento?: string | null;
+  sinalStatus?: string | null;
 };
 
 export function deveMaterializar(
   pedido: PedidoParaMaterializar,
   totemProduzAposPagamento: boolean,
 ): boolean {
+  // Pix/cartão online (ou o sinal) ainda não pago: espera — quando aprova, a linha desce paga e este ciclo materializa.
+  // Antes o servidor da loja aceitava todo pedido "novo" em 15 s, com o cliente ainda pagando (auditoria do KDS, 11/11/2026).
+  if (pedido.statusPagamento === 'aguardando' || pedido.sinalStatus === 'pendente') return false;
   const canal = (pedido.canal ?? '').toLowerCase();
   const ehTotemAPagar = canal === 'totem' && pedido.pago !== true;
   if (!ehTotemAPagar) return true;
