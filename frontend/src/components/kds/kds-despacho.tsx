@@ -6,7 +6,7 @@ import { useSenhaSemSalvar } from '@/lib/use-senha-sem-salvar';
 import {
   acoesDoDespacho,
   agregarItens,
-  corDoPedido,
+  faixaTempo,
   identPedido,
   minutosDesde,
   rotuloDaEstacao,
@@ -16,7 +16,7 @@ import {
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const MONO = 'JetBrains Mono, monospace';
-const TITULO = 'Archivo, sans-serif';
+const CLASSE_FAIXA = { ok: 't-ok', atencao: 't-warn', atrasado: 't-late' } as const;
 
 // KDS DE DESPACHO (Cozinha em estações, entrega 2; decisão do dono em 21/10/2026): um cartão por PEDIDO, com o andamento
 // de cada estação ("Chapa ✓ · Montagem · 2 min") e os itens de todas — a bebida e o molho já chegam aqui. "Despachar"
@@ -98,21 +98,21 @@ export function KdsDespacho({
       <div className="grid" style={{ gap: 4, gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${Math.round(300 * esc)}px), 1fr))` }}>
         {pedidos.map((p) => {
           const min = minutosDesde(p.criadoEm, agoraMs);
-          const cor = corDoPedido(p, min, limites);
           const cancelado = p.situacao === 'cancelado';
           const { principal, forcar } = acoesDoDespacho(p);
           const itens = agregarItens(p.itens ?? []);
           const fs = (px: number) => Math.round(px * esc);
+          // Versão 2 (onda 2 da auditoria, 11/11/2026): o cartão é neutro e a cor do tempo fica só no selo; a senha quebra
+          // a linha em vez de ser cortada ("Senha D-1…" — L9).
+          const faixa = cancelado ? 't-off' : CLASSE_FAIXA[faixaTempo(min, limites)];
           return (
-            <article key={p.comandaId} className="flex min-w-0 flex-col border" style={{ background: T.panel, borderColor: T.border, color: T.text }}>
-              <header className="flex items-center justify-between gap-2 px-3 py-2" style={{ background: cor.fundo, color: cor.texto }}>
-                <span className="min-w-0 truncate font-extrabold" style={{ fontFamily: TITULO, fontSize: fs(22) }}>
+            <article key={p.comandaId} className={`k-card ${faixa}${cancelado ? ' cancelado' : ''}`}>
+              <header className="k-cab">
+                <span className="k-ident" style={{ fontSize: fs(24) }}>
                   {identPedido(p)}
-                  {p.plataforma ? <span className="ml-2 font-bold" style={{ fontSize: fs(13) }}>{p.plataforma}</span> : null}
                 </span>
-                <span className="flex-none font-bold tabular-nums" style={{ fontFamily: MONO, fontSize: fs(16) }}>
-                  {cancelado ? 'CANCELADO' : `${min} min`}
-                </span>
+                <span className="k-tempo">{cancelado ? 'Cancelado' : <>{min}<small>min</small></>}</span>
+                {p.plataforma ? <span className="k-sub">{p.plataforma}</span> : null}
               </header>
 
               <div className="flex flex-1 flex-col gap-2 px-3 py-2">
@@ -225,7 +225,7 @@ export function KdsDespacho({
               void agir(liberar, 'pronto', senha);
             }}
           >
-            <h2 id="kds-liberar-titulo" className="text-[18px] font-extrabold" style={{ fontFamily: TITULO }}>
+            <h2 id="kds-liberar-titulo" className="text-[18px] font-extrabold" style={{ fontFamily: 'Archivo, sans-serif' }}>
               {liberar.origem === 'delivery' ? 'Despachar' : 'Chamar a senha de'} {identPedido(liberar)} sem todas as estações?
             </h2>
             <p className="mt-1 text-[14px]" style={{ color: T.muted }}>

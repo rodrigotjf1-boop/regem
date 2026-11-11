@@ -2,17 +2,18 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import './kds-tela.css';
 import { api, getToken, podePerm } from '@/lib/api';
 import { rotuloSenha, senhaCasa } from '@/lib/senha';
 import { connectAsGestor, connectAsDevice, type Socket } from '@/lib/rt';
 import { KdsMapaEntregadores } from '@/components/kds/kds-mapa-entregadores';
 import { HistoricoKds } from '@/components/kds/historico-kds';
-import { KdsCartaoPedido, type CorDoCartao, type TemaKds } from '@/components/kds/kds-cartao-pedido';
+import { KdsCartaoPedido } from '@/components/kds/kds-cartao-pedido';
 import { KdsCartaoItem } from '@/components/kds/kds-cartao-item';
 import { KdsResumoItens } from '@/components/kds/kds-resumo-itens';
 import { KdsProdutosGaveta } from '@/components/kds/kds-produtos-gaveta';
 import { KdsDespacho } from '@/components/kds/kds-despacho';
-import { ACAO_KDS, TEMAS_KDS } from '@/lib/kds-tema';
+import { ACAO_KDS, TEMAS_KDS, variaveisDoKds, type TemaKds } from '@/lib/kds-tema';
 import {
   COR_STATUS,
   FILTROS_ETAPA,
@@ -22,20 +23,23 @@ import {
   pedidoDoDespachoNaTela,
   contarEtapas,
   decidirTecla,
-  duracaoDoLetreiro,
   escolherAlertaDoRodape,
-  textoDoAlerta,
   filtrarEtapa,
   formaDeUso,
   grupoPedido,
   identPedido,
-  minutosDesde,
+  ordenarAlertas,
+  passarUmSegundo,
   pedidoTemItem,
+  prioridadeDoRodape,
+  rotuloDaPrioridade,
   somarItens,
   textoDaAlteracao,
+  textoDoToque,
   type CorStatus,
   type FiltroEtapa,
   type FormaUso,
+  type PrioridadeKds,
 } from '@/lib/kds-fila';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -43,30 +47,24 @@ import {
 // KDS web (superfície de teste do tempo real). Base do futuro app nativo empacotado.
 // KDS = informativo + avanço de produção. Consultar/alterar/cancelar é no PDV.
 //
-// Desenho (02/10/2026, mockup `mockups/regem-kds-producao.html`): tela NEUTRA — a única cor é a
-// do status do tempo (verde, amarelo, vermelho), no cabeçalho do cartão e no botão de avanço;
-// cantos retos; cartões colados. As regras puras da fila ficam em `lib/kds-fila.ts`.
+// Versão 2 (onda 2 da auditoria do KDS, protótipo aprovado pelo dono em 11/11/2026 — `mockups/regem-kds-cozinha.html`,
+// aba 1): legível a 1–2 m e com pouca cor. Cabeçalho compacto (o que é do aparelho foi para o ⚙), cartão neutro com a cor
+// do tempo só no selo, faixas claras, rodapé PARADO com "Ciente", um aviso curto a cada toque, "Finalizar todos" num
+// diálogo da própria tela e o resumo ao lado a partir de 900 px. Desenho em `kds-tela.css`; as regras puras da fila, em
+// `lib/kds-fila.ts` (check:kds).
 
 type Alerta = {
   id: string;
   titulo: string;
   detalhe: string;
-  prioridade: 'danger' | 'alta' | 'info' | 'ok';
+  prioridade: PrioridadeKds;
   em: string;
-  restanteSeg: number; // tempo que ainda deve ficar no rodapé
+  restanteSeg: number; // tempo que ainda deve ficar no rodapé (só conta enquanto é o mostrado)
+  fica?: boolean; // fica até alguém tocar (cancelado, alterado) — não conta o tempo
+  ciente?: boolean; // mostra o "Ciente" (o que fica e o urgente que veio do cadastro)
+  origem: string; // de onde veio ("Pedido cancelado", "Alertas da loja"…), na lista "N avisos"
+  cartaoId?: string; // o pedido alterado: o "Visto" do rodapé é o mesmo do cartão
 };
-
-// Prioridade → rank (o rodapé mostra o de maior rank; empate = mais recente). Só o
-// alerta EXIBIDO conta o tempo → um urgente curto sobrepõe o longo, que "congela" e
-// volta a contar quando o urgente sai (override + retomada do ciclo).
-// A escolha mora em `lib/kds-fila` (testada no check:kds): prioridade desconhecida vale como alta.
-const escolherAlerta = (as: Alerta[]): Alerta | null => escolherAlertaDoRodape(as);
-function bgAlerta(p: Alerta['prioridade']) {
-  if (p === 'danger') return '#B4231C';
-  if (p === 'info') return '#1E6FA8';
-  if (p === 'ok') return '#0E7C66';
-  return '#B7791F';
-}
 
 // ── Fase C: filtros ricos (aninhados por canal) ──────────────────────────────
 // Delivery agrupa a plataforma; Balcão/Salão agrupa origem + plataforma (Totem).
@@ -86,31 +84,43 @@ const SUBFILTROS: Record<'delivery' | 'balcao', { key: string; label: string }[]
 };
 // ── Preferências da tela (por aparelho, no localStorage — UI, não dado de negócio) ──────────
 type ViewCfg = {
-  escala: number; // multiplicador de fonte/espaçamento (0.85 .. 1.5)
+  escala: number; // tamanho da letra (0.85 .. 1.5)
   agregar: boolean; // agregar itens iguais (soma quantidade) vs. mostrar separados
-  cor: CorDoCartao; // onde a cor do tempo entra: só no cabeçalho ou no cartão inteiro
   uso: '' | FormaUso; // forma de uso; '' = adivinha pelo aparelho (tela de toque → toque)
 };
-const VIEW_PADRAO: ViewCfg = { escala: 1, agregar: false, cor: 'cabecalho', uso: '' };
-// Lê o que estava guardado (ou veio num atalho) e descarta o que não existe mais — as três
-// cores escolhidas à mão (senha, produto, observação) saíram com a tela neutra.
+const VIEW_PADRAO: ViewCfg = { escala: 1, agregar: false, uso: '' };
+const TAMANHOS = [0.85, 1, 1.25, 1.5] as const;
+// Lê o que estava guardado (ou veio num atalho) e descarta o que não existe mais — as cores escolhidas à mão saíram com a
+// tela neutra, e a "cor no cartão inteiro" saiu com a versão 2 ("KDS com muita cor").
 function normalizarView(v: any): ViewCfg {
   const esc = Number(v?.escala);
   return {
     escala: esc >= 0.85 && esc <= 1.5 ? esc : 1,
     agregar: v?.agregar === true,
-    cor: v?.cor === 'inteiro' ? 'inteiro' : 'cabecalho',
     uso: v?.uso === 'toque' || v?.uso === 'teclado' ? v.uso : '',
   };
 }
 
-// Temas do KDS (claro, o padrão, nas cores do Regem; escuro, opção do aparelho) e a ação dourada: em `lib/kds-tema`,
-// medidos nos dois temas pelo check:kds.
+// Temas do KDS (claro, o padrão, nas cores do Regem; escuro, opção do aparelho): em `lib/kds-tema`, medidos nos dois temas
+// pelo check:kds.
 const TEMAS: Record<'escuro' | 'claro', TemaKds> = TEMAS_KDS;
 const ACAO = ACAO_KDS;
-const FOCO = '#2F7FD8'; // anel de foco (teclado)
 const MONO = 'JetBrains Mono, monospace';
 const TITULO = 'Archivo, sans-serif';
+const hm = (d: Date) => d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+// Os sons (A12): o pedido novo, o aviso e o URGENTE (cancelado, alterado) — antes era o mesmo bipe para tudo.
+type Som = 'novo' | 'aviso' | 'urgente';
+const TONS: Record<Som, { f: number; ini: number; dur: number }[]> = {
+  novo: [{ f: 880, ini: 0, dur: 0.38 }],
+  aviso: [{ f: 660, ini: 0, dur: 0.3 }],
+  urgente: [
+    { f: 988, ini: 0, dur: 0.18 },
+    { f: 740, ini: 0.22, dur: 0.18 },
+    { f: 988, ini: 0.44, dur: 0.18 },
+    { f: 740, ini: 0.66, dur: 0.18 },
+  ],
+};
 
 export default function KdsPage() {
   const [conectado, setConectado] = useState(false);
@@ -129,6 +139,8 @@ export default function KdsPage() {
   // A última leitura da fila falhou (a tela mostra a faixa) e se alguma leitura já deu certo (só então "nenhum pedido").
   const [falhaFila, setFalhaFila] = useState<{ em: Date; motivo: string } | null>(null);
   const [filaLida, setFilaLida] = useState(false);
+  // KDS aberto pela internet numa loja com o servidor ligado (R15): a via da etapa ficaria sem quem imprima.
+  const [nuvemComServidor, setNuvemComServidor] = useState(false);
   // Cartões com um toque a caminho do servidor: o segundo toque no mesmo cartão espera (toque duplo não pula etapa).
   const avancandoRef = useRef<Set<string>>(new Set());
   const [avancando, setAvancando] = useState<Set<string>>(() => new Set());
@@ -138,7 +150,7 @@ export default function KdsPage() {
   const [produtosAberto, setProdutosAberto] = useState(false); // "Configurar este KDS" (Cozinha em estações)
   const [kdsSel, setKdsSel] = useState(''); // qual KDS este aparelho opera (cadeia)
   const [canal, setCanal] = useState<'balcao' | 'delivery' | 'todos'>('balcao');
-  // Fase C — filtros de sub-origem, um por canal (no modal de config).
+  // Fase C — filtros de sub-origem, um por canal (na gaveta ⚙).
   const [subDelivery, setSubDelivery] = useState('todos');
   const [subBalcao, setSubBalcao] = useState('todos');
   // A fila vista POR PEDIDO (um cartão por pedido) ou POR ITEM (um cartão por item, somado).
@@ -152,16 +164,28 @@ export default function KdsPage() {
   const [senhaMsg, setSenhaMsg] = useState<{ texto: string; erro: boolean } | null>(null);
   const [senhaFocada, setSenhaFocada] = useState(false);
   const [mudo, setMudo] = useState(false);
-  // Fase D — config de exibição do card (por aparelho; guardada no localStorage).
+  // O navegador não deixou tocar som sem um toque na tela (política de som automático): a faixa pede o toque.
+  const [somBloqueado, setSomBloqueado] = useState(false);
+  // Preferências da tela (por aparelho; guardadas no localStorage).
   const [view, setView] = useState<ViewCfg>(VIEW_PADRAO);
   const [telaDeToque, setTelaDeToque] = useState(false); // só para adivinhar a forma de uso
-  const [cfgAberta, setCfgAberta] = useState(false);
-  // Histórico (auditoria): quem finalizou a tela, cancelou pedido ou mudou a configuração.
-  const [histAberto, setHistAberto] = useState(false);
+  // A gaveta ⚙ (o que é do aparelho e o histórico), a lista "N avisos" e o diálogo do "Finalizar todos".
+  const [gaveta, setGaveta] = useState<null | 'tela' | 'historico'>(null);
+  const [listaAberta, setListaAberta] = useState(false);
+  const [dialogoFinalizar, setDialogoFinalizar] = useState(false);
+  // O aviso curto depois de cada toque (L13).
+  const [toque, setToque] = useState<{ texto: string; erro: boolean; n: number } | null>(null);
+  const toqueTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // O que ESTA tela mostra (por aparelho): os pedidos (padrão) ou o mapa dos entregadores —
   // o mapa só se o gestor ligou a chave da loja (mig 293, Delivery → Configurações).
   const [tela, setTela] = useState<'pedidos' | 'mapa'>('pedidos');
   const [mapaHabilitado, setMapaHabilitado] = useState<boolean | null>(null);
+  const cfgBtRef = useRef<HTMLButtonElement | null>(null);
+  const histBtRef = useRef<HTMLButtonElement | null>(null);
+  const fimBtRef = useRef<HTMLButtonElement | null>(null);
+  const maisBtRef = useRef<HTMLButtonElement | null>(null);
+  const gavetaFecharRef = useRef<HTMLButtonElement | null>(null);
+  const dialogoNaoRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
     try {
       const s = localStorage.getItem('kds-view');
@@ -222,7 +246,7 @@ export default function KdsPage() {
       return novo;
     });
   }
-  const esc = view.escala; // multiplicador de fonte/espaço
+  const esc = view.escala; // tamanho da letra
   // Forma de uso: TECLADO (o campo da senha é o dono do foco) ou TOQUE (nada depende do foco).
   const uso = formaDeUso(view.uso, telaDeToque);
   const [pedirTelaCheia, setPedirTelaCheia] = useState(false);
@@ -237,16 +261,13 @@ export default function KdsPage() {
     }
   }, []);
   const T = claro ? TEMAS.claro : TEMAS.escuro;
-  function alternarTema() {
-    setClaro((v) => {
-      const novo = !v;
-      try {
-        localStorage.setItem('kds-tema', novo ? 'claro' : 'escuro');
-      } catch {
-        /* sem armazenamento: vale só nesta sessão */
-      }
-      return novo;
-    });
+  function escolherTema(novoClaro: boolean) {
+    setClaro(novoClaro);
+    try {
+      localStorage.setItem('kds-tema', novoClaro ? 'claro' : 'escuro');
+    } catch {
+      /* sem armazenamento: vale só nesta sessão */
+    }
   }
   // null no SSR/1ª render → evita hydration mismatch do relógio (server ≠ client).
   const [now, setNow] = useState<Date | null>(null);
@@ -272,36 +293,84 @@ export default function KdsPage() {
   senhaDigitadaRef.current = senhaDigitada;
   const senhaMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // O aviso curto depois de cada toque: some sozinho; o de erro fica um pouco mais.
+  const mostrarToque = useCallback((texto: string, erro = false) => {
+    if (toqueTimer.current) clearTimeout(toqueTimer.current);
+    setToque((t) => ({ texto, erro, n: (t?.n ?? 0) + 1 }));
+    toqueTimer.current = setTimeout(() => setToque(null), erro ? 6000 : 3200);
+  }, []);
+  useEffect(() => () => { if (toqueTimer.current) clearTimeout(toqueTimer.current); }, []);
+
   // UM contexto de áudio para a tela inteira (auditoria do KDS, 11/11/2026): antes cada bipe criava um e nunca fechava —
   // num turno de 8 h eram centenas abertos (o navegador limita e o som parava). Se o navegador o suspendeu (aba em
-  // segundo plano, economia de energia), retoma antes de tocar.
+  // segundo plano, economia de energia, ou a página abriu sem nenhum toque), retoma antes de tocar; sem conseguir, a
+  // faixa "Som pausado pelo navegador" pede um toque.
   const audioRef = useRef<AudioContext | null>(null);
-  useEffect(() => () => {
-    void audioRef.current?.close().catch(() => undefined);
-    audioRef.current = null;
-  }, []);
-  const bip = useCallback(() => {
-    if (mudoRef.current) return;
+  const contextoDeAudio = useCallback((): AudioContext | null => {
     try {
-      const AC =
-        (window as any).AudioContext || (window as any).webkitAudioContext;
+      const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!AC) return null;
       if (!audioRef.current || audioRef.current.state === 'closed') audioRef.current = new AC();
-      const ctx = audioRef.current as AudioContext;
-      if (ctx.state === 'suspended') void ctx.resume().catch(() => undefined);
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = 880;
-      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4);
-      osc.connect(gain).connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.42);
+      return audioRef.current;
     } catch {
-      /* áudio indisponível — ignora */
+      return null;
     }
   }, []);
+  const liberarSom = useCallback(() => {
+    const ctx = contextoDeAudio();
+    if (!ctx) return;
+    void ctx
+      .resume()
+      .then(() => setSomBloqueado(ctx.state !== 'running'))
+      .catch(() => undefined);
+  }, [contextoDeAudio]);
+  useEffect(() => {
+    const ctx = contextoDeAudio();
+    if (ctx?.state === 'suspended') setSomBloqueado(true);
+    // O primeiro toque (ou tecla) em qualquer lugar libera o som.
+    const primeiro = () => liberarSom();
+    window.addEventListener('pointerdown', primeiro, { once: true });
+    window.addEventListener('keydown', primeiro, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', primeiro);
+      window.removeEventListener('keydown', primeiro);
+      void audioRef.current?.close().catch(() => undefined);
+      audioRef.current = null;
+    };
+  }, [contextoDeAudio, liberarSom]);
+  const bip = useCallback(
+    (som: Som = 'novo') => {
+      if (mudoRef.current) return;
+      try {
+        const ctx = contextoDeAudio();
+        if (!ctx) return;
+        if (ctx.state === 'suspended') {
+          // A retomada é assíncrona: se em pouco tempo o som não voltou, o navegador está esperando um toque.
+          void ctx.resume().then(() => setSomBloqueado(ctx.state !== 'running')).catch(() => undefined);
+          setTimeout(() => {
+            if (ctx.state === 'suspended') setSomBloqueado(true);
+          }, 400);
+        }
+        const forte = som === 'urgente' ? 0.32 : 0.26;
+        for (const t of TONS[som]) {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = som === 'urgente' ? 'square' : 'sine';
+          osc.frequency.value = t.f;
+          const ini = ctx.currentTime + t.ini;
+          gain.gain.setValueAtTime(0.0001, ini);
+          gain.gain.exponentialRampToValueAtTime(som === 'urgente' ? forte / 2 : forte, ini + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.0001, ini + t.dur);
+          osc.connect(gain).connect(ctx.destination);
+          osc.start(ini);
+          osc.stop(ini + t.dur + 0.02);
+        }
+      } catch {
+        /* áudio indisponível — ignora */
+      }
+    },
+    [contextoDeAudio],
+  );
 
   // "Cheguei" na retirada (mig 354): o cartão desta tela ganhou a chegada do cliente (ou ele avisou de novo) entre uma
   // leitura e outra → aviso no rodapé + som. Montado aqui, na tela (como o do cancelamento): vale na nuvem e no servidor
@@ -329,22 +398,23 @@ export default function KdsPage() {
       setAlertas((prev) => [
         ...novos.map((p) => ({
           id: `cheg-${p.comandaId}`,
-          titulo: `🙋 CLIENTE CHEGOU — ${identPedido(p)}`,
+          titulo: `🙋 Cliente chegou — ${identPedido(p)}`,
           detalhe: ondeTxt(p.chegada),
           prioridade: 'alta' as const,
           em,
           restanteSeg: 30,
+          origem: 'Cliente chegou (retirada)',
         })),
         ...prev.filter((x) => !novos.some((p) => x.id === `cheg-${p.comandaId}`)),
       ]);
-      bip();
+      bip('aviso');
     },
     [bip],
   );
 
   // PEDIDO ALTERADO (mig 362): o cartão desta tela ganhou uma alteração que a cozinha ainda não viu → aviso no rodapé e
   // som. Pela leitura da fila (como o "Cheguei"): vale na nuvem e no servidor da loja, onde a mudança desce pelo sync. A
-  // primeira leitura é a base — o som que repete até o "Visto" cobre o que já estava lá.
+  // primeira leitura é a base — o som que repete até o "Visto" cobre o que já estava lá. Fica no rodapé até o "Visto".
   const alteracoesVistas = useRef<Map<string, string> | null>(null);
   const avisarAlteracoes = useCallback(
     (lista: any[]) => {
@@ -366,15 +436,18 @@ export default function KdsPage() {
       setAlertas((prev) => [
         ...novos.map((p) => ({
           id: `alt-${p.id}`,
-          titulo: `! PEDIDO ALTERADO — ${identPedido(p)}`,
-          detalhe: `${textoDaAlteracao(p)} — toque em Visto no cartão`,
+          titulo: `! Pedido alterado — ${identPedido(p)}`,
+          detalhe: textoDaAlteracao(p),
           prioridade: 'danger' as const,
           em,
           restanteSeg: 60,
+          fica: true,
+          origem: 'Pedido alterado',
+          cartaoId: p.id,
         })),
         ...prev.filter((x) => !novos.some((p) => x.id === `alt-${p.id}`)),
       ]);
-      bip();
+      bip('urgente');
     },
     [bip],
   );
@@ -396,6 +469,7 @@ export default function KdsPage() {
       if (despacho) setPedidosDespacho(lista);
       else setPedidos(lista);
       if (r.cores) setCores(r.cores);
+      setNuvemComServidor(r?.nuvemComServidor === true);
       avisarChegadas(lista);
       if (!despacho) avisarAlteracoes(lista);
       setFalhaFila(null);
@@ -460,6 +534,10 @@ export default function KdsPage() {
   function escolherKds(id: string) {
     setKdsSel(id);
     try { localStorage.setItem('kds-equip', id); } catch { /* ignora */ }
+  }
+  function escolherCanal(c: 'balcao' | 'delivery' | 'todos') {
+    setCanal(c);
+    try { localStorage.setItem('kds-canal', c); } catch { /* ignora */ }
   }
 
   // Atalho: um .url que carrega o KDS já com a config atual + tela cheia. O usuário
@@ -552,19 +630,23 @@ export default function KdsPage() {
     socket.on('connect', () => setConectado(true));
     socket.on('disconnect', () => setConectado(false));
 
+    // Alerta cadastrado (Configurações › Alertas do KDS). O urgente ganha o "Ciente" (A7): sai antes do tempo com um toque.
     socket.on('kds:alerta', (a: any) => {
+      const prioridade = prioridadeDoRodape(a.prioridade ?? 'alta');
       setAlertas((prev) => [
         {
           id: a.id,
           titulo: a.titulo,
           detalhe: a.detalhe,
-          prioridade: a.prioridade ?? 'alta',
+          prioridade,
           em: a.em,
           restanteSeg: Number(a.duracaoSeg) > 0 ? Number(a.duracaoSeg) : 60,
+          ciente: prioridade === 'danger',
+          origem: 'Alertas da loja',
         },
         ...prev.filter((x) => x.id !== a.id),
       ]);
-      if (a.som !== false) bip();
+      if (a.som !== false) bip(prioridade === 'danger' ? 'urgente' : 'aviso');
     });
 
     // Nudge de produção → refaz o GET (fonte da verdade). Novo pedido = som. O evento vem para a empresa inteira: só
@@ -575,7 +657,8 @@ export default function KdsPage() {
         ? pedidoDoDespachoNaTela(lista, cartaoId, canalRef.current, subAtivoRef.current)
         : cartaoNaTela(lista, cartaoId, canalRef.current, subAtivoRef.current);
     socket.on('producao:atualizado', (p: any) => {
-      // Cancelamento: avisa a cozinha ANTES de sumir da fila (som + alerta) — se o cartão estava nesta tela.
+      // Cancelamento: avisa a cozinha ANTES de sumir da fila (som + aviso) — se o cartão estava nesta tela. Fica no rodapé
+      // até alguém tocar em "Ciente": a cozinha precisa saber para não fazer.
       const alvo = p?.tipo === 'cancelado' ? naTela(pedidosRef.current, p.pedidoId) : undefined;
       if (alvo) {
         const ref = alvo?.senha
@@ -588,18 +671,21 @@ export default function KdsPage() {
         setAlertas((prev) => [
           {
             id: `canc-${p.pedidoId}`,
-            titulo: `❌ CANCELADO — ${ref}`,
-            detalhe: 'Não preparar / descartar o que já saiu.',
+            titulo: `❌ Cancelado — ${ref}`,
+            detalhe: 'Não preparar. Descartar o que já saiu.',
             prioridade: 'danger',
-            em: p.em,
-            restanteSeg: 25,
+            em: p.em ?? new Date().toISOString(),
+            restanteSeg: 0,
+            fica: true,
+            ciente: true,
+            origem: 'Pedido cancelado',
           },
           ...prev.filter((x) => x.id !== `canc-${p.pedidoId}`),
         ]);
-        bip();
+        bip('urgente');
       }
       void carregarFila().then((lista) => {
-        if (p?.tipo === 'novo' && lista && naTela(lista, p.pedidoId)) bip();
+        if (p?.tipo === 'novo' && lista && naTela(lista, p.pedidoId)) bip('novo');
       });
     });
 
@@ -612,15 +698,21 @@ export default function KdsPage() {
     };
   }, [bip, carregarFila, relerTelas]);
 
-  // Sem conexão: avisa em faixa larga (a fila na tela pode estar velha). Espera 4 s para não
-  // piscar na abertura nem numa queda momentânea.
+  // Sem conexão: avisa em faixa (a fila na tela pode estar velha). Espera 4 s para não piscar na abertura nem numa queda
+  // momentânea.
   const [semConexao, setSemConexao] = useState(false);
+  const [semConexaoDesde, setSemConexaoDesde] = useState<Date | null>(null);
   useEffect(() => {
     if (temSessao !== true || conectado) {
       setSemConexao(false);
+      setSemConexaoDesde(null);
       return;
     }
-    const t = setTimeout(() => setSemConexao(true), 4000);
+    const desde = new Date();
+    const t = setTimeout(() => {
+      setSemConexao(true);
+      setSemConexaoDesde(desde);
+    }, 4000);
     return () => clearTimeout(t);
   }, [conectado, temSessao]);
 
@@ -635,19 +727,33 @@ export default function KdsPage() {
     await carregarFila();
   }
 
+  // "Ciente" no rodapé ou na lista: o aviso sai. O do pedido alterado é o mesmo "Visto" do cartão.
+  function ciente(a: Alerta) {
+    if (a.cartaoId) {
+      void visto(a.cartaoId);
+    } else {
+      setAlertas((prev) => prev.filter((x) => x.id !== a.id));
+    }
+    mostrarToque(`Ciente: ${a.titulo.replace(/^[^\p{L}\p{N}]+/u, '')}`);
+  }
+
   // Avança UM toque. Manda a etapa que esta tela viu (`de`): o servidor só avança se o cartão ainda está nela — o toque
   // duplo e a tela velha de outro aparelho não pulam etapa. Enquanto a resposta não volta, o segundo toque no mesmo
-  // cartão é ignorado e o botão diz "Aguarde…" (auditoria do KDS, 11/11/2026). Quem diz se esta tela conclui o pedido
-  // (KDS de entrega) é o cadastro do KDS escolhido, no servidor — antes a tela mandava sempre 'entrega'.
-  async function avancar(id: string, de?: string) {
+  // cartão é ignorado e o botão diz "Aguarde…". Depois, o aviso curto diz o que o SERVIDOR fez ("Senha B-12 → Em
+  // preparo") — e a recusa aparece (antes era calada: R15). Quem diz se esta tela conclui o pedido (KDS de entrega) é o
+  // cadastro do KDS escolhido, no servidor.
+  async function avancar(p: any, de?: string) {
+    const id = p.id;
     if (avancandoRef.current.has(id)) return;
     avancandoRef.current.add(id);
     setAvancando(new Set(avancandoRef.current));
     try {
-      await api.producaoAvancar(id, kdsSel || undefined, de, modoEntrega ? 'entrega' : undefined);
+      const r: any = await api.producaoAvancar(id, kdsSel || undefined, de, modoEntrega ? 'entrega' : undefined);
+      mostrarToque(textoDoToque(identPedido(p), r, nomeKds));
       await carregarFila();
-    } catch {
-      /* concorrência: outra tela avançou (409) — a releitura corrige */
+    } catch (e: any) {
+      // Outra tela já avançou (409), o pedido foi cancelado, a etapa é de outro KDS: a tela diz por quê e relê.
+      mostrarToque(`${identPedido(p)}: ${e?.message || 'não avançou. Tente de novo.'}`, true);
       void carregarFila();
     } finally {
       avancandoRef.current.delete(id);
@@ -658,7 +764,7 @@ export default function KdsPage() {
   // Despacho: a ação vale para o PEDIDO inteiro (todos os cartões, numa requisição). Devolve o motivo da recusa (ex.:
   // "Falta: Montagem.", "Senha de gestor inválida.") para a tela mostrar, ou null.
   async function acaoDespacho(p: any, acao: 'pronto' | 'entregue', senha?: string): Promise<string | null> {
-    if (!kdsSel) return 'Escolha este KDS em "Este KDS".';
+    if (!kdsSel) return 'Escolha qual KDS é este aparelho no ⚙.';
     try {
       await api.kdsDespachoAcao(kdsSel, { comandaId: p.comandaId, acao, ...(senha ? { forcar: true, senha } : {}) });
       await carregarFila();
@@ -669,23 +775,13 @@ export default function KdsPage() {
     }
   }
 
-  // Ticker do rodapé: só o alerta EXIBIDO conta o tempo; ao zerar, sai e o próximo
-  // (por prioridade/recência) assume — se um urgente entrou, o longo "congelou" e
-  // volta a contar de onde parou.
+  // Um segundo do rodapé: só o aviso mostrado conta; o que fica até o "Ciente" não conta (regra em `passarUmSegundo`).
   useEffect(() => {
-    const t = setInterval(() => {
-      setAlertas((prev) => {
-        const exibido = escolherAlerta(prev);
-        if (!exibido) return prev;
-        return prev
-          .map((a) => (a.id === exibido.id ? { ...a, restanteSeg: a.restanteSeg - 1 } : a))
-          .filter((a) => a.restanteSeg > 0);
-      });
-    }, 1000);
+    const t = setInterval(() => setAlertas((prev) => passarUmSegundo(prev)), 1000);
     return () => clearInterval(t);
   }, []);
 
-  const mostrado = escolherAlerta(alertas);
+  const mostrado = escolherAlertaDoRodape(alertas);
   const nowMs = now ? now.getTime() : Date.now();
 
   // Fase C — pedidos filtrados pela sub-origem do canal ativo (client-side).
@@ -701,8 +797,11 @@ export default function KdsPage() {
   const grupos = ver === 'item' ? agruparPorItem(pedidosVisiveis, nowMs) : [];
   // O resumo ao lado só existe na visão por pedido (na visão por item seria a mesma soma duas vezes).
   const resumoVisivel = resumoAberto && ver === 'pedido' && !modoEntrega && !modoDespacho && !mostrarMapa;
-  const itensResumo = resumoVisivel ? somarItens(pedidosOrigem) : [];
+  const itensResumo = resumoVisivel ? somarItens(pedidosOrigem, nowMs) : [];
   const itemAtivo = resumoVisivel && itensResumo.some((i) => i.descricao === itemSel) ? itemSel : '';
+  // "Finalizar todos" leva só o que a tela MOSTRA; o diálogo diz quantos o filtro esconde.
+  const finalizaveis = pedidosVisiveis.filter((p) => p.status !== 'cancelado' && p.status !== 'entregue');
+  const escondidos = pedidosRef.current.filter((p) => p.status !== 'cancelado' && p.status !== 'entregue').length - finalizaveis.length;
 
   // PEDIDO ALTERADO (mig 362, decisão 6A): enquanto um cartão desta tela tiver alteração sem "Visto", o som repete — a cada
   // 1 ou 2 minutos (Delivery › Configurações › Operação › Atendimento › "Pedido alterado"); "uma vez" não repete.
@@ -710,7 +809,7 @@ export default function KdsPage() {
   const temAlteracaoNaoVista = !modoDespacho && pedidosOrigem.some((p: any) => p.alteracaoNaoVista && p.status !== 'cancelado');
   useEffect(() => {
     if (!temAlteracaoNaoVista || somDoAlterado === 'uma') return;
-    const t = setInterval(() => bip(), somDoAlterado === '2min' ? 120_000 : 60_000);
+    const t = setInterval(() => bip('urgente'), somDoAlterado === '2min' ? 120_000 : 60_000);
     return () => clearInterval(t);
   }, [temAlteracaoNaoVista, somDoAlterado, bip]);
 
@@ -754,22 +853,51 @@ export default function KdsPage() {
       return;
     }
     setSenhaDigitada('');
-    avisarSenha(`${identPedido(alvo)} avançou`, false);
-    void avancar(alvo.id, alvo.status);
+    // O aviso curto do toque (com a resposta do servidor) diz o que aconteceu.
+    void avancar(alvo, alvo.status);
     if (usoRef.current === 'teclado') senhaRef.current?.focus({ preventScroll: true });
   }
+
+  function abrirGaveta(aba: 'tela' | 'historico') {
+    setListaAberta(false);
+    setGaveta((g) => (g === aba ? null : aba));
+  }
+  const fecharGaveta = useCallback(() => {
+    setGaveta((g) => {
+      const voltar = g === 'historico' ? histBtRef.current : cfgBtRef.current;
+      setTimeout(() => voltar?.focus({ preventScroll: true }), 0);
+      return null;
+    });
+  }, []);
+  const fecharDialogo = useCallback(() => {
+    setDialogoFinalizar(false);
+    setTimeout(() => fimBtRef.current?.focus({ preventScroll: true }), 0);
+  }, []);
+  // Gaveta e diálogo abertos: o foco entra neles (o fechar da gaveta; o "Cancelar" do diálogo, o lado seguro).
+  useEffect(() => {
+    if (gaveta) setTimeout(() => gavetaFecharRef.current?.focus({ preventScroll: true }), 0);
+  }, [gaveta]);
+  useEffect(() => {
+    if (dialogoFinalizar) setTimeout(() => dialogoNaoRef.current?.focus({ preventScroll: true }), 0);
+  }, [dialogoFinalizar]);
 
   // TECLADO do equipamento, mesmo com o foco fora do campo. A decisão é de `decidirTecla`:
   //  · forma de uso TECLADO — número, Enter e Backspace são SEMPRE da senha; a tecla é tomada
   //    antes de chegar ao botão em foco (fase de captura) e o foco vai para o campo. Enter sem
   //    número só leva o foco para o campo.
   //  · forma de uso TOQUE — como sempre foi: número solto cai na senha; Enter num botão é do botão.
-  const painelAberto = cfgAberta || histAberto || produtosAberto || dialogoDespacho;
+  // Esc fecha só o que está por cima: o diálogo, depois a lista de avisos, depois a gaveta.
+  const painelAberto = !!gaveta || dialogoFinalizar || produtosAberto || dialogoDespacho;
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape' && painelAberto) {
-        setCfgAberta(false);
-        setHistAberto(false);
+      if (e.key === 'Escape') {
+        if (dialogoFinalizar) return fecharDialogo();
+        if (listaAberta) {
+          setListaAberta(false);
+          setTimeout(() => maisBtRef.current?.focus({ preventScroll: true }), 0);
+          return;
+        }
+        if (gaveta) return fecharGaveta();
         return;
       }
       // Com painel aberto o teclado é do painel; no mapa não há card a avançar.
@@ -788,7 +916,7 @@ export default function KdsPage() {
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uso, painelAberto, pedirTelaCheia, mostrarMapa, temSessao]);
+  }, [uso, painelAberto, pedirTelaCheia, mostrarMapa, temSessao, dialogoFinalizar, listaAberta, gaveta, fecharDialogo, fecharGaveta]);
 
   // Forma de uso TECLADO: o campo da senha é o dono do foco — ao abrir a tela, ao fechar um
   // painel, ao voltar para a janela e depois de QUALQUER clique (botão, filtro, cartão, fundo).
@@ -824,80 +952,88 @@ export default function KdsPage() {
     if (uso === 'toque' && document.activeElement === senhaRef.current) senhaRef.current?.blur();
   }, [uso]);
 
-  // Limpa a tela: o SERVIDOR avança todos os cards num único request (vão para o próximo
-  // KDS ou concluem). Assim não dispara um POST por card (o que estourava o 429).
-  // Só os que a tela MOSTRA (sub-filtro e etapa): com "Totens" escolhido, antes finalizava também o PDV e as mesas
-  // escondidos (auditoria do KDS, 11/11/2026). O servidor recebe os ids e confere que são da fila deste KDS.
-  async function limparCards() {
-    const ativos = pedidosVisiveis.filter((p) => p.status !== 'cancelado' && p.status !== 'entregue');
+  // "Finalizar todos": o SERVIDOR avança todos os cartões num único request (vão para o próximo KDS ou concluem) — um
+  // POST por cartão estourava o 429. Só os que a tela MOSTRA (sub-filtro e etapa): com "Totens" escolhido, antes finalizava
+  // também o PDV e as mesas escondidos (auditoria do KDS, 11/11/2026). O servidor recebe os ids e confere que são da fila
+  // deste KDS. A pergunta é um diálogo da própria tela (o `confirm` do navegador não seguia o tema nem a letra).
+  async function finalizarTela() {
+    const ativos = finalizaveis;
+    setDialogoFinalizar(false);
+    setTimeout(() => fimBtRef.current?.focus({ preventScroll: true }), 0);
     if (!ativos.length) return;
-    if (!confirm(`Finalizar os ${ativos.length} pedido(s) que estão na tela? Eles vão avançar (próximo KDS ou concluir). Fica registrado no histórico, com o seu nome.`)) return;
     try {
-      await api.producaoLimparFila({
+      const r: any = await api.producaoLimparFila({
         canal,
         setorId: setorSel || undefined,
         equipamentoId: kdsSel || undefined,
         ids: ativos.map((p) => p.id),
       });
-    } catch { /* ignora — o refetch abaixo mostra o que sobrou */ }
+      const n = Number(r?.avancados ?? ativos.length);
+      mostrarToque(`${n} pedido${n === 1 ? '' : 's'} finalizado${n === 1 ? '' : 's'}`);
+    } catch (e: any) {
+      mostrarToque(`Não finalizei os pedidos: ${e?.message || 'tente de novo.'}`, true);
+    }
     await carregarFila();
   }
 
-  // Estilos que se repetem: botão/segmento ligado = tinta invertida (sem cor); desligado = cinza.
-  const ligado = (on: boolean) =>
-    on ? { background: T.text, color: T.panel, borderColor: T.text } : { background: T.panel2, color: T.muted, borderColor: T.border };
-  const neutro = { background: T.panel2, borderColor: T.border, color: T.text };
-  const botaoIcone = 'grid h-11 w-11 flex-none place-items-center border text-[17px]';
-  const seletor = 'min-h-[44px] max-w-full border px-3 text-[13px] font-semibold';
+  // O rodapé: o aviso que passa de 2 linhas ganha o "Ver tudo"; com vários, "N avisos" abre a lista.
+  const letreiroRef = useRef<HTMLSpanElement | null>(null);
+  const [cortado, setCortado] = useState(false);
+  const [larguraTick, setLarguraTick] = useState(0);
+  useEffect(() => {
+    const r = () => setLarguraTick((n) => n + 1);
+    window.addEventListener('resize', r);
+    return () => window.removeEventListener('resize', r);
+  }, []);
+  useEffect(() => {
+    const el = letreiroRef.current;
+    setCortado(!!el && el.scrollHeight > el.clientHeight + 1);
+  }, [mostrado?.id, mostrado?.titulo, mostrado?.detalhe, larguraTick, esc]);
+  const ordenados = ordenarAlertas(alertas);
+  useEffect(() => {
+    if (!alertas.length) setListaAberta(false);
+  }, [alertas.length]);
+
+  const nomeDaTela = kdsAtual?.nome ?? 'KDS da loja';
+  const tipoDaTela = kdsAtual ? (modoDespacho ? 'Despacho' : modoEntrega ? 'Entrega' : 'KDS') : 'todos';
+  const subtituloGaveta = kdsAtual
+    ? `${tipoDaTela} · ${mostrarMapa ? 'mapa dos entregadores' : 'pedidos'}`
+    : 'Este aparelho ainda não escolheu qual KDS é';
 
   return (
-    <main className="kds-tela min-h-dvh overflow-x-hidden" style={{ background: T.bg, color: T.text }}>
-      {/* Cabeçalho: linha do APARELHO (canal, senha, conexão, hora, utilidades) e linha da FILA. */}
-      <header className="z-10 border-b md:sticky md:top-0" style={{ background: T.panel, borderColor: T.border }}>
-        <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 sm:gap-3 sm:px-5">
-          <div
-            aria-hidden="true"
-            className="grid h-10 w-10 flex-none place-items-center text-[18px] font-extrabold"
-            style={{ background: '#0F2230', color: '#E2A340', fontFamily: TITULO }}
-          >
-            R
-          </div>
-          <div className="hidden xl:block">
-            <div className="text-[17px] font-extrabold tracking-wide" style={{ fontFamily: TITULO }}>
-              Regem KDS
-            </div>
-            <div className="text-[11px] uppercase tracking-[0.12em]" style={{ color: T.muted }}>
-              {mostrarMapa ? 'Entregadores ao vivo' : 'Produção & alertas'}
-            </div>
-          </div>
-
-          {!mostrarMapa && (<>
-          {/* Canal: balcão/salão (local + retirada) x delivery (courier) */}
-          <div role="group" aria-label="Canal" className="flex max-w-full flex-none overflow-x-auto border" style={{ borderColor: T.border }}>
+    <div
+      className="kds-app"
+      data-tema={claro ? 'claro' : 'escuro'}
+      style={{ ...(variaveisDoKds(T, COR_STATUS) as React.CSSProperties), ['--esc' as any]: String(esc) }}
+    >
+      {/* Cabeçalho compacto: duas linhas de 48 px no tablet, uma só a partir de 1720 px. "Este KDS", setor, por pedido/item,
+          tema e tamanho da letra ficam no ⚙ (são do aparelho); o nome do KDS no canto abre o ⚙. Relógio sem segundos. */}
+      <header className="k-top">
+        <span className="k-logo" aria-hidden="true">
+          R
+        </span>
+        <button type="button" className="k-nome" onClick={() => abrirGaveta('tela')} aria-label={`Este KDS: ${nomeDaTela}. Abrir a configuração`}>
+          {nomeDaTela} <small>{tipoDaTela}</small>
+        </button>
+        {!mostrarMapa && (
+          <div className="k-seg" role="group" aria-label="Canal">
             {([
               ['balcao', 'Balcão / Salão'],
               ['delivery', 'Delivery'],
               ['todos', 'Tudo'],
             ] as const).map(([c, rotulo]) => (
-              <button
-                key={c}
-                type="button"
-                aria-pressed={canal === c}
-                onClick={() => { setCanal(c); try { localStorage.setItem('kds-canal', c); } catch { /* */ } }}
-                className="min-h-[44px] whitespace-nowrap px-3.5 text-[13.5px] font-bold"
-                style={{ background: canal === c ? T.text : T.panel2, color: canal === c ? T.panel : T.muted }}
-              >
+              <button key={c} type="button" aria-pressed={canal === c} onClick={() => escolherCanal(c)}>
                 {rotulo}
               </button>
             ))}
           </div>
-
-          {/* Senha (Fase F): a caixa só recebe o número (teclado físico ou captura global).
-              Enter avança o card daquela senha. No modo TECLADO ela é o dono do foco. */}
-          <div className="relative flex items-center gap-2">
-            <label htmlFor="kds-senha" className="text-[11px] font-bold uppercase tracking-[0.08em]" style={{ color: T.muted }}>
-              Senha
-            </label>
+        )}
+        <span className="k-esp k-esp1" />
+        {!mostrarMapa && (
+          /* Senha (Fase F): a caixa só recebe o número (teclado físico ou captura global). Enter avança o card daquela
+             senha. No modo TECLADO ela é o dono do foco. */
+          <div className="k-senha" data-uso={uso}>
+            <label htmlFor="kds-senha">Senha</label>
             <input
               id="kds-senha"
               ref={senhaRef}
@@ -911,277 +1047,343 @@ export default function KdsPage() {
               placeholder="—"
               aria-label="Senha do pedido (Enter avança)"
               aria-describedby="kds-senha-msg"
-              className="min-h-[44px] border-2 text-center text-[24px] font-bold tabular-nums"
-              style={{
-                width: uso === 'teclado' ? 124 : 92,
-                background: T.panel2,
-                borderColor: senhaErro ? COR_STATUS.atrasado.fundo : uso === 'teclado' ? T.text : T.border,
-                borderStyle: uso === 'teclado' && !senhaFocada ? 'dashed' : 'solid',
-                color: T.text,
-                fontFamily: MONO,
-                outline: senhaFocada ? `3px solid ${FOCO}` : 'none',
-                outlineOffset: 2,
-              }}
+              aria-invalid={senhaErro || undefined}
             />
-            <span
-              id="kds-senha-msg"
-              role="status"
-              aria-live="polite"
-              className={senhaMsg ? 'absolute left-0 top-[calc(100%+4px)] z-[12] whitespace-nowrap px-2.5 py-1 text-[13px] font-bold shadow-lg' : 'sr-only'}
-              style={
-                senhaMsg
-                  ? senhaMsg.erro
-                    ? { background: COR_STATUS.atrasado.fundo, color: COR_STATUS.atrasado.texto }
-                    : { background: T.text, color: T.panel }
-                  : undefined
-              }
-            >
+            <span id="kds-senha-msg" role="status" aria-live="polite" className={senhaMsg ? 'k-senha-msg' : 'k-sr'} data-erro={senhaMsg?.erro ? 'true' : undefined}>
               {senhaMsg?.texto ?? ''}
             </span>
             {/* Modo teclado com o foco fora do campo (janela em segundo plano): diz como voltar. */}
             {now && uso === 'teclado' && !senhaFocada && !senhaMsg && !painelAberto && (
-              <span
-                aria-hidden="true"
-                className="absolute left-0 top-[calc(100%+4px)] z-[11] whitespace-nowrap border-[1.5px] border-dashed px-2 py-1 text-[12.5px] font-bold"
-                style={{ background: T.panel, color: T.text, borderColor: T.text }}
-              >
+              <span className="k-senha-dica" aria-hidden="true">
                 Enter para digitar a senha
               </span>
             )}
           </div>
-          </>)}
-
-          {mostrarMapa && mapaDoPainel && (
-            <p className="min-w-0 flex-1 basis-56 text-[13px] font-semibold" style={{ color: T.muted }}>
-              <span style={{ color: T.text }}>{kdsAtual?.nome ?? 'Este KDS'}</span> · Mapa enviado pelo painel · os pedidos
-              voltam quando tirar do KDS
-            </p>
-          )}
-
-          <div className="hidden min-w-0 flex-1 md:block" />
-
-          <div
-            className="flex min-h-[44px] items-center gap-2 border px-3 text-[12.5px] font-bold"
-            style={
-              semConexao
-                ? { background: COR_STATUS.atrasado.fundo, borderColor: COR_STATUS.atrasado.fundo, color: COR_STATUS.atrasado.texto }
-                : { background: T.panel2, borderColor: T.border, color: T.muted }
-            }
-          >
-            <span
-              className="inline-block h-2.5 w-2.5 rounded-full"
-              style={{ background: semConexao ? COR_STATUS.atrasado.texto : conectado ? COR_STATUS.ok.fundo : T.muted }}
-            />
-            {conectado ? 'online' : 'offline'}
-          </div>
-
-          <div className="text-[20px] font-bold tabular-nums md:text-[26px]" style={{ fontFamily: MONO }} aria-label="Hora">
-            {now
-              ? now.toLocaleTimeString('pt-BR', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  second: '2-digit',
-                })
-              : '--:--:--'}
-          </div>
-
-          <div className="flex flex-none gap-2">
-            <button
-              type="button"
-              onClick={() => setMudo((m) => !m)}
-              aria-pressed={mudo}
-              aria-label={mudo ? 'Som dos avisos: desligado' : 'Som dos avisos: ligado'}
-              className={botaoIcone}
-              style={neutro}
-              title={mudo ? 'Som desligado' : 'Som ligado'}
-            >
-              {mudo ? '🔇' : '🔊'}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setCfgAberta(false); setHistAberto((v) => !v); }}
-              aria-expanded={histAberto}
-              aria-label="Histórico: quem finalizou, cancelou ou mudou a configuração"
-              className={botaoIcone}
-              style={histAberto ? { ...neutro, borderColor: T.text, boxShadow: `inset 0 0 0 1px ${T.text}` } : neutro}
-              title="Histórico: quem finalizou, cancelou ou mudou a configuração"
-            >
-              🕘
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setHistAberto(false); setCfgAberta((v) => !v); }}
-              aria-expanded={cfgAberta}
-              aria-label="Configuração da tela"
-              className={botaoIcone}
-              style={cfgAberta ? { ...neutro, borderColor: T.text, boxShadow: `inset 0 0 0 1px ${T.text}` } : neutro}
-              title="Configuração da tela"
-            >
-              ⚙️
-            </button>
-
-            <button
-              type="button"
-              onClick={alternarTema}
-              aria-label={claro ? 'Tema claro ligado' : 'Tema escuro ligado'}
-              className={botaoIcone}
-              style={neutro}
-              title={claro ? 'Modo claro' : 'Modo escuro'}
-            >
-              {claro ? '☀️' : '🌙'}
-            </button>
-          </div>
-        </div>
-
-        {!mostrarMapa && (
-          <div className="flex flex-wrap items-center gap-2 border-t px-4 pb-2.5 pt-2 sm:px-5" style={{ borderColor: T.border }}>
-            {!modoEntrega && !modoDespacho && (<>
-              {/* A fila por pedido (um cartão por pedido) ou por item (um cartão por item, somado). */}
-              <div role="group" aria-label="Ver a fila" className="flex flex-none border" style={{ borderColor: T.border }}>
-                {([
-                  ['pedido', 'Por pedido'],
-                  ['item', 'Por item'],
-                ] as const).map(([v, rotulo]) => (
-                  <button
-                    key={v}
-                    type="button"
-                    aria-pressed={ver === v}
-                    onClick={() => escolherVer(v)}
-                    className="min-h-[44px] whitespace-nowrap px-3.5 text-[13.5px] font-bold"
-                    style={{ background: ver === v ? T.text : T.panel2, color: ver === v ? T.panel : T.muted }}
-                  >
-                    {rotulo}
-                  </button>
-                ))}
-              </div>
-
-              {/* Quebra a linha no estreito (nada de rolagem para o lado — V45; medido a 320–375 px em 21/10/2026). */}
-              <div role="group" aria-label="Filtrar por etapa" className="flex max-w-full flex-wrap gap-2">
-                {FILTROS_ETAPA.map((f) => {
-                  const n = contagem[f.key];
-                  const sel = etapaSel === f.key;
-                  const alerta = f.key === 'atrasados' && n > 0; // há atraso: o contador fica vermelho
-                  return (
-                    <button
-                      key={f.key}
-                      type="button"
-                      aria-pressed={sel}
-                      onClick={() => setEtapaSel(f.key)}
-                      className="flex min-h-[44px] flex-none items-center gap-2 border px-3.5 text-[13.5px] font-bold"
-                      style={
-                        alerta
-                          ? {
-                              background: COR_STATUS.atrasado.fundo,
-                              borderColor: COR_STATUS.atrasado.fundo,
-                              color: COR_STATUS.atrasado.texto,
-                              boxShadow: sel ? `inset 0 0 0 3px ${T.text}` : undefined,
-                            }
-                          : ligado(sel)
-                      }
-                    >
-                      {f.label}
-                      <b className="text-[15px] tabular-nums" style={{ fontFamily: MONO, color: alerta ? COR_STATUS.atrasado.texto : sel ? T.panel : T.text }}>
-                        {n}
-                      </b>
-                    </button>
-                  );
-                })}
-              </div>
-            </>)}
-
-            {setores.length > 0 && (
-              <select
-                aria-label="Filtrar por setor"
-                value={setorSel}
-                onChange={(e) => setSetorSel(e.target.value)}
-                className={seletor}
-                style={neutro}
-              >
-                <option value="">Todos os setores</option>
-                {setores.map((s) => (
-                  <option key={s.id} value={s.id}>{s.nome}</option>
-                ))}
-              </select>
-            )}
-
-            {kdsList.length > 0 && (
-              <select
-                aria-label="Este KDS"
-                value={kdsSel}
-                onChange={(e) => escolherKds(e.target.value)}
-                className={seletor}
-                style={neutro}
-                title="Qual KDS este aparelho opera (para a cadeia de produção)"
-              >
-                <option value="">KDS: todos (por setor)</option>
-                {kdsList.map((k) => (
-                  <option key={k.id} value={k.id}>
-                    KDS: {k.nome}
-                    {k.escopo === 'entrega' ? ' (entrega)' : k.escopo === 'despacho' ? ' (despacho)' : ''}
-                  </option>
-                ))}
-              </select>
-            )}
-
-            <div className="hidden min-w-0 flex-1 md:block" />
-
-            {!modoEntrega && !modoDespacho && ver === 'pedido' && (
-              <button
-                type="button"
-                onClick={() => abrirResumo(!resumoAberto)}
-                aria-pressed={resumoAberto}
-                aria-expanded={resumoAberto}
-                aria-controls="kds-resumo"
-                aria-label="Resumo de itens"
-                className="flex min-h-[44px] min-w-[44px] items-center justify-center gap-2 border px-3.5 text-[13px] font-bold"
-                style={resumoAberto ? { ...neutro, borderColor: T.text, boxShadow: `inset 0 0 0 1px ${T.text}` } : neutro}
-                title="Resumo de itens: a soma do que falta produzir"
-              >
-                📋 <span className="hidden sm:inline">Resumo de itens</span>
-              </button>
-            )}
-
-            {/* No despacho não há "finalizar todos": cada pedido sai só com as estações prontas (ou com o gestor). */}
-            {!modoDespacho && (
-              <button
-                type="button"
-                onClick={limparCards}
-                aria-label="Finalizar todos os pedidos da tela"
-                className="flex min-h-[44px] min-w-[44px] items-center justify-center gap-2 border px-3.5 text-[13px] font-bold"
-                style={{ ...neutro, color: T.muted }}
-                title="Finalizar/avançar todos os cards da tela"
-              >
-                🧹 <span className="hidden min-[1560px]:inline">Finalizar todos</span>
-              </button>
-            )}
-          </div>
         )}
-
-        {semConexao && (
-          <div
-            role="alert"
-            className="px-4 py-2.5 text-[14px] font-bold sm:px-5"
-            style={{ background: COR_STATUS.atrasado.fundo, color: COR_STATUS.atrasado.texto }}
+        <span className={`k-conn${semConexao ? ' off' : ''}`}>
+          <i aria-hidden="true" />
+          <span>{conectado ? 'online' : 'offline'}</span>
+        </span>
+        <span className="k-hora" aria-label="Hora">
+          {now ? hm(now) : '--:--'}
+        </span>
+        <span className="k-quebra" aria-hidden="true" />
+        {!mostrarMapa && !modoEntrega && !modoDespacho && (
+          <>
+            <select className="k-etapa-sel" aria-label="Filtrar por etapa" value={etapaSel} onChange={(e) => setEtapaSel(e.target.value as FiltroEtapa)}>
+              {FILTROS_ETAPA.map((f) => (
+                <option key={f.key} value={f.key}>
+                  {f.label} ({contagem[f.key]})
+                </option>
+              ))}
+            </select>
+            {/* Quebra a linha no estreito (nada de rolagem para o lado — V45). "Atrasados": só o número em vermelho. */}
+            <div className="k-etapas" role="group" aria-label="Filtrar por etapa">
+              {FILTROS_ETAPA.map((f) => {
+                const n = contagem[f.key];
+                return (
+                  <button
+                    key={f.key}
+                    type="button"
+                    className={`k-etapa${f.key === 'atrasados' && n > 0 ? ' atraso' : ''}`}
+                    aria-pressed={etapaSel === f.key}
+                    onClick={() => setEtapaSel(f.key)}
+                  >
+                    {f.label} <b>{n}</b>
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+        <span className="k-esp k-esp2" />
+        <div className="k-util">
+          {!mostrarMapa && !modoEntrega && !modoDespacho && ver === 'pedido' && (
+            <button
+              type="button"
+              className="k-ib"
+              onClick={() => abrirResumo(!resumoAberto)}
+              aria-pressed={resumoAberto}
+              aria-expanded={resumoAberto}
+              aria-controls="kds-resumo"
+              title="Resumo de itens: a soma do que falta produzir"
+            >
+              📋<span className="rot">Resumo</span>
+              <span className="k-sr">Resumo de itens</span>
+            </button>
+          )}
+          {/* No despacho não há "finalizar todos": cada pedido sai só com as estações prontas (ou com o gestor). */}
+          {!mostrarMapa && !modoDespacho && (
+            <button
+              ref={fimBtRef}
+              type="button"
+              className="k-ib"
+              aria-haspopup="dialog"
+              onClick={() => setDialogoFinalizar(true)}
+              disabled={!finalizaveis.length}
+              title="Finalizar os pedidos que aparecem na tela"
+            >
+              🧹<span className="rot">Finalizar todos</span>
+              <span className="k-sr">Finalizar os pedidos da tela</span>
+            </button>
+          )}
+          <button
+            type="button"
+            className="k-ib"
+            onClick={() => setMudo((m) => !m)}
+            aria-pressed={mudo}
+            aria-label={mudo ? 'Som dos avisos: desligado' : 'Som dos avisos: ligado'}
+            title={mudo ? 'Som desligado' : 'Som ligado'}
           >
-            ⚠ Sem conexão com o servidor. A fila pode estar desatualizada — reconectando…
+            {mudo ? '🔇' : '🔊'}
+          </button>
+          <button
+            ref={histBtRef}
+            type="button"
+            className="k-ib"
+            onClick={() => abrirGaveta('historico')}
+            aria-expanded={gaveta === 'historico'}
+            aria-controls="kds-gaveta"
+            aria-label="Histórico: quem finalizou, cancelou ou mudou a configuração"
+            title="Histórico"
+          >
+            🕘
+          </button>
+          <button
+            ref={cfgBtRef}
+            type="button"
+            className="k-ib"
+            onClick={() => abrirGaveta('tela')}
+            aria-expanded={gaveta === 'tela'}
+            aria-controls="kds-gaveta"
+            aria-label="Configurar este KDS"
+            title="Configurar este KDS"
+          >
+            ⚙️
+          </button>
+        </div>
+      </header>
+
+      {/* Faixas CLARAS: só a palavra da gravidade leva cor. */}
+      <div className="k-faixas">
+        {semConexao && (
+          <div className="k-faixa" role="alert">
+            <span className="k-ic" aria-hidden="true">
+              ⚠
+            </span>
+            <span>
+              <b className="k-vermelho">Sem conexão</b> com o servidor{semConexaoDesde ? ` desde ${hm(semConexaoDesde)}` : ''}. A fila pode
+              estar desatualizada — reconectando…
+            </span>
           </div>
         )}
         {!semConexao && falhaFila && (
-          <div
-            role="alert"
-            className="px-4 py-2.5 text-[14px] font-bold sm:px-5"
-            style={{ background: COR_STATUS.atrasado.fundo, color: COR_STATUS.atrasado.texto }}
-          >
-            ⚠ Não consegui ler a fila às {falhaFila.em.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}. A
-            tela pode estar desatualizada — tentando de novo…
-            {falhaFila.motivo ? <span className="ml-1 font-semibold">({falhaFila.motivo})</span> : null}
+          <div className="k-faixa" role="alert">
+            <span className="k-ic" aria-hidden="true">
+              ⚠
+            </span>
+            <span>
+              <b>Não consegui ler a fila às {hm(falhaFila.em)}.</b> Tentando de novo… Os pedidos abaixo podem estar desatualizados.
+              {falhaFila.motivo ? ` (${falhaFila.motivo})` : ''}
+            </span>
+            <button
+              type="button"
+              className="k-fbt"
+              onClick={() => void carregarFila().then((l) => l && mostrarToque(`Fila lida às ${hm(new Date())}`))}
+            >
+              Tentar agora
+            </button>
           </div>
         )}
-      </header>
+        {somBloqueado && !mudo && (
+          <button type="button" className="k-faixa" onClick={liberarSom}>
+            <span className="k-ic" aria-hidden="true">
+              🔇
+            </span>
+            <span>
+              <b>Som pausado pelo navegador</b> — toque aqui para ligar o som dos pedidos e avisos
+            </span>
+          </button>
+        )}
+        {nuvemComServidor && (
+          <div className="k-faixa" role="status">
+            <span className="k-ic" aria-hidden="true">
+              🌐
+            </span>
+            <span>
+              <b>Este KDS está aberto pela internet</b>, mas a loja tem o servidor ligado. Abra o KDS pelo atalho “Regem neste PC”, da
+              área de trabalho, para a via de cada etapa sair na impressora da loja.
+            </span>
+          </div>
+        )}
+        {mostrarMapa && mapaDoPainel && (
+          <div className="k-faixa" role="status">
+            <span className="k-ic" aria-hidden="true">
+              🗺
+            </span>
+            <span>
+              <b>Mapa enviado pelo painel.</b> Os pedidos voltam quando tirarem este KDS de lá.
+            </span>
+          </div>
+        )}
+      </div>
 
-      {histAberto && <HistoricoKds T={T} onFechar={() => setHistAberto(false)} />}
+      <div className={`k-meio${resumoVisivel ? ' com-resumo' : ''}`}>
+        <main className="k-fila" aria-label={mostrarMapa ? 'Mapa dos entregadores' : ver === 'item' ? 'Itens a produzir' : 'Pedidos em produção'}>
+          {mostrarMapa ? (
+            <KdsMapaEntregadores T={T} escuro={!claro} esc={esc} onDesligado={mapaDesligado} />
+          ) : modoDespacho ? (
+            <KdsDespacho
+              pedidos={pedidosOrigem}
+              limites={cores}
+              agoraMs={nowMs}
+              T={T}
+              esc={esc}
+              carregando={temSessao === null}
+              onAcao={acaoDespacho}
+              onDialogo={setDialogoDespacho}
+            />
+          ) : modoEntrega ? (
+            <EntregaBoard pedidos={pedidosOrigem} onEntregar={avancar} T={T} esc={esc} />
+          ) : temSessao === null ? (
+            <div className="k-grade">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="k-esq" aria-hidden="true">
+                  <i style={{ width: '55%' }} />
+                  <i style={{ width: '80%' }} />
+                  <i style={{ width: '40%' }} />
+                </div>
+              ))}
+              <span className="k-sr" role="status">
+                Carregando os pedidos…
+              </span>
+            </div>
+          ) : (ver === 'item' ? grupos.length === 0 : pedidosVisiveis.length === 0) ? (
+            /* "Nenhum pedido" só depois de uma leitura que deu certo: a que falhou não é fila vazia (V37). */
+            !filaLida && falhaFila ? (
+              <div className="k-vazio erro">
+                <b>Não consegui ler a fila às {hm(falhaFila.em)}</b>
+                Tentando de novo. Não é fila vazia: confira a internet ou o servidor da loja se demorar.
+              </div>
+            ) : pedidosOrigem.length > 0 && etapaSel !== 'todos' ? (
+              <div className="k-vazio">
+                <b>Nenhum pedido nesta etapa</b>
+                Escolha “Todos” para ver a fila inteira.
+              </div>
+            ) : ver === 'item' && pedidosVisiveis.length > 0 ? (
+              <div className="k-vazio">
+                <b>Nada a produzir agora</b>
+                Os pedidos da tela já estão prontos ou são encomendas para mais tarde.
+              </div>
+            ) : (
+              <div className="k-vazio">
+                <b>Nenhum pedido em produção</b>
+                Os pedidos novos aparecem aqui na hora, com som.
+              </div>
+            )
+          ) : (
+            <div className="k-grade">
+              {ver === 'item'
+                ? grupos.map((g) => <KdsCartaoItem key={g.descricao} g={g} limites={cores} />)
+                : pedidosVisiveis.map((p) => (
+                    <KdsCartaoPedido
+                      key={p.id}
+                      p={p}
+                      agoraMs={nowMs}
+                      limites={cores}
+                      agregar={view.agregar}
+                      realce={!itemAtivo ? 'nenhum' : pedidoTemItem(p, itemAtivo) ? 'destaque' : 'apagado'}
+                      itemEmDestaque={itemAtivo}
+                      onAvancar={avancar}
+                      etapas={cores}
+                      ocupado={avancando.has(p.id)}
+                      proximoNome={proximoDoCartao(p)}
+                      veioDe={veioDoCartao(p)}
+                      onVisto={visto}
+                    />
+                  ))}
+            </div>
+          )}
+        </main>
+        {resumoVisivel && <KdsResumoItens itens={itensResumo} escolhido={itemAtivo} onEscolher={setItemSel} onFechar={() => abrirResumo(false)} />}
+      </div>
+
+      {/* RODAPÉ de avisos (versão 2): PARADO, numa faixa clara. O mais urgente aparece; o urgente que fica (cancelado,
+          alterado) espera o "Ciente" / "Visto"; os outros saem sozinhos no tempo deles. Vários: "N avisos" abre a lista. */}
+      <div className="k-pe">
+        {mostrado && (
+          <footer className={`k-rodape ${mostrado.prioridade}`}>
+            <span className="k-lado">{rotuloDaPrioridade(mostrado.prioridade)}</span>
+            <div className="k-txt" role="status" aria-live={mostrado.prioridade === 'danger' ? 'assertive' : 'polite'}>
+              <span className="k-letreiro" ref={letreiroRef}>
+                {mostrado.titulo}
+                {mostrado.detalhe ? <small> {mostrado.detalhe}</small> : null}
+              </span>
+            </div>
+            {(mostrado.ciente || mostrado.cartaoId) && (
+              <button type="button" className="k-ciente" onClick={() => ciente(mostrado)}>
+                {mostrado.cartaoId ? 'Visto' : 'Ciente'}
+              </button>
+            )}
+            {(alertas.length > 1 || cortado) && (
+              <button
+                ref={maisBtRef}
+                type="button"
+                className="k-mais"
+                aria-expanded={listaAberta}
+                aria-controls="kds-avisos"
+                aria-label={alertas.length > 1 ? `${alertas.length} avisos na tela: abrir a lista` : 'Ver o aviso inteiro'}
+                onClick={() => setListaAberta((v) => !v)}
+              >
+                {alertas.length > 1 ? `${alertas.length} avisos` : 'Ver tudo'}
+              </button>
+            )}
+          </footer>
+        )}
+        {listaAberta && alertas.length > 0 && (
+          <div className="k-lista" id="kds-avisos" role="dialog" aria-label="Avisos na tela">
+            <header>
+              <span>Avisos na tela ({alertas.length})</span>
+              <button
+                type="button"
+                className="k-x"
+                aria-label="Fechar a lista de avisos"
+                onClick={() => {
+                  setListaAberta(false);
+                  setTimeout(() => maisBtRef.current?.focus({ preventScroll: true }), 0);
+                }}
+              >
+                ✕
+              </button>
+            </header>
+            <ol>
+              {ordenados.map((a) => (
+                <li key={a.id} className={`k-av ${a.prioridade}`}>
+                  <span className="barra" aria-hidden="true" />
+                  <b>{a.titulo}</b>
+                  <p>{a.detalhe}</p>
+                  <div className="meta">
+                    <span>
+                      <span className="pri">{rotuloDaPrioridade(a.prioridade)}</span> · {a.origem} · {hm(new Date(a.em))}
+                    </span>
+                    {a.ciente || a.cartaoId ? (
+                      <button type="button" onClick={() => ciente(a)}>
+                        {a.cartaoId ? 'Visto' : 'Ciente'}
+                      </button>
+                    ) : (
+                      <span>sai sozinho em {a.restanteSeg} s</span>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+        <div className={`k-toast${toque ? ' on' : ''}`} role="status" aria-live="polite" data-erro={toque?.erro ? 'true' : undefined}>
+          {toque?.texto ?? ''}
+        </div>
+      </div>
+
       {produtosAberto && kdsAtual && (
         <KdsProdutosGaveta
           kds={{ id: kdsAtual.id, nome: kdsAtual.nome, escopo: kdsAtual.escopo, proximoKdsId: kdsAtual.proximoKdsId ?? null }}
@@ -1197,342 +1399,237 @@ export default function KdsPage() {
         />
       )}
 
-      {/* Painel de configuração (forma de uso + exibição + filtros + atalho). */}
-      {cfgAberta && (
-        <div
-          role="dialog"
-          aria-label="Configuração da tela"
-          className="fixed right-4 top-[124px] z-30 max-h-[calc(100dvh-140px)] w-[340px] max-w-[calc(100vw-2rem)] overflow-y-auto border p-4 shadow-2xl"
-          style={{ background: T.panel, borderColor: T.border, color: T.text }}
-        >
-          <div className="mb-3 flex items-center justify-between">
-            <span className="text-[13px] font-bold uppercase tracking-wider" style={{ color: T.muted }}>Configuração</span>
-            <button type="button" onClick={() => setCfgAberta(false)} aria-label="Fechar a configuração" className="grid h-11 w-11 place-items-center" style={{ color: T.muted }}>✕</button>
-          </div>
-
-          {/* Cozinha em estações: os produtos que este KDS mostra e o lugar dele no fluxo — de quem configura a produção. */}
-          {podePerm('producao_kds') && (
-            <>
-              <div className="mb-3">
-                <span className="mb-1 block text-[12px] font-semibold" style={{ color: T.muted }}>Este KDS</span>
-                {kdsAtual ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCfgAberta(false);
-                      setProdutosAberto(true);
-                    }}
-                    className="min-h-[44px] w-full border px-3 text-[13px] font-bold"
-                    style={neutro}
-                  >
-                    Configurar este KDS ({kdsAtual.nome})
-                  </button>
-                ) : (
-                  <p className="text-[13px]" style={{ color: T.muted }}>
-                    Escolha qual KDS é este aparelho (no alto da tela, &quot;KDS: …&quot;) para escolher os produtos que ele mostra e o lugar
-                    dele no fluxo.
-                  </p>
-                )}
+      {/* Gaveta ⚙: "Esta tela" (o que é deste aparelho) e "Histórico". */}
+      {gaveta && (
+        <>
+          <button type="button" className="k-fundo" aria-label="Fechar a configuração" tabIndex={-1} onClick={fecharGaveta} />
+          <aside id="kds-gaveta" className="k-gaveta" role="dialog" aria-modal="true" aria-labelledby="kds-gaveta-titulo">
+            <div className="k-gcab">
+              <div>
+                <h2 id="kds-gaveta-titulo">Configurar este KDS · {nomeDaTela}</h2>
+                <p>{subtituloGaveta}</p>
               </div>
-              <div className="my-3 border-t" style={{ borderColor: T.border }} />
-            </>
-          )}
-
-          {/* Forma de uso deste aparelho: toque ou teclado. */}
-          <div className="mb-3">
-            <span className="mb-1 block text-[12px] font-semibold" style={{ color: T.muted }}>Forma de uso</span>
-            <div role="group" aria-label="Forma de uso" className="flex border" style={{ borderColor: T.border }}>
+              <button ref={gavetaFecharRef} type="button" className="k-x" aria-label="Fechar" onClick={fecharGaveta}>
+                ✕
+              </button>
+            </div>
+            <div className="k-gtabs" role="tablist" aria-label="Partes da configuração">
               {([
-                ['toque', 'Toque'],
-                ['teclado', 'Teclado'],
-              ] as const).map(([v, rotulo]) => (
-                <button
-                  key={v}
-                  type="button"
-                  aria-pressed={uso === v}
-                  onClick={() => setViewCfg({ uso: v })}
-                  className="min-h-[44px] flex-1 px-2.5 text-[12.5px] font-bold"
-                  style={{ background: uso === v ? T.text : T.panel2, color: uso === v ? T.panel : T.muted }}
-                >
+                ['tela', 'Esta tela'],
+                ['historico', 'Histórico'],
+              ] as const).map(([aba, rotulo]) => (
+                <button key={aba} type="button" role="tab" className="k-gtab" aria-selected={gaveta === aba} onClick={() => setGaveta(aba)}>
                   {rotulo}
                 </button>
               ))}
             </div>
-            <p className="mt-1.5 text-[11.5px] leading-relaxed" style={{ color: T.muted }}>
-              {uso === 'teclado'
-                ? 'Teclado: o campo da senha fica sempre pronto para digitar. Enter com número avança o pedido; Enter sem número leva o cursor para o campo.'
-                : 'Toque: os pedidos avançam pelo botão do cartão. Nada puxa o cursor para o campo da senha.'}
-            </p>
-          </div>
-          <div className="my-3 border-t" style={{ borderColor: T.border }} />
-
-          {/* O que esta tela mostra (mig 293). Mandado pelo painel do Delivery (entrega 5): o painel decide. */}
-          <div className="mb-3">
-            <span className="mb-1 block text-[12px] font-semibold" style={{ color: T.muted }}>Esta tela mostra</span>
-            {mapaDoPainel ? (
-              <p className="text-[11.5px]" style={{ color: T.muted }}>
-                {mapaHabilitado
-                  ? 'O mapa dos entregadores, mandado pelo painel em Delivery › Mapa ao vivo. Os pedidos voltam quando tirarem este KDS de lá.'
-                  : 'Pedidos. O painel mandou o mapa dos entregadores para este KDS; ele aparece quando o gestor ligar o mapa no KDS em Delivery › Configurações.'}
-              </p>
-            ) : mapaHabilitado ? (
-              <div className="flex border" style={{ borderColor: T.border }}>
-                {([
-                  ['pedidos', 'Pedidos'],
-                  ['mapa', 'Mapa dos entregadores'],
-                ] as const).map(([v, rotulo]) => (
-                  <button
-                    key={v}
-                    type="button"
-                    aria-pressed={tela === v}
-                    onClick={() => escolherTela(v)}
-                    className="min-h-[44px] flex-1 px-2.5 text-[12.5px] font-bold"
-                    style={{ background: tela === v ? T.text : T.panel2, color: tela === v ? T.panel : T.muted }}
-                  >
-                    {rotulo}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <p className="text-[11.5px]" style={{ color: T.muted }}>
-                Pedidos. O mapa dos entregadores fica disponível quando o gestor liga em Delivery → Configurações.
-              </p>
-            )}
-          </div>
-          <div className="my-3 border-t" style={{ borderColor: T.border }} />
-
-          {/* Filtros (Fase C) — um conjunto para delivery, outro para o balcão. */}
-          {([
-            ['Filtrar delivery', 'delivery', subDelivery, setSubDelivery],
-            ['Filtrar balcão / salão', 'balcao', subBalcao, setSubBalcao],
-          ] as const).map(([rotulo, cnl, valor, setar]) => (
-            <div key={cnl} className="mb-3">
-              <span className="mb-1 block text-[12px] font-semibold" style={{ color: T.muted }}>{rotulo}</span>
-              <div className="flex flex-wrap gap-1.5">
-                {SUBFILTROS[cnl].map((s) => (
-                  <button
-                    key={s.key}
-                    type="button"
-                    aria-pressed={valor === s.key}
-                    onClick={() => setar(s.key)}
-                    className="min-h-[44px] border px-2.5 text-[12px] font-bold"
-                    style={ligado(valor === s.key)}
-                  >
-                    {s.label}
-                  </button>
-                ))}
-              </div>
+            <div className="k-gcorpo" role="tabpanel">
+              {gaveta === 'historico' ? (
+                <HistoricoKds />
+              ) : (
+                <>
+                  {kdsList.length > 0 && (
+                    <div className="k-grupo">
+                      <b>Este aparelho opera</b>
+                      <select className="k-sel" aria-label="Qual KDS este aparelho opera" value={kdsSel} onChange={(e) => escolherKds(e.target.value)}>
+                        <option value="">Todos os KDS da loja (por setor)</option>
+                        {kdsList.map((k) => (
+                          <option key={k.id} value={k.id}>
+                            {k.nome}
+                            {k.escopo === 'entrega' ? ' (entrega)' : k.escopo === 'despacho' ? ' (despacho)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                      {/* Cozinha em estações: os produtos que este KDS mostra e o lugar dele no fluxo — de quem configura a
+                          produção. */}
+                      {podePerm('producao_kds') && kdsAtual && (
+                        <button
+                          type="button"
+                          className="k-bt"
+                          onClick={() => {
+                            setGaveta(null);
+                            setProdutosAberto(true);
+                          }}
+                        >
+                          Produtos e lugar no fluxo ({kdsAtual.nome})
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {setores.length > 0 && (
+                    <div className="k-grupo">
+                      <b>Setor</b>
+                      <select className="k-sel" aria-label="Filtrar por setor" value={setorSel} onChange={(e) => setSetorSel(e.target.value)}>
+                        <option value="">Todos os setores</option>
+                        {setores.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.nome}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  {!modoEntrega && !modoDespacho && (
+                    <div className="k-grupo">
+                      <b>Como mostra</b>
+                      <div className="k-seg2" role="group" aria-label="Como mostra">
+                        {([
+                          ['pedido', 'Por pedido'],
+                          ['item', 'Por item'],
+                        ] as const).map(([v, rotulo]) => (
+                          <button key={v} type="button" aria-pressed={ver === v} onClick={() => escolherVer(v)}>
+                            {rotulo}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="k-grupo">
+                    <b>Tamanho da letra</b>
+                    <div className="k-seg2" role="group" aria-label="Tamanho da letra">
+                      {TAMANHOS.map((t) => (
+                        <button key={t} type="button" aria-pressed={Math.abs(esc - t) < 0.001} onClick={() => setViewCfg({ escala: t })}>
+                          {Math.round(t * 100)}%
+                        </button>
+                      ))}
+                    </div>
+                    <p className="k-nota">O botão de avançar fica com 48 px no mínimo em qualquer tamanho.</p>
+                  </div>
+                  <div className="k-grupo">
+                    <b>Tema</b>
+                    <div className="k-seg2" role="group" aria-label="Tema">
+                      <button type="button" aria-pressed={claro} onClick={() => escolherTema(true)}>
+                        Claro
+                      </button>
+                      <button type="button" aria-pressed={!claro} onClick={() => escolherTema(false)}>
+                        Escuro
+                      </button>
+                    </div>
+                  </div>
+                  <div className="k-grupo">
+                    <b>Forma de uso</b>
+                    <div className="k-seg2" role="group" aria-label="Forma de uso">
+                      {([
+                        ['toque', 'Toque'],
+                        ['teclado', 'Teclado'],
+                      ] as const).map(([v, rotulo]) => (
+                        <button key={v} type="button" aria-pressed={uso === v} onClick={() => setViewCfg({ uso: v })}>
+                          {rotulo}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="k-nota">
+                      {uso === 'teclado'
+                        ? 'Teclado: o campo da senha fica sempre pronto; Enter com o número avança o pedido.'
+                        : 'Toque: os pedidos avançam pelo botão do cartão. Nada puxa o cursor para o campo da senha.'}
+                    </p>
+                  </div>
+                  <div className="k-grupo">
+                    <b>Itens iguais</b>
+                    <div className="k-seg2" role="group" aria-label="Itens iguais">
+                      <button type="button" aria-pressed={!view.agregar} onClick={() => setViewCfg({ agregar: false })}>
+                        Separados
+                      </button>
+                      <button type="button" aria-pressed={view.agregar} onClick={() => setViewCfg({ agregar: true })}>
+                        Somados
+                      </button>
+                    </div>
+                  </div>
+                  {/* O que esta tela mostra (mig 293). Mandado pelo painel do Delivery (entrega 5): o painel decide. */}
+                  <div className="k-grupo">
+                    <b>Esta tela mostra</b>
+                    {mapaDoPainel ? (
+                      <p className="k-nota">
+                        {mapaHabilitado
+                          ? 'O mapa dos entregadores, mandado pelo painel em Delivery › Mapa ao vivo. Os pedidos voltam quando tirarem este KDS de lá.'
+                          : 'Pedidos. O painel mandou o mapa dos entregadores para este KDS; ele aparece quando o gestor ligar o mapa no KDS em Delivery › Configurações.'}
+                      </p>
+                    ) : mapaHabilitado ? (
+                      <div className="k-seg2" role="group" aria-label="Esta tela mostra">
+                        {([
+                          ['pedidos', 'Pedidos'],
+                          ['mapa', 'Mapa dos entregadores'],
+                        ] as const).map(([v, rotulo]) => (
+                          <button key={v} type="button" aria-pressed={tela === v} onClick={() => escolherTela(v)}>
+                            {rotulo}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="k-nota">Pedidos. O mapa dos entregadores fica disponível quando o gestor liga em Delivery › Configurações.</p>
+                    )}
+                  </div>
+                  {/* Filtros (Fase C) — um conjunto para delivery, outro para o balcão. */}
+                  {([
+                    ['Filtrar delivery', 'delivery', subDelivery, setSubDelivery],
+                    ['Filtrar balcão / salão', 'balcao', subBalcao, setSubBalcao],
+                  ] as const).map(([rotulo, cnl, valor, setar]) => (
+                    <div key={cnl} className="k-grupo">
+                      <b>{rotulo}</b>
+                      <div className="k-seg2" role="group" aria-label={rotulo}>
+                        {SUBFILTROS[cnl].map((s) => (
+                          <button key={s.key} type="button" aria-pressed={valor === s.key} onClick={() => setar(s.key)}>
+                            {s.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  <div className="k-grupo">
+                    <b>Atalho</b>
+                    <button type="button" className="k-bt" onClick={criarAtalho}>
+                      🔗 Criar atalho na área de trabalho
+                    </button>
+                    <p className="k-nota">Baixa um atalho que abre este KDS já com estas configurações, em tela cheia.</p>
+                  </div>
+                  <div className="k-grupo">
+                    <button type="button" className="k-bt" onClick={() => setViewCfg(VIEW_PADRAO)}>
+                      Restaurar o padrão desta tela
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
-          ))}
-
-          <div className="my-3 border-t" style={{ borderColor: T.border }} />
-          <span className="mb-2 block text-[12px] font-semibold" style={{ color: T.muted }}>Exibição dos cards</span>
-
-          <label htmlFor="kds-tamanho" className="mb-1 block text-[12px] font-semibold" style={{ color: T.muted }}>
-            Tamanho ({Math.round(esc * 100)}%)
-          </label>
-          <input
-            id="kds-tamanho"
-            type="range" min={0.85} max={1.5} step={0.05} value={esc}
-            onChange={(e) => setViewCfg({ escala: Number(e.target.value) })}
-            className="mb-3 w-full"
-          />
-
-          {/* Onde a cor do tempo entra. */}
-          <span className="mb-1 block text-[12px] font-semibold" style={{ color: T.muted }}>Cor do status</span>
-          <div role="group" aria-label="Cor do status" className="mb-3 flex border" style={{ borderColor: T.border }}>
-            {([
-              ['cabecalho', 'Cabeçalho'],
-              ['inteiro', 'Cartão inteiro'],
-            ] as const).map(([v, rotulo]) => (
-              <button
-                key={v}
-                type="button"
-                aria-pressed={view.cor === v}
-                onClick={() => setViewCfg({ cor: v })}
-                className="min-h-[44px] flex-1 px-2.5 text-[12.5px] font-bold"
-                style={{ background: view.cor === v ? T.text : T.panel2, color: view.cor === v ? T.panel : T.muted }}
-              >
-                {rotulo}
+            <div className="k-gpe">
+              {gaveta === 'tela' && <span className="k-nota">Guardado neste aparelho.</span>}
+              <button type="button" className={gaveta === 'tela' ? 'k-bt pri' : 'k-bt'} onClick={fecharGaveta}>
+                {gaveta === 'tela' ? 'Pronto' : 'Fechar'}
               </button>
-            ))}
-          </div>
-
-          <label className="flex items-center gap-2 text-[13px]">
-            <input type="checkbox" checked={view.agregar} onChange={(e) => setViewCfg({ agregar: e.target.checked })} />
-            Agregar itens iguais (somar quantidade)
-          </label>
-
-          <button
-            type="button"
-            onClick={() => setViewCfg(VIEW_PADRAO)}
-            className="mt-3 min-h-[44px] w-full border text-[12px] font-bold"
-            style={{ ...neutro, color: T.muted }}
-          >
-            Restaurar padrão
-          </button>
-
-          <div className="my-3 border-t" style={{ borderColor: T.border }} />
-          <button
-            type="button"
-            onClick={criarAtalho}
-            className="min-h-[44px] w-full text-[13px] font-bold"
-            style={{ background: T.text, color: T.panel }}
-          >
-            🔗 Criar atalho na área de trabalho
-          </button>
-          <p className="mt-1.5 text-[11px]" style={{ color: T.muted }}>
-            Baixa um atalho que abre este KDS já com estas configurações, em tela cheia.
-            Arraste o arquivo para a área de trabalho.
-          </p>
-        </div>
+            </div>
+          </aside>
+        </>
       )}
 
-      {/* Corpo — os alertas ficam no RODAPÉ fixo (abaixo); o resumo de itens, ao lado em tela larga. */}
-      <div
-        className={`mx-auto grid max-w-[1800px] grid-cols-1 gap-4 px-4 py-4 sm:px-5 ${resumoVisivel ? 'xl:grid-cols-[minmax(0,1fr)_300px]' : ''}`}
-        style={{ paddingBottom: mostrado ? 96 : 24 }}
-      >
-        <div className="min-w-0">
-        {mostrarMapa ? (
-          <KdsMapaEntregadores T={T} escuro={!claro} esc={esc} onDesligado={mapaDesligado} />
-        ) : modoDespacho ? (
-          <KdsDespacho
-            pedidos={pedidosOrigem}
-            limites={cores}
-            agoraMs={nowMs}
-            T={T}
-            esc={esc}
-            carregando={temSessao === null}
-            onAcao={acaoDespacho}
-            onDialogo={setDialogoDespacho}
-          />
-        ) : modoEntrega ? (
-          <EntregaBoard pedidos={pedidosOrigem} onEntregar={avancar} T={T} esc={esc} />
-        ) : (
-        /* Fila de produção — cartões colados, cor só no status do tempo. */
-        <section aria-label={ver === 'item' ? 'Itens a produzir' : 'Pedidos em produção'}>
-          {temSessao === null && (
-            <div className="grid gap-1 sm:grid-cols-2 xl:grid-cols-3">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="animate-pulse border p-4" style={{ borderColor: T.border, background: T.panel }}>
-                  <div className="h-4 w-1/2" style={{ background: T.border }} />
-                  <div className="mt-3 h-3 w-2/3" style={{ background: T.panel2 }} />
-                  <div className="mt-2 h-3 w-1/3" style={{ background: T.panel2 }} />
-                </div>
-              ))}
+      {/* "Finalizar todos": a pergunta num diálogo da própria tela, com o número do que vai e do que o filtro esconde. */}
+      {dialogoFinalizar && (
+        <>
+          <button type="button" className="k-fundo" aria-label="Cancelar" tabIndex={-1} onClick={fecharDialogo} />
+          <div className="k-dialogo" role="alertdialog" aria-modal="true" aria-labelledby="kds-finalizar-titulo">
+            <h2 id="kds-finalizar-titulo">
+              Finalizar {finalizaveis.length === 1 ? 'o pedido' : `os ${finalizaveis.length} pedidos`} da tela?
+            </h2>
+            <div className="k-dcorpo">
+              <p>Eles avançam para a próxima etapa (ou concluem). Fica no histórico, com o seu nome.</p>
+              {escondidos > 0 && (
+                <p>
+                  <b>
+                    {escondidos} pedido{escondidos === 1 ? '' : 's'} escondido{escondidos === 1 ? '' : 's'} pelo filtro não entra
+                    {escondidos === 1 ? '' : 'm'}.
+                  </b>
+                </p>
+              )}
             </div>
-          )}
-
-          {temSessao !== null && (ver === 'item' ? grupos.length === 0 : pedidosVisiveis.length === 0) && (
-            <div className="border border-dashed px-6 py-14 text-center text-sm" style={{ borderColor: T.border, color: T.muted }}>
-              {/* "Nenhum pedido" só depois de uma leitura que deu certo: a que falhou não é fila vazia (V37). */}
-              {!filaLida && falhaFila
-                ? 'Não consegui ler a fila. Tentando de novo…'
-                : pedidosOrigem.length > 0 && etapaSel !== 'todos'
-                  ? 'Nenhum pedido nesta etapa. Escolha “Todos” para ver a fila inteira.'
-                  : ver === 'item' && pedidosVisiveis.length > 0
-                    ? 'Nada a produzir agora: os pedidos da tela já estão prontos.'
-                    : 'Nenhum pedido em produção. Novos pedidos aparecem aqui em tempo real.'}
-            </div>
-          )}
-
-          <div
-            className="grid"
-            style={{ gap: 4, gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${Math.round(260 * esc)}px), 1fr))` }}
-          >
-            {ver === 'item'
-              ? grupos.map((g) => <KdsCartaoItem key={g.descricao} g={g} limites={cores} T={T} esc={esc} cor={view.cor} />)
-              : pedidosVisiveis.map((p) => (
-                  <KdsCartaoPedido
-                    key={p.id}
-                    p={p}
-                    min={minutosDesde(p.criadoEm, nowMs)}
-                    limites={cores}
-                    T={T}
-                    esc={esc}
-                    cor={view.cor}
-                    agregar={view.agregar}
-                    realce={!itemAtivo ? 'nenhum' : pedidoTemItem(p, itemAtivo) ? 'destaque' : 'apagado'}
-                    itemEmDestaque={itemAtivo}
-                    onAvancar={avancar}
-                    etapas={cores}
-                    ocupado={avancando.has(p.id)}
-                    proximoNome={proximoDoCartao(p)}
-                    veioDe={veioDoCartao(p)}
-                    onVisto={visto}
-                  />
-                ))}
-          </div>
-        </section>
-        )}
-        </div>
-
-        {resumoVisivel && (
-          <KdsResumoItens itens={itensResumo} escolhido={itemAtivo} onEscolher={setItemSel} onFechar={() => abrirResumo(false)} T={T} />
-        )}
-      </div>
-
-      {/* RODAPÉ de alertas — barra full-width, texto rolando da direita p/ esquerda,
-          cor vibrante por prioridade. Mostra o alerta de maior prioridade/recência;
-          o urgente sobrepõe o longo e o ciclo do longo retoma quando o urgente sai. */}
-      {mostrado && (
-        <footer
-          className="fixed inset-x-0 bottom-0 z-20 flex items-center overflow-hidden border-t"
-          style={{ background: bgAlerta(mostrado.prioridade), borderColor: 'rgba(0,0,0,.25)', height: 64 }}
-        >
-          <div
-            className="grid h-full place-items-center whitespace-nowrap px-4 text-[13px] font-extrabold uppercase tracking-wider"
-            style={{ background: 'rgba(0,0,0,.22)', color: '#fff' }}
-          >
-            {mostrado.prioridade === 'danger' ? '⚠ Urgente' : mostrado.prioridade === 'ok' ? '✓ Aviso' : '● Aviso'}
-          </div>
-          <div className="relative min-w-0 flex-1 overflow-hidden">
-            {/* O letreiro tem a largura do TEXTO (mais a da faixa, no recuo): entra pela direita e sai inteiro pela
-                esquerda. Antes era um bloco da largura da faixa, a animação andava só essa largura e o fim do aviso longo
-                nunca aparecia (auditoria do KDS, 11/11/2026). Velocidade constante (~90 px/s), não tempo fixo. */}
-            <div
-              key={mostrado.id}
-              className="kds-marquee inline-block w-max whitespace-nowrap py-3 pl-[100%] text-[26px] font-extrabold text-white"
-              style={{ fontFamily: TITULO, animation: `kdsMarquee ${duracaoDoLetreiro(textoDoAlerta(mostrado))}s linear infinite` }}
-            >
-              {textoDoAlerta(mostrado)}
+            <div className="k-gpe">
+              <button ref={dialogoNaoRef} type="button" className="k-bt" onClick={fecharDialogo}>
+                Cancelar
+              </button>
+              <button type="button" className="k-bt pri" onClick={() => void finalizarTela()} disabled={!finalizaveis.length}>
+                Finalizar {finalizaveis.length} pedido{finalizaveis.length === 1 ? '' : 's'}
+              </button>
             </div>
           </div>
-          <div
-            className="grid h-full place-items-center whitespace-nowrap px-4 text-[13px] font-bold uppercase tabular-nums tracking-wider text-white"
-            style={{ background: 'rgba(0,0,0,.22)', fontFamily: MONO }}
-          >
-            {alertas.length > 1 ? `+${alertas.length - 1} na fila · ` : ''}
-            {mostrado.restanteSeg}s
-          </div>
-        </footer>
+        </>
       )}
-      <style jsx global>{`
-        @keyframes kdsMarquee {
-          0% { transform: translateX(0); }
-          100% { transform: translateX(-100%); }
-        }
-        .kds-tela :focus-visible {
-          outline: 3px solid ${FOCO};
-          outline-offset: 2px;
-        }
-        /* Quem pede menos movimento lê o alerta parado, sem a rolagem. */
-        @media (prefers-reduced-motion: reduce) {
-          .kds-marquee {
-            animation: none !important;
-            white-space: normal !important;
-            width: auto !important;
-            display: -webkit-box !important;
-            -webkit-line-clamp: 3;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-            font-size: 16px !important;
-            line-height: 1.15;
-            padding: 0 14px !important;
-          }
-        }
-      `}</style>
 
       {/* Atalho abriu com ?full=1 → oferece tela cheia (o navegador exige um clique). */}
       {pedirTelaCheia && (
@@ -1541,9 +1638,10 @@ export default function KdsPage() {
           onClick={() => {
             document.documentElement.requestFullscreen?.().catch(() => {});
             setPedirTelaCheia(false);
+            liberarSom();
             if (uso === 'teclado') senhaRef.current?.focus();
           }}
-          className="fixed inset-0 z-40 grid place-items-center"
+          className="fixed inset-0 z-[60] grid place-items-center"
           style={{ background: 'rgba(11,17,23,.92)', color: '#fff' }}
         >
           <span className="px-8 py-4 text-lg font-bold" style={{ background: ACAO.fundo, color: ACAO.texto }}>
@@ -1553,23 +1651,16 @@ export default function KdsPage() {
       )}
 
       {temSessao === false && (
-        <div
-          className="fixed inset-0 z-20 grid place-items-center px-4"
-          style={{ background: 'rgba(11,17,23,.94)', color: '#fff' }}
-        >
+        <div className="fixed inset-0 z-[60] grid place-items-center px-4" style={{ background: 'rgba(11,17,23,.94)', color: '#fff' }}>
           <div className="text-center">
             <p className="mb-4 text-lg">Entre para operar o KDS.</p>
-            <Link
-              href="/entrar"
-              className="inline-block px-6 py-3 text-sm font-bold"
-              style={{ background: ACAO.fundo, color: ACAO.texto }}
-            >
+            <Link href="/entrar" className="inline-block px-6 py-3 text-sm font-bold" style={{ background: ACAO.fundo, color: ACAO.texto }}>
               Ir para o login
             </Link>
           </div>
         </div>
       )}
-    </main>
+    </div>
   );
 }
 
@@ -1583,7 +1674,7 @@ function EntregaBoard({
   esc,
 }: {
   pedidos: any[];
-  onEntregar: (id: string, de?: string) => void;
+  onEntregar: (p: any, de?: string) => void;
   T: { panel: string; panel2: string; border: string; text: string; muted: string };
   esc: number;
 }) {
@@ -1617,7 +1708,7 @@ function ColunaDeSenhas({
   itens: any[];
   cor: CorStatus;
   tocavel?: boolean;
-  onEntregar: (id: string, de?: string) => void;
+  onEntregar: (p: any, de?: string) => void;
   T: { panel: string; panel2: string; border: string; text: string; muted: string };
   esc: number;
 }) {
@@ -1641,7 +1732,7 @@ function ColunaDeSenhas({
             key={p.id}
             type="button"
             disabled={!tocavel}
-            onClick={() => tocavel && onEntregar(p.id, p.status)}
+            onClick={() => tocavel && onEntregar(p, p.status)}
             className="grid min-w-0 place-items-center border font-extrabold tabular-nums [overflow-wrap:anywhere] disabled:cursor-default"
             style={{
               background: tocavel ? cor.fundo : T.panel,

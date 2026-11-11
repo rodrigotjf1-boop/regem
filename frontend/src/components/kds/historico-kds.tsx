@@ -6,11 +6,9 @@ import { ACOES_KDS, resumoKds } from '@/lib/auditoria-kds';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// HISTÓRICO DO KDS — quem finalizou todos os pedidos da tela, cancelou um pedido, mudou as
-// etapas/destinos ou mexeu nos alertas. Vem da auditoria (registro imutável) da loja.
-// Painel no mesmo lugar e no mesmo desenho do de configuração; as cores vêm do tema do KDS.
-
-type Tema = { panel: string; panel2: string; border: string; text: string; muted: string; erro: string };
+// HISTÓRICO DO KDS — quem finalizou todos os pedidos da tela, cancelou um pedido, mudou as etapas/destinos ou mexeu nos
+// alertas. Vem da auditoria (registro imutável) da loja. Aba "Histórico" da gaveta ⚙ da tela (onda 2 da auditoria do KDS,
+// 11/11/2026); desenho em app/kds/kds-tela.css.
 
 const PERFIL: Record<string, string> = { presidente: 'presidente', gerente: 'gerente', supervisao: 'supervisão', execucao: 'execução', suporte: 'suporte Regem' };
 const hora = (iso: string) => {
@@ -21,7 +19,7 @@ const hora = (iso: string) => {
     : d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 };
 
-export function HistoricoKds({ T, onFechar }: { T: Tema; onFechar: () => void }) {
+export function HistoricoKds() {
   const [rows, setRows] = useState<any[] | null>(null);
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(false);
@@ -45,52 +43,43 @@ export function HistoricoKds({ T, onFechar }: { T: Tema; onFechar: () => void })
   }, [carregar]);
 
   return (
-    <div
-      role="dialog"
-      aria-label="Histórico do KDS"
-      className="fixed right-4 top-[124px] z-30 max-h-[calc(100dvh-140px)] w-[380px] max-w-[calc(100vw-2rem)] overflow-y-auto border p-4 shadow-2xl"
-      style={{ background: T.panel, borderColor: T.border, color: T.text }}
-    >
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <span className="text-[13px] font-bold uppercase tracking-wider" style={{ color: T.muted }}>Histórico</span>
-        <div className="flex items-center gap-3">
-          <button type="button" onClick={carregar} disabled={carregando} className="text-[12px] font-semibold" style={{ color: T.muted }}>
-            {carregando ? 'Atualizando…' : 'Atualizar'}
-          </button>
-          <button type="button" onClick={onFechar} aria-label="Fechar o histórico" style={{ color: T.muted }}>✕</button>
-        </div>
+    <>
+      <div className="k-grupo">
+        <button type="button" className="k-bt" onClick={carregar} disabled={carregando}>
+          {carregando ? 'Atualizando…' : 'Atualizar'}
+        </button>
       </div>
-
-      {erro && <p className="text-[13px]" style={{ color: T.erro }}>{erro}</p>}
-      {!erro && rows === null && <p className="text-[13px]" style={{ color: T.muted }}>Carregando…</p>}
+      {erro && (
+        <p className="k-nota" role="alert" style={{ color: 'var(--k-erro)' }}>
+          {erro}
+        </p>
+      )}
+      {!erro && rows === null && <p className="k-nota">Carregando…</p>}
       {rows && rows.length === 0 && (
-        <p className="text-[13px] leading-relaxed" style={{ color: T.muted }}>
-          Nada registrado ainda. Finalizar todos os pedidos da tela, cancelar um pedido ou mudar a configuração do KDS passa a aparecer aqui, com quem fez.
+        <p className="k-nota">
+          Nada registrado ainda. Finalizar todos os pedidos da tela, cancelar um pedido ou mudar a configuração do KDS passa a
+          aparecer aqui, com quem fez.
         </p>
       )}
       {rows && rows.length > 0 && (
-        <ul className="space-y-2">
+        <ol className="k-hist">
           {rows.map((r) => {
             const resumo = resumoKds(r.acao, r.detalhe);
             return (
-              <li key={r.id} className="border px-3 py-2" style={{ background: T.panel2, borderColor: T.border }}>
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="text-[13px] font-semibold">{ACOES_KDS[r.acao] ?? String(r.acao).replace(/_/g, ' ')}</span>
-                  <span className="flex-none text-[12px] tabular-nums" style={{ color: T.muted, fontFamily: 'JetBrains Mono, monospace' }}>{hora(r.criadoEm)}</span>
-                </div>
-                {resumo && <p className="mt-0.5 break-words text-[12.5px]" style={{ color: T.muted }}>{resumo}</p>}
-                <p className="mt-0.5 text-[12px]" style={{ color: T.muted }}>
-                  por <span style={{ color: T.text }}>{r.atorNome ?? 'Sistema'}</span>
+              <li key={r.id} className="k-h">
+                <time>{hora(r.criadoEm)}</time>
+                <b>{ACOES_KDS[r.acao] ?? String(r.acao).replace(/_/g, ' ')}</b>
+                {resumo && <p>{resumo}</p>}
+                <span className="st">
+                  por {r.atorNome ?? 'Sistema'}
                   {r.atorPerfil && PERFIL[r.atorPerfil] ? ` · ${PERFIL[r.atorPerfil]}` : ''}
-                </p>
+                </span>
               </li>
             );
           })}
-        </ul>
+        </ol>
       )}
-      <p className="mt-3 text-[11.5px] leading-relaxed" style={{ color: T.muted }}>
-        🔒 Registro imutável, os {rows?.length ?? 0} mais recentes desta loja. O avanço de cada pedido não entra aqui.
-      </p>
-    </div>
+      <p className="k-nota">🔒 Registro imutável, os {rows?.length ?? 0} mais recentes desta loja. O avanço de cada pedido não entra aqui.</p>
+    </>
   );
 }

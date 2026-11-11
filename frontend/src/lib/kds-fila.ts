@@ -45,31 +45,92 @@ export function estaAtrasado(p: any, min: number, limites: LimitesTempo): boolea
   return faixaTempo(min, limites) === 'atrasado';
 }
 
-// ── Rodapé de alertas ─────────────────────────────────────────────────────────────────────────
+// ── Encomenda (auditoria do KDS, 11/11/2026, O10; decisão do dono: visível desde o aceite) ────────────────────────────
+// O pedido marcado para depois (encomenda, agendado do canal: `encomendaPara`, que o servidor manda) entra na tela no
+// aceite, mas o tempo dele só começa PREPARO_DA_ENCOMENDA_MIN antes do horário. Antes disso o cartão é neutro, diz
+// "começa 21:00" e não entra em "Atrasados" — antes ele chegava dias antes já "atrasado", sem o horário.
+export const PREPARO_DA_ENCOMENDA_MIN = 30;
+
+/** Quando o tempo do cartão começa a contar (ms): o começo do preparo da encomenda, ou a entrada do cartão. */
+export function inicioDoTempo(p: any): number {
+  const criado = new Date(p?.criadoEm).getTime();
+  const para = p?.encomendaPara ? new Date(p.encomendaPara).getTime() : NaN;
+  if (!Number.isFinite(para)) return criado;
+  // O pedido feito em cima da hora (às 20:10 para as 20:30) conta da entrada, não de antes dela.
+  return Math.max(criado, para - PREPARO_DA_ENCOMENDA_MIN * 60000);
+}
+
+/** A encomenda ainda não chegou na hora de começar: cartão neutro, fora de "Atrasados" e do que falta produzir. */
+export function encomendaAguarda(p: any, agoraMs: number): boolean {
+  if (!p?.encomendaPara || p?.status === 'cancelado') return false;
+  return agoraMs < inicioDoTempo(p);
+}
+
+/** Os minutos que o cartão mostra (e que decidem a cor): desde a entrada, ou desde o começo do preparo da encomenda. */
+export function minutosDoCartao(p: any, agoraMs: number): number {
+  return Math.max(0, Math.floor((agoraMs - inicioDoTempo(p)) / 60000));
+}
+
+/** Atrasado agora, pelo tempo do cartão: a encomenda que ainda aguarda tem 0 min e nunca está. */
+export function atrasadoAgora(p: any, agoraMs: number, limites: LimitesTempo): boolean {
+  return estaAtrasado(p, minutosDoCartao(p, agoraMs), limites);
+}
+
+// ── Rodapé de avisos ─────────────────────────────────────────────────────────────────────────
 // O de maior prioridade aparece; empate = o mais recente. Prioridade desconhecida vale como ALTA: antes o rank ficava
 // indefinido, a conta dava NaN e a "Compra recebida" ('baixa') passava na frente do "❌ CANCELADO" (auditoria do KDS,
 // 11/11/2026). O servidor também normaliza (`prioridadeDoKds`).
 const RANK_ALERTA: Record<string, number> = { danger: 3, alta: 2, info: 1, ok: 0 };
 export const rankDoAlerta = (p: unknown): number => RANK_ALERTA[String(p)] ?? RANK_ALERTA.alta;
-/** O texto do letreiro: título e, quando há, o detalhe. */
+/** O texto do aviso: título e, quando há, o detalhe. */
 export const textoDoAlerta = (a: { titulo?: string | null; detalhe?: string | null }): string =>
   `${a.titulo ?? ''}${a.detalhe ? ` — ${a.detalhe}` : ''}`;
 
-/**
- * Quantos segundos o letreiro leva para passar inteiro: velocidade constante (~90 px/s, ~15 px por letra a 26 px, mais
- * a largura da faixa que o texto atravessa ao entrar), nunca menos de 10 s. Antes era 16 s para qualquer texto: o curto
- * passava lento e o longo, rápido demais (e cortado — auditoria do KDS, 11/11/2026).
- */
-export function duracaoDoLetreiro(texto: string, larguraDaFaixa = 1100): number {
-  const percurso = String(texto ?? '').length * 15 + larguraDaFaixa;
-  return Math.max(10, Math.round(percurso / 90));
+// A versão 2 (aprovada pelo dono em 11/11/2026): o aviso fica PARADO; a prioridade se lê pelo ícone e pela palavra, na cor
+// da prioridade sobre o claro — nunca por um fundo pintado. Desconhecida = atenção (a mesma regra do rank).
+export type PrioridadeKds = 'danger' | 'alta' | 'info' | 'ok';
+export const prioridadeDoRodape = (p: unknown): PrioridadeKds =>
+  p === 'danger' || p === 'alta' || p === 'info' || p === 'ok' ? p : 'alta';
+const ROTULO_PRIORIDADE: Record<PrioridadeKds, string> = { danger: '⚠ Urgente', alta: '▲ Atenção', info: '● Aviso', ok: '✓ Positivo' };
+export const rotuloDaPrioridade = (p: unknown): string => ROTULO_PRIORIDADE[prioridadeDoRodape(p)];
+
+/** Os avisos na ordem do rodapé e da lista "N avisos": o mais urgente primeiro; empate, o mais recente. */
+export function ordenarAlertas<T extends { prioridade: unknown; em: string }>(as: T[]): T[] {
+  return [...as].sort(
+    (a, b) => rankDoAlerta(b.prioridade) - rankDoAlerta(a.prioridade) || new Date(b.em).getTime() - new Date(a.em).getTime(),
+  );
 }
 
 export function escolherAlertaDoRodape<T extends { prioridade: unknown; em: string }>(as: T[]): T | null {
-  if (!as.length) return null;
-  return [...as].sort(
-    (a, b) => rankDoAlerta(b.prioridade) - rankDoAlerta(a.prioridade) || new Date(b.em).getTime() - new Date(a.em).getTime(),
-  )[0];
+  return as.length ? ordenarAlertas(as)[0] : null;
+}
+
+/**
+ * Um segundo do rodapé. Só o aviso MOSTRADO conta o tempo (o urgente que entra por cima "congela" o outro, que volta a
+ * contar de onde parou); o que FICA até o "Ciente" (cancelado, alterado, urgente do Farol) não conta e não sai sozinho —
+ * enquanto ele está na faixa, nenhum outro anda. Antes, sem "Ciente", um urgente de 1 h ocupava o rodapé por 1 h (A7).
+ */
+export function passarUmSegundo<T extends { prioridade: unknown; em: string; restanteSeg: number; fica?: boolean }>(as: T[]): T[] {
+  const mostrado = escolherAlertaDoRodape(as);
+  if (!mostrado || mostrado.fica) return as;
+  return as
+    .map((a) => (a === mostrado ? { ...a, restanteSeg: a.restanteSeg - 1 } : a))
+    .filter((a) => a.fica || a.restanteSeg > 0);
+}
+
+/**
+ * O aviso curto depois de cada toque (L13): "Senha B-12 → Em preparo", "Senha B-12 → Montagem" (passou para outro KDS),
+ * "Senha B-12 entregue". Pela RESPOSTA do servidor (o que ele fez), não pelo que a tela supunha.
+ */
+export function textoDoToque(
+  ident: string,
+  resposta: { status?: string | null; passouPara?: string | null } | null | undefined,
+  nomeDoKds: (id: string) => string | null | undefined,
+): string {
+  if (resposta?.passouPara) return `${ident} → ${nomeDoKds(resposta.passouPara) ?? 'próximo KDS'}`;
+  if (resposta?.status === 'entregue') return `${ident} entregue`;
+  if (resposta?.status) return `${ident} → ${rotuloEtapa(resposta.status)}`;
+  return `${ident} avançou`;
 }
 
 // ── Etapas ────────────────────────────────────────────────────────────────────────────────
@@ -91,7 +152,7 @@ export const FILTROS_ETAPA: { key: FiltroEtapa; label: string }[] = [
 
 function naEtapa(p: any, etapa: FiltroEtapa, agoraMs: number, limites: LimitesTempo): boolean {
   if (etapa === 'todos') return true;
-  if (etapa === 'atrasados') return estaAtrasado(p, minutosDesde(p.criadoEm, agoraMs), limites);
+  if (etapa === 'atrasados') return atrasadoAgora(p, agoraMs, limites);
   return p.status === etapa; // cancelado não entra em nenhuma etapa
 }
 
@@ -103,7 +164,7 @@ export function contarEtapas(pedidos: any[], agoraMs: number, limites: LimitesTe
   const n: Record<FiltroEtapa, number> = { todos: pedidos.length, recebido: 0, preparo: 0, pronto: 0, atrasados: 0 };
   for (const p of pedidos) {
     if (p.status === 'recebido' || p.status === 'preparo' || p.status === 'pronto') n[p.status as 'recebido' | 'preparo' | 'pronto'] += 1;
-    if (estaAtrasado(p, minutosDesde(p.criadoEm, agoraMs), limites)) n.atrasados += 1;
+    if (atrasadoAgora(p, agoraMs, limites)) n.atrasados += 1;
   }
   return n;
 }
@@ -194,6 +255,20 @@ export function rotuloDaEstacao(e: { nome: string; estado: string; desde?: strin
 }
 
 // ── Itens ─────────────────────────────────────────────────────────────────────────────────
+/**
+ * Os complementos do item UM POR LINHA no cartão (L3: "sem cebola" e "+ bacon" cada um na sua linha, na cor da tinta). A
+ * MESMA regra da via impressa (`linhasDasEscolhas`, em backend/src/common/adicionais.ts — o check:kds confere os mesmos
+ * exemplos): o texto vem separado por " · "; o que chega sem sinal (canal) ganha o "+".
+ */
+export const SEPARADOR_ESCOLHAS = ' · ';
+export function linhasDasEscolhas(texto: string | null | undefined): string[] {
+  return String(texto ?? '')
+    .split(SEPARADOR_ESCOLHAS)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => (/^(\+|-|sem\b)/i.test(s) ? s : `+ ${s}`));
+}
+
 // Pedido ALTERADO (mig 362): o item tirado (riscado, "Tirar", até o "Visto") não se produz; o novo leva "Novo".
 export const itemTirado = (it: any) => it?.status === 'removido';
 const marcaDoItem = (it: any) => (it?.status === 'removido' ? 'tirar' : it?.status === 'novo' ? 'novo' : '');
@@ -211,8 +286,10 @@ export function agregarItens(itens: any[]): any[] {
   return [...mapa.values()];
 }
 
-// O que ainda se PRODUZ: pedido cancelado ou já pronto não entra na soma.
-const aProduzir = (p: any) => p.status === 'recebido' || p.status === 'preparo';
+// O que ainda se PRODUZ: pedido cancelado ou já pronto não entra na soma; nem a encomenda que ainda aguarda a hora de
+// começar (com a hora: sem ela — `agoraMs` 0 — conta tudo, como antes).
+const aProduzir = (p: any, agoraMs = 0) =>
+  (p.status === 'recebido' || p.status === 'preparo') && !(agoraMs > 0 && encomendaAguarda(p, agoraMs));
 
 export type LinhaDoItem = { pedido: any; item: any; min: number };
 export type GrupoDeItem = { descricao: string; quantidade: number; minMaisAntigo: number; linhas: LinhaDoItem[] };
@@ -222,8 +299,8 @@ export type GrupoDeItem = { descricao: string; quantidade: number; minMaisAntigo
 export function agruparPorItem(pedidos: any[], agoraMs: number): GrupoDeItem[] {
   const mapa = new Map<string, GrupoDeItem>();
   for (const p of pedidos ?? []) {
-    if (!aProduzir(p)) continue;
-    const min = minutosDesde(p.criadoEm, agoraMs);
+    if (!aProduzir(p, agoraMs)) continue;
+    const min = minutosDoCartao(p, agoraMs);
     for (const it of agregarItens(p.itens ?? [])) {
       const descricao = String(it.descricao ?? '').trim() || 'Item sem nome';
       const g = mapa.get(descricao) ?? { descricao, quantidade: 0, minMaisAntigo: 0, linhas: [] };
@@ -241,9 +318,9 @@ export function agruparPorItem(pedidos: any[], agoraMs: number): GrupoDeItem[] {
 
 export type ItemDoResumo = { descricao: string; quantidade: number; pedidos: number };
 
-// Resumo lateral: a mesma soma, da maior quantidade para a menor.
-export function somarItens(pedidos: any[]): ItemDoResumo[] {
-  return agruparPorItem(pedidos, 0)
+// Resumo lateral: a mesma soma, da maior quantidade para a menor. Com a hora, a encomenda que ainda aguarda fica de fora.
+export function somarItens(pedidos: any[], agoraMs = 0): ItemDoResumo[] {
+  return agruparPorItem(pedidos, agoraMs)
     .filter((g) => g.quantidade > 0) // só o tirado: nada a produzir
     .map((g) => ({
       descricao: g.descricao,

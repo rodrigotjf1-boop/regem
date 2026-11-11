@@ -17,9 +17,18 @@ for (const nome of ['senha', 'kds-fila', 'origem-api', 'kds-tema']) {
   }).outputText.replace("'./senha'", "'./senha.mjs'");
   writeFileSync(join(tmp, `${nome}.mjs`), js);
 }
+// A regra dos complementos UM POR LINHA mora no servidor (via impressa); a tela tem a cópia em kds-fila — as duas se
+// comparam nos mesmos exemplos (como o check:conversao faz com a conversão de unidade).
+writeFileSync(
+  join(tmp, 'adicionais-servidor.mjs'),
+  ts.transpileModule(readFileSync(join(raiz, '..', '..', '..', 'backend', 'src', 'common', 'adicionais.ts'), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
+  }).outputText,
+);
 const k = await import(pathToFileURL(join(tmp, 'kds-fila.mjs')).href);
 const o = await import(pathToFileURL(join(tmp, 'origem-api.mjs')).href);
 const tema = await import(pathToFileURL(join(tmp, 'kds-tema.mjs')).href);
+const servidor = await import(pathToFileURL(join(tmp, 'adicionais-servidor.mjs')).href);
 
 let n = 0;
 const caso = (nome, fn) => {
@@ -226,6 +235,13 @@ try {
         ['erro', t.erro, [t.bg, t.panel, t.panel2]],
         ['feito', t.feito, [t.bg, t.panel, t.panel2]],
         ['link', t.link, [t.bg, t.panel, t.panel2]],
+        // Versão 2 (onda 2, 11/11/2026): a cor da prioridade vai só no texto, sobre o claro do painel.
+        ['urgente', t.urg, [t.bg, t.panel, t.panel2]],
+        ['atenção', t.aten, [t.bg, t.panel, t.panel2]],
+        ['aviso', t.info, [t.bg, t.panel, t.panel2]],
+        ['positivo', t.ok, [t.bg, t.panel, t.panel2]],
+        ['aviso do toque', t.invFg, [t.invBg]],
+        ['erro do toque', t.urg, [t.panel]],
       ];
       for (const [quem, cor, fundos] of pares)
         for (const fundo of fundos)
@@ -253,14 +269,95 @@ try {
     assert.equal(k.escolherAlertaDoRodape([]), null);
   });
 
-  caso('letreiro: o texto é título — detalhe; o longo leva mais tempo (velocidade constante), nunca menos de 10 s', () => {
+  caso('aviso: o texto é título — detalhe; a prioridade se lê pela palavra (desconhecida = atenção)', () => {
     assert.equal(k.textoDoAlerta({ titulo: 'Pedido alterado', detalhe: 'Senha D-12' }), 'Pedido alterado — Senha D-12');
     assert.equal(k.textoDoAlerta({ titulo: 'Lavar as mãos' }), 'Lavar as mãos');
-    const curto = k.duracaoDoLetreiro('Lavar as mãos');
-    const longo = k.duracaoDoLetreiro('! PEDIDO ALTERADO — Senha D-123 — troca de 1 Coca-Cola lata por 1 Guaraná 2 L e tira 1 batata média');
-    assert.ok(curto >= 10, `curto ${curto}`);
-    assert.ok(longo > curto, `longo ${longo} > curto ${curto}`);
-    assert.equal(k.duracaoDoLetreiro(''), 12); // só a faixa: 1100 px a 90 px/s
+    assert.equal(k.rotuloDaPrioridade('danger'), '⚠ Urgente');
+    assert.equal(k.rotuloDaPrioridade('alta'), '▲ Atenção');
+    assert.equal(k.rotuloDaPrioridade('info'), '● Aviso');
+    assert.equal(k.rotuloDaPrioridade('ok'), '✓ Positivo');
+    assert.equal(k.prioridadeDoRodape('baixa'), 'alta');
+    assert.equal(k.rotuloDaPrioridade(undefined), '▲ Atenção');
+  });
+
+  // Onda 2 (aprovada em 11/11/2026, A7): o aviso fica PARADO; o que fica até o "Ciente" não conta nem sai sozinho, e
+  // enquanto ele está na faixa os outros esperam; só o mostrado conta o tempo.
+  caso('rodapé: só o mostrado conta o tempo; o que fica até o Ciente não sai sozinho e segura os outros', () => {
+    const em = (min) => new Date(AGORA - min * 60000).toISOString();
+    const loja = { id: 'l', prioridade: 'alta', em: em(2), restanteSeg: 2 };
+    const info = { id: 'i', prioridade: 'info', em: em(1), restanteSeg: 5 };
+    let as = k.passarUmSegundo([loja, info]);
+    assert.deepEqual(as.map((a) => `${a.id}:${a.restanteSeg}`), ['l:1', 'i:5'], 'só o mostrado (alta) conta');
+    as = k.passarUmSegundo(as);
+    assert.deepEqual(as.map((a) => a.id), ['i'], 'zerou: sai, o próximo assume');
+    const cancelado = { id: 'c', prioridade: 'danger', em: em(0), restanteSeg: 0, fica: true };
+    as = k.passarUmSegundo([cancelado, info]);
+    assert.deepEqual(as.map((a) => `${a.id}:${a.restanteSeg}`), ['c:0', 'i:5'], 'o cancelado fica e o outro espera');
+    for (let s = 0; s < 120; s++) as = k.passarUmSegundo(as);
+    assert.ok(as.some((a) => a.id === 'c'), 'dois minutos depois o cancelado continua até o Ciente');
+    assert.deepEqual(k.ordenarAlertas([info, loja, cancelado]).map((a) => a.id), ['c', 'l', 'i']);
+    assert.deepEqual(k.passarUmSegundo([]), []);
+    // Um urgente do cadastro, mais NOVO, passa na frente do cancelado e conta o tempo dele — o cancelado (que fica até o
+    // Ciente, com 0 s) não pode sair sozinho por isso.
+    const urgenteDoCadastro = { id: 'u', prioridade: 'danger', em: new Date(AGORA).toISOString(), restanteSeg: 2 };
+    const canceladoAntes = { ...cancelado, em: em(1) };
+    as = k.passarUmSegundo([canceladoAntes, urgenteDoCadastro]);
+    assert.deepEqual(as.map((a) => `${a.id}:${a.restanteSeg}`), ['c:0', 'u:1'], 'o cancelado espera atrás do urgente mais novo');
+    as = k.passarUmSegundo(as);
+    assert.deepEqual(as.map((a) => a.id), ['c'], 'o urgente do cadastro sai no tempo dele; o cancelado continua até o Ciente');
+  });
+
+  caso('aviso de cada toque: o que o servidor fez (etapa, outro KDS, entregue)', () => {
+    const nome = (id) => ({ k2: 'Montagem' })[id];
+    assert.equal(k.textoDoToque('Senha B-12', { ok: true, status: 'preparo' }, nome), 'Senha B-12 → Em preparo');
+    assert.equal(k.textoDoToque('Senha B-12', { ok: true, status: 'pronto' }, nome), 'Senha B-12 → Pronto');
+    assert.equal(k.textoDoToque('Senha B-12', { ok: true, status: 'recebido', passouPara: 'k2' }, nome), 'Senha B-12 → Montagem');
+    assert.equal(k.textoDoToque('Senha B-12', { ok: true, status: 'recebido', passouPara: 'k9' }, nome), 'Senha B-12 → próximo KDS');
+    assert.equal(k.textoDoToque('Mesa 7', { ok: true, status: 'entregue' }, nome), 'Mesa 7 entregue');
+    assert.equal(k.textoDoToque('Mesa 7', null, nome), 'Mesa 7 avançou');
+  });
+
+  // Onda 2 (O10, decisão do dono: visível desde o aceite, contando 30 min antes).
+  caso('encomenda: neutra e fora de "Atrasados" até 30 min antes; depois conta a partir dali', () => {
+    const para = (min) => new Date(AGORA + min * 60000).toISOString();
+    const enc = ped('e', 'recebido', 95, [it(20, 'Mini X-Burger')], { encomendaPara: para(73) }); // aceita há 95 min, para daqui a 73
+    assert.equal(k.encomendaAguarda(enc, AGORA), true);
+    assert.equal(k.atrasadoAgora(enc, AGORA, LIM), false, 'aceita há 95 min, mas não está atrasada');
+    assert.equal(k.inicioDoTempo(enc), new Date(para(73)).getTime() - 30 * 60000, 'começa 30 min antes');
+    assert.equal(k.contarEtapas([enc], AGORA, LIM).atrasados, 0);
+    assert.equal(k.somarItens([enc], AGORA).length, 0, 'ainda não entra no que falta produzir');
+    assert.equal(k.somarItens([enc]).length, 1, 'sem a hora, conta como antes');
+    // 20 min depois do começo do preparo (= 10 min antes do horário): já conta, e está atrasada pelos limites.
+    const depois = new Date(para(73)).getTime() - 10 * 60000;
+    assert.equal(k.encomendaAguarda(enc, depois), false);
+    assert.equal(k.minutosDoCartao(enc, depois), 20);
+    assert.equal(k.atrasadoAgora(enc, depois, LIM), true);
+    // Pedido em cima da hora (entrou 10 min antes do começo do preparo já ter passado): conta da entrada.
+    const emCima = ped('c', 'recebido', 2, [it(1, 'X')], { encomendaPara: para(15) });
+    assert.equal(k.encomendaAguarda(emCima, AGORA), false);
+    assert.equal(k.minutosDoCartao(emCima, AGORA), 2);
+    // Sem horário: igual a antes.
+    const comum = ped('n', 'preparo', 12, [it(1, 'X')]);
+    assert.equal(k.minutosDoCartao(comum, AGORA), 12);
+    assert.equal(k.atrasadoAgora(comum, AGORA, LIM), true);
+    // Cancelada nunca "aguarda".
+    assert.equal(k.encomendaAguarda({ ...enc, status: 'cancelado' }, AGORA), false);
+  });
+
+  caso('complementos um por linha: a MESMA regra da via impressa (backend/src/common/adicionais.ts)', () => {
+    const exemplos = [
+      '+ 2x Bacon · sem Cebola',
+      'Batata média · 2x Coca-Cola',
+      '- Picles · + Queijo extra',
+      'sem cebola',
+      'Molho barbecue, picante · Sem gelo',
+      '',
+      null,
+      undefined,
+    ];
+    for (const t of exemplos) assert.deepEqual(k.linhasDasEscolhas(t), servidor.linhasDasEscolhas(t), `"${t}"`);
+    assert.equal(k.SEPARADOR_ESCOLHAS, servidor.SEPARADOR_ESCOLHAS);
+    assert.deepEqual(k.linhasDasEscolhas('Batata média · 2x Coca-Cola'), ['+ Batata média', '+ 2x Coca-Cola']);
   });
 
   // Auditoria do KDS (11/11/2026): o botão segue as etapas que a loja usa, como o servidor.
