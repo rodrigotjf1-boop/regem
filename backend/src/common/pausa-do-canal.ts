@@ -243,6 +243,109 @@ export function voltaDaPausa(ate: Date, agora: Date = new Date()): { hora: strin
   return { hora, amanha, texto: amanha ? `amanhã às ${hora}` : `às ${hora}` };
 }
 
+// ───────────────────────── F5: o iFood e a 99 pela API de cada um ─────────────────────────
+
+/** Os tempos que a 99 aceita (`pause_time` 1, 2, 3); o outro é "até o fim do dia" (`pause_time` 4). Doc 1949 da 99. */
+export const TEMPOS_DA_99 = [10, 20, 30] as const;
+export const PAUSE_TIME_FIM_DO_DIA = 4;
+
+/**
+ * Até quando pausar a 99: 10, 20 ou 30 min, ou até o fim do dia (23:59 no relógio da loja — a 99 só volta no próximo
+ * horário de funcionamento). A 99 não aceita outro tempo, por isso a 99 tem a linha própria no diálogo (protótipo).
+ */
+export function ateDa99(tempo: { minutos?: unknown; fimDoDia?: unknown } | null | undefined, agora: Date = new Date()):
+  { ok: true; ate: Date } | { ok: false; erro: string } {
+  if (tempo?.fimDoDia === true) {
+    const ate = instanteNoFuso(dataNoFuso(agora), '23:59');
+    if (ate.getTime() - agora.getTime() < 60_000) return { ok: false, erro: 'Já é o fim do dia: escolha 10, 20 ou 30 min para a 99.' };
+    return { ok: true, ate };
+  }
+  const min = Number(tempo?.minutos);
+  if (tempo?.minutos == null || tempo?.minutos === '' || !(TEMPOS_DA_99 as readonly number[]).includes(min))
+    return { ok: false, erro: 'A 99 aceita 10, 20 ou 30 min ou "Até o fim do dia".' };
+  return { ok: true, ate: new Date(agora.getTime() + min * 60_000) };
+}
+
+/** O tempo da 99 (10, 20 ou 30) mais perto de `minutos`. */
+const maisPertoDa99 = (minutos: number): number => (minutos <= 15 ? 10 : minutos <= 25 ? 20 : 30);
+
+/**
+ * O `pause_time` que vai à 99 para o que falta até `ate`: o tempo mais perto de 10/20/30 min (a rotina pode sair alguns
+ * segundos depois do clique); mais de 35 min só pode ser o "até o fim do dia".
+ */
+export function pauseTimeDa99(ate: Date, agora: Date = new Date()): 1 | 2 | 3 | 4 {
+  const falta = (ate.getTime() - agora.getTime()) / 60_000;
+  if (falta > 35) return PAUSE_TIME_FIM_DO_DIA;
+  return ((TEMPOS_DA_99 as readonly number[]).indexOf(maisPertoDa99(falta)) + 1) as 1 | 2 | 3;
+}
+
+/**
+ * "+10 min" / "+30 min" na 99: a 99 só pausa por 10, 20 ou 30 min A PARTIR DE AGORA — vale o tempo dela mais perto do fim
+ * pedido (o painel avisa de novo no fim, como diz o protótipo). Até o fim do dia, ou já com 30 min pela frente, não
+ * estende.
+ */
+export function ateEstendidoDa99(ateAtual: Date | null, minutos: unknown, agora: Date = new Date()):
+  { ok: true; ate: Date } | { ok: false; erro: string } {
+  const min = Number(minutos);
+  if (!(MINUTOS_PARA_ESTENDER as readonly number[]).includes(min)) return { ok: false, erro: 'Escolha +10 min ou +30 min.' };
+  if (!ateAtual || ateAtual.getTime() <= agora.getTime()) return { ok: false, erro: 'Este canal já reabriu.' };
+  if (pauseTimeDa99(ateAtual, agora) === PAUSE_TIME_FIM_DO_DIA) return { ok: false, erro: 'A 99 já está pausada até o fim do dia.' };
+  const pedido = (ateAtual.getTime() - agora.getTime()) / 60_000 + min;
+  const ate = new Date(agora.getTime() + maisPertoDa99(pedido) * 60_000);
+  if (ate.getTime() <= ateAtual.getTime() + 30_000)
+    return { ok: false, erro: 'A 99 pausa no máximo 30 min por vez: estenda quando faltar menos tempo.' };
+  return { ok: true, ate };
+}
+
+/** O fim da descrição da pausa no iFood: é por ela que o Regem reconhece a pausa que ele mesmo criou. */
+export const MARCA_DO_REGEM_NO_IFOOD = '(pelo Regem)';
+const DESCRICAO_DO_IFOOD_MAX = 200;
+
+/** A descrição da pausa no iFood (até 200 letras; o Gestor de Pedidos mostra): a frase do motivo e "(pelo Regem)". */
+export function descricaoNoIfood(motivo: string | null | undefined, texto?: string | null): string {
+  const frase = fraseDoMotivo(motivo, texto).replace(/\*/g, '');
+  return `${frase.slice(0, DESCRICAO_DO_IFOOD_MAX - MARCA_DO_REGEM_NO_IFOOD.length - 1)} ${MARCA_DO_REGEM_NO_IFOOD}`;
+}
+
+export const ehPausaDoRegemNoIfood = (descricao: unknown): boolean => String(descricao ?? '').trim().endsWith(MARCA_DO_REGEM_NO_IFOOD);
+
+/**
+ * A recusa da 99 ao pausar ou reabrir (errno da doc 1949), em português, e se repetir mais tarde pode dar certo (rede,
+ * sistema, limite de chamadas, token). Loja fechada no app da 99 (56101) não muda pela API: só abrindo lá.
+ */
+export function recusaDa99(errno: number, errmsg?: string | null): { repetir: boolean; erro: string } {
+  switch (errno) {
+    case -1:
+    case 10001:
+    case 10005:
+    case 10100:
+    case 10102:
+    case 11044:
+      return { repetir: true, erro: 'A 99 não respondeu agora — o Regem tenta de novo.' };
+    case -2:
+      return { repetir: false, erro: 'A 99 não está conectada a esta empresa (Delivery › Integrações).' };
+    case 56101:
+      return { repetir: false, erro: 'A 99 não aceitou: a loja está FECHADA no app da 99 — abra a loja lá e pause de novo.' };
+    case 90041:
+    case 11053:
+      return { repetir: false, erro: 'A 99 não achou esta loja — confira a integração em Delivery › Integrações.' };
+    default:
+      return { repetir: false, erro: `A 99 recusou (código ${errno})${errmsg ? `: ${String(errmsg).slice(0, 120)}` : ''}.` };
+  }
+}
+
+/** A pausa no CANAL (iFood e 99), como a tela mostra: pedida ao canal, pausada lá, ou o erro. */
+export type ExternoDaPausa = { situacao: 'pausando' | 'aplicada' | 'erro'; erro: string | null };
+
+/** `externo_situacao` nula = ainda vai ao canal (o erro, se veio, é de uma tentativa que se repete). */
+export function externoDaLinha(row: any): ExternoDaPausa {
+  const s = row?.externo_situacao ?? row?.externoSituacao ?? null;
+  const erro = row?.externo_erro ?? row?.externoErro ?? null;
+  if (s === 'aplicada') return { situacao: 'aplicada', erro: null };
+  if (s === 'erro') return { situacao: 'erro', erro: erro ?? 'O canal não aceitou a pausa.' };
+  return { situacao: 'pausando', erro };
+}
+
 /** A pausa de um canal como a API devolve (só quando vale AGORA). */
 export type PausaVigente = {
   canal: CanalDaPausa;
@@ -255,9 +358,11 @@ export type PausaVigente = {
   volta: { hora: string; amanha: boolean; texto: string };
   pausadoEm: string | null;
   pausadoPorNome: string | null;
+  /** Só no iFood e na 99 (F5): a pausa no canal — pedida, pausada lá, ou o erro. */
+  externo?: ExternoDaPausa;
 };
 
-const iso = (v: unknown): string | null => (v == null ? null : new Date(v as any).toISOString());
+const iso =(v: unknown): string | null => (v == null ? null : new Date(v as any).toISOString());
 
 /** A linha do banco vale como pausa agora? (o `ate` no futuro) */
 export function linhaVigente(row: { ate?: unknown } | null | undefined, agora: Date = new Date()): boolean {
@@ -281,6 +386,7 @@ export function pausaDaLinha(row: any, agora: Date = new Date()): PausaVigente |
     volta: voltaDaPausa(ate, agora),
     pausadoEm: iso(row.pausadoEm ?? row.pausado_em),
     pausadoPorNome: row.pausadoPorNome ?? row.pausado_por_nome ?? null,
+    ...(row.canal === 'ifood' || row.canal === 'food99' ? { externo: externoDaLinha(row) } : {}),
   };
 }
 

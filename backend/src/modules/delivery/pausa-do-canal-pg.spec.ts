@@ -67,7 +67,7 @@ descrever('pausa por canal (Postgres)', () => {
     const antes = await pausas.estado(t, null);
     expect(antes.canais.map((c) => [c.canal, c.disponivel, c.pausa])).toEqual([
       ['cardapio', true, null],
-      ['ifood', false, null], // a fase da API
+      ['ifood', false, null], // sem a integração ligada nesta loja (F5)
       ['food99', false, null],
     ]);
     expect((await cardapio.menu(tokens[0])).abertoPorTipo).toEqual({ entrega: true, retirada: true, local: true });
@@ -155,8 +155,11 @@ descrever('pausa por canal (Postgres)', () => {
     const { t, gestor } = await loja();
     const recusa = (dto: any) => pausas.pausar(gestor, null, dto);
     await expect(recusa({ canais: [], motivo: 'pedidos', tempo: { minutos: 30 } })).rejects.toThrow('Escolha o que pausar.');
-    await expect(recusa({ canais: ['ifood'], motivo: 'pedidos', tempo: { minutos: 30 } })).rejects.toThrow('A pausa do iFood pelo Regem ainda não está ligada.');
-    await expect(recusa({ canais: ['cardapio', 'food99'], motivo: 'pedidos', tempo: { minutos: 30 } })).rejects.toThrow('A pausa da 99 pelo Regem');
+    // F5: sem o canal ligado para esta loja, o iFood e a 99 recusam ANTES de gravar (o cardápio digital junto também não pausa).
+    await expect(recusa({ canais: ['ifood'], motivo: 'pedidos', tempo: { minutos: 30 } })).rejects.toThrow('O iFood desta loja não está ligado para pausar pelo Regem.');
+    await expect(recusa({ canais: ['cardapio', 'food99'], motivo: 'pedidos', tempo: { minutos: 30 }, tempo99: { minutos: 10 } })).rejects.toThrow(
+      'A 99 desta loja não está ligada para pausar pelo Regem.',
+    );
     await expect(recusa({ canais: ['totem'], motivo: 'pedidos', tempo: { minutos: 30 } })).rejects.toThrow('Canal desconhecido.');
     await expect(recusa({ canais: ['cardapio'], motivo: 'outro', tempo: { minutos: 30 } })).rejects.toThrow('Escreva o motivo da pausa.');
     await expect(recusa({ canais: ['cardapio'], motivo: 'pedidos', tempo: { minutos: 45 } })).rejects.toThrow('Escolha 15 min, 30 min, 1 hora ou "Até".');

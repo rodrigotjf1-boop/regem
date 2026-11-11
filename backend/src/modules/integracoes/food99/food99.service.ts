@@ -476,6 +476,34 @@ export class Food99Service {
     return j?.errno === 0;
   }
 
+  /**
+   * A PAUSA DA LOJA NA 99 (F5 da pausa por canal; doc 1949 "Set Store Status"): `store_status` 3 com o `pause_time` (1 a 4)
+   * e o `pause_reason_code` (1001 a 1006), ou `store_status` 1 para reabrir. `errno 0` = a 99 ACEITOU o pedido — a mudança
+   * é assíncrona (o aviso `shopStatus` confirma). Nunca rejeita: a falha volta com o errno e a mensagem da 99.
+   */
+  async situacaoDaLoja(
+    tenantId: string,
+    pedido: { pausar: { pauseTime: number; motivo: number } } | { reabrir: true },
+  ): Promise<{ ok: boolean; errno: number; errmsg: string | null; semIntegracao?: true }> {
+    const ig = await this.integracaoDoTenant(tenantId).catch(() => null);
+    if (!ig) return { ok: false, errno: -2, errmsg: null, semIntegracao: true };
+    const tk = await this.authToken(ig).catch(() => null);
+    if (!tk) return { ok: false, errno: 10100, errmsg: null };
+    if ('pausar' in pedido) {
+      const { pauseTime, motivo } = pedido.pausar;
+      if (![1, 2, 3, 4].includes(pauseTime) || !(motivo >= 1001 && motivo <= 1006 && Number.isInteger(motivo)))
+        return { ok: false, errno: 10002, errmsg: 'tempo ou motivo fora da lista da 99' };
+    }
+    const campos =
+      'pausar' in pedido
+        ? ['"store_status":3', `"pause_time":${pedido.pausar.pauseTime}`, `"pause_reason_code":${pedido.pausar.motivo}`]
+        : ['"store_status":1'];
+    const j = await this.postJson('/v1/shop/shop/setStatus', tk, campos).catch(() => ({ errno: -1 }));
+    const errno = Number(j?.errno ?? -1);
+    if (errno !== 0) this.logger.warn(`setStatus loja=${ig.appShopId} errno=${errno}: ${String(j?.errmsg ?? '').slice(0, 120)}`);
+    return { ok: errno === 0, errno, errmsg: j?.errmsg ? String(j.errmsg).slice(0, 200) : null };
+  }
+
   // POST body JSON bigint-safe (order_id/apply_id como LITERAIS, nunca via JSON.stringify).
   private async postJson(caminho: string, tk: string, campos: string[]): Promise<any> {
     const body = `{${[`"auth_token":${JSON.stringify(tk)}`, ...campos].join(',')}}`;

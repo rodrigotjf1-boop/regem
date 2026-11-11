@@ -16,9 +16,14 @@ export type PausaDoCanal = {
   volta: VoltaDaPausa;
   pausadoEm: string | null;
   pausadoPorNome: string | null;
+  /** Só no iFood e na 99 (F5): a pausa no canal — pedida, pausada lá, ou o erro. */
+  externo?: ExternoDaPausa;
 };
 
-export type CanalNoPainel = { canal: string; nome: string; disponivel: boolean; pausa: PausaDoCanal | null };
+export type ExternoDaPausa = { situacao: 'pausando' | 'aplicada' | 'erro'; erro: string | null };
+
+/** `motivo`: por que não dá para pausar daqui agora (o iFood e a 99: "escolha a loja", "sem conexão com a nuvem"). */
+export type CanalNoPainel = { canal: string; nome: string; disponivel: boolean; motivo?: string | null; pausa: PausaDoCanal | null };
 
 export type EstadoDasPausas = {
   canais: CanalNoPainel[];
@@ -31,7 +36,25 @@ export type EstadoDasPausas = {
   minutosParaEstender?: number[];
   /** F3 (mig 394): o modelo da mensagem ao cliente (o da loja ou o padrão), com {nome} {motivo} {volta}. */
   mensagemModelo?: string;
+  /** F5: os tempos que a 99 aceita (o outro é "até o fim do dia"). */
+  temposDa99?: number[];
 };
+
+/**
+ * A pausa no canal (iFood e 99 — F5), como a faixa diz: pedida (a rotina da nuvem leva ao canal em segundos), pausada lá,
+ * ou o erro que o canal deu. `tom` escolhe a cor (a da bolinha; o texto fica em tinta, pelo contraste).
+ */
+export function situacaoNoCanal(canal: string, e: ExternoDaPausa): { texto: string; tom: 'ok' | 'espera' | 'erro' } {
+  const ao = canal === 'food99' ? 'à 99' : 'ao iFood';
+  const no = canal === 'food99' ? 'na 99' : 'no iFood';
+  if (e.situacao === 'aplicada')
+    return { texto: canal === 'food99' ? 'Pausada na 99 pelo Regem (a 99 confirma em instantes)' : 'Pausado no iFood pelo Regem', tom: 'ok' };
+  if (e.situacao === 'erro') return { texto: `Não pausou ${no}: ${e.erro ?? 'o canal recusou.'}`, tom: 'erro' };
+  return { texto: `Pedindo a pausa ${ao}…${e.erro ? ` (${e.erro})` : ''}`, tom: 'espera' };
+}
+
+/** A 99 pausada "até o fim do dia" não estende (faltam mais de 35 min: só pode ser ela). */
+export const daPraEstender = (canal: string, segundos: number) => canal !== 'food99' || segundos <= 35 * 60;
 
 /** O primeiro nome ("ANA PAULA" → "Ana"); nada que pareça nome → vazio. A MESMA regra de `primeiroNome` no servidor. */
 export function primeiroNome(nome: unknown): string {
@@ -142,8 +165,16 @@ export function voltaDaPrevia(ate: Date, agora: Date): VoltaDaPausa {
   return { hora, amanha, texto: amanha ? `amanhã às ${hora}` : `às ${hora}` };
 }
 
-/** O fim da pausa escolhido no diálogo, para a prévia: N minutos, ou a próxima vez que o relógio marcar HH:MM. */
-export function fimDaPrevia(tempo: { minutos?: number; ate?: string }, agora: Date): Date | null {
+/**
+ * O fim da pausa escolhido no diálogo, para a prévia: N minutos, a próxima vez que o relógio marcar HH:MM, ou o fim do
+ * dia (a 99).
+ */
+export function fimDaPrevia(tempo: { minutos?: number; ate?: string; fimDoDia?: boolean }, agora: Date): Date | null {
+  if (tempo.fimDoDia) {
+    const d = new Date(agora);
+    d.setHours(23, 59, 0, 0);
+    return d;
+  }
   if (tempo.minutos) return new Date(agora.getTime() + tempo.minutos * 60_000);
   const m = /^(\d{2}):(\d{2})$/.exec(tempo.ate ?? '');
   if (!m) return null;

@@ -1555,7 +1555,10 @@ export const api = {
     canais: string[];
     motivo: string;
     motivoTexto?: string;
-    tempo: { minutos?: number; ate?: string };
+    /** O cardápio digital e o iFood. */
+    tempo?: { minutos?: number; ate?: string };
+    /** A 99 (F5): 10, 20 ou 30 min, ou até o fim do dia. */
+    tempo99?: { minutos?: number; fimDoDia?: boolean };
   }) => req('/delivery/pausas', { method: 'POST', body: JSON.stringify(body) }),
   deliveryReabrir: (canal: string) =>
     req('/delivery/pausas/reabrir', { method: 'POST', body: JSON.stringify({ canal }) }),

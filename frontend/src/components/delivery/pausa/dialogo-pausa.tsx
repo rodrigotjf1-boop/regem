@@ -61,10 +61,15 @@ export function DialogoPausa({
   aoPausar: (novo: EstadoDasPausas) => void;
 }) {
   const disponiveis = estado.canais.filter((c) => c.disponivel);
+  // F5: o iFood ou a 99 que a empresa tem mas não dá para pausar daqui agora aparecem apagados, com o porquê.
+  const semPoder = estado.canais.filter((c) => !c.disponivel && c.canal !== 'cardapio' && c.motivo);
   const [canais, setCanais] = useState<Set<string>>(() => new Set(disponiveis.slice(0, 1).map((c) => c.canal)));
   const [motivo, setMotivo] = useState('pedidos');
   const [outro, setOutro] = useState('');
   const [livre, setLivre] = useState<string>('30');
+  // A 99 só aceita 10, 20 ou 30 min ou "até o fim do dia" (`fim`).
+  const [livre99, setLivre99] = useState<string>('30');
+  const temposDa99 = estado.temposDa99?.length ? estado.temposDa99 : [10, 20, 30];
   // A hora do "Até": daqui a uma hora, arredondada para a dezena (o seletor nativo troca).
   const [ate, setAte] = useState(() => {
     const d = new Date(Date.now() + 60 * 60_000);
@@ -77,6 +82,11 @@ export function DialogoPausa({
   const idAte = useId();
 
   const tempo = livre === 'ate' ? { ate } : { minutos: Number(livre) };
+  const tempo99 = livre99 === 'fim' ? { fimDoDia: true } : { minutos: Number(livre99) };
+  // O tempo "livre" vale para o cardápio digital e o iFood; a 99 tem o dela.
+  const comTempoLivre = canais.has('cardapio') || canais.has('ifood');
+  const tituloDoTempo = canais.has('cardapio') && canais.has('ifood') ? 'Cardápio digital e iFood' : canais.has('ifood') ? 'iFood' : 'Cardápio digital';
+  const comExterno = canais.has('ifood') || canais.has('food99');
   const semMotivo = motivo === 'outro' && !outro.trim();
   const n = canais.size;
   const falta = estado.escolherLoja
@@ -89,11 +99,12 @@ export function DialogoPausa({
 
   const previa = useMemo(() => {
     const agora = new Date();
-    const fim = fimDaPrevia(tempo, agora);
+    // A prévia mostra a volta do cardápio digital (ou do iFood); só com a 99 escolhida, a da 99.
+    const fim = fimDaPrevia(comTempoLivre || !canais.has('food99') ? tempo : tempo99, agora);
     const frase = fraseDaPrevia(estado.motivos.find((m) => m.motivo === motivo)?.frase, outro);
     return fim ? { frase, volta: voltaDaPrevia(fim, agora) } : null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [motivo, outro, livre, ate, estado.motivos]);
+  }, [motivo, outro, livre, livre99, ate, canais, estado.motivos]);
 
   const rotuloDoBotao = n === 0 ? '⏸ Pausar' : n === 1 ? `⏸ Pausar ${NOME_NA_FRASE[[...canais][0]] ?? 'o canal'}` : `⏸ Pausar ${n} canais`;
 
@@ -106,10 +117,13 @@ export function DialogoPausa({
         canais: [...canais],
         motivo,
         ...(motivo === 'outro' ? { motivoTexto: outro.trim() } : {}),
-        tempo,
+        ...(comTempoLivre ? { tempo } : {}),
+        ...(canais.has('food99') ? { tempo99 } : {}),
       })) as EstadoDasPausas;
       const p = novo.canais.find((c) => canais.has(c.canal))?.pausa;
-      toast.success(p ? `Pausado até ${p.volta.amanha ? 'amanhã às ' : ''}${p.volta.hora} · motivo registrado` : 'Pausado · motivo registrado');
+      const destino = canais.has('ifood') && canais.has('food99') ? 'ao iFood e à 99' : canais.has('ifood') ? 'ao iFood' : 'à 99';
+      const fora = comExterno ? ` · o pedido de pausa vai ${destino} em instantes` : '';
+      toast.success(p ? `Pausado até ${p.volta.amanha ? 'amanhã às ' : ''}${p.volta.hora} · motivo registrado${fora}` : `Pausado · motivo registrado${fora}`);
       aoPausar(novo);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Não deu para pausar.');
@@ -186,8 +200,14 @@ export function DialogoPausa({
                 </button>
               );
             })}
+            {semPoder.map((c) => (
+              <div key={c.canal} aria-disabled="true" className="min-w-0 rounded-xl border-2 border-dashed border-border bg-card p-3 text-left">
+                <span className="font-display text-sm font-bold text-muted-foreground">{c.nome}</span>
+                <span className="mt-1 block text-xs text-foreground">{c.motivo}</span>
+              </div>
+            ))}
           </div>
-          {!disponiveis.length && <p className="text-sm text-muted-foreground">Esta loja não tem cardápio digital para pausar.</p>}
+          {!disponiveis.length && <p className="text-sm text-muted-foreground">Nada para pausar nesta loja pelo Regem.</p>}
         </Grupo>
 
         <Grupo titulo="2 · Por que vai pausar?">
@@ -221,7 +241,10 @@ export function DialogoPausa({
         </Grupo>
 
         <Grupo titulo="3 · Por quanto tempo">
-          <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Tempo do cardápio digital">
+          {comTempoLivre && canais.has('food99') && (
+            <p className="mb-1 text-xs font-semibold text-muted-foreground">{tituloDoTempo}</p>
+          )}
+          <div className={cn('flex flex-wrap items-center gap-2', !comTempoLivre && 'hidden')} role="group" aria-label={`Tempo: ${tituloDoTempo}`}>
             {estado.temposDoCardapio.map((m) => (
               <Opcao key={m} marcado={livre === String(m)} onClick={() => setLivre(String(m))}>
                 {m === 60 ? '1 hora' : `${m} min`}
@@ -246,6 +269,21 @@ export function DialogoPausa({
               />
             </span>
           </div>
+          {canais.has('food99') && (
+            <div className={cn(comTempoLivre && 'mt-3')}>
+              <p className="mb-1 text-xs font-semibold text-muted-foreground">99 · a 99 só aceita estes tempos</p>
+              <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Tempo da 99">
+                {temposDa99.map((m) => (
+                  <Opcao key={m} marcado={livre99 === String(m)} onClick={() => setLivre99(String(m))}>
+                    {m} min
+                  </Opcao>
+                ))}
+                <Opcao marcado={livre99 === 'fim'} onClick={() => setLivre99('fim')}>
+                  Até o fim do dia
+                </Opcao>
+              </div>
+            </div>
+          )}
         </Grupo>
 
         <Grupo titulo="4 · O cliente vai ver">
@@ -267,6 +305,12 @@ export function DialogoPausa({
               ? 'O atendente manda esta mensagem na primeira vez que o cliente escrever durante a pausa (WhatsApp, Instagram e Messenger — nos dois últimos, sem o negrito). No cardápio online aparece o aviso da pausa, e o pedido é recusado com o motivo e a hora de volta. O texto se muda em Delivery › Configurações › Atendimento.'
               : 'No cardápio online. O pedido feito pelo site ou pelo atendente do WhatsApp, Instagram e Messenger é recusado com o motivo e a hora de volta.'}
           </p>
+          {comExterno && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {canais.has('ifood') && canais.has('food99') ? 'No iFood e na 99' : canais.has('ifood') ? 'No iFood' : 'Na 99'}, a loja aparece fechada
+              temporariamente no app até a hora de reabrir — o Regem pede a pausa e mostra na faixa quando o canal aceitou.
+            </p>
+          )}
         </Grupo>
 
         {erro && (
