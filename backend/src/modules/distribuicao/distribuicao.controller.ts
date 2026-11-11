@@ -20,6 +20,7 @@ import { CloudOnly } from '../../common/cloud-only.decorator';
 import { IbptService } from '../fiscal/ibpt/ibpt.service';
 import { IntegracaoTokenService } from '../integracao-api/integracao-token.service';
 import { OrzuniLigacaoService } from '../orzuni/orzuni-ligacao.service';
+import { PrecosNa99Service } from './precos-na-99.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -32,6 +33,7 @@ export class DistribuicaoController {
     private readonly ibpt: IbptService,
     private readonly integracao: IntegracaoTokenService,
     private readonly orzuni: OrzuniLigacaoService,
+    private readonly precos99: PrecosNa99Service,
   ) {}
 
   // iFood pelo Orzuni (R2a; mig 370) — só Diretoria. A chave `orz_live_` da loja entra aqui UMA vez e é trocada
@@ -74,6 +76,24 @@ export class DistribuicaoController {
   async liberacaoOrzuni(@DistUser() u: DistCtx, @Body() dto: any) {
     const r = await this.orzuni.liberacao(dto, u);
     await this.service.auditar(u, r.liberado ? 'ligou_ifood_pelo_orzuni' : 'desligou_ifood_pelo_orzuni', r.tenantId, {});
+    return r;
+  }
+
+  // Preço e pausa na 99 (R3 F2; mig 401) — só Diretoria: o direito `precos_na_99` da empresa, ligado só com todos os
+  // servidores de loja dela na versão com a mig 401.
+  @Get('precos-na-99')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  painelPrecosNa99(@Query('tenantId') tenantId: string) {
+    return this.precos99.painel(tenantId);
+  }
+
+  @Post('precos-na-99/liberacao')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  async liberacaoPrecosNa99(@DistUser() u: DistCtx, @Body() dto: any) {
+    const r = await this.precos99.liberacao(dto, u);
+    await this.service.auditar(u, r.liberado ? 'ligou_precos_na_99' : 'desligou_precos_na_99', r.tenantId, {});
     return r;
   }
 

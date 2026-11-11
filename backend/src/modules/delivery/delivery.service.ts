@@ -740,7 +740,8 @@ export class DeliveryService {
 
   // Lê o catálogo do Regem (categorias + produtos disponíveis no cardápio) para os
   // conectores EXPORTAREM pro marketplace (99food/Cardápio Web). Só produtos com
-  // disponivel_cardapio=true. Retorna arrays crus (nome, codigo, preço, categoria).
+  // disponivel_cardapio=true. Retorna arrays crus (nome, codigo, preço, categoria; `preco_99` =
+  // o preço na 99, mig 401 — quem usa é o export da 99, só com o direito `precos_na_99`).
   // canal: quando informado (ex.: '99food', 'cardapio_web'), exclui os produtos
   // pausados NAQUELE canal (produto.canais_pausados). Assim o toggle "Ativo no X"
   // do cadastro efetivamente tira o item do export daquela integração.
@@ -755,7 +756,7 @@ export class DeliveryService {
       ? sql`and (canais_pausados is null or not jsonb_exists(canais_pausados, ${canal}))`
       : sql``;
     const p: any = await this.db.execute(sql`
-      select id, nome, codigo, preco_venda, preco_custo, categoria_id, descricao, canais_pausados
+      select id, nome, codigo, preco_venda, preco_custo, categoria_id, descricao, canais_pausados, preco_99
       from produto
       where tenant_id = ${tenantId} and deleted_at is null and disponivel_cardapio = true
       ${filtroCanal}`);

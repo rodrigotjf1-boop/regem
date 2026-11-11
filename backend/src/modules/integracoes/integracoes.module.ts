@@ -12,6 +12,9 @@ import { IfoodAvaliacoesPoller } from './ifood/ifood-avaliacoes.poller';
 import { Food99Service } from './food99/food99.service';
 import { Food99Controller } from './food99/food99.controller';
 import { Food99Poller } from './food99/food99.poller';
+import { Food99CatalogoEnvioService } from './food99/food99-catalogo-envio.service';
+import { Food99LojaController } from './food99/food99-loja.controller';
+import { EquipamentoModule } from '../equipamento/equipamento.module';
 import { AnotaAiService } from './anotaai/anotaai.service';
 import { AnotaAiController } from './anotaai/anotaai.controller';
 import { AnotaAiPoller } from './anotaai/anotaai.poller';
@@ -22,8 +25,9 @@ import { AnotaAiPoller } from './anotaai/anotaai.poller';
 // Cardápio Web (API Aberta): OAuth authorization_code + PKCE (onboarding no
 // controller); a ingestão de pedidos (webhook/adapter) entra na F2.
 @Module({
-  imports: [forwardRef(() => DeliveryModule)],
-  controllers: [CardapioWebController, Food99Controller, AnotaAiController, IfoodController],
+  // EquipamentoModule: o `SyncTokenGuard` da rota do servidor da loja (Food99LojaController) injeta o EquipamentoService (V81).
+  imports: [forwardRef(() => DeliveryModule), EquipamentoModule],
+  controllers: [CardapioWebController, Food99Controller, Food99LojaController, AnotaAiController, IfoodController],
   // IfoodAvaliacoesPoller: as avaliações do iFood viram caso na central (só nuvem, com o ajuste ligado — 06/11/2026).
   providers: [
     OpenDeliveryService,
@@ -35,6 +39,8 @@ import { AnotaAiPoller } from './anotaai/anotaai.poller';
     IfoodAvaliacoesPoller,
     Food99Service,
     Food99Poller,
+    // O envio à 99 item a item (R3 F2; mig 402): preço, pausa, nome e descrição, pela fila `food99_envio` (só nuvem).
+    Food99CatalogoEnvioService,
     AnotaAiService,
     AnotaAiPoller,
   ],

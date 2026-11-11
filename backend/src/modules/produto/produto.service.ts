@@ -28,14 +28,17 @@ import { exigirUnidade, unidadeOuPadrao } from '../estoque/unidades';
 import { arredondarEstoque, fatorParaEstoque, unidadesDoProduto } from '../../common/conversao-unidade';
 import { exigirBooleano } from '../../common/exigir';
 import { ifoodPeloOrzuniLigado, precoIfoodDoPedido } from '../../common/ifood-pelo-orzuni';
+import { preco99DoPedido, precosNa99Ligado } from '../../common/precos-na-99';
 import { ehServidorLocal } from '../../common/modo';
 import { AlvoIfood, RespostaEnvios, ehIdDoAlvo, enviosDoAlvo, enviosDoAlvoPelaNuvem } from '../orzuni/envios-do-alvo';
+import { RespostaEnviosDa99, ehIdDoProduto99, enviosDa99, enviosDa99PelaNuvem } from '../integracoes/food99/food99-envios';
 import { CreateCategoriaDto } from './dto/create-categoria.dto';
 import { CreateProdutoDto } from './dto/create-produto.dto';
 import {
   exigirCanalDePausa,
   exigirCanalDePreco,
   exigirIdDoProduto,
+  preco99DoCanal,
   precoDeVendaDoPedido,
   precoIfoodDoCanal,
 } from './produto-canais';
@@ -97,32 +100,74 @@ export class ProdutoService {
     return out;
   }
 
+  // ----- A 99 (mig 401; R3 F2) -----
+  /** O direito `precos_na_99` está ligado nesta empresa? (a tela mostra os campos da 99 só assim) */
+  precosNa99(tenantId: string): Promise<boolean> {
+    return precosNa99Ligado(this.db, tenantId);
+  }
+
+  /**
+   * O "último envio à 99" do produto, por loja (mig 402). A fila só existe na NUVEM: no servidor da loja, pede à nuvem
+   * — sem conexão, a tela diz isso (V37). Direito desligado: lista vazia.
+   */
+  async food99Envios(tenantId: string, refId: string): Promise<RespostaEnviosDa99> {
+    if (!ehIdDoProduto99(refId)) throw new BadRequestException('Produto inválido.');
+    if (!(await precosNa99Ligado(this.db, tenantId))) return { envios: [], semConexao: false };
+    if (ehServidorLocal()) return enviosDa99PelaNuvem(tenantId, refId, this.buscarNaNuvem);
+    return { envios: await enviosDa99(this.db, tenantId, refId), semConexao: false };
+  }
+
+  /**
+   * Os campos da 99 do PRODUTO que o pedido manda gravar (a regra dos do iFood): ausente = não mexe (V16); conferidos
+   * SEMPRE — valor inválido é recusado com o motivo — e só entram na gravação com o direito `precos_na_99` ligado;
+   * desligado, ficam de fora em silêncio (a tela nem os mostra).
+   */
+  private async campos99(
+    tenantId: string,
+    dto: { preco99?: unknown; na99?: unknown },
+  ): Promise<{ preco99?: string | null; na99?: boolean }> {
+    const preco = preco99DoPedido(dto?.preco99);
+    const marcador = dto?.na99 !== undefined ? exigirBooleano(dto.na99, 'na99') : undefined;
+    if (preco === undefined && marcador === undefined) return {};
+    if (!(await precosNa99Ligado(this.db, tenantId))) return {};
+    const out: { preco99?: string | null; na99?: boolean } = {};
+    if (preco !== undefined) out.preco99 = preco;
+    if (marcador !== undefined) out.na99 = marcador;
+    return out;
+  }
+
   // ----- Gestão do catálogo › Produtos e preços (R3 F1; regras em `produto-canais.ts`) -----
 
   /**
    * O preço de UM canal, com auditoria (de → para). `regem` = o preço de venda (balcão e cardápio digital); `ifood` = o
    * preço no iFood (só com o direito `ifood_pelo_orzuni`; o envio vai pela fila do Orzuni — o gatilho da mig 370/399 vê
-   * a coluna mudar). Igual ao que está gravado: não grava nem audita (`mudou: false`).
+   * a coluna mudar); `99food` = o preço na 99 (mig 401, só com o direito `precos_na_99`). Igual ao que está gravado: não
+   * grava nem audita (`mudou: false`).
    */
   async precoDoCanal(tenantId: string, idBruto: string, canalBruto: unknown, valor: unknown, ator: Ator) {
     const id = exigirIdDoProduto(idBruto);
     const canal = exigirCanalDePreco(canalBruto);
-    const para = canal === 'regem' ? precoDeVendaDoPedido(valor) : precoIfoodDoCanal(valor);
+    const para = canal === 'regem' ? precoDeVendaDoPedido(valor) : canal === 'ifood' ? precoIfoodDoCanal(valor) : preco99DoCanal(valor);
     if (canal === 'ifood' && !(await ifoodPeloOrzuniLigado(this.db, tenantId))) {
       throw new ConflictException('O iFood pelo Orzuni não está ligado nesta empresa: o preço do iFood não pode ser mudado pelo Regem.');
     }
+    if (canal === '99food' && !(await precosNa99Ligado(this.db, tenantId))) {
+      throw new ConflictException('O preço na 99 não está ligado nesta empresa: ele não pode ser mudado pelo Regem.');
+    }
+    // A coluna de cada canal (nome fixo, nunca vindo do pedido).
+    const coluna = sql.raw(canal === 'regem' ? 'preco_venda' : canal === 'ifood' ? 'preco_ifood' : 'preco_99');
     const r: any = await this.db.execute(sql`
       with antes as (
-        select id, nome, preco_venda::text as venda, preco_ifood::text as ifood
+        select id, nome, ${coluna}::text as de
           from produto where id = ${id} and tenant_id = ${tenantId} and deleted_at is null
          for update)
       update produto p
-         set ${canal === 'regem' ? sql`preco_venda = ${para}::numeric` : sql`preco_ifood = ${para}::numeric`},
+         set ${coluna} = ${para}::numeric,
              updated_at = now()
         from antes
        where p.id = antes.id
-         and ${canal === 'regem' ? sql`p.preco_venda is distinct from ${para}::numeric` : sql`p.preco_ifood is distinct from ${para}::numeric`}
-      returning antes.nome, antes.venda, antes.ifood`);
+         and p.${coluna} is distinct from ${para}::numeric
+      returning antes.nome, antes.de`);
     const [mudado] = r?.rows ?? r ?? [];
     if (!mudado) {
       // Nada gravado: ou o produto não existe (404), ou o valor é o mesmo (sem auditoria).
@@ -143,7 +188,7 @@ export class ProdutoService {
       entidadeTipo: 'produto',
       entidadeId: id,
       // `preco_venda` é numeric sem escala ("39.9"): o "de" sai com 2 casas, como o "para".
-      detalhe: { nome: mudado.nome, canal, de: duasCasas(canal === 'regem' ? mudado.venda : mudado.ifood), para },
+      detalhe: { nome: mudado.nome, canal, de: duasCasas(mudado.de), para },
     });
     return { canal, valor: para, mudou: true };
   }
@@ -1120,6 +1165,7 @@ export class ProdutoService {
              p.disponivel_balcao as "disponivelBalcao",
              p.canais_pausados as "canaisPausados",
              p.preco_ifood as "precoIfood", p.no_ifood as "noIfood",
+             p.preco_99 as "preco99", p.na_99 as "na99",
              p.ativo, p.categoria_id as "categoriaId", p.ficha_id as "fichaId",
              p.item_id as "itemId", p.item_unidade as "itemUnidade", p.item_fator as "itemFator",
              p.setor_producao_id as "setorProducaoId", p.imagem_ref as "imagemRef",
@@ -1393,7 +1439,7 @@ export class ProdutoService {
     const [novo] = await this.db
       .insert(produto)
       // Sem código PDV a cópia não se liga ao iFood: nasce fora do cardápio de lá (mig 369).
-      .values({ ...rest, nome: `${orig.nome} (cópia)`, codigo: null, noIfood: false })
+      .values({ ...rest, nome: `${orig.nome} (cópia)`, codigo: null, noIfood: false, na99: false })
       .returning();
 
     // `chave` = propriedade JS que aponta pro produto pai (a coluna Drizzle usa
@@ -1781,6 +1827,8 @@ export class ProdutoService {
     const vinculo = await this.vinculoComEstoque(tenantId, dto.itemId, dto.itemUnidade);
     // Preço no iFood e "está no iFood" (mig 369): só com o direito ligado; senão ficam no padrão.
     const ifood = await this.camposIfood(tenantId, dto, true);
+    // Preço na 99 e "está na 99" (mig 401): só com o direito `precos_na_99` ligado; senão ficam no padrão.
+    const na99 = await this.campos99(tenantId, dto);
     const row = await this.db.transaction(async (tx) => {
       const [p] = await tx
         .insert(produto)
@@ -1832,6 +1880,7 @@ export class ProdutoService {
           aliqCofins: dto.aliqCofins != null ? String(dto.aliqCofins) : undefined,
           imagemRef: dto.imagemRef,
           ...ifood,
+          ...na99,
         })
         .returning();
 
@@ -1946,6 +1995,8 @@ export class ProdutoService {
     set('imagemRef', dto.imagemRef);
     // Preço no iFood e "está no iFood" (mig 369): ausente mantém; só com o direito ligado.
     Object.assign(patch, await this.camposIfood(tenantId, dto, true));
+    // Preço na 99 e "está na 99" (mig 401): ausente mantém; só com o direito `precos_na_99` ligado.
+    Object.assign(patch, await this.campos99(tenantId, dto));
 
     const [row] = await this.db
       .update(produto)

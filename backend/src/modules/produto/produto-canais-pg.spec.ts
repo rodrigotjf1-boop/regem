@@ -6,7 +6,10 @@ import { FichasService } from '../fichas/fichas.service';
 import { ProdutoService } from './produto.service';
 import { ProdutoController } from './produto.controller';
 import { MODULO_IFOOD_PELO_ORZUNI } from '../../common/ifood-pelo-orzuni';
-import { exigirCanalDePausa, exigirCanalDePreco, exigirIdDoProduto, precoDeVendaDoPedido, precoIfoodDoCanal } from './produto-canais';
+import { MODULO_PRECOS_NA_99 } from '../../common/precos-na-99';
+import {
+  exigirCanalDePausa, exigirCanalDePreco, exigirIdDoProduto, preco99DoCanal, precoDeVendaDoPedido, precoIfoodDoCanal,
+} from './produto-canais';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -42,9 +45,19 @@ describe('regras do preço e da pausa por canal (sem banco)', () => {
     expect(() => precoIfoodDoCanal(undefined)).toThrow(/Informe o preço/);
     expect(() => precoIfoodDoCanal(-3)).toThrow(/Preço no iFood/);
   });
+  it('preço na 99 (R3 F2, mig 401): a regra do iFood — vazio limpa; zero e ausente são recusados, com o motivo da 99', () => {
+    expect(preco99DoCanal('44,9')).toBe('44.90');
+    expect(preco99DoCanal(null)).toBeNull();
+    expect(preco99DoCanal(' ')).toBeNull();
+    expect(() => preco99DoCanal(0)).toThrow(/de graça/);
+    expect(() => preco99DoCanal(undefined)).toThrow(/Informe o preço na 99/);
+    expect(() => preco99DoCanal(1.234)).toThrow(/Preço na 99 com mais de 2 casas/);
+    expect(() => preco99DoCanal('abc')).toThrow(/Preço na 99 inválido/);
+  });
   it('canal e id: só os conhecidos', () => {
     expect(exigirCanalDePreco('regem')).toBe('regem');
-    expect(() => exigirCanalDePreco('99food')).toThrow(/regem.*ifood/);
+    expect(exigirCanalDePreco('99food')).toBe('99food');
+    expect(() => exigirCanalDePreco('gogem')).toThrow(/regem.*ifood.*99food/);
     expect(exigirCanalDePausa('99food')).toBe('99food');
     expect(() => exigirCanalDePausa('gogem')).toThrow(/Canal inválido/);
     expect(() => exigirIdDoProduto('1 or 1=1')).toThrow(/Produto inválido/);
@@ -134,6 +147,35 @@ descrever('preço e pausa por canal (Postgres real)', () => {
     expect(await produtos.precoDoCanal(t, p, 'ifood', '', ator)).toMatchObject({ valor: null, mudou: true });
     expect((await gravado(p)).ifood).toBeNull();
     await expect(produtos.precoDoCanal(t, p, 'ifood', 0, ator)).rejects.toThrow(/preço zero/);
+  });
+
+  it('a 99 (R3 F2, mig 401): o preço só com o direito `precos_na_99`; grava, audita, vazio limpa; a lista e o cadastro trazem os campos', async () => {
+    const sem = await loja(false);
+    await expect(produtos.precoDoCanal(sem.t, sem.p, '99food', 44.9, ator)).rejects.toThrow(/preço na 99 não está ligado/);
+    // Desligado, o cadastro ignora os campos da 99 em silêncio (a tela nem os mostra) — mas confere o valor.
+    await produtos.atualizar(sem.t, sem.p, { preco99: '30', na99: true } as any);
+    expect((await q(`select preco_99, na_99 from produto where id = $1`, [sem.p]))[0]).toEqual({ preco_99: null, na_99: false });
+    await expect(produtos.atualizar(sem.t, sem.p, { preco99: 'abc' } as any)).rejects.toThrow(/Preço na 99 inválido/);
+    expect(await produtos.precosNa99(sem.t)).toBe(false);
+
+    const { t, p } = await loja(false);
+    await q(`insert into entitlement (id, tenant_id, modulo, ativo) values (md5('entitlement' || $1 || $3)::uuid, $2, $3, true)`, [t, t, MODULO_PRECOS_NA_99]);
+    expect(await produtos.precosNa99(t)).toBe(true);
+    auditados.length = 0;
+    expect(await produtos.precoDoCanal(t, p, '99food', '44,9', ator)).toEqual({ canal: '99food', valor: '44.90', mudou: true });
+    expect(auditados[0].detalhe).toEqual({ nome: 'X-Bacon', canal: '99food', de: null, para: '44.90' });
+    expect(await produtos.precoDoCanal(t, p, '99food', 44.9, ator)).toMatchObject({ mudou: false });
+    expect(auditados).toHaveLength(1);
+    // Os outros preços não mudam.
+    expect(await gravado(p)).toMatchObject({ venda: '39.90', ifood: '50.00' });
+    // "Está na 99" pelo cadastro; a lista escrita à mão traz os dois campos (ERR-216).
+    await produtos.atualizar(t, p, { na99: true } as any);
+    const lista = (await produtos.listar(t, true)) as any[];
+    expect(lista.find((x) => x.id === p)).toMatchObject({ preco99: '44.90', na99: true });
+    await expect(produtos.atualizar(t, p, { na99: 'sim' } as any)).rejects.toThrow(/na99/);
+    expect(await produtos.precoDoCanal(t, p, '99food', null, ator)).toMatchObject({ valor: null, mudou: true });
+    expect((await q(`select preco_99 from produto where id = $1`, [p]))[0].preco_99).toBeNull();
+    await expect(produtos.precoDoCanal(t, p, '99food', 0, ator)).rejects.toThrow(/de graça/);
   });
 
   it('a pausa do Regem: balcão e cardápio digital juntos; já pausado não grava nem audita', async () => {

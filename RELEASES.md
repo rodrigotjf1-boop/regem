@@ -12,6 +12,16 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **A 99 na Gestão do catálogo — preço, pausa, nome e descrição item a item (R3, fase F2; ⚠️ MIG 401 vai no `.zip`;
+  a 402 é só nuvem).** Na NUVEM com o merge: a fila e o envio à 99 (`updateItem`/`updateItemStatus`), a coluna "99" em
+  Produtos e preços, o "Exportar catálogo" com o preço na 99 — tudo atrás do direito `precos_na_99` (nasce desligado).
+  **No `.zip` 1.30.13:** a mig 401 (`produto.preco_99`/`na_99`, `opcao.preco_99`/`canais_pausados`) no banco da loja e o
+  código que lê e grava esses campos. ⚠️ **A distribuição só consegue ligar o direito numa empresa com servidor de loja
+  depois de ele estar na 1.30.13** (`VERSAO_MINIMA_PRECOS_NA_99`, conferida no console). **Se o corte da 1.30.13 sair sem a
+  mig 401, subir essa constante (`backend/src/common/precos-na-99.ts`) para a versão que a trouxer.** Mexe no
+  `sync-daemon` só na lista `SO_NUVEM` (a fila `food99_envio`, que a loja não tem): nada muda na loja por isso; o `.exe`
+  já está pendente pelo O3/O14.
+
 - **KDS para a cozinha enxergar — a tela na versão 2 (onda 2 da auditoria do KDS; SEM migration; não mexe no
   `sync-daemon`).** Na NUVEM com o merge: cartão neutro com a cor só no selo do tempo, letra maior, cabeçalho compacto
   (o do aparelho no ⚙), faixas claras, rodapé parado com "Ciente", aviso curto a cada toque, "Finalizar todos" em

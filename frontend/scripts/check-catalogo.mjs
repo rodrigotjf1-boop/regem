@@ -213,6 +213,65 @@ try {
     assert.deepEqual(s.patch, { nome: 'Outro' });
   });
 
+  // ── a 99 (R3 F2; migs 401/402) ──
+  const P99 = { ...P, preco99: '44.90', na99: true };
+  const CTX99 = { ...CTX, com99: true };
+
+  caso('a 99: pausa = "99food" na lista; sem preço só quem está na 99; "pausado em algum canal" só com ela ligada', () => {
+    assert.equal(c.pausadoNa99({ canaisPausados: ['99food'] }), true);
+    assert.equal(c.pausadoNa99({ canaisPausados: ['ifood'] }), false);
+    assert.equal(c.semPrecoNa99({ na99: true, preco99: null }), true);
+    assert.equal(c.semPrecoNa99({ na99: false, preco99: null }), false);
+    const p = { na99: true, canaisPausados: ['99food'] };
+    assert.equal(c.pausadoEmAlgumCanal(p, false, true), true);
+    assert.equal(c.pausadoEmAlgumCanal(p, false, false), false);
+    assert.equal(c.pausadoEmAlgumCanal(p, false), false); // chamada antiga (sem a 99) segue igual
+  });
+
+  caso('a 99 na gaveta: preço, pausa e nome vão na hora; o iFood não muda por causa dela', () => {
+    const r = plano({ preco99: '49,9', pausa99: true, nome: 'X-Bacon duplo' }, CTX99, P99);
+    assert.deepEqual(r.precos, [{ canal: '99food', valor: '49.90' }]);
+    assert.deepEqual(r.pausas, [{ canal: '99food', pausado: true }]);
+    assert.equal(r.n99Vai.length, 3);
+    assert.match(r.n99Vai[0], /^preço R\$\s44,90 → R\$\s49,90$/);
+    assert.deepEqual(r.n99Vai.slice(1), ['pausa', 'nome']);
+    assert.deepEqual(r.n99Atencao, []);
+    assert.deepEqual(r.ifoodVai, ['nome']);
+    // Sem a 99 ligada: nada da 99 entra (a mesma edição, sem a 99).
+    const s = plano({ preco99: '49,9', pausa99: true, na99: false }, CTX, P99);
+    assert.deepEqual([s.precos, s.pausas, s.n99Vai, 'na99' in s.patch], [[], [], [], false]);
+  });
+
+  caso('a 99 não troca o código: com o código novo, liga a outro item de lá (o nome de lá fica); limites 180/1500', () => {
+    const r = plano({ codigo: '3000', nome: 'Outro' }, CTX99, P99);
+    assert.match(r.n99Atencao[0], /a 99 não troca o código de um item: com o código 3000/);
+    assert.match(r.n99Atencao[1], /nome e a descrição de lá ficam como estão/);
+    assert.equal(r.n99Vai.includes('nome'), false);
+    assert.match(plano({ nome: 'X'.repeat(181) }, CTX99, P99).n99Atencao[0], /até 180 caracteres: o nome não vai/);
+    assert.deepEqual(plano({ nome: 'X'.repeat(150) }, CTX99, P99).n99Atencao, []); // 150 passa na 99 (no iFood não)
+    assert.match(plano({ descricao: 'D'.repeat(1501) }, CTX99, P99).n99Atencao[0], /até 1500 caracteres/);
+  });
+
+  caso('"Está na 99": entrar manda preço e situação; sair pausa lá; preço em branco é aviso; sem código nada vai', () => {
+    const entra = plano({ na99: true }, CTX99, { ...P99, na99: false });
+    assert.deepEqual(entra.patch, { na99: true });
+    assert.deepEqual(entra.n99Vai, ['entra no cardápio da 99: vão o preço e a situação']);
+    const sai = plano({ na99: false, pausa99: true }, CTX99, P99);
+    assert.deepEqual([sai.patch, sai.pausas, sai.n99Vai], [{ na99: false }, [], ['sai do cardápio da 99: o item lá fica pausado']]);
+    const branco = plano({ preco99: '' }, CTX99, P99);
+    assert.deepEqual(branco.precos, [{ canal: '99food', valor: null }]);
+    assert.match(branco.n99Atencao[0], /preço em branco/);
+    const semCod = plano({ preco99: '50' }, CTX99, { ...P99, codigo: '' });
+    assert.deepEqual(semCod.n99Vai, []);
+    assert.match(semCod.regem[0], /preço na 99 .* \(guardado\)/);
+    assert.match(semCod.n99Atencao.join(' | '), /sem código PDV: nada vai à 99/);
+    // Preço inválido: erro antes de gravar; esgotado avisa que segue pausado.
+    assert.match(plano({ preco99: 'abc' }, CTX99, P99).erros[0], /^Preço na 99:/);
+    const esg = plano({ pausa99: false }, CTX99, { ...P99, canaisPausados: ['99food'], pausadoEstoque: true });
+    assert.deepEqual(esg.n99Vai, ['reativa']);
+    assert.match(esg.n99Atencao[0], /segue pausado na 99/);
+  });
+
   console.log(`\ncheck:catalogo — ${n} grupos de casos, todos certos.`);
 } finally {
   rmSync(tmp, { recursive: true, force: true });

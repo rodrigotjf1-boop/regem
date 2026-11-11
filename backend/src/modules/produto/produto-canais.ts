@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { precoIfoodDoPedido } from '../../common/ifood-pelo-orzuni';
+import { preco99DoPedido } from '../../common/precos-na-99';
 
 // GESTÃO DO CATÁLOGO › PRODUTOS E PREÇOS (R3, fase F1; protótipo aprovado pelo dono em 11/11/2026 —
 // `mockups/regem-conciliacao-ifood.html`). O preço e a pausa de UM canal por vez, cada mudança com auditoria (de → para).
@@ -10,12 +11,13 @@ import { precoIfoodDoPedido } from '../../common/ifood-pelo-orzuni';
 //             iFood (decisão 1: cada canal se pausa no seu botão).
 //   • ifood — o preço no iFood (`preco_ifood`, mig 369, só com o direito `ifood_pelo_orzuni`) e o "Pausado no iFood"
 //             (`canais_pausados` com 'ifood'). O envio ao iFood é a fila do Orzuni (gatilho da mig 370/399).
-//   • 99food — o "Pausado na 99" (`canais_pausados` com '99food'): sai do cardápio no próximo envio à 99. O preço da 99
-//             é a fase F2 (hoje a 99 recebe o preço de venda).
+//   • 99food — o preço na 99 (`preco_99`, mig 401, só com o direito `precos_na_99`; vazio = o "Exportar catálogo" da 99
+//             manda o preço de venda) e o "Pausado na 99" (`canais_pausados` com '99food'). Os dois vão à 99 na
+//             hora, item a item (a fila da mig 402); o "Exportar catálogo" tira da 99 o que está pausado lá.
 // A pausa num canal da lista `canais_pausados` põe ou tira SÓ aquele canal, na própria instrução do banco — nunca regrava
 // a lista inteira (o totem também mexe nela: a pausa dele não pode sumir).
 
-export const CANAIS_DE_PRECO = ['regem', 'ifood'] as const;
+export const CANAIS_DE_PRECO = ['regem', 'ifood', '99food'] as const;
 export type CanalDePreco = (typeof CANAIS_DE_PRECO)[number];
 export const CANAIS_DE_PAUSA = ['regem', 'ifood', '99food'] as const;
 export type CanalDePausa = (typeof CANAIS_DE_PAUSA)[number];
@@ -33,7 +35,7 @@ export function exigirIdDoProduto(id: unknown): string {
 
 export function exigirCanalDePreco(v: unknown): CanalDePreco {
   if (typeof v === 'string' && (CANAIS_DE_PRECO as readonly string[]).includes(v)) return v as CanalDePreco;
-  throw new BadRequestException('Canal inválido para o preço: use "regem" ou "ifood".');
+  throw new BadRequestException('Canal inválido para o preço: use "regem", "ifood" ou "99food".');
 }
 
 export function exigirCanalDePausa(v: unknown): CanalDePausa {
@@ -65,5 +67,17 @@ export function precoIfoodDoCanal(valor: unknown): string | null {
   if (valor === undefined) throw new BadRequestException('Informe o preço no iFood (ou deixe em branco para o Regem não mexer nele).');
   const v = precoIfoodDoPedido(valor);
   if (v === '0.00') throw new BadRequestException('O iFood não aceita item com preço zero: informe o preço ou deixe em branco.');
+  return v ?? null;
+}
+
+/**
+ * O preço na 99 de um PRODUTO que veio no pedido: a mesma regra do preço no iFood (vazio limpa — o "Exportar catálogo" da 99
+ * volta a mandar o preço de venda) e zero não vale: o preço do item na 99 é o que o cliente paga, e zero sairia de graça.
+ * Ausente é erro aqui: a rota existe para mudar o preço.
+ */
+export function preco99DoCanal(valor: unknown): string | null {
+  if (valor === undefined) throw new BadRequestException('Informe o preço na 99 (ou deixe em branco para o Regem não mexer nele).');
+  const v = preco99DoPedido(valor);
+  if (v === '0.00') throw new BadRequestException('Preço zero na 99 sairia de graça para o cliente: informe o preço ou deixe em branco.');
   return v ?? null;
 }

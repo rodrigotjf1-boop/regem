@@ -618,6 +618,10 @@ export const distApi = {
     distReq(`/distribuicao/orzuni/ligacoes/${id}/revogar`, { method: 'POST', body: JSON.stringify({ motivo }) }),
   orzuniLiberacao: (tenantId: string, ligar: boolean) =>
     distReq('/distribuicao/orzuni/liberacao', { method: 'POST', body: JSON.stringify({ tenantId, ligar }) }),
+  // Preço e pausa na 99 (R3 F2; mig 401): o direito da empresa, ligado só com os servidores de loja na versão certa.
+  precosNa99Painel: (tenantId: string) => distReq(`/distribuicao/precos-na-99?tenantId=${encodeURIComponent(tenantId)}`),
+  precosNa99Liberacao: (tenantId: string, ligar: boolean) =>
+    distReq('/distribuicao/precos-na-99/liberacao', { method: 'POST', body: JSON.stringify({ tenantId, ligar }) }),
 };
 
 // Upload multipart: NÃO define Content-Type (o browser injeta o boundary).
@@ -758,10 +762,14 @@ export const api = {
   // `semConexao` = não deu para ler (não é "nenhum envio").
   produtoIfoodEnvios: (id: string) => req(`/produtos/${id}/ifood-envios`) as Promise<{ envios: any[]; semConexao: boolean }>,
   opcaoIfoodEnvios: (id: string) => req(`/produtos/opcoes/${id}/ifood-envios`) as Promise<{ envios: any[]; semConexao: boolean }>,
-  // Gestão do catálogo (R3 F1): o preço e a pausa de UM canal, com auditoria. Preço: 'regem' (venda) ou 'ifood' (vazio =
-  // "o Regem não mexe"; pede "Ver valores em R$"). Pausa: 'regem' desliga balcão e cardápio digital juntos; 'ifood' e
-  // '99food' pausam só o seu canal. `mudou: false` = já estava assim.
-  precoDoCanal: (id: string, canal: 'regem' | 'ifood', valor: string | null) =>
+  // A 99 (mig 401; R3 F2): o preço na 99 e o "está na 99" só aparecem com o direito `precos_na_99` ligado.
+  precosNa99: () => req('/produtos/precos-na-99') as Promise<{ ligado: boolean }>,
+  // O "último envio à 99" do produto, por loja (mig 402) — o mesmo formato do iFood.
+  produto99Envios: (id: string) => req(`/produtos/${id}/99-envios`) as Promise<{ envios: any[]; semConexao: boolean }>,
+  // Gestão do catálogo (R3 F1/F2): o preço e a pausa de UM canal, com auditoria. Preço: 'regem' (venda), 'ifood' ou
+  // '99food' (vazio = "o Regem não mexe"; pede "Ver valores em R$"). Pausa: 'regem' desliga balcão e cardápio digital
+  // juntos; 'ifood' e '99food' pausam só o seu canal. `mudou: false` = já estava assim.
+  precoDoCanal: (id: string, canal: 'regem' | 'ifood' | '99food', valor: string | null) =>
     req(`/produtos/${id}/preco-canal`, { method: 'PUT', body: JSON.stringify({ canal, valor }) }) as Promise<{
       canal: string;
       valor: string | null;
