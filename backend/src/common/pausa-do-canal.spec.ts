@@ -21,6 +21,13 @@ import {
   rotuloDoMotivo,
   textoDaRecusa,
   voltaDaPausa,
+  ateDa99,
+  ateEstendidoDa99,
+  descricaoNoIfood,
+  ehPausaDoRegemNoIfood,
+  externoDaLinha,
+  pauseTimeDa99,
+  recusaDa99,
 } from './pausa-do-canal';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -203,5 +210,67 @@ describe('pausa por canal — F4: quem insiste ou não entendeu recebe áudio (m
     ['', false],
   ])('"%s" → %s', (texto, esperado) => {
     expect(pedeOAudio(texto)).toBe(esperado);
+  });
+});
+
+// ───────────────────────── F5: o iFood e a 99 pela API de cada um ─────────────────────────
+
+describe('a 99: os tempos que ela aceita (doc 1949)', () => {
+  // 21:10 no Rio = 00:10 UTC do dia seguinte.
+  const agora = new Date('2026-11-11T00:10:00Z');
+  it('10, 20 ou 30 min a partir de agora; "até o fim do dia" = 23:59 no relógio da loja; o resto, recusado', () => {
+    expect(ateDa99({ minutos: 10 }, agora)).toEqual({ ok: true, ate: new Date('2026-11-11T00:20:00Z') });
+    expect(ateDa99({ minutos: '30' }, agora)).toEqual({ ok: true, ate: new Date('2026-11-11T00:40:00Z') });
+    expect(ateDa99({ fimDoDia: true }, agora)).toEqual({ ok: true, ate: new Date('2026-11-11T02:59:00Z') });
+    for (const t of [{ minutos: 15 }, { minutos: 60 }, {}, null, { fimDoDia: 'sim' }])
+      expect(ateDa99(t as any, agora)).toEqual({ ok: false, erro: 'A 99 aceita 10, 20 ou 30 min ou "Até o fim do dia".' });
+    // 23:59 já passou de quase tudo: o fim do dia não vale mais
+    expect(ateDa99({ fimDoDia: true }, new Date('2026-11-11T02:58:30Z'))).toEqual({ ok: false, erro: 'Já é o fim do dia: escolha 10, 20 ou 30 min para a 99.' });
+  });
+
+  it('o pause_time do que falta: o tempo mais perto de 10/20/30; mais de 35 min só pode ser o fim do dia', () => {
+    const daqui = (min: number) => new Date(agora.getTime() + min * 60_000);
+    expect([10, 9.7, 15, 16, 20, 25, 26, 30, 35, 36, 170].map((m) => pauseTimeDa99(daqui(m), agora))).toEqual([1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4]);
+  });
+
+  it('estender: o tempo da 99 mais perto do fim pedido, a partir de agora; o fim do dia e o máximo de 30 min não estendem', () => {
+    const daqui = (min: number) => new Date(agora.getTime() + min * 60_000);
+    expect(ateEstendidoDa99(daqui(3), 10, agora)).toEqual({ ok: true, ate: daqui(10) }); // 13 → 10
+    expect(ateEstendidoDa99(daqui(8), 10, agora)).toEqual({ ok: true, ate: daqui(20) }); // 18 → 20
+    expect(ateEstendidoDa99(daqui(3), 30, agora)).toEqual({ ok: true, ate: daqui(30) }); // 33 → 30
+    expect(ateEstendidoDa99(daqui(30), 10, agora)).toEqual({ ok: false, erro: 'A 99 pausa no máximo 30 min por vez: estenda quando faltar menos tempo.' });
+    expect(ateEstendidoDa99(daqui(120), 10, agora)).toEqual({ ok: false, erro: 'A 99 já está pausada até o fim do dia.' });
+    expect(ateEstendidoDa99(daqui(-1), 10, agora)).toEqual({ ok: false, erro: 'Este canal já reabriu.' });
+    expect(ateEstendidoDa99(daqui(5), 20, agora)).toEqual({ ok: false, erro: 'Escolha +10 min ou +30 min.' });
+  });
+
+  it('a recusa da 99 em português: o que repete (rede, sistema, limite, token) e o que não (loja fechada no app, sem integração)', () => {
+    for (const e of [-1, 10001, 10005, 10100, 10102, 11044]) expect(recusaDa99(e).repetir).toBe(true);
+    expect(recusaDa99(56101)).toEqual({ repetir: false, erro: 'A 99 não aceitou: a loja está FECHADA no app da 99 — abra a loja lá e pause de novo.' });
+    expect(recusaDa99(-2).erro).toBe('A 99 não está conectada a esta empresa (Delivery › Integrações).');
+    expect(recusaDa99(58001, 'Illegal business hours')).toEqual({ repetir: false, erro: 'A 99 recusou (código 58001): Illegal business hours.' });
+  });
+});
+
+describe('o iFood: a descrição da pausa e a situação no canal', () => {
+  it('a descrição leva a frase sem o destaque e "(pelo Regem)", até 200 letras — e é por ela que o Regem reconhece a dele', () => {
+    expect(descricaoNoIfood('pedidos')).toBe('Estamos com muitos pedidos agora (pelo Regem)');
+    const longa = descricaoNoIfood('outro', 'x'.repeat(80));
+    expect(longa.length).toBeLessThanOrEqual(200);
+    expect(longa.endsWith('(pelo Regem)')).toBe(true);
+    expect(ehPausaDoRegemNoIfood('Estamos com muitos pedidos agora (pelo Regem) ')).toBe(true);
+    expect(ehPausaDoRegemNoIfood('Pausa feita no Gestor')).toBe(false);
+    expect(ehPausaDoRegemNoIfood(null)).toBe(false);
+  });
+
+  it('a situação: nula = pedindo (com o erro da tentativa que repete), aplicada, erro com a frase', () => {
+    expect(externoDaLinha({ externo_situacao: null, externo_erro: null })).toEqual({ situacao: 'pausando', erro: null });
+    expect(externoDaLinha({ externo_situacao: null, externo_erro: 'A 99 não respondeu agora — o Regem tenta de novo.' }).erro).toMatch(/tenta de novo/);
+    expect(externoDaLinha({ externo_situacao: 'aplicada', externo_erro: 'velho' })).toEqual({ situacao: 'aplicada', erro: null });
+    expect(externoDaLinha({ externo_situacao: 'erro', externo_erro: 'sem permissão' })).toEqual({ situacao: 'erro', erro: 'sem permissão' });
+    // só o iFood e a 99 levam a situação no canal
+    const linha = { ate: new Date(Date.now() + 600_000), motivo: 'pedidos', externo_situacao: 'aplicada' };
+    expect(pausaDaLinha({ ...linha, canal: 'ifood' })?.externo).toEqual({ situacao: 'aplicada', erro: null });
+    expect(pausaDaLinha({ ...linha, canal: 'cardapio' })).not.toHaveProperty('externo');
   });
 });

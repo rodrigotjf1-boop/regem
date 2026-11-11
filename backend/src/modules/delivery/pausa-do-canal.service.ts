@@ -1,13 +1,18 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { sql, type SQL } from 'drizzle-orm';
 import { DRIZZLE, type DrizzleDB } from '../../db/drizzle.module';
 import type { AuthUser } from '../../auth/auth-user';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { idPausaDoCanal } from '../../common/id-deterministico';
 import { exigirBooleano } from '../../common/exigir';
+import { ehServidorLocal } from '../../common/modo';
+import { PausaNosCanaisService, type CanaisExternos, type CanalExterno } from './pausa-nos-canais.service';
 import {
+  ateDa99,
   ateDoCardapio,
   ateEstendido,
+  ateEstendidoDa99,
+  TEMPOS_DA_99,
   AVISO_MINUTOS,
   avisoDaLinha,
   lerAjusteDaPausa,
@@ -34,10 +39,21 @@ import {
 export type CanalNoPainel = {
   canal: CanalDaPausa;
   nome: string;
-  /** Dá para pausar este canal pelo Regem (o cardápio digital sempre que a loja tem cardápio; iFood e 99 na fase da API). */
+  /**
+   * Dá para pausar este canal pelo Regem: o cardápio digital sempre que a loja tem cardápio; o iFood e a 99 (F5) quando a
+   * empresa tem o canal ligado para esta loja (`PausaNosCanaisService.canaisExternos`).
+   */
   disponivel: boolean;
+  /** Por que não dá (quando a tela tem o que dizer: "escolha a loja", "sem conexão com a nuvem"). */
+  motivo?: string | null;
   pausa: PausaVigente | null;
 };
+
+/** Quanto tempo o servidor da loja guarda a resposta da nuvem sobre o iFood e a 99 (e a falha, menos). */
+const CACHE_EXTERNOS_MS = 60_000;
+const CACHE_EXTERNOS_FALHA_MS = 15_000;
+const CANAIS_EXTERNOS = ['ifood', 'food99'] as const;
+const ehExterno = (c: CanalDaPausa): c is 'ifood' | 'food99' => c === 'ifood' || c === 'food99';
 
 /**
  * A pausa dos pedidos por canal e por loja (mig 392; protótipo `mockups/regem-pausa.html`). Quem pausa: o gestor, no
@@ -50,10 +66,86 @@ export type CanalNoPainel = {
  */
 @Injectable()
 export class PausaDoCanalService {
+  private readonly log = new Logger('PausaDoCanal');
+  /** Servidor da loja: a resposta da nuvem sobre o iFood e a 99, por empresa e loja. */
+  private readonly cacheExternos = new Map<string, { ate: number; dados: Promise<CanaisExternos> }>();
+  /** O fetch da rota da nuvem (servidor da loja) — os testes trocam por um falso. */
+  buscar: typeof fetch = (url, init) => fetch(url, init);
+
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly auditoria: AuditoriaService,
+    // F5: a rotina que leva a pausa ao iFood e à 99 (e diz se dá para pausá-los). Opcional: os testes da F1–F4 não a montam.
+    @Optional() private readonly nosCanais?: PausaNosCanaisService,
   ) {}
+
+  /**
+   * O iFood e a 99 na loja em uso (F5). Na nuvem: a própria rotina responde. No servidor da loja (sem as credenciais dos
+   * canais): pergunta à nuvem pela rota da loja, com o token do sync, guardando por 1 min (V37); sem a nuvem, os dois ficam
+   * indisponíveis com o motivo escrito — "não li" não vira "não tem".
+   */
+  async canaisExternosDaLoja(tenantId: string, unidadeAtual: string | null): Promise<CanaisExternos> {
+    if (!ehServidorLocal()) {
+      if (!this.nosCanais) return semExternos(null);
+      return this.nosCanais.canaisExternos(tenantId, unidadeAtual);
+    }
+    const chave = `${tenantId}|${unidadeAtual ?? ''}`;
+    const agora = Date.now();
+    const c = this.cacheExternos.get(chave);
+    if (c && c.ate > agora) return c.dados;
+    const dados = this.externosDaNuvem(tenantId, unidadeAtual);
+    const item = { ate: agora + CACHE_EXTERNOS_MS, dados };
+    this.cacheExternos.set(chave, item);
+    dados.then(
+      (d) => {
+        if (d.ifood.motivo === SEM_NUVEM) item.ate = Date.now() + CACHE_EXTERNOS_FALHA_MS;
+      },
+      () => undefined,
+    );
+    return dados;
+  }
+
+  /** Nunca rejeita: a falha vira "sem conexão com a nuvem" nos dois canais, com o motivo no log. */
+  private async externosDaNuvem(tenantId: string, unidadeAtual: string | null): Promise<CanaisExternos> {
+    const nuvem = String(process.env.CLOUD_API ?? '').replace(/\/$/, '');
+    const token = process.env.SYNC_TOKEN ?? '';
+    if (!nuvem || !token) {
+      this.log.warn('iFood e 99 no "Pausar": sem CLOUD_API/SYNC_TOKEN neste servidor da loja');
+      return semExternos(SEM_NUVEM);
+    }
+    try {
+      const q = unidadeAtual ? `?unidade=${encodeURIComponent(unidadeAtual)}` : '';
+      const r = await this.buscar(`${nuvem}/delivery/pausas/canais/loja${q}`, {
+        headers: { 'x-sync-token': token },
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (!r.ok) throw new Error(`a nuvem respondeu ${r.status}`);
+      const j: any = await r.json();
+      // A nuvem responde pela empresa do TOKEN: outra empresa (servidor reaproveitado) não mostra nada de ninguém.
+      if (j?.tenantId !== tenantId) return semExternos(null);
+      return { ifood: externoLido(j?.ifood), food99: externoLido(j?.food99) };
+    } catch (e: any) {
+      this.log.warn(`iFood e 99 no "Pausar" sem a nuvem (${e?.message ?? e}) — o diálogo mostra "sem conexão"`);
+      return semExternos(SEM_NUVEM);
+    }
+  }
+
+  /** A loja da pausa de um canal: a do cardápio (cardápio digital) ou a da integração (iFood, 99). */
+  private async lojaDoCanal(
+    tenantId: string,
+    unidadeAtual: string | null,
+    canal: CanalDaPausa,
+    externos?: CanaisExternos,
+  ): Promise<string | null> {
+    if (!ehExterno(canal)) return (await this.lojaDoCardapio(tenantId, unidadeAtual)).unidadeId;
+    const e = (externos ?? (await this.canaisExternosDaLoja(tenantId, unidadeAtual)))[canal];
+    return e.disponivel ? e.unidadeId : unidadeAtual;
+  }
+
+  /** Depois de mudar uma pausa do iFood ou da 99 na nuvem: a rotina leva ao canal já (no servidor da loja, o sync leva). */
+  private levarAosCanais(canais: readonly CanalDaPausa[]) {
+    if (canais.some(ehExterno) && !ehServidorLocal()) void this.nosCanais?.acordar();
+  }
 
   /**
    * A loja do cardápio digital da loja em uso. Com uma loja escolhida: o cardápio dela, senão o da empresa toda. Sem loja
@@ -79,24 +171,31 @@ export class PausaDoCanalService {
       if (e instanceof BadRequestException) return { tem: true, unidadeId: undefined as string | null | undefined };
       throw e;
     });
+    const externos = await this.canaisExternosDaLoja(tenantId, unidadeAtual);
+    // `to_jsonb` nas colunas da F5: um servidor de loja ainda sem a 392 inteira não derruba o painel.
     const r: any = await this.db.execute(sql`
-      select canal, unidade_id, ate, motivo, motivo_texto, pausado_em, pausado_por_nome
-        from pausa_canal
+      select canal, unidade_id, ate, motivo, motivo_texto, pausado_em, pausado_por_nome,
+             to_jsonb(p) ->> 'externo_situacao' as externo_situacao, to_jsonb(p) ->> 'externo_erro' as externo_erro
+        from pausa_canal p
        where tenant_id = ${tenantId}::uuid and ate > ${agora.toISOString()}::timestamptz
        order by ate desc`);
     const linhas: any[] = r.rows ?? r;
-    // A pausa que vale para a loja do cardápio: a dela ou a da empresa toda (a mesma regra de `pausaVigenteDoCanal`).
-    const daLoja = (canal: CanalDaPausa) =>
-      pausaDaLinha(
-        linhas.find(
-          (l) => l.canal === canal && (l.unidade_id == null || (loja.unidadeId !== undefined && l.unidade_id === loja.unidadeId)),
-        ),
+    // A pausa que vale para a loja do canal: a dela ou a da empresa toda (a mesma regra de `pausaVigenteDoCanal`). A loja do
+    // cardápio digital é a do cardápio; a do iFood e da 99, a da integração (sem ela, a loja em uso).
+    const lojaDe = (canal: CanalDaPausa): string | null | undefined =>
+      canal === 'cardapio' ? loja.unidadeId : externos[canal as 'ifood' | 'food99'].disponivel ? externos[canal as 'ifood' | 'food99'].unidadeId : unidadeAtual;
+    const daLoja = (canal: CanalDaPausa) => {
+      const u = lojaDe(canal);
+      return pausaDaLinha(
+        linhas.find((l) => l.canal === canal && (l.unidade_id == null || (u !== undefined && l.unidade_id === u))),
         agora,
       );
+    };
     const canais: CanalNoPainel[] = CANAIS_DA_PAUSA.map((canal) => ({
       canal,
       nome: NOME_DO_CANAL[canal],
-      disponivel: canal === 'cardapio' ? loja.tem : false,
+      disponivel: canal === 'cardapio' ? loja.tem : externos[canal].disponivel,
+      ...(ehExterno(canal) && externos[canal].motivo ? { motivo: externos[canal].motivo } : {}),
       pausa: daLoja(canal),
     }));
     return {
@@ -105,6 +204,8 @@ export class PausaDoCanalService {
       motivos: MOTIVOS.map((m) => ({ motivo: m, rotulo: MOTIVOS_DA_PAUSA[m].rotulo, frase: MOTIVOS_DA_PAUSA[m].frase })),
       motivoTextoMax: MOTIVO_TEXTO_MAX,
       temposDoCardapio: [...TEMPOS_DO_CARDAPIO],
+      // F5: a 99 só aceita estes tempos (ou "até o fim do dia").
+      temposDa99: [...TEMPOS_DA_99],
       /** Precisa escolher a loja no topo antes de pausar (empresa com mais de um cardápio de loja). */
       escolherLoja: loja.unidadeId === undefined,
       // F2 (mig 393): quando o painel avisa antes de reabrir e com que som; os botões de estender.
@@ -141,73 +242,106 @@ export class PausaDoCanalService {
   }
 
   /**
-   * Pausa os canais escolhidos com o motivo e o tempo. Pausar de novo um canal já pausado troca o motivo e o fim (é como
-   * se estende). Tudo é conferido ANTES de gravar (V86): um canal recusado não deixa o outro pausado pela metade.
+   * Pausa os canais escolhidos com o motivo e o tempo — o cardápio digital e o iFood pelo `tempo`; a 99 pelo `tempo99`
+   * (10, 20 ou 30 min ou até o fim do dia: a 99 não aceita outro). Pausar de novo um canal já pausado troca o motivo e o
+   * fim (é como se estende). Tudo é conferido ANTES de gravar (V86): um canal recusado não deixa o outro pausado pela metade.
+   * O iFood e a 99 vão ao canal pela rotina da nuvem (`PausaNosCanaisService`); a linha guarda o id da pausa antiga no canal
+   * (`externo_id`) para ela sair antes da nova.
    */
   async pausar(
     user: AuthUser,
     unidadeAtual: string | null,
-    dto: { canais?: unknown; motivo?: unknown; motivoTexto?: unknown; tempo?: { minutos?: unknown; ate?: unknown } },
+    dto: {
+      canais?: unknown;
+      motivo?: unknown;
+      motivoTexto?: unknown;
+      tempo?: { minutos?: unknown; ate?: unknown };
+      tempo99?: { minutos?: unknown; fimDoDia?: unknown };
+    },
     agora: Date = new Date(),
   ) {
     const canais = Array.isArray(dto?.canais) ? [...new Set(dto.canais as unknown[])] : [];
     if (!canais.length) throw new BadRequestException('Escolha o que pausar.');
-    for (const c of canais) {
-      if (!ehCanalDaPausa(c)) throw new BadRequestException('Canal desconhecido.');
-      if (c !== 'cardapio') throw new BadRequestException(`A pausa ${c === 'ifood' ? 'do iFood' : 'da 99'} pelo Regem ainda não está ligada.`);
-    }
+    for (const c of canais) if (!ehCanalDaPausa(c)) throw new BadRequestException('Canal desconhecido.');
+    const escolhidos = canais as CanalDaPausa[];
     const m = lerMotivo(dto?.motivo, dto?.motivoTexto);
     if (!m.ok) throw new BadRequestException(m.erro);
-    const t = ateDoCardapio(dto?.tempo, agora);
-    if (!t.ok) throw new BadRequestException(t.erro);
-    const loja = await this.lojaDoCardapio(user.tenantId, unidadeAtual);
-    if (!loja.tem) throw new BadRequestException('Esta loja não tem cardápio digital.');
+    let ate: Date | null = null;
+    if (escolhidos.some((c) => c !== 'food99')) {
+      const t = ateDoCardapio(dto?.tempo, agora);
+      if (!t.ok) throw new BadRequestException(t.erro);
+      ate = t.ate;
+    }
+    let ate99: Date | null = null;
+    if (escolhidos.includes('food99')) {
+      const t = ateDa99(dto?.tempo99, agora);
+      if (!t.ok) throw new BadRequestException(t.erro);
+      ate99 = t.ate;
+    }
+    const externos = escolhidos.some(ehExterno) ? await this.canaisExternosDaLoja(user.tenantId, unidadeAtual) : undefined;
+    const alvos: { canal: CanalDaPausa; unidadeId: string | null; ate: Date; tempo: string }[] = [];
+    for (const canal of CANAIS_DA_PAUSA.filter((c) => escolhidos.includes(c))) {
+      if (canal === 'cardapio') {
+        const loja = await this.lojaDoCardapio(user.tenantId, unidadeAtual);
+        if (!loja.tem) throw new BadRequestException('Esta loja não tem cardápio digital.');
+        alvos.push({ canal, unidadeId: loja.unidadeId, ate: ate as Date, tempo: textoDoTempo(dto?.tempo) });
+        continue;
+      }
+      const e = (externos as CanaisExternos)[canal];
+      if (!e.disponivel)
+        throw new BadRequestException(e.motivo ?? (canal === 'ifood' ? 'O iFood desta loja não está ligado para pausar pelo Regem.' : 'A 99 desta loja não está ligada para pausar pelo Regem.'));
+      alvos.push(
+        canal === 'food99'
+          ? { canal, unidadeId: e.unidadeId, ate: ate99 as Date, tempo: textoDoTempo99(dto?.tempo99) }
+          : { canal, unidadeId: e.unidadeId, ate: ate as Date, tempo: textoDoTempo(dto?.tempo) },
+      );
+    }
 
-    const canal: CanalDaPausa = 'cardapio';
-    const id = idPausaDoCanal(user.tenantId, loja.unidadeId, canal);
     const nome = String(user.nome ?? '').trim() || null;
-    // Uma linha por empresa, loja e canal: a nuvem e o servidor da loja chegam ao mesmo id e o sync junta (mig 392).
-    await this.db.execute(sql`
-      insert into pausa_canal (id, tenant_id, unidade_id, canal, ate, motivo, motivo_texto, pausado_em, pausado_por, pausado_por_nome)
-      values (${id}::uuid, ${user.tenantId}::uuid, ${loja.unidadeId}::uuid, ${canal}, ${t.ate.toISOString()}::timestamptz,
-              ${m.motivo}, ${m.motivoTexto}, ${agora.toISOString()}::timestamptz, ${user.colaboradorId ?? null}::uuid, ${nome})
-      on conflict (id) do update set
-        ate = excluded.ate, motivo = excluded.motivo, motivo_texto = excluded.motivo_texto, pausado_em = excluded.pausado_em,
-        pausado_por = excluded.pausado_por, pausado_por_nome = excluded.pausado_por_nome,
-        externo_situacao = null, externo_id = null, externo_erro = null`);
-    await this.auditoria.registrar({
-      tenantId: user.tenantId,
-      atorId: user.colaboradorId,
-      atorPerfil: user.categoria ?? '',
-      tipo: 'delivery',
-      acao: 'pausou_canal',
-      unidadeId: loja.unidadeId,
-      entidadeTipo: 'pausa_canal',
-      entidadeId: id,
-      detalhe: {
-        canal,
-        motivo: m.motivo,
-        motivoTexto: m.motivoTexto,
-        ate: t.ate.toISOString(),
-        tempo: dto?.tempo?.minutos != null && dto?.tempo?.minutos !== '' ? `${Number(dto.tempo.minutos)} min` : `até ${String(dto?.tempo?.ate)}`,
-      },
+    // Uma linha por empresa, loja e canal: a nuvem e o servidor da loja chegam ao mesmo id e o sync junta (mig 392). Todas
+    // numa transação: ou pausa tudo o que foi escolhido, ou nada.
+    await this.db.transaction(async (tx) => {
+      for (const a of alvos)
+        await tx.execute(sql`
+          insert into pausa_canal (id, tenant_id, unidade_id, canal, ate, motivo, motivo_texto, pausado_em, pausado_por, pausado_por_nome)
+          values (${idPausaDoCanal(user.tenantId, a.unidadeId, a.canal)}::uuid, ${user.tenantId}::uuid, ${a.unidadeId}::uuid, ${a.canal},
+                  ${a.ate.toISOString()}::timestamptz, ${m.motivo}, ${m.motivoTexto}, ${agora.toISOString()}::timestamptz,
+                  ${user.colaboradorId ?? null}::uuid, ${nome})
+          on conflict (id) do update set
+            ate = excluded.ate, motivo = excluded.motivo, motivo_texto = excluded.motivo_texto, pausado_em = excluded.pausado_em,
+            pausado_por = excluded.pausado_por, pausado_por_nome = excluded.pausado_por_nome,
+            externo_situacao = null, externo_erro = null`);
     });
+    for (const a of alvos)
+      await this.auditoria.registrar({
+        tenantId: user.tenantId,
+        atorId: user.colaboradorId,
+        atorPerfil: user.categoria ?? '',
+        tipo: 'delivery',
+        acao: 'pausou_canal',
+        unidadeId: a.unidadeId,
+        entidadeTipo: 'pausa_canal',
+        entidadeId: idPausaDoCanal(user.tenantId, a.unidadeId, a.canal),
+        detalhe: { canal: a.canal, motivo: m.motivo, motivoTexto: m.motivoTexto, ate: a.ate.toISOString(), tempo: a.tempo },
+      });
+    this.levarAosCanais(escolhidos);
     return this.estado(user.tenantId, unidadeAtual, agora);
   }
 
   /** Reabre o canal agora. Já aberto (o tempo passou ou outra pessoa reabriu): nada muda e nada vai para a auditoria. */
   async reabrir(user: AuthUser, unidadeAtual: string | null, canal: unknown, agora: Date = new Date()) {
     if (!ehCanalDaPausa(canal)) throw new BadRequestException('Canal desconhecido.');
-    const loja = await this.lojaDoCardapio(user.tenantId, unidadeAtual);
-    const id = idPausaDoCanal(user.tenantId, loja.unidadeId, canal);
+    const unidadeId = await this.lojaDoCanal(user.tenantId, unidadeAtual, canal);
+    const id = idPausaDoCanal(user.tenantId, unidadeId, canal);
     // Gravação condicional: só a pausa que ainda vale é reaberta — duas pessoas no mesmo clique geram UM registro.
-    // O `for update` espera quem está reabrindo junto e relê a linha depois: a segunda já a encontra aberta.
+    // O `for update` espera quem está reabrindo junto e relê a linha depois: a segunda já a encontra aberta. No iFood e na
+    // 99, a situação no canal volta a "a fazer": a rotina reabre lá.
     const r: any = await this.db.execute(sql`
       with antes as (
         select id, ate, motivo, motivo_texto from pausa_canal
          where id = ${id}::uuid and tenant_id = ${user.tenantId}::uuid and ate > ${agora.toISOString()}::timestamptz
          for update)
-      update pausa_canal p set ate = null from antes where p.id = antes.id
+      update pausa_canal p set ate = null, externo_situacao = null, externo_erro = null from antes where p.id = antes.id
       returning antes.ate as era_ate, antes.motivo, antes.motivo_texto`);
     const antes = (r.rows ?? r)[0];
     if (antes) {
@@ -217,11 +351,12 @@ export class PausaDoCanalService {
         atorPerfil: user.categoria ?? '',
         tipo: 'delivery',
         acao: 'reabriu_canal',
-        unidadeId: loja.unidadeId,
+        unidadeId,
         entidadeTipo: 'pausa_canal',
         entidadeId: id,
         detalhe: { canal, eraAte: new Date(antes.era_ate).toISOString(), motivo: antes.motivo ?? null, motivoTexto: antes.motivo_texto ?? null },
       });
+      this.levarAosCanais([canal]);
     }
     return this.estado(user.tenantId, unidadeAtual, agora);
   }
@@ -232,25 +367,30 @@ export class PausaDoCanalService {
    */
   async estender(user: AuthUser, unidadeAtual: string | null, canal: unknown, minutos: unknown, agora: Date = new Date()) {
     if (!ehCanalDaPausa(canal)) throw new BadRequestException('Canal desconhecido.');
-    const loja = await this.lojaDoCardapio(user.tenantId, unidadeAtual);
-    const id = idPausaDoCanal(user.tenantId, loja.unidadeId, canal);
+    const unidadeId = await this.lojaDoCanal(user.tenantId, unidadeAtual, canal);
+    const id = idPausaDoCanal(user.tenantId, unidadeId, canal);
     const feito = await this.db.transaction(async (tx) => {
       const r: any = await tx.execute(sql`
         select ate from pausa_canal where id = ${id}::uuid and tenant_id = ${user.tenantId}::uuid for update`);
       const atual = (r.rows ?? r)[0]?.ate;
-      const e = ateEstendido(atual ? new Date(atual) : null, minutos, agora);
+      // A 99 só pausa por 10, 20 ou 30 min a partir de agora: vale o tempo dela mais perto do fim pedido (F5).
+      const e = canal === 'food99' ? ateEstendidoDa99(atual ? new Date(atual) : null, minutos, agora) : ateEstendido(atual ? new Date(atual) : null, minutos, agora);
       if (!e.ok) return e;
-      await tx.execute(sql`update pausa_canal set ate = ${e.ate.toISOString()}::timestamptz where id = ${id}::uuid`);
+      // No iFood e na 99, a situação no canal volta a "a fazer": a rotina leva o fim novo (no iFood, remove e cria).
+      await tx.execute(sql`
+        update pausa_canal set ate = ${e.ate.toISOString()}::timestamptz, externo_situacao = null, externo_erro = null
+         where id = ${id}::uuid`);
       return { ok: true as const, ate: e.ate, eraAte: new Date(atual) };
     });
     if (!feito.ok) throw new BadRequestException(feito.erro);
+    this.levarAosCanais([canal]);
     await this.auditoria.registrar({
       tenantId: user.tenantId,
       atorId: user.colaboradorId,
       atorPerfil: user.categoria ?? '',
       tipo: 'delivery',
       acao: 'estendeu_canal',
-      unidadeId: loja.unidadeId,
+      unidadeId,
       entidadeTipo: 'pausa_canal',
       entidadeId: id,
       detalhe: { canal, minutos: Number(minutos), eraAte: feito.eraAte.toISOString(), ate: feito.ate.toISOString() },
@@ -340,6 +480,31 @@ export type AjusteDaPausa = Partial<AvisoDaPausa> & { mensagem?: string | null; 
 /** Responder em áudio quando o cliente insiste (F4): ligado salvo quando a loja desligou (sem a coluna: o padrão, ligado). */
 function audioDaLinha(row: any): boolean {
   return String(row?.pausa_audio ?? 'true') !== 'false';
+}
+
+/** O tempo escolhido, como vai para a auditoria ("30 min", "até 21:40", "até o fim do dia"). */
+function textoDoTempo(tempo: { minutos?: unknown; ate?: unknown } | undefined): string {
+  return tempo?.minutos != null && tempo?.minutos !== '' ? `${Number(tempo.minutos)} min` : `até ${String(tempo?.ate)}`;
+}
+function textoDoTempo99(tempo: { minutos?: unknown; fimDoDia?: unknown } | undefined): string {
+  return tempo?.fimDoDia === true ? 'até o fim do dia' : `${Number(tempo?.minutos)} min`;
+}
+
+/** O motivo quando o servidor da loja não falou com a nuvem (o diálogo diz isso, não "não tem iFood"). */
+const SEM_NUVEM = 'Sem conexão com a nuvem agora: o iFood e a 99 só pausam pelo Regem com internet.';
+
+function semExternos(motivo: string | null): CanaisExternos {
+  const nao: CanalExterno = { disponivel: false, unidadeId: null, motivo };
+  return { ifood: nao, food99: { ...nao } };
+}
+
+/** Um canal como a nuvem respondeu (só o que se espera; o resto vira "não dá"). */
+function externoLido(x: any): CanalExterno {
+  return {
+    disponivel: x?.disponivel === true,
+    unidadeId: typeof x?.unidadeId === 'string' ? x.unidadeId : null,
+    motivo: typeof x?.motivo === 'string' ? x.motivo.slice(0, 200) : null,
+  };
 }
 
 /** A mensagem que a loja escreveu (nula = o texto padrão). */

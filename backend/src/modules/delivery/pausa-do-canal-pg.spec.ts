@@ -67,7 +67,7 @@ descrever('pausa por canal (Postgres)', () => {
     const antes = await pausas.estado(t, null);
     expect(antes.canais.map((c) => [c.canal, c.disponivel, c.pausa])).toEqual([
       ['cardapio', true, null],
-      ['ifood', false, null], // a fase da API
+      ['ifood', false, null], // sem a integração ligada nesta loja (F5)
       ['food99', false, null],
     ]);
     expect((await cardapio.menu(tokens[0])).abertoPorTipo).toEqual({ entrega: true, retirada: true, local: true });
@@ -80,21 +80,22 @@ descrever('pausa por canal (Postgres)', () => {
     const menu: any = await cardapio.menu(tokens[0]);
     expect(menu.abertaAgora).toBe(false);
     expect(menu.abertoPorTipo).toEqual({ entrega: false, retirada: false, local: false });
-    expect(menu.horarioLabel).toBe(`Pedidos pausados até ${p.volta.hora}`);
+    // Perto da meia-noite a volta é "amanhã" (o CI de 10/11 às 23:48 pegou o teste que supunha o mesmo dia — ERR-434).
+    expect(menu.horarioLabel).toBe(`Pedidos pausados até ${p.volta.amanha ? 'amanhã às ' : ''}${p.volta.hora}`);
     expect(menu.proximaAbertura).toEqual({ entrega: p.volta.hora, retirada: p.volta.hora });
     expect(menu.pausa).toMatchObject({ rotulo: 'Muitos pedidos agora', frase: 'Estamos com *muitos pedidos agora*' });
 
     const resumo: any = resumoDaLoja(menu, 'https://link');
-    expect(resumo).toMatchObject({ abertaAgora: false, pausadaPelaLoja: true, pausa: { motivo: 'Muitos pedidos agora', volta: `às ${p.volta.hora}` } });
+    expect(resumo).toMatchObject({ abertaAgora: false, pausadaPelaLoja: true, pausa: { motivo: 'Muitos pedidos agora', volta: p.volta.texto } });
     // F3 (mig 394): a mensagem pronta (sem nome, sem o destaque) no resumo, e ela é a "mensagem de ausência" durante a pausa
     // — o atendente do n8n já usa a de ausência com a loja fechada.
-    const semDestaque = `⏸️ Pedidos pausados por alguns minutos\n\nOi! Estamos com muitos pedidos agora e pausamos os pedidos para não atrasar ninguém.\n\n🕒 Voltamos às ${p.volta.hora}.`;
+    const semDestaque = `⏸️ Pedidos pausados por alguns minutos\n\nOi! Estamos com muitos pedidos agora e pausamos os pedidos para não atrasar ninguém.\n\n🕒 Voltamos ${p.volta.texto}.`;
     expect(resumo.pausa.mensagem.startsWith(semDestaque)).toBe(true);
     expect(resumo.robo.ausencia).toBe(resumo.pausa.mensagem);
     expect(menu.pausa).toMatchObject({ mensagemPersonalizada: false, mensagem: expect.stringContaining('Estamos com *muitos pedidos agora*') });
 
     await expect(cardapio.receberPedido(tokens[0], pedido)).rejects.toThrow(
-      `Pedidos pausados agora: estamos com muitos pedidos agora. Voltamos às ${p.volta.hora}.`,
+      `Pedidos pausados agora: estamos com muitos pedidos agora. Voltamos ${p.volta.texto}.`,
     );
     // O agendado passa pela pausa (como pela loja fechada no horário) — e para no que vem depois.
     await expect(cardapio.receberPedido(tokens[0], { ...pedido, agendamento: '2026-12-01T12:00:00-03:00' })).rejects.toThrow(
@@ -155,8 +156,11 @@ descrever('pausa por canal (Postgres)', () => {
     const { t, gestor } = await loja();
     const recusa = (dto: any) => pausas.pausar(gestor, null, dto);
     await expect(recusa({ canais: [], motivo: 'pedidos', tempo: { minutos: 30 } })).rejects.toThrow('Escolha o que pausar.');
-    await expect(recusa({ canais: ['ifood'], motivo: 'pedidos', tempo: { minutos: 30 } })).rejects.toThrow('A pausa do iFood pelo Regem ainda não está ligada.');
-    await expect(recusa({ canais: ['cardapio', 'food99'], motivo: 'pedidos', tempo: { minutos: 30 } })).rejects.toThrow('A pausa da 99 pelo Regem');
+    // F5: sem o canal ligado para esta loja, o iFood e a 99 recusam ANTES de gravar (o cardápio digital junto também não pausa).
+    await expect(recusa({ canais: ['ifood'], motivo: 'pedidos', tempo: { minutos: 30 } })).rejects.toThrow('O iFood desta loja não está ligado para pausar pelo Regem.');
+    await expect(recusa({ canais: ['cardapio', 'food99'], motivo: 'pedidos', tempo: { minutos: 30 }, tempo99: { minutos: 10 } })).rejects.toThrow(
+      'A 99 desta loja não está ligada para pausar pelo Regem.',
+    );
     await expect(recusa({ canais: ['totem'], motivo: 'pedidos', tempo: { minutos: 30 } })).rejects.toThrow('Canal desconhecido.');
     await expect(recusa({ canais: ['cardapio'], motivo: 'outro', tempo: { minutos: 30 } })).rejects.toThrow('Escreva o motivo da pausa.');
     await expect(recusa({ canais: ['cardapio'], motivo: 'pedidos', tempo: { minutos: 45 } })).rejects.toThrow('Escolha 15 min, 30 min, 1 hora ou "Até".');

@@ -94,6 +94,28 @@ try {
     }
   });
 
+  caso('F5: a pausa no iFood e na 99 como a faixa diz (pedindo, pausada lá, erro) e a cor de cada uma', () => {
+    assert.deepEqual(p.situacaoNoCanal('ifood', { situacao: 'aplicada', erro: null }), { texto: 'Pausado no iFood pelo Regem', tom: 'ok' });
+    assert.deepEqual(p.situacaoNoCanal('food99', { situacao: 'aplicada', erro: null }), {
+      texto: 'Pausada na 99 pelo Regem (a 99 confirma em instantes)',
+      tom: 'ok',
+    });
+    assert.deepEqual(p.situacaoNoCanal('ifood', { situacao: 'pausando', erro: null }), { texto: 'Pedindo a pausa ao iFood…', tom: 'espera' });
+    assert.equal(
+      p.situacaoNoCanal('food99', { situacao: 'pausando', erro: 'A 99 não respondeu agora — o Regem tenta de novo.' }).texto,
+      'Pedindo a pausa à 99… (A 99 não respondeu agora — o Regem tenta de novo.)',
+    );
+    assert.deepEqual(p.situacaoNoCanal('ifood', { situacao: 'erro', erro: 'sem permissão' }), { texto: 'Não pausou no iFood: sem permissão', tom: 'erro' });
+  });
+
+  caso('F5: a 99 "até o fim do dia" não estende (mais de 35 min); o resto estende; a prévia do fim do dia é 23:59', () => {
+    assert.equal(p.daPraEstender('food99', 30 * 60), true);
+    assert.equal(p.daPraEstender('food99', 36 * 60), false);
+    assert.equal(p.daPraEstender('ifood', 5 * 3600), true);
+    const fim = p.fimDaPrevia({ fimDoDia: true }, new Date(2026, 10, 10, 21, 10));
+    assert.equal(`${fim.getHours()}:${fim.getMinutes()}`, '23:59');
+  });
+
   console.log(`\n${n} grupos de casos: tudo certo.`);
 } finally {
   rmSync(tmp, { recursive: true, force: true });

@@ -1,7 +1,8 @@
-import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, Query, UseGuards } from '@nestjs/common';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
 import { DeliveryService } from './delivery.service';
+import { PausaNosCanaisService } from './pausa-nos-canais.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -9,7 +10,19 @@ import { DeliveryService } from './delivery.service';
 // (x-sync-token) — a empresa vem do token, nunca do corpo.
 @Controller('delivery')
 export class DeliveryLojaController {
-  constructor(private readonly service: DeliveryService) {}
+  constructor(
+    private readonly service: DeliveryService,
+    private readonly nosCanais: PausaNosCanaisService,
+  ) {}
+
+  // O servidor da loja pergunta se o iFood e a 99 dão para pausar pelo Regem (F5 da pausa por canal): as integrações e as
+  // credenciais ficam só na nuvem (V37). A empresa vem do token; a loja que a tela pediu é conferida na empresa.
+  @Get('pausas/canais/loja')
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  canaisDaPausa(@SyncCtx() ctx: SyncCtxData, @Query('unidade') unidade?: string) {
+    return this.nosCanais.canaisExternosParaALoja(ctx.tenantId, unidade, ctx.unidadeId ?? null);
+  }
 
   // A loja pede o AVISO DE STATUS ao cliente de um pedido dela (ver
   // DeliveryService.encaminharAvisoParaNuvem): a nuvem tem a integração do n8n da loja e o

@@ -25,6 +25,8 @@ import { EntregadoresAoVivoService } from './entregadores-ao-vivo.service';
 import { AvisoDeAtrasoProcessor } from './aviso-de-atraso.processor';
 import { AvisoDa99Processor } from './aviso-da-99.processor';
 import { PausaDoCanalService } from './pausa-do-canal.service';
+import { PausaNosCanaisService } from './pausa-nos-canais.service';
+import { OrzuniModule } from '../orzuni/orzuni.module';
 
 @Module({
   imports: [
@@ -38,6 +40,7 @@ import { PausaDoCanalService } from './pausa-do-canal.service';
     ModuloModule, // ModuloGuard (@RequireModulo('kds')) do mapa no KDS precisa do ModuloService
     WhatsappModule, // o código de entrega da loja na API oficial sai pelo próprio Regem (ERR-332)
     ChegadaModule, // "Cheguei" na retirada (mig 354): a marca da Retirada e o botão no aviso de pronto
+    OrzuniModule, // F5 da pausa: a pausa da loja no iFood pelo Orzuni (`OrzuniPausaService`)
   ],
   controllers: [DeliveryController, DespachoPublicoController, DeliveryLojaController,
     EntregadoresAoVivoController],
@@ -46,7 +49,8 @@ import { PausaDoCanalService } from './pausa-do-canal.service';
     AvisoDeAtrasoProcessor, // o aviso automático de atraso (mig 347), só na nuvem
     AvisoDa99Processor, // o "saiu" com o rastreio ao cliente da 99 pelo WhatsApp da loja (mig 388), só na nuvem
     EdgeAlteracoesProcessor, // a alteração pedida na nuvem, aplicada no servidor da loja (mig 362)
-    PausaDoCanalService], // a pausa dos pedidos por canal e por loja (mig 392)
+    PausaDoCanalService, // a pausa dos pedidos por canal e por loja (mig 392)
+    PausaNosCanaisService], // F5: a pausa levada ao iFood (pelo Orzuni) e à 99, só na nuvem
   // PausaDoCanalService: o grupo "Pausa dos pedidos" dos ajustes do atendimento (F2, mig 393).
   exports: [DeliveryService, PausaDoCanalService],
 })

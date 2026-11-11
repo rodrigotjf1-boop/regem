@@ -8,15 +8,32 @@ import { Button } from '@/components/ui/button';
 import {
   DESCRICAO_DO_CANAL,
   NOME_NA_FRASE,
+  daPraEstender,
   faltamTexto,
   naHoraDoAviso,
   relogioDaPausa,
   segundosAte,
+  situacaoNoCanal,
   type EstadoDasPausas,
+  type ExternoDaPausa,
 } from '@/lib/pausa-dos-pedidos';
 
 const hora = (iso: string | null) =>
   iso ? new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
+
+/** A pausa no iFood ou na 99 (F5): a cor fica na bolinha; o texto, em tinta (contraste). O erro é anunciado. */
+function SituacaoNoCanal({ canal, externo }: { canal: string; externo: ExternoDaPausa }) {
+  const s = situacaoNoCanal(canal, externo);
+  return (
+    <p role={s.tom === 'erro' ? 'alert' : 'status'} className="mt-1 flex items-start gap-1.5 text-xs font-semibold">
+      <span
+        aria-hidden="true"
+        className={cn('mt-1 h-2 w-2 shrink-0 rounded-full', s.tom === 'ok' ? 'bg-ok' : s.tom === 'erro' ? 'bg-destructive' : 'bg-warn')}
+      />
+      <span className="min-w-0 break-words">{s.texto}</span>
+    </p>
+  );
+}
 
 /**
  * Uma faixa por canal pausado no painel do Delivery (mig 392; protótipo `mockups/regem-pausa.html`): o motivo, quem
@@ -109,6 +126,7 @@ export function FaixasDaPausa({
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {[DESCRICAO_DO_CANAL[c.canal], quem, `reabre ${p.volta.texto}`].filter(Boolean).join(' · ')}
               </p>
+              {p.externo && <SituacaoNoCanal canal={c.canal} externo={p.externo} />}
             </div>
             <div className="text-center">
               <span className="block font-mono text-2xl font-bold leading-none tabular-nums" aria-label={`tempo até reabrir: ${relogioDaPausa(seg)}`}>
@@ -126,7 +144,7 @@ export function FaixasDaPausa({
                 >
                   {ocupado === c.canal ? 'Aguarde…' : 'Reabrir agora'}
                 </Button>
-                {estender.map((m) => (
+                {(daPraEstender(c.canal, seg) ? estender : []).map((m) => (
                   <Button
                     key={m}
                     type="button"
