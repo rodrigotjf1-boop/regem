@@ -205,6 +205,17 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
 .erro-ed{font-size:12.5px;color:var(--crit);font-weight:600}
 .campo textarea{min-height:64px;border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;background:var(--card);width:100%;min-width:0;resize:vertical}
 .campo input[aria-invalid="true"],.editor input[aria-invalid="true"]{border-color:var(--crit);box-shadow:0 0 0 1px var(--crit)}
+/* as fotos */
+.prod-cab{display:flex;gap:10px;align-items:flex-start;min-width:0}
+.prod-cab > div{min-width:0}
+.mini{width:56px;height:42px;border-radius:8px;object-fit:cover;flex:none;background:var(--chip);border:1px solid var(--line)}
+.mini.vazia{display:inline-flex;align-items:center;justify-content:center;font-size:10.5px;color:var(--ink-3);text-align:center;line-height:1.1}
+.foto-aviso{font-size:12.5px;color:var(--warn);font-weight:600}
+.fotos{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:10px}
+.foto-cel{margin:0;border:1px solid var(--line);border-radius:10px;padding:8px;display:grid;gap:6px;align-content:start;background:var(--soft);min-width:0}
+.foto-cel img,.foto-cel .sem-foto{width:100%;max-width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:8px}
+.sem-foto{display:flex;align-items:center;justify-content:center;background:var(--chip);color:var(--ink-3);font-size:13px}
+.foto-cel figcaption{font-size:12.5px;font-weight:700;color:var(--ink-2)}
 .link{background:none;border:none;padding:0;min-height:24px;color:var(--info);font-weight:600;text-decoration:underline;font-size:inherit}
 .sits .ponto{width:9px;height:9px;border-radius:50%;flex:none}
 .sits .sep{width:1px;align-self:stretch;background:var(--line-2);margin:0 2px}
@@ -359,6 +370,7 @@ tr.so-app td{background:var(--soft)}
         <li><b>O lápis no preço</b> abre o campo ali mesmo (Enter salva, Esc cancela). O preço do iFood vai na hora <b>pelo Orzuni</b>; o da 99, <b>pela integração da 99</b>. Ao lado aparece a resposta do app: "✓ enviado agora" ou "não chegou", com "Tentar de novo" — o Regem guarda o valor mesmo quando o app não responde, e a conferência mostra a diferença.</li>
         <li><b>Organizar por categoria e por cardápio:</b> a lista sai agrupada por categoria. Ao lado de "Todos", um botão para cada cardápio ativo — <b>Cardápio Regem</b>, <b>iFood</b> e <b>99Food</b> (os dos apps só com a integração ligada). Cada um mostra os produtos <b>como estão naquele cardápio</b>: as categorias e os itens na ordem de lá (o iFood e a 99 pela última leitura). Na visão de um app, o item de lá que não liga a um produto do Regem aparece no lugar dele com o motivo e "Resolver em Conferir com os apps"; o preço de lá aparece quando difere; e, no fim, os produtos marcados para aquele app que não estão no cardápio dele.</li>
         <li><b>A pausa por canal</b>: o botão "No ar / Pausado" em cada coluna e "Pausar em todos" na linha. A pausa do Regem vale para o balcão e o cardápio digital.</li>
+        <li><b>Fotos:</b> cada produto e cada complemento mostra a foto do Regem; a coluna de cada app diz quando a foto de lá <b>falta</b>, é <b>diferente</b> ou só existe lá (pela última leitura: <code>imagem</code> no Orzuni, <code>head_img</code> na 99), e o filtro "Foto faltando ou diferente" junta todos. Na gaveta de editar, as fotos lado a lado (Regem, iFood, 99): trocar a do Regem (JPG ou PNG; a tela mede e diz se serve para a 99 — 150 a 3000 px de lado, até 10 MB), "Usar esta no Regem" para trazer a de um app, e "Mandar esta foto" a cada app. A <b>99</b> recebe pelo endereço público da foto do Regem (<code>head_img</code> no <code>updateItem</code>); o <b>iFood</b> ainda não — o Orzuni não tem ferramenta de foto (pedido); até lá, a gaveta avisa "troque no Gestor de Pedidos".</li>
         <li><b>Complementos</b> (o botão "Complementos" no topo da lista): cada opção com código PDV, o preço e a pausa em cada canal, no mesmo jeito dos produtos (lápis, "No ar / Pausado", "Pausar em todos", editar, calcular o preço — sem custo de entrega, que já está no produto). No <b>Regem</b>, o preço é <b>por grupo</b> (o mesmo adicional pode custar diferente em "Adicionais" e em "Adicionais da batata"); no <b>iFood</b>, é <b>um por código, em todos os grupos</b> (o Orzuni muda pelo código: <code>complemento_preco_definir</code>, <code>complemento_pausar</code> — já é o que o R2 faz); na <b>99</b>, a pausa vai pelo código (<code>updateItemStatus</code>) e o preço, grupo a grupo (<code>updateModifierGroup</code> manda o grupo inteiro). A opção sem código é <b>informativa</b> (vai como observação, sem preço nem estoque). Também aqui: organizar pelos grupos do iFood ou da 99, com as opções de lá que não ligam ao Regem (inclusive as <code>ORZ-*</code> do Orzuni); e, em cada produto, "ver os complementos" mostra só os grupos dele.</li>
         <li><b>Editar</b> (gaveta): nome, descrição, código PDV, categoria, os três preços, onde vende e a pausa. Antes de salvar, a gaveta diz o que muda no Regem e o que vai (e o que não vai) a cada app.</li>
         <li><b>O que cada app recebe hoje:</b> 99 — nome, descrição, preço e pausa. iFood (Orzuni) — <b>preço e pausa</b>; o Orzuni ainda não tem ferramenta para mudar nome nem descrição (decisão 10), então esses dois o iFood recebe pelo Gestor de Pedidos.</li>
@@ -402,6 +414,7 @@ tr.so-app td{background:var(--soft)}
         <li><b>Depois de criado, o preço muda só aqui.</b> O Cadastros mostra o preço e aponta para cá — um lugar só para editar evita duas telas brigando pelo mesmo valor. Recomendo.</li>
         <li><b>Pausa do complemento por canal.</b> Hoje a opção tem um "esgotado" só, que vale no Regem e vai junto ao iFood. Recomendo a pausa por canal (Regem, iFood, 99), como a do produto (uma migration): o bacon pode acabar no balcão e seguir no iFood, ou o contrário.</li>
         <li><b>Preço do complemento na 99</b> (um por código, como o do iFood da mig 369), enviado grupo a grupo pela API da 99. Recomendo, na mesma migration da decisão 6.</li>
+        <li><b>Uma foto no Regem para todos os canais</b>, mandada aos apps quando a loja marca: à 99 já dá (o endereço público da foto do Regem); ao iFood quando o Orzuni ganhar a ferramenta de foto (pedido ao Orzuni). A tela compara com a foto de cada app e aponta a que falta ou difere. Recomendo. (Alternativa: uma foto por canal no Regem — mais campos e mais trabalho para a loja.)</li>
       </ol>
       <h3>Fontes das taxas de referência (consultadas em 11/11/2026)</h3>
       <ul>
@@ -411,7 +424,7 @@ tr.so-app td{background:var(--soft)}
       </ul>
       <h3>Fora desta entrega</h3>
       <ul>
-        <li>A foto do item; criar ou apagar grupo de complemento e montar o grupo (fica no Cadastros › Cardápio › Opções); o contexto INDOOR/WHITELABEL do iFood; criar a promoção no app (o preço "de/por") — a calculadora só simula.</li>
+        <li>Editar a foto (cortar, girar) — a tela só troca o arquivo; criar ou apagar grupo de complemento e montar o grupo (fica no Cadastros › Cardápio › Opções); o contexto INDOOR/WHITELABEL do iFood; criar a promoção no app (o preço "de/por") — a calculadora só simula.</li>
       </ul>
     </section>
   </main>
@@ -479,6 +492,34 @@ tr.so-app td{background:var(--soft)}
   const SEM_CODIGO = { nome: 'Molho especial (porção)', custo: 0.9, emb: 0.3, cat: 'Adicionais', desc: 'Porção de 40 g', venda: 3.0, ifood: null, n99: null, pausa: { regem: false, ifood: false, n99: false }, onde: { regem: true, ifood: false, n99: false }, removido: false };
   const PRODUTOS = () => [...Object.entries(REGEM).map(([pdv, r]) => ({ pdv, r })), ...(SEM_CODIGO.removido ? [] : [{ pdv: '', r: SEM_CODIGO }])];
   const produtoDe = (pdv) => (pdv ? REGEM[pdv] : SEM_CODIGO);
+  // ── as fotos ──
+  // A foto do Regem (`produto.imagem_ref` / `opcao.imagem_ref`, que a nuvem já serve num endereço público) e a foto que
+  // cada app mostra hoje (a última leitura: `imagem` no Orzuni, `head_img` na 99). Exemplos: "2052-2" é outra foto do 2052.
+  const FOTO_REGEM = { 2051: '2051-1', 2052: '2052-1', 2053: '2053-1', 4010: null, 5001: '5001-1', 5003: '5003-1', 6003: '6003-1', 2099: '2099-1', 6001: '6001-1' };
+  for (const [pdv, f] of Object.entries(FOTO_REGEM)) REGEM[pdv].foto = f;
+  SEM_CODIGO.foto = null;
+  const CORES_FOTO = ['#C8642B', '#B5452E', '#D19A2E', '#7A8B3A', '#9C5B3B', '#C27C4A', '#5E7A99', '#A0523D'];
+  function imgFoto(id) {
+    if (!id) return null;
+    if (id.startsWith('data:')) return id; // a foto que a pessoa escolheu agora
+    let h = 0;
+    for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+    const cor = CORES_FOTO[h % CORES_FOTO.length];
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 90"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${cor}"/><stop offset="1" stop-color="#2B1A10"/></linearGradient></defs><rect width="120" height="90" fill="url(#g)"/><ellipse cx="60" cy="46" rx="40" ry="25" fill="#F4EDE2" opacity=".92"/><ellipse cx="${52 + (h % 16)}" cy="43" rx="25" ry="13" fill="${cor}"/><text x="60" y="85" font-family="Arial,sans-serif" font-size="9" fill="#fff" text-anchor="middle">foto ${id}</text></svg>`;
+    return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  }
+  const miniFoto = (id, nome) => (id ? `<img class="mini" src="${imgFoto(id)}" alt="Foto: ${esc(nome)}">` : '<span class="mini vazia" role="img" aria-label="Sem foto">sem foto</span>');
+  // a foto de um produto num app, comparada à do Regem
+  function fotoNoApp(pdv, r, k) {
+    const it = pdv ? APP[k].itens.find((i) => i.pdv === pdv && !i.repetido && !i.semCodigo) : null;
+    if (!it) return null;
+    const nome = k === 'ifood' ? 'no iFood' : 'na 99';
+    if (!it.foto) return { estado: 'sem', foto: null, texto: `sem foto ${nome}` };
+    if (!r.foto) return { estado: 'so', foto: it.foto, texto: `foto só ${nome} (o Regem não tem)` };
+    if (it.foto !== r.foto) return { estado: 'difere', foto: it.foto, texto: 'foto diferente da do Regem' };
+    return { estado: 'igual', foto: it.foto, texto: 'mesma foto' };
+  }
+
   // o código vazio vira "_" nos atributos da tela
   const kp = (pdv) => pdv || '_';
   const pdvDe = (v) => (v === '_' ? '' : v);
@@ -555,6 +596,15 @@ tr.so-app td{background:var(--soft)}
       lidoAs: '01:21',
     },
   };
+  // a foto que cada app mostra hoje (exemplo): no iFood o X-Salada tem OUTRA foto e a batata tem foto (o Regem não);
+  // na 99 o Smash está sem foto e o brownie tem outra
+  const FOTO_APP = {
+    ifood: { i1: '2051-1', i2: '2052-2', i3: '2053-1', i4: '3001-1', i6: '4010-1', i7: '5001-1', i8: '5003-1', i12: '6002-1', i13: '6003-1', i14: '6001-1', o1: 'A01-1', o2: 'A02-1' },
+    n99: { n1: '2051-1', n2: '2052-1', n5: '4010-1', n6: '5001-1', n7: '6001-2', n8: '6003-1' },
+  };
+  for (const k of ['ifood', 'n99']) for (const i of [...APP[k].itens, ...APP[k].opcoes]) i.foto = FOTO_APP[k][i.id] || null;
+  for (const [pdv, o] of Object.entries(OPC_REGEM)) o.foto = pdv === 'A01' ? 'A01-1' : null;
+
   const PRODUTOS_REGEM = [
     { id: 'p1', nome: 'Milkshake Ovomaltine', codigo: '', cat: 'Sobremesas' },
     { id: 'p2', nome: 'Milkshake de chocolate', codigo: '6010', cat: 'Sobremesas', usos: 'vendido no balcão e no totem; o GoGeM conhece este código' },
@@ -1291,7 +1341,7 @@ tr.so-app td{background:var(--soft)}
   };
 
   // Uma foto de tudo o que pode mudar, para o "Desfazer".
-  const precosDoApp = () => Object.fromEntries(['ifood', 'n99'].flatMap((k) => [[k, APP[k].itens.map((i) => i.preco)], [`${k}O`, APP[k].opcoes.map((o) => o.preco)]]));
+  const precosDoApp = () => Object.fromEntries(['ifood', 'n99'].flatMap((k) => [[k, APP[k].itens.map((i) => i.preco)], [`${k}O`, APP[k].opcoes.map((o) => o.preco)], [`${k}F`, APP[k].itens.map((i) => i.foto)], [`${k}OF`, APP[k].opcoes.map((o) => o.foto)]]));
   const foto = () => JSON.stringify({ REGEM, SEM_CODIGO, OPC_REGEM, grupos: GRUPOS_REGEM.map((g) => g.opcoes), app: precosDoApp() });
   function voltar(f) {
     const o = JSON.parse(f);
@@ -1302,8 +1352,8 @@ tr.so-app td{background:var(--soft)}
     Object.assign(OPC_REGEM, o.OPC_REGEM);
     GRUPOS_REGEM.forEach((g, i) => (g.opcoes = o.grupos[i]));
     for (const k of ['ifood', 'n99']) {
-      APP[k].itens.forEach((i, n) => (i.preco = o.app[k][n]));
-      APP[k].opcoes.forEach((op, n) => (op.preco = o.app[`${k}O`][n]));
+      APP[k].itens.forEach((i, n) => { i.preco = o.app[k][n]; i.foto = o.app[`${k}F`][n]; });
+      APP[k].opcoes.forEach((op, n) => { op.preco = o.app[`${k}O`][n]; op.foto = o.app[`${k}OF`][n]; });
     }
   }
 
@@ -1315,10 +1365,9 @@ tr.so-app td{background:var(--soft)}
     est.enviados.set(`${pdv}|${k}`, ok
       ? { ok, oque, texto: `✓ enviado ${k === 'ifood' ? 'ao iFood' : 'à 99'} agora: ${oque}` }
       : { ok, oque, texto: 'Não chegou ao iFood (o Orzuni não respondeu). O Regem guardou.' });
-    if (ok && /preço/.test(oque)) {
-      const it = APP[k].itens.find((i) => i.pdv === pdv && !i.repetido);
-      if (it && REGEM[pdv]?.[k] != null) it.preco = REGEM[pdv][k];
-    }
+    const it = APP[k].itens.find((i) => i.pdv === pdv && !i.repetido);
+    if (ok && /preço/.test(oque) && it && REGEM[pdv]?.[k] != null) it.preco = REGEM[pdv][k];
+    if (ok && /foto/.test(oque) && it) it.foto = REGEM[pdv].foto; // a 99 recebe o endereço público da foto do Regem
     return ok;
   }
 
@@ -1328,9 +1377,10 @@ tr.so-app td{background:var(--soft)}
     if (pdv && ['ifood', 'n99'].some((k) => ligado(k) && r.onde[k] && r[k] == null)) m.add('semPreco');
     if (pdv && [...est.enviados].some(([chv, e]) => !e.ok && chv.startsWith(`${pdv}|`))) m.add('naoChegou');
     if (!pdv) m.add('semCodigo');
+    if (!r.foto || ['ifood', 'n99'].some((k) => ligado(k) && r.onde[k] && ['sem', 'so', 'difere'].includes(fotoNoApp(pdv, r, k)?.estado))) m.add('foto');
     return m;
   }
-  const P_SITS = [['pausados', 'Pausados em algum canal', 'warn'], ['semPreco', 'Sem preço num app', 'crit'], ['naoChegou', 'Não chegou ao app', 'crit'], ['semCodigo', 'Sem código PDV', '']];
+  const P_SITS = [['pausados', 'Pausados em algum canal', 'warn'], ['semPreco', 'Sem preço num app', 'crit'], ['naoChegou', 'Não chegou ao app', 'crit'], ['foto', 'Foto faltando ou diferente', 'warn'], ['semCodigo', 'Sem código PDV', '']];
 
   function celCanal(pdv, r, k, agora) {
     const chv = `${kp(pdv)}|${k}`;
@@ -1347,7 +1397,9 @@ tr.so-app td{background:var(--soft)}
     const envio = e ? `<span class="envio${e.ok ? '' : ' falha'}">${esc(e.texto)}${e.ok ? '' : ` <button class="bt peq" data-reenviar="${chv}">Tentar de novo</button>`}</span>` : '';
     // na visão de um app: o preço que está LÁ agora, quando é outro (da última leitura)
     const difere = agora != null && p != null && agora !== p ? `<span class="nao-vende">${k === 'ifood' ? 'no iFood' : 'na 99'} agora: ${brl(agora)}</span>` : '';
-    return `<div class="canal-cel">${preco}${chip}${difere}${envio}</div>`;
+    const fa = k !== 'regem' ? fotoNoApp(pdv, r, k) : null;
+    const foto = fa && fa.estado !== 'igual' ? `<span class="foto-aviso">${fa.texto}</span>` : '';
+    return `<div class="canal-cel">${preco}${chip}${difere}${foto}${envio}</div>`;
   }
 
   // ── a organização de cada cardápio ──
@@ -1421,7 +1473,7 @@ tr.so-app td{background:var(--soft)}
       const nomeLa = item && item.nome !== r.nome ? ` · ${CN[vistaApp].no}: ${esc(item.nome)}` : '';
       const compl = pdv ? GRUPOS_REGEM.filter((g) => g.usadoEm.includes(pdv)) : [];
       return `<tr>
-        <td class="c-item"><div class="nome">${esc(r.nome)}</div>${r.desc ? `<div class="sub">${esc(r.desc)}</div>` : ''}<div class="sub">${esc(r.cat)} · ${pdv ? `código <span class="num">${esc(pdv)}</span>` : 'sem código PDV'} · custo ${brl(r.custo + r.emb)}${nomeLa}</div>${compl.length ? `<div class="sub">Complementos: ${compl.map((g) => esc(g.nome)).join(', ')} · <button class="link" data-ver-compl="${esc(pdv)}">ver os complementos<span class="sr"> de ${esc(r.nome)}</span></button></div>` : ''}</td>
+        <td class="c-item"><div class="prod-cab">${miniFoto(r.foto, r.nome)}<div><div class="nome">${esc(r.nome)}</div>${r.desc ? `<div class="sub">${esc(r.desc)}</div>` : ''}<div class="sub">${esc(r.cat)} · ${pdv ? `código <span class="num">${esc(pdv)}</span>` : 'sem código PDV'} · custo ${brl(r.custo + r.emb)}${nomeLa}</div>${compl.length ? `<div class="sub">Complementos: ${compl.map((g) => esc(g.nome)).join(', ')} · <button class="link" data-ver-compl="${esc(pdv)}">ver os complementos<span class="sr"> de ${esc(r.nome)}</span></button></div>` : ''}</div></div></td>
         ${canais.map((k) => `<td data-rot="${NOME_P[k]}">${celCanal(pdv, r, k, item && k === vistaApp ? item.preco : null)}</td>`).join('')}
         <td class="c-acoes"><div class="linha-acoes">
           <button class="bt peq" data-editar-prod="${kp(pdv)}">Editar<span class="sr"> ${esc(r.nome)}</span></button>
@@ -1431,7 +1483,7 @@ tr.so-app td{background:var(--soft)}
     };
     // o item que está no app e não liga a um produto do Regem: aparece no lugar dele no cardápio, com o motivo
     const linhaApp = ({ item: i, canal: k }) => `<tr class="so-app">
-        <td class="c-item"><div class="nome">${esc(i.nome)}</div><div class="sub">${i.pdv ? `código <span class="num">${esc(i.pdv)}</span> · ` : ''}${brl(i.preco)} ${CN[k].no}</div></td>
+        <td class="c-item"><div class="prod-cab">${miniFoto(i.foto, i.nome)}<div><div class="nome">${esc(i.nome)}</div><div class="sub">${i.pdv ? `código <span class="num">${esc(i.pdv)}</span> · ` : ''}${brl(i.preco)} ${CN[k].no}</div></div></div></td>
         <td class="c-app" colspan="${nCol - 1}"><div class="linha-app"><span class="selo crit">${motivoDoApp(i, k)}</span><span class="sub">a venda ${k === 'ifood' ? 'pelo iFood' : 'pela 99'} não baixa o estoque</span><button class="bt peq" data-ir-conferir="${k}|${esc(i.pdv || i.nome)}">Resolver em "Conferir com os apps"<span class="sr">: ${esc(i.nome)}</span></button></div></td></tr>`;
     const linhas = grupos.map((g) => `<tr class="grupo-cat${g.fora ? ' fora' : ''}"><th colspan="${nCol}" scope="colgroup">${esc(g.nome)} <span class="sub">${g.linhas.length} ${g.linhas.length === 1 ? 'item' : 'itens'}</span></th></tr>
       ${g.linhas.map((l) => (l.tipo === 'prod' ? linhaProd(l) : linhaApp(l))).join('')}`).join('');
@@ -1478,7 +1530,11 @@ tr.so-app td{background:var(--soft)}
     est.enviados.set(`opc:${pdv}|${k}`, ok
       ? { ok, oque, texto: `✓ enviado ${k === 'ifood' ? 'ao iFood' : 'à 99'} agora: ${oque}${nGr > 1 ? ` (nos ${nGr} grupos)` : ''}` }
       : { ok, oque, texto: 'Não chegou ao iFood (o Orzuni não respondeu). O Regem guardou.' });
-    if (ok && /preço/.test(oque)) for (const op of APP[k].opcoes) if (op.pdv === pdv && !op.repetido) op.preco = OPC_REGEM[pdv][k];
+    for (const op of APP[k].opcoes) {
+      if (!ok || op.pdv !== pdv || op.repetido) continue;
+      if (/preço/.test(oque)) op.preco = OPC_REGEM[pdv][k];
+      if (/foto/.test(oque)) op.foto = OPC_REGEM[pdv].foto;
+    }
     return ok;
   }
   const faixaNoRegem = (pdv) => gruposDaOpcao(pdv).map((g) => `${brl(g.opcoes.find((x) => x.pdv === pdv).preco)} em ${esc(g.nome)}`).join(' · ') || 'em nenhum grupo do Regem';
@@ -1542,7 +1598,7 @@ tr.so-app td{background:var(--soft)}
       const tudo = canais.every((k) => r.pausa[k]);
       const nGr = gruposDaOpcao(l.pdv).length;
       return `<tr>
-        <td class="c-item"><div class="nome">${esc(r.nome)}</div><div class="sub">código <span class="num">${esc(l.pdv)}</span> · custo ${brl(r.custo)} · em ${nGr} ${nGr === 1 ? 'grupo' : 'grupos'}${l.app && l.app.nome !== r.nome ? ` · ${CN[vistaApp].no}: ${esc(l.app.nome)}` : ''}</div></td>
+        <td class="c-item"><div class="prod-cab">${miniFoto(r.foto, r.nome)}<div><div class="nome">${esc(r.nome)}</div><div class="sub">código <span class="num">${esc(l.pdv)}</span> · custo ${brl(r.custo)} · em ${nGr} ${nGr === 1 ? 'grupo' : 'grupos'}${l.app && l.app.nome !== r.nome ? ` · ${CN[vistaApp].no}: ${esc(l.app.nome)}` : ''}</div></div></div></td>
         ${canais.map((k) => `<td data-rot="${NOME_P[k]}">${celOpcao(l.gi, l.pdv, k, l.app && k === vistaApp ? l.app.preco : null)}</td>`).join('')}
         <td class="c-acoes"><div class="linha-acoes">
           <button class="bt peq" data-editar-opc-gaveta="${esc(l.pdv)}">Editar<span class="sr"> ${esc(r.nome)}</span></button>
@@ -1655,6 +1711,7 @@ tr.so-app td{background:var(--soft)}
         <div class="campo"><label for="e-nome">Nome</label><input id="e-nome" value="${esc(r.nome)}" autocomplete="off"></div>
         <div class="campo"><label for="e-cod">Código PDV</label><input id="e-cod" value="${esc(pdv)}" autocomplete="off"><span class="ajuda">O mesmo código nos apps: é por ele que o adicional é cobrado e baixa o estoque.</span></div>
       </div>
+      <fieldset class="grupo"><legend>Foto</legend><div id="e-fotos" style="display:grid;gap:10px"></div></fieldset>
       <fieldset class="grupo"><legend>Preço no Regem, em cada grupo</legend><div class="tres">${grs.map(({ g, gi, o }) => `<div class="campo"><label for="e-g-${gi}">${esc(g.nome)}</label><div class="pct"><span>R$</span><input id="e-g-${gi}" inputmode="decimal" value="${dec(o.preco.toFixed(2))}"></div></div>`).join('')}</div><span class="ajuda">Balcão e cardápio digital. O mesmo adicional pode ter preço diferente em cada grupo.</span></fieldset>
       ${apps.length ? `<fieldset class="grupo"><legend>Preço nos apps (um por código, em todos os grupos)</legend><div class="duas">${apps.map((k) => `<div class="campo"><label for="e-p-${k}">Preço ${CN[k].no}</label><div class="pct"><span>R$</span><input id="e-p-${k}" inputmode="decimal" value="${r[k] == null ? '' : dec(r[k].toFixed(2))}"></div><span class="ajuda">${k === 'ifood' ? 'Vai ao iFood pelo Orzuni, pelo código.' : 'Vai à 99 em cada grupo que tem a opção.'} Em branco: o Regem não mexe.</span></div>`).join('')}</div></fieldset>` : ''}
       <fieldset class="grupo"><legend>Pausa (em todos os grupos)</legend><div class="onde">${ks.map((k) => `<label><input type="checkbox" id="e-z-${k}" ${r.pausa[k] ? 'checked' : ''}> Pausado ${k === 'regem' ? 'no Regem' : CN[k].no}</label>`).join('')}</div></fieldset>
@@ -1662,7 +1719,13 @@ tr.so-app td{background:var(--soft)}
       <div id="eEfeito" aria-live="polite"></div>`;
     $('#gRodape').innerHTML = '<button class="bt" data-fechar2>Cancelar</button><button class="bt pri" id="bSalvarEd" data-salvar-ed-opc disabled>Salvar e enviar</button>';
     abrir($('#gaveta'));
+    const appsFoto = apps.map((k) => {
+      const op = APP[k].opcoes.find((o) => o.pdv === pdv && !o.repetido && !o.semCodigo);
+      return { k, existe: !!op, foto: op?.foto || null };
+    });
+    const fotos = ligarFotos(r.foto, appsFoto, () => desenharEfeito());
     const ler = () => ({
+      ...fotos.ler(),
       nome: $('#e-nome').value.trim(), cod: $('#e-cod').value.trim(),
       gr: Object.fromEntries(grs.map(({ gi }) => [gi, numero($(`#e-g-${gi}`).value)])),
       preco: Object.fromEntries(apps.map((k) => [k, numero($(`#e-p-${k}`).value)])),
@@ -1678,8 +1741,9 @@ tr.so-app td{background:var(--soft)}
       $('#eEfeito').innerHTML = h;
       $('#bSalvarEd').disabled = !a.mudou || a.erros.length > 0;
     };
-    $('#gCorpo').oninput = desenharEfeito;
-    $('#gCorpo').onchange = desenharEfeito;
+    $('#gCorpo').oninput = (e) => { if (e.target.id !== 'e-foto') desenharEfeito(e); };
+    $('#gCorpo').onchange = (e) => (e.target.id === 'e-foto' ? fotos.arquivo(e.target.files[0]) : desenharEfeito(e));
+    $('#gCorpo').onclick = (e) => { const b = e.target.closest('[data-trazer-foto]'); if (b) fotos.trazer(b.dataset.trazerFoto); };
     desenharEfeito();
   }
   function analisarOpc({ pdv, ks, apps, grs }, v) {
@@ -1703,6 +1767,8 @@ tr.so-app td{background:var(--soft)}
     if (codMudou && v.cod) regem.push('código PDV');
     for (const { g, gi, o } of grs) if (!Number.isNaN(v.gr[gi]) && v.gr[gi] != null && v.gr[gi] !== o.preco) regem.push(`preço em ${g.nome}`);
     if (ks.includes('regem') && v.pausa.regem !== r.pausa.regem) regem.push(v.pausa.regem ? 'pausa' : 'reativação');
+    if (v.foto !== undefined && v.foto !== r.foto) regem.push('foto');
+    if (v.fotoPara?.n99 && v.fotoOk99 === false) erros.push('A foto nova não serve para a 99 (veja o tamanho acima). Desmarque "Mandar esta foto à 99" ou escolha outra.');
     const out = {};
     for (const k of apps) {
       const vai = [];
@@ -1710,6 +1776,7 @@ tr.so-app td{background:var(--soft)}
       if (!Number.isNaN(v.preco[k]) && v.preco[k] !== r[k]) vai.push(k === 'ifood' ? 'preço (em todos os grupos com o código)' : 'preço (em cada grupo com a opção)');
       if (v.pausa[k] !== r.pausa[k]) vai.push(v.pausa[k] ? 'pausa' : 'reativação');
       if (v.nome !== r.nome) (k === 'ifood' ? atencao : vai).push(k === 'ifood' ? 'o nome não vai: o Orzuni ainda não muda nome — troque no Gestor de Pedidos (decisão 10)' : 'nome');
+      if (v.fotoPara?.[k]) (k === 'ifood' ? atencao : vai).push(k === 'ifood' ? 'a foto não vai pelo Orzuni ainda — troque no Gestor de Pedidos (decisão 16)' : 'foto');
       if (vai.length || atencao.length) out[k] = { vai, atencao };
     }
     return { erros, avisos, regem, apps: out, codMudou, mudou: regem.length > 0 || Object.keys(out).length > 0 };
@@ -1723,6 +1790,7 @@ tr.so-app td{background:var(--soft)}
     const f = foto();
     const r = OPC_REGEM[pdv];
     r.nome = v.nome;
+    if (v.foto !== undefined) r.foto = v.foto;
     for (const { gi, o } of grs) o.preco = v.gr[gi];
     for (const k of apps) r[k] = v.preco[k];
     for (const k of ks) r.pausa[k] = v.pausa[k];
@@ -1856,6 +1924,8 @@ tr.so-app td{background:var(--soft)}
     if (descMudou) regem.push('descrição');
     if (v.cat !== r.cat) regem.push('categoria');
     if (codMudou && v.cod) regem.push('código PDV');
+    if (v.foto !== undefined && v.foto !== r.foto) regem.push('foto');
+    if (v.fotoPara?.n99 && v.fotoOk99 === false) erros.push('A foto nova não serve para a 99 (veja o tamanho acima). Desmarque "Mandar esta foto à 99" ou escolha outra.');
     const apps = {};
     for (const k of ks) {
       if (k !== 'regem' && !pdv) continue;
@@ -1888,9 +1958,78 @@ tr.so-app td{background:var(--soft)}
         if (k === 'ifood') atencao.push('nome e descrição não vão: o Orzuni ainda não muda nome — troque no Gestor de Pedidos do iFood (decisão 10)');
         else vai.push([nomeMudou && 'nome', descMudou && 'descrição'].filter(Boolean).join(' e '));
       }
+      if (v.fotoPara?.[k]) {
+        if (k === 'ifood') atencao.push('a foto não vai pelo Orzuni ainda — troque no Gestor de Pedidos (decisão 16)');
+        else vai.push('foto (pelo endereço público da foto do Regem)');
+      }
       if (vai.length || atencao.length) apps[k] = { vai, atencao };
     }
     return { erros, avisos, regem, apps, codMudou, mudou: regem.length > 0 || Object.keys(apps).length > 0 };
+  }
+
+  // ── a foto nas gavetas de editar (produto e complemento) ──
+  // A regra da 99 para a foto (doc "Update One Item", campo head_img): JPEG ou PNG, de 150 a 3000 px de lado, até 10 MB,
+  // num endereço HTTPS — o do Regem (a nuvem serve a foto num endereço público). A do iFood vem do Orzuni (pedido).
+  const servePara99 = (f) => !f.w || (/^image\/(jpeg|png)$/.test(f.tipo) && f.bytes <= 10 * 1024 * 1024 && Math.min(f.w, f.h) >= 150 && Math.max(f.w, f.h) <= 3000);
+  function confFoto(f) {
+    const tipoOk = /^image\/(jpeg|png)$/.test(f.tipo);
+    const lado = Math.min(f.w, f.h) < 150 ? 'Pequena para a 99: o mínimo é 150 px de lado.' : Math.max(f.w, f.h) > 3000 ? 'Grande para a 99: o máximo é 3000 px de lado.' : '';
+    const peso = f.bytes > 10 * 1024 * 1024 ? 'Pesada para a 99: o máximo é 10 MB.' : '';
+    const ok = servePara99(f);
+    return `<div class="aviso ${ok ? 'ok' : ''}" role="status">${esc(f.nome)}: <b class="num">${f.w} × ${f.h} px</b> · ${Math.max(1, Math.round(f.bytes / 1024))} KB · ${tipoOk ? (f.tipo === 'image/png' ? 'PNG' : 'JPG') : 'formato não aceito: use JPG ou PNG'}. ${ok ? 'Serve para a 99.' : `${lado} ${peso}`}</div>`;
+  }
+  function lerFoto(arquivo, pronto) {
+    if (!arquivo) return;
+    const leitor = new FileReader();
+    leitor.onload = () => {
+      const img = new Image();
+      img.onload = () => pronto({ id: leitor.result, w: img.naturalWidth, h: img.naturalHeight, tipo: arquivo.type, bytes: arquivo.size, nome: arquivo.name });
+      img.onerror = () => pronto({ erro: 'Não deu para abrir esta imagem. Use um arquivo JPG ou PNG.' });
+      img.src = leitor.result;
+    };
+    leitor.readAsDataURL(arquivo);
+  }
+  // atual = a foto do Regem; apps = [{ k, existe, foto }]; nova = a foto escolhida agora (ainda não salva) e a quais apps mandar
+  function blocoFotos(atual, apps, nova) {
+    const regem = nova ? nova.id : atual;
+    const fig = (rot, id, extra = '') => `<figure class="foto-cel">${id ? `<img src="${imgFoto(id)}" alt="${esc(rot)}">` : '<div class="sem-foto">sem foto</div>'}<figcaption>${rot}</figcaption>${extra}</figure>`;
+    const estado = ({ k, existe, foto }) => (!existe ? `<span class="sub">não está ${CN[k].no}</span>`
+      : !foto ? `<span class="foto-aviso">sem foto ${CN[k].no}</span>`
+        : foto === regem ? '<span class="sub">igual à do Regem</span>'
+          : `<span class="foto-aviso">${regem ? 'diferente da do Regem' : 'o Regem não tem foto'}</span><button type="button" class="bt peq" data-trazer-foto="${k}">Usar esta no Regem</button>`);
+    const comApp = apps.filter((a) => a.existe);
+    return `<div class="fotos">
+        ${fig(nova ? 'Regem — a nova (salve para valer)' : 'Regem (balcão e cardápio digital)', regem)}
+        ${apps.map((a) => fig(a.k === 'ifood' ? 'No iFood hoje' : 'Na 99 hoje', a.existe ? a.foto : null, estado(a))).join('')}
+      </div>
+      <div class="campo"><label for="e-foto">Trocar a foto do Regem</label><input id="e-foto" type="file" accept="image/jpeg,image/png"><span class="ajuda">JPG ou PNG. A 99 aceita de 150 a 3000 px de lado e até 10 MB; os limites do iFood vêm do Orzuni.</span></div>
+      ${nova?.w ? confFoto(nova) : ''}
+      ${regem && comApp.length ? `<div class="onde" role="group" aria-label="Mandar a foto do Regem aos apps">${comApp.map(({ k }) => `<label><input type="checkbox" id="e-fe-${k}" ${nova?.mandar?.[k] ? 'checked' : ''}> Mandar esta foto ${CN[k].ao}</label>`).join('')}</div>` : ''}`;
+  }
+  // liga o bloco: escolher arquivo, "Usar esta no Regem"; devolve quem lê o que está escolhido
+  function ligarFotos(atual, apps, aoMudar) {
+    let nova = null;
+    const desenhar = () => { $('#e-fotos').innerHTML = blocoFotos(atual, apps, nova); };
+    desenhar();
+    return {
+      arquivo: (arq) => lerFoto(arq, (f) => {
+        if (f.erro) return toast(f.erro);
+        nova = { ...f, mandar: { ifood: true, n99: servePara99(f) } };
+        desenhar();
+        aoMudar();
+      }),
+      trazer: (k) => {
+        const a = apps.find((x) => x.k === k);
+        nova = { id: a.foto, origem: k, mandar: { ifood: k !== 'ifood', n99: k !== 'n99' } };
+        desenhar();
+        aoMudar();
+      },
+      ler: () => ({
+        foto: nova ? nova.id : undefined,
+        fotoOk99: nova ? servePara99(nova) : true,
+        fotoPara: { ifood: !!$('#e-fe-ifood')?.checked, n99: !!$('#e-fe-n99')?.checked },
+      }),
+    };
   }
 
   let edicao = null;
@@ -1909,13 +2048,19 @@ tr.so-app td{background:var(--soft)}
       </div>
       <div class="campo"><label for="e-desc">Descrição</label><textarea id="e-desc" rows="2">${esc(r.desc || '')}</textarea></div>
       <div class="campo"><label for="e-cat">Categoria</label><select id="e-cat">${cats.map((k) => `<option ${r.cat === k ? 'selected' : ''}>${esc(k)}</option>`).join('')}<option value="__nova">＋ Nova categoria</option></select></div>
+      <fieldset class="grupo"><legend>Foto</legend><div id="e-fotos" style="display:grid;gap:10px"></div></fieldset>
       <fieldset class="grupo"><legend>Preço em cada canal</legend><div class="tres">${ks.map(campoPreco).join('')}</div></fieldset>
       <fieldset class="grupo"><legend>Onde vende e pausa</legend>${ks.map(linhaCanal).join('')}</fieldset>
       <div id="eEfeito" aria-live="polite"></div>`;
     $('#gRodape').innerHTML = `<button class="bt" data-fechar2>Cancelar</button><button class="bt pri" id="bSalvarEd" data-salvar-ed="${kp(pdv)}" disabled>Salvar e enviar</button>`;
     abrir($('#gaveta'));
+    const appsFoto = ['ifood', 'n99'].filter(ligado).map((k) => {
+      const it = pdv ? APP[k].itens.find((i) => i.pdv === pdv && !i.repetido && !i.semCodigo) : null;
+      return { k, existe: !!it, foto: it?.foto || null };
+    });
+    const fotos = ligarFotos(r.foto, appsFoto, () => desenharEfeito());
     const ler = () => {
-      const v = { nome: $('#e-nome').value.trim(), cod: $('#e-cod').value.trim(), desc: $('#e-desc').value.trim(), cat: $('#e-cat').value, preco: {}, onde: {}, pausa: {} };
+      const v = { nome: $('#e-nome').value.trim(), cod: $('#e-cod').value.trim(), desc: $('#e-desc').value.trim(), cat: $('#e-cat').value, preco: {}, onde: {}, pausa: {}, ...fotos.ler() };
       for (const k of ks) { v.preco[k] = numero($(`#e-p-${k}`).value); v.onde[k] = $(`#e-o-${k}`).checked; v.pausa[k] = $(`#e-z-${k}`).checked; }
       return v;
     };
@@ -1938,8 +2083,9 @@ tr.so-app td{background:var(--soft)}
       $('#eEfeito').innerHTML = h;
       $('#bSalvarEd').disabled = !a.mudou || a.erros.length > 0;
     };
-    $('#gCorpo').oninput = desenharEfeito;
-    $('#gCorpo').onchange = desenharEfeito;
+    $('#gCorpo').oninput = (e) => { if (e.target.id !== 'e-foto') desenharEfeito(e); };
+    $('#gCorpo').onchange = (e) => (e.target.id === 'e-foto' ? fotos.arquivo(e.target.files[0]) : desenharEfeito(e));
+    $('#gCorpo').onclick = (e) => { const b = e.target.closest('[data-trazer-foto]'); if (b) fotos.trazer(b.dataset.trazerFoto); };
     desenharEfeito();
   }
 
@@ -1954,6 +2100,7 @@ tr.so-app td{background:var(--soft)}
     r.nome = v.nome;
     r.desc = v.desc;
     r.cat = v.cat;
+    if (v.foto !== undefined) r.foto = v.foto;
     for (const k of ks) {
       if (k !== 'regem' && !pdv) continue;
       porPreco(r, k, v.preco[k]);
@@ -1977,7 +2124,8 @@ tr.so-app td{background:var(--soft)}
     redesenhar();
     focar(`[data-editar-prod="${kp(cod)}"]`);
     const nomeIfood = a.apps.ifood?.atencao.some((s) => /nome/.test(s));
-    toast(`"${esc(v.nome)}" salvo.${res.length ? ` ${res.map(esc).join(' · ')}.` : ''}${nomeIfood ? ' No iFood, o nome e a descrição mudam no Gestor de Pedidos.' : ''}`,
+    const fotoIfood = a.apps.ifood?.atencao.some((s) => /foto/.test(s));
+    toast(`"${esc(v.nome)}" salvo.${res.length ? ` ${res.map(esc).join(' · ')}.` : ''}${nomeIfood ? ' No iFood, o nome e a descrição mudam no Gestor de Pedidos.' : ''}${fotoIfood ? ' A foto no iFood muda no Gestor de Pedidos.' : ''}`,
       () => { voltar(f); for (const k of ['ifood', 'n99']) est.enviados.delete(`${cod}|${k}`); });
   }
 

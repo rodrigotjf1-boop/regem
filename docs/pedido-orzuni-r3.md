@@ -22,16 +22,23 @@ O que falta, em ordem de prioridade (siga a skill `mudanca-produto-dms`: tudo é
    ou da descrição, devolva o limite na recusa `dados_invalidos`.
 2. **Nome da opção de complemento.** Por exemplo `complemento_nome_definir { codigo_pdv | opcao_id, nome,
    chaveIdempotencia }`, valendo para todas as opções com o código, como o preço. Se o iFood não deixar, diga.
-3. **A ordem do cardápio.** A tela mostra os produtos "como estão no iFood". Confirme se `cardapio_listar` e
+3. **A foto do item e da opção.** Por exemplo `item_foto_definir { codigo_pdv, imagem_url, chaveIdempotencia }` e
+   `complemento_foto_definir { codigo_pdv | opcao_id, imagem_url, chaveIdempotencia }`. O Regem passa o endereço
+   público HTTPS da foto dele (a mesma que vai à 99); a porta baixa a imagem, sobe ao iFood e liga ao item. Baixar de
+   endereço que vem de fora pede proteção: só HTTPS, sem seguir redirecionamento para rede interna, com limite de
+   tamanho. Devolva os **requisitos de foto do iFood** (formatos, tamanho mínimo e máximo, peso) e recuse com
+   `dados_invalidos` dizendo o que não serve — a tela do Regem confere antes de mandar. A leitura já traz `imagem`.
+4. **A ordem do cardápio.** A tela mostra os produtos "como estão no iFood". Confirme se `cardapio_listar` e
    `categorias_listar` devolvem as categorias e os itens **na ordem do iFood**; se não, acrescente `ordem` (número) na
    categoria e no item. O mesmo em `complementos_listar`: a ordem dos grupos e das opções dentro de cada grupo.
-4. **A descrição na leitura.** O campo `descricao` em `cardapio_listar` (e em `item_ler`), para a tela mostrar o que
+5. **A descrição na leitura.** O campo `descricao` em `cardapio_listar` (e em `item_ler`), para a tela mostrar o que
    está no iFood antes de mudar.
-5. **(Opcional, se o iFood permitir) Trocar o código PDV** de um item ou de uma opção, por exemplo
+6. **(Opcional, se o iFood permitir) Trocar o código PDV** de um item ou de uma opção, por exemplo
    `item_codigo_pdv_definir { codigo_pdv, codigo_pdv_novo, chaveIdempotencia }`, recusando quando o novo já existe.
    Hoje o Regem manda trocar no Gestor de Pedidos; se não der, tudo bem.
 
 Devolva ao Regem: o nome final de cada ferramenta, a permissão, os limites e **um exemplo de resposta de cada uma**
 (o Regem implementa e testa contra o exemplo). Registre a mudança no hub (`docs/mudancas-nos-produtos.md`).
 
-Nada disso trava o começo da R3: até o item 1 sair, a tela do Regem diz "o nome no iFood muda no Gestor de Pedidos".
+Nada disso trava o começo da R3: até os itens 1 a 3 saírem, a tela do Regem diz "o nome (ou a foto) no iFood muda no
+Gestor de Pedidos".
