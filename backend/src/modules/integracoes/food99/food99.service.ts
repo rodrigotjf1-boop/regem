@@ -536,6 +536,20 @@ export class Food99Service {
   }
 
   /**
+   * O cardápio INTEIRO da loja na 99 (doc 1961 `GET /v3/item/item/list`), o `data` como veio: categorias, itens e grupos de
+   * complementos — o que "Conferir com os apps" (R3 F4a) compara com o Regem (`conferencia.regras.ts`). Errno ≠ 0 volta
+   * sem o `data`; a queda de rede vira errno -1 (o `comToken`).
+   */
+  async cardapioDaLoja(ig: IntegFood99): Promise<{ errno: number; errmsg: string | null; data: any }> {
+    const j = await this.comToken(ig, async (tk) => {
+      const res = await fetchExterno(`${BASE}/v3/item/item/list?${new URLSearchParams({ auth_token: tk }).toString()}`, { method: 'GET' });
+      return res.json();
+    });
+    const r = Food99Service.resposta(j);
+    return { ...r, data: r.errno === 0 ? j?.data ?? null : null };
+  }
+
+  /**
    * O cardápio da loja na 99 (doc 1961 "Get Store Menu Details", `GET /v3/item/item/list`): os itens por `app_item_id` e
    * os grupos de complementos (`modifier_groups`, cada um com as opções e o preço delas NO grupo).
    */

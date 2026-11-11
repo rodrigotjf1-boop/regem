@@ -89,6 +89,7 @@ import { RlsInterceptor } from './auth/rls.interceptor';
 import { TerminalSegredoInterceptor } from './auth/terminal-segredo.interceptor';
 import { DistribuicaoModule } from './modules/distribuicao/distribuicao.module';
 import { OrzuniModule } from './modules/orzuni/orzuni.module';
+import { ConferenciaModule } from './modules/conferencia/conferencia.module';
 import { SuporteModule } from './modules/suporte/suporte.module';
 import { IntegracaoApiModule } from './modules/integracao-api/integracao-api.module';
 import { AutorizacaoLojaModule } from './modules/integracao-api/autorizacao-loja.module';
@@ -201,6 +202,8 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
     GogemModule,
     // "Publicar nas integrações" (Cadastros › Cardápio): no servidor da loja, repassa à nuvem.
     PublicarIntegracoesModule,
+    // "Conferir com os apps" (R3 F4a; mig 405): no servidor da loja, repassa à nuvem.
+    ConferenciaModule,
     EdgeModule,
     BandejaModule, // o ícone do servidor da loja (só responde no servidor da loja)
     LicencaModule,

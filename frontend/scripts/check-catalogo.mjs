@@ -18,6 +18,14 @@ writeFileSync(
   }).outputText,
 );
 const c = await import(pathToFileURL(join(tmp, 'catalogo-gestao.mjs')).href);
+// "Conferir com os apps" (R3 F4a): as regras da tela, num arquivo próprio (sem import, como o de cima).
+writeFileSync(
+  join(tmp, 'conferencia-apps.mjs'),
+  ts.transpileModule(readFileSync(join(raiz, 'conferencia-apps.ts'), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
+  }).outputText,
+);
+const cf = await import(pathToFileURL(join(tmp, 'conferencia-apps.mjs')).href);
 
 let n = 0;
 const caso = (nome, fn) => {
@@ -350,6 +358,48 @@ try {
     assert.equal(c.opcaoSemPrecoNa99({ ...OPC, preco99: null }), true);
     assert.equal(c.opcaoPausadaEmAlgumCanal({ ...OPC, canaisPausados: ['99food'] }, true, true), true);
     assert.equal(c.opcaoPausadaEmAlgumCanal({ ...OPC, canaisPausados: ['99food'] }, true, false), false);
+  });
+
+  // ── Conferir com os apps (R3 F4a) ────────────────────────────────────────────────────────────────────────────
+  const L = (o) => ({
+    chave: 'pdv:1', tipo: 'item', nome: 'X-Salada', pdv: '2052', grupos: ['Burgers'], precos: [29.9], promoDe: null, pausado: false,
+    regem: { id: 'p1', nome: 'X-Salada', preco: 32.9, ativo: true }, ligaPeloId: false, situacao: 'igual', motivo: null, outros: [], ...o,
+  });
+  caso('conferência: o selo e a frase de cada situação, nas palavras do protótipo (iFood e 99)', () => {
+    assert.match(cf.seloDa(L({ situacao: 'preco', motivo: 'precoDiferente' }), 'ifood').frase, /^iFood R\$\s29,90 · Regem R\$\s32,90$/);
+    assert.equal(cf.seloDa(L({ situacao: 'preco', motivo: 'semPrecoNoRegem' }), '99food').frase, 'No Regem o preço da 99 está em branco.');
+    assert.match(cf.seloDa(L({ situacao: 'preco', motivo: 'precosDiferentesNosGrupos', precos: [6, 6.5] }), '99food').frase, /^99: R\$\s6,00 a R\$\s6,50, conforme o grupo/);
+    assert.equal(cf.seloDa(L({ situacao: 'soApp', regem: null }), 'ifood').frase, 'Item sem produto no Regem com este código: a venda pelo iFood não baixa o estoque.');
+    assert.equal(cf.seloDa(L({ situacao: 'soApp', tipo: 'opcao', regem: null }), '99food').rotulo, 'Só na 99');
+    assert.equal(cf.seloDa(L({ situacao: 'soRegem', pdv: '2080', nome: 'Hot dog' }), 'ifood').frase, '"Hot dog" está marcado "Está no iFood", mas o iFood não tem item com o código 2080.');
+    assert.match(cf.seloDa(L({ situacao: 'soRegem', motivo: 'semCodigoNoRegem', nome: 'Hot dog' }), 'ifood').frase, /não tem código PDV no Regem: não liga ao iFood/);
+    assert.equal(
+      cf.seloDa(L({ situacao: 'naoLiga', motivo: 'repetidoNoApp', nome: 'Smash', pdv: '2060', outros: ['Smash Cheddar', 'Smash Bacon'] }), 'ifood').frase,
+      'O código 2060 está em 3 itens do iFood: "Smash", "Smash Cheddar" e "Smash Bacon".',
+    );
+    assert.equal(cf.seloDa(L({ situacao: 'naoLiga', motivo: 'repetidoNoRegem', outros: ['Wrap', 'Wrap (cópia)'], pdv: '2070' }), 'ifood').rotulo, 'Código repetido no Regem');
+    assert.match(cf.seloDa(L({ situacao: 'naoLiga', motivo: 'semCodigo', tipo: 'opcao', pdv: null }), 'ifood').frase, /o código que o Orzuni gera/);
+    assert.equal(cf.seloDa(L({ situacao: 'ignorada', motivo: 'precoDiferente' }), 'ifood').tom, 'neutro');
+    assert.match(cf.seloDa(L({ ligaPeloId: true }), '99food').frase, /pelo id do produto/);
+  });
+  caso('conferência: "Usar os preços do app" só leva preço diferente, preenchido no Regem e um preço só no app; a busca e as fichas', () => {
+    assert.equal(cf.entraNoUsarEmMassa(L({ situacao: 'preco', motivo: 'precoDiferente' })), true);
+    assert.equal(cf.entraNoUsarEmMassa(L({ situacao: 'preco', motivo: 'semPrecoNoRegem', regem: { id: 'p1', nome: 'X', preco: null, ativo: true } })), false);
+    assert.equal(cf.entraNoUsarEmMassa(L({ situacao: 'preco', motivo: 'precosDiferentesNosGrupos', precos: [6, 6.5] })), false);
+    assert.equal(cf.entraNoUsarEmMassa(L({ situacao: 'ignorada', motivo: 'precoDiferente' })), false);
+    assert.equal(cf.bateNaBusca(L({ nome: 'Pão de Açúcar' }), 'acucar'), true);
+    assert.equal(cf.bateNaBusca(L({}), '2052'), true);
+    assert.equal(cf.bateNaBusca(L({ regem: { id: 'p', nome: 'Lanche da casa', preco: 1, ativo: true } }), 'casa'), true);
+    assert.equal(cf.bateNaBusca(L({}), 'pizza'), false);
+    assert.deepEqual(cf.situacoesDa('ifood', 'item').map((s) => s.rotulo), ['Só no iFood', 'Só no Regem', 'Preço diferente', 'Não dá para ligar', 'Iguais', 'Ignoradas']);
+    assert.equal(cf.situacoesDa('99food', 'opcao').some((s) => s.k === 'soRegem'), false);
+    assert.equal(cf.pendente(L({ situacao: 'ignorada' })), false);
+    assert.equal(cf.pendente(L({ situacao: 'soApp' })), true);
+    assert.equal(cf.listaE(['A']), '"A"');
+    const agora = new Date('2026-11-11T18:00:00Z');
+    assert.equal(cf.quandoLido('2026-11-11T17:30:00Z', agora), 'hoje às 14:30');
+    assert.equal(cf.quandoLido('2026-11-10T12:05:00Z', agora), 'em 10/11 às 09:05');
+    assert.equal(cf.quandoLido(null, agora), 'ainda não lido');
   });
 
   console.log(`\ncheck:catalogo — ${n} grupos de casos, todos certos.`);
