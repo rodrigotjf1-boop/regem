@@ -70,8 +70,8 @@ export function IfoodFields({ f, set, produtoId }: { f: any; set: (patch: any) =
       </div>
       <p id="preco-ifood-ajuda" className="mt-2 text-[11px] text-muted-foreground">
         Guardado à parte do preço do Regem. Ao salvar, o Regem manda este preço ao iFood das lojas ligadas ao Orzuni; em
-        branco, não mexe no preço de lá. &quot;Pausado no iFood&quot; pausa só lá; ocultar o produto no Regem (balcão e cardápio
-        digital) ou esgotar o estoque também pausa no iFood.
+        branco, não mexe no preço de lá. &quot;Pausado no iFood&quot; pausa só lá; esgotar o estoque também pausa no iFood. Tirar
+        o produto do balcão e do cardápio digital não mexe no iFood (cada canal se pausa no seu botão).
       </p>
       {codigo ? (
         <p className="mt-2 break-all text-[11px] text-muted-foreground">

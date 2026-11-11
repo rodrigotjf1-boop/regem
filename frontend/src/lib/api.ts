@@ -758,6 +758,24 @@ export const api = {
   // `semConexao` = não deu para ler (não é "nenhum envio").
   produtoIfoodEnvios: (id: string) => req(`/produtos/${id}/ifood-envios`) as Promise<{ envios: any[]; semConexao: boolean }>,
   opcaoIfoodEnvios: (id: string) => req(`/produtos/opcoes/${id}/ifood-envios`) as Promise<{ envios: any[]; semConexao: boolean }>,
+  // Gestão do catálogo (R3 F1): o preço e a pausa de UM canal, com auditoria. Preço: 'regem' (venda) ou 'ifood' (vazio =
+  // "o Regem não mexe"; pede "Ver valores em R$"). Pausa: 'regem' desliga balcão e cardápio digital juntos; 'ifood' e
+  // '99food' pausam só o seu canal. `mudou: false` = já estava assim.
+  precoDoCanal: (id: string, canal: 'regem' | 'ifood', valor: string | null) =>
+    req(`/produtos/${id}/preco-canal`, { method: 'PUT', body: JSON.stringify({ canal, valor }) }) as Promise<{
+      canal: string;
+      valor: string | null;
+      mudou: boolean;
+    }>,
+  pausaDoCanal: (id: string, canal: 'regem' | 'ifood' | '99food', pausado: boolean) =>
+    req(`/produtos/${id}/pausa-canal`, { method: 'PUT', body: JSON.stringify({ canal, pausado }) }) as Promise<{
+      canal: string;
+      pausado: boolean;
+      mudou: boolean;
+      disponivelBalcao: boolean;
+      disponivelCardapio: boolean;
+      canaisPausados: string[];
+    }>,
   // "Publicar nas integrações" (Cadastros › Cardápio): a situação de cada integração que usa o cardápio e o publicar
   // (GoGeM na hora; quem lê pela porta lê de novo; o iFood já vai sozinho). Só gestão; no servidor da loja vem da nuvem.
   integracoesDoCardapio: () => req('/integracoes/publicar') as Promise<SituacaoIntegracoes>,

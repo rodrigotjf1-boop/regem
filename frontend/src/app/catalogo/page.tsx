@@ -1,41 +1,67 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api, getToken, podeVerFinanceiro } from '@/lib/api';
+import { ImageOff, Pause, Pencil, Play } from 'lucide-react';
+import { api, getCategoria, getToken, podeVerFinanceiro } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
-import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Card } from '@/components/ui/card';
 import { SkeletonList } from '@/components/ui/skeleton';
-import { ImageUpload } from '@/components/ui/image-upload';
+import {
+  FiltroBusca, FiltroSelect, Filtros, ListaDados, NomeComApoio, Selo, Situacoes, TituloLista, Vazio, semAcento, texto2, type Situacao,
+} from '@/components/ui/lista';
+import { PrecoNoLugar } from '@/components/catalogo/preco-no-lugar';
+import { ChipPausa } from '@/components/catalogo/chip-pausa';
+import { EditarProduto } from '@/components/catalogo/editar-produto';
+import { UltimoEnvioIfood } from '@/components/produtos/ultimo-envio-ifood';
+import {
+  agruparPorCategoria, esgotado, pausaNoRegem, pausadoEmAlgumCanal, pausadoNoIfood, semPrecoNoIfood, type CategoriaDaGestao,
+} from '@/lib/catalogo-gestao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-const brl = (n: number) =>
-  Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const ID_TITULO = 'catalogo-titulo';
+type Canal = 'regem' | 'ifood';
 
-// Um produto está "pausado" quando não aparece em nenhum canal de venda.
-const pausado = (p: any) => !p.disponivelBalcao && !p.disponivelCardapio;
-
-// Gestão rápida do catálogo (Delivery → Gestão do catálogo): pausar, editar o
-// preço (só com ver_financeiro) e trocar a foto. O cadastro COMPLETO fica em
-// Cadastros → Cardápio (/produtos).
+// DELIVERY › GESTÃO DO CATÁLOGO › "Produtos e preços" (R3 F1; protótipo aprovado pelo dono em 11/11/2026 —
+// `mockups/regem-conciliacao-ifood.html`): cada produto com o preço e a pausa de cada canal — o Regem (balcão e cardápio
+// digital) e o iFood (pelo Orzuni, só com ele ligado) —, agrupado por categoria na ordem do cardápio. O lápis muda o
+// preço ali mesmo; o "No ar / Pausado" pausa só aquele canal; Editar abre a gaveta com o resto. Criar produto, ficha,
+// estoque, fiscal e complementos ficam em Cadastros › Cardápio.
 export default function CatalogoPage() {
   const router = useRouter();
   const [produtos, setProdutos] = useState<any[] | null>(null);
-  const [categorias, setCategorias] = useState<any[]>([]);
+  const [categorias, setCategorias] = useState<CategoriaDaGestao[]>([]);
+  const [comIfood, setComIfood] = useState(false);
+  const [podeMudarPreco, setPodeMudarPreco] = useState(false);
+  const [erro, setErro] = useState('');
   const [busca, setBusca] = useState('');
-  const [catSel, setCatSel] = useState('');
-  const [verFin, setVerFin] = useState(false);
+  const [cat, setCat] = useState('');
+  const [sit, setSit] = useState(-1);
+  const [editando, setEditando] = useState<any | null>(null);
+  const [ocupado, setOcupado] = useState<Set<string>>(new Set());
+  const [enviados, setEnviados] = useState<Set<string>>(new Set()); // produtos com mudança ao iFood nesta visita
+  const leitura = useRef(0);
 
   const carregar = useCallback(async () => {
+    const minha = ++leitura.current; // só a leitura mais nova vale (V64)
+    setErro('');
     try {
-      const [ps, cs] = await Promise.all([api.produtos(), api.produtoCategorias()]);
-      setProdutos(ps as any[]);
-      setCategorias(cs as any[]);
-    } catch {
-      setProdutos([]);
+      const [ps, cs, ifood] = await Promise.all([
+        api.produtos(),
+        api.produtoCategorias(),
+        api.ifoodPeloOrzuni().catch(() => ({ ligado: false })),
+      ]);
+      if (minha !== leitura.current) return;
+      setProdutos(Array.isArray(ps) ? (ps as any[]) : []);
+      setCategorias(Array.isArray(cs) ? (cs as CategoriaDaGestao[]) : []);
+      setComIfood(ifood?.ligado === true);
+    } catch (e) {
+      if (minha !== leitura.current) return;
+      // Erro não é "nenhum produto": a tela diz que não leu e oferece de novo.
+      setProdutos((l) => l ?? []);
+      setErro(e instanceof Error ? e.message : 'Não foi possível carregar os produtos.');
     }
   }, []);
 
@@ -44,135 +70,258 @@ export default function CatalogoPage() {
       router.replace('/entrar');
       return;
     }
-    setVerFin(podeVerFinanceiro());
-    carregar();
+    // A permissão vem do token: lida depois da carga (o primeiro desenho é igual no servidor e no navegador).
+    setPodeMudarPreco(getCategoria() === 'presidente' || podeVerFinanceiro());
+    void carregar();
   }, [carregar, router]);
 
-  // Aplica a mudança no servidor e no estado local (otimista).
-  async function patch(id: string, body: Record<string, unknown>) {
-    setProdutos((l) => (l ?? []).map((p) => (p.id === id ? { ...p, ...body } : p)));
+  const situacoes = useMemo<Situacao<any>[]>(
+    () => [
+      { rotulo: 'Pausados em algum canal', filtro: (p) => pausadoEmAlgumCanal(p, comIfood), tom: 'aviso' },
+      { rotulo: 'Esgotados pelo estoque', filtro: esgotado, tom: 'aviso' },
+      ...(comIfood ? [{ rotulo: 'Sem preço no iFood', filtro: semPrecoNoIfood, tom: 'critico' as const }] : []),
+      { rotulo: 'Sem código PDV', filtro: (p: any) => !(p.codigo ?? '').trim() },
+    ],
+    [comIfood],
+  );
+  // A lista de situações muda com o iFood: a escolhida que sumiu volta para "Todos".
+  useEffect(() => {
+    if (sit >= situacoes.length) setSit(-1);
+  }, [sit, situacoes.length]);
+
+  const trocar = (id: string, m: Record<string, unknown>) => setProdutos((l) => (l ?? []).map((p) => (p.id === id ? { ...p, ...m } : p)));
+  const marcar = (k: string, sim: boolean) =>
+    setOcupado((s) => {
+      const n = new Set(s);
+      if (sim) n.add(k);
+      else n.delete(k);
+      return n;
+    });
+  const marcarEnviado = (id: string) => setEnviados((s) => new Set(s).add(id));
+  const ligaAoIfood = (p: any) => comIfood && p.noIfood === true && !!(p.codigo ?? '').trim();
+
+  async function salvarPreco(p: any, canal: Canal, valor: string | null) {
+    const r = await api.precoDoCanal(p.id, canal, valor);
+    trocar(p.id, canal === 'regem' ? { precoVenda: r.valor } : { precoIfood: r.valor });
+    if (!r.mudou) return void toast.success('O preço já era esse.');
+    if (canal === 'ifood' && ligaAoIfood(p)) marcarEnviado(p.id);
+    toast.success(
+      canal === 'regem'
+        ? `Preço de venda de "${p.nome}" salvo.`
+        : valor === null
+          ? `"${p.nome}": preço do iFood em branco — o Regem não mexe mais no preço de lá.`
+          : `Preço no iFood de "${p.nome}" salvo: vai em instantes pelo Orzuni.`,
+    );
+  }
+
+  async function pausar(p: any, canal: Canal, pausado: boolean, calado = false) {
+    const k = `${p.id}|${canal}`;
+    marcar(k, true);
     try {
-      await api.atualizarProduto(id, body);
+      const r = await api.pausaDoCanal(p.id, canal, pausado);
+      trocar(p.id, { disponivelBalcao: r.disponivelBalcao, disponivelCardapio: r.disponivelCardapio, canaisPausados: r.canaisPausados });
+      if (canal === 'ifood' && r.mudou && ligaAoIfood(p)) marcarEnviado(p.id);
+      if (!calado)
+        toast.success(
+          canal === 'regem'
+            ? `"${p.nome}" ${pausado ? 'pausado no balcão e no cardápio digital' : 'de volta ao balcão e ao cardápio digital'}.`
+            : `"${p.nome}" ${pausado ? 'pausado' : 'reativado'} no iFood: vai em instantes pelo Orzuni.`,
+        );
+      return true;
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
-      carregar(); // reverte para o estado real
+      toast.error(e instanceof Error ? e.message : 'Não foi possível mudar a pausa.');
+      return false;
+    } finally {
+      marcar(k, false);
     }
   }
 
-  async function alternarPausa(p: any) {
-    const ativar = pausado(p);
-    await patch(p.id, { disponivelBalcao: ativar, disponivelCardapio: ativar });
-    toast.success(ativar ? 'Produto retomado.' : 'Produto pausado.');
+  // "Pausar em todos" / "Reativar em todos": o Regem e, com ele ligado e o produto lá, o iFood.
+  const canaisDe = (p: any): Canal[] => (comIfood && p.noIfood ? ['regem', 'ifood'] : ['regem']);
+  const pausadoNo = (p: any, k: Canal) => (k === 'regem' ? pausaNoRegem(p).pausado : pausadoNoIfood(p));
+  const tudoPausado = (p: any) => canaisDe(p).every((k) => pausadoNo(p, k));
+  async function pausarTudo(p: any) {
+    const pausado = !tudoPausado(p);
+    const oks = await Promise.all(canaisDe(p).filter((k) => pausadoNo(p, k) !== pausado).map((k) => pausar(p, k, pausado, true)));
+    if (oks.every(Boolean))
+      toast.success(`"${p.nome}" ${pausado ? 'pausado' : 'reativado'} ${canaisDe(p).length > 1 ? 'no Regem e no iFood' : 'no Regem'}.`);
   }
 
-  const filtrados = (produtos ?? []).filter((p) => {
-    const okCat = !catSel || p.categoriaId === catSel;
-    const okBusca = !busca.trim() || (p.nome ?? '').toLowerCase().includes(busca.trim().toLowerCase());
-    return okCat && okBusca;
-  });
+  if (produtos === null)
+    return (
+      <Shell eyebrow="Delivery" title="Gestão do catálogo">
+        <SkeletonList rows={5} />
+      </Shell>
+    );
+
+  const existeCat = (id: unknown) => categorias.some((c) => c.id === id);
+  const b = semAcento(busca.trim());
+  const base = produtos.filter(
+    (p) =>
+      (!b || semAcento(`${p.nome} ${p.codigo ?? ''} ${p.descricao ?? ''}`).includes(b)) &&
+      (!cat || (cat === '-' ? !existeCat(p.categoriaId) : p.categoriaId === cat)),
+  );
+  const filtrados = sit < 0 || !situacoes[sit] ? base : base.filter(situacoes[sit].filtro);
+  const grupos = agruparPorCategoria(filtrados, categorias);
+  const linhas = grupos.flatMap((g) => g.produtos);
+  const grupoDoProduto = new Map(grupos.flatMap((g) => g.produtos.map((p) => [p.id, g.nome] as const)));
+  const filtrando = !!(busca.trim() || cat || sit >= 0);
+  const limpar = () => {
+    setBusca('');
+    setCat('');
+    setSit(-1);
+  };
+  const temSemCategoria = produtos.some((p) => !existeCat(p.categoriaId));
+  const nPausados = produtos.filter((p) => pausadoEmAlgumCanal(p, comIfood)).length;
+
+  const colunaRegem = (p: any) => {
+    const pz = pausaNoRegem(p);
+    return (
+      <span className="inline-flex max-w-full flex-wrap items-center justify-end gap-1.5 xl:justify-start">
+        <PrecoNoLugar valor={p.precoVenda} qual="de venda" nome={p.nome} podeEditar={podeMudarPreco} aoSalvar={(v) => salvarPreco(p, 'regem', v)} />
+        <ChipPausa pausado={pz.pausado} onde="no Regem" nome={p.nome} ocupado={ocupado.has(`${p.id}|regem`)} aoMudar={() => void pausar(p, 'regem', !pz.pausado)} />
+        {pz.parcial && <span className={`w-full text-xs ${texto2}`}>{pz.parcial}</span>}
+      </span>
+    );
+  };
+  const colunaIfood = (p: any) => {
+    if (!p.noIfood) return <span className={`text-xs ${texto2}`}>não está no iFood</span>;
+    if (!(p.codigo ?? '').trim()) return <span className={`text-xs ${texto2}`}>sem código PDV: não liga ao iFood</span>;
+    const pz = pausadoNoIfood(p);
+    return (
+      <span className="inline-flex max-w-full flex-wrap items-center justify-end gap-1.5 xl:justify-start">
+        <PrecoNoLugar valor={p.precoIfood} qual="no iFood" nome={p.nome} permiteVazio podeEditar={podeMudarPreco} aoSalvar={(v) => salvarPreco(p, 'ifood', v)} />
+        <ChipPausa pausado={pz} onde="no iFood" nome={p.nome} ocupado={ocupado.has(`${p.id}|ifood`)} aoMudar={() => void pausar(p, 'ifood', !pz)} />
+        {esgotado(p) && !pz && <span className={`w-full text-xs ${texto2}`}>pausado pelo estoque</span>}
+        {enviados.has(p.id) && (
+          <span className="block w-full min-w-0 text-left">
+            <UltimoEnvioIfood alvo="produto" id={p.id} />
+          </span>
+        )}
+      </span>
+    );
+  };
 
   return (
     <Shell eyebrow="Delivery" title="Gestão do catálogo">
-      <p className="mb-4 text-sm text-muted-foreground">
-        Gestão rápida: pause, ajuste o preço e troque a foto. O cadastro completo fica em{' '}
-        <button type="button" className="font-semibold text-primary underline" onClick={() => router.push('/produtos')}>
-          Cadastros → Cardápio
-        </button>
-        .
-      </p>
-
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Input
-          value={busca}
-          onChange={(e) => setBusca(e.target.value)}
-          placeholder="Buscar produto…"
-          className="h-10 max-w-xs"
+      <section className="space-y-3" aria-labelledby={ID_TITULO}>
+        <TituloLista
+          id={ID_TITULO}
+          titulo="Produtos e preços"
+          total={produtos.length}
+          mostrando={linhas.length}
+          um="produto"
+          varios="produtos"
+          extra={`${nPausados} pausado${nPausados === 1 ? '' : 's'} em algum canal${comIfood ? ' · o que você muda no iFood vai na hora pelo Orzuni' : ''}`}
         />
-        <select
-          aria-label="Filtrar por categoria"
-          value={catSel}
-          onChange={(e) => setCatSel(e.target.value)}
-          className="h-10 rounded-md border border-input bg-card px-3 text-sm"
-        >
-          <option value="">Todas as categorias</option>
-          {categorias.map((c) => (
-            <option key={c.id} value={c.id}>{c.nome}</option>
-          ))}
-        </select>
-      </div>
+        <p className={`text-sm ${texto2}`}>
+          Criar produto, ficha técnica, estoque, fiscal e complementos: em{' '}
+          <button
+            type="button"
+            className="font-semibold text-foreground underline decoration-primary decoration-2 underline-offset-2"
+            onClick={() => router.push('/produtos')}
+          >
+            Cadastros › Cardápio
+          </button>
+          .
+          {!comIfood && ' A coluna do iFood aparece quando o iFood pelo Orzuni está ligado na sua empresa (a ligação é feita pela distribuição Regem: fale com o suporte).'}
+        </p>
 
-      {produtos === null ? (
-        <SkeletonList rows={4} />
-      ) : filtrados.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Nenhum produto no filtro.</p>
-      ) : (
-        <Card className="divide-y divide-border p-0">
-          {filtrados.map((p) => (
-            <ProdutoRow key={p.id} p={p} verFin={verFin} onPatch={patch} onPausa={alternarPausa} />
-          ))}
-        </Card>
+        {erro ? (
+          <Card className="flex flex-wrap items-center justify-center gap-3 p-8 text-center text-sm">
+            <span role="alert">{erro}</span>
+            <Button type="button" variant="outline" size="sm" onClick={() => void carregar()}>Tentar de novo</Button>
+          </Card>
+        ) : (
+          <>
+            <Situacoes base={base} opcoes={situacoes} valor={sit} aoMudar={setSit} />
+            <Filtros>
+              <FiltroBusca id="catalogo-busca" valor={busca} aoMudar={setBusca} placeholder="Nome, código ou descrição" />
+              <FiltroSelect
+                id="catalogo-categoria"
+                rotulo="Categoria"
+                todos="Todas"
+                opcoes={[...categorias.map((c) => ({ v: c.id, rotulo: c.nome })), ...(temSemCategoria ? [{ v: '-', rotulo: 'Sem categoria' }] : [])]}
+                valor={cat}
+                aoMudar={setCat}
+              />
+            </Filtros>
+            {produtos.length === 0 ? (
+              <Vazio>Nenhum produto ainda. Cadastre o primeiro em Cadastros › Cardápio.</Vazio>
+            ) : linhas.length === 0 ? (
+              <Vazio aoLimpar={limpar} />
+            ) : (
+              <ListaDados
+                legenda={`Produtos por categoria, com o preço e a pausa ${comIfood ? 'no Regem e no iFood' : 'no Regem'}`}
+                linhas={linhas}
+                chave={(p) => p.id}
+                nome={(p) => p.nome}
+                grupoDe={(p) => grupoDoProduto.get(p.id) ?? ''}
+                colunas={[
+                  {
+                    titulo: 'Produto',
+                    celula: (p) => (
+                      <span className="flex min-w-0 items-start gap-2.5">
+                        {p.imagemRef ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={p.imagemRef} alt="" className="h-11 w-11 flex-none rounded-md object-cover" loading="lazy" />
+                        ) : (
+                          <span className="grid h-11 w-11 flex-none place-items-center rounded-md bg-secondary" title="Sem foto">
+                            <ImageOff className={`h-4 w-4 ${texto2}`} aria-hidden="true" />
+                            <span className="sr-only">Sem foto</span>
+                          </span>
+                        )}
+                        <span className="min-w-0">
+                          <NomeComApoio
+                            nome={p.nome}
+                            apoio={`${(p.codigo ?? '').trim() ? `código ${p.codigo}` : 'sem código PDV'}${p.descricao ? ` · ${p.descricao}` : ''}`}
+                          >
+                            {esgotado(p) && <Selo tom="aviso">Esgotado pelo estoque</Selo>}
+                          </NomeComApoio>
+                        </span>
+                      </span>
+                    ),
+                  },
+                  { titulo: 'Regem', celula: colunaRegem },
+                  ...(comIfood ? [{ titulo: 'iFood', celula: colunaIfood }] : []),
+                ]}
+                acoes={(p) => [
+                  { rotulo: 'Editar', icone: Pencil, aoClicar: setEditando, tom: 'primaria' as const },
+                  {
+                    rotulo: tudoPausado(p) ? 'Reativar em todos' : 'Pausar em todos',
+                    icone: tudoPausado(p) ? Play : Pause,
+                    aoClicar: (r: any) => void pausarTudo(r),
+                    ocupada: (r: any) => canaisDe(r).some((k) => ocupado.has(`${r.id}|${k}`)),
+                  },
+                ]}
+              />
+            )}
+            {filtrando && linhas.length > 0 && (
+              <p>
+                <Button type="button" variant="outline" size="sm" onClick={limpar}>Limpar filtros</Button>
+              </p>
+            )}
+          </>
+        )}
+      </section>
+
+      {editando && (
+        <EditarProduto
+          produto={editando}
+          categorias={categorias}
+          outros={produtos}
+          comIfood={comIfood}
+          podeMudarPreco={podeMudarPreco}
+          voltarPara={ID_TITULO}
+          aoFechar={() => setEditando(null)}
+          aoNovaCategoria={(c) => setCategorias((l) => [...l, c])}
+          aoSalvar={(fechar, foiAoIfood) => {
+            if (foiAoIfood) marcarEnviado(editando.id);
+            if (fechar) setEditando(null);
+            void carregar();
+          }}
+        />
       )}
     </Shell>
-  );
-}
-
-function ProdutoRow({
-  p,
-  verFin,
-  onPatch,
-  onPausa,
-}: {
-  p: any;
-  verFin: boolean;
-  onPatch: (id: string, body: Record<string, unknown>) => void;
-  onPausa: (p: any) => void;
-}) {
-  const [preco, setPreco] = useState(p.precoVenda != null ? String(p.precoVenda) : '');
-  const off = pausado(p);
-
-  // Salva o preço só quando muda de fato (evita PATCH à toa a cada blur).
-  function salvarPreco() {
-    const novo = Number(String(preco).replace(',', '.'));
-    if (!Number.isFinite(novo) || novo < 0) return;
-    if (novo === Number(p.precoVenda)) return;
-    onPatch(p.id, { precoVenda: novo });
-    toast.success('Preço atualizado.');
-  }
-
-  return (
-    <div className={`flex flex-wrap items-center gap-3 px-4 py-3 ${off ? 'opacity-60' : ''}`}>
-      <ImageUpload compact value={p.imagemRef || undefined} onChange={(url) => onPatch(p.id, { imagemRef: url })} alt={p.nome || 'produto'} />
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold">
-          {p.nome}
-          {off && <span className="ml-2 rounded-md bg-warn/15 px-2 py-0.5 text-[11px] font-bold text-warn">pausado</span>}
-        </p>
-        <p className="truncate text-xs text-muted-foreground">{p.categoriaNome ?? 'sem categoria'}</p>
-      </div>
-      {verFin ? (
-        <div className="flex items-center gap-1">
-          <span className="text-xs text-muted-foreground">R$</span>
-          <Input
-            type="number"
-            inputMode="decimal"
-            value={preco}
-            onChange={(e) => setPreco(e.target.value)}
-            onBlur={salvarPreco}
-            className="h-9 w-24"
-            aria-label={`Preço de ${p.nome}`}
-          />
-        </div>
-      ) : (
-        <span className="font-mono text-sm font-semibold">{brl(Number(p.precoVenda))}</span>
-      )}
-      <Button
-        type="button"
-        size="sm"
-        variant={off ? 'default' : 'outline'}
-        onClick={() => onPausa(p)}
-      >
-        {off ? 'Retomar' : 'Pausar'}
-      </Button>
-    </div>
   );
 }
