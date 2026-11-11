@@ -14,6 +14,10 @@ import { enviosDoAlvo, envioParaTela } from './envios-do-alvo';
 import { OrzuniLojaController } from './orzuni-loja.controller';
 import { FichasService } from '../fichas/fichas.service';
 import { ProdutoService } from '../produto/produto.service';
+import { ConflictException } from '@nestjs/common';
+import { ConferenciaService } from '../conferencia/conferencia.service';
+import { OrzuniFotoService } from './orzuni-foto.service';
+import { LIMITE_FOTO_IFOOD, chaveDaFoto } from './orzuni-foto.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -765,5 +769,116 @@ descrever('iFood pelo Orzuni — fila e envio (Postgres real, porta falsa)', () 
     expect(painel.lojas.filter((x: any) => x.ligacao).length).toBe(2);
     expect(JSON.stringify(painel)).not.toMatch(/dms_lg_orzuni_[A-Za-z0-9_-]{16,}|v1:/);
     expect(await console_.liberacao({ tenantId: l.t, ligar: false }, quem)).toEqual({ tenantId: l.t, liberado: false });
+  });
+
+  // ── "Mandar esta foto ao iFood" (R3 F6b) ──────────────────────────────────────────────────────────────────────
+  // Aqui (e não numa spec própria) para usar as MESMAS migrations já aplicadas acima: outra spec aplicando a 370…406 em
+  // paralelo no banco dividido do CI disputa trava com as demais (o `robo-pedido-pg` estourou o tempo de trava). As
+  // regras sem banco ficam em `orzuni-foto.spec.ts`.
+  describe('"Mandar esta foto ao iFood" (R3 F6b)', () => {
+    const foto = new OrzuniFotoService(db);
+    foto.buscar = buscar;
+    const fotos = new Map<string, Buffer>();
+    foto.baixar = async (url: string) =>
+      fotos.has(url) ? new Response(new Uint8Array(fotos.get(url) as Buffer), { status: 200 }) : new Response('', { status: 404 });
+    const conferencia = new ConferenciaService(db, auditoria, undefined, undefined, foto);
+    /** Um PNG só com o cabeçalho (o que a medida lê) e um pouco de corpo. */
+    const png = (w: number, h: number, corpo = 64) => {
+      const b = Buffer.alloc(33 + corpo);
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(b, 0);
+      b.writeUInt32BE(13, 8);
+      b.write('IHDR', 12, 'latin1');
+      b.writeUInt32BE(w, 16);
+      b.writeUInt32BE(h, 20);
+      return b;
+    };
+    const aplicado = (repetido = false) => () => ({ result: { structuredContent: { situacao: 'aplicado', repetido, foto: true }, content: [] } });
+    const comPermissao = async (l: Loja, permissoes: string[]) =>
+      q(`update orzuni_ligacao set permissoes = $2::jsonb where tenant_id = $1 and revogada_em is null`, [l.t, JSON.stringify(permissoes)]);
+    const COM = ['catalogo.ler', 'catalogo.escrever', 'preco.escrever', 'status.escrever'];
+    const fotosDe = () => chamadas.filter((c) => c.ferramenta === 'item_foto_definir');
+
+    it('sem `catalogo.escrever` na ligação: recusa com a frase, sem chamar o Orzuni', async () => {
+      const l = await loja({ lojas: 1 });
+      await comPermissao(l, ['catalogo.ler', 'preco.escrever', 'status.escrever', 'loja.escrever']);
+      fotos.set('https://fotos.exemplo.test/sem-perm.png', png(400, 400));
+      const p = await produto(l, { imagem_ref: 'https://fotos.exemplo.test/sem-perm.png' });
+      const r = await foto.mandar(l.t, l.lojas[0], p);
+      expect(r).toMatchObject({ ok: false, status: 409, chamou: false });
+      expect((r as any).motivo).toMatch(/não tem a permissão de editar o cardápio do iFood \(catalogo\.escrever\)/);
+      expect(fotosDe()).toHaveLength(0);
+    });
+
+    it('com a permissão: `item_foto_definir` com o código, o data-URI e a chave pelo conteúdo; a ligação da loja vai junto', async () => {
+      const l = await loja({ lojas: 1 });
+      await comPermissao(l, COM);
+      const bytes = png(800, 800, 2048);
+      fotos.set('https://fotos.exemplo.test/x.png', bytes);
+      const p = await produto(l, { nome: 'X-Foto', codigo: 'F-1', imagem_ref: 'https://fotos.exemplo.test/x.png' });
+      responder = aplicado();
+      const r = await foto.mandar(l.t, l.lojas[0], p);
+      expect(r).toMatchObject({ ok: true, resultado: 'aplicado', repetido: false, frase: 'A foto de "X-Foto" foi para o iFood.' });
+      expect(fotosDe()).toHaveLength(1);
+      expect(fotosDe()[0].args).toEqual({ codigo_pdv: 'F-1', imagem: `data:image/png;base64,${bytes.toString('base64')}`, chaveIdempotencia: chaveDaFoto(p, bytes) });
+      expect(fotosDe()[0].ligacao).toBe(l.segredos[l.lojas[0]]);
+      // A porta disse "repetido" (o mesmo clique de novo): a frase diz que já tinha ido, com a MESMA chave.
+      responder = aplicado(true);
+      expect(await foto.mandar(l.t, l.lojas[0], p)).toMatchObject({ ok: true, repetido: true, frase: 'Esta foto já tinha ido ao iFood em "X-Foto".' });
+      expect(fotosDe()[1].args.chaveIdempotencia).toBe(fotosDe()[0].args.chaveIdempotencia);
+    });
+
+    it('a foto que não serve não sai: não quadrada, pequena, grande, não JPG/PNG, ainda local, sem foto, fora do iFood, sumida', async () => {
+      const l = await loja({ lojas: 1 });
+      await comPermissao(l, COM);
+      let n = 0;
+      const caso = async (url: string | null, bytes: Buffer | null, extra: Record<string, any> = {}) => {
+        if (url && bytes) fotos.set(url, bytes);
+        const p = await produto(l, { imagem_ref: url, codigo: `F-${++n}`, ...extra });
+        return foto.mandar(l.t, l.lojas[0], p);
+      };
+      expect(await caso('https://fotos.exemplo.test/ret.png', png(800, 600))).toMatchObject({ ok: false, status: 409, motivo: expect.stringMatching(/quadrada/) });
+      expect(await caso('https://fotos.exemplo.test/peq.png', png(200, 200))).toMatchObject({ ok: false, motivo: expect.stringMatching(/300 px/) });
+      expect(await caso('https://fotos.exemplo.test/gif.gif', Buffer.from('GIF89a-nao-serve'))).toMatchObject({ ok: false, motivo: expect.stringMatching(/não é JPG nem PNG/) });
+      expect(await caso('https://fotos.exemplo.test/grande.png', Buffer.concat([png(800, 800), Buffer.alloc(LIMITE_FOTO_IFOOD)]))).toMatchObject({
+        ok: false,
+        motivo: expect.stringMatching(/até 8 MB/),
+      });
+      expect(await caso('/api/v1/publico/midia/x.png', null)).toMatchObject({ ok: false, motivo: expect.stringMatching(/só no servidor da loja/) });
+      expect(await caso(null, null)).toMatchObject({ ok: false, motivo: expect.stringMatching(/não tem foto no Regem/) });
+      expect(await caso('https://fotos.exemplo.test/fora.png', png(800, 800), { no_ifood: false })).toMatchObject({
+        ok: false,
+        motivo: expect.stringMatching(/não está no iFood com código PDV/),
+      });
+      expect(await caso('https://fotos.exemplo.test/sumiu.png', null)).toMatchObject({ ok: false, status: 503 });
+      expect(fotosDe()).toHaveLength(0);
+    });
+
+    it('o iFood sem o item (pdv_inexistente): a frase manda criar no Gestor; pela conferência vira 409 e fica na auditoria', async () => {
+      const l = await loja({ lojas: 1 });
+      await comPermissao(l, COM);
+      fotos.set('https://fotos.exemplo.test/sem-item.png', png(600, 600));
+      const p = await produto(l, { imagem_ref: 'https://fotos.exemplo.test/sem-item.png', codigo: 'NAO-EXISTE' });
+      responder = () => ({
+        result: {
+          isError: true,
+          content: [{ type: 'text', text: 'Não há item com esse código PDV no iFood.' }],
+          structuredContent: { situacao: 'nao_encontrado', codigo: 'pdv_inexistente' },
+        },
+      });
+      const ator = { id: null, perfil: 'presidente' } as any;
+      await expect(conferencia.mandarFotoAoIfood(l.t, l.lojas[0], { produtoId: p }, ator)).rejects.toThrow(ConflictException);
+      await expect(conferencia.mandarFotoAoIfood(l.t, l.lojas[0], { produtoId: p }, ator)).rejects.toThrow(
+        /não tem item com o código NAO-EXISTE: crie-o no Gestor de Pedidos/,
+      );
+      expect(auditados.filter((a) => a.acao === 'mandou_foto_ao_ifood').map((a) => [a.detalhe.resultado, a.detalhe.canal])).toEqual([
+        ['recusado', 'ifood'],
+        ['recusado', 'ifood'],
+      ]);
+      // A porta recusa a imagem grande (o teto dela): frase própria.
+      responder = () => ({ result: { isError: true, content: [{ type: 'text', text: 'grande' }], structuredContent: { situacao: 'recusado', codigo: 'imagem_grande' } } });
+      expect(await foto.mandar(l.t, l.lojas[0], p)).toMatchObject({ ok: false, status: 409, motivo: expect.stringMatching(/passa de 8 MB/) });
+      // O pedido sem o produto: 400 antes de tudo.
+      await expect(conferencia.mandarFotoAoIfood(l.t, l.lojas[0], {}, ator)).rejects.toThrow(/Escolha o produto/);
+    });
   });
 });

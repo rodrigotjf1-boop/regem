@@ -37,6 +37,7 @@ export function EditarProduto({
   aoNovaCategoria,
   fotosDosApps,
   aoMandarFoto99,
+  aoMandarFotoIfood,
 }: {
   produto: ProdutoDaGestao & Record<string, any>;
   categorias: CategoriaDaGestao[];
@@ -53,6 +54,8 @@ export function EditarProduto({
   fotosDosApps?: FotosDoProduto;
   /** "Mandar esta foto à 99" (R3 F6). */
   aoMandarFoto99?: () => Promise<void>;
+  /** "Mandar esta foto ao iFood" (R3 F6b, pela porta do Orzuni). */
+  aoMandarFotoIfood?: () => Promise<void>;
 }) {
   const [e, setE] = useState<EdicaoDoProduto>(() => edicaoInicial(p));
   const [salvando, setSalvando] = useState(false);
@@ -204,6 +207,7 @@ export function EditarProduto({
             noIfood={comIfood && p.noIfood === true}
             na99={com99 && p.na99 === true && !!String(p.codigo ?? '').trim()}
             aoMandar99={aoMandarFoto99}
+            aoMandarIfood={String(p.codigo ?? '').trim() ? aoMandarFotoIfood : undefined}
           />
         </fieldset>
 

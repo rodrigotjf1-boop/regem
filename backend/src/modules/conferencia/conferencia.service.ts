@@ -17,6 +17,7 @@ import { ehServidorLocal } from '../../common/modo';
 import { conferirAppsLigado } from '../../common/conferir-apps';
 import { precosNa99Ligado } from '../../common/precos-na-99';
 import { OrzuniLeituraService } from '../orzuni/orzuni-leitura.service';
+import { OrzuniFotoService } from '../orzuni/orzuni-foto.service';
 import { Food99Service, type IntegFood99 } from '../integracoes/food99/food99.service';
 import {
   CANAIS_CONFERIDOS,
@@ -110,6 +111,7 @@ export class ConferenciaService {
     private readonly auditoria: AuditoriaService,
     @Optional() private readonly orzuni?: OrzuniLeituraService,
     @Optional() private readonly food99?: Food99Service,
+    @Optional() private readonly orzuniFoto?: OrzuniFotoService,
   ) {}
 
   private async rows(q: any): Promise<any[]> {
@@ -662,6 +664,32 @@ export class ConferenciaService {
     return { ok: true, frase: `A foto de "${p.nome}" vai à 99 agora — o resultado aparece no "Último envio à 99".` };
   }
 
+  /**
+   * "Mandar esta foto ao iFood" (R3 F6b): a foto do Regem vai ao item do iFood pela porta do Orzuni, NA HORA (o
+   * `OrzuniFotoService` confere a ligação, a permissão, o produto e a foto). O que foi chamado no Orzuni fica na auditoria
+   * com o resultado — também a recusa (V37); o que nem saiu (ligação, foto que não serve) só volta com a frase.
+   */
+  async mandarFotoAoIfood(tenantId: string, unidade: string | null, dto: any, ator: Ator) {
+    if (ehServidorLocal()) return this.agirPelaNuvem(tenantId, 'foto-ifood', unidade, dto, ator);
+    const produtoId = typeof dto?.produtoId === 'string' && UUID.test(dto.produtoId) ? dto.produtoId : null;
+    if (!produtoId) throw new BadRequestException('Escolha o produto.');
+    const loja = await this.loja(tenantId, unidade);
+    if (!this.orzuniFoto) throw new ConflictException('O iFood pelo Orzuni não está ligado nesta instalação.');
+    const r = await this.orzuniFoto.mandar(tenantId, loja.id, produtoId);
+    if (r.chamou)
+      await this.auditar(tenantId, loja, ator, 'mandou_foto_ao_ifood', {
+        canal: 'ifood',
+        id: produtoId,
+        nome: r.nome,
+        resultado: r.ok ? r.resultado : 'recusado',
+        ...(r.ok ? { repetido: r.repetido } : { motivo: r.motivo }),
+      });
+    if (r.ok) return { ok: true, frase: r.frase };
+    if (r.status === 404) throw new NotFoundException(r.motivo);
+    if (r.status === 503) throw new ServiceUnavailableException(r.motivo);
+    throw new ConflictException(r.motivo);
+  }
+
   private async auditar(tenantId: string, loja: Loja, ator: Ator, acao: string, detalhe: Record<string, unknown>) {
     await this.auditoria.registrar({
       tenantId,
@@ -710,6 +738,8 @@ export class ConferenciaService {
         return this.ligar(tenantId, unidade, dto, ator);
       case 'foto-99':
         return this.mandarFotoA99(tenantId, unidade, dto, ator);
+      case 'foto-ifood':
+        return this.mandarFotoAoIfood(tenantId, unidade, dto, ator);
       default:
         throw new NotFoundException('Ação desconhecida.');
     }

@@ -92,6 +92,14 @@ export class ConferenciaController {
     return this.service.mandarFotoA99(user.tenantId, unidade, dto, ator(user));
   }
 
+  // "Mandar esta foto ao iFood" (R3 F6b): pela porta do Orzuni, na hora (`item_foto_definir`, `catalogo.escrever`).
+  @Post('foto-ifood')
+  @HttpCode(200)
+  @Roles(...QUEM_CONFERE)
+  mandarFotoAoIfood(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null, @Body() dto: unknown) {
+    return this.service.mandarFotoAoIfood(user.tenantId, unidade, dto, ator(user));
+  }
+
   // "Ligar a um produto" e "Corrigir o código" (R3 F4b): o produto ganha o código do item do app e copia o preço e a pausa
   // de lá (o preço muda no Regem: pede "Ver valores em R$").
   @Post('ligar')
