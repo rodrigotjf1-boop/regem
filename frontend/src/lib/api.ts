@@ -1076,6 +1076,9 @@ export const api = {
   kdsAlertaRemover: (id: string) => req(`/kds/alertas/${id}`, { method: 'DELETE' }),
   kdsAlertaDisparar: (body: Record<string, unknown>) =>
     req('/kds/alertas/disparar', { method: 'POST', body: JSON.stringify(body) }),
+  // "Testar" um alerta cadastrado: dispara ESTE alerta, com a loja e os KDS dele (onda 2 da auditoria do KDS, mig 409).
+  kdsAlertaTestar: (id: string) =>
+    req(`/kds/alertas/${id}/testar`, { method: 'POST', body: '{}' }) as Promise<{ ok: boolean; kds: string[] | null }>,
   senhaConfig: (unidadeId?: string) =>
     req(`/producao/senha/config${unidadeId ? `?unidadeId=${unidadeId}` : ''}`),
   setSenhaPeriodo: (periodo: string, unidadeId?: string) =>

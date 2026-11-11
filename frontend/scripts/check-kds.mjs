@@ -379,6 +379,16 @@ try {
     assert.deepEqual(k.AVISOS_DA_TELA.filter((t) => !t.trava).map((t) => t.k), [...k.TIPOS_DE_AVISO]);
   });
 
+  // Onda 2 (A9, mig 409): o alerta cadastrado vai para os KDS escolhidos.
+  caso('alerta para os KDS escolhidos: sem lista = todos; o aparelho sem KDS escolhido recebe todos', () => {
+    assert.equal(k.alertaParaEstaTela({ kds: ['fritadeira'] }, 'fritadeira'), true);
+    assert.equal(k.alertaParaEstaTela({ kds: ['fritadeira'] }, 'chapa'), false);
+    assert.equal(k.alertaParaEstaTela({ kds: null }, 'chapa'), true);
+    assert.equal(k.alertaParaEstaTela({ kds: [] }, 'chapa'), true);
+    assert.equal(k.alertaParaEstaTela({}, 'chapa'), true);
+    assert.equal(k.alertaParaEstaTela({ kds: ['fritadeira'] }, ''), true, 'loja de um KDS só');
+  });
+
   caso('faixa da pausa: até quando e o contador; "reabre em" nos minutos do aviso; fim do dia sem contador; passou = reabriu', () => {
     const daqui = (s) => new Date(AGORA + s * 1000).toISOString();
     const ifood = { canal: 'ifood', nome: 'iFood', ate: daqui(754), motivo: 'Trocando o gás' };

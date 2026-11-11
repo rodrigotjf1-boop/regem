@@ -29,6 +29,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * (contagem, compras) e o KDS, sem conhecer, ordenava por NaN — a "Compra recebida" passava na frente do "❌ CANCELADO"
  * (auditoria do KDS, 11/11/2026). 'media' vira alta, 'baixa' vira info; ausente ou desconhecida, alta (como sempre).
  */
+const UUID_DO_KDS = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function prioridadeDoKds(p: unknown): 'danger' | 'alta' | 'info' | 'ok' {
   if (p === 'danger' || p === 'alta' || p === 'info' || p === 'ok') return p;
   if (p === 'baixa') return 'info';
@@ -248,12 +249,16 @@ export class RealtimeGateway
     // O tipo do aviso (onda 2 da auditoria do KDS, mig 408): cada tela de KDS escolhe os tipos que recebe
     // (`common/avisos-do-kds.ts`). Sem tipo = alerta da loja (o que sempre apareceu).
     tipo?: string;
+    // Os KDS que recebem (nulo = todos da sala) e se fica até o "Ciente" (mig 409; A9 e A7): a tela filtra pelo KDS dela.
+    kds?: unknown;
+    fica?: unknown;
   }) {
     if (!this.server) return;
     // Alerta de LOJA vai só para a sala da loja (mig 249). Na sala do tenant, o KDS de
     // todas as lojas tocaria o alerta de uma — com a lista de insumos dela. Sem unidade
     // (loja única, e os demais emissores deste evento), segue para o tenant como antes.
     const sala = p.unidadeId ? `unidade:${p.unidadeId}` : `tenant:${p.tenantId}`;
+    const kds = Array.isArray(p.kds) ? p.kds.map(String).filter((id) => UUID_DO_KDS.test(id)).slice(0, 50) : [];
     this.server.to(sala).emit('kds:alerta', {
       id: randomUUID(),
       titulo: p.titulo,
@@ -262,6 +267,8 @@ export class RealtimeGateway
       duracaoSeg: Number(p.duracaoSeg) > 0 ? Number(p.duracaoSeg) : 60,
       som: true,
       tipo: ehTipoDeAviso(p.tipo) ? p.tipo : 'loja',
+      kds: kds.length ? kds : null,
+      fica: p.fica === true,
       em: new Date().toISOString(),
     });
   }
