@@ -119,6 +119,94 @@ descrever('contador por origem, contra o Postgres', () => {
   }, 60000);
 });
 
+// A SÉRIE NÃO REPETE ENTRE A NUVEM E O SERVIDOR DA LOJA (auditoria do KDS, 11/11/2026, O13 — achado nº 5 de 20/10).
+//
+// O contador é de cada máquina (não sincroniza). A série D é numerada pelo servidor da loja (ele aceita os pedidos de
+// canal quando está ligado) e pela nuvem (quando ele cai): cada lado com o seu contador, os dois chegavam ao mesmo D-47
+// no dia. Os cartões e as vendas sincronizam — o número sai acima do maior já usado no período, nesta loja e origem.
+descrever('a senha não repete entre a nuvem e o servidor da loja (Postgres)', () => {
+  const pool = new Pool({ connectionString: URL_PG });
+  const db = drizzle(pool) as any;
+  const servico = new ProducaoPedidoService(db, { registrar: async () => {} } as any, { emit: () => undefined } as any);
+  let tenant = '';
+  const loja = async () => (await pool.query(`insert into unidade (tenant_id, nome) values ($1, 'Loja') returning id`, [tenant])).rows[0].id as string;
+  // Um cartão da cozinha que o sincronismo trouxe do OUTRO lado (com o número que o contador de lá deu).
+  const cartaoDoOutroLado = (unidade: string, senha: number, prefixo = PREFIXO_DELIVERY, quando = 'now()') =>
+    pool.query(
+      `insert into producao_pedido (tenant_id, unidade_id, senha, senha_prefixo, status, criado_em, updated_at)
+       values ($1, $2, $3, $4, 'recebido', ${quando}, ${quando})`,
+      [tenant, unidade, senha, prefixo],
+    );
+  const proxima = (unidade: string, prefixo = PREFIXO_DELIVERY) => servico.proximaSenha(db, tenant, unidade, prefixo);
+
+  beforeAll(async () => {
+    tenant = (await pool.query(`insert into empresa (nome) values ('Teste senha entre lados') returning id`)).rows[0].id;
+  });
+  afterAll(async () => {
+    if (tenant) await pool.query('delete from empresa where id = $1', [tenant]);
+    await pool.end();
+  });
+
+  it('o outro lado chegou ao D-55 hoje: este, com o contador no 2, continua do 56 — e segue', async () => {
+    const u = await loja();
+    expect(await proxima(u)).toBe(1);
+    expect(await proxima(u)).toBe(2);
+    await cartaoDoOutroLado(u, 55);
+    expect(await proxima(u)).toBe(56);
+    expect(await proxima(u)).toBe(57);
+  }, 60000);
+
+  it('a venda sem cartão na cozinha (só bebida) também conta', async () => {
+    const u = await loja();
+    await pool.query(
+      `insert into comanda (id, tenant_id, unidade_id, status, senha, senha_prefixo, total) values ($1,$2,$3,'fechada',30,$4,0)`,
+      [randomUUID(), tenant, u, PREFIXO_DELIVERY],
+    );
+    expect(await proxima(u)).toBe(31);
+  }, 60000);
+
+  it('não contam: o dia anterior (período diário), outra origem, outra loja', async () => {
+    const u = await loja();
+    const outra = await loja();
+    await cartaoDoOutroLado(u, 300, PREFIXO_DELIVERY, `now() - interval '25 hours'`);
+    await cartaoDoOutroLado(u, 90, PREFIXO_BALCAO);
+    await cartaoDoOutroLado(outra, 70);
+    expect(await proxima(u)).toBe(1);
+  }, 60000);
+
+  it('na virada do dia o contador zera, mas não abaixo do que o outro lado já usou no dia novo', async () => {
+    const u = await loja();
+    expect(await proxima(u)).toBe(1);
+    await pool.query(
+      // Data fixa no passado: `current_date` é o dia da SESSÃO (UTC no CI) — depois das 21h seria "amanhã" (ERR-087).
+      `update senha_contador set valor = 80, ultimo_reset = '2020-01-01' where tenant_id = $1 and unidade_id = $2 and prefixo = $3`,
+      [tenant, u, PREFIXO_DELIVERY],
+    );
+    await cartaoDoOutroLado(u, 5);
+    expect(await proxima(u)).toBe(6);
+  }, 60000);
+
+  it("período 'nunca': conta o que o outro lado usou nos últimos dois dias, não o de antes", async () => {
+    const u = await loja();
+    await pool.query(`insert into kds_cor_config (tenant_id, unidade_id, senha_periodo) values ($1, $2, 'nunca')`, [tenant, u]);
+    await cartaoDoOutroLado(u, 900, PREFIXO_DELIVERY, `now() - interval '4 days'`);
+    await cartaoDoOutroLado(u, 40, PREFIXO_DELIVERY, `now() - interval '24 hours'`);
+    expect(await proxima(u)).toBe(41);
+  }, 60000);
+});
+
+describe('onde começa o período da senha', () => {
+  const inicio = (periodo: string, hoje: string) =>
+    (new ProducaoPedidoService({} as any, {} as any, {} as any) as any).inicioDoPeriodoDaSenha(periodo, hoje);
+
+  it('diário: o próprio dia; semanal: a segunda-feira; nunca: dois dias antes', () => {
+    expect(inicio('diario', '2026-11-11')).toBe('2026-11-11');
+    expect(inicio('semanal', '2026-11-11')).toBe('2026-11-09'); // 11/11/2026 é quarta; a semana começa na segunda, 09/11
+    expect(inicio('semanal', '2026-11-09')).toBe('2026-11-09');
+    expect(inicio('nunca', '2026-11-01')).toBe('2026-10-30');
+  });
+});
+
 // ERR-087 — QUANDO O CONTADOR ZERA.
 //
 // A decisão era tomada comparando a data gravada pelo banco (dia da loja) com

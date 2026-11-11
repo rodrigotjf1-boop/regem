@@ -51,7 +51,7 @@ import { idConfigDaLoja } from '../../common/id-deterministico';
 import { ESTADOS_IMPRESSORA, MARCA_REIMPRESSAO } from '../../common/impressao-marca';
 import { gravarOuEncaminharImpressao } from '../../common/impressao-destino';
 import { dataHoraNoFuso, hojeISO } from '../../common/data';
-import { FUSO_SQL } from '../../common/fuso-sql';
+import { FUSO_SQL, instanteDe } from '../../common/fuso-sql';
 import { SONS_DO_ALTERADO, SOM_DO_ALTERADO_PADRAO, type SomDoAlterado } from '../pedido-alterado/pedido-alterado';
 import { logisticaDasComandas } from '../delivery/logistica-canal';
 import { ChegadaService } from '../chegada/chegada.service';
@@ -2493,7 +2493,14 @@ export class ProducaoPedidoService {
     // O período vem do ajuste do KDS (loja → empresa; sincroniza, mig 332); o do contador só vale sem ajuste.
     const periodo = await this.periodoSenhaDe(tx, tenantId, unidadeId ?? null, row.periodo);
     const reset = this.precisaReset(periodo, row.ultimoReset, hoje);
-    const valor = (reset ? 0 : Number(row.valor)) + 1;
+    // A SENHA NÃO REPETE NO PERÍODO, VENHA DE QUAL LADO VIER (auditoria do KDS, 11/11/2026, O13 — o achado nº 5 de 20/10).
+    // O contador é de cada máquina e não sincroniza (DESCARTAVEL no sync-daemon: por última-escrita andaria para trás), e
+    // o prefixo por origem (mig 275) não basta: a série D é numerada pelo servidor da loja (ele aceita os pedidos de canal
+    // quando está ligado) e pela nuvem (quando ele cai) — cada um com o seu contador, os dois chegavam ao mesmo D-47 no
+    // dia. Os cartões e as vendas sincronizam: o número sai acima do maior já usado no período nesta loja e nesta origem,
+    // como a série fiscal se refaz pelo maior número emitido. Sobra só a janela do sync (até ~1 min antes da queda).
+    const maior = await this.maiorSenhaUsada(tx, tenantId, unidadeId ?? null, prefixo, this.inicioDoPeriodoDaSenha(periodo, hoje));
+    const valor = Math.max((reset ? 0 : Number(row.valor)) + 1, maior + 1);
     await tx.execute(sql`
       update senha_contador
       set valor = ${valor},
@@ -2502,6 +2509,46 @@ export class ProducaoPedidoService {
       where id = ${row.id}
     `);
     return valor;
+  }
+
+  /**
+   * O dia (da operação, 'AAAA-MM-DD') em que começa o período da senha: o dia, a segunda-feira da semana ou — no "nunca",
+   * que não zera — dois dias atrás (a janela de uma queda do servidor da loja; mais longe que isso o contador desta
+   * máquina já passou do que o outro lado usou).
+   */
+  private inicioDoPeriodoDaSenha(periodo: string, hoje: string): string {
+    if (periodo === 'semanal') return this.inicioSemanaISO(hoje);
+    if (periodo === 'nunca') {
+      const d = new Date(`${String(hoje).slice(0, 10)}T12:00:00Z`);
+      d.setUTCDate(d.getUTCDate() - 2);
+      return d.toISOString().slice(0, 10); // seguro: a data foi montada em UTC, ao meio-dia
+    }
+    return String(hoje).slice(0, 10);
+  }
+
+  /**
+   * A maior senha desta origem já usada nesta loja desde o início do período — nos cartões da cozinha e nas vendas, que
+   * sincronizam entre a nuvem e o servidor da loja (o contador, não). O limite de tempo vai também no `updated_at` (o que
+   * foi criado no período foi gravado nele): a consulta anda pelo índice do sync (`tenant_id, updated_at`), só pelas linhas
+   * do período; o `offset 0` impede o banco de trocar isso por uma volta para trás no índice da senha, que passaria por
+   * todos os números altos dos dias anteriores.
+   */
+  private async maiorSenhaUsada(tx: any, tenantId: string, unidadeId: string | null, prefixo: string, inicio: string): Promise<number> {
+    const desde = instanteDe(inicio);
+    const r: any = await tx.execute(sql`
+      select greatest(
+        (select max(senha) from (
+           select senha from producao_pedido
+            where tenant_id = ${tenantId} and unidade_id is not distinct from ${unidadeId} and senha_prefixo = ${prefixo}
+              and updated_at >= ${desde} and criado_em >= ${desde} and senha is not null
+           offset 0) p),
+        (select max(senha) from (
+           select senha from comanda
+            where tenant_id = ${tenantId} and unidade_id is not distinct from ${unidadeId} and senha_prefixo = ${prefixo}
+              and updated_at >= ${desde} and created_at >= ${desde} and senha is not null
+           offset 0) c)
+      ) as maior`);
+    return Number((r.rows ?? r)[0]?.maior ?? 0) || 0;
   }
 
   // Segunda-feira da semana de uma data 'AAAA-MM-DD'. A conta é feita ao MEIO-DIA UTC: a
