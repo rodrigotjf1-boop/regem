@@ -5376,6 +5376,518 @@
         }
       }
     },
+    "/api/v1/publico/instagram/webhook": {
+      "get": {
+        "operationId": "InstagramPublicoController_verificar",
+        "parameters": [
+          {
+            "name": "hub.mode",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hub.verify_token",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hub.challenge",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "InstagramPublicoController_evento",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/publico/instagram/retorno": {
+      "get": {
+        "operationId": "InstagramPublicoController_retorno",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/instagram": {
+      "get": {
+        "operationId": "InstagramController_estado",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "delete": {
+        "operationId": "InstagramController_desconectar",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/instagram/conectar": {
+      "post": {
+        "operationId": "InstagramController_conectar",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/instagram/comentarios": {
+      "get": {
+        "operationId": "InstagramController_comentarios",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/instagram/comentarios/{id}/responder": {
+      "post": {
+        "operationId": "InstagramController_responderComentario",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/instagram/comentarios/{id}/privada": {
+      "post": {
+        "operationId": "InstagramController_privadaDoComentario",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/instagram/comentarios/{id}/esconder": {
+      "post": {
+        "operationId": "InstagramController_esconderComentario",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/instagram/marcacoes": {
+      "get": {
+        "operationId": "InstagramController_marcacoes",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/instagram/marcacoes/{id}/publicar": {
+      "post": {
+        "operationId": "InstagramController_publicarMarcacao",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/instagram/marcacoes/{id}/ignorar": {
+      "post": {
+        "operationId": "InstagramController_ignorarMarcacao",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/{id}/instagram-comentario": {
+      "get": {
+        "operationId": "InstagramController_comentarioDoCaso",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/{id}/instagram": {
+      "get": {
+        "operationId": "InstagramController_conversa",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "InstagramController_responder",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/publico/messenger/webhook": {
+      "get": {
+        "operationId": "MessengerPublicoController_verificar",
+        "parameters": [
+          {
+            "name": "hub.mode",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hub.verify_token",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hub.challenge",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "MessengerPublicoController_evento",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/publico/messenger/retorno": {
+      "get": {
+        "operationId": "MessengerPublicoController_retorno",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/messenger": {
+      "get": {
+        "operationId": "MessengerController_estado",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "delete": {
+        "operationId": "MessengerController_desconectar",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/messenger/conectar": {
+      "post": {
+        "operationId": "MessengerController_conectar",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/messenger/paginas": {
+      "get": {
+        "operationId": "MessengerController_paginas",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/messenger/escolher": {
+      "post": {
+        "operationId": "MessengerController_escolher",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/{id}/messenger": {
+      "get": {
+        "operationId": "MessengerController_conversa",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "MessengerController_responder",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/financeiro/titulos": {
       "get": {
         "operationId": "FinanceiroController_listar",
@@ -10868,9 +11380,18 @@
         }
       }
     },
-    "/api/v1/delivery/pausar": {
+    "/api/v1/delivery/pausas": {
+      "get": {
+        "operationId": "DeliveryController_pausas",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
       "post": {
-        "operationId": "DeliveryController_pausar",
+        "operationId": "DeliveryController_pausarCanais",
         "parameters": [],
         "responses": {
           "201": {
@@ -10879,9 +11400,20 @@
         }
       }
     },
-    "/api/v1/delivery/despausar": {
+    "/api/v1/delivery/pausas/reabrir": {
       "post": {
-        "operationId": "DeliveryController_despausar",
+        "operationId": "DeliveryController_reabrirCanal",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/delivery/pausas/estender": {
+      "post": {
+        "operationId": "DeliveryController_estenderCanal",
         "parameters": [],
         "responses": {
           "201": {
@@ -10991,6 +11523,26 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/delivery/pausas/canais/loja": {
+      "get": {
+        "operationId": "DeliveryLojaController_canaisDaPausa",
+        "parameters": [
+          {
+            "name": "unidade",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
           }
         }
       }
@@ -11770,6 +12322,34 @@
         }
       }
     },
+    "/api/v1/orzuni/loja/envios": {
+      "get": {
+        "operationId": "OrzuniLojaController_envios",
+        "parameters": [
+          {
+            "name": "alvo",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ref",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/kds/alertas": {
       "get": {
         "operationId": "KdsAlertaController_listar",
@@ -12482,6 +13062,172 @@
         }
       }
     },
+    "/api/v1/atendimento/{id}/entregador": {
+      "get": {
+        "operationId": "AtendimentoController_entregadorDoCaso",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "AtendimentoController_avisarOEntregador",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/copiloto": {
+      "get": {
+        "operationId": "AtendimentoController_estadoDoCopiloto",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/{id}/sugestao": {
+      "post": {
+        "operationId": "AtendimentoController_sugerirResposta",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/numeros": {
+      "get": {
+        "operationId": "AtendimentoController_numerosDoAtendimento",
+        "parameters": [
+          {
+            "name": "periodo",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/numeros/casos": {
+      "get": {
+        "operationId": "AtendimentoController_casosDoNumero",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/{id}/o-que-aconteceu": {
+      "get": {
+        "operationId": "AtendimentoController_oQueAconteceu",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "put": {
+        "operationId": "AtendimentoController_marcarOQueAconteceu",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/atendimento/whatsapp-do-gestor": {
       "get": {
         "operationId": "AtendimentoController_whatsappDoGestor",
@@ -12759,7 +13505,16 @@
     "/api/v1/atendimento/fila": {
       "get": {
         "operationId": "AtendimentoController_fila",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "comRecados",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": ""
@@ -12914,6 +13669,231 @@
         ],
         "responses": {
           "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/entregador-da-loja": {
+      "get": {
+        "operationId": "AtendimentoLojaController_entregadorDaLoja",
+        "parameters": [
+          {
+            "name": "chamado",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "AtendimentoLojaController_avisarEntregadorDaLoja",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/messenger-da-loja": {
+      "get": {
+        "operationId": "AtendimentoLojaController_messengerDaLoja",
+        "parameters": [
+          {
+            "name": "chamado",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "AtendimentoLojaController_responderMessengerDaLoja",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/instagram-da-loja": {
+      "get": {
+        "operationId": "AtendimentoLojaController_instagramDaLoja",
+        "parameters": [
+          {
+            "name": "chamado",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "AtendimentoLojaController_responderInstagramDaLoja",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/instagram-comentarios-da-loja": {
+      "get": {
+        "operationId": "AtendimentoLojaController_comentariosDaLoja",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "operationId": "AtendimentoLojaController_agirNoComentarioDaLoja",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/instagram-comentario-da-loja": {
+      "get": {
+        "operationId": "AtendimentoLojaController_comentarioDoCasoDaLoja",
+        "parameters": [
+          {
+            "name": "chamado",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/instagram-marcacoes-da-loja": {
+      "get": {
+        "operationId": "AtendimentoLojaController_marcacoesDaLoja",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "operationId": "AtendimentoLojaController_agirNaMarcacaoDaLoja",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/numeros-da-loja": {
+      "get": {
+        "operationId": "AtendimentoLojaController_numerosDaLoja",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/numeros-da-loja/casos": {
+      "get": {
+        "operationId": "AtendimentoLojaController_casosDaLoja",
+        "parameters": [],
+        "responses": {
+          "200": {
             "description": "",
             "content": {
               "application/json": {
@@ -13171,6 +14151,136 @@
         "parameters": [],
         "responses": {
           "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/teste": {
+      "post": {
+        "operationId": "TreinoDoAtendenteController_criarTeste",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/teste/{id}": {
+      "get": {
+        "operationId": "TreinoDoAtendenteController_verTeste",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/teste/{id}/mensagem": {
+      "post": {
+        "operationId": "TreinoDoAtendenteController_mandarMensagem",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/conhecimento": {
+      "get": {
+        "operationId": "TreinoDoAtendenteController_listarConhecimento",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "operationId": "TreinoDoAtendenteController_criarConhecimento",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/conhecimento/{id}": {
+      "patch": {
+        "operationId": "TreinoDoAtendenteController_editarConhecimento",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "TreinoDoAtendenteController_apagarConhecimento",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
             "description": ""
           }
         }
@@ -15134,7 +16244,14 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -16047,7 +17164,14 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -16250,7 +17374,14 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -16725,7 +17856,14 @@
         ],
         "responses": {
           "201": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -17421,6 +18559,78 @@
         }
       }
     },
+    "/api/v1/entregador/pedido/{id}/minha-posicao": {
+      "post": {
+        "operationId": "EntregadorController_minhaPosicao",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/entregador/pedido/{id}/chat": {
+      "get": {
+        "operationId": "EntregadorController_conversaDoChat",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "EntregadorController_escreverNoChat",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/entregador/pedido/{id}/rota": {
       "post": {
         "operationId": "EntregadorController_rota",
@@ -17598,6 +18808,75 @@
         "responses": {
           "200": {
             "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/entregador/entregas": {
+      "get": {
+        "operationId": "EntregadorController_minhasEntregas",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/entregador/avisos": {
+      "get": {
+        "operationId": "EntregadorController_meusAvisos",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/entregador/avisos/{id}/visto": {
+      "post": {
+        "operationId": "EntregadorController_avisoVisto",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/entregador/avisos/{id}/responder": {
+      "post": {
+        "operationId": "EntregadorController_responderAviso",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -18823,6 +20102,34 @@
         ]
       }
     },
+    "/api/v1/integracao/atendimento/canais": {
+      "get": {
+        "operationId": "IntegracaoApiController_canaisDoAtendimento",
+        "summary": "As contas do Instagram e as páginas do Facebook que a Central de atendimento atende — sem mensagens nem dados de cliente.",
+        "description": "Lida na hora. Uma conta entra quando está CONECTADA à Central de atendimento do Regem (as mensagens dela chegam ao Regem), qualquer que seja o ajuste da fila ou do robô; desconectar tira a conta da resposta na hora. As contas são da EMPRESA do token (uma por empresa), qualquer que seja a loja dele. Listas vazias = nenhuma conta conectada. Sai só o id da conta do Instagram e o @ dela (sem o @), e o id da página do Facebook: nunca o acesso, mensagem ou dado de cliente.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CanaisAtendimentoIntegracao"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Integração (token por loja)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/integracao/cupons": {
       "get": {
         "operationId": "IntegracaoApiController_cuponsDaLoja",
@@ -19056,34 +20363,6 @@
         "tags": [
           "Integração (token por loja)"
         ]
-      }
-    },
-    "/api/v1/orzuni/loja/envios": {
-      "get": {
-        "operationId": "OrzuniLojaController_envios",
-        "parameters": [
-          {
-            "name": "alvo",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "ref",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        }
       }
     },
     "/api/v1/suporte/estado": {
@@ -19603,6 +20882,262 @@
     "/api/v1/publico/relacionamento/r/{id}": {
       "get": {
         "operationId": "RelacionamentoPublicoController_redirect",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/publico/vagas/{codigo}": {
+      "get": {
+        "operationId": "VagasPublicoController_pagina",
+        "parameters": [
+          {
+            "name": "codigo",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/publico/vagas/{codigo}/ficha": {
+      "post": {
+        "operationId": "VagasPublicoController_ficha",
+        "parameters": [
+          {
+            "name": "codigo",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/vagas/candidatos": {
+      "get": {
+        "operationId": "VagasController_lista",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vagas/candidatos/{id}": {
+      "get": {
+        "operationId": "VagasController_ficha",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "delete": {
+        "operationId": "VagasController_apagar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/vagas/candidatos/{id}/situacao": {
+      "patch": {
+        "operationId": "VagasController_situacao",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/vagas/candidatos/{id}/anotacao": {
+      "post": {
+        "operationId": "VagasController_anotacao",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/vagas/candidatos/{id}/entrevista": {
+      "post": {
+        "operationId": "VagasController_entrevista",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/vagas/candidatos/{id}/distancia": {
+      "post": {
+        "operationId": "VagasController_distancia",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/vagas/pagina": {
+      "get": {
+        "operationId": "VagasController_pagina",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "put": {
+        "operationId": "VagasController_salvarPagina",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/vagas/qr": {
+      "get": {
+        "operationId": "VagasController_qrs",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "VagasController_criarQr",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vagas/qr/{id}": {
+      "delete": {
+        "operationId": "VagasController_apagarQr",
         "parameters": [
           {
             "name": "id",
@@ -23672,6 +25207,59 @@
         "required": [
           "versao",
           "atualizado"
+        ]
+      },
+      "CanalInstagramIntegracao": {
+        "type": "object",
+        "properties": {
+          "ig_user_id": {
+            "type": "string",
+            "description": "O id da conta profissional do Instagram (o `entry.id` dos avisos da Meta)."
+          },
+          "usuario": {
+            "type": "string",
+            "nullable": true,
+            "description": "O @ da conta, sem o @. null = a Meta não informou."
+          }
+        },
+        "required": [
+          "ig_user_id",
+          "usuario"
+        ]
+      },
+      "CanalMessengerIntegracao": {
+        "type": "object",
+        "properties": {
+          "pagina_id": {
+            "type": "string",
+            "description": "O id da página do Facebook (o `entry.id` dos avisos da Meta)."
+          }
+        },
+        "required": [
+          "pagina_id"
+        ]
+      },
+      "CanaisAtendimentoIntegracao": {
+        "type": "object",
+        "properties": {
+          "instagram": {
+            "description": "As contas do Instagram conectadas à Central da empresa (hoje, no máximo uma). Lista vazia = nenhuma.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CanalInstagramIntegracao"
+            }
+          },
+          "messenger": {
+            "description": "As páginas do Facebook (Messenger) conectadas à Central da empresa (hoje, no máximo uma). Lista vazia = nenhuma.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CanalMessengerIntegracao"
+            }
+          }
+        },
+        "required": [
+          "instagram",
+          "messenger"
         ]
       },
       "CondicoesCupomIntegracao": {

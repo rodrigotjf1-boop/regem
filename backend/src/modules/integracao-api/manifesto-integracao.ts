@@ -39,6 +39,8 @@ export const ESCOPOS_DA_PORTA = [
   'producao.ler',
   // Orzuni (mig 374): acrescenta os campos do iFood ao `GET /integracao/catalogo` (sem rota própria).
   'catalogo.ifood.ler',
+  // Liame (mig 398): os canais da Central de atendimento (`GET /integracao/atendimento/canais`).
+  'atendimento.canais.ler',
 ] as const satisfies readonly EscopoIntegracao[];
 
 /**
@@ -294,6 +296,15 @@ export const ROTAS_DA_PORTA: readonly RotaNoManifesto[] = [
         },
       ],
     },
+  },
+  {
+    metodo: 'GET',
+    caminho: `${I}/atendimento/canais`,
+    resumo:
+      'As contas do Instagram e as páginas do Facebook conectadas à Central de atendimento da empresa, lidas na hora: só o id e o @, ' +
+      'sem mensagens nem dados de cliente. Listas vazias = nenhuma conta conectada.',
+    permissao: 'atendimento.canais.ler',
+    exemploResposta: { instagram: [{ ig_user_id: '17841400000000001', usuario: 'hamburgueriaexemplo' }], messenger: [{ pagina_id: '100000000000001' }] },
   },
   {
     metodo: 'GET',

@@ -51,7 +51,7 @@ describe('manifesto da porta de integração (Padrão §13)', () => {
   it('cada rota do controller está no manifesto, com o método, o caminho e a permissão do código: nenhuma a mais, nenhuma a menos', () => {
     const doManifesto = ROTAS_DA_PORTA.map((r) => `${r.metodo} ${r.caminho} ${r.permissao ?? '-'}`).sort();
     expect(doManifesto).toEqual(rotasDoController());
-    expect(doManifesto.length).toBe(15);
+    expect(doManifesto.length).toBe(16); // + os canais da Central de atendimento (mig 398)
   });
 
   it('as permissões são os escopos do Regem menos os do totem, cada uma com a frase; a classe parceiro só no catálogo aprovado na F4', () => {
@@ -70,7 +70,7 @@ describe('manifesto da porta de integração (Padrão §13)', () => {
       expect(p.frase.length).toBeLessThanOrEqual(200);
     }
     // só da DMS: criar cupom (é dinheiro, D6), a lista de clientes, as vendas da 99 e os usos de cupom
-    for (const soDms of ['cupons.criar', 'clientes.ler', 'vendas.99food.ler', 'cupons.uso.ler']) expect(m['x-dms-permissoes'][soDms].classes).toEqual(['dms']);
+    for (const soDms of ['cupons.criar', 'clientes.ler', 'vendas.99food.ler', 'cupons.uso.ler', 'atendimento.canais.ler']) expect(m['x-dms-permissoes'][soDms].classes).toEqual(['dms']);
     const sensiveis = nomes.filter((n) => m['x-dms-permissoes'][n].sensivel);
     expect(sensiveis).toEqual(['clientes.ler', 'clientes.telefone.ler', 'custos.ler', 'vendas.99food.ler']);
     // a frase do telefone é a mesma da tela do clique

@@ -4,7 +4,7 @@ import { BadRequestException } from '@nestjs/common';
 // do Liame; contrato Regem → RegemCast em `docs/integracao-regemcast.md`; contrato Regem → Farol em
 // `docs/integracao-farol.md`; contrato Regem → GoGeM em `docs/integracao-gogem/ENDPOINTS.md`). Cada rota
 // confere o seu; o que o token não tem volta 403. A lista é a MESMA do `check` das tabelas (migs 295,
-// 302, 303, 315, 323 e 374): escopo fora dela nem chega a ser gravado.
+// 302, 303, 315, 323, 374 e 398): escopo fora dela nem chega a ser gravado.
 export const ESCOPOS_INTEGRACAO = [
   'pedidos.ler',
   'clientes.telefone.ler',
@@ -28,6 +28,9 @@ export const ESCOPOS_INTEGRACAO = [
   // Orzuni (mig 374): o preço do iFood e o "está no cardápio do iFood" (mig 369) no MESMO catálogo do
   // `catalogo.ler` — sozinho não abre rota nenhuma, só acrescenta esses campos. Lido na hora.
   'catalogo.ifood.ler',
+  // Liame (mig 398, Z12): as contas do Instagram e as páginas do Facebook conectadas à Central de atendimento — para o
+  // Direct do Liame desligar onde o Regem já atende. Só o id e o @: nunca o acesso, mensagem ou dado de cliente.
+  'atendimento.canais.ler',
 ] as const;
 
 export type EscopoIntegracao = (typeof ESCOPOS_INTEGRACAO)[number];
@@ -47,6 +50,8 @@ export const ESCOPOS_SEM_CARIMBO: readonly EscopoIntegracao[] = [
   'totem.vendas.lancar',
   // Orzuni (mig 374): os campos do iFood no catálogo, lidos na hora como o resto do catálogo.
   'catalogo.ifood.ler',
+  // Liame (mig 398): os canais da Central, lidos na hora (a conta conectada agora).
+  'atendimento.canais.ler',
 ];
 
 /** Os escopos cuja leitura depende do carimbador (todos os outros). */
@@ -72,6 +77,8 @@ export const ROTULO_ESCOPO: Record<EscopoIntegracao, string> = {
   'totem.produtos.pausar': 'Pausar e despausar item no canal do totem (POST /sync/produtos/pausa)',
   'totem.vendas.lancar': 'Lançar a venda do totem: paga, falha e dinheiro (POST /vendas/externa-pdv e /delivery/totem-dinheiro)',
   'catalogo.ifood.ler': 'Preço do iFood e se o produto está no cardápio do iFood, no catálogo (junto de catalogo.ler)',
+  'atendimento.canais.ler':
+    'As contas do Instagram e as páginas do Facebook que a Central de atendimento atende (sem mensagens nem dados de cliente)',
 };
 
 /**
@@ -114,7 +121,11 @@ export const CLIENTES_INTEGRACAO: Record<
   liame: {
     rotulo: 'Liame',
     abrangencia: 'loja',
-    escopos: ['pedidos.ler', 'clientes.telefone.ler', 'custos.ler', 'clientes.anonimizacao.ler', 'cupons.ler', 'cupons.uso.ler', 'cupons.criar'],
+    escopos: [
+      'pedidos.ler', 'clientes.telefone.ler', 'custos.ler', 'clientes.anonimizacao.ler', 'cupons.ler', 'cupons.uso.ler', 'cupons.criar',
+      // mig 398: o Direct do Liame desliga onde a Central do Regem já atende.
+      'atendimento.canais.ler',
+    ],
     cargaDias: null,
   },
   regemcast: {
@@ -189,7 +200,7 @@ export const AUTORIZACAO_LOJA: Record<
   liame: {
     descricao: 'Marketing e tráfego pago · lê as vendas para medir os anúncios',
     site: 'app.agencialiame.com',
-    sempre: ['pedidos.ler', 'clientes.anonimizacao.ler', 'cupons.ler', 'cupons.uso.ler'],
+    sempre: ['pedidos.ler', 'clientes.anonimizacao.ler', 'cupons.ler', 'cupons.uso.ler', 'atendimento.canais.ler'],
     opcionais: [
       { escopo: 'custos.ler', campo: 'custo', padrao: true, financeiro: true },
       { escopo: 'cupons.criar', campo: 'cupom', padrao: false, financeiro: false },
