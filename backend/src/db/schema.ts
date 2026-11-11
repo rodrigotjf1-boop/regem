@@ -2087,6 +2087,8 @@ export const kdsCorConfig = pgTable('kds_cor_config', {
   telaSom: boolean('tela_som'),
   // Som do KDS no pedido alterado (mig 362): 'uma' | '1min' | '2min'. Vazio = herda (loja → empresa → padrão '1min').
   alteradoSom: text('alterado_som'),
+  // A Rota da cozinha (mig 410), só na linha da EMPRESA: {"<loja>": [{nome, kds:[ids]}]}; sem a chave = pela ordem do "vai para".
+  rota: jsonb('rota'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

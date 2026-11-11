@@ -29,4 +29,6 @@ export const ACOES_KDS = [
   'mostrou_mapa_nos_kds',
   // Os avisos que cada KDS recebe (mig 408; onda 2 da auditoria do KDS, A13).
   'configurou_avisos_kds',
+  // A Rota da cozinha: a ordem e os nomes das etapas e o "vai para" de cada KDS (mig 410).
+  'configurou_rota_kds',
 ] as const;

@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Rota da cozinha (onda 2 da auditoria do KDS; mig 410 — coluna nova `kds_cor_config.rota`, numa tabela que já
+  sincroniza; não mexe no `sync-daemon`).** Na NUVEM com o merge: Configurações › Rota da cozinha (ver a rota, editar a
+  ordem, "Por onde o pedido passa?") para a loja sem servidor; com o servidor da loja ligado, a nuvem só mostra. **No
+  `.zip` 1.30.13:** a migration 410 no banco da loja e a tela no servidor da loja — é lá que a loja com servidor edita a
+  rota; sem o `.zip`, ela vê a rota pela nuvem e não edita.
+
 - **Cadastros › Cardápio depois da Gestão do catálogo (R3, fase F7; SEM migration; não mexe no `sync-daemon`).** Na NUVEM
   com o merge: a lista sem a chave de pausa ("pausado no Regem" e "Preço e pausa" no ⋮, que abre a Gestão com o produto
   na busca), o "Onde vende" (Regem, iFood, 99) ao criar e, ao editar, o preço só para ler e o salvar que manda só o que

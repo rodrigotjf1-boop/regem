@@ -137,6 +137,33 @@ export class ProducaoPedidoController {
     return this.service.telasDeKds(user.tenantId, unidadeAtual);
   }
 
+  // A Rota da cozinha (onda 2 da auditoria do KDS, mig 410): a ordem das etapas, o "vai para" e a impressão de cada KDS da
+  // loja num lugar só. Gerência, como os produtos e o lugar no fluxo de cada KDS.
+  @Get('kds/rota')
+  @RequireModulo('kds')
+  @Roles(...GESTOR)
+  @RequirePerm('producao_kds')
+  rotaKds(@CurrentUser() user: AuthUser, @UnidadeAtual() unidadeAtual: string | null) {
+    return this.service.rotaDaCozinha(user.tenantId, unidadeAtual);
+  }
+
+  @Put('kds/rota')
+  @RequireModulo('kds')
+  @Roles(...GESTOR)
+  @RequirePerm('producao_kds')
+  salvarRotaKds(@CurrentUser() user: AuthUser, @UnidadeAtual() unidadeAtual: string | null, @Body() dto: any) {
+    return this.service.salvarRotaDaCozinha(user.tenantId, ator(user), unidadeAtual, dto);
+  }
+
+  // "Por onde o pedido passa?": o roteamento de verdade de um produto nesta loja (só leitura).
+  @Get('kds/rota/simular')
+  @RequireModulo('kds')
+  @Roles(...GESTOR)
+  @RequirePerm('producao_kds')
+  simularRotaKds(@CurrentUser() user: AuthUser, @UnidadeAtual() unidadeAtual: string | null, @Query('produtoId') produtoId: string) {
+    return this.service.simularRotaDoProduto(user.tenantId, unidadeAtual, produtoId);
+  }
+
   @Get('kds/:id/produtos')
   @RequireModulo('kds')
   produtosKds(@CurrentUser() user: AuthUser, @Param('id') id: string) {

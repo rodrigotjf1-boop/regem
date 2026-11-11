@@ -17,6 +17,17 @@ export const ACOES_KDS: Record<string, string> = {
   configurou_fluxo_kds: 'Mudou o lugar do KDS no fluxo',
   forcou_despacho_kds: 'Liberou pedido no despacho sem todas as estações',
   mostrou_mapa_nos_kds: 'Mandou o mapa dos entregadores para os KDS',
+  // Onda 2 da auditoria do KDS: os avisos de cada tela (mig 408) e a Rota da cozinha (mig 410).
+  configurou_avisos_kds: 'Mudou os avisos que o KDS recebe',
+  configurou_rota_kds: 'Mudou a Rota da cozinha',
+};
+const AVISO: Record<string, string> = {
+  loja: 'alertas da loja',
+  farol: 'Farol',
+  pausa: 'pausa dos canais',
+  estoque: 'estoque',
+  chegou: 'cliente chegou',
+  gestao: 'avisos de gestão',
 };
 // O lugar no fluxo, em palavras: "despacho", "estação que termina ali" ou "estação que manda para Montagem".
 const lugar = (l: any) =>
@@ -78,6 +89,23 @@ export function resumoKds(acao: string, d: any): string {
         d.pedido,
         Array.isArray(d.faltavam) && d.faltavam.length ? `faltava ${d.faltavam.join(', ')}` : '',
         d.autorizadoPor ? `liberado por ${d.autorizadoPor}` : '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
+    case 'configurou_avisos_kds':
+      return [
+        d.kds ?? 'KDS',
+        Array.isArray(d.ligou) && d.ligou.length ? `passou a receber: ${d.ligou.map((t: string) => AVISO[t] ?? t).join(', ')}` : '',
+        Array.isArray(d.desligou) && d.desligou.length ? `deixou de receber: ${d.desligou.map((t: string) => AVISO[t] ?? t).join(', ')}` : '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
+    case 'configurou_rota_kds':
+      return [
+        Array.isArray(d.etapas) ? `${d.etapas.length} etapa(s): ${d.etapas.map((e: any) => (e?.kds ?? []).join(' + ')).join(' → ')}` : '',
+        Array.isArray(d.mudou) && d.mudou.length
+          ? d.mudou.map((m: any) => `${m.kds}: ${m.antes ? `vai para ${m.antes}` : 'termina ali'} → ${m.depois ? `vai para ${m.depois}` : 'termina ali'}`).join('; ')
+          : '',
       ]
         .filter(Boolean)
         .join(' · ');

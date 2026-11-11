@@ -66,6 +66,7 @@ import {
 } from '../pedido-repetido/pedido-repetido';
 import { autorizarPorSenhaDeGestor } from '../../common/autorizacao-gestor';
 import { TIPOS_DE_AVISO, avisosDoKds, lerAvisosDoKds } from '../../common/avisos-do-kds';
+import { chaveDaRota, conferirRota, rotaDaLoja } from '../../common/rota-kds';
 import { conferirProximoKds, kdsQueChegamA, lerEstacoes, proximoEfetivo, recebeDeOutroKds, type TelaDaCorrente } from '../../common/fluxo-kds';
 import { ACOES_KDS, type AtorKds } from './kds-auditoria';
 
@@ -4003,6 +4004,195 @@ export class ProducaoPedidoService {
       this.events?.emit('kds.telas.mudou', { tenantId });
     }
     return { id: k.id, avisos: depois, mudou: mudou.length > 0 };
+  }
+
+  // ===== A Rota da cozinha (onda 2 da auditoria do KDS — R3, R7, R9, R11; mig 410) =====
+  // Configurações › Rota da cozinha: a corrente inteira num lugar só (KDS1 → KDS2 → imprime → TV), na ordem de cada cozinha.
+  // A ORDEM e os NOMES das etapas ficam em `kds_cor_config.rota` da linha da EMPRESA, uma chave por loja; quem move o
+  // cartão continua sendo o "vai para" de cada KDS, que a edição grava. Regras puras em `common/rota-kds.ts`.
+
+  /** A loja da rota: a escolhida no topo; sem escolha, a única loja da empresa; com várias, pede para escolher (V86). */
+  private async lojaDaRota(tenantId: string, unidadeAtual: string | null): Promise<string | null> {
+    if (unidadeAtual) return unidadeAtual;
+    const r: any = await this.db.execute(sql`select id from unidade where tenant_id = ${tenantId} and deleted_at is null limit 2`);
+    const lojas = (r.rows ?? r) as any[];
+    if (lojas.length > 1) throw new BadRequestException('Escolha a loja no topo da tela para ver a Rota da cozinha dela.');
+    return lojas[0]?.id ?? null;
+  }
+
+  /** Os KDS de preparo e de despacho da loja (e os da rede), ligados ou desligados — a tela de entrega e a de avisos não são etapa. */
+  private async kdsDaRota(tenantId: string, loja: string | null) {
+    const r: any = await this.db.execute(sql`
+      select e.id, e.nome, e.escopo, e.ativo, e.proximo_kds_id as "proximoKdsId", e.unidade_id as "unidadeId",
+             e.imprime_ao_avancar as "imprimeAoAvancar", e.imprime_no_status as "imprimeNoStatus",
+             e.impressora_destino_id as "impressoraDestinoId", i.nome as "impressora",
+             (select count(*)::int from produto_destino_producao d where d.tenant_id = e.tenant_id and d.equipamento_id = e.id) as produtos
+        from equipamento e
+        left join equipamento i on i.id = e.impressora_destino_id and i.tenant_id = e.tenant_id
+       where e.tenant_id = ${tenantId} and e.tipo = 'kds' and e.revogado_em is null
+         and coalesce(e.escopo, 'producao') in ('producao', 'despacho')
+         ${loja ? sql`and (e.unidade_id is null or e.unidade_id = ${loja}::uuid)` : sql``}
+       order by e.nome`);
+    return ((r.rows ?? r) as any[]).map((k) => ({ ...k, escopo: k.escopo ?? 'producao', ativo: k.ativo === true }));
+  }
+
+  async rotaDaCozinha(tenantId: string, unidadeAtual: string | null) {
+    const loja = await this.lojaDaRota(tenantId, unidadeAtual);
+    const kds = await this.kdsDaRota(tenantId, loja);
+    // A rota da loja mora na linha da EMPRESA, uma chave por loja (ver `salvarRotaDaCozinha`). `to_jsonb`: a leitura não
+    // quebra num banco ainda sem a mig 410.
+    const r: any = await this.db.execute(sql`
+      select to_jsonb(k) -> 'rota' -> ${chaveDaRota(loja)}::text as rota from kds_cor_config k
+       where k.tenant_id = ${tenantId} and k.unidade_id is null`);
+    const etapas = rotaDaLoja((r.rows ?? r)[0]?.rota ?? null, kds);
+    const t: any = await this.db.execute(sql`
+      select id, nome from equipamento
+       where tenant_id = ${tenantId} and tipo = 'tela_senhas' and ativo = true and revogado_em is null
+         ${loja ? sql`and (unidade_id is null or unidade_id = ${loja}::uuid)` : sql``}
+       order by nome`);
+    // A impressora PADRÃO de produção da loja (a da loja vence a da rede — a mesma ordem do `rotearProducao`): no modo
+    // estações, o item que nenhum KDS marcou e nenhuma impressora atende sai nela.
+    const pd: any = await this.db.execute(sql`
+      select id, nome from equipamento
+       where tenant_id = ${tenantId} and tipo = 'impressora' and ativo = true and faz_producao = true and padrao = true
+         ${loja ? sql`and (unidade_id is null or unidade_id = ${loja}::uuid)` : sql``}
+       order by unidade_id is null limit 1`);
+    // O produto marcado em mais de um KDS da rota sai nos dois (o aviso "Produto em dois KDS sai nos dois").
+    const ids = kds.map((k) => k.id);
+    const dup: any = ids.length
+      ? await this.db.execute(sql`
+          select p.nome as produto, array_agg(distinct d.equipamento_id::text) as kds
+            from produto_destino_producao d
+            join produto p on p.id = d.produto_id and p.tenant_id = d.tenant_id and p.deleted_at is null
+           where d.tenant_id = ${tenantId} and d.equipamento_id in (${sql.join(ids.map((i) => sql`${i}::uuid`), sql`, `)})
+           group by p.id, p.nome
+          having count(distinct d.equipamento_id) > 1
+           order by p.nome limit 20`)
+      : { rows: [] };
+    // Na nuvem, com o servidor da loja ligado, o fluxo se ajusta no próprio servidor (como o "lugar no fluxo" do KDS).
+    const doServidor = await this.abertoPelaNuvemComServidor(tenantId, loja);
+    return {
+      loja,
+      etapas,
+      kds,
+      tvs: (t.rows ?? t) as { id: string; nome: string }[],
+      // Modo estações (algum KDS ligado marcou produto ou setor) × modo comum (o pedido inteiro no começo da corrente).
+      estacoes: await this.modoEstacoes(this.db, tenantId, loja),
+      padrao: ((pd.rows ?? pd)[0] ?? null) as { id: string; nome: string } | null,
+      duplicados: ((dup.rows ?? dup) as any[]).map((d) => ({ produto: String(d.produto), kds: (d.kds ?? []).map(String) as string[] })),
+      editavel: !doServidor,
+      motivo: doServidor ? 'Com o servidor da loja ligado, a rota se ajusta no próprio servidor (abra o Regem pela rede da loja).' : null,
+    };
+  }
+
+  /**
+   * "Por onde o pedido passa?" da Rota da cozinha: o roteamento DE VERDADE de um produto nesta loja (`rotearProducao`,
+   * o mesmo da venda — produto, setor e opção), e daí a corrente de cada KDS que o recebe pelo "vai para" (pulando o
+   * desligado, `proximoEfetivo`). No modo comum, o pedido inteiro começa nos KDS ligados que ninguém alimenta.
+   */
+  async simularRotaDoProduto(tenantId: string, unidadeAtual: string | null, produtoId: string) {
+    const loja = await this.lojaDaRota(tenantId, unidadeAtual);
+    if (!UUID_RE.test(String(produtoId ?? ''))) throw new BadRequestException('Escolha um produto.');
+    const [p] = await this.db
+      .select({
+        id: produto.id,
+        nome: produto.nome,
+        vaiParaProducao: produto.vaiParaProducao,
+        setorProducaoId: produto.setorProducaoId,
+        tempoPreparoMin: produto.tempoPreparoMin,
+      })
+      .from(produto)
+      .where(and(eq(produto.tenantId, tenantId), eq(produto.id, produtoId), isNull(produto.deletedAt)));
+    if (!p) throw new NotFoundException('Produto não encontrado.');
+    const estacoes = await this.modoEstacoes(this.db, tenantId, loja);
+    if (!p.vaiParaProducao) return { produto: { id: p.id, nome: p.nome }, vaiParaProducao: false, estacoes, caminhos: [], impressoras: [] };
+    const corrente = await this.correnteDosKds(tenantId);
+    const daRota = (await this.kdsDaRota(tenantId, loja)).map((k) => k.id);
+    // A corrente de um KDS: ele e os próximos de verdade (o desligado no meio é pulado; um círculo antigo não trava).
+    const caminho = (inicio: string) => {
+      const passos = [inicio];
+      let a = proximoEfetivo(corrente, inicio);
+      while (a && !passos.includes(a)) {
+        passos.push(a);
+        a = proximoEfetivo(corrente, a);
+      }
+      return passos;
+    };
+    const r = await this.rotearProducao(this.db, tenantId, loja, [{ produto: p, descricao: p.nome, quantidade: 1 }], estacoes);
+    const inicios = estacoes
+      ? [...r.kds.keys()]
+      : daRota.filter((id) => {
+          const t = corrente.get(id);
+          return !!t && t.ativo && !t.revogado && t.escopo !== 'despacho' && !recebeDeOutroKds(corrente, id);
+        });
+    const imp = [...r.impressoras.keys()];
+    const nomes: any = imp.length
+      ? await this.db.execute(sql`
+          select id, nome from equipamento
+           where tenant_id = ${tenantId} and id in (${sql.join(imp.map((i) => sql`${i}::uuid`), sql`, `)})`)
+      : { rows: [] };
+    return {
+      produto: { id: p.id, nome: p.nome },
+      vaiParaProducao: true,
+      estacoes,
+      caminhos: inicios.map((k) => ({ inicio: k, passos: caminho(k) })),
+      impressoras: ((nomes.rows ?? nomes) as any[]).map((i) => ({ id: String(i.id), nome: String(i.nome), padrao: i.id === r.padraoId })),
+    };
+  }
+
+  /**
+   * Salva a Rota da cozinha: a ordem e os nomes das etapas (na linha da loja) e o "vai para" de cada KDS que mudou — numa
+   * transação, com a conferência de `conferirRota` (despacho só na última etapa, "vai para" só para uma etapa depois,
+   * nada em círculo) antes da 1ª gravação (V86). Audita o que mudou e avisa as telas.
+   */
+  async salvarRotaDaCozinha(tenantId: string, ator: AtorKds | undefined, unidadeAtual: string | null, dto: any) {
+    const loja = await this.lojaDaRota(tenantId, unidadeAtual);
+    if (await this.abertoPelaNuvemComServidor(tenantId, loja))
+      throw new ForbiddenException('Com o servidor da loja ligado, a rota se ajusta no próprio servidor (abra o Regem pela rede da loja).');
+    const kds = await this.kdsDaRota(tenantId, loja);
+    const nome = (id: string) => kds.find((k) => k.id === id)?.nome ?? 'KDS';
+    const conf = conferirRota(dto?.etapas, dto?.vai, kds, nome);
+    if (conf.motivos.length) throw new BadRequestException(conf.motivos.join(' '));
+    const mudou = kds
+      .filter((k) => (conf.vai[k.id] ?? null) !== (k.proximoKdsId ?? null))
+      .map((k) => ({ id: k.id, kds: k.nome, antes: k.proximoKdsId ? nome(k.proximoKdsId) : null, depois: conf.vai[k.id] ? nome(conf.vai[k.id]!) : null }));
+    await this.db.transaction(async (tx: any) => {
+      for (const m of mudou)
+        await tx
+          .update(equipamento)
+          .set({ proximoKdsId: conf.vai[m.id] ?? null })
+          .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, m.id)));
+      // Na linha da EMPRESA, uma chave por loja — NUNCA numa linha da loja: nas cores do KDS a linha da loja vence a da
+      // empresa INTEIRA (`ajusteKdsDe`), e uma linha criada só para a rota (verde 5, amarelo 10) passaria por cima das cores
+      // que a empresa ajustou. A linha da empresa com os padrões não muda nada (a tela de senhas a cria do mesmo jeito).
+      // Cada loja grava só a sua chave, mesclando no banco (V82); dois únicos — cria se não existe e grava pela chave (ERR-391).
+      await tx.execute(sql`
+        insert into kds_cor_config (id, tenant_id, unidade_id)
+        values (${idConfigDaLoja('kds_cor_config', tenantId, null)}, ${tenantId}, null)
+        on conflict do nothing`);
+      await tx.execute(sql`
+        update kds_cor_config
+           set rota = coalesce(case when jsonb_typeof(rota) = 'object' then rota end, '{}'::jsonb)
+                      || jsonb_build_object(${chaveDaRota(loja)}::text, ${JSON.stringify(conf.etapas)}::jsonb),
+               updated_at = now()
+         where tenant_id = ${tenantId} and unidade_id is null`);
+    });
+    await this.auditoria.registrar({
+      tenantId,
+      unidadeId: loja,
+      atorId: ator?.id ?? null,
+      atorPerfil: ator?.perfil ?? null,
+      tipo: 'config',
+      acao: 'configurou_rota_kds',
+      origem: 'kds',
+      entidadeTipo: 'kds',
+      detalhe: {
+        etapas: conf.etapas.map((e) => ({ nome: e.nome || null, kds: e.kds.map(nome) })),
+        mudou: mudou.map(({ kds: k, antes, depois }) => ({ kds: k, antes, depois })),
+      },
+    });
+    this.events?.emit('kds.telas.mudou', { tenantId });
+    return this.rotaDaCozinha(tenantId, unidadeAtual);
   }
 
   private async kdsDaEmpresa(tenantId: string, equipamentoId: string) {
