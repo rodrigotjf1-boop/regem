@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **"Conferir com os apps": criar a opção do complemento no Regem (R3, fase F4c; SEM migration; só tela).** Na NUVEM com
+  o merge. **No `.zip` 1.30.13:** a mesma gaveta na tela do servidor da loja (a criação de opção de sempre roda na loja).
+
 - **"Conferir com os apps": criar no Regem, ligar a um produto e corrigir o código (R3, fase F4b; mig 406 só nuvem; não
   mexe no `sync-daemon`).** Na NUVEM com o merge: as três gavetas e a rota `catalogo/conferencia/ligar`. **No `.zip`
   1.30.13:** as mesmas gavetas na tela do servidor da loja (o "ligar" pede à nuvem pela rota do token de sync; o "criar" é a

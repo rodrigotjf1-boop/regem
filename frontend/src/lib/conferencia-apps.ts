@@ -295,6 +295,54 @@ export function pedidoDeCriar(
   };
 }
 
+// ── F4c: criar a opção do complemento no Regem ───────────────────────────────────────────────────────────────
+
+export type BaixaDaOpcao = 'item' | 'ficha' | 'produto' | 'nada';
+export type FormCriarOpcao = { nome: string; baixa: BaixaDaOpcao; fichaId: string; itemId: string; itemUnidade: string; produtoRefId: string };
+
+/** O formulário do "Criar a opção no Regem" (o adicional comum é um item de estoque: bacon, cheddar). */
+export function formDeCriarOpcao(l: LinhaConferida): FormCriarOpcao {
+  return { nome: l.nome, baixa: 'item', fichaId: '', itemId: '', itemUnidade: '', produtoRefId: '' };
+}
+
+/**
+ * O pedido de criar a opção do catálogo (`POST /produtos/opcoes`) a partir do complemento do app — ou o motivo de não dar.
+ * A opção só cobra e baixa com o código PDV, "Controlar estoque" e a ligação (V49): o código vem do app e a ligação é a
+ * escolhida (ficha, item de estoque ou produto do Regem); "não baixa" desliga o "Controlar estoque". O preço do iFood vai no
+ * pedido; o da 99 e a pausa do app, depois (as rotas de preço e pausa por canal da opção).
+ */
+export function pedidoDeCriarOpcao(
+  f: FormCriarOpcao,
+  l: LinhaConferida,
+  canal: CanalConferido,
+  ligados: { comIfood: boolean },
+): { ok: true; corpo: Record<string, unknown>; preco99: string | null; pausar: boolean } | { ok: false; erro: string } {
+  const nome = f.nome.trim();
+  if (!nome) return { ok: false, erro: 'Dê um nome à opção.' };
+  if (!l.pdv) return { ok: false, erro: 'O complemento do app não tem código PDV.' };
+  if (f.baixa === 'item' && !f.itemId) return { ok: false, erro: 'Escolha o item de estoque (ou outra forma de baixar o estoque).' };
+  if (f.baixa === 'ficha' && !f.fichaId) return { ok: false, erro: 'Escolha a ficha técnica (ou outra forma de baixar o estoque).' };
+  if (f.baixa === 'produto' && !f.produtoRefId) return { ok: false, erro: 'Escolha o produto do Regem (ou outra forma de baixar o estoque).' };
+  const preco = l.precos.length === 1 ? l.precos[0].toFixed(2) : null;
+  const tipo = f.baixa === 'ficha' ? 'ficha' : f.baixa === 'item' ? 'insumo' : 'simples';
+  return {
+    ok: true,
+    corpo: {
+      nome,
+      codigoPdv: l.pdv,
+      tipo,
+      fichaId: f.baixa === 'ficha' ? f.fichaId : null,
+      itemId: f.baixa === 'item' ? f.itemId : null,
+      itemUnidade: f.baixa === 'item' ? f.itemUnidade || null : null,
+      produtoRefId: f.baixa === 'produto' ? f.produtoRefId : null,
+      controlaEstoque: f.baixa !== 'nada',
+      ...(canal === 'ifood' && ligados.comIfood && preco != null ? { precoIfood: preco } : {}),
+    },
+    preco99: canal === '99food' ? preco : null,
+    pausar: l.pausado === true,
+  };
+}
+
 /** "Lido do iFood hoje às 14:30" / "em 10/11 às 09:12" (hora de Brasília). */
 export function quandoLido(iso: string | null, agora: Date = new Date()): string {
   if (!iso) return 'ainda não lido';

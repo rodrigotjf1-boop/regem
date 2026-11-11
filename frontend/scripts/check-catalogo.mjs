@@ -462,6 +462,23 @@ try {
     assert.deepEqual([item.corpo.itemId, item.corpo.itemUnidade, item.corpo.fichaId], ['i1', 'fardo', null]);
     assert.deepEqual([cf.precoDigitado('R$ 29,90'), cf.precoDigitado('29.9'), cf.precoDigitado('abc'), cf.precoDigitado('1,234')], [29.9, 29.9, null, null]);
   });
+  caso('F4c: "Criar a opção no Regem" — código, ligação e "Controlar estoque" (V49); o preço do iFood no pedido, o da 99 e a pausa depois', () => {
+    const OP = L({ chave: 'pdv:A01', tipo: 'opcao', nome: 'Bacon extra', pdv: 'A01', precos: [6.5], regem: null, situacao: 'soApp', pausado: true });
+    const f = cf.formDeCriarOpcao(OP);
+    assert.deepEqual([f.nome, f.baixa], ['Bacon extra', 'item']);
+    assert.equal(cf.pedidoDeCriarOpcao(f, OP, 'ifood', { comIfood: true }).erro, 'Escolha o item de estoque (ou outra forma de baixar o estoque).');
+    const i = cf.pedidoDeCriarOpcao({ ...f, itemId: 'i1', itemUnidade: 'g' }, OP, 'ifood', { comIfood: true });
+    assert.deepEqual(i.corpo, { nome: 'Bacon extra', codigoPdv: 'A01', tipo: 'insumo', fichaId: null, itemId: 'i1', itemUnidade: 'g', produtoRefId: null, controlaEstoque: true, precoIfood: '6.50' });
+    assert.deepEqual([i.preco99, i.pausar], [null, true]);
+    const n99 = cf.pedidoDeCriarOpcao({ ...f, baixa: 'ficha', fichaId: 'f1' }, { ...OP, pausado: false }, '99food', { comIfood: true });
+    assert.deepEqual([n99.corpo.tipo, n99.corpo.fichaId, 'precoIfood' in n99.corpo, n99.preco99, n99.pausar], ['ficha', 'f1', false, '6.50', false]);
+    const nada = cf.pedidoDeCriarOpcao({ ...f, baixa: 'nada' }, { ...OP, precos: [6, 6.5] }, '99food', { comIfood: false });
+    assert.deepEqual([nada.corpo.tipo, nada.corpo.controlaEstoque, nada.preco99], ['simples', false, null]);
+    const prod = cf.pedidoDeCriarOpcao({ ...f, baixa: 'produto', produtoRefId: 'p7' }, OP, 'ifood', { comIfood: false });
+    assert.deepEqual([prod.corpo.tipo, prod.corpo.produtoRefId, 'precoIfood' in prod.corpo], ['simples', 'p7', false]);
+    assert.equal(cf.pedidoDeCriarOpcao({ ...f, baixa: 'produto' }, OP, 'ifood', { comIfood: true }).erro, 'Escolha o produto do Regem (ou outra forma de baixar o estoque).');
+    assert.equal(cf.pedidoDeCriarOpcao({ ...f, nome: ' ' }, OP, 'ifood', { comIfood: true }).erro, 'Dê um nome à opção.');
+  });
 
   console.log(`\ncheck:catalogo — ${n} grupos de casos, todos certos.`);
 } finally {

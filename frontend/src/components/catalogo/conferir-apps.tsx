@@ -17,6 +17,7 @@ import { ConferenciaUsarPrecos } from '@/components/catalogo/conferencia-usar-pr
 import { ConferenciaLigar } from '@/components/catalogo/conferencia-ligar';
 import { ConferenciaCorrigirCodigo } from '@/components/catalogo/conferencia-corrigir-codigo';
 import { ConferenciaCriar } from '@/components/catalogo/conferencia-criar';
+import { ConferenciaCriarOpcao } from '@/components/catalogo/conferencia-criar-opcao';
 import type { CategoriaDaGestao } from '@/lib/catalogo-gestao';
 import {
   APP, bateNaBusca, entraNoUsarEmMassa, pendente, precoNoApp, quandoLido, reais, seloDa, situacoesDa,
@@ -34,7 +35,7 @@ const contar = (n: number, um: string, varios: string) => `${n} ${n === 1 ? um :
 // aprovado em 11/11/2026): o cardápio do iFood (lido pelo Orzuni) ou da 99 desta loja × o Regem, pelo código PDV. Lê ao
 // abrir (no máximo uma leitura automática por dia) e pelo "Ler agora". Na linha: usar o preço do app, mandar o do Regem,
 // tirar o "Está no", ignorar e desfazer, "Como corrigir"; e (F4b) criar no Regem, ligar a um produto e corrigir o código.
-// A calculadora chega na F5; criar a opção, na F4c.
+// "Criar a opção no Regem" do complemento (F4c). A calculadora chega na F5.
 export function ConferirApps({
   podeMudarPreco,
   aoMudarRegem,
@@ -66,6 +67,7 @@ export function ConferirApps({
   const [corrigir, setCorrigir] = useState<LinhaConferida | null>(null);
   const [emMassa, setEmMassa] = useState(false);
   const [criar, setCriar] = useState<LinhaConferida | null>(null);
+  const [criarOpcao, setCriarOpcao] = useState<LinhaConferida | null>(null);
   const [ligarA, setLigarA] = useState<LinhaConferida | null>(null);
   const [corrigirCodigo, setCorrigirCodigo] = useState<LinhaConferida | null>(null);
   const pedido = useRef(0);
@@ -311,13 +313,15 @@ export function ConferirApps({
     const ignorarA: Acao<LinhaConferida> = { rotulo: 'Ignorar', icone: EyeOff, aoClicar: () => void ignorar(l), ocupada };
     switch (l.situacao) {
       case 'soApp':
-        // Item: criar no Regem ou ligar a um produto que já existe (F4b). Opção: "Como resolver" (criar a opção é a F4c).
+        // Item: criar no Regem ou ligar a um produto que já existe (F4b). Opção: criar a opção no Regem (F4c).
         if (l.tipo === 'item' && l.pdv)
           return [
             { rotulo: 'Criar no Regem', icone: Plus, tom: 'primaria', aoClicar: () => setCriar(l), ocupada },
             ...(podeMudarPreco ? [{ rotulo: 'Ligar a um produto', icone: Link2, aoClicar: () => setLigarA(l), ocupada }] : []),
             ignorarA,
           ];
+        if (l.tipo === 'opcao' && l.pdv)
+          return [{ rotulo: 'Criar a opção no Regem', icone: Plus, tom: 'primaria', aoClicar: () => setCriarOpcao(l), ocupada }, ignorarA];
         return [{ rotulo: 'Como resolver', icone: HelpCircle, tom: 'primaria', aoClicar: () => setCorrigir(l), ocupada }, ignorarA];
       case 'soRegem':
         return [
@@ -547,6 +551,19 @@ export function ConferirApps({
           aoCriar={() => {
             setCriar(null);
             aoMudarRegem();
+            void carregar(canal, false);
+          }}
+        />
+      )}
+      {criarOpcao && (
+        <ConferenciaCriarOpcao
+          linha={criarOpcao}
+          canal={canal}
+          produtos={produtos}
+          comIfood={comIfood}
+          aoFechar={() => setCriarOpcao(null)}
+          aoCriar={() => {
+            setCriarOpcao(null);
             void carregar(canal, false);
           }}
         />
