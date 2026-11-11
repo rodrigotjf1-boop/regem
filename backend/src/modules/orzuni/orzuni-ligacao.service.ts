@@ -96,7 +96,7 @@ export class OrzuniLigacaoService {
                u.nome as loja, coalesce(p.nome, o.nome) as alvo, coalesce(p.codigo, o.codigo_pdv) as codigo
           from orzuni_envio e
           left join unidade u on u.id = e.unidade_id
-          left join produto p on p.id = e.ref_id and e.tipo in ('preco_item', 'status_item')
+          left join produto p on p.id = e.ref_id and e.tipo in ('preco_item', 'status_item', 'cadastro_item', 'codigo_item')
           left join opcao o on o.id = e.ref_id and e.tipo in ('preco_opcao', 'status_opcao')
          where e.tenant_id = ${emp.id}
          order by e.marcado_em desc

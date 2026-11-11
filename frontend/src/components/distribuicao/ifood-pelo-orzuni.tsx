@@ -41,6 +41,8 @@ const TIPO: Record<string, string> = {
   status_item: 'Pausa do item',
   preco_opcao: 'Preço do complemento',
   status_opcao: 'Pausa do complemento',
+  cadastro_item: 'Nome e descrição do item',
+  codigo_item: 'Código do item',
 };
 const RESULTADO: Record<string, { rotulo: string; cor: string }> = {
   aplicado: { rotulo: 'aplicado', cor: 'bg-emerald-500/15 text-emerald-300' },

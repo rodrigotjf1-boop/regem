@@ -182,7 +182,7 @@ export class PublicarIntegracoesService {
       this.db.execute(sql`
         select coalesce(p.nome, o.nome) as nome, e.situacao, e.resultado, e.tipo
           from orzuni_envio e
-          left join produto p on e.tipo in ('preco_item', 'status_item') and p.id = e.ref_id
+          left join produto p on e.tipo in ('preco_item', 'status_item', 'cadastro_item', 'codigo_item') and p.id = e.ref_id
           left join opcao o on e.tipo in ('preco_opcao', 'status_opcao') and o.id = e.ref_id
          where e.tenant_id = ${tenantId}::uuid and e.unidade_id in ${lojas} and ${problema}
          order by coalesce(e.enviado_em, e.marcado_em) desc

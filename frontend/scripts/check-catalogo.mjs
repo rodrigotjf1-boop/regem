@@ -144,9 +144,22 @@ try {
     assert.deepEqual(r.precos, [{ canal: 'regem', valor: '42.90' }, { canal: 'ifood', valor: '49.90' }]);
     assert.equal(r.regem.length, 3);
     assert.match(r.regem[2], /preço de venda R\$\s39,90 → R\$\s42,90/);
-    assert.deepEqual(r.ifoodVai.length, 1);
+    assert.deepEqual(r.ifoodVai.length, 2);
     assert.match(r.ifoodVai[0], /^preço R\$\s45,00 → R\$\s49,90$/);
-    assert.deepEqual(r.ifoodAtencao, ['o nome e a descrição no iFood mudam no Gestor de Pedidos']);
+    // R3 F1b (Orzuni 1.2.0): o nome vai ao iFood; nada fica para o Gestor
+    assert.equal(r.ifoodVai[1], 'nome');
+    assert.deepEqual(r.ifoodAtencao, []);
+  });
+
+  caso('nome e descrição ao iFood: só o que mudou; acima do limite do iFood avisa; entrar no iFood não sobrescreve', () => {
+    assert.deepEqual(plano({ descricao: 'Nova' }).ifoodVai, ['descrição']);
+    assert.deepEqual(plano({ descricao: 'Nova', nome: 'Outro' }).ifoodVai, ['nome e descrição']);
+    const longo = plano({ nome: 'X'.repeat(101) });
+    assert.match(longo.ifoodAtencao[0], /até 100 caracteres: o nome não vai/);
+    const entra = plano({ noIfood: true, nome: 'Novo' }, CTX, { ...P, noIfood: false });
+    assert.deepEqual(entra.ifoodVai, ['entra no cardápio do iFood: vão o preço e a situação']);
+    assert.deepEqual(entra.ifoodAtencao, ['ao entrar no iFood, o nome e a descrição de lá ficam como estão']);
+    assert.deepEqual(plano({ imagemRef: 'https://x/b.jpg' }).ifoodAtencao, ['a foto no iFood muda no Gestor de Pedidos']);
   });
 
   caso('erros ANTES de gravar: código de outro produto, nome e categoria vazios, preço inválido', () => {
@@ -159,10 +172,12 @@ try {
     assert.equal('codigo' in r.patch, false);
   });
 
-  caso('código novo: vai ao Regem; no iFood avisa que o item segue com o código antigo', () => {
-    const r = plano({ codigo: '3000' });
+  caso('código novo: vai ao Regem e troca no iFood (antes do resto)', () => {
+    const r = plano({ codigo: '3000', precoIfood: '60' });
     assert.deepEqual(r.patch, { codigo: '3000' });
-    assert.match(r.ifoodAtencao[0], /segue com o código 2051/);
+    assert.equal(r.ifoodVai[0], 'troca o código 2051 → 3000');
+    assert.match(r.ifoodVai[1], /^preço/);
+    assert.deepEqual(r.ifoodAtencao, []);
     // apagar o código: null; sem código, nada vai ao iFood
     const s = plano({ codigo: '' });
     assert.deepEqual(s.patch, { codigo: null });

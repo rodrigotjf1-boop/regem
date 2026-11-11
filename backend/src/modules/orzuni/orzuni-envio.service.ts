@@ -12,8 +12,12 @@ import {
   ConfigOrzuni,
   DESISTIR_DEPOIS_HORAS,
   Desfecho,
+  LIMITE_DESCRICAO_IFOOD,
+  LIMITE_NOME_IFOOD,
+  PERMISSOES_DO_CATALOGO,
   PERMISSOES_ORZUNI,
   RESERVA_MINUTOS,
+  TIPOS_DO_CADASTRO,
   chaveDoEnvio,
   desfechoDaRecusa,
   desfechoDoResultado,
@@ -28,10 +32,12 @@ type Envio = {
   id: string;
   tenant_id: string;
   unidade_id: string;
-  tipo: 'preco_item' | 'status_item' | 'preco_opcao' | 'status_opcao';
+  tipo: 'preco_item' | 'status_item' | 'preco_opcao' | 'status_opcao' | 'cadastro_item' | 'codigo_item';
   ref_id: string;
   versao: number;
   tentativas: number;
+  /** cadastro_item: os campos que mudaram ({nome, descricao}); codigo_item: o código que o iFood tem ({de}) — mig 400. */
+  dados: Record<string, unknown> | null;
 };
 
 /** O que mandar à porta (ou por que não mandar). */
@@ -166,15 +172,26 @@ export class OrzuniEnvioService implements OnModuleInit, OnModuleDestroy {
              reservado_ate = now() + make_interval(mins => ${RESERVA_MINUTOS}),
              tentativas = e.tentativas + 1
        where e.id in (
-         select id from orzuni_envio
-          where situacao in ('pendente', 'enviando')
-            and (situacao = 'pendente' or reservado_ate < now())
-            and proxima_em <= now() ${escopo}
-          order by proxima_em, id
+         select f.id from orzuni_envio f
+          where f.situacao in ('pendente', 'enviando')
+            and (f.situacao = 'pendente' or f.reservado_ate < now())
+            and f.proxima_em <= now() ${escopo}
+            -- A troca de código do item vai ANTES do resto do mesmo produto na mesma loja (o preço, a situação e o nome
+            -- vão pelo código novo): enquanto ela não sai, eles esperam na fila (a condição no where — V84).
+            and (f.tipo = 'codigo_item' or not exists (
+                  select 1 from orzuni_envio c
+                   where c.unidade_id = f.unidade_id and c.tipo = 'codigo_item' and c.ref_id = f.ref_id
+                     and c.situacao in ('pendente', 'enviando')))
+          order by f.proxima_em, f.id
           limit ${limite}
-          for update skip locked)
-      returning e.id, e.tenant_id, e.unidade_id, e.tipo, e.ref_id, e.versao, e.tentativas`);
-    return ((r.rows ?? r) as any[]).map((x) => ({ ...x, versao: Number(x.versao), tentativas: Number(x.tentativas) }));
+          for update of f skip locked)
+      returning e.id, e.tenant_id, e.unidade_id, e.tipo, e.ref_id, e.versao, e.tentativas, e.dados`);
+    return ((r.rows ?? r) as any[]).map((x) => ({
+      ...x,
+      versao: Number(x.versao),
+      tentativas: Number(x.tentativas),
+      dados: x.dados && typeof x.dados === 'object' ? x.dados : null,
+    }));
   }
 
   /** Termina o envio. Se a mudança andou enquanto ele saía (versão nova), volta à fila para mandar o valor novo. */
@@ -238,6 +255,11 @@ export class OrzuniEnvioService implements OnModuleInit, OnModuleDestroy {
     if (!ctx.lojaViva) return this.dispensar(envio, 'loja excluída ou de outra empresa');
     if (!ctx.liberado) return this.dispensar(envio, 'o iFood pelo Orzuni está desligado nesta empresa');
     if (!ctx.ligacao) return this.dispensar(envio, 'a loja não tem ligação viva com o Orzuni');
+    const doCadastro = TIPOS_DO_CADASTRO.includes(envio.tipo);
+    // O nome, a descrição e o código pedem `catalogo.escrever` na chave da loja no Orzuni (a ligação guarda o que ela
+    // deu na troca). Sem ela, nem chama: a porta recusaria todo envio desse tipo.
+    if (doCadastro && !ctx.ligacao.permissoes.includes('catalogo.escrever'))
+      return this.dispensar(envio, 'a ligação da loja com o Orzuni não tem a permissão de editar o cardápio do iFood (catalogo.escrever): a distribuição registra a chave de novo com ela');
     const espera = noLimite.get(ctx.ligacao.id);
     if (espera !== undefined) return this.adiar(envio, espera, 'limite de chamadas da ligação');
 
@@ -255,7 +277,7 @@ export class OrzuniEnvioService implements OnModuleInit, OnModuleDestroy {
     const mcp = new ClienteMcp({
       endereco: cfg.endereco,
       recurso: cfg.recurso,
-      permissoes: PERMISSOES_ORZUNI,
+      permissoes: doCadastro ? PERMISSOES_DO_CATALOGO : PERMISSOES_ORZUNI,
       dmsId: this.clienteDmsId(cfg),
       ligacao: segredo,
       cliente: { nome: 'regem', versao: versaoNoAr() },
@@ -340,7 +362,7 @@ export class OrzuniEnvioService implements OnModuleInit, OnModuleDestroy {
                        and u.deleted_at is null) as loja_viva,
              exists (select 1 from entitlement e where e.tenant_id = ${envio.tenant_id}
                        and e.modulo = 'ifood_pelo_orzuni' and e.ativo) as liberado,
-             (select json_build_object('id', l.id, 'segredo', l.segredo_cifrado)
+             (select json_build_object('id', l.id, 'segredo', l.segredo_cifrado, 'permissoes', l.permissoes)
                 from orzuni_ligacao l
                where l.unidade_id = ${envio.unidade_id} and l.tenant_id = ${envio.tenant_id} and l.revogada_em is null
                limit 1) as ligacao`);
@@ -350,12 +372,15 @@ export class OrzuniEnvioService implements OnModuleInit, OnModuleDestroy {
       empresaViva: x.empresa_viva === true,
       lojaViva: x.loja_viva === true,
       liberado: x.liberado === true,
-      ligacao: lig?.id ? { id: String(lig.id), segredo: String(lig.segredo) } : null,
+      ligacao: lig?.id
+        ? { id: String(lig.id), segredo: String(lig.segredo), permissoes: Array.isArray(lig.permissoes) ? lig.permissoes.map(String) : [] }
+        : null,
     };
   }
 
   /** O que mandar, lido NA HORA (o valor mais novo). Fora das condições: dispensa, com o motivo. */
   private async montarChamada(envio: Envio): Promise<Chamada> {
+    if (envio.tipo === 'cadastro_item' || envio.tipo === 'codigo_item') return this.chamadaDoCadastro(envio);
     if (envio.tipo === 'preco_item' || envio.tipo === 'status_item') {
       const r: any = await this.db.execute(sql`
         select p.codigo, p.preco_ifood::text as preco, p.no_ifood, p.deleted_at, p.unidade_id,
@@ -401,6 +426,46 @@ export class OrzuniEnvioService implements OnModuleInit, OnModuleDestroy {
     return { ferramenta: op.esgotado ? 'complemento_pausar' : 'complemento_reativar', argumentos: { codigo_pdv: codigo } };
   }
 
+  /**
+   * O nome/descrição (`item_editar`) e a troca do código (`item_codigo_pdv_definir`) — R3 F1b, mig 400. Lidos NA HORA; só
+   * produto que está no cardápio do iFood. No nome e na descrição vão SÓ os campos que mudaram (`dados`): a descrição que o
+   * Regem nunca teve não apaga a de lá. Acima do limite do iFood não vai (o motivo fica para a tela).
+   */
+  private async chamadaDoCadastro(envio: Envio): Promise<Chamada> {
+    const r: any = await this.db.execute(sql`
+      select p.codigo, p.nome, p.descricao, p.no_ifood, p.deleted_at, p.unidade_id
+        from produto p where p.id = ${envio.ref_id} and p.tenant_id = ${envio.tenant_id}`);
+    const p = (r.rows ?? r)[0];
+    if (!p || p.deleted_at) return { dispensar: 'produto excluído' };
+    if (p.unidade_id && String(p.unidade_id) !== envio.unidade_id) return { dispensar: 'produto de outra loja' };
+    const codigo = String(p.codigo ?? '').trim();
+    if (!codigo) return { dispensar: 'produto sem código PDV' };
+    if (!p.no_ifood) return { dispensar: 'produto marcado fora do cardápio do iFood' };
+    const dados = envio.dados ?? {};
+    if (envio.tipo === 'codigo_item') {
+      const de = String(dados.de ?? '').trim();
+      if (!de) return { dispensar: 'sem o código que o iFood tem' };
+      if (de === codigo) return { dispensar: 'o código voltou ao que o iFood já tem' };
+      return { ferramenta: 'item_codigo_pdv_definir', argumentos: { codigo_pdv: de, codigo_pdv_novo: codigo } };
+    }
+    const argumentos: Record<string, unknown> = { codigo_pdv: codigo };
+    // Sem a lista dos campos (linha antiga): só o nome — nunca apagar a descrição de lá por engano.
+    const vaiNome = dados.nome === true || !Object.keys(dados).length;
+    if (vaiNome) {
+      const nome = String(p.nome ?? '').trim();
+      if (!nome) return { dispensar: 'produto sem nome' };
+      if (nome.length > LIMITE_NOME_IFOOD) return { dispensar: `o nome tem ${nome.length} caracteres e o iFood aceita até ${LIMITE_NOME_IFOOD}: encurte o nome` };
+      argumentos.nome = nome;
+    }
+    if (dados.descricao === true) {
+      const descricao = String(p.descricao ?? '').trim();
+      if (descricao.length > LIMITE_DESCRICAO_IFOOD)
+        return { dispensar: `a descrição tem ${descricao.length} caracteres e o iFood aceita até ${LIMITE_DESCRICAO_IFOOD}: encurte a descrição` };
+      argumentos.descricao = descricao;
+    }
+    return { ferramenta: 'item_editar', argumentos };
+  }
+
   private async anotarUso(ligacaoId: string) {
     await this.db.execute(sql`update orzuni_ligacao set ultimo_uso_em = now() where id = ${ligacaoId}`);
   }
@@ -421,6 +486,9 @@ export class OrzuniEnvioService implements OnModuleInit, OnModuleDestroy {
         ferramenta: chamada.ferramenta,
         codigoPdv: chamada.argumentos.codigo_pdv,
         valor: chamada.argumentos.valor ?? null,
+        ...(chamada.argumentos.codigo_pdv_novo !== undefined ? { codigoNovo: chamada.argumentos.codigo_pdv_novo } : {}),
+        ...(chamada.argumentos.nome !== undefined ? { nome: chamada.argumentos.nome } : {}),
+        ...(chamada.argumentos.descricao !== undefined ? { descricao: true } : {}),
         resultado: d.resultado,
         antes: d.resposta.antes ?? null,
         depois: d.resposta.depois ?? null,

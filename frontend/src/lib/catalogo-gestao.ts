@@ -128,6 +128,10 @@ export type PlanoDaEdicao = {
   pausas: { canal: 'regem' | 'ifood'; pausado: boolean }[];
 };
 
+/** Os limites do iFood (o Orzuni recusa acima; o servidor não manda). */
+export const LIMITE_NOME_IFOOD = 100;
+export const LIMITE_DESCRICAO_IFOOD = 500;
+
 const reais = (v: string | number | null | undefined) =>
   v === null || v === undefined || v === '' ? 'sem preço' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const doisDecimais = (v: unknown) => (temValor(v) && Number.isFinite(Number(v)) ? Number(v).toFixed(2) : null);
@@ -218,12 +222,20 @@ export function analisarEdicao(
     }
     if (e.noIfood) {
       if (!liga) ifoodAtencao.push('sem código PDV: nada vai ao iFood (é pelo código que o item se liga)');
-      else {
-        if ('nome' in patch || 'descricao' in patch) ifoodAtencao.push('o nome e a descrição no iFood mudam no Gestor de Pedidos');
-        if ('codigo' in patch && codAntes)
-          ifoodAtencao.push(`no iFood o item segue com o código ${codAntes}: troque lá no Gestor de Pedidos para o preço e a pausa chegarem`);
-        if ('imagemRef' in patch) ifoodAtencao.push('a foto no iFood muda no Gestor de Pedidos');
+      else if (p.noIfood === true) {
+        // R3 F1b (Orzuni 1.2.0): o código, o nome e a descrição vão ao iFood — a troca do código sai antes do resto.
+        if ('codigo' in patch && codAntes) ifoodVai.unshift(`troca o código ${codAntes} → ${cod}`);
+        const vaiNome = 'nome' in patch;
+        const vaiDesc = 'descricao' in patch;
+        if (vaiNome || vaiDesc) ifoodVai.push(vaiNome && vaiDesc ? 'nome e descrição' : vaiNome ? 'nome' : 'descrição');
+        if (vaiNome && nome.length > LIMITE_NOME_IFOOD) ifoodAtencao.push(`o iFood aceita nome até ${LIMITE_NOME_IFOOD} caracteres: o nome não vai`);
+        if (vaiDesc && desc.length > LIMITE_DESCRICAO_IFOOD)
+          ifoodAtencao.push(`o iFood aceita descrição até ${LIMITE_DESCRICAO_IFOOD} caracteres: a descrição não vai`);
+      } else if ('nome' in patch || 'descricao' in patch) {
+        // Entrar no iFood não sobrescreve o cadastro de lá (o item já existe no Gestor de Pedidos com o nome dele).
+        ifoodAtencao.push('ao entrar no iFood, o nome e a descrição de lá ficam como estão');
       }
+      if (liga && 'imagemRef' in patch) ifoodAtencao.push('a foto no iFood muda no Gestor de Pedidos');
     }
   }
 

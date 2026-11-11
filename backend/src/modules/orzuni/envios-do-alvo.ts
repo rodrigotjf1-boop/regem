@@ -13,8 +13,8 @@ export type AlvoIfood = 'produto' | 'opcao';
 export type EnvioDoAlvo = {
   unidadeId: string;
   loja: string | null;
-  /** preco | pausa */
-  oQue: 'preco' | 'pausa';
+  /** preco | pausa | cadastro (nome e descrição) | codigo (a troca do código PDV) — os dois últimos desde a mig 400 */
+  oQue: 'preco' | 'pausa' | 'cadastro' | 'codigo';
   /** na_fila | enviando | aplicado | sem_mudanca | nao_encontrado | parcial | recusado | nao_enviado | desistiu */
   situacao: string;
   /** A frase para a tela (o motivo do "não enviado", a recusa do Orzuni, o "tentando de novo"). */
@@ -25,7 +25,7 @@ export type EnvioDoAlvo = {
 };
 
 const TIPOS: Record<AlvoIfood, readonly string[]> = {
-  produto: ['preco_item', 'status_item'],
+  produto: ['preco_item', 'status_item', 'cadastro_item', 'codigo_item'],
   opcao: ['preco_opcao', 'status_opcao'],
 };
 
@@ -59,11 +59,15 @@ export function envioParaTela(r: any): EnvioDoAlvo {
   } else {
     situacao = String(r.resultado ?? 'aplicado');
     if (typeof resp.frase === 'string' && resp.frase.trim()) frase = resp.frase.trim().slice(0, 300);
+    // O código novo já é de um item do iFood: pelo código é que o Regem liga, então o produto passa a ligar a ele.
+    if (resp.codigo === 'codigo_ja_existe')
+      frase = 'O iFood já tem um item com o código novo: a partir de agora o preço e a pausa deste produto vão para ele. Se não for o mesmo produto, troque o código.';
   }
+  const tipo = String(r.tipo);
   return {
     unidadeId: String(r.unidade_id),
     loja: r.loja ?? null,
-    oQue: String(r.tipo).startsWith('preco') ? 'preco' : 'pausa',
+    oQue: tipo.startsWith('preco') ? 'preco' : tipo === 'cadastro_item' ? 'cadastro' : tipo === 'codigo_item' ? 'codigo' : 'pausa',
     situacao,
     frase,
     antes: numero(resp.antes),
