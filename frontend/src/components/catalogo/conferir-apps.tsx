@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, EyeOff, Hash, HelpCircle, Link2, MinusCircle, Plus, RefreshCw, Send, Undo2 } from 'lucide-react';
+import { Calculator, Check, EyeOff, Hash, HelpCircle, Link2, MinusCircle, Plus, RefreshCw, Send, Undo2 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
@@ -44,6 +44,9 @@ export function ConferirApps({
   comIfood,
   com99,
   aoNovaCategoria,
+  aoCalcular,
+  aoAbrirTaxas,
+  versao = 0,
 }: {
   podeMudarPreco: boolean;
   aoMudarRegem: () => void;
@@ -52,6 +55,11 @@ export function ConferirApps({
   comIfood: boolean;
   com99: boolean;
   aoNovaCategoria: (c: CategoriaDaGestao) => void;
+  /** A calculadora de preço (R3 F5) — a página abre a gaveta. */
+  aoCalcular?: (produtoId: string, canal: CanalConferido) => void;
+  aoAbrirTaxas?: () => void;
+  /** Sobe quando um preço muda fora daqui (a calculadora): a conferência relê o Regem (sem ler o app). */
+  versao?: number;
 }) {
   const [canal, setCanal] = useState<CanalConferido>('ifood');
   const [escolheuCanal, setEscolheuCanal] = useState(false);
@@ -114,6 +122,11 @@ export function ConferirApps({
     // Só ao abrir; a troca de app chama `carregar` direto.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => {
+    if (versao > 0) void carregar(canal, false);
+    // Só quando um preço mudou fora daqui.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [versao]);
 
   const a = APP[canal];
   const trocarCanal = (c: CanalConferido) => {
@@ -308,9 +321,14 @@ export function ConferirApps({
   };
   const enviadoAgora = (l: LinhaConferida) => !!l.regem && enviados.has(`${canal}|${l.tipo}|${l.regem.id}`);
 
+  // "Calcular o preço" (R3 F5): o item que liga a um produto do Regem com custo (ficha, estoque ou manual).
+  const temCusto = (l: LinhaConferida) =>
+    l.tipo === 'item' && !!l.regem && (produtos as (ProdutoParaLigar & { custoEfetivo?: unknown })[]).some((p) => p.id === l.regem!.id && p.custoEfetivo != null);
   const acoes = (l: LinhaConferida): Acao<LinhaConferida>[] => {
     const ocupada = () => [...ocupado].some((k) => k.startsWith(`${l.chave}|`));
     const ignorarA: Acao<LinhaConferida> = { rotulo: 'Ignorar', icone: EyeOff, aoClicar: () => void ignorar(l), ocupada };
+    const calcularA: Acao<LinhaConferida>[] =
+      aoCalcular && podeMudarPreco && temCusto(l) ? [{ rotulo: 'Calcular o preço', icone: Calculator, aoClicar: () => aoCalcular(l.regem!.id, canal), ocupada }] : [];
     switch (l.situacao) {
       case 'soApp':
         // Item: criar no Regem ou ligar a um produto que já existe (F4b). Opção: criar a opção no Regem (F4c).
@@ -343,14 +361,14 @@ export function ConferirApps({
           });
         if (podeMudarPreco && l.regem?.preco != null)
           lista.push({ rotulo: `Mandar ${reais(l.regem.preco)} ${a.ao}`, icone: Send, tom: lista.length ? undefined : 'primaria', aoClicar: () => void mandarAoApp(l), ocupada });
-        return [...lista, ignorarA];
+        return [...lista, ...calcularA, ignorarA];
       }
       case 'naoLiga':
         return [{ rotulo: 'Como corrigir', icone: HelpCircle, tom: 'primaria', aoClicar: () => setCorrigir(l), ocupada }, ignorarA];
       case 'ignorada':
         return [{ rotulo: 'Desfazer', icone: Undo2, aoClicar: () => void desfazer(l), ocupada }];
       default:
-        return [];
+        return calcularA;
     }
   };
 
@@ -391,6 +409,11 @@ export function ConferirApps({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {aoAbrirTaxas && podeMudarPreco && (
+            <Button type="button" variant="outline" onClick={aoAbrirTaxas}>
+              ％ Taxas e margem
+            </Button>
+          )}
           {vista === 'item' && podeMudarPreco && paraUsar.length > 0 && (
             <Button type="button" variant="outline" onClick={() => setEmMassa(true)}>
               Usar os preços {a.do} ({paraUsar.length})

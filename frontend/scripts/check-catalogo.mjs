@@ -26,6 +26,21 @@ writeFileSync(
   }).outputText,
 );
 const cf = await import(pathToFileURL(join(tmp, 'conferencia-apps.mjs')).href);
+// A calculadora de preço (R3 F5): o arquivo da tela e, para comparar, a função `calcular` do PROTÓTIPO aprovado.
+writeFileSync(
+  join(tmp, 'calculadora-preco.mjs'),
+  ts.transpileModule(readFileSync(join(raiz, 'calculadora-preco.ts'), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
+  }).outputText,
+);
+const calc = await import(pathToFileURL(join(tmp, 'calculadora-preco.mjs')).href);
+const prototipo = (() => {
+  const html = readFileSync(join(raiz, '..', '..', '..', 'mockups', 'regem-conciliacao-ifood.html'), 'utf8');
+  const ini = html.indexOf('  const FAIXAS_SIMPLES = [');
+  const fim = html.indexOf('  // ── o estado da tela');
+  if (ini < 0 || fim < 0) throw new Error('não achei a calculadora no protótipo');
+  return new Function(`${html.slice(ini, fim)}; return { simples, calcular };`)();
+})();
 
 let n = 0;
 const caso = (nome, fn) => {
@@ -478,6 +493,83 @@ try {
     assert.deepEqual([prod.corpo.tipo, prod.corpo.produtoRefId, 'precoIfood' in prod.corpo], ['simples', 'p7', false]);
     assert.equal(cf.pedidoDeCriarOpcao({ ...f, baixa: 'produto' }, OP, 'ifood', { comIfood: true }).erro, 'Escolha o produto do Regem (ou outra forma de baixar o estoque).');
     assert.equal(cf.pedidoDeCriarOpcao({ ...f, nome: ' ' }, OP, 'ifood', { comIfood: true }).erro, 'Dê um nome à opção.');
+  });
+
+  // ── F5: a calculadora de preço ────────────────────────────────────────────────────────────────────────────
+  const TAXAS = {
+    ifood: { plano: 'loja', baseComissao: 'loja', parteNaEntrega: null, loja: { com: 12, pag: 3.2, taxaFixa: 0 }, app: { com: 23, pag: 3.2, taxaFixa: 0 } },
+    '99food': { plano: 'app', baseComissao: 'cliente', parteNaEntrega: null, loja: { com: 10.9, pag: 3.2, taxaFixa: 0 }, app: { com: 8.9, pag: 3.2, taxaFixa: 0 } },
+    geral: { impostoModo: 'simples', imposto: 6, rbt12: 540000, margem: 20, antecipa: false, antec: 2.5, entregaLoja: 0.8, arred: true, maquininha: 2.9, itensPedido: 2 },
+  };
+  const VENDAS = { rbt12: null, rbt12Motivo: null, itensPorPedido: null, pedidos: 0, parteNaEntrega: { ifood: { pct: 30, pedidos: 10 }, '99food': { pct: 30, pedidos: 10 } }, dias: 90 };
+  caso('F5: Simples Nacional, Anexo I — a faixa e a alíquota efetiva; acima de R$ 4,8 mi, fora (a mesma do protótipo)', () => {
+    const s = calc.simples(540000);
+    assert.deepEqual([s.faixa, s.nominal, Math.round(s.efetiva * 1000) / 1000], [3, 9.5, 6.933]);
+    assert.equal(calc.simples(180000).efetiva, 4);
+    assert.equal(calc.simples(5_000_000), null);
+    assert.equal(calc.simples(0), null);
+    for (const v of [50_000, 300_000, 1_000_000, 4_000_000]) assert.equal(calc.simples(v).efetiva, prototipo.simples(v).efetiva);
+  });
+  caso('F5: o exemplo à mão — X-Bacon (custo 6,90 + embalagem 1,50) no iFood, a loja entrega: R$ 15,90 recomendado, R$ 11,80 mínimo', () => {
+    const r = calc.calcular({ custo: 6.9, emb: 1.5 }, 'ifood', 'loja', TAXAS, VENDAS, calc.PROMO_PADRAO);
+    // pagamento: 70% online (3,2%) + 30% maquininha (2,9%) = 3,11%; imposto do Simples 6,93%; fixo = 6,90 + 1,50 + 0,80
+    assert.equal(Math.round(r.partes.pagamento * 100) / 100, 3.11);
+    assert.equal(Math.round(r.fixo * 100) / 100, 9.2);
+    assert.deepEqual([r.recomendado, r.minimo], [15.9, 11.8]);
+    const hoje = r.com(39.9);
+    assert.ok(Math.abs(hoje.lucro - (39.9 - hoje.taxasR - 9.2)) < 1e-9);
+  });
+  caso('F5: a conta é a MESMA do protótipo aprovado — uma grade de cenários (apps, jeitos, promoções, bases, imposto, antecipação)', () => {
+    const promos = [
+      { ligada: false },
+      { ligada: true, tipo: 'pct', desconto: 30, quemBanca: 'parte', lojaBanca: 100 },
+      { ligada: true, tipo: 'pct', desconto: 20, quemBanca: 'parte', lojaBanca: 50 },
+      { ligada: true, tipo: 'rsItem', descontoRs: 5, quemBanca: 'appFixo', appFixo: 3 },
+      { ligada: true, tipo: 'rsPedido', descontoRs: 10, quemBanca: 'appFixo', appFixo: 7 },
+    ].map((p) => ({ ...calc.PROMO_PADRAO, ...p }));
+    let casos = 0;
+    for (const canal of ['ifood', '99food'])
+      for (const k of ['loja', 'app'])
+        for (const promo of promos)
+          for (const base of ['cliente', 'loja', 'cheio'])
+            for (const [modo, antecipa, taxaFixa, semEntrega] of [['simples', false, 0, false], ['media', true, 4.5, false], ['simples', true, 2, true]]) {
+              const t = JSON.parse(JSON.stringify(TAXAS));
+              t[canal].baseComissao = base;
+              t[canal].app.taxaFixa = taxaFixa;
+              t.geral.impostoModo = modo;
+              t.geral.antecipa = antecipa;
+              const b = { custo: 12.4, emb: 2.1, semEntrega };
+              const meu = calc.calcular(b, canal, k, t, VENDAS, promo);
+              // O protótipo: o mesmo cenário no formato dele (`cen` e `g`).
+              const g = { ...t.geral, parteNaEntrega: 30, promo: promo.ligada, promoTipo: promo.tipo, desconto: promo.desconto, descontoRs: promo.descontoRs, quemBanca: promo.quemBanca, lojaBanca: promo.lojaBanca, appFixo: promo.appFixo };
+              const cen = { ...t[canal][k], k, baseComissao: base, entrega: semEntrega ? 0 : k === 'loja' ? g.entregaLoja : 0, taxaFixa: semEntrega ? 0 : t[canal][k].taxaFixa };
+              const dele = prototipo.calcular(b, cen, g);
+              assert.deepEqual([meu.recomendado, meu.minimo], [dele.recomendado, dele.minimo], `${canal} ${k} ${promo.tipo}/${promo.ligada} ${base} ${modo}`);
+              for (const p of [19.9, 34.9]) {
+                const a = meu.com(p);
+                const d = dele.com(p);
+                for (const c of ['clientePaga', 'vende', 'comissao', 'pagamento', 'imposto', 'lucro']) assert.ok(Math.abs(a[c] - d[c]) < 1e-9, `${c} em ${p}`);
+                assert.ok(Math.abs(meu.descontoMax(p).rs - dele.descontoMax(p).rs) < 1e-9);
+              }
+              casos++;
+            }
+    assert.equal(casos, 180);
+  });
+  caso('F5: os números digitados × os das vendas; sem vendas, os exemplos; e o que não dá para pagar', () => {
+    const t = JSON.parse(JSON.stringify(TAXAS));
+    t.geral.rbt12 = null;
+    t.geral.itensPedido = null;
+    const v = { ...VENDAS, rbt12: 300000, itensPorPedido: 3.4, parteNaEntrega: { ifood: { pct: 12.5, pedidos: 8 }, '99food': { pct: null, pedidos: 0 } } };
+    assert.deepEqual(
+      [calc.numerosEfetivos(t, v, 'ifood').rbt12, calc.numerosEfetivos(t, v, 'ifood').itensPedido, calc.numerosEfetivos(t, v, 'ifood').parteNaEntrega, calc.numerosEfetivos(t, v, '99food').parteNaEntrega],
+      [300000, 3.4, 12.5, 30],
+    );
+    assert.equal(calc.numerosEfetivos(t, null, 'ifood').itensPedido, 2);
+    t.geral.impostoModo = 'media';
+    assert.equal(calc.numerosEfetivos(t, v, 'ifood').imposto, 6);
+    const caro = calc.calcular({ custo: 5, emb: 0 }, 'ifood', 'app', TAXAS, VENDAS, calc.PROMO_PADRAO, 80);
+    assert.equal(caro.recomendado, null);
+    assert.deepEqual([calc.numeroDigitado('540.000,00'), calc.numeroDigitado('12,5'), calc.numeroDigitado('12.5'), calc.numeroDigitado('abc'), calc.numeroDigitado('')], [540000, 12.5, 12.5, null, null]);
   });
 
   console.log(`\ncheck:catalogo — ${n} grupos de casos, todos certos.`);
