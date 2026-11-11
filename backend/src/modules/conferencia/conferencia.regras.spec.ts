@@ -66,14 +66,14 @@ describe('a leitura de cada app no formato do Regem', () => {
   it('iFood: itens com a categoria, o "de" da promoção e a pausa; a mesma opção (código e nome) em dois grupos vira uma', () => {
     const l = leituraDoIfood(CARDAPIO_IFOOD, COMPLEMENTOS_IFOOD)!;
     expect(l.itens).toEqual([
-      { id: 'i0', pdv: '2051', nome: 'X-Bacon', grupos: ['Burgers'], precos: [39.9], promoDe: null, pausado: false },
-      { id: 'i1', pdv: '2060', nome: 'Smash Duplo', grupos: ['Burgers'], precos: [44.9], promoDe: 49.9, pausado: true },
-      { id: 'i2', pdv: null, nome: 'Molho especial extra', grupos: ['Adicionais'], precos: [3], promoDe: null, pausado: false },
+      { id: 'i0', pdv: '2051', nome: 'X-Bacon', grupos: ['Burgers'], precos: [39.9], promoDe: null, pausado: false, imagem: null },
+      { id: 'i1', pdv: '2060', nome: 'Smash Duplo', grupos: ['Burgers'], precos: [44.9], promoDe: 49.9, pausado: true, imagem: null },
+      { id: 'i2', pdv: null, nome: 'Molho especial extra', grupos: ['Adicionais'], precos: [3], promoDe: null, pausado: false, imagem: null },
     ]);
     // "Bacon  Extra" (espaço e caixa diferentes) é a mesma opção; o preço de cada grupo fica.
     expect(l.opcoes).toEqual([
-      { id: 'o1', pdv: 'A01', nome: 'Bacon extra', grupos: ['Adicionais', 'Adicionais do Smash'], precos: [6, 6.5], promoDe: null, pausado: true },
-      { id: 'o2', pdv: null, nome: 'Ao ponto', grupos: ['Adicionais'], precos: [0], promoDe: null, pausado: false },
+      { id: 'o1', pdv: 'A01', nome: 'Bacon extra', grupos: ['Adicionais', 'Adicionais do Smash'], precos: [6, 6.5], promoDe: null, pausado: true, imagem: null },
+      { id: 'o2', pdv: null, nome: 'Ao ponto', grupos: ['Adicionais'], precos: [0], promoDe: null, pausado: false, imagem: null },
     ]);
   });
   it('iFood: sem a lista em qualquer das duas respostas = falha da leitura', () => {
@@ -84,22 +84,34 @@ describe('a leitura de cada app no formato do Regem', () => {
   it('99: centavos em reais, a categoria pelo `categories`, 2 = pausado; o complemento vira opção com o preço de cada grupo', () => {
     const l = leituraDa99(CARDAPIO_99)!;
     expect(l.itens).toEqual([
-      { id: '2051', pdv: '2051', nome: 'X-Bacon', grupos: ['Burgers'], precos: [44.9], promoDe: null, pausado: false },
-      { id: 'b5c2a9e0-0000-4000-8000-000000000001', pdv: 'b5c2a9e0-0000-4000-8000-000000000001', nome: 'Sem código', grupos: ['Burgers'], precos: [20], promoDe: null, pausado: true },
-      { id: 'COCA', pdv: 'COCA', nome: 'Coca lata', grupos: [], precos: [7], promoDe: null, pausado: false },
+      { id: '2051', pdv: '2051', nome: 'X-Bacon', grupos: ['Burgers'], precos: [44.9], promoDe: null, pausado: false, imagem: null },
+      { id: 'b5c2a9e0-0000-4000-8000-000000000001', pdv: 'b5c2a9e0-0000-4000-8000-000000000001', nome: 'Sem código', grupos: ['Burgers'], precos: [20], promoDe: null, pausado: true, imagem: null },
+      { id: 'COCA', pdv: 'COCA', nome: 'Coca lata', grupos: [], precos: [7], promoDe: null, pausado: false, imagem: null },
     ]);
     // A Coca se vende sozinha E está num grupo: aparece nas duas listas (no Regem, produto e opção); o item que não se vende
     // sozinho e não está em grupo fica nas opções sem grupo.
     expect(l.opcoes).toEqual([
-      { id: 'A01', pdv: 'A01', nome: 'Bacon extra', grupos: ['Adicionais', 'Bebida do combo'], precos: [6, 6.5], promoDe: null, pausado: false },
-      { id: 'COCA', pdv: 'COCA', nome: 'Coca lata', grupos: ['Bebida do combo'], precos: [0], promoDe: null, pausado: false },
-      { id: 'SOLTO', pdv: 'SOLTO', nome: 'Fora de grupo', grupos: [], precos: [1], promoDe: null, pausado: false },
+      { id: 'A01', pdv: 'A01', nome: 'Bacon extra', grupos: ['Adicionais', 'Bebida do combo'], precos: [6, 6.5], promoDe: null, pausado: false, imagem: null },
+      { id: 'COCA', pdv: 'COCA', nome: 'Coca lata', grupos: ['Bebida do combo'], precos: [0], promoDe: null, pausado: false, imagem: null },
+      { id: 'SOLTO', pdv: 'SOLTO', nome: 'Fora de grupo', grupos: [], precos: [1], promoDe: null, pausado: false, imagem: null },
     ]);
     expect(leituraDa99({ items: 'x' })).toBeNull();
     expect(leituraDa99(null)).toBeNull();
   });
   it('normalizar: sem acento, sem caixa, espaços juntados', () => {
     expect(normalizar('  Pão  de Açúcar ')).toBe('pao de acucar');
+  });
+  it('a foto de cada app (F6): `imagem` no Orzuni, `head_img` na 99; só endereço http(s); a opção leva a 1ª foto dos grupos', () => {
+    const ifood = leituraDoIfood(
+      { itens: [{ pdv: '1', nome: 'A', imagem: 'https://static.ifood.com/a.jpg' }, { pdv: '2', nome: 'B', imagem: 'pratos/b.jpg' }] },
+      { grupos: [{ nome: 'G1', opcoes: [{ id: 'o1', pdv: 'X', nome: 'Op', imagem: null }] }, { nome: 'G2', opcoes: [{ id: 'o2', pdv: 'X', nome: 'Op', imagem: 'https://static.ifood.com/x.jpg' }] }] },
+    )!;
+    expect(ifood.itens.map((i) => i.imagem)).toEqual(['https://static.ifood.com/a.jpg', null]);
+    expect(ifood.opcoes[0].imagem).toBe('https://static.ifood.com/x.jpg');
+    expect(leituraDa99({ items: [{ app_item_id: '1', item_name: 'A', price: 100, status: 1, head_img: 'https://img.99app.com/a.png' }] })!.itens[0].imagem).toBe('https://img.99app.com/a.png');
+    // A linha leva a foto do app; a leitura de antes da F6 (sem o campo) não diz nada.
+    const linhas = comparar({ canal: 'ifood', tipo: 'item', doApp: [app({ id: 'i', pdv: '1', nome: 'A', precos: [1], imagem: null }), app({ id: 'j', pdv: '2', nome: 'B', precos: [1] })], doRegem: [], ignorados: new Set() });
+    expect(linhas.map((l) => ('imagem' in l ? l.imagem : 'ausente'))).toEqual([null, 'ausente']);
   });
 });
 

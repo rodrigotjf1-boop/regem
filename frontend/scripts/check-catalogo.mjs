@@ -555,6 +555,18 @@ try {
             }
     assert.equal(casos, 180);
   });
+  caso('F6: a foto de cada app pela última leitura — falta lá, só lá ou nada a dizer; a medida que a 99 pede', () => {
+    const f = { canais: { ifood: { lidoEm: 'x', porProduto: { p1: 'https://a/1.jpg', p2: null } }, '99food': null } };
+    assert.deepEqual(cf.fotosDoProduto(f, 'p1'), { ifood: 'https://a/1.jpg' });
+    assert.deepEqual(cf.fotosDoProduto(f, 'p2'), { ifood: null });
+    assert.deepEqual(cf.fotosDoProduto(f, 'p9'), {});
+    assert.deepEqual(cf.fotosDoProduto(null, 'p1'), {});
+    assert.equal(cf.situacaoDaFoto(true, null), 'faltaNoApp');
+    assert.equal(cf.situacaoDaFoto(false, 'https://a/1.jpg'), 'soNoApp');
+    assert.equal(cf.situacaoDaFoto(true, 'https://a/1.jpg'), null);
+    assert.equal(cf.situacaoDaFoto(true, undefined), null);
+    assert.deepEqual([cf.medidaParaA99(800, 600), cf.medidaParaA99(100, 600), cf.medidaParaA99(3200, 1000), cf.medidaParaA99(150, 3000)], [true, false, false, true]);
+  });
   caso('F5: os números digitados × os das vendas; sem vendas, os exemplos; e o que não dá para pagar', () => {
     const t = JSON.parse(JSON.stringify(TAXAS));
     t.geral.rbt12 = null;

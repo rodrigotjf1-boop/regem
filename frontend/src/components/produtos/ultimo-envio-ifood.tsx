@@ -12,7 +12,7 @@ import { api } from '@/lib/api';
 type Envio = {
   unidadeId: string;
   loja: string | null;
-  oQue: 'preco' | 'pausa' | 'cadastro' | 'codigo';
+  oQue: 'preco' | 'pausa' | 'cadastro' | 'codigo' | 'foto';
   situacao: string;
   frase: string | null;
   antes: number | null;
@@ -24,7 +24,7 @@ const ACOMPANHAR_MS = 5_000;
 const ACOMPANHAR_VEZES = 12;
 
 const brl = (n: number) => Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-const O_QUE: Record<string, string> = { preco: 'preço', pausa: 'pausa', cadastro: 'nome e descrição', codigo: 'código' };
+const O_QUE: Record<string, string> = { preco: 'preço', pausa: 'pausa', cadastro: 'nome e descrição', codigo: 'código', foto: 'foto' };
 // O nome de cada app nas frases: "no iFood" / "na 99", "ao iFood" / "à 99", "pelo iFood" / "pela 99".
 const APP = {
   ifood: { no: 'no iFood', ao: 'ao iFood', pelo: 'pelo iFood', titulo: 'Último envio ao iFood' },

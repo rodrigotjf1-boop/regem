@@ -12,8 +12,8 @@
 export const LIMITE_NOME_99 = 180;
 export const LIMITE_DESCRICAO_99 = 1500;
 
-/** O que mudar no item (o resto volta como a 99 tem). Preço em centavos. */
-export type MudancaNoItem = { preco?: number; nome?: string; descricao?: string };
+/** O que mudar no item (o resto volta como a 99 tem). Preço em centavos; `foto` = o endereço público da foto do Regem (F6). */
+export type MudancaNoItem = { preco?: number; nome?: string; descricao?: string; foto?: string };
 
 /** Os campos que a doc 1967 aceita no `updateItem` (fora o `auth_token`, que o serviço põe). */
 const CAMPOS_QUE_VOLTAM = ['app_external_id', 'sold_info_intl', 'head_img', 'priority'] as const;
@@ -35,6 +35,8 @@ export function itemParaAtualizar(daLista: Record<string, any>, mudar: MudancaNo
   if (mudar.descricao !== undefined) corpo.short_desc = mudar.descricao;
   else if (tem(daLista.short_desc)) corpo.short_desc = daLista.short_desc;
   for (const k of CAMPOS_QUE_VOLTAM) if (tem(daLista[k])) corpo[k] = daLista[k];
+  // "Mandar esta foto à 99" (R3 F6): a 99 baixa a foto pelo endereço (doc 1967, `head_img`).
+  if (mudar.foto !== undefined) corpo.head_img = mudar.foto;
   return corpo;
 }
 

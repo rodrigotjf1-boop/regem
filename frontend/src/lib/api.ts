@@ -1,6 +1,6 @@
 import { baseDaApi } from './origem-api';
 import { VERSAO_DA_TELA } from './versao-da-tela';
-import type { CanalConferido, RespostaDaConferencia, TipoConferido } from './conferencia-apps';
+import type { CanalConferido, FotosDaLoja, RespostaDaConferencia, TipoConferido } from './conferencia-apps';
 import type { RespostaDasTaxas } from './calculadora-preco';
 
 // Base da API. Nuvem: NEXT_PUBLIC_API_URL (fixado no build). Edge
@@ -846,6 +846,11 @@ export const api = {
   // faturamento da empresa só ao presidente). Pede "Ver valores em R$"; no servidor da loja, vem da nuvem.
   taxas: () => req('/catalogo/taxas') as Promise<RespostaDasTaxas>,
   salvarTaxas: (taxas: unknown) => req('/catalogo/taxas', { method: 'PUT', body: JSON.stringify({ taxas }) }) as Promise<RespostaDasTaxas>,
+  // As fotos dos apps pela última leitura da conferência (R3 F6): `produtoId → endereço` por app (vazio sem a conferência).
+  conferenciaFotos: () => req('/catalogo/conferencia/fotos') as Promise<FotosDaLoja>,
+  // "Mandar esta foto à 99" (R3 F6): a foto do Regem vai à 99 pelo endereço público dela.
+  conferenciaFoto99: (produtoId: string) =>
+    req('/catalogo/conferencia/foto-99', { method: 'POST', body: JSON.stringify({ produtoId }) }) as Promise<{ ok: boolean; frase: string }>,
   conferenciaLigar: (dto: { canal: CanalConferido; chave: string; produtoId: string }) =>
     req('/catalogo/conferencia/ligar', { method: 'POST', body: JSON.stringify(dto) }) as Promise<{ ok: boolean; frase: string }>,
   // "Publicar nas integrações" (Cadastros › Cardápio): a situação de cada integração que usa o cardápio e o publicar

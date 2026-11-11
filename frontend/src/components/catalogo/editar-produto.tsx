@@ -11,6 +11,8 @@ import { ImageUpload } from '@/components/ui/image-upload';
 import { Gaveta } from '@/components/ui/sobreposto';
 import { texto2 } from '@/components/ui/lista';
 import { UltimoEnvioIfood } from '@/components/produtos/ultimo-envio-ifood';
+import { FotosDosApps } from '@/components/catalogo/fotos-dos-apps';
+import type { FotosDoProduto } from '@/lib/conferencia-apps';
 import {
   analisarEdicao, edicaoInicial, esgotado, pausaNoRegem, type CategoriaDaGestao, type EdicaoDoProduto, type ProdutoDaGestao,
 } from '@/lib/catalogo-gestao';
@@ -33,6 +35,8 @@ export function EditarProduto({
   aoFechar,
   aoSalvar,
   aoNovaCategoria,
+  fotosDosApps,
+  aoMandarFoto99,
 }: {
   produto: ProdutoDaGestao & Record<string, any>;
   categorias: CategoriaDaGestao[];
@@ -45,6 +49,10 @@ export function EditarProduto({
   /** Depois de gravar (tudo ou parte): a tela relê a lista. */
   aoSalvar: (fechar: boolean, foiAoIfood: boolean, foiA99: boolean) => void;
   aoNovaCategoria: (c: CategoriaDaGestao) => void;
+  /** As fotos do produto nos apps, pela última leitura da conferência (R3 F6). */
+  fotosDosApps?: FotosDoProduto;
+  /** "Mandar esta foto à 99" (R3 F6). */
+  aoMandarFoto99?: () => Promise<void>;
 }) {
   const [e, setE] = useState<EdicaoDoProduto>(() => edicaoInicial(p));
   const [salvando, setSalvando] = useState(false);
@@ -189,8 +197,14 @@ export function EditarProduto({
         <fieldset className="space-y-2 rounded-lg border border-border p-3">
           <legend className="px-1 text-sm font-bold">Foto</legend>
           <ImageUpload value={e.imagemRef || undefined} onChange={(url) => mudar({ imagemRef: url ?? '' })} alt={e.nome || 'produto'} />
-          {comIfood && p.noIfood && <p className={`text-xs ${texto2}`}>A foto vale para o balcão e o cardápio digital. No iFood, a foto muda no Gestor de Pedidos.</p>}
-          {com99 && p.na99 && <p className={`text-xs ${texto2}`}>A foto da 99 não muda pelo Regem ainda.</p>}
+          <FotosDosApps
+            fotoDoRegem={e.imagemRef || ''}
+            fotoSalva={String(p.imagemRef ?? '')}
+            fotos={fotosDosApps ?? {}}
+            noIfood={comIfood && p.noIfood === true}
+            na99={com99 && p.na99 === true && !!String(p.codigo ?? '').trim()}
+            aoMandar99={aoMandarFoto99}
+          />
         </fieldset>
 
         <fieldset className="space-y-3 rounded-lg border border-border p-3">

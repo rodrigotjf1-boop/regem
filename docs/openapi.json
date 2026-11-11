@@ -6517,14 +6517,7 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
+            "description": ""
           }
         }
       }
@@ -6570,6 +6563,26 @@
     "/api/v1/producao/kds/{id}/fluxo": {
       "put": {
         "operationId": "ProducaoPedidoController_setFluxoKds",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/producao/kds/{id}/avisos": {
+      "put": {
+        "operationId": "ProducaoPedidoController_setAvisosKds",
         "parameters": [
           {
             "name": "id",
@@ -11584,6 +11597,17 @@
         }
       }
     },
+    "/api/v1/delivery/pausas/kds": {
+      "get": {
+        "operationId": "DeliveryController_pausasNoKds",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/delivery/pausas/reabrir": {
       "post": {
         "operationId": "DeliveryController_reabrirCanal",
@@ -15445,6 +15469,35 @@
         }
       }
     },
+    "/api/v1/catalogo/conferencia/fotos": {
+      "get": {
+        "operationId": "ConferenciaController_fotos",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/catalogo/conferencia/foto-99": {
+      "post": {
+        "operationId": "ConferenciaController_mandarFotoA99",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/catalogo/conferencia/ligar": {
       "post": {
         "operationId": "ConferenciaController_ligar",
@@ -15467,6 +15520,26 @@
       "get": {
         "operationId": "ConferenciaLojaController_conferir",
         "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/catalogo/conferencia/loja/fotos": {
+      "get": {
+        "operationId": "ConferenciaLojaController_fotos",
+        "parameters": [
+          {
+            "name": "unidade",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": ""

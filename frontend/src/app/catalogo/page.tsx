@@ -20,6 +20,7 @@ import { ConferirApps } from '@/components/catalogo/conferir-apps';
 import { TaxasEMargem } from '@/components/catalogo/taxas-e-margem';
 import { CalculadoraPreco, type ItemDaCalculadora } from '@/components/catalogo/calculadora-preco';
 import type { CanalCalc, RespostaDasTaxas } from '@/lib/calculadora-preco';
+import { fotosDoProduto, situacaoDaFoto, type FotosDaLoja } from '@/lib/conferencia-apps';
 import { UltimoEnvioIfood } from '@/components/produtos/ultimo-envio-ifood';
 import {
   agruparPorCategoria, esgotado, pausaNoRegem, pausadoEmAlgumCanal, pausadoNa99, pausadoNoIfood, semPrecoNa99, semPrecoNoIfood,
@@ -56,6 +57,8 @@ export default function CatalogoPage() {
   const [abrirTaxasGaveta, setAbrirTaxasGaveta] = useState(false);
   const [calc, setCalc] = useState<{ produtoId: string; canal: CanalCalc } | null>(null);
   const [versaoConf, setVersaoConf] = useState(0);
+  // As fotos dos apps pela última leitura (R3 F6).
+  const [fotos, setFotos] = useState<FotosDaLoja | null>(null);
   const [ocupado, setOcupado] = useState<Set<string>>(new Set());
   const [enviados, setEnviados] = useState<Set<string>>(new Set()); // produtos com mudança ao iFood nesta visita
   const [enviados99, setEnviados99] = useState<Set<string>>(new Set()); // produtos com mudança à 99 nesta visita
@@ -65,12 +68,14 @@ export default function CatalogoPage() {
     const minha = ++leitura.current; // só a leitura mais nova vale (V64)
     setErro('');
     try {
-      const [ps, cs, ifood, n99, conferir] = await Promise.all([
+      const [ps, cs, ifood, n99, conferir, fts] = await Promise.all([
         api.produtos(),
         api.produtoCategorias(),
         api.ifoodPeloOrzuni().catch(() => ({ ligado: false })),
         api.precosNa99().catch(() => ({ ligado: false })),
         api.conferenciaLigada().catch(() => ({ ligada: false })),
+        // As fotos dos apps pela última leitura da conferência (R3 F6): sem a conferência (ou sem acesso), nada.
+        api.conferenciaFotos().catch(() => null),
       ]);
       if (minha !== leitura.current) return;
       setProdutos(Array.isArray(ps) ? (ps as any[]) : []);
@@ -78,6 +83,7 @@ export default function CatalogoPage() {
       setComIfood(ifood?.ligado === true);
       setCom99(n99?.ligado === true);
       setConferirLigada(conferir?.ligada === true);
+      setFotos(fts);
     } catch (e) {
       if (minha !== leitura.current) return;
       // Erro não é "nenhum produto": a tela diz que não leu e oferece de novo.
@@ -103,8 +109,13 @@ export default function CatalogoPage() {
       ...(comIfood ? [{ rotulo: 'Sem preço no iFood', filtro: semPrecoNoIfood, tom: 'critico' as const }] : []),
       ...(com99 ? [{ rotulo: 'Sem preço na 99', filtro: semPrecoNa99, tom: 'critico' as const }] : []),
       { rotulo: 'Sem código PDV', filtro: (p: any) => !(p.codigo ?? '').trim() },
+      // R3 F6: a foto que falta num app (ou só existe lá), pela última leitura da conferência.
+      ...(fotos && (fotos.canais.ifood || fotos.canais['99food'])
+        ? [{ rotulo: 'Foto faltando num app', filtro: (p: any) => fotoFaltando(p), tom: 'aviso' as const }]
+        : []),
     ],
-    [comIfood, com99],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [comIfood, com99, fotos],
   );
   // A lista de situações muda com o iFood e a 99: a escolhida que sumiu volta para "Todos".
   useEffect(() => {
@@ -177,6 +188,18 @@ export default function CatalogoPage() {
       precoHoje: hoje != null && hoje !== '' ? Number(hoje) : null,
       fonteDoCusto: p.custoFonte === 'ficha' ? 'da ficha técnica, com a perda' : p.custoFonte === 'estoque' ? 'custo médio do estoque' : p.custoFonte === 'manual' ? 'custo manual' : null,
     };
+  };
+  // R3 F6: a foto do produto num app (pela última leitura da conferência) — falta lá ou só existe lá.
+  function fotoFaltando(p: any) {
+    const f = fotosDoProduto(fotos, p.id);
+    const tem = !!String(p.imagemRef ?? '').trim();
+    return (comIfood && p.noIfood === true && situacaoDaFoto(tem, f.ifood) != null) || (com99 && p.na99 === true && situacaoDaFoto(tem, f['99food']) != null);
+  }
+  const seloDaFoto = (p: any, canal: CanalCalc) => {
+    const s = situacaoDaFoto(!!String(p.imagemRef ?? '').trim(), fotosDoProduto(fotos, p.id)[canal]);
+    if (!s) return null;
+    const onde = canal === 'ifood' ? 'no iFood' : 'na 99';
+    return <span className={`w-full text-xs ${texto2}`}>{s === 'faltaNoApp' ? `sem foto ${onde}` : `foto só ${onde}`}</span>;
   };
   const botaoCalcular = (p: any, canal: CanalCalc) =>
     podeMudarPreco && p.custoEfetivo != null ? (
@@ -281,6 +304,7 @@ export default function CatalogoPage() {
         <PrecoNoLugar valor={p.precoIfood} qual="no iFood" nome={p.nome} permiteVazio podeEditar={podeMudarPreco} aoSalvar={(v) => salvarPreco(p, 'ifood', v)} />
         <ChipPausa pausado={pz} onde="no iFood" nome={p.nome} ocupado={ocupado.has(`${p.id}|ifood`)} aoMudar={() => void pausar(p, 'ifood', !pz)} />
         {botaoCalcular(p, 'ifood')}
+        {seloDaFoto(p, 'ifood')}
         {esgotado(p) && !pz && <span className={`w-full text-xs ${texto2}`}>pausado pelo estoque</span>}
         {enviados.has(p.id) && (
           <span className="block w-full min-w-0 text-left">
@@ -299,6 +323,7 @@ export default function CatalogoPage() {
         <PrecoNoLugar valor={p.preco99} qual="na 99" nome={p.nome} permiteVazio podeEditar={podeMudarPreco} aoSalvar={(v) => salvarPreco(p, '99food', v)} />
         <ChipPausa pausado={pz} onde="na 99" nome={p.nome} ocupado={ocupado.has(`${p.id}|99food`)} aoMudar={() => void pausar(p, '99food', !pz)} />
         {botaoCalcular(p, '99food')}
+        {seloDaFoto(p, '99food')}
         {esgotado(p) && !pz && <span className={`w-full text-xs ${texto2}`}>pausado pelo estoque</span>}
         {enviados99.has(p.id) && (
           <span className="block w-full min-w-0 text-left">
@@ -326,7 +351,11 @@ export default function CatalogoPage() {
               id={`aba-${k}`}
               aria-selected={aba === k}
               aria-controls={`painel-${k}`}
-              onClick={() => setAba(k)}
+              onClick={() => {
+                setAba(k);
+                // Voltar a "Produtos e preços" relê a lista: o que a conferência mudou (preço, código, fotos lidas) aparece.
+                if (k === 'produtos' && aba !== 'produtos') void carregar();
+              }}
               className={`-mb-px min-h-10 border-b-2 px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                 aba === k ? 'border-primary text-foreground' : `border-transparent ${texto2} hover:text-foreground`
               }`}
@@ -505,6 +534,16 @@ export default function CatalogoPage() {
             if (foiA99) marcarEnviado99(editando.id);
             if (fechar) setEditando(null);
             void carregar();
+          }}
+          fotosDosApps={fotosDoProduto(fotos, editando.id)}
+          aoMandarFoto99={async () => {
+            try {
+              const r = await api.conferenciaFoto99(editando.id);
+              toast.success(r.frase);
+              marcarEnviado99(editando.id);
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : 'Não foi possível mandar a foto à 99.');
+            }
           }}
         />
       )}

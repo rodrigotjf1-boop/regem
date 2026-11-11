@@ -307,11 +307,19 @@ export class Food99CatalogoEnvioService implements OnModuleInit, OnModuleDestroy
       ...(chamada.mudar.preco !== undefined ? { antes: Number.isFinite(antes) ? antes / 100 : null, depois: chamada.mudar.preco / 100 } : {}),
       ...(chamada.mudar.nome !== undefined ? { nome: true } : {}),
       ...(chamada.mudar.descricao !== undefined ? { descricao: true } : {}),
+      ...(chamada.mudar.foto !== undefined ? { foto: true } : {}),
     });
     if (d.repetir) return this.falhou(envio, d);
     if (d.resultado === 'aplicado') this.anotarNoCardapio(cardapios, ig.id, chamada.codigo, corpo);
     await this.finalizar(envio, d);
-    await this.auditar(envio, ig, 'updateItem', chamada.codigo, { preco: chamada.mudar.preco ?? null, nome: chamada.mudar.nome !== undefined, descricao: chamada.mudar.descricao !== undefined }, d);
+    await this.auditar(
+      envio,
+      ig,
+      'updateItem',
+      chamada.codigo,
+      { preco: chamada.mudar.preco ?? null, nome: chamada.mudar.nome !== undefined, descricao: chamada.mudar.descricao !== undefined, foto: chamada.mudar.foto !== undefined },
+      d,
+    );
     return 'enviados';
   }
 
@@ -435,7 +443,7 @@ export class Food99CatalogoEnvioService implements OnModuleInit, OnModuleDestroy
   /** O que mandar, lido NA HORA (o valor mais novo). Fora das condições: dispensa, com o motivo. */
   private async montarChamada(envio: Envio99, ig: IntegFood99): Promise<Chamada99> {
     const r: any = await this.db.execute(sql`
-      select p.codigo, p.nome, p.descricao, p.preco_99::text as preco, p.na_99, p.deleted_at, p.unidade_id,
+      select p.codigo, p.nome, p.descricao, p.preco_99::text as preco, p.na_99, p.deleted_at, p.unidade_id, p.imagem_ref,
              coalesce(jsonb_exists(p.canais_pausados, '99food'), false) as pausado_na_99,
              p.pausado_estoque,
              ${ig.unidadeId
@@ -477,6 +485,14 @@ export class Food99CatalogoEnvioService implements OnModuleInit, OnModuleDestroy
       if (descricao.length > LIMITE_DESCRICAO_99)
         return { dispensar: `a descrição tem ${descricao.length} caracteres e a 99 aceita até ${LIMITE_DESCRICAO_99}: encurte a descrição` };
       mudar.descricao = descricao;
+    }
+    // "Mandar esta foto à 99" (R3 F6): o endereço público da foto do Regem (na nuvem: o do Supabase). A foto ainda só no
+    // servidor da loja não tem endereço que a 99 alcance — dispensa com o motivo (ela sobe para a nuvem em instantes).
+    if (dados.foto === true) {
+      const url = String(p.imagem_ref ?? '').trim();
+      if (!url) return { dispensar: 'o produto não tem foto no Regem' };
+      if (!/^https:\/\//i.test(url)) return { dispensar: 'a foto ainda está só no servidor da loja: ela sobe para a nuvem em instantes; mande de novo depois' };
+      mudar.foto = url;
     }
     return { tipo: 'item', codigo, mudar, pausadoNoRegem };
   }
