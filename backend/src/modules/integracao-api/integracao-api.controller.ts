@@ -31,6 +31,8 @@ import { CatalogoIntegracaoService } from './catalogo-integracao.service';
 import { CatalogoIntegracao, FichasIntegracao } from './dto/catalogo-integracao.dto';
 import { ProducaoIntegracaoService } from './producao-integracao.service';
 import { ProducaoIntegracao } from './dto/producao-integracao.dto';
+import { AtendimentoIntegracaoService } from './atendimento-integracao.service';
+import { CanaisAtendimentoIntegracao } from './dto/atendimento-integracao.dto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -70,6 +72,7 @@ export class IntegracaoApiController {
     private readonly webhooks: WebhookIntegracaoService,
     private readonly catalogoSvc: CatalogoIntegracaoService,
     private readonly producaoSvc: ProducaoIntegracaoService,
+    private readonly atendimentoSvc: AtendimentoIntegracaoService,
   ) {}
 
   // Quem é a loja do token — qualquer escopo.
@@ -247,6 +250,24 @@ export class IntegracaoApiController {
   @ApiOkResponse({ type: ProducaoIntegracao })
   producao(@IntegracaoCtx() ctx: IntegracaoCtxData, @Query('versao') versao?: string) {
     return this.producaoSvc.producao(ctx, { versao });
+  }
+
+  // ───────────────────────────── canais da Central de atendimento (Liame — mig 398) ─────────────────────────────
+
+  // As contas do Instagram e as páginas do Facebook conectadas à Central da empresa do token, lidas na hora. Só o id e o @.
+  @Get('atendimento/canais')
+  @Escopos('atendimento.canais.ler')
+  @ApiOperation({
+    summary: 'As contas do Instagram e as páginas do Facebook que a Central de atendimento atende — sem mensagens nem dados de cliente.',
+    description:
+      'Lida na hora. Uma conta entra quando está CONECTADA à Central de atendimento do Regem (as mensagens dela chegam ao ' +
+      'Regem), qualquer que seja o ajuste da fila ou do robô; desconectar tira a conta da resposta na hora. As contas são da ' +
+      'EMPRESA do token (uma por empresa), qualquer que seja a loja dele. Listas vazias = nenhuma conta conectada. Sai só o ' +
+      'id da conta do Instagram e o @ dela (sem o @), e o id da página do Facebook: nunca o acesso, mensagem ou dado de cliente.',
+  })
+  @ApiOkResponse({ type: CanaisAtendimentoIntegracao })
+  canaisDoAtendimento(@IntegracaoCtx() ctx: IntegracaoCtxData) {
+    return this.atendimentoSvc.canais(ctx);
   }
 
   // ───────────────────────────── cupons (contrato de cupons v1) ─────────────────────────────

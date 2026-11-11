@@ -85,6 +85,15 @@ export const PERMISSAO_NA_TELA: Partial<
     curta: 'o telefone',
     noAssunto: 'o telefone do cliente',
   },
+  // mig 398 (Liame, Z12): só QUAIS contas a Central atende — o id e o @. Nenhuma mensagem, nenhum cliente, nenhum acesso.
+  'atendimento.canais.ler': {
+    rotulo: 'Canais da Central de atendimento',
+    frase:
+      'Quais contas do Instagram e páginas do Facebook a Central de atendimento do Regem atende: o código de cada uma e o ' +
+      '@ do Instagram. Sem mensagens e sem dados de cliente.',
+    naFrase: 'os canais da Central de atendimento',
+    curta: 'os canais da Central',
+  },
 };
 
 /** Como a permissão entra no assunto do e-mail ("O Liame passou a receber o telefone do cliente na Brasa Centro"). */
@@ -135,7 +144,7 @@ export const APLICATIVOS_DO_CLIQUE: Record<string, AplicativoDoClique> = {
     nome: 'Liame',
     faz: 'mede quais anúncios viraram pedido no caixa',
     inicio: 'https://app.agencialiame.com',
-    necessarias: ['pedidos.ler', 'clientes.anonimizacao.ler', 'cupons.ler', 'cupons.uso.ler'],
+    necessarias: ['pedidos.ler', 'clientes.anonimizacao.ler', 'cupons.ler', 'cupons.uso.ler', 'atendimento.canais.ler'],
     opcionais: ['custos.ler', 'cupons.criar', 'clientes.telefone.ler'],
     dadoPessoal: ['clientes.telefone.ler'],
     financeiras: ['custos.ler'],
@@ -147,6 +156,7 @@ export const APLICATIVOS_DO_CLIQUE: Record<string, AplicativoDoClique> = {
       'custos.ler': 'Para mostrar a margem de cada campanha, e não só a receita.',
       'cupons.criar': 'Para criar o cupom de uma campanha que alguém da sua empresa aprovou no Liame, sem digitar de novo no Regem.',
       'clientes.telefone.ler': 'Para ligar a conversa do WhatsApp aberta por um anúncio ao pedido que veio dela.',
+      'atendimento.canais.ler': 'Para o Liame não responder o Direct nem o Messenger que a Central do Regem já atende.',
     },
     semElas: {
       'custos.ler': 'Desligado: a margem fica desconhecida, nunca zero. O resto funciona.',

@@ -337,6 +337,8 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
       expect(conferencia).toHaveLength(9);
       if (conferencia.some((l: any) => l.ok !== true)) throw new Error(`conferência da 336: ${JSON.stringify(conferencia)}`);
     }
+    // A 398: o escopo dos canais da Central, que o Liame leva sempre (sem ela, a trava antiga recusa — ERR-273).
+    await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(mig('398_integracao_canais_atendimento.sql'))));
     const [fk] = await q(
       `select count(*)::int n from pg_constraint c join pg_namespace s on s.oid = c.connamespace
         where s.nspname = $1 and c.contype = 'f' and c.confrelid in ('public.empresa'::regclass, 'public.unidade'::regclass)`,

@@ -531,6 +531,45 @@
         }
       }
     },
+    "/api/v1/integracao/atendimento/canais": {
+      "get": {
+        "operationId": "get_api_v1_integracao_atendimento_canais",
+        "summary": "As contas do Instagram e as páginas do Facebook conectadas à Central de atendimento da empresa, lidas na hora: só o id e o @, sem mensagens nem dados de cliente. Listas vazias = nenhuma conta conectada.",
+        "x-dms-permissao": "atendimento.canais.ler",
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "example": {
+                  "instagram": [
+                    {
+                      "ig_user_id": "17841400000000001",
+                      "usuario": "hamburgueriaexemplo"
+                    }
+                  ],
+                  "messenger": [
+                    {
+                      "pagina_id": "100000000000001"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro no formato do Padrão (§7)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/integracao/cupons": {
       "get": {
         "operationId": "get_api_v1_integracao_cupons",
@@ -921,6 +960,13 @@
     },
     "catalogo.ifood.ler": {
       "frase": "Preço do iFood e se o produto está no cardápio do iFood, no catálogo (junto de catalogo.ler)",
+      "classes": [
+        "dms"
+      ],
+      "sensivel": false
+    },
+    "atendimento.canais.ler": {
+      "frase": "Quais contas do Instagram e páginas do Facebook a Central de atendimento do Regem atende: o código de cada uma e o @ do Instagram. Sem mensagens e sem dados de cliente.",
       "classes": [
         "dms"
       ],

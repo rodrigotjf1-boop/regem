@@ -73,7 +73,7 @@ describe('escopos', () => {
     expect(validarEscopos(['cupons.ler', 'pedidos.ler', 'cupons.ler'])).toEqual(['pedidos.ler', 'cupons.ler']);
   });
 
-  it('são os 7 do contrato do Liame + os 2 do RegemCast + os 3 do Farol + os 3 do totem (GoGeM) + o do iFood (Orzuni)', () => {
+  it('são os 7 do contrato do Liame + os 2 do RegemCast + os 3 do Farol + os 3 do totem (GoGeM) + o do iFood (Orzuni) + os canais da Central (Liame)', () => {
     expect([...ESCOPOS_INTEGRACAO]).toEqual([
       'pedidos.ler',
       'clientes.telefone.ler',
@@ -91,12 +91,13 @@ describe('escopos', () => {
       'totem.produtos.pausar',
       'totem.vendas.lancar',
       'catalogo.ifood.ler',
+      'atendimento.canais.ler',
     ]);
   });
 
-  it('a lista do código é a do `check` das duas tabelas na migration 374 (escopo fora dela nem é gravado)', () => {
+  it('a lista do código é a do `check` das duas tabelas na migration 398 (escopo fora dela nem é gravado)', () => {
     const mig = readFileSync(
-      join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '374_integracao_orzuni_catalogo_ifood.sql'),
+      join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '398_integracao_canais_atendimento.sql'),
       'utf8',
     );
     const listas = [...mig.matchAll(/escopos <@ array\[([^\]]+)\]::text\[\]/g)].map((m) =>
@@ -106,7 +107,7 @@ describe('escopos', () => {
     for (const lista of listas) expect(lista).toEqual([...ESCOPOS_INTEGRACAO]);
   });
 
-  it('os escopos de leitura na hora (Farol, Orzuni) e os do totem (GoGeM) não ligam o carimbador; todos os outros ligam', () => {
+  it('os escopos de leitura na hora (Farol, Orzuni, canais da Central) e os do totem (GoGeM) não ligam o carimbador; todos os outros ligam', () => {
     expect([...ESCOPOS_SEM_CARIMBO]).toEqual([
       'catalogo.ler',
       'fichas.ler',
@@ -115,6 +116,7 @@ describe('escopos', () => {
       'totem.produtos.pausar',
       'totem.vendas.lancar',
       'catalogo.ifood.ler',
+      'atendimento.canais.ler',
     ]);
     expect([...ESCOPOS_COM_CARIMBO]).toEqual([
       'pedidos.ler',

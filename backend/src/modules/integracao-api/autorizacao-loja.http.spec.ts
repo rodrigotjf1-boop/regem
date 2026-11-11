@@ -185,8 +185,12 @@ descrever('autorização pela loja — página, troca do código e aplicativos c
     guardar(CFG.envSegredo, SEGREDO);
     guardar(CFG.envRedirect, VOLTA);
     await pool.query(`create schema ${SCHEMA}`);
-    // A 329 e a 336 (a autorização por clique, Hub DMS F3 C): "Aplicativos conectados" lê de onde o acesso veio.
-    for (const m of ['295_integracao_token_loja.sql', '303_integracao_autorizacao.sql', '329_integracao_ligacao.sql', '336_integracao_autorizacao_clique.sql']) {
+    // A 329 e a 336 (a autorização por clique, Hub DMS F3 C): "Aplicativos conectados" lê de onde o acesso veio. A 398: o
+    // escopo dos canais da Central, que o Liame leva sempre (sem ela, a trava antiga recusa a autorização — ERR-273).
+    for (const m of [
+      '295_integracao_token_loja.sql', '303_integracao_autorizacao.sql', '329_integracao_ligacao.sql', '336_integracao_autorizacao_clique.sql',
+      '398_integracao_canais_atendimento.sql',
+    ]) {
       await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(readFileSync(join(MIGS, m), 'utf8'))));
     }
     const [fk] = await q(
@@ -240,7 +244,7 @@ descrever('autorização pela loja — página, troca do código e aplicativos c
         [A.lojas[0], 'A1 matriz', 'matriz', null],
         [A.lojas[1], 'A2 filial', 'filial', null],
       ]);
-      expect(c.sempre.map((e: any) => e.chave)).toEqual(['pedidos.ler', 'clientes.anonimizacao.ler', 'cupons.ler', 'cupons.uso.ler']);
+      expect(c.sempre.map((e: any) => e.chave)).toEqual(['pedidos.ler', 'clientes.anonimizacao.ler', 'cupons.ler', 'cupons.uso.ler', 'atendimento.canais.ler']);
       expect(c.opcionais.map((o: any) => [o.campo, o.chave, o.padrao, o.disponivel])).toEqual([
         ['custo', 'custos.ler', true, true],
         ['cupom', 'cupons.criar', false, true],
@@ -358,7 +362,7 @@ descrever('autorização pela loja — página, troca do código e aplicativos c
         desafio: a.p.code_challenge,
         redirect_uri: VOLTA,
         // Na ordem do contrato, o que vai sempre + o custo; sem criar cupom e sem o telefone do cliente.
-        escopos: ['pedidos.ler', 'custos.ler', 'clientes.anonimizacao.ler', 'cupons.ler', 'cupons.uso.ler'],
+        escopos: ['pedidos.ler', 'custos.ler', 'clientes.anonimizacao.ler', 'cupons.ler', 'cupons.uso.ler', 'atendimento.canais.ler'],
         autorizado_por: presA.id,
         autorizado_por_nome: 'Presidente A',
         usado_em: null,
@@ -413,7 +417,7 @@ descrever('autorização pela loja — página, troca do código e aplicativos c
         [A.lojas[0], 'A1 matriz'],
         [A.lojas[1], 'A2 filial'],
       ]);
-      const escopos = ['pedidos.ler', 'custos.ler', 'clientes.anonimizacao.ler', 'cupons.ler', 'cupons.uso.ler', 'cupons.criar'];
+      const escopos = ['pedidos.ler', 'custos.ler', 'clientes.anonimizacao.ler', 'cupons.ler', 'cupons.uso.ler', 'cupons.criar', 'atendimento.canais.ler'];
       for (const l of corpo.lojas) {
         expect(l).toMatchObject({ empresa_nome: A.nome, fuso: 'America/Sao_Paulo', moeda: 'BRL', escopos, cardapio_url: null });
         expect(l.token).toMatch(/^rgm_it_[A-Za-z0-9_-]{43}$/);
@@ -532,7 +536,7 @@ descrever('autorização pela loja — página, troca do código e aplicativos c
       const r = await trocar(a.codigo, a.verificador);
       const corpo: any = await r.json();
       segredos.push(corpo.lojas[0].token);
-      expect(corpo.lojas[0].escopos).toEqual(['pedidos.ler', 'clientes.anonimizacao.ler', 'cupons.ler', 'cupons.uso.ler']);
+      expect(corpo.lojas[0].escopos).toEqual(['pedidos.ler', 'clientes.anonimizacao.ler', 'cupons.ler', 'cupons.uso.ler', 'atendimento.canais.ler']);
     });
   });
 
