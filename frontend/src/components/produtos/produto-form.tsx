@@ -9,8 +9,11 @@ import { selectCls, SELOS } from '@/components/produtos/types';
 import { chaveUnidade, comoFoiCadastrada, unidadesDoCadastro } from '@/lib/conversao-unidade';
 import { VariacoesEditor } from '@/components/produtos/variacoes-editor';
 import { ComboEditor } from '@/components/produtos/combo-editor';
+import Link from 'next/link';
 import { FiscalFields } from '@/components/produtos/fiscal-fields';
 import { IfoodFields } from '@/components/produtos/ifood-fields';
+import { OndeVendeCampos } from '@/components/produtos/onde-vende-campos';
+import { linkDaGestao, type OndeVende } from '@/lib/cadastro-onde-vende';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -59,6 +62,9 @@ export function ProdutoForm({
   catLabel,
   canaisAtivos = [],
   ifoodLigado = false,
+  com99 = false,
+  ondeVende,
+  setOndeVende,
   onSubmit,
 }: {
   f: any;
@@ -75,9 +81,15 @@ export function ProdutoForm({
   canaisAtivos?: { canal: string; label: string }[];
   // iFood pelo Orzuni (mig 369): a seção "iFood" só aparece com o direito ligado na empresa.
   ifoodLigado?: boolean;
+  // R3 F7: "Preço e pausa na 99" ligado (o "Onde vende" ao criar ganha a 99).
+  com99?: boolean;
+  // R3 F7: o "Onde vende" do produto NOVO (Regem, iFood, 99); ao editar, a pausa fica nos campos de sempre.
+  ondeVende: OndeVende;
+  setOndeVende: (o: OndeVende) => void;
   onSubmit: (e: React.FormEvent) => void;
   onCancel: () => void;
 }) {
+  const criando = !editId;
   // "Ativo no <canal>" = o produto NÃO está na lista de canais pausados.
   const pausados: string[] = Array.isArray(f.canaisPausados) ? f.canaisPausados : [];
   const setCanal = (canal: string, ativo: boolean) => {
@@ -87,8 +99,11 @@ export function ProdutoForm({
     set({ canaisPausados: [...s] });
   };
   // Com o iFood pelo Orzuni ligado, a pausa do iFood fica na seção "iFood" ("Pausado no iFood"): aqui sai, para a
-  // mesma chave não aparecer duas vezes com sentidos opostos ("Ativo" × "Pausado").
-  const canaisDaColuna = ifoodLigado ? canaisAtivos.filter((c) => c.canal !== 'ifood') : canaisAtivos;
+  // mesma chave não aparecer duas vezes com sentidos opostos ("Ativo" × "Pausado"). Ao criar com a 99 no "Onde vende"
+  // (R3 F7), o "Ativo no 99food" também sai: a 99 se marca lá, e a pausa dela fica na Gestão do catálogo.
+  const canaisDaColuna = canaisAtivos.filter(
+    (c) => !(ifoodLigado && c.canal === 'ifood') && !(criando && com99 && c.canal === '99food'),
+  );
   return (
     <form onSubmit={onSubmit} className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-[minmax(0,240px)_1fr]">
@@ -102,14 +117,19 @@ export function ProdutoForm({
 
           <div className="rounded-xl border border-border bg-card p-3">
             <p className="mb-2 text-xs font-bold text-muted-foreground">Status</p>
-            <label className="flex items-center gap-2 py-1 text-sm">
-              <input type="checkbox" checked={!!f.disponivelBalcao} onChange={(e) => set({ disponivelBalcao: e.target.checked })} className="h-4 w-4 accent-primary" />
-              Ativo no balcão (PDV)
-            </label>
-            <label className="flex items-center gap-2 py-1 text-sm">
-              <input type="checkbox" checked={!!f.disponivelCardapio} onChange={(e) => set({ disponivelCardapio: e.target.checked })} className="h-4 w-4 accent-primary" />
-              Ativo no cardápio digital
-            </label>
+            {/* Ao criar, o Regem (balcão e cardápio digital juntos) se marca no "Onde vende" (R3 F7). */}
+            {!criando && (
+              <>
+                <label className="flex items-center gap-2 py-1 text-sm">
+                  <input type="checkbox" checked={!!f.disponivelBalcao} onChange={(e) => set({ disponivelBalcao: e.target.checked })} className="h-4 w-4 accent-primary" />
+                  Ativo no balcão (PDV)
+                </label>
+                <label className="flex items-center gap-2 py-1 text-sm">
+                  <input type="checkbox" checked={!!f.disponivelCardapio} onChange={(e) => set({ disponivelCardapio: e.target.checked })} className="h-4 w-4 accent-primary" />
+                  Ativo no cardápio digital
+                </label>
+              </>
+            )}
             <label className="flex items-center gap-2 py-1 text-sm">
               <input type="checkbox" checked={!!f.destaque} onChange={(e) => set({ destaque: e.target.checked })} className="h-4 w-4 accent-primary" />
               Destaque no cardápio
@@ -175,10 +195,31 @@ export function ProdutoForm({
 
           <Secao titulo="Preço e custo">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <Label className="text-xs">Preço de venda (R$)</Label>
-                <Input type="number" value={f.precoVenda} onChange={(e) => set({ precoVenda: e.target.value })} placeholder="0,00" required />
-              </div>
+              {criando ? (
+                <div className="space-y-1">
+                  <Label htmlFor="produto-preco-venda" className="text-xs">Preço de venda (R$)</Label>
+                  <Input id="produto-preco-venda" type="number" value={f.precoVenda} onChange={(e) => set({ precoVenda: e.target.value })} placeholder="0,00" required aria-describedby="produto-preco-venda-ajuda" />
+                  <p id="produto-preco-venda-ajuda" className="text-[11px] text-muted-foreground">
+                    Depois de criado, o preço (o do Regem e o de cada app) muda em Delivery › Gestão do catálogo.
+                  </p>
+                </div>
+              ) : (
+                // R3 F7 (decisão 14 do protótipo): depois de criado, o preço muda só na Gestão do catálogo — um lugar só,
+                // com a auditoria de → para. O formulário mostra e não manda.
+                <div className="space-y-1">
+                  <p className="text-xs font-medium">Preço de venda</p>
+                  <p className="flex h-10 items-center rounded-md border border-dashed border-border px-3 font-mono text-sm">
+                    {String(f.precoVenda ?? '') !== '' ? brl(Number(String(f.precoVenda).replace(',', '.'))) : '—'}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Muda em{' '}
+                    <Link href={linkDaGestao(f.nome)} className="font-semibold text-foreground underline underline-offset-2">
+                      Delivery › Gestão do catálogo
+                    </Link>
+                    .
+                  </p>
+                </div>
+              )}
               <div className="space-y-1">
                 <Label className="text-xs">Preço promocional &quot;por&quot; (R$)</Label>
                 <Input type="number" value={f.precoPromocional} onChange={(e) => set({ precoPromocional: e.target.value })} placeholder="opcional (menor que o de venda)" />
@@ -206,6 +247,10 @@ export function ProdutoForm({
               )}
             </div>
           </Secao>
+
+          {criando && (
+            <OndeVendeCampos valor={ondeVende} aoMudar={setOndeVende} comIfood={ifoodLigado} com99={com99} codigo={String(f.codigo ?? '')} />
+          )}
 
           {ifoodLigado && <IfoodFields f={f} set={set} produtoId={editId} />}
 

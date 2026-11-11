@@ -8,7 +8,8 @@ import { ProdutoController } from './produto.controller';
 import { MODULO_IFOOD_PELO_ORZUNI } from '../../common/ifood-pelo-orzuni';
 import { MODULO_PRECOS_NA_99 } from '../../common/precos-na-99';
 import {
-  exigirCanalDePausa, exigirCanalDePreco, exigirIdDoProduto, preco99DoCanal, precoDeVendaDoPedido, precoIfoodDoCanal,
+  exigirCanalDePausa, exigirCanalDePausaDoProduto, exigirCanalDePreco, exigirIdDoProduto, preco99DoCanal, precoDeVendaDoPedido,
+  precoIfoodDoCanal,
 } from './produto-canais';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -60,6 +61,12 @@ describe('regras do preço e da pausa por canal (sem banco)', () => {
     expect(() => exigirCanalDePreco('gogem')).toThrow(/regem.*ifood.*99food/);
     expect(exigirCanalDePausa('99food')).toBe('99food');
     expect(() => exigirCanalDePausa('gogem')).toThrow(/Canal inválido/);
+    // R3 F7: a pausa do PRODUTO aceita também os canais das outras integrações do Cadastros; a da opção, não; o totem, nunca.
+    expect(exigirCanalDePausaDoProduto('keeta')).toBe('keeta');
+    expect(exigirCanalDePausaDoProduto('regem')).toBe('regem');
+    expect(() => exigirCanalDePausa('keeta')).toThrow(/Canal inválido/);
+    expect(() => exigirCanalDePausaDoProduto('gogem')).toThrow(/integração de delivery/);
+    expect(() => exigirCanalDePausaDoProduto('')).toThrow(/Canal inválido/);
     expect(() => exigirIdDoProduto('1 or 1=1')).toThrow(/Produto inválido/);
   });
 });
@@ -210,6 +217,21 @@ descrever('preço e pausa por canal (Postgres real)', () => {
       ['reativou_produto_no_canal', 'ifood'],
     ]);
     await expect(produtos.pausaDoCanal(t, p, 'ifood', 'sim', ator)).rejects.toThrow(/pausado/);
+  });
+
+  it('R3 F7: o canal de outra integração (o "Ativo no Keeta" do Cadastros) põe e tira SÓ ele; o resto da lista fica', async () => {
+    const { t, p } = await loja(true);
+    await produtos.pausaDoCanal(t, p, 'ifood', true, ator);
+    auditados.length = 0;
+    expect(await produtos.pausaDoCanal(t, p, 'keeta', true, ator)).toMatchObject({ canal: 'keeta', mudou: true });
+    expect((await gravado(p)).canais).toEqual(['gogem', 'ifood', 'keeta']);
+    expect(await produtos.pausaDoCanal(t, p, 'keeta', false, ator)).toMatchObject({ mudou: true, canaisPausados: ['gogem', 'ifood'] });
+    expect(auditados.map((a) => [a.acao, a.detalhe.canal])).toEqual([
+      ['pausou_produto_no_canal', 'keeta'],
+      ['reativou_produto_no_canal', 'keeta'],
+    ]);
+    await expect(produtos.pausaDoCanal(t, p, 'gogem', false, ator)).rejects.toThrow(/Canal inválido/);
+    expect((await gravado(p)).canais).toEqual(['gogem', 'ifood']);
   });
 
   it('produto de outra empresa ou inexistente: 404; e nada muda no de lá', async () => {

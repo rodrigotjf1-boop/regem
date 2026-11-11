@@ -1,16 +1,19 @@
 'use client';
 
-import { Pencil, Copy, EyeOff, Eye, Trash2, Link2 } from 'lucide-react';
+import { Pencil, Copy, Eye, Trash2, Link2, Tag } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { KebabMenu } from '@/components/ui/kebab-menu';
 import { brl } from '@/components/produtos/types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// Um produto está "pausado" quando não aparece em nenhum canal de venda.
+// Pausado no Regem = fora do balcão E do cardápio digital (a pausa do Regem da Gestão do catálogo).
 const pausado = (p: any) => p.disponivelBalcao === false && p.disponivelCardapio === false;
 const SEM_CAT = '__sem_categoria__';
 
+// R3 F7 (protótipo `regem-conciliacao-ifood.html`, "E no Cadastros › Cardápio, como fica"): a chave de pausa e a edição
+// de preço saem daqui — o preço e a pausa de cada canal ficam em Delivery › Gestão do catálogo ("Preço e pausa" no menu da
+// linha abre lá com o produto na busca). A lista mostra o preço e diz quando o produto está pausado no Regem.
 export function ProdutosLista({
   produtos,
   categorias,
@@ -18,7 +21,7 @@ export function ProdutosLista({
   onRemover,
   onReativar,
   onDuplicar,
-  onPausar,
+  onPrecoEPausa,
   onCopiarLink,
 }: {
   produtos: any[] | null;
@@ -27,7 +30,7 @@ export function ProdutosLista({
   onRemover: (id: string, nome: string) => void;
   onReativar?: (p: any, ativo: boolean) => void;
   onDuplicar?: (p: any) => void;
-  onPausar?: (p: any, ativar: boolean) => void;
+  onPrecoEPausa?: (p: any) => void;
   onCopiarLink?: (p: any) => void;
 }) {
   if (!produtos) {
@@ -88,7 +91,7 @@ export function ProdutosLista({
                 onRemover={onRemover}
                 onReativar={onReativar}
                 onDuplicar={onDuplicar}
-                onPausar={onPausar}
+                onPrecoEPausa={onPrecoEPausa}
                 onCopiarLink={onCopiarLink}
               />
             ))}
@@ -106,7 +109,7 @@ function ProdutoRow({
   onRemover,
   onReativar,
   onDuplicar,
-  onPausar,
+  onPrecoEPausa,
   onCopiarLink,
 }: {
   p: any;
@@ -115,7 +118,7 @@ function ProdutoRow({
   onRemover: (id: string, nome: string) => void;
   onReativar?: (p: any, ativo: boolean) => void;
   onDuplicar?: (p: any) => void;
-  onPausar?: (p: any, ativar: boolean) => void;
+  onPrecoEPausa?: (p: any) => void;
   onCopiarLink?: (p: any) => void;
 }) {
   const off = pausado(p);
@@ -148,6 +151,9 @@ function ProdutoRow({
           {!p.fichaId && !p.itemId && p.controlaEstoque && (
             <span className="rounded bg-warn/10 px-1.5 py-0.5 text-[10px] font-medium text-warn">sem ficha</span>
           )}
+          {off && (
+            <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-foreground">pausado no Regem</span>
+          )}
           {esgotado && (
             // Em "todas as lojas", diz em quais esgotou (a pausa por estoque é por loja).
             <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-bold text-destructive">
@@ -169,31 +175,12 @@ function ProdutoRow({
         </span>
       </div>
 
-      {/* Toggle de disponibilidade (ocultar/retomar nos dois canais) */}
-      {onPausar && (
-        <button
-          type="button"
-          role="switch"
-          aria-checked={!off}
-          aria-label={off ? `Retomar ${p.nome}` : `Ocultar ${p.nome}`}
-          title={off ? 'Pausado — clique para retomar' : 'Disponível — clique para ocultar'}
-          onClick={() => onPausar(p, off)}
-          className={`relative h-5 w-9 flex-none rounded-full transition-colors ${off ? 'bg-muted-foreground/35' : 'bg-ok'}`}
-        >
-          <span
-            className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${off ? 'left-0.5' : 'left-4'}`}
-          />
-        </button>
-      )}
-
       <KebabMenu
         label={`Ações de ${p.nome}`}
         items={[
           { label: 'Editar', icon: <Pencil className="h-4 w-4" />, onClick: () => onEditar(p.id) },
+          { label: 'Preço e pausa', icon: <Tag className="h-4 w-4" />, onClick: () => onPrecoEPausa?.(p), hidden: !onPrecoEPausa },
           { label: 'Duplicar', icon: <Copy className="h-4 w-4" />, onClick: () => onDuplicar?.(p), hidden: !onDuplicar },
-          off
-            ? { label: 'Retomar', icon: <Eye className="h-4 w-4" />, onClick: () => onPausar?.(p, true), hidden: !onPausar }
-            : { label: 'Ocultar', icon: <EyeOff className="h-4 w-4" />, onClick: () => onPausar?.(p, false), hidden: !onPausar },
           { label: 'Reativar estoque', icon: <Eye className="h-4 w-4" />, onClick: () => onReativar?.(p, true), hidden: !(onReativar && esgotado) },
           { label: 'Copiar link', icon: <Link2 className="h-4 w-4" />, onClick: () => onCopiarLink?.(p), hidden: !onCopiarLink },
           { label: 'Excluir', icon: <Trash2 className="h-4 w-4" />, onClick: () => onRemover(p.id, p.nome), destructive: true },

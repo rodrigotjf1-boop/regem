@@ -21,6 +21,12 @@ export const CANAIS_DE_PRECO = ['regem', 'ifood', '99food'] as const;
 export type CanalDePreco = (typeof CANAIS_DE_PRECO)[number];
 export const CANAIS_DE_PAUSA = ['regem', 'ifood', '99food'] as const;
 export type CanalDePausa = (typeof CANAIS_DE_PAUSA)[number];
+// R3 F7: os outros canais de integração que o Cadastros › Cardápio pausa POR PRODUTO ("Ativo no <canal>" do formulário,
+// a mesma chave `canais_pausados`). Ao editar, o formulário manda só o canal que a pessoa mudou, por esta rota — a lista
+// nunca é regravada inteira (a pausa feita na Gestão do catálogo ou pelo totem não some). O totem (`gogem`) fica de fora:
+// a pausa dele é dele.
+export const CANAIS_DE_INTEGRACAO = ['anotaai', 'delivery_direto', 'cardapio_web', 'rappi', 'keeta'] as const;
+export type CanalDePausaDoProduto = CanalDePausa | (typeof CANAIS_DE_INTEGRACAO)[number];
 
 /** O maior preço que a tela aceita (o mesmo teto do preço do iFood). */
 const PRECO_MAXIMO = 999_999.99;
@@ -41,6 +47,12 @@ export function exigirCanalDePreco(v: unknown): CanalDePreco {
 export function exigirCanalDePausa(v: unknown): CanalDePausa {
   if (typeof v === 'string' && (CANAIS_DE_PAUSA as readonly string[]).includes(v)) return v as CanalDePausa;
   throw new BadRequestException('Canal inválido para a pausa: use "regem", "ifood" ou "99food".');
+}
+
+/** O canal da pausa de um PRODUTO: os três da Gestão e os das outras integrações de delivery (R3 F7). */
+export function exigirCanalDePausaDoProduto(v: unknown): CanalDePausaDoProduto {
+  if (typeof v === 'string' && ([...CANAIS_DE_PAUSA, ...CANAIS_DE_INTEGRACAO] as readonly string[]).includes(v)) return v as CanalDePausaDoProduto;
+  throw new BadRequestException('Canal inválido para a pausa: use "regem", "ifood", "99food" ou o canal de uma integração de delivery.');
 }
 
 /**

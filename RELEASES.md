@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Cadastros › Cardápio depois da Gestão do catálogo (R3, fase F7; SEM migration; não mexe no `sync-daemon`).** Na NUVEM
+  com o merge: a lista sem a chave de pausa ("pausado no Regem" e "Preço e pausa" no ⋮, que abre a Gestão com o produto
+  na busca), o "Onde vende" (Regem, iFood, 99) ao criar e, ao editar, o preço só para ler e o salvar que manda só o que
+  mudou (a pausa de cada canal um por vez — a rota `PUT /produtos/:id/pausa-canal` passa a aceitar os canais das outras
+  integrações). **No `.zip` 1.30.13:** o mesmo na tela e no servidor da loja (sem o `.zip`, a tela da loja segue com a
+  chave antiga, que funciona).
+
 - **Gestão do catálogo: a foto de cada app e "Mandar esta foto à 99" (R3, fase F6; SEM migration; não mexe no
   `sync-daemon`).** Na NUVEM com o merge: os selos "sem foto no/na <app>" e "foto só no/na <app>" em Produtos e preços, a
   situação "Foto faltando num app", as fotos lado a lado na gaveta de editar e o envio da foto à 99 (`head_img` no

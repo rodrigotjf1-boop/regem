@@ -36,6 +36,7 @@ import { CreateCategoriaDto } from './dto/create-categoria.dto';
 import { CreateProdutoDto } from './dto/create-produto.dto';
 import {
   exigirCanalDePausa,
+  exigirCanalDePausaDoProduto,
   exigirCanalDePreco,
   exigirCanalDePrecoDaOpcao,
   exigirIdDaOpcao,
@@ -205,7 +206,8 @@ export class ProdutoService {
    */
   async pausaDoCanal(tenantId: string, idBruto: string, canalBruto: unknown, pausadoBruto: unknown, ator: Ator) {
     const id = exigirIdDoProduto(idBruto);
-    const canal = exigirCanalDePausa(canalBruto);
+    // Os da Gestão e, desde a F7, os outros canais de integração do Cadastros (`canais_pausados`, um por vez).
+    const canal = exigirCanalDePausaDoProduto(canalBruto);
     const pausado = exigirBooleano(pausadoBruto, 'pausado');
     const lista = sql`coalesce(p.canais_pausados, '[]'::jsonb)`;
     const r: any = await this.db.execute(
