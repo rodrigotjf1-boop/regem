@@ -21,6 +21,7 @@
   mig 401, subir essa constante (`backend/src/common/precos-na-99.ts`) para a versão que a trouxer.** Mexe no
   `sync-daemon` só na lista `SO_NUVEM` (a fila `food99_envio`, que a loja não tem): nada muda na loja por isso; o `.exe`
   já está pendente pelo O3/O14.
+
 - **KDS para a cozinha enxergar — a tela na versão 2 (onda 2 da auditoria do KDS; SEM migration; não mexe no
   `sync-daemon`).** Na NUVEM com o merge: cartão neutro com a cor só no selo do tempo, letra maior, cabeçalho compacto
   (o do aparelho no ⚙), faixas claras, rodapé parado com "Ciente", aviso curto a cada toque, "Finalizar todos" em
