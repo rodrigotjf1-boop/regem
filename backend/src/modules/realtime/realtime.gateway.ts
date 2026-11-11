@@ -1,4 +1,4 @@
-import { Logger, Optional } from '@nestjs/common';
+import { Inject, Logger, Optional } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { JwtService } from '@nestjs/jwt';
 import {
@@ -16,8 +16,23 @@ import { EquipamentoService } from '../equipamento/equipamento.service';
 import { PresencaService, enderecoDoHost, ipDoPc, versaoInformada } from '../equipamento/presenca.service';
 import { lerCookieSessao } from '../../auth/cookie-sessao';
 import { ehServidorLocal } from '../../common/modo';
+import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { sql } from 'drizzle-orm';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * As prioridades que o KDS conhece (o rodapé ordena danger > alta > info > ok). Outros módulos mandavam 'media'/'baixa'
+ * (contagem, compras) e o KDS, sem conhecer, ordenava por NaN — a "Compra recebida" passava na frente do "❌ CANCELADO"
+ * (auditoria do KDS, 11/11/2026). 'media' vira alta, 'baixa' vira info; ausente ou desconhecida, alta (como sempre).
+ */
+export function prioridadeDoKds(p: unknown): 'danger' | 'alta' | 'info' | 'ok' {
+  if (p === 'danger' || p === 'alta' || p === 'info' || p === 'ok') return p;
+  if (p === 'baixa') return 'info';
+  return 'alta';
+}
 
 // Contexto anexado ao socket após o handshake autenticado.
 interface SockCtx {
@@ -29,6 +44,7 @@ interface SockCtx {
   tipo?: string; // kds | terminal_ponto (quando device)
   equipamentoId?: string;
   colaboradorId?: string; // PDV logado (dono de mesa) — para roteio garçom → PDV
+  categoria?: string | null; // nível de quem entrou com login (presidente, gerente…) — o envio de alerta pelo socket
 }
 
 const corsOrigin = process.env.CORS_ORIGIN;
@@ -56,7 +72,25 @@ export class RealtimeGateway
     private readonly equipamentos: EquipamentoService,
     // Opcional: os testes montam o gateway só com os dois de cima.
     @Optional() private readonly presenca?: PresencaService,
+    // As lojas da empresa, para pôr o socket de quem entra com login na sala da loja. Opcional pelos testes.
+    @Optional() @Inject(DRIZZLE) private readonly db?: DrizzleDB,
   ) {}
+
+  /**
+   * As lojas cuja sala o socket de quem entrou com LOGIN recebe (auditoria do KDS, 11/11/2026). Antes ele entrava só na
+   * sala da empresa, e o KDS (que sempre entra com login) nunca recebia o que vai para a sala da LOJA — o alerta de ponto
+   * de pedido, de validade e de produto esgotado se perdiam, mesmo em empresa de uma loja só. A regra é a da loja em uso
+   * (`UnidadeAtual`): quem tem loja fixa fica na dela (o pedido é ignorado); o presidente fica na loja escolhida — conferida
+   * NA EMPRESA (V86) — ou, em "todas as lojas", em todas; outro nível sem loja não entra em sala de loja nenhuma.
+   */
+  async lojasDoLogin(tenantId: string, payload: any, pedida: unknown): Promise<string[]> {
+    if (typeof payload?.uni === 'string' && UUID_RE.test(payload.uni)) return [payload.uni];
+    if (payload?.cat !== 'presidente' || !this.db) return [];
+    const r: any = await this.db.execute(sql`select id from unidade where tenant_id = ${tenantId}`);
+    const lojas: string[] = ((r.rows ?? r) as any[]).map((x) => String(x.id));
+    if (typeof pedida === 'string' && UUID_RE.test(pedida) && lojas.includes(pedida)) return [pedida];
+    return lojas;
+  }
 
   async handleConnection(socket: Socket) {
     try {
@@ -103,13 +137,18 @@ export class RealtimeGateway
           auth.jwt || lerCookieSessao({ headers: socket.handshake.headers } as any);
         if (!jwt) return this.recusar(socket, 'sem credenciais');
         const p: any = this.jwt.verify(jwt);
+        const lojas = await this.lojasDoLogin(p.tenant, p, auth.unidade);
         const ctx: SockCtx = {
           tenantId: p.tenant,
           role: 'gestor',
           colaboradorId: p.sub,
+          categoria: typeof p.cat === 'string' ? p.cat : null,
+          // Uma loja só (a fixa, ou a escolhida pelo presidente): é a loja do socket (o alerta pelo socket vai para ela).
+          unidadeId: lojas.length === 1 ? lojas[0] : null,
         };
         socket.data.ctx = ctx;
         this.entrarSalas(socket, ctx);
+        for (const loja of lojas) socket.join(`unidade:${loja}`);
       }
     } catch {
       this.recusar(socket, 'handshake inválido');
@@ -215,7 +254,7 @@ export class RealtimeGateway
       id: randomUUID(),
       titulo: p.titulo,
       detalhe: p.detalhe ?? '',
-      prioridade: p.prioridade ?? 'alta',
+      prioridade: prioridadeDoKds(p.prioridade),
       duracaoSeg: Number(p.duracaoSeg) > 0 ? Number(p.duracaoSeg) : 60,
       som: true,
       em: new Date().toISOString(),
@@ -330,17 +369,21 @@ export class RealtimeGateway
     // RBAC (W1): só GESTOR dispara alerta ao KDS. Um device (token de KDS/ponto) NÃO pode
     // broadcastar conteúdo arbitrário para todo o tenant.
     if (ctx.role !== 'gestor') return { ok: false, erro: 'sem permissão' };
+    // Só presidente e gerente mandam alerta a todas as telas — como a rota REST (auditoria do KDS, 11/11/2026: qualquer
+    // login, até o da execução, mandava).
+    if (ctx.categoria !== 'presidente' && ctx.categoria !== 'gerente') return { ok: false, erro: 'sem permissão' };
     // Rate-limit: no máx. ~1 alerta/2s por socket (evita flood intra-tenant).
     if (!this.permitido(socket, 'alerta', 2000)) return { ok: false, erro: 'muito rápido, aguarde' };
     const alerta = {
       id: this.sanitizar(body?.id, 64) || randomUUID(),
       titulo: this.sanitizar(body?.titulo, 80) || 'Alerta',
       detalhe: this.sanitizar(body?.detalhe, 300),
-      prioridade: ['alta', 'media', 'baixa'].includes(body?.prioridade) ? body.prioridade : 'alta',
+      prioridade: prioridadeDoKds(body?.prioridade),
       som: body?.som !== false,
       em: new Date().toISOString(),
     };
-    this.server.to(`tenant:${ctx.tenantId}`).emit('kds:alerta', alerta);
+    // Da loja de quem mandou (loja fixa ou a escolhida); sem loja (presidente em "todas"), a empresa inteira.
+    this.server.to(ctx.unidadeId ? `unidade:${ctx.unidadeId}` : `tenant:${ctx.tenantId}`).emit('kds:alerta', alerta);
     return { ok: true, alerta };
   }
 

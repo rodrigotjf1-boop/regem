@@ -22,6 +22,7 @@ import {
   pedidoDoDespachoNaTela,
   contarEtapas,
   decidirTecla,
+  escolherAlertaDoRodape,
   filtrarEtapa,
   formaDeUso,
   grupoPedido,
@@ -56,13 +57,8 @@ type Alerta = {
 // Prioridade → rank (o rodapé mostra o de maior rank; empate = mais recente). Só o
 // alerta EXIBIDO conta o tempo → um urgente curto sobrepõe o longo, que "congela" e
 // volta a contar quando o urgente sai (override + retomada do ciclo).
-const RANK: Record<Alerta['prioridade'], number> = { danger: 3, alta: 2, info: 1, ok: 0 };
-function escolherAlerta(as: Alerta[]): Alerta | null {
-  if (!as.length) return null;
-  return [...as].sort(
-    (a, b) => RANK[b.prioridade] - RANK[a.prioridade] || new Date(b.em).getTime() - new Date(a.em).getTime(),
-  )[0];
-}
+// A escolha mora em `lib/kds-fila` (testada no check:kds): prioridade desconhecida vale como alta.
+const escolherAlerta = (as: Alerta[]): Alerta | null => escolherAlertaDoRodape(as);
 function bgAlerta(p: Alerta['prioridade']) {
   if (p === 'danger') return '#B4231C';
   if (p === 'info') return '#1E6FA8';

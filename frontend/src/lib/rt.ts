@@ -1,5 +1,5 @@
 import { io, type Socket } from 'socket.io-client';
-import { apiBase, getJwt } from './api';
+import { apiBase, getJwt, getUnidadeAtual } from './api';
 import { origemDoTempoReal } from './origem-api';
 import { VERSAO_DA_TELA } from './versao-da-tela';
 
@@ -15,9 +15,11 @@ const EH_EDGE = process.env.NEXT_PUBLIC_EDGE === '1';
 // Importante atrás de proxy (EasyPanel) que possa não ter upgrade de WS configurado.
 
 // Painel/gestor (web): JWT da sessão (edge/Bearer) ou, na nuvem sem JWT, o cookie
-// httpOnly vai no handshake via withCredentials — o gateway lê os dois.
+// httpOnly vai no handshake via withCredentials — o gateway lê os dois. `unidade` = a loja em uso (o seletor do
+// presidente): o servidor põe o socket na sala dela — quem tem loja fixa fica na dele, o pedido é ignorado (auditoria do
+// KDS, 11/11/2026: o KDS nunca recebia os alertas da loja).
 export function connectAsGestor(): Socket {
-  return io(rtUrl(), { auth: { jwt: getJwt() ?? undefined }, withCredentials: !EH_EDGE });
+  return io(rtUrl(), { auth: { jwt: getJwt() ?? undefined, unidade: getUnidadeAtual() ?? undefined }, withCredentials: !EH_EDGE });
 }
 
 // Device (KDS / Terminal): autentica com o token do equipamento. Leva a versão da tela (o ícone do servidor mostra).
