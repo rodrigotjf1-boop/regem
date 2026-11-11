@@ -1,0 +1,1197 @@
+/* TELA DO KDS — versão 2 (onda 2 da auditoria do KDS, aprovada pelo dono em 11/11/2026: "KDS com muita cor", "os avisos
+   ficam passando na tela"). Protótipo: mockups/regem-kds-cozinha.html (aba 1).
+   · O cartão é NEUTRO em qualquer tempo; a cor do status fica só no SELO do tempo ("13 min") e o atrasado ganha a
+     etiqueta "Atrasado" em contorno vermelho. O botão de avançar é neutro (tinta com contorno).
+   · Faixas (sem conexão, erro de leitura, som pausado) CLARAS; só a palavra da gravidade leva cor.
+   · O rodapé de avisos fica PARADO, numa faixa clara: a palavra da prioridade em cor, o texto em tinta, até 2 linhas
+     ("Ver tudo" para o resto). O urgente se distingue pelo ícone, pelo negrito e pelo "Ciente" — nunca por fundo vermelho.
+   · Cabeçalho compacto: duas linhas de 48 px no tablet, uma só a partir de 1720 px. Toque ≥ 48 px em qualquer letra.
+   As cores são variáveis (`variaveisDoKds`, em lib/kds-tema.ts), medidas nos dois temas pelo check:kds. Larguras por
+   @media (a tela ocupa a janela inteira): TV e tablet com navegador antigo não leem @container. */
+
+.kds-app {
+  --esc: 1;
+  --fd: 'Archivo', 'Segoe UI', system-ui, sans-serif;
+  --fb: 'Figtree', 'Segoe UI', system-ui, sans-serif;
+  --fm: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  --k-sombra: 0 18px 44px rgba(15, 34, 48, 0.28);
+  position: relative;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 420px;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  background: var(--k-bg);
+  color: var(--k-ink);
+  font-family: var(--fb);
+  line-height: 1.4;
+}
+.kds-app[data-tema='escuro'] {
+  --k-sombra: 0 18px 44px rgba(0, 0, 0, 0.55);
+}
+.kds-app :focus-visible {
+  outline: 3px solid #2f7fd8;
+  outline-offset: 2px;
+}
+.kds-app button {
+  cursor: pointer;
+}
+.kds-app button:disabled {
+  cursor: default;
+}
+.k-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ── cabeçalho compacto ── */
+.k-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 6px 12px;
+  background: var(--k-panel);
+  border-bottom: 1px solid var(--k-line);
+  min-width: 0;
+}
+.k-logo {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  background: #0f2230;
+  color: #e2a340;
+  font: 800 18px var(--fd);
+}
+.k-nome {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-height: 48px;
+  padding: 0 8px;
+  font: 800 18px/1.1 var(--fd);
+  color: var(--k-ink);
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: left;
+  background: none;
+  border: 0;
+}
+.k-nome small {
+  font: 700 12px var(--fb);
+  color: var(--k-muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.k-seg {
+  display: flex;
+  flex-wrap: wrap;
+  border: 1px solid var(--k-line);
+  max-width: 100%;
+}
+.k-seg button {
+  min-height: 48px;
+  padding: 0 12px;
+  font-weight: 700;
+  font-size: 15px;
+  background: var(--k-panel-2);
+  color: var(--k-muted);
+  border: 0;
+}
+.k-seg button[aria-pressed='true'] {
+  background: var(--k-ink);
+  color: var(--k-panel);
+}
+.k-esp {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.k-senha {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.k-senha label {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--k-muted);
+}
+.k-senha input {
+  width: 96px;
+  min-height: 48px;
+  border: 2px solid var(--k-line);
+  background: var(--k-panel-2);
+  color: var(--k-ink);
+  text-align: center;
+  font: 700 24px var(--fm);
+}
+.k-senha[data-uso='teclado'] input {
+  width: 124px;
+  border-color: var(--k-ink);
+  border-style: dashed;
+}
+.k-senha[data-uso='teclado'] input:focus {
+  border-style: solid;
+}
+.k-senha input[aria-invalid='true'] {
+  border-color: var(--k-urg);
+  border-style: solid;
+}
+.k-senha-msg {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 4px);
+  z-index: 12;
+  white-space: nowrap;
+  padding: 4px 10px;
+  font-size: 14px;
+  font-weight: 800;
+  background: var(--k-inv-bg);
+  color: var(--k-inv-fg);
+  box-shadow: var(--k-sombra);
+}
+.k-senha-msg[data-erro='true'] {
+  background: var(--k-panel);
+  color: var(--k-urg);
+  border: 2px solid var(--k-urg);
+}
+.k-senha-dica {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 4px);
+  z-index: 11;
+  white-space: nowrap;
+  padding: 3px 8px;
+  font-size: 13px;
+  font-weight: 800;
+  background: var(--k-panel);
+  color: var(--k-ink);
+  border: 1.5px dashed var(--k-ink);
+}
+.k-conn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--k-line);
+  background: var(--k-panel-2);
+  color: var(--k-muted);
+  font-weight: 700;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.k-conn i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--s-ok);
+}
+.k-conn.off {
+  color: var(--k-urg);
+}
+.k-conn.off i {
+  background: var(--k-urg);
+}
+.k-hora {
+  font: 700 26px var(--fm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.k-quebra {
+  flex-basis: 100%;
+  height: 0;
+}
+.k-etapas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.k-etapa {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 12px;
+  border: 1px solid var(--k-line);
+  background: var(--k-panel-2);
+  color: var(--k-muted);
+  font-weight: 700;
+  font-size: 15px;
+  white-space: nowrap;
+}
+.k-etapa b {
+  font: 700 16px var(--fm);
+  color: var(--k-ink);
+}
+.k-etapa[aria-pressed='true'] {
+  background: var(--k-ink);
+  border-color: var(--k-ink);
+  color: var(--k-panel);
+}
+.k-etapa[aria-pressed='true'] b {
+  color: var(--k-panel);
+}
+/* "Atrasados": só o número em vermelho, sem fundo vermelho */
+.k-etapa.atraso b {
+  color: var(--k-urg);
+}
+.k-etapa.atraso[aria-pressed='true'] b {
+  color: var(--k-panel);
+}
+.k-etapa-sel {
+  display: none;
+  flex: 1 1 150px;
+  min-height: 48px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 10px;
+  border: 1px solid var(--k-line);
+  background: var(--k-panel-2);
+  color: var(--k-ink);
+  font-weight: 800;
+  font-size: 15px;
+}
+.k-util {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.k-ib {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0 10px;
+  border: 1px solid var(--k-line);
+  background: var(--k-panel-2);
+  color: var(--k-ink);
+  font-weight: 700;
+  font-size: 15px;
+  white-space: nowrap;
+}
+.k-ib[aria-pressed='true'],
+.k-ib[aria-expanded='true'] {
+  border-color: var(--k-ink);
+  box-shadow: inset 0 0 0 1px var(--k-ink);
+}
+.k-ib .rot {
+  display: none;
+}
+@media (min-width: 1180px) {
+  .k-ib .rot {
+    display: inline;
+  }
+}
+@media (min-width: 1720px) {
+  .k-quebra,
+  .k-esp2 {
+    display: none;
+  }
+  .k-logo { order: 1; }
+  .k-nome { order: 2; }
+  .k-seg { order: 3; }
+  .k-etapas { order: 4; }
+  .k-esp1 { order: 5; }
+  .k-senha { order: 6; }
+  .k-conn { order: 7; }
+  .k-hora { order: 8; }
+  .k-util { order: 9; }
+}
+/* celular (o KDS não é feito para ele, mas não pode estourar): etapas num seletor ("Atrasados" continua à vista), senha
+   só no modo teclado, conexão só com o ponto */
+@media (max-width: 599px) {
+  .k-hora { font-size: 20px; order: 4; }
+  .k-esp { display: none; }
+  .k-seg button { padding: 0 10px; font-size: 14px; }
+  .k-conn { order: 3; margin-left: auto; padding: 0 10px; }
+  .k-conn span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .k-seg { order: 5; }
+  .k-senha { order: 6; }
+  .k-quebra { order: 7; }
+  .k-etapa-sel { order: 8; display: block; }
+  .k-etapas { order: 9; }
+  .k-util { order: 11; }
+  .k-etapa:not(.atraso) { display: none; }
+  .k-senha[data-uso='toque'] { display: none; }
+}
+
+/* ── faixas fixas abaixo do cabeçalho (sem conexão, erro de leitura, som pausado, KDS pela internet) — CLARAS ── */
+.k-faixas {
+  display: grid;
+  min-width: 0;
+}
+.k-faixa {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  min-height: 48px;
+  padding: 6px 12px;
+  font-weight: 600;
+  font-size: 16px;
+  min-width: 0;
+  background: var(--k-panel);
+  color: var(--k-ink);
+  border: 0;
+  border-bottom: 1px solid var(--k-line);
+  text-align: left;
+  width: 100%;
+}
+.k-faixa > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.k-faixa .k-ic {
+  font-size: 18px;
+  line-height: 1;
+}
+.k-faixa b {
+  font-weight: 800;
+}
+.k-faixa .k-vermelho {
+  color: var(--k-urg);
+}
+.k-fbt {
+  min-height: 48px;
+  padding: 0 14px;
+  border: 2px solid var(--k-ink);
+  background: var(--k-panel-2);
+  color: var(--k-ink);
+  font-weight: 800;
+  margin-left: auto;
+}
+
+/* ── meio: a fila e o resumo (ao lado a partir de 900 px; embaixo, empurrando a fila, no estreito) ── */
+.k-meio {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
+  min-width: 0;
+}
+.k-meio.com-resumo {
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+@media (min-width: 900px) {
+  .k-meio.com-resumo {
+    grid-template-columns: minmax(0, 1fr) 260px;
+    grid-template-rows: minmax(0, 1fr);
+  }
+}
+.k-fila {
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 10px 12px 16px;
+  min-width: 0;
+  min-height: 0;
+}
+.k-grade {
+  display: grid;
+  gap: 4px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, calc(280px * var(--esc))), 1fr));
+  align-items: start;
+}
+.k-vazio {
+  border: 1px dashed var(--k-line);
+  padding: 48px 20px;
+  text-align: center;
+  color: var(--k-muted);
+  font-size: 16px;
+}
+.k-vazio b {
+  display: block;
+  font: 800 20px var(--fd);
+  color: var(--k-ink);
+  margin-bottom: 6px;
+}
+.k-vazio.erro b {
+  color: var(--k-erro);
+}
+.k-esq {
+  border: 1px solid var(--k-line);
+  background: var(--k-panel);
+  padding: 14px;
+  height: calc(200px * var(--esc));
+}
+.k-esq i {
+  display: block;
+  height: 16px;
+  background: var(--k-panel-2);
+  margin-bottom: 12px;
+  animation: k-pulsa 1.2s ease-in-out infinite;
+}
+@keyframes k-pulsa {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* ── cartão: NEUTRO; a cor do status só no selo do tempo ── */
+.k-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--k-panel);
+  color: var(--k-ink);
+  border: 1px solid var(--k-line);
+}
+.k-card.t-ok { --c: var(--s-ok); --on: var(--on-ok); }
+.k-card.t-warn { --c: var(--s-warn); --on: var(--on-warn); }
+.k-card.t-late { --c: var(--s-late); --on: var(--on-late); }
+.k-card.t-off { --c: var(--s-off); --on: var(--on-off); }
+.k-card.t-agenda { --c: var(--k-panel-2); --on: var(--k-ink); }
+.k-cab {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 10px;
+  padding: calc(10px * var(--esc)) calc(14px * var(--esc));
+  background: var(--k-panel);
+  color: var(--k-ink);
+  border-bottom: 1px solid var(--k-line);
+  min-width: 0;
+}
+.t-agenda .k-cab {
+  border-bottom: 2px dashed var(--k-line);
+}
+.k-ident {
+  font: 800 calc(27px * var(--esc)) / 1.08 var(--fd);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* o selo do tempo: par interno, igual nos dois temas (verde 5,13 · amarelo 10,24 · vermelho 4,83 · cancelado 5,45) */
+.k-tempo {
+  display: inline-flex;
+  align-items: baseline;
+  padding: calc(2px * var(--esc)) calc(9px * var(--esc));
+  background: var(--c);
+  color: var(--on);
+  font: 700 calc(22px * var(--esc)) / 1.15 var(--fm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.k-tempo small {
+  font: 700 calc(14px * var(--esc)) var(--fb);
+  margin: 0 3px;
+}
+.t-agenda .k-tempo {
+  border: 1.5px dashed var(--k-muted);
+}
+.k-sub {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-weight: 700;
+  font-size: calc(15px * var(--esc));
+  color: var(--k-muted);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.k-tag {
+  display: inline-block;
+  border: 1.5px solid currentColor;
+  padding: 0 6px;
+  font-weight: 800;
+  font-size: calc(13px * var(--esc));
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  line-height: 1.5;
+  color: var(--k-ink);
+  overflow-wrap: anywhere;
+}
+.k-tag.cheia {
+  background: var(--k-ink);
+  color: var(--k-panel);
+  border-color: var(--k-ink);
+}
+.k-tag.atraso {
+  color: var(--k-urg);
+  border-color: var(--k-urg);
+  background: transparent;
+}
+.k-cc {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: calc(10px * var(--esc));
+  padding: calc(12px * var(--esc)) calc(14px * var(--esc)) calc(14px * var(--esc));
+  min-width: 0;
+}
+.k-alt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: calc(10px * var(--esc)) calc(12px * var(--esc));
+  background: var(--k-ink);
+  color: var(--k-panel);
+}
+.k-alt .ex {
+  font: 900 calc(34px * var(--esc)) / 1 var(--fd);
+}
+.k-alt .tx {
+  flex: 1 1 120px;
+  min-width: 0;
+}
+.k-alt .tx b {
+  display: block;
+  font: 800 calc(20px * var(--esc)) / 1.15 var(--fd);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.k-alt .tx span {
+  font: 700 calc(14px * var(--esc)) var(--fm);
+}
+.k-alt button {
+  flex: 1 1 100%;
+  min-height: max(48px, calc(48px * var(--esc)));
+  background: var(--k-panel);
+  color: var(--k-ink);
+  border: 0;
+  font: 800 calc(16px * var(--esc)) var(--fd);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.k-linha-inf {
+  font-weight: 700;
+  font-size: calc(16px * var(--esc));
+  overflow-wrap: anywhere;
+}
+.k-itens {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: calc(10px * var(--esc));
+  align-content: start;
+  flex: 1;
+}
+.k-it {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  font-size: calc(20px * var(--esc));
+  line-height: 1.25;
+}
+.k-q {
+  font-family: var(--fm);
+  font-weight: 700;
+  min-width: 2.4ch;
+  text-align: right;
+}
+.k-d {
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+.k-it.tirar .k-d,
+.k-it.tirar .k-q {
+  text-decoration: line-through;
+}
+.k-comp {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 1px;
+  font-size: calc(16px * var(--esc));
+  font-weight: 600;
+  color: var(--k-ink);
+}
+.k-comp li {
+  overflow-wrap: anywhere;
+}
+.k-obs {
+  margin-top: 6px;
+  padding: 4px 8px;
+  border-left: 4px solid currentColor;
+  background: var(--k-panel-2);
+  font-size: calc(16px * var(--esc));
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+.k-mini {
+  font-size: calc(15px * var(--esc));
+  font-weight: 600;
+  color: var(--k-muted);
+}
+/* botão de avanço neutro: tinta navy com contorno (14,73 claro · 13,65 escuro) */
+.k-avancar {
+  width: 100%;
+  min-height: max(48px, calc(52px * var(--esc)));
+  background: var(--k-panel-2);
+  color: var(--k-ink);
+  border: 2px solid var(--k-ink);
+  font: 800 calc(16px * var(--esc)) var(--fd);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+.k-avancar[aria-busy='true'] {
+  opacity: 0.75;
+  cursor: wait;
+}
+.k-card.cancelado .k-ident,
+.k-card.cancelado .k-it {
+  text-decoration: line-through;
+}
+.k-card.apagado {
+  opacity: 0.32;
+}
+.k-card.destaque {
+  outline: 5px solid var(--k-ink);
+  outline-offset: -5px;
+}
+.k-it.alvo .k-d {
+  background: var(--k-ink);
+  color: var(--k-panel);
+  padding: 0 5px;
+}
+
+/* ── resumo de itens ── */
+.k-resumo {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--k-panel);
+  border-left: 1px solid var(--k-line);
+  padding: 12px;
+}
+@media (max-width: 899px) {
+  .k-resumo {
+    border-left: 0;
+    border-top: 2px solid var(--k-ink);
+    max-height: 38vh;
+    max-height: min(38dvh, 320px);
+    box-shadow: 0 -10px 24px rgba(0, 0, 0, 0.12);
+  }
+  .k-res-lista {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr));
+  }
+}
+.k-resumo h2 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  font: 800 13px var(--fd);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--k-muted);
+}
+.k-resumo p {
+  font-size: 14px;
+  color: var(--k-muted);
+  margin: 4px 0 10px;
+}
+.k-res-lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.k-res-it {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 6px 10px;
+  border: 1px solid var(--k-line);
+  background: var(--k-panel-2);
+  color: var(--k-ink);
+  text-align: left;
+}
+.k-res-it .n {
+  font: 700 22px var(--fm);
+  min-width: 2.4ch;
+  text-align: right;
+}
+.k-res-it .t {
+  font-weight: 800;
+  font-size: 16px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.k-res-it .s {
+  display: block;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--k-muted);
+}
+.k-res-it[aria-pressed='true'] {
+  background: var(--k-ink);
+  border-color: var(--k-ink);
+  color: var(--k-panel);
+}
+.k-res-it[aria-pressed='true'] .s {
+  color: var(--k-panel);
+}
+
+/* ── rodapé de avisos: PARADO, claro; a palavra da prioridade em cor, o texto em tinta, até 2 linhas ── */
+.k-pe {
+  position: relative;
+  min-width: 0;
+}
+.k-rodape {
+  --pc: var(--k-info);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  min-height: 64px;
+  background: var(--k-panel);
+  color: var(--k-ink);
+  border-top: 1px solid var(--k-line);
+  box-shadow: 0 -6px 16px rgba(15, 34, 48, 0.08);
+  min-width: 0;
+}
+.k-rodape.danger { --pc: var(--k-urg); }
+.k-rodape.alta { --pc: var(--k-aten); }
+.k-rodape.ok { --pc: var(--k-ok); }
+.k-lado {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  align-self: stretch;
+  padding: 0 14px;
+  border-right: 1px solid var(--k-line);
+  color: var(--pc);
+  font: 800 15px var(--fb);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.k-txt {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  padding: 8px 14px;
+  min-width: 0;
+}
+.k-letreiro {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  white-space: normal;
+  font: 700 19px/1.3 var(--fd);
+  overflow-wrap: anywhere;
+}
+.k-rodape.danger .k-letreiro {
+  font-weight: 800;
+}
+.k-letreiro small {
+  font: 500 16px var(--fb);
+  margin-left: 2px;
+}
+.k-rodape.danger .k-letreiro small {
+  font-weight: 700;
+}
+.k-ciente {
+  min-width: 120px;
+  min-height: 48px;
+  margin: 8px 0 8px 8px;
+  padding: 0 16px;
+  background: var(--k-ink);
+  color: var(--k-panel);
+  border: 0;
+  font: 800 18px var(--fd);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.k-mais {
+  min-height: 48px;
+  margin: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--k-line);
+  background: var(--k-panel-2);
+  color: var(--k-ink);
+  font-weight: 800;
+  font-size: 15px;
+  white-space: nowrap;
+}
+@media (max-width: 599px) {
+  .k-rodape {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas: 'lado ciente mais' 'txt txt txt';
+  }
+  .k-lado { grid-area: lado; border-right: 0; min-height: 48px; }
+  .k-txt { grid-area: txt; padding-top: 0; }
+  .k-ciente { grid-area: ciente; min-width: 0; padding: 0 12px; font-size: 16px; }
+  .k-mais { grid-area: mais; padding: 0 8px; }
+  .k-letreiro { font-size: 18px; }
+}
+
+/* lista dos avisos ("N avisos") — acima do rodapé, nunca o cobre */
+.k-lista {
+  position: absolute;
+  right: 12px;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  width: min(480px, calc(100vw - 24px));
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--k-panel);
+  color: var(--k-ink);
+  border: 1px solid var(--k-line);
+  box-shadow: var(--k-sombra);
+}
+.k-lista > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--k-line);
+  font: 800 15px var(--fd);
+}
+.k-lista ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.k-av {
+  display: grid;
+  grid-template-columns: 6px minmax(0, 1fr);
+  gap: 0 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--k-line);
+}
+.k-av .barra {
+  grid-row: span 3;
+  background: var(--k-line);
+}
+.k-av .pri { color: var(--k-info); font-weight: 800; }
+.k-av.danger .pri { color: var(--k-urg); }
+.k-av.alta .pri { color: var(--k-aten); }
+.k-av.ok .pri { color: var(--k-ok); }
+.k-av b {
+  font: 800 17px/1.2 var(--fd);
+  overflow-wrap: anywhere;
+}
+.k-av p {
+  margin: 0;
+  font-size: 15px;
+  color: var(--k-ink);
+  overflow-wrap: anywhere;
+}
+.k-av .meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--k-muted);
+}
+.k-av .meta button {
+  margin-left: auto;
+  min-height: 48px;
+  padding: 0 16px;
+  background: var(--k-ink);
+  color: var(--k-panel);
+  border: 0;
+  font: 800 15px var(--fd);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.k-x {
+  min-width: 48px;
+  min-height: 48px;
+  border: 1px solid var(--k-line);
+  background: var(--k-panel-2);
+  color: var(--k-ink);
+  font-size: 18px;
+}
+
+/* o aviso curto a cada toque, acima do rodapé */
+.k-toast {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 14px);
+  transform: translateX(-50%);
+  z-index: 40;
+  max-width: calc(100vw - 32px);
+  padding: 12px 18px;
+  background: var(--k-inv-bg);
+  color: var(--k-inv-fg);
+  font-weight: 800;
+  font-size: 17px;
+  box-shadow: var(--k-sombra);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+.k-toast.on {
+  opacity: 1;
+}
+.k-toast[data-erro='true'] {
+  background: var(--k-panel);
+  color: var(--k-urg);
+  border: 2px solid var(--k-urg);
+}
+
+/* ── gaveta ⚙ (Esta tela · Histórico) e diálogo ── */
+.k-fundo {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  background: rgba(15, 34, 48, 0.45);
+  border: 0;
+}
+.k-gaveta {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  width: min(480px, 100%);
+  display: flex;
+  flex-direction: column;
+  background: var(--k-panel);
+  color: var(--k-ink);
+  border-left: 1px solid var(--k-line);
+  box-shadow: var(--k-sombra);
+  min-width: 0;
+}
+.k-gcab {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--k-line);
+}
+.k-gcab h2 {
+  margin: 0;
+  font: 800 19px/1.2 var(--fd);
+  overflow-wrap: anywhere;
+}
+.k-gcab p {
+  margin: 2px 0 0;
+  font-size: 13.5px;
+  color: var(--k-muted);
+}
+.k-gtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 14px 0;
+}
+.k-gtab {
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--k-line);
+  background: var(--k-panel-2);
+  color: var(--k-muted);
+  font-weight: 800;
+  font-size: 15px;
+}
+.k-gtab[aria-selected='true'],
+.k-gtab[aria-pressed='true'] {
+  background: var(--k-ink);
+  border-color: var(--k-ink);
+  color: var(--k-panel);
+}
+.k-gcorpo {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px 16px;
+  display: grid;
+  gap: 16px;
+  align-content: start;
+  min-width: 0;
+}
+.k-grupo {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.k-grupo > b {
+  font: 800 15px var(--fd);
+}
+.k-nota {
+  margin: 0;
+  font-size: 14px;
+  color: var(--k-muted);
+  overflow-wrap: anywhere;
+}
+.k-nota b {
+  color: var(--k-ink);
+}
+.k-sel {
+  min-height: 48px;
+  padding: 0 10px;
+  border: 1px solid var(--k-line);
+  background: var(--k-panel-2);
+  color: var(--k-ink);
+  font-weight: 700;
+  width: 100%;
+  max-width: 100%;
+}
+.k-seg2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 92px), 1fr));
+  gap: 1px;
+  background: var(--k-line);
+  border: 1px solid var(--k-line);
+}
+.k-seg2 button {
+  min-height: 48px;
+  padding: 4px 6px;
+  background: var(--k-panel-2);
+  color: var(--k-muted);
+  border: 0;
+  font-weight: 800;
+  font-size: 14.5px;
+  line-height: 1.15;
+  overflow-wrap: break-word;
+}
+.k-seg2 button[aria-pressed='true'] {
+  background: var(--k-ink);
+  color: var(--k-panel);
+}
+.k-gpe {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--k-line);
+  background: var(--k-panel-2);
+}
+.k-gpe .k-nota {
+  flex: 1 1 160px;
+}
+.k-bt {
+  min-height: 48px;
+  padding: 0 16px;
+  border: 1px solid var(--k-line);
+  background: var(--k-panel);
+  color: var(--k-ink);
+  font-weight: 800;
+  font-size: 15px;
+}
+.k-bt.pri {
+  background: var(--acao);
+  border-color: var(--acao);
+  color: var(--on-acao);
+}
+.k-bt.cheio {
+  width: 100%;
+}
+.k-link {
+  min-height: 48px;
+  font-weight: 800;
+  color: var(--k-link);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+}
+.k-dialogo {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 50;
+  width: min(520px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  background: var(--k-panel);
+  color: var(--k-ink);
+  border: 1px solid var(--k-line);
+  box-shadow: var(--k-sombra);
+}
+.k-dialogo h2 {
+  margin: 0;
+  font: 800 20px/1.2 var(--fd);
+  padding: 14px 16px 0;
+  overflow-wrap: anywhere;
+}
+.k-dcorpo {
+  padding: 10px 16px 14px;
+  display: grid;
+  gap: 8px;
+  font-size: 16px;
+}
+.k-dcorpo p {
+  margin: 0;
+}
+
+/* histórico (aba da gaveta) */
+.k-hist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  border: 1px solid var(--k-line);
+}
+.k-h {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--k-line);
+}
+.k-h:last-child {
+  border-bottom: 0;
+}
+.k-h time {
+  font: 700 15px var(--fm);
+  grid-row: span 3;
+}
+.k-h b {
+  font-weight: 800;
+  font-size: 15.5px;
+  overflow-wrap: anywhere;
+}
+.k-h p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--k-muted);
+  overflow-wrap: anywhere;
+}
+.k-h .st {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--k-ink);
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kds-app *,
+  .kds-app *::before,
+  .kds-app *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

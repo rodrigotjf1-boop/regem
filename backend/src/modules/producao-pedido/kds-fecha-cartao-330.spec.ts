@@ -169,4 +169,58 @@ descrever('migration 330 e a fila do KDS (Postgres)', () => {
       await pool.query('delete from empresa where id = $1', [l.t]).catch(() => {});
     }
   });
+
+  // Auditoria do KDS (11/11/2026), onda 2: a encomenda leva o horário marcado ao cartão (a tela conta a partir de 30 min
+  // antes e não a dá por atrasada antes disso — O10), e a fila diz quando a NUVEM abriu o KDS de uma loja com o servidor
+  // ligado (a via da etapa ficaria sem quem imprima — R15). Numa transação desfeita: a tabela dos servidores é só da nuvem.
+  it('o cartão leva o horário da encomenda e a fila diz se a nuvem abriu o KDS de uma loja com o servidor ligado', async () => {
+    const c: PoolClient = await pool.connect();
+    try {
+      await c.query('begin');
+      await c.query(TRAVA_DA_EMPRESA);
+      const q = (s: string, p: any[] = []) => c.query(s, p).then((r) => r.rows);
+      // "Como nuvem": as duas tabelas que `edgeAtivo` lê (o banco do CI é de loja e não as tem).
+      if (!(await q(`select to_regclass(current_schema() || '.edge_status') as t`))[0].t)
+        await q(`create table edge_status (equipamento_id uuid primary key, tenant_id uuid, unidade_id uuid, versao text, recebido_em timestamptz)`);
+      if (!(await q(`select to_regclass(current_schema() || '.edge_heartbeat') as t`))[0].t)
+        await q(`create table edge_heartbeat (id uuid primary key default gen_random_uuid(), tenant_id uuid, unidade_id uuid, recebido_em timestamptz)`);
+      const l = await loja(q);
+      const outraLoja = (await q(`insert into unidade (tenant_id, nome) values ($1,'Outra') returning id`, [l.t]))[0].id as string;
+      const para = new Date(Date.now() + 3 * 3600_000);
+      const encomenda = await l.venda({ agendamento: para.toISOString() });
+      const comum = await l.venda({});
+      const balcao = await l.venda({ semPedido: true }); // venda do PDV: sem pedido de canal, sem horário
+      const producao = new ProducaoPedidoService(
+        drizzle(c, { schema }) as any,
+        { registrar: async () => undefined } as any,
+        { emit: () => true } as any,
+      );
+      const fila: any = await producao.filaKds(l.t, { unidadeId: l.u });
+      const porId = new Map<string, any>(fila.pedidos.map((p: any) => [p.id, p]));
+      expect(new Date(porId.get(encomenda.card).encomendaPara).getTime()).toBe(para.getTime());
+      expect(porId.get(comum.card).encomendaPara).toBeNull();
+      expect(porId.get(balcao.card).encomendaPara).toBeNull();
+      expect(fila.nuvemComServidor).toBe(false); // nenhum servidor batendo
+
+      // O servidor de OUTRA loja da empresa não conta; o desta loja, sim.
+      await q(`insert into edge_status (equipamento_id, tenant_id, unidade_id, versao, recebido_em) values ($1,$2,$3,'1.30.13', now())`, [
+        randomUUID(),
+        l.t,
+        outraLoja,
+      ]);
+      expect(((await producao.filaKds(l.t, { unidadeId: l.u })) as any).nuvemComServidor).toBe(false);
+      await q(`insert into edge_status (equipamento_id, tenant_id, unidade_id, versao, recebido_em) values ($1,$2,$3,'1.30.13', now())`, [
+        randomUUID(),
+        l.t,
+        l.u,
+      ]);
+      expect(((await producao.filaKds(l.t, { unidadeId: l.u })) as any).nuvemComServidor).toBe(true);
+      // Servidor que parou de bater (mais de 3 min) não conta.
+      await q(`update edge_status set recebido_em = now() - interval '10 minutes' where tenant_id = $1`, [l.t]);
+      expect(((await producao.filaKds(l.t, { unidadeId: l.u })) as any).nuvemComServidor).toBe(false);
+    } finally {
+      await c.query('rollback').catch(() => {});
+      c.release();
+    }
+  });
 });

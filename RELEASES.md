@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **KDS para a cozinha enxergar — a tela na versão 2 (onda 2 da auditoria do KDS; SEM migration; não mexe no
+  `sync-daemon`).** Na NUVEM com o merge: cartão neutro com a cor só no selo do tempo, letra maior, cabeçalho compacto
+  (o do aparelho no ⚙), faixas claras, rodapé parado com "Ciente", aviso curto a cada toque, "Finalizar todos" em
+  diálogo, encomenda com "começa HH:MM" e o resumo ao lado a partir de 900 px. **No `.zip` 1.30.13:** a mesma tela no KDS
+  servido pelo servidor da loja e o horário da encomenda na fila dele (sem o `.zip`, o KDS da loja segue na versão de
+  antes e a encomenda segue sem horário).
+
 - **A senha não repete entre a nuvem e o servidor da loja (auditoria do KDS, O13; SEM migration; não mexe no
   `sync-daemon`).** Na NUVEM com o merge: a senha que a nuvem dá (o delivery com o servidor da loja fora) sai acima da
   maior já usada no período naquela loja e origem — os cartões e as vendas que o servidor mandou. **No `.zip` 1.30.13:** o
