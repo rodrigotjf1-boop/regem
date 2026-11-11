@@ -7,10 +7,15 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <style>
-/* PROTÓTIPO R3 — a conferência do cardápio do iFood (lido pelo Orzuni) e da 99 (lido direto pela integração da 99) com o
-   cadastro do Regem, por CÓDIGO PDV, e a CALCULADORA DE PREÇO por canal (pedido do dono, 11/11): o preço recomendado a
-   partir do custo real da ficha, com as taxas do app, a antecipação, o imposto e a margem, nos dois jeitos de entregar
-   (a loja entrega × o app entrega). Dados e taxas de exemplo; nada aqui fala com o Regem. Tokens do Regem (.app-light), no
+/* PROTÓTIPO R3 — Delivery › Gestão do catálogo, duas abas (pedido do dono, 11/11):
+   1) PRODUTOS E PREÇOS: o lugar de mexer no produto depois de criado — o preço e a pausa de cada canal (Regem, iFood, 99)
+      no lugar, com o lápis e o chip; nome, descrição, código PDV e "onde vende" na gaveta — e o que muda vai aos apps
+      ligados (iFood pelo Orzuni: preço e pausa; 99 pela integração: nome, descrição, preço e pausa), com a resposta ao lado.
+   2) CONFERIR COM OS APPS: o cardápio do iFood (lido pelo Orzuni) e da 99 (lido direto) × o cadastro do Regem, por CÓDIGO
+      PDV, e a CALCULADORA DE PREÇO por canal: o preço recomendado a partir do custo real da ficha, com as taxas do app, a
+      antecipação, o imposto e a margem, nos dois jeitos de entregar (a loja entrega × o app entrega).
+   O Cadastros › Cardápio fica para criar (com "Onde vende"); a pausa e a edição de preço saem de lá.
+   Dados e taxas de exemplo; nada aqui fala com o Regem. Tokens do Regem (.app-light), no
    modelo do Estoque (mockups regem-estoque-produtos.html e regem-estoque-abas.html). A lista vira cartões pelo ESPAÇO dela
    (@container) — nenhuma barra de rolagem horizontal em largura nenhuma. As decisões que esperam o dono estão no fim. */
 :root{
@@ -88,6 +93,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 14px}
 .tabela{background:var(--card);border:1px solid var(--line);border-radius:var(--radius)}
 table{width:100%;border-collapse:collapse}
 th{font-size:12px;letter-spacing:.06em;text-transform:uppercase;text-align:left;color:var(--ink-2);background:var(--soft);padding:10px 12px;border-bottom:1px solid var(--line)}
+th .sub{text-transform:none;letter-spacing:0;font-weight:500}
 td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
 tr:last-child td{border-bottom:none}
 .nome{font-weight:700}
@@ -167,7 +173,8 @@ tr:last-child td{border-bottom:none}
 .trocar input{width:20px;height:20px}
 fieldset.grupo{border:1px solid var(--line);border-radius:12px;padding:12px;margin:0;display:grid;gap:10px;min-width:0}
 fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
-#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:11px 18px;border-radius:12px;font-weight:600;z-index:60;box-shadow:0 10px 26px rgba(0,0,0,.25);display:flex;gap:12px;align-items:center;max-width:calc(100% - 24px)}
+/* centralizado pela largura do conteúdo: com left:50%, o aviso só tinha meia tela para caber e quebrava palavra por palavra */
+#toast{position:fixed;left:0;right:0;margin:0 auto;width:fit-content;bottom:22px;background:var(--navy);color:#fff;padding:11px 18px;border-radius:12px;font-weight:600;z-index:60;box-shadow:0 10px 26px rgba(0,0,0,.25);display:flex;gap:12px;align-items:center;max-width:calc(100% - 24px)}
 #toast button{background:none;border:1px solid rgba(255,255,255,.5);color:#fff;border-radius:8px;min-height:32px;padding:0 10px;font-weight:700}
 
 .notas{margin-top:28px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px}
@@ -177,7 +184,49 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
 .notas p{margin:4px 0}
 .notas a{color:var(--info)}
 
+/* Produtos e preços: o preço com o lápis, a pausa por canal */
+.canal-cel{display:grid;gap:6px;justify-items:start;min-width:0}
+.lapis{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 8px;border-radius:8px;border:1px dashed var(--line-2);background:var(--card);font-family:var(--mono);font-size:13.5px;font-variant-numeric:tabular-nums}
+.lapis:hover{border-color:var(--ink-3);border-style:solid}
+.lapis .lp{font-family:var(--body);color:var(--ink-2)}
+.lapis[disabled]{cursor:not-allowed;opacity:.6}
+.editor{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.editor input{width:110px;min-height:36px;border:1.5px solid var(--navy);border-radius:8px;padding:0 8px;font-family:var(--mono);background:var(--card)}
+.chip{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 10px;border-radius:999px;border:1px solid var(--line-2);background:var(--card);font-weight:700;font-size:12.5px;color:var(--ink)}
+.chip .bol{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none}
+.chip[aria-pressed="true"]{background:var(--warn-bg);border-color:var(--warn);color:var(--warn)}
+.chip[aria-pressed="true"] .bol{background:var(--warn)}
+.envio{font-size:12px;color:var(--ok);font-weight:600;display:flex;flex-wrap:wrap;gap:6px;align-items:center;max-width:260px}
+.envio.falha{color:var(--crit)}
+.erro-ed{font-size:12.5px;color:var(--crit);font-weight:600}
+.campo textarea{min-height:64px;border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;background:var(--card);width:100%;min-width:0;resize:vertical}
+.campo input[aria-invalid="true"],.editor input[aria-invalid="true"]{border-color:var(--crit);box-shadow:0 0 0 1px var(--crit)}
+.canal-linha{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.canal-linha b{min-width:0}
+.nao-vende{font-size:12.5px;color:var(--ink-3)}
+.onde{display:flex;flex-wrap:wrap;gap:8px}
+.onde label{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0 12px;border:1px solid var(--line-2);border-radius:10px;font-weight:600;background:var(--card)}
+.onde input{width:18px;height:18px}
+/* Cadastros › Cardápio, como fica (quadro estático) */
+.cad{margin-top:28px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;display:grid;gap:12px}
+.cad h2{font-family:var(--display);font-size:18px;margin:0}
+.cad-linha{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.cad-linha .num{font-weight:700}
+.cad-form{display:grid;gap:10px;border:1px dashed var(--line-2);border-radius:12px;padding:12px}
+
 @media (max-width:1000px){ .app{grid-template-columns:1fr} .lado{display:none} main{padding:16px 16px 80px} }
+/* a lista de Produtos e preços tem mais colunas: vira cartões antes */
+@container (max-width:1100px){
+  main .tabela.tprod{border:none;background:none} main .tabela.tprod thead{display:none}
+  /* o cartão: o produto em cima, os canais em caixas lado a lado (quebram para baixo no estreito), as ações embaixo */
+  main .tabela.tprod tbody tr{display:flex;flex-wrap:wrap;gap:8px 10px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-bottom:10px}
+  main .tabela.tprod td{flex:1 1 200px;min-width:0;display:flex;flex-direction:column;justify-content:flex-start;align-items:stretch;gap:6px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--soft)}
+  main .tabela.tprod td::before{content:attr(data-rot);font-size:12.5px;font-weight:700;color:var(--ink-2)}
+  main .tabela.tprod td.c-item,main .tabela.tprod td.c-acoes{flex:1 1 100%;display:block;border:none;background:none;padding:0}
+  main .tabela.tprod td.c-item::before,main .tabela.tprod td.c-acoes::before{content:none}
+  main .tabela.tprod .canal-cel{display:flex;flex-wrap:wrap;justify-content:flex-start;align-items:center;gap:6px;min-width:0}
+  main .tabela.tprod td.c-acoes{margin-top:2px} main .tabela.tprod .linha-acoes{justify-content:stretch} main .tabela.tprod .linha-acoes .bt{flex:1 1 140px}
+}
 @container (max-width:980px){
   main .tabela{border:none;background:none} main thead{display:none}
   main tbody tr{display:block;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-bottom:10px}
@@ -205,6 +254,33 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
     <div class="trilha">Delivery</div>
     <h1>Gestão do catálogo</h1>
 
+    <div class="abas" role="tablist" aria-label="Gestão do catálogo">
+      <button class="aba" role="tab" id="aProdutos" data-aba="produtos" aria-selected="true" aria-controls="vistaProdutos">Produtos e preços</button>
+      <button class="aba" role="tab" id="aConferir" data-aba="conferir" aria-selected="false" aria-controls="vistaConferir">Conferir com os apps</button>
+    </div>
+
+    <!-- PRODUTOS E PREÇOS: o lugar de mexer em preço, pausa, nome, descrição e código — e mandar aos apps ligados -->
+    <section id="vistaProdutos" role="tabpanel" aria-labelledby="aProdutos">
+      <div class="prot" role="group" aria-label="Estado do protótipo (Produtos e preços)">
+        <b>Protótipo — ver a tela:</b>
+        <button data-pestado="ligados" aria-pressed="true">iFood e 99 ligados</button>
+        <button data-pestado="falha" aria-pressed="false">Orzuni fora do ar</button>
+        <button data-pestado="soRegem" aria-pressed="false">loja sem app ligado</button>
+      </div>
+      <div class="barra">
+        <div>
+          <h2>Produtos e preços</h2>
+          <p class="resumo" id="resumoProd" role="status" aria-live="polite"></p>
+        </div>
+        <div class="acoes">
+          <button class="bt" id="bTaxas2" type="button">％ Taxas e margem</button>
+        </div>
+      </div>
+      <div id="produtos"></div>
+    </section>
+
+    <!-- CONFERIR COM OS APPS: a conferência por código PDV (a R3) -->
+    <section id="vistaConferir" role="tabpanel" aria-labelledby="aConferir" hidden>
     <div class="prot" role="group" aria-label="Estado do protótipo">
       <b>Protótipo — ver a tela:</b>
       <button data-estado="normal" aria-pressed="true">com diferenças</button>
@@ -212,11 +288,6 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
       <button data-estado="fora" aria-pressed="false">app fora do ar</button>
       <button data-estado="semLigacao" aria-pressed="false">loja sem ligação</button>
       <button data-estado="tudoIgual" aria-pressed="false">tudo igual</button>
-    </div>
-
-    <div class="abas" role="tablist" aria-label="Gestão do catálogo">
-      <button class="aba" role="tab" aria-selected="false">Catálogo</button>
-      <button class="aba" role="tab" aria-selected="true">Apps × Regem</button>
     </div>
 
     <div class="canais" role="group" aria-label="Qual app conferir" id="canais"></div>
@@ -234,12 +305,47 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
     </div>
 
     <div id="conteudo"></div>
+    </section>
+
+    <!-- COMO FICA O CADASTRO: criar com "Onde vende"; a pausa e a edição de preço saem de lá e vêm para cá -->
+    <section class="cad" aria-labelledby="tCad">
+      <h2 id="tCad">E no Cadastros › Cardápio, como fica</h2>
+      <p class="sub" style="margin:0">Lá fica o que já existia para CRIAR o produto. A chave de pausa e a edição de preço da lista saem de lá e vêm para "Produtos e preços".</p>
+      <div class="cad-linha" aria-label="Exemplo da linha do produto no Cadastros, sem a chave de pausa">
+        <div><div class="nome">TRIO 07</div><div class="sub">2 carnes de 56 g, cheddar, bacon… · #75</div></div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center"><span class="num">R$ 29,00</span><span class="sub">preço e pausa em Delivery › Gestão do catálogo</span><span class="ic" aria-hidden="true">⋮</span></div>
+      </div>
+      <div class="cad-form">
+        <div class="rot">Ao criar o produto (gaveta do Cadastros) — o campo novo</div>
+        <div class="duas">
+          <div class="campo"><label for="cadVenda">Preço de venda</label><input id="cadVenda" value="R$ 29,00"><span class="ajuda">Vale para os apps também, até alguém mudar o preço de um app em "Produtos e preços".</span></div>
+          <div class="campo"><span class="rot" id="rOnde">Onde vende</span>
+            <div class="onde" role="group" aria-labelledby="rOnde">
+              <label><input type="checkbox" checked> Regem (balcão e cardápio digital)</label>
+              <label><input type="checkbox" checked> iFood</label>
+              <label><input type="checkbox" checked> 99</label>
+            </div>
+            <span class="ajuda">Todos marcados = todos os catálogos. Só um = vende só ali (ex.: um combo só do iFood).</span></div>
+        </div>
+      </div>
+    </section>
 
     <section class="notas" aria-labelledby="tNotas">
       <h2 id="tNotas">Notas e decisões para o dono</h2>
-      <h3>Onde fica e como lê</h3>
+      <h3>Produtos e preços: tudo do produto num lugar só</h3>
       <ul>
-        <li><b>Delivery › Gestão do catálogo › aba "Apps × Regem"</b>, com o app escolhido no topo (iFood ou 99). Cada app só aparece com a integração dele ligada na loja: o iFood pelo Orzuni; a 99 pela integração direta que o Regem já tem.</li>
+        <li><b>Delivery › Gestão do catálogo › "Produtos e preços"</b>: cada produto com o preço e a pausa de cada canal — <b>Regem</b> (balcão e cardápio digital), <b>iFood</b> e <b>99</b>. As colunas dos apps só aparecem com a integração de cada um ligada na loja.</li>
+        <li><b>O lápis no preço</b> abre o campo ali mesmo (Enter salva, Esc cancela). O preço do iFood vai na hora <b>pelo Orzuni</b>; o da 99, <b>pela integração da 99</b>. Ao lado aparece a resposta do app: "✓ enviado agora" ou "não chegou", com "Tentar de novo" — o Regem guarda o valor mesmo quando o app não responde, e a conferência mostra a diferença.</li>
+        <li><b>A pausa por canal</b>: o botão "No ar / Pausado" em cada coluna e "Pausar em todos" na linha. A pausa do Regem vale para o balcão e o cardápio digital.</li>
+        <li><b>Editar</b> (gaveta): nome, descrição, código PDV, categoria, os três preços, onde vende e a pausa. Antes de salvar, a gaveta diz o que muda no Regem e o que vai (e o que não vai) a cada app.</li>
+        <li><b>O que cada app recebe hoje:</b> 99 — nome, descrição, preço e pausa. iFood (Orzuni) — <b>preço e pausa</b>; o Orzuni ainda não tem ferramenta para mudar nome nem descrição (decisão 10), então esses dois o iFood recebe pelo Gestor de Pedidos.</li>
+        <li><b>Código PDV</b>: muda no Regem com os avisos (quem usa o código antigo; código que já é de outro produto não salva). Nos apps não muda sozinho: no iFood, no Gestor de Pedidos; na 99, quando o Regem enviar o cardápio de novo.</li>
+        <li><b>Onde vende</b>: tirar de um app pausa o item lá (o Regem não apaga item do iFood). Pôr no iFood um produto que não existe lá pede criar no Gestor de Pedidos com o mesmo código (o Orzuni não cria item); a conferência liga sozinha. Na 99, o Regem envia o item no próximo envio do cardápio.</li>
+        <li><b>Cadastros › Cardápio</b> fica para criar: o que já existia, o preço de venda e "Onde vende" (quadro acima). A chave de pausa e a edição de preço da lista saem de lá e vêm para cá.</li>
+      </ul>
+      <h3>Conferir com os apps: onde fica e como lê</h3>
+      <ul>
+        <li><b>Delivery › Gestão do catálogo › "Conferir com os apps"</b>, com o app escolhido no topo (iFood ou 99). Cada app só aparece com a integração dele ligada na loja: o iFood pelo Orzuni; a 99 pela integração direta que o Regem já tem. O lápis também está no preço do app (itens).</li>
         <li><b>iFood:</b> lido pelo Orzuni (<code>cardapio_listar</code> e <code>complementos_listar</code>, 2 chamadas). <b>99:</b> lido direto da 99 (<code>GET /v3/item/item/list</code>: itens, preços em centavos, situação e complementos numa chamada); "mandar o preço do Regem à 99" usa <code>POST /v3/item/item/updateItem</code> da 99.</li>
         <li>Lê o app <b>ao abrir</b> e pelo botão <b>"Ler agora"</b> (no máximo uma leitura automática por dia; nada de leitura de minuto em minuto). Na loja com servidor, a tela pede à nuvem (as credenciais só existem lá); sem internet, diz "sem conexão com a nuvem".</li>
         <li>Compara pelo <b>código PDV</b> (o código do produto no Regem = o código do item no app). Na 99, o cardápio enviado pelo Regem usa o código do produto (ou o id dele, sem código): os dois ligam.</li>
@@ -256,15 +362,19 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
       </ul>
       <h3>Decisões que esperam você (a recomendada primeiro)</h3>
       <ol>
-        <li><b>Produto "só nos apps" precisa de uma marca própria.</b> Ele fica fora do balcão e do cardápio digital — e hoje o "Ocultar" do Regem (balcão E cardápio desligados) <b>pausa no iFood</b> (decisão de 06/11). Recomendo uma marca nova no produto, <b>"Vende só nos apps"</b>, que tira dele o balcão e o cardápio digital sem pausar no iFood nem na 99.</li>
+        <li><b>"Onde vende" com três caixas</b> (Regem, iFood, 99) no criar do Cadastros e na gaveta de editar daqui: todas marcadas = todos os catálogos; uma só = vende só ali. Isso <b>aposenta a regra "Ocultar = pausa no iFood"</b> (decisão de 06/11): a pausa passa a ser explícita, por canal, aqui. Recomendo.</li>
         <li><b>Combo do app:</b> criar no Regem como <b>combo</b> com os produtos que o compõem (cada um baixa o estoque dele). Recomendo.</li>
         <li><b>Preço diferente:</b> as duas direções ficam na linha — "usar o do app no Regem" ou "mandar o do Regem ao app". A ação em massa só existe para "usar o do app". Recomendo.</li>
         <li><b>"Ligar a um produto que já existe"</b> troca o código do produto do Regem para o do app. Se ele já tinha outro código, a gaveta mostra quem usa esse código e pede confirmação. Recomendo.</li>
-        <li><b>Nasce desligada:</b> uma chave por empresa no console da distribuição ("Conferência dos apps"), além da ligação de cada app. Recomendo.</li>
-        <li><b>99 com preço próprio:</b> hoje o Regem manda à 99 o preço do balcão e não sabe o que "está na 99". Recomendo pôr no produto <b>"Preço na 99"</b> e <b>"Está na 99"</b>, como já existe para o iFood (uma migration), e o envio do preço à 99 pela API dela. (Alternativa: comparar com o preço do balcão — não recomendo: a maioria cobra mais nos apps.)</li>
+        <li><b>Quem vê o quê:</b> "Produtos e preços" vale para todas as lojas (o Regem sempre; as colunas dos apps com a integração ligada). "Conferir com os apps" <b>nasce desligada</b>: uma chave por empresa no console da distribuição, além da ligação de cada app. Recomendo.</li>
+        <li><b>99 com preço próprio:</b> hoje o Regem manda à 99 o preço do balcão e não sabe o que "está na 99". Recomendo pôr no produto <b>"Preço na 99"</b> e <b>"Está na 99"</b>, como já existe para o iFood (uma migration), e o envio do preço, do nome, da descrição e da pausa à 99 pela API dela. (Alternativa: comparar com o preço do balcão — não recomendo: a maioria cobra mais nos apps.)</li>
         <li><b>Taxas por loja:</b> as taxas e a margem ficam nos ajustes de cada loja (uma tabela nova), preenchidas com os valores de referência e editáveis. Recomendo.</li>
         <li><b>Faturamento para o Simples:</b> o Regem preenche o faturamento dos últimos 12 meses com as vendas registradas (a loja pode trocar pelo número do contador). Recomendo. (Alternativa: só digitado.)</li>
-        <li><b>A calculadora também no cadastro do produto</b> (Cadastros › Cardápio, seção iFood/99), não só aqui. Recomendo, na mesma entrega.</li>
+        <li><b>A calculadora fica na Gestão do catálogo</b> (em "Produtos e preços", por produto e com o app escolhido, e na conferência), não no Cadastros — o cadastro só cria. Recomendo.</li>
+        <li><b>Pedir ao Orzuni a ferramenta de editar nome e descrição do item do iFood</b> (a permissão de escrever no catálogo já existe; falta a ferramenta). Até lá, o nome e a descrição do iFood mudam no Gestor de Pedidos, e a gaveta avisa. Recomendo pedir pelo HUB.</li>
+        <li><b>Código PDV editável aqui</b>, com os avisos de quem usa o código antigo e a recusa de código que já é de outro produto. Recomendo.</li>
+        <li><b>Pausa do Regem = balcão e cardápio digital juntos</b>, num botão só (como o "⏸ Pausar" do Delivery faz por canal). Recomendo. (Alternativa: separar balcão × cardápio digital na gaveta.)</li>
+        <li><b>Depois de criado, o preço muda só aqui.</b> O Cadastros mostra o preço e aponta para cá — um lugar só para editar evita duas telas brigando pelo mesmo valor. Recomendo.</li>
       </ol>
       <h3>Fontes das taxas de referência (consultadas em 11/11/2026)</h3>
       <ul>
@@ -273,7 +383,7 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
       </ul>
       <h3>Fora desta entrega</h3>
       <ul>
-        <li>Pausado no app × ativo no Regem (o R2 já leva a pausa do Regem ao iFood); foto e descrição do item; o contexto INDOOR/WHITELABEL do iFood; promoções do app (o preço "de/por").</li>
+        <li>A foto do item; o preço e a pausa das <b>opções</b> (complementos) por aqui; o contexto INDOOR/WHITELABEL do iFood; criar a promoção no app (o preço "de/por") — a calculadora só simula.</li>
       </ul>
     </section>
   </main>
@@ -322,6 +432,29 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
     '2099': { nome: 'X-Tudo', custo: 18.2, emb: 1.2, baixa: 'Ficha técnica: X-Tudo', ifood: 48.0, n99: null, noIfood: true, na99: false },
     '6001': { nome: 'Brownie com sorvete', custo: 6.4, emb: 1.5, baixa: 'Ficha técnica: Brownie', ifood: 18.9, n99: 18.9, noIfood: true, na99: true },
   };
+  // O resto do cadastro: categoria, descrição, preço de venda (Regem), a pausa de cada canal e onde vende.
+  const EXTRA = {
+    '2051': { cat: 'Burgers', desc: 'Dois blends de 150 g, cheddar e bacon', venda: 39.9 },
+    '2052': { cat: 'Burgers', desc: 'Blend de 150 g, alface, tomate e maionese', venda: 27.9 },
+    '2053': { cat: 'Burgers', desc: 'Smash de 90 g com cheddar', venda: 32.9 },
+    '4010': { cat: 'Acompanhamentos', desc: 'Batata rústica com páprica, porção grande', venda: 19.9 },
+    '5001': { cat: 'Bebidas', desc: 'Lata 350 ml', venda: 6.0 },
+    '5003': { cat: 'Bebidas', desc: 'Garrafa 500 ml', venda: 4.0 },
+    '6003': { cat: 'Sobremesas', desc: 'Com sorvete de creme', venda: 17.9 },
+    '2099': { cat: 'Burgers', desc: 'O completo da casa', venda: 42.9 },
+    '6001': { cat: 'Sobremesas', desc: 'Brownie quente com sorvete', venda: 16.9 },
+  };
+  for (const [pdv, r] of Object.entries(REGEM))
+    Object.assign(r, { pausa: { regem: false, ifood: false, n99: false }, onde: { regem: true, ifood: r.noIfood, n99: r.na99 } }, EXTRA[pdv] || {});
+  REGEM['2053'].pausa.n99 = true; // um exemplo pausado na 99
+  // Um produto sem código PDV: vende no Regem, não liga aos apps.
+  const SEM_CODIGO = { nome: 'Molho especial (porção)', custo: 0.9, emb: 0.3, cat: 'Adicionais', desc: 'Porção de 40 g', venda: 3.0, ifood: null, n99: null, pausa: { regem: false, ifood: false, n99: false }, onde: { regem: true, ifood: false, n99: false }, removido: false };
+  const PRODUTOS = () => [...Object.entries(REGEM).map(([pdv, r]) => ({ pdv, r })), ...(SEM_CODIGO.removido ? [] : [{ pdv: '', r: SEM_CODIGO }])];
+  const produtoDe = (pdv) => (pdv ? REGEM[pdv] : SEM_CODIGO);
+  // o código vazio vira "_" nos atributos da tela
+  const kp = (pdv) => pdv || '_';
+  const pdvDe = (v) => (v === '_' ? '' : v);
+
   const OPC_REGEM = {
     A01: { nome: 'Bacon extra', custo: 1.6, emb: 0, ifood: 5.0, n99: 5.0 },
     A02: { nome: 'Cheddar extra', custo: 1.1, emb: 0, ifood: 4.5, n99: 4.0 },
@@ -459,17 +592,22 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
   }
 
   // ── o estado da tela ──────────────────────────────────────────────────────────────────────────────────
-  const est = { canal: 'ifood', vista: 'itens', sit: 'todas', busca: '', cat: '', estado: 'normal', ignorados: new Set(), resolvidos: new Map() };
+  const est = {
+    aba: 'produtos', canal: 'ifood', vista: 'itens', sit: 'todas', busca: '', cat: '', estado: 'normal', ignorados: new Set(), resolvidos: new Map(),
+    // Produtos e preços
+    pSit: 'todos', pBusca: '', pCat: '', pEstado: 'ligados', editando: null, editandoConf: null, erroEd: '', erroConf: '',
+    // o resultado do último envio a cada app, por "código|canal": o que a loja vê é o que o app respondeu
+    enviados: new Map(),
+  };
   const C = () => CN[est.canal];
   const reg = (x) => (est.vista === 'itens' ? REGEM[x.pdv] : OPC_REGEM[x.pdv]) || null;
   const precoRegem = (r) => (r ? r[est.canal] : null);
   const chave = (x) => `${est.canal}:${x.id}`;
 
   function soRegemDo(canal) {
-    const marca = canal === 'ifood' ? 'noIfood' : 'na99';
     const cods = new Set(APP[canal].itens.map((i) => i.pdv));
     return Object.entries(REGEM)
-      .filter(([pdv, r]) => r[marca] && !cods.has(pdv))
+      .filter(([pdv, r]) => r.onde[canal] && !cods.has(pdv))
       .map(([pdv, r]) => ({ id: `r-${canal}-${pdv}`, pdv, nome: r.nome, cat: '—', soRegem: true }));
   }
   const lista = () => (est.vista === 'itens' ? [...APP[est.canal].itens, ...soRegemDo(est.canal)] : APP[est.canal].opcoes);
@@ -557,6 +695,17 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
     }
   }
 
+  // O preço do app na conferência, com o lápis: muda no app (iFood pelo Orzuni, 99 pela integração) e, se o item liga a um
+  // produto do Regem, o preço daquele app no Regem também. Só nos itens (as opções ficam para depois).
+  function celPrecoApp(x) {
+    const c = C();
+    if (x.soRegem) return '<span class="sub">não está</span>';
+    if (est.vista !== 'itens') return `<span class="num">${brl(x.preco)}</span>`;
+    if (est.editandoConf === chave(x))
+      return `<span class="editor"><label class="sr" for="edConf">Preço ${c.no}: ${esc(x.nome)}</label><input id="edConf" inputmode="decimal" autocomplete="off" value="${dec(x.preco.toFixed(2))}"${est.erroConf ? ' aria-invalid="true" aria-describedby="edConfErro"' : ''}><button class="bt peq pri" data-salvar-conf="${x.id}">Salvar</button><button class="bt peq" data-cancelar-conf="${x.id}">Cancelar</button>${est.erroConf ? `<span class="erro-ed" id="edConfErro" role="alert">${esc(est.erroConf)}</span>` : ''}</span>`;
+    return `<button class="lapis" data-editar-conf="${x.id}" aria-label="Mudar o preço ${c.no} de ${esc(x.nome)} (${brl(x.preco)})">${brl(x.preco)} <span class="lp" aria-hidden="true">✎</span></button>`;
+  }
+
   // ── desenhar ──────────────────────────────────────────────────────────────────────────────────────────
   const $ = (s) => document.querySelector(s);
   function desenhar() {
@@ -587,7 +736,7 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
     if (est.estado === 'semLigacao') {
       cont.innerHTML = est.canal === 'ifood'
         ? '<div class="estado-tela"><h3>Esta loja não está ligada ao iFood pelo Orzuni</h3><p>A conferência do iFood lê o cardápio pelo Orzuni. A ligação da loja é feita pela distribuição Regem — fale com o suporte. Se a sua empresa tem outra loja ligada, escolha-a no topo da tela.</p></div>'
-        : '<div class="estado-tela"><h3>Esta loja não está conectada à 99</h3><p>A conferência da 99 lê o cardápio pela integração da 99. Conecte a loja em Delivery › Integrações › 99Food e volte aqui.</p></div>';
+        : '<div class="estado-tela"><h3>Esta loja não está conectada à 99</h3><p>A conferência da 99 lê o cardápio pela integração da 99. Conecte a loja em Delivery › Configurações › Integrações › 99Food e volte aqui.</p></div>';
       return;
     }
 
@@ -627,7 +776,7 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
             return `<tr>
               <td class="c-item"><div class="nome">${esc(x.nome)}</div><div class="sub">${grupoDe(x) !== '—' ? esc(grupoDe(x)) : 'no Regem'}${r && r.nome !== x.nome ? ` · no Regem: ${esc(r.nome)}` : ''}${r && r.custo != null ? ` · custo ${brl(r.custo + r.emb)}` : ''}</div></td>
               <td data-rot="Código PDV"><span class="v num">${x.pdv ? esc(x.pdv) : x.orz ? `<span class="sub">sem código (${esc(x.orz)})</span>` : '<span class="sub">sem código</span>'}</span></td>
-              <td data-rot="${c.no.replace(/^./, (lt) => lt.toUpperCase())}"><span class="v num">${x.soRegem ? `<span class="sub">não ${c.nome === '99' ? 'está' : 'está'}</span>` : brl(x.preco)}</span></td>
+              <td data-rot="${c.no.replace(/^./, (lt) => lt.toUpperCase())}"><span class="v">${celPrecoApp(x)}</span></td>
               <td data-rot="No Regem (preço ${c.nome})"><span class="v num">${r ? (precoRegem(r) == null ? '<span class="sub">em branco</span>' : brl(precoRegem(r))) : '<span class="sub">não tem</span>'}</span></td>
               <td class="c-sit" data-rot="Situação"><span class="selo ${l.selo[0]}">${l.selo[1]}</span><div class="motivo">${l.motivo}</div></td>
               <td class="c-acoes"><div class="linha-acoes">${acoesDa(x, s)}</div></td>
@@ -642,6 +791,9 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
   let anterior = null;
   function abrir(el) {
     anterior = document.activeElement;
+    // cada gaveta liga os seus próprios eventos depois de abrir
+    const corpo = $('#gCorpo');
+    corpo.onclick = corpo.oninput = corpo.onchange = null;
     $('#fundo').hidden = false;
     el.hidden = false;
     el.querySelector('[data-fechar]').focus();
@@ -662,9 +814,9 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
   };
 
   // A calculadora: os dois jeitos de entregar do app, o plano da loja marcado; com a promoção, quanto sobra.
-  function blocoCalculadora(base, precoHoje, alvoId) {
-    const c = C();
-    const t = TAXAS[est.canal];
+  function blocoCalculadora(base, precoHoje, alvoId, canal = est.canal, acao = 'usarSugerido') {
+    const c = CN[canal];
+    const t = TAXAS[canal];
     const g = TAXAS.geral;
     const cen = (k) => ({ ...t[k], k, entrega: k === 'loja' ? g.entregaLoja : t[k].entrega });
     const sn = simples(g.rbt12);
@@ -717,7 +869,7 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
             ${linha('Ganho líquido', `<span class="${v.lucro < 0 ? 'neg' : 'pos'}">${brl(v.lucro)} · ${pct(v.margem)}</span>`, 'total')}
           </div>
           <div class="sub">Neste preço, a loja aguenta bancar até <b class="num">${pct(r.descontoMax(ref))}</b> de desconto sem prejuízo.</div>` : ''}
-          ${r.recomendado != null && alvoId ? `<button class="bt peq${seu ? ' pri' : ''}" data-acao="usarSugerido" data-id="${alvoId}" data-valor="${r.recomendado}">Usar ${brl(r.recomendado)} como preço ${c.no}</button>` : ''}
+          ${r.recomendado != null && alvoId ? `<button class="bt peq${seu ? ' pri' : ''}" data-acao="${acao}" data-id="${alvoId}" data-para="${canal}" data-valor="${r.recomendado}">Usar ${brl(r.recomendado)} como preço ${c.no}</button>` : ''}
         </div>`;
       }).join('')}</div>
       <div class="formula">Como a conta é feita: a loja vende <code>preço × (1 − desconto que ela banca)</code>; sobre isso saem a comissão, o pagamento e o cartão${g.antecipa ? ', a antecipação' : ''} e o imposto; depois, o custo e a embalagem. O preço recomendado é o que deixa a margem escolhida: <code>(custo + embalagem${g.entregaLoja ? ' + entrega' : ''}) ÷ ((1 − desconto da loja) × (1 − taxas − imposto − margem))</code>; o mínimo é a mesma conta sem a margem. A mensalidade do app não entra (é por mês, não por item). Confira no seu app sobre qual valor a comissão incide na promoção (a 99 diz que é sobre o valor depois do desconto).</div>`;
@@ -732,6 +884,11 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
     desenharCalc();
     $('#gRodape').innerHTML = '<button class="bt" data-fechar2>Fechar</button>';
     abrir($('#gaveta'));
+    ligarCalc(desenharCalc);
+  }
+
+  // Os campos da calculadora (margem, antecipação, promoção…) redesenham a conta na hora, sem perder o cursor.
+  function ligarCalc(desenharCalc) {
     $('#gCorpo').oninput = (e) => {
       const k = e.target.dataset.taxa;
       if (!k) return;
@@ -853,7 +1010,13 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
         <div class="campo"><label for="gCat">Categoria no Regem</label><select id="gCat"><option>${esc(x.cat)}</option><option>Burgers</option><option>＋ Nova categoria</option></select></div>
         <div class="campo"><label for="gPreco">Preço ${c.no}</label><input id="gPreco" value="${brl(x.preco)}" readonly aria-readonly="true"><span class="ajuda">O ${c.do} agora. Mudar o preço se faz depois, no cadastro ou pela calculadora.</span></div>
       </div>
-      <div class="aviso info"><b>Vende só nos apps.</b> O produto não aparece no balcão nem no cardápio digital, e o Regem não o pausa ${c.no} por isso (decisão 1 no fim da página).</div>
+      <div class="campo"><span class="rot" id="rOndeC">Onde vende</span>
+        <div class="onde" role="group" aria-labelledby="rOndeC">
+          <label><input type="checkbox" id="cOnde-regem"> Regem (balcão e cardápio digital)</label>
+          <label><input type="checkbox" id="cOnde-ifood" ${est.canal === 'ifood' || APP.ifood.itens.some((i) => i.pdv === x.pdv) ? 'checked' : ''}> iFood</label>
+          <label><input type="checkbox" id="cOnde-n99" ${est.canal === 'n99' || APP.n99.itens.some((i) => i.pdv === x.pdv) ? 'checked' : ''}> 99</label>
+        </div>
+        <span class="ajuda">Vem marcado o app de onde o item veio (e o outro, se ele também tem este código). Sem o Regem marcado, o produto não aparece no balcão nem no cardápio digital — e isso não o pausa ${c.no} (decisão 1).</span></div>
       <div><div class="rot" id="rBaixa">Como a venda baixa o estoque</div>
         <div class="escolhas" role="group" aria-labelledby="rBaixa" style="margin-top:6px">
           <button type="button" class="escolha" data-baixa="ficha" aria-pressed="false"><span class="bola" aria-hidden="true"></span><span><b>Ficha técnica</b><small>Feito na loja: baixa os insumos da receita.</small></span></button>
@@ -956,6 +1119,430 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
     abrir($('#dialogo'));
   }
 
+  // ══ PRODUTOS E PREÇOS ═════════════════════════════════════════════════════════════════════════════════
+  // O lugar de mexer no produto depois de criado: preço e pausa de cada canal (no lugar, com o lápis e o chip), nome,
+  // descrição, código PDV e onde vende (na gaveta) — e o que muda vai aos apps ligados na hora, com a resposta ao lado.
+  const CANAIS_P = ['regem', 'ifood', 'n99'];
+  const NOME_P = { regem: 'Regem', ifood: 'iFood', n99: '99' };
+  const ONDE_P = { regem: 'no balcão e no cardápio digital', ifood: 'no iFood', n99: 'na 99' };
+  const PELO_P = { ifood: 'ao iFood pelo Orzuni', n99: 'à 99' };
+  const ligado = (k) => k === 'regem' || est.pEstado !== 'soRegem';
+  const precoDe = (r, k) => (k === 'regem' ? r.venda : r[k]);
+  const porPreco = (r, k, v) => { if (k === 'regem') r.venda = v; else r[k] = v; };
+  const canaisDo = (pdv, r) => CANAIS_P.filter((k) => ligado(k) && r.onde[k] && (k === 'regem' || pdv));
+  const focar = (sel) => document.querySelector(sel)?.focus();
+  // "39,90", "R$ 39,90", "1.234,50", "39.9" → número; vazio → null; o resto → NaN
+  const numero = (s) => {
+    const t = String(s ?? '').replace(/R\$\s?/i, '').trim();
+    if (!t) return null;
+    const n = Number(t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t);
+    return Number.isFinite(n) ? Math.round(n * 100) / 100 : NaN;
+  };
+
+  // Uma foto de tudo o que pode mudar, para o "Desfazer".
+  const precosDoApp = () => Object.fromEntries(['ifood', 'n99'].flatMap((k) => [[k, APP[k].itens.map((i) => i.preco)], [`${k}O`, APP[k].opcoes.map((o) => o.preco)]]));
+  const foto = () => JSON.stringify({ REGEM, SEM_CODIGO, OPC_REGEM, app: precosDoApp() });
+  function voltar(f) {
+    const o = JSON.parse(f);
+    for (const k of Object.keys(REGEM)) delete REGEM[k];
+    Object.assign(REGEM, o.REGEM);
+    Object.assign(SEM_CODIGO, o.SEM_CODIGO);
+    Object.assign(OPC_REGEM, o.OPC_REGEM);
+    for (const k of ['ifood', 'n99']) {
+      APP[k].itens.forEach((i, n) => (i.preco = o.app[k][n]));
+      APP[k].opcoes.forEach((op, n) => (op.preco = o.app[`${k}O`][n]));
+    }
+  }
+
+  // Manda ao app o que mudou e anota a RESPOSTA ao lado. Com o Orzuni fora, o Regem guarda o valor e mostra "não chegou"
+  // com "Tentar de novo" — nunca "enviado" sem a resposta do app.
+  function enviar(pdv, k, oque) {
+    if (k === 'regem' || !pdv) return true;
+    const ok = !(k === 'ifood' && est.pEstado === 'falha');
+    est.enviados.set(`${pdv}|${k}`, ok
+      ? { ok, oque, texto: `✓ enviado ${k === 'ifood' ? 'ao iFood' : 'à 99'} agora: ${oque}` }
+      : { ok, oque, texto: 'Não chegou ao iFood (o Orzuni não respondeu). O Regem guardou.' });
+    if (ok && /preço/.test(oque)) {
+      const it = APP[k].itens.find((i) => i.pdv === pdv && !i.repetido);
+      if (it && REGEM[pdv]?.[k] != null) it.preco = REGEM[pdv][k];
+    }
+    return ok;
+  }
+
+  function marcasDe({ pdv, r }) {
+    const m = new Set();
+    if (canaisDo(pdv, r).some((k) => r.pausa[k])) m.add('pausados');
+    if (pdv && ['ifood', 'n99'].some((k) => ligado(k) && r.onde[k] && r[k] == null)) m.add('semPreco');
+    if (pdv && [...est.enviados].some(([chv, e]) => !e.ok && chv.startsWith(`${pdv}|`))) m.add('naoChegou');
+    if (!pdv) m.add('semCodigo');
+    return m;
+  }
+  const P_SITS = [['pausados', 'Pausados em algum canal', 'warn'], ['semPreco', 'Sem preço num app', 'crit'], ['naoChegou', 'Não chegou ao app', 'crit'], ['semCodigo', 'Sem código PDV', '']];
+
+  function celCanal(pdv, r, k) {
+    const chv = `${kp(pdv)}|${k}`;
+    if (k !== 'regem' && !pdv) return '<span class="nao-vende">sem código PDV: não liga aos apps</span>';
+    if (!r.onde[k]) return `<span class="nao-vende">não vende ${ONDE_P[k]}</span>`;
+    const p = precoDe(r, k);
+    const qual = k === 'regem' ? 'de venda' : CN[k].no;
+    const preco = est.editando === chv
+      ? `<span class="editor"><label class="sr" for="edPreco">Preço ${qual}: ${esc(r.nome)}</label><input id="edPreco" inputmode="decimal" autocomplete="off" placeholder="Ex.: 39,90" value="${p == null ? '' : dec(p.toFixed(2))}"${est.erroEd ? ' aria-invalid="true" aria-describedby="edPrecoErro"' : ''}><button class="bt peq pri" data-salvar-preco="${chv}">Salvar</button><button class="bt peq" data-cancelar-preco="${chv}">Cancelar</button>${est.erroEd ? `<span class="erro-ed" id="edPrecoErro" role="alert">${esc(est.erroEd)}</span>` : ''}</span>`
+      : `<button class="lapis" data-editar-preco="${chv}" aria-label="Mudar o preço ${qual} de ${esc(r.nome)} (${p == null ? 'sem preço' : brl(p)})">${p == null ? '<span class="lp">＋ pôr o preço</span>' : brl(p)} <span class="lp" aria-hidden="true">✎</span></button>`;
+    const pz = r.pausa[k];
+    const chip = `<button class="chip" data-pausa="${chv}" aria-pressed="${pz}" aria-label="Pausado ${ONDE_P[k]}: ${esc(r.nome)}"><span class="bol" aria-hidden="true"></span>${pz ? 'Pausado' : 'No ar'}</button>`;
+    const e = est.enviados.get(chv);
+    const envio = e ? `<span class="envio${e.ok ? '' : ' falha'}">${esc(e.texto)}${e.ok ? '' : ` <button class="bt peq" data-reenviar="${chv}">Tentar de novo</button>`}</span>` : '';
+    return `<div class="canal-cel">${preco}${chip}${envio}</div>`;
+  }
+
+  function desenharProdutos() {
+    for (const b of document.querySelectorAll('[data-pestado]')) b.setAttribute('aria-pressed', String(b.dataset.pestado === est.pEstado));
+    const todos = PRODUTOS();
+    const canais = CANAIS_P.filter(ligado);
+    const conta = (k) => todos.filter((p) => marcasDe(p).has(k)).length;
+    const nPaus = conta('pausados');
+    $('#resumoProd').textContent = `${todos.length} produtos · ${nPaus} pausado${nPaus === 1 ? '' : 's'} em algum canal · ${est.pEstado === 'soRegem' ? 'nenhum app ligado nesta loja: só o Regem' : 'iFood (pelo Orzuni) e 99 ligados — o que você muda aqui vai na hora aos apps'}`;
+    const sitsVis = P_SITS.filter(([k]) => (k !== 'naoChegou' || conta(k) > 0 || est.pEstado === 'falha') && (est.pEstado !== 'soRegem' || !['semPreco', 'naoChegou'].includes(k)));
+    if (est.pSit !== 'todos' && !sitsVis.some(([k]) => k === est.pSit)) est.pSit = 'todos';
+    const cats = [...new Set(todos.map((p) => p.r.cat))].sort();
+    let vis = todos.filter((p) => est.pSit === 'todos' || marcasDe(p).has(est.pSit));
+    const q = est.pBusca.trim().toLowerCase();
+    if (q) vis = vis.filter(({ pdv, r }) => `${r.nome} ${pdv} ${r.desc || ''}`.toLowerCase().includes(q));
+    if (est.pCat) vis = vis.filter(({ r }) => r.cat === est.pCat);
+    const aviso = est.pEstado === 'soRegem'
+      ? '<div class="aviso info" style="margin-bottom:12px">As colunas do <b>iFood</b> e da <b>99</b> aparecem quando a integração de cada app está ligada nesta loja (o iFood pela distribuição Regem, via Orzuni; a 99 em Delivery › Configurações › Integrações › 99Food). Sem elas, aqui se muda o preço de venda e a pausa do Regem.</div>'
+      : est.pEstado === 'falha'
+        ? '<div class="aviso crit" style="margin-bottom:12px"><b>O Orzuni não está respondendo agora.</b> O que você mudar no iFood fica guardado no Regem e aparece como "não chegou", com "Tentar de novo". A 99 e o Regem seguem normais.</div>'
+        : '';
+    const linhas = vis.map(({ pdv, r }) => {
+      const ks = canaisDo(pdv, r);
+      const tudo = ks.length > 0 && ks.every((k) => r.pausa[k]);
+      return `<tr>
+        <td class="c-item"><div class="nome">${esc(r.nome)}</div>${r.desc ? `<div class="sub">${esc(r.desc)}</div>` : ''}<div class="sub">${esc(r.cat)} · ${pdv ? `código <span class="num">${esc(pdv)}</span>` : 'sem código PDV'} · custo ${brl(r.custo + r.emb)}</div></td>
+        ${canais.map((k) => `<td data-rot="${NOME_P[k]}">${celCanal(pdv, r, k)}</td>`).join('')}
+        <td class="c-acoes"><div class="linha-acoes">
+          <button class="bt peq" data-editar-prod="${kp(pdv)}">Editar<span class="sr"> ${esc(r.nome)}</span></button>
+          ${est.pEstado !== 'soRegem' ? `<button class="bt peq" data-calc-prod="${kp(pdv)}">Calcular o preço<span class="sr"> de ${esc(r.nome)}</span></button>` : ''}
+          ${ks.length ? `<button class="bt peq" data-pausar-tudo="${kp(pdv)}">${tudo ? '▶ Reativar em todos' : '⏸ Pausar em todos'}<span class="sr">: ${esc(r.nome)}</span></button>` : ''}
+        </div></td></tr>`;
+    }).join('');
+    $('#produtos').innerHTML = `${aviso}
+      <div class="sits" role="group" aria-label="Situação dos produtos">
+        <button class="sit" data-psit="todos" aria-pressed="${est.pSit === 'todos'}">Todos <b>${todos.length}</b></button>
+        ${sitsVis.map(([k, rot, cor]) => `<button class="sit ${cor}" data-psit="${k}" aria-pressed="${est.pSit === k}">${rot} <b>${conta(k)}</b></button>`).join('')}
+      </div>
+      <div class="filtros">
+        <div class="campo"><label for="pBusca">Buscar por nome, código ou descrição</label><input id="pBusca" type="search" value="${esc(est.pBusca)}" placeholder="Ex.: bacon, 2051" autocomplete="off"></div>
+        <div class="campo"><label for="pCat">Categoria</label><select id="pCat"><option value="">Todas</option>${cats.map((k) => `<option ${est.pCat === k ? 'selected' : ''}>${esc(k)}</option>`).join('')}</select></div>
+      </div>
+      <div class="tabela tprod">
+        <table>
+          <caption class="sr">Produtos com o preço e a pausa em cada canal</caption>
+          <thead><tr><th>Produto</th>${canais.map((k) => `<th>${NOME_P[k]} <span class="sub">${k === 'regem' ? '(balcão e cardápio digital)' : k === 'ifood' ? '(pelo Orzuni)' : '(integração da 99)'}</span></th>`).join('')}<th><span class="sr">Ações</span></th></tr></thead>
+          <tbody>${linhas}</tbody>
+        </table>
+        ${vis.length ? '' : '<div class="vazio"><b>Nenhum produto aqui.</b><p>Troque a situação ou limpe a busca.</p></div>'}
+      </div>`;
+  }
+
+  function salvarPreco(chv) {
+    const [pp, k] = chv.split('|');
+    const pdv = pdvDe(pp);
+    const r = produtoDe(pdv);
+    const v = numero($('#edPreco').value);
+    if (v == null || Number.isNaN(v) || v <= 0) {
+      est.erroEd = 'Digite um preço maior que zero, ex.: 39,90.';
+      const digitado = $('#edPreco').value;
+      desenharProdutos();
+      const f = $('#edPreco');
+      f.value = digitado;
+      f.focus();
+      return;
+    }
+    const antes = precoDe(r, k);
+    est.editando = null;
+    est.erroEd = '';
+    if (v === antes) { desenharProdutos(); return focar(`[data-editar-preco="${chv}"]`); }
+    const f = foto();
+    porPreco(r, k, v);
+    const ok = enviar(pdv, k, 'preço');
+    redesenhar();
+    focar(`[data-editar-preco="${chv}"]`);
+    const nome = esc(r.nome);
+    toast(k === 'regem'
+      ? `Preço de venda de "${nome}": ${brl(v)} (era ${brl(antes)}), no balcão e no cardápio digital.`
+      : ok ? `"${nome}" ${CN[k].no}: ${brl(v)} — enviado ${PELO_P[k]}.` : `"${nome}": ${brl(v)} guardado no Regem, mas não chegou ao iFood. Use "Tentar de novo".`,
+      () => { voltar(f); est.enviados.delete(chv); });
+  }
+
+  function alternarPausa(chv) {
+    const [pp, k] = chv.split('|');
+    const pdv = pdvDe(pp);
+    const r = produtoDe(pdv);
+    const f = foto();
+    r.pausa[k] = !r.pausa[k];
+    const ok = enviar(pdv, k, r.pausa[k] ? 'pausa' : 'reativação');
+    redesenhar();
+    focar(`[data-pausa="${chv}"]`);
+    toast(`"${esc(r.nome)}" ${r.pausa[k] ? 'pausado' : 'de volta à venda'} ${ONDE_P[k]}${k === 'regem' ? '' : ok ? ` — enviado ${PELO_P[k]}` : ' — não chegou ao iFood (o Orzuni não respondeu)'}.`,
+      () => { voltar(f); est.enviados.delete(chv); });
+  }
+
+  function pausarTudo(pdv) {
+    const r = produtoDe(pdv);
+    const ks = canaisDo(pdv, r);
+    const pausar = !ks.every((k) => r.pausa[k]);
+    const f = foto();
+    const falhou = [];
+    for (const k of ks) {
+      if (r.pausa[k] === pausar) continue;
+      r.pausa[k] = pausar;
+      if (!enviar(pdv, k, pausar ? 'pausa' : 'reativação')) falhou.push(NOME_P[k]);
+    }
+    redesenhar();
+    focar(`[data-pausar-tudo="${kp(pdv)}"]`);
+    toast(`"${esc(r.nome)}" ${pausar ? 'pausado' : 'de volta à venda'} em ${ks.map((k) => NOME_P[k]).join(', ')}${falhou.length ? ` — não chegou: ${falhou.join(', ')}` : ''}.`,
+      () => { voltar(f); for (const k of ks) est.enviados.delete(`${kp(pdv)}|${k}`); });
+  }
+
+  function reenviar(chv) {
+    const [pdv, k] = chv.split('|');
+    if (k === 'ifood' && est.pEstado === 'falha') return toast('O Orzuni ainda não respondeu. O valor continua guardado no Regem; tente de novo daqui a pouco.');
+    enviar(pdv, k, est.enviados.get(chv)?.oque || 'preço');
+    redesenhar();
+    focar(`[data-editar-preco="${chv}"]`);
+    toast(`Enviado ${PELO_P[k]} agora.`);
+  }
+
+  function usosDoCodigo(pdv) {
+    const u = [];
+    const i = APP.ifood.itens.find((x) => x.pdv === pdv);
+    const n = APP.n99.itens.find((x) => x.pdv === pdv);
+    if (i) u.push(`o item "${esc(i.nome)}" do iFood`);
+    if (n) u.push(`o item "${esc(n.nome)}" da 99`);
+    u.push('o totem e o GoGeM, se a loja usa');
+    return u.join('; ');
+  }
+  function itemComCodigo(cod) {
+    const i = APP.ifood.itens.find((x) => x.pdv === cod);
+    const n = APP.n99.itens.find((x) => x.pdv === cod);
+    return i || n ? `Ele liga ${[i && `ao "${esc(i.nome)}" do iFood`, n && `ao "${esc(n.nome)}" da 99`].filter(Boolean).join(' e ')}.` : 'Nenhum item dos apps tem esse código ainda.';
+  }
+
+  // O que a gaveta de editar vai fazer, ANTES de salvar: o que muda no Regem e o que vai (e o que não vai) a cada app.
+  function analisarEdicao(pdv, r, v, ks) {
+    const erros = [];
+    const avisos = [];
+    if (!v.nome) erros.push('O nome não pode ficar em branco.');
+    for (const k of ks) {
+      const p = v.preco[k];
+      if (Number.isNaN(p) || (p != null && p <= 0)) erros.push(`O preço ${k === 'regem' ? 'de venda' : CN[k].no} está inválido: use um valor maior que zero, ex.: 39,90.`);
+    }
+    if (v.preco.regem === null) erros.push('O preço de venda do Regem não pode ficar em branco.');
+    const codMudou = v.cod !== pdv;
+    if (codMudou) {
+      if (pdv && !v.cod) erros.push('O código não pode ficar em branco: sem ele, o produto deixa de ligar aos apps. Para tirá-lo de um app, desmarque o app em "Onde vende".');
+      else if (v.cod && REGEM[v.cod]) erros.push(`O código ${v.cod} já é de "${REGEM[v.cod].nome}". Dois produtos com o mesmo código ligam a venda ao produto errado.`);
+      else if (v.cod) avisos.push(pdv
+        ? `<b>O código passa de ${esc(pdv)} para ${esc(v.cod)}.</b> Quem usa o ${esc(pdv)} hoje: ${usosDoCodigo(pdv)}. Depois de salvar, o ${esc(pdv)} não liga mais a este produto. Nos apps o código não muda sozinho: no iFood, troque no Gestor de Pedidos; na 99, o item ganha o código novo quando o Regem enviar o cardápio de novo.`
+        : `<b>O produto ganha o código ${esc(v.cod)}.</b> ${itemComCodigo(v.cod)} Depois de salvar, marque os apps em "Onde vende".`);
+    }
+    const nomeMudou = v.nome !== r.nome;
+    const descMudou = v.desc !== (r.desc || '');
+    const regem = [];
+    if (nomeMudou) regem.push('nome');
+    if (descMudou) regem.push('descrição');
+    if (v.cat !== r.cat) regem.push('categoria');
+    if (codMudou && v.cod) regem.push('código PDV');
+    const apps = {};
+    for (const k of ks) {
+      if (k !== 'regem' && !pdv) continue;
+      const pMudou = !Number.isNaN(v.preco[k]) && v.preco[k] !== precoDe(r, k);
+      const oMudou = v.onde[k] !== r.onde[k];
+      const zMudou = v.pausa[k] !== r.pausa[k];
+      if (k === 'regem') {
+        if (pMudou) regem.push('preço de venda');
+        if (oMudou) regem.push(v.onde.regem ? 'volta ao balcão e ao cardápio digital' : 'sai do balcão e do cardápio digital');
+        if (zMudou) regem.push(v.pausa.regem ? 'pausa no balcão e no cardápio digital' : 'reativação no balcão e no cardápio digital');
+        continue;
+      }
+      if (!v.onde[k] && !oMudou) {
+        if (pMudou) regem.push(`preço ${CN[k].no} (guardado; não vende lá)`);
+        continue;
+      }
+      const cod = v.cod || pdv;
+      const vai = [];
+      const atencao = [];
+      if (pMudou) vai.push('preço');
+      if (zMudou) vai.push(v.pausa[k] ? 'pausa' : 'reativação');
+      if (oMudou) {
+        const existe = APP[k].itens.some((i) => i.pdv === cod);
+        if (!v.onde[k]) vai.push(k === 'ifood' ? 'saída (o item fica pausado no iFood; o Regem não apaga item do iFood)' : 'saída (o item fica pausado na 99)');
+        else if (!existe && k === 'ifood') atencao.push(`o item não existe no iFood e o Regem não cria item lá: crie no Gestor de Pedidos com o código ${esc(cod)} — a conferência liga sozinha`);
+        else if (!existe) vai.push('entrada no cardápio (no próximo envio do cardápio à 99)');
+        else vai.push('volta à venda');
+      }
+      if (nomeMudou || descMudou) {
+        if (k === 'ifood') atencao.push('nome e descrição não vão: o Orzuni ainda não muda nome — troque no Gestor de Pedidos do iFood (decisão 10)');
+        else vai.push([nomeMudou && 'nome', descMudou && 'descrição'].filter(Boolean).join(' e '));
+      }
+      if (vai.length || atencao.length) apps[k] = { vai, atencao };
+    }
+    return { erros, avisos, regem, apps, codMudou, mudou: regem.length > 0 || Object.keys(apps).length > 0 };
+  }
+
+  let edicao = null;
+  function gavetaEditar(pdv) {
+    const r = produtoDe(pdv);
+    const ks = CANAIS_P.filter(ligado);
+    const cats = [...new Set(PRODUTOS().map((p) => p.r.cat))].sort();
+    const semApp = (k) => k !== 'regem' && !pdv;
+    $('#gTitulo').textContent = `Editar: ${r.nome}`;
+    const campoPreco = (k) => `<div class="campo"><label for="e-p-${k}">${k === 'regem' ? 'Preço de venda (Regem)' : `Preço ${CN[k].no}`}</label><div class="pct"><span>R$</span><input id="e-p-${k}" inputmode="decimal" autocomplete="off" value="${precoDe(r, k) == null ? '' : dec(precoDe(r, k).toFixed(2))}" ${semApp(k) ? 'disabled' : ''}></div><span class="ajuda">${k === 'regem' ? 'Balcão e cardápio digital.' : semApp(k) ? 'Sem código PDV: não liga a este app.' : k === 'ifood' ? 'Vai ao iFood pelo Orzuni.' : 'Vai à 99 pela integração.'}</span></div>`;
+    const linhaCanal = (k) => `<div class="canal-linha"><b>${NOME_P[k]}${k === 'regem' ? ' <span class="sub">(balcão e cardápio digital)</span>' : ''}</b><div class="onde"><label><input type="checkbox" id="e-o-${k}" ${r.onde[k] ? 'checked' : ''} ${semApp(k) ? 'disabled' : ''}> Vende ${k === 'regem' ? 'aqui' : CN[k].no}</label><label><input type="checkbox" id="e-z-${k}" ${r.pausa[k] ? 'checked' : ''} ${semApp(k) ? 'disabled' : ''}> Pausado</label></div></div>`;
+    $('#gCorpo').innerHTML = `
+      <div class="duas">
+        <div class="campo"><label for="e-nome">Nome</label><input id="e-nome" value="${esc(r.nome)}" autocomplete="off"></div>
+        <div class="campo"><label for="e-cod">Código PDV</label><input id="e-cod" value="${esc(pdv)}" autocomplete="off" placeholder="Ex.: 2051"><span class="ajuda">O código do item nos apps: é por ele que a venda se liga.</span></div>
+      </div>
+      <div class="campo"><label for="e-desc">Descrição</label><textarea id="e-desc" rows="2">${esc(r.desc || '')}</textarea></div>
+      <div class="campo"><label for="e-cat">Categoria</label><select id="e-cat">${cats.map((k) => `<option ${r.cat === k ? 'selected' : ''}>${esc(k)}</option>`).join('')}<option value="__nova">＋ Nova categoria</option></select></div>
+      <fieldset class="grupo"><legend>Preço em cada canal</legend><div class="tres">${ks.map(campoPreco).join('')}</div></fieldset>
+      <fieldset class="grupo"><legend>Onde vende e pausa</legend>${ks.map(linhaCanal).join('')}</fieldset>
+      <div id="eEfeito" aria-live="polite"></div>`;
+    $('#gRodape').innerHTML = `<button class="bt" data-fechar2>Cancelar</button><button class="bt pri" id="bSalvarEd" data-salvar-ed="${kp(pdv)}" disabled>Salvar e enviar</button>`;
+    abrir($('#gaveta'));
+    const ler = () => {
+      const v = { nome: $('#e-nome').value.trim(), cod: $('#e-cod').value.trim(), desc: $('#e-desc').value.trim(), cat: $('#e-cat').value, preco: {}, onde: {}, pausa: {} };
+      for (const k of ks) { v.preco[k] = numero($(`#e-p-${k}`).value); v.onde[k] = $(`#e-o-${k}`).checked; v.pausa[k] = $(`#e-z-${k}`).checked; }
+      return v;
+    };
+    edicao = { pdv, ks, ler };
+    const desenharEfeito = (e) => {
+      if (e?.target?.id === 'e-cat' && e.target.value === '__nova') {
+        e.target.value = r.cat;
+        toast('Abre a criação de categoria (Cadastros › Cardápio) e volta com ela escolhida.');
+      }
+      const a = analisarEdicao(pdv, r, ler(), ks);
+      for (const k of ks) $(`#e-p-${k}`).toggleAttribute('aria-invalid', a.erros.some((m) => m.includes(k === 'regem' ? 'de venda' : CN[k].no)));
+      let h = a.erros.length ? `<div class="aviso crit" role="alert"><b>Corrija antes de salvar:</b><ul class="passos">${a.erros.map((m) => `<li>${esc(m)}</li>`).join('')}</ul></div>` : '';
+      h += a.avisos.map((m) => `<div class="aviso">${m}</div>`).join('');
+      h += !a.mudou
+        ? '<p class="sub" style="margin:0">Nada mudou ainda.</p>'
+        : `<div class="aviso info"><b>Ao salvar:</b><ul class="passos">
+            ${a.regem.length ? `<li><b>Regem:</b> ${a.regem.join(', ')}.</li>` : ''}
+            ${Object.entries(a.apps).map(([k, x]) => `<li><b>${NOME_P[k]}</b>${x.vai.length ? ` — vai agora ${k === 'ifood' ? 'pelo Orzuni' : 'pela integração da 99'}: ${x.vai.join(', ')}.${k === 'ifood' && est.pEstado === 'falha' ? ' <span class="neg">(O Orzuni não está respondendo: fica guardado e você tenta de novo.)</span>' : ''}` : ''}${x.atencao.length ? ` <span class="neg">Atenção: ${x.atencao.join('; ')}.</span>` : ''}</li>`).join('')}
+          </ul></div>`;
+      $('#eEfeito').innerHTML = h;
+      $('#bSalvarEd').disabled = !a.mudou || a.erros.length > 0;
+    };
+    $('#gCorpo').oninput = desenharEfeito;
+    $('#gCorpo').onchange = desenharEfeito;
+    desenharEfeito();
+  }
+
+  function salvarEdicao() {
+    if (!edicao) return;
+    const { pdv, ks, ler } = edicao;
+    const r = produtoDe(pdv);
+    const v = ler();
+    const a = analisarEdicao(pdv, r, v, ks);
+    if (a.erros.length || !a.mudou) return;
+    const f = foto();
+    r.nome = v.nome;
+    r.desc = v.desc;
+    r.cat = v.cat;
+    for (const k of ks) {
+      if (k !== 'regem' && !pdv) continue;
+      porPreco(r, k, v.preco[k]);
+      r.onde[k] = v.onde[k];
+      r.pausa[k] = v.pausa[k];
+    }
+    let cod = pdv;
+    if (a.codMudou && v.cod) {
+      if (pdv) { delete REGEM[pdv]; REGEM[v.cod] = r; for (const k of ['ifood', 'n99']) est.enviados.delete(`${pdv}|${k}`); }
+      else { const novo = JSON.parse(JSON.stringify(r)); delete novo.removido; REGEM[v.cod] = novo; SEM_CODIGO.removido = true; }
+      cod = v.cod;
+    }
+    const res = [];
+    for (const [k, x] of Object.entries(a.apps)) {
+      if (!x.vai.length) continue;
+      const oque = x.vai.map((s) => s.replace(/ \(.*$/, '')).join(', ');
+      res.push(`${NOME_P[k]}: ${enviar(cod, k, oque) ? oque : 'não chegou (o Orzuni não respondeu)'}`);
+    }
+    edicao = null;
+    fechar();
+    redesenhar();
+    focar(`[data-editar-prod="${kp(cod)}"]`);
+    const nomeIfood = a.apps.ifood?.atencao.some((s) => /nome/.test(s));
+    toast(`"${esc(v.nome)}" salvo.${res.length ? ` ${res.map(esc).join(' · ')}.` : ''}${nomeIfood ? ' No iFood, o nome e a descrição mudam no Gestor de Pedidos.' : ''}`,
+      () => { voltar(f); for (const k of ['ifood', 'n99']) est.enviados.delete(`${cod}|${k}`); });
+  }
+
+  // A calculadora por produto, com o app escolhido (iFood | 99) na própria gaveta.
+  function gavetaCalcProd(pdv, canal) {
+    const r = produtoDe(pdv);
+    let k = canal || ['ifood', 'n99'].find((c) => r.onde[c]) || 'ifood';
+    $('#gTitulo').textContent = `Calcular o preço: ${r.nome}`;
+    const desenharCalc = () => {
+      const hoje = r[k];
+      // o seletor num bloco próprio: solto na grade da gaveta, a faixa encolhia a 2 px e o parágrafo cobria os botões
+      $('#gCorpo').innerHTML = `<div><div class="seg" role="group" aria-label="Calcular para qual app" style="margin:0">${['ifood', 'n99'].map((c) => `<button type="button" data-calc-canal="${c}" aria-pressed="${c === k}">${CN[c].nome}</button>`).join('')}</div></div>
+        <p style="margin:0">${CN[k].no.replace(/^./, (l) => l.toUpperCase())} hoje: <b class="num">${hoje == null ? 'sem preço' : brl(hoje)}</b> · preço de venda no Regem: <b class="num">${brl(r.venda)}</b>${!pdv ? ' · <span class="sub">sem código PDV: não liga aos apps (só para simular)</span>' : !r.onde[k] ? ` · <span class="sub">não vende ${CN[k].no} (só para simular)</span>` : ''}</p>
+        ${blocoCalculadora({ custo: r.custo, emb: r.emb }, hoje, pdv && r.onde[k] ? pdv : null, k, 'usarSugeridoProd')}`;
+    };
+    desenharCalc();
+    $('#gRodape').innerHTML = '<button class="bt" data-fechar2>Fechar</button>';
+    abrir($('#gaveta'));
+    ligarCalc(desenharCalc);
+    $('#gCorpo').onclick = (e) => {
+      const b = e.target.closest('[data-calc-canal]');
+      if (!b) return;
+      k = b.dataset.calcCanal;
+      desenharCalc();
+      focar(`[data-calc-canal="${k}"]`);
+    };
+  }
+
+  function salvarConf(id) {
+    const x = achar(id);
+    const c = C();
+    const v = numero($('#edConf').value);
+    if (v == null || Number.isNaN(v) || v <= 0) {
+      est.erroConf = 'Digite um preço maior que zero, ex.: 39,90.';
+      const digitado = $('#edConf').value;
+      desenhar();
+      const f = $('#edConf');
+      f.value = digitado;
+      f.focus();
+      return;
+    }
+    const antes = x.preco;
+    est.editandoConf = null;
+    est.erroConf = '';
+    if (v === antes) { desenhar(); return focar(`[data-editar-conf="${id}"]`); }
+    const f = foto();
+    const r = REGEM[x.pdv];
+    const liga = !!r && !x.semCodigo && !x.repetido;
+    x.preco = v;
+    if (liga) { r[est.canal] = v; est.enviados.set(`${x.pdv}|${est.canal}`, { ok: true, oque: 'preço', texto: `✓ enviado ${c.ao} agora: preço` }); }
+    redesenhar();
+    focar(`[data-editar-conf="${id}"]`);
+    toast(`"${esc(x.nome)}" ${c.no}: ${brl(v)} (era ${brl(antes)}) — enviado ${PELO_P[est.canal]}${liga ? `; o preço ${c.do} no Regem também` : '. Este item não liga a um produto do Regem'}.`,
+      () => { voltar(f); if (liga) est.enviados.delete(`${x.pdv}|${est.canal}`); });
+  }
+
+  function mostrarAba() {
+    for (const b of document.querySelectorAll('[data-aba]')) {
+      const sel = b.dataset.aba === est.aba;
+      b.setAttribute('aria-selected', String(sel));
+      b.tabIndex = sel ? 0 : -1;
+    }
+    $('#vistaProdutos').hidden = est.aba !== 'produtos';
+    $('#vistaConferir').hidden = est.aba !== 'conferir';
+  }
+  const redesenhar = () => { desenharProdutos(); desenhar(); };
+
   // ── toast com desfazer ────────────────────────────────────────────────────────────────────────────────
   let tTimer = null;
   function toast(msg, desfazer) {
@@ -964,13 +1551,61 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
     t.hidden = false;
     clearTimeout(tTimer);
     tTimer = setTimeout(() => (t.hidden = true), 5000);
-    if (desfazer) $('#tDesfazer').onclick = () => { desfazer(); t.hidden = true; desenhar(); };
+    if (desfazer) $('#tDesfazer').onclick = () => { desfazer(); t.hidden = true; redesenhar(); };
   }
 
   // ── eventos ───────────────────────────────────────────────────────────────────────────────────────────
   document.addEventListener('click', (e) => {
     const t = e.target;
     if (t.closest('[data-fechar]') || t.closest('[data-fechar2]') || t.id === 'fundo') return fechar();
+    // ── as abas e Produtos e preços ──
+    const ab = t.closest('[data-aba]');
+    if (ab) { est.aba = ab.dataset.aba; return mostrarAba(); }
+    const pe = t.closest('[data-pestado]');
+    if (pe) { est.pEstado = pe.dataset.pestado; est.editando = null; return desenharProdutos(); }
+    const ps = t.closest('[data-psit]');
+    if (ps) { est.pSit = ps.dataset.psit; return desenharProdutos(); }
+    const ep = t.closest('[data-editar-preco]');
+    if (ep) {
+      est.editando = ep.dataset.editarPreco;
+      est.erroEd = '';
+      desenharProdutos();
+      const f = $('#edPreco');
+      f.focus();
+      f.select();
+      return;
+    }
+    const sp = t.closest('[data-salvar-preco]');
+    if (sp) return salvarPreco(sp.dataset.salvarPreco);
+    const cp = t.closest('[data-cancelar-preco]');
+    if (cp) { est.editando = null; est.erroEd = ''; desenharProdutos(); return focar(`[data-editar-preco="${cp.dataset.cancelarPreco}"]`); }
+    const pz = t.closest('[data-pausa]');
+    if (pz) return alternarPausa(pz.dataset.pausa);
+    const pt = t.closest('[data-pausar-tudo]');
+    if (pt) return pausarTudo(pdvDe(pt.dataset.pausarTudo));
+    const rv = t.closest('[data-reenviar]');
+    if (rv) return reenviar(rv.dataset.reenviar);
+    const ed = t.closest('[data-editar-prod]');
+    if (ed) return gavetaEditar(pdvDe(ed.dataset.editarProd));
+    const cl = t.closest('[data-calc-prod]');
+    if (cl) return gavetaCalcProd(pdvDe(cl.dataset.calcProd));
+    if (t.closest('[data-salvar-ed]')) return salvarEdicao();
+    if (t.closest('#bTaxas2')) return gavetaTaxas();
+    // ── conferência: o lápis no preço do app ──
+    const ec = t.closest('[data-editar-conf]');
+    if (ec) {
+      est.editandoConf = chave(achar(ec.dataset.editarConf));
+      est.erroConf = '';
+      desenhar();
+      const f = $('#edConf');
+      f.focus();
+      f.select();
+      return;
+    }
+    const sc = t.closest('[data-salvar-conf]');
+    if (sc) return salvarConf(sc.dataset.salvarConf);
+    const cc = t.closest('[data-cancelar-conf]');
+    if (cc) { est.editandoConf = null; est.erroConf = ''; desenhar(); return focar(`[data-editar-conf="${cc.dataset.cancelarConf}"]`); }
     const st = t.closest('[data-estado]');
     if (st) {
       est.estado = st.dataset.estado;
@@ -1020,35 +1655,72 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
         return desenhar();
       case 'usarApp': {
         const r = reg(x);
+        const f = foto();
         est.resolvidos.set(chave(x), `Preço ${c.do} no Regem: ${brl(x.preco)} (era ${brl(precoRegem(r))}).`);
-        desenhar();
-        return toast(`Preço ${c.do} no Regem: ${brl(x.preco)}.`, () => est.resolvidos.delete(chave(x)));
+        r[est.canal] = x.preco;
+        redesenhar();
+        return toast(`Preço ${c.do} no Regem: ${brl(x.preco)}.`, () => { voltar(f); est.resolvidos.delete(chave(x)); });
       }
       case 'mandarRegem': {
         const r = reg(x);
-        est.resolvidos.set(chave(x), `Enviado ${c.ao}: ${brl(precoRegem(r))} — confira o último envio no cadastro.`);
-        desenhar();
-        return toast(`${brl(precoRegem(r))} vai ${c.ao} em instantes.`);
+        const f = foto();
+        const valor = precoRegem(r);
+        est.resolvidos.set(chave(x), `Enviado ${c.ao}: ${brl(valor)} (era ${brl(x.preco)}).`);
+        x.preco = valor;
+        if (est.vista === 'itens') est.enviados.set(`${x.pdv}|${est.canal}`, { ok: true, oque: 'preço', texto: `✓ enviado ${c.ao} agora: preço` });
+        redesenhar();
+        return toast(`${brl(valor)} enviado ${PELO_P[est.canal]}.`, () => { voltar(f); est.resolvidos.delete(chave(x)); est.enviados.delete(`${x.pdv}|${est.canal}`); });
       }
       case 'usarSugerido': {
         const valor = Number(a.dataset.valor);
+        const r = reg(x);
+        const f = foto();
         est.resolvidos.set(chave(x), `Preço ${c.do} pela calculadora: ${brl(valor)} — enviado ${c.ao}.`);
+        if (r) r[est.canal] = valor;
+        if (!x.soRegem) x.preco = valor;
         fechar();
-        desenhar();
-        return toast(`${brl(valor)} vira o preço ${c.no} (no Regem e ${c.ao}).`, () => est.resolvidos.delete(chave(x)));
+        redesenhar();
+        return toast(`${brl(valor)} vira o preço ${c.no} (no Regem e ${c.ao}).`, () => { voltar(f); est.resolvidos.delete(chave(x)); });
+      }
+      case 'usarSugeridoProd': {
+        const pdv = pdvDe(a.dataset.id);
+        const k = a.dataset.para;
+        const valor = Number(a.dataset.valor);
+        const r = produtoDe(pdv);
+        const f = foto();
+        r[k] = valor;
+        const ok = enviar(pdv, k, 'preço');
+        fechar();
+        redesenhar();
+        focar(`[data-calc-prod="${kp(pdv)}"]`);
+        return toast(ok ? `${brl(valor)} é o preço de "${esc(r.nome)}" ${CN[k].no} — enviado ${PELO_P[k]}.` : `${brl(valor)} guardado no Regem, mas não chegou ao iFood (o Orzuni não respondeu).`,
+          () => { voltar(f); est.enviados.delete(`${pdv}|${k}`); });
       }
       case 'salvarTaxas':
         fechar();
         return toast('Taxas e margem salvas para esta loja.');
-      case 'desmarcar':
-        est.resolvidos.set(chave(x), `"${c.marca}" desmarcado no Regem.`);
-        desenhar();
-        return toast(`"${esc(x.nome)}" não está mais marcado "${c.marca}".`, () => est.resolvidos.delete(chave(x)));
-      case 'confirmarCriar':
-        est.resolvidos.set(chave(x), `Criado no Regem (só nos apps) · baixa: ${baixa === 'combo' ? 'combo' : baixa === 'item' ? 'item de estoque' : baixa === 'ficha' ? 'ficha técnica' : 'não baixa'}.`);
+      case 'desmarcar': {
+        // "Onde vende" sem este app: a linha sai da conferência e a coluna do app em Produtos e preços diz "não vende"
+        const f = foto();
+        REGEM[x.pdv].onde[est.canal] = false;
+        redesenhar();
+        return toast(`"${esc(x.nome)}" não vende mais ${c.no} (desmarcado em "Onde vende").`, () => voltar(f));
+      }
+      case 'confirmarCriar': {
+        const f = foto();
+        const custos = { ficha: [6.9, 1.5, 'Ficha técnica: Milkshake Ovomaltine 400 ml'], item: [3.4, 0, 'Item de estoque (1 un)'], combo: [26.3, 2.0, 'Combo: X-Bacon Duplo + Batata rústica G + bebida'], nada: [0, 0, 'Não baixa estoque'] };
+        const [custo, emb, baixaTxt] = custos[baixa];
+        const onde = { regem: $('#cOnde-regem').checked, ifood: $('#cOnde-ifood').checked, n99: $('#cOnde-n99').checked };
+        REGEM[x.pdv] = {
+          nome: $('#gNome').value.trim() || x.nome, custo, emb, baixa: baixaTxt, cat: x.cat, desc: '', venda: x.preco,
+          ifood: est.canal === 'ifood' ? x.preco : null, n99: est.canal === 'n99' ? x.preco : null,
+          pausa: { regem: false, ifood: false, n99: false }, onde,
+        };
+        est.resolvidos.set(chave(x), `Criado no Regem · onde vende: ${CANAIS_P.filter((k) => onde[k]).map((k) => NOME_P[k]).join(', ') || 'nenhum'} · baixa: ${baixa === 'combo' ? 'combo' : baixa === 'item' ? 'item de estoque' : baixa === 'ficha' ? 'ficha técnica' : 'não baixa'}.`);
         fechar();
-        desenhar();
-        return toast(`"${esc(x.nome)}" criado no Regem com o código ${esc(x.pdv)}.`);
+        redesenhar();
+        return toast(`"${esc(x.nome)}" criado no Regem com o código ${esc(x.pdv)}. Ele já aparece em "Produtos e preços".`, () => { voltar(f); est.resolvidos.delete(chave(x)); });
+      }
       case 'confirmarLigar': {
         const p = PRODUTOS_REGEM.find((y) => y.id === escolhido);
         est.resolvidos.set(chave(x), `Ligado a "${esc(p.nome)}" (código ${esc(x.pdv)}).`);
@@ -1063,30 +1735,65 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
         return toast('Código salvo. Na próxima leitura ele aparece como igual.');
       case 'confirmarPrecos': {
         const alvos = APP[est.canal].itens.filter((y) => situacao(y) === 'preco' && precoRegem(REGEM[y.pdv]) != null);
-        for (const y of alvos) est.resolvidos.set(chave(y), `Preço ${c.do} no Regem: ${brl(y.preco)} (era ${brl(precoRegem(REGEM[y.pdv]))}).`);
+        const f = foto();
+        for (const y of alvos) {
+          est.resolvidos.set(chave(y), `Preço ${c.do} no Regem: ${brl(y.preco)} (era ${brl(precoRegem(REGEM[y.pdv]))}).`);
+          REGEM[y.pdv][est.canal] = y.preco;
+        }
         fechar();
-        desenhar();
-        return toast(alvos.length === 1 ? '1 preço atualizado.' : `${alvos.length} preços atualizados.`, () => alvos.forEach((y) => est.resolvidos.delete(chave(y))));
+        redesenhar();
+        return toast(alvos.length === 1 ? '1 preço atualizado.' : `${alvos.length} preços atualizados.`, () => { voltar(f); alvos.forEach((y) => est.resolvidos.delete(chave(y))); });
       }
     }
   });
   document.addEventListener('input', (e) => {
-    if (e.target.id === 'fBusca') {
-      est.busca = e.target.value;
+    const busca = { fBusca: ['busca', desenhar], pBusca: ['pBusca', desenharProdutos] }[e.target.id];
+    if (busca) {
+      est[busca[0]] = e.target.value;
       const pos = e.target.selectionStart;
-      desenhar();
-      const f = $('#fBusca');
+      const id = e.target.id;
+      busca[1]();
+      const f = document.getElementById(id);
       f.focus();
       f.setSelectionRange(pos, pos);
     }
   });
   document.addEventListener('change', (e) => {
     if (e.target.id === 'fCat') { est.cat = e.target.value; desenhar(); }
+    if (e.target.id === 'pCat') { est.pCat = e.target.value; desenharProdutos(); }
   });
   document.addEventListener('keydown', (e) => {
+    // o preço no lugar: Enter salva, Esc cancela
+    if (e.target.id === 'edPreco' || e.target.id === 'edConf') {
+      const prod = e.target.id === 'edPreco';
+      if (e.key === 'Enter') { e.preventDefault(); return prod ? salvarPreco(est.editando) : salvarConf(est.editandoConf.split(':')[1]); }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (prod) { const chv = est.editando; est.editando = null; est.erroEd = ''; desenharProdutos(); return focar(`[data-editar-preco="${chv}"]`); }
+        const id = est.editandoConf.split(':')[1];
+        est.editandoConf = null;
+        est.erroConf = '';
+        desenhar();
+        return focar(`[data-editar-conf="${id}"]`);
+      }
+      return;
+    }
+    // as abas: setas, Home e End
+    if (e.target.getAttribute?.('role') === 'tab' && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+      const abas = [...document.querySelectorAll('[data-aba]')];
+      const i = abas.indexOf(e.target);
+      const j = e.key === 'Home' ? 0 : e.key === 'End' ? abas.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + abas.length) % abas.length;
+      e.preventDefault();
+      est.aba = abas[j].dataset.aba;
+      mostrarAba();
+      abas[j].focus();
+      return;
+    }
     if (e.key === 'Escape' && (!$('#gaveta').hidden || !$('#dialogo').hidden)) fechar();
   });
 
+  mostrarAba();
+  desenharProdutos();
   desenhar();
 })();
 </script>
