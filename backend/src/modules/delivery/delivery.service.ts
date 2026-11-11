@@ -1723,6 +1723,18 @@ export class DeliveryService {
       .where(and(eq(pedidoExterno.id, id), eq(pedidoExterno.status, ped.status)))
       .returning();
     if (!row) throw new ConflictException('O pedido mudou de etapa enquanto você avançava. A tela vai atualizar.');
+    // O "Pronto" marcado na loja pelo painel (ou pelo PDV › Retirada) também fecha a etapa na cozinha (auditoria do KDS,
+    // O11): a TV de senhas passa a mostrar a senha em "Pronto". Quando o pronto veio do próprio KDS (`aoProducaoPronto`,
+    // só com todos os cartões prontos), não sobra cartão a mudar. Nunca segura o avanço do pedido — fica no log. Com
+    // try/catch, não `.catch()` na chamada: o erro SÍNCRONO (o serviço sem o método, um TypeError antes de haver promessa)
+    // escapava do `.catch()` e derrubava o avanço — o totem pago deixava de concluir no pronto da cozinha (ERR-449).
+    if (novo === 'pronto' && row.comandaId) {
+      try {
+        await this.producao.prontoPeloPedido(tenantId, row.comandaId);
+      } catch (e: any) {
+        this.logger.warn(`cozinha não acompanhou o pronto do pedido ${row.id}: ${e?.message ?? e}`);
+      }
+    }
     // Ao concluir (entrega): baixa o estoque e concilia o dinheiro na gaveta.
     if (novo === 'concluido' && row.comandaId) {
       await this.vendas

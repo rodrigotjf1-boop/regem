@@ -19,6 +19,11 @@
   integrações). **No `.zip` 1.30.13:** o mesmo na tela e no servidor da loja (sem o `.zip`, a tela da loja segue com a
   chave antiga, que funciona).
 
+- **O "Pronto" do painel fecha a etapa na cozinha (auditoria do KDS, O11; SEM migration; não mexe no `sync-daemon`).**
+  Na NUVEM com o merge: o "Pronto" marcado no painel do Delivery aberto pela nuvem. **No `.zip` 1.30.13:** o mesmo no
+  servidor da loja (onde o painel da loja marca o pronto) — sem o `.zip`, lá os cartões seguem "a iniciar" e a TV em
+  "Preparando".
+
 - **Gestão do catálogo: a foto de cada app e "Mandar esta foto à 99" (R3, fase F6; SEM migration; não mexe no
   `sync-daemon`).** Na NUVEM com o merge: os selos "sem foto no/na <app>" e "foto só no/na <app>" em Produtos e preços, a
   situação "Foto faltando num app", as fotos lado a lado na gaveta de editar e o envio da foto à 99 (`head_img` no
