@@ -72,6 +72,14 @@ export class VagasController {
     return this.vagas.marcarEntrevista(user, unidade, id, dto);
   }
 
+  // F2: medir de novo a distância até a loja (mapa auto-hospedado). Chama o Nominatim e o OSRM: limite por minuto.
+  @Post('candidatos/:id/distancia')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  distancia(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null, @Param('id') id: string) {
+    return this.vagas.medirDeNovo(user.tenantId, unidade, id);
+  }
+
   // Apagar os dados (LGPD) — irreversível: só gerente e presidente.
   @Delete('candidatos/:id')
   @Roles('presidente', 'gerente')

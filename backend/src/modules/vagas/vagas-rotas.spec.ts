@@ -33,8 +33,10 @@ describe('as rotas de vagas e candidatos', () => {
     expect(Reflect.getMetadata(MODULO_KEY, VagasController)).toBe('vagas');
     for (const nome of ['apagar', 'salvarPagina', 'criarQr', 'apagarQr'])
       expect(Reflect.getMetadata(ROLES_KEY, rota(nome))).toEqual(['presidente', 'gerente']);
-    for (const nome of ['lista', 'ficha', 'situacao', 'anotacao', 'entrevista', 'pagina', 'qrs'])
+    for (const nome of ['lista', 'ficha', 'situacao', 'anotacao', 'entrevista', 'pagina', 'qrs', 'distancia'])
       expect(Reflect.getMetadata(ROLES_KEY, rota(nome))).toBeUndefined();
+    // F2: "Medir de novo" chama o Nominatim e o OSRM — limite por minuto
+    expect(Reflect.getMetadata('THROTTLER:LIMITdefault', rota('distancia'))).toBe(10);
   });
 
   it('a pública: sem login e com limite por IP (o envio é o mais curto)', () => {

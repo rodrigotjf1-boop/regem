@@ -546,3 +546,31 @@ export function gerarProtocolo(): string {
 export function lerSituacao(v: unknown): Situacao {
   return um(v, SITUACOES, 'Situação inválida.', 'situacao');
 }
+
+// ── F2: a distância até a loja (mig 397) — o mapa auto-hospedado (OSRM da VPS, de carro), sem Google ─────────────────
+/** Por que a distância não saiu (a tela explica cada um). */
+export const FALHAS_DE_DISTANCIA = ['sem_ponto_da_loja', 'endereco_nao_achado', 'mapa_fora'] as const;
+export type FalhaDeDistancia = (typeof FALHAS_DE_DISTANCIA)[number];
+/** A rotina para depois disto; "Medir de novo" na ficha zera. */
+export const MAX_TENTATIVAS_DE_DISTANCIA = 3;
+
+/**
+ * As buscas do endereço no mapa (Nominatim), da mais exata à mais larga: rua e número com bairro e cidade; sem a rua,
+ * o bairro e a cidade (uma medida aproximada vale mais que nenhuma — a tela mostra "≈"). Sem repetir a mesma busca.
+ */
+export function buscasDoEndereco(c: { rua?: string | null; numero?: string | null; bairro?: string | null; cidade?: string | null }): string[] {
+  const limpo = (s: string | null | undefined) => String(s ?? '').replace(/\s+/g, ' ').trim();
+  // "Rio de Janeiro – RJ" (o que o ViaCEP devolve na ficha) → "Rio de Janeiro, RJ"
+  const cidade = limpo(c.cidade).replace(/\s*[–—-]\s*([A-Za-z]{2})$/, ', $1');
+  // número sem rua não localiza nada: a busca exata só existe com a rua
+  const ruaENumero = limpo(c.rua) ? [limpo(c.rua), limpo(c.numero)].filter(Boolean).join(', ') : '';
+  const juntar = (partes: string[]) => partes.filter(Boolean).join(', ');
+  const buscas = [
+    ruaENumero && cidade ? juntar([ruaENumero, limpo(c.bairro), cidade, 'Brasil']) : '',
+    limpo(c.bairro) && cidade ? juntar([limpo(c.bairro), cidade, 'Brasil']) : '',
+  ].filter(Boolean);
+  return [...new Set(buscas)];
+}
+
+/** A distância em km com uma casa (o OSRM responde em metros). */
+export const kmDeMetros = (m: number) => Math.round(m / 100) / 10;

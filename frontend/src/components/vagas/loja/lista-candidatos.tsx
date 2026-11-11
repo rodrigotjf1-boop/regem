@@ -6,7 +6,7 @@ import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { FiltroBusca, FiltroSelect, Filtros, ListaDados, NomeComApoio, Selo, Situacoes, TituloLista, Vazio, dataBr, semAcento, texto2, type Situacao } from '@/components/ui/lista';
 import { SkeletonList } from '@/components/ui/skeleton';
-import { brl, COMECA_ROTULO, DIA_ROTULO, MEIO_ROTULO, nomeDaFuncao, nomeDaOrigem, SITUACAO_ROTULO, TURNO_ESTUDO_ROTULO } from '@/lib/vagas-ficha';
+import { brl, COMECA_ROTULO, DIA_ROTULO, distanciaTexto, MEIO_ROTULO, nomeDaFuncao, nomeDaOrigem, SITUACAO_ROTULO, TURNO_ESTUDO_ROTULO } from '@/lib/vagas-ficha';
 import { FichaCandidato } from './ficha-candidato';
 
 // Pessoas › Candidatos › aba Candidatos: as fichas da página de vagas da loja em uso (presidente na rede: todas), no
@@ -18,7 +18,10 @@ export interface Candidato {
   conducoes: number | null; valorIda: number | null; valorVolta: number | null; experiencia: string; estuda: boolean;
   turnoEstudo: string | null; trabalhando: boolean; comeca: string; origem: string | null; origemNome: string | null; entrevistaEm: string | null;
   recebidoEm: string; loja: string; comunicacao: boolean; experiencias: number; temCarteira: boolean; jaLiderou: boolean;
+  /** F2 (mig 397): pelo nosso mapa (OSRM, de carro) — nulo enquanto não mediu. */
+  distanciaKm: number | null; minutosCarro: number | null; distanciaFalha: string | null; distanciaMedindo: boolean;
 }
+const distanciaDe = (c: Candidato) => ({ km: c.distanciaKm, minutos: c.minutosCarro, falha: c.distanciaFalha, medindo: c.distanciaMedindo });
 
 const TOM_DA_SITUACAO: Record<string, 'ok' | 'aviso' | 'critico' | 'info' | 'neutro'> = {
   novo: 'info', analise: 'neutro', entrevista: 'aviso', aprovado: 'ok', contratado: 'ok', banco: 'neutro', reprovado: 'critico',
@@ -58,6 +61,7 @@ export function ListaCandidatos({ nomesDasFuncoes }: { nomesDasFuncoes: Record<s
   const [conducoes, setConducoes] = useState('');
   const [comeca, setComeca] = useState('');
   const [exp, setExp] = useState('');
+  const [ateKm, setAteKm] = useState('');
   const [aberta, setAberta] = useState<string | null>(null);
 
   const carregar = useCallback(async () => {
@@ -87,6 +91,8 @@ export function ListaCandidatos({ nomesDasFuncoes }: { nomesDasFuncoes: Record<s
     if (exp === 'area' && c.experiencia !== 'sim') return false;
     if (exp === 'carteira' && !c.temCarteira) return false;
     if (exp === 'primeiro' && c.experiencia !== 'primeiro') return false;
+    // F2: só quem já tem a distância medida entra no filtro por distância
+    if (ateKm && !(c.distanciaKm !== null && c.distanciaKm <= Number(ateKm))) return false;
     return true;
   });
   const linhas = sit < 0 ? base : base.filter(SITUACOES[sit].filtro);
@@ -99,6 +105,7 @@ export function ListaCandidatos({ nomesDasFuncoes }: { nomesDasFuncoes: Record<s
     setConducoes('');
     setComeca('');
     setExp('');
+    setAteKm('');
   };
   const funcoesDaLista = [...new Set((lista ?? []).flatMap((c) => c.funcoes))];
 
@@ -138,6 +145,14 @@ export function ListaCandidatos({ nomesDasFuncoes }: { nomesDasFuncoes: Record<s
           opcoes={[{ v: 'area', rotulo: 'Na área (food service)' }, { v: 'carteira', rotulo: 'Com carteira assinada' }, { v: 'primeiro', rotulo: 'Primeiro emprego' }]}
           valor={exp}
           aoMudar={setExp}
+        />
+        <FiltroSelect
+          id="candidatos-distancia"
+          rotulo="Distância até a loja"
+          todos="Qualquer"
+          opcoes={[{ v: '5', rotulo: 'Até 5 km' }, { v: '10', rotulo: 'Até 10 km' }, { v: '20', rotulo: 'Até 20 km' }]}
+          valor={ateKm}
+          aoMudar={setAteKm}
         />
       </Filtros>
       {lista.length === 0 ? (
@@ -180,7 +195,15 @@ export function ListaCandidatos({ nomesDasFuncoes }: { nomesDasFuncoes: Record<s
                 </div>
               ),
             },
-            { titulo: 'Como chega', celula: (c) => <span className="text-sm">{comoChega(c) || '—'}</span> },
+            {
+              titulo: 'Como chega',
+              celula: (c) => (
+                <div className="min-w-0 space-y-0.5">
+                  <span className="block text-sm">{comoChega(c) || '—'}</span>
+                  <span className={`block text-xs ${texto2}`}>{distanciaTexto(distanciaDe(c))}</span>
+                </div>
+              ),
+            },
             {
               titulo: 'Experiência',
               celula: (c) => (

@@ -34,6 +34,10 @@
   menu antigo, que só marcava a `delivery_config` e não fecha nada), a tabela e a subida dela pelo `sync-daemon` (a pausa
   feita no painel da loja chega à nuvem — é lá que o cardápio e o atendente leem).
 
+- **Vagas e candidatos — F2, a distância até a loja (10/11; mig 397 `@cloud-only` — colunas novas na `candidato`, tabela
+  só da nuvem; sem mexer no `sync-daemon`).** Só NUVEM: a rotina da API mede pelo OSRM da VPS e pelo Nominatim; a tela de
+  Candidatos é da nuvem (`soNuvem`). Nada a empacotar — a tela nova vai no `.zip` 1.30.13 sem efeito na loja.
+
 - **Vagas e candidatos — F1, a base (10/11; mig 389 `@cloud-only` — 6 tabelas novas: `vaga_pagina`, `vaga_qr`,
   `candidato`, `candidato_experiencia`, `candidato_curso`, `candidato_evento`; mig 390 NÃO cloud-only — a permissão
   `candidatos` nos perfis salvos; mexe em `backend/edge/sync-daemon.mjs` SÓ na lista `SO_NUVEM`).** Na NUVEM com o merge

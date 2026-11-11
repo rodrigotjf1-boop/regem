@@ -8,12 +8,17 @@ import { ModuloService } from '../modulo/modulo.service';
 import { ehServidorLocal } from '../../common/modo';
 import { hojeISO } from '../../common/data';
 import { sqlUnidade } from '../../common/filtro-unidade';
+import { geocode } from '../../common/geocode';
 import {
+  FalhaDeDistancia,
   FichaLida,
+  MAX_TENTATIVAS_DE_DISTANCIA,
   PaginaDeVagas,
   VERSAO_COMUNICACAO,
   VERSAO_GUARDA,
+  buscasDoEndereco,
   gerarProtocolo,
+  kmDeMetros,
   lerFicha,
   lerOrigem,
   lerPagina,
@@ -35,6 +40,18 @@ const arrTexto = (lista: string[]): SQL =>
   lista.length ? sql`array[${sql.join(lista.map((x) => sql`${x}`), sql`, `)}]::text[]` : sql`'{}'::text[]`;
 
 export const MODULO_VAGAS = 'vagas';
+
+/** No `on conflict` do reenvio: o endereço gravado é o mesmo que chegou? (a distância medida segue valendo) */
+const MESMO_ENDERECO = sql.raw(
+  '((candidato.cep, candidato.rua, candidato.numero, candidato.bairro, candidato.cidade) is not distinct from ' +
+    '(excluded.cep, excluded.rua, excluded.numero, excluded.bairro, excluded.cidade))',
+);
+/** A rotina da distância espera isto entre duas tentativas da mesma ficha, e pega no máximo este lote por volta. */
+const ESPERA_ENTRE_TENTATIVAS_MIN = 10;
+const LOTE_DA_DISTANCIA = 10;
+/** O Nominatim aberto pede no máximo uma busca por segundo. */
+const PAUSA_DO_NOMINATIM_MS = 1100;
+const espera = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // As marcas de origem que a loja ganha ao criar a página (pedido do dono, 10/11/2026: Instagram, anúncios e salão; a tela
 // deixa criar outras e apagar estas).
@@ -191,7 +208,16 @@ export class VagasService {
           comunicacao_cancelada_em = case when excluded.comunicacao_aceita_em is not null then null
                                           when candidato.comunicacao_aceita_em is not null then coalesce(candidato.comunicacao_cancelada_em, clock_timestamp())
                                           else candidato.comunicacao_cancelada_em end,
-          expurgo_em = excluded.expurgo_em, recebido_em = clock_timestamp(), atualizado_em = clock_timestamp()
+          expurgo_em = excluded.expurgo_em, recebido_em = clock_timestamp(), atualizado_em = clock_timestamp(),
+          -- F2: o endereço mudou no reenvio → a distância de antes não vale; zera para a rotina medir de novo.
+          lat = case when ${MESMO_ENDERECO} then candidato.lat end,
+          lng = case when ${MESMO_ENDERECO} then candidato.lng end,
+          distancia_km = case when ${MESMO_ENDERECO} then candidato.distancia_km end,
+          minutos_carro = case when ${MESMO_ENDERECO} then candidato.minutos_carro end,
+          distancia_em = case when ${MESMO_ENDERECO} then candidato.distancia_em end,
+          distancia_falha = case when ${MESMO_ENDERECO} then candidato.distancia_falha end,
+          distancia_tentada_em = case when ${MESMO_ENDERECO} then candidato.distancia_tentada_em end,
+          distancia_tentativas = case when ${MESMO_ENDERECO} then candidato.distancia_tentativas else 0 end
         returning id, protocolo, (xmax = 0) as novo`);
       const c = linhas(r)[0];
       await tx.execute(sql`delete from candidato_experiencia where candidato_id = ${c.id}`);
@@ -231,6 +257,8 @@ export class VagasService {
              c.meios_transporte as meios, c.conducoes, c.valor_ida::float8 as "valorIda", c.valor_volta::float8 as "valorVolta",
              c.experiencia, c.estuda, c.turno_estudo as "turnoEstudo", c.trabalhando, c.comeca, c.origem,
              (select q.nome from vaga_qr q where q.tenant_id = c.tenant_id and q.unidade_id = c.unidade_id and q.codigo = c.origem) as "origemNome",
+             c.distancia_km::float8 as "distanciaKm", c.minutos_carro as "minutosCarro", c.distancia_falha as "distanciaFalha",
+             (c.distancia_em is null and c.distancia_tentativas < ${MAX_TENTATIVAS_DE_DISTANCIA}) as "distanciaMedindo",
              c.entrevista_em as "entrevistaEm", c.recebido_em as "recebidoEm", c.unidade_id as "unidadeId", u.nome as loja,
              c.comunicacao_aceita_em is not null and c.comunicacao_cancelada_em is null as comunicacao,
              (select count(*)::int from candidato_experiencia x where x.candidato_id = c.id and x.tipo = 'trabalho') as experiencias,
@@ -296,6 +324,7 @@ export class VagasService {
       respostas: c.respostas ?? {},
       origem: c.origem,
       origemNome: c.origem_nome,
+      distancia: this.distanciaDaLinha(c),
       entrevistaEm: c.entrevista_em,
       comunicacao: { aceitaEm: c.comunicacao_aceita_em, canceladaEm: c.comunicacao_cancelada_em },
       recebidoEm: c.recebido_em,
@@ -483,6 +512,156 @@ export class VagasService {
       delete from vaga_qr where id = ${id}::uuid and tenant_id = ${user.tenantId} and unidade_id = ${u}::uuid returning id`));
     if (!r.length) throw new NotFoundException('QR não encontrado.');
     return { ok: true };
+  }
+
+  // ── F2: a distância até a loja (mig 397) ─────────────────────────────────────────────────────────────────────────
+  // O endereço vira ponto pelo Nominatim (o mesmo do delivery) e o NOSSO OSRM (de carro) mede a distância pela rua e o
+  // tempo até o "Ponto da loja no mapa". Sem Google (dono, 10/11/2026). A medida sai numa rotina, depois de gravar a
+  // ficha — o candidato nunca espera por ela — com até 3 tentativas; a ficha nunca trava sem ela.
+
+  /** O bloco da distância que a ficha mostra. */
+  private distanciaDaLinha(c: any) {
+    return {
+      km: c.distancia_km === null || c.distancia_km === undefined ? null : Number(c.distancia_km),
+      minutos: c.minutos_carro ?? null,
+      falha: (c.distancia_falha as FalhaDeDistancia | null) ?? null,
+      medindo: !c.distancia_em && Number(c.distancia_tentativas ?? 0) < MAX_TENTATIVAS_DE_DISTANCIA,
+      em: c.distancia_em ?? null,
+    };
+  }
+
+  /** O "Ponto da loja no mapa" (Configurações › Loja): o da loja; sem ele, o da empresa. */
+  private async pontoDaLoja(tenantId: string, unidadeId: string): Promise<{ lat: number; lng: number } | null> {
+    const [l] = linhas(await this.db.execute(sql`
+      select end_lat::float8 as lat, end_lng::float8 as lng from cardapio_config
+       where tenant_id = ${tenantId} and (unidade_id = ${unidadeId}::uuid or unidade_id is null)
+         and end_lat is not null and end_lng is not null
+       order by (unidade_id is null), unidade_id
+       limit 1`));
+    return l && Number.isFinite(l.lat) && Number.isFinite(l.lng) ? { lat: l.lat, lng: l.lng } : null;
+  }
+
+  /** O ponto do endereço do candidato: da busca mais exata à mais larga, uma por segundo (regra do Nominatim). */
+  protected async localizar(c: any): Promise<{ lat: number; lng: number } | null> {
+    const buscas = buscasDoEndereco(c);
+    for (let i = 0; i < buscas.length; i++) {
+      if (i) await espera(PAUSA_DO_NOMINATIM_MS);
+      const g = await geocode(buscas[i]);
+      if (g) return g;
+    }
+    return null;
+  }
+
+  /** A rota de carro pelo OSRM da VPS (`OSRM_URL`, o mesmo do entregador e do frete). Fora / sem rota: null. */
+  protected async rotaDeCarro(a: { lat: number; lng: number }, b: { lat: number; lng: number }): Promise<{ metros: number; segundos: number } | null> {
+    const base = (process.env.OSRM_URL || '').replace(/\/$/, '');
+    if (!base) return null;
+    try {
+      const url = `${base}/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=false`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      if (!res.ok) return null;
+      const j: any = await res.json();
+      const rt = j?.routes?.[0];
+      if (j?.code !== 'Ok' || !Number.isFinite(Number(rt?.distance))) return null;
+      return { metros: Number(rt.distance), segundos: Number(rt.duration ?? 0) };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Mede UMA ficha já reservada (a tentativa foi contada antes). Grava só se o endereço ainda é o mesmo que mediu — o
+   * candidato pode ter reenviado com outro no meio (aí o reenvio zerou e a rotina mede o novo). Nunca lança.
+   */
+  private async medirUma(c: any): Promise<{ ok: true; km: number; minutos: number } | { ok: false; falha: FalhaDeDistancia }> {
+    const resultado = await (async () => {
+      const loja = await this.pontoDaLoja(c.tenant_id, c.unidade_id);
+      if (!loja) return { ok: false as const, falha: 'sem_ponto_da_loja' as const };
+      const ponto = await this.localizar(c);
+      if (!ponto) return { ok: false as const, falha: 'endereco_nao_achado' as const };
+      const rota = await this.rotaDeCarro(ponto, loja);
+      if (!rota) return { ok: false as const, falha: 'mapa_fora' as const, ponto };
+      return { ok: true as const, km: kmDeMetros(rota.metros), minutos: Math.max(1, Math.round(rota.segundos / 60)), ponto };
+    })().catch((e) => {
+      this.log.warn(`Distância da ficha ${c.id}: ${e?.message ?? e}`);
+      return { ok: false as const, falha: 'mapa_fora' as const };
+    });
+    const mesmo = sql`and cep is not distinct from ${c.cep} and rua is not distinct from ${c.rua}
+      and numero is not distinct from ${c.numero} and bairro is not distinct from ${c.bairro} and cidade is not distinct from ${c.cidade}`;
+    try {
+      if (resultado.ok)
+        await this.db.execute(sql`
+          update candidato set lat = ${resultado.ponto.lat}, lng = ${resultado.ponto.lng}, distancia_km = ${resultado.km},
+                 minutos_carro = ${resultado.minutos}, distancia_em = clock_timestamp(), distancia_falha = null
+           where id = ${c.id} ${mesmo}`);
+      else
+        await this.db.execute(sql`
+          update candidato set distancia_falha = ${resultado.falha},
+                 lat = ${'ponto' in resultado && resultado.ponto ? resultado.ponto.lat : null},
+                 lng = ${'ponto' in resultado && resultado.ponto ? resultado.ponto.lng : null}
+           where id = ${c.id} ${mesmo}`);
+    } catch (e: any) {
+      this.log.warn(`Distância da ficha ${c.id}: não gravou (${e?.message ?? e}).`);
+    }
+    return resultado.ok ? { ok: true, km: resultado.km, minutos: resultado.minutos } : { ok: false, falha: resultado.falha };
+  }
+
+  /** Reserva as próximas fichas sem distância (conta a tentativa ANTES de medir: duas voltas não pegam a mesma). */
+  private async reservarSemDistancia(limite: number, id?: string) {
+    return linhas(await this.db.execute(sql`
+      update candidato c
+         set distancia_tentativas = c.distancia_tentativas + 1, distancia_tentada_em = clock_timestamp()
+       where c.id in (
+         select x.id from candidato x
+          where x.distancia_em is null and x.distancia_tentativas < ${MAX_TENTATIVAS_DE_DISTANCIA}
+            ${id ? sql`and x.id = ${id}::uuid` : sql`and (x.distancia_tentada_em is null or x.distancia_tentada_em < clock_timestamp() - make_interval(mins => ${ESPERA_ENTRE_TENTATIVAS_MIN}))`}
+          order by x.distancia_tentada_em nulls first, x.recebido_em
+          limit ${limite}
+          for update skip locked)
+      returning c.id, c.tenant_id, c.unidade_id, c.cep, c.rua, c.numero, c.bairro, c.cidade`));
+  }
+
+  private medindoAgora = false;
+  // A cada minuto (só na nuvem): mede o que falta, uma ficha de cada vez (o Nominatim pede uma busca por segundo).
+  @Cron('15 * * * * *')
+  async distanciaDasFichas(): Promise<void> {
+    if (ehServidorLocal() || this.medindoAgora) return;
+    this.medindoAgora = true;
+    try {
+      const r = await this.medirPendentes();
+      if (r.medidas || r.falhas) this.log.log(`Distância das fichas: ${r.medidas} medida(s), ${r.falhas} sem medida nesta volta.`);
+    } catch (e: any) {
+      this.log.error(`Distância das fichas falhou: ${e?.message ?? e}`);
+    } finally {
+      this.medindoAgora = false;
+    }
+  }
+
+  /** Uma volta da rotina (exposta para o teste). */
+  async medirPendentes(limite = LOTE_DA_DISTANCIA): Promise<{ medidas: number; falhas: number }> {
+    const fila = await this.reservarSemDistancia(limite);
+    let medidas = 0;
+    let falhas = 0;
+    for (let i = 0; i < fila.length; i++) {
+      if (i) await espera(PAUSA_DO_NOMINATIM_MS);
+      const r = await this.medirUma(fila[i]);
+      if (r.ok) medidas++;
+      else falhas++;
+    }
+    return { medidas, falhas };
+  }
+
+  /** "Medir de novo" na ficha: zera as tentativas e mede agora (a loja acabou de pôr o ponto no mapa, por exemplo). */
+  async medirDeNovo(tenantId: string, unidade: string | null, id: string) {
+    const c = await this.daLoja(null, tenantId, unidade, id);
+    await this.db.execute(sql`
+      update candidato set distancia_em = null, distancia_falha = null, distancia_tentativas = 0, distancia_tentada_em = null,
+             distancia_km = null, minutos_carro = null
+       where id = ${c.id} and tenant_id = ${tenantId}`);
+    const [reservada] = await this.reservarSemDistancia(1, c.id);
+    if (reservada) await this.medirUma(reservada);
+    const depois = await this.daLoja(null, tenantId, unidade, id);
+    return this.distanciaDaLinha(depois);
   }
 
   // ── expurgo diário (LGPD) ───────────────────────────────────────────────────────────────────────────────────────
