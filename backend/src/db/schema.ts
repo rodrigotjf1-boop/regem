@@ -1399,6 +1399,10 @@ export const produto = pgTable('produto', {
   // produto está no cardápio do iFood. Só gravados com o direito `ifood_pelo_orzuni` ligado.
   precoIfood: numeric('preco_ifood', { precision: 12, scale: 2 }),
   noIfood: boolean('no_ifood').notNull().default(false),
+  // A 99 (mig 401): o preço NA 99 (null = o Regem não mexe no preço de lá) e se o produto está no
+  // cardápio da 99. Só gravados com o direito `precos_na_99` ligado.
+  preco99: numeric('preco_99', { precision: 12, scale: 2 }),
+  na99: boolean('na_99').notNull().default(false),
   disponivelCardapio: boolean('disponivel_cardapio').notNull().default(true),
   pausadoEstoque: boolean('pausado_estoque').notNull().default(false), // auto-pausa por estoque
   pausaMotivo: text('pausa_motivo'), // motivo do "esgotado" (aparece no aviso geral)
@@ -1777,6 +1781,10 @@ export const opcao = pgTable('opcao', {
   codigoPdv: text('codigo_pdv'),
   // Preço do complemento NO iFood (mig 369): um por opção = por código PDV. null = o Regem não mexe.
   precoIfood: numeric('preco_ifood', { precision: 12, scale: 2 }),
+  // A 99 (mig 401, fase F3 da Gestão do catálogo): o preço do complemento NA 99 e a pausa por canal
+  // ('ifood', '99food'), como `produto.canais_pausados`. Ninguém grava nelas antes da F3.
+  preco99: numeric('preco_99', { precision: 12, scale: 2 }),
+  canaisPausados: jsonb('canais_pausados').notNull().default('[]'),
   descricao: text('descricao'),
   imagemRef: text('imagem_ref'),
   tipo: text('tipo').notNull().default('simples'), // simples | ficha | insumo

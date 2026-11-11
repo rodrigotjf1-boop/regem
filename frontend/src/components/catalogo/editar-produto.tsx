@@ -19,14 +19,15 @@ import {
 const NOVA = '__nova';
 
 // EDITAR (Gestão do catálogo › Produtos e preços — protótipo `regem-conciliacao-ifood.html`, a gaveta de editar): nome,
-// descrição, código PDV, categoria, foto, o preço e a pausa de cada canal e o "Está no iFood". Antes de salvar, diz o
-// que muda no Regem e o que vai (e o que não vai) ao iFood. Grava pelo cadastro (PATCH) e pelas rotas do canal (preço e
-// pausa, com auditoria); toda recusa conhecida aparece ANTES da 1ª gravação.
+// descrição, código PDV, categoria, foto, o preço e a pausa de cada canal, o "Está no iFood" e o "Está na 99". Antes de
+// salvar, diz o que muda no Regem e o que vai (e o que não vai) ao iFood e à 99. Grava pelo cadastro (PATCH) e pelas rotas
+// do canal (preço e pausa, com auditoria); toda recusa conhecida aparece ANTES da 1ª gravação.
 export function EditarProduto({
   produto: p,
   categorias,
   outros,
   comIfood,
+  com99 = false,
   podeMudarPreco,
   voltarPara,
   aoFechar,
@@ -37,11 +38,12 @@ export function EditarProduto({
   categorias: CategoriaDaGestao[];
   outros: Pick<ProdutoDaGestao, 'id' | 'nome' | 'codigo'>[];
   comIfood: boolean;
+  com99?: boolean;
   podeMudarPreco: boolean;
   voltarPara?: string;
   aoFechar: () => void;
   /** Depois de gravar (tudo ou parte): a tela relê a lista. */
-  aoSalvar: (fechar: boolean, foiAoIfood: boolean) => void;
+  aoSalvar: (fechar: boolean, foiAoIfood: boolean, foiA99: boolean) => void;
   aoNovaCategoria: (c: CategoriaDaGestao) => void;
 }) {
   const [e, setE] = useState<EdicaoDoProduto>(() => edicaoInicial(p));
@@ -53,7 +55,11 @@ export function EditarProduto({
     setFalha('');
     setE((x) => ({ ...x, ...m }));
   };
-  const plano = useMemo(() => analisarEdicao(p, e, { comIfood, podeMudarPreco, outros, categorias }), [p, e, comIfood, podeMudarPreco, outros, categorias]);
+  const plano = useMemo(
+    () => analisarEdicao(p, e, { comIfood, com99, podeMudarPreco, outros, categorias }),
+    [p, e, comIfood, com99, podeMudarPreco, outros, categorias],
+  );
+  const vaiAosApps = plano.ifoodVai.length > 0 || plano.n99Vai.length > 0;
   const parcial = pausaNoRegem(p).parcial;
   const semCodigo = !e.codigo.trim();
 
@@ -90,16 +96,21 @@ export function EditarProduto({
         throw new Error(feito.length ? `Salvo: ${feito.join(', ')}. Não salvou ${oQue}: ${texto}` : texto);
       }
     };
+    const PRECO = { regem: 'o preço de venda', ifood: 'o preço no iFood', '99food': 'o preço na 99' } as const;
+    const PAUSA = { regem: 'a pausa do Regem', ifood: 'a pausa do iFood', '99food': 'a pausa da 99' } as const;
     try {
       if (Object.keys(plano.patch).length) await passo('cadastro', () => api.atualizarProduto(p.id, plano.patch));
-      for (const x of plano.precos) await passo(x.canal === 'regem' ? 'o preço de venda' : 'o preço no iFood', () => api.precoDoCanal(p.id, x.canal, x.valor));
-      for (const x of plano.pausas) await passo(x.canal === 'regem' ? 'a pausa do Regem' : 'a pausa do iFood', () => api.pausaDoCanal(p.id, x.canal, x.pausado));
-      const vai = plano.ifoodVai.length ? ' O que é do iFood vai em instantes pelo Orzuni.' : '';
+      for (const x of plano.precos) await passo(PRECO[x.canal], () => api.precoDoCanal(p.id, x.canal, x.valor));
+      for (const x of plano.pausas) await passo(PAUSA[x.canal], () => api.pausaDoCanal(p.id, x.canal, x.pausado));
+      const vai = [
+        plano.ifoodVai.length ? ' O que é do iFood vai em instantes pelo Orzuni.' : '',
+        plano.n99Vai.length ? ' O que é da 99 vai em instantes à 99.' : '',
+      ].join('');
       toast.success(`"${e.nome.trim()}" salvo.${vai}`);
-      aoSalvar(true, plano.ifoodVai.length > 0);
+      aoSalvar(true, plano.ifoodVai.length > 0, plano.n99Vai.length > 0);
     } catch (err) {
       setFalha(err instanceof Error ? err.message : 'Não foi possível salvar.');
-      if (feito.length) aoSalvar(false, plano.ifoodVai.length > 0);
+      if (feito.length) aoSalvar(false, plano.ifoodVai.length > 0, plano.n99Vai.length > 0);
     } finally {
       setSalvando(false);
     }
@@ -116,7 +127,7 @@ export function EditarProduto({
         <>
           <Button type="button" variant="outline" onClick={aoFechar} disabled={salvando}>Cancelar</Button>
           <Button type="button" onClick={() => void salvar()} disabled={salvando || !plano.mudou || plano.erros.length > 0}>
-            {salvando ? 'Salvando…' : plano.ifoodVai.length ? 'Salvar e enviar' : 'Salvar'}
+            {salvando ? 'Salvando…' : vaiAosApps ? 'Salvar e enviar' : 'Salvar'}
           </Button>
         </>
       }
@@ -179,6 +190,7 @@ export function EditarProduto({
           <legend className="px-1 text-sm font-bold">Foto</legend>
           <ImageUpload value={e.imagemRef || undefined} onChange={(url) => mudar({ imagemRef: url ?? '' })} alt={e.nome || 'produto'} />
           {comIfood && p.noIfood && <p className={`text-xs ${texto2}`}>A foto vale para o balcão e o cardápio digital. No iFood, a foto muda no Gestor de Pedidos.</p>}
+          {com99 && p.na99 && <p className={`text-xs ${texto2}`}>A foto da 99 não muda pelo Regem ainda.</p>}
         </fieldset>
 
         <fieldset className="space-y-3 rounded-lg border border-border p-3">
@@ -195,6 +207,13 @@ export function EditarProduto({
                 <Label htmlFor="ep-p-ifood">Preço no iFood</Label>
                 <Input id="ep-p-ifood" inputMode="decimal" autoComplete="off" value={e.precoIfood} disabled={!podeMudarPreco} onChange={(x) => mudar({ precoIfood: x.target.value })} placeholder="Em branco: o Regem não mexe" className="font-mono" />
                 <p className={`text-xs ${texto2}`}>Vai ao iFood pelo Orzuni.</p>
+              </div>
+            )}
+            {com99 && (
+              <div className="space-y-1">
+                <Label htmlFor="ep-p-99">Preço na 99</Label>
+                <Input id="ep-p-99" inputMode="decimal" autoComplete="off" value={e.preco99} disabled={!podeMudarPreco} onChange={(x) => mudar({ preco99: x.target.value })} placeholder="Em branco: o Regem não mexe" className="font-mono" />
+                <p className={`text-xs ${texto2}`}>Vai à 99 na hora.</p>
               </div>
             )}
           </div>
@@ -230,11 +249,31 @@ export function EditarProduto({
               </p>
             </div>
           )}
+          {com99 && (
+            <div className="space-y-1 border-t border-border pt-3">
+              <p className="text-sm font-bold">99</p>
+              <div className="flex flex-wrap gap-x-6">
+                <label className="flex min-h-10 items-center gap-2 text-sm">
+                  <input type="checkbox" className={caixa} checked={e.na99} onChange={(x) => mudar({ na99: x.target.checked })} />
+                  Está na 99
+                </label>
+                <label className={`flex min-h-10 items-center gap-2 text-sm ${!e.na99 ? 'opacity-60' : ''}`}>
+                  <input type="checkbox" className={caixa} checked={e.pausa99} disabled={!e.na99} onChange={(x) => mudar({ pausa99: x.target.checked })} />
+                  Pausado na 99
+                </label>
+              </div>
+              <p className={`text-xs ${texto2}`}>
+                {semCodigo
+                  ? 'Sem código PDV: não liga à 99.'
+                  : 'Tirar da 99 pausa o item lá (o Regem não apaga item da 99). O item que ainda não existe na 99 vai pelo "Exportar catálogo" (Delivery › Painel › ⚙️ › Integrações › 99Food).'}
+              </p>
+            </div>
+          )}
           {esgotado(p) && (
             <p className="rounded-md bg-warn/15 px-3 py-2 text-xs">
               <b>Esgotado pelo estoque</b>
               {Array.isArray(p.lojasPausadas) && p.lojasPausadas.length ? ` (${p.lojasPausadas.join(', ')})` : ''}: fica fora do balcão, do cardápio digital
-              {comIfood ? ' e do iFood' : ''} até o estoque voltar.
+              {comIfood && com99 ? ', do iFood e da 99' : comIfood ? ' e do iFood' : com99 ? ' e da 99' : ''} até o estoque voltar.
             </p>
           )}
         </fieldset>
@@ -263,12 +302,20 @@ export function EditarProduto({
                     {plano.ifoodAtencao.length > 0 && <> Atenção: {plano.ifoodAtencao.join('; ')}.</>}
                   </li>
                 )}
+                {(plano.n99Vai.length > 0 || plano.n99Atencao.length > 0) && (
+                  <li>
+                    <b>99</b>
+                    {plano.n99Vai.length > 0 && <> — vai agora: {plano.n99Vai.join(', ')}.</>}
+                    {plano.n99Atencao.length > 0 && <> Atenção: {plano.n99Atencao.join('; ')}.</>}
+                  </li>
+                )}
               </ul>
             </div>
           )}
         </div>
 
         {comIfood && p.noIfood && !!(p.codigo ?? '').trim() && <UltimoEnvioIfood alvo="produto" id={p.id} />}
+        {com99 && p.na99 && !!(p.codigo ?? '').trim() && <UltimoEnvioIfood alvo="produto" id={p.id} canal="99food" />}
       </div>
     </Gaveta>
   );

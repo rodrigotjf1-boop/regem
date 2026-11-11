@@ -88,6 +88,13 @@ export class ProdutoController {
     return { ligado: await this.service.ifoodPeloOrzuni(user.tenantId) };
   }
 
+  // A 99 (mig 401; R3 F2): a tela só mostra o preço na 99 e o "está na 99" com o direito `precos_na_99` ligado na
+  // empresa. Quem liga é a distribuição — não há rota do lojista que grave o direito.
+  @Get('precos-na-99')
+  async precosNa99(@CurrentUser() user: AuthUser) {
+    return { ligado: await this.service.precosNa99(user.tenantId) };
+  }
+
   // O "último envio ao iFood" de uma opção e de um produto, por loja (R2b; mig 370). No servidor da loja, vem da nuvem.
   @Get('opcoes/:id/ifood-envios')
   ifoodEnviosOpcao(@CurrentUser() user: AuthUser, @Param('id') id: string) {
@@ -97,6 +104,12 @@ export class ProdutoController {
   @Get(':id/ifood-envios')
   ifoodEnviosProduto(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.ifoodEnvios(user.tenantId, 'produto', id);
+  }
+
+  // O "último envio à 99" de um produto, por loja (R3 F2; mig 402). No servidor da loja, vem da nuvem.
+  @Get(':id/99-envios')
+  food99EnviosProduto(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.food99Envios(user.tenantId, id);
   }
 
   // ----- Opções (catálogo reutilizável, Fase 2) -----

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { clearDistToken, distApi, getDistToken, setToken } from '@/lib/api';
 import { TokensIntegracao } from '@/components/distribuicao/tokens-integracao';
 import { IfoodPeloOrzuni } from '@/components/distribuicao/ifood-pelo-orzuni';
+import { PrecosNa99 } from '@/components/distribuicao/precos-na-99';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -762,6 +763,9 @@ export default function DistHome() {
 
             {/* iFood pelo Orzuni (mig 370) — só Diretoria: a ligação de cada loja, a liberação e os envios. */}
             {ehDiretoria && <IfoodPeloOrzuni empresas={frota ?? []} />}
+
+            {/* Preço e pausa na 99 (mig 401/402) — só Diretoria: a liberação da empresa e os envios à 99. */}
+            {ehDiretoria && <PrecosNa99 empresas={frota ?? []} />}
 
             {modalIfood && (
               <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={() => setModalIfood(null)}>

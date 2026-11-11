@@ -14,6 +14,7 @@ import { DRIZZLE, DrizzleDB } from '../../../db/drizzle.module';
 import { integracao } from '../../../db/schema';
 import { DeliveryService } from '../../delivery/delivery.service';
 import { fetchExterno } from '../../../common/fetch-externo';
+import { precosNa99Ligado } from '../../../common/precos-na-99';
 import { ehServidorLocal } from '../../../common/modo';
 import {
   Entregador99,
@@ -503,6 +504,86 @@ export class Food99Service {
     const errno = Number(j?.errno ?? -1);
     if (errno !== 0) this.logger.warn(`setStatus loja=${ig.appShopId} errno=${errno}: ${String(j?.errmsg ?? '').slice(0, 120)}`);
     return { ok: errno === 0, errno, errmsg: j?.errmsg ? String(j.errmsg).slice(0, 200) : null };
+  }
+
+  // ===== O cardápio item a item (R3 F2 da Gestão do catálogo; mig 402) =====
+  // Quem chama é o despacho `Food99CatalogoEnvioService` (só nuvem). Nunca rejeitam: a falha volta com o errno da 99
+  // (-1 = a 99 não respondeu; -2 = sem auth_token da loja; -3 = resposta sem o que a doc promete) e a mensagem dela.
+
+  /** A integração da 99 pelo id, se ainda ativa (a fila guarda o id da integração = a loja na 99). */
+  async integracaoAtivaPorId(id: string): Promise<IntegFood99 | null> {
+    const [r] = await this.db
+      .select()
+      .from(integracao)
+      .where(and(eq(integracao.id, id), eq(integracao.canal, CANAL), eq(integracao.ativo, true)));
+    return this.mapRow(r);
+  }
+
+  /** Chama a 99 com o auth_token da loja; com "autorização expirada" (errno 10102), pega um token novo e tenta UMA vez mais. */
+  private async comToken(ig: IntegFood99, chamar: (tk: string) => Promise<any>): Promise<any> {
+    const tk = await this.authToken(ig).catch(() => null);
+    if (!tk) return { errno: -2, errmsg: 'sem auth_token da loja na 99' };
+    let j = await chamar(tk).catch(() => ({ errno: -1 }));
+    if (Number(j?.errno) === 10102) {
+      const novo = await this.authToken({ ...ig, token: null, config: { ...ig.config, tokenExp: 0 } }).catch(() => null);
+      if (novo) j = await chamar(novo).catch(() => ({ errno: -1 }));
+    }
+    return j ?? { errno: -1 };
+  }
+
+  private static resposta(j: any): { errno: number; errmsg: string | null } {
+    return { errno: Number(j?.errno ?? -1), errmsg: j?.errmsg ? String(j.errmsg).slice(0, 200) : null };
+  }
+
+  /** O cardápio da loja na 99 (doc 1961 "Get Store Menu Details", `GET /v3/item/item/list`): os itens por `app_item_id`. */
+  async itensDoCardapio(ig: IntegFood99): Promise<{ errno: number; errmsg: string | null; itens: Map<string, any> }> {
+    const j = await this.comToken(ig, async (tk) => {
+      const res = await fetchExterno(`${BASE}/v3/item/item/list?${new URLSearchParams({ auth_token: tk }).toString()}`, { method: 'GET' });
+      return res.json();
+    });
+    const r = Food99Service.resposta(j);
+    const itens = new Map<string, any>();
+    if (r.errno !== 0) return { ...r, itens };
+    if (!Array.isArray(j?.data?.items)) return { errno: -3, errmsg: 'a 99 respondeu sem a lista de itens', itens };
+    for (const it of j.data.items) if (it?.app_item_id != null) itens.set(String(it.app_item_id), it);
+    return { ...r, itens };
+  }
+
+  /**
+   * "Update One Item" (doc 1967, `POST /v3/item/item/updateItem`): manda o item INTEIRO — a 99 exige nome, preço, situação
+   * e "vende separado" em toda chamada (quem monta é `itemParaAtualizar`, com o resto como a 99 tem).
+   */
+  async atualizarItem(ig: IntegFood99, item: Record<string, unknown>): Promise<{ errno: number; errmsg: string | null }> {
+    const j = await this.comToken(ig, async (tk) => {
+      const res = await fetchExterno(`${BASE}/v3/item/item/updateItem`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auth_token: tk, ...item }),
+      });
+      return res.json();
+    });
+    return Food99Service.resposta(j);
+  }
+
+  /**
+   * "Update Item Status" (doc 1969, `POST /v3/item/item/updateItemStatus`): 1 = disponível, 2 = indisponível. A 99 diz,
+   * item a item, o que deu certo (`data.success`) e o que não (`data.failed`).
+   */
+  async situacaoDosItens(
+    ig: IntegFood99,
+    ids: string[],
+    status: 1 | 2,
+  ): Promise<{ errno: number; errmsg: string | null; sucesso: string[]; falha: string[] }> {
+    const j = await this.comToken(ig, async (tk) => {
+      const res = await fetchExterno(`${BASE}/v3/item/item/updateItemStatus`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auth_token: tk, app_item_ids: ids, status }),
+      });
+      return res.json();
+    });
+    const lista = (v: unknown) => (Array.isArray(v) ? v.map(String) : []);
+    return { ...Food99Service.resposta(j), sucesso: lista(j?.data?.success), falha: lista(j?.data?.failed) };
   }
 
   // POST body JSON bigint-safe (order_id/apply_id como LITERAIS, nunca via JSON.stringify).
@@ -1277,13 +1358,16 @@ export class Food99Service {
   // Exporta o cardápio do Regem PRA o 99food (upload em bloco /v3/item/item/upload).
   // Mapeia categorias+produtos disponíveis → menus/categories/items. app_item_id =
   // codigo do produto (ou id) → o pedido de volta casa pelo mesmo código. Preços em
-  // CENTAVOS. Sem complementos por ora (modifier_groups: []).
+  // CENTAVOS: o preço na 99 do produto (mig 401) quando o direito `precos_na_99` está ligado e ele
+  // está preenchido; senão, o preço de venda (como sempre foi). Sem complementos por ora (modifier_groups: []).
   async exportarCatalogo(tenantId: string): Promise<{ categorias: number; produtos: number }> {
     const ig = await this.integracaoDoTenant(tenantId);
     if (!ig) throw new BadRequestException('Conecte o 99Food primeiro (salve as credenciais).');
     const tk = await this.authToken(ig);
     if (!tk) throw new BadRequestException('Sem auth_token do 99Food.');
     const { categorias, produtos } = await this.delivery.lerCatalogoParaExport(tenantId, '99food');
+    const com99 = await precosNa99Ligado(this.db, tenantId);
+    const precoDe = (p: any) => (com99 && p.preco_99 != null ? p.preco_99 : p.preco_venda);
     const prods = produtos.filter((p: any) => p.categoria_id && categorias.some((c: any) => c.id === p.categoria_id));
     if (!prods.length) throw new BadRequestException('Nenhum produto (com categoria) disponível no cardápio pra exportar.');
     const codItem = (p: any) => String(p.codigo || p.id);
@@ -1297,7 +1381,7 @@ export class Food99Service {
     const items = prods.map((p: any) => ({
       app_item_id: codItem(p),
       item_name: String(p.nome).slice(0, 50),
-      price: Math.round((Number(p.preco_venda) || 0) * 100),
+      price: Math.round((Number(precoDe(p)) || 0) * 100),
       is_sold_separately: true,
       ...(p.descricao ? { short_desc: String(p.descricao).slice(0, 300) } : {}),
     }));

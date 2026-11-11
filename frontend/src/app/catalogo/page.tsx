@@ -17,23 +17,25 @@ import { ChipPausa } from '@/components/catalogo/chip-pausa';
 import { EditarProduto } from '@/components/catalogo/editar-produto';
 import { UltimoEnvioIfood } from '@/components/produtos/ultimo-envio-ifood';
 import {
-  agruparPorCategoria, esgotado, pausaNoRegem, pausadoEmAlgumCanal, pausadoNoIfood, semPrecoNoIfood, type CategoriaDaGestao,
+  agruparPorCategoria, esgotado, pausaNoRegem, pausadoEmAlgumCanal, pausadoNa99, pausadoNoIfood, semPrecoNa99, semPrecoNoIfood,
+  type CanalDaGestao, type CategoriaDaGestao,
 } from '@/lib/catalogo-gestao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const ID_TITULO = 'catalogo-titulo';
-type Canal = 'regem' | 'ifood';
+type Canal = CanalDaGestao;
 
-// DELIVERY › GESTÃO DO CATÁLOGO › "Produtos e preços" (R3 F1; protótipo aprovado pelo dono em 11/11/2026 —
+// DELIVERY › GESTÃO DO CATÁLOGO › "Produtos e preços" (R3 F1/F2; protótipo aprovado pelo dono em 11/11/2026 —
 // `mockups/regem-conciliacao-ifood.html`): cada produto com o preço e a pausa de cada canal — o Regem (balcão e cardápio
-// digital) e o iFood (pelo Orzuni, só com ele ligado) —, agrupado por categoria na ordem do cardápio. O lápis muda o
-// preço ali mesmo; o "No ar / Pausado" pausa só aquele canal; Editar abre a gaveta com o resto. Criar produto, ficha,
-// estoque, fiscal e complementos ficam em Cadastros › Cardápio.
+// digital), o iFood (pelo Orzuni, só com ele ligado) e a 99 (só com o "Preço e pausa na 99" ligado) —, agrupado por
+// categoria na ordem do cardápio. O lápis muda o preço ali mesmo; o "No ar / Pausado" pausa só aquele canal; Editar abre
+// a gaveta com o resto. Criar produto, ficha, estoque, fiscal e complementos ficam em Cadastros › Cardápio.
 export default function CatalogoPage() {
   const router = useRouter();
   const [produtos, setProdutos] = useState<any[] | null>(null);
   const [categorias, setCategorias] = useState<CategoriaDaGestao[]>([]);
   const [comIfood, setComIfood] = useState(false);
+  const [com99, setCom99] = useState(false);
   const [podeMudarPreco, setPodeMudarPreco] = useState(false);
   const [erro, setErro] = useState('');
   const [busca, setBusca] = useState('');
@@ -42,21 +44,24 @@ export default function CatalogoPage() {
   const [editando, setEditando] = useState<any | null>(null);
   const [ocupado, setOcupado] = useState<Set<string>>(new Set());
   const [enviados, setEnviados] = useState<Set<string>>(new Set()); // produtos com mudança ao iFood nesta visita
+  const [enviados99, setEnviados99] = useState<Set<string>>(new Set()); // produtos com mudança à 99 nesta visita
   const leitura = useRef(0);
 
   const carregar = useCallback(async () => {
     const minha = ++leitura.current; // só a leitura mais nova vale (V64)
     setErro('');
     try {
-      const [ps, cs, ifood] = await Promise.all([
+      const [ps, cs, ifood, n99] = await Promise.all([
         api.produtos(),
         api.produtoCategorias(),
         api.ifoodPeloOrzuni().catch(() => ({ ligado: false })),
+        api.precosNa99().catch(() => ({ ligado: false })),
       ]);
       if (minha !== leitura.current) return;
       setProdutos(Array.isArray(ps) ? (ps as any[]) : []);
       setCategorias(Array.isArray(cs) ? (cs as CategoriaDaGestao[]) : []);
       setComIfood(ifood?.ligado === true);
+      setCom99(n99?.ligado === true);
     } catch (e) {
       if (minha !== leitura.current) return;
       // Erro não é "nenhum produto": a tela diz que não leu e oferece de novo.
@@ -77,14 +82,15 @@ export default function CatalogoPage() {
 
   const situacoes = useMemo<Situacao<any>[]>(
     () => [
-      { rotulo: 'Pausados em algum canal', filtro: (p) => pausadoEmAlgumCanal(p, comIfood), tom: 'aviso' },
+      { rotulo: 'Pausados em algum canal', filtro: (p) => pausadoEmAlgumCanal(p, comIfood, com99), tom: 'aviso' },
       { rotulo: 'Esgotados pelo estoque', filtro: esgotado, tom: 'aviso' },
       ...(comIfood ? [{ rotulo: 'Sem preço no iFood', filtro: semPrecoNoIfood, tom: 'critico' as const }] : []),
+      ...(com99 ? [{ rotulo: 'Sem preço na 99', filtro: semPrecoNa99, tom: 'critico' as const }] : []),
       { rotulo: 'Sem código PDV', filtro: (p: any) => !(p.codigo ?? '').trim() },
     ],
-    [comIfood],
+    [comIfood, com99],
   );
-  // A lista de situações muda com o iFood: a escolhida que sumiu volta para "Todos".
+  // A lista de situações muda com o iFood e a 99: a escolhida que sumiu volta para "Todos".
   useEffect(() => {
     if (sit >= situacoes.length) setSit(-1);
   }, [sit, situacoes.length]);
@@ -98,19 +104,28 @@ export default function CatalogoPage() {
       return n;
     });
   const marcarEnviado = (id: string) => setEnviados((s) => new Set(s).add(id));
+  const marcarEnviado99 = (id: string) => setEnviados99((s) => new Set(s).add(id));
   const ligaAoIfood = (p: any) => comIfood && p.noIfood === true && !!(p.codigo ?? '').trim();
+  const ligaA99 = (p: any) => com99 && p.na99 === true && !!(p.codigo ?? '').trim();
+  // O nome de cada canal nas frases.
+  const NO: Record<Canal, string> = { regem: 'no Regem', ifood: 'no iFood', '99food': 'na 99' };
 
   async function salvarPreco(p: any, canal: Canal, valor: string | null) {
     const r = await api.precoDoCanal(p.id, canal, valor);
-    trocar(p.id, canal === 'regem' ? { precoVenda: r.valor } : { precoIfood: r.valor });
+    trocar(p.id, canal === 'regem' ? { precoVenda: r.valor } : canal === 'ifood' ? { precoIfood: r.valor } : { preco99: r.valor });
     if (!r.mudou) return void toast.success('O preço já era esse.');
     if (canal === 'ifood' && ligaAoIfood(p)) marcarEnviado(p.id);
+    if (canal === '99food' && ligaA99(p)) marcarEnviado99(p.id);
     toast.success(
       canal === 'regem'
         ? `Preço de venda de "${p.nome}" salvo.`
-        : valor === null
-          ? `"${p.nome}": preço do iFood em branco — o Regem não mexe mais no preço de lá.`
-          : `Preço no iFood de "${p.nome}" salvo: vai em instantes pelo Orzuni.`,
+        : canal === 'ifood'
+          ? valor === null
+            ? `"${p.nome}": preço do iFood em branco — o Regem não mexe mais no preço de lá.`
+            : `Preço no iFood de "${p.nome}" salvo: vai em instantes pelo Orzuni.`
+          : valor === null
+            ? `"${p.nome}": preço da 99 em branco — o Regem não mexe mais no preço de lá.`
+            : `Preço na 99 de "${p.nome}" salvo: vai em instantes à 99.`,
     );
   }
 
@@ -121,11 +136,14 @@ export default function CatalogoPage() {
       const r = await api.pausaDoCanal(p.id, canal, pausado);
       trocar(p.id, { disponivelBalcao: r.disponivelBalcao, disponivelCardapio: r.disponivelCardapio, canaisPausados: r.canaisPausados });
       if (canal === 'ifood' && r.mudou && ligaAoIfood(p)) marcarEnviado(p.id);
+      if (canal === '99food' && r.mudou && ligaA99(p)) marcarEnviado99(p.id);
       if (!calado)
         toast.success(
           canal === 'regem'
             ? `"${p.nome}" ${pausado ? 'pausado no balcão e no cardápio digital' : 'de volta ao balcão e ao cardápio digital'}.`
-            : `"${p.nome}" ${pausado ? 'pausado' : 'reativado'} no iFood: vai em instantes pelo Orzuni.`,
+            : canal === 'ifood'
+              ? `"${p.nome}" ${pausado ? 'pausado' : 'reativado'} no iFood: vai em instantes pelo Orzuni.`
+              : `"${p.nome}" ${pausado ? 'pausado' : 'reativado'} na 99: vai em instantes à 99.`,
         );
       return true;
     } catch (e) {
@@ -136,15 +154,22 @@ export default function CatalogoPage() {
     }
   }
 
-  // "Pausar em todos" / "Reativar em todos": o Regem e, com ele ligado e o produto lá, o iFood.
-  const canaisDe = (p: any): Canal[] => (comIfood && p.noIfood ? ['regem', 'ifood'] : ['regem']);
-  const pausadoNo = (p: any, k: Canal) => (k === 'regem' ? pausaNoRegem(p).pausado : pausadoNoIfood(p));
+  // "Pausar em todos" / "Reativar em todos": o Regem e, com eles ligados e o produto lá, o iFood e a 99.
+  const canaisDe = (p: any): Canal[] => [
+    'regem',
+    ...(comIfood && p.noIfood ? (['ifood'] as const) : []),
+    ...(com99 && p.na99 ? (['99food'] as const) : []),
+  ];
+  const pausadoNo = (p: any, k: Canal) => (k === 'regem' ? pausaNoRegem(p).pausado : k === 'ifood' ? pausadoNoIfood(p) : pausadoNa99(p));
   const tudoPausado = (p: any) => canaisDe(p).every((k) => pausadoNo(p, k));
   async function pausarTudo(p: any) {
     const pausado = !tudoPausado(p);
     const oks = await Promise.all(canaisDe(p).filter((k) => pausadoNo(p, k) !== pausado).map((k) => pausar(p, k, pausado, true)));
-    if (oks.every(Boolean))
-      toast.success(`"${p.nome}" ${pausado ? 'pausado' : 'reativado'} ${canaisDe(p).length > 1 ? 'no Regem e no iFood' : 'no Regem'}.`);
+    if (oks.every(Boolean)) {
+      const onde = canaisDe(p).map((k) => NO[k]);
+      const lista = onde.length > 1 ? `${onde.slice(0, -1).join(', ')} e ${onde[onde.length - 1]}` : onde[0];
+      toast.success(`"${p.nome}" ${pausado ? 'pausado' : 'reativado'} ${lista}.`);
+    }
   }
 
   if (produtos === null)
@@ -172,7 +197,9 @@ export default function CatalogoPage() {
     setSit(-1);
   };
   const temSemCategoria = produtos.some((p) => !existeCat(p.categoriaId));
-  const nPausados = produtos.filter((p) => pausadoEmAlgumCanal(p, comIfood)).length;
+  const nPausados = produtos.filter((p) => pausadoEmAlgumCanal(p, comIfood, com99)).length;
+  const onde = ['no Regem', ...(comIfood ? ['no iFood'] : []), ...(com99 ? ['na 99'] : [])];
+  const ondeTexto = onde.length > 1 ? `${onde.slice(0, -1).join(', ')} e ${onde[onde.length - 1]}` : onde[0];
 
   const colunaRegem = (p: any) => {
     const pz = pausaNoRegem(p);
@@ -201,6 +228,23 @@ export default function CatalogoPage() {
       </span>
     );
   };
+  const coluna99 = (p: any) => {
+    if (!p.na99) return <span className={`text-xs ${texto2}`}>não está na 99</span>;
+    if (!(p.codigo ?? '').trim()) return <span className={`text-xs ${texto2}`}>sem código PDV: não liga à 99</span>;
+    const pz = pausadoNa99(p);
+    return (
+      <span className="inline-flex max-w-full flex-wrap items-center justify-end gap-1.5 xl:justify-start">
+        <PrecoNoLugar valor={p.preco99} qual="na 99" nome={p.nome} permiteVazio podeEditar={podeMudarPreco} aoSalvar={(v) => salvarPreco(p, '99food', v)} />
+        <ChipPausa pausado={pz} onde="na 99" nome={p.nome} ocupado={ocupado.has(`${p.id}|99food`)} aoMudar={() => void pausar(p, '99food', !pz)} />
+        {esgotado(p) && !pz && <span className={`w-full text-xs ${texto2}`}>pausado pelo estoque</span>}
+        {enviados99.has(p.id) && (
+          <span className="block w-full min-w-0 text-left">
+            <UltimoEnvioIfood alvo="produto" id={p.id} canal="99food" />
+          </span>
+        )}
+      </span>
+    );
+  };
 
   return (
     <Shell eyebrow="Delivery" title="Gestão do catálogo">
@@ -212,7 +256,15 @@ export default function CatalogoPage() {
           mostrando={linhas.length}
           um="produto"
           varios="produtos"
-          extra={`${nPausados} pausado${nPausados === 1 ? '' : 's'} em algum canal${comIfood ? ' · o que você muda no iFood vai na hora pelo Orzuni' : ''}`}
+          extra={`${nPausados} pausado${nPausados === 1 ? '' : 's'} em algum canal${
+            comIfood && com99
+              ? ' · o que você muda no iFood (pelo Orzuni) e na 99 vai na hora'
+              : comIfood
+                ? ' · o que você muda no iFood vai na hora pelo Orzuni'
+                : com99
+                  ? ' · o que você muda na 99 vai na hora'
+                  : ''
+          }`}
         />
         <p className={`text-sm ${texto2}`}>
           Criar produto, ficha técnica, estoque, fiscal e complementos: em{' '}
@@ -225,6 +277,7 @@ export default function CatalogoPage() {
           </button>
           .
           {!comIfood && ' A coluna do iFood aparece quando o iFood pelo Orzuni está ligado na sua empresa (a ligação é feita pela distribuição Regem: fale com o suporte).'}
+          {!com99 && ' A coluna da 99 aparece quando o preço e a pausa na 99 estão ligados na sua empresa (quem liga é a distribuição Regem: fale com o suporte).'}
         </p>
 
         {erro ? (
@@ -252,7 +305,7 @@ export default function CatalogoPage() {
               <Vazio aoLimpar={limpar} />
             ) : (
               <ListaDados
-                legenda={`Produtos por categoria, com o preço e a pausa ${comIfood ? 'no Regem e no iFood' : 'no Regem'}`}
+                legenda={`Produtos por categoria, com o preço e a pausa ${ondeTexto}`}
                 linhas={linhas}
                 chave={(p) => p.id}
                 nome={(p) => p.nome}
@@ -284,6 +337,7 @@ export default function CatalogoPage() {
                   },
                   { titulo: 'Regem', celula: colunaRegem },
                   ...(comIfood ? [{ titulo: 'iFood', celula: colunaIfood }] : []),
+                  ...(com99 ? [{ titulo: '99', celula: coluna99 }] : []),
                 ]}
                 acoes={(p) => [
                   { rotulo: 'Editar', icone: Pencil, aoClicar: setEditando, tom: 'primaria' as const },
@@ -311,12 +365,14 @@ export default function CatalogoPage() {
           categorias={categorias}
           outros={produtos}
           comIfood={comIfood}
+          com99={com99}
           podeMudarPreco={podeMudarPreco}
           voltarPara={ID_TITULO}
           aoFechar={() => setEditando(null)}
           aoNovaCategoria={(c) => setCategorias((l) => [...l, c])}
-          aoSalvar={(fechar, foiAoIfood) => {
+          aoSalvar={(fechar, foiAoIfood, foiA99) => {
             if (foiAoIfood) marcarEnviado(editando.id);
+            if (foiA99) marcarEnviado99(editando.id);
             if (fechar) setEditando(null);
             void carregar();
           }}

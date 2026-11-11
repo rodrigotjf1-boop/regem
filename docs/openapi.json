@@ -7493,6 +7493,17 @@
         }
       }
     },
+    "/api/v1/produtos/precos-na-99": {
+      "get": {
+        "operationId": "ProdutoController_precosNa99",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/produtos/opcoes/{id}/ifood-envios": {
       "get": {
         "operationId": "ProdutoController_ifoodEnviosOpcao",
@@ -7523,6 +7534,33 @@
     "/api/v1/produtos/{id}/ifood-envios": {
       "get": {
         "operationId": "ProdutoController_ifoodEnviosProduto",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/produtos/{id}/99-envios": {
+      "get": {
+        "operationId": "ProdutoController_food99EnviosProduto",
         "parameters": [
           {
             "name": "id",
@@ -12269,6 +12307,26 @@
         "parameters": [],
         "responses": {
           "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/food99/loja/envios": {
+      "get": {
+        "operationId": "Food99LojaController_envios",
+        "parameters": [
+          {
+            "name": "ref",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
             "description": ""
           }
         }
@@ -19221,6 +19279,37 @@
         }
       }
     },
+    "/api/v1/distribuicao/precos-na-99": {
+      "get": {
+        "operationId": "DistribuicaoController_painelPrecosNa99",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/precos-na-99/liberacao": {
+      "post": {
+        "operationId": "DistribuicaoController_liberacaoPrecosNa99",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/distribuicao/login": {
       "post": {
         "operationId": "DistribuicaoController_login",
@@ -23320,6 +23409,12 @@
           "noIfood": {
             "type": "boolean"
           },
+          "preco99": {
+            "type": "object"
+          },
+          "na99": {
+            "type": "boolean"
+          },
           "disponivelCardapio": {
             "type": "boolean"
           },
@@ -23494,6 +23589,12 @@
             "type": "object"
           },
           "noIfood": {
+            "type": "boolean"
+          },
+          "preco99": {
+            "type": "object"
+          },
+          "na99": {
             "type": "boolean"
           },
           "disponivelCardapio": {

@@ -132,6 +132,10 @@ export class CreateProdutoDto {
   // `exigirBooleano`): ausente mantém; preço null/vazio limpa. Só gravados com o direito ligado.
   @IsOptional() precoIfood?: number | string | null;
   @IsOptional() noIfood?: boolean;
+  // A 99 (mig 401). Conferidos no serviço como os do iFood (`preco99DoPedido`, `exigirBooleano`): ausente
+  // mantém; preço null/vazio limpa. Só gravados com o direito `precos_na_99` ligado.
+  @IsOptional() preco99?: number | string | null;
+  @IsOptional() na99?: boolean;
   @IsOptional() @IsBoolean() disponivelCardapio?: boolean;
   @IsOptional() @IsBoolean() disponivelBalcao?: boolean;
   @IsOptional() @IsBoolean() destaque?: boolean;

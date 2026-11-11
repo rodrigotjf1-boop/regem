@@ -14,7 +14,7 @@ import { ClienteDmsId } from '../../dms/integracao-dms';
 import { chaveSegredosDisponivel, cifrar } from '../../common/cifra-segredo';
 import { idEntitlement } from '../../common/id-deterministico';
 import { MODULO_IFOOD_PELO_ORZUNI } from '../../common/ifood-pelo-orzuni';
-import { compararVersao } from '../edge/release-selecao';
+import { servidoresDaEmpresa } from '../../common/servidores-da-empresa';
 import {
   CHAVE_ORZUNI,
   PERMISSOES_ORZUNI,
@@ -64,20 +64,8 @@ export class OrzuniLigacaoService {
   }
 
   /** Os servidores de loja ativos da empresa e se cada um já está na versão com a mig 369. */
-  private async servidores(tenantId: string) {
-    const lista = await this.rows(sql`
-      select eq.id, eq.nome, es.versao, es.recebido_em
-        from equipamento eq
-        left join edge_status es on es.equipamento_id = eq.id
-       where eq.tenant_id = ${tenantId} and eq.tipo = 'servidor_local' and eq.ativo and eq.revogado_em is null
-       order by eq.nome`);
-    return lista.map((s) => ({
-      id: String(s.id),
-      nome: String(s.nome),
-      versao: s.versao ? String(s.versao) : null,
-      vistoEm: s.recebido_em ?? null,
-      pronto: !!s.versao && compararVersao(String(s.versao), VERSAO_MINIMA_DA_LOJA) >= 0,
-    }));
+  private servidores(tenantId: string) {
+    return servidoresDaEmpresa(this.db, tenantId, VERSAO_MINIMA_DA_LOJA);
   }
 
   /** O painel da empresa: configuração, liberação, servidores, lojas com a ligação e os últimos envios. */
