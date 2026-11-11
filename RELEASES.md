@@ -17,7 +17,8 @@
   credenciais só existem lá). **No `.zip` 1.30.13:** o painel do servidor da loja passa a mostrar os cartões do iFood e da 99
   (pergunta à nuvem pela rota `GET /delivery/pausas/canais/loja`, com o token do sync), a linha de tempo da 99 e a situação no
   canal nas faixas; a pausa feita no servidor da loja sobe pelo sync (a `pausa_canal` já sincroniza) e a nuvem leva ao canal.
-  Sem o `.zip`, o servidor da loja segue mostrando só o cardápio digital (nada quebra).
+  Sem o `.zip`, o servidor da loja segue mostrando só o cardápio digital (nada quebra). **11/11:** o cartão "Todos os
+  canais" no diálogo (só tela) — no servidor da loja também só com o `.zip`.
 
 - **A pausa dos pedidos — F4 (10/11; mig 396 NÃO cloud-only — `cardapio_config.pausa_audio`; não mexe no `sync-daemon`).**
   Na NUVEM com o merge (é lá que o atendente recebe; vale depois de o dono trocar a linha do n8n). **No `.zip` 1.30.13:** a
