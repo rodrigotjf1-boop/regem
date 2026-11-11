@@ -1,6 +1,7 @@
 import { impressaoJob } from '../db/schema';
 import { edgeAtivo } from './edge-ativo';
 import { enfileirarComandoEdge } from './edge-comando';
+import { ehServidorLocal } from './modo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -27,7 +28,8 @@ export type JobImpressao = {
 // MESMA impressora (os ids de `equipamento` são os mesmos nos dois bancos); senão → fila da
 // nuvem (agente dos caixas). Devolve onde foi parar.
 export async function gravarOuEncaminharImpressao(db: any, job: JobImpressao): Promise<'local' | 'servidor_local'> {
-  const noEdge = String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
+  // A regra ÚNICA do modo servidor (V2): a comparação à mão não aceitava "1" (auditoria do KDS, 11/11/2026).
+  const noEdge = ehServidorLocal();
   if (!noEdge && (await edgeAtivo(db, job.tenantId, job.unidadeId))) {
     await enfileirarComandoEdge(db, job.tenantId, 'imprimir', {
       unidadeId: job.unidadeId,

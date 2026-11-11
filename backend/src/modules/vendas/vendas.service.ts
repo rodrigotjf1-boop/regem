@@ -77,6 +77,7 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import {
   ProducaoPedidoService,
   ItemProducao,
+  produtoDoCanalSemCadastro,
   type ItemForaDaProducao,
 } from '../producao-pedido/producao-pedido.service';
 import { FiscalService } from '../fiscal/fiscal.service';
@@ -1695,9 +1696,14 @@ export class VendasService {
             });
           escolhasDaVia = snapshots.map((sn: any) => ({ tipo: sn.tipo, nome: sn.nome }));
         }
-        if (p?.vaiParaProducao)
+        // Item do canal que NÃO casou com produto nenhum (código PDV sem cadastro): vai para a cozinha com o nome que o canal
+        // mandou. Antes ficava fora do cartão do KDS e só aparecia numa via completa (quando a loja tinha uma) — a cozinha
+        // não fazia o item (auditoria do KDS, 11/11/2026; regra do ERR-257: item sem produto tem de aparecer). Sem produto,
+        // não tem destino marcado: no papel, sai na impressora padrão da cozinha.
+        const doCanalSemCadastro = !p;
+        if (p?.vaiParaProducao || doCanalSemCadastro)
           itensProducao.push({
-            produto: p,
+            produto: p ?? produtoDoCanalSemCadastro(it.descricao),
             descricao: it.descricao,
             quantidade: qtd,
             observacao: it.observacao ?? null,

@@ -4416,6 +4416,9 @@ export class CardapioService {
     unidadeId: string | null,
     numero: string,
   ): Promise<string> {
+    // A mesa DESTA loja (ou sem loja — V4). Antes a busca era só pelo número na empresa: com duas lojas, o pedido pelo QR da
+    // mesa 5 da loja B caía na mesa 5 aberta da loja A — e ia para a cozinha e a conta da outra loja (auditoria do KDS,
+    // 11/11/2026). A da própria loja vence a sem loja.
     const [m] = await this.db
       .select()
       .from(mesa)
@@ -4424,8 +4427,10 @@ export class CardapioService {
           eq(mesa.tenantId, tenantId),
           eq(mesa.numero, String(numero)),
           eq(mesa.status, 'aberta'),
+          unidadeId ? or(eq(mesa.unidadeId, unidadeId), isNull(mesa.unidadeId)) : undefined,
         ),
-      );
+      )
+      .orderBy(sql`${mesa.unidadeId} is null`);
     let mesaId = m?.id;
     if (!mesaId) {
       const nova = await this.vendas.abrirMesa(tenantId, null as any, {
@@ -4438,7 +4443,7 @@ export class CardapioService {
     const [c] = await this.db
       .select({ id: comanda.id })
       .from(comanda)
-      .where(and(eq(comanda.mesaId, mesaId), eq(comanda.status, 'aberta')));
+      .where(and(eq(comanda.tenantId, tenantId), eq(comanda.mesaId, mesaId), eq(comanda.status, 'aberta')));
     if (c) return c.id;
     // mesa sem comanda aberta (ex.: modo comandas) → abre uma
     const nc = await this.vendas.abrirComandaNaMesa(tenantId, null as any, mesaId, {});
