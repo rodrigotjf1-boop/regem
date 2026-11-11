@@ -773,18 +773,41 @@ export class SyncService {
         // cartão ainda na fila (a cozinha tocou nele antes de o fechamento descer) não desfaz o entregue nem o
         // cancelado daqui; e cancelado vence entregue — o canal cancelou, a venda foi desfeita. Mesma regra no pull
         // do servidor da loja (sync-daemon, `ESTADOS_TERMINAIS`).
-        const naoReabreCartao =
-          lote.tabela === 'producao_pedido' && colunas.has('status')
-            ? sql` and not (producao_pedido.status in ('entregue', 'cancelado') and excluded.status not in ('entregue', 'cancelado'))
-                   and not (producao_pedido.status = 'cancelado' and excluded.status <> 'cancelado')`
-            : sql``;
+        const ehCartao = lote.tabela === 'producao_pedido' && colunas.has('status');
+        const naoReabreCartao = ehCartao
+          ? sql` and not (producao_pedido.status in ('entregue', 'cancelado') and excluded.status not in ('entregue', 'cancelado'))
+                 and not (producao_pedido.status = 'cancelado' and excluded.status <> 'cancelado')`
+          : sql``;
+        // E o CANCELADO da loja vence mesmo MAIS VELHO (auditoria do KDS, 11/11/2026, O14): a loja cancelou o cartão (o
+        // pedido foi cancelado lá) enquanto aqui ele andava ou era fechado com a data mais nova — só pelo LWW o
+        // cancelamento não subia, e a nuvem ficava "entregue"/na fila para sempre. Mesma regra no pull (sync-daemon).
+        const canceladoDoCartaoVence = ehCartao
+          ? sql` or (excluded.status = 'cancelado' and producao_pedido.status <> 'cancelado')`
+          : sql``;
         // PEDIDO DE CANAL SÓ AVANÇA (`refletirStatusExterno`): o que saiu de "novo" aqui (aceito, cancelado) não volta a
         // "novo" por uma cópia da loja, mesmo "mais nova" pela data — os relógios são diferentes. Mesma regra no pull do
         // servidor da loja (sync-daemon, `condicaoSobrescrever`), ERR-280.
-        const naoVoltaANovo =
-          lote.tabela === 'pedido_externo' && colunas.has('status')
-            ? sql` and not (pedido_externo.status <> 'novo' and excluded.status = 'novo')`
-            : sql``;
+        const ehPedidoDeCanal = lote.tabela === 'pedido_externo' && colunas.has('status');
+        const naoVoltaANovo = ehPedidoDeCanal
+          ? sql` and not (pedido_externo.status <> 'novo' and excluded.status = 'novo')`
+          : sql``;
+        // PRECEDÊNCIA DOS ESTADOS FINAIS DO PEDIDO DE CANAL: concluido > cancelado > os demais, ignorando a data (auditoria
+        // do KDS, 11/11/2026, O3). O canal cancela AQUI (o pedido ainda sem venda, esperando o servidor da loja) e a loja,
+        // que ainda não recebeu o cancelamento, aceita segundos depois: a cópia dela chega "confirmado", com a data mais
+        // nova. Pelo LWW o cancelado virava "confirmado" — a cozinha fazia um pedido cancelado e a venda ficava de pé. Agora
+        // a cópia da loja não tira o pedido de 'cancelado', a não ser para 'concluido' (o `refletirStatusExterno` já ignora
+        // o cancelamento de pedido concluído); e o final da loja de precedência maior vence mesmo mais velho — o
+        // 'cancelado' da loja sobre um estado não final daqui, o 'concluido' da loja sobre o 'cancelado' daqui —, senão os
+        // dois lados ficavam diferentes para sempre. O 'concluido' daqui segue saindo pela data para "em rota"/"pronto"
+        // (`voltarPedido`, reabrir por engano). Mesma regra no pull do servidor da loja (sync-daemon, `condicaoSobrescrever`).
+        const finalDoPedidoNaoSai = ehPedidoDeCanal
+          ? sql` and not (pedido_externo.status = 'cancelado' and excluded.status not in ('cancelado', 'concluido'))
+                 and not (pedido_externo.status = 'concluido' and excluded.status = 'cancelado')`
+          : sql``;
+        const finalDoPedidoVence = ehPedidoDeCanal
+          ? sql` or (excluded.status = 'cancelado' and pedido_externo.status not in ('cancelado', 'concluido'))
+                 or (excluded.status = 'concluido' and pedido_externo.status = 'cancelado')`
+          : sql``;
         // CADASTRO EXCLUÍDO AQUI NÃO RESSUSCITA (fase 3B): a cópia da loja sem `deleted_at` — mexida antes de a exclusão
         // descer, ou com o relógio adiantado — não desfaz a exclusão lógica feita na nuvem. Restaurar é daqui.
         const naoRessuscita =
@@ -822,7 +845,7 @@ export class SyncService {
                 sql`, `,
               )}
               where ${sql.identifier(lote.tabela)}.tenant_id = excluded.tenant_id
-                and (${sql.identifier(lote.tabela)}.${sql.identifier(lwwCol)} < excluded.${sql.identifier(lwwCol)}${resolvidoVence}${decisaoVence})${naoDesfazRevogacao}${naoReabreCartao}${naoVoltaANovo}${naoRessuscita}${naoReabreChamado}${naoVoltaAPedida}`
+                and (${sql.identifier(lote.tabela)}.${sql.identifier(lwwCol)} < excluded.${sql.identifier(lwwCol)}${resolvidoVence}${decisaoVence}${canceladoDoCartaoVence}${finalDoPedidoVence})${naoDesfazRevogacao}${naoReabreCartao}${naoVoltaANovo}${finalDoPedidoNaoSai}${naoRessuscita}${naoReabreChamado}${naoVoltaAPedida}`
             : sql`on conflict (id) do nothing`;
         const linhaVals = (linha: any) =>
           sql`(${sql.join([tenantId, ...cols.map((c) => coagir(linha[c]))].map((v) => sql`${v}`), sql`, `)})`;

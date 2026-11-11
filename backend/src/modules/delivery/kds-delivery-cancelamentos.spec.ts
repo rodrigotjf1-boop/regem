@@ -7,6 +7,7 @@ import { FiscalService } from '../fiscal/fiscal.service';
 import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
 import { VendasService } from '../vendas/vendas.service';
 import { DeliveryService } from './delivery.service';
+import { EdgePedidosProcessor } from './edge-pedidos.processor';
 import { SO_INGREDIENTES } from '../../common/embalagem-da-ficha';
 import { DesperdicioService } from '../desperdicio/desperdicio.service';
 
@@ -845,6 +846,149 @@ descrever('KDS × delivery: cancelamentos, pronto parcial, voltar e perda (Postg
         { descricao: 'Guaraviton 500 ml', q: 2 },
         { descricao: 'Lanche de teste', q: 1 },
       ]);
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════════════════════
+  // O3 (auditoria do KDS, 11/11/2026): o canal cancelou NA NUVEM (lá sem venda) e o servidor da loja, que ainda não sabia,
+  // aceitou: venda, lançamento e cartão na cozinha DELE. O sincronismo faz o cancelamento descer (mesmo mais velho) e guarda
+  // o vínculo com a venda daqui; o `EdgePedidosProcessor` desfaz pelo mesmo serviço do cancelamento pelo canal.
+  describe('O3 · o canal cancelou na nuvem e o servidor da loja já tinha aceitado', () => {
+    const unidadeOriginal = process.env.EDGE_UNIDADE_ID;
+    /** O pull trouxe o cancelamento: 'cancelado', com a venda daqui ainda ligada (o daemon guarda o vínculo). Da nuvem
+     *  que nunca viu o aceite vem sem `confirmado_em`. */
+    const desceuCancelado = (id: string, o: { nuvemViuOAceite: boolean; ha: string }) =>
+      q(
+        `update pedido_externo set status = 'cancelado', cancelado_em = now() - $2::interval, motivo_cancelamento = 'Cancelado pelo ifood'
+           ${o.nuvemViuOAceite ? '' : ', confirmado_em = null'} where id = $1`,
+        [id, o.ha],
+      );
+    /** O servidor da loja, só desta loja (o banco do CI é compartilhado entre as specs). */
+    async function noServidorDaLoja<R>(l: Loja, fn: (proc: EdgePedidosProcessor) => Promise<R>) {
+      process.env.EDGE_MODE = 'true';
+      process.env.EDGE_UNIDADE_ID = l.u;
+      try {
+        return await fn(new EdgePedidosProcessor(db, delivery));
+      } finally {
+        delete process.env.EDGE_MODE; // o resto do arquivo roda como NUVEM
+        if (unidadeOriginal === undefined) delete process.env.EDGE_UNIDADE_ID;
+        else process.env.EDGE_UNIDADE_ID = unidadeOriginal;
+      }
+    }
+    const estornos = async (comandaId: string) => (await lancamentos(comandaId)).filter((x) => x.categoria === 'estorno');
+
+    it('a nuvem nunca viu o aceite: desfaz na hora — venda estornada, comanda e cartão cancelados com o alerta, cashback e pontos de volta; e uma vez só', async () => {
+      const l = await loja();
+      const p = await aceito(l);
+      await avancarCard(l, p.card); // a cozinha já começou
+      emitidos.length = 0;
+      await desceuCancelado(p.id, { nuvemViuOAceite: false, ha: '20 seconds' });
+
+      await noServidorDaLoja(l, (proc) => proc.processar());
+
+      expect(await pedido(p.id)).toMatchObject({ status: 'cancelado', comanda_id: p.comandaId });
+      expect((await comanda(p.comandaId)).status).toBe('cancelada');
+      expect(await estornos(p.comandaId)).toEqual([expect.objectContaining({ tipo: 'saida', valor: 20 })]);
+      expect((await cards(p.comandaId)).map((c) => c.status)).toEqual(['cancelado']);
+      expect(cancelouNaCozinha()).toBe(1); // o KDS recebe o alerta de cancelado
+      expect(auditado.filter((a) => a.acao === 'cancelou_delivery')).toEqual([
+        expect.objectContaining({ tenantId: l.t, atorPerfil: 'servico', entidadeId: p.comandaId }),
+      ]);
+      expect(estornados.map((e) => e.servico).sort()).toEqual(['cashback', 'fidelidade']); // o crédito do aceite daqui volta
+      expect(emitidos.filter((e) => e.nome === 'pedido.cancelado')).toHaveLength(1);
+      await expect(avancarCard(l, p.card)).rejects.toThrow('Pedido cancelado não avança.');
+      // Outro ciclo: nada repete.
+      await noServidorDaLoja(l, (proc) => proc.processar());
+      expect(await estornos(p.comandaId)).toHaveLength(1);
+      expect(auditado.filter((a) => a.acao === 'cancelou_delivery')).toHaveLength(1);
+    });
+
+    it('a nuvem conhecia a venda: espera 3 min (ela mesma desfaz — o estorno não sai em dobro); o que continua de pé depois disso é desfeito aqui', async () => {
+      const l = await loja();
+      const p = await aceito(l);
+      await desceuCancelado(p.id, { nuvemViuOAceite: true, ha: '30 seconds' });
+      await noServidorDaLoja(l, (proc) => proc.processar());
+      expect((await comanda(p.comandaId)).status).toBe('fechada');
+      expect(await estornos(p.comandaId)).toHaveLength(0);
+      expect((await cards(p.comandaId)).map((c) => c.status)).toEqual(['recebido']);
+
+      await q(`update pedido_externo set cancelado_em = now() - interval '4 minutes' where id = $1`, [p.id]);
+      await noServidorDaLoja(l, (proc) => proc.processar());
+      expect((await comanda(p.comandaId)).status).toBe('cancelada');
+      expect(await estornos(p.comandaId)).toHaveLength(1);
+      expect((await cards(p.comandaId)).map((c) => c.status)).toEqual(['cancelado']);
+    });
+
+    it('fora do alcance: pedido de outra loja da empresa, cancelado há mais de 2 dias ou de balcão — nada muda', async () => {
+      const l = await loja();
+      const filial = (await q(`insert into unidade (tenant_id, nome) values ($1,'Filial') returning id`, [l.t]))[0].id as string;
+      const daFilial = await aceito({ ...l, u: filial });
+      await desceuCancelado(daFilial.id, { nuvemViuOAceite: false, ha: '20 seconds' });
+      const antigo = await aceito(l);
+      await desceuCancelado(antigo.id, { nuvemViuOAceite: false, ha: '3 days' });
+      const balcao = await aceito(l);
+      await desceuCancelado(balcao.id, { nuvemViuOAceite: false, ha: '20 seconds' });
+      await q(`update pedido_externo set canal = 'balcao' where id = $1`, [balcao.id]);
+
+      await noServidorDaLoja(l, (proc) => proc.processar());
+
+      for (const x of [daFilial, antigo, balcao]) {
+        expect((await comanda(x.comandaId)).status).toBe('fechada');
+        expect(await estornos(x.comandaId)).toHaveLength(0);
+      }
+    });
+
+    it('V84: 25 que esperam a nuvem e 25 já desfeitos NA FRENTE da fila não seguram o que precisa ser desfeito agora', async () => {
+      const l = await loja();
+      const lote = (statusDaComanda: string, nuvemViuOAceite: boolean, ha: string) =>
+        q(
+          `with c as (insert into comanda (tenant_id, unidade_id, status, total)
+                      select $1, $2, $3, 20 from generate_series(1, 25) returning id)
+           insert into pedido_externo (tenant_id, unidade_id, canal, external_id, status, comanda_id, cancelado_em, confirmado_em)
+           select $1, $2, 'ifood', gen_random_uuid()::text, 'cancelado', c.id, now() - $4::interval,
+                  case when $5::boolean then now() - interval '1 hour' end
+             from c`,
+          [l.t, l.u, statusDaComanda, ha, nuvemViuOAceite],
+        );
+      await lote('cancelada', false, '2 minutes'); // a venda já foi desfeita
+      await lote('fechada', true, '90 seconds'); // a nuvem conhecia a venda: espera por ela
+      const p = await aceito(l);
+      await desceuCancelado(p.id, { nuvemViuOAceite: false, ha: '20 seconds' }); // o mais novo: o último da fila
+
+      await noServidorDaLoja(l, (proc) => proc.processar());
+
+      expect((await comanda(p.comandaId)).status).toBe('cancelada');
+      // Os que esperam a nuvem continuam de pé.
+      expect(Number((await q(`select count(*) n from comanda where tenant_id = $1 and status = 'fechada'`, [l.t]))[0].n)).toBe(25);
+    });
+
+    it('a venda que não se desfez (erro do banco) sai da frente por 10 min, sem travar as outras; depois tenta de novo', async () => {
+      const l = await loja();
+      const falha = await aceito(l);
+      const ok = await aceito(l);
+      await desceuCancelado(falha.id, { nuvemViuOAceite: false, ha: '40 seconds' }); // o mais antigo: o primeiro da fila
+      await desceuCancelado(ok.id, { nuvemViuOAceite: false, ha: '20 seconds' });
+      const espiao = jest.spyOn(vendas, 'estornarVendaExterna').mockRejectedValueOnce(new Error('conexão perdida (simulada)'));
+      try {
+        await noServidorDaLoja(l, async (proc) => {
+          await proc.processar();
+          expect((await comanda(falha.comandaId)).status).toBe('fechada');
+          expect((await comanda(ok.comandaId)).status).toBe('cancelada');
+          // Cashback e pontos só voltam com a venda desfeita.
+          expect(estornados.filter((e) => e.pedidoId === falha.id)).toHaveLength(0);
+          expect(estornados.filter((e) => e.pedidoId === ok.id)).toHaveLength(2);
+          await proc.processar(); // dentro dos 10 min: não tenta de novo
+          expect(espiao).toHaveBeenCalledTimes(2);
+          expect((await comanda(falha.comandaId)).status).toBe('fechada');
+          (proc as any).canceladoFalhouAte.set(falha.id, Date.now() - 1); // passaram os 10 min
+          await proc.processar();
+          expect((await comanda(falha.comandaId)).status).toBe('cancelada');
+          expect(await estornos(falha.comandaId)).toHaveLength(1);
+          expect(estornados.filter((e) => e.pedidoId === falha.id)).toHaveLength(2);
+        });
+      } finally {
+        espiao.mockRestore();
+      }
     });
   });
 });
