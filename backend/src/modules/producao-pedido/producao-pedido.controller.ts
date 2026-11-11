@@ -87,6 +87,8 @@ export class ProducaoPedidoController {
       canal: dto?.canal || undefined,
       setorId: dto?.setorId || undefined,
       equipamentoId: dto?.equipamentoId || undefined,
+      // Os cartões que a tela MOSTRA (sub-filtro e etapa): só eles saem (auditoria do KDS, 11/11/2026).
+      ids: Array.isArray(dto?.ids) ? dto.ids.filter((x: unknown) => typeof x === 'string').slice(0, 500) : undefined,
       unidadeId:
         (user.categoria === 'presidente' ? dto?.unidadeId || unidadeAtual : unidadeAtual) || undefined,
     }, user.categoria);

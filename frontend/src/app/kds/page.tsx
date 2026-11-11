@@ -22,7 +22,9 @@ import {
   pedidoDoDespachoNaTela,
   contarEtapas,
   decidirTecla,
+  duracaoDoLetreiro,
   escolherAlertaDoRodape,
+  textoDoAlerta,
   filtrarEtapa,
   formaDeUso,
   grupoPedido,
@@ -124,6 +126,9 @@ export default function KdsPage() {
     verdeAteMin: 5,
     amareloAteMin: 10,
   });
+  // A última leitura da fila falhou (a tela mostra a faixa) e se alguma leitura já deu certo (só então "nenhum pedido").
+  const [falhaFila, setFalhaFila] = useState<{ em: Date; motivo: string } | null>(null);
+  const [filaLida, setFilaLida] = useState(false);
   // Cartões com um toque a caminho do servidor: o segundo toque no mesmo cartão espera (toque duplo não pula etapa).
   const avancandoRef = useRef<Set<string>>(new Set());
   const [avancando, setAvancando] = useState<Set<string>>(() => new Set());
@@ -223,14 +228,23 @@ export default function KdsPage() {
   const [pedirTelaCheia, setPedirTelaCheia] = useState(false);
   // Tema do KDS (preferência do aparelho — UI, não dado de negócio). CLARO por padrão.
   const [claro, setClaro] = useState(true);
+  // Armazenamento bloqueado (janela privada, dados limpos) não quebra a tela (auditoria do KDS, 11/11/2026): fica no claro.
   useEffect(() => {
-    setClaro(localStorage.getItem('kds-tema') !== 'escuro');
+    try {
+      setClaro(localStorage.getItem('kds-tema') !== 'escuro');
+    } catch {
+      /* sem armazenamento: o padrão (claro) */
+    }
   }, []);
   const T = claro ? TEMAS.claro : TEMAS.escuro;
   function alternarTema() {
     setClaro((v) => {
       const novo = !v;
-      localStorage.setItem('kds-tema', novo ? 'claro' : 'escuro');
+      try {
+        localStorage.setItem('kds-tema', novo ? 'claro' : 'escuro');
+      } catch {
+        /* sem armazenamento: vale só nesta sessão */
+      }
       return novo;
     });
   }
@@ -258,12 +272,22 @@ export default function KdsPage() {
   senhaDigitadaRef.current = senhaDigitada;
   const senhaMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // UM contexto de áudio para a tela inteira (auditoria do KDS, 11/11/2026): antes cada bipe criava um e nunca fechava —
+  // num turno de 8 h eram centenas abertos (o navegador limita e o som parava). Se o navegador o suspendeu (aba em
+  // segundo plano, economia de energia), retoma antes de tocar.
+  const audioRef = useRef<AudioContext | null>(null);
+  useEffect(() => () => {
+    void audioRef.current?.close().catch(() => undefined);
+    audioRef.current = null;
+  }, []);
   const bip = useCallback(() => {
     if (mudoRef.current) return;
     try {
       const AC =
         (window as any).AudioContext || (window as any).webkitAudioContext;
-      const ctx = new AC();
+      if (!audioRef.current || audioRef.current.state === 'closed') audioRef.current = new AC();
+      const ctx = audioRef.current as AudioContext;
+      if (ctx.state === 'suspended') void ctx.resume().catch(() => undefined);
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
@@ -374,9 +398,14 @@ export default function KdsPage() {
       if (r.cores) setCores(r.cores);
       avisarChegadas(lista);
       if (!despacho) avisarAlteracoes(lista);
+      setFalhaFila(null);
+      setFilaLida(true);
       return lista;
-    } catch {
-      /* mantém a fila atual em caso de falha momentânea */
+    } catch (e: any) {
+      // Mantém a fila atual, mas a cozinha FICA SABENDO que ela pode estar velha (erro, limite de chamadas, módulo
+      // desligado, rede): antes a falha sumia e a tela vazia dizia "Nenhum pedido" com o "online" aceso (auditoria do
+      // KDS, 11/11/2026; V37: a tela separa "vazio" de "não li"). A releitura de 30 s tenta de novo.
+      if (seq === filaSeq.current) setFalhaFila({ em: new Date(), motivo: String(e?.message ?? '').slice(0, 120) });
       return null;
     }
   }, [avisarChegadas, avisarAlteracoes]);
@@ -797,15 +826,18 @@ export default function KdsPage() {
 
   // Limpa a tela: o SERVIDOR avança todos os cards num único request (vão para o próximo
   // KDS ou concluem). Assim não dispara um POST por card (o que estourava o 429).
+  // Só os que a tela MOSTRA (sub-filtro e etapa): com "Totens" escolhido, antes finalizava também o PDV e as mesas
+  // escondidos (auditoria do KDS, 11/11/2026). O servidor recebe os ids e confere que são da fila deste KDS.
   async function limparCards() {
-    const ativos = pedidos.filter((p) => p.status !== 'cancelado' && p.status !== 'entregue');
+    const ativos = pedidosVisiveis.filter((p) => p.status !== 'cancelado' && p.status !== 'entregue');
     if (!ativos.length) return;
-    if (!confirm(`Finalizar todos os ${ativos.length} pedido(s) da tela? Eles vão avançar (próximo KDS ou concluir). Fica registrado no histórico, com o seu nome.`)) return;
+    if (!confirm(`Finalizar os ${ativos.length} pedido(s) que estão na tela? Eles vão avançar (próximo KDS ou concluir). Fica registrado no histórico, com o seu nome.`)) return;
     try {
       await api.producaoLimparFila({
         canal,
         setorId: setorSel || undefined,
         equipamentoId: kdsSel || undefined,
+        ids: ativos.map((p) => p.id),
       });
     } catch { /* ignora — o refetch abaixo mostra o que sobrou */ }
     await carregarFila();
@@ -1136,6 +1168,17 @@ export default function KdsPage() {
             ⚠ Sem conexão com o servidor. A fila pode estar desatualizada — reconectando…
           </div>
         )}
+        {!semConexao && falhaFila && (
+          <div
+            role="alert"
+            className="px-4 py-2.5 text-[14px] font-bold sm:px-5"
+            style={{ background: COR_STATUS.atrasado.fundo, color: COR_STATUS.atrasado.texto }}
+          >
+            ⚠ Não consegui ler a fila às {falhaFila.em.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}. A
+            tela pode estar desatualizada — tentando de novo…
+            {falhaFila.motivo ? <span className="ml-1 font-semibold">({falhaFila.motivo})</span> : null}
+          </div>
+        )}
       </header>
 
       {histAberto && <HistoricoKds T={T} onFechar={() => setHistAberto(false)} />}
@@ -1383,11 +1426,14 @@ export default function KdsPage() {
 
           {temSessao !== null && (ver === 'item' ? grupos.length === 0 : pedidosVisiveis.length === 0) && (
             <div className="border border-dashed px-6 py-14 text-center text-sm" style={{ borderColor: T.border, color: T.muted }}>
-              {pedidosOrigem.length > 0 && etapaSel !== 'todos'
-                ? 'Nenhum pedido nesta etapa. Escolha “Todos” para ver a fila inteira.'
-                : ver === 'item' && pedidosVisiveis.length > 0
-                  ? 'Nada a produzir agora: os pedidos da tela já estão prontos.'
-                  : 'Nenhum pedido em produção. Novos pedidos aparecem aqui em tempo real.'}
+              {/* "Nenhum pedido" só depois de uma leitura que deu certo: a que falhou não é fila vazia (V37). */}
+              {!filaLida && falhaFila
+                ? 'Não consegui ler a fila. Tentando de novo…'
+                : pedidosOrigem.length > 0 && etapaSel !== 'todos'
+                  ? 'Nenhum pedido nesta etapa. Escolha “Todos” para ver a fila inteira.'
+                  : ver === 'item' && pedidosVisiveis.length > 0
+                    ? 'Nada a produzir agora: os pedidos da tela já estão prontos.'
+                    : 'Nenhum pedido em produção. Novos pedidos aparecem aqui em tempo real.'}
             </div>
           )}
 
@@ -1442,18 +1488,15 @@ export default function KdsPage() {
             {mostrado.prioridade === 'danger' ? '⚠ Urgente' : mostrado.prioridade === 'ok' ? '✓ Aviso' : '● Aviso'}
           </div>
           <div className="relative min-w-0 flex-1 overflow-hidden">
+            {/* O letreiro tem a largura do TEXTO (mais a da faixa, no recuo): entra pela direita e sai inteiro pela
+                esquerda. Antes era um bloco da largura da faixa, a animação andava só essa largura e o fim do aviso longo
+                nunca aparecia (auditoria do KDS, 11/11/2026). Velocidade constante (~90 px/s), não tempo fixo. */}
             <div
               key={mostrado.id}
-              className="kds-marquee whitespace-nowrap py-3 text-[26px] font-extrabold text-white"
-              style={{ fontFamily: TITULO, animation: 'kdsMarquee 16s linear infinite' }}
+              className="kds-marquee inline-block w-max whitespace-nowrap py-3 pl-[100%] text-[26px] font-extrabold text-white"
+              style={{ fontFamily: TITULO, animation: `kdsMarquee ${duracaoDoLetreiro(textoDoAlerta(mostrado))}s linear infinite` }}
             >
-              {mostrado.titulo}
-              {mostrado.detalhe ? ` — ${mostrado.detalhe}` : ''}
-              <span className="kds-marquee-eco">
-                <span className="mx-16 opacity-70">•</span>
-                {mostrado.titulo}
-                {mostrado.detalhe ? ` — ${mostrado.detalhe}` : ''}
-              </span>
+              {textoDoAlerta(mostrado)}
             </div>
           </div>
           <div
@@ -1467,7 +1510,7 @@ export default function KdsPage() {
       )}
       <style jsx global>{`
         @keyframes kdsMarquee {
-          0% { transform: translateX(60%); }
+          0% { transform: translateX(0); }
           100% { transform: translateX(-100%); }
         }
         .kds-tela :focus-visible {
@@ -1479,12 +1522,14 @@ export default function KdsPage() {
           .kds-marquee {
             animation: none !important;
             white-space: normal !important;
-            font-size: 18px !important;
+            width: auto !important;
+            display: -webkit-box !important;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            font-size: 16px !important;
             line-height: 1.15;
             padding: 0 14px !important;
-          }
-          .kds-marquee-eco {
-            display: none;
           }
         }
       `}</style>
@@ -1542,11 +1587,41 @@ function EntregaBoard({
   T: { panel: string; panel2: string; border: string; text: string; muted: string };
   esc: number;
 }) {
-  const rotulo = (p: any) =>
-    p.senha ? rotuloSenha(p.senha, p.senhaPrefixo) : p.mesa ? p.mesa : p.numero ? `#${p.numero}` : '—';
   const preparando = pedidos.filter((p) => p.status === 'recebido' || p.status === 'preparo');
   const pronto = pedidos.filter((p) => p.status === 'pronto');
-  const Coluna = ({ titulo, itens, cor, tocavel }: { titulo: string; itens: any[]; cor: CorStatus; tocavel?: boolean }) => (
+  return (
+    <div className="grid gap-8 lg:grid-cols-2">
+      <ColunaDeSenhas titulo="Preparando" itens={preparando} cor={COR_STATUS.atencao} onEntregar={onEntregar} T={T} esc={esc} />
+      <ColunaDeSenhas titulo="Pronto — chamar / entregar" itens={pronto} cor={COR_STATUS.ok} tocavel onEntregar={onEntregar} T={T} esc={esc} />
+    </div>
+  );
+}
+
+const rotuloDaSenhaNoPainel = (p: any) =>
+  p.senha ? rotuloSenha(p.senha, p.senhaPrefixo) : p.mesa ? p.mesa : p.numero ? `#${p.numero}` : '—';
+
+// Uma coluna do painel de entrega. Fica FORA do EntregaBoard (auditoria do KDS, 11/11/2026): declarada dentro dele, era
+// um componente novo a cada segundo (o relógio da tela redesenha a página) — o React desmontava as casas e o toque que
+// cruzava esse instante se perdia. As casas se medem pelo espaço (a senha "D-123" a 48 px pede ~190 px): com 2/3/4
+// colunas fixas a senha passava por cima da vizinha em 1024–1440 px, e a barra escondida não denunciava.
+function ColunaDeSenhas({
+  titulo,
+  itens,
+  cor,
+  tocavel,
+  onEntregar,
+  T,
+  esc,
+}: {
+  titulo: string;
+  itens: any[];
+  cor: CorStatus;
+  tocavel?: boolean;
+  onEntregar: (id: string, de?: string) => void;
+  T: { panel: string; panel2: string; border: string; text: string; muted: string };
+  esc: number;
+}) {
+  return (
     <section className="min-w-0">
       <div className="mb-3 flex items-center gap-2">
         <span className="inline-block h-3 w-3 rounded-full" style={{ background: cor.fundo }} />
@@ -1555,7 +1630,7 @@ function EntregaBoard({
         </span>
         <span className="text-[15px] font-bold" style={{ color: T.muted, fontFamily: MONO }}>{itens.length}</span>
       </div>
-      <div className="grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-4">
+      <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${Math.round(190 * esc)}px), 1fr))` }}>
         {itens.length === 0 && (
           <div className="col-span-full border border-dashed px-6 py-10 text-center text-sm" style={{ borderColor: T.border, color: T.muted }}>
             Vazio
@@ -1567,7 +1642,7 @@ function EntregaBoard({
             type="button"
             disabled={!tocavel}
             onClick={() => tocavel && onEntregar(p.id, p.status)}
-            className="grid place-items-center border font-extrabold tabular-nums disabled:cursor-default"
+            className="grid min-w-0 place-items-center border font-extrabold tabular-nums [overflow-wrap:anywhere] disabled:cursor-default"
             style={{
               background: tocavel ? cor.fundo : T.panel,
               color: tocavel ? cor.texto : T.text,
@@ -1579,7 +1654,7 @@ function EntregaBoard({
             }}
             title={tocavel ? 'Entregar (concluir)' : undefined}
           >
-            {rotulo(p)}
+            {rotuloDaSenhaNoPainel(p)}
             {p.logistica?.status === 130 && (
               <span className="block text-center" style={{ fontSize: Math.round(13 * esc), fontFamily: 'Figtree, sans-serif' }}>
                 🛵 entregador da 99 chegou
@@ -1589,11 +1664,5 @@ function EntregaBoard({
         ))}
       </div>
     </section>
-  );
-  return (
-    <div className="grid gap-8 lg:grid-cols-2">
-      <Coluna titulo="Preparando" itens={preparando} cor={COR_STATUS.atencao} />
-      <Coluna titulo="Pronto — chamar / entregar" itens={pronto} cor={COR_STATUS.ok} tocavel />
-    </div>
   );
 }

@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **KDS — tela (auditoria do KDS, onda 1, PR 4; SEM migration; não mexe no `sync-daemon`).** Na NUVEM com o merge. **No
+  `.zip` 1.30.13:** a tela do KDS servida pelo servidor da loja (faixa de falha da leitura, "Finalizar todos" só o visível,
+  letreiro inteiro, painel de entrega estável, áudio). Servidor velho ignora os `ids` do "Finalizar todos" (finaliza a
+  fila inteira, como antes).
+
 - **Alertas do KDS (auditoria do KDS, onda 1, PR 3; SEM migration; não mexe no `sync-daemon`).** Na NUVEM com o merge.
   **No `.zip` 1.30.13:** o KDS da loja com servidor fala com o tempo real DELE — a sala da loja, a prioridade normalizada e
   o condicional por loja só valem lá com o `.zip` (a tela nova manda `unidade` no handshake; servidor velho ignora).

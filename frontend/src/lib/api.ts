@@ -950,7 +950,8 @@ export const api = {
   // Pedido alterado (mig 362): "Visto" no cartão — o aviso grande e o som param, o item tirado sai do cartão.
   producaoVisto: (id: string) => req(`/producao/pedidos/${id}/visto`, { method: 'POST', body: '{}' }),
   // Limpa a fila do KDS num só request (o servidor avança todos) — evita o 429.
-  producaoLimparFila: (body: { canal?: string; setorId?: string; equipamentoId?: string }) =>
+  // `ids` = os cartões que a tela mostra (só eles saem).
+  producaoLimparFila: (body: { canal?: string; setorId?: string; equipamentoId?: string; ids?: string[] }) =>
     req('/producao/fila/limpar', { method: 'POST', body: JSON.stringify(body) }),
   // Histórico do KDS (auditoria): quem limpou a fila, cancelou, mudou etapas/destinos/alertas.
   producaoHistorico: () => req('/producao/historico'),
