@@ -12,7 +12,7 @@ import { api } from '@/lib/api';
 type Envio = {
   unidadeId: string;
   loja: string | null;
-  oQue: 'preco' | 'pausa';
+  oQue: 'preco' | 'pausa' | 'cadastro' | 'codigo';
   situacao: string;
   frase: string | null;
   antes: number | null;
@@ -24,6 +24,7 @@ const ACOMPANHAR_MS = 5_000;
 const ACOMPANHAR_VEZES = 12;
 
 const brl = (n: number) => Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const O_QUE: Record<string, string> = { preco: 'preço', pausa: 'pausa', cadastro: 'nome e descrição', codigo: 'código' };
 const SITUACAO: Record<string, { rotulo: string; cor: string }> = {
   na_fila: { rotulo: 'na fila', cor: 'text-muted-foreground' },
   enviando: { rotulo: 'enviando', cor: 'text-muted-foreground' },
@@ -110,7 +111,7 @@ export function UltimoEnvioIfood({ alvo, id }: { alvo: 'produto' | 'opcao'; id: 
               <li key={`${e.unidadeId}-${e.oQue}`} className="min-w-0 text-[11px]">
                 <p className="break-words">
                   <span className="font-medium">{e.loja ?? 'Loja'}</span>
-                  <span className="text-muted-foreground"> · {e.oQue === 'preco' ? 'preço' : 'pausa'}: </span>
+                  <span className="text-muted-foreground"> · {O_QUE[e.oQue] ?? e.oQue}: </span>
                   <span className={`font-medium ${s.cor}`}>{s.rotulo}</span>
                   {e.antes != null && e.depois != null && (
                     <span className="text-muted-foreground">

@@ -30,6 +30,7 @@ jest.setTimeout(180_000);
 const MIGRATION = join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '370_orzuni_envio.sql');
 const MIGRATION_371 = join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '371_orzuni_ocultar_pausa.sql');
 const MIGRATION_399 = join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '399_onde_vende_sem_ocultar_no_ifood.sql');
+const MIGRATION_400 = join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '400_orzuni_nome_descricao_codigo.sql');
 const MCP = 'https://orzuni.exemplo.test/v1/mcp';
 const TROCA = 'https://orzuni.exemplo.test/v1/dms-id/ligacao';
 const ENV = {
@@ -156,6 +157,10 @@ descrever('iFood pelo Orzuni — fila e envio (Postgres real, porta falsa)', () 
     const r399 = (await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(readFileSync(MIGRATION_399, 'utf8'))))) as unknown as any[];
     const conferencia399 = (Array.isArray(r399) ? r399[r399.length - 1] : r399).rows;
     if (conferencia399.length !== 2 || conferencia399.some((l: any) => l.ok !== true)) throw new Error(`conferência da 399: ${JSON.stringify(conferencia399)}`);
+    // 400 (R3 F1b): o nome, a descrição e o código ao iFood — a conferência tem de vir toda `ok`.
+    const r400 = (await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(readFileSync(MIGRATION_400, 'utf8'))))) as unknown as any[];
+    const conferencia400 = (Array.isArray(r400) ? r400[r400.length - 1] : r400).rows;
+    if (conferencia400.length !== 4 || conferencia400.some((l: any) => l.ok !== true)) throw new Error(`conferência da 400: ${JSON.stringify(conferencia400)}`);
     // `edge_status` é só da nuvem; outras specs a criam com o mínimo — aqui ela ganha as colunas que a liberação lê.
     await pool
       .query(`create table if not exists edge_status (id uuid primary key default gen_random_uuid(), tenant_id uuid,
@@ -324,6 +329,73 @@ descrever('iFood pelo Orzuni — fila e envio (Postgres real, porta falsa)', () 
     await produtos.atualizar(l.t, p, { noIfood: true } as any);
     await despachar(l);
     expect(chamadas.map((c) => c.ferramenta).sort()).toEqual(['item_reativar', 'preco_definir']);
+  });
+
+  it('nome, descrição e código (mig 400, Orzuni 1.2.0): só o que mudou; a troca do código sai ANTES do resto; sem a permissão, não chama', async () => {
+    const produtos = new (ProdutoService as any)(db, auditoria, { flashProdutos: async () => undefined }, new FichasService(db)) as ProdutoService;
+    const l = await loja({ lojas: 1 });
+    const p = await produto(l, { descricao: 'Pão, carne e queijo' });
+    // Sem `catalogo.escrever` na chave da loja: o envio fica "não enviado", sem chamar a porta.
+    await produtos.atualizar(l.t, p, { nome: 'X-Burguer duplo' });
+    expect(await despachar(l)).toMatchObject({ enviados: 0, dispensados: 1 });
+    expect(chamadas).toEqual([]);
+    const [semPermissao] = await enviosDoAlvo(db, l.t, 'produto', p);
+    expect(semPermissao).toMatchObject({ oQue: 'cadastro', situacao: 'nao_enviado', frase: 'A ligação desta loja com o iFood precisa ser refeita pelo suporte do Regem.' });
+    await q(`update orzuni_ligacao set permissoes = '["catalogo.ler","catalogo.escrever","preco.escrever","status.escrever"]'::jsonb where tenant_id = $1`, [l.t]);
+
+    // Só o nome mudou: vai SÓ o nome (a descrição de lá não é tocada).
+    await produtos.atualizar(l.t, p, { nome: 'X-Burguer da casa' });
+    await despachar(l);
+    expect(chamadas.map((c) => [c.ferramenta, c.args.codigo_pdv, c.args.nome, c.args.descricao])).toEqual([['item_editar', '12', 'X-Burguer da casa', undefined]]);
+    chamadas = [];
+    // A descrição apagada no Regem: vai vazia (é o que a loja pediu); o nome não vai de novo.
+    await produtos.atualizar(l.t, p, { descricao: null } as any);
+    await despachar(l);
+    expect(chamadas.map((c) => [c.ferramenta, c.args.nome, c.args.descricao])).toEqual([['item_editar', undefined, '']]);
+    chamadas = [];
+
+    // O código muda (12 → 20 → 21 antes de sair) junto com o preço: a troca vai primeiro, de 12 (o que o iFood tem) para
+    // 21; o preço e a situação esperam na fila e saem depois, com o código novo.
+    await produtos.atualizar(l.t, p, { codigo: '20' });
+    await produtos.atualizar(l.t, p, { codigo: '21', precoIfood: 44 } as any);
+    await despachar(l);
+    expect(chamadas.map((c) => [c.ferramenta, c.args.codigo_pdv, c.args.codigo_pdv_novo])).toEqual([['item_codigo_pdv_definir', '12', '21']]);
+    expect((await fila(l.t)).filter((f: any) => f.situacao === 'pendente').map((f: any) => f.tipo).sort()).toEqual(['preco_item', 'status_item']);
+    chamadas = [];
+    await despachar(l);
+    expect(chamadas.map((c) => [c.ferramenta, c.args.codigo_pdv]).sort()).toEqual([['item_reativar', '21'], ['preco_definir', '21']]);
+    chamadas = [];
+
+    // Nome acima do limite do iFood (100): não vai, com o motivo para a tela.
+    await produtos.atualizar(l.t, p, { nome: 'X'.repeat(101) });
+    await despachar(l);
+    expect(chamadas).toEqual([]);
+    const cad = (await enviosDoAlvo(db, l.t, 'produto', p)).find((e) => e.oQue === 'cadastro');
+    expect(cad).toMatchObject({ situacao: 'nao_enviado' });
+    expect(cad?.frase).toMatch(/101 caracteres e o iFood aceita até 100/);
+
+    // O código novo já é de outro item no iFood: a recusa fica, com a frase de que o produto passa a ligar a ele.
+    responder = (c) =>
+      c.ferramenta === 'item_codigo_pdv_definir'
+        ? {
+            result: {
+              isError: true,
+              content: [{ type: 'text', text: 'O código de PDV "30" já existe no cardápio do iFood desta loja.' }],
+              structuredContent: { situacao: 'recusado', codigo: 'codigo_ja_existe', pode_repetir: false },
+            },
+          }
+        : { result: { content: [{ type: 'text', text: JSON.stringify({ situacao: 'aplicado' }) }] } };
+    await produtos.atualizar(l.t, p, { codigo: '30' });
+    await despachar(l);
+    const cod = (await enviosDoAlvo(db, l.t, 'produto', p)).find((e) => e.oQue === 'codigo');
+    expect(cod).toMatchObject({ situacao: 'recusado' });
+    expect(cod?.frase).toMatch(/já tem um item com o código novo/);
+    // e o resto do produto não fica preso: sai na volta seguinte, com o código 30
+    chamadas = [];
+    await despachar(l);
+    expect(chamadas.length).toBeGreaterThan(0);
+    expect(chamadas.every((c) => c.args.codigo_pdv === '30')).toBe(true);
+    expect(auditados.some((a) => a.detalhe?.ferramenta === 'item_codigo_pdv_definir' && a.detalhe?.codigoNovo === '30')).toBe(true);
   });
 
   it('status: "Ativo no iFood" pausa e reativa em todas; esgotado da LOJA só nela; esgotado de todas, em todas', async () => {

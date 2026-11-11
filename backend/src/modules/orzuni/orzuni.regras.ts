@@ -14,6 +14,19 @@ export const ENDERECO_PADRAO = 'https://api.orzuni.com/v1/mcp';
 /** O que o token pede. A porta ainda confere a ligação: vale a menor das duas. */
 export const PERMISSOES_ORZUNI: readonly string[] = ['catalogo.ler', 'preco.escrever', 'status.escrever'];
 
+/**
+ * O nome, a descrição e o código do item (contrato 1.2.0: `item_editar`, `item_codigo_pdv_definir`). Pedidas num token
+ * PRÓPRIO, como as da pausa: uma ligação sem `catalogo.escrever` não quebra o envio do preço e da situação.
+ */
+export const PERMISSOES_DO_CATALOGO: readonly string[] = ['catalogo.ler', 'catalogo.escrever'];
+
+/** Os tipos da fila que editam o cadastro do item no iFood (pedem `catalogo.escrever` na ligação da loja). */
+export const TIPOS_DO_CADASTRO: readonly string[] = ['cadastro_item', 'codigo_item'];
+
+/** Os limites do iFood (o Orzuni recusa acima): o Regem confere antes de mandar. */
+export const LIMITE_NOME_IFOOD = 100;
+export const LIMITE_DESCRICAO_IFOOD = 500;
+
 /** A chave da conta da loja no Orzuni, como ele a emite (`ligacao.service.ts` do Orzuni). */
 export const CHAVE_ORZUNI = /^orz_live_[0-9a-f]{32,}$/;
 
@@ -108,10 +121,12 @@ const SITUACOES = new Set(['aplicado', 'sem_mudanca', 'nao_encontrado', 'parcial
 /** Só os campos do envelope da porta que interessam (nada além do que ela devolveu, nunca o segredo). */
 function doEnvelope(e: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const k of ['situacao', 'repetido', 'antes', 'depois', 'codigo', 'pode_repetir', 'frase']) {
+  // `de`/`para`: a troca de código (`item_codigo_pdv_definir`); `campos`: o nome e a descrição (`item_editar`).
+  for (const k of ['situacao', 'repetido', 'antes', 'depois', 'codigo', 'pode_repetir', 'frase', 'de', 'para']) {
     if (e[k] !== undefined) out[k] = e[k];
   }
   if (Array.isArray(e.opcoes)) out.opcoes = (e.opcoes as unknown[]).slice(0, 50);
+  if (Array.isArray(e.campos)) out.campos = (e.campos as unknown[]).slice(0, 5);
   return out;
 }
 
