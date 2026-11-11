@@ -28,7 +28,7 @@ import { exigirUnidade, unidadeOuPadrao } from '../estoque/unidades';
 import { arredondarEstoque, fatorParaEstoque, unidadesDoProduto } from '../../common/conversao-unidade';
 import { exigirBooleano } from '../../common/exigir';
 import { ifoodPeloOrzuniLigado, precoIfoodDoPedido } from '../../common/ifood-pelo-orzuni';
-import { preco99DoPedido, precosNa99Ligado } from '../../common/precos-na-99';
+import { VERSAO_MINIMA_PRECOS_NA_99, preco99DoPedido, precosNa99Ligado } from '../../common/precos-na-99';
 import { ehServidorLocal } from '../../common/modo';
 import { AlvoIfood, RespostaEnvios, ehIdDoAlvo, enviosDoAlvo, enviosDoAlvoPelaNuvem } from '../orzuni/envios-do-alvo';
 import { RespostaEnviosDa99, ehIdDoProduto99, enviosDa99, enviosDa99PelaNuvem } from '../integracoes/food99/food99-envios';
@@ -37,11 +37,16 @@ import { CreateProdutoDto } from './dto/create-produto.dto';
 import {
   exigirCanalDePausa,
   exigirCanalDePreco,
+  exigirCanalDePrecoDaOpcao,
+  exigirIdDaOpcao,
   exigirIdDoProduto,
   preco99DoCanal,
+  precoDaOpcaoNoApp,
   precoDeVendaDoPedido,
   precoIfoodDoCanal,
+  precoNoGrupoDoPedido,
 } from './produto-canais';
+import { fraseDosAtrasados, servidoresAtrasados } from '../../common/servidores-da-empresa';
 
 /** Quem fez a mudança (para a auditoria). */
 type Ator = { id: string | null; perfil: string | null };
@@ -257,6 +262,196 @@ export class ProdutoService {
     };
   }
 
+  // ----- Gestão do catálogo › Complementos (R3 F3a; regras em `produto-canais.ts`) -----
+
+  /**
+   * A pausa por canal do complemento grava `opcao.canais_pausados` (mig 401), que só existe no servidor da loja com o
+   * `.zip` que a traz: antes disso, a loja subiria a lista vazia por cima da nuvem na próxima edição da opção (o caso da
+   * 369). Na nuvem, então, só com TODOS os servidores de loja da empresa nessa versão; o próprio servidor da loja que roda
+   * este código já está nela. Devolve o motivo (ou null = pode).
+   */
+  private async pausaDoComplementoBloqueada(tenantId: string): Promise<string | null> {
+    if (ehServidorLocal()) return null;
+    const atrasados = await servidoresAtrasados(this.db, tenantId, VERSAO_MINIMA_PRECOS_NA_99);
+    return atrasados.length
+      ? `A pausa por canal do complemento precisa do servidor da loja atualizado: ${fraseDosAtrasados(atrasados, VERSAO_MINIMA_PRECOS_NA_99)}.`
+      : null;
+  }
+
+  /**
+   * Os grupos de complementos do catálogo (as etapas) com as opções: o preço NO GRUPO (Regem), o código, o "Em falta", a
+   * pausa de cada canal e o preço de cada app (um por código), e os produtos que usam o grupo — uma consulta para a aba
+   * "Complementos" de Produtos e preços. Opção apagada fica de fora. `pausaBloqueada` = o motivo de a pausa por canal
+   * não valer ainda nesta empresa (null = vale).
+   */
+  async gestaoDosComplementos(tenantId: string) {
+    const r: any = await this.db.execute(sql`
+      select c.id, c.nome, c.ativo,
+             coalesce((select json_agg(json_build_object('id', p.id, 'nome', p.nome) order by p.nome)
+                         from produto_complemento pc
+                         join produto p on p.id = pc.produto_id and p.deleted_at is null
+                        where pc.complemento_id = c.id and pc.tenant_id = c.tenant_id and pc.deleted_at is null), '[]') as produtos,
+             coalesce(json_agg(json_build_object(
+               'opcaoId', o.id, 'nome', o.nome, 'codigoPdv', o.codigo_pdv, 'preco', ci.preco::text, 'ordem', ci.ordem,
+               'esgotado', o.esgotado, 'ativo', o.ativo, 'canaisPausados', o.canais_pausados,
+               'precoIfood', o.preco_ifood::text, 'preco99', o.preco_99::text, 'imagemRef', o.imagem_ref)
+               order by ci.ordem, o.nome) filter (where o.id is not null), '[]') as opcoes
+        from complemento c
+        left join complemento_item ci on ci.complemento_id = c.id and ci.tenant_id = c.tenant_id and ci.deleted_at is null
+        left join opcao o on o.id = ci.opcao_id and o.tenant_id = c.tenant_id and o.deleted_at is null
+       where c.tenant_id = ${tenantId} and c.deleted_at is null
+       group by c.id
+       order by c.nome`);
+    return { grupos: (r.rows ?? r) as any[], pausaBloqueada: await this.pausaDoComplementoBloqueada(tenantId) };
+  }
+
+  /**
+   * A pausa de UM canal do complemento (a opção do catálogo, em todos os grupos), com auditoria: põe ou tira SÓ aquele
+   * canal de `opcao.canais_pausados`, na própria instrução (nunca regrava a lista nem passa pelo PATCH da opção, que
+   * substitui a linha inteira e refaz os grupos dos produtos). 'ifood' só com o iFood pelo Orzuni ligado (vai pela fila
+   * do Orzuni — mig 403); '99food' só com o preço e a pausa na 99 ligados. Já no estado pedido: não grava nem audita.
+   */
+  async pausaDaOpcaoNoCanal(tenantId: string, idBruto: string, canalBruto: unknown, pausadoBruto: unknown, ator: Ator) {
+    const id = exigirIdDaOpcao(idBruto);
+    const canal = exigirCanalDePausa(canalBruto);
+    const pausado = exigirBooleano(pausadoBruto, 'pausado');
+    if (canal === 'ifood' && !(await ifoodPeloOrzuniLigado(this.db, tenantId))) {
+      throw new ConflictException('O iFood pelo Orzuni não está ligado nesta empresa: a pausa do iFood não pode ser mudada pelo Regem.');
+    }
+    if (canal === '99food' && !(await precosNa99Ligado(this.db, tenantId))) {
+      throw new ConflictException('O preço e a pausa na 99 não estão ligados nesta empresa: a pausa da 99 não pode ser mudada pelo Regem.');
+    }
+    const bloqueio = await this.pausaDoComplementoBloqueada(tenantId);
+    if (bloqueio) throw new ConflictException(bloqueio);
+    const lista = sql`coalesce(o.canais_pausados, '[]'::jsonb)`;
+    const r: any = await this.db.execute(sql`
+      update opcao o
+         set canais_pausados = ${pausado ? sql`${lista} || jsonb_build_array(${canal}::text)` : sql`${lista} - ${canal}::text`},
+             updated_at = now()
+       where o.id = ${id} and o.tenant_id = ${tenantId} and o.deleted_at is null
+         and jsonb_exists(${lista}, ${canal}::text) is distinct from ${pausado}
+      returning o.nome, o.canais_pausados, o.esgotado`);
+    const [mudado] = r?.rows ?? r ?? [];
+    if (!mudado) {
+      const [atual] = await this.db
+        .select({ canaisPausados: opcao.canaisPausados, esgotado: opcao.esgotado })
+        .from(opcao)
+        .where(and(eq(opcao.id, id), eq(opcao.tenantId, tenantId), isNull(opcao.deletedAt)));
+      if (!atual) throw new NotFoundException('Complemento não encontrado');
+      return { canal, pausado, mudou: false, canaisPausados: atual.canaisPausados, esgotado: atual.esgotado };
+    }
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: ator.id,
+      atorPerfil: ator.perfil,
+      tipo: 'cadastro',
+      acao: pausado ? 'pausou_complemento_no_canal' : 'reativou_complemento_no_canal',
+      entidadeTipo: 'opcao',
+      entidadeId: id,
+      detalhe: { nome: mudado.nome, canal },
+    });
+    return { canal, pausado, mudou: true, canaisPausados: mudado.canais_pausados, esgotado: mudado.esgotado };
+  }
+
+  /**
+   * O preço do complemento num APP (um por código, em todos os grupos), com auditoria (de → para): 'ifood' =
+   * `opcao.preco_ifood` (só com o iFood pelo Orzuni; vai pela fila do Orzuni — o gatilho da 370 vê a coluna), '99food' =
+   * `opcao.preco_99` (só com o preço e a pausa na 99). Vazio limpa (o Regem deixa de mexer no preço de lá); zero vale.
+   */
+  async precoDaOpcaoNoCanal(tenantId: string, idBruto: string, canalBruto: unknown, valor: unknown, ator: Ator) {
+    const id = exigirIdDaOpcao(idBruto);
+    const canal = exigirCanalDePrecoDaOpcao(canalBruto);
+    const para = precoDaOpcaoNoApp(valor, canal);
+    if (canal === 'ifood' && !(await ifoodPeloOrzuniLigado(this.db, tenantId))) {
+      throw new ConflictException('O iFood pelo Orzuni não está ligado nesta empresa: o preço do iFood não pode ser mudado pelo Regem.');
+    }
+    if (canal === '99food' && !(await precosNa99Ligado(this.db, tenantId))) {
+      throw new ConflictException('O preço na 99 não está ligado nesta empresa: ele não pode ser mudado pelo Regem.');
+    }
+    // A coluna de cada canal (nome fixo, nunca vindo do pedido).
+    const coluna = sql.raw(canal === 'ifood' ? 'preco_ifood' : 'preco_99');
+    const r: any = await this.db.execute(sql`
+      with antes as (
+        select id, nome, ${coluna}::text as de
+          from opcao where id = ${id} and tenant_id = ${tenantId} and deleted_at is null
+         for update)
+      update opcao o
+         set ${coluna} = ${para}::numeric,
+             updated_at = now()
+        from antes
+       where o.id = antes.id
+         and o.${coluna} is distinct from ${para}::numeric
+      returning antes.nome, antes.de`);
+    const [mudado] = r?.rows ?? r ?? [];
+    if (!mudado) {
+      const [existe] = await this.db
+        .select({ id: opcao.id })
+        .from(opcao)
+        .where(and(eq(opcao.id, id), eq(opcao.tenantId, tenantId), isNull(opcao.deletedAt)));
+      if (!existe) throw new NotFoundException('Complemento não encontrado');
+      return { canal, valor: para, mudou: false };
+    }
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: ator.id,
+      atorPerfil: ator.perfil,
+      tipo: 'cadastro',
+      acao: 'mudou_preco_do_complemento_no_canal',
+      entidadeTipo: 'opcao',
+      entidadeId: id,
+      detalhe: { nome: mudado.nome, canal, de: duasCasas(mudado.de), para },
+    });
+    return { canal, valor: para, mudou: true };
+  }
+
+  /**
+   * O preço do complemento NUM GRUPO do Regem (`complemento_item.preco` — o que o balcão e o cardápio digital cobram
+   * quando ele aparece nesse grupo), com auditoria (de → para), e os produtos do grupo refeitos (o preço materializado em
+   * `complemento_opcao.preco_delta`). Igual ao gravado: não grava, não refaz, não audita.
+   */
+  async precoDaOpcaoNoGrupo(tenantId: string, grupoBruto: string, opcaoBruta: string, valor: unknown, ator: Ator) {
+    const complementoId = exigirIdDaOpcao(grupoBruto, 'Grupo de complementos inválido.');
+    const opcaoId = exigirIdDaOpcao(opcaoBruta);
+    const para = precoNoGrupoDoPedido(valor);
+    const r: any = await this.db.execute(sql`
+      with antes as (
+        select ci.id, ci.preco::text as de, o.nome, c.nome as grupo
+          from complemento_item ci
+          join complemento c on c.id = ci.complemento_id and c.tenant_id = ci.tenant_id and c.deleted_at is null
+          join opcao o on o.id = ci.opcao_id and o.tenant_id = ci.tenant_id and o.deleted_at is null
+         where ci.complemento_id = ${complementoId} and ci.opcao_id = ${opcaoId} and ci.tenant_id = ${tenantId}
+           and ci.deleted_at is null
+         for update of ci)
+      update complemento_item x
+         set preco = ${para}::numeric, updated_at = now()
+        from antes
+       where x.id = antes.id and x.preco is distinct from ${para}::numeric
+      returning antes.nome, antes.grupo, antes.de`);
+    const linhas: any[] = r?.rows ?? r ?? [];
+    if (!linhas.length) {
+      const e: any = await this.db.execute(sql`
+        select 1 from complemento_item ci join complemento c on c.id = ci.complemento_id and c.deleted_at is null
+         where ci.complemento_id = ${complementoId} and ci.opcao_id = ${opcaoId} and ci.tenant_id = ${tenantId}
+           and ci.deleted_at is null limit 1`);
+      if (!(e?.rows ?? e ?? []).length) throw new NotFoundException('Complemento não encontrado neste grupo');
+      return { valor: para, mudou: false };
+    }
+    await this.reMaterializarPorComplemento(tenantId, complementoId);
+    const [m] = linhas;
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: ator.id,
+      atorPerfil: ator.perfil,
+      tipo: 'cadastro',
+      acao: 'mudou_preco_do_complemento_no_grupo',
+      entidadeTipo: 'complemento',
+      entidadeId: complementoId,
+      // `complemento_item.preco` é numeric sem escala ("4.5"): o "de" sai com 2 casas, como o "para" (ERR-446).
+      detalhe: { grupo: m.grupo, nome: m.nome, opcaoId, de: duasCasas(m.de), para },
+    });
+    return { valor: para, mudou: true };
+  }
+
   // ----- Ligação direta com um produto do estoque (mig 309) -----
   // "Na hora de ligar é só perguntar se vai calcular valor unitário ou do fardo" (dono,
   // 08/10/2026). A unidade escolhida tem de ser a do estoque ou uma das conversões do cadastro
@@ -375,6 +570,7 @@ export class ProdutoService {
     // Traz a opção + nome da ficha/insumo ligado (para exibir o tipo com clareza).
     const res: any = await this.db.execute(sql`
       select o.id, o.nome, o.codigo_pdv as "codigoPdv", o.preco_ifood as "precoIfood", o.descricao,
+             o.preco_99 as "preco99", o.canais_pausados as "canaisPausados",
              o.imagem_ref as "imagemRef", o.tipo, o.preco_custo as "precoCusto",
              o.controla_estoque as "controlaEstoque", o.ficha_id as "fichaId",
              o.item_id as "itemId", o.produto_ref_id as "produtoRefId",
@@ -1413,7 +1609,8 @@ export class ProdutoService {
       .select()
       .from(produtoComboItem)
       .where(and(eq(produtoComboItem.comboProdutoId, id), isNull(produtoComboItem.deletedAt)));
-    const complementos = await this.complementosDe(tenantId, id);
+    // Para VENDER (balcão, comandas, seletor do PDV): sem a opção pausada no Regem (R3 F3a).
+    const complementos = await this.complementosDe(tenantId, id, { paraVender: true });
     const faixas = await this.db
       .select()
       .from(produtoFaixaPreco)
@@ -1568,7 +1765,7 @@ export class ProdutoService {
   }
 
   // ===== Complementos (opcionais/adicionais) =====
-  async complementosDe(tenantId: string, produtoId: string) {
+  async complementosDe(tenantId: string, produtoId: string, modo: { paraVender?: boolean } = {}) {
     const grupos = await this.db
       .select()
       .from(complementoGrupo)
@@ -1608,12 +1805,28 @@ export class ProdutoService {
           .where(and(eq(complemento.tenantId, tenantId), inArray(complemento.id, origens)))
       : [];
     const regraDaOrigem = new Map(regras.map((c) => [c.id, c.regra]));
+    // Para VENDER (`paraVender`: a leitura do balcão, das comandas e do seletor do PDV), a pausa do complemento SÓ no
+    // Regem (R3 F3a: 'regem' em `opcao.canais_pausados`) tira a opção, como tira do cardápio digital
+    // (`opcaoForaDeVenda`). O editor do Cadastros vê tudo. O "Em falta" segue como sempre foi aqui.
+    const origensOpc = modo.paraVender ? ([...new Set(opcoes.map((x) => x.origemOpcaoId).filter(Boolean))] as string[]) : [];
+    const pausadasNoRegem = new Set(
+      origensOpc.length
+        ? (
+            await this.db
+              .select({ id: opcao.id })
+              .from(opcao)
+              .where(
+                and(eq(opcao.tenantId, tenantId), inArray(opcao.id, origensOpc), sql`jsonb_exists(${opcao.canaisPausados}, 'regem')`),
+              )
+          ).map((o) => o.id)
+        : [],
+    );
     return grupos.map((g) => ({
       ...g,
       regra:
         (g.origemComplementoId && regraDaOrigem.get(g.origemComplementoId)) ||
         (g.max === 1 ? 'uma' : 'varias_sem_repeticao'),
-      opcoes: opcoes.filter((o) => o.grupoId === g.id),
+      opcoes: opcoes.filter((o) => o.grupoId === g.id && !(o.origemOpcaoId && pausadasNoRegem.has(o.origemOpcaoId))),
     }));
   }
 

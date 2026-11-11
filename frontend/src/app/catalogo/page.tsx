@@ -15,6 +15,7 @@ import {
 import { PrecoNoLugar } from '@/components/catalogo/preco-no-lugar';
 import { ChipPausa } from '@/components/catalogo/chip-pausa';
 import { EditarProduto } from '@/components/catalogo/editar-produto';
+import { ComplementosGestao } from '@/components/catalogo/complementos-gestao';
 import { UltimoEnvioIfood } from '@/components/produtos/ultimo-envio-ifood';
 import {
   agruparPorCategoria, esgotado, pausaNoRegem, pausadoEmAlgumCanal, pausadoNa99, pausadoNoIfood, semPrecoNa99, semPrecoNoIfood,
@@ -42,6 +43,7 @@ export default function CatalogoPage() {
   const [cat, setCat] = useState('');
   const [sit, setSit] = useState(-1);
   const [editando, setEditando] = useState<any | null>(null);
+  const [vista, setVista] = useState<'produtos' | 'complementos'>('produtos');
   const [ocupado, setOcupado] = useState<Set<string>>(new Set());
   const [enviados, setEnviados] = useState<Set<string>>(new Set()); // produtos com mudança ao iFood nesta visita
   const [enviados99, setEnviados99] = useState<Set<string>>(new Set()); // produtos com mudança à 99 nesta visita
@@ -248,6 +250,22 @@ export default function CatalogoPage() {
 
   return (
     <Shell eyebrow="Delivery" title="Gestão do catálogo">
+      {/* Produtos | Complementos (protótipo: o seletor acima da lista; R3 F3a). */}
+      <div role="group" aria-label="O que mostrar" className="mb-3 flex flex-wrap gap-2">
+        {(
+          [
+            ['produtos', `Produtos · ${produtos.length}`],
+            ['complementos', 'Complementos'],
+          ] as const
+        ).map(([k, rotulo]) => (
+          <Button key={k} type="button" size="sm" variant={vista === k ? 'default' : 'outline'} aria-pressed={vista === k} onClick={() => setVista(k)}>
+            {rotulo}
+          </Button>
+        ))}
+      </div>
+      {vista === 'complementos' ? (
+        <ComplementosGestao comIfood={comIfood} podeMudarPreco={podeMudarPreco} />
+      ) : (
       <section className="space-y-3" aria-labelledby={ID_TITULO}>
         <TituloLista
           id={ID_TITULO}
@@ -358,6 +376,7 @@ export default function CatalogoPage() {
           </>
         )}
       </section>
+      )}
 
       {editando && (
         <EditarProduto

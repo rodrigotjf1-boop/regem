@@ -3,12 +3,15 @@
 import { cn } from '@/lib/utils';
 
 // O "No ar / Pausado" de um canal (Gestão do catálogo › Produtos e preços). Um botão de liga/desliga (`aria-pressed` =
-// pausado); a bolinha dá a cor, o texto fica em tinta (contraste nos dois estados).
+// pausado); a bolinha dá a cor, o texto fica em tinta (contraste nos dois estados). `desligado` = o motivo de não poder
+// mudar agora (o "Em falta" do complemento, o servidor da loja desatualizado): o botão fica desligado e o motivo vai no
+// título e no leitor de tela.
 export function ChipPausa({
   pausado,
   onde,
   nome,
   ocupado = false,
+  desligado,
   aoMudar,
 }: {
   pausado: boolean;
@@ -16,14 +19,16 @@ export function ChipPausa({
   onde: string;
   nome: string;
   ocupado?: boolean;
+  desligado?: string | null;
   aoMudar: () => void;
 }) {
   return (
     <button
       type="button"
       aria-pressed={pausado}
-      aria-label={`Pausado ${onde}: ${nome}`}
-      disabled={ocupado}
+      aria-label={`Pausado ${onde}: ${nome}${desligado ? ` (${desligado})` : ''}`}
+      title={desligado ?? undefined}
+      disabled={ocupado || !!desligado}
       onClick={aoMudar}
       className={cn(
         'inline-flex min-h-10 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-xs font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60',

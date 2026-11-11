@@ -784,6 +784,32 @@ export const api = {
       disponivelCardapio: boolean;
       canaisPausados: string[];
     }>,
+  // Gestão do catálogo › Complementos (R3 F3a): os grupos com as opções (preço no grupo, código, "Em falta", pausas,
+  // preço de cada app) e os produtos que os usam; `pausaBloqueada` = por que a pausa por canal ainda não vale.
+  complementosGestao: () =>
+    req('/produtos/complementos-gestao') as Promise<{ grupos: any[]; pausaBloqueada: string | null }>,
+  // O preço do complemento num grupo do Regem (pede "Ver valores em R$"; refaz o preço nos produtos do grupo).
+  precoDaOpcaoNoGrupo: (grupoId: string, opcaoId: string, valor: string) =>
+    req(`/produtos/complementos-catalogo/${grupoId}/opcoes/${opcaoId}/preco`, { method: 'PUT', body: JSON.stringify({ valor }) }) as Promise<{
+      valor: string;
+      mudou: boolean;
+    }>,
+  // O preço do complemento num app (um por código, em todos os grupos): 'ifood' ou '99food'; vazio = o Regem não mexe.
+  precoDaOpcaoNoCanal: (id: string, canal: 'ifood' | '99food', valor: string | null) =>
+    req(`/produtos/opcoes/${id}/preco-canal`, { method: 'PUT', body: JSON.stringify({ canal, valor }) }) as Promise<{
+      canal: string;
+      valor: string | null;
+      mudou: boolean;
+    }>,
+  // A pausa do complemento num canal (em todos os grupos): 'regem' (balcão e cardápio digital), 'ifood', '99food'.
+  pausaDaOpcaoNoCanal: (id: string, canal: 'regem' | 'ifood' | '99food', pausado: boolean) =>
+    req(`/produtos/opcoes/${id}/pausa-canal`, { method: 'PUT', body: JSON.stringify({ canal, pausado }) }) as Promise<{
+      canal: string;
+      pausado: boolean;
+      mudou: boolean;
+      canaisPausados: string[];
+      esgotado: boolean;
+    }>,
   // "Publicar nas integrações" (Cadastros › Cardápio): a situação de cada integração que usa o cardápio e o publicar
   // (GoGeM na hora; quem lê pela porta lê de novo; o iFood já vai sozinho). Só gestão; no servidor da loja vem da nuvem.
   integracoesDoCardapio: () => req('/integracoes/publicar') as Promise<SituacaoIntegracoes>,

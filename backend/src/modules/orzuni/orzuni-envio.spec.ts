@@ -31,6 +31,7 @@ const MIGRATION = join(__dirname, '..', '..', '..', '..', 'database', 'migration
 const MIGRATION_371 = join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '371_orzuni_ocultar_pausa.sql');
 const MIGRATION_399 = join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '399_onde_vende_sem_ocultar_no_ifood.sql');
 const MIGRATION_400 = join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '400_orzuni_nome_descricao_codigo.sql');
+const MIGRATION_403 = join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '403_opcao_pausa_por_canal.sql');
 const MCP = 'https://orzuni.exemplo.test/v1/mcp';
 const TROCA = 'https://orzuni.exemplo.test/v1/dms-id/ligacao';
 const ENV = {
@@ -161,6 +162,11 @@ descrever('iFood pelo Orzuni — fila e envio (Postgres real, porta falsa)', () 
     const r400 = (await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(readFileSync(MIGRATION_400, 'utf8'))))) as unknown as any[];
     const conferencia400 = (Array.isArray(r400) ? r400[r400.length - 1] : r400).rows;
     if (conferencia400.length !== 4 || conferencia400.some((l: any) => l.ok !== true)) throw new Error(`conferência da 400: ${JSON.stringify(conferencia400)}`);
+    // 403 (R3 F3a): a opção pausada por canal no iFood — a 1ª linha da conferência (o gatilho) tem de vir `ok` (a parte
+    // do aviso de catálogo depende da 316, que este banco pode não ter).
+    const r403 = (await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(readFileSync(MIGRATION_403, 'utf8'))))) as unknown as any[];
+    const conferencia403 = (Array.isArray(r403) ? r403[r403.length - 1] : r403).rows;
+    if (conferencia403[0]?.ok !== true) throw new Error(`conferência da 403: ${JSON.stringify(conferencia403)}`);
     // `edge_status` é só da nuvem; outras specs a criam com o mínimo — aqui ela ganha as colunas que a liberação lê.
     await pool
       .query(`create table if not exists edge_status (id uuid primary key default gen_random_uuid(), tenant_id uuid,
@@ -446,6 +452,29 @@ descrever('iFood pelo Orzuni — fila e envio (Postgres real, porta falsa)', () 
     const semCodigo = (await q(`insert into opcao (tenant_id, nome) values ($1, 'Obs') returning id`, [l.t]))[0].id;
     await q(`update opcao set preco_ifood = 1, esgotado = true where id = $1`, [semCodigo]);
     expect((await fila(l.t)).filter((x: any) => x.ref_id === semCodigo)).toHaveLength(0);
+  });
+
+  it('opção pausada por canal (R3 F3a, mig 403): só o "ifood" pausa lá; o "regem" e o "99food" não mexem no iFood', async () => {
+    const l = await loja({ lojas: 1 });
+    const o = (await q(`insert into opcao (tenant_id, nome, codigo_pdv) values ($1, 'Cheddar', '502') returning id`, [l.t]))[0].id;
+    // Só no Regem e só na 99: nada vai ao iFood.
+    await q(`update opcao set canais_pausados = '["regem","99food"]'::jsonb where id = $1`, [o]);
+    expect((await fila(l.t)).filter((x: any) => x.ref_id === o)).toHaveLength(0);
+    // Só no iFood: a situação vai, e o despacho pausa lá.
+    await q(`update opcao set canais_pausados = '["regem","99food","ifood"]'::jsonb where id = $1`, [o]);
+    await despachar(l);
+    expect(chamadas.map((c) => [c.ferramenta, c.args.codigo_pdv])).toEqual([['complemento_pausar', '502']]);
+    // Tirar o "ifood" reativa lá; com o "Em falta" ligado, segue pausado (em falta é em todos os canais).
+    chamadas = [];
+    await q(`update opcao set canais_pausados = '["regem"]'::jsonb where id = $1`, [o]);
+    await despachar(l);
+    expect(chamadas.map((c) => c.ferramenta)).toEqual(['complemento_reativar']);
+    chamadas = [];
+    await q(`update opcao set esgotado = true, canais_pausados = '["ifood"]'::jsonb where id = $1`, [o]);
+    await despachar(l);
+    await q(`update opcao set canais_pausados = '[]'::jsonb where id = $1`, [o]);
+    await despachar(l);
+    expect(chamadas.map((c) => c.ferramenta)).toEqual(['complemento_pausar', 'complemento_pausar']);
   });
 
   it('recusa da porta: "não existe no iFood" fica guardado com o código; recusa que pode repetir volta à fila com a MESMA chave', async () => {

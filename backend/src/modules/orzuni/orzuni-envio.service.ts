@@ -413,7 +413,8 @@ export class OrzuniEnvioService implements OnModuleInit, OnModuleDestroy {
       return { ferramenta: pausar ? 'item_pausar' : 'item_reativar', argumentos: { codigo_pdv: codigo } };
     }
     const r: any = await this.db.execute(sql`
-      select o.codigo_pdv, o.preco_ifood::text as preco, o.esgotado, o.deleted_at
+      select o.codigo_pdv, o.preco_ifood::text as preco, o.esgotado, o.deleted_at,
+             coalesce(jsonb_exists(o.canais_pausados, 'ifood'), false) as pausado_no_ifood
         from opcao o where o.id = ${envio.ref_id} and o.tenant_id = ${envio.tenant_id}`);
     const op = (r.rows ?? r)[0];
     if (!op || op.deleted_at) return { dispensar: 'opção excluída' };
@@ -423,7 +424,10 @@ export class OrzuniEnvioService implements OnModuleInit, OnModuleDestroy {
       if (op.preco == null) return { dispensar: 'sem preço no iFood (em branco: o Regem não mexe no preço de lá)' };
       return { ferramenta: 'complemento_preco_definir', argumentos: { codigo_pdv: codigo, valor: Number(op.preco) } };
     }
-    return { ferramenta: op.esgotado ? 'complemento_pausar' : 'complemento_reativar', argumentos: { codigo_pdv: codigo } };
+    // Pausado no iFood: o "Em falta" (todos os canais) ou a pausa só do iFood (R3 F3a, mig 403). A pausa só do Regem ou
+    // só da 99 não mexe no iFood.
+    const pausar = op.esgotado === true || op.pausado_no_ifood === true;
+    return { ferramenta: pausar ? 'complemento_pausar' : 'complemento_reativar', argumentos: { codigo_pdv: codigo } };
   }
 
   /**

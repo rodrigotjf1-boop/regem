@@ -7764,6 +7764,85 @@
         }
       }
     },
+    "/api/v1/produtos/complementos-gestao": {
+      "get": {
+        "operationId": "ProdutoController_gestaoDosComplementos",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/produtos/complementos-catalogo/{id}/opcoes/{opcaoId}/preco": {
+      "put": {
+        "operationId": "ProdutoController_precoDaOpcaoNoGrupo",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "opcaoId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/produtos/opcoes/{id}/preco-canal": {
+      "put": {
+        "operationId": "ProdutoController_precoDaOpcaoNoCanal",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/produtos/opcoes/{id}/pausa-canal": {
+      "put": {
+        "operationId": "ProdutoController_pausaDaOpcaoNoCanal",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/produtos/complementos-catalogo/sincronizar": {
       "post": {
         "operationId": "ProdutoController_sincronizarComplementos",
