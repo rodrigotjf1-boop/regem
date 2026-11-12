@@ -342,7 +342,10 @@ const PUSH_TABLES = [
   { tabela: 'ponto_marcacao', cursor: 'created_at' },
   { tabela: 'ponto_ajuste', cursor: 'created_at' }, // depois da marcação que ele ajusta (FK)
   { tabela: 'pagamento_tef', cursor: 'atualizado_em' },
-  { tabela: 'lancamento_caixa', cursor: 'created_at' },
+  // Pelo `updated_at` (mig 413): o "Cobrar e entregar" aponta o lançamento da venda para o caixa de quem recebeu, e o
+  // pedido alterado muda o valor — pela data de criação a mudança nunca subia. Banco sem a coluna (mig 413 ainda não
+  // entrou) cai no envio por id, como toda tabela sem a coluna do cursor.
+  { tabela: 'lancamento_caixa', cursor: 'updated_at' },
   { tabela: 'audit_log', cursor: 'created_at' },
   // Exclusões físicas feitas aqui (mig 262). POR ÚLTIMO: chegam à nuvem depois das linhas.
   { tabela: 'sync_exclusao', cursor: 'created_at' },
@@ -833,6 +836,23 @@ async function limparEscopoDeOutrasLojas() {
   }
   await setState('limpeza_escopo_v1', 'feito');
   if (total) console.log(`Sync: ${total} linha(s) de OUTRAS lojas removidas deste servidor (escopo por loja).`);
+}
+
+// REENVIO DOS LANÇAMENTOS DO CAIXA (uma vez por instalação; mig 413). Até a 413 o lançamento subia só ao nascer: o
+// caixa e a forma que o "Cobrar e entregar" põe depois (e o valor do pedido alterado) ficavam só aqui — a nuvem tinha
+// lançamentos de venda sem caixa. Os que ESTE servidor apontou para um caixa ganham a data de agora e sobem uma vez; na
+// nuvem a cópia mais nova vence (LWW). Só os com caixa: o sem caixa daqui pode ser a cópia velha de um que a nuvem mexeu.
+// Roda quando a coluna existe — com a 413 ainda por entrar, tenta no próximo ciclo. O texto é lido pelo
+// `lancamento-caixa-sobe.spec.ts`, que o roda num Postgres de verdade.
+const SQL_REENVIO_CAIXA = `update lancamento_caixa set updated_at = clock_timestamp()
+   where sessao_id is not null and comanda_id is not null and tipo = 'entrada' and categoria = 'venda'
+     and created_at >= now() - interval '180 days'`;
+async function reenviarLancamentosDoCaixa() {
+  if ((await getState('reenvio_lancamento_caixa_v1', '')) === 'feito') return;
+  if (!(await colunas('lancamento_caixa')).has('updated_at')) return;
+  const r = await pool.query(SQL_REENVIO_CAIXA);
+  await setState('reenvio_lancamento_caixa_v1', 'feito');
+  if (r.rowCount) console.log(`Sync: ${r.rowCount} lançamento(s) do caixa marcados para subir de novo (caixa e forma — mig 413).`);
 }
 
 // ── CARGA GRANDE SEM ESGOTAR O POSTGRES (ERR-132) ───────────────────────────────────────
@@ -2187,6 +2207,7 @@ async function ciclo() {
     // Antes de qualquer troca: tira do banco o que é de OUTRA loja (uma vez por instalação).
     // Rodando depois do push, a loja chegaria a empurrar linhas que vai apagar na sequência.
     try { await limparEscopoDeOutrasLojas(); } catch (e) { console.warn(`limpeza de escopo: ${e.message}`); }
+    try { await reenviarLancamentosDoCaixa(); } catch (e) { console.warn(`reenvio dos lançamentos do caixa: ${e.message}`); }
     try {
       // A conferência rápida dos pedidos em curso termina antes: as duas gravando as mesmas linhas se travariam (ERR-280).
       if (conferenciaEmCurso) await conferenciaEmCurso;
