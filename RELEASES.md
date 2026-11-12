@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O cartão do pedido no KDS no padrão da foto do dono (12/11; SEM migration; não mexe no `sync-daemon`; só a tela).**
+  Na NUVEM com o merge: a senha grande à direita do cabeçalho, as etiquetas à esquerda, a caixinha em cada item e o
+  rodapé com o tempo, o prazo do preparo e o botão. **No `.zip` 1.30.13:** o mesmo no KDS da loja com servidor (a tela
+  `/kds` vem do servidor da loja).
+
 - **O turno aberto há mais de 24 horas pede o fechamento (12/11, pedido do dono; SEM migration; não mexe no
   `sync-daemon`).** Na NUVEM com o merge: `GET /financeiro/caixa` diz há quantas horas o turno está aberto e se passou de
   24 h (relógio do servidor — `common/turno.ts`); o painel do caixa (PDV, Retirada e Delivery) fica em alerta e, ao abrir a

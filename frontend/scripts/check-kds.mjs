@@ -119,6 +119,33 @@ try {
     assert.equal(k.identPedido({}), 'Balcão');
   });
 
+  caso('cartão da foto (12/11): a senha grande sem "Senha", as etiquetas do lugar e o prazo do preparo', () => {
+    assert.equal(k.senhaDoCartao(FILA[0]), '41');
+    assert.equal(k.senhaDoCartao(FILA[1]), 'D-12');
+    assert.equal(k.senhaDoCartao(FILA[2]), 'Mesa 7');
+    assert.equal(k.senhaDoCartao(FILA[3]), '#99');
+    assert.equal(k.senhaDoCartao({}), 'Balcão');
+    // VIAGEM cheia vem primeiro; a mesa só vira etiqueta quando a senha já é o número grande; o canal com o número dele
+    assert.deepEqual(k.etiquetasDoLugar({ senha: 109, consumo: 'viagem', origem: 'balcao' }), [{ texto: 'Viagem', cheia: true }]);
+    assert.deepEqual(k.etiquetasDoLugar({ senha: 110, origem: 'balcao' }), [{ texto: 'Balcão' }]);
+    assert.deepEqual(k.etiquetasDoLugar({ senha: 111, mesa: 7, origem: 'salao' }), [{ texto: 'Mesa 7' }]);
+    assert.deepEqual(k.etiquetasDoLugar({ mesa: 7, origem: 'salao' }), [], 'sem senha a mesa já é o número grande');
+    assert.deepEqual(k.etiquetasDoLugar({ origem: 'balcao' }), [], 'sem senha nem número o número grande já diz "Balcão"');
+    assert.deepEqual(k.etiquetasDoLugar({ senha: 241, origem: 'delivery', plataforma: 'iFood', senhaPlataforma: '4821' }), [{ texto: 'iFood #4821' }]);
+    assert.deepEqual(k.etiquetasDoLugar({ senha: 14, consumo: 'viagem', origem: 'balcao', plataforma: 'Totem' }), [
+      { texto: 'Viagem', cheia: true },
+      { texto: 'Totem' },
+    ]);
+    // o prazo: só com o tempo de preparo e antes do pronto
+    assert.deepEqual(k.prazoDoPreparo({ status: 'preparo', tempoPreparoMin: 15 }, 9), { preparo: 'Preparo 15 min', resta: 'faltam 6 min' });
+    assert.deepEqual(k.prazoDoPreparo({ status: 'recebido', tempoPreparoMin: 15 }, 15), { preparo: 'Preparo 15 min', resta: 'no limite' });
+    assert.deepEqual(k.prazoDoPreparo({ status: 'preparo', tempoPreparoMin: 15 }, 18), { preparo: 'Preparo 15 min', resta: 'passou 3 min' });
+    assert.equal(k.prazoDoPreparo({ status: 'pronto', tempoPreparoMin: 15 }, 9), null, 'pronto: o rodapé mostra a etapa');
+    assert.equal(k.prazoDoPreparo({ status: 'cancelado', tempoPreparoMin: 15 }, 9), null);
+    assert.equal(k.prazoDoPreparo({ status: 'preparo' }, 9), null, 'sem tempo de preparo');
+    assert.equal(k.prazoDoPreparo({ status: 'preparo', tempoPreparoMin: 0 }, 9), null);
+  });
+
   caso('por item: soma o que falta produzir, fora cancelado e pronto', () => {
     const g = k.agruparPorItem(FILA, AGORA);
     assert.deepEqual(g.map((x) => [x.descricao, x.quantidade]), [['X-Burger', 7], ['Batata', 3]]);

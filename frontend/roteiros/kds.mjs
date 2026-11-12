@@ -23,7 +23,7 @@ const ha = (m) => new Date(agora - m * 60000).toISOString();
 const daqui = (m) => new Date(agora + m * 60000).toISOString();
 function pedidosIniciais() {
   return [
-    { id: 'b12', status: 'preparo', criadoEm: ha(4), senha: 12, senhaPrefixo: 'B', origem: 'balcao', itens: [
+    { id: 'b12', status: 'preparo', criadoEm: ha(4), senha: 12, senhaPrefixo: 'B', origem: 'balcao', tempoPreparoMin: 15, itens: [
       { id: 'i1', quantidade: 2, descricao: 'X-Burger', complementosTexto: 'sem cebola · + bacon' },
       { id: 'i2', quantidade: 1, descricao: 'Batata frita G' },
       { id: 'i3', quantidade: 2, descricao: 'Coca-Cola lata 350 ml' }] },
@@ -282,6 +282,29 @@ export default async function roteiroKds({ nav, base, ok, foto, larguras, rapido
     ok(fontes.avancar >= 48, `botão de avançar ${fontes.avancar} px`);
     const comp = await page.locator('[data-kds-cartao="b12"] .k-comp li').allTextContents();
     ok(JSON.stringify(comp) === JSON.stringify(['sem cebola', '+ bacon']), `complementos um por linha: ${JSON.stringify(comp)}`);
+    // o cartão da foto do dono (12/11): a senha grande à DIREITA, as etiquetas à esquerda, a quantidade sem "×"
+    const lados = await page.evaluate(() => {
+      const c = document.querySelector('[data-kds-cartao="b12"]');
+      const cab = c.querySelector('.k-cab').getBoundingClientRect();
+      const ident = c.querySelector('.k-ident').getBoundingClientRect();
+      const tag = c.querySelector('.k-etqs .k-tag').getBoundingClientRect();
+      const pad = parseFloat(getComputedStyle(c.querySelector('.k-cab')).paddingRight);
+      return { folga: Math.round(cab.right - pad - ident.right), identEsq: ident.left, tagEsq: tag.left, ident: c.querySelector('.k-ident').textContent, q: c.querySelector('.k-q').textContent };
+    });
+    ok(Math.abs(lados.folga) <= 1 && lados.identEsq > lados.tagEsq, `senha à direita: "${lados.ident}" encostada na borda direita (folga ${lados.folga} px), etiqueta à esquerda`);
+    ok(lados.ident === 'B-12' && lados.q === '2', `senha "${lados.ident}" e quantidade "${lados.q}" (sem "Senha" e sem "×")`);
+    // o rodapé: "Preparo 15 min" e "faltam N min" ao lado do tempo e do botão
+    const prazo = (await page.locator('[data-kds-cartao="b12"] [data-kds-prazo]').innerText()).replace(/\s+/g, ' ');
+    ok(/Preparo 15 min/.test(prazo) && /faltam 1[01] min/.test(prazo), `rodapé com o prazo: "${prazo}"`);
+    const prazoM7 = (await page.locator('[data-kds-cartao="m7"] [data-kds-prazo]').innerText()).trim();
+    ok(prazoM7 === 'Em preparo', `sem tempo de preparo o rodapé mostra a etapa ("${prazoM7}")`);
+    // a caixinha: marca e desmarca o item, só nesta tela
+    const chk = page.locator('[data-kds-cartao="b12"] [data-kds-chk]').first();
+    await chk.click();
+    ok((await chk.getAttribute('aria-pressed')) === 'true' && (await page.locator('[data-kds-cartao="b12"] .k-it.feito').count()) === 1, 'caixinha: o toque marca o item (riscado)');
+    await chk.click();
+    ok((await chk.getAttribute('aria-pressed')) === 'false' && (await page.locator('[data-kds-cartao="b12"] .k-it.feito').count()) === 0, 'caixinha: o segundo toque desmarca');
+    ok((await page.locator('[data-kds-cartao="b15"] [data-kds-item="tirar"] [data-kds-chk]').count()) === 0, 'o item que sai (TIRAR) não tem caixinha');
     // cartão neutro: o fundo do cabeçalho é o do cartão; a cor fica só no selo do tempo
     const cores = await page.evaluate(() => {
       const c = document.querySelector('[data-kds-cartao="m7"]');
@@ -455,18 +478,22 @@ export default async function roteiroKds({ nav, base, ok, foto, larguras, rapido
     const { ctx, page, erros } = await abrir({ w: 1280, h: 800 });
     const cab = async (id) => (await page.locator(`[data-kds-cartao="${id}"] .k-cab`).innerText()).replace(/\s+/g, ' ').trim();
     const cartao = async (id) => (await page.locator(`[data-kds-cartao="${id}"]`).innerText()).replace(/\s+/g, ' ').trim();
+    // o cabeçalho da foto (12/11): as etiquetas e a senha sem a palavra "Senha" (o leitor de tela segue ouvindo "Senha B-12")
+    const ident = async (id) => (await page.locator(`[data-kds-cartao="${id}"] .k-ident`).innerText()).replace(/\s+/g, ' ').trim();
     let t = await cab('b12');
-    ok(/Senha B-12/i.test(t) && !/#|ifood|99|totem/i.test(t), `balcão: a senha B, sem canal ("${t}")`);
+    ok((await ident('b12')) === 'B-12' && /Balcão/i.test(t) && !/#|ifood|99|totem/i.test(t), `balcão: a senha B e a etiqueta Balcão, sem canal ("${t}")`);
+    ok(/^Senha B-12,/.test((await page.locator('[data-kds-cartao="b12"]').getAttribute('aria-label')) ?? ''), 'o leitor de tela ouve "Senha B-12"');
     t = await cab('m7');
-    ok(/Mesa 7/i.test(t), `mesa: "${t}"`);
+    ok((await ident('m7')) === 'Mesa 7', `mesa: "${t}"`);
     t = await cab('b14');
-    ok(/Senha B-14/i.test(t) && /Totem/i.test(t) && /Viagem/i.test(t), `totem: o canal e "Viagem" ("${t}")`);
+    ok((await ident('b14')) === 'B-14' && /Totem/i.test(t) && /Viagem/i.test(t), `totem: o canal e "Viagem" ("${t}")`);
+    ok((await page.locator('[data-kds-cartao="b14"] .k-etqs .k-tag.cheia').first().innerText()).toUpperCase() === 'VIAGEM', 'Viagem cheia, antes do canal');
     t = await cab('d241');
-    ok(/Senha D-241/i.test(t) && /iFood #4821/i.test(t), `iFood: a senha D e o número do iFood ("${t}")`);
+    ok((await ident('d241')) === 'D-241' && /iFood #4821/i.test(t), `iFood: a senha D e o número do iFood ("${t}")`);
     t = await cartao('d243');
     ok(/99Food #77102/i.test(t) && /Entregador chegou/i.test(t) && /Carlos/.test(t) && /código 5519/i.test(t), `99: o número, o entregador que chegou e o código de coleta ("${umaLinha(t)}")`);
     t = await cab('d244');
-    ok(/Senha D-244/i.test(t) && /Anota Aí/i.test(t), `Anota Aí: "${t}"`);
+    ok((await ident('d244')) === 'D-244' && /Anota Aí/i.test(t), `Anota Aí: "${t}"`);
     t = await cab('d250');
     ok(/Cardápio Regem/i.test(t) && /Encomenda · para \d{2}:\d{2}/i.test(t), `cardápio com encomenda: "${t}"`);
     // cancelado pelo canal: cinza, "Cancelado", sem botão de avançar, fora das etapas
@@ -478,7 +505,7 @@ export default async function roteiroKds({ nav, base, ok, foto, larguras, rapido
     // alterado e ainda não visto (já estava assim na 1ª leitura): o aviso invertido, a exclamação, NOVO e TIRAR — e nada
     // no rodapé (a 1ª leitura é a base; o som que repete cobre o que já estava na tela)
     const b15 = page.locator('[data-kds-cartao="b15"]');
-    ok((await b15.locator('[data-kds-alterado]').count()) === 1 && (await cab('b15')).startsWith('!'), 'alterado não visto: o aviso "Pedido alterado" e a exclamação');
+    ok((await b15.locator('[data-kds-alterado]').count()) === 1 && (await ident('b15')).startsWith('!'), 'alterado não visto: o aviso "Pedido alterado" e a exclamação');
     const novo = await b15.locator('[data-kds-item="novo"]').innerText();
     const tirar = await b15.locator('[data-kds-item="tirar"]').innerText();
     ok(/X-Bacon/.test(novo) && /Novo/i.test(novo) && /X-Burger/.test(tirar) && /Tirar/i.test(tirar), `NOVO e TIRAR nos itens ("${umaLinha(novo, 40)}" · "${umaLinha(tirar, 40)}")`);
