@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Autorização por clique, "pede mais": cada opcional nova com a sua chave (12/11, Hub DMS; SEM migration; não mexe
+  no `sync-daemon`; só a tela).** Na NUVEM com o merge (a autorização por clique é só da nuvem); no `.zip` 1.30.13 só
+  acompanha o código.
+
 - **O cartão do pedido no KDS no padrão da foto do dono (12/11; SEM migration; não mexe no `sync-daemon`; só a tela).**
   Na NUVEM com o merge: a senha grande à direita do cabeçalho, as etiquetas à esquerda, a caixinha em cada item e o
   rodapé com o tempo, o prazo do preparo e o botão. **No `.zip` 1.30.13:** o mesmo no KDS da loja com servidor (a tela
