@@ -84,21 +84,27 @@ Estado de cada item: **[C]** confirmado no código · **[D]** só na documentaç
 
 ### F1.1 — Fundação: incidentes e vigia do servidor (sem aviso a ninguém)
 
+> **Situação:** código pronto (mig 414, `backend/src/modules/vigia/`), nascendo desligado. Liga com `VIGIA_LIGADO=1` na nuvem, depois da migration aplicada.
+
 - **O que entra:** tabela `vigia_incidente` (só nuvem), as regras puras da saúde do servidor e a rotina que abre, atualiza e fecha incidentes. Nasce desligada (variável de ambiente da nuvem).
-- **Arquivos:** `database/migrations/NNN_vigia_incidente.sql`; `backend/src/modules/vigia/` (regras, serviço, módulo, specs); `backend/edge/sync-daemon.mjs` (só o nome da tabela em `SO_NUVEM`); `backend/src/app.module.ts` e `edge-manifest.ts`.
-- **Contrato do incidente:** empresa, loja, servidor, regra, chave do alvo, gravidade, situação (`aberto` ou `recuperado`), evidência (números observados, sem dado pessoal), primeira e última observação, recuperação, quantas vezes foi visto. Um incidente aberto por regra e alvo (índice único parcial).
+- **Arquivos:** `database/migrations/414_vigia_incidente.sql`; `backend/src/modules/vigia/` (regras, serviço, rotina, módulo, specs); `backend/edge/sync-daemon.mjs` (só o nome da tabela em `SO_NUVEM`); `backend/src/app.module.ts` e `edge-manifest.ts`.
+- **Contrato do incidente:** empresa, loja, servidor, regra, chave do alvo, gravidade, situação, evidência (números observados, sem dado pessoal), primeira e última observação, fechamento, quantas vezes foi visto. Um incidente aberto por regra e alvo (índice único parcial).
+- **Situações:** `aberto`; `recuperado` (o problema sumiu); `encerrado` (o servidor saiu da vigia: desativado ou trocado).
+- **Servidor sem sinal:** só a regra do sinal vale. A saúde guardada é a da última batida, então os outros incidentes dele não somam nem fecham enquanto ele estiver mudo; a volta do sinal decide com o dado novo.
 - **Regras da primeira versão** (os mesmos limites que o console já usa nos selos):
 
 | Regra | Fonte | Dispara quando | Público |
 |---|---|---|---|
-| `servico_parado` | `saude.servicos` | api, web, impressao ou pg diferente de `Running` | distribuição |
+| `servico_parado` | `saude.servicos` | pg, api, web, sync ou impressao diferente de `Running` (pg e api são críticos) | distribuição |
 | `disco_baixo` | `disco_livre_mb` | menos de 2 GB livres | distribuição |
 | `backup_atrasado` | `saude.backup` | falhou, mais de 48 h ou nunca reportou | distribuição |
 | `banco_em_risco` | `saude.bancoFalhasChecksum`, `saude.bancoPctTransacoes` | falha de checksum, ou mais de 50% do limite de transações (crítico acima de 80%) | distribuição |
 | `relogio_desviado` | `saude.relogioDesvioS` | mais de 120 s de diferença | distribuição |
 | `sync_falhando` | `saude.syncFalhandoDesde` | falhando há mais de 15 min | distribuição |
 | `impressora_parada` | `saude.impressorasSemResponder`, `saude.impressorasComAviso` | impressora sem responder ou com aviso (sem papel, tampa) | loja |
-| `servidor_sem_sinal` | `recebido_em` | sem batida há mais de 10 min, tendo dado sinal nas últimas 24 h | loja e distribuição |
+| `servidor_sem_sinal` | `recebido_em` | sem batida há mais de 10 min (servidor ativo que já deu sinal) | loja e distribuição |
+
+Loja que desliga o PC à noite abre um episódio de "sem sinal" por noite e o fecha de manhã. Nesta entrega isso só fica guardado, e serve para medir o falso alerta antes de a F1.2 avisar alguém.
 
 - **Aceite:** o mesmo problema visto de novo não abre segundo incidente; problema que some fecha o incidente; problema que volta abre outro; rotina desligada não grava nada; rotina no servidor da loja não roda; duas voltas ao mesmo tempo não duplicam (prova contra Postgres); uma empresa com erro não trava as outras.
 - **Reversão:** desligar a variável. A tabela fica (nenhuma outra parte do sistema a lê).

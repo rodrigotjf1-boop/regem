@@ -94,6 +94,7 @@ import { SuporteModule } from './modules/suporte/suporte.module';
 import { IntegracaoApiModule } from './modules/integracao-api/integracao-api.module';
 import { AutorizacaoLojaModule } from './modules/integracao-api/autorizacao-loja.module';
 import { LicencaModule } from './modules/licenca/licenca.module';
+import { VigiaModule } from './modules/vigia/vigia.module';
 import { AuthModule } from './auth/auth.module';
 
 // Split de build (Fase 1.4): no EDGE_MODE, os módulos CLOUD_ONLY não são
@@ -125,6 +126,8 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
       RelacionamentoModule,
       // Vagas e candidatos (mig 389): a página pública de vagas e as fichas — tabelas só da nuvem.
       VagasModule,
+      // O vigia do servidor da loja (mig 414): a nuvem recebe o sinal de todos os servidores; nasce desligado.
+      VigiaModule,
     ];
 
 @Module({

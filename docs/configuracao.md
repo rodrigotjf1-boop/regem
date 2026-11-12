@@ -26,6 +26,7 @@
 | `CORS_ORIGIN` | origens liberadas (obrigatório em prod) | `https://app.dmsregem.com` (vírgula p/ várias) | faltando em prod → **não sobe** |
 | `NODE_ENV` | ambiente | `production` | — |
 | `SWAGGER_ENABLED` | liga o /docs em prod | `true` (opcional) | — |
+| `VIGIA_LIGADO` | liga o vigia do servidor da loja (mig 414): a cada minuto a nuvem lê o sinal dos servidores e guarda os incidentes em `vigia_incidente`. **Nasce desligado**; nesta entrega não avisa ninguém | `1` ou `true` (opcional) | ligar antes de aplicar a mig 414 na nuvem → a volta falha e só registra no log |
 | `OTP_WEBHOOK_URL` | fallback global do OTP | URL do **workflow de STATUS** do n8n | apontar pro workflow do **bot** (não envia OTP) |
 | `EVOLUTION_API_URL` | base da Evolution (WhatsApp) | `https://sua-evolution` | com `/` no fim → ok (tratado) |
 | `EVOLUTION_API_KEY` | apikey global da Evolution | segredo | — |
