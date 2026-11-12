@@ -12,6 +12,14 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Ponte do chat 0.7.6 — a 99 lenta não para mais a fila de avisos (11/11; sem migration, sem mudança na nuvem).** Só o
+  programa `ponte-chat/` (ainda sem instalador — gerar sob comando): com o portal lento, a conversa do pedido abria depois
+  de a ponte desistir e ficava aberta, lida como alguém da loja — a fila da 99 parou das 20h47 até reiniciar (ERR-452).
+  Agora a conversa atrasada é esperada (até 30 s) e usada, o número do pedido é esperado enquanto ela carrega, o "voltar"
+  espera e fecha a que ainda vai abrir, a ponte fecha sozinha a conversa que ELA deixou (nunca a de alguém) e a conversa
+  encerrada pela 99 ("pedido concluído") vira falha definitiva. Neste PC vale ao reiniciar a ponte. Nada muda no
+  `.zip`/`.exe` do Regem.
+
 - **A foto dos complementos na Gestão do catálogo (R3, fase G3; SEM migration; não mexe no `sync-daemon`).** Na NUVEM com
   o merge: a leitura da conferência devolve as fotos por complemento (`porOpcao`); a aba Complementos ganha o selo e a
   situação "Foto faltando num app"; a gaveta do complemento ganha a foto (rota nova `PUT /produtos/opcoes/:id/foto`, só a

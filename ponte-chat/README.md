@@ -164,6 +164,24 @@ chega e a busca do programa funciona no portal de verdade.
   por ele não mostra o que o cliente e o usuário principal trocaram. As mensagens do cliente só chegam à ponte se ela usar
   a conta que conversa com o cliente (a principal) — ou se a 99 tiver uma permissão de chat para o usuário extra.
 
+## O que a versão 0.7.6 muda (11/11 — a 99 lenta não para mais a fila)
+
+- **O que aconteceu:** em 11/11, a partir das 20h47, nenhum aviso saiu pela 99. Com o portal lento, a conversa do pedido
+  abria DEPOIS dos 2,5 s que a ponte esperava pelo clique no balão (e ainda carregando, sem o número do pedido); a ponte
+  desistia, a conversa aparecia em seguida e ficava aberta — e a ponte trata qualquer conversa aberta como alguém da
+  loja lendo: a fila da 99 ficou parada até ser reiniciada (ERR-452).
+- **A conversa que abre atrasada é do programa:** depois dos cliques, a ponte espera até 30 s por ela e segue com ela; com
+  a conversa aberta e ainda carregando, espera o número do pedido (antes, sem o número em 2,5 s, a ponte desistia com "a
+  conversa aberta é a do (sem número)").
+- **Ao devolver a tela,** se o programa clicou no balão há menos de 30 s e a conversa ainda não abriu, a ponte espera por
+  ela e a fecha.
+- **Nunca mais presa na própria conversa:** se a conversa aberta é a do último envio (ou ainda sem número), sem texto em
+  campo nenhum e sem ninguém mexer na janela desde o envio, a ponte a fecha sozinha (no máximo uma vez a cada 30 s) e
+  anota `saida99_fechou_a_sua` no diagnóstico. A conversa aberta por alguém da loja continua intocada.
+- **Conversa encerrada pela 99** ("Não é possível enviar mensagens porque este pedido foi concluído"): o aviso falha na
+  hora, como definitivo (`encerrada`), sem esperar o campo que nunca vem nem tentar de novo. A 99 mantém o chat aberto
+  com o pedido em "Entregando" (os avisos "saiu" de 09 e 11/11 chegaram assim); só fecha com o pedido concluído.
+
 ## O que a versão 0.7.5 muda (09/11 — o Gestor volta sozinho ao quadro "Pedidos")
 
 - **Ao reiniciar, o Gestor do iFood abre em "Início", não no quadro "Pedidos"** — e a fila de saída só envia com o quadro

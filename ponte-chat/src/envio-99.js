@@ -26,6 +26,11 @@ const CLIQUE_MS = 2500; // a gaveta abre em ~30 ms depois do clique (medido); se
 // 2,5 s depois — e a ponte desistia (o envio pela 99 nunca saía). Confere de novo até este prazo.
 const BALAO_MS = 4000;
 const CAMPO_MS = 45000; // o campo levou 30 s com a loja fechada (06/11); com folga
+// 11/11: a 99 lenta abriu a gaveta DEPOIS dos 2,5 s do clique (e já com o esqueleto de "carregando"), com o número do
+// pedido chegando só depois. A ponte desistia, o "voltar" não achava nada para fechar e a gaveta aparecia em seguida —
+// aberta por ela, mas lida como "alguém da loja usando a 99": a fila da 99 ficou parada das 20h47 até ser reiniciada.
+// Depois dos cliques, a gaveta que abre até este prazo é do programa (usa ou fecha).
+const TARDE_MS = 30000;
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const VIS = 'const vis = (el) => { if (!el) return false; const r = el.getBoundingClientRect(); const s = getComputedStyle(el); return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none"; };';
@@ -114,6 +119,9 @@ const GAVETA_ABERTA = `(() => {
     valor: campo ? campo.value : null,
     enviar: !!enviar,
     enviarLigado: !!enviar && !enviar.disabled && !/is-disabled/.test(enviar.className),
+    // 11/11: a conversa ainda carregando (o esqueleto da 99) e a conversa ENCERRADA pela 99 (o pedido concluído).
+    carregando: [...g.querySelectorAll('.im-chat-window-skeleton, .im-chat-window-edit-skeleton')].some(vis),
+    encerrada: /não é possível enviar mensagens/i.test(g.innerText || ''),
   };
 })()`;
 
@@ -213,7 +221,7 @@ async function ate(fn, ok, prazoMs, passoMs = 250) {
  * Abre a conversa do pedido na 99: busca pelo número, confere o resumo, clica no balão (de novo uma vez, se nada abrir),
  * confere o número da conversa e espera o campo. { ok, etapas } — ou { ok: false, codigo, definitivo?, adiar?, etapas }.
  */
-async function abrirConversa(ctx, { numero }, { buscaMs = BUSCA_MS, gavetaMs = GAVETA_MS, cliqueMs = CLIQUE_MS, campoMs = CAMPO_MS, balaoMs = BALAO_MS } = {}) {
+async function abrirConversa(ctx, { numero }, { buscaMs = BUSCA_MS, gavetaMs = GAVETA_MS, cliqueMs = CLIQUE_MS, campoMs = CAMPO_MS, balaoMs = BALAO_MS, tardeMs = TARDE_MS } = {}) {
   const { pagina, cdp } = ctx;
   const etapas = [];
   const falhou = (codigo, motivo, extra = {}) => ({ ok: false, codigo, etapas: [...etapas, `✗ ${motivo}`], ...extra });
@@ -246,16 +254,40 @@ async function abrirConversa(ctx, { numero }, { buscaMs = BUSCA_MS, gavetaMs = G
     );
     if (!balao || !balao.ok) return falhou('balao', (balao && balao.motivo) || 'o botão do chat não respondeu');
     await clicar(ctx, balao);
-    gaveta = await ate(() => pagina.executeJavaScript(GAVETA_ABERTA), (g) => !!g && g.aberta && !!g.numero, cliqueMs);
+    // a hora do clique fica no ctx: o `voltar` espera (e fecha) a gaveta que a 99 lenta ainda vai abrir
+    ctx.balaoClicadoEm = Date.now();
+    // aberta já basta aqui: o número do pedido chega depois do esqueleto e é esperado logo abaixo, com o prazo do carregar
+    gaveta = await ate(() => pagina.executeJavaScript(GAVETA_ABERTA), (g) => !!g && g.aberta, cliqueMs);
     if (gaveta && gaveta.aberta) break;
     // nada abriu: o clique se perdeu (como no iFood, ERR-380) — de novo, UMA vez
   }
+  if (!gaveta || !gaveta.aberta) {
+    // 11/11: a 99 lenta abre a gaveta DEPOIS do prazo do clique — ela é do programa: espera e segue com ela
+    gaveta = await ate(() => pagina.executeJavaScript(GAVETA_ABERTA), (g) => !!g && g.aberta, tardeMs, 500);
+    if (gaveta && gaveta.aberta) etapas.push('✓ a conversa abriu atrasada (a 99 estava lenta)');
+  }
   if (!gaveta || !gaveta.aberta) return falhou('gaveta', 'cliquei no botão do chat e a conversa não abriu');
+  // o número do pedido aparece quando a conversa termina de carregar: espera enquanto ela carrega
+  if (!gaveta.numero) gaveta = await ate(() => pagina.executeJavaScript(GAVETA_ABERTA), (g) => !g || !g.aberta || !!g.numero, campoMs, 500);
+  if (!gaveta || !gaveta.aberta) return falhou('gaveta', 'a conversa fechou antes de carregar');
   if (gaveta.numero !== alvo) return falhou('numero_errado', `a conversa aberta é a do ${gaveta.numero || '(sem número)'}, não a do ${alvo} — não escrevi nada`, { fecharGaveta: true });
   etapas.push(`✓ a conversa aberta é a do ${alvo}`);
-  const pronta = await ate(() => pagina.executeJavaScript(GAVETA_ABERTA), (g) => !!g && g.aberta && g.campo, campoMs, 500);
+  const pronta = await ate(
+    () => pagina.executeJavaScript(GAVETA_ABERTA),
+    (g) => !!g && (!g.aberta || g.encerrada || (g.campo && !g.carregando)),
+    campoMs,
+    500,
+  );
   if (!pronta || !pronta.aberta) return falhou('gaveta', 'a conversa fechou antes de carregar');
   if (pronta.numero !== alvo) return falhou('numero_errado', `a conversa mudou para a do ${pronta.numero} — não escrevi nada`, { fecharGaveta: true });
+  // 11/11: a 99 fecha o chat do pedido concluído ("Não é possível enviar mensagens porque este pedido foi concluído"):
+  // tentar de novo não adianta — falha definitiva, com o motivo para a equipe
+  if (pronta.encerrada) {
+    return falhou('encerrada', 'a 99 encerrou a conversa deste pedido ("não é possível enviar mensagens"): o aviso não tem como chegar ao cliente', {
+      definitivo: true,
+      fecharGaveta: true,
+    });
+  }
   if (!pronta.campo) return falhou('sem_campo', 'a conversa da 99 não terminou de carregar (o campo não apareceu)', { fecharGaveta: true });
   etapas.push('✓ a conversa carregou (o campo está na tela)');
   return { ok: true, etapas };
@@ -310,10 +342,17 @@ async function enviar(ctx, { numero, pedidoExterno, texto }, { ecoMs = 20000, ao
  * Devolve a tela como estava: fecha a conversa (pelo voltar — nunca com o texto do programa no campo: o envio já apagou),
  * limpa a busca que o programa fez e volta à aba que estava aberta.
  */
-async function voltar(ctx, antes) {
-  const { pagina, cdp } = ctx;
+async function voltar(ctx, antes, { tardeMs = TARDE_MS } = {}) {
+  const { pagina } = ctx;
   const feito = { gaveta: false, busca: false, aba: false };
-  const g = await pagina.executeJavaScript(GAVETA_ABERTA).catch(() => null);
+  let g = await pagina.executeJavaScript(GAVETA_ABERTA).catch(() => null);
+  // 11/11: o programa clicou no balão há pouco e a gaveta ainda não abriu — a 99 lenta a abre atrasada; sem esperar, ela
+  // ficava aberta depois do envio e a fila da 99 parava ("há uma conversa aberta"), achando que era alguém da loja
+  const desdeOClique = ctx.balaoClicadoEm ? Date.now() - ctx.balaoClicadoEm : Infinity;
+  if ((!g || !g.aberta) && desdeOClique < tardeMs) {
+    g = await ate(() => pagina.executeJavaScript(GAVETA_ABERTA), (x) => !!x && x.aberta, tardeMs - desdeOClique, 500);
+    feito.esperouAtrasada = true;
+  }
   if (g && g.aberta && !(g.valor || '').trim()) {
     const v = await pagina.executeJavaScript(VOLTAR).catch(() => null);
     if (v) {
@@ -357,11 +396,27 @@ function avaliarTela(e, { agora = Date.now(), ultimaTeclaEm = 0, paradaMs = 1000
   return { ok: true };
 }
 
+/**
+ * A conversa aberta na 99 é a que o PROGRAMA deixou (e pode fechar)? Sim só quando: há gaveta, nenhum texto em campo
+ * algum, a gaveta é do pedido do último envio (ou ainda sem número, carregando) e NINGUÉM mexeu na janela desde o clique
+ * do programa (o vigia da página, a hora em que ele foi instalado e o teclado da janela — tudo antes da marca).
+ * `marca` = { numero: '#436003', em: hora do envio }, guardada pelo `main.js` a cada envio pela 99.
+ */
+function gavetaEhDoPrograma(e, marca, { ultimaTeclaEm = 0 } = {}) {
+  if (!e || !e.gaveta || !marca || !marca.em) return false;
+  if (e.campoComTexto) return false;
+  if (e.gavetaNumero && e.gavetaNumero !== marca.numero) return false;
+  const gente = Math.max(Number(e.acaoEm) || 0, Number(e.vigiaDesde) || 0, Number(ultimaTeclaEm) || 0);
+  return gente < marca.em;
+}
+
 module.exports = {
   abrirConversa,
   enviar,
   voltar,
   avaliarTela,
+  gavetaEhDoPrograma,
+  TARDE_MS,
   clicar,
   NUMERO,
   ROTEIROS: { ESTADO_DA_TELA, BUSCAR, PEDIDO_NA_BUSCA, BALAO, GAVETA_ABERTA, ESCREVER, APAGAR_SE_IGUAL, APERTAR_ENVIAR, VOLTAR, LIMPAR_BUSCA, ABA, CLIQUE_DO_PROGRAMA },
