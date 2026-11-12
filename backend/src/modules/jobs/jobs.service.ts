@@ -79,7 +79,6 @@ export class JobsService {
     for (const [tabela, coluna, janela] of [
       ['sync_exclusao', 'created_at', dias],
       ['edge_heartbeat', 'recebido_em', dias],
-      ['edge_telemetria', 'criado_em', 90],
     ] as [string, string, number][]) {
       try {
         const r: any = await this.db.execute(
@@ -91,6 +90,34 @@ export class JobsService {
         // Tabela só-nuvem ausente no edge (42P01) é esperado — o job roda nos dois.
         if (e?.code !== '42P01') this.log.error(`expurgo ${tabela}: ${e?.message ?? e}`);
       }
+    }
+    await this.expurgarTelemetria();
+  }
+
+  /** Há quantos dias sem NOVA ocorrência a linha da telemetria sai (decisão do dono, 12/11/2026). */
+  static readonly TELEMETRIA_RETENCAO_DIAS = 90;
+
+  /**
+   * Expurgo da telemetria de erros (`telemetria_evento`, só da nuvem). A linha é UMA por assinatura de erro e soma
+   * ocorrências (`ultimo_em`): sai a que está há 90 dias sem ocorrer de novo, resolvida ou não — o erro que continua
+   * acontecendo fica, por mais antigo que seja.
+   * ERR-455: até 12/11/2026 esta limpeza mirava `edge_telemetria`/`criado_em`, tabela e coluna que não existem; o erro
+   * (42P01) era engolido como "tabela ausente no servidor da loja" e a telemetria crescia sem limite.
+   * `soEmpresas`: só para o teste — a rotina passa por todas, e no CI as specs dividem o banco (V32). Nunca lança.
+   */
+  async expurgarTelemetria(soEmpresas?: string[]): Promise<number> {
+    const empresas = soEmpresas?.length ? sql`and tenant_id in (${sql.join(soEmpresas.map((t) => sql`${t}::uuid`), sql`, `)})` : sql``;
+    try {
+      const r: any = await this.db.execute(
+        sql`delete from telemetria_evento where ultimo_em < now() - make_interval(days => ${JobsService.TELEMETRIA_RETENCAO_DIAS}) ${empresas}`,
+      );
+      const n = r?.rowCount ?? 0;
+      if (n) this.log.log(`expurgo telemetria_evento: ${n} linha(s) sem ocorrência há mais de ${JobsService.TELEMETRIA_RETENCAO_DIAS} dias`);
+      return n;
+    } catch (e: any) {
+      // No servidor da loja a tabela não existe (42P01): esperado — o job roda nos dois. Qualquer outro motivo fica no log.
+      if (e?.code !== '42P01') this.log.error(`expurgo telemetria_evento: ${e?.message ?? e}`);
+      return 0;
     }
   }
 
