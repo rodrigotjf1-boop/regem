@@ -712,6 +712,111 @@
   padding: 0 5px;
 }
 
+/* ── cartão do PEDIDO no padrão da foto do dono (12/11/2026): etiquetas à esquerda e a senha grande à DIREITA, a linha
+   escura sob o cabeçalho, a caixinha em cada item e o rodapé com o tempo, o prazo do preparo e o botão. As regras de cima
+   seguem valendo para o cartão por item e para o despacho. ── */
+.k-cab-pedido {
+  align-items: flex-start;
+  border-bottom: 2px solid var(--k-ink);
+}
+.k-etqs {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding-top: calc(5px * var(--esc));
+}
+.k-cab-pedido .k-ident {
+  margin-left: auto;
+  text-align: right;
+  font-size: calc(34px * var(--esc));
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.k-it-chk {
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: start;
+  column-gap: 10px;
+}
+/* a caixinha: 48 px de toque, o quadrado desenhado dentro; o texto do item centrado na 1ª linha */
+.k-chk,
+.k-chk-vazio {
+  width: max(48px, calc(44px * var(--esc)));
+}
+.k-chk {
+  min-height: max(48px, calc(44px * var(--esc)));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--k-ink);
+  cursor: pointer;
+}
+.k-chk .caixa {
+  display: grid;
+  place-items: center;
+  width: calc(26px * var(--esc));
+  height: calc(26px * var(--esc));
+  border: 2.5px solid var(--k-ink);
+  font: 900 calc(18px * var(--esc)) / 1 var(--fd);
+}
+.k-it-chk .k-q,
+.k-it-chk .k-it-txt {
+  padding-top: max(0px, calc((max(48px, calc(44px * var(--esc))) - 1.25em) / 2));
+}
+.k-it-chk .k-it-txt {
+  min-width: 0;
+}
+.k-it.feito .k-chk .caixa {
+  background: var(--k-ink);
+  color: var(--k-panel);
+}
+.k-it.feito .k-q,
+.k-it.feito .k-it-txt {
+  opacity: 0.55;
+}
+.k-it.feito .k-d {
+  text-decoration: line-through;
+}
+.k-cartao-pe {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(8px * var(--esc)) calc(10px * var(--esc));
+  padding: calc(10px * var(--esc)) calc(14px * var(--esc));
+  border-top: 1px solid var(--k-line);
+  min-width: 0;
+}
+/* o prazo cede o espaço (até 6em) para o tempo e o botão ficarem na mesma linha, como na foto */
+.k-prazo {
+  flex: 1 1 0;
+  min-width: 6em;
+  display: flex;
+  flex-direction: column;
+  font-size: calc(14px * var(--esc));
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--k-muted);
+  overflow-wrap: anywhere;
+}
+.k-prazo b {
+  color: var(--k-ink);
+  font-weight: 800;
+}
+.k-cartao-pe .k-avancar {
+  width: auto;
+  flex: 0 1 auto;
+  margin-left: auto;
+  max-width: 100%;
+  padding: 0 calc(14px * var(--esc));
+  letter-spacing: 0.06em;
+  background: var(--k-panel);
+}
+
 /* ── resumo de itens ── */
 .k-resumo {
   min-width: 0;

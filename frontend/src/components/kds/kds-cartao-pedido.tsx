@@ -5,25 +5,30 @@ import {
   agregarItens,
   atrasadoAgora,
   encomendaAguarda,
+  etiquetasDoLugar,
   faixaTempo,
   identPedido,
   inicioDoTempo,
   linhasDasEscolhas,
   minutosDoCartao,
+  prazoDoPreparo,
   proximaAcaoNaEstacao,
   rotuloEtapa,
+  senhaDoCartao,
   type EtapasDaLoja,
   type LimitesTempo,
 } from '@/lib/kds-fila';
 import type { TemaKds } from '@/lib/kds-tema';
+import { useMarcadosDoCartao } from './use-marcados-do-cartao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// CARTÃO DO PEDIDO no KDS — versão 2 (onda 2 da auditoria do KDS, aprovada pelo dono em 11/11/2026, "KDS com muita cor"):
-// o cartão é NEUTRO em qualquer tempo; a cor do status fica só no SELO do tempo ("13 min") e o atrasado ganha a etiqueta
-// "Atrasado" em contorno vermelho. Letra para 1–2 m: item 20 px, complemento 16 px na cor da tinta (um por linha),
-// observação 16 px com barra; texto longo e palavra sem espaço quebram a linha — nada é cortado. O botão de avançar tem
-// 48 px no mínimo em qualquer letra. Desenho em `app/kds/kds-tela.css`; protótipo `mockups/regem-kds-cozinha.html`.
+// CARTÃO DO PEDIDO no KDS — no padrão da foto do dono (12/11/2026), sobre a versão 2 (onda 2 da auditoria do KDS): o
+// cabeçalho tem as etiquetas do lugar à esquerda (VIAGEM cheia; MESA, BALCÃO e o canal em contorno) e a SENHA grande à
+// DIREITA, com a linha escura embaixo; cada item tem a caixinha de marcar (desta tela — ajuda de quem prepara, não muda
+// o pedido), a quantidade e o nome; o rodapé tem o tempo (a cor do status só ali), o prazo do preparo ("Preparo 15 min ·
+// faltam 6 min") e o botão. O cartão segue NEUTRO, com a letra para 1–2 m (item 20 px, complemento e observação 16 px) e o
+// toque de 48 px. Desenho em `app/kds/kds-tela.css`.
 
 // O tema mora em `lib/kds-tema` (medido nos dois temas pelo check:kds); o tipo segue exportado daqui para quem já usa.
 export type { TemaKds };
@@ -65,6 +70,7 @@ export function KdsCartaoPedido({
   veioDe?: string | null; // a estação de onde o cartão veio ("Veio da Chapa")
   onVisto?: (id: string) => void; // pedido ALTERADO (mig 362): a cozinha viu a mudança
 }) {
+  const { marcados, alternar } = useMarcadosDoCartao(String(p.id));
   const cancelado = p.status === 'cancelado';
   const aguarda = encomendaAguarda(p, agoraMs);
   const min = minutosDoCartao(p, agoraMs);
@@ -74,8 +80,9 @@ export function KdsCartaoPedido({
   // Pedido ALTERADO que a cozinha ainda não viu (mig 362): o aviso grande com a exclamação e o "Visto" (decisão 6A).
   const naoVisto = !!p.alteracaoNaoVista && !cancelado;
   const entregador = textoEntregadorDoCanal(p.logistica);
-  const origem = p.plataforma ? `${p.plataforma}${p.senhaPlataforma ? ` #${p.senhaPlataforma}` : ''}` : '';
-  const linha = [cancelado ? '' : rotuloEtapa(p.status), origem].filter(Boolean).join(' · ');
+  const lugar = etiquetasDoLugar(p);
+  // O rodapé: o prazo do preparo enquanto o pedido não está pronto; depois dele (e na encomenda que aguarda), a etapa.
+  const prazo = aguarda || cancelado ? null : prazoDoPreparo(p, min);
   const itens: any[] = agregar ? agregarItens(p.itens ?? []) : (p.itens ?? []);
   const para = p.encomendaPara ? new Date(p.encomendaPara).getTime() : NaN;
   const classe = [
@@ -94,27 +101,15 @@ export function KdsCartaoPedido({
       }${atrasado ? ', atrasado' : ''}`}
       data-kds-cartao={p.id}
     >
-      <div className="k-cab">
-        <span className="k-ident">
-          {naoVisto && <span aria-hidden="true">! </span>}
-          {identPedido(p)}
-        </span>
-        {aguarda ? (
-          <span className="k-tempo">
-            <small>começa</small>
-            {hm(inicioDoTempo(p))}
-          </span>
-        ) : (
-          <span className="k-tempo">
-            {min}
-            <small>min</small>
-          </span>
-        )}
-        <span className="k-sub">
-          {linha && <span>{linha}</span>}
+      {/* Cabeçalho da foto: as etiquetas à esquerda, a senha grande à DIREITA (pedido do dono, 12/11/2026). */}
+      <div className="k-cab k-cab-pedido">
+        <span className="k-etqs">
+          {lugar.map((e) => (
+            <EtiquetaKds key={e.texto} tipo={e.cheia ? 'cheia' : undefined}>
+              {e.texto}
+            </EtiquetaKds>
+          ))}
           {Number.isFinite(para) && !cancelado && <EtiquetaKds>Encomenda · para {hm(para)}</EtiquetaKds>}
-          {/* Para viagem (mig 310): etiqueta NEUTRA ao lado do canal — a cor continua sendo só o status. */}
-          {p.consumo === 'viagem' && <EtiquetaKds>Viagem</EtiquetaKds>}
           {cancelado && <EtiquetaKds tipo="cheia">Cancelado</EtiquetaKds>}
           {atrasado && <EtiquetaKds tipo="atraso">Atrasado</EtiquetaKds>}
           {alterado && <EtiquetaKds>Alterado</EtiquetaKds>}
@@ -125,6 +120,10 @@ export function KdsCartaoPedido({
           {p.chegada && !cancelado && <EtiquetaKds tipo="cheia">Cliente chegou</EtiquetaKds>}
           {/* Pedido IGUAL ainda sem o "São dois pedidos" (mig 360). */}
           {p.repetido && !cancelado && <EtiquetaKds tipo="cheia">Repetido?</EtiquetaKds>}
+        </span>
+        <span className="k-ident">
+          {naoVisto && <span aria-hidden="true">! </span>}
+          {senhaDoCartao(p)}
         </span>
       </div>
 
@@ -175,14 +174,34 @@ export function KdsCartaoPedido({
             const tirar = it.status === 'removido' && !cancelado;
             const novo = it.status === 'novo';
             const comp = linhasDasEscolhas(it.complementosTexto);
+            const chave = String(it.id ?? `${ix}:${it.descricao ?? ''}`);
+            const feito = marcados.has(chave);
+            const qtd = Number(it.quantidade);
             return (
               <li
                 key={it.id ?? ix}
-                className={`k-it${tirar ? ' tirar' : ''}${alvo ? ' alvo' : ''}`}
+                className={`k-it k-it-chk${tirar ? ' tirar' : ''}${alvo ? ' alvo' : ''}${feito ? ' feito' : ''}`}
                 data-kds-item={tirar ? 'tirar' : novo ? 'novo' : undefined}
               >
-                <span className="k-q">{Number(it.quantidade)}×</span>
-                <div>
+                {/* A caixinha: só onde há o que fazer (o item que sai e o pedido cancelado não se marcam). */}
+                {tirar || cancelado ? (
+                  <span className="k-chk-vazio" aria-hidden="true" />
+                ) : (
+                  <button
+                    type="button"
+                    className="k-chk"
+                    aria-pressed={feito}
+                    aria-label={`${feito ? 'Desmarcar' : 'Marcar'} ${qtd} ${it.descricao ?? 'item'} como feito`}
+                    onClick={() => alternar(chave)}
+                    data-kds-chk
+                  >
+                    <span className="caixa" aria-hidden="true">
+                      {feito ? '✓' : ''}
+                    </span>
+                  </button>
+                )}
+                <span className="k-q">{qtd}</span>
+                <div className="k-it-txt">
                   <span className="k-d">{it.descricao}</span>
                   {novo && (
                     <>
@@ -213,6 +232,31 @@ export function KdsCartaoPedido({
             );
           })}
         </ul>
+      </div>
+
+      {/* Rodapé da foto: o tempo (a cor do status só aqui), o prazo do preparo ou a etapa, e o botão à direita. */}
+      <div className="k-cartao-pe">
+        {aguarda ? (
+          <span className="k-tempo">
+            <small>começa</small>
+            {hm(inicioDoTempo(p))}
+          </span>
+        ) : (
+          <span className="k-tempo">
+            {min}
+            <small>min</small>
+          </span>
+        )}
+        <span className="k-prazo" data-kds-prazo>
+          {prazo ? (
+            <>
+              <span>{prazo.preparo}</span>
+              <b>{prazo.resta}</b>
+            </>
+          ) : (
+            <span>{cancelado ? 'Cancelado' : rotuloEtapa(p.status)}</span>
+          )}
+        </span>
         {!cancelado && acao && (
           <button
             type="button"

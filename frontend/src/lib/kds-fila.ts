@@ -297,6 +297,43 @@ export function identPedido(p: any): string {
   return 'Balcão';
 }
 
+// ── O cartão no padrão da foto do dono (12/11/2026): a senha grande à DIREITA do cabeçalho, as etiquetas do lugar à
+// esquerda, o tempo e o prazo do preparo no rodapé ao lado do botão. ──────────────────────────────────────────────────
+
+/** A senha grande do cabeçalho: só o rótulo — "B-109"; sem senha, "Mesa 7", "#123" ou "Balcão". */
+export function senhaDoCartao(p: any): string {
+  if (p?.senha) return rotuloSenha(p.senha, p.senhaPrefixo);
+  if (p?.mesa) return `Mesa ${p.mesa}`;
+  if (p?.numero) return `#${p.numero}`;
+  return 'Balcão';
+}
+
+/**
+ * As etiquetas de ONDE o pedido vai, à esquerda da senha: VIAGEM (cheia), MESA N (quando a senha já é o número grande),
+ * BALCÃO (balcão sem mesa e sem canal) e o canal com o número dele ("iFood #4821", "Totem").
+ */
+export function etiquetasDoLugar(p: any): { texto: string; cheia?: boolean }[] {
+  const t: { texto: string; cheia?: boolean }[] = [];
+  if (p?.consumo === 'viagem') t.push({ texto: 'Viagem', cheia: true });
+  else if (p?.mesa && p?.senha) t.push({ texto: `Mesa ${p.mesa}` });
+  // "Balcão" só quando o número grande já é a senha ou o número — sem eles o próprio número grande diz "Balcão".
+  else if (p?.origem === 'balcao' && !p?.mesa && !p?.plataforma && (p?.senha || p?.numero)) t.push({ texto: 'Balcão' });
+  if (p?.plataforma) t.push({ texto: `${p.plataforma}${p.senhaPlataforma ? ` #${p.senhaPlataforma}` : ''}` });
+  return t;
+}
+
+/**
+ * O prazo no rodapé: "Preparo 15 min" e "faltam 6 min" / "no limite" / "passou 3 min". Nulo sem o tempo de preparo e
+ * depois do pronto (o "faltam" de um pedido já pronto enganaria quem despacha) — aí o rodapé mostra a etapa.
+ */
+export function prazoDoPreparo(p: any, min: number): { preparo: string; resta: string } | null {
+  if (p?.status !== 'recebido' && p?.status !== 'preparo') return null;
+  const preparo = Math.round(Number(p?.tempoPreparoMin));
+  if (!(preparo > 0)) return null;
+  const resta = preparo - Math.max(0, Math.floor(Number(min) || 0));
+  return { preparo: `Preparo ${preparo} min`, resta: resta > 0 ? `faltam ${resta} min` : resta === 0 ? 'no limite' : `passou ${-resta} min` };
+}
+
 // ── Sub-filtro de origem e "o cartão é desta tela?" ───────────────────────────────────────────
 // Delivery agrupa a plataforma (marketplace × cardápio digital); Balcão/Salão agrupa origem + plataforma (Totem).
 export function grupoPedido(p: any, canal: 'delivery' | 'balcao'): string {
