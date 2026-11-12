@@ -29,7 +29,7 @@ export type ResultadoDaVolta = {
 type AchadoDoServidor = Achado & { tenantId: string; unidadeId: string | null; equipamentoId: string };
 
 /**
- * O VIGIA DO SERVIDOR DA LOJA (F1.1 do plano do Mister, `docs/plano-mister.md`; mig 413). Só NUVEM. A cada volta:
+ * O VIGIA DO SERVIDOR DA LOJA (F1.1 do plano do Mister, `docs/plano-mister.md`; mig 414). Só NUVEM. A cada volta:
  *  1. lê o último sinal de cada servidor de loja (`edge_status`, uma linha por servidor) — só o que as regras usam;
  *  2. aplica as regras puras (`vigia.regras.ts`);
  *  3. grava os episódios em `vigia_incidente`: o problema novo ABRE um episódio, o que continua soma `vezes`, o que sumiu

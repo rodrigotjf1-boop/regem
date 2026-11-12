@@ -84,10 +84,10 @@ Estado de cada item: **[C]** confirmado no código · **[D]** só na documentaç
 
 ### F1.1 — Fundação: incidentes e vigia do servidor (sem aviso a ninguém)
 
-> **Situação:** código pronto (mig 413, `backend/src/modules/vigia/`), nascendo desligado. Liga com `VIGIA_LIGADO=1` na nuvem, depois da migration aplicada.
+> **Situação:** código pronto (mig 414, `backend/src/modules/vigia/`), nascendo desligado. Liga com `VIGIA_LIGADO=1` na nuvem, depois da migration aplicada.
 
 - **O que entra:** tabela `vigia_incidente` (só nuvem), as regras puras da saúde do servidor e a rotina que abre, atualiza e fecha incidentes. Nasce desligada (variável de ambiente da nuvem).
-- **Arquivos:** `database/migrations/413_vigia_incidente.sql`; `backend/src/modules/vigia/` (regras, serviço, rotina, módulo, specs); `backend/edge/sync-daemon.mjs` (só o nome da tabela em `SO_NUVEM`); `backend/src/app.module.ts` e `edge-manifest.ts`.
+- **Arquivos:** `database/migrations/414_vigia_incidente.sql`; `backend/src/modules/vigia/` (regras, serviço, rotina, módulo, specs); `backend/edge/sync-daemon.mjs` (só o nome da tabela em `SO_NUVEM`); `backend/src/app.module.ts` e `edge-manifest.ts`.
 - **Contrato do incidente:** empresa, loja, servidor, regra, chave do alvo, gravidade, situação, evidência (números observados, sem dado pessoal), primeira e última observação, fechamento, quantas vezes foi visto. Um incidente aberto por regra e alvo (índice único parcial).
 - **Situações:** `aberto`; `recuperado` (o problema sumiu); `encerrado` (o servidor saiu da vigia: desativado ou trocado).
 - **Servidor sem sinal:** só a regra do sinal vale. A saúde guardada é a da última batida, então os outros incidentes dele não somam nem fecham enquanto ele estiver mudo; a volta do sinal decide com o dado novo.

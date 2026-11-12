@@ -126,7 +126,7 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
       RelacionamentoModule,
       // Vagas e candidatos (mig 389): a página pública de vagas e as fichas — tabelas só da nuvem.
       VagasModule,
-      // O vigia do servidor da loja (mig 413): a nuvem recebe o sinal de todos os servidores; nasce desligado.
+      // O vigia do servidor da loja (mig 414): a nuvem recebe o sinal de todos os servidores; nasce desligado.
       VigiaModule,
     ];
 

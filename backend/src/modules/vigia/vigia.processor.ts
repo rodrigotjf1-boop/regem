@@ -6,7 +6,7 @@ import { VigiaService, vigiaLigado } from './vigia.service';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 /**
- * A ROTINA do vigia do servidor da loja (mig 413). Só na NUVEM (é ela que recebe o sinal de todos os servidores; o
+ * A ROTINA do vigia do servidor da loja (mig 414). Só na NUVEM (é ela que recebe o sinal de todos os servidores; o
  * servidor da loja nem tem a tabela), de minuto em minuto — o mesmo passo da batida —, uma volta por vez. Nasce
  * DESLIGADA (`VIGIA_LIGADO`). Uma volta que falha não derruba a próxima; o motivo vai para o log.
  */

@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// O VIGIA DO SERVIDOR DA LOJA — as regras PURAS (F1.1 do plano do Mister, `docs/plano-mister.md`; mig 413).
+// O VIGIA DO SERVIDOR DA LOJA — as regras PURAS (F1.1 do plano do Mister, `docs/plano-mister.md`; mig 414).
 //
 // A nuvem recebe a saúde completa de cada servidor de loja a cada minuto (`edge_status`, gravado pela batida do
 // `sync-daemon.mjs`: os 5 serviços, disco, backup, banco, relógio, sync, impressoras). Aqui mora só a conta: dada a linha

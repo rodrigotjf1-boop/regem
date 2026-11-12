@@ -7,7 +7,7 @@ import { vigiaLigado } from './vigia.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// AS REGRAS DO VIGIA DO SERVIDOR DA LOJA (mig 413), sem banco: dada a linha de um servidor e a hora, quais problemas ele
+// AS REGRAS DO VIGIA DO SERVIDOR DA LOJA (mig 414), sem banco: dada a linha de um servidor e a hora, quais problemas ele
 // tem. O que se prova: cada regra dispara no limite certo e só nele; servidor sem sinal só tem a regra do sinal; dado
 // torto é "não sei" e nunca vira achado nem erro; a evidência só leva o que as regras leem; os limites são os dos selos
 // do console; e a rotina nasce desligada e não roda no servidor da loja.

@@ -2454,7 +2454,7 @@ const SO_NUVEM = new Set([
   'candidato_experiencia',
   'candidato_curso',
   'candidato_evento',
-  // O vigia do servidor da loja (mig 413, @cloud-only): os episódios de incidente que a NUVEM abre a partir do sinal dos
+  // O vigia do servidor da loja (mig 414, @cloud-only): os episódios de incidente que a NUVEM abre a partir do sinal dos
   // servidores. A rotina só roda na nuvem — a loja não tem esta tabela.
   'vigia_incidente',
 ]);

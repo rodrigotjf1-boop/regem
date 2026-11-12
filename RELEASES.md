@@ -20,7 +20,7 @@
   a tabela pelo `updated_at` e reenvia UMA vez os lançamentos de venda que apontou para um caixa (180 dias). Só o `.zip`
   não basta: sem o daemon novo, a mudança segue sem subir.
 
-- **O vigia do servidor da loja — incidentes por episódio (12/11, F1.1 do plano do Mister; mig 413 `@cloud-only` — tabela
+- **O vigia do servidor da loja — incidentes por episódio (12/11, F1.1 do plano do Mister; mig 414 `@cloud-only` — tabela
   nova `vigia_incidente`, só nuvem; no `sync-daemon` entra SÓ o nome dela na lista `SO_NUVEM`).** Na NUVEM com o merge:
   nada muda até o dono ligar `VIGIA_LIGADO=1` no EasyPanel (a rotina nasce desligada); ligada, a cada minuto a nuvem lê
   o sinal dos servidores (`edge_status`) e guarda os episódios, sem avisar ninguém. **No `.zip`/`.exe`:** nada a fazer

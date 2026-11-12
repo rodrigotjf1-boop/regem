@@ -1,5 +1,5 @@
 -- @cloud-only
--- 413 — VIGIA: os incidentes do servidor da loja (F1.1 do plano do Mister, `docs/plano-mister.md`; pedido do dono de
+-- 414 — VIGIA: os incidentes do servidor da loja (F1.1 do plano do Mister, `docs/plano-mister.md`; pedido do dono de
 -- 12/11/2026: começar pelos "olhos", sem IA). Hoje a nuvem recebe a saúde completa de cada servidor de loja a cada
 -- minuto (`edge_status`: serviços, disco, backup, banco, relógio, sync, impressoras) e ninguém é avisado de nada: há só
 -- selos nas telas, para quem abrir a tela. E a telemetria só avisa na PRIMEIRA vez que uma mensagem aparece — problema
@@ -46,7 +46,7 @@ create index if not exists idx_vigia_incidente_servidor on vigia_incidente (equi
 create index if not exists idx_vigia_incidente_empresa on vigia_incidente (tenant_id, primeira_em desc);
 alter table vigia_incidente enable row level security;
 
-comment on table vigia_incidente is 'Vigia (mig 413): um incidente por episódio do servidor da loja — só nuvem; nesta entrega ninguém é avisado';
+comment on table vigia_incidente is 'Vigia (mig 414): um incidente por episódio do servidor da loja — só nuvem; nesta entrega ninguém é avisado';
 
 -- Conferência (no mesmo Run): a tabela (com RLS) e os índices.
 select 'tabela' as o_que, c.relname as nome, c.relrowsecurity as rls

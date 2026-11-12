@@ -10,7 +10,7 @@ import { VigiaService } from './vigia.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// O VIGIA DO SERVIDOR DA LOJA (mig 413), contra o Postgres real. O que se prova: o problema ABRE um episódio e a volta
+// O VIGIA DO SERVIDOR DA LOJA (mig 414), contra o Postgres real. O que se prova: o problema ABRE um episódio e a volta
 // seguinte só soma; o que some FECHA e o que volta abre OUTRO; a gravidade e a evidência acompanham; servidor sem sinal
 // só ganha o episódio do sinal e os outros dele ficam como estavam; duas voltas cruzadas deixam UM episódio (o índice
 // único, não a sorte); o servidor desativado tem os episódios encerrados; a credencial de integração e a empresa de fora
@@ -74,13 +74,13 @@ descrever('o vigia do servidor da loja (Postgres)', () => {
 
   beforeAll(async () => {
     delete process.env.EDGE_MODE; // como NUVEM
-    // A 413 é só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: a migration é idempotente.
+    // A 414 é só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: a migration é idempotente.
     for (let i = 0; i < 2; i++)
       await repetirNaCorridaDeCatalogo(async () => {
         const c = await pool.connect();
         try {
           await c.query('begin');
-          await c.query(comTravaDaEmpresa(readFileSync(MIG('413_vigia_incidente.sql'), 'utf8')));
+          await c.query(comTravaDaEmpresa(readFileSync(MIG('414_vigia_incidente.sql'), 'utf8')));
           await c.query('commit');
         } catch (e) {
           await c.query('rollback').catch(() => {});
