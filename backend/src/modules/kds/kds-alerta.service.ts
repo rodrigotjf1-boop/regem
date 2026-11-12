@@ -195,7 +195,8 @@ export class KdsAlertaService {
       .from(kdsAlertaConfig)
       .where(and(eq(kdsAlertaConfig.id, id), eq(kdsAlertaConfig.tenantId, tenantId)));
     if (!c) throw new BadRequestException('Alerta não encontrado.');
-    this.emitir(tenantId, c, '', c.unidadeId ?? null);
+    // Feito no app pela nuvem, o teste chega também ao KDS do servidor da loja (A3; mig 412: a linha guardada desce).
+    this.emitir(tenantId, c, '', c.unidadeId ?? null, { origem: 'Alertas da loja · teste', naLoja: true });
     await this.auditar(tenantId, ator, 'disparou_alerta_kds', c, { teste: true, kds: c.kdsIds ?? 'todos' });
     return { ok: true, kds: Array.isArray(c.kdsIds) && c.kdsIds.length ? c.kdsIds : null };
   }
@@ -208,7 +209,7 @@ export class KdsAlertaService {
       prioridade: this.prio(dto?.prioridade),
       duracaoSeg: Math.max(3, Math.min(3600, Number(dto?.duracaoSeg) || 60)),
     };
-    this.emitir(tenantId, alerta);
+    this.emitir(tenantId, alerta, '', null, { origem: 'Alertas da loja · manual', naLoja: true });
     // O alerta aparece na tela de todos os KDS da empresa: quem mandou fica registrado.
     await this.auditar(tenantId, ator, 'disparou_alerta_kds', alerta, { prioridade: alerta.prioridade, duracaoSeg: alerta.duracaoSeg });
     return { ok: true };
@@ -269,7 +270,7 @@ export class KdsAlertaService {
     if (this.disparados.has(chave)) return;
     this.disparados.set(chave, Date.now());
     // Alerta de uma loja vai só para as telas dela; sem loja, para a empresa inteira.
-    this.emitir(c.tenantId, c, '', c.unidadeId ?? null);
+    this.emitir(c.tenantId, c, '', c.unidadeId ?? null, { origem: 'Alertas da loja · agendado' });
   }
 
   // O condicional olha CADA LOJA (auditoria do KDS, 11/11/2026): antes somava os pedidos da empresa inteira, sem janela de
@@ -291,7 +292,7 @@ export class KdsAlertaService {
       const cooldown = (Number(c.duracaoSeg) || 60) * 1000 + 60000;
       if (Date.now() - ultimo <= cooldown) continue;
       this.disparados.set(chave, Date.now());
-      this.emitir(c.tenantId, c, ` (${valor})`, loja);
+      this.emitir(c.tenantId, c, ` (${valor})`, loja, { origem: 'Alertas da loja · condicional' });
     }
   }
 
@@ -325,8 +326,13 @@ export class KdsAlertaService {
     return mapa;
   }
 
-  private emitir(tenantId: string, c: any, sufixo = '', unidadeId: string | null = null) {
+  // `origem`: como o histórico mostra (mig 412). `naLoja`: o aviso feito na NUVEM também vai ao KDS do servidor da loja (o
+  // teste e o disparo manual pelo app); o agendado e o condicional rodam nos dois lados — cada um mostra o seu.
+  private emitir(tenantId: string, c: any, sufixo = '', unidadeId: string | null = null, extra: { origem?: string; naLoja?: boolean } = {}) {
     this.events.emit('kds.alerta.sistema', {
+      ...(extra.origem ? { origem: extra.origem } : {}),
+      ...(extra.naLoja ? { naLoja: true } : {}),
+      ...(c?.id ? { ref: `alerta:${c.id}` } : {}),
       tenantId,
       ...(unidadeId ? { unidadeId } : {}),
       titulo: String(c.titulo ?? 'Alerta') + sufixo,

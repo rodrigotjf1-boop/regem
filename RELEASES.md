@@ -17,6 +17,15 @@
   rede e, sem confirmação no prazo, o que houve; a confirmação que chega até 2 min depois vira `eco_99_tardio`. Nenhum
   comportamento muda. Neste PC vale ao reiniciar a ponte. Nada muda no `.zip`/`.exe` do Regem.
 
+- **Os avisos do KDS guardados e o Farol na cozinha (onda 3 da auditoria do KDS; mig 412 — tabela nova `alerta_kds`, que
+  sincroniza nos dois sentidos; MEXE no `sync-daemon` → pede o `.exe`).** Na NUVEM com o merge: todo aviso do rodapé do
+  KDS fica guardado 90 dias (rotas `GET /kds/avisos/pendentes`, `GET /kds/avisos/historico`, `POST /kds/avisos/:id/ciente`)
+  e a nuvem busca os alertas do Farol (`FarolAlertasService`, a cada 10 s, desligado enquanto faltar `FAROL_ALERTAS_URL` e
+  `FAROL_ALERTAS_TOKEN` no EasyPanel). **No `.zip` 1.30.13:** a migration 412 no banco da loja e o código — o servidor da
+  loja guarda os avisos dele e mostra os da nuvem marcados para a loja (o Farol, o "Testar" feito na nuvem) quando descem.
+  **No `.exe`:** o `sync-daemon` sobe as linhas da loja e não desfaz o "Ciente" dado na nuvem (sem o `.exe`, o histórico
+  da loja não sobe e o "Ciente" da nuvem pode não descer; o Farol desce do mesmo jeito).
+
 - **Ponte do chat 0.7.6 — a 99 lenta não para mais a fila de avisos (11/11; sem migration, sem mudança na nuvem).** Só o
   programa `ponte-chat/` (ainda sem instalador — gerar sob comando): com o portal lento, a conversa do pedido abria depois
   de a ponte desistir e ficava aberta, lida como alguém da loja — a fila da 99 parou das 20h47 até reiniciar (ERR-452).

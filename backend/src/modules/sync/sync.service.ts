@@ -837,6 +837,11 @@ export class SyncService {
         const decisaoVence = ehAlteracao
           ? sql` or (excluded.situacao <> 'pedida' and pedido_alteracao.situacao = 'pedida')`
           : sql``;
+        // O "CIENTE" DO AVISO DO KDS (mig 412) não se desfaz: o que subiu com "Ciente" vence mesmo mais velho, e a cópia
+        // sem "Ciente" não apaga o daqui. Mesma regra no pull do servidor da loja (sync-daemon, `condicaoSobrescrever`).
+        const ehAviso = lote.tabela === 'alerta_kds' && colunas.has('ciente_em');
+        const cienteVence = ehAviso ? sql` or (excluded.ciente_em is not null and alerta_kds.ciente_em is null)` : sql``;
+        const naoDesfazCiente = ehAviso ? sql` and not (alerta_kds.ciente_em is not null and excluded.ciente_em is null)` : sql``;
         // LWW (update-se-mais-nova) p/ tabela com updated_at; senão do-nothing (append imutável).
         const conflito =
           (modo === 'lww' || colunas.has('updated_at')) && setCols.length && colunas.has(lwwCol)
@@ -845,7 +850,7 @@ export class SyncService {
                 sql`, `,
               )}
               where ${sql.identifier(lote.tabela)}.tenant_id = excluded.tenant_id
-                and (${sql.identifier(lote.tabela)}.${sql.identifier(lwwCol)} < excluded.${sql.identifier(lwwCol)}${resolvidoVence}${decisaoVence}${canceladoDoCartaoVence}${finalDoPedidoVence})${naoDesfazRevogacao}${naoReabreCartao}${naoVoltaANovo}${finalDoPedidoNaoSai}${naoRessuscita}${naoReabreChamado}${naoVoltaAPedida}`
+                and (${sql.identifier(lote.tabela)}.${sql.identifier(lwwCol)} < excluded.${sql.identifier(lwwCol)}${resolvidoVence}${decisaoVence}${cienteVence}${canceladoDoCartaoVence}${finalDoPedidoVence})${naoDesfazRevogacao}${naoReabreCartao}${naoVoltaANovo}${finalDoPedidoNaoSai}${naoRessuscita}${naoReabreChamado}${naoVoltaAPedida}${naoDesfazCiente}`
             : sql`on conflict (id) do nothing`;
         const linhaVals = (linha: any) =>
           sql`(${sql.join([tenantId, ...cols.map((c) => coagir(linha[c]))].map((v) => sql`${v}`), sql`, `)})`;

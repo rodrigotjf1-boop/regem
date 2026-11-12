@@ -16,7 +16,7 @@ import { EquipamentoService } from '../equipamento/equipamento.service';
 import { PresencaService, enderecoDoHost, ipDoPc, versaoInformada } from '../equipamento/presenca.service';
 import { lerCookieSessao } from '../../auth/cookie-sessao';
 import { ehServidorLocal } from '../../common/modo';
-import { ehTipoDeAviso } from '../../common/avisos-do-kds';
+import { ehTipoDeAviso, prioridadeDoKds } from '../../common/avisos-do-kds';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { sql } from 'drizzle-orm';
 
@@ -24,17 +24,9 @@ import { sql } from 'drizzle-orm';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/**
- * As prioridades que o KDS conhece (o rodapé ordena danger > alta > info > ok). Outros módulos mandavam 'media'/'baixa'
- * (contagem, compras) e o KDS, sem conhecer, ordenava por NaN — a "Compra recebida" passava na frente do "❌ CANCELADO"
- * (auditoria do KDS, 11/11/2026). 'media' vira alta, 'baixa' vira info; ausente ou desconhecida, alta (como sempre).
- */
 const UUID_DO_KDS = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export function prioridadeDoKds(p: unknown): 'danger' | 'alta' | 'info' | 'ok' {
-  if (p === 'danger' || p === 'alta' || p === 'info' || p === 'ok') return p;
-  if (p === 'baixa') return 'info';
-  return 'alta';
-}
+// A normalização da prioridade mora em `common/avisos-do-kds` (o serviço dos avisos guardados usa a mesma — mig 412).
+export { prioridadeDoKds };
 
 // Contexto anexado ao socket após o handshake autenticado.
 interface SockCtx {
@@ -237,11 +229,14 @@ export class RealtimeGateway
     this.server.to(`tenant:${p.tenantId}`).emit('ponto:marcado', p);
   }
 
-  // Alerta gerado por job do sistema (ROP, validades FEFO) → fila do KDS/gestor.
-  @OnEvent('kds.alerta.sistema')
+  // Aviso para o rodapé do KDS, JÁ GUARDADO (onda 3 da auditoria do KDS, mig 412): os módulos emitem `kds.alerta.sistema`
+  // (ROP, validade, alertas cadastrados, compras, contagem, manutenção…), o `AlertaKdsService` guarda a linha e emite
+  // `kds.alerta.mostrar` com o id dela — o "Ciente" da tela aponta essa linha. O Farol entra pelo mesmo caminho.
+  @OnEvent('kds.alerta.mostrar')
   onAlertaSistema(p: {
     tenantId: string;
     unidadeId?: string | null;
+    id?: string; // o id da linha guardada (sem ele, um novo — o aviso não guardado ainda aparece)
     titulo: string;
     detalhe?: string;
     prioridade?: string;
@@ -252,6 +247,8 @@ export class RealtimeGateway
     // Os KDS que recebem (nulo = todos da sala) e se fica até o "Ciente" (mig 409; A9 e A7): a tela filtra pelo KDS dela.
     kds?: unknown;
     fica?: unknown;
+    em?: string;
+    origem?: string | null;
   }) {
     if (!this.server) return;
     // Alerta de LOJA vai só para a sala da loja (mig 249). Na sala do tenant, o KDS de
@@ -260,7 +257,7 @@ export class RealtimeGateway
     const sala = p.unidadeId ? `unidade:${p.unidadeId}` : `tenant:${p.tenantId}`;
     const kds = Array.isArray(p.kds) ? p.kds.map(String).filter((id) => UUID_DO_KDS.test(id)).slice(0, 50) : [];
     this.server.to(sala).emit('kds:alerta', {
-      id: randomUUID(),
+      id: p.id && UUID_RE.test(p.id) ? p.id : randomUUID(),
       titulo: p.titulo,
       detalhe: p.detalhe ?? '',
       prioridade: prioridadeDoKds(p.prioridade),
@@ -269,8 +266,17 @@ export class RealtimeGateway
       tipo: ehTipoDeAviso(p.tipo) ? p.tipo : 'loja',
       kds: kds.length ? kds : null,
       fica: p.fica === true,
-      em: new Date().toISOString(),
+      em: p.em && !Number.isNaN(Date.parse(p.em)) ? p.em : new Date().toISOString(),
+      origem: p.origem ?? null,
     });
+  }
+
+  // "Ciente" numa tela (mig 412): as outras telas da loja tiram o aviso do rodapé.
+  @OnEvent('kds.alerta.ciente')
+  onAvisoCiente(p: { tenantId: string; unidadeId?: string | null; id: string; por?: string | null }) {
+    if (!this.server || !UUID_RE.test(String(p?.id))) return;
+    const sala = p.unidadeId ? `unidade:${p.unidadeId}` : `tenant:${p.tenantId}`;
+    this.server.to(sala).emit('kds:aviso-ciente', { id: p.id, por: p.por ?? null });
   }
 
   // Produção durável (Fase F1): novo pedido / mudança de status / cancelamento.
