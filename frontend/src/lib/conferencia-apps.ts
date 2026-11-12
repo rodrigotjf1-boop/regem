@@ -349,7 +349,10 @@ export function pedidoDeCriarOpcao(
 
 /** A foto do produto em cada app, pela última leitura: endereço, `null` (sem foto lá) ou ausente (não lido / não liga). */
 export type FotosDoProduto = Partial<Record<CanalConferido, string | null>>;
-export type FotosDaLoja = { canais: Record<CanalConferido, { lidoEm: string; porProduto: Record<string, string | null> } | null> };
+/** As fotos dos apps pela última leitura: por produto (F6) e, R3 G3, por complemento (`porOpcao` — ausente no servidor antigo). */
+export type FotosDaLoja = {
+  canais: Record<CanalConferido, { lidoEm: string; porProduto: Record<string, string | null>; porOpcao?: Record<string, string | null> } | null>;
+};
 
 /** As fotos de um produto nos apps (só os apps com leitura e em que o produto liga). */
 export function fotosDoProduto(f: FotosDaLoja | null, produtoId: string): FotosDoProduto {
@@ -357,6 +360,16 @@ export function fotosDoProduto(f: FotosDaLoja | null, produtoId: string): FotosD
   for (const c of ['ifood', '99food'] as const) {
     const m = f?.canais[c]?.porProduto;
     if (m && produtoId in m) r[c] = m[produtoId];
+  }
+  return r;
+}
+
+/** R3 G3 — as fotos de um complemento (a opção do catálogo) nos apps, do mesmo jeito. */
+export function fotosDaOpcao(f: FotosDaLoja | null, opcaoId: string): FotosDoProduto {
+  const r: FotosDoProduto = {};
+  for (const c of ['ifood', '99food'] as const) {
+    const m = f?.canais[c]?.porOpcao;
+    if (m && opcaoId in m) r[c] = m[opcaoId];
   }
   return r;
 }

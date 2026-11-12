@@ -221,6 +221,13 @@ export class ProdutoController {
     return this.service.pausaDaOpcaoNoCanal(user.tenantId, id, dto?.canal, dto?.pausado, { id: user.colaboradorId ?? null, perfil: user.categoria ?? null });
   }
 
+  // R3 G3: a FOTO do complemento (só `imagem_ref`, com auditoria) — da gaveta do complemento na Gestão do catálogo.
+  @Put('opcoes/:id/foto')
+  @Roles(...GESTOR)
+  fotoDaOpcao(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { imagemRef?: unknown }) {
+    return this.service.fotoDaOpcao(user.tenantId, id, dto?.imagemRef ?? null, { id: user.colaboradorId ?? null, perfil: user.categoria ?? null });
+  }
+
   @Post('complementos-catalogo')
   @Roles(...GESTOR)
   criarComplementoCatalogo(@CurrentUser() user: AuthUser, @Body() dto: any) {

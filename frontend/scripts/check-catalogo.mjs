@@ -569,6 +569,11 @@ try {
     assert.deepEqual(cf.fotosDoProduto(f, 'p2'), { ifood: null });
     assert.deepEqual(cf.fotosDoProduto(f, 'p9'), {});
     assert.deepEqual(cf.fotosDoProduto(null, 'p1'), {});
+    // G3: as fotos do complemento, do mesmo jeito (o servidor antigo, sem `porOpcao`, não diz nada).
+    const fo = { canais: { ifood: { lidoEm: 'x', porProduto: {}, porOpcao: { o1: null } }, '99food': { lidoEm: 'x', porProduto: {}, porOpcao: { o1: 'https://b/1.png' } } } };
+    assert.deepEqual(cf.fotosDaOpcao(fo, 'o1'), { ifood: null, '99food': 'https://b/1.png' });
+    assert.deepEqual(cf.fotosDaOpcao(f, 'o1'), {});
+    assert.deepEqual(cf.fotosDaOpcao(null, 'o1'), {});
     assert.equal(cf.situacaoDaFoto(true, null), 'faltaNoApp');
     assert.equal(cf.situacaoDaFoto(false, 'https://a/1.jpg'), 'soNoApp');
     assert.equal(cf.situacaoDaFoto(true, 'https://a/1.jpg'), null);

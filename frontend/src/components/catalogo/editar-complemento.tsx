@@ -9,7 +9,10 @@ import { Label } from '@/components/ui/label';
 import { Gaveta } from '@/components/ui/sobreposto';
 import { texto2 } from '@/components/ui/lista';
 import { UltimoEnvioIfood } from '@/components/produtos/ultimo-envio-ifood';
+import { ImageUpload } from '@/components/ui/image-upload';
+import { FotosDosApps } from '@/components/catalogo/fotos-dos-apps';
 import { analisarEdicaoDaOpcao, edicaoInicialDaOpcao, informativa, type EdicaoDaOpcao, type OpcaoDoGrupo } from '@/lib/catalogo-gestao';
+import type { FotosDoProduto } from '@/lib/conferencia-apps';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -28,6 +31,9 @@ export function EditarComplemento({
   voltarPara,
   aoFechar,
   aoSalvar,
+  fotosDosApps,
+  aoMandarFoto99,
+  aoUsarFotoDoApp,
 }: {
   opcao: OpcaoDoGrupo;
   grupos: { id: string; nome: string; preco: string | number | null | undefined }[];
@@ -39,8 +45,18 @@ export function EditarComplemento({
   voltarPara?: string;
   aoFechar: () => void;
   aoSalvar: (fechar: boolean, foiAoIfood: boolean, foiA99: boolean) => void;
+  /** R3 G3: as fotos do complemento nos apps (pela última leitura da conferência). */
+  fotosDosApps?: FotosDoProduto;
+  /** R3 G3: "Mandar esta foto à 99" (o complemento é um item na 99). */
+  aoMandarFoto99?: () => Promise<void>;
+  /** R3 G3: "Usar esta no Regem" — devolve o endereço da foto guardada (ou null). */
+  aoUsarFotoDoApp?: (canal: 'ifood' | '99food') => Promise<string | null>;
 }) {
   const [e, setE] = useState<EdicaoDaOpcao>(() => edicaoInicialDaOpcao(o, grupos));
+  // R3 G3: a foto do complemento — grava só ela, pela rota da foto (nunca o PATCH da opção, que regrava a linha inteira).
+  const fotoSalva = String(o.imagemRef ?? '').trim();
+  const [foto, setFoto] = useState(fotoSalva);
+  const mudouFoto = foto.trim() !== fotoSalva;
   const [salvando, setSalvando] = useState(false);
   const [falha, setFalha] = useState('');
   const mudar = (m: Partial<EdicaoDaOpcao>) => {
@@ -53,11 +69,13 @@ export function EditarComplemento({
   );
   const pausaTravada = !!bloqueio || o.esgotado === true;
   const vaiAosApps = plano.ifoodVai.length > 0 || plano.n99Vai.length > 0;
+  const mudou = plano.mudou || mudouFoto;
+  const doRegem = [...plano.regem, ...(mudouFoto ? [foto.trim() ? 'foto' : 'tirar a foto'] : [])];
   const PRECO_APP = { ifood: 'o preço no iFood', '99food': 'o preço na 99' } as const;
   const PAUSA = { regem: 'a pausa do Regem', ifood: 'a pausa do iFood', '99food': 'a pausa da 99' } as const;
 
   async function salvar() {
-    if (plano.erros.length || !plano.mudou) return;
+    if (plano.erros.length || !mudou) return;
     setSalvando(true);
     setFalha('');
     const feito: string[] = [];
@@ -77,6 +95,7 @@ export function EditarComplemento({
       }
       for (const x of plano.precosApp) await passo(PRECO_APP[x.canal], () => api.precoDaOpcaoNoCanal(o.opcaoId, x.canal, x.valor));
       for (const x of plano.pausas) await passo(PAUSA[x.canal], () => api.pausaDaOpcaoNoCanal(o.opcaoId, x.canal, x.pausado));
+      if (mudouFoto) await passo('a foto', () => api.fotoDaOpcao(o.opcaoId, foto.trim()));
       const vai = [
         plano.ifoodVai.length ? ' O que é do iFood vai em instantes pelo Orzuni.' : '',
         plano.n99Vai.length ? ' O que é da 99 vai em instantes à 99.' : '',
@@ -102,7 +121,7 @@ export function EditarComplemento({
       rodape={
         <>
           <Button type="button" variant="outline" onClick={aoFechar} disabled={salvando}>Cancelar</Button>
-          <Button type="button" onClick={() => void salvar()} disabled={salvando || !plano.mudou || plano.erros.length > 0}>
+          <Button type="button" onClick={() => void salvar()} disabled={salvando || !mudou || plano.erros.length > 0}>
             {salvando ? 'Salvando…' : vaiAosApps ? 'Salvar e enviar' : 'Salvar'}
           </Button>
         </>
@@ -122,6 +141,30 @@ export function EditarComplemento({
             O nome, o código PDV e o &quot;Em falta&quot; mudam em Cadastros › Cardápio › Opções.
           </p>
         </dl>
+
+        {/* R3 G3: a foto do complemento e as dos apps (protótipo, "Fotos": cada complemento mostra a do Regem e a de cada app). */}
+        <fieldset className="space-y-2 rounded-lg border border-border p-3">
+          <legend className="px-1 text-sm font-bold">Foto</legend>
+          <ImageUpload value={foto || undefined} onChange={(url) => setFoto(url ?? '')} alt={o.nome || 'complemento'} maxDim={512} accept="image/png,image/jpeg" />
+          {liga && (
+            <FotosDosApps
+              fotoDoRegem={foto}
+              fotoSalva={fotoSalva}
+              fotos={fotosDosApps ?? {}}
+              noIfood={comIfood}
+              na99={com99}
+              aoMandar99={aoMandarFoto99}
+              aoUsarFoto={
+                aoUsarFotoDoApp
+                  ? async (canal) => {
+                      const url = await aoUsarFotoDoApp(canal);
+                      if (url) setFoto(url);
+                    }
+                  : undefined
+              }
+            />
+          )}
+        </fieldset>
 
         <fieldset className="space-y-3 rounded-lg border border-border p-3">
           <legend className="px-1 text-sm font-bold">Preço em cada canal</legend>
@@ -214,13 +257,13 @@ export function EditarComplemento({
             </div>
           )}
           {falha && <div role="alert" className="rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-sm">{falha}</div>}
-          {!plano.mudou ? (
+          {!mudou ? (
             <p className={`text-sm ${texto2}`}>Nada mudou ainda.</p>
           ) : (
             <div className="rounded-md border border-info bg-info/10 px-3 py-2 text-sm">
               <b>Ao salvar:</b>
               <ul className="ml-5 list-disc">
-                {plano.regem.length > 0 && <li><b>Regem:</b> {plano.regem.join(', ')}.</li>}
+                {doRegem.length > 0 && <li><b>Regem:</b> {doRegem.join(', ')}.</li>}
                 {(plano.ifoodVai.length > 0 || plano.ifoodAtencao.length > 0) && (
                   <li>
                     <b>iFood</b>

@@ -546,6 +546,36 @@ descrever('a 99 item a item — fila e envio (Postgres real, 99 falsa)', () => {
   const opcao = async (l: Loja, codigo = 'A01') =>
     (await q(`insert into opcao (tenant_id, nome, codigo_pdv) values ($1, 'Bacon extra', $2) returning id`, [l.t, codigo]))[0].id as string;
 
+  it('R3 G3 — a foto do complemento: o "cadastro" da opção é a foto (head_img no updateItem do item da 99); local e sem foto não vão', async () => {
+    const l = await loja({ lojas: 1 });
+    const o = await opcao(l);
+    const ITEM_A01 = { app_item_id: 'A01', item_name: 'Bacon extra da 99', price: 500, status: 1, is_sold_separately: false };
+    cardapio[l.igs[0]] = [ITEM_A01];
+    const url = 'https://projeto.supabase.co/storage/v1/object/public/midia/t/bacon.jpg';
+    await q(`update opcao set imagem_ref = $2 where id = $1`, [o, url]);
+    await q(`delete from food99_envio where tenant_id = $1`, [l.t]);
+    await q(`select food99_marcar_opcao($1::uuid, 'cadastro_item', $2::uuid)`, [l.t, o]);
+    expect((await q(`select tipo, alvo, situacao from food99_envio where ref_id = $1`, [o]))).toEqual([{ tipo: 'cadastro_item', alvo: 'opcao', situacao: 'pendente' }]);
+    await despachar(l);
+    expect(chamadas).toHaveLength(1);
+    expect(chamadas[0].corpo).toEqual(itemParaAtualizar(ITEM_A01, { foto: url }));
+    // O complemento continua só complemento na 99 (is_sold_separately como lá) e o nome de lá fica.
+    expect(chamadas[0].corpo).toMatchObject({ head_img: url, item_name: 'Bacon extra da 99', is_sold_separately: false });
+    const [f] = await q(`select resultado, resposta from food99_envio where ref_id = $1`, [o]);
+    expect(f).toMatchObject({ resultado: 'aplicado', resposta: { foto: true } });
+    // A foto só local e o complemento sem foto: não vão, com o motivo.
+    chamadas = [];
+    await q(`update opcao set imagem_ref = '/api/v1/publico/midia/t/b.jpg' where id = $1`, [o]);
+    await q(`select food99_marcar_opcao($1::uuid, 'cadastro_item', $2::uuid)`, [l.t, o]);
+    expect(await despachar(l)).toMatchObject({ dispensados: 1 });
+    expect((await q(`select resposta from food99_envio where ref_id = $1`, [o]))[0].resposta.motivo).toMatch(/ainda está só no servidor da loja/);
+    await q(`update opcao set imagem_ref = null where id = $1`, [o]);
+    await q(`select food99_marcar_opcao($1::uuid, 'cadastro_item', $2::uuid)`, [l.t, o]);
+    expect(await despachar(l)).toMatchObject({ dispensados: 1 });
+    expect((await q(`select resposta from food99_envio where ref_id = $1`, [o]))[0].resposta.motivo).toBe('o complemento não tem foto no Regem');
+    expect(chamadas).toHaveLength(0);
+  });
+
   it('complemento: o preço na 99 vai a CADA grupo da 99 que o tem, com o grupo inteiro e só o preço dele trocado', async () => {
     const l = await loja({ lojas: 1 });
     gruposDa99[l.igs[0]] = GRUPOS_DA_99;
