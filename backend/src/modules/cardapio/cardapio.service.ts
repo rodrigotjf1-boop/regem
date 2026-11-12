@@ -98,6 +98,7 @@ import { criarPixRede, consultarPagamentoRede, reembolsarPagamentoRede, type Con
 import { lerCredencialRede } from '../../common/credencial-rede';
 import { ehServidorLocal } from '../../common/modo';
 import { decidirPrazoPixRede, type DecisaoDoPrazo } from './prazo-pix-rede';
+import { decidirPrazoPixDoProvedor } from './prazo-pix-provedor';
 import { GatewayError } from '../../common/gateway-erro';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Cron } from '@nestjs/schedule';
@@ -3106,9 +3107,21 @@ export class CardapioService {
   // sem pagar — evita produção/desperdício. Só na NUVEM (onde os webhooks chegam) e
   // cancela também a cobrança no gateway (impede pagamento tardio).
   // Rede: ela não avisa sozinha nem deixa cancelar o QR — antes de cancelar, pergunta a ela (`prazo-pix-rede.ts`).
+  // Mercado Pago e PagBank (ERR-454): o aviso deles pode nunca chegar — antes de cancelar, pergunta também
+  // (`prazo-pix-provedor.ts`). Uma volta por vez: com o provedor lento, a volta passa dos 2 min e a seguinte cruzaria.
+  private expirandoPix = false;
   @Cron('*/2 * * * *')
   async expirarPixNaoPagos() {
-    if (ehEdge()) return;
+    if (ehEdge() || this.expirandoPix) return;
+    this.expirandoPix = true;
+    try {
+      await this.expirarPixNaoPagosUmaVolta();
+    } finally {
+      this.expirandoPix = false;
+    }
+  }
+
+  private async expirarPixNaoPagosUmaVolta() {
     const limite = new Date(Date.now() - 10 * 60 * 1000);
     const vencidos = await this.db
       .select({
@@ -3130,6 +3143,10 @@ export class CardapioService {
       if (v.gatewayProvider === 'rede' && v.gatewayPaymentId) {
         const decisao = await this.prazoDoPixRede(v.tenantId, v.id, v.gatewayPaymentId, v.criadoEm);
         if (decisao !== 'cancelar') continue; // pago (aprovado agora) ou ainda esperando
+      }
+      if ((v.gatewayProvider === 'mercadopago' || v.gatewayProvider === 'pagseguro') && v.gatewayPaymentId) {
+        const decisao = await this.prazoDoPixDoProvedor(v.tenantId, v.id, v.gatewayProvider, v.gatewayPaymentId, v.criadoEm);
+        if (decisao !== 'cancelar') continue; // pago (aprovado agora) ou o provedor não respondeu (espera)
       }
       try {
         if (v.gatewayPaymentId && v.gatewayProvider === 'mercadopago') {
@@ -3161,6 +3178,44 @@ export class CardapioService {
         await this.aprovarPagamento(tenantId, pedidoId);
       } catch (e) {
         this.logger.error(`PIX rede: pago no prazo, mas a aprovação falhou (pedido ${pedidoId}): ${e instanceof Error ? e.message : e}`);
+        return 'esperar'; // tenta de novo na próxima volta; nunca cancela um pago
+      }
+    }
+    return decisao;
+  }
+
+  /**
+   * O PIX do Mercado Pago ou do PagBank passou do prazo (ERR-454): pago → aprova; não pago → cancela; o provedor não
+   * respondeu → espera (até 1 h do pedido). Loja sem o token não tem como perguntar: vale o prazo. Nunca lança.
+   */
+  private async prazoDoPixDoProvedor(
+    tenantId: string,
+    pedidoId: string,
+    provedor: 'mercadopago' | 'pagseguro',
+    pagamentoId: string,
+    criadoEm: Date,
+  ): Promise<DecisaoDoPrazo> {
+    let pago: boolean | null = null;
+    try {
+      if (provedor === 'pagseguro') {
+        const t = await this.resolvePagseguroToken(tenantId);
+        if (!t) return 'cancelar';
+        pago = (await consultarPagamentoPagBank(t, pagamentoId)).status === 'paid';
+      } else {
+        const t = await this.resolveMpToken(tenantId);
+        if (!t) return 'cancelar';
+        pago = (await consultarPagamentoMP(t, pagamentoId)).status === 'approved';
+      }
+    } catch (e) {
+      this.logger.warn(`PIX ${provedor}: sem resposta no prazo do pedido ${pedidoId} (tenant ${tenantId}): ${e instanceof Error ? e.message : e}`);
+    }
+    const decisao = decidirPrazoPixDoProvedor(pago, Date.now(), criadoEm);
+    if (decisao === 'aprovar') {
+      try {
+        await this.aprovarPagamento(tenantId, pedidoId);
+        this.logger.warn(`PIX ${provedor}: pago no provedor e o aviso não tinha chegado — aprovado no prazo (pedido ${pedidoId}, tenant ${tenantId})`);
+      } catch (e) {
+        this.logger.error(`PIX ${provedor}: pago no prazo, mas a aprovação falhou (pedido ${pedidoId}): ${e instanceof Error ? e.message : e}`);
         return 'esperar'; // tenta de novo na próxima volta; nunca cancela um pago
       }
     }
