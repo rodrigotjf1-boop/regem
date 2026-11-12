@@ -294,6 +294,32 @@ export async function validarLigacaoIntegracao(
   };
 }
 
+/**
+ * A loja está viva E ligada a este cliente (o Farol, ao mandar um alerta à cozinha — onda 3 da auditoria do KDS, mig 412)?
+ * A MESMA régua do acesso pela porta (V75): um acesso do cliente para a loja ou para a empresa dela, não revogado, não
+ * vencido, a ligação dele (se houver) não revogada, a loja e a empresa vivas. Devolve a empresa da loja, ou nulo.
+ */
+export async function lojaLigadaAoCliente(db: any, cliente: string, unidadeId: string): Promise<{ tenantId: string } | null> {
+  const r: any = await db.execute(sql`
+    select u.tenant_id
+      from unidade u
+      join empresa e on e.id = u.tenant_id
+     where u.id = ${unidadeId}::uuid
+       and u.deleted_at is null
+       and e.deleted_at is null
+       and exists (
+         select 1 from integracao_token_loja t
+          where t.cliente = ${cliente}
+            and t.tenant_id = u.tenant_id
+            and (t.unidade_id is null or t.unidade_id = u.id)
+            and t.revogado_em is null
+            and (t.expira_em is null or t.expira_em > now())
+            and not exists (select 1 from integracao_ligacao l where l.id = t.id and l.revogado_em is not null))
+     limit 1`);
+  const linha = (r.rows ?? r)[0];
+  return linha ? { tenantId: String(linha.tenant_id) } : null;
+}
+
 /** Grava o último uso (no máximo 1×/min por token). Nunca rejeita (V3): não derruba a chamada. */
 export function marcarUsoTokenIntegracao(db: any, tokenId: string, ip: string | null): void {
   const agora = Date.now();

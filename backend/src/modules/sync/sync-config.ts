@@ -332,6 +332,10 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // O histórico do pedido ALTERADO (mig 362): a equipe altera no computador da loja OU na tela da nuvem (e o robô, na
   // nuvem) → SOBE E DESCE. Uma linha por alteração, com o id de quem pede. À parte de `pedido_externo` pelo mesmo motivo.
   { tabela: 'pedido_alteracao', direcao: 'ambos', cursor: 'updated_at' },
+  // Os avisos do KDS guardados (mig 412, onda 3 da auditoria do KDS): o histórico e o "Ciente" de cada lado → SOBE E
+  // DESCE. O Farol (só a nuvem busca) e o "Testar" feito na nuvem descem marcados `entregar_na_loja`, e o servidor da loja
+  // os mostra; o "Ciente" dado de qualquer lado não se desfaz (sync.service e sync-daemon).
+  { tabela: 'alerta_kds', direcao: 'ambos', cursor: 'updated_at' },
   // Exclusões físicas (mig 262): o gatilho grava (tabela, id) aqui e quem recebe apaga a mesma
   // linha do seu lado. Sobe como anexo e desce pelo TABELAS_PULL_APPEND. Por ÚLTIMO no push,
   // para a exclusão chegar depois das linhas do mesmo ciclo.
@@ -550,6 +554,8 @@ export const LOJA_COLUNA = new Set<string>([
   'pedido_repetido_ok',
   // O histórico do pedido alterado (mig 362): idem.
   'pedido_alteracao',
+  // Os avisos do KDS (mig 412): cada loja recebe os dela (e os da empresa inteira, sem loja).
+  'alerta_kds',
 ]);
 
 export const LOJA_PELO_PAI: Record<string, (uid: string) => SQL> = {

@@ -384,3 +384,27 @@ com `user-agent: Regem-Integracao/1`:
   mais: o Regem pausa o aviso até um registro novo. Qualquer outra coisa: tenta de novo em 1, 2, 5,
   15, 30 minutos e daí de hora em hora; três dias falhando, pausa.
 - A fila de produção (`/integracao/producao`) **não** tem aviso: continue lendo.
+
+## 10. Farol → Regem: os alertas na tela da cozinha (onda 3 da auditoria do KDS, mig 412)
+
+No sentido contrário, o Regem é um **transporte** dos alertas do Farol (contrato do lado do Farol:
+`docs/transporte-dos-alertas.md` e `contratos/transporte-dos-alertas.json`, Farol #244). O Regem **busca**; o Farol não
+empurra.
+
+- **Quem busca:** a nuvem do Regem (`backend/src/modules/kds/farol-alertas.service.ts`), a cada 10 s,
+  `POST {FAROL_ALERTAS_URL}/v1/envios/reivindicar` com `Authorization: Bearer {FAROL_ALERTAS_TOKEN}` e
+  `{ "limite": 20, "tipos": ["kds"] }`. Desligado enquanto faltar uma das duas variáveis (EasyPanel, serviço `regem-api`).
+  O token `fart_…` é emitido no Farol (`npm run provisionar -- transporte regem kds`) e não passa pelo chat.
+- **Para qual loja:** `alerta.loja.regem_loja_id`. Só entra se a loja está **viva e ligada ao Farol** — a mesma régua da
+  porta (§1: um acesso do cliente `farol` para a loja ou para a empresa dela, não revogado, não vencido, a ligação não
+  revogada, a loja e a empresa vivas). Senão o resultado volta `{ "entregue": false, "erro": "esta loja do Regem não
+  existe mais ou não está ligada ao Farol" }`.
+- **O aviso na cozinha:** o título do Farol com o lugar (`onde`) entre parênteses e o detalhe; a cor pela severidade
+  (emergência e crítico = urgente; atenção = alta; informação = info); fica até o "Ciente" a emergência e o que o Farol
+  marcou como prioridade urgente, os outros correm 2 min na faixa. Em quais telas aparece decide cada KDS (o aviso
+  "Farol" na aba Avisos).
+- **Guardado:** cada envio vira uma linha de `alerta_kds` com o id tirado do id do envio (`uuidDeChave('farol-envio:',
+  id)`): o reenvio do Farol (resultado perdido, 2 min) não aparece duas vezes. A loja com servidor recebe pela
+  sincronização e o servidor da loja mostra o aviso quando a linha desce.
+- **O resultado:** `POST /v1/envios/:id/resultado` logo depois de guardar — `{ "entregue": true }` só com a linha guardada.
+  Credencial recusada (401/403): o Regem espera 5 min antes de tentar de novo; outra falha, 30 s.

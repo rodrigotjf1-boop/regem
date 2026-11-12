@@ -2136,6 +2136,34 @@ export const kdsAlertaConfig = pgTable('kds_alerta_config', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Os avisos que foram ao rodapé do KDS, GUARDADOS (onda 3 da auditoria do KDS, mig 412): o "Ciente" de uma tela vale
+// para todas, a tela recarregada recupera o urgente, o histórico de 90 dias e o Farol na cozinha. Ver `alerta-kds.service`.
+export const alertaKds = pgTable('alerta_kds', {
+  id: uuid('id').primaryKey(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  tipo: text('tipo').notNull().default('loja'), // loja | farol | pausa | estoque | chegou | gestao
+  origem: text('origem'),
+  titulo: text('titulo').notNull(),
+  detalhe: text('detalhe'),
+  prioridade: text('prioridade').notNull().default('alta'), // danger | alta | info | ok
+  duracaoSeg: integer('duracao_seg').notNull().default(60),
+  fica: boolean('fica').notNull().default(false),
+  kdsIds: uuid('kds_ids').array(),
+  ref: text('ref'),
+  lado: text('lado').notNull().default('nuvem'), // nuvem | loja — onde nasceu
+  entregarNaLoja: boolean('entregar_na_loja').notNull().default(false),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  cienteEm: timestamp('ciente_em', { withTimezone: true }),
+  cientePorId: uuid('ciente_por_id'),
+  cientePorNome: text('ciente_por_nome'),
+  cienteKdsId: uuid('ciente_kds_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Contador central de senha por unidade (Fase F4) — atômico, com reset.
 export const senhaContador = pgTable('senha_contador', {
   id: uuid('id').primaryKey().defaultRandom(),

@@ -1,0 +1,95 @@
+{
+  "_": "CÓPIA dos envios de exemplo do contrato do Farol (contratos/transporte-dos-alertas.json, Farol #244, 11/11/2026) — o teste do Regem confere a montagem do aviso da cozinha contra eles. Mudou o contrato lá: copiar de novo.",
+  "envios": [
+    {
+      "id": "2d6b1f0e-8c4a-4f3b-9e21-6a7c5d4b3a10",
+      "motivo": "agente_caiu",
+      "payload": {
+        "agente": "PC da cozinha",
+        "desde": "2026-11-11T22:40:00.000Z",
+        "consequencia": "esta loja não está sendo auditada"
+      },
+      "tentativas": 1,
+      "loja_id": "0f0e6c1a-2b3c-4d5e-8f90-1a2b3c4d5e6f",
+      "evento_id": null,
+      "destino_tipo": "kds",
+      "destino_endereco": "regem",
+      "segredo_ref": null,
+      "alerta": {
+        "titulo": "O Farol parou de auditar esta loja",
+        "detalhe": "O agente \"PC da cozinha\" parou de mandar sinal: esta loja não está sendo auditada.",
+        "severidade": "emergencia",
+        "prioridade": "urgente",
+        "onde": null,
+        "ocorrido_em": "2026-11-11T22:40:00.000Z",
+        "loja": {
+          "id": "0f0e6c1a-2b3c-4d5e-8f90-1a2b3c4d5e6f",
+          "nome": "Matriz",
+          "regem_loja_id": "3f2b8c1d-9e4a-4b7c-a1d2-5e6f7a8b9c0d"
+        },
+        "texto": "Farol · Matriz: O Farol parou de auditar esta loja. O agente \"PC da cozinha\" parou de mandar sinal: esta loja não está sendo auditada."
+      }
+    },
+    {
+      "id": "8f3c2a1b-5d6e-4c7f-8a9b-0c1d2e3f4a5b",
+      "motivo": "evento",
+      "payload": null,
+      "tentativas": 1,
+      "loja_id": "0f0e6c1a-2b3c-4d5e-8f90-1a2b3c4d5e6f",
+      "evento_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+      "destino_tipo": "kds",
+      "destino_endereco": "regem",
+      "segredo_ref": null,
+      "alerta": {
+        "titulo": "Touca na cozinha",
+        "detalhe": "Quem está na chapa está sem touca.",
+        "severidade": "critico",
+        "prioridade": "urgente",
+        "onde": "Chapa › Bancada",
+        "ocorrido_em": "2026-11-11T23:14:02.000Z",
+        "loja": {
+          "id": "0f0e6c1a-2b3c-4d5e-8f90-1a2b3c4d5e6f",
+          "nome": "Matriz",
+          "regem_loja_id": "3f2b8c1d-9e4a-4b7c-a1d2-5e6f7a8b9c0d"
+        },
+        "texto": "Farol · Matriz: Touca na cozinha (Chapa › Bancada). Quem está na chapa está sem touca."
+      }
+    },
+    {
+      "id": "c4e5f6a7-b8c9-4d0e-9f1a-2b3c4d5e6f70",
+      "motivo": "computador",
+      "payload": {
+        "tipo": "esquentando",
+        "agente": "PC da cozinha",
+        "loja": "Matriz",
+        "porque": [
+          "a placa de vídeo passou de 83 °C em 12 minutos da última hora (chegou a 87 °C às 20:14)"
+        ],
+        "desde": "2026-11-11T23:02:00.000Z",
+        "ate": "2026-11-11T23:14:00.000Z",
+        "consequencia": "calor demais deixa a auditoria lenta e pode desligar o computador",
+        "texto": "Farol · Matriz: o computador do agente está esquentando. A placa de vídeo passou de 83 °C em 12 minutos da última hora (chegou a 87 °C às 20:14). Calor demais deixa a auditoria lenta e pode desligar o computador. No console: Computador da loja › Saúde."
+      },
+      "tentativas": 1,
+      "loja_id": "0f0e6c1a-2b3c-4d5e-8f90-1a2b3c4d5e6f",
+      "evento_id": null,
+      "destino_tipo": "kds",
+      "destino_endereco": "regem",
+      "segredo_ref": null,
+      "alerta": {
+        "titulo": "O computador do Farol está esquentando",
+        "detalhe": "A placa de vídeo passou de 83 °C em 12 minutos da última hora (chegou a 87 °C às 20:14). Calor demais deixa a auditoria lenta e pode desligar o computador.",
+        "severidade": "critico",
+        "prioridade": "urgente",
+        "onde": null,
+        "ocorrido_em": "2026-11-11T23:02:00.000Z",
+        "loja": {
+          "id": "0f0e6c1a-2b3c-4d5e-8f90-1a2b3c4d5e6f",
+          "nome": "Matriz",
+          "regem_loja_id": "3f2b8c1d-9e4a-4b7c-a1d2-5e6f7a8b9c0d"
+        },
+        "texto": "Farol · Matriz: o computador do agente está esquentando. A placa de vídeo passou de 83 °C em 12 minutos da última hora (chegou a 87 °C às 20:14). Calor demais deixa a auditoria lenta e pode desligar o computador. No console: Computador da loja › Saúde."
+      }
+    }
+  ]
+}

@@ -15,6 +15,17 @@ export type AvisosDoKds = Record<TipoDeAviso, boolean>;
 
 export const ehTipoDeAviso = (t: unknown): t is TipoDeAviso => (TIPOS_DE_AVISO as readonly string[]).includes(t as string);
 
+/**
+ * As prioridades que o KDS conhece (o rodapé ordena danger > alta > info > ok). Outros módulos mandavam 'media'/'baixa'
+ * (contagem, compras) e o KDS, sem conhecer, ordenava por NaN — a "Compra recebida" passava na frente do "❌ CANCELADO"
+ * (auditoria do KDS, 11/11/2026). 'media' vira alta, 'baixa' vira info; ausente ou desconhecida, alta (como sempre).
+ */
+export function prioridadeDoKds(p: unknown): 'danger' | 'alta' | 'info' | 'ok' {
+  if (p === 'danger' || p === 'alta' || p === 'info' || p === 'ok') return p;
+  if (p === 'baixa') return 'info';
+  return 'alta';
+}
+
 /** O padrão de cada tipo de tela: `escopo` do KDS ('producao', 'despacho', 'entrega', 'avisos'); sem KDS = loja de um KDS só. */
 export function avisosPadrao(escopo: string | null | undefined): AvisosDoKds {
   const tudo: AvisosDoKds = { loja: true, farol: true, pausa: true, estoque: true, chegou: true, gestao: true };
