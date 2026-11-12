@@ -356,6 +356,42 @@ export class ProdutoService {
   }
 
   /**
+   * A FOTO do complemento (R3 G3 — Gestão do catálogo › Complementos): só `opcao.imagem_ref`, na própria instrução, com
+   * auditoria — nunca pelo PATCH da opção, que regrava a linha inteira. Vazio tira a foto. O endereço é o que o envio de
+   * foto do Regem devolve (o armazenamento da nuvem ou o do servidor da loja): `http(s)://…` ou `/…`, até 1000 letras.
+   */
+  async fotoDaOpcao(tenantId: string, idBruto: string, fotoBruta: unknown, ator: Ator) {
+    const id = exigirIdDaOpcao(idBruto);
+    if (fotoBruta !== null && typeof fotoBruta !== 'string') throw new BadRequestException('Foto inválida.');
+    const foto = String(fotoBruta ?? '').trim() || null;
+    if (foto && (foto.length > 1000 || !/^(https?:\/\/|\/)\S+$/i.test(foto))) throw new BadRequestException('Foto inválida: use a que o Regem guardou.');
+    const r: any = await this.db.execute(sql`
+      update opcao o set imagem_ref = ${foto}, updated_at = now()
+       where o.id = ${id} and o.tenant_id = ${tenantId} and o.deleted_at is null and o.imagem_ref is distinct from ${foto}
+      returning o.nome`);
+    const [mudado] = r?.rows ?? r ?? [];
+    if (!mudado) {
+      const [atual] = await this.db
+        .select({ id: opcao.id })
+        .from(opcao)
+        .where(and(eq(opcao.id, id), eq(opcao.tenantId, tenantId), isNull(opcao.deletedAt)));
+      if (!atual) throw new NotFoundException('Complemento não encontrado');
+      return { imagemRef: foto, mudou: false };
+    }
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: ator.id,
+      atorPerfil: ator.perfil,
+      tipo: 'cadastro',
+      acao: foto ? 'trocou_foto_do_complemento' : 'tirou_foto_do_complemento',
+      entidadeTipo: 'opcao',
+      entidadeId: id,
+      detalhe: { nome: mudado.nome },
+    });
+    return { imagemRef: foto, mudou: true };
+  }
+
+  /**
    * O preço do complemento num APP (um por código, em todos os grupos), com auditoria (de → para): 'ifood' =
    * `opcao.preco_ifood` (só com o iFood pelo Orzuni; vai pela fila do Orzuni — o gatilho da 370 vê a coluna), '99food' =
    * `opcao.preco_99` (só com o preço e a pausa na 99). Vazio limpa (o Regem deixa de mexer no preço de lá); zero vale.

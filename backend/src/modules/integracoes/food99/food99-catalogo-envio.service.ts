@@ -423,7 +423,7 @@ export class Food99CatalogoEnvioService implements OnModuleInit, OnModuleDestroy
    */
   private async montarChamadaDaOpcao(envio: Envio99): Promise<Chamada99> {
     const r: any = await this.db.execute(sql`
-      select o.codigo_pdv, o.preco_99::text as preco, o.esgotado, o.deleted_at,
+      select o.codigo_pdv, o.preco_99::text as preco, o.esgotado, o.deleted_at, o.imagem_ref,
              coalesce(jsonb_exists(o.canais_pausados, '99food'), false) as pausado_na_99
         from opcao o where o.id = ${envio.ref_id} and o.tenant_id = ${envio.tenant_id}`);
     const o = (r.rows ?? r)[0];
@@ -437,7 +437,15 @@ export class Food99CatalogoEnvioService implements OnModuleInit, OnModuleDestroy
       if (!(valor >= 0)) return { dispensar: 'preço inválido' };
       return { tipo: 'grupos', codigo, preco: valor };
     }
-    return { dispensar: 'o nome do complemento não vai à 99 por aqui' };
+    // R3 G3: o "cadastro" do complemento é só a FOTO ("Mandar esta foto à 99" da gaveta do complemento — o nome do
+    // complemento não vai à 99 por aqui). Na 99 a opção é um item: `head_img` no `updateItem`, como a do produto.
+    if (envio.tipo === 'cadastro_item') {
+      const url = String(o.imagem_ref ?? '').trim();
+      if (!url) return { dispensar: 'o complemento não tem foto no Regem' };
+      if (!/^https:\/\//i.test(url)) return { dispensar: 'a foto ainda está só no servidor da loja: ela sobe para a nuvem em instantes; mande de novo depois' };
+      return { tipo: 'item', codigo, mudar: { foto: url }, pausadoNoRegem: o.esgotado === true || o.pausado_na_99 === true };
+    }
+    return { dispensar: 'tipo de envio desconhecido para o complemento' };
   }
 
   /** O que mandar, lido NA HORA (o valor mais novo). Fora das condições: dispensa, com o motivo. */

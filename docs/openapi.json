@@ -7923,6 +7923,26 @@
         }
       }
     },
+    "/api/v1/produtos/opcoes/{id}/foto": {
+      "put": {
+        "operationId": "ProdutoController_fotoDaOpcao",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/produtos/complementos-catalogo/sincronizar": {
       "post": {
         "operationId": "ProdutoController_sincronizarComplementos",

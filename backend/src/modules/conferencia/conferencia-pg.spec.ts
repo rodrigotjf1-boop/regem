@@ -492,6 +492,40 @@ descrever('Conferir com os apps (Postgres real, Orzuni e 99 falsos)', () => {
     expect(baixados).toHaveLength(2);
   });
 
+  it('R3 G3 — a foto do COMPLEMENTO: a dos apps pela leitura, "Usar esta no Regem" e "Mandar à 99" (a fila com o alvo da opção)', async () => {
+    const e = await empresa();
+    complementosIfood.grupos[0].opcoes[0].imagem = 'https://static.ifood-static.com.br/bacon.jpg';
+    cardapio99.items[1].head_img = 'https://img.99app.com/bacon.png';
+    const midia = { uploadBuffer: async () => ({ url: 'https://projeto.supabase.co/storage/v1/object/public/midia/t/bacon.jpg' }) };
+    const comFoto = new ConferenciaService(db, auditoria, orzuni as any, food99, undefined, midia as any);
+    const jpg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(60)]);
+    const baixados: string[] = [];
+    comFoto.baixarFotoDoApp = async (url: string) => (baixados.push(url), new Response(new Uint8Array(jpg), { status: 200 }));
+    await comFoto.conferir(e.t, null, 'ifood', false);
+    await comFoto.conferir(e.t, null, '99food', false);
+    const f = await comFoto.fotos(e.t, null);
+    expect(f.canais.ifood!.porOpcao).toEqual({ [e.bacon]: 'https://static.ifood-static.com.br/bacon.jpg' });
+    expect(f.canais['99food']!.porOpcao).toEqual({ [e.bacon]: 'https://img.99app.com/bacon.png' });
+    // "Usar esta no Regem" com a opção: o endereço da leitura da 99; a frase fala do complemento.
+    auditados.length = 0;
+    const u = await comFoto.usarFotoDoApp(e.t, null, { canal: '99food', opcaoId: e.bacon }, gestor);
+    expect(u).toMatchObject({ ok: true, url: 'https://projeto.supabase.co/storage/v1/object/public/midia/t/bacon.jpg', frase: expect.stringMatching(/salve o complemento/) });
+    expect(baixados).toEqual(['https://img.99app.com/bacon.png']);
+    expect(auditados.map((a) => [a.acao, a.detalhe.alvo, a.detalhe.id])).toEqual([['usou_foto_do_app', 'opcao', e.bacon]]);
+    // "Mandar à 99" com a opção: sem foto e foto local = 409; com o endereço público, a fila da 99 com o alvo da opção.
+    await expect(comFoto.mandarFotoA99(e.t, null, { opcaoId: e.bacon }, gestor)).rejects.toMatchObject({ status: 409, response: { message: expect.stringMatching(/não tem foto no Regem/) } });
+    await q(`update opcao set imagem_ref = '/api/v1/publico/midia/t/b.jpg' where id = $1`, [e.bacon]);
+    await expect(comFoto.mandarFotoA99(e.t, null, { opcaoId: e.bacon }, gestor)).rejects.toMatchObject({ status: 409, response: { message: expect.stringMatching(/só no servidor da loja/) } });
+    await q(`update opcao set imagem_ref = 'https://projeto.supabase.co/storage/v1/object/public/midia/t/bacon.jpg' where id = $1`, [e.bacon]);
+    await q(`delete from food99_envio where tenant_id = $1`, [e.t]);
+    const m = await comFoto.mandarFotoA99(e.t, null, { opcaoId: e.bacon }, gestor);
+    expect(m.frase).toMatch(/A foto de "Bacon extra" vai à 99 agora/);
+    expect(await q(`select tipo, alvo, situacao from food99_envio where tenant_id = $1 and ref_id = $2`, [e.t, e.bacon])).toEqual([
+      { tipo: 'cadastro_item', alvo: 'opcao', situacao: 'pendente' },
+    ]);
+    expect(auditados.find((a) => a.acao === 'mandou_foto_a_99')).toMatchObject({ detalhe: expect.objectContaining({ alvo: 'opcao', nome: 'Bacon extra' }) });
+  });
+
   it('vindo do servidor da loja (na nuvem): quem agiu tem de ser da gestão e ativo; o servidor de uma loja não confere outra', async () => {
     const e = await empresa({ lojas: 2 });
     const funcao = async (cat: string) => (await q(`insert into funcao (tenant_id, nome, categoria) values ($1, $2, $3) returning id`, [e.t, `F ${cat}`, cat]))[0].id;

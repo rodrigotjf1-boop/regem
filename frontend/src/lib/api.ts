@@ -810,6 +810,9 @@ export const api = {
       valor: string | null;
       mudou: boolean;
     }>,
+  // R3 G3: a FOTO do complemento (só `imagem_ref`, com auditoria); vazio tira a foto.
+  fotoDaOpcao: (id: string, imagemRef: string) =>
+    req(`/produtos/opcoes/${id}/foto`, { method: 'PUT', body: JSON.stringify({ imagemRef }) }) as Promise<{ imagemRef: string | null; mudou: boolean }>,
   // A pausa do complemento num canal (em todos os grupos): 'regem' (balcão e cardápio digital), 'ifood', '99food'.
   pausaDaOpcaoNoCanal: (id: string, canal: 'regem' | 'ifood' | '99food', pausado: boolean) =>
     req(`/produtos/opcoes/${id}/pausa-canal`, { method: 'PUT', body: JSON.stringify({ canal, pausado }) }) as Promise<{
@@ -850,8 +853,12 @@ export const api = {
   // As fotos dos apps pela última leitura da conferência (R3 F6): `produtoId → endereço` por app (vazio sem a conferência).
   conferenciaFotos: () => req('/catalogo/conferencia/fotos') as Promise<FotosDaLoja>,
   // "Mandar esta foto à 99" (R3 F6): a foto do Regem vai à 99 pelo endereço público dela.
-  conferenciaFoto99: (produtoId: string) =>
-    req('/catalogo/conferencia/foto-99', { method: 'POST', body: JSON.stringify({ produtoId }) }) as Promise<{ ok: boolean; frase: string }>,
+  // R3 G3: `{ opcaoId }` manda a foto do complemento.
+  conferenciaFoto99: (alvo: string | { opcaoId: string }) =>
+    req('/catalogo/conferencia/foto-99', { method: 'POST', body: JSON.stringify(typeof alvo === 'string' ? { produtoId: alvo } : alvo) }) as Promise<{
+      ok: boolean;
+      frase: string;
+    }>,
   // R3 F6b: a foto do Regem ao item do iFood pela porta do Orzuni, NA HORA (a frase diz o que o iFood respondeu). F6c:
   // `imagem` = a cópia enquadrada (data-URI) quando a foto do Regem não serve como está; sem ela, vai a original.
   conferenciaFotoIfood: (produtoId: string, imagem?: string) =>
@@ -861,8 +868,12 @@ export const api = {
     }>,
   // R3 G1: "Usar esta foto no Regem" — a foto do app (da última leitura) vem para o armazenamento do Regem; volta o
   // endereço novo, que a gaveta põe no campo da foto (a pessoa salva).
-  conferenciaUsarFoto: (produtoId: string, canal: CanalConferido) =>
-    req('/catalogo/conferencia/usar-foto', { method: 'POST', body: JSON.stringify({ produtoId, canal }) }) as Promise<{ ok: boolean; url: string; frase: string }>,
+  // R3 G3: `{ opcaoId }` traz a foto do complemento.
+  conferenciaUsarFoto: (alvo: string | { opcaoId: string }, canal: CanalConferido) =>
+    req('/catalogo/conferencia/usar-foto', {
+      method: 'POST',
+      body: JSON.stringify({ ...(typeof alvo === 'string' ? { produtoId: alvo } : alvo), canal }),
+    }) as Promise<{ ok: boolean; url: string; frase: string }>,
   conferenciaLigar: (dto: { canal: CanalConferido; chave: string; produtoId: string }) =>
     req('/catalogo/conferencia/ligar', { method: 'POST', body: JSON.stringify(dto) }) as Promise<{ ok: boolean; frase: string }>,
   // "Publicar nas integrações" (Cadastros › Cardápio): a situação de cada integração que usa o cardápio e o publicar

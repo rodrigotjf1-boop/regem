@@ -18,6 +18,7 @@ import {
   canaisPausados, gruposDaOpcao, informativa, opcaoPausadaEmAlgumCanal, opcaoPausadaNo, opcaoSemPrecoNa99, opcaoSemPrecoNoIfood,
   type GrupoDeComplementos, type OpcaoDoGrupo,
 } from '@/lib/catalogo-gestao';
+import { fotosDaOpcao, situacaoDaFoto, type FotosDaLoja } from '@/lib/conferencia-apps';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const ID_TITULO = 'complementos-titulo';
@@ -31,7 +32,19 @@ const NO: Record<Canal, string> = { regem: 'no Regem', ifood: 'no iFood', '99foo
 // pausa do Regem (balcão e cardápio digital), e — com o iFood pelo Orzuni e a 99 ligados — o preço de cada app (um por
 // código, em todos os grupos) e a pausa de lá. A opção sem código PDV é informativa. Criar opção, montar o grupo, o
 // código e o "Em falta" ficam em Cadastros › Cardápio › Opções.
-export function ComplementosGestao({ comIfood, com99 = false, podeMudarPreco }: { comIfood: boolean; com99?: boolean; podeMudarPreco: boolean }) {
+// R3 G3: a foto de cada complemento nos apps (pela última leitura da conferência — `fotos`, da página): o selo na coluna de
+// cada app, a situação "Foto faltando num app" e, na gaveta, as fotos lado a lado, "Usar esta no Regem" e "Mandar à 99".
+export function ComplementosGestao({
+  comIfood,
+  com99 = false,
+  podeMudarPreco,
+  fotos = null,
+}: {
+  comIfood: boolean;
+  com99?: boolean;
+  podeMudarPreco: boolean;
+  fotos?: FotosDaLoja | null;
+}) {
   const [grupos, setGrupos] = useState<GrupoDeComplementos[] | null>(null);
   const [bloqueio, setBloqueio] = useState<string | null>(null);
   const [erro, setErro] = useState('');
@@ -62,16 +75,36 @@ export function ComplementosGestao({ comIfood, com99 = false, podeMudarPreco }: 
     void carregar();
   }, [carregar]);
 
+  // A foto do complemento num app, pela última leitura: falta lá ou só lá (a mesma regra dos produtos — F6).
+  const fotoNoApp = useCallback(
+    (o: OpcaoDoGrupo, canal: 'ifood' | '99food') => situacaoDaFoto(!!String(o.imagemRef ?? '').trim(), fotosDaOpcao(fotos, o.opcaoId)[canal]),
+    [fotos],
+  );
+  const temLeituraDeFoto = !!(fotos?.canais.ifood?.porOpcao || fotos?.canais['99food']?.porOpcao);
   const situacoes = useMemo<Situacao<Linha>[]>(
     () => [
       { rotulo: 'Pausados em algum canal', filtro: (o) => !informativa(o) && opcaoPausadaEmAlgumCanal(o, comIfood, com99), tom: 'aviso' },
       { rotulo: 'Em falta', filtro: (o) => o.esgotado === true, tom: 'aviso' },
       ...(comIfood ? [{ rotulo: 'Sem preço no iFood', filtro: opcaoSemPrecoNoIfood, tom: 'critico' as const }] : []),
       ...(com99 ? [{ rotulo: 'Sem preço na 99', filtro: opcaoSemPrecoNa99, tom: 'critico' as const }] : []),
+      ...(temLeituraDeFoto
+        ? [
+            {
+              rotulo: 'Foto faltando num app',
+              filtro: (o: Linha) => !informativa(o) && ((comIfood && fotoNoApp(o, 'ifood') != null) || (com99 && fotoNoApp(o, '99food') != null)),
+              tom: 'aviso' as const,
+            },
+          ]
+        : []),
       { rotulo: 'Informativos (sem código PDV)', filtro: (o: Linha) => informativa(o) },
     ],
-    [comIfood, com99],
+    [comIfood, com99, temLeituraDeFoto, fotoNoApp],
   );
+  const seloDaFoto = (l: Linha, canal: 'ifood' | '99food') => {
+    const s = fotoNoApp(l, canal);
+    if (!s) return null;
+    return <span className={`w-full text-xs ${texto2}`}>{s === 'faltaNoApp' ? `sem foto ${NO[canal]}` : `foto só ${NO[canal]}`}</span>;
+  };
   useEffect(() => {
     if (sit >= situacoes.length) setSit(-1);
   }, [sit, situacoes.length]);
@@ -207,6 +240,7 @@ export function ComplementosGestao({ comIfood, com99 = false, podeMudarPreco }: 
           desligado={desligado(l)}
           aoMudar={() => void pausar(l, 'ifood', !pausadoNoCanal(l, 'ifood'))}
         />
+        {seloDaFoto(l, 'ifood')}
         {enviados.has(l.opcaoId) && (
           <span className="block w-full min-w-0 text-left">
             <UltimoEnvioIfood alvo="opcao" id={l.opcaoId} />
@@ -228,6 +262,7 @@ export function ComplementosGestao({ comIfood, com99 = false, podeMudarPreco }: 
           desligado={desligado(l)}
           aoMudar={() => void pausar(l, '99food', !pausadoNoCanal(l, '99food'))}
         />
+        {seloDaFoto(l, '99food')}
         {enviados99.has(l.opcaoId) && (
           <span className="block w-full min-w-0 text-left">
             <UltimoEnvioIfood alvo="opcao" id={l.opcaoId} canal="99food" />
@@ -359,6 +394,34 @@ export function ComplementosGestao({ comIfood, com99 = false, podeMudarPreco }: 
             if (fechar) setEditando(null);
             void carregar();
           }}
+          fotosDosApps={fotosDaOpcao(fotos, editando.opcaoId)}
+          aoMandarFoto99={
+            com99
+              ? async () => {
+                  try {
+                    const r = await api.conferenciaFoto99({ opcaoId: editando.opcaoId });
+                    toast.success(r.frase);
+                    setEnviados99((s) => new Set(s).add(editando.opcaoId));
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : 'Não foi possível mandar a foto à 99.');
+                  }
+                }
+              : undefined
+          }
+          aoUsarFotoDoApp={
+            fotos
+              ? async (canal) => {
+                  try {
+                    const r = await api.conferenciaUsarFoto({ opcaoId: editando.opcaoId }, canal);
+                    toast.success(r.frase);
+                    return r.url;
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : 'Não foi possível trazer a foto do app.');
+                    return null;
+                  }
+                }
+              : undefined
+          }
         />
       )}
     </section>

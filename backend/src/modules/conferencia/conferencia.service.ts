@@ -74,6 +74,8 @@ export type RespostaDaConferencia = {
 
 type Loja = { id: string; nome: string };
 type Disponivel = { ok: true; ig?: IntegFood99 } | { ok: false; motivo: string };
+/** As fotos de um app pela última leitura: por produto (F6) e por complemento (G3); `null` = sem foto lá. */
+export type FotosDoCanal = { lidoEm: string; porProduto: Record<string, string | null>; porOpcao: Record<string, string | null> };
 type LinhaDaLeitura = {
   lido_em: Date | string | null;
   itens: any;
@@ -610,9 +612,9 @@ export class ConferenciaService {
   /**
    * A foto de cada produto em cada app, pela ÚLTIMA leitura guardada (nunca lê o app por aqui): `produtoId → endereço` (ou
    * `null`, sem foto lá). Só os produtos que ligam ao item do app. Sem a conferência ligada ou sem leitura: nada (a tela
-   * não mostra a situação das fotos).
+   * não mostra a situação das fotos). R3 G3: também `porOpcao` (o complemento: `opcaoId → endereço`).
    */
-  async fotos(tenantId: string, unidade: string | null): Promise<{ canais: Record<CanalConferido, { lidoEm: string; porProduto: Record<string, string | null> } | null> }> {
+  async fotos(tenantId: string, unidade: string | null): Promise<{ canais: Record<CanalConferido, FotosDoCanal | null> }> {
     const vazio = { canais: { ifood: null, '99food': null } as Record<CanalConferido, null> };
     if (!(await conferirAppsLigado(this.db, tenantId))) return vazio;
     if (ehServidorLocal()) {
@@ -628,17 +630,19 @@ export class ConferenciaService {
       return vazio;
     }
     const lado = await this.regem(tenantId, loja.id);
-    const canais = {} as Record<CanalConferido, { lidoEm: string; porProduto: Record<string, string | null> } | null>;
+    const canais = {} as Record<CanalConferido, FotosDoCanal | null>;
     for (const c of CANAIS_CONFERIDOS) {
       const g = await this.leituraGuardada(tenantId, loja.id, c);
       if (!g?.lido_em) {
         canais[c] = null;
         continue;
       }
-      const { itens } = await this.linhas(tenantId, loja.id, c, g, lado);
+      const { itens, opcoes } = await this.linhas(tenantId, loja.id, c, g, lado);
       const porProduto: Record<string, string | null> = {};
       for (const l of itens) if (l.regem && l.situacao !== 'soRegem' && l.imagem !== undefined) porProduto[l.regem.id] = l.imagem;
-      canais[c] = { lidoEm: iso(g.lido_em)!, porProduto };
+      const porOpcao: Record<string, string | null> = {};
+      for (const l of opcoes) if (l.regem && l.situacao !== 'soRegem' && l.imagem !== undefined) porOpcao[l.regem.id] = l.imagem;
+      canais[c] = { lidoEm: iso(g.lido_em)!, porProduto, porOpcao };
     }
     return { canais };
   }
@@ -651,11 +655,26 @@ export class ConferenciaService {
    */
   async mandarFotoA99(tenantId: string, unidade: string | null, dto: any, ator: Ator) {
     if (ehServidorLocal()) return this.agirPelaNuvem(tenantId, 'foto-99', unidade, dto, ator);
+    // R3 G3: o complemento (a opção do catálogo) também — na 99 ele é um item: a fila com o alvo da opção.
+    const opcaoId = typeof dto?.opcaoId === 'string' && UUID.test(dto.opcaoId) ? dto.opcaoId : null;
     const produtoId = typeof dto?.produtoId === 'string' && UUID.test(dto.produtoId) ? dto.produtoId : null;
-    if (!produtoId) throw new BadRequestException('Escolha o produto.');
+    if (!produtoId && !opcaoId) throw new BadRequestException('Escolha o produto.');
     const loja = await this.loja(tenantId, unidade);
     const disp = await this.disponivel(tenantId, loja.id, '99food');
     if (!disp.ok) throw new ConflictException(disp.motivo);
+    if (opcaoId) {
+      const [o] = await this.rows(sql`
+        select id, nome, codigo_pdv, imagem_ref from opcao where id = ${opcaoId} and tenant_id = ${tenantId} and deleted_at is null`);
+      if (!o) throw new NotFoundException('Complemento não encontrado.');
+      if (!String(o.codigo_pdv ?? '').trim()) throw new ConflictException(`"${o.nome}" não tem código PDV: a foto não tem para onde ir.`);
+      const urlO = String(o.imagem_ref ?? '').trim();
+      if (!urlO) throw new ConflictException(`"${o.nome}" não tem foto no Regem.`);
+      if (!/^https:\/\//i.test(urlO))
+        throw new ConflictException('A foto ainda está só no servidor da loja: ela sobe para a nuvem em instantes. Mande de novo daqui a pouco.');
+      await this.db.execute(sql`select food99_marcar_opcao(${tenantId}::uuid, 'cadastro_item', ${opcaoId}::uuid)`);
+      await this.auditar(tenantId, loja, ator, 'mandou_foto_a_99', { canal: '99food', alvo: 'opcao', id: opcaoId, nome: o.nome });
+      return { ok: true, frase: `A foto de "${o.nome}" vai à 99 agora — o resultado aparece no "Último envio à 99".` };
+    }
     const [p] = await this.rows(sql`
       select id, nome, codigo, na_99, imagem_ref from produto
        where id = ${produtoId} and tenant_id = ${tenantId} and deleted_at is null and (unidade_id = ${loja.id} or unidade_id is null)`);
@@ -681,12 +700,16 @@ export class ConferenciaService {
     await this.exigirLigada(tenantId);
     if (!ehCanalConferido(dto?.canal)) throw new BadRequestException('Escolha o app: iFood ou 99.');
     const canal: CanalConferido = dto.canal;
-    const produtoId = typeof dto?.produtoId === 'string' && UUID.test(dto.produtoId) ? dto.produtoId : null;
-    if (!produtoId) throw new BadRequestException('Escolha o produto.');
+    // O produto (G1) ou o complemento (G3: a opção do catálogo).
+    const opcaoId = typeof dto?.opcaoId === 'string' && UUID.test(dto.opcaoId) ? dto.opcaoId : null;
+    const produtoId = !opcaoId && typeof dto?.produtoId === 'string' && UUID.test(dto.produtoId) ? dto.produtoId : null;
+    if (!produtoId && !opcaoId) throw new BadRequestException('Escolha o produto.');
     const loja = await this.loja(tenantId, unidade);
     const app = canal === 'ifood' ? 'no iFood' : 'na 99';
-    const url = (await this.fotos(tenantId, loja.id)).canais[canal]?.porProduto[produtoId] ?? null;
-    if (!url) throw new ConflictException(`A última leitura não tem foto deste produto ${app}. Leia o app de novo em "Conferir com os apps".`);
+    const doCanal = (await this.fotos(tenantId, loja.id)).canais[canal];
+    const url = (opcaoId ? doCanal?.porOpcao[opcaoId] : doCanal?.porProduto[produtoId as string]) ?? null;
+    if (!url)
+      throw new ConflictException(`A última leitura não tem foto deste ${opcaoId ? 'complemento' : 'produto'} ${app}. Leia o app de novo em "Conferir com os apps".`);
     if (!this.midia) throw new ConflictException('O armazenamento de fotos não está ligado nesta instalação.');
     let foto: Buffer | null = null;
     let grande = false;
@@ -697,7 +720,7 @@ export class ConferenciaService {
         grande = !foto;
       } else await res?.body?.cancel().catch(() => undefined);
     } catch (e: any) {
-      this.log.warn(`foto ${app} do produto ${produtoId}: não deu para baixar (${e?.message ?? e})`);
+      this.log.warn(`foto ${app} de ${opcaoId ? `o complemento ${opcaoId}` : `o produto ${produtoId}`}: não deu para baixar (${e?.message ?? e})`);
     }
     if (grande) throw new ConflictException(`A foto ${app} passa de 8 MB: o Regem não guarda.`);
     if (!foto) throw new ServiceUnavailableException(`Não deu para buscar a foto ${app} agora. Tente de novo em instantes.`);
@@ -705,8 +728,12 @@ export class ConferenciaService {
     const subida: any = await this.midia.uploadBuffer(tenantId, foto);
     const nova = typeof subida?.url === 'string' ? subida.url : null;
     if (!nova) throw new ServiceUnavailableException('Não deu para guardar a foto agora. Tente de novo em instantes.');
-    await this.auditar(tenantId, loja, ator, 'usou_foto_do_app', { canal, id: produtoId });
-    return { ok: true, url: nova, frase: `A foto ${app} está no campo da foto: salve o produto para ela ficar no Regem.` };
+    await this.auditar(tenantId, loja, ator, 'usou_foto_do_app', { canal, id: opcaoId ?? produtoId, ...(opcaoId ? { alvo: 'opcao' } : {}) });
+    return {
+      ok: true,
+      url: nova,
+      frase: `A foto ${app} está no campo da foto: salve o ${opcaoId ? 'complemento' : 'produto'} para ela ficar no Regem.`,
+    };
   }
 
   /**

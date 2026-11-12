@@ -399,7 +399,7 @@ export default function CatalogoPage() {
         ))}
       </div>
       {vista === 'complementos' ? (
-        <ComplementosGestao comIfood={comIfood} com99={com99} podeMudarPreco={podeMudarPreco} />
+        <ComplementosGestao comIfood={comIfood} com99={com99} podeMudarPreco={podeMudarPreco} fotos={fotos} />
       ) : (
       <section className="space-y-3" aria-labelledby={ID_TITULO}>
         <TituloLista

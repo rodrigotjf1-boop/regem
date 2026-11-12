@@ -214,4 +214,25 @@ descrever('complemento por canal (Postgres real)', () => {
     await expect(produtos.precoDaOpcaoNoGrupo(l.t, 'x', l.op, 1, ator)).rejects.toThrow(/Grupo de complementos inválido/);
     await expect(produtos.precoDaOpcaoNoGrupo(l.t, l.grupo, l.op, -1, ator)).rejects.toThrow(/Preço do complemento inválido/);
   });
+
+  it('R3 G3 — a foto do complemento: só `imagem_ref`, auditada; igual não grava; vazio tira; endereço estranho recusado', async () => {
+    const l = await loja();
+    const antes = (await q(`select nome, codigo_pdv, preco_ifood, preco_99, canais_pausados from opcao where id = $1`, [l.op]))[0];
+    auditados.length = 0;
+    const url = 'https://projeto.supabase.co/storage/v1/object/public/midia/t/bacon.jpg';
+    expect(await produtos.fotoDaOpcao(l.t, l.op, url, ator)).toEqual({ imagemRef: url, mudou: true });
+    expect(await produtos.fotoDaOpcao(l.t, l.op, url, ator)).toEqual({ imagemRef: url, mudou: false });
+    expect(auditados).toEqual([expect.objectContaining({ acao: 'trocou_foto_do_complemento', entidadeTipo: 'opcao', entidadeId: l.op, detalhe: { nome: 'Bacon extra' } })]);
+    // O resto da opção não muda (nunca o PATCH que regrava a linha inteira).
+    const depois = (await q(`select nome, codigo_pdv, preco_ifood, preco_99, canais_pausados, imagem_ref from opcao where id = $1`, [l.op]))[0];
+    expect({ ...depois, imagem_ref: undefined }).toEqual({ ...antes, imagem_ref: undefined });
+    expect(depois.imagem_ref).toBe(url);
+    // O endereço do servidor da loja também vale; vazio tira a foto.
+    expect(await produtos.fotoDaOpcao(l.t, l.op, '/api/v1/publico/midia/t/b.jpg', ator)).toMatchObject({ mudou: true });
+    expect(await produtos.fotoDaOpcao(l.t, l.op, '', ator)).toEqual({ imagemRef: null, mudou: true });
+    expect(auditados.map((a) => a.acao)).toEqual(['trocou_foto_do_complemento', 'trocou_foto_do_complemento', 'tirou_foto_do_complemento']);
+    await expect(produtos.fotoDaOpcao(l.t, l.op, 'javascript:alert(1)', ator)).rejects.toThrow(/Foto inválida/);
+    await expect(produtos.fotoDaOpcao(l.t, l.op, { url } as any, ator)).rejects.toThrow(/Foto inválida/);
+    await expect(produtos.fotoDaOpcao((await loja()).t, l.op, url, ator)).rejects.toThrow(/não encontrado/);
+  });
 });

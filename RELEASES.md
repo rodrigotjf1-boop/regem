@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **A foto dos complementos na Gestão do catálogo (R3, fase G3; SEM migration; não mexe no `sync-daemon`).** Na NUVEM com
+  o merge: a leitura da conferência devolve as fotos por complemento (`porOpcao`); a aba Complementos ganha o selo e a
+  situação "Foto faltando num app"; a gaveta do complemento ganha a foto (rota nova `PUT /produtos/opcoes/:id/foto`, só a
+  foto, auditada), as fotos dos apps, "Usar esta no Regem" e "Mandar esta foto à 99" (a fila da 99 com o alvo da opção:
+  o `cadastro_item` do complemento é a foto). **No `.zip` 1.30.13:** o mesmo no servidor da loja (a rota da foto roda na
+  loja; o "usar" e o "mandar à 99" pedem à nuvem).
+
 - **"Usar esta foto no Regem" e "Ajustar o recorte" (R3, fases G1 e G2; SEM migration; não mexe no `sync-daemon`).** Na
   NUVEM com o merge: a rota `POST catalogo/conferencia/usar-foto` (a foto do app da última leitura vem para o armazenamento
   do Regem — o `ConferenciaModule` passa a importar o `MidiaModule`) e, na gaveta, o botão debaixo da foto de cada app e o
