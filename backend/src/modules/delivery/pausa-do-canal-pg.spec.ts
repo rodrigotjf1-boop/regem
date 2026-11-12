@@ -80,9 +80,11 @@ descrever('pausa por canal (Postgres)', () => {
     const menu: any = await cardapio.menu(tokens[0]);
     expect(menu.abertaAgora).toBe(false);
     expect(menu.abertoPorTipo).toEqual({ entrega: false, retirada: false, local: false });
-    // Perto da meia-noite a volta é "amanhã" (o CI de 10/11 às 23:48 pegou o teste que supunha o mesmo dia — ERR-434).
+    // Perto da meia-noite a volta é "amanhã" (o CI de 10/11 às 23:48 pegou o teste que supunha o mesmo dia — ERR-434; o de
+    // 11/11 às 23:41 pegou a próxima abertura, que ficou supondo o mesmo dia — reincidência).
     expect(menu.horarioLabel).toBe(`Pedidos pausados até ${p.volta.amanha ? 'amanhã às ' : ''}${p.volta.hora}`);
-    expect(menu.proximaAbertura).toEqual({ entrega: p.volta.hora, retirada: p.volta.hora });
+    const volta = `${p.volta.amanha ? 'amanhã ' : ''}${p.volta.hora}`;
+    expect(menu.proximaAbertura).toEqual({ entrega: volta, retirada: volta });
     expect(menu.pausa).toMatchObject({ rotulo: 'Muitos pedidos agora', frase: 'Estamos com *muitos pedidos agora*' });
 
     const resumo: any = resumoDaLoja(menu, 'https://link');
