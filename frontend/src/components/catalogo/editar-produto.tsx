@@ -54,8 +54,8 @@ export function EditarProduto({
   fotosDosApps?: FotosDoProduto;
   /** "Mandar esta foto à 99" (R3 F6). */
   aoMandarFoto99?: () => Promise<void>;
-  /** "Mandar esta foto ao iFood" (R3 F6b, pela porta do Orzuni). */
-  aoMandarFotoIfood?: () => Promise<void>;
+  /** "Mandar esta foto ao iFood" (R3 F6b, pela porta do Orzuni; `imagem` = a cópia enquadrada, F6c). */
+  aoMandarFotoIfood?: (imagem?: string) => Promise<void>;
 }) {
   const [e, setE] = useState<EdicaoDoProduto>(() => edicaoInicial(p));
   const [salvando, setSalvando] = useState(false);

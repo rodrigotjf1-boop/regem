@@ -3,6 +3,7 @@ import {
   chaveDaFoto,
   dataUriDaFoto,
   ehQuadrada,
+  fotoDoPedido,
   medidaDaImagem,
   problemaDaFoto,
 } from './orzuni-foto.regras';
@@ -60,5 +61,15 @@ describe('as regras da foto ao iFood (sem banco)', () => {
     expect(k).not.toBe(chaveDaFoto('p2', a));
     expect(k.length).toBeGreaterThanOrEqual(8);
     expect(k.length).toBeLessThanOrEqual(100);
+  });
+  it('F6c: a foto enquadrada do pedido — data-URI JPG/PNG vira os bytes; ausente = a do produto; o resto é recusado', () => {
+    const a = png(600, 600);
+    expect(fotoDoPedido(`data:image/png;base64,${a.toString('base64')}`)).toEqual(a);
+    expect(fotoDoPedido(`data:image/jpeg;base64,${jpeg(600, 600).toString('base64')}`)).toEqual(jpeg(600, 600));
+    expect([fotoDoPedido(undefined), fotoDoPedido(null), fotoDoPedido('')]).toEqual([undefined, undefined, undefined]);
+    expect(fotoDoPedido('data:image/webp;base64,AAAA')).toEqual({ erro: 'A foto enquadrada não veio como JPG ou PNG.' });
+    expect(fotoDoPedido('https://fotos.exemplo.test/x.png')).toMatchObject({ erro: expect.stringMatching(/JPG ou PNG/) });
+    expect(fotoDoPedido({ imagem: 'x' })).toMatchObject({ erro: expect.stringMatching(/8 MB/) });
+    expect(fotoDoPedido(`data:image/png;base64,${'A'.repeat(Math.ceil((LIMITE_FOTO_IFOOD * 4) / 3) + 100)}`)).toMatchObject({ erro: expect.stringMatching(/8 MB/) });
   });
 });

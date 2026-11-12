@@ -539,9 +539,9 @@ export default function CatalogoPage() {
             void carregar();
           }}
           fotosDosApps={fotosDoProduto(fotos, editando.id)}
-          aoMandarFotoIfood={async () => {
+          aoMandarFotoIfood={async (imagem?: string) => {
             try {
-              const r = await api.conferenciaFotoIfood(editando.id);
+              const r = await api.conferenciaFotoIfood(editando.id, imagem);
               toast.success(r.frase);
             } catch (e) {
               toast.error(e instanceof Error ? e.message : 'Não foi possível mandar a foto ao iFood.');

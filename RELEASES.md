@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **A foto que não serve ao iFood vai enquadrada (R3, fase F6c; SEM migration; só tela + a rota da F6b).** Na NUVEM com o
+  merge: a gaveta recorta o quadrado do centro da foto (até 1200 px, JPG) e manda essa cópia só ao iFood; a foto do Regem
+  não muda. **No `.zip` 1.30.13:** o mesmo na tela do servidor da loja (a cópia vai à nuvem pela ação `foto-ifood`, que
+  também resolve a foto ainda só no servidor da loja).
+
 - **Gestão do catálogo: "Mandar esta foto ao iFood" (R3, fase F6b; SEM migration; não mexe no `sync-daemon`).** Na NUVEM
   com o merge: a rota `POST catalogo/conferencia/foto-ifood` chama a porta do Orzuni na hora (`item_foto_definir`, com
   `catalogo.escrever` na ligação da loja) e a gaveta de editar ganha o botão, com a medida da foto. **No `.zip` 1.30.13:** o

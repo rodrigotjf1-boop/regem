@@ -85,3 +85,20 @@ export function dataUriDaFoto(m: MedidaDaImagem, b: Buffer): string {
 export function chaveDaFoto(produtoId: string, b: Buffer): string {
   return montarChaveIdempotencia('regem-foto-ifood', produtoId, createHash('sha256').update(b).digest('hex'));
 }
+
+/** O maior data-URI aceito no pedido: 8 MB de imagem em base64 (~1,37×) e o cabeçalho. */
+const LIMITE_DATA_URI = Math.ceil((LIMITE_FOTO_IFOOD * 4) / 3) + 64;
+const DATA_URI = /^data:image\/(jpeg|png);base64,([A-Za-z0-9+/]+={0,2})$/;
+
+/**
+ * A foto ENQUADRADA que a tela manda (R3 F6c): quando a foto do Regem não serve ao iFood como está (retangular, WEBP…),
+ * o navegador corta o quadrado do centro e manda a cópia em data-URI — só para o iFood (a foto do Regem não muda).
+ * Ausente → `undefined` (vale a foto do produto, baixada como está). Os bytes ainda passam por `problemaDaFoto`.
+ */
+export function fotoDoPedido(v: unknown): Buffer | undefined | { erro: string } {
+  if (v === undefined || v === null || v === '') return undefined;
+  if (typeof v !== 'string' || v.length > LIMITE_DATA_URI) return { erro: 'A foto enquadrada passa de 8 MB: o iFood não aceita.' };
+  const m = DATA_URI.exec(v);
+  if (!m) return { erro: 'A foto enquadrada não veio como JPG ou PNG.' };
+  return Buffer.from(m[2], 'base64');
+}

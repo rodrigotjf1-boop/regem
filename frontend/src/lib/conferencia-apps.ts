@@ -377,6 +377,75 @@ export const medidaParaA99 = (w: number, h: number) => Math.min(w, h) >= 150 && 
  */
 export const medidaParaOIfood = (w: number, h: number) => Math.min(w, h) >= 300 && Math.abs(w - h) <= 0.02 * Math.max(w, h);
 
+/** O maior lado da cópia enquadrada que vai ao iFood (o app mostra a foto pequena; menos peso). */
+export const LADO_DA_COPIA_IFOOD = 1200;
+const LIMITE_FOTO_IFOOD = 8_000_000;
+
+/**
+ * R3 F6c — o recorte da foto que NÃO serve ao iFood como está: o quadrado do centro (o lado menor), reduzido a até
+ * 1200 px. `null` quando o lado menor não chega a 300 px (aumentar a foto só a deixaria borrada).
+ */
+export function recorteCentral(w: number, h: number, max = LADO_DA_COPIA_IFOOD): { sx: number; sy: number; lado: number; saida: number } | null {
+  const lado = Math.min(w, h);
+  if (!(lado >= 300)) return null;
+  return { sx: Math.floor((w - lado) / 2), sy: Math.floor((h - lado) / 2), lado, saida: Math.min(lado, max) };
+}
+
+/**
+ * A foto que vai ao iFood (R3 F6c): a do Regem COMO ESTÁ quando já serve (JPG ou PNG, quadrada, 300 px ou mais, até
+ * 8 MB, com endereço público) — `{}`, o servidor baixa a original; senão, a CÓPIA enquadrada (quadrado do centro, JPG),
+ * feita aqui no navegador (que já desenha a foto na orientação certa e abre WEBP) — `{ imagem }`. A foto do Regem não muda.
+ */
+export async function prepararFotoParaOIfood(url: string): Promise<{ imagem?: string } | { erro: string }> {
+  let blob: Blob;
+  try {
+    const r = await fetch(url, { mode: 'cors' });
+    if (!r.ok) throw new Error(String(r.status));
+    blob = await r.blob();
+  } catch {
+    return { erro: 'Não deu para ler a foto do Regem agora. Tente de novo em instantes.' };
+  }
+  let bmp: ImageBitmap;
+  try {
+    bmp = await createImageBitmap(blob, { imageOrientation: 'from-image' });
+  } catch {
+    return { erro: 'O navegador não abriu a foto do Regem: troque-a por uma JPG ou PNG.' };
+  }
+  const { width: w, height: h } = bmp;
+  const serveComoEsta = /^https:\/\//i.test(url) && ['image/jpeg', 'image/png'].includes(blob.type) && medidaParaOIfood(w, h) && blob.size <= LIMITE_FOTO_IFOOD;
+  if (serveComoEsta) {
+    bmp.close();
+    return {};
+  }
+  const r = recorteCentral(w, h);
+  if (!r) {
+    bmp.close();
+    return { erro: `A foto tem ${w} × ${h} px e o iFood pede 300 px de lado ou mais: use uma maior.` };
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = r.saida;
+  canvas.height = r.saida;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    bmp.close();
+    return { erro: 'O navegador não conseguiu enquadrar a foto.' };
+  }
+  // Fundo branco: o PNG com transparência vira JPG sem fundo preto.
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, r.saida, r.saida);
+  ctx.drawImage(bmp, r.sx, r.sy, r.lado, r.lado, 0, 0, r.saida, r.saida);
+  bmp.close();
+  const jpg: Blob | null = await new Promise((ok) => canvas.toBlob(ok, 'image/jpeg', 0.88));
+  if (!jpg) return { erro: 'O navegador não conseguiu enquadrar a foto.' };
+  const imagem: string = await new Promise((ok, falha) => {
+    const leitor = new FileReader();
+    leitor.onload = () => ok(String(leitor.result));
+    leitor.onerror = () => falha(leitor.error);
+    leitor.readAsDataURL(jpg);
+  });
+  return { imagem };
+}
+
 /** "Lido do iFood hoje às 14:30" / "em 10/11 às 09:12" (hora de Brasília). */
 export function quandoLido(iso: string | null, agora: Date = new Date()): string {
   if (!iso) return 'ainda não lido';

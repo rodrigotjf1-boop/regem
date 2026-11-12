@@ -12,6 +12,7 @@ import {
   PERMISSOES_DA_FOTO,
   chaveDaFoto,
   dataUriDaFoto,
+  fotoDoPedido,
   medidaDaImagem,
   problemaDaFoto,
 } from './orzuni-foto.regras';
@@ -24,7 +25,7 @@ import {
  * respondeu agora — repetir manda a MESMA chave, a foto não vai duas vezes).
  */
 export type ResultadoDaFoto =
-  | { ok: true; frase: string; nome: string; resultado: string; repetido: boolean; chamou: true }
+  | { ok: true; frase: string; nome: string; resultado: string; repetido: boolean; chamou: true; enquadrada: boolean }
   | { ok: false; status: 404 | 409 | 503; motivo: string; nome: string | null; chamou: boolean };
 
 const SEM_RESPOSTA = 'O Orzuni não respondeu agora. Mande de novo daqui a pouco: a mesma foto não vai duas vezes.';
@@ -89,7 +90,13 @@ export class OrzuniFotoService {
     return Buffer.concat(partes);
   }
 
-  async mandar(tenantId: string, unidadeId: string, produtoId: string): Promise<ResultadoDaFoto> {
+  /**
+   * `enquadrada`: a cópia quadrada que a tela recortou da foto do produto (R3 F6c — data-URI JPG/PNG), só para o iFood;
+   * ausente, vai a foto do produto como está (baixada do endereço público). As duas passam pela mesma conferência.
+   */
+  async mandar(tenantId: string, unidadeId: string, produtoId: string, enquadrada?: unknown): Promise<ResultadoDaFoto> {
+    const pedida = fotoDoPedido(enquadrada);
+    if (pedida && !Buffer.isBuffer(pedida)) return { ok: false, status: 409, motivo: pedida.erro, nome: null, chamou: false };
     const cfg = lerConfigOrzuni();
     if (ehServidorLocal() || !cfg.envioLigado)
       return { ok: false, status: 409, motivo: 'O iFood pelo Orzuni não está ligado nesta instalação.', nome: null, chamou: false };
@@ -112,26 +119,29 @@ export class OrzuniFotoService {
       return { ok: false, status: 409, motivo: `"${nome}" não está no iFood com código PDV: a foto não tem para onde ir.`, nome, chamou: false };
     const url = String(p.imagem_ref ?? '').trim();
     if (!url) return { ok: false, status: 409, motivo: `"${nome}" não tem foto no Regem.`, nome, chamou: false };
-    if (!/^https:\/\//i.test(url))
+    if (!pedida && !/^https:\/\//i.test(url))
       return { ok: false, status: 409, motivo: 'A foto ainda está só no servidor da loja: ela sobe para a nuvem em instantes. Mande de novo daqui a pouco.', nome, chamou: false };
 
-    // A foto, pelos bytes (o tipo que o servidor da foto diz não vale): até 8 MB, JPG ou PNG, quadrada, 300 px ou mais.
-    let foto: Buffer | null = null;
-    try {
-      const res = await this.baixar(url);
-      if (res?.ok) {
-        const declarado = Number(res.headers.get('content-length') ?? '0');
-        if (declarado > LIMITE_FOTO_IFOOD) {
+    // A foto, pelos bytes (o tipo que o servidor da foto diz não vale): até 8 MB, JPG ou PNG, quadrada, 300 px ou mais. A
+    // enquadrada pela tela já veio no pedido; a do produto é baixada como está.
+    let foto: Buffer | null = pedida ?? null;
+    if (!foto) {
+      try {
+        const res = await this.baixar(url);
+        if (res?.ok) {
+          const declarado = Number(res.headers.get('content-length') ?? '0');
+          if (declarado > LIMITE_FOTO_IFOOD) {
+            await res.body?.cancel().catch(() => undefined);
+            return { ok: false, status: 409, motivo: problemaDaFoto(null, declarado) as string, nome, chamou: false };
+          }
+          foto = await this.lerAte(res, LIMITE_FOTO_IFOOD);
+          if (!foto) return { ok: false, status: 409, motivo: problemaDaFoto(null, LIMITE_FOTO_IFOOD + 1) as string, nome, chamou: false };
+        } else if (res) {
           await res.body?.cancel().catch(() => undefined);
-          return { ok: false, status: 409, motivo: problemaDaFoto(null, declarado) as string, nome, chamou: false };
         }
-        foto = await this.lerAte(res, LIMITE_FOTO_IFOOD);
-        if (!foto) return { ok: false, status: 409, motivo: problemaDaFoto(null, LIMITE_FOTO_IFOOD + 1) as string, nome, chamou: false };
-      } else if (res) {
-        await res.body?.cancel().catch(() => undefined);
+      } catch (e: any) {
+        this.log.warn(`foto de ${produtoId}: não deu para baixar (${e?.message ?? e})`);
       }
-    } catch (e: any) {
-      this.log.warn(`foto de ${produtoId}: não deu para baixar (${e?.message ?? e})`);
     }
     if (!foto) return { ok: false, status: 503, motivo: 'Não deu para ler a foto do Regem agora. Tente de novo em instantes.', nome, chamou: false };
     const medida = medidaDaImagem(foto);
@@ -154,8 +164,10 @@ export class OrzuniFotoService {
           ? `O iFood já tem esta foto em "${nome}".`
           : repetido
             ? `Esta foto já tinha ido ao iFood em "${nome}".`
-            : `A foto de "${nome}" foi para o iFood.`;
-      return { ok: true, frase, nome, resultado: d.resultado, repetido, chamou: true };
+            : pedida
+              ? `A foto de "${nome}" foi para o iFood, enquadrada no quadrado do centro (a do Regem não mudou).`
+              : `A foto de "${nome}" foi para o iFood.`;
+      return { ok: true, frase, nome, resultado: d.resultado, repetido, chamou: true, enquadrada: !!pedida };
     } catch (e: any) {
       return { ...this.recusa(e, codigo), nome, chamou: true };
     }
