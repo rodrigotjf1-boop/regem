@@ -391,12 +391,43 @@ export function recorteCentral(w: number, h: number, max = LADO_DA_COPIA_IFOOD):
   return { sx: Math.floor((w - lado) / 2), sy: Math.floor((h - lado) / 2), lado, saida: Math.min(lado, max) };
 }
 
+/** Um recorte quadrado na foto (em px da foto): o canto de cima à esquerda e o lado. */
+export type Recorte = { sx: number; sy: number; lado: number };
+
+/**
+ * R3 G2 — o recorte escolhido à mão, sempre DENTRO da foto: o lado entre 300 px e o lado menor da foto, o canto sem
+ * passar das bordas, tudo em px inteiros. `null` quando a foto não tem 300 px no lado menor.
+ */
+export function limitarRecorte(w: number, h: number, r: Recorte): Recorte | null {
+  const maior = Math.floor(Math.min(w, h));
+  if (!(maior >= 300)) return null;
+  const lado = Math.round(Math.min(Math.max(Number.isFinite(r.lado) ? r.lado : maior, 300), maior));
+  const sx = Math.round(Math.min(Math.max(Number.isFinite(r.sx) ? r.sx : 0, 0), w - lado));
+  const sy = Math.round(Math.min(Math.max(Number.isFinite(r.sy) ? r.sy : 0, 0), h - lado));
+  return { sx, sy, lado };
+}
+
+/** Muda o tamanho do recorte mantendo o MESMO centro (e dentro da foto). */
+export function mudarLadoDoRecorte(w: number, h: number, r: Recorte, lado: number): Recorte | null {
+  const cx = r.sx + r.lado / 2;
+  const cy = r.sy + r.lado / 2;
+  return limitarRecorte(w, h, { sx: cx - lado / 2, sy: cy - lado / 2, lado });
+}
+
+/** A prévia do recorte numa caixa quadrada (CSS de fundo): o tamanho e a posição da foto dentro dela. */
+export function previaDoRecorte(w: number, h: number, r: Recorte): { backgroundSize: string; backgroundPosition: string } {
+  const pos = (canto: number, total: number) => (total > r.lado ? (canto / (total - r.lado)) * 100 : 0);
+  const n = (v: number) => `${Math.round(v * 100) / 100}%`;
+  return { backgroundSize: `${n((w / r.lado) * 100)} ${n((h / r.lado) * 100)}`, backgroundPosition: `${n(pos(r.sx, w))} ${n(pos(r.sy, h))}` };
+}
+
 /**
  * A foto que vai ao iFood (R3 F6c): a do Regem COMO ESTÁ quando já serve (JPG ou PNG, quadrada, 300 px ou mais, até
- * 8 MB, com endereço público) — `{}`, o servidor baixa a original; senão, a CÓPIA enquadrada (quadrado do centro, JPG),
- * feita aqui no navegador (que já desenha a foto na orientação certa e abre WEBP) — `{ imagem }`. A foto do Regem não muda.
+ * 8 MB, com endereço público) — `{}`, o servidor baixa a original; senão, a CÓPIA enquadrada, JPG, feita aqui no navegador
+ * (que já desenha a foto na orientação certa e abre WEBP) — `{ imagem }`: o quadrado do centro ou, R3 G2, o recorte
+ * escolhido à mão (`escolhido`). A foto do Regem não muda.
  */
-export async function prepararFotoParaOIfood(url: string): Promise<{ imagem?: string } | { erro: string }> {
+export async function prepararFotoParaOIfood(url: string, escolhido?: Recorte | null): Promise<{ imagem?: string } | { erro: string }> {
   let blob: Blob;
   try {
     const r = await fetch(url, { mode: 'cors' });
@@ -412,12 +443,14 @@ export async function prepararFotoParaOIfood(url: string): Promise<{ imagem?: st
     return { erro: 'O navegador não abriu a foto do Regem: troque-a por uma JPG ou PNG.' };
   }
   const { width: w, height: h } = bmp;
-  const serveComoEsta = /^https:\/\//i.test(url) && ['image/jpeg', 'image/png'].includes(blob.type) && medidaParaOIfood(w, h) && blob.size <= LIMITE_FOTO_IFOOD;
+  const serveComoEsta =
+    !escolhido && /^https:\/\//i.test(url) && ['image/jpeg', 'image/png'].includes(blob.type) && medidaParaOIfood(w, h) && blob.size <= LIMITE_FOTO_IFOOD;
   if (serveComoEsta) {
     bmp.close();
     return {};
   }
-  const r = recorteCentral(w, h);
+  const mao = escolhido ? limitarRecorte(w, h, escolhido) : null;
+  const r = mao ? { ...mao, saida: Math.min(mao.lado, LADO_DA_COPIA_IFOOD) } : recorteCentral(w, h);
   if (!r) {
     bmp.close();
     return { erro: `A foto tem ${w} × ${h} px e o iFood pede 300 px de lado ou mais: use uma maior.` };

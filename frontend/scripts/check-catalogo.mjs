@@ -586,6 +586,19 @@ try {
     assert.deepEqual(cf.recorteCentral(1080, 1921), { sx: 0, sy: 420, lado: 1080, saida: 1080 });
     assert.equal(cf.recorteCentral(1200, 299), null);
     assert.deepEqual(cf.recorteCentral(300, 300), { sx: 0, sy: 0, lado: 300, saida: 300 });
+    // G2: o recorte à mão fica DENTRO da foto (lado entre 300 px e o lado menor; canto sem passar das bordas).
+    assert.deepEqual(cf.limitarRecorte(1920, 1280, { sx: 1000, sy: -50, lado: 900 }), { sx: 1000, sy: 0, lado: 900 });
+    assert.deepEqual(cf.limitarRecorte(1920, 1280, { sx: 1800, sy: 700, lado: 900 }), { sx: 1020, sy: 380, lado: 900 });
+    assert.deepEqual(cf.limitarRecorte(1920, 1280, { sx: 0, sy: 0, lado: 100 }), { sx: 0, sy: 0, lado: 300 });
+    assert.deepEqual(cf.limitarRecorte(1920, 1280, { sx: 0, sy: 0, lado: 5000 }), { sx: 0, sy: 0, lado: 1280 });
+    assert.deepEqual(cf.limitarRecorte(1920, 1280, { sx: NaN, sy: 10.6, lado: 600.4 }), { sx: 0, sy: 11, lado: 600 });
+    assert.equal(cf.limitarRecorte(800, 250, { sx: 0, sy: 0, lado: 250 }), null);
+    // Mudar o tamanho mantém o centro (e volta para dentro na borda).
+    assert.deepEqual(cf.mudarLadoDoRecorte(1920, 1280, { sx: 320, sy: 0, lado: 1280 }, 640), { sx: 640, sy: 320, lado: 640 });
+    assert.deepEqual(cf.mudarLadoDoRecorte(1920, 1280, { sx: 0, sy: 0, lado: 300 }, 900), { sx: 0, sy: 0, lado: 900 });
+    // A prévia: o recorte do centro de 1920×1280 é a foto a 150% × 100%, no meio.
+    assert.deepEqual(cf.previaDoRecorte(1920, 1280, { sx: 320, sy: 0, lado: 1280 }), { backgroundSize: '150% 100%', backgroundPosition: '50% 0%' });
+    assert.deepEqual(cf.previaDoRecorte(1920, 1280, { sx: 1020, sy: 380, lado: 900 }), { backgroundSize: '213.33% 142.22%', backgroundPosition: '100% 100%' });
   });
   caso('F5: os números digitados × os das vendas; sem vendas, os exemplos; e o que não dá para pagar', () => {
     const t = JSON.parse(JSON.stringify(TAXAS));

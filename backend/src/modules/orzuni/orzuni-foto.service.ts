@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { ClienteDmsId, ClienteMcp, ErroMcp } from '../../dms/integracao-dms';
 import { ehServidorLocal } from '../../common/modo';
-import { buscarUrlPublica } from '../../common/ssrf-guard';
+import { buscarUrlPublica, lerCorpoAte } from '../../common/ssrf-guard';
 import { versaoNoAr } from '../integracao-api/hub.regras';
 import { ligacaoDaLoja } from './ligacao-da-loja';
 import { desfechoDaRecusa, desfechoDoResultado, lerConfigOrzuni, type ConfigOrzuni } from './orzuni.regras';
@@ -71,25 +71,6 @@ export class OrzuniFotoService {
     });
   }
 
-  /** Lê o corpo até `teto` bytes; passou, para de ler e devolve `null`. */
-  private async lerAte(res: Response, teto: number): Promise<Buffer | null> {
-    const leitor = res.body?.getReader();
-    if (!leitor) return Buffer.alloc(0);
-    const partes: Buffer[] = [];
-    let total = 0;
-    for (;;) {
-      const { done, value } = await leitor.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > teto) {
-        await leitor.cancel().catch(() => undefined);
-        return null;
-      }
-      partes.push(Buffer.from(value));
-    }
-    return Buffer.concat(partes);
-  }
-
   /**
    * `enquadrada`: a cópia quadrada que a tela recortou da foto do produto (R3 F6c — data-URI JPG/PNG), só para o iFood;
    * ausente, vai a foto do produto como está (baixada do endereço público). As duas passam pela mesma conferência.
@@ -134,7 +115,7 @@ export class OrzuniFotoService {
             await res.body?.cancel().catch(() => undefined);
             return { ok: false, status: 409, motivo: problemaDaFoto(null, declarado) as string, nome, chamou: false };
           }
-          foto = await this.lerAte(res, LIMITE_FOTO_IFOOD);
+          foto = await lerCorpoAte(res, LIMITE_FOTO_IFOOD);
           if (!foto) return { ok: false, status: 409, motivo: problemaDaFoto(null, LIMITE_FOTO_IFOOD + 1) as string, nome, chamou: false };
         } else if (res) {
           await res.body?.cancel().catch(() => undefined);

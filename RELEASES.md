@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **"Usar esta foto no Regem" e "Ajustar o recorte" (R3, fases G1 e G2; SEM migration; não mexe no `sync-daemon`).** Na
+  NUVEM com o merge: a rota `POST catalogo/conferencia/usar-foto` (a foto do app da última leitura vem para o armazenamento
+  do Regem — o `ConferenciaModule` passa a importar o `MidiaModule`) e, na gaveta, o botão debaixo da foto de cada app e o
+  diálogo do recorte à mão para o envio ao iFood. **No `.zip` 1.30.13:** o mesmo na tela do servidor da loja (a foto vem
+  pela nuvem — ação `usar-foto`).
+
 - **A foto que não serve ao iFood vai enquadrada (R3, fase F6c; SEM migration; só tela + a rota da F6b).** Na NUVEM com o
   merge: a gaveta recorta o quadrado do centro da foto (até 1200 px, JPG) e manda essa cópia só ao iFood; a foto do Regem
   não muda. **No `.zip` 1.30.13:** o mesmo na tela do servidor da loja (a cópia vai à nuvem pela ação `foto-ifood`, que

@@ -100,6 +100,15 @@ export class ConferenciaController {
     return this.service.mandarFotoAoIfood(user.tenantId, unidade, dto, ator(user));
   }
 
+  // "Usar esta foto no Regem" (R3 G1): a foto do app (da última leitura) vem para o armazenamento do Regem; a tela põe o
+  // endereço novo no campo da foto e a pessoa salva.
+  @Post('usar-foto')
+  @HttpCode(200)
+  @Roles(...QUEM_CONFERE)
+  usarFotoDoApp(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null, @Body() dto: unknown) {
+    return this.service.usarFotoDoApp(user.tenantId, unidade, dto, ator(user));
+  }
+
   // "Ligar a um produto" e "Corrigir o código" (R3 F4b): o produto ganha o código do item do app e copia o preço e a pausa
   // de lá (o preço muda no Regem: pede "Ver valores em R$").
   @Post('ligar')

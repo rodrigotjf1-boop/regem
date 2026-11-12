@@ -38,6 +38,7 @@ export function EditarProduto({
   fotosDosApps,
   aoMandarFoto99,
   aoMandarFotoIfood,
+  aoUsarFotoDoApp,
 }: {
   produto: ProdutoDaGestao & Record<string, any>;
   categorias: CategoriaDaGestao[];
@@ -56,6 +57,8 @@ export function EditarProduto({
   aoMandarFoto99?: () => Promise<void>;
   /** "Mandar esta foto ao iFood" (R3 F6b, pela porta do Orzuni; `imagem` = a cópia enquadrada, F6c). */
   aoMandarFotoIfood?: (imagem?: string) => Promise<void>;
+  /** "Usar esta foto no Regem" (R3 G1): devolve o endereço da foto guardada (ou null), que vai para o campo da foto. */
+  aoUsarFotoDoApp?: (canal: 'ifood' | '99food') => Promise<string | null>;
 }) {
   const [e, setE] = useState<EdicaoDoProduto>(() => edicaoInicial(p));
   const [salvando, setSalvando] = useState(false);
@@ -208,6 +211,14 @@ export function EditarProduto({
             na99={com99 && p.na99 === true && !!String(p.codigo ?? '').trim()}
             aoMandar99={aoMandarFoto99}
             aoMandarIfood={String(p.codigo ?? '').trim() ? aoMandarFotoIfood : undefined}
+            aoUsarFoto={
+              aoUsarFotoDoApp
+                ? async (canal) => {
+                    const url = await aoUsarFotoDoApp(canal);
+                    if (url) mudar({ imagemRef: url });
+                  }
+                : undefined
+            }
           />
         </fieldset>
 

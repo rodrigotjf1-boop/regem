@@ -539,6 +539,16 @@ export default function CatalogoPage() {
             void carregar();
           }}
           fotosDosApps={fotosDoProduto(fotos, editando.id)}
+          aoUsarFotoDoApp={async (canal) => {
+            try {
+              const r = await api.conferenciaUsarFoto(editando.id, canal);
+              toast.success(r.frase);
+              return r.url;
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : 'Não foi possível trazer a foto do app.');
+              return null;
+            }
+          }}
           aoMandarFotoIfood={async (imagem?: string) => {
             try {
               const r = await api.conferenciaFotoIfood(editando.id, imagem);

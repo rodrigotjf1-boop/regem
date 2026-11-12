@@ -15576,6 +15576,24 @@
         }
       }
     },
+    "/api/v1/catalogo/conferencia/usar-foto": {
+      "post": {
+        "operationId": "ConferenciaController_usarFotoDoApp",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/catalogo/conferencia/ligar": {
       "post": {
         "operationId": "ConferenciaController_ligar",

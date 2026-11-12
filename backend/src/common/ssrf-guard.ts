@@ -81,3 +81,28 @@ export async function buscarUrlPublica(
   }
   return null;
 }
+
+// O corpo da resposta até `teto` bytes: passou (pelo Content-Length ou lendo), para de ler e devolve null — uma
+// imagem de um endereço de fora nunca enche a memória do servidor.
+export async function lerCorpoAte(res: Response, teto: number): Promise<Buffer | null> {
+  const declarado = Number(res.headers.get('content-length') ?? '0');
+  if (declarado > teto) {
+    await res.body?.cancel().catch(() => undefined);
+    return null;
+  }
+  const leitor = res.body?.getReader();
+  if (!leitor) return Buffer.alloc(0);
+  const partes: Buffer[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await leitor.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > teto) {
+      await leitor.cancel().catch(() => undefined);
+      return null;
+    }
+    partes.push(Buffer.from(value));
+  }
+  return Buffer.concat(partes);
+}
