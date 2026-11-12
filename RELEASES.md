@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O Pix pago cujo aviso nunca chegou entra em vez de ser cancelado (12/11, ERR-454; SEM migration; não mexe no
+  `sync-daemon`).** Na NUVEM com o merge: antes de cancelar o pedido de Pix sem pagamento há 10 min, a rotina pergunta ao
+  Mercado Pago ou ao PagBank — pago entra, provedor sem resposta espera até 1 h, o resto como antes. **No
+  `.zip`/`.exe`:** nada a fazer pela loja (o cardápio online e essa rotina são só da nuvem).
+
 - **⚠️ PEDE O `.exe` — o lançamento de caixa alterado na loja chega à nuvem (12/11; mig 413; MEXE no `sync-daemon`;
   ERR-453).** O "Cobrar e entregar" aponta o lançamento da venda para o caixa de quem recebeu depois de gravado (e o pedido
   alterado muda o valor); a tabela subia só ao nascer e a nuvem ficou com 74 lançamentos de venda sem caixa. Na NUVEM com
