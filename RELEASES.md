@@ -17,6 +17,11 @@
   Mercado Pago ou ao PagBank — pago entra, provedor sem resposta espera até 1 h, o resto como antes. **No
   `.zip`/`.exe`:** nada a fazer pela loja (o cardápio online e essa rotina são só da nuvem).
 
+- **A telemetria de erros passa a ser limpa (12/11, ERR-455; SEM migration; não mexe no `sync-daemon`).** Na NUVEM com o
+  merge: a rotina das 04:50 apaga de `telemetria_evento` o que está há mais de 90 dias sem nova ocorrência (antes mirava
+  uma tabela que não existe e nada saía). **No `.zip` 1.30.13:** só acompanha o código — o servidor da loja não tem essa
+  tabela e a rotina segue sem fazer nada lá.
+
 - **⚠️ PEDE O `.exe` — o lançamento de caixa alterado na loja chega à nuvem (12/11; mig 413; MEXE no `sync-daemon`;
   ERR-453).** O "Cobrar e entregar" aponta o lançamento da venda para o caixa de quem recebeu depois de gravado (e o pedido
   alterado muda o valor); a tabela subia só ao nascer e a nuvem ficou com 74 lançamentos de venda sem caixa. Na NUVEM com
