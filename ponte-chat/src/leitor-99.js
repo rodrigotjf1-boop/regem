@@ -183,6 +183,16 @@ function confirmacaoDoBroker(txt) {
   return id ? { id } : null;
 }
 
+/** O `errno` de uma resposta do broker (o número, para o diagnóstico) — ou null (sem ele, corpo estragado). */
+function errnoDe(txt) {
+  try {
+    const j = jsonSemArredondar(txt);
+    return j && j.errno !== undefined ? String(j.errno).slice(0, 20) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** O endereço do polling do IM (a prova troca pelo da 99 de mentira com `REGEM_PONTE_99_IM`). */
 function filtroDoIm(env = process.env) {
   const p = String(env.REGEM_PONTE_99_IM || '').trim();
@@ -232,6 +242,17 @@ function ligarLeitor99(wc, { aoChegar, aoMudar, registrarErro, anotar, env = pro
   let loja = null;
   let ultimoPolling = 0;
   let avisouSemLoja = false;
+  // 12/11 (os 2 "envio incerto" de 10/11, sem prova de que saíram): o que a rede mostrou do ÚLTIMO envio da página — o
+  // pedido de envio visto e a resposta do broker (com o errno) —, para o diagnóstico dizer onde parou
+  let envioVistoEm = 0;
+  let respostaDoEnvio = { em: 0, ok: false, errno: null };
+  const anotarSemFalhar = (o) => {
+    try {
+      if (anotar) anotar(o);
+    } catch {
+      /* o diagnóstico não derruba a leitura */
+    }
+  };
   const avisar = () => {
     if (aoMudar) aoMudar();
   };
@@ -291,7 +312,9 @@ function ligarLeitor99(wc, { aoChegar, aoMudar, registrarErro, anotar, env = pro
     if (envio) {
       // a resposta ao envio da loja (op 3): o id da mensagem confirma que saiu
       const c = confirmacaoDoBroker(txt);
+      respostaDoEnvio = { em: Date.now(), ok: !!c, errno: c ? null : errnoDe(txt) };
       if (c) daLojaChegou({ fonte: 'envio', sid: envio.sid, texto: envio.texto, em: agora(), id: c.id });
+      else anotarSemFalhar({ ev: 'envio_99_recusado', errno: respostaDoEnvio.errno });
       return;
     }
     for (const s of sessoesDoBroker(txt)) guardar(pedidos, s.sid, { externo: s.externo, numero: s.numero });
@@ -313,7 +336,14 @@ function ligarLeitor99(wc, { aoChegar, aoMudar, registrarErro, anotar, env = pro
         const rq = p.request || {};
         if (rq.method === 'POST' && broker.test(rq.url || '') && typeof rq.postData === 'string') {
           const e = envioDoBroker(rq.postData);
-          if (e) envios.set(chave(p.requestId), e);
+          if (e) {
+            envios.set(chave(p.requestId), e);
+            envioVistoEm = Date.now();
+            anotarSemFalhar({ ev: 'envio_99_visto', conversaConhecida: pedidos.has(e.sid) });
+          }
+        } else if (rq.method === 'POST' && broker.test(rq.url || '') && rq.hasPostData) {
+          // o navegador não mandou o corpo junto (corpo grande): sem ele não dá para ligar a confirmação ao envio
+          anotarSemFalhar({ ev: 'envio_99_sem_corpo' });
         }
         return;
       }
@@ -327,6 +357,10 @@ function ligarLeitor99(wc, { aoChegar, aoMudar, registrarErro, anotar, env = pro
       }
       if (metodo === 'Network.loadingFailed') {
         corpos.delete(chave(p.requestId));
+        if (envios.has(chave(p.requestId))) {
+          respostaDoEnvio = { em: Date.now(), ok: false, errno: null };
+          anotarSemFalhar({ ev: 'envio_99_falhou', erro: String(p.errorText || '').slice(0, 80), cancelado: !!p.canceled });
+        }
         envios.delete(chave(p.requestId));
         return;
       }
@@ -372,19 +406,39 @@ function ligarLeitor99(wc, { aoChegar, aoMudar, registrarErro, anotar, env = pro
      * Espera a confirmação do envio: a resposta do broker ao envio da loja OU o eco no polling, com o texto EXATO, na
      * conversa deste pedido (quando a sessão ↔ pedido é conhecida — a página acabou de abri-la) — { id } ou null no prazo.
      */
-    esperarEco: ({ pedidoExterno, texto, desde, prazoMs = 20000 }) =>
+    esperarEco: ({ pedidoExterno, texto, desde, prazoMs = 20000, tardioMs = 120000 }) =>
       new Promise((resolver) => {
         const t = String(texto || '').trim();
+        const inicio = Date.now();
+        let noPrazo = true;
+        let fimTardio = null;
         const fim = setTimeout(() => {
-          ouvintes.delete(ouvir);
+          noPrazo = false;
           resolver(null);
+          // 12/11: sem confirmação no prazo — o diagnóstico diz o que a rede mostrou (o envio saiu da página? o broker
+          // respondeu? com que erro?) e o ouvinte fica mais um pouco: a confirmação ATRASADA prova que a 99 só estava lenta
+          anotarSemFalhar({
+            ev: 'eco_99_sem_resposta',
+            prazoMs,
+            viuOEnvio: envioVistoEm >= inicio,
+            brokerRespondeu: respostaDoEnvio.em >= inicio,
+            brokerAceitou: respostaDoEnvio.em >= inicio && respostaDoEnvio.ok,
+            errno: respostaDoEnvio.em >= inicio ? respostaDoEnvio.errno : null,
+          });
+          fimTardio = setTimeout(() => ouvintes.delete(ouvir), tardioMs);
+          if (fimTardio.unref) fimTardio.unref();
         }, prazoMs);
         const ouvir = (ev) => {
           if (ev.texto.trim() !== t || ev.em < desde) return;
           if (pedidoExterno && pedidos.has(String(ev.sid)) && !doPedido(ev.sid, pedidoExterno)) return;
-          clearTimeout(fim);
           ouvintes.delete(ouvir);
-          resolver({ id: ev.id, fonte: ev.fonte });
+          if (noPrazo) {
+            clearTimeout(fim);
+            resolver({ id: ev.id, fonte: ev.fonte });
+            return;
+          }
+          clearTimeout(fimTardio);
+          anotarSemFalhar({ ev: 'eco_99_tardio', fonte: ev.fonte, depoisMs: Date.now() - inicio });
         };
         ouvintes.add(ouvir);
       }),

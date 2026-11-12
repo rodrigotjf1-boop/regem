@@ -164,6 +164,18 @@ chega e a busca do programa funciona no portal de verdade.
   por ele não mostra o que o cliente e o usuário principal trocaram. As mensagens do cliente só chegam à ponte se ela usar
   a conta que conversa com o cliente (a principal) — ou se a 99 tiver uma permissão de chat para o usuário extra.
 
+## O que a versão 0.7.7 muda (12/11 — o "envio incerto" da 99 com explicação)
+
+- **O que faltava:** em 10/11, dois avisos pela 99 terminaram "envio incerto" (a ponte apertou "Enviar" e a 99 não
+  confirmou em 20 s), e nada no diagnóstico dizia onde parou: se a página nem mandou, se a 99 recusou ou se só demorou.
+  Nos envios que deram certo, a confirmação chega em 1 a 2 s.
+- **Agora o diagnóstico conta:** o envio que a página fez (`envio_99_visto`), a recusa da 99 com o código
+  (`envio_99_recusado`), a queda na rede (`envio_99_falhou`) e, sem confirmação no prazo, o resumo do que houve
+  (`eco_99_sem_resposta`: viu o envio? a 99 respondeu? aceitou? com que código?).
+- **A confirmação atrasada:** a ponte continua ouvindo por mais 2 min depois do prazo; se a confirmação chegar, anota
+  `eco_99_tardio` (a 99 só estava lenta; a mensagem saiu). O resultado do envio não muda — segue "incerto" para a equipe
+  conferir —, mas o diagnóstico passa a dizer a verdade.
+
 ## O que a versão 0.7.6 muda (11/11 — a 99 lenta não para mais a fila)
 
 - **O que aconteceu:** em 11/11, a partir das 20h47, nenhum aviso saiu pela 99. Com o portal lento, a conversa do pedido

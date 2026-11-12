@@ -233,3 +233,79 @@ test('esperar o eco pelo polling (a fala da loja com o texto exato); sem nada no
   await responder(dbg, POLL, polling([texto(10, LOJA, 'Oi', '9000000000000000888')]));
   assert.equal(await outro, null);
 });
+
+// ---------- o diagnóstico do envio sem confirmação (12/11: os 2 "envio incerto" de 10/11 ficaram sem explicação) ----------
+
+/** O envio da página (op 3) sai; a resposta do broker só quando o teste mandar (`responderAgora`) — ou falha na rede. */
+function envioPendente(dbg, cont) {
+  const id = `r${proximo++}`;
+  dbg.emitir('Network.requestWillBeSent', { requestId: id, type: 'XHR', request: { url: BROKER, method: 'POST', postData: envio(cont) } });
+  return {
+    async responderAgora(corpo) {
+      dbg.corpos.set(id, corpo);
+      dbg.emitir('Network.responseReceived', { requestId: id, type: 'XHR', response: { url: BROKER, mimeType: 'text/plain' } });
+      dbg.emitir('Network.loadingFinished', { requestId: id });
+      await new Promise((r) => setImmediate(r));
+    },
+    falhar(errorText) {
+      dbg.emitir('Network.loadingFailed', { requestId: id, errorText, canceled: false });
+    },
+  };
+}
+
+test('sem confirmação no prazo: o diagnóstico diz que o envio saiu da página e o broker não respondeu; a ATRASADA é anotada', async () => {
+  const dbg = depuradorFalso();
+  const notas = [];
+  const l = ligarLeitor99({ debugger: dbg }, { aoChegar: () => {}, env: {}, anotar: (o) => notas.push(o) });
+  // a página abriu a conversa (sessão ↔ pedido)
+  await responder(dbg, BROKER, broker(JSON.stringify({ payload: `{"orderId":${PEDIDO},"orderNum":"#900002"}` })));
+  const desde = Date.now();
+  const esperando = l.esperarEco({ pedidoExterno: PEDIDO, texto: 'Seu pedido saiu!', desde, prazoMs: 80, tardioMs: 2000 });
+  const pendente = envioPendente(dbg, 'Seu pedido saiu!');
+  assert.equal(await esperando, null);
+  assert.deepEqual(notas.find((n) => n.ev === 'envio_99_visto'), { ev: 'envio_99_visto', conversaConhecida: true });
+  assert.deepEqual(notas.find((n) => n.ev === 'eco_99_sem_resposta'), {
+    ev: 'eco_99_sem_resposta',
+    prazoMs: 80,
+    viuOEnvio: true,
+    brokerRespondeu: false,
+    brokerAceitou: false,
+    errno: null,
+  });
+  // a 99 lenta confirma DEPOIS do prazo: a prova de que a mensagem saiu fica no diagnóstico (o resultado já foi "incerto")
+  await pendente.responderAgora(confirmacao('920000000000000077'));
+  const tardio = notas.find((n) => n.ev === 'eco_99_tardio');
+  assert.equal(tardio.fonte, 'envio');
+  assert.ok(tardio.depoisMs >= 80, String(tardio.depoisMs));
+  // e ela vale para o "já está no chat?" (uma nova tentativa não escreve de novo)
+  assert.deepEqual(l.jaEnviada({ pedidoExterno: PEDIDO, texto: 'Seu pedido saiu!', desde }), { id: '920000000000000077' });
+});
+
+test('o broker recusa o envio (errno) ou a rede derruba: anotado com o motivo, e o "sem resposta" diz o que houve', async () => {
+  const dbg = depuradorFalso();
+  const notas = [];
+  const l = ligarLeitor99({ debugger: dbg }, { aoChegar: () => {}, env: {}, anotar: (o) => notas.push(o) });
+  const recusa = l.esperarEco({ pedidoExterno: PEDIDO, texto: 'Oi', desde: Date.now(), prazoMs: 80, tardioMs: 50 });
+  await envioPendente(dbg, 'Oi').responderAgora('{"errno":10023,"errmsg":"x","body":{}}');
+  assert.equal(await recusa, null);
+  assert.deepEqual(notas.find((n) => n.ev === 'envio_99_recusado'), { ev: 'envio_99_recusado', errno: '10023' });
+  assert.deepEqual(
+    notas.filter((n) => n.ev === 'eco_99_sem_resposta').map((n) => [n.viuOEnvio, n.brokerRespondeu, n.brokerAceitou, n.errno]),
+    [[true, true, false, '10023']],
+  );
+  const queda = l.esperarEco({ pedidoExterno: PEDIDO, texto: 'Oi de novo', desde: Date.now(), prazoMs: 80, tardioMs: 50 });
+  envioPendente(dbg, 'Oi de novo').falhar('net::ERR_CONNECTION_RESET');
+  assert.equal(await queda, null);
+  assert.deepEqual(notas.find((n) => n.ev === 'envio_99_falhou'), { ev: 'envio_99_falhou', erro: 'net::ERR_CONNECTION_RESET', cancelado: false });
+  // nada do envio na rede (o clique não fez a página mandar): "não vi o envio"
+  const nada = l.esperarEco({ pedidoExterno: PEDIDO, texto: 'Sumiu', desde: Date.now(), prazoMs: 80, tardioMs: 50 });
+  assert.equal(await nada, null);
+  assert.deepEqual(notas.filter((n) => n.ev === 'eco_99_sem_resposta').at(-1), {
+    ev: 'eco_99_sem_resposta',
+    prazoMs: 80,
+    viuOEnvio: false,
+    brokerRespondeu: false,
+    brokerAceitou: false,
+    errno: null,
+  });
+});
