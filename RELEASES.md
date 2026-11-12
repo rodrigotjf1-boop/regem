@@ -12,6 +12,14 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **⚠️ PEDE O `.exe` — o lançamento de caixa alterado na loja chega à nuvem (12/11; mig 413; MEXE no `sync-daemon`;
+  ERR-453).** O "Cobrar e entregar" aponta o lançamento da venda para o caixa de quem recebeu depois de gravado (e o pedido
+  alterado muda o valor); a tabela subia só ao nascer e a nuvem ficou com 74 lançamentos de venda sem caixa. Na NUVEM com
+  a 413 (antes do merge): `updated_at` na `lancamento_caixa` e os 74 corrigidos pelo caixa e pela forma do pedido; o push
+  passa a "a mais nova vence". **No `.zip` 1.30.13:** a 413 no banco da loja. **No `.exe` 1.30.13:** o `sync-daemon` sobe
+  a tabela pelo `updated_at` e reenvia UMA vez os lançamentos de venda que apontou para um caixa (180 dias). Só o `.zip`
+  não basta: sem o daemon novo, a mudança segue sem subir.
+
 - **O cartão do pedido no KDS no padrão da foto do dono (12/11; SEM migration; não mexe no `sync-daemon`; só a tela).**
   Na NUVEM com o merge: a senha grande à direita do cabeçalho, as etiquetas à esquerda, a caixinha em cada item e o
   rodapé com o tempo, o prazo do preparo e o botão. **No `.zip` 1.30.13:** o mesmo no KDS da loja com servidor (a tela

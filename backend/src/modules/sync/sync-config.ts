@@ -237,7 +237,8 @@ export const TABELAS_SYNC: TabelaSync[] = [
   { tabela: 'titulo_financeiro', direcao: 'ambos', cursor: 'updated_at' },
   // Operacional (local → nuvem) — usadas no push (slice 2); cursor por criação.
   // movimento_estoque e lancamento_caixa TAMBÉM DESCEM (espelho — ver TABELAS_PULL_APPEND),
-  // mas continuam 'sobe' aqui p/ o push tratar como append puro (do-nothing, imutáveis).
+  // mas continuam 'sobe' aqui p/ o push tratar como append puro (do-nothing, imutáveis) — menos a
+  // lancamento_caixa desde a mig 413: ela tem `updated_at` e o push faz "a mais nova vence".
   { tabela: 'movimento_estoque', direcao: 'sobe', cursor: 'created_at' },
   // De qual lote saiu cada baixa (mig 248). Append-only como o ledger, e pela MESMA
   // razão: o saldo do lote é a soma destas linhas, não um campo mutável que o LWW
@@ -247,7 +248,10 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // Abono/atestado lançado pela gestão (mig 272): o espelho local precisa ver. Depois de
   // `ponto_marcacao` (aponta para a marcação ajustada).
   { tabela: 'ponto_ajuste', direcao: 'ambos', cursor: 'created_at' },
-  { tabela: 'lancamento_caixa', direcao: 'sobe', cursor: 'created_at' },
+  // Sobe pelo `updated_at` (mig 413; o mesmo cursor do PUSH_TABLES do sync-daemon): o "Cobrar e entregar" aponta o
+  // lançamento da venda para o caixa de quem recebeu depois de gravado, e o pedido alterado muda o valor. Com a coluna,
+  // o push faz "a mais nova vence" (`sync.service`: tabela com `updated_at`) — antes a mudança ficava só na loja.
+  { tabela: 'lancamento_caixa', direcao: 'sobe', cursor: 'updated_at' },
   { tabela: 'audit_log', direcao: 'sobe', cursor: 'created_at' },
   // Comprovante do TEF (NSU/autorização) — nasce no terminal da loja e a conciliação na
   // nuvem não enxergava. Só sobe: o terminal físico é de lá.
@@ -345,6 +349,9 @@ export const TABELAS_SYNC: TabelaSync[] = [
 // Append-only que TAMBÉM DESCEM no espelho (S1). Ficam 'sobe' no push (imutáveis),
 // mas o pull precisa trazê-las p/ o dashboard/relatórios locais baterem com a nuvem.
 // O upsert por id é aditivo e idempotente (sem updated_at → sem LWW, e não têm conflito).
+// A lancamento_caixa tem `updated_at` desde a mig 413 (o upsert dela respeita a mais nova), mas DESCE pela data de
+// criação de propósito: quem muda o lançamento da loja com servidor é a loja, e a correção que a 413 fez na nuvem não
+// deve voltar por cima da cópia da loja.
 export const TABELAS_PULL_APPEND: TabelaSync[] = [
   { tabela: 'lancamento_caixa', direcao: 'desce', cursor: 'created_at' },
   { tabela: 'movimento_estoque', direcao: 'desce', cursor: 'created_at' },
@@ -487,7 +494,7 @@ export const TABELAS_RESTORE: TabelaSync[] = [
   { tabela: 'producao_pedido_item', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'pedido_externo', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'pedido_externo_pagamento', direcao: 'desce', cursor: 'created_at' },
-  { tabela: 'lancamento_caixa', direcao: 'desce', cursor: 'created_at' }, // append (sem updated_at)
+  { tabela: 'lancamento_caixa', direcao: 'desce', cursor: 'created_at' }, // pela criação (ver TABELAS_PULL_APPEND)
   { tabela: 'movimento_estoque', direcao: 'desce', cursor: 'created_at' }, // append
 ];
 
