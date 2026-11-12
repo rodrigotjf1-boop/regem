@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Ponte do chat 0.7.7 — o "envio incerto" da 99 com explicação (12/11; sem migration, sem mudança na nuvem).** Só o
+  programa `ponte-chat/`: o diagnóstico passa a anotar o envio que a página fez, a recusa da 99 (com o código), a queda na
+  rede e, sem confirmação no prazo, o que houve; a confirmação que chega até 2 min depois vira `eco_99_tardio`. Nenhum
+  comportamento muda. Neste PC vale ao reiniciar a ponte. Nada muda no `.zip`/`.exe` do Regem.
+
 - **Ponte do chat 0.7.6 — a 99 lenta não para mais a fila de avisos (11/11; sem migration, sem mudança na nuvem).** Só o
   programa `ponte-chat/` (ainda sem instalador — gerar sob comando): com o portal lento, a conversa do pedido abria depois
   de a ponte desistir e ficava aberta, lida como alguém da loja — a fila da 99 parou das 20h47 até reiniciar (ERR-452).
