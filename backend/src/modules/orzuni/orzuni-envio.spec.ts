@@ -880,5 +880,31 @@ descrever('iFood pelo Orzuni — fila e envio (Postgres real, porta falsa)', () 
       // O pedido sem o produto: 400 antes de tudo.
       await expect(conferencia.mandarFotoAoIfood(l.t, l.lojas[0], {}, ator)).rejects.toThrow(/Escolha o produto/);
     });
+
+    it('F6c: a foto ENQUADRADA pela tela vai no lugar da do produto (que pode ser retangular ou local) — e passa pela mesma conferência', async () => {
+      const l = await loja({ lojas: 1 });
+      await comPermissao(l, COM);
+      // A do produto é retangular e ainda local: sem a enquadrada, não sairia.
+      const p = await produto(l, { nome: 'X-Retangular', codigo: 'F-RET', imagem_ref: '/api/v1/publico/midia/ret.jpg' });
+      const quadrada = png(600, 600, 512);
+      responder = aplicado();
+      const ator = { id: null, perfil: 'presidente' } as any;
+      const r = await conferencia.mandarFotoAoIfood(l.t, l.lojas[0], { produtoId: p, imagem: `data:image/png;base64,${quadrada.toString('base64')}` }, ator);
+      expect(r).toEqual({ ok: true, frase: 'A foto de "X-Retangular" foi para o iFood, enquadrada no quadrado do centro (a do Regem não mudou).' });
+      expect(fotosDe()).toHaveLength(1);
+      expect(fotosDe()[0].args).toEqual({ codigo_pdv: 'F-RET', imagem: `data:image/png;base64,${quadrada.toString('base64')}`, chaveIdempotencia: chaveDaFoto(p, quadrada) });
+      expect(auditados.filter((a) => a.acao === 'mandou_foto_ao_ifood').map((a) => [a.detalhe.resultado, a.detalhe.enquadrada])).toEqual([['aplicado', true]]);
+      // A foto do produto não mudou.
+      expect((await q(`select imagem_ref from produto where id = $1`, [p]))[0].imagem_ref).toBe('/api/v1/publico/midia/ret.jpg');
+      // A enquadrada passa pelas mesmas regras: retangular, pequena ou fora do formato não sai.
+      await expect(
+        conferencia.mandarFotoAoIfood(l.t, l.lojas[0], { produtoId: p, imagem: `data:image/png;base64,${png(800, 600).toString('base64')}` }, ator),
+      ).rejects.toThrow(/quadrada/);
+      await expect(
+        conferencia.mandarFotoAoIfood(l.t, l.lojas[0], { produtoId: p, imagem: `data:image/png;base64,${png(200, 200).toString('base64')}` }, ator),
+      ).rejects.toThrow(/300 px/);
+      await expect(conferencia.mandarFotoAoIfood(l.t, l.lojas[0], { produtoId: p, imagem: 'data:image/gif;base64,R0lGODlh' }, ator)).rejects.toThrow(/JPG ou PNG/);
+      expect(fotosDe()).toHaveLength(1);
+    });
   });
 });

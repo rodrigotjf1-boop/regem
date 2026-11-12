@@ -675,13 +675,15 @@ export class ConferenciaService {
     if (!produtoId) throw new BadRequestException('Escolha o produto.');
     const loja = await this.loja(tenantId, unidade);
     if (!this.orzuniFoto) throw new ConflictException('O iFood pelo Orzuni não está ligado nesta instalação.');
-    const r = await this.orzuniFoto.mandar(tenantId, loja.id, produtoId);
+    // `imagem` (R3 F6c): a cópia quadrada que a tela recortou, só para o iFood; ausente, vai a foto do produto como está.
+    const r = await this.orzuniFoto.mandar(tenantId, loja.id, produtoId, dto?.imagem);
     if (r.chamou)
       await this.auditar(tenantId, loja, ator, 'mandou_foto_ao_ifood', {
         canal: 'ifood',
         id: produtoId,
         nome: r.nome,
         resultado: r.ok ? r.resultado : 'recusado',
+        enquadrada: typeof dto?.imagem === 'string' && dto.imagem.length > 0,
         ...(r.ok ? { repetido: r.repetido } : { motivo: r.motivo }),
       });
     if (r.ok) return { ok: true, frase: r.frase };

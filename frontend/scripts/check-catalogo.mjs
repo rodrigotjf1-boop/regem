@@ -579,6 +579,13 @@ try {
       [cf.medidaParaOIfood(800, 800), cf.medidaParaOIfood(800, 815), cf.medidaParaOIfood(800, 830), cf.medidaParaOIfood(800, 600), cf.medidaParaOIfood(299, 299), cf.medidaParaOIfood(300, 300)],
       [true, true, false, false, false, true],
     );
+    // F6c: a foto que não serve vai enquadrada — o quadrado do centro (o lado menor), reduzido a até 1200 px; menos de
+    // 300 px no lado menor não se enquadra (aumentar borraria).
+    assert.deepEqual(cf.recorteCentral(1920, 1280), { sx: 320, sy: 0, lado: 1280, saida: 1200 });
+    assert.deepEqual(cf.recorteCentral(800, 600), { sx: 100, sy: 0, lado: 600, saida: 600 });
+    assert.deepEqual(cf.recorteCentral(1080, 1921), { sx: 0, sy: 420, lado: 1080, saida: 1080 });
+    assert.equal(cf.recorteCentral(1200, 299), null);
+    assert.deepEqual(cf.recorteCentral(300, 300), { sx: 0, sy: 0, lado: 300, saida: 300 });
   });
   caso('F5: os números digitados × os das vendas; sem vendas, os exemplos; e o que não dá para pagar', () => {
     const t = JSON.parse(JSON.stringify(TAXAS));
