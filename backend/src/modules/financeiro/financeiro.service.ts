@@ -34,6 +34,7 @@ import { paraCentavos, paraReais, somarCentavos } from '../../util/dinheiro';
 import { CreateTituloDto } from './dto/create-titulo.dto';
 import { PagarTituloDto } from './dto/pagar-titulo.dto';
 import { hojeISO } from '../../common/data';
+import { idadeDoTurno, TURNO_LIMITE_HORAS } from '../../common/turno';
 import { gravarEntitlement } from '../../common/gravar-entitlement';
 import { baixarPendenciasAntigas, escopoDoTurno, EVENTO_CANCELADOS_NA_BAIXA, pendenciasDoTurno } from '../delivery/pendencias-turno';
 
@@ -536,7 +537,9 @@ export class FinanceiroService {
         .where(eq(colaborador.id, s.abertaPorId));
       operadorNome = c?.nome ?? null;
     }
-    return { ...s, operadorNome };
+    // Há quanto tempo o turno está aberto, pelo relógio do servidor: passou de 24 h, a tela pede o fechamento (pedido do
+    // dono, 12/11/2026 — `common/turno.ts`).
+    return { ...s, operadorNome, ...idadeDoTurno(s.abertaEm), limiteHoras: TURNO_LIMITE_HORAS };
   }
 
   // Config do caixa (presidente/C&O): atendente pode sangrar/suprir sem autorização?

@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { aberturaDoTurno, idadeDoTurnoEmTexto } from '@/lib/turno';
 import { api, getCategoria, getPermissoes } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { useSenhaSemSalvar } from '@/lib/use-senha-sem-salvar';
@@ -52,6 +53,17 @@ export function CaixaPanel({
   const [conferindo, setConferindo] = useState(false);
   const [pend, setPend] = useState<PendenciasDoTurno | null>(null);
   const [justificativa, setJustificativa] = useState('');
+  // Turno aberto há mais de 24 horas (pedido do dono, 12/11/2026): ao abrir a tela, pede o fechamento UMA vez por turno
+  // nesta tela ("Depois" fecha o pedido; a faixa continua em alerta). Não trava a venda. Quem decide é o servidor.
+  const passou = !!caixa?.passouDoLimite;
+  const [pedirFechar, setPedirFechar] = useState(false);
+  const pedidoParaTurno = useRef<string | null>(null);
+  useEffect(() => {
+    if (passou && caixa?.id && pedidoParaTurno.current !== caixa.id) {
+      pedidoParaTurno.current = caixa.id;
+      setPedirFechar(true);
+    }
+  }, [passou, caixa?.id]);
 
   async function abrirFechamento() {
     setPend(null);
@@ -170,24 +182,77 @@ export function CaixaPanel({
   }
 
   // ----- Turno aberto: info + ações -----
+  const turno = String(caixa.turnoNumero ?? '—').padStart(2, '0');
+  const idade = idadeDoTurnoEmTexto(caixa.horasAberto);
   return (
     <>
-      <div className={embedded
-        ? 'flex flex-wrap items-center gap-x-3 gap-y-1.5'
-        : 'mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-ok/40 bg-ok/10 px-4 py-2.5'}>
-        <span className="text-sm font-bold text-ok">
-          🟢 Turno {String(caixa.turnoNumero ?? '—').padStart(2, '0')}
+      <div
+        data-turno-passou={passou ? 'true' : undefined}
+        className={embedded
+          ? 'flex flex-wrap items-center gap-x-3 gap-y-1.5'
+          : `mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border px-4 py-2.5 ${passou ? 'border-warn/40 bg-warn/10' : 'border-ok/40 bg-ok/10'}`}
+      >
+        <span className={`text-sm font-bold ${passou ? 'text-warn' : 'text-ok'}`}>
+          {passou ? '⚠️' : '🟢'} Turno {turno}
+          {passou && <span className="font-semibold"> aberto {idade}: feche e abra outro</span>}
         </span>
         {caixa.operadorNome && <span className="text-xs font-semibold">Operador: {caixa.operadorNome}</span>}
         {caixa.abertaEm && (
-          <span className="text-xs text-muted-foreground">desde {new Date(caixa.abertaEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+          <span className="text-xs text-muted-foreground">desde {aberturaDoTurno(caixa.abertaEm)}</span>
         )}
         <div className="ml-auto flex flex-wrap gap-1.5">
           <Button type="button" size="sm" variant="outline" className={embedded ? 'h-8 text-sm' : ''} onClick={() => setMov('suprimento')}>Suprimento</Button>
           <Button type="button" size="sm" variant="outline" className={embedded ? 'h-8 text-sm' : ''} onClick={() => setMov('sangria')}>Sangria</Button>
-          <Button type="button" size="sm" variant="outline" className={embedded ? 'h-8 text-sm' : ''} onClick={abrirFechamento}>Fechar turno</Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={passou ? 'default' : 'outline'}
+            className={embedded ? 'h-8 text-sm' : ''}
+            onClick={abrirFechamento}
+          >
+            Fechar turno
+          </Button>
         </div>
       </div>
+
+      {/* Turno aberto há mais de 24 horas: pede o fechamento (pedido do dono, 12/11/2026). */}
+      {pedirFechar && !fechar && (
+        <div className="fixed inset-0 z-40 grid place-items-center bg-black/50 p-4" onClick={() => setPedirFechar(false)}>
+          <Card
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="turno-24h-titulo"
+            aria-describedby="turno-24h-texto"
+            className="w-full max-w-sm p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="turno-24h-titulo" className="font-display font-semibold">
+              Turno {turno} aberto {idade}
+            </h3>
+            <p id="turno-24h-texto" className="mt-1 text-sm text-muted-foreground">
+              Aberto em {aberturaDoTurno(caixa.abertaEm)}
+              {caixa.operadorNome ? ` por ${caixa.operadorNome}` : ''}. O turno não deve passar de {caixa.limiteHoras ?? 24} horas: feche
+              este (a contagem de sempre) e abra outro para seguir vendendo.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button type="button" variant="ghost" className="flex-1" onClick={() => setPedirFechar(false)}>
+                Depois
+              </Button>
+              <Button
+                type="button"
+                className="flex-1"
+                autoFocus
+                onClick={() => {
+                  setPedirFechar(false);
+                  void abrirFechamento();
+                }}
+              >
+                Fechar turno
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
 
       {/* Modal sangria/suprimento */}
       {mov && (

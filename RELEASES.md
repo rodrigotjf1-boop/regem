@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O turno aberto há mais de 24 horas pede o fechamento (12/11, pedido do dono; SEM migration; não mexe no
+  `sync-daemon`).** Na NUVEM com o merge: `GET /financeiro/caixa` diz há quantas horas o turno está aberto e se passou de
+  24 h (relógio do servidor — `common/turno.ts`); o painel do caixa (PDV, Retirada e Delivery) fica em alerta e, ao abrir a
+  tela, pergunta "Fechar turno agora?" — não trava a venda. **No `.zip` 1.30.13:** o mesmo no servidor da loja (é lá que o
+  PDV da loja com servidor abre e fecha o turno).
+
 - **Ponte do chat 0.7.7 — o "envio incerto" da 99 com explicação (12/11; sem migration, sem mudança na nuvem).** Só o
   programa `ponte-chat/`: o diagnóstico passa a anotar o envio que a página fez, a recusa da 99 (com o código), a queda na
   rede e, sem confirmação no prazo, o que houve; a confirmação que chega até 2 min depois vira `eco_99_tardio`. Nenhum
