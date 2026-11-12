@@ -35,6 +35,7 @@ de cada roteiro. Sai com código 1 se algo falhou. O detalhe fica em `roteiros/u
 | `tv` | `/senhas` | A senha medida em pixels pela largura da TV; 8, 16, 25 e 60 senhas (a letra diminui até 60%, depois páginas a cada 8 s; nenhuma some). |
 | `alertas` | `/kds/alertas` | Zoom livre, a loja e os KDS de cada alerta, "até o Ciente", a validação, a prévia da faixa, o "Testar"; larguras com a gaveta e o diálogo abertos. |
 | `rota-cozinha` | `/rota-cozinha` | A rota, as notas, as impressoras, "Editar a ordem" (antes, depois, junto, incluir, renomear, arrastar), a recusa do despacho fora do fim, o corpo salvo, o simulador, a gaveta do KDS, a loja com servidor; larguras com a edição, o diálogo e a gaveta abertos. |
+| `caixa-turno` | `/pdv/retirada` | O turno aberto há mais de 24 horas: o de hoje não pede nada; o de 2 dias pede o fechamento ao abrir a tela ("Depois", a faixa em alerta com a idade e a data, "Fechar turno" abrindo a contagem); larguras com o pedido aberto. |
 
 Protótipo de referência das quatro: `mockups/regem-kds-cozinha.html`.
 

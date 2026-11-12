@@ -22,8 +22,9 @@
     "check:pausa": "node scripts/check-pausa.mjs",
     "check:catalogo": "node scripts/check-catalogo.mjs",
     "check:rota-cozinha": "node scripts/check-rota-cozinha.mjs",
+    "check:turno": "node scripts/check-turno.mjs",
     "roteiros": "node roteiros/rodar.mjs",
-    "test": "npm run check:etapas && npm run check:eventos && npm run check:kds && npm run check:balcao && npm run check:unidades && npm run check:marcas && npm run check:conversao && npm run check:embalagem && npm run check:senhas && npm run check:tela-senhas && npm run check:painel && npm run check:vagas && npm run check:pausa && npm run check:catalogo && npm run check:rota-cozinha"
+    "test": "npm run check:etapas && npm run check:eventos && npm run check:kds && npm run check:balcao && npm run check:unidades && npm run check:marcas && npm run check:conversao && npm run check:embalagem && npm run check:senhas && npm run check:tela-senhas && npm run check:painel && npm run check:vagas && npm run check:pausa && npm run check:catalogo && npm run check:rota-cozinha && npm run check:turno"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.0",
