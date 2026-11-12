@@ -177,6 +177,25 @@ export const ROTAS_DA_PORTA: readonly RotaNoManifesto[] = [
   },
   {
     metodo: 'GET',
+    caminho: `${I}/pedidos/bairros`,
+    resumo:
+      'Pedidos de entrega da loja por bairro (?de=AAAA-MM-DD&ate=AAAA-MM-DD, até 92 dias, no fuso da loja): só contas; bairro com ' +
+      'menos de 5 pedidos vai para "outros", sem o nome. Só para os produtos da DMS (aplicativo de parceiro: 403).',
+    permissao: 'pedidos.ler',
+    exemploResposta: {
+      loja_id: LOJA,
+      de: '2026-08-01',
+      ate: '2026-10-30',
+      fuso: 'America/Sao_Paulo',
+      minimo: 5,
+      bairros: [{ bairro: 'Centro', cidade: 'Rio de Janeiro', uf: 'RJ', pedidos: 128, receita_micros: 7424000000 }],
+      outros: { bairros: 6, pedidos: 14, receita_micros: 812000000 },
+      sem_bairro: { pedidos: 3, receita_micros: 174000000 },
+      retirada_e_balcao: { pedidos: 412 },
+    },
+  },
+  {
+    metodo: 'GET',
     caminho: `${I}/clientes/anonimizados`,
     resumo: 'Clientes anonimizados (excluídos) da empresa, com cursor: só o id.',
     permissao: 'clientes.anonimizacao.ler',

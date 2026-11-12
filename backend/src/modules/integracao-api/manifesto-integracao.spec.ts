@@ -51,7 +51,7 @@ describe('manifesto da porta de integração (Padrão §13)', () => {
   it('cada rota do controller está no manifesto, com o método, o caminho e a permissão do código: nenhuma a mais, nenhuma a menos', () => {
     const doManifesto = ROTAS_DA_PORTA.map((r) => `${r.metodo} ${r.caminho} ${r.permissao ?? '-'}`).sort();
     expect(doManifesto).toEqual(rotasDoController());
-    expect(doManifesto.length).toBe(16); // + os canais da Central de atendimento (mig 398)
+    expect(doManifesto.length).toBe(17); // + os canais da Central (mig 398) + os pedidos por bairro (Liame, D-RG-8)
   });
 
   it('as permissões são os escopos do Regem menos os do totem, cada uma com a frase; a classe parceiro só no catálogo aprovado na F4', () => {

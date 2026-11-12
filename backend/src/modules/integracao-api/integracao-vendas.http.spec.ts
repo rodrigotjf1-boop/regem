@@ -1174,11 +1174,169 @@ descrever('API de integração — vendas (GET /pedidos e /clientes/anonimizados
     });
   });
 
+  // ───────────────────────────── pedidos por bairro (Liame, D-RG-8) ─────────────────────────────
+
+  describe('pedidos por bairro (GET /pedidos/bairros — Liame, decisão D-RG-8)', () => {
+    let P: Awaited<ReturnType<typeof empresa>>; // 2 lojas: o filtro é estrito por loja
+    let tP = '';
+    const DE = '2026-09-01';
+    const ATE = '2026-09-30';
+    const grupo: Record<'penha' | 'centro' | 'outros' | 'semBairro' | 'retirada', string[]> = {
+      penha: [],
+      centro: [],
+      outros: [],
+      semBairro: [],
+      retirada: [],
+    };
+    const fora: Record<string, string> = {};
+
+    /** Um pedido com endereço: o bairro, a cidade e a UF que contam — e rua, número e CEP que NUNCA podem sair. */
+    async function comEndereco(
+      loja: string,
+      bairro: string | null,
+      criado: string,
+      o: { canal?: string; cidade?: string | null; uf?: string | null; tipo?: string; status?: string; cancelado?: string | null } = {},
+    ) {
+      const id = await pedido(P.tenant, { loja, canal: o.canal ?? 'cardapio', criado, bruto: 20, total: 20, status: o.status, cancelado: o.cancelado });
+      await q(
+        `update pedido_externo set tipo = $2, endereco_bairro = $3, endereco_cidade = $4, endereco_uf = $5,
+                endereco_rua = 'Rua Que Nunca Sai', endereco_numero = '4321', endereco_cep = '21099000'
+          where id = $1`,
+        [id, o.tipo ?? 'entrega', bairro, o.cidade === undefined ? 'Rio de Janeiro' : o.cidade, o.uf === undefined ? 'RJ' : o.uf],
+      );
+      return id;
+    }
+
+    const bairros = (token: string, qs = `de=${DE}&ate=${ATE}`) => chamar(`/integracao/pedidos/bairros?${qs}`, token);
+
+    beforeAll(async () => {
+      P = await empresa('Bairros', ['Centro', 'Penha']);
+      const [l1, l2] = P.lojas;
+      // o acesso ANTES das vendas: o carimbador só publica as vendas de empresa conectada (como no cenário principal)
+      tP = await emitir(P, l1, ['pedidos.ler', 'clientes.anonimizacao.ler']);
+      // sem cidade no pedido (o cardápio não grava), vale a do cardápio da loja
+      await q(`insert into cardapio_config (tenant_id, unidade_id, token, end_cidade) values ($1, $2, $3, 'Rio de Janeiro')`, [
+        P.tenant,
+        l1,
+        `bairros-${randomUUID()}`,
+      ]);
+      // Penha: 6 entregas, escritas de 3 jeitos (maiúscula e minúscula não separam); a última às 23:30 do último dia
+      // (já é 01/10 em UTC — conta, porque o dia é o do fuso da loja)
+      for (const [b, hora] of [
+        ['Penha', '10:00'],
+        ['Penha', '11:00'],
+        ['Penha', '12:00'],
+        ['PENHA ', '13:00'],
+        [' penha', '14:00'],
+      ] as const) {
+        grupo.penha.push(await comEndereco(l1, b, sp('2026-09-10', hora)));
+      }
+      grupo.penha.push(await comEndereco(l1, 'Penha', sp(ATE, '23:30')));
+      // Centro: 5 entregas (o mínimo) sem cidade e sem UF no pedido
+      for (const hora of ['18:00', '18:10', '18:20', '18:30', '18:40']) {
+        grupo.centro.push(await comEndereco(l1, 'Centro', sp('2026-09-15', hora), { cidade: null, uf: null }));
+      }
+      // menos de 5: vão para "outros" sem o nome
+      grupo.outros.push(await comEndereco(l1, 'Olaria', sp('2026-09-12', '20:00')));
+      grupo.outros.push(await comEndereco(l1, 'Olaria', sp('2026-09-13', '20:00')));
+      grupo.outros.push(await comEndereco(l1, 'Vila da Penha', sp('2026-09-14', '20:00')));
+      // sem bairro: vazio e distância no lugar do bairro (frete por raio)
+      grupo.semBairro.push(await comEndereco(l1, null, sp('2026-09-16', '20:00')));
+      grupo.semBairro.push(await comEndereco(l1, '~3.2 km', sp('2026-09-17', '20:00')));
+      // retirada (mesmo com bairro) e balcão: só a conta
+      grupo.retirada.push(await comEndereco(l1, 'Penha', sp('2026-09-18', '20:00'), { tipo: 'retirada' }));
+      grupo.retirada.push(await comanda(P.tenant, { loja: l1, fechada: sp('2026-09-18', '21:00'), total: 30, itens: [{ desc: 'Burger', qtd: 1, preco: 30 }] }));
+      // o que NÃO conta
+      fora.cancelado = await comEndereco(l1, 'Penha', sp('2026-09-11', '19:00'), { status: 'cancelado', cancelado: sp('2026-09-11', '19:30') });
+      fora.vespera = await comEndereco(l1, 'Penha', sp('2026-08-31', '23:50')); // 01/09 em UTC, 31/08 na loja
+      fora.da99 = await comEndereco(l1, 'Penha', sp('2026-09-11', '20:00'), { canal: '99food' });
+      fora.outraLoja = await comEndereco(l2, 'Penha', sp('2026-09-11', '21:00'));
+      await carimbar([P.tenant]);
+    });
+
+    it('soma as entregas confirmadas por bairro com a régua da GET /pedidos (receita em micros, mínimo de 5)', async () => {
+      const r = await bairros(tP);
+      expect(r.status).toBe(200);
+      const corpo: any = await r.json();
+      // a receita de cada venda é a da GET /pedidos (o "Faturamento" do Painel), lida do mesmo acesso
+      const vendas = ultimas((await lerTudo(tP)).itens);
+      const micros = (ids: string[]) => ids.reduce((s, id) => s + vendas.get(id).receita_centavos * 10_000, 0);
+      for (const id of [...grupo.penha, ...grupo.centro, ...grupo.outros, ...grupo.semBairro, ...grupo.retirada]) {
+        expect(vendas.get(id)?.situacao).toBe('confirmado');
+      }
+      expect(vendas.get(fora.cancelado)?.situacao).not.toBe('confirmado');
+      expect(corpo).toEqual({
+        loja_id: P.lojas[0],
+        de: DE,
+        ate: ATE,
+        fuso: 'America/Sao_Paulo',
+        minimo: 5,
+        bairros: [
+          { bairro: 'Penha', cidade: 'Rio de Janeiro', uf: 'RJ', pedidos: 6, receita_micros: micros(grupo.penha) },
+          { bairro: 'Centro', cidade: 'Rio de Janeiro', uf: null, pedidos: 5, receita_micros: micros(grupo.centro) },
+        ],
+        outros: { bairros: 2, pedidos: 3, receita_micros: micros(grupo.outros) },
+        sem_bairro: { pedidos: 2, receita_micros: micros(grupo.semBairro) },
+        retirada_e_balcao: { pedidos: 2 },
+      });
+      expect(micros(grupo.penha)).toBeGreaterThan(0);
+    });
+
+    it('nunca sai cliente, telefone, rua, número ou CEP — nem o nome do bairro de "outros"', async () => {
+      const texto = await (await bairros(tP)).text();
+      for (const proibido of ['Rua Que Nunca Sai', '4321', '21099000', 'Olaria', 'Vila da Penha', 'telefone', 'cliente', 'rua', 'cep']) {
+        expect(texto).not.toContain(proibido);
+      }
+    });
+
+    it('a janela muda a conta: só o último dia traz a entrega das 23:30; a véspera fica fora', async () => {
+      const ultimoDia: any = await (await bairros(tP, `de=${ATE}&ate=${ATE}`)).json();
+      expect(ultimoDia.bairros).toEqual([]);
+      expect(ultimoDia.outros).toMatchObject({ bairros: 1, pedidos: 1 }); // a Penha das 23:30, abaixo do mínimo
+      const vespera: any = await (await bairros(tP, 'de=2026-08-31&ate=2026-08-31')).json();
+      expect(vespera.outros).toMatchObject({ bairros: 1, pedidos: 1 }); // a entrega das 23:50 de 31/08
+      expect(vespera.sem_bairro.pedidos + vespera.retirada_e_balcao.pedidos).toBe(0);
+    });
+
+    it('a 99 só entra com vendas.99food.ler; aplicativo de parceiro: 403; acesso da empresa inteira: 400', async () => {
+      const base = {
+        tokenId: randomUUID(),
+        tenantId: P.tenant,
+        unidadeId: P.lojas[0],
+        abrangencia: 'loja',
+        lojaUnica: false,
+        escopos: ['pedidos.ler'],
+        cliente: 'liame',
+        autorizadoPor: P.presidente,
+        prefixo: 'rgm_it_teste',
+      } as any;
+      const sem99: any = await vendas.pedidosPorBairro(base, { de: DE, ate: ATE });
+      const com99: any = await vendas.pedidosPorBairro({ ...base, escopos: ['pedidos.ler', 'vendas.99food.ler'] }, { de: DE, ate: ATE });
+      expect(sem99.bairros[0]).toMatchObject({ bairro: 'Penha', pedidos: 6 });
+      expect(com99.bairros[0]).toMatchObject({ bairro: 'Penha', pedidos: 7 });
+      const status = async (p: Promise<unknown>) => p.then(() => 'passou', (e: any) => e?.getStatus?.() ?? `erro: ${e?.message}`);
+      expect(await status(vendas.pedidosPorBairro({ ...base, cliente: `parceiro_${'a1'.repeat(12)}` }, { de: DE, ate: ATE }))).toBe(403);
+      expect(await status(vendas.pedidosPorBairro({ ...base, unidadeId: null, abrangencia: 'empresa' }, { de: DE, ate: ATE }))).toBe(400);
+    });
+
+    it('sem pedidos.ler: 403; sem a janela, janela de 93 dias ou de depois de ate: 400 (problem+json)', async () => {
+      const soCupons = await emitir(P, P.lojas[0], ['cupons.ler']);
+      const semEscopo = await bairros(soCupons);
+      expect(semEscopo.status).toBe(403);
+      expect(((await semEscopo.json()) as any).type).toBe(`${BASE_TIPO_PROBLEMA}escopo-insuficiente`);
+      for (const qs of [`de=${DE}`, 'de=2026-08-01&ate=2026-11-01', `de=${ATE}&ate=${DE}`, 'de=2026-02-30&ate=2026-03-01']) {
+        const r = await bairros(tP, qs);
+        expect([qs, r.status]).toEqual([qs, 400]);
+        expect(((await r.json()) as any).type).toBe(`${BASE_TIPO_PROBLEMA}parametro-invalido`);
+      }
+    });
+  });
+
   it('servidor da loja (EDGE_MODE=true): as rotas de vendas não existem (404)', async () => {
     process.env.EDGE_MODE = 'true';
     const edge = await subir();
     try {
-      for (const rota of ['pedidos', 'clientes/anonimizados']) {
+      for (const rota of ['pedidos', 'clientes/anonimizados', 'pedidos/bairros?de=2026-09-01&ate=2026-09-30']) {
         const r = await fetch(`${edge.base}/integracao/${rota}`, { headers: { authorization: `Bearer ${tA1}` } });
         expect(r.status).toBe(404);
         expect(((await r.json()) as any).type).toBe(`${BASE_TIPO_PROBLEMA}nao-encontrado`);

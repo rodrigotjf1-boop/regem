@@ -12727,6 +12727,67 @@
         }
       }
     },
+    "/api/v1/kds/avisos/pendentes": {
+      "get": {
+        "operationId": "KdsAvisosController_pendentes",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/kds/avisos/historico": {
+      "get": {
+        "operationId": "KdsAvisosController_historico",
+        "parameters": [
+          {
+            "name": "horas",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/kds/avisos/{id}/ciente": {
+      "post": {
+        "operationId": "KdsAvisosController_ciente",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/contadores": {
       "get": {
         "operationId": "DesligamentoController_listar",
@@ -20606,6 +20667,53 @@
         ]
       }
     },
+    "/api/v1/integracao/pedidos/bairros": {
+      "get": {
+        "operationId": "IntegracaoApiController_pedidosPorBairro",
+        "summary": "Pedidos de entrega da loja por bairro numa janela de até 92 dias (só contas; bairro com menos de 5 pedidos vai para \"outros\").",
+        "description": "A mesma régua da GET /integracao/pedidos: só vendas confirmadas; receita = \"Faturamento\" do Painel (líquida, sem a gorjeta), em micros; o dia é o de faturamento no fuso da loja. Bairro, cidade e UF do endereço de entrega (maiúscula e minúscula não separam; sem cidade no pedido, a do cardápio da loja). A 99Food só com vendas.99food.ler. Retirada, balcão e mesa: só o total. Nunca cliente, telefone, rua, número ou CEP. Só para os produtos da DMS (aplicativo de parceiro: 403) e só acesso de loja.",
+        "parameters": [
+          {
+            "name": "de",
+            "required": true,
+            "in": "query",
+            "description": "Primeiro dia (AAAA-MM-DD), no fuso da loja.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ate",
+            "required": true,
+            "in": "query",
+            "description": "Último dia (AAAA-MM-DD), inclusive; a janela vai até 92 dias.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PedidosPorBairroIntegracao"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Integração (token por loja)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/integracao/clientes/anonimizados": {
       "get": {
         "operationId": "IntegracaoApiController_clientesAnonimizados",
@@ -25025,6 +25133,140 @@
           "itens",
           "proximo_cursor",
           "tem_mais"
+        ]
+      },
+      "BairroIntegracao": {
+        "type": "object",
+        "properties": {
+          "bairro": {
+            "type": "string",
+            "description": "O bairro do endereço de entrega, como o Regem guarda (sem espaço nas pontas)."
+          },
+          "cidade": {
+            "type": "string",
+            "nullable": true,
+            "description": "A cidade do endereço; sem ela no pedido, a do cardápio da loja."
+          },
+          "uf": {
+            "type": "string",
+            "nullable": true,
+            "description": "A UF (2 letras) mais frequente nos pedidos do bairro; null sem nenhuma."
+          },
+          "pedidos": {
+            "type": "number",
+            "description": "Pedidos de entrega confirmados na janela (sempre 5 ou mais)."
+          },
+          "receita_micros": {
+            "type": "number",
+            "description": "Receita em micros (1 real = 1.000.000): o \"Faturamento\" do Painel, líquida, sem a gorjeta."
+          }
+        },
+        "required": [
+          "bairro",
+          "cidade",
+          "uf",
+          "pedidos",
+          "receita_micros"
+        ]
+      },
+      "OutrosBairrosIntegracao": {
+        "type": "object",
+        "properties": {
+          "bairros": {
+            "type": "number",
+            "description": "Quantos bairros tiveram menos de 5 pedidos (os nomes não vão)."
+          },
+          "pedidos": {
+            "type": "number"
+          },
+          "receita_micros": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "bairros",
+          "pedidos",
+          "receita_micros"
+        ]
+      },
+      "SemBairroIntegracao": {
+        "type": "object",
+        "properties": {
+          "pedidos": {
+            "type": "number",
+            "description": "Entregas sem bairro no endereço (ou com distância no lugar do bairro, frete por raio)."
+          },
+          "receita_micros": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "pedidos",
+          "receita_micros"
+        ]
+      },
+      "RetiradaEBalcaoIntegracao": {
+        "type": "object",
+        "properties": {
+          "pedidos": {
+            "type": "number",
+            "description": "Pedidos confirmados que não são entrega (retirada, balcão, mesa) na janela — só a conta."
+          }
+        },
+        "required": [
+          "pedidos"
+        ]
+      },
+      "PedidosPorBairroIntegracao": {
+        "type": "object",
+        "properties": {
+          "loja_id": {
+            "type": "string",
+            "description": "A loja do acesso."
+          },
+          "de": {
+            "type": "string",
+            "description": "Primeiro dia da janela (AAAA-MM-DD), no fuso da loja."
+          },
+          "ate": {
+            "type": "string",
+            "description": "Último dia da janela (AAAA-MM-DD), inclusive."
+          },
+          "fuso": {
+            "type": "string",
+            "description": "O fuso da loja (IANA)."
+          },
+          "minimo": {
+            "type": "number",
+            "description": "Mínimo de pedidos para o bairro sair com o nome."
+          },
+          "bairros": {
+            "description": "Mais pedidos primeiro.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BairroIntegracao"
+            }
+          },
+          "outros": {
+            "$ref": "#/components/schemas/OutrosBairrosIntegracao"
+          },
+          "sem_bairro": {
+            "$ref": "#/components/schemas/SemBairroIntegracao"
+          },
+          "retirada_e_balcao": {
+            "$ref": "#/components/schemas/RetiradaEBalcaoIntegracao"
+          }
+        },
+        "required": [
+          "loja_id",
+          "de",
+          "ate",
+          "fuso",
+          "minimo",
+          "bairros",
+          "outros",
+          "sem_bairro",
+          "retirada_e_balcao"
         ]
       },
       "ClienteAnonimizadoIntegracao": {

@@ -61,7 +61,7 @@ export const ESCOPOS_COM_CARIMBO: readonly EscopoIntegracao[] = ESCOPOS_INTEGRAC
 
 /** O que cada escopo libera, em pt-BR (tela do console). */
 export const ROTULO_ESCOPO: Record<EscopoIntegracao, string> = {
-  'pedidos.ler': 'Vendas confirmadas e canceladas, itens, canal e cupom usado',
+  'pedidos.ler': 'Vendas confirmadas e canceladas, itens, canal e cupom usado; e as entregas somadas por bairro (sem cliente)',
   'clientes.telefone.ler': 'Id e telefone do cliente no pedido (nunca de marketplace)',
   'custos.ler': 'Custo por item (só se quem autorizou vê valores em R$)',
   'clientes.anonimizacao.ler': 'Avisos de cliente que pediu para ser esquecido',

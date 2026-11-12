@@ -14,7 +14,9 @@ import type { TextoGuardado } from './clique-tipos';
 export const TEXTO_ESCOPO: Record<string, { rotulo: string; texto: string }> = {
   'pedidos.ler': {
     rotulo: 'Pedidos',
-    texto: 'Pedidos confirmados e cancelados, com itens, canal, cupom usado e de qual anúncio ou link o cliente veio.',
+    texto:
+      'Pedidos confirmados e cancelados, com itens, canal, cupom usado e de qual anúncio ou link o cliente veio; e as entregas ' +
+      'somadas por bairro, sem dado do cliente.',
   },
   'clientes.anonimizacao.ler': {
     rotulo: 'Aviso de cliente anonimizado',
