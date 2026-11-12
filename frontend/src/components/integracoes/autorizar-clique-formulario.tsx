@@ -111,8 +111,12 @@ export function AutorizarCliqueFormulario({
   const mais = tela.modo === 'mais';
   const umaLoja = tela.lojas.length === 1;
   const [marcadas, setMarcadas] = useState<Record<string, boolean>>(() => Object.fromEntries(tela.lojas.map((l) => [l.id, l.marcada])));
-  // C-1: as opcionais nascem desligadas, o custo também.
+  // C-1: as opcionais nascem desligadas, o custo também. Vale também no "pede mais": cada opcional nova tem a sua chave
+  // e o presidente liga a que quiser (antes, "Liberar" ligava todas as novas, sem escolha). A troca soma o que ele ligar
+  // ao que a ligação já tinha: desligar aqui não tira nada que já estava liberado.
   const [ligadas, setLigadas] = useState<Record<string, boolean>>({});
+  // No "pede mais", sem nenhuma necessária nova e com todas as opcionais novas desligadas, autorizar não muda nada.
+  const nadaNovo = mais && !tela.novas.some((n) => !n.opcional || (n.disponivel && ligadas[n.id]));
   const [confirmo, setConfirmo] = useState(false);
   const [senha, setSenha] = useState('');
   const [semLoja, setSemLoja] = useState(false);
@@ -149,9 +153,9 @@ export function AutorizarCliqueFormulario({
       campoSenha.current?.focus();
       return;
     }
-    const opcionais = mais
-      ? tela.novas.filter((n) => n.opcional && n.disponivel).map((n) => n.id)
-      : [...tela.opcionais, ...tela.dadosDosClientes].filter((p) => p.disponivel && ligadas[p.id]).map((p) => p.id);
+    const opcionais = (mais ? tela.novas.filter((n) => n.opcional) : [...tela.opcionais, ...tela.dadosDosClientes])
+      .filter((p) => p.disponivel && ligadas[p.id])
+      .map((p) => p.id);
     aoAutorizar({ lojas: escolhidas, opcionais, senha, confirmoOutraEmpresa: Boolean(tela.confirmacao) && confirmo });
   }
 
@@ -275,9 +279,13 @@ export function AutorizarCliqueFormulario({
       {mais ? (
         <Secao n={3} titulo="O que muda" id="aut-muda">
           <ul className="overflow-hidden rounded-[11px] border border-border">
-            {tela.novas.map((n) => (
-              <ItemDePermissao key={n.id} app={app} p={n} nova />
-            ))}
+            {tela.novas.map((n) =>
+              n.opcional ? (
+                <ItemDePermissao key={n.id} app={app} p={n} nova ligada={Boolean(ligadas[n.id])} aoMudar={(v) => setLigadas((x) => ({ ...x, [n.id]: v }))} />
+              ) : (
+                <ItemDePermissao key={n.id} app={app} p={n} nova />
+              ),
+            )}
           </ul>
           {tela.jaLiberado && (
             <details className="group rounded-[11px] border border-border px-3.5 py-2.5 text-[13px]">
@@ -409,11 +417,16 @@ export function AutorizarCliqueFormulario({
         </div>
       </Secao>
 
+      {nadaNovo && (
+        <p className="text-[13px] text-secondary-foreground" id="aut-nada-novo">
+          Ligue o que quer liberar, ou use “{tela.botoes.cancelar}”: o {app} continua com o que já tinha.
+        </p>
+      )}
       <div className="flex flex-wrap justify-end gap-2.5">
         <Button type="button" variant="outline" className="flex-1 font-bold sm:flex-none" onClick={aoCancelar} disabled={enviando}>
           {tela.botoes.cancelar}
         </Button>
-        <Button type="submit" className="flex-1 font-bold sm:flex-none" disabled={enviando}>
+        <Button type="submit" className="flex-1 font-bold sm:flex-none" disabled={enviando || nadaNovo} aria-describedby={nadaNovo ? 'aut-nada-novo' : undefined}>
           {enviando ? 'Autorizando…' : mais || !escolhidas.length ? tela.botoes.autorizar : `${tela.botoes.autorizar} ${plural(escolhidas.length, 'loja', 'lojas')}`}
         </Button>
       </div>
