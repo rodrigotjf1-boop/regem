@@ -133,3 +133,76 @@ export class PaginaClientesAnonimizadosIntegracao {
   @ApiProperty()
   tem_mais!: boolean;
 }
+
+// ───────────── pedidos por bairro (GET /integracao/pedidos/bairros — Liame, decisão D-RG-8) ─────────────
+// Só contas: o nome do bairro, a cidade, a UF, quantos pedidos e a receita. Nunca cliente, telefone, rua, número ou CEP.
+
+export class BairroIntegracao {
+  @ApiProperty({ description: 'O bairro do endereço de entrega, como o Regem guarda (sem espaço nas pontas).' })
+  bairro!: string;
+
+  @ApiProperty({ nullable: true, type: String, description: 'A cidade do endereço; sem ela no pedido, a do cardápio da loja.' })
+  cidade!: string | null;
+
+  @ApiProperty({ nullable: true, type: String, description: 'A UF (2 letras) mais frequente nos pedidos do bairro; null sem nenhuma.' })
+  uf!: string | null;
+
+  @ApiProperty({ description: 'Pedidos de entrega confirmados na janela (sempre 5 ou mais).' })
+  pedidos!: number;
+
+  @ApiProperty({ description: 'Receita em micros (1 real = 1.000.000): o "Faturamento" do Painel, líquida, sem a gorjeta.' })
+  receita_micros!: number;
+}
+
+export class OutrosBairrosIntegracao {
+  @ApiProperty({ description: 'Quantos bairros tiveram menos de 5 pedidos (os nomes não vão).' })
+  bairros!: number;
+
+  @ApiProperty()
+  pedidos!: number;
+
+  @ApiProperty()
+  receita_micros!: number;
+}
+
+export class SemBairroIntegracao {
+  @ApiProperty({ description: 'Entregas sem bairro no endereço (ou com distância no lugar do bairro, frete por raio).' })
+  pedidos!: number;
+
+  @ApiProperty()
+  receita_micros!: number;
+}
+
+export class RetiradaEBalcaoIntegracao {
+  @ApiProperty({ description: 'Pedidos confirmados que não são entrega (retirada, balcão, mesa) na janela — só a conta.' })
+  pedidos!: number;
+}
+
+export class PedidosPorBairroIntegracao {
+  @ApiProperty({ description: 'A loja do acesso.' })
+  loja_id!: string;
+
+  @ApiProperty({ description: 'Primeiro dia da janela (AAAA-MM-DD), no fuso da loja.' })
+  de!: string;
+
+  @ApiProperty({ description: 'Último dia da janela (AAAA-MM-DD), inclusive.' })
+  ate!: string;
+
+  @ApiProperty({ description: 'O fuso da loja (IANA).' })
+  fuso!: string;
+
+  @ApiProperty({ description: 'Mínimo de pedidos para o bairro sair com o nome.' })
+  minimo!: number;
+
+  @ApiProperty({ type: [BairroIntegracao], description: 'Mais pedidos primeiro.' })
+  bairros!: BairroIntegracao[];
+
+  @ApiProperty({ type: OutrosBairrosIntegracao })
+  outros!: OutrosBairrosIntegracao;
+
+  @ApiProperty({ type: SemBairroIntegracao })
+  sem_bairro!: SemBairroIntegracao;
+
+  @ApiProperty({ type: RetiradaEBalcaoIntegracao })
+  retirada_e_balcao!: RetiradaEBalcaoIntegracao;
+}

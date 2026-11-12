@@ -47,7 +47,9 @@ export const PERMISSAO_NA_TELA: Partial<
 > = {
   'pedidos.ler': {
     rotulo: 'Pedidos',
-    frase: 'Pedidos confirmados e cancelados, com itens, canal, cupom usado e de qual anúncio ou link o cliente veio.',
+    frase:
+      'Pedidos confirmados e cancelados, com itens, canal, cupom usado e de qual anúncio ou link o cliente veio; e as entregas ' +
+      'somadas por bairro, sem dado do cliente.',
     naFrase: 'os pedidos',
     curta: 'os pedidos',
   },

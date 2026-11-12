@@ -250,6 +250,60 @@
         }
       }
     },
+    "/api/v1/integracao/pedidos/bairros": {
+      "get": {
+        "operationId": "get_api_v1_integracao_pedidos_bairros",
+        "summary": "Pedidos de entrega da loja por bairro (?de=AAAA-MM-DD&ate=AAAA-MM-DD, até 92 dias, no fuso da loja): só contas; bairro com menos de 5 pedidos vai para \"outros\", sem o nome. Só para os produtos da DMS (aplicativo de parceiro: 403).",
+        "x-dms-permissao": "pedidos.ler",
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "example": {
+                  "loja_id": "1f0c2a3b-0000-4000-8000-000000000001",
+                  "de": "2026-08-01",
+                  "ate": "2026-10-30",
+                  "fuso": "America/Sao_Paulo",
+                  "minimo": 5,
+                  "bairros": [
+                    {
+                      "bairro": "Centro",
+                      "cidade": "Rio de Janeiro",
+                      "uf": "RJ",
+                      "pedidos": 128,
+                      "receita_micros": 7424000000
+                    }
+                  ],
+                  "outros": {
+                    "bairros": 6,
+                    "pedidos": 14,
+                    "receita_micros": 812000000
+                  },
+                  "sem_bairro": {
+                    "pedidos": 3,
+                    "receita_micros": 174000000
+                  },
+                  "retirada_e_balcao": {
+                    "pedidos": 412
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro no formato do Padrão (§7)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/integracao/clientes/anonimizados": {
       "get": {
         "operationId": "get_api_v1_integracao_clientes_anonimizados",
@@ -867,7 +921,7 @@
   },
   "x-dms-permissoes": {
     "pedidos.ler": {
-      "frase": "Pedidos confirmados e cancelados, com itens, canal, cupom usado e de qual anúncio ou link o cliente veio.",
+      "frase": "Pedidos confirmados e cancelados, com itens, canal, cupom usado e de qual anúncio ou link o cliente veio; e as entregas somadas por bairro, sem dado do cliente.",
       "classes": [
         "dms",
         "parceiro"

@@ -18,7 +18,7 @@ import { problemaGuardado, ProblemaFilter } from './problema';
 import { VendasIntegracaoService } from './vendas-integracao.service';
 import { CuponsIntegracaoService, ResultadoEscrita } from './cupons-integracao.service';
 import { ClientesIntegracaoService } from './clientes-integracao.service';
-import { PaginaClientesAnonimizadosIntegracao, PaginaVendasIntegracao } from './dto/vendas-integracao.dto';
+import { PaginaClientesAnonimizadosIntegracao, PaginaVendasIntegracao, PedidosPorBairroIntegracao } from './dto/vendas-integracao.dto';
 import {
   CriarCupomIntegracao,
   CupomIntegracao,
@@ -157,6 +157,27 @@ export class IntegracaoApiController {
     @Query('confirmados_desde') confirmadosDesde?: string,
   ) {
     return this.vendas.pedidos(ctx, { cursor, limite, confirmados_desde: confirmadosDesde });
+  }
+
+  // Os pedidos de entrega da loja somados por bairro, numa janela de dias (Liame — decisão D-RG-8, 11/11/2026). Só contas:
+  // bairro com menos de 5 pedidos vai para "outros", sem o nome; nunca cliente, rua, número ou CEP. Só para os produtos da
+  // DMS (o aplicativo de parceiro recebe 403) e só acesso de loja.
+  @Get('pedidos/bairros')
+  @Escopos('pedidos.ler')
+  @ApiOperation({
+    summary: 'Pedidos de entrega da loja por bairro numa janela de até 92 dias (só contas; bairro com menos de 5 pedidos vai para "outros").',
+    description:
+      'A mesma régua da GET /integracao/pedidos: só vendas confirmadas; receita = "Faturamento" do Painel (líquida, sem a ' +
+      'gorjeta), em micros; o dia é o de faturamento no fuso da loja. Bairro, cidade e UF do endereço de entrega (maiúscula e ' +
+      'minúscula não separam; sem cidade no pedido, a do cardápio da loja). A 99Food só com vendas.99food.ler. Retirada, ' +
+      'balcão e mesa: só o total. Nunca cliente, telefone, rua, número ou CEP. Só para os produtos da DMS (aplicativo de ' +
+      'parceiro: 403) e só acesso de loja.',
+  })
+  @ApiQuery({ name: 'de', required: true, description: 'Primeiro dia (AAAA-MM-DD), no fuso da loja.' })
+  @ApiQuery({ name: 'ate', required: true, description: 'Último dia (AAAA-MM-DD), inclusive; a janela vai até 92 dias.' })
+  @ApiOkResponse({ type: PedidosPorBairroIntegracao })
+  pedidosPorBairro(@IntegracaoCtx() ctx: IntegracaoCtxData, @Query('de') de?: string, @Query('ate') ate?: string) {
+    return this.vendas.pedidosPorBairro(ctx, { de, ate });
   }
 
   // Avisos de cliente anonimizado (o "esquecer" da LGPD): o Liame apaga o cliente dele em 1 dia.

@@ -11,6 +11,7 @@ import { ProblemaException } from './problema';
 import { FotoVenda, sqlIso } from './venda-integracao';
 import { bairroOuNulo, MARKETPLACES_REGEMCAST } from './contato-integracao';
 import { ehClienteDeParceiro } from './parceiros.regras';
+import { lerJanelaDeDias, MINIMO_POR_BAIRRO, montarBairros, type GrupoDeBairro } from './bairros-integracao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -173,6 +174,77 @@ export class VendasIntegracaoService {
       }),
       tem_mais: linhas.length > limite,
     };
+  }
+
+  // ───────────────────────────── GET /integracao/pedidos/bairros ─────────────────────────────
+
+  /**
+   * Os pedidos de ENTREGA da loja somados por bairro, numa janela de dias no fuso da loja (pedido do Liame, decisão D-RG-8
+   * aprovada pelo dono em 11/11/2026). A MESMA régua da GET /integracao/pedidos — as vendas publicadas (`integracao_versao`),
+   * só as confirmadas (cancelada e removida não contam), a receita da foto (o "Faturamento" do Painel: líquida, sem a
+   * gorjeta — `common/faturamento.ts`), o dia de faturamento da foto (pedido: a criação; comanda: o fechamento), o mesmo
+   * filtro de loja e a 99 só com `vendas.99food.ler`. O bairro, a cidade e a UF são os do endereço de entrega do pedido,
+   * lidos na hora (o endereço não entra na foto); sem cidade no pedido, a do cardápio da loja (a regra dos campos do
+   * RegemCast e da nota). Retirada, balcão e mesa entram só na conta de `retirada_e_balcao`.
+   *
+   * Só para os produtos da DMS: o aplicativo de PARCEIRO recebe 403 — o catálogo de permissões do parceiro (aprovado pelo
+   * dono em 23/10/2026) não diz "por bairro", e liberar é decisão dele. Só acesso de LOJA (o fuso e a resposta são da loja).
+   */
+  async pedidosPorBairro(ctx: IntegracaoCtxData, q: { de?: unknown; ate?: unknown }) {
+    if (ehClienteDeParceiro(ctx.cliente)) {
+      throw new ProblemaException(
+        403,
+        'escopo-insuficiente',
+        'Os pedidos por bairro são só para os produtos da DMS: o aplicativo de parceiro não lê esta rota.',
+      );
+    }
+    if (!ctx.unidadeId) {
+      throw new ProblemaException(400, 'parametro-invalido', 'Os pedidos por bairro são por loja: use o acesso de uma loja.');
+    }
+    const { de, ate } = lerJanelaDeDias(q.de, q.ate);
+    const com99 = ctx.escopos.includes('vendas.99food.ler');
+    const [loja] = this.rows(
+      await this.db.execute(sql`select coalesce(u.timezone, 'America/Sao_Paulo') as fuso from unidade u where u.id = ${ctx.unidadeId}::uuid`),
+    );
+    const fuso = String(loja?.fuso ?? 'America/Sao_Paulo');
+
+    // Uma ida ao banco: as vendas da janela (o limite de baixo pelo carimbo usa o índice da leitura — a venda é carimbada
+    // DEPOIS de faturada; a margem cobre o relógio da loja adiantado, como no `confirmados_desde`) e a soma por bairro.
+    const grupos = this.rows(
+      await this.db.execute(sql`
+        with cidade_da_loja as (
+          select nullif(btrim(cc.end_cidade), '') as cidade from cardapio_config cc
+           where cc.tenant_id = ${ctx.tenantId}::uuid and (cc.unidade_id = ${ctx.unidadeId}::uuid or cc.unidade_id is null)
+           order by (cc.unidade_id is null) asc, cc.created_at asc
+           limit 1
+        ), venda as (
+          select (v.fonte = 'pedido_externo' and lower(btrim(coalesce(pe.tipo, ''))) = 'entrega') as entrega,
+                 nullif(btrim(pe.endereco_bairro), '') as bairro,
+                 coalesce(nullif(btrim(pe.endereco_cidade), ''), (select cidade from cidade_da_loja)) as cidade,
+                 nullif(upper(btrim(pe.endereco_uf)), '') as uf,
+                 coalesce(round((v.foto->>'receita')::numeric), 0) as centavos
+            from integracao_versao v
+            left join pedido_externo pe
+                   on v.fonte = 'pedido_externo' and pe.id = v.recurso_id and pe.tenant_id = v.tenant_id
+           where v.tenant_id = ${ctx.tenantId}::uuid and v.recurso = 'venda' and v.situacao = 'confirmado'
+             and v.atualizado_em is not null
+             and v.atualizado_em >= (${de}::date::timestamp at time zone ${fuso}) - make_interval(days => ${MARGEM_CARIMBO_DIAS})
+             ${ctx.lojaUnica ? sql`` : sql`and v.unidade_id = ${ctx.unidadeId}::uuid`}
+             and ((coalesce(v.foto->>'faturado_em', v.foto->>'confirmado_em'))::timestamptz at time zone ${fuso})::date
+                 between ${de}::date and ${ate}::date
+             ${com99 ? sql`` : sql`and coalesce(v.foto->>'canal', '') <> '99food'`}
+        )
+        select case when entrega then 'entrega' else 'outro' end as grupo,
+               mode() within group (order by bairro) as bairro,
+               mode() within group (order by cidade) as cidade,
+               mode() within group (order by uf) as uf,
+               count(*)::int as pedidos,
+               coalesce(sum(centavos), 0)::text as receita_centavos
+          from venda
+         group by entrega, case when entrega then lower(bairro) end, case when entrega then lower(cidade) end`),
+    ) as GrupoDeBairro[];
+
+    return { loja_id: ctx.unidadeId, de, ate, fuso, minimo: MINIMO_POR_BAIRRO, ...montarBairros(grupos) };
   }
 
   /** A foto publicada no formato do contrato, com o que depende do token resolvido agora. */
