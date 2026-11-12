@@ -24,6 +24,7 @@ export const CLOUD_ONLY_MODULES = [
   'RelacionamentoModule', // automáticas de Delivery › Marketing (Onda 3; tabelas só-nuvem, mig 356)
   'OrzuniModule', // iFood pelo Orzuni: a ligação da loja (segredo cifrado) e a fila do envio (tabelas só-nuvem, mig 370)
   'VagasModule', // página pública de vagas + Pessoas › Candidatos (tabelas só-nuvem, mig 389)
+  'VigiaModule', // vigia do servidor da loja: episódios de incidente a partir do sinal dos servidores (tabela só-nuvem, mig 413)
 ] as const;
 
 // Operacional — roda LOCAL (fonte da verdade da loja). Entra no bundle do edge.
