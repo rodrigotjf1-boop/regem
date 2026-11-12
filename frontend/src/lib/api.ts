@@ -1099,6 +1099,12 @@ export const api = {
     req('/producao/fila/limpar', { method: 'POST', body: JSON.stringify(body) }),
   // Histórico do KDS (auditoria): quem limpou a fila, cancelou, mudou etapas/destinos/alertas.
   producaoHistorico: () => req('/producao/historico'),
+  // Os avisos GUARDADOS do rodapé (onda 3 da auditoria do KDS, mig 412): o urgente que espera o "Ciente" (a tela
+  // recarregada recupera), o "Ciente" que vale para todas as telas e o histórico (24 h por padrão, até 90 dias).
+  kdsAvisosPendentes: () => req('/kds/avisos/pendentes'),
+  kdsAvisoCiente: (id: string, kdsId?: string | null) =>
+    req(`/kds/avisos/${id}/ciente`, { method: 'POST', body: JSON.stringify(kdsId ? { kdsId } : {}) }),
+  kdsAvisosHistorico: (horas?: number) => req(`/kds/avisos/historico${horas ? `?horas=${horas}` : ''}`),
   // Fase E — roteamento: define o próximo KDS da cadeia (ao avançar o card migra).
   setProximoKds: (id: string, proximoKdsId: string | null) =>
     req(`/equipamento/${id}/proximo-kds`, { method: 'PATCH', body: JSON.stringify({ proximoKdsId }) }),

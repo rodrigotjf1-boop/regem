@@ -7,6 +7,8 @@
 //  3. Os avisos de cada tela e a faixa da pausa dos canais.
 //  4. Cada origem (balcão, mesa, totem, iFood, 99 com o entregador, Anota Aí, cardápio com encomenda), o cartão
 //     cancelado e o pedido alterado (o aviso, NOVO/TIRAR, o "Visto" no cartão e no rodapé).
+//  5. Os avisos guardados (onda 3, mig 412): o urgente do Farol que a tela recupera ao abrir, o "Ciente" que vai ao
+//     servidor, o "Ciente" dado noutra tela e o histórico de avisos com os filtros (e "Ações" ao lado).
 import { responder, tokenFalso, umaLinha } from './comum.mjs';
 
 const TABLETS = [
@@ -58,8 +60,20 @@ function pedidosIniciais() {
   ];
 }
 
+// Os avisos guardados das últimas 24 h (onda 3, mig 412), como o servidor devolve: um do Farol com o "Ciente", um de
+// gestão (a tela de preparo não recebe), um urgente sem "Ciente" e um que saiu sozinho.
+function historicoAvisos() {
+  const av = (id, o) => ({ id, detalhe: '', prioridade: 'alta', duracaoSeg: 60, som: true, tipo: 'loja', kds: null, fica: false, ciente: null, ...o });
+  return [
+    av('h-urg', { titulo: 'Trocar o óleo da fritadeira', fica: true, em: ha(5), origem: 'Alertas da loja · agendado' }),
+    av('h-farol', { titulo: 'Farol — Touca na cozinha (Chapa › Bancada)', detalhe: 'Quem está na chapa está sem touca.', prioridade: 'danger', duracaoSeg: 120, tipo: 'farol', fica: true, em: ha(20), origem: 'Farol · crítico', ciente: { em: ha(17), por: 'Bruno Lima', kdsId: 'k1' } }),
+    av('h-gestao', { titulo: 'Compra recebida: Hortifrúti Silva', detalhe: 'Itens entraram no estoque.', prioridade: 'info', tipo: 'gestao', em: ha(40), origem: 'Gestão' }),
+    av('h-saiu', { titulo: 'Lavar as mãos', detalhe: 'Todos da cozinha', prioridade: 'info', em: ha(60), origem: 'Alertas da loja · agendado' }),
+  ];
+}
+
 // ── o estado do "servidor" simulado ──
-const S = { pedidos: [], filaFalha: false, nuvem: false, semSocket: false, fila: [], esperaAvancar: 700, vistos: [] };
+const S = { pedidos: [], filaFalha: false, nuvem: false, semSocket: false, fila: [], esperaAvancar: 700, vistos: [], pendentes: [], historicoAvisos: historicoAvisos(), cientes: [] };
 
 async function rotas(page) {
   await page.route('**/api/v1/**', async (route) => {
@@ -83,6 +97,14 @@ async function rotas(page) {
     if (caminho.startsWith('/delivery/entregadores-ao-vivo')) return responder(route, { habilitado: false });
     if (caminho === '/producao/historico')
       return responder(route, [{ id: 'h1', acao: 'finalizou_fila', detalhe: { quantidade: 3 }, criadoEm: ha(30), atorNome: 'Ana Souza', atorPerfil: 'supervisao' }]);
+    // Os avisos guardados (mig 412): o urgente que espera o "Ciente", o histórico e o "Ciente" que vai ao servidor.
+    if (caminho === '/kds/avisos/pendentes') return responder(route, S.pendentes);
+    if (caminho === '/kds/avisos/historico') return responder(route, { horas: 24, avisos: S.historicoAvisos });
+    const ciente = caminho.match(/^\/kds\/avisos\/([^/]+)\/ciente$/);
+    if (ciente && req.method() === 'POST') {
+      S.cientes.push(ciente[1]);
+      return responder(route, { ok: true, id: ciente[1], por: 'Teste', jaEstava: false });
+    }
     let m = caminho.match(/^\/producao\/pedidos\/([^/]+)\/avancar$/);
     if (m) {
       await new Promise((r) => setTimeout(r, S.esperaAvancar));
@@ -218,6 +240,10 @@ export default async function roteiroKds({ nav, base, ok, foto, larguras, rapido
       await page.click('.k-gtab:has-text("Avisos")');
       await page.waitForSelector('.k-tipos');
       estados.avisos = await medir(page);
+      // a aba Histórico com os avisos guardados (onda 3): os filtros e a lista
+      await page.click('.k-gtab:has-text("Histórico")');
+      await page.waitForSelector('.k-hist');
+      estados.historico = await medir(page);
       await page.keyboard.press('Escape');
       await page.waitForSelector('.k-gaveta', { state: 'detached' });
       await page.click('[aria-haspopup="dialog"]');
@@ -328,10 +354,11 @@ export default async function roteiroKds({ nav, base, ok, foto, larguras, rapido
     await page.waitForFunction((n) => new RegExp(`${n} pedidos? finalizados?`).test(document.querySelector('.k-toast')?.textContent || ''), visiveis, { timeout: 5000 });
     ok(S.ultimosFinalizados.length === visiveis, `finalizou só os ${visiveis} da tela (${S.ultimosFinalizados.join(',')})`);
 
-    // gaveta: histórico
+    // gaveta: histórico › Ações (quem fez); o de avisos tem a parte 5
     await page.click('[aria-label^="Histórico"]');
-    await page.waitForSelector('.k-h');
-    ok(/Ana Souza/.test(await page.locator('.k-gaveta').innerText()), 'gaveta › Histórico mostra quem fez');
+    await page.click('[aria-label="O que ver no histórico"] button:has-text("Ações")');
+    await page.waitForSelector('.k-h:has-text("Ana Souza")');
+    ok(/Ana Souza/.test(await page.locator('.k-gaveta').innerText()), 'gaveta › Histórico › Ações mostra quem fez');
     await page.screenshot({ path: foto('1280-gaveta-historico.png') });
     await page.keyboard.press('Escape');
 
@@ -488,4 +515,53 @@ export default async function roteiroKds({ nav, base, ok, foto, larguras, rapido
     ok(erros.length === 0, `sem erro na página (origens e alterado): ${erros.join(' | ')}`);
     await ctx.close();
   }
+
+  // ── 5. os avisos guardados (onda 3, mig 412): o urgente que volta, o "Ciente" no servidor e nas outras telas, o histórico ──
+  Object.assign(S, { pedidos: pedidosIniciais(), pausas: [], semSocket: false, nuvem: false, filaFalha: false, cientes: [], avisosK1: null });
+  S.pendentes = [
+    { id: 'p-farol', titulo: 'Farol — Touca na cozinha (Chapa › Bancada)', detalhe: 'Quem está na chapa está sem touca.', prioridade: 'danger', duracaoSeg: 120, som: true, tipo: 'farol', kds: null, fica: true, em: ha(3), origem: 'Farol · crítico' },
+    { id: 'p-gestao', titulo: 'Contagem: câmara fria', detalhe: '', prioridade: 'info', duracaoSeg: 60, som: true, tipo: 'gestao', kds: null, fica: true, em: ha(4), origem: 'Gestão' },
+  ];
+  {
+    const { ctx, page, erros } = await abrir({ w: 1280, h: 800 });
+    // a tela aberta (ou que reconectou) recupera o urgente sem "Ciente" — só o que ela recebe
+    await page.waitForFunction(() => /Touca na cozinha/.test(document.querySelector('.k-rodape')?.textContent || ''), null, { timeout: 15000 });
+    const rod = await page.locator('.k-pe').innerText();
+    ok(/CIENTE/i.test(rod) && !/Contagem: câmara fria/.test(rod), `a tela aberta recupera o urgente do Farol: ${umaLinha(rod)}`);
+    await page.waitForTimeout(800); // a segunda recuperação (a do "conectou") também já passou
+    ok((await page.locator('.k-mais').count()) === 0, 'só ele: o de gestão, que esta tela não recebe, não entra (nem repete o do Farol)');
+    await page.screenshot({ path: foto('1280-farol-recuperado.png') });
+    // "Ciente": sai daqui e vai ao servidor (as outras telas tiram também)
+    await page.click('.k-rodape .k-ciente');
+    await page.waitForFunction(() => !/Touca na cozinha/.test(document.querySelector('.k-pe')?.textContent || ''), null, { timeout: 5000 });
+    await page.waitForTimeout(400);
+    ok(S.cientes.includes('p-farol'), `"Ciente" vai ao servidor (${S.cientes.join(',') || 'nada'})`);
+    // o "Ciente" dado noutra tela tira o aviso daqui, sem mandar de novo
+    S.fila.push(['kds:alerta', { id: 'v-1', titulo: 'Trocar o óleo da fritadeira', detalhe: 'Desligar a fritadeira 2', prioridade: 'alta', tipo: 'loja', fica: true, duracaoSeg: 60, em: new Date().toISOString() }]);
+    await page.waitForFunction(() => /Trocar o óleo/.test(document.querySelector('.k-rodape')?.textContent || ''), null, { timeout: 15000 });
+    S.fila.push(['kds:aviso-ciente', { id: 'v-1', por: 'Bruno Lima' }]);
+    await page.waitForFunction(() => !/Trocar o óleo/.test(document.querySelector('.k-pe')?.textContent || ''), null, { timeout: 15000 });
+    ok(!S.cientes.includes('v-1'), '"Ciente" dado noutra tela tira o aviso daqui (sem mandar de novo ao servidor)');
+
+    // o histórico de avisos: os filtros com a contagem, o que aconteceu com cada um, "Ações" ao lado
+    await page.click('[aria-label^="Histórico"]');
+    await page.waitForSelector('.k-hist[aria-label^="Avisos"]');
+    const filtros = (await page.locator('[aria-label="Filtrar o histórico dos avisos"] button').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim());
+    ok(JSON.stringify(filtros) === JSON.stringify(['Todos 4', 'Urgentes 2', 'Sem ciente 1', 'Não mostrados 1']), `filtros com a contagem: ${filtros.join(' | ')}`);
+    const hist = await page.locator('.k-hist').innerText();
+    ok(/Ciente: Bruno Lima às \d{2}:\d{2} \(3 min depois\)/.test(hist), 'histórico: quem tocou "Ciente", quando e quanto depois');
+    ok(/Não mostrado: esta tela não recebe "Avisos de gestão"/.test(hist), 'histórico: o que esta tela não mostra aparece como "não mostrado"');
+    ok(/Ainda sem ciente/.test(hist) && /Saiu sozinho depois de 60 s/.test(hist) && /Farol · crítico/.test(hist), 'histórico: o que espera, o que saiu sozinho e de onde veio');
+    await page.screenshot({ path: foto('1280-historico-avisos.png') });
+    await page.click('[aria-label="Filtrar o histórico dos avisos"] button:has-text("Não mostrados")');
+    ok((await page.locator('.k-hist .k-h').count()) === 1, 'filtro "Não mostrados": só o de gestão');
+    const medH = await medir(page);
+    ok(medH.achados.length === 0 && medH.pequenos.length === 0, `histórico de avisos aberto: ${[...medH.achados, ...medH.pequenos].slice(0, 3).join(' | ')}`);
+    await page.click('[aria-label="O que ver no histórico"] button:has-text("Ações")');
+    await page.waitForSelector('.k-h:has-text("Ana Souza")');
+    ok(true, '"Ações": quem finalizou, cancelou ou mudou a configuração');
+    ok(erros.length === 0, `sem erro na página (avisos guardados): ${erros.join(' | ')}`);
+    await ctx.close();
+  }
+  S.pendentes = [];
 }

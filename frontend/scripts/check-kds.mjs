@@ -506,6 +506,30 @@ try {
     assert.equal(k.textoDaAlteracao({ alteradoEm: em, itens: [] }), 'o pedido mudou');
   });
 
+  caso('histórico dos avisos (mig 412): não mostrado, ciente, ainda sem ciente e o que saiu sozinho', () => {
+    const preparo = k.avisosDoKds('producao', null); // sem gestão, sem "cliente chegou"
+    const em = '2026-11-12T20:00:00.000Z';
+    const hora = () => '20:01';
+    assert.deepEqual(k.situacaoDoAviso({ tipo: 'gestao', em }, preparo, null, hora), {
+      texto: 'Não mostrado: esta tela não recebe "Avisos de gestão"',
+      mostrado: false,
+      semCiente: false,
+    });
+    assert.equal(k.situacaoDoAviso({ tipo: 'loja', kds: ['outro'], em }, preparo, 'este', hora).texto, 'Não mostrado: o aviso é para outro KDS');
+    assert.equal(
+      k.situacaoDoAviso({ tipo: 'farol', em, fica: true, ciente: { em: '2026-11-12T20:03:00.000Z', por: 'Bruno Lima' } }, preparo, null, hora).texto,
+      'Ciente: Bruno Lima às 20:01 (3 min depois)',
+    );
+    assert.deepEqual(k.situacaoDoAviso({ tipo: 'farol', em, fica: true }, preparo, null, hora), {
+      texto: 'Ainda sem ciente: fica no rodapé até alguém tocar',
+      mostrado: true,
+      semCiente: true,
+    });
+    assert.equal(k.situacaoDoAviso({ tipo: 'loja', em, duracaoSeg: 120 }, preparo, null, hora).texto, 'Saiu sozinho depois de 120 s');
+    assert.equal(k.tempoDepois(em, '2026-11-12T20:00:12.000Z'), '12 s depois');
+    assert.equal(k.tempoDepois(em, '2026-11-12T22:00:00.000Z'), '2 h depois');
+  });
+
   console.log(`\ncheck:kds — ${n} casos, tudo certo`);
 } finally {
   rmSync(tmp, { recursive: true, force: true });

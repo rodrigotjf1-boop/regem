@@ -8,6 +8,7 @@ import { rotuloSenha, senhaCasa } from '@/lib/senha';
 import { connectAsGestor, connectAsDevice, type Socket } from '@/lib/rt';
 import { KdsMapaEntregadores } from '@/components/kds/kds-mapa-entregadores';
 import { HistoricoKds } from '@/components/kds/historico-kds';
+import { HistoricoAvisosKds } from '@/components/kds/historico-avisos-kds';
 import { KdsCartaoPedido } from '@/components/kds/kds-cartao-pedido';
 import { KdsCartaoItem } from '@/components/kds/kds-cartao-item';
 import { KdsResumoItens } from '@/components/kds/kds-resumo-itens';
@@ -74,6 +75,8 @@ type Alerta = {
   ciente?: boolean; // mostra o "Ciente" (o que fica e o urgente que veio do cadastro)
   origem: string; // de onde veio ("Pedido cancelado", "Alertas da loja"…), na lista "N avisos"
   cartaoId?: string; // o pedido alterado: o "Visto" do rodapé é o mesmo do cartão
+  // Veio do servidor e está GUARDADO (mig 412): o "Ciente" daqui vai ao servidor e sai das outras telas também.
+  servidor?: boolean;
 };
 
 // ── Fase C: filtros ricos (aninhados por canal) ──────────────────────────────
@@ -127,6 +130,24 @@ const ORIGEM_DO_AVISO: Record<string, string> = {
   farol: 'Farol',
   pausa: 'Pausa dos canais',
 };
+
+// O aviso que veio do servidor (`kds:alerta` ao vivo, ou o pendente recuperado — mig 412) → o aviso do rodapé. O urgente
+// ganha o "Ciente" (A7): sai antes do tempo com um toque; o "até o Ciente" fica sem contar o tempo.
+function alertaDoServidor(a: any): Alerta {
+  const prioridade = prioridadeDoRodape(a.prioridade ?? 'alta');
+  return {
+    id: String(a.id),
+    titulo: a.titulo,
+    detalhe: a.detalhe ?? '',
+    prioridade,
+    em: a.em,
+    restanteSeg: Number(a.duracaoSeg) > 0 ? Number(a.duracaoSeg) : 60,
+    fica: a.fica === true,
+    ciente: prioridade === 'danger' || a.fica === true,
+    origem: ORIGEM_DO_AVISO[String(a.tipo)] ?? 'Alertas da loja',
+    servidor: true,
+  };
+}
 
 // Os sons (A12): o pedido novo, o aviso e o URGENTE (cancelado, alterado) — antes era o mesmo bipe para tudo.
 type Som = 'novo' | 'aviso' | 'urgente';
@@ -190,6 +211,8 @@ export default function KdsPage() {
   const [telaDeToque, setTelaDeToque] = useState(false); // só para adivinhar a forma de uso
   // A gaveta ⚙ (o que é do aparelho, os avisos desta tela e o histórico), a lista "N avisos" e o diálogo do "Finalizar todos".
   const [gaveta, setGaveta] = useState<null | 'tela' | 'avisos' | 'historico'>(null);
+  // Na aba "Histórico": os avisos que foram ao rodapé (mig 412) ou as ações de quem mexeu na tela.
+  const [histVer, setHistVer] = useState<'avisos' | 'acoes'>('avisos');
   // A aba "Avisos": o rascunho do que esta tela recebe (salvo no servidor, mig 408) e o estado do "Salvar".
   const [rascunhoAvisos, setRascunhoAvisos] = useState<AvisosDoKds | null>(null);
   const [salvandoAvisos, setSalvandoAvisos] = useState(false);
@@ -482,6 +505,26 @@ export default function KdsPage() {
   );
 
   // Devolve a fila nova (ou null se falhou) — o som de pedido novo confere se o cartão entrou NESTA tela.
+  // O urgente que ainda espera o "Ciente" (mig 412): a tela recarregada, ou que ficou sem conexão, recupera do servidor —
+  // antes ele se perdia. Só os tipos que esta tela recebe e os que são para este KDS; o que já está no rodapé não repete.
+  // Rota ausente (servidor da loja antes do `.zip`) ou sem login de pessoa: segue só com o que chega ao vivo.
+  const recuperarPendentes = useCallback(async () => {
+    if (!getToken()) return;
+    try {
+      const r: any = await api.kdsAvisosPendentes();
+      const lista: any[] = Array.isArray(r) ? r : [];
+      setAlertas((prev) => {
+        const novos = lista
+          .filter((a) => recebeAviso(avisosRef.current, a.tipo ?? 'loja') && alertaParaEstaTela(a, kdsRef.current))
+          .filter((a) => !prev.some((x) => x.id === String(a.id)))
+          .map(alertaDoServidor);
+        return novos.length ? [...prev, ...novos] : prev;
+      });
+    } catch {
+      /* segue com o ao vivo */
+    }
+  }, []);
+
   const carregarFila = useCallback(async (): Promise<any[] | null> => {
     if (!getToken()) return null; // fila durável requer operador logado (JWT)
     const seq = ++filaSeq.current;
@@ -682,6 +725,7 @@ export default function KdsPage() {
     }
     setTemSessao(true);
     void carregarFila();
+    void recuperarPendentes();
     const socket = deviceToken
       ? connectAsDevice(deviceToken)
       : connectAsGestor();
@@ -690,29 +734,23 @@ export default function KdsPage() {
     socket.on('connect', () => setConectado(true));
     socket.on('disconnect', () => setConectado(false));
 
-    // Alerta cadastrado (Configurações › Alertas do KDS). O urgente ganha o "Ciente" (A7): sai antes do tempo com um toque.
+    // A tela que conecta (ou reconecta depois de uma queda) recupera o urgente que ainda espera o "Ciente" (mig 412).
+    socket.on('connect', () => void recuperarPendentes());
+
+    // Aviso para o rodapé (alertas cadastrados, estoque, gestão, Farol), já guardado no servidor (mig 412).
     socket.on('kds:alerta', (a: any) => {
       // Cada tela escolhe os tipos que recebe (aba "Avisos" do ⚙, mig 408): o de gestão não toca na tela de preparo.
       if (!recebeAviso(avisosRef.current, a.tipo ?? 'loja')) return;
       // O alerta cadastrado para outros KDS (a troca do óleo só na Fritadeira — mig 409) não toca aqui.
       if (!alertaParaEstaTela(a, kdsRef.current)) return;
-      const prioridade = prioridadeDoRodape(a.prioridade ?? 'alta');
-      setAlertas((prev) => [
-        {
-          id: a.id,
-          titulo: a.titulo,
-          detalhe: a.detalhe,
-          prioridade,
-          em: a.em,
-          restanteSeg: Number(a.duracaoSeg) > 0 ? Number(a.duracaoSeg) : 60,
-          // "Até o Ciente" no cadastro (mig 409): fica até alguém tocar, sem contar o tempo.
-          fica: a.fica === true,
-          ciente: prioridade === 'danger' || a.fica === true,
-          origem: ORIGEM_DO_AVISO[String(a.tipo)] ?? 'Alertas da loja',
-        },
-        ...prev.filter((x) => x.id !== a.id),
-      ]);
-      if (a.som !== false) bip(prioridade === 'danger' ? 'urgente' : 'aviso');
+      const novo = alertaDoServidor(a);
+      setAlertas((prev) => [novo, ...prev.filter((x) => x.id !== novo.id)]);
+      if (a.som !== false) bip(novo.prioridade === 'danger' ? 'urgente' : 'aviso');
+    });
+
+    // "Ciente" dado noutra tela (mig 412): o aviso sai daqui também.
+    socket.on('kds:aviso-ciente', (p: any) => {
+      if (p?.id) setAlertas((prev) => prev.filter((x) => x.id !== String(p.id)));
     });
 
     // Nudge de produção → refaz o GET (fonte da verdade). Novo pedido = som. O evento vem para a empresa inteira: só
@@ -765,7 +803,7 @@ export default function KdsPage() {
       socket.close();
       socketRef.current = null;
     };
-  }, [bip, carregarFila, relerTelas]);
+  }, [bip, carregarFila, relerTelas, recuperarPendentes]);
 
   // Sem conexão: avisa em faixa (a fila na tela pode estar velha). Espera 4 s para não piscar na abertura nem numa queda
   // momentânea.
@@ -802,6 +840,9 @@ export default function KdsPage() {
       void visto(a.cartaoId);
     } else {
       setAlertas((prev) => prev.filter((x) => x.id !== a.id));
+      // O aviso guardado (mig 412): o "Ciente" fica registrado (quem e quando) e sai das outras telas. Sem login de pessoa
+      // (aparelho só com o token) ou sem rede, vale só nesta tela, como antes.
+      if (a.servidor && getToken()) void api.kdsAvisoCiente(a.id, kdsRef.current || null).catch(() => undefined);
     }
     mostrarToque(`Ciente: ${a.titulo.replace(/^[^\p{L}\p{N}]+/u, '')}`);
   }
@@ -1285,7 +1326,7 @@ export default function KdsPage() {
             onClick={() => abrirGaveta('historico')}
             aria-expanded={gaveta === 'historico'}
             aria-controls="kds-gaveta"
-            aria-label="Histórico: quem finalizou, cancelou ou mudou a configuração"
+            aria-label="Histórico: os avisos desta tela e quem finalizou, cancelou ou mudou a configuração"
             title="Histórico"
           >
             🕘
@@ -1586,7 +1627,18 @@ export default function KdsPage() {
             </div>
             <div className="k-gcorpo" role="tabpanel">
               {gaveta === 'historico' ? (
-                <HistoricoKds />
+                <>
+                  {/* Os avisos que foram ao rodapé (mig 412) e as ações de quem mexeu na tela (a auditoria). */}
+                  <div className="k-seg2" role="group" aria-label="O que ver no histórico">
+                    <button type="button" aria-pressed={histVer === 'avisos'} onClick={() => setHistVer('avisos')}>
+                      Avisos
+                    </button>
+                    <button type="button" aria-pressed={histVer === 'acoes'} onClick={() => setHistVer('acoes')}>
+                      Ações
+                    </button>
+                  </div>
+                  {histVer === 'avisos' ? <HistoricoAvisosKds avisos={avisosDaTela} kdsId={kdsSel || null} /> : <HistoricoKds />}
+                </>
               ) : gaveta === 'avisos' ? (
                 !kdsAtual ? (
                   <p className="k-nota">

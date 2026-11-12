@@ -187,6 +187,41 @@ export const AVISOS_DA_TELA: { k: TipoDeAviso | 'cancelado' | 'alterado'; ic: st
   { k: 'gestao', ic: '📦', nome: 'Avisos de gestão', det: 'Compra recebida, contagem, fechamento do ponto.', pri: 'Informativo' },
 ];
 
+/** A hora de um aviso no histórico: só a hora se for de hoje; senão o dia e a hora. */
+export function horaDoAviso(iso: string): string {
+  const d = new Date(iso);
+  return new Date().toDateString() === d.toDateString()
+    ? d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+/** Quanto tempo depois: "12 s depois", "3 min depois", "2 h depois". */
+export function tempoDepois(de: string, ate: string): string {
+  const s = Math.max(0, Math.round((Date.parse(ate) - Date.parse(de)) / 1000));
+  return s < 60 ? `${s} s depois` : s < 3600 ? `${Math.round(s / 60)} min depois` : `${Math.round(s / 3600)} h depois`;
+}
+
+/**
+ * O que aconteceu com um aviso GUARDADO nesta tela (histórico da gaveta — onda 3 da auditoria do KDS, mig 412; protótipo,
+ * aba 1): não mostrado (o tipo que a tela não recebe, o alerta de outro KDS) — para ninguém achar que o aviso sumiu —,
+ * o "Ciente" (quem, quando e quanto depois), o que ainda espera o "Ciente" ou o que saiu sozinho no tempo dele.
+ */
+export function situacaoDoAviso(
+  a: { tipo?: unknown; kds?: unknown; fica?: boolean; duracaoSeg?: number; em: string; ciente?: { em: string; por?: string | null } | null },
+  avisos: AvisosDoKds,
+  kdsSel: string | null | undefined,
+  hora: (iso: string) => string = horaDoAviso,
+): { texto: string; mostrado: boolean; semCiente: boolean } {
+  if (!recebeAviso(avisos, a.tipo ?? 'loja')) {
+    const nome = AVISOS_DA_TELA.find((t) => t.k === a.tipo)?.nome ?? 'este tipo de aviso';
+    return { texto: `Não mostrado: esta tela não recebe "${nome}"`, mostrado: false, semCiente: false };
+  }
+  if (!alertaParaEstaTela(a, kdsSel)) return { texto: 'Não mostrado: o aviso é para outro KDS', mostrado: false, semCiente: false };
+  if (a.ciente) return { texto: `Ciente: ${a.ciente.por || 'alguém'} às ${hora(a.ciente.em)} (${tempoDepois(a.em, a.ciente.em)})`, mostrado: true, semCiente: false };
+  if (a.fica) return { texto: 'Ainda sem ciente: fica no rodapé até alguém tocar', mostrado: true, semCiente: true };
+  return { texto: `Saiu sozinho depois de ${Number(a.duracaoSeg) || 60} s`, mostrado: true, semCiente: false };
+}
+
 // ── A faixa da pausa dos canais (onda 2; "incluir o status das lojas de delivery pausadas nos alertas") ──────────────────
 export type CanalPausadoNoKds = { canal: string; nome: string; ate: string; fimDoDia?: boolean; motivo?: string | null };
 const PAUSADA: Record<string, string> = { food99: 'pausada' }; // "a 99"; "o iFood", "o cardápio digital"
