@@ -446,6 +446,52 @@ descrever('Conferir com os apps (Postgres real, Orzuni e 99 falsos)', () => {
     expect(auditados.find((a) => a.acao === 'mandou_foto_a_99')).toMatchObject({ detalhe: expect.objectContaining({ nome: 'X-Bacon' }) });
   });
 
+  it('"Usar esta foto no Regem" (R3 G1): a foto do app da ÚLTIMA leitura vem para o armazenamento; o produto não muda aqui', async () => {
+    const e = await empresa();
+    cardapioIfood.itens[0].imagem = 'https://static.ifood-static.com.br/x-bacon.jpg';
+    cardapio99.items[0].head_img = 'https://img.99app.com/x-bacon.png';
+    const subidas: Buffer[] = [];
+    const midia = { uploadBuffer: async (_t: string, b: Buffer) => (subidas.push(b), { url: 'https://projeto.supabase.co/storage/v1/object/public/midia/t/nova.jpg' }) };
+    const comFoto = new ConferenciaService(db, auditoria, orzuni as any, food99, undefined, midia as any);
+    const jpg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(60)]);
+    const baixados: string[] = [];
+    comFoto.baixarFotoDoApp = async (url: string) => {
+      baixados.push(url);
+      if (url.endsWith('.jpg')) return new Response(new Uint8Array(jpg), { status: 200 });
+      return new Response('não é imagem nenhuma', { status: 200 });
+    };
+    // Sem leitura: não há foto do app para usar.
+    await expect(comFoto.usarFotoDoApp(e.t, null, { canal: 'ifood', produtoId: e.p.xbacon }, gestor)).rejects.toMatchObject({
+      status: 409,
+      response: { message: expect.stringMatching(/última leitura não tem foto deste produto no iFood/) },
+    });
+    await comFoto.conferir(e.t, null, 'ifood', false);
+    await comFoto.conferir(e.t, null, '99food', false);
+    const imagemAntes = (await q(`select imagem_ref from produto where id = $1`, [e.p.xbacon]))[0].imagem_ref;
+    auditados.length = 0;
+    const r = await comFoto.usarFotoDoApp(e.t, null, { canal: 'ifood', produtoId: e.p.xbacon, url: 'http://169.254.169.254/' }, gestor);
+    expect(r).toEqual({
+      ok: true,
+      url: 'https://projeto.supabase.co/storage/v1/object/public/midia/t/nova.jpg',
+      frase: 'A foto no iFood está no campo da foto: salve o produto para ela ficar no Regem.',
+    });
+    // O endereço baixado é o da leitura (o `url` do pedido é ignorado); a foto subida é a do app; o produto não mudou.
+    expect(baixados).toEqual(['https://static.ifood-static.com.br/x-bacon.jpg']);
+    expect(subidas).toEqual([jpg]);
+    expect((await q(`select imagem_ref from produto where id = $1`, [e.p.xbacon]))[0].imagem_ref).toBe(imagemAntes);
+    expect(auditados.map((a) => [a.acao, a.detalhe.canal, a.detalhe.id])).toEqual([['usou_foto_do_app', 'ifood', e.p.xbacon]]);
+    // A 99 manda um arquivo que não é imagem: 409 com o porquê, nada sobe.
+    await expect(comFoto.usarFotoDoApp(e.t, null, { canal: '99food', produtoId: e.p.xbacon }, gestor)).rejects.toMatchObject({
+      status: 409,
+      response: { message: expect.stringMatching(/não é JPG, PNG, WEBP nem GIF/) },
+    });
+    expect(subidas).toHaveLength(1);
+    // Produto sem foto no app (o X-Salada no iFood) e pedido sem app: recusas antes de baixar.
+    await expect(comFoto.usarFotoDoApp(e.t, null, { canal: 'ifood', produtoId: e.p.xsalada }, gestor)).rejects.toMatchObject({ status: 409 });
+    await expect(comFoto.usarFotoDoApp(e.t, null, { produtoId: e.p.xbacon }, gestor)).rejects.toMatchObject({ status: 400 });
+    expect(baixados).toHaveLength(2);
+  });
+
   it('vindo do servidor da loja (na nuvem): quem agiu tem de ser da gestão e ativo; o servidor de uma loja não confere outra', async () => {
     const e = await empresa({ lojas: 2 });
     const funcao = async (cat: string) => (await q(`insert into funcao (tenant_id, nome, categoria) values ($1, $2, $3) returning id`, [e.t, `F ${cat}`, cat]))[0].id;

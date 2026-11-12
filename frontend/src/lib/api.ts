@@ -859,6 +859,10 @@ export const api = {
       ok: boolean;
       frase: string;
     }>,
+  // R3 G1: "Usar esta foto no Regem" — a foto do app (da última leitura) vem para o armazenamento do Regem; volta o
+  // endereço novo, que a gaveta põe no campo da foto (a pessoa salva).
+  conferenciaUsarFoto: (produtoId: string, canal: CanalConferido) =>
+    req('/catalogo/conferencia/usar-foto', { method: 'POST', body: JSON.stringify({ produtoId, canal }) }) as Promise<{ ok: boolean; url: string; frase: string }>,
   conferenciaLigar: (dto: { canal: CanalConferido; chave: string; produtoId: string }) =>
     req('/catalogo/conferencia/ligar', { method: 'POST', body: JSON.stringify(dto) }) as Promise<{ ok: boolean; frase: string }>,
   // "Publicar nas integrações" (Cadastros › Cardápio): a situação de cada integração que usa o cardápio e o publicar

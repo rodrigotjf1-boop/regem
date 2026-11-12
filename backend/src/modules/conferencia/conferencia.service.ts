@@ -18,6 +18,8 @@ import { conferirAppsLigado } from '../../common/conferir-apps';
 import { precosNa99Ligado } from '../../common/precos-na-99';
 import { OrzuniLeituraService } from '../orzuni/orzuni-leitura.service';
 import { OrzuniFotoService } from '../orzuni/orzuni-foto.service';
+import { MidiaService, detectarImagem } from '../midia/midia.service';
+import { buscarUrlPublica, lerCorpoAte } from '../../common/ssrf-guard';
 import { Food99Service, type IntegFood99 } from '../integracoes/food99/food99.service';
 import {
   CANAIS_CONFERIDOS,
@@ -112,7 +114,11 @@ export class ConferenciaService {
     @Optional() private readonly orzuni?: OrzuniLeituraService,
     @Optional() private readonly food99?: Food99Service,
     @Optional() private readonly orzuniFoto?: OrzuniFotoService,
+    @Optional() private readonly midia?: MidiaService,
   ) {}
+
+  /** O GET da foto de um app (endereço da última leitura → busca segura, V68) — os testes trocam por um falso. */
+  baixarFotoDoApp: (url: string) => Promise<Response | null> = (url) => buscarUrlPublica(url, { signal: AbortSignal.timeout(20_000) });
 
   private async rows(q: any): Promise<any[]> {
     const r: any = await this.db.execute(q);
@@ -665,6 +671,45 @@ export class ConferenciaService {
   }
 
   /**
+   * "Usar esta foto no Regem" (R3 G1; protótipo, "Fotos"): a foto de um app vem para o armazenamento do Regem. O endereço
+   * é o da ÚLTIMA leitura da conferência (nunca o que a tela manda), baixado pela busca segura (V68) com teto de 8 MB e
+   * conferido pelos bytes (JPG, PNG, WEBP ou GIF — o que o Regem guarda). Devolve o endereço novo: a tela o põe no campo
+   * da foto e a pessoa salva o produto (aqui o produto NÃO muda). Só nuvem; o servidor da loja pede à nuvem.
+   */
+  async usarFotoDoApp(tenantId: string, unidade: string | null, dto: any, ator: Ator) {
+    if (ehServidorLocal()) return this.agirPelaNuvem(tenantId, 'usar-foto', unidade, dto, ator);
+    await this.exigirLigada(tenantId);
+    if (!ehCanalConferido(dto?.canal)) throw new BadRequestException('Escolha o app: iFood ou 99.');
+    const canal: CanalConferido = dto.canal;
+    const produtoId = typeof dto?.produtoId === 'string' && UUID.test(dto.produtoId) ? dto.produtoId : null;
+    if (!produtoId) throw new BadRequestException('Escolha o produto.');
+    const loja = await this.loja(tenantId, unidade);
+    const app = canal === 'ifood' ? 'no iFood' : 'na 99';
+    const url = (await this.fotos(tenantId, loja.id)).canais[canal]?.porProduto[produtoId] ?? null;
+    if (!url) throw new ConflictException(`A última leitura não tem foto deste produto ${app}. Leia o app de novo em "Conferir com os apps".`);
+    if (!this.midia) throw new ConflictException('O armazenamento de fotos não está ligado nesta instalação.');
+    let foto: Buffer | null = null;
+    let grande = false;
+    try {
+      const res = await this.baixarFotoDoApp(url);
+      if (res?.ok) {
+        foto = await lerCorpoAte(res, 8 * 1024 * 1024);
+        grande = !foto;
+      } else await res?.body?.cancel().catch(() => undefined);
+    } catch (e: any) {
+      this.log.warn(`foto ${app} do produto ${produtoId}: não deu para baixar (${e?.message ?? e})`);
+    }
+    if (grande) throw new ConflictException(`A foto ${app} passa de 8 MB: o Regem não guarda.`);
+    if (!foto) throw new ServiceUnavailableException(`Não deu para buscar a foto ${app} agora. Tente de novo em instantes.`);
+    if (!detectarImagem(foto)) throw new ConflictException(`A foto ${app} não é JPG, PNG, WEBP nem GIF: o Regem não guarda.`);
+    const subida: any = await this.midia.uploadBuffer(tenantId, foto);
+    const nova = typeof subida?.url === 'string' ? subida.url : null;
+    if (!nova) throw new ServiceUnavailableException('Não deu para guardar a foto agora. Tente de novo em instantes.');
+    await this.auditar(tenantId, loja, ator, 'usou_foto_do_app', { canal, id: produtoId });
+    return { ok: true, url: nova, frase: `A foto ${app} está no campo da foto: salve o produto para ela ficar no Regem.` };
+  }
+
+  /**
    * "Mandar esta foto ao iFood" (R3 F6b): a foto do Regem vai ao item do iFood pela porta do Orzuni, NA HORA (o
    * `OrzuniFotoService` confere a ligação, a permissão, o produto e a foto). O que foi chamado no Orzuni fica na auditoria
    * com o resultado — também a recusa (V37); o que nem saiu (ligação, foto que não serve) só volta com a frase.
@@ -740,6 +785,8 @@ export class ConferenciaService {
         return this.ligar(tenantId, unidade, dto, ator);
       case 'foto-99':
         return this.mandarFotoA99(tenantId, unidade, dto, ator);
+      case 'usar-foto':
+        return this.usarFotoDoApp(tenantId, unidade, dto, ator);
       case 'foto-ifood':
         return this.mandarFotoAoIfood(tenantId, unidade, dto, ator);
       default:
