@@ -1,11 +1,11 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { enviar, voltar, avaliarTela, ROTEIROS: R } = require('../src/envio-99');
+const { enviar, voltar, avaliarTela, gavetaEhDoPrograma, ROTEIROS: R } = require('../src/envio-99');
 
 const NUM = '900003';
 const EXT = '9100000000000003441';
-const RAPIDO = { buscaMs: 300, gavetaMs: 300, cliqueMs: 200, campoMs: 400, ecoMs: 300 };
+const RAPIDO = { buscaMs: 300, gavetaMs: 300, cliqueMs: 200, campoMs: 400, ecoMs: 300, tardeMs: 300 };
 
 /** O texto que um roteiro carrega (o JSON entre aspas depois de `antes`). */
 const textoDoRoteiro = (s, antes) => {
@@ -18,12 +18,14 @@ const textoDoRoteiro = (s, antes) => {
 /**
  * A 99 de mentira: responde aos roteiros como o portal de 06/11. `achaPedido` (a busca acha), `numeroDaConversa` (o
  * número que a gaveta mostra), `cliquesPerdidos`, `campoDepois` (leituras até o campo aparecer), `rascunho` (texto de
- * alguém no campo), `enviarLiga` (o "Enviar" liga com texto), `eco` (a confirmação chega).
+ * alguém no campo), `enviarLiga` (o "Enviar" liga com texto), `eco` (a confirmação chega). A 99 lenta de 11/11:
+ * `gavetaAtrasaMs` (a gaveta abre só depois disso, uma vez), `numeroDepois` (leituras com o esqueleto, sem o número) e
+ * `encerrada` (o pedido concluído: "não é possível enviar mensagens", sem campo).
  */
-function noventaDeMentira({ achaPedido = true, numeroDaConversa = `#${NUM}`, cliquesPerdidos = 0, campoDepois = 0, rascunho = '', enviarLiga = true, eco = true, busca = '', aba = 'Preparando', balaoTapado = 0, resumoDeOutro = false } = {}) {
+function noventaDeMentira({ achaPedido = true, numeroDaConversa = `#${NUM}`, cliquesPerdidos = 0, campoDepois = 0, rascunho = '', enviarLiga = true, eco = true, busca = '', aba = 'Preparando', balaoTapado = 0, resumoDeOutro = false, gavetaAtrasaMs = 0, numeroDepois = 0, encerrada = false } = {}) {
   const rodados = [];
   const cdp = [];
-  const s = { busca, aba, gaveta: false, campo: rascunho, voltasCampo: campoDepois, cliques: 0, enviou: [], balaoTapado };
+  const s = { busca, aba, gaveta: false, abrindo: false, campo: rascunho, voltasCampo: campoDepois, voltasNumero: numeroDepois, cliques: 0, enviou: [], balaoTapado };
   const pagina = {
     executeJavaScript: async (js) => {
       if (js === R.ESTADO_DA_TELA) return { vigia: true, acaoEm: 0, vigiaDesde: 0, portal: true, gaveta: s.gaveta, gavetaNumero: s.gaveta ? numeroDaConversa : '', campoComTexto: s.campo !== '', busca: s.busca, aba: s.aba, painel: null };
@@ -39,6 +41,11 @@ function noventaDeMentira({ achaPedido = true, numeroDaConversa = `#${NUM}`, cli
       if (js === R.GAVETA_ABERTA) {
         rodados.push('GAVETA');
         if (!s.gaveta) return { aberta: false };
+        if (s.voltasNumero > 0) {
+          s.voltasNumero--;
+          return { aberta: true, numero: '', campo: false, valor: null, enviar: false, enviarLigado: false, carregando: true, encerrada: false };
+        }
+        if (encerrada) return { aberta: true, numero: numeroDaConversa, campo: false, valor: null, enviar: false, enviarLigado: false, carregando: false, encerrada: true };
         let campo = true;
         if (s.voltasCampo > 0) {
           s.voltasCampo--;
@@ -79,7 +86,16 @@ function noventaDeMentira({ achaPedido = true, numeroDaConversa = `#${NUM}`, cli
     if (metodo === 'Input.dispatchMouseEvent' && p.type === 'mouseReleased') {
       if (p.x === 1152) {
         s.cliques++;
-        if (s.cliques > cliquesPerdidos) s.gaveta = true;
+        if (s.cliques > cliquesPerdidos) {
+          if (!gavetaAtrasaMs) s.gaveta = true;
+          else if (!s.gaveta && !s.abrindo) {
+            s.abrindo = true;
+            setTimeout(() => {
+              s.gaveta = true;
+              s.abrindo = false;
+            }, gavetaAtrasaMs);
+          }
+        }
       }
       if (p.x === 660) s.gaveta = false;
       if (p.x === 260) s.aba = 'Entregando';
@@ -206,6 +222,65 @@ test('voltar: fecha a conversa pelo voltar, limpa a busca do programa e volta à
   // a busca que já estava (de alguém): não limpa
   const g = noventaDeMentira({ busca: '123' });
   assert.equal((await voltar(g.ctx, { busca: '123', aba: 'Preparando' })).busca, false);
+});
+
+test('a 99 lenta (11/11): a gaveta abre DEPOIS do prazo do clique — espera e envia por ela', async () => {
+  // antes: a ponte desistia aos 2,5 s ("a conversa não abriu"), e a gaveta aparecia logo depois, aberta para sempre
+  const f = noventaDeMentira({ gavetaAtrasaMs: 700 });
+  const r = await enviar(f.ctx, { numero: NUM, pedidoExterno: EXT, texto: 'Oi' }, { ...RAPIDO, tardeMs: 3000 });
+  assert.equal(r.ok, true, JSON.stringify(r.etapas));
+  assert.deepEqual(f.s.enviou, ['Oi']);
+  assert.ok(r.etapas.some((e) => /abriu atrasada/.test(e)), JSON.stringify(r.etapas));
+});
+
+test('a 99 lenta: a gaveta aberta com o esqueleto, ainda sem o número do pedido — espera o número (não é "outro pedido")', async () => {
+  // antes: sem o número nos 2,5 s do clique, "a conversa aberta é a do (sem número)" — e a conversa ficava aberta
+  const f = noventaDeMentira({ numeroDepois: 3 });
+  const r = await enviar(f.ctx, { numero: NUM, pedidoExterno: EXT, texto: 'Oi' }, { ...RAPIDO, campoMs: 3000 });
+  assert.equal(r.ok, true, JSON.stringify(r.etapas));
+  assert.equal(f.s.cliques, 1);
+  assert.deepEqual(f.s.enviou, ['Oi']);
+});
+
+test('a conversa ENCERRADA pela 99 (pedido concluído): falha definitiva na hora, sem escrever, e pede para fechar', async () => {
+  const f = noventaDeMentira({ encerrada: true });
+  const inicio = Date.now();
+  const r = await enviar(f.ctx, { numero: NUM, pedidoExterno: EXT, texto: 'Oi' }, { ...RAPIDO, campoMs: 5000 });
+  assert.deepEqual([r.ok, r.codigo, r.definitivo, r.fecharGaveta], [false, 'encerrada', true, true]);
+  assert.ok(Date.now() - inicio < 2000, `parou em ${Date.now() - inicio} ms (não pode esperar o campo que nunca vem)`);
+  assert.ok(!f.rodados.includes('ESCREVER'));
+  assert.match(r.etapas.at(-1), /encerrou a conversa/);
+});
+
+test('voltar: a gaveta que a 99 lenta abre depois de o envio desistir — espera por ela e fecha', async () => {
+  const f = noventaDeMentira({ gavetaAtrasaMs: 1200 });
+  const r = await enviar(f.ctx, { numero: NUM, pedidoExterno: EXT, texto: 'Oi' }, RAPIDO);
+  assert.deepEqual([r.ok, r.codigo, f.s.gaveta], [false, 'gaveta', false]);
+  const v = await voltar(f.ctx, { busca: '', aba: 'Preparando' }, { tardeMs: 3000 });
+  assert.equal(v.esperouAtrasada, true);
+  assert.equal(v.gaveta, true);
+  assert.equal(f.s.gaveta, false);
+  // sem clique recente do programa, o voltar não espera nada
+  const g = noventaDeMentira();
+  const inicio = Date.now();
+  const v2 = await voltar(g.ctx, { busca: '', aba: 'Preparando' }, { tardeMs: 3000 });
+  assert.equal(v2.esperouAtrasada, undefined);
+  assert.ok(Date.now() - inicio < 1000);
+});
+
+test('a conversa aberta é a que o PROGRAMA deixou? só sem texto, do pedido do envio (ou sem número) e sem ninguém desde o clique', () => {
+  const marca = { numero: `#${NUM}`, em: 2000 };
+  const e = { gaveta: true, gavetaNumero: `#${NUM}`, campoComTexto: false, acaoEm: 1000, vigiaDesde: 500 };
+  assert.equal(gavetaEhDoPrograma(e, marca), true);
+  assert.equal(gavetaEhDoPrograma({ ...e, gavetaNumero: '' }, marca), true); // ainda carregando
+  assert.equal(gavetaEhDoPrograma({ ...e, gavetaNumero: '#900009' }, marca), false); // outro pedido: de alguém
+  assert.equal(gavetaEhDoPrograma({ ...e, campoComTexto: true }, marca), false);
+  assert.equal(gavetaEhDoPrograma({ ...e, acaoEm: 2500 }, marca), false); // alguém clicou depois
+  assert.equal(gavetaEhDoPrograma(e, marca, { ultimaTeclaEm: 2500 }), false); // alguém digitou depois
+  assert.equal(gavetaEhDoPrograma({ ...e, vigiaDesde: 2500 }, marca), false); // a página recarregou: não sei
+  assert.equal(gavetaEhDoPrograma({ ...e, gaveta: false }, marca), false);
+  assert.equal(gavetaEhDoPrograma(e, null), false);
+  assert.equal(gavetaEhDoPrograma(null, marca), false);
 });
 
 test('a tela livre: o portal na lista, nenhuma conversa aberta, campo e busca vazios, ninguém mexendo', () => {

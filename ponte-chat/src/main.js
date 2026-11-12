@@ -107,6 +107,10 @@ if (!app.requestSingleInstanceLock()) {
   let saida99 = null; // o mesmo, pela 99 (4b)
   let ocupadoNa99 = false; // um envio por vez na janela da 99
   let ultimaTecla99Em = 0; // a última tecla de GENTE na janela da 99
+  // a conversa do último envio pela 99 ({ numero: '#436003', em }): a que o programa pode fechar se a 99 lenta a abrir
+  // depois do envio (11/11 — a fila da 99 ficou parada achando que era alguém da loja)
+  let gavetaDoPrograma99 = null;
+  let fechouGaveta99Em = 0; // a última tentativa de fechar essa conversa (no máximo uma a cada 30 s)
 
   const fila = new FilaDeEntrada(async (lote) => {
     const cred = cfg.credencial();
@@ -509,7 +513,32 @@ if (!app.requestSingleInstanceLock()) {
   async function telaLivre99() {
     if (!janela99 || janela99.isDestroyed() || !leitor99) return { ok: false, motivo: 'a 99 não está aberta no programa' };
     if (ocupadoNa99) return { ok: false, motivo: 'um envio está em andamento' };
-    return envio99.avaliarTela(await estadoDaTela99(), { ultimaTeclaEm: ultimaTecla99Em, paradaMs: PARADA_MS });
+    const opcoes = { ultimaTeclaEm: ultimaTecla99Em, paradaMs: PARADA_MS };
+    const e = await estadoDaTela99();
+    const t = envio99.avaliarTela(e, opcoes);
+    if (t.ok || !envio99.gavetaEhDoPrograma(e, gavetaDoPrograma99, opcoes)) return t;
+    // a conversa aberta é a que o PROGRAMA deixou (ninguém mexeu desde o envio): fecha e confere de novo
+    if (Date.now() - fechouGaveta99Em < 30000) return t;
+    fechouGaveta99Em = Date.now();
+    const v = await comA99(async (ctx) => envio99.voltar(ctx, null));
+    if (diagnostico) diagnostico.anotar({ ev: 'saida99_fechou_a_sua', numero: gavetaDoPrograma99.numero, ...(v || { falhou: true }) });
+    if (!v || !v.gaveta) return t;
+    return envio99.avaliarTela(await estadoDaTela99(), opcoes);
+  }
+
+  /** Usa a janela da 99 (um uso por vez, como o envio); null se ela está ocupada ou fechada. */
+  async function comA99(fn) {
+    if (ocupadoNa99 || !janela99 || janela99.isDestroyed() || !leitor99) return null;
+    const wc = janela99.webContents;
+    ocupadoNa99 = true;
+    try {
+      return await fn({ pagina: wc.mainFrame, cdp: (m, p) => wc.debugger.sendCommand(m, p), leitor: leitor99 });
+    } catch (err) {
+      registrarErro(`janela da 99: ${err && err.message}`);
+      return null;
+    } finally {
+      ocupadoNa99 = false;
+    }
   }
 
   async function pessoaMexeuDesde99(desde) {
@@ -524,6 +553,7 @@ if (!app.requestSingleInstanceLock()) {
     const ctx = { pagina: wc.mainFrame, cdp: (m, p) => wc.debugger.sendCommand(m, p), leitor: leitor99 };
     ocupadoNa99 = true;
     const antes = await estadoDaTela99();
+    gavetaDoPrograma99 = { numero: `#${item.pedidoNumero}`, em: Date.now() };
     try {
       return await envio99.enviar(ctx, { numero: item.pedidoNumero, pedidoExterno: item.pedidoExterno, texto: item.texto }, { ecoMs: ECO_MS, ...opcoes });
     } catch (e) {
