@@ -100,6 +100,19 @@ export function clienteAutorizacao(chave: unknown, env: NodeJS.ProcessEnv = proc
   };
 }
 
+/**
+ * Os endereços de volta do aplicativo que SÓ usa a autorização por clique (o Orzuni, F6 do hub): a variável da
+ * distribuição troca a lista inteira; sem ela vale o padrão. A mesma régua do endereço da página de 01/10.
+ */
+export function voltasDoClique(cfg: { env: string; padrao: readonly string[] } | undefined, env: NodeJS.ProcessEnv = process.env): string[] {
+  if (!cfg) return [];
+  const doAmbiente = String(env[cfg.env] ?? '')
+    .split(',')
+    .map((u) => u.trim())
+    .filter(Boolean);
+  return (doAmbiente.length ? doAmbiente : [...cfg.padrao]).filter(enderecoDeVoltaValido);
+}
+
 export function redirectPermitido(c: ClienteAutorizacao, uri: unknown): uri is string {
   return typeof uri === 'string' && c.redirectUris.includes(uri);
 }

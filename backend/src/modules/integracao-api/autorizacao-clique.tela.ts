@@ -237,9 +237,10 @@ export function montarTela(e: EntradaDaTela): TelaDaAutorizacao {
       // o endereço de volta DESTE pedido (o parceiro pode ter mais de um), não o primeiro da lista
       `Você veio de ${hostDe(e.pedido.redirectUri)} e volta para lá ao terminar.`;
   } else {
-    titulo = `O ${nome} quer ler as vendas ${uma ? 'da sua loja' : 'das suas lojas'}`;
+    // O Liame lê as vendas; o Orzuni, o cardápio (e monta o do iFood: por isso o "no Regem" na frase dele).
+    titulo = `O ${nome} quer ler ${app.oQueLe ?? 'as vendas'} ${uma ? 'da sua loja' : 'das suas lojas'}`;
     abertura =
-      `O ${nome} ${app.faz}. Ele só lê o que estiver listado aqui; não muda pedido, preço nem cardápio. ` +
+      `O ${nome} ${app.faz}. ${app.soLe ?? 'Ele só lê o que estiver listado aqui; não muda pedido, preço nem cardápio.'} ` +
       `Você veio de ${hostDe(app.inicio)} e volta para lá ao terminar.`;
   }
 

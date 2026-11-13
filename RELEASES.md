@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O Orzuni entra na autorização por clique do Regem (13/11, F6 do hub; SEM migration; não mexe no `sync-daemon`;
+  nasce parado).** Na NUVEM com o merge: a ficha do Orzuni no clique, as frases das duas leituras do cardápio (o
+  manifesto público muda só no texto) e o título "quer ler o cardápio". Nada aparece para loja nenhuma até a
+  distribuição pôr o Orzuni em `DMS_ID_APLICATIVOS` no `regem-api`. **No `.zip`:** nada a fazer na loja (a autorização
+  por clique é só da nuvem); os arquivos vão junto no próximo corte. Nada no `.exe`.
+
 - **O manifesto da porta marca a rota dos pedidos por bairro como só de produto da DMS (13/11; pacote comum 0.10.2; SEM
   migration; não mexe no `sync-daemon`).** Na NUVEM com o merge: o manifesto público ganha `x-dms-classes` nessa rota e
   o portal de parceiros do hub deixa de listá-la. O comportamento da porta não muda. **No `.zip`:** só a cópia nova do

@@ -1,6 +1,7 @@
 import {
   APLICATIVOS_DO_CLIQUE,
   CUSTO_TRAVADO,
+  PERMISSAO_NA_TELA,
   cnpjComMascara,
   conferirPedido,
   ehOutraEmpresa,
@@ -16,6 +17,8 @@ import {
   raizDoCnpj,
 } from './autorizacao-clique.regras';
 import { montarTela, textoGuardado, type EntradaDaTela } from './autorizacao-clique.tela';
+import { voltasDoClique } from './autorizacao-loja';
+import { FRASES_DO_PARCEIRO } from './parceiros.regras';
 
 // A AUTORIZAÇÃO POR CLIQUE (Hub DMS, F3, parte C) — as regras puras e a tela montada no servidor, com os textos que o
 // dono aprovou em 21/10/2026 (C-5). Dados fictícios: os CNPJs têm dígito verificador inválido de propósito.
@@ -259,5 +262,84 @@ describe('autorização por clique — a tela', () => {
     expect(g.dadosDosClientes.map((o) => o.ligada)).toEqual([false]);
     expect(g.confirmouOutraEmpresa).toBeNull();
     expect(g.titulo).toBe(t.titulo);
+  });
+});
+
+// O ORZUNI (F6 do hub, 13/11/2026): o segundo aplicativo da DMS no clique. Ele lê o cardápio, não as vendas, e só tem o
+// clique (sem a página de 01/10): os endereços de volta saem da ficha dele.
+describe('autorização por clique — o Orzuni', () => {
+  const ORZUNI = APLICATIVOS_DO_CLIQUE.orzuni;
+  const VOLTA_ORZUNI = 'https://app.orzuni.com/importar/volta';
+  const pedido = (mudar: Record<string, unknown> = {}) => ({
+    response_type: 'code',
+    redirect_uri: VOLTA_ORZUNI,
+    scope: 'catalogo.ifood.ler catalogo.ler',
+    state: 'estado-do-orzuni-1234567890',
+    code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
+    code_challenge_method: 'S256',
+    conta_nome: 'Lanchonete da Olga',
+    conta_email: 'olga@orzuni.exemplo',
+    ...mudar,
+  });
+
+  it('a ficha: só as duas leituras do cardápio, nenhuma opcional, nenhum dado pessoal nem financeiro; cada leitura com o motivo e a frase', () => {
+    expect(ORZUNI.necessarias).toEqual(['catalogo.ler', 'catalogo.ifood.ler']);
+    expect([ORZUNI.opcionais, ORZUNI.dadoPessoal, ORZUNI.financeiras]).toEqual([[], [], []]);
+    for (const id of ORZUNI.necessarias) {
+      expect(ORZUNI.motivos[id]).toMatch(/^Para /);
+      expect(PERMISSAO_NA_TELA[id]?.frase.length).toBeGreaterThan(20);
+    }
+    // A frase do catálogo é a MESMA que o parceiro lê (aprovada em 10/10/2026): um texto só para a mesma permissão.
+    expect(PERMISSAO_NA_TELA['catalogo.ler']).toEqual(FRASES_DO_PARCEIRO['catalogo.ler']);
+  });
+
+  it('o pedido: aceita as duas leituras, na ordem do catálogo, sem CNPJ; recusa vendas, cliente, custo e fichas', () => {
+    const ok = conferirPedido(pedido(), ORZUNI, 'app-orzuni', [VOLTA_ORZUNI]);
+    expect(ok).toMatchObject({ necessarias: ['catalogo.ler', 'catalogo.ifood.ler'], opcionais: [], contaQuePede: { nome: 'Lanchonete da Olga', cnpj: null } });
+    for (const fora of ['pedidos.ler', 'clientes.telefone.ler', 'custos.ler', 'fichas.ler']) {
+      expect(conferirPedido(pedido({ scope: `catalogo.ler ${fora}` }), ORZUNI, 'app-orzuni', [VOLTA_ORZUNI])).toEqual({
+        erro: `A permissão "${fora}" não pode ser pedida por este aplicativo na autorização por clique.`,
+      });
+    }
+  });
+
+  it('os endereços de volta: o padrão da ficha; a variável troca a lista inteira; endereço sem https fica de fora; sem ficha, nenhum', () => {
+    expect(voltasDoClique(ORZUNI.voltas, {})).toEqual([VOLTA_ORZUNI]);
+    const env = { INTEGRACAO_ORZUNI_REDIRECT_URIS: ' https://orzuni.teste/volta , http://localhost:3999/importar/volta, http://ataque.exemplo/volta ' };
+    expect(voltasDoClique(ORZUNI.voltas, env)).toEqual(['https://orzuni.teste/volta', 'http://localhost:3999/importar/volta']);
+    expect(voltasDoClique(undefined, env)).toEqual([]);
+    expect(voltasDoClique(APLICATIVOS_DO_CLIQUE.liame.voltas, env)).toEqual([]); // o Liame usa os da página de 01/10
+  });
+
+  it('a tela: o título e a abertura falam do cardápio; a conta sem CNPJ pede a confirmação de outra empresa', () => {
+    const t = montarTela({
+      cliente: 'orzuni',
+      app: ORZUNI,
+      dms: { empresa: 'DMS Exemplo Ltda', cnpj: '33444555000100' },
+      pedido: {
+        redirectUri: VOLTA_ORZUNI,
+        necessarias: ['catalogo.ler', 'catalogo.ifood.ler'],
+        opcionais: [],
+        contaQuePede: { nome: 'Lanchonete da Olga', cnpj: null, email: 'olga@orzuni.exemplo', marca: null },
+      },
+      empresa: { nome: 'Brasa Burger', cnpj: '11222333000100' },
+      lojas: [
+        { id: 'loja-centro', nome: 'Brasa Centro', tipo: 'matriz', fuso: 'America/Sao_Paulo', conectadaDesde: null, jaLiberado: [] },
+        { id: 'loja-praia', nome: 'Brasa Praia', tipo: 'filial', fuso: 'America/Sao_Paulo', conectadaDesde: null, jaLiberado: [] },
+      ],
+      verFinanceiro: false,
+    });
+    expect(t.modo).toBe('nova');
+    expect(t.titulo).toBe('O Orzuni quer ler o cardápio das suas lojas');
+    expect(t.abertura).toBe(
+      'O Orzuni monta no iFood os produtos que estão no Regem e ainda faltam lá. Ele só lê o que estiver listado aqui; não muda pedido, ' +
+        'preço nem cardápio no Regem. Você veio de app.orzuni.com e volta para lá ao terminar.',
+    );
+    expect(t.necessarias.map((p) => p.rotulo)).toEqual(['Produtos e adicionais', 'Preço do iFood']);
+    expect([t.opcionais, t.dadosDosClientes]).toEqual([[], []]);
+    expect(t.confirmacao?.titulo).toBe('A conta que pede é de outra empresa');
+    expect(t.aplicativo.selo).toBe('Produto da DMS');
+    // O título do Liame não mudou: ele segue sem o campo.
+    expect(APLICATIVOS_DO_CLIQUE.liame.oQueLe).toBeUndefined();
   });
 });

@@ -60,13 +60,17 @@ const semFkCompartilhada = (s: string) =>
 const APP_LIAME = 'aplicativo-liame-de-teste';
 const APP_FAROL = 'aplicativo-farol-de-teste';
 const APP_FORA = 'aplicativo-fora-da-lista';
+// O Orzuni (F6 do hub): só o clique, com o endereço de volta da ficha dele e as duas leituras do cardápio.
+const APP_ORZUNI = 'aplicativo-orzuni-de-teste';
+const VOLTA_ORZUNI = 'https://orzuni.teste/importar/volta';
+const LEITURAS_DO_ORZUNI = 'catalogo.ler catalogo.ifood.ler';
 const KID = 'chave-de-teste';
 const VOLTA = 'https://liame.teste/v1/oauth/callback';
 const SENHA = 'senha-certa-do-teste';
 const FORMATO_LIGACAO = /^dms_lg_regem_[A-Za-z0-9_-]{43}_[A-Za-z0-9_-]{6}$/;
 const TODAS = 'pedidos.ler clientes.anonimizacao.ler cupons.ler cupons.uso.ler custos.ler cupons.criar clientes.telefone.ler';
 
-type DmsIdFalso = { servidor: Server; emissor: string; emitir(o?: { aplicativo?: string; destino?: string }): string };
+type DmsIdFalso = { servidor: Server; emissor: string; emitir(o?: { aplicativo?: string; destino?: string; permissoes?: string }): string };
 
 /** O DMS ID de mentira: a chave ES384, as chaves públicas por HTTP e a emissão do token. */
 async function subirDmsIdFalso(recurso: () => string): Promise<DmsIdFalso> {
@@ -96,7 +100,7 @@ async function subirDmsIdFalso(recurso: () => string): Promise<DmsIdFalso> {
         aud: o.destino ?? recurso(),
         sub: aplicativo,
         client_id: aplicativo,
-        scope: TODAS,
+        scope: o.permissoes ?? TODAS,
         iat: agora,
         exp: agora + 3600,
         jti: randomUUID(),
@@ -158,7 +162,7 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
     'EDGE_MODE', 'TRUST_CLOUDFLARE', 'CARDAPIO_PUBLIC_URL', 'APP_URL', 'ACEITAR_INTEGRACOES',
     'DMS_ID_LIGADO', 'DMS_ID_EMISSOR', 'DMS_ID_RECURSO', 'DMS_ID_APLICATIVOS',
     'AUTORIZACAO_POR_CLIQUE', 'AUTORIZACAO_DMS_RAZAO_SOCIAL', 'AUTORIZACAO_DMS_CNPJ',
-    AUTORIZACAO_LOJA.liame.envRedirect, AUTORIZACAO_LOJA.liame.envSegredo,
+    AUTORIZACAO_LOJA.liame.envRedirect, AUTORIZACAO_LOJA.liame.envSegredo, 'INTEGRACAO_ORZUNI_REDIRECT_URIS',
   ];
   const original: Record<string, string | undefined> = Object.fromEntries(ENV.map((k) => [k, process.env[k]]));
   let app: INestApplication;
@@ -254,12 +258,16 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
   const tela = (quem: Pessoa, numero: string | null, clientId = APP_LIAME) =>
     chamar(`/integracoes/autorizacao?${new URLSearchParams({ client_id: clientId, request_uri: numero ?? '' })}`, { quem });
 
-  async function autorizar(quem: Pessoa, numero: string | null, o: { senha?: string; lojas: string[]; opcionais?: string[]; confirmo?: boolean; ip?: string }) {
+  async function autorizar(
+    quem: Pessoa,
+    numero: string | null,
+    o: { senha?: string; lojas: string[]; opcionais?: string[]; confirmo?: boolean; ip?: string; clientId?: string },
+  ) {
     const r = await chamar('/integracoes/autorizacao', {
       quem,
       ip: o.ip,
       // A conta do pedido de teste vem sem CNPJ, e sem CNPJ é outra empresa (Padrão §3): por padrão, confirma.
-      corpo: { clientId: APP_LIAME, requestUri: numero, senha: o.senha ?? SENHA, lojas: o.lojas, opcionais: o.opcionais ?? [], confirmoOutraEmpresa: o.confirmo ?? true },
+      corpo: { clientId: o.clientId ?? APP_LIAME, requestUri: numero, senha: o.senha ?? SENHA, lojas: o.lojas, opcionais: o.opcionais ?? [], confirmoOutraEmpresa: o.confirmo ?? true },
     });
     const c: any = await r.json().catch(() => null);
     const volta = r.status === 200 ? new URL(c.redirect) : null;
@@ -322,6 +330,7 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
     process.env.CARDAPIO_PUBLIC_URL = 'https://cardapio.teste';
     process.env.APP_URL = 'https://app.regem.teste';
     process.env[AUTORIZACAO_LOJA.liame.envRedirect] = VOLTA;
+    process.env.INTEGRACAO_ORZUNI_REDIRECT_URIS = VOLTA_ORZUNI;
     process.env.AUTORIZACAO_POR_CLIQUE = 'true';
     process.env.AUTORIZACAO_DMS_RAZAO_SOCIAL = 'DMS Exemplo Ltda';
     process.env.AUTORIZACAO_DMS_CNPJ = '33444555000100';
@@ -362,7 +371,7 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
     dmsId = await subirDmsIdFalso(() => `${origem}/api/v1/integracao`);
     process.env.DMS_ID_LIGADO = 'true';
     process.env.DMS_ID_EMISSOR = dmsId.emissor;
-    process.env.DMS_ID_APLICATIVOS = JSON.stringify({ liame: APP_LIAME, farol: APP_FAROL });
+    process.env.DMS_ID_APLICATIVOS = JSON.stringify({ liame: APP_LIAME, farol: APP_FAROL, orzuni: APP_ORZUNI });
     app = await NestFactory.create(AppTeste, { logger: false });
     app.setGlobalPrefix('api/v1', { exclude: ROTAS_FORA_DO_PREFIXO });
     await app.listen(0, '127.0.0.1');
@@ -849,6 +858,131 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
       segredos.push(c.lojas[0].token);
       expect(c.lojas[0].token).toMatch(/^rgm_it_/);
       expect((await q(`select count(*)::int n from integracao_autorizacao where id = $1`, [velha.id]))[0].n).toBe(1);
+    });
+  });
+
+  // ───────────────────────────── o Orzuni (F6 do hub) ─────────────────────────────
+
+  describe('o Orzuni: o clique de quem lê o cardápio (F6 do hub)', () => {
+    const ORZUNI = { cliente: 'orzuni', nome: 'Orzuni', inicio: 'https://app.orzuni.com', le: 'o cardápio' };
+    const tokenDoOrzuni = () => dmsId.emitir({ aplicativo: APP_ORZUNI, permissoes: LEITURAS_DO_ORZUNI });
+    const pedirPeloOrzuni = (mudar: Record<string, string> = {}) =>
+      pedir({
+        token: tokenDoOrzuni(),
+        mudar: { redirect_uri: VOLTA_ORZUNI, scope: LEITURAS_DO_ORZUNI, conta_nome: 'Lanchonete da Olga', conta_email: 'olga@orzuni.exemplo', ...mudar },
+      });
+    const trocarPeloOrzuni = (codigo: string | null, verificador: string) =>
+      trocar(codigo, verificador, { token: tokenDoOrzuni(), mais: { redirect_uri: VOLTA_ORZUNI } });
+    const lerPeloOrzuni = (caminho: string, ligacao: string) => chamar(caminho, { token: tokenDoOrzuni(), ligacao });
+
+    it('o pedido: as duas leituras e o endereço de volta da ficha dele; vendas e endereço de outro aplicativo são recusados', async () => {
+      expect((await pedirPeloOrzuni()).r.status).toBe(201);
+      const vendas = await pedirPeloOrzuni({ scope: 'catalogo.ler pedidos.ler' });
+      expect(vendas.r.status).toBe(400);
+      expect(vendas.c.detail).toBe('A permissão "pedidos.ler" não pode ser pedida por este aplicativo na autorização por clique.');
+      const doLiame = await pedirPeloOrzuni({ redirect_uri: VOLTA });
+      expect(doLiame.r.status).toBe(400);
+      expect(doLiame.c.detail).toBe('redirect_uri não é um endereço de volta cadastrado para este aplicativo.');
+      // E o contrário: o Liame não volta para o endereço do Orzuni, nem pede o preço do iFood.
+      expect((await pedir({ mudar: { redirect_uri: VOLTA_ORZUNI } })).r.status).toBe(400);
+      expect((await pedir({ mudar: { scope: 'pedidos.ler catalogo.ifood.ler' } })).r.status).toBe(400);
+    });
+
+    it('a página: o título do cardápio, as duas leituras com o motivo, nenhuma opcional e o que ele não pode; ao gerente diz "o cardápio"', async () => {
+      const e = await empresa('Cardapio', ['Cardapio Loja']);
+      const pres = await pessoa(e.tenant, 'Olga Presidente', 'presidente');
+      const gerente = await pessoa(e.tenant, 'Gil Gerente', 'gerente');
+      const p = await pedirPeloOrzuni();
+      const c: any = await (await tela(pres, p.numero, APP_ORZUNI)).json();
+      expect(c.situacao).toBe('escolha');
+      expect(c.aplicativo).toEqual(ORZUNI);
+      expect(c.tela.titulo).toBe('O Orzuni quer ler o cardápio da sua loja');
+      expect(c.tela.abertura).toBe(
+        'O Orzuni monta no iFood os produtos que estão no Regem e ainda faltam lá. Ele só lê o que estiver listado aqui; não muda pedido, ' +
+          'preço nem cardápio no Regem. Você veio de app.orzuni.com e volta para lá ao terminar.',
+      );
+      expect(c.tela.necessarias.map((x: any) => [x.id, x.rotulo])).toEqual([
+        ['catalogo.ler', 'Produtos e adicionais'],
+        ['catalogo.ifood.ler', 'Preço do iFood'],
+      ]);
+      expect(c.tela.necessarias.every((x: any) => x.frase.length > 20 && x.motivo.startsWith('Para '))).toBe(true);
+      expect(c.tela.opcionais).toEqual([]);
+      expect(c.tela.dadosDosClientes).toEqual([]);
+      expect(c.tela.naoPode.map((x: any) => x.rotulo)).toEqual([
+        'Mudar pedido, preço ou cardápio no Regem',
+        'Ver os outros preços',
+        'Ver vendas e clientes',
+        'Ver o resto da operação',
+        'Entrar no seu Regem',
+      ]);
+      // A conta do Orzuni não tem CNPJ: conta como outra empresa, e o presidente confirma (Padrão §3).
+      expect(c.tela.confirmacao.titulo).toBe('A conta que pede é de outra empresa');
+      expect(c.tela.confirmacao.rotulo).toBe('Contratei a Lanchonete da Olga e quero ligar a conta dela às lojas marcadas');
+      expect(c.tela.aplicativo.detalhes).toContain('orzuni.teste');
+      const g: any = await (await tela(gerente, p.numero, APP_ORZUNI)).json();
+      expect(g).toEqual({ situacao: 'nao_presidente', aplicativo: ORZUNI, pessoa: { nome: 'Gil Gerente', nivel: 'gerente' } });
+    });
+
+    it('de ponta a ponta: o presidente autoriza, o Orzuni troca o código e lê pela ligação, só ele; os presidentes recebem o e-mail', async () => {
+      const e = await empresa('Importa', ['Importa Loja']);
+      const pres = await pessoa(e.tenant, 'Ivo Presidente', 'presidente', { email: 'ivo@importa.exemplo' });
+      email.mockClear();
+      const p = await pedirPeloOrzuni();
+      // Sem a confirmação de outra empresa, nada liga.
+      expect((await autorizar(pres, p.numero, { lojas: e.lojas, clientId: APP_ORZUNI, confirmo: false })).r.status).toBe(400);
+      const a = await autorizar(pres, p.numero, { lojas: e.lojas, clientId: APP_ORZUNI });
+      expect(a.r.status).toBe(200);
+      expect(`${a.volta?.origin}${a.volta?.pathname}`).toBe(VOLTA_ORZUNI);
+      expect(a.volta?.searchParams.get('state')).toBe(p.state);
+      expect(a.volta?.searchParams.get('iss')).toBe(origem);
+
+      const t = await trocarPeloOrzuni(a.codigo, p.verificador);
+      expect(t.status).toBe(200);
+      const { lojas } = (await t.json()) as any;
+      expect(lojas).toHaveLength(1);
+      segredos.push(lojas[0].ligacao);
+      expect(lojas[0]).toMatchObject({ loja_id: e.lojas[0], permissoes: ['catalogo.ler', 'catalogo.ifood.ler'] });
+      expect(lojas[0].ligacao).toMatch(FORMATO_LIGACAO);
+
+      // A ligação vale com o token do Orzuni, e só com ele; e não abre as vendas.
+      const loja = await lerPeloOrzuni('/integracao/loja', lojas[0].ligacao);
+      expect(loja.status).toBe(200);
+      expect(((await loja.json()) as any).loja_id).toBe(e.lojas[0]);
+      expect((await lerLoja(lojas[0].ligacao)).status).toBe(401); // com o token do Liame
+      expect((await lerPeloOrzuni('/integracao/pedidos', lojas[0].ligacao)).status).toBe(403);
+
+      // A prova: o acesso do clique em Aplicativos conectados, com o texto que o presidente leu.
+      const r: any = await (await chamar('/aplicativos-conectados', { quem: pres })).json();
+      const acesso = r.aplicativos.find((x: any) => x.cliente === 'orzuni').acessos[0];
+      expect(acesso).toMatchObject({ ativo: true, via: 'clique', lojaId: e.lojas[0], autorizacao: { por: 'Ivo Presidente', versao: 1, outraEmpresa: true } });
+      expect(acesso.autorizacao.texto.titulo).toBe('O Orzuni quer ler o cardápio da sua loja');
+
+      expect(await esperarAte(() => email.mock.calls.length >= 1)).toBe(true);
+      expect(email.mock.calls[0][0]).toBe('ivo@importa.exemplo');
+      expect(email.mock.calls[0][1]).toBe('O Orzuni foi autorizado na loja Importa Loja');
+      expect(JSON.stringify(email.mock.calls[0])).toContain('produtos e adicionais e pre');
+    });
+
+    it('a loja que já tinha a chave colada do Orzuni: depois do clique a chave antiga para de valer e a ligação lê', async () => {
+      const e = await empresa('Chave', ['Chave Loja']);
+      const pres = await pessoa(e.tenant, 'Caio Presidente', 'presidente');
+      const antiga = (await tokensSvc.emitir(
+        { tenantId: e.tenant, unidadeId: e.lojas[0], cliente: 'orzuni', autorizadoPor: pres.id, escopos: ['catalogo.ler', 'catalogo.ifood.ler'], evidencia: 'teste' },
+        dist,
+      )) as any;
+      segredos.push(antiga.token);
+      expect((await chamar('/integracao/loja', { token: antiga.token })).status).toBe(200);
+
+      const p = await pedirPeloOrzuni();
+      const a = await autorizar(pres, p.numero, { lojas: e.lojas, clientId: APP_ORZUNI });
+      expect(a.r.status).toBe(200);
+      const t = await trocarPeloOrzuni(a.codigo, p.verificador);
+      expect(t.status).toBe(200);
+      const { lojas } = (await t.json()) as any;
+      segredos.push(lojas[0].ligacao);
+
+      expect((await chamar('/integracao/loja', { token: antiga.token })).status).toBe(401);
+      expect((await lerPeloOrzuni('/integracao/loja', lojas[0].ligacao)).status).toBe(200);
     });
   });
 });

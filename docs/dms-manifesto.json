@@ -992,7 +992,7 @@
       "sensivel": true
     },
     "catalogo.ler": {
-      "frase": "Produtos, variações, combos e adicionais da loja (sem preço)",
+      "frase": "Os produtos da loja, com categoria, variações, setor de produção, tempo de preparo e os adicionais de cada um. Sem preço.",
       "classes": [
         "dms",
         "parceiro"
@@ -1016,7 +1016,7 @@
       "sensivel": false
     },
     "catalogo.ifood.ler": {
-      "frase": "Preço do iFood e se o produto está no cardápio do iFood, no catálogo (junto de catalogo.ler)",
+      "frase": "O preço de cada produto e de cada adicional no iFood, e se o produto está no cardápio do iFood. Nenhum outro preço.",
       "classes": [
         "dms"
       ],
