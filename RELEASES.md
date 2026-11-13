@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **WhatsApp oficial: a coexistência de verdade no "Conectar com a Meta" (12/11, ERR-456; SEM migration; não mexe no
+  `sync-daemon`).** Na NUVEM com o merge: a pergunta antes do botão (coexistência × só na API), o `featureType` da
+  coexistência na janela da Meta, o número pelo `is_on_biz_app` e o pedido da cópia dos dados do aplicativo em até 24 h.
+  A conexão do WhatsApp é só da nuvem; a tela no servidor da loja muda no próximo `.zip`. Nada no `.exe`.
+
 - **O Pix pago cujo aviso nunca chegou entra em vez de ser cancelado (12/11, ERR-454; SEM migration; não mexe no
   `sync-daemon`).** Na NUVEM com o merge: antes de cancelar o pedido de Pix sem pagamento há 10 min, a rotina pergunta ao
   Mercado Pago ou ao PagBank — pago entra, provedor sem resposta espera até 1 h, o resto como antes. **No

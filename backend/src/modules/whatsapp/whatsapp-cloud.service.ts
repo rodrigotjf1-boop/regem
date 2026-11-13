@@ -21,6 +21,7 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig, empresa, whatsappMensagem, whatsappNumero, whatsappTemplate } from '../../db/schema';
 import { registrarSaida, registrarVolta } from '../../common/consentimento-marketing';
 import { buscarUrlPublica } from '../../common/ssrf-guard';
+import { escolherNumeroDaWaba, pedirCopiaDoApp, type ResultadoDaCopia } from './coexistencia-meta';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // API OFICIAL do WhatsApp (Meta Cloud API) — via paralela ao Evolution.
@@ -2331,14 +2332,15 @@ export class WhatsappCloudService {
   // na WABA da loja (p/ os webhooks fluírem), (3) grava phone_id/WABA no modelo. A
   // COBRANÇA fica na conta do próprio lojista (ele cadastra o meio de pagamento no fluxo).
   // Coexistência: o número já está registrado (roda no app WhatsApp Business do lojista),
-  // então o evento devolve só o WABA — buscamos o phone_number_id na própria conta.
-  private async primeiroPhoneIdDaWaba(wabaId: string): Promise<string> {
-    const res = await fetch(`${GRAPH}/${wabaId}/phone_numbers?fields=id,display_phone_number`, {
+  // então o evento devolve só o WABA — buscamos o phone_number_id na própria conta: o que está
+  // no aplicativo (`is_on_biz_app`), nunca "o primeiro" de uma conta com vários (`coexistencia-meta.ts`).
+  private async numeroDaWaba(wabaId: string, coexistencia: boolean): Promise<string> {
+    const res = await fetch(`${GRAPH}/${wabaId}/phone_numbers?fields=id,display_phone_number,is_on_biz_app,platform_type`, {
       headers: { Authorization: `Bearer ${this.token()}` },
     }).catch(() => null);
     if (!res || !res.ok) return '';
     const j: any = await res.json().catch(() => ({}));
-    return String(j?.data?.[0]?.id ?? '').trim();
+    return escolherNumeroDaWaba(Array.isArray(j?.data) ? j.data : [], coexistencia);
   }
 
   async finalizarEmbeddedSignup(
@@ -2352,9 +2354,13 @@ export class WhatsappCloudService {
       throw new BadRequestException('O cadastro não concluiu (faltou a conta WABA).');
     // No fluxo de COEXISTÊNCIA o evento não traz o phone_number_id — resolve pela WABA.
     if (!phoneId) {
-      phoneId = await this.primeiroPhoneIdDaWaba(wabaId);
+      phoneId = await this.numeroDaWaba(wabaId, !!dto.coexistence);
       if (!phoneId)
-        throw new BadRequestException('O cadastro não concluiu (não encontrei o número na conta WABA).');
+        throw new BadRequestException(
+          dto.coexistence
+            ? 'O cadastro não concluiu: não achei, na conta da Meta, o número que está no WhatsApp Business do celular. Tente conectar de novo.'
+            : 'O cadastro não concluiu (não encontrei o número na conta WABA).',
+        );
     }
 
     // 1) Troca o code por token — confirma o vínculo. best-effort (não bloqueia).
@@ -2409,7 +2415,26 @@ export class WhatsappCloudService {
     if (papel === 'principal') void this.seedUtilidade(tenantId).catch(() => {});
     else void this.seedModelosRegem(tenantId).catch(() => {});
 
-    return { ok: true, papel, phoneNumberId: phoneId, wabaId, numero, coexistence: !!dto.coexistence };
+    // 5) COEXISTÊNCIA: a Meta exige o pedido da cópia dos dados do aplicativo em até 24 horas — sem ele, ela desfaz a
+    // conexão (12/11/2026: o Regem nunca pedia; o histórico do número principal só chega por este pedido). O resultado
+    // vai à tela e ao log (V37): recusado, o dono conecta de novo dentro do prazo.
+    let copia: ResultadoDaCopia | null = null;
+    if (dto.coexistence) {
+      copia = await pedirCopiaDoApp({ graph: GRAPH, phoneNumberId: phoneId, token: this.token() });
+      if (copia.pedida) this.logger.log(`coexistência: cópia dos dados do aplicativo pedida à Meta (loja ${tenantId}, ${papel}).`);
+      else this.logger.warn(`coexistência: a Meta recusou o pedido da cópia (loja ${tenantId}, ${papel}) — ${copia.motivo}`);
+    }
+
+    return {
+      ok: true,
+      papel,
+      phoneNumberId: phoneId,
+      wabaId,
+      numero,
+      coexistence: !!dto.coexistence,
+      copia: copia ? (copia.pedida ? 'pedida' : 'recusada') : null,
+      motivoCopia: copia && !copia.pedida ? copia.motivo : null,
+    };
   }
 
   // ===== Registro do número na Cloud API (ativa o ENVIO) =====
