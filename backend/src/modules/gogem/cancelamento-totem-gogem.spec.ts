@@ -230,7 +230,7 @@ descrever('venda do totem cancelada no Regem → aviso ao GoGeM (Postgres real)'
 
     expect(chamadas).toHaveLength(1);
     expect(chamadas[0].corpo).toEqual({
-      idempotencyKey: p.chave, regemComandaId: venda.comandaId, motivo: 'Cliente desistiu',
+      idempotencyKey: p.chave, regemComandaId: venda.comandaId, motivo: 'Cliente desistiu', canceladoPor: 'pessoa',
     });
     expect(r.status).toBe('cancelado');
     expect(r.estornoGogem.situacao).toBe('solicitado');
@@ -248,7 +248,7 @@ descrever('venda do totem cancelada no Regem → aviso ao GoGeM (Postgres real)'
     const r = await cancelarNoHub(p.id);
 
     expect(chamadas).toHaveLength(1);
-    expect(chamadas[0].corpo).toEqual({ idempotencyKey: p.chave, motivo: 'Cliente desistiu' }); // sem comanda
+    expect(chamadas[0].corpo).toEqual({ idempotencyKey: p.chave, motivo: 'Cliente desistiu', canceladoPor: 'pessoa' }); // sem comanda
     expect(r.estornoGogem.situacao).toBe('sem_estorno_eletronico');
     expect((await avisosDa(p.chave))[0].status).toBe('entregue');
   });

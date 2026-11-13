@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O aviso de cancelamento ao GoGeM diz quem cancelou (13/11, F5-10 do hub; SEM migration; não mexe no
+  `sync-daemon`).** Na NUVEM com o merge: o corpo do `pedido_cancelado` leva `canceladoPor: "pessoa"` (o GoGeM aceita
+  desde o #154 dele; sem aprovação lá, só o cancelamento feito por uma pessoa estorna), inclusive no aviso que já estava
+  na fila e no repasse de servidor da loja antigo. **No `.zip`:** o servidor da loja passa a gravar o campo no aviso e a
+  mandá-lo no repasse — sem pressa: até lá a nuvem completa o que falta. Nada no `.exe`.
+
 - **IA por empresa — a chave de IA do lojista e o medidor de uso (12/11, F2.0 do plano do Mister; mig 415 `@cloud-only`
   — tabelas novas `ia_credencial` e `ia_uso_dia`, só nuvem; no `sync-daemon` entram SÓ os dois nomes na lista
   `SO_NUVEM`).** Na NUVEM com o merge: as rotas do presidente `ia/chave` e `ia/uso` (sem tela ainda) e o copiloto do

@@ -6,7 +6,8 @@
 //
 // O contrato do lado do GoGeM (PR #136 dele):
 //   POST {GOGEM_CLOUD_URL}/sync/regem/pedido-cancelado     X-Sync-Token: <token da integração>
-//   { idempotencyKey, regemComandaId?, motivo? }            (limites do DTO: 120 / 120 / 500)
+//   { idempotencyKey, regemComandaId?, motivo?, canceladoPor } (limites do DTO: 120 / 120 / 500)
+//   (`canceladoPor` 'pessoa' | 'agente' desde o GoGeM #154, 13/11/2026 — F5-10: 'agente' volta 422)
 //   200 → { status:'cancelado', pedidoId, estorno:{ feito, meio, valorCentavos, refundId?, mensagem } }
 //
 // Duas sutilezas que decidem se o aviso está ENTREGUE ou tem de sair de novo:
@@ -75,10 +76,29 @@ function cortar(texto: string, max: number): string {
   return texto.slice(0, alto >= 0xd800 && alto <= 0xdbff ? max - 1 : max);
 }
 
+/**
+ * Quem cancelou (Padrão DMS do hub, decisão F5-10): o GoGeM devolve o dinheiro sem aprovação lá só quando o cancelamento
+ * foi feito por uma PESSOA aqui, o dono da venda; pedido de um agente (IA) é recusado (422 `regra-invalida`). Quem grava o
+ * aviso diz quem foi — o parâmetro é obrigatório, para todo caminho novo ter de dizer.
+ */
+export const QUEM_CANCELOU = ['pessoa', 'agente'] as const;
+export type QuemCancelou = (typeof QUEM_CANCELOU)[number];
+
+/**
+ * O aviso gravado antes deste campo (e o repasse de um servidor da loja de versão anterior) não o traz: é de uma pessoa.
+ * Em todas as versões o aviso só nasce no cancelamento com a senha do gestor (Delivery, Atendimento), pelo WhatsApp do
+ * gestor (conferido pela rotina) ou pelo usuário logado no PDV — nenhum caminho automático o cria.
+ */
+export function quemCancelou(valor: unknown): QuemCancelou {
+  return valor === 'agente' ? 'agente' : 'pessoa';
+}
+
 export type CorpoCancelamentoGogem = {
   idempotencyKey: string;
   regemComandaId?: string;
   motivo: string;
+  /** Desde 13/11/2026 (o GoGeM aceita desde o PR #154 dele; antes a rota antiga recusava campo a mais). */
+  canceladoPor: QuemCancelou;
 };
 
 /** O corpo do POST, dentro dos limites do DTO do GoGeM — campo a mais ou longo demais é 400 lá. */
@@ -86,13 +106,20 @@ export function corpoCancelamento(d: {
   idempotencyKey: string;
   regemComandaId?: string | null;
   motivo?: string | null;
+  canceladoPor: QuemCancelou;
 }): CorpoCancelamentoGogem {
   const motivo = String(d.motivo ?? '').trim() || 'Cancelado no Regem';
   return {
     idempotencyKey: cortar(String(d.idempotencyKey), 120),
     ...(d.regemComandaId ? { regemComandaId: cortar(String(d.regemComandaId), 120) } : {}),
     motivo: cortar(motivo, 500),
+    canceladoPor: quemCancelou(d.canceladoPor),
   };
+}
+
+/** O corpo como sai da fila: o gravado, com quem cancelou (o aviso antigo, sem o campo, é de uma pessoa). */
+export function corpoParaEnvio(corpo: any): CorpoCancelamentoGogem {
+  return { ...(corpo ?? {}), canceladoPor: quemCancelou(corpo?.canceladoPor) } as CorpoCancelamentoGogem;
 }
 
 /**
@@ -197,7 +224,7 @@ export const TIPO_ASSINADO = { cancelado: 'pedido.cancelado', publicar: 'catalog
 export const idDoAvisoAssinado = (avisoId: string) => `aviso_${avisoId}`;
 
 /**
- * O corpo do `pedido.cancelado` assinado (§4 do contrato): o corpo de hoje vai inteiro, sem mudança,
+ * O corpo do `pedido.cancelado` assinado (§4 do contrato): o mesmo corpo da rota antiga vai inteiro, com quem cancelou,
  * em `pedido` (o GoGeM reaproveita o DTO dele). `loja_id` é a loja do registro — a da integração.
  */
 export function corpoPedidoCancelado(linha: any, lojaId: string | null) {
@@ -206,7 +233,7 @@ export function corpoPedidoCancelado(linha: any, lojaId: string | null) {
     contrato: CONTRATO_AVISO_ASSINADO,
     loja_id: lojaId,
     cancelado_em: new Date(linha.created_at).toISOString(),
-    pedido: linha.corpo as CorpoCancelamentoGogem,
+    pedido: corpoParaEnvio(linha.corpo),
   };
 }
 
@@ -214,7 +241,7 @@ export function corpoRepasse(linha: any): RepasseDaLoja {
   return {
     avisoId: String(linha.id),
     chave: String(linha.chave),
-    corpo: linha.corpo as CorpoCancelamentoGogem,
+    corpo: corpoParaEnvio(linha.corpo),
     referenciaTipo: linha.referencia_tipo ?? null,
     referenciaId: linha.referencia_id ?? null,
   };
@@ -405,6 +432,8 @@ export async function gravarAvisoCancelamentoTotem(
     idempotencyKey: string;
     regemComandaId?: string | null;
     motivo?: string | null;
+    /** Quem cancelou (F5-10): sem aprovação, o GoGeM só estorna o cancelamento feito por uma pessoa. */
+    canceladoPor: QuemCancelou;
     referenciaTipo: 'comanda' | 'pedido_externo';
     referenciaId: string;
   },

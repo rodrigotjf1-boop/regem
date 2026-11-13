@@ -2704,6 +2704,7 @@ export class DeliveryService {
           idempotencyKey: String(ped.externalId),
           regemComandaId: ped.comandaId ?? null,
           motivo: motivo ?? null,
+          canceladoPor: 'pessoa', // o gestor, pela senha ou pelo WhatsApp dele (`autorizou`) — F5-10
           referenciaTipo: 'pedido_externo',
           referenciaId: ped.id,
         });

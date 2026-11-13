@@ -7,6 +7,7 @@ import {
   MSG_PENDENTE,
   RECUO_INTEGRACAO_MINUTOS,
   corpoCancelamento,
+  corpoParaEnvio,
   corpoPedidoCancelado,
   corpoRepasse,
   ehVendaDoTotem,
@@ -14,6 +15,7 @@ import {
   lerRespostaDaNuvem,
   lerRespostaGogem,
   lerRetryAfter,
+  quemCancelou,
   recuoMinutos,
   resultadoDoAviso,
 } from './aviso-gogem';
@@ -26,22 +28,30 @@ import { assinarAviso, chaveDoSegredo } from '../integracao-api/webhook-integrac
 // um estorno que o Mercado Pago recusou naquela hora.
 
 describe('o corpo do aviso cabe no DTO do GoGeM', () => {
-  it('idempotencyKey, regemComandaId e motivo — nada a mais', () => {
-    expect(corpoCancelamento({ idempotencyKey: 'k-1', regemComandaId: 'c-1', motivo: ' Cliente desistiu ' })).toEqual({
+  it('idempotencyKey, regemComandaId, motivo e quem cancelou — nada a mais', () => {
+    expect(
+      corpoCancelamento({ idempotencyKey: 'k-1', regemComandaId: 'c-1', motivo: ' Cliente desistiu ', canceladoPor: 'pessoa' }),
+    ).toEqual({
       idempotencyKey: 'k-1',
       regemComandaId: 'c-1',
       motivo: 'Cliente desistiu',
+      canceladoPor: 'pessoa',
     });
   });
 
   it('sem comanda (pedido em dinheiro nunca cobrado), o campo nem vai — e o motivo tem padrão', () => {
-    const c = corpoCancelamento({ idempotencyKey: 'k-2', regemComandaId: null, motivo: null });
-    expect(c).toEqual({ idempotencyKey: 'k-2', motivo: 'Cancelado no Regem' });
+    const c = corpoCancelamento({ idempotencyKey: 'k-2', regemComandaId: null, motivo: null, canceladoPor: 'pessoa' });
+    expect(c).toEqual({ idempotencyKey: 'k-2', motivo: 'Cancelado no Regem', canceladoPor: 'pessoa' });
     expect('regemComandaId' in c).toBe(false);
   });
 
   it('respeita os limites do DTO (120 / 120 / 500) — texto longo lá é 400', () => {
-    const c = corpoCancelamento({ idempotencyKey: 'k'.repeat(300), regemComandaId: 'c'.repeat(300), motivo: 'm'.repeat(900) });
+    const c = corpoCancelamento({
+      idempotencyKey: 'k'.repeat(300),
+      regemComandaId: 'c'.repeat(300),
+      motivo: 'm'.repeat(900),
+      canceladoPor: 'pessoa',
+    });
     expect(c.idempotencyKey).toHaveLength(120);
     expect(c.regemComandaId).toHaveLength(120);
     expect(c.motivo).toHaveLength(500);
@@ -49,10 +59,36 @@ describe('o corpo do aviso cabe no DTO do GoGeM', () => {
 
   it('o corte não parte um emoji ao meio (um caractere desses são DOIS de UTF-16)', () => {
     const motivo = 'a'.repeat(499) + '🍔' + 'b'.repeat(10); // o emoji cairia nas posições 500 e 501
-    const c = corpoCancelamento({ idempotencyKey: 'k', motivo });
+    const c = corpoCancelamento({ idempotencyKey: 'k', motivo, canceladoPor: 'pessoa' });
     expect(c.motivo).toHaveLength(499);
     expect(c.motivo.endsWith('a')).toBe(true);
     expect(() => encodeURIComponent(c.motivo)).not.toThrow(); // metade de par de UTF-16 lança aqui
+  });
+});
+
+// A exceção do estorno (Padrão DMS do hub, F5-10): o GoGeM devolve o dinheiro sem aprovação só para o cancelamento
+// feito por uma PESSOA no Regem; "agente" ele recusa (422 regra-invalida).
+describe('quem cancelou (F5-10)', () => {
+  it('"agente" se mantém; "pessoa", ausente ou qualquer outra coisa é pessoa (só pessoas gravam o aviso)', () => {
+    expect(quemCancelou('agente')).toBe('agente');
+    for (const v of ['pessoa', undefined, null, '', 'Agente', 1]) expect(quemCancelou(v)).toBe('pessoa');
+  });
+
+  it('o corpo pede o campo e o grava como veio', () => {
+    expect(corpoCancelamento({ idempotencyKey: 'k', canceladoPor: 'agente' }).canceladoPor).toBe('agente');
+  });
+
+  it('o aviso que já estava na fila (sem o campo) sai com "pessoa", sem mexer no resto nem na ordem', () => {
+    const antigo = { idempotencyKey: 'totem-1', regemComandaId: 'c-1', motivo: 'Cliente desistiu' };
+    const enviado = corpoParaEnvio(antigo);
+    expect(enviado).toEqual({ ...antigo, canceladoPor: 'pessoa' });
+    expect(Object.keys(enviado)).toEqual(['idempotencyKey', 'regemComandaId', 'motivo', 'canceladoPor']);
+    expect(antigo).not.toHaveProperty('canceladoPor'); // não muda o gravado
+  });
+
+  it('o aviso novo sai como foi gravado (a mesma ordem das chaves: a assinatura é sobre o texto)', () => {
+    const novo = corpoCancelamento({ idempotencyKey: 'totem-2', motivo: 'x', canceladoPor: 'pessoa' });
+    expect(JSON.stringify(corpoParaEnvio(novo))).toBe(JSON.stringify(novo));
   });
 });
 
@@ -192,11 +228,11 @@ describe('o repasse do servidor da loja para a nuvem', () => {
     tenant_id: 't-1', // não vai: a nuvem sabe a empresa pelo token de sync
   };
 
-  it('leva o id do aviso (a nuvem grava com o mesmo), a chave e o corpo — a empresa, não', () => {
+  it('leva o id do aviso (a nuvem grava com o mesmo), a chave e o corpo com quem cancelou — a empresa, não', () => {
     expect(corpoRepasse(linha)).toEqual({
       avisoId: 'a-1',
       chave: 'totem-1',
-      corpo: { idempotencyKey: 'totem-1', motivo: 'Cliente desistiu' },
+      corpo: { idempotencyKey: 'totem-1', motivo: 'Cliente desistiu', canceladoPor: 'pessoa' },
       referenciaTipo: 'comanda',
       referenciaId: 'c-1',
     });
@@ -263,8 +299,8 @@ describe('o aviso assinado ao GoGeM (contrato 1)', () => {
     expect(falhou.status).toBe('pendente'); // o Mercado Pago falhou agora: sai de novo, com o MESMO webhook-id
   });
 
-  it('o corpo: o de hoje inteiro em "pedido", com tipo, contrato, loja e a hora do cancelamento', () => {
-    const corpo = { idempotencyKey: 'totem-1', regemComandaId: 'c-1', motivo: 'Cliente desistiu' };
+  it('o corpo: o da rota antiga inteiro em "pedido", com tipo, contrato, loja e a hora do cancelamento', () => {
+    const corpo = { idempotencyKey: 'totem-1', regemComandaId: 'c-1', motivo: 'Cliente desistiu', canceladoPor: 'agente' };
     expect(corpoPedidoCancelado({ created_at: new Date('2026-10-19T21:14:05Z'), corpo }, 'loja-1')).toEqual({
       tipo: 'pedido.cancelado',
       contrato: CONTRATO_AVISO_ASSINADO,
@@ -284,7 +320,9 @@ describe('o aviso assinado ao GoGeM (contrato 1)', () => {
     const segredo = 'whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw';
     const id = idDoAvisoAssinado('5d9f1c2e-7b3a-4c1d-9e8f-0a1b2c3d4e5f');
     const assinatura = assinarAviso(chaveDoSegredo(segredo)!, id, 1792444445, texto);
-    expect(assinatura).toBe('v1,HCkTVm4dLgQ3u7I1gRWpJRTcGU2jcgTizQ7kZe1t/7U=');
+    // A linha sem o `canceladoPor` (o aviso de antes de 13/11) sai com "pessoa": é o corpo do vetor.
+    expect(texto).toContain('"motivo":"Cliente desistiu","canceladoPor":"pessoa"}');
+    expect(assinatura).toBe('v1,ptXiUjnIMoVdbiTiJkj9V/XYm5Ya3FXl7p5o2yd610g=');
     for (const trecho of [segredo, id, '1792444445', texto, assinatura]) expect(CONTRATO).toContain(trecho);
   });
 });
