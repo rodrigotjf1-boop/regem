@@ -311,8 +311,8 @@ export function AutorizarCliqueTela() {
           </Disco>
           <h1 className={titulo}>Só o presidente autoriza o {aplicativo.nome}</h1>
           <p className="text-secondary-foreground">
-            Você entrou como {pessoa.nome ?? 'outra pessoa'}, {nivel}. Deixar outra ferramenta ler as vendas é decisão do presidente da empresa. Nada foi
-            compartilhado.
+            Você entrou como {pessoa.nome ?? 'outra pessoa'}, {nivel}. Deixar outra ferramenta ler {aplicativo.le ?? 'as vendas'} é decisão do presidente da
+            empresa. Nada foi compartilhado.
           </p>
           <div className="flex flex-wrap justify-center gap-2.5">
             <Button type="button" variant="outline" className="font-bold" onClick={() => void recusar(aplicativo, false, null, quemE(pessoa))}>

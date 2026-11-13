@@ -96,6 +96,20 @@ export const PERMISSAO_NA_TELA: Partial<
     naFrase: 'os canais da Central de atendimento',
     curta: 'os canais da Central',
   },
+  // Orzuni (F6 do hub, 13/11/2026): as duas leituras do cardápio. A do catálogo é a frase que o parceiro já lê
+  // (`FRASES_DO_PARCEIRO`, aprovada em 10/10/2026); a do iFood é só de produto da DMS (mig 374).
+  'catalogo.ler': {
+    rotulo: 'Produtos e adicionais',
+    frase: 'Os produtos da loja, com categoria, variações, setor de produção, tempo de preparo e os adicionais de cada um. Sem preço.',
+    naFrase: 'os produtos e adicionais',
+    curta: 'os produtos',
+  },
+  'catalogo.ifood.ler': {
+    rotulo: 'Preço do iFood',
+    frase: 'O preço de cada produto e de cada adicional no iFood, e se o produto está no cardápio do iFood. Nenhum outro preço.',
+    naFrase: 'o preço do iFood',
+    curta: 'o preço do iFood',
+  },
 };
 
 /** Como a permissão entra no assunto do e-mail ("O Liame passou a receber o telefone do cliente na Brasa Centro"). */
@@ -110,6 +124,15 @@ export type AplicativoDoClique = {
   faz: string;
   /** O início dele: para onde "Voltar ao Liame" leva quando o pedido não vale (nunca um endereço do link). */
   inicio: string;
+  /** O que ele lê, no título da página ("O Orzuni quer ler o cardápio da sua loja"). Ausente: "as vendas" (o Liame). */
+  oQueLe?: string;
+  /** A frase do "só lê" na abertura, quando a do Liame ("não muda pedido, preço nem cardápio") confunde. */
+  soLe?: string;
+  /**
+   * Os endereços de volta de quem SÓ usa o clique (o Orzuni): o padrão é o de produção dele, e a variável troca a lista
+   * inteira (teste, desenvolvimento). Quem tem a página de 01/10 (`AUTORIZACAO_LOJA`) segue com os endereços de lá.
+   */
+  voltas?: { env: string; padrao: readonly string[] };
   necessarias: readonly EscopoIntegracao[];
   opcionais: readonly EscopoIntegracao[];
   /** Dado pessoal: num bloco próprio da tela, desligado (F3-7). */
@@ -140,7 +163,11 @@ export type AplicativoDoClique = {
 export const fraseDe = (app: Pick<AplicativoDoClique, 'parceiro'>, id: EscopoIntegracao): FraseDaPermissao | undefined =>
   app.parceiro?.frases[id] ?? PERMISSAO_NA_TELA[id];
 
-/** Os aplicativos que usam a autorização por clique. Só o Liame (F3-1): o Farol segue na página de 01/10 até a F6. */
+/**
+ * Os aplicativos que usam a autorização por clique: o Liame (F3-1) e o Orzuni (F6, 13/11/2026). O Farol segue na página
+ * de 01/10 até a vez dele na F6. Estar aqui não liga nada: o aplicativo só pede com o client_id dele em
+ * `DMS_ID_APLICATIVOS` (a distribuição configura).
+ */
 export const APLICATIVOS_DO_CLIQUE: Record<string, AplicativoDoClique> = {
   liame: {
     nome: 'Liame',
@@ -173,6 +200,33 @@ export const APLICATIVOS_DO_CLIQUE: Record<string, AplicativoDoClique> = {
       { rotulo: 'Entrar no seu Regem', frase: 'O Liame não recebe a sua senha nem a sua sessão.' },
     ],
     naoPodeNoEmail: 'Ele não pode mudar pedido, preço nem cardápio, nem ver nome, e-mail e endereço dos clientes.',
+  },
+  // Orzuni (plano "Clique Orzuni → Regem" do hub): as MESMAS duas leituras que a chave `rgm_it_` dele já dava (mig 374),
+  // nenhuma opcional. O preço e a pausa que mudam no Regem vão pelo outro sentido (o Regem chamando o Orzuni).
+  orzuni: {
+    nome: 'Orzuni',
+    faz: 'monta no iFood os produtos que estão no Regem e ainda faltam lá',
+    inicio: 'https://app.orzuni.com',
+    oQueLe: 'o cardápio',
+    soLe: 'Ele só lê o que estiver listado aqui; não muda pedido, preço nem cardápio no Regem.',
+    voltas: { env: 'INTEGRACAO_ORZUNI_REDIRECT_URIS', padrao: ['https://app.orzuni.com/importar/volta'] },
+    necessarias: ['catalogo.ler', 'catalogo.ifood.ler'],
+    opcionais: [],
+    dadoPessoal: [],
+    financeiras: [],
+    motivos: {
+      'catalogo.ler': 'Para saber quais produtos e adicionais a loja tem e criar no iFood os que ainda faltam.',
+      'catalogo.ifood.ler': 'Para criar cada produto no iFood com o preço que você definiu para o iFood no Regem.',
+    },
+    semElas: {},
+    naoPode: [
+      { rotulo: 'Mudar pedido, preço ou cardápio no Regem', frase: 'Esta ligação só lê: não tem nenhuma rota que mude algo no Regem.' },
+      { rotulo: 'Ver os outros preços', frase: 'Preço do balcão, custo, margem e CMV ficam no Regem.' },
+      { rotulo: 'Ver vendas e clientes', frase: 'Pedidos, caixa e clientes não fazem parte.' },
+      { rotulo: 'Ver o resto da operação', frase: 'Fichas técnicas, estoque, equipe e ponto não fazem parte.' },
+      { rotulo: 'Entrar no seu Regem', frase: 'O Orzuni não recebe a sua senha nem a sua sessão.' },
+    ],
+    naoPodeNoEmail: 'Ele só lê o cardápio e o preço do iFood: não pode mudar nada no Regem, nem ver vendas, clientes, custo ou os outros preços.',
   },
 };
 

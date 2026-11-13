@@ -58,7 +58,8 @@ export type TelaDaAutorizacao = {
   resumo?: string;
 };
 
-export type AppResumo = { cliente: string; nome: string; inicio: string };
+/** `le`: o que o aplicativo lê, quando não são as vendas (o Orzuni lê "o cardápio"). */
+export type AppResumo = { cliente: string; nome: string; inicio: string; le?: string };
 export type Pessoa = { nome: string | null; nivel: string };
 
 export type SituacaoDaTela =

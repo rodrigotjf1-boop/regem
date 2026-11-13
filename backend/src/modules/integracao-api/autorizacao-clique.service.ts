@@ -54,6 +54,7 @@ import {
   hashCodigoAutorizacao,
   urlDeVolta,
   verificadorConfere,
+  voltasDoClique,
 } from './autorizacao-loja';
 import { avisarAutorizacaoPorClique } from './aviso-ligacao';
 import { DmsIdService, type TokenDmsIdDoRegem } from './dms-id.service';
@@ -94,7 +95,7 @@ export type SituacaoDaTela =
   | { situacao: 'indisponivel' }
   | { situacao: 'invalido'; aplicativo: { cliente: string; nome: string; inicio: string } | null }
   | { situacao: 'pausado'; aplicativo: { cliente: string; nome: string; inicio: string } }
-  | { situacao: 'nao_presidente'; aplicativo: { cliente: string; nome: string; inicio: string }; pessoa: { nome: string | null; nivel: string } }
+  | { situacao: 'nao_presidente'; aplicativo: { cliente: string; nome: string; inicio: string; le?: string }; pessoa: { nome: string | null; nivel: string } }
   | { situacao: 'travada'; aplicativo: { cliente: string; nome: string; inicio: string }; pessoa: { nome: string; nivel: string }; minutos: number }
   /** O aplicativo de parceiro em teste já chegou às N lojas, e esta empresa não tem nenhuma com ele (R1b). */
   | { situacao: 'limite'; aplicativo: { cliente: string; nome: string; inicio: string }; pessoa: { nome: string; nivel: string }; maximo: number; frase: string }
@@ -211,7 +212,9 @@ export class AutorizacaoCliqueService {
   }
 
   private enderecosDeVolta(a: AppDoClique): string[] {
-    return a.parceiro ? a.parceiro.enderecos : (clienteAutorizacao(a.cliente)?.redirectUris ?? []);
+    if (a.parceiro) return a.parceiro.enderecos;
+    // Quem tem a página de 01/10 (o Liame) usa os endereços de lá; quem só tem o clique (o Orzuni), os da ficha dele.
+    return clienteAutorizacao(a.cliente)?.redirectUris ?? voltasDoClique(a.app.voltas);
   }
 
   /** A chave própria desligada ou o aplicativo na lista de parada do hub (o parceiro, pelo client_id). */
@@ -225,9 +228,12 @@ export class AutorizacaoCliqueService {
     return c.ligado ? { ...params, iss: emissorDoRegem(c.recurso) } : params;
   }
 
-  /** O aplicativo nas situações da página: a chave (o selo dele), o nome e o início cadastrado (para "Voltar"). */
-  private resumoDoApp(cliente: string, app: AplicativoDoClique) {
-    return { cliente, nome: app.nome, inicio: app.inicio };
+  /**
+   * O aplicativo nas situações da página: a chave (o selo dele), o nome e o início cadastrado (para "Voltar"). `le` só
+   * vai quando ele não lê as vendas (o Orzuni lê o cardápio): a página diz o que é decisão do presidente.
+   */
+  private resumoDoApp(cliente: string, app: AplicativoDoClique): { cliente: string; nome: string; inicio: string; le?: string } {
+    return { cliente, nome: app.nome, inicio: app.inicio, ...(app.oQueLe ? { le: app.oQueLe } : {}) };
   }
 
   /** O pedido ainda valendo (não usado, não vencido, do aplicativo do token). `paraGastar` trava a linha. */

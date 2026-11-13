@@ -30,11 +30,22 @@
     que o token do DMS ID tem;
   - **pelo token da loja:** `Authorization: Bearer rgm_it_…` (50 caracteres). É a credencial antiga dos produtos da
     DMS: serve para começar e para a troca; o uso direto sai na F6 do Hub DMS.
-- **Como a loja autoriza (piloto):** a distribuição emite o `rgm_it_` da loja no console da distribuição (quadro
-  "Tokens de integração" › "Emitir token", cliente **Orzuni**, as duas permissões), com a autorização do presidente
-  registrada como evidência. O token aparece
-  uma vez; o Orzuni guarda cifrado e troca pela ligação. **Depois do piloto:** a autorização por clique do presidente
-  (`docs/integracao-dms-id.md` §9), sem token colado — pede a ficha do Orzuni no clique e o fluxo OAuth do lado dele.
+- **Como a loja autoriza: pelo clique do presidente** (F6 do Hub DMS, 13/11/2026; `docs/integracao-dms-id.md` §9; plano
+  "Clique Orzuni → Regem" do hub). Nenhuma chave colada:
+  1. o Orzuni empurra o pedido, `POST /integracao/autorizacao/pedido`, com o token do DMS ID dele: `scope` com as duas
+     permissões (nenhuma outra é aceita, `APLICATIVOS_DO_CLIQUE.orzuni`), `redirect_uri` =
+     `https://app.orzuni.com/importar/volta`, `state`, PKCE S256 e a conta que pede (`conta_nome`, `conta_email`; a
+     conta do Orzuni não tem CNPJ, então a página pede sempre a confirmação de "outra empresa");
+  2. o presidente abre `https://app.dmsregem.com/integracoes/autorizar?client_id=…&request_uri=…` ("O Orzuni quer ler o
+     cardápio da sua loja"), marca a loja e confirma com a senha;
+  3. o navegador volta ao Orzuni com `code`, `state` e `iss`; o Orzuni troca o código, `POST
+     /integracao/autorizacao/token`, e recebe a ligação (`dms_lg_regem_…`) de cada loja marcada, uma vez.
+
+  Na troca, a chave antiga (`rgm_it_`) daquela loja com o Orzuni para de valer. Os presidentes recebem o e-mail de
+  aplicativo autorizado. A página só responde ao Orzuni com o client_id dele em `DMS_ID_APLICATIVOS` (seção 4).
+- **O caminho antigo (suporte):** a distribuição emite o `rgm_it_` da loja no console da distribuição (quadro "Tokens
+  de integração" › "Emitir token", cliente **Orzuni**, as duas permissões), com a autorização do presidente registrada
+  como evidência. O token aparece uma vez; o Orzuni guarda cifrado. O uso direto sai no fim da F6.
 - **Limite:** 60 chamadas/min por acesso → `429` com `Retry-After` em segundos. **Erros:** `application/problem+json`;
   `401` = credencial ausente, inválida ou revogada; `403` = falta a permissão (`detail` diz qual).
 - **Revogar:** o presidente em **Configurações › Aplicativos conectados**, ou a distribuição pelo console. Vale na
@@ -100,6 +111,9 @@ Orzuni não abre o `/sync/catalogo` nem as outras leituras.
 - **Banco:** a migration 374 (só nuvem; troca as duas travas de escopo — vai pelo SQL Editor, LIC-171).
 - **Para a ligação do DMS ID:** no `regem-api`, `DMS_ID_APLICATIVOS` ganha `"orzuni":"<client_id do aplicativo Orzuni no
   DMS ID>"`; no DMS ID (hub), o recurso do Regem passa a ter a permissão `catalogo.ifood.ler`, e o aplicativo Orzuni
-  recebe `catalogo.ler` e `catalogo.ifood.ler` para esse recurso.
+  recebe `catalogo.ler` e `catalogo.ifood.ler` para esse recurso. É esse passo que liga o clique do Orzuni: sem o
+  client_id na lista, o pedido empurrado é recusado (`cliente-invalido`) e a página não abre para ele.
+- **Endereço de volta do clique:** o padrão é `https://app.orzuni.com/importar/volta` (na ficha, `autorizacao-clique.regras.ts`).
+  `INTEGRACAO_ORZUNI_REDIRECT_URIS` (lista separada por vírgula) troca a lista inteira: só para teste e desenvolvimento.
 - **Avisos (webhook):** ainda não. O Orzuni lê quando precisa, com `?versao=`. Para receber o `catalogo.alterado`
   (`docs/integracao-farol.md` §9), o Regem precisa do endereço base do Orzuni em `WEBHOOK_INTEGRACAO` (`escopos.ts`).
