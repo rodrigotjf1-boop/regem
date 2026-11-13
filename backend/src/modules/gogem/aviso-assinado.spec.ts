@@ -243,7 +243,7 @@ descrever('avisos assinados ao GoGeM — fase 2 (Postgres real + receptor)', () 
 
   // ───────────────────────────── os casos ─────────────────────────────
 
-  it('sem registro: exatamente o caminho de hoje (endereço, X-Sync-Token, corpo, sem assinatura)', async () => {
+  it('sem registro: o caminho de antes (endereço, X-Sync-Token, o corpo com quem cancelou, sem assinatura)', async () => {
     const e = await empresa();
     const token = await credencialAntiga(e);
     const a = await aviso(e, e.lojas[0]);
@@ -254,7 +254,8 @@ descrever('avisos assinados ao GoGeM — fase 2 (Postgres real + receptor)', () 
     expect(r.caminho).toBe('/api/v1/sync/regem/pedido-cancelado');
     expect(r.cabecalhos['x-sync-token']).toBe(token);
     expect(r.cabecalhos['webhook-signature']).toBeUndefined();
-    expect(JSON.parse(r.corpo)).toEqual(a.corpo);
+    // O aviso gravado antes do `canceladoPor` (como este) sai com "pessoa" (F5-10).
+    expect(JSON.parse(r.corpo)).toEqual({ ...a.corpo, canceladoPor: 'pessoa' });
     expect((await linhaDoAviso(a.id)).status).toBe('entregue');
   });
 
@@ -278,7 +279,7 @@ descrever('avisos assinados ao GoGeM — fase 2 (Postgres real + receptor)', () 
       contrato: 1,
       loja_id: e.lojas[0],
       cancelado_em: new Date((await linhaDoAviso(a.id)).created_at).toISOString(),
-      pedido: a.corpo,
+      pedido: { ...a.corpo, canceladoPor: 'pessoa' },
     });
     expect((await linhaDoAviso(a.id)).status).toBe('entregue');
     const aud = auditorias.find((x) => x.acao === 'aviso_gogem_entregue');

@@ -120,6 +120,7 @@ descrever('a credencial do GoGeM (Postgres real)', () => {
       idempotencyKey: chave,
       regemComandaId: randomUUID(),
       motivo: 'Cliente desistiu',
+      canceladoPor: 'pessoa',
       referenciaTipo: 'comanda',
       referenciaId: randomUUID(),
     });

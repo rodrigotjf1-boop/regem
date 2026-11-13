@@ -69,7 +69,7 @@ content-type: application/json
 user-agent: Regem-Integracao/1
 webhook-id: aviso_5d9f1c2e-7b3a-4c1d-9e8f-0a1b2c3d4e5f
 webhook-timestamp: 1792444445
-webhook-signature: v1,HCkTVm4dLgQ3u7I1gRWpJRTcGU2jcgTizQ7kZe1t/7U=
+webhook-signature: v1,ptXiUjnIMoVdbiTiJkj9V/XYm5Ya3FXl7p5o2yd610g=
 X-Sync-Token: <o token de hoje>          ← só até a fase 4 (§7); não use para autenticar a rota nova
 ```
 
@@ -99,9 +99,12 @@ Com o segredo de exemplo do próprio Standard Webhooks, a assinatura do §3 tem 
 segredo            whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw
 webhook-id         aviso_5d9f1c2e-7b3a-4c1d-9e8f-0a1b2c3d4e5f
 webhook-timestamp  1792444445
-corpo              {"tipo":"pedido.cancelado","contrato":1,"loja_id":"3f2a6b1c-0d4e-4f5a-8b9c-1d2e3f4a5b6c","cancelado_em":"2026-10-19T21:14:05.000Z","pedido":{"idempotencyKey":"totem-7f3e9a","regemComandaId":"9b8c7d6e-5f4a-4b3c-2d1e-0f9a8b7c6d5e","motivo":"Cliente desistiu"}}
-assinatura         v1,HCkTVm4dLgQ3u7I1gRWpJRTcGU2jcgTizQ7kZe1t/7U=
+corpo              {"tipo":"pedido.cancelado","contrato":1,"loja_id":"3f2a6b1c-0d4e-4f5a-8b9c-1d2e3f4a5b6c","cancelado_em":"2026-10-19T21:14:05.000Z","pedido":{"idempotencyKey":"totem-7f3e9a","regemComandaId":"9b8c7d6e-5f4a-4b3c-2d1e-0f9a8b7c6d5e","motivo":"Cliente desistiu","canceladoPor":"pessoa"}}
+assinatura         v1,ptXiUjnIMoVdbiTiJkj9V/XYm5Ya3FXl7p5o2yd610g=
 ```
+
+Até 13/11/2026 o vetor não tinha o `canceladoPor` (§4); com o mesmo segredo, id e horário, o corpo antigo dava
+`v1,HCkTVm4dLgQ3u7I1gRWpJRTcGU2jcgTizQ7kZe1t/7U=` — ainda serve para conferir a assinatura no GoGeM.
 
 ## 4. Evento `pedido.cancelado` — venda do totem cancelada no Regem
 
@@ -114,13 +117,21 @@ assinatura         v1,HCkTVm4dLgQ3u7I1gRWpJRTcGU2jcgTizQ7kZe1t/7U=
   "pedido": {
     "idempotencyKey": "<a chave que o totem mandou na venda, até 120>",
     "regemComandaId": "<uuid da comanda no Regem, opcional, até 120>",
-    "motivo": "<texto do atendente, até 500>"
+    "motivo": "<texto do atendente, até 500>",
+    "canceladoPor": "pessoa"
   }
 }
 ```
 
-- **`pedido` é o corpo de hoje, sem mudança**: o GoGeM pode reaproveitar o `CancelarTotemDto` e o
-  `cancelarPorChave`. Nenhum dado pessoal vai no aviso.
+- **`pedido` é o mesmo corpo da rota antiga** (`POST /sync/regem/pedido-cancelado`): o GoGeM reaproveita o
+  `CancelarTotemDto` e o `cancelarPorChave`. Nenhum dado pessoal vai no aviso.
+- **`canceladoPor`** (desde 13/11/2026; Padrão DMS do hub, decisão F5-10): `"pessoa"` ou `"agente"`. Devolver o
+  dinheiro sem aprovação no GoGeM só vale para o cancelamento que uma **pessoa** fez no Regem; `"agente"` (um agente
+  de IA) o GoGeM recusa com `422 regra-invalida`, sem cancelar nem estornar.
+  - Hoje o Regem só manda `"pessoa"`: o aviso só nasce no cancelamento com a senha do gestor, pelo WhatsApp dele ou
+    pelo usuário logado no PDV. O aviso que já estava na fila, sem o campo, sai com `"pessoa"`.
+  - Vale também na rota antiga. A ordem foi: o GoGeM aceitou o campo primeiro (GoGeM #154 — a rota antiga recusava
+    campo a mais), depois o Regem passou a mandar.
 - **`webhook-id` = `aviso_<uuid do aviso no Regem>`**, o mesmo em todas as tentativas do mesmo cancelamento.
   `webhook-timestamp` e assinatura são refeitos a cada tentativa.
 - ⚠️ **Repetido não é para ignorar.** O Regem só repete quando não recebeu resposta ou quando o estorno eletrônico
@@ -143,6 +154,8 @@ assinatura         v1,HCkTVm4dLgQ3u7I1gRWpJRTcGU2jcgTizQ7kZe1t/7U=
 | outro `4xx` (`400`, `409`, `422`) | recusado de vez | encerra; o estorno vira manual. Mostra ao atendente o `message` ou `mensagem` do corpo (até 200 caracteres) |
 
 - **Pedido não encontrado:** responda `422` com `{ "code": "pedido-nao-encontrado", "message": "…" }`, não `404`.
+- **Cancelado por agente:** `422` com `{ "code": "regra-invalida", "message": "Sem aprovação no destino, só sai o
+  estorno de um cancelamento feito por uma pessoa no produto dono da venda." }` — recusado de vez, como acima.
 - **Repetição:** depois de 1, 2, 5, 10, 30, 60, 120, 240, 480 e 720 minutos (e daí a cada 720).
   Passados 7 dias sem entrega, o aviso sai da fila com alerta, e o estorno vira manual.
 

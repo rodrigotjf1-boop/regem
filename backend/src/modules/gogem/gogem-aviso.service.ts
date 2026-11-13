@@ -23,12 +23,14 @@ import {
   TIPO_ASSINADO,
   TIPO_PEDIDO_CANCELADO,
   corpoCancelamento,
+  corpoParaEnvio,
   corpoPedidoCancelado,
   corpoRepasse,
   idDoAvisoAssinado,
   lerRespostaDaNuvem,
   lerRespostaGogem,
   lerRetryAfter,
+  quemCancelou,
   recuoMinutos,
 } from './aviso-gogem';
 import { notarEnvioAoGogem, registroDoGogem, tokenDoGogem } from './credencial-gogem';
@@ -144,6 +146,8 @@ export class GogemAvisoService {
       idempotencyKey: chave,
       regemComandaId: repasse?.corpo?.regemComandaId ?? null,
       motivo: repasse?.corpo?.motivo ?? null,
+      // Servidor da loja de versão anterior não manda: é de uma pessoa (`quemCancelou`).
+      canceladoPor: quemCancelou(repasse?.corpo?.canceladoPor),
     });
     const avisoId = UUID.test(String(repasse?.avisoId ?? '')) ? String(repasse.avisoId) : null;
     const refTipo = ['comanda', 'pedido_externo'].includes(repasse?.referenciaTipo) ? repasse.referenciaTipo : null;
@@ -340,7 +344,7 @@ export class GogemAvisoService {
       return { desfecho: d, http: null, retryAfterS: null };
     }
     const inicio = Date.now();
-    const r = await this.postar(this.url(), token, linha.corpo, prazoMs);
+    const r = await this.postar(this.url(), token, corpoParaEnvio(linha.corpo), prazoMs);
     const d = lerRespostaGogem(r.http, r.corpo);
     await this.registrar(linha, d, r.http, r.corpo, r.erro, r.retryAfterS);
     // O token do equipamento não tem prefixo público: no hub o envio vai sem ele.

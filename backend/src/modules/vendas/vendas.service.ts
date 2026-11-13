@@ -3874,6 +3874,7 @@ export class VendasService {
           idempotencyKey: String(c.idempotencyKey),
           regemComandaId: c.id,
           motivo: dto.motivo ?? null,
+          canceladoPor: 'pessoa', // o usuário logado que cancelou (`atorId`) — F5-10
           referenciaTipo: 'comanda',
           referenciaId: c.id,
         });
