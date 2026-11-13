@@ -1,4 +1,3 @@
-import Anthropic from '@anthropic-ai/sdk';
 import {
   BadGatewayException,
   BadRequestException,
@@ -15,19 +14,22 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { AuthUser } from '../../auth/auth-user';
 import { ehServidorLocal } from '../../common/modo';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { FalhaDaIa, IaEmpresaService } from '../ia/ia-empresa.service';
 import { DadosDoPedido, VEZES_POR_CASO, lerPedidoDeSugestao, limparSugestao, montarPedido } from './copiloto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // O COPILOTO DO ATENDIMENTO (item 7 do checkpoint da Central, mig 376; protótipo, versão 5): o botão "✨ Sugerir
-// resposta" do caso pede aqui uma sugestão ao modelo de IA da DISTRIBUIÇÃO — a chave (`ANTHROPIC_API_KEY`) e o modelo
-// (`COPILOTO_MODELO`, padrão Claude Haiku 5.5) ficam no ambiente da nuvem, nunca com a loja. A sugestão só volta para a
-// caixa de escrever; quem envia é a pessoa.
-//  • Ligado por empresa (`robo_config.copiloto_ligado`, nasce desligado) E disponível na distribuição (a chave existe e
-//    `COPILOTO_DESLIGADO` não é 1). Só na nuvem — no servidor da loja, o botão não aparece.
+// resposta" do caso pede aqui uma sugestão ao modelo de IA. A sugestão só volta para a caixa de escrever; quem envia é a
+// pessoa.
+//  • A IA é a DA EMPRESA (mig 415, `IaEmpresaService`): a chave que o presidente cadastrou ou, enquanto a empresa não
+//    tem a dela, a da distribuição (`ANTHROPIC_API_KEY`). O modelo é `COPILOTO_MODELO` (padrão Claude Haiku 5.5). Cada
+//    sugestão soma no medidor de uso da empresa, com a origem da chave.
+//  • Ligado por empresa (`robo_config.copiloto_ligado`, nasce desligado) E com IA para a empresa (e `COPILOTO_DESLIGADO`
+//    não é 1). Só na nuvem — no servidor da loja, o botão não aparece.
 //  • A tela manda as mensagens que mostra e as respostas prontas; o servidor junta o que só ele sabe de verdade (o
 //    pedido, o resumo do robô, o nome da loja) e tira da conversa telefone, e-mail e documento (`copiloto.ts`).
-//  • Até 20 sugestões por caso (o custo é da distribuição) — gravação condicional: duas abas não passam do limite.
+//  • Até 20 sugestões por caso — gravação condicional: duas abas não passam do limite.
 //  • Cada pedido vai à auditoria (quem, o caso, o modelo, se veio), sem o texto da conversa.
 
 const linhas = (r: any) => (r?.rows ?? r ?? []) as any[];
@@ -50,16 +52,26 @@ const ROTULO_DO_TIPO: Record<string, string> = {
 @Injectable()
 export class CopilotoService {
   private readonly logger = new Logger('Copiloto');
-  private cliente?: Anthropic;
+  private readonly ia: IaEmpresaService;
 
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     @Optional() private readonly auditoria?: AuditoriaService,
-  ) {}
+    @Optional() ia?: IaEmpresaService,
+  ) {
+    // Sem o serviço injetado (testes que montam o copiloto à mão), a mesma porta sobre o mesmo banco.
+    this.ia = ia ?? new IaEmpresaService(db);
+  }
 
-  /** A distribuição ligou o copiloto nesta nuvem (a chave do modelo existe)? */
+  /** A distribuição ligou o copiloto nesta nuvem com a chave DELA (a que atende quem não tem chave própria)? */
   disponivel(): boolean {
     return !ehServidorLocal() && !!String(process.env.ANTHROPIC_API_KEY ?? '').trim() && process.env.COPILOTO_DESLIGADO !== '1';
+  }
+
+  /** Há IA para o copiloto DESTA empresa (a chave dela ou a da distribuição)? */
+  async disponivelPara(tenantId: string): Promise<boolean> {
+    if (ehServidorLocal() || process.env.COPILOTO_DESLIGADO === '1') return false;
+    return this.ia.temAcesso(tenantId);
   }
 
   private modelo(): string {
@@ -79,7 +91,7 @@ export class CopilotoService {
 
   /** O que a tela precisa para mostrar (ou não) o botão. */
   async estado(tenantId: string): Promise<{ ligado: boolean; disponivel: boolean }> {
-    return { ligado: await this.ligado(tenantId), disponivel: this.disponivel() };
+    return { ligado: await this.ligado(tenantId), disponivel: await this.disponivelPara(tenantId) };
   }
 
   /** Grava SÓ a coluna dele (V82); a mudança vai à auditoria. */
@@ -106,7 +118,7 @@ export class CopilotoService {
   /** Uma sugestão de resposta para o caso (vai para a caixa de escrever da tela). */
   async sugerir(user: AuthUser, chamadoId: string, dto: unknown): Promise<{ texto: string; restantes: number }> {
     const daTela = lerPedidoDeSugestao(dto);
-    if (!this.disponivel()) throw new ServiceUnavailableException('O copiloto não está disponível agora.');
+    if (!(await this.disponivelPara(user.tenantId))) throw new ServiceUnavailableException('O copiloto não está disponível agora.');
     if (!(await this.ligado(user.tenantId)))
       throw new ForbiddenException('O copiloto está desligado nesta empresa. Ligue em Delivery › Configurações › Atendimento, grupo "Copiloto".');
     const [c] = linhas(
@@ -146,7 +158,7 @@ export class CopilotoService {
       mensagens: daTela.mensagens,
       prontas: daTela.prontas,
     });
-    const bruto = await this.chamarModelo(system, conteudo);
+    const bruto = await this.chamarModelo(system, conteudo, user.tenantId);
     const texto = limparSugestao(bruto, c.canal);
     await this.auditoria?.registrar({
       tenantId: user.tenantId,
@@ -183,30 +195,24 @@ export class CopilotoService {
    * A chamada ao modelo (à parte: o teste a troca). Recusa, cota ou chave errada viram uma mensagem para a tela; o
    * detalhe fica no log (V11), nunca a conversa.
    */
-  protected async chamarModelo(system: string, conteudo: string): Promise<string> {
-    this.cliente ??= new Anthropic({ apiKey: String(process.env.ANTHROPIC_API_KEY ?? '').trim(), timeout: 20_000, maxRetries: 1 });
+  protected async chamarModelo(system: string, conteudo: string, tenantId: string): Promise<string> {
     try {
-      const r = await this.cliente.messages.create({
-        model: this.modelo(),
-        max_tokens: 400,
+      const r = await this.ia.pedir(tenantId, {
+        recurso: 'copiloto',
+        modelo: this.modelo(),
+        maxTokens: 400,
         system,
         messages: [{ role: 'user', content: conteudo }],
       });
-      if (r.stop_reason === 'refusal') return '';
-      const partes: string[] = [];
-      for (const b of r.content) if (b.type === 'text') partes.push(b.text);
-      return partes.join('\n').trim();
+      return r.recusou ? '' : r.texto;
     } catch (e: any) {
-      if (e instanceof Anthropic.RateLimitError) {
-        this.logger.warn('o modelo recusou por limite de uso (429)');
-        throw new ServiceUnavailableException('O copiloto está ocupado agora. Tente de novo em instantes.');
-      }
-      if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) {
-        this.logger.error(`a chave do modelo foi recusada (${e.status}): confira ANTHROPIC_API_KEY na nuvem`);
-        throw new ServiceUnavailableException('O copiloto não está disponível agora.');
-      }
-      if (e instanceof Anthropic.APIError) this.logger.warn(`o modelo não respondeu (${e.status ?? 'sem status'}): ${String(e.message).slice(0, 200)}`);
-      else this.logger.warn(`o modelo não respondeu: ${String(e?.message ?? e).slice(0, 200)}`);
+      if (e instanceof FalhaDaIa) {
+        if (e.motivo === 'limite_por_minuto') throw new ServiceUnavailableException('O copiloto está ocupado agora. Tente de novo em instantes.');
+        // Sem chave, chave recusada, sem crédito ou teto atingido: não adianta tentar de novo agora (o motivo já foi ao
+        // log pela porta da IA, e a situação da chave da empresa aparece para o presidente).
+        if (e.motivo === 'sem_chave' || e.motivo === 'chave_recusada' || e.motivo === 'sem_credito' || e.motivo === 'teto_atingido')
+          throw new ServiceUnavailableException('O copiloto não está disponível agora.');
+      } else this.logger.warn(`o modelo não respondeu: ${String(e?.message ?? e).slice(0, 200)}`);
       throw new BadGatewayException('O copiloto não respondeu agora. Tente de novo.');
     }
   }

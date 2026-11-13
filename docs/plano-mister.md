@@ -138,15 +138,35 @@ Loja que desliga o PC à noite abre um episódio de "sem sinal" por noite e o fe
 | F5 | Qualidade: avaliações, relatório de melhoria de prompts, segurança com IA sobre os eventos | nuvem |
 | F6 | Autonomia limitada: procedimentos automáticos pré-autorizados; contratos | nuvem e loja |
 
+### Decisões do dono de 12/11/2026 que valem para a F2 em diante
+
+- A IA roda na **nuvem**. O Mister é um **módulo ativável**.
+- **Cada lojista configura a própria chave de IA** e paga os próprios créditos. A loja piloto usa a Anthropic. Outros provedores (OpenAI e Gemini) só entram depois de testados; a lista de aceitos mora num lugar só (`modules/ia/ia.regras.ts`).
+- **Quem paga a IA fica para o fim:** depois da implementação e dos testes, com o gasto medido na loja piloto, decide-se se continua por lojista ou se a distribuição passa a bancar. Por isso o medidor de uso nasce junto com a chave.
+- O Mister tem um **número de WhatsApp próprio**; o número da loja continua dedicado ao atendimento dos clientes.
+- O vigia sem IA (F1) vale para toda loja com servidor. O copiloto e o robô de atendimento passam para a chave do lojista.
+- A chave de IA do lojista é uma **exceção** à regra "o usuário não manuseia segredo" (como o token do gateway de Pix): a conta de IA é dele. Registrada em `docs/decisoes-design.md` §6.
+
+### F2.0 — IA por empresa: a chave do lojista e o medidor de uso (base da F2)
+
+- **O que entra:** migration 415 (`@cloud-only`) com `ia_credencial` (uma chave por empresa, cifrada) e `ia_uso_dia` (o medidor); `backend/src/modules/ia/` (regras puras, o serviço e as rotas do presidente); o copiloto do atendimento passa a pedir pela porta nova.
+- **A porta única (`IaEmpresaService.pedir`):** quem fala com um modelo de IA em nome de uma empresa passa por ela. Ela escolhe a chave (a da empresa, se houver; senão a da distribuição, enquanto existir), chama o provedor, soma a chamada no medidor e guarda o que a chamada disse da chave.
+- **Regras da chave do lojista:** só o presidente cadastra, troca ou apaga; a chave é provada no provedor antes de ser guardada (chave recusada não entra); fica cifrada com a `SEGREDOS_CHAVE` da nuvem, em tabela que não sincroniza; nenhuma rota a devolve (só o provedor, os 4 últimos caracteres e a situação); empresa com chave própria **não** cai para a chave da distribuição quando a dela falha (o custo não muda de dono em silêncio).
+- **O medidor:** uma linha por empresa, dia, recurso, provedor, modelo e origem da chave; cada chamada soma na linha do dia (falha também conta). `GET /ia/uso` devolve o período com o custo estimado em dólar (tabela de preços datada no código; modelo fora da tabela fica sem preço).
+- **Rotas (presidente, só nuvem):** `GET /ia/chave`, `POST /ia/chave`, `POST /ia/chave/testar`, `DELETE /ia/chave`, `GET /ia/uso`.
+- **Aceite:** sem chave não há IA; a da distribuição atende quem não tem a própria; a chave do lojista é provada, cifrada e nunca volta pela API nem pela auditoria; a que falha não cai para a da distribuição e a situação acompanha; dez chamadas ao mesmo tempo somam dez numa linha; a chave e o uso são de uma empresa só; no servidor da loja não há IA.
+- **Reversão:** sem chave cadastrada, tudo funciona como antes. Apagar a chave de uma empresa a devolve à chave da distribuição.
+- **Fica para as próximas entregas:** a tela do módulo (pede mockup aprovado); as marcações do Instagram pela mesma porta; o aviso ao presidente quando a chave é recusada ou fica sem crédito; a entrada do módulo na lista de módulos ativáveis; o robô de atendimento, que hoje roda fora do backend.
+
 ## 5. O que depende do dono
 
-1. Onde a IA roda (recomendado: nuvem da distribuição).
-2. Número do Mister no WhatsApp (recomendado: um só, da distribuição).
-3. Modelo de IA por papel e quem paga a IA.
+1. ~~Onde a IA roda~~ — decidido: nuvem.
+2. ~~Número do Mister no WhatsApp~~ — decidido: número próprio; falta confirmar se é um só, da distribuição.
+3. Quem paga a IA: decide-se ao fim, com o gasto medido (ver as decisões de 12/11 acima).
 4. Canal dos avisos da F1 para a loja (recomendado: caso urgente no Atendimento).
 5. Regra do horário para `servidor_sem_sinal`.
-6. Mockups da F1.4.
-7. Releitura dos 41 documentos e 12 imagens no grafo de engenharia (precisa de IA; o código já foi atualizado).
+6. Mockups da F1.4 e da tela do módulo (chave de IA e uso).
+7. ~~Releitura dos documentos e imagens no grafo de engenharia~~ — feita em 12/11.
 
 ## 6. Como foi levantado
 

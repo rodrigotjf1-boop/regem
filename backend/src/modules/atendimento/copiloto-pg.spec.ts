@@ -5,6 +5,7 @@ import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
+import { FalhaDaIa } from '../ia/ia-empresa.service';
 import { CopilotoService } from './copiloto.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -170,5 +171,48 @@ descrever('copiloto do atendimento (Postgres)', () => {
     await svc.salvar(gerente(), true);
     await expect(svc.sugerir(gerente(lojaA), c, { mensagens: [{ de: 'loja', texto: 'Oi' }], prontas: [] })).rejects.toThrow('Ainda não há mensagem do cliente');
     expect((await q(`select detalhe -> 'copiloto' as c from atendimento_chamado where id = $1`, [c]))[0].c).toBeNull();
+  });
+
+  // A porta da IA da empresa (mig 415), com a porta de mentira: o copiloto de VERDADE (sem a troca do chamarModelo) pede
+  // por ela — a tabela da 415 fica com a spec dela (`ia/ia-empresa-pg.spec.ts`), aqui nada a aplica (ERR-451).
+  it('a sugestão sai pela IA DA EMPRESA: o pedido leva a empresa e o recurso, e cada recusa vira a frase certa', async () => {
+    await svc.salvar(gerente(), true);
+    const pedidos: Array<{ tenantId: string; p: any }> = [];
+    let falha: FalhaDaIa | null = null;
+    const ia = {
+      temAcesso: async () => true,
+      pedir: async (tenantId: string, p: any) => {
+        pedidos.push({ tenantId, p });
+        if (falha) throw falha;
+        return { texto: '"Já estamos vendo, Carlos."', recusou: false, origem: 'lojista', uso: { entrada: 1, cacheEscrita: 0, cacheLeitura: 0, saida: 1 } };
+      },
+    } as any;
+    const real = new CopilotoService(db, undefined, ia);
+    const c = await novoCaso();
+    expect(await real.estado(T)).toEqual({ ligado: true, disponivel: true });
+    expect((await real.sugerir(gerente(lojaA), c, tela)).texto).toBe('Já estamos vendo, Carlos.');
+    expect(pedidos[0].tenantId).toBe(T);
+    expect(pedidos[0].p).toMatchObject({ recurso: 'copiloto', modelo: process.env.COPILOTO_MODELO?.trim() || 'claude-haiku-5-5', maxTokens: 400 });
+    expect(pedidos[0].p.system).toContain('Burger da Praça');
+    expect(pedidos[0].p.messages).toEqual([{ role: 'user', content: expect.stringContaining('Cadê meu lanche?') }]);
+    expect(JSON.stringify(pedidos[0].p)).not.toContain('98765'); // o telefone da conversa não vai ao modelo
+
+    falha = new FalhaDaIa('limite_por_minuto', 'lojista', 429);
+    await expect(real.sugerir(gerente(lojaA), c, tela)).rejects.toThrow('O copiloto está ocupado agora. Tente de novo em instantes.');
+    for (const motivo of ['sem_chave', 'chave_recusada', 'sem_credito', 'teto_atingido'] as const) {
+      falha = new FalhaDaIa(motivo, 'lojista', 400);
+      await expect(real.sugerir(gerente(lojaA), c, tela)).rejects.toThrow('O copiloto não está disponível agora.');
+    }
+    for (const motivo of ['indisponivel', 'pedido_invalido'] as const) {
+      falha = new FalhaDaIa(motivo, 'distribuicao', 529);
+      await expect(real.sugerir(gerente(lojaA), c, tela)).rejects.toThrow('O copiloto não respondeu agora. Tente de novo.');
+    }
+
+    // A empresa sem IA (nem a chave dela, nem a da distribuição): recusa antes de gastar uma vez do caso.
+    const outro = await novoCaso();
+    const semIa = new CopilotoService(db, undefined, { temAcesso: async () => false, pedir: async () => Promise.reject(new Error('não era para chamar')) } as any);
+    expect(await semIa.estado(T)).toEqual({ ligado: true, disponivel: false });
+    await expect(semIa.sugerir(gerente(lojaA), outro, tela)).rejects.toThrow('O copiloto não está disponível agora.');
+    expect((await q(`select detalhe -> 'copiloto' as c from atendimento_chamado where id = $1`, [outro]))[0].c).toBeNull();
   });
 });

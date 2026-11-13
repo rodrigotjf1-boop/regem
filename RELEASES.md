@@ -12,6 +12,14 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **IA por empresa — a chave de IA do lojista e o medidor de uso (12/11, F2.0 do plano do Mister; mig 415 `@cloud-only`
+  — tabelas novas `ia_credencial` e `ia_uso_dia`, só nuvem; no `sync-daemon` entram SÓ os dois nomes na lista
+  `SO_NUVEM`).** Na NUVEM com o merge: as rotas do presidente `ia/chave` e `ia/uso` (sem tela ainda) e o copiloto do
+  atendimento pedindo pela porta da IA da empresa — sem chave própria cadastrada ele segue na chave da distribuição,
+  como antes, e cada sugestão passa a somar no medidor. **No `.zip`/`.exe`:** nada a fazer pela loja (não há IA no
+  servidor da loja e as tabelas não existem lá); os nomes na lista do `sync-daemon` vão junto no próximo corte, sem
+  pressa.
+
 - **WhatsApp oficial: a coexistência de verdade no "Conectar com a Meta" (12/11, ERR-456; SEM migration; não mexe no
   `sync-daemon`).** Na NUVEM com o merge: a pergunta antes do botão (coexistência × só na API), o `featureType` da
   coexistência na janela da Meta, o número pelo `is_on_biz_app` e o pedido da cópia dos dados do aplicativo em até 24 h.
