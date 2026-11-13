@@ -25,6 +25,7 @@ import { GestorWhatsappService } from './gestor-whatsapp.service';
 import { CopilotoService } from './copiloto.service';
 import { NumerosDoAtendimentoService } from './numeros.service';
 import { InstagramModule } from '../instagram/instagram.module';
+import { IaModule } from '../ia/ia.module';
 import { MessengerModule } from '../messenger/messenger.module';
 import { TreinoDoAtendenteController } from './treino.controller';
 import { TreinoDoAtendenteService } from './treino.service';
@@ -38,7 +39,8 @@ import { TreinoDoAtendenteService } from './treino.service';
   // PonteChatModule: o grupo "iFood e 99 · chat pela ponte" dos ajustes e a faixa da ponte na fila (mig 366, parte A2).
   // InstagramModule (migs 377/378): o Direct — o grupo dos ajustes, a conversa do caso e da loja, e "Conversas agora".
   // MessengerModule (mig 386): o Messenger do Facebook — o grupo dos ajustes, a conversa do caso e da loja, "Conversas agora".
-  imports: [DeliveryModule, forwardRef(() => IntegracoesModule), EquipamentoModule, ChegadaModule, ProducaoPedidoModule, WhatsappModule, PonteChatModule, InstagramModule, MessengerModule],
+  // IaModule (mig 415): a IA da empresa — o copiloto pede a sugestão pela chave do lojista (ou a da distribuição) e soma no medidor.
+  imports: [DeliveryModule, forwardRef(() => IntegracoesModule), EquipamentoModule, ChegadaModule, ProducaoPedidoModule, WhatsappModule, PonteChatModule, InstagramModule, MessengerModule, IaModule],
   // AtendimentoAppController: o app "Regem Atendimento" (mig 353) — entrar com o PIN e "Disponível / Ocupado". O
   // AuthService vem do AuthModule (global); o EquipamentoService, do EquipamentoModule (o celular pareado).
   // TreinoDoAtendenteController (mig 382): "Testar o atendente" e "O que ele aprendeu" (gerente e presidente, só a nuvem).

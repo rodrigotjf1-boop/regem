@@ -2457,6 +2457,10 @@ const SO_NUVEM = new Set([
   // O vigia do servidor da loja (mig 414, @cloud-only): os episódios de incidente que a NUVEM abre a partir do sinal dos
   // servidores. A rotina só roda na nuvem — a loja não tem esta tabela.
   'vigia_incidente',
+  // IA por empresa (mig 415, @cloud-only): a chave de IA do lojista (cifrada com a chave da NUVEM — nunca desce para a
+  // loja) e o medidor de uso. Quem fala com o modelo é a nuvem — a loja não tem estas tabelas.
+  'ia_credencial',
+  'ia_uso_dia',
 ]);
 
 // LEGADO SEM USO: tabelas criadas nas migrations de fundação (002/003) para recursos que

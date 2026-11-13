@@ -27,6 +27,9 @@
 | `NODE_ENV` | ambiente | `production` | — |
 | `SWAGGER_ENABLED` | liga o /docs em prod | `true` (opcional) | — |
 | `VIGIA_LIGADO` | liga o vigia do servidor da loja (mig 414): a cada minuto a nuvem lê o sinal dos servidores e guarda os incidentes em `vigia_incidente`. **Nasce desligado**; nesta entrega não avisa ninguém | `1` ou `true` (opcional) | ligar antes de aplicar a mig 414 na nuvem → a volta falha e só registra no log |
+| `ANTHROPIC_API_KEY` | a chave de IA da **distribuição**: atende o copiloto do atendimento e as marcações do Instagram. Desde a mig 415, no copiloto ela só atende a empresa que **não** cadastrou a própria chave de IA | segredo (opcional) | faltando → sem IA para quem não tem chave própria |
+| `IA_CHAVE_DA_DISTRIBUICAO_DESLIGADA` | IA por empresa (mig 415): com `1`, a chave da distribuição deixa de atender a empresa sem chave própria — só usa IA quem cadastrou a sua. **Sem a variável, nada muda** | `1` (opcional) | ligar antes de as lojas cadastrarem a chave → o copiloto some para todas |
+| `SEGREDOS_CHAVE` | cifra os segredos guardados no banco (certificado, CSC, tokens e, desde a mig 415, a chave de IA do lojista) | 32 bytes em base64 | faltando → nenhuma chave de IA é guardada (recusa clara, nunca texto puro); trocar a chave → o que já está guardado não abre |
 | `OTP_WEBHOOK_URL` | fallback global do OTP | URL do **workflow de STATUS** do n8n | apontar pro workflow do **bot** (não envia OTP) |
 | `EVOLUTION_API_URL` | base da Evolution (WhatsApp) | `https://sua-evolution` | com `/` no fim → ok (tratado) |
 | `EVOLUTION_API_KEY` | apikey global da Evolution | segredo | — |
