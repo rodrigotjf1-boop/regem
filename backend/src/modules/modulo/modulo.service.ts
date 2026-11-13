@@ -5,8 +5,8 @@ import { moduloAtivacao, unidade } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { AuthUser } from '../../auth/auth-user';
 
-// Módulos ativáveis do produto. `padrao` = estado quando nada foi configurado.
-export const MODULOS = [
+// Módulos ativáveis do produto. `padrao` = estado quando nada foi configurado (sem `padrao`, o módulo nasce LIGADO).
+export const MODULOS: { chave: string; label: string; emoji: string; padrao?: boolean }[] = [
   { chave: 'app_colaborador', label: 'App do Colaborador', emoji: '📱' },
   { chave: 'kds', label: 'KDS de Alertas', emoji: '🖥️' },
   { chave: 'terminal_ponto', label: 'Terminal de Ponto', emoji: '🕐' },
@@ -17,8 +17,15 @@ export const MODULOS = [
   // Vagas e candidatos (mig 389): a página pública de vagas e Pessoas › Candidatos. Desligado: some o menu, as rotas da
   // loja recusam e a página pública responde "não encontrada". A página em si nasce desligada (a loja liga quando quiser).
   { chave: 'vagas', label: 'Vagas e candidatos', emoji: '🧑‍🍳' },
+  // Mister (protótipo `mockups/regem-mister.html`, aprovado em 13/11/2026): o administrador virtual — o item "Mister" do
+  // menu do presidente, com a chave de IA da empresa e o uso dela (mig 415). É o único módulo que NASCE DESLIGADO: o
+  // presidente liga em Visão C&O quando quiser; antes disso o menu não aparece para ninguém.
+  { chave: 'mister', label: 'Mister', emoji: '🧭', padrao: false },
 ];
 const CHAVES = new Set(MODULOS.map((m) => m.chave));
+// O estado do módulo quando ninguém escolheu nada (nem a rede, nem a loja). Chave fora da lista = ligado, como sempre foi.
+const PADRAO = new Map(MODULOS.map((m) => [m.chave, m.padrao !== false]));
+const padraoDe = (modulo: string): boolean => PADRAO.get(modulo) ?? true;
 
 // Ponte entre o nome do módulo aqui e o do PLANO contratado (`ativacao.modulos`),
 // que usa 'ponto' onde aqui é 'terminal_ponto'. Sem isso o Terminal de Ponto
@@ -32,6 +39,7 @@ const NO_PLANO: Record<string, string | null> = {
   bot: 'bot',
   mesas: null,
   vagas: null,
+  mister: null,
 };
 // O plano contratado deixa este módulo de fora?
 function foraDoPlano(plano: Set<string> | null, modulo: string): boolean {
@@ -68,8 +76,8 @@ export class ModuloService {
   }
 
   // Um módulo está ativo para uma unidade se: estiver no plano contratado E
-  // (houver override da loja → usa ele; senão o padrão da rede; senão ligado).
-  // Trava real de acesso.
+  // (houver override da loja → usa ele; senão o padrão da rede; senão o padrão do módulo —
+  // ligado, menos o que nasce desligado). Trava real de acesso.
   async ativo(tenantId: string, unidadeId: string | null, modulo: string): Promise<boolean> {
     const plano = await this.doPlano(tenantId);
     if (foraDoPlano(plano, modulo)) return false;
@@ -96,7 +104,7 @@ export class ModuloService {
           eq(moduloAtivacao.modulo, modulo),
         ),
       );
-    return rede ? rede.ativo : true;
+    return rede ? rede.ativo : padraoDe(modulo);
   }
 
   // Estado completo para a tela do presidente: rede + overrides por loja.
@@ -111,7 +119,7 @@ export class ModuloService {
 
     const rede: Record<string, boolean> = {};
     const porUnidade: Record<string, Record<string, boolean>> = {};
-    for (const m of MODULOS) rede[m.chave] = true; // default ligado
+    for (const m of MODULOS) rede[m.chave] = padraoDe(m.chave); // o padrão do módulo (ligado, menos o que nasce desligado)
     for (const l of linhas) {
       if (l.unidadeId == null) rede[l.modulo] = l.ativo;
       else {

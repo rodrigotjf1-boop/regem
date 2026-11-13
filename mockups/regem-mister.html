@@ -8,7 +8,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <style>
-/* REGEM · PROTÓTIPO DO MISTER — versão 1, 13/11/2026. AGUARDA A APROVAÇÃO DO DONO.
+/* REGEM · PROTÓTIPO DO MISTER — versão 1, APROVADO PELO DONO em 13/11/2026.
+   Decisão dele ao aprovar: o que cada gerente pode pelo Mister (a gaveta "Editar o que pode") fica para o FIM do projeto,
+   como um perfil de permissões por hierarquia. Até lá: presidente = avisos, consulta e autorização; gerente = avisos e
+   consulta da loja dele; autorização, só o presidente.
    O Mister é o administrador virtual da loja: o canal do presidente (e do gerente, quando o presidente permite) com os
    agentes, por um número de WhatsApp próprio (um só, da distribuição, para todas as lojas). Por ele o dono RECEBE avisos,
    alertas e relatórios e MANDA perguntas, tarefas e autorizações. Base: docs/plano-mister.md (F2.0 já no ar: a chave de
@@ -696,7 +699,7 @@ pre.fio{font:12.5px/1.35 var(--mono);background:var(--neutro-bg);border-radius:1
 <section class="vista" id="v-notas" aria-label="Notas e decisões">
   <main class="notas">
     <h1>Notas do protótipo</h1>
-    <p class="sub" style="margin:6px 0 16px">13/11/2026 · versão 1 · aguarda a sua aprovação</p>
+    <p class="sub" style="margin:6px 0 16px">13/11/2026 · versão 1 · aprovado pelo dono em 13/11/2026</p>
 
     <div class="cartao"><h3>O que é</h3>
       <p>O Mister é o canal do presidente (e do gerente, quando você permite) com os agentes do Regem, por um número de WhatsApp próprio. Um número só, da distribuição, atende todas as lojas. O número da loja continua só para os clientes.</p>
@@ -722,7 +725,7 @@ pre.fio{font:12.5px/1.35 var(--mono);background:var(--neutro-bg);border-radius:1
     <div class="cartao"><h3>Fases (uma por PR)</h3><ol>
       <li><strong>Tela "IA e uso"</strong> e o cartão do módulo. As rotas já existem.</li>
       <li><strong>Número do Mister no console</strong> e a entrada do WhatsApp: ligar o telefone, a resposta fixa a desconhecido, a pergunta da empresa.</li>
-      <li><strong>Pessoas</strong>: quem pode o quê, por gerente.</li>
+      <li><strong>Pessoas</strong>: cada um liga o próprio WhatsApp. O que cada gerente pode fica para o fim do projeto, como perfil de permissões por hierarquia.</li>
       <li><strong>Avisos</strong> pelo Mister e dentro do Regem (F1.2 do plano).</li>
       <li><strong>Perguntas</strong> (F2), <strong>relatórios</strong> (F3) e <strong>autorizações</strong> (F4).</li></ol></div>
 
@@ -749,11 +752,10 @@ pre.fio{font:12.5px/1.35 var(--mono);background:var(--neutro-bg);border-radius:1
       <p><strong>C · Inovador — configurar conversando.</strong> Tudo pelo próprio WhatsApp ("Mister, deixe o Carlos autorizar"). Ganha: zero tela. Perde: chave de IA e permissão por conversa são frágeis e difíceis de auditar.</p>
       <p><strong>Recomendo o B.</strong> O dono usa pouco esta tela e precisa achar rápido três coisas: ligar, quanto gastou e quem pode.</p></div>
 
-    <div class="cartao"><h3>Da sua parte</h3><ul>
-      <li>Aprovar ou pedir mudança nas telas e nas conversas.</li>
-      <li>Dizer se o gerente pode autorizar alguma coisa por botão, ou se autorização fica só com o presidente.</li>
-      <li>Escolher o símbolo do módulo (usei 🧭).</li>
-      <li>Confirmar os textos das conversas, que são a voz do Mister.</li></ul></div>
+    <div class="cartao"><h3>O que o dono decidiu ao aprovar (13/11/2026)</h3><ul>
+      <li>As telas e as conversas estão aprovadas como estão.</li>
+      <li>O que cada gerente pode pelo Mister fica para o <strong>fim do projeto</strong>, como um perfil de permissões por hierarquia. Até lá: presidente = avisos, consulta e autorização; gerente = avisos e consulta da loja dele; autorização, só o presidente. A gaveta "Editar o que pode" deste protótipo só entra com esse perfil.</li>
+      <li>O símbolo do módulo ficou o 🧭.</li></ul></div>
   </main>
 </section>
 
