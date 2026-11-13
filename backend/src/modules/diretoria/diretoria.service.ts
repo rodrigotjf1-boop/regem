@@ -1,6 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { sql, SQL } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { hojeISO } from '../../common/data';
+import { instanteDe } from '../../common/fuso-sql';
 import {
   comandaEhDeCanal,
   faturamentoComanda,
@@ -24,6 +26,10 @@ export class DiretoriaService {
   // Consolida métricas por unidade (mês corrente p/ tarefas e desperdício;
   // snapshot de hoje p/ escala e estoque). Restrito à diretoria.
   async multiunidade(tenantId: string) {
+    // O dia e o mês são os da OPERAÇÃO, ditos pelo serviço: o banco da nuvem roda em UTC e, das 21h à meia-noite, o
+    // dia dele já é amanhã — no último dia do mês, a Visão C&O zerava três horas antes (ERR-460).
+    const hoje = hojeISO();
+    const inicioDoMes = `${hoje.slice(0, 8)}01`;
     const unidades = await this.rows(sql`
       select id, nome from unidade
       where tenant_id = ${tenantId} and deleted_at is null order by nome`);
@@ -34,20 +40,20 @@ export class DiretoriaService {
              count(*) filter (where estado = 'feita') as feitas
       from tarefa_instancia
       where tenant_id = ${tenantId}
-        and data >= date_trunc('month', current_date) and deleted_at is null
+        and data >= ${inicioDoMes}::date and deleted_at is null
       group by unidade_id`);
 
     const desp = await this.rows(sql`
       select unidade_id, count(*) as total, coalesce(sum(quantidade), 0) as qtd
       from desperdicio
       where tenant_id = ${tenantId}
-        and data >= date_trunc('month', current_date) and deleted_at is null
+        and data >= ${inicioDoMes}::date and deleted_at is null
       group by unidade_id`);
 
     const escala = await this.rows(sql`
       select unidade_id, count(*) as vagas, count(colaborador_id) as preenchidas
       from escala_alocacao
-      where tenant_id = ${tenantId} and data = current_date and deleted_at is null
+      where tenant_id = ${tenantId} and data = ${hoje}::date and deleted_at is null
       group by unidade_id`);
 
     const estoque = await this.rows(sql`
@@ -86,7 +92,7 @@ export class DiretoriaService {
                1 as qtd
           from comanda c
          where c.tenant_id = ${tenantId} and c.status = 'fechada'
-           and c.fechada_em >= date_trunc('month', current_date)
+           and c.fechada_em >= ${instanteDe(`${inicioDoMes} 00:00:00`)}
            and not ${comandaEhDeCanal('c')}
         union all
         select pe.unidade_id,
@@ -95,7 +101,7 @@ export class DiretoriaService {
                1 as qtd
           from pedido_externo pe
          where pe.tenant_id = ${tenantId} and ${pedidoVale('pe')}
-           and pe.criado_em >= date_trunc('month', current_date)
+           and pe.criado_em >= ${instanteDe(`${inicioDoMes} 00:00:00`)}
       ) u
       group by unidade_id`);
 

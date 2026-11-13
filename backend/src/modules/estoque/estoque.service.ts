@@ -1033,7 +1033,9 @@ export class EstoqueService {
              i.unidade_medida as "unidadeMedida", l.validade, l.codigo,
              (l.quantidade - coalesce((select sum(ml.quantidade) from movimento_lote ml where ml.lote_id = l.id), 0)) as quantidade,
              l.custo_unitario as "custoUnitario",
-             (l.validade - current_date) as "diasParaVencer"
+             -- O dia é o da OPERAÇÃO, dito pelo serviço: o do banco, na nuvem (UTC), já é amanhã a partir das 21h e o
+             -- lote que vence hoje aparecia como vencido (ERR-460).
+             (l.validade - ${hojeISO()}::date) as "diasParaVencer"
       from lote l
       join item_estoque i on i.id = l.item_id
       where l.tenant_id = ${tenantId} and l.esgotado = false

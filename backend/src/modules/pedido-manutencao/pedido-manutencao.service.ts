@@ -9,6 +9,7 @@ import { and, desc, eq, isNull, lt, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { pedidoManutencao, colaborador } from '../../db/schema';
 import { condUnidade } from '../../common/filtro-unidade';
+import { hojeISO } from '../../common/data';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -212,7 +213,8 @@ export class PedidoManutencaoService {
         and(
           isNull(pedidoManutencao.deletedAt),
           isNull(pedidoManutencao.alerta15dEm),
-          lt(pedidoManutencao.prazo15d, sql`current_date`),
+          // O dia é o da operação (ERR-460), não o do banco da nuvem.
+          lt(pedidoManutencao.prazo15d, sql`${hojeISO()}::date`),
           sql`${pedidoManutencao.status} not in ('concluido','cancelado')`,
         ),
       );
