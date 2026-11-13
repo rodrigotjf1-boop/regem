@@ -1189,7 +1189,8 @@ export class CardapioService {
         and(
           eq(cupom.tenantId, cfg.tenantId),
           eq(cupom.ativo, true),
-          or(sql`${cupom.validade} is null`, sql`${cupom.validade} >= current_date`),
+          // O dia é o da operação (ERR-460): com o dia do banco, o cupom que vale até hoje sumia da lista às 21h.
+          or(sql`${cupom.validade} is null`, sql`${cupom.validade} >= ${hojeISO()}::date`),
           semRegra,
         ),
       );
@@ -4408,7 +4409,8 @@ export class CardapioService {
         and(
           eq(cupom.tenantId, cfg.tenantId),
           eq(cupom.ativo, true),
-          or(sql`${cupom.validade} is null`, sql`${cupom.validade} >= current_date`),
+          // O dia é o da operação (ERR-460): com o dia do banco, o cupom que vale até hoje sumia da lista às 21h.
+          or(sql`${cupom.validade} is null`, sql`${cupom.validade} >= ${hojeISO()}::date`),
           // O presente pessoal de um cliente não aparece para os outros (mig 357; o dono vê em "Seus presentes").
           await this.semPessoais(),
         ),

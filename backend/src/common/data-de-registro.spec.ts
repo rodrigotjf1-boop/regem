@@ -4,9 +4,10 @@ import { join, relative } from 'node:path';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../db/schema';
-import { hojeISO } from './data';
+import { hojeISO, somarDias } from './data';
 import { ContagemService } from '../modules/contagem/contagem.service';
 import { DesperdicioService } from '../modules/desperdicio/desperdicio.service';
+import { EstoqueService } from '../modules/estoque/estoque.service';
 import { RecebimentoService } from '../modules/recebimento/recebimento.service';
 import { VistoriaService } from '../modules/vistoria/vistoria.service';
 
@@ -107,6 +108,50 @@ describe('data de registro — nenhum INSERT deixa a data para o `current_date` 
   });
 });
 
+// AS LEITURAS — a mesma armadilha do outro lado: a consulta que compara uma data de negócio com o `current_date` do
+// banco responde, das 21h à meia-noite de Brasília, pelo dia de AMANHÃ (a nuvem roda em UTC). O lote que vence hoje
+// aparecia como vencido, o cupom válido até hoje sumia da lista do cardápio, a Visão C&O trocava de mês três horas
+// antes. Quem diz o dia é o serviço (`hojeISO()`); o `schema.ts` fica de fora porque lá o `current_date` é só o
+// padrão da coluna, que os serviços não usam mais.
+describe('dia da operação — nenhuma consulta compara com o `current_date` do banco', () => {
+  const raiz = join(__dirname, '..');
+  const fontes = (dir: string, fora: string[] = []): string[] => {
+    for (const nome of readdirSync(dir)) {
+      const p = join(dir, nome);
+      if (statSync(p).isDirectory()) fontes(p, fora);
+      else if (nome.endsWith('.ts') && !nome.endsWith('.spec.ts') && !nome.endsWith('.d.ts')) fora.push(p);
+    }
+    return fora;
+  };
+  /** As linhas de código (comentário não conta) que citam o dia do banco. */
+  const usos = (texto: string): number[] =>
+    texto
+      .split(/\r?\n/)
+      .map((linha, i) => ({ linha: linha.replace(/\/\/.*$/, '').replace(/--.*$/, ''), n: i + 1 }))
+      .filter(({ linha }) => !/^\s*(\*|\/\*)/.test(linha) && /\b(current_date|now\(\)::date|current_timestamp::date)\b/i.test(linha))
+      .map(({ n }) => n);
+
+  it('nenhum serviço usa o dia do banco numa consulta', () => {
+    const fora: string[] = [];
+    for (const arq of fontes(raiz)) {
+      const nome = relative(raiz, arq).replace(/\\/g, '/');
+      if (nome === 'db/schema.ts') continue;
+      for (const n of usos(readFileSync(arq, 'utf8'))) fora.push(`${nome}:${n}`);
+    }
+    expect(fora).toEqual([]);
+  });
+
+  it('a varredura enxerga o uso e não acusa comentário', () => {
+    expect(usos('const r = await db.execute(sql`select 1 from lote where validade < current_date`);')).toEqual([1]);
+    expect(usos('where data >= date_trunc(\'month\', CURRENT_DATE)\n  and x = 1')).toEqual([1]);
+    expect(usos('where criado_em::date = now()::date')).toEqual([1]);
+    expect(usos('// antes era `current_date`, que na nuvem é UTC\n * current_date num comentário de bloco\nselect 1 -- current_date')).toEqual([]);
+    expect(usos('where validade >= ${hojeISO()}::date')).toEqual([]);
+    // Arquivo com fim de linha do Windows: o comentário continua sendo comentário.
+    expect(usos('  // era `current_date`\r\n  select 1\r\n')).toEqual([]);
+  });
+});
+
 const URL_PG = process.env.TEST_PG_URL;
 const descrever = URL_PG ? describe : describe.skip;
 jest.setTimeout(60_000);
@@ -141,7 +186,7 @@ descrever('data de registro — banco num dia diferente do da operação (Postgr
     for (const id of empresas) {
       for (const tabela of [
         'contagem_item', 'contagem_execucao', 'contagem_lista_item', 'contagem_lista',
-        'desperdicio', 'vistoria', 'recebimento', 'item_estoque', 'colaborador',
+        'desperdicio', 'vistoria', 'recebimento', 'lote', 'item_estoque', 'colaborador',
       ]) {
         await q(`delete from ${tabela} where tenant_id = $1`, [id]);
       }
@@ -187,5 +232,20 @@ descrever('data de registro — banco num dia diferente do da operação (Postgr
     const s = new (RecebimentoService as any)(db, { registrar: jest.fn().mockResolvedValue(undefined) }, { emit: jest.fn() }) as RecebimentoService;
     await s.create(t, { notaRef: 'NF de teste' } as any);
     expect(await dataDe('recebimento', t)).toBe(hojeISO());
+  });
+
+  it('validades: o lote que vence HOJE (o dia da operação) está a 0 dias — e só o de ontem está vencido', async () => {
+    const t = await empresa();
+    const [{ id: item }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, 'Queijo de teste', 'kg') returning id`, [t]);
+    const hoje = hojeISO();
+    for (const [codigo, validade] of [['ontem', somarDias(hoje, -1)], ['hoje', hoje], ['amanha', somarDias(hoje, 1)]])
+      await q(`insert into lote (tenant_id, item_id, codigo, validade, quantidade, entrada) values ($1, $2, $3, $4, 5, $5)`, [t, item, codigo, validade, somarDias(hoje, -3)]);
+    const s = new EstoqueService(db, { registrar: jest.fn().mockResolvedValue(undefined) } as any);
+    const lotes = (await s.validades(t)) as any[];
+    expect(lotes.map((l) => [l.codigo, l.diasParaVencer, l.status])).toEqual([
+      ['ontem', -1, 'vencido'],
+      ['hoje', 0, 'critico'],
+      ['amanha', 1, 'critico'],
+    ]);
   });
 });

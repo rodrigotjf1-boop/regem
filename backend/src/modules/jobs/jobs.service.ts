@@ -212,7 +212,7 @@ export class JobsService {
     const r: any = await this.db.execute(sql`
       select id, foto_ref as "fotoRef" from ponto_marcacao
       where foto_ref is not null and data_expurgo is not null
-        and data_expurgo < current_date
+        and data_expurgo < ${hojeISO()}::date
       limit 500
     `);
     const rows = r.rows ?? r;
@@ -236,7 +236,7 @@ export class JobsService {
   async expurgarFotosTarefa() {
     const r: any = await this.db.execute(sql`
       select id, foto_ref as "fotoRef", fotos from tarefa_instancia
-      where data_expurgo is not null and data_expurgo < current_date
+      where data_expurgo is not null and data_expurgo < ${hojeISO()}::date
       limit 500
     `);
     const rows = r.rows ?? r;
