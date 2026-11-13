@@ -158,7 +158,7 @@ describe('Mister — a situação da empresa no console', () => {
 
 describe('Mister — os textos só prometem o que existe', () => {
   it('a resposta a quem não está ligado não traz dado de ninguém e manda ao menu Mister', () => {
-    expect(TEXTOS.desconhecido).toContain('no menu Mister');
+    expect(TEXTOS.desconhecido).toContain('no menu Mister, em "Pessoas"');
     expect(TEXTOS.desconhecido).not.toMatch(/R\$|\d{3,}/);
   });
   it('enquanto as perguntas não estão no ar, nenhum texto diz "pode me perguntar"', () => {

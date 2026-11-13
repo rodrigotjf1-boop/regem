@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Mister: a parte "Pessoas" — cada gestor liga o próprio WhatsApp (13/11, terceira entrega do protótipo; SEM
+  migration; não mexe no `sync-daemon`).** Na NUVEM com o merge: a página `/mister` com as partes "Pessoas" e "IA e
+  uso", o gerente entrando só em "Pessoas", o diálogo de ligar (código, câmera e link) e o desligar. O Mister só roda
+  na nuvem. **No `.zip`:** o menu do servidor da loja passa a mostrar o item "Mister" também ao gerente (a página lá
+  segue dizendo que o Mister funciona pela nuvem). Nada no `.exe`.
+
 - **O Orzuni entra na autorização por clique do Regem (13/11, F6 do hub; SEM migration; não mexe no `sync-daemon`;
   nasce parado).** Na NUVEM com o merge: a ficha do Orzuni no clique, as frases das duas leituras do cardápio (o
   manifesto público muda só no texto) e o título "quer ler o cardápio". Nada aparece para loja nenhuma até a
