@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Mister: o módulo que nasce desligado e a tela "IA e uso" (13/11, protótipo `mockups/regem-mister.html` aprovado; SEM
+  migration; não mexe no `sync-daemon`).** Na NUVEM com o merge: o cartão "Mister" em Visão C&O › Módulos do produto
+  (nasce DESLIGADO — nada muda até o presidente ligar) e, com ele ligado, o item "Mister" do menu do presidente com a
+  chave de IA da empresa e o uso dela. **No `.zip`:** o servidor da loja ganha o módulo na lista (desligado) e a página,
+  que lá só diz "o Mister funciona pela nuvem" (as rotas da IA são só da nuvem). Nada no `.exe`.
+
 - **O aviso de cancelamento ao GoGeM diz quem cancelou (13/11, F5-10 do hub; SEM migration; não mexe no
   `sync-daemon`).** Na NUVEM com o merge: o corpo do `pedido_cancelado` leva `canceladoPor: "pessoa"` (o GoGeM aceita
   desde o #154 dele; sem aprovação lá, só o cancelamento feito por uma pessoa estorna), inclusive no aviso que já estava

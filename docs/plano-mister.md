@@ -156,17 +156,39 @@ Loja que desliga o PC à noite abre um episódio de "sem sinal" por noite e o fe
 - **Rotas (presidente, só nuvem):** `GET /ia/chave`, `POST /ia/chave`, `POST /ia/chave/testar`, `DELETE /ia/chave`, `GET /ia/uso`.
 - **Aceite:** sem chave não há IA; a da distribuição atende quem não tem a própria; a chave do lojista é provada, cifrada e nunca volta pela API nem pela auditoria; a que falha não cai para a da distribuição e a situação acompanha; dez chamadas ao mesmo tempo somam dez numa linha; a chave e o uso são de uma empresa só; no servidor da loja não há IA.
 - **Reversão:** sem chave cadastrada, tudo funciona como antes. Apagar a chave de uma empresa a devolve à chave da distribuição.
-- **Fica para as próximas entregas:** a tela do módulo (pede mockup aprovado); as marcações do Instagram pela mesma porta; o aviso ao presidente quando a chave é recusada ou fica sem crédito; a entrada do módulo na lista de módulos ativáveis; o robô de atendimento, que hoje roda fora do backend.
+- **Fica para as próximas entregas:** as marcações do Instagram pela mesma porta; o aviso ao presidente quando a chave é recusada ou fica sem crédito; o robô de atendimento, que hoje roda fora do backend.
+
+### O protótipo do Mister (`mockups/regem-mister.html`, aprovado em 13/11/2026)
+
+O Mister é o canal do presidente (e do gerente) com os agentes, por um número de WhatsApp próprio: um só, da distribuição, para todas as lojas. Por ele o dono recebe avisos, alertas e relatórios e manda perguntas, tarefas e autorizações. O protótipo desenha a loja (Resumo, Pessoas, IA e uso, Avisos e relatórios), dez conversas no celular, o cartão do módulo e a aba Mister do console da distribuição.
+
+As cinco regras de separação entre lojas:
+
+1. O telefone só representa a empresa depois de ligado por dentro do Regem, pela própria pessoa, com um código de 10 minutos que vale uma vez. Quem só escreve para o número recebe uma resposta fixa, sem IA e sem dado de ninguém.
+2. O mesmo telefone pode estar em duas empresas: o Mister pergunta de qual é o assunto e nunca mistura.
+3. Gerente só fala da loja dele. O que cada gerente pode fica para o fim do projeto, como perfil de permissões por hierarquia; até lá, presidente = avisos, consulta e autorização, e gerente = avisos e consulta.
+4. Autorização em dois níveis: baixo impacto por botão na conversa; o que mexe com dinheiro, cancelamento ou configuração por um link que abre o Regem e pede o PIN. O PIN nunca é digitado na conversa. Toda autorização tem prazo e vale uma vez.
+5. Quem sai da empresa perde o vínculo na hora.
+
+Entregas do protótipo, uma por PR: (1) a tela "IA e uso" e o módulo; (2) o número do Mister no console e a entrada do WhatsApp; (3) Pessoas; (4) os avisos (a F1.2); (5) perguntas (F2), relatórios (F3) e autorizações (F4).
+
+### F2.0b — A tela "IA e uso" e o módulo Mister (primeira entrega do protótipo)
+
+- **Módulo `mister`** na lista de módulos ativáveis (Visão C&O › Módulos do produto). É o primeiro módulo que **nasce desligado**: até o presidente ligar, o item "Mister" não aparece no menu de ninguém. O plano contratado não o limita.
+- **Página `/mister`**, só para o presidente, só na nuvem e só com o módulo ligado: a parte "IA e uso" — a chave de IA da empresa (colar, testar, a situação, apagar com confirmação, o passo a passo de como criar a chave) e o uso por recurso e modelo com o custo estimado. As outras partes do protótipo entram nas entregas seguintes.
+- As rotas `ia/*` continuam sem depender do módulo: a chave também serve ao copiloto do atendimento.
+- **Conferência:** `modulo-mister.spec.ts` (Postgres) e o roteiro de tela `frontend/roteiros/mister.mjs` (app buildado, API simulada, 16 larguras).
 
 ## 5. O que depende do dono
 
 1. ~~Onde a IA roda~~ — decidido: nuvem.
-2. ~~Número do Mister no WhatsApp~~ — decidido: número próprio; falta confirmar se é um só, da distribuição.
+2. ~~Número do Mister no WhatsApp~~ — decidido: um número próprio, da distribuição, para todas as lojas.
 3. Quem paga a IA: decide-se ao fim, com o gasto medido (ver as decisões de 12/11 acima).
 4. Canal dos avisos da F1 para a loja (recomendado: caso urgente no Atendimento).
 5. Regra do horário para `servidor_sem_sinal`.
-6. Mockups da F1.4 e da tela do módulo (chave de IA e uso).
+6. ~~Mockup do módulo~~ — aprovado em 13/11. Faltam os mockups da F1.4.
 7. ~~Releitura dos documentos e imagens no grafo de engenharia~~ — feita em 12/11.
+8. O perfil de permissões por hierarquia (o que cada gerente pode pelo Mister): fim do projeto.
 
 ## 6. Como foi levantado
 

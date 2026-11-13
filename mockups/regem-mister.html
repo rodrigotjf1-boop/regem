@@ -1,0 +1,951 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regem · protótipo do Mister</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* REGEM · PROTÓTIPO DO MISTER — versão 1, APROVADO PELO DONO em 13/11/2026.
+   Decisão dele ao aprovar: o que cada gerente pode pelo Mister (a gaveta "Editar o que pode") fica para o FIM do projeto,
+   como um perfil de permissões por hierarquia. Até lá: presidente = avisos, consulta e autorização; gerente = avisos e
+   consulta da loja dele; autorização, só o presidente.
+   O Mister é o administrador virtual da loja: o canal do presidente (e do gerente, quando o presidente permite) com os
+   agentes, por um número de WhatsApp próprio (um só, da distribuição, para todas as lojas). Por ele o dono RECEBE avisos,
+   alertas e relatórios e MANDA perguntas, tarefas e autorizações. Base: docs/plano-mister.md (F2.0 já no ar: a chave de
+   IA por empresa e o medidor de uso, mig 415 — sem tela até este protótipo ser aprovado).
+
+   As cinco regras de separação entre lojas (combinadas com o dono em 13/11):
+   1. O telefone só representa a empresa depois de LIGADO por dentro do Regem, pela própria pessoa, com um código que vale
+      10 minutos e uma vez. Quem só escreve para o número recebe uma resposta fixa, sem IA e sem dado de ninguém.
+   2. O mesmo telefone pode estar em duas empresas: o Mister pergunta de qual é o assunto e nunca mistura.
+   3. O presidente escolhe o que cada gerente pode: receber avisos, consultar, aprovar. Gerente só fala da loja dele.
+   4. Autorização em dois níveis: baixo impacto = botão na conversa; o que mexe com dinheiro, cancelamento ou configuração
+      = link que abre o Regem e pede o PIN. O PIN nunca é digitado na conversa. Toda autorização tem prazo e vale uma vez.
+   5. Quem sai da empresa (desativado ou excluído) perde o vínculo na hora.
+
+   Onde a tela real difere, de propósito:
+   - Os botões "Situação do protótipo" trocam os estados para a aprovação; não existem no app.
+   - O QR do diálogo de ligar é uma ilustração. O número do Mister aqui é inventado.
+   - O console da distribuição é escuro, como o de verdade; o app da loja usa os tokens do Regem (.app-light).
+   - "Avisos e relatórios" e as conversas de aprovação mostram entregas futuras (F1.2, F3 e F4): cada uma diz a fase. */
+:root{
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --gold-ink:#7A5209; --gold-bg:#FFF9EC; --navy:#0F2230;
+  --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9; --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8;
+  --neutro:#43586C; --neutro-bg:#EAEFF4; --foco:#3A7FB8;
+  --c-wa:#0B6E3A; --wa-fundo:#EDE6DB; --wa-dele:#FFFFFF; --wa-meu:#D9F5CF;
+  --proto:#0B1822; --proto-txt:#C9D5DF; --proto-txt2:#8FA3B4; --proto-linha:#2A3B4A;
+  --d-bg:#020617; --d-card:#0B1324; --d-linha:#1E293B; --d-txt:#F1F5F9; --d-txt2:#94A3B8; --d-ambar:#F59E0B; --d-ambar-bg:#2A1E05; --d-ok:#34D399; --d-crit:#F87171; --d-azul:#7CC0F5;
+  --radius:12px; --display:"Archivo","Segoe UI",system-ui,sans-serif; --body:"Figtree","Segoe UI",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font:15px/1.5 var(--body);background:var(--bg);color:var(--ink);overflow-x:hidden}
+[hidden]{display:none!important}
+h1,h2,h3,h4{font-family:var(--display);margin:0;text-wrap:balance}
+h1{font-size:26px;line-height:1.15} h2{font-size:18px} h3{font-size:16px} h4{font-size:14px}
+p{margin:0 0 10px;overflow-wrap:anywhere} p:last-child{margin-bottom:0}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--foco);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.pular{position:absolute;left:8px;top:-60px;background:var(--gold);color:var(--on-gold);padding:8px 12px;border-radius:8px;font-weight:700;z-index:99}
+.pular:focus{top:8px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.sub{color:var(--ink-2)} .peq{font-size:13.5px}
+
+/* faixa do protótipo */
+.proto{background:var(--proto);color:var(--proto-txt);padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.proto .titulo{font-family:var(--display);font-weight:700;color:#fff}
+.abas{display:flex;flex-wrap:wrap;gap:6px}
+.aba{background:transparent;border:1px solid var(--proto-linha);color:var(--proto-txt);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:36px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.proto .nota{font-size:12.5px;color:var(--proto-txt2);flex:1 1 220px;min-width:0}
+.proto :focus-visible{outline-color:var(--d-azul)}
+.vista{display:none} .vista.ativa{display:block}
+
+/* casca do app da loja */
+.app{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:80vh}
+.lado{background:var(--navy);color:#C9D5DF;padding:16px 12px}
+.marca{font-family:var(--display);font-weight:800;color:#fff;font-size:18px;padding:4px 8px 14px;letter-spacing:.02em}
+.marca small{display:block;font:500 11.5px var(--body);color:#8FA3B4;letter-spacing:0}
+.lado ul{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.lado li{padding:8px 10px;border-radius:8px;display:flex;justify-content:space-between;gap:8px;align-items:center}
+.lado li.atual{background:rgba(232,168,69,.18);color:#fff;box-shadow:inset 3px 0 0 var(--gold);font-weight:600}
+.novo{font:700 10.5px var(--display);background:var(--gold);color:var(--on-gold);padding:1px 6px;border-radius:4px;letter-spacing:.05em}
+.principal{min-width:0;container-type:inline-size;container-name:principal}
+.topo{background:#fff;border-bottom:1px solid var(--line);padding:10px 20px;display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;justify-content:space-between}
+.onde{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--gold-ink)}
+.quem{font-size:13.5px;color:var(--ink-2)}
+.menu-cel{display:none;font-size:13px;color:var(--ink-2)}
+.pagina{padding:20px;max-width:1160px}
+.cab{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:flex-end;justify-content:space-between;margin-bottom:14px}
+.cab .sub{max-width:68ch;margin-top:4px}
+.partes{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px;padding:0 0 12px;border-bottom:1px solid var(--line)}
+.parte{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:999px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink-2)}
+.parte[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+
+/* peças */
+.cartao{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;min-width:0}
+.cartao > h2,.cartao > h3{margin-bottom:6px}
+.grade2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:14px}
+.grade2 > .cartao{margin-bottom:0}
+.ctls{border:1px dashed var(--line-2);background:#FFFBF0;border-radius:10px;padding:8px 12px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px;color:var(--gold-ink)}
+.ctl{background:#fff;border:1px solid var(--line-2);padding:4px 10px;border-radius:999px;cursor:pointer;min-height:32px;color:var(--ink)}
+.ctl[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.selo{display:inline-block;font-size:12.5px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.selo.ok{background:var(--ok-bg);color:var(--ok)} .selo.crit{background:var(--crit-bg);color:var(--crit)}
+.selo.warn{background:var(--warn-bg);color:var(--warn)} .selo.info{background:var(--info-bg);color:var(--info)} .selo.neutro{background:var(--neutro-bg);color:var(--neutro)}
+.btn{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:10px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink)}
+.btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.btn.perigo{color:var(--crit);border-color:#E3B5B5}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.faixa{border-radius:10px;padding:10px 14px;margin-bottom:14px;border:1px solid}
+.faixa.crit{background:var(--crit-bg);border-color:#E3B5B5;color:#7A1E1E} .faixa.warn{background:var(--warn-bg);border-color:#EBC7B0;color:#6F3410}
+.faixa.info{background:var(--info-bg);border-color:#BFD6EA;color:#1D4C77} .faixa.ok{background:var(--ok-bg);border-color:#B5DCC8;color:#0B4A33}
+.faixa .selo{background:#fff}
+a{color:var(--info);text-underline-offset:2px}
+.vazio{text-align:center;color:var(--ink-2);padding:26px 12px;border:1px dashed var(--line-2);border-radius:10px}
+.vazio .grande{font-size:28px;display:block;margin-bottom:4px}
+
+/* guia de etapas */
+.etapas{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:8px}
+.etapa{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:10px 12px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.etapa .n{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font:700 13px var(--mono);background:var(--neutro-bg);color:var(--neutro)}
+.etapa.feita .n{background:var(--ok-bg);color:var(--ok)}
+.etapa .t{font-weight:600}
+.linhas{list-style:none;margin:0;padding:0}
+.linhas li{display:flex;flex-wrap:wrap;gap:6px 12px;justify-content:space-between;align-items:baseline;padding:10px 0;border-top:1px solid var(--line)}
+.linhas li:first-child{border-top:0}
+.linhas li > div{min-width:0;flex:1 1 240px}
+
+/* tabela que vira cartões pelo espaço da peça */
+.tab{width:100%;border-collapse:collapse}
+.tab th{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:8px 10px;border-bottom:2px solid var(--line-2)}
+.tab td{padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+.tab td.num,.tab th.num{text-align:right}
+.tab tfoot td{font-weight:700;border-bottom:0}
+@container principal (max-width: 820px){
+  .tab thead{display:none}
+  .tab,.tab tbody,.tab tfoot,.tab tr,.tab td{display:block;width:100%}
+  .tab tr{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px;background:#fff}
+  .tab td{padding:4px 0;border:0;text-align:left!important}
+  .tab td[data-rot]::before{content:attr(data-rot);display:block;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+  .tab td .acoes .btn{flex:1 1 140px}
+}
+
+/* formulário, chave liga/desliga, ajustes */
+.campo{display:grid;gap:4px;margin-bottom:12px;max-width:520px}
+.campo label{font-weight:600;font-size:14px}
+.campo input,.campo select{border:1px solid var(--line-2);border-radius:10px;padding:9px 12px;min-height:42px;background:#fff;width:100%;min-width:0}
+.campo .ajuda{font-size:13.5px;color:var(--ink-2)}
+.periodo{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:flex-end;margin-bottom:12px}
+.periodo .campo{margin:0;max-width:180px;flex:1 1 150px}
+.liga{position:relative;width:52px;height:30px;border-radius:999px;border:1px solid var(--line-2);background:var(--neutro-bg);cursor:pointer;flex:none;padding:0}
+.liga::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:left .15s}
+.liga[aria-checked="true"]{background:var(--ok);border-color:var(--ok)} .liga[aria-checked="true"]::after{left:25px}
+.aj{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 16px;align-items:center;padding:12px 10px;border-top:1px solid var(--line)}
+.aj:first-of-type{border-top:0}
+.aj.mudou{background:var(--gold-bg);box-shadow:inset 3px 0 0 var(--gold)}
+.aj .t{font-weight:600} .aj .d{font-size:13.5px;color:var(--ink-2)}
+.aj .ctrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end}
+.aj .ctrl input,.aj .ctrl select{border:1px solid var(--line-2);border-radius:8px;padding:6px 8px;min-height:38px;background:#fff}
+.estado-liga{font-size:13px;color:var(--ink-2);min-width:68px}
+.barra-salvar{position:sticky;bottom:0;background:var(--navy);color:#fff;border-radius:12px 12px 0 0;padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;z-index:5}
+.barra-salvar .btn{border-color:#3C5568;background:transparent;color:#fff} .barra-salvar .btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.barra-salvar :focus-visible{outline-color:var(--d-azul)}
+
+/* gaveta e diálogo */
+.fundo{position:fixed;inset:0;background:rgba(15,34,48,.45);z-index:40;display:none}
+.fundo.aberto{display:block}
+.gaveta{position:fixed;top:0;right:0;bottom:0;width:min(520px,100%);background:#fff;z-index:41;display:none;flex-direction:column;box-shadow:-8px 0 24px rgba(15,34,48,.18)}
+.gaveta.aberto{display:flex}
+.dialogo{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(540px,calc(100% - 24px));max-height:calc(100% - 24px);background:#fff;z-index:41;display:none;flex-direction:column;border-radius:14px;box-shadow:0 12px 40px rgba(15,34,48,.3)}
+.dialogo.aberto{display:flex}
+.pn-cab{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line)}
+.pn-corpo{padding:18px;overflow:auto;flex:1;min-height:0}
+.pn-rodape{padding:12px 18px;border-top:1px solid var(--line);background:#F7F9FB;display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;border-radius:0 0 14px 14px}
+.fechar{background:transparent;border:0;font-size:18px;cursor:pointer;min-width:40px;min-height:40px;border-radius:8px}
+.passos{margin:10px 0;padding-left:20px} .passos li{margin-bottom:6px}
+.codigo{font:700 24px var(--mono);letter-spacing:.06em;background:var(--neutro-bg);border-radius:10px;padding:8px 14px;display:inline-block}
+.qr{width:150px;height:150px;border:1px solid var(--line-2);border-radius:10px;padding:8px;background:#fff;flex:none}
+.ligar-linha{display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin:10px 0}
+.avisos{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:60;display:grid;gap:8px;width:min(440px,calc(100% - 24px))}
+.aviso{background:var(--navy);color:#fff;border-radius:10px;padding:10px 14px;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+
+/* celular */
+.celulares{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,290px),1fr));gap:22px 18px;align-items:start}
+.caso h3{margin-bottom:2px} .caso .sub{font-size:13.5px;margin-bottom:8px}
+.cel{border:8px solid #1B2A36;border-radius:28px;background:var(--wa-fundo);overflow:hidden;max-width:360px}
+.cel-topo{background:var(--c-wa);color:#fff;padding:10px 14px;display:flex;gap:10px;align-items:center}
+.cel-topo .foto{width:34px;height:34px;border-radius:50%;background:#fff;color:var(--c-wa);display:grid;place-items:center;font:800 15px var(--display);flex:none}
+.cel-topo b{display:block;line-height:1.2} .cel-topo span{font-size:12.5px;opacity:.9}
+.conv{padding:12px 10px;display:grid;gap:8px;min-height:150px;align-content:start}
+.bolha{max-width:88%;padding:7px 10px;border-radius:10px;font-size:14px;line-height:1.4;box-shadow:0 1px 1px rgba(0,0,0,.12);overflow-wrap:anywhere}
+.bolha.dele{background:var(--wa-dele);justify-self:start;border-top-left-radius:2px}
+.bolha.meu{background:var(--wa-meu);justify-self:end;border-top-right-radius:2px}
+.bolha .hora{display:block;text-align:right;font-size:11px;color:#5E6E7A;margin-top:2px}
+.botoes-wa{display:grid;gap:4px;margin-top:6px}
+.botoes-wa span{background:#fff;border:1px solid #D5DDE3;border-radius:8px;padding:6px 8px;text-align:center;color:#0B5CAD;font-weight:600;font-size:13.5px}
+.fase{font:700 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--gold-ink)}
+
+/* módulos */
+.modulos{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:10px}
+.modulo{border:1px solid var(--line);border-radius:10px;padding:12px;display:flex;justify-content:space-between;gap:10px;align-items:center;background:#fff}
+.modulo.destaque{border-color:var(--gold);background:var(--gold-bg)}
+.modulo .nome{font-weight:600}
+
+/* console da distribuição (escuro, como o de verdade) */
+.console{background:var(--d-bg);color:var(--d-txt);padding:20px;min-height:80vh;container-type:inline-size;container-name:console}
+.console :focus-visible{outline-color:var(--d-azul)}
+.console .ctl[aria-pressed="true"]{background:var(--d-ambar);border-color:var(--d-ambar);color:#231803;font-weight:700}
+.junto{white-space:nowrap}
+.d-cab{display:flex;flex-wrap:wrap;gap:8px 16px;justify-content:space-between;align-items:flex-end;margin-bottom:14px}
+.d-sobre{font:700 11.5px var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--d-ambar)}
+.d-nav{display:flex;flex-wrap:wrap;gap:2px 4px;border-bottom:1px solid var(--d-linha);margin-bottom:18px}
+.d-nav span{padding:8px 12px;color:var(--d-txt2);border-bottom:2px solid transparent}
+.d-nav span.atual{color:var(--d-ambar);border-bottom-color:var(--d-ambar);font-weight:600}
+.d-sec{border-top:1px solid var(--d-linha);padding-top:16px;margin-top:18px}
+.d-sec:first-of-type{border-top:0;margin-top:0;padding-top:0}
+.d-sec > h2{font-size:15px} .d-sec > .sub{color:var(--d-txt2);font-size:13px;margin:2px 0 12px;max-width:80ch}
+.d-card{border:1px solid var(--d-linha);background:var(--d-card);border-radius:12px;padding:16px;margin-bottom:12px}
+.d-aviso{border:1px solid #92610A;background:var(--d-ambar-bg);color:#FCD9A0;border-radius:12px;padding:10px 14px;margin:10px 0}
+.d-btn{background:transparent;border:1px solid #334155;color:var(--d-txt);padding:8px 14px;border-radius:8px;cursor:pointer;min-height:40px;font-weight:600}
+.d-btn.pri{background:var(--d-ambar);border-color:var(--d-ambar);color:#231803} .d-btn.perigo{color:var(--d-crit);border-color:#7F1D1D}
+.d-btn[disabled]{opacity:.5;cursor:not-allowed}
+.d-selo{display:inline-block;font-size:12px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap}
+.d-selo.ok{background:rgba(16,185,129,.15);color:var(--d-ok)} .d-selo.crit{background:rgba(248,113,113,.15);color:var(--d-crit)}
+.d-selo.warn{background:rgba(245,158,11,.15);color:#FBBF24} .d-selo.neutro{background:rgba(148,163,184,.15);color:var(--d-txt2)}
+.d-opcoes{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:10px;margin:10px 0}
+.d-opcao{border:1px solid #334155;border-radius:10px;padding:12px;cursor:pointer;background:transparent;text-align:left;color:var(--d-txt)}
+.d-opcao[aria-pressed="true"]{border-color:var(--d-ambar);background:var(--d-ambar-bg)}
+.d-opcao b{display:block;margin-bottom:2px} .d-opcao span{font-size:13px;color:var(--d-txt2)}
+.d-dados{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:10px 18px;margin:12px 0}
+.d-dados dt{font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--d-txt2)} .d-dados dd{margin:0}
+.d-busca{border:1px solid #334155;background:#0F172A;color:var(--d-txt);border-radius:8px;padding:8px 12px;min-height:40px;width:min(320px,100%);margin-bottom:10px}
+.d-tab{width:100%;border-collapse:collapse;border:1px solid var(--d-linha);border-radius:12px;overflow:hidden}
+.d-tab th{background:#0F172A;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--d-txt2);text-align:left;padding:8px 10px}
+.d-tab td{padding:10px;border-top:1px solid var(--d-linha);vertical-align:top;overflow-wrap:anywhere}
+.d-tab td.num,.d-tab th.num{text-align:right}
+@container console (max-width: 820px){
+  .d-tab{border:0}
+  .d-tab thead{display:none}
+  .d-tab,.d-tab tbody,.d-tab tr,.d-tab td{display:block;width:100%}
+  .d-tab tr{border:1px solid var(--d-linha);border-radius:10px;padding:10px 12px;margin-bottom:10px;background:var(--d-card)}
+  .d-tab td{padding:4px 0;border:0;text-align:left!important}
+  .d-tab td[data-rot]::before{content:attr(data-rot);display:block;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--d-txt2)}
+}
+
+/* notas */
+.notas{padding:20px;max-width:1000px;margin-inline:auto;container-type:inline-size;container-name:principal}
+.notas .cartao ul,.notas .cartao ol{margin:6px 0 0;padding-left:20px} .notas .cartao li{margin-bottom:5px}
+pre.fio{font:12.5px/1.35 var(--mono);background:var(--neutro-bg);border-radius:10px;padding:12px;overflow:hidden;margin:8px 0}
+@container principal (max-width: 560px){ pre.fio{display:none} }
+
+@media (max-width: 900px){
+  .app{grid-template-columns:minmax(0,1fr)} .lado{display:none} .menu-cel{display:inline}
+  .pagina,.notas,.console{padding:14px} .topo{padding:10px 14px}
+  .btn,.parte,.d-btn{min-height:44px}
+}
+@media (prefers-reduced-motion: reduce){ *{transition:none!important;scroll-behavior:auto!important} }
+</style>
+</head>
+<body data-situacao="tudo" data-pessoas="com" data-chave="ok" data-uso="com" data-numero="conectado" data-ligar="esperando">
+<a class="pular" href="#conteudo">Pular para o conteúdo</a>
+
+<header class="proto">
+  <span class="titulo">Protótipo · Mister</span>
+  <nav class="abas" aria-label="Partes do protótipo">
+    <button class="aba" data-aba="loja" aria-pressed="true">Mister na loja</button>
+    <button class="aba" data-aba="celular" aria-pressed="false">No celular</button>
+    <button class="aba" data-aba="modulos" aria-pressed="false">Módulos</button>
+    <button class="aba" data-aba="console" aria-pressed="false">Console da distribuição</button>
+    <button class="aba" data-aba="notas" aria-pressed="false">Notas e decisões</button>
+  </nav>
+  <span class="nota">Dados inventados. Nada aqui fala com o Regem.</span>
+</header>
+
+<div id="conteudo">
+
+<!-- ═════════════════════ MISTER NA LOJA ═════════════════════ -->
+<section class="vista ativa" id="v-loja" aria-label="Mister na loja">
+  <div class="app">
+    <nav class="lado" aria-label="Menu do aplicativo">
+      <div class="marca">REGEM<small>No comando de todo o negócio</small></div>
+      <ul>
+        <li>Painel</li><li>Delivery</li><li>Atendimento</li><li>Estoque</li><li>Relatórios</li>
+        <li class="atual" aria-current="page">Mister <span class="novo">NOVO</span></li>
+        <li>Visão C&amp;O</li><li>Configurações</li>
+      </ul>
+    </nav>
+    <div class="principal">
+      <div class="topo">
+        <span><span class="menu-cel">☰ Menu · </span><span class="onde">Mister</span></span>
+        <span class="quem">Ana · presidente · todas as lojas</span>
+      </div>
+      <main class="pagina">
+        <div class="cab">
+          <div>
+            <h1>Mister</h1>
+            <p class="sub">O administrador virtual da sua loja. Ele avisa, responde e pede a sua autorização pelo WhatsApp.</p>
+          </div>
+        </div>
+        <div class="partes" role="group" aria-label="Partes do Mister">
+          <button class="parte" data-parte="resumo" aria-pressed="true">Resumo</button>
+          <button class="parte" data-parte="pessoas" aria-pressed="false">Pessoas</button>
+          <button class="parte" data-parte="ia" aria-pressed="false">IA e uso</button>
+          <button class="parte" data-parte="avisos" aria-pressed="false">Avisos e relatórios</button>
+        </div>
+
+        <!-- RESUMO -->
+        <div data-parte-vista="resumo">
+          <div class="ctls"><span>Situação do protótipo:</span>
+            <button class="ctl" data-ctl="situacao" data-valor="primeiro" aria-pressed="false">primeiro uso</button>
+            <button class="ctl" data-ctl="situacao" data-valor="tudo" aria-pressed="true">tudo ligado</button>
+            <button class="ctl" data-ctl="situacao" data-valor="parada" aria-pressed="false">IA parada</button>
+          </div>
+          <div class="faixa crit" data-mostra="situacao:parada" role="status">
+            <strong>A IA do Mister parou: a sua chave está sem crédito.</strong> O vigia continua avisando, mas perguntas e relatórios esperam. <button class="btn" data-ir-parte="ia">Abrir IA e uso</button>
+          </div>
+          <div class="cartao">
+            <h2>Para o Mister funcionar</h2>
+            <p class="sub" data-mostra="situacao:primeiro">1 de 3 etapas concluídas.</p>
+            <p class="sub" data-mostra="situacao:tudo|parada">3 de 3 etapas concluídas.</p>
+            <ol class="etapas">
+              <li class="etapa feita"><span class="n" aria-hidden="true">✓</span>
+                <div><div class="t">Módulo ligado</div><div class="sub peq">Ligado em Visão C&amp;O › Módulos do produto.</div></div>
+                <span class="selo ok">feito</span></li>
+              <li class="etapa" data-mostra="situacao:primeiro"><span class="n" aria-hidden="true">2</span>
+                <div><div class="t">A IA do Mister</div><div class="sub peq">Cadastre a chave da sua conta de IA. Sem ela, o Mister só avisa; não responde nem faz relatório.</div></div>
+                <button class="btn pri" data-ir-parte="ia">Cadastrar a chave</button></li>
+              <li class="etapa feita" data-mostra="situacao:tudo"><span class="n" aria-hidden="true">✓</span>
+                <div><div class="t">A IA do Mister</div><div class="sub peq">Sua chave da Anthropic · final <span class="mono">A1b2</span> · funcionando.</div></div>
+                <button class="btn" data-ir-parte="ia">Abrir</button></li>
+              <li class="etapa" data-mostra="situacao:parada"><span class="n" aria-hidden="true">!</span>
+                <div><div class="t">A IA do Mister</div><div class="sub peq">Sua chave da Anthropic · final <span class="mono">A1b2</span> · <span class="selo warn">sem crédito</span></div></div>
+                <button class="btn pri" data-ir-parte="ia">Resolver</button></li>
+              <li class="etapa" data-mostra="situacao:primeiro"><span class="n" aria-hidden="true">3</span>
+                <div><div class="t">O seu WhatsApp ligado ao Mister</div><div class="sub peq">Ligue pelo seu celular. É por ele que o Mister sabe que é você.</div></div>
+                <button class="btn pri" data-ir-parte="pessoas">Ligar o meu WhatsApp</button></li>
+              <li class="etapa feita" data-mostra="situacao:tudo|parada"><span class="n" aria-hidden="true">✓</span>
+                <div><div class="t">O seu WhatsApp ligado ao Mister</div><div class="sub peq">Ligado · final <span class="mono">4321</span> · desde 02/11. Mais 2 pessoas ligadas.</div></div>
+                <button class="btn" data-ir-parte="pessoas">Abrir</button></li>
+            </ol>
+          </div>
+          <div class="grade2">
+            <div class="cartao">
+              <h2>O que o Mister faz por esta empresa</h2>
+              <ul class="linhas">
+                <li><div><strong>Vigia do servidor da loja</strong><div class="sub peq">Sem sinal, serviço parado, disco, cópia de segurança, impressora.</div></div><span class="selo ok">ligado</span></li>
+                <li><div><strong>Avisos no WhatsApp e no Regem</strong><div class="sub peq">O problema que a loja resolve chega para quem está ligado.</div></div><span class="selo info">em breve</span></li>
+                <li><div><strong>Perguntas sobre a loja</strong><div class="sub peq">"Como está a loja agora?", "por que o pedido atrasou?"</div></div><span class="selo info">em breve</span></li>
+                <li><div><strong>Resumo do dia e da semana</strong><div class="sub peq">No horário que você escolher.</div></div><span class="selo neutro">depois</span></li>
+                <li><div><strong>Propostas para você autorizar</strong><div class="sub peq">Ele propõe, você autoriza, o servidor executa e ele confere.</div></div><span class="selo neutro">depois</span></li>
+              </ul>
+            </div>
+            <div class="cartao">
+              <h2>Últimos avisos</h2>
+              <div class="vazio" data-mostra="situacao:primeiro"><span class="grande" aria-hidden="true">📭</span>Nenhum aviso ainda. Quando o Mister avisar de algo, aparece aqui e no seu WhatsApp.</div>
+              <ul class="linhas" data-mostra="situacao:tudo|parada">
+                <li><div><strong>Loja Centro · o servidor voltou</strong><div class="sub peq">Ficou 9 min sem sinal, com 3 pedidos esperando.</div></div><span class="mono peq">hoje 19:51</span></li>
+                <li><div><strong>Loja Centro · impressora da cozinha parada</strong><div class="sub peq">Voltou sozinha em 6 min.</div></div><span class="mono peq">hoje 13:10</span></li>
+                <li><div><strong>Loja Barra · cópia de segurança atrasada</strong><div class="sub peq">A última foi há 52 h. A Regem já foi avisada.</div></div><span class="mono peq">ontem 08:02</span></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- PESSOAS -->
+        <div data-parte-vista="pessoas" hidden>
+          <div class="ctls"><span>Situação do protótipo:</span>
+            <button class="ctl" data-ctl="pessoas" data-valor="com" aria-pressed="true">com pessoas</button>
+            <button class="ctl" data-ctl="pessoas" data-valor="ninguem" aria-pressed="false">ninguém ligado</button>
+            <button class="ctl" data-ctl="pessoas" data-valor="vazio" aria-pressed="false">sem gestores</button>
+            <button class="ctl" data-ctl="pessoas" data-valor="erro" aria-pressed="false">erro ao carregar</button>
+          </div>
+          <div class="cartao">
+            <h2>Quem fala com o Mister</h2>
+            <p class="sub">Presidente e gerentes. Cada um liga o próprio WhatsApp, pelo celular dele: ninguém liga o número de outra pessoa. Gerente só fala da loja dele, e só do que você permitir.</p>
+            <div class="faixa info">O número do Mister é <strong class="mono junto">+55 21 90000-0000</strong>. Salve nos seus contatos como "Mister".</div>
+
+            <div class="vazio" data-mostra="pessoas:vazio"><span class="grande" aria-hidden="true">👥</span>Nenhum gerente ou presidente com acesso nesta empresa.</div>
+            <div class="vazio" data-mostra="pessoas:erro" role="alert"><span class="grande" aria-hidden="true">⚠️</span>Não consegui carregar as pessoas agora.<br><button class="btn" style="margin-top:8px" data-aviso="Carregando de novo…">Tentar de novo</button></div>
+
+            <table class="tab" data-mostra="pessoas:com|ninguem">
+              <caption class="sr">Pessoas que podem falar com o Mister, a situação do WhatsApp de cada uma e o que cada uma pode</caption>
+              <thead><tr><th>Pessoa</th><th>WhatsApp</th><th>O que pode</th><th><span class="sr">Ações</span></th></tr></thead>
+              <tbody>
+                <tr>
+                  <td data-rot="Pessoa"><strong>Ana Souza</strong> (você)<div class="sub peq">presidente · todas as lojas</div></td>
+                  <td data-rot="WhatsApp"><span data-mostra="pessoas:com"><span class="selo ok">ligado</span> final <span class="mono">4321</span> · desde 02/11</span><span data-mostra="pessoas:ninguem"><span class="selo neutro">não ligado</span></span></td>
+                  <td data-rot="O que pode">Avisos · Consulta · Autorização</td>
+                  <td><div class="acoes"><button class="btn pri" data-mostra="pessoas:ninguem" data-abre="dlg-ligar">Ligar o meu WhatsApp</button><button class="btn" data-mostra="pessoas:com" data-abre="dlg-desligar" data-nome="Ana Souza">Desligar</button></div></td>
+                </tr>
+                <tr>
+                  <td data-rot="Pessoa"><strong>Carlos Lima</strong><div class="sub peq">gerente · Loja Centro</div></td>
+                  <td data-rot="WhatsApp"><span data-mostra="pessoas:com"><span class="selo ok">ligado</span> final <span class="mono">8890</span> · desde 05/11</span><span data-mostra="pessoas:ninguem"><span class="selo neutro">não ligado</span><div class="sub peq">Só a própria pessoa liga, entrando com o usuário dela.</div></span></td>
+                  <td data-rot="O que pode">Avisos · Consulta</td>
+                  <td><div class="acoes"><button class="btn" data-abre="gav-pode" data-nome="Carlos Lima">Editar o que pode</button><button class="btn" data-mostra="pessoas:com" data-abre="dlg-desligar" data-nome="Carlos Lima">Desligar</button></div></td>
+                </tr>
+                <tr>
+                  <td data-rot="Pessoa"><strong>João Reis</strong><div class="sub peq">gerente · Loja Centro</div></td>
+                  <td data-rot="WhatsApp"><span data-mostra="pessoas:com"><span class="selo warn">avisos parados</span> final <span class="mono">1177</span><div class="sub peq">Ele respondeu PARAR AVISOS. Continua podendo perguntar.</div></span><span data-mostra="pessoas:ninguem"><span class="selo neutro">não ligado</span></span></td>
+                  <td data-rot="O que pode">Avisos · Consulta</td>
+                  <td><div class="acoes"><button class="btn" data-abre="gav-pode" data-nome="João Reis">Editar o que pode</button><button class="btn" data-mostra="pessoas:com" data-abre="dlg-desligar" data-nome="João Reis">Desligar</button></div></td>
+                </tr>
+                <tr>
+                  <td data-rot="Pessoa"><strong>Marina Alves de Albuquerque Figueiredo</strong><div class="sub peq">gerente · Loja Barra</div></td>
+                  <td data-rot="WhatsApp"><span class="selo neutro">não ligado</span><div class="sub peq">Só a própria pessoa liga, entrando com o usuário dela.</div></td>
+                  <td data-rot="O que pode">Avisos</td>
+                  <td><div class="acoes"><button class="btn" data-abre="gav-pode" data-nome="Marina Alves">Editar o que pode</button></div></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="sub peq">Sempre vale: a resposta só vale do número ligado, de quem ainda é gerente ou presidente · quem sai da empresa perde o vínculo na hora · um número liga uma pessoa só · PARAR AVISOS no WhatsApp para os avisos, VOLTAR AVISOS religa.</p>
+        </div>
+
+        <!-- IA E USO -->
+        <div data-parte-vista="ia" hidden>
+          <div class="ctls"><span>Situação do protótipo:</span>
+            <button class="ctl" data-ctl="chave" data-valor="sem" aria-pressed="false">sem chave</button>
+            <button class="ctl" data-ctl="chave" data-valor="incluida" aria-pressed="false">IA incluída</button>
+            <button class="ctl" data-ctl="chave" data-valor="ok" aria-pressed="true">chave funcionando</button>
+            <button class="ctl" data-ctl="chave" data-valor="credito" aria-pressed="false">sem crédito</button>
+            <button class="ctl" data-ctl="chave" data-valor="teto" aria-pressed="false">teto atingido</button>
+            <button class="ctl" data-ctl="chave" data-valor="recusada" aria-pressed="false">recusada</button>
+          </div>
+          <div class="cartao">
+            <h2>Chave de IA</h2>
+            <p class="sub">A IA do Mister roda na conta que você tem na empresa de IA, com os seus créditos. A chave é o que deixa o Regem usar essa conta.</p>
+
+            <div class="faixa warn" data-mostra="chave:sem"><strong>O Mister está sem IA.</strong> O vigia continua avisando. Perguntas, explicações e relatórios precisam da sua chave.</div>
+            <div class="faixa info" data-mostra="chave:incluida"><strong>IA incluída pela Regem.</strong> Você não precisa de chave agora. Se cadastrar a sua, o Mister passa a usar a sua conta.</div>
+            <div class="faixa ok" data-mostra="chave:ok">Chave salva · final <span class="mono">A1b2</span> · conferida em 12/11 às 22:10 · <span class="selo ok">funcionando</span></div>
+            <div class="faixa warn" data-mostra="chave:credito" role="status">Chave salva · final <span class="mono">A1b2</span> · <span class="selo warn">sem crédito</span><br>A sua conta na Anthropic ficou sem crédito. Compre crédito no console dela e clique em "Testar conexão".</div>
+            <div class="faixa warn" data-mostra="chave:teto" role="status">Chave salva · final <span class="mono">A1b2</span> · <span class="selo warn">teto de gasto atingido</span><br>O limite de gasto que você definiu na Anthropic foi alcançado. Ele zera no dia 1º, ou você aumenta o limite no console dela.</div>
+            <div class="faixa crit" data-mostra="chave:recusada" role="status">Chave salva · final <span class="mono">A1b2</span> · <span class="selo crit">recusada</span><br>A Anthropic não aceita mais esta chave. Confira no console dela se a chave está ativa, ou cadastre outra.</div>
+
+            <div class="campo">
+              <label for="ia-provedor">Empresa de IA</label>
+              <select id="ia-provedor"><option>Anthropic</option><option disabled>OpenAI (em teste, ainda não disponível)</option><option disabled>Gemini (em teste, ainda não disponível)</option></select>
+            </div>
+            <div class="campo">
+              <label for="ia-chave"><span data-mostra="chave:sem|incluida">Chave de API</span><span data-mostra="chave:ok|credito|teto|recusada">Chave de API (salva)</span></label>
+              <input id="ia-chave" type="password" autocomplete="new-password" spellcheck="false" aria-describedby="ia-chave-ajuda" placeholder="cole a chave que começa com sk-ant-">
+              <span class="ajuda" id="ia-chave-ajuda">A chave fica cifrada, não aparece de novo e não vai para o servidor da loja. Só o presidente cadastra ou troca. Deixe em branco para manter a que está salva.</span>
+            </div>
+            <p class="peq"><a href="#" data-aviso="Abre o passo a passo: criar a conta, pôr crédito, criar a chave e o teto de gasto.">Como criar a chave, passo a passo</a></p>
+            <p class="sub peq">O teste faz uma chamada mínima na sua conta (fração de centavo) e confere a chave e o crédito.</p>
+            <p id="ia-teste" class="peq" role="status" hidden></p>
+            <div class="acoes">
+              <button class="btn" id="ia-testar">Testar conexão</button>
+              <button class="btn pri" id="ia-salvar">Salvar chave</button>
+              <button class="btn perigo" data-mostra="chave:ok|credito|teto|recusada" data-abre="dlg-apagar">Apagar a chave</button>
+            </div>
+          </div>
+
+          <div class="cartao">
+            <div class="ctls"><span>Situação do protótipo:</span>
+              <button class="ctl" data-ctl="uso" data-valor="com" aria-pressed="true">com uso</button>
+              <button class="ctl" data-ctl="uso" data-valor="vazio" aria-pressed="false">sem uso</button>
+              <button class="ctl" data-ctl="uso" data-valor="erro" aria-pressed="false">erro ao ler</button>
+            </div>
+            <h2>Uso da IA</h2>
+            <p class="sub">Quanto cada parte gastou no período. É uma estimativa: a conta de verdade é a do console da empresa de IA.</p>
+            <div class="periodo">
+              <div class="campo"><label for="uso-de">De</label><input id="uso-de" type="date" value="2026-10-14"></div>
+              <div class="campo"><label for="uso-ate">Até</label><input id="uso-ate" type="date" value="2026-11-12"></div>
+              <div class="acoes"><button class="btn" data-aviso="Período: hoje.">Hoje</button><button class="btn" data-aviso="Período: 7 dias.">7 dias</button><button class="btn" data-aviso="Período: 30 dias.">30 dias</button></div>
+            </div>
+            <div class="vazio" data-mostra="uso:vazio"><span class="grande" aria-hidden="true">📊</span>Nenhum uso de IA neste período.</div>
+            <div class="vazio" data-mostra="uso:erro" role="alert"><span class="grande" aria-hidden="true">⚠️</span>Não consegui ler o uso agora.<br><button class="btn" style="margin-top:8px" data-aviso="Lendo de novo…">Tentar de novo</button></div>
+            <table class="tab" data-mostra="uso:com">
+              <caption class="sr">Uso da IA por recurso e modelo, com chamadas, tokens e custo estimado em dólar</caption>
+              <thead><tr><th>Recurso</th><th>Modelo</th><th class="num">Chamadas</th><th class="num">Tokens (entrada · saída)</th><th class="num">Custo estimado</th></tr></thead>
+              <tbody>
+                <tr><td data-rot="Recurso"><strong>Mister · investigações</strong></td><td data-rot="Modelo">Claude Sonnet 5.5</td><td class="num mono" data-rot="Chamadas">28</td><td class="num mono" data-rot="Tokens (entrada · saída)">3,4 mi · 224 mil</td><td class="num mono" data-rot="Custo estimado">US$ 8,96</td></tr>
+                <tr><td data-rot="Recurso"><strong>Mister · perguntas</strong></td><td data-rot="Modelo">Claude Haiku 5.5</td><td class="num mono" data-rot="Chamadas">540</td><td class="num mono" data-rot="Tokens (entrada · saída)">7,0 mi · 810 mil</td><td class="num mono" data-rot="Custo estimado">US$ 1,11</td></tr>
+                <tr><td data-rot="Recurso"><strong>Copiloto do atendimento</strong></td><td data-rot="Modelo">Claude Haiku 5.5</td><td class="num mono" data-rot="Chamadas">312</td><td class="num mono" data-rot="Tokens (entrada · saída)">780 mil · 62 mil</td><td class="num mono" data-rot="Custo estimado">US$ 0,11</td></tr>
+                <tr><td data-rot="Recurso"><strong>Resumo do dia</strong></td><td data-rot="Modelo">Claude Haiku 5.5</td><td class="num mono" data-rot="Chamadas">30</td><td class="num mono" data-rot="Tokens (entrada · saída)">600 mil · 75 mil</td><td class="num mono" data-rot="Custo estimado">US$ 0,05</td></tr>
+                <tr><td data-rot="Recurso"><strong>Teste da chave</strong></td><td data-rot="Modelo">Claude Haiku 5.5</td><td class="num mono" data-rot="Chamadas">2</td><td class="num mono" data-rot="Tokens (entrada · saída)">16 · 32</td><td class="num mono" data-rot="Custo estimado">US$ 0,00</td></tr>
+              </tbody>
+              <tfoot><tr><td data-rot="Total do período">Total do período</td><td></td><td class="num mono" data-rot="Chamadas">912</td><td></td><td class="num mono" data-rot="Custo estimado">US$ 10,23</td></tr></tfoot>
+            </table>
+            <p class="sub peq" style="margin-top:10px">Preços da tabela pública da Anthropic lida em 12/11/2026. Modelo que não está na tabela aparece sem custo.</p>
+          </div>
+        </div>
+
+        <!-- AVISOS E RELATÓRIOS -->
+        <div data-parte-vista="avisos" hidden>
+          <div class="faixa info"><span class="fase">Próximas entregas</span><br>Esta tela mostra como os avisos e os relatórios vão ser escolhidos. Hoje o vigia do servidor já roda; o aviso para a loja é a próxima entrega.</div>
+          <div class="cartao ajustes" id="ajustes">
+            <h2>Avisos <span class="sub peq">· 5 ajustes</span></h2>
+            <p class="sub">O que o Mister avisa a quem está ligado. Tudo o que ele avisa também aparece no Regem.</p>
+            <div class="aj"><div><div class="t" id="a1">Servidor da loja sem sinal</div><div class="d">Avisa só quando há pedido esperando: fora do horário, o computador desligado não incomoda ninguém.</div></div>
+              <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="a1"></button></div></div>
+            <div class="aj"><div><div class="t" id="a2">Impressora parada</div><div class="d">Quando uma impressora deixa de responder com via na fila.</div></div>
+              <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="a2"></button></div></div>
+            <div class="aj"><div><div class="t" id="a3">Pedido parado</div><div class="d">Um pedido sem andar além do tempo escolhido.</div></div>
+              <div class="ctrl"><label class="sr" for="a3t">Tempo do pedido parado</label><select id="a3t"><option>15 min</option><option selected>20 min</option><option>30 min</option></select><span class="estado-liga">Desligado</span><button class="liga" role="switch" aria-checked="false" aria-labelledby="a3"></button></div></div>
+            <div class="aj"><div><div class="t" id="a4">Nota fiscal sem resposta</div><div class="d">Nota que ficou pendente depois de todas as tentativas.</div></div>
+              <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="a4"></button></div></div>
+            <div class="aj"><div><div class="t" id="a5">Certificado digital perto de vencer</div><div class="d">A 60, 30, 15, 7 e 1 dia do vencimento.</div></div>
+              <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="a5"></button></div></div>
+
+            <h2 style="margin-top:18px">Relatórios <span class="sub peq">· 2 ajustes</span></h2>
+            <p class="sub">Usam a IA. Cada um soma no "Uso da IA".</p>
+            <div class="aj"><div><div class="t" id="r1">Resumo do dia</div><div class="d">Pedidos, vendas, tempo médio, cancelamentos e o que saiu do lugar.</div></div>
+              <div class="ctrl"><label class="sr" for="r1h">Horário do resumo do dia</label><input id="r1h" type="time" value="23:30"><span class="estado-liga">Desligado</span><button class="liga" role="switch" aria-checked="false" aria-labelledby="r1"></button></div></div>
+            <div class="aj"><div><div class="t" id="r2">Resumo da semana</div><div class="d">A semana contra a anterior.</div></div>
+              <div class="ctrl"><label class="sr" for="r2d">Dia do resumo da semana</label><select id="r2d"><option selected>segunda</option><option>terça</option><option>domingo</option></select><label class="sr" for="r2h">Horário do resumo da semana</label><input id="r2h" type="time" value="09:00"><span class="estado-liga">Desligado</span><button class="liga" role="switch" aria-checked="false" aria-labelledby="r2"></button></div></div>
+            <div class="barra-salvar" id="barra-salvar" hidden>
+              <span id="barra-texto" role="status">1 alteração ainda não salva</span>
+              <span class="acoes"><button class="btn" id="aj-descartar">Descartar</button><button class="btn pri" id="aj-salvar">Salvar alterações</button></span>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ NO CELULAR ═════════════════════ -->
+<section class="vista" id="v-celular" aria-label="No celular">
+  <main class="notas" style="max-width:1240px">
+    <h1>Como fica a conversa no WhatsApp</h1>
+    <p class="sub" style="margin:6px 0 18px;max-width:80ch">Dez situações, do primeiro contato à autorização. O número do Mister é um só para todas as lojas: é o telefone de quem escreve que diz de qual empresa é a conversa.</p>
+    <div class="celulares">
+
+      <article class="caso"><h3>1. Ligar o WhatsApp</h3><p class="sub">O código sai do Regem, vale 10 minutos e uma vez.</p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha meu">MISTER 482913<span class="hora">14:22</span></div>
+          <div class="bolha dele">Pronto, Ana! Este WhatsApp está ligado a você no Regem da Burger da Praça.<br><br>Daqui chegam os avisos e os relatórios, e você pode me perguntar sobre a loja.<br><br>Para parar os avisos, responda PARAR AVISOS.<span class="hora">14:22</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>2. Aviso</h3><p class="sub">O problema, o que fazer e depois o desfecho. <span class="fase">F1.2</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha dele">⚠️ <b>Loja Centro</b> · servidor sem sinal desde 19:42.<br>Há 3 pedidos esperando.<br><br>Confira se o computador do servidor está ligado e com internet.<div class="botoes-wa"><span>Ver no Regem</span></div><span class="hora">19:45</span></div>
+          <div class="bolha dele">✅ <b>Loja Centro</b> · o servidor voltou às 19:51. Ficou 9 min fora.<span class="hora">19:51</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>3. Pergunta</h3><p class="sub">Em português, sobre a loja de quem pergunta. <span class="fase">F2</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha meu">como está a loja agora?<span class="hora">20:15</span></div>
+          <div class="bolha dele"><b>Loja Centro, 20:15</b><br>14 pedidos em andamento. O mais antigo está há 22 min (iFood 4821, na chapa).<br>Servidor e impressoras funcionando.<br>Vendas de hoje até agora: R$ 3.482,00.<span class="hora">20:15</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>4. Resumo do dia</h3><p class="sub">No horário escolhido em "Avisos e relatórios". <span class="fase">F3</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha dele"><b>Resumo de quinta, 12/11 · Loja Centro</b><br>186 pedidos · R$ 9.240,50<br>Tempo médio: 24 min<br>2 cancelamentos (R$ 87,00)<br>1 incidente: impressora da cozinha parada 6 min às 13:10.<div class="botoes-wa"><span>Ver no Regem</span></div><span class="hora">23:30</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>5. Autorização por botão</h3><p class="sub">Só o que é de baixo impacto. Vale por 10 minutos e uma vez. <span class="fase">F4</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha dele">A impressora da cozinha da <b>Loja Centro</b> parou de responder há 4 min.<br><br>Posso reiniciar o serviço de impressão do servidor? Leva uns 20 s, e as vias da fila saem em seguida.<div class="botoes-wa"><span>Autorizar</span><span>Não agora</span></div><span class="hora">13:12</span></div>
+          <div class="bolha meu">Autorizar<span class="hora">13:13</span></div>
+          <div class="bolha dele">Feito às 13:14. O serviço reiniciou e a impressora respondeu. Saíram as 3 vias que estavam na fila.<span class="hora">13:14</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>6. Autorização com PIN</h3><p class="sub">Dinheiro, cancelamento e configuração: a autorização é no Regem. <span class="fase">F4</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha dele">O cliente do pedido 5120 pediu o cancelamento (R$ 132,90, Pix já pago).<br><br>Isso devolve dinheiro, então a autorização é no Regem, com o seu PIN.<div class="botoes-wa"><span>Abrir no Regem</span></div><span class="hora">21:02</span></div>
+          <div class="bolha meu">pode cancelar<span class="hora">21:03</span></div>
+          <div class="bolha dele">Por aqui eu não consigo, Ana: é o tipo de coisa que pede o seu PIN. Toque em "Abrir no Regem". O pedido vale até 21:17.<span class="hora">21:03</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>7. Telefone em duas empresas</h3><p class="sub">O Mister pergunta e nunca mistura.</p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha meu">vendas de hoje<span class="hora">18:40</span></div>
+          <div class="bolha dele">Este WhatsApp está ligado a duas empresas. De qual você quer saber?<div class="botoes-wa"><span>Burger da Praça</span><span>Pizzaria do Porto</span></div><span class="hora">18:40</span></div>
+          <div class="bolha meu">Burger da Praça<span class="hora">18:40</span></div>
+          <div class="bolha dele"><b>Burger da Praça</b> · hoje até 18:40: R$ 2.115,30 em 47 pedidos.<br><br>Sigo falando da Burger da Praça. Para trocar, escreva "trocar de empresa".<span class="hora">18:41</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>8. Telefone que não está ligado</h3><p class="sub">Resposta fixa, sem IA e sem dado de ninguém.</p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha meu">oi, queria saber das vendas da loja<span class="hora">10:05</span></div>
+          <div class="bolha dele">Olá! Este é o Mister, o assistente de gestão do Regem.<br><br>Ainda não sei quem você é. Para falar comigo, ligue o seu WhatsApp dentro do Regem, no menu Mister, em "Pessoas".<span class="hora">10:05</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>9. Gerente pede o que não pode</h3><p class="sub">Gerente só fala da loja dele.</p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha meu">e as vendas da Loja Barra?<span class="hora">16:30</span></div>
+          <div class="bolha dele">Carlos, você fala comigo pela <b>Loja Centro</b>. Da Loja Barra, só o presidente.<br><br>Da Loja Centro hoje: R$ 1.904,00 em 41 pedidos.<span class="hora">16:30</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>10. Parar e voltar os avisos</h3><p class="sub">As mesmas palavras do "Gerente no WhatsApp".</p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha meu">PARAR AVISOS<span class="hora">08:12</span></div>
+          <div class="bolha dele">Certo, Ana: este WhatsApp não recebe mais os avisos do Mister. Você ainda pode me perguntar.<br><br>Para voltar, responda VOLTAR AVISOS.<span class="hora">08:12</span></div>
+        </div></div></article>
+
+    </div>
+  </main>
+</section>
+
+<!-- ═════════════════════ MÓDULOS ═════════════════════ -->
+<section class="vista" id="v-modulos" aria-label="Módulos">
+  <div class="app">
+    <nav class="lado" aria-label="Menu do aplicativo">
+      <div class="marca">REGEM<small>No comando de todo o negócio</small></div>
+      <ul><li>Painel</li><li>Delivery</li><li>Atendimento</li><li>Estoque</li><li>Relatórios</li><li>Mister <span class="novo">NOVO</span></li><li class="atual" aria-current="page">Visão C&amp;O</li><li>Configurações</li></ul>
+    </nav>
+    <div class="principal">
+      <div class="topo"><span><span class="menu-cel">☰ Menu · </span><span class="onde">Diretoria · acesso restrito</span></span><span class="quem">Ana · presidente · todas as lojas</span></div>
+      <main class="pagina">
+        <div class="cab"><div><h1>Visão C&amp;O</h1></div></div>
+        <div class="faixa warn">🔒 Área restrita — Presidente / C&amp;O · gerentes não visualizam</div>
+        <div class="cartao">
+          <h2>Módulos do produto</h2>
+          <p class="sub">Ligar/desligar por rede (padrão) ou por loja (exceção). Desativar corta o acesso na hora.</p>
+          <div class="modulos" style="margin-top:10px">
+            <div class="modulo"><span class="nome" id="m1">📱 App do Colaborador</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="m1" data-modulo></button></div>
+            <div class="modulo"><span class="nome" id="m2">🖥️ KDS de Alertas</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="m2" data-modulo></button></div>
+            <div class="modulo"><span class="nome" id="m3">🕐 Terminal de Ponto</span><button class="liga" role="switch" aria-checked="false" aria-labelledby="m3" data-modulo></button></div>
+            <div class="modulo"><span class="nome" id="m4">🤖 Bot de Suporte</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="m4" data-modulo></button></div>
+            <div class="modulo"><span class="nome" id="m5">🍽️ Mesas e comandas</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="m5" data-modulo></button></div>
+            <div class="modulo"><span class="nome" id="m6">🧑‍🍳 Vagas e candidatos</span><button class="liga" role="switch" aria-checked="false" aria-labelledby="m6" data-modulo></button></div>
+            <div class="modulo destaque"><span class="nome" id="m7">🧭 Mister <span class="novo">NOVO</span></span><button class="liga" role="switch" aria-checked="true" aria-labelledby="m7" data-modulo></button></div>
+          </div>
+          <p class="sub peq" style="margin-top:12px">O Mister é o único cartão novo. Ligado, o item "Mister" aparece no menu do presidente e, só com a parte "Pessoas", no do gerente. Desligado, o Mister para de responder na hora a quem é desta empresa, e o que ele já fez continua na auditoria.</p>
+        </div>
+      </main>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ CONSOLE DA DISTRIBUIÇÃO ═════════════════════ -->
+<section class="vista" id="v-console" aria-label="Console da distribuição">
+  <main class="console">
+    <div class="d-cab">
+      <div><div class="d-sobre">Regem · Distribuição</div><h1>Console de controle</h1></div>
+      <span style="color:var(--d-txt2);font-size:13.5px">Rodrigo · Diretoria</span>
+    </div>
+    <div class="d-nav" aria-label="Abas do console"><span>Frota</span><span>Telemetria</span><span>Licenças</span><span>Atualizações</span><span>Integrações</span><span class="atual" aria-current="page">Mister</span><span>Auditoria</span><span>Usuários</span></div>
+
+    <section class="d-sec">
+      <h2>Número do Mister</h2>
+      <p class="sub">Um número de WhatsApp só, da distribuição, para todas as empresas. É o telefone de quem escreve que diz de qual empresa é a conversa.</p>
+      <div class="ctls" style="background:#1B1606;border-color:#5B4410;color:#FCD9A0"><span>Situação do protótipo:</span>
+        <button class="ctl" data-ctl="numero" data-valor="sem" aria-pressed="false">não conectado</button>
+        <button class="ctl" data-ctl="numero" data-valor="conectado" aria-pressed="true">conectado</button>
+        <button class="ctl" data-ctl="numero" data-valor="caiu" aria-pressed="false">desconectado pela Meta</button>
+      </div>
+
+      <div class="d-card" data-mostra="numero:sem">
+        <p><span class="d-selo neutro">○ não conectado</span></p>
+        <p style="font-weight:600;margin-top:10px">Como este número vai funcionar?</p>
+        <div class="d-opcoes" role="group" aria-label="Como este número vai funcionar">
+          <button class="d-opcao" data-opcao aria-pressed="false"><b>Continua no WhatsApp Business do celular</b><span>Coexistência: o número segue no celular para você acompanhar, e o Regem usa a API oficial por trás.</span></button>
+          <button class="d-opcao" data-opcao aria-pressed="false"><b>Só na API oficial</b><span>Número novo ou que sai do aplicativo do celular. Não depende de um aparelho.</span></button>
+        </div>
+        <p class="sub peq" style="color:var(--d-txt2)">Na coexistência, o número precisa estar no aplicativo WhatsApp Business (versão 2.24.17 ou mais nova). Na janela da Meta, conecte o WhatsApp Business existente.</p>
+        <button class="d-btn pri" id="d-conectar" disabled>Conectar com a Meta</button>
+      </div>
+
+      <div class="d-card" data-mostra="numero:conectado">
+        <p><span class="d-selo ok">● conectado</span> <span class="mono junto">+55 21 90000-0000</span></p>
+        <dl class="d-dados">
+          <div><dt>Nome que aparece</dt><dd>Mister</dd></div>
+          <div><dt>Forma</dt><dd>Coexistência (celular e API)</dd></div>
+          <div><dt>Qualidade na Meta</dt><dd><span class="d-selo ok">alta</span></dd></div>
+          <div><dt>Avisos por dia</dt><dd class="mono">até 2.000 pessoas</dd></div>
+          <div><dt>Modelo "Aviso do Mister"</dt><dd><span class="d-selo ok">aprovado pela Meta</span></dd></div>
+          <div><dt>Última mensagem recebida</dt><dd class="mono">hoje 20:15</dd></div>
+        </dl>
+        <div class="d-aviso">Coexistência: abra o WhatsApp Business no celular pelo menos a cada 14 dias, senão a Meta desconecta o número. Último acesso visto: há 2 dias.</div>
+        <div class="acoes"><button class="d-btn" data-aviso="Abre a janela da Meta para conectar de novo.">Reconectar com a Meta</button><button class="d-btn perigo" data-abre="dlg-desconectar">Desconectar</button></div>
+      </div>
+
+      <div class="d-card" data-mostra="numero:caiu">
+        <p><span class="d-selo crit">● desconectado pela Meta</span> <span class="mono junto">+55 21 90000-0000</span></p>
+        <p style="margin-top:8px">A Meta desconectou o número em 10/11: o celular ficou 14 dias sem abrir o aplicativo. As empresas continuam recebendo os avisos dentro do Regem. Pelo WhatsApp, nada sai até reconectar.</p>
+        <button class="d-btn pri" data-aviso="Abre a janela da Meta para conectar de novo.">Reconectar com a Meta</button>
+      </div>
+    </section>
+
+    <section class="d-sec">
+      <h2>Mister nesta nuvem</h2>
+      <p class="sub">A chave geral. Desligado, o Mister para de responder e de avisar pelo WhatsApp em todas as empresas; o vigia e os avisos dentro do Regem continuam, e a auditoria fica guardada.</p>
+      <div class="d-card" style="display:flex;flex-wrap:wrap;gap:10px 16px;justify-content:space-between;align-items:center">
+        <span>Liberação: <strong id="d-geral-texto">ligada</strong></span>
+        <button class="d-btn" id="d-geral" data-abre="dlg-geral">Desligar o Mister</button>
+      </div>
+    </section>
+
+    <section class="d-sec">
+      <h2>Empresas com o Mister</h2>
+      <p class="sub">O console vê a situação e o volume de cada empresa. Nunca a chave de IA nem o que foi conversado.</p>
+      <label class="sr" for="d-busca">Buscar empresa</label><input class="d-busca" id="d-busca" type="search" placeholder="Buscar empresa">
+      <table class="d-tab">
+        <caption class="sr">Empresas com o módulo Mister, a IA de cada uma, as pessoas ligadas e o uso em 30 dias</caption>
+        <thead><tr><th>Empresa</th><th>Módulo</th><th>IA</th><th class="num">Pessoas ligadas</th><th class="num">Uso em 30 dias</th><th>Situação</th></tr></thead>
+        <tbody>
+          <tr><td data-rot="Empresa"><strong>Burger da Praça</strong></td><td data-rot="Módulo"><span class="d-selo ok">ligado</span></td><td data-rot="IA">chave própria · Anthropic</td><td class="num mono" data-rot="Pessoas ligadas">3</td><td class="num mono" data-rot="Uso em 30 dias">US$ 10,23</td><td data-rot="Situação"><span class="d-selo ok">funcionando</span></td></tr>
+          <tr><td data-rot="Empresa"><strong>Pizzaria do Porto</strong></td><td data-rot="Módulo"><span class="d-selo ok">ligado</span></td><td data-rot="IA">chave própria · Anthropic</td><td class="num mono" data-rot="Pessoas ligadas">1</td><td class="num mono" data-rot="Uso em 30 dias">US$ 2,10</td><td data-rot="Situação"><span class="d-selo warn">IA parada · sem crédito</span></td></tr>
+          <tr><td data-rot="Empresa"><strong>Empório Sabor da Serra Comércio de Alimentos</strong></td><td data-rot="Módulo"><span class="d-selo ok">ligado</span></td><td data-rot="IA">sem chave</td><td class="num mono" data-rot="Pessoas ligadas">0</td><td class="num mono" data-rot="Uso em 30 dias">US$ 0,00</td><td data-rot="Situação"><span class="d-selo neutro">falta a chave e ligar o WhatsApp</span></td></tr>
+          <tr><td data-rot="Empresa"><strong>Cantina Bella</strong></td><td data-rot="Módulo"><span class="d-selo neutro">desligado</span></td><td data-rot="IA">sem chave</td><td class="num mono" data-rot="Pessoas ligadas">0</td><td class="num mono" data-rot="Uso em 30 dias">US$ 0,00</td><td data-rot="Situação"><span class="d-selo neutro">módulo desligado</span></td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+</section>
+
+<!-- ═════════════════════ NOTAS E DECISÕES ═════════════════════ -->
+<section class="vista" id="v-notas" aria-label="Notas e decisões">
+  <main class="notas">
+    <h1>Notas do protótipo</h1>
+    <p class="sub" style="margin:6px 0 16px">13/11/2026 · versão 1 · aprovado pelo dono em 13/11/2026</p>
+
+    <div class="cartao"><h3>O que é</h3>
+      <p>O Mister é o canal do presidente (e do gerente, quando você permite) com os agentes do Regem, por um número de WhatsApp próprio. Um número só, da distribuição, atende todas as lojas. O número da loja continua só para os clientes.</p>
+      <p>Por ele o dono recebe avisos, alertas e relatórios, e manda perguntas, tarefas e autorizações.</p></div>
+
+    <div class="cartao"><h3>As cinco regras que o protótipo segue</h3><ol>
+      <li><strong>O telefone só representa a empresa depois de ligado por dentro do Regem</strong>, pela própria pessoa, com um código de 10 minutos que vale uma vez. Quem só escreve para o número recebe uma resposta fixa (conversa 8).</li>
+      <li><strong>O mesmo telefone pode estar em duas empresas.</strong> O Mister pergunta de qual é o assunto e nunca mistura (conversa 7).</li>
+      <li><strong>O presidente escolhe o que cada gerente pode:</strong> receber avisos, consultar, autorizar. Gerente só fala da loja dele (conversa 9).</li>
+      <li><strong>Autorização em dois níveis.</strong> Baixo impacto: botão na conversa (conversa 5). Dinheiro, cancelamento e configuração: link que abre o Regem e pede o PIN (conversa 6). O PIN nunca é digitado na conversa.</li>
+      <li><strong>Quem sai da empresa perde o vínculo na hora.</strong></li></ol></div>
+
+    <div class="cartao"><h3>Onde cada tela mora</h3><ul>
+      <li><strong>Mister</strong>: item novo do menu, para o presidente. O gerente vê só a parte "Pessoas", para ligar o próprio WhatsApp.</li>
+      <li><strong>Visão C&amp;O › Módulos do produto</strong>: o cartão "Mister", junto dos outros módulos.</li>
+      <li><strong>Console da distribuição › aba "Mister"</strong>: o número, a chave geral e as empresas.</li></ul></div>
+
+    <div class="cartao"><h3>O que já existe por trás e o que não existe</h3><ul>
+      <li><strong>Já no ar:</strong> o vigia do servidor da loja (só registra) e a chave de IA por empresa com o medidor de uso. A parte "IA e uso" é a tela dessas rotas.</li>
+      <li><strong>Reaproveitado:</strong> o código de ligar, PARAR AVISOS e VOLTAR AVISOS e o limite de valor já existem no "Gerente no WhatsApp", pelo número da loja.</li>
+      <li><strong>Não existe ainda:</strong> o número do Mister no console, a entrada que reconhece o gestor em qualquer empresa, as permissões por gerente, os avisos pelo WhatsApp, os relatórios e as autorizações.</li></ul></div>
+
+    <div class="cartao"><h3>Fases (uma por PR)</h3><ol>
+      <li><strong>Tela "IA e uso"</strong> e o cartão do módulo. As rotas já existem.</li>
+      <li><strong>Número do Mister no console</strong> e a entrada do WhatsApp: ligar o telefone, a resposta fixa a desconhecido, a pergunta da empresa.</li>
+      <li><strong>Pessoas</strong>: cada um liga o próprio WhatsApp. O que cada gerente pode fica para o fim do projeto, como perfil de permissões por hierarquia.</li>
+      <li><strong>Avisos</strong> pelo Mister e dentro do Regem (F1.2 do plano).</li>
+      <li><strong>Perguntas</strong> (F2), <strong>relatórios</strong> (F3) e <strong>autorizações</strong> (F4).</li></ol></div>
+
+    <div class="cartao"><h3>Referências de mercado</h3>
+      <table class="tab"><caption class="sr">Referências de mercado por trilha</caption>
+        <thead><tr><th>Trilha</th><th>Produto</th><th>O que aproveitei</th><th>Situação</th></tr></thead><tbody>
+        <tr><td data-rot="Trilha">Tradicional</td><td data-rot="Produto"><a href="https://shopify.dev/docs/api/app-home/latest/patterns/compositions/setup-guide">Shopify, "Setup guide"</a></td><td data-rot="O que aproveitei">Lista de etapas com "X de Y concluídas", cada uma com o botão da ação: o cartão "Para o Mister funcionar".</td><td data-rot="Situação">verificado em 24/09/2026</td></tr>
+        <tr><td data-rot="Trilha">Moderno</td><td data-rot="Produto"><a href="https://www.hubspot.com/spotlight">HubSpot Agent Hub</a></td><td data-rot="O que aproveitei">Agentes apresentados pelo resultado, com situação e registro do que fizeram: "O que o Mister faz por esta empresa" e "Últimos avisos".</td><td data-rot="Situação">verificado em 25/09/2026</td></tr>
+        <tr><td data-rot="Trilha">Inovador</td><td data-rot="Produto"><a href="https://openai.com/index/introducing-chatgpt-agent/">ChatGPT agent</a></td><td data-rot="O que aproveitei">O agente pede confirmação antes de ação com consequência, com motivo, risco e prazo: as conversas 5 e 6.</td><td data-rot="Situação">verificado em 24/09/2026</td></tr>
+      </tbody></table>
+      <p class="sub peq" style="margin-top:8px">As três vêm do catálogo da skill de telas, com a data em que foram conferidas lá. Não conferi de novo hoje.</p></div>
+
+    <div class="cartao"><h3>Três caminhos, e o escolhido</h3>
+      <p><strong>A · Tradicional — tudo dentro de Configurações.</strong> O Mister vira mais um grupo de ajustes em Delivery › Configurações, ao lado do "Gerente no WhatsApp". Ganha: nada novo no menu. Perde: o dono não acha, e a chave de IA fica longe do uso dela.</p>
+      <p><strong>B · Moderno — item próprio no menu, com um guia de três etapas.</strong> É o deste protótipo. Ganha: um lugar só para ligar, ver o gasto e escolher quem fala. Perde: mais um item no menu.</p>
+<pre class="fio" aria-hidden="true">┌────────┬──────────────────────────────────────┐
+│ Painel │ MISTER                               │
+│ ...    │ [Resumo][Pessoas][IA e uso][Avisos]  │
+│▸Mister │ ┌ Para o Mister funcionar ─ 3 de 3 ┐ │
+│ C&amp;O    │ │ ✓ módulo  ✓ IA  ✓ seu WhatsApp   │ │
+│        │ └──────────────────────────────────┘ │
+│        │ ┌ O que ele faz ┐ ┌ Últimos avisos ┐ │
+└────────┴──────────────────────────────────────┘</pre>
+      <p><strong>C · Inovador — configurar conversando.</strong> Tudo pelo próprio WhatsApp ("Mister, deixe o Carlos autorizar"). Ganha: zero tela. Perde: chave de IA e permissão por conversa são frágeis e difíceis de auditar.</p>
+      <p><strong>Recomendo o B.</strong> O dono usa pouco esta tela e precisa achar rápido três coisas: ligar, quanto gastou e quem pode.</p></div>
+
+    <div class="cartao"><h3>O que o dono decidiu ao aprovar (13/11/2026)</h3><ul>
+      <li>As telas e as conversas estão aprovadas como estão.</li>
+      <li>O que cada gerente pode pelo Mister fica para o <strong>fim do projeto</strong>, como um perfil de permissões por hierarquia. Até lá: presidente = avisos, consulta e autorização; gerente = avisos e consulta da loja dele; autorização, só o presidente. A gaveta "Editar o que pode" deste protótipo só entra com esse perfil.</li>
+      <li>O símbolo do módulo ficou o 🧭.</li></ul></div>
+  </main>
+</section>
+
+</div>
+
+<!-- painéis -->
+<div class="fundo" id="fundo"></div>
+
+<aside class="gaveta" id="gav-pode" role="dialog" aria-modal="true" aria-labelledby="gav-pode-t">
+  <div class="pn-cab"><h3 id="gav-pode-t">O que <span data-nome-aqui>Carlos Lima</span> pode pelo Mister</h3><button class="fechar" data-fecha aria-label="Fechar">✕</button></div>
+  <div class="pn-corpo">
+    <p class="sub">Vale para a loja dele. Ele só usa depois de ligar o próprio WhatsApp.</p>
+    <div class="aj"><div><div class="t" id="p1">Receber avisos</div><div class="d">Alertas e relatórios da loja dele.</div></div><div class="ctrl"><button class="liga" role="switch" aria-checked="true" aria-labelledby="p1" data-solto></button></div></div>
+    <div class="aj"><div><div class="t" id="p2">Consultar</div><div class="d">Perguntar ao Mister sobre a loja dele.</div></div><div class="ctrl"><button class="liga" role="switch" aria-checked="true" aria-labelledby="p2" data-solto></button></div></div>
+    <div class="aj"><div><div class="t" id="p3">Autorizar pelo WhatsApp</div><div class="d">Só o que é de baixo impacto, por botão. O que mexe com dinheiro, cancelamento ou configuração continua pedindo o PIN no Regem.</div></div><div class="ctrl"><button class="liga" role="switch" aria-checked="false" aria-labelledby="p3" data-solto></button></div></div>
+  </div>
+  <div class="pn-rodape"><button class="btn" data-fecha>Cancelar</button><button class="btn pri" data-fecha data-aviso="Permissões salvas.">Salvar</button></div>
+</aside>
+
+<div class="dialogo" id="dlg-ligar" role="dialog" aria-modal="true" aria-labelledby="dlg-ligar-t">
+  <div class="pn-cab"><h3 id="dlg-ligar-t">Ligar o meu WhatsApp ao Mister</h3><button class="fechar" data-fecha aria-label="Fechar">✕</button></div>
+  <div class="pn-corpo">
+    <div class="ctls"><span>Situação do protótipo:</span>
+      <button class="ctl" data-ctl="ligar" data-valor="esperando" aria-pressed="true">esperando</button>
+      <button class="ctl" data-ctl="ligar" data-valor="ligado" aria-pressed="false">a mensagem chegou</button>
+      <button class="ctl" data-ctl="ligar" data-valor="vencido" aria-pressed="false">código vencido</button>
+    </div>
+    <p>Faça no <strong>seu</strong> celular: o número que mandar a mensagem fica ligado a você.</p>
+    <div data-mostra="ligar:esperando">
+      <ol class="passos">
+        <li>Aponte a câmera do celular para o código abaixo. Ou, no celular, abra o WhatsApp por este link.</li>
+        <li>O WhatsApp abre com a mensagem <strong class="mono">MISTER 482913</strong> para o número do Mister. Toque em enviar.</li>
+        <li>Pronto: o Mister responde no seu WhatsApp e esta tela mostra "Ligado".</li>
+      </ol>
+      <div class="ligar-linha">
+        <svg class="qr" viewBox="0 0 21 21" role="img" aria-label="Código para a câmera do celular (ilustração)"><rect width="21" height="21" fill="#fff"/><path fill="#132536" d="M1 1h7v7H1zM13 1h7v7h-7zM1 13h7v7H1zM3 3v3h3V3zM15 3v3h3V3zM3 15v3h3v-3zM10 1h1v2h-1zM10 5h2v1h-2zM9 9h2v2H9zM12 9h1v1h-1zM14 10h2v1h-2zM17 9h3v1h-3zM1 10h2v1H1zM5 9h2v2H5zM10 13h2v1h-2zM13 12h1v3h-1zM15 13h2v2h-2zM18 12h2v1h-2zM10 16h1v4h-1zM12 17h3v1h-3zM16 16h1v2h-1zM18 15h2v2h-2zM13 19h2v1h-2zM17 19h3v1h-3z"/></svg>
+        <div><div class="codigo">MISTER 482913</div><p class="sub peq" style="margin-top:8px" role="status">Esperando a sua mensagem · o código vale até 14:32 e uma vez só. Um número liga uma pessoa só.</p></div>
+      </div>
+    </div>
+    <div class="faixa ok" data-mostra="ligar:ligado" role="status"><strong>Ligado.</strong> Final <span class="mono">4321</span>. O Mister já respondeu no seu WhatsApp.</div>
+    <div data-mostra="ligar:vencido"><div class="faixa warn" role="status">O código venceu. Gere outro para ligar.</div><button class="btn pri" data-ctl="ligar" data-valor="esperando">Gerar outro código</button></div>
+  </div>
+  <div class="pn-rodape"><button class="btn" data-fecha>Fechar</button></div>
+</div>
+
+<div class="dialogo" id="dlg-desligar" role="alertdialog" aria-modal="true" aria-labelledby="dlg-desligar-t" aria-describedby="dlg-desligar-d">
+  <div class="pn-cab"><h3 id="dlg-desligar-t">Desligar o WhatsApp de <span data-nome-aqui>Carlos Lima</span></h3><button class="fechar" data-fecha aria-label="Fechar">✕</button></div>
+  <div class="pn-corpo"><p id="dlg-desligar-d">A pessoa para de receber os avisos na hora e o Mister deixa de responder a ela. O que esperava o toque dela no WhatsApp deixa de valer. Para voltar, a própria pessoa liga de novo, pelo celular.</p></div>
+  <div class="pn-rodape"><button class="btn" data-fecha>Cancelar</button><button class="btn perigo" data-fecha data-aviso="WhatsApp desligado.">Desligar</button></div>
+</div>
+
+<div class="dialogo" id="dlg-apagar" role="alertdialog" aria-modal="true" aria-labelledby="dlg-apagar-t" aria-describedby="dlg-apagar-d">
+  <div class="pn-cab"><h3 id="dlg-apagar-t">Apagar a chave de IA</h3><button class="fechar" data-fecha aria-label="Fechar">✕</button></div>
+  <div class="pn-corpo"><p id="dlg-apagar-d">A chave sai do Regem na hora. O Mister fica sem IA até você cadastrar outra: ele continua avisando, mas não responde nem faz relatório. A chave continua valendo na Anthropic; para invalidar, apague lá também.</p></div>
+  <div class="pn-rodape"><button class="btn" data-fecha>Cancelar</button><button class="btn perigo" data-fecha data-estado="chave:sem" data-aviso="Chave apagada.">Apagar a chave</button></div>
+</div>
+
+<div class="dialogo" id="dlg-desconectar" role="alertdialog" aria-modal="true" aria-labelledby="dlg-desconectar-t" aria-describedby="dlg-desconectar-d">
+  <div class="pn-cab"><h3 id="dlg-desconectar-t">Desconectar o número do Mister</h3><button class="fechar" data-fecha aria-label="Fechar">✕</button></div>
+  <div class="pn-corpo"><p id="dlg-desconectar-d">O Mister para de falar pelo WhatsApp com todas as empresas. Os avisos continuam dentro do Regem. As pessoas ligadas continuam ligadas e voltam a ser atendidas quando o número for conectado de novo.</p></div>
+  <div class="pn-rodape"><button class="btn" data-fecha>Cancelar</button><button class="btn perigo" data-fecha data-estado="numero:sem" data-aviso="Número desconectado.">Desconectar</button></div>
+</div>
+
+<div class="dialogo" id="dlg-geral" role="alertdialog" aria-modal="true" aria-labelledby="dlg-geral-t" aria-describedby="dlg-geral-d">
+  <div class="pn-cab"><h3 id="dlg-geral-t">Desligar o Mister nesta nuvem</h3><button class="fechar" data-fecha aria-label="Fechar">✕</button></div>
+  <div class="pn-corpo"><p id="dlg-geral-d">Vale para todas as empresas, na hora. O Mister para de responder e de avisar pelo WhatsApp. O vigia e os avisos dentro do Regem continuam, e nada do que ele fez é apagado.</p></div>
+  <div class="pn-rodape"><button class="btn" data-fecha>Cancelar</button><button class="btn perigo" data-fecha id="d-geral-confirma">Desligar o Mister</button></div>
+</div>
+
+<div class="avisos" id="avisos" aria-live="polite"></div>
+
+<script>
+(function(){
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const corpo = document.body;
+
+  /* avisos (toast) */
+  function avisar(texto){
+    const a = document.createElement('div'); a.className = 'aviso'; a.textContent = texto;
+    $('#avisos').appendChild(a); setTimeout(() => a.remove(), 3200);
+  }
+
+  /* estados do protótipo: data-ctl="grupo" data-valor="x" troca; data-mostra="grupo:a|b" aparece */
+  function aplicar(){
+    $$('[data-mostra]').forEach((el) => {
+      const [grupo, valores] = el.dataset.mostra.split(':');
+      el.hidden = !valores.split('|').includes(corpo.dataset[grupo]);
+    });
+    $$('.ctl[data-ctl]').forEach((b) => b.setAttribute('aria-pressed', String(corpo.dataset[b.dataset.ctl] === b.dataset.valor)));
+    // chave já salva: o campo vazio mantém a que está guardada (o mesmo padrão dos outros segredos do Regem)
+    const salva = !['sem', 'incluida'].includes(corpo.dataset.chave);
+    $('#ia-chave').placeholder = salva ? '•••••• (mantém)' : 'cole a chave que começa com sk-ant-';
+  }
+  function estado(grupo, valor){ corpo.dataset[grupo] = valor; aplicar(); }
+
+  /* abas do protótipo e partes da loja */
+  function vista(id){
+    if (!$('#v-' + id)) id = 'loja';
+    $$('.vista').forEach((v) => v.classList.toggle('ativa', v.id === 'v-' + id));
+    $$('.aba').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.aba === id)));
+    history.replaceState(null, '', '#' + id);
+    window.scrollTo(0, 0);
+  }
+  function parte(id){
+    $$('[data-parte-vista]').forEach((p) => { p.hidden = p.dataset.parteVista !== id; });
+    $$('.parte').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.parte === id)));
+  }
+
+  /* gaveta e diálogos: foco preso, Esc fecha, o foco volta para quem abriu */
+  let aberto = null, quemAbriu = null;
+  const focaveis = (el) => $$('button, [href], input, select, [tabindex]:not([tabindex="-1"])', el).filter((x) => !x.disabled && x.offsetParent !== null);
+  function abrir(id, de){
+    const p = $('#' + id); if (!p) return;
+    if (de && de.dataset.nome) $$('[data-nome-aqui]', p).forEach((n) => { n.textContent = de.dataset.nome; });
+    aberto = p; quemAbriu = de || null;
+    p.classList.add('aberto'); $('#fundo').classList.add('aberto');
+    (focaveis(p)[0] || p).focus();
+  }
+  function fechar(){
+    if (!aberto) return;
+    aberto.classList.remove('aberto'); $('#fundo').classList.remove('aberto');
+    const volta = quemAbriu; aberto = null; quemAbriu = null;
+    if (volta && document.contains(volta)) volta.focus();
+  }
+  document.addEventListener('keydown', (e) => {
+    if (!aberto) return;
+    if (e.key === 'Escape') { e.preventDefault(); fechar(); return; }
+    if (e.key !== 'Tab') return;
+    const f = focaveis(aberto); if (!f.length) return;
+    const primeiro = f[0], ultimo = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === primeiro) { e.preventDefault(); ultimo.focus(); }
+    else if (!e.shiftKey && document.activeElement === ultimo) { e.preventDefault(); primeiro.focus(); }
+  });
+
+  /* ajustes: conta o que mudou e mostra a barra */
+  const chaves = $$('#ajustes .liga');
+  chaves.forEach((c) => { c.dataset.original = c.getAttribute('aria-checked'); });
+  function barra(){
+    let n = 0;
+    chaves.forEach((c) => {
+      const mudou = c.getAttribute('aria-checked') !== c.dataset.original;
+      c.closest('.aj').classList.toggle('mudou', mudou); if (mudou) n++;
+    });
+    $('#barra-salvar').hidden = n === 0;
+    $('#barra-texto').textContent = n === 1 ? '1 alteração ainda não salva' : n + ' alterações ainda não salvas';
+  }
+  function virar(c){
+    const ligado = c.getAttribute('aria-checked') !== 'true';
+    c.setAttribute('aria-checked', String(ligado));
+    const rot = c.parentElement.querySelector('.estado-liga'); if (rot) rot.textContent = ligado ? 'Ligado' : 'Desligado';
+  }
+
+  document.addEventListener('click', (e) => {
+    const t = e.target.closest('button, a'); if (!t) return;
+    if (t.matches('a[href="#"]')) e.preventDefault();
+    if (t.dataset.aba) return vista(t.dataset.aba);
+    if (t.dataset.parte) return parte(t.dataset.parte);
+    if (t.dataset.irParte) return parte(t.dataset.irParte);
+    if (t.dataset.opcao !== undefined) {
+      $$('[data-opcao]').forEach((o) => o.setAttribute('aria-pressed', String(o === t)));
+      $('#d-conectar').disabled = false; return;
+    }
+    if (t.matches('.liga')) {
+      virar(t);
+      if (t.closest('#ajustes')) barra();
+      else if (t.dataset.modulo !== undefined) avisar(t.getAttribute('aria-checked') === 'true' ? 'Módulo ativado.' : 'Módulo desativado.');
+      return;
+    }
+    if (t.dataset.ctl) estado(t.dataset.ctl, t.dataset.valor);
+    if (t.dataset.estado) { const [g, v] = t.dataset.estado.split(':'); estado(g, v); }
+    if (t.dataset.fecha !== undefined) fechar();
+    if (t.dataset.abre) abrir(t.dataset.abre, t);
+    if (t.dataset.aviso) avisar(t.dataset.aviso);
+    if (t.id === 'aj-descartar') { chaves.forEach((c) => { if (c.getAttribute('aria-checked') !== c.dataset.original) virar(c); }); barra(); avisar('Alterações descartadas.'); }
+    if (t.id === 'aj-salvar') { chaves.forEach((c) => { c.dataset.original = c.getAttribute('aria-checked'); }); barra(); avisar('Ajustes do Mister salvos.'); }
+    if (t.id === 'ia-testar') {
+      const r = $('#ia-teste'), s = corpo.dataset.chave;
+      const textos = { ok: 'Conectado ✓ — a chave e o crédito estão em ordem.', credito: 'Falhou: a conta está sem crédito.', teto: 'Falhou: o teto de gasto da conta foi atingido.', recusada: 'Falhou: a Anthropic recusou a chave.', sem: 'Cole a chave para testar.', incluida: 'Cole a chave para testar.' };
+      r.hidden = false; r.textContent = textos[s]; r.style.color = s === 'ok' ? 'var(--ok)' : 'var(--crit)';
+    }
+    if (t.id === 'ia-salvar') { estado('chave', 'ok'); $('#ia-chave').value = ''; $('#ia-teste').hidden = true; avisar('Chave conferida e salva.'); }
+    if (t.id === 'd-conectar') { estado('numero', 'conectado'); avisar('Número do Mister conectado.'); }
+    if (t.id === 'd-geral-confirma') { $('#d-geral-texto').textContent = 'desligada'; $('#d-geral').textContent = 'Ligar o Mister'; avisar('Mister desligado nesta nuvem.'); }
+  });
+  $('#fundo').addEventListener('click', () => { if (aberto && aberto.getAttribute('role') !== 'alertdialog' && aberto.id !== 'dlg-ligar') fechar(); });
+
+  aplicar();
+  vista((location.hash || '#loja').slice(1));
+})();
+</script>
+</body>
+</html>

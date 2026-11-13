@@ -14,6 +14,7 @@ import {
   ClipboardList,
   Clock,
   Coins,
+  Compass,
   CreditCard,
   ReceiptText,
   Route,
@@ -191,6 +192,9 @@ const NAV: NavNode[] = [
     ],
   },
   { href: '/auditoria', label: 'Auditoria', icon: History, perm: 'auditoria' },
+  // Mister (protótipo aprovado em 13/11/2026): o administrador virtual. Só com o módulo ligado (ele nasce desligado) e a
+  // mesma permissão da Visão C&O — as rotas `ia/*` do servidor são do presidente.
+  { href: '/mister', label: 'Mister', icon: Compass, perm: 'visao_co', modulo: 'mister' },
   { href: '/diretoria', label: 'Visão C&O', icon: Building2, perm: 'visao_co' },
 ];
 
