@@ -80,8 +80,10 @@ const NA_PREVIA = 5;
 const NA_PREVIA_ANIV = 8;
 
 export type Tipo = 'cashback' | 'aniversario' | 'volta';
-/** O número que manda: o aviso do cashback é utilidade (o principal, como os avisos do pedido); o resto, o de marketing. */
-const PAPEL: Record<Tipo, 'principal' | 'marketing'> = { cashback: 'principal', aniversario: 'marketing', volta: 'marketing' };
+/** O número que manda: o aviso do cashback é utilidade (o principal, como os avisos do pedido); o resto, o de marketing.
+ *  A sincronização dos modelos confere cada um na conta deste número (`whatsapp/modelos-por-conta.ts` — o teste de lá
+ *  cobra que as duas listas batam). */
+export const PAPEL: Record<Tipo, 'principal' | 'marketing'> = { cashback: 'principal', aniversario: 'marketing', volta: 'marketing' };
 /** A ordem da rotina: o que tem prazo primeiro (o limite do dia é de todas juntas). */
 const ORDEM: Tipo[] = ['cashback', 'aniversario', 'volta'];
 const LIGADA: Record<Tipo, (a: AjustesRelacionamento) => boolean> = {
