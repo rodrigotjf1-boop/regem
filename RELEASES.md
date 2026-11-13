@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O dia da operação nas leituras: validades, cupons do cardápio e Visão C&O (13/11, ERR-460; SEM migration; não mexe
+  no `sync-daemon`).** Na NUVEM com o merge: das 21h à meia-noite o lote que vence hoje deixa de aparecer como
+  vencido, o cupom válido até hoje continua na lista do cardápio e a Visão C&O não vira o mês três horas antes (o
+  banco da nuvem roda em UTC). **No `.zip`:** a mesma correção no backend do servidor da loja — lá o banco costuma
+  estar no fuso da loja e o defeito não aparecia, mas o código deixa de depender disso. Nada no `.exe`.
+
 - **Mister: as perguntas — o agente de IA com ferramentas de leitura (13/11, F2.1 do plano do Mister; mig 418
   `@cloud-only` — a tabela nova `mister_pergunta` entra em `SO_NUVEM` no `sync-daemon`).** Na NUVEM com o merge: quem
   está ligado ao Mister pergunta pelo WhatsApp e o agente responde com os números das telas (Painel, Relatórios de
