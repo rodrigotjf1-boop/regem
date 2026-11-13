@@ -10,7 +10,7 @@
 import { createHash, createHmac, createPublicKey, randomBytes, randomUUID, timingSafeEqual, verify as conferirAssinatura, type JsonWebKey, type KeyObject } from 'node:crypto';
 import { isIP } from 'node:net';
 
-export const VERSAO_PACOTE = '0.10.1';
+export const VERSAO_PACOTE = '0.10.2';
 
 const DIA_MS = 86_400_000;
 
@@ -2326,6 +2326,12 @@ export type RotaNoManifesto = {
   resumo: string;
   /** A permissão que a rota exige; nula = qualquer credencial válida da empresa. */
   permissao: string | null;
+  /**
+   * As classes que alcançam ESTA rota (0.10.2), quando são menos que as da permissão: a rota só de produto da DMS que
+   * usa uma permissão que o parceiro também tem (`['dms']`). Sem isto, vale o teto da permissão. Quem recusa de
+   * verdade é o produto (403); aqui é o contrato: o portal não mostra ao parceiro a rota que ele não alcança.
+   */
+  classes?: readonly Classe[];
   /** Só na escrita: `chave` = `Idempotency-Key` obrigatória; `substituicao` = o envio troca o conjunto inteiro (§5). */
   escrita?: 'chave' | 'substituicao';
   /** Sem isto, vale o limite do manifesto. */
@@ -2419,6 +2425,8 @@ export function montarManifesto(e: EntradaManifesto): ManifestoDms {
   const paths: Record<string, Record<string, unknown>> = {};
   for (const r of e.rotas) {
     const operacao: Record<string, unknown> = { operationId: idDaOperacao(r.metodo, r.caminho), summary: r.resumo, 'x-dms-permissao': r.permissao };
+    // só quando a rota alcança menos classes que a permissão (0.10.2); sem o campo, vale o teto da permissão
+    if (r.classes) operacao['x-dms-classes'] = [...r.classes];
     if (r.escrita) operacao['x-dms-escrita'] = r.escrita;
     if (r.limite) operacao['x-dms-limite'] = copiaDosLimites(r.limite);
     const parametros: Record<string, unknown>[] = parametrosDoCaminho(r.caminho).map((nome) => ({ name: nome, in: 'path', required: true, schema: { type: 'string' } }));
@@ -2550,6 +2558,8 @@ export function conferirManifesto(doc: unknown): string[] {
   if (!credenciaisBoas) problemas.push('falta dizer as credenciais que a porta aceita (security com dmsId ou acessoProprio, declarados em components.securitySchemes)');
 
   const declaradas = new Set<string>();
+  // o teto de cada permissão bem declarada, para a rota com `x-dms-classes` só poder reduzir (0.10.2)
+  const tetoDe = new Map<string, readonly unknown[]>();
   const permissoes = doc['x-dms-permissoes'];
   if (!ehObjetoSimples(permissoes)) problemas.push('falta x-dms-permissoes');
   else {
@@ -2564,6 +2574,7 @@ export function conferirManifesto(doc: unknown): string[] {
       const classes = v.classes;
       const classesBoas = Array.isArray(classes) && classes.length > 0 && new Set(classes).size === classes.length && classes.every((c) => CLASSES_DO_PADRAO.includes(c as Classe));
       if (!classesBoas) problemas.push(`a permissão "${nome}" precisa das classes que podem tê-la, sem repetir (dms, parceiro, proprio)`);
+      else tetoDe.set(nome, classes as readonly unknown[]);
       if (typeof v.sensivel !== 'boolean') problemas.push(`a permissão "${nome}" precisa dizer se é sensível`);
     }
   }
@@ -2594,6 +2605,22 @@ export function conferirManifesto(doc: unknown): string[] {
         if (typeof op.summary !== 'string' || !op.summary.trim()) problemas.push(`${onde}: falta o resumo (summary)`);
         if (!('x-dms-permissao' in op)) problemas.push(`${onde}: falta x-dms-permissao (o nome, ou null para qualquer credencial)`);
         else usa(onde, op['x-dms-permissao']);
+        // as classes da rota (0.10.2): uma lista do Padrão, sem repetir, que só REDUZ o teto da permissão dela
+        const classesDaRota = op['x-dms-classes'];
+        if (classesDaRota !== undefined) {
+          const boas =
+            Array.isArray(classesDaRota) &&
+            classesDaRota.length > 0 &&
+            new Set(classesDaRota).size === classesDaRota.length &&
+            classesDaRota.every((c) => CLASSES_DO_PADRAO.includes(c as Classe));
+          if (!boas) problemas.push(`${onde}: x-dms-classes precisa ser uma lista de classes do Padrão, sem repetir (dms, parceiro, proprio)`);
+          else {
+            const teto = typeof op['x-dms-permissao'] === 'string' ? tetoDe.get(op['x-dms-permissao']) : undefined;
+            if (teto && !(classesDaRota as unknown[]).every((c) => teto.includes(c))) {
+              problemas.push(`${onde}: x-dms-classes só pode reduzir as classes da permissão "${String(op['x-dms-permissao'])}"`);
+            }
+          }
+        }
         if (op['x-dms-limite'] !== undefined) problemas.push(...problemasDoLimite(op['x-dms-limite'], onde));
         if (metodo !== 'get' && op['x-dms-escrita'] !== 'chave' && op['x-dms-escrita'] !== 'substituicao') {
           problemas.push(`${onde}: a escrita precisa de x-dms-escrita (chave ou substituicao, Padrão §5)`);

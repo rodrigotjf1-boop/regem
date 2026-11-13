@@ -54,6 +54,19 @@ describe('manifesto da porta de integração (Padrão §13)', () => {
     expect(doManifesto.length).toBe(17); // + os canais da Central (mig 398) + os pedidos por bairro (Liame, D-RG-8)
   });
 
+  it('a rota só de produto da DMS com permissão de parceiro diz as classes (x-dms-classes); as outras ficam sem o campo', () => {
+    // Os pedidos por bairro usam `pedidos.ler` (que o parceiro tem), mas o serviço recusa o aplicativo de parceiro (403):
+    // sem o campo, o portal do hub mostrava a rota ao parceiro. Rota nova nessa situação entra aqui, de propósito.
+    const m = manifestoDaPorta() as any;
+    const comClasses = Object.entries(m.paths as Record<string, Record<string, Record<string, unknown>>>).flatMap(([caminho, ops]) =>
+      Object.entries(ops)
+        .filter(([, op]) => 'x-dms-classes' in op)
+        .map(([metodo, op]) => `${metodo.toUpperCase()} ${caminho} ${JSON.stringify(op['x-dms-classes'])}`),
+    );
+    expect(comClasses).toEqual(['GET /api/v1/integracao/pedidos/bairros ["dms"]']);
+    expect(m['x-dms-permissoes']['pedidos.ler'].classes).toContain('parceiro'); // a permissão segue do parceiro: só a rota fecha
+  });
+
   it('as permissões são os escopos do Regem menos os do totem, cada uma com a frase; a classe parceiro só no catálogo aprovado na F4', () => {
     const m = manifestoDaPorta() as any;
     const nomes = Object.keys(m['x-dms-permissoes']).sort();

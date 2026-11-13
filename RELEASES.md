@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O manifesto da porta marca a rota dos pedidos por bairro como só de produto da DMS (13/11; pacote comum 0.10.2; SEM
+  migration; não mexe no `sync-daemon`).** Na NUVEM com o merge: o manifesto público ganha `x-dms-classes` nessa rota e
+  o portal de parceiros do hub deixa de listá-la. O comportamento da porta não muda. **No `.zip`:** só a cópia nova do
+  pacote comum, que vai junto no próximo corte, sem pressa (a porta de integração é da nuvem). Nada no `.exe`.
+
 - **Mister: o número da distribuição no console e a entrada do WhatsApp (13/11, segunda entrega do protótipo; mig 417
   `@cloud-only`, aplicada na nuvem antes do merge; MEXE no `sync-daemon`).** Na NUVEM com o merge: a aba "Mister" do
   console da distribuição (conectar o número, a chave geral — nasce DESLIGADA — e as empresas com o módulo) e a entrada
