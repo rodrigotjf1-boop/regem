@@ -101,6 +101,11 @@ export class IaEmpresaService {
     return String(process.env.ANTHROPIC_API_KEY ?? '').trim();
   }
 
+  /** Quem não tem chave própria é atendido pela IA que a distribuição inclui? (O console do Mister mostra por empresa.) */
+  iaIncluidaDisponivel(): boolean {
+    return !ehServidorLocal() && !!this.chaveDaDistribuicao();
+  }
+
   /** A linha da empresa (sem abrir a chave); banco sem a 415 = sem chave própria. */
   private async linha(tenantId: string): Promise<any | null> {
     try {

@@ -12,6 +12,14 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Mister: o número da distribuição no console e a entrada do WhatsApp (13/11, segunda entrega do protótipo; mig 417
+  `@cloud-only`, aplicada na nuvem antes do merge; MEXE no `sync-daemon`).** Na NUVEM com o merge: a aba "Mister" do
+  console da distribuição (conectar o número, a chave geral — nasce DESLIGADA — e as empresas com o módulo) e a entrada
+  das mensagens do número do Mister (ligar pelo código, resposta fixa a quem não está ligado, a pergunta da empresa,
+  PARAR e VOLTAR AVISOS). Nada disso roda no servidor da loja. **No `.zip` e no `.exe`:** o `sync-daemon.mjs` passa a
+  classificar `mister_vinculo`, `mister_conversa` e `mister_mensagem` em `SO_NUVEM` (a loja não tem essas tabelas; a
+  classificação só importa para a trava de apagamento) e o guia da chave de IA com os nomes em português (ERR-459).
+
 - **O presidente liga a loja ao Orzuni pelo clique (13/11, plano "Clique Regem → Orzuni" R2; mig 416 `@cloud-only` — a
   tabela nova `orzuni_clique_pedido` entra em `SO_NUVEM` no `sync-daemon`).** Na NUVEM com o merge: o cartão "Orzuni"
   em Delivery › Configurações › Integrações (só com o direito `ifood_pelo_orzuni`), a página `/integracoes/orzuni/volta`

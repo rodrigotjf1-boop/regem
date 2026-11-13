@@ -325,42 +325,51 @@ function Fora({ href, children }: { href: string; children: React.ReactNode }) {
   );
 }
 
-/** O passo a passo, conferido na documentação oficial da Anthropic em 12/11/2026 (o console é em inglês). */
+/**
+ * O passo a passo. O console da Anthropic aparece no idioma do navegador: os nomes daqui são os da versão em português,
+ * conferidos nas telas do dono em 13/11/2026; entre parênteses, o nome em inglês (documentação oficial, 12/11/2026).
+ */
 function GuiaDaChave() {
   return (
     <div className="space-y-4 text-sm">
-      <p className="text-muted-foreground">O console da Anthropic é em inglês. Os nomes dos botões estão como aparecem nele. Leva uns dez minutos.</p>
+      <p className="text-muted-foreground">
+        O console da Anthropic aparece no idioma do seu navegador. Os nomes abaixo são os da versão em português; entre parênteses, o nome em inglês. Leva uns dez minutos.
+      </p>
       <ol className="list-decimal space-y-4 pl-5">
         <li>
           <strong>Crie a conta.</strong> Abra <Fora href="https://platform.claude.com/">platform.claude.com</Fora> e crie a conta do Claude Console, com um e-mail da empresa. A chave fica
           ligada à pessoa que a criou.
         </li>
         <li>
-          <strong>Compre créditos.</strong> Na página <strong>Billing</strong> (<Fora href="https://platform.claude.com/settings/billing">platform.claude.com/settings/billing</Fora>),
-          cadastre o cartão, clique em <strong>Buy credits</strong>, digite o valor e confirme. A cobrança é em dólar. O crédito vale na hora, vence um ano depois e não tem reembolso.
-          Comece com um valor pequeno.
+          <strong>Ponha saldo.</strong> No <strong>Painel</strong>, no quadro “Créditos da organização”, clique em <strong>Adicionar saldo</strong> (Buy credits), cadastre o cartão,
+          digite o valor e confirme. O mesmo quadro fica em <strong>Faturamento</strong> (Billing):{' '}
+          <Fora href="https://platform.claude.com/settings/billing">platform.claude.com/settings/billing</Fora>. A cobrança é em dólar. O saldo vale na hora, vence um ano depois e não
+          tem reembolso. Comece com um valor pequeno e deixe a recarga automática desligada.
         </li>
         <li>
-          <strong>Crie uma área só para o Regem.</strong> Na página <strong>Workspaces</strong> (
-          <Fora href="https://platform.claude.com/settings/workspaces">platform.claude.com/settings/workspaces</Fora>), clique em <strong>Create workspace</strong>, dê o nome{' '}
-          <span className="font-mono">Regem</span> e conclua. Assim o gasto fica separado e ganha um teto só dele.
+          <strong>Crie uma área só para o Regem.</strong> No seletor de área de trabalho, no alto da tela, clique em <strong>Criar workspace</strong> (Create workspace). Dê o nome{' '}
+          <span className="font-mono">Regem</span>, deixe o resto como está e conclua. Assim o gasto fica separado e ganha um teto só dele.
         </li>
         <li>
-          <strong>Defina o teto de gasto.</strong> Na mesma página, clique na área <span className="font-mono">Regem</span> e, no painel que abre, em <strong>Spend limits</strong>. Defina o
-          máximo por mês. É o que garante que a conta nunca passa do valor que você escolheu.
+          <strong>Defina o teto de gasto.</strong> No mesmo seletor, clique em <strong>Gerenciar workspaces</strong>, depois na área <span className="font-mono">Regem</span> e em{' '}
+          <strong>Limites de gastos</strong> (Spend limits). Em “Limite de gastos mensais”, clique em <strong>Ajustar limite</strong> e defina o máximo por mês: é o que garante que a
+          conta nunca passa do valor que você escolheu. Em “Notificações por e-mail”, clique em <strong>Adicionar notificação</strong> para ser avisado um pouco antes do teto.
         </li>
         <li>
-          <strong>Crie a chave.</strong> Na página <strong>API keys</strong> (<Fora href="https://platform.claude.com/settings/keys">platform.claude.com/settings/keys</Fora>), clique em{' '}
-          <strong>Create key</strong>. Nome: <span className="font-mono">regem</span>. Validade: <strong>Never</strong>. Em <strong>Linked account</strong>, você mesmo. Escolha a área{' '}
-          <span className="font-mono">Regem</span>. Copie a chave, que começa com <span className="font-mono">sk-ant-</span>.
+          <strong>Crie a chave.</strong> No menu, abra <strong>Chaves de API</strong> (API keys:{' '}
+          <Fora href="https://platform.claude.com/settings/keys">platform.claude.com/settings/keys</Fora>) e clique em <strong>Criar chave</strong> (Create key). Se abrir uma janela
+          sobre federação de identidade, clique em <strong>Continuar com uma chave de API</strong>. Nome: <span className="font-mono">regem</span>. Em <strong>Expira</strong>, troque
+          “30 dias” por <strong>Nunca</strong> (Never) — com a validade de 30 dias, o Mister pararia de responder no mês que vem. Em <strong>Conta vinculada</strong> (Linked account),
+          você mesmo. Em <strong>Escopo</strong>, a área <span className="font-mono">Regem</span>. Clique em <strong>Criar chave</strong> e copie a chave, que começa com{' '}
+          <span className="font-mono">sk-ant-</span>. Ela só aparece nessa hora.
         </li>
         <li>
           <strong>Cole aqui e salve.</strong> Feche este guia, cole a chave no campo e clique em “Salvar chave”. O Regem testa antes de guardar.
         </li>
       </ol>
       <p className="rounded-md bg-muted px-3 py-2 text-muted-foreground">
-        Não mande a chave por WhatsApp, e-mail ou foto de tela. Se suspeitar de vazamento, na página API keys use <strong>Disable</strong> ou <strong>Delete</strong>, crie outra e cole
-        aqui.
+        Não mande a chave por WhatsApp, e-mail ou foto de tela. Se suspeitar de vazamento, abra <strong>Chaves de API</strong>, desative ou apague a chave (Disable ou Delete), crie
+        outra e cole aqui.
       </p>
     </div>
   );

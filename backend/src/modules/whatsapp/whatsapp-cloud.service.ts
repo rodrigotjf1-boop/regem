@@ -22,6 +22,8 @@ import { cardapioConfig, empresa, whatsappMensagem, whatsappNumero, whatsappTemp
 import { registrarSaida, registrarVolta } from '../../common/consentimento-marketing';
 import { buscarUrlPublica } from '../../common/ssrf-guard';
 import { escolherNumeroDaWaba, pedirCopiaDoApp, type ResultadoDaCopia } from './coexistencia-meta';
+import { tierParaNumero } from './limite-meta';
+import { MisterEntradaService } from '../mister/mister-entrada.service';
 import { decidirSincronizacao, papelDoModelo, STATUS_DA_META, type PapelDoNumero } from './modelos-por-conta';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -347,6 +349,8 @@ export class WhatsappCloudService {
     @Optional() private readonly events?: EventEmitter2,
     // O gestor que liga ou para os avisos pelo WhatsApp (mig 375) fica na auditoria. Opcional, como o de cima.
     @Optional() private readonly auditoria?: AuditoriaService,
+    // O número do Mister (mig 417) é da distribuição: a mensagem que chega a ele é tratada lá, nunca como a de uma loja.
+    @Optional() private readonly mister?: MisterEntradaService,
   ) {}
 
   private token(): string {
@@ -715,6 +719,9 @@ export class WhatsappCloudService {
 
         const cfg = await this.lojaPorPhoneId(phoneNumberId);
         if (!cfg) {
+          // O número do Mister não é de loja nenhuma: a conversa dele é tratada à parte (e só chega aqui porque nenhuma
+          // loja tem este número — conectar recusa nos dois sentidos).
+          if (await this.mister?.receberDaMeta(phoneNumberId, v)) continue;
           // Número da Meta que não pertence a nenhuma loja: pode ser um número de
           // teste ou uma loja que ainda não foi vinculada. Não é erro — só não temos
           // para quem entregar.
@@ -2396,6 +2403,9 @@ export class WhatsappCloudService {
             : 'O cadastro não concluiu (não encontrei o número na conta WABA).',
         );
     }
+    // O número do Mister é da distribuição: nenhuma loja o conecta como dela.
+    if (await this.mister?.ehONumeroDoMister(phoneId))
+      throw new BadRequestException('Este número é o do Mister, o assistente do Regem. Conecte o número da sua loja.');
 
     // 1) Troca o code por token — confirma o vínculo. best-effort (não bloqueia).
     const appId = process.env.WA_CLOUD_APP_ID ?? '';
@@ -2525,16 +2535,9 @@ export class WhatsappCloudService {
   // nenhum case, caía no default e o chamador voltava pro cache velho. Agora lê o NÚMERO do
   // próprio nome do tier (TIER_2K → 2000), então degrau novo funciona sem mexer no código.
   // Devolve: number = teto | 'ilimitado' | null = NÃO RECONHECIDO (aí o chamador usa cache).
+  // A conta mora em `limite-meta.ts` (a mesma régua serve ao número do Mister — mig 417).
   private static tierParaNumero(tier: string | null): number | 'ilimitado' | null {
-    const t = String(tier ?? '').trim().toUpperCase();
-    if (!t) return null;
-    if (t.includes('UNLIMITED') || t.includes('ILIMIT')) return 'ilimitado';
-    // Aceita TIER_2K, TIER_250, TIER_100K e também um número cru ("2000").
-    const m = t.match(/^(?:TIER_)?(\d+)\s*([KM])?$/);
-    if (!m) return null;
-    const n = Number(m[1]);
-    if (!Number.isFinite(n) || n <= 0) return null;
-    return n * (m[2] === 'M' ? 1_000_000 : m[2] === 'K' ? 1_000 : 1);
+    return tierParaNumero(tier);
   }
 
   private async phoneIdParaLimite(tenantId: string): Promise<string> {

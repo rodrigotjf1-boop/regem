@@ -179,6 +179,33 @@ Entregas do protótipo, uma por PR: (1) a tela "IA e uso" e o módulo; (2) o nú
 - As rotas `ia/*` continuam sem depender do módulo: a chave também serve ao copiloto do atendimento.
 - **Conferência:** `modulo-mister.spec.ts` (Postgres) e o roteiro de tela `frontend/roteiros/mister.mjs` (app buildado, API simulada, 16 larguras).
 
+### F2.0c — O número do Mister no console e a entrada do WhatsApp (segunda entrega do protótipo; migration 417)
+
+O que entra:
+
+- **O número do Mister** mora numa linha única (`mister_numero`), sem empresa: é da distribuição. Conecta-se pelo console da distribuição, aba **Mister** (só o perfil Diretoria), com o mesmo cadastro integrado da Meta que as lojas usam e o mesmo acesso da distribuição — nenhum segredo novo. Duas formas: **coexistência** (o número segue no WhatsApp Business do celular) ou **só a API oficial** (aí a Meta exige o PIN de seis dígitos do número). Um número que já é de uma loja não vira o do Mister, e nenhuma loja conecta o número do Mister como dela.
+- **A chave geral "Mister nesta nuvem"** nasce **desligada** e é conferida no envio: desligada, nenhuma mensagem sai pelo número, e a que chega é só anotada. Conectar o número não a liga.
+- **A entrada** (`modules/mister/mister-entrada.service.ts`): a mensagem que chega ao número do Mister é reconhecida pelo identificador do número na Meta e tratada à parte — nunca entra na caixa de conversas de uma loja. Na ordem:
+  1. a mesma mensagem só é tratada uma vez (a Meta reenvia);
+  2. `MISTER 123456` liga o telefone à pessoa que gerou o código dentro do Regem. O código é único **na nuvem inteira**, vale 10 minutos e uma vez; cinco códigos errados e o telefone deixa de ser atendido em códigos por uma hora;
+  3. telefone que não está ligado recebe a **resposta fixa** — sem IA e sem dado de ninguém —, no máximo uma a cada 12 horas;
+  4. a pessoa precisa valer **agora**: ativa, gerente ou presidente, empresa viva e com o módulo ligado. A conferência é a cada mensagem;
+  5. telefone em mais de uma empresa: o Mister pergunta de qual é o assunto (botões até três empresas, lista numerada acima disso), guarda a mensagem por até 10 minutos e só a atende depois da escolha. Na dúvida pergunta de novo;
+  6. `PARAR AVISOS` e `VOLTAR AVISOS` mexem só no vínculo de quem escreveu, com auditoria;
+  7. o resto ainda não tem resposta: o Mister diz que as perguntas entram numa próxima versão (no máximo uma vez a cada meia hora). Os textos só prometem o que existe e mudam junto com as próximas fases.
+- **O que se guarda:** o vínculo (`mister_vinculo`), o estado da conversa de cada telefone (`mister_conversa`) e o registro de cada mensagem recebida (`mister_mensagem`: o telefone, a empresa e o desfecho — **nunca o texto**; uma rotina diária apaga o que passou de 30 dias). Tudo só na nuvem.
+- **Rotas de quem está logado** (`mister/whatsapp`, gerente e presidente, módulo ligado): ver a própria situação, gerar o código e desligar o próprio número. Nenhuma rota recebe o telefone ou a pessoa de outro. A tela delas é a "Pessoas", na entrega seguinte.
+- **O painel do console** mostra o número como a Meta o vê (nome, qualidade, quantas pessoas pode avisar por dia), a chave geral e as empresas com o módulo, a origem da IA, quantas pessoas ligaram o WhatsApp e o custo estimado da IA em 30 dias. Nunca a chave de IA, o telefone de alguém ou o que foi conversado.
+
+O que ficou diferente do protótipo, e por quê:
+
+- "Último acesso visto" (coexistência) e o modelo "Aviso do Mister" não aparecem no cartão do número: a Meta não entrega o primeiro por API e o segundo nasce com os avisos (entrega 4).
+- A forma "só na API oficial" pede o PIN de seis dígitos, que o protótipo não desenhava: sem ele a Meta não registra o número.
+- "Desconectado pela Meta" é reconhecido por um sinal só — a Meta responde que o número não existe mais para o acesso da distribuição, numa leitura ou num envio. O texto mostra o motivo que ela deu.
+- As frases que citavam os avisos dentro do Regem saíram do console: eles ainda não existem (entrega 4).
+
+**Conferência:** `mister.regras.spec.ts` (sem banco), `mister-pg.teste-spec.ts` (Postgres, com a Meta de mentira; roda dentro da `ia/ia-empresa-pg.spec.ts`, que já aplica a 415 — ERR-451) e o roteiro de tela `frontend/roteiros/mister-console.mjs`.
+
 ## 5. O que depende do dono
 
 1. ~~Onde a IA roda~~ — decidido: nuvem.

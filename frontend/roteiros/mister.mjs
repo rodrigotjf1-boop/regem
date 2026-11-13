@@ -257,7 +257,12 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     await page.click('button:has-text("Como criar a chave, passo a passo")');
     await page.waitForSelector('[role="dialog"]:has-text("Como criar a chave na Anthropic")');
     const guia = await page.locator('[role="dialog"]').innerText();
-    ok(/Buy credits/.test(guia) && /Create workspace/.test(guia) && /Spend limits/.test(guia) && /Create key/.test(guia), 'o guia: os botões do console com o nome que têm lá');
+    const noGuia = (...nomes) => nomes.filter((n) => !guia.includes(n));
+    const faltamPt = noGuia('Adicionar saldo', 'Criar workspace', 'Gerenciar workspaces', 'Limites de gastos', 'Ajustar limite', 'Chaves de API', 'Criar chave', 'Continuar com uma chave de API', 'Nunca', 'Conta vinculada', 'Escopo');
+    ok(faltamPt.length === 0, `o guia: os botões do console com o nome em português (faltam: ${faltamPt.join(', ')})`);
+    const faltamEn = noGuia('Buy credits', 'Create workspace', 'Spend limits', 'Create key', 'Never');
+    ok(faltamEn.length === 0, `o guia: o nome em inglês entre parênteses (faltam: ${faltamEn.join(', ')})`);
+    ok(!/console da Anthropic é em inglês/.test(guia), 'o guia: não diz mais que o console é em inglês');
     await page.keyboard.press('Escape');
     await page.waitForSelector('[role="dialog"]', { state: 'detached' });
     ok(true, 'o guia: Esc fecha');
