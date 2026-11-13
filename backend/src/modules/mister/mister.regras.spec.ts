@@ -161,8 +161,12 @@ describe('Mister — os textos só prometem o que existe', () => {
     expect(TEXTOS.desconhecido).toContain('no menu Mister, em "Pessoas"');
     expect(TEXTOS.desconhecido).not.toMatch(/R\$|\d{3,}/);
   });
-  it('enquanto as perguntas não estão no ar, nenhum texto diz "pode me perguntar"', () => {
-    const todos = [TEXTOS.desconhecido, TEXTOS.ligado('Ana', 'X'), TEXTOS.parou('Ana'), TEXTOS.voltou('Ana'), TEXTOS.seguindo('X'), TEXTOS.aindaNaoRespondo('Ana', 'X')];
-    for (const t of todos) expect(t).not.toMatch(/pode me perguntar|relat[óo]rio/i);
+  it('as perguntas estão no ar e o texto de quem ligou diz isso; relatório e autorização ainda não existem e nenhum texto os promete', () => {
+    expect(TEXTOS.ligado('Ana', 'X')).toContain('Pode me perguntar sobre a loja');
+    expect(TEXTOS.parou('Ana')).toContain('Você ainda pode me perguntar');
+    // Quem não está ligado não é convidado a perguntar: só a ligar o WhatsApp.
+    expect(TEXTOS.desconhecido).not.toMatch(/pergunt/i);
+    const todos = [TEXTOS.desconhecido, TEXTOS.ligado('Ana', 'X'), TEXTOS.parou('Ana'), TEXTOS.voltou('Ana'), TEXTOS.seguindo('X')];
+    for (const t of todos) expect(t).not.toMatch(/relat[óo]rio|autoriza/i);
   });
 });

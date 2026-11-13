@@ -178,6 +178,25 @@ export class MisterNumeroService {
     return { wamid: j?.messages?.[0]?.id ?? null };
   }
 
+  /**
+   * "Digitando…" no celular de quem perguntou enquanto o agente consulta, e a mensagem dela fica como LIDA — o mesmo
+   * pedido faz as duas coisas (doc da Meta, "Typing indicators"; some quando a resposta sai ou em 25 s). Dispara e
+   * segue: nunca lança e não segura a resposta — sem ele, o Mister responde igual.
+   */
+  mostrarDigitando(wamid: string): void {
+    void this.ler()
+      .then((n) => {
+        const token = this.token();
+        if (!wamid || !n.ligado || !n.phoneId || n.situacao === 'sem' || !token) return undefined;
+        return this.buscar(`${GRAPH}/${n.phoneId}/messages`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messaging_product: 'whatsapp', status: 'read', message_id: wamid, typing_indicator: { type: 'text' } }),
+        });
+      })
+      .catch(() => undefined);
+  }
+
   private async marcarQueCaiu(phoneId: string, motivo: string): Promise<void> {
     await this.db.execute(sql`
       update mister_numero set situacao = 'caiu', motivo = ${motivo.slice(0, 300)}, situacao_em = now(), atualizado_em = now()

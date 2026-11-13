@@ -128,7 +128,8 @@ descrever('a IA da empresa (Postgres)', () => {
   it('sem chave própria, a da distribuição atende; cada chamada SOMA na linha do dia (o dia é o da operação)', async () => {
     expect(await svc.temAcesso(T)).toBe(true);
     const r = await svc.pedir(T, pedido);
-    expect(r).toEqual({ texto: 'Olá', recusou: false, origem: 'distribuicao', uso: { entrada: 100, cacheEscrita: 30, cacheLeitura: 40, saida: 20 } });
+    // Os blocos como vieram e o motivo da parada acompanham a resposta (é o que o laço de ferramentas do Mister usa).
+    expect(r).toEqual({ conteudo: [{ type: 'text', text: 'Olá' }], parou: 'end_turn', texto: 'Olá', recusou: false, origem: 'distribuicao', uso: { entrada: 100, cacheEscrita: 30, cacheLeitura: 40, saida: 20 } });
     expect(svc.chamadas[0]).toEqual({
       chave: DA_DISTRIBUICAO,
       pedido: { model: 'claude-haiku-5-5', max_tokens: 400, system: 'instruções', messages: [{ role: 'user', content: 'pergunta' }] },

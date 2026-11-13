@@ -39,7 +39,8 @@ type ItemDeUso = {
 type Uso = { de: string; ate: string; precosLidosEm: string; itens: ItemDeUso[]; custoEstimadoUsd: { lojista: number; distribuicao: number }; semPreco: string[] };
 
 const PROVEDOR: Record<string, string> = { anthropic: 'Anthropic' };
-const RECURSO: Record<string, string> = { copiloto: 'Copiloto do atendimento', prova: 'Teste da chave' };
+// `mister_perguntas` = o agente que responde às perguntas pelo WhatsApp (o nome vem do `RECURSO_DAS_PERGUNTAS` do servidor).
+const RECURSO: Record<string, string> = { copiloto: 'Copiloto do atendimento', prova: 'Teste da chave', mister_perguntas: 'Mister · perguntas' };
 const MODELO: Record<string, string> = {
   'claude-haiku-5-5': 'Claude Haiku 5.5',
   'claude-sonnet-5-5': 'Claude Sonnet 5.5',

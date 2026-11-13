@@ -6,11 +6,19 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { hojeISO } from '../../common/data';
+import { AuditoriaService } from '../auditoria/auditoria.service';
+import { DashboardService } from '../dashboard/dashboard.service';
+import { EstoqueService } from '../estoque/estoque.service';
 import { IaEmpresaService } from '../ia/ia-empresa.service';
+import { RelatoriosService } from '../relatorios/relatorios.service';
 import { ModuloService } from '../modulo/modulo.service';
 import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
 import { MisterConsoleService } from './mister-console.service';
+import { FERRAMENTAS, INSTRUCOES_DO_MISTER, TETOS, TEXTOS_DO_AGENTE } from './mister-agente.regras';
+import { MisterAgenteService } from './mister-agente.service';
 import { MisterEntradaService } from './mister-entrada.service';
+import { MisterFerramentasService } from './mister-ferramentas.service';
+import { MisterFilaService } from './mister-fila.service';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { MisterVinculoService } from './mister-vinculo.service';
 import * as regras from './mister.regras';
@@ -18,7 +26,8 @@ import { TEXTOS, idDoBotaoDaEmpresa } from './mister.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// O MISTER (mig 417), contra o Postgres real, com a Meta de mentira (nenhum teste fala com a Meta).
+// O MISTER (migs 417 e 418), contra o Postgres real, com a Meta e a IA de mentira (nenhum teste fala com a Meta nem
+// com um modelo de IA).
 //
 // Este arquivo NÃO é uma spec sozinha: quem o roda é a `ia/ia-empresa-pg.spec.ts`, que já aplica a 415 — o painel do
 // console lê as tabelas dela, e duas specs aplicando a mesma migration só-nuvem em paralelo disputam trava no banco que
@@ -29,6 +38,12 @@ import { TEXTOS, idDoBotaoDaEmpresa } from './mister.regras';
 // ninguém, e no máximo uma a cada 12 horas; quem deixou de valer (saiu, foi rebaixado, a empresa desligou o módulo)
 // deixa de ser reconhecido na mensagem seguinte; o telefone em duas empresas é perguntado e nunca atendido na errada;
 // a chave geral desligada cala tudo; o console vê situação e volume, nunca chave, telefone ou conversa.
+//
+// As PERGUNTAS (mig 418): a mensagem entra na fila uma vez e a entrada não espera a IA; a fila entrega uma conversa por
+// vez, juntando as mensagens seguidas; a pega vence; o agente chama o modelo com as ferramentas e devolve o resultado do
+// serviço da tela; o escopo (empresa, loja, permissões, valores em reais) é do servidor, e o que o modelo escreve não o
+// muda; quem perde o acesso no meio não é respondido; a IA que falha tem a sua frase; os tetos e o filtro de saída.
+// A IA de mentira segue um ROTEIRO em ordem (LIC-567): nunca escolhe a resposta por palavra do pedido.
 const URL_PG = process.env.TEST_PG_URL;
 const MIG = (arq: string) => join(__dirname, '../../../../database/migrations', arq);
 const GRAPH = 'https://graph.facebook.com/v25.0';
@@ -55,12 +70,33 @@ class NumeroDeMentira extends MisterNumeroService {
   /** As mensagens que saíram pelo número: para quem, o texto e os botões. */
   get enviadas(): { para: string; texto: string; botoes: { id: string; titulo: string }[] }[] {
     return this.pedidos
-      .filter((p) => p.url.endsWith('/messages'))
+      .filter((p) => p.url.endsWith('/messages') && p.corpo?.to)
       .map((p) => ({
         para: p.corpo.to,
         texto: p.corpo.type === 'text' ? p.corpo.text.body : p.corpo.interactive.body.text,
         botoes: p.corpo.type === 'interactive' ? p.corpo.interactive.action.buttons.map((b: any) => ({ id: b.reply.id, titulo: b.reply.title })) : [],
       }));
+  }
+}
+
+/** A IA de mentira: a porta de verdade (`pedir`, o medidor, a escolha da chave) com o cliente do provedor trocado por um roteiro. */
+class IaDeMentira extends IaEmpresaService {
+  /** Cada pedido que chegou ao "provedor", copiado na hora (o laço muda a lista de mensagens depois). */
+  pedidos: any[] = [];
+  /** O que o provedor responde, em ordem. `{ erro }` = o provedor recusa com aquele erro. */
+  roteiro: any[] = [];
+  protected criarCliente() {
+    return {
+      messages: {
+        create: async (pedido: any) => {
+          this.pedidos.push(JSON.parse(JSON.stringify(pedido)));
+          const passo = this.roteiro.shift();
+          if (!passo) throw new Error('a IA de mentira ficou sem roteiro');
+          if (passo.erro) throw passo.erro;
+          return passo;
+        },
+      },
+    } as any;
   }
 }
 
@@ -76,7 +112,58 @@ export function testesDoMisterComPostgres(): void {
     const numero = new NumeroDeMentira(db);
     const modulos = new ModuloService(db, auditoria);
     const vinculo = new MisterVinculoService(db, numero, auditoria);
-    const entrada = new MisterEntradaService(db, numero, modulos, auditoria);
+    const fila = new MisterFilaService(db);
+    const entrada = new MisterEntradaService(db, numero, modulos, fila, auditoria);
+    // O agente: a IA segue um roteiro; o Painel, os Relatórios e o Estoque são os serviços de verdade (só SQL); o quadro
+    // do Delivery, a cozinha e o servidor são dublês que ANOTAM com que empresa e loja foram chamados.
+    const ia = new IaDeMentira(db);
+    const lidos: any[] = [];
+    const haMin = (min: number) => new Date(Date.now() - min * 60_000 - 5_000);
+    const deliveryDeMentira = {
+      listar: async (tenantId: string, atual: string | null) => {
+        lidos.push(['delivery', tenantId, atual]);
+        return [
+          { status: 'novo', canal: 'ifood', displayId: '4830', criadoEm: haMin(5) },
+          { status: 'confirmado', canal: 'ifood', displayId: '4821', criadoEm: haMin(22) },
+          { status: 'despachado', canal: 'cardapio', displayId: '77', criadoEm: haMin(40) },
+          { status: 'confirmado', canal: 'cardapio', displayId: '78', criadoEm: haMin(90), agendamento: new Date(Date.now() + 3 * 3_600_000) },
+          { status: 'concluido', canal: 'ifood', displayId: '4700', criadoEm: haMin(120) },
+          { status: 'cancelado', canal: 'ifood', displayId: '4701', criadoEm: haMin(130) },
+        ];
+      },
+    };
+    const cozinhaDeMentira = {
+      filaKds: async (tenantId: string, opts: any) => {
+        lidos.push(['cozinha', tenantId, opts?.unidadeId]);
+        return {
+          cores: {},
+          nuvemComServidor: false,
+          pedidos: [
+            { id: 'c1', comandaId: 'comanda-1', status: 'preparo', origem: 'delivery', plataforma: 'iFood', senha: 12, senhaPrefixo: 'D', criadoEm: haMin(22) },
+            { id: 'c2', comandaId: 'comanda-1', status: 'pronto', origem: 'delivery', plataforma: 'iFood', senha: 12, senhaPrefixo: 'D', criadoEm: haMin(22) },
+            { id: 'c3', comandaId: 'comanda-2', status: 'recebido', origem: 'balcao', plataforma: null, senha: 7, senhaPrefixo: 'B', criadoEm: haMin(3) },
+            { id: 'c4', comandaId: 'comanda-3', status: 'entregue', origem: 'balcao', plataforma: null, senha: 6, senhaPrefixo: 'B', criadoEm: haMin(50) },
+          ],
+        };
+      },
+    };
+    const servidorDeMentira = {
+      minhaLojaServidor: async (tenantId: string) => {
+        lidos.push(['servidor', tenantId]);
+        return { instalado: true, online: true, versao: '1.30.12', ultimoSync: haMin(2).toISOString(), backup: { ok: true, horas: 3 }, precisaManutencao: false };
+      },
+    };
+    const ferramentas = new MisterFerramentasService(
+      db,
+      modulos,
+      new DashboardService(db),
+      new RelatoriosService(db, {} as any),
+      new EstoqueService(db, auditoria as AuditoriaService),
+      deliveryDeMentira as any,
+      cozinhaDeMentira as any,
+      servidorDeMentira as any,
+    );
+    const agente = new MisterAgenteService(fila, ferramentas, ia, numero);
     const consoleDoMister = new MisterConsoleService(db, numero, new IaEmpresaService(db));
 
     // Tudo o que este arquivo cria leva uma marca própria: o banco do CI é dividido com as outras specs.
@@ -125,6 +212,7 @@ export function testesDoMisterComPostgres(): void {
       return r.codigo!.codigo;
     };
     const limparConversas = async () => {
+      await q(`delete from mister_pergunta where tenant_id = any($1::uuid[])`, [[A, B]]);
       await q(`delete from mister_vinculo where tenant_id = any($1::uuid[])`, [[A, B]]);
       await q(`delete from mister_mensagem where wamid like $1`, [`wamid.${MARCA}.%`]);
       await q(`delete from mister_conversa where telefone = any($1::text[])`, [telefones]);
@@ -132,9 +220,9 @@ export function testesDoMisterComPostgres(): void {
     };
 
     beforeAll(async () => {
-      // A 415 e a 417 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
+      // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -200,6 +288,9 @@ export function testesDoMisterComPostgres(): void {
       auditados.length = 0;
       numero.pedidos.length = 0;
       numero.responder = () => undefined;
+      ia.pedidos.length = 0;
+      ia.roteiro = [];
+      lidos.length = 0;
     });
 
     // ───────────────────────────── o número e a chave geral ─────────────────────────────
@@ -482,7 +573,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`update mister_conversa set fixa_em = null, provisoria_em = null where telefone = $1`, [tel]);
         return mandar(tel, 'bom dia');
       };
-      expect(await reconhecido()).toBe('ainda_nao_respondo');
+      expect(await reconhecido()).toBe('pergunta');
       await q(`update colaborador set status = 'bloqueado' where id = $1`, [pessoa.carlos]);
       expect(await reconhecido()).toBe('fixa');
       await q(`update colaborador set status = 'ativo', deleted_at = now() where id = $1`, [pessoa.carlos]);
@@ -497,7 +588,7 @@ export function testesDoMisterComPostgres(): void {
       expect(await reconhecido()).toBe('fixa');
       await q(`update empresa set deleted_at = null where id = $1`, [A]);
       // Voltou a valer: volta a ser reconhecido, sem ligar de novo.
-      expect(await reconhecido()).toBe('ainda_nao_respondo');
+      expect(await reconhecido()).toBe('pergunta');
       // Desligou por dentro do Regem: o telefone deixa de representar a pessoa.
       const meu = await vinculo.desligar(usuario('carlos', A, 'gerente'));
       expect(meu).toMatchObject({ ligado: false, final: null });
@@ -589,13 +680,15 @@ export function testesDoMisterComPostgres(): void {
         ['mister_whatsapp_parou', pessoa.ana, A],
         ['mister_whatsapp_voltou', pessoa.ana, A],
       ]);
-      // Qualquer outra coisa: o Mister diz que ainda não responde a perguntas — uma vez, não a cada mensagem.
+      // Qualquer outra coisa é uma pergunta: vai para a fila do agente, e a entrada não responde nada na hora.
       numero.pedidos.length = 0;
-      expect(await mandar(tel, 'quanto vendi hoje?')).toBe('ainda_nao_respondo');
-      expect(await mandar(tel, 'e ontem?')).toBe('calado');
-      expect(numero.enviadas).toEqual([{ para: tel, texto: TEXTOS.aindaNaoRespondo('Ana', NOME_A), botoes: [] }]);
-      await q(`update mister_conversa set provisoria_em = now() - interval '31 minutes' where telefone = $1`, [tel]);
-      expect(await mandar(tel, 'oi')).toBe('ainda_nao_respondo');
+      expect(await mandar(tel, 'quanto vendi hoje?')).toBe('pergunta');
+      expect(await mandar(tel, 'e ontem?')).toBe('pergunta');
+      expect(numero.enviadas).toEqual([]);
+      expect((await q(`select pergunta, situacao, nivel from mister_pergunta where tenant_id = $1 order by criado_em`, [A])).map((p) => [p.pergunta, p.situacao, p.nivel])).toEqual([
+        ['quanto vendi hoje?', 'na_fila', 'presidente'],
+        ['e ontem?', 'na_fila', 'presidente'],
+      ]);
     });
 
     // ───────────────────────────── o mesmo telefone em duas empresas ─────────────────────────────
@@ -621,9 +714,14 @@ export function testesDoMisterComPostgres(): void {
       expect((await q(`select tenant_id from mister_conversa where telefone = $1`, [tel]))[0].tenant_id).toBe(A);
       expect(auditados.filter((a) => a.acao === 'mister_whatsapp_parou').map((a) => a.tenantId)).toEqual([B, A]);
       // Sem pergunta aberta, um número ou o nome de outra empresa no meio da conversa NÃO troca de empresa.
-      expect(await mandar(tel, '2')).toBe('ainda_nao_respondo');
-      expect(await mandar(tel, NOME_B)).toBe('calado');
+      // Viram perguntas — e caem na fila da empresa da conversa, nunca na outra.
+      expect(await mandar(tel, '2')).toBe('pergunta');
+      expect(await mandar(tel, NOME_B)).toBe('pergunta');
       expect((await q(`select tenant_id from mister_conversa where telefone = $1`, [tel]))[0].tenant_id).toBe(A);
+      expect((await q(`select tenant_id, colaborador_id from mister_pergunta where telefone = $1`, [tel])).map((p) => [p.tenant_id, p.colaborador_id])).toEqual([
+        [A, pessoa.ana],
+        [A, pessoa.ana],
+      ]);
     });
 
     it('sem saber de qual empresa, o Mister pergunta, guarda a mensagem e só a atende depois da escolha — na empresa escolhida', async () => {
@@ -776,6 +874,479 @@ export function testesDoMisterComPostgres(): void {
       expect(vazio.liberado).toBe(false);
       expect(numero.pedidos).toEqual([]);
       expect(await vinculo.meu(usuario('ana'))).toMatchObject({ disponivel: false, numeroDoMister: null });
+    });
+
+    // ───────────────────────────── as perguntas: a fila e o agente de IA (mig 418) ─────────────────────────────
+
+    /** O agente com a IA de mentira (roteiro em ordem), os serviços de leitura de verdade onde é só SQL e dublês que anotam. */
+    const CHAVE_DE_TESTE = `sk-ant-api03-${'t'.repeat(60)}`;
+    const usar = (nome: string, input: any, id = `toolu_${randomUUID().slice(0, 8)}`) => ({
+      stop_reason: 'tool_use',
+      content: [
+        { type: 'thinking', thinking: '', signature: 'assinatura' },
+        { type: 'tool_use', id, name: nome, input },
+      ],
+      usage: { input_tokens: 100, output_tokens: 20 },
+    });
+    const falar = (texto: string) => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: texto }], usage: { input_tokens: 150, output_tokens: 40 } });
+    const perguntar = async (tel: string, texto: string) => {
+      expect(await mandar(tel, texto)).toBe('pergunta');
+    };
+    const perguntasDe = (nome: string) => q(`select * from mister_pergunta where colaborador_id = $1 order by criado_em`, [pessoa[nome]]);
+    const comIa = () => (process.env.ANTHROPIC_API_KEY = CHAVE_DE_TESTE);
+
+    it('a pergunta entra na fila uma vez, com a empresa, a pessoa, a loja e o nível do vínculo — e a entrada não espera a IA', async () => {
+      const tel = telefone();
+      await ligar('carlos', tel, A, 'gerente');
+      numero.pedidos.length = 0;
+      const id = wamid();
+      expect(await mandar(tel, '  quanto vendi hoje?  ', { wamid: id })).toBe('pergunta');
+      expect(await mandar(tel, 'quanto vendi hoje?', { wamid: id })).toBe('repetida');
+      const [p, ...resto] = await perguntasDe('carlos');
+      expect(resto).toEqual([]);
+      expect(p).toMatchObject({ tenant_id: A, nivel: 'gerente', telefone: tel, chave: id, wamid: id, pergunta: 'quanto vendi hoje?', situacao: 'na_fila', tentativas: 0, resposta: null });
+      expect(p.unidade_id).toBe((await q(`select unidade_id from colaborador where id = $1`, [pessoa.carlos]))[0].unidade_id);
+      // A entrada não chamou a IA e não respondeu nada: quem responde é o agente.
+      expect(ia.pedidos).toEqual([]);
+      expect(numero.enviadas).toEqual([]);
+      // O registro das mensagens continua sem texto.
+      expect(Object.keys((await q(`select * from mister_mensagem where wamid = $1`, [id]))[0]).sort()).toEqual(['desfecho', 'recebida_em', 'telefone', 'tenant_id', 'wamid']);
+    });
+
+    it('mensagem sem texto (áudio, foto, reação): o Mister diz que só lê texto, uma vez a cada meia hora, e nada entra na fila', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      numero.pedidos.length = 0;
+      expect(await mandar(tel, '')).toBe('so_texto');
+      expect(await mandar(tel, '   ')).toBe('calado');
+      expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_AGENTE.soTexto]);
+      await q(`update mister_conversa set provisoria_em = now() - interval '31 minutes' where telefone = $1`, [tel]);
+      expect(await mandar(tel, '')).toBe('so_texto');
+      expect(await perguntasDe('ana')).toEqual([]);
+    });
+
+    it('a fila entrega uma conversa por vez, junta as mensagens seguidas da mesma pessoa e não entrega a conversa que já está em resposta', async () => {
+      const telAna = telefone();
+      const telCarlos = telefone();
+      await ligar('ana', telAna);
+      await ligar('carlos', telCarlos, A, 'gerente');
+      await perguntar(telAna, 'quanto vendi hoje?');
+      await perguntar(telAna, 'e ontem?');
+      await perguntar(telCarlos, 'tem pedido parado?');
+      // Duas pegas ao mesmo tempo: cada uma leva UMA conversa inteira, e nenhuma pergunta sai duas vezes.
+      const [x, y] = await Promise.all([fila.pegar(), fila.pegar()]);
+      const lotes = [x, y].filter(Boolean) as NonNullable<typeof x>[];
+      expect(lotes.map((l) => l.map((p) => p.pergunta)).sort((a, b) => b.length - a.length)).toEqual([['quanto vendi hoje?', 'e ontem?'], ['tem pedido parado?']]);
+      expect(await fila.pegar()).toBeNull();
+      // Enquanto a conversa da Ana está em resposta, a mensagem nova dela espera — mesmo com dezenas na frente (V84).
+      await perguntar(telAna, 'e na semana?');
+      expect(await fila.pegar()).toBeNull();
+      const daAna = lotes.find((l) => l[0].colaboradorId === pessoa.ana)!;
+      await fila.concluir(daAna.map((p) => p.id), { resposta: 'Resposta.', trilha: { modelo: 'm', chamadas: 2 }, perguntaJunta: 'quanto vendi hoje?\ne ontem?' });
+      const depois = await fila.pegar();
+      expect(depois!.map((p) => p.pergunta)).toEqual(['e na semana?']);
+      // Respondidas juntas: a última linha guarda a pergunta inteira e a resposta (é o que a memória lê).
+      const linhasDaAna = await perguntasDe('ana');
+      expect(linhasDaAna.map((p) => [p.situacao, p.pergunta, p.resposta, p.chamadas])).toEqual([
+        ['respondida', 'quanto vendi hoje?', null, 0],
+        ['respondida', 'quanto vendi hoje?\ne ontem?', 'Resposta.', 2],
+        ['respondendo', 'e na semana?', null, 0],
+      ]);
+      expect(await fila.memoria(A, pessoa.ana)).toEqual([{ pergunta: 'quanto vendi hoje?\ne ontem?', resposta: 'Resposta.' }]);
+    });
+
+    it('a pega vence: a pergunta volta para a fila uma vez e, na segunda, é encerrada como interrompida — e a pessoa é avisada', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      await perguntar(tel, 'como está a loja?');
+      const vencer = () => q(`update mister_pergunta set pega_em = now() - interval '4 minutes' where colaborador_id = $1 and situacao = 'respondendo'`, [pessoa.ana]);
+      expect((await fila.pegar())!.length).toBe(1);
+      expect(await fila.devolverVencidas()).toEqual([]); // ainda dentro do prazo
+      await vencer();
+      expect(await fila.devolverVencidas()).toEqual([]);
+      expect((await perguntasDe('ana'))[0]).toMatchObject({ situacao: 'na_fila', tentativas: 1 });
+      expect((await fila.pegar())![0].tentativas).toBe(2);
+      await vencer();
+      numero.pedidos.length = 0;
+      await agente.rotina();
+      expect((await perguntasDe('ana'))[0]).toMatchObject({ situacao: 'falhou', motivo: 'interrompida' });
+      expect(numero.enviadas).toEqual([{ para: tel, texto: TEXTOS_DO_AGENTE.demorou, botoes: [] }]);
+      expect(ia.pedidos).toEqual([]);
+    });
+
+    it('o agente responde com a ferramenta: o dado vem do serviço da tela, a resposta sai pelo número do Mister e a trilha fica gravada', async () => {
+      comIa();
+      const tel = telefone();
+      await ligar('ana', tel);
+      numero.pedidos.length = 0;
+      const id = wamid();
+      expect(await mandar(tel, 'quanto vendi hoje?', { wamid: id })).toBe('pergunta');
+      ia.roteiro = [usar('resumo_do_dia', { dia: 'hoje' }, 'toolu_resumo'), falar('Hoje, até agora: *nenhuma venda* fechada e R$ 0,00 de faturamento.')];
+      expect(await agente.esvaziar()).toBe(1);
+
+      // O que foi ao modelo: as seis ferramentas, as instruções fixas com a marca de cache e, DEPOIS dela, a conversa.
+      const [primeiro, segundo] = ia.pedidos;
+      expect(primeiro.model).toBe('claude-haiku-5-5');
+      expect(primeiro.tools.map((t: any) => t.name)).toEqual(FERRAMENTAS.map((f) => f.name));
+      expect(primeiro.system[0]).toEqual({ type: 'text', text: INSTRUCOES_DO_MISTER, cache_control: { type: 'ephemeral' } });
+      expect(primeiro.system[1].text).toContain(`Empresa: ${NOME_A}`);
+      expect(primeiro.system[1].text).toContain('Você fala com: Ana (presidente)');
+      expect(primeiro.system[1].cache_control).toBeUndefined();
+      expect(primeiro.messages).toEqual([{ role: 'user', content: 'quanto vendi hoje?' }]);
+      // A segunda chamada devolve ao modelo os blocos dele INTEIROS e o resultado da ferramenta — o do Painel de verdade.
+      expect(segundo.messages[1]).toEqual({ role: 'assistant', content: usar('resumo_do_dia', { dia: 'hoje' }, 'toolu_resumo').content });
+      const [resultado] = segundo.messages[2].content;
+      expect(resultado).toMatchObject({ type: 'tool_result', tool_use_id: 'toolu_resumo' });
+      expect(resultado.is_error).toBeUndefined();
+      const dados = JSON.parse(resultado.content);
+      expect(dados).toMatchObject({ numeroDeVendas: 0, faturamento: 0, faturamentoDoBalcao: 0, faturamentoDoDelivery: 0, ticketMedio: 0, pedidosDeDeliveryEmAberto: 0 });
+      expect(dados.dia).toMatch(/^hoje \(\d{2}\/\d{2}\)$/);
+      expect(dados.aviso).toBeUndefined();
+
+      // O que saiu: "digitando" (com a mensagem lida) e a resposta, só para quem perguntou.
+      const digitando = numero.pedidos.find((p) => p.corpo?.status === 'read');
+      expect(digitando?.corpo).toEqual({ messaging_product: 'whatsapp', status: 'read', message_id: id, typing_indicator: { type: 'text' } });
+      expect(numero.enviadas).toEqual([{ para: tel, texto: 'Hoje, até agora: *nenhuma venda* fechada e R$ 0,00 de faturamento.', botoes: [] }]);
+
+      // A trilha: o que foi usado, nunca o dado.
+      const [p] = await perguntasDe('ana');
+      expect(p).toMatchObject({ situacao: 'respondida', motivo: null, modelo: 'claude-haiku-5-5', chamadas: 2, tokens_entrada: 250, tokens_saida: 60, conferencia: [] });
+      expect(p.resposta).toBe('Hoje, até agora: *nenhuma venda* fechada e R$ 0,00 de faturamento.');
+      expect(p.ferramentas).toHaveLength(1);
+      expect(p.ferramentas[0]).toMatchObject({ nome: 'resumo_do_dia', ok: true });
+      expect(Object.keys(p.ferramentas[0]).sort()).toEqual(['ms', 'nome', 'ok']);
+      // O medidor de IA da empresa contou as duas chamadas no recurso do Mister.
+      expect(await q(`select recurso, chamadas, falhas, origem from ia_uso_dia where tenant_id = $1`, [A])).toEqual([{ recurso: 'mister_perguntas', chamadas: 2, falhas: 0, origem: 'distribuicao' }]);
+      expect(await q(`select 1 from ia_uso_dia where tenant_id = $1`, [B])).toEqual([]);
+    });
+
+    it('a memória da conversa vai junto na pergunta seguinte, e uma conversa não vê a de outra pessoa', async () => {
+      comIa();
+      const tel = telefone();
+      const telCarlos = telefone();
+      await ligar('ana', tel);
+      await ligar('carlos', telCarlos, A, 'gerente');
+      await perguntar(tel, 'como está o estoque?');
+      ia.roteiro = [falar('Ainda não consultei.')];
+      await agente.esvaziar();
+      await perguntar(tel, 'e as validades?');
+      await perguntar(telCarlos, 'oi');
+      ia.roteiro = [falar('Certo.'), falar('Olá.')];
+      await agente.esvaziar();
+      const daAna = ia.pedidos.find((p) => p.messages.at(-1).content === 'e as validades?')!;
+      expect(daAna.messages).toEqual([
+        { role: 'user', content: 'como está o estoque?' },
+        { role: 'assistant', content: 'Ainda não consultei.' },
+        { role: 'user', content: 'e as validades?' },
+      ]);
+      const doCarlos = ia.pedidos.find((p) => p.messages.at(-1).content === 'oi')!;
+      expect(doCarlos.messages).toEqual([{ role: 'user', content: 'oi' }]);
+      expect(doCarlos.system[1].text).toContain('Você fala com: Carlos (gerente)');
+    });
+
+    it('o escopo é do servidor: o gerente só consulta a loja dele, sem valores em reais, e o que o modelo escrever a mais não muda de quem é o dado', async () => {
+      comIa();
+      const [{ id: praia }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja Praia') returning id`, [A]);
+      try {
+        const [{ unidade_id: centro }] = await q(`select unidade_id from colaborador where id = $1`, [pessoa.carlos]);
+        const tel = telefone();
+        await ligar('carlos', tel, A, 'gerente');
+        await perguntar(tel, 'como está a loja agora e quanto vendi?');
+        lidos.length = 0;
+        ia.roteiro = [
+          {
+            stop_reason: 'tool_use',
+            content: [
+              // O modelo tenta outra empresa e outra loja: os campos a mais são ignorados e a loja de fora é recusada.
+              { type: 'tool_use', id: 't1', name: 'pedidos_em_andamento', input: { tenantId: B, unidadeId: praia, empresa: NOME_B } },
+              { type: 'tool_use', id: 't2', name: 'resumo_do_dia', input: { loja: 'Loja Praia' } },
+              { type: 'tool_use', id: 't3', name: 'resumo_do_dia', input: {} },
+              { type: 'tool_use', id: 't4', name: 'servidor_e_incidentes', input: {} },
+              { type: 'tool_use', id: 't5', name: 'apagar_tudo', input: {} },
+              { type: 'tool_use', id: 't6', name: 'vendas_do_periodo', input: { periodo: 'hoje' } },
+            ],
+            usage: { input_tokens: 10, output_tokens: 10 },
+          },
+          falar('Pronto.'),
+        ];
+        await agente.esvaziar();
+        const resultados = Object.fromEntries(ia.pedidos[1].messages[2].content.map((r: any) => [r.tool_use_id, { erro: !!r.is_error, dados: JSON.parse(r.content) }]));
+        // A consulta do quadro e da cozinha saiu com a empresa e a loja DO GERENTE.
+        expect(lidos).toEqual([
+          ['delivery', A, centro],
+          ['cozinha', A, centro],
+        ]);
+        expect(resultados.t1).toMatchObject({ erro: false, dados: { loja: 'Loja Centro' } });
+        expect(resultados.t2).toEqual({ erro: true, dados: { erro: 'Esta pessoa só consulta a loja Loja Centro.' } });
+        // O perfil padrão de gerente não vê valores em reais: vêm vazios, com o aviso — a contagem vem.
+        expect(resultados.t3.dados).toMatchObject({ loja: 'Loja Centro', numeroDeVendas: 0, faturamento: null, ticketMedio: null, gorjeta: null });
+        expect(resultados.t3.dados.aviso).toContain('não mostra valores em reais');
+        // O servidor da loja é só do presidente (como a rota): o gerente não recebe, e o serviço nem é chamado.
+        expect(resultados.t4.dados.servidor).toEqual({ aviso: 'A situação do servidor é mostrada só ao presidente.' });
+        expect(resultados.t5).toEqual({ erro: true, dados: { erro: 'Essa consulta não existe.' } });
+        // Os relatórios de vendas não estão no perfil padrão do gerente: quem não abre a tela não recebe pelo Mister.
+        expect(resultados.t6.erro).toBe(true);
+        expect(resultados.t6.dados.erro).toContain('não dá acesso a esta informação');
+        expect(ia.pedidos[0].system[1].text).toContain('Lojas que esta pessoa consulta: Loja Centro (esta pessoa só consulta esta loja)');
+        expect(ia.pedidos[0].system[1].text).toContain('NÃO vê valores em reais');
+
+        // O presidente, na mesma empresa: todas as lojas, ou a que ele nomear (pelo nome ou pelo número da lista).
+        const telAna = telefone();
+        await ligar('ana', telAna);
+        await perguntar(telAna, 'pedidos agora');
+        lidos.length = 0;
+        ia.pedidos.length = 0;
+        ia.roteiro = [
+          {
+            stop_reason: 'tool_use',
+            content: [
+              { type: 'tool_use', id: 'p1', name: 'pedidos_em_andamento', input: {} },
+              { type: 'tool_use', id: 'p2', name: 'pedidos_em_andamento', input: { loja: 'praia' } },
+              { type: 'tool_use', id: 'p3', name: 'pedidos_em_andamento', input: { loja: '1' } },
+              { type: 'tool_use', id: 'p4', name: 'pedidos_em_andamento', input: { loja: 'Loja do Porto' } },
+              { type: 'tool_use', id: 'p5', name: 'servidor_e_incidentes', input: {} },
+            ],
+            usage: { input_tokens: 10, output_tokens: 10 },
+          },
+          falar('Pronto.'),
+        ];
+        await agente.esvaziar();
+        expect(lidos).toEqual([
+          ['delivery', A, null],
+          ['cozinha', A, undefined],
+          ['delivery', A, praia],
+          ['cozinha', A, praia],
+          ['delivery', A, centro],
+          ['cozinha', A, centro],
+          ['servidor', A],
+        ]);
+        const doPresidente = Object.fromEntries(ia.pedidos[1].messages[2].content.map((r: any) => [r.tool_use_id, { erro: !!r.is_error, dados: JSON.parse(r.content) }]));
+        expect(doPresidente.p1.dados.loja).toBe('todas as lojas');
+        expect(doPresidente.p4).toEqual({ erro: true, dados: { erro: 'Não achei essa loja. As lojas são: 1. Loja Centro; 2. Loja Praia.' } });
+        expect(doPresidente.p5.dados.servidor).toMatchObject({ instalado: true, comSinalAgora: true, versao: '1.30.12', copiaDeSeguranca: { emDia: true, haHoras: 3 } });
+        // Os pedidos do quadro e da cozinha, contados: o marcado para depois fica à parte e o pedido de duas estações conta uma vez.
+        expect(doPresidente.p1.dados.delivery).toMatchObject({
+          emAndamento: 3,
+          porSituacao: { 'aguardando aceite': 1, 'em preparo': 1, 'a caminho': 1 },
+          porPlataforma: { ifood: 2, cardapio: 1 },
+          marcadosParaDepois: 1,
+          esperaHaMaisTempo: { plataforma: 'ifood', numero: '4821', situacao: 'em preparo', haMinutos: 22 },
+        });
+        expect(doPresidente.p1.dados.cozinha).toMatchObject({ pedidos: 2, porSituacao: { 'na fila': 1, 'em preparo': 1 }, maisAntigoSemFicarPronto: { origem: 'iFood', senha: 'D12', situacao: 'em preparo', haMinutos: 22 } });
+
+        // Gerente SEM loja numa empresa de várias lojas: nenhuma consulta responde (como nas rotas).
+        await q(`update colaborador set unidade_id = null where id = $1`, [pessoa.carlos]);
+        await perguntar(tel, 'e agora?');
+        ia.pedidos.length = 0;
+        lidos.length = 0;
+        ia.roteiro = [usar('pedidos_em_andamento', {}, 's1'), falar('Seu cadastro não tem loja.')];
+        await agente.esvaziar();
+        expect(JSON.parse(ia.pedidos[1].messages.at(-1).content[0].content).erro).toContain('não está ligado a uma loja');
+        expect(lidos).toEqual([]);
+        expect(ia.pedidos[0].system[1].text).toContain('Lojas que esta pessoa consulta: nenhuma');
+      } finally {
+        // A empresa volta a ter uma loja só e o gerente volta para ela, mesmo se o teste parar no meio.
+        await q(`update colaborador set unidade_id = (select id from unidade where tenant_id = $2 and nome = 'Loja Centro') where id = $1`, [pessoa.carlos, A]);
+        await q(`delete from mister_pergunta where tenant_id = $1`, [A]);
+        await q(`delete from unidade where id = $1`, [praia]);
+      }
+    });
+
+    it('as leituras de verdade (vendas do período, mais vendidos, estoque) respondem de uma empresa sem movimento com zeros — e não com erro', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+      expect(e).toMatchObject({ nivel: 'presidente', lojaUnica: true, presa: null, semLoja: false, verValores: true });
+      const vendas = await ferramentas.executar(e, 'vendas_do_periodo', { periodo: 'este_mes' });
+      expect(vendas).toMatchObject({ ok: true, dados: { numeroDeVendas: 0, faturamento: 0, vendasCanceladas: 0, porFormaDePagamento: [], porCanal: [], porDia: [] } });
+      expect(String(vendas.dados.periodo)).toMatch(/^este mês \(/);
+      expect(await ferramentas.executar(e, 'vendas_do_periodo', { de: '2026-13-01', ate: '2026-13-02' })).toEqual({ ok: false, dados: { erro: 'As datas precisam estar no formato AAAA-MM-DD e existir no calendário.' } });
+      expect(await ferramentas.executar(e, 'produtos_mais_vendidos', { quantos: 99 })).toMatchObject({ ok: true, dados: { produtos: [] } });
+      expect(await ferramentas.executar(e, 'estoque_em_alerta', {})).toMatchObject({
+        ok: true,
+        dados: { abaixoDoMinimo: { total: 0, itens: [] }, validades: { vencidos: 0, vencemEmAte2Dias: 0, vencemEmAte5Dias: 0, lotes: [] } },
+      });
+      // Os problemas em aberto são só os desta empresa e só os que são da loja resolver; banco sem a tabela = "não li".
+      const [{ tem }] = await q(`select to_regclass('vigia_incidente') is not null as tem`);
+      if (tem) {
+        await q(
+          `insert into vigia_incidente (tenant_id, regra, chave, gravidade, publico) values
+             ($1, 'impressora_parada', $3, 'atencao', 'loja'), ($1, 'banco_em_risco', $4, 'critico', 'distribuicao'), ($2, 'servidor_sem_sinal', $5, 'critico', 'loja')`,
+          [A, B, `srv:${MARCA}:a`, `srv:${MARCA}:b`, `srv:${MARCA}:c`],
+        );
+      }
+      const servidor = await ferramentas.executar(e, 'servidor_e_incidentes', {});
+      if (tem) {
+        expect(servidor.dados.problemasEmAberto).toMatchObject({ total: 1, lista: [{ problema: 'impressora parada', gravidade: 'atenção', vezesVisto: 1 }] });
+        await q(`delete from vigia_incidente where tenant_id = any($1::uuid[])`, [[A, B]]);
+      } else expect(servidor.dados.problemasEmAberto).toEqual({ aviso: 'Não consegui ler os problemas em aberto agora.' });
+      // Quem perdeu o acesso não tem escopo: nem pelo telefone de outra pessoa, nem depois de desativado.
+      expect(await ferramentas.escopo(A, pessoa.ana, telefone())).toBeNull();
+      expect(await ferramentas.escopo(B, pessoa.ana, tel)).toBeNull();
+      await q(`update colaborador set status = 'bloqueado' where id = $1`, [pessoa.ana]);
+      expect(await ferramentas.escopo(A, pessoa.ana, tel)).toBeNull();
+    });
+
+    it('quem perde o acesso entre a pergunta e a resposta não é respondido, e a chave geral desligada cala o agente — sem gastar IA', async () => {
+      comIa();
+      const tel = telefone();
+      await ligar('carlos', tel, A, 'gerente');
+      numero.pedidos.length = 0;
+      await perguntar(tel, 'quanto vendi?');
+      await q(`update colaborador set funcao_id = $2 where id = $1`, [pessoa.carlos, funcao['execucao-a']]);
+      expect(await agente.esvaziar()).toBe(1);
+      expect((await perguntasDe('carlos'))[0]).toMatchObject({ situacao: 'falhou', motivo: 'sem_acesso', chamadas: 0 });
+      await q(`update colaborador set funcao_id = $2 where id = $1`, [pessoa.carlos, funcao['gerente-a']]);
+      await perguntar(tel, 'e agora?');
+      await numeroConectado(false);
+      await agente.esvaziar();
+      expect((await perguntasDe('carlos'))[1]).toMatchObject({ situacao: 'falhou', motivo: 'desligado', chamadas: 0 });
+      expect(ia.pedidos).toEqual([]);
+      expect(numero.enviadas).toEqual([]);
+    });
+
+    it('a IA que não responde nunca vira silêncio: sem chave, fora do ar, recusa e laço sem fim têm cada um a sua frase', async () => {
+      const tel = telefone();
+      const telCarlos = telefone();
+      await ligar('ana', tel);
+      await ligar('carlos', telCarlos, A, 'gerente');
+      numero.pedidos.length = 0;
+      const ultima = async (nome: string) => (await perguntasDe(nome)).at(-1);
+
+      // Sem chave nenhuma: o presidente é mandado à tela; o gerente, ao presidente.
+      await perguntar(tel, 'quanto vendi?');
+      await perguntar(telCarlos, 'quanto vendi?');
+      await agente.esvaziar();
+      expect(numero.enviadas.map((m) => [m.para, m.texto]).sort()).toEqual(
+        [
+          [tel, TEXTOS_DO_AGENTE.semChave('presidente')],
+          [telCarlos, TEXTOS_DO_AGENTE.semChave('gerente')],
+        ].sort(),
+      );
+      expect(await ultima('ana')).toMatchObject({ situacao: 'falhou', motivo: 'sem_chave', resposta: null });
+      expect(ia.pedidos).toEqual([]);
+
+      comIa();
+      numero.pedidos.length = 0;
+      // O provedor fora do ar.
+      await perguntar(tel, 'quanto vendi?');
+      ia.roteiro = [{ erro: { status: 529, message: 'overloaded' } }];
+      await agente.esvaziar();
+      expect(await ultima('ana')).toMatchObject({ situacao: 'falhou', motivo: 'indisponivel' });
+      // O modelo se recusa.
+      await perguntar(tel, 'outra coisa');
+      ia.roteiro = [{ stop_reason: 'refusal', content: [], usage: { input_tokens: 5, output_tokens: 0 } }];
+      await agente.esvaziar();
+      expect(await ultima('ana')).toMatchObject({ situacao: 'falhou', motivo: 'recusou', chamadas: 1 });
+      // O modelo pede ferramenta sem parar: o teto de voltas fecha, e as consultas além do teto voltam como erro.
+      await perguntar(tel, 'tudo de uma vez');
+      ia.roteiro = Array.from({ length: TETOS.voltas }, () => ({
+        stop_reason: 'tool_use',
+        content: [1, 2, 3].map((n) => ({ type: 'tool_use', id: `l${n}-${randomUUID().slice(0, 6)}`, name: 'estoque_em_alerta', input: {} })),
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }));
+      await agente.esvaziar();
+      const laco = await ultima('ana');
+      expect(laco).toMatchObject({ situacao: 'falhou', motivo: 'nao_fechou', chamadas: TETOS.voltas });
+      expect(laco.ferramentas).toHaveLength(TETOS.ferramentas);
+      expect(JSON.parse(ia.pedidos.at(-1)!.messages.at(-1).content.at(-1).content).erro).toContain('Limite de consultas');
+      // Resposta cortada pelo limite de tamanho não sai pela metade.
+      await perguntar(tel, 'explique tudo');
+      ia.roteiro = [{ stop_reason: 'max_tokens', content: [{ type: 'text', text: 'Hoje a loja ven' }], usage: { input_tokens: 5, output_tokens: 5 } }];
+      await agente.esvaziar();
+      expect(await ultima('ana')).toMatchObject({ situacao: 'falhou', motivo: 'nao_fechou' });
+      expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_AGENTE.passageira, TEXTOS_DO_AGENTE.recusou, TEXTOS_DO_AGENTE.naoFechou, TEXTOS_DO_AGENTE.naoFechou]);
+      expect(ia.roteiro).toEqual([]);
+    });
+
+    it('a trava de emergência da distribuição desliga só as perguntas: a pessoa é avisada e nenhuma IA é chamada', async () => {
+      comIa();
+      const antesDaTrava = process.env.MISTER_PERGUNTAS_DESLIGADAS;
+      try {
+        const tel = telefone();
+        await ligar('ana', tel);
+        numero.pedidos.length = 0;
+        process.env.MISTER_PERGUNTAS_DESLIGADAS = '1';
+        await perguntar(tel, 'quanto vendi hoje?');
+        expect(await agente.esvaziar()).toBe(1);
+        expect(numero.enviadas).toEqual([{ para: tel, texto: TEXTOS_DO_AGENTE.emManutencao, botoes: [] }]);
+        expect((await perguntasDe('ana'))[0]).toMatchObject({ situacao: 'falhou', motivo: 'manutencao', chamadas: 0 });
+        expect(ia.pedidos).toEqual([]);
+        // O resto do Mister segue: os comandos da conversa continuam respondendo.
+        expect(await mandar(tel, 'PARAR AVISOS')).toBe('parou');
+        // Trava solta: a pergunta seguinte é respondida.
+        delete process.env.MISTER_PERGUNTAS_DESLIGADAS;
+        await perguntar(tel, 'e agora?');
+        ia.roteiro = [falar('Agora sim.')];
+        await agente.esvaziar();
+        expect(numero.enviadas.at(-1)!.texto).toBe('Agora sim.');
+      } finally {
+        if (antesDaTrava === undefined) delete process.env.MISTER_PERGUNTAS_DESLIGADAS;
+        else process.env.MISTER_PERGUNTAS_DESLIGADAS = antesDaTrava;
+      }
+    });
+
+    it('o teto de perguntas por pessoa em 24 horas: passou, o Mister diz o limite e não chama a IA', async () => {
+      comIa();
+      const tel = telefone();
+      await ligar('ana', tel);
+      numero.pedidos.length = 0;
+      await q(
+        `insert into mister_pergunta (tenant_id, colaborador_id, nivel, telefone, chave, pergunta, resposta, situacao, chamadas, respondida_em)
+         select $1, $2, 'presidente', $3, 'teto-' || $4 || '-' || n, 'p', 'r', 'respondida', 1, now() from generate_series(1, $5::int) n`,
+        [A, pessoa.ana, tel, MARCA, TETOS.porPessoaEm24h - 1],
+      );
+      await perguntar(tel, 'a última que cabe');
+      ia.roteiro = [falar('Cabe.')];
+      await agente.esvaziar();
+      await perguntar(tel, 'a que passa do teto');
+      await agente.esvaziar();
+      expect(numero.enviadas.map((m) => m.texto)).toEqual(['Cabe.', TEXTOS_DO_AGENTE.limite(TETOS.porPessoaEm24h)]);
+      expect((await perguntasDe('ana')).at(-1)).toMatchObject({ situacao: 'falhou', motivo: 'limite', chamadas: 0 });
+      expect(ia.pedidos).toHaveLength(1);
+      // As perguntas velhas saem da conta sozinhas.
+      await q(`update mister_pergunta set criado_em = now() - interval '25 hours' where chave like $1`, [`teto-${MARCA}-%`]);
+      expect((await fila.usoEm24h(A, pessoa.ana)).pessoa).toBe(1);
+    });
+
+    it('o filtro de saída: link não sai, o negrito vira o do WhatsApp, e o valor que nenhuma ferramenta trouxe fica anotado na trilha', async () => {
+      comIa();
+      const tel = telefone();
+      await ligar('ana', tel);
+      numero.pedidos.length = 0;
+      await perguntar(tel, 'quanto vendi hoje?');
+      ia.roteiro = [usar('resumo_do_dia', {}), falar('## Resumo\n**Hoje**: R$ 0,00 no balcão.\nA meta era R$ 9.999,90. Veja em https://exemplo.com/painel agora.')];
+      await agente.esvaziar();
+      expect(numero.enviadas.at(-1)!.texto).toBe('Resumo\n*Hoje*: R$ 0,00 no balcão.\nA meta era R$ 9.999,90. Veja em agora.');
+      expect((await perguntasDe('ana'))[0].conferencia).toEqual(['link_tirado', 'valor_sem_origem']);
+      // Resposta que parece trazer um segredo não sai: vai a frase fixa.
+      await perguntar(tel, 'qual é a chave?');
+      ia.roteiro = [falar(`A chave é ${CHAVE_DE_TESTE}.`)];
+      await agente.esvaziar();
+      expect(numero.enviadas.at(-1)!.texto).toBe(TEXTOS_DO_AGENTE.naoFechou);
+      expect((await perguntasDe('ana'))[1]).toMatchObject({ situacao: 'respondida', conferencia: ['segredo'], resposta: TEXTOS_DO_AGENTE.naoFechou });
+    });
+
+    it('a limpeza diária tira o texto das perguntas com mais de 30 dias e a linha com mais de 90; no servidor da loja o agente não faz nada', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      for (const [chave, dias] of [['nova', 1], ['velha', 31], ['antiga', 91]] as const)
+        await q(
+          `insert into mister_pergunta (tenant_id, colaborador_id, nivel, telefone, chave, pergunta, resposta, situacao, chamadas, criado_em)
+           values ($1, $2, 'presidente', $3, $4, 'pergunta', 'resposta', 'respondida', 1, now() - make_interval(days => $5))`,
+          [A, pessoa.ana, tel, `limpa-${MARCA}-${chave}`, dias],
+        );
+      await entrada.limparMensagens();
+      expect((await q(`select chave, pergunta, resposta from mister_pergunta where chave like $1 order by criado_em desc`, [`limpa-${MARCA}-%`])).map((l) => [l.chave.split('-').at(-1), l.pergunta, l.resposta])).toEqual([
+        ['nova', 'pergunta', 'resposta'],
+        ['velha', null, null],
+      ]);
+      await perguntar(tel, 'no servidor da loja?');
+      process.env.EDGE_MODE = 'true';
+      expect(await agente.esvaziar()).toBe(0);
+      await agente.rotina();
+      agente.acordar();
+      expect((await perguntasDe('ana')).at(-1)).toMatchObject({ situacao: 'na_fila', tentativas: 0 });
     });
   });
 }

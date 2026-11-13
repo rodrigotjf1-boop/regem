@@ -68,8 +68,11 @@ export interface PedidoDeIa {
   recurso: string;
   modelo: string;
   maxTokens: number;
-  system?: string;
+  /** O texto, ou os blocos (quem quer marcar o trecho fixo para o cache do provedor manda blocos). */
+  system?: string | any[];
   messages: Array<{ role: 'user' | 'assistant'; content: any }>;
+  /** As ferramentas que o modelo pode pedir. Quem chama as executa e volta com o resultado (o laço é de quem chama). */
+  tools?: any[];
   prazoMs?: number;
 }
 
@@ -79,6 +82,10 @@ export interface RespostaDaIa {
   recusou: boolean;
   origem: OrigemDaChave;
   uso: UsoDaChamada;
+  /** Os blocos como vieram do provedor: no laço de ferramentas voltam INTEIROS na vez seguinte, sem edição. */
+  conteudo: any[];
+  /** Por que o modelo parou (`end_turn`, `tool_use`, `max_tokens`, `refusal`…) — ou null se o provedor não disse. */
+  parou: string | null;
 }
 
 /** O mínimo que se usa do cliente do provedor (o teste troca por um de mentira). */
@@ -164,7 +171,13 @@ export class IaEmpresaService {
     let r: any;
     try {
       r = await this.criarCliente(acesso.chave).messages.create(
-        { model: p.modelo, max_tokens: p.maxTokens, ...(p.system ? { system: p.system } : {}), messages: p.messages },
+        {
+          model: p.modelo,
+          max_tokens: p.maxTokens,
+          ...(p.system?.length ? { system: p.system } : {}),
+          ...(p.tools?.length ? { tools: p.tools } : {}),
+          messages: p.messages,
+        },
         { timeout: p.prazoMs ?? PRAZO_PADRAO_MS },
       );
     } catch (e: any) {
@@ -182,7 +195,14 @@ export class IaEmpresaService {
     if (acesso.origem === 'lojista') await this.marcar(tenantId, 'ok');
     const partes: string[] = [];
     for (const b of r?.content ?? []) if (b?.type === 'text') partes.push(String(b.text ?? ''));
-    return { texto: partes.join('\n').trim(), recusou: r?.stop_reason === 'refusal', origem: acesso.origem, uso };
+    return {
+      texto: partes.join('\n').trim(),
+      recusou: r?.stop_reason === 'refusal',
+      origem: acesso.origem,
+      uso,
+      conteudo: Array.isArray(r?.content) ? r.content : [],
+      parou: typeof r?.stop_reason === 'string' ? r.stop_reason : null,
+    };
   }
 
   /** Soma a chamada na linha do dia (uma gravação). Nunca lança: o medidor não derruba quem chamou (V3). */

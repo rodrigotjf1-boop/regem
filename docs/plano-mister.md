@@ -219,6 +219,41 @@ O que ficou diferente do protótipo: o subtítulo não diz "e só do que você p
 
 **Conferência:** `mister-pg.teste-spec.ts` (a lista por nível, o que o gerente recebe, quem desliga quem, outra empresa fora do alcance) e o roteiro de tela `frontend/roteiros/mister.mjs` (as cenas de Pessoas, 16 larguras).
 
+### F2.1 — As perguntas: o agente de IA com ferramentas de leitura (quinta entrega do protótipo, primeira parte; migration 418)
+
+Quem está ligado ao Mister pergunta em português, pelo WhatsApp, e recebe a resposta em segundos. É a conversa 3 do protótipo.
+
+- **O caminho de uma pergunta:** a mensagem que não é comando (código, PARAR AVISOS, VOLTAR AVISOS, trocar de empresa) entra numa **fila** (`mister_pergunta`, migration 418, só nuvem), já com a empresa, a pessoa, a loja e o nível de quem escreveu. A entrada do WhatsApp não espera a IA. O agente pega a pergunta, mostra "digitando", chama o modelo com as ferramentas, e a resposta sai pelo número do Mister.
+- **O modelo não sabe nada da loja.** Todo número vem de uma **ferramenta de leitura**, e cada ferramenta chama o serviço que já alimenta uma tela do Regem. O número do Mister é o da tela.
+
+| Ferramenta | O que traz | De onde vem | Quem pode |
+|---|---|---|---|
+| `resumo_do_dia` | vendas, faturamento, ticket médio, gorjeta, delivery em aberto, estoque abaixo do mínimo, tarefas e escala de um dia | o resumo do Painel | quem abre o Painel |
+| `vendas_do_periodo` | vendas fechadas de um período: total, por forma de pagamento, por canal e por dia | Relatórios de vendas | quem abre os relatórios de vendas |
+| `produtos_mais_vendidos` | os mais vendidos de um período, com o faturamento e a divisão entre delivery e balcão | o ranking de produtos dos relatórios | quem abre os relatórios de vendas |
+| `pedidos_em_andamento` | os pedidos de delivery por situação e plataforma, o que espera há mais tempo, e a fila da cozinha | o quadro do Delivery e a fila da cozinha | delivery: quem abre o Delivery; cozinha: gerente e presidente |
+| `estoque_em_alerta` | itens abaixo do mínimo e lotes vencidos ou vencendo | Estoque (itens e validades) | quem vê o Estoque |
+| `servidor_e_incidentes` | a situação do servidor da loja e os problemas em aberto do vigia que são da loja resolver | Servidor local e `vigia_incidente` | servidor: só o presidente; problemas: gerente e presidente |
+
+- **De quem é a conversa quem diz é o servidor.** A empresa e a pessoa são as do telefone ligado. A loja segue a mesma régua das rotas (`@UnidadeAtual()`): empresa de uma loja só não filtra; quem é de uma loja só consulta a dela; o presidente consulta todas ou a que ele nomear; gerente sem loja numa empresa de várias não consulta nada. O modelo só consegue **nomear** uma loja, e o nome é procurado entre as que a pessoa consulta. Nenhuma ferramenta tem campo de empresa.
+- **As permissões são as do perfil da pessoa**, as mesmas das rotas: quem não abre a tela não recebe o dado pelo Mister, e quem não vê valores em reais recebe os valores vazios, com o aviso. No perfil padrão, o gerente não vê valores em reais nem os relatórios de vendas; o presidente muda isso no perfil de acesso, como já muda para as telas.
+- **Só leitura.** Nenhuma ferramenta grava. Pedido de ação recebe a resposta de que o Mister, por enquanto, só consulta. Propor e autorizar é a F4.
+- **A IA é a da empresa** (`IaEmpresaService.pedir`, recurso `mister_perguntas`): a chave do lojista, ou a que a distribuição inclui enquanto existir. A porta passou a aceitar ferramentas e a devolver os blocos do modelo; o laço é do agente, e cada chamada soma no medidor. O modelo padrão é o Claude Haiku 5.5; a distribuição troca por `MISTER_MODELO_PERGUNTAS` (só modelo que está na tabela de preços). As instruções fixas e as ferramentas vão marcadas para o cache do provedor; o que muda de uma conversa para outra (empresa, pessoa, lojas, a hora) vai num bloco depois.
+- **Os tetos, todos conferidos no servidor:** 80 perguntas por pessoa e 300 por empresa em 24 horas; 6 chamadas ao modelo e 10 consultas por pergunta; 75 segundos por pergunta; a resposta cortada em 1.800 caracteres.
+- **A fila:** a mesma mensagem nunca entra duas vezes; uma conversa é respondida por um agente de cada vez; as mensagens que a pessoa mandou em seguida viram uma pergunta só; a pega vence em 3 minutos e a pergunta volta para a fila uma vez (na segunda, é encerrada e a pessoa é avisada); pergunta que esperou mais de 15 minutos não é respondida atrasada. Uma rotina de minuto é a rede de segurança.
+- **A memória da conversa:** as 6 últimas perguntas respondidas nas últimas 2 horas vão junto, para "e ontem?" fazer sentido. Uma conversa não vê a de outra pessoa.
+- **O filtro de saída:** nada que pareça segredo sai (a resposta vira a frase fixa); link não sai; o formato vira o do WhatsApp; valor em reais que nenhuma ferramenta trouxe não bloqueia, mas fica anotado na trilha.
+- **A IA que não responde nunca vira silêncio:** sem chave, sem crédito, teto de gasto, chave recusada, provedor fora do ar, recusa do modelo e resposta que não fechou têm cada um a sua frase. O presidente é mandado a "IA e uso"; o gerente, ao presidente.
+- **A trilha** (`mister_pergunta`): a pergunta, a resposta, o motivo quando não houve resposta, o modelo, as chamadas, os tokens e as ferramentas usadas (o nome, o tempo e se deu certo; nunca o dado). O texto sai em 30 dias e a linha em 90. O registro das mensagens (`mister_mensagem`) continua sem texto.
+- **Mensagem sem texto** (áudio, foto, figurinha, reação): o Mister diz que por enquanto só lê texto, no máximo uma vez a cada meia hora.
+- **Só na nuvem:** o agente mora num módulo à parte (`MisterAgenteModule`), que não sobe no servidor da loja; a tabela não sincroniza.
+- **Reversão sem novo código:** `MISTER_PERGUNTAS_DESLIGADAS=1` no serviço da API desliga só as perguntas (quem pergunta recebe "em manutenção" e nenhuma IA é chamada); o resto do Mister segue. A chave geral do console continua desligando tudo.
+- **Tela:** nenhuma tela nova. Em "IA e uso" o gasto aparece na linha "Mister · perguntas"; a abertura da página passou a dizer que já dá para perguntar.
+
+**Conferência:** `mister-agente.regras.spec.ts` (o período, a loja nomeada, o que o modelo recebe, o filtro, as frases) e `mister-pg.teste-spec.ts` com Postgres e a IA seguindo um roteiro (a fila, o agente com ferramenta, a memória, o escopo por loja e por permissão, quem perde o acesso no meio, as falhas da IA, os tetos, o filtro, a limpeza).
+
+**Fica para as próximas partes das perguntas:** cancelamentos com motivo, caixas abertos e sangrias, escala e ponto do dia, "por que o pedido atrasou" (a regra de atraso hoje mora só na tela), a ajuda de uso com a documentação, transcrição de áudio, e o painel da trilha para o presidente (pede mockup).
+
 ## 5. O que depende do dono
 
 1. ~~Onde a IA roda~~ — decidido: nuvem.
@@ -229,6 +264,7 @@ O que ficou diferente do protótipo: o subtítulo não diz "e só do que você p
 6. ~~Mockup do módulo~~ — aprovado em 13/11. Faltam os mockups da F1.4.
 7. ~~Releitura dos documentos e imagens no grafo de engenharia~~ — feita em 12/11.
 8. O perfil de permissões por hierarquia (o que cada gerente pode pelo Mister): fim do projeto.
+9. **Pendência de implementação para o fim (pedido do dono em 13/11/2026):** a opção de conectar o número do Mister pela conexão gratuita do Evolution, além da API oficial da Meta. O argumento: o Mister só fala com quem ligou o próprio telefone, então o risco de denúncia do número é baixo. O Regem já fala com o Evolution no WhatsApp das lojas; o que falta é o número do Mister ganhar uma porta de provedor (oficial ou Evolution), escolhida pela distribuição no console. Pede mockup da opção.
 
 ## 6. Como foi levantado
 
