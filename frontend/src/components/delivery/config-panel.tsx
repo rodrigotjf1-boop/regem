@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { InputMoeda } from '@/components/ui/input-moeda';
 import { MapaAreaEntrega } from '@/components/delivery/mapa-area';
+import { OrzuniIntegracao } from '@/components/integracoes/orzuni-clique';
 import { Label } from '@/components/ui/label';
 import { Chave } from '@/components/ui/chave';
 import { ImageUpload } from '@/components/ui/image-upload';
@@ -1625,6 +1626,8 @@ function Integracoes({ lista, onSalvar, pode, cardapioAtivo }: { lista: any[]; o
         {visiveis.map((it) => (
           <PlataformaCard key={it.canal} it={it} onClick={() => setAberto(it.canal)} />
         ))}
+        {/* O Orzuni (mig 416): o presidente liga a loja pelo clique; só aparece com o iFood pelo Orzuni liberado. */}
+        <OrzuniIntegracao />
       </div>
       {itemAberto && (
         <ModalIntegracao it={itemAberto} onClose={() => setAberto(null)}>

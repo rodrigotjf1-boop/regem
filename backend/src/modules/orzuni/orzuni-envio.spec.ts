@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { randomBytes, randomUUID } from 'crypto';
+import { createHash, randomBytes, randomUUID } from 'crypto';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
@@ -17,6 +17,7 @@ import { ProdutoService } from '../produto/produto.service';
 import { ConflictException } from '@nestjs/common';
 import { ConferenciaService } from '../conferencia/conferencia.service';
 import { OrzuniFotoService } from './orzuni-foto.service';
+import { OrzuniCliqueService } from './orzuni-clique.service';
 import { LIMITE_FOTO_IFOOD, chaveDaFoto } from './orzuni-foto.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -36,6 +37,7 @@ const MIGRATION_371 = join(__dirname, '..', '..', '..', '..', 'database', 'migra
 const MIGRATION_399 = join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '399_onde_vende_sem_ocultar_no_ifood.sql');
 const MIGRATION_400 = join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '400_orzuni_nome_descricao_codigo.sql');
 const MIGRATION_403 = join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '403_opcao_pausa_por_canal.sql');
+const MIGRATION_416 = join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '416_orzuni_clique.sql');
 const MCP = 'https://orzuni.exemplo.test/v1/mcp';
 const TROCA = 'https://orzuni.exemplo.test/v1/dms-id/ligacao';
 const ENV = {
@@ -176,6 +178,10 @@ descrever('iFood pelo Orzuni — fila e envio (Postgres real, porta falsa)', () 
     await repetirNaCorridaDeCatalogo(() =>
       pool.query(comTravaDaEmpresa(readFileSync(join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '406_ligar_produto_ao_app.sql'), 'utf8'))),
     );
+    // 416 (o clique Regem → Orzuni): o pedido em curso e as colunas novas da ligação — a conferência tem de vir toda `ok`.
+    const r416 = (await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(readFileSync(MIGRATION_416, 'utf8'))))) as unknown as any[];
+    const conferencia416 = (Array.isArray(r416) ? r416[r416.length - 1] : r416).rows;
+    if (conferencia416.length !== 2 || conferencia416.some((l: any) => l.ok !== true)) throw new Error(`conferência da 416: ${JSON.stringify(conferencia416)}`);
     // `edge_status` é só da nuvem; outras specs a criam com o mínimo — aqui ela ganha as colunas que a liberação lê.
     await pool
       .query(`create table if not exists edge_status (id uuid primary key default gen_random_uuid(), tenant_id uuid,
@@ -193,8 +199,8 @@ descrever('iFood pelo Orzuni — fila e envio (Postgres real, porta falsa)', () 
     }
     if (empresas.length) {
       await pool.query(`delete from edge_status where tenant_id = any($1::uuid[])`, [empresas]).catch(() => {});
-      for (const t of ['orzuni_envio', 'orzuni_ligacao', 'produto_pausa_estoque', 'opcao', 'produto', 'categoria_produto',
-        'entitlement', 'equipamento', 'unidade'])
+      for (const t of ['orzuni_clique_pedido', 'orzuni_envio', 'orzuni_ligacao', 'produto_pausa_estoque', 'opcao', 'produto', 'categoria_produto',
+        'entitlement', 'equipamento', 'colaborador', 'unidade'])
         await pool.query(`delete from ${t} where tenant_id = any($1::uuid[])`, [empresas]).catch(() => {});
       await pool.query('delete from empresa where id = any($1::uuid[])', [empresas]).catch(() => {});
     }
@@ -905,6 +911,210 @@ descrever('iFood pelo Orzuni — fila e envio (Postgres real, porta falsa)', () 
       ).rejects.toThrow(/300 px/);
       await expect(conferencia.mandarFotoAoIfood(l.t, l.lojas[0], { produtoId: p, imagem: 'data:image/gif;base64,R0lGODlh' }, ator)).rejects.toThrow(/JPG ou PNG/);
       expect(fotosDe()).toHaveLength(1);
+    });
+  });
+
+  // ── O CLIQUE REGEM → ORZUNI (R2; mig 416): o presidente liga a loja sozinho. Aqui, contra o mesmo banco, com um DMS ID
+  // e um Orzuni falsos que conferem o que o Regem manda (o PKCE, a volta, o state) como o Orzuni de verdade (#75).
+  describe('o clique Regem → Orzuni (R2, mig 416)', () => {
+    const ORIGEM = 'https://orzuni.exemplo.test';
+    const VOLTA = 'https://app.dmsregem.com/integracoes/orzuni/volta';
+    const clique = new OrzuniCliqueService(db, auditoria);
+    let pedidos: any[] = [];
+    let trocas: any[] = [];
+    let desligados: string[] = [];
+    let respostaDoPedido: () => { status: number; corpo: any } = () => ({
+      status: 201,
+      corpo: { request_uri: `urn:ietf:params:oauth:request_uri:orz_${randomBytes(32).toString('base64url')}`, expires_in: 600, authorization_endpoint: 'https://app.orzuni.com/autorizar' },
+    });
+    let respostaDaTroca: (corpo: any) => { status: number; corpo: any } = () => ({ status: 500, corpo: {} });
+    clique.buscar = (async (url: any, init: any) => {
+      const u = String(url);
+      if (u === `${ENV.DMS_ID_EMISSOR}/token`) return json(200, { access_token: 'token-de-teste', expires_in: 3600 });
+      const corpo = init?.body ? JSON.parse(String(init.body)) : null;
+      if (u === `${ORIGEM}/v1/dms-id/autorizacao/pedido`) {
+        pedidos.push(corpo);
+        const r = respostaDoPedido();
+        return json(r.status, r.corpo);
+      }
+      if (u === `${ORIGEM}/v1/dms-id/autorizacao/token`) {
+        trocas.push(corpo);
+        // Como o Orzuni: o verificador tem de bater com o desafio do pedido, e a volta com a do pedido.
+        const pedido = pedidos.at(-1);
+        const confere = createHash('sha256').update(String(corpo?.code_verifier ?? ''), 'ascii').digest('base64url') === pedido?.code_challenge;
+        if (!confere || corpo?.redirect_uri !== pedido?.redirect_uri) return json(400, { type: 'https://dms/problemas/autorizacao-invalida' });
+        const r = respostaDaTroca(corpo);
+        return json(r.status, r.corpo);
+      }
+      if (u === `${ORIGEM}/v1/dms-id/ligacao` && init?.method === 'DELETE') {
+        desligados.push(new Headers(init?.headers ?? {}).get('dms-ligacao') ?? '');
+        return json(200, { ok: true });
+      }
+      throw new Error(`endereço inesperado no teste do clique: ${u}`);
+    }) as typeof fetch;
+
+    beforeEach(() => {
+      pedidos = [];
+      trocas = [];
+      desligados = [];
+      respostaDaTroca = () => ({
+        status: 200,
+        corpo: {
+          ligacao: `dms_lg_orzuni_${randomBytes(18).toString('base64url')}`,
+          prefixo: 'dms_lg_orzuni_novo1',
+          conta_id: 'conta-orzuni-1',
+          loja: 'merchant-centro',
+          loja_nome: 'Casa do Hambúrguer — Centro',
+          permissoes: ['catalogo.ler', 'preco.escrever', 'status.escrever', 'loja.escrever'],
+          segredo_em: new Date().toISOString(),
+        },
+      });
+    });
+
+    // E-mail e CNPJ inventados e únicos (as duas colunas são únicas no banco inteiro). `null` = sem e-mail.
+    async function presidenteDe(l: Loja, email: string | null | undefined = undefined) {
+      const usado = email === undefined ? `dono-${randomBytes(6).toString('hex')}@exemplo.com.br` : email;
+      const id = (await q(`insert into colaborador (tenant_id, nome, email) values ($1, 'Ana Presidente', $2) returning id`, [l.t, usado]))[0].id as string;
+      const cnpj = Array.from(randomBytes(14), (b) => String(b % 10)).join('');
+      await q(`update empresa set cnpj = coalesce(cnpj, $2) where id = $1`, [l.t, cnpj]);
+      return { colaboradorId: id, tenantId: l.t, categoria: 'presidente', nome: 'Ana Presidente', email: usado } as any;
+    }
+    const estadoDe = (corpo: any) => String(corpo.state);
+    const codigo = () => `orz_ac_${randomBytes(32).toString('base64url')}`;
+
+    it('o caminho inteiro: iniciar → página do Orzuni → volta → ligação "clique" no lugar da chave antiga', async () => {
+      const l = await loja({ lojas: 1, ligadas: 1 });
+      const ana = await presidenteDe(l);
+      const antes = await clique.situacao(ana, null);
+      expect(antes).toMatchObject({ liberado: true, naNuvem: true, podeLigar: true, loja: { id: l.lojas[0] }, escolherLoja: false });
+      expect(antes.ligacao?.origem).toBe('chave');
+
+      const { url } = await clique.iniciar(ana, null, {});
+      const pagina = new URL(url);
+      expect(`${pagina.origin}${pagina.pathname}`).toBe('https://app.orzuni.com/autorizar');
+      expect(pagina.searchParams.get('client_id')).toBe(ENV.HUB_APLICATIVO);
+      const p = pedidos[0];
+      expect(p).toMatchObject({
+        response_type: 'code',
+        client_id: ENV.HUB_APLICATIVO,
+        redirect_uri: VOLTA,
+        scope: 'catalogo.ler preco.escrever status.escrever catalogo.escrever loja.ler loja.escrever',
+        code_challenge_method: 'S256',
+        conta_nome: 'teste orzuni envio',
+        conta_email: ana.email,
+        conta_loja: 'Loja 1',
+        conta_loja_id: l.lojas[0],
+      });
+      expect(p.conta_cnpj).toMatch(/^\d{14}$/);
+      expect(pagina.searchParams.get('request_uri')).toBeTruthy();
+      const [guardado] = await q(`select estado_hash, verificador_cifrado, modo, vence_em > now() + interval '9 minutes' as vale from orzuni_clique_pedido where tenant_id = $1`, [l.t]);
+      expect(guardado).toMatchObject({ modo: 'novo', vale: true });
+      expect(guardado.verificador_cifrado.startsWith('v1:')).toBe(true);
+      expect(JSON.stringify(guardado)).not.toContain(estadoDe(p));
+
+      const r = await clique.concluir(ana, { code: codigo(), state: estadoDe(p), iss: ORIGEM });
+      expect(r).toEqual({ ligada: true, lojaIfoodNome: 'Casa do Hambúrguer — Centro', permissoes: ['catalogo.ler', 'preco.escrever', 'status.escrever', 'loja.escrever'] });
+      expect(trocas[0]).toMatchObject({ grant_type: 'authorization_code', client_id: ENV.HUB_APLICATIVO, redirect_uri: VOLTA });
+      const vivas = await q(`select origem, loja_ifood, loja_ifood_nome, criada_por, segredo_cifrado from orzuni_ligacao where unidade_id = $1 and revogada_em is null`, [l.lojas[0]]);
+      expect(vivas).toHaveLength(1);
+      expect(vivas[0]).toMatchObject({ origem: 'clique', loja_ifood: 'merchant-centro', loja_ifood_nome: 'Casa do Hambúrguer — Centro', criada_por: 'Ana Presidente' });
+      const [velha] = await q(`select revogada_motivo from orzuni_ligacao where unidade_id = $1 and revogada_em is not null`, [l.lojas[0]]);
+      expect(velha.revogada_motivo).toBe('trocada pela autorização por clique');
+      expect(auditados.find((a) => a.acao === 'ligou_loja_ao_orzuni')).toMatchObject({ origem: 'clique', atorTipo: 'colaborador', detalhe: { modo: 'novo' } });
+      expect((await clique.situacao(ana, null)).ligacao).toMatchObject({ origem: 'clique', lojaIfoodNome: 'Casa do Hambúrguer — Centro' });
+
+      // A mesma volta de novo não liga duas vezes.
+      expect(await clique.concluir(ana, { code: codigo(), state: estadoDe(p), iss: ORIGEM })).toMatchObject({ ligada: false, mensagem: expect.stringContaining('não é de um pedido aberto por você') });
+      expect(trocas).toHaveLength(1);
+    });
+
+    it('a volta só vale para quem começou, só com o iss do Orzuni e dentro do prazo; recusar não muda nada', async () => {
+      const l = await loja({ lojas: 1, ligadas: 0 });
+      const ana = await presidenteDe(l);
+      const outro = await presidenteDe(l);
+      await clique.iniciar(ana, null, {});
+      const p1 = pedidos[0];
+      expect((await clique.concluir(outro, { code: codigo(), state: estadoDe(p1), iss: ORIGEM })).ligada).toBe(false);
+      expect((await clique.concluir(ana, { code: codigo(), state: estadoDe(p1), iss: 'https://malicioso.example' }))).toMatchObject({ ligada: false, mensagem: expect.stringContaining('não veio do Orzuni') });
+
+      await clique.iniciar(ana, null, {});
+      expect(await clique.concluir(ana, { state: estadoDe(pedidos[1]), error: 'access_denied', iss: ORIGEM })).toMatchObject({ ligada: false, mensagem: expect.stringContaining('não autorizou') });
+
+      await clique.iniciar(ana, null, {});
+      await q(`update orzuni_clique_pedido set vence_em = now() - interval '1 second' where tenant_id = $1 and concluido_em is null`, [l.t]);
+      expect(await clique.concluir(ana, { code: codigo(), state: estadoDe(pedidos[2]), iss: ORIGEM })).toMatchObject({ ligada: false, mensagem: expect.stringContaining('venceu') });
+
+      await clique.iniciar(ana, null, {});
+      respostaDaTroca = () => ({ status: 400, corpo: { type: 'https://dms/problemas/autorizacao-invalida' } });
+      expect((await clique.concluir(ana, { code: codigo(), state: estadoDe(pedidos[3]), iss: ORIGEM })).ligada).toBe(false);
+
+      expect(await q(`select id from orzuni_ligacao where unidade_id = $1`, [l.lojas[0]])).toHaveLength(0);
+      expect((await q(`select resultado from orzuni_clique_pedido where tenant_id = $1 order by criado_em`, [l.t])).map((r: any) => r.resultado)).toEqual(['erro', 'recusado', 'vencido', 'erro']);
+    });
+
+    it('pedir mais: só as opcionais novas marcadas; nada novo é recusado antes de ir ao Orzuni', async () => {
+      const l = await loja({ lojas: 1, ligadas: 0 });
+      const ana = await presidenteDe(l);
+      await clique.iniciar(ana, null, {});
+      await clique.concluir(ana, { code: codigo(), state: estadoDe(pedidos[0]), iss: ORIGEM });
+      await clique.iniciar(ana, null, { mais: true, opcionais: ['loja.escrever', 'catalogo.escrever'] });
+      expect(pedidos[1].scope).toBe('catalogo.escrever');
+      await expect(clique.iniciar(ana, null, { mais: true, opcionais: ['loja.escrever'] })).rejects.toThrow(/ainda não tem/);
+      expect(pedidos).toHaveLength(2);
+      expect((await q(`select modo from orzuni_clique_pedido where tenant_id = $1 order by criado_em`, [l.t])).map((r: any) => r.modo)).toEqual(['novo', 'mais']);
+    });
+
+    it('as recusas antes de ir ao Orzuni: sem liberação, loja não escolhida, sem e-mail, no servidor da loja', async () => {
+      const sem = await loja({ lojas: 1, ligadas: 0, direito: false });
+      await expect(clique.iniciar(await presidenteDe(sem), null, {})).rejects.toThrow(/não está liberado/);
+      expect((await clique.situacao(await presidenteDe(sem), null)).liberado).toBe(false);
+      const duas = await loja({ lojas: 2, ligadas: 0 });
+      const ana = await presidenteDe(duas);
+      await expect(clique.iniciar(ana, null, {})).rejects.toThrow(/Escolha no topo/);
+      expect((await clique.situacao(ana, null)).escolherLoja).toBe(true);
+      await expect(clique.iniciar(ana, duas.lojas[1], { opcionais: [] })).resolves.toMatchObject({ url: expect.any(String) });
+      const outraEmpresa = await loja({ lojas: 1, ligadas: 0 });
+      await expect(clique.iniciar(ana, outraEmpresa.lojas[0], {})).rejects.toThrow(/não encontrada/);
+      const semEmail = await loja({ lojas: 1, ligadas: 0 });
+      await expect(clique.iniciar(await presidenteDe(semEmail, null), null, {})).rejects.toThrow(/e-mail/);
+      process.env.EDGE_MODE = 'true';
+      try {
+        await expect(clique.iniciar(ana, duas.lojas[0], {})).rejects.toThrow(/na nuvem/);
+        expect((await clique.situacao(ana, duas.lojas[0])).naNuvem).toBe(false);
+      } finally {
+        delete process.env.EDGE_MODE;
+      }
+      respostaDoPedido = () => ({ status: 503, corpo: { type: 'https://dms/problemas/integracao-parada' } });
+      try {
+        await expect(clique.iniciar(ana, duas.lojas[0], {})).rejects.toThrow(/pausou/);
+      } finally {
+        respostaDoPedido = () => ({
+          status: 201,
+          corpo: { request_uri: `urn:ietf:params:oauth:request_uri:orz_${randomBytes(32).toString('base64url')}`, expires_in: 600, authorization_endpoint: 'https://app.orzuni.com/autorizar' },
+        });
+      }
+    });
+
+    it('desligar: sai aqui na hora e avisa o Orzuni com a própria ligação; repetir não dá erro', async () => {
+      const l = await loja({ lojas: 1, ligadas: 0 });
+      const ana = await presidenteDe(l);
+      await clique.iniciar(ana, null, {});
+      await clique.concluir(ana, { code: codigo(), state: estadoDe(pedidos[0]), iss: ORIGEM });
+      expect(await clique.desligar(ana, null)).toEqual({ desligada: true });
+      expect(desligados).toHaveLength(1);
+      expect(desligados[0].startsWith('dms_lg_orzuni_')).toBe(true);
+      expect(await q(`select id from orzuni_ligacao where unidade_id = $1 and revogada_em is null`, [l.lojas[0]])).toHaveLength(0);
+      expect(auditados.some((a) => a.acao === 'desligou_loja_do_orzuni')).toBe(true);
+      expect(await clique.desligar(ana, null)).toEqual({ desligada: false });
+    });
+
+    it('a ligação que o Orzuni recusou aparece como desligada lá, com o "conectar de novo"', async () => {
+      const l = await loja({ lojas: 1, ligadas: 1 });
+      const ana = await presidenteDe(l);
+      await q(`update orzuni_ligacao set revogada_em = now(), revogada_por = 'orzuni', revogada_motivo = 'ligacao-invalida' where unidade_id = $1`, [l.lojas[0]]);
+      const s = await clique.situacao(ana, null);
+      expect(s.ligacao).toBeNull();
+      expect(s.desligadaEm).toBeTruthy();
     });
   });
 });

@@ -2431,6 +2431,9 @@ const SO_NUVEM = new Set([
   // iFood pelo Orzuni (mig 370, @cloud-only): a ligação de cada loja com o Orzuni (segredo cifrado com a chave da nuvem) e
   // a fila do envio — só a nuvem fala com o Orzuni; a edição feita na loja chega lá pelo sincronismo e enfileira lá.
   'orzuni_ligacao', 'orzuni_envio',
+  // O clique Regem → Orzuni (mig 416, @cloud-only): o pedido de autorização em curso (o verificador do PKCE cifrado com a
+  // chave da nuvem). Só a nuvem pede e troca o código; a loja não tem esta tabela.
+  'orzuni_clique_pedido',
   // A fila do envio à 99, item a item (mig 402, @cloud-only; R3 F2): só a nuvem fala com a 99 (o auth_token é dela); a
   // edição feita na loja chega lá pelo sincronismo do produto e enfileira lá. A loja não tem esta tabela.
   'food99_envio',

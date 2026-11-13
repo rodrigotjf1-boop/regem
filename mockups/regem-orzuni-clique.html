@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regem — Conectar ao Orzuni pelo clique (mockup)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* MOCKUP do CLIQUE REGEM → ORZUNI, feito em 13/11/2026 (parte R1 do plano "Clique Regem → Orzuni", aprovado pelo dono
+   com as decisões recomendadas OZ-1 a OZ-7). Nada aqui fala com o Regem nem com o Orzuni; os dados são inventados.
+   Hoje a ligação nasce pela distribuição (chave orz_live_ gerada na tela de administrador do Orzuni e colada no console do
+   Regem). Com o clique, o presidente liga sozinho: o Regem pede, o Orzuni mostra a página padrão de autorização, o dono
+   confirma com a senha do Orzuni e volta ao Regem já ligado. A página do Orzuni é a parte O1 (projeto do Orzuni); ela
+   aparece aqui só como referência do caminho inteiro. */
+:root{
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --navy:#0F2230; --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9;
+  --warn:#8A4B12; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8; --radius:12px;
+  --ifood:#C3122B; --oz:#2B2F3A; --oz-ink:#F2F4F7; --oz-ink-2:#A9B1BF; --oz-line:#3B4150; --oz-card:#232731; --oz-bg:#191C23;
+  --oz-green:#3DDC97; --oz-coral:#FF8A6B;
+  --display:'Archivo',sans-serif; --body:'Figtree',sans-serif; --mono:'JetBrains Mono',monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:var(--body);background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45;overflow-x:hidden}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid #3A7FB8;outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+[hidden]{display:none!important}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* faixa do protótipo (fora do app) */
+.proto{background:#0B1822;color:#D5E0EA;padding:10px 16px;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
+.proto strong{font-family:var(--display);color:#fff;font-size:14px}
+.proto .obs{font-size:12.5px;color:#9FB2C4}
+.abas{display:flex;flex-wrap:wrap;gap:8px}
+.aba{display:inline-flex;align-items:center;min-height:38px;padding:6px 14px;border-radius:10px;border:1px solid #2E4456;background:#13283A;color:#D5E0EA;font-weight:600;font-size:13.5px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+
+main{max-width:1180px;margin:0 auto;padding:16px 16px 96px}
+.vista > h1{font-family:var(--display);font-size:clamp(20px,2.4vw,26px);margin:4px 0 6px}
+.intro{color:var(--ink-2);max-width:900px;margin:0 0 14px}
+.ctls{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;margin:0 0 16px;display:grid;gap:8px}
+.ctl{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;font-size:13px}
+.ctl > span{font-weight:700;color:var(--ink-2);margin-right:2px}
+.ctl button{min-height:36px;padding:0 12px;border-radius:9px;border:1px solid var(--line-2);background:var(--card);font-weight:600;font-size:13px}
+.ctl button[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+
+/* moldura do app (Shell resumido) */
+.app{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+.app-topo{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.app-topo .eb{font-size:11px;font-weight:800;letter-spacing:.08em;color:var(--warn);text-transform:uppercase}
+.app-topo h2{font-family:var(--display);font-size:20px;margin:0;flex:1 1 100%}
+.cfg-abas{display:flex;flex-wrap:wrap;gap:4px 6px;padding:10px 14px;border-bottom:1px solid var(--line)}
+.cfg-aba{padding:6px 10px;border-radius:8px;font-size:13.5px;color:var(--ink-2)}
+.cfg-aba.on{background:#FCF1DD;color:#7A5209;font-weight:700}
+.app-corpo{padding:16px}
+
+/* grade de cartões das integrações (como hoje) */
+.cartoes{display:flex;flex-wrap:wrap;gap:14px}
+.cartao{width:200px;max-width:100%;display:flex;flex-direction:column;align-items:center;gap:10px;border:1px solid var(--line);border-radius:16px;background:#fff;padding:18px 14px;text-align:center}
+.cartao.novo{border:2px solid var(--gold);box-shadow:0 0 0 4px #FCF1DD}
+.selo{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:2px 9px;font-size:11.5px;font-weight:700}
+.selo .bol{width:8px;height:8px;border-radius:50%}
+.selo.ativo{background:var(--ok-bg);color:var(--ok)} .selo.ativo .bol{background:var(--ok)}
+.selo.off{background:#EEF2F6;color:var(--ink-2)} .selo.off .bol{background:#A7B4C2}
+.logo{width:72px;height:72px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-family:var(--display);font-weight:800;font-size:22px}
+.logo.sm{width:36px;height:36px;border-radius:9px;font-size:13px}
+.logo.if{background:var(--ifood);color:#fff} .logo.n99{background:#FFD21F;color:#2A2300}
+.logo.oz{background:var(--oz);color:var(--oz-green)} .logo.mp{background:#009EE3;color:#fff}
+.cartao b{font-size:15.5px}
+.cartao small{font-size:12.5px;color:var(--ink-2)}
+
+/* janela (como o ModalIntegracao de hoje) */
+.janela-fundo{position:relative;background:#E6EBF1;border-radius:var(--radius);padding:24px 12px;display:flex;justify-content:center}
+.janela{width:100%;max-width:560px;background:#fff;border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:0 12px 32px rgba(15,34,48,.18)}
+.j-topo{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);box-shadow:inset 0 3px 0 var(--oz)}
+.j-topo b{font-family:var(--display);font-size:16px}
+.j-topo .fechar{margin-left:auto;border:0;background:none;font-size:16px;color:var(--ink-2);padding:6px;border-radius:6px}
+.j-corpo{padding:16px;display:grid;gap:14px}
+.lead{margin:0;font-size:15px}
+.loja-linha{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;font-size:13.5px;color:var(--ink-2)}
+.loja-linha b{color:var(--ink)}
+.bloco{border:1px solid var(--line);border-radius:10px;padding:12px}
+.bloco h3{margin:0 0 8px;font-size:14px;font-family:var(--display)}
+.perm{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.perm li{display:flex;gap:10px;align-items:flex-start;font-size:14px}
+.perm .ic{flex:none;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;margin-top:1px}
+.ic.sim{background:var(--ok-bg);color:var(--ok)}
+.ic.opc{background:#EEF2F6;color:var(--ink-2)}
+.ic.nao{background:var(--crit-bg);color:var(--crit)}
+.perm small{display:block;color:var(--ink-2);font-size:12.5px}
+.btn{min-height:44px;padding:0 16px;border-radius:10px;border:1px solid var(--line-2);background:#fff;font-weight:700;font-size:14.5px;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.btn.perigo{border-color:#E7B4B4;color:var(--crit)}
+.btn.largo{width:100%}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.nota{font-size:13px;color:var(--ink-2);margin:0}
+.aviso{border-radius:10px;padding:10px 12px;font-size:13.5px;display:flex;gap:10px;align-items:flex-start}
+.aviso.info{background:var(--info-bg);color:#1F4C73}
+.aviso.ok{background:var(--ok-bg);color:var(--ok)}
+.aviso.erro{background:var(--crit-bg);color:#8C2222}
+.aviso.warn{background:var(--warn-bg);color:var(--warn)}
+.aviso b{display:block;margin-bottom:2px}
+.kv{display:grid;grid-template-columns:minmax(120px,max-content) 1fr;gap:6px 12px;font-size:14px}
+.kv dt{color:var(--ink-2)} .kv dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.mono{font-family:var(--mono);font-size:12.5px}
+.toggle{display:flex;align-items:center;gap:10px;justify-content:space-between;width:100%}
+.chave{flex:none;width:44px;height:26px;border-radius:999px;border:0;background:#C8D2DC;position:relative}
+.chave::after{content:'';position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s}
+.chave[aria-pressed="true"]{background:var(--ok)}
+.chave[aria-pressed="true"]::after{left:21px}
+
+/* diálogo de desligar */
+.dialogo{border:1px solid var(--line);border-radius:12px;background:#fff;padding:14px;box-shadow:0 10px 26px rgba(15,34,48,.2);display:grid;gap:10px}
+.dialogo h4{margin:0;font-family:var(--display);font-size:16px}
+
+/* página do Orzuni (O1, referência) */
+.oz{background:var(--oz-bg);color:var(--oz-ink);border-radius:var(--radius);padding:24px 12px;display:flex;justify-content:center}
+.oz-pag{width:100%;max-width:560px;display:grid;gap:14px}
+.oz-marca{display:flex;align-items:center;gap:10px;font-family:var(--display);font-weight:800;font-size:18px}
+.oz-card{background:var(--oz-card);border:1px solid var(--oz-line);border-radius:14px;padding:14px;display:grid;gap:8px}
+.oz-card h3{margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--oz-ink-2)}
+.oz-pag h2{font-family:var(--display);font-size:20px;margin:0}
+.oz small,.oz .sub{color:var(--oz-ink-2);font-size:13px}
+.oz-selo{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:2px 9px;font-size:12px;font-weight:700;background:rgba(61,220,151,.14);color:var(--oz-green)}
+.oz-perm{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.oz-perm li{display:flex;gap:10px;align-items:flex-start;justify-content:space-between}
+.oz-perm .t{min-width:0}
+.oz-perm .t b{display:block;font-size:14px}
+.oz-perm .t small{display:block}
+.oz-tag{flex:none;font-size:11.5px;font-weight:700;color:var(--oz-ink-2);border:1px solid var(--oz-line);border-radius:999px;padding:2px 8px}
+.oz .chave{background:#4A5163}
+.oz .chave[aria-pressed="true"]{background:var(--oz-green)}
+.oz-lojas{display:grid;gap:8px}
+.oz-loja{display:flex;align-items:center;gap:10px;border:1px solid var(--oz-line);border-radius:10px;padding:10px 12px;font-size:14px}
+.oz-loja input{accent-color:var(--oz-green);width:18px;height:18px}
+.oz-loja.usada{opacity:.6}
+.oz-input{width:100%;min-height:44px;border-radius:10px;border:1px solid var(--oz-line);background:#14171D;color:var(--oz-ink);padding:0 12px}
+.oz-btn{min-height:46px;border-radius:10px;border:0;font-weight:800;font-size:15px;padding:0 16px}
+.oz-btn.pri{background:var(--oz-green);color:#0B2A1D}
+.oz-btn.sec{background:transparent;border:1px solid var(--oz-line);color:var(--oz-ink)}
+.oz-alerta{border:1px solid rgba(255,138,107,.5);background:rgba(255,138,107,.1);color:#FFD2C4;border-radius:10px;padding:10px 12px;font-size:13.5px;display:grid;gap:8px}
+.oz-alerta label{display:flex;gap:8px;align-items:flex-start}
+.oz-alerta input{accent-color:var(--oz-coral);width:18px;height:18px;margin-top:2px}
+.oz-nao{margin:0;padding-left:18px;font-size:13.5px;color:var(--oz-ink-2)}
+
+/* grade das vistas lado a lado */
+.lado{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:16px;align-items:start}
+.legenda{font-size:12.5px;font-weight:700;color:var(--ink-2);text-transform:uppercase;letter-spacing:.05em;margin:0 0 6px}
+
+/* faixa de atalho na Gestão do catálogo */
+.faixa{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;background:#FFF8EC;border:1px solid #F0D9B0;border-left:5px solid var(--gold);border-radius:10px;padding:10px 12px}
+.faixa .q{flex:1 1 260px;min-width:0}
+.faixa .q b{display:block}
+.faixa .q small{color:var(--ink-2)}
+
+/* notas */
+.tabela-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px;background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:#F6F8FB;font-size:12.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-2)}
+@media (max-width:640px){
+  table.cartoes-sm thead{display:none}
+  table.cartoes-sm tr{display:grid;border-bottom:1px solid var(--line);padding:6px 0}
+  table.cartoes-sm td{border:0;padding:3px 12px}
+}
+.spinner{width:22px;height:22px;border-radius:50%;border:3px solid #E6EBF1;border-top-color:var(--gold);animation:gira 1s linear infinite}
+@keyframes gira{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<div class="proto" role="navigation" aria-label="Vistas do mockup">
+  <strong>Mockup · Conectar ao Orzuni pelo clique</strong>
+  <div class="abas" id="abas">
+    <button class="aba" type="button" data-v="v1" aria-pressed="true">1 · Integrações</button>
+    <button class="aba" type="button" data-v="v2" aria-pressed="false">2 · Antes de ligar</button>
+    <button class="aba" type="button" data-v="v3" aria-pressed="false">3 · No Orzuni</button>
+    <button class="aba" type="button" data-v="v4" aria-pressed="false">4 · A volta</button>
+    <button class="aba" type="button" data-v="v5" aria-pressed="false">5 · Ligado</button>
+    <button class="aba" type="button" data-v="v6" aria-pressed="false">6 · Erros</button>
+    <button class="aba" type="button" data-v="v7" aria-pressed="false">Notas e decisões</button>
+  </div>
+  <span class="obs">Dados inventados. Nada aqui fala com o Regem ou o Orzuni.</span>
+</div>
+
+<main>
+
+<!-- ───────────── 1 · Integrações ───────────── -->
+<section class="vista" id="v1">
+  <h1>Delivery › Configurações › Integrações</h1>
+  <p class="intro">O Orzuni entra como mais um cartão na grade de hoje (decisão OZ-1). O cartão abre a janela de sempre. Enquanto a loja não estiver ligada, a Gestão do catálogo mostra um atalho para cá.</p>
+  <div class="ctls">
+    <div class="ctl"><span>Situação do Orzuni</span>
+      <button type="button" data-g="sit1" data-val="off" aria-pressed="true">Não ligado</button>
+      <button type="button" data-g="sit1" data-val="on" aria-pressed="false">Ligado</button>
+    </div>
+  </div>
+  <div class="app">
+    <div class="app-topo"><span class="eb">Delivery</span><h2>Configurações do delivery</h2></div>
+    <div class="cfg-abas" aria-label="Abas das configurações">
+      <span class="cfg-aba">Cardápio</span><span class="cfg-aba">Horários</span><span class="cfg-aba">Entrega</span><span class="cfg-aba">Cupons</span><span class="cfg-aba">Cashback</span><span class="cfg-aba on" aria-current="page">Integrações</span><span class="cfg-aba">Robô de atendimento</span>
+    </div>
+    <div class="app-corpo">
+      <div class="cartoes">
+        <div class="cartao"><span class="selo ativo"><span class="bol"></span>ativo</span><span class="logo if">iF</span><b>iFood</b></div>
+        <div class="cartao"><span class="selo ativo"><span class="bol"></span>ativo</span><span class="logo n99">99</span><b>99Food</b></div>
+        <div class="cartao novo">
+          <span class="selo off" data-sit1="off"><span class="bol"></span>não ligado</span>
+          <span class="selo ativo" data-sit1="on" hidden><span class="bol"></span>ligado</span>
+          <span class="logo oz">OZ</span><b>Orzuni</b>
+          <small>Preço e pausa do Regem direto no cardápio do iFood</small>
+        </div>
+        <div class="cartao"><span class="selo ativo"><span class="bol"></span>ativo</span><span class="logo mp">MP</span><b>Mercado Pago</b></div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="legenda" style="margin-top:22px">O atalho na Gestão do catálogo (enquanto não está ligado)</h2>
+  <div class="faixa" role="status">
+    <span class="logo oz sm" aria-hidden="true">OZ</span>
+    <div class="q"><b>O iFood pelo Orzuni não está ligado nesta loja</b><small>Sem ele, o preço e a pausa que você muda aqui não vão ao iFood.</small></div>
+    <button class="btn pri" type="button">Ligar o Orzuni</button>
+  </div>
+</section>
+
+<!-- ───────────── 2 · Antes de ligar ───────────── -->
+<section class="vista" id="v2" hidden>
+  <h1>A janela antes de ligar</h1>
+  <p class="intro">Só o presidente liga (OZ-2). A janela diz o que o Regem vai pedir ao Orzuni (OZ-3) e para qual loja do Regem. As opcionais o dono decide na página do Orzuni.</p>
+  <div class="ctls">
+    <div class="ctl"><span>Quem abriu</span>
+      <button type="button" data-g="perfil" data-val="pres" aria-pressed="true">Presidente</button>
+      <button type="button" data-g="perfil" data-val="ger" aria-pressed="false">Gerente</button>
+    </div>
+  </div>
+  <div class="janela-fundo">
+    <div class="janela" role="dialog" aria-label="Orzuni">
+      <div class="j-topo"><span class="logo oz sm" aria-hidden="true">OZ</span><b>Orzuni</b><button class="fechar" type="button" aria-label="Fechar">✕</button></div>
+      <div class="j-corpo">
+        <p class="lead">Com o Orzuni ligado, o preço e a pausa que você muda no Regem vão sozinhos ao cardápio do iFood.</p>
+        <div class="loja-linha">Loja do Regem: <b>Casa do Hambúrguer · Centro</b> <span>(a loja em uso)</span></div>
+        <div class="bloco">
+          <h3>O que o Regem vai pedir ao Orzuni</h3>
+          <ul class="perm">
+            <li><span class="ic sim" aria-hidden="true">✓</span><span>Ler o cardápio do iFood<small>Para saber quais itens estão lá e com que preço.</small></span></li>
+            <li><span class="ic sim" aria-hidden="true">✓</span><span>Mudar o preço dos itens<small>O preço do iFood que você define no Regem.</small></span></li>
+            <li><span class="ic sim" aria-hidden="true">✓</span><span>Pausar e reativar itens<small>O "Em falta" e a pausa por canal.</small></span></li>
+            <li><span class="ic opc" aria-hidden="true">+</span><span>Opcional: editar nome, descrição e foto<small>Você decide na página do Orzuni.</small></span></li>
+            <li><span class="ic opc" aria-hidden="true">+</span><span>Opcional: pausar a loja inteira no iFood<small>Para a pausa dos pedidos por canal chegar ao iFood.</small></span></li>
+          </ul>
+        </div>
+        <div data-perfil="pres">
+          <button class="btn pri largo" type="button">Conectar ao Orzuni</button>
+          <p class="nota" style="margin-top:8px">Você vai para a página do Orzuni, confere o pedido, escolhe a loja do iFood e confirma com a senha do Orzuni. Ninguém copia chave.</p>
+        </div>
+        <div class="aviso info" data-perfil="ger" hidden>
+          <span aria-hidden="true">ℹ</span>
+          <span><b>Só o dono da conta liga o Orzuni</b>Peça a quem é presidente no Regem. Você vê aqui quando a loja estiver ligada.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────── 3 · No Orzuni (parte O1, referência) ───────────── -->
+<section class="vista" id="v3" hidden>
+  <h1>A página do Orzuni (parte O1, referência)</h1>
+  <p class="intro">É a tela única de autorização do Padrão DMS (§3), na ordem fixa: o aplicativo e quem o faz, a conta que pede, onde vale, as permissões com o motivo, o que o aplicativo não pode e a senha. Quem constrói é o projeto do Orzuni; aqui ela aparece para mostrar o caminho inteiro.</p>
+  <div class="ctls">
+    <div class="ctl"><span>CNPJ da conta que pede</span>
+      <button type="button" data-g="cnpj" data-val="igual" aria-pressed="true">Mesma empresa</button>
+      <button type="button" data-g="cnpj" data-val="outra" aria-pressed="false">Outra empresa</button>
+    </div>
+  </div>
+  <div class="oz">
+    <div class="oz-pag">
+      <div class="oz-marca"><span class="logo oz sm" aria-hidden="true">OZ</span>Orzuni</div>
+      <h2>O Regem pede acesso à sua conta do Orzuni</h2>
+
+      <div class="oz-card">
+        <h3>O aplicativo</h3>
+        <div><b>Regem</b> · DMS Tecnologias · CNPJ 12.345.678/0001-90</div>
+        <div><span class="oz-selo">✓ Verificado pela DMS</span></div>
+      </div>
+
+      <div class="oz-card">
+        <h3>Quem pede</h3>
+        <div><b>Casa do Hambúrguer Ltda.</b> · CNPJ <span data-cnpj="igual">98.765.432/0001-10</span><span data-cnpj="outra" hidden>11.222.333/0001-44</span></div>
+        <small>dono@exemplo.com.br · no Regem, loja Centro</small>
+        <div class="oz-alerta" data-cnpj="outra" hidden>
+          <b>Você está ligando a sua conta do Orzuni à conta de outra empresa</b>
+          <span>O CNPJ de quem pede não é o da sua conta do Orzuni.</span>
+          <label><input type="checkbox"> Confirmo que essa empresa pode mexer no meu cardápio do iFood</label>
+        </div>
+      </div>
+
+      <div class="oz-card">
+        <h3>Onde vale</h3>
+        <small>Escolha uma loja do iFood (uma loja do Regem liga a uma do iFood).</small>
+        <div class="oz-lojas" role="radiogroup" aria-label="Loja do iFood">
+          <label class="oz-loja"><input type="radio" name="loja" checked> Casa do Hambúrguer — Centro</label>
+          <label class="oz-loja"><input type="radio" name="loja"> Casa do Hambúrguer — Bairro Novo</label>
+          <label class="oz-loja usada"><input type="radio" name="loja" disabled> <span>Casa do Hambúrguer — Shopping<small style="display:block">já ligada a outra loja do Regem</small></span></label>
+        </div>
+        <small>A loja não está aqui? Conecte primeiro em <b>Conectar iFood</b>.</small>
+      </div>
+
+      <div class="oz-card">
+        <h3>O que o Regem vai poder fazer</h3>
+        <ul class="oz-perm">
+          <li><span class="t"><b>Ler o cardápio</b><small>Para saber quais itens estão no iFood e com que preço.</small></span><span class="oz-tag">necessária</span></li>
+          <li><span class="t"><b>Mudar o preço dos itens</b><small>O preço do iFood que você define no Regem.</small></span><span class="oz-tag">necessária</span></li>
+          <li><span class="t"><b>Pausar e reativar itens</b><small>O "Em falta" e a pausa por canal do Regem.</small></span><span class="oz-tag">necessária</span></li>
+          <li><span class="t"><b>Editar nome, descrição e foto</b><small>Quando você muda o produto no Regem.</small></span><button class="chave" type="button" aria-pressed="false" aria-label="Editar nome, descrição e foto"></button></li>
+          <li><span class="t"><b>Pausar a loja inteira</b><small>Quando você pausa o iFood no painel do delivery.</small></span><button class="chave" type="button" aria-pressed="false" aria-label="Pausar a loja inteira"></button></li>
+        </ul>
+      </div>
+
+      <div class="oz-card">
+        <h3>O que o Regem não pode</h3>
+        <ul class="oz-nao">
+          <li>Mexer em outra loja do iFood desta conta</li>
+          <li>Ver o financeiro do iFood nem os pedidos</li>
+          <li>Ver ou guardar a sua senha do Orzuni</li>
+        </ul>
+      </div>
+
+      <div class="oz-card">
+        <label for="oz-senha"><b>Sua senha do Orzuni</b></label>
+        <input id="oz-senha" class="oz-input" type="password" autocomplete="current-password" placeholder="Senha">
+        <small>Vale até você desligar, aqui em Aplicativos conectados ou no Regem.</small>
+        <div class="acoes" style="margin-top:4px">
+          <button class="oz-btn pri" type="button">Autorizar</button>
+          <button class="oz-btn sec" type="button">Agora não</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────── 4 · A volta ───────────── -->
+<section class="vista" id="v4" hidden>
+  <h1>A volta ao Regem</h1>
+  <p class="intro">O Orzuni devolve o código; o Regem troca o código pela ligação de servidor para servidor e mostra o resultado. A pessoa nunca vê código nem segredo.</p>
+  <div class="lado">
+    <div>
+      <p class="legenda">Durante a troca (1 a 2 segundos)</p>
+      <div class="janela-fundo">
+        <div class="janela"><div class="j-corpo" style="justify-items:center;text-align:center;padding:28px 16px">
+          <div class="spinner" role="status" aria-label="Ligando"></div>
+          <b>Ligando ao Orzuni…</b>
+          <p class="nota">Não feche esta página.</p>
+        </div></div>
+      </div>
+    </div>
+    <div>
+      <p class="legenda">Pronto (volta à aba Integrações)</p>
+      <div class="aviso ok" role="status">
+        <span aria-hidden="true">✓</span>
+        <span><b>Orzuni ligado</b>A loja do iFood "Casa do Hambúrguer — Centro" está ligada a esta loja. O preço e a pausa que você mudar já vão ao iFood.</span>
+      </div>
+      <p class="nota" style="margin-top:10px">O dono recebe o e-mail de "aplicativo novo ligado", do Orzuni, como manda o Padrão.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────── 5 · Ligado ───────────── -->
+<section class="vista" id="v5" hidden>
+  <h1>A janela com o Orzuni ligado</h1>
+  <p class="intro">Mostra a loja do iFood, o que está liberado, o último envio e as duas ações: pedir mais (as opcionais que ficaram de fora) e desligar.</p>
+  <div class="ctls">
+    <div class="ctl"><span>Situação</span>
+      <button type="button" data-g="lig" data-val="ok" aria-pressed="true">Ligado</button>
+      <button type="button" data-g="lig" data-val="desl" aria-pressed="false">Desligado no Orzuni</button>
+      <button type="button" data-g="lig" data-val="conf" aria-pressed="false">Confirmar o desligar</button>
+    </div>
+  </div>
+  <div class="janela-fundo">
+    <div class="janela" role="dialog" aria-label="Orzuni">
+      <div class="j-topo"><span class="logo oz sm" aria-hidden="true">OZ</span><b>Orzuni</b>
+        <span class="selo ativo" data-lig="ok conf"><span class="bol"></span>ligado</span>
+        <span class="selo off" data-lig="desl" hidden><span class="bol"></span>desligado</span>
+        <button class="fechar" type="button" aria-label="Fechar">✕</button></div>
+      <div class="j-corpo">
+        <div class="aviso erro" data-lig="desl" hidden>
+          <span aria-hidden="true">!</span>
+          <span><b>A ligação foi desligada no Orzuni em 20/11, 09:12</b>O preço e a pausa que você muda aqui não vão mais ao iFood. O cardápio do iFood ficou como estava.</span>
+        </div>
+        <dl class="kv">
+          <dt>Loja do Regem</dt><dd>Casa do Hambúrguer · Centro</dd>
+          <dt>Loja do iFood</dt><dd>Casa do Hambúrguer — Centro</dd>
+          <dt>Ligado por</dt><dd>Ana (presidente) em 13/11, 14:05</dd>
+          <dt>Último envio</dt><dd>há 5 min · preço do X-Salada</dd>
+        </dl>
+        <div class="bloco">
+          <h3>O que está liberado</h3>
+          <ul class="perm">
+            <li><span class="ic sim" aria-hidden="true">✓</span><span>Ler o cardápio do iFood</span></li>
+            <li><span class="ic sim" aria-hidden="true">✓</span><span>Mudar o preço dos itens</span></li>
+            <li><span class="ic sim" aria-hidden="true">✓</span><span>Pausar e reativar itens</span></li>
+            <li><div class="toggle"><span>Editar nome, descrição e foto<small style="display:block;color:var(--ink-2);font-size:12.5px">Não liberado</small></span><button class="chave" type="button" aria-pressed="false" aria-label="Pedir também: editar nome, descrição e foto"></button></div></li>
+            <li><div class="toggle"><span>Pausar a loja inteira no iFood<small style="display:block;color:var(--ink-2);font-size:12.5px">Não liberado</small></span><button class="chave" type="button" aria-pressed="false" aria-label="Pedir também: pausar a loja inteira"></button></div></li>
+          </ul>
+          <p class="nota" style="margin-top:8px">Ligue o que quer pedir e use "Pedir mais ao Orzuni": a página do Orzuni abre de novo só com o que é novo. Se você recusar lá, fica tudo como está.</p>
+        </div>
+        <div class="acoes" data-lig="ok">
+          <button class="btn" type="button">Pedir mais ao Orzuni</button>
+          <button class="btn perigo" type="button">Desligar</button>
+        </div>
+        <div class="acoes" data-lig="desl" hidden>
+          <button class="btn pri" type="button">Conectar ao Orzuni de novo</button>
+        </div>
+        <div class="dialogo" role="alertdialog" aria-label="Desligar o Orzuni" data-lig="conf" hidden>
+          <h4>Desligar o Orzuni desta loja?</h4>
+          <p class="nota">O preço e a pausa que você mudar no Regem deixam de ir ao iFood. O cardápio do iFood fica como está agora. Para voltar, é só conectar de novo.</p>
+          <div class="acoes"><button class="btn" type="button">Cancelar</button><button class="btn perigo" type="button">Desligar</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────── 6 · Erros ───────────── -->
+<section class="vista" id="v6" hidden>
+  <h1>O que aparece quando não dá certo</h1>
+  <p class="intro">Toda volta sem ligação diz o que aconteceu e o que fazer, e nada muda no que já existia.</p>
+  <div class="lado">
+    <div class="aviso warn"><span aria-hidden="true">!</span><span><b>Você não autorizou no Orzuni</b>Nada mudou. Se quiser ligar, comece de novo pelo botão "Conectar ao Orzuni".</span></div>
+    <div class="aviso warn"><span aria-hidden="true">!</span><span><b>O pedido venceu</b>A página do Orzuni ficou aberta mais de 10 minutos. Comece de novo; nada foi ligado.</span></div>
+    <div class="aviso erro"><span aria-hidden="true">!</span><span><b>Não foi possível falar com o Orzuni agora</b>Tente de novo em alguns minutos. Se continuar, avise o suporte.</span></div>
+    <div class="aviso erro"><span aria-hidden="true">!</span><span><b>Essa loja do iFood já está ligada à loja "Shopping" do Regem</b>Uma loja do iFood liga a uma loja do Regem só. Desligue lá primeiro, ou escolha outra loja do iFood.</span></div>
+    <div class="aviso warn"><span aria-hidden="true">!</span><span><b>Este pedido começou em outra janela</b>Por segurança, a volta só vale na janela que pediu. Comece de novo por aqui.</span></div>
+    <div class="aviso info"><span aria-hidden="true">ℹ</span><span><b>O Orzuni pausou novas ligações do Regem</b>Quando a DMS pausa um aplicativo, a página recusa ligação nova. As que já existem seguem como estão.</span></div>
+  </div>
+</section>
+
+<!-- ───────────── Notas e decisões ───────────── -->
+<section class="vista" id="v7" hidden>
+  <h1>Notas e decisões</h1>
+  <p class="intro">Decisões aprovadas pelo dono em 13/11/2026 (as recomendadas do plano "Clique Regem → Orzuni").</p>
+  <div class="tabela-wrap">
+    <table class="cartoes-sm">
+      <caption class="sr">Decisões do clique Regem → Orzuni</caption>
+      <thead><tr><th>#</th><th>Decisão</th><th>Como fica</th></tr></thead>
+      <tbody>
+        <tr><td>OZ-1</td><td>Onde fica o botão</td><td>Delivery › Configurações › Integrações, cartão "Orzuni"; atalho na Gestão do catálogo enquanto não está ligado</td></tr>
+        <tr><td>OZ-2</td><td>Quem liga</td><td>Só o presidente; os outros veem a situação</td></tr>
+        <tr><td>OZ-3</td><td>O que o Regem pede</td><td>Necessárias: ler o cardápio, mudar preço, pausar e reativar item. Opcionais desligadas: nome, descrição e foto; pausar a loja. O vigia não se pede</td></tr>
+        <tr><td>OZ-4</td><td>Lojas do iFood por loja do Regem</td><td>Uma; a página do Orzuni pede a escolha e marca a que já está ligada</td></tr>
+        <tr><td>OZ-5</td><td>Liberação por empresa no console</td><td>Some no fim do piloto; no piloto, só a empresa do piloto vê o cartão</td></tr>
+        <tr><td>OZ-6</td><td>O caminho da chave pelo console</td><td>Fica como suporte até todas as lojas passarem pelo clique; depois sai, com aviso</td></tr>
+        <tr><td>OZ-7</td><td>A ligação de hoje (loja de teste)</td><td>Segue valendo, sem refazer</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h2 class="legenda" style="margin-top:20px">O que fica fora da tela</h2>
+  <ul class="intro" style="margin-top:0">
+    <li>O segredo da ligação fica só na nuvem, cifrado (a mesma tabela de hoje); nunca aparece na tela nem vai ao servidor da loja.</li>
+    <li>O pedido nasce no servidor do Regem (pedido empurrado com PKCE); o navegador leva só o número do pedido, e a volta só vale na sessão que pediu.</li>
+    <li>Ligar, pedir mais e desligar ficam na auditoria do Regem; o e-mail ao dono é do Orzuni.</li>
+  </ul>
+</section>
+
+</main>
+
+<script>
+(() => {
+  // troca de vista
+  const abas = document.querySelectorAll('#abas .aba');
+  abas.forEach((b) => b.addEventListener('click', () => {
+    abas.forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    document.querySelectorAll('.vista').forEach((v) => { v.hidden = v.id !== b.dataset.v; });
+    window.scrollTo({ top: 0 });
+  }));
+  // grupos de controle: mostram os elementos com data-<grupo> que contém o valor
+  document.querySelectorAll('.ctl button[data-g]').forEach((b) => b.addEventListener('click', () => {
+    const g = b.dataset.g;
+    document.querySelectorAll(`.ctl button[data-g="${g}"]`).forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    document.querySelectorAll(`[data-${g}]`).forEach((el) => {
+      if (el.matches('button[data-g]')) return;
+      const vals = el.getAttribute(`data-${g}`).split(' ');
+      el.hidden = !vals.includes(b.dataset.val);
+    });
+  }));
+  // chaves liga/desliga
+  document.querySelectorAll('.chave').forEach((c) => c.addEventListener('click', () => {
+    c.setAttribute('aria-pressed', String(c.getAttribute('aria-pressed') !== 'true'));
+  }));
+})();
+</script>
+</body>
+</html>

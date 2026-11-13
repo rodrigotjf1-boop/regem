@@ -22,6 +22,7 @@ import { CalculadoraPreco, type ItemDaCalculadora } from '@/components/catalogo/
 import type { CanalCalc, RespostaDasTaxas } from '@/lib/calculadora-preco';
 import { fotosDoProduto, situacaoDaFoto, type FotosDaLoja } from '@/lib/conferencia-apps';
 import { UltimoEnvioIfood } from '@/components/produtos/ultimo-envio-ifood';
+import { AtalhoOrzuni } from '@/components/integracoes/orzuni-clique';
 import {
   agruparPorCategoria, esgotado, pausaNoRegem, pausadoEmAlgumCanal, pausadoNa99, pausadoNoIfood, semPrecoNa99, semPrecoNoIfood,
   type CanalDaGestao, type CategoriaDaGestao,
@@ -339,6 +340,10 @@ export default function CatalogoPage() {
 
   return (
     <Shell eyebrow="Delivery" title="Gestão do catálogo">
+      {/* O iFood pelo Orzuni ainda não ligado nesta loja: o atalho para ligar pelo clique (some quando ligar). */}
+      <div className="mb-4 empty:hidden">
+        <AtalhoOrzuni />
+      </div>
       {conferirLigada && (
         <div role="tablist" aria-label="Gestão do catálogo" className="mb-4 flex flex-wrap gap-x-1 gap-y-2 border-b border-border">
           {(

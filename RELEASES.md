@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O presidente liga a loja ao Orzuni pelo clique (13/11, plano "Clique Regem → Orzuni" R2; mig 416 `@cloud-only` — a
+  tabela nova `orzuni_clique_pedido` entra em `SO_NUVEM` no `sync-daemon`).** Na NUVEM com o merge: o cartão "Orzuni"
+  em Delivery › Configurações › Integrações (só com o direito `ifood_pelo_orzuni`), a página `/integracoes/orzuni/volta`
+  e as rotas `orzuni/clique/*` (presidente). **No `.zip`:** só a tela (no servidor da loja a janela manda abrir o Regem
+  na nuvem — a ligação é só da nuvem). **No `.exe`:** o nome na lista `SO_NUVEM` do `sync-daemon` (V21) vai no próximo
+  corte, sem pressa — na loja a tabela não existe, então não muda nada lá até lá.
+
 - **WhatsApp oficial: cada modelo conferido na conta do número que o envia (13/11, ERR-458; SEM migration; não mexe no
   `sync-daemon`).** Na NUVEM com o merge: o "Sincronizar" de Marketing › Modelos lê a conta do principal e a do
   marketing e confere cada modelo na do número que o envia; o que não está lá volta a rascunho. Só nuvem (o WhatsApp
