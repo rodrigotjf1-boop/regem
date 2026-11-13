@@ -206,6 +206,19 @@ O que ficou diferente do protótipo, e por quê:
 
 **Conferência:** `mister.regras.spec.ts` (sem banco), `mister-pg.teste-spec.ts` (Postgres, com a Meta de mentira; roda dentro da `ia/ia-empresa-pg.spec.ts`, que já aplica a 415 — ERR-451) e o roteiro de tela `frontend/roteiros/mister-console.mjs`.
 
+### F2.0d — A parte "Pessoas" (terceira entrega do protótipo; sem migration)
+
+- **A página `/mister` ganhou partes:** "Pessoas" e "IA e uso". O presidente vê as duas (abre em Pessoas; `/mister?parte=ia` abre direto na IA). O **gerente** passa a entrar: vê só "Pessoas", sem a faixa de partes, e o item "Mister" aparece no menu dele. Quem é de supervisão ou execução continua sem entrar.
+- **Pessoas:** os gerentes e presidentes ativos da empresa, com a situação do WhatsApp de cada um (ligado, avisos parados, não ligado), o final do número e desde quando. O presidente vê todos; o gerente recebe **só a própria linha** — a dos outros nem sai do servidor. Do telefone sai só o final, nunca o número.
+- **Ligar o meu WhatsApp:** o diálogo gera o código (10 minutos, uma vez), mostra a mensagem `MISTER 123456`, o código para a câmera e o link que abre o WhatsApp do celular já com a mensagem para o número do Mister, e espera até a pessoa aparecer ligada (pergunta ao servidor a cada 3 segundos, só com o diálogo aberto e o código valendo). Código vencido: "Gerar outro código". Sem o número conectado ou com a chave geral desligada, a tela avisa e não deixa ligar.
+- **Desligar:** cada um desliga o próprio; o de outra pessoa, só o presidente, dentro da empresa dele (`DELETE mister/pessoas/:colaboradorId`), com confirmação e auditoria de quem fez e de quem. Ligar de novo é sempre pela própria pessoa.
+- **"O que pode"** segue a hierarquia (presidente: avisos, consulta e autorização; gerente: avisos e consulta). A gaveta "Editar o que pode" do protótipo não entra: o perfil de permissões é do fim do projeto.
+- Os textos do Mister no WhatsApp passaram a apontar `no menu Mister, em "Pessoas"`.
+
+O que ficou diferente do protótipo: o subtítulo não diz "e só do que você permitir" e o diálogo de desligar não cita avisos nem autorizações pendentes — nada disso existe ainda; e há um estado a mais, "o Mister ainda não está disponível pelo WhatsApp", para quando o número não está conectado ou a distribuição não ligou.
+
+**Conferência:** `mister-pg.teste-spec.ts` (a lista por nível, o que o gerente recebe, quem desliga quem, outra empresa fora do alcance) e o roteiro de tela `frontend/roteiros/mister.mjs` (as cenas de Pessoas, 16 larguras).
+
 ## 5. O que depende do dono
 
 1. ~~Onde a IA roda~~ — decidido: nuvem.

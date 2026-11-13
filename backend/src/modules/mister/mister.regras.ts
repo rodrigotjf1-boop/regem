@@ -166,13 +166,13 @@ export function situacaoDaEmpresa(e: { modulo: boolean; temIa: boolean; chaveSit
 
 export const TEXTOS = {
   desconhecido:
-    'Olá! Este é o Mister, o assistente de gestão do Regem.\n\nAinda não sei quem você é. Para falar comigo, ligue o seu WhatsApp dentro do Regem, no menu Mister.',
+    'Olá! Este é o Mister, o assistente de gestão do Regem.\n\nAinda não sei quem você é. Para falar comigo, ligue o seu WhatsApp dentro do Regem, no menu Mister, em "Pessoas".',
   ligado: (nome: string, empresa: string) =>
     `Pronto, ${nome}! Este WhatsApp está ligado a você no Regem da ${empresa}.\n\nÉ por aqui que os avisos da empresa vão chegar.\n\nPara parar os avisos, responda PARAR AVISOS.`,
-  codigoNaoVale: 'Esse código não vale mais. Gere outro dentro do Regem, no menu Mister, e mande de novo. O código vale 10 minutos e uma vez só.',
+  codigoNaoVale: 'Esse código não vale mais. Gere outro dentro do Regem, no menu Mister, em "Pessoas", e mande de novo. O código vale 10 minutos e uma vez só.',
   codigosDemais: 'Foram muitos códigos errados deste WhatsApp. Espere uma hora, gere um código novo dentro do Regem e mande de novo.',
   numeroDeOutraPessoa: (empresa: string) =>
-    `Este WhatsApp já está ligado a outra pessoa na ${empresa}. Um número liga uma pessoa só: peça para ela desligar dentro do Regem, no menu Mister, e mande o código de novo.`,
+    `Este WhatsApp já está ligado a outra pessoa na ${empresa}. Um número liga uma pessoa só: peça para ela desligar dentro do Regem, no menu Mister, em "Pessoas", e mande o código de novo.`,
   semAcesso: 'Não consegui ligar: o código é de alguém que não é mais gerente nem presidente, ou a empresa está com o Mister desligado.',
   parou: (nome: string) => `Certo, ${nome}: este WhatsApp não recebe mais os avisos do Mister.\n\nPara voltar, responda VOLTAR AVISOS.`,
   voltou: (nome: string) => `Pronto, ${nome}: os avisos do Mister voltaram para este WhatsApp.\n\nPara parar, responda PARAR AVISOS.`,

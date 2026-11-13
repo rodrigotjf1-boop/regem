@@ -157,6 +157,9 @@ export function testesDoMisterComPostgres(): void {
         ([{ id: pessoa[chave] }] = await q(`insert into colaborador (tenant_id, nome, funcao_id) values ($1, $2, $3) returning id`, [tenant, nome, funcao[f]]));
       await criar('ana', 'Ana Souza', A, 'presidente-a');
       await criar('carlos', 'Carlos Lima', A, 'gerente-a');
+      // O gerente tem loja: é dela que ele fala (e é ela que aparece na parte "Pessoas").
+      const [{ id: loja }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja Centro') returning id`, [A]);
+      await q(`update colaborador set unidade_id = $2 where id = $1`, [pessoa.carlos, loja]);
       await criar('edu', 'Edu Balcão', A, 'execucao-a');
       await criar('anaB', 'Ana Souza', B, 'presidente-b');
     });
@@ -171,7 +174,7 @@ export function testesDoMisterComPostgres(): void {
       volta('ANTHROPIC_API_KEY', antes.ia);
       await limparConversas().catch(() => {});
       await numeroZerado().catch(() => {});
-      for (const t of ['ia_uso_dia', 'ia_credencial', 'modulo_ativacao', 'cardapio_config', 'colaborador', 'funcao'])
+      for (const t of ['ia_uso_dia', 'ia_credencial', 'modulo_ativacao', 'cardapio_config', 'colaborador', 'funcao', 'unidade'])
         await q(`delete from ${t} where tenant_id = any($1::uuid[])`, [[A, B]]).catch(() => {});
       await q(`delete from empresa where id = any($1::uuid[])`, [[A, B]]).catch(() => {});
       await pool.end();
@@ -499,6 +502,71 @@ export function testesDoMisterComPostgres(): void {
       const meu = await vinculo.desligar(usuario('carlos', A, 'gerente'));
       expect(meu).toMatchObject({ ligado: false, final: null });
       expect(await reconhecido()).toBe('fixa');
+    });
+
+    // ───────────────────────────── a parte "Pessoas" ─────────────────────────────
+
+    it('Pessoas: o presidente vê gerentes e presidentes da empresa dele, com o final do telefone e nunca o número; o gerente recebe só a própria linha', async () => {
+      const tel = telefone();
+      const telCarlos = telefone();
+      await ligar('ana', tel);
+      await ligar('carlos', telCarlos, A, 'gerente');
+      await ligar('anaB', telefone(), B);
+      expect(await mandar(telCarlos, 'PARAR AVISOS')).toBe('parou');
+      const doPresidente = await vinculo.pessoas(usuario('ana'));
+      expect(doPresidente).toMatchObject({ disponivel: true, numeroDoMister: NUMERO_DO_MISTER, souPresidente: true, total: 2 });
+      expect(doPresidente.pessoas).toEqual([
+        { colaboradorId: pessoa.ana, nome: 'Ana Souza', nivel: 'presidente', loja: null, voce: true, ligado: true, final: tel.slice(-4), ligadoEm: expect.stringMatching(ISO), pausado: false, pode: ['avisos', 'consulta', 'autorizacao'] },
+        { colaboradorId: pessoa.carlos, nome: 'Carlos Lima', nivel: 'gerente', loja: 'Loja Centro', voce: false, ligado: true, final: telCarlos.slice(-4), ligadoEm: expect.stringMatching(ISO), pausado: true, pode: ['avisos', 'consulta'] },
+      ]);
+      // Nem o telefone inteiro, nem quem não fala com o Mister (execução), nem gente de outra empresa.
+      const cru = JSON.stringify(doPresidente);
+      for (const proibido of [tel, telCarlos, 'Edu', pessoa.edu, pessoa.anaB]) expect(cru).not.toContain(proibido);
+      // O gerente recebe só a própria linha — a dos outros nem sai do servidor.
+      const doGerente = await vinculo.pessoas(usuario('carlos', A, 'gerente'));
+      expect(doGerente).toMatchObject({ souPresidente: false, total: 1 });
+      expect(doGerente.pessoas.map((p) => [p.colaboradorId, p.voce])).toEqual([[pessoa.carlos, true]]);
+      expect(JSON.stringify(doGerente)).not.toContain(pessoa.ana);
+      // O token dizia "presidente", mas no banco ele é gerente: vale o banco.
+      expect((await vinculo.pessoas(usuario('carlos', A, 'presidente'))).pessoas).toHaveLength(1);
+      await expect(vinculo.pessoas(usuario('edu', A, 'execucao'))).rejects.toThrow('Só gerente ou presidente');
+      // Quem não ligou aparece como não ligado; sem número conectado, a lista avisa que o Mister não está disponível.
+      await vinculo.desligar(usuario('carlos', A, 'gerente'));
+      await numeroZerado();
+      const semNumero = await vinculo.pessoas(usuario('ana'));
+      expect(semNumero).toMatchObject({ disponivel: false, numeroDoMister: null });
+      expect(semNumero.pessoas[1]).toMatchObject({ colaboradorId: pessoa.carlos, ligado: false, final: null, ligadoEm: null, pausado: false });
+    });
+
+    it('desligar: cada um o próprio; o de outra pessoa só o presidente, e só dentro da empresa dele', async () => {
+      const tel = telefone();
+      const telCarlos = telefone();
+      const telB = telefone();
+      await ligar('ana', tel);
+      await ligar('carlos', telCarlos, A, 'gerente');
+      await ligar('anaB', telB, B);
+      auditados.length = 0;
+      // O gerente não desliga o presidente — nem com um token que diga "presidente".
+      await expect(vinculo.desligarPessoa(usuario('carlos', A, 'gerente'), pessoa.ana)).rejects.toThrow('Só o presidente desliga');
+      await expect(vinculo.desligarPessoa(usuario('carlos', A, 'presidente'), pessoa.ana)).rejects.toThrow('Só o presidente desliga');
+      expect((await linha('ana')).telefone).toBe(tel);
+      // O presidente de A não alcança ninguém de B: a gravação filtra pela empresa de quem pede.
+      expect(await vinculo.desligarPessoa(usuario('ana'), pessoa.anaB)).toEqual({ desligado: false });
+      expect((await linha('anaB')).telefone).toBe(telB);
+      await expect(vinculo.desligarPessoa(usuario('ana'), 'nao-e-um-id')).rejects.toThrow('Pessoa inválida');
+      expect(auditados).toEqual([]);
+      // O presidente desliga o gerente: fica na auditoria (quem fez e de quem) e o telefone deixa de representar a pessoa.
+      expect(await vinculo.desligarPessoa(usuario('ana'), pessoa.carlos)).toEqual({ desligado: true });
+      expect(await linha('carlos')).toMatchObject({ telefone: null, ligado_em: null, pausado_em: null, codigo: null });
+      expect(auditados).toEqual([expect.objectContaining({ tenantId: A, atorId: pessoa.ana, acao: 'mister_whatsapp_desligado', entidadeId: pessoa.carlos, detalhe: { por: 'presidente', colaboradorId: pessoa.carlos } })]);
+      expect(await mandar(telCarlos, 'bom dia')).toBe('fixa');
+      // De novo, já desligado: não faz nada nem audita outra vez.
+      expect(await vinculo.desligarPessoa(usuario('ana'), pessoa.carlos)).toEqual({ desligado: false });
+      expect(auditados).toHaveLength(1);
+      // Cada um desliga o próprio.
+      expect(await vinculo.desligarPessoa(usuario('ana'), pessoa.ana)).toEqual({ desligado: true });
+      expect(auditados.at(-1)).toMatchObject({ atorId: pessoa.ana, entidadeId: pessoa.ana, detalhe: { por: 'a própria pessoa' } });
+      expect((await vinculo.meu(usuario('ana'))).ligado).toBe(false);
     });
 
     // ───────────────────────────── parar, voltar e o que ainda não existe ─────────────────────────────

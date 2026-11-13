@@ -1,4 +1,4 @@
-import { Controller, Delete, Get, Post, UseGuards } from '@nestjs/common';
+import { Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
@@ -10,8 +10,9 @@ import { AuthUser } from '../../auth/auth-user';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { MisterVinculoService } from './mister-vinculo.service';
 
-// O WHATSAPP DE QUEM ESTÁ LOGADO no Mister (mig 417). Gerente e presidente, só na nuvem e só com o módulo ligado.
-// Cada um liga o PRÓPRIO número: nenhuma rota recebe telefone nem a pessoa de outro — tudo sai do usuário logado.
+// O WHATSAPP DE QUEM ESTÁ LOGADO no Mister e a parte "Pessoas" (mig 417). Gerente e presidente, só na nuvem e só com o
+// módulo ligado. Cada um liga o PRÓPRIO número: nenhuma rota recebe telefone, e o código sai sempre para o usuário logado.
+// A única rota que nomeia outra pessoa é a de DESLIGAR — e o serviço só a aceita do presidente, dentro da empresa dele.
 @Controller('mister')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard, ModuloGuard)
 export class MisterController {
@@ -42,5 +43,23 @@ export class MisterController {
   @RequireModulo('mister')
   desligar(@CurrentUser() user: AuthUser) {
     return this.vinculo.desligar(user);
+  }
+
+  /** A parte "Pessoas": o presidente vê os gerentes e presidentes da empresa; o gerente recebe só a própria linha. */
+  @Get('pessoas')
+  @CloudOnly()
+  @Roles('presidente', 'gerente')
+  @RequireModulo('mister')
+  pessoas(@CurrentUser() user: AuthUser) {
+    return this.vinculo.pessoas(user);
+  }
+
+  /** Desliga o WhatsApp de uma pessoa: o próprio, ou — só o presidente — o de outra pessoa da empresa dele. */
+  @Delete('pessoas/:colaboradorId')
+  @CloudOnly()
+  @Roles('presidente', 'gerente')
+  @RequireModulo('mister')
+  desligarPessoa(@CurrentUser() user: AuthUser, @Param('colaboradorId') colaboradorId: string) {
+    return this.vinculo.desligarPessoa(user, colaboradorId);
   }
 }
