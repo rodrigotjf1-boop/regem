@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Mister: a parte "Pessoas" — cada gestor liga o próprio WhatsApp (13/11, terceira entrega do protótipo; SEM
+  migration; não mexe no `sync-daemon`).** Na NUVEM com o merge: a página `/mister` com as partes "Pessoas" e "IA e
+  uso", o gerente entrando só em "Pessoas", o diálogo de ligar (código, câmera e link) e o desligar. O Mister só roda
+  na nuvem. **No `.zip`:** o menu do servidor da loja passa a mostrar o item "Mister" também ao gerente (a página lá
+  segue dizendo que o Mister funciona pela nuvem). Nada no `.exe`.
+
 - **Mister: o número da distribuição no console e a entrada do WhatsApp (13/11, segunda entrega do protótipo; mig 417
   `@cloud-only`, aplicada na nuvem antes do merge; MEXE no `sync-daemon`).** Na NUVEM com o merge: a aba "Mister" do
   console da distribuição (conectar o número, a chave geral — nasce DESLIGADA — e as empresas com o módulo) e a entrada
