@@ -44,7 +44,7 @@ descrever('módulo Mister: nasce desligado, o presidente liga, o plano não limi
   }
 
   it('está na lista, com o padrão desligado; os outros módulos seguem nascendo ligados', () => {
-    expect(MODULOS.find((m) => m.chave === 'mister')).toEqual({ chave: 'mister', label: 'Mister', emoji: '🧭', padrao: false });
+    expect(MODULOS.find((m) => m.chave === 'mister')).toEqual({ chave: 'mister', label: 'Mister', emoji: '✨', padrao: false });
     expect(MODULOS.filter((m) => m.padrao === false).map((m) => m.chave)).toEqual(['mister']);
   });
 
