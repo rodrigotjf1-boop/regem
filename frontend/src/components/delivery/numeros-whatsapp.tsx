@@ -206,6 +206,9 @@ function CardNumero({
   const [numero, setNumero] = useState(dado.numero ?? '');
   const [qr, setQr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // O caminho da janela da Meta, escolhido ANTES do botão (12/11/2026): ele muda o fluxo desde o primeiro clique e não se
+  // corrige depois — "coexistência" (o número segue no WhatsApp Business do celular) ou "só da API".
+  const [caminho, setCaminho] = useState<'coexistencia' | 'dedicado' | null>(null);
 
   useEffect(() => {
     setProvedor(dado.provedor);
@@ -355,8 +358,19 @@ function CardNumero({
           }
           api
             .whatsappEmbeddedSignup({ code, phoneNumberId, wabaId, papel, coexistence })
-            .then(() => {
-              toast.success(coexistence ? 'WhatsApp conectado em coexistência!' : 'WhatsApp oficial conectado!');
+            .then((r: any) => {
+              if (coexistence && r?.copia === 'recusada') {
+                // Sem o pedido da cópia, a Meta desfaz a coexistência em 24 horas: o dono precisa saber agora.
+                toast.error(
+                  `Conectado, mas a Meta recusou o pedido para copiar os contatos e as conversas do celular (${r?.motivoCopia ?? 'sem motivo'}). Conecte de novo em até 24 horas, senão a Meta desfaz a conexão.`,
+                );
+              } else {
+                toast.success(
+                  coexistence
+                    ? 'WhatsApp conectado em coexistência! O número segue no celular. Se o WhatsApp Web desconectar, conecte de novo pelo celular.'
+                    : 'WhatsApp oficial conectado!',
+                );
+              }
               onMudou();
             })
             .catch((e) => toast.error(e instanceof Error ? e.message : 'Falha ao finalizar o cadastro.'))
@@ -366,7 +380,9 @@ function CardNumero({
           config_id: cfg.configId,
           response_type: 'code',
           override_default_response_type: true,
-          extras: { setup: {}, featureType: '', sessionInfoVersion: '3' },
+          // Coexistência: a Meta só oferece "conectar o WhatsApp Business existente" com este featureType; vazio = número só
+          // da API (era sempre vazio até 12/11/2026 — a opção nunca aparecia).
+          extras: { setup: {}, featureType: caminho === 'coexistencia' ? 'whatsapp_business_app_onboarding' : '', sessionInfoVersion: '3' },
         },
       );
     } catch (e) {
@@ -426,8 +442,49 @@ function CardNumero({
 
           {provedor === 'cloud' ? (
             <div className="mt-2 space-y-2">
+              <fieldset className="space-y-1.5">
+                <legend className="text-[11px] font-semibold text-foreground">Como este número vai funcionar?</legend>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {(
+                    [
+                      {
+                        k: 'coexistencia',
+                        titulo: 'Continua no WhatsApp Business do celular',
+                        texto:
+                          'Coexistência: o número segue no celular e no WhatsApp Web para atender à mão, e o Regem usa a API oficial por trás. A Meta copia os contatos e as conversas do celular.',
+                      },
+                      {
+                        k: 'dedicado',
+                        titulo: 'Só na API oficial',
+                        texto: 'Número novo ou que sai do aplicativo do celular: o atendimento passa a ser feito aqui, na tela do Regem.',
+                      },
+                    ] as const
+                  ).map((o) => (
+                    <button
+                      key={o.k}
+                      type="button"
+                      aria-pressed={caminho === o.k}
+                      disabled={!pode || busy}
+                      onClick={() => setCaminho(o.k)}
+                      className={`rounded-lg border p-2 text-left text-[11px] leading-relaxed text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                        caminho === o.k ? 'border-primary bg-primary/10' : 'border-border hover:bg-muted/40'
+                      }`}
+                    >
+                      <span className="block text-xs font-semibold">{o.titulo}</span>
+                      {o.texto}
+                    </button>
+                  ))}
+                </div>
+                {caminho === 'coexistencia' && (
+                  <p className="text-[11px] text-foreground/80">
+                    O número precisa estar no aplicativo <strong>WhatsApp Business</strong> (versão 2.24.17 ou mais nova). Na
+                    janela da Meta, conecte o WhatsApp Business existente e leia o QR com o celular. Um número que hoje está
+                    só na API precisa antes ser apagado da conta no WhatsApp Manager e registrado de novo no aplicativo.
+                  </p>
+                )}
+              </fieldset>
               <div className="flex flex-wrap gap-2">
-                <Button type="button" size="sm" disabled={!pode || busy} onClick={embeddedSignup}>
+                <Button type="button" size="sm" disabled={!pode || busy || !caminho} onClick={embeddedSignup}>
                   {busy ? 'Abrindo…' : conectado ? 'Reconectar com a Meta' : 'Conectar com a Meta (recomendado)'}
                 </Button>
                 {conectado && (
@@ -446,13 +503,6 @@ function CardNumero({
               <p className="text-[11px] text-foreground">
                 Abre uma janela da Meta pra você conectar o número e cadastrar sua forma de pagamento (a Meta
                 cobra as mensagens direto de você).
-              </p>
-              <p className="rounded-lg bg-primary/5 px-2 py-1.5 text-[11px] text-foreground">
-                💚 <strong>Já usa o WhatsApp Business neste número?</strong> Na janela da Meta, escolha{' '}
-                <strong>conectar sua conta existente (coexistência)</strong>: o número <strong>continua funcionando
-                no seu celular e no WhatsApp Web</strong> pra você atender à mão, e a Regem usa a API oficial por
-                trás pra campanhas e avisos. Se for um número novo (ou migração), ele sai do app comum e o
-                atendimento passa a ser feito aqui, na tela do Regem.
               </p>
               <details className="text-[11px] text-foreground/70">
                 <summary className="cursor-pointer">avançado — informar o código do número manualmente</summary>
