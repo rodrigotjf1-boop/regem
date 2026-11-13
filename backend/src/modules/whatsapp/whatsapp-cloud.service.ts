@@ -22,6 +22,7 @@ import { cardapioConfig, empresa, whatsappMensagem, whatsappNumero, whatsappTemp
 import { registrarSaida, registrarVolta } from '../../common/consentimento-marketing';
 import { buscarUrlPublica } from '../../common/ssrf-guard';
 import { escolherNumeroDaWaba, pedirCopiaDoApp, type ResultadoDaCopia } from './coexistencia-meta';
+import { decidirSincronizacao, papelDoModelo, STATUS_DA_META, type PapelDoNumero } from './modelos-por-conta';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // API OFICIAL do WhatsApp (Meta Cloud API) — via paralela ao Evolution.
@@ -1560,20 +1561,29 @@ export class WhatsappCloudService {
 
   // Modelos da conta, com o status de aprovacao. E a base para a tela escolher o
   // modelo de um aviso ou de uma campanha — e para o lojista ver o que ja aprovou.
-  async listarTemplates(tenantId: string) {
-    const waba = await this.wabaDe(tenantId); // papel-aware (Marketing → Principal → cfg → env)
-    const url = `${GRAPH}/${waba}/message_templates?fields=name,status,category,language&limit=100`;
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${this.token()}` },
-    }).catch(() => null);
-    if (!res || !res.ok) {
-      const corpo = res ? await res.text().catch(() => '') : '';
-      throw new BadRequestException(
-        `Falha ao listar modelos (${res?.status ?? 'sem resposta'}): ${corpo.slice(0, 180)}`,
-      );
+  // `waba` informada: lista ESSA conta (a sincronização lê a de cada papel — ERR-458); sem ela, a de sempre (marketing →
+  // principal → cfg → env). Segue as páginas da Meta (até 10 × 100): conta com mais de 100 modelos não perde nenhum — na
+  // sincronização, um modelo "sumido" da lista volta a rascunho.
+  async listarTemplates(tenantId: string, waba?: string) {
+    const conta = waba || (await this.wabaDe(tenantId));
+    let url: string | null = `${GRAPH}/${conta}/message_templates?fields=name,status,category,language&limit=100`;
+    const todos: any[] = [];
+    for (let pagina = 0; url && pagina < 10; pagina++) {
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${this.token()}` },
+      }).catch(() => null);
+      if (!res || !res.ok) {
+        const corpo = res ? await res.text().catch(() => '') : '';
+        throw new BadRequestException(
+          `Falha ao listar modelos (${res?.status ?? 'sem resposta'}): ${corpo.slice(0, 180)}`,
+        );
+      }
+      const json: any = await res.json().catch(() => ({}));
+      todos.push(...(Array.isArray(json?.data) ? json.data : []));
+      const proxima = typeof json?.paging?.next === 'string' ? json.paging.next : null;
+      url = proxima && proxima.startsWith('https://graph.facebook.com/') ? proxima : null;
     }
-    const json: any = await res.json().catch(() => ({}));
-    return (json?.data ?? []).map((t: any) => ({
+    return todos.map((t: any) => ({
       nome: t?.name,
       status: t?.status,
       categoria: t?.category,
@@ -1882,7 +1892,7 @@ export class WhatsappCloudService {
       .where(and(eq(whatsappTemplate.id, id), eq(whatsappTemplate.tenantId, tenantId)));
     if (!tpl) throw new NotFoundException('Modelo não encontrado.');
     // UTILIDADE (avisos de status) vive na WABA do PRINCIPAL; marketing, na do Marketing.
-    const waba = await this.wabaDe(tenantId, tpl.categoria === 'UTILITY' ? 'principal' : 'marketing');
+    const waba = await this.wabaDe(tenantId, papelDoModelo(tpl));
 
     // Trava as regras da Meta ANTES de enviar (evita rejeição + dá mensagem clara em pt).
     const errCorpo = this.validarCorpoTemplate(tpl.corpo, tpl.formato === 'carrossel' ? 'texto do topo' : 'corpo');
@@ -2004,26 +2014,40 @@ export class WhatsappCloudService {
     return row;
   }
 
-  // Sincroniza o STATUS dos templates com a Meta (aprovado/rejeitado/pausado).
+  // Sincroniza o STATUS dos templates com a Meta (aprovado/rejeitado/pausado) — cada modelo na conta do número que o
+  // ENVIA (`modelos-por-conta.ts`, ERR-458): o aviso na do principal, a campanha na do marketing. A categoria é a que a
+  // Meta DEU (ela reclassifica: o aviso do cashback pedido como utilidade pode voltar como marketing — Onda 3, decisão 5).
+  // O que não está na conta que envia volta a rascunho (a Meta o recusaria com #132001).
   async sincronizarTemplates(tenantId: string) {
-    const remotos = await this.listarTemplates(tenantId); // [{nome,status,categoria,idioma}]
-    const mapa = new Map((remotos as any[]).map((t) => [`${t.nome}|${t.idioma}`, t]));
     const locais = await this.templatesLocais(tenantId);
-    const de: Record<string, string> = { APPROVED: 'aprovado', PENDING: 'pendente', REJECTED: 'rejeitado', PAUSED: 'pausado' };
-    for (const l of locais) {
-      const remoto: any = mapa.get(`${l.nome}|${l.idioma}`);
-      const st = remoto?.status;
-      // A categoria é a que a Meta DEU (ela reclassifica: o aviso do cashback pedido como utilidade pode voltar como
-      // marketing — e aí conta na frequência das ofertas; Onda 3, decisão 5 do dono).
-      const cat = ['MARKETING', 'UTILITY', 'AUTHENTICATION'].includes(String(remoto?.categoria)) ? String(remoto.categoria) : null;
-      const mudaStatus = !!(st && de[st] && de[st] !== l.status);
-      const mudaCategoria = !!(cat && cat !== l.categoria);
-      if (mudaStatus || mudaCategoria) {
-        await this.db
-          .update(whatsappTemplate)
-          .set({ ...(mudaStatus ? { status: de[st] } : {}), ...(mudaCategoria ? { categoria: cat as string } : {}), atualizadoEm: new Date() })
-          .where(eq(whatsappTemplate.id, l.id));
+    const wabaDoPapel = new Map<PapelDoNumero, string>();
+    for (const papel of ['principal', 'marketing'] as const) {
+      try {
+        wabaDoPapel.set(papel, await this.wabaDe(tenantId, papel));
+      } catch {
+        /* sem conta neste papel: os modelos dele não mudam */
       }
+    }
+    if (!wabaDoPapel.size) throw new BadRequestException('Conta do WhatsApp Business (WABA) não vinculada a esta loja.');
+    // Uma leitura por conta (as duas podem ser a mesma); a que falhar não muda os modelos dela.
+    const lidas = new Map<string, any[] | null>();
+    let erro: unknown = null;
+    for (const waba of new Set(wabaDoPapel.values())) {
+      try {
+        lidas.set(waba, await this.listarTemplates(tenantId, waba));
+      } catch (e) {
+        erro = e;
+        lidas.set(waba, null);
+      }
+    }
+    if ([...lidas.values()].every((l) => l === null)) throw erro;
+    const remotosPorPapel: Partial<Record<PapelDoNumero, any[] | null>> = {};
+    for (const [papel, waba] of wabaDoPapel) remotosPorPapel[papel] = lidas.get(waba) ?? null;
+    for (const m of decidirSincronizacao(locais as any[], remotosPorPapel)) {
+      await this.db
+        .update(whatsappTemplate)
+        .set({ ...(m.status ? { status: m.status } : {}), ...(m.categoria ? { categoria: m.categoria } : {}), atualizadoEm: new Date() })
+        .where(eq(whatsappTemplate.id, m.id));
     }
     return this.templatesLocais(tenantId);
   }
@@ -2237,9 +2261,9 @@ export class WhatsappCloudService {
   }
 
   /**
-   * Status e categoria de UM modelo, lidos na Meta e gravados no local. Procura na WABA do principal e na do marketing
-   * (a utilidade é pedida na do principal; a lista geral olha primeiro a do marketing). Best-effort: sem resposta, fica
-   * o que estava.
+   * Status e categoria de UM modelo, lidos na Meta e gravados no local — SÓ na conta do número que o envia (o aviso na do
+   * principal, a campanha na do marketing — ERR-458: achar o mesmo nome na outra conta dava "aprovado" a um modelo que o
+   * envio recusava). Best-effort: sem resposta, fica o que estava.
    */
   async atualizarModelo(tenantId: string, nome: string): Promise<void> {
     const [l] = await this.db
@@ -2248,14 +2272,12 @@ export class WhatsappCloudService {
       .where(and(eq(whatsappTemplate.tenantId, tenantId), eq(whatsappTemplate.nome, nome), eq(whatsappTemplate.idioma, 'pt_BR')));
     if (!l) return;
     const wabas = new Set<string>();
-    for (const papel of ['principal', 'marketing'] as const) {
-      try {
-        wabas.add(await this.wabaDe(tenantId, papel));
-      } catch {
-        /* sem WABA neste papel */
-      }
+    try {
+      wabas.add(await this.wabaDe(tenantId, papelDoModelo(l)));
+    } catch {
+      /* sem conta para o papel do modelo */
     }
-    const de: Record<string, string> = { APPROVED: 'aprovado', PENDING: 'pendente', REJECTED: 'rejeitado', PAUSED: 'pausado' };
+    const de = STATUS_DA_META;
     for (const waba of wabas) {
       const res = await fetch(
         `${GRAPH}/${waba}/message_templates?name=${encodeURIComponent(nome)}&fields=name,status,category,language,rejected_reason&limit=10`,

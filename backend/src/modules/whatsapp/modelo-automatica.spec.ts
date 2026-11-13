@@ -150,6 +150,7 @@ describe('modelo das automáticas na API oficial', () => {
   it('a sincronização guarda a categoria que a Meta DEU (utilidade reclassificada como marketing)', async () => {
     const db = bancoFalso([]);
     const svc = servico(db);
+    (svc as any).wabaDe = async () => 'WABA-1'; // uma conta só: o principal e o marketing na mesma
     (svc as any).listarTemplates = async () => [
       { nome: 'cashback_vencendo', idioma: 'pt_BR', status: 'APPROVED', categoria: 'MARKETING' },
       { nome: 'pedido_pronto', idioma: 'pt_BR', status: 'APPROVED', categoria: 'UTILITY' },
@@ -163,7 +164,51 @@ describe('modelo das automáticas na API oficial', () => {
     expect(db.atualizados[0]).toMatchObject({ status: 'aprovado', categoria: 'MARKETING' });
   });
 
-  it('atualizar UM modelo: procura na WABA do principal e na do marketing e grava status, categoria e motivo', async () => {
+  it('a sincronização com duas contas lê cada modelo na do número que o envia (ERR-458)', async () => {
+    const db = bancoFalso([]);
+    const svc = servico(db);
+    (svc as any).wabaDe = async (_t: string, papel: string) => (papel === 'principal' ? 'WABA-P' : 'WABA-M');
+    const lidas: string[] = [];
+    (svc as any).listarTemplates = async (_t: string, waba: string) => {
+      lidas.push(waba);
+      // o aviso novo foi pedido na conta do principal; o antigo só existe na do marketing
+      return waba === 'WABA-P'
+        ? [{ nome: 'pedido_chegando', idioma: 'pt_BR', status: 'APPROVED', categoria: 'UTILITY' }]
+        : [{ nome: 'pedido_em_producao', idioma: 'pt_BR', status: 'APPROVED', categoria: 'UTILITY' }];
+    };
+    (svc as any).templatesLocais = async () => [
+      { id: 'a', nome: 'pedido_chegando', idioma: 'pt_BR', status: 'pendente', categoria: 'UTILITY', evento: 'chegando' },
+      { id: 'b', nome: 'pedido_em_producao', idioma: 'pt_BR', status: 'aprovado', categoria: 'UTILITY', evento: 'confirmado' },
+    ];
+    await svc.sincronizarTemplates('t-1');
+    expect(lidas.sort()).toEqual(['WABA-M', 'WABA-P']);
+    expect(db.atualizados).toEqual([
+      expect.objectContaining({ status: 'aprovado' }),
+      expect.objectContaining({ status: 'rascunho' }),
+    ]);
+  });
+
+  it('a lista de uma conta falha: os modelos dela não mudam; as duas falham: o erro sobe', async () => {
+    const db = bancoFalso([]);
+    const svc = servico(db);
+    (svc as any).wabaDe = async (_t: string, papel: string) => (papel === 'principal' ? 'WABA-P' : 'WABA-M');
+    (svc as any).listarTemplates = async (_t: string, waba: string) => {
+      if (waba === 'WABA-P') throw new Error('Falha ao listar modelos (500)');
+      return [{ nome: 'cupom_desconto', idioma: 'pt_BR', status: 'APPROVED', categoria: 'MARKETING' }];
+    };
+    (svc as any).templatesLocais = async () => [
+      { id: 'a', nome: 'pedido_chegando', idioma: 'pt_BR', status: 'aprovado', categoria: 'UTILITY', evento: 'chegando' },
+      { id: 'c', nome: 'cupom_desconto', idioma: 'pt_BR', status: 'pendente', categoria: 'MARKETING', evento: null },
+    ];
+    await svc.sincronizarTemplates('t-1');
+    expect(db.atualizados).toEqual([expect.objectContaining({ status: 'aprovado' })]); // só a campanha; o aviso fica
+    (svc as any).listarTemplates = async () => {
+      throw new Error('Falha ao listar modelos (500)');
+    };
+    await expect(svc.sincronizarTemplates('t-1')).rejects.toThrow('Falha ao listar modelos');
+  });
+
+  it('atualizar UM modelo: procura SÓ na conta do número que o envia (o cashback no principal) e grava status, categoria e motivo', async () => {
     const db = bancoFalso([[{ id: 'a', nome: 'cashback_vencendo', idioma: 'pt_BR', status: 'pendente', categoria: 'UTILITY', motivoRejeicao: null }]]);
     const svc = servico(db);
     (svc as any).wabaDe = async (_t: string, papel: string) => (papel === 'principal' ? 'WABA-P' : 'WABA-M');
@@ -177,6 +222,7 @@ describe('modelo das automáticas na API oficial', () => {
       };
     }) as any;
     await svc.atualizarModelo('t-1', 'cashback_vencendo');
+    expect(pedidos).toHaveLength(1); // nunca a conta do marketing: o cashback sai pelo principal
     expect(pedidos[0]).toContain('/WABA-P/message_templates?name=cashback_vencendo');
     expect(db.atualizados[0]).toMatchObject({ status: 'rejeitado', categoria: 'UTILITY', motivoRejeicao: 'TAG_CONTENT_MISMATCH' });
   });

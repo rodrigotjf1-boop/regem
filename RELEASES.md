@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **WhatsApp oficial: cada modelo conferido na conta do número que o envia (13/11, ERR-458; SEM migration; não mexe no
+  `sync-daemon`).** Na NUVEM com o merge: o "Sincronizar" de Marketing › Modelos lê a conta do principal e a do
+  marketing e confere cada modelo na do número que o envia; o que não está lá volta a rascunho. Só nuvem (o WhatsApp
+  oficial não roda no servidor da loja): nada muda no `.zip`/`.exe`.
+
 - **Mister: o módulo que nasce desligado e a tela "IA e uso" (13/11, protótipo `mockups/regem-mister.html` aprovado; SEM
   migration; não mexe no `sync-daemon`).** Na NUVEM com o merge: o cartão "Mister" em Visão C&O › Módulos do produto
   (nasce DESLIGADO — nada muda até o presidente ligar) e, com ele ligado, o item "Mister" do menu do presidente com a
