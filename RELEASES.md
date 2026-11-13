@@ -22,7 +22,8 @@
 - **WhatsApp oficial: cada modelo conferido na conta do número que o envia (13/11, ERR-458; SEM migration; não mexe no
   `sync-daemon`).** Na NUVEM com o merge: o "Sincronizar" de Marketing › Modelos lê a conta do principal e a do
   marketing e confere cada modelo na do número que o envia; o que não está lá volta a rascunho. Só nuvem (o WhatsApp
-  oficial não roda no servidor da loja): nada muda no `.zip`/`.exe`.
+  oficial não roda no servidor da loja): nada muda no `.zip`/`.exe`. Complemento (mesmo dia): "Modelos de utilidade" e
+  "Modelos da Regem" passam a enviar também o modelo em rascunho; a mesma tela no servidor da loja só no `.zip`.
 
 - **Visão C&O: a chave do módulo desligado aparece; o símbolo do Mister é o de IA (13/11, ERR-457; SEM migration; não
   mexe no `sync-daemon`).** Na NUVEM com o merge: a chave desligada deixa de ter a cor do cartão (não se via como ativar

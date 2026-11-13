@@ -2120,6 +2120,17 @@ export class WhatsappCloudService {
     return { porTemplate, periodo };
   }
 
+  /**
+   * O modelo da biblioteca que já existe no Regem: em RASCUNHO, envia para aprovação (vai à conta do número que o envia —
+   * `papelDoModelo`); com qualquer outro status, pula. Depois do ERR-458, rascunho também é "não está na conta que
+   * envia": sem isto, "Modelos de utilidade" dizia "nada a enviar" com 7 avisos fora da conta do principal (13/11).
+   */
+  private async enviarSeRascunho(tenantId: string, nome: string, ja: { id: string; status: string | null }) {
+    if (ja.status !== 'rascunho') return { nome, status: ja.status, pulado: true };
+    await this.submeterTemplate(tenantId, ja.id);
+    return { nome, status: 'pendente', novo: true, reenviado: true };
+  }
+
   async seedModelosRegem(tenantId: string) {
     const resultados: any[] = [];
     // Identificação da loja p/ os textos (Configurações → Loja): nome público + cidade.
@@ -2138,12 +2149,12 @@ export class WhatsappCloudService {
           .where(
             and(eq(whatsappTemplate.tenantId, tenantId), eq(whatsappTemplate.nome, base.nome), eq(whatsappTemplate.idioma, 'pt_BR')),
           );
-        // Já existe (QUALQUER status, inclusive REJEITADO) → NÃO reenvia. Reenviar um
-        // rejeitado idêntico só toma outra reprovação; o reenvio de um rejeitado é MANUAL
-        // por modelo (o lojista edita e clica "enviar p/ aprovação"). O seed só CRIA os
-        // que ainda não existem → é seguro clicar/rodar de novo (não duplica nem reenvia).
+        // Já existe e foi pedido (em análise, aprovado, REJEITADO, pausado) → NÃO reenvia. Reenviar um rejeitado
+        // idêntico só toma outra reprovação; o reenvio de um rejeitado é MANUAL por modelo (o lojista edita e clica
+        // "enviar p/ aprovação"). Em RASCUNHO (nunca saiu, ou não está na conta que envia — ERR-458), envia o MESMO.
+        // O seed só cria/envia o que falta → é seguro clicar/rodar de novo (não duplica nem reenvia o que já foi).
         if (ja) {
-          resultados.push({ nome: base.nome, status: ja.status, pulado: true });
+          resultados.push(await this.enviarSeRascunho(tenantId, base.nome, ja));
           continue;
         }
         const [row] = await this.db
@@ -2189,8 +2200,9 @@ export class WhatsappCloudService {
           .where(
             and(eq(whatsappTemplate.tenantId, tenantId), eq(whatsappTemplate.nome, base.nome), eq(whatsappTemplate.idioma, 'pt_BR')),
           );
+        // Já pedido: pula; em RASCUNHO (nunca saiu, ou não está na conta do principal — ERR-458): envia o mesmo.
         if (ja) {
-          resultados.push({ nome: base.nome, status: ja.status, pulado: true });
+          resultados.push(await this.enviarSeRascunho(tenantId, base.nome, ja));
           continue;
         }
         const [row] = await this.db
