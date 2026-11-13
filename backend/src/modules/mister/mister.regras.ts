@@ -20,9 +20,10 @@ export const RESPOSTA_FIXA_A_CADA_H = 12;
 export const CODIGOS_ERRADOS_MAX = 5;
 export const CODIGOS_ERRADOS_JANELA_MIN = 60;
 /** Enquanto as perguntas não estão no ar, a resposta "ainda não respondo" sai no máximo uma vez neste intervalo. */
-export const AINDA_NAO_RESPONDO_A_CADA_MIN = 30;
 /** Quanto tempo o Mister guarda a mensagem que esperava a escolha da empresa. */
 export const PENDENTE_VALE_MIN = 10;
+/** Mensagem sem texto (áudio, foto, figurinha, reação): o Mister diz que só lê texto, no máximo uma vez neste intervalo. */
+export const SO_TEXTO_A_CADA_MIN = 30;
 /** A janela de conversa da Meta: dentro dela a resposta é texto livre; fora, só modelo aprovado. */
 export const JANELA_DA_META_H = 24;
 
@@ -162,23 +163,22 @@ export function situacaoDaEmpresa(e: { modulo: boolean; temIa: boolean; chaveSit
 
 // ───────────────────────────── as mensagens ─────────────────────────────
 // Texto fixo, sem IA e sem dado de ninguém onde a pessoa não está ligada. Cada frase só promete o que já existe: as
-// perguntas, os relatórios e as autorizações entram nas próximas fases e o texto muda junto.
+// perguntas (mig 418) já estão no ar; os relatórios e as autorizações entram nas próximas fases e o texto muda junto.
+// As frases de quando a IA não respondeu moram em `mister-agente.regras.ts`.
 
 export const TEXTOS = {
   desconhecido:
     'Olá! Este é o Mister, o assistente de gestão do Regem.\n\nAinda não sei quem você é. Para falar comigo, ligue o seu WhatsApp dentro do Regem, no menu Mister, em "Pessoas".',
   ligado: (nome: string, empresa: string) =>
-    `Pronto, ${nome}! Este WhatsApp está ligado a você no Regem da ${empresa}.\n\nÉ por aqui que os avisos da empresa vão chegar.\n\nPara parar os avisos, responda PARAR AVISOS.`,
+    `Pronto, ${nome}! Este WhatsApp está ligado a você no Regem da ${empresa}.\n\nPode me perguntar sobre a loja: as vendas, os pedidos, o estoque. É por aqui também que os avisos da empresa vão chegar.\n\nPara parar os avisos, responda PARAR AVISOS.`,
   codigoNaoVale: 'Esse código não vale mais. Gere outro dentro do Regem, no menu Mister, em "Pessoas", e mande de novo. O código vale 10 minutos e uma vez só.',
   codigosDemais: 'Foram muitos códigos errados deste WhatsApp. Espere uma hora, gere um código novo dentro do Regem e mande de novo.',
   numeroDeOutraPessoa: (empresa: string) =>
     `Este WhatsApp já está ligado a outra pessoa na ${empresa}. Um número liga uma pessoa só: peça para ela desligar dentro do Regem, no menu Mister, em "Pessoas", e mande o código de novo.`,
   semAcesso: 'Não consegui ligar: o código é de alguém que não é mais gerente nem presidente, ou a empresa está com o Mister desligado.',
-  parou: (nome: string) => `Certo, ${nome}: este WhatsApp não recebe mais os avisos do Mister.\n\nPara voltar, responda VOLTAR AVISOS.`,
+  parou: (nome: string) => `Certo, ${nome}: este WhatsApp não recebe mais os avisos do Mister. Você ainda pode me perguntar.\n\nPara voltar, responda VOLTAR AVISOS.`,
   voltou: (nome: string) => `Pronto, ${nome}: os avisos do Mister voltaram para este WhatsApp.\n\nPara parar, responda PARAR AVISOS.`,
   seguindo: (empresa: string) => `Certo. Sigo falando da ${empresa}. Para trocar, escreva "trocar de empresa".`,
   umaEmpresaSo: (empresa: string) => `Este WhatsApp está ligado só à ${empresa}.`,
   naoEntendiAEmpresa: 'Não entendi de qual empresa.',
-  aindaNaoRespondo: (nome: string, empresa: string) =>
-    `Oi, ${nome}. Por aqui chegam os avisos da ${empresa}. Ainda não respondo a perguntas: isso entra numa próxima versão.\n\nPara parar os avisos, responda PARAR AVISOS.`,
 } as const;

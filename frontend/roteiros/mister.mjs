@@ -30,7 +30,7 @@ const USO = {
   itens: [
     { recurso: 'copiloto', provedor: 'anthropic', modelo: 'claude-haiku-5-5', origem: 'lojista', chamadas: 312, falhas: 2, tokens: { entrada: 780_000, cacheEscrita: 0, cacheLeitura: 0, saida: 62_000 }, custoEstimadoUsd: 0.109 },
     { recurso: 'copiloto', provedor: 'anthropic', modelo: 'claude-haiku-5-5', origem: 'distribuicao', chamadas: 40, falhas: 0, tokens: { entrada: 100_000, cacheEscrita: 0, cacheLeitura: 0, saida: 8_000 }, custoEstimadoUsd: 0.014 },
-    { recurso: 'mister-investigacao', provedor: 'anthropic', modelo: 'claude-sonnet-5-5', origem: 'lojista', chamadas: 28, falhas: 0, tokens: { entrada: 400_000, cacheEscrita: 500_000, cacheLeitura: 2_500_000, saida: 224_000 }, custoEstimadoUsd: 8.96 },
+    { recurso: 'mister_perguntas', provedor: 'anthropic', modelo: 'claude-sonnet-5-5', origem: 'lojista', chamadas: 28, falhas: 0, tokens: { entrada: 400_000, cacheEscrita: 500_000, cacheLeitura: 2_500_000, saida: 224_000 }, custoEstimadoUsd: 8.96 },
     { recurso: 'prova', provedor: 'anthropic', modelo: 'modelo-novo', origem: 'lojista', chamadas: 2, falhas: 0, tokens: { entrada: 16, cacheEscrita: 0, cacheLeitura: 0, saida: 32 }, custoEstimadoUsd: null },
   ],
   custoEstimadoUsd: { lojista: 9.069, distribuicao: 0.014 },
@@ -424,6 +424,8 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const t = await page.locator('main').innerText();
     ok(/Claude Haiku 5\.5/.test(t) && /Claude Sonnet 5\.5/.test(t) && /modelo-novo/.test(t), 'uso: o nome de cada modelo (o que não conhece sai como veio)');
     ok(/780 mil · 62 mil/.test(t) && /3,4 mi · 224 mil/.test(t), 'uso: os tokens curtos, com o cache na entrada');
+    ok(/Mister · perguntas/.test(t) && !/mister_perguntas/.test(t), 'uso: as perguntas do Mister saem com o nome da tela, não com o do servidor');
+    ok(/é só perguntar a ele sobre a loja/.test(t) && !/perguntas chegam nas próximas/.test(t), 'página: a abertura diz que já dá para perguntar');
     ok(/US\$ 0,11/.test(t) && /US\$ 8,96/.test(t) && /sem preço/.test(t), 'uso: o custo em dólar e "sem preço" para o modelo fora da tabela');
     ok(/IA incluída/.test(t) && /2 falhas/.test(t), 'uso: marca o que foi pela IA incluída e as falhas');
     ok(/Total do período: 382 chamadas/.test(t) && /Na sua chave: US\$ 9,07/.test(t) && /IA incluída: US\$ 0,01/.test(t), 'uso: o total por dono da chave');

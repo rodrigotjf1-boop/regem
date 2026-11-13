@@ -90,8 +90,8 @@ export default function MisterPage() {
       <div className="space-y-5">
         <p className="max-w-3xl text-sm text-muted-foreground">
           {presidente
-            ? 'O administrador virtual da sua loja. Aqui cada gestor liga o próprio WhatsApp ao Mister, e você cuida da chave de IA da empresa. Os avisos e as perguntas chegam nas próximas entregas.'
-            : 'O administrador virtual da loja. Ligue aqui o seu WhatsApp ao Mister. Os avisos e as perguntas chegam nas próximas entregas.'}
+            ? 'O administrador virtual da sua loja. Aqui cada gestor liga o próprio WhatsApp ao Mister, e você cuida da chave de IA da empresa. Com o WhatsApp ligado, é só perguntar a ele sobre a loja: as vendas, os pedidos, o estoque. Os avisos chegam nas próximas entregas.'
+            : 'O administrador virtual da loja. Ligue aqui o seu WhatsApp ao Mister e pergunte a ele sobre a loja: as vendas, os pedidos, o estoque. Os avisos chegam nas próximas entregas.'}
         </p>
         {presidente && (
           <Partes

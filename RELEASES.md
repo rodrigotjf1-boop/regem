@@ -12,6 +12,15 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Mister: as perguntas — o agente de IA com ferramentas de leitura (13/11, F2.1 do plano do Mister; mig 418
+  `@cloud-only` — a tabela nova `mister_pergunta` entra em `SO_NUVEM` no `sync-daemon`).** Na NUVEM com o merge: quem
+  está ligado ao Mister pergunta pelo WhatsApp e o agente responde com os números das telas (Painel, Relatórios de
+  vendas, Delivery, cozinha, Estoque, Servidor local), na empresa, na loja e com as permissões da pessoa. Em "IA e
+  uso" o gasto aparece em "Mister · perguntas". O agente (`MisterAgenteModule`) só sobe na nuvem. **No `.zip`:** só o
+  texto de abertura da página `/mister` e o nome do recurso em "IA e uso" (a página do servidor da loja segue dizendo
+  que o Mister funciona pela nuvem). **No `.exe`:** o nome na lista `SO_NUVEM` do `sync-daemon` (V21) vai no próximo
+  corte, sem pressa — na loja a tabela não existe, então não muda nada lá até lá.
+
 - **Mister: a parte "Pessoas" — cada gestor liga o próprio WhatsApp (13/11, terceira entrega do protótipo; SEM
   migration; não mexe no `sync-daemon`).** Na NUVEM com o merge: a página `/mister` com as partes "Pessoas" e "IA e
   uso", o gerente entrando só em "Pessoas", o diálogo de ligar (código, câmera e link) e o desligar. O Mister só roda

@@ -7,5 +7,6 @@ import { ProdutoModule } from '../produto/produto.module';
   imports: [ProdutoModule],
   controllers: [RelatoriosController],
   providers: [RelatoriosService],
+  exports: [RelatoriosService], // as ferramentas de leitura do Mister usam os mesmos números da tela
 })
 export class RelatoriosModule {}

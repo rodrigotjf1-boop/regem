@@ -5,16 +5,18 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { ehServidorLocal } from '../../common/modo';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ModuloService } from '../modulo/modulo.service';
+import { NivelDoMister, TEXTOS_DO_AGENTE } from './mister-agente.regras';
+import { MisterFilaService } from './mister-fila.service';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { pessoaVale } from './mister-vinculo.service';
 import {
-  AINDA_NAO_RESPONDO_A_CADA_MIN,
   CODIGOS_ERRADOS_JANELA_MIN,
   CODIGOS_ERRADOS_MAX,
   CODIGO_VALE_MIN,
   PENDENTE_VALE_MIN,
   RESPOSTA_FIXA_A_CADA_H,
   Resposta,
+  SO_TEXTO_A_CADA_MIN,
   TEXTOS,
   codigoNaMensagem,
   ehPararAvisos,
@@ -39,9 +41,13 @@ import {
 //  3. O mesmo telefone pode estar em duas empresas: o Mister pergunta de qual é o assunto e guarda a escolha. Na dúvida
 //     pergunta de novo — nunca chuta.
 //  4. A chave geral (o console da distribuição) desligada: a mensagem é anotada e o Mister fica calado.
+//  5. O que não é comando (código, parar ou voltar os avisos, trocar de empresa) é uma PERGUNTA: entra na fila
+//     (`MisterFilaService`, mig 418), já com a empresa, a pessoa, a loja e o nível dela, e o agente de IA responde. A
+//     entrada não espera a IA: a Meta recebe a confirmação na hora.
 //
-// Nada daqui lança para quem chamou (o webhook): cada falha vira log e a conversa segue. O texto da mensagem não é
-// guardado — só a que espera a escolha da empresa, por até 10 minutos.
+// Nada daqui lança para quem chamou (o webhook): cada falha vira log e a conversa segue. O registro das mensagens
+// (`mister_mensagem`) não guarda texto; a pergunta fica na fila dela, com prazo, e a que espera a escolha da empresa
+// fica na conversa por até 10 minutos.
 
 const MODULO = 'mister';
 const linhas = (r: any) => (r?.rows ?? r ?? []) as any[];
@@ -72,7 +78,8 @@ export type Desfecho =
   | 'uma_empresa_so'
   | 'parou'
   | 'voltou'
-  | 'ainda_nao_respondo'
+  | 'pergunta'
+  | 'so_texto'
   | 'calado';
 
 interface Vinculo {
@@ -80,6 +87,7 @@ interface Vinculo {
   tenantId: string;
   colaboradorId: string;
   unidadeId: string | null;
+  nivel: NivelDoMister;
   nome: string;
   empresa: string;
 }
@@ -92,6 +100,7 @@ export class MisterEntradaService {
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly numero: MisterNumeroService,
     private readonly modulos: ModuloService,
+    private readonly fila: MisterFilaService,
     @Optional() private readonly auditoria?: AuditoriaService,
   ) {}
 
@@ -164,7 +173,7 @@ export class MisterEntradaService {
 
     const alvo = await this.empresaDaConversa(tel, e, vinculos);
     if ('desfecho' in alvo) return alvo;
-    return this.atender(tel, alvo.vinculo, alvo.texto);
+    return this.atender(tel, alvo.vinculo, alvo.texto, e.wamid ?? null, e.wamid ?? null);
   }
 
   // ───────────────────────────── ligar pelo código ─────────────────────────────
@@ -293,7 +302,8 @@ export class MisterEntradaService {
   private async vinculosDoTelefone(tel: string): Promise<Vinculo[]> {
     const todos = linhas(
       await this.db.execute(sql`
-        select g.id, g.tenant_id as "tenantId", g.colaborador_id as "colaboradorId", c.unidade_id as "unidadeId", c.nome, emp.nome as empresa
+        select g.id, g.tenant_id as "tenantId", g.colaborador_id as "colaboradorId", c.unidade_id as "unidadeId",
+               coalesce(p.nivel, f.categoria::text) as nivel, c.nome, emp.nome as empresa
           from mister_vinculo g
           join colaborador c on c.id = g.colaborador_id and c.tenant_id = g.tenant_id
           left join funcao f on f.id = c.funcao_id
@@ -346,7 +356,7 @@ export class MisterEntradaService {
       await this.responder(tel, { texto: TEXTOS.seguindo(vinculo.empresa) });
       // A mensagem que esperava a escolha é atendida agora, já na empresa certa.
       const pendente = String(conv?.pendente ?? '').trim();
-      if (pendente) await this.atender(tel, vinculo, pendente);
+      if (pendente) await this.atender(tel, vinculo, pendente, e.wamid ? `${e.wamid}:pendente` : null, e.wamid ?? null);
       return { desfecho: 'escolheu_empresa', tenantId: escolhida };
     }
 
@@ -382,7 +392,11 @@ export class MisterEntradaService {
 
   // ───────────────────────────── a conversa, já com a empresa certa ─────────────────────────────
 
-  private async atender(tel: string, v: Vinculo, texto: string): Promise<{ desfecho: Desfecho; tenantId: string }> {
+  /**
+   * `chave` = a identidade da mensagem na fila das perguntas (a mesma nunca entra duas vezes); `wamid` = o id dela na
+   * Meta, para o agente marcar como lida e mostrar "digitando".
+   */
+  private async atender(tel: string, v: Vinculo, texto: string, chave: string | null, wamid: string | null): Promise<{ desfecho: Desfecho; tenantId: string }> {
     await this.db.execute(sql`update mister_vinculo set ultima_entrada_em = now() where id = ${v.id}::uuid`);
     const nome = primeiroNome(v.nome);
     if (ehPararAvisos(texto)) {
@@ -397,17 +411,23 @@ export class MisterEntradaService {
       await this.responder(tel, { texto: TEXTOS.voltou(nome) });
       return { desfecho: 'voltou', tenantId: v.tenantId };
     }
-    // As perguntas ainda não estão no ar: o Mister diz isso, no máximo uma vez a cada meia hora (gravação condicional).
-    const vez = linhas(
-      await this.db.execute(sql`
-        insert into mister_conversa (telefone, provisoria_em, ultima_entrada_em) values (${tel}, now(), now())
-        on conflict (telefone) do update set provisoria_em = now(), ultima_entrada_em = now(), atualizado_em = now()
-          where mister_conversa.provisoria_em is null or mister_conversa.provisoria_em < now() - make_interval(mins => ${AINDA_NAO_RESPONDO_A_CADA_MIN})
-        returning telefone`),
-    );
-    if (!vez.length) return { desfecho: 'calado', tenantId: v.tenantId };
-    await this.responder(tel, { texto: TEXTOS.aindaNaoRespondo(nome, v.empresa) });
-    return { desfecho: 'ainda_nao_respondo', tenantId: v.tenantId };
+    if (!texto.trim()) {
+      // Mensagem sem texto (áudio, foto, figurinha, reação): o Mister diz que só lê texto, no máximo uma vez a cada
+      // meia hora (gravação condicional; o relógio é a coluna `provisoria_em` da conversa).
+      const vez = linhas(
+        await this.db.execute(sql`
+          insert into mister_conversa (telefone, provisoria_em, ultima_entrada_em) values (${tel}, now(), now())
+          on conflict (telefone) do update set provisoria_em = now(), ultima_entrada_em = now(), atualizado_em = now()
+            where mister_conversa.provisoria_em is null or mister_conversa.provisoria_em < now() - make_interval(mins => ${SO_TEXTO_A_CADA_MIN})
+          returning telefone`),
+      );
+      if (!vez.length) return { desfecho: 'calado', tenantId: v.tenantId };
+      await this.responder(tel, { texto: TEXTOS_DO_AGENTE.soTexto });
+      return { desfecho: 'so_texto', tenantId: v.tenantId };
+    }
+    // Uma pergunta: entra na fila com a empresa, a pessoa, a loja e o nível DESTE vínculo, e o agente é acordado.
+    const nova = await this.fila.enfileirar({ tenantId: v.tenantId, colaboradorId: v.colaboradorId, unidadeId: v.unidadeId ?? null, nivel: v.nivel, telefone: tel }, texto, chave, wamid);
+    return { desfecho: nova ? 'pergunta' : 'repetida', tenantId: v.tenantId };
   }
 
   private async auditar(v: Vinculo, acao: string, tel: string): Promise<void> {
@@ -448,7 +468,12 @@ export class MisterEntradaService {
       const c = linhas(
         await this.db.execute(sql`delete from mister_conversa where coalesce(ultima_entrada_em, atualizado_em) < now() - interval '90 days' returning telefone`),
       );
-      return r.length + c.length;
+      // As perguntas (mig 418): o texto sai em 30 dias e a linha em 90. À parte: a falha de uma limpeza não esconde a outra.
+      const p = await this.fila.limpar().catch((e: any) => {
+        this.logger.warn(`mister: a limpeza das perguntas falhou — ${e?.message ?? e}`);
+        return 0;
+      });
+      return r.length + c.length + p;
     } catch (e: any) {
       this.logger.warn(`mister: a limpeza do registro de mensagens falhou — ${e?.message ?? e}`);
       return 0;

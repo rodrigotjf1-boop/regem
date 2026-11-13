@@ -95,6 +95,7 @@ import { IntegracaoApiModule } from './modules/integracao-api/integracao-api.mod
 import { AutorizacaoLojaModule } from './modules/integracao-api/autorizacao-loja.module';
 import { LicencaModule } from './modules/licenca/licenca.module';
 import { VigiaModule } from './modules/vigia/vigia.module';
+import { MisterAgenteModule } from './modules/mister/mister-agente.module';
 import { AuthModule } from './auth/auth.module';
 
 // Split de build (Fase 1.4): no EDGE_MODE, os módulos CLOUD_ONLY não são
@@ -128,6 +129,8 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
       VagasModule,
       // O vigia do servidor da loja (mig 414): a nuvem recebe o sinal de todos os servidores; nasce desligado.
       VigiaModule,
+      // O agente de IA do Mister (mig 418): responde às perguntas que chegam pelo número da distribuição. Só na nuvem.
+      MisterAgenteModule,
     ];
 
 @Module({
