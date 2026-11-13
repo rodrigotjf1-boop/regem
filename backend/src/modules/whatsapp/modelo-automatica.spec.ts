@@ -226,4 +226,21 @@ describe('modelo das automáticas na API oficial', () => {
     expect(pedidos[0]).toContain('/WABA-P/message_templates?name=cashback_vencendo');
     expect(db.atualizados[0]).toMatchObject({ status: 'rejeitado', categoria: 'UTILITY', motivoRejeicao: 'TAG_CONTENT_MISMATCH' });
   });
+
+  it('"Modelos de utilidade" e "da Regem": o rascunho é enviado (o MESMO), o já pedido é pulado, o que falta é criado (13/11)', async () => {
+    for (const botao of ['seedUtilidade', 'seedModelosRegem'] as const) {
+      // a loja, a empresa, depois um select por modelo da biblioteca: o 1º em rascunho, o 2º aprovado, o resto não existe
+      const db = bancoFalso([[{ nomePublico: 'Burger da Praça', cidade: 'Niterói' }], [{ nome: 'Empresa X' }], [{ id: 'r-1', status: 'rascunho' }], [{ id: 'a-1', status: 'aprovado' }]]);
+      const svc = servico(db);
+      const submetidos: string[] = [];
+      (svc as any).submeterTemplate = async (_t: string, id: string) => void submetidos.push(id);
+      const r: any = await (svc as any)[botao]('t-1');
+      expect(r.resultados[0]).toMatchObject({ status: 'pendente', novo: true, reenviado: true });
+      expect(r.resultados[1]).toMatchObject({ status: 'aprovado', pulado: true });
+      expect(submetidos[0]).toBe('r-1'); // o rascunho sai como está — não cria outro
+      expect(submetidos).not.toContain('a-1');
+      expect(db.inseridos).toHaveLength(r.resultados.length - 2); // só os que não existiam
+      expect(submetidos).toHaveLength(r.resultados.length - 1);
+    }
+  });
 });
