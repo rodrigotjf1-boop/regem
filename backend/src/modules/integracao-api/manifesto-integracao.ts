@@ -182,6 +182,9 @@ export const ROTAS_DA_PORTA: readonly RotaNoManifesto[] = [
       'Pedidos de entrega da loja por bairro (?de=AAAA-MM-DD&ate=AAAA-MM-DD, até 92 dias, no fuso da loja): só contas; bairro com ' +
       'menos de 5 pedidos vai para "outros", sem o nome. Só para os produtos da DMS (aplicativo de parceiro: 403).',
     permissao: 'pedidos.ler',
+    // A permissão é do parceiro também, a rota não (o controller recusa o aplicativo de parceiro com 403): o manifesto
+    // diz, para o portal não mostrar ao parceiro uma rota que ele não alcança (`x-dms-classes`, pacote 0.10.2).
+    classes: ['dms'],
     exemploResposta: {
       loja_id: LOJA,
       de: '2026-08-01',

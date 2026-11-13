@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "description": "A API que os aplicativos ligados à loja chamam: as vendas, os clientes, os cupons, o catálogo, as fichas e a fila de produção, com o que a loja autorizou. Credencial: o token do DMS ID com o segredo da ligação (DMS-Ligacao).",
     "x-dms-produto": "regem",
-    "x-dms-pacote": "0.10.1"
+    "x-dms-pacote": "0.10.2"
   },
   "servers": [
     {
@@ -255,6 +255,9 @@
         "operationId": "get_api_v1_integracao_pedidos_bairros",
         "summary": "Pedidos de entrega da loja por bairro (?de=AAAA-MM-DD&ate=AAAA-MM-DD, até 92 dias, no fuso da loja): só contas; bairro com menos de 5 pedidos vai para \"outros\", sem o nome. Só para os produtos da DMS (aplicativo de parceiro: 403).",
         "x-dms-permissao": "pedidos.ler",
+        "x-dms-classes": [
+          "dms"
+        ],
         "responses": {
           "200": {
             "description": "Sucesso",
