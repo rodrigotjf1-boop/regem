@@ -51,7 +51,7 @@ const medir = (page) =>
 
 export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
   async function abrir(w, h, o = {}) {
-    const S = { modulo: o.modulo ?? true, estado: o.estado ?? SEM_CHAVE, uso: o.uso === undefined ? USO : o.uso, usoFalha: !!o.usoFalha, recusa: o.recusa ?? null, pedidos: [] };
+    const S = { modulo: o.modulo ?? true, estado: o.estado ?? SEM_CHAVE, uso: o.uso === undefined ? USO : o.uso, usoFalha: !!o.usoFalha, recusa: o.recusa ?? null, pedidos: [], modulos: [] };
     const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
     await ctx.addInitScript((jwt) => localStorage.setItem('regen_token', jwt), o.token ?? PRESIDENTE);
     const page = await ctx.newPage();
@@ -65,6 +65,22 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
       const metodo = req.method();
       if (p.startsWith('/ia/')) S.pedidos.push({ metodo, p, consulta: url.search, corpo: req.postData() });
       if (p === '/modulos/meus') return responder(route, { mister: S.modulo, mesas: true, kds: true });
+      // Visão C&O: a lista de módulos e o liga/desliga
+      if (p === '/diretoria/multiunidade') return responder(route, { unidades: [], rede: null });
+      if (p === '/modulos' && metodo === 'GET')
+        return responder(route, {
+          modulos: [
+            { chave: 'kds', label: 'KDS de Alertas', emoji: '🖥️' },
+            { chave: 'mister', label: 'Mister', emoji: '✨', padrao: false },
+          ],
+          unidades: [],
+          rede: { kds: true, mister: S.modulo },
+          porUnidade: {},
+        });
+      if (p === '/modulos' && metodo === 'POST') {
+        S.modulos.push(JSON.parse(req.postData() ?? '{}'));
+        return responder(route, { ok: true }, 201);
+      }
       if (p === '/ia/chave' && metodo === 'GET') return responder(route, S.estado);
       if (p === '/ia/chave' && metodo === 'POST') {
         if (S.recusa) return responder(route, { statusCode: 400, message: S.recusa }, 400);
@@ -82,10 +98,50 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
       if (p === '/ia/uso') return S.usoFalha ? responder(route, { statusCode: 500, message: 'Erro interno' }, 500) : responder(route, S.uso);
       return responder(route, {});
     });
-    await page.goto(base + '/mister');
+    await page.goto(base + (o.caminho ?? '/mister'));
     return { ctx, page, erros, S };
   }
   const daIa = (S, metodo, p) => S.pedidos.filter((x) => x.metodo === metodo && x.p === p);
+
+  // ── Visão C&O › Módulos do produto: o Mister DESLIGADO tem de APARECER e ligar com um toque ──
+  // A chave desligada usava a cor do cartão (1,05:1) e ninguém via: todo módulo nascia ligado, até o Mister.
+  {
+    const { ctx, page, erros, S } = await abrir(1280, 900, { modulo: false, caminho: '/diretoria' });
+    const chave = page.locator('button[role="switch"][aria-label="Mister na rede"]');
+    await chave.waitFor({ timeout: 20000 });
+    ok((await chave.getAttribute('aria-checked')) === 'false', 'Visão C&O: o Mister aparece na lista e nasce desligado');
+    await page.waitForTimeout(250); // a cor termina a transição
+    const contraste = await chave.evaluate((el) => {
+      const cor = (s) => {
+        const p = (s.match(/rgba?\(([^)]+)\)/)?.[1] ?? '255,255,255').split(/[,\s/]+/).filter(Boolean).map(Number);
+        return { r: p[0], g: p[1], b: p[2], a: p[3] === undefined ? 1 : p[3] };
+      };
+      const fundo = (n) => {
+        for (let x = n; x; x = x.parentElement) {
+          const c = cor(getComputedStyle(x).backgroundColor);
+          if (c.a > 0.99) return c;
+        }
+        return { r: 255, g: 255, b: 255, a: 1 };
+      };
+      const atras = fundo(el.parentElement);
+      const dela = cor(getComputedStyle(el).backgroundColor);
+      const vista = { r: dela.r * dela.a + atras.r * (1 - dela.a), g: dela.g * dela.a + atras.g * (1 - dela.a), b: dela.b * dela.a + atras.b * (1 - dela.a) };
+      const lum = (c) => {
+        const f = (v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4);
+        return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b);
+      };
+      const [claro, escuro] = [lum(vista), lum(atras)].sort((x, y) => y - x);
+      return (claro + 0.05) / (escuro + 0.05);
+    });
+    ok(contraste >= 3, `Visão C&O: a chave DESLIGADA aparece sobre o cartão (contraste ${contraste.toFixed(2)}:1; o mínimo é 3:1)`);
+    await page.screenshot({ path: foto('1280-modulo-desligado.png'), fullPage: true });
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/modulos') && r.request().method() === 'POST'), chave.click()]);
+    ok(S.modulos.length === 1 && S.modulos[0].modulo === 'mister' && S.modulos[0].ativo === true && S.modulos[0].unidadeId === null, `Visão C&O: um toque liga o Mister na rede (${JSON.stringify(S.modulos[0])})`);
+    await page.waitForSelector('text=Módulo ativado.');
+    ok((await chave.getAttribute('aria-checked')) === 'true', 'Visão C&O: ligado, a chave muda de estado');
+    ok(erros.length === 0, `sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
 
   // ── módulo desligado: a tela explica e não pede a chave ──
   {

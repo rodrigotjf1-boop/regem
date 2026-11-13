@@ -20,7 +20,7 @@ export const MODULOS: { chave: string; label: string; emoji: string; padrao?: bo
   // Mister (protótipo `mockups/regem-mister.html`, aprovado em 13/11/2026): o administrador virtual — o item "Mister" do
   // menu do presidente, com a chave de IA da empresa e o uso dela (mig 415). É o único módulo que NASCE DESLIGADO: o
   // presidente liga em Visão C&O quando quiser; antes disso o menu não aparece para ninguém.
-  { chave: 'mister', label: 'Mister', emoji: '🧭', padrao: false },
+  { chave: 'mister', label: 'Mister', emoji: '✨', padrao: false },
 ];
 const CHAVES = new Set(MODULOS.map((m) => m.chave));
 // O estado do módulo quando ninguém escolheu nada (nem a rede, nem a loja). Chave fora da lista = ligado, como sempre foi.

@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Visão C&O: a chave do módulo desligado aparece; o símbolo do Mister é o de IA (13/11, ERR-457; SEM migration; não
+  mexe no `sync-daemon`).** Na NUVEM com o merge: a chave desligada deixa de ter a cor do cartão (não se via como ativar
+  o Mister) e o módulo aparece com o ✨. **No `.zip`:** a mesma tela no servidor da loja. Nada no `.exe`.
+
 - **Mister: o módulo que nasce desligado e a tela "IA e uso" (13/11, protótipo `mockups/regem-mister.html` aprovado; SEM
   migration; não mexe no `sync-daemon`).** Na NUVEM com o merge: o cartão "Mister" em Visão C&O › Módulos do produto
   (nasce DESLIGADO — nada muda até o presidente ligar) e, com ele ligado, o item "Mister" do menu do presidente com a
