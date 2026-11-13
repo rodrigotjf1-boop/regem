@@ -8,6 +8,7 @@ import { decifrar } from '../../common/cifra-segredo';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { hojeISO, somarDias } from '../../common/data';
 import { ClienteDeIa, IaEmpresaService } from './ia-empresa.service';
+import { testesDoMisterComPostgres } from '../mister/mister-pg.teste-spec';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -333,3 +334,7 @@ descrever('a IA da empresa (Postgres)', () => {
     expect(await guardada()).toEqual([]);
   });
 });
+
+// O Mister (mig 417) lê as tabelas da 415 no painel do console: os testes dele com banco rodam AQUI, na spec que já
+// aplica a 415, e não numa spec à parte reaplicando a mesma migration só-nuvem (ERR-451).
+testesDoMisterComPostgres();

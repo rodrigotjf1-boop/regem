@@ -628,6 +628,13 @@ export const distApi = {
   conferirAppsPainel: (tenantId: string) => distReq(`/distribuicao/conferir-apps?tenantId=${encodeURIComponent(tenantId)}`),
   conferirAppsLiberacao: (tenantId: string, ligar: boolean) =>
     distReq('/distribuicao/conferir-apps/liberacao', { method: 'POST', body: JSON.stringify({ tenantId, ligar }) }),
+  // O Mister (mig 417): o número de WhatsApp da distribuição, a chave geral e as empresas com o módulo.
+  misterPainel: () => distReq('/distribuicao/mister'),
+  misterEmpresas: (busca = '') => distReq(`/distribuicao/mister/empresas${busca ? `?busca=${encodeURIComponent(busca)}` : ''}`),
+  misterConectar: (dto: { code: string; phoneNumberId: string; wabaId: string; forma: 'coexistencia' | 'api'; pin?: string }) =>
+    distReq('/distribuicao/mister/numero/conectar', { method: 'POST', body: JSON.stringify(dto) }),
+  misterDesconectar: () => distReq('/distribuicao/mister/numero/desconectar', { method: 'POST', body: '{}' }),
+  misterLiberacao: (ligado: boolean) => distReq('/distribuicao/mister/liberacao', { method: 'POST', body: JSON.stringify({ ligado }) }),
 };
 
 // Upload multipart: NÃO define Content-Type (o browser injeta o boundary).

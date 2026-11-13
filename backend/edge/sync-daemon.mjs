@@ -2464,6 +2464,11 @@ const SO_NUVEM = new Set([
   // loja) e o medidor de uso. Quem fala com o modelo é a nuvem — a loja não tem estas tabelas.
   'ia_credencial',
   'ia_uso_dia',
+  // O Mister (mig 417, @cloud-only): o telefone ligado a cada gestor, o estado da conversa e o registro das mensagens
+  // recebidas pelo número da DISTRIBUIÇÃO. Quem atende o número é a nuvem — a loja não tem estas tabelas.
+  'mister_vinculo',
+  'mister_conversa',
+  'mister_mensagem',
 ]);
 
 // LEGADO SEM USO: tabelas criadas nas migrations de fundação (002/003) para recursos que

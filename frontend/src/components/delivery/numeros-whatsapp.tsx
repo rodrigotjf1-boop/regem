@@ -1,5 +1,6 @@
 'use client';
 
+import { carregarFB } from '@/lib/meta-sdk';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
@@ -42,35 +43,6 @@ const DESC: Record<'principal' | 'marketing', string> = {
     'conversa, então o WhatsApp é mais rígido: o ideal é usar um número separado (um chip só pra isso), ' +
     'nunca o número principal da loja.',
 };
-
-// Carrega o SDK JS do Facebook uma vez e inicializa com o App ID da distribuição.
-let fbCarregando = false;
-function carregarFB(appId: string, version: string): Promise<any> {
-  return new Promise((resolve) => {
-    const w = window as any;
-    if (w.FB) {
-      try {
-        w.FB.init({ appId, autoLogAppEvents: true, xfbml: false, version });
-      } catch {
-        /* já inicializado */
-      }
-      return resolve(w.FB);
-    }
-    w.fbAsyncInit = function () {
-      w.FB.init({ appId, autoLogAppEvents: true, xfbml: false, version });
-      resolve(w.FB);
-    };
-    if (!fbCarregando) {
-      fbCarregando = true;
-      const s = document.createElement('script');
-      s.src = 'https://connect.facebook.net/en_US/sdk.js';
-      s.async = true;
-      s.defer = true;
-      s.crossOrigin = 'anonymous';
-      document.body.appendChild(s);
-    }
-  });
-}
 
 export function NumerosWhatsapp({
   pode,

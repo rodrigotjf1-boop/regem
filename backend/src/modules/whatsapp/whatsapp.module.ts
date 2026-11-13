@@ -19,6 +19,7 @@ import { EquipamentoModule } from '../equipamento/equipamento.module';
 import { SyncTokenGuard } from '../sync/sync-token.guard';
 import { InstagramModule } from '../instagram/instagram.module';
 import { MessengerModule } from '../messenger/messenger.module';
+import { MisterModule } from '../mister/mister.module';
 
 // WhatsApp da loja (Evolution): conectar/QR + resolver do bot multi-tenant.
 // WhatsappCloudController/Service = API oficial (Meta Cloud API), via paralela —
@@ -29,8 +30,9 @@ import { MessengerModule } from '../messenger/messenger.module';
 // desse repasse (token do servidor).
 // InstagramModule (mig 378): a resposta do robô no Direct do Instagram sai pelo mesmo `publico/bot/responder`.
 // MessengerModule (mig 386): idem para o Messenger do Facebook (chave `fb:`).
+// MisterModule (mig 417): a mensagem que chega ao número do Mister (da distribuição, não de uma loja) é entregue a ele.
 @Module({
-  imports: [EquipamentoModule, InstagramModule, MessengerModule],
+  imports: [EquipamentoModule, InstagramModule, MessengerModule, MisterModule],
   controllers: [
     WhatsappController,
     WhatsappCloudController,

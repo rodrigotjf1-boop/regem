@@ -22,6 +22,7 @@ import { IntegracaoTokenService } from '../integracao-api/integracao-token.servi
 import { OrzuniLigacaoService } from '../orzuni/orzuni-ligacao.service';
 import { PrecosNa99Service } from './precos-na-99.service';
 import { ConferirAppsService } from './conferir-apps.service';
+import { MisterConsoleService } from '../mister/mister-console.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -36,6 +37,7 @@ export class DistribuicaoController {
     private readonly orzuni: OrzuniLigacaoService,
     private readonly precos99: PrecosNa99Service,
     private readonly conferirApps: ConferirAppsService,
+    private readonly mister: MisterConsoleService,
   ) {}
 
   // iFood pelo Orzuni (R2a; mig 370) — só Diretoria. A chave `orz_live_` da loja entra aqui UMA vez e é trocada
@@ -113,6 +115,49 @@ export class DistribuicaoController {
   async liberacaoConferirApps(@DistUser() u: DistCtx, @Body() dto: any) {
     const r = await this.conferirApps.liberacao(dto, u);
     await this.service.auditar(u, r.liberado ? 'ligou_conferir_apps' : 'desligou_conferir_apps', r.tenantId, {});
+    return r;
+  }
+
+  // O Mister (mig 417) — só Diretoria: o número de WhatsApp da distribuição, a chave geral e as empresas com o módulo.
+  // O painel não traz chave de IA, telefone de gestor nem conversa — só situação e volume.
+  @Get('mister')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  painelDoMister() {
+    return this.mister.painel();
+  }
+
+  @Get('mister/empresas')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  empresasDoMister(@Query('busca') busca?: string) {
+    return this.mister.empresas(busca);
+  }
+
+  @Post('mister/numero/conectar')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  async conectarNumeroDoMister(@DistUser() u: DistCtx, @Body() dto: any) {
+    const r = await this.mister.conectar(dto, u);
+    await this.service.auditar(u, 'conectou_numero_mister', undefined, { forma: r.numero.forma, final: String(r.numero.numero ?? '').slice(-4), avisos: r.avisos.length });
+    return r;
+  }
+
+  @Post('mister/numero/desconectar')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  async desconectarNumeroDoMister(@DistUser() u: DistCtx) {
+    const r = await this.mister.desconectar(u);
+    await this.service.auditar(u, 'desconectou_numero_mister', undefined, {});
+    return r;
+  }
+
+  @Post('mister/liberacao')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  async liberacaoDoMister(@DistUser() u: DistCtx, @Body() dto: any) {
+    const r = await this.mister.liberacao(dto, u);
+    await this.service.auditar(u, r.ligado ? 'ligou_mister' : 'desligou_mister', undefined, {});
     return r;
   }
 

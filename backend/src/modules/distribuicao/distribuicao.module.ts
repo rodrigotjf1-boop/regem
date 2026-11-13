@@ -7,6 +7,7 @@ import { IntegracaoApiModule } from '../integracao-api/integracao-api.module';
 import { OrzuniModule } from '../orzuni/orzuni.module';
 import { PrecosNa99Service } from './precos-na-99.service';
 import { ConferirAppsService } from './conferir-apps.service';
+import { MisterModule } from '../mister/mister.module';
 
 // Console da distribuição — realm de auth próprio (JwtModule é global via AuthModule).
 // `IbptModule`: a tabela do IBPT (Lei 12.741) é enviada por aqui, na aba Atualizações.
@@ -14,8 +15,9 @@ import { ConferirAppsService } from './conferir-apps.service';
 // `OrzuniModule`: a ligação de cada loja com o Orzuni e o direito "iFood pelo Orzuni" (aba Integrações; mig 370).
 // `PrecosNa99Service`: o direito "Preço e pausa na 99" (aba Integrações; mig 401).
 // `ConferirAppsService`: o direito "Conferir com os apps" (aba Integrações; mig 405).
+// `MisterModule`: o número do Mister, a chave geral e as empresas com o módulo (aba Mister; mig 417).
 @Module({
-  imports: [IbptModule, IntegracaoApiModule, OrzuniModule],
+  imports: [IbptModule, IntegracaoApiModule, OrzuniModule, MisterModule],
   controllers: [DistribuicaoController],
   providers: [DistribuicaoService, DistribuicaoGuard, PerfilDistGuard, PrecosNa99Service, ConferirAppsService],
 })
