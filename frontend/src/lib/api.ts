@@ -1515,6 +1515,13 @@ export const api = {
   atendimentoMudarEnderecoDepoisQueSaiu: (id: string, taxa: 'manter' | 'nova') =>
     req(`/atendimento/${id}/endereco-depois-que-saiu`, { method: 'POST', body: JSON.stringify({ taxa }) }),
   integracoesDelivery: () => req('/delivery/integracoes'),
+  // O clique Regem → Orzuni (mig 416): a situação da loja do topo, ligar (devolve a página do Orzuni), a volta e desligar.
+  orzuniCliqueSituacao: () => req('/orzuni/clique/situacao'),
+  orzuniCliqueIniciar: (body: { mais?: boolean; opcionais?: string[] } = {}) =>
+    req('/orzuni/clique/iniciar', { method: 'POST', body: JSON.stringify(body) }) as Promise<{ url: string }>,
+  orzuniCliqueConcluir: (volta: { code: string | null; state: string | null; iss: string | null; error: string | null }) =>
+    req('/orzuni/clique/concluir', { method: 'POST', body: JSON.stringify(volta) }),
+  orzuniCliqueDesligar: () => req('/orzuni/clique/desligar', { method: 'POST' }) as Promise<{ desligada: boolean }>,
   salvarIntegracao: (body: Record<string, unknown>) =>
     req('/delivery/integracoes', { method: 'PUT', body: JSON.stringify(body) }),
   // Testa a conexão do gateway de PIX (Mercado Pago, PagBank, Rede). Vazio = o servidor usa o salvo.
