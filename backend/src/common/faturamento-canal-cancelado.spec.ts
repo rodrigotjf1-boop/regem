@@ -1,4 +1,5 @@
 import { Pool } from 'pg';
+import { hojeISO } from './data';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { DashboardService } from '../modules/dashboard/dashboard.service';
 import { DiretoriaService } from '../modules/diretoria/diretoria.service';
@@ -137,9 +138,11 @@ descrever('comanda de pedido cancelado pelo canal não conta como balcão', () =
   }, 60000);
 
   it('Visão C&O: o faturamento do mês da loja não leva o pedido cancelado pelo canal', async () => {
-    // A Visão C&O lê o MÊS CORRENTE (current_date): a base é o início do mês + 2 h.
+    // A Visão C&O lê o MÊS CORRENTE da OPERAÇÃO (ERR-460): a base é o início do mês em Brasília + 2 h. Pelo relógio do
+    // banco (`date_trunc('month', now())`) a base caía, no CI (UTC), às 23h do último dia do mês ANTERIOR em Brasília.
     const inicioMes = await pool.query(
-      `select (date_trunc('month', now()) + interval '2 hours')::text as t`,
+      `select ((($1::text || '01 02:00:00')::timestamp) at time zone 'America/Sao_Paulo')::text as t`,
+      [hojeISO().slice(0, 8)],
     );
     const { tenant, loja } = await montar(inicioMes.rows[0].t);
     const r: any = await diretoria.multiunidade(tenant);
