@@ -281,22 +281,26 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
     catch (e) { toast.error(e instanceof Error ? e.message : 'Falha ao sincronizar.'); }
     finally { setBusy(false); }
   }
+  // O resultado do envio em lote: quantos saíram (novos e rascunhos reenviados) e o primeiro que a Meta recusou.
+  function avisarEnvio(r: any, qual: string) {
+    const lista: any[] = Array.isArray(r?.resultados) ? r.resultados : [];
+    const enviados = lista.filter((x) => x?.novo).length;
+    const comErro = lista.filter((x) => x?.erro);
+    if (enviados > 0) toast.success(`${enviados} modelo(s) ${qual} enviado(s) para análise da Meta.`);
+    else if (!comErro.length) toast.success(`Nada a enviar — os modelos ${qual} já foram pedidos à Meta (nenhum em rascunho).`);
+    if (comErro.length) toast.error(`${comErro.length} modelo(s) ${qual} não foram enviados: ${comErro[0].nome} — ${comErro[0].erro}`);
+  }
   async function reenviarRegem() {
     if (!confirm(
       'Enviar a biblioteca de modelos da Regem para ANÁLISE DA META?\n\n' +
-      '• Só os modelos que ainda NÃO existem são enviados (é uma vez só).\n' +
-      '• Modelos já enviados ou REPROVADOS não são reenviados aqui.\n' +
+      '• São enviados os que ainda NÃO existem e os que estão em RASCUNHO.\n' +
+      '• Modelos em análise, aprovados ou REPROVADOS não são reenviados aqui.\n' +
       '• Para reenviar um reprovado, edite-o e clique em "enviar p/ aprovação".',
     )) return;
     setBusy(true);
     try {
       const r: any = await api.whatsappModelosRegem();
-      const novos = (r?.resultados ?? []).filter((x: any) => x?.novo).length;
-      toast.success(
-        novos > 0
-          ? `${novos} modelo(s) da Regem enviado(s) para análise da Meta.`
-          : 'Nada a enviar — todos os modelos da Regem já existem (nenhum reenviado).',
-      );
+      avisarEnvio(r, 'da Regem');
       carregar();
     }
     catch (e) { toast.error(e instanceof Error ? e.message : 'Falha ao enviar os modelos.'); }
@@ -307,17 +311,12 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
       'Enviar a biblioteca de modelos de UTILIDADE (avisos de status do pedido) para ANÁLISE DA META?\n\n' +
       '• São os avisos "em produção", "pronto", "saiu para entrega", "chegando", "entregador sem contato", "entregue", "cancelado", "atrasado" e "atendimento".\n' +
       '• Vão para a WABA do número PRINCIPAL (é dele que saem os avisos).\n' +
-      '• Só os que ainda NÃO existem são enviados. Reprovados não são reenviados aqui.',
+      '• São enviados os que ainda NÃO existem e os que estão em RASCUNHO. Reprovados não são reenviados aqui.',
     )) return;
     setBusy(true);
     try {
       const r: any = await api.whatsappModelosUtilidade();
-      const novos = (r?.resultados ?? []).filter((x: any) => x?.novo).length;
-      toast.success(
-        novos > 0
-          ? `${novos} modelo(s) de utilidade enviado(s) para análise da Meta.`
-          : 'Nada a enviar — todos os modelos de utilidade já existem (nenhum reenviado).',
-      );
+      avisarEnvio(r, 'de utilidade');
       carregar();
     }
     catch (e) { toast.error(e instanceof Error ? e.message : 'Falha ao enviar os modelos de utilidade.'); }
