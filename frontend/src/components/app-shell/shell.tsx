@@ -85,6 +85,8 @@ type NavNode = {
   icon: LucideIcon;
   href?: string;
   perm?: string;
+  // Só gerente e presidente (o servidor confere; aqui o menu só esconde).
+  soGestao?: boolean;
   modulo?: string;
   children?: NavSub[];
   // Outras rotas que são a MESMA tela do menu (ex.: `/fichas` é uma aba do Estoque).
@@ -194,7 +196,8 @@ const NAV: NavNode[] = [
   { href: '/auditoria', label: 'Auditoria', icon: History, perm: 'auditoria' },
   // Mister (protótipo aprovado em 13/11/2026): o administrador virtual. Só com o módulo ligado (ele nasce desligado) e a
   // mesma permissão da Visão C&O — as rotas `ia/*` do servidor são do presidente.
-  { href: '/mister', label: 'Mister', icon: Sparkles, perm: 'visao_co', modulo: 'mister' },
+  // O Mister é do presidente e do gerente (cada um liga o próprio WhatsApp); a chave de IA, lá dentro, só do presidente.
+  { href: '/mister', label: 'Mister', icon: Sparkles, soGestao: true, modulo: 'mister' },
   { href: '/diretoria', label: 'Visão C&O', icon: Building2, perm: 'visao_co' },
 ];
 
@@ -408,7 +411,7 @@ export function Shell({
             return NAV.map((node) => {
               // Folha: link direto.
               if (node.href) {
-                return temPerm(node.perm, perms, isPres) && temModulo(node.modulo, modulos) ? Item(node) : null;
+                return temPerm(node.perm, perms, isPres) && temModulo(node.modulo, modulos) && (!node.soGestao || isPres || cat === 'gerente') ? Item(node) : null;
               }
               // Grupo: acordeão (clica no pai → expande/recolhe a lista).
               const kids = (node.children ?? []).filter(
