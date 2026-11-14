@@ -243,17 +243,21 @@ descrever('o atendente virtual no chat do iFood e da 99 (Postgres + n8n de menti
   // ───────────────────────── a migration ─────────────────────────
 
   it('a 383: a conferência no mesmo Run vem com todas as linhas ok (e aplicada duas vezes)', async () => {
-    const c = await pool.connect();
-    try {
-      await c.query('begin');
-      const r: any = await c.query(comTravaDaEmpresa(readFileSync(MIG('383_atendente_no_chat.sql'), 'utf8')));
-      await c.query('rollback');
-      const conferencia = (Array.isArray(r) ? r[r.length - 1] : r).rows;
-      expect(conferencia.length).toBe(7);
-      for (const l of conferencia) expect({ objeto: l.objeto, ok: l.ok }).toEqual({ objeto: l.objeto, ok: true });
-    } finally {
-      c.release();
-    }
+    // Reaplicada no banco dividido do CI, a 383 (com `lock_timeout` de 5 s) pode esperar a trava de outra spec além do
+    // prazo (55P03) ou fechar um impasse (40P01): repete, como a montagem (ERR-405; o CI do #972 caiu aqui em 14/11).
+    const conferencia: any[] = await repetirNaCorridaDeCatalogo(async () => {
+      const c = await pool.connect();
+      try {
+        await c.query('begin');
+        const r: any = await c.query(comTravaDaEmpresa(readFileSync(MIG('383_atendente_no_chat.sql'), 'utf8')));
+        return (Array.isArray(r) ? r[r.length - 1] : r).rows;
+      } finally {
+        await c.query('rollback').catch(() => {});
+        c.release();
+      }
+    });
+    expect(conferencia.length).toBe(7);
+    for (const l of conferencia) expect({ objeto: l.objeto, ok: l.ok }).toEqual({ objeto: l.objeto, ok: true });
     await expect(q(`update robo_config set chat_robo_modo = 'ia' where tenant_id = $1`, [T])).rejects.toThrow(/ck_robo_config_chat_robo_modo/);
   });
 

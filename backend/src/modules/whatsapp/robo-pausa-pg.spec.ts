@@ -13,7 +13,7 @@ import {
   retomarConversa,
 } from './robo-pausa';
 import { CardapioService } from '../cardapio/cardapio.service';
-import { comTravaDaEmpresa } from '../../common/corrida-de-catalogo';
+import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -40,18 +40,21 @@ descrever('robô calado numa conversa (Postgres)', () => {
   const CEL_SEM_9 = '552187654321';
   const q = async (s: string, p: any[] = []) => (await pool.query(s, p)).rows;
 
+  // Repetida na corrida de catálogo do banco dividido do CI (a 342 traz `lock_timeout` de 5 s — ERR-405).
   async function aplicarMigration() {
-    const c = await pool.connect();
-    try {
-      await c.query('begin');
-      await c.query(comTravaDaEmpresa(readFileSync(MIGRATION, 'utf8')));
-      await c.query('commit');
-    } catch (e) {
-      await c.query('rollback').catch(() => {});
-      throw e;
-    } finally {
-      c.release();
-    }
+    await repetirNaCorridaDeCatalogo(async () => {
+      const c = await pool.connect();
+      try {
+        await c.query('begin');
+        await c.query(comTravaDaEmpresa(readFileSync(MIGRATION, 'utf8')));
+        await c.query('commit');
+      } catch (e) {
+        await c.query('rollback').catch(() => {});
+        throw e;
+      } finally {
+        c.release();
+      }
+    });
   }
 
   beforeAll(async () => {
