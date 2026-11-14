@@ -4,8 +4,9 @@ import { join } from 'node:path';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
+import { perfilPadrao } from '../../auth/permissoes';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
-import { hojeISO } from '../../common/data';
+import { hojeISO, somarDias } from '../../common/data';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { DashboardService } from '../dashboard/dashboard.service';
 import { EstoqueService } from '../estoque/estoque.service';
@@ -153,6 +154,34 @@ export function testesDoMisterComPostgres(): void {
         return { instalado: true, online: true, versao: '1.30.12', ultimoSync: haMin(2).toISOString(), backup: { ok: true, horas: 3 }, precisaManutencao: false };
       },
     };
+    // As três telas da parte 2 das perguntas: dublês que anotam a empresa e a loja pedidas e devolvem o que a tela devolveria.
+    const vendasDeMentira = {
+      remocoesItens: async (tenantId: string, de: string, ate: string, atual: string | null) => {
+        lidos.push(['itens-removidos', tenantId, de, ate, atual]);
+        return [
+          { id: 'r1', data: haMin(50), ator: 'Edu Balcão', descricao: 'Refrigerante lata', justificativa: '' },
+          { id: 'r2', data: haMin(10), ator: 'Carlos Lima', descricao: 'Batata grande', justificativa: 'cliente desistiu' },
+        ];
+      },
+    };
+    const escalaDeMentira = {
+      findAll: async (tenantId: string, _data: string, unidadeId?: string) => {
+        lidos.push(['escala', tenantId, unidadeId]);
+        const turno = { turnoInicio: '00:00:00', turnoFim: '08:00:00' };
+        return [
+          { colaboradorId: 'col-2', colaboradorNome: 'Caio Caixa', setorNome: 'Salão', presenca: 'presente', ...turno },
+          { colaboradorId: 'col-1', colaboradorNome: 'Bia Chapa', setorNome: 'Cozinha', presenca: 'prevista', ...turno },
+          { colaboradorId: 'col-3', colaboradorNome: 'Dani Salão', setorNome: 'Salão', presenca: 'falta_injustificada', ...turno },
+          { colaboradorId: null, colaboradorNome: null, setorNome: 'Cozinha', presenca: 'prevista', turnoInicio: '10:00:00', turnoFim: '18:00:00' },
+        ];
+      },
+    };
+    const pontoDeMentira = {
+      pessoas: async (tenantId: string, _data: string, atual: string | null) => {
+        lidos.push(['ponto', tenantId, atual]);
+        return [{ colaboradorId: 'col-2', nome: 'Caio Caixa', marcacoes: 1, primeiraEntrada: haMin(95).toISOString(), ultimaMarcacao: { tipo: 'entrada', hora: haMin(95).toISOString() }, trabalhadoMin: 95, status: 'trabalhando' }];
+      },
+    };
     const ferramentas = new MisterFerramentasService(
       db,
       modulos,
@@ -162,6 +191,9 @@ export function testesDoMisterComPostgres(): void {
       deliveryDeMentira as any,
       cozinhaDeMentira as any,
       servidorDeMentira as any,
+      vendasDeMentira as any,
+      escalaDeMentira as any,
+      pontoDeMentira as any,
     );
     const agente = new MisterAgenteService(fila, ferramentas, ia, numero);
     const consoleDoMister = new MisterConsoleService(db, numero, new IaEmpresaService(db));
@@ -1361,6 +1393,196 @@ export function testesDoMisterComPostgres(): void {
       await agente.rotina();
       agente.acordar();
       expect((await perguntasDe('ana')).at(-1)).toMatchObject({ situacao: 'na_fila', tentativas: 0 });
+    });
+
+    // ───────────────────────────── as perguntas, parte 2: cancelamentos, caixas e equipe ─────────────────────────────
+
+    /** O meio-dia de um dia da OPERAÇÃO, como instante: os dados do teste caem no dia certo a qualquer hora em que ele rode. */
+    const meioDia = (dia: string, hora = '12:00:00') => `${dia} ${hora}`;
+    const NO_FUSO = `at time zone 'America/Sao_Paulo'`;
+
+    it('cancelamentos: os pedidos dos canais, as vendas da loja e os itens removidos do período, com o motivo — só desta empresa e com as permissões de cada tela', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+      const hoje = hojeISO();
+      const [{ id: loja }] = await q(`select id from unidade where tenant_id = $1`, [A]);
+      const pedido = (tenant: string, canal: string, status: string, total: number, numero: string, motivo: string | null, dia: string, comandaId: string | null = null, hora = '12:00:00') =>
+        q(
+          `insert into pedido_externo (tenant_id, unidade_id, canal, status, total, valor_bruto, taxa_entrega, taxa_entrega_dono, display_id, motivo_cancelamento, comanda_id, criado_em, cancelado_em)
+           values ($1, $2, $3, $4, $5, $5, 0, 'marketplace', $6, $7, $8, ($9::timestamp ${NO_FUSO}) - interval '20 minutes',
+                   case when $4 = 'cancelado' then $9::timestamp ${NO_FUSO} end)`,
+          [tenant, tenant === A ? loja : null, canal, status, total, numero, motivo, comandaId, meioDia(dia, hora)],
+        );
+      const comanda = async (status: string, total: number, motivo: string | null, quem: string | null) =>
+        (
+          await q(
+            `insert into comanda (tenant_id, unidade_id, status, total, forma, aberta_em, cancelada_em, cancelada_por_id, motivo_cancelamento)
+             values ($1, $2, $3, $4, 'dinheiro', ($5::timestamp ${NO_FUSO}) - interval '30 minutes', case when $3 = 'cancelada' then $5::timestamp ${NO_FUSO} end, $6, $7) returning id`,
+            [A, loja, status, total, meioDia(hoje, '13:00:00'), quem, motivo],
+          )
+        )[0].id as string;
+      try {
+        await pedido(A, 'ifood', 'cancelado', 50, '901', 'Cliente desistiu', hoje);
+        await pedido(A, 'cardapio', 'cancelado', 30.5, '902', '   ', hoje, null, '11:00:00');
+        await pedido(A, 'ifood', 'cancelado', 99, '700', 'Pedido antigo', somarDias(hoje, -3));
+        await pedido(B, 'ifood', 'cancelado', 77, '555', 'De outra empresa', hoje);
+        await comanda('cancelada', 80, 'Lançada errada', pessoa.carlos);
+        // Venda cancelada que é de um pedido de canal não entra em "vendas da loja" (já está nos pedidos).
+        const deCanal = await comanda('cancelada', 40, 'Do canal', null);
+        await pedido(A, 'ifood', 'confirmado', 40, '903', null, hoje, deCanal);
+
+        lidos.length = 0;
+        const r = await ferramentas.executar(e, 'cancelamentos', {});
+        expect(r.ok).toBe(true);
+        expect(String(r.dados.periodo)).toMatch(/^hoje \(/);
+        expect(r.dados.pedidosDosCanais).toMatchObject({
+          cancelados: 2,
+          valor: 80.5,
+          porCanal: { ifood: 1, cardapio: 1 },
+          ultimos: [
+            { canal: 'ifood', numero: '901', motivo: 'Cliente desistiu', valor: 50 },
+            { canal: 'cardapio', numero: '902', motivo: 'sem motivo anotado', valor: 30.5 },
+          ],
+        });
+        expect((r.dados.pedidosDosCanais as any).ultimos[0].quando).toMatch(/^\d{2}\/\d{2} 12:00$/);
+        expect((r.dados.pedidosDosCanais as any).porMotivo).toEqual(expect.arrayContaining([{ motivo: 'Cliente desistiu', pedidos: 1 }, { motivo: 'sem motivo anotado', pedidos: 1 }]));
+        expect(r.dados.vendasCanceladasNaLoja).toMatchObject({
+          canceladas: 1,
+          valor: 80,
+          porMotivo: [{ motivo: 'Lançada errada', vendas: 1 }],
+          ultimas: [{ quemCancelou: 'Carlos Lima', motivo: 'Lançada errada', valor: 80 }],
+        });
+        expect((r.dados.vendasCanceladasNaLoja as any).ultimas[0].quando).toMatch(/^\d{2}\/\d{2} 13:00$/);
+        // Os itens removidos vêm de "Cancelamentos de itens", do mais novo para o mais antigo.
+        expect(r.dados.itensRemovidosDeComandas).toMatchObject({
+          removidos: 2,
+          ultimos: [
+            { quemRemoveu: 'Carlos Lima', item: 'Batata grande', justificativa: 'cliente desistiu' },
+            { quemRemoveu: 'Edu Balcão', item: 'Refrigerante lata', justificativa: 'sem justificativa' },
+          ],
+        });
+        expect(lidos).toEqual([['itens-removidos', A, hoje, hoje, null]]);
+        // Outro período: o pedido de três dias atrás aparece, e só ele.
+        const antigo = await ferramentas.executar(e, 'cancelamentos', { de: somarDias(hoje, -3), ate: somarDias(hoje, -3) });
+        expect(antigo.dados.pedidosDosCanais).toMatchObject({ cancelados: 1, valor: 99, porCanal: { ifood: 1 } });
+        expect(antigo.dados.vendasCanceladasNaLoja).toMatchObject({ canceladas: 0, valor: 0, ultimas: [] });
+
+        // O gerente no perfil padrão: vê os pedidos e as vendas canceladas SEM os valores; a tela de itens removidos não é do perfil dele.
+        const gerente = { ...e, nivel: 'gerente' as const, verValores: false, permissoes: perfilPadrao('gerente').permissoes };
+        const g = await ferramentas.executar(gerente, 'cancelamentos', {});
+        expect(g.dados.aviso).toContain('não mostra valores em reais');
+        expect(g.dados.pedidosDosCanais).toMatchObject({ cancelados: 2, valor: null, ultimos: [{ numero: '901', valor: null }, { numero: '902', valor: null }] });
+        expect(g.dados.vendasCanceladasNaLoja).toMatchObject({ canceladas: 1, valor: null });
+        expect((g.dados.itensRemovidosDeComandas as any).aviso).toContain('não dá acesso');
+        // Quem não abre nenhuma das três telas não recebe nada.
+        const semNada = { ...gerente, permissoes: { dashboard: true } as any };
+        expect(await ferramentas.executar(semNada, 'cancelamentos', {})).toEqual({ ok: false, dados: { erro: expect.stringContaining('não dá acesso') } });
+      } finally {
+        await q(`delete from pedido_externo where tenant_id = any($1::uuid[])`, [[A, B]]);
+        await q(`delete from comanda where tenant_id = $1`, [A]);
+      }
+    });
+
+    it('caixas e sangrias: o caixa aberto de um dia para o outro aparece como aberto agora, e o turno fechado do período traz a diferença', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+      const hoje = hojeISO();
+      const [{ id: loja }] = await q(`select id from unidade where tenant_id = $1`, [A]);
+      try {
+        await q(`insert into caixa_sessao (tenant_id, unidade_id, origem, status, valor_abertura, aberta_em, aberta_por_id) values ($1, $2, 'pdv', 'aberta', 100, now() - interval '30 hours', $3)`, [A, loja, pessoa.carlos]);
+        await q(
+          `insert into caixa_sessao (tenant_id, unidade_id, origem, status, valor_abertura, aberta_em, aberta_por_id, fechada_em, fechada_por_id, valor_esperado, valor_informado, diferenca)
+           values ($1, $2, 'pdv', 'fechada', 50, $3::timestamp ${NO_FUSO}, $4, $5::timestamp ${NO_FUSO}, $6, 500, 480, -20)`,
+          [A, loja, meioDia(hoje, '00:10:00'), pessoa.carlos, meioDia(hoje, '00:40:00'), pessoa.ana],
+        );
+        await q(`insert into caixa_sessao (tenant_id, origem, status, valor_abertura, aberta_em) values ($1, 'pdv', 'aberta', 999, now())`, [B]);
+
+        const r = await ferramentas.executar(e, 'caixas_e_sangrias', {});
+        expect(r.ok).toBe(true);
+        const abertos = r.dados.abertosAgora as any[];
+        expect(abertos).toHaveLength(1);
+        expect(abertos[0]).toMatchObject({ caixa: 'balcão', abertoPor: 'Carlos Lima', abertura: 100, vendas: 0, sangrias: 0, suprimentos: 0 });
+        expect(abertos[0].abertoHaHoras).toBeGreaterThanOrEqual(29.9);
+        expect(abertos[0].abertoHaHoras).toBeLessThanOrEqual(30.2);
+        expect(abertos[0]).not.toHaveProperty('diferenca');
+        expect(r.dados.turnosAbertosNoPeriodo).toMatchObject({
+          total: 1,
+          fechados: 1,
+          fechadosComDiferenca: 1,
+          lista: [{ caixa: 'balcão', abertoPor: 'Carlos Lima', fechadoPor: 'Ana Souza', abertura: 50, esperado: 500, informado: 480, diferenca: -20 }],
+        });
+        expect((r.dados.turnosAbertosNoPeriodo as any).lista[0].abertoEm).toMatch(/^\d{2}\/\d{2} 00:10$/);
+        expect(r.dados.sangriasESuprimentos).toMatchObject({ sangrias: 0, suprimentos: 0, porOperador: [] });
+        // Quem não vê valores em reais recebe os turnos sem os valores; quem não abre os relatórios de vendas, nada.
+        const semValores = { ...e, nivel: 'gerente' as const, verValores: false, permissoes: { relatorios_vendas: true } as any };
+        const s = await ferramentas.executar(semValores, 'caixas_e_sangrias', {});
+        expect((s.dados.abertosAgora as any[])[0]).toMatchObject({ abertoPor: 'Carlos Lima', abertura: null, vendas: null });
+        expect(s.dados.turnosAbertosNoPeriodo).toMatchObject({ total: 1, fechadosComDiferenca: null });
+        const gerente = { ...e, nivel: 'gerente' as const, verValores: false, permissoes: perfilPadrao('gerente').permissoes };
+        expect((await ferramentas.executar(gerente, 'caixas_e_sangrias', {})).dados.erro).toContain('não dá acesso');
+      } finally {
+        await q(`delete from caixa_sessao where tenant_id = any($1::uuid[])`, [[A, B]]);
+      }
+    });
+
+    it('equipe do dia: a escala, o ponto e quem está escalado sem ponto — só com as permissões das duas telas', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+      lidos.length = 0;
+      const r = await ferramentas.executar(e, 'equipe_do_dia', {});
+      expect(lidos).toEqual([
+        ['escala', A, undefined],
+        ['ponto', A, null],
+      ]);
+      expect(r.dados.escala).toMatchObject({
+        escalados: 3,
+        vagasSemPessoa: 1,
+        porSetor: { Cozinha: 1, Salão: 2 },
+        faltasAnotadas: [{ nome: 'Dani Salão', setor: 'Salão', falta: 'falta sem justificativa' }],
+        pessoas: [
+          { nome: 'Bia Chapa', setor: 'Cozinha', horario: '00:00 às 08:00', presenca: 'prevista' },
+          { nome: 'Caio Caixa', setor: 'Salão', horario: '00:00 às 08:00', presenca: 'presente' },
+          { nome: 'Dani Salão', setor: 'Salão', horario: '00:00 às 08:00', presenca: 'falta sem justificativa' },
+        ],
+      });
+      expect(r.dados.ponto).toMatchObject({ bateramPonto: 1, trabalhandoAgora: 1, pessoas: [{ nome: 'Caio Caixa', situacao: 'trabalhando', trabalhado: '1h 35min' }] });
+      expect((r.dados.ponto as any).pessoas[0].entrada).toMatch(/^\d{2}:\d{2}$/);
+      // Escalada para um horário que já começou, sem falta anotada e sem ponto: só a Bia (o Caio bateu, a Dani tem falta).
+      expect(r.dados.escaladosSemPontoAteAgora).toEqual([{ nome: 'Bia Chapa', setor: 'Cozinha', horarioComecouAs: '00:00' }]);
+      // Nada além do nome, do setor, do horário e da presença vai ao modelo.
+      expect(JSON.stringify(r.dados)).not.toMatch(/col-\d|cpf|telefone|salario/i);
+      // De ontem não há "até agora".
+      expect((await ferramentas.executar(e, 'equipe_do_dia', { dia: 'ontem' })).dados).not.toHaveProperty('escaladosSemPontoAteAgora');
+      // Só a escala no perfil: o ponto vem com o aviso, e a lista cruzada não é montada.
+      const soEscala = { ...e, nivel: 'gerente' as const, permissoes: { escalas: { ver: true } } as any };
+      const s = await ferramentas.executar(soEscala, 'equipe_do_dia', {});
+      expect(s.dados.escala).toMatchObject({ escalados: 3 });
+      expect((s.dados.ponto as any).aviso).toContain('não dá acesso');
+      expect(s.dados).not.toHaveProperty('escaladosSemPontoAteAgora');
+      const semNada = { ...e, nivel: 'gerente' as const, permissoes: { dashboard: true } as any };
+      expect((await ferramentas.executar(semNada, 'equipe_do_dia', {})).dados.erro).toContain('não dá acesso');
+    });
+
+    it('o estoque abaixo do mínimo sai em páginas de 15 e dá para procurar pelo nome', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+      const itens = Array.from({ length: 32 }, (_, i) => ({ nome: i === 20 ? 'Açúcar refinado' : `Item ${String(i + 1).padStart(2, '0')}`, saldo: 0, estoqueMinimo: 5, unidadeMedida: 'kg', abaixoMinimo: true }));
+      const comEstoque = new MisterFerramentasService(db, modulos, null as any, null as any, { listItens: async () => [...itens, { nome: 'Sobrando', abaixoMinimo: false }], validades: async () => [] } as any, null as any, null as any, null as any, null as any, null as any, null as any);
+      const p1 = (await comEstoque.executar(e, 'estoque_em_alerta', {})).dados.abaixoDoMinimo as any;
+      expect(p1).toMatchObject({ total: 32, pagina: 1, paginas: 3 });
+      expect(p1.itens).toHaveLength(15);
+      expect(p1.observacao).toContain('página 1 de 3');
+      const p3 = (await comEstoque.executar(e, 'estoque_em_alerta', { pagina: 3 })).dados.abaixoDoMinimo as any;
+      expect(p3.itens).toHaveLength(2);
+      // Página além do fim vira a última; busca sem acento acha o item com acento.
+      expect(((await comEstoque.executar(e, 'estoque_em_alerta', { pagina: 99 })).dados.abaixoDoMinimo as any).pagina).toBe(3);
+      const busca = (await comEstoque.executar(e, 'estoque_em_alerta', { busca: 'ACUCAR' })).dados.abaixoDoMinimo as any;
+      expect(busca).toMatchObject({ total: 32, comOQueFoiProcurado: 1, pagina: 1, paginas: 1, itens: [{ item: 'Açúcar refinado', saldo: 0, minimo: 5, unidade: 'kg' }] });
+      expect(busca).not.toHaveProperty('observacao');
     });
   });
 }

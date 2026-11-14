@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Mister: as perguntas, parte 2 — cancelamentos, caixas e a equipe do dia (14/11, F2.2; SEM migration; não mexe no
+  `sync-daemon`).** Na NUVEM com o merge: três consultas novas do agente e os acertos da primeira conversa real
+  (estoque em páginas, a regra de balcão × delivery de cada tela, a virada da meia-noite). O agente só sobe na nuvem.
+  Nada no `.zip` nem no `.exe`.
+
 - **O dia da operação nas leituras: validades, cupons do cardápio e Visão C&O (13/11, ERR-460; SEM migration; não mexe
   no `sync-daemon`).** Na NUVEM com o merge: das 21h à meia-noite o lote que vence hoje deixa de aparecer como
   vencido, o cupom válido até hoje continua na lista do cardápio e a Visão C&O não vira o mês três horas antes (o
