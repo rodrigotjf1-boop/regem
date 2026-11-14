@@ -18,10 +18,12 @@ import {
   dentroDaJanelaDoWhatsapp,
   deveEscalar,
   mudouDeMarco,
+  situacaoDa99SemLogin,
   situacaoDaChave,
   situacaoDaNotaSemResposta,
   situacaoDoCaixa,
   situacaoDoCertificadoDaLoja,
+  situacaoDoIfoodSemResposta,
   situacaoDoVigia,
   textoDoAviso,
   textoDoDesfecho,
@@ -224,6 +226,30 @@ export class MisterAvisosService {
           String(n.loja ?? ''),
         ),
       );
+    }
+
+    // 6) O canal desconectado: o iFood sem responder à busca de pedidos (marcado pela própria busca — `IfoodService.anotarSaude`)
+    //    e a 99 com o login recusado (o código que a 99 devolveu, gravado pelo serviço da 99). A tabela é pequena (uma linha
+    //    por canal por empresa) e só da nuvem.
+    const canais = linhas(
+      await this.db.execute(sql`
+        select i.id::text as "integracaoId", i.tenant_id::text as "tenantId", i.unidade_id::text as "unidadeId", i.canal,
+               i.config ->> 'semRespostaDesde' as desde, i.config ->> 'semRespostaMotivo' as motivo,
+               i.config ->> 'lastAuthErrno' as errno, coalesce(u.nome, emp.nome) as loja
+          from integracao i
+          join empresa emp on emp.id = i.tenant_id and emp.deleted_at is null
+          left join unidade u on u.id = i.unidade_id and u.tenant_id = i.tenant_id
+         where i.ativo and i.canal in ('ifood', '99food')
+           and ((i.canal = 'ifood' and jsonb_exists(coalesce(i.config, '{}'::jsonb), 'semRespostaDesde'))
+                or (i.canal = '99food' and i.config ->> 'lastAuthErrno' is not null)) ${so('i.tenant_id')}`),
+    );
+    for (const c of canais) {
+      const base = { tenantId: c.tenantId, unidadeId: c.unidadeId ?? null, integracaoId: c.integracaoId };
+      const s =
+        c.canal === 'ifood'
+          ? situacaoDoIfoodSemResposta({ ...base, desde: new Date(c.desde), motivo: c.motivo ?? null }, String(c.loja ?? ''), agora)
+          : situacaoDa99SemLogin({ ...base, errno: Number(c.errno) }, String(c.loja ?? ''));
+      if (s) fora.push(s);
     }
     return fora;
   }

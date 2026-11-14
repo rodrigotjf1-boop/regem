@@ -8,6 +8,7 @@
 // WhatsApp do Mister; o técnico vai ao suporte da DMS. Tudo também fica na trilha do aviso.
 
 import { FUSO_OPERACAO, horaNoFuso } from '../../common/data';
+import { POLLER_ERRO_APOS_MS } from '../../common/falhas-do-poller';
 import { diasParaVencer } from '../fiscal/certificado';
 import { GUIA_DE_USO } from './mister-guia-de-uso';
 
@@ -101,7 +102,7 @@ export const TIPOS_DE_AVISO: TipoDoAviso[] = [
     titulo: 'iFood ou 99 desconectado',
     descricao: 'A loja parou de receber pedidos de um canal.',
     padrao: regra(['gerente', 'tela']),
-    jaFunciona: false,
+    jaFunciona: true,
   },
   {
     tipo: 'servidor_sem_sinal',
@@ -343,6 +344,67 @@ export function situacaoDaNotaSemResposta(
     titulo: `${loja} · nota fiscal nº ${n.numero} (série ${n.serie}) sem resposta da SEFAZ`,
     detalhe: `${quando} Regem consultou ${n.tentativas} vezes e parou. Consulte de novo ${noGuia('nota-fiscal', 'Consultar na SEFAZ')}; se continuar sem resposta, fale com o suporte.`,
     dados: { numero: n.numero, serie: n.serie, tentativas: n.tentativas },
+  };
+}
+
+/** O nome de um botão do guia, entre aspas — só se o guia o confere naquela seção (senão, nada). */
+function botaoDoGuia(id: string, botao: string): string {
+  return GUIA_DE_USO.find((x) => x.id === id)?.botoes.includes(botao) ? `"${botao}"` : '';
+}
+
+const duracaoCurta = (minutos: number): string =>
+  minutos < 60 ? `${minutos} min` : `${Math.floor(minutos / 60)} h ${String(minutos % 60).padStart(2, '0')} min`;
+
+const MOTIVO_DO_IFOOD = (m: string | null): string => {
+  if (m === 'sem_resposta') return 'o iFood não responde';
+  if (m === 'sem_token') return 'o iFood não liberou o acesso do Regem';
+  if (m === 'http_401' || m === 'http_403') return 'o iFood recusou o acesso do Regem';
+  return 'o iFood respondeu com erro';
+};
+
+/**
+ * O iFood sem responder ao Regem (a busca de pedidos falhando) há pelo menos `POLLER_ERRO_APOS_MS` — o mesmo tempo em que a
+ * telemetria passa a tratar como erro. Antes disso é falha passageira: a próxima volta (30 s) tenta de novo. O título leva
+ * desde quando (não muda enquanto dura); quanto tempo vai no detalhe.
+ */
+export function situacaoDoIfoodSemResposta(
+  i: { tenantId: string; unidadeId: string | null; integracaoId: string; desde: Date; motivo: string | null },
+  loja: string,
+  agora: Date,
+): Situacao | null {
+  const ms = agora.getTime() - i.desde.getTime();
+  if (!Number.isFinite(ms) || ms < POLLER_ERRO_APOS_MS) return null;
+  const minutos = Math.floor(ms / 60_000);
+  return {
+    tenantId: i.tenantId,
+    unidadeId: i.unidadeId,
+    tipo: 'canal_desconectado',
+    chave: `canal:ifood:${i.integracaoId}`,
+    titulo: `${loja} · pedidos do iFood sem chegar ao Regem desde ${diaMesNoFuso(i.desde)} às ${horaNoFuso(i.desde)}`,
+    detalhe:
+      `Há ${duracaoCurta(minutos)} ${MOTIVO_DO_IFOOD(i.motivo)}. Enquanto isso, aceite os pedidos pelo Gestor de Pedidos do iFood. ` +
+      `Se continuar, confira a ligação ${noGuia('ligar-ifood-99', 'Integrações')} ou fale com o suporte.`,
+    dados: { canal: 'ifood', minutos, motivo: i.motivo },
+  };
+}
+
+/** A 99 recusou o login do Regem (o último pedido de acesso voltou com código de recusa; -1 é rede, não recusa). */
+export function situacaoDa99SemLogin(
+  i: { tenantId: string; unidadeId: string | null; integracaoId: string; errno: number },
+  loja: string,
+): Situacao | null {
+  if (!(Number.isFinite(i.errno) && i.errno > 0)) return null;
+  const botao = botaoDoGuia('ligar-ifood-99', 'Conectar com 99Food');
+  return {
+    tenantId: i.tenantId,
+    unidadeId: i.unidadeId,
+    tipo: 'canal_desconectado',
+    chave: `canal:99:${i.integracaoId}`,
+    titulo: `${loja} · a 99 recusou o login do Regem`,
+    detalhe:
+      `Sem o login, o Regem não confirma os pedidos da 99 nem avisa a saída para entrega (código ${i.errno}). ` +
+      `Conecte de novo ${noGuia('ligar-ifood-99', 'Integrações')}${botao ? `, no botão ${botao}` : ''}.`,
+    dados: { canal: '99', errno: i.errno },
   };
 }
 
