@@ -14,7 +14,10 @@ import {
   blocoDaConversa,
   filtrarSaida,
   fraseDoMotivo,
+  TrocaDaMemoria,
+  entradaParaATrilha,
   juntarPerguntas,
+  perguntaDaMemoria,
 } from './mister-agente.regras';
 import { EscopoDoMister, MisterFerramentasService } from './mister-ferramentas.service';
 import { MisterFilaService, PerguntaNaFila, Trilha } from './mister-fila.service';
@@ -173,7 +176,7 @@ export class MisterAgenteService implements OnModuleInit {
    * Uma pergunta ao modelo, com as ferramentas, dentro do escopo da pessoa. Devolve o texto do modelo (ainda sem o
    * filtro de saída) e o que as ferramentas trouxeram — ou o motivo de não haver resposta. Não lança por falha da IA.
    */
-  async responder(escopo: EscopoDoMister, memoria: { pergunta: string; resposta: string }[], pergunta: string): Promise<FimDaPergunta> {
+  async responder(escopo: EscopoDoMister, memoria: TrocaDaMemoria[], pergunta: string): Promise<FimDaPergunta> {
     const modelo = this.modelo();
     const trilha: Required<Omit<Trilha, 'conferencia'>> = { modelo, chamadas: 0, tokensEntrada: 0, tokensSaida: 0, ferramentas: [] };
     const resultados: unknown[] = [];
@@ -185,7 +188,8 @@ export class MisterAgenteService implements OnModuleInit {
       { type: 'text', text: blocoDaConversa(this.ferramentas.conversa(escopo)) },
     ];
     const messages: Array<{ role: 'user' | 'assistant'; content: any }> = [];
-    for (const m of memoria) messages.push({ role: 'user', content: m.pergunta }, { role: 'assistant', content: m.resposta });
+    // Cada pergunta antiga vai com a hora e as consultas feitas naquela hora (o modelo não vê os resultados antigos).
+    for (const m of memoria) messages.push({ role: 'user', content: perguntaDaMemoria(m) }, { role: 'assistant', content: m.resposta });
     messages.push({ role: 'user', content: pergunta });
 
     try {
@@ -222,7 +226,7 @@ export class MisterAgenteService implements OnModuleInit {
           }
           const t0 = Date.now();
           const feito = await this.ferramentas.executar(escopo, p.name, p.input);
-          trilha.ferramentas.push({ nome: String(p.name).slice(0, 60), ms: Date.now() - t0, ok: feito.ok });
+          trilha.ferramentas.push({ nome: String(p.name).slice(0, 60), ms: Date.now() - t0, ok: feito.ok, entrada: entradaParaATrilha(p.input) });
           if (feito.ok) resultados.push(feito.dados);
           respostas.push({ type: 'tool_result', tool_use_id: p.id, content: JSON.stringify(feito.dados), ...(feito.ok ? {} : { is_error: true }) });
         }

@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { MotivoSemResposta, NivelDoMister, NotaDaSaida, TETOS } from './mister-agente.regras';
+import { FUSO_SQL } from '../../common/fuso-sql';
+import { MotivoSemResposta, NivelDoMister, NotaDaSaida, TETOS, TrocaDaMemoria } from './mister-agente.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -45,7 +46,8 @@ export interface Trilha {
   chamadas?: number;
   tokensEntrada?: number;
   tokensSaida?: number;
-  ferramentas?: { nome: string; ms: number; ok: boolean }[];
+  /** O nome, o tempo, se deu certo e o que foi PEDIDO (período, loja, ordem) — nunca o que a ferramenta trouxe. */
+  ferramentas?: { nome: string; ms: number; ok: boolean; entrada?: Record<string, string | number> }[];
   conferencia?: NotaDaSaida[];
 }
 
@@ -180,11 +182,15 @@ export class MisterFilaService {
     return { pessoa: Number(l?.pessoa) || 0, empresa: Number(l?.empresa) || 0 };
   }
 
-  /** A memória da conversa: as últimas perguntas respondidas (com o texto ainda guardado), da mais antiga para a mais nova. */
-  async memoria(tenantId: string, colaboradorId: string): Promise<{ pergunta: string; resposta: string }[]> {
+  /**
+   * A memória da conversa: as últimas perguntas respondidas (com o texto ainda guardado), da mais antiga para a mais
+   * nova, cada uma com a hora da resposta e as consultas feitas para ela.
+   */
+  async memoria(tenantId: string, colaboradorId: string): Promise<TrocaDaMemoria[]> {
     const lidas = linhas(
       await this.db.execute(sql`
-        select pergunta, resposta
+        select pergunta, resposta, ferramentas,
+               to_char(coalesce(respondida_em, criado_em) at time zone ${FUSO_SQL}, 'HH24:MI') as hora
           from mister_pergunta
          where tenant_id = ${tenantId}::uuid and colaborador_id = ${colaboradorId}::uuid and situacao = 'respondida'
            and pergunta is not null and resposta is not null
@@ -192,7 +198,13 @@ export class MisterFilaService {
          order by criado_em desc
          limit ${TETOS.memoria}`),
     );
-    return lidas.reverse().map((l) => ({ pergunta: String(l.pergunta), resposta: String(l.resposta) }));
+    // Com a hora e as consultas que deram certo: é o que diz ao modelo que a resposta antiga saiu de dado lido na hora.
+    return lidas.reverse().map((l) => ({
+      pergunta: String(l.pergunta),
+      resposta: String(l.resposta),
+      hora: String(l.hora ?? ''),
+      consultas: (Array.isArray(l.ferramentas) ? l.ferramentas : []).filter((f: any) => f?.ok === true).map((f: any) => String(f?.nome ?? '')),
+    }));
   }
 
   /** A limpeza diária: o texto com mais de 30 dias sai; a linha com mais de 90 também. Devolve quantas linhas mudaram. */
