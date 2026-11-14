@@ -15,6 +15,8 @@ import { anotarEventoNaoTratado } from './ifood-eventos';
 // adaptarIfood + delivery.ingest que já existem.
 const CANAL = 'ifood';
 const BASE = 'https://merchant-api.ifood.com.br';
+/** A saúde do canal anotada se reafirma no banco a cada tanto, mesmo sem mudar (ver `anotarSaude`). */
+export const SAUDE_REAFIRMA_MS = 10 * 60_000;
 
 export interface IntegIfood {
   id: string;
@@ -343,18 +345,59 @@ export class IfoodService {
   }
 
   // Polling de eventos (filtra pela loja via x-polling-merchants). 204 = vazio.
+  // A saúde do canal sai DAQUI (aviso "iFood desconectado" do Mister): a resposta de erro (401, 403, 500…) vira lista vazia
+  // para o poller — que então "funcionou" —, e só esta função sabe que o iFood recusou ou não respondeu.
   async polling(ig: IntegIfood): Promise<any[]> {
-    const res = await this.req(ig, '/events/v1.0/events:polling', {
-      method: 'GET',
-      headers: { 'x-polling-merchants': ig.merchantId },
-    });
-    if (res.status === 204) return [];
+    let res: Response;
+    try {
+      res = await this.req(ig, '/events/v1.0/events:polling', {
+        method: 'GET',
+        headers: { 'x-polling-merchants': ig.merchantId },
+      });
+    } catch (e: any) {
+      await this.anotarSaude(ig.id, true, String(e?.message ?? '') === 'sem token iFood' ? 'sem_token' : 'sem_resposta');
+      throw e;
+    }
+    if (res.status === 204) {
+      await this.anotarSaude(ig.id, false);
+      return [];
+    }
     if (!res.ok) {
+      await this.anotarSaude(ig.id, true, `http_${res.status}`);
       this.logger.warn(`polling ${res.status}: ${(await res.text().catch(() => '')).slice(0, 150)}`);
       return [];
     }
+    await this.anotarSaude(ig.id, false);
     const j = await res.json().catch(() => []);
     return Array.isArray(j) ? j : [];
+  }
+
+  // ===== A saúde do canal (aviso do Mister "iFood ou 99 desconectado", F1.2c) =====
+  // "Sem resposta desde" fica na PRÓPRIA integração (`config.semRespostaDesde` e o motivo), que é só da nuvem. A gravação é
+  // condicional — marca só se ainda não estava marcado, limpa só se estava — e mescla só as suas chaves (V82). Para não
+  // ir ao banco a cada 30 s, este processo lembra o último estado anotado; e reafirma a cada 10 min, porque a rota genérica
+  // do delivery regrava o `config` a partir de uma cópia em memória e pode ressuscitar uma marca já limpa. Nunca lança:
+  // a entrada de pedidos não pode parar por causa disto.
+  private readonly saudeAnotada = new Map<string, { falhando: boolean; em: number }>();
+
+  async anotarSaude(integracaoId: string, falhou: boolean, motivo: string | null = null, agora = Date.now()): Promise<void> {
+    const antes = this.saudeAnotada.get(integracaoId);
+    if (antes && antes.falhando === falhou && agora - antes.em < SAUDE_REAFIRMA_MS) return;
+    try {
+      if (falhou) {
+        await this.db.execute(sql`
+          update integracao
+             set config = coalesce(config, '{}'::jsonb) || jsonb_build_object('semRespostaDesde', ${new Date(agora).toISOString()}::text, 'semRespostaMotivo', ${motivo}::text)
+           where id = ${integracaoId}::uuid and not jsonb_exists(coalesce(config, '{}'::jsonb), 'semRespostaDesde')`);
+      } else {
+        await this.db.execute(sql`
+          update integracao set config = config - 'semRespostaDesde' - 'semRespostaMotivo'
+           where id = ${integracaoId}::uuid and jsonb_exists(coalesce(config, '{}'::jsonb), 'semRespostaDesde')`);
+      }
+      this.saudeAnotada.set(integracaoId, { falhando: falhou, em: agora });
+    } catch (e: any) {
+      this.logger.warn(`a saúde da integração ${integracaoId} não foi anotada: ${e?.message ?? e}`);
+    }
   }
 
   // Acknowledgment: descarta os eventos já lidos (lotes de até 2000).

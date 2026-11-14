@@ -397,6 +397,31 @@ Dois dos quatro avisos que faltavam na tabela aprovada em 14/11 passam a funcion
 
 **Conferência:** `mister-avisos.regras.spec.ts` (os marcos nas bordas; a conta dos dias igual à da tela, inclusive nas meias horas; o título com a data e o detalhe com os dias, hoje, amanhã e vencido; a nota com o número, a série, as tentativas e o caminho do guia; o lembrete só quando o marco muda) e `mister-pg.teste-spec.ts` (o certificado só com a emissão ligada, abre no marco, a volta seguinte calada, o lembrete uma vez com duas voltas juntas, vencido, renovado resolve com o desfecho; o da loja antes do da empresa e o da empresa em várias lojas como um aviso só; a nota que ainda vai ser reconsultada e a simulada fora, o caso urgente e o presidente, respondida resolve e fecha o caso).
 
+### F1.2c — Os avisos, parte 2b: iFood ou 99 desconectado (sem migration)
+
+O terceiro dos quatro avisos que faltavam. Falta só "pedido parado", que nasce desligado.
+
+- **O que o levantamento achou:**
+  - **O iFood:** a busca de pedidos (`IfoodService.polling`) engolia a resposta de erro (401, 403, 500…). Ela devolvia lista vazia, e o poller entendia que "funcionou": um token revogado do iFood ficava invisível.
+  - **O contador do poller** (`FalhasDoPoller`) é só da memória e só conta falha de rede.
+  - **A 99** não busca pedidos (eles chegam por webhook), então o poller dela não mede se a 99 responde. O sinal durável da 99 é o login recusado (`lastAuthErrno`), que o serviço da 99 já grava. Ele grava `-1` também quando a rede cai, e `-1` não é recusa.
+- **O iFood anota a própria saúde:** a busca de pedidos marca "sem resposta desde" (`config.semRespostaDesde` e o motivo: `http_<código>`, `sem_token` ou `sem_resposta`) e limpa quando o iFood volta a responder. A integração é só da nuvem.
+  - A gravação é condicional: marca só se não estava marcado (o "desde" fica) e limpa só se estava. Ela mescla só as suas chaves (V82).
+  - Para não ir ao banco a cada 30 s, o processo lembra o último estado e só grava quando ele muda. Também reafirma a cada 10 min, porque a rota genérica do delivery regrava o `config` a partir de uma cópia em memória e poderia ressuscitar uma marca já limpa.
+  - Nunca lança: a entrada de pedidos não para por causa disto. O poller não mudou.
+- **O aviso:**
+  - **O iFood:** sem responder há pelo menos `POLLER_ERRO_APOS_MS` (5 min, o mesmo tempo em que a telemetria passa a tratar como erro). O título leva desde quando; o detalhe leva há quanto tempo, o motivo em português, o que fazer enquanto isso (aceitar pelo Gestor de Pedidos do iFood) e onde conferir a ligação, pelo guia.
+  - **A 99:** o login recusado (código positivo). O detalhe diz o que para (confirmar os pedidos e avisar a saída) e onde conectar de novo, com o botão do guia.
+  - **Integração desligada pela loja** não avisa. A que voltou resolve.
+- **Padrão aprovado em 14/11:** o gerente pelo WhatsApp (sem gerente ligado, vai ao presidente) e a tela da loja (ainda "chega na próxima entrega").
+
+**Conferência:**
+- `mister-avisos.regras.spec.ts`: o limite de 5 min igual ao da telemetria, o título e o detalhe, os motivos e as horas, a 99 só com código de recusa e o botão conferido pelo guia.
+- `ifood-saude.spec.ts`: cada resposta da busca vira a anotação certa; o erro segue para o poller; o banco só muda com o estado, com reafirmação de 10 min; banco fora não lança.
+- `mister-pg.teste-spec.ts`:
+  - a gravação de verdade marca uma vez, mantém o "desde", limpa e não mexe nas outras chaves;
+  - a volta: 3 min ainda nada; 6 min abre ao gerente/presidente e à tela; a 99 com `-1` não avisa e com código avisa; os dois voltam e resolvem; desligada não avisa.
+
 ## 5. O que depende do dono
 
 1. ~~Onde a IA roda~~ — decidido: nuvem.

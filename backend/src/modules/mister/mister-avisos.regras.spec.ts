@@ -9,10 +9,12 @@ import {
   marcoDoCertificado,
   mudouDeMarco,
   regraQueVale,
+  situacaoDa99SemLogin,
   situacaoDaChave,
   situacaoDaNotaSemResposta,
   situacaoDoCaixa,
   situacaoDoCertificadoDaLoja,
+  situacaoDoIfoodSemResposta,
   situacaoDoVigia,
   textoDoAviso,
   textoDoDesfecho,
@@ -20,6 +22,8 @@ import {
 } from './mister-avisos.regras';
 import { REGRAS_DO_VIGIA } from '../vigia/vigia.regras';
 import { diasParaVencer } from '../fiscal/certificado';
+import { POLLER_ERRO_APOS_MS } from '../../common/falhas-do-poller';
+import { GUIA_DE_USO } from './mister-guia-de-uso';
 
 // Os avisos do Mister (mig 419): o padrão aprovado pelo dono em 14/11/2026, a conferência do que a tela salva, de onde vem
 // cada situação e os textos.
@@ -142,8 +146,8 @@ describe('Mister — os avisos, parte 2: fiscal', () => {
   const agora = new Date('2026-11-14T15:00:00Z');
   const em = (dias: number, horas = 1) => new Date(agora.getTime() + dias * 86_400_000 + horas * 3_600_000);
 
-  it('os dois avisos fiscais já funcionam; os outros dois seguem para a próxima entrega', () => {
-    expect(TIPOS_DE_AVISO.filter((t) => !t.jaFunciona).map((t) => t.tipo)).toEqual(['pedido_parado', 'canal_desconectado']);
+  it('os avisos fiscais e o do canal já funcionam; só o pedido parado segue para a próxima entrega', () => {
+    expect(TIPOS_DE_AVISO.filter((t) => !t.jaFunciona).map((t) => t.tipo)).toEqual(['pedido_parado']);
   });
 
   it('o marco do certificado nas bordas: 60, 30, 15, 7 e 1 dia, e vencido abaixo de zero', () => {
@@ -212,5 +216,50 @@ describe('Mister — os avisos, parte 2: fiscal', () => {
     // Aviso sem marco (os outros tipos) nunca lembra.
     expect(mudouDeMarco({ horas: 30 })).toBe(false);
     expect(mudouDeMarco(null)).toBe(false);
+  });
+});
+
+describe('Mister — os avisos, parte 2: o canal desconectado', () => {
+  const agora = new Date('2026-11-14T15:00:00Z');
+  const ha = (ms: number) => new Date(agora.getTime() - ms);
+  const base = { tenantId: 't', unidadeId: 'u', integracaoId: 'ig1' };
+
+  it('o iFood sem responder: só depois do MESMO tempo em que a telemetria trata como erro (antes é falha passageira)', () => {
+    expect(POLLER_ERRO_APOS_MS).toBe(5 * 60_000);
+    expect(situacaoDoIfoodSemResposta({ ...base, desde: ha(POLLER_ERRO_APOS_MS - 1000), motivo: 'sem_resposta' }, 'Loja Centro', agora)).toBeNull();
+    const s = situacaoDoIfoodSemResposta({ ...base, desde: ha(POLLER_ERRO_APOS_MS), motivo: 'sem_resposta' }, 'Loja Centro', agora)!;
+    expect(s).toMatchObject({
+      tipo: 'canal_desconectado',
+      chave: 'canal:ifood:ig1',
+      titulo: 'Loja Centro · pedidos do iFood sem chegar ao Regem desde 14/11 às 11:55',
+      dados: { canal: 'ifood', minutos: 5, motivo: 'sem_resposta' },
+    });
+    expect(s.detalhe).toBe(
+      'Há 5 min o iFood não responde. Enquanto isso, aceite os pedidos pelo Gestor de Pedidos do iFood. Se continuar, confira a ligação em Delivery › Configurações, em "Integrações" ou fale com o suporte.',
+    );
+    // Data inválida não vira aviso.
+    expect(situacaoDoIfoodSemResposta({ ...base, desde: new Date('x'), motivo: null }, 'L', agora)).toBeNull();
+  });
+
+  it('o motivo em português, e o tempo em horas quando passa de uma', () => {
+    const motivo = (m: string | null) => situacaoDoIfoodSemResposta({ ...base, desde: ha(95 * 60_000), motivo: m }, 'L', agora)!.detalhe;
+    expect(motivo('sem_token')).toMatch(/^Há 1 h 35 min o iFood não liberou o acesso do Regem\./);
+    expect(motivo('http_401')).toContain('o iFood recusou o acesso do Regem');
+    expect(motivo('http_403')).toContain('o iFood recusou o acesso do Regem');
+    expect(motivo('http_500')).toContain('o iFood respondeu com erro');
+    expect(motivo(null)).toContain('o iFood respondeu com erro');
+  });
+
+  it('a 99 sem login: só com código de recusa (o -1 é rede, não recusa), com o botão do guia', () => {
+    expect(situacaoDa99SemLogin({ ...base, errno: -1 }, 'L')).toBeNull();
+    expect(situacaoDa99SemLogin({ ...base, errno: 0 }, 'L')).toBeNull();
+    expect(situacaoDa99SemLogin({ ...base, errno: NaN }, 'L')).toBeNull();
+    const s = situacaoDa99SemLogin({ ...base, errno: 10101 }, 'Loja Centro')!;
+    expect(s).toMatchObject({ tipo: 'canal_desconectado', chave: 'canal:99:ig1', titulo: 'Loja Centro · a 99 recusou o login do Regem', dados: { canal: '99', errno: 10101 } });
+    expect(s.detalhe).toBe(
+      'Sem o login, o Regem não confirma os pedidos da 99 nem avisa a saída para entrega (código 10101). Conecte de novo em Delivery › Configurações, em "Integrações", no botão "Conectar com 99Food".',
+    );
+    // O botão citado é um dos que o guia confere contra a tela.
+    expect(GUIA_DE_USO.find((x) => x.id === 'ligar-ifood-99')!.botoes).toEqual(expect.arrayContaining(['Integrações', 'Conectar com 99Food']));
   });
 });

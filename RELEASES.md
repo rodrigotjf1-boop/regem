@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Mister: os avisos, parte 2b — iFood ou 99 desconectado (14/11, F1.2c; SEM migration; não mexe no `sync-daemon`).**
+  A busca de pedidos do iFood passa a anotar "sem resposta desde" na própria integração (só da nuvem; a resposta de erro
+  era engolida e o token revogado ficava invisível); o aviso sai com 5 min, e o da 99 com o login recusado. O poller do
+  iFood só roda na nuvem. Nada no `.zip` nem no `.exe`.
+
 - **Mister: os avisos, parte 2a — certificado perto de vencer e nota sem resposta (14/11, F1.2b; SEM migration; não
   mexe no `sync-daemon`).** Os dois avisos fiscais da tabela aprovada passam a funcionar (lembrete a cada marco do
   certificado). O fiscal só passou a exportar o número de reconsultas, sem mudar o comportamento. Na NUVEM com o merge;

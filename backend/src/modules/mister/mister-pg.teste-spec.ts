@@ -22,6 +22,7 @@ import { MisterAgenteService } from './mister-agente.service';
 import { MisterAvisosConfigService } from './mister-avisos-config.service';
 import { MisterAvisosService } from './mister-avisos.service';
 import { MAX_TENTATIVAS_CONSULTA_DA_NOTA } from '../fiscal/fiscal.service';
+import { IfoodService } from '../integracoes/ifood/ifood.service';
 import { MisterEntradaService } from './mister-entrada.service';
 import { MisterFerramentasService } from './mister-ferramentas.service';
 import { MisterFilaService } from './mister-fila.service';
@@ -2430,6 +2431,81 @@ export function testesDoMisterComPostgres(): void {
         expect(status).toBe('resolvido');
       } finally {
         await q(`delete from nota_fiscal where tenant_id = $1`, [A]);
+      }
+    });
+
+    // ───────────────────────────── os avisos, parte 2: o canal desconectado ─────────────────────────────
+
+    it('a saúde do iFood no banco: marca uma vez (o "desde" fica), limpa, e nunca mexe nas outras chaves do config (V82)', async () => {
+      const [{ id }] = await q(
+        `insert into integracao (tenant_id, canal, ativo, merchant_id, config) values ($1, 'ifood', true, 'm-1', '{"tokenExp": 123, "avaliacoes": true}')
+         on conflict (tenant_id, canal) do update set ativo = true, config = excluded.config returning id`,
+        [A],
+      );
+      const config = async () => (await q(`select config from integracao where id = $1`, [id]))[0].config;
+      try {
+        const t0 = Date.parse('2026-11-14T15:00:00Z');
+        await new IfoodService(db).anotarSaude(id, true, 'http_401', t0);
+        // Outro processo (outra réplica, ou depois de reiniciar) marca de novo: o "desde" de antes fica.
+        await new IfoodService(db).anotarSaude(id, true, 'sem_resposta', t0 + 120_000);
+        expect(await config()).toEqual({ tokenExp: 123, avaliacoes: true, semRespostaDesde: new Date(t0).toISOString(), semRespostaMotivo: 'http_401' });
+        // Enquanto isso, outra rotina grava a SUA chave: a marca não apaga a dela, nem ela a marca.
+        await q(`update integracao set config = config || '{"tokenExp": 456}' where id = $1`, [id]);
+        await new IfoodService(db).anotarSaude(id, false, null, t0 + 240_000);
+        expect(await config()).toEqual({ tokenExp: 456, avaliacoes: true });
+      } finally {
+        await q(`delete from integracao where tenant_id = $1 and canal = 'ifood'`, [A]);
+      }
+    });
+
+    it('o canal desconectado: o iFood sem responder há mais de 5 min e a 99 com o login recusado avisam; voltou, resolve', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      await janelaAberta('ana');
+      numero.pedidos.length = 0;
+      avisos.incidentes = [];
+      const agora = new Date();
+      const [{ id: ifood }] = await q(
+        `insert into integracao (tenant_id, unidade_id, canal, ativo, merchant_id, config) values ($1, $2, 'ifood', true, 'm-1', jsonb_build_object('semRespostaDesde', $3::text, 'semRespostaMotivo', 'http_401'))
+         on conflict (tenant_id, canal) do update set ativo = true, unidade_id = excluded.unidade_id, config = excluded.config returning id`,
+        [A, lojaDeA, new Date(agora.getTime() - 3 * 60_000).toISOString()],
+      );
+      try {
+        // Há 3 minutos: falha passageira, nada ainda.
+        expect(await avisos.volta([A], agora)).toMatchObject({ abertos: 0 });
+        // Há 6 minutos: abre (o padrão: o gerente — sem gerente ligado, vai ao presidente — e a tela da loja).
+        await q(`update integracao set config = config || jsonb_build_object('semRespostaDesde', $2::text) where id = $1`, [ifood, new Date(agora.getTime() - 6 * 60_000).toISOString()]);
+        expect(await avisos.volta([A], agora)).toMatchObject({ abertos: 1 });
+        const [aviso] = await avisosDe();
+        expect(aviso).toMatchObject({ tipo: 'canal_desconectado', unidade_id: lojaDeA, chave: `canal:ifood:${ifood}` });
+        expect(aviso.titulo).toMatch(/^Loja Centro · pedidos do iFood sem chegar ao Regem desde \d{2}\/\d{2} às \d{2}:\d{2}$/);
+        expect(aviso.detalhe).toMatch(/^Há 6 min o iFood recusou o acesso do Regem\./);
+        expect(numero.enviadas).toEqual([{ para: tel, texto: expect.stringContaining('pedidos do iFood sem chegar ao Regem'), botoes: [] }]);
+        expect(aviso.entregas.map((e: any) => [e.destino, e.ok, e.motivo ?? null])).toEqual(
+          expect.arrayContaining([
+            ['gerente', true, 'sem_gerente_ligado_foi_ao_presidente'],
+            ['tela', false, 'chega_na_proxima_entrega'],
+          ]),
+        );
+        // A 99: o -1 (rede) não é recusa; o código de recusa avisa.
+        await q(
+          `insert into integracao (tenant_id, canal, ativo, config) values ($1, '99food', true, '{"lastAuthErrno": -1}')
+           on conflict (tenant_id, canal) do update set ativo = true, config = excluded.config`,
+          [A],
+        );
+        expect(await avisos.volta([A], agora)).toMatchObject({ abertos: 0 });
+        await q(`update integracao set config = config || '{"lastAuthErrno": 10101}' where tenant_id = $1 and canal = '99food'`, [A]);
+        expect(await avisos.volta([A], agora)).toMatchObject({ abertos: 1 });
+        expect((await avisosDe()).map((a: any) => a.titulo)).toContain(`${NOME_A} · a 99 recusou o login do Regem`);
+        // Voltaram: o iFood respondeu (a marca sai) e a 99 logou (o código volta a nulo). Os dois resolvem.
+        await new IfoodService(db).anotarSaude(ifood, false);
+        await q(`update integracao set config = config || '{"lastAuthErrno": null}' where tenant_id = $1 and canal = '99food'`, [A]);
+        expect(await avisos.volta([A], agora)).toMatchObject({ resolvidos: 2 });
+        // Integração desligada pela loja não avisa.
+        await q(`update integracao set ativo = false, config = config || '{"lastAuthErrno": 10101}' where tenant_id = $1 and canal = '99food'`, [A]);
+        expect(await avisos.volta([A], agora)).toMatchObject({ abertos: 0 });
+      } finally {
+        await q(`delete from integracao where tenant_id = $1 and canal in ('ifood', '99food')`, [A]);
       }
     });
 
