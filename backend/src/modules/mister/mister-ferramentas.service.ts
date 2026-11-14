@@ -10,6 +10,7 @@ import { FUSO_SQL, noPeriodo } from '../../common/fuso-sql';
 import { idadeDoTurno } from '../../common/turno';
 import { DashboardService } from '../dashboard/dashboard.service';
 import { CANAIS_DA_PAUSA, NOME_DO_CANAL } from '../../common/pausa-do-canal';
+import { AtendimentoService } from '../atendimento/atendimento.service';
 import { ConferenciaService } from '../conferencia/conferencia.service';
 import { DeliveryService } from '../delivery/delivery.service';
 import { PausaDoCanalService } from '../delivery/pausa-do-canal.service';
@@ -44,6 +45,8 @@ import {
   periodoAnterior,
   periodoDaFerramenta,
   semAcento,
+  ASSUNTO_DO_CASO,
+  SITUACAO_DO_CASO,
   situacaoDoCertificado,
   variacaoPct,
 } from './mister-agente.regras';
@@ -141,6 +144,8 @@ const CANAL_DO_PEDIDO: Record<(typeof CANAIS_DA_PAUSA)[number], string> = { card
 /** No máximo estas lojas na resposta dos canais sem loja escolhida (uma leitura da pausa por loja). */
 const MAX_LOJAS_NOS_CANAIS = 10;
 const SITUACAO_DA_PAUSA_NO_APP = { pausando: 'ainda indo para o app', aplicada: 'pausado no app também', erro: 'o app não aceitou a pausa' } as const;
+/** No máximo estes casos do Atendimento na resposta (as contagens são de todos). */
+const CASOS_DO_ATENDIMENTO = 10;
 /** A situação e o porquê de uma linha da conferência do cardápio, em português (os códigos são os da tela). */
 const SITUACAO_NA_CONFERENCIA: Record<string, string> = { soApp: 'só no app', soRegem: 'só no Regem', preco: 'preço diferente', naoLiga: 'não liga pelo código PDV' };
 const MOTIVO_NA_CONFERENCIA: Record<string, string> = {
@@ -204,6 +209,8 @@ export class MisterFerramentasService {
     @Optional() private readonly whatsappProvedor?: WhatsappProvedorService,
     // F3, parte 2: a conferência do catálogo com os apps (a última leitura guardada).
     @Optional() private readonly conferencia?: ConferenciaService,
+    // A fila do Atendimento (a mesma da tela).
+    @Optional() private readonly atendimento?: AtendimentoService,
   ) {}
 
   // ───────────────────────────── de quem é a conversa ─────────────────────────────
@@ -340,6 +347,8 @@ export class MisterFerramentasService {
         return this.canaisEIntegracoes(e, loja);
       case 'conferencia_do_catalogo':
         return this.conferenciaDoCatalogo(e, loja);
+      case 'atendimento_agora':
+        return this.atendimentoAgora(e, loja);
     }
   }
 
@@ -415,6 +424,52 @@ export class MisterFerramentasService {
         loja: r.loja?.nome ?? loja.nome,
         apps: [app(r.canais.ifood, 'iFood'), app(r.canais['99food'], '99')],
         ...(e.verValores ? {} : { aviso: SEM_VALORES }),
+      },
+    };
+  }
+
+  /**
+   * O Atendimento AGORA: a MESMA fila da tela (`AtendimentoService.fila` — a ordem prazo → urgente → espera, a situação de
+   * cada caso, as contagens, a régua do perfil e os recados para o responsável, que só a gestão vê). Para a IA vão o
+   * assunto, a situação, a espera, o prazo, o pedido e o primeiro nome de quem está com o caso — nunca o nome, o telefone
+   * nem a mensagem do cliente: a pergunta de gestão não precisa deles (LGPD, o mínimo). A permissão é a da tela (`pedidos`).
+   */
+  private async atendimentoAgora(e: EscopoDoMister, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    if (!this.pode(e, 'pedidos')) return recusa(SEM_PERMISSAO);
+    if (!this.atendimento) return recusa('Não consegui ler o Atendimento agora.');
+    const quem = { tenantId: e.tenantId, colaboradorId: e.colaboradorId, categoria: e.nivel, unidadeId: e.presa } as any;
+    const f: any = await this.atendimento.fila(quem, loja.atual, { comRecados: true });
+    const agora = Date.now();
+    const todos: any[] = f?.casos ?? [];
+    const c = f?.contagens ?? {};
+    const casos = todos.slice(0, CASOS_DO_ATENDIMENTO).map((x) => {
+      const prazo = x.prazoEm ? new Date(x.prazoEm) : null;
+      const pedido = x.pedidoId || x.pedidoNaPlataforma ? pedidoComoNoQuadro({ canal: x.pedidoCanal, numero: null, displayId: x.pedidoNaPlataforma }) : x.pedidoNumero ? `pedido ${String(x.pedidoNumero).slice(0, 20)}` : null;
+      return {
+        assunto: ASSUNTO_DO_CASO[String(x.tipo)] ?? 'Atendimento',
+        situacao: SITUACAO_DO_CASO[String(x.situacao)] ?? String(x.situacao ?? ''),
+        ...(x.prioridade === 'urgente' ? { urgente: true } : {}),
+        esperaHaMinutos: minutosDesde(x.criadoEm, agora),
+        ...(prazo && !Number.isNaN(prazo.getTime()) ? { prazoAs: horaNoFuso(prazo), prazoEmMinutos: Math.round((prazo.getTime() - agora) / 60_000) } : {}),
+        ...(pedido ? { pedido } : {}),
+        ...(x.responsavelNome ? { comQuem: primeiroNome(String(x.responsavelNome)) } : {}),
+      };
+    });
+    return {
+      ok: true,
+      dados: {
+        loja: loja.nome,
+        lidoAs: horaAgora(),
+        emAberto: inteiro(c.abertos),
+        naFilaSemNinguem: inteiro(c.naFila),
+        comPrazo: inteiro(c.comPrazo),
+        aguardandoOCliente: inteiro(c.aguardando),
+        resolvidosHoje: inteiro(c.resolvidosHoje),
+        ...(inteiro(c.paraAbertura) ? { recadosParaAAbertura: inteiro(c.paraAbertura) } : {}),
+        ...(inteiro(c.paraOResponsavel) ? { recadosParaOResponsavel: inteiro(c.paraOResponsavel) } : {}),
+        casos,
+        ...(todos.length > CASOS_DO_ATENDIMENTO ? { observacao: `Os ${CASOS_DO_ATENDIMENTO} primeiros de ${todos.length} na ordem da fila.` } : {}),
+        ...(f?.equipe && f.equipe.atendendo === false ? { equipeForaDoHorario: true, ...(f.equipe.voltaTexto ? { equipeVolta: String(f.equipe.voltaTexto) } : {}) } : {}),
       },
     };
   }

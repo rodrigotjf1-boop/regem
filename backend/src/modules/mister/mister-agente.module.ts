@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AtendimentoModule } from '../atendimento/atendimento.module';
 import { ConferenciaModule } from '../conferencia/conferencia.module';
 import { DashboardModule } from '../dashboard/dashboard.module';
 import { DeliveryModule } from '../delivery/delivery.module';
@@ -43,6 +44,8 @@ import { MisterModule } from './mister.module';
     WhatsappModule,
     // F3, parte 2: a conferência do catálogo (a leitura guardada).
     ConferenciaModule,
+    // A fila do Atendimento (a 14ª consulta).
+    AtendimentoModule,
   ],
   providers: [MisterFerramentasService, MisterAgenteService],
   exports: [MisterAgenteService],

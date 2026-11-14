@@ -1866,6 +1866,61 @@ export function testesDoMisterComPostgres(): void {
       expect((await comCurva.executar(semValores, 'produtos_mais_vendidos', { ordem: 'lucro' })).dados.erro).toContain('não dá para ordenar por lucro');
     });
 
+    it('o Atendimento agora: a fila da tela no escopo da pessoa, sem nome, telefone nem mensagem do cliente', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+      const chamadas: any[] = [];
+      const haMin = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+      const daquiMin = (m: number) => new Date(Date.now() + m * 60_000 + 20_000).toISOString();
+      const caso = (o: Record<string, unknown>) => ({ cliente: 'Maria Cliente', telefone: '5521988887777', mensagem: 'Rua das Flores, 10 — troquem o refri', prioridade: 'normal', ...o });
+      let fila: any = {
+        casos: [
+          caso({ tipo: 'disputa', situacao: 'fila', prazoEm: daquiMin(7), criadoEm: haMin(3), pedidoId: 'p1', pedidoCanal: 'ifood', pedidoNaPlataforma: '4821' }),
+          caso({ tipo: 'outro', situacao: 'com_alguem', prioridade: 'urgente', criadoEm: haMin(12), responsavelNome: 'Bruno Atendente Silva', pedidoNumero: '77' }),
+          caso({ tipo: 'fornecedor', situacao: 'responsavel', criadoEm: haMin(40) }),
+          caso({ tipo: 'tipo_novo', situacao: 'aguardando', criadoEm: haMin(5) }),
+        ],
+        contagens: { abertos: 3, naFila: 1, comPrazo: 1, comigo: 0, aguardando: 1, resolvidosHoje: 6, paraAbertura: 0, paraOResponsavel: 1 },
+        equipe: { modo: 'loja', atendendo: false, voltaTexto: 'volta às 18:00' },
+      };
+      const comAtendimento = new MisterFerramentasService(
+        db, modulos, null as any, null as any, null as any, null as any, null as any, null as any, null as any, null as any, null as any,
+        undefined, undefined, undefined, undefined, undefined,
+        { fila: async (quem: any, loja: any, opcoes: any) => (chamadas.push({ quem, loja, opcoes }), fila) } as any,
+      );
+      const r = await comAtendimento.executar(e, 'atendimento_agora', {});
+      expect(r.ok).toBe(true);
+      // A fila da tela, no escopo da pessoa (a régua do perfil é a da tela), com os recados.
+      expect(chamadas).toEqual([{ quem: { tenantId: A, colaboradorId: pessoa.ana, categoria: 'presidente', unidadeId: null }, loja: null, opcoes: { comRecados: true } }]);
+      expect(r.dados).toMatchObject({
+        emAberto: 3, naFilaSemNinguem: 1, comPrazo: 1, aguardandoOCliente: 1, resolvidosHoje: 6, recadosParaOResponsavel: 1,
+        equipeForaDoHorario: true, equipeVolta: 'volta às 18:00',
+      });
+      expect(r.dados).not.toHaveProperty('recadosParaAAbertura');
+      expect(r.dados.casos).toEqual([
+        { assunto: 'Disputa', situacao: 'na fila, sem ninguém', esperaHaMinutos: 3, prazoAs: expect.stringMatching(/^\d{2}:\d{2}$/), prazoEmMinutos: 7, pedido: 'iFood 4821' },
+        { assunto: 'Atendimento', situacao: 'com alguém da equipe', urgente: true, esperaHaMinutos: 12, pedido: 'pedido 77', comQuem: 'Bruno' },
+        { assunto: 'Fornecedor', situacao: 'recado para o responsável', esperaHaMinutos: 40 },
+        { assunto: 'Atendimento', situacao: 'aguardando o cliente', esperaHaMinutos: 5 },
+      ]);
+      // Nada do cliente vai à IA: nem o nome, nem o telefone, nem a mensagem (que pode ter o endereço).
+      const texto = JSON.stringify(r.dados);
+      for (const dado of ['Maria', '5521988887777', 'Rua das Flores', 'refri']) expect(texto).not.toContain(dado);
+      // Mais de 10: os 10 primeiros, e o aviso de quantos são.
+      fila = { ...fila, casos: Array.from({ length: 14 }, (_, i) => caso({ tipo: 'chat', situacao: 'fila', criadoEm: haMin(i) })) };
+      const muitos = await comAtendimento.executar(e, 'atendimento_agora', {});
+      expect(muitos.dados.casos).toHaveLength(10);
+      expect(muitos.dados.observacao).toBe('Os 10 primeiros de 14 na ordem da fila.');
+      // O gerente preso à loja: a fila da loja dele; sem a permissão da tela, a recusa.
+      const [{ id: lojaA }] = await q(`select id from unidade where tenant_id = $1`, [A]);
+      const gerente = { ...e, nivel: 'gerente' as const, lojaUnica: false, presa: lojaA, lojas: [{ id: lojaA, nome: 'Loja Centro' }], permissoes: { pedidos: true } as any };
+      chamadas.length = 0;
+      expect((await comAtendimento.executar(gerente, 'atendimento_agora', {})).ok).toBe(true);
+      expect(chamadas[0]).toMatchObject({ quem: { categoria: 'gerente', unidadeId: lojaA }, loja: lojaA });
+      expect((await comAtendimento.executar({ ...gerente, permissoes: { delivery: true } as any }, 'atendimento_agora', {})).dados.erro).toContain('não dá acesso');
+    });
+
     it('a conferência do cardápio com os apps: a leitura guardada da loja, em português, com a permissão da tela', async () => {
       const tel = telefone();
       await ligar('ana', tel);

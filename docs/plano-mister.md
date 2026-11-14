@@ -323,6 +323,17 @@ A 13ª consulta, **`conferencia_do_catalogo`**, responde "os preços do iFood ba
 
 **Conferência:** `conferencia-pg.spec.ts` (o resumo com a tabela só-nuvem que a suíte já cria — ERR-451: não lê o app, bate com o botão da tela, tira o ignorado, nunca lida, sem a 99, desligada, loja de outra empresa) e `mister-pg.teste-spec.ts` (a consulta em português, a loja da empresa de uma loja, sem valores, sem a permissão, desligada, várias lojas), também com o banco em UTC; prova por defeito com 7 defeitos, todos acusados; `app-sobe.spec.ts` (o módulo da conferência no agente).
 
+### F3.4 — O Atendimento agora (sem migration)
+
+A 14ª consulta, **`atendimento_agora`**, responde "tem cliente esperando?", "tem caso urgente?" e "como está o atendimento?". Cobre também uma parte da conciliação: o estorno do Pix que falha vira caso urgente no Atendimento, e as disputas do iFood e os reembolsos da 99 entram com o prazo.
+
+- **De onde vem:** a MESMA fila da tela (`AtendimentoService.fila`): a ordem (prazo, urgente, espera), a situação de cada caso, as contagens, a régua do perfil e os recados para o responsável, que só a gestão vê. O gerente preso a uma loja vê a fila da loja dele.
+- **O que traz:** em aberto, na fila sem ninguém, com prazo, aguardando o cliente, resolvidos hoje e os recados; os 10 primeiros casos na ordem da fila, com o assunto (os rótulos da tela, conferidos pela spec), a situação, há quanto tempo espera, o prazo, o pedido como no quadro e o primeiro nome de quem está com o caso; e se a equipe está fora do horário.
+- **O que NÃO vai à IA:** o nome, o telefone e a mensagem do cliente (a mensagem pode ter o endereço). A pergunta de gestão não precisa deles (LGPD, o mínimo).
+- **Permissão:** a da tela (`pedidos`).
+
+**Conferência:** `mister-agente.regras.spec.ts` (os assuntos iguais aos da tela; toda situação da fila com a sua frase) e `mister-pg.teste-spec.ts` (a fila no escopo da pessoa, com os recados; o mapeamento; nada do cliente no que vai à IA; o corte de 10; o gerente preso à loja; sem a permissão), também com o banco em UTC; prova por defeito com 7 defeitos, todos acusados.
+
 ## 5. O que depende do dono
 
 1. ~~Onde a IA roda~~ — decidido: nuvem.
