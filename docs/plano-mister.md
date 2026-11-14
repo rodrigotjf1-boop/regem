@@ -109,11 +109,30 @@ Loja que desliga o PC à noite abre um episódio de "sem sinal" por noite e o fe
 - **Aceite:** o mesmo problema visto de novo não abre segundo incidente; problema que some fecha o incidente; problema que volta abre outro; rotina desligada não grava nada; rotina no servidor da loja não roda; duas voltas ao mesmo tempo não duplicam (prova contra Postgres); uma empresa com erro não trava as outras.
 - **Reversão:** desligar a variável. A tabela fica (nenhuma outra parte do sistema a lê).
 
-### F1.2 — Destinos (depende de decisão do dono)
+### F1.2 — Destinos: os avisos (primeira parte no ar; migration 419)
 
-- **Distribuição:** aviso por episódio (abriu e recuperou) pelo webhook que já existe, e uma aba de incidentes no console.
-- **Loja:** para as regras de público "loja", abrir um caso urgente no Atendimento (recomendado, reaproveita sino, app e WhatsApp do gestor) ou um aviso de gestão no KDS.
-- **A decidir:** qual canal para a loja; se `servidor_sem_sinal` respeita o horário de funcionamento (e de onde vem o horário) ou só dispara com pedido esperando; o texto de cada aviso.
+**Decidido pelo dono em 14/11/2026:** o destino depende do tipo do aviso ("vai depender de que tipo de aviso é, para determinar para onde vai") e a tabela abaixo é o ponto de partida ("vamos de ok e com o tempo vamos atualizando os avisos"). Protótipo versão 2 aprovado no mesmo dia.
+
+| Aviso | Vai para (padrão) | Se ninguém resolver |
+|---|---|---|
+| Impressora parada (com via na fila) | tela do Regem na loja | 5 min → WhatsApp do gerente |
+| Pedido parado (15, 20 ou 30 min; nasce desligado) | KDS, tela da loja, WhatsApp do gerente | — |
+| Caixa aberto há mais de 24 horas | WhatsApp do gerente | — |
+| iFood ou 99 desconectado | WhatsApp do gerente, tela da loja | — |
+| Servidor da loja sem sinal (só com pedido esperando) | WhatsApp do gerente, suporte da DMS | — |
+| Serviço parado, disco cheio, cópia de segurança atrasada | suporte da DMS | 2 horas → WhatsApp do gerente |
+| Nota fiscal sem resposta | caso no Atendimento, WhatsApp do presidente | — |
+| Certificado digital perto de vencer | WhatsApp do presidente | — |
+| A chave de IA parou | WhatsApp do presidente | — |
+
+- **Mister › Avisos e relatórios** (só o presidente): os nove avisos em quatro grupos, a linha "Vai para" e o "Mudar" em gaveta (os seis destinos e o "se ninguém resolver"); o salvar é o da barra, como nas outras telas de ajuste. Tabela `mister_aviso_regra` (migration 419, só nuvem); sem linha, vale o padrão (`mister-avisos.regras.ts`).
+- **A rotina** (`MisterAvisosService`, a cada minuto, só na nuvem): vê as situações de todas as empresas, uma consulta por fonte; abre o episódio novo em `mister_aviso` e entrega; escala uma vez depois do tempo; fecha o que acabou e manda o desfecho a quem recebeu pelo WhatsApp. Tipo ou módulo desligado com o aviso aberto: fecha calado. Um aviso aberto por tipo e alvo (índice único parcial); escalar e fechar por gravação condicional — duas réplicas não entregam em dobro.
+- **Nasce desligada:** só roda com `MISTER_AVISOS_LIGADOS=1` no serviço da API (quem liga é o dono).
+- **Fontes desta parte:** os incidentes do vigia (impressora; servidor sem sinal com pedido aceito ou por aceitar das últimas 3 horas, que depois de aberto segue até o servidor voltar; os técnicos), o caixa aberto há mais de 24 horas e a chave de IA parada. **Ficam para a parte 2:** pedido parado, iFood ou 99 desconectado, nota fiscal sem resposta e certificado (a tela já mostra "chega numa próxima entrega").
+- **Entregas desta parte:** WhatsApp do presidente e do gerente pelo número do Mister, dentro da janela de 24 horas da Meta (fora dela fica anotado `fora_da_janela_de_24h` — o modelo de mensagem aprovado é a parte 2); sem gerente ligado na loja, vai ao presidente; quem respondeu PARAR AVISOS não recebe. KDS: o aviso do KDS (tipo "gestão", fica até "Ciente"), que desce ao servidor da loja como o do Farol, com id fixo por fase. Atendimento: caso urgente, que fecha sozinho quando o aviso resolve. **"Tela do Regem na loja" e "Suporte da DMS"** ficam anotados como `chega_na_proxima_entrega`: não existe aviso genérico na tela da loja, e a forma dele na tela pede um protótipo próprio; a DMS ganha a lista no console.
+- **A trilha** (`mister_aviso.entregas`): destino, fase (abriu, escalou, resolveu), quando, se saiu, o motivo e os 4 últimos dígitos de quem recebeu — nunca o telefone inteiro. A linha resolvida sai em 90 dias.
+
+**Conferência:** `mister-avisos.regras.spec.ts` (o padrão aprovado, a conferência do salvar, as fontes e os textos) e `mister-pg.teste-spec.ts` (a configuração com auditoria; abrir, escalar uma vez e o desfecho; o servidor sem sinal com e sem pedido; o gerente que falta; a janela de 24 h; PARAR AVISOS; KDS e Atendimento; duas voltas ao mesmo tempo; desligar calado; módulo desligado) e o roteiro de tela `frontend/roteiros/mister.mjs` (a parte, a gaveta e o salvar em 16 larguras).
 
 ### F1.3 — Monitores de negócio (cada um nasce desligado)
 
@@ -339,8 +358,8 @@ A 14ª consulta, **`atendimento_agora`**, responde "tem cliente esperando?", "te
 1. ~~Onde a IA roda~~ — decidido: nuvem.
 2. ~~Número do Mister no WhatsApp~~ — decidido: um número próprio, da distribuição, para todas as lojas.
 3. Quem paga a IA: decide-se ao fim, com o gasto medido (ver as decisões de 12/11 acima).
-4. Canal dos avisos da F1 para a loja (recomendado: caso urgente no Atendimento).
-5. Regra do horário para `servidor_sem_sinal`.
+4. ~~Canal dos avisos da F1 para a loja~~ — decidido em 14/11: depende do tipo; tabela na F1.2.
+5. ~~Regra do horário para `servidor_sem_sinal`~~ — decidido: só com pedido esperando.
 6. ~~Mockup do módulo~~ — aprovado em 13/11. Faltam os mockups da F1.4.
 7. ~~Releitura dos documentos e imagens no grafo de engenharia~~ — feita em 12/11.
 8. O perfil de permissões por hierarquia (o que cada gerente pode pelo Mister): fim do projeto.

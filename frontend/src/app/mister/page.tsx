@@ -9,18 +9,20 @@ import { Card } from '@/components/ui/card';
 import { Partes } from '@/components/ui/partes';
 import { SkeletonList } from '@/components/ui/skeleton';
 import { NO_SERVIDOR_DA_LOJA } from '@/components/ui/so-pela-nuvem';
+import { AvisosDoMister } from '@/components/mister/avisos';
 import { IaEUso } from '@/components/mister/ia-e-uso';
 import { PessoasDoMister } from '@/components/mister/pessoas';
 
 // MISTER — o administrador virtual da loja (protótipo `mockups/regem-mister.html`, aprovado em 13/11/2026).
-// Partes no ar: "Pessoas" (cada gestor liga o próprio WhatsApp ao Mister) e "IA e uso" (a chave de IA da empresa e o
-// medidor). "Resumo" e "Avisos e relatórios" do protótipo entram nas entregas seguintes.
-// Quem entra: o PRESIDENTE vê as duas partes; o GERENTE vê só "Pessoas" (a própria linha), sem a faixa de partes.
+// Partes no ar: "Pessoas" (cada gestor liga o próprio WhatsApp ao Mister), "IA e uso" (a chave de IA da empresa e o
+// medidor) e "Avisos e relatórios" (para onde vai cada aviso — versão 2 do protótipo, aprovada em 14/11/2026). "Resumo"
+// entra numa entrega seguinte.
+// Quem entra: o PRESIDENTE vê as três partes; o GERENTE vê só "Pessoas" (a própria linha), sem a faixa de partes.
 // Só na nuvem e só com o módulo ligado (ele nasce desligado, em Visão C&O › Módulos do produto).
 // O servidor é quem barra de verdade (rotas `mister/*`: gerente e presidente; `ia/*`: só o presidente); aqui a tela só explica.
 
-type Parte = 'pessoas' | 'ia';
-const TITULO: Record<Parte, string> = { pessoas: 'Pessoas', ia: 'IA e uso' };
+type Parte = 'pessoas' | 'ia' | 'avisos';
+const TITULO: Record<Parte, string> = { pessoas: 'Pessoas', ia: 'IA e uso', avisos: 'Avisos e relatórios' };
 
 function Aviso({ titulo, children }: { titulo: string; children: React.ReactNode }) {
   return (
@@ -52,7 +54,8 @@ export default function MisterPage() {
     const c = getCategoria();
     setCat(c);
     // Um link pode abrir direto numa parte (`/mister?parte=ia`). Só o presidente tem a parte da IA.
-    if (c === 'presidente' && new URLSearchParams(window.location.search).get('parte') === 'ia') setParte('ia');
+    const pedida = new URLSearchParams(window.location.search).get('parte');
+    if (c === 'presidente' && (pedida === 'ia' || pedida === 'avisos')) setParte(pedida);
     if ((c === 'presidente' || c === 'gerente') && !NO_SERVIDOR_DA_LOJA) void lerModulo();
   }, [lerModulo]);
 
@@ -90,7 +93,7 @@ export default function MisterPage() {
       <div className="space-y-5">
         <p className="max-w-3xl text-sm text-muted-foreground">
           {presidente
-            ? 'O administrador virtual da sua loja. Aqui cada gestor liga o próprio WhatsApp ao Mister, e você cuida da chave de IA da empresa. Com o WhatsApp ligado, é só perguntar a ele sobre a loja: as vendas, os pedidos, o estoque. Os avisos chegam nas próximas entregas.'
+            ? 'O administrador virtual da sua loja. Aqui cada gestor liga o próprio WhatsApp ao Mister, e você cuida da chave de IA da empresa. Com o WhatsApp ligado, é só perguntar a ele sobre a loja: as vendas, os pedidos, o estoque. Em "Avisos e relatórios" você escolhe para onde vai cada aviso.'
             : 'O administrador virtual da loja. Ligue aqui o seu WhatsApp ao Mister e pergunte a ele sobre a loja: as vendas, os pedidos, o estoque. Os avisos chegam nas próximas entregas.'}
         </p>
         {presidente && (
@@ -99,12 +102,13 @@ export default function MisterPage() {
             partes={[
               { key: 'pessoas', label: TITULO.pessoas },
               { key: 'ia', label: TITULO.ia },
+              { key: 'avisos', label: TITULO.avisos },
             ]}
             ativa={aberta}
             aoEscolher={setParte}
           />
         )}
-        {aberta === 'ia' ? <IaEUso /> : <PessoasDoMister />}
+        {aberta === 'ia' ? <IaEUso /> : aberta === 'avisos' ? <AvisosDoMister /> : <PessoasDoMister />}
       </div>
     );
   }

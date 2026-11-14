@@ -7,6 +7,7 @@ import * as schema from '../../db/schema';
 import { perfilPadrao } from '../../auth/permissoes';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { hojeISO, somarDias } from '../../common/data';
+import { uuidDeChave } from '../../common/id-deterministico';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { PausaDoCanalService } from '../delivery/pausa-do-canal.service';
 import { DashboardService } from '../dashboard/dashboard.service';
@@ -18,6 +19,8 @@ import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
 import { MisterConsoleService } from './mister-console.service';
 import { FERRAMENTAS, INSTRUCOES_DO_MISTER, TETOS, TEXTOS_DO_AGENTE } from './mister-agente.regras';
 import { MisterAgenteService } from './mister-agente.service';
+import { MisterAvisosConfigService } from './mister-avisos-config.service';
+import { MisterAvisosService } from './mister-avisos.service';
 import { MisterEntradaService } from './mister-entrada.service';
 import { MisterFerramentasService } from './mister-ferramentas.service';
 import { MisterFilaService } from './mister-fila.service';
@@ -99,6 +102,14 @@ class IaDeMentira extends IaEmpresaService {
         },
       },
     } as any;
+  }
+}
+
+/** A rotina dos avisos com a leitura do vigia trocável: `incidentes` = os incidentes de mentira; null = o banco de verdade. */
+class AvisosDeTeste extends MisterAvisosService {
+  incidentes: any[] | null = [];
+  protected async incidentesDoVigia(so?: string[]) {
+    return this.incidentes ?? super.incidentesDoVigia(so);
   }
 }
 
@@ -200,6 +211,18 @@ export function testesDoMisterComPostgres(): void {
       pontoDeMentira as any,
     );
     const agente = new MisterAgenteService(fila, ferramentas, ia, numero);
+    // Os avisos (mig 419): o KDS e os eventos são dublês que anotam.
+    const avisosConfig = new MisterAvisosConfigService(db, auditoria);
+    const kdsAvisos: any[] = [];
+    const emitidos: any[] = [];
+    const avisos = new AvisosDeTeste(
+      db,
+      avisosConfig,
+      numero,
+      modulos,
+      { guardarEMostrar: async (p: any) => (kdsAvisos.push(p), { aviso: {}, situacao: 'novo' }) } as any,
+      { emit: (n: string, p: any) => emitidos.push([n, p]) } as any,
+    );
     const consoleDoMister = new MisterConsoleService(db, numero, new IaEmpresaService(db));
 
     // Tudo o que este arquivo cria leva uma marca própria: o banco do CI é dividido com as outras specs.
@@ -218,6 +241,7 @@ export function testesDoMisterComPostgres(): void {
 
     let A: string; // empresa "Burger"
     let B: string; // empresa "Pizzaria"
+    let lojaDeA: string; // a "Loja Centro" da empresa A
     const funcao: Record<string, string> = {};
     const pessoa: Record<string, string> = {};
     const usuario = (nome: string, tenant = A, categoria = 'presidente') => ({ tenantId: tenant, colaboradorId: pessoa[nome], categoria, unidadeId: null }) as any;
@@ -249,6 +273,8 @@ export function testesDoMisterComPostgres(): void {
     };
     const limparConversas = async () => {
       await q(`delete from mister_pergunta where tenant_id = any($1::uuid[])`, [[A, B]]);
+      await q(`delete from mister_aviso where tenant_id = any($1::uuid[])`, [[A, B]]);
+      await q(`delete from mister_aviso_regra where tenant_id = any($1::uuid[])`, [[A, B]]);
       await q(`delete from mister_vinculo where tenant_id = any($1::uuid[])`, [[A, B]]);
       await q(`delete from mister_mensagem where wamid like $1`, [`wamid.${MARCA}.%`]);
       await q(`delete from mister_conversa where telefone = any($1::text[])`, [telefones]);
@@ -258,7 +284,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -283,6 +309,7 @@ export function testesDoMisterComPostgres(): void {
       await criar('carlos', 'Carlos Lima', A, 'gerente-a');
       // O gerente tem loja: é dela que ele fala (e é ela que aparece na parte "Pessoas").
       const [{ id: loja }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja Centro') returning id`, [A]);
+      lojaDeA = loja;
       await q(`update colaborador set unidade_id = $2 where id = $1`, [pessoa.carlos, loja]);
       await criar('edu', 'Edu Balcão', A, 'execucao-a');
       await criar('anaB', 'Ana Souza', B, 'presidente-b');
@@ -327,6 +354,9 @@ export function testesDoMisterComPostgres(): void {
       ia.pedidos.length = 0;
       ia.roteiro = [];
       lidos.length = 0;
+      kdsAvisos.length = 0;
+      emitidos.length = 0;
+      avisos.incidentes = [];
     });
 
     // ───────────────────────────── o número e a chave geral ─────────────────────────────
@@ -2107,6 +2137,179 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from fiscal_credencial where tenant_id = $1`, [A]);
         await q(`delete from fiscal_config where tenant_id = $1`, [A]);
       }
+    });
+    // ───────────────────────────── os avisos (mig 419) ─────────────────────────────
+
+    const incidente = (regra: string, chave: string, extra: Record<string, unknown> = {}) => ({
+      tenantId: A,
+      unidadeId: lojaDeA,
+      regra,
+      chave,
+      evidencia: { impressora: 'Cozinha' },
+      loja: 'Loja Centro',
+      esperando: null,
+      jaAberto: false,
+      ...extra,
+    });
+    const avisosDe = (tenant = A) => q(`select * from mister_aviso where tenant_id = $1 order by aberto_em`, [tenant]);
+    const janelaAberta = (nome: string) => q(`update mister_vinculo set ultima_entrada_em = now() where colaborador_id = $1`, [pessoa[nome]]);
+
+    it('a configuração dos avisos: o padrão aprovado, o salvar com a auditoria do antes e do depois, e as recusas', async () => {
+      const tela = await avisosConfig.daTela(A);
+      expect(tela.avisos).toHaveLength(9);
+      expect(tela.avisos[0]).toMatchObject({ tipo: 'impressora', padrao: true, jaFunciona: true, regra: { ligado: true, destinos: ['tela'], escalaMin: 5, escalaPara: ['gerente'] } });
+      expect(tela.avisos.find((a) => a.tipo === 'pedido_parado')).toMatchObject({ jaFunciona: false, regra: { ligado: false, parametro: 20 } });
+      expect(tela.destinos.map((d) => d.id)).toEqual(['presidente', 'gerente', 'tela', 'kds', 'atendimento', 'dms']);
+      const salvo = await avisosConfig.salvar(usuario('ana'), { regras: [{ tipo: 'impressora', ligado: true, destinos: ['kds', 'atendimento'], escalaMin: null, escalaPara: [] }] });
+      expect(salvo.avisos[0]).toMatchObject({ padrao: false, regra: { destinos: ['kds', 'atendimento'], escalaMin: null } });
+      const [aud] = auditados.filter((a) => a.acao === 'mister_avisos_alterados');
+      expect(aud).toMatchObject({ tenantId: A, atorId: pessoa.ana, detalhe: { mudou: [{ tipo: 'impressora', antes: { destinos: ['tela'] }, depois: { destinos: ['kds', 'atendimento'] } }] } });
+      await expect(avisosConfig.salvar(usuario('ana'), { regras: [{ tipo: 'caixa_24h', ligado: true, destinos: [], escalaMin: null, escalaPara: [] }] })).rejects.toThrow('Escolha pelo menos um destino');
+      // A outra empresa segue no padrão.
+      expect((await avisosConfig.daTela(B)).avisos[0]).toMatchObject({ padrao: true, regra: { destinos: ['tela'] } });
+    });
+
+    it('a volta: a impressora parada abre o aviso, escala ao gerente pelo WhatsApp depois de 5 min, uma vez, e resolvida manda o desfecho', async () => {
+      const tel = telefone();
+      await ligar('carlos', tel, A, 'gerente');
+      await janelaAberta('carlos');
+      numero.pedidos.length = 0;
+      avisos.incidentes = [incidente('impressora_parada', 'srv:1:impressora:9')];
+      expect(await avisos.volta([A])).toMatchObject({ situacoes: 1, abertos: 1, escalados: 0, resolvidos: 0 });
+      const [aberto] = await avisosDe();
+      expect(aberto).toMatchObject({ tipo: 'impressora', situacao: 'aberto', chave: 'vigia:impressora_parada:srv:1:impressora:9', titulo: 'Loja Centro · impressora Cozinha parada' });
+      // O padrão vai à tela da loja, que chega na próxima entrega — fica anotado, ninguém recebe ainda.
+      expect(aberto.entregas).toEqual([expect.objectContaining({ destino: 'tela', fase: 'abriu', ok: false, motivo: 'chega_na_proxima_entrega' })]);
+      expect(numero.enviadas).toEqual([]);
+      expect(await avisos.volta([A])).toMatchObject({ abertos: 0, escalados: 0 });
+      // Passaram 6 minutos: escala ao gerente da loja, uma vez.
+      await q(`update mister_aviso set aberto_em = now() - interval '6 minutes 10 seconds' where id = $1`, [aberto.id]);
+      expect(await avisos.volta([A])).toMatchObject({ escalados: 1 });
+      expect(numero.enviadas).toEqual([{ para: tel, texto: '⏰ Sem solução há 6 min. ⚠️ Loja Centro · impressora Cozinha parada.\n\nConfira se ela está ligada, com papel e no cabo ou na rede.', botoes: [] }]);
+      expect(await avisos.volta([A])).toMatchObject({ escalados: 0 });
+      // A impressora voltou: o aviso fecha e o gerente recebe o desfecho.
+      avisos.incidentes = [];
+      expect(await avisos.volta([A])).toMatchObject({ resolvidos: 1, calados: 0 });
+      expect(numero.enviadas.at(-1)).toEqual({ para: tel, texto: '✅ Resolvido: Loja Centro · impressora Cozinha parada. Durou 6 min.', botoes: [] });
+      const [fechado] = await avisosDe();
+      expect(fechado).toMatchObject({ situacao: 'resolvido' });
+      expect(fechado.entregas.map((e: any) => [e.destino, e.fase, e.ok, e.final])).toEqual([
+        ['tela', 'abriu', false, undefined],
+        ['gerente', 'escalou', true, tel.slice(-4)],
+        ['gerente', 'resolveu', true, tel.slice(-4)],
+      ]);
+      // A trilha nunca guarda o telefone inteiro.
+      expect(JSON.stringify(fechado.entregas)).not.toContain(tel);
+    });
+
+    it('o servidor sem sinal só avisa com pedido esperando e segue aberto até voltar; sem gerente ligado vai ao presidente; fora da janela de 24 h fica anotado', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      await janelaAberta('ana');
+      numero.pedidos.length = 0;
+      avisos.incidentes = [incidente('servidor_sem_sinal', 'srv:1', { esperando: 0 })];
+      expect(await avisos.volta([A])).toMatchObject({ situacoes: 0, abertos: 0 });
+      avisos.incidentes = [incidente('servidor_sem_sinal', 'srv:1', { esperando: 2 })];
+      expect(await avisos.volta([A])).toMatchObject({ abertos: 1 });
+      const [semSinal] = await avisosDe();
+      expect(semSinal.entregas.map((e: any) => [e.destino, e.ok, e.motivo ?? null])).toEqual([
+        ['gerente', true, 'sem_gerente_ligado_foi_ao_presidente'],
+        ['dms', false, 'chega_na_proxima_entrega'],
+      ]);
+      expect(numero.enviadas).toEqual([{ para: tel, texto: '⚠️ Loja Centro · servidor sem sinal.\n\nConfira se o computador do servidor está ligado e com internet.', botoes: [] }]);
+      // Os pedidos acabaram, mas o servidor segue sem sinal: o aviso continua aberto (não "resolve" à toa).
+      avisos.incidentes = [incidente('servidor_sem_sinal', 'srv:1', { esperando: 0, jaAberto: true })];
+      expect(await avisos.volta([A])).toMatchObject({ resolvidos: 0 });
+      // O caixa aberto há 30 horas, com o presidente fora da janela de 24 h: o aviso abre e fica anotado, sem mensagem.
+      avisos.incidentes = [incidente('servidor_sem_sinal', 'srv:1', { esperando: 0, jaAberto: true })];
+      await q(`update mister_vinculo set ultima_entrada_em = now() - interval '25 hours' where colaborador_id = $1`, [pessoa.ana]);
+      await q(`insert into caixa_sessao (tenant_id, unidade_id, origem, status, valor_abertura, aberta_em, aberta_por_id) values ($1, $2, 'pdv', 'aberta', 0, now() - interval '30 hours', $3)`, [A, lojaDeA, pessoa.carlos]);
+      numero.pedidos.length = 0;
+      try {
+        expect(await avisos.volta([A])).toMatchObject({ abertos: 1 });
+        const caixa = (await avisosDe()).find((a) => a.tipo === 'caixa_24h');
+        expect(caixa.titulo).toBe('Loja Centro · caixa do balcão aberto há 30 horas (aberto por Carlos Lima)');
+        expect(caixa.entregas).toEqual([expect.objectContaining({ destino: 'gerente', ok: false, motivo: 'fora_da_janela_de_24h', final: tel.slice(-4) })]);
+        expect(numero.enviadas).toEqual([]);
+      } finally {
+        await q(`delete from caixa_sessao where tenant_id = $1`, [A]);
+      }
+    });
+
+    it('KDS e Atendimento: o aviso vai ao KDS (desce à loja, com id fixo) e abre um caso urgente que fecha sozinho quando resolve', async () => {
+      await avisosConfig.salvar(usuario('ana'), { regras: [{ tipo: 'impressora', ligado: true, destinos: ['kds', 'atendimento'], escalaMin: null, escalaPara: [] }] });
+      avisos.incidentes = [incidente('impressora_parada', 'srv:1:impressora:9')];
+      try {
+        expect(await avisos.volta([A])).toMatchObject({ abertos: 1, entregas: 2 });
+        const [aberto] = await avisosDe();
+        expect(kdsAvisos).toEqual([
+          expect.objectContaining({ tenantId: A, unidadeId: lojaDeA, id: uuidDeChave('mister-aviso', aberto.id, 'abriu'), titulo: 'Loja Centro · impressora Cozinha parada', tipo: 'gestao', fica: true, naLoja: true, origem: 'Mister', ref: aberto.id }),
+        ]);
+        const [caso] = await q(`select * from atendimento_chamado where tenant_id = $1 and mensagem like 'Aviso do Mister:%'`, [A]);
+        expect(caso).toMatchObject({ prioridade: 'urgente', status: 'aberto', unidade_id: lojaDeA });
+        expect(caso.mensagem).toBe('Aviso do Mister: Loja Centro · impressora Cozinha parada. Confira se ela está ligada, com papel e no cabo ou na rede.');
+        expect(emitidos.map((e) => e[0])).toEqual(['atendimento.novo']);
+        // Resolvido: o caso fecha sozinho.
+        avisos.incidentes = [];
+        await avisos.volta([A]);
+        expect((await q(`select status from atendimento_chamado where id = $1`, [caso.id]))[0].status).toBe('resolvido');
+        expect(emitidos.map((e) => e[0])).toEqual(['atendimento.novo', 'atendimento.mudou']);
+      } finally {
+        await q(`delete from atendimento_chamado where tenant_id = $1`, [A]);
+      }
+    });
+
+    it('a chave de IA parada vai ao presidente; duas voltas ao mesmo tempo entregam uma vez; desligar o tipo fecha o aviso calado; módulo desligado não avisa', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      await janelaAberta('ana');
+      numero.pedidos.length = 0;
+      avisos.incidentes = [];
+      await q(`insert into ia_credencial (tenant_id, provedor, chave_cifrada, final, situacao) values ($1, 'anthropic', 'cifrada-de-teste', 'abcd', 'sem_credito')`, [A]);
+      const [r1, r2] = await Promise.all([avisos.volta([A]), avisos.volta([A])]);
+      expect(r1.abertos + r2.abertos).toBe(1);
+      expect(numero.enviadas).toEqual([{ para: tel, texto: expect.stringMatching(/^⚠️ A IA do Mister parou: a chave de IA está sem crédito\./), botoes: [] }]);
+      // O presidente desliga o aviso: ele fecha calado (sem "resolvido" mentiroso).
+      await avisosConfig.salvar(usuario('ana'), { regras: [{ tipo: 'chave_ia', ligado: false, destinos: ['presidente'], escalaMin: null, escalaPara: [] }] });
+      expect(await avisos.volta([A])).toMatchObject({ calados: 1, resolvidos: 0 });
+      expect(numero.enviadas).toHaveLength(1);
+      // Módulo desligado: nada abre.
+      await avisosConfig.salvar(usuario('ana'), { regras: [{ tipo: 'chave_ia', ligado: true, destinos: ['presidente'], escalaMin: null, escalaPara: [] }] });
+      await modulo(A, false);
+      expect(await avisos.volta([A])).toMatchObject({ abertos: 0 });
+      await modulo(A, true);
+    });
+
+    it('a leitura de verdade do vigia (quando a tabela existe neste banco) vira aviso pela mesma volta', async () => {
+      const [{ tem }] = await q(`select to_regclass('vigia_incidente') is not null as tem`);
+      if (!tem) return; // a tabela só-nuvem nasce na spec do vigia (ERR-451: não reaplicar a 414 aqui)
+      avisos.incidentes = null;
+      await q(`insert into vigia_incidente (tenant_id, unidade_id, regra, chave, gravidade, publico, evidencia) values ($1, $2, 'impressora_parada', $3, 'atencao', 'loja', '{"impressora":"Bar"}')`, [A, lojaDeA, `srv:${MARCA}:imp`]);
+      try {
+        expect(await avisos.volta([A])).toMatchObject({ abertos: 1 });
+        expect((await avisosDe())[0]).toMatchObject({ tipo: 'impressora', titulo: 'Loja Centro · impressora Bar parada' });
+      } finally {
+        await q(`delete from vigia_incidente where tenant_id = $1`, [A]);
+      }
+    });
+
+    it('a trava da escala: duas réplicas marcando o mesmo aviso ao mesmo tempo, só uma ganha (e só ela entrega)', async () => {
+      const [{ id }] = await q(`insert into mister_aviso (tenant_id, tipo, chave, titulo) values ($1, 'impressora', $2, 'Teste') returning id`, [A, `trava:${MARCA}`]);
+      const ganhou = await Promise.all(Array.from({ length: 5 }, () => avisos.marcarEscala(id)));
+      expect(ganhou.filter(Boolean)).toHaveLength(1);
+      expect(await avisos.marcarEscala(id)).toBe(false);
+    });
+
+    it('quem respondeu PARAR AVISOS não recebe o aviso pelo WhatsApp (e, sem mais ninguém, fica anotado)', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      await q(`update mister_vinculo set ultima_entrada_em = now(), pausado_em = now() where colaborador_id = $1`, [pessoa.ana]);
+      numero.pedidos.length = 0;
+      avisos.incidentes = [];
+      await q(`insert into ia_credencial (tenant_id, provedor, chave_cifrada, final, situacao) values ($1, 'anthropic', 'cifrada-de-teste', 'abcd', 'teto_atingido')`, [A]);
+      expect(await avisos.volta([A])).toMatchObject({ abertos: 1, entregas: 0 });
+      expect(numero.enviadas).toEqual([]);
+      expect((await avisosDe())[0].entregas).toEqual([expect.objectContaining({ destino: 'presidente', ok: false, motivo: 'ninguem_ligado' })]);
     });
   });
 }

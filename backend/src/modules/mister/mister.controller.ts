@@ -1,4 +1,4 @@
-import { Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
@@ -8,6 +8,7 @@ import { RequireModulo } from '../../auth/require-modulo.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { CloudOnly } from '../../common/cloud-only.decorator';
+import { MisterAvisosConfigService } from './mister-avisos-config.service';
 import { MisterVinculoService } from './mister-vinculo.service';
 
 // O WHATSAPP DE QUEM ESTÁ LOGADO no Mister e a parte "Pessoas" (mig 417). Gerente e presidente, só na nuvem e só com o
@@ -16,7 +17,10 @@ import { MisterVinculoService } from './mister-vinculo.service';
 @Controller('mister')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard, ModuloGuard)
 export class MisterController {
-  constructor(private readonly vinculo: MisterVinculoService) {}
+  constructor(
+    private readonly vinculo: MisterVinculoService,
+    private readonly avisos: MisterAvisosConfigService,
+  ) {}
 
   /** A situação do meu WhatsApp no Mister e, se eu gerei um código que ainda vale, o código. */
   @Get('whatsapp')
@@ -61,5 +65,23 @@ export class MisterController {
   @RequireModulo('mister')
   desligarPessoa(@CurrentUser() user: AuthUser, @Param('colaboradorId') colaboradorId: string) {
     return this.vinculo.desligarPessoa(user, colaboradorId);
+  }
+
+  /** Para onde vai cada aviso (mig 419): a escolha da empresa ou o padrão. Só o presidente. */
+  @Get('avisos')
+  @CloudOnly()
+  @Roles('presidente')
+  @RequireModulo('mister')
+  avisosDaTela(@CurrentUser() user: AuthUser) {
+    return this.avisos.daTela(user.tenantId);
+  }
+
+  /** Salva os avisos que mudaram (cada um inteiro). Só o presidente; toda recusa antes da gravação. */
+  @Patch('avisos')
+  @CloudOnly()
+  @Roles('presidente')
+  @RequireModulo('mister')
+  salvarAvisos(@CurrentUser() user: AuthUser, @Body() dto: unknown) {
+    return this.avisos.salvar(user, dto);
   }
 }
