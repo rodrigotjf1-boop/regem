@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Delivery: dois "pronto" seguidos não levam mais o pedido a "despachado" (14/11, ERR-463; SEM migration; não mexe
+  no `sync-daemon`).** O `avancar` recebe a etapa que quem chamou viu (`de`): o KDS (todos os cartões prontos), o
+  "Avisar pronto" e a tela do Delivery. Na NUVEM com o merge; **vai no `.zip`** (o `delivery.service` roda no servidor
+  da loja — é lá que o KDS da loja chama o pronto). Tela nova com servidor antigo: o `de` é ignorado, tudo como antes.
+
 - **Mister: as perguntas, parte 3 — conversa aberta de gestão, "por que o pedido atrasou" e os caixas esquecidos
   (14/11, F2.3, ERR-462; SEM migration; não mexe no `sync-daemon`).** Na NUVEM com o merge. O agente só sobe na
   nuvem. Nada no `.zip` nem no `.exe`.

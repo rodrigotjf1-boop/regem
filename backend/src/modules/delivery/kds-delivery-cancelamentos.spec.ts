@@ -845,12 +845,52 @@ descrever('KDS × delivery: cancelamentos, pronto parcial, voltar e perda (Postg
       await q(`delete from delivery_config where tenant_id = $1`, [l.t]);
     });
 
+    // ERR-463: o segundo "pronto" que chegava DEPOIS de o primeiro gravar relia "pronto" e avançava para "despachado"
+    // (avisando o canal que saiu). Com a etapa vista (`de`), o segundo devolve o pedido sem mexer.
     it('dois "pronto" ao mesmo tempo no delivery: o pedido fica pronto (não pula para despachado)', async () => {
       const l = await loja();
       const p = await aceito(l);
-      const r = await Promise.allSettled([delivery.avancar(l.t, p.id), delivery.avancar(l.t, p.id)]);
-      expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+      const r = await Promise.allSettled([
+        delivery.avancar(l.t, p.id, { de: 'confirmado' }),
+        delivery.avancar(l.t, p.id, { de: 'confirmado' }),
+      ]);
+      expect(r.map((x) => x.status)).toEqual(['fulfilled', 'fulfilled']);
       expect((await pedido(p.id)).status).toBe('pronto');
+    });
+
+    it('o segundo "pronto" que chega depois do primeiro não leva o pedido adiante', async () => {
+      const l = await loja();
+      const p = await aceito(l);
+      await delivery.avancar(l.t, p.id, { de: 'confirmado' });
+      const segundo: any = await delivery.avancar(l.t, p.id, { de: 'confirmado' });
+      expect(segundo.status).toBe('pronto');
+      expect((await pedido(p.id)).status).toBe('pronto');
+    });
+
+    it('perdeu a gravação para outro "pronto" (leu "confirmado", o banco já estava "pronto"): devolve o pedido sem erro', async () => {
+      const l = await loja();
+      const p = await aceito(l);
+      const real = (delivery as any).carregar.bind(delivery);
+      const lido = await real(l.t, p.id); // a leitura de ANTES do outro gravar
+      await delivery.avancar(l.t, p.id, { de: 'confirmado' }); // o outro "pronto" grava
+      const espiao = jest.spyOn(delivery as any, 'carregar').mockImplementationOnce(async () => lido);
+      try {
+        const r: any = await delivery.avancar(l.t, p.id, { de: 'confirmado' });
+        expect(r.status).toBe('pronto');
+      } finally {
+        espiao.mockRestore();
+      }
+      expect((await pedido(p.id)).status).toBe('pronto');
+    });
+
+    it('a etapa vista que não é a do pedido (nem a seguinte) é recusada; sem ela, avança um passo como antes', async () => {
+      const l = await loja();
+      const p = await aceito(l);
+      await expect(delivery.avancar(l.t, p.id, { de: 'pronto' })).rejects.toThrow(/mudou de etapa/);
+      expect((await pedido(p.id)).status).toBe('confirmado');
+      await delivery.avancar(l.t, p.id);
+      await delivery.avancar(l.t, p.id);
+      expect((await pedido(p.id)).status).toBe('despachado');
     });
 
     // Auditoria do KDS (11/11/2026, O7; regra do ERR-257): o item do canal sem cadastro ficava fora do cartão da cozinha.

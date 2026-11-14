@@ -335,7 +335,7 @@ export default function DeliveryPage() {
 
   // Avanço de UM passo (retirada e botão PRONTO usam este).
   function avancar(p: any) {
-    acao(api.avancarDelivery(p.id), 'Status atualizado.');
+    acao(api.avancarDelivery(p.id, { de: p.status }), 'Status atualizado.');
   }
   // Despacha a entrega para "em rota" (AVANÇAR do delivery — pula 'pronto'):
   //  • QR ligado → despacha (o entregador confirma pelo QR do cupom);
@@ -437,7 +437,7 @@ export default function DeliveryPage() {
       alvos.map((p) => {
         if (p.status === 'novo') return api.aceitarDelivery(p.id);
         if (p.tipo !== 'retirada' && ['confirmado', 'pronto'].includes(p.status)) return api.despacharDelivery(p.id);
-        return api.avancarDelivery(p.id);
+        return api.avancarDelivery(p.id, { de: p.status });
       }),
     );
     setMarcadosPend(new Set());
@@ -508,7 +508,7 @@ export default function DeliveryPage() {
     pronto: {
       show: true,
       enabled: !!sel && sel.status === 'confirmado',
-      onClick: () => sel && acao(api.avancarDelivery(sel.id), 'Pedido marcado como pronto.'),
+      onClick: () => sel && acao(api.avancarDelivery(sel.id, { de: sel.status }), 'Pedido marcado como pronto.'),
     },
     reimprimir: {
       show: true,
