@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Mister: as perguntas, parte 3 — conversa aberta de gestão, "por que o pedido atrasou" e os caixas esquecidos
+  (14/11, F2.3, ERR-462; SEM migration; não mexe no `sync-daemon`).** Na NUVEM com o merge. O agente só sobe na
+  nuvem. Nada no `.zip` nem no `.exe`.
+
 - **Mister: as perguntas, parte 2 — cancelamentos, caixas e a equipe do dia (14/11, F2.2; SEM migration; não mexe no
   `sync-daemon`).** Na NUVEM com o merge: três consultas novas do agente e os acertos da primeira conversa real
   (estoque em páginas, a regra de balcão × delivery de cada tela, a virada da meia-noite). O agente só sobe na nuvem.
