@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { Permissoes, perfilPadrao, podeAcessar } from '../../auth/permissoes';
 import { FUSO_OPERACAO, hojeISO, horaAgora, horaNoFuso, somarDias } from '../../common/data';
-import { brutoPedido, comandaEhDeCanal } from '../../common/faturamento';
+import { brutoPedido, comandaEhDeCanal, pedidoVale } from '../../common/faturamento';
 import { sqlUnidade, sqlUnidadeOuRede } from '../../common/filtro-unidade';
 import { lerEstacoes } from '../../common/fluxo-kds';
 import { FUSO_SQL, noPeriodo } from '../../common/fuso-sql';
@@ -20,6 +20,7 @@ import { RelatoriosService } from '../relatorios/relatorios.service';
 import { VendasService } from '../vendas/vendas.service';
 import { pessoaVale } from './mister-vinculo.service';
 import {
+  CANAL_NA_TELA,
   ConversaDoMister,
   EtapaDoPedido,
   LimitesDoKds,
@@ -34,8 +35,10 @@ import {
   numeroDoPedido,
   ondeDemorou,
   pedidoComoNoQuadro,
+  periodoAnterior,
   periodoDaFerramenta,
   semAcento,
+  variacaoPct,
 } from './mister-agente.regras';
 import { primeiroNome } from './mister.regras';
 
@@ -294,6 +297,8 @@ export class MisterFerramentasService {
         return this.equipeDoDia(e, en, loja);
       case 'historia_do_pedido':
         return this.historiaDoPedido(e, en, loja);
+      case 'tempos_dos_pedidos':
+        return this.temposDosPedidos(e, en, loja);
     }
   }
 
@@ -339,6 +344,30 @@ export class MisterFerramentasService {
     const porDia = (r?.porDia ?? []) as any[];
     // O relatório de Delivery (`GET /relatorios/faturamento-delivery`): só para quem vê valores em reais, como a rota.
     const dl: any = e.verValores ? await this.relatorios.faturamentoDelivery(e.tenantId, p.de, p.ate, loja.atual) : null;
+    const porHora = ((r?.porHora ?? []) as any[]).map((h) => ({ hora: `${String(inteiro(h.hora)).padStart(2, '0')}h`, vendas: inteiro(h.qtd), total: reais(h.total) }));
+    const pico = porHora.reduce<{ hora: string; vendas: number } | null>((m, h) => (!m || h.vendas > m.vendas ? h : m), null);
+    // A comparação: o período anterior de mesmo tamanho, pelos mesmos relatórios.
+    let comparacao: Record<string, unknown> | undefined;
+    if (en.comparar === true) {
+      const ant = periodoAnterior(p);
+      const ra: any = await this.relatorios.vendas(e.tenantId, ant.de, ant.ate, e.verValores, loja.atual);
+      const da: any = e.verValores ? await this.relatorios.faturamentoDelivery(e.tenantId, ant.de, ant.ate, loja.atual) : null;
+      const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+      comparacao = {
+        periodo: ant.rotulo,
+        numeroDeVendas: inteiro(ra?.resumo?.vendas),
+        faturamento: reais(ra?.resumo?.faturado),
+        ticketMedio: reais(ra?.resumo?.ticketMedio),
+        ...(da ? { delivery: { pedidos: inteiro(da.pedidos), faturamento: reais(da.total), ticketMedio: reais(da.ticketMedio) } } : {}),
+        variacaoPct: {
+          vendas: variacaoPct(inteiro(r?.resumo?.vendas), inteiro(ra?.resumo?.vendas)),
+          faturamento: variacaoPct(n(r?.resumo?.faturado), n(ra?.resumo?.faturado)),
+          ticketMedio: variacaoPct(n(r?.resumo?.ticketMedio), n(ra?.resumo?.ticketMedio)),
+          ...(dl && da ? { pedidosDoDelivery: variacaoPct(inteiro(dl.pedidos), inteiro(da.pedidos)), faturamentoDoDelivery: variacaoPct(n(dl.total), n(da.total)) } : {}),
+        },
+        comoComparar: 'O período anterior tem o mesmo número de dias (a semana até hoje contra a semana passada até o mesmo dia). Variação nula = o período anterior não teve nada para comparar.',
+      };
+    }
     return {
       ok: true,
       dados: {
@@ -356,6 +385,9 @@ export class MisterFerramentasService {
         porCanal: ((r?.porCanal ?? []) as any[]).map((c) => ({ canal: String(c.canal ?? ''), vendas: inteiro(c.qtd), total: reais(c.total) })),
         // Por dia só em período curto: num ano inteiro seriam centenas de linhas para o modelo ler.
         ...(porDia.length <= 31 ? { porDia: porDia.map((d) => ({ dia: diaDaLinha(d.dia), vendas: inteiro(d.qtd), total: reais(d.total) })) } : {}),
+        porHora,
+        horarioDePico: pico && pico.vendas > 0 ? pico.hora : null,
+        ...(comparacao ? { comparacao } : {}),
         delivery: dl
           ? {
               comoORelatorioDeDeliveryConta: 'Os pedidos que chegaram pelos canais (cardápio online, iFood, 99 e outros) e foram aceitos, sem os cancelados, pela hora em que chegaram. É o número certo para o ticket do delivery.',
@@ -376,22 +408,36 @@ export class MisterFerramentasService {
     if ('erro' in p) return recusa(p.erro);
     const quantos = Math.min(15, Math.max(1, inteiro(en.quantos) || 5));
     const ordem = en.ordem === undefined || en.ordem === null || en.ordem === '' ? 'quantidade' : String(en.ordem).trim().toLowerCase();
-    if (ordem !== 'quantidade' && ordem !== 'faturamento') return recusa('A ordem é "quantidade" ou "faturamento".');
-    if (ordem === 'faturamento') {
+    if (ordem !== 'quantidade' && ordem !== 'faturamento' && ordem !== 'lucro') return recusa('A ordem é "quantidade", "faturamento" ou "lucro".');
+    if (ordem === 'faturamento' || ordem === 'lucro') {
       // Por faturamento a lista é a da curva de produtos dos relatórios (`GET /relatorios/produtos`): TODOS os produtos
       // do período, já na ordem do faturamento. Reordenar os mais vendidos por quantidade deixaria de fora o produto
       // caro que vendeu pouco.
-      if (!e.verValores) return recusa('O perfil desta pessoa no Regem não mostra valores em reais: não dá para ordenar por faturamento.');
+      if (!e.verValores) return recusa(`O perfil desta pessoa no Regem não mostra valores em reais: não dá para ordenar por ${ordem}.`);
       const curva: any = await this.relatorios.produtos(e.tenantId, p.de, p.ate, true, loja.atual);
-      const todos = (curva?.itens ?? []) as any[];
+      const daCurva = (curva?.itens ?? []) as any[];
+      // Por lucro: o produto sem custo (sem ficha técnica) vai para o fim — não dá para saber o lucro dele.
+      const todos = ordem === 'lucro' ? [...daCurva].sort((a, b) => (b.lucro ?? -Infinity) - (a.lucro ?? -Infinity)) : daCurva;
+      const semCusto = daCurva.filter((i) => i.lucro === null || i.lucro === undefined).length;
       return {
         ok: true,
         dados: {
           loja: loja.nome,
           periodo: p.rotulo,
-          ordenadoPor: 'faturamento',
+          ordenadoPor: ordem,
           produtosVendidosNoPeriodo: todos.length,
-          produtos: todos.slice(0, quantos).map((i, n) => ({ posicao: n + 1, produto: String(i.descricao ?? ''), quantidade: quantidade(i.qtd), faturamento: reais(i.faturamento) })),
+          ...(semCusto ? { semCusto: `${semCusto} produto(s) sem custo cadastrado (sem ficha técnica): ficam sem lucro e margem${ordem === 'lucro' ? ', no fim da lista' : ''}.` } : {}),
+          comoLerAClasse: 'Classe A = os produtos que somam os primeiros 80% do faturamento; B = até 95%; C = o resto.',
+          produtos: todos.slice(0, quantos).map((i, n) => ({
+            posicao: n + 1,
+            produto: String(i.descricao ?? ''),
+            quantidade: quantidade(i.qtd),
+            faturamento: reais(i.faturamento),
+            custo: reais(i.custo),
+            lucro: reais(i.lucro),
+            margemPct: i.margemPct ?? null,
+            classe: i.classe ?? null,
+          })),
         },
       };
     }
@@ -602,6 +648,91 @@ export class MisterFerramentasService {
       // Vazio é diferente de "não li" (V37): banco sem a tabela do vigia não é "nenhum problema".
       dados.problemasEmAberto = { aviso: 'Não consegui ler os problemas em aberto agora.' };
     }
+    return { ok: true, dados };
+  }
+
+  /**
+   * Os tempos dos pedidos de um período, para "o delivery está demorando?" e "quanto tempo leva a cozinha?": do aceite,
+   * até ficar pronto, até sair e até entregar (os pedidos dos canais) e a fila e o preparo na cozinha — a média e o tempo
+   * dos 10% mais lentos. Não há tela com isto: a consulta é do Mister, sobre os horários que o pedido e o cartão já
+   * guardam. Encomenda fica de fora (o tempo dela não é espera); tempo negativo ou acima de 12 horas é dado torto.
+   */
+  private async temposDosPedidos(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    const p = periodoDaFerramenta(en, hojeISO(), 'hoje');
+    if ('erro' in p) return recusa(p.erro);
+    const ini = `${p.de} 00:00:00`;
+    const fim = `${p.ate} 23:59:59`;
+    /** As três colunas de uma medida (média, os 10% mais lentos, quantos) sobre a coluna de minutos `m` e a de válido `v`. */
+    const medida = (nome: string) =>
+      sql.raw(`round((avg(m_${nome}) filter (where v_${nome}))::numeric, 1)::float8 as "${nome}Media",
+        round((percentile_cont(0.9) within group (order by m_${nome}) filter (where v_${nome}))::numeric, 1)::float8 as "${nome}Lentos",
+        (count(*) filter (where v_${nome}))::int as "${nome}N"`);
+    const entre = (nome: string, de: string, ate: string, onde = 'true') =>
+      sql.raw(`extract(epoch from (${ate} - ${de})) / 60.0 as m_${nome},
+        (${ate} is not null and ${ate} >= ${de} and ${ate} - ${de} < interval '12 hours' and ${onde}) as v_${nome}`);
+    const tres = (l: any, nome: string) => ({ mediaMin: l?.[`${nome}Media`] ?? null, osMaisLentosMin: l?.[`${nome}Lentos`] ?? null, pedidos: Number(l?.[`${nome}N`]) || 0 });
+    const dados: Record<string, unknown> = {
+      loja: loja.nome,
+      periodo: p.rotulo,
+      comoLer: '"osMaisLentosMin" é o tempo a partir do qual estão os 10% de pedidos mais lentos; "pedidos" é quantos entraram na conta. Encomendas ficam de fora.',
+    };
+
+    if (this.pode(e, 'delivery')) {
+      const porCanal = linhas(
+        await this.db.execute(sql`
+          select canal, count(*)::int as pedidos, ${medida('aceite')}, ${medida('pronto')}, ${medida('saiu')}, ${medida('entregue')}
+            from (
+              select coalesce(pe.canal, 'outro') as canal,
+                     ${entre('aceite', 'pe.criado_em', 'pe.confirmado_em')},
+                     ${entre('pronto', 'pe.criado_em', 'pe.pronto_em')},
+                     ${entre('saiu', 'pe.criado_em', 'pe.despachado_em', "pe.tipo <> 'retirada'")},
+                     ${entre('entregue', 'pe.criado_em', 'coalesce(pe.entregue_em, pe.concluido_em)', "pe.tipo <> 'retirada'")}
+                from pedido_externo pe
+               where pe.tenant_id = ${e.tenantId}::uuid and pe.deleted_at is null and pe.agendamento is null and ${pedidoVale('pe')}
+                 ${sqlUnidadeOuRede('pe.unidade_id', loja.atual)} and ${noPeriodo('pe.criado_em', ini, fim)}
+            ) x
+           group by grouping sets ((canal), ())
+           order by canal nulls first`),
+      );
+      const total = porCanal.find((l) => l.canal === null);
+      dados.pedidosDosCanais = {
+        pedidos: Number(total?.pedidos) || 0,
+        doAceite: tres(total, 'aceite'),
+        ateFicarPronto: tres(total, 'pronto'),
+        ateSairParaEntrega: tres(total, 'saiu'),
+        ateEntregar: tres(total, 'entregue'),
+        porCanal: porCanal
+          .filter((l) => l.canal !== null)
+          .map((l) => ({ canal: CANAL_NA_TELA[String(l.canal)] ?? String(l.canal), pedidos: Number(l.pedidos) || 0, ateFicarPronto: tres(l, 'pronto'), ateEntregar: tres(l, 'entregue') })),
+      };
+    } else dados.pedidosDosCanais = { aviso: SEM_PERMISSAO };
+
+    // A cozinha: o tempo na fila (até começar) e o preparo (até ficar pronto), pelo cartão de cada estação.
+    const cozinha = linhas(
+      await this.db.execute(sql`
+        select onde, count(*)::int as cartoes, ${medida('fila')}, ${medida('preparo')}, ${medida('total')}
+          from (
+            select case when pp.origem = 'delivery' then 'delivery' else 'balcão e mesas' end as onde,
+                   ${entre('fila', 'pp.criado_em', 'pp.iniciado_em')},
+                   ${entre('preparo', 'pp.iniciado_em', 'pp.pronto_em')},
+                   ${entre('total', 'pp.criado_em', 'pp.pronto_em')}
+              from producao_pedido pp
+             where pp.tenant_id = ${e.tenantId}::uuid and pp.destino_tipo = 'kds' and pp.status <> 'cancelado'
+               ${sqlUnidade('pp.unidade_id', loja.atual)} and ${noPeriodo('pp.criado_em', ini, fim)}
+               and not exists (select 1 from pedido_externo ag where ag.tenant_id = pp.tenant_id and ag.comanda_id = pp.comanda_id and ag.agendamento is not null)
+          ) x
+         group by grouping sets ((onde), ())
+         order by onde nulls first`),
+    );
+    const daCozinha = cozinha.find((l) => l.onde === null);
+    dados.cozinha = {
+      cartoes: Number(daCozinha?.cartoes) || 0,
+      naFilaAteComecar: tres(daCozinha, 'fila'),
+      preparando: tres(daCozinha, 'preparo'),
+      daEntradaAtePronto: tres(daCozinha, 'total'),
+      porOrigem: cozinha.filter((l) => l.onde !== null).map((l) => ({ origem: String(l.onde), cartoes: Number(l.cartoes) || 0, daEntradaAtePronto: tres(l, 'total') })),
+      ...(daCozinha && Number(daCozinha.cartoes) > 0 ? {} : { observacao: 'Nenhum cartão no KDS neste período: a cozinha não usa o KDS ou não houve pedido.' }),
+    };
     return { ok: true, dados };
   }
 

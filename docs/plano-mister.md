@@ -287,6 +287,17 @@ Três consultas novas e os acertos que a primeira conversa real pediu. As consul
 
 **Conferência:** `mister-agente.regras.spec.ts` (a regra de atraso nos casos de borda, a encomenda, a guarda contra a tela, onde demorou, o número dito) e `mister-pg.teste-spec.ts` (a história de um pedido do iFood que passou por duas estações, o de balcão pela senha, o número repetido, outra empresa, a permissão; os atrasados; o caixa de 90 dias).
 
+### F2.4 — Mais dados para a conversa aberta (sem migration)
+
+A orientação do dono de 14/11 ("as perguntas são abertas e de teor administrativo") pede mais DADOS, não mais perguntas prontas. Entram:
+
+- **O horário de pico:** as vendas do período trazem as vendas por hora (a mesma conta de Relatórios de vendas) e a hora com mais vendas.
+- **A comparação com o período anterior** (`comparar`): o período anterior de mesmo tamanho (a semana até hoje contra a semana passada até o mesmo dia), pelos mesmos relatórios, com a variação em % — nula quando o anterior não teve nada.
+- **Lucro e margem por produto** (`ordem: lucro`): da curva de produtos dos relatórios — o custo pela ficha técnica, o lucro, a margem e a classe ABC. O produto sem custo vai para o fim e o Mister diz quantos são. Só para quem vê valores em reais.
+- **`tempos_dos_pedidos`** (a 11ª consulta): do aceite, até ficar pronto, até sair e até entregar, por canal, e na cozinha a fila até começar e o preparo — a média e o tempo a partir do qual estão os 10% mais lentos. Não há tela com isto: é consulta do Mister sobre os horários que o pedido e o cartão já guardam. Encomenda e cancelado ficam de fora; tempo negativo ou acima de 12 horas é dado torto.
+
+**Conferência:** `mister-agente.regras.spec.ts` (o período anterior nas bordas, a variação) e `mister-pg.teste-spec.ts` (os tempos com horários conhecidos, a comparação com vendas nos dois períodos e o pico, a ordem por lucro); prova por defeito com 3 defeitos, todos acusados.
+
 ## 5. O que depende do dono
 
 1. ~~Onde a IA roda~~ — decidido: nuvem.

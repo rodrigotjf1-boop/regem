@@ -59,7 +59,7 @@ export const INSTRUCOES_DO_MISTER = `Você é o Mister, o administrador virtual 
 COMO VOCÊ TRABALHA
 - Você não sabe nada da loja de cabeça. Todo número, valor, horário, nome de produto e situação que você disser vem de uma ferramenta que você chamou para ESTA pergunta.
 - Antes de responder a uma pergunta sobre a loja, chame a ferramenta que traz o dado. Se a pergunta pede dois assuntos, chame as duas. Junte consultas, compare períodos e faça as contas que a pergunta pedir.
-- Se a pergunta pede um DADO que nenhuma ferramenta traz, diga com clareza que você ainda não tem acesso a essa informação e diga em uma frase o que você consegue responder hoje: resumo do dia, vendas de um período, produtos mais vendidos, pedidos em andamento, a história de um pedido (onde ele demorou), cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto), estoque em alerta e a situação do servidor da loja. Nunca estime, nunca invente e nunca complete um dado que faltou.
+- Se a pergunta pede um DADO que nenhuma ferramenta traz, diga com clareza que você ainda não tem acesso a essa informação e diga em uma frase o que você consegue responder hoje: resumo do dia, vendas de um período, produtos mais vendidos, pedidos em andamento, a história de um pedido (onde ele demorou), os tempos dos pedidos (aceite, cozinha, entrega), a comparação com o período anterior, o horário de pico, o lucro e a margem por produto, cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto), estoque em alerta e a situação do servidor da loja. Nunca estime, nunca invente e nunca complete um dado que faltou.
 - Quando a ferramenta devolver erro, diga que não conseguiu ler aquele dado agora. "Não houve vendas" e "não consegui ler as vendas" são respostas diferentes: nunca troque uma pela outra.
 - Quando um campo vier nulo com o aviso de que o perfil da pessoa não vê valores em reais, diga que o perfil dela no Regem não mostra valores em reais. Não tente chegar ao valor por outro caminho.
 - Conta, só com números que as ferramentas trouxeram (somar, comparar, percentual). Diga de onde saiu.
@@ -154,7 +154,8 @@ export type NomeDaFerramenta =
   | 'cancelamentos'
   | 'caixas_e_sangrias'
   | 'equipe_do_dia'
-  | 'historia_do_pedido';
+  | 'historia_do_pedido'
+  | 'tempos_dos_pedidos';
 
 /** As ferramentas, como o modelo as vê. A ordem e o texto são fixos (entram no trecho em cache). */
 export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; input_schema: any }> = [
@@ -171,19 +172,23 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
   {
     name: 'vendas_do_periodo',
     description:
-      'As vendas fechadas de um período, as mesmas de Relatórios de vendas: total, faturamento, ticket médio, por forma de pagamento, por canal (mesa, balcão, delivery) e por dia; e o relatório de Delivery: os pedidos dos canais, o faturamento e o ticket médio do delivery por plataforma (iFood, 99, cardápio). Use para semana, mês, comparação entre períodos, forma de pagamento, canal e ticket do delivery. Sem período, os últimos 7 dias.',
-    input_schema: { type: 'object', properties: { ...PERIODO, loja: LOJA }, additionalProperties: false },
+      'As vendas fechadas de um período, as mesmas de Relatórios de vendas: total, faturamento, ticket médio, por forma de pagamento, por canal (mesa, balcão, delivery), por dia e por hora (o horário de pico); com "comparar", também o período anterior de mesmo tamanho e a variação; e o relatório de Delivery: os pedidos dos canais, o faturamento e o ticket médio do delivery por plataforma (iFood, 99, cardápio). Use para semana, mês, comparação entre períodos, forma de pagamento, canal e ticket do delivery. Sem período, os últimos 7 dias.',
+    input_schema: {
+      type: 'object',
+      properties: { ...PERIODO, comparar: { type: 'boolean', description: 'Traz também o período anterior de mesmo tamanho (a semana até hoje contra a semana passada até o mesmo dia) e a variação.' }, loja: LOJA },
+      additionalProperties: false,
+    },
   },
   {
     name: 'produtos_mais_vendidos',
     description:
-      'Os produtos mais vendidos de um período, com a quantidade e o faturamento de cada um. Por padrão a ordem é a da quantidade (e vem quanto saiu no delivery e no balcão); para "os que mais faturaram" ou "em ordem de faturamento", peça ordem "faturamento" — não reordene você mesmo uma lista por quantidade, porque ela não traz todos os produtos. Sem período, os últimos 7 dias.',
+      'Os produtos mais vendidos de um período, com a quantidade e o faturamento de cada um. Por padrão a ordem é a da quantidade (e vem quanto saiu no delivery e no balcão); para "os que mais faturaram" ou "em ordem de faturamento", peça ordem "faturamento"; para "o que dá mais lucro" ou margem, peça ordem "lucro" (com o custo da ficha técnica, a margem e a classe da curva ABC). Não reordene você mesmo uma lista, porque ela não traz todos os produtos. Sem período, os últimos 7 dias.',
     input_schema: {
       type: 'object',
       properties: {
         ...PERIODO,
         quantos: { type: 'integer', description: 'Quantos produtos trazer, de 1 a 15. Sem isto, 5.' },
-        ordem: { type: 'string', enum: ['quantidade', 'faturamento'], description: 'Como ordenar. Sem isto, quantidade.' },
+        ordem: { type: 'string', enum: ['quantidade', 'faturamento', 'lucro'], description: 'Como ordenar. Sem isto, quantidade.' },
         loja: LOJA,
       },
       additionalProperties: false,
@@ -246,6 +251,12 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
       properties: { numero: { type: 'string', description: 'O número que a pessoa disse: o do canal (4821), o do dia (#284) ou a senha (D12).' }, loja: LOJA },
       additionalProperties: false,
     },
+  },
+  {
+    name: 'tempos_dos_pedidos',
+    description:
+      'Os tempos dos pedidos de um período: do aceite, até ficar pronto, até sair e até entregar (por canal), e na cozinha a fila até começar e o preparo — a média e o tempo dos 10% mais lentos. Use para "o delivery está demorando?", "quanto tempo leva a cozinha?" e para comparar dias. Sem período, hoje.',
+    input_schema: { type: 'object', properties: { ...PERIODO, loja: LOJA }, additionalProperties: false },
   },
 ];
 
@@ -388,6 +399,20 @@ export function numeroDoPedido(dito: unknown): string | null {
     .replace(/\s+/g, '')
     .trim();
   return /^[A-Z]?\d{1,12}$/.test(t) || /^[A-Z0-9-]{3,40}$/.test(t) ? t : null;
+}
+
+/** O período anterior de mesmo tamanho (a semana até quinta contra a semana passada até quinta). */
+export function periodoAnterior(p: { de: string; ate: string }): { de: string; ate: string; rotulo: string } {
+  const dias = Math.round((Date.parse(`${p.ate}T12:00:00Z`) - Date.parse(`${p.de}T12:00:00Z`)) / 86_400_000) + 1;
+  const ate = somarDias(p.de, -1);
+  const de = somarDias(p.de, -dias);
+  return { de, ate, rotulo: de === ate ? diaMes(de) : `de ${diaMes(de)} a ${diaMes(ate)}` };
+}
+
+/** A variação em % (uma casa) — ou null quando a base é zero (não há como dizer "quanto por cento" de nada). */
+export function variacaoPct(agora: number | null, antes: number | null): number | null {
+  if (agora === null || antes === null || !Number.isFinite(agora) || !Number.isFinite(antes) || antes === 0) return null;
+  return Math.round(((agora - antes) / Math.abs(antes)) * 1000) / 10;
 }
 
 // ───────────────────────────── o período de uma ferramenta ─────────────────────────────
