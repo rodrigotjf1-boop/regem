@@ -367,6 +367,29 @@ A 14ª consulta, **`atendimento_agora`**, responde "tem cliente esperando?", "te
 
 **Conferência:** `mister-agente.regras.spec.ts` (os assuntos iguais aos da tela; toda situação da fila com a sua frase) e `mister-pg.teste-spec.ts` (a fila no escopo da pessoa, com os recados; o mapeamento; nada do cliente no que vai à IA; o corte de 10; o gerente preso à loja; sem a permissão), também com o banco em UTC; prova por defeito com 7 defeitos, todos acusados.
 
+### F3.5 — A conciliação: o que não fecha entre a venda, o dinheiro e a nota (sem migration)
+
+A 16ª consulta (`conciliacao_do_periodo`, consultas em `mister-conciliacao.ts`). Só leitura. Hoje não existia nada que cruzasse pedido, pagamento e nota; o levantamento de 14/11 achou cinco sinais exatos com os dados de hoje:
+
+1. **Pix pago em pedido cancelado sem o estorno feito.** Pode estar sem pedido de estorno há mais de 10 min, com o estorno que falhou, ou com o estorno parado. Soma o Pix do item posto depois (mig 373) que falhou. É a MESMA condição da rotina do estorno (V74): a `estorno-pix-pg.spec.ts` prova que as duas veem os mesmos pedidos.
+2. **Pedido cancelado com a venda ainda de pé** (a comanda fechada).
+3. **Pedido concluído sem o pagamento registrado:** em geral, o pago na entrega que não passou pelo "FINALIZAR". O resultado leva o "como ler": o recebimento não foi registrado no caixa do Regem, e o dinheiro pode ter sido recebido fora dele. Medido na nuvem em 14/11: 1.215 dos 3.412 concluídos em 30 dias, todos "na entrega" (Anota Aí 1.001). É efeito de a loja operar fora do Regem.
+4. **Venda desfeita com a nota fiscal ainda autorizada.** Fora do totem, cancelar a venda não cancela a nota.
+5. **Venda fechada cuja última nota foi recusada, denegada ou está sem resposta há mais de 10 min,** sem nenhuma nota válida.
+
+Os casos 1, 2, 4 e 5 estavam em zero na nuvem em 14/11; a consulta fica de vigia.
+
+- **Permissão:** cada parte segue a da tela onde o dado aparece. Pedidos usam a do Delivery; notas, a de Notas fiscais. Valores, só para quem vê valores.
+- **Período:** é o da operação, pelo momento de cada fato.
+- **A nota de teste:** a simulada não conta. A de homologação aparece marcada como teste.
+- **Tabela que só existe na nuvem:** a parte do Pix que não pôde ser lida diz "não li", nunca zero.
+- **Fica para depois** (depende de dado que não existe): o repasse do iFood e da 99, o livro do gateway, a maquininha sem TEF, a regra explícita de "venda que exige nota" e o estorno do totem pelo GoGeM (a fila não sincroniza).
+
+**Conferência:**
+- `mister-pg.teste-spec.ts`: os quatro casos e o que NÃO entra (a venda já desfeita, o concluído pago, a nota simulada, a nota corrigida depois, a autorizada com uma tentativa recusada depois, a pendente de agora e a outra empresa); a permissão de cada parte; os valores vazios para o gerente no perfil padrão; o período.
+- `estorno-pix-pg.spec.ts`: a conciliação e a rotina do estorno veem os mesmos pedidos; o feito some; o que falhou volta.
+- Prova por defeito: 11 de 11.
+
 ### F2.5 — O suporte de uso: o guia "como faço…" (sem migration)
 
 Decisão do dono de 14/11/2026 ("use o recomendado"): o suporte de uso nasce de um **guia curto das telas principais, escrito por nós** a partir das telas de verdade. Não havia documentação de uso no repositório (o Bot de Suporte guarda as regras de cada loja, não o uso do Regem).

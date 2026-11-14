@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Mister: a conciliação — o que não fecha entre a venda, o dinheiro e a nota (14/11, F3.5; SEM migration; não mexe
+  no `sync-daemon`).** A 16ª consulta: Pix de pedido cancelado sem o estorno feito, pedido cancelado com a venda de pé,
+  pedido concluído sem o pagamento registrado, venda desfeita com a nota autorizada e nota recusada ou sem resposta. Só
+  leitura. Na NUVEM com o merge; o agente só sobe na nuvem. Nada no `.zip` nem no `.exe`.
+
 - **Mister: os avisos, parte 2c — pedido parado (14/11, F1.2e; SEM migration; não mexe no `sync-daemon`).** O último
   dos nove avisos: o pedido sem aceite, aceito sem ficar pronto ou pronto de entrega sem sair além de 15, 20 ou 30 min.
   Nasce DESLIGADO. A loja com o servidor sem sinal não abre aviso novo, e o aberto só resolve quando o pedido anda. Na

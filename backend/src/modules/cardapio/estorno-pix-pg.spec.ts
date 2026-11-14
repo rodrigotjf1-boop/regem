@@ -6,6 +6,8 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { EstornoPixService, TENTATIVAS_DO_ESTORNO } from './estorno-pix.service';
+import { pixSemEstorno } from '../mister/mister-conciliacao';
+import { hojeISO, somarDias } from '../../common/data';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -148,6 +150,40 @@ descrever('estorno do Pix no cancelamento (Postgres)', () => {
     expect(caso.mensagem).toMatch(/devolva o valor ao cliente pelo app do Mercado Pago\. Motivo: o Pix só aceita devolução até 90 dias/);
     expect(chamadas.filter((c) => c.pagamento === dentro.pagamento)).toHaveLength(1);
     expect(await estorno(dentro.id)).toMatchObject({ situacao: 'feito' });
+  });
+
+  it('a conciliação do Mister vê os MESMOS pedidos que esta rotina (V74): o cancelado pago sem estorno, depois feito some, o que falhou volta', async () => {
+    // Os pedidos daqui de antes ficam fora: a conciliação é pela empresa e pelo período, e este teste usa uma loja nova.
+    const [{ id: loja2 }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja da conciliação') returning id`, [T]);
+    const naLoja2 = async (o: Parameters<typeof pedido>[0] = {}) => {
+      const p = await pedido(o);
+      await q(`update pedido_externo set unidade_id = $2, cancelado_em = case when status = 'cancelado' then now() - interval '20 minutes' end where id = $1`, [p.id, loja2]);
+      return p;
+    };
+    const mp = await naLoja2();
+    const pb = await naLoja2({ provedor: 'pagseguro', total: 20 });
+    // Os que a rotina não estorna também não aparecem.
+    for (const o of [{ status: 'confirmado' }, { pago: false, statusPagamento: 'aguardando' }, { statusPagamento: 'na_entrega', provedor: null, pagamento: null }, { sinal: 'pago' }, { provedor: 'gogem' }])
+      await naLoja2(o);
+    // O cancelado agora há pouco: a rotina ainda não passou (folga de 10 min).
+    const recente = await pedido();
+    await q(`update pedido_externo set unidade_id = $2 where id = $1`, [recente.id, loja2]);
+    // De ontem a hoje, no horário da operação: o cancelado de 20 min atrás fica dentro mesmo perto da meia-noite.
+    const hoje = hojeISO();
+    const escopo = { tenantId: T, unidade: loja2, ini: `${somarDias(hoje, -1)} 00:00:00`, fim: `${hoje} 23:59:59` };
+    const antes = await pixSemEstorno(db, escopo);
+    expect(antes).toMatchObject({ quantos: 2, valor: 54, adicionaisQueFalharam: 0 });
+    expect(antes.exemplos.map((x: any) => x.situacao)).toEqual(['sem_pedido_de_estorno', 'sem_pedido_de_estorno']);
+    // A rotina enfileira exatamente os mesmos (os dois da conciliação e o recente, que ela pega na hora).
+    await svc.enfileirar();
+    const enfileirados = (await q(`select pedido_id from pedido_estorno where pedido_id in (select id from pedido_externo where unidade_id = $1)`, [loja2])).map((x) => x.pedido_id).sort();
+    expect(enfileirados).toEqual([mp.id, pb.id, recente.id].sort());
+    // Feito: some da conciliação. O que falhou volta, com a situação.
+    falhar = (pg) => pg === pb.pagamento;
+    for (let i = 0; i < TENTATIVAS_DO_ESTORNO; i++) await svc.volta();
+    const depois = await pixSemEstorno(db, escopo);
+    expect(depois).toMatchObject({ quantos: 1, valor: 20 });
+    expect(depois.exemplos.map((x: any) => x.situacao)).toEqual(['estorno_falhou']);
   });
 
   it('a réplica que caiu no meio ("processando" há mais de 5 min) devolve a vez; a que está trabalhando agora, não', async () => {

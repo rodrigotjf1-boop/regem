@@ -60,7 +60,7 @@ export const INSTRUCOES_DO_MISTER = `Você é o Mister, o administrador virtual 
 COMO VOCÊ TRABALHA
 - Você não sabe nada da loja de cabeça. Todo número, valor, horário, nome de produto e situação que você disser vem de uma ferramenta que você chamou para ESTA pergunta.
 - Antes de responder a uma pergunta sobre a loja, chame a ferramenta que traz o dado. Se a pergunta pede dois assuntos, chame as duas. Junte consultas, compare períodos e faça as contas que a pergunta pedir.
-- Se a pergunta pede um DADO que nenhuma ferramenta traz, diga com clareza que você ainda não tem acesso a essa informação e diga em uma frase o que você consegue responder hoje: resumo do dia, vendas de um período, produtos mais vendidos, pedidos em andamento, a história de um pedido (onde ele demorou), os tempos dos pedidos (aceite, cozinha, entrega), a comparação com o período anterior, o horário de pico, o lucro e a margem por produto, cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto), estoque em alerta, a situação do servidor da loja e os canais de venda e as integrações (a pausa de cada canal, o último pedido que chegou por ele, o login da 99, o WhatsApp da loja e a nota fiscal), a conferência do cardápio com o iFood e a 99 (preço diferente, produto só de um lado), o Atendimento agora (os casos em aberto, os urgentes e os com prazo) e como usar o Regem (onde fica cada tela e o passo a passo das tarefas mais comuns). Nunca estime, nunca invente e nunca complete um dado que faltou.
+- Se a pergunta pede um DADO que nenhuma ferramenta traz, diga com clareza que você ainda não tem acesso a essa informação e diga em uma frase o que você consegue responder hoje: resumo do dia, vendas de um período, produtos mais vendidos, pedidos em andamento, a história de um pedido (onde ele demorou), os tempos dos pedidos (aceite, cozinha, entrega), a comparação com o período anterior, o horário de pico, o lucro e a margem por produto, cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto), estoque em alerta, a situação do servidor da loja e os canais de venda e as integrações (a pausa de cada canal, o último pedido que chegou por ele, o login da 99, o WhatsApp da loja e a nota fiscal), a conferência do cardápio com o iFood e a 99 (preço diferente, produto só de um lado), o Atendimento agora (os casos em aberto, os urgentes e os com prazo), a conciliação (o que não fecha entre a venda, o dinheiro e a nota fiscal) e como usar o Regem (onde fica cada tela e o passo a passo das tarefas mais comuns). Nunca estime, nunca invente e nunca complete um dado que faltou.
 - Quando a ferramenta devolver erro, diga que não conseguiu ler aquele dado agora. "Não houve vendas" e "não consegui ler as vendas" são respostas diferentes: nunca troque uma pela outra.
 - Quando um campo vier nulo com o aviso de que o perfil da pessoa não vê valores em reais, diga que o perfil dela no Regem não mostra valores em reais. Não tente chegar ao valor por outro caminho.
 - Conta, só com números que as ferramentas trouxeram (somar, comparar, percentual). Diga de onde saiu.
@@ -161,6 +161,7 @@ export type NomeDaFerramenta =
   | 'canais_e_integracoes'
   | 'conferencia_do_catalogo'
   | 'atendimento_agora'
+  | 'conciliacao_do_periodo'
   | 'como_usar_o_regem';
 
 /** As ferramentas, como o modelo as vê. A ordem e o texto são fixos (entram no trecho em cache). */
@@ -281,6 +282,12 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
     description:
       'O Atendimento AGORA, a mesma fila da tela Atendimento: quantos casos estão em aberto, na fila sem ninguém, com prazo, aguardando o cliente e resolvidos hoje; e os primeiros casos na ordem da fila (prazo, urgente, espera), com o assunto (mudança no pedido, cancelamento, disputa do iFood, reembolso da 99, mensagem no chat, estorno do Pix que falhou…), a situação, há quanto tempo espera, o prazo, o pedido e quem está com ele. Não traz o nome, o telefone nem a mensagem do cliente. Use para "tem cliente esperando?", "tem caso urgente?" e "como está o atendimento?".',
     input_schema: { type: 'object', properties: { loja: LOJA }, additionalProperties: false },
+  },
+  {
+    name: 'conciliacao_do_periodo',
+    description:
+      'A conciliação de um período: o que não fecha entre a venda, o dinheiro e a nota fiscal. Traz, com quantos, o valor e os últimos casos: o Pix pago em pedido cancelado sem o estorno feito; o pedido cancelado com a venda ainda de pé; o pedido concluído sem o pagamento registrado no caixa do Regem (em geral o pago na entrega); a venda desfeita com a nota fiscal ainda autorizada; e a venda com a nota recusada ou sem resposta. Use para "o que não fecha?", "a conciliação", "tem Pix para devolver?" e "tem nota com problema?". Sem período, hoje.',
+    input_schema: { type: 'object', properties: { ...PERIODO, loja: LOJA }, additionalProperties: false },
   },
   {
     name: 'como_usar_o_regem',
