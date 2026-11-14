@@ -276,7 +276,9 @@ test('sem confirmação no prazo: o diagnóstico diz que o envio saiu da página
   await pendente.responderAgora(confirmacao('920000000000000077'));
   const tardio = notas.find((n) => n.ev === 'eco_99_tardio');
   assert.equal(tardio.fonte, 'envio');
-  assert.ok(tardio.depoisMs >= 80, String(tardio.depoisMs));
+  // O temporizador de 80 ms pode disparar com 79 ms medidos pelo Date.now() (arredondamento do relógio): 2 ms de folga.
+  // O que importa é que chegou DEPOIS do prazo, não o milissegundo exato.
+  assert.ok(tardio.depoisMs >= 78, String(tardio.depoisMs));
   // e ela vale para o "já está no chat?" (uma nova tentativa não escreve de novo)
   assert.deepEqual(l.jaEnviada({ pedidoExterno: PEDIDO, texto: 'Seu pedido saiu!', desde }), { id: '920000000000000077' });
 });
