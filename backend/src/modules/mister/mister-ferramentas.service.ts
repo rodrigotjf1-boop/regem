@@ -10,6 +10,7 @@ import { FUSO_SQL, noPeriodo } from '../../common/fuso-sql';
 import { idadeDoTurno } from '../../common/turno';
 import { DashboardService } from '../dashboard/dashboard.service';
 import { CANAIS_DA_PAUSA, NOME_DO_CANAL } from '../../common/pausa-do-canal';
+import { ConferenciaService } from '../conferencia/conferencia.service';
 import { DeliveryService } from '../delivery/delivery.service';
 import { PausaDoCanalService } from '../delivery/pausa-do-canal.service';
 import { Food99Service } from '../integracoes/food99/food99.service';
@@ -140,6 +141,17 @@ const CANAL_DO_PEDIDO: Record<(typeof CANAIS_DA_PAUSA)[number], string> = { card
 /** No máximo estas lojas na resposta dos canais sem loja escolhida (uma leitura da pausa por loja). */
 const MAX_LOJAS_NOS_CANAIS = 10;
 const SITUACAO_DA_PAUSA_NO_APP = { pausando: 'ainda indo para o app', aplicada: 'pausado no app também', erro: 'o app não aceitou a pausa' } as const;
+/** A situação e o porquê de uma linha da conferência do cardápio, em português (os códigos são os da tela). */
+const SITUACAO_NA_CONFERENCIA: Record<string, string> = { soApp: 'só no app', soRegem: 'só no Regem', preco: 'preço diferente', naoLiga: 'não liga pelo código PDV' };
+const MOTIVO_NA_CONFERENCIA: Record<string, string> = {
+  semCodigo: 'sem código PDV no app',
+  repetidoNoApp: 'código repetido no app',
+  repetidoNoRegem: 'código repetido no Regem',
+  semCodigoNoRegem: 'sem código no Regem',
+  semPrecoNoRegem: 'sem o preço deste app no Regem',
+  precoDiferente: 'preço diferente',
+  precosDiferentesNosGrupos: 'preços diferentes entre os grupos do app',
+};
 /** O estado da conexão do Evolution, em português (o `open` é o conectado). */
 const SITUACAO_DO_WHATSAPP: Record<string, string> = {
   close: 'O WhatsApp da loja está desconectado: é preciso ler o QR de novo.',
@@ -190,6 +202,8 @@ export class MisterFerramentasService {
     @Optional() private readonly food99?: Food99Service,
     @Optional() private readonly whatsapp?: WhatsappService,
     @Optional() private readonly whatsappProvedor?: WhatsappProvedorService,
+    // F3, parte 2: a conferência do catálogo com os apps (a última leitura guardada).
+    @Optional() private readonly conferencia?: ConferenciaService,
   ) {}
 
   // ───────────────────────────── de quem é a conversa ─────────────────────────────
@@ -324,6 +338,8 @@ export class MisterFerramentasService {
         return this.temposDosPedidos(e, en, loja);
       case 'canais_e_integracoes':
         return this.canaisEIntegracoes(e, loja);
+      case 'conferencia_do_catalogo':
+        return this.conferenciaDoCatalogo(e, loja);
     }
   }
 
@@ -358,6 +374,49 @@ export class MisterFerramentasService {
     } else dados.canais = { aviso: SEM_PERMISSAO };
     dados.notaFiscal = verFiscal ? await this.notaFiscal(e, loja.atual) : { aviso: SEM_PERMISSAO };
     return { ok: true, dados };
+  }
+
+  /**
+   * A conferência do cardápio com o iFood e a 99 (F3, parte 2): a ÚLTIMA leitura guardada pela tela "Conferir com os
+   * apps", pela mesma conta dela (`ConferenciaService.resumoGuardado` — nunca lê o app daqui). A permissão é a da tela
+   * (`loja`). É por loja: sem loja escolhida numa empresa de várias, pede a loja.
+   */
+  private async conferenciaDoCatalogo(e: EscopoDoMister, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    if (!this.pode(e, 'loja')) return recusa(SEM_PERMISSAO);
+    const lojaId = loja.atual ?? (e.lojaUnica ? (e.lojas[0]?.id ?? null) : null);
+    if (!lojaId) return recusa(`A conferência do cardápio é por loja. As lojas são: ${e.lojas.map((l, n) => `${n + 1}. ${l.nome}`).join('; ')}.`);
+    if (!this.conferencia) return recusa('Não consegui ler a conferência do cardápio agora.');
+    const r = await this.conferencia.resumoGuardado(e.tenantId, lojaId);
+    if (!r.ligada) return { ok: true, dados: { loja: loja.nome, ligada: false, observacao: 'A conferência do cardápio com os apps não está ligada nesta empresa.' } };
+    if (!r.canais) return recusa('Não achei essa loja.');
+    const app = (c: any, nome: string) => ({
+      app: nome,
+      ...(c.ligado ? {} : { ligado: false, motivo: c.motivo }),
+      lidoEm: c.lidoEm ? dataHoraCurta(c.lidoEm) : null,
+      ...(c.lidoEm ? {} : { observacao: 'Nunca foi lido pela tela "Conferir com os apps".' }),
+      ...(c.ultimaLeituraFalhou ? { ultimaLeituraFalhou: true } : {}),
+      ...(c.aResolver === null ? {} : { aResolver: c.aResolver, porSituacao: c.porSituacao }),
+      ...(c.exemplos?.length
+        ? {
+            exemplos: c.exemplos.map((x: any) => ({
+              tipo: x.tipo,
+              nome: x.nome,
+              codigoPdv: x.codigoPdv,
+              situacao: SITUACAO_NA_CONFERENCIA[x.situacao] ?? x.situacao,
+              ...(x.motivo && MOTIVO_NA_CONFERENCIA[x.motivo] ? { porque: MOTIVO_NA_CONFERENCIA[x.motivo] } : {}),
+              ...(e.verValores ? { precoNoApp: x.precoNoApp, precoNoRegem: x.precoNoRegem } : {}),
+            })),
+          }
+        : {}),
+    });
+    return {
+      ok: true,
+      dados: {
+        loja: r.loja?.nome ?? loja.nome,
+        apps: [app(r.canais.ifood, 'iFood'), app(r.canais['99food'], '99')],
+        ...(e.verValores ? {} : { aviso: SEM_VALORES }),
+      },
+    };
   }
 
   /** Os três canais da pausa numa loja (a pausa de agora e o último pedido) e os outros canais com pedido hoje. */

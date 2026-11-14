@@ -60,7 +60,7 @@ export const INSTRUCOES_DO_MISTER = `Você é o Mister, o administrador virtual 
 COMO VOCÊ TRABALHA
 - Você não sabe nada da loja de cabeça. Todo número, valor, horário, nome de produto e situação que você disser vem de uma ferramenta que você chamou para ESTA pergunta.
 - Antes de responder a uma pergunta sobre a loja, chame a ferramenta que traz o dado. Se a pergunta pede dois assuntos, chame as duas. Junte consultas, compare períodos e faça as contas que a pergunta pedir.
-- Se a pergunta pede um DADO que nenhuma ferramenta traz, diga com clareza que você ainda não tem acesso a essa informação e diga em uma frase o que você consegue responder hoje: resumo do dia, vendas de um período, produtos mais vendidos, pedidos em andamento, a história de um pedido (onde ele demorou), os tempos dos pedidos (aceite, cozinha, entrega), a comparação com o período anterior, o horário de pico, o lucro e a margem por produto, cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto), estoque em alerta, a situação do servidor da loja e os canais de venda e as integrações (a pausa de cada canal, o último pedido que chegou por ele, o login da 99, o WhatsApp da loja e a nota fiscal). Nunca estime, nunca invente e nunca complete um dado que faltou.
+- Se a pergunta pede um DADO que nenhuma ferramenta traz, diga com clareza que você ainda não tem acesso a essa informação e diga em uma frase o que você consegue responder hoje: resumo do dia, vendas de um período, produtos mais vendidos, pedidos em andamento, a história de um pedido (onde ele demorou), os tempos dos pedidos (aceite, cozinha, entrega), a comparação com o período anterior, o horário de pico, o lucro e a margem por produto, cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto), estoque em alerta, a situação do servidor da loja e os canais de venda e as integrações (a pausa de cada canal, o último pedido que chegou por ele, o login da 99, o WhatsApp da loja e a nota fiscal) e a conferência do cardápio com o iFood e a 99 (preço diferente, produto só de um lado). Nunca estime, nunca invente e nunca complete um dado que faltou.
 - Quando a ferramenta devolver erro, diga que não conseguiu ler aquele dado agora. "Não houve vendas" e "não consegui ler as vendas" são respostas diferentes: nunca troque uma pela outra.
 - Quando um campo vier nulo com o aviso de que o perfil da pessoa não vê valores em reais, diga que o perfil dela no Regem não mostra valores em reais. Não tente chegar ao valor por outro caminho.
 - Conta, só com números que as ferramentas trouxeram (somar, comparar, percentual). Diga de onde saiu.
@@ -157,7 +157,8 @@ export type NomeDaFerramenta =
   | 'equipe_do_dia'
   | 'historia_do_pedido'
   | 'tempos_dos_pedidos'
-  | 'canais_e_integracoes';
+  | 'canais_e_integracoes'
+  | 'conferencia_do_catalogo';
 
 /** As ferramentas, como o modelo as vê. A ordem e o texto são fixos (entram no trecho em cache). */
 export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; input_schema: any }> = [
@@ -264,6 +265,12 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
     name: 'canais_e_integracoes',
     description:
       'Os canais de venda e as integrações AGORA: cada canal (cardápio digital, iFood, 99) com a pausa que vale agora (até quando, o motivo, quem pausou) e o último pedido que chegou por ele, com quantos chegaram hoje; o login da 99; o WhatsApp da loja (conectado ou não); e a nota fiscal (ligada, em teste ou valendo, o certificado digital e quando vence, e as notas recusadas, sem resposta da SEFAZ ou em contingência nas últimas 24 horas). Use para "por que não chegam pedidos do iFood", "a loja está pausada?", "o WhatsApp está funcionando?" e "tem problema com nota fiscal?". Canal sem pedido há algum tempo não quer dizer canal desligado: diga a hora do último pedido.',
+    input_schema: { type: 'object', properties: { loja: LOJA }, additionalProperties: false },
+  },
+  {
+    name: 'conferencia_do_catalogo',
+    description:
+      'A conferência do cardápio do Regem com o do iFood e o da 99, pela última leitura guardada pela tela "Conferir com os apps" (não lê o app agora): quando cada app foi lido, quantos produtos e complementos estão só no app, só no Regem, com preço diferente ou sem ligar pelo código PDV, e alguns exemplos com o preço de cada lado. Use para "os preços do iFood batem com o Regem?" e "tem produto faltando na 99?". É por loja; leitura antiga pode não mostrar o que mudou depois dela — diga a data.',
     input_schema: { type: 'object', properties: { loja: LOJA }, additionalProperties: false },
   },
 ];

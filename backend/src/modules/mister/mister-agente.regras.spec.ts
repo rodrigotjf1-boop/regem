@@ -157,6 +157,7 @@ describe('Mister — o que o modelo recebe', () => {
       'historia_do_pedido',
       'tempos_dos_pedidos',
       'canais_e_integracoes',
+      'conferencia_do_catalogo',
     ]);
     expect(INSTRUCOES_DO_MISTER).toContain('cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto)');
     expect(INSTRUCOES_DO_MISTER).toContain('os canais de venda e as integrações (a pausa de cada canal');

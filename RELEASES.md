@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Mister: a conferência do cardápio com os apps (14/11, F3.3; SEM migration; não mexe no `sync-daemon`).** A 13ª
+  consulta do Mister, pela última leitura guardada de "Conferir com os apps" (sem ler o app). Na NUVEM com o merge. O
+  agente só sobe na nuvem. Nada no `.zip` nem no `.exe`.
+
 - **Mister: os canais e as integrações (14/11, F3.1; SEM migration; não mexe no `sync-daemon`).** A 12ª consulta do
   Mister: a pausa e o último pedido de cada canal, o login da 99, o WhatsApp da loja e a nota fiscal. Na NUVEM com o
   merge. O agente só sobe na nuvem. Nada no `.zip` nem no `.exe`.
