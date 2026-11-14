@@ -3,16 +3,20 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { EDGE_JANELA_MIN } from '../../common/edge-ativo';
 import { uuidDeChave } from '../../common/id-deterministico';
 import { ehServidorLocal } from '../../common/modo';
 import { MAX_TENTATIVAS_CONSULTA_DA_NOTA } from '../fiscal/fiscal.service';
 import { AlertaKdsService } from '../kds/alerta-kds.service';
 import { ModuloService } from '../modulo/modulo.service';
+import { PREPARO_DA_ENCOMENDA_MIN } from './mister-agente.regras';
 import { MisterAvisosConfigService } from './mister-avisos-config.service';
 import {
   Destino,
   MARCOS_DO_CERTIFICADO,
+  PEDIDO_PARADO_JANELA_H,
   RegraDoAviso,
+  TEMPOS_DO_PEDIDO_PARADO,
   Situacao,
   TipoDeAviso,
   dentroDaJanelaDoWhatsapp,
@@ -24,6 +28,7 @@ import {
   situacaoDoCaixa,
   situacaoDoCertificadoDaLoja,
   situacaoDoIfoodSemResposta,
+  situacaoDoPedidoParado,
   situacaoDoVigia,
   textoDoAviso,
   textoDoDesfecho,
@@ -296,6 +301,100 @@ export class MisterAvisosService implements OnModuleInit {
           ? situacaoDoIfoodSemResposta({ ...base, desde: new Date(c.desde), motivo: c.motivo ?? null }, String(c.loja ?? ''), agora)
           : situacaoDa99SemLogin({ ...base, errno: Number(c.errno) }, String(c.loja ?? ''));
       if (s) fora.push(s);
+    }
+
+    // 7) O pedido parado. Nasce DESLIGADO: só nas empresas que ligaram, com o tempo que escolheram.
+    fora.push(...(await this.pedidosParados(so)));
+    return fora;
+  }
+
+  /**
+   * Os pedidos parados numa etapa além do tempo da empresa (`situacaoDoPedidoParado`). Duas leituras:
+   *  1. ABRIR: nas empresas que ligaram, o pedido de até 6 horas parado além do tempo. O relógio de cada etapa: a chegada
+   *     (novo), o aceite (confirmado), o pronto (entrega). A encomenda só começa a contar 30 min antes do horário, a mesma
+   *     régua do KDS. Loja com servidor instalado e SEM SINAL não abre: lá quem anda os pedidos é o servidor, e a
+   *     situação na nuvem está velha (o aviso "servidor sem sinal" já cuida). Banco sem a tabela dos servidores = sem servidor.
+   *  2. CONTINUAR: o aviso já aberto segue enquanto o pedido estiver na MESMA etapa — mesmo com o servidor sem sinal, depois
+   *     das 6 horas ou com o tipo desligado (aí a volta fecha calado). Assim ninguém recebe "✅ Resolvido" de um pedido que
+   *     não andou: o aviso só resolve quando o pedido anda (ou é cancelado, concluído ou apagado). O título fica com o
+   *     tempo com que o aviso abriu, mesmo que a empresa mude o tempo depois.
+   */
+  private async pedidosParados(so: (col: string) => ReturnType<typeof sql>): Promise<Situacao[]> {
+    let lidos: any[];
+    let continuam: any[];
+    try {
+      continuam = linhas(
+        await this.db.execute(sql`
+          select p.id::text as id, p.tenant_id::text as "tenantId", p.unidade_id::text as "unidadeId", p.canal, p.numero,
+                 p.display_id as "displayId", p.status, coalesce((a.dados ->> 'parametro')::int, r.parametro) as parametro,
+                 coalesce(u.nome, emp.nome) as loja
+            from mister_aviso a
+            join pedido_externo p on p.id = (a.dados ->> 'pedidoId')::uuid and p.tenant_id = a.tenant_id
+                                 and p.status = a.dados ->> 'etapa' and p.deleted_at is null
+            join empresa emp on emp.id = a.tenant_id and emp.deleted_at is null
+            left join mister_aviso_regra r on r.tenant_id = a.tenant_id and r.tipo = 'pedido_parado'
+            left join unidade u on u.id = p.unidade_id and u.tenant_id = p.tenant_id
+           where a.tipo = 'pedido_parado' and a.situacao = 'aberto' ${so('a.tenant_id')}`),
+      );
+      lidos = linhas(
+        await this.db.execute(sql`
+          select p.id::text as id, p.tenant_id::text as "tenantId", p.unidade_id::text as "unidadeId", p.canal, p.numero,
+                 p.display_id as "displayId", p.status, r.parametro, coalesce(u.nome, emp.nome) as loja
+            from mister_aviso_regra r
+            join empresa emp on emp.id = r.tenant_id and emp.deleted_at is null
+            join pedido_externo p on p.tenant_id = r.tenant_id
+            left join unidade u on u.id = p.unidade_id and u.tenant_id = p.tenant_id
+           where r.tipo = 'pedido_parado' and r.ligado
+             and r.parametro in (${sql.join(TEMPOS_DO_PEDIDO_PARADO.map((t) => sql`${t}`), sql`, `)})
+             and p.deleted_at is null
+             and p.criado_em > now() - make_interval(hours => ${PEDIDO_PARADO_JANELA_H})
+             and (p.status in ('novo', 'confirmado') or (p.status = 'pronto' and p.tipo = 'entrega'))
+             and greatest(
+                   case p.status
+                     when 'novo' then p.criado_em
+                     when 'confirmado' then coalesce(p.confirmado_em, p.criado_em)
+                     else coalesce(p.pronto_em, p.confirmado_em, p.criado_em)
+                   end,
+                   coalesce(p.agendamento - make_interval(mins => ${PREPARO_DA_ENCOMENDA_MIN}), '-infinity'::timestamptz)
+                 ) < now() - make_interval(mins => r.parametro) ${so('r.tenant_id')}
+           order by p.criado_em
+           limit 500`),
+      );
+    } catch (e: any) {
+      if (semTabela(e)) return [];
+      throw e;
+    }
+    const fora: Situacao[] = [];
+    const jaVistos = new Set<string>();
+    for (const p of continuam) {
+      const s = situacaoDoPedidoParado({ ...p, unidadeId: p.unidadeId ?? null, parametro: Number(p.parametro) || 20 }, String(p.loja ?? ''));
+      jaVistos.add(s.chave);
+      fora.push(s);
+    }
+    lidos = lidos.filter((p) => !jaVistos.has(`pedido:${p.id}:${p.status}`));
+    if (!lidos.length) return fora;
+
+    // Os servidores das empresas com pedido parado novo: a última batida de cada um.
+    let servidores: Array<{ tenantId: string; unidadeId: string | null; vivo: boolean }> = [];
+    try {
+      const empresas = [...new Set(lidos.map((p) => p.tenantId as string))];
+      servidores = linhas(
+        await this.db.execute(sql`
+          select tenant_id::text as "tenantId", unidade_id::text as "unidadeId",
+                 max(recebido_em) >= now() - make_interval(mins => ${EDGE_JANELA_MIN}) as vivo
+            from edge_status
+           where tenant_id in (${sql.join(empresas.map((t) => sql`${t}::uuid`), sql`, `)})
+           group by tenant_id, unidade_id`),
+      ).map((s) => ({ tenantId: s.tenantId, unidadeId: s.unidadeId ?? null, vivo: s.vivo === true }));
+    } catch (e: any) {
+      if (!semTabela(e)) throw e;
+    }
+    for (const p of lidos) {
+      const unidadeId = p.unidadeId ?? null;
+      // O servidor que atende esta loja: o dela, o da empresa inteira (sem loja) ou, pedido sem loja, qualquer um da empresa.
+      const daLoja = servidores.filter((s) => s.tenantId === p.tenantId && (!unidadeId || !s.unidadeId || s.unidadeId === unidadeId));
+      if (daLoja.length && !daLoja.some((s) => s.vivo)) continue;
+      fora.push(situacaoDoPedidoParado({ ...p, unidadeId, parametro: Number(p.parametro) }, String(p.loja ?? '')));
     }
     return fora;
   }

@@ -15,6 +15,7 @@ import {
   situacaoDoCaixa,
   situacaoDoCertificadoDaLoja,
   situacaoDoIfoodSemResposta,
+  situacaoDoPedidoParado,
   situacaoDoVigia,
   textoDoAviso,
   textoDoDesfecho,
@@ -146,8 +147,9 @@ describe('Mister — os avisos, parte 2: fiscal', () => {
   const agora = new Date('2026-11-14T15:00:00Z');
   const em = (dias: number, horas = 1) => new Date(agora.getTime() + dias * 86_400_000 + horas * 3_600_000);
 
-  it('os avisos fiscais e o do canal já funcionam; só o pedido parado segue para a próxima entrega', () => {
-    expect(TIPOS_DE_AVISO.filter((t) => !t.jaFunciona).map((t) => t.tipo)).toEqual(['pedido_parado']);
+  it('os nove avisos da tabela aprovada já funcionam (o pedido parado entrou por último, desligado)', () => {
+    expect(TIPOS_DE_AVISO.filter((t) => !t.jaFunciona).map((t) => t.tipo)).toEqual([]);
+    expect(TIPOS_DE_AVISO.find((t) => t.tipo === 'pedido_parado')!.padrao.ligado).toBe(false);
   });
 
   it('o marco do certificado nas bordas: 60, 30, 15, 7 e 1 dia, e vencido abaixo de zero', () => {
@@ -261,5 +263,35 @@ describe('Mister — os avisos, parte 2: o canal desconectado', () => {
     );
     // O botão citado é um dos que o guia confere contra a tela.
     expect(GUIA_DE_USO.find((x) => x.id === 'ligar-ifood-99')!.botoes).toEqual(expect.arrayContaining(['Integrações', 'Conectar com 99Food']));
+  });
+});
+
+describe('Mister — o pedido parado', () => {
+  const pedido = { id: 'p1', tenantId: 't', unidadeId: 'u', canal: 'ifood', numero: 284, displayId: '4821', parametro: 20 };
+
+  it('as três etapas, com o pedido citado como no quadro do Delivery e um aviso por pedido e etapa', () => {
+    expect(situacaoDoPedidoParado({ ...pedido, status: 'novo' }, 'Loja Centro')).toEqual({
+      tenantId: 't',
+      unidadeId: 'u',
+      tipo: 'pedido_parado',
+      chave: 'pedido:p1:novo',
+      titulo: 'Loja Centro · pedido #284 · iFood 4821 sem aceite há mais de 20 min',
+      detalhe: 'Aceite ou recuse em Delivery › Painel, em "AVANÇAR".',
+      dados: { pedidoId: 'p1', etapa: 'novo', parametro: 20 },
+    });
+    expect(situacaoDoPedidoParado({ ...pedido, status: 'confirmado' }, 'Loja Centro')).toMatchObject({
+      chave: 'pedido:p1:confirmado',
+      titulo: 'Loja Centro · pedido #284 · iFood 4821 aceito há mais de 20 min e ainda não ficou pronto',
+      detalhe: 'Confira na cozinha se ele está sendo feito.',
+    });
+    expect(situacaoDoPedidoParado({ ...pedido, status: 'pronto', parametro: 30 }, 'Loja Centro')).toMatchObject({
+      chave: 'pedido:p1:pronto',
+      titulo: 'Loja Centro · pedido #284 · iFood 4821 pronto há mais de 30 min sem sair para a entrega',
+      detalhe: 'Confira o entregador e despache em Delivery › Painel, em "Despachar".',
+    });
+    // O pedido do nosso cardápio, sem número do canal.
+    expect(situacaoDoPedidoParado({ ...pedido, canal: 'cardapio', displayId: null, status: 'novo' }, 'L').titulo).toBe('L · pedido #284 · Cardápio sem aceite há mais de 20 min');
+    // Os botões citados são dos que o guia confere contra a tela.
+    expect(GUIA_DE_USO.find((x) => x.id === 'aceitar-avancar')!.botoes).toEqual(expect.arrayContaining(['AVANÇAR', 'Despachar']));
   });
 });

@@ -452,6 +452,31 @@ Passadas 24 horas da última mensagem da pessoa, o WhatsApp só entrega modelo a
   - o aviso fora da janela vai pelo modelo. O gerente que não recebeu e a presidente de outra empresa não veem. O toque chega pelo webhook (`type: button`), abre a janela e traz o texto; o reenvio da Meta é ignorado; depois de resolvido, traz o desfecho. Sem o modelo aprovado, fica anotado;
   - o resumo fora da janela vira convite, sem gastar IA. A outra pessoa não pega. Sem a chave, vai a frase e o convite segue. Com a IA, o resumo sai no escopo do gerente, do mesmo período; o toque repetido reenvia sem IA. Sem o modelo aprovado, fica anotado.
 
+### F1.2e — Os avisos, parte 2c: pedido parado (sem migration)
+
+O último dos nove avisos da tabela aprovada. **Nasce desligado** (padrão: 20 min; KDS, tela da loja e WhatsApp do gerente). A empresa liga em Mister › Avisos e relatórios e escolhe 15, 20 ou 30 minutos.
+
+- **Três etapas, cada uma com o seu relógio** (`situacaoDoPedidoParado`):
+  - sem aceite, desde a chegada;
+  - aceito e ainda não pronto, desde o aceite;
+  - pronto de ENTREGA sem sair, desde o pronto. A retirada pronta espera o cliente e não avisa.
+  - "A caminho" não entra: o tempo de rua depende da distância, e o canal conclui por conta própria.
+- **O pedido é citado como no quadro do Delivery** (`pedidoComoNoQuadro`: "#284 · iFood 4821"). O detalhe aponta o botão conferido pelo guia ("AVANÇAR", "Despachar").
+- **Um aviso por pedido e etapa** (`pedido:<id>:<etapa>`). O pedido andou, resolve; parou de novo na etapa seguinte, é outro aviso.
+- **Quando abre:** pedido de até 6 horas (o mais velho é pendência antiga do turno). A encomenda só começa a contar 30 min antes do horário (`PREPARO_DA_ENCOMENDA_MIN`, a régua do KDS). Loja com servidor instalado e SEM SINAL (`edge_status` mais velho que `EDGE_JANELA_MIN`) não abre: lá quem anda os pedidos é o servidor, e a situação na nuvem está velha. O "servidor sem sinal" já avisa.
+- **O aberto continua enquanto o pedido estiver na mesma etapa:** mesmo com o servidor sem sinal, depois das 6 horas ou com o tipo desligado (aí fecha calado). Assim ninguém recebe "✅ Resolvido" de um pedido que não andou. O título fica com o tempo com que abriu.
+- **Cuidado ao ligar:** com a loja ainda andando os pedidos fora do Regem, cada pedido vira aviso depois do tempo. Ligar só quando a loja aceitar, marcar pronto e despachar no Regem.
+
+**Conferência:**
+- `mister-avisos.regras.spec.ts`: as três etapas, o pedido como no quadro (com e sem número do canal), a chave por etapa e os botões do guia; os nove avisos funcionando, com o pedido parado desligado no padrão.
+- `mister-pg.teste-spec.ts`, com nove pedidos de verdade:
+  - desligado não avisa; ligado, abrem as três etapas, e não abrem o recente, o aceito há pouco, a retirada pronta, o de 7 horas, a encomenda e o a caminho;
+  - trocar o tempo não muda o título;
+  - aceito, resolve com o desfecho;
+  - com o servidor sem sinal, nada resolve nem abre; ele voltou, abre;
+  - depois das 6 horas segue aberto; despachado e cancelado resolvem; desligado com um parado fecha calado.
+- Prova por defeito: 7 de 7 (o relógio do aceite, a retirada, a encomenda, o pedido velho, o servidor sem sinal, o aberto que continua, o tempo com que abriu).
+
 ## 5. O que depende do dono
 
 1. ~~Onde a IA roda~~ — decidido: nuvem.

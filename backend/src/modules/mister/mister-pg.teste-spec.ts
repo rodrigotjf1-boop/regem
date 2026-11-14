@@ -2251,7 +2251,7 @@ export function testesDoMisterComPostgres(): void {
       const tela = await avisosConfig.daTela(A);
       expect(tela.avisos).toHaveLength(9);
       expect(tela.avisos[0]).toMatchObject({ tipo: 'impressora', padrao: true, jaFunciona: true, regra: { ligado: true, destinos: ['tela'], escalaMin: 5, escalaPara: ['gerente'] } });
-      expect(tela.avisos.find((a) => a.tipo === 'pedido_parado')).toMatchObject({ jaFunciona: false, regra: { ligado: false, parametro: 20 } });
+      expect(tela.avisos.find((a) => a.tipo === 'pedido_parado')).toMatchObject({ jaFunciona: true, regra: { ligado: false, parametro: 20 } });
       expect(tela.destinos.map((d) => d.id)).toEqual(['presidente', 'gerente', 'tela', 'kds', 'atendimento', 'dms']);
       const salvo = await avisosConfig.salvar(usuario('ana'), { regras: [{ tipo: 'impressora', ligado: true, destinos: ['kds', 'atendimento'], escalaMin: null, escalaPara: [] }] });
       expect(salvo.avisos[0]).toMatchObject({ padrao: false, regra: { destinos: ['kds', 'atendimento'], escalaMin: null } });
@@ -2655,6 +2655,98 @@ export function testesDoMisterComPostgres(): void {
         expect(await avisos.volta([A], agora)).toMatchObject({ abertos: 0 });
       } finally {
         await q(`delete from integracao where tenant_id = $1 and canal in ('ifood', '99food')`, [A]);
+      }
+    });
+
+    it('o pedido parado: desligado não avisa; ligado, as três etapas pelo tempo escolhido; a encomenda, a retirada pronta, o pedido velho e a loja com o servidor sem sinal não abrem; o aberto só resolve quando o pedido anda', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      await janelaAberta('ana');
+      avisos.incidentes = [];
+      const pedido = async (o: { numero: number; status: string; tipo?: string; criado: string; confirmado?: string; pronto?: string; agendamento?: string }) => {
+        const [{ id }] = await q(
+          `insert into pedido_externo (tenant_id, unidade_id, canal, status, tipo, total, valor_bruto, taxa_entrega, taxa_entrega_dono, display_id, numero,
+                                       criado_em, confirmado_em, pronto_em, agendamento)
+           values ($1, $2, 'ifood', $3, $4, 30, 30, 0, 'marketplace', $5, $6,
+                   now() - $7::interval, now() - $8::interval, now() - $9::interval, now() + $10::interval) returning id`,
+          [A, lojaDeA, o.status, o.tipo ?? 'entrega', String(9000 + o.numero), o.numero, o.criado, o.confirmado ?? null, o.pronto ?? null, o.agendamento ?? null],
+        );
+        return id as string;
+      };
+      try {
+        const p1 = await pedido({ numero: 101, status: 'novo', criado: '25 minutes' });
+        await pedido({ numero: 102, status: 'novo', criado: '10 minutes' });
+        const p3 = await pedido({ numero: 103, status: 'confirmado', criado: '40 minutes', confirmado: '25 minutes' });
+        await pedido({ numero: 104, status: 'confirmado', criado: '40 minutes', confirmado: '10 minutes' });
+        const p5 = await pedido({ numero: 105, status: 'pronto', criado: '60 minutes', confirmado: '50 minutes', pronto: '25 minutes' });
+        await pedido({ numero: 106, status: 'pronto', tipo: 'retirada', criado: '60 minutes', confirmado: '50 minutes', pronto: '25 minutes' });
+        await pedido({ numero: 107, status: 'novo', criado: '7 hours' });
+        // A encomenda aceita há 2 horas, para daqui a 40 min: começa a contar 30 min antes do horário (daqui a 10 min).
+        await pedido({ numero: 108, status: 'confirmado', criado: '2 hours', confirmado: '2 hours', agendamento: '40 minutes' });
+        await pedido({ numero: 109, status: 'despachado', criado: '90 minutes', confirmado: '80 minutes', pronto: '70 minutes' });
+
+        // Desligado (o padrão): nada.
+        numero.pedidos.length = 0;
+        expect(await avisos.volta([A])).toMatchObject({ abertos: 0 });
+        expect(await avisosDe()).toEqual([]);
+
+        // Ligado, 20 min, para o presidente: as três etapas abrem, uma por pedido.
+        await avisosConfig.salvar(usuario('ana'), { regras: [{ tipo: 'pedido_parado', ligado: true, destinos: ['presidente'], escalaMin: null, escalaPara: [], parametro: 20 }] });
+        expect(await avisos.volta([A])).toMatchObject({ abertos: 3 });
+        const titulos = (await avisosDe()).map((a: any) => a.titulo).sort();
+        expect(titulos).toEqual([
+          'Loja Centro · pedido #101 · iFood 9101 sem aceite há mais de 20 min',
+          'Loja Centro · pedido #103 · iFood 9103 aceito há mais de 20 min e ainda não ficou pronto',
+          'Loja Centro · pedido #105 · iFood 9105 pronto há mais de 20 min sem sair para a entrega',
+        ]);
+        expect(numero.enviadas.map((m) => m.texto)).toEqual(expect.arrayContaining([expect.stringContaining('#101 · iFood 9101 sem aceite')]));
+        expect(numero.enviadas).toHaveLength(3);
+        // Com 30 min, o de 25 min não abriria; os já abertos seguem (o pedido não andou).
+        await avisosConfig.salvar(usuario('ana'), { regras: [{ tipo: 'pedido_parado', ligado: true, destinos: ['presidente'], escalaMin: null, escalaPara: [], parametro: 30 }] });
+        expect(await avisos.volta([A])).toMatchObject({ abertos: 0, resolvidos: 0 });
+        // O título fica com o tempo com que o aviso abriu.
+        expect((await avisosDe()).map((a: any) => a.titulo).sort()).toEqual(titulos);
+        await avisosConfig.salvar(usuario('ana'), { regras: [{ tipo: 'pedido_parado', ligado: true, destinos: ['presidente'], escalaMin: null, escalaPara: [], parametro: 20 }] });
+
+        // O #101 foi aceito agora: o aviso de "sem aceite" resolve (com o desfecho) e nenhum outro abre (aceito há 0 min).
+        numero.pedidos.length = 0;
+        await q(`update pedido_externo set status = 'confirmado', confirmado_em = now() where id = $1`, [p1]);
+        expect(await avisos.volta([A])).toMatchObject({ abertos: 0, resolvidos: 1 });
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringMatching(/^✅ Resolvido: Loja Centro · pedido #101 · iFood 9101 sem aceite há mais de 20 min\. Durou \d+ min\.$/)]);
+
+        // O servidor da loja ficou sem sinal: os abertos NÃO resolvem (a situação na nuvem está velha) e nada novo abre.
+        await pool
+          .query(`create table if not exists edge_status (id uuid primary key default gen_random_uuid(), tenant_id uuid, unidade_id uuid, recebido_em timestamptz not null default now())`)
+          .catch((e: any) => {
+            if (!['23505', '42P07'].includes(e?.code)) throw e;
+          });
+        // `edge_status` é só da nuvem: no banco do CI outras specs a criam com o mínimo (e a da nuvem tem o servidor como chave).
+        await q(`alter table edge_status add column if not exists equipamento_id uuid`);
+        await q(`delete from edge_status where tenant_id = $1`, [A]);
+        await q(`insert into edge_status (equipamento_id, tenant_id, unidade_id, recebido_em) values (gen_random_uuid(), $1, $2, now() - interval '10 minutes')`, [A, lojaDeA]);
+        const p10 = await pedido({ numero: 110, status: 'novo', criado: '25 minutes' });
+        expect(await avisos.volta([A])).toMatchObject({ abertos: 0, resolvidos: 0 });
+        // O servidor voltou: o #110 abre.
+        await q(`update edge_status set recebido_em = now() where tenant_id = $1`, [A]);
+        expect(await avisos.volta([A])).toMatchObject({ abertos: 1 });
+        expect((await avisosDe()).find((a: any) => a.situacao === 'aberto' && a.titulo.includes('#110'))).toBeTruthy();
+
+        // Passou das 6 horas sem andar: o aviso aberto continua (não manda "resolvido" de um pedido parado).
+        await q(`update pedido_externo set criado_em = now() - interval '7 hours', confirmado_em = now() - interval '7 hours' where id = $1`, [p3]);
+        expect(await avisos.volta([A])).toMatchObject({ resolvidos: 0 });
+        // O #105 saiu para a entrega e o #103 foi cancelado: os dois resolvem; o #110 segue aberto.
+        await q(`update pedido_externo set status = 'despachado', despachado_em = now() where id = $1`, [p5]);
+        await q(`update pedido_externo set status = 'cancelado', cancelado_em = now() where id = $1`, [p3]);
+        expect(await avisos.volta([A])).toMatchObject({ resolvidos: 2 });
+        // Desligar com o #110 parado: fecha calado, sem desfecho.
+        numero.pedidos.length = 0;
+        await avisosConfig.salvar(usuario('ana'), { regras: [{ tipo: 'pedido_parado', ligado: false, destinos: ['presidente'], escalaMin: null, escalaPara: [], parametro: 20 }] });
+        expect(await avisos.volta([A])).toMatchObject({ calados: 1, resolvidos: 0 });
+        expect(numero.enviadas).toEqual([]);
+        expect(p10).toBeTruthy();
+      } finally {
+        await q(`delete from pedido_externo where tenant_id = $1`, [A]);
+        await q(`delete from edge_status where tenant_id = $1`, [A]).catch(() => undefined);
       }
     });
 

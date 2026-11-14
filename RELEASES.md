@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Mister: os avisos, parte 2c — pedido parado (14/11, F1.2e; SEM migration; não mexe no `sync-daemon`).** O último
+  dos nove avisos: o pedido sem aceite, aceito sem ficar pronto ou pronto de entrega sem sair além de 15, 20 ou 30 min.
+  Nasce DESLIGADO. A loja com o servidor sem sinal não abre aviso novo, e o aberto só resolve quando o pedido anda. Na
+  NUVEM com o merge; a rotina dos avisos só roda na nuvem. Nada no `.zip` nem no `.exe`.
+
 - **Mister: os modelos da Meta — avisos e resumos fora das 24 horas (14/11, F1.2d; SEM migration; não mexe no
   `sync-daemon`).** O console da distribuição pede à Meta a aprovação dos dois modelos do Mister (o texto mora no código)
   e mostra a situação de cada um. Fora das 24 horas, o aviso e o convite do resumo saem pelo modelo, e o toque no botão
