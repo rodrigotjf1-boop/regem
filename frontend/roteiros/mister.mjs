@@ -84,6 +84,15 @@ const AVISOS_PADRAO = () => ({
     { tipo: 'chave_ia', grupo: 'O próprio Mister', titulo: 'A chave de IA parou', descricao: 'Sem crédito, no teto de gasto ou recusada.', jaFunciona: true, padrao: true, regra: regraAv(['presidente']) },
   ],
 });
+// Os relatórios (mig 420): os dois desligados, como o padrão; o do dia com um envio que não saiu (fora da janela).
+const RELATORIOS_PADRAO = () => [
+  {
+    tipo: 'resumo_dia', titulo: 'Resumo do dia', descricao: 'Pedidos, vendas, tempo médio, cancelamentos e o que saiu do lugar.',
+    regra: { ligado: false, hora: '23:30', diaSemana: null },
+    ultimo: { referencia: '2026-11-13', situacao: 'nao_enviado', motivo: 'fora_da_janela_de_24h', em: '2026-11-14T02:31:00.000Z' },
+  },
+  { tipo: 'resumo_semana', titulo: 'Resumo da semana', descricao: 'Os 7 dias até a véspera contra os 7 anteriores.', regra: { ligado: false, hora: '09:00', diaSemana: 1 }, ultimo: null },
+];
 
 const medir = (page) =>
   page.evaluate(() => {
@@ -117,6 +126,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
       meu: { disponivel: true, numeroDoMister: '5521900000000', ligado: false, final: null, ligadoEm: null, pausado: false, codigo: null },
       // a parte "Avisos e relatórios"
       avisos: o.avisos ?? AVISOS_PADRAO(), avisosFalha: !!o.avisosFalha, recusaDosAvisos: o.recusaDosAvisos ?? null, salvamentos: [],
+      relatorios: o.relatorios ?? RELATORIOS_PADRAO(), salvamentosRel: [],
     };
     const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
     await ctx.addInitScript((jwt) => localStorage.setItem('regen_token', jwt), o.token ?? PRESIDENTE);
@@ -134,6 +144,16 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
       if (p === '/mister/avisos' && metodo === 'GET') {
         if (S.avisosFalha) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
         return responder(route, S.avisos);
+      }
+      if (p === '/mister/relatorios' && metodo === 'GET') return responder(route, { relatorios: S.relatorios });
+      if (p === '/mister/relatorios' && metodo === 'PATCH') {
+        const corpo = JSON.parse(req.postData() || '{}');
+        S.salvamentosRel.push(corpo);
+        for (const r of corpo.relatorios ?? []) {
+          const x = S.relatorios.find((y) => y.tipo === r.tipo);
+          if (x) x.regra = { ligado: r.ligado, hora: r.hora, diaSemana: r.diaSemana };
+        }
+        return responder(route, { relatorios: S.relatorios });
       }
       if (p === '/mister/avisos' && metodo === 'PATCH') {
         const corpo = JSON.parse(req.postData() || '{}');
@@ -572,11 +592,13 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t0 = await page.locator('main').innerText();
-    ok(/9 ajustes em 4 grupos/.test(t0), 'avisos: os nove avisos em quatro grupos');
+    ok(/11 ajustes em 5 grupos/.test(t0), 'avisos: os nove avisos em quatro grupos e os dois relatórios no quinto');
     ok(['Na loja', 'Servidor da loja', 'Fiscal', 'O próprio Mister'].every((g) => t0.includes(g)), 'avisos: os quatro grupos do protótipo');
     ok(/Vai para:[\s\S]*Tela do Regem na loja[\s\S]*sem resolver em 5 min: WhatsApp do gerente da loja/.test(t0), 'avisos: a impressora vai à tela e, sem resolver em 5 min, ao gerente');
     ok((t0.match(/chega numa próxima entrega/g) ?? []).length === 4, 'avisos: os quatro tipos que ainda não saem dizem que chegam numa próxima entrega');
-    ok(t0.includes('Relatórios') && t0.includes('chegam numa próxima entrega'), 'avisos: os relatórios dizem que chegam depois');
+    ok(t0.includes('Relatórios') && t0.includes('Resumo do dia') && t0.includes('Resumo da semana'), 'relatórios: o resumo do dia e o da semana no grupo Relatórios');
+    ok(/Último: não saiu em 13\/11 às 23:31 — a pessoa não falou com o Mister nas últimas 24 horas/.test(t0), 'relatórios: o último envio que não saiu, com o motivo em português');
+    ok(t0.includes('falou com o Mister nas') && t0.includes('últimas 24 horas'), 'relatórios: a nota diz quem recebe pelo WhatsApp (a janela de 24 horas)');
     // Desligar o caixa e salvar: a barra conta e o servidor recebe só o tipo que mudou, inteiro.
     await page.click('button[role="switch"][aria-label*="Caixa aberto há mais de 24 horas"]');
     await page.waitForSelector('text=1 alteração ainda não salva');
@@ -606,6 +628,24 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/avisos') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
     await page.waitForSelector('text=Escolha quem fica sabendo se ninguém resolver.');
     ok(true, 'avisos: a recusa do servidor aparece com a frase dele');
+    // Relatórios: ligar o resumo do dia às 22:00 e salvar pela MESMA barra — só a rota dos relatórios, só o que mudou.
+    // A recusa da cena anterior deixou uma alteração pendente: descarta antes (a barra é uma só para a tela inteira).
+    S.recusaDosAvisos = null;
+    await page.click("button:has-text(\"Descartar\")");
+    await page.waitForSelector("text=ainda não salva", { state: "detached" });
+    const avisosAntes = S.salvamentos.length;
+    await page.fill('input[type="time"] >> nth=0', '22:00');
+    await page.click('button[role="switch"][aria-label*="Resumo do dia"]');
+    await page.waitForSelector('text=1 alteração ainda não salva');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/relatorios') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
+    ok(JSON.stringify(S.salvamentosRel[0]) === JSON.stringify({ relatorios: [{ tipo: 'resumo_dia', ligado: true, hora: '22:00', diaSemana: null }] }), `relatórios: salvar manda só o resumo do dia, inteiro (${JSON.stringify(S.salvamentosRel[0])})`);
+    ok(S.salvamentos.length === avisosAntes, 'relatórios: salvar só os relatórios não chama a rota dos avisos');
+    await page.waitForSelector('text=Relatórios do Mister salvos.');
+    // O resumo da semana: o dia e o horário.
+    await page.getByLabel('Dia do resumo da semana').selectOption('7');
+    await page.click('button[role="switch"][aria-label*="Resumo da semana"]');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/relatorios') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
+    ok(JSON.stringify(S.salvamentosRel[1]) === JSON.stringify({ relatorios: [{ tipo: 'resumo_semana', ligado: true, hora: '09:00', diaSemana: 7 }] }), `relatórios: o resumo da semana no domingo (${JSON.stringify(S.salvamentosRel[1])})`);
     ok(erros.length === 0, `avisos: sem erro (${erros.join(' | ')})`);
     await ctx.close();
   }
@@ -638,6 +678,12 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     );
     ok(espremido.length === 0, `${w}px: Avisos — a descrição não fica espremida (${espremido.join(', ')} px)`);
     if (w === 375 || w === 1440) await page.screenshot({ path: foto(`${w}-avisos.png`), fullPage: true });
+    if (w === 320 || w === 375 || w === 1440) {
+      // O cartão dos relatórios (V45: a página inteira não rola o Shell — a foto é do cartão, depois de rolar até ele).
+      const cartao = page.locator("div:has(> div > h3:text-is(\"Relatórios\"))").first();
+      await cartao.scrollIntoViewIfNeeded();
+      await cartao.screenshot({ path: foto(`${w}-relatorios.png`) });
+    }
     await page.locator('button:has-text("Mudar") >> visible=true').nth(5).click();
     await page.waitForSelector('[role="dialog"]');
     m = await medir(page);

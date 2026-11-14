@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Mister: os relatórios, resumo do dia e da semana (14/11, F3.2; mig 420 `@cloud-only` — as tabelas
+  `mister_relatorio_regra` e `mister_relatorio` entram em `SO_NUVEM` no `sync-daemon`; nascem DESLIGADOS por empresa).**
+  Na NUVEM com o merge: o grupo "Relatórios" em Mister › Avisos e relatórios e a rotina (a cada 5 min). Entra DEPOIS dos
+  avisos (#969, mig 419). **No `.zip`:** só a tela. **No `.exe`:** os nomes na lista `SO_NUVEM` do `sync-daemon` (V21)
+  vão no próximo corte.
+
 - **Mister: os avisos, primeira parte — para onde vai cada aviso (14/11, F1.2; mig 419 `@cloud-only` — as tabelas
   `mister_aviso_regra` e `mister_aviso` entram em `SO_NUVEM` no `sync-daemon`; a rotina nasce DESLIGADA —
   `MISTER_AVISOS_LIGADOS=1` no `regem-api`).** Na NUVEM com o merge: a parte "Avisos e relatórios" em `/mister` e a

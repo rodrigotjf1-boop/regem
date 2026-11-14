@@ -9,6 +9,7 @@ import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { MisterAvisosConfigService } from './mister-avisos-config.service';
+import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
 import { MisterVinculoService } from './mister-vinculo.service';
 
 // O WHATSAPP DE QUEM ESTÁ LOGADO no Mister e a parte "Pessoas" (mig 417). Gerente e presidente, só na nuvem e só com o
@@ -20,6 +21,7 @@ export class MisterController {
   constructor(
     private readonly vinculo: MisterVinculoService,
     private readonly avisos: MisterAvisosConfigService,
+    private readonly relatorios: MisterRelatoriosConfigService,
   ) {}
 
   /** A situação do meu WhatsApp no Mister e, se eu gerei um código que ainda vale, o código. */
@@ -83,5 +85,23 @@ export class MisterController {
   @RequireModulo('mister')
   salvarAvisos(@CurrentUser() user: AuthUser, @Body() dto: unknown) {
     return this.avisos.salvar(user, dto);
+  }
+
+  /** O horário de cada relatório (mig 420): a escolha da empresa ou o padrão (desligado), e o último envio. Só o presidente. */
+  @Get('relatorios')
+  @CloudOnly()
+  @Roles('presidente')
+  @RequireModulo('mister')
+  relatoriosDaTela(@CurrentUser() user: AuthUser) {
+    return this.relatorios.daTela(user.tenantId);
+  }
+
+  /** Salva os relatórios que mudaram (cada um inteiro). Só o presidente; toda recusa antes da gravação. */
+  @Patch('relatorios')
+  @CloudOnly()
+  @Roles('presidente')
+  @RequireModulo('mister')
+  salvarRelatorios(@CurrentUser() user: AuthUser, @Body() dto: unknown) {
+    return this.relatorios.salvar(user, dto);
   }
 }

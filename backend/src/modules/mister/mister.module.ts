@@ -6,6 +6,7 @@ import { MisterController } from './mister.controller';
 import { MisterEntradaService } from './mister-entrada.service';
 import { MisterFilaService } from './mister-fila.service';
 import { MisterAvisosConfigService } from './mister-avisos-config.service';
+import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
 import { MisterNumeroService } from './mister-numero.service';
 import { MisterVinculoService } from './mister-vinculo.service';
 
@@ -22,7 +23,7 @@ import { MisterVinculoService } from './mister-vinculo.service';
 @Module({
   imports: [ModuloModule, IaModule],
   controllers: [MisterController],
-  providers: [MisterNumeroService, MisterVinculoService, MisterEntradaService, MisterConsoleService, MisterFilaService, MisterAvisosConfigService],
-  exports: [MisterEntradaService, MisterConsoleService, MisterNumeroService, MisterFilaService, MisterAvisosConfigService],
+  providers: [MisterNumeroService, MisterVinculoService, MisterEntradaService, MisterConsoleService, MisterFilaService, MisterAvisosConfigService, MisterRelatoriosConfigService],
+  exports: [MisterEntradaService, MisterConsoleService, MisterNumeroService, MisterFilaService, MisterAvisosConfigService, MisterRelatoriosConfigService],
 })
 export class MisterModule {}

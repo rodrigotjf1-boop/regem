@@ -176,7 +176,7 @@ export class MisterAgenteService implements OnModuleInit {
    * Uma pergunta ao modelo, com as ferramentas, dentro do escopo da pessoa. Devolve o texto do modelo (ainda sem o
    * filtro de saída) e o que as ferramentas trouxeram — ou o motivo de não haver resposta. Não lança por falha da IA.
    */
-  async responder(escopo: EscopoDoMister, memoria: TrocaDaMemoria[], pergunta: string): Promise<FimDaPergunta> {
+  async responder(escopo: EscopoDoMister, memoria: TrocaDaMemoria[], pergunta: string, opcoes: { recurso?: string } = {}): Promise<FimDaPergunta> {
     const modelo = this.modelo();
     const trilha: Required<Omit<Trilha, 'conferencia'>> = { modelo, chamadas: 0, tokensEntrada: 0, tokensSaida: 0, ferramentas: [] };
     const resultados: unknown[] = [];
@@ -196,7 +196,8 @@ export class MisterAgenteService implements OnModuleInit {
       for (let volta = 1; volta <= TETOS.voltas; volta++) {
         if (Date.now() - inicio > TETOS.prazoMs) return { texto: null, motivo: 'nao_fechou', trilha };
         const r = await this.ia.pedir(escopo.tenantId, {
-          recurso: RECURSO_DAS_PERGUNTAS,
+          // O relatório (mig 420) passa o recurso dele: cada um soma no seu no "Uso da IA".
+          recurso: opcoes.recurso ?? RECURSO_DAS_PERGUNTAS,
           modelo,
           maxTokens: TETOS.maxTokens,
           system,
