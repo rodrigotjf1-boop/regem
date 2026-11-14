@@ -7,6 +7,10 @@
 // Cada aviso vai para quem resolve: o que a equipe resolve aparece na tela da loja e no KDS; o que pede o gestor vai pelo
 // WhatsApp do Mister; o técnico vai ao suporte da DMS. Tudo também fica na trilha do aviso.
 
+import { FUSO_OPERACAO, horaNoFuso } from '../../common/data';
+import { diasParaVencer } from '../fiscal/certificado';
+import { GUIA_DE_USO } from './mister-guia-de-uso';
+
 export const DESTINOS = ['presidente', 'gerente', 'tela', 'kds', 'atendimento', 'dms'] as const;
 export type Destino = (typeof DESTINOS)[number];
 
@@ -121,15 +125,15 @@ export const TIPOS_DE_AVISO: TipoDoAviso[] = [
     titulo: 'Nota fiscal sem resposta',
     descricao: 'Nota que ficou pendente depois de todas as tentativas.',
     padrao: regra(['atendimento', 'presidente']),
-    jaFunciona: false,
+    jaFunciona: true,
   },
   {
     tipo: 'certificado',
     grupo: 'Fiscal',
     titulo: 'Certificado digital perto de vencer',
-    descricao: 'A 60, 30, 15, 7 e 1 dia do vencimento.',
+    descricao: 'A 60, 30, 15, 7 e 1 dia do vencimento, e quando vence. Só nas lojas com a emissão da nota ligada.',
     padrao: regra(['presidente']),
-    jaFunciona: false,
+    jaFunciona: true,
   },
   {
     tipo: 'chave_ia',
@@ -276,10 +280,86 @@ export function situacaoDaChave(t: { tenantId: string; situacao: string }): Situ
   };
 }
 
+/** Onde a pessoa resolve, pelo guia de uso (o caminho e o botão do guia são conferidos contra o menu e as telas — V65). */
+function noGuia(id: string, botao?: string): string {
+  const s = GUIA_DE_USO.find((x) => x.id === id);
+  if (!s) return 'no Regem';
+  const b = botao && s.botoes.includes(botao) ? `, em "${botao}"` : '';
+  return `em ${s.caminho.join(' › ')}${b}`;
+}
+
+/** Os marcos do certificado: um lembrete a 60, 30, 15, 7 e 1 dia, e outro quando vence. */
+export const MARCOS_DO_CERTIFICADO = [60, 30, 15, 7, 1] as const;
+
+/** O marco de agora, pela MESMA conta da tela (`diasParaVencer`: abaixo de zero, vencido). Fora dos 60 dias, nenhum. */
+export function marcoDoCertificado(dias: number): string | null {
+  if (!Number.isFinite(dias)) return null;
+  if (dias < 0) return 'vencido';
+  const m = [...MARCOS_DO_CERTIFICADO].reverse().find((x) => dias <= x);
+  return m === undefined ? null : String(m);
+}
+
+const diaMesNoFuso = (d: Date): string => d.toLocaleDateString('pt-BR', { timeZone: FUSO_OPERACAO, day: '2-digit', month: '2-digit' });
+
+/**
+ * O certificado digital da nota perto de vencer (ou vencido), numa loja com a emissão ligada. A chave é a do certificado —
+ * a troca de marco não abre outro episódio: vira um lembrete (`dados.marco`). O título leva a DATA, não os dias, para não
+ * mudar todo dia (o desfecho repete o título).
+ */
+export function situacaoDoCertificadoDaLoja(
+  c: { tenantId: string; unidadeId: string | null; credencialId: string; validoAte: Date },
+  loja: string,
+  agora: Date,
+): Situacao | null {
+  const dias = diasParaVencer(c.validoAte, agora);
+  const marco = marcoDoCertificado(dias);
+  if (!marco) return null;
+  const data = diaMesNoFuso(c.validoAte);
+  const falta = dias === 0 ? 'Vence hoje.' : dias === 1 ? 'Vence amanhã.' : `Faltam ${dias} dias.`;
+  return {
+    tenantId: c.tenantId,
+    unidadeId: c.unidadeId,
+    tipo: 'certificado',
+    chave: `certificado:${c.credencialId}`,
+    titulo: marco === 'vencido' ? `${loja} · certificado digital da nota venceu em ${data}` : `${loja} · certificado digital da nota vence em ${data}`,
+    detalhe:
+      (marco === 'vencido' ? 'Nenhuma nota fiscal sai, nem em contingência, até o certificado novo. ' : `${falta} Sem certificado válido, nenhuma nota fiscal sai, nem em contingência. `) +
+      `Renove com a certificadora e envie o novo ${noGuia('configurar-nota', 'Certificado A1 (.pfx)')}.`,
+    dados: { marco, dias, venceEm: data },
+  };
+}
+
+/** A nota fiscal que gastou todas as reconsultas e segue sem resposta da SEFAZ. */
+export function situacaoDaNotaSemResposta(
+  n: { tenantId: string; unidadeId: string | null; id: string; numero: number; serie: number; tentativas: number; emitidaEm: Date | null },
+  loja: string,
+): Situacao {
+  const quando = n.emitidaEm ? `Emitida em ${diaMesNoFuso(n.emitidaEm)} às ${horaNoFuso(n.emitidaEm)}; o` : 'O';
+  return {
+    tenantId: n.tenantId,
+    unidadeId: n.unidadeId,
+    tipo: 'nota_sem_resposta',
+    chave: `nota:${n.id}`,
+    titulo: `${loja} · nota fiscal nº ${n.numero} (série ${n.serie}) sem resposta da SEFAZ`,
+    detalhe: `${quando} Regem consultou ${n.tentativas} vezes e parou. Consulte de novo ${noGuia('nota-fiscal', 'Consultar na SEFAZ')}; se continuar sem resposta, fale com o suporte.`,
+    dados: { numero: n.numero, serie: n.serie, tentativas: n.tentativas },
+  };
+}
+
 // ───────────────────────────── as mensagens ─────────────────────────────
 
 /** A mensagem do aviso que abriu (WhatsApp e tela). */
 export const textoDoAviso = (s: { titulo: string; detalhe?: string | null }): string => `⚠️ ${s.titulo}.${s.detalhe ? `\n\n${s.detalhe}` : ''}`;
+
+/** A mensagem do lembrete (o aviso continua aberto e chegou a outro marco, como o certificado a 7 dias). */
+export const textoDoLembrete = (s: { titulo: string; detalhe?: string | null }): string => `🔔 Lembrete: ${s.titulo}.${s.detalhe ? `\n\n${s.detalhe}` : ''}`;
+
+/** O aviso aberto chegou a outro marco? (A volta grava o marco anterior em `dados.marcoAnterior`.) */
+export function mudouDeMarco(dados: unknown): boolean {
+  const d = (dados ?? {}) as Record<string, unknown>;
+  if (d.marco === undefined || d.marco === null) return false;
+  return String(d.marco) !== String(d.marcoAnterior ?? '');
+}
 
 /** A mensagem do desfecho, para quem recebeu o aviso pelo WhatsApp. */
 export function textoDoDesfecho(s: { titulo: string }, minutos: number): string {

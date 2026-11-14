@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Mister: os avisos, parte 2a — certificado perto de vencer e nota sem resposta (14/11, F1.2b; SEM migration; não
+  mexe no `sync-daemon`).** Os dois avisos fiscais da tabela aprovada passam a funcionar (lembrete a cada marco do
+  certificado). O fiscal só passou a exportar o número de reconsultas, sem mudar o comportamento. Na NUVEM com o merge;
+  a rotina dos avisos só roda na nuvem. Nada no `.zip` nem no `.exe`.
+
 - **Mister: o guia de uso — "como faço…" (14/11, F2.5; SEM migration; não mexe no `sync-daemon`).** A 15ª consulta do
   Mister: um guia das telas principais, guardado no código da distribuição, com o caminho do menu, quem abre e o passo a
   passo; a spec confere cada caminho e cada botão contra o menu e as telas. Na NUVEM com o merge. O agente só sobe na

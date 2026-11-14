@@ -5,21 +5,27 @@ import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { uuidDeChave } from '../../common/id-deterministico';
 import { ehServidorLocal } from '../../common/modo';
+import { MAX_TENTATIVAS_CONSULTA_DA_NOTA } from '../fiscal/fiscal.service';
 import { AlertaKdsService } from '../kds/alerta-kds.service';
 import { ModuloService } from '../modulo/modulo.service';
 import { MisterAvisosConfigService } from './mister-avisos-config.service';
 import {
   Destino,
+  MARCOS_DO_CERTIFICADO,
   RegraDoAviso,
   Situacao,
   TipoDeAviso,
   dentroDaJanelaDoWhatsapp,
   deveEscalar,
+  mudouDeMarco,
   situacaoDaChave,
+  situacaoDaNotaSemResposta,
   situacaoDoCaixa,
+  situacaoDoCertificadoDaLoja,
   situacaoDoVigia,
   textoDoAviso,
   textoDoDesfecho,
+  textoDoLembrete,
 } from './mister-avisos.regras';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { pessoaVale } from './mister-vinculo.service';
@@ -30,7 +36,8 @@ import { pessoaVale } from './mister-vinculo.service';
 //
 // A cada minuto, só na NUVEM e só com `MISTER_AVISOS_LIGADOS=1` (nasce DESLIGADA — quem liga é o dono, no EasyPanel):
 //  1. vê as situações de agora, de todas as empresas numa consulta por fonte: os incidentes abertos do vigia (impressora,
-//     servidor sem sinal com pedido esperando, os técnicos), os caixas abertos há mais de 24 horas e a chave de IA parada;
+//     servidor sem sinal com pedido esperando, os técnicos), os caixas abertos há mais de 24 horas, a chave de IA parada e,
+//     na parte 2 (fiscal), o certificado da nota perto de vencer e a nota que gastou todas as reconsultas;
 //  2. aplica a regra de cada empresa (o que ela escolheu em Avisos e relatórios, ou o padrão aprovado) e o módulo Mister;
 //  3. ABRE o episódio novo e entrega aos destinos; o que continua aberto e passou do tempo do "se ninguém resolver" ESCALA
 //     (uma vez); o que sumiu FECHA e quem recebeu pelo WhatsApp recebe o desfecho.
@@ -52,7 +59,8 @@ const PEDIDO_ESPERANDO_H = 3;
 
 export const avisosLigados = (): boolean => ['1', 'true'].includes(String(process.env.MISTER_AVISOS_LIGADOS ?? '').trim().toLowerCase());
 
-export type Fase = 'abriu' | 'escalou' | 'resolveu';
+/** `lembrou`: o aviso continua aberto e chegou a outro marco (o certificado a 30, 15, 7 dias…) — só pelo WhatsApp. */
+export type Fase = 'abriu' | 'escalou' | 'lembrou' | 'resolveu';
 export interface Entrega {
   destino: Destino;
   fase: Fase;
@@ -76,12 +84,14 @@ interface AvisoAberto {
   abertoEm: Date;
   escaladoEm: Date | null;
   entregas: Entrega[];
+  dados?: Record<string, unknown>;
 }
 
 export interface ResultadoDaVoltaDosAvisos {
   situacoes: number;
   abertos: number;
   escalados: number;
+  lembrados: number;
   resolvidos: number;
   calados: number;
   entregas: number;
@@ -117,7 +127,7 @@ export class MisterAvisosService {
   // ───────────────────────────── as situações de agora ─────────────────────────────
 
   /** As situações de agora, de todas as empresas (ou só das pedidas, nos testes). Uma consulta por fonte. */
-  async situacoes(soEmpresas?: string[]): Promise<Situacao[]> {
+  async situacoes(soEmpresas?: string[], agora: Date = new Date()): Promise<Situacao[]> {
     const so = (col: string) =>
       soEmpresas?.length ? sql`and ${sql.raw(col)} in (${sql.join(soEmpresas.map((t) => sql`${t}::uuid`), sql`, `)})` : sql``;
     const fora: Situacao[] = [];
@@ -160,6 +170,61 @@ export class MisterAvisosService {
     } catch (e: any) {
       if (!semTabela(e)) throw e;
     }
+
+    // 4) O certificado digital da nota perto de vencer, só onde a emissão está LIGADA. A mesma régua do fiscal: a
+    //    configuração da loja (senão a da empresa — `configRaw`) e o certificado da loja (senão o da empresa —
+    //    `obterCredencial`). O mesmo certificado em várias lojas vira um aviso só (a chave é a do certificado).
+    const certificados = linhas(
+      await this.db.execute(sql`
+        with lojas as (
+          select u.tenant_id, u.id as unidade_id from unidade u
+            join empresa emp on emp.id = u.tenant_id and emp.deleted_at is null
+           where u.deleted_at is null ${so('u.tenant_id')}
+          union all
+          select emp.id, null::uuid from empresa emp where emp.deleted_at is null ${so('emp.id')}
+        )
+        select distinct on (cred.id) l.tenant_id::text as "tenantId", cred.unidade_id::text as "unidadeId",
+               cred.id::text as "credencialId", cred.cert_valido_ate as "validoAte", coalesce(uc.nome, emp.nome) as loja
+          from lojas l
+          join empresa emp on emp.id = l.tenant_id
+          join lateral (
+            select f.ativo from fiscal_config f
+             where f.tenant_id = l.tenant_id and (f.unidade_id = l.unidade_id or f.unidade_id is null)
+             order by (f.unidade_id is null) limit 1) cfg on cfg.ativo
+          join lateral (
+            select c.id, c.unidade_id, c.cert_valido_ate from fiscal_credencial c
+             where c.tenant_id = l.tenant_id and (c.unidade_id is not distinct from l.unidade_id or c.unidade_id is null)
+             order by (c.unidade_id is null) limit 1) cred on true
+          left join unidade uc on uc.id = cred.unidade_id and uc.tenant_id = l.tenant_id
+         where cred.cert_valido_ate is not null
+           and cred.cert_valido_ate < now() + make_interval(days => ${MARCOS_DO_CERTIFICADO[0] + 1})
+         order by cred.id`),
+    );
+    for (const c of certificados) {
+      const s = situacaoDoCertificadoDaLoja({ ...c, unidadeId: c.unidadeId ?? null, validoAte: new Date(c.validoAte) }, String(c.loja ?? ''), agora);
+      if (s) fora.push(s);
+    }
+
+    // 5) A nota fiscal que gastou todas as reconsultas (o MESMO número do fiscal) e segue sem resposta. O índice parcial das
+    //    pendentes (`idx_nota_pendente_consulta`) faz a consulta ler só as pendentes.
+    const notas = linhas(
+      await this.db.execute(sql`
+        select n.id::text as id, n.tenant_id::text as "tenantId", n.unidade_id::text as "unidadeId", n.numero, n.serie,
+               n.tentativas_consulta as tentativas, n.emitida_em as "emitidaEm", coalesce(u.nome, emp.nome) as loja
+          from nota_fiscal n
+          join empresa emp on emp.id = n.tenant_id and emp.deleted_at is null
+          left join unidade u on u.id = n.unidade_id and u.tenant_id = n.tenant_id
+         where n.status = 'pendente' and coalesce(n.simulada, false) = false and n.chave is not null
+           and n.tentativas_consulta >= ${MAX_TENTATIVAS_CONSULTA_DA_NOTA} ${so('n.tenant_id')}`),
+    );
+    for (const n of notas) {
+      fora.push(
+        situacaoDaNotaSemResposta(
+          { ...n, unidadeId: n.unidadeId ?? null, numero: Number(n.numero), serie: Number(n.serie), tentativas: Number(n.tentativas), emitidaEm: n.emitidaEm ? new Date(n.emitidaEm) : null },
+          String(n.loja ?? ''),
+        ),
+      );
+    }
     return fora;
   }
 
@@ -197,8 +262,8 @@ export class MisterAvisosService {
 
   /** Uma volta: abre, escala e fecha. Devolve o que fez (os testes conferem). */
   async volta(soEmpresas?: string[], agora: Date = new Date()): Promise<ResultadoDaVoltaDosAvisos> {
-    const res: ResultadoDaVoltaDosAvisos = { situacoes: 0, abertos: 0, escalados: 0, resolvidos: 0, calados: 0, entregas: 0 };
-    const todas = await this.situacoes(soEmpresas);
+    const res: ResultadoDaVoltaDosAvisos = { situacoes: 0, abertos: 0, escalados: 0, lembrados: 0, resolvidos: 0, calados: 0, entregas: 0 };
+    const todas = await this.situacoes(soEmpresas, agora);
     res.situacoes = todas.length;
 
     // O módulo Mister ligado (na loja do aviso) e o tipo ligado na regra da empresa.
@@ -220,7 +285,9 @@ export class MisterAvisosService {
     const chaveDe = (a: { tenantId: string; tipo: string; chave: string }) => `${a.tenantId}|${a.tipo}|${a.chave}`;
     const valendoPorChave = new Map(valendo.map((v) => [chaveDe({ tenantId: v.s.tenantId, tipo: v.s.tipo, chave: v.s.chave }), v]));
 
-    // 1) Abre o novo e renova o que continua (um comando para todos). Só quem ABRIU entrega.
+    // 1) Abre o novo e renova o que continua (um comando para todos). Só quem ABRIU entrega. A renovação guarda o marco que
+    //    estava (`marcoAnterior`, lido da linha ANTES da troca): marco novo num aviso aberto vira lembrete — e, como a linha
+    //    fica travada na renovação, a réplica a mais já lê o marco novo e não lembra de novo.
     if (valendo.length) {
       const gravados = linhas(
         await this.db.execute(sql`
@@ -229,9 +296,10 @@ export class MisterAvisosService {
             from jsonb_to_recordset(${JSON.stringify(valendo.map((v) => v.s))}::jsonb)
                  as x("tenantId" uuid, "unidadeId" uuid, tipo text, chave text, titulo text, detalhe text, dados jsonb)
           on conflict (tenant_id, tipo, chave) where situacao = 'aberto'
-          do update set visto_em = clock_timestamp(), titulo = excluded.titulo, detalhe = excluded.detalhe, dados = excluded.dados
+          do update set visto_em = clock_timestamp(), titulo = excluded.titulo, detalhe = excluded.detalhe,
+                        dados = excluded.dados || jsonb_build_object('marcoAnterior', mister_aviso.dados -> 'marco')
           returning id::text as id, tenant_id::text as "tenantId", unidade_id::text as "unidadeId", tipo, chave, titulo, detalhe,
-                    aberto_em as "abertoEm", escalado_em as "escaladoEm", entregas, (xmax = 0) as novo`),
+                    aberto_em as "abertoEm", escalado_em as "escaladoEm", entregas, dados, (xmax = 0) as novo`),
       ) as (AvisoAberto & { novo: boolean })[];
       for (const a of gravados) {
         const v = valendoPorChave.get(chaveDe(a));
@@ -240,7 +308,13 @@ export class MisterAvisosService {
           if (a.novo) {
             res.abertos++;
             res.entregas += await this.entregar(a, v.r.destinos, 'abriu', agora);
-          } else if (deveEscalar({ abertoEm: new Date(a.abertoEm), escaladoEm: a.escaladoEm ? new Date(a.escaladoEm) : null }, v.r, agora.getTime())) {
+            continue;
+          }
+          if (mudouDeMarco(a.dados)) {
+            res.lembrados++;
+            res.entregas += await this.entregar(a, v.r.destinos, 'lembrou', agora);
+          }
+          if (deveEscalar({ abertoEm: new Date(a.abertoEm), escaladoEm: a.escaladoEm ? new Date(a.escaladoEm) : null }, v.r, agora.getTime())) {
             if (await this.marcarEscala(a.id)) {
               res.escalados++;
               res.entregas += await this.entregar(a, v.r.escalaPara, 'escalou', agora);
@@ -299,13 +373,16 @@ export class MisterAvisosService {
     const texto =
       fase === 'escalou'
         ? `⏰ Sem solução há ${Math.max(1, Math.round((agora.getTime() - new Date(a.abertoEm).getTime()) / 60_000))} min. ${textoDoAviso(a)}`
-        : textoDoAviso(a);
+        : fase === 'lembrou'
+          ? textoDoLembrete(a)
+          : textoDoAviso(a);
 
     // O WhatsApp: cada telefone recebe uma vez, mesmo que esteja em "presidente" e em "gerente".
     const pessoas = destinos.filter((d): d is 'presidente' | 'gerente' => d === 'presidente' || d === 'gerente');
     if (pessoas.length) feitas.push(...(await this.pelosWhatsapps(a, pessoas, texto, fase, em, agora)));
 
-    for (const d of destinos) {
+    // O lembrete é só pelo WhatsApp: o KDS, a tela e o Atendimento já mostram o aviso aberto.
+    for (const d of fase === 'lembrou' ? [] : destinos) {
       if (d === 'kds') feitas.push(await this.noKds(a, fase, em));
       else if (d === 'atendimento' && fase === 'abriu') feitas.push(await this.noAtendimento(a, em));
       else if (d === 'tela' || d === 'dms') feitas.push({ destino: d, fase, em, ok: false, motivo: 'chega_na_proxima_entrega' });
