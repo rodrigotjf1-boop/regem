@@ -639,16 +639,26 @@ function ModelosDoMister({ conectado }: { conectado: boolean }) {
   const [erro, setErro] = useState('');
   const [aviso, setAviso] = useState('');
   const [ocupado, setOcupado] = useState(false);
+  // A leitura na Meta mostra que aconteceu: "Lendo na Meta…" no botão e, depois, a hora da leitura. Sem isso, com a
+  // situação igual, o clique em "Atualizar situação" parecia não fazer nada.
+  const [lendo, setLendo] = useState(false);
+  const [lidoEm, setLidoEm] = useState<Date | null>(null);
   const leitura = useRef(0);
 
   const carregar = useCallback(async () => {
     const vez = ++leitura.current;
     setErro('');
+    setLendo(true);
     try {
       const d = (await distApi.misterModelos()) as Modelos;
-      if (vez === leitura.current) setDados(d);
+      if (vez === leitura.current) {
+        setDados(d);
+        setLidoEm(d.lido ? new Date() : null);
+      }
     } catch (e) {
       if (vez === leitura.current) setErro(e instanceof Error ? e.message : 'Não consegui ler os modelos.');
+    } finally {
+      if (vez === leitura.current) setLendo(false);
     }
   }, []);
 
@@ -663,7 +673,9 @@ function ModelosDoMister({ conectado }: { conectado: boolean }) {
     try {
       const r = (await distApi.misterPedirModelos()) as Pedido;
       leitura.current++;
+      setLendo(false);
       setDados({ lido: true, modelos: r.modelos });
+      setLidoEm(new Date());
       setAviso(
         r.pedidos.length
           ? `Pedido enviado à Meta (${r.pedidos.join(' e ')}). A análise costuma levar de alguns minutos a 24 horas; volte aqui e clique em "Atualizar situação".`
@@ -727,13 +739,34 @@ function ModelosDoMister({ conectado }: { conectado: boolean }) {
             })}
           </ul>
           <div className="flex flex-wrap gap-2">
-            <button type="button" className={PRIMARIO} disabled={ocupado || !conectado || !dados.lido || faltam === 0} onClick={pedir}>
+            <button type="button" className={PRIMARIO} disabled={ocupado || lendo || !conectado || !dados.lido || faltam === 0} onClick={pedir}>
               Pedir aprovação à Meta
             </button>
-            <button type="button" className={NEUTRO} disabled={ocupado} onClick={() => carregar()}>
-              Atualizar situação
+            <button
+              type="button"
+              className={NEUTRO}
+              disabled={ocupado || lendo}
+              onClick={() => {
+                setAviso('');
+                carregar();
+              }}
+            >
+              {lendo ? 'Lendo na Meta…' : 'Atualizar situação'}
             </button>
           </div>
+          <p className="text-xs text-slate-300" role="status" aria-live="polite">
+            {lendo
+              ? 'Lendo a situação na Meta…'
+              : lidoEm && dados.lido
+                ? `Lido na Meta às ${lidoEm.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}.${
+                    dados.modelos.every((m) => m.situacao === 'aprovado')
+                      ? ' Os dois estão aprovados: avisos e resumos já chegam também fora das 24 horas.'
+                      : dados.modelos.some((m) => m.situacao === 'em_analise')
+                        ? ' A Meta ainda está analisando; a análise costuma levar de alguns minutos a 24 horas.'
+                        : ''
+                  }`
+                : ''}
+          </p>
         </>
       )}
     </section>
