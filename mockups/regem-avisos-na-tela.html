@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regem · avisos na tela da loja e no console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* REGEM · AVISOS NA TELA DA LOJA E NO CONSOLE — versão 1, A APROVAR (14/11/2026). F1.4 do docs/plano-mister.md.
+   Os avisos do Mister (mig 419) já saem pelo WhatsApp, pelo KDS e pelo Atendimento. Dois destinos ainda ficam só
+   anotados como "chega na próxima entrega": a TELA DO REGEM NA LOJA (o padrão de vários avisos: impressora, pedido
+   parado, iFood ou 99 desconectado) e o SUPORTE DA DMS (os problemas técnicos do servidor). Este protótipo mostra os dois
+   e o histórico que o presidente consulta:
+   1. Na tela da loja: uma FAIXA abaixo do topo com o aviso mais recente, "Ciente" e "Ver avisos"; a gaveta com todos os
+      avisos abertos da loja. Segue a faixa da Pausa por canal (mockups/regem-pausa.html) e a gaveta do Atendimento.
+   2. Mister › Histórico: a lista dos avisos no modelo do Estoque (situações com quantidade, busca, filtros, gaveta com a
+      trilha de quem recebeu cada fase).
+   3. Console da distribuição › Avisos: os avisos com destino "Suporte da DMS" de todas as empresas.
+   Onde a tela real difere, de propósito: os botões "Situação do protótipo" trocam os estados para a aprovação; os nomes,
+   lojas e horários são inventados; o console é escuro como o de verdade. */
+:root{
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --gold-ink:#7A5209; --gold-bg:#FFF9EC; --navy:#0F2230;
+  --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9; --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8;
+  --neutro:#43586C; --neutro-bg:#EAEFF4; --foco:#3A7FB8;
+  --proto:#0B1822; --proto-txt:#C9D5DF; --proto-txt2:#8FA3B4; --proto-linha:#2A3B4A;
+  --d-bg:#020617; --d-card:#0B1324; --d-linha:#1E293B; --d-txt:#F1F5F9; --d-txt2:#94A3B8; --d-ambar:#F59E0B; --d-ambar-bg:#2A1E05; --d-ok:#34D399; --d-crit:#F87171; --d-azul:#7CC0F5;
+  --radius:12px; --display:"Archivo","Segoe UI",system-ui,sans-serif; --body:"Figtree","Segoe UI",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font:15px/1.5 var(--body);background:var(--bg);color:var(--ink);overflow-x:hidden}
+[hidden]{display:none!important}
+h1,h2,h3,h4{font-family:var(--display);margin:0;text-wrap:balance}
+h1{font-size:24px;line-height:1.15} h2{font-size:18px} h3{font-size:16px}
+p{margin:0 0 10px;overflow-wrap:anywhere} p:last-child{margin-bottom:0}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--foco);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.sub{color:var(--ink-2)} .peq{font-size:13.5px}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+
+/* faixa do protótipo */
+.proto{background:var(--proto);color:var(--proto-txt);padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.proto .titulo{font-family:var(--display);font-weight:700;color:#fff}
+.abas{display:flex;flex-wrap:wrap;gap:6px}
+.aba{background:transparent;border:1px solid var(--proto-linha);color:var(--proto-txt);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:36px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.proto .nota{font-size:12.5px;color:var(--proto-txt2);flex:1 1 220px;min-width:0}
+.proto :focus-visible{outline-color:var(--d-azul)}
+.vista{display:none} .vista.ativa{display:block}
+.ctls{border:1px dashed var(--line-2);background:#FFFBF0;border-radius:10px;padding:8px 12px;margin:0 0 14px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px;color:var(--gold-ink)}
+.ctl{background:#fff;border:1px solid var(--line-2);padding:4px 10px;border-radius:999px;cursor:pointer;min-height:32px;color:var(--ink)}
+.ctl[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+
+/* casca do app da loja */
+.app{display:grid;grid-template-columns:230px minmax(0,1fr);min-height:80vh}
+.lado{background:var(--navy);color:#C9D5DF;padding:16px 12px}
+.marca{font-family:var(--display);font-weight:800;color:#fff;font-size:18px;padding:4px 8px 14px}
+.lado ul{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.lado li{padding:8px 10px;border-radius:8px}
+.lado li.atual{background:rgba(232,168,69,.18);color:#fff;box-shadow:inset 3px 0 0 var(--gold);font-weight:600}
+.principal{min-width:0;container-type:inline-size;container-name:principal}
+.topo{background:#fff;border-bottom:1px solid var(--line);padding:10px 20px;display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;justify-content:space-between}
+.onde{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--gold-ink)}
+.topo-dir{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.quem{font-size:13.5px;color:var(--ink-2)}
+.chip-avisos{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:4px 12px;border-radius:10px;border:1px solid #EBC7B0;background:var(--warn-bg);color:#6F3410;font-weight:700;cursor:pointer}
+.chip-avisos b{font-family:var(--mono)}
+.pagina{padding:20px;max-width:1160px}
+.cab{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:flex-end;justify-content:space-between;margin-bottom:14px}
+.cab .sub{max-width:68ch;margin-top:4px}
+.partes{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px;padding:0 0 12px;border-bottom:1px solid var(--line)}
+.parte{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:999px;min-height:40px;font-weight:600;color:var(--ink-2)}
+.parte.atual{background:var(--navy);border-color:var(--navy);color:#fff}
+.novo{font:700 10.5px var(--display);background:var(--gold);color:var(--on-gold);padding:1px 6px;border-radius:4px;letter-spacing:.05em;margin-left:4px}
+
+/* a faixa dos avisos */
+.faixa-avisos{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;background:#fff;border:1px solid #EBC7B0;border-left:5px solid #C77A2E;border-radius:10px;padding:10px 12px;margin:14px 20px 0}
+.faixa-avisos.crit{border-color:#E3B5B5;border-left-color:var(--crit)}
+.faixa-avisos.ok{border-color:#B5DCC8;border-left-color:var(--ok)}
+.faixa-avisos .txt{flex:1 1 320px;min-width:0}
+.faixa-avisos .t{font-weight:700}
+.faixa-avisos .d{font-size:13.5px;color:var(--ink-2)}
+.faixa-avisos .acoes{display:flex;flex-wrap:wrap;gap:8px}
+
+/* peças */
+.cartao{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;min-width:0}
+.cartao > h2,.cartao > h3{margin-bottom:6px}
+.selo{display:inline-block;font-size:12.5px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.selo.ok{background:var(--ok-bg);color:var(--ok)} .selo.crit{background:var(--crit-bg);color:var(--crit)}
+.selo.warn{background:var(--warn-bg);color:var(--warn)} .selo.info{background:var(--info-bg);color:var(--info)} .selo.neutro{background:var(--neutro-bg);color:var(--neutro)}
+.btn{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:10px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink)}
+.btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.vazio{text-align:center;color:var(--ink-2);padding:26px 12px;border:1px dashed var(--line-2);border-radius:10px}
+.vazio .grande{font-size:28px;display:block;margin-bottom:4px}
+.erro{border:1px solid #E3B5B5;background:var(--crit-bg);color:#7A1E1E;border-radius:10px;padding:12px 14px}
+.esqueleto{display:grid;gap:8px} .esqueleto span{display:block;height:44px;border-radius:10px;background:linear-gradient(90deg,#EAEFF4,#F5F7FA,#EAEFF4)}
+
+/* lista no modelo do Estoque */
+.situacoes{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.situacao{background:#fff;border:1px solid var(--line-2);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:38px;font-weight:600;color:var(--ink-2)}
+.situacao b{font-family:var(--mono);margin-left:4px}
+.situacao[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.filtros{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;margin-bottom:12px}
+.filtros input,.filtros select{border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;min-height:42px;background:#fff;min-width:0}
+.filtros input{flex:1 1 220px;max-width:340px}
+.tab{width:100%;border-collapse:collapse}
+.tab th{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:8px 10px;border-bottom:2px solid var(--line-2)}
+.tab td{padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+.tab td:last-child{width:1%;white-space:nowrap}
+.tab td.quando{white-space:nowrap}
+.btn,.d-btn{white-space:nowrap}
+@container principal (max-width: 820px){
+  .tab thead{display:none}
+  .tab,.tab tbody,.tab tr,.tab td{display:block;width:100%}
+  .tab tr{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px;background:#fff}
+  .tab td{padding:4px 0;border:0}
+  .tab td[data-rot]::before{content:attr(data-rot);display:block;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+  .tab td .btn{width:100%}
+}
+.foi{display:flex;flex-wrap:wrap;gap:4px}
+
+/* gaveta */
+.fundo{position:fixed;inset:0;background:rgba(15,34,48,.45);z-index:40;display:none}
+.fundo.aberto{display:block}
+.gaveta{position:fixed;top:0;right:0;bottom:0;width:min(520px,100%);background:#fff;z-index:41;display:none;flex-direction:column;box-shadow:-8px 0 24px rgba(15,34,48,.18)}
+.gaveta.aberto{display:flex}
+.pn-cab{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line)}
+.pn-corpo{padding:18px;overflow:auto;flex:1;min-height:0}
+.pn-rodape{padding:12px 18px;border-top:1px solid var(--line);background:#F7F9FB;font-size:13.5px;color:var(--ink-2)}
+.fechar{background:transparent;border:0;font-size:18px;cursor:pointer;min-width:40px;min-height:40px;border-radius:8px}
+.aviso-item{border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px}
+.aviso-item .t{font-weight:700}
+.aviso-item .meta{font-size:13px;color:var(--ink-2);margin-top:6px}
+.linha-tempo{list-style:none;margin:8px 0 0;padding:0;border-left:2px solid var(--line-2)}
+.linha-tempo li{position:relative;padding:0 0 14px 16px}
+.linha-tempo li::before{content:"";position:absolute;left:-7px;top:4px;width:12px;height:12px;border-radius:50%;background:var(--line-2)}
+.linha-tempo li.ok::before{background:var(--ok)} .linha-tempo li.warn::before{background:#C77A2E}
+.linha-tempo .h{font:700 13px var(--mono)}
+.linha-tempo .q{font-size:13.5px;color:var(--ink-2)}
+
+/* console da distribuição (escuro) */
+.console{background:var(--d-bg);color:var(--d-txt);padding:20px;min-height:80vh;container-type:inline-size;container-name:console}
+.console :focus-visible{outline-color:var(--d-azul)}
+.d-sobre{font:700 11.5px var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--d-ambar)}
+.d-nav{display:flex;flex-wrap:wrap;gap:2px 4px;border-bottom:1px solid var(--d-linha);margin:12px 0 18px}
+.d-nav span{padding:8px 12px;color:var(--d-txt2);border-bottom:2px solid transparent}
+.d-nav span.atual{color:var(--d-ambar);border-bottom-color:var(--d-ambar);font-weight:600}
+.d-sub{color:var(--d-txt2);font-size:13px;margin:2px 0 12px;max-width:80ch}
+.d-sit{background:transparent;border:1px solid #334155;color:var(--d-txt2);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:38px;font-weight:600}
+.d-sit b{font-family:var(--mono);margin-left:4px}
+.d-sit[aria-pressed="true"]{background:var(--d-ambar);border-color:var(--d-ambar);color:#231803}
+.d-busca{border:1px solid #334155;background:#0F172A;color:var(--d-txt);border-radius:8px;padding:8px 12px;min-height:40px;width:min(320px,100%)}
+.d-btn{background:transparent;border:1px solid #334155;color:var(--d-txt);padding:8px 14px;border-radius:8px;cursor:pointer;min-height:40px;font-weight:600}
+.d-selo{display:inline-block;font-size:12px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap}
+.d-selo.ok{background:rgba(16,185,129,.15);color:var(--d-ok)} .d-selo.crit{background:rgba(248,113,113,.15);color:var(--d-crit)}
+.d-selo.warn{background:rgba(245,158,11,.15);color:#FBBF24} .d-selo.neutro{background:rgba(148,163,184,.15);color:var(--d-txt2)}
+.d-tab{width:100%;border-collapse:collapse;border:1px solid var(--d-linha)}
+.d-tab th{background:#0F172A;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--d-txt2);text-align:left;padding:8px 10px}
+.d-tab td{padding:10px;border-top:1px solid var(--d-linha);vertical-align:top;overflow-wrap:anywhere}
+.d-vazio{border:1px dashed #334155;border-radius:10px;padding:22px 12px;text-align:center;color:var(--d-txt2)}
+@container console (max-width: 820px){
+  .d-tab{border:0}
+  .d-tab thead{display:none}
+  .d-tab,.d-tab tbody,.d-tab tr,.d-tab td{display:block;width:100%}
+  .d-tab tr{border:1px solid var(--d-linha);border-radius:10px;padding:10px 12px;margin-bottom:10px;background:var(--d-card)}
+  .d-tab td{padding:4px 0;border:0}
+  .d-tab td[data-rot]::before{content:attr(data-rot);display:block;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--d-txt2)}
+  .d-tab td .d-btn{width:100%}
+}
+
+/* notas */
+.notas{padding:20px;max-width:1000px;margin-inline:auto}
+.notas .cartao ul,.notas .cartao ol{margin:6px 0 0;padding-left:20px} .notas .cartao li{margin-bottom:5px}
+
+@media (max-width: 760px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  .lado{display:none}
+  .pagina{padding:14px}
+  .faixa-avisos{margin:12px 14px 0}
+  .topo{padding:10px 14px}
+}
+</style>
+</head>
+<body>
+
+<div class="proto" role="region" aria-label="Controles do protótipo">
+  <span class="titulo">Avisos na tela · protótipo</span>
+  <div class="abas" role="group" aria-label="O que ver">
+    <button class="aba" type="button" data-vista="loja" aria-pressed="true">Na tela da loja</button>
+    <button class="aba" type="button" data-vista="historico" aria-pressed="false">Mister › Histórico</button>
+    <button class="aba" type="button" data-vista="console" aria-pressed="false">Console da DMS</button>
+    <button class="aba" type="button" data-vista="notas" aria-pressed="false">Notas e decisões</button>
+  </div>
+  <span class="nota">Os botões tracejados de "Situação do protótipo" trocam o estado da tela; não existem no app.</span>
+</div>
+
+<!-- ───────────── 1. NA TELA DA LOJA ───────────── -->
+<section class="vista ativa" id="v-loja" aria-label="Na tela da loja">
+  <div class="app">
+    <nav class="lado" aria-label="Menu do app (ilustração)">
+      <div class="marca">Regem</div>
+      <ul>
+        <li>Painel</li><li class="atual">PDV · Balcão</li><li>Delivery</li><li>Estoque</li><li>Relatórios</li><li>Mister</li>
+      </ul>
+    </nav>
+    <div class="principal">
+      <header class="topo">
+        <div><div class="onde">PDV · Balcão</div><h1>Balcão</h1></div>
+        <div class="topo-dir">
+          <button type="button" class="chip-avisos" id="chip-avisos" data-abre="g-loja" aria-label="3 avisos da loja abertos" hidden>⚠️ <b id="chip-n">3</b> avisos</button>
+          <span class="quem">Carlos Lima · gerente · Loja Centro</span>
+        </div>
+      </header>
+
+      <div class="faixa-avisos" id="faixa" role="status" aria-live="polite">
+        <div class="txt">
+          <div class="t" id="faixa-t">⚠️ Impressora Cozinha parada <span class="sub peq">· há 3 min</span></div>
+          <div class="d" id="faixa-d">Confira se ela está ligada, com papel e no cabo ou na rede.</div>
+        </div>
+        <div class="acoes">
+          <button type="button" class="btn" id="ciente">Ciente</button>
+          <button type="button" class="btn pri" data-abre="g-loja" id="ver-avisos">Ver os 3 avisos</button>
+        </div>
+      </div>
+
+      <div class="pagina">
+        <div class="ctls" role="group" aria-label="Situação do protótipo">
+          Situação do protótipo:
+          <button type="button" class="ctl" data-loja="tres" aria-pressed="true">3 avisos</button>
+          <button type="button" class="ctl" data-loja="um" aria-pressed="false">1 aviso</button>
+          <button type="button" class="ctl" data-loja="ciente" aria-pressed="false">depois do "Ciente"</button>
+          <button type="button" class="ctl" data-loja="resolvido" aria-pressed="false">um aviso resolveu</button>
+          <button type="button" class="ctl" data-loja="nenhum" aria-pressed="false">nenhum aviso</button>
+        </div>
+        <div class="cartao">
+          <h2>A venda continua</h2>
+          <p class="sub">A faixa não trava nada: o balcão, o delivery e a cozinha seguem funcionando. Ela aparece em todas as telas para quem está logado nesta loja, com o aviso aberto mais recente. "Ciente" tira a faixa só para quem clicou; o aviso continua no ⚠️ do topo até se resolver.</p>
+          <p class="sub">Os avisos somem sozinhos quando o problema se resolve (a impressora voltou, o pedido andou). Se o aviso escalar ("sem solução há 5 min"), a faixa volta para todos.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="fundo" data-fecha></div>
+  <aside class="gaveta" id="g-loja" role="dialog" aria-modal="true" aria-labelledby="g-loja-t">
+    <div class="pn-cab"><h2 id="g-loja-t">Avisos da loja · <span class="mono" id="g-loja-n">3</span> abertos</h2><button type="button" class="fechar" data-fecha aria-label="Fechar">✕</button></div>
+    <div class="pn-corpo" id="g-loja-corpo">
+      <div class="aviso-item" data-aviso="impressora">
+        <div><span class="selo warn">Na loja</span></div>
+        <div class="t">Impressora Cozinha parada</div>
+        <p class="sub peq">Confira se ela está ligada, com papel e no cabo ou na rede.</p>
+        <div class="meta">Abriu às <span class="mono">20:12</span> · há 3 min · também foi para o KDS</div>
+      </div>
+      <div class="aviso-item" data-aviso="pedido">
+        <div><span class="selo warn">Na loja</span></div>
+        <div class="t">Pedido #284 · iFood 4821 aceito há mais de 20 min e ainda não ficou pronto</div>
+        <p class="sub peq">Confira na cozinha se ele está sendo feito.</p>
+        <div class="meta">Abriu às <span class="mono">20:05</span> · há 10 min · também foi para o KDS e o WhatsApp do gerente</div>
+      </div>
+      <div class="aviso-item" data-aviso="ifood">
+        <div><span class="selo crit">Na loja</span></div>
+        <div class="t">Pedidos do iFood sem chegar ao Regem desde 19:58</div>
+        <p class="sub peq">Enquanto isso, aceite os pedidos pelo Gestor de Pedidos do iFood. Se continuar, confira a ligação em Delivery › Configurações, em "Integrações", ou fale com o suporte.</p>
+        <div class="meta">Abriu às <span class="mono">20:03</span> · há 12 min · também foi para o WhatsApp do gerente</div>
+      </div>
+    </div>
+    <div class="pn-rodape">Os avisos somem sozinhos quando o problema se resolve. Para mudar quem recebe cada aviso: Mister › Avisos e relatórios (o presidente).</div>
+  </aside>
+</section>
+
+<!-- ───────────── 2. MISTER › HISTÓRICO ───────────── -->
+<section class="vista" id="v-historico" aria-label="Mister, parte Histórico">
+  <div class="app">
+    <nav class="lado" aria-label="Menu do app (ilustração)">
+      <div class="marca">Regem</div>
+      <ul><li>Painel</li><li>PDV · Balcão</li><li>Delivery</li><li>Estoque</li><li>Relatórios</li><li class="atual">Mister</li></ul>
+    </nav>
+    <div class="principal">
+      <header class="topo">
+        <div><div class="onde">Mister</div><h1>Mister na loja</h1></div>
+        <span class="quem">Ana Souza · presidente</span>
+      </header>
+      <div class="pagina">
+        <div class="partes" aria-label="Partes do Mister">
+          <span class="parte">Resumo</span><span class="parte">Pessoas</span><span class="parte">IA e uso</span><span class="parte">Avisos e relatórios</span><span class="parte atual">Histórico <span class="novo">NOVO</span></span>
+        </div>
+        <div class="ctls" role="group" aria-label="Situação do protótipo">
+          Situação do protótipo:
+          <button type="button" class="ctl" data-hist="dados" aria-pressed="true">com avisos</button>
+          <button type="button" class="ctl" data-hist="vazio" aria-pressed="false">vazio</button>
+          <button type="button" class="ctl" data-hist="carregando" aria-pressed="false">carregando</button>
+          <button type="button" class="ctl" data-hist="erro" aria-pressed="false">erro</button>
+        </div>
+        <div class="cab">
+          <div><h2 id="hist-titulo">Histórico dos avisos · <span class="mono" id="hist-n">7</span></h2><p class="sub">Todos os avisos da empresa, com a trilha de quem recebeu cada fase. O resolvido fica 90 dias.</p></div>
+        </div>
+        <div id="hist-dados">
+          <div class="situacoes" role="group" aria-label="Situação">
+            <button type="button" class="situacao" data-sit="todos" aria-pressed="true">Todos <b>7</b></button>
+            <button type="button" class="situacao" data-sit="aberto" aria-pressed="false">Abertos <b>2</b></button>
+            <button type="button" class="situacao" data-sit="resolvido" aria-pressed="false">Resolvidos <b>5</b></button>
+          </div>
+          <div class="filtros">
+            <label class="sr" for="h-busca">Buscar aviso</label>
+            <input id="h-busca" type="search" placeholder="Buscar aviso">
+            <label class="sr" for="h-grupo">Grupo</label>
+            <select id="h-grupo"><option value="">Todos os grupos</option><option>Na loja</option><option>Servidor da loja</option><option>Fiscal</option><option>O próprio Mister</option></select>
+            <label class="sr" for="h-periodo">Período</label>
+            <select id="h-periodo"><option>Últimos 7 dias</option><option>Hoje</option><option>Últimos 30 dias</option></select>
+          </div>
+          <table class="tab">
+            <caption class="sr">Avisos da empresa, com quando abriram, a situação e para onde foram</caption>
+            <thead><tr><th>Aviso</th><th>Grupo</th><th>Abriu</th><th>Situação</th><th>Foi para</th><th><span class="sr">Ação</span></th></tr></thead>
+            <tbody id="hist-linhas">
+              <tr data-sit="aberto"><td data-rot="Aviso">Loja Centro · impressora Cozinha parada</td><td data-rot="Grupo"><span class="selo neutro">Na loja</span></td><td data-rot="Abriu" class="mono quando">hoje 20:12</td><td data-rot="Situação"><span class="selo warn">aberto há 3 min</span></td><td data-rot="Foi para"><div class="foi"><span class="selo neutro">Tela</span><span class="selo neutro">KDS</span></div></td><td><button type="button" class="btn" data-abre="g-hist">Ver</button></td></tr>
+              <tr data-sit="aberto"><td data-rot="Aviso">Loja Centro · pedido #284 · iFood 4821 aceito há mais de 20 min e ainda não ficou pronto</td><td data-rot="Grupo"><span class="selo neutro">Na loja</span></td><td data-rot="Abriu" class="mono quando">hoje 20:05</td><td data-rot="Situação"><span class="selo warn">aberto há 10 min</span></td><td data-rot="Foi para"><div class="foi"><span class="selo neutro">Tela</span><span class="selo neutro">KDS</span><span class="selo neutro">WhatsApp ••4821</span></div></td><td><button type="button" class="btn" data-abre="g-hist">Ver</button></td></tr>
+              <tr data-sit="resolvido"><td data-rot="Aviso">Loja Centro · caixa do delivery aberto há 26 horas</td><td data-rot="Grupo"><span class="selo neutro">Na loja</span></td><td data-rot="Abriu" class="mono quando">hoje 08:27</td><td data-rot="Situação"><span class="selo ok">resolvido em 9 h 30 min</span></td><td data-rot="Foi para"><div class="foi"><span class="selo neutro">WhatsApp ••4821</span></div></td><td><button type="button" class="btn" data-abre="g-hist">Ver</button></td></tr>
+              <tr data-sit="resolvido"><td data-rot="Aviso">Loja Centro · servidor sem sinal</td><td data-rot="Grupo"><span class="selo neutro">Servidor da loja</span></td><td data-rot="Abriu" class="mono quando">ontem 23:40</td><td data-rot="Situação"><span class="selo ok">resolvido em 6 min</span></td><td data-rot="Foi para"><div class="foi"><span class="selo neutro">WhatsApp ••4821</span><span class="selo neutro">Suporte da DMS</span></div></td><td><button type="button" class="btn" data-abre="g-hist">Ver</button></td></tr>
+              <tr data-sit="resolvido"><td data-rot="Aviso">Loja Centro · certificado digital da nota vence em 18/11</td><td data-rot="Grupo"><span class="selo neutro">Fiscal</span></td><td data-rot="Abriu" class="mono quando">12/11 09:00</td><td data-rot="Situação"><span class="selo ok">resolvido (certificado novo)</span></td><td data-rot="Foi para"><div class="foi"><span class="selo neutro">WhatsApp ••1234</span></div></td><td><button type="button" class="btn" data-abre="g-hist">Ver</button></td></tr>
+              <tr data-sit="resolvido"><td data-rot="Aviso">Loja Centro · pedidos do iFood sem chegar ao Regem desde 11/11 às 19:58</td><td data-rot="Grupo"><span class="selo neutro">Na loja</span></td><td data-rot="Abriu" class="mono quando">11/11 20:03</td><td data-rot="Situação"><span class="selo ok">resolvido em 22 min</span></td><td data-rot="Foi para"><div class="foi"><span class="selo neutro">Tela</span><span class="selo neutro">WhatsApp ••4821</span></div></td><td><button type="button" class="btn" data-abre="g-hist">Ver</button></td></tr>
+              <tr data-sit="resolvido"><td data-rot="Aviso">A IA do Mister parou: a chave de IA está sem crédito</td><td data-rot="Grupo"><span class="selo neutro">O próprio Mister</span></td><td data-rot="Abriu" class="mono quando">10/11 14:20</td><td data-rot="Situação"><span class="selo ok">resolvido em 1 h 05 min</span></td><td data-rot="Foi para"><div class="foi"><span class="selo neutro">WhatsApp ••1234</span></div></td><td><button type="button" class="btn" data-abre="g-hist">Ver</button></td></tr>
+            </tbody>
+          </table>
+          <p class="vazio" id="hist-sem-busca" hidden><span class="grande">🔎</span>Nenhum aviso com essa busca.</p>
+        </div>
+        <div class="vazio" id="hist-vazio" hidden><span class="grande">✅</span>Nenhum aviso nos últimos 7 dias. Quando algo sair do lugar, ele aparece aqui com a trilha.</div>
+        <div class="esqueleto" id="hist-carregando" hidden aria-label="Carregando os avisos"><span></span><span></span><span></span></div>
+        <div class="erro" id="hist-erro" hidden role="alert">Não consegui carregar o histórico dos avisos. <button type="button" class="btn">Tentar de novo</button></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="fundo" data-fecha></div>
+  <aside class="gaveta" id="g-hist" role="dialog" aria-modal="true" aria-labelledby="g-hist-t">
+    <div class="pn-cab"><h2 id="g-hist-t">Aviso</h2><button type="button" class="fechar" data-fecha aria-label="Fechar">✕</button></div>
+    <div class="pn-corpo">
+      <p><span class="selo neutro">Na loja</span> <span class="selo ok">resolvido em 19 min</span></p>
+      <h3>Loja Centro · pedido #284 · iFood 4821 aceito há mais de 20 min e ainda não ficou pronto</h3>
+      <p class="sub peq">Confira na cozinha se ele está sendo feito.</p>
+      <h3 style="margin-top:14px">Trilha</h3>
+      <ol class="linha-tempo">
+        <li class="ok"><span class="h">20:05</span> · Abriu<div class="q">Tela da loja ✓ · KDS da cozinha ✓</div></li>
+        <li class="warn"><span class="h">20:10</span> · Sem solução há 5 min<div class="q">WhatsApp do gerente (••4821) ✓ — pelo modelo da Meta, fora das 24 horas · tocou em "Ver o que fazer" às 20:11</div></li>
+        <li class="ok"><span class="h">20:24</span> · Resolvido: o pedido ficou pronto<div class="q">"✅ Resolvido" ao gerente (••4821) ✓</div></li>
+      </ol>
+      <p class="sub peq">A trilha guarda só os 4 últimos dígitos de quem recebeu, nunca o telefone inteiro.</p>
+    </div>
+  </aside>
+</section>
+
+<!-- ───────────── 3. CONSOLE DA DMS ───────────── -->
+<section class="vista" id="v-console" aria-label="Console da distribuição, aba Avisos">
+  <div class="console">
+    <div class="d-sobre">Console da distribuição</div>
+    <h1>Avisos para o suporte</h1>
+    <div class="d-nav" aria-label="Abas do console (ilustração)"><span>Frota</span><span>Licenças</span><span>Mister</span><span class="atual">Avisos</span><span>Auditoria</span></div>
+    <div class="ctls" role="group" aria-label="Situação do protótipo">
+      Situação do protótipo:
+      <button type="button" class="ctl" data-cons="dados" aria-pressed="true">com avisos</button>
+      <button type="button" class="ctl" data-cons="vazio" aria-pressed="false">nenhum aberto</button>
+      <button type="button" class="ctl" data-cons="erro" aria-pressed="false">erro</button>
+    </div>
+    <p class="d-sub">Os avisos com o destino "Suporte da DMS", de todas as empresas: o servidor da loja sem sinal com pedido esperando e os problemas técnicos (serviço parado, disco cheio, cópia de segurança atrasada). Mostra a empresa, a loja e o aviso — nada de cliente, conversa ou valor.</p>
+    <div id="cons-dados">
+      <div class="situacoes" role="group" aria-label="Situação">
+        <button type="button" class="d-sit" aria-pressed="true">Abertos <b>3</b></button>
+        <button type="button" class="d-sit" aria-pressed="false">Resolvidos nas últimas 24 h <b>11</b></button>
+      </div>
+      <p><label class="sr" for="c-busca">Buscar empresa</label><input id="c-busca" class="d-busca" type="search" placeholder="Buscar empresa"></p>
+      <table class="d-tab">
+        <caption class="sr">Avisos abertos para o suporte, por empresa e loja</caption>
+        <thead><tr><th>Empresa</th><th>Loja</th><th>Aviso</th><th>Abriu</th><th>Situação</th><th><span class="sr">Ação</span></th></tr></thead>
+        <tbody>
+          <tr><td data-rot="Empresa">Burger da Praça</td><td data-rot="Loja">Loja Centro</td><td data-rot="Aviso">Servidor sem sinal · 2 pedidos esperando</td><td data-rot="Abriu" class="mono quando">20:14</td><td data-rot="Situação"><span class="d-selo crit">aberto há 4 min</span></td><td><button type="button" class="d-btn">Abrir na frota</button></td></tr>
+          <tr><td data-rot="Empresa">Pizzaria do Porto</td><td data-rot="Loja">Matriz</td><td data-rot="Aviso">Disco do servidor quase cheio (3% livre)</td><td data-rot="Abriu" class="mono quando">18:02</td><td data-rot="Situação"><span class="d-selo warn">aberto há 2 h 16 min · escalou ao gerente</span></td><td><button type="button" class="d-btn">Abrir na frota</button></td></tr>
+          <tr><td data-rot="Empresa">Empório Sabor da Serra Comércio de Alimentos e Bebidas Artesanais Ltda</td><td data-rot="Loja">Unidade Serra</td><td data-rot="Aviso">Cópia de segurança atrasada há 30 horas</td><td data-rot="Abriu" class="mono quando">ontem 14:00</td><td data-rot="Situação"><span class="d-selo warn">aberto há 30 h</span></td><td><button type="button" class="d-btn">Abrir na frota</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="d-vazio" id="cons-vazio" hidden>✅ Nenhum aviso aberto para o suporte agora.</div>
+    <div class="d-vazio" id="cons-erro" hidden role="alert">Não consegui carregar os avisos. <button type="button" class="d-btn">Tentar de novo</button></div>
+  </div>
+</section>
+
+<!-- ───────────── 4. NOTAS E DECISÕES ───────────── -->
+<section class="vista" id="v-notas" aria-label="Notas e decisões">
+  <div class="notas">
+    <div class="cartao">
+      <h2>O que este protótipo resolve</h2>
+      <p>Dos seis destinos dos avisos, dois só ficam anotados hoje: a tela do Regem na loja e o suporte da DMS. A tela da loja é o destino padrão da impressora parada, do pedido parado e do iFood ou 99 desconectado — quem está no balcão não fica sabendo pelo Regem.</p>
+    </div>
+    <div class="cartao">
+      <h2>Decisões para aprovar (a recomendada primeiro)</h2>
+      <ol>
+        <li><b>Quem vê a faixa:</b> todos que estão logados na loja do aviso (o caixa, a cozinha, o gerente). <span class="sub">Alternativa: só gerente e presidente — mas aí a impressora parada não chega a quem está do lado dela.</span></li>
+        <li><b>"Ciente":</b> tira a faixa só para quem clicou; o aviso continua no ⚠️ do topo até se resolver; se escalar, a faixa volta para todos. <span class="sub">O "Ciente" fica gravado por pessoa no servidor (não no navegador).</span></li>
+        <li><b>O histórico:</b> uma parte nova do Mister, só para o presidente. O gerente vê os avisos abertos da loja pela gaveta.</li>
+        <li><b>O console:</b> a aba "Avisos" para a Diretoria e o Técnico da distribuição, só com empresa, loja e aviso.</li>
+        <li><b>Como chega:</b> pelo tempo real, como o sino do Atendimento (na hora), com uma leitura a cada minuto de reserva.</li>
+      </ol>
+    </div>
+    <div class="cartao">
+      <h2>O que não muda</h2>
+      <ul>
+        <li>Quem recebe cada aviso continua em Mister › Avisos e relatórios (a mesma tabela aprovada em 14/11).</li>
+        <li>O aviso resolve sozinho, pela mesma rotina de hoje; a faixa e a gaveta só mostram o que ela abriu.</li>
+        <li>Nada de cliente, conversa ou valor sai para a tela da loja ou para o console.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<script>
+(() => {
+  const $ = (s, el = document) => el.querySelector(s);
+  const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+  // As vistas do protótipo.
+  $$('.aba').forEach((b) => b.addEventListener('click', () => {
+    $$('.aba').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    $$('.vista').forEach((v) => v.classList.toggle('ativa', v.id === `v-${b.dataset.vista}`));
+  }));
+  const marcar = (grupo, b) => $$(`[data-${grupo}]`).forEach((x) => x.classList.contains('ctl') && x.setAttribute('aria-pressed', String(x === b)));
+
+  // 1) A faixa da loja.
+  const faixa = $('#faixa'), chip = $('#chip-avisos');
+  const estados = {
+    tres: { faixa: true, n: 3, t: '⚠️ Impressora Cozinha parada <span class="sub peq">· há 3 min</span>', d: 'Confira se ela está ligada, com papel e no cabo ou na rede.', ver: 'Ver os 3 avisos', tom: '' },
+    um: { faixa: true, n: 1, t: '⚠️ Impressora Cozinha parada <span class="sub peq">· há 3 min</span>', d: 'Confira se ela está ligada, com papel e no cabo ou na rede.', ver: 'Ver o aviso', tom: '' },
+    ciente: { faixa: false, n: 3 },
+    resolvido: { faixa: true, n: 2, t: '✅ Resolvido: a impressora Cozinha voltou <span class="sub peq">· durou 9 min</span>', d: 'Ainda há 2 avisos abertos nesta loja.', ver: 'Ver os 2 avisos', tom: 'ok' },
+    nenhum: { faixa: false, n: 0 },
+  };
+  function loja(nome) {
+    const e = estados[nome];
+    faixa.hidden = !e.faixa;
+    faixa.className = `faixa-avisos ${e.tom ?? ''}`.trim();
+    if (e.faixa) { $('#faixa-t').innerHTML = e.t; $('#faixa-d').textContent = e.d; $('#ver-avisos').textContent = e.ver; $('#ciente').hidden = e.tom === 'ok'; }
+    chip.hidden = e.n === 0 || e.faixa;
+    $('#chip-n').textContent = String(e.n);
+    chip.setAttribute('aria-label', `${e.n} ${e.n === 1 ? 'aviso da loja aberto' : 'avisos da loja abertos'}`);
+    $('#g-loja-n').textContent = String(e.n);
+    $$('#g-loja-corpo .aviso-item').forEach((it, i) => (it.hidden = nome === 'resolvido' ? it.dataset.aviso === 'impressora' : i >= Math.max(e.n, 0)));
+  }
+  $$('[data-loja]').forEach((b) => b.addEventListener('click', () => { marcar('loja', b); loja(b.dataset.loja); }));
+  $('#ciente').addEventListener('click', () => { const b = $('[data-loja="ciente"]'); marcar('loja', b); loja('ciente'); chip.focus(); });
+
+  // 2) O histórico: os estados e o filtro por situação e busca.
+  const hist = { dados: '#hist-dados', vazio: '#hist-vazio', carregando: '#hist-carregando', erro: '#hist-erro' };
+  $$('[data-hist]').forEach((b) => b.addEventListener('click', () => {
+    marcar('hist', b);
+    Object.entries(hist).forEach(([k, s]) => ($(s).hidden = k !== b.dataset.hist));
+    $('#hist-n').textContent = b.dataset.hist === 'dados' ? '7' : '0';
+  }));
+  let sit = 'todos';
+  const filtrar = () => {
+    const termo = $('#h-busca').value.trim().toLowerCase();
+    let n = 0;
+    $$('#hist-linhas tr').forEach((tr) => { const ok = (sit === 'todos' || tr.dataset.sit === sit) && (!termo || tr.textContent.toLowerCase().includes(termo)); tr.hidden = !ok; if (ok) n++; });
+    $('#hist-sem-busca').hidden = n > 0;
+  };
+  $$('.situacao').forEach((b) => b.addEventListener('click', () => { $$('.situacao').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); sit = b.dataset.sit; filtrar(); }));
+  $('#h-busca').addEventListener('input', filtrar);
+
+  // 3) O console.
+  const cons = { dados: '#cons-dados', vazio: '#cons-vazio', erro: '#cons-erro' };
+  $$('[data-cons]').forEach((b) => b.addEventListener('click', () => { marcar('cons', b); Object.entries(cons).forEach(([k, s]) => ($(s).hidden = k !== b.dataset.cons)); }));
+  $$('.d-sit').forEach((b) => b.addEventListener('click', () => $$('.d-sit').forEach((x) => x.setAttribute('aria-pressed', String(x === b)))));
+
+  // As gavetas: abrem pelo botão, fecham no ✕, no fundo e no Esc; o foco volta para quem abriu.
+  let quemAbriu = null;
+  const fechar = () => { $$('.gaveta.aberto').forEach((g) => g.classList.remove('aberto')); $$('.fundo.aberto').forEach((f) => f.classList.remove('aberto')); quemAbriu?.focus?.(); };
+  document.addEventListener('click', (ev) => {
+    const abre = ev.target.closest('[data-abre]');
+    if (abre) { quemAbriu = abre; const g = document.getElementById(abre.dataset.abre); g.classList.add('aberto'); g.previousElementSibling.classList.add('aberto'); g.querySelector('.fechar').focus(); return; }
+    if (ev.target.closest('[data-fecha]')) fechar();
+  });
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') fechar(); });
+})();
+</script>
+</body>
+</html>
