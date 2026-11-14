@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Mister: os avisos, primeira parte — para onde vai cada aviso (14/11, F1.2; mig 419 `@cloud-only` — as tabelas
+  `mister_aviso_regra` e `mister_aviso` entram em `SO_NUVEM` no `sync-daemon`; a rotina nasce DESLIGADA —
+  `MISTER_AVISOS_LIGADOS=1` no `regem-api`).** Na NUVEM com o merge: a parte "Avisos e relatórios" em `/mister` e a
+  rotina (WhatsApp na janela de 24 h, KDS, Atendimento). O aviso do KDS desce ao servidor da loja pela tabela que já
+  sincroniza (`alerta_kds`). **No `.zip`:** só a tela (a página do servidor da loja segue dizendo que o Mister funciona
+  pela nuvem). **No `.exe`:** os nomes na lista `SO_NUVEM` do `sync-daemon` (V21) vão no próximo corte.
+
 - **Mister: o Atendimento agora (14/11, F3.4; SEM migration; não mexe no `sync-daemon`).** A 14ª consulta do Mister: a
   mesma fila da tela Atendimento, sem o nome, o telefone nem a mensagem do cliente. Na NUVEM com o merge. O agente só sobe
   na nuvem. Nada no `.zip` nem no `.exe`.

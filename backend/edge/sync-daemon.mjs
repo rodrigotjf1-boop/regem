@@ -2471,6 +2471,9 @@ const SO_NUVEM = new Set([
   'mister_mensagem',
   // As perguntas ao Mister (mig 418, @cloud-only): a fila e a trilha do agente de IA. Quem responde é a nuvem.
   'mister_pergunta',
+  // Os avisos do Mister (mig 419, @cloud-only): para onde vai cada tipo e os episódios com a trilha. Quem avisa é a nuvem.
+  'mister_aviso_regra',
+  'mister_aviso',
 ]);
 
 // LEGADO SEM USO: tabelas criadas nas migrations de fundação (002/003) para recursos que

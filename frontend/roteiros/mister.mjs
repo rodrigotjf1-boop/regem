@@ -1,4 +1,4 @@
-// Roteiro de tela do MISTER › PESSOAS e IA E USO (protótipo `mockups/regem-mister.html`, aprovado em 13/11/2026), com a
+// Roteiro de tela do MISTER › PESSOAS, IA E USO e AVISOS E RELATÓRIOS (protótipo `mockups/regem-mister.html`, aprovado em 13/11/2026), com a
 // API simulada.
 // PESSOAS: o presidente vê as duas partes e a lista inteira (quem é quem, o final do número, avisos parados, quem não
 // ligou), sem "Editar o que pode"; a parte da IA só é lida quando aberta; ligar o próprio WhatsApp (o código, o QR, o
@@ -60,6 +60,31 @@ const PESSOAS = [
 const NINGUEM = PESSOAS.map((x) => ({ ...x, ligado: false, final: null, ligadoEm: null, pausado: false }));
 const EXECUCAO = tokenFalso({ cat: 'execucao', perfil: 'execucao', perm: {} });
 
+// A parte "Avisos e relatórios" (versão 2 do protótipo, aprovada em 14/11/2026): o que o servidor devolve com o padrão.
+const DESTINOS_DA_TELA = [
+  { id: 'presidente', nome: 'WhatsApp do presidente' },
+  { id: 'gerente', nome: 'WhatsApp do gerente da loja' },
+  { id: 'tela', nome: 'Tela do Regem na loja' },
+  { id: 'kds', nome: 'KDS da cozinha' },
+  { id: 'atendimento', nome: 'Caso no Atendimento' },
+  { id: 'dms', nome: 'Suporte da DMS' },
+];
+const regraAv = (destinos, o = {}) => ({ ligado: true, destinos, escalaMin: null, escalaPara: [], parametro: null, ...o });
+const AVISOS_PADRAO = () => ({
+  destinos: DESTINOS_DA_TELA,
+  avisos: [
+    { tipo: 'impressora', grupo: 'Na loja', titulo: 'Impressora parada', descricao: 'Uma impressora deixou de responder com via na fila.', jaFunciona: true, padrao: true, regra: regraAv(['tela'], { escalaMin: 5, escalaPara: ['gerente'] }) },
+    { tipo: 'pedido_parado', grupo: 'Na loja', titulo: 'Pedido parado', descricao: 'Um pedido sem andar além do tempo escolhido.', jaFunciona: false, padrao: true, regra: regraAv(['kds', 'tela', 'gerente'], { ligado: false, parametro: 20 }) },
+    { tipo: 'caixa_24h', grupo: 'Na loja', titulo: 'Caixa aberto há mais de 24 horas', descricao: 'O Regem já pede o fechamento na tela do caixa; aqui o gerente fica sabendo.', jaFunciona: true, padrao: true, regra: regraAv(['gerente']) },
+    { tipo: 'canal_desconectado', grupo: 'Na loja', titulo: 'iFood ou 99 desconectado', descricao: 'A loja parou de receber pedidos de um canal.', jaFunciona: false, padrao: true, regra: regraAv(['gerente', 'tela']) },
+    { tipo: 'servidor_sem_sinal', grupo: 'Servidor da loja', titulo: 'Servidor da loja sem sinal', descricao: 'Só quando há pedido esperando.', jaFunciona: true, padrao: true, regra: regraAv(['gerente', 'dms']) },
+    { tipo: 'servidor_tecnico', grupo: 'Servidor da loja', titulo: 'Serviço parado, disco cheio ou cópia de segurança atrasada', descricao: 'Problemas técnicos do servidor: o suporte da DMS resolve.', jaFunciona: true, padrao: true, regra: regraAv(['dms'], { escalaMin: 120, escalaPara: ['gerente'] }) },
+    { tipo: 'nota_sem_resposta', grupo: 'Fiscal', titulo: 'Nota fiscal sem resposta', descricao: 'Nota que ficou pendente depois de todas as tentativas.', jaFunciona: false, padrao: true, regra: regraAv(['atendimento', 'presidente']) },
+    { tipo: 'certificado', grupo: 'Fiscal', titulo: 'Certificado digital perto de vencer', descricao: 'A 60, 30, 15, 7 e 1 dia do vencimento.', jaFunciona: false, padrao: true, regra: regraAv(['presidente']) },
+    { tipo: 'chave_ia', grupo: 'O próprio Mister', titulo: 'A chave de IA parou', descricao: 'Sem crédito, no teto de gasto ou recusada.', jaFunciona: true, padrao: true, regra: regraAv(['presidente']) },
+  ],
+});
+
 const medir = (page) =>
   page.evaluate(() => {
     const achados = [];
@@ -67,8 +92,12 @@ const medir = (page) =>
     if (doc.scrollWidth > doc.clientWidth + 1) achados.push(`página ${doc.scrollWidth}>${doc.clientWidth}`);
     for (const el of document.querySelectorAll('main *, [role="dialog"] *, [role="alertdialog"] *')) {
       const cs = getComputedStyle(el);
-      if ((cs.overflowX === 'auto' || cs.overflowX === 'scroll') && el.scrollWidth > el.clientWidth + 1)
+      if ((cs.overflowX === 'auto' || cs.overflowX === 'scroll') && el.scrollWidth > el.clientWidth + 1) {
+        // A faixa de partes desliza sem barra à mostra abaixo de 640 px (o desenho do componente e a regra do dono de
+        // 07/10/2026): vale, desde que a barra dela fique escondida de verdade.
+        if (el.classList.contains('faixa-abas') && window.innerWidth < 640 && el.offsetHeight === el.clientHeight + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0)) continue;
         achados.push(`rola ${el.tagName.toLowerCase()}.${String(el.className).slice(0, 40)} ${el.scrollWidth}>${el.clientWidth}`);
+      }
     }
     for (const d of document.querySelectorAll('[role="dialog"], [role="alertdialog"]')) {
       const r = d.getBoundingClientRect();
@@ -86,6 +115,8 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
       pessoas: o.pessoas ?? PESSOAS, souPresidente: o.souPresidente ?? true, disponivel: o.disponivel ?? true, pessoasFalha: !!o.pessoasFalha,
       recusaDoCodigo: o.recusaDoCodigo ?? null, valeMs: o.valeMs ?? 600_000, ligaNaLeitura: o.ligaNaLeitura ?? 0, leiturasDoMeu: 0, codigos: 0, doMister: [],
       meu: { disponivel: true, numeroDoMister: '5521900000000', ligado: false, final: null, ligadoEm: null, pausado: false, codigo: null },
+      // a parte "Avisos e relatórios"
+      avisos: o.avisos ?? AVISOS_PADRAO(), avisosFalha: !!o.avisosFalha, recusaDosAvisos: o.recusaDosAvisos ?? null, salvamentos: [],
     };
     const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
     await ctx.addInitScript((jwt) => localStorage.setItem('regen_token', jwt), o.token ?? PRESIDENTE);
@@ -100,6 +131,20 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
       const metodo = req.method();
       if (p.startsWith('/ia/')) S.pedidos.push({ metodo, p, consulta: url.search, corpo: req.postData() });
       if (p.startsWith('/mister/')) S.doMister.push({ metodo, p });
+      if (p === '/mister/avisos' && metodo === 'GET') {
+        if (S.avisosFalha) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
+        return responder(route, S.avisos);
+      }
+      if (p === '/mister/avisos' && metodo === 'PATCH') {
+        const corpo = JSON.parse(req.postData() || '{}');
+        S.salvamentos.push(corpo);
+        if (S.recusaDosAvisos) return responder(route, { statusCode: 400, message: S.recusaDosAvisos }, 400);
+        for (const r of corpo.regras ?? []) {
+          const a = S.avisos.avisos.find((x) => x.tipo === r.tipo);
+          if (a) Object.assign(a, { padrao: false, regra: { ligado: r.ligado, destinos: r.destinos, escalaMin: r.escalaMin, escalaPara: r.escalaPara, parametro: r.parametro } });
+        }
+        return responder(route, S.avisos);
+      }
       if (p === '/mister/pessoas' && metodo === 'GET') {
         if (S.pessoasFalha) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
         return responder(route, { disponivel: S.disponivel, numeroDoMister: S.disponivel ? '5521900000000' : null, souPresidente: S.souPresidente, total: S.pessoas.length, pessoas: S.pessoas });
@@ -245,7 +290,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister' });
     await page.waitForSelector('text=Quem fala com o Mister', { timeout: 20000 });
     const partes = page.locator('[aria-label="Partes do Mister"] button');
-    ok((await partes.allInnerTexts()).join('|') === 'Pessoas|IA e uso' && (await partes.first().getAttribute('aria-pressed')) === 'true', 'presidente: as partes "Pessoas" e "IA e uso", abrindo em Pessoas');
+    ok((await partes.allInnerTexts()).join('|') === 'Pessoas|IA e uso|Avisos e relatórios' && (await partes.first().getAttribute('aria-pressed')) === 'true', 'presidente: as partes "Pessoas", "IA e uso" e "Avisos e relatórios", abrindo em Pessoas');
     ok(S.pedidos.length === 0, 'em Pessoas, a parte da IA não é lida');
     ok(/O número do Mister é \+55 21 90000-0000/.test(await page.locator('main').innerText()), 'o número do Mister, formatado, para salvar nos contatos');
     const linhas = (await page.locator('main table tbody tr').allInnerTexts()).map((l) => l.replace(/\s+/g, ' '));
@@ -519,6 +564,86 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     m = await medir(page);
     ok(m.length === 0, `${w}px: o diálogo de apagar inteiro na tela (${m.join(' | ')})`);
     ok(erros.length === 0, `${w}px: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+
+  // ── AVISOS E RELATÓRIOS: o padrão aprovado, o "Mudar" em gaveta, o salvar pela barra e as recusas ──
+  {
+    const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
+    await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
+    const t0 = await page.locator('main').innerText();
+    ok(/9 ajustes em 4 grupos/.test(t0), 'avisos: os nove avisos em quatro grupos');
+    ok(['Na loja', 'Servidor da loja', 'Fiscal', 'O próprio Mister'].every((g) => t0.includes(g)), 'avisos: os quatro grupos do protótipo');
+    ok(/Vai para:[\s\S]*Tela do Regem na loja[\s\S]*sem resolver em 5 min: WhatsApp do gerente da loja/.test(t0), 'avisos: a impressora vai à tela e, sem resolver em 5 min, ao gerente');
+    ok((t0.match(/chega numa próxima entrega/g) ?? []).length === 4, 'avisos: os quatro tipos que ainda não saem dizem que chegam numa próxima entrega');
+    ok(t0.includes('Relatórios') && t0.includes('chegam numa próxima entrega'), 'avisos: os relatórios dizem que chegam depois');
+    // Desligar o caixa e salvar: a barra conta e o servidor recebe só o tipo que mudou, inteiro.
+    await page.click('button[role="switch"][aria-label*="Caixa aberto há mais de 24 horas"]');
+    await page.waitForSelector('text=1 alteração ainda não salva');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/avisos') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
+    ok(JSON.stringify(S.salvamentos[0]) === JSON.stringify({ regras: [{ tipo: 'caixa_24h', ligado: false, destinos: ['gerente'], escalaMin: null, escalaPara: [], parametro: null }] }), `avisos: salvar manda só o caixa, inteiro (${JSON.stringify(S.salvamentos[0])})`);
+    // "Mudar" abre a gaveta com os destinos daquele aviso marcados.
+    await page.click('button[aria-label="Mudar para onde vai: Impressora parada"]');
+    await page.waitForSelector('[role="dialog"] >> text=Para onde vai: Impressora parada');
+    const marcados = await page.evaluate(() => [...document.querySelectorAll('[role="dialog"] input[type="checkbox"]')].filter((c) => c.checked).map((c) => c.parentElement.textContent.trim()));
+    ok(JSON.stringify(marcados) === JSON.stringify(['Tela do Regem na loja', 'WhatsApp do gerente da loja']), `gaveta: abre com a tela e o gerente da escala marcados (${marcados.join(', ')})`);
+    ok((await page.locator('[role="dialog"] select').inputValue()) === '5', 'gaveta: o "se ninguém resolver" em 5 min');
+    // Sem nenhum destino com o aviso ligado, "Aplicar" trava e diz por quê.
+    await page.locator('[role="dialog"] label:has-text("Tela do Regem na loja") input').uncheck();
+    ok(await page.locator('[role="dialog"] button:has-text("Aplicar")').isDisabled(), 'gaveta: sem destino, "Aplicar" trava');
+    ok(await page.locator('[role="dialog"] [role="alert"]:has-text("Escolha pelo menos um destino")').isVisible(), 'gaveta: e diz por quê');
+    await page.locator('[role="dialog"] label:has-text("Tela do Regem na loja") input').check();
+    await page.locator('[role="dialog"] label:has-text("KDS da cozinha") input').check();
+    await page.click('[role="dialog"] button:has-text("Aplicar")');
+    await page.waitForSelector('[role="dialog"]', { state: 'detached' });
+    await page.waitForSelector('text=1 alteração ainda não salva');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/avisos') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
+    ok(JSON.stringify(S.salvamentos[1]?.regras?.[0]) === JSON.stringify({ tipo: 'impressora', ligado: true, destinos: ['tela', 'kds'], escalaMin: 5, escalaPara: ['gerente'], parametro: null }), `gaveta: "Aplicar" leva para a barra e salvar manda os destinos novos (${JSON.stringify(S.salvamentos[1])})`);
+    ok(/Vai para:[\s\S]*Tela do Regem na loja[\s\S]*KDS da cozinha/.test(await page.locator('main').innerText()), 'avisos: a linha mostra o KDS depois de salvar');
+    // A recusa do servidor aparece com a frase dele.
+    S.recusaDosAvisos = 'Escolha quem fica sabendo se ninguém resolver.';
+    await page.click('button[role="switch"][aria-label*="A chave de IA parou"]');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/avisos') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
+    await page.waitForSelector('text=Escolha quem fica sabendo se ninguém resolver.');
+    ok(true, 'avisos: a recusa do servidor aparece com a frase dele');
+    ok(erros.length === 0, `avisos: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  {
+    const { ctx, page, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos', avisosFalha: true });
+    await page.waitForSelector('text=Não consegui ler os avisos agora', { timeout: 20000 });
+    S.avisosFalha = false;
+    await page.click('button:has-text("Tentar de novo")');
+    await page.waitForSelector('#mister-avisos-titulo');
+    ok(true, 'avisos: erro de leitura avisa e "Tentar de novo" lê de novo');
+    await ctx.close();
+  }
+  {
+    // O gerente não entra nos avisos: vê Pessoas e nem chama a rota.
+    const { ctx, page, S } = await abrir(1280, 900, { token: GERENTE, caminho: '/mister?parte=avisos', souPresidente: false, pessoas: PESSOAS.slice(0, 1) });
+    await page.waitForTimeout(1500);
+    ok(!S.doMister.some((x) => x.p === '/mister/avisos'), 'avisos: o gerente não chama a rota dos avisos');
+    ok(!(await page.locator('#mister-avisos-titulo').count()), 'avisos: o gerente não vê a parte dos avisos');
+    await ctx.close();
+  }
+
+  // ── cada largura, AVISOS: a página e a gaveta inteiras, sem barra lateral, e o texto das linhas sem espremer ──
+  for (const w of larguras) {
+    const { ctx, page, erros } = await abrir(w, w < 700 ? 820 : 900, { caminho: '/mister?parte=avisos' });
+    await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
+    let m = await medir(page);
+    ok(m.length === 0, `${w}px: Avisos — sem barra lateral e com toque grande (${m.join(' | ')})`);
+    const espremido = await page.evaluate(() =>
+      [...document.querySelectorAll('main span')].filter((s) => /^Uma impressora deixou|^Problemas técnicos do servidor/.test(s.textContent ?? '') && s.getBoundingClientRect().width < 180).map((s) => Math.round(s.getBoundingClientRect().width)),
+    );
+    ok(espremido.length === 0, `${w}px: Avisos — a descrição não fica espremida (${espremido.join(', ')} px)`);
+    if (w === 375 || w === 1440) await page.screenshot({ path: foto(`${w}-avisos.png`), fullPage: true });
+    await page.locator('button:has-text("Mudar") >> visible=true').nth(5).click();
+    await page.waitForSelector('[role="dialog"]');
+    m = await medir(page);
+    ok(m.length === 0, `${w}px: a gaveta "Para onde vai" inteira na tela (${m.join(' | ')})`);
+    if (w === 375) await page.screenshot({ path: foto('375-avisos-gaveta.png') });
+    ok(erros.length === 0, `${w}px: Avisos sem erro (${erros.join(' | ')})`);
     await ctx.close();
   }
 }
