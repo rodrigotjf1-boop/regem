@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Mister: o Atendimento agora (14/11, F3.4; SEM migration; não mexe no `sync-daemon`).** A 14ª consulta do Mister: a
+  mesma fila da tela Atendimento, sem o nome, o telefone nem a mensagem do cliente. Na NUVEM com o merge. O agente só sobe
+  na nuvem. Nada no `.zip` nem no `.exe`.
+
 - **Mister: a conferência do cardápio com os apps (14/11, F3.3; SEM migration; não mexe no `sync-daemon`).** A 13ª
   consulta do Mister, pela última leitura guardada de "Conferir com os apps" (sem ler o app). Na NUVEM com o merge. O
   agente só sobe na nuvem. Nada no `.zip` nem no `.exe`.

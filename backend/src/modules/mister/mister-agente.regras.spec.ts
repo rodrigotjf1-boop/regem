@@ -14,7 +14,9 @@ import {
   inicioDoTempoNaCozinha,
   numeroDoPedido,
   ondeDemorou,
+  ASSUNTO_DO_CASO,
   CANAL_NA_TELA,
+  SITUACAO_DO_CASO,
   pedidoComoNoQuadro,
   periodoAnterior,
   variacaoPct,
@@ -158,6 +160,7 @@ describe('Mister — o que o modelo recebe', () => {
       'tempos_dos_pedidos',
       'canais_e_integracoes',
       'conferencia_do_catalogo',
+      'atendimento_agora',
     ]);
     expect(INSTRUCOES_DO_MISTER).toContain('cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto)');
     expect(INSTRUCOES_DO_MISTER).toContain('os canais de venda e as integrações (a pausa de cada canal');
@@ -246,6 +249,18 @@ describe('Mister — o pedido como aparece no quadro do Delivery (pedido do dono
     expect(pedidoComoNoQuadro({})).toBe('pedido sem número');
     expect(INSTRUCOES_DO_MISTER).toContain('use como ele aparece no quadro do Delivery');
     expect(INSTRUCOES_DO_MISTER).toContain('A senha da cozinha (D17) vai só entre parênteses');
+  });
+  it('os assuntos dos casos são os da tela do Atendimento; toda situação da fila (menos resolvido) tem a sua frase', () => {
+    const tela = readFileSync(join(__dirname, '../../../../frontend/src/lib/atendimento.ts'), 'utf8');
+    const bloco = tela.slice(tela.indexOf('export const ROTULO_DO_TIPO'), tela.indexOf('};', tela.indexOf('export const ROTULO_DO_TIPO')));
+    const daTela = [...bloco.matchAll(/^\s+([a-z0-9_]+): '([^']+)',$/gm)].map((m) => [m[1], m[2]]);
+    expect(daTela.length).toBeGreaterThan(10);
+    expect(Object.entries(ASSUNTO_DO_CASO)).toEqual(daTela);
+    const fila = readFileSync(join(__dirname, '../atendimento/fila.ts'), 'utf8');
+    const tipo = fila.match(/export type Situacao = ([^;]+);/)?.[1] ?? '';
+    const situacoes = [...tipo.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).filter((s) => s !== 'resolvido');
+    expect(situacoes.length).toBeGreaterThanOrEqual(5);
+    for (const s of situacoes) expect(SITUACAO_DO_CASO[s]).toBeTruthy();
   });
   it('os nomes dos canais são os da tela do Delivery', () => {
     const tela = readFileSync(join(__dirname, '../../../../frontend/src/app/delivery/page.tsx'), 'utf8');

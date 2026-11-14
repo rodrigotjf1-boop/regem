@@ -60,7 +60,7 @@ export const INSTRUCOES_DO_MISTER = `Você é o Mister, o administrador virtual 
 COMO VOCÊ TRABALHA
 - Você não sabe nada da loja de cabeça. Todo número, valor, horário, nome de produto e situação que você disser vem de uma ferramenta que você chamou para ESTA pergunta.
 - Antes de responder a uma pergunta sobre a loja, chame a ferramenta que traz o dado. Se a pergunta pede dois assuntos, chame as duas. Junte consultas, compare períodos e faça as contas que a pergunta pedir.
-- Se a pergunta pede um DADO que nenhuma ferramenta traz, diga com clareza que você ainda não tem acesso a essa informação e diga em uma frase o que você consegue responder hoje: resumo do dia, vendas de um período, produtos mais vendidos, pedidos em andamento, a história de um pedido (onde ele demorou), os tempos dos pedidos (aceite, cozinha, entrega), a comparação com o período anterior, o horário de pico, o lucro e a margem por produto, cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto), estoque em alerta, a situação do servidor da loja e os canais de venda e as integrações (a pausa de cada canal, o último pedido que chegou por ele, o login da 99, o WhatsApp da loja e a nota fiscal) e a conferência do cardápio com o iFood e a 99 (preço diferente, produto só de um lado). Nunca estime, nunca invente e nunca complete um dado que faltou.
+- Se a pergunta pede um DADO que nenhuma ferramenta traz, diga com clareza que você ainda não tem acesso a essa informação e diga em uma frase o que você consegue responder hoje: resumo do dia, vendas de um período, produtos mais vendidos, pedidos em andamento, a história de um pedido (onde ele demorou), os tempos dos pedidos (aceite, cozinha, entrega), a comparação com o período anterior, o horário de pico, o lucro e a margem por produto, cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto), estoque em alerta, a situação do servidor da loja e os canais de venda e as integrações (a pausa de cada canal, o último pedido que chegou por ele, o login da 99, o WhatsApp da loja e a nota fiscal) a conferência do cardápio com o iFood e a 99 (preço diferente, produto só de um lado) e o Atendimento agora (os casos em aberto, os urgentes e os com prazo). Nunca estime, nunca invente e nunca complete um dado que faltou.
 - Quando a ferramenta devolver erro, diga que não conseguiu ler aquele dado agora. "Não houve vendas" e "não consegui ler as vendas" são respostas diferentes: nunca troque uma pela outra.
 - Quando um campo vier nulo com o aviso de que o perfil da pessoa não vê valores em reais, diga que o perfil dela no Regem não mostra valores em reais. Não tente chegar ao valor por outro caminho.
 - Conta, só com números que as ferramentas trouxeram (somar, comparar, percentual). Diga de onde saiu.
@@ -158,7 +158,8 @@ export type NomeDaFerramenta =
   | 'historia_do_pedido'
   | 'tempos_dos_pedidos'
   | 'canais_e_integracoes'
-  | 'conferencia_do_catalogo';
+  | 'conferencia_do_catalogo'
+  | 'atendimento_agora';
 
 /** As ferramentas, como o modelo as vê. A ordem e o texto são fixos (entram no trecho em cache). */
 export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; input_schema: any }> = [
@@ -273,6 +274,12 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
       'A conferência do cardápio do Regem com o do iFood e o da 99, pela última leitura guardada pela tela "Conferir com os apps" (não lê o app agora): quando cada app foi lido, quantos produtos e complementos estão só no app, só no Regem, com preço diferente ou sem ligar pelo código PDV, e alguns exemplos com o preço de cada lado. Use para "os preços do iFood batem com o Regem?" e "tem produto faltando na 99?". É por loja; leitura antiga pode não mostrar o que mudou depois dela — diga a data.',
     input_schema: { type: 'object', properties: { loja: LOJA }, additionalProperties: false },
   },
+  {
+    name: 'atendimento_agora',
+    description:
+      'O Atendimento AGORA, a mesma fila da tela Atendimento: quantos casos estão em aberto, na fila sem ninguém, com prazo, aguardando o cliente e resolvidos hoje; e os primeiros casos na ordem da fila (prazo, urgente, espera), com o assunto (mudança no pedido, cancelamento, disputa do iFood, reembolso da 99, mensagem no chat, estorno do Pix que falhou…), a situação, há quanto tempo espera, o prazo, o pedido e quem está com ele. Não traz o nome, o telefone nem a mensagem do cliente. Use para "tem cliente esperando?", "tem caso urgente?" e "como está o atendimento?".',
+    input_schema: { type: 'object', properties: { loja: LOJA }, additionalProperties: false },
+  },
 ];
 
 export const ehFerramenta = (n: unknown): n is NomeDaFerramenta => FERRAMENTAS.some((f) => f.name === n);
@@ -324,6 +331,34 @@ export function entradaParaATrilha(entrada: unknown): Record<string, string | nu
 // O cartão do quadro mostra o número do dia em destaque ("#284") e, ao lado, o canal com o número dele ("iFood · #4821")
 // — `frontend/src/app/delivery/page.tsx`. A senha da cozinha (D17) só aparece no KDS: quem não usa o KDS não acha o
 // pedido por ela. Os nomes dos canais são os da tela (a spec confere).
+
+/** O assunto de cada caso do Atendimento, como a tela escreve (`frontend/src/lib/atendimento.ts`, ROTULO_DO_TIPO — a spec confere). */
+export const ASSUNTO_DO_CASO: Record<string, string> = {
+  mudanca: 'Mudança no pedido',
+  erro: 'Problema no pedido',
+  humano: 'Quer falar com alguém',
+  cancelamento: 'Pedido de cancelamento',
+  outro: 'Atendimento',
+  disputa: 'Disputa',
+  avaliacao: 'Avaliação',
+  cancelamento_99: 'Cancelamento pedido à 99',
+  reembolso_99: 'Reembolso pedido à 99',
+  chat: 'Mensagem no chat',
+  instagram: 'Mensagem no Direct',
+  instagram_comentario: 'Comentário no post',
+  messenger: 'Mensagem no Messenger',
+  fornecedor: 'Fornecedor',
+  vaga: 'Vaga de emprego',
+  parceria: 'Parceria',
+};
+/** A situação de um caso na fila (`atendimento/fila.ts`, situacaoDo), em português. */
+export const SITUACAO_DO_CASO: Record<string, string> = {
+  fila: 'na fila, sem ninguém',
+  com_alguem: 'com alguém da equipe',
+  aguardando: 'aguardando o cliente',
+  abertura: 'recado para a abertura',
+  responsavel: 'recado para o responsável',
+};
 
 export const CANAL_NA_TELA: Record<string, string> = {
   ifood: 'iFood',
