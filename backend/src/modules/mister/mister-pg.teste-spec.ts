@@ -120,12 +120,14 @@ export function testesDoMisterComPostgres(): void {
     const ia = new IaDeMentira(db);
     const lidos: any[] = [];
     const haMin = (min: number) => new Date(Date.now() - min * 60_000 - 5_000);
+    /** A comanda do pedido 1 da fila de mentira: um uuid de verdade, para a ligação com o pedido do canal. */
+    const COMANDA_1 = randomUUID();
     const deliveryDeMentira = {
       listar: async (tenantId: string, atual: string | null) => {
         lidos.push(['delivery', tenantId, atual]);
         return [
           { status: 'novo', canal: 'ifood', displayId: '4830', criadoEm: haMin(5) },
-          { status: 'confirmado', canal: 'ifood', displayId: '4821', criadoEm: haMin(22) },
+          { status: 'confirmado', canal: 'ifood', displayId: '4821', numero: 284, criadoEm: haMin(22) },
           { status: 'despachado', canal: 'cardapio', displayId: '77', criadoEm: haMin(40) },
           { status: 'confirmado', canal: 'cardapio', displayId: '78', criadoEm: haMin(90), agendamento: new Date(Date.now() + 3 * 3_600_000) },
           { status: 'concluido', canal: 'ifood', displayId: '4700', criadoEm: haMin(120) },
@@ -141,8 +143,8 @@ export function testesDoMisterComPostgres(): void {
           cores: {},
           nuvemComServidor: false,
           pedidos: [
-            { id: 'c1', comandaId: 'comanda-1', status: 'preparo', origem: 'delivery', plataforma: 'iFood', senha: 12, senhaPrefixo: 'D', criadoEm: haMin(22) },
-            { id: 'c2', comandaId: 'comanda-1', status: 'pronto', origem: 'delivery', plataforma: 'iFood', senha: 12, senhaPrefixo: 'D', criadoEm: haMin(22) },
+            { id: 'c1', comandaId: COMANDA_1, status: 'preparo', origem: 'delivery', plataforma: 'iFood', senha: 12, senhaPrefixo: 'D', criadoEm: haMin(22) },
+            { id: 'c2', comandaId: COMANDA_1, status: 'pronto', origem: 'delivery', plataforma: 'iFood', senha: 12, senhaPrefixo: 'D', criadoEm: haMin(22) },
             { id: 'c3', comandaId: 'comanda-2', status: 'recebido', origem: 'balcao', plataforma: null, senha: 7, senhaPrefixo: 'B', criadoEm: haMin(3) },
             { id: 'c4', comandaId: 'comanda-3', status: 'entregue', origem: 'balcao', plataforma: null, senha: 6, senhaPrefixo: 'B', criadoEm: haMin(50) },
           ],
@@ -1171,9 +1173,9 @@ export function testesDoMisterComPostgres(): void {
           porSituacao: { 'aguardando aceite': 1, 'em preparo': 1, 'a caminho': 1 },
           porPlataforma: { ifood: 2, cardapio: 1 },
           marcadosParaDepois: 1,
-          esperaHaMaisTempo: { plataforma: 'ifood', numero: '4821', situacao: 'em preparo', haMinutos: 22 },
+          esperaHaMaisTempo: { comoAparece: '#284 · iFood 4821', plataforma: 'ifood', numero: '4821', situacao: 'em preparo', haMinutos: 22 },
         });
-        expect(doPresidente.p1.dados.cozinha).toMatchObject({ pedidos: 2, porSituacao: { 'na fila': 1, 'em preparo': 1 }, maisAntigoSemFicarPronto: { origem: 'iFood', senha: 'D12', situacao: 'em preparo', haMinutos: 22 } });
+        expect(doPresidente.p1.dados.cozinha).toMatchObject({ pedidos: 2, porSituacao: { 'na fila': 1, 'em preparo': 1 }, maisAntigoSemFicarPronto: { origem: 'iFood', senhaNaCozinha: 'D12', situacao: 'em preparo', haMinutos: 22 } });
 
         // Gerente SEM loja numa empresa de várias lojas: nenhuma consulta responde (como nas rotas).
         await q(`update colaborador set unidade_id = null where id = $1`, [pessoa.carlos]);
@@ -1199,7 +1201,10 @@ export function testesDoMisterComPostgres(): void {
       const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
       expect(e).toMatchObject({ nivel: 'presidente', lojaUnica: true, presa: null, semLoja: false, verValores: true });
       const vendas = await ferramentas.executar(e, 'vendas_do_periodo', { periodo: 'este_mes' });
-      expect(vendas).toMatchObject({ ok: true, dados: { numeroDeVendas: 0, faturamento: 0, vendasCanceladas: 0, porFormaDePagamento: [], porCanal: [], porDia: [] } });
+      expect(vendas).toMatchObject({ ok: true, dados: { numeroDeVendas: 0, faturamento: 0, vendasCanceladas: 0, porFormaDePagamento: [], porCanal: [], porDia: [], delivery: { pedidos: 0, faturamento: 0, ticketMedio: 0, porPlataforma: [] } } });
+      // Quem não vê valores em reais não recebe o relatório de Delivery (a rota pede a mesma permissão).
+      const semValoresV = { ...e, nivel: 'gerente' as const, verValores: false, permissoes: { relatorios_vendas: true } as any };
+      expect(((await ferramentas.executar(semValoresV, 'vendas_do_periodo', {})).dados.delivery as any).aviso).toContain('não mostra valores em reais');
       expect(String(vendas.dados.periodo)).toMatch(/^este mês \(/);
       expect(await ferramentas.executar(e, 'vendas_do_periodo', { de: '2026-13-01', ate: '2026-13-02' })).toEqual({ ok: false, dados: { erro: 'As datas precisam estar no formato AAAA-MM-DD e existir no calendário.' } });
       expect(await ferramentas.executar(e, 'produtos_mais_vendidos', { quantos: 99 })).toMatchObject({ ok: true, dados: { ordenadoPor: 'quantidade', produtos: [] } });
@@ -1611,7 +1616,7 @@ export function testesDoMisterComPostgres(): void {
         );
         const r = await ferramentas.executar(e, 'historia_do_pedido', { numero: '#4821' });
         expect(r.ok).toBe(true);
-        expect(r.dados.pedido).toEqual({ canal: 'ifood', numero: '4821', tipo: 'entrega', situacao: 'em preparo' });
+        expect(r.dados.pedido).toEqual({ comoAparece: '#284 · iFood 4821', senhaNaCozinha: 'D12', canal: 'ifood', numero: '4821', tipo: 'entrega', situacao: 'em preparo' });
         const horarios = r.dados.horarios as any[];
         expect(horarios.map((h) => h.etapa)).toEqual(['chegou', 'aceito', 'entrou na cozinha', 'começou a ser feito', 'ficou pronto', 'saiu para entrega', 'entregue']);
         for (const h of horarios.slice(0, 4)) expect(h.hora).toMatch(/^\d{2}\/\d{2} \d{2}:\d{2}$/);
@@ -1675,7 +1680,7 @@ export function testesDoMisterComPostgres(): void {
         );
         const r = await ferramentas.executar(e, 'historia_do_pedido', { numero: 'b7' });
         expect(r.ok).toBe(true);
-        expect(r.dados.pedido).toEqual({ origem: 'balcao', senha: 'B7' });
+        expect(r.dados.pedido).toEqual({ comoAparece: 'venda do balcão, senha B7', origem: 'balcao', senha: 'B7' });
         expect((r.dados.horarios as any[]).map((h) => h.etapa)).toEqual(['chegou', 'entrou na cozinha', 'começou a ser feito', 'ficou pronto']);
         expect(r.dados.ondeDemorouMais).toEqual({ de: 'começou a ser feito', ate: 'ficou pronto', minutos: 14 });
         expect((r.dados.cozinha as any[])[0]).toMatchObject({ estacao: 'cozinha', situacao: 'pronto', tempoDePreparoPrevistoMin: 8 });
@@ -1684,12 +1689,19 @@ export function testesDoMisterComPostgres(): void {
       } finally {
         await q(`delete from producao_pedido where tenant_id = $1`, [A]);
       }
-      // A fila de mentira: o pedido 1 está há 22 min (passou do vermelho de 10), o 2 há 3 min (verde).
-      const agora = await ferramentas.executar(e, 'pedidos_em_andamento', {});
+      // A fila de mentira: o pedido 1 está há 22 min (passou do vermelho de 10), o 2 há 3 min (verde). O pedido 1 é o iFood
+      // 9001 (#5 do dia): é assim que ele sai, e não pela senha da cozinha (pedido do dono, 14/11).
+      await q(
+        `insert into pedido_externo (tenant_id, unidade_id, canal, status, total, valor_bruto, taxa_entrega, taxa_entrega_dono, display_id, numero, comanda_id)
+         values ($1, $2, 'ifood', 'confirmado', 40, 40, 0, 'marketplace', '9001', 5, $3)`,
+        [A, loja, COMANDA_1],
+      );
+      const agora = await ferramentas.executar(e, 'pedidos_em_andamento', {}).finally(() => q(`delete from pedido_externo where comanda_id = $1`, [COMANDA_1]));
+      expect((agora.dados.cozinha as any).maisAntigoSemFicarPronto).toMatchObject({ comoAparece: '#5 · iFood 9001', senhaNaCozinha: 'D12' });
       expect((agora.dados.cozinha as any).atrasadosAgora).toEqual({
         total: 1,
         regra: expect.stringContaining('verde até 5 min, amarelo até 10 min'),
-        pedidos: [{ origem: 'iFood', senha: 'D12', situacao: 'em preparo', haMinutos: 22, porque: 'passou do vermelho do KDS (10 min)' }],
+        pedidos: [{ comoAparece: '#5 · iFood 9001', origem: 'iFood', senhaNaCozinha: 'D12', situacao: 'em preparo', haMinutos: 22, porque: 'passou do vermelho do KDS (10 min)' }],
       });
     });
 

@@ -13,6 +13,8 @@ import {
   inicioDoTempoNaCozinha,
   numeroDoPedido,
   ondeDemorou,
+  CANAL_NA_TELA,
+  pedidoComoNoQuadro,
   PREPARO_DA_ENCOMENDA_MIN,
   entradaParaATrilha,
   filtrarSaida,
@@ -225,6 +227,25 @@ describe('Mister — o atraso na cozinha (a mesma regra do KDS) e a história do
     expect(numeroDoPedido('  ')).toBeNull();
     expect(numeroDoPedido(undefined)).toBeNull();
     expect(numeroDoPedido('o pedido do joão')).toBeNull();
+  });
+});
+
+describe('Mister — o pedido como aparece no quadro do Delivery (pedido do dono, 14/11)', () => {
+  it('o número do dia em destaque, o canal e o número dele ao lado — nunca só a senha da cozinha', () => {
+    expect(pedidoComoNoQuadro({ canal: 'ifood', numero: 284, displayId: '4821' })).toBe('#284 · iFood 4821');
+    expect(pedidoComoNoQuadro({ canal: '99food', numero: null, displayId: '7788' })).toBe('99Food 7788');
+    expect(pedidoComoNoQuadro({ canal: 'cardapio', numero: 12, displayId: null })).toBe('#12 · Cardápio');
+    expect(pedidoComoNoQuadro({ canal: 'canal_novo', numero: 3 })).toBe('#3 · canal_novo');
+    expect(pedidoComoNoQuadro({})).toBe('pedido sem número');
+    expect(INSTRUCOES_DO_MISTER).toContain('use como ele aparece no quadro do Delivery');
+    expect(INSTRUCOES_DO_MISTER).toContain('A senha da cozinha (D17) vai só entre parênteses');
+  });
+  it('os nomes dos canais são os da tela do Delivery', () => {
+    const tela = readFileSync(join(__dirname, '../../../../frontend/src/app/delivery/page.tsx'), 'utf8');
+    for (const [canal, nome] of Object.entries(CANAL_NA_TELA)) {
+      const chave = /^[a-z_]+$/.test(canal) ? canal : `'${canal}'`;
+      expect(tela).toContain(`  ${chave}: '${nome}',`);
+    }
   });
 });
 
