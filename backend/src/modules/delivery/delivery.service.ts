@@ -159,6 +159,14 @@ import {
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const FLUXO = ['confirmado', 'pronto', 'despachado', 'concluido'];
+
+/** A etapa seguinte no quadro (retirada pula "despachado"; o entregue pelo entregador vai a concluído) — ou null. */
+export function proximaEtapa(etapa: string, tipo: string | null | undefined): string | null {
+  if (etapa === 'entregue') return 'concluido';
+  const i = FLUXO.indexOf(etapa);
+  const p = i >= 0 && i < FLUXO.length - 1 ? FLUXO[i + 1] : null;
+  return tipo === 'retirada' && p === 'despachado' ? 'concluido' : p;
+}
 /** O aviso do código de entrega ao cliente (não é aviso de status). */
 const EVENTO_CODIGO = 'codigo_entrega';
 
@@ -1683,9 +1691,20 @@ export class DeliveryService {
       // Multi-parada (proximaSaida) cuida do rastreio por parada ativa — passa true
       // para NÃO disparar o link aqui (senão todas as paradas receberiam de uma vez).
       skipRastreio?: boolean;
+      /**
+       * A etapa que QUEM CHAMOU viu (o KDS, o "Avisar pronto", a tela do Delivery). O pedido já está onde esta chamada
+       * queria — outro "pronto" chegou antes (duas estações terminando juntas, dois cliques) — = devolve o pedido sem
+       * mexer: é a mesma intenção, já cumprida. Está noutra etapa = 409. Sem `de`, avança um passo do que estiver.
+       */
+      de?: string | null;
     },
   ) {
     const ped = await this.carregar(tenantId, id);
+    const queria = dados?.de ? proximaEtapa(dados.de, ped.tipo) : null;
+    if (dados?.de && ped.status !== dados.de) {
+      if (queria && ped.status === queria) return ped;
+      throw new ConflictException('O pedido mudou de etapa enquanto você avançava. A tela vai atualizar.');
+    }
     if (ped.status === 'cancelado' || ped.status === 'novo')
       throw new BadRequestException('Aceite o pedido antes de avançar.');
     const idx = FLUXO.indexOf(ped.status);
@@ -1722,7 +1741,15 @@ export class DeliveryService {
       .set(patch)
       .where(and(eq(pedidoExterno.id, id), eq(pedidoExterno.status, ped.status)))
       .returning();
-    if (!row) throw new ConflictException('O pedido mudou de etapa enquanto você avançava. A tela vai atualizar.');
+    if (!row) {
+      // Perdeu a corrida da gravação. Com `de`: se o outro levou o pedido exatamente para onde este queria, é a mesma
+      // intenção — devolve o pedido como ficou, sem repetir os avisos aos canais.
+      if (queria) {
+        const agora = await this.carregar(tenantId, id);
+        if (agora.status === queria) return agora;
+      }
+      throw new ConflictException('O pedido mudou de etapa enquanto você avançava. A tela vai atualizar.');
+    }
     // O "Pronto" marcado na loja pelo painel (ou pelo PDV › Retirada) também fecha a etapa na cozinha (auditoria do KDS,
     // O11): a TV de senhas passa a mostrar a senha em "Pronto". Quando o pronto veio do próprio KDS (`aoProducaoPronto`,
     // só com todos os cartões prontos), não sobra cartão a mudar. Nunca segura o avanço do pedido — fica no log. Com
@@ -1849,7 +1876,8 @@ export class DeliveryService {
         .from(pedidoExterno)
         .where(and(eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.comandaId, comandaId)));
       if (ped && ped.status === 'confirmado') {
-        await this.avancar(tenantId, ped.id); // confirmado → pronto (+ status-back ready)
+        // `de`: outro cartão que ficou pronto junto já pode ter levado o pedido a "pronto" — aí não avança de novo.
+        await this.avancar(tenantId, ped.id, { de: 'confirmado' }); // confirmado → pronto (+ status-back ready)
       }
     } catch (e: any) {
       // Nunca derruba o avanço do KDS — mas o pedido que não subiu para "pronto" fica com o motivo.
@@ -2448,7 +2476,7 @@ export class DeliveryService {
     if (ped.status === 'cancelado' || ped.status === 'concluido')
       throw new BadRequestException('Pedido não está em preparo.');
     // Ainda em produção? avança para "pronto" (isso já dispara os canais).
-    if (ped.status === 'confirmado') await this.avancar(tenantId, id);
+    if (ped.status === 'confirmado') await this.avancar(tenantId, id, { de: 'confirmado' });
     const [row] = await this.db
       .update(pedidoExterno)
       .set({ avisadoProntoEm: new Date() })

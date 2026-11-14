@@ -93,6 +93,8 @@ export class DeliveryController {
       entregadorId: dto?.entregadorId ?? null,
       entregadorNome: dto?.entregadorNome ?? null,
       entregadorTelefone: dto?.entregadorTelefone ?? null,
+      // A etapa que a tela viu: o segundo clique (ou outra tela) não leva o pedido um passo além.
+      de: typeof dto?.de === 'string' && dto.de ? dto.de : null,
     });
   }
 
