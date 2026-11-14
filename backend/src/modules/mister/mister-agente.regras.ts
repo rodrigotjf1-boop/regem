@@ -63,7 +63,9 @@ COMO VOCÊ TRABALHA
 - Quando a ferramenta devolver erro, diga que não conseguiu ler aquele dado agora. "Não houve vendas" e "não consegui ler as vendas" são respostas diferentes: nunca troque uma pela outra.
 - Quando um campo vier nulo com o aviso de que o perfil da pessoa não vê valores em reais, diga que o perfil dela no Regem não mostra valores em reais. Não tente chegar ao valor por outro caminho.
 - Conta, só com números que as ferramentas trouxeram (somar, comparar, percentual). Diga de onde saiu.
-- Números de respostas anteriores desta conversa podem estar velhos. Para o que é "agora" ou "hoje", consulte de novo.
+- As perguntas anteriores desta conversa aparecem com a hora em que foram feitas e com as consultas feitas naquela hora. Você não vê mais o resultado daquelas consultas, só a sua resposta, e ela estava certa para aquele momento.
+- A loja segue vendendo. É normal o número de agora ser diferente do que você disse antes: diga o número de agora e, se ajudar, que ele mudou desde aquela hora. Não diga que errou, que inventou ou que respondeu sem consultar, e não peça desculpa por resposta antiga. Você só reconhece um erro seu quando a pergunta antiga está marcada "sem consulta" e a resposta dela trazia número.
+- Para o que é "agora" ou "hoje", consulte de novo em vez de repetir o número antigo.
 - Você só consulta. Você não altera pedido, preço, estoque, cadastro nem configuração, e não cancela nada. Se pedirem uma ação, diga que por enquanto você só consulta e que a ação é feita no Regem. Não invente caminho de menu.
 
 DE QUEM VOCÊ FALA
@@ -159,10 +161,16 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
   },
   {
     name: 'produtos_mais_vendidos',
-    description: 'Os produtos mais vendidos de um período, por quantidade, com o faturamento de cada um e quanto saiu no delivery e no balcão. Sem período, os últimos 7 dias.',
+    description:
+      'Os produtos mais vendidos de um período, com a quantidade e o faturamento de cada um. Por padrão a ordem é a da quantidade (e vem quanto saiu no delivery e no balcão); para "os que mais faturaram" ou "em ordem de faturamento", peça ordem "faturamento" — não reordene você mesmo uma lista por quantidade, porque ela não traz todos os produtos. Sem período, os últimos 7 dias.',
     input_schema: {
       type: 'object',
-      properties: { ...PERIODO, quantos: { type: 'integer', description: 'Quantos produtos trazer, de 1 a 15. Sem isto, 5.' }, loja: LOJA },
+      properties: {
+        ...PERIODO,
+        quantos: { type: 'integer', description: 'Quantos produtos trazer, de 1 a 15. Sem isto, 5.' },
+        ordem: { type: 'string', enum: ['quantidade', 'faturamento'], description: 'Como ordenar. Sem isto, quantidade.' },
+        loja: LOJA,
+      },
       additionalProperties: false,
     },
   },
@@ -186,6 +194,49 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
 ];
 
 export const ehFerramenta = (n: unknown): n is NomeDaFerramenta => FERRAMENTAS.some((f) => f.name === n);
+
+// ───────────────────────────── a memória da conversa e a trilha ─────────────────────────────
+
+/** Uma pergunta já respondida, como a conversa a lembra. */
+export interface TrocaDaMemoria {
+  pergunta: string;
+  resposta: string;
+  /** A hora da resposta (HH:MM), no relógio da loja. */
+  hora: string;
+  /** As consultas que deram certo naquela resposta (os nomes das ferramentas). */
+  consultas: string[];
+}
+
+/** O nome de uma consulta como se diz numa frase: `resumo_do_dia` → "resumo do dia". */
+export const nomeDaConsulta = (ferramenta: string): string => String(ferramenta ?? '').replace(/_/g, ' ').trim();
+
+/**
+ * A pergunta antiga, como vai ao modelo: com a HORA e as CONSULTAS feitas naquela hora. O modelo não vê os resultados
+ * antigos, só a própria resposta; sem este cabeçalho ele concluía que tinha respondido sem consultar e "corrigia" uma
+ * resposta que estava certa (ERR-461).
+ */
+export function perguntaDaMemoria(t: TrocaDaMemoria): string {
+  const consultas = [...new Set(t.consultas.filter(ehFerramenta).map(nomeDaConsulta))];
+  const como = consultas.length ? `consultas feitas naquela hora: ${consultas.join(', ')}` : 'sem consulta';
+  return `[pergunta feita às ${t.hora} · ${como}]\n${t.pergunta}`;
+}
+
+const CAMPOS_DA_ENTRADA = ['periodo', 'de', 'ate', 'dia', 'loja', 'quantos', 'ordem'] as const;
+
+/**
+ * O que foi pedido a uma ferramenta, para a trilha: só os campos conhecidos, curtos. É o PEDIDO (período, loja, ordem),
+ * nunca o que a ferramenta trouxe — serve para saber depois que período o Mister consultou.
+ */
+export function entradaParaATrilha(entrada: unknown): Record<string, string | number> {
+  const fora: Record<string, string | number> = {};
+  if (!entrada || typeof entrada !== 'object' || Array.isArray(entrada)) return fora;
+  for (const campo of CAMPOS_DA_ENTRADA) {
+    const v = (entrada as Record<string, unknown>)[campo];
+    if (typeof v === 'number' && Number.isFinite(v)) fora[campo] = v;
+    else if (typeof v === 'string' && v.trim()) fora[campo] = v.trim().slice(0, 40);
+  }
+  return fora;
+}
 
 // ───────────────────────────── o período de uma ferramenta ─────────────────────────────
 

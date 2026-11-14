@@ -157,7 +157,7 @@ export function testesDoMisterComPostgres(): void {
       db,
       modulos,
       new DashboardService(db),
-      new RelatoriosService(db, {} as any),
+      new RelatoriosService(db, { custoEfetivoMapa: async () => ({}) } as any),
       new EstoqueService(db, auditoria as AuditoriaService),
       deliveryDeMentira as any,
       cozinhaDeMentira as any,
@@ -952,7 +952,7 @@ export function testesDoMisterComPostgres(): void {
         ['respondida', 'quanto vendi hoje?\ne ontem?', 'Resposta.', 2],
         ['respondendo', 'e na semana?', null, 0],
       ]);
-      expect(await fila.memoria(A, pessoa.ana)).toEqual([{ pergunta: 'quanto vendi hoje?\ne ontem?', resposta: 'Resposta.' }]);
+      expect(await fila.memoria(A, pessoa.ana)).toEqual([{ pergunta: 'quanto vendi hoje?\ne ontem?', resposta: 'Resposta.', hora: expect.stringMatching(/^\d{2}:\d{2}$/), consultas: [] }]);
     });
 
     it('a pega vence: a pergunta volta para a fila uma vez e, na segunda, é encerrada como interrompida — e a pessoa é avisada', async () => {
@@ -1013,30 +1013,38 @@ export function testesDoMisterComPostgres(): void {
       expect(p).toMatchObject({ situacao: 'respondida', motivo: null, modelo: 'claude-haiku-5-5', chamadas: 2, tokens_entrada: 250, tokens_saida: 60, conferencia: [] });
       expect(p.resposta).toBe('Hoje, até agora: *nenhuma venda* fechada e R$ 0,00 de faturamento.');
       expect(p.ferramentas).toHaveLength(1);
-      expect(p.ferramentas[0]).toMatchObject({ nome: 'resumo_do_dia', ok: true });
-      expect(Object.keys(p.ferramentas[0]).sort()).toEqual(['ms', 'nome', 'ok']);
+      // … e o que foi PEDIDO (aqui, o dia), para saber depois que período ele consultou.
+      expect(p.ferramentas[0]).toMatchObject({ nome: 'resumo_do_dia', ok: true, entrada: { dia: 'hoje' } });
+      expect(Object.keys(p.ferramentas[0]).sort()).toEqual(['entrada', 'ms', 'nome', 'ok']);
       // O medidor de IA da empresa contou as duas chamadas no recurso do Mister.
       expect(await q(`select recurso, chamadas, falhas, origem from ia_uso_dia where tenant_id = $1`, [A])).toEqual([{ recurso: 'mister_perguntas', chamadas: 2, falhas: 0, origem: 'distribuicao' }]);
       expect(await q(`select 1 from ia_uso_dia where tenant_id = $1`, [B])).toEqual([]);
     });
 
-    it('a memória da conversa vai junto na pergunta seguinte, e uma conversa não vê a de outra pessoa', async () => {
+    it('a memória da conversa vai junto na pergunta seguinte, com a hora e as consultas de cada resposta, e uma conversa não vê a de outra pessoa', async () => {
       comIa();
       const tel = telefone();
       const telCarlos = telefone();
       await ligar('ana', tel);
       await ligar('carlos', telCarlos, A, 'gerente');
       await perguntar(tel, 'como está o estoque?');
-      ia.roteiro = [falar('Ainda não consultei.')];
+      ia.roteiro = [usar('estoque_em_alerta', {}), falar('Nada abaixo do mínimo.')];
+      await agente.esvaziar();
+      await perguntar(tel, 'obrigada');
+      ia.roteiro = [falar('De nada.')];
       await agente.esvaziar();
       await perguntar(tel, 'e as validades?');
       await perguntar(telCarlos, 'oi');
       ia.roteiro = [falar('Certo.'), falar('Olá.')];
       await agente.esvaziar();
       const daAna = ia.pedidos.find((p) => p.messages.at(-1).content === 'e as validades?')!;
+      // A pergunta antiga vai com a hora e com a consulta feita naquela hora; a que não consultou nada, com "sem consulta".
+      // Sem isto o modelo concluía que tinha respondido sem consultar e "corrigia" resposta certa (ERR-461).
       expect(daAna.messages).toEqual([
-        { role: 'user', content: 'como está o estoque?' },
-        { role: 'assistant', content: 'Ainda não consultei.' },
+        { role: 'user', content: expect.stringMatching(/^\[pergunta feita às \d{2}:\d{2} · consultas feitas naquela hora: estoque em alerta\]\ncomo está o estoque\?$/) },
+        { role: 'assistant', content: 'Nada abaixo do mínimo.' },
+        { role: 'user', content: expect.stringMatching(/^\[pergunta feita às \d{2}:\d{2} · sem consulta\]\nobrigada$/) },
+        { role: 'assistant', content: 'De nada.' },
         { role: 'user', content: 'e as validades?' },
       ]);
       const doCarlos = ia.pedidos.find((p) => p.messages.at(-1).content === 'oi')!;
@@ -1161,7 +1169,13 @@ export function testesDoMisterComPostgres(): void {
       expect(vendas).toMatchObject({ ok: true, dados: { numeroDeVendas: 0, faturamento: 0, vendasCanceladas: 0, porFormaDePagamento: [], porCanal: [], porDia: [] } });
       expect(String(vendas.dados.periodo)).toMatch(/^este mês \(/);
       expect(await ferramentas.executar(e, 'vendas_do_periodo', { de: '2026-13-01', ate: '2026-13-02' })).toEqual({ ok: false, dados: { erro: 'As datas precisam estar no formato AAAA-MM-DD e existir no calendário.' } });
-      expect(await ferramentas.executar(e, 'produtos_mais_vendidos', { quantos: 99 })).toMatchObject({ ok: true, dados: { produtos: [] } });
+      expect(await ferramentas.executar(e, 'produtos_mais_vendidos', { quantos: 99 })).toMatchObject({ ok: true, dados: { ordenadoPor: 'quantidade', produtos: [] } });
+      // Por faturamento a lista sai da curva de produtos (todos os produtos do período), só para quem vê valores em reais.
+      expect(await ferramentas.executar(e, 'produtos_mais_vendidos', { ordem: 'faturamento', periodo: 'hoje' })).toMatchObject({ ok: true, dados: { ordenadoPor: 'faturamento', produtosVendidosNoPeriodo: 0, produtos: [] } });
+      expect(await ferramentas.executar(e, 'produtos_mais_vendidos', { ordem: 'lucro' })).toEqual({ ok: false, dados: { erro: 'A ordem é "quantidade" ou "faturamento".' } });
+      const semValores = { ...e, nivel: 'gerente' as const, verValores: false, permissoes: { relatorios_vendas: true } as any };
+      expect((await ferramentas.executar(semValores, 'produtos_mais_vendidos', { ordem: 'faturamento' })).dados.erro).toContain('não dá para ordenar por faturamento');
+      expect(await ferramentas.executar(semValores, 'produtos_mais_vendidos', {})).toMatchObject({ ok: true, dados: { ordenadoPor: 'quantidade' } });
       expect(await ferramentas.executar(e, 'estoque_em_alerta', {})).toMatchObject({
         ok: true,
         dados: { abaixoDoMinimo: { total: 0, itens: [] }, validades: { vencidos: 0, vencemEmAte2Dias: 0, vencemEmAte5Dias: 0, lotes: [] } },

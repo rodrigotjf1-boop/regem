@@ -308,6 +308,26 @@ export class MisterFerramentasService {
     const p = periodoDaFerramenta(en, hojeISO());
     if ('erro' in p) return recusa(p.erro);
     const quantos = Math.min(15, Math.max(1, inteiro(en.quantos) || 5));
+    const ordem = en.ordem === undefined || en.ordem === null || en.ordem === '' ? 'quantidade' : String(en.ordem).trim().toLowerCase();
+    if (ordem !== 'quantidade' && ordem !== 'faturamento') return recusa('A ordem é "quantidade" ou "faturamento".');
+    if (ordem === 'faturamento') {
+      // Por faturamento a lista é a da curva de produtos dos relatórios (`GET /relatorios/produtos`): TODOS os produtos
+      // do período, já na ordem do faturamento. Reordenar os mais vendidos por quantidade deixaria de fora o produto
+      // caro que vendeu pouco.
+      if (!e.verValores) return recusa('O perfil desta pessoa no Regem não mostra valores em reais: não dá para ordenar por faturamento.');
+      const curva: any = await this.relatorios.produtos(e.tenantId, p.de, p.ate, true, loja.atual);
+      const todos = (curva?.itens ?? []) as any[];
+      return {
+        ok: true,
+        dados: {
+          loja: loja.nome,
+          periodo: p.rotulo,
+          ordenadoPor: 'faturamento',
+          produtosVendidosNoPeriodo: todos.length,
+          produtos: todos.slice(0, quantos).map((i, n) => ({ posicao: n + 1, produto: String(i.descricao ?? ''), quantidade: quantidade(i.qtd), faturamento: reais(i.faturamento) })),
+        },
+      };
+    }
     const r: any = await this.relatorios.rankingProdutos(e.tenantId, p.de, p.ate, e.verValores, loja.atual);
     const itens = ((r?.itens ?? []) as any[]).slice(0, quantos);
     return {
@@ -315,6 +335,7 @@ export class MisterFerramentasService {
       dados: {
         loja: loja.nome,
         periodo: p.rotulo,
+        ordenadoPor: 'quantidade',
         ...(e.verValores ? {} : { aviso: SEM_VALORES }),
         produtos: itens.map((i, n) => ({
           posicao: n + 1,
