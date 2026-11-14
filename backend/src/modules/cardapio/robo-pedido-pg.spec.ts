@@ -15,7 +15,7 @@ import { ProdutoService } from '../produto/produto.service';
 import { VendasService } from '../vendas/vendas.service';
 import { CardapioService } from './cardapio.service';
 import { RoboPedidoService } from './robo-pedido.service';
-import { comTravaDaEmpresa } from '../../common/corrida-de-catalogo';
+import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -86,20 +86,23 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
   const empresas: string[] = [];
   const antes = { segredo: process.env.BOT_RESOLVER_SECRET, edge: process.env.EDGE_MODE, cliente: process.env.CLIENTE_TOKEN_SECRET };
 
+  // Cada migration numa transação, repetida na corrida de catálogo do banco dividido do CI (lock timeout ou impasse —
+  // ERR-405): a 342 e as seguintes trazem `lock_timeout` de 5 s.
   async function aplicarMigrations() {
-    const c = await pool.connect();
-    try {
-      for (const m of MIGRATIONS) {
-        await c.query('begin');
-        await c.query(comTravaDaEmpresa(readFileSync(m, 'utf8')));
-        await c.query('commit');
-      }
-    } catch (e) {
-      await c.query('rollback').catch(() => {});
-      throw e;
-    } finally {
-      c.release();
-    }
+    for (const m of MIGRATIONS)
+      await repetirNaCorridaDeCatalogo(async () => {
+        const c = await pool.connect();
+        try {
+          await c.query('begin');
+          await c.query(comTravaDaEmpresa(readFileSync(m, 'utf8')));
+          await c.query('commit');
+        } catch (e) {
+          await c.query('rollback').catch(() => {});
+          throw e;
+        } finally {
+          c.release();
+        }
+      });
   }
 
   beforeAll(async () => {
