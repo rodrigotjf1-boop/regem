@@ -51,6 +51,7 @@ import {
   variacaoPct,
 } from './mister-agente.regras';
 import { GUIA_DE_USO, SecaoDoGuia, buscarNoGuia, quemAbre } from './mister-guia-de-uso';
+import { canceladoComVendaDePe, concluidoSemPagamento, pixSemEstorno, vendaComNotaComProblema, vendaDesfeitaComNota } from './mister-conciliacao';
 import { primeiroNome } from './mister.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -148,6 +149,12 @@ const SITUACAO_DA_PAUSA_NO_APP = { pausando: 'ainda indo para o app', aplicada: 
 /** No máximo estes casos do Atendimento na resposta (as contagens são de todos). */
 const CASOS_DO_ATENDIMENTO = 10;
 /** A situação e o porquê de uma linha da conferência do cardápio, em português (os códigos são os da tela). */
+const SITUACAO_DO_ESTORNO: Record<string, string> = {
+  sem_pedido_de_estorno: 'o estorno ainda não foi pedido ao gateway',
+  estorno_falhou: 'o estorno falhou (devolver à mão)',
+  estorno_parado: 'o estorno está parado',
+};
+const SITUACAO_DA_NOTA: Record<string, string> = { rejeitada: 'recusada pela SEFAZ', denegada: 'denegada pela SEFAZ', pendente: 'sem resposta da SEFAZ' };
 const SITUACAO_NA_CONFERENCIA: Record<string, string> = { soApp: 'só no app', soRegem: 'só no Regem', preco: 'preço diferente', naoLiga: 'não liga pelo código PDV' };
 const MOTIVO_NA_CONFERENCIA: Record<string, string> = {
   semCodigo: 'sem código PDV no app',
@@ -352,9 +359,110 @@ export class MisterFerramentasService {
         return this.conferenciaDoCatalogo(e, loja);
       case 'atendimento_agora':
         return this.atendimentoAgora(e, loja);
+      case 'conciliacao_do_periodo':
+        return this.conciliacao(e, en, loja);
       case 'como_usar_o_regem':
         return this.comoUsarORegem(e, en);
     }
+  }
+
+  /**
+   * A conciliação (F3.5): o que não fecha entre a venda, o dinheiro e a nota fiscal (`mister-conciliacao.ts`). Cada
+   * parte segue a permissão da tela onde o dado aparece: os pedidos (o Pix, o cancelado com a venda de pé, o concluído
+   * sem pagamento) a do Delivery; as notas, a de Notas fiscais. Os valores, só para quem vê valores. A parte que não pôde
+   * ser lida (a tabela do estorno só existe na nuvem) diz "não li" — nunca vira zero.
+   */
+  private async conciliacao(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    const verPedidos = this.pode(e, 'delivery');
+    const verNotas = this.pode(e, 'fiscal');
+    if (!verPedidos && !verNotas) return recusa(SEM_PERMISSAO);
+    const p = periodoDaFerramenta(en, hojeISO(), 'hoje');
+    if ('erro' in p) return recusa(p.erro);
+    const escopo = { tenantId: e.tenantId, unidade: loja.atual, ini: `${p.de} 00:00:00`, fim: `${p.ate} 23:59:59` };
+    const dinheiro = (v: unknown) => (e.verValores ? reais(v) : null);
+    const comoPedido = (x: any) => (x?.canal || x?.numero || x?.displayId ? pedidoComoNoQuadro(x) : null);
+    const ler = async <T,>(f: () => Promise<T>, mostrar: (r: T) => Record<string, unknown>): Promise<Record<string, unknown>> => {
+      try {
+        return mostrar(await f());
+      } catch (err: any) {
+        this.logger.warn(`conciliação: uma parte não foi lida — ${String(err?.message ?? err).slice(0, 200)}`);
+        return { erro: 'Não consegui ler esta parte agora.' };
+      }
+    };
+    const exemplosDePedido = (lista: any[]) =>
+      lista.map((x) => ({ comoAparece: comoPedido(x), quando: String(x.quando ?? ''), valor: dinheiro(x.valor), ...(x.forma ? { forma: String(x.forma).slice(0, 40) } : {}) }));
+    const ambiente = (a: unknown) => (String(a) === '1' ? 'produção' : 'homologação (teste)');
+    const dados: Record<string, unknown> = { loja: loja.nome, periodo: p.rotulo, ...(e.verValores ? {} : { aviso: SEM_VALORES }) };
+
+    if (verPedidos) {
+      dados.pixPagoEmPedidoCanceladoSemEstorno = await ler(
+        () => pixSemEstorno(this.db, escopo),
+        (r) => ({
+          quantos: r.quantos,
+          valor: dinheiro(r.valor),
+          casos: r.exemplos.map((x) => ({
+            comoAparece: comoPedido(x),
+            canceladoEm: String(x.quando ?? ''),
+            valor: dinheiro(x.valor),
+            situacao: SITUACAO_DO_ESTORNO[String(x.situacao)] ?? String(x.situacao),
+          })),
+          ...(r.adicionaisQueFalharam ? { pixDeItemPostoDepoisQueFalhou: r.adicionaisQueFalharam, valorDesses: dinheiro(r.valorDosAdicionais) } : {}),
+          ...(r.quantos || r.adicionaisQueFalharam ? { oQueFazer: 'Devolva o valor ao cliente pelo app do gateway (o Atendimento tem um caso urgente para cada estorno que falhou).' } : {}),
+        }),
+      );
+      dados.pedidoCanceladoComAVendaDePe = await ler(
+        () => canceladoComVendaDePe(this.db, escopo),
+        (r) => ({ quantos: r.quantos, valor: dinheiro(r.valor), casos: exemplosDePedido(r.exemplos) }),
+      );
+      dados.pedidoConcluidoSemPagamentoRegistrado = await ler(
+        () => concluidoSemPagamento(this.db, escopo),
+        (r) => ({
+          quantos: r.quantos,
+          valor: dinheiro(r.valor),
+          porCanal: Object.fromEntries(Object.entries(r.porCanal).map(([c, n]) => [CANAL_NA_TELA[c] ?? c, n])),
+          casos: exemplosDePedido(r.exemplos),
+          ...(r.quantos
+            ? { comoLer: 'O recebimento não foi registrado no caixa do Regem (em geral o pago na entrega que não passou por "FINALIZAR"). O dinheiro pode ter sido recebido fora do Regem: não diga que o cliente não pagou.' }
+            : {}),
+        }),
+      );
+    } else {
+      dados.pixPagoEmPedidoCanceladoSemEstorno = { aviso: SEM_PERMISSAO };
+      dados.pedidoCanceladoComAVendaDePe = { aviso: SEM_PERMISSAO };
+      dados.pedidoConcluidoSemPagamentoRegistrado = { aviso: SEM_PERMISSAO };
+    }
+
+    if (verNotas) {
+      dados.vendaDesfeitaComNotaAutorizada = await ler(
+        () => vendaDesfeitaComNota(this.db, escopo),
+        (r) => ({
+          quantos: r.quantos,
+          valor: dinheiro(r.valor),
+          casos: r.exemplos.map((x) => ({ nota: `nº ${x.notaNumero} (série ${x.notaSerie})`, ambiente: ambiente(x.ambiente), pedido: comoPedido(x), desfeitaEm: String(x.quando ?? ''), valor: dinheiro(x.valor) })),
+          ...(r.quantos ? { oQueFazer: 'Cancele a nota em Notas fiscais (o prazo do cancelamento é curto) ou fale com o contador.' } : {}),
+        }),
+      );
+      dados.vendaComNotaComProblema = await ler(
+        () => vendaComNotaComProblema(this.db, escopo),
+        (r) => ({
+          quantos: r.quantos,
+          valor: dinheiro(r.valor),
+          casos: r.exemplos.map((x) => ({
+            nota: x.notaNumero ? `nº ${x.notaNumero} (série ${x.notaSerie})` : null,
+            situacao: SITUACAO_DA_NOTA[String(x.situacaoDaNota)] ?? String(x.situacaoDaNota),
+            motivoDaSefaz: x.motivo ? String(x.motivo) : null,
+            ambiente: ambiente(x.ambiente),
+            pedido: comoPedido(x),
+            vendaEm: String(x.quando ?? ''),
+            valor: dinheiro(x.valor),
+          })),
+        }),
+      );
+    } else {
+      dados.vendaDesfeitaComNotaAutorizada = { aviso: SEM_PERMISSAO };
+      dados.vendaComNotaComProblema = { aviso: SEM_PERMISSAO };
+    }
+    return { ok: true, dados };
   }
 
   /**

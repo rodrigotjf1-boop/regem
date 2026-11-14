@@ -2658,6 +2658,102 @@ export function testesDoMisterComPostgres(): void {
       }
     });
 
+    it('a conciliação: o cancelado com a venda de pé, o concluído sem pagamento, a venda desfeita com nota e a nota recusada; cada parte com a permissão da tela, os valores só para quem vê, e nada de outra empresa', async () => {
+      const telAna = telefone();
+      const telCarlos = telefone();
+      await ligar('ana', telAna);
+      await ligar('carlos', telCarlos, A, 'gerente');
+      const numeroDaNota = () => randomInt(100000, 999999);
+      const comanda = async (status: string, total: number, tenant = A) => {
+        const [{ id }] = await q(
+          `insert into comanda (tenant_id, unidade_id, status, total, forma, aberta_em, fechada_em, cancelada_em)
+           values ($1, $2, $3, $4, 'dinheiro', now() - interval '1 hour',
+                   case when $3 in ('fechada', 'cancelada') then now() - interval '30 minutes' end,
+                   case when $3 = 'cancelada' then now() - interval '20 minutes' end) returning id`,
+          [tenant, tenant === A ? lojaDeA : null, status, total],
+        );
+        return id as string;
+      };
+      const pedido = async (o: { status: string; numero: number; comanda?: string | null; pago?: boolean; tenant?: string; valor?: number }) =>
+        q(
+          `insert into pedido_externo (tenant_id, unidade_id, canal, status, tipo, total, valor_bruto, taxa_entrega, taxa_entrega_dono, display_id, numero,
+                                       comanda_id, pago, status_pagamento, forma_pagamento, criado_em, cancelado_em, concluido_em)
+           values ($1, $2, 'anotaai', $3, 'entrega', $4, $4, 0, 'loja', $5, $6, $7, $8, 'na_entrega', 'Dinheiro', now() - interval '2 hours',
+                   case when $3 = 'cancelado' then now() - interval '20 minutes' end, case when $3 = 'concluido' then now() - interval '15 minutes' end)`,
+          [o.tenant ?? A, (o.tenant ?? A) === A ? lojaDeA : null, o.status, o.valor ?? 40, String(7000 + o.numero), o.numero, o.comanda ?? null, o.pago ?? false],
+        );
+      const nota = async (comandaId: string, status: string, o: { simulada?: boolean; haMin?: number; tenant?: string } = {}) =>
+        q(
+          `insert into nota_fiscal (tenant_id, unidade_id, comanda_id, modelo, serie, numero, ambiente, status, simulada, motivo, valor_total, created_at)
+           values ($1, $2, $3, '65', 7, $4, '2', $5, $6, $7, 40, now() - make_interval(mins => $8))`,
+          [o.tenant ?? A, (o.tenant ?? A) === A ? lojaDeA : null, comandaId, numeroDaNota(), status, o.simulada ?? false, status === 'rejeitada' ? 'Rejeição: CNPJ do emitente inválido' : null, o.haMin ?? 30],
+        );
+      try {
+        // 2) O cancelado com a venda de pé (e o cancelado com a venda desfeita, que fecha).
+        await pedido({ status: 'cancelado', numero: 201, comanda: await comanda('fechada', 40), valor: 40 });
+        await pedido({ status: 'cancelado', numero: 202, comanda: await comanda('cancelada', 40) });
+        // 3) O concluído sem pagamento registrado (e o concluído pago, que fecha).
+        await pedido({ status: 'concluido', numero: 203, valor: 55.5 });
+        await pedido({ status: 'concluido', numero: 204, pago: true });
+        // 4) A venda desfeita com a nota autorizada (a simulada não conta).
+        await nota(await comanda('cancelada', 30), 'autorizada');
+        await nota(await comanda('cancelada', 30), 'autorizada', { simulada: true });
+        // 5) A nota recusada sem nota válida; a recusada com outra autorizada depois e a pendente de agora não contam.
+        await nota(await comanda('fechada', 25), 'rejeitada');
+        const corrigida = await comanda('fechada', 25);
+        await nota(corrigida, 'rejeitada', { haMin: 40 });
+        await nota(corrigida, 'autorizada', { haMin: 35 });
+        // A autorizada com uma tentativa recusada DEPOIS também não conta: a venda tem nota válida.
+        const jaTinha = await comanda('fechada', 25);
+        await nota(jaTinha, 'autorizada', { haMin: 40 });
+        await nota(jaTinha, 'rejeitada', { haMin: 35 });
+        await nota(await comanda('fechada', 25), 'pendente', { haMin: 2 });
+        await nota(await comanda('fechada', 25), 'pendente', { haMin: 30 });
+        // A outra empresa tem os mesmos casos: nada dela entra.
+        await pedido({ tenant: B, status: 'concluido', numero: 205 });
+        await nota(await comanda('cancelada', 30, B), 'autorizada', { tenant: B });
+
+        const daAna = (await ferramentas.escopo(A, pessoa.ana, telAna))!;
+        // De ontem a hoje: os casos de 15 a 30 min atrás ficam dentro mesmo perto da meia-noite.
+        const hoje = hojeISO();
+        const periodo = { de: somarDias(hoje, -1), ate: hoje };
+        const r = await ferramentas.executar(daAna, 'conciliacao_do_periodo', periodo);
+        expect(r.ok).toBe(true);
+        expect(r.dados).toMatchObject({
+          periodo: expect.any(String),
+          pedidoCanceladoComAVendaDePe: { quantos: 1, valor: 40, casos: [{ comoAparece: '#201 · Anota Aí 7201', valor: 40 }] },
+          pedidoConcluidoSemPagamentoRegistrado: { quantos: 1, valor: 55.5, porCanal: { 'Anota Aí': 1 }, casos: [{ comoAparece: '#203 · Anota Aí 7203', forma: 'Dinheiro' }] },
+          vendaDesfeitaComNotaAutorizada: { quantos: 1, valor: 40, casos: [{ ambiente: 'homologação (teste)', pedido: null }] },
+          vendaComNotaComProblema: { quantos: 2 },
+        });
+        expect((r.dados.pedidoConcluidoSemPagamentoRegistrado as any).comoLer).toContain('não diga que o cliente não pagou');
+        const situacoes = ((r.dados.vendaComNotaComProblema as any).casos as any[]).map((c) => [c.situacao, c.motivoDaSefaz]).sort();
+        expect(situacoes).toEqual([
+          ['recusada pela SEFAZ', 'Rejeição: CNPJ do emitente inválido'],
+          ['sem resposta da SEFAZ', null],
+        ]);
+        // O Pix: a tabela do estorno é só da nuvem — com ela, nada aqui; sem ela, "não li" (nunca zero inventado).
+        const temEstorno = (await q(`select to_regclass(current_schema() || '.pedido_estorno') is not null as tem`))[0].tem;
+        expect(r.dados.pixPagoEmPedidoCanceladoSemEstorno).toEqual(temEstorno ? expect.objectContaining({ quantos: 0 }) : { erro: 'Não consegui ler esta parte agora.' });
+
+        // O gerente no perfil padrão: vê os pedidos (Delivery), sem valores; as notas (Notas fiscais) não.
+        const doCarlos = (await ferramentas.escopo(A, pessoa.carlos, telCarlos))!;
+        const g = await ferramentas.executar(doCarlos, 'conciliacao_do_periodo', periodo);
+        expect(g.dados).toMatchObject({
+          pedidoConcluidoSemPagamentoRegistrado: { quantos: 1, valor: null, casos: [{ valor: null }] },
+          vendaDesfeitaComNotaAutorizada: { aviso: expect.stringContaining('não dá acesso') },
+          vendaComNotaComProblema: { aviso: expect.stringContaining('não dá acesso') },
+        });
+        // Outro período: nada (o período é pelo momento de cada fato).
+        const antigo = await ferramentas.executar(daAna, 'conciliacao_do_periodo', { de: somarDias(hoje, -30), ate: somarDias(hoje, -20) });
+        expect(antigo.dados).toMatchObject({ pedidoConcluidoSemPagamentoRegistrado: { quantos: 0 }, vendaComNotaComProblema: { quantos: 0 }, pedidoCanceladoComAVendaDePe: { quantos: 0 } });
+      } finally {
+        await q(`delete from nota_fiscal where tenant_id = any($1::uuid[])`, [[A, B]]);
+        await q(`delete from pedido_externo where tenant_id = any($1::uuid[])`, [[A, B]]);
+        await q(`delete from comanda where tenant_id = any($1::uuid[])`, [[A, B]]);
+      }
+    });
+
     it('o pedido parado: desligado não avisa; ligado, as três etapas pelo tempo escolhido; a encomenda, a retirada pronta, o pedido velho e a loja com o servidor sem sinal não abrem; o aberto só resolve quando o pedido anda', async () => {
       const tel = telefone();
       await ligar('ana', tel);
