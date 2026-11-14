@@ -15,6 +15,8 @@ import {
   ondeDemorou,
   CANAL_NA_TELA,
   pedidoComoNoQuadro,
+  periodoAnterior,
+  variacaoPct,
   PREPARO_DA_ENCOMENDA_MIN,
   entradaParaATrilha,
   filtrarSaida,
@@ -152,6 +154,7 @@ describe('Mister — o que o modelo recebe', () => {
       'caixas_e_sangrias',
       'equipe_do_dia',
       'historia_do_pedido',
+      'tempos_dos_pedidos',
     ]);
     expect(INSTRUCOES_DO_MISTER).toContain('cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto)');
     expect(INSTRUCOES_DO_MISTER).toContain('Não afirme que o Regem tem ou não tem uma função');
@@ -249,6 +252,24 @@ describe('Mister — o pedido como aparece no quadro do Delivery (pedido do dono
   });
 });
 
+describe('Mister — a comparação de períodos', () => {
+  it('o período anterior tem o mesmo número de dias e termina na véspera', () => {
+    expect(periodoAnterior({ de: '2026-11-09', ate: '2026-11-13' })).toEqual({ de: '2026-11-04', ate: '2026-11-08', rotulo: 'de 04/11 a 08/11' });
+    expect(periodoAnterior({ de: '2026-11-13', ate: '2026-11-13' })).toEqual({ de: '2026-11-12', ate: '2026-11-12', rotulo: '12/11' });
+    expect(periodoAnterior({ de: '2026-11-01', ate: '2026-11-13' })).toEqual({ de: '2026-10-19', ate: '2026-10-31', rotulo: 'de 19/10 a 31/10' });
+    expect(periodoAnterior({ de: '2027-01-01', ate: '2027-01-07' })).toMatchObject({ de: '2026-12-25', ate: '2026-12-31' });
+  });
+  it('a variação em %, e nula quando não há base', () => {
+    expect(variacaoPct(110, 100)).toBe(10);
+    expect(variacaoPct(90, 100)).toBe(-10);
+    expect(variacaoPct(100, 100)).toBe(0);
+    expect(variacaoPct(1, 3)).toBe(-66.7);
+    expect(variacaoPct(5, 0)).toBeNull();
+    expect(variacaoPct(null, 10)).toBeNull();
+    expect(INSTRUCOES_DO_MISTER).toContain('os tempos dos pedidos (aceite, cozinha, entrega), a comparação com o período anterior, o horário de pico, o lucro e a margem por produto');
+  });
+});
+
 describe('Mister — a memória da conversa e a trilha', () => {
   it('a pergunta antiga vai com a hora e as consultas feitas naquela hora — ou "sem consulta"', () => {
     expect(perguntaDaMemoria({ pergunta: 'Me dê um resumo da noite', resposta: 'r', hora: '23:40', consultas: ['resumo_do_dia', 'pedidos_em_andamento', 'resumo_do_dia'] })).toBe(
@@ -270,8 +291,8 @@ describe('Mister — a memória da conversa e a trilha', () => {
   });
   it('os mais vendidos aceitam a ordem por faturamento, e a descrição manda pedir em vez de reordenar', () => {
     const f = FERRAMENTAS.find((x) => x.name === 'produtos_mais_vendidos')!;
-    expect(f.input_schema.properties.ordem.enum).toEqual(['quantidade', 'faturamento']);
-    expect(f.description).toContain('não reordene você mesmo');
+    expect(f.input_schema.properties.ordem.enum).toEqual(['quantidade', 'faturamento', 'lucro']);
+    expect(f.description).toContain('Não reordene você mesmo');
   });
 });
 

@@ -1210,7 +1210,7 @@ export function testesDoMisterComPostgres(): void {
       expect(await ferramentas.executar(e, 'produtos_mais_vendidos', { quantos: 99 })).toMatchObject({ ok: true, dados: { ordenadoPor: 'quantidade', produtos: [] } });
       // Por faturamento a lista sai da curva de produtos (todos os produtos do período), só para quem vê valores em reais.
       expect(await ferramentas.executar(e, 'produtos_mais_vendidos', { ordem: 'faturamento', periodo: 'hoje' })).toMatchObject({ ok: true, dados: { ordenadoPor: 'faturamento', produtosVendidosNoPeriodo: 0, produtos: [] } });
-      expect(await ferramentas.executar(e, 'produtos_mais_vendidos', { ordem: 'lucro' })).toEqual({ ok: false, dados: { erro: 'A ordem é "quantidade" ou "faturamento".' } });
+      expect(await ferramentas.executar(e, 'produtos_mais_vendidos', { ordem: 'preco' })).toEqual({ ok: false, dados: { erro: 'A ordem é "quantidade", "faturamento" ou "lucro".' } });
       const semValores = { ...e, nivel: 'gerente' as const, verValores: false, permissoes: { relatorios_vendas: true } as any };
       expect((await ferramentas.executar(semValores, 'produtos_mais_vendidos', { ordem: 'faturamento' })).dados.erro).toContain('não dá para ordenar por faturamento');
       expect(await ferramentas.executar(semValores, 'produtos_mais_vendidos', {})).toMatchObject({ ok: true, dados: { ordenadoPor: 'quantidade' } });
@@ -1727,6 +1727,142 @@ export function testesDoMisterComPostgres(): void {
       } finally {
         await q(`delete from caixa_sessao where tenant_id = $1`, [A]);
       }
+    });
+
+    // ───────────────────────────── mais dados para a conversa aberta ─────────────────────────────
+
+    it('os tempos dos pedidos: aceite, pronto, saída e entrega por canal, e a fila e o preparo na cozinha — encomenda e cancelado fora', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+      const [{ id: loja }] = await q(`select id from unidade where tenant_id = $1`, [A]);
+      const ped = (canal: string, tipo: string, status: string, mins: (number | null)[], agendado = false) =>
+        q(
+          `insert into pedido_externo (tenant_id, unidade_id, canal, tipo, status, total, valor_bruto, taxa_entrega, taxa_entrega_dono,
+                                       criado_em, confirmado_em, pronto_em, despachado_em, entregue_em, agendamento)
+           values ($1, $2, $3, $4, $5, 30, 30, 0, 'marketplace',
+                   now() - make_interval(mins => $6), case when $7::int is null then null else now() - make_interval(mins => $7::int) end,
+                   case when $8::int is null then null else now() - make_interval(mins => $8::int) end,
+                   case when $9::int is null then null else now() - make_interval(mins => $9::int) end,
+                   case when $10::int is null then null else now() - make_interval(mins => $10::int) end,
+                   case when $11 then now() + interval '2 hours' end)`,
+          [A, loja, canal, tipo, status, ...mins, agendado],
+        );
+      const cartao = (origem: string, status: string, mins: number[]) =>
+        q(
+          `insert into producao_pedido (tenant_id, unidade_id, destino_tipo, origem, status, criado_em, iniciado_em, pronto_em)
+           values ($1, $2, 'kds', $3, $4, now() - make_interval(mins => $5), now() - make_interval(mins => $6), now() - make_interval(mins => $7))`,
+          [A, loja, origem, status, ...mins],
+        );
+      try {
+        // Minutos ATRÁS de agora: criado, aceito, pronto, saiu, entregue.
+        await ped('ifood', 'entrega', 'entregue', [60, 58, 40, 35, 10]);
+        await ped('cardapio', 'entrega', 'despachado', [50, 49, 30, 28, 5]);
+        await ped('ifood', 'retirada', 'pronto', [30, 29, 20, null, null]);
+        await ped('ifood', 'entrega', 'confirmado', [40, 39, null, null, null], true); // encomenda: fora
+        await ped('ifood', 'entrega', 'cancelado', [45, 44, 1, 1, 1]); // cancelado: fora
+        await cartao('delivery', 'pronto', [40, 38, 30]);
+        await cartao('balcao', 'entregue', [20, 15, 5]);
+        await cartao('balcao', 'cancelado', [20, 19, 1]); // cancelado: fora
+        const r = await ferramentas.executar(e, 'tempos_dos_pedidos', { de: somarDias(hojeISO(), -1), ate: hojeISO() });
+        expect(r.ok).toBe(true);
+        expect(r.dados.pedidosDosCanais).toEqual({
+          pedidos: 3,
+          doAceite: { mediaMin: 1.3, osMaisLentosMin: 1.8, pedidos: 3 },
+          ateFicarPronto: { mediaMin: 16.7, osMaisLentosMin: 20, pedidos: 3 },
+          ateSairParaEntrega: { mediaMin: 23.5, osMaisLentosMin: 24.7, pedidos: 2 },
+          ateEntregar: { mediaMin: 47.5, osMaisLentosMin: 49.5, pedidos: 2 },
+          porCanal: [
+            { canal: 'Cardápio', pedidos: 1, ateFicarPronto: { mediaMin: 20, osMaisLentosMin: 20, pedidos: 1 }, ateEntregar: { mediaMin: 45, osMaisLentosMin: 45, pedidos: 1 } },
+            { canal: 'iFood', pedidos: 2, ateFicarPronto: { mediaMin: 15, osMaisLentosMin: 19, pedidos: 2 }, ateEntregar: { mediaMin: 50, osMaisLentosMin: 50, pedidos: 1 } },
+          ],
+        });
+        expect(r.dados.cozinha).toEqual({
+          cartoes: 2,
+          naFilaAteComecar: { mediaMin: 3.5, osMaisLentosMin: 4.7, pedidos: 2 },
+          preparando: { mediaMin: 9, osMaisLentosMin: 9.8, pedidos: 2 },
+          daEntradaAtePronto: { mediaMin: 12.5, osMaisLentosMin: 14.5, pedidos: 2 },
+          porOrigem: [
+            { origem: 'balcão e mesas', cartoes: 1, daEntradaAtePronto: { mediaMin: 15, osMaisLentosMin: 15, pedidos: 1 } },
+            { origem: 'delivery', cartoes: 1, daEntradaAtePronto: { mediaMin: 10, osMaisLentosMin: 10, pedidos: 1 } },
+          ],
+        });
+        // Sem a permissão do Delivery, os pedidos dos canais não vêm (a cozinha vem).
+        const semDelivery = { ...e, nivel: 'gerente' as const, permissoes: { dashboard: true } as any };
+        const s = await ferramentas.executar(semDelivery, 'tempos_dos_pedidos', {});
+        expect((s.dados.pedidosDosCanais as any).aviso).toContain('não dá acesso');
+        expect(s.dados.cozinha).toHaveProperty('cartoes');
+        // A outra empresa não vê nada disto.
+        const telB = telefone();
+        await ligar('anaB', telB, B);
+        const deB = (await ferramentas.escopo(B, pessoa.anaB, telB))!;
+        expect(((await ferramentas.executar(deB, 'tempos_dos_pedidos', { de: somarDias(hojeISO(), -1), ate: hojeISO() })).dados.pedidosDosCanais as any).pedidos).toBe(0);
+      } finally {
+        await q(`delete from producao_pedido where tenant_id = $1`, [A]);
+        await q(`delete from pedido_externo where tenant_id = $1`, [A]);
+      }
+    });
+
+    it('vendas do período: o horário de pico e a comparação com o período anterior (variação nula sem base)', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+      const r = await ferramentas.executar(e, 'vendas_do_periodo', { periodo: 'esta_semana', comparar: true });
+      expect(r.dados).toMatchObject({ porHora: [], horarioDePico: null });
+      expect(r.dados.comparacao).toMatchObject({
+        numeroDeVendas: 0,
+        faturamento: 0,
+        delivery: { pedidos: 0, faturamento: 0 },
+        variacaoPct: { vendas: null, faturamento: null, ticketMedio: null, pedidosDoDelivery: null, faturamentoDoDelivery: null },
+      });
+      expect(String((r.dados.comparacao as any).periodo)).toMatch(/^(\d{2}\/\d{2}|de \d{2}\/\d{2} a \d{2}\/\d{2})$/);
+      // Sem "comparar", não vem a comparação.
+      expect((await ferramentas.executar(e, 'vendas_do_periodo', {})).dados).not.toHaveProperty('comparacao');
+      // Com vendas de verdade: duas no período (ontem e hoje) e uma no anterior (os dois dias antes) — +100%.
+      const [{ id: loja }] = await q(`select id from unidade where tenant_id = $1`, [A]);
+      const venda = (horas: number, total: number) =>
+        q(`insert into comanda (tenant_id, unidade_id, status, total, forma, aberta_em, fechada_em) values ($1, $2, 'fechada', $3, 'dinheiro', now() - make_interval(hours => $4) - interval '10 minutes', now() - make_interval(hours => $4))`, [A, loja, total, horas]);
+      try {
+        await venda(1, 40);
+        await venda(1, 60);
+        await venda(49, 50);
+        const c = await ferramentas.executar(e, 'vendas_do_periodo', { de: somarDias(hojeISO(), -1), ate: hojeISO(), comparar: true });
+        expect(c.dados).toMatchObject({ numeroDeVendas: 2, faturamento: 100 });
+        expect(c.dados.comparacao).toMatchObject({ numeroDeVendas: 1, faturamento: 50, variacaoPct: { vendas: 100, faturamento: 100, ticketMedio: 0 } });
+        expect(c.dados.horarioDePico).toMatch(/^\d{2}h$/);
+        expect((c.dados.porHora as any[]).reduce((s, h) => s + h.vendas, 0)).toBe(2);
+      } finally {
+        await q(`delete from comanda where tenant_id = $1`, [A]);
+      }
+    });
+
+    it('produtos por lucro: o que dá mais lucro primeiro, o sem custo no fim, com a margem e a classe da curva', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+      const curva = {
+        itens: [
+          { descricao: 'Burger', qtd: 10, faturamento: 300, custo: 240, lucro: 60, margemPct: 20, classe: 'A' },
+          { descricao: 'Refri', qtd: 20, faturamento: 100, custo: null, lucro: null, margemPct: null, classe: 'B' },
+          { descricao: 'Batata', qtd: 15, faturamento: 90, custo: 18, lucro: 72, margemPct: 80, classe: 'B' },
+        ],
+      };
+      const comCurva = new MisterFerramentasService(db, modulos, null as any, { produtos: async () => curva } as any, null as any, null as any, null as any, null as any, null as any, null as any, null as any);
+      const r = await comCurva.executar(e, 'produtos_mais_vendidos', { ordem: 'lucro', quantos: 3 });
+      expect(r.dados).toMatchObject({ ordenadoPor: 'lucro', produtosVendidosNoPeriodo: 3 });
+      expect((r.dados.produtos as any[]).map((p) => [p.produto, p.lucro, p.margemPct, p.classe])).toEqual([
+        ['Batata', 72, 80, 'B'],
+        ['Burger', 60, 20, 'A'],
+        ['Refri', null, null, 'B'],
+      ]);
+      expect(r.dados.semCusto).toContain('1 produto(s) sem custo cadastrado');
+      // Por faturamento, a ordem da curva, também com o lucro.
+      const f = await comCurva.executar(e, 'produtos_mais_vendidos', { ordem: 'faturamento', quantos: 3 });
+      expect((f.dados.produtos as any[]).map((p) => p.produto)).toEqual(['Burger', 'Refri', 'Batata']);
+      expect((f.dados.produtos as any[])[0]).toMatchObject({ custo: 240, lucro: 60, margemPct: 20 });
+      // Quem não vê valores em reais não ordena por lucro.
+      const semValores = { ...e, nivel: 'gerente' as const, verValores: false, permissoes: { relatorios_vendas: true } as any };
+      expect((await comCurva.executar(semValores, 'produtos_mais_vendidos', { ordem: 'lucro' })).dados.erro).toContain('não dá para ordenar por lucro');
     });
   });
 }
