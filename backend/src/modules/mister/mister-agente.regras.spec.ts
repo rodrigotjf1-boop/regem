@@ -161,7 +161,13 @@ describe('Mister — o que o modelo recebe', () => {
       'canais_e_integracoes',
       'conferencia_do_catalogo',
       'atendimento_agora',
+      'como_usar_o_regem',
     ]);
+    // O guia de uso (F2.5): caminho e botão só os que o guia trouxe; a ação que o Mister não faz ganha o "onde fazer".
+    expect(INSTRUCOES_DO_MISTER).toContain('Caminho de menu, nome de botão e nome de aba, só os que o guia trouxe: nunca invente nem complete.');
+    expect(INSTRUCOES_DO_MISTER).toContain('pelo guia de uso, onde e como ela é feita no Regem');
+    expect(INSTRUCOES_DO_MISTER).toContain('como usar o Regem (onde fica cada tela e o passo a passo das tarefas mais comuns)');
+    expect(entradaParaATrilha({ assunto: ' pausar o iFood ' })).toEqual({ assunto: 'pausar o iFood' });
     expect(INSTRUCOES_DO_MISTER).toContain('cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto)');
     expect(INSTRUCOES_DO_MISTER).toContain('os canais de venda e as integrações (a pausa de cada canal');
     expect(INSTRUCOES_DO_MISTER).toContain('Não afirme que o Regem tem ou não tem uma função');
