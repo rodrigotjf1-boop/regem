@@ -146,7 +146,7 @@ Loja que desliga o PC à noite abre um episódio de "sem sinal" por noite e o fe
 - Lista de incidentes para o gestor, no modelo do Estoque.
 - Aba de incidentes no console da distribuição.
 - Alerta local sem internet (bandeja e tela da loja), a única parte da F1 que pede `.zip`.
-- **Protótipo a aprovar (14/11/2026): `mockups/regem-avisos-na-tela.html`.** Cobre os dois destinos dos avisos que ainda ficam só anotados:
+- **Protótipo APROVADO pelo dono em 14/11/2026: `mockups/regem-avisos-na-tela.html`** (as cinco decisões recomendadas). Cobre os dois destinos dos avisos que ainda ficam só anotados:
   - a **faixa na tela da loja**, com a gaveta dos avisos abertos e o "Ciente" por pessoa;
   - o **Mister › Histórico**, com a lista no modelo do Estoque e a trilha de cada aviso;
   - a aba **Avisos do console da distribuição**, para o suporte da DMS.
