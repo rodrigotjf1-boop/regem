@@ -30,7 +30,12 @@
    - Os botões "Situação do protótipo" trocam os estados para a aprovação; não existem no app.
    - O QR do diálogo de ligar é uma ilustração. O número do Mister aqui é inventado.
    - O console da distribuição é escuro, como o de verdade; o app da loja usa os tokens do Regem (.app-light).
-   - "Avisos e relatórios" e as conversas de aprovação mostram entregas futuras (F1.2, F3 e F4): cada uma diz a fase. */
+   - "Avisos e relatórios" e as conversas de aprovação mostram entregas futuras (F1.2, F3 e F4): cada uma diz a fase.
+
+   VERSÃO 2 (14/11/2026, a aprovar): "para onde vai" cada aviso. O dono disse que o destino depende do tipo do aviso e
+   aprovou a tabela ("vamos de ok e com o tempo vamos atualizando os avisos"): nove avisos em quatro grupos, cada um com
+   os destinos (WhatsApp do presidente, do gerente, tela da loja, KDS, caso no Atendimento, suporte da DMS) e quem avisar
+   se ninguém resolver, editáveis numa gaveta. O pedido sai como no quadro do Delivery (#284 · iFood 4821). */
 :root{
   --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
   --gold:#E8A845; --on-gold:#281B06; --gold-ink:#7A5209; --gold-bg:#FFF9EC; --navy:#0F2230;
@@ -153,6 +158,14 @@ a{color:var(--info);text-underline-offset:2px}
 .aj .t{font-weight:600} .aj .d{font-size:13.5px;color:var(--ink-2)}
 .aj .ctrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end}
 .aj .ctrl input,.aj .ctrl select{border:1px solid var(--line-2);border-radius:8px;padding:6px 8px;min-height:38px;background:#fff}
+.destinos{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}
+.destinos .selo{white-space:normal}
+.btn-peq{min-height:32px;padding:4px 10px;font-size:13px}
+.grupo-aj{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-2);margin:16px 0 2px}
+.marcar{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:0 0 12px;display:grid;gap:8px}
+.marcar legend{font-weight:700;padding:0 4px}
+.marcar label{display:flex;gap:8px;align-items:center;min-height:32px}
+.marcar select{border:1px solid var(--line-2);border-radius:8px;padding:6px 8px;min-height:38px;background:#fff;max-width:100%}
 .estado-liga{font-size:13px;color:var(--ink-2);min-width:68px}
 .barra-salvar{position:sticky;bottom:0;background:var(--navy);color:#fff;border-radius:12px 12px 0 0;padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;z-index:5}
 .barra-salvar .btn{border-color:#3C5568;background:transparent;color:#fff} .barra-salvar .btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
@@ -244,6 +257,16 @@ a{color:var(--info);text-underline-offset:2px}
 .notas .cartao ul,.notas .cartao ol{margin:6px 0 0;padding-left:20px} .notas .cartao li{margin-bottom:5px}
 pre.fio{font:12.5px/1.35 var(--mono);background:var(--neutro-bg);border-radius:10px;padding:12px;overflow:hidden;margin:8px 0}
 @container principal (max-width: 560px){ pre.fio{display:none} }
+/* Linha de ajuste com seletor ou horário: no estreito os controles descem para baixo do texto (senão o texto fica
+   espremido numa coluna de uma palavra por linha). */
+@container principal (max-width: 620px){
+  .aj:has(.ctrl select, .ctrl input){grid-template-columns:minmax(0,1fr)}
+  .aj:has(.ctrl select, .ctrl input) .ctrl{justify-content:flex-start}
+}
+@container principal (max-width: 480px){
+  #ajustes .aj{grid-template-columns:minmax(0,1fr)}
+  #ajustes .aj .ctrl{justify-content:flex-start}
+}
 
 @media (max-width: 900px){
   .app{grid-template-columns:minmax(0,1fr)} .lado{display:none} .menu-cel{display:inline}
@@ -481,20 +504,41 @@ pre.fio{font:12.5px/1.35 var(--mono);background:var(--neutro-bg);border-radius:1
 
         <!-- AVISOS E RELATÓRIOS -->
         <div data-parte-vista="avisos" hidden>
-          <div class="faixa info"><span class="fase">Próximas entregas</span><br>Esta tela mostra como os avisos e os relatórios vão ser escolhidos. Hoje o vigia do servidor já roda; o aviso para a loja é a próxima entrega.</div>
+          <div class="faixa info"><span class="fase">Próxima entrega · versão 2 (14/11)</span><br>Cada aviso vai para quem resolve: o que a equipe resolve aparece na tela da loja e no KDS; o que pede o gestor vai pelo WhatsApp do Mister; o técnico vai ao suporte da DMS. Tudo também fica no sino do Regem. Os destinos abaixo são o ponto de partida aprovado em 14/11 e mudam em "Mudar".</div>
           <div class="cartao ajustes" id="ajustes">
-            <h2>Avisos <span class="sub peq">· 5 ajustes</span></h2>
-            <p class="sub">O que o Mister avisa a quem está ligado. Tudo o que ele avisa também aparece no Regem.</p>
-            <div class="aj"><div><div class="t" id="a1">Servidor da loja sem sinal</div><div class="d">Avisa só quando há pedido esperando: fora do horário, o computador desligado não incomoda ninguém.</div></div>
-              <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="a1"></button></div></div>
-            <div class="aj"><div><div class="t" id="a2">Impressora parada</div><div class="d">Quando uma impressora deixa de responder com via na fila.</div></div>
-              <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="a2"></button></div></div>
-            <div class="aj"><div><div class="t" id="a3">Pedido parado</div><div class="d">Um pedido sem andar além do tempo escolhido.</div></div>
-              <div class="ctrl"><label class="sr" for="a3t">Tempo do pedido parado</label><select id="a3t"><option>15 min</option><option selected>20 min</option><option>30 min</option></select><span class="estado-liga">Desligado</span><button class="liga" role="switch" aria-checked="false" aria-labelledby="a3"></button></div></div>
-            <div class="aj"><div><div class="t" id="a4">Nota fiscal sem resposta</div><div class="d">Nota que ficou pendente depois de todas as tentativas.</div></div>
-              <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="a4"></button></div></div>
-            <div class="aj"><div><div class="t" id="a5">Certificado digital perto de vencer</div><div class="d">A 60, 30, 15, 7 e 1 dia do vencimento.</div></div>
-              <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="a5"></button></div></div>
+            <h2>Avisos <span class="sub peq">· 9 ajustes</span></h2>
+            <p class="sub">O que o Mister avisa e para quem.</p>
+            <h3 class="grupo-aj">Na loja</h3>
+            <div class="aj"><div><div class="t" id="av1">Impressora parada</div><div class="d">Uma impressora deixou de responder com via na fila.</div>
+              <div class="destinos" data-destinos-de="impressora"><span class="sub peq">Vai para:</span><span class="selo neutro">Tela do Regem na loja</span><span class="sub peq">· sem resolver em 5 min: WhatsApp do gerente da loja</span><button class="btn btn-peq" data-abre="gav-destino" data-nome="Impressora parada" data-destinos="tela" data-escala="5" data-escala-para="gerente">Mudar</button></div></div>
+              <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="av1"></button></div></div>
+            <div class="aj"><div><div class="t" id="av2">Pedido parado</div><div class="d">Um pedido sem andar além do tempo escolhido. O aviso cita o pedido como ele aparece no quadro do Delivery (#284 · iFood 4821).</div>
+              <div class="destinos" data-destinos-de="pedido"><span class="sub peq">Vai para:</span><span class="selo neutro">KDS da cozinha</span><span class="selo neutro">Tela do Regem na loja</span><span class="selo neutro">WhatsApp do gerente da loja</span><button class="btn btn-peq" data-abre="gav-destino" data-nome="Pedido parado" data-destinos="kds,tela,gerente" data-escala="" data-escala-para="">Mudar</button></div></div>
+              <div class="ctrl"><label class="sr" for="av2t">Tempo do pedido parado</label><select id="av2t"><option>15 min</option><option selected>20 min</option><option>30 min</option></select><span class="estado-liga">Desligado</span><button class="liga" role="switch" aria-checked="false" aria-labelledby="av2"></button></div></div>
+            <div class="aj"><div><div class="t" id="av3">Caixa aberto há mais de 24 horas</div><div class="d">O Regem já pede o fechamento na tela do caixa; aqui o gerente fica sabendo.</div>
+              <div class="destinos" data-destinos-de="caixa"><span class="sub peq">Vai para:</span><span class="selo neutro">WhatsApp do gerente da loja</span><button class="btn btn-peq" data-abre="gav-destino" data-nome="Caixa aberto há mais de 24 horas" data-destinos="gerente" data-escala="" data-escala-para="">Mudar</button></div></div>
+              <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="av3"></button></div></div>
+            <div class="aj"><div><div class="t" id="av4">iFood ou 99 desconectado</div><div class="d">A loja parou de receber pedidos de um canal.</div>
+              <div class="destinos" data-destinos-de="canal"><span class="sub peq">Vai para:</span><span class="selo neutro">WhatsApp do gerente da loja</span><span class="selo neutro">Tela do Regem na loja</span><button class="btn btn-peq" data-abre="gav-destino" data-nome="iFood ou 99 desconectado" data-destinos="gerente,tela" data-escala="" data-escala-para="">Mudar</button></div></div>
+              <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="av4"></button></div></div>
+            <h3 class="grupo-aj">Servidor da loja</h3>
+            <div class="aj"><div><div class="t" id="av5">Servidor da loja sem sinal</div><div class="d">Só quando há pedido esperando: fora do horário, o computador desligado não incomoda ninguém.</div>
+              <div class="destinos" data-destinos-de="semsinal"><span class="sub peq">Vai para:</span><span class="selo neutro">WhatsApp do gerente da loja</span><span class="selo neutro">Suporte da DMS</span><button class="btn btn-peq" data-abre="gav-destino" data-nome="Servidor da loja sem sinal" data-destinos="gerente,dms" data-escala="" data-escala-para="">Mudar</button></div></div>
+              <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="av5"></button></div></div>
+            <div class="aj"><div><div class="t" id="av6">Serviço parado, disco cheio ou cópia de segurança atrasada</div><div class="d">Problemas técnicos do servidor: o suporte da DMS resolve. O gestor só fica sabendo se passar do tempo escolhido.</div>
+              <div class="destinos" data-destinos-de="tecnico"><span class="sub peq">Vai para:</span><span class="selo neutro">Suporte da DMS</span><span class="sub peq">· sem resolver em 2 horas: WhatsApp do gerente da loja</span><button class="btn btn-peq" data-abre="gav-destino" data-nome="Serviço parado, disco cheio ou cópia de segurança atrasada" data-destinos="dms" data-escala="120" data-escala-para="gerente">Mudar</button></div></div>
+              <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="av6"></button></div></div>
+            <h3 class="grupo-aj">Fiscal</h3>
+            <div class="aj"><div><div class="t" id="av7">Nota fiscal sem resposta</div><div class="d">Nota que ficou pendente depois de todas as tentativas.</div>
+              <div class="destinos" data-destinos-de="nota"><span class="sub peq">Vai para:</span><span class="selo neutro">Caso no Atendimento</span><span class="selo neutro">WhatsApp do presidente</span><button class="btn btn-peq" data-abre="gav-destino" data-nome="Nota fiscal sem resposta" data-destinos="atendimento,presidente" data-escala="" data-escala-para="">Mudar</button></div></div>
+              <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="av7"></button></div></div>
+            <div class="aj"><div><div class="t" id="av8">Certificado digital perto de vencer</div><div class="d">A 60, 30, 15, 7 e 1 dia do vencimento.</div>
+              <div class="destinos" data-destinos-de="certificado"><span class="sub peq">Vai para:</span><span class="selo neutro">WhatsApp do presidente</span><button class="btn btn-peq" data-abre="gav-destino" data-nome="Certificado digital perto de vencer" data-destinos="presidente" data-escala="" data-escala-para="">Mudar</button></div></div>
+              <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="av8"></button></div></div>
+            <h3 class="grupo-aj">O próprio Mister</h3>
+            <div class="aj"><div><div class="t" id="av9">A chave de IA parou</div><div class="d">Sem crédito, no teto de gasto ou recusada: as perguntas e os relatórios param até a chave voltar.</div>
+              <div class="destinos" data-destinos-de="chaveia"><span class="sub peq">Vai para:</span><span class="selo neutro">WhatsApp do presidente</span><button class="btn btn-peq" data-abre="gav-destino" data-nome="A chave de IA parou" data-destinos="presidente" data-escala="" data-escala-para="">Mudar</button></div></div>
+              <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="av9"></button></div></div>
 
             <h2 style="margin-top:18px">Relatórios <span class="sub peq">· 2 ajustes</span></h2>
             <p class="sub">Usam a IA. Cada um soma no "Uso da IA".</p>
@@ -530,6 +574,7 @@ pre.fio{font:12.5px/1.35 var(--mono);background:var(--neutro-bg);border-radius:1
         <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
           <div class="bolha dele">⚠️ <b>Loja Centro</b> · servidor sem sinal desde 19:42.<br>Há 3 pedidos esperando.<br><br>Confira se o computador do servidor está ligado e com internet.<div class="botoes-wa"><span>Ver no Regem</span></div><span class="hora">19:45</span></div>
           <div class="bolha dele">✅ <b>Loja Centro</b> · o servidor voltou às 19:51. Ficou 9 min fora.<span class="hora">19:51</span></div>
+          <div class="bolha dele">⏱️ <b>Loja Centro</b> · pedido <b>#284 · iFood 4821</b> parado há 20 min, em preparo (D17 na cozinha).<div class="botoes-wa"><span>Ver no Regem</span></div><span class="hora">20:32</span></div>
         </div></div></article>
 
       <article class="caso"><h3>3. Pergunta</h3><p class="sub">Em português, sobre a loja de quem pergunta. <span class="fase">F2</span></p>
@@ -764,6 +809,30 @@ pre.fio{font:12.5px/1.35 var(--mono);background:var(--neutro-bg);border-radius:1
 <!-- painéis -->
 <div class="fundo" id="fundo"></div>
 
+<aside class="gaveta" id="gav-destino" role="dialog" aria-modal="true" aria-labelledby="gav-destino-t">
+  <div class="pn-cab"><h3 id="gav-destino-t">Para onde vai: <span data-nome-aqui>Impressora parada</span></h3><button class="fechar" data-fecha aria-label="Fechar">✕</button></div>
+  <div class="pn-corpo">
+    <p class="sub">Escolha quem fica sabendo deste aviso. O sino do Regem recebe sempre, e o que você mudar aqui vale para todas as lojas da empresa.</p>
+    <fieldset class="marcar"><legend>Na hora</legend>
+      <label><input type="checkbox" name="destino" value="presidente"> WhatsApp do presidente</label>
+      <label><input type="checkbox" name="destino" value="gerente"> WhatsApp do gerente da loja</label>
+      <label><input type="checkbox" name="destino" value="tela"> Tela do Regem na loja</label>
+      <label><input type="checkbox" name="destino" value="kds"> KDS da cozinha</label>
+      <label><input type="checkbox" name="destino" value="atendimento"> Caso no Atendimento</label>
+      <label><input type="checkbox" name="destino" value="dms"> Suporte da DMS</label>
+    </fieldset>
+    <fieldset class="marcar"><legend>Se ninguém resolver</legend>
+      <label for="gd-escala">Depois de</label>
+      <select id="gd-escala"><option value="">não avisar mais ninguém</option><option value="5">5 min</option><option value="15">15 min</option><option value="30">30 min</option><option value="120">2 horas</option></select>
+      <div class="sub peq" style="margin:8px 0 4px">avisar também:</div>
+      <label><input type="checkbox" name="escala" value="gerente"> WhatsApp do gerente da loja</label>
+      <label><input type="checkbox" name="escala" value="presidente"> WhatsApp do presidente</label>
+    </fieldset>
+    <p class="sub peq">Pelo WhatsApp, o aviso chega a quem ligou o próprio número em Pessoas e não respondeu PARAR AVISOS. Fora da conversa das últimas 24 horas, ele sai pelo modelo de mensagem aprovado pela Meta.</p>
+  </div>
+  <div class="pn-rodape"><button class="btn" data-fecha>Cancelar</button><button class="btn pri" data-fecha data-aviso="Destino do aviso salvo.">Salvar</button></div>
+</aside>
+
 <aside class="gaveta" id="gav-pode" role="dialog" aria-modal="true" aria-labelledby="gav-pode-t">
   <div class="pn-cab"><h3 id="gav-pode-t">O que <span data-nome-aqui>Carlos Lima</span> pode pelo Mister</h3><button class="fechar" data-fecha aria-label="Fechar">✕</button></div>
   <div class="pn-corpo">
@@ -871,6 +940,12 @@ pre.fio{font:12.5px/1.35 var(--mono);background:var(--neutro-bg);border-radius:1
   function abrir(id, de){
     const p = $('#' + id); if (!p) return;
     if (de && de.dataset.nome) $$('[data-nome-aqui]', p).forEach((n) => { n.textContent = de.dataset.nome; });
+    if (de && de.dataset.destinos !== undefined) {
+      const vai = de.dataset.destinos.split(','), escala = (de.dataset.escalaPara || '').split(',');
+      $$('input[name="destino"]', p).forEach((c) => { c.checked = vai.includes(c.value); });
+      $$('input[name="escala"]', p).forEach((c) => { c.checked = escala.includes(c.value); });
+      $('#gd-escala', p).value = de.dataset.escala || '';
+    }
     aberto = p; quemAbriu = de || null;
     p.classList.add('aberto'); $('#fundo').classList.add('aberto');
     (focaveis(p)[0] || p).focus();
