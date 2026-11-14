@@ -33,6 +33,7 @@ import {
   lojaPedida,
   numeroDoPedido,
   ondeDemorou,
+  pedidoComoNoQuadro,
   periodoDaFerramenta,
   semAcento,
 } from './mister-agente.regras';
@@ -336,6 +337,8 @@ export class MisterFerramentasService {
     if ('erro' in p) return recusa(p.erro);
     const r: any = await this.relatorios.vendas(e.tenantId, p.de, p.ate, e.verValores, loja.atual);
     const porDia = (r?.porDia ?? []) as any[];
+    // O relatório de Delivery (`GET /relatorios/faturamento-delivery`): só para quem vê valores em reais, como a rota.
+    const dl: any = e.verValores ? await this.relatorios.faturamentoDelivery(e.tenantId, p.de, p.ate, loja.atual) : null;
     return {
       ok: true,
       dados: {
@@ -353,6 +356,15 @@ export class MisterFerramentasService {
         porCanal: ((r?.porCanal ?? []) as any[]).map((c) => ({ canal: String(c.canal ?? ''), vendas: inteiro(c.qtd), total: reais(c.total) })),
         // Por dia só em período curto: num ano inteiro seriam centenas de linhas para o modelo ler.
         ...(porDia.length <= 31 ? { porDia: porDia.map((d) => ({ dia: diaDaLinha(d.dia), vendas: inteiro(d.qtd), total: reais(d.total) })) } : {}),
+        delivery: dl
+          ? {
+              comoORelatorioDeDeliveryConta: 'Os pedidos que chegaram pelos canais (cardápio online, iFood, 99 e outros) e foram aceitos, sem os cancelados, pela hora em que chegaram. É o número certo para o ticket do delivery.',
+              pedidos: inteiro(dl.pedidos),
+              faturamento: reais(dl.total),
+              ticketMedio: reais(dl.ticketMedio),
+              porPlataforma: ((dl.porPlataforma ?? []) as any[]).map((x) => ({ plataforma: String(x.plataforma ?? ''), pedidos: inteiro(x.pedidos), faturamento: reais(x.total), ticketMedio: reais(x.ticketMedio) })),
+            }
+          : { aviso: SEM_VALORES },
       },
     };
   }
@@ -434,7 +446,7 @@ export class MisterFerramentasService {
         porPlataforma,
         marcadosParaDepois: pedidos.length - deAgora.length,
         esperaHaMaisTempo: antigo
-          ? { plataforma: String(antigo.canal ?? ''), numero: antigo.displayId ? String(antigo.displayId) : null, situacao: SITUACAO_DO_DELIVERY[String(antigo.status)], haMinutos: minutosDesde(antigo.criadoEm, agora) }
+          ? { comoAparece: pedidoComoNoQuadro(antigo), plataforma: String(antigo.canal ?? ''), numero: antigo.displayId ? String(antigo.displayId) : null, situacao: SITUACAO_DO_DELIVERY[String(antigo.status)], haMinutos: minutosDesde(antigo.criadoEm, agora) }
           : null,
       };
     } else dados.delivery = { aviso: SEM_PERMISSAO };
@@ -462,13 +474,33 @@ export class MisterFerramentasService {
       .filter((x) => x.atraso)
       .sort((a, b) => b.atraso!.minutos - a.atraso!.minutos);
     const senhaDe = (c: any) => (c.senha != null ? `${c.senhaPrefixo ?? ''}${c.senha}` : c.senhaPlataforma ? String(c.senhaPlataforma) : null);
+    // O pedido do canal ligado a cada cartão (pela comanda), para citar como o quadro do Delivery mostra. Venda do balcão
+    // não tem pedido de canal: fica a senha.
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const comandas = [...new Set([fazendo, ...atrasados.slice(0, 5).map((x) => x.c)].map((c) => c?.comandaId).filter((id) => typeof id === 'string' && UUID.test(id)))];
+    const doQuadro = new Map<string, string>(
+      comandas.length
+        ? linhas(
+            await this.db.execute(sql`
+              select distinct on (comanda_id) comanda_id::text as comanda, canal, numero, display_id as "displayId"
+                from pedido_externo
+               where tenant_id = ${e.tenantId}::uuid and comanda_id in (${sql.join(
+                 comandas.map((id) => sql`${id}::uuid`),
+                 sql`, `,
+               )})
+               order by comanda_id, criado_em desc`),
+          ).map((x) => [String(x.comanda), pedidoComoNoQuadro(x)])
+        : [],
+    );
+    const comoAparece = (c: any) => (c?.comandaId && doQuadro.get(String(c.comandaId))) || (c?.origem === 'delivery' ? null : `venda do balcão, senha ${senhaDe(c) ?? '—'}`);
     dados.cozinha = {
       pedidos: porPedido.size,
       porSituacao: naCozinha,
       maisAntigoSemFicarPronto: fazendo
         ? {
+            comoAparece: comoAparece(fazendo),
             origem: String(fazendo.plataforma || fazendo.origem || ''),
-            senha: fazendo.senha != null ? `${fazendo.senhaPrefixo ?? ''}${fazendo.senha}` : fazendo.senhaPlataforma ? String(fazendo.senhaPlataforma) : null,
+            senhaNaCozinha: senhaDe(fazendo),
             situacao: SITUACAO_DA_COZINHA[String(fazendo.status)],
             haMinutos: minutosDesde(fazendo.criadoEm, agora),
           }
@@ -477,8 +509,9 @@ export class MisterFerramentasService {
         total: atrasados.length,
         regra: `Pela regra do KDS desta loja: verde até ${limitesDoKds.verdeAteMin} min, amarelo até ${limitesDoKds.amareloAteMin} min, depois vermelho; ou passou do tempo de preparo do próprio pedido.`,
         pedidos: atrasados.slice(0, 5).map(({ c, atraso }) => ({
+          comoAparece: comoAparece(c),
           origem: String(c.plataforma || c.origem || ''),
-          senha: senhaDe(c),
+          senhaNaCozinha: senhaDe(c),
           situacao: SITUACAO_DA_COZINHA[String(c.status)],
           haMinutos: atraso!.minutos,
           porque: atraso!.motivo === 'passou_do_preparo' ? `passou do tempo de preparo (${atraso!.limiteMin} min)` : `passou do vermelho do KDS (${atraso!.limiteMin} min)`,
@@ -614,7 +647,7 @@ export class MisterFerramentasService {
     if (achados > 1) {
       // Mais de um com o mesmo número (o número do dia volta a 1 todo dia): a pessoa escolhe.
       const lista = doCanal.length
-        ? doCanal.map((p) => ({ canal: String(p.canal ?? ''), numero: String(p.displayId ?? p.numero ?? ''), chegou: dataHoraCurta(p.criadoEm), situacao: SITUACAO_DO_PEDIDO[String(p.status)] ?? String(p.status) }))
+        ? doCanal.map((p) => ({ comoAparece: pedidoComoNoQuadro(p), canal: String(p.canal ?? ''), numero: String(p.displayId ?? p.numero ?? ''), chegou: dataHoraCurta(p.criadoEm), situacao: SITUACAO_DO_PEDIDO[String(p.status)] ?? String(p.status) }))
         : cartoesPelaSenha.map((c) => ({ origem: String(c.plataforma || c.origem || ''), senha: String(c.senha ?? ''), chegou: dataHoraCurta(c.criadoEm) }));
       return { ok: true, dados: { loja: loja.nome, maisDeUmPedido: lista, observacao: 'Pergunte qual deles, pelo horário em que chegou.' } };
     }
@@ -677,13 +710,15 @@ export class MisterFerramentasService {
         loja: loja.nome,
         pedido: pe
           ? {
+              comoAparece: pedidoComoNoQuadro(pe),
+              ...(cartoes.length && cartoes[0].senha ? { senhaNaCozinha: String(cartoes[0].senha) } : {}),
               canal: String(pe.canal ?? ''),
               numero: String(pe.displayId ?? pe.numero ?? ''),
               tipo: pe.tipo === 'retirada' ? 'retirada' : 'entrega',
               situacao: SITUACAO_DO_PEDIDO[String(pe.status)] ?? String(pe.status),
               ...(pe.status === 'cancelado' ? { cancelado: quando(pe.canceladoEm), motivo: pe.motivo ? String(pe.motivo) : 'sem motivo anotado' } : {}),
             }
-          : { origem: String(cartoesPelaSenha[0].plataforma || cartoesPelaSenha[0].origem || 'balcão'), senha: String(cartoesPelaSenha[0].senha ?? '') },
+          : { comoAparece: `venda do balcão, senha ${String(cartoesPelaSenha[0].senha ?? '')}`, origem: String(cartoesPelaSenha[0].plataforma || cartoesPelaSenha[0].origem || 'balcão'), senha: String(cartoesPelaSenha[0].senha ?? '') },
         ...(encomendaPara ? { encomendaPara: quando(encomendaPara), observacao: `É encomenda: na cozinha o tempo só começa ${PREPARO_DA_ENCOMENDA_MIN} minutos antes do horário marcado.` } : {}),
         horarios: etapas.map((x) => ({ etapa: x.etapa, hora: quando(x.em) })),
         tempoEntreAsEtapas: conta.trechos.map((t) => ({ de: t.de, ate: t.ate, minutos: t.minutos })),

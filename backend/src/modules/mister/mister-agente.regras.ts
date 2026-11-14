@@ -81,6 +81,7 @@ COMO VOCÊ ESCREVE
 - Português do Brasil, direto, frases curtas. É uma conversa de WhatsApp: até 8 linhas (numa análise ou sugestão pedida, até 15), sem tabela, sem título e sem link.
 - Comece pela resposta. Diga a loja e o período a que o número se refere ("hoje até 20:15", "ontem", "de 01/11 a 07/11").
 - Valores em reais no formato R$ 1.234,56. Horas no formato 20:15. Datas no formato 12/11.
+- Para falar de um pedido, use como ele aparece no quadro do Delivery (o campo "comoAparece", como "#284 · iFood 4821"). A senha da cozinha (D17) vai só entre parênteses, depois: nem toda loja usa o KDS. Venda do balcão sem pedido de canal: "venda do balcão, senha B7".
 - Para destacar use *um asterisco de cada lado* (o negrito do WhatsApp). Não use dois asteriscos, cerquilha nem outro formato.
 - Quando a empresa tem mais de uma loja e a pergunta não diz qual, responda da empresa inteira e diga isso. Pergunte qual loja só quando a resposta mudar muito de uma para outra.
 - Sem julgar uma pessoa da equipe pelo nome, sem conselho jurídico, trabalhista, fiscal ou de saúde (nesses, indique o profissional). Assunto fora da gestão da loja: diga em uma frase que você cuida da loja no Regem.`;
@@ -170,7 +171,7 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
   {
     name: 'vendas_do_periodo',
     description:
-      'As vendas fechadas de um período, as mesmas de Relatórios de vendas: total, faturamento, ticket médio, por forma de pagamento, por canal (mesa, balcão, delivery) e por dia. Use para semana, mês, comparação entre períodos e para forma de pagamento ou canal. Sem período, os últimos 7 dias.',
+      'As vendas fechadas de um período, as mesmas de Relatórios de vendas: total, faturamento, ticket médio, por forma de pagamento, por canal (mesa, balcão, delivery) e por dia; e o relatório de Delivery: os pedidos dos canais, o faturamento e o ticket médio do delivery por plataforma (iFood, 99, cardápio). Use para semana, mês, comparação entre períodos, forma de pagamento, canal e ticket do delivery. Sem período, os últimos 7 dias.',
     input_schema: { type: 'object', properties: { ...PERIODO, loja: LOJA }, additionalProperties: false },
   },
   {
@@ -291,6 +292,34 @@ export function entradaParaATrilha(entrada: unknown): Record<string, string | nu
     else if (typeof v === 'string' && v.trim()) fora[campo] = v.trim().slice(0, 40);
   }
   return fora;
+}
+
+// ───────────────────────────── o pedido como aparece no quadro do Delivery ─────────────────────────────
+// O cartão do quadro mostra o número do dia em destaque ("#284") e, ao lado, o canal com o número dele ("iFood · #4821")
+// — `frontend/src/app/delivery/page.tsx`. A senha da cozinha (D17) só aparece no KDS: quem não usa o KDS não acha o
+// pedido por ela. Os nomes dos canais são os da tela (a spec confere).
+
+export const CANAL_NA_TELA: Record<string, string> = {
+  ifood: 'iFood',
+  cardapio: 'Cardápio',
+  cardapio_web: 'Cardápio Web',
+  anotaai: 'Anota Aí',
+  keeta: 'Keeta',
+  rappi: 'Rappi',
+  '99food': '99Food',
+  delivery_direto: 'Delivery Direto',
+  totem: 'Totem',
+  whatsapp: 'WhatsApp',
+  manual: 'Manual',
+};
+
+/** "#284 · iFood 4821" — o pedido como o quadro do Delivery o mostra. */
+export function pedidoComoNoQuadro(p: { canal?: unknown; numero?: unknown; displayId?: unknown }): string {
+  const canal = CANAL_NA_TELA[String(p.canal ?? '')] ?? String(p.canal ?? '').trim();
+  const doDia = p.numero !== null && p.numero !== undefined && String(p.numero).trim() !== '' ? `#${String(p.numero).trim()}` : '';
+  const doCanal = p.displayId !== null && p.displayId !== undefined && String(p.displayId).trim() !== '' ? String(p.displayId).trim() : '';
+  const lado = [canal, doCanal].filter(Boolean).join(' ');
+  return [doDia, lado].filter(Boolean).join(' · ') || 'pedido sem número';
 }
 
 // ───────────────────────────── o atraso na cozinha (a MESMA regra do KDS) ─────────────────────────────
