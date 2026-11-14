@@ -1,18 +1,25 @@
 import {
   DESTINOS,
+  MARCOS_DO_CERTIFICADO,
   TIPOS_DE_AVISO,
   TIPO_DA_REGRA_DO_VIGIA,
   conferirRegras,
   dentroDaJanelaDoWhatsapp,
   deveEscalar,
+  marcoDoCertificado,
+  mudouDeMarco,
   regraQueVale,
   situacaoDaChave,
+  situacaoDaNotaSemResposta,
   situacaoDoCaixa,
+  situacaoDoCertificadoDaLoja,
   situacaoDoVigia,
   textoDoAviso,
   textoDoDesfecho,
+  textoDoLembrete,
 } from './mister-avisos.regras';
 import { REGRAS_DO_VIGIA } from '../vigia/vigia.regras';
+import { diasParaVencer } from '../fiscal/certificado';
 
 // Os avisos do Mister (mig 419): o padrão aprovado pelo dono em 14/11/2026, a conferência do que a tela salva, de onde vem
 // cada situação e os textos.
@@ -128,5 +135,82 @@ describe('Mister — os avisos: de onde vem a situação e os textos', () => {
     expect(dentroDaJanelaDoWhatsapp(new Date(agora - 23 * 3_600_000), agora)).toBe(true);
     expect(dentroDaJanelaDoWhatsapp(new Date(agora - 24 * 3_600_000), agora)).toBe(false);
     expect(dentroDaJanelaDoWhatsapp(null, agora)).toBe(false);
+  });
+});
+
+describe('Mister — os avisos, parte 2: fiscal', () => {
+  const agora = new Date('2026-11-14T15:00:00Z');
+  const em = (dias: number, horas = 1) => new Date(agora.getTime() + dias * 86_400_000 + horas * 3_600_000);
+
+  it('os dois avisos fiscais já funcionam; os outros dois seguem para a próxima entrega', () => {
+    expect(TIPOS_DE_AVISO.filter((t) => !t.jaFunciona).map((t) => t.tipo)).toEqual(['pedido_parado', 'canal_desconectado']);
+  });
+
+  it('o marco do certificado nas bordas: 60, 30, 15, 7 e 1 dia, e vencido abaixo de zero', () => {
+    expect(MARCOS_DO_CERTIFICADO).toEqual([60, 30, 15, 7, 1]);
+    const casos: [number, string | null][] = [
+      [61, null],
+      [60, '60'],
+      [31, '60'],
+      [30, '30'],
+      [16, '30'],
+      [15, '15'],
+      [8, '15'],
+      [7, '7'],
+      [2, '7'],
+      [1, '1'],
+      [0, '1'],
+      [-1, 'vencido'],
+      [-400, 'vencido'],
+    ];
+    for (const [dias, marco] of casos) expect([dias, marcoDoCertificado(dias)]).toEqual([dias, marco]);
+    expect(marcoDoCertificado(NaN)).toBeNull();
+  });
+
+  it('a conta dos dias é a MESMA da tela do certificado (`diasParaVencer`, V74): o marco sai dela, inclusive nas meias horas', () => {
+    for (const [d, h] of [[61, -1], [60, 23], [30, 0.5], [7, 23.5], [1, 0], [0, 0.1], [0, -0.1], [-2, 0]] as [number, number][]) {
+      const validoAte = em(d, h);
+      const s = situacaoDoCertificadoDaLoja({ tenantId: 't', unidadeId: null, credencialId: 'c', validoAte }, 'Burger', agora);
+      const daTela = diasParaVencer(validoAte, agora);
+      expect([d, h, s?.dados?.marco ?? null]).toEqual([d, h, marcoDoCertificado(daTela)]);
+      if (s) expect(s.dados?.dias).toBe(daTela);
+    }
+  });
+
+  it('o certificado: título com a data (não muda todo dia), os dias no detalhe, o caminho do guia, e vencido', () => {
+    const s = situacaoDoCertificadoDaLoja({ tenantId: 't', unidadeId: 'u', credencialId: 'c1', validoAte: em(10) }, 'Loja Centro', agora)!;
+    expect(s).toMatchObject({ tipo: 'certificado', chave: 'certificado:c1', titulo: 'Loja Centro · certificado digital da nota vence em 24/11', dados: { marco: '15', dias: 10, venceEm: '24/11' } });
+    expect(s.detalhe).toBe('Faltam 10 dias. Sem certificado válido, nenhuma nota fiscal sai, nem em contingência. Renove com a certificadora e envie o novo em Financeiro › Configuração, em "Certificado A1 (.pfx)".');
+    expect(situacaoDoCertificadoDaLoja({ tenantId: 't', unidadeId: 'u', credencialId: 'c1', validoAte: em(9) }, 'Loja Centro', agora)!.titulo).toBe(s.titulo.replace('24/11', '23/11'));
+    expect(situacaoDoCertificadoDaLoja({ tenantId: 't', unidadeId: 'u', credencialId: 'c1', validoAte: em(1) }, 'L', agora)!.detalhe).toMatch(/^Vence amanhã\./);
+    expect(situacaoDoCertificadoDaLoja({ tenantId: 't', unidadeId: 'u', credencialId: 'c1', validoAte: em(0) }, 'L', agora)!.detalhe).toMatch(/^Vence hoje\./);
+    const vencido = situacaoDoCertificadoDaLoja({ tenantId: 't', unidadeId: 'u', credencialId: 'c1', validoAte: em(-3) }, 'L', agora)!;
+    expect(vencido).toMatchObject({ titulo: 'L · certificado digital da nota venceu em 11/11', dados: { marco: 'vencido' } });
+    expect(vencido.detalhe).toMatch(/^Nenhuma nota fiscal sai, nem em contingência, até o certificado novo\./);
+    expect(situacaoDoCertificadoDaLoja({ tenantId: 't', unidadeId: 'u', credencialId: 'c1', validoAte: em(90) }, 'L', agora)).toBeNull();
+  });
+
+  it('a nota sem resposta: número, série, as tentativas e o caminho do guia com o botão', () => {
+    const s = situacaoDaNotaSemResposta({ tenantId: 't', unidadeId: 'u', id: 'n1', numero: 77, serie: 2, tentativas: 12, emitidaEm: new Date('2026-11-13T23:10:00Z') }, 'Loja Centro');
+    expect(s).toEqual({
+      tenantId: 't',
+      unidadeId: 'u',
+      tipo: 'nota_sem_resposta',
+      chave: 'nota:n1',
+      titulo: 'Loja Centro · nota fiscal nº 77 (série 2) sem resposta da SEFAZ',
+      detalhe: 'Emitida em 13/11 às 20:10; o Regem consultou 12 vezes e parou. Consulte de novo em Financeiro › Notas fiscais, em "Consultar na SEFAZ"; se continuar sem resposta, fale com o suporte.',
+      dados: { numero: 77, serie: 2, tentativas: 12 },
+    });
+    expect(situacaoDaNotaSemResposta({ tenantId: 't', unidadeId: null, id: 'n2', numero: 1, serie: 1, tentativas: 12, emitidaEm: null }, 'L').detalhe).toMatch(/^O Regem consultou 12 vezes/);
+  });
+
+  it('o lembrete: só quando o marco do aviso aberto mudou', () => {
+    expect(textoDoLembrete({ titulo: 'L · certificado digital da nota vence em 24/11', detalhe: 'Faltam 7 dias.' })).toBe('🔔 Lembrete: L · certificado digital da nota vence em 24/11.\n\nFaltam 7 dias.');
+    expect(mudouDeMarco({ marco: '7', marcoAnterior: '15' })).toBe(true);
+    expect(mudouDeMarco({ marco: 'vencido', marcoAnterior: '1' })).toBe(true);
+    expect(mudouDeMarco({ marco: '7', marcoAnterior: '7' })).toBe(false);
+    // Aviso sem marco (os outros tipos) nunca lembra.
+    expect(mudouDeMarco({ horas: 30 })).toBe(false);
+    expect(mudouDeMarco(null)).toBe(false);
   });
 });

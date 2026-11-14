@@ -133,6 +133,12 @@ interface PreparoDaTransmissao {
   transmissor: FiscalTransmitter;
 }
 
+/**
+ * Quantas vezes a nota pendente é reconsultada na SEFAZ antes de o Regem desistir sozinho. Exportado para o aviso do Mister
+ * "nota fiscal sem resposta" usar o MESMO número (V74): a nota que gastou todas é a que precisa de uma pessoa.
+ */
+export const MAX_TENTATIVAS_CONSULTA_DA_NOTA = 12;
+
 @Injectable()
 export class FiscalService {
   private readonly log = new Logger(FiscalService.name);
@@ -727,7 +733,7 @@ export class FiscalService {
   // ouvir "não existe" de uma nota que está nascendo. Os outros desfechos (autorizada,
   // cancelada, denegada) são definitivos a qualquer momento — só o 217 espera.
   private static readonly CARENCIA_INEXISTENTE_MS = 2 * 60_000;
-  private static readonly MAX_TENTATIVAS_CONSULTA = 12;
+  private static readonly MAX_TENTATIVAS_CONSULTA = MAX_TENTATIVAS_CONSULTA_DA_NOTA;
 
   // RECUO ENTRE CONSULTAS — minutos de espera conforme o número de tentativas já feitas.
   //

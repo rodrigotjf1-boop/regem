@@ -21,6 +21,7 @@ import { FERRAMENTAS, INSTRUCOES_DO_MISTER, TETOS, TEXTOS_DO_AGENTE } from './mi
 import { MisterAgenteService } from './mister-agente.service';
 import { MisterAvisosConfigService } from './mister-avisos-config.service';
 import { MisterAvisosService } from './mister-avisos.service';
+import { MAX_TENTATIVAS_CONSULTA_DA_NOTA } from '../fiscal/fiscal.service';
 import { MisterEntradaService } from './mister-entrada.service';
 import { MisterFerramentasService } from './mister-ferramentas.service';
 import { MisterFilaService } from './mister-fila.service';
@@ -2314,6 +2315,122 @@ export function testesDoMisterComPostgres(): void {
       expect(await avisos.volta([A])).toMatchObject({ abertos: 1, entregas: 0 });
       expect(numero.enviadas).toEqual([]);
       expect((await avisosDe())[0].entregas).toEqual([expect.objectContaining({ destino: 'presidente', ok: false, motivo: 'ninguem_ligado' })]);
+    });
+
+    // ───────────────────────────── os avisos, parte 2: fiscal ─────────────────────────────
+
+    it('o certificado da nota: só com a emissão ligada; abre no marco, lembra no marco seguinte (uma vez), e renovado resolve', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      await janelaAberta('ana');
+      numero.pedidos.length = 0;
+      avisos.incidentes = [];
+      try {
+        // Emissão desligada: o certificado perto de vencer não incomoda ninguém.
+        await q(`insert into fiscal_config (tenant_id, unidade_id, ativo, ambiente) values ($1, null, false, '2')`, [A]);
+        await q(`insert into fiscal_credencial (tenant_id, unidade_id, cert_valido_ate) values ($1, null, now() + interval '10 days 1 hour')`, [A]);
+        expect(await avisos.volta([A])).toMatchObject({ abertos: 0 });
+        // Ligada: abre no marco de 15 dias, ao presidente.
+        await q(`update fiscal_config set ativo = true where tenant_id = $1`, [A]);
+        expect(await avisos.volta([A])).toMatchObject({ abertos: 1, lembrados: 0 });
+        const [aviso] = await avisosDe();
+        expect(aviso).toMatchObject({ tipo: 'certificado', titulo: expect.stringMatching(/ · certificado digital da nota vence em \d{2}\/\d{2}$/) });
+        expect(aviso.dados).toMatchObject({ marco: '15', dias: 10 });
+        expect(numero.enviadas).toEqual([{ para: tel, texto: expect.stringContaining('Faltam 10 dias.'), botoes: [] }]);
+        expect(numero.enviadas[0].texto).toContain('em Financeiro › Configuração, em "Certificado A1 (.pfx)"');
+        // A volta seguinte, no mesmo marco: nada de novo.
+        expect(await avisos.volta([A])).toMatchObject({ abertos: 0, lembrados: 0 });
+        // Chegou aos 7 dias: o MESMO aviso lembra, uma vez (duas voltas juntas), só pelo WhatsApp.
+        await q(`update fiscal_credencial set cert_valido_ate = now() + interval '5 days 1 hour' where tenant_id = $1`, [A]);
+        const [r1, r2] = await Promise.all([avisos.volta([A]), avisos.volta([A])]);
+        expect(r1.lembrados + r2.lembrados).toBe(1);
+        expect(numero.enviadas).toHaveLength(2);
+        expect(numero.enviadas[1].texto).toMatch(/^🔔 Lembrete: .* certificado digital da nota vence em/);
+        expect(numero.enviadas[1].texto).toContain('Faltam 5 dias.');
+        expect(await avisosDe()).toHaveLength(1);
+        // Venceu: outro lembrete, com o texto de vencido.
+        await q(`update fiscal_credencial set cert_valido_ate = now() - interval '1 hour' where tenant_id = $1`, [A]);
+        expect(await avisos.volta([A])).toMatchObject({ lembrados: 1 });
+        expect(numero.enviadas[2].texto).toMatch(/^🔔 Lembrete: .* certificado digital da nota venceu em/);
+        // Renovado (fora dos 60 dias): resolve, com o desfecho a quem recebeu.
+        await q(`update fiscal_credencial set cert_valido_ate = now() + interval '400 days' where tenant_id = $1`, [A]);
+        expect(await avisos.volta([A])).toMatchObject({ resolvidos: 1 });
+        expect(numero.enviadas[3].texto).toMatch(/^✅ Resolvido: .* certificado digital da nota venceu em/);
+        expect((await avisosDe())[0].entregas.map((e: any) => [e.fase, e.ok])).toEqual([
+          ['abriu', true],
+          ['lembrou', true],
+          ['lembrou', true],
+          ['resolveu', true],
+        ]);
+      } finally {
+        await q(`delete from fiscal_credencial where tenant_id = $1`, [A]);
+        await q(`delete from fiscal_config where tenant_id = $1`, [A]);
+      }
+    });
+
+    it('o certificado: o da loja vale antes do da empresa, e o da empresa em várias lojas vira um aviso só', async () => {
+      avisos.incidentes = [];
+      const [{ id: outra }] = await q(`insert into unidade (tenant_id, nome) values ($1, $2) returning id`, [A, `Loja Norte ${MARCA}`]);
+      try {
+        // A empresa emite (a configuração da empresa vale para as duas lojas) com o certificado da empresa: UM aviso.
+        await q(`insert into fiscal_config (tenant_id, unidade_id, ativo, ambiente) values ($1, null, true, '2')`, [A]);
+        await q(`insert into fiscal_credencial (tenant_id, unidade_id, cert_valido_ate) values ($1, null, now() + interval '20 days 1 hour')`, [A]);
+        expect(await avisos.volta([A])).toMatchObject({ abertos: 1 });
+        expect((await avisosDe()).map((a: any) => [a.tipo, a.unidade_id, a.dados.marco])).toEqual([['certificado', null, '30']]);
+        // A Loja Centro ganha certificado próprio, em dia: o dela vale lá; o da empresa segue valendo na Loja Norte (e na empresa).
+        await q(`insert into fiscal_credencial (tenant_id, unidade_id, cert_valido_ate) values ($1, $2, now() + interval '300 days')`, [A, lojaDeA]);
+        expect(await avisos.volta([A])).toMatchObject({ abertos: 0, resolvidos: 0 });
+        // O da empresa renovado e o da Loja Centro perto de vencer: o da empresa resolve e o da loja abre, com o nome dela.
+        await q(`update fiscal_credencial set cert_valido_ate = now() + interval '400 days' where tenant_id = $1 and unidade_id is null`, [A]);
+        await q(`update fiscal_credencial set cert_valido_ate = now() + interval '3 days 1 hour' where tenant_id = $1 and unidade_id = $2`, [A, lojaDeA]);
+        expect(await avisos.volta([A])).toMatchObject({ abertos: 1, resolvidos: 1 });
+        const abertos = (await avisosDe()).filter((a: any) => a.situacao === 'aberto');
+        expect(abertos.map((a: any) => [a.unidade_id, a.dados.marco, a.titulo.startsWith('Loja Centro · ')])).toEqual([[lojaDeA, '7', true]]);
+      } finally {
+        await q(`delete from fiscal_credencial where tenant_id = $1`, [A]);
+        await q(`delete from fiscal_config where tenant_id = $1`, [A]);
+        await q(`delete from unidade where id = $1`, [outra]);
+      }
+    });
+
+    it('a nota sem resposta: só a que gastou TODAS as reconsultas (o número do fiscal), nunca a simulada; respondida, resolve', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      await janelaAberta('ana');
+      numero.pedidos.length = 0;
+      avisos.incidentes = [];
+      const nota = (numeroDaNota: number, tentativas: number, simulada = false) =>
+        q(
+          `insert into nota_fiscal (tenant_id, unidade_id, serie, numero, status, simulada, chave, tentativas_consulta, emitida_em)
+           values ($1, $2, 9, $3, 'pendente', $4, $5, $6, now() - interval '3 days') returning id`,
+          [A, lojaDeA, numeroDaNota, simulada, `3326${MARCA}${numeroDaNota}`.padEnd(44, '0'), tentativas],
+        );
+      try {
+        await nota(901, MAX_TENTATIVAS_CONSULTA_DA_NOTA - 1); // ainda vai ser reconsultada
+        await nota(902, MAX_TENTATIVAS_CONSULTA_DA_NOTA, true); // simulada não é documento fiscal
+        const [{ id }] = await nota(903, MAX_TENTATIVAS_CONSULTA_DA_NOTA);
+        expect(await avisos.volta([A])).toMatchObject({ abertos: 1 });
+        const [aviso] = await avisosDe();
+        expect(aviso).toMatchObject({ tipo: 'nota_sem_resposta', unidade_id: lojaDeA, titulo: 'Loja Centro · nota fiscal nº 903 (série 9) sem resposta da SEFAZ' });
+        expect(aviso.detalhe).toContain(`consultou ${MAX_TENTATIVAS_CONSULTA_DA_NOTA} vezes e parou`);
+        expect(aviso.detalhe).toContain('em Financeiro › Notas fiscais, em "Consultar na SEFAZ"');
+        // O padrão: caso urgente no Atendimento e o presidente pelo WhatsApp.
+        expect(aviso.entregas.map((e: any) => [e.destino, e.ok])).toEqual(
+          expect.arrayContaining([
+            ['atendimento', true],
+            ['presidente', true],
+          ]),
+        );
+        expect(numero.enviadas).toHaveLength(1);
+        // A SEFAZ respondeu (autorizada): resolve e fecha o caso.
+        await q(`update nota_fiscal set status = 'autorizada' where id = $1`, [id]);
+        expect(await avisos.volta([A])).toMatchObject({ resolvidos: 1 });
+        const caso = aviso.entregas.find((e: any) => e.destino === 'atendimento');
+        const [{ status }] = await q(`select status from atendimento_chamado where id = $1`, [caso.casoId]);
+        expect(status).toBe('resolvido');
+      } finally {
+        await q(`delete from nota_fiscal where tenant_id = $1`, [A]);
+      }
     });
 
     // ───────────────────────────── os relatórios (mig 420) ─────────────────────────────

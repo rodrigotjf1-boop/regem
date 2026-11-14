@@ -379,6 +379,24 @@ Decisão do dono de 14/11/2026 ("use o recomendado"): o suporte de uso nasce de 
 
 **Conferência:** `mister-guia-de-uso.spec.ts` lê o `NAV` do `shell.tsx` e confere, para cada seção, que o caminho e a rota são uma linha do menu com a mesma permissão, o mesmo "só o presidente" e o mesmo módulo; que cada texto entre aspas nos passos está na lista de botões e que cada botão existe LITERALMENTE no `frontend/src`; que nenhum passo escreve um caminho de menu à mão ("›" só pelo `veja`); e que não há valor em reais nem endereço da internet (o filtro de saída tiraria). A busca: 44 perguntas escritas como um dono escreveria, com a seção certa em 1º; 15 perguntas escritas depois do ajuste e medidas sem mexer nele (a certa veio em 1º em 10 de 16 e entre as 3 em 15 de 16), que ficam como guarda das 3 primeiras; e cada seção achada pelo próprio título. A consulta: sem assunto, fora do guia, sem loja, a régua de quem abre (gerente com e sem a permissão, presidente, tela só do presidente). `mister-agente.regras.spec.ts`: a 15ª ferramenta, as instruções novas e o assunto na trilha.
 
+### F1.2b — Os avisos, parte 2a: o grupo Fiscal (sem migration)
+
+Dois dos quatro avisos que faltavam na tabela aprovada em 14/11 passam a funcionar. Os outros dois (pedido parado e iFood ou 99 desconectado) seguem para as próximas entregas e continuam aparecendo na tela como "chega na próxima entrega".
+
+- **Certificado digital perto de vencer** (padrão: o presidente pelo WhatsApp):
+  - **Onde:** só nas lojas com a emissão da nota LIGADA. Sem emissão, o certificado não para nada.
+  - **Qual certificado:** a régua do fiscal — a configuração da loja ou, sem ela, a da empresa (`configRaw`); o certificado da loja ou, sem ele, o da empresa (`obterCredencial`). O mesmo certificado em várias lojas vira um aviso só, porque a chave é a do certificado.
+  - **Quando:** pela MESMA conta da tela (`diasParaVencer`). Abre no primeiro marco (60, 30, 15, 7 ou 1 dia, ou vencido) e, a cada marco seguinte, o MESMO aviso manda um lembrete ("🔔 Lembrete: …"), só pelo WhatsApp — o KDS, a tela e o Atendimento já mostram o aviso aberto. O título leva a data do vencimento, que não muda todo dia; os dias que faltam vão no detalhe. Renovado, o aviso resolve e quem recebeu ganha o desfecho.
+  - **Como o lembrete sai uma vez:** a renovação do aviso grava o marco que estava (`marcoAnterior`, lido da linha antes da troca). Como a linha fica travada na renovação, a segunda réplica já lê o marco novo e não lembra de novo.
+- **Nota fiscal sem resposta** (padrão: caso urgente no Atendimento e o presidente):
+  - **Qual nota:** a pendente, não simulada, com chave, que gastou TODAS as reconsultas. O número é o do fiscal, que passou a ser exportado (`MAX_TENTATIVAS_CONSULTA_DA_NOTA`, hoje 12), para as duas pontas não divergirem (V74).
+  - **Custo:** a consulta usa o índice parcial das pendentes (`idx_nota_pendente_consulta`): a cada minuto, lê só as pendentes.
+  - **Quando resolve:** quando a SEFAZ responde (autorizada, rejeitada ou cancelada). O caso do Atendimento fecha junto.
+- **Onde resolver, no texto do aviso:** o caminho e o botão saem do guia de uso (seções `configurar-nota` e `nota-fiscal`), que a spec do guia confere contra o menu e as telas (V65).
+- **Na nuvem hoje:** nenhuma loja tem a emissão ligada e não há nota pendente, então nada dispara agora. O único certificado cadastrado vence em 18/11/2026; com a emissão desligada, ele não gera aviso.
+
+**Conferência:** `mister-avisos.regras.spec.ts` (os marcos nas bordas; a conta dos dias igual à da tela, inclusive nas meias horas; o título com a data e o detalhe com os dias, hoje, amanhã e vencido; a nota com o número, a série, as tentativas e o caminho do guia; o lembrete só quando o marco muda) e `mister-pg.teste-spec.ts` (o certificado só com a emissão ligada, abre no marco, a volta seguinte calada, o lembrete uma vez com duas voltas juntas, vencido, renovado resolve com o desfecho; o da loja antes do da empresa e o da empresa em várias lojas como um aviso só; a nota que ainda vai ser reconsultada e a simulada fora, o caso urgente e o presidente, respondida resolve e fecha o caso).
+
 ## 5. O que depende do dono
 
 1. ~~Onde a IA roda~~ — decidido: nuvem.
