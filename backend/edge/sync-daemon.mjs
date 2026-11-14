@@ -2474,6 +2474,9 @@ const SO_NUVEM = new Set([
   // Os avisos do Mister (mig 419, @cloud-only): para onde vai cada tipo e os episódios com a trilha. Quem avisa é a nuvem.
   'mister_aviso_regra',
   'mister_aviso',
+  // Os relatórios do Mister (mig 420, @cloud-only): o horário de cada um e cada envio. Quem faz e manda é a nuvem.
+  'mister_relatorio_regra',
+  'mister_relatorio',
 ]);
 
 // LEGADO SEM USO: tabelas criadas nas migrations de fundação (002/003) para recursos que

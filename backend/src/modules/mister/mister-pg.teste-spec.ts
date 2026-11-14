@@ -6,7 +6,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { perfilPadrao } from '../../auth/permissoes';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
-import { hojeISO, somarDias } from '../../common/data';
+import { hojeISO, horaNoFuso, somarDias } from '../../common/data';
 import { uuidDeChave } from '../../common/id-deterministico';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { PausaDoCanalService } from '../delivery/pausa-do-canal.service';
@@ -24,6 +24,8 @@ import { MisterAvisosService } from './mister-avisos.service';
 import { MisterEntradaService } from './mister-entrada.service';
 import { MisterFerramentasService } from './mister-ferramentas.service';
 import { MisterFilaService } from './mister-fila.service';
+import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
+import { MisterRelatoriosService } from './mister-relatorios.service';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { MisterVinculoService } from './mister-vinculo.service';
 import * as regras from './mister.regras';
@@ -275,6 +277,8 @@ export function testesDoMisterComPostgres(): void {
       await q(`delete from mister_pergunta where tenant_id = any($1::uuid[])`, [[A, B]]);
       await q(`delete from mister_aviso where tenant_id = any($1::uuid[])`, [[A, B]]);
       await q(`delete from mister_aviso_regra where tenant_id = any($1::uuid[])`, [[A, B]]);
+      await q(`delete from mister_relatorio where tenant_id = any($1::uuid[])`, [[A, B]]);
+      await q(`delete from mister_relatorio_regra where tenant_id = any($1::uuid[])`, [[A, B]]);
       await q(`delete from mister_vinculo where tenant_id = any($1::uuid[])`, [[A, B]]);
       await q(`delete from mister_mensagem where wamid like $1`, [`wamid.${MARCA}.%`]);
       await q(`delete from mister_conversa where telefone = any($1::text[])`, [telefones]);
@@ -284,7 +288,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -2310,6 +2314,114 @@ export function testesDoMisterComPostgres(): void {
       expect(await avisos.volta([A])).toMatchObject({ abertos: 1, entregas: 0 });
       expect(numero.enviadas).toEqual([]);
       expect((await avisosDe())[0].entregas).toEqual([expect.objectContaining({ destino: 'presidente', ok: false, motivo: 'ninguem_ligado' })]);
+    });
+
+    // ───────────────────────────── os relatórios (mig 420) ─────────────────────────────
+
+    it('a configuração dos relatórios: o padrão desligado, o salvar com a auditoria e as recusas antes de gravar', async () => {
+      const relatoriosConfig = new MisterRelatoriosConfigService(db, auditoria);
+      const tela = await relatoriosConfig.daTela(A);
+      expect(tela.relatorios.map((r) => [r.tipo, r.regra, r.ultimo])).toEqual([
+        ['resumo_dia', { ligado: false, hora: '23:30', diaSemana: null }, null],
+        ['resumo_semana', { ligado: false, hora: '09:00', diaSemana: 1 }, null],
+      ]);
+      const salvo = await relatoriosConfig.salvar(usuario('ana'), { relatorios: [{ tipo: 'resumo_dia', ligado: true, hora: '22:00' }] });
+      expect(salvo.relatorios[0].regra).toEqual({ ligado: true, hora: '22:00', diaSemana: null });
+      const [aud] = auditados.filter((a) => a.acao === 'mister_relatorios_alterados');
+      expect(aud).toMatchObject({ tenantId: A, atorId: pessoa.ana, detalhe: { mudou: [{ tipo: 'resumo_dia', antes: { ligado: false, hora: '23:30' }, depois: { ligado: true, hora: '22:00' } }] } });
+      // A recusa vem antes de gravar: nada muda.
+      await expect(relatoriosConfig.salvar(usuario('ana'), { relatorios: [{ tipo: 'resumo_semana', ligado: true, hora: '09:00' }] })).rejects.toThrow('escolha o dia da semana');
+      expect((await relatoriosConfig.daTela(A)).relatorios[1].regra.ligado).toBe(false);
+      // A rotina vê só o que está ligado; a outra empresa segue no padrão.
+      expect((await relatoriosConfig.ligadas()).filter((l) => [A, B].includes(l.tenantId))).toEqual([{ tenantId: A, tipo: 'resumo_dia', regra: { ligado: true, hora: '22:00', diaSemana: null } }]);
+      expect((await relatoriosConfig.daTela(B)).relatorios[0].regra.ligado).toBe(false);
+    });
+
+    it('a volta dos relatórios: um resumo por pessoa no escopo dela, uma vez, fora da janela sem gastar IA, e os motivos', async () => {
+      const relatoriosConfig = new MisterRelatoriosConfigService(db, auditoria);
+      const pedidos: any[] = [];
+      const trilha = { modelo: 'claude-haiku-5-5', chamadas: 1, tokensEntrada: 10, tokensSaida: 5, ferramentas: [] };
+      let resposta: any = { texto: '**Resumo de sábado, 14/11**\n12 pedidos', motivo: null, trilha, resultados: [] };
+      const agenteDeTeste = {
+        responder: async (escopo: any, memoria: any, pergunta: string, opcoes: any) => {
+          pedidos.push({ quem: escopo.colaboradorId, nivel: escopo.nivel, presa: escopo.presa, memoria, pergunta, opcoes });
+          return resposta;
+        },
+      } as any;
+      const relatorios = new MisterRelatoriosService(db, relatoriosConfig, agenteDeTeste, ferramentas, numero);
+      await modulo(A, true);
+      await numeroConectado(true);
+      const telAna = telefone();
+      const telCarlos = telefone();
+      await ligar('ana', telAna);
+      await ligar('carlos', telCarlos, A, 'gerente');
+      const agora = new Date();
+      // O horário foi 10 minutos atrás (depois da meia-noite, foi ontem — a regra trata a virada).
+      await relatoriosConfig.salvar(usuario('ana'), { relatorios: [{ tipo: 'resumo_dia', ligado: true, hora: horaNoFuso(new Date(agora.getTime() - 10 * 60_000)) }] });
+      // Carlos falou com o Mister há 25 horas: fora da janela da Meta.
+      await q(`update mister_vinculo set ultima_entrada_em = now() - interval '25 hours' where colaborador_id = $1`, [pessoa.carlos]);
+      numero.pedidos.length = 0;
+      expect(await relatorios.volta(agora, [A])).toEqual({ devidos: 1, feitos: 2, enviados: 1, naoEnviados: 1 });
+      // Só a Ana chamou a IA (o Carlos, fora da janela, não gasta), no escopo dela, sem memória e com o recurso do relatório.
+      expect(pedidos).toHaveLength(1);
+      expect(pedidos[0]).toMatchObject({ quem: pessoa.ana, nivel: 'presidente', memoria: [], opcoes: { recurso: 'mister_resumo_dia' } });
+      expect(pedidos[0].pergunta).toContain('Comece com "*Resumo de');
+      // O texto passa pelo filtro de saída (o negrito de dois asteriscos vira o do WhatsApp).
+      expect(numero.enviadas).toEqual([{ para: telAna, texto: '*Resumo de sábado, 14/11*\n12 pedidos', botoes: [] }]);
+      const linhasDe = () => q(`select colaborador_id, situacao, motivo, texto, final_do_telefone from mister_relatorio where tenant_id = $1 order by situacao, colaborador_id`, [A]);
+      expect(await linhasDe()).toEqual([
+        { colaborador_id: pessoa.ana, situacao: 'enviado', motivo: null, texto: '*Resumo de sábado, 14/11*\n12 pedidos', final_do_telefone: telAna.slice(-4) },
+        { colaborador_id: pessoa.carlos, situacao: 'nao_enviado', motivo: 'fora_da_janela_de_24h', texto: null, final_do_telefone: telCarlos.slice(-4) },
+      ]);
+      // A volta seguinte não faz de novo; duas voltas juntas, também não.
+      expect(await relatorios.volta(agora, [A])).toMatchObject({ devidos: 1, feitos: 0 });
+      await Promise.all([relatorios.volta(agora, [A]), relatorios.volta(agora, [A])]);
+      expect(pedidos).toHaveLength(1);
+      // A tela mostra o último envio.
+      expect((await relatoriosConfig.daTela(A)).relatorios[0].ultimo).toMatchObject({ situacao: expect.stringMatching(/^(enviado|nao_enviado)$/) });
+
+      // Outro dia (a linha de hoje some): sem a chave de IA, não sai e fica o motivo; ninguém recebe mensagem.
+      await q(`delete from mister_relatorio where tenant_id = $1`, [A]);
+      await q(`update mister_vinculo set ultima_entrada_em = now() where tenant_id = $1`, [A]);
+      resposta = { texto: null, motivo: 'sem_chave', trilha };
+      numero.pedidos.length = 0;
+      expect(await relatorios.volta(agora, [A])).toMatchObject({ feitos: 2, enviados: 0, naoEnviados: 2 });
+      expect(numero.enviadas).toEqual([]);
+      expect((await linhasDe()).map((l: any) => l.motivo)).toEqual(['sem_chave', 'sem_chave']);
+
+      // O WhatsApp recusou: o texto fica guardado com o motivo do envio.
+      await q(`delete from mister_relatorio where tenant_id = $1`, [A]);
+      resposta = { texto: 'Resumo sem vendas.', motivo: null, trilha, resultados: [] };
+      numero.responder = () => ({ status: 400, corpo: { error: { code: 131047, message: 'Re-engagement message' } } });
+      try {
+        expect(await relatorios.volta(agora, [A])).toMatchObject({ feitos: 2, enviados: 0, naoEnviados: 2 });
+      } finally {
+        numero.responder = () => undefined;
+      }
+      const recusadas = await linhasDe();
+      expect(recusadas.every((l: any) => String(l.motivo).startsWith('envio') && l.texto === 'Resumo sem vendas.')).toBe(true);
+
+      // Quem respondeu PARAR AVISOS não recebe; a chave geral desligada não faz nada (e não gasta).
+      await q(`delete from mister_relatorio where tenant_id = $1`, [A]);
+      await q(`update mister_vinculo set pausado_em = now() where colaborador_id = $1`, [pessoa.carlos]);
+      resposta = { texto: 'Resumo.', motivo: null, trilha, resultados: [] };
+      const antes = pedidos.length;
+      expect(await relatorios.volta(agora, [A])).toMatchObject({ feitos: 1, enviados: 1 });
+      expect(pedidos.slice(antes).map((p) => p.quem)).toEqual([pessoa.ana]);
+      await q(`delete from mister_relatorio where tenant_id = $1`, [A]);
+      await numeroConectado(false);
+      expect(await relatorios.volta(agora, [A])).toEqual({ devidos: 0, feitos: 0, enviados: 0, naoEnviados: 0 });
+      expect(await linhasDe()).toEqual([]);
+      await numeroConectado(true);
+
+      // O relatório desligado não vence; a linha "fazendo" de 40 minutos atrás foi interrompida.
+      await relatoriosConfig.salvar(usuario('ana'), { relatorios: [{ tipo: 'resumo_dia', ligado: false, hora: '22:00' }] });
+      await q(
+        `insert into mister_relatorio (tenant_id, tipo, referencia, colaborador_id, criado_em) values ($1, 'resumo_dia', '2026-01-01', $2, clock_timestamp() - interval '40 minutes')`,
+        [A, pessoa.ana],
+      );
+      expect(await relatorios.volta(agora, [A])).toMatchObject({ devidos: 0 });
+      expect(await linhasDe()).toEqual([expect.objectContaining({ situacao: 'nao_enviado', motivo: 'interrompido' })]);
     });
   });
 }

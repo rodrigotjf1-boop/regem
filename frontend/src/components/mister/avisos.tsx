@@ -20,6 +20,41 @@ type Destino = 'presidente' | 'gerente' | 'tela' | 'kds' | 'atendimento' | 'dms'
 type Regra = { ligado: boolean; destinos: Destino[]; escalaMin: number | null; escalaPara: Destino[]; parametro: number | null };
 type AvisoNaTela = { tipo: string; grupo: string; titulo: string; descricao: string; jaFunciona: boolean; regra: Regra; padrao: boolean };
 type DaTela = { avisos: AvisoNaTela[]; destinos: { id: Destino; nome: string }[] };
+type RegraDoRelatorio = { ligado: boolean; hora: string; diaSemana: number | null };
+type RelatorioNaTela = {
+  tipo: string;
+  titulo: string;
+  descricao: string;
+  regra: RegraDoRelatorio;
+  ultimo: { referencia: string; situacao: string; motivo: string | null; em: string } | null;
+};
+
+/** Os relatórios (mig 420) ficam nos mesmos valores da tela, com a chave `rel:<tipo>`. */
+const REL = 'rel:';
+const DIAS_DA_SEMANA = ['segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado', 'domingo'];
+const paraValorDoRelatorio = (r: RegraDoRelatorio): string => JSON.stringify({ ligado: r.ligado, hora: r.hora, diaSemana: r.diaSemana });
+const deValorDoRelatorio = (v: Valor | undefined): RegraDoRelatorio => {
+  try {
+    const r = JSON.parse(String(v ?? ''));
+    return { ligado: !!r.ligado, hora: String(r.hora ?? ''), diaSemana: r.diaSemana ?? null };
+  } catch {
+    return { ligado: false, hora: '', diaSemana: null };
+  }
+};
+/** O motivo de um relatório que não saiu, em português (o servidor guarda o código). */
+const MOTIVO_DO_RELATORIO: Record<string, string> = {
+  fora_da_janela_de_24h: 'a pessoa não falou com o Mister nas últimas 24 horas',
+  sem_acesso: 'a pessoa não tem mais acesso ao Mister',
+  sem_chave: 'sem a chave de IA',
+  chave_recusada: 'a chave de IA foi recusada',
+  sem_credito: 'a chave de IA está sem crédito',
+  teto_atingido: 'a chave de IA chegou ao teto de gasto',
+  interrompido: 'o servidor reiniciou no meio',
+};
+const quandoFoi = (iso: string) => {
+  const d = new Date(iso);
+  return `${d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} às ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+};
 
 const ORDEM: Destino[] = ['presidente', 'gerente', 'tela', 'kds', 'atendimento', 'dms'];
 const TEMPOS_DA_ESCALA = [5, 15, 30, 120];
@@ -146,23 +181,34 @@ export function AvisosDoMister() {
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
   const [mudando, setMudando] = useState<AvisoNaTela | null>(null);
+  const [relatorios, setRelatorios] = useState<RelatorioNaTela[] | null>(null);
 
+  // Cada parte (avisos e relatórios) troca só os SEUS valores: salvar uma e falhar a outra mantém a pendência da que falhou.
   const aplicar = useCallback((d: DaTela) => {
     const v: Valores = {};
     for (const a of d.avisos) v[a.tipo] = paraValor(a.regra);
     setDados(d);
-    setSalvos(v);
-    setValores(v);
+    setSalvos((s) => ({ ...s, ...v }));
+    setValores((x) => ({ ...x, ...v }));
+  }, []);
+  const aplicarRelatorios = useCallback((rs: RelatorioNaTela[]) => {
+    const v: Valores = {};
+    for (const r of rs) v[REL + r.tipo] = paraValorDoRelatorio(r.regra);
+    setRelatorios(rs);
+    setSalvos((s) => ({ ...s, ...v }));
+    setValores((x) => ({ ...x, ...v }));
   }, []);
 
   const ler = useCallback(async () => {
     setErroLeitura(false);
     try {
-      aplicar((await api.get('/mister/avisos')) as DaTela);
+      const [d, r] = await Promise.all([api.get('/mister/avisos'), api.get('/mister/relatorios')]);
+      aplicar(d as DaTela);
+      aplicarRelatorios(((r as { relatorios?: RelatorioNaTela[] })?.relatorios ?? []) as RelatorioNaTela[]);
     } catch {
       setErroLeitura(true);
     }
-  }, [aplicar]);
+  }, [aplicar, aplicarRelatorios]);
 
   useEffect(() => {
     void ler();
@@ -174,7 +220,7 @@ export function AvisosDoMister() {
     if (!dados) return [];
     const porGrupo = new Map<string, AvisoNaTela[]>();
     for (const a of dados.avisos) porGrupo.set(a.grupo, [...(porGrupo.get(a.grupo) ?? []), a]);
-    return [...porGrupo.entries()].map(([titulo, avisos]) => ({
+    const dosAvisos: GrupoDeAjustes[] = [...porGrupo.entries()].map(([titulo, avisos]) => ({
       titulo,
       itens: avisos.map((a) => {
         const r = deValor(valores[a.tipo]);
@@ -236,7 +282,72 @@ export function AvisosDoMister() {
         };
       }),
     }));
-  }, [dados, valores, nomes]);
+    if (!relatorios?.length) return dosAvisos;
+    const doGrupo: GrupoDeAjustes = {
+      titulo: 'Relatórios',
+      nota: (
+        <span className={`text-sm ${texto2}`}>
+          Usam a IA: cada um soma no &quot;Uso da IA&quot;. O resumo chega pelo WhatsApp a quem ligou o próprio número em Pessoas e falou com o Mister nas
+          últimas 24 horas — a regra da Meta para a mensagem que não é um modelo aprovado.
+        </span>
+      ),
+      itens: relatorios.map((rel) => ({
+        id: REL + rel.tipo,
+        rotulo: rel.titulo,
+        tipo: 'livre' as const,
+        palavras: `${rel.descricao} resumo relatório`,
+        ajuda: (
+          <>
+            <span className="block">{rel.descricao}</span>
+            {rel.ultimo && (
+              <span className="mt-1 block text-xs">
+                {rel.ultimo.situacao === 'enviado'
+                  ? `Último: saiu em ${quandoFoi(rel.ultimo.em)}.`
+                  : rel.ultimo.situacao === 'fazendo'
+                    ? 'Saindo agora.'
+                    : `Último: não saiu em ${quandoFoi(rel.ultimo.em)} — ${MOTIVO_DO_RELATORIO[rel.ultimo.motivo ?? ''] ?? 'não deu para fazer'}.`}
+              </span>
+            )}
+          </>
+        ),
+        desenhar: (v: Valor, mudar: (x: Valor) => void) => {
+          const atual = deValorDoRelatorio(v);
+          return (
+            <span className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
+              {rel.tipo === 'resumo_semana' && (
+                <label className="flex items-center gap-1 text-sm">
+                  <span className="sr-only">Dia do {rel.titulo.toLowerCase()}</span>
+                  <select
+                    className="min-h-10 rounded-md border border-input bg-background px-2"
+                    value={atual.diaSemana ?? 1}
+                    onChange={(e) => mudar(paraValorDoRelatorio({ ...atual, diaSemana: Number(e.target.value) }))}
+                  >
+                    {DIAS_DA_SEMANA.map((d, i) => (
+                      <option key={d} value={i + 1}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <label className="flex items-center gap-1 text-sm">
+                <span className="sr-only">Horário do {rel.titulo.toLowerCase()}</span>
+                <input
+                  type="time"
+                  className="min-h-10 rounded-md border border-input bg-background px-2"
+                  value={atual.hora}
+                  required
+                  onChange={(e) => e.target.value && mudar(paraValorDoRelatorio({ ...atual, hora: e.target.value }))}
+                />
+              </label>
+              <Chave ligada={atual.ligado} rotulo={rel.titulo} aoMudar={(l) => mudar(paraValorDoRelatorio({ ...atual, ligado: l }))} />
+            </span>
+          );
+        },
+      })),
+    };
+    return [...dosAvisos, doGrupo];
+  }, [dados, valores, nomes, relatorios]);
 
   const salvar = async () => {
     if (!dados) return;
@@ -244,8 +355,12 @@ export function AvisosDoMister() {
     setErro('');
     try {
       const regras = dados.avisos.filter((a) => valores[a.tipo] !== salvos[a.tipo]).map((a) => ({ tipo: a.tipo, ...deValor(valores[a.tipo]) }));
-      aplicar((await api.patch('/mister/avisos', { regras })) as DaTela);
-      toast.success('Avisos do Mister salvos.');
+      const rels = (relatorios ?? [])
+        .filter((r) => valores[REL + r.tipo] !== salvos[REL + r.tipo])
+        .map((r) => ({ tipo: r.tipo, ...deValorDoRelatorio(valores[REL + r.tipo]) }));
+      if (regras.length) aplicar((await api.patch('/mister/avisos', { regras })) as DaTela);
+      if (rels.length) aplicarRelatorios(((await api.patch('/mister/relatorios', { relatorios: rels })) as { relatorios: RelatorioNaTela[] }).relatorios);
+      toast.success(rels.length && !regras.length ? 'Relatórios do Mister salvos.' : 'Avisos do Mister salvos.');
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Não deu para salvar.');
     } finally {
@@ -268,7 +383,7 @@ export function AvisosDoMister() {
     <div className="space-y-4">
       <Ajustes
         id="mister-avisos"
-        titulo="Avisos"
+        titulo="Avisos e relatórios"
         grupos={grupos}
         valores={valores}
         salvos={salvos}
@@ -287,10 +402,6 @@ export function AvisosDoMister() {
           </p>
         }
       />
-      <Card className="p-4">
-        <p className="font-display font-semibold">Relatórios</p>
-        <p className={`text-sm ${texto2}`}>O resumo do dia e o resumo da semana, no horário que você escolher, chegam numa próxima entrega.</p>
-      </Card>
       {mudando && (
         <GavetaDoDestino
           aviso={mudando}

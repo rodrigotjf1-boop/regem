@@ -18,6 +18,7 @@ import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { MisterAgenteService } from './mister-agente.service';
 import { MisterAvisosService } from './mister-avisos.service';
 import { MisterFerramentasService } from './mister-ferramentas.service';
+import { MisterRelatoriosService } from './mister-relatorios.service';
 import { MisterModule } from './mister.module';
 
 // O AGENTE DE IA DO MISTER (mig 418; `docs/plano-mister.md`, F2): responde às perguntas da fila.
@@ -52,7 +53,8 @@ import { MisterModule } from './mister.module';
     AtendimentoModule,
     KdsModule,
   ],
-  providers: [MisterFerramentasService, MisterAgenteService, MisterAvisosService],
+  // Os relatórios (mig 420) moram aqui: escrevem pelo mesmo agente das perguntas.
+  providers: [MisterFerramentasService, MisterAgenteService, MisterAvisosService, MisterRelatoriosService],
   exports: [MisterAgenteService, MisterAvisosService],
 })
 export class MisterAgenteModule {}

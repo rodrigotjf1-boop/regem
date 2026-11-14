@@ -331,6 +331,20 @@ A primeira parte da F3 ("vigilância de dependências e integrações"). A 12ª 
 
 **Conferência:** `mister-agente.regras.spec.ts` (o certificado nas bordas da conta da tela) e `mister-pg.teste-spec.ts` (os canais com a pausa e o último pedido, o pedido apagado e o de outra empresa fora, a 99, o WhatsApp, a nota fiscal com cada situação, as permissões, as várias lojas e o certificado vencido), também com o banco em UTC; prova por defeito com 5 defeitos, todos acusados; `app-sobe.spec.ts` (os módulos novos no agente).
 
+### F3.2 — Os relatórios: o resumo do dia e o da semana (migration 420)
+
+A quinta entrega do protótipo, parte dos relatórios ("Avisos e relatórios" › Relatórios). Fica em cima dos avisos (F1.2, migration 419) porque divide a mesma parte da tela e a mesma barra de salvar.
+
+- **O que entra:** a migration 420 (`@cloud-only`) com `mister_relatorio_regra` (o horário de cada relatório por empresa; sem linha, o padrão, desligado) e `mister_relatorio` (cada envio a uma pessoa, com o texto ou o motivo de não ter saído); as rotas `GET/PATCH mister/relatorios` (presidente); o grupo "Relatórios" na tela, como no protótipo (o resumo do dia com o horário, o da semana com o dia e o horário, a mesma barra de "Salvar alterações").
+- **Quando vence** (`relatorioDevido`): do horário escolhido até 3 horas depois. Passou disso, o resumo não sai, porque resumo atrasado demais não serve. O horário pode ter sido ontem quando a hora já virou o dia (23:30 conferido às 00:40). O resumo do dia marcado antes das 6 h é da noite que passou. O da semana sai só no dia escolhido e cobre os 7 dias até a véspera: na segunda, a semana passada inteira.
+- **Quem recebe:** o presidente e os gerentes ligados ao Mister que não responderam PARAR AVISOS, a mesma régua dos avisos. Cada pessoa recebe UM resumo no escopo dela: o presidente, da empresa; o gerente, da loja dele.
+- **Quem escreve:** o MESMO agente das perguntas, com as consultas, os tetos e o filtro de saída, a partir de uma pergunta fixa com o período por extenso e o começo da mensagem do protótipo ("*Resumo de quinta, 12/11*"). Cada relatório soma no seu recurso do "Uso da IA" (`mister_resumo_dia`, `mister_resumo_semana`).
+- **A vez de fazer:** a linha de `mister_relatorio` é única por empresa, tipo, referência e pessoa. Quem insere primeiro faz, e a volta repetida e a réplica a mais não chamam a IA de novo. A linha "fazendo" com mais de 30 minutos foi interrompida: vira "não enviado" e não se refaz.
+- **A janela de 24 horas da Meta:** fora dela, a mensagem livre não chega. O Mister confere a janela ANTES da IA, então nada se gasta, e a linha fica "não enviado / fora da janela". A tela mostra o último envio e o motivo em português. O modelo de mensagem aprovado pela Meta, que entrega fora da janela, é a parte 2 (junto com o dos avisos) e depende do dono.
+- **Sem a chave de IA, sem crédito ou no teto:** não sai, e o motivo fica na linha. A pessoa não recebe mensagem de erro, porque o relatório não é uma conversa que ela abriu.
+
+**Conferência:** `mister-relatorios.regras.spec.ts` (quando vence nas bordas: o horário, as 3 horas, a virada do dia, antes das 6 h, a semana; o relógio de São Paulo; as recusas da tela; a pergunta) e `mister-pg.teste-spec.ts` (a configuração com a auditoria e a recusa antes de gravar; a volta: um resumo por pessoa, o fora da janela sem IA, a vez da linha com duas voltas juntas, o filtro de saída, sem a chave, o envio recusado, PARAR AVISOS, a chave geral desligada, a linha interrompida), também com o banco em UTC; prova por defeito com 8 defeitos, todos acusados; o roteiro de tela do Mister (298 conferências, com a foto do cartão em 320, 375 e 1440 px).
+
 ### F3.3 — Leitura especializada, parte 2: a conferência do cardápio com os apps (sem migration)
 
 A 13ª consulta, **`conferencia_do_catalogo`**, responde "os preços do iFood batem com o Regem?" e "tem produto faltando na 99?".
