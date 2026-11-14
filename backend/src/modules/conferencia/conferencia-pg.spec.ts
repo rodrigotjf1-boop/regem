@@ -205,6 +205,44 @@ descrever('Conferir com os apps (Postgres real, Orzuni e 99 falsos)', () => {
     expect(leiturasIfood).toBe(3);
   });
 
+  it('o resumo da leitura guardada (o Mister): não lê o app; a mesma conta da tela; nunca lida; desligada', async () => {
+    const e = await empresa();
+    // Antes de qualquer leitura: os dois apps ligados e nunca lidos — e o resumo NÃO lê o app.
+    expect(await svc.resumoGuardado(e.t, e.lojas[0])).toEqual({
+      ligada: true,
+      loja: { id: e.lojas[0], nome: 'Loja 1' },
+      canais: {
+        ifood: { ligado: true, motivo: null, lidoEm: null, ultimaLeituraFalhou: null, aResolver: null, porSituacao: null, exemplos: [] },
+        '99food': { ligado: true, motivo: null, lidoEm: null, ultimaLeituraFalhou: null, aResolver: null, porSituacao: null, exemplos: [] },
+      },
+    });
+    expect(leiturasIfood).toBe(0);
+    // Depois da leitura da tela: as mesmas 4 a resolver do botão do iFood, por situação, com os exemplos.
+    const tela = await svc.conferir(e.t, null, 'ifood', false);
+    const r: any = await svc.resumoGuardado(e.t, e.lojas[0]);
+    expect(leiturasIfood).toBe(1);
+    expect(r.canais.ifood.aResolver).toBe(tela.canais.ifood.pendentes);
+    expect(r.canais.ifood).toMatchObject({ ligado: true, lidoEm: tela.lidoEm, aResolver: 4, porSituacao: { soNoApp: 1, soNoRegem: 1, precoDiferente: 2, naoLigaPeloCodigo: 0 } });
+    expect(r.canais.ifood.exemplos).toEqual(
+      expect.arrayContaining([
+        { tipo: 'produto', nome: 'X-Salada', codigoPdv: '2052', situacao: 'preco', motivo: 'precoDiferente', precoNoApp: [29.9], precoNoRegem: 32.9 },
+        { tipo: 'complemento', nome: 'Bacon extra', codigoPdv: 'A01', situacao: 'preco', motivo: 'precoDiferente', precoNoApp: [7], precoNoRegem: 6 },
+      ]),
+    );
+    expect(r.canais.ifood.exemplos.map((x: any) => x.nome)).not.toContain('X-Bacon'); // igual não é exemplo
+    // Ignorada pela tela, sai da conta (como no botão).
+    await svc.ignorar(e.t, null, { canal: 'ifood', tipo: 'item', chave: 'pdv:3000', nome: 'Combo do app' }, gestor);
+    expect(((await svc.resumoGuardado(e.t, e.lojas[0])) as any).canais.ifood.aResolver).toBe(3);
+    expect(leiturasIfood).toBe(1);
+    // Sem a 99 na loja: o motivo, sem leitura.
+    const sem99 = await empresa({ com99: false });
+    expect(((await svc.resumoGuardado(sem99.t, sem99.lojas[0])) as any).canais['99food']).toMatchObject({ ligado: false, motivo: expect.stringContaining('não está conectada à 99'), lidoEm: null });
+    // Desligada na empresa; loja de outra empresa.
+    const off = await empresa({ conferir: false });
+    expect(await svc.resumoGuardado(off.t, off.lojas[0])).toEqual({ ligada: false });
+    expect(await svc.resumoGuardado(e.t, off.lojas[0])).toEqual({ ligada: true, loja: null, canais: null });
+  });
+
   it('duas telas juntas fazem UMA leitura: a outra recebe "lendo" (sem leitura anterior) ou a anterior com "lendo agora"', async () => {
     const e = await empresa();
     let soltar!: () => void;

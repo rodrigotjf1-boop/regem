@@ -1866,6 +1866,67 @@ export function testesDoMisterComPostgres(): void {
       expect((await comCurva.executar(semValores, 'produtos_mais_vendidos', { ordem: 'lucro' })).dados.erro).toContain('não dá para ordenar por lucro');
     });
 
+    it('a conferência do cardápio com os apps: a leitura guardada da loja, em português, com a permissão da tela', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+      const [{ id: loja }] = await q(`select id from unidade where tenant_id = $1`, [A]);
+      const pedidos: any[] = [];
+      let resposta: any = {
+        ligada: true,
+        loja: { id: loja, nome: 'Loja Centro' },
+        canais: {
+          ifood: {
+            ligado: true, motivo: null, lidoEm: '2026-11-14T12:05:00.000Z', ultimaLeituraFalhou: null, aResolver: 2,
+            porSituacao: { soNoApp: 1, soNoRegem: 0, precoDiferente: 1, naoLigaPeloCodigo: 0 },
+            exemplos: [
+              { tipo: 'produto', nome: 'X-Salada', codigoPdv: '2052', situacao: 'preco', motivo: 'precoDiferente', precoNoApp: [29.9], precoNoRegem: 32.9 },
+              { tipo: 'produto', nome: 'Combo', codigoPdv: null, situacao: 'soApp', motivo: 'semCodigo', precoNoApp: [59.9], precoNoRegem: null },
+            ],
+          },
+          '99food': { ligado: false, motivo: 'Esta loja não está conectada à 99.', lidoEm: null, ultimaLeituraFalhou: null, aResolver: null, porSituacao: null, exemplos: [] },
+        },
+      };
+      const comConferencia = new MisterFerramentasService(
+        db, modulos, null as any, null as any, null as any, null as any, null as any, null as any, null as any, null as any, null as any,
+        undefined, undefined, undefined, undefined,
+        { resumoGuardado: async (t: string, l: string) => (pedidos.push([t, l]), resposta) } as any,
+      );
+      const r = await comConferencia.executar(e, 'conferencia_do_catalogo', {});
+      expect(r.ok).toBe(true);
+      // Empresa de uma loja: a loja vai ao serviço mesmo sem ser pedida.
+      expect(pedidos).toEqual([[A, loja]]);
+      expect(r.dados).toEqual({
+        loja: 'Loja Centro',
+        apps: [
+          {
+            app: 'iFood', lidoEm: '14/11 09:05', aResolver: 2,
+            porSituacao: { soNoApp: 1, soNoRegem: 0, precoDiferente: 1, naoLigaPeloCodigo: 0 },
+            exemplos: [
+              { tipo: 'produto', nome: 'X-Salada', codigoPdv: '2052', situacao: 'preço diferente', porque: 'preço diferente', precoNoApp: [29.9], precoNoRegem: 32.9 },
+              { tipo: 'produto', nome: 'Combo', codigoPdv: null, situacao: 'só no app', porque: 'sem código PDV no app', precoNoApp: [59.9], precoNoRegem: null },
+            ],
+          },
+          { app: '99', ligado: false, motivo: 'Esta loja não está conectada à 99.', lidoEm: null, observacao: 'Nunca foi lido pela tela "Conferir com os apps".' },
+        ],
+      });
+      // Quem não vê valores: sem os preços.
+      const semValores = { ...e, nivel: 'gerente' as const, verValores: false, permissoes: { loja: true } as any };
+      const sv = await comConferencia.executar(semValores, 'conferencia_do_catalogo', {});
+      expect((sv.dados.apps as any[])[0].exemplos[0]).not.toHaveProperty('precoNoApp');
+      expect(sv.dados.aviso).toContain('não mostra valores');
+      // Sem a permissão da tela; desligada na empresa; várias lojas sem escolher.
+      expect((await comConferencia.executar({ ...e, nivel: 'gerente' as const, permissoes: { delivery: true } as any }, 'conferencia_do_catalogo', {})).dados.erro).toContain('não dá acesso');
+      resposta = { ligada: false };
+      expect((await comConferencia.executar(e, 'conferencia_do_catalogo', {})).dados).toMatchObject({ ligada: false, observacao: expect.stringContaining('não está ligada') });
+      const duas = { ...e, lojaUnica: false, lojas: [{ id: loja, nome: 'Centro' }, { id: randomUUID(), nome: 'Praia' }] };
+      pedidos.length = 0;
+      expect((await comConferencia.executar(duas, 'conferencia_do_catalogo', {})).dados.erro).toContain('é por loja. As lojas são: 1. Centro; 2. Praia');
+      expect(pedidos).toEqual([]);
+      expect(((await comConferencia.executar(duas, 'conferencia_do_catalogo', { loja: 'Praia' })).ok)).toBe(true);
+      expect(pedidos).toEqual([[A, duas.lojas[1].id]]);
+    });
+
     it('os canais e as integrações: a pausa e o último pedido de cada canal, o login da 99, o WhatsApp da loja e a nota fiscal', async () => {
       const tel = telefone();
       await ligar('ana', tel);

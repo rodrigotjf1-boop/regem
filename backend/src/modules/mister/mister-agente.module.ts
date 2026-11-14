@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConferenciaModule } from '../conferencia/conferencia.module';
 import { DashboardModule } from '../dashboard/dashboard.module';
 import { DeliveryModule } from '../delivery/delivery.module';
 import { EscalaModule } from '../escala/escala.module';
@@ -40,6 +41,8 @@ import { MisterModule } from './mister.module';
     // F3 (os canais e as integrações): o login da 99 e o WhatsApp da loja. A pausa vem do DeliveryModule.
     IntegracoesModule,
     WhatsappModule,
+    // F3, parte 2: a conferência do catálogo (a leitura guardada).
+    ConferenciaModule,
   ],
   providers: [MisterFerramentasService, MisterAgenteService],
   exports: [MisterAgenteService],

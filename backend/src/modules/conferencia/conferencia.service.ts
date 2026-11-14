@@ -73,6 +73,22 @@ export type RespostaDaConferencia = {
 };
 
 type Loja = { id: string; nome: string };
+
+/** No máximo estes exemplos por app no resumo guardado (o Mister). */
+const EXEMPLOS_DO_RESUMO = 8;
+export type ResumoDoApp = {
+  ligado: boolean;
+  motivo: string | null;
+  lidoEm: string | null;
+  ultimaLeituraFalhou: { erro: string; em: string | null } | null;
+  /** `null` = nunca lida. */
+  aResolver: number | null;
+  porSituacao: { soNoApp: number; soNoRegem: number; precoDiferente: number; naoLigaPeloCodigo: number } | null;
+  exemplos: Array<{ tipo: string; nome: string; codigoPdv: string | null; situacao: string; motivo: string | null; precoNoApp: number[]; precoNoRegem: number | null }>;
+};
+export type ResumoDaConferenciaGuardada =
+  | { ligada: false }
+  | { ligada: true; loja: { id: string; nome: string } | null; canais: Record<CanalConferido, ResumoDoApp> | null };
 type Disponivel = { ok: true; ig?: IntegFood99 } | { ok: false; motivo: string };
 /** As fotos de um app pela última leitura: por produto (F6) e por complemento (G3); `null` = sem foto lá. */
 export type FotosDoCanal = { lidoEm: string; porProduto: Record<string, string | null>; porOpcao: Record<string, string | null> };
@@ -323,6 +339,49 @@ export class ConferenciaService {
     if (ehServidorLocal()) return this.conferirPelaNuvem(tenantId, unidade, canal, ler);
     const loja = await this.loja(tenantId, unidade);
     return this.conferirNaLoja(tenantId, loja, canal, ler);
+  }
+
+  /**
+   * O resumo da ÚLTIMA leitura guardada de cada app numa loja, SEM chamar o app (o Mister, F3): quando foi lida, quantas
+   * linhas em cada situação e alguns exemplos. A conta é a da tela (`comparar` e `pendentes`, com os ignorados). Só na
+   * nuvem (é onde a leitura fica); desligada na empresa, `{ ligada: false }`.
+   */
+  async resumoGuardado(tenantId: string, lojaId: string): Promise<ResumoDaConferenciaGuardada> {
+    if (!(await conferirAppsLigado(this.db, tenantId))) return { ligada: false };
+    const [l] = await this.rows(sql`select id, nome from unidade where id = ${lojaId} and tenant_id = ${tenantId} and deleted_at is null`);
+    if (!l) return { ligada: true, loja: null, canais: null };
+    const lado = await this.regem(tenantId, lojaId);
+    const canais = {} as Record<CanalConferido, ResumoDoApp>;
+    for (const canal of CANAIS_CONFERIDOS) {
+      const disp = await this.disponivel(tenantId, lojaId, canal);
+      const g = await this.leituraGuardada(tenantId, lojaId, canal);
+      const base = { ligado: disp.ok, motivo: disp.ok ? null : disp.motivo, lidoEm: iso(g?.lido_em), ultimaLeituraFalhou: g?.erro ? { erro: String(g.erro), em: iso(g.erro_em) } : null };
+      if (!g?.lido_em) {
+        canais[canal] = { ...base, aResolver: null, porSituacao: null, exemplos: [] };
+        continue;
+      }
+      const { itens, opcoes } = await this.linhas(tenantId, lojaId, canal, g, lado);
+      const todas = [...itens, ...opcoes];
+      const conta = (s: string) => todas.filter((x) => x.situacao === s).length;
+      canais[canal] = {
+        ...base,
+        aResolver: pendentes(todas),
+        porSituacao: { soNoApp: conta('soApp'), soNoRegem: conta('soRegem'), precoDiferente: conta('preco'), naoLigaPeloCodigo: conta('naoLiga') },
+        exemplos: todas
+          .filter((x) => x.situacao !== 'igual' && x.situacao !== 'ignorada')
+          .slice(0, EXEMPLOS_DO_RESUMO)
+          .map((x) => ({
+            tipo: x.tipo === 'item' ? 'produto' : 'complemento',
+            nome: x.nome,
+            codigoPdv: x.pdv,
+            situacao: x.situacao,
+            motivo: x.motivo,
+            precoNoApp: x.precos,
+            precoNoRegem: x.regem?.preco ?? null,
+          })),
+      };
+    }
+    return { ligada: true, loja: { id: String(l.id), nome: String(l.nome) }, canais };
   }
 
   /** O mesmo, na NUVEM, para uma loja já conferida (a tela daqui e o servidor da loja). */

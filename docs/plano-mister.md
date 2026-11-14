@@ -312,6 +312,17 @@ A primeira parte da F3 ("vigilância de dependências e integrações"). A 12ª 
 
 **Conferência:** `mister-agente.regras.spec.ts` (o certificado nas bordas da conta da tela) e `mister-pg.teste-spec.ts` (os canais com a pausa e o último pedido, o pedido apagado e o de outra empresa fora, a 99, o WhatsApp, a nota fiscal com cada situação, as permissões, as várias lojas e o certificado vencido), também com o banco em UTC; prova por defeito com 5 defeitos, todos acusados; `app-sobe.spec.ts` (os módulos novos no agente).
 
+### F3.3 — Leitura especializada, parte 2: a conferência do cardápio com os apps (sem migration)
+
+A 13ª consulta, **`conferencia_do_catalogo`**, responde "os preços do iFood batem com o Regem?" e "tem produto faltando na 99?".
+
+- **De onde vem:** a ÚLTIMA leitura guardada pela tela "Conferir com os apps" (Delivery › Gestão do catálogo). O método novo `ConferenciaService.resumoGuardado` faz a mesma conta da tela (`comparar` e `pendentes`, com os ignorados) e **nunca lê o app**: quem lê é a tela, no máximo uma vez por dia sozinha ou pelo "Ler agora".
+- **O que traz, por app:** se está ligado (com o motivo quando não), quando foi lido, se a última leitura falhou, quantas linhas há a resolver e quantas em cada situação (só no app, só no Regem, preço diferente, não liga pelo código PDV), e até 8 exemplos em português. Os preços dos exemplos vão só para quem vê valores em reais.
+- **Regras:** a permissão é a da tela (`loja`); é por loja, então numa empresa de várias o Mister pergunta qual; a empresa sem a conferência ligada recebe que ela não está ligada. O Mister é instruído a dizer a data da leitura, porque uma leitura antiga não mostra o que mudou depois dela.
+- **Fica para a próxima parte:** a conciliação de pedido, pagamento e nota (os pedidos pagos online sem o pagamento confirmado, as vendas sem nota quando ela é obrigatória).
+
+**Conferência:** `conferencia-pg.spec.ts` (o resumo com a tabela só-nuvem que a suíte já cria — ERR-451: não lê o app, bate com o botão da tela, tira o ignorado, nunca lida, sem a 99, desligada, loja de outra empresa) e `mister-pg.teste-spec.ts` (a consulta em português, a loja da empresa de uma loja, sem valores, sem a permissão, desligada, várias lojas), também com o banco em UTC; prova por defeito com 7 defeitos, todos acusados; `app-sobe.spec.ts` (o módulo da conferência no agente).
+
 ## 5. O que depende do dono
 
 1. ~~Onde a IA roda~~ — decidido: nuvem.

@@ -20,5 +20,7 @@ import { TaxasService } from './taxas.service';
   imports: [EquipamentoModule, OrzuniModule, IntegracoesModule, MidiaModule],
   controllers: [ConferenciaController, ConferenciaLojaController, TaxasController, TaxasLojaController],
   providers: [ConferenciaService, TaxasService],
+  // O Mister lê o resumo da última leitura guardada (`resumoGuardado`, F3 parte 2).
+  exports: [ConferenciaService],
 })
 export class ConferenciaModule {}
