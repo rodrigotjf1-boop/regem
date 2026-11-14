@@ -1,4 +1,5 @@
-import { somarDias } from '../../common/data';
+import { FUSO_OPERACAO, somarDias } from '../../common/data';
+import { diasParaVencer } from '../fiscal/certificado';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -59,7 +60,7 @@ export const INSTRUCOES_DO_MISTER = `Você é o Mister, o administrador virtual 
 COMO VOCÊ TRABALHA
 - Você não sabe nada da loja de cabeça. Todo número, valor, horário, nome de produto e situação que você disser vem de uma ferramenta que você chamou para ESTA pergunta.
 - Antes de responder a uma pergunta sobre a loja, chame a ferramenta que traz o dado. Se a pergunta pede dois assuntos, chame as duas. Junte consultas, compare períodos e faça as contas que a pergunta pedir.
-- Se a pergunta pede um DADO que nenhuma ferramenta traz, diga com clareza que você ainda não tem acesso a essa informação e diga em uma frase o que você consegue responder hoje: resumo do dia, vendas de um período, produtos mais vendidos, pedidos em andamento, a história de um pedido (onde ele demorou), os tempos dos pedidos (aceite, cozinha, entrega), a comparação com o período anterior, o horário de pico, o lucro e a margem por produto, cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto), estoque em alerta e a situação do servidor da loja. Nunca estime, nunca invente e nunca complete um dado que faltou.
+- Se a pergunta pede um DADO que nenhuma ferramenta traz, diga com clareza que você ainda não tem acesso a essa informação e diga em uma frase o que você consegue responder hoje: resumo do dia, vendas de um período, produtos mais vendidos, pedidos em andamento, a história de um pedido (onde ele demorou), os tempos dos pedidos (aceite, cozinha, entrega), a comparação com o período anterior, o horário de pico, o lucro e a margem por produto, cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto), estoque em alerta, a situação do servidor da loja e os canais de venda e as integrações (a pausa de cada canal, o último pedido que chegou por ele, o login da 99, o WhatsApp da loja e a nota fiscal). Nunca estime, nunca invente e nunca complete um dado que faltou.
 - Quando a ferramenta devolver erro, diga que não conseguiu ler aquele dado agora. "Não houve vendas" e "não consegui ler as vendas" são respostas diferentes: nunca troque uma pela outra.
 - Quando um campo vier nulo com o aviso de que o perfil da pessoa não vê valores em reais, diga que o perfil dela no Regem não mostra valores em reais. Não tente chegar ao valor por outro caminho.
 - Conta, só com números que as ferramentas trouxeram (somar, comparar, percentual). Diga de onde saiu.
@@ -155,7 +156,8 @@ export type NomeDaFerramenta =
   | 'caixas_e_sangrias'
   | 'equipe_do_dia'
   | 'historia_do_pedido'
-  | 'tempos_dos_pedidos';
+  | 'tempos_dos_pedidos'
+  | 'canais_e_integracoes';
 
 /** As ferramentas, como o modelo as vê. A ordem e o texto são fixos (entram no trecho em cache). */
 export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; input_schema: any }> = [
@@ -257,6 +259,12 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
     description:
       'Os tempos dos pedidos de um período: do aceite, até ficar pronto, até sair e até entregar (por canal), e na cozinha a fila até começar e o preparo — a média e o tempo dos 10% mais lentos. Use para "o delivery está demorando?", "quanto tempo leva a cozinha?" e para comparar dias. Sem período, hoje.',
     input_schema: { type: 'object', properties: { ...PERIODO, loja: LOJA }, additionalProperties: false },
+  },
+  {
+    name: 'canais_e_integracoes',
+    description:
+      'Os canais de venda e as integrações AGORA: cada canal (cardápio digital, iFood, 99) com a pausa que vale agora (até quando, o motivo, quem pausou) e o último pedido que chegou por ele, com quantos chegaram hoje; o login da 99; o WhatsApp da loja (conectado ou não); e a nota fiscal (ligada, em teste ou valendo, o certificado digital e quando vence, e as notas recusadas, sem resposta da SEFAZ ou em contingência nas últimas 24 horas). Use para "por que não chegam pedidos do iFood", "a loja está pausada?", "o WhatsApp está funcionando?" e "tem problema com nota fiscal?". Canal sem pedido há algum tempo não quer dizer canal desligado: diga a hora do último pedido.',
+    input_schema: { type: 'object', properties: { loja: LOJA }, additionalProperties: false },
   },
 ];
 
@@ -672,4 +680,26 @@ export function juntarPerguntas(textos: string[]): string {
     .filter(Boolean)
     .join('\n');
   return junto.length > TETOS.pergunta ? junto.slice(0, TETOS.pergunta) : junto;
+}
+
+/** Com quantos dias para vencer o certificado digital pede renovação — o mesmo da tela (Configurações da nota fiscal). */
+export const DIAS_DE_AVISO_DO_CERTIFICADO = 60;
+
+/**
+ * O certificado digital da nota fiscal: quando vence e se pede atenção, pela MESMA conta da tela (`diasParaVencer`; abaixo
+ * de zero, vencido; até 60 dias, renovar). Sem data, null.
+ */
+export function situacaoDoCertificado(
+  validoAte: unknown,
+  agora: Date = new Date(),
+): { venceEm: string; diasParaVencer: number; situacao: 'vencido' | 'vence em breve' | 'em dia' } | null {
+  if (validoAte === null || validoAte === undefined || validoAte === '') return null;
+  const ate = validoAte instanceof Date ? validoAte : new Date(String(validoAte));
+  if (Number.isNaN(ate.getTime())) return null;
+  const dias = diasParaVencer(ate, agora);
+  return {
+    venceEm: ate.toLocaleDateString('pt-BR', { timeZone: FUSO_OPERACAO }),
+    diasParaVencer: dias,
+    situacao: dias < 0 ? 'vencido' : dias <= DIAS_DE_AVISO_DO_CERTIFICADO ? 'vence em breve' : 'em dia',
+  };
 }

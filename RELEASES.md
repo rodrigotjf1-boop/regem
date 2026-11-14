@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Mister: os canais e as integrações (14/11, F3.1; SEM migration; não mexe no `sync-daemon`).** A 12ª consulta do
+  Mister: a pausa e o último pedido de cada canal, o login da 99, o WhatsApp da loja e a nota fiscal. Na NUVEM com o
+  merge. O agente só sobe na nuvem. Nada no `.zip` nem no `.exe`.
+
 - **Delivery: dois "pronto" seguidos não levam mais o pedido a "despachado" (14/11, ERR-463; SEM migration; não mexe
   no `sync-daemon`).** O `avancar` recebe a etapa que quem chamou viu (`de`): o KDS (todos os cartões prontos), o
   "Avisar pronto" e a tela do Delivery. Na NUVEM com o merge; **vai no `.zip`** (o `delivery.service` roda no servidor
