@@ -59,7 +59,7 @@ export const INSTRUCOES_DO_MISTER = `Você é o Mister, o administrador virtual 
 COMO VOCÊ TRABALHA
 - Você não sabe nada da loja de cabeça. Todo número, valor, horário, nome de produto e situação que você disser vem de uma ferramenta que você chamou para ESTA pergunta.
 - Antes de responder a uma pergunta sobre a loja, chame a ferramenta que traz o dado. Se a pergunta pede dois assuntos, chame as duas.
-- Se nenhuma ferramenta traz o que foi pedido, diga com clareza que você ainda não tem acesso a essa informação e diga em uma frase o que você consegue responder hoje: resumo do dia, vendas de um período, produtos mais vendidos, pedidos em andamento, estoque em alerta e a situação do servidor da loja. Nunca estime, nunca invente e nunca complete um dado que faltou.
+- Se nenhuma ferramenta traz o que foi pedido, diga com clareza que você ainda não tem acesso a essa informação e diga em uma frase o que você consegue responder hoje: resumo do dia, vendas de um período, produtos mais vendidos, pedidos em andamento, cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto), estoque em alerta e a situação do servidor da loja. Nunca estime, nunca invente e nunca complete um dado que faltou.
 - Quando a ferramenta devolver erro, diga que não conseguiu ler aquele dado agora. "Não houve vendas" e "não consegui ler as vendas" são respostas diferentes: nunca troque uma pela outra.
 - Quando um campo vier nulo com o aviso de que o perfil da pessoa não vê valores em reais, diga que o perfil dela no Regem não mostra valores em reais. Não tente chegar ao valor por outro caminho.
 - Conta, só com números que as ferramentas trouxeram (somar, comparar, percentual). Diga de onde saiu.
@@ -67,6 +67,8 @@ COMO VOCÊ TRABALHA
 - A loja segue vendendo. É normal o número de agora ser diferente do que você disse antes: diga o número de agora e, se ajudar, que ele mudou desde aquela hora. Não diga que errou, que inventou ou que respondeu sem consultar, e não peça desculpa por resposta antiga. Você só reconhece um erro seu quando a pergunta antiga está marcada "sem consulta" e a resposta dela trazia número.
 - Para o que é "agora" ou "hoje", consulte de novo em vez de repetir o número antigo.
 - Você só consulta. Você não altera pedido, preço, estoque, cadastro nem configuração, e não cancela nada. Se pedirem uma ação, diga que por enquanto você só consulta e que a ação é feita no Regem. Não invente caminho de menu.
+- Não afirme que o Regem tem ou não tem uma função (exportar, imprimir, mandar arquivo, integração) quando nenhuma consulta mostrou isso. Diga que você não sabe dizer e que a pessoa confere no próprio Regem.
+- Não prometa o que as consultas não entregam: lista que vem em páginas é entregue página a página, e você diz quantas faltam.
 
 DE QUEM VOCÊ FALA
 - Você fala só da empresa e das lojas do bloco "Esta conversa". As ferramentas já estão presas a elas: não existe como consultar outra empresa nem outra loja.
@@ -96,6 +98,8 @@ export interface ConversaDoMister {
   verValores: boolean;
   /** "quinta-feira, 13/11/2026, 20:15" — o relógio da loja, dito por quem chama. */
   agora: string;
+  /** Passou da meia-noite e ainda é madrugada: o dia (dd/mm) em que a noite de trabalho começou. */
+  noiteDe?: string | null;
 }
 
 /** O bloco "Esta conversa": o que muda de uma pessoa para outra. Vai DEPOIS das instruções fixas. */
@@ -112,6 +116,10 @@ export function blocoDaConversa(c: ConversaDoMister): string {
     `- Lojas que esta pessoa consulta: ${lojas}`,
     `- Valores em reais: ${c.verValores ? 'esta pessoa vê' : 'o perfil desta pessoa NÃO vê valores em reais'}`,
     `- Agora na loja: ${c.agora}`,
+    // Bar e restaurante viram a meia-noite trabalhando: para quem pergunta à 1h, "hoje" ainda é a noite que começou ontem.
+    ...(c.noiteDe
+      ? [`- Passou da meia-noite: a noite de trabalho começou em ${c.noiteDe}. Quando a pessoa disser "hoje" ou "a noite", ou continuar um assunto de antes da meia-noite, consulte ontem e hoje e diga os dois, cada um com a sua data.`]
+      : []),
   ].join('\n');
 }
 
@@ -139,7 +147,10 @@ export type NomeDaFerramenta =
   | 'produtos_mais_vendidos'
   | 'pedidos_em_andamento'
   | 'estoque_em_alerta'
-  | 'servidor_e_incidentes';
+  | 'servidor_e_incidentes'
+  | 'cancelamentos'
+  | 'caixas_e_sangrias'
+  | 'equipe_do_dia';
 
 /** As ferramentas, como o modelo as vê. A ordem e o texto são fixos (entram no trecho em cache). */
 export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; input_schema: any }> = [
@@ -182,14 +193,45 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
   },
   {
     name: 'estoque_em_alerta',
-    description: 'O estoque que pede atenção: os itens abaixo do mínimo (com o saldo e o mínimo) e os lotes vencidos ou que vencem nos próximos dias.',
-    input_schema: { type: 'object', properties: { loja: LOJA }, additionalProperties: false },
+    description:
+      'O estoque que pede atenção: os itens abaixo do mínimo (com o saldo e o mínimo), em ordem alfabética e em páginas de 15, e os lotes vencidos ou que vencem nos próximos dias. Para um produto, use "busca"; para a lista inteira, peça uma página de cada vez.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        busca: { type: 'string', description: 'Um trecho do nome do item, para procurar um produto.' },
+        pagina: { type: 'integer', description: 'A página da lista de itens abaixo do mínimo. Sem isto, a primeira.' },
+        loja: LOJA,
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: 'servidor_e_incidentes',
     description:
       'A situação do servidor da loja (ligado e com sinal, última sincronização, cópia de segurança) e os problemas em aberto que o vigia do Mister encontrou (servidor sem sinal, serviço parado, disco, cópia de segurança, impressora). Use para "o sistema está funcionando" e "tem algum problema na loja".',
     input_schema: { type: 'object', properties: { loja: LOJA }, additionalProperties: false },
+  },
+  {
+    name: 'cancelamentos',
+    description:
+      'Os cancelamentos de um período, com o motivo: os pedidos dos canais (cardápio online, iFood, 99) cancelados, as vendas canceladas na loja (com quem cancelou) e os itens removidos de comandas (com quem removeu e a justificativa). Sem período, hoje.',
+    input_schema: { type: 'object', properties: { ...PERIODO, loja: LOJA }, additionalProperties: false },
+  },
+  {
+    name: 'caixas_e_sangrias',
+    description:
+      'Os caixas: quais estão abertos agora (quem abriu e desde quando), os turnos de caixa de um período (vendas, sangrias, suprimentos e a diferença no fechamento) e as sangrias e os suprimentos por operador. Sem período, hoje.',
+    input_schema: { type: 'object', properties: { ...PERIODO, loja: LOJA }, additionalProperties: false },
+  },
+  {
+    name: 'equipe_do_dia',
+    description:
+      'A equipe de um dia: quem está escalado (setor, horário, faltas anotadas), quem bateu ponto e quem está trabalhando agora, e quem está escalado para um horário que já começou e ainda não bateu ponto. Use para "quem está trabalhando", "quem faltou" e "como está a escala".',
+    input_schema: {
+      type: 'object',
+      properties: { dia: { type: 'string', description: '"hoje", "ontem" ou uma data AAAA-MM-DD. Sem isto, hoje.' }, loja: LOJA },
+      additionalProperties: false,
+    },
   },
 ];
 
@@ -221,7 +263,7 @@ export function perguntaDaMemoria(t: TrocaDaMemoria): string {
   return `[pergunta feita às ${t.hora} · ${como}]\n${t.pergunta}`;
 }
 
-const CAMPOS_DA_ENTRADA = ['periodo', 'de', 'ate', 'dia', 'loja', 'quantos', 'ordem'] as const;
+const CAMPOS_DA_ENTRADA = ['periodo', 'de', 'ate', 'dia', 'loja', 'quantos', 'ordem', 'busca', 'pagina'] as const;
 
 /**
  * O que foi pedido a uma ferramenta, para a trilha: só os campos conhecidos, curtos. É o PEDIDO (período, loja, ordem),

@@ -256,6 +256,28 @@ Quem está ligado ao Mister pergunta em português, pelo WhatsApp, e recebe a re
 
 **Fica para as próximas partes das perguntas:** cancelamentos com motivo, caixas abertos e sangrias, escala e ponto do dia, "por que o pedido atrasou" (a regra de atraso hoje mora só na tela), a ajuda de uso com a documentação, transcrição de áudio, e o painel da trilha para o presidente (pede mockup).
 
+### F2.2 — As perguntas, parte 2: cancelamentos, caixas e a equipe do dia (sem migration)
+
+Três consultas novas e os acertos que a primeira conversa real pediu. As consultas passam de seis para nove.
+
+| Ferramenta | O que traz | De onde vem | Quem pode |
+|---|---|---|---|
+| `cancelamentos` | os pedidos dos canais cancelados, as vendas canceladas na loja (com quem cancelou) e os itens removidos de comandas (com quem removeu e a justificativa), cada um com o motivo, o total e os dez últimos | consulta própria sobre `pedido_externo` e `comanda` (não há tela com a lista por período) e "Cancelamentos de itens" | pedidos: quem abre o Delivery; vendas: quem abre os cupons ou os relatórios de vendas; itens: quem abre "Cancelamentos de itens" |
+| `caixas_e_sangrias` | os caixas abertos agora (quem abriu, desde quando), os turnos do período com a diferença no fechamento, e as sangrias e os suprimentos por operador | Relatórios › Turnos e as operações de caixa | quem abre os relatórios de vendas |
+| `equipe_do_dia` | quem está escalado (setor, horário, faltas anotadas), quem bateu ponto e quem trabalha agora, e quem está escalado para um horário que já começou e ainda não bateu ponto | a escala do dia e o ponto gerencial | escala: quem vê as escalas; ponto: quem abre o ponto gerencial |
+
+- **Cancelamentos:** o período é o da operação, pelo momento do cancelamento. A venda cancelada que é de um pedido de canal aparece só nos pedidos. Quem não vê valores em reais recebe as contagens e os motivos, sem os valores.
+- **Caixas abertos agora:** o relatório lista o turno pelo dia em que abriu; para achar o caixa que ficou aberto de um dia para o outro, a consulta olha 35 dias para trás.
+- **Dado de colaborador:** quando o gestor pergunta da equipe, vão ao modelo de IA da própria empresa o nome, o setor, o horário e a presença — o que a escala e o ponto gerencial já mostram a ele. Nunca CPF, telefone, foto ou salário. Dado de cliente continua fora de todas as consultas.
+- **O estoque em páginas:** a lista abaixo do mínimo sai em páginas de 15 e aceita busca pelo nome (sem acento). O Mister não promete "a lista completa" numa mensagem: entrega página a página e diz quantas faltam.
+- **Como cada tela separa os canais:** o resumo do dia e as vendas do período passaram a devolver, junto com os números, a regra da tela — o Painel separa pelo pedido ter chegado por um canal; o relatório de vendas, pela mesa e pelo pagamento online (a retirada e a entrega paga na hora caem em "balcão"). É o que deixa o Mister responder "isso conta a retirada?".
+- **Depois da meia-noite:** até as 6h, o bloco da conversa avisa que a noite de trabalho começou no dia anterior, e o Mister consulta ontem e hoje e diz os dois.
+- **Sem afirmar função do Regem:** o Mister não diz que o Regem exporta, imprime ou integra algo que nenhuma consulta mostrou.
+
+**Conferência:** `mister-agente.regras.spec.ts` e `mister-pg.teste-spec.ts` (os cancelamentos com dados de verdade no Postgres — outra empresa, outro período, venda de pedido de canal e permissões; o caixa aberto há 30 horas e o turno fechado com diferença; a equipe com a lista cruzada; o estoque em páginas).
+
+**Fica para as próximas partes:** "por que o pedido atrasou" (a regra de atraso mora só na tela), a ajuda de uso com a documentação, áudio, o relatório em arquivo (o dono perguntou por PDF: é a F3) e o painel da trilha (pede mockup).
+
 ## 5. O que depende do dono
 
 1. ~~Onde a IA roda~~ — decidido: nuvem.

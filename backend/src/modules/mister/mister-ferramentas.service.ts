@@ -2,15 +2,20 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { Permissoes, perfilPadrao, podeAcessar } from '../../auth/permissoes';
-import { FUSO_OPERACAO, hojeISO, horaAgora } from '../../common/data';
-import { FUSO_SQL } from '../../common/fuso-sql';
+import { FUSO_OPERACAO, hojeISO, horaAgora, horaNoFuso, somarDias } from '../../common/data';
+import { brutoPedido, comandaEhDeCanal } from '../../common/faturamento';
+import { sqlUnidade, sqlUnidadeOuRede } from '../../common/filtro-unidade';
+import { FUSO_SQL, noPeriodo } from '../../common/fuso-sql';
 import { DashboardService } from '../dashboard/dashboard.service';
 import { DeliveryService } from '../delivery/delivery.service';
+import { EscalaService } from '../escala/escala.service';
 import { EstoqueService } from '../estoque/estoque.service';
 import { LicencaService } from '../licenca/licenca.service';
 import { ModuloService } from '../modulo/modulo.service';
+import { PontoService } from '../ponto/ponto.service';
 import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
 import { RelatoriosService } from '../relatorios/relatorios.service';
+import { VendasService } from '../vendas/vendas.service';
 import { pessoaVale } from './mister-vinculo.service';
 import {
   ConversaDoMister,
@@ -21,6 +26,7 @@ import {
   ehFerramenta,
   lojaPedida,
   periodoDaFerramenta,
+  semAcento,
 } from './mister-agente.regras';
 import { primeiroNome } from './mister.regras';
 
@@ -87,6 +93,22 @@ const minutosDesde = (quando: unknown, agora: number): number | null => {
   const t = quando instanceof Date ? quando.getTime() : Date.parse(String(quando ?? ''));
   return Number.isFinite(t) ? Math.max(0, Math.floor((agora - t) / 60_000)) : null;
 };
+/** Um instante como "13/11 23:37", no relógio da loja — ou null quando não há. */
+const dataHoraCurta = (v: unknown): string | null => {
+  const d = v instanceof Date ? v : new Date(String(v ?? ''));
+  if (Number.isNaN(d.getTime())) return null;
+  // A hora sai pelo ajudante da casa: pedir hora e data juntas com `hour12: false` escreve "24:10" à meia-noite em algumas versões.
+  return `${d.toLocaleDateString('pt-BR', { timeZone: FUSO_OPERACAO, day: '2-digit', month: '2-digit' })} ${horaNoFuso(d)}`;
+};
+/** Minutos como "7h 30min". */
+const duracao = (minutos: unknown): string => {
+  const m = Math.max(0, inteiro(minutos));
+  return m < 60 ? `${m}min` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}min`;
+};
+/** O motivo do cancelamento, curto; vazio vira "sem motivo anotado". `a` é o apelido da tabela na consulta (fixo no código). */
+const motivoDe = (a: 'pe' | 'c') => sql.raw(`coalesce(nullif(left(trim(${a}.motivo_cancelamento), 80), ''), 'sem motivo anotado')`);
+const FALTA: Record<string, string> = { falta_justificada: 'falta justificada', falta_injustificada: 'falta sem justificativa' };
+const PRESENCA: Record<string, string> = { prevista: 'prevista', presente: 'presente', ...FALTA };
 /** Uma coluna `date` chega como Date (meia-noite do servidor) ou como texto: nos dois casos, dd/mm. */
 const diaDaLinha = (v: unknown): string => {
   if (v instanceof Date) return `${String(v.getDate()).padStart(2, '0')}/${String(v.getMonth() + 1).padStart(2, '0')}`;
@@ -121,6 +143,9 @@ export class MisterFerramentasService {
     private readonly delivery: DeliveryService,
     private readonly producao: ProducaoPedidoService,
     private readonly licenca: LicencaService,
+    private readonly vendas: VendasService,
+    private readonly escala: EscalaService,
+    private readonly ponto: PontoService,
   ) {}
 
   // ───────────────────────────── de quem é a conversa ─────────────────────────────
@@ -185,6 +210,7 @@ export class MisterFerramentasService {
       semLoja: e.semLoja,
       verValores: e.verValores,
       agora: `${dia}, ${horaAgora()}`,
+      noiteDe: Number(horaAgora().slice(0, 2)) < 6 ? diaMes(somarDias(hojeISO(), -1)) : null,
     };
   }
 
@@ -239,9 +265,15 @@ export class MisterFerramentasService {
       case 'pedidos_em_andamento':
         return this.pedidosEmAndamento(e, loja);
       case 'estoque_em_alerta':
-        return this.estoqueEmAlerta(e, loja);
+        return this.estoqueEmAlerta(e, en, loja);
       case 'servidor_e_incidentes':
         return this.servidorEIncidentes(e, loja);
+      case 'cancelamentos':
+        return this.cancelamentos(e, en, loja);
+      case 'caixas_e_sangrias':
+        return this.caixasESangrias(e, en, loja);
+      case 'equipe_do_dia':
+        return this.equipeDoDia(e, en, loja);
     }
   }
 
@@ -268,6 +300,8 @@ export class MisterFerramentasService {
         ticketMedio: c ? reais(c.ticketMedio) : null,
         gorjeta: c ? reais(c.gorjeta) : null,
         ...(e.verValores ? { observacao: 'A gorjeta não entra no faturamento.' } : { aviso: SEM_VALORES }),
+        // Como o Painel separa (a consulta do `DashboardService.resumo`): pelo pedido ter chegado por um canal.
+        comoOPainelSepara: 'Delivery = os pedidos que chegaram pelos canais (cardápio online, iFood, 99 e outros), inclusive os de retirada pedidos por eles. Balcão = as vendas lançadas na própria loja (balcão e mesas).',
         pedidosDeDeliveryEmAberto: inteiro(r?.deliveryPendentes),
         itensDeEstoqueAbaixoDoMinimo: inteiro(r?.estoqueAbaixoMinimo),
         tarefas: { total: inteiro(r?.tarefas?.total), feitas: inteiro(r?.tarefas?.feitas), pendentes: inteiro(r?.tarefas?.pendentes), naoFeitas: inteiro(r?.tarefas?.naoFeitas) },
@@ -294,6 +328,8 @@ export class MisterFerramentasService {
         gorjeta: reais(r?.resumo?.gorjeta),
         vendasCanceladas: inteiro(r?.resumo?.canceladas),
         ...(e.verValores ? { observacao: 'A gorjeta não entra no faturamento.' } : { aviso: SEM_VALORES }),
+        // Como este relatório separa os canais (a consulta do `RelatoriosService.vendas`): pela mesa e pelo pagamento online.
+        comoORelatorioSeparaOsCanais: 'Mesa = venda de mesa. Delivery/app = venda com pagamento online (pelo aplicativo ou pelo cardápio online). Balcão = todas as outras, o que inclui a retirada e o pedido de entrega pago na hora.',
         porFormaDePagamento: ((r?.porForma ?? []) as any[]).map((f) => ({ forma: String(f.forma ?? ''), vendas: inteiro(f.qtd), total: reais(f.total) })),
         porCanal: ((r?.porCanal ?? []) as any[]).map((c) => ({ canal: String(c.canal ?? ''), vendas: inteiro(c.qtd), total: reais(c.total) })),
         // Por dia só em período curto: num ano inteiro seriam centenas de linhas para o modelo ler.
@@ -417,10 +453,15 @@ export class MisterFerramentasService {
   }
 
   /** O Estoque: abaixo do mínimo (`GET /estoque/itens`) e validades (`GET /estoque/validades`). */
-  private async estoqueEmAlerta(e: EscopoDoMister, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+  private async estoqueEmAlerta(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
     if (!this.pode(e, 'estoque')) return recusa(SEM_PERMISSAO);
     // Sem valores em R$: aqui só interessam o saldo e o mínimo.
     const itens = ((await this.estoque.listItens(e.tenantId, false, loja.atual)) as any[]).filter((i) => i.abaixoMinimo);
+    // A lista inteira não cabe numa mensagem: sai em páginas de 15, e dá para procurar pelo nome.
+    const busca = semAcento(en.busca);
+    const achados = busca ? itens.filter((i) => semAcento(i.nome).includes(busca)) : itens;
+    const paginas = Math.max(1, Math.ceil(achados.length / 15));
+    const pagina = Math.min(paginas, Math.max(1, inteiro(en.pagina) || 1));
     const lotes = ((await this.estoque.validades(e.tenantId, loja.atual)) as any[]).filter((l) => l.status === 'vencido' || l.status === 'critico' || l.status === 'atencao');
     const conta = (s: string) => lotes.filter((l) => l.status === s).length;
     return {
@@ -429,8 +470,11 @@ export class MisterFerramentasService {
         loja: loja.nome,
         abaixoDoMinimo: {
           total: itens.length,
-          itens: itens.slice(0, 15).map((i) => ({ item: String(i.nome ?? ''), saldo: quantidade(i.saldo), minimo: quantidade(i.estoqueMinimo), unidade: String(i.unidadeMedida ?? '') })),
-          ...(itens.length > 15 ? { observacao: `Lista com os 15 primeiros de ${itens.length}, em ordem alfabética.` } : {}),
+          ...(busca ? { comOQueFoiProcurado: achados.length } : {}),
+          pagina,
+          paginas,
+          itens: achados.slice((pagina - 1) * 15, pagina * 15).map((i) => ({ item: String(i.nome ?? ''), saldo: quantidade(i.saldo), minimo: quantidade(i.estoqueMinimo), unidade: String(i.unidadeMedida ?? '') })),
+          ...(paginas > 1 ? { observacao: `Em ordem alfabética, 15 por página: esta é a página ${pagina} de ${paginas}.` } : {}),
         },
         validades: {
           vencidos: conta('vencido'),
@@ -488,6 +532,213 @@ export class MisterFerramentasService {
       // Vazio é diferente de "não li" (V37): banco sem a tabela do vigia não é "nenhum problema".
       dados.problemasEmAberto = { aviso: 'Não consegui ler os problemas em aberto agora.' };
     }
+    return { ok: true, dados };
+  }
+
+  /**
+   * Os cancelamentos de um período, com o motivo. Não há uma tela só com isto, então cada parte segue a permissão da
+   * tela onde o dado aparece: os pedidos dos canais cancelados (o quadro do Delivery só mostra as últimas horas), as
+   * vendas canceladas na loja (a lista de cupons) e os itens removidos de comandas ("Cancelamentos de itens",
+   * `GET /vendas/remocoes`). O período é o da OPERAÇÃO (`noPeriodo`), pelo momento do cancelamento.
+   */
+  private async cancelamentos(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    const verPedidos = this.pode(e, 'delivery');
+    const verVendas = this.pode(e, 'cupons') || this.pode(e, 'relatorios_vendas');
+    const verItens = this.pode(e, 'cancelamentos');
+    if (!verPedidos && !verVendas && !verItens) return recusa(SEM_PERMISSAO);
+    const p = periodoDaFerramenta(en, hojeISO(), 'hoje');
+    if ('erro' in p) return recusa(p.erro);
+    const ini = `${p.de} 00:00:00`;
+    const fim = `${p.ate} 23:59:59`;
+    const dinheiro = (v: unknown) => (e.verValores ? reais(v) : null);
+    const dados: Record<string, unknown> = { loja: loja.nome, periodo: p.rotulo, ...(e.verValores ? {} : { aviso: SEM_VALORES }) };
+
+    if (verPedidos) {
+      const quando = 'coalesce(pe.cancelado_em, pe.criado_em)';
+      const base = sql`from pedido_externo pe
+        where pe.tenant_id = ${e.tenantId}::uuid and pe.status = 'cancelado' and pe.deleted_at is null
+          ${sqlUnidadeOuRede('pe.unidade_id', loja.atual)} and ${noPeriodo(quando, ini, fim)}`;
+      const [total] = linhas(await this.db.execute(sql`select count(*)::int as qtd, coalesce(sum(${brutoPedido('pe')}), 0) as valor ${base}`));
+      const porCanal = linhas(await this.db.execute(sql`select pe.canal, count(*)::int as qtd ${base} group by 1 order by 2 desc, 1`));
+      const porMotivo = linhas(await this.db.execute(sql`select ${motivoDe('pe')} as motivo, count(*)::int as qtd ${base} group by 1 order by 2 desc, 1 limit 8`));
+      const ultimos = linhas(
+        await this.db.execute(sql`
+          select pe.canal, pe.display_id as numero, ${motivoDe('pe')} as motivo, ${brutoPedido('pe')} as valor,
+                 to_char(${sql.raw(quando)} at time zone ${FUSO_SQL}, 'DD/MM HH24:MI') as quando
+            ${base}
+           order by ${sql.raw(quando)} desc
+           limit 10`),
+      );
+      dados.pedidosDosCanais = {
+        cancelados: inteiro(total?.qtd),
+        valor: dinheiro(total?.valor),
+        porCanal: Object.fromEntries(porCanal.map((c) => [String(c.canal ?? 'outro'), inteiro(c.qtd)])),
+        porMotivo: porMotivo.map((m) => ({ motivo: String(m.motivo), pedidos: inteiro(m.qtd) })),
+        ultimos: ultimos.map((u) => ({ canal: String(u.canal ?? ''), numero: u.numero ? String(u.numero) : null, quando: String(u.quando), motivo: String(u.motivo), valor: dinheiro(u.valor) })),
+      };
+    } else dados.pedidosDosCanais = { aviso: SEM_PERMISSAO };
+
+    if (verVendas) {
+      // Só a venda lançada na loja: a do pedido de canal já está na parte de cima.
+      const quando = 'coalesce(c.cancelada_em, c.created_at)';
+      const onde = sql`c.tenant_id = ${e.tenantId}::uuid and c.status = 'cancelada' ${sqlUnidade('c.unidade_id', loja.atual)}
+          and ${noPeriodo(quando, ini, fim)} and not ${comandaEhDeCanal('c')}`;
+      const [total] = linhas(await this.db.execute(sql`select count(*)::int as qtd, coalesce(sum(c.total), 0) as valor from comanda c where ${onde}`));
+      const porMotivo = linhas(await this.db.execute(sql`select ${motivoDe('c')} as motivo, count(*)::int as qtd from comanda c where ${onde} group by 1 order by 2 desc, 1 limit 8`));
+      const ultimas = linhas(
+        await this.db.execute(sql`
+          select ${motivoDe('c')} as motivo, c.total as valor, col.nome as quem,
+                 to_char(${sql.raw(quando)} at time zone ${FUSO_SQL}, 'DD/MM HH24:MI') as quando
+            from comanda c
+            left join colaborador col on col.id = c.cancelada_por_id and col.tenant_id = c.tenant_id
+           where ${onde}
+           order by ${sql.raw(quando)} desc
+           limit 10`),
+      );
+      dados.vendasCanceladasNaLoja = {
+        canceladas: inteiro(total?.qtd),
+        valor: dinheiro(total?.valor),
+        porMotivo: porMotivo.map((m) => ({ motivo: String(m.motivo), vendas: inteiro(m.qtd) })),
+        ultimas: ultimas.map((u) => ({ quando: String(u.quando), quemCancelou: u.quem ? String(u.quem) : null, motivo: String(u.motivo), valor: dinheiro(u.valor) })),
+      };
+    } else dados.vendasCanceladasNaLoja = { aviso: SEM_PERMISSAO };
+
+    if (verItens) {
+      const itens = ((await this.vendas.remocoesItens(e.tenantId, p.de, p.ate, loja.atual)) as any[]).sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
+      dados.itensRemovidosDeComandas = {
+        removidos: itens.length,
+        ...(itens.length >= 300 ? { observacao: 'A lista do Regem para em 300 itens: pode haver mais no período.' } : {}),
+        ultimos: itens.slice(0, 10).map((i) => ({
+          quando: dataHoraCurta(i.data),
+          quemRemoveu: String(i.ator ?? ''),
+          item: String(i.descricao ?? '').slice(0, 80),
+          justificativa: String(i.justificativa ?? '').trim().slice(0, 120) || 'sem justificativa',
+        })),
+      };
+    } else dados.itensRemovidosDeComandas = { aviso: SEM_PERMISSAO };
+    return { ok: true, dados };
+  }
+
+  /** Os caixas: Relatórios › Turnos (`GET /relatorios/turnos`) e as operações de caixa (`GET /relatorios/operacoes-caixa`). */
+  private async caixasESangrias(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    if (!this.pode(e, 'relatorios_vendas')) return recusa(SEM_PERMISSAO);
+    const hoje = hojeISO();
+    const p = periodoDaFerramenta(en, hoje, 'hoje');
+    if ('erro' in p) return recusa(p.erro);
+    const agora = Date.now();
+    const turno = (t: any) => {
+      const aberto = t.status === 'aberta';
+      const minutos = minutosDesde(t.abertaEm, agora);
+      return {
+        caixa: t.origem === 'delivery' ? 'delivery' : 'balcão',
+        abertoPor: String(t.abertaPor ?? ''),
+        abertoEm: dataHoraCurta(t.abertaEm),
+        ...(aberto ? { abertoHaHoras: minutos === null ? null : Math.round(minutos / 6) / 10 } : { fechadoPor: String(t.fechadaPor ?? ''), fechadoEm: dataHoraCurta(t.fechadaEm) }),
+        abertura: reais(t.abertura),
+        vendas: reais(t.vendas),
+        sangrias: reais(t.sangrias),
+        suprimentos: reais(t.suprimentos),
+        ...(aberto ? {} : { esperado: reais(t.esperado), informado: reais(t.informado), diferenca: reais(t.diferenca) }),
+      };
+    };
+    // Abertos AGORA: o relatório lista o turno pelo dia em que ABRIU, então a janela olha 35 dias para trás (caixa que
+    // ficou aberto de um dia para o outro tem de aparecer).
+    const recentes: any = await this.relatorios.turnos(e.tenantId, somarDias(hoje, -35), hoje, e.verValores, loja.atual);
+    const abertos = ((recentes?.turnos ?? []) as any[]).filter((t) => t.status === 'aberta');
+    const doPeriodo: any = await this.relatorios.turnos(e.tenantId, p.de, p.ate, e.verValores, loja.atual);
+    const turnos = (doPeriodo?.turnos ?? []) as any[];
+    const fechados = turnos.filter((t) => t.status !== 'aberta');
+    const operacoes: any = await this.relatorios.operacoesCaixa(e.tenantId, p.de, p.ate, e.verValores, loja.atual);
+    return {
+      ok: true,
+      dados: {
+        loja: loja.nome,
+        periodo: p.rotulo,
+        lidoAs: horaAgora(),
+        ...(e.verValores ? {} : { aviso: SEM_VALORES }),
+        abertosAgora: abertos.map(turno),
+        turnosAbertosNoPeriodo: {
+          total: turnos.length,
+          fechados: fechados.length,
+          fechadosComDiferenca: e.verValores ? fechados.filter((t) => Math.abs(Number(t.diferenca) || 0) >= 0.01).length : null,
+          lista: turnos.slice(0, 10).map(turno),
+          ...(turnos.length > 10 ? { observacao: `Lista com 10 de ${turnos.length} turnos.` } : {}),
+        },
+        sangriasESuprimentos: {
+          sangrias: reais(operacoes?.movimentosTotal?.sangrias),
+          suprimentos: reais(operacoes?.movimentosTotal?.suprimentos),
+          porOperador: ((operacoes?.movimentos ?? []) as any[]).map((m) => ({
+            operador: String(m.operador ?? ''),
+            sangrias: reais(m.sangrias),
+            quantasSangrias: inteiro(m.qtdSangrias),
+            suprimentos: reais(m.suprimentos),
+            quantosSuprimentos: inteiro(m.qtdSuprimentos),
+          })),
+        },
+      },
+    };
+  }
+
+  /**
+   * A equipe de um dia: a escala (`GET /escala`) e o ponto gerencial (`GET /ponto/pessoas`). Vai ao modelo só o que a
+   * tela mostra ao gestor para esta conta: o nome, o setor, o horário e a presença — nunca CPF, telefone, foto ou salário.
+   */
+  private async equipeDoDia(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    const verEscala = this.pode(e, 'escalas');
+    const verPonto = this.pode(e, 'ponto_gerencial');
+    if (!verEscala && !verPonto) return recusa(SEM_PERMISSAO);
+    const hoje = hojeISO();
+    const d = diaDaFerramenta(en.dia, hoje);
+    if ('erro' in d) return recusa(d.erro);
+    const dados: Record<string, unknown> = { loja: loja.nome, dia: d.rotulo, ...(d.dia === hoje ? { lidoAs: horaAgora() } : {}) };
+    const hhmm = (v: unknown) => String(v ?? '').slice(0, 5);
+    let escalados: any[] = [];
+
+    if (verEscala) {
+      const todas = (await this.escala.findAll(e.tenantId, d.dia, loja.atual ?? undefined)) as any[];
+      escalados = todas.filter((l) => l.colaboradorId).sort((a, b) => hhmm(a.turnoInicio).localeCompare(hhmm(b.turnoInicio)) || String(a.colaboradorNome).localeCompare(String(b.colaboradorNome)));
+      const porSetor: Record<string, number> = {};
+      for (const l of escalados) {
+        const setor = String(l.setorNome ?? 'sem setor');
+        porSetor[setor] = (porSetor[setor] ?? 0) + 1;
+      }
+      dados.escala = {
+        escalados: escalados.length,
+        vagasSemPessoa: todas.length - escalados.length,
+        porSetor,
+        faltasAnotadas: escalados.filter((l) => FALTA[String(l.presenca)]).map((l) => ({ nome: String(l.colaboradorNome ?? ''), setor: String(l.setorNome ?? ''), falta: FALTA[String(l.presenca)] })),
+        pessoas: escalados.slice(0, 40).map((l) => ({
+          nome: String(l.colaboradorNome ?? ''),
+          setor: String(l.setorNome ?? ''),
+          horario: hhmm(l.turnoInicio) && hhmm(l.turnoFim) ? `${hhmm(l.turnoInicio)} às ${hhmm(l.turnoFim)}` : null,
+          presenca: PRESENCA[String(l.presenca)] ?? String(l.presenca ?? ''),
+        })),
+        ...(escalados.length > 40 ? { observacao: `Lista com 40 de ${escalados.length} pessoas.` } : {}),
+      };
+    } else dados.escala = { aviso: SEM_PERMISSAO };
+
+    if (verPonto) {
+      const pessoas = (await this.ponto.pessoas(e.tenantId, d.dia, loja.atual)) as any[];
+      dados.ponto = {
+        bateramPonto: pessoas.length,
+        trabalhandoAgora: pessoas.filter((p) => p.status === 'trabalhando').length,
+        pessoas: pessoas.slice(0, 40).map((p) => ({
+          nome: String(p.nome ?? ''),
+          entrada: p.primeiraEntrada ? horaNoFuso(new Date(p.primeiraEntrada)) : null,
+          situacao: p.status === 'trabalhando' ? 'trabalhando' : 'fora',
+          trabalhado: duracao(p.trabalhadoMin),
+        })),
+        ...(pessoas.length > 40 ? { observacao: `Lista com 40 de ${pessoas.length} pessoas.` } : {}),
+      };
+      // Escalado para um horário que já começou, sem falta anotada e sem ponto no dia. Só para hoje, e só com as duas telas.
+      if (verEscala && d.dia === hoje) {
+        const comPonto = new Set(pessoas.map((p) => String(p.colaboradorId)));
+        const agoraHHMM = horaAgora();
+        dados.escaladosSemPontoAteAgora = escalados
+          .filter((l) => hhmm(l.turnoInicio) && hhmm(l.turnoInicio) <= agoraHHMM && !FALTA[String(l.presenca)] && !comPonto.has(String(l.colaboradorId)))
+          .map((l) => ({ nome: String(l.colaboradorNome ?? ''), setor: String(l.setorNome ?? ''), horarioComecouAs: hhmm(l.turnoInicio) }));
+      }
+    } else dados.ponto = { aviso: SEM_PERMISSAO };
     return { ok: true, dados };
   }
 }
