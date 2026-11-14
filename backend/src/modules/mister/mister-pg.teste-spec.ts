@@ -8,6 +8,7 @@ import { perfilPadrao } from '../../auth/permissoes';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { hojeISO, somarDias } from '../../common/data';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { PausaDoCanalService } from '../delivery/pausa-do-canal.service';
 import { DashboardService } from '../dashboard/dashboard.service';
 import { EstoqueService } from '../estoque/estoque.service';
 import { IaEmpresaService } from '../ia/ia-empresa.service';
@@ -1863,6 +1864,133 @@ export function testesDoMisterComPostgres(): void {
       // Quem não vê valores em reais não ordena por lucro.
       const semValores = { ...e, nivel: 'gerente' as const, verValores: false, permissoes: { relatorios_vendas: true } as any };
       expect((await comCurva.executar(semValores, 'produtos_mais_vendidos', { ordem: 'lucro' })).dados.erro).toContain('não dá para ordenar por lucro');
+    });
+
+    it('os canais e as integrações: a pausa e o último pedido de cada canal, o login da 99, o WhatsApp da loja e a nota fiscal', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+      const [{ id: loja }] = await q(`select id from unidade where tenant_id = $1`, [A]);
+      let estadoDoWhatsapp = 'close';
+      let loginDa99 = { conectado: true, autenticado: false };
+      const comCanais = new MisterFerramentasService(
+        db, modulos, null as any, null as any, null as any, null as any, null as any, null as any, null as any, null as any, null as any,
+        new PausaDoCanalService(db, auditoria),
+        { status: async () => loginDa99 } as any,
+        { status: async () => ({ conectado: estadoDoWhatsapp === 'open', estado: estadoDoWhatsapp }) } as any,
+        { estado: async () => ({ provedor: 'evolution', evolution: { vinculado: true }, cloud: { vinculado: false } }) } as any,
+      );
+      const pedido = (canal: string, quando: string, tenant = A, apagado = false) =>
+        q(
+          `insert into pedido_externo (tenant_id, unidade_id, canal, status, total, valor_bruto, taxa_entrega, taxa_entrega_dono, criado_em, deleted_at)
+           values ($1, $2, $3, 'concluido', 30, 30, 0, 'marketplace', ${quando}, ${apagado ? 'now()' : 'null'})`,
+          [tenant, tenant === A ? loja : null, canal],
+        );
+      const nota = (numero: number, status: string, quando: string, simulada = false) =>
+        q(`insert into nota_fiscal (tenant_id, unidade_id, serie, numero, status, simulada, motivo, created_at) values ($1, $2, 7, $3, $4, $5, $6, ${quando})`, [
+          A, loja, numero, status, simulada, status === 'rejeitada' ? 'Rejeição: NCM inexistente' : null,
+        ]);
+      try {
+        await pedido('cardapio', 'now()');
+        await pedido('cardapio', 'now()');
+        await pedido('ifood', "now() - interval '3 days'");
+        await pedido('anotaai', 'now()');
+        await pedido('cardapio', 'now()', A, true); // apagado: não conta
+        await pedido('99food', 'now()', B); // de outra empresa: não conta
+        await q(
+          `insert into pausa_canal (id, tenant_id, unidade_id, canal, ate, motivo, pausado_em, pausado_por_nome)
+           values (gen_random_uuid(), $1, null, 'cardapio', now() + interval '40 minutes', 'movimento', now(), 'Ana Gerente')`,
+          [A],
+        );
+        await q(`insert into fiscal_config (tenant_id, unidade_id, ativo, ambiente) values ($1, null, true, '2')`, [A]);
+        await q(`insert into fiscal_credencial (tenant_id, unidade_id, cert_valido_ate) values ($1, null, now() + interval '10 days 1 hour')`, [A]);
+        await nota(1, 'autorizada', 'now()');
+        await nota(2, 'rejeitada', "now() - interval '1 hour'");
+        await nota(3, 'pendente', "now() - interval '20 minutes'"); // sem resposta
+        await nota(4, 'pendente', "now() - interval '2 minutes'"); // ainda é cedo
+        await nota(5, 'contingencia', "now() - interval '3 hours'");
+        await nota(6, 'rejeitada', 'now()', true); // simulada: fora
+        await nota(7, 'rejeitada', "now() - interval '2 days'"); // antes das 24 h: fora
+
+        const r = await comCanais.executar(e, 'canais_e_integracoes', {});
+        expect(r.ok).toBe(true);
+        const canais = r.dados.canais as any[];
+        expect(canais.map((c) => c.canal)).toEqual(['Cardápio digital', 'iFood', '99']);
+        expect(canais[0]).toMatchObject({ pausa: { pausado: true, volta: expect.stringMatching(/^às \d{2}:\d{2}$/), pausadoPor: 'Ana' }, pedidosHoje: 2, ultimoPedidoHaMinutos: 0 });
+        expect(canais[0].pausa.motivo).toBeTruthy();
+        expect(canais[1]).toMatchObject({ pausa: { pausado: false }, pedidosHoje: 0, ultimoPedido: expect.stringMatching(/^\d{2}\/\d{2} \d{2}:\d{2}$/) });
+        expect(canais[1].ultimoPedidoHaMinutos).toBeGreaterThanOrEqual(3 * 24 * 60 - 2);
+        expect(canais[2]).toEqual({ canal: '99', pausa: { pausado: false }, ultimoPedido: null, ultimoPedidoHaMinutos: null, pedidosHoje: 0 });
+        expect(r.dados.outrosCanais).toEqual([{ canal: 'Anota Aí', pedidosHoje: 1, ultimoPedido: expect.any(String) }]);
+        expect(r.dados.loginDa99).toEqual({ emDia: false, observacao: expect.stringContaining('venceu ou foi recusado') });
+        expect(r.dados.whatsappDaLoja).toEqual({ conexao: 'WhatsApp pelo QR', ligado: true, conectadoAgora: false, observacao: expect.stringContaining('ler o QR de novo') });
+        expect(r.dados.notaFiscal).toEqual({
+          ligada: true,
+          lojas: [{ loja: 'a empresa toda', ambiente: 'em teste (homologação)', certificado: { venceEm: expect.any(String), diasParaVencer: 10, situacao: 'vence em breve' } }],
+          ultimas24h: { autorizadas: 1, recusadas: 1, semRespostaDaSefaz: 1, emContingencia: 1 },
+          ultimasRecusadas: [{ numero: '7-2', motivo: 'Rejeição: NCM inexistente', quando: expect.any(String) }],
+        });
+
+        // Conectado e com o login em dia; a empresa sem a 99 não traz o login.
+        estadoDoWhatsapp = 'open';
+        loginDa99 = { conectado: true, autenticado: true };
+        const ok = await comCanais.executar(e, 'canais_e_integracoes', {});
+        expect(ok.dados.whatsappDaLoja).toEqual({ conexao: 'WhatsApp pelo QR', ligado: true, conectadoAgora: true });
+        expect(ok.dados.loginDa99).toEqual({ emDia: true });
+        loginDa99 = { conectado: false, autenticado: false };
+        expect(await comCanais.executar(e, 'canais_e_integracoes', {})).not.toHaveProperty('dados.loginDa99');
+
+        // Sem a permissão da nota fiscal, ela não vem; sem o Delivery, os canais não vêm; sem as duas, a recusa.
+        const semFiscal = { ...e, nivel: 'gerente' as const, permissoes: { delivery: true } as any };
+        const sf = await comCanais.executar(semFiscal, 'canais_e_integracoes', {});
+        expect((sf.dados.notaFiscal as any).aviso).toContain('não dá acesso');
+        expect(sf.dados.canais).toHaveLength(3);
+        const soFiscal = { ...e, nivel: 'gerente' as const, permissoes: { fiscal: true } as any };
+        const so = await comCanais.executar(soFiscal, 'canais_e_integracoes', {});
+        expect((so.dados.canais as any).aviso).toContain('não dá acesso');
+        expect(so.dados).not.toHaveProperty('whatsappDaLoja');
+        expect((so.dados.notaFiscal as any).ligada).toBe(true);
+        const nenhuma = { ...e, nivel: 'gerente' as const, permissoes: { dashboard: true } as any };
+        expect((await comCanais.executar(nenhuma, 'canais_e_integracoes', {})).dados.erro).toContain('não dá acesso');
+
+        // Várias lojas e nenhuma escolhida: cada loja com os seus canais (o pedido sem loja conta nas duas — V4).
+        const [{ id: praia }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Praia ${MARCA}') returning id`, [A]);
+        try {
+          await q(`insert into pedido_externo (tenant_id, unidade_id, canal, status, total, valor_bruto, taxa_entrega, taxa_entrega_dono, criado_em) values ($1, $2, 'ifood', 'concluido', 30, 30, 0, 'marketplace', now())`, [A, praia]);
+          const duas = { ...e, lojaUnica: false, lojas: [{ id: loja, nome: 'Centro' }, { id: praia, nome: 'Praia' }] };
+          const pl = await comCanais.executar(duas, 'canais_e_integracoes', {});
+          const porLoja = pl.dados.porLoja as any[];
+          expect(porLoja.map((l) => [l.loja, l.canais[0].pedidosHoje, l.canais[1].pedidosHoje])).toEqual([
+            ['Centro', 2, 0],
+            ['Praia', 0, 1],
+          ]);
+          expect(pl.dados).not.toHaveProperty('canais');
+        } finally {
+          await q(`delete from pedido_externo where unidade_id = $1`, [praia]);
+          await q(`delete from unidade where id = $1`, [praia]);
+        }
+
+        // A nota fiscal desligada; o certificado vencido.
+        await q(`update fiscal_credencial set cert_valido_ate = now() - interval '2 days' where tenant_id = $1`, [A]);
+        expect(((await comCanais.executar(e, 'canais_e_integracoes', {})).dados.notaFiscal as any).lojas[0].certificado).toMatchObject({ situacao: 'vencido' });
+        await q(`update fiscal_config set ativo = false where tenant_id = $1`, [A]);
+        expect((await comCanais.executar(e, 'canais_e_integracoes', {})).dados.notaFiscal).toEqual({ ligada: false, observacao: 'A nota fiscal não está ligada no Regem.' });
+
+        // A outra empresa não vê nada desta.
+        const telB = telefone();
+        await ligar('anaB', telB, B);
+        const deB = (await ferramentas.escopo(B, pessoa.anaB, telB))!;
+        const rb = await comCanais.executar(deB, 'canais_e_integracoes', {});
+        expect((rb.dados.canais as any[]).map((c) => c.pedidosHoje)).toEqual([0, 0, 1]);
+        expect((rb.dados.canais as any[])[0].pausa).toEqual({ pausado: false });
+        expect((rb.dados.notaFiscal as any).ligada).toBe(false);
+      } finally {
+        await q(`delete from pedido_externo where tenant_id = any($1::uuid[])`, [[A, B]]);
+        await q(`delete from pausa_canal where tenant_id = $1`, [A]);
+        await q(`delete from nota_fiscal where tenant_id = $1`, [A]);
+        await q(`delete from fiscal_credencial where tenant_id = $1`, [A]);
+        await q(`delete from fiscal_config where tenant_id = $1`, [A]);
+      }
     });
   });
 }

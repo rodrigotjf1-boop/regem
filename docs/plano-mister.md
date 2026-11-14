@@ -298,6 +298,20 @@ A orientação do dono de 14/11 ("as perguntas são abertas e de teor administra
 
 **Conferência:** `mister-agente.regras.spec.ts` (o período anterior nas bordas, a variação) e `mister-pg.teste-spec.ts` (os tempos com horários conhecidos, a comparação com vendas nos dois períodos e o pico, a ordem por lucro); prova por defeito com 3 defeitos, todos acusados.
 
+### F3.1 — Leitura especializada, parte 1: os canais e as integrações (sem migration)
+
+A primeira parte da F3 ("vigilância de dependências e integrações"). A 12ª consulta, **`canais_e_integracoes`**, responde "por que não chegam pedidos do iFood", "a loja está pausada?", "o WhatsApp está funcionando?" e "tem problema com nota fiscal?". Cada pedaço vem da regra da sua tela:
+
+- **Cada canal** (cardápio digital, iFood, 99): a pausa que vale agora, a mesma do "Pausar" do Delivery (até quando, o motivo, quem pausou, se o app aceitou), e o último pedido que chegou por ele, com quantos chegaram hoje. Os outros canais com pedido hoje vão à parte. Sem loja escolhida numa empresa de várias, cada loja vem com os seus canais. O Mister é instruído a não concluir que um canal está desligado só por não ter pedido.
+- **O login da 99**, pela mesma saúde da tela de integração (o token vigente, não só a ligação). A empresa sem a 99 não traz o pedaço.
+- **O WhatsApp da loja** (o dos clientes): o provedor e, no Evolution, a conexão de agora (desconectado = ler o QR de novo).
+- **A nota fiscal:** o ajuste de cada loja (em teste ou valendo), o certificado digital pela mesma conta da tela (vencido abaixo de zero, renovar até 60 dias), e as notas das últimas 24 horas: autorizadas, recusadas (com o motivo da SEFAZ), sem resposta há mais de 10 minutos e em contingência. A nota simulada fica de fora.
+- **Permissões:** os canais, a 99 e o WhatsApp pedem o Delivery; a nota fiscal pede a permissão fiscal. Sem nenhuma das duas, a consulta recusa.
+- **Fica de fora:** a fila de avisos a outros sistemas (`aviso_integracao`, como o estorno ao GoGeM). Ela não sincroniza, e a nuvem não veria as falhas que saíram do servidor da loja. Mostrar só as da nuvem seria dizer "nenhuma falha" sem ter lido (V37).
+- **Próximas partes da F3:** a conciliação de pedido, pagamento e nota (os pedidos pagos online sem o pagamento confirmado, as vendas sem nota quando a nota é obrigatória) e a conferência do catálogo com os apps (a última leitura guardada, sem ler o app de novo).
+
+**Conferência:** `mister-agente.regras.spec.ts` (o certificado nas bordas da conta da tela) e `mister-pg.teste-spec.ts` (os canais com a pausa e o último pedido, o pedido apagado e o de outra empresa fora, a 99, o WhatsApp, a nota fiscal com cada situação, as permissões, as várias lojas e o certificado vencido), também com o banco em UTC; prova por defeito com 5 defeitos, todos acusados; `app-sobe.spec.ts` (os módulos novos no agente).
+
 ## 5. O que depende do dono
 
 1. ~~Onde a IA roda~~ — decidido: nuvem.

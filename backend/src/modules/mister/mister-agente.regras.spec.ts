@@ -1,3 +1,4 @@
+import * as regrasDoAgente from './mister-agente.regras';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -155,8 +156,10 @@ describe('Mister — o que o modelo recebe', () => {
       'equipe_do_dia',
       'historia_do_pedido',
       'tempos_dos_pedidos',
+      'canais_e_integracoes',
     ]);
     expect(INSTRUCOES_DO_MISTER).toContain('cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto)');
+    expect(INSTRUCOES_DO_MISTER).toContain('os canais de venda e as integrações (a pausa de cada canal');
     expect(INSTRUCOES_DO_MISTER).toContain('Não afirme que o Regem tem ou não tem uma função');
     expect(INSTRUCOES_DO_MISTER).toContain('lista que vem em páginas é entregue página a página');
     expect(entradaParaATrilha({ busca: ' bacon ', pagina: 2, loja: 'x' })).toEqual({ busca: 'bacon', pagina: 2, loja: 'x' });
@@ -349,5 +352,27 @@ describe('Mister — as frases de quando a IA não respondeu', () => {
   it('as mensagens seguidas viram uma pergunta só, cortada no teto', () => {
     expect(juntarPerguntas(['  quanto vendi hoje? ', '', 'e ontem?'])).toBe('quanto vendi hoje?\ne ontem?');
     expect(juntarPerguntas(['a'.repeat(900), 'b'.repeat(900)])).toHaveLength(TETOS.pergunta);
+  });
+});
+
+describe('o certificado da nota fiscal na consulta dos canais e integrações', () => {
+  const agora = new Date('2026-11-14T12:00:00Z');
+  const daqui = (dias: number, horas = 0) => new Date(agora.getTime() + dias * 86_400_000 + horas * 3_600_000);
+  it('a mesma conta da tela: vencido abaixo de zero, renovar até 60 dias, em dia depois', () => {
+    expect(regrasDoAgente.situacaoDoCertificado(daqui(-1), agora)).toMatchObject({ situacao: 'vencido', diasParaVencer: -1 });
+    expect(regrasDoAgente.situacaoDoCertificado(daqui(0, -3), agora)).toMatchObject({ situacao: 'vencido' });
+    expect(regrasDoAgente.situacaoDoCertificado(daqui(0, 3), agora)).toMatchObject({ situacao: 'vence em breve', diasParaVencer: 0 });
+    expect(regrasDoAgente.situacaoDoCertificado(daqui(60, 1), agora)).toMatchObject({ situacao: 'vence em breve', diasParaVencer: 60 });
+    expect(regrasDoAgente.situacaoDoCertificado(daqui(61, 1), agora)).toMatchObject({ situacao: 'em dia', diasParaVencer: 61 });
+    expect(regrasDoAgente.situacaoDoCertificado('2027-03-01T03:00:00Z', agora)?.venceEm).toBe('01/03/2027');
+  });
+  it('sem data ou com data torta, nada', () => {
+    expect(regrasDoAgente.situacaoDoCertificado(null, agora)).toBeNull();
+    expect(regrasDoAgente.situacaoDoCertificado('', agora)).toBeNull();
+    expect(regrasDoAgente.situacaoDoCertificado('amanhã', agora)).toBeNull();
+  });
+  it('a consulta existe para o modelo', () => {
+    expect(regrasDoAgente.ehFerramenta('canais_e_integracoes')).toBe(true);
+    expect(regrasDoAgente.FERRAMENTAS.find((f) => f.name === 'canais_e_integracoes')?.description).toContain('Canal sem pedido há algum tempo não quer dizer canal desligado');
   });
 });

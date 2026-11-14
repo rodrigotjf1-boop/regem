@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { Permissoes, perfilPadrao, podeAcessar } from '../../auth/permissoes';
@@ -9,7 +9,12 @@ import { lerEstacoes } from '../../common/fluxo-kds';
 import { FUSO_SQL, noPeriodo } from '../../common/fuso-sql';
 import { idadeDoTurno } from '../../common/turno';
 import { DashboardService } from '../dashboard/dashboard.service';
+import { CANAIS_DA_PAUSA, NOME_DO_CANAL } from '../../common/pausa-do-canal';
 import { DeliveryService } from '../delivery/delivery.service';
+import { PausaDoCanalService } from '../delivery/pausa-do-canal.service';
+import { Food99Service } from '../integracoes/food99/food99.service';
+import { WhatsappProvedorService } from '../whatsapp/whatsapp-provedor.service';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { EscalaService } from '../escala/escala.service';
 import { EstoqueService } from '../estoque/estoque.service';
 import { LicencaService } from '../licenca/licenca.service';
@@ -38,6 +43,7 @@ import {
   periodoAnterior,
   periodoDaFerramenta,
   semAcento,
+  situacaoDoCertificado,
   variacaoPct,
 } from './mister-agente.regras';
 import { primeiroNome } from './mister.regras';
@@ -129,6 +135,18 @@ const diaDaLinha = (v: unknown): string => {
 };
 const recusa = (erro: string): ResultadoDaFerramenta => ({ ok: false, dados: { erro } });
 
+/** Os canais da pausa e o nome do canal no pedido (a 99 é `food99` na pausa e `99food` no pedido). */
+const CANAL_DO_PEDIDO: Record<(typeof CANAIS_DA_PAUSA)[number], string> = { cardapio: 'cardapio', ifood: 'ifood', food99: '99food' };
+/** No máximo estas lojas na resposta dos canais sem loja escolhida (uma leitura da pausa por loja). */
+const MAX_LOJAS_NOS_CANAIS = 10;
+const SITUACAO_DA_PAUSA_NO_APP = { pausando: 'ainda indo para o app', aplicada: 'pausado no app também', erro: 'o app não aceitou a pausa' } as const;
+/** O estado da conexão do Evolution, em português (o `open` é o conectado). */
+const SITUACAO_DO_WHATSAPP: Record<string, string> = {
+  close: 'O WhatsApp da loja está desconectado: é preciso ler o QR de novo.',
+  connecting: 'O WhatsApp da loja está reconectando.',
+  nao_criada: 'A loja ainda não ligou o WhatsApp.',
+};
+
 const SITUACAO_DO_DELIVERY: Record<string, string> = { novo: 'aguardando aceite', confirmado: 'em preparo', pronto: 'pronto', despachado: 'a caminho' };
 const SITUACAO_DA_COZINHA: Record<string, string> = { recebido: 'na fila', preparo: 'em preparo', pronto: 'pronto' };
 const SITUACAO_DO_PEDIDO: Record<string, string> = {
@@ -167,6 +185,11 @@ export class MisterFerramentasService {
     private readonly vendas: VendasService,
     private readonly escala: EscalaService,
     private readonly ponto: PontoService,
+    // F3 (os canais e as integrações): opcionais — sem eles, o pedaço da resposta diz "não li" (os testes antigos não os montam).
+    @Optional() private readonly pausa?: PausaDoCanalService,
+    @Optional() private readonly food99?: Food99Service,
+    @Optional() private readonly whatsapp?: WhatsappService,
+    @Optional() private readonly whatsappProvedor?: WhatsappProvedorService,
   ) {}
 
   // ───────────────────────────── de quem é a conversa ─────────────────────────────
@@ -299,10 +322,190 @@ export class MisterFerramentasService {
         return this.historiaDoPedido(e, en, loja);
       case 'tempos_dos_pedidos':
         return this.temposDosPedidos(e, en, loja);
+      case 'canais_e_integracoes':
+        return this.canaisEIntegracoes(e, loja);
     }
   }
 
   // ───────────────────────────── cada ferramenta ─────────────────────────────
+
+  /**
+   * Os canais de venda e as integrações AGORA (F3, a vigilância das integrações). Cada pedaço vem da regra da sua tela: a
+   * pausa do "Pausar" do Delivery (`PausaDoCanalService.estado`), o login da 99 (`Food99Service.status`), o WhatsApp da
+   * loja (`WhatsappProvedorService.estado` e, no Evolution, a conexão de agora por `WhatsappService.status`) e a nota
+   * fiscal (o ajuste, o certificado pela conta da tela — `diasParaVencer`, aviso com 60 dias — e as notas das últimas 24
+   * horas). O último pedido de cada canal sai do próprio pedido. Fica de fora a fila de avisos a outros sistemas
+   * (`aviso_integracao`): ela não sincroniza, e a nuvem não veria as falhas que saíram do servidor da loja (V37).
+   */
+  private async canaisEIntegracoes(e: EscopoDoMister, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    const verCanais = this.pode(e, 'delivery');
+    const verFiscal = this.pode(e, 'fiscal');
+    if (!verCanais && !verFiscal) return recusa(SEM_PERMISSAO);
+    const dados: Record<string, unknown> = { loja: loja.nome, lidoAs: horaAgora() };
+    if (verCanais) {
+      // Sem loja escolhida numa empresa de várias: cada loja com os seus canais (a pausa e o pedido são de uma loja).
+      const lojas: { id: string | null; nome: string }[] =
+        loja.atual || e.lojaUnica ? [{ id: loja.atual, nome: loja.nome }] : e.lojas.slice(0, MAX_LOJAS_NOS_CANAIS).map((l) => ({ id: l.id, nome: l.nome }));
+      const porLoja: Record<string, unknown>[] = [];
+      for (const l of lojas) porLoja.push({ loja: l.nome, ...(await this.canaisDaLoja(e, l.id)) });
+      if (porLoja.length === 1) {
+        dados.canais = porLoja[0].canais;
+        if (porLoja[0].outrosCanais) dados.outrosCanais = porLoja[0].outrosCanais;
+      } else dados.porLoja = porLoja;
+      const da99 = await this.loginDa99(e);
+      if (da99) dados.loginDa99 = da99;
+      dados.whatsappDaLoja = await this.whatsappDaLoja(e);
+    } else dados.canais = { aviso: SEM_PERMISSAO };
+    dados.notaFiscal = verFiscal ? await this.notaFiscal(e, loja.atual) : { aviso: SEM_PERMISSAO };
+    return { ok: true, dados };
+  }
+
+  /** Os três canais da pausa numa loja (a pausa de agora e o último pedido) e os outros canais com pedido hoje. */
+  private async canaisDaLoja(e: EscopoDoMister, unidadeId: string | null): Promise<Record<string, unknown>> {
+    let estado: any = null;
+    if (this.pausa) {
+      try {
+        estado = await this.pausa.estado(e.tenantId, unidadeId);
+      } catch (err: any) {
+        this.logger.warn(`a pausa dos canais não foi lida: ${String(err?.message ?? err).slice(0, 200)}`);
+      }
+    }
+    const pedidos = linhas(
+      await this.db.execute(sql`
+        select coalesce(canal, 'outro') as canal,
+               count(*) filter (where ${noPeriodo('criado_em', `${hojeISO()} 00:00:00`, `${hojeISO()} 23:59:59`)})::int as hoje,
+               to_char(max(criado_em) at time zone ${FUSO_SQL}, 'DD/MM HH24:MI') as ultimo,
+               floor(extract(epoch from (now() - max(criado_em))) / 60)::int as ha_min
+          from pedido_externo
+         where tenant_id = ${e.tenantId}::uuid and deleted_at is null and criado_em > now() - interval '30 days'
+           ${sqlUnidadeOuRede('unidade_id', unidadeId)}
+         group by 1`),
+    );
+    const doPedido = (canal: string) => pedidos.find((p) => p.canal === canal);
+    const canais = CANAIS_DA_PAUSA.map((c) => {
+      const noPainel = estado?.canais?.find((x: any) => x.canal === c);
+      const p = doPedido(CANAL_DO_PEDIDO[c]);
+      const pz = noPainel?.pausa;
+      return {
+        canal: NOME_DO_CANAL[c],
+        pausa: !estado
+          ? { aviso: 'Não consegui ler a pausa agora.' }
+          : pz
+            ? {
+                pausado: true,
+                volta: String(pz.volta?.texto ?? ''),
+                motivo: String(pz.rotulo ?? ''),
+                ...(pz.pausadoPorNome ? { pausadoPor: primeiroNome(String(pz.pausadoPorNome)) } : {}),
+                ...(pz.externo ? { noApp: SITUACAO_DA_PAUSA_NO_APP[pz.externo.situacao as keyof typeof SITUACAO_DA_PAUSA_NO_APP] ?? null } : {}),
+              }
+            : { pausado: false },
+        ultimoPedido: p ? String(p.ultimo) : null,
+        ultimoPedidoHaMinutos: p ? inteiro(p.ha_min) : null,
+        pedidosHoje: p ? inteiro(p.hoje) : 0,
+      };
+    });
+    const daPausa = new Set(Object.values(CANAL_DO_PEDIDO));
+    const outros = pedidos
+      .filter((p) => !daPausa.has(String(p.canal)) && inteiro(p.hoje) > 0)
+      .map((p) => ({ canal: CANAL_NA_TELA[String(p.canal)] ?? String(p.canal), pedidosHoje: inteiro(p.hoje), ultimoPedido: String(p.ultimo) }));
+    return { canais, ...(outros.length ? { outrosCanais: outros } : {}) };
+  }
+
+  /** O login da 99 (a mesma saúde da tela: o token vigente, não só a ligação) — ou null quando a empresa não usa a 99. */
+  private async loginDa99(e: EscopoDoMister): Promise<Record<string, unknown> | null> {
+    if (!this.food99) return { aviso: 'Não consegui ler o login da 99 agora.' };
+    try {
+      const s: any = await this.food99.status(e.tenantId);
+      if (!s?.conectado) return null;
+      return s.autenticado
+        ? { emDia: true }
+        : { emDia: false, observacao: 'O login da 99 venceu ou foi recusado: os pedidos da 99 podem não chegar até a conexão ser refeita.' };
+    } catch (err: any) {
+      this.logger.warn(`o login da 99 não foi lido: ${String(err?.message ?? err).slice(0, 200)}`);
+      return { aviso: 'Não consegui ler o login da 99 agora.' };
+    }
+  }
+
+  /** O WhatsApp da loja (o dos clientes, não o do Mister): o provedor e, no Evolution, se está conectado agora. */
+  private async whatsappDaLoja(e: EscopoDoMister): Promise<Record<string, unknown>> {
+    if (!this.whatsappProvedor) return { aviso: 'Não consegui ler o WhatsApp da loja agora.' };
+    try {
+      const est: any = await this.whatsappProvedor.estado(e.tenantId);
+      if (est?.provedor === 'cloud') {
+        return { conexao: 'API oficial da Meta', ligado: !!est.cloud?.vinculado, ...(est.cloud?.vinculado ? {} : { observacao: 'O número da API oficial não está ligado.' }) };
+      }
+      if (!est?.evolution?.vinculado) return { conexao: 'WhatsApp pelo QR', ligado: false, observacao: 'A loja ainda não ligou o WhatsApp.' };
+      if (!this.whatsapp) return { conexao: 'WhatsApp pelo QR', ligado: true, conectadoAgora: null, observacao: 'Não consegui confirmar a conexão agora.' };
+      const s: any = await this.whatsapp.status(e.tenantId);
+      const situacao = SITUACAO_DO_WHATSAPP[String(s?.estado ?? '')] ?? null;
+      return {
+        conexao: 'WhatsApp pelo QR',
+        ligado: true,
+        conectadoAgora: s?.estado === 'open' ? true : situacao ? false : null,
+        ...(s?.estado === 'open' ? {} : { observacao: situacao ?? 'Não consegui confirmar a conexão agora.' }),
+      };
+    } catch (err: any) {
+      if (err instanceof NotFoundException) return { ligado: false, observacao: 'A loja ainda não configurou o WhatsApp.' };
+      this.logger.warn(`o WhatsApp da loja não foi lido: ${String(err?.message ?? err).slice(0, 200)}`);
+      return { aviso: 'Não consegui ler o WhatsApp da loja agora.' };
+    }
+  }
+
+  /**
+   * A nota fiscal: o ajuste de cada loja (ligada, em teste ou valendo), o certificado digital (o da loja, senão o da empresa)
+   * e as notas das últimas 24 horas — recusadas (com o motivo da SEFAZ), sem resposta há mais de 10 minutos e em
+   * contingência. Nota simulada (o teste da tela) fica de fora.
+   */
+  private async notaFiscal(e: EscopoDoMister, unidadeId: string | null): Promise<Record<string, unknown>> {
+    const ajustes = linhas(
+      await this.db.execute(sql`
+        select fc.unidade_id, u.nome as loja, fc.ativo, fc.ambiente,
+               (select c.cert_valido_ate from fiscal_credencial c
+                 where c.tenant_id = fc.tenant_id and (c.unidade_id = fc.unidade_id or c.unidade_id is null) and c.cert_valido_ate is not null
+                 order by (c.unidade_id is null), c.updated_at desc limit 1) as cert_ate
+          from fiscal_config fc
+          left join unidade u on u.id = fc.unidade_id
+         where fc.tenant_id = ${e.tenantId}::uuid ${sqlUnidadeOuRede('fc.unidade_id', unidadeId)}
+         order by (fc.unidade_id is null) desc, u.nome`),
+    );
+    if (!ajustes.some((a) => a.ativo)) return { ligada: false, observacao: 'A nota fiscal não está ligada no Regem.' };
+    const agora = new Date();
+    const lojas = ajustes
+      .filter((a) => a.ativo)
+      .map((a) => ({
+        ...(a.unidade_id ? { loja: String(a.loja ?? '') } : { loja: 'a empresa toda' }),
+        ambiente: String(a.ambiente) === '1' ? 'valendo (produção)' : 'em teste (homologação)',
+        certificado: situacaoDoCertificado(a.cert_ate, agora) ?? { aviso: 'Sem certificado digital cadastrado.' },
+      }));
+    const vale = sql`tenant_id = ${e.tenantId}::uuid and simulada = false and created_at > now() - interval '24 hours' ${sqlUnidadeOuRede('unidade_id', unidadeId)}`;
+    const [cont] = linhas(
+      await this.db.execute(sql`
+        select count(*) filter (where status = 'autorizada')::int as autorizadas,
+               count(*) filter (where status = 'rejeitada')::int as recusadas,
+               count(*) filter (where status = 'pendente' and created_at < now() - interval '10 minutes')::int as sem_resposta,
+               count(*) filter (where status = 'contingencia')::int as em_contingencia
+          from nota_fiscal where ${vale}`),
+    );
+    const recusadas = linhas(
+      await this.db.execute(sql`
+        select numero, serie, coalesce(nullif(motivo, ''), 'sem motivo informado') as motivo, to_char(created_at at time zone ${FUSO_SQL}, 'DD/MM HH24:MI') as quando
+          from nota_fiscal where ${vale} and status = 'rejeitada'
+         order by created_at desc limit 5`),
+    );
+    return {
+      ligada: true,
+      lojas,
+      ultimas24h: {
+        autorizadas: inteiro(cont?.autorizadas),
+        recusadas: inteiro(cont?.recusadas),
+        semRespostaDaSefaz: inteiro(cont?.sem_resposta),
+        emContingencia: inteiro(cont?.em_contingencia),
+      },
+      ...(recusadas.length
+        ? { ultimasRecusadas: recusadas.map((n) => ({ numero: `${inteiro(n.serie)}-${inteiro(n.numero)}`, motivo: String(n.motivo).slice(0, 200), quando: String(n.quando) })) }
+        : {}),
+    };
+  }
 
   /** O Painel (`GET /dashboard`): um dia. */
   private async resumoDoDia(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
