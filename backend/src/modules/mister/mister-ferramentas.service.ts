@@ -5,7 +5,9 @@ import { Permissoes, perfilPadrao, podeAcessar } from '../../auth/permissoes';
 import { FUSO_OPERACAO, hojeISO, horaAgora, horaNoFuso, somarDias } from '../../common/data';
 import { brutoPedido, comandaEhDeCanal } from '../../common/faturamento';
 import { sqlUnidade, sqlUnidadeOuRede } from '../../common/filtro-unidade';
+import { lerEstacoes } from '../../common/fluxo-kds';
 import { FUSO_SQL, noPeriodo } from '../../common/fuso-sql';
+import { idadeDoTurno } from '../../common/turno';
 import { DashboardService } from '../dashboard/dashboard.service';
 import { DeliveryService } from '../delivery/delivery.service';
 import { EscalaService } from '../escala/escala.service';
@@ -19,12 +21,18 @@ import { VendasService } from '../vendas/vendas.service';
 import { pessoaVale } from './mister-vinculo.service';
 import {
   ConversaDoMister,
+  EtapaDoPedido,
+  LimitesDoKds,
+  PREPARO_DA_ENCOMENDA_MIN,
+  atrasoNaCozinha,
   NivelDoMister,
   NomeDaFerramenta,
   diaDaFerramenta,
   diaMes,
   ehFerramenta,
   lojaPedida,
+  numeroDoPedido,
+  ondeDemorou,
   periodoDaFerramenta,
   semAcento,
 } from './mister-agente.regras';
@@ -119,6 +127,15 @@ const recusa = (erro: string): ResultadoDaFerramenta => ({ ok: false, dados: { e
 
 const SITUACAO_DO_DELIVERY: Record<string, string> = { novo: 'aguardando aceite', confirmado: 'em preparo', pronto: 'pronto', despachado: 'a caminho' };
 const SITUACAO_DA_COZINHA: Record<string, string> = { recebido: 'na fila', preparo: 'em preparo', pronto: 'pronto' };
+const SITUACAO_DO_PEDIDO: Record<string, string> = {
+  novo: 'aguardando aceite',
+  confirmado: 'em preparo',
+  pronto: 'pronto',
+  despachado: 'a caminho',
+  entregue: 'entregue',
+  concluido: 'concluído',
+  cancelado: 'cancelado',
+};
 const PROBLEMA_DO_VIGIA: Record<string, string> = {
   servidor_sem_sinal: 'servidor da loja sem sinal',
   servico_parado: 'serviço do servidor parado',
@@ -274,6 +291,8 @@ export class MisterFerramentasService {
         return this.caixasESangrias(e, en, loja);
       case 'equipe_do_dia':
         return this.equipeDoDia(e, en, loja);
+      case 'historia_do_pedido':
+        return this.historiaDoPedido(e, en, loja);
     }
   }
 
@@ -436,6 +455,13 @@ export class MisterFerramentasService {
       naCozinha[s] = (naCozinha[s] ?? 0) + 1;
     }
     const fazendo = [...porPedido.values()].filter((c) => c.status !== 'pronto').sort((a, b) => new Date(a.criadoEm).getTime() - new Date(b.criadoEm).getTime())[0];
+    // Atrasados pela MESMA regra do KDS (o vermelho ou o tempo de preparo do próprio pedido), um por pedido.
+    const limitesDoKds: LimitesDoKds = { verdeAteMin: Number(fila?.cores?.verdeAteMin) || 5, amareloAteMin: Number(fila?.cores?.amareloAteMin) || 10 };
+    const atrasados = [...porPedido.values()]
+      .map((c) => ({ c, atraso: c.status === 'pronto' ? null : atrasoNaCozinha(c, agora, limitesDoKds) }))
+      .filter((x) => x.atraso)
+      .sort((a, b) => b.atraso!.minutos - a.atraso!.minutos);
+    const senhaDe = (c: any) => (c.senha != null ? `${c.senhaPrefixo ?? ''}${c.senha}` : c.senhaPlataforma ? String(c.senhaPlataforma) : null);
     dados.cozinha = {
       pedidos: porPedido.size,
       porSituacao: naCozinha,
@@ -447,6 +473,17 @@ export class MisterFerramentasService {
             haMinutos: minutosDesde(fazendo.criadoEm, agora),
           }
         : null,
+      atrasadosAgora: {
+        total: atrasados.length,
+        regra: `Pela regra do KDS desta loja: verde até ${limitesDoKds.verdeAteMin} min, amarelo até ${limitesDoKds.amareloAteMin} min, depois vermelho; ou passou do tempo de preparo do próprio pedido.`,
+        pedidos: atrasados.slice(0, 5).map(({ c, atraso }) => ({
+          origem: String(c.plataforma || c.origem || ''),
+          senha: senhaDe(c),
+          situacao: SITUACAO_DA_COZINHA[String(c.status)],
+          haMinutos: atraso!.minutos,
+          porque: atraso!.motivo === 'passou_do_preparo' ? `passou do tempo de preparo (${atraso!.limiteMin} min)` : `passou do vermelho do KDS (${atraso!.limiteMin} min)`,
+        })),
+      },
       ...(fila?.nuvemComServidor ? { observacao: 'A fila da cozinha vem do servidor da loja e pode ter alguns segundos de atraso.' } : {}),
     };
     return { ok: true, dados };
@@ -533,6 +570,142 @@ export class MisterFerramentasService {
       dados.problemasEmAberto = { aviso: 'Não consegui ler os problemas em aberto agora.' };
     }
     return { ok: true, dados };
+  }
+
+  /**
+   * A história de um pedido, para "por que o pedido X atrasou": os horários de cada etapa (chegou, aceito, entrou na
+   * cozinha, começou, pronto, saiu, entregue), as estações da cozinha por onde passou e onde demorou. Procura nos
+   * últimos 3 dias da loja, pelo número do canal, pelo número do dia ou pela senha da cozinha (B12, D12).
+   */
+  private async historiaDoPedido(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    const n = numeroDoPedido(en.numero);
+    if (!n) return recusa('Diga o número do pedido (o do canal, o número do dia ou a senha da cozinha, como D12).');
+    const soNumero = n.replace(/^[A-Z]/, '');
+    const recentes = sql`> now() - interval '3 days'`;
+    // 1) O pedido dos canais: pelo número do canal (display_id) ou pelo número do dia.
+    const doCanal = linhas(
+      await this.db.execute(sql`
+        select pe.id, pe.canal, pe.display_id as "displayId", pe.numero, pe.tipo, pe.status, pe.comanda_id as "comandaId",
+               pe.criado_em as "criadoEm", pe.confirmado_em as "confirmadoEm", pe.pronto_em as "prontoEm",
+               pe.despachado_em as "despachadoEm", pe.entregue_em as "entregueEm", pe.concluido_em as "concluidoEm",
+               pe.cancelado_em as "canceladoEm", pe.agendamento, left(pe.motivo_cancelamento, 120) as motivo
+          from pedido_externo pe
+         where pe.tenant_id = ${e.tenantId}::uuid and pe.deleted_at is null ${sqlUnidadeOuRede('pe.unidade_id', loja.atual)}
+           and pe.criado_em ${recentes}
+           and (upper(pe.display_id) = ${n} or pe.display_id = ${soNumero} or pe.numero::text = ${soNumero})
+         order by pe.criado_em desc
+         limit 6`),
+    );
+    // 2) Sem pedido de canal: o cartão da cozinha pela senha (a venda do balcão e da mesa não tem pedido de canal).
+    const cartoesPelaSenha = doCanal.length
+      ? []
+      : linhas(
+          await this.db.execute(sql`
+            select distinct on (coalesce(pp.comanda_id, pp.id)) pp.comanda_id as "comandaId", pp.id, pp.origem, pp.plataforma, pp.criado_em as "criadoEm",
+                   coalesce(pp.senha_prefixo, '') || coalesce(pp.senha::text, '') as senha
+              from producao_pedido pp
+             where pp.tenant_id = ${e.tenantId}::uuid ${sqlUnidade('pp.unidade_id', loja.atual)} and pp.criado_em ${recentes}
+               and (upper(coalesce(pp.senha_prefixo, '') || coalesce(pp.senha::text, '')) = ${n} or pp.senha::text = ${n} or upper(pp.senha_plataforma) = ${n})
+             order by coalesce(pp.comanda_id, pp.id), pp.criado_em desc
+             limit 6`),
+        );
+    const achados = doCanal.length || cartoesPelaSenha.length;
+    if (!achados) return recusa(`Não achei pedido com o número ${n} nos últimos 3 dias em ${loja.nome}.`);
+    if (achados > 1) {
+      // Mais de um com o mesmo número (o número do dia volta a 1 todo dia): a pessoa escolhe.
+      const lista = doCanal.length
+        ? doCanal.map((p) => ({ canal: String(p.canal ?? ''), numero: String(p.displayId ?? p.numero ?? ''), chegou: dataHoraCurta(p.criadoEm), situacao: SITUACAO_DO_PEDIDO[String(p.status)] ?? String(p.status) }))
+        : cartoesPelaSenha.map((c) => ({ origem: String(c.plataforma || c.origem || ''), senha: String(c.senha ?? ''), chegou: dataHoraCurta(c.criadoEm) }));
+      return { ok: true, dados: { loja: loja.nome, maisDeUmPedido: lista, observacao: 'Pergunte qual deles, pelo horário em que chegou.' } };
+    }
+
+    const pe = doCanal[0] ?? null;
+    if (pe && !this.pode(e, 'delivery')) return recusa(SEM_PERMISSAO);
+    const comandaId: string | null = pe ? (pe.comandaId ?? null) : (cartoesPelaSenha[0].comandaId ?? null);
+    const cartaoSolto: string | null = pe ? null : comandaId ? null : String(cartoesPelaSenha[0].id);
+
+    // Os cartões da cozinha do pedido (um por estação), com o nome da estação em que está e das que já passou.
+    const cartoes =
+      comandaId || cartaoSolto
+        ? linhas(
+            await this.db.execute(sql`
+              select pp.id, pp.status, pp.criado_em as "criadoEm", pp.iniciado_em as "iniciadoEm", pp.pronto_em as "prontoEm",
+                     pp.entregue_em as "entregueEm", pp.tempo_preparo_min as "tempoPreparoMin", pp.estacoes,
+                     coalesce(pp.senha_prefixo, '') || coalesce(pp.senha::text, '') as senha,
+                     eq.nome as estacao, st.nome as setor
+                from producao_pedido pp
+                left join equipamento eq on eq.id = pp.destino_equipamento_id and eq.tenant_id = pp.tenant_id
+                left join setor st on st.id = pp.setor_id and st.tenant_id = pp.tenant_id
+               where pp.tenant_id = ${e.tenantId}::uuid and pp.destino_tipo = 'kds'
+                 and ${comandaId ? sql`pp.comanda_id = ${comandaId}::uuid` : sql`pp.id = ${cartaoSolto}::uuid`}
+               order by pp.criado_em`),
+          )
+        : [];
+    const idsDasEstacoes = [...new Set(cartoes.flatMap((c) => lerEstacoes(c.estacoes).map((x) => x.kds)))];
+    const nomes = idsDasEstacoes.length
+      ? new Map(
+          linhas(
+            await this.db.execute(sql`select id::text as id, nome from equipamento where tenant_id = ${e.tenantId}::uuid and id in (${sql.join(
+              idsDasEstacoes.map((i) => sql`${i}::uuid`),
+              sql`, `,
+            )})`),
+          ).map((x) => [String(x.id), String(x.nome)]),
+        )
+      : new Map<string, string>();
+    const limites = (await this.producao.getCores(e.tenantId, loja.atual)) as LimitesDoKds;
+    const agora = Date.now();
+    const encomendaPara = pe?.agendamento ?? null;
+    const quando = (v: unknown) => (v ? dataHoraCurta(v) : null);
+    const data = (v: unknown): Date | null => (v ? new Date(v as any) : null);
+    const minimo = (campo: string) => cartoes.map((c) => data(c[campo])).filter((d): d is Date => !!d && !Number.isNaN(d.getTime())).sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+    const maximo = (campo: string) => cartoes.map((c) => data(c[campo])).filter((d): d is Date => !!d && !Number.isNaN(d.getTime())).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+
+    const etapas: EtapaDoPedido[] = [
+      { etapa: 'chegou', em: data(pe?.criadoEm) ?? minimo('criadoEm') },
+      ...(pe ? [{ etapa: 'aceito', em: data(pe.confirmadoEm) }] : []),
+      { etapa: 'entrou na cozinha', em: minimo('criadoEm') },
+      { etapa: 'começou a ser feito', em: minimo('iniciadoEm') },
+      { etapa: 'ficou pronto', em: data(pe?.prontoEm) ?? (cartoes.length && cartoes.every((c) => c.prontoEm || c.status === 'entregue') ? maximo('prontoEm') : null) },
+      ...(pe ? [{ etapa: 'saiu para entrega', em: data(pe.despachadoEm) }, { etapa: 'entregue', em: data(pe.entregueEm) ?? data(pe.concluidoEm) }] : []),
+    ];
+    const conta = ondeDemorou(etapas);
+    const naCozinhaAgora = cartoes.filter((c) => c.status === 'recebido' || c.status === 'preparo');
+
+    return {
+      ok: true,
+      dados: {
+        loja: loja.nome,
+        pedido: pe
+          ? {
+              canal: String(pe.canal ?? ''),
+              numero: String(pe.displayId ?? pe.numero ?? ''),
+              tipo: pe.tipo === 'retirada' ? 'retirada' : 'entrega',
+              situacao: SITUACAO_DO_PEDIDO[String(pe.status)] ?? String(pe.status),
+              ...(pe.status === 'cancelado' ? { cancelado: quando(pe.canceladoEm), motivo: pe.motivo ? String(pe.motivo) : 'sem motivo anotado' } : {}),
+            }
+          : { origem: String(cartoesPelaSenha[0].plataforma || cartoesPelaSenha[0].origem || 'balcão'), senha: String(cartoesPelaSenha[0].senha ?? '') },
+        ...(encomendaPara ? { encomendaPara: quando(encomendaPara), observacao: `É encomenda: na cozinha o tempo só começa ${PREPARO_DA_ENCOMENDA_MIN} minutos antes do horário marcado.` } : {}),
+        horarios: etapas.map((x) => ({ etapa: x.etapa, hora: quando(x.em) })),
+        tempoEntreAsEtapas: conta.trechos.map((t) => ({ de: t.de, ate: t.ate, minutos: t.minutos })),
+        ondeDemorouMais: conta.maior,
+        cozinha: cartoes.map((c) => {
+          const atraso = c.status === 'recebido' || c.status === 'preparo' ? atrasoNaCozinha({ ...c, encomendaPara }, agora, limites) : null;
+          return {
+            estacao: String(c.estacao || c.setor || 'cozinha'),
+            situacao: SITUACAO_DA_COZINHA[String(c.status)] ?? (c.status === 'entregue' ? 'entregue' : String(c.status)),
+            entrou: quando(c.criadoEm),
+            comecou: quando(c.iniciadoEm),
+            pronto: quando(c.prontoEm),
+            tempoDePreparoPrevistoMin: Number(c.tempoPreparoMin) > 0 ? Number(c.tempoPreparoMin) : null,
+            passouAntesPor: lerEstacoes(c.estacoes).map((x) => ({ estacao: nomes.get(x.kds) ?? 'outra estação', prontoAs: quando(x.pronto), ...(x.forcado ? { encerradoNaMao: true } : {}) })),
+            ...(atraso ? { atrasadoAgora: { haMinutos: atraso.minutos, porque: atraso.motivo === 'passou_do_preparo' ? `passou do tempo de preparo (${atraso.limiteMin} min)` : `passou do vermelho do KDS (${atraso.limiteMin} min)` } } : {}),
+          };
+        }),
+        ...(cartoes.length ? {} : { semCozinha: 'Este pedido não passou por nenhum KDS (foi só impresso, ou a cozinha não usa o KDS).' }),
+        limitesDoKds: { verdeAteMin: limites.verdeAteMin, amareloAteMin: limites.amareloAteMin },
+        ...(naCozinhaAgora.length ? { aindaNaCozinha: true } : {}),
+      },
+    };
   }
 
   /**
@@ -633,7 +806,14 @@ export class MisterFerramentasService {
         caixa: t.origem === 'delivery' ? 'delivery' : 'balcão',
         abertoPor: String(t.abertaPor ?? ''),
         abertoEm: dataHoraCurta(t.abertaEm),
-        ...(aberto ? { abertoHaHoras: minutos === null ? null : Math.round(minutos / 6) / 10 } : { fechadoPor: String(t.fechadaPor ?? ''), fechadoEm: dataHoraCurta(t.fechadaEm) }),
+        ...(aberto
+          ? {
+              abertoHaHoras: minutos === null ? null : Math.round(minutos / 6) / 10,
+              ...(minutos !== null && minutos >= 48 * 60 ? { abertoHaDias: Math.floor(minutos / 1440) } : {}),
+              // A regra do caixa (`common/turno.ts`): passou de 24 h, o Regem pede o fechamento (não trava a venda).
+              passouDe24Horas: idadeDoTurno(t.abertaEm, agora).passouDoLimite,
+            }
+          : { fechadoPor: String(t.fechadaPor ?? ''), fechadoEm: dataHoraCurta(t.fechadaEm) }),
         abertura: reais(t.abertura),
         vendas: reais(t.vendas),
         sangrias: reais(t.sangrias),
@@ -641,9 +821,15 @@ export class MisterFerramentasService {
         ...(aberto ? {} : { esperado: reais(t.esperado), informado: reais(t.informado), diferenca: reais(t.diferenca) }),
       };
     };
-    // Abertos AGORA: o relatório lista o turno pelo dia em que ABRIU, então a janela olha 35 dias para trás (caixa que
-    // ficou aberto de um dia para o outro tem de aparecer).
-    const recentes: any = await this.relatorios.turnos(e.tenantId, somarDias(hoje, -35), hoje, e.verValores, loja.atual);
+    // Abertos AGORA, de qualquer idade: o relatório lista o turno pelo dia em que ABRIU, então a janela começa no dia do
+    // caixa aberto mais antigo da loja (um caixa esquecido há meses tem de aparecer — ERR-462).
+    const [maisAntigo] = linhas(
+      await this.db.execute(sql`
+        select to_char(min(aberta_em) at time zone ${FUSO_SQL}, 'YYYY-MM-DD') as dia
+          from caixa_sessao where tenant_id = ${e.tenantId}::uuid and status = 'aberta' ${sqlUnidade('unidade_id', loja.atual)}`),
+    );
+    const desde = maisAntigo?.dia ? String(maisAntigo.dia) : null;
+    const recentes: any = desde ? await this.relatorios.turnos(e.tenantId, desde < hoje ? desde : hoje, hoje, e.verValores, loja.atual) : { turnos: [] };
     const abertos = ((recentes?.turnos ?? []) as any[]).filter((t) => t.status === 'aberta');
     const doPeriodo: any = await this.relatorios.turnos(e.tenantId, p.de, p.ate, e.verValores, loja.atual);
     const turnos = (doPeriodo?.turnos ?? []) as any[];
