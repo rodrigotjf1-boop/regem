@@ -4,6 +4,17 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { exigirBooleano } from '../../common/exigir';
 import { escolherNumeroDaWaba, pedirCopiaDoApp } from '../whatsapp/coexistencia-meta';
 import { tierParaNumero } from '../whatsapp/limite-meta';
+import {
+  IDIOMA_DOS_MODELOS,
+  MODELOS_DO_MISTER,
+  ModeloDoMister,
+  SituacaoDoModelo,
+  ToqueNoModelo,
+  ehRecusaDoModelo,
+  mensagemDoModelo,
+  pedidoDeAprovacao,
+  situacaoDoModelo,
+} from './mister-modelos';
 import { Resposta, soDigitos } from './mister.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -54,7 +65,21 @@ const VAZIO: NumeroDoMister = {
   ultimaEntradaEm: null,
 };
 
-export type MotivoDoEnvio = 'sem_numero' | 'desligado' | 'sem_acesso' | 'meta';
+/** `modelo_nao_aprovado`: a Meta recusou o MODELO (não existe, não está aprovado, pausado ou desativado). */
+export type MotivoDoEnvio = 'sem_numero' | 'desligado' | 'sem_acesso' | 'meta' | 'modelo_nao_aprovado';
+
+/** Um modelo do Mister como a Meta o vê agora, para o console. */
+export interface ModeloNaMeta {
+  nome: string;
+  finalidade: string;
+  corpo: string;
+  botao: string;
+  situacao: SituacaoDoModelo;
+  /** A categoria que a Meta deu (ela pode mudar de utilidade para marketing). */
+  categoria: string | null;
+  /** O motivo da recusa, como a Meta escreveu. */
+  motivo: string | null;
+}
 
 /** A mensagem não saiu: o motivo e, quando foi a Meta, o status e o que ela disse (nunca o texto da mensagem). */
 export class FalhaDoEnvioDoMister extends Error {
@@ -179,6 +204,32 @@ export class MisterNumeroService {
   }
 
   /**
+   * Manda um MODELO aprovado pela Meta (fora da janela de 24 horas). Mesma chave geral e mesmas conferências do `enviar`.
+   * O botão leva o código do toque. A recusa do modelo pela Meta vira `modelo_nao_aprovado`.
+   */
+  async enviarModelo(para: string, modelo: ModeloDoMister, parametros: [string, string], toque: ToqueNoModelo): Promise<{ wamid: string | null }> {
+    const destino = soDigitos(para);
+    const n = await this.ler();
+    if (!destino || !n.phoneId || n.situacao === 'sem') throw new FalhaDoEnvioDoMister('sem_numero');
+    if (!n.ligado) throw new FalhaDoEnvioDoMister('desligado');
+    const token = this.token();
+    if (!token) throw new FalhaDoEnvioDoMister('sem_acesso');
+    const res = await this.buscar(`${GRAPH}/${n.phoneId}/messages`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(mensagemDoModelo(modelo, destino, parametros, toque)),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const j: any = res ? await res.json().catch(() => ({})) : {};
+      const dito = String(j?.error?.error_user_msg || j?.error?.message || '').slice(0, 200) || null;
+      if (aMetaNaoReconheceONumero(j?.error)) await this.marcarQueCaiu(n.phoneId, dito ?? 'A Meta não reconhece mais este número.');
+      throw new FalhaDoEnvioDoMister(ehRecusaDoModelo(j?.error?.code) ? 'modelo_nao_aprovado' : 'meta', res?.status ?? null, dito);
+    }
+    const j: any = await res.json().catch(() => ({}));
+    return { wamid: j?.messages?.[0]?.id ?? null };
+  }
+
+  /**
    * "Digitando…" no celular de quem perguntou enquanto o agente consulta, e a mensagem dela fica como LIDA — o mesmo
    * pedido faz as duas coisas (doc da Meta, "Typing indicators"; some quando a resposta sai ou em 25 s). Dispara e
    * segue: nunca lança e não segura a resposta — sem ele, o Mister responde igual.
@@ -230,6 +281,70 @@ export class MisterNumeroService {
       avisosPorDia: tierParaNumero(j?.whatsapp_business_manager_messaging_limit ?? null),
       lido: true,
     };
+  }
+
+  // ───────────────────────────── os modelos de mensagem ─────────────────────────────
+
+  /**
+   * Os modelos do Mister como a Meta os vê agora, lidos na conta do NÚMERO DO MISTER — a conta de quem envia (ERR-458:
+   * nunca "a primeira conta" ou a de uma loja). Uma leitura por modelo, pelo nome e pelo idioma. `lido` = false quando
+   * o número não está conectado ou a Meta não respondeu: aí a situação de cada um fica sem leitura.
+   */
+  async modelosNaMeta(): Promise<{ lido: boolean; modelos: ModeloNaMeta[] }> {
+    const base = (m: ModeloDoMister): ModeloNaMeta => ({ nome: m.nome, finalidade: m.finalidade, corpo: m.corpo, botao: m.botao, situacao: 'nao_pedido', categoria: null, motivo: null });
+    const n = await this.ler();
+    const token = this.token();
+    if (!n.wabaId || n.situacao === 'sem' || !token) return { lido: false, modelos: MODELOS_DO_MISTER.map(base) };
+    const modelos: ModeloNaMeta[] = [];
+    for (const m of MODELOS_DO_MISTER) {
+      const res = await this.buscar(
+        `${GRAPH}/${n.wabaId}/message_templates?name=${encodeURIComponent(m.nome)}&fields=name,status,category,language,rejected_reason&limit=20`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      ).catch(() => null);
+      const j: any = res ? await res.json().catch(() => ({})) : {};
+      if (!res || !res.ok) {
+        this.logger.warn(`modelos do Mister: a Meta não respondeu à leitura (${res?.status ?? 'sem resposta'}) ${String(j?.error?.message ?? '').slice(0, 200)}`);
+        return { lido: false, modelos: MODELOS_DO_MISTER.map(base) };
+      }
+      // O filtro `name` da Meta acha por trecho: só vale o nome exato, no idioma do Mister.
+      const t = (Array.isArray(j?.data) ? j.data : []).find((x: any) => x?.name === m.nome && x?.language === IDIOMA_DOS_MODELOS);
+      const motivo = t?.rejected_reason && String(t.rejected_reason).toUpperCase() !== 'NONE' ? String(t.rejected_reason).slice(0, 200) : null;
+      modelos.push({ ...base(m), situacao: situacaoDoModelo(t?.status), categoria: t?.category ? String(t.category).toLowerCase() : null, motivo });
+    }
+    return { lido: true, modelos };
+  }
+
+  /**
+   * Pede à Meta a aprovação dos modelos que ainda não existem na conta do número do Mister. O que já foi pedido (em
+   * análise, aprovado, recusado) não é pedido de novo. Devolve a situação lida depois e o que foi pedido agora.
+   */
+  async pedirModelos(): Promise<{ modelos: ModeloNaMeta[]; pedidos: string[]; recusas: { nome: string; motivo: string }[] }> {
+    const n = await this.ler();
+    if (!n.wabaId || n.situacao !== 'conectado') throw new BadRequestException('Conecte o número do Mister antes de pedir os modelos.');
+    const token = this.token();
+    if (!token) throw new BadRequestException('WA_CLOUD_TOKEN não configurado no servidor.');
+    const antes = await this.modelosNaMeta();
+    if (!antes.lido) throw new BadRequestException('Não consegui ler os modelos na Meta agora. Tente de novo em instantes.');
+    const pedidos: string[] = [];
+    const recusas: { nome: string; motivo: string }[] = [];
+    for (const m of MODELOS_DO_MISTER) {
+      if (antes.modelos.find((x) => x.nome === m.nome)?.situacao !== 'nao_pedido') continue;
+      const res = await this.buscar(`${GRAPH}/${n.wabaId}/message_templates`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(pedidoDeAprovacao(m)),
+      }).catch(() => null);
+      if (res && res.ok) {
+        pedidos.push(m.nome);
+        continue;
+      }
+      const j: any = res ? await res.json().catch(() => ({})) : {};
+      const dito = String(j?.error?.error_user_msg || j?.error?.message || (res ? `HTTP ${res.status}` : 'sem resposta')).slice(0, 220);
+      this.logger.warn(`modelos do Mister: a Meta recusou o pedido de ${m.nome} — ${dito}`);
+      recusas.push({ nome: m.nome, motivo: dito });
+    }
+    const depois = await this.modelosNaMeta();
+    return { modelos: depois.lido ? depois.modelos : antes.modelos, pedidos, recusas };
   }
 
   /**

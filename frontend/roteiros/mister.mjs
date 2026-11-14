@@ -91,7 +91,12 @@ const RELATORIOS_PADRAO = () => [
     regra: { ligado: false, hora: '23:30', diaSemana: null },
     ultimo: { referencia: '2026-11-13', situacao: 'nao_enviado', motivo: 'fora_da_janela_de_24h', em: '2026-11-14T02:31:00.000Z' },
   },
-  { tipo: 'resumo_semana', titulo: 'Resumo da semana', descricao: 'Os 7 dias até a véspera contra os 7 anteriores.', regra: { ligado: false, hora: '09:00', diaSemana: 1 }, ultimo: null },
+  {
+    tipo: 'resumo_semana', titulo: 'Resumo da semana', descricao: 'Os 7 dias até a véspera contra os 7 anteriores.',
+    regra: { ligado: false, hora: '09:00', diaSemana: 1 },
+    // Fora das 24 horas: foi o convite pelo modelo da Meta, e o resumo espera o toque.
+    ultimo: { referencia: '2026-11-02', situacao: 'nao_enviado', motivo: 'convite_enviado', em: '2026-11-09T12:05:00.000Z' },
+  },
 ];
 
 const medir = (page) =>
@@ -599,6 +604,8 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     ok(t0.includes('Relatórios') && t0.includes('Resumo do dia') && t0.includes('Resumo da semana'), 'relatórios: o resumo do dia e o da semana no grupo Relatórios');
     ok(/Último: não saiu em 13\/11 às 23:31 — a pessoa não falou com o Mister nas últimas 24 horas/.test(t0), 'relatórios: o último envio que não saiu, com o motivo em português');
     ok(t0.includes('falou com o Mister nas') && t0.includes('últimas 24 horas'), 'relatórios: a nota diz quem recebe pelo WhatsApp (a janela de 24 horas)');
+    ok(/Último: em 09\/11 às 09:05 foi o convite pelo WhatsApp \(fora das 24 horas\)\. O resumo sai quando a pessoa tocar em "Ver resumo"\./.test(t0), 'relatórios: o convite pelo modelo, fora das 24 horas, esperando o toque');
+    ok(t0.includes('convite pelo modelo de mensagem aprovado pela Meta'), 'relatórios: a nota diz que fora das 24 horas vai o convite pelo modelo');
     // Desligar o caixa e salvar: a barra conta e o servidor recebe só o tipo que mudou, inteiro.
     await page.click('button[role="switch"][aria-label*="Caixa aberto há mais de 24 horas"]');
     await page.waitForSelector('text=1 alteração ainda não salva');

@@ -5,8 +5,9 @@
 // quando é o caso) e o `featureType` da janela; a janela fechada não muda nada; os avisos da Meta aparecem; conectar NÃO
 // liga a chave geral; conectado — os dados do número e o aviso da coexistência; desconectar e desligar pedem
 // confirmação (Esc cancela, sem chamada); o número que caiu mostra o motivo; a lista de empresas com os rótulos, a busca
-// que vai ao servidor (e só a resposta mais nova vale), vazio, teto e erro com "Tentar de novo"; e, em cada largura, a
-// página e o diálogo inteiros na tela, sem barra lateral — tabela no largo, cartões no estreito.
+// que vai ao servidor (e só a resposta mais nova vale), vazio, teto e erro com "Tentar de novo"; os modelos de mensagem
+// (a situação lida, o pedido uma vez só, o aprovado e o recusado, sem número e o erro); e, em cada largura, a página e o
+// diálogo inteiros na tela, sem barra lateral — tabela no largo, cartões no estreito.
 import { responder, tokenFalso } from './comum.mjs';
 
 const DIRETORIA = tokenFalso({ escopo: 'distribuicao', perfil: 'diretoria', nome: 'Rodrigo' });
@@ -32,6 +33,22 @@ const EMPRESAS = [
   { tenantId: 'b', nome: 'Pizzaria do Porto', modulo: true, ia: { origem: 'propria', provedor: 'anthropic' }, pessoas: 1, usoUsd: 2.1, situacao: 'ia_parada', motivo: 'sem_credito' },
   { tenantId: 'c', nome: 'Empório Sabor da Serra Comércio de Alimentos e Bebidas Artesanais Ltda', modulo: true, ia: { origem: null, provedor: null }, pessoas: 0, usoUsd: 0, situacao: 'falta_chave_e_whatsapp', motivo: null },
   { tenantId: 'd', nome: 'Cantina Bella', modulo: false, ia: { origem: 'incluida', provedor: null }, pessoas: 0, usoUsd: null, situacao: 'modulo_desligado', motivo: null },
+];
+
+const modelo = (nome, situacao, extra = {}) => ({
+  nome,
+  finalidade: nome === 'mister_aviso' ? 'Avisos fora das 24 horas' : 'Resumos fora das 24 horas',
+  corpo: nome === 'mister_aviso' ? 'Aviso do Mister para {{1}}: {{2}}. Toque no botão para ver o que fazer.' : 'Seu {{1}} está pronto ({{2}}). Toque no botão para receber.',
+  botao: nome === 'mister_aviso' ? 'Ver o que fazer' : 'Ver resumo',
+  situacao,
+  categoria: situacao === 'nao_pedido' ? null : 'utility',
+  motivo: null,
+  ...extra,
+});
+const MODELOS_NAO_PEDIDOS = [modelo('mister_aviso', 'nao_pedido'), modelo('mister_resumo_pronto', 'nao_pedido')];
+const MODELOS_LONGOS = [
+  modelo('mister_aviso', 'aprovado', { categoria: 'marketing' }),
+  modelo('mister_resumo_pronto', 'recusado', { motivo: 'INVALID_FORMAT — o corpo do modelo tem um formato que a Meta não aceita para a categoria utilidade nesta conta' }),
 ];
 
 const medir = (page) =>
@@ -66,6 +83,8 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
       falhaDaLista: !!o.falhaDaLista,
       avisos: o.avisos ?? [],
       atrasoDaBusca: o.atrasoDaBusca ?? {},
+      modelos: o.modelos ?? MODELOS_NAO_PEDIDOS,
+      falhaDosModelos: !!o.falhaDosModelos,
       pedidos: [],
     };
     const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
@@ -118,6 +137,15 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
       if (p === '/distribuicao/mister/liberacao') {
         S.liberado = JSON.parse(req.postData()).ligado === true;
         return responder(route, { ligado: S.liberado }, 201);
+      }
+      if (p === '/distribuicao/mister/modelos' && metodo === 'GET') {
+        if (S.falhaDosModelos) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
+        return responder(route, { lido: S.numero.situacao === 'conectado', modelos: S.modelos });
+      }
+      if (p === '/distribuicao/mister/modelos/pedir') {
+        const pedidos = S.modelos.filter((m) => m.situacao === 'nao_pedido').map((m) => m.nome);
+        S.modelos = S.modelos.map((m) => (m.situacao === 'nao_pedido' ? { ...m, situacao: 'em_analise', categoria: 'utility' } : m));
+        return responder(route, { modelos: S.modelos, pedidos, recusas: [] }, 201);
       }
       // O resto do console (frota, licenças, auditoria…) não é deste roteiro: listas vazias.
       return responder(route, []);
@@ -272,6 +300,43 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
     await ctx.close();
   }
 
+  // ── os modelos de mensagem: a situação lida, o pedido uma vez só, o aprovado e o recusado, sem número e o erro ──
+  {
+    const { ctx, page, S } = await abrir(1280, 900, { numero: conectado(), liberado: true });
+    await naAba(page);
+    const bloco = page.locator('section[aria-labelledby="mister-modelos"]');
+    await bloco.locator('text=ainda não pedido').first().waitFor({ timeout: 20000 });
+    const texto = await bloco.innerText();
+    ok(/mister_aviso/.test(texto) && /mister_resumo_pronto/.test(texto) && /Aviso do Mister para \{\{1\}\}: \{\{2\}\}/.test(texto) && /Botão: Ver o que fazer/.test(texto) && /Botão: Ver resumo/.test(texto), 'os dois modelos com o texto e o botão');
+    const pedir = bloco.locator('button:has-text("Pedir aprovação à Meta")');
+    ok(await pedir.isEnabled(), 'ainda não pedidos: "Pedir aprovação à Meta" liberado');
+    await pedir.click();
+    await bloco.locator('[role="status"]:has-text("Pedido enviado à Meta")').waitFor();
+    ok(feitos(S, 'POST', '/distribuicao/mister/modelos/pedir').length === 1, 'o pedido vai ao servidor uma vez');
+    ok((await bloco.locator('text=em análise na Meta').count()) === 2 && (await pedir.isDisabled()), 'depois do pedido: os dois em análise e o botão travado (nada mais a pedir)');
+    S.modelos = MODELOS_LONGOS;
+    await bloco.locator('button:has-text("Atualizar situação")').click();
+    await bloco.locator('text=recusado pela Meta').waitFor();
+    const depois = await bloco.innerText();
+    ok(/aprovado/.test(depois) && /classificou como marketing/.test(depois) && /Motivo da recusa: INVALID_FORMAT/.test(depois), 'atualizar: o aprovado (com a categoria trocada) e o recusado com o motivo');
+    await ctx.close();
+  }
+  {
+    const { ctx, page } = await abrir(1280, 900);
+    await naAba(page);
+    const bloco = page.locator('section[aria-labelledby="mister-modelos"]');
+    await bloco.locator('text=Conecte o número do Mister para pedir os modelos.').waitFor({ timeout: 20000 });
+    ok(await bloco.locator('button:has-text("Pedir aprovação à Meta")').isDisabled(), 'sem número: avisa e não deixa pedir');
+    await ctx.close();
+  }
+  {
+    const { ctx, page } = await abrir(1280, 900, { numero: conectado(), falhaDosModelos: true });
+    await naAba(page);
+    await page.locator('section[aria-labelledby="mister-modelos"] [role="alert"]:has-text("Erro interno")').waitFor({ timeout: 20000 });
+    ok((await page.locator('text=● conectado').count()) === 1, 'erro só nos modelos: o número continua na tela');
+    await ctx.close();
+  }
+
   // ── as empresas: rótulos, busca no servidor (só a resposta mais nova vale), vazio, teto e erro ──
   {
     const { ctx, page, S } = await abrir(1280, 900, { numero: conectado(), liberado: true, total: 250, atrasoDaBusca: { p: 900 } });
@@ -320,9 +385,10 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
 
   // ── cada largura: a página e o diálogo inteiros na tela; tabela no largo, cartões no estreito ──
   for (const w of larguras) {
-    const { ctx, page, erros } = await abrir(w, w < 700 ? 820 : 900, { numero: conectado(), liberado: true, total: 250 });
+    const { ctx, page, erros } = await abrir(w, w < 700 ? 820 : 900, { numero: conectado(), liberado: true, total: 250, modelos: MODELOS_LONGOS });
     await naAba(page);
     await page.locator('text=Empório Sabor da Serra >> visible=true').first().waitFor({ timeout: 20000 });
+    await page.locator('section[aria-labelledby="mister-modelos"] >> text=recusado pela Meta').waitFor({ timeout: 20000 });
     let m = await medir(page);
     ok(m.length === 0, `${w}px: conectado — sem barra lateral, nada passa da tela e o toque é grande (${m.join(' | ')})`);
     const tabela = await page.locator('section[aria-labelledby="mister-empresas"] table').isVisible();
