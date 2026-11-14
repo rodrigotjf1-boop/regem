@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Mister: o guia de uso — "como faço…" (14/11, F2.5; SEM migration; não mexe no `sync-daemon`).** A 15ª consulta do
+  Mister: um guia das telas principais, guardado no código da distribuição, com o caminho do menu, quem abre e o passo a
+  passo; a spec confere cada caminho e cada botão contra o menu e as telas. Na NUVEM com o merge. O agente só sobe na
+  nuvem. Nada no `.zip` nem no `.exe`.
+
 - **Mister: os relatórios, resumo do dia e da semana (14/11, F3.2; mig 420 `@cloud-only` — as tabelas
   `mister_relatorio_regra` e `mister_relatorio` entram em `SO_NUVEM` no `sync-daemon`; nascem DESLIGADOS por empresa).**
   Na NUVEM com o merge: o grupo "Relatórios" em Mister › Avisos e relatórios e a rotina (a cada 5 min). Entra DEPOIS dos

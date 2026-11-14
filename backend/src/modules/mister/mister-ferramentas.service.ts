@@ -50,6 +50,7 @@ import {
   situacaoDoCertificado,
   variacaoPct,
 } from './mister-agente.regras';
+import { GUIA_DE_USO, SecaoDoGuia, buscarNoGuia, quemAbre } from './mister-guia-de-uso';
 import { primeiroNome } from './mister.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -306,6 +307,8 @@ export class MisterFerramentasService {
   /** Executa uma ferramenta pedida pelo modelo, dentro do escopo da pessoa. Nunca lança. */
   async executar(e: EscopoDoMister, nome: unknown, entrada: unknown): Promise<ResultadoDaFerramenta> {
     if (!ehFerramenta(nome)) return recusa('Essa consulta não existe.');
+    // O guia de uso não lê dado de loja nenhuma: responde também a quem ainda está sem loja.
+    if (nome === 'como_usar_o_regem') return this.comoUsarORegem(e, entrada);
     if (e.semLoja) return recusa(SEM_LOJA);
     const en = (entrada && typeof entrada === 'object' && !Array.isArray(entrada) ? entrada : {}) as Record<string, unknown>;
     const loja = this.loja(e, en.loja);
@@ -349,7 +352,53 @@ export class MisterFerramentasService {
         return this.conferenciaDoCatalogo(e, loja);
       case 'atendimento_agora':
         return this.atendimentoAgora(e, loja);
+      case 'como_usar_o_regem':
+        return this.comoUsarORegem(e, en);
     }
+  }
+
+  /**
+   * O guia de uso (F2.5): as seções do guia da distribuição que respondem ao assunto, com o caminho do menu, quem abre e
+   * se ESTA pessoa abre (a mesma régua do menu: o presidente abre tudo; o gerente, pela permissão do perfil — a tela só do
+   * presidente, nunca). Não lê banco: o guia é igual para toda empresa. Sem nada que responda, devolve os assuntos que o
+   * guia tem, para o Mister dizer o que sabe explicar.
+   */
+  private async comoUsarORegem(e: EscopoDoMister, entrada: unknown): Promise<ResultadoDaFerramenta> {
+    const en = (entrada && typeof entrada === 'object' && !Array.isArray(entrada) ? entrada : {}) as Record<string, unknown>;
+    const assunto = typeof en.assunto === 'string' ? en.assunto.trim().slice(0, 200) : '';
+    if (!assunto) return recusa('Diga o assunto: o que a pessoa quer fazer ou achar no Regem.');
+    const achadas = buscarNoGuia(assunto, GUIA_DE_USO);
+    if (!achadas.length) {
+      return { ok: true, dados: { encontrado: false, assunto, assuntosDoGuia: GUIA_DE_USO.map((s) => s.titulo) } };
+    }
+    const abre = (s: SecaoDoGuia): boolean => {
+      if (e.nivel === 'presidente') return true;
+      if (s.soPresidente) return false;
+      return s.perm ? this.pode(e, s.perm) : true;
+    };
+    return {
+      ok: true,
+      dados: {
+        encontrado: true,
+        assunto,
+        secoes: achadas.map((s) => ({
+          assunto: s.titulo,
+          ondeFica: s.caminho.join(' › '),
+          quemAbre: quemAbre(s),
+          estaPessoaAbre: abre(s),
+          passos: s.passos,
+          ...(s.notas?.length ? { observacoes: s.notas } : {}),
+          ...(s.veja?.length
+            ? {
+                vejaTambem: s.veja
+                  .map((id) => GUIA_DE_USO.find((x) => x.id === id))
+                  .filter((x): x is SecaoDoGuia => !!x)
+                  .map((x) => ({ assunto: x.titulo, ondeFica: x.caminho.join(' › ') })),
+              }
+            : {}),
+        })),
+      },
+    };
   }
 
   // ───────────────────────────── cada ferramenta ─────────────────────────────
