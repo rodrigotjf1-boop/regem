@@ -10,6 +10,7 @@
 import { FUSO_OPERACAO, horaNoFuso } from '../../common/data';
 import { POLLER_ERRO_APOS_MS } from '../../common/falhas-do-poller';
 import { diasParaVencer } from '../fiscal/certificado';
+import { pedidoComoNoQuadro } from './mister-agente.regras';
 import { GUIA_DE_USO } from './mister-guia-de-uso';
 
 export const DESTINOS = ['presidente', 'gerente', 'tela', 'kds', 'atendimento', 'dms'] as const;
@@ -86,7 +87,7 @@ export const TIPOS_DE_AVISO: TipoDoAviso[] = [
     titulo: 'Pedido parado',
     descricao: 'Um pedido sem andar além do tempo escolhido. O aviso cita o pedido como ele aparece no quadro do Delivery.',
     padrao: regra(['kds', 'tela', 'gerente'], { ligado: false, parametro: 20 }),
-    jaFunciona: false,
+    jaFunciona: true,
   },
   {
     tipo: 'caixa_24h',
@@ -259,6 +260,49 @@ export function situacaoDoCaixa(c: { tenantId: string; unidadeId: string | null;
     detalhe: 'Feche o caixa no Regem para conferir o dinheiro e começar um turno novo.',
     dados: { horas: c.horas },
   };
+}
+
+/** As etapas em que o pedido pode ficar parado. */
+export const ETAPAS_DO_PEDIDO_PARADO = ['novo', 'confirmado', 'pronto'] as const;
+/** Pedido mais velho que isto não avisa: é pendência antiga do turno (a tela do turno trata), não pedido parado agora. */
+export const PEDIDO_PARADO_JANELA_H = 6;
+
+export interface PedidoParado {
+  id: string;
+  tenantId: string;
+  unidadeId: string | null;
+  canal: string | null;
+  numero: number | string | null;
+  displayId: string | null;
+  status: (typeof ETAPAS_DO_PEDIDO_PARADO)[number];
+  /** O tempo escolhido pela empresa (15, 20 ou 30 min). */
+  parametro: number;
+}
+
+/**
+ * O pedido que não andou além do tempo escolhido, citado como no quadro do Delivery ("#284 · iFood 4821"). Três etapas:
+ *  • novo: sem aceite (desde que chegou);
+ *  • confirmado: aceito e ainda não pronto (desde o aceite);
+ *  • pronto de ENTREGA: sem sair para a entrega (desde que ficou pronto). A retirada pronta espera o cliente.
+ * "A caminho" não entra: o tempo de rua depende da distância, e o canal conclui por conta própria. Um aviso por pedido e
+ * etapa: andou, resolve; parou de novo na etapa seguinte, é outro aviso.
+ */
+export function situacaoDoPedidoParado(p: PedidoParado, loja: string): Situacao {
+  const pedido = `pedido ${pedidoComoNoQuadro(p)}`;
+  const tempo = `há mais de ${p.parametro} min`;
+  const base = {
+    tenantId: p.tenantId,
+    unidadeId: p.unidadeId,
+    tipo: 'pedido_parado' as const,
+    chave: `pedido:${p.id}:${p.status}`,
+    // O pedido e a etapa ficam no aviso: enquanto ele não andar, o aviso aberto continua (ver `pedidosParados`).
+    dados: { pedidoId: p.id, etapa: p.status, parametro: p.parametro },
+  };
+  if (p.status === 'novo')
+    return { ...base, titulo: `${loja} · ${pedido} sem aceite ${tempo}`, detalhe: `Aceite ou recuse ${noGuia('aceitar-avancar', 'AVANÇAR')}.` };
+  if (p.status === 'confirmado')
+    return { ...base, titulo: `${loja} · ${pedido} aceito ${tempo} e ainda não ficou pronto`, detalhe: 'Confira na cozinha se ele está sendo feito.' };
+  return { ...base, titulo: `${loja} · ${pedido} pronto ${tempo} sem sair para a entrega`, detalhe: `Confira o entregador e despache ${noGuia('aceitar-avancar', 'Despachar')}.` };
 }
 
 const MOTIVO_DA_CHAVE: Record<string, string> = {
