@@ -134,6 +134,7 @@ export function testesDoMisterComPostgres(): void {
       },
     };
     const cozinhaDeMentira = {
+      getCores: async () => ({ verdeAteMin: 5, amareloAteMin: 10, usaPreparo: true, usaEntregue: true }),
       filaKds: async (tenantId: string, opts: any) => {
         lidos.push(['cozinha', tenantId, opts?.unidadeId]);
         return {
@@ -1583,6 +1584,137 @@ export function testesDoMisterComPostgres(): void {
       const busca = (await comEstoque.executar(e, 'estoque_em_alerta', { busca: 'ACUCAR' })).dados.abaixoDoMinimo as any;
       expect(busca).toMatchObject({ total: 32, comOQueFoiProcurado: 1, pagina: 1, paginas: 1, itens: [{ item: 'Açúcar refinado', saldo: 0, minimo: 5, unidade: 'kg' }] });
       expect(busca).not.toHaveProperty('observacao');
+    });
+
+    // ───────────────────────────── as perguntas, parte 3: a história do pedido e os atrasados ─────────────────────────────
+
+    it('a história de um pedido do canal: a hora de cada etapa, as estações da cozinha, onde demorou e o atraso pela regra do KDS', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+      const [{ id: loja }] = await q(`select id from unidade where tenant_id = $1`, [A]);
+      const [{ id: chapa }] = await q(`insert into equipamento (tenant_id, unidade_id, tipo, nome, token) values ($1, $2, 'kds', 'Chapa', $3) returning id`, [A, loja, `kds-${MARCA}-chapa`]);
+      const [{ id: montagem }] = await q(`insert into equipamento (tenant_id, unidade_id, tipo, nome, token) values ($1, $2, 'kds', 'Montagem', $3) returning id`, [A, loja, `kds-${MARCA}-montagem`]);
+      const [{ id: comanda }] = await q(`insert into comanda (tenant_id, unidade_id, status, total, forma, aberta_em) values ($1, $2, 'aberta', 50, 'online', now() - interval '40 minutes') returning id`, [A, loja]);
+      try {
+        // Chegou há 40 min, aceito 2 min depois, a chapa terminou há 10 min e a montagem está com ele há 12 min (vermelho = 10).
+        await q(
+          `insert into pedido_externo (tenant_id, unidade_id, canal, status, total, valor_bruto, taxa_entrega, taxa_entrega_dono, display_id, numero, comanda_id, criado_em, confirmado_em)
+           values ($1, $2, 'ifood', 'confirmado', 50, 50, 0, 'marketplace', '4821', 284, $3, now() - interval '40 minutes', now() - interval '38 minutes')`,
+          [A, loja, comanda],
+        );
+        await q(
+          `insert into producao_pedido (tenant_id, unidade_id, comanda_id, destino_equipamento_id, destino_tipo, senha, senha_prefixo, origem, plataforma, status, criado_em, iniciado_em, estacoes)
+           values ($1, $2, $3, $4, 'kds', 12, 'D', 'delivery', 'iFood', 'preparo', now() - interval '12 minutes 30 seconds', now() - interval '11 minutes 30 seconds',
+                   jsonb_build_array(jsonb_build_object('kds', $5::text, 'pronto', to_char((now() - interval '12 minutes') at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))))`,
+          [A, loja, comanda, montagem, String(chapa)],
+        );
+        const r = await ferramentas.executar(e, 'historia_do_pedido', { numero: '#4821' });
+        expect(r.ok).toBe(true);
+        expect(r.dados.pedido).toEqual({ canal: 'ifood', numero: '4821', tipo: 'entrega', situacao: 'em preparo' });
+        const horarios = r.dados.horarios as any[];
+        expect(horarios.map((h) => h.etapa)).toEqual(['chegou', 'aceito', 'entrou na cozinha', 'começou a ser feito', 'ficou pronto', 'saiu para entrega', 'entregue']);
+        for (const h of horarios.slice(0, 4)) expect(h.hora).toMatch(/^\d{2}\/\d{2} \d{2}:\d{2}$/);
+        expect(horarios.slice(4).map((h) => h.hora)).toEqual([null, null, null]);
+        // Onde demorou: da entrada na cozinha (o cartão da montagem) para trás está o maior trecho — da aceitação até lá.
+        expect(r.dados.tempoEntreAsEtapas).toEqual([
+          { de: 'chegou', ate: 'aceito', minutos: 2 },
+          { de: 'aceito', ate: 'entrou na cozinha', minutos: 26 },
+          { de: 'entrou na cozinha', ate: 'começou a ser feito', minutos: 1 },
+        ]);
+        expect(r.dados.ondeDemorouMais).toEqual({ de: 'aceito', ate: 'entrou na cozinha', minutos: 26 });
+        expect(r.dados.cozinha).toEqual([
+          expect.objectContaining({
+            estacao: 'Montagem',
+            situacao: 'em preparo',
+            passouAntesPor: [{ estacao: 'Chapa', prontoAs: expect.stringMatching(/^\d{2}\/\d{2} \d{2}:\d{2}$/) }],
+            atrasadoAgora: { haMinutos: 12, porque: 'passou do vermelho do KDS (10 min)' },
+          }),
+        ]);
+        expect(r.dados.limitesDoKds).toEqual({ verdeAteMin: 5, amareloAteMin: 10 });
+        expect(r.dados.aindaNaCozinha).toBe(true);
+        // Pelo número do dia e pela senha da cozinha, o mesmo pedido.
+        expect(((await ferramentas.executar(e, 'historia_do_pedido', { numero: 'pedido 284' })).dados.pedido as any).numero).toBe('4821');
+        // Número que não existe nos últimos 3 dias; número vazio.
+        expect(await ferramentas.executar(e, 'historia_do_pedido', { numero: '9999' })).toEqual({ ok: false, dados: { erro: expect.stringContaining('Não achei pedido com o número 9999') } });
+        expect((await ferramentas.executar(e, 'historia_do_pedido', {})).dados.erro).toContain('Diga o número do pedido');
+        // O pedido do canal pede a permissão do Delivery; de outra empresa, nunca aparece.
+        const semDelivery = { ...e, nivel: 'gerente' as const, permissoes: { dashboard: true } as any };
+        expect((await ferramentas.executar(semDelivery, 'historia_do_pedido', { numero: '4821' })).dados.erro).toContain('não dá acesso');
+        const telB = telefone();
+        await ligar('anaB', telB, B);
+        const deB = (await ferramentas.escopo(B, pessoa.anaB, telB))!;
+        expect((await ferramentas.executar(deB, 'historia_do_pedido', { numero: '4821' })).ok).toBe(false);
+        // Dois pedidos com o mesmo número nos últimos 3 dias: a pessoa escolhe pelo horário.
+        await q(
+          `insert into pedido_externo (tenant_id, unidade_id, canal, status, total, valor_bruto, taxa_entrega, taxa_entrega_dono, display_id, criado_em)
+           values ($1, $2, '99food', 'concluido', 30, 30, 0, 'marketplace', '4821', now() - interval '1 day')`,
+          [A, loja],
+        );
+        const dois = await ferramentas.executar(e, 'historia_do_pedido', { numero: '4821' });
+        expect((dois.dados.maisDeUmPedido as any[]).map((p) => p.canal)).toEqual(['ifood', '99food']);
+      } finally {
+        await q(`delete from producao_pedido where tenant_id = $1`, [A]);
+        await q(`delete from pedido_externo where tenant_id = $1`, [A]);
+        await q(`delete from comanda where tenant_id = $1`, [A]);
+        await q(`delete from equipamento where tenant_id = $1 and tipo = 'kds'`, [A]);
+      }
+    });
+
+    it('a história de uma venda do balcão pela senha da cozinha, e "pedidos em andamento" conta os atrasados pela regra do KDS', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+      const [{ id: loja }] = await q(`select id from unidade where tenant_id = $1`, [A]);
+      try {
+        // Venda do balcão sem comanda ligada: o cartão pronto, com o tempo de preparo de 8 min.
+        await q(
+          `insert into producao_pedido (tenant_id, unidade_id, destino_tipo, senha, senha_prefixo, origem, status, tempo_preparo_min, criado_em, iniciado_em, pronto_em)
+           values ($1, $2, 'kds', 7, 'B', 'balcao', 'pronto', 8, now() - interval '20 minutes', now() - interval '19 minutes', now() - interval '5 minutes')`,
+          [A, loja],
+        );
+        const r = await ferramentas.executar(e, 'historia_do_pedido', { numero: 'b7' });
+        expect(r.ok).toBe(true);
+        expect(r.dados.pedido).toEqual({ origem: 'balcao', senha: 'B7' });
+        expect((r.dados.horarios as any[]).map((h) => h.etapa)).toEqual(['chegou', 'entrou na cozinha', 'começou a ser feito', 'ficou pronto']);
+        expect(r.dados.ondeDemorouMais).toEqual({ de: 'começou a ser feito', ate: 'ficou pronto', minutos: 14 });
+        expect((r.dados.cozinha as any[])[0]).toMatchObject({ estacao: 'cozinha', situacao: 'pronto', tempoDePreparoPrevistoMin: 8 });
+        expect((r.dados.cozinha as any[])[0]).not.toHaveProperty('atrasadoAgora');
+        expect(r.dados).not.toHaveProperty('aindaNaCozinha');
+      } finally {
+        await q(`delete from producao_pedido where tenant_id = $1`, [A]);
+      }
+      // A fila de mentira: o pedido 1 está há 22 min (passou do vermelho de 10), o 2 há 3 min (verde).
+      const agora = await ferramentas.executar(e, 'pedidos_em_andamento', {});
+      expect((agora.dados.cozinha as any).atrasadosAgora).toEqual({
+        total: 1,
+        regra: expect.stringContaining('verde até 5 min, amarelo até 10 min'),
+        pedidos: [{ origem: 'iFood', senha: 'D12', situacao: 'em preparo', haMinutos: 22, porque: 'passou do vermelho do KDS (10 min)' }],
+      });
+    });
+
+    it('caixa esquecido há meses aparece como aberto agora, com os dias e o aviso das 24 horas (ERR-462)', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+      const [{ id: loja }] = await q(`select id from unidade where tenant_id = $1`, [A]);
+      try {
+        await q(`insert into caixa_sessao (tenant_id, unidade_id, origem, status, valor_abertura, aberta_em, aberta_por_id) values ($1, $2, 'pdv', 'aberta', 10, now() - interval '90 days 2 hours', $3)`, [A, loja, pessoa.carlos]);
+        await q(`insert into caixa_sessao (tenant_id, unidade_id, origem, status, valor_abertura, aberta_em, aberta_por_id) values ($1, $2, 'pdv', 'aberta', 20, now() - interval '2 hours', $3)`, [A, loja, pessoa.ana]);
+        const r = await ferramentas.executar(e, 'caixas_e_sangrias', {});
+        const abertos = r.dados.abertosAgora as any[];
+        expect(abertos).toHaveLength(2);
+        const velho = abertos.find((a) => a.abertoPor === 'Carlos Lima');
+        expect(velho).toMatchObject({ abertoHaDias: 90, passouDe24Horas: true, abertura: 10 });
+        const novo = abertos.find((a) => a.abertoPor === 'Ana Souza');
+        expect(novo).toMatchObject({ passouDe24Horas: false, abertura: 20 });
+        expect(novo).not.toHaveProperty('abertoHaDias');
+        // Sem caixa aberto: lista vazia, sem consultar o relatório à toa.
+        await q(`update caixa_sessao set status = 'fechada', fechada_em = now() where tenant_id = $1`, [A]);
+        expect((await ferramentas.executar(e, 'caixas_e_sangrias', {})).dados.abertosAgora).toEqual([]);
+      } finally {
+        await q(`delete from caixa_sessao where tenant_id = $1`, [A]);
+      }
     });
   });
 }

@@ -278,6 +278,15 @@ Três consultas novas e os acertos que a primeira conversa real pediu. As consul
 
 **Fica para as próximas partes:** "por que o pedido atrasou" (a regra de atraso mora só na tela), a ajuda de uso com a documentação, áudio, o relatório em arquivo (o dono perguntou por PDF: é a F3) e o painel da trilha (pede mockup).
 
+### F2.3 — As perguntas, parte 3: conversa aberta, "por que o pedido atrasou" e os caixas esquecidos (sem migration)
+
+- **Conversa aberta de gestão (pedido do dono, 14/11/2026: "as perguntas são abertas e de teor administrativo, não perguntas marcadas, como uma conversa natural").** O Mister nunca trabalhou com perguntas prontas: as consultas são as fontes de dados que ele lê, e a IA entende a pergunta do jeito que vier, junta consultas e faz as contas. O que mudou foram as instruções: ele passa a se apresentar como um administrador experiente de bares e restaurantes e, em pergunta aberta de gestão (vender mais, gargalo, promoção, equipe no pico), consulta os números que ajudam, diz o que eles mostram e, separado, a sua sugestão. A sugestão pode vir do conhecimento de gestão; o número, só de consulta. Cumprimento e agradecimento se respondem sem consultar nada.
+- **`historia_do_pedido` (consulta nova, a décima):** a história de um pedido dos últimos 3 dias, pelo número do canal, pelo número do dia ou pela senha da cozinha. Traz a hora de cada etapa (chegou, aceito, entrou na cozinha, começou, ficou pronto, saiu, entregue), quanto levou entre elas e o trecho que mais demorou, as estações por onde passou (com a hora em que cada uma terminou) e se está atrasado agora. Número repetido nos 3 dias: devolve a lista e o Mister pergunta qual. Pedido de canal pede a permissão do Delivery.
+- **Atrasado = a mesma regra do KDS:** passou do vermelho configurado no KDS da loja ou do tempo de preparo do próprio pedido; encomenda só conta 30 minutos antes do horário marcado. A regra mora no servidor (`atrasoNaCozinha`) espelhando a da tela (`frontend/src/lib/kds-fila.ts`), e a spec confere que o arquivo da tela continua com as mesmas regras (V74). "Pedidos em andamento" passa a trazer os atrasados da cozinha e a regra usada.
+- **Caixas abertos de qualquer idade (ERR-462):** a lista "abertos agora" olhava só 35 dias para trás e não via os caixas esquecidos de agosto e setembro. Agora começa no caixa aberto mais antigo; cada um traz os dias e se passou das 24 horas.
+
+**Conferência:** `mister-agente.regras.spec.ts` (a regra de atraso nos casos de borda, a encomenda, a guarda contra a tela, onde demorou, o número dito) e `mister-pg.teste-spec.ts` (a história de um pedido do iFood que passou por duas estações, o de balcão pela senha, o número repetido, outra empresa, a permissão; os atrasados; o caixa de 90 dias).
+
 ## 5. O que depende do dono
 
 1. ~~Onde a IA roda~~ — decidido: nuvem.
