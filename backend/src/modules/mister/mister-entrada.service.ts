@@ -9,6 +9,7 @@ import { NivelDoMister, TEXTOS_DO_AGENTE } from './mister-agente.regras';
 import { MisterFilaService } from './mister-fila.service';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { pessoaVale } from './mister-vinculo.service';
+import { ToqueNoModelo, toqueNoModelo } from './mister-modelos';
 import {
   CODIGOS_ERRADOS_JANELA_MIN,
   CODIGOS_ERRADOS_MAX,
@@ -59,7 +60,18 @@ export interface MensagemDoMister {
   texto: string;
   botaoId?: string | null;
   wamid?: string | null;
+  /** O código do botão de um MODELO da Meta (o toque em "Ver o que fazer" ou "Ver resumo"). */
+  codigoDoModelo?: string | null;
 }
+
+/** Quem tocou no botão do modelo: o telefone e os vínculos dele que valem agora (empresa, pessoa, loja e nível). */
+export interface QuemTocou {
+  telefone: string;
+  vinculos: Array<{ tenantId: string; colaboradorId: string; unidadeId: string | null; nivel: NivelDoMister; empresa: string }>;
+  wamid: string | null;
+}
+/** Quem trata o toque (o serviço dos avisos ou o dos relatórios). Devolve se achou o que o modelo anunciou. */
+export type TratarToque = (id: string, quem: QuemTocou) => Promise<boolean>;
 
 /** O que o Mister fez com a mensagem. Vai para `mister_mensagem.desfecho` e é o que os testes conferem. */
 export type Desfecho =
@@ -80,6 +92,8 @@ export type Desfecho =
   | 'voltou'
   | 'pergunta'
   | 'so_texto'
+  | 'tocou_modelo'
+  | 'modelo_nao_achado'
   | 'calado';
 
 interface Vinculo {
@@ -95,6 +109,13 @@ interface Vinculo {
 @Injectable()
 export class MisterEntradaService {
   private readonly logger = new Logger(MisterEntradaService.name);
+  /** Quem trata o toque em cada tipo de modelo. Os serviços dos avisos e dos relatórios se apresentam ao subir. */
+  private readonly toques = new Map<ToqueNoModelo['tipo'], TratarToque>();
+
+  /** O serviço dos avisos ou o dos relatórios se apresenta (eles moram em outro módulo, que importa este). */
+  registrarToque(tipo: ToqueNoModelo['tipo'], tratar: TratarToque): void {
+    this.toques.set(tipo, tratar);
+  }
 
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
@@ -123,6 +144,8 @@ export class MisterEntradaService {
         texto: String(m?.text?.body ?? m?.button?.text ?? resposta?.title ?? ''),
         botaoId: resposta?.id ? String(resposta.id) : null,
         wamid: m?.id ? String(m.id) : null,
+        // O toque no botão de resposta rápida de um MODELO chega como `type: button`, com o código em `button.payload`.
+        codigoDoModelo: m?.type === 'button' && m?.button?.payload ? String(m.button.payload) : null,
       };
       try {
         const desfecho = await this.receber(entrada);
@@ -171,9 +194,36 @@ export class MisterEntradaService {
       return { desfecho: 'fixa' };
     }
 
+    // O toque no botão de um modelo (o aviso ou o resumo que saiu fora das 24 horas): quem trata é o serviço dele, que
+    // confere se aquilo foi mesmo para este telefone. Não vira pergunta para a IA.
+    const toque = toqueNoModelo(e.codigoDoModelo);
+    if (toque) return this.tocou(tel, toque, vinculos, e.wamid ?? null);
+
     const alvo = await this.empresaDaConversa(tel, e, vinculos);
     if ('desfecho' in alvo) return alvo;
     return this.atender(tel, alvo.vinculo, alvo.texto, e.wamid ?? null, e.wamid ?? null);
+  }
+
+  /**
+   * O toque no botão de um modelo. A mensagem da pessoa abriu a janela de 24 horas da Meta, que é do TELEFONE com o
+   * número do Mister (não de uma empresa): a hora vale para todos os vínculos dele. Depois, quem trata aquele tipo de
+   * modelo manda o texto inteiro, se o aviso ou o resumo foi mesmo para esta pessoa.
+   */
+  private async tocou(tel: string, toque: ToqueNoModelo, vinculos: Vinculo[], wamid: string | null): Promise<{ desfecho: Desfecho; tenantId?: string | null }> {
+    await this.db.execute(sql`update mister_vinculo set ultima_entrada_em = now() where telefone = ${tel} and ligado_em is not null`);
+    const tratar = this.toques.get(toque.tipo);
+    const quem: QuemTocou = {
+      telefone: tel,
+      vinculos: vinculos.map((v) => ({ tenantId: v.tenantId, colaboradorId: v.colaboradorId, unidadeId: v.unidadeId ?? null, nivel: v.nivel, empresa: v.empresa })),
+      wamid,
+    };
+    const achou = tratar ? await tratar(toque.id, quem).catch((err: any) => {
+      this.logger.error(`mister: o toque no modelo (${toque.tipo}) de ${mascarar(tel)} não foi tratado — ${err?.message ?? err}`, err?.stack);
+      return false;
+    }) : false;
+    if (achou) return { desfecho: 'tocou_modelo', tenantId: vinculos.length === 1 ? vinculos[0].tenantId : null };
+    await this.responder(tel, { texto: TEXTOS.modeloNaoAchado });
+    return { desfecho: 'modelo_nao_achado' };
   }
 
   // ───────────────────────────── ligar pelo código ─────────────────────────────

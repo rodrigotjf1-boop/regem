@@ -635,6 +635,9 @@ export const distApi = {
     distReq('/distribuicao/mister/numero/conectar', { method: 'POST', body: JSON.stringify(dto) }),
   misterDesconectar: () => distReq('/distribuicao/mister/numero/desconectar', { method: 'POST', body: '{}' }),
   misterLiberacao: (ligado: boolean) => distReq('/distribuicao/mister/liberacao', { method: 'POST', body: JSON.stringify({ ligado }) }),
+  // Os modelos de mensagem do Mister na Meta (avisos e resumos fora das 24 horas): a situação e o pedido de aprovação.
+  misterModelos: () => distReq('/distribuicao/mister/modelos'),
+  misterPedirModelos: () => distReq('/distribuicao/mister/modelos/pedir', { method: 'POST', body: '{}' }),
 };
 
 // Upload multipart: NÃO define Content-Type (o browser injeta o boundary).

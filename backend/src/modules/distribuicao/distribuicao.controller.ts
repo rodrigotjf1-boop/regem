@@ -161,6 +161,24 @@ export class DistribuicaoController {
     return r;
   }
 
+  // Os modelos de mensagem do Mister na Meta (avisos e resumos fora das 24 horas): a situação lida ao vivo e o pedido de
+  // aprovação. O texto de cada modelo é do código (`mister-modelos.ts`); o console só pede.
+  @Get('mister/modelos')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  modelosDoMister() {
+    return this.mister.modelos();
+  }
+
+  @Post('mister/modelos/pedir')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  async pedirModelosDoMister(@DistUser() u: DistCtx) {
+    const r = await this.mister.pedirModelos();
+    await this.service.auditar(u, 'pediu_modelos_mister', undefined, { pedidos: r.pedidos, recusas: r.recusas.map((x) => x.nome) });
+    return r;
+  }
+
   @Post('login')
   @Throttle({ default: { ttl: 60000, limit: 10 } })
   login(@Body() dto: any, @Req() req: any) {

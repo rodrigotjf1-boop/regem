@@ -144,4 +144,14 @@ export class MisterConsoleService {
   liberacao(dto: unknown, autor: Autor) {
     return this.numero.liberacao(dto, autor);
   }
+
+  /** Os modelos de mensagem do Mister e a situação de cada um na Meta (lida ao vivo). */
+  modelos() {
+    return this.numero.modelosNaMeta();
+  }
+
+  /** Pede à Meta a aprovação dos modelos que ainda não foram pedidos. */
+  pedirModelos() {
+    return this.numero.pedirModelos();
+  }
 }

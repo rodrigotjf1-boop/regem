@@ -44,6 +44,7 @@ const deValorDoRelatorio = (v: Valor | undefined): RegraDoRelatorio => {
 /** O motivo de um relatório que não saiu, em português (o servidor guarda o código). */
 const MOTIVO_DO_RELATORIO: Record<string, string> = {
   fora_da_janela_de_24h: 'a pessoa não falou com o Mister nas últimas 24 horas',
+  fora_da_janela_e_sem_modelo: 'a pessoa não falou com o Mister nas últimas 24 horas, e a Meta ainda não aprovou o modelo de mensagem',
   sem_acesso: 'a pessoa não tem mais acesso ao Mister',
   sem_chave: 'sem a chave de IA',
   chave_recusada: 'a chave de IA foi recusada',
@@ -287,8 +288,8 @@ export function AvisosDoMister() {
       titulo: 'Relatórios',
       nota: (
         <span className={`text-sm ${texto2}`}>
-          Usam a IA: cada um soma no &quot;Uso da IA&quot;. O resumo chega pelo WhatsApp a quem ligou o próprio número em Pessoas e falou com o Mister nas
-          últimas 24 horas — a regra da Meta para a mensagem que não é um modelo aprovado.
+          Usam a IA: cada um soma no &quot;Uso da IA&quot;. O resumo chega pelo WhatsApp a quem ligou o próprio número em Pessoas. Quem não falou com o Mister nas
+          últimas 24 horas recebe antes um convite pelo modelo de mensagem aprovado pela Meta, e o resumo é feito quando a pessoa toca em &quot;Ver resumo&quot;.
         </span>
       ),
       itens: relatorios.map((rel) => ({
@@ -303,9 +304,11 @@ export function AvisosDoMister() {
               <span className="mt-1 block text-xs">
                 {rel.ultimo.situacao === 'enviado'
                   ? `Último: saiu em ${quandoFoi(rel.ultimo.em)}.`
-                  : rel.ultimo.situacao === 'fazendo'
+                  : rel.ultimo.situacao === 'fazendo' || rel.ultimo.motivo === 'fazendo_no_toque'
                     ? 'Saindo agora.'
-                    : `Último: não saiu em ${quandoFoi(rel.ultimo.em)} — ${MOTIVO_DO_RELATORIO[rel.ultimo.motivo ?? ''] ?? 'não deu para fazer'}.`}
+                    : rel.ultimo.motivo === 'convite_enviado'
+                      ? `Último: em ${quandoFoi(rel.ultimo.em)} foi o convite pelo WhatsApp (fora das 24 horas). O resumo sai quando a pessoa tocar em "Ver resumo".`
+                      : `Último: não saiu em ${quandoFoi(rel.ultimo.em)} — ${MOTIVO_DO_RELATORIO[rel.ultimo.motivo ?? ''] ?? 'não deu para fazer'}.`}
               </span>
             )}
           </>

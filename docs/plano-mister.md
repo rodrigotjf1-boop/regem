@@ -422,6 +422,36 @@ O terceiro dos quatro avisos que faltavam. Falta só "pedido parado", que nasce 
   - a gravação de verdade marca uma vez, mantém o "desde", limpa e não mexe nas outras chaves;
   - a volta: 3 min ainda nada; 6 min abre ao gerente/presidente e à tela; a 99 com `-1` não avisa e com código avisa; os dois voltam e resolvem; desligada não avisa.
 
+### F1.2d — Os modelos da Meta: avisos e resumos fora das 24 horas (parte 2 da F1.2 e da F3.2; sem migration)
+
+Passadas 24 horas da última mensagem da pessoa, o WhatsApp só entrega modelo aprovado pela Meta. Até aqui o aviso e o resumo ficavam anotados (`fora_da_janela_de_24h`). Pedido do dono em 14/11: "pode gerar modelos".
+
+- **Os dois modelos** (`mister-modelos.ts`; categoria utilidade, português do Brasil, um botão de resposta rápida):
+  - `mister_aviso`: "Aviso do Mister para {{1}}: {{2}}. Toque no botão para ver o que fazer." — {{1}} é a loja (o começo do título, antes do " · "; sem loja, a empresa) e {{2}}, o quê. Botão "Ver o que fazer".
+  - `mister_resumo_pronto`: "Seu {{1}} está pronto ({{2}}). Toque no botão para receber." — {{1}} é "resumo de sexta, 13/11" ou "resumo da semana de 02/11 a 08/11", e {{2}}, a empresa. Botão "Ver resumo".
+  - O texto mora no código, e o pedido de aprovação sai com ele. Assim, o número de parâmetros aprovado é sempre o que o envio manda. Mudar o texto de um modelo aprovado pede um nome novo.
+- **O pedido de aprovação** (console da distribuição › aba "Mister" › "Modelos de mensagem", só Diretoria, com auditoria `pediu_modelos_mister`):
+  - mostra os dois, com a situação lida ao vivo na Meta (ainda não pedido, em análise, aprovado, recusado com o motivo, pausado, desativado) e a categoria, se a Meta trocou para marketing;
+  - "Pedir aprovação à Meta" pede só os que ainda não existem.
+  - Tudo é lido e gravado na conta do NÚMERO DO MISTER (`mister_numero.waba_id`), nunca na de uma loja (ERR-458).
+- **O envio fora das 24 horas:**
+  - **Aviso** (abriu, escalou, lembrete): vai o modelo, com o código `mister:aviso:<id>` no botão. A trilha anota `via: 'modelo'`. Sem o modelo aprovado, fica `fora_da_janela_e_sem_modelo`. O desfecho ("✅ Resolvido") continua só dentro da janela.
+  - **Resumo:** vai o CONVITE pelo modelo, com `mister:resumo:<id>`, e a linha fica "não enviado / `convite_enviado`", com o período na trilha. Nada se gasta com IA antes do toque.
+- **O toque** (o webhook manda `type: button` com o código em `button.payload`; a entrada não o trata como pergunta):
+  - a mensagem abre a janela, que é do telefone com o número do Mister: a hora vale para todos os vínculos daquele telefone;
+  - **aviso:** só para quem recebeu. O aviso tem de ser de uma empresa do telefone, a trilha tem de ter a entrega pelo modelo para o final do telefone, e a pessoa ainda tem de receber aquele aviso (presidente, ou gerente da loja dele). Aberto, vai o texto inteiro com o que fazer; resolvido, o desfecho;
+  - **resumo:** só a pessoa do convite (empresa e colaborador). A gravação condicional pega a vez: dois toques não fazem dois resumos. O resumo é do período do convite, pelo mesmo agente e recurso. Se a IA não responde, a pessoa recebe a frase do motivo e o convite continua valendo. Um toque repetido manda de novo o resumo já feito;
+  - o que não é dela recebe "Não achei esse aviso para este WhatsApp.".
+- **A tela Avisos e relatórios** passa a dizer "foi o convite pelo WhatsApp (fora das 24 horas)" e o motivo "a Meta ainda não aprovou o modelo de mensagem".
+- **Divergência do protótipo:** o bloco "Modelos de mensagem" do console não estava no `mockups/regem-mister.html`. Ele segue o padrão dos outros blocos da aba (título, frase, cartões, botões).
+
+**Conferência:**
+- `mister-modelos.spec.ts`: as regras da Meta para o corpo (não começa nem termina em parâmetro, nem dois lado a lado); o pedido no formato da documentação (o exemplo em lista dentro de lista); o parâmetro limpo (sem quebra de linha, sem espaços seguidos, nunca vazio, com teto); os parâmetros do aviso e do resumo; a mensagem com o código no botão; o toque só com id que é uuid; a situação e as recusas (#132000, #132001, #132015, #132016).
+- `mister-pg.teste-spec.ts`:
+  - o console lê só na conta do número, ignora o parecido e o de outro idioma, pede uma vez só, mostra o aprovado (com a categoria trocada) e o recusado (com o motivo), devolve a recusa do pedido e, sem número, não lê nem pede;
+  - o aviso fora da janela vai pelo modelo. O gerente que não recebeu e a presidente de outra empresa não veem. O toque chega pelo webhook (`type: button`), abre a janela e traz o texto; o reenvio da Meta é ignorado; depois de resolvido, traz o desfecho. Sem o modelo aprovado, fica anotado;
+  - o resumo fora da janela vira convite, sem gastar IA. A outra pessoa não pega. Sem a chave, vai a frase e o convite segue. Com a IA, o resumo sai no escopo do gerente, do mesmo período; o toque repetido reenvia sem IA. Sem o modelo aprovado, fica anotado.
+
 ## 5. O que depende do dono
 
 1. ~~Onde a IA roda~~ — decidido: nuvem.

@@ -181,4 +181,5 @@ export const TEXTOS = {
   seguindo: (empresa: string) => `Certo. Sigo falando da ${empresa}. Para trocar, escreva "trocar de empresa".`,
   umaEmpresaSo: (empresa: string) => `Este WhatsApp está ligado só à ${empresa}.`,
   naoEntendiAEmpresa: 'Não entendi de qual empresa.',
+  modeloNaoAchado: 'Não achei esse aviso para este WhatsApp. Se precisar de alguma coisa da loja, é só me perguntar.',
 } as const;

@@ -461,6 +461,8 @@ export function MisterNoConsole() {
         )}
       </section>
 
+      <ModelosDoMister conectado={n.situacao === 'conectado'} />
+
       <section className="space-y-3 border-t border-slate-800 pt-6" aria-labelledby="mister-geral">
         <div>
           <h2 id="mister-geral" className="text-sm font-semibold text-slate-100">
@@ -610,6 +612,131 @@ export function MisterNoConsole() {
         />
       )}
     </div>
+  );
+}
+
+type SituacaoDoModelo = 'nao_pedido' | 'em_analise' | 'aprovado' | 'recusado' | 'pausado' | 'desativado' | 'outra';
+type ModeloNaMeta = { nome: string; finalidade: string; corpo: string; botao: string; situacao: SituacaoDoModelo; categoria: string | null; motivo: string | null };
+type Modelos = { lido: boolean; modelos: ModeloNaMeta[] };
+type Pedido = { modelos: ModeloNaMeta[]; pedidos: string[]; recusas: { nome: string; motivo: string }[] };
+
+const SITUACAO_DO_MODELO: Record<SituacaoDoModelo, { rotulo: string; tom: Tom }> = {
+  nao_pedido: { rotulo: 'ainda não pedido', tom: 'neutro' },
+  em_analise: { rotulo: 'em análise na Meta', tom: 'warn' },
+  aprovado: { rotulo: 'aprovado', tom: 'ok' },
+  recusado: { rotulo: 'recusado pela Meta', tom: 'crit' },
+  pausado: { rotulo: 'pausado pela Meta', tom: 'warn' },
+  desativado: { rotulo: 'desativado pela Meta', tom: 'crit' },
+  outra: { rotulo: 'situação desconhecida', tom: 'neutro' },
+};
+
+/**
+ * Os dois modelos de mensagem do Mister na Meta (avisos e resumos fora das 24 horas). O texto de cada um é do código; o
+ * console mostra a situação lida na Meta e pede a aprovação dos que ainda não foram pedidos.
+ */
+function ModelosDoMister({ conectado }: { conectado: boolean }) {
+  const [dados, setDados] = useState<Modelos | null>(null);
+  const [erro, setErro] = useState('');
+  const [aviso, setAviso] = useState('');
+  const [ocupado, setOcupado] = useState(false);
+  const leitura = useRef(0);
+
+  const carregar = useCallback(async () => {
+    const vez = ++leitura.current;
+    setErro('');
+    try {
+      const d = (await distApi.misterModelos()) as Modelos;
+      if (vez === leitura.current) setDados(d);
+    } catch (e) {
+      if (vez === leitura.current) setErro(e instanceof Error ? e.message : 'Não consegui ler os modelos.');
+    }
+  }, []);
+
+  useEffect(() => {
+    carregar();
+  }, [carregar, conectado]);
+
+  async function pedir() {
+    setOcupado(true);
+    setErro('');
+    setAviso('');
+    try {
+      const r = (await distApi.misterPedirModelos()) as Pedido;
+      leitura.current++;
+      setDados({ lido: true, modelos: r.modelos });
+      setAviso(
+        r.pedidos.length
+          ? `Pedido enviado à Meta (${r.pedidos.join(' e ')}). A análise costuma levar de alguns minutos a 24 horas; volte aqui e clique em "Atualizar situação".`
+          : 'Nada a pedir: os dois modelos já estão na Meta.',
+      );
+      if (r.recusas.length) setErro(`A Meta recusou o pedido: ${r.recusas.map((x) => `${x.nome} — ${x.motivo}`).join(' · ')}`);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Não consegui pedir os modelos.');
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  const faltam = dados?.lido ? dados.modelos.filter((m) => m.situacao === 'nao_pedido').length : 0;
+  return (
+    <section className="space-y-3 border-t border-slate-800 pt-6" aria-labelledby="mister-modelos">
+      <div>
+        <h2 id="mister-modelos" className="text-sm font-semibold text-slate-100">
+          Modelos de mensagem
+        </h2>
+        <p className="mt-1 max-w-3xl text-xs text-slate-300">
+          Passadas 24 horas da última mensagem da pessoa, o WhatsApp só entrega modelo aprovado pela Meta. Com os dois aprovados, o aviso e o resumo chegam mesmo assim: a pessoa toca no botão e recebe o texto inteiro.
+        </p>
+      </div>
+      {erro && (
+        <p className="text-sm text-red-300" role="alert">
+          {erro}
+        </p>
+      )}
+      {aviso && (
+        <p className="text-sm text-emerald-300" role="status">
+          {aviso}
+        </p>
+      )}
+      {!dados && !erro && <p className="text-sm text-slate-400">Carregando…</p>}
+      {dados && (
+        <>
+          {!dados.lido && (
+            <p className={`${CARTAO} text-sm text-slate-300`}>
+              {conectado ? 'Não consegui ler os modelos na Meta agora. Clique em "Atualizar situação" daqui a pouco.' : 'Conecte o número do Mister para pedir os modelos.'}
+            </p>
+          )}
+          <ul className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            {dados.modelos.map((m) => {
+              const s = SITUACAO_DO_MODELO[m.situacao] ?? SITUACAO_DO_MODELO.outra;
+              return (
+                <li key={m.nome} className={`${CARTAO} min-w-0 space-y-2`}>
+                  <p className="flex flex-wrap items-center gap-2">
+                    <span className="break-all font-mono text-sm text-slate-100">{m.nome}</span>
+                    {dados.lido && <Selo tom={s.tom}>{s.rotulo}</Selo>}
+                  </p>
+                  <p className="text-xs text-slate-400">{m.finalidade} · utilidade · português (Brasil)</p>
+                  <p className="break-words text-sm text-slate-200">“{m.corpo}”</p>
+                  <p className="text-xs text-slate-300">
+                    Botão: <span className="font-semibold text-slate-100">{m.botao}</span>
+                  </p>
+                  {m.categoria === 'marketing' && <p className="text-xs text-amber-100">A Meta classificou como marketing: cada envio custa mais que o de utilidade.</p>}
+                  {m.motivo && <p className="break-words text-xs text-red-300">Motivo da recusa: {m.motivo}</p>}
+                </li>
+              );
+            })}
+          </ul>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={PRIMARIO} disabled={ocupado || !conectado || !dados.lido || faltam === 0} onClick={pedir}>
+              Pedir aprovação à Meta
+            </button>
+            <button type="button" className={NEUTRO} disabled={ocupado} onClick={() => carregar()}>
+              Atualizar situação
+            </button>
+          </div>
+        </>
+      )}
+    </section>
   );
 }
 

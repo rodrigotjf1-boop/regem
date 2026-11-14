@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { sql } from 'drizzle-orm';
@@ -29,6 +29,8 @@ import {
   textoDoDesfecho,
   textoDoLembrete,
 } from './mister-avisos.regras';
+import { MisterEntradaService, QuemTocou } from './mister-entrada.service';
+import { MODELO_DO_AVISO, parametrosDoAviso } from './mister-modelos';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { pessoaVale } from './mister-vinculo.service';
 
@@ -73,6 +75,8 @@ export interface Entrega {
   final?: string;
   /** O caso aberto no Atendimento (para fechar junto). */
   casoId?: string;
+  /** Saiu pelo modelo aprovado da Meta (fora da janela de 24 h): o texto inteiro vai quando a pessoa toca no botão. */
+  via?: 'modelo';
 }
 
 interface AvisoAberto {
@@ -100,7 +104,7 @@ export interface ResultadoDaVoltaDosAvisos {
 }
 
 @Injectable()
-export class MisterAvisosService {
+export class MisterAvisosService implements OnModuleInit {
   private readonly logger = new Logger('MisterAvisos');
   private rodando = false;
 
@@ -111,7 +115,49 @@ export class MisterAvisosService {
     private readonly modulos: ModuloService,
     @Optional() private readonly kds?: AlertaKdsService,
     @Optional() private readonly events?: EventEmitter2,
+    @Optional() private readonly entrada?: MisterEntradaService,
   ) {}
+
+  /** O toque em "Ver o que fazer" chega pela entrada do WhatsApp, que mora no módulo de baixo: ela chama este serviço. */
+  onModuleInit(): void {
+    this.entrada?.registrarToque('aviso', (id, quem) => this.mostrarPeloToque(id, quem));
+  }
+
+  /**
+   * O toque em "Ver o que fazer": o aviso saiu pelo modelo, fora das 24 horas, e agora a janela abriu. Só mostra a quem
+   * recebeu:
+   *  • o aviso é de uma empresa deste telefone;
+   *  • a trilha tem a entrega pelo modelo para o final deste telefone;
+   *  • a pessoa ainda recebe aquele aviso (presidente, ou gerente da loja dele).
+   * Aberto, vai o texto inteiro com o que fazer; já resolvido, o desfecho. Devolve false quando não acha.
+   */
+  async mostrarPeloToque(id: string, quem: QuemTocou): Promise<boolean> {
+    const empresas = quem.vinculos.map((v) => v.tenantId);
+    if (!empresas.length) return false;
+    const [a] = linhas(
+      await this.db.execute(sql`
+        select id::text as id, tenant_id::text as "tenantId", unidade_id::text as "unidadeId", titulo, detalhe, situacao, entregas,
+               aberto_em as "abertoEm", resolvido_em as "resolvidoEm"
+          from mister_aviso
+         where id = ${id}::uuid and tenant_id in (${sql.join(empresas.map((t) => sql`${t}::uuid`), sql`, `)})`),
+    );
+    if (!a) return false;
+    const final = quem.telefone.slice(-4);
+    const foi = ((a.entregas ?? []) as Entrega[]).some((e) => e.ok && e.via === 'modelo' && e.final === final);
+    const v = quem.vinculos.find((x) => x.tenantId === a.tenantId);
+    const recebe = !!v && (v.nivel === 'presidente' || !a.unidadeId || !v.unidadeId || v.unidadeId === a.unidadeId);
+    if (!foi || !recebe) return false;
+    const fim = a.resolvidoEm ? new Date(a.resolvidoEm).getTime() : Date.now();
+    const texto =
+      a.situacao === 'aberto' ? textoDoAviso(a) : textoDoDesfecho(a, Math.max(1, Math.round((fim - new Date(a.abertoEm).getTime()) / 60_000)));
+    try {
+      await this.numero.enviar(quem.telefone, { texto });
+    } catch (e: any) {
+      // Achou o aviso; o envio é que falhou. Fica no log com o motivo, e a entrada não diz "não achei".
+      this.logger.warn(`o aviso ${a.id} não saiu no toque — ${e instanceof FalhaDoEnvioDoMister ? e.motivo : (e?.message ?? e)}`);
+    }
+    return true;
+  }
 
   @Cron(CronExpression.EVERY_MINUTE)
   async rotina(): Promise<void> {
@@ -421,7 +467,8 @@ export class MisterAvisosService {
   private async pelosWhatsapps(a: AvisoAberto, papeis: ('presidente' | 'gerente')[], texto: string, fase: Fase, em: string, agora: Date): Promise<Entrega[]> {
     const ligados = linhas(
       await this.db.execute(sql`
-        select g.telefone, g.ultima_entrada_em as "ultimaEntrada", coalesce(p.nivel, f.categoria::text) as nivel, c.unidade_id::text as "unidadeId"
+        select g.telefone, g.ultima_entrada_em as "ultimaEntrada", coalesce(p.nivel, f.categoria::text) as nivel, c.unidade_id::text as "unidadeId",
+               emp.nome as empresa
           from mister_vinculo g
           join colaborador c on c.id = g.colaborador_id and c.tenant_id = g.tenant_id
           left join funcao f on f.id = c.funcao_id
@@ -450,7 +497,15 @@ export class MisterAvisosService {
       }
       const final = String(l.telefone).slice(-4);
       if (!dentroDaJanelaDoWhatsapp(l.ultimaEntrada ? new Date(l.ultimaEntrada) : null, agora.getTime())) {
-        fora.push({ destino, fase, em, ok: false, final, motivo: 'fora_da_janela_de_24h' });
+        // Fora da janela, só o modelo aprovado chega: "Aviso do Mister para <loja>: <o quê>", com o botão "Ver o que
+        // fazer". O toque abre a janela e traz o texto inteiro (`mostrarPeloToque`).
+        try {
+          await this.numero.enviarModelo(l.telefone, MODELO_DO_AVISO, parametrosDoAviso(a.titulo, String(l.empresa ?? '')), { tipo: 'aviso', id: a.id });
+          fora.push({ destino, fase, em, ok: true, final, via: 'modelo', ...(motivo ? { motivo } : {}) });
+        } catch (e: any) {
+          const m = e instanceof FalhaDoEnvioDoMister ? e.motivo : 'erro';
+          fora.push({ destino, fase, em, ok: false, final, motivo: m === 'modelo_nao_aprovado' ? 'fora_da_janela_e_sem_modelo' : m });
+        }
         continue;
       }
       try {

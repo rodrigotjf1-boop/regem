@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Mister: os modelos da Meta — avisos e resumos fora das 24 horas (14/11, F1.2d; SEM migration; não mexe no
+  `sync-daemon`).** O console da distribuição pede à Meta a aprovação dos dois modelos do Mister (o texto mora no código)
+  e mostra a situação de cada um. Fora das 24 horas, o aviso e o convite do resumo saem pelo modelo, e o toque no botão
+  traz o texto inteiro (o resumo só é feito no toque). Na NUVEM com o merge; o número do Mister é só da nuvem. Nada no
+  `.zip` nem no `.exe`.
+
 - **Mister: os avisos, parte 2b — iFood ou 99 desconectado (14/11, F1.2c; SEM migration; não mexe no `sync-daemon`).**
   A busca de pedidos do iFood passa a anotar "sem resposta desde" na própria integração (só da nuvem; a resposta de erro
   era engolida e o token revogado ficava invisível); o aviso sai com 5 min, e o da 99 com o login recusado. O poller do

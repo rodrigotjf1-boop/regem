@@ -70,21 +70,45 @@ class NumeroDeMentira extends MisterNumeroService {
     const r = this.responder(p) ?? { status: 200, corpo: this.padrao(p) };
     return { ok: r.status >= 200 && r.status < 300, status: r.status, json: async () => r.corpo, text: async () => JSON.stringify(r.corpo) };
   }
+  /** Os modelos que a conta da Meta de mentira tem (a leitura devolve os que casam com o filtro `name`; o pedido inclui). */
+  modelosDaMeta: any[] = [];
   private padrao(p: Pedido): any {
     if (p.url.endsWith('/messages')) return { messages: [{ id: `wamid.saida.${randomUUID()}` }] };
     if (p.url.includes('/phone_numbers')) return { data: [] };
     if (p.url.includes('fields=display_phone_number')) return { display_phone_number: '+55 21 90000-0000', verified_name: 'Mister', quality_rating: 'GREEN', whatsapp_business_manager_messaging_limit: 'TIER_2K' };
+    if (p.url.includes('/message_templates') && p.metodo === 'POST') {
+      this.modelosDaMeta.push({ name: p.corpo.name, language: p.corpo.language, status: 'PENDING', category: p.corpo.category });
+      return { id: `t${randomInt(1e9, 1e10)}`, status: 'PENDING', category: p.corpo.category };
+    }
+    if (p.url.includes('/message_templates')) {
+      // O filtro `name` da Meta acha por trecho.
+      const nome = decodeURIComponent(/[?&]name=([^&]+)/.exec(p.url)?.[1] ?? '');
+      return { data: this.modelosDaMeta.filter((t) => String(t.name).includes(nome)) };
+    }
     return { success: true };
   }
-  /** As mensagens que saíram pelo número: para quem, o texto e os botões. */
+  /**
+   * As mensagens que saíram pelo número: para quem, o texto e os botões. O MODELO da Meta aparece como
+   * "modelo:<nome>:<parâmetro 1>|<parâmetro 2>", com o código do botão em `botoes[0].id`.
+   */
   get enviadas(): { para: string; texto: string; botoes: { id: string; titulo: string }[] }[] {
     return this.pedidos
       .filter((p) => p.url.endsWith('/messages') && p.corpo?.to)
-      .map((p) => ({
-        para: p.corpo.to,
-        texto: p.corpo.type === 'text' ? p.corpo.text.body : p.corpo.interactive.body.text,
-        botoes: p.corpo.type === 'interactive' ? p.corpo.interactive.action.buttons.map((b: any) => ({ id: b.reply.id, titulo: b.reply.title })) : [],
-      }));
+      .map((p) => {
+        if (p.corpo.type === 'template') {
+          const [corpo, botao] = p.corpo.template.components;
+          return {
+            para: p.corpo.to,
+            texto: `modelo:${p.corpo.template.name}:${corpo.parameters.map((x: any) => x.text).join('|')}`,
+            botoes: [{ id: botao.parameters[0].payload, titulo: 'modelo' }],
+          };
+        }
+        return {
+          para: p.corpo.to,
+          texto: p.corpo.type === 'text' ? p.corpo.text.body : p.corpo.interactive.body.text,
+          botoes: p.corpo.type === 'interactive' ? p.corpo.interactive.action.buttons.map((b: any) => ({ id: b.reply.id, titulo: b.reply.title })) : [],
+        };
+      });
   }
 }
 
@@ -226,7 +250,10 @@ export function testesDoMisterComPostgres(): void {
       modulos,
       { guardarEMostrar: async (p: any) => (kdsAvisos.push(p), { aviso: {}, situacao: 'novo' }) } as any,
       { emit: (n: string, p: any) => emitidos.push([n, p]) } as any,
+      entrada,
     );
+    // O toque em "Ver o que fazer" chega pela entrada: o serviço dos avisos se apresenta a ela, como ao subir o app.
+    avisos.onModuleInit();
     const consoleDoMister = new MisterConsoleService(db, numero, new IaEmpresaService(db));
 
     // Tudo o que este arquivo cria leva uma marca própria: o banco do CI é dividido com as outras specs.
@@ -253,7 +280,8 @@ export function testesDoMisterComPostgres(): void {
     const NOME_B = `Pizzaria do Porto ${MARCA}`;
 
     const linha = async (nome: string) => (await q(`select * from mister_vinculo where colaborador_id = $1`, [pessoa[nome]]))[0];
-    const mandar = (tel: string, texto: string, extra: { botaoId?: string; wamid?: string } = {}) => entrada.receber({ telefone: tel, texto, botaoId: extra.botaoId ?? null, wamid: extra.wamid ?? wamid() });
+    const mandar = (tel: string, texto: string, extra: { botaoId?: string; wamid?: string; codigoDoModelo?: string } = {}) =>
+      entrada.receber({ telefone: tel, texto, botaoId: extra.botaoId ?? null, wamid: extra.wamid ?? wamid(), codigoDoModelo: extra.codigoDoModelo ?? null });
     const modulo = async (tenant: string, ativo: boolean) => {
       await q(`delete from modulo_ativacao where tenant_id = $1 and modulo = 'mister'`, [tenant]);
       await q(`insert into modulo_ativacao (tenant_id, unidade_id, modulo, ativo) values ($1, null, 'mister', $2)`, [tenant, ativo]);
@@ -946,6 +974,65 @@ export function testesDoMisterComPostgres(): void {
       expect(vazio.liberado).toBe(false);
       expect(numero.pedidos).toEqual([]);
       expect(await vinculo.meu(usuario('ana'))).toMatchObject({ disponivel: false, numeroDoMister: null });
+    });
+
+    it('os modelos de mensagem no console: lidos na conta do número do Mister, pedidos uma vez só, a recusa da Meta com o motivo', async () => {
+      numero.modelosDaMeta = [
+        // Um modelo de outra conta não aparece (a leitura é na conta do número do Mister); um parecido não confunde.
+        { name: 'mister_aviso_antigo', language: 'pt_BR', status: 'APPROVED', category: 'UTILITY' },
+        { name: 'mister_aviso', language: 'en_US', status: 'APPROVED', category: 'UTILITY' },
+      ];
+      try {
+        const antes = await consoleDoMister.modelos();
+        expect(antes.lido).toBe(true);
+        expect(antes.modelos.map((m) => [m.nome, m.situacao])).toEqual([
+          ['mister_aviso', 'nao_pedido'],
+          ['mister_resumo_pronto', 'nao_pedido'],
+        ]);
+        expect(numero.pedidos.every((p) => p.url.includes(`/${WABA}/message_templates`))).toBe(true);
+        // O pedido: os dois modelos, na conta do número do Mister, com o texto do código.
+        numero.pedidos.length = 0;
+        const r = await consoleDoMister.pedirModelos();
+        expect(r.pedidos).toEqual(['mister_aviso', 'mister_resumo_pronto']);
+        expect(r.recusas).toEqual([]);
+        expect(r.modelos.map((m) => m.situacao)).toEqual(['em_analise', 'em_analise']);
+        const posts = numero.pedidos.filter((p) => p.metodo === 'POST');
+        expect(posts.map((p) => p.url)).toEqual([`https://graph.facebook.com/v25.0/${WABA}/message_templates`, `https://graph.facebook.com/v25.0/${WABA}/message_templates`]);
+        expect(posts[0].corpo).toMatchObject({ name: 'mister_aviso', language: 'pt_BR', category: 'UTILITY' });
+        // Pedir de novo não pede nada (já estão na Meta); aprovado e recusado aparecem com a categoria e o motivo.
+        numero.pedidos.length = 0;
+        expect((await consoleDoMister.pedirModelos()).pedidos).toEqual([]);
+        expect(numero.pedidos.filter((p) => p.metodo === 'POST')).toEqual([]);
+        numero.modelosDaMeta = numero.modelosDaMeta.map((t) =>
+          t.name === 'mister_aviso' && t.language === 'pt_BR'
+            ? { ...t, status: 'APPROVED', category: 'MARKETING' }
+            : t.name === 'mister_resumo_pronto'
+              ? { ...t, status: 'REJECTED', rejected_reason: 'INVALID_FORMAT' }
+              : t,
+        );
+        expect((await consoleDoMister.modelos()).modelos.map((m) => [m.situacao, m.categoria, m.motivo])).toEqual([
+          ['aprovado', 'marketing', null],
+          ['recusado', 'utility', 'INVALID_FORMAT'],
+        ]);
+        // A Meta recusa o pedido: o motivo volta, e nada quebra.
+        numero.modelosDaMeta = [];
+        numero.responder = (p) => (p.metodo === 'POST' && p.url.includes('/message_templates') ? { status: 400, corpo: { error: { message: 'Invalid parameter', error_user_msg: 'O corpo tem parâmetros demais.' } } } : undefined);
+        const recusado = await consoleDoMister.pedirModelos();
+        expect(recusado.pedidos).toEqual([]);
+        expect(recusado.recusas).toEqual([
+          { nome: 'mister_aviso', motivo: 'O corpo tem parâmetros demais.' },
+          { nome: 'mister_resumo_pronto', motivo: 'O corpo tem parâmetros demais.' },
+        ]);
+        // Sem o número conectado: nada é lido nem pedido.
+        numero.responder = () => undefined;
+        await numeroZerado();
+        numero.pedidos.length = 0;
+        expect((await consoleDoMister.modelos()).lido).toBe(false);
+        await expect(consoleDoMister.pedirModelos()).rejects.toThrow('Conecte o número do Mister antes de pedir os modelos.');
+        expect(numero.pedidos).toEqual([]);
+      } finally {
+        numero.modelosDaMeta = [];
+      }
     });
 
     // ───────────────────────────── as perguntas: a fila e o agente de IA (mig 418) ─────────────────────────────
@@ -2208,7 +2295,7 @@ export function testesDoMisterComPostgres(): void {
       expect(JSON.stringify(fechado.entregas)).not.toContain(tel);
     });
 
-    it('o servidor sem sinal só avisa com pedido esperando e segue aberto até voltar; sem gerente ligado vai ao presidente; fora da janela de 24 h fica anotado', async () => {
+    it('o servidor sem sinal só avisa com pedido esperando e segue aberto até voltar; sem gerente ligado vai ao presidente; fora da janela de 24 h vai pelo modelo da Meta', async () => {
       const tel = telefone();
       await ligar('ana', tel);
       await janelaAberta('ana');
@@ -2226,7 +2313,7 @@ export function testesDoMisterComPostgres(): void {
       // Os pedidos acabaram, mas o servidor segue sem sinal: o aviso continua aberto (não "resolve" à toa).
       avisos.incidentes = [incidente('servidor_sem_sinal', 'srv:1', { esperando: 0, jaAberto: true })];
       expect(await avisos.volta([A])).toMatchObject({ resolvidos: 0 });
-      // O caixa aberto há 30 horas, com o presidente fora da janela de 24 h: o aviso abre e fica anotado, sem mensagem.
+      // O caixa aberto há 30 horas, com o presidente fora da janela de 24 h: o aviso sai pelo MODELO da Meta, com o botão.
       avisos.incidentes = [incidente('servidor_sem_sinal', 'srv:1', { esperando: 0, jaAberto: true })];
       await q(`update mister_vinculo set ultima_entrada_em = now() - interval '25 hours' where colaborador_id = $1`, [pessoa.ana]);
       await q(`insert into caixa_sessao (tenant_id, unidade_id, origem, status, valor_abertura, aberta_em, aberta_por_id) values ($1, $2, 'pdv', 'aberta', 0, now() - interval '30 hours', $3)`, [A, lojaDeA, pessoa.carlos]);
@@ -2235,11 +2322,73 @@ export function testesDoMisterComPostgres(): void {
         expect(await avisos.volta([A])).toMatchObject({ abertos: 1 });
         const caixa = (await avisosDe()).find((a) => a.tipo === 'caixa_24h');
         expect(caixa.titulo).toBe('Loja Centro · caixa do balcão aberto há 30 horas (aberto por Carlos Lima)');
-        expect(caixa.entregas).toEqual([expect.objectContaining({ destino: 'gerente', ok: false, motivo: 'fora_da_janela_de_24h', final: tel.slice(-4) })]);
-        expect(numero.enviadas).toEqual([]);
+        expect(caixa.entregas).toEqual([expect.objectContaining({ destino: 'gerente', ok: true, via: 'modelo', final: tel.slice(-4) })]);
+        expect(numero.enviadas).toEqual([
+          { para: tel, texto: 'modelo:mister_aviso:Loja Centro|caixa do balcão aberto há 30 horas (aberto por Carlos Lima)', botoes: [{ id: `mister:aviso:${caixa.id}`, titulo: 'modelo' }] },
+        ]);
       } finally {
         await q(`delete from caixa_sessao where tenant_id = $1`, [A]);
       }
+    });
+
+    it('fora da janela de 24 h: o aviso sai pelo modelo; o toque em "Ver o que fazer" traz o texto inteiro, só a quem recebeu; sem o modelo aprovado, fica anotado', async () => {
+      await avisosConfig.salvar(usuario('ana'), { regras: [{ tipo: 'impressora', ligado: true, destinos: ['presidente'], escalaMin: null, escalaPara: [] }] });
+      const telAna = telefone();
+      const telCarlos = telefone();
+      const telAnaB = telefone();
+      await ligar('ana', telAna);
+      await ligar('carlos', telCarlos, A, 'gerente');
+      await ligar('anaB', telAnaB, B);
+      await q(`update mister_vinculo set ultima_entrada_em = now() - interval '25 hours' where colaborador_id = $1`, [pessoa.ana]);
+      numero.pedidos.length = 0;
+      avisos.incidentes = [incidente('impressora_parada', 'srv:1:impressora:9')];
+      expect(await avisos.volta([A])).toMatchObject({ abertos: 1, entregas: 1 });
+      const [aberto] = await avisosDe();
+      expect(aberto.entregas).toEqual([expect.objectContaining({ destino: 'presidente', fase: 'abriu', ok: true, via: 'modelo', final: telAna.slice(-4) })]);
+      const codigo = `mister:aviso:${aberto.id}`;
+      expect(numero.enviadas).toEqual([{ para: telAna, texto: 'modelo:mister_aviso:Loja Centro|impressora Cozinha parada', botoes: [{ id: codigo, titulo: 'modelo' }] }]);
+      // O pedido à Meta: o modelo, o idioma e o código no botão de resposta rápida.
+      const pedido = numero.pedidos.find((p) => p.corpo?.type === 'template')!;
+      expect(pedido.corpo.template).toMatchObject({ name: 'mister_aviso', language: { code: 'pt_BR' } });
+      expect(pedido.corpo.template.components[1]).toEqual({ type: 'button', sub_type: 'quick_reply', index: '0', parameters: [{ type: 'payload', payload: codigo }] });
+
+      // Quem não recebeu não vê: o gerente da mesma empresa (o aviso foi só ao presidente) e a presidente de outra empresa.
+      numero.pedidos.length = 0;
+      expect(await mandar(telCarlos, 'Ver o que fazer', { codigoDoModelo: codigo })).toBe('modelo_nao_achado');
+      expect(await mandar(telAnaB, 'Ver o que fazer', { codigoDoModelo: codigo })).toBe('modelo_nao_achado');
+      expect(numero.enviadas.map((m) => [m.para, m.texto])).toEqual([
+        [telCarlos, TEXTOS.modeloNaoAchado],
+        [telAnaB, TEXTOS.modeloNaoAchado],
+      ]);
+      // O toque não virou pergunta para a IA.
+      expect(await q(`select count(*)::int as n from mister_pergunta where tenant_id = any($1::uuid[])`, [[A, B]])).toEqual([{ n: 0 }]);
+
+      // A Ana toca: a janela abre (a hora vale para os vínculos do telefone) e chega o texto inteiro, com o que fazer. O
+      // toque chega pelo webhook como a Meta manda: `type: button`, com o código em `button.payload`.
+      numero.pedidos.length = 0;
+      const toque = wamid();
+      expect(await entrada.receberDaMeta(PHONE_ID, { messages: [{ from: telAna, id: toque, type: 'button', button: { payload: codigo, text: 'Ver o que fazer' } }] })).toBe(true);
+      expect((await q(`select desfecho from mister_mensagem where wamid = $1`, [toque]))[0]).toEqual({ desfecho: 'tocou_modelo' });
+      expect(numero.enviadas).toEqual([{ para: telAna, texto: '⚠️ Loja Centro · impressora Cozinha parada.\n\nConfira se ela está ligada, com papel e no cabo ou na rede.', botoes: [] }]);
+      const [vAna] = await q(`select ultima_entrada_em > now() - interval '1 minute' as agora from mister_vinculo where colaborador_id = $1`, [pessoa.ana]);
+      expect(vAna.agora).toBe(true);
+      // A Meta reenvia o mesmo toque: nada de novo.
+      expect(await mandar(telAna, 'Ver o que fazer', { codigoDoModelo: codigo, wamid: toque })).toBe('repetida');
+
+      // A impressora voltou: com a janela aberta, o desfecho chega pelo texto livre. Um toque depois traz o desfecho.
+      avisos.incidentes = [];
+      expect(await avisos.volta([A])).toMatchObject({ resolvidos: 1 });
+      numero.pedidos.length = 0;
+      expect(await mandar(telAna, 'Ver o que fazer', { codigoDoModelo: codigo })).toBe('tocou_modelo');
+      expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringMatching(/^✅ Resolvido: Loja Centro · impressora Cozinha parada\. Durou \d+ min\.$/)]);
+
+      // Sem o modelo aprovado na Meta (#132001): o aviso abre e fica anotado, sem mensagem.
+      await q(`update mister_vinculo set ultima_entrada_em = now() - interval '25 hours' where colaborador_id = $1`, [pessoa.ana]);
+      numero.responder = (p) => (p.corpo?.type === 'template' ? { status: 404, corpo: { error: { code: 132001, message: 'Template name does not exist in the translation' } } } : undefined);
+      avisos.incidentes = [incidente('impressora_parada', 'srv:1:impressora:10')];
+      expect(await avisos.volta([A])).toMatchObject({ abertos: 1, entregas: 0 });
+      const novo = (await avisosDe()).find((a) => a.situacao === 'aberto');
+      expect(novo.entregas).toEqual([expect.objectContaining({ destino: 'presidente', ok: false, motivo: 'fora_da_janela_e_sem_modelo', final: telAna.slice(-4) })]);
     });
 
     it('KDS e Atendimento: o aviso vai ao KDS (desce à loja, com id fixo) e abre um caso urgente que fecha sozinho quando resolve', async () => {
@@ -2530,7 +2679,7 @@ export function testesDoMisterComPostgres(): void {
       expect((await relatoriosConfig.daTela(B)).relatorios[0].regra.ligado).toBe(false);
     });
 
-    it('a volta dos relatórios: um resumo por pessoa no escopo dela, uma vez, fora da janela sem gastar IA, e os motivos', async () => {
+    it('a volta dos relatórios: um resumo por pessoa no escopo dela, uma vez, fora da janela o convite pelo modelo (a IA só no toque), e os motivos', async () => {
       const relatoriosConfig = new MisterRelatoriosConfigService(db, auditoria);
       const pedidos: any[] = [];
       const trilha = { modelo: 'claude-haiku-5-5', chamadas: 1, tokensEntrada: 10, tokensSaida: 5, ferramentas: [] };
@@ -2541,7 +2690,9 @@ export function testesDoMisterComPostgres(): void {
           return resposta;
         },
       } as any;
-      const relatorios = new MisterRelatoriosService(db, relatoriosConfig, agenteDeTeste, ferramentas, numero);
+      const relatorios = new MisterRelatoriosService(db, relatoriosConfig, agenteDeTeste, ferramentas, numero, entrada);
+      // O toque em "Ver resumo" chega pela entrada: o serviço dos relatórios se apresenta a ela, como ao subir o app.
+      relatorios.onModuleInit();
       await modulo(A, true);
       await numeroConectado(true);
       const telAna = telefone();
@@ -2554,22 +2705,66 @@ export function testesDoMisterComPostgres(): void {
       // Carlos falou com o Mister há 25 horas: fora da janela da Meta.
       await q(`update mister_vinculo set ultima_entrada_em = now() - interval '25 hours' where colaborador_id = $1`, [pessoa.carlos]);
       numero.pedidos.length = 0;
-      expect(await relatorios.volta(agora, [A])).toEqual({ devidos: 1, feitos: 2, enviados: 1, naoEnviados: 1 });
-      // Só a Ana chamou a IA (o Carlos, fora da janela, não gasta), no escopo dela, sem memória e com o recurso do relatório.
+      expect(await relatorios.volta(agora, [A])).toEqual({ devidos: 1, feitos: 2, enviados: 1, naoEnviados: 0, convites: 1 });
+      // Só a Ana chamou a IA (o Carlos, fora da janela, recebe o convite e não gasta), no escopo dela, sem memória e com o
+      // recurso do relatório.
       expect(pedidos).toHaveLength(1);
       expect(pedidos[0]).toMatchObject({ quem: pessoa.ana, nivel: 'presidente', memoria: [], opcoes: { recurso: 'mister_resumo_dia' } });
       expect(pedidos[0].pergunta).toContain('Comece com "*Resumo de');
-      // O texto passa pelo filtro de saída (o negrito de dois asteriscos vira o do WhatsApp).
-      expect(numero.enviadas).toEqual([{ para: telAna, texto: '*Resumo de sábado, 14/11*\n12 pedidos', botoes: [] }]);
+      // O texto passa pelo filtro de saída (o negrito de dois asteriscos vira o do WhatsApp); o Carlos recebe o modelo.
       const linhasDe = () => q(`select colaborador_id, situacao, motivo, texto, final_do_telefone from mister_relatorio where tenant_id = $1 order by situacao, colaborador_id`, [A]);
+      const [convite] = await q(`select id::text as id, trilha from mister_relatorio where colaborador_id = $1`, [pessoa.carlos]);
+      expect(numero.enviadas).toEqual([
+        { para: telAna, texto: '*Resumo de sábado, 14/11*\n12 pedidos', botoes: [] },
+        { para: telCarlos, texto: expect.stringMatching(new RegExp(`^modelo:mister_resumo_pronto:resumo de [^,]+, \\d\\d/\\d\\d\\|${NOME_A}$`)), botoes: [{ id: `mister:resumo:${convite.id}`, titulo: 'modelo' }] },
+      ]);
       expect(await linhasDe()).toEqual([
         { colaborador_id: pessoa.ana, situacao: 'enviado', motivo: null, texto: '*Resumo de sábado, 14/11*\n12 pedidos', final_do_telefone: telAna.slice(-4) },
-        { colaborador_id: pessoa.carlos, situacao: 'nao_enviado', motivo: 'fora_da_janela_de_24h', texto: null, final_do_telefone: telCarlos.slice(-4) },
+        { colaborador_id: pessoa.carlos, situacao: 'nao_enviado', motivo: 'convite_enviado', texto: null, final_do_telefone: telCarlos.slice(-4) },
       ]);
+      // O período do convite fica na trilha: o toque faz o resumo do MESMO período.
+      expect(convite.trilha.convite).toEqual({ referencia: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), ate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
       // A volta seguinte não faz de novo; duas voltas juntas, também não.
       expect(await relatorios.volta(agora, [A])).toMatchObject({ devidos: 1, feitos: 0 });
       await Promise.all([relatorios.volta(agora, [A]), relatorios.volta(agora, [A])]);
       expect(pedidos).toHaveLength(1);
+
+      // O toque em "Ver resumo". A Ana não pega o resumo do Carlos.
+      numero.pedidos.length = 0;
+      expect(await mandar(telAna, 'Ver resumo', { codigoDoModelo: `mister:resumo:${convite.id}` })).toBe('modelo_nao_achado');
+      // A IA não respondeu (sem a chave): o Carlos recebe a frase do motivo e o convite continua valendo.
+      resposta = { texto: null, motivo: 'sem_chave', trilha };
+      expect(await mandar(telCarlos, 'Ver resumo', { codigoDoModelo: `mister:resumo:${convite.id}` })).toBe('tocou_modelo');
+      expect((await linhasDe()).find((l: any) => l.colaborador_id === pessoa.carlos)).toMatchObject({ situacao: 'nao_enviado', motivo: 'convite_enviado' });
+      // Agora com a IA: o resumo é feito no escopo DELE (gerente), do mesmo período, e sai.
+      resposta = { texto: '**Resumo da loja**\n5 pedidos', motivo: null, trilha, resultados: [] };
+      expect(await mandar(telCarlos, 'Ver resumo', { codigoDoModelo: `mister:resumo:${convite.id}` })).toBe('tocou_modelo');
+      expect(pedidos).toHaveLength(3);
+      expect(pedidos[2]).toMatchObject({ quem: pessoa.carlos, nivel: 'gerente', memoria: [], opcoes: { recurso: 'mister_resumo_dia' } });
+      expect(pedidos[2].pergunta).toBe(pedidos[0].pergunta);
+      expect(numero.enviadas.map((m) => [m.para, m.texto])).toEqual([
+        [telAna, TEXTOS.modeloNaoAchado],
+        [telCarlos, TEXTOS_DO_AGENTE.semChave('gerente')],
+        [telCarlos, '*Resumo da loja*\n5 pedidos'],
+      ]);
+      expect((await linhasDe()).find((l: any) => l.colaborador_id === pessoa.carlos)).toMatchObject({ situacao: 'enviado', motivo: null, texto: '*Resumo da loja*\n5 pedidos' });
+      // Tocou de novo: o mesmo resumo vai de novo, sem chamar a IA.
+      numero.pedidos.length = 0;
+      expect(await mandar(telCarlos, 'Ver resumo', { codigoDoModelo: `mister:resumo:${convite.id}` })).toBe('tocou_modelo');
+      expect(pedidos).toHaveLength(3);
+      expect(numero.enviadas.map((m) => m.texto)).toEqual(['*Resumo da loja*\n5 pedidos']);
+
+      // Sem o modelo aprovado na Meta: fica "fora da janela e sem modelo".
+      await q(`delete from mister_relatorio where tenant_id = $1`, [A]);
+      await q(`update mister_vinculo set ultima_entrada_em = now() - interval '25 hours' where colaborador_id = $1`, [pessoa.carlos]);
+      numero.responder = (p) => (p.corpo?.type === 'template' ? { status: 404, corpo: { error: { code: 132001, message: 'Template name does not exist in the translation' } } } : undefined);
+      try {
+        expect(await relatorios.volta(agora, [A])).toMatchObject({ feitos: 2, enviados: 1, convites: 0, naoEnviados: 1 });
+      } finally {
+        numero.responder = () => undefined;
+      }
+      expect((await linhasDe()).find((l: any) => l.colaborador_id === pessoa.carlos)).toMatchObject({ situacao: 'nao_enviado', motivo: 'fora_da_janela_e_sem_modelo' });
+      expect(pedidos).toHaveLength(4);
       // A tela mostra o último envio.
       expect((await relatoriosConfig.daTela(A)).relatorios[0].ultimo).toMatchObject({ situacao: expect.stringMatching(/^(enviado|nao_enviado)$/) });
 
@@ -2603,7 +2798,7 @@ export function testesDoMisterComPostgres(): void {
       expect(pedidos.slice(antes).map((p) => p.quem)).toEqual([pessoa.ana]);
       await q(`delete from mister_relatorio where tenant_id = $1`, [A]);
       await numeroConectado(false);
-      expect(await relatorios.volta(agora, [A])).toEqual({ devidos: 0, feitos: 0, enviados: 0, naoEnviados: 0 });
+      expect(await relatorios.volta(agora, [A])).toEqual({ devidos: 0, feitos: 0, enviados: 0, naoEnviados: 0, convites: 0 });
       expect(await linhasDe()).toEqual([]);
       await numeroConectado(true);
 
