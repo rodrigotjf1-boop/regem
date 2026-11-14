@@ -85,6 +85,7 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
       atrasoDaBusca: o.atrasoDaBusca ?? {},
       modelos: o.modelos ?? MODELOS_NAO_PEDIDOS,
       falhaDosModelos: !!o.falhaDosModelos,
+      atrasoDosModelos: 0,
       pedidos: [],
     };
     const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
@@ -139,6 +140,7 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
         return responder(route, { ligado: S.liberado }, 201);
       }
       if (p === '/distribuicao/mister/modelos' && metodo === 'GET') {
+        if (S.atrasoDosModelos) await new Promise((r) => setTimeout(r, S.atrasoDosModelos));
         if (S.falhaDosModelos) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
         return responder(route, { lido: S.numero.situacao === 'conectado', modelos: S.modelos });
       }
@@ -314,6 +316,15 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
     await bloco.locator('[role="status"]:has-text("Pedido enviado à Meta")').waitFor();
     ok(feitos(S, 'POST', '/distribuicao/mister/modelos/pedir').length === 1, 'o pedido vai ao servidor uma vez');
     ok((await bloco.locator('text=em análise na Meta').count()) === 2 && (await pedir.isDisabled()), 'depois do pedido: os dois em análise e o botão travado (nada mais a pedir)');
+    // "Atualizar situação" com a situação igual: mostra que leu (o clique não pode parecer sem efeito).
+    S.atrasoDosModelos = 900;
+    const atualizar = bloco.locator('button:has-text("Atualizar situação"), button:has-text("Lendo na Meta")');
+    await atualizar.click();
+    await bloco.locator('button:has-text("Lendo na Meta…")').waitFor({ timeout: 3000 });
+    ok(await bloco.locator('button:has-text("Lendo na Meta…")').isDisabled(), 'atualizar: enquanto lê, o botão diz "Lendo na Meta…" e trava');
+    await bloco.locator('[role="status"]:has-text("Lido na Meta às")').waitFor({ timeout: 5000 });
+    ok(/Lido na Meta às \d{2}:\d{2}\. A Meta ainda está analisando/.test(await bloco.locator('[role="status"]:has-text("Lido na Meta")').innerText()), 'atualizar: depois de ler, diz a hora da leitura e que a Meta ainda analisa');
+    S.atrasoDosModelos = 0;
     S.modelos = MODELOS_LONGOS;
     await bloco.locator('button:has-text("Atualizar situação")').click();
     await bloco.locator('text=recusado pela Meta').waitFor();
