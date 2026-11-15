@@ -8,6 +8,7 @@ import { MisterFilaService } from './mister-fila.service';
 import { MisterAvisosConfigService } from './mister-avisos-config.service';
 import { MisterAvisosHistoricoService } from './mister-avisos-historico.service';
 import { MisterAvaliacaoService } from './mister-avaliacao.service';
+import { MisterSegurancaService } from './mister-seguranca.service';
 import { MisterQualidadeService } from './mister-qualidade.service';
 import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
 import { MisterNumeroService } from './mister-numero.service';
@@ -39,6 +40,8 @@ import { MisterVinculoService } from './mister-vinculo.service';
     // A avaliação de regressão (F5.3, mig 424): só precisa da IA (`IaModule`) e do laço do agente, que não depende dos
     // módulos de dados — por isso mora aqui, e não no `MisterAgenteModule`.
     MisterAvaliacaoService,
+    // A segurança do Mister no console (o Sentinela, parte 1): só contagens do que as proteções fizeram.
+    MisterSegurancaService,
   ],
   exports: [
     MisterEntradaService,
@@ -50,6 +53,7 @@ import { MisterVinculoService } from './mister-vinculo.service';
     MisterAvisosHistoricoService,
     MisterQualidadeService,
     MisterAvaliacaoService,
+    MisterSegurancaService,
   ],
 })
 export class MisterModule {}
