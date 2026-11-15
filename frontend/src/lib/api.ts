@@ -641,6 +641,10 @@ export const distApi = {
   // Os avisos para o suporte da DMS (F1.4 parte B): abertos ou resolvidos nas últimas 24 h, com a busca pela empresa.
   // A qualidade do Mister (F5, parte 1): só números das perguntas de todas as empresas, nos últimos 7 ou 30 dias.
   misterQualidade: (dias: 7 | 30) => distReq(`/distribuicao/mister/qualidade?dias=${dias}`),
+  // A avaliação de regressão do Mister (F5.3; mig 424): as rodadas, uma com as perguntas e rodar (gasta a chave da DMS).
+  misterAvaliacoes: () => distReq('/distribuicao/mister/avaliacoes'),
+  misterAvaliacao: (id: string) => distReq(`/distribuicao/mister/avaliacoes/${encodeURIComponent(id)}`),
+  rodarAvaliacaoDoMister: () => distReq('/distribuicao/mister/avaliacoes', { method: 'POST', body: '{}' }),
   // As dependências (F3, parte 2; mig 423): o inventário com a situação lida nas fontes oficiais, ler agora e decidir.
   dependencias: () => distReq('/distribuicao/dependencias'),
   lerDependencias: () => distReq('/distribuicao/dependencias/ler-agora', { method: 'POST', body: '{}' }),

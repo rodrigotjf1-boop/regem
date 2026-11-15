@@ -89,6 +89,34 @@ const QUALIDADE = {
   ],
 };
 
+// A avaliação de regressão (F5.3): duas rodadas, a última com 2 erradas; a pergunta comprida de propósito.
+const RODADA = (o) => ({ id: 'av2', situacao: 'terminou', iniciadaEm: '2026-11-14T23:10:00-03:00', terminadaEm: '2026-11-14T23:12:00-03:00', pedidaPor: 'Rodrigo', versao: 'a1b2c3d4', consultas: 17, modelo: 'claude-haiku-5-5', total: 40, feitas: 40, acertos: 38, motivo: null, custoUsd: 0.0412, falhas: 0, oQueFalhou: [], ...o });
+const AVALIACOES = (o = {}) => ({
+  disponivel: true,
+  versaoAtual: { versao: 'a1b2c3d4', consultas: 17 },
+  total: 40,
+  chaveDaDistribuicao: true,
+  modelo: 'claude-haiku-5-5',
+  prazoMin: 20,
+  rodadas: [
+    RODADA({
+      falhas: 2,
+      oQueFalhou: [
+        { pergunta: 'Quanto vendi no iFood ontem, separando o que entrou pelo cardápio online e pela 99 também?', falha: 'a resposta não traz 1.688,35' },
+        { pergunta: 'O que vai vencer?', falha: 'não usou a consulta "vencimentos e versoes"' },
+      ],
+    }),
+    RODADA({ id: 'av1', iniciadaEm: '2026-11-14T09:40:00-03:00', versao: '9f8e7d6c', consultas: 16, total: 39, feitas: 39, acertos: 39, custoUsd: 0.0398 }),
+  ],
+  ...o,
+});
+const CASOS_DA_RODADA = Array.from({ length: 40 }, (_, i) => {
+  const id = `c${String(i + 1).padStart(2, '0')}`;
+  if (id === 'c07') return { id, pergunta: 'Quanto vendi no iFood ontem, separando o que entrou pelo cardápio online e pela 99 também?', ok: false, falhas: ['a resposta não traz 1.688,35'], consultas: ['vendas_do_periodo'], ms: 4200 };
+  if (id === 'c29') return { id, pergunta: 'O que vai vencer?', ok: false, falhas: ['não usou a consulta "vencimentos e versoes"'], consultas: [], ms: 2100 };
+  return { id, pergunta: `Pergunta ${i + 1} da avaliação`, ok: true, falhas: [], consultas: ['resumo_do_dia'], ms: 3000 };
+});
+
 // As dependências (F3, parte 2): uma de cada situação; o nome e o "usamos" compridos de propósito.
 const DEPENDENCIAS = () => ({
   semMigration: false,
@@ -152,6 +180,8 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
       falhaDasDependencias: !!o.falhaDasDependencias,
       qualidade: o.qualidade ?? QUALIDADE,
       falhaDaQualidade: !!o.falhaDaQualidade,
+      avaliacoes: o.avaliacoes ?? AVALIACOES(),
+      falhaDasAvaliacoes: !!o.falhaDasAvaliacoes,
       pedidos: [],
     };
     const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
@@ -244,6 +274,20 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
         if (S.falhaDaQualidade) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
         const dias = Number(url.searchParams.get('dias')) === 30 ? 30 : 7;
         return responder(route, { ...S.qualidade, dias, perguntas: dias === 30 ? S.qualidade.perguntas * 3 : S.qualidade.perguntas });
+      }
+      // A avaliação (F5.3): a rodada pedida anda 20 perguntas a cada leitura, até as 40.
+      if (p === '/distribuicao/mister/avaliacoes' && route.request().method() === 'POST') {
+        S.avaliacoes.rodadas.unshift(RODADA({ id: 'av3', situacao: 'rodando', iniciadaEm: new Date().toISOString(), terminadaEm: null, feitas: 0, acertos: 0, custoUsd: null }));
+        return responder(route, { id: 'av3', total: 40 });
+      }
+      if (p === '/distribuicao/mister/avaliacoes') {
+        if (S.falhaDasAvaliacoes) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
+        S.avaliacoes.rodadas = S.avaliacoes.rodadas.map((r) => (r.situacao !== 'rodando' ? r : r.feitas + 20 >= 40 ? { ...r, situacao: 'terminou', feitas: 40, acertos: 40, custoUsd: 0.0405 } : { ...r, feitas: r.feitas + 20, acertos: r.acertos + 20 }));
+        return responder(route, S.avaliacoes);
+      }
+      if (/^\/distribuicao\/mister\/avaliacoes\/[^/]+$/.test(p)) {
+        const r = S.avaliacoes.rodadas.find((x) => x.id === p.split('/').pop());
+        return responder(route, { ...r, casos: CASOS_DA_RODADA.slice(0, r?.feitas ?? 0) });
       }
       // O resto do console (frota, licenças, auditoria…) não é deste roteiro: listas vazias.
       return responder(route, []);
@@ -658,6 +702,53 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
     await ctx.close();
   }
 
+  // ── a avaliação de regressão (F5.3): as rodadas, "o que falhou", a gaveta com as 40, rodar e o andamento ──
+  {
+    const { ctx, page, S, erros } = await abrir(1280, 900, { numero: conectado(), liberado: true });
+    await naAba(page);
+    const sec = page.locator('section[aria-labelledby="mister-avaliacao"]');
+    await sec.locator('text=38 de 40').waitFor({ timeout: 20000 });
+    const t = (await sec.innerText()).replace(/\s+/g, ' ');
+    ok(/40 perguntas fixas, numa loja de teste com dados inventados, com a chave da DMS/.test(t) && /Versão das instruções agora: a1b2c3d4 · 17 consultas/.test(t), `avaliação: o que é e a versão de agora (${t.slice(0, 200)})`);
+    ok(/a1b2c3d4 · 17 consultas/.test(t) && /"Quanto vendi no iFood ontem, separando .*" a resposta não traz 1\.688,35/.test(t) && /US\$ 0,0412/.test(t) && /39 de 39/.test(t), 'avaliação: as rodadas com o resultado, o que falhou e o custo');
+    ok(!/mudaram desde a última avaliação/.test(t), 'avaliação: a versão é a mesma da última, sem o aviso');
+    ok(/cerca de US\$ 0,0412 na chave da DMS · 40 perguntas/.test(t), 'avaliação: o custo estimado pela última rodada');
+    await sec.locator('button:has-text("Ver as 40")').first().click();
+    const g = page.locator('[role="dialog"]');
+    await g.locator('text=O que vai vencer?').waitFor({ timeout: 10000 });
+    const tg = (await g.innerText()).replace(/\s+/g, ' ');
+    ok((tg.match(/errada/g) ?? []).length === 2 && /não usou a consulta "vencimentos e versoes"/.test(tg) && /consultou: vendas do periodo · 4,2 s/.test(tg) && /38 de 40 certas/.test(tg), `avaliação: a gaveta com as 40, as erradas e o porquê (${tg.slice(0, 160)})`);
+    await page.keyboard.press('Escape');
+    await g.waitFor({ state: 'detached' });
+    await sec.locator('button:has-text("Rodar a avaliação")').click();
+    await sec.locator('text=A avaliação começou: 40 perguntas. O andamento aparece aqui.').waitFor({ timeout: 10000 });
+    ok(feitos(S, 'POST', '/distribuicao/mister/avaliacoes').length === 1, 'avaliação: "Rodar a avaliação" pede ao servidor');
+    ok(await sec.locator('button:has-text("Rodando…")').isDisabled(), 'avaliação: enquanto roda, o botão fica desligado');
+    await sec.locator('li:has-text("40 de 40")').waitFor({ timeout: 20000 });
+    ok((await sec.locator('button:has-text("Rodar a avaliação")').isEnabled()) && feitos(S, 'GET', '/distribuicao/mister/avaliacoes').length >= 3, 'avaliação: o andamento relido até terminar, e o botão volta');
+    ok(erros.length === 0, `avaliação: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  {
+    const { ctx, page } = await abrir(1280, 900, { numero: conectado(), liberado: true, avaliacoes: AVALIACOES({ versaoAtual: { versao: 'ffff0000', consultas: 18 }, chaveDaDistribuicao: false }) });
+    await naAba(page);
+    const sec = page.locator('section[aria-labelledby="mister-avaliacao"]');
+    await sec.locator('text=As instruções ou as consultas mudaram desde a última avaliação').waitFor({ timeout: 20000 });
+    ok((await sec.locator('button:has-text("Rodar a avaliação")').isDisabled()) && (await sec.locator('text=A chave de IA da distribuição não está configurada neste servidor.').count()) === 1, 'avaliação: a versão mudou avisa; sem a chave da DMS, o botão fica desligado e diz por quê');
+    await ctx.close();
+  }
+  {
+    const { ctx, page, S } = await abrir(1280, 900, { numero: conectado(), liberado: true, avaliacoes: AVALIACOES({ rodadas: [] }), falhaDasAvaliacoes: true });
+    await naAba(page);
+    const sec = page.locator('section[aria-labelledby="mister-avaliacao"]');
+    await sec.locator('[role="alert"] >> text=Erro interno').waitFor({ timeout: 20000 });
+    S.falhaDasAvaliacoes = false;
+    await sec.locator('button:has-text("Tentar de novo")').click();
+    await sec.locator('text=Nenhuma avaliação ainda. Rode a primeira para ter a linha de base.').waitFor({ timeout: 10000 });
+    ok(true, 'avaliação: o erro só no cartão, "Tentar de novo" lê de novo, e o vazio diz para rodar a primeira');
+    await ctx.close();
+  }
+
   // ── cada largura: a página e o diálogo inteiros na tela; tabela no largo, cartões no estreito ──
   for (const w of larguras) {
     const { ctx, page, erros } = await abrir(w, w < 700 ? 820 : 900, { numero: conectado(), liberado: true, total: 250, modelos: MODELOS_LONGOS });
@@ -671,6 +762,15 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
     const cartoes = await page.locator('section[aria-labelledby="mister-empresas"] ul').isVisible();
     ok(w >= 1024 ? tabela && !cartoes : cartoes && !tabela, `${w}px: ${w >= 1024 ? 'tabela' : 'cartões'} (tabela ${tabela}, cartões ${cartoes})`);
     if (w === 375 || w === 1440) await page.screenshot({ path: foto(`${w}-conectado.png`), fullPage: true });
+    // A gaveta da avaliação (F5.3) aberta, inteira na tela.
+    await page.locator('section[aria-labelledby="mister-avaliacao"] >> text=38 de 40').waitFor({ timeout: 20000 });
+    await page.locator('section[aria-labelledby="mister-avaliacao"] button:has-text("Ver as 40")').first().click();
+    await page.locator('[role="dialog"] >> text=O que vai vencer?').waitFor({ timeout: 10000 });
+    m = await medir(page);
+    ok(m.length === 0, `${w}px: a gaveta da avaliação inteira na tela (${m.join(' | ')})`);
+    if (w === 375 || w === 1440) await page.screenshot({ path: foto(`${w}-avaliacao-gaveta.png`) });
+    await page.keyboard.press('Escape');
+    await page.locator('[role="dialog"]').waitFor({ state: 'detached' });
     await page.click('button:has-text("Reconectar com a Meta")');
     await page.locator('button[aria-pressed]:has-text("Só na API oficial")').click();
     await page.locator('input[inputmode="numeric"]').waitFor();

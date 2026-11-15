@@ -12,12 +12,12 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { PausaDoCanalService } from '../delivery/pausa-do-canal.service';
 import { DashboardService } from '../dashboard/dashboard.service';
 import { EstoqueService } from '../estoque/estoque.service';
-import { IaEmpresaService } from '../ia/ia-empresa.service';
+import { FalhaDaIa, IaEmpresaService } from '../ia/ia-empresa.service';
 import { RelatoriosService } from '../relatorios/relatorios.service';
 import { ModuloService } from '../modulo/modulo.service';
 import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
 import { MisterConsoleService } from './mister-console.service';
-import { FERRAMENTAS, INSTRUCOES_DO_MISTER, TETOS, TEXTOS_DO_AGENTE } from './mister-agente.regras';
+import { FERRAMENTAS, FERRAMENTA_DO_QUE_FALTA, INSTRUCOES_DO_MISTER, TETOS, TEXTOS_DO_AGENTE } from './mister-agente.regras';
 import { MisterAgenteService } from './mister-agente.service';
 import { MisterAvisosConfigService } from './mister-avisos-config.service';
 import { MisterAvisosService } from './mister-avisos.service';
@@ -32,6 +32,8 @@ import { MisterFilaService } from './mister-fila.service';
 import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
 import { MisterRelatoriosService } from './mister-relatorios.service';
 import { MisterQualidadeService } from './mister-qualidade.service';
+import { MisterAvaliacaoService } from './mister-avaliacao.service';
+import { CASOS_DA_AVALIACAO, CasoDaAvaliacao } from './mister-avaliacao-casos';
 import { PRECOS_LIDOS_EM } from '../ia/ia.regras';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { MisterVinculoService } from './mister-vinculo.service';
@@ -323,7 +325,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -2413,6 +2415,122 @@ export function testesDoMisterComPostgres(): void {
         if (usoAntes) await q(`update ia_uso_dia set tokens_entrada = $3, tokens_saida = $4 where tenant_id = $1 and dia = $2::date and recurso = 'mister_perguntas' and provedor = 'anthropic' and modelo = 'claude-opus-5-5' and origem = 'distribuicao'`, [A, hojeISO(), usoAntes.tokens_entrada, usoAntes.tokens_saida]);
         else await q(`delete from ia_uso_dia where tenant_id = $1 and dia = $2::date and recurso = 'mister_perguntas' and modelo = 'claude-opus-5-5' and origem = 'distribuicao'`, [A, hojeISO()]);
       }
+    });
+
+    // ───────────────────────────── a avaliação de regressão (F5.3, mig 424) ─────────────────────────────
+    // O modelo de mentira responde CERTO a cada pergunta (a consulta, a entrada e os números do caso): prova o caminho
+    // inteiro — o laço de verdade, a loja de teste, a conferência, o andamento gravado e o custo. Só a distribuição: a
+    // tabela não tem loja nenhuma.
+    describe('a avaliação de regressão do Mister', () => {
+      const ENTRADA: Record<string, Record<string, unknown>> = {
+        c03: { dia: 'ontem' },
+        c04: { periodo: 'esta_semana' },
+        c05: { periodo: 'esta_semana', comparar: true },
+        c06: { periodo: 'ontem' },
+        c07: { periodo: 'ontem' },
+        c08: { periodo: 'esta_semana', quantos: 3 },
+        c09: { periodo: 'este_mes', ordem: 'lucro' },
+        c15: { periodo: 'ontem' },
+        c28: { periodo: 'esta_semana' },
+        c37: { ordem: 'lucro' },
+      };
+      const EXTRAS: Record<string, string[]> = { c37: ['produtos_mais_vendidos'], c38: ['servidor_e_incidentes'] };
+      const entradaDe = (c: CasoDaAvaliacao, nome: string): Record<string, unknown> =>
+        nome === FERRAMENTA_DO_QUE_FALTA ? { tema: c.anotar![0] } : nome === 'historia_do_pedido' ? { numero: '284' } : nome === 'como_usar_o_regem' ? { assunto: 'pausar o iFood' } : (ENTRADA[c.id] ?? {});
+      const textoCerto = (c: CasoDaAvaliacao) =>
+        [
+          'Resposta:',
+          ...(c.numeros ?? []).map((n) => n.split('|')[0]).map((n) => (/,\d\d$/.test(n) && !c.semValores ? `R$ ${n}` : n)),
+          ...(c.contem ?? []).map((t) => t.split('|')[0]),
+          ...(c.semValores ? ['Seu perfil no Regem não mostra valores em reais.'] : []),
+          ...(c.anotar ? ['Ainda não tenho acesso a essa informação.'] : []),
+        ].join(' ');
+      const USO = { entrada: 120, cacheEscrita: 0, cacheLeitura: 9000, saida: 60 };
+
+      /** A IA da distribuição de mentira. `errar` = os ids que ela responde sem nada; `recusar` = a chave recusada. */
+      const iaDeMentira = (o: { errar?: string[]; recusar?: boolean; semChave?: boolean } = {}) => {
+        const pedidos: any[] = [];
+        return {
+          pedidos,
+          iaIncluidaDisponivel: () => !o.semChave,
+          pedirPelaDistribuicao: async (p: any) => {
+            pedidos.push(p);
+            if (o.recusar) throw new FalhaDaIa('chave_recusada', 'distribuicao', 401);
+            const pergunta = String(p.messages[0].content);
+            const gerente = String(p.system[1].text).includes('Gabriel');
+            const c = CASOS_DA_AVALIACAO.find((x) => x.pergunta === pergunta && (x.perfil?.nivel === 'gerente') === gerente)!;
+            const ultima = p.messages[p.messages.length - 1];
+            const ferramentas = [...(c.consultas ?? []), ...(c.umaDasConsultas ? [c.umaDasConsultas[0]] : []), ...(c.anotar ? [FERRAMENTA_DO_QUE_FALTA] : []), ...(EXTRAS[c.id] ?? [])];
+            if (typeof ultima.content === 'string' && ferramentas.length) {
+              const conteudo = ferramentas.map((nome, i) => ({ type: 'tool_use', id: `tu${i}`, name: nome, input: entradaDe(c, nome) }));
+              return { texto: '', recusou: false, origem: 'distribuicao', uso: USO, conteudo, parou: 'tool_use' };
+            }
+            const texto = (o.errar ?? []).includes(c.id) ? 'Não sei.' : c.semConsulta ? 'Bom dia! Em que posso ajudar?' : textoCerto(c);
+            return { texto, recusou: false, origem: 'distribuicao', uso: USO, conteudo: [{ type: 'text', text: texto }], parou: 'end_turn' };
+          },
+        };
+      };
+      const terminar = async (id: string) => {
+        for (let i = 0; i < 400; i++) {
+          const [l] = await q(`select situacao, feitas, acertos, motivo from mister_avaliacao where id = $1`, [id]);
+          if (l.situacao !== 'rodando') return l;
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        throw new Error('a rodada não terminou');
+      };
+      beforeEach(async () => {
+        await q(`delete from mister_avaliacao`);
+      });
+      afterAll(async () => {
+        await q(`delete from mister_avaliacao`);
+      });
+
+      it('a rodada inteira com as respostas certas: 40 de 40, o andamento, o custo, a lista e as perguntas na ordem', async () => {
+        const ia = iaDeMentira();
+        const servico = new MisterAvaliacaoService(db, ia as any);
+        const r = await servico.rodar('Rita da DMS');
+        expect(r.total).toBe(40);
+        const fim = await terminar(r.id);
+        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 40, acertos: 40, motivo: null });
+        // O mesmo laço do agente: as instruções e as ferramentas de verdade, e o recurso da avaliação.
+        expect(ia.pedidos.every((p) => p.recurso === 'mister_avaliacao' && p.tools === FERRAMENTAS && p.system[0].text === INSTRUCOES_DO_MISTER)).toBe(true);
+        const lista = await servico.lista();
+        expect(lista).toMatchObject({ disponivel: true, total: 40, chaveDaDistribuicao: true });
+        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 40, acertos: 40, falhas: 0, oQueFalhou: [] });
+        // O custo pela tabela de preços do modelo, sobre os tokens somados de todas as chamadas.
+        expect(lista.rodadas[0].custoUsd).toBeGreaterThan(0);
+        const [tok] = await q(`select tokens_entrada, tokens_cache_leitura, tokens_saida from mister_avaliacao where id = $1`, [r.id]);
+        expect(tok).toEqual({ tokens_entrada: USO.entrada * ia.pedidos.length, tokens_cache_leitura: USO.cacheLeitura * ia.pedidos.length, tokens_saida: USO.saida * ia.pedidos.length });
+        const d = await servico.detalhe(r.id);
+        expect(d.casos.map((c) => c.id)).toEqual(CASOS_DA_AVALIACAO.map((c) => c.id));
+        expect(d.casos.every((c) => c.ok && c.falhas.length === 0)).toBe(true);
+        // Nenhuma loja: a tabela não tem empresa e nada de loja nenhuma entra nela.
+        expect(JSON.stringify(d)).not.toContain(A);
+      });
+
+      it('uma rodada de cada vez; a que parou vence pelo tempo; a pergunta errada aparece no "o que falhou"', async () => {
+        const servico = new MisterAvaliacaoService(db, iaDeMentira({ errar: ['c02'] }) as any);
+        const [{ id: parada }] = await q(`insert into mister_avaliacao (versao, consultas, modelo, total, iniciada_em) values ('00000000', 17, 'claude-haiku-5-5', 40, now() - interval '1 minute') returning id::text as id`);
+        await expect(servico.rodar('Rita')).rejects.toThrow('Já tem uma avaliação rodando');
+        // Passou do prazo: a tela já recebe "interrompida", e a próxima rodada não trava.
+        await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
+        expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
+        const r = await servico.rodar('Rita');
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 39 });
+        const [velha] = await q(`select situacao, motivo from mister_avaliacao where id = $1`, [parada]);
+        expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
+        const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);
+        expect(nova).toMatchObject({ falhas: 1, oQueFalhou: [{ pergunta: 'Quanto eu vendi hoje?', falha: 'a resposta não traz 4.321,45' }] });
+      });
+
+      it('a chave da distribuição recusada para a rodada; sem a chave, nem começa; id torto não acha', async () => {
+        const recusada = new MisterAvaliacaoService(db, iaDeMentira({ recusar: true }) as any);
+        const r = await recusada.rodar(null);
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'falhou', feitas: 0, motivo: 'a chave de IA da distribuição foi recusada' });
+        await expect(new MisterAvaliacaoService(db, iaDeMentira({ semChave: true }) as any).rodar('Rita')).rejects.toThrow('A chave de IA da distribuição não está configurada');
+        await expect(recusada.detalhe('lixo')).rejects.toThrow('Avaliação não encontrada.');
+        await expect(recusada.detalhe(randomUUID())).rejects.toThrow('Avaliação não encontrada.');
+      });
     });
     // ───────────────────────────── os avisos (mig 419) ─────────────────────────────
 

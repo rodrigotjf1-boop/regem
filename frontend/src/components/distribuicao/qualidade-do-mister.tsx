@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { distApi } from '@/lib/api';
+import { AvaliacaoDoMister } from './avaliacao-do-mister';
 
 // A QUALIDADE DO MISTER no console da distribuição (F5; protótipo mockups/regem-dependencias-e-qualidade.html, vista
 // "Console › Mister › Qualidade"). Só números das perguntas de todas as empresas: respondidas, "não tenho acesso", tempo,
@@ -166,6 +167,9 @@ export function QualidadeDoMister() {
           <p className="text-xs text-slate-400">O custo é estimado pela tabela de preços lida em {doPeriodo.custo.precosLidosEm.split('-').reverse().join('/')}, a mesma da tela "IA e uso" de cada empresa.</p>
         </>
       )}
+      {/* A avaliação de regressão (F5.3) não depende do período nem das perguntas das lojas: aparece sempre, com o
+          carregar e o erro dela. */}
+      <AvaliacaoDoMister />
     </section>
   );
 }

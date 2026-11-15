@@ -7,6 +7,7 @@ import { MisterEntradaService } from './mister-entrada.service';
 import { MisterFilaService } from './mister-fila.service';
 import { MisterAvisosConfigService } from './mister-avisos-config.service';
 import { MisterAvisosHistoricoService } from './mister-avisos-historico.service';
+import { MisterAvaliacaoService } from './mister-avaliacao.service';
 import { MisterQualidadeService } from './mister-qualidade.service';
 import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
 import { MisterNumeroService } from './mister-numero.service';
@@ -35,7 +36,20 @@ import { MisterVinculoService } from './mister-vinculo.service';
     MisterRelatoriosConfigService,
     MisterAvisosHistoricoService,
     MisterQualidadeService,
+    // A avaliação de regressão (F5.3, mig 424): só precisa da IA (`IaModule`) e do laço do agente, que não depende dos
+    // módulos de dados — por isso mora aqui, e não no `MisterAgenteModule`.
+    MisterAvaliacaoService,
   ],
-  exports: [MisterEntradaService, MisterConsoleService, MisterNumeroService, MisterFilaService, MisterAvisosConfigService, MisterRelatoriosConfigService, MisterAvisosHistoricoService, MisterQualidadeService],
+  exports: [
+    MisterEntradaService,
+    MisterConsoleService,
+    MisterNumeroService,
+    MisterFilaService,
+    MisterAvisosConfigService,
+    MisterRelatoriosConfigService,
+    MisterAvisosHistoricoService,
+    MisterQualidadeService,
+    MisterAvaliacaoService,
+  ],
 })
 export class MisterModule {}

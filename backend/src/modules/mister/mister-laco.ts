@@ -1,5 +1,12 @@
 import { FalhaDaIa, PedidoDeIa, RespostaDaIa } from '../ia/ia-empresa.service';
-import { FERRAMENTAS, INSTRUCOES_DO_MISTER, MotivoSemResposta, RECURSO_DAS_PERGUNTAS, TETOS, TrocaDaMemoria, entradaParaATrilha, perguntaDaMemoria } from './mister-agente.regras';
+import { PRECOS_POR_MILHAO } from '../ia/ia.regras';
+import { FERRAMENTAS, INSTRUCOES_DO_MISTER, MODELO_DAS_PERGUNTAS, MotivoSemResposta, RECURSO_DAS_PERGUNTAS, TETOS, TrocaDaMemoria, entradaParaATrilha, perguntaDaMemoria } from './mister-agente.regras';
+
+/** O modelo das perguntas: o da distribuição (`MISTER_MODELO_PERGUNTAS`), se estiver na tabela de preços; senão o padrão. */
+export function modeloDasPerguntas(): string {
+  const pedido = String(process.env.MISTER_MODELO_PERGUNTAS ?? '').trim();
+  return pedido && PRECOS_POR_MILHAO[pedido] ? pedido : MODELO_DAS_PERGUNTAS;
+}
 import type { ResultadoDaFerramenta } from './mister-ferramentas.service';
 import type { Trilha } from './mister-fila.service';
 

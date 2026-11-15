@@ -2,11 +2,10 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ehServidorLocal } from '../../common/modo';
 import { IaEmpresaService } from '../ia/ia-empresa.service';
-import { PRECOS_POR_MILHAO } from '../ia/ia.regras';
-import { MODELO_DAS_PERGUNTAS, MotivoSemResposta, TETOS, TEXTOS_DO_AGENTE, blocoDaConversa, filtrarSaida, fraseDoMotivo, TrocaDaMemoria, juntarPerguntas } from './mister-agente.regras';
+import { MotivoSemResposta, TETOS, TEXTOS_DO_AGENTE, blocoDaConversa, filtrarSaida, fraseDoMotivo, TrocaDaMemoria, juntarPerguntas } from './mister-agente.regras';
 import { EscopoDoMister, MisterFerramentasService } from './mister-ferramentas.service';
 import { MisterFilaService, PerguntaNaFila, Trilha } from './mister-fila.service';
-import { FimDaPergunta, responderComFerramentas } from './mister-laco';
+import { FimDaPergunta, modeloDasPerguntas, responderComFerramentas } from './mister-laco';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 
 export type { FimDaPergunta } from './mister-laco';
@@ -45,8 +44,7 @@ export class MisterAgenteService implements OnModuleInit {
 
   /** O modelo das perguntas: o da distribuição (variável de ambiente), se estiver na tabela de preços; senão o padrão. */
   private modelo(): string {
-    const pedido = String(process.env.MISTER_MODELO_PERGUNTAS ?? '').trim();
-    return pedido && PRECOS_POR_MILHAO[pedido] ? pedido : MODELO_DAS_PERGUNTAS;
+    return modeloDasPerguntas();
   }
 
   // ───────────────────────────── a fila ─────────────────────────────

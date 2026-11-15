@@ -555,6 +555,63 @@ Decisão recomendada, seguida em 15/11/2026: **o próprio Mister marca o tema**,
   - o número e o cartão;
   - a API antiga sem quebrar a seção.
 
+### F5.3 — A avaliação de regressão (migration 424)
+
+O cartão "Avaliação de regressão" do protótipo `mockups/regem-dependencias-e-qualidade.html`, feito com as decisões recomendadas (15/11/2026).
+
+**Decisão recomendada: a loja de teste mora no código.** O protótipo dizia "numa empresa de teste com dados inventados". Uma empresa de verdade na produção, com pedidos e vendas inventados, entraria nos números da distribuição e pediria gravar dado fora de migration. Por isso:
+
+- **Os dados inventados** (`mister-avaliacao-casos.ts`) são o que cada ferramenta devolve na "Empresa de Teste da Avaliação":
+  - as mesmas chaves das ferramentas de verdade e as mesmas recusas (o gerente não abre o servidor; quem não vê valores recebe os valores vazios com o aviso);
+  - números que batem entre si (o faturamento de ontem é o mesmo no resumo e no relatório; as horas somam o dia);
+  - centavos que não terminam em zero;
+  - o guia de uso é o de verdade.
+- **As 40 perguntas** dizem o que a resposta certa tem: a consulta, os números, o tema do que falta, nenhum valor a quem não vê valores, nenhuma consulta para um "bom dia".
+  - Toda consulta do Mister tem pergunta: uma consulta nova sem pergunta reprova o teste.
+- **A conferência é por regra, nunca a IA julgando a si mesma.** Para todas as perguntas, um valor em reais que nenhuma consulta trouxe reprova (o filtro de saída de verdade).
+
+**O laço é o mesmo do agente.** O laço saiu do `MisterAgenteService` para `mister-laco.ts`: as mesmas instruções, as mesmas ferramentas e os mesmos tetos. Muda só a porta:
+
+- a IA da distribuição (`IaEmpresaService.pedirPelaDistribuicao`), que não soma no medidor de nenhuma empresa — o custo fica na rodada;
+- as ferramentas da loja de teste.
+
+O serviço mora no `MisterModule`, sem depender dos módulos de dados.
+
+**A rodada (`mister_avaliacao`, mig 424, só nuvem, sem loja):**
+
+- só pelo botão (cada rodada gasta a chave da DMS), uma de cada vez (índice único), 3 perguntas em paralelo;
+- o andamento é gravado a cada pergunta; a chave recusada ou sem crédito para a rodada;
+- a rodada parada há mais de 20 min (processo caiu) sai "interrompida", pela regra do serviço (V80), e não trava a próxima.
+
+**No console › Mister › Qualidade:**
+
+- as últimas 10 rodadas, com a versão das instruções (a impressão de 8 letras e as consultas), o resultado, "o que falhou" e o custo;
+- o aviso quando as instruções mudaram desde a última rodada;
+- "Ver as 40" em gaveta, com cada pergunta certa ou errada e o porquê;
+- "Rodar a avaliação", com o custo da última (perto de US$ 0,04 com o Haiku), e o andamento relido a cada 4 s enquanto roda.
+
+O cartão fica depois de "Por empresa", e não antes como no protótipo: ele não depende do período nem das perguntas das lojas e aparece sempre, com o carregar e o erro dele.
+
+**Conferência:**
+
+- `mister-avaliacao-casos.spec.ts`:
+  - as 40 perguntas e cada uma conferindo algo;
+  - toda consulta com pergunta;
+  - cada número esperado existe na loja de teste;
+  - os números batendo entre si;
+  - os dois perfis;
+  - cada regra da conferência reprovando o que deve.
+- `mister-pg.teste-spec.ts`, com uma IA de mentira que responde certo:
+  - 40 de 40 pelo laço de verdade, o andamento, os tokens somados e o custo;
+  - a lista, e as perguntas na ordem;
+  - uma rodada de cada vez, e a parada vencendo pelo tempo;
+  - a pergunta errada em "o que falhou";
+  - a chave recusada parando a rodada, e sem a chave nem começar.
+- Roteiro `mister-console`:
+  - as rodadas, a gaveta e rodar com o andamento;
+  - a versão mudada, sem a chave, o erro e o vazio;
+  - a gaveta aberta nas 16 larguras.
+
 ### F2.5 — O suporte de uso: o guia "como faço…" (sem migration)
 
 Decisão do dono de 14/11/2026 ("use o recomendado"): o suporte de uso nasce de um **guia curto das telas principais, escrito por nós** a partir das telas de verdade. Não havia documentação de uso no repositório (o Bot de Suporte guarda as regras de cada loja, não o uso do Regem).
@@ -676,7 +733,7 @@ O último dos nove avisos da tabela aprovada. **Nasce desligado** (padrão: 20 m
 7. ~~Releitura dos documentos e imagens no grafo de engenharia~~ — feita em 12/11.
 8. O perfil de permissões por hierarquia (o que cada gerente pode pelo Mister): fim do projeto.
 9. **Pendência de implementação para o fim (pedido do dono em 13/11/2026):** a opção de conectar o número do Mister pela conexão gratuita do Evolution, além da API oficial da Meta. O argumento: o Mister só fala com quem ligou o próprio telefone, então o risco de denúncia do número é baixo. O Regem já fala com o Evolution no WhatsApp das lojas; o que falta é o número do Mister ganhar uma porta de provedor (oficial ou Evolution), escolhida pela distribuição no console. Pede mockup da opção.
-10. **Aprovar o protótipo `mockups/regem-dependencias-e-qualidade.html` (#992).** As partes foram feitas com as recomendadas enquanto o dono estava fora: a faixa sem nuvem (#993), a Qualidade parte 1 (#994), as Dependências parte 2 (F3.7, #996, com a migration 423 aplicada pelo clique dele em 15/11) e o que falta (F5.2).
+10. **Aprovar o protótipo `mockups/regem-dependencias-e-qualidade.html` (#992).** As partes foram feitas com as recomendadas enquanto o dono estava fora: a faixa sem nuvem (#993), a Qualidade parte 1 (#994), as Dependências parte 2 (F3.7, #996, com a migration 423 aplicada pelo clique dele em 15/11), o que falta (F5.2) e a avaliação de regressão (F5.3, que espera a **migration 424** pelo clique dele antes do merge; a loja de teste ficou no código, e não no banco).
 
 ## 6. Como foi levantado
 
