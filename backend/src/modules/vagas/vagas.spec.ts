@@ -1,6 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
 import {
   buscasDoEndereco,
+  contratadoDaFicha,
+  nomeDaFuncaoParaComparar,
   gerarProtocolo,
   idadeEm,
   kmDeMetros,
@@ -177,5 +179,39 @@ describe('vagas · F2, a distância até a loja', () => {
 
   it('metros do OSRM viram km com uma casa', () => {
     expect([kmDeMetros(12345), kmDeMetros(950), kmDeMetros(0)]).toEqual([12.3, 1, 0]);
+  });
+});
+
+// F4: Contratar — o colaborador nasce com o que a ficha tem.
+describe('vagas · contratar (os dados do colaborador)', () => {
+  const pagina = paginaPadrao().funcoes; // chapeiro = "Chapeiro(a)", supervisao = "Supervisor(a) de cozinha"
+  const loja = [
+    { id: 'f-chap', nome: 'Chapeiro' },
+    { id: 'f-sup', nome: 'Supervisor de Cozinha' },
+  ];
+  const ficha = (o: Record<string, unknown> = {}) => ({ nome: ' Maria Teste ', telefone: '5521333300000', funcoes: ['chapeiro'], tipo_vaga: 'fixa', escala: '12x36', ...o }) as any;
+
+  it('o nome da função para comparar: sem acento, minúsculas, sem o "(a)"', () => {
+    expect(nomeDaFuncaoParaComparar('Chapeiro(a)')).toBe('chapeiro');
+    expect(nomeDaFuncaoParaComparar('  Supervisor(a)  de   Cozinha ')).toBe('supervisor de cozinha');
+    expect(nomeDaFuncaoParaComparar('Gerência')).toBe('gerencia');
+    expect(nomeDaFuncaoParaComparar(null)).toBe('');
+  });
+
+  it('vaga fixa = CLT na escala da ficha; a função da loja de mesmo nome', () => {
+    expect(contratadoDaFicha(ficha(), pagina, loja)).toEqual({ nome: 'Maria Teste', telefone: '5521333300000', vinculo: 'clt', jornadaTipo: '12x36', funcaoId: 'f-chap', funcaoDaFicha: 'Chapeiro(a)' });
+    expect(contratadoDaFicha(ficha({ funcoes: ['supervisao'], escala: '5x2' }), pagina, loja)).toMatchObject({ jornadaTipo: '5x2', funcaoId: 'f-sup', funcaoDaFicha: 'Supervisor(a) de cozinha' });
+  });
+
+  it('horista = vínculo e jornada horista; "tanto faz" sem escala certa = CLT a definir ("outro")', () => {
+    expect(contratadoDaFicha(ficha({ tipo_vaga: 'horista', escala: null }), pagina, loja)).toMatchObject({ vinculo: 'horista', jornadaTipo: 'horista' });
+    expect(contratadoDaFicha(ficha({ tipo_vaga: 'tanto', escala: 'tanto' }), pagina, loja)).toMatchObject({ vinculo: 'clt', jornadaTipo: 'outro' });
+  });
+
+  it('sem a função na loja (ou sem função na ficha): sem função — escolhe-se no cadastro', () => {
+    expect(contratadoDaFicha(ficha({ funcoes: ['atendimento'] }), pagina, loja)).toMatchObject({ funcaoId: null, funcaoDaFicha: 'Atendimento' });
+    expect(contratadoDaFicha(ficha({ funcoes: [] }), pagina, loja)).toMatchObject({ funcaoId: null, funcaoDaFicha: null });
+    // Código que a página não tem mais: o próprio código, sem casar.
+    expect(contratadoDaFicha(ficha({ funcoes: ['pizzaiolo'] }), pagina, loja)).toMatchObject({ funcaoId: null, funcaoDaFicha: 'pizzaiolo' });
   });
 });

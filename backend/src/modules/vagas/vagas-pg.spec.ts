@@ -3,11 +3,12 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import * as schema from '../../db/schema';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { hojeISO } from '../../common/data';
 import { ModuloService } from '../modulo/modulo.service';
+import { ColaboradorService } from '../colaborador/colaborador.service';
 import { VagasService } from './vagas.service';
 import { fichaValida } from './vagas-exemplo-spec';
 import { baseDoApp, paginaParaORobo } from './pagina-para-o-robo';
@@ -63,7 +64,7 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
     await aplicar('389_vagas_e_candidatos.sql');
     await aplicar('397_candidato_distancia.sql'); // F2: o serviço grava as colunas da distância (ERR-273: toda spec que monta a 389)
     const registrar = { registrar: async (e: any) => void auditoria.push(e) } as any;
-    svc = new VagasService(db, registrar, new ModuloService(db, registrar));
+    svc = new VagasService(db, registrar, new ModuloService(db, registrar), new ColaboradorService(db, registrar));
     await q(`insert into empresa (id, nome) values ($1, 'teste vagas'), ($2, 'outra empresa das vagas')`, [T, T2]);
     [{ id: lojaA }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja A') returning id`, [T]);
     [{ id: lojaB }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja B') returning id`, [T]);
@@ -286,6 +287,60 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
       ['situacao', 'analise', 'entrevista', 'Ana Gerente'],
       ['entrevista', null, '2026-11-14T18:00:00.000Z', 'Ana Gerente'],
     ]);
+  });
+
+  // F4: Contratar cria o colaborador com o que a ficha tem, pelo MESMO cadastro de Cadastros › Colaboradores.
+  it('F4: Contratar cria o colaborador e liga a ficha — com "Cadastros", uma vez só; a recusa do cadastro devolve a situação', async () => {
+    const funcoes: string[] = [];
+    const fichas: string[] = [];
+    const colaboradores: string[] = [];
+    const comCadastros = () => ({ ...gerente(), permissoes: { candidatos: true, cadastros: true } }) as any;
+    try {
+      const [{ id: chapeiro }] = await q(`insert into funcao (tenant_id, nome, categoria) values ($1, 'Chapeiro', 'execucao') returning id`, [T]);
+      const [{ id: gerencia }] = await q(`insert into funcao (tenant_id, nome, categoria) values ($1, 'Supervisor de cozinha', 'gerente') returning id`, [T]);
+      funcoes.push(chapeiro, gerencia);
+      const r = await svc.receberFicha(codigo, fichaValida({ whatsapp: '(21) 3333-0150', nome: 'Joana Contratada Teste' }));
+      const [{ id }] = await q(`select id from candidato where tenant_id = $1 and protocolo = $2`, [T, r.protocolo]);
+      fichas.push(id);
+
+      // "Contratado" pela situação comum: não — é o Contratar que cria o colaborador.
+      await expect(svc.mudarSituacao(gerente(), lojaA, id, { situacao: 'contratado' })).rejects.toThrow('use "Contratar"');
+      // Gerente sem "Cadastros": recusa, e a ficha fica como estava.
+      await expect(svc.contratar(gerente(), lojaA, id)).rejects.toThrow(ForbiddenException);
+      expect((await q(`select situacao from candidato where id = $1`, [id]))[0].situacao).toBe('novo');
+
+      auditoria.length = 0;
+      const c = await svc.contratar(comCadastros(), lojaA, id);
+      colaboradores.push(c.colaboradorId);
+      // A ficha de exemplo: Chapeiro e Supervisão, "tanto faz" na 12x36 → CLT na 12x36, com a função Chapeiro da loja.
+      expect(c).toMatchObject({ ok: true, funcao: 'Chapeiro(a)', funcaoAchada: true, vinculo: 'clt', jornadaTipo: '12x36' });
+      const [col] = await q(`select nome, vinculo, jornada_tipo, unidade_id from colaborador where id = $1`, [c.colaboradorId]);
+      expect(col).toEqual({ nome: 'Joana Contratada Teste', vinculo: 'clt', jornada_tipo: '12x36', unidade_id: lojaA });
+      expect((await q(`select funcao_id from colaborador_funcao where colaborador_id = $1`, [c.colaboradorId])).map((x) => x.funcao_id)).toEqual([chapeiro]);
+      expect((await q(`select situacao, colaborador_id from candidato where id = $1`, [id]))[0]).toEqual({ situacao: 'contratado', colaborador_id: c.colaboradorId });
+      expect(auditoria.map((a) => a.acao)).toContain('candidato.contratado');
+      const f: any = await svc.ficha(T, lojaA, id);
+      expect(f.historico.at(-1)).toMatchObject({ tipo: 'situacao', de: 'novo', para: 'contratado' });
+      // Uma vez só: a segunda vez recusa e não cria outro colaborador.
+      await expect(svc.contratar(comCadastros(), lojaA, id)).rejects.toThrow(ConflictException);
+      expect((await q(`select count(*)::int as n from colaborador where tenant_id = $1 and nome = 'Joana Contratada Teste'`, [T]))[0].n).toBe(1);
+
+      // A recusa do cadastro (gerente não cadastra gerente): a ficha volta à situação de antes e nenhum colaborador nasce.
+      const r2 = await svc.receberFicha(codigo, fichaValida({ whatsapp: '(21) 3333-0151', nome: 'Paulo Gerente Teste', funcoes: ['supervisao'], tipo: 'fixa', escala: '5x2' }));
+      const [{ id: id2 }] = await q(`select id from candidato where tenant_id = $1 and protocolo = $2`, [T, r2.protocolo]);
+      fichas.push(id2);
+      await svc.mudarSituacao(gerente(), lojaA, id2, { situacao: 'aprovado' });
+      await expect(svc.contratar(comCadastros(), lojaA, id2)).rejects.toThrow(ForbiddenException);
+      expect((await q(`select situacao, colaborador_id from candidato where id = $1`, [id2]))[0]).toEqual({ situacao: 'aprovado', colaborador_id: null });
+      expect((await q(`select count(*)::int as n from colaborador where tenant_id = $1 and nome = 'Paulo Gerente Teste'`, [T]))[0].n).toBe(0);
+    } finally {
+      for (const c of colaboradores) {
+        await q(`delete from colaborador_funcao where colaborador_id = $1`, [c]).catch(() => {});
+        await q(`delete from colaborador where id = $1`, [c]).catch(() => {});
+      }
+      for (const id of fichas) await q(`delete from candidato where id = $1`, [id]).catch(() => {});
+      for (const id of funcoes) await q(`delete from funcao where id = $1`, [id]).catch(() => {});
+    }
   });
 
   it('"Apagar dados" leva a ficha e tudo dela; a auditoria não guarda nome nem telefone', async () => {

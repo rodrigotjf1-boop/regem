@@ -574,3 +574,54 @@ export function buscasDoEndereco(c: { rua?: string | null; numero?: string | nul
 
 /** A distância em km com uma casa (o OSRM responde em metros). */
 export const kmDeMetros = (m: number) => Math.round(m / 100) / 10;
+
+// ── contratar (F4 de `docs/plano-vagas-candidatos.md` §11): a ficha vira colaborador ───────────────────────────────
+// O colaborador nasce com o que a ficha já tem — nome, telefone, função, vínculo e jornada —, pelo MESMO cadastro de
+// Cadastros › Colaboradores (o RBAC de nível e a auditoria dele). CPF, documentos e exame admissional se completam lá.
+
+/** O nome de uma função para comparar: sem acento, minúsculas, sem o "(a)" do fim, espaços juntos. */
+export function nomeDaFuncaoParaComparar(n: unknown): string {
+  return String(n ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/\((a|o|as|os)\)/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export interface ContratadoDaFicha {
+  nome: string;
+  telefone: string;
+  vinculo: 'clt' | 'horista';
+  jornadaTipo: '5x2' | '12x36' | 'horista' | 'outro';
+  /** A função da loja com o mesmo nome da primeira função da ficha — ou null (escolhe-se no cadastro). */
+  funcaoId: string | null;
+  /** A primeira função que o candidato marcou, como a página de vagas chama. */
+  funcaoDaFicha: string | null;
+}
+
+/**
+ * Os dados do colaborador a partir da ficha: vaga fixa (ou "tanto faz") = CLT com a escala da ficha (sem escala certa =
+ * "outro", a definir); horista = vínculo e jornada horista. A função é casada pelo nome com as funções da loja.
+ */
+export function contratadoDaFicha(
+  c: { nome: string; telefone: string; funcoes?: string[] | null; tipo_vaga: string; escala?: string | null },
+  funcoesDaPagina: FuncaoDaPagina[],
+  funcoesDaLoja: Array<{ id: string; nome: string }>,
+): ContratadoDaFicha {
+  const horista = c.tipo_vaga === 'horista';
+  const escala = c.escala === '12x36' || c.escala === '5x2' ? c.escala : null;
+  const primeira = (c.funcoes ?? [])[0] ?? null;
+  const funcaoDaFicha = primeira ? (funcoesDaPagina.find((f) => f.codigo === primeira)?.nome ?? primeira) : null;
+  const alvo = nomeDaFuncaoParaComparar(funcaoDaFicha);
+  const daLoja = alvo ? funcoesDaLoja.find((f) => nomeDaFuncaoParaComparar(f.nome) === alvo) : undefined;
+  return {
+    nome: String(c.nome ?? '').trim(),
+    telefone: String(c.telefone ?? '').trim(),
+    vinculo: horista ? 'horista' : 'clt',
+    jornadaTipo: horista ? 'horista' : (escala ?? 'outro'),
+    funcaoId: daLoja?.id ?? null,
+    funcaoDaFicha,
+  };
+}

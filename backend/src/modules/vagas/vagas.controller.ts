@@ -72,6 +72,13 @@ export class VagasController {
     return this.vagas.marcarEntrevista(user, unidade, id, dto);
   }
 
+  // F4: Contratar cria o colaborador com o que a ficha tem (presidente ou gerente com "Cadastros" — o serviço confere).
+  @Post('candidatos/:id/contratar')
+  @Roles('presidente', 'gerente')
+  contratar(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null, @Param('id') id: string) {
+    return this.vagas.contratar(user, unidade, id);
+  }
+
   // F2: medir de novo a distância até a loja (mapa auto-hospedado). Chama o Nominatim e o OSRM: limite por minuto.
   @Post('candidatos/:id/distancia')
   @HttpCode(200)
