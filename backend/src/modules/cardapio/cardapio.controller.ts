@@ -65,7 +65,11 @@ export class CardapioPublicoController {
   @Post(':token/pedido')
   @Throttle({ default: { ttl: 60000, limit: 20 } })
   pedido(@Param('token') token: string, @Body() dto: any) {
-    return this.service.receberPedido(token, dto);
+    // `_sistema` é só da rotina da recorrência (pula as regras da encomenda e a área de entrega): o corpo é `any`, então o
+    // `whitelist` do ValidationPipe não o tira — quem chama de fora não pode mandá-lo (ERR-470).
+    const corpo = dto && typeof dto === 'object' ? { ...dto } : {};
+    delete (corpo as any)._sistema;
+    return this.service.receberPedido(token, corpo);
   }
 
   @Post(':token/cupom')

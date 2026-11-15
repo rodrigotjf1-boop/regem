@@ -16,7 +16,7 @@ for (const nome of ['tipos-template', 'etapas']) {
   }).outputText.replace("'./tipos-template'", "'./tipos-template.mjs'");
   writeFileSync(join(tmp, `${nome}.mjs`), js);
 }
-const { etapasAtivas, falta, faltaNoPedido, rotuloAvancar, tituloEtapa } = await import(pathToFileURL(join(tmp, 'etapas.mjs')).href);
+const { etapasAtivas, falta, faltaNoPedido, rotuloAvancar, tituloEtapa, foraDaAreaDoRaio } = await import(pathToFileURL(join(tmp, 'etapas.mjs')).href);
 const { templateDe, ehTemplate, dadosNaEntrega } = await import(pathToFileURL(join(tmp, 'tipos-template.mjs')).href);
 
 let n = 0;
@@ -90,6 +90,24 @@ try {
   caso('entrega por raio: não pede bairro, pede a localização', () => {
     assert.equal(falta('entrega', est({ areaRaio: true }, { bairroId: '' })), null);
     assert.equal(falta('entrega', est({ areaRaio: true }, { bairroId: '', lat: '', lng: '' })).campo, 'localizacao');
+  });
+
+  caso('entrega por raio além da maior faixa: bloqueia com a distância e o alcance (ERR-470)', () => {
+    // As faixas da loja-piloto (a última, até 1,9 km, é R$ 0) e o pedido #71 a ~119,2 km.
+    const raios = [{ ateKm: 0.5, taxa: 5 }, { ateKm: 1, taxa: 5 }, { ateKm: 1.5, taxa: 6 }, { ateKm: 1.9, taxa: 0 }];
+    assert.deepEqual(foraDaAreaDoRaio(raios, 119.2), { km: 119.2, ateKm: 1.9 });
+    assert.equal(foraDaAreaDoRaio(raios, 1.9), null); // na borda da última faixa ainda entrega
+    assert.equal(foraDaAreaDoRaio(raios, 0.3), null);
+    assert.equal(foraDaAreaDoRaio(raios, null), null); // sem localização: a outra regra pede a localização
+    assert.equal(foraDaAreaDoRaio([], 50), null); // sem faixa válida: nada a conferir aqui
+    assert.equal(foraDaAreaDoRaio([{ ateKm: 'x' }, { ateKm: 3 }], 3.5).ateKm, 3); // faixa inválida não conta; a ordem não importa
+    const f = falta('entrega', est({ areaRaio: true, foraDaArea: foraDaAreaDoRaio(raios, 119.2) }, { bairroId: '' }));
+    assert.equal(f.campo, 'localizacao');
+    assert.equal(f.mensagem, 'Não entregamos nesse endereço: ele fica a ~119,2 km, e a entrega vai até 1,9 km');
+    assert.equal(falta('entrega', est({ areaRaio: true, foraDaArea: null }, { bairroId: '' })), null);
+    // O revisar (expresso) também para nela, e a retirada não liga para a distância.
+    assert.equal(falta('revisar', est({ areaRaio: true, foraDaArea: { km: 5, ateKm: 2 } }, { bairroId: '' })).campo, 'localizacao');
+    assert.equal(falta('entrega', est({ areaRaio: true, foraDaArea: { km: 5, ateKm: 2 } }, { tipo: 'retirada', bairroId: '' })), null);
   });
 
   caso('retirada não pede endereço; tipo indisponível bloqueia', () => {

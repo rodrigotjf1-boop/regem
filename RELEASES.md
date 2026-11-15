@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Cardápio: pedido de entrega fora da área recusado antes de existir (15/11, ERR-470; SEM migration; não mexe no
+  `sync-daemon`).** Além da maior faixa de distância (ou sem bairro da lista), o `receberPedido` recusa com `FORA_DA_AREA` /
+  `BAIRRO_FORA_DA_AREA` / `ENDERECO_NAO_ENCONTRADO` antes de criar o pedido (logo, antes do Pix); a tela do cardápio trava a
+  etapa do endereço com a distância. A rota pública tira o campo interno `_sistema`. O cardápio online é da nuvem (já no ar
+  com o deploy); no servidor da loja vale **só no `.zip` 1.30.13**.
+
 - **O Farol entra na autorização por clique do Regem (15/11, F6 do hub; SEM migration; não mexe no `sync-daemon`; nasce
   parado).** Na NUVEM com o merge: a ficha do Farol no clique (as três leituras da página de 01/10) e as frases das fichas
   e da fila no catálogo do clique (o manifesto público muda só no texto). Nada aparece para loja nenhuma até a
