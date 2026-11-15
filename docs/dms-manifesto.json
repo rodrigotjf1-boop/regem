@@ -1000,7 +1000,7 @@
       "sensivel": false
     },
     "fichas.ler": {
-      "frase": "Fichas técnicas e ingredientes (sem custo)",
+      "frase": "Os ingredientes de cada ficha, com quantidade e unidade. Sem custo.",
       "classes": [
         "dms",
         "parceiro"
@@ -1008,7 +1008,7 @@
       "sensivel": false
     },
     "producao.ler": {
-      "frase": "Pedidos na fila de produção (sem o cliente e sem valores)",
+      "frase": "O que está na fila da cozinha: produto, quantidade, adicionais, observação e horários. Sem o cliente e sem valores.",
       "classes": [
         "dms",
         "parceiro"

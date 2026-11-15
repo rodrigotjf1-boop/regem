@@ -110,6 +110,15 @@ export const PERMISSAO_NA_TELA: Partial<
     naFrase: 'o preço do iFood',
     curta: 'o preço do iFood',
   },
+  // Farol (F6 do hub, 15/11/2026): as fichas e a fila da cozinha, com as frases que o parceiro já lê
+  // (`FRASES_DO_PARCEIRO`, aprovadas em 10/10/2026). Nenhuma leva preço, custo ou cliente.
+  'fichas.ler': { rotulo: 'Fichas técnicas', frase: 'Os ingredientes de cada ficha, com quantidade e unidade. Sem custo.', naFrase: 'as fichas técnicas', curta: 'as fichas' },
+  'producao.ler': {
+    rotulo: 'Pedidos em produção',
+    frase: 'O que está na fila da cozinha: produto, quantidade, adicionais, observação e horários. Sem o cliente e sem valores.',
+    naFrase: 'os pedidos em produção',
+    curta: 'a fila da cozinha',
+  },
 };
 
 /** Como a permissão entra no assunto do e-mail ("O Liame passou a receber o telefone do cliente na Brasa Centro"). */
@@ -164,9 +173,9 @@ export const fraseDe = (app: Pick<AplicativoDoClique, 'parceiro'>, id: EscopoInt
   app.parceiro?.frases[id] ?? PERMISSAO_NA_TELA[id];
 
 /**
- * Os aplicativos que usam a autorização por clique: o Liame (F3-1) e o Orzuni (F6, 13/11/2026). O Farol segue na página
- * de 01/10 até a vez dele na F6. Estar aqui não liga nada: o aplicativo só pede com o client_id dele em
- * `DMS_ID_APLICATIVOS` (a distribuição configura).
+ * Os aplicativos que usam a autorização por clique: o Liame (F3-1), o Orzuni (F6, 13/11/2026) e o Farol (F6, 15/11/2026;
+ * a página de 01/10 dele segue valendo até o fim da F6). Estar aqui não liga nada: o aplicativo só pede com o client_id
+ * dele em `DMS_ID_APLICATIVOS` (a distribuição configura).
  */
 export const APLICATIVOS_DO_CLIQUE: Record<string, AplicativoDoClique> = {
   liame: {
@@ -227,6 +236,34 @@ export const APLICATIVOS_DO_CLIQUE: Record<string, AplicativoDoClique> = {
       { rotulo: 'Entrar no seu Regem', frase: 'O Orzuni não recebe a sua senha nem a sua sessão.' },
     ],
     naoPodeNoEmail: 'Ele só lê o cardápio e o preço do iFood: não pode mudar nada no Regem, nem ver vendas, clientes, custo ou os outros preços.',
+  },
+  // Farol (plano "Clique Farol → Regem" do hub, 15/11/2026): as MESMAS três leituras que a página de 01/10 dava (mig
+  // 315), todas necessárias, nenhuma opcional (decisão do dono de 10/10: nenhuma leva preço, custo ou cliente). A volta
+  // é a da página de 01/10 (`AUTORIZACAO_LOJA.farol`, o console do Farol), por isso não há `voltas` aqui.
+  farol: {
+    nome: 'Farol',
+    faz: 'audita a operação da cozinha pela câmera e confere cada montagem com a ficha técnica',
+    inicio: 'https://app.monitorfarol.com.br',
+    oQueLe: 'o cardápio, as fichas técnicas e a fila da cozinha',
+    soLe: 'Ele só lê o que estiver listado aqui; não muda pedido, preço, cardápio nem ficha no Regem.',
+    necessarias: ['catalogo.ler', 'fichas.ler', 'producao.ler'],
+    opcionais: [],
+    dadoPessoal: [],
+    financeiras: [],
+    motivos: {
+      'catalogo.ler': 'Para saber quais produtos a loja tem e reconhecer cada um na câmera.',
+      'fichas.ler': 'Para conferir cada montagem com os ingredientes da ficha técnica.',
+      'producao.ler': 'Para saber o que a cozinha está montando agora e comparar com o que a câmera vê.',
+    },
+    semElas: {},
+    naoPode: [
+      { rotulo: 'Mudar pedido, preço, cardápio ou ficha', frase: 'Esta ligação só lê: não tem nenhuma rota que mude algo no Regem.' },
+      { rotulo: 'Ver preço, custo e margem', frase: 'O cardápio vai sem preço, a ficha vai sem custo e a fila vai sem valores.' },
+      { rotulo: 'Ver vendas e clientes', frase: 'Caixa, pagamentos e quem fez o pedido não fazem parte.' },
+      { rotulo: 'Ver o resto da operação', frase: 'Estoque, equipe, escala e ponto não fazem parte.' },
+      { rotulo: 'Entrar no seu Regem', frase: 'O Farol não recebe a sua senha nem a sua sessão.' },
+    ],
+    naoPodeNoEmail: 'Ele só lê o cardápio, as fichas e a fila da cozinha: não pode mudar nada no Regem, nem ver vendas, clientes, preço ou custo.',
   },
 };
 

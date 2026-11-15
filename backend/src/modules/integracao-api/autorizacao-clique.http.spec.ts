@@ -59,6 +59,11 @@ const semFkCompartilhada = (s: string) =>
 // Identificadores visivelmente fictícios: o repositório é público.
 const APP_LIAME = 'aplicativo-liame-de-teste';
 const APP_FAROL = 'aplicativo-farol-de-teste';
+// O Farol (F6 do hub, 15/11): as três leituras da página de 01/10, com o endereço de volta dela (o console dele).
+const VOLTA_FAROL = 'https://farol.teste/api/regem/retorno';
+const LEITURAS_DO_FAROL = 'catalogo.ler fichas.ler producao.ler';
+// Um aplicativo da lista da porta que NÃO usa o clique (o RegemCast, com a chave da empresa).
+const APP_REGEMCAST = 'aplicativo-regemcast-de-teste';
 const APP_FORA = 'aplicativo-fora-da-lista';
 // O Orzuni (F6 do hub): só o clique, com o endereço de volta da ficha dele e as duas leituras do cardápio.
 const APP_ORZUNI = 'aplicativo-orzuni-de-teste';
@@ -163,6 +168,7 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
     'DMS_ID_LIGADO', 'DMS_ID_EMISSOR', 'DMS_ID_RECURSO', 'DMS_ID_APLICATIVOS',
     'AUTORIZACAO_POR_CLIQUE', 'AUTORIZACAO_DMS_RAZAO_SOCIAL', 'AUTORIZACAO_DMS_CNPJ',
     AUTORIZACAO_LOJA.liame.envRedirect, AUTORIZACAO_LOJA.liame.envSegredo, 'INTEGRACAO_ORZUNI_REDIRECT_URIS',
+    AUTORIZACAO_LOJA.farol.envRedirect,
   ];
   const original: Record<string, string | undefined> = Object.fromEntries(ENV.map((k) => [k, process.env[k]]));
   let app: INestApplication;
@@ -331,6 +337,7 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
     process.env.APP_URL = 'https://app.regem.teste';
     process.env[AUTORIZACAO_LOJA.liame.envRedirect] = VOLTA;
     process.env.INTEGRACAO_ORZUNI_REDIRECT_URIS = VOLTA_ORZUNI;
+    process.env[AUTORIZACAO_LOJA.farol.envRedirect] = VOLTA_FAROL;
     process.env.AUTORIZACAO_POR_CLIQUE = 'true';
     process.env.AUTORIZACAO_DMS_RAZAO_SOCIAL = 'DMS Exemplo Ltda';
     process.env.AUTORIZACAO_DMS_CNPJ = '33444555000100';
@@ -371,7 +378,7 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
     dmsId = await subirDmsIdFalso(() => `${origem}/api/v1/integracao`);
     process.env.DMS_ID_LIGADO = 'true';
     process.env.DMS_ID_EMISSOR = dmsId.emissor;
-    process.env.DMS_ID_APLICATIVOS = JSON.stringify({ liame: APP_LIAME, farol: APP_FAROL, orzuni: APP_ORZUNI });
+    process.env.DMS_ID_APLICATIVOS = JSON.stringify({ liame: APP_LIAME, farol: APP_FAROL, orzuni: APP_ORZUNI, regemcast: APP_REGEMCAST });
     app = await NestFactory.create(AppTeste, { logger: false });
     app.setGlobalPrefix('api/v1', { exclude: ROTAS_FORA_DO_PREFIXO });
     await app.listen(0, '127.0.0.1');
@@ -438,9 +445,9 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
 
     it('token para outro destino: 401; aplicativo da lista que não usa o clique: 401 cliente-invalido; campo errado: 400 com a frase', async () => {
       expect((await pedir({ token: dmsId.emitir({ destino: 'https://outro.exemplo/api' }) })).r.status).toBe(401);
-      const farol = await pedir({ token: dmsId.emitir({ aplicativo: APP_FAROL }) });
-      expect(farol.r.status).toBe(401);
-      expect(farol.c).toMatchObject({ type: `${BASE_TIPO_PROBLEMA}cliente-invalido`, detail: 'Este aplicativo não usa a autorização por clique do Regem.' });
+      const regemcast = await pedir({ token: dmsId.emitir({ aplicativo: APP_REGEMCAST }) });
+      expect(regemcast.r.status).toBe(401);
+      expect(regemcast.c).toMatchObject({ type: `${BASE_TIPO_PROBLEMA}cliente-invalido`, detail: 'Este aplicativo não usa a autorização por clique do Regem.' });
       const fora = await pedir({ token: dmsId.emitir({ aplicativo: APP_FORA }) });
       expect(fora.c).toMatchObject({ type: `${BASE_TIPO_PROBLEMA}cliente-invalido` });
       const torto = await pedir({ mudar: { redirect_uri: 'https://ataque.exemplo/cb' } });
@@ -492,7 +499,7 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
         pessoa: { nome: 'Bia Gerente', nivel: 'gerente' },
       });
       expect(await (await tela(presA, 'urn:ietf:params:oauth:request_uri:rgm_torto')).json()).toMatchObject({ situacao: 'invalido', aplicativo: { nome: 'Liame' } });
-      expect(await (await tela(presA, p.numero, APP_FAROL)).json()).toEqual({ situacao: 'invalido', aplicativo: null });
+      expect(await (await tela(presA, p.numero, APP_REGEMCAST)).json()).toEqual({ situacao: 'invalido', aplicativo: null });
       pararNoHub([{ nivel: 'geral', produto: null, alvo: null }]);
       expect((await (await tela(presA, p.numero)).json()).situacao).toBe('pausado');
       (hub as any).cliente = null;
@@ -983,6 +990,84 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
 
       expect((await chamar('/integracao/loja', { token: antiga.token })).status).toBe(401);
       expect((await lerPeloOrzuni('/integracao/loja', lojas[0].ligacao)).status).toBe(200);
+    });
+  });
+
+  // ───────────────────────────── o Farol (F6 do hub) ─────────────────────────────
+
+  describe('o Farol: o clique de quem lê o cardápio, as fichas e a fila (F6 do hub)', () => {
+    const tokenDoFarol = () => dmsId.emitir({ aplicativo: APP_FAROL, permissoes: LEITURAS_DO_FAROL });
+    const pedirPeloFarol = (mudar: Record<string, string> = {}) =>
+      pedir({
+        token: tokenDoFarol(),
+        mudar: { redirect_uri: VOLTA_FAROL, scope: LEITURAS_DO_FAROL, conta_nome: 'Hamburgueria do Teste', conta_email: 'diretoria@farol.exemplo', ...mudar },
+      });
+    const trocarPeloFarol = (codigo: string | null, verificador: string) =>
+      trocar(codigo, verificador, { token: tokenDoFarol(), mais: { redirect_uri: VOLTA_FAROL } });
+    const lerPeloFarol = (caminho: string, ligacao: string) => chamar(caminho, { token: tokenDoFarol(), ligacao });
+
+    it('o pedido: as três leituras e a volta da página de 01/10; vendas, preço do iFood e a volta de outro aplicativo são recusados', async () => {
+      expect((await pedirPeloFarol()).r.status).toBe(201);
+      for (const fora of ['pedidos.ler', 'catalogo.ifood.ler', 'custos.ler']) {
+        const r = await pedirPeloFarol({ scope: `catalogo.ler ${fora}` });
+        expect(r.r.status).toBe(400);
+        expect(r.c.detail).toBe(`A permissão "${fora}" não pode ser pedida por este aplicativo na autorização por clique.`);
+      }
+      expect((await pedirPeloFarol({ redirect_uri: VOLTA_ORZUNI })).r.status).toBe(400);
+      // E o contrário: o Orzuni não volta para o console do Farol.
+      expect((await pedir({ token: dmsId.emitir({ aplicativo: APP_ORZUNI, permissoes: LEITURAS_DO_ORZUNI }), mudar: { redirect_uri: VOLTA_FAROL, scope: LEITURAS_DO_ORZUNI } })).r.status).toBe(400);
+    });
+
+    it('de ponta a ponta: o presidente autoriza, o Farol troca o código e lê as fichas pela ligação, só ele; não abre as vendas', async () => {
+      const e = await empresa('Montagem', ['Montagem Loja']);
+      const pres = await pessoa(e.tenant, 'Rui Presidente', 'presidente');
+      const p = await pedirPeloFarol();
+      const c: any = await (await tela(pres, p.numero, APP_FAROL)).json();
+      expect(c.tela.titulo).toBe('O Farol quer ler o cardápio, as fichas técnicas e a fila da cozinha da sua loja');
+      expect(c.tela.necessarias.map((x: any) => x.id)).toEqual(['catalogo.ler', 'fichas.ler', 'producao.ler']);
+      expect(c.tela.confirmacao.titulo).toBe('A conta que pede é de outra empresa');
+
+      const a = await autorizar(pres, p.numero, { lojas: e.lojas, clientId: APP_FAROL });
+      expect(a.r.status).toBe(200);
+      expect(`${a.volta?.origin}${a.volta?.pathname}`).toBe(VOLTA_FAROL);
+      expect(a.volta?.searchParams.get('iss')).toBe(origem);
+      const t = await trocarPeloFarol(a.codigo, p.verificador);
+      expect(t.status).toBe(200);
+      const { lojas } = (await t.json()) as any;
+      segredos.push(lojas[0].ligacao);
+      expect(lojas[0]).toMatchObject({ loja_id: e.lojas[0], permissoes: ['catalogo.ler', 'fichas.ler', 'producao.ler'] });
+
+      for (const caminho of ['/integracao/catalogo', '/integracao/fichas', '/integracao/producao']) {
+        expect((await lerPeloFarol(caminho, lojas[0].ligacao)).status).toBe(200);
+      }
+      expect((await lerPeloFarol('/integracao/pedidos', lojas[0].ligacao)).status).toBe(403);
+      expect((await lerLoja(lojas[0].ligacao)).status).toBe(401); // com o token do Liame
+
+      const r: any = await (await chamar('/aplicativos-conectados', { quem: pres })).json();
+      const acesso = r.aplicativos.find((x: any) => x.cliente === 'farol').acessos[0];
+      expect(acesso).toMatchObject({ ativo: true, via: 'clique', lojaId: e.lojas[0], autorizacao: { por: 'Rui Presidente', outraEmpresa: true } });
+    });
+
+    it('a loja que já tinha a chave da página de 01/10: depois do clique a chave antiga para de valer e a ligação lê', async () => {
+      const e = await empresa('Antiga', ['Antiga Loja']);
+      const pres = await pessoa(e.tenant, 'Lia Presidente', 'presidente');
+      const antiga = (await tokensSvc.emitir(
+        { tenantId: e.tenant, unidadeId: e.lojas[0], cliente: 'farol', autorizadoPor: pres.id, escopos: ['catalogo.ler', 'fichas.ler', 'producao.ler'], evidencia: 'teste' },
+        dist,
+      )) as any;
+      segredos.push(antiga.token);
+      expect((await chamar('/integracao/fichas', { token: antiga.token })).status).toBe(200);
+
+      const p = await pedirPeloFarol();
+      const a = await autorizar(pres, p.numero, { lojas: e.lojas, clientId: APP_FAROL });
+      expect(a.r.status).toBe(200);
+      const t = await trocarPeloFarol(a.codigo, p.verificador);
+      expect(t.status).toBe(200);
+      const { lojas } = (await t.json()) as any;
+      segredos.push(lojas[0].ligacao);
+
+      expect((await chamar('/integracao/fichas', { token: antiga.token })).status).toBe(401);
+      expect((await lerPeloFarol('/integracao/fichas', lojas[0].ligacao)).status).toBe(200);
     });
   });
 });
