@@ -9,6 +9,8 @@ import { ConferirEntregaProcessor } from './conferir-entrega.processor';
 import { OPCOES_DA_CONFERENCIA, TEXTO_DEPOIS_DA_RESPOSTA, portaoDaConferencia, textoDaPergunta } from './conferir-entrega';
 import { WhatsappProvedorService } from './whatsapp-provedor.service';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
+import { ConfirmacaoDaFichaService } from '../vagas/confirmacao-da-ficha.service';
+import { pausarPeloAtendente } from './robo-pausa';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -311,5 +313,114 @@ descrever('"chegou tudo certo?" (Postgres)', () => {
     expect(auditados.map((a) => a.acao)).toContain('conferir_entrega_ligado');
     await ajustes.salvarRoboConfig(ator, { lembreteCarrinho: true });
     expect((await ajustes.roboConfig(t)).conferirEntrega).toBe(true); // o ausente mantém
+  });
+
+  // ── a confirmação da ficha de vagas (F3 parte b de Vagas, mig 427) ──
+  // Mora aqui porque usa a MESMA janela de 24 h e as mesmas tabelas só-nuvem do WhatsApp (215, 342) que esta spec já
+  // aplica (ERR-451: a cadeia quente não se reaplica noutra spec). As da vaga (389, 397, 427) são de tabelas frias.
+  describe('a confirmação da ficha de vagas', () => {
+    const textos: any[] = [];
+    let falharFicha = false;
+    const cloudDaFicha: any = {
+      enviarTexto: async (t: string, para: string, texto: string) => {
+        if (falharFicha) throw new Error('a Meta recusou');
+        textos.push({ t, para, texto });
+      },
+    };
+    const confirmacao = new ConfirmacaoDaFichaService(db, cloudDaFicha);
+    beforeAll(async () => {
+      for (const m of ['389_vagas_e_candidatos.sql', '397_candidato_distancia.sql', '427_candidato_confirmacao.sql']) await aplicar(m);
+    });
+    beforeEach(() => {
+      textos.length = 0;
+      falharFicha = false;
+    });
+    afterAll(async () => {
+      if (empresas.length) {
+        await pool.query(`delete from candidato where tenant_id = any($1::uuid[])`, [empresas]).catch(() => {});
+        await pool.query(`delete from unidade where tenant_id = any($1::uuid[])`, [empresas]).catch(() => {});
+      }
+    });
+    /** Uma ficha que chegou há `min` minutos, pela origem dada. */
+    async function ficha(t: string, o: { origem?: string; min?: number; telefone?: string; nome?: string } = {}) {
+      const [u] = await q(`select id from unidade where tenant_id = $1 limit 1`, [t]);
+      const unidade = u?.id ?? (await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja') returning id`, [t]))[0].id;
+      return (
+        await q(
+          `insert into candidato (tenant_id, unidade_id, protocolo, nome, nascimento, telefone, tipo_vaga, experiencia, estuda, grau_estudo, escola,
+                                  cursos_situacao, trabalhando, comeca, consentimento_em, consentimento_versao, expurgo_em, origem, recebido_em)
+           values ($1, $2, $3, $4, '2000-01-01', $5, 'fixa', 'primeiro', false, 'medio', 'Escola Teste', 'nunca', false, 'imediato',
+                   now(), 'guarda-v1', current_date + 180, $6, now() - make_interval(mins => $7))
+           returning id, protocolo`,
+          [t, unidade, randomUUID().replace(/-/g, '').slice(0, 6).toUpperCase(), o.nome ?? 'Renata Lima Teste', o.telefone ?? NO_PEDIDO, o.origem ?? 'whatsapp', o.min ?? 1],
+        )
+      )[0] as { id: string; protocolo: string };
+    }
+    const situacao = async (id: string) => (await q(`select confirmacao from candidato where id = $1`, [id]))[0].confirmacao;
+
+    it('a ficha do robô com a conversa aberta recebe "Recebemos sua ficha nº …" uma vez, e o histórico guarda', async () => {
+      const t = await loja();
+      await escreveu(t);
+      const f = await ficha(t);
+      expect(await confirmacao.confirmar()).toMatchObject({ enviadas: 1, falhas: 0 });
+      const meusTextos = textos.filter((x) => x.t === t);
+      expect(meusTextos).toEqual([{ t, para: NA_CONVERSA, texto: expect.stringMatching(/^Recebemos sua ficha nº [A-Z0-9]{3}-[A-Z0-9]{3}, Renata! /) }]);
+      expect(await situacao(f.id)).toBe('enviada');
+      expect((await q(`select tipo, texto from candidato_evento where candidato_id = $1`, [f.id]))).toEqual([{ tipo: 'comunicacao', texto: 'Confirmação da ficha enviada pelo WhatsApp' }]);
+      // Uma vez só: a volta seguinte não manda de novo.
+      await confirmacao.confirmar();
+      expect(textos.filter((x) => x.t === t)).toHaveLength(1);
+    });
+
+    it('duas réplicas com a mesma lista: a vez decide, a ficha sai uma vez só', async () => {
+      const t = await loja();
+      await escreveu(t);
+      const f = await ficha(t);
+      const outraReplica = new ConfirmacaoDaFichaService(db, cloudDaFicha);
+      const lista = (await confirmacao.candidatas()).filter((c: any) => c.id === f.id);
+      expect(lista).toHaveLength(1);
+      await confirmacao.tratar(lista);
+      await outraReplica.tratar(lista); // a lista velha: a ficha já foi tratada
+      expect(textos.filter((x) => x.t === t)).toHaveLength(1);
+      expect(await situacao(f.id)).toBe('enviada');
+    });
+
+    it('não confirma: outra origem, sem a conversa aberta, loja fora da API oficial; alguém da equipe na conversa', async () => {
+      const t = await loja();
+      await escreveu(t);
+      const doQr = await ficha(t, { origem: 'salao' });
+      const t2 = await loja({ provedor: 'evolution' });
+      await escreveu(t2);
+      const evolution = await ficha(t2);
+      const t3 = await loja();
+      await escreveu(t3, 30); // a conversa fechou (mais de 24 h)
+      const fechada = await ficha(t3);
+      const t4 = await loja();
+      await escreveu(t4);
+      await pausarPeloAtendente(db, { tenantId: t4, telefone: NA_CONVERSA, motivo: 'atendente' });
+      const pausada = await ficha(t4);
+      await confirmacao.confirmar();
+      expect(textos.filter((x) => [t, t2, t3, t4].includes(x.t))).toEqual([]);
+      expect(await situacao(doQr.id)).toBeNull(); // não é do robô: nunca entra
+      expect(await situacao(evolution.id)).toBeNull(); // espera os 10 min e sai como sem_conversa
+      expect(await situacao(fechada.id)).toBeNull();
+      expect(await situacao(pausada.id)).toBe('equipe_na_conversa');
+    });
+
+    it('a ficha do robô que esperou mais de 10 min sem a conversa sai da fila; a falha da Meta fica anotada', async () => {
+      const t = await loja();
+      const velha = await ficha(t, { min: 11 });
+      await confirmacao.confirmar();
+      expect(await situacao(velha.id)).toBe('sem_conversa');
+      const t2 = await loja();
+      await escreveu(t2);
+      const f = await ficha(t2);
+      falharFicha = true;
+      expect(await confirmacao.confirmar()).toMatchObject({ falhas: 1 });
+      expect(await situacao(f.id)).toBe('falhou');
+      falharFicha = false;
+      await confirmacao.confirmar();
+      expect(textos.filter((x) => x.t === t2)).toEqual([]); // a falha não se repete sozinha
+    });
   });
 });

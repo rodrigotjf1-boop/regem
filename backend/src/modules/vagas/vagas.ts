@@ -542,6 +542,18 @@ export function gerarProtocolo(): string {
   return s;
 }
 
+/** O protocolo como o candidato lê (K7Q2XD → K7Q-2XD), igual à tela de ficha recebida. */
+export const protocoloLegivel = (p: string): string => (p.length === 6 ? `${p.slice(0, 3)}-${p.slice(3)}` : p);
+
+/**
+ * A confirmação da ficha no WhatsApp (F3 parte b, §10 do plano): sai na conversa que a pessoa abriu com a loja (janela de
+ * 24 h da API oficial), uma vez por ficha. Só o primeiro nome e o protocolo — nada da ficha além disso.
+ */
+export function textoDaConfirmacao(nome: string, protocolo: string): string {
+  const primeiro = String(nome ?? '').trim().split(/\s+/)[0] ?? '';
+  return `Recebemos sua ficha nº ${protocoloLegivel(protocolo)}${primeiro ? `, ${primeiro}` : ''}! A loja fala com você por este WhatsApp quando tiver uma vaga para o seu perfil.`;
+}
+
 /** A situação que a tela pede: só as da lista. */
 export function lerSituacao(v: unknown): Situacao {
   return um(v, SITUACOES, 'Situação inválida.', 'situacao');
