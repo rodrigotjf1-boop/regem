@@ -10,6 +10,7 @@ import { hojeISO } from '../../common/data';
 import { ModuloService } from '../modulo/modulo.service';
 import { VagasService } from './vagas.service';
 import { fichaValida } from './vagas-exemplo-spec';
+import { baseDoApp, paginaParaORobo } from './pagina-para-o-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -215,6 +216,47 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
       await q(`delete from modulo_ativacao where tenant_id = $1 and modulo = 'vagas'`, [T]);
     }
     await expect(svc.paginaPublica(codigo)).resolves.toBeTruthy();
+  });
+
+  // F3: no assunto "vaga" em "Explica as vagas e manda o link", o robô explica a página da loja e manda o link — a mesma
+  // régua da página pública (ligada e com o módulo ligado). Sem página, null: o robô deixa o recado.
+  it('F3: a página que o robô explica — a ligada da loja, com o resumo e o link; desligada, sem módulo ou ambígua = null', async () => {
+    const modulos = new ModuloService(db, { registrar: async () => {} } as any);
+    const ligado = (t: string, u: string) => modulos.ativo(t, u, 'vagas');
+    const p = await paginaParaORobo(db, T, lojaA, ligado);
+    expect(p?.url).toBe(`${baseDoApp()}/v/${codigo}`);
+    expect(p?.resumo).toContain('Funções abertas: Chapeiro(a) (R$ 1.900,00)');
+    expect(p?.resumo).not.toContain('Gerência'); // fechada na página
+    expect(p?.resumo).toContain('Benefícios: Vale-refeição: R$ 150,00.');
+    // O cardápio da empresa inteira: a única página ligada da empresa. A loja B não tem página.
+    expect((await paginaParaORobo(db, T, null, ligado))?.url).toBe(p?.url);
+    expect(await paginaParaORobo(db, T, lojaB, ligado)).toBeNull();
+    // A outra empresa tem a página dela (lojaC): nunca a desta.
+    expect((await paginaParaORobo(db, T2, null, ligado))?.url).not.toBe(p?.url);
+    // Módulo desligado na loja.
+    await q(`insert into modulo_ativacao (tenant_id, unidade_id, modulo, ativo) values ($1, $2, 'vagas', false)`, [T, lojaA]);
+    try {
+      expect(await paginaParaORobo(db, T, lojaA, ligado)).toBeNull();
+    } finally {
+      await q(`delete from modulo_ativacao where tenant_id = $1 and modulo = 'vagas'`, [T]);
+    }
+    // Duas páginas ligadas na empresa e o cardápio da empresa inteira: o robô não escolhe a loja.
+    await svc.salvarPagina(gerente(), lojaB, { ligada: true });
+    try {
+      expect(await paginaParaORobo(db, T, null, ligado)).toBeNull();
+      expect((await paginaParaORobo(db, T, lojaA, ligado))?.url).toBe(p?.url);
+    } finally {
+      await q(`delete from vaga_qr where tenant_id = $1 and unidade_id = $2`, [T, lojaB]);
+      await q(`delete from vaga_pagina where tenant_id = $1 and unidade_id = $2`, [T, lojaB]);
+    }
+    // Desligada: null; ligada de novo, volta.
+    await svc.salvarPagina(gerente(), lojaA, { ligada: false });
+    try {
+      expect(await paginaParaORobo(db, T, lojaA, ligado)).toBeNull();
+    } finally {
+      await svc.salvarPagina(gerente(), lojaA, { ligada: true });
+    }
+    expect((await paginaParaORobo(db, T, lojaA, ligado))?.url).toBe(p?.url);
   });
 
   it('cada loja só vê as próprias fichas; o presidente na rede vê todas as da empresa', async () => {

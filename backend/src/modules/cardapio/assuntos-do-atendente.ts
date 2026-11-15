@@ -2,6 +2,7 @@ import { BadRequestException, Logger } from '@nestjs/common';
 import { sql, type SQL } from 'drizzle-orm';
 import { ehServidorLocal } from '../../common/modo';
 import type { ResumoDoRobo } from '../atendimento/resumo-do-robo';
+import type { PaginaParaORobo } from '../vagas/pagina-para-o-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -28,8 +29,11 @@ const logger = new Logger('AssuntosDoAtendente');
 export const ASSUNTOS_DO_ATENDENTE = ['fornecedor', 'vaga', 'parceria'] as const;
 export type AssuntoDoAtendente = (typeof ASSUNTOS_DO_ATENDENTE)[number];
 /** O que o robô faz: `hoje` = "Como hoje: chama a equipe" (o padrão); `recado` = deixa recado para o responsável; `nao` =
- * responde que não é por aqui (sem chamar ninguém). */
-export const MODOS_DO_ASSUNTO = ['hoje', 'recado', 'nao'] as const;
+ * responde que não é por aqui (sem chamar ninguém); `link` = SÓ na vaga: explica as vagas e manda o link da ficha (F3 de
+ * Vagas — `vagas/pagina-para-o-robo.ts`); sem a página de vagas ligada, o robô deixa o recado. */
+export const MODOS_DO_ASSUNTO = ['hoje', 'recado', 'nao', 'link'] as const;
+/** Os assuntos que aceitam o modo `link`. */
+export const ASSUNTOS_COM_LINK: readonly AssuntoDoAtendente[] = ['vaga'];
 export type ModoDoAssunto = (typeof MODOS_DO_ASSUNTO)[number];
 /** O que o robô diz cabe nisto (uma linha só). */
 export const TEXTO_DO_ASSUNTO_MAX = 300;
@@ -85,6 +89,8 @@ export function lerAssuntosDoAtendente(dto: unknown): Partial<Record<AssuntoDoAt
     if (valor.modo !== undefined) {
       if (!ehModo(valor.modo))
         throw new BadRequestException(`${nome}: escolha "Como hoje", "Deixa recado para o responsável" ou "Responde que não é por aqui".`);
+      if (valor.modo === 'link' && !ASSUNTOS_COM_LINK.includes(assunto))
+        throw new BadRequestException(`${nome}: "Explica as vagas e manda o link" é só para a vaga de emprego.`);
       a.modo = valor.modo;
     }
     if (valor.texto !== undefined) {
@@ -106,10 +112,11 @@ function textoDaLinha(v: unknown): string | null {
   return t || null;
 }
 
-/** Um assunto como veio do banco, com os padrões no que faltar ou vier fora da lista. */
-function assuntoDaLinha(v: unknown): AjusteDoAssunto {
+/** Um assunto como veio do banco, com os padrões no que faltar ou vier fora da lista (o `link` fora da vaga = o padrão). */
+function assuntoDaLinha(v: unknown, assunto: AssuntoDoAtendente): AjusteDoAssunto {
   const o = ehObjeto(v) ? v : {};
-  return { modo: ehModo(o.modo) ? o.modo : AJUSTE_DO_ASSUNTO_PADRAO.modo, texto: textoDaLinha(o.texto) };
+  const modo = ehModo(o.modo) && (o.modo !== 'link' || ASSUNTOS_COM_LINK.includes(assunto)) ? o.modo : AJUSTE_DO_ASSUNTO_PADRAO.modo;
+  return { modo, texto: textoDaLinha(o.texto) };
 }
 
 /**
@@ -126,24 +133,29 @@ export function assuntosDaLinha(v: unknown): AssuntosDoAtendente {
     }
   }
   const linha = ehObjeto(o) ? o : {};
-  return { fornecedor: assuntoDaLinha(linha.fornecedor), vaga: assuntoDaLinha(linha.vaga), parceria: assuntoDaLinha(linha.parceria) };
+  return { fornecedor: assuntoDaLinha(linha.fornecedor, 'fornecedor'), vaga: assuntoDaLinha(linha.vaga, 'vaga'), parceria: assuntoDaLinha(linha.parceria, 'parceria') };
 }
 
 /**
  * O que o robô diz ao cliente no assunto: com recado, o texto da loja ou o padrão do assunto; em "não é por aqui", o texto
- * da loja ou o padrão de "não é por aqui"; em "Como hoje", nada (null — o robô segue as instruções de sempre).
+ * da loja ou o padrão de "não é por aqui"; em "Como hoje", nada (null — o robô segue as instruções de sempre). No `link`,
+ * o texto do recado (é o que vale quando a página de vagas está desligada e o robô deixa o recado).
  */
 export function textoDoAssunto(assuntos: unknown, assunto: AssuntoDoAtendente): string | null {
-  const a = assuntoDaLinha(ehObjeto(assuntos) ? assuntos[assunto] : undefined);
-  if (a.modo === 'recado') return a.texto ?? TEXTO_PADRAO_DO_RECADO[assunto];
+  const a = assuntoDaLinha(ehObjeto(assuntos) ? assuntos[assunto] : undefined, assunto);
+  if (a.modo === 'recado' || a.modo === 'link') return a.texto ?? TEXTO_PADRAO_DO_RECADO[assunto];
   if (a.modo === 'nao') return a.texto ?? TEXTO_PADRAO_NAO;
   return null;
 }
 
-/** O `tipo` que o robô mandou no "chamar atendente" é um assunto em "recado" na empresa? Então o assunto; senão null. */
+/**
+ * O `tipo` que o robô mandou no "chamar atendente" é um assunto em "recado" na empresa? Então o assunto; senão null. O
+ * `link` conta como recado: o robô só chama pela vaga quando a página está desligada (e aí deixa o recado).
+ */
 export function assuntoEmRecado(assuntos: unknown, tipo: unknown): AssuntoDoAtendente | null {
   if (!ehAssunto(tipo)) return null;
-  return assuntoDaLinha(ehObjeto(assuntos) ? assuntos[tipo] : undefined).modo === 'recado' ? tipo : null;
+  const modo = assuntoDaLinha(ehObjeto(assuntos) ? assuntos[tipo] : undefined, tipo).modo;
+  return modo === 'recado' || modo === 'link' ? tipo : null;
 }
 
 /**
@@ -153,7 +165,7 @@ export function assuntoEmRecado(assuntos: unknown, tipo: unknown): AssuntoDoAten
  */
 export function assuntoNaoEPorAqui(assuntos: unknown, tipo: unknown): AssuntoDoAtendente | null {
   if (!ehAssunto(tipo)) return null;
-  return assuntoDaLinha(ehObjeto(assuntos) ? assuntos[tipo] : undefined).modo === 'nao' ? tipo : null;
+  return assuntoDaLinha(ehObjeto(assuntos) ? assuntos[tipo] : undefined, tipo).modo === 'nao' ? tipo : null;
 }
 
 // ───────────────────────── o texto das instruções (puro) ─────────────────────────
@@ -178,17 +190,20 @@ export const TITULO_DOS_ASSUNTOS = 'ASSUNTOS QUE NÃO SÃO PEDIDO (escolhidos pe
  * responde com o `paraOCliente` que voltar, sem "em instantes" nem posição, e segue a conversa). Cada assunto em "nao"
  * manda responder com educação o texto da loja (ou o padrão) e não chamar ninguém. "Como hoje" não é citado.
  */
-export function blocoDasInstrucoes(assuntos: unknown, canal: CanalDosAssuntos): string {
+export function blocoDasInstrucoes(assuntos: unknown, canal: CanalDosAssuntos, vagas: PaginaParaORobo | null = null): string {
   const a = assuntosDaLinha(assuntos);
-  const comRecado = ASSUNTOS_DO_ATENDENTE.filter((x) => a[x].modo === 'recado');
+  // "Explica as vagas e manda o link" só com a página de vagas ligada; sem ela, o robô deixa o recado (como em "recado").
+  const comLink = vagas ? ASSUNTOS_DO_ATENDENTE.filter((x) => a[x].modo === 'link') : [];
+  const comRecado = ASSUNTOS_DO_ATENDENTE.filter((x) => a[x].modo === 'recado' || (a[x].modo === 'link' && !vagas));
   const naoEPorAqui = ASSUNTOS_DO_ATENDENTE.filter((x) => a[x].modo === 'nao');
-  if (!comRecado.length && !naoEPorAqui.length) return '';
+  if (!comRecado.length && !naoEPorAqui.length && !comLink.length) return '';
   const linhas: string[] = [
     TITULO_DOS_ASSUNTOS,
     '- Às vezes quem escreve não quer pedir nada: é um fornecedor, alguém procurando emprego ou uma proposta de parceria. Nos assuntos abaixo, faça o que a loja escolheu (isso vale no lugar da regra 7 de REGRAS QUE NUNCA MUDAM). Reconheça o assunto pelo que a pessoa diz; na dúvida, pergunte em uma frase o que ela precisa.',
   ];
   for (const x of ASSUNTOS_DO_ATENDENTE) {
-    if (a[x].modo === 'recado') linhas.push(`- ${ASSUNTO_NAS_INSTRUCOES[x]}: deixe um RECADO PARA O RESPONSÁVEL (tipo = ${x}; veja como abaixo).`);
+    if (comLink.includes(x)) linhas.push(`- ${ASSUNTO_NAS_INSTRUCOES[x]}: explique as vagas e mande o LINK DA FICHA (veja como abaixo).`);
+    else if (comRecado.includes(x)) linhas.push(`- ${ASSUNTO_NAS_INSTRUCOES[x]}: deixe um RECADO PARA O RESPONSÁVEL (tipo = ${x}; veja como abaixo).`);
     else if (a[x].modo === 'nao')
       linhas.push(
         `- ${ASSUNTO_NAS_INSTRUCOES[x]}: não é tratado por aqui. Responda com educação, exatamente: "${textoDoAssunto(a, x)}" Não chame ninguém (não use chamar_atendente) e não peça dados.`,
@@ -215,6 +230,16 @@ export function blocoDasInstrucoes(assuntos: unknown, canal: CanalDosAssuntos): 
       '     Já fiz: o que você já disse a ela',
       '     Uma linha para cada. Não use urgente: isso não é cliente chateado.',
       '  4. A resposta de chamar_atendente traz paraOResponsavel = true e paraOCliente: mande à pessoa o texto de paraOCliente exatamente como veio. NÃO diga "em instantes", não diga posição na fila e não diga que alguém da equipe vai responder agora. Depois, continue a conversa normalmente (você segue respondendo) e não chame de novo pelo mesmo assunto.',
+    );
+  }
+  if (comLink.length && vagas) {
+    // A origem do canal vai no link: a loja vê de onde a ficha veio (Pessoas › Candidatos).
+    linhas.push(
+      '- LINK DA FICHA, passo a passo:',
+      `  1. Em poucas linhas, diga as vagas como a loja publicou (não acrescente função, salário nem benefício): ${vagas.resumo}`,
+      `  2. Mande o link da ficha, exatamente: ${vagas.url}?o=${canal}`,
+      '  3. A ficha é no link: não peça nome, telefone, endereço nem experiência aqui. Nunca prometa vaga, entrevista, salário diferente do publicado nem prazo.',
+      '  4. Não chame ninguém pela vaga (não use chamar_atendente com tipo = vaga). Se a pessoa já mandou a ficha, agradeça e diga que a loja fala com ela pelo contato que ela deixou na ficha.',
     );
   }
   return linhas.join('\n');

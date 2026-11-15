@@ -30,9 +30,9 @@ import { contaComoReclamacao, grupoDoPlacar, oQueAconteceuNoCaso } from '../aten
 // conferência do que a tela manda, a leitura tolerante do banco, os textos, a seção das instruções do robô e as regras
 // puras do RECADO PARA O RESPONSÁVEL (situação da fila, a pausa do robô no WhatsApp e no Direct, os Números).
 describe('assuntos do atendente — as escolhas e os textos', () => {
-  it('os três assuntos e os três modos, na ordem da tela; nasce tudo em "Como hoje"', () => {
+  it('os três assuntos e os modos, na ordem da tela (o "link" só na vaga); nasce tudo em "Como hoje"', () => {
     expect(ASSUNTOS_DO_ATENDENTE).toEqual(['fornecedor', 'vaga', 'parceria']);
-    expect(MODOS_DO_ASSUNTO).toEqual(['hoje', 'recado', 'nao']);
+    expect(MODOS_DO_ASSUNTO).toEqual(['hoje', 'recado', 'nao', 'link']);
     expect(TEXTO_DO_ASSUNTO_MAX).toBe(300);
     expect(assuntosPadrao()).toEqual({
       fornecedor: { modo: 'hoje', texto: null },
@@ -184,6 +184,53 @@ describe('assuntos do atendente — a seção das instruções do robô', () => 
     expect(t).toContain('Não chame ninguém (não use chamar_atendente)');
     expect(t).not.toContain('RECADO PARA O RESPONSÁVEL');
     expect(t).not.toContain('FORNECEDOR');
+  });
+});
+
+// F3 de Vagas: "Explica as vagas e manda o link" (só na vaga). Com a página de vagas ligada, o robô explica e manda o link
+// com a origem do canal; sem ela, deixa o recado (o "link" conta como recado no chamar atendente).
+describe('assuntos do atendente — a vaga com o link da ficha', () => {
+  const VAGAS = { url: 'https://app.dmsregem.com/v/mister-burger', resumo: 'Funções abertas: Chapeiro(a) (R$ 1.900), Atendimento (R$ 1.800). Idade mínima: 18 anos.' };
+  const comLink = { vaga: { modo: 'link', texto: null } };
+
+  it('o "link" só vale para a vaga: na tela, recusa (400); no banco, fora da vaga vira "Como hoje"', () => {
+    expect(lerAssuntosDoAtendente({ vaga: { modo: 'link' } })).toEqual({ vaga: { modo: 'link' } });
+    expect(() => lerAssuntosDoAtendente({ fornecedor: { modo: 'link' } })).toThrow('Fornecedor: "Explica as vagas e manda o link" é só para a vaga de emprego.');
+    expect(() => lerAssuntosDoAtendente({ parceria: { modo: 'link' } })).toThrow(BadRequestException);
+    const a = assuntosDaLinha({ vaga: { modo: 'link' }, fornecedor: { modo: 'link' } });
+    expect(a.vaga.modo).toBe('link');
+    expect(a.fornecedor.modo).toBe('hoje');
+  });
+
+  it('com a página ligada: explica as vagas como a loja publicou e manda o link com a origem do canal; não chama ninguém pela vaga', () => {
+    const t = blocoDasInstrucoes(comLink, 'whatsapp', VAGAS);
+    expect(t).toContain(TITULO_DOS_ASSUNTOS);
+    expect(t).toContain('VAGA DE EMPREGO (quer trabalhar na loja, pergunta se estão contratando ou quer mandar currículo): explique as vagas e mande o LINK DA FICHA');
+    expect(t).toContain(`diga as vagas como a loja publicou (não acrescente função, salário nem benefício): ${VAGAS.resumo}`);
+    expect(t).toContain('Mande o link da ficha, exatamente: https://app.dmsregem.com/v/mister-burger?o=whatsapp');
+    expect(t).toContain('não use chamar_atendente com tipo = vaga');
+    expect(t).not.toContain('RECADO PARA O RESPONSÁVEL, passo a passo');
+    expect(blocoDasInstrucoes(comLink, 'direct', VAGAS)).toContain('?o=direct');
+    expect(blocoDasInstrucoes(comLink, 'messenger', VAGAS)).toContain('?o=messenger');
+  });
+
+  it('sem a página (desligada, sem módulo): o robô deixa o recado da vaga, com o texto do recado', () => {
+    const t = blocoDasInstrucoes(comLink, 'whatsapp', null);
+    expect(t).toContain('deixe um RECADO PARA O RESPONSÁVEL (tipo = vaga');
+    expect(t).toContain('RECADO PARA O RESPONSÁVEL, passo a passo');
+    expect(t).not.toContain('LINK DA FICHA');
+    expect(textoDoAssunto(comLink, 'vaga')).toBe(TEXTO_PADRAO_DO_RECADO.vaga);
+    expect(textoDoAssunto({ vaga: { modo: 'link', texto: 'Mande o currículo para rh@loja.com' } }, 'vaga')).toBe('Mande o currículo para rh@loja.com');
+    // O chamar atendente pela vaga (só acontece sem a página) vira o recado para o responsável.
+    expect(assuntoEmRecado(comLink, 'vaga')).toBe('vaga');
+  });
+
+  it('o link junto com os outros assuntos: cada um no seu modo', () => {
+    const t = blocoDasInstrucoes({ ...comLink, fornecedor: { modo: 'recado' }, parceria: { modo: 'nao' } }, 'whatsapp', VAGAS);
+    expect(t).toContain('LINK DA FICHA, passo a passo');
+    expect(t).toContain('RECADO PARA O RESPONSÁVEL, passo a passo');
+    expect(t).toContain('tipo = o do assunto (fornecedor)');
+    expect(t).toContain('PARCERIA, INFLUENCIADOR OU IMPRENSA (divulgação, evento, permuta ou reportagem): não é tratado por aqui');
   });
 });
 

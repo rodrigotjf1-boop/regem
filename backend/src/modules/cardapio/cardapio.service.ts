@@ -134,6 +134,8 @@ import {
 } from '../../common/conversa-do-robo';
 import { cardapioDoChat, chamarAtendenteNoChat, conversaDaChave } from '../ponte-chat/atendente-no-chat';
 import { MessengerService } from '../messenger/messenger.service';
+import { ModuloService } from '../modulo/modulo.service';
+import { MODULO_VAGAS, PaginaParaORobo, paginaParaORobo } from '../vagas/pagina-para-o-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // O tema que a tela mandou, sem a chave dos eventos sazonais (ela não se grava pela rota geral).
@@ -187,6 +189,8 @@ export class CardapioService {
     @Optional() private readonly instagram?: InstagramService,
     // O robô no Messenger do Facebook (mig 386): o "chamar atendente" abre o caso do Messenger; as consultas pela chave fb:.
     @Optional() private readonly messenger?: MessengerService,
+    // A página de vagas no assunto "vaga" (F3 de Vagas): o robô só manda o link com o módulo "vagas" ligado na loja.
+    @Optional() private readonly modulos?: ModuloService,
   ) {}
 
   private chegadaLocal?: ChegadaService;
@@ -655,7 +659,17 @@ export class CardapioService {
     try {
       const cfg = await this.resolver(token);
       tenantId = cfg.tenantId;
-      return blocoDasInstrucoes(await assuntosDaEmpresa(this.db, cfg.tenantId), canal);
+      const assuntos = await assuntosDaEmpresa(this.db, cfg.tenantId);
+      // "Explica as vagas e manda o link": a página da loja do cardápio, ligada e com o módulo ligado (senão, recado).
+      let vagas: PaginaParaORobo | null = null;
+      if (assuntos.vaga.modo === 'link') {
+        try {
+          vagas = await paginaParaORobo(this.db, cfg.tenantId, cfg.unidadeId ?? null, async (t, u) => !!(await this.modulos?.ativo(t, u, MODULO_VAGAS)));
+        } catch (e: any) {
+          this.logger.warn(`página de vagas para o robô não lida (empresa ${tenantId}; o robô deixa o recado): ${e?.message ?? e}`);
+        }
+      }
+      return blocoDasInstrucoes(assuntos, canal, vagas);
     } catch (e: any) {
       this.logger.warn(`assuntos do atendente (${canal}) não lidos (empresa ${tenantId || '?'}; valem as instruções de hoje): ${e?.message ?? e}`);
       return '';

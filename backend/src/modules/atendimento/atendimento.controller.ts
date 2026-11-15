@@ -53,6 +53,7 @@ import { lerAjusteGestorWa } from './gestor-whatsapp';
 import { FRASE_FORA_PADRAO, MINUTOS_ANTES_DA_EQUIPE, MINUTOS_DEPOIS_DA_EQUIPE, TEXTO_FORA_MAX, lerAjusteDaEquipe } from './horario-da-equipe';
 import { CANAIS_DO_PERFIL, JEITO_MAX, PERFIS_DO_ATENDENTE, PERFIS_FORA_DO_HORARIO, ROTULO_DO_CANAL, lerPerfisDoAtendente } from '../cardapio/perfis-do-atendente';
 import {
+  ASSUNTOS_COM_LINK,
   ASSUNTOS_DO_ATENDENTE,
   MODOS_DO_ASSUNTO,
   TEXTO_DO_ASSUNTO_MAX,
@@ -316,6 +317,8 @@ export class AtendimentoController {
       assuntosOpcoes: {
         assuntos: ASSUNTOS_DO_ATENDENTE,
         modos: MODOS_DO_ASSUNTO,
+        // "Explica as vagas e manda o link" (F3 de Vagas) vale só nestes assuntos.
+        comLink: ASSUNTOS_COM_LINK,
         textoMax: TEXTO_DO_ASSUNTO_MAX,
         textoPadrao: TEXTO_PADRAO_DO_RECADO,
         textoPadraoNao: TEXTO_PADRAO_NAO,
