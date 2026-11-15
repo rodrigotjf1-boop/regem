@@ -16,7 +16,7 @@ import {
 import { distanciaKm, taxaPorRaio, geocodificar } from '@/lib/geo';
 import { capturarOrigem, desfazerRecusa, origemParaPedido, origemRecusada, recusarOrigem } from '@/components/loja/origem-clique';
 import type { OrigemClique } from '@/components/loja/origem-clique-regras';
-import { etapasAtivas, falta as faltaDaEtapa, type Etapa, type EstadoFalta, type Falta } from './etapas';
+import { etapasAtivas, falta as faltaDaEtapa, foraDaAreaDoRaio, type Etapa, type EstadoFalta, type Falta } from './etapas';
 import { templateDe, type TemplateChave } from './tipos-template';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -631,8 +631,14 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
     [areaRaio, loja, chk.lat, chk.lng],
   );
   const bairroSel = bairros.find((b) => b.id === chk.bairroId);
+  // Além da maior faixa (ERR-470): o pedido não sai — antes até do frete grátis e do cupom (o servidor recusa igual).
+  const foraDaArea = useMemo(
+    () => (entregaSel && areaRaio ? foraDaAreaDoRaio(loja?.raios, km) : null),
+    [entregaSel, areaRaio, loja, km],
+  );
   const freteInfo = useMemo(() => {
     if (!entregaSel) return { taxa: 0, pendente: false };
+    if (foraDaArea) return { taxa: 0, pendente: true };
     if (cupomOk?.valido && cupomOk.freteGratis) return { taxa: 0, pendente: false }; // cupom de frete grátis
     if (gratisAcima) return { taxa: 0, pendente: false };
     if (areaRaio) {
@@ -641,7 +647,7 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
     }
     if (!bairroSel) return { taxa: 0, pendente: true }; // sem bairro ainda
     return { taxa: Number(bairroSel.taxa ?? 0), pendente: false };
-  }, [entregaSel, cupomOk, gratisAcima, areaRaio, km, loja, bairroSel]);
+  }, [entregaSel, foraDaArea, cupomOk, gratisAcima, areaRaio, km, loja, bairroSel]);
   const taxa = freteInfo.taxa;
   /** Entrega sem bairro (ou sem localização, no modo raio): o frete ainda não se conhece. */
   const taxaPendente = freteInfo.pendente;
@@ -827,6 +833,7 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
     isServico,
     isIndustria,
     areaRaio,
+    foraDaArea,
     temBairros: bairros.length > 0,
     fechadaSemAgenda,
     horarioLabel: menu?.horarioLabel ?? null,
@@ -1160,7 +1167,7 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
     // checkout
     chk, setChk, etapas, falta, avancar, abrirSacola, fecharCheckout, podeExpresso, trocarNoExpresso, ultimoDoPerfil,
     encAtiva, enc, agendar, km, bairroSel,
-    taxa, taxaPendente, desc, cupomOk, aplicarCupom, tirarCupom, cuponsSugeridos,
+    taxa, taxaPendente, foraDaArea, desc, cupomOk, aplicarCupom, tirarCupom, cuponsSugeridos,
     premios, premioSel, setPremioSel, premioDesc, premioNome,
     cashbackSaldo, cashbackDesc, usarCashback, setUsarCashback,
     totalFinal, pontosPrevistos,

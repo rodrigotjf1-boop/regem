@@ -9,6 +9,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
+import { recusaDaArea } from './area-de-entrega';
 import {
   ajusteRepetidoDaLinha,
   clientePeloTelefone,
@@ -3635,8 +3636,9 @@ export class CardapioService {
 
   /**
    * A taxa de entrega do pedido (bairro da lista ou distância). O pedido do cardápio usa `taxa`, `taxaCheia` e
-   * `bairroNome`, como sempre; o resto (`km`, `alemDaUltimaFaixa`, `semLocalizacao`, `bairro`) é para o robô
-   * dizer "não entregamos aí" — o cardápio continua cobrando a última faixa, sem mudar.
+   * `bairroNome`; o resto (`km`, `alemDaUltimaFaixa`, `semLocalizacao`, `bairro`) diz se o endereço está na área — o robô
+   * diz "não entregamos aí" e o `receberPedido` recusa o pedido fora da área (`recusaDaArea`, ERR-470). Além da última
+   * faixa a `taxa` ainda é a dela, mas o pedido não sai.
    */
   async taxaDeEntrega(
     cfg: any,
@@ -4065,7 +4067,14 @@ export class CardapioService {
     let taxa = 0;
     let taxaCheia = 0; // frete antes das promoções (mig 241 — quem banca o frete grátis)
     let bairroNome: string | undefined;
-    if (tipo === 'entrega') ({ taxa, taxaCheia, bairroNome } = await this.taxaDeEntrega(cfg, dto, total));
+    if (tipo === 'entrega') {
+      const t = await this.taxaDeEntrega(cfg, dto, total);
+      ({ taxa, taxaCheia, bairroNome } = t);
+      // Fora da área (ERR-470): recusa ANTES de o pedido existir — e, assim, antes do Pix. A ocorrência da recorrência
+      // (`_sistema`, endereço já combinado na assinatura) segue como antes; o campo não vem de fora (a rota pública o tira).
+      const recusa = (dto as any)._sistema ? null : recusaDaArea(cfg, t);
+      if (recusa) throw new BadRequestException({ statusCode: 400, code: recusa.code, message: recusa.message });
+    }
     // Endereço estruturado → compõe o texto p/ impressão/compatibilidade.
     const enderecoTexto =
       tipo === 'entrega'
