@@ -26,6 +26,7 @@ import { MisterConsoleService } from '../mister/mister-console.service';
 import { MisterAvisosHistoricoService } from '../mister/mister-avisos-historico.service';
 import { DependenciasService } from '../dependencias/dependencias.service';
 import { MisterQualidadeService } from '../mister/mister-qualidade.service';
+import { MisterAvaliacaoService } from '../mister/mister-avaliacao.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -44,6 +45,7 @@ export class DistribuicaoController {
     private readonly avisosDoMister: MisterAvisosHistoricoService,
     private readonly dependencias: DependenciasService,
     private readonly qualidadeDoMister: MisterQualidadeService,
+    private readonly avaliacaoDoMister: MisterAvaliacaoService,
   ) {}
 
   // iFood pelo Orzuni (R2a; mig 370) — só Diretoria. A chave `orz_live_` da loja entra aqui UMA vez e é trocada
@@ -229,6 +231,32 @@ export class DistribuicaoController {
   @PerfilDist('diretoria')
   qualidadeDoMisterNoConsole(@Query('dias') dias?: string) {
     return this.qualidadeDoMister.resumo(dias);
+  }
+
+  // A avaliação de regressão do Mister (F5.3, mig 424): as perguntas fixas numa loja de teste com dados inventados, com a
+  // chave da DMS, conferidas por regra. Só a Diretoria; rodar gasta a chave da DMS, então só pelo botão e com limite.
+  @Get('mister/avaliacoes')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  avaliacoesDoMister() {
+    return this.avaliacaoDoMister.lista();
+  }
+
+  @Get('mister/avaliacoes/:id')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  avaliacaoDoMisterDetalhe(@Param('id') id: string) {
+    return this.avaliacaoDoMister.detalhe(id);
+  }
+
+  @Post('mister/avaliacoes')
+  @Throttle({ default: { ttl: 60000, limit: 3 } })
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  async rodarAvaliacaoDoMister(@DistUser() u: DistCtx) {
+    const r = await this.avaliacaoDoMister.rodar(u?.nome ?? null);
+    await this.service.auditar(u, 'rodou_avaliacao_do_mister', undefined, { avaliacao: r.id, perguntas: r.total });
+    return r;
   }
 
   @Post('login')
