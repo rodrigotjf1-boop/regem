@@ -25,6 +25,7 @@ import { AvisosNaTelaService } from './avisos-na-tela.service';
 import { MisterAvisosHistoricoService } from './mister-avisos-historico.service';
 import { MAX_TENTATIVAS_CONSULTA_DA_NOTA } from '../fiscal/fiscal.service';
 import { IfoodService } from '../integracoes/ifood/ifood.service';
+import { IbptService } from '../fiscal/ibpt/ibpt.service';
 import { MisterEntradaService } from './mister-entrada.service';
 import { MisterFerramentasService } from './mister-ferramentas.service';
 import { MisterFilaService } from './mister-fila.service';
@@ -2229,6 +2230,93 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from pedido_externo where tenant_id = any($1::uuid[])`, [[A, B]]);
         await q(`delete from pausa_canal where tenant_id = $1`, [A]);
         await q(`delete from nota_fiscal where tenant_id = $1`, [A]);
+        await q(`delete from fiscal_credencial where tenant_id = $1`, [A]);
+        await q(`delete from fiscal_config where tenant_id = $1`, [A]);
+      }
+    });
+
+    // F3, vigilância de dependências (parte 1): a 17ª consulta. A UF 'RO' não é usada por nenhuma outra spec (o banco do
+    // CI é dividido — a do IBPT apaga 'AC', 'AP' e 'TO').
+    it('o que vence ou está desatualizado: o certificado (mesmo com a nota desligada), a tabela do IBPT, a licença e a versão do servidor', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+      const naoLiga = { instalado: true, versao: '1.30.12', versaoDisponivel: null as string | null, soPeloInstalador: false, versaoRecolhida: false };
+      let servidor: any = { ...naoLiga, validaAte: new Date(Date.now() + 7 * 86_400_000 + 3_600_000) };
+      const lidosDoServidor: string[] = [];
+      const comVencimentos = new MisterFerramentasService(
+        db, modulos, null as any, null as any, null as any, null as any, null as any,
+        { vencimentoDoServidor: async (t: string) => (lidosDoServidor.push(t), servidor) } as any,
+        null as any, null as any, null as any,
+        undefined, undefined, undefined, undefined, undefined, undefined,
+        new IbptService(db, auditoria as AuditoriaService),
+      );
+      const chave = `MISTER-${MARCA}`;
+      try {
+        // A nota DESLIGADA (o caso da loja hoje), o certificado vencendo em 4 dias e a tabela própria de RO vencida em 31/10.
+        await q(`insert into fiscal_config (tenant_id, unidade_id, ativo, ambiente, uf) values ($1, null, false, '2', 'RO')`, [A]);
+        await q(`insert into fiscal_credencial (tenant_id, unidade_id, cert_valido_ate) values ($1, null, now() + interval '4 days 1 hour')`, [A]);
+        await q(
+          `insert into ibpt_versao (tenant_id, uf, versao, chave, fonte, vigencia_inicio, vigencia_fim, linhas)
+           values ($1, 'RO', '26.2.B', $2, 'IBPT', '2026-09-20', '2026-10-31', 10)`,
+          [A, chave],
+        );
+        const r = await comVencimentos.executar(e, 'vencimentos_e_versoes', {});
+        expect(r.ok).toBe(true);
+        expect(r.dados.certificadoDigital).toEqual([
+          expect.objectContaining({ loja: 'a empresa toda', diasParaVencer: 4, situacao: 'vence em breve', notaFiscal: 'desligada', observacao: expect.stringContaining('desligada') }),
+        ]);
+        expect(r.dados.tabelaDoIbpt).toMatchObject({ estado: 'RO', emUso: null, situacao: 'vencida desde 31/10/2026', observacao: expect.stringContaining('desligada') });
+        expect(r.dados.servidorDaLoja).toMatchObject({ licenca: { diasParaVencer: 7, situacao: 'vence em breve' }, versao: { instalada: '1.30.12', disponivel: null, emDia: true } });
+        // Com a nota desligada, só a licença pede atenção.
+        expect(r.dados.pedeAtencao).toEqual([expect.stringContaining('A licença do servidor da loja vence em')]);
+        expect(lidosDoServidor).toEqual([A]);
+
+        // A nota LIGADA: o certificado e a tabela vencida passam a pedir atenção, com o caminho da tela.
+        await q(`update fiscal_config set ativo = true where tenant_id = $1`, [A]);
+        const ligada = await comVencimentos.executar(e, 'vencimentos_e_versoes', {});
+        const atencao = ligada.dados.pedeAtencao as string[];
+        expect(atencao).toHaveLength(3);
+        expect(atencao[0]).toContain('O certificado digital vence em');
+        expect(atencao[1]).toContain('A tabela do IBPT de RO venceu em 31/10/2026');
+        expect(atencao.join(' ')).toContain('Financeiro › Configuração');
+
+        // A tabela da DMS vigente em RO: vale a da DMS, sem atenção; a versão nova do servidor pede atenção.
+        await q(
+          `insert into ibpt_versao (tenant_id, uf, versao, chave, fonte, vigencia_inicio, vigencia_fim, linhas)
+           values (null, 'RO', '26.3.A', $1, 'IBPT', (now() - interval '2 days')::date, (now() + interval '40 days')::date, 10)`,
+          [chave],
+        );
+        servidor = { ...naoLiga, validaAte: new Date(Date.now() + 90 * 86_400_000), versaoDisponivel: '1.30.13' };
+        const dms = await comVencimentos.executar(e, 'vencimentos_e_versoes', {});
+        expect(dms.dados.tabelaDoIbpt).toMatchObject({ estado: 'RO', emUso: 'a da DMS (quem atualiza é a DMS)' });
+        expect(dms.dados.pedeAtencao).toEqual([expect.stringContaining('O certificado digital vence em'), expect.stringContaining('Configurações › Servidor local')]);
+
+        // Tudo em dia: a frase de "nada vencido".
+        await q(`update fiscal_credencial set cert_valido_ate = now() + interval '300 days' where tenant_id = $1`, [A]);
+        servidor = { ...naoLiga, validaAte: null };
+        const emDia = await comVencimentos.executar(e, 'vencimentos_e_versoes', {});
+        expect(emDia.dados.pedeAtencao).toEqual(expect.stringContaining('Nada vencido'));
+        expect(emDia.dados.servidorDaLoja).toMatchObject({ licenca: { semPrazo: true } });
+
+        // O gerente sem a nota fiscal: nem o certificado, nem a tabela, nem o servidor (só o presidente).
+        const gerente = { ...e, nivel: 'gerente' as const, permissoes: { delivery: true } as any };
+        const g = await comVencimentos.executar(gerente, 'vencimentos_e_versoes', {});
+        expect((g.dados.certificadoDigital as any).aviso).toContain('não dá acesso');
+        expect((g.dados.tabelaDoIbpt as any).aviso).toContain('não dá acesso');
+        expect((g.dados.servidorDaLoja as any).aviso).toContain('só ao presidente');
+        const gerenteFiscal = { ...e, nivel: 'gerente' as const, permissoes: { fiscal: true } as any };
+        expect(((await comVencimentos.executar(gerenteFiscal, 'vencimentos_e_versoes', {})).dados.certificadoDigital as any[])[0].situacao).toBe('em dia');
+
+        // A outra empresa não vê o certificado desta.
+        const telB = telefone();
+        await ligar('anaB', telB, B);
+        const deB = (await ferramentas.escopo(B, pessoa.anaB, telB))!;
+        const rb = await comVencimentos.executar(deB, 'vencimentos_e_versoes', {});
+        expect(rb.dados.certificadoDigital).toEqual({ cadastrado: false, observacao: expect.any(String) });
+        expect(lidosDoServidor.at(-1)).toBe(B);
+      } finally {
+        await q(`delete from ibpt_versao where uf = 'RO' and chave = $1`, [chave]);
         await q(`delete from fiscal_credencial where tenant_id = $1`, [A]);
         await q(`delete from fiscal_config where tenant_id = $1`, [A]);
       }

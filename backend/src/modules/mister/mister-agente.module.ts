@@ -5,6 +5,7 @@ import { DashboardModule } from '../dashboard/dashboard.module';
 import { DeliveryModule } from '../delivery/delivery.module';
 import { EscalaModule } from '../escala/escala.module';
 import { EstoqueModule } from '../estoque/estoque.module';
+import { IbptModule } from '../fiscal/ibpt/ibpt.module';
 import { IaModule } from '../ia/ia.module';
 import { IntegracoesModule } from '../integracoes/integracoes.module';
 import { KdsModule } from '../kds/kds.module';
@@ -52,6 +53,8 @@ import { MisterModule } from './mister.module';
     // A fila do Atendimento (a 14ª consulta).
     AtendimentoModule,
     KdsModule,
+    // F3, vencimentos: a tabela do IBPT da loja (a mesma da Configuração fiscal).
+    IbptModule,
   ],
   // Os relatórios (mig 420) moram aqui: escrevem pelo mesmo agente das perguntas.
   providers: [MisterFerramentasService, MisterAgenteService, MisterAvisosService, MisterRelatoriosService],
