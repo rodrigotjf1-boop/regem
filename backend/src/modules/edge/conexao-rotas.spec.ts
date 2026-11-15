@@ -60,12 +60,13 @@ describe('rotas da conexão PC ↔ servidor', () => {
     expect(presenca.doTenant('t1').map((p) => [p.id, p.endereco])).toEqual([['salao-1', '192.168.0.10']]);
   });
 
-  // F1.4: a faixa "sem conexão com a nuvem" lê o que o sync-daemon anota no sync_state do servidor da loja.
+  // F1.4: a faixa "sem conexão com a nuvem" lê a anotação que o sync-daemon faz a cada batida (`nuvem_contato`) — a MESMA
+  // fonte e a MESMA regra do ícone da bandeja (V74).
   it('presença: traz a conexão do servidor com a nuvem, lida do sync_state pelo serviço de verdade', async () => {
     process.env.EDGE_MODE = 'true';
+    const falhaEm = new Date(Date.now() - 12 * 60_000).toISOString();
     const estado: Record<string, string> = {
-      sync_falhando_desde: new Date(Date.now() - 12 * 60_000).toISOString(),
-      sync_ultimo_ok: new Date(Date.now() - 13 * 60_000).toISOString(),
+      nuvem_contato: JSON.stringify({ okEm: new Date(Date.now() - 13 * 60_000).toISOString(), falhandoDesde: falhaEm }),
     };
     const db = {
       execute: async (s: any) => {
@@ -76,10 +77,9 @@ describe('rotas da conexão PC ↔ servidor', () => {
     const svc = new EdgeService(db as any);
     const ctl = new EdgeController(svc, {} as any, { atual: rede } as any, new PresencaService({ execute: async () => ({ rows: [] }) } as any));
     const r = await ctl.presencaDoPc(usuario, { ip: '192.168.0.23', headers: {} });
-    expect(r.nuvem).toEqual({ semConexaoDesde: estado.sync_falhando_desde });
-    // Voltou: a falha some e o último ciclo certo é de agora.
-    estado.sync_falhando_desde = '';
-    estado.sync_ultimo_ok = new Date().toISOString();
+    expect(r.nuvem).toEqual({ semConexaoDesde: falhaEm });
+    // Voltou: a batida deu certo agora.
+    estado.nuvem_contato = JSON.stringify({ okEm: new Date().toISOString(), falhandoDesde: null });
     expect((await ctl.presencaDoPc(usuario, { ip: '192.168.0.23', headers: {} })).nuvem).toEqual({ semConexaoDesde: null });
     // Na nuvem a faixa não existe.
     delete process.env.EDGE_MODE;

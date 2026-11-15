@@ -148,8 +148,9 @@ Loja que desliga o PC à noite abre um episódio de "sem sinal" por noite e o fe
 - Alerta local sem internet (bandeja e tela da loja), a única parte da F1 que pede `.zip`. **A tela, em 14/11** (protótipo `mockups/regem-dependencias-e-qualidade.html`, vista "Loja sem internet", com as decisões recomendadas — o dono pediu para seguir com as recomendadas enquanto estava fora):
   - **Quando aparece:** a faixa "sem conexão com a nuvem" aparece em todas as telas do servidor da loja depois de 2 min com o envio falhando, ou de 5 min sem nenhum envio certo.
   - **O que a faixa diz:** a venda local continua; o iFood, a 99 e o cardápio digital não chegam; o Mister não manda avisos. Traz "O que conferir" e, quando a conexão volta, "✅ voltou" por 1 minuto.
-  - **De onde vem a regra:** `edge/conexao-nuvem.ts` lê o que o daemon já grava no `sync_state` (`sync_falhando_desde`, `sync_ultimo_ok`). A informação vem na resposta da presença do PC (`POST /edge/presenca`, a cada 30 s), sem nenhuma leitura a mais. Com o servidor da loja fora do ar, só aparece o aviso dele.
-  - **Onde vale:** só no `.zip`. O ícone da bandeja fica para o `.exe`, porque o `.zip` não troca `edge\bandeja`.
+  - **De onde vem a regra:** `edge/conexao-nuvem.ts` (`situacaoDaNuvem`) lê a anotação que o daemon já faz a cada batida com a nuvem (`sync_state.nuvem_contato`). A informação vem na resposta da presença do PC (`POST /edge/presenca`, a cada 30 s), sem nenhuma leitura a mais. Com o servidor da loja fora do ar, só aparece o aviso dele.
+  - **A mesma regra do ícone "Regem neste PC"** (ERR-468, corrigido antes do `.zip`). O ícone já mostrava a nuvem por essa anotação; agora os dois usam a mesma função, e o ícone ganhou a folga de 2 min. O texto do ícone vem pronto do servidor (`edge/bandeja/estado`), então também muda com o `.zip`.
+  - **Onde vale:** só no `.zip`.
 - **Protótipo APROVADO pelo dono em 14/11/2026: `mockups/regem-avisos-na-tela.html`** (as cinco decisões recomendadas). Cobre os dois destinos dos avisos que ainda ficam só anotados:
   - a **faixa na tela da loja**, com a gaveta dos avisos abertos e o "Ciente" por pessoa;
   - o **Mister › Histórico**, com a lista no modelo do Estoque e a trilha de cada aviso;

@@ -325,6 +325,14 @@ descrever('ícone do servidor — o que ele mostra e o que faz (Postgres)', () =
     expect((await de()).r.servidor.nuvem).toEqual({ situacao: 'falhando', linha: 'sem sincronizar com a nuvem há 7 min' });
   });
 
+  // A MESMA regra da faixa "sem conexão com a nuvem" das telas (V74): uma batida ruim há menos de 2 min é um piscar.
+  it('a nuvem com uma batida ruim há 1 min: ainda "nuvem sincronizada" (a faixa das telas também não aparece)', async () => {
+    await q(`update sync_state set valor = $1 where chave = 'nuvem_contato'`, [
+      JSON.stringify({ okEm: minutos(-1.5).toISOString(), falhandoDesde: minutos(-1).toISOString() }),
+    ]);
+    expect((await de()).r.servidor.nuvem).toEqual({ situacao: 'ok', linha: 'nuvem sincronizada há 1 min' });
+  });
+
   it('gerar código, revogar e reativar pelo ícone — com as regras do serviço e a auditoria do computador', async () => {
     auditados.length = 0;
     const quem = { maquina: 'SERVIDOR-LOJA', usuario: 'caixa' };

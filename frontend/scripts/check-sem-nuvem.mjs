@@ -50,11 +50,12 @@ try {
     assert.equal(T.TEXTO_SEM_NUVEM.voltou(14), '✅ A conexão com a nuvem voltou · ficou 14 min fora');
   });
 
-  caso('a regra do servidor: 2 min falhando, 5 sem envio certo, nada sem anotação', () => {
-    assert.equal(S.semConexaoComANuvem(ha(2), ha(3), agora), ha(2));
-    assert.equal(S.semConexaoComANuvem(ha(1), ha(10), agora), null);
-    assert.equal(S.semConexaoComANuvem('', ha(5), agora), ha(5));
-    assert.equal(S.semConexaoComANuvem(null, null, agora), null);
+  caso('a regra do servidor (a mesma do ícone da bandeja): 2 min falhando, 5 sem contato certo, nada sem anotação', () => {
+    const contato = (okEm, falhandoDesde) => JSON.stringify({ okEm, falhandoDesde });
+    assert.equal(S.situacaoDaNuvem(contato(ha(3), ha(2)), agora).semConexaoDesde, ha(2));
+    assert.equal(S.situacaoDaNuvem(contato(ha(1.5), ha(1)), agora).semConexaoDesde, null);
+    assert.equal(S.situacaoDaNuvem(contato(ha(5), null), agora).semConexaoDesde, ha(5));
+    assert.equal(S.situacaoDaNuvem(null, agora).semConexaoDesde, null);
   });
 
   caso('a tela lê o mesmo campo que o servidor manda na presença do PC', () => {
@@ -64,7 +65,10 @@ try {
     const faixa = readFileSync(join(aqui, '..', 'src', 'components', 'ui', 'faixa-sem-nuvem.tsx'), 'utf8');
     const shell = readFileSync(join(aqui, '..', 'src', 'components', 'app-shell', 'shell.tsx'), 'utf8');
     assert.match(controller, /\bnuvem,\r?\n/);
-    assert.match(servico, /return \{ semConexaoDesde: semConexaoComANuvem\(/);
+    assert.match(servico, /return \{ semConexaoDesde: situacaoDaNuvem\(await this\.getState\('nuvem_contato'\)\)\.semConexaoDesde \}/);
+    // O ícone da bandeja usa a MESMA regra (V74).
+    const bandeja = readFileSync(join(aqui, '..', '..', 'backend', 'src', 'modules', 'bandeja', 'bandeja.service.ts'), 'utf8');
+    assert.match(bandeja, /situacaoDaNuvem\(valor, agoraMs\)/);
     assert.match(conexao, /nuvem: r\?\.nuvem \?\? null/);
     assert.match(faixa, /c\.nuvem\?\.semConexaoDesde/);
     assert.match(shell, /<FaixaSemNuvem \/>/);
