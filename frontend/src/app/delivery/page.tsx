@@ -21,6 +21,7 @@ import { ondeSaiu } from '@/lib/reimpressao';
 import { useSenhaSemSalvar } from '@/lib/use-senha-sem-salvar';
 import { avisarComprovante } from '@/lib/comprovante';
 import { Dialogo } from '@/components/ui/sobreposto';
+import { useModoDaLista } from '@/components/ui/lista';
 import { ItensDoPedido } from '@/components/delivery/itens-do-pedido';
 import { repetidoAberto, textoDoOutroPedido } from '@/lib/pedido-repetido';
 import { connectAsGestor } from '@/lib/rt';
@@ -636,7 +637,7 @@ export default function DeliveryPage() {
                 />
               </div>
             )}
-            <div className="ml-auto flex items-center gap-2">
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
               <UnidadeSeletor />
               <ModoOperacao className="!py-1 !px-2" />
               <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 font-mono text-xs text-muted-foreground">
@@ -699,7 +700,8 @@ export default function DeliveryPage() {
                 📊 Relatórios
               </Link>
             )}
-            <div className="ml-auto flex items-center gap-1.5">
+            {/* Quebra a linha no estreito: sem o flex-wrap, "Pausar" e a ⚙️ saíam da tela em 375 px (ERR-430). */}
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
               {isGestor && cardapioAtivo && (
                 <button
                   type="button"
@@ -708,7 +710,7 @@ export default function DeliveryPage() {
                   aria-label={roboAtivo ? 'Robô online' : 'Robô offline'}
                   onClick={toggleRobo}
                   title={roboAtivo ? 'Robô respondendo os clientes — clique para desligar' : 'Robô sem responder — clique para ligar'}
-                  className="flex h-8 items-center gap-2 rounded-md border border-border px-2 text-sm"
+                  className="flex h-8 items-center gap-2 whitespace-nowrap rounded-md border border-border px-2 text-sm"
                 >
                   <span className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${roboAtivo ? 'bg-ok' : 'bg-destructive'}`}>
                     <span className={`inline-block h-3 w-3 rounded-full bg-white transition-transform ${roboAtivo ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
@@ -958,6 +960,7 @@ type ColDef = { k: string; t: string; w?: string };
 // estreitamento — por isso "Cód. ext." e não "Cod. externo".
 const W_COD_EXTERNO = 'w-[76px]';
 const W_ENDERECO = 'w-[280px]';
+const W_ENDERECO_COMPACTO = 'w-[110px]'; // a tabela compacta (ERR-430): o bairro; o endereço inteiro fica no title e na prévia
 function ListaPedidos({
   titulo, cor, variante, lista, selId, agora, cfg, corPorCanal, onSelecionar, className,
   marcados, onToggle, onToggleTodos,
@@ -1002,158 +1005,252 @@ function ListaPedidos({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lista, sortKey, sortDir]);
   const todosMarcados = lista.length > 0 && lista.every((p) => marcados.has(p.id));
-  const nCols = cols.length + 1; // +1 = coluna do checkbox
+  // A lista NUNCA rola para o lado (ERR-430, V45): mede-se a tabela no espaço que ela tem. 0 = a tabela inteira;
+  // 1 = compacta (sem o código externo e a data, endereço mais curto); 2 = cartões. A tabela pedia 877 px numa coluna de
+  // ~690 px e rolava em toda largura, até 1366 px.
+  const { caixa, modo } = useModoDaLista(`${variante}:${cols.map((c) => c.k).join(',')}`);
+  const compacta = modo === 1;
+  const emCartoes = modo === 2;
+  const colsVisiveis = compacta ? cols.filter((c) => c.k !== 'displayId') : cols;
+  const nCols = colsVisiveis.length + 1; // +1 = coluna do checkbox
+  const idOrdem = useId();
+
+  // O que cada pedido mostra — o mesmo na tabela e no cartão.
+  const linha = (p: any) => {
+    const sv = STATUS_VIVO[p.status] ?? { label: p.status, cls: 'bg-muted text-foreground' };
+    // Atraso (só nos pendentes): prazo de preparo estourado.
+    const prepMax = p.tipo === 'retirada' ? cfg?.prepBalcaoMax ?? 25 : cfg?.prepDeliveryMax ?? 55;
+    const restanteMs = new Date(p.criadoEm).getTime() + prepMax * 60000 - agora;
+    const atrasado = variante === 'pendentes' && restanteMs <= 0;
+    const cd = variante === 'pendentes' ? countdown(restanteMs) : null;
+    const enderecoTexto =
+      p.tipo === 'retirada'
+        ? 'Retirada no balcão'
+        : p.endereco || [p.enderecoRua, p.enderecoNumero, p.enderecoBairro].filter(Boolean).join(', ') || '—';
+    // Na tabela compacta cabe só o bairro (o que a pessoa olha para juntar entregas).
+    const bairro = p.tipo === 'retirada' ? 'Retirada' : p.enderecoBairro || enderecoTexto;
+    return { sv, atrasado, cd, enderecoTexto, bairro, selecionado: selId === p.id, marcado: marcados.has(p.id) };
+  };
+  const fundoDaLinha = (l: { selecionado: boolean; marcado: boolean }) =>
+    l.selecionado ? 'bg-primary/15 shadow-[inset_3px_0_0_hsl(var(--primary))]' : l.marcado ? 'bg-primary/5' : 'hover:bg-muted/50';
+  const numero = (p: any) => (
+    <>
+      <span className="font-mono font-bold">#{p.numero ?? '—'}</span>
+      <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px]">{p.tipo === 'retirada' ? '🏪' : '🛵'}</span>
+      {p.alterado && <span className="ml-1 rounded bg-warn/15 px-1 text-[9px] font-bold text-warn">ALT</span>}
+      {/* Pedido igual (mig 360) ainda sem o "São dois pedidos": ícone compacto como o 📝 (a célula não
+          quebra linha — uma etiqueta larga alargaria a coluna); a gaveta do pedido tem o aviso e as saídas. */}
+      {repetidoAberto(p.repetido) && (
+        <span
+          className="ml-1 text-[10px]"
+          title={`Possível repetido do ${textoDoOutroPedido(p.repetido)}: confirme com o cliente`}
+          aria-label={`Possível repetido do ${textoDoOutroPedido(p.repetido)}`}
+          data-repetido-lista
+        >
+          ⚠️
+        </span>
+      )}
+      {p.observacao && (
+        <span className="ml-1 text-[10px]" title={`Observação do pedido: ${p.observacao}`} aria-label="Pedido com observação">
+          📝
+        </span>
+      )}
+      {p.autoAceiteFalhou && <span className="ml-1 text-[10px] font-bold text-destructive" title="Falha no aceite automático">⚠️</span>}
+    </>
+  );
+  const canal = (p: any) => {
+    const bg = corPorCanal[p.canal] ?? CANAL_ESTILO[p.canal]?.bg;
+    const fg = corPorCanal[p.canal] ? '#FFFFFF' : CANAL_ESTILO[p.canal]?.fg ?? '#FFFFFF';
+    return (
+      <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-bold" style={bg ? { background: bg, color: fg } : { background: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}>
+        {CANAL_LOGO[p.canal] && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={CANAL_LOGO[p.canal]} alt="" className="h-3.5 w-3.5 rounded-[3px] object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+        )}
+        {CANAL_LABEL[p.canal] ?? p.canal}
+      </span>
+    );
+  };
+  const horaDoPedido = (p: any, l: ReturnType<typeof linha>, comData: boolean) => (
+    <>
+      <span>{hora(p.criadoEm)}</span>
+      {l.cd && <span className={`ml-1 ${l.atrasado ? 'text-destructive' : 'text-muted-foreground'}`}>{l.atrasado ? '⏱!' : ''}</span>}
+      {comData && <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">{dataCurta(p.criadoEm)}</span>}
+    </>
+  );
+  const cliente = (p: any) => (
+    <>
+      <span className="font-medium">{p.clienteNome ?? 'Cliente'}</span>
+      {p.clientePedidosCount > 0 && (
+        p.clientePedidosCount === 1
+          ? <span title="Primeiro pedido deste cliente" className="ml-1.5 inline-grid h-4 w-4 place-items-center rounded-full bg-ok/15 align-middle text-[8px] font-bold text-ok">1º</span>
+          : <span title={`${p.clientePedidosCount} pedidos deste cliente`} className="ml-1.5 rounded-full bg-primary/15 px-1.5 align-middle text-[10px] font-bold text-primary">{p.clientePedidosCount}×</span>
+      )}
+    </>
+  );
+  const status = (l: ReturnType<typeof linha>) => <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${l.sv.cls}`}>{l.sv.label}</span>;
+  const entregador = (p: any) =>
+    textoEntregadorDoCanal(p.logistica)
+      ? <SeloEntregadorDoCanal l={p.logistica} />
+      : p.entregadorNome ? <span className="text-xs font-medium">🛵 {p.entregadorNome}</span> : <span className="text-xs text-muted-foreground">—</span>;
+  const statusDoPendente = (p: any, l: ReturnType<typeof linha>) => (
+    <span className="inline-flex items-center gap-1.5">
+      {status(l)}
+      {/* Pedido que o entregador da 99 busca: quem vem e se já chegou (mig 294). */}
+      <SeloEntregadorDoCanal l={p.logistica} />
+    </span>
+  );
+
   return (
     <Card className={`flex max-h-[46vh] min-h-[160px] flex-col overflow-hidden p-0 lg:max-h-none ${className ?? ''}`}>
-      <div className="flex flex-none items-center gap-2 border-b border-border px-3 py-2" style={{ background: `hsl(${cor} / 0.10)` }}>
+      <div className="flex flex-none flex-wrap items-center gap-2 border-b border-border px-3 py-2" style={{ background: `hsl(${cor} / 0.10)` }}>
         <span className="h-3 w-3 rounded-full" style={{ background: `hsl(${cor})` }} />
         <h2 className="font-display text-sm font-bold tracking-tight" style={{ color: `hsl(${cor})` }}>{titulo}</h2>
         <span className="grid h-5 min-w-5 place-items-center rounded-full px-1 font-mono text-xs font-bold text-white" style={{ background: `hsl(${cor})` }}>{lista.length}</span>
         {marcados.size > 0 && <span className="ml-1 text-xs font-semibold text-primary">{marcados.size} selecionado(s)</span>}
-      </div>
-      <div className="scroll-fino overflow-auto lg:min-h-0 lg:flex-1">
-        <table className="w-full min-w-[660px] text-left text-[13px] [&_td]:!py-1 [&_th]:!py-1">
-          <caption className="sr-only">{titulo}</caption>
-          <thead className="sticky top-0 z-10 bg-card">
-            <tr className="border-b border-border text-[10px] uppercase tracking-wide text-muted-foreground">
-              <th scope="col" className="w-8 px-2">
-                <input type="checkbox" className="h-4 w-4 accent-primary align-middle" checked={todosMarcados} onChange={(e) => onToggleTodos(e.target.checked)} aria-label="Selecionar todos" />
-              </th>
-              {cols.map((c) => (
-                <th key={c.k} scope="col" className={`whitespace-nowrap px-2 font-semibold ${c.w ?? ''}`}>
-                  <button type="button" onClick={() => clickHeader(c.k)} className="inline-flex items-center gap-1 hover:text-foreground" aria-label={`Ordenar por ${c.t}`}>
-                    {c.t}
-                    <span className="text-[9px] opacity-70">{sortKey === c.k ? (sortDir === 'asc' ? '▲' : '▼') : '↕'}</span>
-                  </button>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {ordenada.length === 0 && (
-              <tr>
-                <td colSpan={nCols} className="px-3 py-6 text-center text-xs text-muted-foreground">
-                  Nenhum pedido.
-                </td>
-              </tr>
+        {/* Nos cartões não há cabeçalho: marcar todos e ordenar ficam aqui. */}
+        {emCartoes && (
+          <div className="ml-auto flex flex-wrap items-center gap-2" data-controles-cartoes>
+            <label className="inline-flex items-center gap-1.5 text-xs font-semibold">
+              <input type="checkbox" className="h-4 w-4 accent-primary" checked={todosMarcados} onChange={(e) => onToggleTodos(e.target.checked)} />
+              Todos
+            </label>
+            <label htmlFor={idOrdem} className="sr-only">Ordenar {titulo.toLowerCase()} por</label>
+            <select
+              id={idOrdem}
+              value={sortKey ?? ''}
+              onChange={(e) => { setSortKey(e.target.value || null); setSortDir('asc'); }}
+              className="h-8 max-w-full rounded-md border border-border bg-card px-1.5 text-xs"
+            >
+              <option value="">Ordem do painel</option>
+              {cols.map((c) => <option key={c.k} value={c.k}>{c.t}</option>)}
+            </select>
+            {sortKey && (
+              <button
+                type="button"
+                onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+                className="h-8 rounded-md border border-border bg-card px-2 text-xs"
+                aria-label={sortDir === 'asc' ? 'Ordem crescente — trocar para decrescente' : 'Ordem decrescente — trocar para crescente'}
+              >
+                {sortDir === 'asc' ? '▲' : '▼'}
+              </button>
             )}
+          </div>
+        )}
+      </div>
+      <div ref={caixa} className="scroll-fino overflow-auto lg:min-h-0 lg:flex-1">
+        {emCartoes ? (
+          <ul className="divide-y divide-border/60" aria-label={titulo} data-pedidos-cartoes>
+            {ordenada.length === 0 && <li className="px-3 py-6 text-center text-xs text-muted-foreground">Nenhum pedido.</li>}
             {ordenada.map((p) => {
-              const canalLabel = CANAL_LABEL[p.canal] ?? p.canal;
-              const bg = corPorCanal[p.canal] ?? CANAL_ESTILO[p.canal]?.bg;
-              const fg = corPorCanal[p.canal] ? '#FFFFFF' : CANAL_ESTILO[p.canal]?.fg ?? '#FFFFFF';
-              const sv = STATUS_VIVO[p.status] ?? { label: p.status, cls: 'bg-muted text-foreground' };
-              // Atraso (só nos pendentes): prazo de preparo estourado.
-              const prepMax = p.tipo === 'retirada' ? cfg?.prepBalcaoMax ?? 25 : cfg?.prepDeliveryMax ?? 55;
-              const restanteMs = new Date(p.criadoEm).getTime() + prepMax * 60000 - agora;
-              const atrasado = variante === 'pendentes' && restanteMs <= 0;
-              const cd = variante === 'pendentes' ? countdown(restanteMs) : null;
-              const selecionado = selId === p.id;
-              const marcado = marcados.has(p.id);
-              const enderecoTexto =
-                p.tipo === 'retirada'
-                  ? 'Retirada no balcão'
-                  : p.endereco ||
-                    [p.enderecoRua, p.enderecoNumero, p.enderecoBairro].filter(Boolean).join(', ') ||
-                    '—';
+              const l = linha(p);
               return (
-                <tr
+                <li
                   key={p.id}
                   onClick={() => onSelecionar(p)}
                   tabIndex={0}
-                  onKeyDown={(e) => { if (e.key === 'Enter') onSelecionar(p); }}
-                  aria-selected={selecionado}
-                  className={`cursor-pointer border-b border-border/60 transition-colors ${
-                    selecionado
-                      ? 'bg-primary/15 shadow-[inset_3px_0_0_hsl(var(--primary))]'
-                      : marcado
-                      ? 'bg-primary/5'
-                      : 'hover:bg-muted/50'
-                  }`}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) onSelecionar(p); }}
+                  aria-current={l.selecionado ? 'true' : undefined}
+                  data-pedido-cartao
+                  className={`cursor-pointer px-3 py-2 text-[13px] transition-colors ${fundoDaLinha(l)}`}
                 >
-                  <td className="w-8 px-2" onClick={(e) => e.stopPropagation()}>
-                    <input type="checkbox" className="h-4 w-4 accent-primary align-middle" checked={marcado} onChange={() => onToggle(p.id)} aria-label={`Selecionar pedido ${p.numero ?? ''}`} />
-                  </td>
-                  {/* Conteúdo de forma fixa (nº, badge, hora, status): nunca deve quebrar
-                      — era isso que dobrava a altura da linha quando o espaço apertava. */}
-                  <td className="whitespace-nowrap px-3">
-                    <span className="font-mono font-bold">#{p.numero ?? '—'}</span>
-                    <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px]">{p.tipo === 'retirada' ? '🏪' : '🛵'}</span>
-                    {p.alterado && <span className="ml-1 rounded bg-warn/15 px-1 text-[9px] font-bold text-warn">ALT</span>}
-                    {/* Pedido igual (mig 360) ainda sem o "São dois pedidos": ícone compacto como o 📝 (a célula não
-                        quebra linha — uma etiqueta larga alargaria a coluna); a gaveta do pedido tem o aviso e as saídas. */}
-                    {repetidoAberto(p.repetido) && (
-                      <span
-                        className="ml-1 text-[10px]"
-                        title={`Possível repetido do ${textoDoOutroPedido(p.repetido)}: confirme com o cliente`}
-                        aria-label={`Possível repetido do ${textoDoOutroPedido(p.repetido)}`}
-                        data-repetido-lista
-                      >
-                        ⚠️
-                      </span>
-                    )}
-                    {p.observacao && (
-                      <span className="ml-1 text-[10px]" title={`Observação do pedido: ${p.observacao}`} aria-label="Pedido com observação">
-                        📝
-                      </span>
-                    )}
-                    {p.autoAceiteFalhou && <span className="ml-1 text-[10px] font-bold text-destructive" title="Falha no aceite automático">⚠️</span>}
-                  </td>
-                  <td className="px-2 py-2 font-mono text-xs text-muted-foreground">
-                    <div className={`${W_COD_EXTERNO} truncate`} title={p.displayId ?? ''}>{p.displayId ?? '—'}</div>
-                  </td>
-                  <td className="whitespace-nowrap px-2 py-2">
-                    <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-bold" style={bg ? { background: bg, color: fg } : { background: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}>
-                      {CANAL_LOGO[p.canal] && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={CANAL_LOGO[p.canal]} alt="" className="h-3.5 w-3.5 rounded-[3px] object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+                  <div className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 flex-none accent-primary"
+                      checked={l.marcado}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={() => onToggle(p.id)}
+                      aria-label={`Selecionar pedido ${p.numero ?? ''}`}
+                    />
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="whitespace-nowrap">{numero(p)}</span>
+                        {canal(p)}
+                        <span className="ml-auto whitespace-nowrap font-mono text-xs">{horaDoPedido(p, l, false)}</span>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                        <span className="min-w-0 break-words">{cliente(p)}</span>
+                        {variante === 'andamento' ? status(l) : statusDoPendente(p, l)}
+                      </div>
+                      {variante === 'pendentes' ? (
+                        <div className="truncate text-xs text-muted-foreground" title={l.enderecoTexto}>{l.enderecoTexto}</div>
+                      ) : (
+                        <div className="text-xs">{entregador(p)}</div>
                       )}
-                      {canalLabel}
-                    </span>
-                  </td>
-                  <td className="whitespace-nowrap px-2 py-2 font-mono text-xs">
-                    <span>{hora(p.criadoEm)}</span>
-                    {cd && <span className={`ml-1 ${atrasado ? 'text-destructive' : 'text-muted-foreground'}`}>{atrasado ? '⏱!' : ''}</span>}
-                    <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">{dataCurta(p.criadoEm)}</span>
-                  </td>
-                  <td className="px-2 py-2">
-                    <span className="font-medium">{p.clienteNome ?? 'Cliente'}</span>
-                    {p.clientePedidosCount > 0 && (
-                      p.clientePedidosCount === 1
-                        ? <span title="Primeiro pedido deste cliente" className="ml-1.5 inline-grid h-4 w-4 place-items-center rounded-full bg-ok/15 align-middle text-[8px] font-bold text-ok">1º</span>
-                        : <span title={`${p.clientePedidosCount} pedidos deste cliente`} className="ml-1.5 rounded-full bg-primary/15 px-1.5 align-middle text-[10px] font-bold text-primary">{p.clientePedidosCount}×</span>
-                    )}
-                  </td>
-                  {variante === 'pendentes' && (
-                    <td className="px-2 py-2 text-xs text-muted-foreground">
-                      {/* Largura travada + truncate: mostra só o que cabe e não deixa o
-                          endereço longo esticar a coluna nem quebrar a linha em duas.
-                          O endereço inteiro fica no title (e no preview ao lado). */}
-                      <div className={`${W_ENDERECO} truncate`} title={enderecoTexto}>{enderecoTexto}</div>
-                    </td>
-                  )}
-                  <td className="whitespace-nowrap px-3 py-2">
-                    {variante === 'andamento'
-                      ? (textoEntregadorDoCanal(p.logistica)
-                          ? <SeloEntregadorDoCanal l={p.logistica} />
-                          : p.entregadorNome ? <span className="text-xs font-medium">🛵 {p.entregadorNome}</span> : <span className="text-xs text-muted-foreground">—</span>)
-                      : (
-                        <span className="inline-flex items-center gap-1.5">
-                          <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${sv.cls}`}>{sv.label}</span>
-                          {/* Pedido que o entregador da 99 busca: quem vem e se já chegou (mig 294). */}
-                          <SeloEntregadorDoCanal l={p.logistica} />
-                        </span>
-                      )}
-                  </td>
-                  {variante === 'andamento' && (
-                    <td className="whitespace-nowrap px-3 py-2">
-                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${sv.cls}`}>{sv.label}</span>
-                    </td>
-                  )}
-                </tr>
+                    </div>
+                  </div>
+                </li>
               );
             })}
-          </tbody>
-        </table>
+          </ul>
+        ) : (
+          <table className="w-full text-left text-[13px] [&_td]:!py-1 [&_th]:!py-1">
+            <caption className="sr-only">{titulo}</caption>
+            <thead className="sticky top-0 z-10 bg-card">
+              <tr className="border-b border-border text-[10px] uppercase tracking-wide text-muted-foreground">
+                <th scope="col" className="w-8 px-2">
+                  <input type="checkbox" className="h-4 w-4 accent-primary align-middle" checked={todosMarcados} onChange={(e) => onToggleTodos(e.target.checked)} aria-label="Selecionar todos" />
+                </th>
+                {colsVisiveis.map((c) => (
+                  <th key={c.k} scope="col" className={`whitespace-nowrap px-2 font-semibold ${c.k === 'endereco' && compacta ? W_ENDERECO_COMPACTO : c.w ?? ''}`}>
+                    <button type="button" onClick={() => clickHeader(c.k)} className="inline-flex items-center gap-1 hover:text-foreground" aria-label={`Ordenar por ${c.t}`}>
+                      {c.t}
+                      <span className="text-[9px] opacity-70">{sortKey === c.k ? (sortDir === 'asc' ? '▲' : '▼') : '↕'}</span>
+                    </button>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {ordenada.length === 0 && (
+                <tr>
+                  <td colSpan={nCols} className="px-3 py-6 text-center text-xs text-muted-foreground">
+                    Nenhum pedido.
+                  </td>
+                </tr>
+              )}
+              {ordenada.map((p) => {
+                const l = linha(p);
+                return (
+                  <tr
+                    key={p.id}
+                    onClick={() => onSelecionar(p)}
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter') onSelecionar(p); }}
+                    aria-selected={l.selecionado}
+                    className={`cursor-pointer border-b border-border/60 transition-colors ${fundoDaLinha(l)}`}
+                  >
+                    <td className="w-8 px-2" onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" className="h-4 w-4 accent-primary align-middle" checked={l.marcado} onChange={() => onToggle(p.id)} aria-label={`Selecionar pedido ${p.numero ?? ''}`} />
+                    </td>
+                    {/* Conteúdo de forma fixa (nº, badge, hora, status): nunca deve quebrar
+                        — era isso que dobrava a altura da linha quando o espaço apertava. */}
+                    <td className="whitespace-nowrap px-3">{numero(p)}</td>
+                    {!compacta && (
+                      <td className="px-2 py-2 font-mono text-xs text-muted-foreground">
+                        <div className={`${W_COD_EXTERNO} truncate`} title={p.displayId ?? ''}>{p.displayId ?? '—'}</div>
+                      </td>
+                    )}
+                    <td className="whitespace-nowrap px-2 py-2">{canal(p)}</td>
+                    <td className="whitespace-nowrap px-2 py-2 font-mono text-xs">{horaDoPedido(p, l, !compacta)}</td>
+                    <td className="px-2 py-2">{cliente(p)}</td>
+                    {variante === 'pendentes' && (
+                      <td className="px-2 py-2 text-xs text-muted-foreground">
+                        {/* Largura travada + truncate: mostra só o que cabe e não deixa o
+                            endereço longo esticar a coluna nem quebrar a linha em duas.
+                            O endereço inteiro fica no title (e no preview ao lado). */}
+                        <div className={`${compacta ? W_ENDERECO_COMPACTO : W_ENDERECO} truncate`} title={l.enderecoTexto}>{compacta ? l.bairro : l.enderecoTexto}</div>
+                      </td>
+                    )}
+                    <td className="whitespace-nowrap px-3 py-2">{variante === 'andamento' ? entregador(p) : statusDoPendente(p, l)}</td>
+                    {variante === 'andamento' && <td className="whitespace-nowrap px-3 py-2">{status(l)}</td>}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
     </Card>
   );
