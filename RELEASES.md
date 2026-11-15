@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Formas de pagamento e Relatórios de entrega sem barra lateral (15/11, ERR-476; SEM migration; só tela).** As duas
+  tabelas viram cartões quando não cabem, e o cartão de pagamento online quebra a linha. Na nuvem vale com o merge; no
+  servidor da loja, com o `.zip`.
+
 - **Push do sync com linhas de colunas diferentes no mesmo lote (15/11, ERR-126; SEM migration; não mexe no
   `sync-daemon`).** A nuvem divide o lote por colunas: cada linha grava o que trouxe e a coluna que não veio fica como
   está (antes, o lote inteiro caía com erro de sintaxe e voltava a cada ciclo). É o lado da NUVEM do push: vale com o
