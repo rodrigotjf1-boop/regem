@@ -26,6 +26,32 @@
 - **Troca de token:** o cursor é da EMPRESA, não do token — o token novo da mesma empresa segue do
   mesmo cursor.
 
+### 1.1 Pelo clique do Regem (F6 do Hub DMS, 15/11/2026 — mig 426; nasce parado)
+
+O RegemCast passa a usar a **autorização por clique** do Regem (o contrato do Padrão DMS §3, o mesmo do Liame, do
+Orzuni e do Farol), na variante da **empresa inteira** (protótipo `prototipos/clique-empresa-inteira.html` do hub):
+
+- **Pedido (RFC 9126):** `POST /integracao/autorizacao/pedido` com o token do DMS ID do aplicativo RegemCast;
+  `redirect_uri` = `https://cast.dmsregem.com/integracoes/regem/volta` (a env `INTEGRACAO_REGEMCAST_REDIRECT_URIS` do
+  `regem-api` troca a lista); `scope` com as **necessárias** `pedidos.ler clientes.ler clientes.telefone.ler` e, só
+  quando o dono autorizou a 99 no RegemCast (regra de 30/09), a **opcional** `vendas.99food.ler`. Mandar
+  `conta_cnpj` (a mesma raiz de CNPJ da empresa = sem a confirmação de "outra empresa").
+- **A página:** o presidente vê "O RegemCast quer ler os clientes e as compras da sua empresa"; no lugar das caixas das
+  lojas, o bloco **"A empresa inteira"** (as lojas de hoje pelo nome e "as que abrirem depois entram sozinhas"); os dados
+  de cliente necessários vêm com o selo de dado pessoal e o motivo; a 99 vem desligada; o botão é "Autorizar a
+  empresa". A empresa que já tem acesso (a chave do console) vê desde quando e o que ele libera: continua valendo.
+- **Troca:** `POST /integracao/autorizacao/token` devolve `lojas` com **um item só**, sem loja: `loja_id: null`, os
+  campos de `GET /integracao/loja` da empresa (`empresa_id`, `empresa_nome`, `lojas`, `fuso`), a `ligacao`
+  (`dms_lg_regem_…`, o segredo aparece só aqui), `prefixo`, `permissoes` e `segredo_em`. O acesso ativo da empresa com
+  o RegemCast (a chave `rgm_it_` do console ou um clique anterior) é **trocado** na mesma transação e o novo **soma** o
+  que ele liberava. Duas trocas da mesma empresa ao mesmo tempo: uma leva, a outra recebe `400` ("outra autorização
+  desta empresa terminou agora mesmo") — o índice único da mig 426.
+- **Leitura:** as mesmas rotas, com `Authorization: Bearer <token do DMS ID>` + `DMS-Ligacao: <ligação>`; as permissões
+  valem com "o que a empresa autorizou E o que o token do DMS ID tem". O cursor continua o da empresa: a importação
+  segue de onde parou.
+- **Nada liga sozinho:** o RegemCast só pede com o client_id dele em `DMS_ID_APLICATIVOS` do `regem-api`, e o token do
+  DMS ID dele só traz `clientes.ler` e `vendas.99food.ler` depois que a distribuição as criar no recurso Regem do DMS ID.
+
 ## 2. `GET /integracao/loja` (qualquer escopo)
 
 Com o token da empresa:
