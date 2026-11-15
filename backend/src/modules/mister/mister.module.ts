@@ -7,6 +7,7 @@ import { MisterEntradaService } from './mister-entrada.service';
 import { MisterFilaService } from './mister-fila.service';
 import { MisterAvisosConfigService } from './mister-avisos-config.service';
 import { MisterAvisosHistoricoService } from './mister-avisos-historico.service';
+import { MisterQualidadeService } from './mister-qualidade.service';
 import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
 import { MisterNumeroService } from './mister-numero.service';
 import { MisterVinculoService } from './mister-vinculo.service';
@@ -33,7 +34,8 @@ import { MisterVinculoService } from './mister-vinculo.service';
     MisterAvisosConfigService,
     MisterRelatoriosConfigService,
     MisterAvisosHistoricoService,
+    MisterQualidadeService,
   ],
-  exports: [MisterEntradaService, MisterConsoleService, MisterNumeroService, MisterFilaService, MisterAvisosConfigService, MisterRelatoriosConfigService, MisterAvisosHistoricoService],
+  exports: [MisterEntradaService, MisterConsoleService, MisterNumeroService, MisterFilaService, MisterAvisosConfigService, MisterRelatoriosConfigService, MisterAvisosHistoricoService, MisterQualidadeService],
 })
 export class MisterModule {}
