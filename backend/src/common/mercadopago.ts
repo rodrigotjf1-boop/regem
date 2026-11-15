@@ -150,6 +150,8 @@ export async function reembolsarPagamentoMP(
   token: string,
   paymentId: string,
   valor?: number,
+  /** Outra chave de idempotência para OUTRO pedido de estorno do mesmo pagamento (a 2ª forma do `estornarTudoMP`). */
+  chave = `refund-${paymentId}`,
 ): Promise<{ id: string; status: string }> {
   const body = valor != null ? JSON.stringify({ amount: Math.round(Number(valor) * 100) / 100 }) : undefined;
   const res = await fetch(`${API}/v1/payments/${paymentId}/refunds`, {
@@ -157,7 +159,7 @@ export async function reembolsarPagamentoMP(
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
-      'X-Idempotency-Key': `refund-${paymentId}`,
+      'X-Idempotency-Key': chave,
     },
     body,
     signal: AbortSignal.timeout(FIN_TIMEOUT_CRIAR_MS),
@@ -168,6 +170,51 @@ export async function reembolsarPagamentoMP(
   }
   const j: any = await res.json();
   return { id: String(j.id ?? ''), status: j.status ?? 'approved' };
+}
+
+/** O valor pago e o quanto já voltou ao cliente (`transaction_amount` e `transaction_amount_refunded` do pagamento). */
+export async function valoresDoPagamentoMP(token: string, paymentId: string): Promise<{ total: number | null; devolvido: number }> {
+  const res = await fetch(`${API}/v1/payments/${paymentId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(FIN_TIMEOUT_CONSULTA_MS),
+  });
+  if (!res.ok) throw new Error(`Mercado Pago status ${res.status}`);
+  const j: any = await res.json();
+  const total = Number(j.transaction_amount);
+  return { total: Number.isFinite(total) ? total : null, devolvido: Number(j.transaction_amount_refunded) || 0 };
+}
+
+/**
+ * O ESTORNO TOTAL do Pix do pedido cancelado (15/11/2026 — ERR-472). O pedido #71 (R$ 65,00) foi estornado com o corpo
+ * vazio (o "total" da doc) e o cliente recebeu R$ 64,54: a tarifa do Mercado Pago (R$ 0,46) ficou de fora. Agora:
+ *  1. lê o pagamento — o que já voltou não pede de novo;
+ *  2. pede o estorno com o VALOR CHEIO explícito (`amount` = o valor pago);
+ *  3. se o Mercado Pago recusar o valor (4xx), pede da forma de antes (corpo vazio), com outra chave de idempotência;
+ *  4. lê de novo e devolve QUANTO voltou (`devolvido`) — quem chama avisa a loja quando voltou menos que o pago.
+ * Leitura que falha não impede o estorno: `devolvido` vem null (não se sabe).
+ */
+export async function estornarTudoMP(
+  token: string,
+  paymentId: string,
+): Promise<{ id: string; status: string; total: number | null; devolvido: number | null }> {
+  const antes = await valoresDoPagamentoMP(token, paymentId).catch(() => null);
+  if (antes?.total != null && antes.devolvido >= antes.total - 0.005) {
+    return { id: '', status: 'refunded', total: antes.total, devolvido: antes.devolvido };
+  }
+  let r: { id: string; status: string };
+  if (antes?.total != null) {
+    const falta = Math.round((antes.total - antes.devolvido) * 100) / 100;
+    try {
+      r = await reembolsarPagamentoMP(token, paymentId, falta, `refund-${paymentId}-cheio`);
+    } catch (e: any) {
+      if (!/refund 4\d\d/.test(String(e?.message ?? ''))) throw e;
+      r = await reembolsarPagamentoMP(token, paymentId);
+    }
+  } else {
+    r = await reembolsarPagamentoMP(token, paymentId);
+  }
+  const depois = await valoresDoPagamentoMP(token, paymentId).catch(() => null);
+  return { ...r, total: depois?.total ?? antes?.total ?? null, devolvido: depois ? depois.devolvido : null };
 }
 
 // Consulta o status de um pagamento (usado pelo webhook).

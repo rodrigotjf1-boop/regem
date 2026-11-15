@@ -31,12 +31,14 @@ descrever('estorno do Pix no cancelamento (Postgres)', () => {
   let loja: string;
   const chamadas: any[] = [];
   let falhar: (pagamento: string) => boolean = () => false;
+  // Quanto o gateway diz que voltou ao cliente (ERR-472); sem entrada, não diz (como o PagBank e a Rede hoje).
+  const devolvidoPor = new Map<string, number>();
   const gateway = {
     reembolsarPagamentoTotal: async (tenantId: string, provedor: string, pagamento: string) => {
       chamadas.push({ tenantId, provedor, pagamento });
       await new Promise((r) => setTimeout(r, 30)); // a chamada leva tempo: duas réplicas juntas se cruzam aqui
       if (falhar(pagamento)) throw new Error('Mercado Pago refund 400: saldo insuficiente');
-      return { id: `est-${pagamento}`, status: 'approved' };
+      return { id: `est-${pagamento}`, status: 'approved', devolvido: devolvidoPor.get(pagamento) ?? null };
     },
   };
   const eventos: any[] = [];
@@ -88,6 +90,26 @@ descrever('estorno do Pix no cancelamento (Postgres)', () => {
     for (const t of ['pedido_estorno', 'atendimento_chamado', 'pedido_externo', 'unidade']) await q(`delete from ${t} where tenant_id = $1`, [T]).catch(() => {});
     await q(`delete from empresa where id = $1`, [T]).catch(() => {});
     await pool.end();
+  });
+
+  it('o gateway devolveu MENOS que o pago (ficou com a tarifa — ERR-472): o estorno fica feito e a loja recebe um caso normal com a diferença', async () => {
+    const p = await pedido({ total: 65 });
+    devolvidoPor.set(p.pagamento!, 64.54);
+    await svc.volta();
+    expect(await estorno(p.id)).toMatchObject({ situacao: 'feito', erro: null });
+    const casos = await q(`select prioridade, mensagem from atendimento_chamado where pedido_id = $1`, [p.id]);
+    expect(casos).toHaveLength(1);
+    expect(casos[0].prioridade).toBe('normal');
+    expect(casos[0].mensagem).toMatch(
+      /^O estorno do Pix do pedido #\d+ saiu, mas o Mercado Pago devolveu R\$\s?64,54 dos R\$\s?65,00 pagos: a diferença de R\$\s?0,46 \(a tarifa do Mercado Pago\) não voltou ao cliente\. Se quiser, devolva a diferença pelo app do Mercado Pago\.$/,
+    );
+    // Voltou tudo, ou o gateway não diz quanto: nenhum caso.
+    const cheio = await pedido({ total: 40 });
+    devolvidoPor.set(cheio.pagamento!, 40);
+    const semDizer = await pedido({ total: 30 });
+    await svc.volta();
+    expect(await q(`select 1 from atendimento_chamado where pedido_id = any($1::uuid[])`, [[cheio.id, semDizer.id]])).toHaveLength(0);
+    expect(await estorno(cheio.id)).toMatchObject({ situacao: 'feito' });
   });
 
   it('só o cancelado PAGO ONLINE ganha o estorno total (Mercado Pago, PagBank e Rede); os outros ficam fora', async () => {
