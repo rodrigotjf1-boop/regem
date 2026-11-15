@@ -21,6 +21,7 @@ import { FERRAMENTAS, INSTRUCOES_DO_MISTER, TETOS, TEXTOS_DO_AGENTE } from './mi
 import { MisterAgenteService } from './mister-agente.service';
 import { MisterAvisosConfigService } from './mister-avisos-config.service';
 import { MisterAvisosService } from './mister-avisos.service';
+import { AvisosNaTelaService } from './avisos-na-tela.service';
 import { MAX_TENTATIVAS_CONSULTA_DA_NOTA } from '../fiscal/fiscal.service';
 import { IfoodService } from '../integracoes/ifood/ifood.service';
 import { MisterEntradaService } from './mister-entrada.service';
@@ -2271,8 +2272,9 @@ export function testesDoMisterComPostgres(): void {
       expect(await avisos.volta([A])).toMatchObject({ situacoes: 1, abertos: 1, escalados: 0, resolvidos: 0 });
       const [aberto] = await avisosDe();
       expect(aberto).toMatchObject({ tipo: 'impressora', situacao: 'aberto', chave: 'vigia:impressora_parada:srv:1:impressora:9', titulo: 'Loja Centro · impressora Cozinha parada' });
-      // O padrão vai à tela da loja, que chega na próxima entrega — fica anotado, ninguém recebe ainda.
-      expect(aberto.entregas).toEqual([expect.objectContaining({ destino: 'tela', fase: 'abriu', ok: false, motivo: 'chega_na_proxima_entrega' })]);
+      // O padrão vai à tela da loja (a faixa de quem está logado na loja, F1.4) — pelo WhatsApp, ninguém ainda.
+      expect(aberto.entregas).toEqual([expect.objectContaining({ destino: 'tela', fase: 'abriu', ok: true })]);
+      expect(aberto.entregas[0].motivo).toBeUndefined();
       expect(numero.enviadas).toEqual([]);
       expect(await avisos.volta([A])).toMatchObject({ abertos: 0, escalados: 0 });
       // Passaram 6 minutos: escala ao gerente da loja, uma vez.
@@ -2287,12 +2289,118 @@ export function testesDoMisterComPostgres(): void {
       const [fechado] = await avisosDe();
       expect(fechado).toMatchObject({ situacao: 'resolvido' });
       expect(fechado.entregas.map((e: any) => [e.destino, e.fase, e.ok, e.final])).toEqual([
-        ['tela', 'abriu', false, undefined],
+        ['tela', 'abriu', true, undefined],
         ['gerente', 'escalou', true, tel.slice(-4)],
         ['gerente', 'resolveu', true, tel.slice(-4)],
       ]);
       // A trilha nunca guarda o telefone inteiro.
       expect(JSON.stringify(fechado.entregas)).not.toContain(tel);
+    });
+
+    it('a tela da loja (F1.4): o aviso aparece só na loja dele, o "Ciente" é por pessoa e sobrevive à renovação, a escala traz a faixa de volta, resolvido some; o servidor da loja pede à nuvem', async () => {
+      const tel = telefone();
+      await ligar('carlos', tel, A, 'gerente');
+      await janelaAberta('carlos');
+      const [{ id: outraLoja }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja Norte') returning id`, [A]);
+      const tela = new AvisosNaTelaService(db);
+      try {
+        emitidos.length = 0;
+        avisos.incidentes = [incidente('impressora_parada', 'srv:1:impressora:9')];
+        expect(await avisos.volta([A])).toMatchObject({ abertos: 1 });
+        const [aberto] = await avisosDe();
+        // As telas abertas relêem na hora (tempo real).
+        expect(emitidos.filter(([n]) => n === 'mister.avisos.mudou')).toEqual([['mister.avisos.mudou', { tenantId: A }]]);
+        // Na loja do aviso: aparece, com o grupo, o "o que fazer" e sem "Ciente" de ninguém. Na outra loja e na outra
+        // empresa: nada.
+        const doEdu = await tela.daLoja(A, lojaDeA, pessoa.edu);
+        expect(doEdu).toEqual({
+          avisos: [
+            {
+              id: aberto.id,
+              grupo: 'Na loja',
+              titulo: 'Loja Centro · impressora Cozinha parada',
+              detalhe: 'Confira se ela está ligada, com papel e no cabo ou na rede.',
+              abertoEm: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/),
+              escalado: false,
+              tambem: [],
+              ciente: false,
+            },
+          ],
+        });
+        expect((await tela.daLoja(A, outraLoja, pessoa.edu)).avisos).toEqual([]);
+        expect((await tela.daLoja(B, null, pessoa.anaB)).avisos).toEqual([]);
+        // O presidente na rede toda (sem loja escolhida) vê.
+        expect((await tela.daLoja(A, null, pessoa.ana)).avisos).toHaveLength(1);
+
+        // "Ciente" do Edu: some da faixa só dele (duas vezes não duplica); a Ana segue vendo.
+        await tela.ciente(A, lojaDeA, pessoa.edu, aberto.id);
+        await tela.ciente(A, lojaDeA, pessoa.edu, aberto.id);
+        expect((await tela.daLoja(A, lojaDeA, pessoa.edu)).avisos[0].ciente).toBe(true);
+        expect((await tela.daLoja(A, null, pessoa.ana)).avisos[0].ciente).toBe(false);
+        expect((await q(`select dados -> 'cientes' as c from mister_aviso where id = $1`, [aberto.id]))[0].c).toEqual([pessoa.edu]);
+        // A volta seguinte renova o aviso e guarda o "Ciente".
+        await avisos.volta([A]);
+        expect((await tela.daLoja(A, lojaDeA, pessoa.edu)).avisos[0].ciente).toBe(true);
+        // Aviso de outra loja, id inválido: recusa.
+        await expect(tela.ciente(A, outraLoja, pessoa.edu, aberto.id)).rejects.toThrow('não está mais aberto nesta loja');
+        await expect(tela.ciente(A, lojaDeA, pessoa.edu, 'x')).rejects.toThrow('Aviso inválido');
+
+        // Sem solução em 5 min: escala (ao gerente) e a faixa volta para todos.
+        emitidos.length = 0;
+        await q(`update mister_aviso set aberto_em = now() - interval '6 minutes 10 seconds' where id = $1`, [aberto.id]);
+        expect(await avisos.volta([A])).toMatchObject({ escalados: 1 });
+        const escalado = (await tela.daLoja(A, lojaDeA, pessoa.edu)).avisos[0];
+        expect(escalado).toMatchObject({ ciente: false, escalado: true, tambem: ['WhatsApp do gerente da loja'] });
+        expect(emitidos.some(([n]) => n === 'mister.avisos.mudou')).toBe(true);
+
+        // O servidor da loja: pede à nuvem (o "Ciente" de quem pediu é calculado lá, com a lista que a nuvem manda).
+        const daNuvem = await tela.paraOServidorDaLoja(A, lojaDeA);
+        expect(daNuvem).toMatchObject({ tenantId: A, avisos: [{ id: aberto.id, cientes: [] }] });
+        const chamadas: any[] = [];
+        let resposta: any = { j: daNuvem };
+        class TelaDoServidorDaLoja extends AvisosNaTelaService {
+          protected async naNuvem(caminho: string, init: { method?: string; body?: string } = {}) {
+            chamadas.push([caminho, init.method ?? 'GET', init.body ?? null]);
+            return resposta;
+          }
+        }
+        const naLoja = new TelaDoServidorDaLoja(db);
+        const antes = process.env.EDGE_MODE;
+        process.env.EDGE_MODE = 'true';
+        try {
+          expect((await naLoja.daLoja(A, lojaDeA, pessoa.edu)).avisos.map((a) => [a.id, a.ciente])).toEqual([[aberto.id, false]]);
+          // Muitas telas na loja: uma leitura na nuvem (o cache curto).
+          await naLoja.daLoja(A, lojaDeA, pessoa.ana);
+          expect(chamadas).toEqual([['/mister/avisos/loja', 'GET', null]]);
+          // O "Ciente" vai à nuvem com a pessoa, e o cache cai.
+          resposta = { j: { ok: true } };
+          await naLoja.ciente(A, lojaDeA, pessoa.edu, aberto.id);
+          expect(chamadas[1]).toEqual([`/mister/avisos/${aberto.id}/ciente/loja`, 'POST', JSON.stringify({ colaboradorId: pessoa.edu })]);
+          // Sem internet: "sem conexão" (a tela não mostra nada, e não diz "nenhum aviso").
+          resposta = { motivo: 'ECONNREFUSED' };
+          expect(await naLoja.daLoja(A, lojaDeA, pessoa.edu)).toEqual({ avisos: [], semConexao: true });
+          // A nuvem respondeu por outra empresa: também não vale.
+          const outra = new TelaDoServidorDaLoja(db);
+          resposta = { j: { tenantId: B, avisos: daNuvem.avisos } };
+          expect(await outra.daLoja(A, lojaDeA, pessoa.edu)).toEqual({ avisos: [], semConexao: true });
+        } finally {
+          if (antes === undefined) delete process.env.EDGE_MODE;
+          else process.env.EDGE_MODE = antes;
+        }
+        // A rota da nuvem para o servidor da loja só aceita pessoa da empresa.
+        await expect(tela.cienteDoServidorDaLoja(A, lojaDeA, aberto.id, pessoa.anaB)).rejects.toThrow('não é desta empresa');
+        await tela.cienteDoServidorDaLoja(A, lojaDeA, aberto.id, pessoa.ana);
+        expect((await tela.daLoja(A, null, pessoa.ana)).avisos[0].ciente).toBe(true);
+
+        // A impressora voltou: resolve, some da tela e as telas relêem.
+        emitidos.length = 0;
+        avisos.incidentes = [];
+        expect(await avisos.volta([A])).toMatchObject({ resolvidos: 1 });
+        expect((await tela.daLoja(A, lojaDeA, pessoa.edu)).avisos).toEqual([]);
+        expect(emitidos.some(([n]) => n === 'mister.avisos.mudou')).toBe(true);
+      } finally {
+        await q(`delete from unidade where id = $1`, [outraLoja]);
+      }
     });
 
     it('o servidor sem sinal só avisa com pedido esperando e segue aberto até voltar; sem gerente ligado vai ao presidente; fora da janela de 24 h vai pelo modelo da Meta', async () => {
@@ -2307,7 +2415,7 @@ export function testesDoMisterComPostgres(): void {
       const [semSinal] = await avisosDe();
       expect(semSinal.entregas.map((e: any) => [e.destino, e.ok, e.motivo ?? null])).toEqual([
         ['gerente', true, 'sem_gerente_ligado_foi_ao_presidente'],
-        ['dms', false, 'chega_na_proxima_entrega'],
+        ['dms', true, null],
       ]);
       expect(numero.enviadas).toEqual([{ para: tel, texto: '⚠️ Loja Centro · servidor sem sinal.\n\nConfira se o computador do servidor está ligado e com internet.', botoes: [] }]);
       // Os pedidos acabaram, mas o servidor segue sem sinal: o aviso continua aberto (não "resolve" à toa).
@@ -2633,7 +2741,7 @@ export function testesDoMisterComPostgres(): void {
         expect(aviso.entregas.map((e: any) => [e.destino, e.ok, e.motivo ?? null])).toEqual(
           expect.arrayContaining([
             ['gerente', true, 'sem_gerente_ligado_foi_ao_presidente'],
-            ['tela', false, 'chega_na_proxima_entrega'],
+            ['tela', true, null],
           ]),
         );
         // A 99: o -1 (rede) não é recusa; o código de recusa avisa.

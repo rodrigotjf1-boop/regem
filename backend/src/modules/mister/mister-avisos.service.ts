@@ -51,10 +51,10 @@ import { pessoaVale } from './mister-vinculo.service';
 //  3. ABRE o episódio novo e entrega aos destinos; o que continua aberto e passou do tempo do "se ninguém resolver" ESCALA
 //     (uma vez); o que sumiu FECHA e quem recebeu pelo WhatsApp recebe o desfecho.
 //
-// Entregas desta versão: WhatsApp do presidente e do gerente (pelo número do Mister, dentro da janela de 24 horas da Meta —
-// fora dela o aviso pede o modelo aprovado, que é a próxima entrega, e fica anotado), KDS (o aviso do KDS, que desce da
-// nuvem ao servidor da loja como o do Farol) e caso urgente no Atendimento (fecha sozinho quando o aviso resolve). "Tela
-// do Regem na loja" e "Suporte da DMS" ficam anotados como "chega na próxima entrega".
+// Entregas: WhatsApp do presidente e do gerente (pelo número do Mister; fora da janela de 24 horas da Meta, pelo modelo
+// aprovado — F1.2d), KDS (o aviso do KDS, que desce da nuvem ao servidor da loja como o do Farol), caso urgente no
+// Atendimento (fecha sozinho quando o aviso resolve), "Tela do Regem na loja" (a faixa e a gaveta de todos que estão
+// logados na loja — `avisos-na-tela.service.ts`, F1.4, com o tempo real) e "Suporte da DMS" (o console da distribuição).
 //
 // Concorrência: quem abre é o índice único parcial (a réplica a mais cai no `on conflict` e não entrega); quem escala e
 // quem fecha é a gravação condicional (`where escalado_em is null` / `where situacao = 'aberto'`) — só quem gravou entrega.
@@ -468,7 +468,10 @@ export class MisterAvisosService implements OnModuleInit {
                  as x("tenantId" uuid, "unidadeId" uuid, tipo text, chave text, titulo text, detalhe text, dados jsonb)
           on conflict (tenant_id, tipo, chave) where situacao = 'aberto'
           do update set visto_em = clock_timestamp(), titulo = excluded.titulo, detalhe = excluded.detalhe,
+                        -- A renovação guarda o marco anterior (o lembrete) e quem já deu "Ciente" na tela da loja (F1.4).
                         dados = excluded.dados || jsonb_build_object('marcoAnterior', mister_aviso.dados -> 'marco')
+                                || case when mister_aviso.dados ? 'cientes' then jsonb_build_object('cientes', mister_aviso.dados -> 'cientes')
+                                        else '{}'::jsonb end
           returning id::text as id, tenant_id::text as "tenantId", unidade_id::text as "unidadeId", tipo, chave, titulo, detalhe,
                     aberto_em as "abertoEm", escalado_em as "escaladoEm", entregas, dados, (xmax = 0) as novo`),
       ) as (AvisoAberto & { novo: boolean })[];
@@ -517,6 +520,8 @@ export class MisterAvisosService implements OnModuleInit {
              where id = ${a.id}::uuid and situacao = 'aberto' returning id`),
         );
         if (!fechou.length) continue;
+        // Sumiu da tela da loja: as telas abertas relêem (o aviso some da faixa e da gaveta).
+        if ((a.entregas ?? []).some((e) => e.destino === 'tela')) this.events?.emit('mister.avisos.mudou', { tenantId: a.tenantId });
         if (calado) res.calados++;
         else {
           res.resolvidos++;
@@ -530,9 +535,18 @@ export class MisterAvisosService implements OnModuleInit {
     return res;
   }
 
-  /** Marca a escala do aviso. Só UMA chamada ganha (a outra réplica não acha a linha sem `escalado_em`): só ela entrega. */
+  /**
+   * Marca a escala do aviso. Só UMA chamada ganha (a outra réplica não acha a linha sem `escalado_em`): só ela entrega. A
+   * escala limpa os "Ciente" da tela da loja: a faixa volta para todos (decisão aprovada no protótipo da F1.4).
+   */
   async marcarEscala(id: string): Promise<boolean> {
-    return linhas(await this.db.execute(sql`update mister_aviso set escalado_em = clock_timestamp() where id = ${id}::uuid and escalado_em is null and situacao = 'aberto' returning id`)).length > 0;
+    const r = linhas(
+      await this.db.execute(sql`
+        update mister_aviso set escalado_em = clock_timestamp(), dados = coalesce(dados, '{}'::jsonb) - 'cientes'
+         where id = ${id}::uuid and escalado_em is null and situacao = 'aberto' returning tenant_id::text as "tenantId", entregas`),
+    );
+    if (r[0] && (r[0].entregas ?? []).some((e: any) => e?.destino === 'tela')) this.events?.emit('mister.avisos.mudou', { tenantId: r[0].tenantId });
+    return r.length > 0;
   }
 
   // ───────────────────────────── as entregas ─────────────────────────────
@@ -556,9 +570,12 @@ export class MisterAvisosService implements OnModuleInit {
     for (const d of fase === 'lembrou' ? [] : destinos) {
       if (d === 'kds') feitas.push(await this.noKds(a, fase, em));
       else if (d === 'atendimento' && fase === 'abriu') feitas.push(await this.noAtendimento(a, em));
-      else if (d === 'tela' || d === 'dms') feitas.push({ destino: d, fase, em, ok: false, motivo: 'chega_na_proxima_entrega' });
+      // A tela da loja e o suporte da DMS (F1.4) leem o aviso aberto pela trilha: a entrega é a linha na trilha. A tela
+      // ainda recebe o aviso pelo tempo real (as telas abertas relêem na hora).
+      else if (d === 'tela' || d === 'dms') feitas.push({ destino: d, fase, em, ok: true });
     }
     if (feitas.length) await this.db.execute(sql`update mister_aviso set entregas = entregas || ${JSON.stringify(feitas)}::jsonb where id = ${a.id}::uuid`);
+    if (feitas.some((f) => f.destino === 'tela')) this.events?.emit('mister.avisos.mudou', { tenantId: a.tenantId });
     return feitas.filter((f) => f.ok).length;
   }
 

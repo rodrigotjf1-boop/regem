@@ -57,6 +57,7 @@ import { AtualizacaoAviso } from '@/components/ui/atualizacao-aviso';
 import { TotemAPagarAviso } from '@/components/pdv/totem-a-pagar-aviso';
 import { ClienteChegouAviso } from '@/components/pdv/cliente-chegou-aviso';
 import { AlertaDeAtendimento, SinoDoAtendimento } from '@/components/atendimento/alerta-de-atendimento';
+import { ChipDeAvisos, FaixaDeAvisos, LeitorDeAvisos } from '@/components/mister/faixa-de-avisos';
 import { useUiPrefs } from '@/hooks/use-ui-prefs';
 import { AccountMenu } from './account-menu';
 import { UnidadeSeletor } from './unidade-seletor';
@@ -493,6 +494,8 @@ export function Shell({
         <ClienteChegouAviso habilitado={!!cat && temPerm('delivery', perms, cat === 'presidente')} />
         {/* O alerta da central de atendimento vale em TODAS as telas (som e aviso de caso novo), com ou sem topo. */}
         <AlertaDeAtendimento ativo={!!cat && temPerm('pedidos', perms, cat === 'presidente')} />
+        {/* Os avisos do Mister na tela da loja (F1.4): para todos que estão logados; o servidor filtra a loja e o módulo. */}
+        <LeitorDeAvisos ativo={!!cat} />
         {!fill && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border px-5 py-2">
             {prefs.side === 'left' && burger}
@@ -517,11 +520,13 @@ export function Shell({
                 <Clock className="h-3.5 w-3.5" /> {rel}
               </span>
               {!!cat && temPerm('pedidos', perms, cat === 'presidente') && <SinoDoAtendimento />}
+              {!!cat && <ChipDeAvisos />}
               {actions}
               {prefs.side === 'right' && burger}
             </div>
           </div>
         )}
+        {!fill && !!cat && <FaixaDeAvisos />}
         {/* Modo fill (sem topbar): hambúrguer flutuante p/ o menu no mobile
             (some no desktop via .shell-burger). */}
         {fill && (
