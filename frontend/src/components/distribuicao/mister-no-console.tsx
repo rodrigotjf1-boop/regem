@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { distApi } from '@/lib/api';
 import { abrirCadastroDaMeta } from '@/lib/meta-sdk';
 import { QualidadeDoMister } from '@/components/distribuicao/qualidade-do-mister';
+import { SegurancaDoMister } from '@/components/distribuicao/seguranca-do-mister';
 
 // Console da distribuição → aba "Mister" (mig 417; só Diretoria). Protótipo aprovado: `mockups/regem-mister.html`, aba
 // "Console da distribuição". Três blocos: o NÚMERO do Mister (um só, da distribuição, para todas as empresas), a CHAVE
@@ -593,6 +594,8 @@ export function MisterNoConsole() {
       </section>
 
       <QualidadeDoMister />
+
+      <SegurancaDoMister />
 
       {dialogo === 'desconectar' && (
         <Confirmar

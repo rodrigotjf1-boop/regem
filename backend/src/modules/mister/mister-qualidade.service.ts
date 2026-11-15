@@ -3,8 +3,9 @@ import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { hojeISO, somarDias } from '../../common/data';
 import { PRECOS_LIDOS_EM, UsoDaChamada, custoEstimadoUsd } from '../ia/ia.regras';
-import { FERRAMENTA_DO_QUE_FALTA, RECURSO_DAS_PERGUNTAS } from './mister-agente.regras';
-import { motivosAgrupados, nomeDaConsultaNaQualidade, pct, periodoDaQualidade, temasAgrupados } from './mister-qualidade';
+import { FUSO_SQL } from '../../common/fuso-sql';
+import { FERRAMENTA_DO_QUE_FALTA, RECURSO_DAS_PERGUNTAS, ROTULO_DO_TEMA, temaDoQueFalta } from './mister-agente.regras';
+import { EntradaDoQueMelhorar, motivoNaQualidade, motivosAgrupados, nomeDaConsultaNaQualidade, padroesParaMelhorar, pct, periodoDaQualidade, temasAgrupados } from './mister-qualidade';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -67,11 +68,36 @@ export class MisterQualidadeService {
     // O que pediram e o Mister não tem, por tema (a pergunta conta uma vez em cada tema anotado).
     const temas = linhas(
       await this.db.execute(sql`
-        select f -> 'entrada' ->> 'tema' as tema, count(distinct p.id)::int as n
+        select f -> 'entrada' ->> 'tema' as tema, count(distinct p.id)::int as n, count(distinct p.tenant_id)::int as empresas
           from mister_pergunta p cross join lateral jsonb_array_elements(${ARRAY_DE_CONSULTAS}) f
          where ${doPeriodo} and f ->> 'nome' = ${FERRAMENTA_DO_QUE_FALTA}
          group by 1`),
     );
+    // Os motivos que são da empresa (a chave, a conta de IA), com a empresa quando é uma só — para o "o que melhorar".
+    const motivosDaEmpresa = linhas(
+      await this.db.execute(sql`
+        select p.motivo, count(*)::int as n, count(distinct p.tenant_id)::int as empresas,
+               case when count(distinct p.tenant_id) = 1 then min(emp.nome) end as empresa
+          from mister_pergunta p
+          join empresa emp on emp.id = p.tenant_id
+         where p.criado_em > ${desde} and p.situacao = 'falhou' and p.motivo in ('sem_chave', 'chave_recusada', 'sem_credito', 'teto_atingido')
+         group by p.motivo`),
+    );
+    // A última avaliação de regressão que terminou (F5.3) — a tabela pode ainda não existir.
+    let avaliacao: EntradaDoQueMelhorar['avaliacao'] = null;
+    try {
+      const [a] = linhas(
+        await this.db.execute(sql`
+          select to_char(iniciada_em at time zone ${FUSO_SQL}, 'DD/MM') as quando, acertos, total,
+                 (select jsonb_build_object('pergunta', c ->> 'pergunta', 'falha', c -> 'falhas' ->> 0)
+                    from jsonb_array_elements(casos) c where (c ->> 'ok')::boolean is false limit 1) as errada
+            from mister_avaliacao where situacao = 'terminou'
+           order by iniciada_em desc limit 1`),
+      );
+      if (a) avaliacao = { quando: String(a.quando), acertos: Number(a.acertos) || 0, total: Number(a.total) || 0, primeiraErrada: a.errada ? { pergunta: String(a.errada.pergunta ?? ''), falha: String(a.errada.falha ?? '') } : null };
+    } catch (e: any) {
+      if (!semTabela(e)) throw e;
+    }
     const porEmpresa = linhas(
       await this.db.execute(sql`
         select p.tenant_id::text as "tenantId", emp.nome as empresa, count(*)::int as perguntas,
@@ -136,6 +162,12 @@ export class MisterQualidadeService {
       semConsulta: Number(t?.sem_consulta) || 0,
       naoTem: { quantas: Number(t?.nao_tem) || 0, pct: pct(Number(t?.nao_tem) || 0, perguntas) },
       temas: temasAgrupados(temas.map((m) => ({ tema: m.tema, n: Number(m.n) || 0 }))),
+      melhorar: padroesParaMelhorar({
+        temas: temas.map((m) => ({ tema: ROTULO_DO_TEMA[temaDoQueFalta(m.tema)], quantas: Number(m.n) || 0, empresas: Number(m.empresas) || 0 })),
+        consultas: consultas.filter((c) => c.nome !== FERRAMENTA_DO_QUE_FALTA).map((c) => ({ nome: nomeDaConsultaNaQualidade(c.nome), vezes: Number(c.vezes) || 0, falhas: Number(c.falhas) || 0 })),
+        avaliacao,
+        motivosDaEmpresa: motivosDaEmpresa.map((m) => ({ motivo: motivoNaQualidade(m.motivo), quantas: Number(m.n) || 0, empresas: Number(m.empresas) || 0, empresa: m.empresa ? String(m.empresa) : null })),
+      }),
       empresas: Number(t?.empresas) || 0,
       pessoas: Number(t?.pessoas) || 0,
       tempo: t?.mediana === null || t?.mediana === undefined ? null : { medianaS: umaCasa(t.mediana), p90S: umaCasa(t.p90) },

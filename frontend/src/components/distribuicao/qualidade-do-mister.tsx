@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { distApi } from '@/lib/api';
 import { AvaliacaoDoMister } from './avaliacao-do-mister';
+import { OQueMelhorar } from './o-que-melhorar';
 
 // A QUALIDADE DO MISTER no console da distribuição (F5; protótipo mockups/regem-dependencias-e-qualidade.html, vista
 // "Console › Mister › Qualidade"). Só números das perguntas de todas as empresas: respondidas, "não tenho acesso", tempo,
@@ -19,6 +20,8 @@ type Qualidade = {
   /** F5.2 — opcionais: a API de antes do deploy não os traz. */
   naoTem?: { quantas: number; pct: number };
   temas?: { tema: string; quantas: number }[];
+  /** O Mentor, parte 1 — opcional pelo mesmo motivo. */
+  melhorar?: { causa: 'falta_consulta' | 'erro_na_consulta' | 'instrucao' | 'da_empresa'; observacao: string; porque: string; proposta: string }[];
   empresas: number;
   pessoas: number;
   tempo: { medianaS: number | null; p90S: number | null } | null;
@@ -165,6 +168,7 @@ export function QualidadeDoMister() {
             </ul>
           </div>
           <p className="text-xs text-slate-400">O custo é estimado pela tabela de preços lida em {doPeriodo.custo.precosLidosEm.split('-').reverse().join('/')}, a mesma da tela "IA e uso" de cada empresa.</p>
+          <OQueMelhorar padroes={doPeriodo.melhorar ?? []} dias={doPeriodo.dias} />
         </>
       )}
       {/* A avaliação de regressão (F5.3) não depende do período nem das perguntas das lojas: aparece sempre, com o
