@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Cardápio: pedido de entrega fora da área recusado antes de existir (15/11, ERR-470; SEM migration; não mexe no
+  `sync-daemon`).** Além da maior faixa de distância (ou sem bairro da lista), o `receberPedido` recusa com `FORA_DA_AREA` /
+  `BAIRRO_FORA_DA_AREA` / `ENDERECO_NAO_ENCONTRADO` antes de criar o pedido (logo, antes do Pix); a tela do cardápio trava a
+  etapa do endereço com a distância. A rota pública tira o campo interno `_sistema`. O cardápio online é da nuvem (já no ar
+  com o deploy); no servidor da loja vale **só no `.zip` 1.30.13**.
+
 - **A faixa "sem conexão com a nuvem" no servidor da loja (14/11, F1.4 — o alerta local; SEM migration; não mexe no
   `sync-daemon`).** Depois de 2 min com o envio falhando (ou 5 sem nenhum envio certo), todas as telas do servidor da loja
   mostram a faixa: a venda local continua; o iFood, a 99 e o cardápio digital não chegam; "O que conferir"; quando volta,

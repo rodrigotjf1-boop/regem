@@ -425,7 +425,7 @@ function Resumo({ c, completo }: { c: Cardapio; completo: boolean }) {
       {completo && entrega && (
         <div>
           <span>Entrega{c.bairroSel ? ` · ${c.bairroSel.nome}` : ''}</span>
-          <span className={!c.taxaPendente && c.taxa === 0 ? 'gr' : ''}>{c.taxaPendente ? 'a calcular' : c.taxa === 0 ? 'Grátis' : brl(c.taxa)}</span>
+          <span className={!c.taxaPendente && c.taxa === 0 ? 'gr' : ''}>{c.foraDaArea ? 'fora da área' : c.taxaPendente ? 'a calcular' : c.taxa === 0 ? 'Grátis' : brl(c.taxa)}</span>
         </div>
       )}
       {completo && !c.isServico && c.chk.tipo === 'retirada' && (

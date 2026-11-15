@@ -48,6 +48,8 @@ export type EstadoFalta = {
   isIndustria: boolean;
   /** Frete por distância (precisa de localização) em vez de bairro. */
   areaRaio: boolean;
+  /** Modo distância: o endereço passou da maior faixa (`foraDaAreaDoRaio`) — o pedido não sai. */
+  foraDaArea?: { km: number; ateKm: number } | null;
   temBairros: boolean;
   /** Loja fechada e este pedido não pode ser agendado: nada sai. */
   fechadaSemAgenda: boolean;
@@ -62,6 +64,21 @@ export type EstadoFalta = {
   pagamentos: string[];
   formasCartao: string[];
 };
+
+const umaCasa = (n: number) => (Math.round(n * 10) / 10).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
+
+/**
+ * Modo distância: o endereço está além da MAIOR faixa cadastrada? (ERR-470 — o pedido a ~119 km com frete R$ 0 saiu e foi
+ * pago no Pix.) A mesma regra do servidor (`backend/src/modules/cardapio/area-de-entrega.ts`), que recusa o pedido de
+ * qualquer jeito; aqui a tela diz antes. Sem faixa válida ou sem distância: null (a tela já pede a localização).
+ */
+export function foraDaAreaDoRaio(raios: unknown, km: number | null | undefined): { km: number; ateKm: number } | null {
+  if (km == null || !Number.isFinite(km)) return null;
+  const kms = (Array.isArray(raios) ? raios : []).map((r: any) => Number(r?.ateKm)).filter((n) => Number.isFinite(n) && n > 0);
+  if (!kms.length) return null;
+  const ateKm = Math.max(...kms);
+  return km > ateKm ? { km, ateKm } : null;
+}
 
 function faltaDados(s: EstadoFalta): Falta {
   if (s.mesaDireta) return null;
@@ -82,6 +99,12 @@ function faltaEntrega(s: EstadoFalta): Falta {
       }
       if (!String(c.rua ?? '').trim()) return { campo: 'rua', mensagem: 'Informe a rua' };
       if (s.areaRaio && !(c.lat && c.lng)) return { campo: 'localizacao', mensagem: 'Use sua localização para calcular o frete' };
+      if (s.areaRaio && s.foraDaArea) {
+        return {
+          campo: 'localizacao',
+          mensagem: `Não entregamos nesse endereço: ele fica a ~${umaCasa(s.foraDaArea.km)} km, e a entrega vai até ${umaCasa(s.foraDaArea.ateKm)} km`,
+        };
+      }
     }
   }
   if (s.precisaAgendar && !c.agendamento) {
