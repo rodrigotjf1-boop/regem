@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O Relatório das Ordens de produção sem barra lateral (15/11, ERR-476 parte 2; SEM migration; só tela).** A tabela
+  planejado × produzido passou para a lista do modelo do Estoque (tabela na tela larga, cartões no resto). Na nuvem vale
+  com o merge; no servidor da loja, com o `.zip`.
+
 - **Formas de pagamento e Relatórios de entrega sem barra lateral (15/11, ERR-476; SEM migration; só tela).** As duas
   tabelas viram cartões quando não cabem, e o cartão de pagamento online quebra a linha. Na nuvem vale com o merge; no
   servidor da loja, com o `.zip`.
