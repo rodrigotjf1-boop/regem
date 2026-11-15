@@ -2489,6 +2489,9 @@ export const api = {
     req(`/vagas/candidatos/${id}/anotacao`, { method: 'POST', body: JSON.stringify({ texto }) }),
   vagasEntrevista: (id: string, quando: string) =>
     req(`/vagas/candidatos/${id}/entrevista`, { method: 'POST', body: JSON.stringify({ quando }) }),
+  // F4: Contratar — cria o colaborador com o que a ficha tem (precisa também da permissão de Cadastros).
+  vagasContratar: (id: string) =>
+    req(`/vagas/candidatos/${id}/contratar`, { method: 'POST', body: '{}' }) as Promise<{ ok: boolean; colaboradorId: string; funcao: string | null; funcaoAchada: boolean; vinculo: string; jornadaTipo: string }>,
   // F2: medir de novo a distância até a loja (o mapa auto-hospedado) — devolve { km, minutos, falha, medindo, em }
   vagasMedirDistancia: (id: string) => req(`/vagas/candidatos/${id}/distancia`, { method: 'POST' }),
   vagasApagar: (id: string) => req(`/vagas/candidatos/${id}`, { method: 'DELETE' }),
