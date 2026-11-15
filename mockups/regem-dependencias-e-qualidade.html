@@ -383,16 +383,16 @@ button,input,select,textarea{font:inherit;color:inherit}
       </div>
       <div class="faixa" id="faixa-sem" role="status">
         <div class="txt">
-          <div class="t" id="faixa-sem-t">📡 O servidor da loja está sem internet há 12 min</div>
-          <div class="d" id="faixa-sem-d">A venda no balcão, nas mesas e na cozinha continua normal e sobe para a nuvem quando a internet voltar. Enquanto isso, os pedidos do iFood, da 99 e do cardápio digital não chegam, e o Mister não manda avisos pelo WhatsApp.</div>
+          <div class="t" id="faixa-sem-t">📡 O servidor da loja está sem conexão com a nuvem há 12 min</div>
+          <div class="d" id="faixa-sem-d">Em geral é a internet da loja. A venda no balcão, nas mesas e na cozinha continua normal e sobe para a nuvem quando a conexão voltar. Enquanto isso, os pedidos do iFood, da 99 e do cardápio digital não chegam, e o Mister não manda avisos pelo WhatsApp.</div>
         </div>
         <div class="acoes" id="faixa-sem-acoes"><button type="button" class="btn">O que conferir</button></div>
       </div>
       <div class="pagina">
         <div class="ctls" role="group" aria-label="Situação do protótipo">
           Situação do protótipo:
-          <button type="button" class="ctl" data-sem="sem" aria-pressed="true">sem internet</button>
-          <button type="button" class="ctl" data-sem="voltou" aria-pressed="false">a internet voltou</button>
+          <button type="button" class="ctl" data-sem="sem" aria-pressed="true">sem conexão</button>
+          <button type="button" class="ctl" data-sem="voltou" aria-pressed="false">a conexão voltou</button>
           <button type="button" class="ctl" data-sem="normal" aria-pressed="false">normal</button>
         </div>
         <div class="cartao">
@@ -407,7 +407,8 @@ button,input,select,textarea{font:inherit;color:inherit}
         </div>
         <div class="cartao">
           <h2>No ícone "Regem neste PC" (bandeja do Windows)</h2>
-          <div class="bandeja" id="bandeja"><b>Regem · servidor da loja</b><span id="bandeja-t">Sem internet há 12 min · a venda local continua</span></div>
+          <p class="sub">Fica para o próximo <code>.exe</code>: o <code>.zip</code> não troca o ícone da bandeja. O indicador "Servidor da loja" do topo não muda — ele mostra a conexão deste PC com o servidor.</p>
+          <div class="bandeja" id="bandeja"><b>Regem · servidor da loja</b><span id="bandeja-t">Sem conexão com a nuvem há 12 min · a venda local continua</span></div>
         </div>
       </div>
     </div>
@@ -434,7 +435,7 @@ button,input,select,textarea{font:inherit;color:inherit}
         <li><b>Quem fica sabendo:</b> a mudança "a conferir" também vira aviso na aba Avisos do console (destino Suporte da DMS). Nada vai para as lojas.</li>
         <li><b>Qualidade sem o texto das lojas:</b> o console vê só os números de cada pergunta. Para saber de que assunto são as perguntas sem resposta, o Mister marca cada uma com um assunto de uma lista fechada (estoque, financeiro, equipe, cardápio, outro), sem guardar o texto para a DMS.</li>
         <li><b>A avaliação de regressão:</b> 40 perguntas fixas, guardadas no código e protegidas, rodando numa empresa de teste com dados inventados e com a chave da DMS; resultado por regra (sem a IA julgando a si mesma). Roda pelo botão e antes de publicar mudança nas instruções.</li>
-        <li><b>A faixa "Sem internet":</b> aparece em todas as telas do servidor da loja depois de 2 minutos sem falar com a nuvem; some sozinha quando a internet volta, com "✅ voltou" por 1 minuto. O ícone da bandeja muda junto. Não bloqueia nada. Vai no <code>.zip</code>.</li>
+        <li><b>A faixa "sem conexão com a nuvem":</b> aparece em todas as telas do servidor da loja depois de 2 minutos com o envio falhando (ou 5 sem nenhum envio certo); some sozinha quando a conexão volta, com "✅ voltou" por 1 minuto. Não bloqueia nada. Vai no <code>.zip</code>; o ícone da bandeja muda no <code>.exe</code> seguinte. <span class="sub">Já implementada com esta recomendação (#993), enquanto o dono estava fora; muda fácil se ele preferir outra.</span></li>
       </ol>
     </div>
     <div class="cartao">
@@ -481,9 +482,9 @@ button,input,select,textarea{font:inherit;color:inherit}
 
   // 3) Sem internet.
   const sem = {
-    sem: { faixa: true, ok: false, t: '📡 O servidor da loja está sem internet há 12 min', d: 'A venda no balcão, nas mesas e na cozinha continua normal e sobe para a nuvem quando a internet voltar. Enquanto isso, os pedidos do iFood, da 99 e do cardápio digital não chegam, e o Mister não manda avisos pelo WhatsApp.', ind: 'Sem internet', band: 'Sem internet há 12 min · a venda local continua' },
-    voltou: { faixa: true, ok: true, t: '✅ A internet voltou · ficou 14 min fora', d: '23 vendas subiram para a nuvem. Os pedidos do iFood, da 99 e do cardápio voltaram a chegar.', ind: 'Servidor da loja', band: 'Conectado · a internet voltou há 1 min' },
-    normal: { faixa: false, ind: 'Servidor da loja', band: 'Conectado' },
+    sem: { faixa: true, ok: false, t: '📡 O servidor da loja está sem conexão com a nuvem há 12 min', d: 'Em geral é a internet da loja. A venda no balcão, nas mesas e na cozinha continua normal e sobe para a nuvem quando a conexão voltar. Enquanto isso, os pedidos do iFood, da 99 e do cardápio digital não chegam, e o Mister não manda avisos pelo WhatsApp.', band: 'Sem conexão com a nuvem há 12 min · a venda local continua' },
+    voltou: { faixa: true, ok: true, t: '✅ A conexão com a nuvem voltou · ficou 12 min fora', d: 'Os pedidos do iFood, da 99 e do cardápio voltaram a chegar, e o que foi vendido aqui já está subindo para a nuvem.', band: 'Conectado · a conexão voltou há 1 min' },
+    normal: { faixa: false, band: 'Conectado' },
   };
   $$('[data-sem]').forEach((b) => b.addEventListener('click', () => {
     marcar('sem', b);
@@ -491,12 +492,8 @@ button,input,select,textarea{font:inherit;color:inherit}
     $('#faixa-sem').hidden = !e.faixa;
     $('#faixa-sem').classList.toggle('ok', !!e.ok);
     if (e.faixa) { $('#faixa-sem-t').textContent = e.t; $('#faixa-sem-d').textContent = e.d; $('#faixa-sem-acoes').hidden = !!e.ok; }
-    $('#ind-servidor').classList.toggle('sem', b.dataset.sem === 'sem');
-    $('#ind-texto').textContent = e.ind;
     $('#bandeja-t').textContent = e.band;
   }));
-  $('#ind-servidor').classList.add('sem');
-  $('#ind-texto').textContent = 'Sem internet';
 
   // A gaveta: abre pelo botão, fecha no ✕, no fundo e no Esc; o foco volta para quem abriu.
   let quemAbriu = null;
