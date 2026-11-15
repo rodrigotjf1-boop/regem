@@ -55,6 +55,12 @@
   etapa do endereço com a distância. A rota pública tira o campo interno `_sistema`. O cardápio online é da nuvem (já no ar
   com o deploy); no servidor da loja vale **só no `.zip` 1.30.13**.
 
+- **O GoGeM entra na autorização por clique do Regem: o totem, que lança venda (15/11, F6 do hub; SEM migration; não mexe
+  no `sync-daemon`; nasce parado).** Na NUVEM com o merge: a ficha do GoGeM no clique e o guarda das cinco rotas do totem
+  aceitando a ligação (token do DMS ID + `DMS-Ligacao`); pelo acesso de integração, a pausa só no canal do totem. Nada
+  muda até o GoGeM pedir pelo clique. **No `.zip`:** o guarda e o controlador da pausa vão junto, mas no servidor da loja
+  nada muda (lá só vale o `X-Sync-Token`, e a ligação é só da nuvem). Nada no `.exe`.
+
 - **O RegemCast entra na autorização por clique do Regem: a empresa inteira (15/11, F6 do hub; migration 426, SÓ NUVEM;
   não mexe no `sync-daemon`; nasce parado).** Na NUVEM com o merge: a ficha do RegemCast no clique, a página com o bloco
   "A empresa inteira", a troca que entrega uma ligação sem loja e o e-mail "autorizado na empresa"; o manifesto público
