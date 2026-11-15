@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regem · segurança e melhoria do Mister</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* REGEM · DEPENDÊNCIAS, QUALIDADE DO MISTER E LOJA SEM INTERNET — versão 1, A APROVAR (14/11/2026). docs/plano-mister.md:
+   F3 parte 2 (vigilância das documentações e dos contratos das integrações), F5 (a linha de base da qualidade e a
+   avaliação de regressão do Mister) e F1.4 (o alerta local sem internet, a única parte da F1 que pede `.zip`).
+   1. Console da distribuição › Dependências: as fontes oficiais de cada integração que o Regem usa, a última conferência,
+      o que mudou (com a versão anterior guardada), "não verificado desde" quando a fonte não responde, e a tarefa.
+   2. Console da distribuição › Mister › Qualidade: os números das perguntas (só metadados — nunca o texto das lojas) e a
+      avaliação de regressão (perguntas fixas numa empresa de teste, com a chave da DMS).
+   3. Na loja: a faixa "Sem internet" que o PRÓPRIO servidor da loja mostra quando para de falar com a nuvem.
+   Onde a tela real difere, de propósito: os botões "Situação do protótipo" trocam os estados; nomes, versões, datas e
+   números são inventados (exceto a versão da Graph API e o modelo do Mister, que são os do código em 14/11); o console é
+   escuro como o de verdade. */
+:root{
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --gold-ink:#7A5209; --gold-bg:#FFF9EC; --navy:#0F2230;
+  --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9; --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8;
+  --neutro:#43586C; --neutro-bg:#EAEFF4; --foco:#3A7FB8;
+  --proto:#0B1822; --proto-txt:#C9D5DF; --proto-txt2:#8FA3B4; --proto-linha:#2A3B4A;
+  --d-bg:#020617; --d-card:#0B1324; --d-linha:#1E293B; --d-txt:#F1F5F9; --d-txt2:#94A3B8; --d-ambar:#F59E0B; --d-ok:#34D399; --d-crit:#F87171; --d-azul:#7CC0F5;
+  --radius:12px; --display:"Archivo","Segoe UI",system-ui,sans-serif; --body:"Figtree","Segoe UI",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font:15px/1.5 var(--body);background:var(--bg);color:var(--ink);overflow-x:hidden}
+[hidden]{display:none!important}
+h1,h2,h3,h4{font-family:var(--display);margin:0;text-wrap:balance}
+h1{font-size:24px;line-height:1.15} h2{font-size:18px} h3{font-size:16px}
+p{margin:0 0 10px;overflow-wrap:anywhere} p:last-child{margin-bottom:0}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--foco);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.sub{color:var(--ink-2)} .peq{font-size:13.5px}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+
+/* faixa do protótipo */
+.proto{background:var(--proto);color:var(--proto-txt);padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.proto .titulo{font-family:var(--display);font-weight:700;color:#fff}
+.abas{display:flex;flex-wrap:wrap;gap:6px}
+.aba{background:transparent;border:1px solid var(--proto-linha);color:var(--proto-txt);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:36px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.proto .nota{font-size:12.5px;color:var(--proto-txt2);flex:1 1 220px;min-width:0}
+.proto :focus-visible{outline-color:var(--d-azul)}
+.vista{display:none} .vista.ativa{display:block}
+.ctls{border:1px dashed var(--line-2);background:#FFFBF0;border-radius:10px;padding:8px 12px;margin:0 0 14px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px;color:var(--gold-ink)}
+.ctl{background:#fff;border:1px solid var(--line-2);padding:4px 10px;border-radius:999px;cursor:pointer;min-height:32px;color:var(--ink)}
+.ctl[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+
+/* casca do app da loja */
+.app{display:grid;grid-template-columns:230px minmax(0,1fr);min-height:80vh}
+.lado{background:var(--navy);color:#C9D5DF;padding:16px 12px}
+.marca{font-family:var(--display);font-weight:800;color:#fff;font-size:18px;padding:4px 8px 14px}
+.lado ul{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.lado li{padding:8px 10px;border-radius:8px}
+.lado li.atual{background:rgba(232,168,69,.18);color:#fff;box-shadow:inset 3px 0 0 var(--gold);font-weight:600}
+.principal{min-width:0;container-type:inline-size;container-name:principal}
+.topo{background:#fff;border-bottom:1px solid var(--line);padding:10px 20px;display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;justify-content:space-between}
+.onde{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--gold-ink)}
+.topo-dir{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.quem{font-size:13.5px;color:var(--ink-2)}
+.indicador{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:4px 10px;border-radius:999px;border:1px solid var(--line-2);background:#fff;font-size:13px;font-weight:600;white-space:nowrap}
+.indicador .bola{width:9px;height:9px;border-radius:50%;background:var(--ok)}
+.indicador.sem{border-color:#EBC7B0;background:var(--warn-bg);color:#6F3410}
+.indicador.sem .bola{background:#C77A2E}
+.pagina{padding:20px;max-width:1160px}
+
+/* a faixa local */
+.faixa{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;background:#fff;border:1px solid #EBC7B0;border-left:5px solid #C77A2E;border-radius:10px;padding:10px 12px;margin:14px 20px 0}
+.faixa.ok{border-color:#B5DCC8;border-left-color:var(--ok)}
+.faixa .txt{flex:1 1 320px;min-width:0}
+.faixa .t{font-weight:700}
+.faixa .d{font-size:13.5px;color:var(--ink-2)}
+
+/* peças */
+.cartao{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;min-width:0}
+.cartao > h2,.cartao > h3{margin-bottom:6px}
+.selo{display:inline-block;font-size:12.5px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.selo.ok{background:var(--ok-bg);color:var(--ok)} .selo.crit{background:var(--crit-bg);color:var(--crit)}
+.selo.warn{background:var(--warn-bg);color:var(--warn)} .selo.neutro{background:var(--neutro-bg);color:var(--neutro)}
+.btn{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:10px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink);white-space:nowrap}
+.btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.grade-venda{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.item-venda{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px;min-height:74px}
+.item-venda b{display:block}
+.bandeja{display:inline-flex;flex-direction:column;gap:4px;background:#1F2933;color:#E5EAF0;border-radius:10px;padding:10px 12px;font-size:13px;max-width:100%}
+.bandeja b{color:#fff}
+
+/* console da distribuição (escuro) */
+.console{background:var(--d-bg);color:var(--d-txt);padding:20px;min-height:80vh;container-type:inline-size;container-name:console}
+.console :focus-visible{outline-color:var(--d-azul)}
+.d-sobre{font:700 11.5px var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--d-ambar)}
+.d-nav{display:flex;flex-wrap:wrap;gap:2px 4px;border-bottom:1px solid var(--d-linha);margin:12px 0 18px}
+.d-nav span{padding:8px 12px;color:var(--d-txt2);border-bottom:2px solid transparent}
+.d-nav span.atual{color:var(--d-ambar);border-bottom-color:var(--d-ambar);font-weight:600}
+.d-partes{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px}
+.d-parte{background:transparent;border:1px solid #334155;color:var(--d-txt2);padding:6px 12px;border-radius:999px;min-height:36px;font-weight:600}
+.d-parte.atual{background:#1E293B;color:var(--d-txt);border-color:#475569}
+.d-sub{color:var(--d-txt2);font-size:13px;margin:2px 0 12px;max-width:80ch}
+.d-situacoes{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.d-sit{background:transparent;border:1px solid #334155;color:var(--d-txt2);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:38px;font-weight:600}
+.d-sit b{font-family:var(--mono);margin-left:4px}
+.d-sit[aria-pressed="true"]{background:var(--d-ambar);border-color:var(--d-ambar);color:#231803}
+.d-filtros{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.d-busca,.d-select{border:1px solid #334155;background:#0F172A;color:var(--d-txt);border-radius:8px;padding:8px 12px;min-height:40px;min-width:0}
+.d-busca{width:min(320px,100%)}
+.d-btn{background:transparent;border:1px solid #334155;color:var(--d-txt);padding:8px 14px;border-radius:8px;cursor:pointer;min-height:40px;font-weight:600;white-space:nowrap}
+.d-btn.pri{background:var(--d-ambar);border-color:var(--d-ambar);color:#231803}
+.d-selo{display:inline-block;font-size:12px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap}
+.d-selo.ok{background:rgba(16,185,129,.15);color:var(--d-ok)} .d-selo.crit{background:rgba(248,113,113,.15);color:var(--d-crit)}
+.d-selo.warn{background:rgba(245,158,11,.15);color:#FBBF24} .d-selo.neutro{background:rgba(148,163,184,.15);color:var(--d-txt2)}
+.d-tab{width:100%;border-collapse:collapse;border:1px solid var(--d-linha)}
+.d-tab th{background:#0F172A;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--d-txt2);text-align:left;padding:8px 10px}
+.d-tab td{padding:10px;border-top:1px solid var(--d-linha);vertical-align:top;overflow-wrap:anywhere}
+.d-tab td:last-child{width:1%;white-space:nowrap}
+.d-tab .quem-usa{color:var(--d-txt2);font-size:13px}
+.d-vazio{border:1px dashed #334155;border-radius:10px;padding:22px 12px;text-align:center;color:var(--d-txt2)}
+.d-cartao{background:var(--d-card);border:1px solid var(--d-linha);border-radius:12px;padding:16px;margin-bottom:12px;min-width:0}
+.d-cartao h3{margin-bottom:6px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:12px}
+.kpi{background:var(--d-card);border:1px solid var(--d-linha);border-radius:12px;padding:12px 14px;min-width:0}
+.kpi .r{font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--d-txt2)}
+.kpi .v{font:700 24px var(--mono);margin-top:2px}
+.kpi .n{font-size:12.5px;color:var(--d-txt2)}
+.duas{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.barras{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.barras li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;align-items:center}
+.barras .nome{min-width:0;overflow-wrap:anywhere}
+.barras .num{font-family:var(--mono);color:var(--d-txt2)}
+.barras .trilho{grid-column:1 / -1;height:8px;border-radius:4px;background:#1E293B;overflow:hidden}
+.barras .trilho span{display:block;height:100%;background:var(--d-ambar)}
+@container console (max-width: 820px){
+  .d-tab{border:0}
+  .d-tab thead{display:none}
+  .d-tab,.d-tab tbody,.d-tab tr,.d-tab td{display:block;width:100%}
+  .d-tab tr{border:1px solid var(--d-linha);border-radius:10px;padding:10px 12px;margin-bottom:10px;background:var(--d-card)}
+  .d-tab td{padding:4px 0;border:0}
+  .d-tab td:last-child{width:100%}
+  .d-tab td[data-rot]::before{content:attr(data-rot);display:block;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--d-txt2)}
+  .d-tab td .d-btn{width:100%}
+}
+
+/* gaveta (escura, do console) */
+.fundo{position:fixed;inset:0;background:rgba(2,6,23,.6);z-index:40;display:none}
+.fundo.aberto{display:block}
+.gaveta{position:fixed;top:0;right:0;bottom:0;width:min(560px,100%);background:var(--d-card);color:var(--d-txt);z-index:41;display:none;flex-direction:column;box-shadow:-8px 0 24px rgba(0,0,0,.45);border-left:1px solid var(--d-linha)}
+.gaveta.aberto{display:flex}
+.gaveta :focus-visible{outline-color:var(--d-azul)}
+.pn-cab{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:14px 18px;border-bottom:1px solid var(--d-linha)}
+.pn-corpo{padding:18px;overflow:auto;flex:1;min-height:0}
+.pn-rodape{padding:12px 18px;border-top:1px solid var(--d-linha);display:flex;flex-wrap:wrap;gap:8px}
+.fechar{background:transparent;border:0;font-size:18px;cursor:pointer;min-width:40px;min-height:40px;border-radius:8px;color:var(--d-txt)}
+.bloco{margin-bottom:16px}
+.bloco h4{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--d-txt2);margin-bottom:6px}
+.bloco ul{margin:0;padding-left:18px} .bloco li{margin-bottom:4px}
+.antes-depois{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
+.antes-depois div{border:1px solid var(--d-linha);border-radius:8px;padding:10px;font-size:13px;min-width:0;overflow-wrap:anywhere}
+.antes-depois .r{font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--d-txt2);display:block;margin-bottom:4px}
+.campo{display:grid;gap:4px;margin-bottom:10px}
+.campo label{font-size:13px;color:var(--d-txt2)}
+.campo select,.campo input,.campo textarea{border:1px solid #334155;background:#0F172A;color:var(--d-txt);border-radius:8px;padding:8px 10px;min-height:40px;width:100%}
+.d-link{color:var(--d-azul)}
+
+/* notas */
+.notas{padding:20px;max-width:1000px;margin-inline:auto}
+.notas .cartao ul,.notas .cartao ol{margin:6px 0 0;padding-left:20px} .notas .cartao li{margin-bottom:5px}
+
+@media (max-width: 760px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  .lado{display:none}
+  .pagina{padding:14px}
+  .faixa{margin:12px 14px 0}
+  .topo{padding:10px 14px}
+  .console{padding:14px}
+}
+</style>
+</head>
+<body>
+
+<style>.d-tab td.proposta{white-space:normal;width:30%} @container console (max-width: 820px){.d-tab td.proposta{width:100%}}</style>
+<div class="proto" role="region" aria-label="Controles do protótipo">
+  <span class="titulo">Segurança e melhoria do Mister · protótipo</span>
+  <div class="abas" role="group" aria-label="O que ver">
+    <button class="aba" type="button" data-vista="seg" aria-pressed="true">Console › Mister › Segurança</button>
+    <button class="aba" type="button" data-vista="mel" aria-pressed="false">Console › Mister › O que melhorar</button>
+    <button class="aba" type="button" data-vista="notas" aria-pressed="false">Notas e decisões</button>
+  </div>
+  <span class="nota">Os botões tracejados de "Situação do protótipo" trocam o estado da tela; não existem no app.</span>
+</div>
+
+<!-- ───────────── 1. CONSOLE › MISTER › SEGURANÇA (o Sentinela, parte 1) ───────────── -->
+<section class="vista ativa" id="v-seg" aria-label="Console da distribuição, Mister, parte Segurança">
+  <div class="console">
+    <div class="d-sobre">Console da distribuição</div>
+    <h1>Mister · segurança</h1>
+    <div class="d-nav" aria-label="Abas do console (ilustração)"><span>Frota</span><span>Telemetria</span><span>Licenças</span><span>Atualizações</span><span>Integrações</span><span>Dependências</span><span class="atual">Mister</span><span>Avisos</span><span>Auditoria</span><span>Usuários</span></div>
+    <div class="d-partes" aria-label="Partes do Mister no console (ilustração)"><span class="d-parte">Número</span><span class="d-parte">Modelos de mensagem</span><span class="d-parte">Empresas</span><span class="d-parte">Qualidade</span><span class="d-parte atual">Segurança <span class="sr">(parte nova)</span></span></div>
+    <div class="ctls" role="group" aria-label="Situação do protótipo">
+      Situação do protótipo:
+      <button type="button" class="ctl" data-seg="dados" aria-pressed="true">com eventos</button>
+      <button type="button" class="ctl" data-seg="vazio" aria-pressed="false">nada no período</button>
+      <button type="button" class="ctl" data-seg="erro" aria-pressed="false">erro</button>
+    </div>
+    <p class="d-sub">O que as proteções do Mister barraram ou recusaram, em todas as empresas. Só contagens: nunca o telefone, o texto da mensagem, o código digitado ou o que a consulta trouxe. As proteções agem sozinhas no servidor; esta parte mostra o que elas fizeram.</p>
+    <div id="seg-dados">
+      <div class="d-situacoes" role="group" aria-label="Período">
+        <button type="button" class="d-sit" aria-pressed="true">7 dias</button>
+        <button type="button" class="d-sit" aria-pressed="false">30 dias</button>
+      </div>
+      <div class="d-cartao" role="note" style="border-left:4px solid #E2A340">
+        <h3>Pede atenção · 2</h3>
+        <ul style="margin:6px 0 0;padding-left:18px">
+          <li><b>1 resposta saiu sem algo parecido com uma chave de acesso</b> (o filtro de saída tirou). Conferir qual consulta trouxe esse dado: <span class="mono">canais e integracoes</span>, Pizzaria do Porto, 13/11 21:04.</li>
+          <li><b>1 telefone foi calado por 1 hora</b> depois de 5 códigos errados seguidos para ligar ao Mister.</li>
+        </ul>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><div class="r">Segredo barrado na resposta</div><div class="v">1</div><div class="n">o filtro tirou antes de sair</div></div>
+        <div class="kpi"><div class="r">Código errado para ligar</div><div class="v">14</div><div class="n">de 3 telefones · 1 calado por 1 h</div></div>
+        <div class="kpi"><div class="r">Número de outra pessoa</div><div class="v">2</div><div class="n">o código era de outro telefone</div></div>
+        <div class="kpi"><div class="r">Telefone não ligado</div><div class="v">9</div><div class="n">de 6 telefones · recebeu a resposta fixa</div></div>
+        <div class="kpi"><div class="r">Limite de perguntas</div><div class="v">1</div><div class="n">uma pessoa chegou às 80 em 24 h</div></div>
+      </div>
+      <div class="duas">
+        <div class="d-cartao">
+          <h3>Na saída · o filtro das respostas</h3>
+          <ul class="barras">
+            <li><span class="nome">link tirado</span><span class="num">3</span><span class="trilho"><span style="width:100%"></span></span></li>
+            <li><span class="nome">valor em reais sem origem (anotado)</span><span class="num">2</span><span class="trilho"><span style="width:67%"></span></span></li>
+            <li><span class="nome">segredo tirado</span><span class="num">1</span><span class="trilho"><span style="width:33%"></span></span></li>
+            <li><span class="nome">resposta cortada pelo tamanho</span><span class="num">1</span><span class="trilho"><span style="width:33%"></span></span></li>
+          </ul>
+        </div>
+        <div class="d-cartao">
+          <h3>Na entrada · quem tenta falar com o Mister</h3>
+          <ul class="barras">
+            <li><span class="nome">telefone não ligado (resposta fixa)</span><span class="num">9</span><span class="trilho"><span style="width:100%"></span></span></li>
+            <li><span class="nome">código que não vale</span><span class="num">11</span><span class="trilho"><span style="width:100%"></span></span></li>
+            <li><span class="nome">códigos demais · calado por 1 h</span><span class="num">3</span><span class="trilho"><span style="width:27%"></span></span></li>
+            <li><span class="nome">perdeu o acesso e escreveu</span><span class="num">4</span><span class="trilho"><span style="width:36%"></span></span></li>
+            <li><span class="nome">número de outra pessoa</span><span class="num">2</span><span class="trilho"><span style="width:18%"></span></span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="d-cartao">
+        <h3>Por empresa</h3>
+        <p class="d-sub" style="margin-top:0">Só o que se sabe de quem é. O telefone não ligado e o código que não vale não têm empresa: ficam só no total.</p>
+        <table class="d-tab">
+          <caption class="sr">Eventos de segurança por empresa nos últimos 7 dias</caption>
+          <thead><tr><th>Empresa</th><th>Filtro de saída</th><th>Perdeu o acesso</th><th>Outra pessoa</th><th>Limite</th></tr></thead>
+          <tbody>
+            <tr><td data-rot="Empresa">Pizzaria do Porto</td><td data-rot="Filtro de saída" class="mono">4 · <span class="d-selo crit">1 segredo</span></td><td data-rot="Perdeu o acesso" class="mono">3</td><td data-rot="Outra pessoa" class="mono">0</td><td data-rot="Limite" class="mono">0</td></tr>
+            <tr><td data-rot="Empresa">Burger da Praça</td><td data-rot="Filtro de saída" class="mono">3</td><td data-rot="Perdeu o acesso" class="mono">1</td><td data-rot="Outra pessoa" class="mono">2</td><td data-rot="Limite" class="mono">1</td></tr>
+            <tr><td data-rot="Empresa">Empório Sabor da Serra Comércio de Alimentos e Bebidas Artesanais Ltda</td><td data-rot="Filtro de saída" class="mono">0</td><td data-rot="Perdeu o acesso" class="mono">0</td><td data-rot="Outra pessoa" class="mono">0</td><td data-rot="Limite" class="mono">0</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div id="seg-vazio" hidden><div class="d-vazio">Nada barrado ou recusado neste período.</div></div>
+    <div id="seg-erro" hidden><div class="d-cartao" role="alert">Não consegui carregar a segurança do Mister. <button type="button" class="d-btn">Tentar de novo</button></div></div>
+  </div>
+</section>
+
+<!-- ───────────── 2. CONSOLE › MISTER › O QUE MELHORAR (o Mentor, parte 1) ───────────── -->
+<section class="vista" id="v-mel" aria-label="Console da distribuição, Mister, parte O que melhorar">
+  <div class="console">
+    <div class="d-sobre">Console da distribuição</div>
+    <h1>Mister · o que melhorar</h1>
+    <div class="d-nav" aria-label="Abas do console (ilustração)"><span>Frota</span><span>Telemetria</span><span>Licenças</span><span>Atualizações</span><span>Integrações</span><span>Dependências</span><span class="atual">Mister</span><span>Avisos</span><span>Auditoria</span><span>Usuários</span></div>
+    <div class="d-partes" aria-label="Partes do Mister no console (ilustração)"><span class="d-parte">Número</span><span class="d-parte">Modelos de mensagem</span><span class="d-parte">Empresas</span><span class="d-parte atual">Qualidade</span><span class="d-parte">Segurança</span></div>
+    <div class="ctls" role="group" aria-label="Situação do protótipo">
+      Situação do protótipo:
+      <button type="button" class="ctl" data-mel="dados" aria-pressed="true">com padrões</button>
+      <button type="button" class="ctl" data-mel="vazio" aria-pressed="false">nada a melhorar</button>
+    </div>
+    <p class="d-sub">Um cartão novo no fim da Qualidade. Ele junta os números da própria página — o que faltou, as consultas que não leram, a última avaliação — e separa, para cada padrão, a observação, a causa provável e a proposta. Nada muda sozinho: a proposta vira tarefa do time, e mudança nas instruções só sai com a avaliação de regressão passando.</p>
+    <div id="mel-dados">
+      <div class="d-cartao">
+        <h3>O que melhorar · 4 padrões nos últimos 7 dias</h3>
+        <table class="d-tab">
+          <caption class="sr">Os padrões encontrados, com a observação, a causa provável e a proposta</caption>
+          <thead><tr><th>Observação</th><th>Causa provável</th><th>Proposta</th></tr></thead>
+          <tbody>
+            <tr><td data-rot="Observação"><b>"Estoque e compras" faltou 8 vezes</b>, em 3 empresas (o que mais faltou)</td><td data-rot="Causa provável"><span class="d-selo warn">falta consulta</span> nenhuma consulta traz compras e contas a pagar</td><td data-rot="Proposta" class="proposta">Consulta nova de compras do estoque · abrir tarefa</td></tr>
+            <tr><td data-rot="Observação"><b>"historia do pedido" não leu 5 vezes</b>, de 37 (14%)</td><td data-rot="Causa provável"><span class="d-selo crit">erro na consulta</span> a mesma consulta falhando mais de 10%</td><td data-rot="Proposta" class="proposta">Ver o log das 5 falhas · abrir tarefa</td></tr>
+            <tr><td data-rot="Observação"><b>A avaliação de 14/11 errou 2 de 40</b>: "Quanto vendi no iFood ontem?" sem separar o canal</td><td data-rot="Causa provável"><span class="d-selo warn">instrução</span> a consulta trouxe o dado, a resposta não usou</td><td data-rot="Proposta" class="proposta">Ajustar a instrução sobre os canais e rodar a avaliação de novo</td></tr>
+            <tr><td data-rot="Observação"><b>"A chave de IA da empresa foi recusada" em 6 perguntas</b>, todas da Pizzaria do Porto</td><td data-rot="Causa provável"><span class="d-selo">da empresa</span> não é do Mister: a chave dela parou</td><td data-rot="Proposta" class="proposta">Nada nas instruções · o aviso da chave já vai ao presidente dela</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div id="mel-vazio" hidden><div class="d-vazio">Nenhum padrão a melhorar neste período.</div></div>
+  </div>
+</section>
+
+<!-- ───────────── 3. NOTAS E DECISÕES ───────────── -->
+<section class="vista" id="v-notas" aria-label="Notas e decisões">
+  <div class="notas">
+    <div class="cartao">
+      <h2>O que este protótipo resolve</h2>
+      <ul>
+        <li><b>Segurança (o Sentinela do seu prompt, parte 1):</b> as proteções do Mister já agem no servidor — o filtro tira segredo e link da resposta, o código errado demais cala o telefone, quem perdeu o acesso não é atendido. Mas ninguém fica sabendo quando elas agem. Esta parte mostra o que foi barrado, só com contagens.</li>
+        <li><b>O que melhorar (o Mentor do seu prompt, parte 1):</b> a Qualidade já tem os números (o que faltou, as consultas que falham, a avaliação). O Mentor junta e separa a observação, a causa provável e a proposta — "um padrão pode indicar falta de documentação, bug ou ferramenta inadequada; não resolver tudo reescrevendo prompt".</li>
+      </ul>
+    </div>
+    <div class="cartao">
+      <h2>Decisões para aprovar (a recomendada primeiro)</h2>
+      <ol>
+        <li><b>Onde fica a Segurança:</b> uma parte nova "Segurança" na aba Mister do console, para a Diretoria e o Técnico (como a aba Avisos), sem valores em reais. <span class="sub">Alternativa: só a Diretoria, como a Qualidade.</span></li>
+        <li><b>Sem IA nesta parte:</b> só contagens dos eventos que o servidor já anota (o desfecho de cada mensagem, as notas do filtro de saída, o motivo de não responder). <span class="sub">A análise com IA dos eventos é a parte 2, sempre como proposta com impacto e verificação — o Sentinela nunca revoga chave, bloqueia pessoa ou para integração sozinho.</span></li>
+        <li><b>"Pede atenção" por regra:</b> segredo tirado da resposta = crítico, com a consulta, a empresa e a hora (nunca o segredo); telefone calado por código errado = atenção. <span class="sub">Alternativa: só os números, sem a faixa.</span></li>
+        <li><b>Segredo tirado vira aviso ao suporte da DMS</b> (console › Avisos), além da faixa. <span class="sub">Alternativa: só a faixa nesta parte.</span></li>
+        <li><b>O que melhorar no fim da Qualidade, por regras fixas e só leitura:</b> o tema que mais faltou (3 vezes ou mais) = falta consulta; consulta que não leu mais de 10% = erro na consulta; pergunta errada na última avaliação = instrução; motivo da empresa (chave, crédito) = da empresa, nada nas instruções. <span class="sub">Marcar "virou tarefa" ou "não se aplica" fica para a parte 2, com migration.</span></li>
+        <li><b>Nada muda sozinho:</b> nenhuma instrução, consulta ou ajuste é trocado por esta tela. Versões candidatas das instruções, testadas pela avaliação de regressão antes de publicar, são a parte 2 do Mentor.</li>
+      </ol>
+    </div>
+    <div class="cartao">
+      <h2>De onde vêm os números (nada novo é guardado)</h2>
+      <ul>
+        <li><span class="mono">mister_mensagem.desfecho</span> (30 dias, sem o texto): código que não vale, códigos demais, calado, número de outra pessoa, perdeu o acesso, resposta fixa.</li>
+        <li><span class="mono">mister_pergunta.conferencia</span>: as notas do filtro de saída (segredo, link tirado, valor sem origem, cortada).</li>
+        <li><span class="mono">mister_pergunta.motivo</span> e <span class="mono">ferramentas</span>: o limite, as consultas que não leram, o tema do que falta.</li>
+        <li><span class="mono">mister_avaliacao</span>: a última rodada da avaliação.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<script>
+(() => {
+  const $ = (s, el = document) => el.querySelector(s);
+  const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+  $$('.aba').forEach((b) => b.addEventListener('click', () => {
+    $$('.aba').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    $$('.vista').forEach((v) => v.classList.toggle('ativa', v.id === `v-${b.dataset.vista}`));
+  }));
+  const marcar = (grupo, b) => $$(`[data-${grupo}]`).forEach((x) => x.classList.contains('ctl') && x.setAttribute('aria-pressed', String(x === b)));
+  const estados = (grupo, mapa) => $$(`[data-${grupo}]`).forEach((b) => b.addEventListener('click', () => {
+    marcar(grupo, b);
+    Object.entries(mapa).forEach(([k, s]) => ($(s).hidden = k !== b.dataset[grupo]));
+  }));
+  estados('seg', { dados: '#seg-dados', vazio: '#seg-vazio', erro: '#seg-erro' });
+  estados('mel', { dados: '#mel-dados', vazio: '#mel-vazio' });
+  $$('#seg-dados > .d-situacoes .d-sit').forEach((b) => b.addEventListener('click', () => $$('#seg-dados > .d-situacoes .d-sit').forEach((x) => x.setAttribute('aria-pressed', String(x === b)))));
+})();
+</script>
+</body>
+</html>
