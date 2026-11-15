@@ -93,7 +93,7 @@ import {
   encomendaRecorrencia,
 } from '../../db/schema';
 import { precoComAtacado } from '../../common/preco-atacado';
-import { criarPixMP, consultarPagamentoMP, cancelarPagamentoMP, reembolsarPagamentoMP, assinaturaWebhookMPOk } from '../../common/mercadopago';
+import { criarPixMP, consultarPagamentoMP, cancelarPagamentoMP, reembolsarPagamentoMP, estornarTudoMP, assinaturaWebhookMPOk } from '../../common/mercadopago';
 import { criarPixPagBank, consultarPagamentoPagBank, reembolsarPagamentoPagBank } from '../../common/pagbank';
 import { criarPixRede, consultarPagamentoRede, reembolsarPagamentoRede, type ConsultaPixRede, type CredencialRede } from '../../common/erede';
 import { lerCredencialRede } from '../../common/credencial-rede';
@@ -2630,7 +2630,11 @@ export class CardapioService {
    * quem chama é a rotina `estorno-pix.service.ts`, só na nuvem). Sem valor = o gateway devolve o pagamento inteiro.
    * Lança em falha (sem token, recusa do gateway): quem chama conta a tentativa e, na última, avisa a loja.
    */
-  async reembolsarPagamentoTotal(tenantId: string, provedor: string, paymentId: string): Promise<{ id: string; status: string }> {
+  async reembolsarPagamentoTotal(
+    tenantId: string,
+    provedor: string,
+    paymentId: string,
+  ): Promise<{ id: string; status: string; total?: number | null; devolvido?: number | null }> {
     if (!paymentId) throw new Error('o pedido não tem o id do pagamento');
     if (provedor === 'pagseguro') {
       const t = await this.resolvePagseguroToken(tenantId);
@@ -2645,7 +2649,8 @@ export class CardapioService {
     if (provedor === 'mercadopago') {
       const t = await this.resolveMpToken(tenantId);
       if (!t) throw new Error('sem o token do Mercado Pago');
-      return reembolsarPagamentoMP(t, paymentId);
+      // O valor cheio explícito e a conferência do quanto voltou (ERR-472: o corpo vazio devolveu o valor sem a tarifa).
+      return estornarTudoMP(t, paymentId);
     }
     throw new Error(`gateway desconhecido: ${provedor}`);
   }

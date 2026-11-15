@@ -110,7 +110,16 @@ export class EstornoPixService {
                  feito_em = clock_timestamp(), atualizado_em = clock_timestamp()
            where id = ${e.id}::uuid`);
         feitos++;
-        this.logger.log(`estorno feito: pedido ${e.pedidoId} (${e.provedor}, R$ ${Number(e.valor).toFixed(2)})`);
+        this.logger.log(
+          `estorno feito: pedido ${e.pedidoId} (${e.provedor}, R$ ${Number(e.valor).toFixed(2)}` +
+            `${r?.devolvido != null ? `; voltou ao cliente R$ ${Number(r.devolvido).toFixed(2)}` : ''})`,
+        );
+        // Voltou MENOS que o pago (ERR-472: o gateway ficou com a tarifa): a loja fica sabendo e decide se devolve a diferença.
+        if (r?.devolvido != null && Number(r.devolvido) + 0.005 < Number(e.valor)) {
+          await this.avisarDiferenca(e, Number(r.devolvido)).catch((x: any) =>
+            this.logger.warn(`aviso da diferença do estorno do pedido ${e.pedidoId}: ${x?.message ?? x}`),
+          );
+        }
       } catch (err: any) {
         const motivo = String(err?.message ?? err).slice(0, 300);
         const ultima = Number(e.tentativas) + 1 >= TENTATIVAS_DO_ESTORNO;
@@ -127,6 +136,27 @@ export class EstornoPixService {
       }
     }
     return { enfileirados, feitos, falhas, desistiu };
+  }
+
+  /**
+   * O estorno saiu, mas voltou MENOS que o pago (o gateway ficou com a tarifa — ERR-472): um caso na fila do Atendimento
+   * (prioridade normal, sem urgência: o cliente já recebeu quase tudo), para a loja decidir se devolve a diferença.
+   */
+  private async avisarDiferenca(e: any, devolvido: number): Promise<void> {
+    const nome = { mercadopago: 'Mercado Pago', pagseguro: 'PagBank', rede: 'Rede' }[e.provedor as string] ?? e.provedor;
+    const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    const diferenca = Math.round((Number(e.valor) - devolvido) * 100) / 100;
+    const mensagem =
+      `O estorno do Pix do pedido #${e.numero ?? ''} saiu, mas o ${nome} devolveu ${brl(devolvido)} dos ${brl(Number(e.valor))} ` +
+      `pagos: a diferença de ${brl(diferenca)} (a tarifa do ${nome}) não voltou ao cliente. Se quiser, devolva a diferença pelo app do ${nome}.`;
+    const [caso] = this.linhas(
+      await this.db.execute(sql`
+        insert into atendimento_chamado (tenant_id, unidade_id, tipo, cliente, telefone, pedido_numero, pedido_id, mensagem, prioridade)
+        values (${e.tenantId}::uuid, ${e.unidadeId}::uuid, 'atendimento', ${e.cliente ?? null}, ${e.telefone ?? null},
+                ${e.numero ?? null}, ${e.pedidoId}::uuid, ${mensagem}, 'normal')
+        returning *`),
+    );
+    if (caso) this.events?.emit('atendimento.novo', { tenantId: e.tenantId, chamado: caso });
   }
 
   /** A 3ª falha: um caso URGENTE na fila do Atendimento — a loja devolve à mão. */
