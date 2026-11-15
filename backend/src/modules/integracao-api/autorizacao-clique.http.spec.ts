@@ -62,8 +62,10 @@ const APP_FAROL = 'aplicativo-farol-de-teste';
 // O Farol (F6 do hub, 15/11): as três leituras da página de 01/10, com o endereço de volta dela (o console dele).
 const VOLTA_FAROL = 'https://farol.teste/api/regem/retorno';
 const LEITURAS_DO_FAROL = 'catalogo.ler fichas.ler producao.ler';
-// Um aplicativo da lista da porta que NÃO usa o clique (o GoGeM, com a chave do totem).
+// O GoGeM (F6, 15/11): o totem também usa o clique — fica na lista da porta sem teste próprio aqui (ver credencial-totem.spec).
 const APP_GOGEM = 'aplicativo-gogem-de-teste';
+const VOLTA_GOGEM = 'https://gogem.teste/integracoes/regem/volta';
+const TOTEM = 'totem.catalogo.ler totem.produtos.pausar totem.vendas.lancar';
 const APP_FORA = 'aplicativo-fora-da-lista';
 // O RegemCast (F6 do hub, 15/11): o clique da EMPRESA INTEIRA, com o endereço de volta da ficha dele.
 const APP_REGEMCAST = 'aplicativo-regemcast-de-teste';
@@ -171,7 +173,7 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
     'EDGE_MODE', 'TRUST_CLOUDFLARE', 'CARDAPIO_PUBLIC_URL', 'APP_URL', 'ACEITAR_INTEGRACOES',
     'DMS_ID_LIGADO', 'DMS_ID_EMISSOR', 'DMS_ID_RECURSO', 'DMS_ID_APLICATIVOS',
     'AUTORIZACAO_POR_CLIQUE', 'AUTORIZACAO_DMS_RAZAO_SOCIAL', 'AUTORIZACAO_DMS_CNPJ',
-    AUTORIZACAO_LOJA.liame.envRedirect, AUTORIZACAO_LOJA.liame.envSegredo, 'INTEGRACAO_ORZUNI_REDIRECT_URIS', 'INTEGRACAO_REGEMCAST_REDIRECT_URIS',
+    AUTORIZACAO_LOJA.liame.envRedirect, AUTORIZACAO_LOJA.liame.envSegredo, 'INTEGRACAO_ORZUNI_REDIRECT_URIS', 'INTEGRACAO_REGEMCAST_REDIRECT_URIS', 'INTEGRACAO_GOGEM_REDIRECT_URIS',
     AUTORIZACAO_LOJA.farol.envRedirect,
   ];
   const original: Record<string, string | undefined> = Object.fromEntries(ENV.map((k) => [k, process.env[k]]));
@@ -342,6 +344,7 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
     process.env[AUTORIZACAO_LOJA.liame.envRedirect] = VOLTA;
     process.env.INTEGRACAO_ORZUNI_REDIRECT_URIS = VOLTA_ORZUNI;
     process.env.INTEGRACAO_REGEMCAST_REDIRECT_URIS = VOLTA_REGEMCAST;
+    process.env.INTEGRACAO_GOGEM_REDIRECT_URIS = VOLTA_GOGEM;
     process.env[AUTORIZACAO_LOJA.farol.envRedirect] = VOLTA_FAROL;
     process.env.AUTORIZACAO_POR_CLIQUE = 'true';
     process.env.AUTORIZACAO_DMS_RAZAO_SOCIAL = 'DMS Exemplo Ltda';
@@ -462,13 +465,12 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
       expect(p.r.headers.get('www-authenticate')).toContain(`resource_metadata="${origem}/.well-known/oauth-protected-resource/api/v1/integracao"`);
     });
 
-    it('token para outro destino: 401; aplicativo da lista que não usa o clique: 401 cliente-invalido; campo errado: 400 com a frase', async () => {
+    it('token para outro destino: 401; aplicativo fora da lista: 401 cliente-invalido; campo errado: 400 com a frase', async () => {
       expect((await pedir({ token: dmsId.emitir({ destino: 'https://outro.exemplo/api' }) })).r.status).toBe(401);
-      const gogem = await pedir({ token: dmsId.emitir({ aplicativo: APP_GOGEM }) });
-      expect(gogem.r.status).toBe(401);
-      expect(gogem.c).toMatchObject({ type: `${BASE_TIPO_PROBLEMA}cliente-invalido`, detail: 'Este aplicativo não usa a autorização por clique do Regem.' });
+      // Desde o GoGeM (F6, 15/11), todos os aplicativos da lista da porta usam o clique: o de fora recebe a mesma recusa.
       const fora = await pedir({ token: dmsId.emitir({ aplicativo: APP_FORA }) });
-      expect(fora.c).toMatchObject({ type: `${BASE_TIPO_PROBLEMA}cliente-invalido` });
+      expect(fora.r.status).toBe(401);
+      expect(fora.c).toMatchObject({ type: `${BASE_TIPO_PROBLEMA}cliente-invalido`, detail: 'Este aplicativo não usa a autorização por clique do Regem.' });
       const torto = await pedir({ mudar: { redirect_uri: 'https://ataque.exemplo/cb' } });
       expect(torto.r.status).toBe(400);
       expect(torto.c).toMatchObject({ type: `${BASE_TIPO_PROBLEMA}parametro-invalido`, detail: 'redirect_uri não é um endereço de volta cadastrado para este aplicativo.' });
@@ -518,7 +520,7 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
         pessoa: { nome: 'Bia Gerente', nivel: 'gerente' },
       });
       expect(await (await tela(presA, 'urn:ietf:params:oauth:request_uri:rgm_torto')).json()).toMatchObject({ situacao: 'invalido', aplicativo: { nome: 'Liame' } });
-      expect(await (await tela(presA, p.numero, APP_GOGEM)).json()).toEqual({ situacao: 'invalido', aplicativo: null });
+      expect(await (await tela(presA, p.numero, APP_FORA)).json()).toEqual({ situacao: 'invalido', aplicativo: null });
       pararNoHub([{ nivel: 'geral', produto: null, alvo: null }]);
       expect((await (await tela(presA, p.numero)).json()).situacao).toBe('pausado');
       (hub as any).cliente = null;
@@ -1269,6 +1271,47 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
       }
       const [n] = await q(`select count(*)::int n from integracao_token_loja where tenant_id = $1 and unidade_id is null and revogado_em is null`, [e.tenant]);
       expect(n.n).toBe(1);
+    });
+  });
+
+  // ───────────────────────────── o GoGeM: o totem, que lança venda (F6 do hub) ─────────────────────────────
+
+  describe('o GoGeM: o clique do totem, loja por loja (F6 do hub)', () => {
+    const tokenDoGogem = () => dmsId.emitir({ aplicativo: APP_GOGEM, permissoes: TOTEM });
+
+    it('de ponta a ponta: a página diz que lança venda, o presidente marca a loja do totem e a troca entrega a ligação dela', async () => {
+      const e = await empresa('Totem', ['Totem Centro', 'Totem Praia']);
+      const pres = await pessoa(e.tenant, 'Tito Presidente', 'presidente', { email: 'tito@totem.exemplo' });
+      email.mockClear();
+      const p = await pedir({ token: tokenDoGogem(), contaCnpj: cnpjFicticio(e.raiz), mudar: { redirect_uri: VOLTA_GOGEM, scope: TOTEM, conta_nome: 'Totem no GoGeM' } });
+      expect(p.r.status).toBe(201);
+      // Leitura da porta e a volta de outro aplicativo não entram no pedido do totem.
+      expect((await pedir({ token: tokenDoGogem(), mudar: { redirect_uri: VOLTA_GOGEM, scope: 'totem.catalogo.ler pedidos.ler' } })).r.status).toBe(400);
+      expect((await pedir({ token: tokenDoGogem(), mudar: { redirect_uri: VOLTA_REGEMCAST, scope: TOTEM } })).r.status).toBe(400);
+
+      const c: any = await (await tela(pres, p.numero, APP_GOGEM)).json();
+      expect(c.tela.titulo).toBe('O GoGeM quer ler o cardápio e lançar as vendas do totem das suas lojas');
+      expect(c.tela.necessarias.map((x: any) => x.rotulo)).toEqual(['Cardápio do totem', 'Pausar produtos no totem', 'Lançar a venda do totem']);
+      expect(c.tela.lojas.map((l: any) => l.marcada)).toEqual([false, false]);
+      expect(c.tela.confirmacao).toBeNull(); // a conta com a mesma raiz de CNPJ
+
+      const a = await autorizar(pres, p.numero, { lojas: [e.lojas[0]], clientId: APP_GOGEM, confirmo: false });
+      expect(a.r.status).toBe(200);
+      expect(`${a.volta?.origin}${a.volta?.pathname}`).toBe(VOLTA_GOGEM);
+      const t = await trocar(a.codigo, p.verificador, { token: tokenDoGogem(), mais: { redirect_uri: VOLTA_GOGEM } });
+      expect(t.status).toBe(200);
+      const { lojas } = (await t.json()) as any;
+      expect(lojas).toHaveLength(1);
+      segredos.push(lojas[0].ligacao);
+      expect(lojas[0]).toMatchObject({ loja_id: e.lojas[0], permissoes: TOTEM.split(' ') });
+      const [acesso] = await q(`select cliente, unidade_id from integracao_token_loja where tenant_id = $1 and revogado_em is null`, [e.tenant]);
+      expect(acesso).toEqual({ cliente: 'gogem', unidade_id: e.lojas[0] });
+
+      // A ligação do totem não lê nada da porta (as rotas do totem são provadas na credencial-totem.spec).
+      expect((await chamar('/integracao/pedidos', { token: tokenDoGogem(), ligacao: lojas[0].ligacao })).status).toBe(403);
+      expect(await esperarAte(() => email.mock.calls.length >= 1)).toBe(true);
+      expect(email.mock.calls[0][1]).toBe('O GoGeM foi autorizado na loja Totem Centro');
+      expect(email.mock.calls[0][3]).toContain('O GoGeM pode ver: cardápio do totem, pausar produtos no totem e lançar a venda do totem.');
     });
   });
 });

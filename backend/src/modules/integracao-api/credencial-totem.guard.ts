@@ -11,11 +11,20 @@ import {
 import { EquipamentoService } from '../equipamento/equipamento.service';
 import { equipamentoDoGogem } from '../gogem/credencial-gogem';
 import { SyncTokenGuard, type SyncCtxData } from '../sync/sync-token.guard';
+import { ErroPermissaoFaltando, ErroTokenDmsId } from '../../dms/integracao-dms';
+import { DmsIdService, type TokenDmsIdDoRegem } from './dms-id.service';
 import { EscopoIntegracao } from './escopos';
-import { ESCOPOS_KEY, ipDe } from './integracao-token.guard';
+import { ESCOPOS_KEY, ipDe, type IntegracaoCtxData } from './integracao-token.guard';
+import { CABECALHO_LIGACAO_NO_NODE, LIGACAO_INVALIDA, ligacaoDoCabecalho } from './ligacao.regras';
 import { ProblemaException } from './problema';
 import { formatoTokenIntegracao } from './token-integracao';
-import { marcarUsoTokenIntegracao, validarTokenIntegracao } from './validar-token-integracao';
+import {
+  marcarUsoLigacaoIntegracao,
+  marcarUsoTokenIntegracao,
+  validarLigacaoIntegracao,
+  validarTokenIntegracao,
+  type LimiteContado,
+} from './validar-token-integracao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -48,11 +57,14 @@ export type CtxDoTotem = Omit<SyncCtxData, 'equipamentoId' | 'token'> & {
 };
 
 const TOKEN_INVALIDO = 'Token de integração ausente, inválido, vencido ou revogado.';
+const TOKEN_DMS_ID_INVALIDO = 'Token do DMS ID ausente, inválido ou vencido.';
 
 @Injectable()
 export class CredencialDoTotemGuard implements CanActivate {
   private readonly antigo: SyncTokenGuard;
   private readonly reflector = new Reflector();
+  /** A via do DMS ID: lida do ambiente, sem depender do módulo da porta (só nuvem) — as rotas rodam também na loja. */
+  private readonly dmsId = new DmsIdService();
 
   constructor(
     equipamentos: EquipamentoService,
@@ -64,6 +76,12 @@ export class CredencialDoTotemGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest();
     const bearer = bearerDe(req);
+    // A LIGAÇÃO do clique (plano "Clique GoGeM → Regem" do hub, 15/11/2026): o token do DMS ID do GoGeM + o segredo da
+    // ligação da loja no `DMS-Ligacao`. Só na nuvem e com a via do DMS ID ligada; a ligação decide sozinha (inválida =
+    // 401, nunca cai para o caminho antigo) e dispensa o `X-Sync-Token` (G-6).
+    const ligacao = ehServidorLocal() ? null : ligacaoDoCabecalho(req?.headers?.[CABECALHO_LIGACAO_NO_NODE]);
+    if (ligacao && this.dmsId.ligado) return this.pelaLigacao(context, req, bearer, ligacao);
+
     // Sem token de integração (ou no servidor da loja): o caminho antigo. Outro Authorization não conta.
     if (ehServidorLocal() || !formatoTokenIntegracao(bearer)) {
       const ok = await this.antigo.canActivate(context);
@@ -78,24 +96,56 @@ export class CredencialDoTotemGuard implements CanActivate {
       throw new ProblemaException(401, 'token-invalido', TOKEN_INVALIDO);
     }
     registrarTokenIntegracaoValidado(token);
+    return this.liberar(context, req, achado, 'token');
+  }
+
+  /** O token do DMS ID conferido (forma, assinatura, emissor, destino, validade) e a ligação dele, da loja. */
+  private async pelaLigacao(context: ExecutionContext, req: any, bearer: string | null, ligacao: string): Promise<boolean> {
+    let doToken: TokenDmsIdDoRegem;
+    try {
+      doToken = await this.dmsId.conferir(bearer);
+    } catch (erro) {
+      if (erro instanceof ErroPermissaoFaltando) {
+        throw new ProblemaException(403, 'escopo-insuficiente', 'O token do DMS ID não tem nenhuma permissão do Regem.');
+      }
+      if (erro instanceof ErroTokenDmsId) throw new ProblemaException(401, 'token-invalido', TOKEN_DMS_ID_INVALIDO);
+      throw erro;
+    }
+    const achado = await validarLigacaoIntegracao(this.db, ligacao, doToken, this.dmsId.aplicativos, { contar: true });
+    if (!achado) throw new ProblemaException(401, 'ligacao-invalida', LIGACAO_INVALIDA);
+    return this.liberar(context, req, achado, 'ligacao');
+  }
+
+  /**
+   * O que vale para as duas vias: o limite de chamadas, só o totem de UMA loja (cliente `gogem`), o escopo da rota (pela
+   * ligação, os que a loja autorizou E o token do DMS ID tem) e o contexto da loja, com o equipamento que representa o
+   * GoGeM nela — a venda sai igual pelas duas.
+   */
+  private async liberar(
+    context: ExecutionContext,
+    req: any,
+    achado: IntegracaoCtxData & { limite?: LimiteContado },
+    via: 'token' | 'ligacao',
+  ): Promise<boolean> {
     // O limite do acesso: o contado no banco na mesma ida (mig 333); sem a tabela, o da memória do processo.
     const { limite: contadoNoBanco, ...t } = achado;
     const limite = contadoNoBanco ?? contarChamadaIntegracao(t.tokenId);
     if (!limite.ok) {
-      throw new ProblemaException(429, 'limite-de-chamadas', 'Muitas chamadas com este token — aguarde e tente de novo.', limite.retryAfterSeg);
+      throw new ProblemaException(429, 'limite-de-chamadas', 'Muitas chamadas com este acesso — aguarde e tente de novo.', limite.retryAfterSeg);
     }
     if (t.cliente !== 'gogem' || !t.unidadeId) {
-      throw new ProblemaException(403, 'escopo-insuficiente', 'Este token não é do totem de uma loja.');
+      throw new ProblemaException(403, 'escopo-insuficiente', 'Este acesso não é do totem de uma loja.');
     }
     const exigidos =
       this.reflector.getAllAndOverride<EscopoIntegracao[]>(ESCOPOS_KEY, [context.getHandler(), context.getClass()]) ?? [];
-    // Rota sem escopo declarado não aceita token de integração (a lista é do que pode).
+    // Rota sem escopo declarado não aceita acesso de integração (a lista é do que pode).
     const faltam = exigidos.length ? exigidos.filter((e) => !t.escopos.includes(e)) : ['(rota sem escopo)'];
     if (faltam.length) {
-      throw new ProblemaException(403, 'escopo-insuficiente', `Este token não tem o escopo ${faltam.join(', ')}.`);
+      throw new ProblemaException(403, 'escopo-insuficiente', `Este acesso não tem o escopo ${faltam.join(', ')}.`);
     }
 
-    marcarUsoTokenIntegracao(this.db, t.tokenId, ipDe(req));
+    if (via === 'ligacao') marcarUsoLigacaoIntegracao(this.db, t.tokenId, ipDe(req));
+    else marcarUsoTokenIntegracao(this.db, t.tokenId, ipDe(req));
     req.integracao = t;
     req.sync = {
       tenantId: t.tenantId,

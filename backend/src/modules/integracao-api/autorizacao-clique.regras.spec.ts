@@ -549,3 +549,82 @@ describe('autorização por clique — o RegemCast, a empresa inteira', () => {
     expect(prova.confirmouOutraEmpresa).toBeNull();
   });
 });
+
+// O GOGEM (F6 do hub, 15/11/2026; protótipo `clique-gogem.html` do hub): o totem, loja por loja, e a PRIMEIRA escrita de
+// venda pelo clique. As mesmas três permissões do token `rgm_it_` dele (mig 323), todas necessárias.
+describe('autorização por clique — o GoGeM, o totem que lança venda', () => {
+  const GOGEM = APLICATIVOS_DO_CLIQUE.gogem;
+  const VOLTA_GOGEM = 'https://app.gogem.com.br/integracoes/regem/volta';
+  const TOTEM = ['totem.catalogo.ler', 'totem.produtos.pausar', 'totem.vendas.lancar'];
+  const pedido = (mudar: Record<string, unknown> = {}) => ({
+    response_type: 'code',
+    redirect_uri: VOLTA_GOGEM,
+    scope: 'totem.vendas.lancar totem.catalogo.ler totem.produtos.pausar',
+    state: 'estado-do-gogem-1234567890',
+    code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
+    code_challenge_method: 'S256',
+    conta_nome: 'Brasa no GoGeM',
+    conta_cnpj: '11.222.333/0001-00',
+    conta_email: 'dono@gogem.exemplo',
+    ...mudar,
+  });
+
+  it('a ficha: por loja, as três do totem necessárias, nenhuma opcional, a volta do painel do GoGeM', () => {
+    expect(GOGEM.empresaInteira).toBeUndefined();
+    expect(GOGEM.necessarias).toEqual(TOTEM);
+    expect([GOGEM.opcionais, GOGEM.dadoPessoal, GOGEM.financeiras]).toEqual([[], [], []]);
+    for (const id of GOGEM.necessarias) {
+      expect(GOGEM.motivos[id]).toMatch(/^Para /);
+      expect(PERMISSAO_NA_TELA[id]?.frase).toBeTruthy();
+    }
+    expect(clienteAutorizacao('gogem', {})).toBeNull(); // só o clique, sem a página de 01/10
+    expect(voltasDoClique(GOGEM.voltas, {})).toEqual([VOLTA_GOGEM]);
+    expect(GOGEM.naoPode.map((n) => n.rotulo)).toEqual([
+      'Mudar preço ou cardápio no Regem',
+      'Cancelar ou mudar uma venda',
+      'Ver clientes e as outras vendas',
+      'Entrar no seu Regem',
+    ]);
+  });
+
+  it('o pedido: aceita as três na ordem do catálogo; recusa leitura de vendas, clientes, cardápio da porta e escrita de cupom', () => {
+    expect(conferirPedido(pedido(), GOGEM, 'app-gogem', [VOLTA_GOGEM])).toMatchObject({ necessarias: TOTEM, opcionais: [] });
+    for (const fora of ['pedidos.ler', 'clientes.ler', 'catalogo.ler', 'cupons.criar', 'custos.ler']) {
+      expect(conferirPedido(pedido({ scope: `totem.catalogo.ler ${fora}` }), GOGEM, 'app-gogem', [VOLTA_GOGEM])).toEqual({
+        erro: `A permissão "${fora}" não pode ser pedida por este aplicativo na autorização por clique.`,
+      });
+    }
+  });
+
+  it('a página: o título diz que lança venda, a abertura diz o que ele não muda, as lojas para marcar e o "não pode"', () => {
+    const t = montarTela({
+      cliente: 'gogem',
+      app: GOGEM,
+      dms: { empresa: 'DMS Exemplo Ltda', cnpj: '33444555000100' },
+      pedido: {
+        redirectUri: VOLTA_GOGEM,
+        necessarias: TOTEM as any,
+        opcionais: [],
+        contaQuePede: { nome: 'Brasa no GoGeM', cnpj: '11222333000100', email: 'dono@gogem.exemplo', marca: null },
+      },
+      empresa: { nome: 'Brasa Burger', cnpj: '11222333000100' },
+      lojas: [
+        { id: 'loja-centro', nome: 'Brasa Centro', tipo: 'matriz', fuso: 'America/Sao_Paulo', conectadaDesde: null, jaLiberado: [] },
+        { id: 'loja-praia', nome: 'Brasa Praia', tipo: 'filial', fuso: 'America/Sao_Paulo', conectadaDesde: null, jaLiberado: [] },
+      ],
+      verFinanceiro: false,
+    });
+    expect(t.titulo).toBe('O GoGeM quer ler o cardápio e lançar as vendas do totem das suas lojas');
+    expect(t.abertura).toBe(
+      'O GoGeM é o totem de autoatendimento: mostra o cardápio do Regem e lança no Regem a venda feita nele. Ele não muda ' +
+        'preço nem venda já lançada no Regem; no cardápio, só pausa um produto no canal do totem. Você veio de app.gogem.com.br ' +
+        'e volta para lá ao terminar.',
+    );
+    expect(t.empresaInteira).toBeUndefined();
+    expect(t.lojas.map((l) => l.marcada)).toEqual([false, false]); // C-2: com mais de uma loja, nenhuma vem marcada
+    expect(t.necessarias.map((p) => p.rotulo)).toEqual(['Cardápio do totem', 'Pausar produtos no totem', 'Lançar a venda do totem']);
+    expect(t.necessarias[2].frase).toContain('Registrar no Regem a venda feita no totem');
+    expect(t.confirmacao).toBeNull();
+    expect(t.aplicativo.selo).toBe('Produto da DMS');
+  });
+});
