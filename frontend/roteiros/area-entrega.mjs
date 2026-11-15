@@ -103,6 +103,26 @@ export default async function roteiroAreaEntrega({ nav, base, ok, foto, larguras
     await page.waitForTimeout(500);
     ok(S.putsConfig.some((c) => c.areaModo === 'raio'), 'trocar para distância grava o modo na hora');
     ok(await page.locator('text=Faixas de distância a partir do endereço da loja').isVisible(), 'por distância: as faixas');
+    // O mapa das faixas (15/11, o dono: "o mapa está limitado numa área pequena"): alto, e o círculo MAIOR inteiro nele.
+    await page.waitForTimeout(700);
+    const faixas = await page.evaluate(() => {
+      const mapa = document.querySelector('[data-mapa-faixas]');
+      if (!mapa) return null;
+      const m = mapa.getBoundingClientRect();
+      const circulos = [...mapa.querySelectorAll('path.leaflet-interactive')].map((p) => p.getBoundingClientRect()).filter((r) => r.width > 0);
+      const maior = circulos.sort((a, b) => b.width - a.width)[0];
+      const rotulos = [...mapa.querySelectorAll('.leaflet-marker-pane span')].map((s) => s.textContent);
+      return {
+        altura: Math.round(m.height),
+        cabe: !!maior && maior.top >= m.top - 1 && maior.bottom <= m.bottom + 1 && maior.left >= m.left - 1 && maior.right <= m.right + 1,
+        ocupa: maior ? Math.round((maior.height / m.height) * 100) : 0,
+        rotulos,
+      };
+    });
+    ok(!!faixas && faixas.altura >= 320, `o mapa das faixas é alto (${faixas?.altura}px)`);
+    ok(!!faixas && faixas.cabe, `o círculo maior cabe inteiro no mapa (ocupa ${faixas?.ocupa}% da altura)`);
+    ok(!!faixas && faixas.ocupa >= 60, `o círculo maior não fica minúsculo (${faixas?.ocupa}% da altura)`);
+    ok(!!faixas && faixas.rotulos.join('|') === 'até 1 km · R$ 5,00|até 2 km · R$ 7,00'.replace(/R\$ /g, 'R$ '), `o rótulo de cada faixa no mapa (${faixas?.rotulos.join(' | ')})`);
     await page.click('[role="radio"]:has-text("Desenhada no mapa")');
     await page.waitForTimeout(600);
     ok(!S.putsConfig.some((c) => c.areaModo === 'mapa'), 'escolher "Desenhada no mapa" sem área NÃO grava o modo (o servidor recusaria)');

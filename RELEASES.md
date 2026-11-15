@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O mapa das faixas de distância maior e enquadrado (15/11; SEM migration; só tela).** Na nuvem vale com o merge; no
+  servidor da loja, com o `.zip`.
+
 - **Área de entrega DESENHADA NO MAPA (15/11, migration 425 — NOS DOIS BANCOS; mexe no `sync-daemon` → precisa do `.exe`).**
   O 3º modo da aba Área de atendimento (bairro, distância, desenhada): desenhar as áreas no mapa, cada uma com taxa, tempo,
   mínimo e frete grátis; fora delas o pedido do cardápio e do atendente não sai. A tabela `cardapio_area_entrega` sincroniza
