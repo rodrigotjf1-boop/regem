@@ -17,6 +17,7 @@ import { DeliveryService } from '../../delivery/delivery.service';
 import { fetchExterno } from '../../../common/fetch-externo';
 import { precosNa99Ligado } from '../../../common/precos-na-99';
 import { ehServidorLocal } from '../../../common/modo';
+import { marcarCancelPendente as marcarCancelPendenteNoBanco, tirarCancelPendente } from '../cancel-pendente';
 import {
   Entregador99,
   STATUS_ENTREGA_99,
@@ -893,20 +894,17 @@ export class Food99Service {
     reasonId: number,
     reason?: string,
   ): Promise<void> {
-    const pend = { ...(ig.config?.pendingCancels ?? {}) };
-    const anterior = pend[orderId] ?? {};
-    pend[orderId] = { reasonId, reason: reason ?? anterior.reason, attempts: (anterior.attempts ?? 0) + 1 };
-    await this.mesclarNoConfig(ig.id, { pendingCancels: pend });
+    // Só a entrada DESTE pedido (ERR-474): mesclar o `pendingCancels` inteiro da cópia em memória apagava o pendente de
+    // outro pedido cancelado ao mesmo tempo.
+    const pend = await marcarCancelPendenteNoBanco(this.db, ig.id, orderId, { reasonId, reason });
     ig.config = { ...(ig.config ?? {}), pendingCancels: pend };
     this.logger.warn(`cancel ${orderId} pendente (reconciliação vai reenviar)`);
   }
 
   private async limparCancelPendente(ig: IntegFood99, orderId: string): Promise<void> {
     if (!ig.config?.pendingCancels?.[orderId]) return;
-    const pend = { ...ig.config.pendingCancels };
-    delete pend[orderId];
-    await this.mesclarNoConfig(ig.id, { pendingCancels: pend });
-    ig.config = { ...(ig.config ?? {}), pendingCancels: pend };
+    const pend = await tirarCancelPendente(this.db, ig.id, orderId);
+    if (pend) ig.config = { ...(ig.config ?? {}), pendingCancels: pend };
   }
 
   // ===== O entregador na 99 (mig 294) =====
@@ -1174,29 +1172,21 @@ export class Food99Service {
     const pend = { ...(ig.config?.pendingCancels ?? {}) };
     const ids = Object.keys(pend);
     if (!ids.length) return 0;
-    let mudou = false;
     let feitos = 0;
     for (const orderId of ids) {
-      const p = pend[orderId];
+      // Cada pedido grava só a entrada dele (ERR-474).
+      const p = pend[orderId] ?? {};
+      let agora: Record<string, any> | null;
       if ((p.attempts ?? 0) >= 20) {
-        delete pend[orderId];
-        mudou = true;
+        agora = await tirarCancelPendente(this.db, ig.id, orderId);
         this.logger.warn(`cancel ${orderId} DESISTIDO após 20 tentativas`);
-        continue;
-      }
-      const r = await this.cancelarApi(ig, orderId, p.reasonId ?? CANCEL_REASON_PADRAO, p.reason);
-      if (r.ok) {
-        delete pend[orderId];
+      } else if ((await this.cancelarApi(ig, orderId, p.reasonId ?? CANCEL_REASON_PADRAO, p.reason)).ok) {
+        agora = await tirarCancelPendente(this.db, ig.id, orderId);
         feitos++;
       } else {
-        p.attempts = (p.attempts ?? 0) + 1;
-        pend[orderId] = p;
+        agora = await marcarCancelPendenteNoBanco(this.db, ig.id, orderId, {});
       }
-      mudou = true;
-    }
-    if (mudou) {
-      await this.mesclarNoConfig(ig.id, { pendingCancels: pend });
-      ig.config = { ...(ig.config ?? {}), pendingCancels: pend };
+      if (agora) ig.config = { ...(ig.config ?? {}), pendingCancels: agora };
     }
     return feitos;
   }
