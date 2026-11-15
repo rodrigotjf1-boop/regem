@@ -460,7 +460,7 @@ A 17ª consulta (`vencimentos_e_versoes`; regras em `mister-vencimentos.ts`). S�
 
 ### F3.7 — Vigilância de dependências, parte 2: as fontes oficiais lidas todo dia (migration 423)
 
-A vista "Console › Dependências" do protótipo `mockups/regem-dependencias-e-qualidade.html` (#992), feita com as decisões recomendadas enquanto o dono estava fora. O protótipo segue para a aprovação dele, e **a migration 423 espera o clique dele** antes do merge.
+A vista "Console › Dependências" do protótipo `mockups/regem-dependencias-e-qualidade.html` (#992), feita com as decisões recomendadas enquanto o dono estava fora. O protótipo segue para a aprovação dele. **No ar em 15/11/2026 (#996):** a migration 423 entrou na nuvem com o clique do dono e foi conferida pela leitura (16 colunas, RLS ligada); a primeira leitura das fontes é às 06:07 ou pelo "Ler agora" do console.
 
 - **A rotina** (`DependenciasService`, 06:07, só na nuvem) lê as fontes oficiais que moram no código (`modules/dependencias/dependencias-fontes.ts`). Cada uma foi aberta e conferida em 14/11:
   - **a tabela de versões da Graph API da Meta** (HTML; a data pode vir torta, "July 29,2028"). Dela sai a validade da versão em uso: a v25.0 do WhatsApp vale até 29/07/2028. A versão fora da tabela fica "a conferir", porque a tabela atrasa: em 14/11 ela ia até a v26.0, e a API já aceitava a v27.0 do Instagram e do Messenger (testado direto na API);
@@ -676,7 +676,7 @@ O último dos nove avisos da tabela aprovada. **Nasce desligado** (padrão: 20 m
 7. ~~Releitura dos documentos e imagens no grafo de engenharia~~ — feita em 12/11.
 8. O perfil de permissões por hierarquia (o que cada gerente pode pelo Mister): fim do projeto.
 9. **Pendência de implementação para o fim (pedido do dono em 13/11/2026):** a opção de conectar o número do Mister pela conexão gratuita do Evolution, além da API oficial da Meta. O argumento: o Mister só fala com quem ligou o próprio telefone, então o risco de denúncia do número é baixo. O Regem já fala com o Evolution no WhatsApp das lojas; o que falta é o número do Mister ganhar uma porta de provedor (oficial ou Evolution), escolhida pela distribuição no console. Pede mockup da opção.
-10. **Aprovar o protótipo `mockups/regem-dependencias-e-qualidade.html` (#992).** As partes foram feitas com as recomendadas enquanto o dono estava fora: a faixa sem nuvem (#993), a Qualidade parte 1 (#994) e as Dependências parte 2 (F3.7, que espera a **migration 423** pelo clique dele antes do merge).
+10. **Aprovar o protótipo `mockups/regem-dependencias-e-qualidade.html` (#992).** As partes foram feitas com as recomendadas enquanto o dono estava fora: a faixa sem nuvem (#993), a Qualidade parte 1 (#994), as Dependências parte 2 (F3.7, #996, com a migration 423 aplicada pelo clique dele em 15/11) e o que falta (F5.2).
 
 ## 6. Como foi levantado
 
