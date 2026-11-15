@@ -76,9 +76,17 @@ export function DialogoTextoGuardado({
               {p.outraEmpresa && texto.confirmouOutraEmpresa ? ' Confirmado: a empresa foi contratada.' : ''}
             </p>
           </Parte>
-          <Parte titulo={marcadas.length === 1 ? 'A loja marcada' : 'As lojas marcadas'}>
-            <p>{marcadas.map((l) => l.nome).join(', ') || '—'}</p>
-          </Parte>
+          {texto.empresaInteira ? (
+            <Parte titulo={texto.empresaInteira.titulo}>
+              <p>
+                {texto.empresaInteira.nome} · {texto.empresaInteira.resumo}. {texto.empresaInteira.lojas}
+              </p>
+            </Parte>
+          ) : (
+            <Parte titulo={marcadas.length === 1 ? 'A loja marcada' : 'As lojas marcadas'}>
+              <p>{marcadas.map((l) => l.nome).join(', ') || '—'}</p>
+            </Parte>
+          )}
           {texto.modo === 'mais' ? (
             <Parte titulo="O que mudou">{lista(texto.novas, true)}</Parte>
           ) : (

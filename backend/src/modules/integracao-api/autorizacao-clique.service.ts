@@ -26,6 +26,7 @@ import {
   CLIQUE_DESLIGADO,
   CODIGO_INVALIDO,
   CORRIDA_DA_TROCA,
+  CORRIDA_DA_TROCA_DA_EMPRESA,
   MAX_ERROS_SENHA_AUTORIZACAO,
   MINUTOS_TRAVA_AUTORIZACAO,
   PEDIDO_INVALIDO,
@@ -129,7 +130,8 @@ const LIGACAO_VIVA = sql`l.revogado_em is null and coalesce(l.ultimo_uso_em, l.c
 
 /** A loja e a ligação entregues na troca: o segredo da ligação aparece só aqui. */
 export type LojaLigada = Record<string, unknown> & {
-  loja_id: string;
+  /** Nulo na ligação da empresa inteira (o RegemCast). */
+  loja_id: string | null;
   ligacao: string;
   prefixo: string;
   permissoes: EscopoIntegracao[];
@@ -303,7 +305,23 @@ export class AutorizacaoCliqueService {
       executor,
     );
     const valem = a.parceiro ? new Set<string>(permissoesDoParceiro(a.parceiro.aprovado)) : null;
+    // A empresa inteira (o RegemCast): o acesso SEM loja que ela já tem (a chave do console ou um clique anterior). A troca
+    // soma o que ele liberava, e a página diz isso.
+    const daEmpresaInteira = !a.parceiro && Boolean(APLICATIVOS_DO_CLIQUE[cliente]?.empresaInteira);
+    const [acesso] = daEmpresaInteira
+      ? await this.rows(
+          sql`
+          select min(t.criado_em) as desde, array_agg(distinct e.escopo) as escopos
+            from integracao_token_loja t
+            cross join lateral unnest(t.escopos) as e(escopo)
+           where t.tenant_id = ${tenantId}::uuid and t.unidade_id is null and t.cliente = ${cliente}
+             and t.revogado_em is null and (t.expira_em is null or t.expira_em > now())
+          having count(*) > 0`,
+          executor,
+        )
+      : [];
     return {
+      daEmpresa: acesso ? { desde: new Date(acesso.desde), jaLiberado: (acesso.escopos ?? []) as string[] } : null,
       empresa: empresa ? { nome: empresa.nome as string, cnpj: (empresa.cnpj as string | null) ?? null } : null,
       lojas: lojas.map((l) => ({
         id: l.id as string,
@@ -361,6 +379,7 @@ export class AutorizacaoCliqueService {
       lojas: dados.lojas,
       verFinanceiro: quem.verFinanceiro,
       lojasDoTeste: maximo !== null && emOutras !== null ? { maximo, emOutras } : null,
+      daEmpresa: dados.daEmpresa,
     });
   }
 
@@ -448,6 +467,8 @@ export class AutorizacaoCliqueService {
        where u.tenant_id = ${tenantId}::uuid and u.deleted_at is null and e.deleted_at is null and u.id in (${this.lista(ids)})
        order by (u.tipo = 'matriz') desc, u.nome`);
     if (lojas.length !== ids.length) return recusar('loja apagada depois da autorização');
+    // A empresa inteira (o RegemCast): UMA ligação, sem loja (nunca o parceiro: `APLICATIVOS_DO_CLIQUE` é só da DMS).
+    if (a.app.empresaInteira && !a.parceiro) return this.trocarDaEmpresa(a, doToken, { id: aut.id, tenantId }, quem, liberadas, lojas);
 
     const evidencia = `autorizado pelo presidente com a senha, na autorização por clique (${aut.id})`;
     const maximo = a.parceiro?.lojas ?? null;
@@ -660,6 +681,126 @@ export class AutorizacaoCliqueService {
       saida.push({ ...(await this.tokens.dadosDaLoja(ctx)), loja_id: n.loja.id, ligacao: n.chave, prefixo: n.prefixo, permissoes: n.escopos, segredo_em: n.segredoEm });
     }
     return { lojas: saida };
+  }
+
+  /**
+   * A troca da EMPRESA INTEIRA (o RegemCast; plano "Clique RegemCast → Regem" do hub): UMA ligação, sem loja, que lê as
+   * lojas vivas da empresa na hora (as abertas depois também, como a chave `rgm_it_` de empresa da mig 302). Na
+   * transação, o acesso ativo da empresa com este aplicativo (a chave do console ou um clique anterior) é trocado, e o
+   * novo soma o que ele liberava, como na troca das lojas. As lojas da autorização ficam na prova e no e-mail. A corrida
+   * de duas trocas da mesma empresa, o índice único da mig 425 decide (fica UM acesso ativo).
+   */
+  private async trocarDaEmpresa(
+    a: AppDoClique,
+    doToken: TokenDmsIdDoRegem,
+    aut: { id: string; tenantId: string },
+    quem: Autorizador,
+    liberadas: EscopoIntegracao[],
+    lojas: { id: string; nome: string }[],
+  ): Promise<{ lojas: LojaLigada[] }> {
+    const { tenantId } = aut;
+    const evidencia = `autorizado pelo presidente com a senha, na autorização por clique (${aut.id})`;
+    let feito: { antigos: any[]; id: string; prefixo: string; chave: string; escopos: EscopoIntegracao[]; segredoEm: string; antes: EscopoIntegracao[] | null };
+    try {
+      feito = await this.db.transaction(async (tx: any) => {
+        const antigos = await this.rows(
+          sql`
+          update integracao_token_loja
+             set revogado_em = now(), revogado_por = ${`autorizacao:${quem.nome}`},
+                 motivo_revogacao = 'trocado pela autorização por clique'
+           where tenant_id = ${tenantId}::uuid and cliente = ${a.cliente} and revogado_em is null and unidade_id is null
+           returning id, prefixo, escopos`,
+          tx,
+        );
+        const doAntigo = naOrdemDoCatalogo(antigos.flatMap((t) => (t.escopos ?? []) as string[]));
+        const escopos = naOrdemDoCatalogo([...doAntigo, ...liberadas]);
+        const t = gerarTokenIntegracao(); // o token não sai daqui: a empresa passa a ser lida pela ligação
+        const [linha] = await this.rows(
+          sql`
+          insert into integracao_token_loja
+            (tenant_id, unidade_id, cliente, prefixo, token_hash, escopos, autorizado_por, autorizado_por_nome,
+             autorizado_via, evidencia, autorizacao_id)
+          values (${tenantId}::uuid, null, ${a.cliente}, ${t.prefixo}, ${t.hash}, ${`{${escopos.join(',')}}`}::text[],
+                  ${quem.id}::uuid, ${quem.nome}, 'autorizacao_loja', ${evidencia}, ${aut.id}::uuid)
+          returning id`,
+          tx,
+        );
+        const lg = gerarChave('lg', 'regem');
+        const [lig] = await this.rows(
+          sql`
+          insert into integracao_ligacao (id, tenant_id, aplicativo, prefixo, segredo_hash)
+          values (${linha.id}::uuid, ${tenantId}::uuid, ${doToken.aplicativo}, ${lg.prefixo}, ${lg.resumo})
+          returning segredo_em`,
+          tx,
+        );
+        return {
+          antigos,
+          id: linha.id as string,
+          prefixo: lg.prefixo,
+          chave: lg.chave,
+          escopos,
+          segredoEm: new Date(lig.segredo_em).toISOString(),
+          antes: antigos.length ? doAntigo : null,
+        };
+      });
+    } catch (erro: any) {
+      if (erro?.code === '23505' || erro?.cause?.code === '23505') {
+        this.log.warn(`troca do código do clique (${a.cliente}): outra troca da mesma empresa terminou antes`);
+        throw new ProblemaException(400, 'autorizacao-invalida', CORRIDA_DA_TROCA_DA_EMPRESA);
+      }
+      throw erro;
+    }
+
+    for (const t of feito.antigos) {
+      await this.auditoria.registrar({
+        tenantId,
+        atorId: quem.id,
+        atorPerfil: 'presidente',
+        tipo: 'integracao',
+        acao: 'integracao.token_revogado',
+        origem: 'integracao',
+        entidadeTipo: 'integracao_token',
+        entidadeId: t.id,
+        detalhe: { cliente: a.cliente, prefixo: t.prefixo, por: 'autorizacao', motivo: 'trocado pela autorização por clique' },
+      });
+    }
+    await this.auditoria.registrar({
+      tenantId,
+      atorTipo: 'integracao',
+      tipo: 'integracao',
+      acao: 'integracao.ligacao_criada',
+      origem: 'integracao',
+      entidadeTipo: 'integracao_ligacao',
+      entidadeId: feito.id,
+      detalhe: { cliente: a.cliente, prefixo: feito.prefixo, escopos: feito.escopos, via: 'clique', autorizacao: aut.id, empresaInteira: true, lojas: lojas.map((l) => l.nome) },
+    });
+
+    // O aviso aos presidentes, depois da troca: a ligação só existe agora. Nunca rejeita.
+    void avisarAutorizacaoPorClique(this.db, {
+      tenantId,
+      cliente: a.cliente,
+      porNome: quem.nome,
+      autorizacaoId: aut.id,
+      lojas: [{ id: null, nome: '', escopos: feito.escopos, antes: feito.antes }],
+      empresaInteira: { lojas: lojas.map((l) => l.nome) },
+    });
+
+    const ctx: IntegracaoCtxData = {
+      tokenId: feito.id,
+      tenantId,
+      unidadeId: null,
+      abrangencia: 'empresa',
+      lojaUnica: lojas.length === 1,
+      escopos: feito.escopos,
+      cliente: a.cliente,
+      autorizadoPor: quem.id,
+      prefixo: feito.prefixo,
+    };
+    return {
+      lojas: [
+        { ...(await this.tokens.dadosDaLoja(ctx)), loja_id: null, ligacao: feito.chave, prefixo: feito.prefixo, permissoes: feito.escopos, segredo_em: feito.segredoEm },
+      ],
+    };
   }
 
   /**
@@ -881,6 +1022,10 @@ export class AutorizacaoCliqueService {
       const dados = await this.empresaELojas(user.tenantId, a, tx);
       const marcadas = dados.lojas.filter((l) => d.lojas.includes(l.id));
       if (marcadas.length !== d.lojas.length) throw new BadRequestException('Loja não encontrada nesta empresa.');
+      // A empresa inteira: todas as lojas de hoje, as mesmas que a página mostrou (a prova diz quais eram).
+      if (a.app.empresaInteira && !a.parceiro && marcadas.length !== dados.lojas.length) {
+        throw new ConflictException('As lojas da empresa mudaram desde que a página abriu. Recarregue e confira de novo.');
+      }
       const maximo = a.parceiro?.lojas ?? null;
       const emOutras = maximo !== null ? await this.lojasEmOutrasEmpresas(user.tenantId, a.cliente, tx) : null;
       const tela = this.montar(a, pedido, dados, quem, emOutras);

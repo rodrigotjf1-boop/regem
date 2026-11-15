@@ -201,17 +201,26 @@ export function emailDaAutorizacaoNova(d: {
   /** Só o aplicativo de parceiro (R1b): as frases dele e a empresa conferida pela DMS, para onde os dados vão. */
   frases?: FrasesDoEmail;
   empresaDoApp?: { razaoSocial: string; cnpj: string | null };
+  /** A ligação da EMPRESA INTEIRA (o RegemCast): `lojas` são as lojas de hoje, e as abertas depois entram sozinhas. */
+  empresaInteira?: boolean;
 }) {
   const uma = d.lojas.length === 1;
   const lojas = listaNaFrase(d.lojas);
   const frases = d.frases ?? DO_CATALOGO;
-  const assunto = `O ${d.aplicativo} foi autorizado ${uma ? `na loja ${lojas}` : `nas lojas ${lojas}`}`;
+  const assunto = d.empresaInteira
+    ? `O ${d.aplicativo} foi autorizado na empresa ${d.empresa}`
+    : `O ${d.aplicativo} foi autorizado ${uma ? `na loja ${lojas}` : `nas lojas ${lojas}`}`;
   const paraOnde = d.empresaDoApp
     ? ` Os dados vão para a ${d.empresaDoApp.razaoSocial}${d.empresaDoApp.cnpj ? ` (CNPJ ${d.empresaDoApp.cnpj})` : ''}, dona do ${d.aplicativo}, conferida pela DMS.`
     : '';
+  const oQue = d.empresaInteira
+    ? `a empresa inteira (${listaNaFrase([...d.lojas, 'as lojas que abrirem depois'])})`
+    : uma
+      ? `a loja ${lojas}`
+      : `as lojas ${lojas}`;
   const paragrafos: Parte[][] = [
     [
-      `${primeiro(d.nome)}, às ${d.hora} de ${d.data} o ${d.por} (presidente) autorizou o ${d.aplicativo} a ler ${uma ? `a loja ${lojas}` : `as lojas ${lojas}`} no Regem, com a própria senha. ` +
+      `${primeiro(d.nome)}, às ${d.hora} de ${d.data} o ${d.por} (presidente) autorizou o ${d.aplicativo} a ler ${oQue} no Regem, com a própria senha. ` +
         `O pedido veio da conta ${d.conta.nome} no ${d.aplicativo} (${d.conta.cnpj ? `CNPJ ${d.conta.cnpj}` : 'sem CNPJ informado'}).${paraOnde}`,
     ],
     [{ b: `O ${d.aplicativo} pode ver:` }, ` ${listaNaFrase(emMinusculas(d.pode, frases))}.`],
@@ -241,13 +250,16 @@ export function emailDaPermissaoAMais(d: {
   link: string;
   /** Só o aplicativo de parceiro (R1b): as frases dele (os pedidos sem a origem do anúncio, as leituras na hora). */
   frases?: FrasesDoEmail;
+  /** A ligação da EMPRESA INTEIRA (o RegemCast): `loja` é o nome da empresa. */
+  empresaInteira?: boolean;
 }) {
   const frases = d.frases;
   const noAssunto = (id: EscopoIntegracao) => (frases ? (frases(id)?.noAssunto ?? frases(id)?.naFrase ?? id) : noAssuntoDe(id));
   const assunto = `O ${d.aplicativo} passou a receber ${listaNaFrase(d.novas.map(noAssunto))} na ${d.loja}`;
   const naFrase = listaNaFrase(d.novas.map((id) => (frases ?? DO_CATALOGO)(id)?.naFrase ?? id));
+  const onde = d.empresaInteira ? `na empresa ${d.loja}, em todas as lojas` : `na loja ${d.loja}`;
   const paragrafos: Parte[][] = [
-    [`${primeiro(d.nome)}, às ${d.hora} de ${d.data} o ${d.por} (presidente) liberou para o ${d.aplicativo} ${naFrase}, na loja ${d.loja}, com a própria senha.`],
+    [`${primeiro(d.nome)}, às ${d.hora} de ${d.data} o ${d.por} (presidente) liberou para o ${d.aplicativo} ${naFrase}, ${onde}, com a própria senha.`],
     ...d.novas.map((id): Parte[] => [(frases ?? DO_CATALOGO)(id)?.frase ?? id]),
   ];
   if (d.resto.length) paragrafos.push([`O resto continua como estava: ${listaNaFrase(emMinusculas(d.resto, frases))}.`]);
@@ -260,8 +272,13 @@ export type AutorizacaoPorClique = {
   cliente: string;
   porNome: string;
   autorizacaoId: string;
-  /** Cada loja ligada na troca: o que ela recebe agora e o que tinha antes (nulo = não tinha acesso). */
-  lojas: readonly { id: string; nome: string; escopos: readonly EscopoIntegracao[]; antes: readonly EscopoIntegracao[] | null }[];
+  /**
+   * Cada loja ligada na troca: o que ela recebe agora e o que tinha antes (nulo = não tinha acesso). Na empresa inteira,
+   * uma linha só, sem loja (`id` nulo; o nome é o da empresa, lido aqui).
+   */
+  lojas: readonly { id: string | null; nome: string; escopos: readonly EscopoIntegracao[]; antes: readonly EscopoIntegracao[] | null }[];
+  /** A ligação da EMPRESA INTEIRA (o RegemCast): as lojas de hoje, para o e-mail dizer o que entrou. */
+  empresaInteira?: { lojas: readonly string[] };
 };
 
 /** "10:20" e "04/11/2026", no fuso da loja. */
@@ -292,10 +309,14 @@ export async function avisarAutorizacaoPorClique(db: any, d: AutorizacaoPorCliqu
       const r: any = await db.execute(q);
       return (r.rows ?? r) as any[];
     };
+    // O fuso: o da primeira loja ligada; na empresa inteira (sem loja), o da matriz (ou da loja mais antiga), como a porta.
+    const lojaDoFuso = d.empresaInteira
+      ? sql`where u.tenant_id = a.tenant_id and u.deleted_at is null order by (u.tipo = 'matriz') desc, u.created_at asc limit 1`
+      : sql`where u.id = ${d.lojas[0]?.id ?? null}::uuid`;
     const [a] = await rows(sql`
       select a.criado_em, a.conta_que_pede, a.opcionais_desligados, e.nome as empresa, a.texto->'aplicativo' as app_da_tela,
              (select coalesce(nullif(u.timezone, ''), 'America/Sao_Paulo') from unidade u
-               where u.id = ${d.lojas[0]?.id ?? null}::uuid) as fuso
+               ${lojaDoFuso}) as fuso
         from integracao_autorizacao a join empresa e on e.id = a.tenant_id
        where a.id = ${d.autorizacaoId}::uuid and a.tenant_id = ${d.tenantId}::uuid`);
     const destinos = await presidentesComEmail(db, d.tenantId);
@@ -331,7 +352,7 @@ export async function avisarAutorizacaoPorClique(db: any, d: AutorizacaoPorCliqu
           ...emailDaAutorizacaoNova({
             nome: p.nome,
             aplicativo,
-            lojas: novas.map((l) => l.nome),
+            lojas: d.empresaInteira ? d.empresaInteira.lojas : novas.map((l) => l.nome),
             hora,
             data,
             por: d.porNome,
@@ -342,6 +363,7 @@ export async function avisarAutorizacaoPorClique(db: any, d: AutorizacaoPorCliqu
             empresa,
             link,
             ...(doParceiro ?? {}),
+            ...(d.empresaInteira ? { empresaInteira: true } : {}),
           }),
         });
       }
@@ -352,7 +374,7 @@ export async function avisarAutorizacaoPorClique(db: any, d: AutorizacaoPorCliqu
           ...emailDaPermissaoAMais({
             nome: p.nome,
             aplicativo,
-            loja: l.nome,
+            loja: d.empresaInteira ? empresa : l.nome,
             hora,
             data,
             por: d.porNome,
@@ -361,6 +383,7 @@ export async function avisarAutorizacaoPorClique(db: any, d: AutorizacaoPorCliqu
             empresa,
             link,
             ...(doParceiro ? { frases: doParceiro.frases } : {}),
+            ...(d.empresaInteira ? { empresaInteira: true } : {}),
           }),
         });
       }

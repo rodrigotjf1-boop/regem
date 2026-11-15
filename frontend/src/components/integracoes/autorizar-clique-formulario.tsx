@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { Check, ChevronRight, Info, Lock, Plus, ShieldCheck, Store, TriangleAlert, User } from 'lucide-react';
+import { Building2, Check, ChevronRight, Info, Lock, Plus, ShieldCheck, Store, TriangleAlert, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Chave } from './chave';
@@ -110,6 +110,8 @@ export function AutorizarCliqueFormulario({
   const app = tela.aplicativo.nome;
   const mais = tela.modo === 'mais';
   const umaLoja = tela.lojas.length === 1;
+  // A empresa inteira (o RegemCast): sem caixas; todas as lojas vêm marcadas do servidor e vão todas.
+  const daEmpresa = tela.empresaInteira ?? null;
   const [marcadas, setMarcadas] = useState<Record<string, boolean>>(() => Object.fromEntries(tela.lojas.map((l) => [l.id, l.marcada])));
   // C-1: as opcionais nascem desligadas, o custo também. Vale também no "pede mais": cada opcional nova tem a sua chave
   // e o presidente liga a que quiser (antes, "Liberar" ligava todas as novas, sem escolha). A troca soma o que ele ligar
@@ -204,7 +206,13 @@ export function AutorizarCliqueFormulario({
                   parceiro ? 'border border-border bg-secondary text-secondary-foreground' : p.outraEmpresa ? 'bg-warn/15 text-foreground' : 'bg-ok/15 text-foreground',
                 )}
               >
-                {parceiro ? 'Informada pelo aplicativo' : p.outraEmpresa ? 'Outra empresa' : `A mesma empresa ${umaLoja ? 'desta loja' : 'destas lojas'}`}
+                {parceiro
+                  ? 'Informada pelo aplicativo'
+                  : p.outraEmpresa
+                    ? 'Outra empresa'
+                    : daEmpresa
+                      ? 'A mesma empresa'
+                      : `A mesma empresa ${umaLoja ? 'desta loja' : 'destas lojas'}`}
               </span>
             </span>
             <span className={cn(ajuda, 'break-words')}>
@@ -224,6 +232,39 @@ export function AutorizarCliqueFormulario({
         </ul>
       </Secao>
 
+      {daEmpresa ? (
+        <Secao n={2} titulo={daEmpresa.titulo} id="aut-lojas">
+          <p className={ajuda}>{daEmpresa.ajuda}</p>
+          <div className="grid gap-1 rounded-[11px] border border-primary bg-primary/10 px-3.5 py-3">
+            <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+              <Building2 className="h-4 w-4 flex-none text-secondary-foreground" aria-hidden="true" />
+              <b className="font-bold">{daEmpresa.nome}</b>
+              <span className={cn(chip, 'border border-border bg-secondary text-secondary-foreground')}>{daEmpresa.resumo}</span>
+            </span>
+            <span className={cn(ajuda, 'break-words')}>{daEmpresa.lojas}</span>
+          </div>
+          {daEmpresa.ja && (
+            <details className="group rounded-[11px] border border-border px-3.5 py-2.5 text-[13px]">
+              <summary className="inline-flex cursor-pointer list-none items-start gap-1 font-semibold text-secondary-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <ChevronRight className="mt-0.5 h-3.5 w-3.5 flex-none transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden="true" />
+                <span>{daEmpresa.ja.frase}</span>
+              </summary>
+              <ul className="mt-2 grid gap-1.5">
+                {daEmpresa.ja.permissoes.map((j) => (
+                  <li key={j.id} className="flex items-center gap-2">
+                    <Check className="h-4 w-4 flex-none text-ok" aria-hidden="true" />
+                    <b className="font-semibold">{j.rotulo}</b>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          <p className="flex items-start gap-1.5 text-[12.5px] text-secondary-foreground">
+            <Info className="mt-px h-3.5 w-3.5 flex-none" aria-hidden="true" />
+            {daEmpresa.aviso}
+          </p>
+        </Secao>
+      ) : (
       <Secao n={2} titulo={umaLoja ? 'A loja' : 'Em quais lojas'} id="aut-lojas">
         {tela.ajudaLojas && <p className={ajuda}>{tela.ajudaLojas}</p>}
         {tela.lojas.map((l, i) => {
@@ -275,6 +316,7 @@ export function AutorizarCliqueFormulario({
           </p>
         )}
       </Secao>
+      )}
 
       {mais ? (
         <Secao n={3} titulo="O que muda" id="aut-muda">
@@ -427,7 +469,7 @@ export function AutorizarCliqueFormulario({
           {tela.botoes.cancelar}
         </Button>
         <Button type="submit" className="flex-1 font-bold sm:flex-none" disabled={enviando || nadaNovo} aria-describedby={nadaNovo ? 'aut-nada-novo' : undefined}>
-          {enviando ? 'Autorizando…' : mais || !escolhidas.length ? tela.botoes.autorizar : `${tela.botoes.autorizar} ${plural(escolhidas.length, 'loja', 'lojas')}`}
+          {enviando ? 'Autorizando…' : mais || daEmpresa || !escolhidas.length ? tela.botoes.autorizar : `${tela.botoes.autorizar} ${plural(escolhidas.length, 'loja', 'lojas')}`}
         </Button>
       </div>
       <p className="text-[12.5px] text-secondary-foreground">{tela.rodape}</p>
