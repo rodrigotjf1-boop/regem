@@ -638,6 +638,9 @@ export const distApi = {
   // Os modelos de mensagem do Mister na Meta (avisos e resumos fora das 24 horas): a situação e o pedido de aprovação.
   misterModelos: () => distReq('/distribuicao/mister/modelos'),
   misterPedirModelos: () => distReq('/distribuicao/mister/modelos/pedir', { method: 'POST', body: '{}' }),
+  // Os avisos para o suporte da DMS (F1.4 parte B): abertos ou resolvidos nas últimas 24 h, com a busca pela empresa.
+  misterAvisos: (situacao: 'abertos' | 'resolvidos', busca = '') =>
+    distReq(`/distribuicao/mister/avisos?situacao=${situacao}${busca ? `&busca=${encodeURIComponent(busca)}` : ''}`),
 };
 
 // Upload multipart: NÃO define Content-Type (o browser injeta o boundary).
