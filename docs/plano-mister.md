@@ -145,7 +145,11 @@ Loja que desliga o PC à noite abre um episódio de "sem sinal" por noite e o fe
 
 - Lista de incidentes para o gestor, no modelo do Estoque.
 - Aba de incidentes no console da distribuição.
-- Alerta local sem internet (bandeja e tela da loja), a única parte da F1 que pede `.zip`.
+- Alerta local sem internet (bandeja e tela da loja), a única parte da F1 que pede `.zip`. **A tela, em 14/11** (protótipo `mockups/regem-dependencias-e-qualidade.html`, vista "Loja sem internet", com as decisões recomendadas — o dono pediu para seguir com as recomendadas enquanto estava fora):
+  - **Quando aparece:** a faixa "sem conexão com a nuvem" aparece em todas as telas do servidor da loja depois de 2 min com o envio falhando, ou de 5 min sem nenhum envio certo.
+  - **O que a faixa diz:** a venda local continua; o iFood, a 99 e o cardápio digital não chegam; o Mister não manda avisos. Traz "O que conferir" e, quando a conexão volta, "✅ voltou" por 1 minuto.
+  - **De onde vem a regra:** `edge/conexao-nuvem.ts` lê o que o daemon já grava no `sync_state` (`sync_falhando_desde`, `sync_ultimo_ok`). A informação vem na resposta da presença do PC (`POST /edge/presenca`, a cada 30 s), sem nenhuma leitura a mais. Com o servidor da loja fora do ar, só aparece o aviso dele.
+  - **Onde vale:** só no `.zip`. O ícone da bandeja fica para o `.exe`, porque o `.zip` não troca `edge\bandeja`.
 - **Protótipo APROVADO pelo dono em 14/11/2026: `mockups/regem-avisos-na-tela.html`** (as cinco decisões recomendadas). Cobre os dois destinos dos avisos que ainda ficam só anotados:
   - a **faixa na tela da loja**, com a gaveta dos avisos abertos e o "Ciente" por pessoa;
   - o **Mister › Histórico**, com a lista no modelo do Estoque e a trilha de cada aviso;
