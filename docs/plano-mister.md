@@ -460,7 +460,7 @@ A 17ª consulta (`vencimentos_e_versoes`; regras em `mister-vencimentos.ts`). S�
 
 ### F3.7 — Vigilância de dependências, parte 2: as fontes oficiais lidas todo dia (migration 423)
 
-A vista "Console › Dependências" do protótipo `mockups/regem-dependencias-e-qualidade.html` (#992), feita com as decisões recomendadas enquanto o dono estava fora. O protótipo segue para a aprovação dele, e **a migration 423 espera o clique dele** antes do merge.
+A vista "Console › Dependências" do protótipo `mockups/regem-dependencias-e-qualidade.html` (#992), feita com as decisões recomendadas enquanto o dono estava fora. O protótipo segue para a aprovação dele. **No ar em 15/11/2026 (#996):** a migration 423 entrou na nuvem com o clique do dono e foi conferida pela leitura (16 colunas, RLS ligada); a primeira leitura das fontes é às 06:07 ou pelo "Ler agora" do console.
 
 - **A rotina** (`DependenciasService`, 06:07, só na nuvem) lê as fontes oficiais que moram no código (`modules/dependencias/dependencias-fontes.ts`). Cada uma foi aberta e conferida em 14/11:
   - **a tabela de versões da Graph API da Meta** (HTML; a data pode vir torta, "July 29,2028"). Dela sai a validade da versão em uso: a v25.0 do WhatsApp vale até 29/07/2028. A versão fora da tabela fica "a conferir", porque a tabela atrasa: em 14/11 ela ia até a v26.0, e a API já aceitava a v27.0 do Instagram e do Messenger (testado direto na API);
@@ -503,10 +503,10 @@ A vista "Console › Mister › Qualidade" do protótipo `mockups/regem-dependen
   - por empresa, com a situação da chave.
 - **Onde fica:** a seção nova "Qualidade" da aba Mister do console, só para a Diretoria (`GET /distribuicao/mister/qualidade`, `MisterQualidadeService`).
 - **O que nunca sai:** o texto da pergunta e da resposta, o telefone e a pessoa. Cada bloco é uma consulta agregada no banco, sem laço por empresa.
-- **Fica para a parte 2** (pede migration):
-  - o assunto das perguntas sem resposta, por uma lista fechada;
-  - a avaliação de regressão, com 40 perguntas fixas numa empresa de teste e a chave da DMS;
-  - um índice por data em `mister_pergunta`, para a leitura de 30 dias continuar rápida quando a tabela crescer.
+- **Ficou para depois:**
+  - o assunto das perguntas sem resposta, por uma lista fechada: feito na F5.2, abaixo, **sem migration**;
+  - a avaliação de regressão, com 40 perguntas fixas numa empresa de teste e a chave da DMS: F5.3;
+  - um índice por data em `mister_pergunta`: **já existia** (`ix_mister_pergunta_criado`, da 418, feito para a limpeza diária), e a leitura de 30 dias usa esse índice.
 
 **Conferência:**
 - `mister-qualidade.spec.ts`: o período, o texto de cada motivo e os motivos que somam.
@@ -520,6 +520,40 @@ A vista "Console › Mister › Qualidade" do protótipo `mockups/regem-dependen
   - nada de texto, telefone ou pessoa;
   - o período torto vira 7.
 - Roteiro `mister-console`: a seção (os números, 7 e 30 dias, o vazio e o erro com "Tentar de novo") nas 16 larguras.
+
+### F5.2 — O que pediram e o Mister não tem (sem migration)
+
+Decisão recomendada, seguida em 15/11/2026: **o próprio Mister marca o tema**, como diz a nota do protótipo ("o Mister marca cada uma com um assunto de uma lista fechada"). Não se classifica o texto por palavras: quem sabe que o dado faltou é o modelo, na hora.
+
+- **A anotação, a 18ª ferramenta (`anotar_o_que_falta`):**
+  - não é consulta e não lê dado;
+  - recebe só o `tema`, de uma lista fechada: vendas e pedidos, estoque e compras, financeiro e contas, equipe/escala/ponto, cardápio e preços, clientes, delivery e canais, nota fiscal e impostos, outro assunto;
+  - as instruções mandam chamá-la antes de dizer "ainda não tenho acesso"; a descrição diz para não chamá-la quando uma consulta deu erro (isso é "não consegui ler agora");
+  - responde também a quem está sem loja.
+- **Onde fica:** na trilha que a pergunta já tinha (`mister_pergunta.ferramentas[].entrada.tema`), por isso não precisa de migration.
+  - O tema fora da lista vira "outro": as palavras da pessoa nunca vão à trilha.
+  - Não é consulta em lugar nenhum. A memória da conversa continua marcando "sem consulta" a resposta que só anotou (é o que deixa o Mister reconhecer um erro seu, ERR-461). As "consultas mais usadas" do console não a contam.
+- **No console › Mister › Qualidade:**
+  - o número **"Não tenho acesso"** (o do protótipo) troca o "Sem consultar dado", que passa para a nota de "Respondidas";
+  - o cartão novo **"O que pediram e o Mister não tem"**, com as barras por tema.
+  - A API de antes do deploy, sem os campos novos, não quebra a seção (zero e "Nada faltou neste período.").
+- **Custo:** uma volta a mais ao modelo, só nas perguntas sem dado (com o trecho fixo em cache). As perguntas anteriores ao deploy não têm a anotação: o número cresce a partir de 15/11.
+
+**Conferência:**
+- `mister-agente.regras.spec.ts`:
+  - a lista de temas da ferramenta e o texto de cada um;
+  - o tema fora da lista vira "outro" (também na trilha);
+  - a anotação não é consulta, e a memória continua "sem consulta";
+  - a frase das instruções.
+- `mister-qualidade.spec.ts`: os temas somam pelo texto, e o tema desconhecido vai para "outro assunto".
+- `mister-guia-de-uso.spec.ts`: a anotação responde a quem está sem loja.
+- `mister-pg.teste-spec.ts`, pela diferença antes e depois:
+  - o "não tenho acesso" e cada tema;
+  - a anotação fora das consultas;
+  - a resposta que só anotou conta como "sem consultar dado".
+- Roteiro `mister-console`:
+  - o número e o cartão;
+  - a API antiga sem quebrar a seção.
 
 ### F2.5 — O suporte de uso: o guia "como faço…" (sem migration)
 
@@ -642,7 +676,7 @@ O último dos nove avisos da tabela aprovada. **Nasce desligado** (padrão: 20 m
 7. ~~Releitura dos documentos e imagens no grafo de engenharia~~ — feita em 12/11.
 8. O perfil de permissões por hierarquia (o que cada gerente pode pelo Mister): fim do projeto.
 9. **Pendência de implementação para o fim (pedido do dono em 13/11/2026):** a opção de conectar o número do Mister pela conexão gratuita do Evolution, além da API oficial da Meta. O argumento: o Mister só fala com quem ligou o próprio telefone, então o risco de denúncia do número é baixo. O Regem já fala com o Evolution no WhatsApp das lojas; o que falta é o número do Mister ganhar uma porta de provedor (oficial ou Evolution), escolhida pela distribuição no console. Pede mockup da opção.
-10. **Aprovar o protótipo `mockups/regem-dependencias-e-qualidade.html` (#992).** As partes foram feitas com as recomendadas enquanto o dono estava fora: a faixa sem nuvem (#993), a Qualidade parte 1 (#994) e as Dependências parte 2 (F3.7, que espera a **migration 423** pelo clique dele antes do merge).
+10. **Aprovar o protótipo `mockups/regem-dependencias-e-qualidade.html` (#992).** As partes foram feitas com as recomendadas enquanto o dono estava fora: a faixa sem nuvem (#993), a Qualidade parte 1 (#994), as Dependências parte 2 (F3.7, #996, com a migration 423 aplicada pelo clique dele em 15/11) e o que falta (F5.2).
 
 ## 6. Como foi levantado
 

@@ -313,6 +313,14 @@ describe('Mister — a consulta "como usar o Regem"', () => {
     }
   });
 
+  it('a anotação do que falta (F5.2) não lê dado: responde a quem está sem loja e diz para responder agora', async () => {
+    for (const e of [escopo('gerente', {}, true), escopo('presidente')]) {
+      const r = await ferramentas.executar(e, 'anotar_o_que_falta', { tema: 'estoque' });
+      expect(r.ok).toBe(true);
+      expect(r.dados).toEqual({ anotado: true, siga: expect.stringContaining('ainda não tem acesso') });
+    }
+  });
+
   it('responde também a quem está sem loja (o guia não lê dado de loja)', async () => {
     const r = await ferramentas.executar(escopo('gerente', {}, true), 'como_usar_o_regem', { assunto: GUIA_DE_USO[0].titulo });
     expect(r.ok).toBe(true);

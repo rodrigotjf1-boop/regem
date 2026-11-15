@@ -3,14 +3,15 @@ import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { hojeISO, somarDias } from '../../common/data';
 import { PRECOS_LIDOS_EM, UsoDaChamada, custoEstimadoUsd } from '../ia/ia.regras';
-import { RECURSO_DAS_PERGUNTAS } from './mister-agente.regras';
-import { motivosAgrupados, nomeDaConsultaNaQualidade, pct, periodoDaQualidade } from './mister-qualidade';
+import { FERRAMENTA_DO_QUE_FALTA, RECURSO_DAS_PERGUNTAS } from './mister-agente.regras';
+import { motivosAgrupados, nomeDaConsultaNaQualidade, pct, periodoDaQualidade, temasAgrupados } from './mister-qualidade';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// A QUALIDADE DO MISTER, parte 1 (F5 — a linha de base): como o Mister está respondendo, em TODAS as empresas, para o
-// console da distribuição (Diretoria). Só números de cada pergunta: se respondeu, o tempo, o custo, as consultas usadas e
-// o motivo de não responder — nunca o texto da pergunta ou da resposta (é da loja), nem telefone ou pessoa.
+// A QUALIDADE DO MISTER (F5): como o Mister está respondendo, em TODAS as empresas, para o console da distribuição
+// (Diretoria). Só números de cada pergunta: se respondeu, o tempo, o custo, as consultas usadas, o motivo de não
+// responder e o TEMA do que pediram e ele não tem (F5.2, a anotação `anotar_o_que_falta` na trilha) — nunca o texto da
+// pergunta ou da resposta (é da loja), nem telefone ou pessoa.
 // Cada bloco é UMA consulta agregada no banco (nada de laço por empresa): a página pode ler muitas empresas.
 
 const linhas = (r: any) => (r?.rows ?? r ?? []) as any[];
@@ -18,6 +19,9 @@ const semTabela = (e: any) => e?.code === '42P01' || e?.cause?.code === '42P01';
 const umaCasa = (v: unknown): number | null => (v === null || v === undefined || Number.isNaN(Number(v)) ? null : Math.round(Number(v) * 10) / 10);
 const seisCasas = (v: number) => Math.round(v * 1_000_000) / 1_000_000;
 const ARRAY_DE_CONSULTAS = sql`case when jsonb_typeof(p.ferramentas) = 'array' then p.ferramentas else '[]'::jsonb end`;
+// A anotação do que falta não lê dado: não conta como consulta (a resposta que só anotou é "sem consultar dado").
+const NENHUMA_CONSULTA = sql`not exists (select 1 from jsonb_array_elements(${ARRAY_DE_CONSULTAS}) c where c ->> 'nome' is distinct from ${FERRAMENTA_DO_QUE_FALTA})`;
+const ANOTOU_O_QUE_FALTA = sql`exists (select 1 from jsonb_array_elements(${ARRAY_DE_CONSULTAS}) c where c ->> 'nome' = ${FERRAMENTA_DO_QUE_FALTA})`;
 
 @Injectable()
 export class MisterQualidadeService {
@@ -34,7 +38,8 @@ export class MisterQualidadeService {
         select count(*)::int as perguntas,
                count(*) filter (where p.situacao = 'respondida')::int as respondidas,
                count(*) filter (where p.situacao = 'falhou')::int as falhas,
-               count(*) filter (where p.situacao = 'respondida' and p.chamadas > 0 and jsonb_array_length(${ARRAY_DE_CONSULTAS}) = 0)::int as sem_consulta,
+               count(*) filter (where p.situacao = 'respondida' and p.chamadas > 0 and ${NENHUMA_CONSULTA})::int as sem_consulta,
+               count(*) filter (where ${ANOTOU_O_QUE_FALTA})::int as nao_tem,
                count(distinct p.tenant_id)::int as empresas,
                count(distinct p.colaborador_id)::int as pessoas,
                percentile_cont(0.5) within group (order by extract(epoch from (p.respondida_em - p.criado_em)))
@@ -54,10 +59,18 @@ export class MisterQualidadeService {
       await this.db.execute(sql`
         select f ->> 'nome' as nome, count(*)::int as vezes, count(*) filter (where f ->> 'ok' = 'false')::int as falhas
           from mister_pergunta p cross join lateral jsonb_array_elements(${ARRAY_DE_CONSULTAS}) f
-         where ${doPeriodo}
+         where ${doPeriodo} and f ->> 'nome' is distinct from ${FERRAMENTA_DO_QUE_FALTA}
          group by 1
          order by 2 desc, 1
          limit 20`),
+    );
+    // O que pediram e o Mister não tem, por tema (a pergunta conta uma vez em cada tema anotado).
+    const temas = linhas(
+      await this.db.execute(sql`
+        select f -> 'entrada' ->> 'tema' as tema, count(distinct p.id)::int as n
+          from mister_pergunta p cross join lateral jsonb_array_elements(${ARRAY_DE_CONSULTAS}) f
+         where ${doPeriodo} and f ->> 'nome' = ${FERRAMENTA_DO_QUE_FALTA}
+         group by 1`),
     );
     const porEmpresa = linhas(
       await this.db.execute(sql`
@@ -121,6 +134,8 @@ export class MisterQualidadeService {
       pctRespondidas: pct(respondidas, perguntas),
       falhas: Number(t?.falhas) || 0,
       semConsulta: Number(t?.sem_consulta) || 0,
+      naoTem: { quantas: Number(t?.nao_tem) || 0, pct: pct(Number(t?.nao_tem) || 0, perguntas) },
+      temas: temasAgrupados(temas.map((m) => ({ tema: m.tema, n: Number(m.n) || 0 }))),
       empresas: Number(t?.empresas) || 0,
       pessoas: Number(t?.pessoas) || 0,
       tempo: t?.mediana === null || t?.mediana === undefined ? null : { medianaS: umaCasa(t.mediana), p90S: umaCasa(t.p90) },

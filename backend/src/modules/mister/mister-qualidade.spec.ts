@@ -1,5 +1,25 @@
-import { MOTIVO_NA_QUALIDADE, motivoNaQualidade, motivosAgrupados, nomeDaConsultaNaQualidade, pct, periodoDaQualidade } from './mister-qualidade';
+import { MOTIVO_NA_QUALIDADE, motivoNaQualidade, motivosAgrupados, nomeDaConsultaNaQualidade, pct, periodoDaQualidade, temasAgrupados } from './mister-qualidade';
 import { fraseDoMotivo } from './mister-agente.regras';
+
+// F5.2: o que pediram e o Mister não tem, por tema (o tema fora da lista soma em "outro assunto").
+describe('a qualidade do Mister — o que falta', () => {
+  it('os temas somam pelo texto do console, do maior para o menor; o que não é da lista vira "outro assunto"', () => {
+    expect(
+      temasAgrupados([
+        { tema: 'estoque', n: 3 },
+        { tema: 'financeiro', n: 1 },
+        { tema: 'inventado', n: 1 },
+        { tema: null, n: 1 },
+        { tema: 'outro', n: 1 },
+      ]),
+    ).toEqual([
+      { tema: 'estoque e compras', quantas: 3 },
+      { tema: 'outro assunto', quantas: 3 },
+      { tema: 'financeiro e contas', quantas: 1 },
+    ]);
+    expect(temasAgrupados([])).toEqual([]);
+  });
+});
 
 // F5, parte 1: a qualidade do Mister no console (só números).
 describe('a qualidade do Mister', () => {
