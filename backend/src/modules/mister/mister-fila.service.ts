@@ -19,6 +19,8 @@ import { MotivoSemResposta, NivelDoMister, NotaDaSaida, TETOS, TrocaDaMemoria } 
 //  • O texto da pergunta e o da resposta saem em 30 dias; a linha, em 90 (a rotina diária da entrada chama `limpar`).
 
 const linhas = (r: any) => (r?.rows ?? r ?? []) as any[];
+/** Os campos do pedido às consultas que trazem as palavras da pessoa: saem com o texto, em 30 dias. */
+export const PALAVRAS_DA_PESSOA = ['busca', 'assunto'] as const;
 
 export interface DonoDaPergunta {
   tenantId: string;
@@ -207,12 +209,24 @@ export class MisterFilaService {
     }));
   }
 
-  /** A limpeza diária: o texto com mais de 30 dias sai; a linha com mais de 90 também. Devolve quantas linhas mudaram. */
+  /**
+   * A limpeza diária: o texto com mais de 30 dias sai; a linha com mais de 90 também. Devolve quantas linhas mudaram.
+   * Com o texto saem as PALAVRAS da pessoa que a trilha guardou no pedido às consultas (`busca` do estoque, `assunto` do
+   * guia de uso — até 40 letras); o resto do pedido (período, loja, tema da lista fechada) fica até a linha sair.
+   */
   async limpar(): Promise<number> {
+    const trilha = sql`case when jsonb_typeof(ferramentas) = 'array' then ferramentas else '[]'::jsonb end`;
     const semTexto = linhas(
       await this.db.execute(sql`
-        update mister_pergunta set pergunta = null, resposta = null, atualizado_em = now()
-         where criado_em < now() - interval '30 days' and (pergunta is not null or resposta is not null)
+        update mister_pergunta
+           set pergunta = null, resposta = null,
+               ferramentas = (select coalesce(jsonb_agg(case when jsonb_typeof(f -> 'entrada') = 'object' then jsonb_set(f, '{entrada}', (f -> 'entrada') - ${PALAVRAS_DA_PESSOA[0]}::text - ${PALAVRAS_DA_PESSOA[1]}::text) else f end order by o), '[]'::jsonb)
+                                from jsonb_array_elements(${trilha}) with ordinality as e(f, o)),
+               atualizado_em = now()
+         where criado_em < now() - interval '30 days'
+           and (pergunta is not null or resposta is not null
+                or exists (select 1 from jsonb_array_elements(${trilha}) f
+                            where jsonb_typeof(f -> 'entrada') = 'object' and (f -> 'entrada') ?| array[${PALAVRAS_DA_PESSOA[0]}::text, ${PALAVRAS_DA_PESSOA[1]}::text]))
         returning id`),
     );
     const fora = linhas(await this.db.execute(sql`delete from mister_pergunta where criado_em < now() - interval '90 days' returning id`));
