@@ -6,6 +6,7 @@ import { arquivoDaChave, chaveDaBandeja } from './bandeja-chave';
 import { ondeDigitar } from '../../common/onde-digitar';
 import { DIAS_PARA_REATIVAR, EquipamentoService, ViaDaAcao } from '../equipamento/equipamento.service';
 import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
+import { situacaoDaNuvem } from '../edge/conexao-nuvem';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -235,23 +236,22 @@ export class BandejaService implements OnModuleInit {
     };
   }
 
-  /** O último contato do sync com a nuvem, que o sync-daemon anota a cada batida (`sync_state.nuvem_contato`). */
+  /**
+   * O contato com a nuvem, que o sync-daemon anota a cada batida (`sync_state.nuvem_contato`), pela MESMA regra da faixa
+   * "sem conexão com a nuvem" das telas (`situacaoDaNuvem`, V74): uma batida ruim (menos de 2 min) ainda não é "falhando".
+   */
   private async nuvem(agoraMs: number): Promise<{ situacao: 'ok' | 'falhando' | 'sem_informacao'; linha: string }> {
+    let valor: unknown = null;
     try {
       const r: any = await this.db.execute(sql`select valor from sync_state where chave = 'nuvem_contato'`);
-      const v = JSON.parse(String((r.rows ?? r)[0]?.valor ?? 'null'));
-      const em = msDe(v?.okEm);
-      const falhando = msDe(v?.falhandoDesde);
-      if (falhando != null && (em == null || falhando > em)) return { situacao: 'falhando', linha: `sem sincronizar com a nuvem ${haQuanto(agoraMs - falhando)}` };
-      if (em != null) {
-        const idade = agoraMs - em;
-        return idade < 5 * 60_000
-          ? { situacao: 'ok', linha: `nuvem sincronizada ${haQuanto(idade)}` }
-          : { situacao: 'falhando', linha: `sem notícia da nuvem ${haQuanto(idade)}` };
-      }
+      valor = (r.rows ?? r)[0]?.valor ?? null;
     } catch {
-      /* sem a tabela ou valor ilegível: sem informação */
+      /* sem a tabela: sem informação */
     }
+    const s = situacaoDaNuvem(valor, agoraMs);
+    if (s.situacao === 'falhando')
+      return { situacao: 'falhando', linha: s.motivo === 'falha' ? `sem sincronizar com a nuvem ${haQuanto(agoraMs - s.desde!)}` : `sem notícia da nuvem ${haQuanto(agoraMs - s.desde!)}` };
+    if (s.situacao === 'ok') return { situacao: 'ok', linha: `nuvem sincronizada ${haQuanto(agoraMs - s.desde!)}` };
     return { situacao: 'sem_informacao', linha: 'nuvem: ainda sem informação' };
   }
 
