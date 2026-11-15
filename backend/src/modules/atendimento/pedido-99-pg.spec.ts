@@ -233,6 +233,21 @@ descrever('pedidos do cliente da 99 na central (Postgres)', () => {
     expect(ig.config.lastAuthErrno).toBeNull();
   });
 
+  it('dois cancelamentos pendentes de cópias diferentes (dois pedidos ao mesmo tempo): os dois ficam (ERR-474)', async () => {
+    const igA = await food99.integracaoDoTenant(T);
+    const igB = await food99.integracaoDoTenant(T); // carregada antes de o primeiro gravar, como na chamada simultânea
+    await (food99 as any).marcarCancelPendente(igA, 'ped-a', 1010, 'cliente desistiu');
+    await (food99 as any).marcarCancelPendente(igB, 'ped-b', 1010);
+    const [ig] = await q(`select config from integracao where tenant_id = $1`, [T]);
+    expect(ig.config.pendingCancels['ped-a']).toMatchObject({ reasonId: 1010, reason: 'cliente desistiu', attempts: 1 });
+    expect(ig.config.pendingCancels['ped-b']).toMatchObject({ reasonId: 1010, attempts: 1 });
+    // Tirar um pela cópia velha não apaga o outro.
+    await (food99 as any).limparCancelPendente(igA, 'ped-a');
+    const [depois] = await q(`select config from integracao where tenant_id = $1`, [T]);
+    expect(depois.config.pendingCancels['ped-b']).toMatchObject({ reasonId: 1010 });
+    expect(depois.config.pendingCancels['ped-a']).toBeUndefined();
+  });
+
   it('ajustes: o que veio muda, o resto fica (V16); fora do permitido recusa; fica na auditoria', async () => {
     const r = await svc.salvarAjustes({ tenantId: T, colaboradorId: gerente, categoria: 'gerente' } as any, { ajuste99: { reembolsoRecusarEmHoras: 8 } });
     expect(r.ajuste99).toMatchObject({ decidirCancelamento: true, reembolsoRecusarEmHoras: 8, reembolsoMotivo: 'Other' });

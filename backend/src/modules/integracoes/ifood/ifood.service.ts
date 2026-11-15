@@ -5,6 +5,7 @@ import { DRIZZLE, DrizzleDB } from '../../../db/drizzle.module';
 import { integracao } from '../../../db/schema';
 import { fetchExterno } from '../../../common/fetch-externo';
 import { registrarDisputa, registrarEncerramento } from './ifood-disputa';
+import { marcarCancelPendente as marcarCancelPendenteNoBanco, tirarCancelPendente } from '../cancel-pendente';
 import { anotarEventoNaoTratado } from './ifood-eventos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -534,55 +535,40 @@ export class IfoodService {
     return ok;
   }
 
+  // Só a entrada DESTE pedido, mesclada no banco (ERR-474): a cópia da config em memória apagava o pendente de outro
+  // pedido cancelado ao mesmo tempo (e qualquer chave gravada no meio por outro escritor).
   private async marcarCancelPendente(ig: IntegIfood, orderId: string, motivo?: string): Promise<void> {
-    const pend = { ...(ig.config?.pendingCancels ?? {}) };
-    const anterior = pend[orderId] ?? {};
-    pend[orderId] = { motivo: motivo ?? anterior.motivo, attempts: (anterior.attempts ?? 0) + 1 };
-    const config = { ...(ig.config ?? {}), pendingCancels: pend };
-    await this.db.update(integracao).set({ config }).where(eq(integracao.id, ig.id));
-    ig.config = config;
+    const pend = await marcarCancelPendenteNoBanco(this.db, ig.id, orderId, { motivo });
+    ig.config = { ...(ig.config ?? {}), pendingCancels: pend };
     this.logger.warn(`cancel ${orderId.slice(0, 8)} pendente (reconciliação vai reenviar)`);
   }
 
   private async limparCancelPendente(ig: IntegIfood, orderId: string): Promise<void> {
     if (!ig.config?.pendingCancels?.[orderId]) return;
-    const pend = { ...ig.config.pendingCancels };
-    delete pend[orderId];
-    const config = { ...(ig.config ?? {}), pendingCancels: pend };
-    await this.db.update(integracao).set({ config }).where(eq(integracao.id, ig.id));
-    ig.config = config;
+    const pend = await tirarCancelPendente(this.db, ig.id, orderId);
+    if (pend) ig.config = { ...(ig.config ?? {}), pendingCancels: pend };
   }
 
   // Reenvia os cancelamentos pendentes de uma loja (chamado pelo poller a cada 30s).
-  // Desiste após 20 tentativas (log), pra não reenviar eternamente.
+  // Desiste após 20 tentativas (log), pra não reenviar eternamente. Cada pedido grava só a entrada dele (ERR-474).
   async reconciliarCancels(ig: IntegIfood): Promise<number> {
     const pend = { ...(ig.config?.pendingCancels ?? {}) };
     const ids = Object.keys(pend);
     if (!ids.length) return 0;
-    let mudou = false;
     let feitos = 0;
     for (const orderId of ids) {
-      const p = pend[orderId];
+      const p = pend[orderId] ?? {};
+      let agora: Record<string, any> | null;
       if ((p.attempts ?? 0) >= 20) {
-        delete pend[orderId];
-        mudou = true;
+        agora = await tirarCancelPendente(this.db, ig.id, orderId);
         this.logger.warn(`cancel ${orderId.slice(0, 8)} DESISTIDO após 20 tentativas`);
-        continue;
-      }
-      const ok = await this.cancelar(ig, orderId, p.motivo);
-      if (ok) {
-        delete pend[orderId];
+      } else if (await this.cancelar(ig, orderId, p.motivo)) {
+        agora = await tirarCancelPendente(this.db, ig.id, orderId);
         feitos++;
       } else {
-        p.attempts = (p.attempts ?? 0) + 1;
-        pend[orderId] = p;
+        agora = await marcarCancelPendenteNoBanco(this.db, ig.id, orderId, {});
       }
-      mudou = true;
-    }
-    if (mudou) {
-      const config = { ...(ig.config ?? {}), pendingCancels: pend };
-      await this.db.update(integracao).set({ config }).where(eq(integracao.id, ig.id));
-      ig.config = config;
+      if (agora) ig.config = { ...(ig.config ?? {}), pendingCancels: agora };
     }
     return feitos;
   }
