@@ -1,27 +1,34 @@
-import { ENVIO_PARADO_APOS_MS, SEM_NUVEM_APOS_MS, semConexaoComANuvem } from './conexao-nuvem';
+import { ENVIO_PARADO_APOS_MS, SEM_NUVEM_APOS_MS, situacaoDaNuvem } from './conexao-nuvem';
 
-// F1.4: a faixa "sem conexão com a nuvem" do servidor da loja.
-describe('semConexaoComANuvem', () => {
+// F1.4: a MESMA regra para o ícone da bandeja e a faixa "sem conexão com a nuvem" (V74), sobre a anotação da batida.
+describe('situacaoDaNuvem', () => {
   const agora = Date.parse('2026-11-14T22:00:00Z');
   const ha = (ms: number) => new Date(agora - ms).toISOString();
+  const contato = (okEm: string | null, falhandoDesde: string | null) => JSON.stringify({ okEm, falhandoDesde });
 
   it('falhando há 2 min ou mais: sem conexão desde a primeira falha', () => {
-    expect(semConexaoComANuvem(ha(SEM_NUVEM_APOS_MS), ha(SEM_NUVEM_APOS_MS + 60_000), agora)).toBe(ha(SEM_NUVEM_APOS_MS));
-    expect(semConexaoComANuvem(ha(12 * 60_000), null, agora)).toBe(ha(12 * 60_000));
+    expect(situacaoDaNuvem(contato(ha(9 * 60_000), ha(SEM_NUVEM_APOS_MS)), agora)).toEqual({ situacao: 'falhando', motivo: 'falha', desde: agora - SEM_NUVEM_APOS_MS, semConexaoDesde: ha(SEM_NUVEM_APOS_MS) });
+    expect(situacaoDaNuvem(contato(null, ha(12 * 60_000)), agora).semConexaoDesde).toBe(ha(12 * 60_000));
   });
 
-  it('falhando há menos de 2 min: ainda não acusa (um ciclo ruim é um piscar da rede)', () => {
-    expect(semConexaoComANuvem(ha(SEM_NUVEM_APOS_MS - 1000), ha(10 * 60_000), agora)).toBeNull();
+  it('falhando há menos de 2 min, com contato certo recente: ainda ok (uma batida ruim é um piscar)', () => {
+    expect(situacaoDaNuvem(contato(ha(90_000), ha(60_000)), agora)).toMatchObject({ situacao: 'ok', semConexaoDesde: null, desde: agora - 90_000 });
   });
 
-  it('sem falha marcada, mas nenhum ciclo certo há 5 min: o envio parou (o daemon caiu)', () => {
-    expect(semConexaoComANuvem('', ha(ENVIO_PARADO_APOS_MS), agora)).toBe(ha(ENVIO_PARADO_APOS_MS));
-    expect(semConexaoComANuvem(null, ha(ENVIO_PARADO_APOS_MS - 1000), agora)).toBeNull();
+  it('nenhum contato certo há 5 min, mesmo sem a falha anotada: o daemon caiu', () => {
+    expect(situacaoDaNuvem(contato(ha(ENVIO_PARADO_APOS_MS), null), agora)).toMatchObject({ situacao: 'falhando', motivo: 'sem_noticia', semConexaoDesde: ha(ENVIO_PARADO_APOS_MS) });
+    expect(situacaoDaNuvem(contato(ha(ENVIO_PARADO_APOS_MS + 60_000), ha(30_000)), agora)).toMatchObject({ situacao: 'falhando', motivo: 'sem_noticia' });
+    expect(situacaoDaNuvem(contato(ha(ENVIO_PARADO_APOS_MS - 1000), null), agora).situacao).toBe('ok');
   });
 
-  it('falando normalmente, ou sem nada anotado (servidor recém-instalado): nada', () => {
-    expect(semConexaoComANuvem('', ha(30_000), agora)).toBeNull();
-    expect(semConexaoComANuvem(null, null, agora)).toBeNull();
-    expect(semConexaoComANuvem('lixo', 'lixo', agora)).toBeNull();
+  it('a falha antiga já superada por um contato certo não conta', () => {
+    expect(situacaoDaNuvem(contato(ha(30_000), ha(20 * 60_000)), agora)).toMatchObject({ situacao: 'ok' });
+  });
+
+  it('sem anotação (servidor recém-instalado) ou ilegível: sem informação, sem faixa', () => {
+    expect(situacaoDaNuvem(null, agora)).toEqual({ situacao: 'sem_informacao', motivo: null, desde: null, semConexaoDesde: null });
+    expect(situacaoDaNuvem('lixo', agora).situacao).toBe('sem_informacao');
+    expect(situacaoDaNuvem(contato(null, ha(30_000)), agora).situacao).toBe('sem_informacao');
+    expect(situacaoDaNuvem({ okEm: ha(10_000), falhandoDesde: null }, agora).situacao).toBe('ok');
   });
 });
