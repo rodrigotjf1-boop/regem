@@ -689,7 +689,10 @@ export class SyncService {
     const tenantId = ctx.tenantId;
     const resultado: Record<string, { aplicadas: number; ignoradas: number }> = {};
 
-    for (const lote of lotes) {
+    // Cada lote em sublotes com as MESMAS colunas (ERR-126): as colunas do INSERT saem da 1ª linha e, numa linha sem uma
+    // delas, o valor sumia do SQL (`values ($1, , $2)`) — o lote inteiro caía com erro de sintaxe e voltava a cada ciclo.
+    // Pôr NULL na falta apagaria, no `do update`, o valor que já existe aqui. O lote normal (`select *`) fica inteiro.
+    for (const lote of lotes.flatMap(dividirPorColunas)) {
       const modo = modoPush(lote.tabela);
       if (!modo) {
         throw new BadRequestException(`Tabela não permitida no push: ${lote.tabela}`);
@@ -910,7 +913,9 @@ export class SyncService {
           if (lote.tabela === 'sync_exclusao') await this.aplicarExclusoes(tx, tenantId, linhas);
         });
       }
-      resultado[lote.tabela] = { aplicadas, ignoradas };
+      // Soma: a mesma tabela pode vir em mais de um sublote (ou em dois lotes).
+      const ja = resultado[lote.tabela];
+      resultado[lote.tabela] = { aplicadas: (ja?.aplicadas ?? 0) + aplicadas, ignoradas: (ja?.ignoradas ?? 0) + ignoradas };
     }
 
     return { serverTime: new Date().toISOString(), resultado };
@@ -1045,8 +1050,29 @@ function abertoOu(tabela: string, colunas: Set<string>) {
   return cond && colunas.has('status') ? sql` or (${sql.raw(cond)})` : sql``;
 }
 
-// jsonb/arrays viram string; o resto passa como está (pg casta pelo tipo da coluna).
+// jsonb/arrays viram string; o resto passa como está (pg casta pelo tipo da coluna). `undefined` no template do Drizzle
+// some do texto do SQL (ERR-126): vira NULL explícito.
 function coagir(v: unknown): unknown {
+  if (v === undefined) return null;
   if (v !== null && typeof v === 'object') return JSON.stringify(v);
   return v;
+}
+
+/**
+ * Divide um lote do push em sublotes com as mesmas chaves em todas as linhas (ERR-126), na ordem em que cada conjunto
+ * aparece. O lote em que todas as linhas têm as mesmas chaves (o normal: `select *` e a linha inteira do Drizzle) volta
+ * como está. Linha que não é objeto fica num grupo próprio (o push a descarta como sempre).
+ */
+export function dividirPorColunas(lote: LoteSyncDto): LoteSyncDto[] {
+  const linhas: unknown[] = lote.linhas ?? [];
+  if (linhas.length < 2) return [lote];
+  const grupos = new Map<string, unknown[]>();
+  for (const l of linhas) {
+    const chave = l && typeof l === 'object' ? Object.keys(l).sort().join(',') : '';
+    const g = grupos.get(chave);
+    if (g) g.push(l);
+    else grupos.set(chave, [l]);
+  }
+  if (grupos.size === 1) return [lote];
+  return [...grupos.values()].map((g) => ({ ...lote, linhas: g }) as LoteSyncDto);
 }

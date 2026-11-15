@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Push do sync com linhas de colunas diferentes no mesmo lote (15/11, ERR-126; SEM migration; não mexe no
+  `sync-daemon`).** A nuvem divide o lote por colunas: cada linha grava o que trouxe e a coluna que não veio fica como
+  está (antes, o lote inteiro caía com erro de sintaxe e voltava a cada ciclo). É o lado da NUVEM do push: vale com o
+  merge; o arquivo vai junto no `.zip`, sem efeito na loja.
+
 - **As listas do painel do Delivery sem barra lateral (15/11, ERR-430; SEM migration; só tela).** "Pedidos pendentes" e
   "Entregas em andamento" escolhem pelo espaço a tabela inteira, a compacta (sem o código externo e a data, o bairro no
   lugar do endereço) ou os cartões — nunca rolam para o lado. Na nuvem vale com o merge; no servidor da loja, com o `.zip`.
