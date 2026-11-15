@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Mister: os avisos na tela da loja — a faixa, o "Ciente" e a gaveta (14/11, F1.4 parte A; SEM migration; não mexe
+  no `sync-daemon`).** A faixa abaixo do topo, para todos que estão logados na loja, com o aviso aberto mais recente,
+  "Ciente" por pessoa (gravado na nuvem) e "Ver avisos"; o ⚠️ do topo depois do Ciente; a escala traz a faixa de volta.
+  Na NUVEM com o merge. **No `.zip` 1.30.13:** o módulo novo `AvisosNaTelaModule` sobe no servidor da loja e PEDE À
+  NUVEM com o token do sincronismo (`CLOUD_API`/`SYNC_TOKEN`, cache de 15 s por loja; sem internet, a faixa não aparece).
+  Sem o `.zip`, a loja com servidor não vê a faixa (a rota não existe lá e a tela para de perguntar). Nada no `.exe`.
+
 - **Mister: a conciliação — o que não fecha entre a venda, o dinheiro e a nota (14/11, F3.5; SEM migration; não mexe
   no `sync-daemon`).** A 16ª consulta: Pix de pedido cancelado sem o estorno feito, pedido cancelado com a venda de pé,
   pedido concluído sem o pagamento registrado, venda desfeita com a nota autorizada e nota recusada ou sem resposta. Só

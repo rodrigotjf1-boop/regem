@@ -333,6 +333,15 @@ export class RealtimeGateway
     });
   }
 
+  // Os avisos do Mister na tela da loja mudaram (abriu, escalou, resolveu) → as telas relêem a faixa. Só o sinal; o que a
+  // tela mostra vem de `GET /mister/avisos/abertos`, que filtra a loja. No servidor da loja o sinal não chega (a tabela é
+  // da nuvem): lá vale a leitura de reserva a cada minuto.
+  @OnEvent('mister.avisos.mudou')
+  onMisterAvisos(p: { tenantId: string }) {
+    if (!this.server) return;
+    this.server.to(`tenant:${p.tenantId}`).emit('mister:avisos', { em: new Date().toISOString() });
+  }
+
   // Caso de atendimento mudou (pegou, passou, aguardando, cliente respondeu, resolveu) → as telas da fila relêem.
   // Só o aviso; o que a tela mostra vem da fila (`GET /atendimento/fila`), que filtra a loja e o perfil.
   @OnEvent('atendimento.mudou')

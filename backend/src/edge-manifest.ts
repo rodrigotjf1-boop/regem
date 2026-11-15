@@ -38,6 +38,7 @@ export const EDGE_CORE_MODULES = [
   'EquipamentoModule', 'DashboardModule', 'MuralModule', 'PedidoManutencaoModule',
   'DesligamentoModule', 'EtiquetaModule', 'EtiquetaValidadeModule',
   'TelaSenhasModule', // a TV de senhas (mig 337): mostra a cozinha do servidor da loja, na hora
+  'AvisosNaTelaModule', // os avisos do Mister na tela da loja (F1.4): no servidor da loja, pede à nuvem (a tabela é de lá)
   'DeliveryModule', // PAINEL de delivery (aceitar/pronto/despachar) roda no edge;
                     // a INGESTÃO de integração é da nuvem → endpoints @CloudOnly pontuais.
   'ChegadaModule', // "Cheguei" na retirada (mig 354): a Retirada, o KDS e o aviso leem no edge; o botão do cliente

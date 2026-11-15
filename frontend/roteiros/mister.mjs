@@ -131,6 +131,8 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
       meu: { disponivel: true, numeroDoMister: '5521900000000', ligado: false, final: null, ligadoEm: null, pausado: false, codigo: null },
       // a parte "Avisos e relatórios"
       avisos: o.avisos ?? AVISOS_PADRAO(), avisosFalha: !!o.avisosFalha, recusaDosAvisos: o.recusaDosAvisos ?? null, salvamentos: [],
+      // a faixa dos avisos da loja (F1.4)
+      daLoja: o.daLoja ?? [], semConexao: !!o.semConexao, cientes: [],
       relatorios: o.relatorios ?? RELATORIOS_PADRAO(), salvamentosRel: [],
     };
     const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
@@ -149,6 +151,13 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
       if (p === '/mister/avisos' && metodo === 'GET') {
         if (S.avisosFalha) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
         return responder(route, S.avisos);
+      }
+      if (p === '/mister/avisos/abertos' && metodo === 'GET') return responder(route, { avisos: S.daLoja, ...(S.semConexao ? { semConexao: true } : {}) });
+      const ciente = /^\/mister\/avisos\/([^/]+)\/ciente$/.exec(p);
+      if (ciente && metodo === 'POST') {
+        S.cientes.push(ciente[1]);
+        S.daLoja = S.daLoja.map((a) => (a.id === ciente[1] ? { ...a, ciente: true } : a));
+        return responder(route, { ok: true }, 201);
       }
       if (p === '/mister/relatorios' && metodo === 'GET') return responder(route, { relatorios: S.relatorios });
       if (p === '/mister/relatorios' && metodo === 'PATCH') {
@@ -235,6 +244,71 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
   }
   const daIa = (S, metodo, p) => S.pedidos.filter((x) => x.metodo === metodo && x.p === p);
 
+  // ── a faixa dos avisos da loja (F1.4, protótipo aprovado em 14/11): o aviso mais recente, "Ciente" por pessoa, o ⚠️ do
+  //    topo depois do Ciente, a gaveta com todos e o "sem conexão" que não inventa nada ──
+  const AVISOS_DA_LOJA = () => [
+    { id: 'a1', grupo: 'Na loja', titulo: 'Loja Centro · impressora Cozinha parada', detalhe: 'Confira se ela está ligada, com papel e no cabo ou na rede.', abertoEm: new Date(Date.now() - 3 * 60_000).toISOString(), escalado: false, tambem: ['KDS da cozinha'], ciente: false },
+    { id: 'a2', grupo: 'Na loja', titulo: 'Loja Centro · pedido #284 · iFood 4821 aceito há mais de 20 min e ainda não ficou pronto', detalhe: 'Confira na cozinha se ele está sendo feito.', abertoEm: new Date(Date.now() - 26 * 60_000).toISOString(), escalado: true, tambem: ['KDS da cozinha', 'WhatsApp do gerente da loja'], ciente: false },
+  ];
+  {
+    const { ctx, page, erros, S } = await abrir(1280, 900, { daLoja: AVISOS_DA_LOJA(), caminho: '/mister?parte=ia' });
+    const faixa = page.locator('div[role="status"]:has-text("Ver os 2 avisos")');
+    await faixa.waitFor({ timeout: 20000 });
+    const tf = await faixa.innerText();
+    ok(/impressora Cozinha parada/.test(tf) && /há 3 min/.test(tf) && /Confira se ela está ligada/.test(tf), `faixa: o aviso mais recente, há quanto tempo e o que fazer (${tf.replace(/\s+/g, ' ')})`);
+    await faixa.locator('button:has-text("Ciente")').click();
+    const segunda = page.locator('div[role="status"]:has-text("pedido #284")');
+    await segunda.waitFor();
+    ok(S.cientes.includes('a1'), 'faixa: o "Ciente" vai ao servidor');
+    ok(/sem solução/.test(await segunda.innerText()), 'faixa: o aviso que escalou diz "sem solução"');
+    await segunda.locator('button:has-text("Ciente")').click();
+    const chip = page.locator('button[aria-label="2 avisos da loja abertos"]');
+    await chip.waitFor();
+    ok((await page.locator('div[role="status"]:has-text("Ver os")').count()) === 0, 'faixa: com tudo "Ciente", a faixa some e o ⚠️ do topo aparece');
+    await chip.click();
+    const gaveta = page.locator('[role="dialog"]:has-text("Avisos da loja")');
+    await gaveta.waitFor();
+    const tg = await gaveta.innerText();
+    ok(/2 abertos/.test(tg) && /também foi para KDS da cozinha, WhatsApp do gerente da loja/.test(tg) && /Confira na cozinha/.test(tg) && /sem solução/.test(tg), 'gaveta: os dois avisos, o que fazer, para onde mais foram e o que escalou');
+    await page.keyboard.press('Escape');
+    await gaveta.waitFor({ state: 'detached' });
+    ok(true, 'gaveta: Esc fecha');
+    ok(erros.length === 0, `faixa: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  {
+    const { ctx, page } = await abrir(1280, 900, { daLoja: [], semConexao: true, caminho: '/mister?parte=ia' });
+    await page.waitForSelector('h1', { timeout: 20000 });
+    await page.waitForTimeout(1200);
+    ok((await page.locator('div[role="status"]:has-text("Ver o")').count()) === 0 && (await page.locator('button[aria-label$="da loja abertos"], button[aria-label$="da loja aberto"]').count()) === 0, 'sem conexão com a nuvem: nem faixa nem ⚠️ (não inventa nada)');
+    await ctx.close();
+  }
+  for (const w of larguras) {
+    const { ctx, page, erros } = await abrir(w, w < 700 ? 820 : 900, { daLoja: AVISOS_DA_LOJA(), caminho: '/mister?parte=ia' });
+    const faixa = page.locator('div[role="status"]:has-text("Ver os 2 avisos")');
+    await faixa.waitFor({ timeout: 20000 });
+    const fora = await faixa.evaluate((el) => {
+      const achados = [];
+      if (el.getBoundingClientRect().right > window.innerWidth + 1) achados.push('a faixa passa da tela');
+      for (const b of el.querySelectorAll('button')) {
+        const cs = getComputedStyle(b);
+        const linha = parseFloat(cs.lineHeight) || 20;
+        if (b.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) > linha * 1.6) achados.push(`botão quebrado "${b.textContent.trim()}"`);
+        if (b.getBoundingClientRect().height < 39.5) achados.push(`botão baixo "${b.textContent.trim()}"`);
+      }
+      return achados;
+    });
+    let m = await medir(page);
+    ok(fora.length === 0 && m.length === 0, `${w}px: a faixa inteira na tela, sem barra lateral e com botões inteiros (${[...fora, ...m].join(' | ')})`);
+    if (w === 375 || w === 1440) await page.screenshot({ path: foto(`${w}-faixa-dos-avisos.png`) });
+    await faixa.locator('button:has-text("Ver os 2 avisos")').click();
+    await page.locator('[role="dialog"]:has-text("Avisos da loja")').waitFor();
+    m = await medir(page);
+    ok(m.length === 0, `${w}px: a gaveta dos avisos inteira na tela (${m.join(' | ')})`);
+    ok(erros.length === 0, `${w}px: faixa sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+
   // ── Visão C&O › Módulos do produto: o Mister DESLIGADO tem de APARECER e ligar com um toque ──
   // A chave desligada usava a cor do cartão (1,05:1) e ninguém via: todo módulo nascia ligado, até o Mister.
   {
@@ -305,7 +379,10 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
   {
     const { ctx, page, S } = await abrir(1280, 900, { token: EXECUCAO, caminho: '/mister' });
     await page.waitForSelector('text=Área restrita', { timeout: 20000 });
-    ok(S.pedidos.length === 0 && S.doMister.length === 0, `execução: área restrita, sem chamada à IA nem ao Mister (${S.pedidos.length + S.doMister.length})`);
+    // A faixa dos avisos da loja (F1.4) vale para todos os perfis: é a única leitura do Mister que a execução faz.
+    const doMisterSemAFaixa = S.doMister.filter((x) => x.p !== '/mister/avisos/abertos');
+    ok(S.pedidos.length === 0 && doMisterSemAFaixa.length === 0, `execução: área restrita, sem chamada à IA nem ao Mister (${S.pedidos.length + doMisterSemAFaixa.length})`);
+    ok(S.doMister.some((x) => x.p === '/mister/avisos/abertos'), 'execução: a faixa dos avisos da loja lê os avisos (todos os perfis)');
     ok((await page.locator('nav a[href="/mister"]').count()) === 0, 'execução: o item "Mister" não aparece no menu');
     await ctx.close();
   }
