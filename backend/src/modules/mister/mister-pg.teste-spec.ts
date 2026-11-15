@@ -1513,17 +1513,40 @@ export function testesDoMisterComPostgres(): void {
     it('a limpeza diária tira o texto das perguntas com mais de 30 dias e a linha com mais de 90; no servidor da loja o agente não faz nada', async () => {
       const tel = telefone();
       await ligar('ana', tel);
-      for (const [chave, dias] of [['nova', 1], ['velha', 31], ['antiga', 91]] as const)
+      // A trilha com as palavras da pessoa (a busca do estoque, o assunto do guia) e o resto do pedido.
+      const trilha = JSON.stringify([
+        { nome: 'estoque_em_alerta', ms: 5, ok: true, entrada: { busca: 'bacon da casa', loja: 'Loja Centro', pagina: 2 } },
+        { nome: 'como_usar_o_regem', ms: 3, ok: true, entrada: { assunto: 'pausar o iFood' } },
+        { nome: 'anotar_o_que_falta', ms: 1, ok: true, entrada: { tema: 'clientes' } },
+        { nome: 'resumo_do_dia', ms: 2, ok: true },
+      ]);
+      for (const [chave, dias, texto] of [['nova', 1, 'pergunta'], ['velha', 31, 'pergunta'], ['ja_sem_texto', 40, null], ['antiga', 91, 'pergunta']] as const)
         await q(
-          `insert into mister_pergunta (tenant_id, colaborador_id, nivel, telefone, chave, pergunta, resposta, situacao, chamadas, criado_em)
-           values ($1, $2, 'presidente', $3, $4, 'pergunta', 'resposta', 'respondida', 1, now() - make_interval(days => $5))`,
-          [A, pessoa.ana, tel, `limpa-${MARCA}-${chave}`, dias],
+          `insert into mister_pergunta (tenant_id, colaborador_id, nivel, telefone, chave, pergunta, resposta, situacao, chamadas, ferramentas, criado_em)
+           values ($1, $2, 'presidente', $3, $4, $6, $6, 'respondida', 1, $7::jsonb, now() - make_interval(days => $5))`,
+          [A, pessoa.ana, tel, `limpa-${MARCA}-${chave}`, dias, texto, trilha],
         );
       await entrada.limparMensagens();
-      expect((await q(`select chave, pergunta, resposta from mister_pergunta where chave like $1 order by criado_em desc`, [`limpa-${MARCA}-%`])).map((l) => [l.chave.split('-').at(-1), l.pergunta, l.resposta])).toEqual([
-        ['nova', 'pergunta', 'resposta'],
+      const depois = await q(`select chave, pergunta, resposta, ferramentas from mister_pergunta where chave like $1 order by criado_em desc`, [`limpa-${MARCA}-%`]);
+      expect(depois.map((l) => [l.chave.split('-').at(-1), l.pergunta, l.resposta])).toEqual([
+        ['nova', 'pergunta', 'pergunta'],
         ['velha', null, null],
+        ['ja_sem_texto', null, null],
       ]);
+      // A nova guarda tudo; a velha e a que já tinha perdido o texto (antes desta regra) perdem as palavras da pessoa e
+      // guardam o resto do pedido, na mesma ordem.
+      expect(depois[0].ferramentas).toEqual(JSON.parse(trilha));
+      const semPalavras = [
+        { nome: 'estoque_em_alerta', ms: 5, ok: true, entrada: { loja: 'Loja Centro', pagina: 2 } },
+        { nome: 'como_usar_o_regem', ms: 3, ok: true, entrada: {} },
+        { nome: 'anotar_o_que_falta', ms: 1, ok: true, entrada: { tema: 'clientes' } },
+        { nome: 'resumo_do_dia', ms: 2, ok: true },
+      ];
+      expect(depois[1].ferramentas).toEqual(semPalavras);
+      expect(depois[2].ferramentas).toEqual(semPalavras);
+      // Na volta seguinte, nada mais a mudar nelas.
+      await entrada.limparMensagens();
+      expect((await q(`select ferramentas from mister_pergunta where chave = $1`, [`limpa-${MARCA}-ja_sem_texto`]))[0].ferramentas).toEqual(semPalavras);
       await perguntar(tel, 'no servidor da loja?');
       process.env.EDGE_MODE = 'true';
       expect(await agente.esvaziar()).toBe(0);
