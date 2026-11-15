@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Regem — Número do Mister pela conexão por QR Code (protótipo)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* PROTÓTIPO — a pendência 9 do docs/plano-mister.md (pedido do dono em 13/11/2026, "para o fim"): o número do Mister
+   pode falar pela conexão gratuita por QR Code (Evolution), além da API oficial da Meta. A escolha é da distribuição,
+   no console › Mister (o modelo aprovado em 13/11, versão 1 do mockups/regem-mister.html). Três vistas:
+   (1) Console › Mister › "Como o Mister fala no WhatsApp": as duas formas, o termo do risco, o QR, conectado, caiu,
+       bloqueado e a troca de forma; (2) o que muda no celular de quem está ligado; (3) notas, fases e decisões.
+   Dados inventados; nada aqui fala com o Regem. */
+*{box-sizing:border-box}
+html,body{margin:0}
+:root{--bg:#EDF0F4;--card:#FFFFFF;--ink:#0F2230;--ink-2:#43586C;--line:#DEE5EC;--line-2:#C8D2DC;--gold:#E2A340;--on-gold:#281B06;
+  --gold-ink:#8A5A0B;--gold-bg:#FDF3E1;--navy:#0F2230;--ok:#0E7C66;--ok-bg:#E3F4EF;--crit:#B93232;--crit-bg:#FBE9E9;
+  --wa:#075E54;--wa-fundo:#ECE5DD;--wa-meu:#DCF8C6;--wa-dele:#FFFFFF;
+  --d-bg:#020617;--d-card:#0B1324;--d-linha:#1E293B;--d-txt:#F1F5F9;--d-txt2:#94A3B8;--d-ambar:#F59E0B;--d-ambar-bg:#2A1E05;--d-ok:#34D399;--d-crit:#F87171;--d-azul:#7CC0F5;
+  --display:'Archivo',sans-serif;--mono:'JetBrains Mono',monospace}
+body{font-family:'Figtree',sans-serif;font-size:15px;line-height:1.45;background:var(--bg);color:var(--ink)}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+[hidden]{display:none!important}
+:focus-visible{outline:3px solid #2F7BD0;outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.mono{font-family:var(--mono)}
+h1,h2,h3{font-family:var(--display);line-height:1.2;margin:0}
+.sub{color:var(--ink-2);font-size:13.5px}
+
+.proto-barra{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 14px;padding:8px 14px;background:#0A1822;color:#fff}
+.proto-tit{font-family:var(--display);font-weight:700;font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--gold)}
+.proto-troca{display:flex;flex-wrap:wrap;gap:6px}
+.proto-troca button{min-height:36px;padding:0 12px;border-radius:9px;border:1px solid rgba(255,255,255,.25);background:transparent;color:#fff;font-weight:600;font-size:14px}
+.proto-troca button[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+
+/* console da distribuição (tema escuro do console) */
+.console{background:var(--d-bg);color:var(--d-txt);padding:20px;min-height:calc(100vh - 52px)}
+.console :focus-visible{outline-color:var(--d-azul)}
+.d-cab{display:flex;flex-wrap:wrap;gap:8px 16px;justify-content:space-between;align-items:flex-end;margin-bottom:14px}
+.d-sobre{font:700 11.5px var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--d-ambar)}
+.d-cab h1{font-size:24px}
+.d-nav{display:flex;flex-wrap:wrap;gap:2px 4px;border-bottom:1px solid var(--d-linha);margin-bottom:18px}
+.d-nav span{padding:8px 12px;color:var(--d-txt2);border-bottom:2px solid transparent}
+.d-nav span.atual{color:var(--d-ambar);border-bottom-color:var(--d-ambar);font-weight:600}
+.d-sec{border-top:1px solid var(--d-linha);padding-top:16px;margin-top:18px;max-width:1100px}
+.d-sec:first-of-type{border-top:0;margin-top:0;padding-top:0}
+.d-sec > h2{font-size:16px}
+.d-sec > .d-sub{color:var(--d-txt2);font-size:13.5px;margin:2px 0 12px;max-width:80ch}
+.d-card{border:1px solid var(--d-linha);background:var(--d-card);border-radius:12px;padding:16px;margin-bottom:12px;min-width:0}
+.d-card p{margin:0 0 8px;max-width:80ch}
+.d-sub{color:var(--d-txt2);font-size:13.5px}
+.d-aviso{border:1px solid #92610A;background:var(--d-ambar-bg);color:#FCD9A0;border-radius:12px;padding:10px 14px;margin:10px 0}
+.d-aviso.crit{border-color:#7F1D1D;background:#2A0B0B;color:#FECACA}
+.d-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;background:transparent;border:1px solid #334155;color:var(--d-txt);padding:0 14px;border-radius:8px;min-height:40px;font-weight:600}
+.d-btn.pri{background:var(--d-ambar);border-color:var(--d-ambar);color:#231803}
+.d-btn.perigo{color:var(--d-crit);border-color:#7F1D1D}
+.d-btn[disabled]{opacity:.5;cursor:not-allowed}
+.acoes{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.d-selo{display:inline-block;font-size:12px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap}
+.d-selo.ok{background:rgba(16,185,129,.15);color:var(--d-ok)} .d-selo.crit{background:rgba(248,113,113,.15);color:var(--d-crit)}
+.d-selo.warn{background:rgba(245,158,11,.15);color:#FBBF24} .d-selo.neutro{background:rgba(148,163,184,.15);color:var(--d-txt2)}
+.d-opcoes{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:10px;margin:4px 0 12px}
+.d-opcao{display:flex;flex-direction:column;gap:4px;border:1px solid #334155;border-radius:10px;padding:12px 14px;background:transparent;text-align:left;color:var(--d-txt);min-width:0}
+.d-opcao[aria-pressed="true"]{border-color:var(--d-ambar);background:var(--d-ambar-bg)}
+.d-opcao b{font-size:15px}
+.d-opcao .linha{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.d-opcao span.d-sub{font-size:13px}
+.d-opcao ul{margin:4px 0 0;padding-left:18px;color:var(--d-txt2);font-size:13px}
+.d-dados{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:10px 18px;margin:12px 0}
+.d-dados div{min-width:0}
+.d-dados dt{font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--d-txt2)}
+.d-dados dd{margin:0;overflow-wrap:anywhere}
+.ctls{border:1px dashed #5B4410;background:#1B1606;color:#FCD9A0;border-radius:10px;padding:8px 12px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px}
+.ctl{background:transparent;border:1px solid #5B4410;color:#FCD9A0;padding:0 10px;border-radius:999px;min-height:32px;font-size:13px}
+.ctl[aria-pressed="true"]{background:var(--d-ambar);border-color:var(--d-ambar);color:#231803;font-weight:700}
+.termo{display:flex;gap:10px;align-items:flex-start;margin:10px 0;font-size:14px}
+.termo input{width:20px;height:20px;margin:2px 0 0;flex:none;accent-color:var(--d-ambar)}
+.qr-area{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;align-items:start}
+@media (min-width:760px){ .qr-area{grid-template-columns:auto minmax(0,1fr)} }
+.qr-caixa{background:#fff;border-radius:12px;padding:12px;width:max-content;max-width:100%}
+.qr-caixa svg{display:block;width:min(220px,62vw);height:auto}
+.passos{margin:0;padding-left:22px}
+.passos li{margin-bottom:6px}
+.relogio{font-family:var(--mono);color:var(--d-ambar)}
+
+/* diálogo */
+.fundo{position:fixed;inset:0;background:rgba(2,6,23,.6);z-index:40}
+.dlg{position:fixed;z-index:41;left:50%;top:50%;transform:translate(-50%,-50%);width:min(520px,calc(100vw - 24px));max-height:calc(100vh - 24px);overflow-y:auto;background:var(--d-card);color:var(--d-txt);border:1px solid #334155;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.5);padding:18px}
+.dlg h2{font-size:19px;margin:0 0 8px}
+.dlg p,.dlg li{color:#CBD5E1}
+.dlg ul{padding-left:20px;margin:6px 0 10px}
+.dlg .acoes{justify-content:flex-end;margin-top:14px}
+.toast{position:fixed;z-index:60;left:50%;bottom:20px;transform:translateX(-50%);max-width:calc(100vw - 24px);background:var(--navy);color:#fff;padding:12px 16px;border:1px solid #334155;border-radius:12px;font-weight:600;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+
+/* celular */
+.pagina{max-width:1180px;margin:0 auto;padding:22px 18px 80px}
+.pagina > h1{font-size:26px;margin-bottom:6px}
+.pagina > .sub{max-width:80ch;margin:0 0 18px}
+.par{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:18px;margin:8px 0 26px;align-items:start}
+.caso h3{font-size:15px;margin-bottom:2px}
+.caso .sub{display:block;margin-bottom:8px}
+.etiqueta{display:inline-flex;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:700;margin-left:6px;vertical-align:1px}
+.etiqueta.of{background:#E6F0F8;color:#2C6699}
+.etiqueta.qr{background:var(--ok-bg);color:var(--ok)}
+.cel{border:8px solid #1B2A36;border-radius:28px;background:var(--wa-fundo);overflow:hidden;max-width:360px}
+.cel-topo{background:var(--wa);color:#fff;padding:10px 14px;display:flex;gap:10px;align-items:center}
+.cel-topo .foto{width:34px;height:34px;border-radius:50%;background:#fff;color:var(--wa);display:grid;place-items:center;font:800 15px var(--display);flex:none}
+.cel-topo b{display:block;line-height:1.2} .cel-topo span{font-size:12.5px;opacity:.9}
+.conv{padding:12px 10px;display:grid;gap:8px;min-height:140px;align-content:start}
+.bolha{max-width:90%;padding:7px 10px;border-radius:10px;font-size:14px;line-height:1.4;box-shadow:0 1px 1px rgba(0,0,0,.12);overflow-wrap:anywhere}
+.bolha.dele{background:var(--wa-dele);justify-self:start;border-top-left-radius:2px}
+.bolha.meu{background:var(--wa-meu);justify-self:end;border-top-right-radius:2px}
+.bolha .hora{display:block;text-align:right;font-size:11px;color:#5E6E7A;margin-top:2px}
+.botoes-wa{display:grid;gap:4px;margin-top:6px}
+.botoes-wa span{background:#fff;border:1px solid #D5DDE3;border-radius:8px;padding:6px 8px;text-align:center;color:#0B5CAD;font-weight:600;font-size:13.5px}
+.tema{font-family:var(--display);font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--gold-ink);margin:0 0 4px}
+
+/* notas */
+.notas h2{font-size:19px;margin:24px 0 8px}
+.notas p,.notas li{max-width:80ch}
+.notas ol,.notas ul{padding-left:22px}
+.notas li{margin-bottom:6px}
+.cartao{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px}
+.cartao b{font-family:var(--display)}
+.tabela-comp{display:grid;gap:8px;container-type:inline-size}
+.comp{display:grid;grid-template-columns:minmax(0,1fr);gap:4px 14px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px}
+@container (min-width:700px){ .comp{grid-template-columns:minmax(0,.8fr) minmax(0,1fr) minmax(0,1fr)} }
+.comp .rot{font-weight:700}
+.comp .c-of::before{content:"API oficial: ";font-weight:700;color:#2C6699}
+.comp .c-qr::before{content:"QR Code: ";font-weight:700;color:var(--ok)}
+@media (prefers-reduced-motion: reduce){ *{transition:none!important;animation:none!important;scroll-behavior:auto!important} }
+</style>
+</head>
+<body>
+
+<div class="proto-barra">
+  <span class="proto-tit">Protótipo · Mister pelo QR Code</span>
+  <div class="proto-troca" role="group" aria-label="Trocar a vista do protótipo">
+    <button type="button" data-vista="console" aria-pressed="true">Console › Mister</button>
+    <button type="button" data-vista="celular" aria-pressed="false">O que muda no celular</button>
+    <button type="button" data-vista="notas" aria-pressed="false">Notas e decisões</button>
+  </div>
+</div>
+
+<!-- ===================== CONSOLE ===================== -->
+<section data-painel="console">
+  <main class="console">
+    <div class="d-cab">
+      <div><div class="d-sobre">Regem · Distribuição</div><h1>Console de controle</h1></div>
+      <span class="d-sub">Rodrigo · Diretoria</span>
+    </div>
+    <div class="d-nav" aria-label="Abas do console"><span>Frota</span><span>Telemetria</span><span>Integrações</span><span class="atual" aria-current="page">Mister</span><span>Auditoria</span></div>
+
+    <section class="d-sec">
+      <h2>Como o Mister fala no WhatsApp</h2>
+      <p class="d-sub">Uma forma por vez, para todas as empresas. As pessoas continuam ligadas pelo telefone delas: trocar a forma não pede que ninguém ligue de novo.</p>
+      <div class="d-opcoes" role="group" aria-label="Forma do número do Mister">
+        <button type="button" class="d-opcao" data-forma="meta" aria-pressed="false">
+          <span class="linha"><b>API oficial da Meta</b><span class="d-selo neutro">pago por conversa</span></span>
+          <span class="d-sub">A forma de hoje. Homologada pela Meta, com modelos aprovados para falar fora das 24 horas.</span>
+          <ul><li>Botões nas autorizações</li><li>Fora das 24 h, só pelos modelos aprovados</li></ul>
+        </button>
+        <button type="button" class="d-opcao" data-forma="qr" aria-pressed="true">
+          <span class="linha"><b>Conexão por QR Code</b><span class="d-selo ok">grátis</span></span>
+          <span class="d-sub">Um celular com o WhatsApp do número do Mister, conectado como no WhatsApp Web (Evolution, no servidor da distribuição).</span>
+          <ul><li>Fala a qualquer hora, sem modelo</li><li>Autorização por resposta “1” ou “2”</li><li>Risco de bloqueio do número pelo WhatsApp</li></ul>
+        </button>
+      </div>
+
+      <div data-mostra="qr">
+        <div class="ctls" role="group" aria-label="Situação do protótipo"><span>Situação do protótipo:</span>
+          <button type="button" class="ctl" data-sit="termo" aria-pressed="true">antes de conectar</button>
+          <button type="button" class="ctl" data-sit="qr" aria-pressed="false">QR na tela</button>
+          <button type="button" class="ctl" data-sit="conectado" aria-pressed="false">conectado</button>
+          <button type="button" class="ctl" data-sit="caiu" aria-pressed="false">o celular saiu</button>
+          <button type="button" class="ctl" data-sit="bloqueado" aria-pressed="false">bloqueado pelo WhatsApp</button>
+        </div>
+
+        <div class="d-card" data-sit-card="termo">
+          <p><span class="d-selo neutro">○ não conectado</span></p>
+          <div class="d-aviso">O WhatsApp não autoriza conexões fora da API oficial. O número pode ser bloqueado sem aviso, sobretudo se mandar mensagem para quem não falou com ele. O Mister só fala com quem ligou o próprio telefone (com o código de 10 minutos), o que reduz esse risco, mas não o elimina.</div>
+          <p class="d-sub">Use um número só para o Mister, num celular que fique na distribuição, ligado e com internet.</p>
+          <label class="termo"><input type="checkbox" id="aceite"> <span>Entendi o risco de bloqueio e quero conectar o Mister pela conexão por QR Code. <span class="d-sub">(O aceite fica na auditoria com o seu nome, a data e a versão deste texto.)</span></span></label>
+          <button type="button" class="d-btn pri" id="gerar" disabled>Gerar o QR Code</button>
+        </div>
+
+        <div class="d-card" data-sit-card="qr" hidden>
+          <p><span class="d-selo warn">◐ esperando o celular</span></p>
+          <div class="qr-area">
+            <div class="qr-caixa" id="qr-img" aria-label="QR Code para conectar o número do Mister" role="img"></div>
+            <div>
+              <ol class="passos">
+                <li>No celular do número do Mister, abra o WhatsApp.</li>
+                <li>Toque em <b>⋮</b> (ou em Configurações, no iPhone) › <b>Aparelhos conectados</b> › <b>Conectar um aparelho</b>.</li>
+                <li>Aponte a câmera para este QR Code.</li>
+              </ol>
+              <p class="d-sub" aria-live="polite">O QR troca em <span class="relogio" id="relogio">20</span> s. Ele vale só para esta conexão.</p>
+              <div class="acoes"><button type="button" class="d-btn" data-sit-ir="termo">Cancelar</button></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="d-card" data-sit-card="conectado" hidden>
+          <p><span class="d-selo ok">● conectado</span> <span class="mono">+55 21 90000-0000</span></p>
+          <dl class="d-dados">
+            <div><dt>Forma</dt><dd>Conexão por QR Code</dd></div>
+            <div><dt>Conectado desde</dt><dd class="mono">15/11 21:40</dd></div>
+            <div><dt>Última mensagem recebida</dt><dd class="mono">hoje 22:05</dd></div>
+            <div><dt>Mensagens que saíram hoje</dt><dd class="mono">184 · ritmo até 20 por minuto</dd></div>
+            <div><dt>Aceite do risco</dt><dd>Rodrigo · 15/11 21:38 · texto v1</dd></div>
+          </dl>
+          <div class="d-aviso">Deixe o celular ligado e com internet. Se ele ficar 14 dias sem abrir o WhatsApp, a conexão cai e o console mostra “o celular saiu”.</div>
+          <div class="acoes"><button type="button" class="d-btn" data-troca="meta">Trocar para a API oficial</button><button type="button" class="d-btn perigo" id="desconectar">Desconectar</button></div>
+        </div>
+
+        <div class="d-card" data-sit-card="caiu" hidden>
+          <p><span class="d-selo crit">● desconectado</span> <span class="mono">+55 21 90000-0000</span></p>
+          <p>A conexão caiu em 15/11 às 23:10: o celular saiu da conta (desconectado no aparelho ou sem internet por muito tempo). As empresas continuam recebendo os avisos dentro do Regem. Pelo WhatsApp, nada sai até conectar de novo; o que ficou parado sai na ordem quando voltar, se ainda valer.</p>
+          <div class="acoes"><button type="button" class="d-btn pri" data-sit-ir="qr">Gerar o QR Code de novo</button><button type="button" class="d-btn" data-troca="meta">Trocar para a API oficial</button></div>
+        </div>
+
+        <div class="d-card" data-sit-card="bloqueado" hidden>
+          <p><span class="d-selo crit">● bloqueado pelo WhatsApp</span> <span class="mono">+55 21 90000-0000</span></p>
+          <div class="d-aviso crit">O WhatsApp bloqueou este número em 15/11 às 23:40. Ele não volta por aqui: só o WhatsApp, pelo pedido de revisão no próprio aplicativo.</div>
+          <p>Os avisos seguem dentro do Regem. Para o Mister voltar a falar, conecte outro número pelo QR Code ou troque para a API oficial. Ninguém precisa ligar de novo: no número novo, o Mister manda a cada pessoa “este é o novo número do Mister”.</p>
+          <div class="acoes"><button type="button" class="d-btn pri" data-sit-ir="termo">Conectar outro número</button><button type="button" class="d-btn" data-troca="meta">Trocar para a API oficial</button></div>
+        </div>
+      </div>
+
+      <div data-mostra="meta" hidden>
+        <div class="d-card">
+          <p><span class="d-selo ok">● conectado</span> <span class="mono">+55 21 90000-0000</span></p>
+          <p class="d-sub">A API oficial, como hoje: coexistência ou só a API, os modelos da Meta e a qualidade do número. Esta parte não muda (está no protótipo aprovado em 13/11).</p>
+          <div class="acoes"><button type="button" class="d-btn" data-troca="qr">Trocar para a conexão por QR Code</button></div>
+        </div>
+      </div>
+    </section>
+  </main>
+</section>
+
+<!-- ===================== CELULAR ===================== -->
+<section class="pagina" data-painel="celular" hidden>
+  <h1>O que muda no celular</h1>
+  <p class="sub">Quem está ligado ao Mister vê quase a mesma coisa. As diferenças estão em três momentos: o aviso fora das 24 horas, a autorização e a troca de número.</p>
+
+  <p class="tema">1 · Aviso fora das 24 horas</p>
+  <div class="par">
+    <article class="caso"><h3>API oficial <span class="etiqueta of">modelo</span></h3><span class="sub">Só pelo modelo aprovado; o detalhe vem depois do toque.</span>
+      <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+        <div class="bolha dele">Aviso do Mister para a Burger da Praça: a impressora da cozinha parou. Toque em “Ver detalhes” para saber o que fazer.<span class="hora">03:12</span><div class="botoes-wa"><span>Ver detalhes</span></div></div>
+      </div></div></article>
+    <article class="caso"><h3>QR Code <span class="etiqueta qr">texto direto</span></h3><span class="sub">O aviso inteiro na hora, sem esperar o toque.</span>
+      <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+        <div class="bolha dele">⚠️ Burger da Praça: a impressora da cozinha parou com 2 vias na fila.<br><br>O que fazer: confira o papel e o cabo; em Configurações › Impressoras, toque em “Imprimir teste”.<span class="hora">03:12</span></div>
+      </div></div></article>
+  </div>
+
+  <p class="tema">2 · Autorização</p>
+  <div class="par">
+    <article class="caso"><h3>API oficial <span class="etiqueta of">botões</span></h3><span class="sub">Como no protótipo aprovado.</span>
+      <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+        <div class="bolha dele">Carlos pede para cancelar o pedido #284 (R$ 58,90). Autoriza?<span class="hora">20:41</span><div class="botoes-wa"><span>Autorizar</span><span>Recusar</span></div></div>
+      </div></div></article>
+    <article class="caso"><h3>QR Code <span class="etiqueta qr">resposta 1 ou 2</span></h3><span class="sub">Os botões não são confiáveis fora da API oficial; a resposta por número vale o mesmo. A autorização com PIN continua pelo link.</span>
+      <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+        <div class="bolha dele">Carlos pede para cancelar o pedido #284 (R$ 58,90). Autoriza?<br><br>Responda <b>1</b> para autorizar ou <b>2</b> para recusar.<span class="hora">20:41</span></div>
+        <div class="bolha meu">1<span class="hora">20:42</span></div>
+        <div class="bolha dele">✅ Autorizado. O pedido #284 foi cancelado; o Carlos já vê na tela.<span class="hora">20:42</span></div>
+      </div></div></article>
+  </div>
+
+  <p class="tema">3 · O número mudou</p>
+  <div class="par">
+    <article class="caso"><h3>Do número novo, pelo QR Code</h3><span class="sub">Sai para cada pessoa ligada, no ritmo do envio, logo depois de conectar.</span>
+      <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>+55 21 90000-1111</b><span>número novo</span></div></div><div class="conv">
+        <div class="bolha dele">Oi, Ana! Este é o novo número do Mister, do Regem. Salve este contato: os avisos, os resumos e as suas perguntas passam a ser por aqui. O número antigo não responde mais.<span class="hora">09:00</span></div>
+      </div></div></article>
+    <article class="caso"><h3>Do número novo, pela API oficial</h3><span class="sub">Só com o modelo “Número novo do Mister” aprovado pela Meta.</span>
+      <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+        <div class="bolha dele">Este é o novo número do Mister, do Regem. Salve este contato: os avisos e os resumos passam a chegar por aqui.<span class="hora">09:00</span><div class="botoes-wa"><span>Ok, salvei</span></div></div>
+      </div></div></article>
+  </div>
+</section>
+
+<!-- ===================== NOTAS ===================== -->
+<section class="pagina notas" data-painel="notas" hidden>
+  <h1>Notas e decisões</h1>
+  <p class="sub">A pendência 9 do plano do Mister: conectar o número pela conexão gratuita por QR Code, além da API oficial. O argumento do pedido: o Mister só fala com quem ligou o próprio telefone, então o risco de denúncia é baixo. As decisões abaixo são as recomendadas; a aprovação vale para todas, ou diga qual mudar.</p>
+
+  <h2>As duas formas lado a lado</h2>
+  <div class="tabela-comp">
+    <div class="comp"><span class="rot">Custo</span><span class="c-of">por conversa, na conta da distribuição</span><span class="c-qr">nenhum por mensagem</span></div>
+    <div class="comp"><span class="rot">Fora das 24 horas</span><span class="c-of">só pelos modelos aprovados</span><span class="c-qr">texto livre, a qualquer hora</span></div>
+    <div class="comp"><span class="rot">Autorização</span><span class="c-of">botões</span><span class="c-qr">resposta 1 ou 2; o PIN segue pelo link</span></div>
+    <div class="comp"><span class="rot">Risco</span><span class="c-of">baixo (homologada)</span><span class="c-qr">bloqueio do número sem aviso</span></div>
+    <div class="comp"><span class="rot">Depende de</span><span class="c-of">a conta da Meta e a qualidade do número</span><span class="c-qr">um celular ligado, com o WhatsApp do número</span></div>
+  </div>
+
+  <h2>Decisões (todas as recomendadas)</h2>
+  <ol>
+    <li><b>Uma forma por vez</b>, escolhida pela Diretoria no console. Não há envio pelas duas ao mesmo tempo (a pessoa receberia de dois números).</li>
+    <li><b>O aceite do risco</b> antes do primeiro QR, com o nome, a data e a versão do texto na auditoria — o mesmo modelo do termo que a loja aceita para o WhatsApp dela.</li>
+    <li><b>O Evolution é o da distribuição</b>, numa instância só do Mister, separada das instâncias das lojas. A entrada chega pela porta assinada que o Regem já tem para o Evolution, e a instância diz que a conversa é do Mister.</li>
+    <li><b>Ritmo de envio</b> de até 20 mensagens por minuto, em fila; nunca para quem não ligou o telefone. O “PARAR AVISOS” vale igual.</li>
+    <li><b>Autorização por resposta</b> “1” ou “2”, ligada à última autorização aberta daquela pessoa e com o mesmo prazo. A com PIN segue pelo link.</li>
+    <li><b>Caiu ou bloqueou:</b> os avisos seguem dentro do Regem (como hoje com o número caído). O que estava na fila sai quando voltar, se ainda valer. Bloqueado: conectar outro número ou trocar para a API oficial; o Mister avisa cada pessoa do número novo.</li>
+    <li><b>Trocar de forma</b> não mexe nas ligações das pessoas: elas são pelo telefone de quem escreve.</li>
+  </ol>
+
+  <h2>Fases</h2>
+  <div class="cartao"><b>Q1 — A porta do provedor</b> · 1 migration (as colunas <code>provedor</code> e <code>instancia</code> em <code>mister_numero</code>). O envio do Mister passa por uma porta só (API oficial ou Evolution), e a entrada do Evolution reconhece a instância do Mister. A autorização por resposta 1 ou 2. Nasce na API oficial: nada muda até a Diretoria trocar.</div>
+  <div class="cartao"><b>Q2 — O console</b> · sem migration. A escolha da forma, o aceite, o QR, conectado, caiu, bloqueado e a troca.</div>
+  <div class="cartao"><b>Q3 — O número novo</b> · sem migration. A mensagem “este é o novo número do Mister” para cada pessoa ligada, no ritmo do envio.</div>
+</section>
+
+<div id="camadas"></div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script>
+(function(){
+'use strict';
+const $=(s,el=document)=>el.querySelector(s);
+const $$=(s,el=document)=>Array.from(el.querySelectorAll(s));
+let toastT;
+function toast(m){const t=$('#toast');t.textContent=m;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>{t.hidden=true},3600);}
+
+/* vistas */
+$$('.proto-troca button').forEach(b=>b.addEventListener('click',()=>{
+  $$('.proto-troca button').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
+  $$('[data-painel]').forEach(p=>{p.hidden=p.dataset.painel!==b.dataset.vista;});
+  window.scrollTo(0,0);
+}));
+
+/* forma */
+let forma='qr';
+function mostrarForma(f){
+  forma=f;
+  $$('[data-forma]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.forma===f)));
+  $$('[data-mostra]').forEach(d=>{d.hidden=d.dataset.mostra!==f;});
+}
+$$('[data-forma]').forEach(b=>b.addEventListener('click',()=>{if(b.dataset.forma!==forma)confirmarTroca(b.dataset.forma,b);}));
+
+/* situação do QR */
+let relogioT;
+function svgQr(semente){let s='<svg viewBox="0 0 25 25" aria-hidden="true"><rect width="25" height="25" fill="#fff"/>';for(let y=0;y<25;y++)for(let x=0;x<25;x++){const c=(x<7&&y<7)||(x>17&&y<7)||(x<7&&y>17);const cx=x>17?x-18:x,cy=y>17?y-18:y;const borda=c&&(cx===0||cx===6||cy===0||cy===6||(cx>1&&cx<5&&cy>1&&cy<5));if(borda||(!c&&((x*7+y*13+x*y+semente)%5<2)))s+=`<rect x="${x}" y="${y}" width="1" height="1" fill="#0F2230"/>`;}return s+'</svg>';}
+function sit(s){
+  $$('[data-sit]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.sit===s)));
+  $$('[data-sit-card]').forEach(c=>{c.hidden=c.dataset.sitCard!==s;});
+  clearInterval(relogioT);
+  if(s==='qr'){
+    let semente=1,seg=20;$('#qr-img').innerHTML=svgQr(semente);$('#relogio').textContent=seg;
+    relogioT=setInterval(()=>{seg--;if(seg<=0){seg=20;semente++;$('#qr-img').innerHTML=svgQr(semente);}$('#relogio').textContent=seg;},1000);
+  }
+}
+$$('[data-sit]').forEach(b=>b.addEventListener('click',()=>sit(b.dataset.sit)));
+document.addEventListener('click',e=>{const b=e.target.closest('[data-sit-ir]');if(b)sit(b.dataset.sitIr);});
+$('#aceite').addEventListener('change',e=>{$('#gerar').disabled=!e.target.checked;});
+$('#gerar').addEventListener('click',()=>{toast('Aceite gravado na auditoria. O QR Code apareceu.');sit('qr');});
+
+/* diálogos (confirmação) */
+const pilha=[];
+function dialogo(html,origem,aoConfirmar){
+  const c=$('#camadas');const f=document.createElement('div');f.className='fundo';
+  const d=document.createElement('div');d.className='dlg';d.setAttribute('role','dialog');d.setAttribute('aria-modal','true');d.setAttribute('aria-labelledby','dlg-t');
+  d.innerHTML=html;c.append(f,d);
+  const fechar=()=>{f.remove();d.remove();pilha.pop();origem&&origem.focus();};
+  pilha.push(fechar);
+  f.addEventListener('click',fechar);$('[data-cancelar]',d).addEventListener('click',fechar);
+  $('[data-confirmar]',d).addEventListener('click',()=>{fechar();aoConfirmar();});
+  $('[data-cancelar]',d).focus();
+}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&pilha.length)pilha[pilha.length-1]();});
+function confirmarTroca(para,origem){
+  const qr=para==='qr';
+  dialogo(`<h2 id="dlg-t">Trocar para ${qr?'a conexão por QR Code':'a API oficial'}?</h2>
+    <p>O Mister passa a falar por ${qr?'um número conectado pelo QR Code':'o número da API oficial'} em todas as empresas.</p>
+    <ul><li>Ninguém precisa ligar de novo: as ligações são pelo telefone de cada pessoa.</li>
+    <li>${qr?'Depois de conectar, o Mister manda a cada pessoa “este é o novo número do Mister”.':'O aviso do número novo sai pelo modelo aprovado pela Meta.'}</li>
+    <li>Enquanto ${qr?'o QR não for lido':'o número oficial não estiver conectado'}, os avisos seguem só dentro do Regem.</li></ul>
+    <div class="acoes"><button type="button" class="d-btn" data-cancelar>Cancelar</button><button type="button" class="d-btn pri" data-confirmar>Trocar</button></div>`,
+    origem,()=>{mostrarForma(para);if(qr)sit('termo');toast(qr?'Forma trocada: falta conectar pelo QR Code.':'Forma trocada para a API oficial.');});
+}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-troca]');if(b)confirmarTroca(b.dataset.troca,b);});
+$('#desconectar').addEventListener('click',e=>{
+  dialogo(`<h2 id="dlg-t">Desconectar o número do Mister?</h2><p>O celular sai da conexão e o Mister para de falar pelo WhatsApp em todas as empresas. Os avisos seguem dentro do Regem.</p>
+    <div class="acoes"><button type="button" class="d-btn" data-cancelar>Cancelar</button><button type="button" class="d-btn perigo" data-confirmar>Desconectar</button></div>`,
+    e.currentTarget,()=>{sit('termo');toast('Desconectado. Gere o QR de novo para voltar.');});
+});
+
+mostrarForma('qr');sit('termo');
+})();
+</script>
+</body>
+</html>
