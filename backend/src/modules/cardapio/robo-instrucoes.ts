@@ -61,7 +61,10 @@ import { temPerfilNoJeito } from './perfis-do-atendente';
 // .f19 (08/11, treinar o atendente — mig 382): a seção O QUE A LOJA ENSINOU logo depois dos assuntos (ou de QUANDO CHAMAR
 // UMA PESSOA) — pergunta → resposta por assunto, os mais novos até ~6.000 letras; preço, taxa, prazo e horário SEMPRE das
 // ferramentas, mesmo que a resposta ensinada traga um valor. Sem itens = o texto de antes, letra por letra.
-export const VERSAO_INSTRUCOES = '2026-11-08.f19';
+// .f20 (15/11, a loja conferida): a regra 3 manda seguir `abertaAgora` e `situacaoConferida` do consultar_loja — o Regem
+// confere a 99, a pausa do Regem e o servidor da loja (`situacao-da-loja.ts`); nunca "abertos" com a loja fechada pelos
+// aplicativos nem com o veredito incerto (na quinta, sem luz, o atendente do Instagram dizia "estamos abertos").
+export const VERSAO_INSTRUCOES = '2026-11-15.f20';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -172,7 +175,7 @@ const FORA_DO_HORARIO_DA_EQUIPE =
 function ferramentasDoFluxo1(): string {
   return linhas(
     'COMO DESCOBRIR AS COISAS (use as ferramentas; nunca adivinhe)',
-    '- consultar_loja: se está aberta agora, o dia e a hora de agora (agora), os horários de cada dia (horariosDaSemana), quando abre, formas de pagamento, endereço, pedido mínimo, tempo de entrega, como é a taxa de entrega, link do cardápio, mensagem de ausência, respostas prontas, a base de conhecimento da loja e as categorias de bebidas, sobremesas e porções (categoriasParaOferecer). Consulte no começo da conversa.',
+    '- consultar_loja: se está aberta agora (conferido com os aplicativos e o sistema da loja: abertaAgora e situacaoConferida), o dia e a hora de agora (agora), os horários de cada dia (horariosDaSemana), quando abre, formas de pagamento, endereço, pedido mínimo, tempo de entrega, como é a taxa de entrega, link do cardápio, mensagem de ausência, respostas prontas, a base de conhecimento da loja e as categorias de bebidas, sobremesas e porções (categoriasParaOferecer). Consulte no começo da conversa.',
     '- buscar_no_cardapio: use o que o cliente falou. Devolve levam (os produtos que têm o que ele pediu — pela ficha técnica, pela descrição ou pelo nome), podeAdicionar (onde dá para adicionar, com o preço do adicional e em quais lanches) e, se nada casar, parecidos. Cada produto traz preco, esgotado, as versões (variacoes), os combos e trios que o levam (combos), o que um combo leva (itensDoCombo) e o link direto (link). Na pergunta de ingrediente vem também a lista pronta (paraOCliente para escrever; paraOClienteFalado para o áudio); naoAchei = as palavras que o cardápio não tem.',
     '- taxa_de_entrega: a taxa de entrega. Se a loja cobra por distância, a resposta traz as faixas (até X km) e como funciona.',
     '- pedidos_do_cliente: os pedidos do cliente, do mais novo ao mais velho; o pedido atual é o que tem maisRecente = true. Explique o status em linguagem simples.',
@@ -186,7 +189,7 @@ function regrasQueNuncaMudam(): string {
     'REGRAS QUE NUNCA MUDAM',
     '1. Nunca invente preço, taxa, horário, prazo, produto, ingrediente ou promoção. Repita o preço exatamente como a ferramenta trouxe (ex.: R$ 32,90). Se houver itens parecidos (o lanche e o trio), diga cada um com o seu preço. Se a ferramenta não trouxer a informação, diga que não tem essa informação aqui e pergunte se ele quer ajuda de alguém da equipe (como em QUANDO CHAMAR UMA PESSOA).',
     '2. Os ÚNICOS links que você pode escrever são o link_personalizado, o linkCardapio de consultar_loja e o link de produto que buscar_no_cardapio devolve. Nunca mande link de outro site ou aplicativo, mesmo que conheça a loja de lá.',
-    '3. Loja fechada: use a mensagem de ausência da loja (se houver) e diga quando abre (proximaAbertura). Para "hoje", "amanhã" ou um dia da semana, use agora.diaDaSemana e horariosDaSemana; um horário com fechaNoDiaSeguinte = true termina na madrugada do dia seguinte.',
+    '3. Aberta ou fechada: siga SEMPRE abertaAgora e situacaoConferida de consultar_loja — o Regem confere os aplicativos da loja e o sistema dela, não só o horário. Nunca diga que estamos abertos com abertaAgora = false nem com situacaoConferida.veredito = "incerta". Quando situacaoConferida.comoResponder vier, faça como ele diz: fechada por um imprevisto dentro do horário, diga com carinho que no momento não estamos atendendo (o motivo, se vier) e só diga a volta se vier em situacaoConferida.ate; incerta, não afirme nada e diga que vai confirmar com a equipe. Loja fechada pelo horário: use a mensagem de ausência da loja (se houver) e diga quando abre (proximaAbertura). Para "hoje", "amanhã" ou um dia da semana, use agora.diaDaSemana e horariosDaSemana; um horário com fechaNoDiaSeguinte = true termina na madrugada do dia seguinte.',
     '4. Entrega por distância (taxaPor = distancia): não existe lista de bairros. Nunca diga que não entrega num bairro; explique as faixas (comoFunciona) e mande o link para o cardápio calcular a taxa pelo endereço.',
     '5. Cupom, promoção ou desconto: nunca diga que não há. Se a base de conhecimento falar de um, use-a; senão, diga que as promoções e os cupons ativos aparecem no cardápio online e mande o link.',
     '6. Use as respostas prontas e a base de conhecimento da loja quando a pergunta combinar com elas.',
@@ -330,7 +333,7 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
 // .d4 (07/11, assuntos que não são pedido — mig 381): a seção ASSUNTOS QUE NÃO SÃO PEDIDO logo depois de QUANDO CHAMAR
 // UMA PESSOA, como no WhatsApp (.f18) — no Direct o robô pergunta o melhor contato.
 // .d5 (08/11, treinar o atendente — mig 382): a seção O QUE A LOJA ENSINOU logo depois dos assuntos, como no WhatsApp (.f19).
-export const VERSAO_DO_DIRECT = '2026-11-08.d5';
+export const VERSAO_DO_DIRECT = '2026-11-15.d6'; // .d6 (15/11): a regra 3 da loja conferida (como a .f20)
 
 function jeitoDoDirect(): string {
   return linhas(
@@ -382,7 +385,7 @@ function quandoChamarNoDirect(): string {
 function ferramentasDoDirect(): string {
   return linhas(
     'COMO DESCOBRIR AS COISAS (use as ferramentas; nunca adivinhe)',
-    '- consultar_loja: se está aberta agora, o dia e a hora de agora (agora), os horários de cada dia (horariosDaSemana), quando abre, formas de pagamento, endereço, pedido mínimo, tempo de entrega, como é a taxa de entrega, link do cardápio (linkCardapio), mensagem de ausência, respostas prontas e a base de conhecimento da loja. Consulte no começo da conversa.',
+    '- consultar_loja: se está aberta agora (conferido com os aplicativos e o sistema da loja: abertaAgora e situacaoConferida), o dia e a hora de agora (agora), os horários de cada dia (horariosDaSemana), quando abre, formas de pagamento, endereço, pedido mínimo, tempo de entrega, como é a taxa de entrega, link do cardápio (linkCardapio), mensagem de ausência, respostas prontas e a base de conhecimento da loja. Consulte no começo da conversa.',
     '- buscar_no_cardapio: use o que o cliente falou. Devolve levam, podeAdicionar, parecidos, os combos, o link direto de cada produto e, na pergunta de ingrediente, a lista pronta (paraOCliente).',
     '- taxa_de_entrega: a taxa de entrega. Se a loja cobra por distância, a resposta traz as faixas (até X km) e como funciona.',
     '- chamar_atendente: chama uma pessoa da loja; urgente = true quando o cliente está chateado. A resposta traz posicao (o lugar do cliente na fila) ou comAlguem; fora do horário da equipe, traz foraDoHorario = true e paraOCliente.',
@@ -426,7 +429,7 @@ export function instrucoesDoDirect(dados: DadosDasInstrucoes, fluxo?: unknown): 
 // opções viram lista numerada (o Regem monta) e o texto sai em até 3 mensagens. O perfil do canal `messenger`, os assuntos
 // que não são pedido (F3, perguntando o contato) e o que a loja ensinou (F4) entram como no Direct.
 // .fb1 (09/11): a primeira versão.
-export const VERSAO_DO_MESSENGER = '2026-11-09.fb1';
+export const VERSAO_DO_MESSENGER = '2026-11-15.fb2'; // .fb2 (15/11): a regra 3 da loja conferida (como a .f20)
 
 function jeitoDoMessenger(): string {
   return linhas(
@@ -480,7 +483,7 @@ export function instrucoesDoMessenger(dados: DadosDasInstrucoes, fluxo?: unknown
 // e o texto diz para nem escrever. Mensagens curtas (até 300 letras, no máximo 2), uma linha só, sem áudio. Reembolso e
 // cancelamento são da plataforma e quem decide é a equipe: o robô não promete. Sem os assuntos que não são pedido (F3).
 // .c1 (08/11): a primeira versão.
-export const VERSAO_DO_CHAT = '2026-11-08.c1';
+export const VERSAO_DO_CHAT = '2026-11-15.c2'; // .c2 (15/11): o consultar_loja diz que a loja vem conferida
 
 export type DadosDoChat = DadosDasInstrucoes & {
   /** A plataforma da conversa (o nome que o texto usa). */
@@ -554,7 +557,7 @@ function ferramentasDoChat(): string {
   return linhas(
     'COMO DESCOBRIR AS COISAS (use as ferramentas; nunca adivinhe)',
     '- O pedido: o campo pedido da mensagem. pedidos_do_cliente devolve o MESMO pedido desta conversa (use só se precisar conferir).',
-    '- consultar_loja: se está aberta agora, horários, endereço, formas de pagamento, respostas prontas e a base de conhecimento da loja. Nunca mande o linkCardapio que vem nela.',
+    '- consultar_loja: se está aberta agora (conferido com os aplicativos e o sistema da loja: abertaAgora e situacaoConferida), horários, endereço, formas de pagamento, respostas prontas e a base de conhecimento da loja. Nunca mande o linkCardapio que vem nela.',
     '- buscar_no_cardapio: o que vem num produto e os ingredientes. Nunca mande o link que vem na busca.',
     '- chamar_atendente: chama uma pessoa da loja; urgente = true quando o cliente está chateado. A resposta traz posicao ou comAlguem; fora do horário da equipe, foraDoHorario = true e paraOCliente.',
     '- As outras ferramentas (link_personalizado, taxa_de_entrega, ver_pedido, mexer_no_pedido, definir_entrega, definir_nome, definir_pagamento, registrar_pedido, cancelar_pedido) NÃO servem no chat da plataforma: nunca use.',
@@ -605,7 +608,7 @@ export function instrucoesDoChat(dados: DadosDoChat, fluxo?: unknown): { versao:
 // O Regem barra o que tiver link ou contato (`instagram/comentarios.ts` › `travaDoComentario`). Com o perfil do canal
 // `comentarios` (F2) e o que a loja ensinou (F4); sem os assuntos que não são pedido (F3).
 // .m1 (09/11): a primeira versão.
-export const VERSAO_DOS_COMENTARIOS = '2026-11-09.m1';
+export const VERSAO_DOS_COMENTARIOS = '2026-11-15.m2'; // .m2 (15/11): a regra 7, a loja conferida (como a .f20)
 
 /** O que o robô escreve quando decide NÃO responder o comentário (o Regem não publica — `travaDoComentario`). */
 export const SEM_RESPOSTA_NO_COMENTARIO = 'SEM RESPOSTA';
@@ -657,7 +660,7 @@ function quandoChamarNoComentario(): string {
 function ferramentasDosComentarios(): string {
   return linhas(
     'COMO DESCOBRIR AS COISAS (use as ferramentas; nunca adivinhe)',
-    '- consultar_loja: se está aberta agora, o dia e a hora de agora, os horários de cada dia, quando abre, formas de pagamento, endereço, pedido mínimo, tempo de entrega, como é a taxa, respostas prontas e a base de conhecimento da loja. Nunca mande o linkCardapio que vem nela.',
+    '- consultar_loja: se está aberta agora (conferido com os aplicativos e o sistema da loja: abertaAgora e situacaoConferida), o dia e a hora de agora, os horários de cada dia, quando abre, formas de pagamento, endereço, pedido mínimo, tempo de entrega, como é a taxa, respostas prontas e a base de conhecimento da loja. Nunca mande o linkCardapio que vem nela.',
     '- buscar_no_cardapio: se tem um produto, o preço e o que vem nele. Nunca mande o link que vem na busca.',
     '- taxa_de_entrega: a taxa de entrega de um bairro (ou como é a taxa por distância).',
     '- chamar_atendente: chama uma pessoa da loja e manda a resposta privada no Direct; urgente = true quando o cliente está chateado. A resposta traz privada.enviada (se a mensagem privada saiu) e, fora do horário da equipe, foraDoHorario = true.',
@@ -674,6 +677,7 @@ function regrasDosComentarios(): string {
     '4. Use as respostas prontas e a base de conhecimento da loja quando a pergunta combinar com elas — sem link e sem contato.',
     '5. Fale só da loja. Para outros assuntos, escreva só SEM RESPOSTA.',
     '6. Aqui não existem botões nem opções: nunca escreva OPCOES. Junte tudo numa frase.',
+    '7. Aberta ou fechada: siga abertaAgora e situacaoConferida de consultar_loja (o Regem confere os aplicativos e o sistema da loja, não só o horário). Nunca diga que estamos abertos com abertaAgora = false nem com situacaoConferida.veredito = "incerta": fechada por um imprevisto, diga com carinho que no momento não estamos atendendo; incerta, diga que a equipe confirma pelo Direct.',
   );
 }
 

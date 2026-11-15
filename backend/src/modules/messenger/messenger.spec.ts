@@ -353,7 +353,7 @@ describe('as instruções do Messenger', () => {
   const { texto, versao, canal, fluxo } = instrucoesDoMessenger({ loja: 'Mister Burguer' }, '2');
   it('a versão, o canal e o fluxo', () => {
     expect(versao).toBe(VERSAO_DO_MESSENGER);
-    expect(VERSAO_DO_MESSENGER).toBe('2026-11-09.fb1');
+    expect(VERSAO_DO_MESSENGER).toBe('2026-11-15.fb2');
     expect(canal).toBe('messenger');
     expect(fluxo).toBe(2);
     expect(instrucoesDoMessenger({}, '1').fluxo).toBe(1);

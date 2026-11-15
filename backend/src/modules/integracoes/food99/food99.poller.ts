@@ -36,6 +36,9 @@ export class Food99Poller {
           if (d) this.logger.log(`loja ${ig.appShopId}: ${d} saída(s) para entrega avisada(s) à 99`);
           const s = await this.food99.verificarSaidaPeloAppDa99(ig);
           if (s) this.logger.log(`loja ${ig.appShopId}: ${s} saída(s) pelo app da 99 refletida(s) no Regem`);
+          // A situação da loja na 99 (para o atendente virtual): chega pelo aviso `shopStatus`; aqui só relê quando falta
+          // ou passou de 6 h — umas 4 leituras por dia por loja. Nunca lança.
+          await this.food99.atualizarSituacaoSeVelha(ig);
           this.falhas.funcionou(String(ig.appShopId), `poller 99food loja ${ig.appShopId}`);
         } catch (e: any) {
           this.falhas.falhou(String(ig.appShopId), `poller 99food loja ${ig.appShopId}`, e);
