@@ -162,11 +162,15 @@ describe('Mister — o que o modelo recebe', () => {
       'conferencia_do_catalogo',
       'atendimento_agora',
       'conciliacao_do_periodo',
+      'vencimentos_e_versoes',
       'como_usar_o_regem',
     ]);
     // A conciliação (F3.5) está na frase do que o Mister responde, e a descrição dela diz o que não fecha.
     expect(INSTRUCOES_DO_MISTER).toContain('a conciliação (o que não fecha entre a venda, o dinheiro e a nota fiscal)');
     expect(FERRAMENTAS.find((f) => f.name === 'conciliacao_do_periodo')!.description).toContain('o Pix pago em pedido cancelado sem o estorno feito');
+    // Os vencimentos (F3.6): na frase do que o Mister responde, e a descrição diz o que traz e o "pedeAtencao".
+    expect(INSTRUCOES_DO_MISTER).toContain('o que vence ou está desatualizado (o certificado digital, a tabela do IBPT, a licença e a versão do servidor da loja e o acesso do Instagram)');
+    expect(FERRAMENTAS.find((f) => f.name === 'vencimentos_e_versoes')!.description).toContain('"pedeAtencao"');
     // O guia de uso (F2.5): caminho e botão só os que o guia trouxe; a ação que o Mister não faz ganha o "onde fazer".
     expect(INSTRUCOES_DO_MISTER).toContain('Caminho de menu, nome de botão e nome de aba, só os que o guia trouxe: nunca invente nem complete.');
     expect(INSTRUCOES_DO_MISTER).toContain('pelo guia de uso, onde e como ela é feita no Regem');

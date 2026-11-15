@@ -246,6 +246,33 @@ export class LicencaService {
   }
 
   // Status do próprio edge para a tela "Servidor local" da loja.
+  /**
+   * Para o Mister ("o que vence ou está desatualizado"): até quando vale a licença do servidor da loja — a MESMA regra
+   * da renovação (`validadeDoServidor`, ERR-466), sobre a mesma ativação que ela confere — e a versão que ESTA loja já
+   * poderia ter: a mesma resposta que o servidor recebe na batida (`EdgeService.atualizacao`, com o piloto e o
+   * percentual do release). Sem servidor instalado: `instalado: false`.
+   */
+  async vencimentoDoServidor(tenantId: string) {
+    const r: any = await this.db.execute(sql`
+      select a.validade_ate as "ativacaoAte", e.trial_ate as "contaAte", (a.device_fingerprint is not null) as instalado,
+             (select es.versao from edge_status es where es.tenant_id = a.tenant_id order by es.recebido_em desc limit 1) as versao
+        from ativacao a join empresa e on e.id = a.tenant_id
+       where a.tenant_id = ${tenantId} and a.status = 'ativado'
+       order by a.criado_em desc limit 1`);
+    const l = (r.rows ?? r)[0];
+    if (!l?.instalado) return { instalado: false as const };
+    const versao = l.versao ? String(l.versao) : null;
+    const oferta = versao ? await this.edge.atualizacao(versao, tenantId) : null;
+    return {
+      instalado: true as const,
+      validaAte: validadeDoServidor(l.ativacaoAte, l.contaAte),
+      versao,
+      versaoDisponivel: oferta?.atualizar ? String(oferta.ultima) : null,
+      soPeloInstalador: !!oferta?.soInstalador,
+      versaoRecolhida: !!oferta?.versaoAtualRecolhida,
+    };
+  }
+
   async minhaLojaServidor(tenantId: string) {
     const r: any = await this.db.execute(sql`
       select a.id as "ativacaoId", a.status,

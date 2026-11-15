@@ -422,6 +422,30 @@ Os casos 1, 2, 4 e 5 estavam em zero na nuvem em 14/11; a consulta fica de vigia
 - `estorno-pix-pg.spec.ts`: a conciliação e a rotina do estorno veem os mesmos pedidos; o feito some; o que falhou volta.
 - Prova por defeito: 11 de 11.
 
+### F3.6 — Vigilância de dependências, parte 1: o que vence ou está desatualizado na loja (sem migration)
+
+A 17ª consulta (`vencimentos_e_versoes`; regras em `mister-vencimentos.ts`). Só leitura e só datas: nunca o certificado, a senha, o token do IBPT ou o acesso do Instagram. O "pedeAtencao" diz o que precisa de ação e onde ela se faz. Cada parte que não pôde ser lida diz "não li", nunca "em dia".
+
+- **O certificado digital da nota:** cada um cadastrado (o da loja e o da empresa toda), pela conta da tela (`situacaoDoCertificado`), **mesmo com a nota desligada**. O aviso do Mister só olha onde a nota está ligada; aqui a pessoa pergunta. Com a nota desligada, o vencimento aparece sem pedir atenção. Permissão da nota fiscal.
+- **A tabela do IBPT do estado da loja:** qual vale hoje (a da Configuração fiscal, `IbptService.situacaoDaLoja`: a da própria loja, pelo token, ou a da DMS) e a situação da tabela da DMS pela régua do verificador da distribuição (`statusIbpt`). Sem tabela vigente, a nota sai sem o valor aproximado dos tributos (Lei 12.741): quem atualiza é a DMS, ou o token do IBPT da loja. Pede atenção só com a nota ligada.
+- **O servidor da loja (só o presidente):** a licença, pela MESMA regra da renovação (ERR-466), pede atenção a partir de 15 dias. A versão instalada é comparada com a que ESTA loja já pode ter, pela mesma resposta que o servidor recebe na batida (`EdgeService.atualizacao`, com o piloto e o percentual do release), e com versão recolhida ou só pelo instalador (`LicencaService.vencimentoDoServidor`).
+- **O acesso do Instagram** (presidente e gerente): pede para reconectar só com erro ou vencido (a Regem renova sozinha).
+
+**Achado ao levantar (ERR-466, PR #990, mesclado em 14/11):** a licença do servidor da loja que está no ar vencia em 21/11/2026, com a conta valendo até 19/02/2027. A ativação copia o fim do teste da conta no dia da instalação, e o "Liberar" do console e a assinatura mudam só a conta. Em 21/11, o servidor travaria toda gravação. Agora vale a maior das duas datas, e a conta estende o servidor sem nunca encurtar.
+
+**Fica para a parte 2** (pede mockup da tela no console): a vigilância das documentações e dos contratos das integrações (Meta, iFood, 99, Anthropic, gateways e SEFAZ), com as fontes oficiais, a versão anterior guardada para comparar, "não verificado desde" quando a fonte não responde, e a tarefa com responsável e prazo.
+
+**Conferência:**
+- `mister-vencimentos.spec.ts`: cada parte e o que pede atenção (a nota desligada não pede; a tabela própria se atualiza sozinha; a licença sem prazo; a versão recolhida e a do instalador; o Instagram só com erro).
+- `mister-pg.teste-spec.ts`:
+  - a nota desligada (só a licença pede atenção) e depois ligada (certificado, IBPT e licença);
+  - a tabela da DMS vigente;
+  - a versão nova;
+  - tudo em dia;
+  - o gerente sem a nota fiscal e sem o servidor;
+  - a outra empresa.
+- Prova por defeito: 6 de 6.
+
 ### F2.5 — O suporte de uso: o guia "como faço…" (sem migration)
 
 Decisão do dono de 14/11/2026 ("use o recomendado"): o suporte de uso nasce de um **guia curto das telas principais, escrito por nós** a partir das telas de verdade. Não havia documentação de uso no repositório (o Bot de Suporte guarda as regras de cada loja, não o uso do Regem).
