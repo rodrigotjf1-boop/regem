@@ -8,6 +8,7 @@ import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useModoDaLista } from '@/components/ui/lista';
 import { CreditCard, Landmark, Bike, Footprints, Store } from 'lucide-react';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -54,6 +55,30 @@ export default function FormasPagamentoPage() {
   const router = useRouter();
   const [formas, setFormas] = useState<any[]>([]);
   const [edit, setEdit] = useState<any>(null); // forma em edição (ou {} para nova)
+  // A lista nunca rola para o lado (V45, como o ERR-430): a tabela pede 720 px; sem esse espaço, cartões.
+  const { caixa, modo } = useModoDaLista('formas-pagamento');
+  const chipCardapio = (f: any) => (
+    <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${f.cardapio ? 'bg-ok/15 text-ok' : 'bg-secondary text-muted-foreground'}`}>
+      {f.cardapio ? 'Habilitado' : 'Desabilitado'}
+    </span>
+  );
+  const tiposDoPedido = (f: any) => (
+    <div className="flex items-center gap-1.5 text-muted-foreground">
+      {TIPOS_PEDIDO.map((t) => {
+        const on = (f.tiposPedido ?? []).includes(t.v);
+        return <t.icon key={t.v} className={`h-4 w-4 ${on ? 'text-foreground' : 'opacity-25'}`} aria-label={t.l} />;
+      })}
+    </div>
+  );
+  const metodo = (f: any) => (
+    <div className="flex min-w-0 items-center gap-2.5">
+      <Toggle on={!!f.ativo} onChange={() => alternar(f)} label={`ativar ${f.nome}`} />
+      <span className={`min-w-0 break-words font-medium ${f.ativo ? '' : 'text-muted-foreground line-through'}`}>{f.nome}</span>
+    </div>
+  );
+  const editar = (f: any) => (
+    <button type="button" onClick={() => setEdit(f)} className="text-sm font-semibold text-primary hover:underline">Editar</button>
+  );
 
   const carregar = useCallback(async () => {
     setFormas((await api.formasPagamento().catch(() => [])) as any[]);
@@ -146,7 +171,33 @@ export default function FormasPagamentoPage() {
             Valem para <strong>delivery e balcão</strong>. Desative as que não usa.
           </p>
 
-          <Card className="overflow-x-auto p-0">
+          <Card className="p-0">
+            <div ref={caixa} className="overflow-x-auto">
+            {modo === 2 ? (
+              <ul className="divide-y divide-border/60" aria-label="Formas de pagamento pré-definidas" data-formas-cartoes>
+                {formas.length === 0 && <li className="px-4 py-6 text-center text-sm text-muted-foreground">Nenhuma forma cadastrada.</li>}
+                {formas.map((f) => (
+                  <li key={f.id} className="space-y-2 px-4 py-3 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      {metodo(f)}
+                      {editar(f)}
+                    </div>
+                    <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1.5 text-xs">
+                      <dt className="font-semibold text-muted-foreground">Cardápio digital</dt>
+                      <dd className="m-0">{chipCardapio(f)}</dd>
+                      <dt className="font-semibold text-muted-foreground">Tipo de pedido</dt>
+                      <dd className="m-0">{tiposDoPedido(f)}</dd>
+                      <dt className="font-semibold text-muted-foreground">Taxa extra</dt>
+                      <dd className="m-0 text-muted-foreground">{f.taxaExtra != null ? brl(f.taxaExtra) : '—'}</dd>
+                      <dt className="font-semibold text-muted-foreground">Obs.</dt>
+                      <dd className="m-0 break-words text-muted-foreground">{f.obs || '—'}</dd>
+                      <dt className="font-semibold text-muted-foreground">Bandeiras</dt>
+                      <dd className="m-0 break-words text-muted-foreground">{(f.bandeiras ?? []).length ? f.bandeiras.join(', ') : '—'}</dd>
+                    </dl>
+                  </li>
+                ))}
+              </ul>
+            ) : (
             <table className="w-full min-w-[720px] text-sm">
               <caption className="sr-only">Formas de pagamento pré-definidas</caption>
               <thead>
@@ -166,35 +217,19 @@ export default function FormasPagamentoPage() {
                 )}
                 {formas.map((f) => (
                   <tr key={f.id} className="border-b border-border/50">
-                    <td className="px-4 py-2.5">
-                      <div className="flex items-center gap-2.5">
-                        <Toggle on={!!f.ativo} onChange={() => alternar(f)} label={`ativar ${f.nome}`} />
-                        <span className={`font-medium ${f.ativo ? '' : 'text-muted-foreground line-through'}`}>{f.nome}</span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${f.cardapio ? 'bg-ok/15 text-ok' : 'bg-secondary text-muted-foreground'}`}>
-                        {f.cardapio ? 'Habilitado' : 'Desabilitado'}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <div className="flex items-center gap-1.5 text-muted-foreground">
-                        {TIPOS_PEDIDO.map((t) => {
-                          const on = (f.tiposPedido ?? []).includes(t.v);
-                          return <t.icon key={t.v} className={`h-4 w-4 ${on ? 'text-foreground' : 'opacity-25'}`} aria-label={t.l} />;
-                        })}
-                      </div>
-                    </td>
+                    <td className="px-4 py-2.5">{metodo(f)}</td>
+                    <td className="px-3 py-2.5">{chipCardapio(f)}</td>
+                    <td className="px-3 py-2.5">{tiposDoPedido(f)}</td>
                     <td className="px-3 py-2.5 text-muted-foreground">{f.taxaExtra != null ? brl(f.taxaExtra) : '—'}</td>
                     <td className="px-3 py-2.5 max-w-[140px] truncate text-muted-foreground" title={f.obs ?? ''}>{f.obs || '—'}</td>
                     <td className="px-3 py-2.5 text-muted-foreground">{(f.bandeiras ?? []).length ? f.bandeiras.join(', ') : '—'}</td>
-                    <td className="px-3 py-2.5 text-right">
-                      <button type="button" onClick={() => setEdit(f)} className="text-sm font-semibold text-primary hover:underline">Editar</button>
-                    </td>
+                    <td className="px-3 py-2.5 text-right">{editar(f)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            )}
+            </div>
           </Card>
         </section>
       </div>
@@ -207,8 +242,9 @@ export default function FormasPagamentoPage() {
 function CardOnline({ icon: Icon, titulo, sub, linhas, botao }: any) {
   return (
     <Card className="flex flex-col gap-3 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2">
+      {/* Quebra no estreito: em 320 px o botão passava da tela ao lado do título (ERR-476). */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
           <Icon className="h-5 w-5 text-primary" />
           <div>
             <p className="font-semibold leading-tight">{titulo}</p>
