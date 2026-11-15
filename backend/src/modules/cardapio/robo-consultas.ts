@@ -58,6 +58,15 @@ export function faixasDeEntrega(raios: unknown): { ateKm: number; taxa: string |
 const COMO_FUNCIONA_A_DISTANCIA =
   'A taxa é pela distância da loja até o endereço do cliente. O cardápio online calcula a taxa certa quando o cliente informa o endereço; fora da última faixa a loja não entrega.';
 
+const COMO_FUNCIONA_O_MAPA =
+  'A loja entrega em áreas desenhadas no mapa, cada uma com a sua taxa. A taxa certa sai do endereço do cliente (o cardápio online calcula quando ele informa o endereço, ou a localização pelo WhatsApp); fora das áreas a loja não entrega.';
+
+/** Modo mapa: as taxas que existem (do menor ao maior, sem repetir) e como funciona — sem os desenhos. */
+function taxasDasAreas(areas: unknown) {
+  const valores = [...new Set((Array.isArray(areas) ? areas : []).map((a: any) => Number(a?.taxa)).filter((n) => Number.isFinite(n)))].sort((a, b) => a - b);
+  return { taxas: valores.map((v) => (v === 0 ? 'grátis' : reais(v))), comoFunciona: COMO_FUNCIONA_O_MAPA };
+}
+
 const curto = (s: unknown, max: number) => {
   const t = String(s ?? '').replace(/\s+/g, ' ').trim();
   return t.length <= max ? t : `${t.slice(0, max - 1).trimEnd()}…`;
@@ -69,6 +78,7 @@ export function resumoDaLoja(menu: any, linkCardapio: string, agora: Date = new 
   const tipos = menu?.tipos ?? {};
   const porTipo = menu?.abertoPorTipo ?? {};
   const porDistancia = loja.areaModo === 'raio';
+  const porArea = loja.areaModo === 'mapa';
   return {
     nome: loja.nome ?? null,
     agora: agoraEmSaoPaulo(agora),
@@ -104,11 +114,13 @@ export function resumoDaLoja(menu: any, linkCardapio: string, agora: Date = new 
     endereco: loja.endereco?.texto ?? null,
     referencia: loja.endereco?.referencia ?? null,
     contatos: { instagram: loja.instagram ?? null, site: loja.site ?? null },
-    taxaPor: porDistancia ? 'distancia' : 'bairro',
-    bairros: (Array.isArray(menu?.bairros) ? menu.bairros : []).map((b: any) => ({ nome: b.nome, taxa: reais(b.taxa) })),
+    taxaPor: porDistancia ? 'distancia' : porArea ? 'mapa' : 'bairro',
+    bairros: porArea ? [] : (Array.isArray(menu?.bairros) ? menu.bairros : []).map((b: any) => ({ nome: b.nome, taxa: reais(b.taxa) })),
     // Por distância não há bairro: o robô lê as faixas e explica que o cardápio calcula pelo endereço (no teste de
     // 29/10 ele dizia "não entregamos em Copacabana" sem saber disso).
     entregaPorDistancia: porDistancia ? { faixas: faixasDeEntrega(loja.raios), comoFunciona: COMO_FUNCIONA_A_DISTANCIA } : null,
+    // Área DESENHADA no mapa (mig 425): também sem bairro — as taxas das áreas e como funciona (a taxa exata sai do endereço).
+    entregaPorArea: porArea ? taxasDasAreas(menu?.areas) : null,
     linkCardapio,
     categorias: (Array.isArray(menu?.categorias) ? menu.categorias : []).map((c: any) => c.nome),
     robo: {
@@ -195,10 +207,11 @@ export function buscarNoCardapio(menu: any, busca: string, limite = 15) {
  */
 export function taxaDoBairro(menu: any, bairro: string) {
   const bairros: any[] = Array.isArray(menu?.bairros) ? menu.bairros : [];
-  const modo = menu?.loja?.areaModo === 'raio' ? 'distancia' : 'bairro';
+  const modo = menu?.loja?.areaModo === 'raio' ? 'distancia' : menu?.loja?.areaModo === 'mapa' ? 'mapa' : 'bairro';
   if (modo === 'distancia') {
     return { modo, encontrado: false, faixas: faixasDeEntrega(menu?.loja?.raios), comoFunciona: COMO_FUNCIONA_A_DISTANCIA };
   }
+  if (modo === 'mapa') return { modo, encontrado: false, ...taxasDasAreas(menu?.areas) };
   const q = normalizar(bairro);
   if (!q) return { modo, encontrado: false, bairros: bairros.slice(0, 60).map((b) => ({ nome: b.nome, taxa: reais(b.taxa) })) };
   const exato = bairros.find((b) => normalizar(b.nome) === q);

@@ -149,6 +149,9 @@ import {
   textoAoClienteDepoisQueSaiu,
 } from '../atendimento/endereco-depois-que-saiu';
 
+/** A loja acha a entrega pelo PONTO do cliente (distância ou área desenhada no mapa — mig 425), não pela lista de bairros. */
+const porPonto = (menu: any): boolean => menu?.loja?.areaModo === 'raio' || menu?.loja?.areaModo === 'mapa';
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // O PEDIDO PELO WHATSAPP (Fase 5, F3 e F4 — pedido do dono de 30/10/2026). O robô monta o pedido na conversa e o Regem
@@ -2121,7 +2124,7 @@ export class RoboPedidoService {
       return recusa('endereco', 'Falta a rua e o número do endereço de entrega.', { tem: { rua: e.rua || null, numero: e.numero || null } });
 
     // A área: bairro da lista (modo bairro) ou a distância pelas faixas (modo distância) — a mesma conta do cardápio.
-    if (menu?.loja?.areaModo === 'raio') {
+    if (porPonto(menu)) {
       const taxa = await this.cardapio.taxaDeEntrega(ctx.cfg, { rua: e.rua, numero: e.numero, lat: e.lat ?? undefined, lng: e.lng ?? undefined }, 0);
       if (taxa.semLocalizacao)
         return recusa('localizacao', 'Não achei esse endereço no mapa. Peça ao cliente a localização pelo WhatsApp (clipe → Localização) ou confira a rua e o número.');
@@ -2421,7 +2424,7 @@ export class RoboPedidoService {
     let taxaCheia = 0;
     let foraDaArea = false;
     if (tipo === 'entrega' && en?.tipo === 'entrega' && en.rua && en.numero) {
-      if (menu?.loja?.areaModo === 'raio' || (en.bairroId && (menu?.bairros ?? []).some((b: any) => b.id === en.bairroId))) {
+      if (porPonto(menu) || (en.bairroId && (menu?.bairros ?? []).some((b: any) => b.id === en.bairroId))) {
         const t = await this.cardapio.taxaDeEntrega(
           ctx.cfg,
           { bairroId: en.bairroId ?? undefined, rua: en.rua, numero: en.numero, lat: en.lat ?? undefined, lng: en.lng ?? undefined },
@@ -2429,7 +2432,7 @@ export class RoboPedidoService {
         );
         taxa = t.taxa;
         taxaCheia = t.taxaCheia;
-        foraDaArea = t.alemDaUltimaFaixa || (menu?.loja?.areaModo === 'raio' && t.semLocalizacao);
+        foraDaArea = t.alemDaUltimaFaixa || (porPonto(menu) && t.semLocalizacao);
       } else foraDaArea = true;
     }
 
@@ -2789,7 +2792,7 @@ export class RoboPedidoService {
         rua: en.tipo === 'entrega' ? en.rua : undefined,
         numero: en.tipo === 'entrega' ? en.numero : undefined,
         referencia: en.tipo === 'entrega' ? referenciaParaOPedido(en.referencia) : undefined,
-        bairroId: en.tipo === 'entrega' && menu?.loja?.areaModo !== 'raio' ? (en.bairroId ?? undefined) : undefined,
+        bairroId: en.tipo === 'entrega' && !porPonto(menu) ? (en.bairroId ?? undefined) : undefined,
         lat: en.tipo === 'entrega' && en.lat != null ? Number(en.lat) : undefined,
         lng: en.tipo === 'entrega' && en.lng != null ? Number(en.lng) : undefined,
         formaPagamento: pg.forma,

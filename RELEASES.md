@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Área de entrega DESENHADA NO MAPA (15/11, migration 425 — NOS DOIS BANCOS; mexe no `sync-daemon` → precisa do `.exe`).**
+  O 3º modo da aba Área de atendimento (bairro, distância, desenhada): desenhar as áreas no mapa, cada uma com taxa, tempo,
+  mínimo e frete grátis; fora delas o pedido do cardápio e do atendente não sai. A tabela `cardapio_area_entrega` sincroniza
+  nos dois sentidos (como `cardapio_bairro`): o servidor da loja só recebe/envia as áreas com o **`.exe`** novo (o daemon
+  ganhou a tabela) e a migration 425 aplicada pelo instalador/atualização; o **`.zip`** leva a tela e as rotas. Na nuvem vale
+  com o merge.
+
 - **Cardápio: pedido de entrega fora da área recusado antes de existir (15/11, ERR-470; SEM migration; não mexe no
   `sync-daemon`).** Além da maior faixa de distância (ou sem bairro da lista), o `receberPedido` recusa com `FORA_DA_AREA` /
   `BAIRRO_FORA_DA_AREA` / `ENDERECO_NAO_ENCONTRADO` antes de criar o pedido (logo, antes do Pix); a tela do cardápio trava a

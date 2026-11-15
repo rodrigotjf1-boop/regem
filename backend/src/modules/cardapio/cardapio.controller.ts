@@ -295,6 +295,20 @@ export class CardapioController {
     return this.service.setBairros(user.tenantId, dto?.unidadeId ?? null, dto?.bairros ?? []);
   }
 
+  // Área de entrega DESENHADA no mapa (mig 425): a lista inteira de uma vez (1 request — a ordem da lista é a prioridade).
+  @Get('areas-entrega')
+  @RequirePerm('loja')
+  areasEntrega(@CurrentUser() user: AuthUser) {
+    return this.service.listarAreas(user.tenantId);
+  }
+
+  @Put('areas-entrega')
+  @Roles('presidente', 'gerente')
+  @RequirePerm('loja')
+  setAreasEntrega(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.setAreas(user.tenantId, dto?.unidadeId ?? null, dto?.areas, { id: user.colaboradorId, perfil: user.categoria });
+  }
+
   @Get('banners')
   @RequirePerm('loja')
   banners(@CurrentUser() user: AuthUser) {

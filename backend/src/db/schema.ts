@@ -3481,6 +3481,28 @@ export const cardapioBairro = pgTable('cardapio_bairro', {
   ordem: integer('ordem').notNull().default(0),
 });
 
+// Área de entrega DESENHADA NO MAPA (mig 425): `cardapio_config.area_modo = 'mapa'`. Onde duas se cruzam, vale a de menor
+// `ordem`; fora de todas (ou só em área pausada), o pedido de entrega não sai (`cardapio/area-de-entrega.ts`).
+export const cardapioAreaEntrega = pgTable('cardapio_area_entrega', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  nome: text('nome').notNull(),
+  poligono: jsonb('poligono').notNull(), // [[lat, lng], ...] — 3 a 300 pontos
+  taxa: numeric('taxa', { precision: 10, scale: 2 }).notNull().default('0'),
+  tempoMin: integer('tempo_min'),
+  tempoMax: integer('tempo_max'),
+  pedidoMinimo: numeric('pedido_minimo', { precision: 10, scale: 2 }),
+  freteGratisAcima: numeric('frete_gratis_acima', { precision: 10, scale: 2 }),
+  cor: text('cor'),
+  ativo: boolean('ativo').notNull().default(true),
+  ordem: integer('ordem').notNull().default(0),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ===== Integrações com apps externos (credenciais por canal) =====
 export const integracao = pgTable('integracao', {
   id: uuid('id').primaryKey().defaultRandom(),
