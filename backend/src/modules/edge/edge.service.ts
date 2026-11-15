@@ -30,6 +30,7 @@ import {
   escolherRelease,
   versaoRecolhida,
 } from './release-selecao';
+import { semConexaoComANuvem } from './conexao-nuvem';
 import { ProgressoAtualizacao, progressoEmCurso, progressoParaTela } from './progresso-atualizacao';
 
 const pExecFile = promisify(execFile);
@@ -87,6 +88,16 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
       sql`insert into sync_state (chave, valor) values (${chave}, ${valor})
           on conflict (chave) do update set valor = ${valor}`,
     );
+  }
+
+  /**
+   * F1.4 — o servidor da loja sem falar com a nuvem: pelo que o sync-daemon anota no `sync_state` deste servidor
+   * (`conexao-nuvem.ts`). Na nuvem, null (a faixa é só do servidor da loja). Nunca lança: sem a tabela, "não sei".
+   */
+  async conexaoComANuvem(): Promise<{ semConexaoDesde: string | null } | null> {
+    if (!EdgeService.ehEdge) return null;
+    const [falhando, ultimoOk] = await Promise.all([this.getState('sync_falhando_desde'), this.getState('sync_ultimo_ok')]);
+    return { semConexaoDesde: semConexaoComANuvem(falhando, ultimoOk) };
   }
 
   // Progresso da instalação em curso: o atualizar.ps1 grava logs/update-status.json

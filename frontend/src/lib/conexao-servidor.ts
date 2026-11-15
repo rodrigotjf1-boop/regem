@@ -32,6 +32,8 @@ export type ConexaoServidor = {
   servidor: { nome: string; ip: string | null; maquina: string | null; versao: string | null } | null;
   pc: { ip: string | null; endereco: string | null } | null;
   terminal: { id: string; nome: string; tipo: string } | null;
+  /** A conexão do servidor da loja com a nuvem (F1.4 — a faixa "sem conexão com a nuvem"). null = não lida (servidor antigo). */
+  nuvem: { semConexaoDesde: string | null } | null;
 };
 
 const INICIAL: ConexaoServidor = {
@@ -44,6 +46,7 @@ const INICIAL: ConexaoServidor = {
   servidor: null,
   pc: null,
   terminal: null,
+  nuvem: null,
 };
 
 let estado: ConexaoServidor = INICIAL;
@@ -93,7 +96,7 @@ async function avisarPresenca() {
   if (!EDGE || !getToken()) return;
   try {
     const r: any = await api.edgePresenca();
-    mudar({ servidor: r?.servidor ?? null, pc: r?.pc ?? null, terminal: r?.terminal ?? null });
+    mudar({ servidor: r?.servidor ?? null, pc: r?.pc ?? null, terminal: r?.terminal ?? null, nuvem: r?.nuvem ?? null });
   } catch {
     /* a medição já mostra a queda; servidor antigo sem a rota: o indicador segue sem o detalhe */
   }

@@ -43,11 +43,12 @@ export class EdgeController {
 
   // A presença do PC: o app aberto avisa a cada 30 s. Com o terminal pareado (o interceptor global
   // confere o segredo e põe `req.terminal`), o servidor da loja anota o PC como "conectado agora".
-  // Devolve o que o indicador do topo mostra: o servidor (nome, IP, versão), o PC e o terminal.
+  // Devolve o que o indicador do topo mostra: o servidor (nome, IP, versão), o PC e o terminal — e a conexão do
+  // servidor com a nuvem, para a faixa "sem conexão com a nuvem" (F1.4; `conexao-nuvem.ts`).
   @Post('edge/presenca')
   @HttpCode(200)
   @UseGuards(JwtAuthGuard)
-  presencaDoPc(@CurrentUser() user: AuthUser, @Req() req: any, @Body() dto?: { versao?: unknown }) {
+  async presencaDoPc(@CurrentUser() user: AuthUser, @Req() req: any, @Body() dto?: { versao?: unknown }) {
     const tipo = req?.terminal?.tipo === 'pdv' || req?.terminal?.tipo === 'salao' ? (req.terminal.tipo as 'pdv' | 'salao') : null;
     const terminal = tipo ? { id: String(req.terminal.id), nome: String(req.terminal.nome ?? ''), tipo } : null;
     const pc = { ip: ipDoPc(req?.ip), endereco: enderecoDoHost(req?.headers?.host) };
@@ -58,10 +59,12 @@ export class EdgeController {
       this.presenca?.notar({ id: terminal.id, tenantId: user.tenantId, tipo: terminal.tipo, ip: pc.ip, endereco: pc.endereco, maquina: null, versao });
     }
     const rede = this.redeLocal?.atual ?? null;
+    const nuvem = typeof this.service?.conexaoComANuvem === 'function' ? await this.service.conexaoComANuvem() : null;
     return {
       servidor: { nome: NOME_NA_REDE, ip: rede?.ip ?? null, maquina: rede?.maquina ?? null, versao: process.env.APP_VERSION ?? null },
       pc,
       terminal,
+      nuvem,
     };
   }
 

@@ -6,6 +6,7 @@ import { REQUIRE_PERM } from '../../auth/require-perm.decorator';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { PresencaService } from '../equipamento/presenca.service';
 import { EdgeController } from './edge.controller';
+import { EdgeService } from './edge.service';
 import { RedeLocalService } from './rede-local.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -36,26 +37,53 @@ describe('rotas da conexão PC ↔ servidor', () => {
     return { ctl, presenca };
   }
 
-  it('presença: com o terminal pareado o PC fica conectado, com o IP e o endereço que usou', () => {
+  it('presença: com o terminal pareado o PC fica conectado, com o IP e o endereço que usou', async () => {
     const { ctl, presenca } = montar();
     const req = { ip: '::ffff:192.168.0.23', headers: { host: 'regem.local:3002' }, terminal: { id: 'pdv-1', nome: 'Pdv delivery', tipo: 'pdv' } };
-    const r = ctl.presencaDoPc(usuario, req);
+    const r = await ctl.presencaDoPc(usuario, req);
     expect(r).toEqual({
       servidor: { nome: 'regem.local', ip: '192.168.0.10', maquina: 'SERVIDOR-MB', versao: process.env.APP_VERSION ?? null },
       pc: { ip: '192.168.0.23', endereco: 'regem.local' },
       terminal: { id: 'pdv-1', nome: 'Pdv delivery', tipo: 'pdv' },
+      nuvem: null,
     });
     expect(presenca.doTenant('t1').map((p) => [p.id, p.tipo, p.ip, p.endereco])).toEqual([['pdv-1', 'pdv', '192.168.0.23', 'regem.local']]);
   });
 
-  it('presença: o tablet do garçom (sub-PDV do salão) também conta; sem terminal, responde e não anota', () => {
+  it('presença: o tablet do garçom (sub-PDV do salão) também conta; sem terminal, responde e não anota', async () => {
     const { ctl, presenca } = montar();
-    ctl.presencaDoPc(usuario, { ip: '192.168.0.40', headers: { host: '192.168.0.10:3002' }, terminal: { id: 'salao-1', nome: 'Salão', tipo: 'salao' } });
-    const semTerminal = ctl.presencaDoPc(usuario, { ip: '192.168.0.50', headers: { host: 'regem.local:3002' } });
+    await ctl.presencaDoPc(usuario, { ip: '192.168.0.40', headers: { host: '192.168.0.10:3002' }, terminal: { id: 'salao-1', nome: 'Salão', tipo: 'salao' } });
+    const semTerminal = await ctl.presencaDoPc(usuario, { ip: '192.168.0.50', headers: { host: 'regem.local:3002' } });
     expect(semTerminal.terminal).toBeNull();
     // um equipamento de outro tipo no `req.terminal` (não deveria acontecer) não vira presença
-    ctl.presencaDoPc(usuario, { ip: '192.168.0.60', headers: {}, terminal: { id: 'kds-1', nome: 'KDS', tipo: 'kds' } });
+    await ctl.presencaDoPc(usuario, { ip: '192.168.0.60', headers: {}, terminal: { id: 'kds-1', nome: 'KDS', tipo: 'kds' } });
     expect(presenca.doTenant('t1').map((p) => [p.id, p.endereco])).toEqual([['salao-1', '192.168.0.10']]);
+  });
+
+  // F1.4: a faixa "sem conexão com a nuvem" lê o que o sync-daemon anota no sync_state do servidor da loja.
+  it('presença: traz a conexão do servidor com a nuvem, lida do sync_state pelo serviço de verdade', async () => {
+    process.env.EDGE_MODE = 'true';
+    const estado: Record<string, string> = {
+      sync_falhando_desde: new Date(Date.now() - 12 * 60_000).toISOString(),
+      sync_ultimo_ok: new Date(Date.now() - 13 * 60_000).toISOString(),
+    };
+    const db = {
+      execute: async (s: any) => {
+        const chave = (s?.queryChunks ?? []).find((c: any) => typeof c === 'string' && c in estado);
+        return { rows: chave ? [{ valor: estado[chave] }] : [] };
+      },
+    };
+    const svc = new EdgeService(db as any);
+    const ctl = new EdgeController(svc, {} as any, { atual: rede } as any, new PresencaService({ execute: async () => ({ rows: [] }) } as any));
+    const r = await ctl.presencaDoPc(usuario, { ip: '192.168.0.23', headers: {} });
+    expect(r.nuvem).toEqual({ semConexaoDesde: estado.sync_falhando_desde });
+    // Voltou: a falha some e o último ciclo certo é de agora.
+    estado.sync_falhando_desde = '';
+    estado.sync_ultimo_ok = new Date().toISOString();
+    expect((await ctl.presencaDoPc(usuario, { ip: '192.168.0.23', headers: {} })).nuvem).toEqual({ semConexaoDesde: null });
+    // Na nuvem a faixa não existe.
+    delete process.env.EDGE_MODE;
+    expect(await svc.conexaoComANuvem()).toBeNull();
   });
 
   it('presença exige sessão; o endereço na rede exige gestão com a permissão "servidor"', () => {
