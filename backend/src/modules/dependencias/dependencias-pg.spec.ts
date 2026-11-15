@@ -5,6 +5,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { DependenciasService, RespostaDaFonte } from './dependencias.service';
 import { HTML_DA_META, MD_COM_O_HAIKU_DEPRECADO, MD_DA_ANTHROPIC } from './dependencias-amostras.teste-spec';
 import { FONTES_VIGIADAS } from './dependencias-fontes';
+import { comTravaDaEmpresa } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -36,7 +37,8 @@ descrever('a vigilância das dependências (Postgres)', () => {
   const item = async (id: string) => (await svc.lista()).itens.find((i: any) => i.id === id)!;
 
   beforeAll(async () => {
-    await pool.query(readFileSync(join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '423_dependencia_leitura.sql'), 'utf8'));
+    // No banco dividido do CI, a migration trava a `empresa` primeiro (ERR-377, V9) — mesmo sendo uma tabela isolada.
+    await pool.query(comTravaDaEmpresa(readFileSync(join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '423_dependencia_leitura.sql'), 'utf8')));
     await limpar();
   });
   afterAll(async () => {
