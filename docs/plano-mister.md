@@ -437,7 +437,14 @@ A 17ª consulta (`vencimentos_e_versoes`; regras em `mister-vencimentos.ts`). S�
 
 **Achado ao levantar (ERR-466, PR #990, mesclado em 14/11):** a licença do servidor da loja que está no ar vencia em 21/11/2026, com a conta valendo até 19/02/2027. A ativação copia o fim do teste da conta no dia da instalação, e o "Liberar" do console e a assinatura mudam só a conta. Em 21/11, o servidor travaria toda gravação. Agora vale a maior das duas datas, e a conta estende o servidor sem nunca encurtar.
 
-**Fica para a parte 2** (pede mockup da tela no console): a vigilância das documentações e dos contratos das integrações (Meta, iFood, 99, Anthropic, gateways e SEFAZ), com as fontes oficiais, a versão anterior guardada para comparar, "não verificado desde" quando a fonte não responde, e a tarefa com responsável e prazo.
+**Fica para a parte 2** (pede mockup da tela no console): a vigilância das documentações e dos contratos das integrações (Meta, iFood, 99, Anthropic, gateways e SEFAZ), com as fontes oficiais, a versão anterior guardada para comparar, "não verificado desde" quando a fonte não responde, e a tarefa com responsável e prazo. O protótipo é o `mockups/regem-dependencias-e-qualidade.html` (#992), a aprovar.
+
+**A base da parte 2, em 14/11 (sem migration):** o inventário do que o Regem usa de cada integração fica no código (`common/integracoes-em-uso.ts`), e é dele que a tela vai tirar a coluna "Usamos".
+- **O teste que acompanha o código** (`integracoes-em-uso.spec.ts`) acusa:
+  - versão da Graph API escrita fora do inventário ou diferente dele;
+  - modelo de IA no código sem inventário ou sem preço na tabela do "IA e uso";
+  - endereço do inventário que o código não chama mais.
+- **Achado:** o WhatsApp e o número do Mister estão na Graph API v25.0, e o Instagram e o Messenger, na v27.0. Funciona, mas alinhar pede testar o envio e os webhooks com a Meta (tarefa da vigilância).
 
 **Conferência:**
 - `mister-vencimentos.spec.ts`: cada parte e o que pede atenção (a nota desligada não pede; a tabela própria se atualiza sozinha; a licença sem prazo; a versão recolhida e a do instalador; o Instagram só com erro).
