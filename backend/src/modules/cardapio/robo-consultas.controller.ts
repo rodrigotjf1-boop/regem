@@ -5,6 +5,7 @@ import { CABECALHO_SEGREDO_ROBO, segredoDaChamada } from '../../common/segredo-r
 import { CardapioService } from './cardapio.service';
 import { buscarNoCardapio, resumoDaLoja, taxaDoBairro } from './robo-consultas';
 import { categoriasPorPapel, procurarNoCardapio } from './robo-busca';
+import { aplicarNoResumo } from './situacao-da-loja';
 import { instrucoesDoChat, instrucoesDoDirect, instrucoesDoMessenger, instrucoesDosComentarios, instrucoesDoRobo } from './robo-instrucoes';
 import { ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario, ehChaveDoDirect, ehChaveDoMessenger } from '../../common/conversa-do-robo';
 
@@ -32,8 +33,12 @@ export class RoboConsultasController {
     @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string,
   ) {
     const { token, menu } = await this.cardapio(segredoDaChamada(segredo, secret), instancia, phoneNumberId);
+    const resumo = resumoDaLoja(menu, this.service.linkDoCardapio(token));
+    // A loja está atendendo AGORA (15/11): o horário do cardápio é dado fixo — confere a 99, a pausa do Regem e o servidor
+    // da loja; fechada pelos aplicativos dentro do horário = `abertaAgora` false (`situacao-da-loja.ts`).
+    const conferida = await this.service.situacaoConferida(token, resumo.abertaAgora && !resumo.pausadaPelaLoja);
     // + as categorias por papel (bebidas, sobremesas, porções): o que oferecer no fim do pedido (F2).
-    return { ...resumoDaLoja(menu, this.service.linkDoCardapio(token)), categoriasParaOferecer: categoriasPorPapel(menu) };
+    return { ...aplicarNoResumo(resumo, conferida), categoriasParaOferecer: categoriasPorPapel(menu) };
   }
 
   // Com texto: a busca da F2 (robo-busca.ts) — os que LEVAM (ficha > descrição > nome), onde entra como ADICIONAL (com o

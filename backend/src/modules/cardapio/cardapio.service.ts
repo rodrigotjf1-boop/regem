@@ -114,7 +114,8 @@ import { CashbackService } from '../cashback/cashback.service';
 import { hojeISO } from '../../common/data';
 import { edgeAtivo } from '../../common/edge-ativo';
 import { lojaDoCanal, lojasAtivas, pausadosNaLoja } from '../../common/pausa-loja';
-import { montarMensagemDaPausa, pausaVigenteDoCanal, textoDaRecusa, type PausaVigente } from '../../common/pausa-do-canal';
+import { montarMensagemDaPausa, pausaVigenteDoCanal, rotuloDoMotivo, textoDaRecusa, type PausaVigente } from '../../common/pausa-do-canal';
+import { sinalDoServidor, vereditoDaLoja, type SinalDoCanal, type SituacaoConferida } from './situacao-da-loja';
 import { gravarOrigemPedido, medicaoDeAnuncios } from './origem-pedido';
 import { escolhaNoCheckout, promocoesDaLoja } from './promocoes-cardapio';
 import { TIPOS_EVENTO_FUNIL, ehTemplateCardapio, proximaAberturaDe, templateDoCardapio } from './menu-themes';
@@ -514,6 +515,55 @@ export class CardapioService {
         ),
       );
     return row;
+  }
+
+  /**
+   * A LOJA ESTÁ ATENDENDO AGORA? (`situacao-da-loja.ts`, 15/11/2026) — para o `consultar_loja` do atendente virtual. Só lê
+   * o que já está no banco, nada de consulta a aplicativo por mensagem: a situação da loja na 99 (o aviso `shopStatus`,
+   * guardado em `integracao.config.situacaoDaLoja`; vale por 12 h), a pausa que o Regem pôs no iFood ou na 99 (a que
+   * falhou no canal não conta) e a última batida do servidor da loja. Falhou a leitura: o veredito do horário, como antes.
+   */
+  async situacaoConferida(token: string, cardapioAberto: boolean, agora: Date = new Date()): Promise<SituacaoConferida> {
+    try {
+      const cfg = await this.resolver(token);
+      const t = cfg.tenantId;
+      const u = cfg.unidadeId ?? null;
+      const linhas = (r: any) => (r?.rows ?? r ?? []) as any[];
+      const [i99, pausas, edge] = await Promise.all([
+        this.db.execute(sql`
+          select config #> '{situacaoDaLoja}' as s from integracao
+           where tenant_id = ${t} and canal = '99food' and ativo = true and (unidade_id is null or unidade_id = ${u}::uuid)
+           order by (unidade_id is null) limit 1`),
+        this.db.execute(sql`
+          select canal, ate, motivo, motivo_texto from pausa_canal
+           where tenant_id = ${t} and canal in ('ifood', 'food99') and ate > ${agora.toISOString()}::timestamptz
+             and (unidade_id is null or unidade_id = ${u}::uuid) and coalesce(externo_situacao, '') <> 'erro'
+           order by ate desc`),
+        // Só a nuvem tem a `edge_status` (a rota do robô é @CloudOnly); a loja sem servidor não tem linha.
+        this.db
+          .execute(sql`
+            select max(recebido_em) as ultima from edge_status
+             where tenant_id = ${t} and (unidade_id is null or unidade_id = ${u}::uuid)
+               and recebido_em > ${new Date(agora.getTime() - 7 * 86_400_000).toISOString()}::timestamptz`)
+          .catch((e: any) => {
+            if (e?.code === '42P01') return { rows: [] };
+            throw e;
+          }),
+      ]);
+      const canais: SinalDoCanal[] = [];
+      const s99 = linhas(i99)[0]?.s;
+      const s99Fresca = s99?.estado && s99?.em && agora.getTime() - new Date(s99.em).getTime() <= 12 * 3_600_000;
+      if (s99Fresca) canais.push({ nome: '99', estado: s99.estado, motivo: s99.motivo ?? null, ate: s99.ate ?? null, fonte: 'plataforma' });
+      for (const p of linhas(pausas)) {
+        const nome = p.canal === 'ifood' ? 'iFood' : '99';
+        if (canais.some((c) => c.nome === nome)) continue; // a 99 já disse; a mais nova pausa por canal basta
+        canais.push({ nome, estado: 'pausada', motivo: rotuloDoMotivo(p.motivo, p.motivo_texto), ate: new Date(p.ate).toISOString(), fonte: 'regem' });
+      }
+      return vereditoDaLoja({ cardapioAberto, canais, servidor: sinalDoServidor(linhas(edge)[0]?.ultima ?? null, agora), agora });
+    } catch (e: any) {
+      this.logger.warn(`situação conferida da loja: ${e?.message ?? e} — segue o horário do cardápio`);
+      return vereditoDaLoja({ cardapioAberto, canais: [], servidor: null, agora });
+    }
   }
 
   // ===== Consultas do robô (Fase 2): a loja pela chave do WhatsApp, com a senha do robô =====

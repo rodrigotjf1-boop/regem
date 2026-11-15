@@ -119,8 +119,8 @@ describe('instruções do robô — o que a loja ensinou (mig 382)', () => {
   const antes = { f1: instrucoesDoRobo({ loja: LOJA }, '1').texto, f2: instrucoesDoRobo({ loja: LOJA }, '2').texto, direct: instrucoesDoDirect({ loja: LOJA }, '2').texto };
 
   it('as versões subiram (.f19 e .d5)', () => {
-    expect(VERSAO_INSTRUCOES).toBe('2026-11-08.f19');
-    expect(VERSAO_DO_DIRECT).toBe('2026-11-08.d5');
+    expect(VERSAO_INSTRUCOES >= '2026-11-08.f19').toBe(true); // subiu de novo na .f20 (15/11, a loja conferida)
+    expect(VERSAO_DO_DIRECT >= '2026-11-08.d5').toBe(true);
   });
 
   it('sem itens: o texto é IDÊNTICO ao de antes, nos três lugares', () => {

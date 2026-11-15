@@ -9,6 +9,7 @@ import {
   registrarPedidoDoCliente,
 } from './food99-pedido-cliente';
 import { lerCancelamentoParcial, registrarCancelamentoParcial } from './food99-parcial';
+import { situacaoDa99, situacaoVelha, type SituacaoNoCanal } from './situacao-99';
 import { and, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../../db/drizzle.module';
 import { integracao } from '../../../db/schema';
@@ -68,6 +69,8 @@ export interface IntegFood99 {
 @Injectable()
 export class Food99Service {
   private readonly logger = new Logger('99Food');
+  /** Última tentativa de reler a situação da loja, por integração: a falha não repete a cada volta de 30 s da rotina. */
+  private readonly releituraDaSituacao = new Map<string, number>();
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     // forwardRef dos dois lados: DeliveryService injeta este serviço (status back).
@@ -243,6 +246,65 @@ export class Food99Service {
     const res = await fetchExterno(`${BASE}/v1/shop/shop/detail?${q}`, { method: 'GET' }).catch(() => null);
     const j: any = res ? await res.json().catch(() => null) : null;
     return j?.errno === 0 ? j.data : null;
+  }
+
+  // ===== A situação da loja na 99 (aberta, pausada, fechada, desconectada) — para o atendente virtual =====
+  /**
+   * Grava a situação em `config.situacaoDaLoja` (V82: só esta chave, mesclada no banco), e SÓ se for mais nova que a
+   * guardada — um aviso atrasado não desfaz a mudança que chegou antes dele. Devolve se gravou.
+   */
+  private async gravarSituacao(ig: IntegFood99, s: SituacaoNoCanal): Promise<boolean> {
+    const r: any = await this.db.execute(sql`
+      update integracao
+         set config = coalesce(config, '{}'::jsonb) || jsonb_build_object('situacaoDaLoja', ${JSON.stringify(s)}::jsonb)
+       where id = ${ig.id}
+         and (config #>> '{situacaoDaLoja,em}' is null or config #>> '{situacaoDaLoja,em}' < ${s.em})
+      returning id`);
+    const gravou = (r?.rows ?? r ?? []).length > 0;
+    if (gravou) ig.config = { ...(ig.config ?? {}), situacaoDaLoja: s };
+    return gravou;
+  }
+
+  /** O aviso `shopStatus` (já com a assinatura conferida): a hora é a do aviso; corpo que não se lê é só registrado. */
+  private async guardarSituacaoDoAviso(ig: IntegFood99, raw: string): Promise<void> {
+    let corpo: any = null;
+    try {
+      corpo = JSON.parse(raw);
+      if (typeof corpo?.data === 'string') corpo.data = JSON.parse(corpo.data);
+    } catch {
+      this.logger.warn(`shopStatus da loja ${ig.appShopId}: corpo que não se lê — ignorado`);
+      return;
+    }
+    const seg = Number(corpo?.timestamp);
+    const em = Number.isFinite(seg) && seg > 0 ? new Date(seg * 1000) : new Date();
+    const s = situacaoDa99(corpo?.data, em, 'aviso');
+    if (!s) {
+      this.logger.warn(`shopStatus da loja ${ig.appShopId}: sem situação reconhecível — ignorado`);
+      return;
+    }
+    const gravou = await this.gravarSituacao(ig, s);
+    this.logger.log(`shopStatus da loja ${ig.appShopId}: ${s.estado}${s.motivo ? ` (${s.motivo})` : ''}${gravou ? '' : ' — mais velho que o guardado'}`);
+  }
+
+  /**
+   * A rotina relê o detalhe da loja só quando a situação falta ou passou de 6 h (o aviso pode ter se perdido, ou a
+   * integração é nova): no máximo umas 4 leituras por dia por loja; falhou, espera 30 min. Nunca lança (V3).
+   */
+  async atualizarSituacaoSeVelha(ig: IntegFood99, agora = new Date()): Promise<SituacaoNoCanal | null> {
+    try {
+      if (!situacaoVelha(ig.config?.situacaoDaLoja, agora)) return null;
+      const ultima = this.releituraDaSituacao.get(ig.id) ?? 0;
+      if (agora.getTime() - ultima < 30 * 60_000) return null;
+      this.releituraDaSituacao.set(ig.id, agora.getTime());
+      if (!ig.appShopId) return null;
+      const s = situacaoDa99(await this.shopDetail(ig.appShopId), agora, 'leitura');
+      if (!s) return null;
+      await this.gravarSituacao(ig, s);
+      return s;
+    } catch (e: any) {
+      this.logger.warn(`situação da loja ${ig.appShopId} na 99: ${e?.message ?? e}`);
+      return null;
+    }
   }
 
   // Gera o link de autorização (getUrl) p/ o lojista conectar a loja 99food dele ao
@@ -1221,8 +1283,12 @@ export class Food99Service {
       } else if (ev === 'orderconfirm' || ev === 'orderready') {
         // Ecos do nosso próprio status — só reconhece.
         this.logger.log(`webhook: ${type} order=${orderId} (ack)`);
+      } else if (ev === 'shopstatus') {
+        // A loja abriu, fechou, pausou ou caiu na 99: o atendente virtual confere antes de dizer "estamos abertos"
+        // (`cardapio/situacao-da-loja.ts`). O aviso já passou pela assinatura; o `data` não tem id de 64 bits.
+        await this.guardarSituacaoDoAviso(ig, raw);
       } else {
-        // shopStatus, shopBindStatus, imageAuditStatus, uploadMenuTaskStatus,
+        // shopBindStatus, imageAuditStatus, uploadMenuTaskStatus,
         // autoOnlineResult… — reconhece (nada a fazer no fluxo de pedido por ora).
         this.logger.log(`webhook: evento ${type} reconhecido (sem ação)`);
       }

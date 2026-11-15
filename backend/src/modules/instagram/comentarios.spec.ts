@@ -251,7 +251,7 @@ describe('comentários — o caso nos Números do atendimento', () => {
 describe('comentários — as instruções do robô (instrucoesDosComentarios)', () => {
   it('a versão, o canal, o comentário público, as quatro decisões, o SEM RESPOSTA e as ferramentas que servem', () => {
     const r = instrucoesDosComentarios({ loja: 'Burger da Praça' });
-    expect(r).toMatchObject({ versao: '2026-11-09.m1', fluxo: 1, canal: 'comentarios' });
+    expect(r).toMatchObject({ versao: '2026-11-15.m2', fluxo: 1, canal: 'comentarios' });
     expect(instrucoesDosComentarios({ loja: 'x' }, '2').fluxo).toBe(2);
     const t = r.texto;
     expect(t.startsWith('Você atende os clientes da Burger da Praça nos comentários dos posts do Instagram da loja.')).toBe(true);
