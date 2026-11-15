@@ -2340,13 +2340,14 @@ export function testesDoMisterComPostgres(): void {
       const daEmpresa = (r: any, nome: string) => r.porEmpresa.find((x: any) => x.empresa === nome) ?? { perguntas: 0, semResposta: 0, custoUsd: 0, chave: null };
       const motivo = (r: any, texto: string) => r.motivos.find((m: any) => m.motivo === texto)?.quantas ?? 0;
       const consulta = (r: any, nome: string) => r.consultas.find((c: any) => c.nome === nome) ?? { vezes: 0, falhas: 0 };
+      const tema = (r: any, texto: string) => r.temas.find((t: any) => t.tema === texto)?.quantas ?? 0;
       let n = 0;
-      const pergunta = (tenant: string, colab: string, situacao: string, o: { motivo?: string; chamadas?: number; consultas?: Array<{ nome: string; ok: boolean }>; segundos?: number; diasAtras?: number } = {}) =>
+      const pergunta = (tenant: string, colab: string, situacao: string, o: { motivo?: string; chamadas?: number; consultas?: Array<{ nome: string; ok: boolean; entrada?: Record<string, string> }>; segundos?: number; diasAtras?: number } = {}) =>
         q(
           `insert into mister_pergunta (tenant_id, colaborador_id, nivel, telefone, chave, pergunta, resposta, situacao, motivo, chamadas, ferramentas, criado_em, respondida_em)
            values ($1, $2, 'presidente', $3, $4, 'pergunta secreta da loja', 'resposta secreta da loja', $5, $6, $7, $8::jsonb,
                    now() - make_interval(days => $9::int, secs => $10::int), now() - make_interval(days => $9::int))`,
-          [tenant, colab, tel, `${chaveDaLinha}-${++n}`, situacao, o.motivo ?? null, o.chamadas ?? 1, JSON.stringify((o.consultas ?? []).map((c) => ({ ...c, ms: 10, entrada: {} }))), o.diasAtras ?? 0, o.segundos ?? 4],
+          [tenant, colab, tel, `${chaveDaLinha}-${++n}`, situacao, o.motivo ?? null, o.chamadas ?? 1, JSON.stringify((o.consultas ?? []).map((c) => ({ ...c, ms: 10, entrada: c.entrada ?? {} }))), o.diasAtras ?? 0, o.segundos ?? 4],
         );
       try {
         await pergunta(A, pessoa.ana, 'respondida', { consultas: [{ nome: 'resumo_do_dia', ok: true }], segundos: 4 });
@@ -2357,6 +2358,10 @@ export function testesDoMisterComPostgres(): void {
         await pergunta(B, pessoa.anaB, 'respondida', { consultas: [{ nome: 'historia_do_pedido', ok: false }], segundos: 6 });
         await pergunta(B, pessoa.anaB, 'falhou', { motivo: 'demorou' });
         await pergunta(A, pessoa.ana, 'respondida', { diasAtras: 10 }); // fora dos 7 dias, dentro dos 30
+        // F5.2: só anotou o que falta (é "sem consultar dado"); anotou e também consultou.
+        const anotou = (t: string) => ({ nome: 'anotar_o_que_falta', ok: true, entrada: { tema: t } });
+        await pergunta(A, pessoa.ana, 'respondida', { consultas: [anotou('estoque')], chamadas: 2, segundos: 3 });
+        await pergunta(A, pessoa.ana, 'respondida', { consultas: [anotou('financeiro'), { nome: 'resumo_do_dia', ok: true }], chamadas: 2, segundos: 5 });
         await q(
           `insert into ia_uso_dia (tenant_id, dia, recurso, provedor, modelo, origem, chamadas, tokens_entrada, tokens_saida)
            values ($1, $2::date, 'mister_perguntas', 'anthropic', 'claude-opus-5-5', 'distribuicao', 2, 1000000, 100000)
@@ -2367,18 +2372,23 @@ export function testesDoMisterComPostgres(): void {
 
         const r = await qualidade.resumo(7);
         expect(r.dias).toBe(7);
-        expect(r.perguntas - antes7.perguntas).toBe(7);
-        expect(r.respondidas - antes7.respondidas).toBe(4);
+        expect(r.perguntas - antes7.perguntas).toBe(9);
+        expect(r.respondidas - antes7.respondidas).toBe(6);
         expect(r.falhas - antes7.falhas).toBe(3);
-        expect(r.semConsulta - antes7.semConsulta).toBe(1);
+        expect(r.semConsulta - antes7.semConsulta).toBe(2);
+        // F5.2: "não tenho acesso" e o tema; a anotação não entra nas consultas.
+        expect(r.naoTem.quantas - antes7.naoTem.quantas).toBe(2);
+        expect(tema(r, 'estoque e compras') - tema(antes7, 'estoque e compras')).toBe(1);
+        expect(tema(r, 'financeiro e contas') - tema(antes7, 'financeiro e contas')).toBe(1);
+        expect(consulta(r, 'anotar o que falta').vezes).toBe(0);
         expect(motivo(r, 'a chave de IA da empresa foi recusada') - motivo(antes7, 'a chave de IA da empresa foi recusada')).toBe(1);
         expect(motivo(r, 'a IA não respondeu (passageiro)') - motivo(antes7, 'a IA não respondeu (passageiro)')).toBe(1);
         expect(motivo(r, 'passou do tempo') - motivo(antes7, 'passou do tempo')).toBe(1);
-        expect(consulta(r, 'resumo do dia').vezes - consulta(antes7, 'resumo do dia').vezes).toBe(2);
+        expect(consulta(r, 'resumo do dia').vezes - consulta(antes7, 'resumo do dia').vezes).toBe(3);
         expect(consulta(r, 'vendas do periodo').vezes - consulta(antes7, 'vendas do periodo').vezes).toBe(1);
         expect(consulta(r, 'historia do pedido').falhas - consulta(antes7, 'historia do pedido').falhas).toBe(1);
         expect(r.tempo).toEqual({ medianaS: expect.any(Number), p90S: expect.any(Number) });
-        expect(daEmpresa(r, nomeA).perguntas - daEmpresa(antes7, nomeA).perguntas).toBe(5);
+        expect(daEmpresa(r, nomeA).perguntas - daEmpresa(antes7, nomeA).perguntas).toBe(7);
         expect(daEmpresa(r, nomeA).semResposta - daEmpresa(antes7, nomeA).semResposta).toBe(2);
         expect(daEmpresa(r, nomeB).perguntas - daEmpresa(antes7, nomeB).perguntas).toBe(2);
         // O custo pela MESMA conta da tela "IA e uso": 1 milhão de entrada e 100 mil de saída no Opus = US$ 4 + US$ 2.
@@ -2389,7 +2399,7 @@ export function testesDoMisterComPostgres(): void {
         // 30 dias: a antiga entra.
         const r30 = await qualidade.resumo(30);
         expect(r30.dias).toBe(30);
-        expect(r30.perguntas - antes30.perguntas).toBe(8);
+        expect(r30.perguntas - antes30.perguntas).toBe(10);
         // Nunca o texto, o telefone ou a pessoa.
         const tudo = JSON.stringify(r30);
         expect(tudo).not.toContain('secreta');

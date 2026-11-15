@@ -503,10 +503,10 @@ A vista "Console › Mister › Qualidade" do protótipo `mockups/regem-dependen
   - por empresa, com a situação da chave.
 - **Onde fica:** a seção nova "Qualidade" da aba Mister do console, só para a Diretoria (`GET /distribuicao/mister/qualidade`, `MisterQualidadeService`).
 - **O que nunca sai:** o texto da pergunta e da resposta, o telefone e a pessoa. Cada bloco é uma consulta agregada no banco, sem laço por empresa.
-- **Fica para a parte 2** (pede migration):
-  - o assunto das perguntas sem resposta, por uma lista fechada;
-  - a avaliação de regressão, com 40 perguntas fixas numa empresa de teste e a chave da DMS;
-  - um índice por data em `mister_pergunta`, para a leitura de 30 dias continuar rápida quando a tabela crescer.
+- **Ficou para depois:**
+  - o assunto das perguntas sem resposta, por uma lista fechada: feito na F5.2, abaixo, **sem migration**;
+  - a avaliação de regressão, com 40 perguntas fixas numa empresa de teste e a chave da DMS: F5.3;
+  - um índice por data em `mister_pergunta`: **já existia** (`ix_mister_pergunta_criado`, da 418, feito para a limpeza diária), e a leitura de 30 dias usa esse índice.
 
 **Conferência:**
 - `mister-qualidade.spec.ts`: o período, o texto de cada motivo e os motivos que somam.
@@ -520,6 +520,40 @@ A vista "Console › Mister › Qualidade" do protótipo `mockups/regem-dependen
   - nada de texto, telefone ou pessoa;
   - o período torto vira 7.
 - Roteiro `mister-console`: a seção (os números, 7 e 30 dias, o vazio e o erro com "Tentar de novo") nas 16 larguras.
+
+### F5.2 — O que pediram e o Mister não tem (sem migration)
+
+Decisão recomendada, seguida em 15/11/2026: **o próprio Mister marca o tema**, como diz a nota do protótipo ("o Mister marca cada uma com um assunto de uma lista fechada"). Não se classifica o texto por palavras: quem sabe que o dado faltou é o modelo, na hora.
+
+- **A anotação, a 18ª ferramenta (`anotar_o_que_falta`):**
+  - não é consulta e não lê dado;
+  - recebe só o `tema`, de uma lista fechada: vendas e pedidos, estoque e compras, financeiro e contas, equipe/escala/ponto, cardápio e preços, clientes, delivery e canais, nota fiscal e impostos, outro assunto;
+  - as instruções mandam chamá-la antes de dizer "ainda não tenho acesso"; a descrição diz para não chamá-la quando uma consulta deu erro (isso é "não consegui ler agora");
+  - responde também a quem está sem loja.
+- **Onde fica:** na trilha que a pergunta já tinha (`mister_pergunta.ferramentas[].entrada.tema`), por isso não precisa de migration.
+  - O tema fora da lista vira "outro": as palavras da pessoa nunca vão à trilha.
+  - Não é consulta em lugar nenhum. A memória da conversa continua marcando "sem consulta" a resposta que só anotou (é o que deixa o Mister reconhecer um erro seu, ERR-461). As "consultas mais usadas" do console não a contam.
+- **No console › Mister › Qualidade:**
+  - o número **"Não tenho acesso"** (o do protótipo) troca o "Sem consultar dado", que passa para a nota de "Respondidas";
+  - o cartão novo **"O que pediram e o Mister não tem"**, com as barras por tema.
+  - A API de antes do deploy, sem os campos novos, não quebra a seção (zero e "Nada faltou neste período.").
+- **Custo:** uma volta a mais ao modelo, só nas perguntas sem dado (com o trecho fixo em cache). As perguntas anteriores ao deploy não têm a anotação: o número cresce a partir de 15/11.
+
+**Conferência:**
+- `mister-agente.regras.spec.ts`:
+  - a lista de temas da ferramenta e o texto de cada um;
+  - o tema fora da lista vira "outro" (também na trilha);
+  - a anotação não é consulta, e a memória continua "sem consulta";
+  - a frase das instruções.
+- `mister-qualidade.spec.ts`: os temas somam pelo texto, e o tema desconhecido vai para "outro assunto".
+- `mister-guia-de-uso.spec.ts`: a anotação responde a quem está sem loja.
+- `mister-pg.teste-spec.ts`, pela diferença antes e depois:
+  - o "não tenho acesso" e cada tema;
+  - a anotação fora das consultas;
+  - a resposta que só anotou conta como "sem consultar dado".
+- Roteiro `mister-console`:
+  - o número e o cartão;
+  - a API antiga sem quebrar a seção.
 
 ### F2.5 — O suporte de uso: o guia "como faço…" (sem migration)
 

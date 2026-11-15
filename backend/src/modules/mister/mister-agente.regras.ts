@@ -60,7 +60,7 @@ export const INSTRUCOES_DO_MISTER = `Você é o Mister, o administrador virtual 
 COMO VOCÊ TRABALHA
 - Você não sabe nada da loja de cabeça. Todo número, valor, horário, nome de produto e situação que você disser vem de uma ferramenta que você chamou para ESTA pergunta.
 - Antes de responder a uma pergunta sobre a loja, chame a ferramenta que traz o dado. Se a pergunta pede dois assuntos, chame as duas. Junte consultas, compare períodos e faça as contas que a pergunta pedir.
-- Se a pergunta pede um DADO que nenhuma ferramenta traz, diga com clareza que você ainda não tem acesso a essa informação e diga em uma frase o que você consegue responder hoje: resumo do dia, vendas de um período, produtos mais vendidos, pedidos em andamento, a história de um pedido (onde ele demorou), os tempos dos pedidos (aceite, cozinha, entrega), a comparação com o período anterior, o horário de pico, o lucro e a margem por produto, cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto), estoque em alerta, a situação do servidor da loja e os canais de venda e as integrações (a pausa de cada canal, o último pedido que chegou por ele, o login da 99, o WhatsApp da loja e a nota fiscal), a conferência do cardápio com o iFood e a 99 (preço diferente, produto só de um lado), o Atendimento agora (os casos em aberto, os urgentes e os com prazo), a conciliação (o que não fecha entre a venda, o dinheiro e a nota fiscal), o que vence ou está desatualizado (o certificado digital, a tabela do IBPT, a licença e a versão do servidor da loja e o acesso do Instagram) e como usar o Regem (onde fica cada tela e o passo a passo das tarefas mais comuns). Nunca estime, nunca invente e nunca complete um dado que faltou.
+- Se a pergunta pede um DADO que nenhuma ferramenta traz, diga com clareza que você ainda não tem acesso a essa informação e diga em uma frase o que você consegue responder hoje: resumo do dia, vendas de um período, produtos mais vendidos, pedidos em andamento, a história de um pedido (onde ele demorou), os tempos dos pedidos (aceite, cozinha, entrega), a comparação com o período anterior, o horário de pico, o lucro e a margem por produto, cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto), estoque em alerta, a situação do servidor da loja e os canais de venda e as integrações (a pausa de cada canal, o último pedido que chegou por ele, o login da 99, o WhatsApp da loja e a nota fiscal), a conferência do cardápio com o iFood e a 99 (preço diferente, produto só de um lado), o Atendimento agora (os casos em aberto, os urgentes e os com prazo), a conciliação (o que não fecha entre a venda, o dinheiro e a nota fiscal), o que vence ou está desatualizado (o certificado digital, a tabela do IBPT, a licença e a versão do servidor da loja e o acesso do Instagram) e como usar o Regem (onde fica cada tela e o passo a passo das tarefas mais comuns). Antes de dizer que ainda não tem acesso, chame anotar_o_que_falta com o tema do dado pedido. Nunca estime, nunca invente e nunca complete um dado que faltou.
 - Quando a ferramenta devolver erro, diga que não conseguiu ler aquele dado agora. "Não houve vendas" e "não consegui ler as vendas" são respostas diferentes: nunca troque uma pela outra.
 - Quando um campo vier nulo com o aviso de que o perfil da pessoa não vê valores em reais, diga que o perfil dela no Regem não mostra valores em reais. Não tente chegar ao valor por outro caminho.
 - Conta, só com números que as ferramentas trouxeram (somar, comparar, percentual). Diga de onde saiu.
@@ -163,7 +163,36 @@ export type NomeDaFerramenta =
   | 'atendimento_agora'
   | 'conciliacao_do_periodo'
   | 'vencimentos_e_versoes'
-  | 'como_usar_o_regem';
+  | 'como_usar_o_regem'
+  | 'anotar_o_que_falta';
+
+// ───────────────────────────── o que falta (F5.2) ─────────────────────────────
+// Quando a pessoa pede um dado que nenhuma consulta traz, o Mister anota o TEMA (de uma lista fechada) antes de dizer
+// que ainda não tem acesso. A anotação fica na trilha da pergunta (`ferramentas[].entrada.tema`) e o console da
+// distribuição conta por tema — nunca as palavras da pessoa (são da loja).
+
+export const FERRAMENTA_DO_QUE_FALTA = 'anotar_o_que_falta' as const;
+export const TEMAS_DO_QUE_FALTA = ['vendas', 'estoque', 'financeiro', 'equipe', 'cardapio', 'clientes', 'canais', 'fiscal', 'outro'] as const;
+export type TemaDoQueFalta = (typeof TEMAS_DO_QUE_FALTA)[number];
+
+/** O tema como o console mostra. */
+export const ROTULO_DO_TEMA: Record<TemaDoQueFalta, string> = {
+  vendas: 'vendas e pedidos',
+  estoque: 'estoque e compras',
+  financeiro: 'financeiro e contas',
+  equipe: 'equipe, escala e ponto',
+  cardapio: 'cardápio e preços',
+  clientes: 'clientes',
+  canais: 'delivery e canais',
+  fiscal: 'nota fiscal e impostos',
+  outro: 'outro assunto',
+};
+
+/** O tema pedido, se é da lista; qualquer outra coisa (texto livre, vazio) vira "outro" — o texto nunca vai à trilha. */
+export function temaDoQueFalta(v: unknown): TemaDoQueFalta {
+  const t = String(v ?? '').trim().toLowerCase();
+  return (TEMAS_DO_QUE_FALTA as readonly string[]).includes(t) ? (t as TemaDoQueFalta) : 'outro';
+}
 
 /** As ferramentas, como o modelo as vê. A ordem e o texto são fixos (entram no trecho em cache). */
 export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; input_schema: any }> = [
@@ -307,9 +336,23 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
       additionalProperties: false,
     },
   },
+  {
+    name: 'anotar_o_que_falta',
+    description:
+      'Não é consulta: não traz dado nenhum. Chame quando a pessoa pede um dado que nenhuma outra ferramenta traz e você vai dizer que ainda não tem acesso a essa informação, ANTES de responder. Passe só o tema, da lista; nunca as palavras da pessoa. A equipe do Regem vê quantas vezes cada tema faltou, para saber o que construir. Não chame quando uma ferramenta devolveu erro (isso é "não consegui ler agora") nem para assunto que não é da loja.',
+    input_schema: {
+      type: 'object',
+      properties: { tema: { type: 'string', enum: [...TEMAS_DO_QUE_FALTA], description: 'O tema do dado que faltou.' } },
+      required: ['tema'],
+      additionalProperties: false,
+    },
+  },
 ];
 
 export const ehFerramenta = (n: unknown): n is NomeDaFerramenta => FERRAMENTAS.some((f) => f.name === n);
+
+/** As ferramentas que leem dado (todas, menos a anotação do que falta): é o que conta como "consulta". */
+export const ehConsulta = (n: unknown): n is NomeDaFerramenta => ehFerramenta(n) && n !== FERRAMENTA_DO_QUE_FALTA;
 
 // ───────────────────────────── a memória da conversa e a trilha ─────────────────────────────
 
@@ -332,12 +375,13 @@ export const nomeDaConsulta = (ferramenta: string): string => String(ferramenta 
  * resposta que estava certa (ERR-461).
  */
 export function perguntaDaMemoria(t: TrocaDaMemoria): string {
-  const consultas = [...new Set(t.consultas.filter(ehFerramenta).map(nomeDaConsulta))];
+  // A anotação do que falta não é consulta: a resposta que só anotou continua "sem consulta".
+  const consultas = [...new Set(t.consultas.filter(ehConsulta).map(nomeDaConsulta))];
   const como = consultas.length ? `consultas feitas naquela hora: ${consultas.join(', ')}` : 'sem consulta';
   return `[pergunta feita às ${t.hora} · ${como}]\n${t.pergunta}`;
 }
 
-const CAMPOS_DA_ENTRADA = ['periodo', 'de', 'ate', 'dia', 'loja', 'quantos', 'ordem', 'busca', 'pagina', 'numero', 'assunto'] as const;
+const CAMPOS_DA_ENTRADA = ['periodo', 'de', 'ate', 'dia', 'loja', 'quantos', 'ordem', 'busca', 'pagina', 'numero', 'assunto', 'tema'] as const;
 
 /**
  * O que foi pedido a uma ferramenta, para a trilha: só os campos conhecidos, curtos. É o PEDIDO (período, loja, ordem),
@@ -348,6 +392,11 @@ export function entradaParaATrilha(entrada: unknown): Record<string, string | nu
   if (!entrada || typeof entrada !== 'object' || Array.isArray(entrada)) return fora;
   for (const campo of CAMPOS_DA_ENTRADA) {
     const v = (entrada as Record<string, unknown>)[campo];
+    // O tema do que falta é da lista fechada: texto livre vira "outro" (as palavras da pessoa nunca vão à trilha).
+    if (campo === 'tema') {
+      if (v !== undefined && v !== null) fora.tema = temaDoQueFalta(v);
+      continue;
+    }
     if (typeof v === 'number' && Number.isFinite(v)) fora[campo] = v;
     else if (typeof v === 'string' && v.trim()) fora[campo] = v.trim().slice(0, 40);
   }

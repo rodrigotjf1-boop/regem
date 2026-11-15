@@ -60,6 +60,13 @@ const QUALIDADE = {
   pctRespondidas: 96,
   falhas: 17,
   semConsulta: 23,
+  // F5.2: o "não tenho acesso" e o que faltou, por tema (o tema que o Mister anota; nunca as palavras da pessoa).
+  naoTem: { quantas: 19, pct: 5 },
+  temas: [
+    { tema: 'estoque e compras', quantas: 8 },
+    { tema: 'financeiro e contas', quantas: 6 },
+    { tema: 'outro assunto', quantas: 5 },
+  ],
   empresas: 3,
   pessoas: 9,
   tempo: { medianaS: 6, p90S: 14.2 },
@@ -611,6 +618,8 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
     ok(/metade em até 6 s · 90% em até 14,2 s/.test(t) && /US\$ 0,0011/.test(t), 'qualidade: o tempo e o custo por pergunta');
     ok(/resumo do dia 31%/.test(t) && /historia do pedido · 2 sem ler 9%/.test(t), 'qualidade: as consultas mais usadas, com as que não leram');
     ok(/Por que não respondeu · 17/.test(t) && /a chave de IA da empresa foi recusada 6/.test(t), 'qualidade: por que não respondeu');
+    ok(/"Não tenho acesso" 19 5% das perguntas/i.test(t) && /395 de 412 · 23 sem consultar dado/.test(t), `qualidade: "não tenho acesso" e as sem consulta (${t.slice(0, 260)})`);
+    ok(/O que pediram e o Mister não tem · 19/.test(t) && /estoque e compras 8/.test(t) && /outro assunto 5/.test(t), 'qualidade: o que faltou, por tema');
     ok(/Burger da Praça 318 perguntas 4 sem resposta US\$ 0,35 da empresa · ok/.test(t) && /Pizzaria do Porto .* recusada/.test(t) && /sem chave própria/.test(t), 'qualidade: por empresa, com a situação da chave');
     ok((await sec.locator('button[aria-pressed="true"]:has-text("7 dias")').count()) === 1, 'qualidade: 7 dias marcado');
     await sec.locator('button:has-text("30 dias")').click();
@@ -624,6 +633,17 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
     await naAba(page);
     await page.locator('section[aria-labelledby="mister-qualidade"] >> text=Nenhuma pergunta ao Mister neste período.').waitFor({ timeout: 20000 });
     ok(true, 'qualidade: o vazio diz que não houve pergunta');
+    await ctx.close();
+  }
+  {
+    // A API de antes do deploy (sem os campos da F5.2): a seção abre, com zero e "Nada faltou neste período.".
+    const { naoTem, temas, ...semF52 } = QUALIDADE;
+    const { ctx, page, erros } = await abrir(1280, 900, { numero: conectado(), liberado: true, qualidade: semF52 });
+    await naAba(page);
+    const sec = page.locator('section[aria-labelledby="mister-qualidade"]');
+    await sec.locator('text=Nada faltou neste período.').waitFor({ timeout: 20000 });
+    const t = (await sec.innerText()).replace(/\s+/g, ' ');
+    ok(/O que pediram e o Mister não tem · 0/.test(t) && /"Não tenho acesso" 0/i.test(t) && erros.length === 0, `qualidade: a API antiga, sem os campos novos, não quebra a seção (${erros.join(' | ')})`);
     await ctx.close();
   }
   {
