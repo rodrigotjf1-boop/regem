@@ -153,6 +153,21 @@ Loja que desliga o PC à noite abre um episódio de "sem sinal" por noite e o fe
 
   Foi medido em 16 larguras, em cada vista, estado e gaveta: 336 conferências, sem barra lateral, e um detector de botão com texto espremido. O alerta local sem internet fica para depois.
 
+**Parte A — a faixa na tela da loja (sem migration):**
+- **A tela:** a faixa abaixo do topo (`components/mister/faixa-de-avisos.tsx`, montada pelo Shell para todos que estão logados).
+  - Mostra o aviso aberto mais recente que a pessoa ainda não deu "Ciente", com "Ciente" e "Ver avisos".
+  - Depois do Ciente aparece o ⚠️ do topo; a gaveta "Avisos da loja" lista todos os abertos, com o "o que fazer", para onde mais foram e o que escalou.
+  - A tela relê a cada minuto e na hora pelo tempo real (`mister:avisos`).
+- **O servidor** (`AvisosNaTelaModule`, carregado nos DOIS lados): `GET /mister/avisos/abertos` e `POST /mister/avisos/:id/ciente`, para qualquer perfil, com o módulo Mister ligado. Lê os abertos com destino "tela" da loja em uso (da loja ou da empresa toda).
+  - "Ciente" é por pessoa e fica em `dados.cientes`. A renovação da rotina o guarda; a escala o limpa e a faixa volta para todos.
+  - No servidor da loja a tabela não existe: ele pede à nuvem com o token do sincronismo (`GET /mister/avisos/loja`, `POST …/ciente/loja`, que confere se a pessoa é da empresa), com cache de 15 s por loja. Sem internet, devolve `semConexao`, e a tela não mostra nada (V37). **Vai no `.zip`.**
+- **A rotina:** as entregas "tela" e "dms" passam a contar como feitas (a tela e o console leem pela trilha). A rotina avisa as telas no abrir, na escala e no fechar.
+
+**Conferência:**
+- `mister-pg.teste-spec.ts`: só na loja do aviso; o presidente na rede toda; o "Ciente" por pessoa, sem duplicar e guardado na renovação; as recusas; a escala que traz a faixa de volta; o servidor da loja pedindo à nuvem (o cache, o "Ciente" com a pessoa, "sem conexão", a resposta de outra empresa); a rota da nuvem que recusa pessoa de outra empresa; resolvido some; o tempo real.
+- Roteiro `mister`: a faixa, o "Ciente", o ⚠️, a gaveta, "sem conexão" e as 16 larguras (357 conferências). Os outros 6 roteiros seguem verdes com a faixa no Shell.
+- Prova por defeito: 10 de 10.
+
 ## 4. Fases seguintes (resumo)
 
 | Fase | Entrega | Onde |
