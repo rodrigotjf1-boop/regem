@@ -349,7 +349,8 @@ descrever('assuntos que não são pedido (Postgres)', () => {
     expect(r.assuntos).toEqual(assuntosPadrao());
     expect(r.assuntosOpcoes).toEqual({
       assuntos: ['fornecedor', 'vaga', 'parceria'],
-      modos: ['hoje', 'recado', 'nao'],
+      modos: ['hoje', 'recado', 'nao', 'link'],
+      comLink: ['vaga'],
       textoMax: 300,
       textoPadrao: TEXTO_PADRAO_DO_RECADO,
       textoPadraoNao: TEXTO_PADRAO_NAO,

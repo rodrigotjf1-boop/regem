@@ -125,6 +125,10 @@ const MODOS_DO_ASSUNTO = [
   { v: 'recado', rotulo: 'Deixa recado para o responsável' },
   { v: 'nao', rotulo: 'Responde que não é por aqui' },
 ];
+/** Só na vaga (F3 de Vagas): o robô explica as vagas da Página de vagas e manda o link da ficha. */
+const MODO_DO_LINK = { v: 'link', rotulo: 'Explica as vagas e manda o link' };
+const AJUDA_DO_LINK =
+  'Com a Página de vagas ligada (Pessoas › Candidatos › Página de vagas), o robô explica as funções abertas, os salários, as escalas e os benefícios e manda o link da ficha — com a origem do canal, para você ver de onde a ficha veio. Desligada, ele deixa o recado com o texto abaixo.';
 /** O texto do "não é por aqui" quando a loja não escreve o dela (o mesmo padrão do servidor). */
 const NAO_E_POR_AQUI = 'Obrigado pelo contato! Esse assunto não é tratado por aqui.';
 /** As chaves da tela → [assunto, campo] do grupo "assuntos" que o servidor recebe. */
@@ -429,28 +433,33 @@ export function AjustesDoAtendimento() {
   const grupoDosAssuntos: GrupoDeAjustes = {
     titulo: 'Assuntos que não são pedido',
     nota: 'O recado para o responsável não entra na fila da equipe: vai para "📋 Recados", que só gerente e presidente veem — sem som e sem tempo de espera. Sempre vale: o robô pergunta só o necessário, uma pergunta por vez; nunca promete vaga, compra nem parceria; o recado não cala o robô; vale no WhatsApp e no Direct.',
-    itens: ASSUNTOS.flatMap(({ nome, chave, ajuda, padrao }) => {
+    itens: ASSUNTOS.flatMap(({ assunto, nome, chave, ajuda, padrao }) => {
       const modo = String(valores[`assunto${chave}`] ?? 'hoje');
       return [
         {
           id: `assunto${chave}`,
           rotulo: nome,
           tipo: 'selecao' as const,
-          opcoes: MODOS_DO_ASSUNTO,
-          ajuda,
-          palavras: `assunto recado responsável ${nome}`,
+          opcoes: assunto === 'vaga' ? [...MODOS_DO_ASSUNTO, MODO_DO_LINK] : MODOS_DO_ASSUNTO,
+          ajuda: assunto === 'vaga' && modo === 'link' ? AJUDA_DO_LINK : ajuda,
+          palavras: `assunto recado responsável ${nome}${assunto === 'vaga' ? ' link ficha página de vagas candidato' : ''}`,
         },
         ...(modo === 'hoje'
           ? []
           : [
               {
                 id: `assunto${chave}Texto`,
-                rotulo: `${nome} · o robô diz`,
+                rotulo: modo === 'link' ? `${nome} · o robô diz se a página estiver desligada` : `${nome} · o robô diz`,
                 tipo: 'texto' as const,
                 opcional: true,
                 maximo: 300,
                 placeholder: modo === 'nao' ? NAO_E_POR_AQUI : padrao,
-                ajuda: modo === 'nao' ? 'Sem recado: a resposta educada e o fim do assunto. Em branco, vale o texto de exemplo.' : 'O que o robô diz depois de deixar o recado. Em branco, vale o texto de exemplo.',
+                ajuda:
+                  modo === 'nao'
+                    ? 'Sem recado: a resposta educada e o fim do assunto. Em branco, vale o texto de exemplo.'
+                    : modo === 'link'
+                      ? 'Com a Página de vagas desligada, o robô deixa o recado e diz isto. Em branco, vale o texto de exemplo.'
+                      : 'O que o robô diz depois de deixar o recado. Em branco, vale o texto de exemplo.',
                 palavras: `texto mensagem robô diz ${nome}`,
               },
             ]),
