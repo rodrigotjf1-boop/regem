@@ -63,6 +63,7 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
     db = drizzle(pool, { schema });
     await aplicar('389_vagas_e_candidatos.sql');
     await aplicar('397_candidato_distancia.sql'); // F2: o serviço grava as colunas da distância (ERR-273: toda spec que monta a 389)
+    await aplicar('427_candidato_confirmacao.sql'); // F3b: as colunas da confirmação da ficha (ERR-273)
     const registrar = { registrar: async (e: any) => void auditoria.push(e) } as any;
     svc = new VagasService(db, registrar, new ModuloService(db, registrar), new ColaboradorService(db, registrar));
     await q(`insert into empresa (id, nome) values ($1, 'teste vagas'), ($2, 'outra empresa das vagas')`, [T, T2]);

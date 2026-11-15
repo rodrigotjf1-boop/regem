@@ -3,6 +3,8 @@ import {
   buscasDoEndereco,
   contratadoDaFicha,
   nomeDaFuncaoParaComparar,
+  protocoloLegivel,
+  textoDaConfirmacao,
   gerarProtocolo,
   idadeEm,
   kmDeMetros,
@@ -213,5 +215,15 @@ describe('vagas · contratar (os dados do colaborador)', () => {
     expect(contratadoDaFicha(ficha({ funcoes: [] }), pagina, loja)).toMatchObject({ funcaoId: null, funcaoDaFicha: null });
     // Código que a página não tem mais: o próprio código, sem casar.
     expect(contratadoDaFicha(ficha({ funcoes: ['pizzaiolo'] }), pagina, loja)).toMatchObject({ funcaoId: null, funcaoDaFicha: 'pizzaiolo' });
+  });
+});
+
+// F3b: a confirmação da ficha no WhatsApp — só o primeiro nome e o protocolo, como a tela de ficha recebida mostra.
+describe('vagas · a confirmação da ficha', () => {
+  it('o protocolo em blocos e o texto com o primeiro nome', () => {
+    expect(protocoloLegivel('K7Q2XD')).toBe('K7Q-2XD');
+    expect(protocoloLegivel('ABC')).toBe('ABC');
+    expect(textoDaConfirmacao('  Maria Teste da Silva ', 'K7Q2XD')).toBe('Recebemos sua ficha nº K7Q-2XD, Maria! A loja fala com você por este WhatsApp quando tiver uma vaga para o seu perfil.');
+    expect(textoDaConfirmacao('', 'K7Q2XD')).toBe('Recebemos sua ficha nº K7Q-2XD! A loja fala com você por este WhatsApp quando tiver uma vaga para o seu perfil.');
   });
 });
