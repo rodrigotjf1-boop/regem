@@ -1,27 +1,15 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ehServidorLocal } from '../../common/modo';
-import { FalhaDaIa, IaEmpresaService } from '../ia/ia-empresa.service';
+import { IaEmpresaService } from '../ia/ia-empresa.service';
 import { PRECOS_POR_MILHAO } from '../ia/ia.regras';
-import {
-  FERRAMENTAS,
-  INSTRUCOES_DO_MISTER,
-  MODELO_DAS_PERGUNTAS,
-  MotivoSemResposta,
-  RECURSO_DAS_PERGUNTAS,
-  TETOS,
-  TEXTOS_DO_AGENTE,
-  blocoDaConversa,
-  filtrarSaida,
-  fraseDoMotivo,
-  TrocaDaMemoria,
-  entradaParaATrilha,
-  juntarPerguntas,
-  perguntaDaMemoria,
-} from './mister-agente.regras';
+import { MODELO_DAS_PERGUNTAS, MotivoSemResposta, TETOS, TEXTOS_DO_AGENTE, blocoDaConversa, filtrarSaida, fraseDoMotivo, TrocaDaMemoria, juntarPerguntas } from './mister-agente.regras';
 import { EscopoDoMister, MisterFerramentasService } from './mister-ferramentas.service';
 import { MisterFilaService, PerguntaNaFila, Trilha } from './mister-fila.service';
+import { FimDaPergunta, responderComFerramentas } from './mister-laco';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
+
+export type { FimDaPergunta } from './mister-laco';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -38,7 +26,6 @@ import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.servi
 
 const mascarar = (t: string) => (t.length > 4 ? `***${t.slice(-4)}` : '***');
 
-export type FimDaPergunta = { texto: string; motivo: null; trilha: Trilha; resultados: unknown[] } | { texto: null; motivo: MotivoSemResposta; trilha: Trilha };
 
 @Injectable()
 export class MisterAgenteService implements OnModuleInit {
@@ -177,66 +164,18 @@ export class MisterAgenteService implements OnModuleInit {
    * filtro de saída) e o que as ferramentas trouxeram — ou o motivo de não haver resposta. Não lança por falha da IA.
    */
   async responder(escopo: EscopoDoMister, memoria: TrocaDaMemoria[], pergunta: string, opcoes: { recurso?: string } = {}): Promise<FimDaPergunta> {
-    const modelo = this.modelo();
-    const trilha: Required<Omit<Trilha, 'conferencia'>> = { modelo, chamadas: 0, tokensEntrada: 0, tokensSaida: 0, ferramentas: [] };
-    const resultados: unknown[] = [];
-    const inicio = Date.now();
-    // As instruções fixas levam a marca de cache (as ferramentas, que vêm antes delas, entram no mesmo trecho); o
-    // bloco da conversa muda de pessoa para pessoa e fica depois da marca.
-    const system = [
-      { type: 'text', text: INSTRUCOES_DO_MISTER, cache_control: { type: 'ephemeral' } },
-      { type: 'text', text: blocoDaConversa(this.ferramentas.conversa(escopo)) },
-    ];
-    const messages: Array<{ role: 'user' | 'assistant'; content: any }> = [];
-    // Cada pergunta antiga vai com a hora e as consultas feitas naquela hora (o modelo não vê os resultados antigos).
-    for (const m of memoria) messages.push({ role: 'user', content: perguntaDaMemoria(m) }, { role: 'assistant', content: m.resposta });
-    messages.push({ role: 'user', content: pergunta });
-
-    try {
-      for (let volta = 1; volta <= TETOS.voltas; volta++) {
-        if (Date.now() - inicio > TETOS.prazoMs) return { texto: null, motivo: 'nao_fechou', trilha };
-        const r = await this.ia.pedir(escopo.tenantId, {
-          // O relatório (mig 420) passa o recurso dele: cada um soma no seu no "Uso da IA".
-          recurso: opcoes.recurso ?? RECURSO_DAS_PERGUNTAS,
-          modelo,
-          maxTokens: TETOS.maxTokens,
-          system,
-          tools: FERRAMENTAS,
-          messages,
-          prazoMs: TETOS.prazoDaChamadaMs,
-        });
-        trilha.chamadas++;
-        trilha.tokensEntrada += r.uso.entrada + r.uso.cacheEscrita + r.uso.cacheLeitura;
-        trilha.tokensSaida += r.uso.saida;
-        if (r.recusou) return { texto: null, motivo: 'recusou', trilha };
-
-        const pedidos = r.conteudo.filter((b: any) => b?.type === 'tool_use');
-        if (r.parou !== 'tool_use' || !pedidos.length) {
-          // Resposta cortada pelo limite de tamanho não vai pela metade.
-          if (r.parou === 'max_tokens' || !r.texto) return { texto: null, motivo: 'nao_fechou', trilha };
-          return { texto: r.texto, motivo: null, trilha, resultados };
-        }
-
-        // O que o modelo disse volta INTEIRO (com os blocos de raciocínio), e cada pedido de ferramenta recebe a resposta.
-        messages.push({ role: 'assistant', content: r.conteudo });
-        const respostas: any[] = [];
-        for (const p of pedidos) {
-          if (trilha.ferramentas.length >= TETOS.ferramentas) {
-            respostas.push({ type: 'tool_result', tool_use_id: p.id, content: JSON.stringify({ erro: 'Limite de consultas desta pergunta atingido. Responda com o que já tem.' }), is_error: true });
-            continue;
-          }
-          const t0 = Date.now();
-          const feito = await this.ferramentas.executar(escopo, p.name, p.input);
-          trilha.ferramentas.push({ nome: String(p.name).slice(0, 60), ms: Date.now() - t0, ok: feito.ok, entrada: entradaParaATrilha(p.input) });
-          if (feito.ok) resultados.push(feito.dados);
-          respostas.push({ type: 'tool_result', tool_use_id: p.id, content: JSON.stringify(feito.dados), ...(feito.ok ? {} : { is_error: true }) });
-        }
-        messages.push({ role: 'user', content: respostas });
-      }
-      return { texto: null, motivo: 'nao_fechou', trilha };
-    } catch (e: any) {
-      if (e instanceof FalhaDaIa) return { texto: null, motivo: e.motivo, trilha };
-      throw e;
-    }
+    // O laço é o de `mister-laco.ts` (o mesmo da avaliação de regressão): aqui as portas são a IA da empresa, com o
+    // medidor dela, e as ferramentas no escopo que o servidor resolveu.
+    return responderComFerramentas(
+      {
+        modelo: this.modelo(),
+        recurso: opcoes.recurso,
+        conversa: blocoDaConversa(this.ferramentas.conversa(escopo)),
+        pedir: (p) => this.ia.pedir(escopo.tenantId, p),
+        executar: (nome, entrada) => this.ferramentas.executar(escopo, nome, entrada),
+      },
+      memoria,
+      pergunta,
+    );
   }
 }

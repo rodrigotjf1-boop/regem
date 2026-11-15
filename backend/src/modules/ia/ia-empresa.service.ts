@@ -170,29 +170,61 @@ export class IaEmpresaService {
     if (!acesso) throw new FalhaDaIa('sem_chave', null);
     let r: any;
     try {
-      r = await this.criarCliente(acesso.chave).messages.create(
-        {
-          model: p.modelo,
-          max_tokens: p.maxTokens,
-          ...(p.system?.length ? { system: p.system } : {}),
-          ...(p.tools?.length ? { tools: p.tools } : {}),
-          messages: p.messages,
-        },
-        { timeout: p.prazoMs ?? PRAZO_PADRAO_MS },
-      );
+      r = await this.chamar(acesso, p);
     } catch (e: any) {
-      const falha = lerFalha(e);
-      const motivo = classificarFalha(falha);
-      const passageira = motivo === 'limite_por_minuto' || motivo === 'indisponivel';
-      // V11: o motivo fica no log; a chave e o que foi perguntado, nunca.
-      this.logger[passageira ? 'warn' : 'error'](`${p.recurso}: o provedor não atendeu (${motivo}, status ${falha.status ?? 'sem'}, chave ${acesso.origem})`);
+      const { motivo, status } = this.falhaDoProvedor(e, p, acesso);
       await this.registrarUso(tenantId, p.recurso, acesso, p.modelo, USO_ZERO, true);
       if (acesso.origem === 'lojista' && FALHA_QUE_MARCA_A_CHAVE.includes(motivo)) await this.marcar(tenantId, motivo as SituacaoDaChave);
-      throw new FalhaDaIa(motivo, acesso.origem, falha.status);
+      throw new FalhaDaIa(motivo, acesso.origem, status);
     }
     const uso = lerUso(r?.usage);
     await this.registrarUso(tenantId, p.recurso, acesso, p.modelo, uso, false);
     if (acesso.origem === 'lojista') await this.marcar(tenantId, 'ok');
+    return this.resposta(r, acesso, uso);
+  }
+
+  /**
+   * Uma pergunta com a chave da DISTRIBUIÇÃO, sem empresa nenhuma: a avaliação de regressão do Mister (F5.3), que roda
+   * numa loja de teste com dados inventados. Não soma no medidor de nenhuma empresa — quem chama guarda o uso (o custo
+   * de cada avaliação fica na linha dela). Só na nuvem. Lança `FalhaDaIa` com o motivo.
+   */
+  async pedirPelaDistribuicao(p: PedidoDeIa): Promise<RespostaDaIa> {
+    const chave = ehServidorLocal() ? '' : this.chaveDaDistribuicao();
+    if (!chave) throw new FalhaDaIa('sem_chave', null);
+    const acesso: AcessoDeIa = { provedor: 'anthropic', chave, origem: 'distribuicao' };
+    let r: any;
+    try {
+      r = await this.chamar(acesso, p);
+    } catch (e: any) {
+      const { motivo, status } = this.falhaDoProvedor(e, p, acesso);
+      throw new FalhaDaIa(motivo, acesso.origem, status);
+    }
+    return this.resposta(r, acesso, lerUso(r?.usage));
+  }
+
+  private chamar(acesso: AcessoDeIa, p: PedidoDeIa): Promise<any> {
+    return this.criarCliente(acesso.chave).messages.create(
+      {
+        model: p.modelo,
+        max_tokens: p.maxTokens,
+        ...(p.system?.length ? { system: p.system } : {}),
+        ...(p.tools?.length ? { tools: p.tools } : {}),
+        messages: p.messages,
+      },
+      { timeout: p.prazoMs ?? PRAZO_PADRAO_MS },
+    );
+  }
+
+  /** O motivo da falha do provedor, com o log (V11: o motivo fica no log; a chave e o que foi perguntado, nunca). */
+  private falhaDoProvedor(e: unknown, p: PedidoDeIa, acesso: AcessoDeIa) {
+    const falha = lerFalha(e);
+    const motivo = classificarFalha(falha);
+    const passageira = motivo === 'limite_por_minuto' || motivo === 'indisponivel';
+    this.logger[passageira ? 'warn' : 'error'](`${p.recurso}: o provedor não atendeu (${motivo}, status ${falha.status ?? 'sem'}, chave ${acesso.origem})`);
+    return { motivo, status: falha.status };
+  }
+
+  private resposta(r: any, acesso: AcessoDeIa, uso: UsoDaChamada): RespostaDaIa {
     const partes: string[] = [];
     for (const b of r?.content ?? []) if (b?.type === 'text') partes.push(String(b.text ?? ''));
     return {
