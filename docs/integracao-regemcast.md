@@ -26,7 +26,7 @@
 - **Troca de token:** o cursor é da EMPRESA, não do token — o token novo da mesma empresa segue do
   mesmo cursor.
 
-### 1.1 Pelo clique do Regem (F6 do Hub DMS, 15/11/2026 — mig 425; nasce parado)
+### 1.1 Pelo clique do Regem (F6 do Hub DMS, 15/11/2026 — mig 426; nasce parado)
 
 O RegemCast passa a usar a **autorização por clique** do Regem (o contrato do Padrão DMS §3, o mesmo do Liame, do
 Orzuni e do Farol), na variante da **empresa inteira** (protótipo `prototipos/clique-empresa-inteira.html` do hub):
@@ -45,7 +45,7 @@ Orzuni e do Farol), na variante da **empresa inteira** (protótipo `prototipos/c
   (`dms_lg_regem_…`, o segredo aparece só aqui), `prefixo`, `permissoes` e `segredo_em`. O acesso ativo da empresa com
   o RegemCast (a chave `rgm_it_` do console ou um clique anterior) é **trocado** na mesma transação e o novo **soma** o
   que ele liberava. Duas trocas da mesma empresa ao mesmo tempo: uma leva, a outra recebe `400` ("outra autorização
-  desta empresa terminou agora mesmo") — o índice único da mig 425.
+  desta empresa terminou agora mesmo") — o índice único da mig 426.
 - **Leitura:** as mesmas rotas, com `Authorization: Bearer <token do DMS ID>` + `DMS-Ligacao: <ligação>`; as permissões
   valem com "o que a empresa autorizou E o que o token do DMS ID tem". O cursor continua o da empresa: a importação
   segue de onde parou.

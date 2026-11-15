@@ -367,12 +367,12 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
     }
     // A 398: o escopo dos canais da Central, que o Liame leva sempre (sem ela, a trava antiga recusa — ERR-273).
     await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(mig('398_integracao_canais_atendimento.sql'))));
-    // A 425 como vai para a nuvem — a conferência dela — e de novo: o índice da empresa inteira (o RegemCast).
+    // A 426 como vai para a nuvem — a conferência dela — e de novo: o índice da empresa inteira (o RegemCast).
     for (let vez = 0; vez < 2; vez++) {
-      const r = (await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(mig('425_integracao_clique_empresa.sql'))))) as unknown as any[];
+      const r = (await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(mig('426_integracao_clique_empresa.sql'))))) as unknown as any[];
       const conferencia = r[r.length - 1].rows;
       expect(conferencia).toHaveLength(2);
-      if (conferencia.some((l: any) => l.ok !== true)) throw new Error(`conferência da 425: ${JSON.stringify(conferencia)}`);
+      if (conferencia.some((l: any) => l.ok !== true)) throw new Error(`conferência da 426: ${JSON.stringify(conferencia)}`);
     }
     const [fk] = await q(
       `select count(*)::int n from pg_constraint c join pg_namespace s on s.oid = c.connamespace
@@ -1237,7 +1237,7 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
       expect(velho.motivo_revogacao).toBe('trocado pela autorização por clique');
     });
 
-    it('a corrida que só o índice da 425 decide: a troca que chega no meio de outra da mesma empresa é recusada (400, nunca 500) e fica UM acesso ativo', async () => {
+    it('a corrida que só o índice da 426 decide: a troca que chega no meio de outra da mesma empresa é recusada (400, nunca 500) e fica UM acesso ativo', async () => {
       const e = await empresa('Disputa', ['Disputa Loja']);
       const pres = await pessoa(e.tenant, 'Presidente Disputa', 'presidente');
       const p = await pedirPeloRegemcast(e.raiz);

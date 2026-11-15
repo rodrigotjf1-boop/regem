@@ -688,7 +688,7 @@ export class AutorizacaoCliqueService {
    * lojas vivas da empresa na hora (as abertas depois também, como a chave `rgm_it_` de empresa da mig 302). Na
    * transação, o acesso ativo da empresa com este aplicativo (a chave do console ou um clique anterior) é trocado, e o
    * novo soma o que ele liberava, como na troca das lojas. As lojas da autorização ficam na prova e no e-mail. A corrida
-   * de duas trocas da mesma empresa, o índice único da mig 425 decide (fica UM acesso ativo).
+   * de duas trocas da mesma empresa, o índice único da mig 426 decide (fica UM acesso ativo).
    */
   private async trocarDaEmpresa(
     a: AppDoClique,

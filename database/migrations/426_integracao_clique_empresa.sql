@@ -1,5 +1,5 @@
 -- @cloud-only
--- 425_integracao_clique_empresa.sql — a autorização por clique para a EMPRESA INTEIRA (Hub DMS, F6, plano "Clique
+-- 426_integracao_clique_empresa.sql — a autorização por clique para a EMPRESA INTEIRA (Hub DMS, F6, plano "Clique
 -- RegemCast → Regem", 15/11/2026; protótipo `prototipos/clique-empresa-inteira.html` do hub, aprovado de antemão).
 --
 -- O RegemCast lê os clientes e as compras da empresa toda (o acesso SEM loja da mig 302). Pelo clique, a troca do código
@@ -23,7 +23,7 @@ set local lock_timeout = '5s';
 do $$
 begin
   if to_regclass(current_schema() || '.integracao_token_loja') is null then
-    raise exception 'A 425 depende da 295 (integracao_token_loja) e da 336 (autorizacao_id): aplique-as antes.';
+    raise exception 'A 426 depende da 295 (integracao_token_loja) e da 336 (autorizacao_id): aplique-as antes.';
   end if;
 end $$;
 
