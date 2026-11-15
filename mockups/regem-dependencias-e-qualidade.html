@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regem · dependências, qualidade do Mister e loja sem internet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* REGEM · DEPENDÊNCIAS, QUALIDADE DO MISTER E LOJA SEM INTERNET — versão 1, A APROVAR (14/11/2026). docs/plano-mister.md:
+   F3 parte 2 (vigilância das documentações e dos contratos das integrações), F5 (a linha de base da qualidade e a
+   avaliação de regressão do Mister) e F1.4 (o alerta local sem internet, a única parte da F1 que pede `.zip`).
+   1. Console da distribuição › Dependências: as fontes oficiais de cada integração que o Regem usa, a última conferência,
+      o que mudou (com a versão anterior guardada), "não verificado desde" quando a fonte não responde, e a tarefa.
+   2. Console da distribuição › Mister › Qualidade: os números das perguntas (só metadados — nunca o texto das lojas) e a
+      avaliação de regressão (perguntas fixas numa empresa de teste, com a chave da DMS).
+   3. Na loja: a faixa "Sem internet" que o PRÓPRIO servidor da loja mostra quando para de falar com a nuvem.
+   Onde a tela real difere, de propósito: os botões "Situação do protótipo" trocam os estados; nomes, versões, datas e
+   números são inventados (exceto a versão da Graph API e o modelo do Mister, que são os do código em 14/11); o console é
+   escuro como o de verdade. */
+:root{
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --gold-ink:#7A5209; --gold-bg:#FFF9EC; --navy:#0F2230;
+  --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9; --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8;
+  --neutro:#43586C; --neutro-bg:#EAEFF4; --foco:#3A7FB8;
+  --proto:#0B1822; --proto-txt:#C9D5DF; --proto-txt2:#8FA3B4; --proto-linha:#2A3B4A;
+  --d-bg:#020617; --d-card:#0B1324; --d-linha:#1E293B; --d-txt:#F1F5F9; --d-txt2:#94A3B8; --d-ambar:#F59E0B; --d-ok:#34D399; --d-crit:#F87171; --d-azul:#7CC0F5;
+  --radius:12px; --display:"Archivo","Segoe UI",system-ui,sans-serif; --body:"Figtree","Segoe UI",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font:15px/1.5 var(--body);background:var(--bg);color:var(--ink);overflow-x:hidden}
+[hidden]{display:none!important}
+h1,h2,h3,h4{font-family:var(--display);margin:0;text-wrap:balance}
+h1{font-size:24px;line-height:1.15} h2{font-size:18px} h3{font-size:16px}
+p{margin:0 0 10px;overflow-wrap:anywhere} p:last-child{margin-bottom:0}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--foco);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.sub{color:var(--ink-2)} .peq{font-size:13.5px}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+
+/* faixa do protótipo */
+.proto{background:var(--proto);color:var(--proto-txt);padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.proto .titulo{font-family:var(--display);font-weight:700;color:#fff}
+.abas{display:flex;flex-wrap:wrap;gap:6px}
+.aba{background:transparent;border:1px solid var(--proto-linha);color:var(--proto-txt);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:36px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.proto .nota{font-size:12.5px;color:var(--proto-txt2);flex:1 1 220px;min-width:0}
+.proto :focus-visible{outline-color:var(--d-azul)}
+.vista{display:none} .vista.ativa{display:block}
+.ctls{border:1px dashed var(--line-2);background:#FFFBF0;border-radius:10px;padding:8px 12px;margin:0 0 14px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px;color:var(--gold-ink)}
+.ctl{background:#fff;border:1px solid var(--line-2);padding:4px 10px;border-radius:999px;cursor:pointer;min-height:32px;color:var(--ink)}
+.ctl[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+
+/* casca do app da loja */
+.app{display:grid;grid-template-columns:230px minmax(0,1fr);min-height:80vh}
+.lado{background:var(--navy);color:#C9D5DF;padding:16px 12px}
+.marca{font-family:var(--display);font-weight:800;color:#fff;font-size:18px;padding:4px 8px 14px}
+.lado ul{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.lado li{padding:8px 10px;border-radius:8px}
+.lado li.atual{background:rgba(232,168,69,.18);color:#fff;box-shadow:inset 3px 0 0 var(--gold);font-weight:600}
+.principal{min-width:0;container-type:inline-size;container-name:principal}
+.topo{background:#fff;border-bottom:1px solid var(--line);padding:10px 20px;display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;justify-content:space-between}
+.onde{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--gold-ink)}
+.topo-dir{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.quem{font-size:13.5px;color:var(--ink-2)}
+.indicador{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:4px 10px;border-radius:999px;border:1px solid var(--line-2);background:#fff;font-size:13px;font-weight:600;white-space:nowrap}
+.indicador .bola{width:9px;height:9px;border-radius:50%;background:var(--ok)}
+.indicador.sem{border-color:#EBC7B0;background:var(--warn-bg);color:#6F3410}
+.indicador.sem .bola{background:#C77A2E}
+.pagina{padding:20px;max-width:1160px}
+
+/* a faixa local */
+.faixa{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;background:#fff;border:1px solid #EBC7B0;border-left:5px solid #C77A2E;border-radius:10px;padding:10px 12px;margin:14px 20px 0}
+.faixa.ok{border-color:#B5DCC8;border-left-color:var(--ok)}
+.faixa .txt{flex:1 1 320px;min-width:0}
+.faixa .t{font-weight:700}
+.faixa .d{font-size:13.5px;color:var(--ink-2)}
+
+/* peças */
+.cartao{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;min-width:0}
+.cartao > h2,.cartao > h3{margin-bottom:6px}
+.selo{display:inline-block;font-size:12.5px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.selo.ok{background:var(--ok-bg);color:var(--ok)} .selo.crit{background:var(--crit-bg);color:var(--crit)}
+.selo.warn{background:var(--warn-bg);color:var(--warn)} .selo.neutro{background:var(--neutro-bg);color:var(--neutro)}
+.btn{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:10px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink);white-space:nowrap}
+.btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.grade-venda{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.item-venda{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px;min-height:74px}
+.item-venda b{display:block}
+.bandeja{display:inline-flex;flex-direction:column;gap:4px;background:#1F2933;color:#E5EAF0;border-radius:10px;padding:10px 12px;font-size:13px;max-width:100%}
+.bandeja b{color:#fff}
+
+/* console da distribuição (escuro) */
+.console{background:var(--d-bg);color:var(--d-txt);padding:20px;min-height:80vh;container-type:inline-size;container-name:console}
+.console :focus-visible{outline-color:var(--d-azul)}
+.d-sobre{font:700 11.5px var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--d-ambar)}
+.d-nav{display:flex;flex-wrap:wrap;gap:2px 4px;border-bottom:1px solid var(--d-linha);margin:12px 0 18px}
+.d-nav span{padding:8px 12px;color:var(--d-txt2);border-bottom:2px solid transparent}
+.d-nav span.atual{color:var(--d-ambar);border-bottom-color:var(--d-ambar);font-weight:600}
+.d-partes{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px}
+.d-parte{background:transparent;border:1px solid #334155;color:var(--d-txt2);padding:6px 12px;border-radius:999px;min-height:36px;font-weight:600}
+.d-parte.atual{background:#1E293B;color:var(--d-txt);border-color:#475569}
+.d-sub{color:var(--d-txt2);font-size:13px;margin:2px 0 12px;max-width:80ch}
+.d-situacoes{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.d-sit{background:transparent;border:1px solid #334155;color:var(--d-txt2);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:38px;font-weight:600}
+.d-sit b{font-family:var(--mono);margin-left:4px}
+.d-sit[aria-pressed="true"]{background:var(--d-ambar);border-color:var(--d-ambar);color:#231803}
+.d-filtros{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.d-busca,.d-select{border:1px solid #334155;background:#0F172A;color:var(--d-txt);border-radius:8px;padding:8px 12px;min-height:40px;min-width:0}
+.d-busca{width:min(320px,100%)}
+.d-btn{background:transparent;border:1px solid #334155;color:var(--d-txt);padding:8px 14px;border-radius:8px;cursor:pointer;min-height:40px;font-weight:600;white-space:nowrap}
+.d-btn.pri{background:var(--d-ambar);border-color:var(--d-ambar);color:#231803}
+.d-selo{display:inline-block;font-size:12px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap}
+.d-selo.ok{background:rgba(16,185,129,.15);color:var(--d-ok)} .d-selo.crit{background:rgba(248,113,113,.15);color:var(--d-crit)}
+.d-selo.warn{background:rgba(245,158,11,.15);color:#FBBF24} .d-selo.neutro{background:rgba(148,163,184,.15);color:var(--d-txt2)}
+.d-tab{width:100%;border-collapse:collapse;border:1px solid var(--d-linha)}
+.d-tab th{background:#0F172A;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--d-txt2);text-align:left;padding:8px 10px}
+.d-tab td{padding:10px;border-top:1px solid var(--d-linha);vertical-align:top;overflow-wrap:anywhere}
+.d-tab td:last-child{width:1%;white-space:nowrap}
+.d-tab .quem-usa{color:var(--d-txt2);font-size:13px}
+.d-vazio{border:1px dashed #334155;border-radius:10px;padding:22px 12px;text-align:center;color:var(--d-txt2)}
+.d-cartao{background:var(--d-card);border:1px solid var(--d-linha);border-radius:12px;padding:16px;margin-bottom:12px;min-width:0}
+.d-cartao h3{margin-bottom:6px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:12px}
+.kpi{background:var(--d-card);border:1px solid var(--d-linha);border-radius:12px;padding:12px 14px;min-width:0}
+.kpi .r{font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--d-txt2)}
+.kpi .v{font:700 24px var(--mono);margin-top:2px}
+.kpi .n{font-size:12.5px;color:var(--d-txt2)}
+.duas{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.barras{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.barras li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;align-items:center}
+.barras .nome{min-width:0;overflow-wrap:anywhere}
+.barras .num{font-family:var(--mono);color:var(--d-txt2)}
+.barras .trilho{grid-column:1 / -1;height:8px;border-radius:4px;background:#1E293B;overflow:hidden}
+.barras .trilho span{display:block;height:100%;background:var(--d-ambar)}
+@container console (max-width: 820px){
+  .d-tab{border:0}
+  .d-tab thead{display:none}
+  .d-tab,.d-tab tbody,.d-tab tr,.d-tab td{display:block;width:100%}
+  .d-tab tr{border:1px solid var(--d-linha);border-radius:10px;padding:10px 12px;margin-bottom:10px;background:var(--d-card)}
+  .d-tab td{padding:4px 0;border:0}
+  .d-tab td:last-child{width:100%}
+  .d-tab td[data-rot]::before{content:attr(data-rot);display:block;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--d-txt2)}
+  .d-tab td .d-btn{width:100%}
+}
+
+/* gaveta (escura, do console) */
+.fundo{position:fixed;inset:0;background:rgba(2,6,23,.6);z-index:40;display:none}
+.fundo.aberto{display:block}
+.gaveta{position:fixed;top:0;right:0;bottom:0;width:min(560px,100%);background:var(--d-card);color:var(--d-txt);z-index:41;display:none;flex-direction:column;box-shadow:-8px 0 24px rgba(0,0,0,.45);border-left:1px solid var(--d-linha)}
+.gaveta.aberto{display:flex}
+.gaveta :focus-visible{outline-color:var(--d-azul)}
+.pn-cab{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:14px 18px;border-bottom:1px solid var(--d-linha)}
+.pn-corpo{padding:18px;overflow:auto;flex:1;min-height:0}
+.pn-rodape{padding:12px 18px;border-top:1px solid var(--d-linha);display:flex;flex-wrap:wrap;gap:8px}
+.fechar{background:transparent;border:0;font-size:18px;cursor:pointer;min-width:40px;min-height:40px;border-radius:8px;color:var(--d-txt)}
+.bloco{margin-bottom:16px}
+.bloco h4{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--d-txt2);margin-bottom:6px}
+.bloco ul{margin:0;padding-left:18px} .bloco li{margin-bottom:4px}
+.antes-depois{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
+.antes-depois div{border:1px solid var(--d-linha);border-radius:8px;padding:10px;font-size:13px;min-width:0;overflow-wrap:anywhere}
+.antes-depois .r{font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--d-txt2);display:block;margin-bottom:4px}
+.campo{display:grid;gap:4px;margin-bottom:10px}
+.campo label{font-size:13px;color:var(--d-txt2)}
+.campo select,.campo input,.campo textarea{border:1px solid #334155;background:#0F172A;color:var(--d-txt);border-radius:8px;padding:8px 10px;min-height:40px;width:100%}
+.d-link{color:var(--d-azul)}
+
+/* notas */
+.notas{padding:20px;max-width:1000px;margin-inline:auto}
+.notas .cartao ul,.notas .cartao ol{margin:6px 0 0;padding-left:20px} .notas .cartao li{margin-bottom:5px}
+
+@media (max-width: 760px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  .lado{display:none}
+  .pagina{padding:14px}
+  .faixa{margin:12px 14px 0}
+  .topo{padding:10px 14px}
+  .console{padding:14px}
+}
+</style>
+</head>
+<body>
+
+<div class="proto" role="region" aria-label="Controles do protótipo">
+  <span class="titulo">Dependências e qualidade · protótipo</span>
+  <div class="abas" role="group" aria-label="O que ver">
+    <button class="aba" type="button" data-vista="dep" aria-pressed="true">Console › Dependências</button>
+    <button class="aba" type="button" data-vista="qual" aria-pressed="false">Console › Mister › Qualidade</button>
+    <button class="aba" type="button" data-vista="sem" aria-pressed="false">Loja sem internet</button>
+    <button class="aba" type="button" data-vista="notas" aria-pressed="false">Notas e decisões</button>
+  </div>
+  <span class="nota">Os botões tracejados de "Situação do protótipo" trocam o estado da tela; não existem no app.</span>
+</div>
+
+<!-- ───────────── 1. CONSOLE › DEPENDÊNCIAS ───────────── -->
+<section class="vista ativa" id="v-dep" aria-label="Console da distribuição, aba Dependências">
+  <div class="console">
+    <div class="d-sobre">Console da distribuição</div>
+    <h1>Dependências e integrações</h1>
+    <div class="d-nav" aria-label="Abas do console (ilustração)"><span>Frota</span><span>Telemetria</span><span>Licenças</span><span>Atualizações</span><span>Integrações</span><span class="atual">Dependências</span><span>Mister</span><span>Avisos</span><span>Auditoria</span><span>Usuários</span></div>
+    <div class="ctls" role="group" aria-label="Situação do protótipo">
+      Situação do protótipo:
+      <button type="button" class="ctl" data-dep="dados" aria-pressed="true">com fontes</button>
+      <button type="button" class="ctl" data-dep="carregando" aria-pressed="false">carregando</button>
+      <button type="button" class="ctl" data-dep="erro" aria-pressed="false">erro</button>
+    </div>
+    <p class="d-sub">Cada integração que o Regem usa, com as fontes oficiais que vigiamos todo dia às 06:00: documentação, changelog, avisos de retirada e página de status. Quando o trecho vigiado muda, a fonte fica "a conferir" com o antes e o depois. Quando a fonte não responde, fica "não verificado desde" — isso nunca quer dizer que a API foi retirada. Nada é atualizado sozinho.</p>
+
+    <div id="dep-dados">
+      <div class="d-situacoes" role="group" aria-label="Situação">
+        <button type="button" class="d-sit" data-sit="todas" aria-pressed="true">Todas <b>12</b></button>
+        <button type="button" class="d-sit" data-sit="conferir" aria-pressed="false">A conferir <b>3</b></button>
+        <button type="button" class="d-sit" data-sit="vencida" aria-pressed="false">Vencidas ou vencendo <b>1</b></button>
+        <button type="button" class="d-sit" data-sit="sem-sinal" aria-pressed="false">Não verificadas <b>1</b></button>
+        <button type="button" class="d-sit" data-sit="ok" aria-pressed="false">Em dia <b>7</b></button>
+      </div>
+      <div class="d-filtros">
+        <label class="sr" for="dep-busca">Buscar integração</label><input id="dep-busca" class="d-busca" type="search" placeholder="Buscar integração ou fonte">
+        <label class="sr" for="dep-tipo">Tipo</label>
+        <select id="dep-tipo" class="d-select"><option>Todos os tipos</option><option>Mensagens</option><option>Marketplaces</option><option>Pagamentos</option><option>Fiscal</option><option>IA</option><option>Plataforma</option><option>Produtos DMS</option></select>
+      </div>
+      <table class="d-tab">
+        <caption class="sr">Integrações vigiadas, com a última conferência e a situação</caption>
+        <thead><tr><th>Integração</th><th>Usamos</th><th>Conferida</th><th>Situação</th><th><span class="sr">Ação</span></th></tr></thead>
+        <tbody id="dep-linhas">
+          <tr data-sit="conferir"><td data-rot="Integração"><b>iFood · API do parceiro</b><div class="quem-usa">Marketplaces · 2 empresas</div></td><td data-rot="Usamos">Pedidos, eventos (confirmar, despachar, cancelar) e chat</td><td data-rot="Conferida" class="mono">hoje 06:00</td><td data-rot="Situação"><span class="d-selo warn">mudou em 12/11 · a conferir</span></td><td><button type="button" class="d-btn" data-abre="g-dep">Ver</button></td></tr>
+          <tr data-sit="conferir"><td data-rot="Integração"><b>SEFAZ · Portal da NF-e</b><div class="quem-usa">Fiscal · 1 empresa (em teste)</div></td><td data-rot="Usamos">NFC-e 4.00: autorização, consulta, cancelamento e inutilização</td><td data-rot="Conferida" class="mono">hoje 06:00</td><td data-rot="Situação"><span class="d-selo warn">nota técnica nova · vale em 02/03</span></td><td><button type="button" class="d-btn">Ver</button></td></tr>
+          <tr data-sit="conferir"><td data-rot="Integração"><b>WhatsApp · API oficial da Meta</b><div class="quem-usa">Mensagens · 3 empresas e o número do Mister</div></td><td data-rot="Usamos">Graph API <span class="mono">v25.0</span>: mensagens, modelos e webhooks</td><td data-rot="Conferida" class="mono">hoje 06:00</td><td data-rot="Situação"><span class="d-selo warn">versão nova publicada · a conferir</span></td><td><button type="button" class="d-btn">Ver</button></td></tr>
+          <tr data-sit="vencida"><td data-rot="Integração"><b>IBPT · tabela por estado</b><div class="quem-usa">Fiscal · RJ</div></td><td data-rot="Usamos">O valor aproximado dos tributos na NFC-e (Lei 12.741)</td><td data-rot="Conferida" class="mono">hoje 08:00</td><td data-rot="Situação"><span class="d-selo crit">RJ vencida desde 31/10</span></td><td><button type="button" class="d-btn">Ver</button></td></tr>
+          <tr data-sit="sem-sinal"><td data-rot="Integração"><b>99Food · API de pedidos</b><div class="quem-usa">Marketplaces · 1 empresa</div></td><td data-rot="Usamos">Pedidos por webhook, login da loja e cardápio</td><td data-rot="Conferida" class="mono">12/11 06:00</td><td data-rot="Situação"><span class="d-selo neutro">não verificada desde 12/11 · a fonte respondeu 429</span></td><td><button type="button" class="d-btn">Ver</button></td></tr>
+          <tr data-sit="ok"><td data-rot="Integração"><b>Anthropic · modelos de IA</b><div class="quem-usa">IA · 3 empresas</div></td><td data-rot="Usamos"><span class="mono">claude-haiku-5-5</span> no Mister e no robô</td><td data-rot="Conferida" class="mono">hoje 06:00</td><td data-rot="Situação"><span class="d-selo ok">em dia · nenhuma aposentadoria anunciada</span></td><td><button type="button" class="d-btn">Ver</button></td></tr>
+          <tr data-sit="ok"><td data-rot="Integração"><b>Mercado Pago · Pix</b><div class="quem-usa">Pagamentos · 1 empresa</div></td><td data-rot="Usamos">Cobrança Pix, aviso de pagamento e estorno</td><td data-rot="Conferida" class="mono">hoje 06:00</td><td data-rot="Situação"><span class="d-selo ok">em dia</span></td><td><button type="button" class="d-btn">Ver</button></td></tr>
+          <tr data-sit="ok"><td data-rot="Integração"><b>PagBank · Pix</b><div class="quem-usa">Pagamentos · nenhuma empresa ainda</div></td><td data-rot="Usamos">Cobrança Pix e estorno (pronto, sem uso)</td><td data-rot="Conferida" class="mono">hoje 06:00</td><td data-rot="Situação"><span class="d-selo ok">em dia</span></td><td><button type="button" class="d-btn">Ver</button></td></tr>
+          <tr data-sit="ok"><td data-rot="Integração"><b>Evolution · WhatsApp pelo QR</b><div class="quem-usa">Mensagens · 2 empresas</div></td><td data-rot="Usamos">Mensagens e o estado da conexão</td><td data-rot="Conferida" class="mono">hoje 06:00</td><td data-rot="Situação"><span class="d-selo ok">em dia</span></td><td><button type="button" class="d-btn">Ver</button></td></tr>
+          <tr data-sit="ok"><td data-rot="Integração"><b>Node.js · boletins de segurança</b><div class="quem-usa">Plataforma · nuvem e lojas</div></td><td data-rot="Usamos">Node <span class="mono">24.22.1</span> na nuvem e no instalador</td><td data-rot="Conferida" class="mono">hoje 06:00</td><td data-rot="Situação"><span class="d-selo ok">em dia</span></td><td><button type="button" class="d-btn">Ver</button></td></tr>
+          <tr data-sit="ok"><td data-rot="Integração"><b>Orzuni · preço e pausa no iFood</b><div class="quem-usa">Produtos DMS · 1 empresa</div></td><td data-rot="Usamos">Manifesto DMS da porta de integração</td><td data-rot="Conferida" class="mono">hoje 06:00</td><td data-rot="Situação"><span class="d-selo ok">em dia · manifesto igual</span></td><td><button type="button" class="d-btn">Ver</button></td></tr>
+          <tr data-sit="ok"><td data-rot="Integração"><b>Farol · monitor de visão</b><div class="quem-usa">Produtos DMS · 1 empresa</div></td><td data-rot="Usamos">Alertas da cozinha e o catálogo</td><td data-rot="Conferida" class="mono">hoje 06:00</td><td data-rot="Situação"><span class="d-selo ok">em dia · manifesto igual</span></td><td><button type="button" class="d-btn">Ver</button></td></tr>
+        </tbody>
+      </table>
+      <div class="d-vazio" id="dep-sem-busca" hidden>Nenhuma integração com esses filtros.</div>
+    </div>
+    <div id="dep-carregando" hidden aria-busy="true"><div class="d-vazio">Lendo as fontes…</div></div>
+    <div class="d-vazio" id="dep-erro" hidden role="alert">Não consegui carregar as dependências. <button type="button" class="d-btn">Tentar de novo</button></div>
+  </div>
+  <div class="fundo" data-fecha></div>
+  <aside class="gaveta" id="g-dep" role="dialog" aria-modal="true" aria-labelledby="g-dep-t">
+    <div class="pn-cab"><h2 id="g-dep-t">iFood · API do parceiro</h2><button type="button" class="fechar" data-fecha aria-label="Fechar">✕</button></div>
+    <div class="pn-corpo">
+      <div class="bloco"><span class="d-selo warn">mudou em 12/11 · a conferir</span> <span class="d-selo neutro">impacto possível · não reproduzido</span></div>
+      <div class="bloco">
+        <h4>O que mudou</h4>
+        <p>O evento de cancelamento ganhou um campo com o motivo detalhado. O campo antigo continua. <span class="sub peq" style="color:var(--d-txt2)">Resumo feito pela IA com a chave da DMS, só com o texto público da fonte.</span></p>
+        <div class="antes-depois">
+          <div><span class="r">Antes (guardado em 05/11)</span>cancellationCode: código do motivo.</div>
+          <div><span class="r">Depois (visto hoje 06:00)</span>cancellationCode: código do motivo. cancellationDetails: o texto do motivo, quando a loja ou o cliente escreveu.</div>
+        </div>
+      </div>
+      <div class="bloco">
+        <h4>Datas</h4>
+        <ul><li>Publicada pela fonte: 12/11</li><li>Vista por nós: 13/11 às 06:00</li><li>Entra em vigor: a fonte não informou</li></ul>
+      </div>
+      <div class="bloco">
+        <h4>Onde o Regem usa</h4>
+        <ul><li>Delivery: o cancelamento vindo do iFood (o mesmo serviço da tela)</li><li>Atendimento: o caso de cancelamento</li><li>Empresas: 2 (a loja piloto e a de teste)</li></ul>
+      </div>
+      <div class="bloco">
+        <h4>Fontes que vigiamos</h4>
+        <ul><li><a class="d-link" href="#" onclick="return false">Changelog do portal do desenvolvedor</a></li><li><a class="d-link" href="#" onclick="return false">Referência dos eventos de pedido</a></li><li><a class="d-link" href="#" onclick="return false">Página de status</a></li></ul>
+      </div>
+      <div class="bloco">
+        <h4>Tarefa</h4>
+        <div class="campo"><label for="t-resp">Responsável</label><select id="t-resp"><option>Técnico da DMS</option><option>Diretoria</option></select></div>
+        <div class="campo"><label for="t-prazo">Prazo</label><input id="t-prazo" type="date" value="2026-11-21"></div>
+        <div class="campo"><label for="t-crit">Como saber que está compatível</label><textarea id="t-crit" rows="3">O cancelamento com o exemplo novo da documentação passa na suíte do iFood, e o motivo aparece no caso do Atendimento.</textarea></div>
+      </div>
+      <div class="bloco">
+        <h4>Histórico</h4>
+        <ul><li>13/11 06:00 · mudança vista no changelog</li><li>05/11 06:00 · versão guardada</li><li>28/10 · fonte cadastrada</li></ul>
+      </div>
+    </div>
+    <div class="pn-rodape"><button type="button" class="d-btn pri">Criar tarefa</button><button type="button" class="d-btn">Não se aplica ao Regem</button><button type="button" class="d-btn">Marcar como conferida</button></div>
+  </aside>
+</section>
+
+<!-- ───────────── 2. CONSOLE › MISTER › QUALIDADE ───────────── -->
+<section class="vista" id="v-qual" aria-label="Console da distribuição, Mister, parte Qualidade">
+  <div class="console">
+    <div class="d-sobre">Console da distribuição</div>
+    <h1>Mister · qualidade</h1>
+    <div class="d-nav" aria-label="Abas do console (ilustração)"><span>Frota</span><span>Telemetria</span><span>Licenças</span><span>Atualizações</span><span>Integrações</span><span>Dependências</span><span class="atual">Mister</span><span>Avisos</span><span>Auditoria</span><span>Usuários</span></div>
+    <div class="d-partes" aria-label="Partes do Mister no console (ilustração)"><span class="d-parte">Número</span><span class="d-parte">Modelos de mensagem</span><span class="d-parte">Empresas</span><span class="d-parte atual">Qualidade <span class="sr">(parte nova)</span></span></div>
+    <div class="ctls" role="group" aria-label="Situação do protótipo">
+      Situação do protótipo:
+      <button type="button" class="ctl" data-qual="dados" aria-pressed="true">com perguntas</button>
+      <button type="button" class="ctl" data-qual="vazio" aria-pressed="false">nenhuma pergunta</button>
+      <button type="button" class="ctl" data-qual="erro" aria-pressed="false">erro</button>
+    </div>
+    <p class="d-sub">Como o Mister está respondendo, em todas as empresas. Só os números de cada pergunta: se respondeu, o tempo, o custo, as consultas usadas e o motivo de não responder. O texto das perguntas e das respostas é da loja e não vem para cá.</p>
+    <div id="qual-dados">
+      <div class="d-situacoes" role="group" aria-label="Período">
+        <button type="button" class="d-sit" aria-pressed="true">7 dias</button>
+        <button type="button" class="d-sit" aria-pressed="false">30 dias</button>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><div class="r">Perguntas</div><div class="v">412</div><div class="n">3 empresas · 9 pessoas</div></div>
+        <div class="kpi"><div class="r">Respondidas</div><div class="v">96%</div><div class="n">395 de 412</div></div>
+        <div class="kpi"><div class="r">"Não tenho acesso"</div><div class="v">23</div><div class="n">5,6% · o dado não está em nenhuma consulta</div></div>
+        <div class="kpi"><div class="r">Tempo até responder</div><div class="v">6 s</div><div class="n">metade em até 6 s · 90% em até 14 s</div></div>
+        <div class="kpi"><div class="r">Custo por pergunta</div><div class="v">US$ 0,0011</div><div class="n">pago pela chave de cada empresa</div></div>
+      </div>
+      <div class="duas">
+        <div class="d-cartao">
+          <h3>Consultas mais usadas</h3>
+          <ul class="barras">
+            <li><span class="nome">resumo do dia</span><span class="num">31%</span><span class="trilho"><span style="width:31%"></span></span></li>
+            <li><span class="nome">vendas do período</span><span class="num">22%</span><span class="trilho"><span style="width:22%"></span></span></li>
+            <li><span class="nome">pedidos em andamento</span><span class="num">14%</span><span class="trilho"><span style="width:14%"></span></span></li>
+            <li><span class="nome">história do pedido</span><span class="num">9%</span><span class="trilho"><span style="width:9%"></span></span></li>
+            <li><span class="nome">canais e integrações</span><span class="num">7%</span><span class="trilho"><span style="width:7%"></span></span></li>
+            <li><span class="nome">outras 12 consultas</span><span class="num">17%</span><span class="trilho"><span style="width:17%"></span></span></li>
+          </ul>
+        </div>
+        <div class="d-cartao">
+          <h3>Por que não respondeu · 17</h3>
+          <ul class="barras">
+            <li><span class="nome">a chave de IA da empresa foi recusada</span><span class="num">6</span><span class="trilho"><span style="width:35%"></span></span></li>
+            <li><span class="nome">uma consulta não conseguiu ler o dado</span><span class="num">5</span><span class="trilho"><span style="width:29%"></span></span></li>
+            <li><span class="nome">sem crédito na conta de IA</span><span class="num">3</span><span class="trilho"><span style="width:18%"></span></span></li>
+            <li><span class="nome">passou do tempo</span><span class="num">3</span><span class="trilho"><span style="width:18%"></span></span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="d-cartao">
+        <h3>Avaliação de regressão</h3>
+        <p class="d-sub" style="margin-top:0">40 perguntas fixas, numa empresa de teste com dados inventados, com a chave da DMS. Cada uma tem a resposta certa conferida por regra: a consulta escolhida, os números, nada inventado e nada fora do que a pessoa pode ver. Roda antes de publicar mudança nas instruções ou nas consultas.</p>
+        <table class="d-tab">
+          <caption class="sr">As últimas avaliações</caption>
+          <thead><tr><th>Quando</th><th>Versão das instruções</th><th>Resultado</th><th>O que falhou</th><th><span class="sr">Ação</span></th></tr></thead>
+          <tbody>
+            <tr><td data-rot="Quando" class="mono">hoje 23:10</td><td data-rot="Versão" class="mono">14/11 · 17 consultas</td><td data-rot="Resultado"><span class="d-selo warn">38 de 40</span></td><td data-rot="O que falhou">"Quanto vendi ontem no iFood?" usou vendas sem separar o canal · "O certificado vence quando?" não usou a consulta nova</td><td><button type="button" class="d-btn">Ver as 40</button></td></tr>
+            <tr><td data-rot="Quando" class="mono">14/11 09:40</td><td data-rot="Versão" class="mono">14/11 · 16 consultas</td><td data-rot="Resultado"><span class="d-selo ok">39 de 39</span></td><td data-rot="O que falhou">—</td><td><button type="button" class="d-btn">Ver as 39</button></td></tr>
+          </tbody>
+        </table>
+        <div class="acoes" style="margin-top:12px"><button type="button" class="d-btn pri">Rodar a avaliação</button><span class="d-sub" style="margin:0;align-self:center">cerca de US$ 0,05 na chave da DMS · 2 min</span></div>
+      </div>
+      <div class="d-cartao">
+        <h3>Por empresa</h3>
+        <table class="d-tab">
+          <caption class="sr">Perguntas por empresa nos últimos 7 dias</caption>
+          <thead><tr><th>Empresa</th><th>Perguntas</th><th>Sem resposta</th><th>Custo</th><th>Chave</th></tr></thead>
+          <tbody>
+            <tr><td data-rot="Empresa">Burger da Praça</td><td data-rot="Perguntas" class="mono">318</td><td data-rot="Sem resposta" class="mono">4</td><td data-rot="Custo" class="mono">US$ 0,35</td><td data-rot="Chave"><span class="d-selo ok">da empresa · ok</span></td></tr>
+            <tr><td data-rot="Empresa">Pizzaria do Porto</td><td data-rot="Perguntas" class="mono">81</td><td data-rot="Sem resposta" class="mono">9</td><td data-rot="Custo" class="mono">US$ 0,09</td><td data-rot="Chave"><span class="d-selo crit">recusada desde ontem</span></td></tr>
+            <tr><td data-rot="Empresa">Empório Sabor da Serra Comércio de Alimentos e Bebidas Artesanais Ltda</td><td data-rot="Perguntas" class="mono">13</td><td data-rot="Sem resposta" class="mono">4</td><td data-rot="Custo" class="mono">US$ 0,01</td><td data-rot="Chave"><span class="d-selo warn">sem crédito</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="d-vazio" id="qual-vazio" hidden>Nenhuma pergunta ao Mister neste período.</div>
+    <div class="d-vazio" id="qual-erro" hidden role="alert">Não consegui carregar os números do Mister. <button type="button" class="d-btn">Tentar de novo</button></div>
+  </div>
+</section>
+
+<!-- ───────────── 3. LOJA SEM INTERNET ───────────── -->
+<section class="vista" id="v-sem" aria-label="Na loja, o servidor sem internet">
+  <div class="app">
+    <nav class="lado" aria-label="Menu do app (ilustração)">
+      <div class="marca">Regem</div>
+      <ul><li>Painel</li><li class="atual">PDV · Balcão</li><li>Delivery</li><li>Cozinha (KDS)</li><li>Estoque</li><li>Configurações</li></ul>
+    </nav>
+    <div class="principal">
+      <div class="topo">
+        <div><div class="onde">PDV · Balcão</div><h1>Balcão</h1></div>
+        <div class="topo-dir">
+          <span class="indicador" id="ind-servidor"><span class="bola" aria-hidden="true"></span><span id="ind-texto">Servidor da loja</span></span>
+          <span class="quem">Caio · Caixa 1</span>
+        </div>
+      </div>
+      <div class="faixa" id="faixa-sem" role="status">
+        <div class="txt">
+          <div class="t" id="faixa-sem-t">📡 O servidor da loja está sem internet há 12 min</div>
+          <div class="d" id="faixa-sem-d">A venda no balcão, nas mesas e na cozinha continua normal e sobe para a nuvem quando a internet voltar. Enquanto isso, os pedidos do iFood, da 99 e do cardápio digital não chegam, e o Mister não manda avisos pelo WhatsApp.</div>
+        </div>
+        <div class="acoes" id="faixa-sem-acoes"><button type="button" class="btn">O que conferir</button></div>
+      </div>
+      <div class="pagina">
+        <div class="ctls" role="group" aria-label="Situação do protótipo">
+          Situação do protótipo:
+          <button type="button" class="ctl" data-sem="sem" aria-pressed="true">sem internet</button>
+          <button type="button" class="ctl" data-sem="voltou" aria-pressed="false">a internet voltou</button>
+          <button type="button" class="ctl" data-sem="normal" aria-pressed="false">normal</button>
+        </div>
+        <div class="cartao">
+          <h2>A venda continua</h2>
+          <p class="sub">A tela de venda não muda: a faixa só avisa. Nada é bloqueado.</p>
+          <div class="grade-venda" aria-label="Produtos (ilustração)">
+            <div class="item-venda"><b>X-Burger</b><span class="mono">R$ 28,00</span></div>
+            <div class="item-venda"><b>Batata média</b><span class="mono">R$ 14,00</span></div>
+            <div class="item-venda"><b>Refrigerante lata</b><span class="mono">R$ 7,00</span></div>
+            <div class="item-venda"><b>Milkshake</b><span class="mono">R$ 18,00</span></div>
+          </div>
+        </div>
+        <div class="cartao">
+          <h2>No ícone "Regem neste PC" (bandeja do Windows)</h2>
+          <div class="bandeja" id="bandeja"><b>Regem · servidor da loja</b><span id="bandeja-t">Sem internet há 12 min · a venda local continua</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────── 4. NOTAS E DECISÕES ───────────── -->
+<section class="vista" id="v-notas" aria-label="Notas e decisões">
+  <div class="notas">
+    <div class="cartao">
+      <h2>O que este protótipo resolve</h2>
+      <ul>
+        <li><b>Dependências (F3, parte 2):</b> hoje ninguém fica sabendo quando a Meta, o iFood, a 99, a SEFAZ ou a Anthropic mudam algo que o Regem usa. A tabela do IBPT do RJ venceu em 31/10 e só a telemetria da distribuição anotou.</li>
+        <li><b>Qualidade (F5):</b> o Mister já respondeu centenas de perguntas, mas não há um lugar que diga se ele está acertando, quanto custa e onde falha. A avaliação de regressão dá segurança para mudar as instruções e as consultas.</li>
+        <li><b>Sem internet (F1.4):</b> quando o servidor da loja perde a internet, a venda local continua, mas os pedidos do iFood, da 99 e do cardápio deixam de chegar. Hoje a loja só descobre quando o cliente reclama.</li>
+      </ul>
+    </div>
+    <div class="cartao">
+      <h2>Decisões para aprovar (a recomendada primeiro)</h2>
+      <ol>
+        <li><b>Onde ficam as dependências:</b> numa aba nova "Dependências" do console, para a Diretoria e o Técnico (como a aba Avisos). <span class="sub">Alternativa: dentro de "Integrações", que hoje trata os pedidos de integração das lojas.</span></li>
+        <li><b>Como a vigilância funciona:</b> uma rotina diária na nuvem lê as fontes oficiais que nós cadastramos, guarda o trecho vigiado de cada uma (não a página inteira, para não acusar mudança de visual) e marca "a conferir" quando ele muda. Página fora do ar, 404 ou 429 viram "não verificado desde", nunca "retirada". Nada se atualiza sozinho.</li>
+        <li><b>A IA na vigilância:</b> resume a mudança com a chave da DMS, só com o texto público da fonte. <span class="sub">Alternativa: só o antes e o depois, sem resumo.</span></li>
+        <li><b>Quem fica sabendo:</b> a mudança "a conferir" também vira aviso na aba Avisos do console (destino Suporte da DMS). Nada vai para as lojas.</li>
+        <li><b>Qualidade sem o texto das lojas:</b> o console vê só os números de cada pergunta. Para saber de que assunto são as perguntas sem resposta, o Mister marca cada uma com um assunto de uma lista fechada (estoque, financeiro, equipe, cardápio, outro), sem guardar o texto para a DMS.</li>
+        <li><b>A avaliação de regressão:</b> 40 perguntas fixas, guardadas no código e protegidas, rodando numa empresa de teste com dados inventados e com a chave da DMS; resultado por regra (sem a IA julgando a si mesma). Roda pelo botão e antes de publicar mudança nas instruções.</li>
+        <li><b>A faixa "Sem internet":</b> aparece em todas as telas do servidor da loja depois de 2 minutos sem falar com a nuvem; some sozinha quando a internet volta, com "✅ voltou" por 1 minuto. O ícone da bandeja muda junto. Não bloqueia nada. Vai no <code>.zip</code>.</li>
+      </ol>
+    </div>
+    <div class="cartao">
+      <h2>O que não muda</h2>
+      <ul>
+        <li>A lista dos avisos da loja e quem recebe cada um continuam em Mister › Avisos e relatórios.</li>
+        <li>A atualização de SDK, versão de API, regra fiscal ou instruções do Mister segue o processo de sempre: PR, CI verde e merge.</li>
+        <li>O texto das conversas das lojas com o Mister não sai da empresa.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<script>
+(() => {
+  const $ = (s, el = document) => el.querySelector(s);
+  const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+  // As vistas do protótipo.
+  $$('.aba').forEach((b) => b.addEventListener('click', () => {
+    $$('.aba').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    $$('.vista').forEach((v) => v.classList.toggle('ativa', v.id === `v-${b.dataset.vista}`));
+  }));
+  const marcar = (grupo, b) => $$(`[data-${grupo}]`).forEach((x) => x.classList.contains('ctl') && x.setAttribute('aria-pressed', String(x === b)));
+  const estados = (grupo, mapa) => $$(`[data-${grupo}]`).forEach((b) => b.addEventListener('click', () => {
+    marcar(grupo, b);
+    Object.entries(mapa).forEach(([k, s]) => ($(s).hidden = k !== b.dataset[grupo]));
+  }));
+
+  // 1) Dependências: estados, situação e busca.
+  estados('dep', { dados: '#dep-dados', carregando: '#dep-carregando', erro: '#dep-erro' });
+  let sit = 'todas';
+  const filtrar = () => {
+    const termo = $('#dep-busca').value.trim().toLowerCase();
+    let n = 0;
+    $$('#dep-linhas tr').forEach((tr) => { const ok = (sit === 'todas' || tr.dataset.sit === sit) && (!termo || tr.textContent.toLowerCase().includes(termo)); tr.hidden = !ok; if (ok) n++; });
+    $('#dep-sem-busca').hidden = n > 0;
+  };
+  $$('#dep-dados .d-sit').forEach((b) => b.addEventListener('click', () => { $$('#dep-dados .d-sit').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); sit = b.dataset.sit; filtrar(); }));
+  $('#dep-busca').addEventListener('input', filtrar);
+
+  // 2) Qualidade.
+  estados('qual', { dados: '#qual-dados', vazio: '#qual-vazio', erro: '#qual-erro' });
+  $$('#qual-dados > .d-situacoes .d-sit').forEach((b) => b.addEventListener('click', () => $$('#qual-dados > .d-situacoes .d-sit').forEach((x) => x.setAttribute('aria-pressed', String(x === b)))));
+
+  // 3) Sem internet.
+  const sem = {
+    sem: { faixa: true, ok: false, t: '📡 O servidor da loja está sem internet há 12 min', d: 'A venda no balcão, nas mesas e na cozinha continua normal e sobe para a nuvem quando a internet voltar. Enquanto isso, os pedidos do iFood, da 99 e do cardápio digital não chegam, e o Mister não manda avisos pelo WhatsApp.', ind: 'Sem internet', band: 'Sem internet há 12 min · a venda local continua' },
+    voltou: { faixa: true, ok: true, t: '✅ A internet voltou · ficou 14 min fora', d: '23 vendas subiram para a nuvem. Os pedidos do iFood, da 99 e do cardápio voltaram a chegar.', ind: 'Servidor da loja', band: 'Conectado · a internet voltou há 1 min' },
+    normal: { faixa: false, ind: 'Servidor da loja', band: 'Conectado' },
+  };
+  $$('[data-sem]').forEach((b) => b.addEventListener('click', () => {
+    marcar('sem', b);
+    const e = sem[b.dataset.sem];
+    $('#faixa-sem').hidden = !e.faixa;
+    $('#faixa-sem').classList.toggle('ok', !!e.ok);
+    if (e.faixa) { $('#faixa-sem-t').textContent = e.t; $('#faixa-sem-d').textContent = e.d; $('#faixa-sem-acoes').hidden = !!e.ok; }
+    $('#ind-servidor').classList.toggle('sem', b.dataset.sem === 'sem');
+    $('#ind-texto').textContent = e.ind;
+    $('#bandeja-t').textContent = e.band;
+  }));
+  $('#ind-servidor').classList.add('sem');
+  $('#ind-texto').textContent = 'Sem internet';
+
+  // A gaveta: abre pelo botão, fecha no ✕, no fundo e no Esc; o foco volta para quem abriu.
+  let quemAbriu = null;
+  const fechar = () => { $$('.gaveta.aberto').forEach((g) => g.classList.remove('aberto')); $$('.fundo.aberto').forEach((f) => f.classList.remove('aberto')); quemAbriu?.focus?.(); };
+  document.addEventListener('click', (ev) => {
+    const abre = ev.target.closest('[data-abre]');
+    if (abre) { quemAbriu = abre; const g = document.getElementById(abre.dataset.abre); g.classList.add('aberto'); g.previousElementSibling.classList.add('aberto'); g.querySelector('.fechar').focus(); return; }
+    if (ev.target.closest('[data-fecha]')) fechar();
+  });
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') fechar(); });
+})();
+</script>
+</body>
+</html>
