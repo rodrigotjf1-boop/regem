@@ -9,6 +9,7 @@ import { PrecosNa99 } from '@/components/distribuicao/precos-na-99';
 import { ConferirComOsApps } from '@/components/distribuicao/conferir-com-os-apps';
 import { MisterNoConsole } from '@/components/distribuicao/mister-no-console';
 import { AvisosNoConsole } from '@/components/distribuicao/avisos-no-console';
+import { DependenciasNoConsole } from '@/components/distribuicao/dependencias-no-console';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -146,7 +147,7 @@ function infraBadges(l: any) {
 export default function DistHome() {
   const router = useRouter();
   const [me, setMe] = useState<any>(null);
-  const [aba, setAba] = useState<'frota' | 'telemetria' | 'licencas' | 'atualizacoes' | 'integracoes' | 'mister' | 'avisos' | 'auditoria' | 'usuarios'>('frota');
+  const [aba, setAba] = useState<'frota' | 'telemetria' | 'licencas' | 'atualizacoes' | 'integracoes' | 'dependencias' | 'mister' | 'avisos' | 'auditoria' | 'usuarios'>('frota');
   const [pedidosInteg, setPedidosInteg] = useState<any[] | null>(null);
   // Filtros da aba Integrações (escala: muitos clientes) — por loja/CNPJ, canal e status.
   const [buscaInteg, setBuscaInteg] = useState('');
@@ -319,6 +320,7 @@ export default function DistHome() {
     { k: 'licencas', t: 'Licenças' },
     ...(podeTelemetria ? [{ k: 'atualizacoes', t: 'Atualizações' }] : []),
     ...(podeTelemetria ? [{ k: 'integracoes', t: `Integrações${(pedidosInteg ?? []).filter((p) => p.status === 'pendente').length ? ` (${(pedidosInteg ?? []).filter((p) => p.status === 'pendente').length})` : ''}` }] : []),
+    ...(podeTelemetria ? [{ k: 'dependencias', t: 'Dependências' }] : []),
     ...(ehDiretoria ? [{ k: 'mister', t: 'Mister' }] : []),
     // Os avisos para o suporte da DMS (F1.4 parte B): Diretoria e Técnico.
     ...(podeTelemetria ? [{ k: 'avisos', t: 'Avisos' }] : []),
@@ -805,6 +807,7 @@ export default function DistHome() {
         })()}
 
         {aba === 'mister' && ehDiretoria && <MisterNoConsole />}
+        {aba === 'dependencias' && podeTelemetria && <DependenciasNoConsole />}
         {aba === 'avisos' && podeTelemetria && <AvisosNoConsole />}
 
         {aba === 'auditoria' && ehDiretoria && (

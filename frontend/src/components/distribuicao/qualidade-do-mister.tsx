@@ -3,11 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { distApi } from '@/lib/api';
 
-// A QUALIDADE DO MISTER no console da distribuição (F5, parte 1 — a linha de base; protótipo
-// mockups/regem-dependencias-e-qualidade.html, vista "Console › Mister › Qualidade"). Só números das perguntas de todas
-// as empresas: respondidas, tempo, custo, as consultas mais usadas, por que não respondeu e por empresa. O texto das
-// perguntas e das respostas é da loja e não vem para cá. A avaliação de regressão e o assunto das perguntas sem resposta
-// ficam para a parte 2 (pedem migration).
+// A QUALIDADE DO MISTER no console da distribuição (F5; protótipo mockups/regem-dependencias-e-qualidade.html, vista
+// "Console › Mister › Qualidade"). Só números das perguntas de todas as empresas: respondidas, "não tenho acesso", tempo,
+// custo, as consultas mais usadas, por que não respondeu, o que pediram e o Mister não tem (por tema, F5.2) e por
+// empresa. O texto das perguntas e das respostas é da loja e não vem para cá.
 
 type Qualidade = {
   dias: 7 | 30;
@@ -16,6 +15,9 @@ type Qualidade = {
   pctRespondidas: number;
   falhas: number;
   semConsulta: number;
+  /** F5.2 — opcionais: a API de antes do deploy não os traz. */
+  naoTem?: { quantas: number; pct: number };
+  temas?: { tema: string; quantas: number }[];
   empresas: number;
   pessoas: number;
   tempo: { medianaS: number | null; p90S: number | null } | null;
@@ -96,8 +98,16 @@ export function QualidadeDoMister() {
         <>
           <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <Numero rotulo="Perguntas" valor={doPeriodo.perguntas.toLocaleString('pt-BR')} nota={`${doPeriodo.empresas} ${doPeriodo.empresas === 1 ? 'empresa' : 'empresas'} · ${doPeriodo.pessoas} ${doPeriodo.pessoas === 1 ? 'pessoa' : 'pessoas'}`} />
-            <Numero rotulo="Respondidas" valor={`${doPeriodo.pctRespondidas}%`} nota={`${doPeriodo.respondidas} de ${doPeriodo.perguntas}`} />
-            <Numero rotulo="Sem consultar dado" valor={doPeriodo.semConsulta.toLocaleString('pt-BR')} nota="respondidas sem nenhuma consulta (conversa, cumprimento ou falta de dado)" />
+            <Numero
+              rotulo="Respondidas"
+              valor={`${doPeriodo.pctRespondidas}%`}
+              nota={`${doPeriodo.respondidas} de ${doPeriodo.perguntas} · ${doPeriodo.semConsulta} sem consultar dado`}
+            />
+            <Numero
+              rotulo={'"Não tenho acesso"'}
+              valor={(doPeriodo.naoTem?.quantas ?? 0).toLocaleString('pt-BR')}
+              nota={`${doPeriodo.naoTem?.pct ?? 0}% das perguntas · o dado não está em nenhuma consulta`}
+            />
             <Numero rotulo="Tempo até responder" valor={segundos(doPeriodo.tempo?.medianaS)} nota={doPeriodo.tempo ? `metade em até ${segundos(doPeriodo.tempo.medianaS)} · 90% em até ${segundos(doPeriodo.tempo.p90S)}` : 'sem resposta no período'} />
             <Numero rotulo="Custo por pergunta" valor={usd(doPeriodo.custo.porPerguntaUsd)} nota={`total ${usd(doPeriodo.custo.totalUsd, 2)} · pago pela chave de cada empresa`} />
           </dl>
@@ -118,6 +128,17 @@ export function QualidadeDoMister() {
                 <Barras itens={doPeriodo.motivos.map((m) => ({ nome: m.motivo, valor: m.quantas, texto: String(m.quantas) }))} />
               ) : (
                 <p className="text-sm text-slate-400">Respondeu todas neste período.</p>
+              )}
+            </div>
+            <div className={CARTAO}>
+              <h3 className="mb-1 text-sm font-semibold text-slate-100">
+                O que pediram e o Mister não tem · <span className="font-mono">{doPeriodo.naoTem?.quantas ?? 0}</span>
+              </h3>
+              <p className="mb-2 text-xs text-slate-400">O tema que o Mister anota antes de dizer que ainda não tem acesso. Só o tema, de uma lista fechada: nunca as palavras da pessoa.</p>
+              {doPeriodo.temas?.length ? (
+                <Barras itens={doPeriodo.temas.map((m) => ({ nome: m.tema, valor: m.quantas, texto: String(m.quantas) }))} />
+              ) : (
+                <p className="text-sm text-slate-400">Nada faltou neste período.</p>
               )}
             </div>
           </div>

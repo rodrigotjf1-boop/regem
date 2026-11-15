@@ -1,9 +1,9 @@
-import type { MotivoSemResposta } from './mister-agente.regras';
+import { type MotivoSemResposta, ROTULO_DO_TEMA, temaDoQueFalta } from './mister-agente.regras';
 
-// A QUALIDADE DO MISTER, parte 1 (F5 do docs/plano-mister.md — a linha de base; protótipo
-// mockups/regem-dependencias-e-qualidade.html, vista "Console › Mister › Qualidade"). Só números: nunca o texto da
-// pergunta ou da resposta (é da loja). As regras puras: os períodos aceitos e o texto de cada motivo de não responder.
-// A parte 2 (o assunto das perguntas sem resposta e a avaliação de regressão) pede migration.
+// A QUALIDADE DO MISTER (F5 do docs/plano-mister.md; protótipo mockups/regem-dependencias-e-qualidade.html, vista
+// "Console › Mister › Qualidade"). Só números: nunca o texto da pergunta ou da resposta (é da loja). As regras puras:
+// os períodos aceitos, o texto de cada motivo de não responder e o de cada tema do que falta (F5.2 — o tema que o
+// Mister anota antes de dizer "ainda não tenho acesso", de uma lista fechada).
 
 export const PERIODOS_DA_QUALIDADE = [7, 30] as const;
 export type PeriodoDaQualidade = (typeof PERIODOS_DA_QUALIDADE)[number];
@@ -46,6 +46,16 @@ export function motivosAgrupados(linhas: Array<{ motivo: unknown; n: number }>):
     porTexto.set(t, (porTexto.get(t) ?? 0) + (Number(l.n) || 0));
   }
   return [...porTexto.entries()].map(([motivo, quantas]) => ({ motivo, quantas })).sort((a, b) => b.quantas - a.quantas || a.motivo.localeCompare(b.motivo));
+}
+
+/** O que faltou, por tema, como o console mostra — da maior para a menor (tema fora da lista conta como "outro"). */
+export function temasAgrupados(linhas: Array<{ tema: unknown; n: number }>): Array<{ tema: string; quantas: number }> {
+  const porTexto = new Map<string, number>();
+  for (const l of linhas) {
+    const t = ROTULO_DO_TEMA[temaDoQueFalta(l.tema)];
+    porTexto.set(t, (porTexto.get(t) ?? 0) + (Number(l.n) || 0));
+  }
+  return [...porTexto.entries()].map(([tema, quantas]) => ({ tema, quantas })).sort((a, b) => b.quantas - a.quantas || a.tema.localeCompare(b.tema));
 }
 
 /** O nome da consulta como o console mostra ("resumo_do_dia" → "resumo do dia"). */

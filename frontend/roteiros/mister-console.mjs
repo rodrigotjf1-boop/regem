@@ -60,6 +60,13 @@ const QUALIDADE = {
   pctRespondidas: 96,
   falhas: 17,
   semConsulta: 23,
+  // F5.2: o "não tenho acesso" e o que faltou, por tema (o tema que o Mister anota; nunca as palavras da pessoa).
+  naoTem: { quantas: 19, pct: 5 },
+  temas: [
+    { tema: 'estoque e compras', quantas: 8 },
+    { tema: 'financeiro e contas', quantas: 6 },
+    { tema: 'outro assunto', quantas: 5 },
+  ],
   empresas: 3,
   pessoas: 9,
   tempo: { medianaS: 6, p90S: 14.2 },
@@ -81,6 +88,19 @@ const QUALIDADE = {
     { empresa: 'Empório Sabor da Serra Comércio de Alimentos e Bebidas Artesanais Ltda', perguntas: 13, semResposta: 4, custoUsd: 0.01, chave: null },
   ],
 };
+
+// As dependências (F3, parte 2): uma de cada situação; o nome e o "usamos" compridos de propósito.
+const DEPENDENCIAS = () => ({
+  semMigration: false,
+  itens: [
+    { id: 'meta-whatsapp', nome: 'WhatsApp · API oficial da Meta', tipo: 'mensagens', usamos: 'mensagens, modelos de mensagem, webhooks e o número do Mister', versao: 'v25.0', modelos: null, situacao: 'em_dia', achados: [{ integracao: 'meta-whatsapp', usamos: 'v25.0', situacao: 'em_dia', texto: 'A v25.0 vale até 29/07/2028 (622 dias).', data: '2028-07-29' }], fonte: { id: 'meta-graph-versoes', nome: 'Meta · tabela de versões da Graph API', url: 'https://developers.facebook.com/docs/graph-api/changelog/versions/?locale=en_US' }, conferidaEm: '2026-11-15T09:07:00Z', lidaEm: '2026-11-15T09:07:00Z', falha: null, mudanca: null, decisao: null },
+    { id: 'meta-instagram', nome: 'Instagram · Graph API', tipo: 'mensagens', usamos: 'Direct, comentários e marcações da conta da loja', versao: 'v27.0', modelos: null, situacao: 'a_conferir', achados: [{ integracao: 'meta-instagram', usamos: 'v27.0', situacao: 'a_conferir', texto: 'A v27.0 não está na tabela da Meta (a tabela pode estar atrasada: confirme pela API).', data: null }], fonte: { id: 'meta-graph-versoes', nome: 'Meta · tabela de versões da Graph API', url: 'https://developers.facebook.com/docs/graph-api/changelog/versions/?locale=en_US' }, conferidaEm: '2026-11-15T09:07:00Z', lidaEm: '2026-11-15T09:07:00Z', falha: null, mudanca: null, decisao: null },
+    { id: 'meta-messenger', nome: 'Messenger · Graph API', tipo: 'mensagens', usamos: 'mensagens da página da loja', versao: 'v27.0', modelos: null, situacao: 'nao_verificada', achados: [], fonte: { id: 'meta-graph-versoes', nome: 'Meta · tabela de versões da Graph API', url: 'https://developers.facebook.com/docs/graph-api/changelog/versions/?locale=en_US' }, conferidaEm: '2026-11-12T09:07:00Z', lidaEm: '2026-11-15T09:07:00Z', falha: 'a fonte respondeu 429', mudanca: null, decisao: null },
+    { id: 'anthropic', nome: 'Anthropic · modelos de IA', tipo: 'ia', usamos: 'o Mister, o robô de atendimento, o copiloto e as marcações do Instagram', versao: null, modelos: ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5'], situacao: 'a_conferir', achados: [{ integracao: 'anthropic', usamos: 'claude-haiku-5-5', situacao: 'em_dia', texto: 'claude-haiku-5-5: ativo; aposentadoria não antes de 07/10/2027.', data: '2027-10-07' }], fonte: { id: 'anthropic-modelos', nome: 'Anthropic · situação dos modelos', url: 'https://platform.claude.com/docs/en/about-claude/model-deprecations.md' }, conferidaEm: '2026-11-15T09:07:00Z', lidaEm: '2026-11-15T09:07:00Z', falha: null, mudanca: { mudouEm: '2026-11-15T09:07:00Z', saiu: ['claude-sonnet-4-5-20250929 | Active | - | Not sooner than September 29, 2026'], entrou: ['claude-sonnet-4-5-20250929 | Deprecated | 2026-09-30 | 2026-11-30'] }, decisao: null },
+    { id: 'ifood', nome: 'iFood · API do parceiro', tipo: 'marketplaces', usamos: 'pedidos, eventos (confirmar, despachar, cancelar), chat e evidências', versao: null, modelos: null, situacao: 'manual', achados: [], fonte: null, conferidaEm: null, lidaEm: null, falha: null, mudanca: null, decisao: null },
+    { id: 'ibpt', nome: 'IBPT · tabela por estado', tipo: 'fiscal', usamos: 'o valor aproximado dos tributos na NFC-e (Lei 12.741)', versao: null, modelos: null, situacao: 'vencida', achados: [{ integracao: 'ibpt', usamos: 'RJ', situacao: 'vencendo', texto: 'RJ: vencida — envie a nova em Atualizações.', data: null }], fonte: null, conferidaEm: null, lidaEm: null, falha: null, mudanca: null, decisao: null },
+  ],
+});
 
 const AVISOS_DO_SUPORTE = () => {
   const ha = (min) => new Date(Date.now() - min * 60_000).toISOString();
@@ -128,6 +148,8 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
       atrasoDosModelos: 0,
       avisosDoSuporte: o.avisosDoSuporte ?? AVISOS_DO_SUPORTE(),
       falhaDosAvisos: !!o.falhaDosAvisos,
+      dependencias: o.dependencias ?? DEPENDENCIAS(),
+      falhaDasDependencias: !!o.falhaDasDependencias,
       qualidade: o.qualidade ?? QUALIDADE,
       falhaDaQualidade: !!o.falhaDaQualidade,
       pedidos: [],
@@ -192,6 +214,20 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
         const pedidos = S.modelos.filter((m) => m.situacao === 'nao_pedido').map((m) => m.nome);
         S.modelos = S.modelos.map((m) => (m.situacao === 'nao_pedido' ? { ...m, situacao: 'em_analise', categoria: 'utility' } : m));
         return responder(route, { modelos: S.modelos, pedidos, recusas: [] }, 201);
+      }
+      if (p === '/distribuicao/dependencias') {
+        if (S.falhaDasDependencias) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
+        return responder(route, S.dependencias);
+      }
+      if (p === '/distribuicao/dependencias/ler-agora') {
+        S.pedidos.push({ metodo, p, busca: '', corpo: null });
+        return responder(route, { lidas: [{ fonte: 'meta-graph-versoes', leu: true, mudou: false, falha: null }, { fonte: 'anthropic-modelos', leu: false, mudou: false, falha: 'a fonte respondeu 403' }] }, 201);
+      }
+      if (/^\/distribuicao\/dependencias\/[^/]+\/decisao$/.test(p)) {
+        S.pedidos.push({ metodo, p, busca: '', corpo: req.postData() ? JSON.parse(req.postData()) : null });
+        const corpo = JSON.parse(req.postData() || '{}');
+        S.dependencias.itens = S.dependencias.itens.map((i) => (i.fonte?.id === p.split('/')[3] && i.mudanca ? { ...i, decisao: { decisao: corpo.decisao, em: new Date().toISOString(), por: 'Rodrigo', nota: corpo.nota || null }, situacao: 'em_dia' } : i));
+        return responder(route, { ok: true, fonte: p.split('/')[3], decisao: corpo.decisao }, 201);
       }
       if (p === '/distribuicao/mister/avisos') {
         if (S.falhaDosAvisos) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
@@ -445,6 +481,85 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
     await ctx.close();
   }
 
+  // ── as dependências (F3, parte 2): situações, filtro, busca, a gaveta com o antes e o depois, a decisão, ler agora ──
+  {
+    const { ctx, page, S, erros } = await abrir(1280, 900, { token: TECNICO });
+    await page.locator('nav button:has-text("Dependências")').waitFor({ timeout: 20000 });
+    ok((await page.locator('nav button:has-text("Dependências")').count()) === 1, 'dependências: o técnico vê a aba');
+    await page.click('nav button:has-text("Dependências")');
+    const sec = page.locator('section[aria-labelledby="dependencias-titulo"]');
+    await sec.locator('table >> text=WhatsApp · API oficial da Meta').waitFor({ timeout: 20000 });
+    const chip = async (rotulo) => (await sec.locator(`[role="group"][aria-label="Situação"] button:has-text("${rotulo}")`).innerText()).replace(/\s+/g, ' ');
+    // O número fica colado no rótulo no innerText (o espaço é só a margem): "Todas6".
+    ok(/Todas ?6/.test(await chip('Todas')) && /A conferir ?2/.test(await chip('A conferir')) && /Vencidas ou vencendo ?1/.test(await chip('Vencidas ou vencendo')) && /Não verificadas ?1/.test(await chip('Não verificadas')) && /Conferir à mão ?1/.test(await chip('Conferir à mão')), 'dependências: as situações com a quantidade');
+    const t = (await sec.innerText()).replace(/\s+/g, ' ');
+    ok(/Graph API v25\.0: mensagens/.test(t) && /não verificada desde 12\/11/.test(t) && /conferir à mão/.test(t) && /vencida ou vencendo/.test(t), 'dependências: a versão em uso e cada situação');
+    await sec.locator('button:has-text("A conferir")').click();
+    ok((await sec.locator('table tbody tr').count()) === 2, 'dependências: "A conferir" filtra 2');
+    await sec.locator('input[type="search"]').fill('zzz');
+    await sec.locator('text=Nenhuma integração com esses filtros.').waitFor();
+    await sec.locator('input[type="search"]').fill('');
+    await sec.locator('button:has-text("Todas")').click();
+    // A gaveta da Anthropic: o antes e o depois; "não se aplica" só com a nota.
+    await sec.locator('tr:has-text("Anthropic") button:has-text("Ver")').click();
+    const g = page.locator('[role="dialog"]');
+    await g.waitFor();
+    const tg = (await g.innerText()).replace(/\s+/g, ' ');
+    // Os títulos são em caixa alta pelo CSS (o innerText devolve "O QUE MUDOU"): a conferência não diferencia.
+    ok(/O que mudou/i.test(tg) && /Antes claude-sonnet-4-5-20250929 \| Active/i.test(tg) && /Depois claude-sonnet-4-5-20250929 \| Deprecated/i.test(tg), `dependências: a gaveta com o antes e o depois (${tg.slice(0, 120)})`);
+    ok(await g.locator('button:has-text("Não se aplica ao Regem")').isDisabled(), 'dependências: "não se aplica" pede a nota');
+    await g.locator('textarea').fill('Trocar o modelo do copiloto no PR da semana.');
+    await g.locator('button:has-text("Marcar como conferida")').click();
+    await g.locator('text=Marcada como conferida.').waitFor();
+    const dec = feitos(S, 'POST', '/distribuicao/dependencias/anthropic-modelos/decisao');
+    ok(dec.length === 1 && dec[0].corpo?.decisao === 'conferida' && /Trocar o modelo/.test(dec[0].corpo?.nota ?? ''), 'dependências: a decisão vai ao servidor com a nota');
+    await page.keyboard.press('Escape');
+    await g.waitFor({ state: 'detached' });
+    // Ler agora: o resultado de cada fonte.
+    await sec.locator('button:has-text("Ler agora")').click();
+    await sec.locator('text=Leitura feita: 1 de 2 fontes lidas, 1 sem resposta.').waitFor();
+    ok(feitos(S, 'POST', '/distribuicao/dependencias/ler-agora').length === 1, 'dependências: "Ler agora" lê as fontes no servidor');
+    ok(erros.length === 0, `dependências: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  {
+    const { ctx, page } = await abrir(1280, 900, { dependencias: { ...DEPENDENCIAS(), semMigration: true } });
+    await page.click('nav button:has-text("Dependências")');
+    await page.locator('text=migration 423').waitFor({ timeout: 20000 });
+    ok(await page.locator('section[aria-labelledby="dependencias-titulo"] button:has-text("Ler agora")').isDisabled(), 'dependências: sem a migration, avisa e "Ler agora" fica desligado');
+    await ctx.close();
+  }
+  {
+    const { ctx, page, S } = await abrir(1280, 900, { falhaDasDependencias: true });
+    await page.click('nav button:has-text("Dependências")');
+    const sec = page.locator('section[aria-labelledby="dependencias-titulo"]');
+    await sec.locator('[role="alert"] >> text=Erro interno').waitFor({ timeout: 20000 });
+    S.falhaDasDependencias = false;
+    await sec.locator('button:has-text("Tentar de novo")').click();
+    await sec.locator('text=WhatsApp · API oficial da Meta').first().waitFor();
+    ok(true, 'dependências: o erro com "Tentar de novo" lê de novo');
+    await ctx.close();
+  }
+  for (const w of larguras) {
+    const { ctx, page, erros } = await abrir(w, w < 700 ? 820 : 900);
+    await page.click('nav button:has-text("Dependências")');
+    const sec = page.locator('section[aria-labelledby="dependencias-titulo"]');
+    await sec.locator('text=WhatsApp · API oficial da Meta >> visible=true').first().waitFor({ timeout: 20000 });
+    let m = await medir(page);
+    ok(m.length === 0, `${w}px: a aba Dependências sem barra lateral e nada passando da tela (${m.join(' | ')})`);
+    const tabela = await sec.locator('table').isVisible();
+    ok(w >= 1024 ? tabela : !tabela, `${w}px: dependências em ${w >= 1024 ? 'tabela' : 'cartões'}`);
+    await sec.locator('button:has-text("Ver") >> visible=true').nth(3).click();
+    await page.locator('[role="dialog"]').waitFor();
+    m = await medir(page);
+    ok(m.length === 0, `${w}px: a gaveta da dependência inteira na tela (${m.join(' | ')})`);
+    if (w === 375 || w === 1440) await page.screenshot({ path: foto(`${w}-dependencias-gaveta.png`) });
+    await page.keyboard.press('Escape');
+    if (w === 375 || w === 1440) await page.screenshot({ path: foto(`${w}-dependencias.png`), fullPage: true });
+    ok(erros.length === 0, `${w}px: dependências sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+
   // ── as empresas: rótulos, busca no servidor (só a resposta mais nova vale), vazio, teto e erro ──
   {
     const { ctx, page, S } = await abrir(1280, 900, { numero: conectado(), liberado: true, total: 250, atrasoDaBusca: { p: 900 } });
@@ -503,6 +618,8 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
     ok(/metade em até 6 s · 90% em até 14,2 s/.test(t) && /US\$ 0,0011/.test(t), 'qualidade: o tempo e o custo por pergunta');
     ok(/resumo do dia 31%/.test(t) && /historia do pedido · 2 sem ler 9%/.test(t), 'qualidade: as consultas mais usadas, com as que não leram');
     ok(/Por que não respondeu · 17/.test(t) && /a chave de IA da empresa foi recusada 6/.test(t), 'qualidade: por que não respondeu');
+    ok(/"Não tenho acesso" 19 5% das perguntas/i.test(t) && /395 de 412 · 23 sem consultar dado/.test(t), `qualidade: "não tenho acesso" e as sem consulta (${t.slice(0, 260)})`);
+    ok(/O que pediram e o Mister não tem · 19/.test(t) && /estoque e compras 8/.test(t) && /outro assunto 5/.test(t), 'qualidade: o que faltou, por tema');
     ok(/Burger da Praça 318 perguntas 4 sem resposta US\$ 0,35 da empresa · ok/.test(t) && /Pizzaria do Porto .* recusada/.test(t) && /sem chave própria/.test(t), 'qualidade: por empresa, com a situação da chave');
     ok((await sec.locator('button[aria-pressed="true"]:has-text("7 dias")').count()) === 1, 'qualidade: 7 dias marcado');
     await sec.locator('button:has-text("30 dias")').click();
@@ -516,6 +633,17 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
     await naAba(page);
     await page.locator('section[aria-labelledby="mister-qualidade"] >> text=Nenhuma pergunta ao Mister neste período.').waitFor({ timeout: 20000 });
     ok(true, 'qualidade: o vazio diz que não houve pergunta');
+    await ctx.close();
+  }
+  {
+    // A API de antes do deploy (sem os campos da F5.2): a seção abre, com zero e "Nada faltou neste período.".
+    const { naoTem, temas, ...semF52 } = QUALIDADE;
+    const { ctx, page, erros } = await abrir(1280, 900, { numero: conectado(), liberado: true, qualidade: semF52 });
+    await naAba(page);
+    const sec = page.locator('section[aria-labelledby="mister-qualidade"]');
+    await sec.locator('text=Nada faltou neste período.').waitFor({ timeout: 20000 });
+    const t = (await sec.innerText()).replace(/\s+/g, ' ');
+    ok(/O que pediram e o Mister não tem · 0/.test(t) && /"Não tenho acesso" 0/i.test(t) && erros.length === 0, `qualidade: a API antiga, sem os campos novos, não quebra a seção (${erros.join(' | ')})`);
     await ctx.close();
   }
   {

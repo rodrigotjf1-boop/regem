@@ -641,6 +641,11 @@ export const distApi = {
   // Os avisos para o suporte da DMS (F1.4 parte B): abertos ou resolvidos nas últimas 24 h, com a busca pela empresa.
   // A qualidade do Mister (F5, parte 1): só números das perguntas de todas as empresas, nos últimos 7 ou 30 dias.
   misterQualidade: (dias: 7 | 30) => distReq(`/distribuicao/mister/qualidade?dias=${dias}`),
+  // As dependências (F3, parte 2; mig 423): o inventário com a situação lida nas fontes oficiais, ler agora e decidir.
+  dependencias: () => distReq('/distribuicao/dependencias'),
+  lerDependencias: () => distReq('/distribuicao/dependencias/ler-agora', { method: 'POST', body: '{}' }),
+  decidirDependencia: (fonte: string, decisao: 'conferida' | 'nao_se_aplica', nota: string) =>
+    distReq(`/distribuicao/dependencias/${encodeURIComponent(fonte)}/decisao`, { method: 'POST', body: JSON.stringify({ decisao, nota }) }),
   misterAvisos: (situacao: 'abertos' | 'resolvidos', busca = '') =>
     distReq(`/distribuicao/mister/avisos?situacao=${situacao}${busca ? `&busca=${encodeURIComponent(busca)}` : ''}`),
 };

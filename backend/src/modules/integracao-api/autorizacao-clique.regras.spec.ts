@@ -17,7 +17,7 @@ import {
   raizDoCnpj,
 } from './autorizacao-clique.regras';
 import { montarTela, textoGuardado, type EntradaDaTela } from './autorizacao-clique.tela';
-import { voltasDoClique } from './autorizacao-loja';
+import { clienteAutorizacao, voltasDoClique } from './autorizacao-loja';
 import { FRASES_DO_PARCEIRO } from './parceiros.regras';
 
 // A AUTORIZAÇÃO POR CLIQUE (Hub DMS, F3, parte C) — as regras puras e a tela montada no servidor, com os textos que o
@@ -341,5 +341,73 @@ describe('autorização por clique — o Orzuni', () => {
     expect(t.aplicativo.selo).toBe('Produto da DMS');
     // O título do Liame não mudou: ele segue sem o campo.
     expect(APLICATIVOS_DO_CLIQUE.liame.oQueLe).toBeUndefined();
+  });
+});
+
+// O FAROL (F6 do hub, 15/11/2026): o terceiro aplicativo da DMS no clique. Ele lê o cardápio, as fichas e a fila da
+// cozinha, as mesmas três da página de 01/10, que segue valendo: os endereços de volta são os dela (o console dele).
+describe('autorização por clique — o Farol', () => {
+  const FAROL = APLICATIVOS_DO_CLIQUE.farol;
+  const VOLTA_FAROL = 'https://app.monitorfarol.com.br/api/regem/retorno';
+  const pedido = (mudar: Record<string, unknown> = {}) => ({
+    response_type: 'code',
+    redirect_uri: VOLTA_FAROL,
+    scope: 'producao.ler fichas.ler catalogo.ler',
+    state: 'estado-do-farol-1234567890',
+    code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
+    code_challenge_method: 'S256',
+    conta_nome: 'Hamburgueria do Teste',
+    conta_email: 'diretoria@farol.exemplo',
+    ...mudar,
+  });
+
+  it('a ficha: as três leituras da página de 01/10, todas necessárias, nenhuma opcional, nenhum dado pessoal nem financeiro', () => {
+    expect(FAROL.necessarias).toEqual(['catalogo.ler', 'fichas.ler', 'producao.ler']);
+    expect([FAROL.opcionais, FAROL.dadoPessoal, FAROL.financeiras]).toEqual([[], [], []]);
+    for (const id of FAROL.necessarias) {
+      expect(FAROL.motivos[id]).toMatch(/^Para /);
+      // Um texto só para a mesma permissão: a frase do clique é a que o parceiro já lê (aprovadas em 10/10/2026).
+      expect(PERMISSAO_NA_TELA[id]).toEqual(FRASES_DO_PARCEIRO[id]);
+    }
+    // Sem `voltas`: a volta é a da página de 01/10 (o console do Farol).
+    expect(FAROL.voltas).toBeUndefined();
+    expect(clienteAutorizacao('farol', {})?.redirectUris).toEqual([VOLTA_FAROL]);
+  });
+
+  it('o pedido: aceita as três leituras, na ordem do catálogo, sem CNPJ; recusa vendas, cliente, custo e o preço do iFood', () => {
+    const ok = conferirPedido(pedido(), FAROL, 'app-farol', [VOLTA_FAROL]);
+    expect(ok).toMatchObject({ necessarias: ['catalogo.ler', 'fichas.ler', 'producao.ler'], opcionais: [], contaQuePede: { nome: 'Hamburgueria do Teste', cnpj: null } });
+    for (const fora of ['pedidos.ler', 'clientes.telefone.ler', 'custos.ler', 'catalogo.ifood.ler', 'cupons.criar']) {
+      expect(conferirPedido(pedido({ scope: `catalogo.ler ${fora}` }), FAROL, 'app-farol', [VOLTA_FAROL])).toEqual({
+        erro: `A permissão "${fora}" não pode ser pedida por este aplicativo na autorização por clique.`,
+      });
+    }
+  });
+
+  it('a tela: o título fala do cardápio, das fichas e da fila; a abertura diz que ele não muda nada; sem CNPJ, a confirmação de outra empresa', () => {
+    const t = montarTela({
+      cliente: 'farol',
+      app: FAROL,
+      dms: { empresa: 'DMS Exemplo Ltda', cnpj: '33444555000100' },
+      pedido: {
+        redirectUri: VOLTA_FAROL,
+        necessarias: ['catalogo.ler', 'fichas.ler', 'producao.ler'],
+        opcionais: [],
+        contaQuePede: { nome: 'Hamburgueria do Teste', cnpj: null, email: 'diretoria@farol.exemplo', marca: null },
+      },
+      empresa: { nome: 'Brasa Burger', cnpj: '11222333000100' },
+      lojas: [{ id: 'loja-centro', nome: 'Brasa Centro', tipo: 'matriz', fuso: 'America/Sao_Paulo', conectadaDesde: null, jaLiberado: [] }],
+      verFinanceiro: false,
+    });
+    expect(t.modo).toBe('nova');
+    expect(t.titulo).toBe('O Farol quer ler o cardápio, as fichas técnicas e a fila da cozinha da sua loja');
+    expect(t.abertura).toBe(
+      'O Farol audita a operação da cozinha pela câmera e confere cada montagem com a ficha técnica. Ele só lê o que estiver listado ' +
+        'aqui; não muda pedido, preço, cardápio nem ficha no Regem. Você veio de app.monitorfarol.com.br e volta para lá ao terminar.',
+    );
+    expect(t.necessarias.map((p) => p.rotulo)).toEqual(['Produtos e adicionais', 'Fichas técnicas', 'Pedidos em produção']);
+    expect([t.opcionais, t.dadosDosClientes]).toEqual([[], []]);
+    expect(t.confirmacao?.titulo).toBe('A conta que pede é de outra empresa');
+    expect(t.aplicativo.selo).toBe('Produto da DMS');
   });
 });

@@ -35,6 +35,7 @@ import {
   LimitesDoKds,
   PREPARO_DA_ENCOMENDA_MIN,
   atrasoNaCozinha,
+  FERRAMENTA_DO_QUE_FALTA,
   NivelDoMister,
   NomeDaFerramenta,
   diaDaFerramenta,
@@ -328,6 +329,8 @@ export class MisterFerramentasService {
     if (!ehFerramenta(nome)) return recusa('Essa consulta não existe.');
     // O guia de uso não lê dado de loja nenhuma: responde também a quem ainda está sem loja.
     if (nome === 'como_usar_o_regem') return this.comoUsarORegem(e, entrada);
+    // A anotação do que falta (F5.2) também não lê dado: o tema fica na trilha da pergunta (quem grava é o agente).
+    if (nome === FERRAMENTA_DO_QUE_FALTA) return { ok: true, dados: { anotado: true, siga: 'Responda agora: diga que você ainda não tem acesso a essa informação e, em uma frase, o que você consegue responder hoje.' } };
     if (e.semLoja) return recusa(SEM_LOJA);
     const en = (entrada && typeof entrada === 'object' && !Array.isArray(entrada) ? entrada : {}) as Record<string, unknown>;
     const loja = this.loja(e, en.loja);
@@ -377,6 +380,8 @@ export class MisterFerramentasService {
         return this.conciliacao(e, en, loja);
       case 'como_usar_o_regem':
         return this.comoUsarORegem(e, en);
+      case 'anotar_o_que_falta':
+        return this.executar(e, nome, en);
     }
   }
 
