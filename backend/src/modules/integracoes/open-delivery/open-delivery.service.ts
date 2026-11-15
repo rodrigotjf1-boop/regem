@@ -4,6 +4,7 @@ import { DRIZZLE, DrizzleDB } from '../../../db/drizzle.module';
 import { integracao } from '../../../db/schema';
 import { fetchExterno } from '../../../common/fetch-externo';
 import { urlPublicaSegura } from '../../../common/ssrf-guard';
+import { mesclarNoConfigDaIntegracao } from '../config-da-integracao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Cliente da Open Delivery API (padrão Abrasel). Várias PLATAFORMAS expõem a mesma
@@ -87,12 +88,10 @@ export class OpenDeliveryService {
       const j: any = await res.json();
       const access = j.access_token as string;
       const tokenExp = Date.now() + (Number(j.expires_in) || 3600) * 1000;
-      await this.db
-        .update(integracao)
-        .set({ token: access, config: { ...(ig.config ?? {}), tokenExp } })
-        .where(eq(integracao.id, ig.id));
+      // Só o `tokenExp`, mesclado no banco: a cópia `ig` pode ser de antes de outra gravação na configuração (ERR-475).
+      const config = await mesclarNoConfigDaIntegracao(this.db, ig.id, { tokenExp }, { colunas: { token: access } });
       ig.token = access;
-      ig.config = { ...(ig.config ?? {}), tokenExp };
+      ig.config = config ?? { ...(ig.config ?? {}), tokenExp };
       return access;
     } catch (e: any) {
       this.logger.error(`token falhou: ${e?.message ?? e}`);

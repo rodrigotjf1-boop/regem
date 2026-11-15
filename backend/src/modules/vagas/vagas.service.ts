@@ -1,9 +1,11 @@
-import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { sql, SQL } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { AuthUser } from '../../auth/auth-user';
+import { podeAcessar } from '../../auth/permissoes';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { ColaboradorService } from '../colaborador/colaborador.service';
 import { ModuloService } from '../modulo/modulo.service';
 import { ehServidorLocal } from '../../common/modo';
 import { hojeISO } from '../../common/data';
@@ -17,6 +19,7 @@ import {
   VERSAO_COMUNICACAO,
   VERSAO_GUARDA,
   buscasDoEndereco,
+  contratadoDaFicha,
   gerarProtocolo,
   kmDeMetros,
   lerFicha,
@@ -71,6 +74,8 @@ export class VagasService {
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly auditoria: AuditoriaService,
     private readonly modulos: ModuloService,
+    // F4: "Contratar" cria o colaborador pelo MESMO cadastro de Cadastros › Colaboradores (RBAC de nível e auditoria).
+    private readonly colaboradores: ColaboradorService,
   ) {}
 
   // ── a loja como o candidato vê (a mesma do cardápio online: Configurações › Loja) ──────────────────────────────
@@ -296,6 +301,8 @@ export class VagasService {
       id: c.id,
       protocolo: c.protocolo,
       situacao: c.situacao,
+      // F4: o colaborador criado pelo Contratar (null antes).
+      colaboradorId: c.colaborador_id ?? null,
       nome: c.nome,
       nascimento: c.nascimento_txt,
       sexo: c.sexo,
@@ -345,6 +352,8 @@ export class VagasService {
 
   async mudarSituacao(user: AuthUser, unidade: string | null, id: string, dto: any) {
     const nova = lerSituacao(dto?.situacao);
+    // "Contratado" passa pelo Contratar: ele cria o colaborador (plano §11).
+    if (nova === 'contratado') throw new BadRequestException('Para contratar, use "Contratar": ele cria o colaborador em Cadastros › Colaboradores.');
     const antes = await this.db.transaction(async (tx: any) => {
       const c = await this.daLoja(tx, user.tenantId, unidade, id, true);
       if (c.situacao === nova) return null;
@@ -359,6 +368,51 @@ export class VagasService {
         detalhe: { de: antes.de, para: nova }, origem: 'web',
       });
     return { ok: true, situacao: nova };
+  }
+
+  /**
+   * Contratar (F4): cria o colaborador com o que a ficha tem e liga a ficha a ele. Exige, além de "Candidatos", a
+   * permissão de Cadastros — a MESMA de criar colaborador (V48: nenhuma porta lateral). A vez é de quem marca primeiro
+   * (a ficha travada na transação); se o cadastro do colaborador recusar (o nível, por exemplo), a ficha volta à
+   * situação de antes e a recusa sobe com o motivo do cadastro.
+   */
+  async contratar(user: AuthUser, unidade: string | null, id: string) {
+    if (user.categoria !== 'presidente' && !podeAcessar(user.permissoes, 'cadastros'))
+      throw new ForbiddenException('Seu perfil de acesso não permite cadastrar colaborador (Cadastros). Quem muda o perfil é o presidente.');
+    const vez = await this.db.transaction(async (tx: any) => {
+      const c = await this.daLoja(tx, user.tenantId, unidade, id, true);
+      if (c.situacao === 'contratado' || c.colaborador_id) throw new ConflictException('Esta ficha já foi contratada.');
+      await tx.execute(sql`update candidato set situacao = 'contratado', atualizado_em = clock_timestamp() where id = ${c.id}`);
+      return c;
+    });
+    const [pagina] = linhas(await this.db.execute(sql`select * from vaga_pagina where tenant_id = ${vez.tenant_id} and unidade_id = ${vez.unidade_id}`));
+    const funcoesDaLoja = linhas(await this.db.execute(sql`select id::text as id, nome from funcao where tenant_id = ${vez.tenant_id} and deleted_at is null`));
+    const d = contratadoDaFicha(vez, paginaDaLinha(pagina).funcoes, funcoesDaLoja);
+    let colaborador: any;
+    try {
+      colaborador = await this.colaboradores.create(
+        user.tenantId,
+        { nome: d.nome, telefone: d.telefone, vinculo: d.vinculo, jornadaTipo: d.jornadaTipo, unidadeId: vez.unidade_id, ...(d.funcaoId ? { funcaoId: d.funcaoId } : {}) } as any,
+        user.categoria,
+        unidade,
+        user as any,
+      );
+    } catch (e) {
+      await this.db
+        .execute(sql`update candidato set situacao = ${vez.situacao}, atualizado_em = clock_timestamp() where id = ${vez.id} and situacao = 'contratado' and colaborador_id is null`)
+        .catch((erro: any) => this.log.error(`contratar: a ficha ${vez.id} não voltou à situação de antes — ${erro?.message ?? erro}`));
+      throw e;
+    }
+    await this.db.transaction(async (tx: any) => {
+      await tx.execute(sql`update candidato set colaborador_id = ${colaborador.id}::uuid, atualizado_em = clock_timestamp() where id = ${vez.id}`);
+      await this.evento(tx, vez, user, 'situacao', 'Contratado: colaborador criado em Cadastros › Colaboradores', vez.situacao, 'contratado');
+    });
+    await this.auditoria.registrar({
+      tenantId: user.tenantId, unidadeId: vez.unidade_id, atorId: user.colaboradorId, atorPerfil: user.categoria,
+      tipo: 'pessoas', acao: 'candidato.contratado', entidadeTipo: 'candidato', entidadeId: vez.id,
+      detalhe: { de: vez.situacao, colaboradorId: colaborador.id, funcaoAchada: !!d.funcaoId }, origem: 'web',
+    });
+    return { ok: true, colaboradorId: String(colaborador.id), funcao: d.funcaoDaFicha, funcaoAchada: !!d.funcaoId, vinculo: d.vinculo, jornadaTipo: d.jornadaTipo };
   }
 
   async anotar(user: AuthUser, unidade: string | null, id: string, dto: any) {

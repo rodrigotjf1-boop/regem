@@ -6,6 +6,7 @@ import { integracao } from '../../../db/schema';
 import { DeliveryService } from '../../delivery/delivery.service';
 import { mapStatusExterno } from '../../delivery/adapters';
 import { fetchExterno } from '../../../common/fetch-externo';
+import { mesclarNoConfigDaIntegracao } from '../config-da-integracao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Cliente da API Aberta do Cardápio Web (docs.cardapioweb.com).
@@ -72,6 +73,16 @@ export class CardapioWebService {
   }
 
   // ===== Persistência (uma integração 'cardapio_web' por tenant) =====
+  // Grava SÓ as chaves dadas na configuração, mesclando no banco (ERR-475): o fim do ciclo de leitura regravava a cópia
+  // inteira e devolvia o `refreshToken`/`tokenExp` velhos que a renovação tinha trocado no meio. Devolve o config.
+  private gravarNoConfig(
+    id: string,
+    parcial: Record<string, unknown>,
+    opcoes?: Parameters<typeof mesclarNoConfigDaIntegracao>[3],
+  ): Promise<Record<string, any> | null> {
+    return mesclarNoConfigDaIntegracao(this.db, id, parcial, opcoes);
+  }
+
   private async doTenant(tenantId: string): Promise<IntegCW | null> {
     const [r] = await this.db
       .select()
@@ -114,12 +125,9 @@ export class CardapioWebService {
     const env = this.env;
 
     const existente = await this.doTenant(tenantId);
-    const novaConfig = { ...(existente?.config ?? {}), env, pendingState: state, codeVerifier };
+    const novaConfig = { env, pendingState: state, codeVerifier };
     if (existente) {
-      await this.db
-        .update(integracao)
-        .set({ config: novaConfig, updatedAt: new Date() })
-        .where(eq(integracao.id, existente.id));
+      await this.gravarNoConfig(existente.id, novaConfig);
     } else {
       await this.db.insert(integracao).values({
         tenantId,
@@ -168,13 +176,13 @@ export class CardapioWebService {
       }
       const j: any = await res.json();
       const tokenExp = Date.now() + (Number(j.expires_in) || 7200) * 1000;
-      const config = { ...(ig.config ?? {}), env, tokenExp, refreshToken: j.refresh_token, scope: j.scope };
-      delete config.pendingState;
-      delete config.codeVerifier;
-      await this.db
-        .update(integracao)
-        .set({ token: j.access_token, ativo: true, config, updatedAt: new Date() })
-        .where(eq(integracao.id, ig.id));
+      // O que não veio na resposta sai da configuração (era o que a cópia inteira fazia), junto com o PKCE em voo.
+      const vazios = [j.refresh_token == null && 'refreshToken', j.scope == null && 'scope'].filter(Boolean) as string[];
+      await this.gravarNoConfig(
+        ig.id,
+        { env, tokenExp, refreshToken: j.refresh_token ?? undefined, scope: j.scope ?? undefined },
+        { tirar: ['pendingState', 'codeVerifier', ...vazios], colunas: { token: j.access_token, ativo: true } },
+      );
       this.logger.log(`conectado tenant=${ig.tenantId} scope=${j.scope}`);
       return { ok: true, tenantId: ig.tenantId };
     } catch (e: any) {
@@ -206,13 +214,10 @@ export class CardapioWebService {
       }
       const j: any = await res.json();
       const tokenExp = Date.now() + (Number(j.expires_in) || 7200) * 1000;
-      const config = { ...(ig.config ?? {}), tokenExp, refreshToken: j.refresh_token ?? refresh };
-      await this.db
-        .update(integracao)
-        .set({ token: j.access_token, config, updatedAt: new Date() })
-        .where(eq(integracao.id, ig.id));
+      const parcial = { tokenExp, refreshToken: j.refresh_token ?? refresh };
+      const config = await this.gravarNoConfig(ig.id, parcial, { colunas: { token: j.access_token } });
       ig.token = j.access_token;
-      ig.config = config;
+      ig.config = config ?? { ...(ig.config ?? {}), ...parcial };
       return j.access_token;
     } catch (e: any) {
       this.logger.warn(`refresh falhou: ${e?.message ?? e}`);
@@ -322,19 +327,21 @@ export class CardapioWebService {
     // config guarda só o ambiente (sem resíduo do fluxo OAuth). Chave vazia
     // mantém a atual (padrão do painel: "deixe em branco para manter").
     const tokenNovo = apiKey && apiKey.trim() ? apiKey.trim() : undefined;
-    // Troca de AMBIENTE zera o que era do outro ambiente; mesmo ambiente preserva o resto.
-    const config = envAtual === env ? { ...((existente?.config as any) ?? {}), env } : { env };
-    if (existente) {
+    // Troca de AMBIENTE zera o que era do outro ambiente; mesmo ambiente preserva o resto — mesclando no banco, e não
+    // regravando a cópia (ERR-475: o cursor ou o token gravados no meio voltavam atrás).
+    const config = { env };
+    const colunas = {
+      merchantId: codigoLoja ?? existente?.merchantId ?? null,
+      ativo: true,
+      ...(unidadeId ? { unidadeId } : {}),
+      ...(tokenNovo ? { token: tokenNovo } : {}),
+    };
+    if (existente && envAtual === env) {
+      await this.gravarNoConfig(existente.id, config, { colunas });
+    } else if (existente) {
       await this.db
         .update(integracao)
-        .set({
-          merchantId: codigoLoja ?? existente.merchantId,
-          ativo: true,
-          ...(unidadeId ? { unidadeId } : {}),
-          ...(tokenNovo ? { token: tokenNovo } : {}),
-          config,
-          updatedAt: new Date(),
-        })
+        .set({ ...colunas, config, updatedAt: new Date() })
         .where(eq(integracao.id, existente.id));
     } else {
       await this.db.insert(integracao).values({
@@ -450,10 +457,8 @@ export class CardapioWebService {
     if (falhas) {
       this.logger.error(`tenant ${tenantId}: ${falhas} pedido(s) do Cardápio Web falhando há 2 h — cursor avançado; conferir no painel do CW`);
     }
-    await this.db
-      .update(integracao)
-      .set({ config: { ...(ig.config ?? {}), lastPollAt: inicio } })
-      .where(eq(integracao.id, ig.id));
+    // Só o cursor: a cópia `ig` é do começo do ciclo, e a listagem e os pedidos podem ter renovado o token no meio.
+    await this.gravarNoConfig(ig.id, { lastPollAt: inicio });
     return n;
   }
 

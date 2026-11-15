@@ -49,6 +49,8 @@ export function FichaCandidato({ id, nomesDasFuncoes, aoFechar, aoMudar, aoApaga
   const [nota, setNota] = useState('');
   const [entrevista, setEntrevista] = useState<{ dia: string; hora: string } | null>(null);
   const [apagando, setApagando] = useState(false);
+  // F4: "Contratado" passa pelo diálogo de contratar (cria o colaborador em Cadastros › Colaboradores).
+  const [contratando, setContratando] = useState(false);
 
   const carregar = useCallback(async () => {
     try {
@@ -123,6 +125,9 @@ export function FichaCandidato({ id, nomesDasFuncoes, aoFechar, aoMudar, aoApaga
           <Button type="button" variant="outline" onClick={() => setEntrevista({ dia: hojeIso(), hora: '15:00' })} disabled={ocupado}>
             📅 Marcar entrevista
           </Button>
+          <Button type="button" variant="outline" onClick={() => setContratando(true)} disabled={ocupado || c.situacao === 'contratado'}>
+            Contratar
+          </Button>
           <Button type="button" onClick={() => window.open(zap, '_blank', 'noopener,noreferrer')}>
             💬 Chamar no WhatsApp
           </Button>
@@ -143,7 +148,11 @@ export function FichaCandidato({ id, nomesDasFuncoes, aoFechar, aoMudar, aoApaga
                 type="button"
                 aria-pressed={c.situacao === s}
                 disabled={ocupado}
-                onClick={() => c.situacao !== s && fazer(() => api.vagasSituacao(id, s), 'Situação alterada e registrada no histórico.')}
+                onClick={() => {
+                  if (c.situacao === s) return;
+                  if (s === 'contratado') setContratando(true);
+                  else fazer(() => api.vagasSituacao(id, s), 'Situação alterada e registrada no histórico.');
+                }}
                 className={`min-h-12 rounded-lg border px-2 py-1.5 text-xs font-bold ${
                   c.situacao === s ? 'border-foreground bg-foreground text-background' : idx >= 0 && i < idx ? 'border-ok/40 bg-ok/10 text-ok' : 'border-border bg-card'
                 }`}
@@ -369,6 +378,53 @@ export function FichaCandidato({ id, nomesDasFuncoes, aoFechar, aoMudar, aoApaga
               <Input id="ent-hora" type="time" value={entrevista.hora} onChange={(e) => setEntrevista({ ...entrevista, hora: e.target.value })} />
             </div>
           </div>
+        </Dialogo>
+      )}
+
+      {contratando && (
+        <Dialogo
+          titulo={`Contratar ${c.nome}?`}
+          aoFechar={() => setContratando(false)}
+          rodape={
+            <>
+              <Button type="button" variant="outline" onClick={() => setContratando(false)} data-foco-inicial>
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                disabled={ocupado}
+                onClick={async () => {
+                  setOcupado(true);
+                  try {
+                    const r = await api.vagasContratar(id);
+                    toast.success(
+                      r.funcaoAchada
+                        ? 'Colaborador criado em Cadastros › Colaboradores. Complete CPF, documentos e o exame admissional lá.'
+                        : 'Colaborador criado em Cadastros › Colaboradores. Escolha a função lá e complete CPF, documentos e o exame admissional.',
+                    );
+                    setContratando(false);
+                    await carregar();
+                    aoMudar();
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : 'Não deu para contratar. Tente de novo.');
+                  } finally {
+                    setOcupado(false);
+                  }
+                }}
+              >
+                Criar colaborador
+              </Button>
+            </>
+          }
+        >
+          <p className="text-sm">
+            Cria o colaborador em <b>Cadastros › Colaboradores</b> já com nome, WhatsApp, função ({(c.funcoes ?? []).length ? nomeDaFuncao(c.funcoes[0], nomesDasFuncoes) : 'a escolher'}), vínculo{' '}
+            {c.tipoVaga === 'horista' ? 'horista' : 'CLT'} e jornada {c.tipoVaga === 'horista' ? 'horista' : c.escala === '12x36' || c.escala === '5x2' ? c.escala : 'a definir'}. CPF,
+            documentos e exame admissional se completam no cadastro.
+          </p>
+          <p className={`mt-2 text-xs ${texto2}`}>
+            A função é a da loja com o mesmo nome; sem uma igual, escolha no cadastro. Contratar exige também a permissão de Cadastros.
+          </p>
         </Dialogo>
       )}
 

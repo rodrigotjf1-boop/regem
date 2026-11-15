@@ -17,6 +17,8 @@ import { DeliveryService } from '../../delivery/delivery.service';
 import { fetchExterno } from '../../../common/fetch-externo';
 import { precosNa99Ligado } from '../../../common/precos-na-99';
 import { ehServidorLocal } from '../../../common/modo';
+import { marcarCancelPendente as marcarCancelPendenteNoBanco, tirarCancelPendente } from '../cancel-pendente';
+import { mesclarNoConfigDaIntegracao } from '../config-da-integracao';
 import {
   Entregador99,
   STATUS_ENTREGA_99,
@@ -317,9 +319,11 @@ export class Food99Service {
       .select()
       .from(integracao)
       .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, CANAL)));
-    const config = { ...((ex?.config as any) ?? {}), bindPending: Date.now() };
+    // O vínculo grava SÓ as chaves dele, mesclando no banco: regravar a cópia apagava o que o poller gravou no meio — um
+    // cancelamento pendente, a situação da loja (ERR-345 deixou estas de fora; ERR-475 as fechou).
+    const config = { bindPending: Date.now() };
     if (ex) {
-      await this.db.update(integracao).set({ config, ...(unidadeId ? { unidadeId } : {}), updatedAt: new Date() }).where(eq(integracao.id, ex.id));
+      await mesclarNoConfigDaIntegracao(this.db, ex.id, config, { colunas: unidadeId ? { unidadeId } : {} });
     } else {
       await this.db.insert(integracao).values({ tenantId, unidadeId, canal: CANAL, ativo: false, config });
     }
@@ -366,8 +370,8 @@ export class Food99Service {
     const detail = await this.shopDetail(u).catch(() => null);
     const nome = detail?.shop_name ?? detail?.name ?? null;
     const addr = detail?.shop_addr ?? detail?.address ?? null;
-    const config = { ...((alvo.config as any) ?? {}), pendingBind: { appShopId: u, nome, addr }, bindPending: null };
-    await this.db.update(integracao).set({ config, updatedAt: new Date() }).where(eq(integracao.id, alvo.id));
+    // Só as chaves do vínculo (ERR-475): entre ler o `alvo` e gravar há a consulta à 99 (`shopDetail`).
+    await mesclarNoConfigDaIntegracao(this.db, alvo.id, { pendingBind: { appShopId: u, nome, addr }, bindPending: null });
     this.logger.log(`shopBindStatus bind ${u} → tenant ${alvo.tenant_id ?? alvo.tenantId} (aguarda confirmação: ${nome ?? '?'})`);
   }
 
@@ -456,8 +460,12 @@ export class Food99Service {
     // nome: do webhook (pendingBind) ou busca no shop/detail (fluxo pull getAuthorizedShops).
     let nome = pend?.appShopId === alvoId ? pend?.nome ?? null : null;
     if (!nome) nome = (await this.shopDetail(alvoId).catch(() => null))?.shop_name ?? null;
-    const config = { ...((row.config as any) ?? {}), tokenExp: 0, shopName: nome, pendingBind: null, bindPending: null };
-    await this.db.update(integracao).set({ merchantId: alvoId, ativo: true, token: null, config, updatedAt: new Date() }).where(eq(integracao.id, row.id));
+    await mesclarNoConfigDaIntegracao(
+      this.db,
+      row.id,
+      { tokenExp: 0, shopName: nome, pendingBind: null, bindPending: null },
+      { colunas: { merchantId: alvoId, ativo: true, token: null } },
+    );
     const ig = await this.integracaoDoTenant(tenantId);
     if (ig) {
       await this.configurarApply(ig, true, true).catch(() => false);
@@ -469,10 +477,7 @@ export class Food99Service {
   // Descarta a loja recém-vinculada oferecida (não era a do lojista).
   async recusarBind(tenantId: string): Promise<{ ok: boolean }> {
     const [row] = await this.db.select().from(integracao).where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, CANAL)));
-    if (row) {
-      const config = { ...((row.config as any) ?? {}), pendingBind: null };
-      await this.db.update(integracao).set({ config, updatedAt: new Date() }).where(eq(integracao.id, row.id));
-    }
+    if (row) await mesclarNoConfigDaIntegracao(this.db, row.id, { pendingBind: null });
     return { ok: true };
   }
 
@@ -587,7 +592,7 @@ export class Food99Service {
     if (!tk) return { errno: -2, errmsg: 'sem auth_token da loja na 99' };
     let j = await chamar(tk).catch(() => ({ errno: -1 }));
     if (Number(j?.errno) === 10102) {
-      const novo = await this.authToken({ ...ig, token: null, config: { ...ig.config, tokenExp: 0 } }).catch(() => null);
+      const novo = await this.authToken({ ...ig, token: null, config: { ...ig.config, tokenExp: 0 } }).catch(() => null); // config-em-memoria
       if (novo) j = await chamar(novo).catch(() => ({ errno: -1 }));
     }
     return j ?? { errno: -1 };
@@ -893,20 +898,17 @@ export class Food99Service {
     reasonId: number,
     reason?: string,
   ): Promise<void> {
-    const pend = { ...(ig.config?.pendingCancels ?? {}) };
-    const anterior = pend[orderId] ?? {};
-    pend[orderId] = { reasonId, reason: reason ?? anterior.reason, attempts: (anterior.attempts ?? 0) + 1 };
-    await this.mesclarNoConfig(ig.id, { pendingCancels: pend });
+    // Só a entrada DESTE pedido (ERR-474): mesclar o `pendingCancels` inteiro da cópia em memória apagava o pendente de
+    // outro pedido cancelado ao mesmo tempo.
+    const pend = await marcarCancelPendenteNoBanco(this.db, ig.id, orderId, { reasonId, reason });
     ig.config = { ...(ig.config ?? {}), pendingCancels: pend };
     this.logger.warn(`cancel ${orderId} pendente (reconciliação vai reenviar)`);
   }
 
   private async limparCancelPendente(ig: IntegFood99, orderId: string): Promise<void> {
     if (!ig.config?.pendingCancels?.[orderId]) return;
-    const pend = { ...ig.config.pendingCancels };
-    delete pend[orderId];
-    await this.mesclarNoConfig(ig.id, { pendingCancels: pend });
-    ig.config = { ...(ig.config ?? {}), pendingCancels: pend };
+    const pend = await tirarCancelPendente(this.db, ig.id, orderId);
+    if (pend) ig.config = { ...(ig.config ?? {}), pendingCancels: pend };
   }
 
   // ===== O entregador na 99 (mig 294) =====
@@ -1174,29 +1176,21 @@ export class Food99Service {
     const pend = { ...(ig.config?.pendingCancels ?? {}) };
     const ids = Object.keys(pend);
     if (!ids.length) return 0;
-    let mudou = false;
     let feitos = 0;
     for (const orderId of ids) {
-      const p = pend[orderId];
+      // Cada pedido grava só a entrada dele (ERR-474).
+      const p = pend[orderId] ?? {};
+      let agora: Record<string, any> | null;
       if ((p.attempts ?? 0) >= 20) {
-        delete pend[orderId];
-        mudou = true;
+        agora = await tirarCancelPendente(this.db, ig.id, orderId);
         this.logger.warn(`cancel ${orderId} DESISTIDO após 20 tentativas`);
-        continue;
-      }
-      const r = await this.cancelarApi(ig, orderId, p.reasonId ?? CANCEL_REASON_PADRAO, p.reason);
-      if (r.ok) {
-        delete pend[orderId];
+      } else if ((await this.cancelarApi(ig, orderId, p.reasonId ?? CANCEL_REASON_PADRAO, p.reason)).ok) {
+        agora = await tirarCancelPendente(this.db, ig.id, orderId);
         feitos++;
       } else {
-        p.attempts = (p.attempts ?? 0) + 1;
-        pend[orderId] = p;
+        agora = await marcarCancelPendenteNoBanco(this.db, ig.id, orderId, {});
       }
-      mudou = true;
-    }
-    if (mudou) {
-      await this.mesclarNoConfig(ig.id, { pendingCancels: pend });
-      ig.config = { ...(ig.config ?? {}), pendingCancels: pend };
+      if (agora) ig.config = { ...(ig.config ?? {}), pendingCancels: agora };
     }
     return feitos;
   }
@@ -1363,21 +1357,19 @@ export class Food99Service {
       .from(integracao)
       .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, CANAL)));
     // Troca de credencial invalida o cache de token (força re-auth).
-    const config = { ...((existente?.config as any) ?? {}), tokenExp: 0 };
+    // Só o `tokenExp`, mesclado no banco: o resto da configuração fica como está (ERR-475).
+    const config = { tokenExp: 0 };
     if (existente) {
-      await this.db
-        .update(integracao)
-        .set({
+      await mesclarNoConfigDaIntegracao(this.db, existente.id, config, {
+        colunas: {
           clientId: appId || existente.clientId,
           clientSecret: appSecret || existente.clientSecret,
           merchantId: appShopId || existente.merchantId,
           ativo: true,
           ...(unidadeId ? { unidadeId } : {}),
           token: null,
-          config,
-          updatedAt: new Date(),
-        })
-        .where(eq(integracao.id, existente.id));
+        },
+      });
     } else {
       await this.db.insert(integracao).values({
         tenantId,

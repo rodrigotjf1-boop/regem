@@ -142,6 +142,7 @@ import { CardapioWebService } from '../integracoes/cardapio-web/cardapio-web.ser
 import { IfoodService } from '../integracoes/ifood/ifood.service';
 import { Food99Service } from '../integracoes/food99/food99.service';
 import { AnotaAiService } from '../integracoes/anotaai/anotaai.service';
+import { mesclarNoConfigDaIntegracao } from '../integracoes/config-da-integracao';
 import { adaptar, DescontoCanal, PedidoNormalizado } from './adapters';
 import { observarChamadasExternas } from '../../common/chamadas-externas';
 import {
@@ -4635,11 +4636,10 @@ export class DeliveryService {
     // Cor de identificação (kanban) — guardada no config jsonb, preservando o resto.
     // dto.cor: string preenchida = definir; '' = usar padrão (limpar); ausente = manter.
     const corDef = typeof dto.cor === 'string' ? dto.cor.trim() : undefined;
-    const config = { ...((atual as any)?.config ?? {}) };
-    if (corDef !== undefined) {
-      if (corDef) config.cor = corDef;
-      else delete config.cor;
-    }
+    // Só a chave da cor, mesclada no banco (ERR-475): regravar a cópia apagava o que o poller do canal gravou no meio
+    // (um cancelamento pendente, o token renovado, o cursor).
+    const config: Record<string, unknown> = corDef ? { cor: corDef } : {};
+    const tirarDoConfig = corDef === '' ? ['cor'] : [];
     // iFood tem fluxo PRÓPRIO (parceiro): ativação/merchant só via
     // /integracoes/ifood/solicitar + /distribuicao/.../resolver. Pela rota genérica
     // só deixamos ajustar campos benignos (ex.: cor no kanban) — ativar por fora
@@ -4655,14 +4655,23 @@ export class DeliveryService {
       clientId: fluxoProprio ? atual?.clientId ?? null : dto.clientId ?? atual?.clientId ?? null,
       clientSecret: fluxoProprio ? atual?.clientSecret ?? null : secretNovo ?? atual?.clientSecret ?? null,
       token: fluxoProprio ? atual?.token ?? null : tokenNovo ?? atual?.token ?? null,
-      config,
-      updatedAt: new Date(),
     };
     if (canal === CANAL_REDE) Object.assign(vals, DeliveryService.valoresDaRede(dto, atual, secretNovo));
+    // iFood: as colunas são do fluxo próprio e só voltariam com o valor da cópia — o token renovado pelo poller no meio
+    // voltaria ao velho. Não se regravam.
+    if (fluxoProprio) for (const k of ['ativo', 'merchantId', 'clientId', 'clientSecret', 'token']) delete vals[k];
     if (atual) {
-      await this.db.update(integracao).set(vals).where(eq(integracao.id, atual.id));
+      await mesclarNoConfigDaIntegracao(this.db, atual.id, config, { tirar: tirarDoConfig, colunas: vals });
     } else {
-      await this.db.insert(integracao).values({ tenantId, unidadeId: dto.unidadeId ?? null, canal, ...vals });
+      await this.db.insert(integracao).values({
+        tenantId,
+        unidadeId: dto.unidadeId ?? null,
+        canal,
+        ativo: false,
+        ...vals,
+        config,
+        updatedAt: new Date(),
+      });
     }
     return { ok: true };
   }
