@@ -50,9 +50,11 @@ begin
                    || 'for each row execute function registrar_exclusao_sync()', t);
   end loop;
 end $$;
+-- RLS ligada sem política (como a 412/419): o app conecta como dono e passa; a API pública do Supabase fica fechada.
+alter table cardapio_area_entrega enable row level security;
 
--- Conferência no MESMO Run: `ok` tem de vir true — a tabela com as 15 colunas, os 2 índices e os 5 gatilhos.
-select (x.colunas = 15 and x.indices = 2 and x.gatilhos = 5) as ok, x.*
+-- Conferência no MESMO Run: `ok` tem de vir true — a tabela com as 15 colunas, os 2 índices, os 5 gatilhos e a RLS.
+select (x.colunas = 15 and x.indices = 2 and x.gatilhos = 5 and x.rls) as ok, x.*
   from (
     select
       (select count(*) from information_schema.columns
@@ -62,5 +64,7 @@ select (x.colunas = 15 and x.indices = 2 and x.gatilhos = 5) as ok, x.*
           and indexname in ('idx_cardapio_area_entrega_tenant', 'idx_cardapio_area_entrega_sync')) as indices,
       (select count(*) from pg_trigger t join pg_class c on c.oid = t.tgrelid
         where c.relname = 'cardapio_area_entrega' and not t.tgisinternal
-          and t.tgname in ('trg_bump_atualizado_em', 'trg_sync_marcador_ins', 'trg_sync_marcador_upd', 'trg_sync_marcador_del', 'trg_sync_exclusao')) as gatilhos
+          and t.tgname in ('trg_bump_atualizado_em', 'trg_sync_marcador_ins', 'trg_sync_marcador_upd', 'trg_sync_marcador_del', 'trg_sync_exclusao')) as gatilhos,
+      (select c.relrowsecurity from pg_class c join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = current_schema() and c.relname = 'cardapio_area_entrega') as rls
   ) x;
