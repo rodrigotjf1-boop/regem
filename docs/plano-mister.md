@@ -761,6 +761,50 @@ O último dos nove avisos da tabela aprovada. **Nasce desligado** (padrão: 20 m
   - depois das 6 horas segue aberto; despachado e cancelado resolvem; desligado com um parado fecha calado.
 - Prova por defeito: 7 de 7 (o relógio do aceite, a retirada, a encomenda, o pedido velho, o servidor sem sinal, o aberto que continua, o tempo com que abriu).
 
+### F4 — Propor e aprovar: o plano em entregas (liberada pelo dono em 15/11/2026)
+
+O Mister propõe, a pessoa autoriza, o Regem executa pelo MESMO caminho da tela e o Mister confere o efeito. É o que as
+conversas 5 (autorização por botão) e 6 (autorização com PIN) do protótipo aprovado desenham. Regras que valem para a
+fase inteira:
+
+- **Catálogo fixo no código** (`mister-procedimentos.ts`). A IA não inventa ação: cada procedimento tem nome, nível,
+  prazo, pré-condição, execução e verificação.
+- **Dois níveis:**
+  - **botão** na conversa, só para baixo impacto: vale 10 minutos e uma vez;
+  - **link com PIN**, que abre o Regem: tudo o que mexe com dinheiro, cancelamento ou configuração. O PIN nunca é
+    digitado na conversa, e "pode cancelar" escrito recebe a resposta da conversa 6.
+- **Quem autoriza:** até o perfil de permissões do fim do projeto, só o presidente. O gerente recebe a proposta como
+  aviso, sem botão.
+- **A execução usa o serviço da tela**, nunca um atalho: o teste de impressora é o `enfileirarTeste` (pelo
+  `edge_comando` quando a loja tem servidor); a reconsulta da nota é o `consultarNota`.
+- **Verificação depois de executar:**
+  - "Feito às HH:MM" só com o efeito conferido, por exemplo a via de teste impressa ou a nota respondida;
+  - sem o efeito no prazo da verificação: "Não deu: …", com o que fazer.
+- **Cada proposta vale uma vez:** gravação condicional (`situacao = 'proposta' and vence_em > now()`), tanto no toque
+  repetido quanto em dois aparelhos.
+- **Auditoria** de cada passo: proposta, autorizada, recusada, vencida, executada, conferida.
+
+**Entregas:**
+
+| Entrega | O que entra | Migration |
+|---|---|---|
+| **F4.1 — Fundação e o botão** | Tabela `mister_proposta` (só nuvem, RLS): empresa, loja, aviso de origem, procedimento, parâmetros, nível, situação (`proposta`, `autorizada`, `recusada`, `vencida`, `executando`, `feita`, `nao_deu`), prazos, quem autorizou, resultado. Dois procedimentos de botão nascidos dos avisos que já existem: **imprimir uma via de teste** (aviso `impressora`; confere a via impressa) e **consultar a nota de novo na SEFAZ** (aviso `nota_sem_resposta`; confere a resposta). A proposta vai junto do aviso, com os botões "Autorizar" e "Não agora" (dentro das 24 h; fora delas, o modelo `mister_aviso` abre a conversa e a proposta segue logo depois). A rotina que vence as propostas. | 1 |
+| **F4.2 — O link com PIN** | A página do Regem que mostra a proposta e pede o PIN (pede protótipo antes). Primeiro procedimento: cancelar um pedido com o estorno, pelo mesmo serviço do painel. | talvez |
+| **F4.3 — A pergunta que vira proposta** | A ferramenta `propor_procedimento` para a IA, só com os procedimentos do catálogo. A IA propõe; a pessoa autoriza do mesmo jeito. | — |
+| **F4.4 — Procedimentos do servidor da loja** | Os que pedem comando novo no `sync-daemon`, como reiniciar o serviço de impressão da conversa 5. Vão no `.exe`. | — |
+
+**Conferência da F4.1:**
+- spec com Postgres:
+  - a proposta nasce com o aviso, e só para o presidente ligado;
+  - o toque autoriza uma vez (o segundo toque e o de outro aparelho respondem "já foi");
+  - a vencida não executa;
+  - "Não agora" recusa;
+  - a execução passa pelo serviço da tela;
+  - a verificação dá "feito" ou "não deu";
+  - a auditoria de cada passo;
+  - o gerente não recebe botão;
+- prova por defeito.
+
 ## 5. O que depende do dono
 
 1. ~~Onde a IA roda~~ — decidido: nuvem.
