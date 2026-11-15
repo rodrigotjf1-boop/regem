@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O Farol entra na autorização por clique do Regem (15/11, F6 do hub; SEM migration; não mexe no `sync-daemon`; nasce
+  parado).** Na NUVEM com o merge: a ficha do Farol no clique (as três leituras da página de 01/10) e as frases das fichas
+  e da fila no catálogo do clique (o manifesto público muda só no texto). Nada aparece para loja nenhuma até a
+  distribuição pôr o Farol em `DMS_ID_APLICATIVOS` no `regem-api`. **No `.zip`:** nada a fazer na loja (a autorização por
+  clique é só da nuvem); os arquivos vão junto no próximo corte. Nada no `.exe`.
+
 - **A faixa "sem conexão com a nuvem" no servidor da loja (14/11, F1.4 — o alerta local; SEM migration; não mexe no
   `sync-daemon`).** Depois de 2 min com o envio falhando (ou 5 sem nenhum envio certo), todas as telas do servidor da loja
   mostram a faixa: a venda local continua; o iFood, a 99 e o cardápio digital não chegam; "O que conferir"; quando volta,

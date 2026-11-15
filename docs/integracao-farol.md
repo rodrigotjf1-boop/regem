@@ -47,6 +47,15 @@ agora**. Ele só LÊ — e nunca recebe preço, custo, margem, CMV, cliente ou v
   `POST /integracao/autorizacao/revogar`; ou a distribuição, pelo console. Vale na chamada seguinte
   (não há cache). Autorizar de novo uma loja troca o token dela: o antigo passa a devolver `401`.
 - **A loja vem do token.** Não existe parâmetro de loja nem de empresa.
+- **O clique do Padrão DMS (F6 do Hub DMS, 15/11/2026; nasce parado).** O Farol pode pedir pela autorização por clique,
+  a mesma do Liame e do Orzuni, no lugar da página acima (que segue valendo até o fim da F6): o pedido empurrado
+  (`POST /integracao/autorizacao/pedido`, com o token do DMS ID do aplicativo do Farol), a página nova do Regem ("O
+  Farol quer ler o cardápio, as fichas técnicas e a fila da cozinha"), a volta ao MESMO `redirect_uri` de hoje com
+  `code`, `state` e `iss`, e a troca pelo token do DMS ID, que devolve a ligação `dms_lg_regem_…` de cada loja. Daí em
+  diante cada chamada leva `Authorization: Bearer <token do DMS ID>` e `DMS-Ligacao: <ligação da loja>`; as três
+  leituras, os avisos (registrados de novo pela ligação: ficam presos à credencial) e os erros não mudam. Trocar pelo
+  clique faz a chave antiga daquela loja devolver `401`. Liga quando a distribuição põe o Farol em `DMS_ID_APLICATIVOS`
+  do `regem-api`; o lado do Farol é outro PR, no repositório dele.
 
 ## 2. `GET /integracao/loja` (qualquer escopo)
 
