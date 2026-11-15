@@ -119,6 +119,46 @@ export const PERMISSAO_NA_TELA: Partial<
     naFrase: 'os pedidos em produção',
     curta: 'a fila da cozinha',
   },
+  // RegemCast (F6 do hub, 15/11/2026): a lista de clientes da EMPRESA e as vendas da 99. São só de produto da DMS (nenhum
+  // parceiro as recebe: `ESCOPOS_DO_PARCEIRO`), por isso as frases nascem aqui.
+  'clientes.ler': {
+    rotulo: 'Clientes',
+    frase:
+      'O nome, o telefone, os canais, o bairro e se o cliente aceitou ou recusou mensagens. Nunca o cliente que só pediu ' +
+      'por aplicativo de entrega.',
+    naFrase: 'a lista de clientes',
+    curta: 'os clientes',
+    noAssunto: 'a lista de clientes',
+  },
+  'vendas.99food.ler': {
+    rotulo: 'Vendas da 99Food',
+    frase: 'Os pedidos que chegaram pela 99Food, com o telefone que a 99 informa.',
+    naFrase: 'as vendas da 99Food',
+    curta: 'as vendas da 99',
+  },
+  // GoGeM (F6 do hub, 15/11/2026): o totem lê o cardápio, pausa no canal dele e LANÇA a venda — a primeira escrita de
+  // venda pelo clique. Cada frase diz o que a rota faz: `GET /sync/catalogo`, `POST /sync/produtos/pausa` (pelo acesso de
+  // integração, só o canal do totem), `POST /vendas/externa-pdv`, `/externa-pdv/falha` e `POST /delivery/totem-dinheiro`.
+  'totem.catalogo.ler': {
+    rotulo: 'Cardápio do totem',
+    frase: 'Os produtos da loja, com preço de venda, categoria, foto, descrição e os adicionais de cada um.',
+    naFrase: 'o cardápio do totem',
+    curta: 'o cardápio',
+  },
+  'totem.produtos.pausar': {
+    rotulo: 'Pausar produtos no totem',
+    frase: 'Pausar e despausar um produto só no canal do totem. Os outros canais ficam como estão.',
+    naFrase: 'pausar produtos no totem',
+    curta: 'pausar no totem',
+  },
+  'totem.vendas.lancar': {
+    rotulo: 'Lançar a venda do totem',
+    frase:
+      'Registrar no Regem a venda feita no totem, paga ou a pagar em dinheiro no caixa, que entra na loja como as outras ' +
+      'vendas; e avisar quando o pagamento no totem falhou.',
+    naFrase: 'lançar a venda do totem',
+    curta: 'lançar a venda',
+  },
 };
 
 /** Como a permissão entra no assunto do e-mail ("O Liame passou a receber o telefone do cliente na Brasa Centro"). */
@@ -142,6 +182,11 @@ export type AplicativoDoClique = {
    * inteira (teste, desenvolvimento). Quem tem a página de 01/10 (`AUTORIZACAO_LOJA`) segue com os endereços de lá.
    */
   voltas?: { env: string; padrao: readonly string[] };
+  /**
+   * A ligação é da EMPRESA INTEIRA (o RegemCast: os clientes são da empresa, mig 302): a página não pede para marcar
+   * lojas (todas entram, e as que forem abertas depois também), e a troca entrega UMA ligação, sem loja.
+   */
+  empresaInteira?: boolean;
   necessarias: readonly EscopoIntegracao[];
   opcionais: readonly EscopoIntegracao[];
   /** Dado pessoal: num bloco próprio da tela, desligado (F3-7). */
@@ -173,9 +218,10 @@ export const fraseDe = (app: Pick<AplicativoDoClique, 'parceiro'>, id: EscopoInt
   app.parceiro?.frases[id] ?? PERMISSAO_NA_TELA[id];
 
 /**
- * Os aplicativos que usam a autorização por clique: o Liame (F3-1), o Orzuni (F6, 13/11/2026) e o Farol (F6, 15/11/2026;
- * a página de 01/10 dele segue valendo até o fim da F6). Estar aqui não liga nada: o aplicativo só pede com o client_id
- * dele em `DMS_ID_APLICATIVOS` (a distribuição configura).
+ * Os aplicativos que usam a autorização por clique: o Liame (F3-1), o Orzuni (F6, 13/11/2026), o Farol (F6, 15/11/2026;
+ * a página de 01/10 dele segue valendo até o fim da F6), o RegemCast (F6, 15/11/2026; a empresa inteira) e o GoGeM
+ * (F6, 15/11/2026; o totem, que lança venda). Estar aqui não
+ * liga nada: o aplicativo só pede com o client_id dele em `DMS_ID_APLICATIVOS` (a distribuição configura).
  */
 export const APLICATIVOS_DO_CLIQUE: Record<string, AplicativoDoClique> = {
   liame: {
@@ -264,6 +310,70 @@ export const APLICATIVOS_DO_CLIQUE: Record<string, AplicativoDoClique> = {
       { rotulo: 'Entrar no seu Regem', frase: 'O Farol não recebe a sua senha nem a sua sessão.' },
     ],
     naoPodeNoEmail: 'Ele só lê o cardápio, as fichas e a fila da cozinha: não pode mudar nada no Regem, nem ver vendas, clientes, preço ou custo.',
+  },
+  // RegemCast (plano "Clique RegemCast → Regem" do hub, 15/11/2026; protótipo `prototipos/clique-empresa-inteira.html`):
+  // o primeiro que lê a EMPRESA inteira, com as MESMAS leituras da chave `rgm_it_` dele (mig 302). Os dados de cliente
+  // são necessários (sem eles a mensagem não chega); a 99 é opcional e desligada, e o RegemCast só a pede quando o dono
+  // autorizou a 99 lá (regra de 30/09/2026).
+  regemcast: {
+    nome: 'RegemCast',
+    faz: 'monta as campanhas de WhatsApp com quem já comprou de você',
+    inicio: 'https://cast.dmsregem.com',
+    oQueLe: 'os clientes e as compras',
+    soLe: 'Ele só lê o que estiver listado aqui; não muda pedido, preço nem cadastro no Regem.',
+    voltas: { env: 'INTEGRACAO_REGEMCAST_REDIRECT_URIS', padrao: ['https://cast.dmsregem.com/integracoes/regem/volta'] },
+    empresaInteira: true,
+    necessarias: ['pedidos.ler', 'clientes.ler', 'clientes.telefone.ler'],
+    opcionais: ['vendas.99food.ler'],
+    dadoPessoal: ['clientes.ler', 'clientes.telefone.ler', 'vendas.99food.ler'],
+    financeiras: [],
+    motivos: {
+      'pedidos.ler': 'Para saber quem comprou, o quê e quando, e montar os públicos: quem não volta há 30 dias, quem pede todo fim de semana.',
+      'clientes.ler': 'Para mandar a campanha só a quem aceitou receber, e respeitar na hora quem recusou.',
+      'clientes.telefone.ler': 'Para ligar cada compra ao cliente certo e não mandar a mesma mensagem duas vezes.',
+      'vendas.99food.ler': 'Você autorizou a 99 no RegemCast, em Integrações › 99. Sem essa autorização lá, a 99 nem aparece aqui.',
+    },
+    semElas: {
+      'vendas.99food.ler': 'Desligado: as campanhas não contam os pedidos da 99. O resto funciona.',
+    },
+    naoPode: [
+      { rotulo: 'Mudar pedido, preço ou cadastro no Regem', frase: 'Esta ligação só lê: não tem nenhuma rota que mude algo no Regem.' },
+      { rotulo: 'Ver custo, caixa e pagamentos', frase: 'Custo, margem, caixa e formas de pagamento ficam no Regem.' },
+      { rotulo: 'Ver o resto da operação', frase: 'Estoque, fichas, equipe, escala e ponto não fazem parte.' },
+      { rotulo: 'Entrar no seu Regem', frase: 'O RegemCast não recebe a sua senha nem a sua sessão.' },
+    ],
+    naoPodeNoEmail: 'Ele só lê os clientes e as compras: não pode mudar nada no Regem, nem ver custo, caixa, pagamentos ou o resto da operação.',
+  },
+  // GoGeM (plano "Clique GoGeM → Regem" do hub, 15/11/2026; protótipo `prototipos/clique-gogem.html`): o totem de
+  // autoatendimento, loja por loja, com as MESMAS três permissões do token `rgm_it_` dele (mig 323), todas necessárias —
+  // sem lançar a venda o totem não vende; sem pausar, vende o que acabou (G-1, G-2). A primeira escrita de venda pelo
+  // clique: o título e as frases dizem isso (G-3).
+  gogem: {
+    nome: 'GoGeM',
+    faz: 'é o totem de autoatendimento: mostra o cardápio do Regem e lança no Regem a venda feita nele',
+    inicio: 'https://app.gogem.com.br',
+    oQueLe: 'o cardápio e lançar as vendas do totem',
+    soLe: 'Ele não muda preço nem venda já lançada no Regem; no cardápio, só pausa um produto no canal do totem.',
+    voltas: { env: 'INTEGRACAO_GOGEM_REDIRECT_URIS', padrao: ['https://app.gogem.com.br/integracoes/regem/volta'] },
+    necessarias: ['totem.catalogo.ler', 'totem.produtos.pausar', 'totem.vendas.lancar'],
+    opcionais: [],
+    dadoPessoal: [],
+    financeiras: [],
+    motivos: {
+      'totem.catalogo.ler': 'Para mostrar no totem o cardápio e o preço que você define no Regem.',
+      'totem.produtos.pausar': 'Para o totem não vender o que acabou.',
+      'totem.vendas.lancar': 'Para a venda feita no totem entrar no Regem como as outras, sem ninguém digitar de novo.',
+    },
+    semElas: {},
+    naoPode: [
+      { rotulo: 'Mudar preço ou cardápio no Regem', frase: 'Ele lê o cardápio; a única mudança é pausar um produto no canal do totem.' },
+      { rotulo: 'Cancelar ou mudar uma venda', frase: 'O cancelamento é feito no Regem, que avisa o totem.' },
+      { rotulo: 'Ver clientes e as outras vendas', frase: 'Ele só lança a venda do totem; pedidos de outros canais e clientes não fazem parte.' },
+      { rotulo: 'Entrar no seu Regem', frase: 'O GoGeM não recebe a sua senha nem a sua sessão.' },
+    ],
+    naoPodeNoEmail:
+      'Ele lê o cardápio, pausa produtos no canal do totem e lança a venda do totem: não pode mudar preço, cancelar ou mudar ' +
+      'venda, nem ver clientes e as outras vendas.',
   },
 };
 
@@ -402,6 +512,7 @@ export const CLIQUE_DESLIGADO = 'A autorização por clique não está ligada ne
 export const APLICATIVO_SEM_CLIQUE = 'Este aplicativo não usa a autorização por clique do Regem.';
 export const CODIGO_INVALIDO = 'Código de autorização inválido, vencido ou já usado.';
 export const CORRIDA_DA_TROCA = 'Outra autorização desta loja terminou agora mesmo. Peça a autorização de novo.';
+export const CORRIDA_DA_TROCA_DA_EMPRESA = 'Outra autorização desta empresa terminou agora mesmo. Peça a autorização de novo.';
 
 // ───────────────────────────── a configuração ─────────────────────────────
 

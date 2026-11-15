@@ -1,8 +1,11 @@
 import 'reflect-metadata';
 import { readFileSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { generateKeyPairSync, randomBytes, randomUUID, sign } from 'node:crypto';
 import { Pool } from 'pg';
+import { gerarChave } from '../../dms/integracao-dms';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Reflector } from '@nestjs/core';
 import { UnauthorizedException } from '@nestjs/common';
@@ -45,6 +48,51 @@ const semFkCompartilhada = (s: string) =>
   s.replace(/\s+references\s+(empresa|unidade)\s*\(\s*id\s*\)(\s+on\s+delete\s+cascade)?/gi, '');
 const ESCOPOS_TOTEM = ['totem.catalogo.ler', 'totem.produtos.pausar', 'totem.vendas.lancar'];
 
+// A LIGAÇÃO DO CLIQUE (plano "Clique GoGeM → Regem", 15/11/2026): o token do DMS ID do GoGeM + `DMS-Ligacao`. O DMS ID
+// é de mentira (as chaves públicas por HTTP e a emissão do token), como nas specs da porta. Identificadores fictícios.
+const APP_GOGEM = 'aplicativo-gogem-de-teste';
+const APP_FAROL = 'aplicativo-farol-de-teste';
+const RECURSO = 'https://api.regem.teste/api/v1/integracao';
+const KID = 'chave-do-totem';
+type DmsIdFalso = { servidor: Server; emissor: string; emitir(o?: { aplicativo?: string; permissoes?: string }): string };
+async function subirDmsIdFalso(): Promise<DmsIdFalso> {
+  const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-384' });
+  const jwk = { ...publicKey.export({ format: 'jwk' }), kid: KID, use: 'sig', alg: 'ES384' };
+  const servidor = createServer((req, res) => {
+    if (req.url !== '/oidc/jwks') {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ keys: [jwk] }));
+  });
+  await new Promise<void>((pronto) => servidor.listen(0, '127.0.0.1', pronto));
+  const emissor = `http://127.0.0.1:${(servidor.address() as AddressInfo).port}/oidc`;
+  const b64 = (v: unknown) => Buffer.from(JSON.stringify(v)).toString('base64url');
+  return {
+    servidor,
+    emissor,
+    emitir(o = {}) {
+      const agora = Math.floor(Date.now() / 1000);
+      const aplicativo = o.aplicativo ?? APP_GOGEM;
+      const cabeca = b64({ alg: 'ES384', typ: 'at+jwt', kid: KID });
+      const corpo = b64({
+        iss: emissor,
+        aud: RECURSO,
+        sub: aplicativo,
+        client_id: aplicativo,
+        scope: o.permissoes ?? 'totem.catalogo.ler totem.produtos.pausar totem.vendas.lancar',
+        iat: agora,
+        exp: agora + 3600,
+        jti: randomUUID(),
+      });
+      const assinatura = sign('sha384', Buffer.from(`${cabeca}.${corpo}`), { key: privateKey, dsaEncoding: 'ieee-p1363' }).toString('base64url');
+      return `${cabeca}.${corpo}.${assinatura}`;
+    },
+  };
+}
+
 // As cinco rotas do totem e o escopo de cada uma.
 const ROTAS: Array<[any, string, string]> = [
   [CatalogoSyncController, 'catalogo', 'totem.catalogo.ler'],
@@ -67,6 +115,9 @@ descrever('credencial própria do GoGeM — token de integração nas rotas do t
   const empresas: string[] = [];
   const q = (s: string, p: any[] = []) => pool.query(s, p).then((r) => r.rows);
   const edgeOriginal = process.env.EDGE_MODE;
+  const ENV_DMS_ID = ['DMS_ID_LIGADO', 'DMS_ID_EMISSOR', 'DMS_ID_RECURSO', 'DMS_ID_APLICATIVOS'];
+  const envOriginal: Record<string, string | undefined> = Object.fromEntries(ENV_DMS_ID.map((k) => [k, process.env[k]]));
+  let dmsId: DmsIdFalso;
 
   beforeAll(async () => {
     delete process.env.EDGE_MODE; // o token de integração é da NUVEM
@@ -80,10 +131,24 @@ descrever('credencial própria do GoGeM — token de integração nas rotas do t
     expect(conferencia).toHaveLength(4);
     if (conferencia.some((l: any) => !l.ok)) throw new Error(`conferência da 323: ${JSON.stringify(conferencia)}`);
     await aplicar(mig('323_integracao_gogem.sql'));
+    // A ligação do DMS ID (mig 329) e a via ligada, com o DMS ID de mentira.
+    await aplicar(semFkCompartilhada(mig('329_integracao_ligacao.sql')));
+    dmsId = await subirDmsIdFalso();
+    Object.assign(process.env, {
+      DMS_ID_LIGADO: 'true',
+      DMS_ID_EMISSOR: dmsId.emissor,
+      DMS_ID_RECURSO: RECURSO,
+      DMS_ID_APLICATIVOS: JSON.stringify({ gogem: APP_GOGEM, farol: APP_FAROL }),
+    });
   });
   afterAll(async () => {
     if (edgeOriginal === undefined) delete process.env.EDGE_MODE;
     else process.env.EDGE_MODE = edgeOriginal;
+    for (const [k, v] of Object.entries(envOriginal)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    await new Promise((ok) => dmsId?.servidor.close(ok));
     for (const id of empresas) {
       await q(`delete from public.equipamento where tenant_id = $1`, [id]).catch(() => {});
       await q(`delete from public.colaborador where tenant_id = $1`, [id]).catch(() => {});
@@ -230,5 +295,88 @@ descrever('credencial própria do GoGeM — token de integração nas rotas do t
       };
       expect([metodo, await recusa(guardDaApi.canActivate(ctx))]).toEqual([metodo, 403]);
     }
+  });
+
+  // ───────────────────────────── a ligação do clique (F6, plano "Clique GoGeM → Regem") ─────────────────────────────
+
+  /** A ligação que a troca do clique cria: o mesmo id do acesso da loja, o resumo do segredo e o aplicativo do DMS ID. */
+  async function ligacaoDe(t: { id: string }, tenant: string, aplicativo = APP_GOGEM) {
+    const lg = gerarChave('lg', 'regem');
+    await q(`insert into integracao_ligacao (id, tenant_id, aplicativo, prefixo, segredo_hash) values ($1, $2, $3, $4, $5)`, [
+      t.id,
+      tenant,
+      aplicativo,
+      lg.prefixo,
+      lg.resumo,
+    ]);
+    return lg.chave;
+  }
+  const pelaLigacao = (ligacao: string, token = dmsId.emitir()) => ({ authorization: `Bearer ${token}`, 'dms-ligacao': ligacao });
+
+  it('pela ligação (token do DMS ID + DMS-Ligacao): passa nas cinco rotas, com a loja da ligação e o equipamento do GoGeM, sem X-Sync-Token', async () => {
+    const e = await empresa();
+    const antigo = await credencialAntiga(e, e.lojas[0]);
+    const acesso = await emitir(e, e.lojas[0], 'gogem', ESCOPOS_TOTEM);
+    const ligacao = await ligacaoDe(acesso, e.tenant);
+    for (const [controller, metodo] of ROTAS) {
+      const { ctx, req } = contexto(controller, metodo, pelaLigacao(ligacao));
+      await expect(guard.canActivate(ctx)).resolves.toBe(true);
+      expect(req.sync).toEqual({ tenantId: e.tenant, unidadeId: e.lojas[0], equipamentoId: antigo.id, token: null, integracaoTokenId: acesso.id });
+      expect(req.integracao).toMatchObject({ via: 'ligacao', aplicativo: APP_GOGEM, cliente: 'gogem' });
+    }
+    // O último uso vai para a ligação.
+    await new Promise((r) => setTimeout(r, 200));
+    const [u] = await q(`select ultimo_uso_em is not null as usado from integracao_ligacao where id = $1`, [acesso.id]);
+    expect(u).toEqual({ usado: true });
+  });
+
+  it('pela ligação: outro aplicativo, ligação revogada ou o token do DMS ID sem a permissão da rota — recusa, e NÃO cai no caminho antigo', async () => {
+    const e = await empresa();
+    const antigo = await credencialAntiga(e, e.lojas[0]);
+    const acesso = await emitir(e, e.lojas[0], 'gogem', ESCOPOS_TOTEM);
+    const ligacao = await ligacaoDe(acesso, e.tenant);
+    // O token do DMS ID do Farol não usa a ligação do GoGeM.
+    const doFarol = contexto(VendasExternaController, 'venderTotem', pelaLigacao(ligacao, dmsId.emitir({ aplicativo: APP_FAROL })));
+    expect(await recusa(guard.canActivate(doFarol.ctx))).toBe(401);
+    // Token do DMS ID torto: 401.
+    expect(await recusa(guard.canActivate(contexto(VendasExternaController, 'venderTotem', pelaLigacao(ligacao, 'torto')).ctx))).toBe(401);
+    // Vale o que a loja autorizou E o token do DMS ID tem: só o cardápio no token → a venda é 403.
+    const soCardapio = dmsId.emitir({ permissoes: 'totem.catalogo.ler' });
+    expect(await recusa(guard.canActivate(contexto(CatalogoSyncController, 'catalogo', pelaLigacao(ligacao, soCardapio)).ctx))).toBe('passou');
+    expect(await recusa(guard.canActivate(contexto(VendasExternaController, 'venderTotem', pelaLigacao(ligacao, soCardapio)).ctx))).toBe(403);
+    // Revogado (em Aplicativos conectados): 401, mesmo com o X-Sync-Token antigo junto.
+    await tokensSvc.revogarPeloConsole(acesso.id, 'teste de revogação', dist);
+    const revogada = contexto(VendasExternaController, 'venderTotem', { ...pelaLigacao(ligacao), 'x-sync-token': antigo.token });
+    expect(await recusa(guard.canActivate(revogada.ctx))).toBe(401);
+  });
+
+  it('a ligação de outro cliente (o Farol, pela ligação dele) não abre as rotas do totem', async () => {
+    const e = await empresa();
+    const farol = await emitir(e, e.lojas[0], 'farol', ['catalogo.ler', 'fichas.ler', 'producao.ler']);
+    const ligacao = await ligacaoDe(farol, e.tenant, APP_FAROL);
+    const token = dmsId.emitir({ aplicativo: APP_FAROL, permissoes: 'catalogo.ler fichas.ler producao.ler' });
+    for (const [controller, metodo] of ROTAS)
+      expect([metodo, await recusa(guard.canActivate(contexto(controller, metodo, pelaLigacao(ligacao, token)).ctx))]).toEqual([metodo, 403]);
+  });
+});
+
+// A pausa do totem pelo acesso de INTEGRAÇÃO (token ou ligação): só o canal do totem — é o que a página da autorização
+// diz ao presidente. O caminho antigo (`X-Sync-Token`) segue como era.
+describe('a pausa do totem pelo acesso de integração: só o canal do totem', () => {
+  const chamadas: any[] = [];
+  const servico = { pausarCanalPorCodigo: async (...a: any[]) => chamadas.push(a) } as any;
+  const controller = new CatalogoSyncController(servico);
+  const ctx = (integracaoTokenId: string | null) => ({ tenantId: 't1', unidadeId: 'u1', equipamentoId: null, token: null, integracaoTokenId }) as any;
+
+  it('sem canal ou com o do totem: pausa no canal do totem; outro canal pelo acesso de integração: 400 e nada muda', async () => {
+    await controller.pausar(ctx('acesso-1'), { codigoPdv: '101', pausado: true } as any);
+    await controller.pausar(ctx('acesso-1'), { codigoPdv: '101', pausado: false, canal: 'gogem' } as any);
+    expect(() => controller.pausar(ctx('acesso-1'), { codigoPdv: '101', pausado: true, canal: 'ifood' } as any)).toThrow(
+      'Pelo acesso do totem, a pausa é só no canal do totem ("gogem").',
+    );
+    expect(chamadas.map((c) => c[2])).toEqual(['gogem', 'gogem']);
+    // O caminho antigo (equipamento) não muda.
+    await controller.pausar(ctx(null), { codigoPdv: '101', pausado: true, canal: 'outro' } as any);
+    expect(chamadas.at(-1)?.[2]).toBe('outro');
   });
 });

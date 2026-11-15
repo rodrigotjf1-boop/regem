@@ -87,6 +87,20 @@ export type TelaDaAutorizacao = {
   lojasDoTeste?: { maximo: number; vagas: number } | null;
   /** Só o parceiro: o resumo do texto que o presidente leu; a página o devolve ao autorizar (a lista do hub pode mudar). */
   resumo?: string;
+  /**
+   * Só o aplicativo que lê a EMPRESA INTEIRA (o RegemCast): no lugar das caixas das lojas, o bloco da empresa. Todas as
+   * lojas vêm marcadas e não se desmarcam (a ligação é uma só, sem loja; as lojas abertas depois entram sozinhas).
+   */
+  empresaInteira?: {
+    titulo: string;
+    ajuda: string;
+    nome: string;
+    resumo: string;
+    lojas: string;
+    aviso: string;
+    /** A empresa já tem acesso deste aplicativo: desde quando e o que ele libera (continua valendo: autorizar soma). */
+    ja: { desde: string; frase: string; permissoes: { id: EscopoIntegracao; rotulo: string }[] } | null;
+  };
 };
 
 export type EntradaDaTela = {
@@ -100,6 +114,8 @@ export type EntradaDaTela = {
   verFinanceiro: boolean;
   /** Só o parceiro na etapa de teste: as lojas que ele pode ter e as que já usa em OUTRAS empresas (ativas e pendentes). */
   lojasDoTeste?: { maximo: number; emOutras: number } | null;
+  /** Só a empresa inteira: o acesso SEM loja que a empresa já tem com este aplicativo (a troca soma o que ele libera). */
+  daEmpresa?: { desde: Date; jaLiberado: readonly string[] } | null;
 };
 
 /** "30/09/2026", no fuso da loja. */
@@ -163,12 +179,43 @@ export function resumoDaTela(t: Omit<TelaDaAutorizacao, 'resumo'>): string {
 
 const lojasNoPlural = (n: number) => (n === 1 ? '1 loja' : `${n} lojas`);
 
+/**
+ * O bloco da empresa inteira, no lugar das caixas das lojas (protótipo `clique-empresa-inteira.html` do hub). "As que
+ * abrirem depois entram sozinhas" é o que a porta faz: o acesso sem loja lê todas as lojas vivas da empresa na hora.
+ */
+export function blocoDaEmpresa(
+  app: string,
+  empresa: string,
+  lojas: readonly Pick<LojaNaTela, 'nome' | 'tipo'>[],
+  ja: { desde: Date; jaLiberado: readonly string[]; fuso: string } | null = null,
+): NonNullable<TelaDaAutorizacao['empresaInteira']> {
+  const nomes = lojas.map((l) => (l.tipo === 'Matriz' && lojas.length > 1 ? `${l.nome} (matriz)` : l.nome));
+  return {
+    titulo: 'A empresa inteira',
+    ajuda: `O ${app} lê a empresa toda, como as campanhas: uma ligação só, para todas as lojas.`,
+    nome: empresa,
+    resumo: `${lojasNoPlural(lojas.length)} hoje`,
+    lojas: `${nomes.length ? `${listaNaFrase(nomes)}. ` : ''}As lojas que abrirem depois entram sozinhas.`,
+    aviso: 'A ligação é da empresa: não dá para deixar uma loja de fora. Para parar, revogue a ligação.',
+    ja: ja
+      ? {
+          desde: ja.desde.toISOString(),
+          frase: `O ${app} já lê a empresa desde ${dataNoFuso(ja.desde, ja.fuso)}. O que já foi liberado continua valendo; autorizar soma o que estiver ligado aqui.`,
+          permissoes: naOrdemDoCatalogo(ja.jaLiberado).map((id) => ({ id, rotulo: PERMISSAO_NA_TELA[id]?.rotulo ?? id })),
+        }
+      : null,
+  };
+}
+
 /** A tela, para quem pode autorizar (o presidente). */
 export function montarTela(e: EntradaDaTela): TelaDaAutorizacao {
   const { app } = e;
   const nome = app.nome;
   const parceiro = app.parceiro ?? null;
   const pedidas = new Set<string>([...e.pedido.necessarias, ...e.pedido.opcionais]);
+  // A empresa inteira (o RegemCast) nunca é de parceiro (`APLICATIVOS_DO_CLIQUE` é só da DMS) e não tem o modo "mais": a
+  // ligação é uma só, sem loja, e a troca soma o que a ligação anterior da empresa liberava.
+  const daEmpresa = Boolean(app.empresaInteira) && !app.parceiro;
   const uma = e.lojas.length === 1;
   // As vagas do parceiro na etapa de teste, para LOJA NOVA: o teto menos o que ele já usa em OUTRAS empresas e menos as
   // lojas desta que ele já lê (essas contam no teto; marcadas de novo, são trocadas e não somam).
@@ -180,7 +227,7 @@ export function montarTela(e: EntradaDaTela): TelaDaAutorizacao {
   const frase = (id: EscopoIntegracao) => fraseDe(app, id);
 
   // O modo "mais": todas as lojas já estão conectadas e há permissão pedida que alguma ainda não tem.
-  const todasConectadas = e.lojas.length > 0 && e.lojas.every((l) => l.conectadaDesde);
+  const todasConectadas = !daEmpresa && e.lojas.length > 0 && e.lojas.every((l) => l.conectadaDesde);
   const novasIds = todasConectadas
     ? naOrdemDoCatalogo([...pedidas].filter((p) => e.lojas.some((l) => !l.jaLiberado.includes(p))))
     : [];
@@ -192,9 +239,10 @@ export function montarTela(e: EntradaDaTela): TelaDaAutorizacao {
     tipo: l.tipo === 'matriz' ? 'Matriz' : 'Filial',
     conectadaDesde: l.conectadaDesde ? l.conectadaDesde.toISOString() : null,
     jaLiberado: naOrdemDoCatalogo(l.jaLiberado),
-    // C-2: com uma loja só, ela já vem marcada — menos a do parceiro sem vaga (a que ele já lê sempre pode).
-    marcada: uma && (!lojasDoTeste || lojasDoTeste.vagas > 0 || Boolean(l.conectadaDesde)),
-    nota: l.conectadaDesde
+    // C-2: com uma loja só, ela já vem marcada — menos a do parceiro sem vaga (a que ele já lê sempre pode). A empresa
+    // inteira: todas, sempre.
+    marcada: daEmpresa || (uma && (!lojasDoTeste || lojasDoTeste.vagas > 0 || Boolean(l.conectadaDesde))),
+    nota: !daEmpresa && l.conectadaDesde
       ? modo === 'mais'
         ? 'O que já foi liberado continua valendo. Autorizar soma o que está em “O que muda”.'
         : 'O que já foi liberado continua valendo.'
@@ -237,8 +285,10 @@ export function montarTela(e: EntradaDaTela): TelaDaAutorizacao {
       // o endereço de volta DESTE pedido (o parceiro pode ter mais de um), não o primeiro da lista
       `Você veio de ${hostDe(e.pedido.redirectUri)} e volta para lá ao terminar.`;
   } else {
-    // O Liame lê as vendas; o Orzuni, o cardápio (e monta o do iFood: por isso o "no Regem" na frase dele).
-    titulo = `O ${nome} quer ler ${app.oQueLe ?? 'as vendas'} ${uma ? 'da sua loja' : 'das suas lojas'}`;
+    // O Liame lê as vendas; o Orzuni, o cardápio (e monta o do iFood: por isso o "no Regem" na frase dele); o RegemCast,
+    // os clientes e as compras da empresa inteira.
+    titulo = `O ${nome} quer ler ${app.oQueLe ?? 'as vendas'} ${daEmpresa ? 'da sua empresa' : uma ? 'da sua loja' : 'das suas lojas'}`;
+    if (daEmpresa) autorizar = 'Autorizar a empresa';
     abertura =
       `O ${nome} ${app.faz}. ${app.soLe ?? 'Ele só lê o que estiver listado aqui; não muda pedido, preço nem cardápio.'} ` +
       `Você veio de ${hostDe(app.inicio)} e volta para lá ao terminar.`;
@@ -262,8 +312,8 @@ export function montarTela(e: EntradaDaTela): TelaDaAutorizacao {
     : outra
       ? {
           titulo: 'A conta que pede é de outra empresa',
-          texto: `A ${conta} (${contaCnpj ? `CNPJ ${contaCnpj}` : 'sem CNPJ informado'}) vai ver, pelo ${nome}, os dados das lojas marcadas listados aqui. Continue só se você contratou essa empresa.`,
-          rotulo: `Contratei a ${conta} e quero ligar a conta dela às lojas marcadas`,
+          texto: `A ${conta} (${contaCnpj ? `CNPJ ${contaCnpj}` : 'sem CNPJ informado'}) vai ver, pelo ${nome}, os dados ${daEmpresa ? 'da sua empresa' : 'das lojas marcadas'} listados aqui. Continue só se você contratou essa empresa.`,
+          rotulo: `Contratei a ${conta} e quero ligar a conta dela ${daEmpresa ? 'à minha empresa' : 'às lojas marcadas'}`,
         }
       : null;
 
@@ -282,7 +332,9 @@ export function montarTela(e: EntradaDaTela): TelaDaAutorizacao {
   };
 
   const versao = parceiro ? VERSAO_DO_TEXTO_PARCEIRO : VERSAO_DO_TEXTO;
-  const ajudaLojas = uma
+  const ajudaLojas = daEmpresa
+    ? null
+    : uma
     ? lojasDoTeste
       ? `Este aplicativo está em teste na DMS: ele pode ler até ${lojasNoPlural(lojasDoTeste.maximo)} no total, somando as empresas.`
       : null
@@ -321,11 +373,16 @@ export function montarTela(e: EntradaDaTela): TelaDaAutorizacao {
     naoPode: parceiro ? [...app.naoPode.map((n) => ({ ...n })), janela()] : app.naoPode.map((n) => ({ ...n })),
     confirmacao,
     nota:
-      `Cada loja marcada ganha a própria ligação, que vai direto do Regem para o ${nome}: ninguém vê nem copia código ou ` +
-      `senha. Vale até você revogar, em Configurações › Aplicativos conectados, ou no próprio ${nome}.`,
-    rodape: `Fica registrado: quem autorizou, quando, este texto (versão ${versao}), as lojas e o que foi liberado. Os presidentes da empresa recebem um e-mail.`,
+      `${daEmpresa ? 'A empresa ganha uma ligação só' : 'Cada loja marcada ganha a própria ligação'}, que vai direto do Regem ` +
+      `para o ${nome}: ninguém vê nem copia código ou senha. Vale até você revogar, em Configurações › Aplicativos ` +
+      `conectados, ou no próprio ${nome}.`,
+    rodape: `Fica registrado: quem autorizou, quando, este texto (versão ${versao}), ${daEmpresa ? 'a empresa' : 'as lojas'} e o que foi liberado. Os presidentes da empresa recebem um e-mail.`,
     botoes: { autorizar, cancelar },
   };
+  if (daEmpresa) {
+    const ja = e.daEmpresa ? { ...e.daEmpresa, fuso: e.lojas[0]?.fuso ?? 'America/Sao_Paulo' } : null;
+    return { ...tela, empresaInteira: blocoDaEmpresa(nome, e.empresa.nome, lojas, ja) };
+  }
   if (!parceiro) return tela;
   const comClasse: TelaDaAutorizacao = { ...tela, classe: 'parceiro', lojasDoTeste };
   return { ...comClasse, resumo: resumoDaTela(comClasse) };

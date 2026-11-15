@@ -978,14 +978,14 @@
       "sensivel": false
     },
     "clientes.ler": {
-      "frase": "Clientes da empresa: nome, telefone, canais, bairro, opt-out e aceite (nunca só de marketplace)",
+      "frase": "O nome, o telefone, os canais, o bairro e se o cliente aceitou ou recusou mensagens. Nunca o cliente que só pediu por aplicativo de entrega.",
       "classes": [
         "dms"
       ],
       "sensivel": true
     },
     "vendas.99food.ler": {
-      "frase": "Vendas e clientes da 99Food (só com a autorização do dono)",
+      "frase": "Os pedidos que chegaram pela 99Food, com o telefone que a 99 informa.",
       "classes": [
         "dms"
       ],

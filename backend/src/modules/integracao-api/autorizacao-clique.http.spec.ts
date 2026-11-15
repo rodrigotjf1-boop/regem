@@ -62,9 +62,15 @@ const APP_FAROL = 'aplicativo-farol-de-teste';
 // O Farol (F6 do hub, 15/11): as três leituras da página de 01/10, com o endereço de volta dela (o console dele).
 const VOLTA_FAROL = 'https://farol.teste/api/regem/retorno';
 const LEITURAS_DO_FAROL = 'catalogo.ler fichas.ler producao.ler';
-// Um aplicativo da lista da porta que NÃO usa o clique (o RegemCast, com a chave da empresa).
-const APP_REGEMCAST = 'aplicativo-regemcast-de-teste';
+// O GoGeM (F6, 15/11): o totem também usa o clique — fica na lista da porta sem teste próprio aqui (ver credencial-totem.spec).
+const APP_GOGEM = 'aplicativo-gogem-de-teste';
+const VOLTA_GOGEM = 'https://gogem.teste/integracoes/regem/volta';
+const TOTEM = 'totem.catalogo.ler totem.produtos.pausar totem.vendas.lancar';
 const APP_FORA = 'aplicativo-fora-da-lista';
+// O RegemCast (F6 do hub, 15/11): o clique da EMPRESA INTEIRA, com o endereço de volta da ficha dele.
+const APP_REGEMCAST = 'aplicativo-regemcast-de-teste';
+const VOLTA_REGEMCAST = 'https://cast.teste/integracoes/regem/volta';
+const LEITURAS_DO_REGEMCAST = 'pedidos.ler clientes.ler clientes.telefone.ler vendas.99food.ler';
 // O Orzuni (F6 do hub): só o clique, com o endereço de volta da ficha dele e as duas leituras do cardápio.
 const APP_ORZUNI = 'aplicativo-orzuni-de-teste';
 const VOLTA_ORZUNI = 'https://orzuni.teste/importar/volta';
@@ -167,7 +173,7 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
     'EDGE_MODE', 'TRUST_CLOUDFLARE', 'CARDAPIO_PUBLIC_URL', 'APP_URL', 'ACEITAR_INTEGRACOES',
     'DMS_ID_LIGADO', 'DMS_ID_EMISSOR', 'DMS_ID_RECURSO', 'DMS_ID_APLICATIVOS',
     'AUTORIZACAO_POR_CLIQUE', 'AUTORIZACAO_DMS_RAZAO_SOCIAL', 'AUTORIZACAO_DMS_CNPJ',
-    AUTORIZACAO_LOJA.liame.envRedirect, AUTORIZACAO_LOJA.liame.envSegredo, 'INTEGRACAO_ORZUNI_REDIRECT_URIS',
+    AUTORIZACAO_LOJA.liame.envRedirect, AUTORIZACAO_LOJA.liame.envSegredo, 'INTEGRACAO_ORZUNI_REDIRECT_URIS', 'INTEGRACAO_REGEMCAST_REDIRECT_URIS', 'INTEGRACAO_GOGEM_REDIRECT_URIS',
     AUTORIZACAO_LOJA.farol.envRedirect,
   ];
   const original: Record<string, string | undefined> = Object.fromEntries(ENV.map((k) => [k, process.env[k]]));
@@ -337,6 +343,8 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
     process.env.APP_URL = 'https://app.regem.teste';
     process.env[AUTORIZACAO_LOJA.liame.envRedirect] = VOLTA;
     process.env.INTEGRACAO_ORZUNI_REDIRECT_URIS = VOLTA_ORZUNI;
+    process.env.INTEGRACAO_REGEMCAST_REDIRECT_URIS = VOLTA_REGEMCAST;
+    process.env.INTEGRACAO_GOGEM_REDIRECT_URIS = VOLTA_GOGEM;
     process.env[AUTORIZACAO_LOJA.farol.envRedirect] = VOLTA_FAROL;
     process.env.AUTORIZACAO_POR_CLIQUE = 'true';
     process.env.AUTORIZACAO_DMS_RAZAO_SOCIAL = 'DMS Exemplo Ltda';
@@ -346,6 +354,13 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
     for (const m of ['295_integracao_token_loja.sql', '303_integracao_autorizacao.sql', '329_integracao_ligacao.sql']) {
       await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(mig(m))));
     }
+    // Da 302, só o acesso SEM loja (o do RegemCast, a empresa inteira). O resto dela (os gatilhos no cadastro de clientes,
+    // que é compartilhado) fica com a spec do RegemCast, que aplica a cadeia inteira (ERR-451).
+    const acessoSemLoja = mig('302_integracao_regemcast.sql').match(
+      /alter table integracao_token_loja alter column unidade_id drop not null;[\s\S]*?check \(unidade_id is not null or cliente = 'regemcast'\);/,
+    );
+    if (!acessoSemLoja) throw new Error('a 302 mudou: o trecho do acesso sem loja não foi achado');
+    await repetirNaCorridaDeCatalogo(() => pool.query(acessoSemLoja[0]));
     // A 336 como vai para a nuvem — a conferência dela, linha a linha — e de novo: tem de ser idempotente.
     for (let vez = 0; vez < 2; vez++) {
       const r = (await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(mig('336_integracao_autorizacao_clique.sql'))))) as unknown as any[];
@@ -355,6 +370,13 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
     }
     // A 398: o escopo dos canais da Central, que o Liame leva sempre (sem ela, a trava antiga recusa — ERR-273).
     await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(mig('398_integracao_canais_atendimento.sql'))));
+    // A 426 como vai para a nuvem — a conferência dela — e de novo: o índice da empresa inteira (o RegemCast).
+    for (let vez = 0; vez < 2; vez++) {
+      const r = (await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(mig('426_integracao_clique_empresa.sql'))))) as unknown as any[];
+      const conferencia = r[r.length - 1].rows;
+      expect(conferencia).toHaveLength(2);
+      if (conferencia.some((l: any) => l.ok !== true)) throw new Error(`conferência da 426: ${JSON.stringify(conferencia)}`);
+    }
     const [fk] = await q(
       `select count(*)::int n from pg_constraint c join pg_namespace s on s.oid = c.connamespace
         where s.nspname = $1 and c.contype = 'f' and c.confrelid in ('public.empresa'::regclass, 'public.unidade'::regclass)`,
@@ -378,7 +400,7 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
     dmsId = await subirDmsIdFalso(() => `${origem}/api/v1/integracao`);
     process.env.DMS_ID_LIGADO = 'true';
     process.env.DMS_ID_EMISSOR = dmsId.emissor;
-    process.env.DMS_ID_APLICATIVOS = JSON.stringify({ liame: APP_LIAME, farol: APP_FAROL, orzuni: APP_ORZUNI, regemcast: APP_REGEMCAST });
+    process.env.DMS_ID_APLICATIVOS = JSON.stringify({ liame: APP_LIAME, farol: APP_FAROL, orzuni: APP_ORZUNI, regemcast: APP_REGEMCAST, gogem: APP_GOGEM });
     app = await NestFactory.create(AppTeste, { logger: false });
     app.setGlobalPrefix('api/v1', { exclude: ROTAS_FORA_DO_PREFIXO });
     await app.listen(0, '127.0.0.1');
@@ -443,13 +465,12 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
       expect(p.r.headers.get('www-authenticate')).toContain(`resource_metadata="${origem}/.well-known/oauth-protected-resource/api/v1/integracao"`);
     });
 
-    it('token para outro destino: 401; aplicativo da lista que não usa o clique: 401 cliente-invalido; campo errado: 400 com a frase', async () => {
+    it('token para outro destino: 401; aplicativo fora da lista: 401 cliente-invalido; campo errado: 400 com a frase', async () => {
       expect((await pedir({ token: dmsId.emitir({ destino: 'https://outro.exemplo/api' }) })).r.status).toBe(401);
-      const regemcast = await pedir({ token: dmsId.emitir({ aplicativo: APP_REGEMCAST }) });
-      expect(regemcast.r.status).toBe(401);
-      expect(regemcast.c).toMatchObject({ type: `${BASE_TIPO_PROBLEMA}cliente-invalido`, detail: 'Este aplicativo não usa a autorização por clique do Regem.' });
+      // Desde o GoGeM (F6, 15/11), todos os aplicativos da lista da porta usam o clique: o de fora recebe a mesma recusa.
       const fora = await pedir({ token: dmsId.emitir({ aplicativo: APP_FORA }) });
-      expect(fora.c).toMatchObject({ type: `${BASE_TIPO_PROBLEMA}cliente-invalido` });
+      expect(fora.r.status).toBe(401);
+      expect(fora.c).toMatchObject({ type: `${BASE_TIPO_PROBLEMA}cliente-invalido`, detail: 'Este aplicativo não usa a autorização por clique do Regem.' });
       const torto = await pedir({ mudar: { redirect_uri: 'https://ataque.exemplo/cb' } });
       expect(torto.r.status).toBe(400);
       expect(torto.c).toMatchObject({ type: `${BASE_TIPO_PROBLEMA}parametro-invalido`, detail: 'redirect_uri não é um endereço de volta cadastrado para este aplicativo.' });
@@ -499,7 +520,7 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
         pessoa: { nome: 'Bia Gerente', nivel: 'gerente' },
       });
       expect(await (await tela(presA, 'urn:ietf:params:oauth:request_uri:rgm_torto')).json()).toMatchObject({ situacao: 'invalido', aplicativo: { nome: 'Liame' } });
-      expect(await (await tela(presA, p.numero, APP_REGEMCAST)).json()).toEqual({ situacao: 'invalido', aplicativo: null });
+      expect(await (await tela(presA, p.numero, APP_FORA)).json()).toEqual({ situacao: 'invalido', aplicativo: null });
       pararNoHub([{ nivel: 'geral', produto: null, alvo: null }]);
       expect((await (await tela(presA, p.numero)).json()).situacao).toBe('pausado');
       (hub as any).cliente = null;
@@ -1068,6 +1089,229 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
 
       expect((await chamar('/integracao/fichas', { token: antiga.token })).status).toBe(401);
       expect((await lerPeloFarol('/integracao/fichas', lojas[0].ligacao)).status).toBe(200);
+    });
+  });
+
+  // ───────────────────────────── o RegemCast: a empresa inteira (F6 do hub) ─────────────────────────────
+
+  describe('o RegemCast: o clique da empresa inteira (F6 do hub)', () => {
+    const TODAS_DO_REGEMCAST = ['pedidos.ler', 'clientes.telefone.ler', 'clientes.ler', 'vendas.99food.ler'];
+    const tokenDoRegemcast = () => dmsId.emitir({ aplicativo: APP_REGEMCAST, permissoes: LEITURAS_DO_REGEMCAST });
+    // A conta do RegemCast com a mesma raiz de CNPJ da empresa (a recomendação do plano: sem "outra empresa").
+    const pedirPeloRegemcast = (raiz: string | null, mudar: Record<string, string> = {}) =>
+      pedir({
+        token: tokenDoRegemcast(),
+        contaCnpj: raiz ? cnpjFicticio(raiz) : null,
+        mudar: { redirect_uri: VOLTA_REGEMCAST, scope: LEITURAS_DO_REGEMCAST, conta_nome: 'Conta no RegemCast', conta_email: 'dono@cast.exemplo', ...mudar },
+      });
+    const trocarPeloRegemcast = (codigo: string | null, verificador: string) =>
+      trocar(codigo, verificador, { token: tokenDoRegemcast(), mais: { redirect_uri: VOLTA_REGEMCAST } });
+    const lerPeloRegemcast = (caminho: string, ligacao: string) => chamar(caminho, { token: tokenDoRegemcast(), ligacao });
+    const autorizarEmpresa = (quem: Pessoa, numero: string | null, lojas: string[], opcionais: string[] = []) =>
+      autorizar(quem, numero, { lojas, opcionais, clientId: APP_REGEMCAST, confirmo: false });
+
+    it('o pedido: as leituras da empresa e a volta da ficha dele; cupom, custo, cardápio e a volta de outro aplicativo são recusados', async () => {
+      expect((await pedirPeloRegemcast(null)).r.status).toBe(201);
+      // Sem a 99 (o dono não autorizou a 99 no RegemCast): o pedido vale do mesmo jeito.
+      expect((await pedirPeloRegemcast(null, { scope: 'pedidos.ler clientes.ler clientes.telefone.ler' })).r.status).toBe(201);
+      for (const fora of ['cupons.ler', 'custos.ler', 'catalogo.ler']) {
+        const r = await pedirPeloRegemcast(null, { scope: `pedidos.ler ${fora}` });
+        expect(r.r.status).toBe(400);
+        expect(r.c.detail).toBe(`A permissão "${fora}" não pode ser pedida por este aplicativo na autorização por clique.`);
+      }
+      expect((await pedirPeloRegemcast(null, { redirect_uri: VOLTA_ORZUNI })).r.status).toBe(400);
+    });
+
+    it('a página: a empresa inteira no lugar das caixas, os dados de cliente com o selo, a 99 opcional e desligada', async () => {
+      const e = await empresa('Cast', ['Cast Centro', 'Cast Praia']);
+      const pres = await pessoa(e.tenant, 'Caio Presidente', 'presidente');
+      const p = await pedirPeloRegemcast(e.raiz);
+      const c: any = await (await tela(pres, p.numero, APP_REGEMCAST)).json();
+      expect(c.situacao).toBe('escolha');
+      expect(c.tela.titulo).toBe('O RegemCast quer ler os clientes e as compras da sua empresa');
+      expect(c.tela.modo).toBe('nova');
+      expect(c.tela.ajudaLojas).toBeNull();
+      expect(c.tela.lojas.map((l: any) => l.marcada)).toEqual([true, true]);
+      expect(c.tela.empresaInteira).toEqual({
+        titulo: 'A empresa inteira',
+        ajuda: 'O RegemCast lê a empresa toda, como as campanhas: uma ligação só, para todas as lojas.',
+        nome: e.nome,
+        resumo: '2 lojas hoje',
+        lojas: 'Cast Centro (matriz) e Cast Praia. As lojas que abrirem depois entram sozinhas.',
+        aviso: 'A ligação é da empresa: não dá para deixar uma loja de fora. Para parar, revogue a ligação.',
+        ja: null,
+      });
+      expect(c.tela.necessarias.map((x: any) => [x.id, x.dadoPessoal])).toEqual([
+        ['pedidos.ler', false],
+        ['clientes.telefone.ler', true],
+        ['clientes.ler', true],
+      ]);
+      expect(c.tela.necessarias[2].motivo).toBe('Para mandar a campanha só a quem aceitou receber, e respeitar na hora quem recusou.');
+      expect(c.tela.opcionais).toEqual([]);
+      expect(c.tela.dadosDosClientes.map((x: any) => [x.id, x.opcional, x.semEla])).toEqual([
+        ['vendas.99food.ler', true, 'Desligado: as campanhas não contam os pedidos da 99. O resto funciona.'],
+      ]);
+      expect(c.tela.contaQuePede.outraEmpresa).toBe(false);
+      expect(c.tela.confirmacao).toBeNull();
+      expect(c.tela.botoes.autorizar).toBe('Autorizar a empresa');
+      expect(c.tela.nota).toMatch(/^A empresa ganha uma ligação só, que vai direto do Regem para o RegemCast/);
+      expect(c.tela.rodape).toContain('a empresa e o que foi liberado');
+    });
+
+    it('de ponta a ponta: todas as lojas ou nada; UMA ligação sem loja, que lê os clientes da empresa (e a loja aberta depois); o e-mail diz "a empresa"', async () => {
+      const e = await empresa('Campanha', ['Campanha Centro', 'Campanha Praia']);
+      const pres = await pessoa(e.tenant, 'Cris Presidente', 'presidente', { email: 'cris@campanha.exemplo' });
+      email.mockClear();
+      const p = await pedirPeloRegemcast(e.raiz);
+      // A ligação é da empresa: a página mandou as lojas de hoje, todas. Uma só é recusada, e o pedido continua valendo.
+      const parte = await autorizarEmpresa(pres, p.numero, [e.lojas[0]]);
+      expect(parte.r.status).toBe(409);
+      expect(parte.c.message).toBe('As lojas da empresa mudaram desde que a página abriu. Recarregue e confira de novo.');
+      const a = await autorizarEmpresa(pres, p.numero, e.lojas);
+      expect(a.r.status).toBe(200);
+      expect(`${a.volta?.origin}${a.volta?.pathname}`).toBe(VOLTA_REGEMCAST);
+      expect(a.volta?.searchParams.get('state')).toBe(p.state);
+      expect(a.volta?.searchParams.get('iss')).toBe(origem);
+
+      const t = await trocarPeloRegemcast(a.codigo, p.verificador);
+      expect(t.status).toBe(200);
+      const { lojas } = (await t.json()) as any;
+      expect(lojas).toHaveLength(1);
+      segredos.push(lojas[0].ligacao);
+      expect(lojas[0]).toMatchObject({ loja_id: null, empresa_id: e.tenant, permissoes: ['pedidos.ler', 'clientes.telefone.ler', 'clientes.ler'] });
+      expect(lojas[0].lojas.map((l: any) => l.id).sort()).toEqual([...e.lojas].sort());
+      expect(lojas[0].ligacao).toMatch(FORMATO_LIGACAO);
+      const ativos = await q(`select unidade_id, cliente from integracao_token_loja where tenant_id = $1 and revogado_em is null`, [e.tenant]);
+      expect(ativos).toEqual([{ unidade_id: null, cliente: 'regemcast' }]);
+
+      // A ligação lê a empresa pela via do DMS ID, só com o token do RegemCast, com o que a empresa liberou E o token tem;
+      // não abre as fichas. (A rota dos clientes precisa da cadeia inteira da 302: está na spec do RegemCast.)
+      const loja = await lerPeloRegemcast('/integracao/loja', lojas[0].ligacao);
+      expect(loja.status).toBe(200);
+      expect((await loja.json()) as any).toMatchObject({ empresa_id: e.tenant, escopos: ['pedidos.ler', 'clientes.telefone.ler', 'clientes.ler'] });
+      expect((await lerPeloRegemcast('/integracao/fichas', lojas[0].ligacao)).status).toBe(403);
+      expect((await lerLoja(lojas[0].ligacao)).status).toBe(401); // com o token do Liame
+
+      // "As lojas que abrirem depois entram sozinhas": a loja nova aparece na hora, sem autorizar de novo.
+      const [nova] = await q(`insert into unidade (tenant_id, nome, tipo) values ($1, 'Campanha Shopping', 'filial') returning id`, [e.tenant]);
+      const depois: any = await (await lerPeloRegemcast('/integracao/loja', lojas[0].ligacao)).json();
+      expect(depois.lojas.map((l: any) => l.id)).toContain(nova.id);
+
+      // A prova: o acesso sem loja em Aplicativos conectados, com todas as lojas marcadas no texto que o presidente leu.
+      const r: any = await (await chamar('/aplicativos-conectados', { quem: pres })).json();
+      const cast = r.aplicativos.find((x: any) => x.cliente === 'regemcast');
+      expect(cast).toMatchObject({ abrangencia: 'empresa', ativos: 1 });
+      expect(cast.acessos[0]).toMatchObject({ ativo: true, via: 'clique', lojaId: null, autorizacao: { por: 'Cris Presidente', versao: 1, outraEmpresa: false } });
+      expect(cast.acessos[0].autorizacao.texto.lojas.map((l: any) => l.marcada)).toEqual([true, true]);
+      expect(cast.acessos[0].autorizacao.texto.empresaInteira.resumo).toBe('2 lojas hoje');
+
+      expect(await esperarAte(() => email.mock.calls.length >= 1)).toBe(true);
+      expect(email.mock.calls[0][0]).toBe('cris@campanha.exemplo');
+      expect(email.mock.calls[0][1]).toBe(`O RegemCast foi autorizado na empresa ${e.nome}`);
+      expect(email.mock.calls[0][3]).toContain('a ler a empresa inteira (Campanha Centro, Campanha Praia e as lojas que abrirem depois) no Regem');
+      expect(email.mock.calls[0][3]).toContain('Ficou desligado: vendas da 99Food.');
+    });
+
+    it('a empresa que já tinha a chave do console: a página diz desde quando, a troca soma (a 99 da chave continua) e a chave para de valer', async () => {
+      const e = await empresa('Chave', ['Chave Loja']);
+      const pres = await pessoa(e.tenant, 'Gil Presidente', 'presidente');
+      const antiga = (await tokensSvc.emitir({ tenantId: e.tenant, cliente: 'regemcast', autorizadoPor: pres.id, escopos: TODAS_DO_REGEMCAST, evidencia: 'teste' }, dist)) as any;
+      segredos.push(antiga.token);
+      expect((await chamar('/integracao/loja', { token: antiga.token })).status).toBe(200);
+
+      const p = await pedirPeloRegemcast(e.raiz);
+      const c: any = await (await tela(pres, p.numero, APP_REGEMCAST)).json();
+      expect(c.tela.empresaInteira.ja.permissoes.map((x: any) => x.id)).toEqual(TODAS_DO_REGEMCAST);
+      expect(c.tela.empresaInteira.ja.frase).toMatch(/^O RegemCast já lê a empresa desde \d{2}\/\d{2}\/\d{4}\. O que já foi liberado continua valendo; autorizar soma/);
+      const a = await autorizarEmpresa(pres, p.numero, e.lojas); // a 99 desligada no clique
+      expect(a.r.status).toBe(200);
+      const t = await trocarPeloRegemcast(a.codigo, p.verificador);
+      expect(t.status).toBe(200);
+      const { lojas } = (await t.json()) as any;
+      segredos.push(lojas[0].ligacao);
+      expect(lojas[0].permissoes).toEqual(TODAS_DO_REGEMCAST);
+
+      expect((await chamar('/integracao/loja', { token: antiga.token })).status).toBe(401);
+      const pelaLigacao = await lerPeloRegemcast('/integracao/loja', lojas[0].ligacao);
+      expect(pelaLigacao.status).toBe(200);
+      expect(((await pelaLigacao.json()) as any).escopos).toEqual(TODAS_DO_REGEMCAST);
+      const [velho] = await q(`select motivo_revogacao from integracao_token_loja where id = $1`, [antiga.id]);
+      expect(velho.motivo_revogacao).toBe('trocado pela autorização por clique');
+    });
+
+    it('a corrida que só o índice da 426 decide: a troca que chega no meio de outra da mesma empresa é recusada (400, nunca 500) e fica UM acesso ativo', async () => {
+      const e = await empresa('Disputa', ['Disputa Loja']);
+      const pres = await pessoa(e.tenant, 'Presidente Disputa', 'presidente');
+      const p = await pedirPeloRegemcast(e.raiz);
+      const a = await autorizarEmpresa(pres, p.numero, e.lojas);
+      const [aut] = await q(`select id from integracao_autorizacao where codigo_hash = $1`, [createHash('sha256').update(a.codigo as string).digest('hex')]);
+      const aux = await pool.connect();
+      try {
+        const pidDoAux = (await aux.query('select pg_backend_pid() as pid')).rows[0].pid as number;
+        // Outra troca da mesma empresa no meio (a linha nova dela, sem loja, ainda não está gravada).
+        await aux.query('begin');
+        await aux.query(
+          `insert into integracao_token_loja (tenant_id, unidade_id, cliente, prefixo, token_hash, escopos, autorizado_por, autorizado_por_nome, autorizado_via, autorizacao_id)
+           values ($1, null, 'regemcast', 'rgm_it_Cor02', $2, '{pedidos.ler}', $3, 'Presidente Disputa', 'autorizacao_loja', $4)`,
+          [e.tenant, randomBytes(32).toString('hex'), pres.id, aut.id],
+        );
+        const troca = trocarPeloRegemcast(a.codigo, p.verificador);
+        // a troca deste teste presa no índice único, atrás desta conexão (não uma espera qualquer do banco — ERR-298)
+        const esperando = await esperarAte(async () => {
+          const [w] = await q(SQL_PRESOS_POR, [pidDoAux]);
+          return w.n >= 1;
+        });
+        expect(esperando).toBe(true);
+        await aux.query('commit');
+        const r = await troca;
+        expect(r.status).toBe(400);
+        expect(await r.json()).toMatchObject({ detail: 'Outra autorização desta empresa terminou agora mesmo. Peça a autorização de novo.' });
+      } finally {
+        aux.release();
+      }
+      const [n] = await q(`select count(*)::int n from integracao_token_loja where tenant_id = $1 and unidade_id is null and revogado_em is null`, [e.tenant]);
+      expect(n.n).toBe(1);
+    });
+  });
+
+  // ───────────────────────────── o GoGeM: o totem, que lança venda (F6 do hub) ─────────────────────────────
+
+  describe('o GoGeM: o clique do totem, loja por loja (F6 do hub)', () => {
+    const tokenDoGogem = () => dmsId.emitir({ aplicativo: APP_GOGEM, permissoes: TOTEM });
+
+    it('de ponta a ponta: a página diz que lança venda, o presidente marca a loja do totem e a troca entrega a ligação dela', async () => {
+      const e = await empresa('Totem', ['Totem Centro', 'Totem Praia']);
+      const pres = await pessoa(e.tenant, 'Tito Presidente', 'presidente', { email: 'tito@totem.exemplo' });
+      email.mockClear();
+      const p = await pedir({ token: tokenDoGogem(), contaCnpj: cnpjFicticio(e.raiz), mudar: { redirect_uri: VOLTA_GOGEM, scope: TOTEM, conta_nome: 'Totem no GoGeM' } });
+      expect(p.r.status).toBe(201);
+      // Leitura da porta e a volta de outro aplicativo não entram no pedido do totem.
+      expect((await pedir({ token: tokenDoGogem(), mudar: { redirect_uri: VOLTA_GOGEM, scope: 'totem.catalogo.ler pedidos.ler' } })).r.status).toBe(400);
+      expect((await pedir({ token: tokenDoGogem(), mudar: { redirect_uri: VOLTA_REGEMCAST, scope: TOTEM } })).r.status).toBe(400);
+
+      const c: any = await (await tela(pres, p.numero, APP_GOGEM)).json();
+      expect(c.tela.titulo).toBe('O GoGeM quer ler o cardápio e lançar as vendas do totem das suas lojas');
+      expect(c.tela.necessarias.map((x: any) => x.rotulo)).toEqual(['Cardápio do totem', 'Pausar produtos no totem', 'Lançar a venda do totem']);
+      expect(c.tela.lojas.map((l: any) => l.marcada)).toEqual([false, false]);
+      expect(c.tela.confirmacao).toBeNull(); // a conta com a mesma raiz de CNPJ
+
+      const a = await autorizar(pres, p.numero, { lojas: [e.lojas[0]], clientId: APP_GOGEM, confirmo: false });
+      expect(a.r.status).toBe(200);
+      expect(`${a.volta?.origin}${a.volta?.pathname}`).toBe(VOLTA_GOGEM);
+      const t = await trocar(a.codigo, p.verificador, { token: tokenDoGogem(), mais: { redirect_uri: VOLTA_GOGEM } });
+      expect(t.status).toBe(200);
+      const { lojas } = (await t.json()) as any;
+      expect(lojas).toHaveLength(1);
+      segredos.push(lojas[0].ligacao);
+      expect(lojas[0]).toMatchObject({ loja_id: e.lojas[0], permissoes: TOTEM.split(' ') });
+      const [acesso] = await q(`select cliente, unidade_id from integracao_token_loja where tenant_id = $1 and revogado_em is null`, [e.tenant]);
+      expect(acesso).toEqual({ cliente: 'gogem', unidade_id: e.lojas[0] });
+
+      // A ligação do totem não lê nada da porta (as rotas do totem são provadas na credencial-totem.spec).
+      expect((await chamar('/integracao/pedidos', { token: tokenDoGogem(), ligacao: lojas[0].ligacao })).status).toBe(403);
+      expect(await esperarAte(() => email.mock.calls.length >= 1)).toBe(true);
+      expect(email.mock.calls[0][1]).toBe('O GoGeM foi autorizado na loja Totem Centro');
+      expect(email.mock.calls[0][3]).toContain('O GoGeM pode ver: cardápio do totem, pausar produtos no totem e lançar a venda do totem.');
     });
   });
 });

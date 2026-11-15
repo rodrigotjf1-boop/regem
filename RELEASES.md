@@ -12,6 +12,36 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O Relatório das Ordens de produção sem barra lateral (15/11, ERR-476 parte 2; SEM migration; só tela).** A tabela
+  planejado × produzido passou para a lista do modelo do Estoque (tabela na tela larga, cartões no resto). Na nuvem vale
+  com o merge; no servidor da loja, com o `.zip`.
+
+- **Formas de pagamento e Relatórios de entrega sem barra lateral (15/11, ERR-476; SEM migration; só tela).** As duas
+  tabelas viram cartões quando não cabem, e o cartão de pagamento online quebra a linha. Na nuvem vale com o merge; no
+  servidor da loja, com o `.zip`.
+
+- **Push do sync com linhas de colunas diferentes no mesmo lote (15/11, ERR-126; SEM migration; não mexe no
+  `sync-daemon`).** A nuvem divide o lote por colunas: cada linha grava o que trouxe e a coluna que não veio fica como
+  está (antes, o lote inteiro caía com erro de sintaxe e voltava a cada ciclo). É o lado da NUVEM do push: vale com o
+  merge; o arquivo vai junto no `.zip`, sem efeito na loja.
+
+- **As listas do painel do Delivery sem barra lateral (15/11, ERR-430; SEM migration; só tela).** "Pedidos pendentes" e
+  "Entregas em andamento" escolhem pelo espaço a tabela inteira, a compacta (sem o código externo e a data, o bairro no
+  lugar do endereço) ou os cartões — nunca rolam para o lado. Na nuvem vale com o merge; no servidor da loja, com o `.zip`.
+
+- **A configuração da integração gravada por chave (15/11, ERR-475; SEM migration; não mexe no `sync-daemon`).** O fim
+  do ciclo do Cardápio Web e do Anota AI, o token do Open Delivery, o vínculo da 99, o pedir/desligar do iFood e a tela de
+  Integrações gravam só a própria chave do `integracao.config`, mesclando no banco. Antes, regravavam a cópia inteira e
+  apagavam o que outro escritor gravou no meio: o token renovado, a conclusão da distribuição, um cancelamento pendente.
+  Na nuvem vale com o merge; no servidor da loja (as integrações ficam na nuvem, mas o código vai junto), com o `.zip`.
+
+- **Cancelamento pendente do iFood e da 99 por pedido (15/11, #1014, ERR-474; SEM migration; não mexe no
+  `sync-daemon`).** Dois pedidos cancelados juntos com o canal fora do ar: os dois ficam para reenviar (antes, um apagava o
+  outro). Na nuvem vale com o merge; no servidor da loja, com o `.zip`.
+
+- **O mapa das faixas de distância maior e enquadrado (15/11; SEM migration; só tela).** Na nuvem vale com o merge; no
+  servidor da loja, com o `.zip`.
+
 - **Área de entrega DESENHADA NO MAPA (15/11, migration 425 — NOS DOIS BANCOS; mexe no `sync-daemon` → precisa do `.exe`).**
   O 3º modo da aba Área de atendimento (bairro, distância, desenhada): desenhar as áreas no mapa, cada uma com taxa, tempo,
   mínimo e frete grátis; fora delas o pedido do cardápio e do atendente não sai. A tabela `cardapio_area_entrega` sincroniza
@@ -24,6 +54,19 @@
   `BAIRRO_FORA_DA_AREA` / `ENDERECO_NAO_ENCONTRADO` antes de criar o pedido (logo, antes do Pix); a tela do cardápio trava a
   etapa do endereço com a distância. A rota pública tira o campo interno `_sistema`. O cardápio online é da nuvem (já no ar
   com o deploy); no servidor da loja vale **só no `.zip` 1.30.13**.
+
+- **O GoGeM entra na autorização por clique do Regem: o totem, que lança venda (15/11, F6 do hub; SEM migration; não mexe
+  no `sync-daemon`; nasce parado).** Na NUVEM com o merge: a ficha do GoGeM no clique e o guarda das cinco rotas do totem
+  aceitando a ligação (token do DMS ID + `DMS-Ligacao`); pelo acesso de integração, a pausa só no canal do totem. Nada
+  muda até o GoGeM pedir pelo clique. **No `.zip`:** o guarda e o controlador da pausa vão junto, mas no servidor da loja
+  nada muda (lá só vale o `X-Sync-Token`, e a ligação é só da nuvem). Nada no `.exe`.
+
+- **O RegemCast entra na autorização por clique do Regem: a empresa inteira (15/11, F6 do hub; migration 426, SÓ NUVEM;
+  não mexe no `sync-daemon`; nasce parado).** Na NUVEM com o merge: a ficha do RegemCast no clique, a página com o bloco
+  "A empresa inteira", a troca que entrega uma ligação sem loja e o e-mail "autorizado na empresa"; o manifesto público
+  muda só no texto (as frases dos clientes e da 99). Nada muda para loja nenhuma até o RegemCast pedir pelo clique. **No
+  `.zip`:** nada a fazer na loja (a autorização por clique e a 426 são só da nuvem; o servidor da loja pula a 426); os
+  arquivos vão junto no próximo corte. Nada no `.exe`.
 
 - **O Farol entra na autorização por clique do Regem (15/11, F6 do hub; SEM migration; não mexe no `sync-daemon`; nasce
   parado).** Na NUVEM com o merge: a ficha do Farol no clique (as três leituras da página de 01/10) e as frases das fichas

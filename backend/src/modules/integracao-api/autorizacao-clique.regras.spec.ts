@@ -411,3 +411,220 @@ describe('autorização por clique — o Farol', () => {
     expect(t.aplicativo.selo).toBe('Produto da DMS');
   });
 });
+
+// O REGEMCAST (F6 do hub, 15/11/2026): o primeiro aplicativo que lê a EMPRESA INTEIRA, com dado de cliente (protótipo
+// `clique-empresa-inteira.html` do hub). As mesmas leituras da chave `rgm_it_` de empresa dele (mig 302).
+describe('autorização por clique — o RegemCast, a empresa inteira', () => {
+  const CAST = APLICATIVOS_DO_CLIQUE.regemcast;
+  const VOLTA_CAST = 'https://cast.dmsregem.com/integracoes/regem/volta';
+  const pedido = (mudar: Record<string, unknown> = {}) => ({
+    response_type: 'code',
+    redirect_uri: VOLTA_CAST,
+    scope: 'vendas.99food.ler clientes.ler pedidos.ler clientes.telefone.ler',
+    state: 'estado-do-regemcast-123456',
+    code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
+    code_challenge_method: 'S256',
+    conta_nome: 'Brasa no RegemCast',
+    conta_cnpj: '11.222.333/0002-00',
+    conta_email: 'dono@cast.exemplo',
+    ...mudar,
+  });
+  const entrada = (mudar: Partial<EntradaDaTela> = {}): EntradaDaTela => ({
+    cliente: 'regemcast',
+    app: CAST,
+    dms: { empresa: 'DMS Exemplo Ltda', cnpj: '33444555000100' },
+    pedido: {
+      redirectUri: VOLTA_CAST,
+      necessarias: ['pedidos.ler', 'clientes.telefone.ler', 'clientes.ler'],
+      opcionais: ['vendas.99food.ler'],
+      contaQuePede: { nome: 'Brasa no RegemCast', cnpj: '11222333000200', email: 'dono@cast.exemplo', marca: null },
+    },
+    empresa: { nome: 'Brasa Burger', cnpj: '11222333000100' },
+    lojas: [
+      { id: 'loja-centro', nome: 'Brasa Centro', tipo: 'matriz', fuso: 'America/Sao_Paulo', conectadaDesde: null, jaLiberado: [] },
+      { id: 'loja-praia', nome: 'Brasa Praia', tipo: 'filial', fuso: 'America/Sao_Paulo', conectadaDesde: null, jaLiberado: [] },
+      { id: 'loja-shop', nome: 'Brasa Shopping', tipo: 'filial', fuso: 'America/Sao_Paulo', conectadaDesde: null, jaLiberado: [] },
+    ],
+    verFinanceiro: false,
+    ...mudar,
+  });
+
+  it('a ficha: a empresa inteira, os dados de cliente necessários e com o motivo, a 99 opcional; a volta é a da ficha', () => {
+    expect(CAST.empresaInteira).toBe(true);
+    expect(CAST.necessarias).toEqual(['pedidos.ler', 'clientes.ler', 'clientes.telefone.ler']);
+    expect(CAST.opcionais).toEqual(['vendas.99food.ler']);
+    expect(CAST.dadoPessoal).toEqual(['clientes.ler', 'clientes.telefone.ler', 'vendas.99food.ler']);
+    expect(CAST.financeiras).toEqual([]);
+    for (const id of [...CAST.necessarias, ...CAST.opcionais]) {
+      expect(CAST.motivos[id]).toBeTruthy();
+      expect(PERMISSAO_NA_TELA[id]?.frase).toBeTruthy();
+    }
+    expect(CAST.semElas['vendas.99food.ler']).toBe('Desligado: as campanhas não contam os pedidos da 99. O resto funciona.');
+    // Nenhum outro aplicativo do clique lê a empresa inteira.
+    expect(Object.entries(APLICATIVOS_DO_CLIQUE).filter(([, a]) => a.empresaInteira).map(([k]) => k)).toEqual(['regemcast']);
+    expect(clienteAutorizacao('regemcast', {})).toBeNull(); // não tem a página de 01/10
+    expect(voltasDoClique(CAST.voltas, {})).toEqual([VOLTA_CAST]);
+    expect(voltasDoClique(CAST.voltas, { INTEGRACAO_REGEMCAST_REDIRECT_URIS: 'https://cast.teste/integracoes/regem/volta' })).toEqual([
+      'https://cast.teste/integracoes/regem/volta',
+    ]);
+  });
+
+  it('o pedido: aceita as quatro na ordem do catálogo (a 99 como opcional) e o pedido sem a 99; recusa o que o Liame lê', () => {
+    expect(conferirPedido(pedido(), CAST, 'app-cast', [VOLTA_CAST])).toMatchObject({
+      necessarias: ['pedidos.ler', 'clientes.telefone.ler', 'clientes.ler'],
+      opcionais: ['vendas.99food.ler'],
+      contaQuePede: { cnpj: '11222333000200' },
+    });
+    expect(conferirPedido(pedido({ scope: 'pedidos.ler clientes.ler clientes.telefone.ler' }), CAST, 'app-cast', [VOLTA_CAST])).toMatchObject({ opcionais: [] });
+    for (const fora of ['cupons.ler', 'custos.ler', 'cupons.criar', 'catalogo.ler', 'clientes.anonimizacao.ler']) {
+      expect(conferirPedido(pedido({ scope: `pedidos.ler ${fora}` }), CAST, 'app-cast', [VOLTA_CAST])).toEqual({
+        erro: `A permissão "${fora}" não pode ser pedida por este aplicativo na autorização por clique.`,
+      });
+    }
+  });
+
+  it('a tela: o bloco da empresa no lugar das caixas, todas as lojas marcadas, sem o modo "mais"; a mesma raiz de CNPJ não pede confirmação', () => {
+    const t = montarTela(entrada());
+    expect(t.modo).toBe('nova');
+    expect(t.titulo).toBe('O RegemCast quer ler os clientes e as compras da sua empresa');
+    expect(t.abertura).toBe(
+      'O RegemCast monta as campanhas de WhatsApp com quem já comprou de você. Ele só lê o que estiver listado aqui; não muda ' +
+        'pedido, preço nem cadastro no Regem. Você veio de cast.dmsregem.com e volta para lá ao terminar.',
+    );
+    expect(t.ajudaLojas).toBeNull();
+    expect(t.lojas.map((l) => [l.marcada, l.nota])).toEqual([[true, null], [true, null], [true, null]]);
+    expect(t.empresaInteira).toEqual({
+      titulo: 'A empresa inteira',
+      ajuda: 'O RegemCast lê a empresa toda, como as campanhas: uma ligação só, para todas as lojas.',
+      nome: 'Brasa Burger',
+      resumo: '3 lojas hoje',
+      lojas: 'Brasa Centro (matriz), Brasa Praia e Brasa Shopping. As lojas que abrirem depois entram sozinhas.',
+      aviso: 'A ligação é da empresa: não dá para deixar uma loja de fora. Para parar, revogue a ligação.',
+      ja: null,
+    });
+    expect(t.necessarias.map((p) => [p.rotulo, p.dadoPessoal])).toEqual([
+      ['Pedidos', false],
+      ['Telefone do cliente no pedido', true],
+      ['Clientes', true],
+    ]);
+    expect(t.dadosDosClientes.map((p) => [p.id, p.opcional, p.dadoPessoal])).toEqual([['vendas.99food.ler', true, true]]);
+    expect(t.confirmacao).toBeNull();
+    expect(t.botoes).toEqual({ autorizar: 'Autorizar a empresa', cancelar: 'Cancelar' });
+    expect(t.nota).toBe(
+      'A empresa ganha uma ligação só, que vai direto do Regem para o RegemCast: ninguém vê nem copia código ou senha. Vale até ' +
+        'você revogar, em Configurações › Aplicativos conectados, ou no próprio RegemCast.',
+    );
+    expect(t.rodape).toBe(
+      'Fica registrado: quem autorizou, quando, este texto (versão 1), a empresa e o que foi liberado. Os presidentes da empresa recebem um e-mail.',
+    );
+    // Mesmo com todas as lojas "conectadas" (o que nunca acontece: o acesso dele é sem loja), não vira "pede mais".
+    const conectadas = entrada({ lojas: entrada().lojas.map((l) => ({ ...l, conectadaDesde: new Date('2026-10-01T12:00:00Z'), jaLiberado: ['pedidos.ler'] })) });
+    expect(montarTela(conectadas).modo).toBe('nova');
+  });
+
+  it('a tela: a empresa que já tem acesso diz desde quando e o que ele libera; a conta de outra raiz pede a confirmação da empresa', () => {
+    const t = montarTela(
+      entrada({ daEmpresa: { desde: new Date('2026-10-01T15:00:00Z'), jaLiberado: ['vendas.99food.ler', 'pedidos.ler'] } }),
+    );
+    expect(t.empresaInteira?.ja).toEqual({
+      desde: '2026-10-01T15:00:00.000Z',
+      frase: 'O RegemCast já lê a empresa desde 01/10/2026. O que já foi liberado continua valendo; autorizar soma o que estiver ligado aqui.',
+      permissoes: [
+        { id: 'pedidos.ler', rotulo: 'Pedidos' },
+        { id: 'vendas.99food.ler', rotulo: 'Vendas da 99Food' },
+      ],
+    });
+    const outra = montarTela(
+      entrada({ pedido: { ...entrada().pedido, contaQuePede: { nome: 'Agência X', cnpj: '44555666000100', email: 'x@agencia.exemplo', marca: null } } }),
+    );
+    expect(outra.confirmacao).toEqual({
+      titulo: 'A conta que pede é de outra empresa',
+      texto: 'A Agência X (CNPJ 44.555.666/0001-00) vai ver, pelo RegemCast, os dados da sua empresa listados aqui. Continue só se você contratou essa empresa.',
+      rotulo: 'Contratei a Agência X e quero ligar a conta dela à minha empresa',
+    });
+    // A prova: todas as lojas marcadas e o bloco da empresa com o que ele leu.
+    const prova = textoGuardado(t, { lojas: ['loja-centro', 'loja-praia', 'loja-shop'], ligadas: [], confirmouOutraEmpresa: false });
+    expect(prova.lojas.every((l) => l.marcada)).toBe(true);
+    expect(prova.empresaInteira?.resumo).toBe('3 lojas hoje');
+    expect(prova.confirmouOutraEmpresa).toBeNull();
+  });
+});
+
+// O GOGEM (F6 do hub, 15/11/2026; protótipo `clique-gogem.html` do hub): o totem, loja por loja, e a PRIMEIRA escrita de
+// venda pelo clique. As mesmas três permissões do token `rgm_it_` dele (mig 323), todas necessárias.
+describe('autorização por clique — o GoGeM, o totem que lança venda', () => {
+  const GOGEM = APLICATIVOS_DO_CLIQUE.gogem;
+  const VOLTA_GOGEM = 'https://app.gogem.com.br/integracoes/regem/volta';
+  const TOTEM = ['totem.catalogo.ler', 'totem.produtos.pausar', 'totem.vendas.lancar'];
+  const pedido = (mudar: Record<string, unknown> = {}) => ({
+    response_type: 'code',
+    redirect_uri: VOLTA_GOGEM,
+    scope: 'totem.vendas.lancar totem.catalogo.ler totem.produtos.pausar',
+    state: 'estado-do-gogem-1234567890',
+    code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
+    code_challenge_method: 'S256',
+    conta_nome: 'Brasa no GoGeM',
+    conta_cnpj: '11.222.333/0001-00',
+    conta_email: 'dono@gogem.exemplo',
+    ...mudar,
+  });
+
+  it('a ficha: por loja, as três do totem necessárias, nenhuma opcional, a volta do painel do GoGeM', () => {
+    expect(GOGEM.empresaInteira).toBeUndefined();
+    expect(GOGEM.necessarias).toEqual(TOTEM);
+    expect([GOGEM.opcionais, GOGEM.dadoPessoal, GOGEM.financeiras]).toEqual([[], [], []]);
+    for (const id of GOGEM.necessarias) {
+      expect(GOGEM.motivos[id]).toMatch(/^Para /);
+      expect(PERMISSAO_NA_TELA[id]?.frase).toBeTruthy();
+    }
+    expect(clienteAutorizacao('gogem', {})).toBeNull(); // só o clique, sem a página de 01/10
+    expect(voltasDoClique(GOGEM.voltas, {})).toEqual([VOLTA_GOGEM]);
+    expect(GOGEM.naoPode.map((n) => n.rotulo)).toEqual([
+      'Mudar preço ou cardápio no Regem',
+      'Cancelar ou mudar uma venda',
+      'Ver clientes e as outras vendas',
+      'Entrar no seu Regem',
+    ]);
+  });
+
+  it('o pedido: aceita as três na ordem do catálogo; recusa leitura de vendas, clientes, cardápio da porta e escrita de cupom', () => {
+    expect(conferirPedido(pedido(), GOGEM, 'app-gogem', [VOLTA_GOGEM])).toMatchObject({ necessarias: TOTEM, opcionais: [] });
+    for (const fora of ['pedidos.ler', 'clientes.ler', 'catalogo.ler', 'cupons.criar', 'custos.ler']) {
+      expect(conferirPedido(pedido({ scope: `totem.catalogo.ler ${fora}` }), GOGEM, 'app-gogem', [VOLTA_GOGEM])).toEqual({
+        erro: `A permissão "${fora}" não pode ser pedida por este aplicativo na autorização por clique.`,
+      });
+    }
+  });
+
+  it('a página: o título diz que lança venda, a abertura diz o que ele não muda, as lojas para marcar e o "não pode"', () => {
+    const t = montarTela({
+      cliente: 'gogem',
+      app: GOGEM,
+      dms: { empresa: 'DMS Exemplo Ltda', cnpj: '33444555000100' },
+      pedido: {
+        redirectUri: VOLTA_GOGEM,
+        necessarias: TOTEM as any,
+        opcionais: [],
+        contaQuePede: { nome: 'Brasa no GoGeM', cnpj: '11222333000100', email: 'dono@gogem.exemplo', marca: null },
+      },
+      empresa: { nome: 'Brasa Burger', cnpj: '11222333000100' },
+      lojas: [
+        { id: 'loja-centro', nome: 'Brasa Centro', tipo: 'matriz', fuso: 'America/Sao_Paulo', conectadaDesde: null, jaLiberado: [] },
+        { id: 'loja-praia', nome: 'Brasa Praia', tipo: 'filial', fuso: 'America/Sao_Paulo', conectadaDesde: null, jaLiberado: [] },
+      ],
+      verFinanceiro: false,
+    });
+    expect(t.titulo).toBe('O GoGeM quer ler o cardápio e lançar as vendas do totem das suas lojas');
+    expect(t.abertura).toBe(
+      'O GoGeM é o totem de autoatendimento: mostra o cardápio do Regem e lança no Regem a venda feita nele. Ele não muda ' +
+        'preço nem venda já lançada no Regem; no cardápio, só pausa um produto no canal do totem. Você veio de app.gogem.com.br ' +
+        'e volta para lá ao terminar.',
+    );
+    expect(t.empresaInteira).toBeUndefined();
+    expect(t.lojas.map((l) => l.marcada)).toEqual([false, false]); // C-2: com mais de uma loja, nenhuma vem marcada
+    expect(t.necessarias.map((p) => p.rotulo)).toEqual(['Cardápio do totem', 'Pausar produtos no totem', 'Lançar a venda do totem']);
+    expect(t.necessarias[2].frase).toContain('Registrar no Regem a venda feita no totem');
+    expect(t.confirmacao).toBeNull();
+    expect(t.aplicativo.selo).toBe('Produto da DMS');
+  });
+});

@@ -5,7 +5,7 @@ import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { SkeletonList } from '@/components/ui/skeleton';
-import { FiltroSelect, Filtros, Vazio, dataBr, hojeIso, num, texto2 } from '@/components/ui/lista';
+import { FiltroSelect, Filtros, ListaDados, Vazio, dataBr, hojeIso, num, texto2 } from '@/components/ui/lista';
 import { diasAtras } from './ordem';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -74,31 +74,25 @@ export function RelatorioOrdens() {
           {itens.length === 0 ? (
             <Vazio>Nenhuma ordem concluída neste período.</Vazio>
           ) : (
-            <Card className="relative overflow-x-auto">
-              <table className="w-full min-w-[520px] border-collapse text-sm">
-                <caption className="sr-only">Planejado e produzido por ordem</caption>
-                <thead>
-                  <tr className={`border-b border-border bg-secondary text-left text-xs uppercase tracking-wide ${texto2}`}>
-                    <th scope="col" className="px-3 py-2.5 font-bold">Ficha</th>
-                    <th scope="col" className="px-3 py-2.5 font-bold">Data</th>
-                    <th scope="col" className="px-3 py-2.5 text-right font-bold">Planejado</th>
-                    <th scope="col" className="px-3 py-2.5 text-right font-bold">Produzido</th>
-                    <th scope="col" className="px-3 py-2.5 text-right font-bold">Quebra</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {itens.map((r) => (
-                    <tr key={r.id} className="border-b border-border last:border-b-0">
-                      <td className="px-3 py-2.5 font-bold">{r.fichaNome ?? 'Ficha'}</td>
-                      <td className="whitespace-nowrap px-3 py-2.5 font-mono">{dataBr(r.dataProducao)}</td>
-                      <td className="whitespace-nowrap px-3 py-2.5 text-right font-mono">{num(r.planejada)} {r.unidade}</td>
-                      <td className="whitespace-nowrap px-3 py-2.5 text-right font-mono">{num(r.produzida)} {r.unidade}</td>
-                      <td className={`whitespace-nowrap px-3 py-2.5 text-right font-mono ${r.quebra > 0 ? 'font-bold' : ''}`}>{r.quebra > 0 ? `−${num(r.quebra)}` : '0'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </Card>
+            // A lista do modelo do Estoque: tabela na tela larga, cartões quando não cabe — nunca rola para o lado
+            // (a tabela de 520 px rolava abaixo de ~560 px; ERR-476).
+            <ListaDados
+              legenda="Planejado e produzido por ordem"
+              linhas={itens}
+              chave={(r) => String(r.id)}
+              nome={(r) => r.fichaNome ?? 'Ficha'}
+              colunas={[
+                { titulo: 'Ficha', celula: (r) => <span className="font-bold">{r.fichaNome ?? 'Ficha'}</span> },
+                { titulo: 'Data', celula: (r) => <span className="whitespace-nowrap font-mono">{dataBr(r.dataProducao)}</span> },
+                { titulo: 'Planejado', celula: (r) => <span className="whitespace-nowrap font-mono">{num(r.planejada)} {r.unidade}</span>, classe: 'text-right' },
+                { titulo: 'Produzido', celula: (r) => <span className="whitespace-nowrap font-mono">{num(r.produzida)} {r.unidade}</span>, classe: 'text-right' },
+                {
+                  titulo: 'Quebra',
+                  celula: (r) => <span className={`whitespace-nowrap font-mono ${r.quebra > 0 ? 'font-bold' : ''}`}>{r.quebra > 0 ? `−${num(r.quebra)}` : '0'}</span>,
+                  classe: 'text-right',
+                },
+              ]}
+            />
           )}
           {itens.length < resumo.ordens && (
             <p className={`text-sm ${texto2}`}>A tabela mostra as {itens.length} ordens mais recentes; os totais acima são de todas as {resumo.ordens} do período.</p>

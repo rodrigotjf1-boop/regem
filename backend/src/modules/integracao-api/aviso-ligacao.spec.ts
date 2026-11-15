@@ -72,6 +72,26 @@ describe('e-mails da autorização por clique', () => {
     expect(e.texto).not.toContain('Ficou desligado');
   });
 
+  it('a empresa inteira (o RegemCast): o assunto e a frase falam da empresa, das lojas de hoje e das que abrirem depois', () => {
+    const e = emailDaAutorizacaoNova({
+      ...comum,
+      aplicativo: 'RegemCast',
+      lojas: ['Brasa Centro', 'Brasa Praia'],
+      conta: { nome: 'Brasa no RegemCast', cnpj: '11.222.333/0001-00' },
+      pode: ['pedidos.ler', 'clientes.telefone.ler', 'clientes.ler'],
+      desligado: ['vendas.99food.ler'],
+      naoPode: '',
+      empresaInteira: true,
+    });
+    expect(e.assunto).toBe('O RegemCast foi autorizado na empresa Brasa Burger');
+    expect(e.texto).toContain('autorizou o RegemCast a ler a empresa inteira (Brasa Centro, Brasa Praia e as lojas que abrirem depois) no Regem');
+    expect(e.texto).toContain('O RegemCast pode ver: pedidos, telefone do cliente no pedido e clientes.');
+    expect(e.texto).toContain('Ficou desligado: vendas da 99Food.');
+    const mais = emailDaPermissaoAMais({ ...comum, aplicativo: 'RegemCast', loja: 'Brasa Burger', novas: ['vendas.99food.ler'], resto: ['pedidos.ler'], empresaInteira: true });
+    expect(mais.assunto).toBe('O RegemCast passou a receber as vendas da 99Food na Brasa Burger');
+    expect(mais.texto).toContain('liberou para o RegemCast as vendas da 99Food, na empresa Brasa Burger, em todas as lojas, com a própria senha.');
+  });
+
   it('permissão a mais: o que passou a receber, como vai e o resto como estava', () => {
     const e = emailDaPermissaoAMais({
       ...comum,

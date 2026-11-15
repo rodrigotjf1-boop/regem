@@ -56,6 +56,19 @@ export type TelaDaAutorizacao = {
   lojasDoTeste?: { maximo: number; vagas: number } | null;
   /** Só o parceiro: o resumo do texto mostrado, que a página devolve ao autorizar. */
   resumo?: string;
+  /**
+   * Só o aplicativo que lê a EMPRESA INTEIRA (o RegemCast): o bloco da empresa no lugar das caixas das lojas. Todas as
+   * lojas vêm marcadas e a página manda todas (o servidor recusa se a lista mudou).
+   */
+  empresaInteira?: {
+    titulo: string;
+    ajuda: string;
+    nome: string;
+    resumo: string;
+    lojas: string;
+    aviso: string;
+    ja: { desde: string; frase: string; permissoes: { id: string; rotulo: string }[] } | null;
+  };
 };
 
 /** `le`: o que o aplicativo lê, quando não são as vendas (o Orzuni lê "o cardápio"). */

@@ -131,15 +131,19 @@ export function AutorizarCliqueTela() {
       });
       const app = e.aplicativo.nome;
       const mais = e.tela.modo === 'mais';
+      // A empresa inteira (o RegemCast): uma ligação só, sem "ligar cada loja" do lado de lá.
+      const daEmpresa = Boolean(e.tela.empresaInteira);
       voltar(
         e.aplicativo,
         r.redirect,
         true,
         mais
           ? `Pronto: o ${app} passa a receber ${listaNaFrase(e.tela.novas.filter((n) => !n.opcional || escolha.opcionais.includes(n.id)).map((n) => n.naFrase))}`
-          : `Pronto: ${plural(escolha.lojas.length, 'loja autorizada', 'lojas autorizadas')}`,
-        mais
-          ? 'Os presidentes da empresa recebem um e-mail com o que mudou. Para revogar, use Configurações › Aplicativos conectados.'
+          : daEmpresa
+            ? 'Pronto: a empresa foi autorizada'
+            : `Pronto: ${plural(escolha.lojas.length, 'loja autorizada', 'lojas autorizadas')}`,
+        mais || daEmpresa
+          ? `Os presidentes da empresa recebem um e-mail com o que ${mais ? 'mudou' : 'foi liberado'}. Para revogar, use Configurações › Aplicativos conectados.`
           : `Falta ligar cada loja do Regem a uma loja do ${app}: é o próximo passo, lá. Os presidentes da empresa recebem um e-mail com o que foi liberado.`,
         e.tela.empresa.nome,
         quemE(e.pessoa),

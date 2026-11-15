@@ -9,6 +9,7 @@ import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useModoDaLista } from '@/components/ui/lista';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brlC = (centavos: number) =>
@@ -44,6 +45,8 @@ export default function RelatoriosEntregaPage() {
   const [dados, setDados] = useState<any>(null);
   const [carregando, setCarregando] = useState(false);
   const [expandido, setExpandido] = useState<string | null>(null);
+  // A lista nunca rola para o lado (V45, como o ERR-430): a tabela pede 640 px; sem esse espaço, cartões.
+  const { caixa, modo } = useModoDaLista('entregas-por-entregador');
 
   // Período resolvido a partir do preset (fuso do navegador = "hoje" do usuário).
   const periodo = useMemo(() => {
@@ -170,7 +173,52 @@ export default function RelatoriosEntregaPage() {
 
         {/* Tabela por entregador */}
         <Card className="p-0">
-          <div className="overflow-x-auto">
+          <div ref={caixa} className="overflow-x-auto">
+            {modo === 2 ? (
+              <ul className="divide-y divide-border/60" aria-label="Entregas, tempo médio e ganhos por entregador no período" data-entregadores-cartoes>
+                {linhas.length === 0 && (
+                  <li className="px-4 py-10 text-center text-sm text-muted-foreground">{carregando ? 'Carregando…' : 'Sem entregas no período selecionado.'}</li>
+                )}
+                {linhas.map((l) => {
+                  const aberto = expandido === l.colaboradorId;
+                  const bairros = (l.bairros ?? []) as any[];
+                  return (
+                    <li key={l.colaboradorId} className="space-y-2 px-4 py-3 text-sm">
+                      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                        <span className="min-w-0 break-words font-medium">{l.nome ?? '—'}</span>
+                        <span className="font-mono font-semibold">{brlC(l.ganhosCentavos)}</span>
+                      </div>
+                      <dl className="grid grid-cols-3 gap-2 text-xs">
+                        <div><dt className="font-semibold text-muted-foreground">Entregas</dt><dd className="m-0 font-mono">{l.entregas}</dd></div>
+                        <div><dt className="font-semibold text-muted-foreground">Dias</dt><dd className="m-0 font-mono">{l.dias}</dd></div>
+                        <div><dt className="font-semibold text-muted-foreground">Tempo médio</dt><dd className="m-0 font-mono">{dur(l.tempoMedioSeg)}</dd></div>
+                      </dl>
+                      {bairros.length > 0 && (
+                        <div className="space-y-1.5">
+                          <button
+                            type="button"
+                            aria-expanded={aberto}
+                            onClick={() => setExpandido(aberto ? null : l.colaboradorId)}
+                            className="text-xs font-semibold text-primary hover:underline"
+                          >
+                            {aberto ? 'ocultar os bairros' : `${bairros.length} bairro(s)`}
+                          </button>
+                          {aberto && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {bairros.map((b, i) => (
+                                <span key={i} className="rounded-full border border-border bg-card px-2.5 py-1 text-xs">
+                                  {b.bairro} · <span className="font-mono font-semibold">{b.n}</span>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
             <table className="w-full min-w-[640px] text-sm">
               <caption className="sr-only">Entregas, tempo médio e ganhos por entregador no período</caption>
               <thead>
@@ -238,6 +286,7 @@ export default function RelatoriosEntregaPage() {
                 })}
               </tbody>
             </table>
+            )}
           </div>
         </Card>
 
