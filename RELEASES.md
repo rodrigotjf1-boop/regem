@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **As listas do painel do Delivery sem barra lateral (15/11, ERR-430; SEM migration; só tela).** "Pedidos pendentes" e
+  "Entregas em andamento" escolhem pelo espaço a tabela inteira, a compacta (sem o código externo e a data, o bairro no
+  lugar do endereço) ou os cartões — nunca rolam para o lado. Na nuvem vale com o merge; no servidor da loja, com o `.zip`.
+
 - **A configuração da integração gravada por chave (15/11, ERR-475; SEM migration; não mexe no `sync-daemon`).** O fim
   do ciclo do Cardápio Web e do Anota AI, o token do Open Delivery, o vínculo da 99, o pedir/desligar do iFood e a tela de
   Integrações gravam só a própria chave do `integracao.config`, mesclando no banco. Antes, regravavam a cópia inteira e
