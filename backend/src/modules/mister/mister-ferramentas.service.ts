@@ -20,6 +20,8 @@ import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { EscalaService } from '../escala/escala.service';
 import { EstoqueService } from '../estoque/estoque.service';
 import { LicencaService } from '../licenca/licenca.service';
+import { IbptService } from '../fiscal/ibpt/ibpt.service';
+import { hojeNaUf, statusIbpt } from '../fiscal/ibpt/ibpt-tabela';
 import { ModuloService } from '../modulo/modulo.service';
 import { PontoService } from '../ponto/ponto.service';
 import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
@@ -53,6 +55,14 @@ import {
 import { GUIA_DE_USO, SecaoDoGuia, buscarNoGuia, quemAbre } from './mister-guia-de-uso';
 import { canceladoComVendaDePe, concluidoSemPagamento, pixSemEstorno, vendaComNotaComProblema, vendaDesfeitaComNota } from './mister-conciliacao';
 import { primeiroNome } from './mister.regras';
+import {
+  ParteDoVencimento,
+  ServidorLido,
+  certificadoParaOMister,
+  ibptParaOMister,
+  instagramParaOMister,
+  servidorParaOMister,
+} from './mister-vencimentos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -219,6 +229,8 @@ export class MisterFerramentasService {
     @Optional() private readonly conferencia?: ConferenciaService,
     // A fila do Atendimento (a mesma da tela).
     @Optional() private readonly atendimento?: AtendimentoService,
+    // F3, vencimentos: a tabela do IBPT da loja (a mesma da Configuração fiscal).
+    @Optional() private readonly ibpt?: IbptService,
   ) {}
 
   // ───────────────────────────── de quem é a conversa ─────────────────────────────
@@ -359,6 +371,8 @@ export class MisterFerramentasService {
         return this.conferenciaDoCatalogo(e, loja);
       case 'atendimento_agora':
         return this.atendimentoAgora(e, loja);
+      case 'vencimentos_e_versoes':
+        return this.vencimentosEVersoes(e, loja);
       case 'conciliacao_do_periodo':
         return this.conciliacao(e, en, loja);
       case 'como_usar_o_regem':
@@ -462,6 +476,120 @@ export class MisterFerramentasService {
       dados.vendaDesfeitaComNotaAutorizada = { aviso: SEM_PERMISSAO };
       dados.vendaComNotaComProblema = { aviso: SEM_PERMISSAO };
     }
+    return { ok: true, dados };
+  }
+
+  /**
+   * O que vence ou está desatualizado (F3, vigilância de dependências — parte 1, as da loja; `mister-vencimentos.ts`):
+   *  • o certificado digital da nota, cada um cadastrado (o da loja e o da empresa), MESMO com a nota desligada — o aviso
+   *    só olha onde ela está ligada; aqui a pessoa pergunta. Permissão da nota fiscal (`fiscal` ou `fiscal_config`).
+   *  • a tabela do IBPT do estado da loja: qual vale hoje (a da Configuração fiscal — `IbptService.situacaoDaLoja`) e a
+   *    situação da tabela da DMS pela régua do verificador da distribuição (`statusIbpt`). Mesma permissão.
+   *  • o servidor da loja: a licença (a MESMA regra da renovação, ERR-466) e a versão instalada × a que esta loja já
+   *    poderia ter (`LicencaService.vencimentoDoServidor`). Só o presidente, como a situação do servidor.
+   *  • o acesso do Instagram (presidente e gerente, como a tela).
+   * Nada de segredo: só datas e situação. A parte que não pôde ser lida diz "não li" — nunca vira "em dia".
+   */
+  private async vencimentosEVersoes(e: EscopoDoMister, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    const verFiscal = this.pode(e, 'fiscal') || this.pode(e, 'fiscal_config');
+    const verServidor = e.nivel === 'presidente';
+    const verInstagram = e.nivel === 'presidente' || e.nivel === 'gerente';
+    if (!verFiscal && !verServidor && !verInstagram) return recusa(SEM_PERMISSAO);
+    const agora = new Date();
+    const dados: Record<string, unknown> = { loja: loja.nome, lidoAs: horaAgora() };
+    const atencao: string[] = [];
+    const juntar = (p: ParteDoVencimento | null) => {
+      if (p?.atencao) atencao.push(p.atencao);
+      return p?.dados;
+    };
+
+    if (verFiscal) {
+      const ligadas = linhas(
+        await this.db.execute(sql`
+          select coalesce(bool_or(ativo), false) as ligada from fiscal_config
+           where tenant_id = ${e.tenantId}::uuid ${sqlUnidadeOuRede('unidade_id', loja.atual)}`),
+      );
+      const notaLigada = ligadas[0]?.ligada === true;
+      // 1) Cada certificado: o da loja (ou da empresa toda) com o ajuste da nota que vale para ele (o da loja, senão o da
+      //    empresa — a mesma régua do fiscal).
+      const certificados = linhas(
+        await this.db.execute(sql`
+          select u.nome as loja, c.cert_valido_ate as "validoAte", cfg.ativo as ligada, cfg.ambiente
+            from fiscal_credencial c
+            left join unidade u on u.id = c.unidade_id and u.tenant_id = c.tenant_id
+            left join lateral (
+              select f.ativo, f.ambiente from fiscal_config f
+               where f.tenant_id = c.tenant_id and (f.unidade_id is not distinct from c.unidade_id or f.unidade_id is null)
+               order by (f.unidade_id is null) limit 1) cfg on true
+           where c.tenant_id = ${e.tenantId}::uuid and c.cert_valido_ate is not null ${sqlUnidadeOuRede('c.unidade_id', loja.atual)}
+           order by (c.unidade_id is null) desc, u.nome
+           limit 10`),
+      );
+      dados.certificadoDigital = certificados.length
+        ? certificados.map((c) => juntar(certificadoParaOMister({ loja: c.loja ?? null, validoAte: c.validoAte, ligada: c.ligada === true, ambiente: c.ambiente }, agora)))
+        : { cadastrado: false, observacao: 'Nenhum certificado digital cadastrado (ele só faz falta para emitir a nota fiscal).' };
+
+      // 2) A tabela do IBPT do estado da loja.
+      if (!this.ibpt) dados.tabelaDoIbpt = { aviso: 'Não consegui ler a tabela do IBPT agora.' };
+      else {
+        try {
+          const s: any = await this.ibpt.situacaoDaLoja(e.tenantId, loja.atual);
+          const uf = s?.uf ? String(s.uf).toUpperCase() : null;
+          let daDms: any = null;
+          let ultimaAte: string | null = null;
+          if (uf) {
+            [daDms] = await statusIbpt(this.db, hojeNaUf(uf), [uf]);
+            const [u] = linhas(
+              await this.db.execute(sql`
+                select max(vigencia_fim)::text as ate from ibpt_versao
+                 where upper(uf) = ${uf} and (tenant_id is null or tenant_id = ${e.tenantId}::uuid)`),
+            );
+            ultimaAte = u?.ate ?? null;
+          }
+          dados.tabelaDoIbpt = juntar(
+            ibptParaOMister({
+              uf,
+              emUso: s?.emUso === 'propria' || s?.emUso === 'regem' ? s.emUso : null,
+              propriaAte: s?.tabelaPropria?.vigenciaFim ?? null,
+              regemAte: s?.tabelaRegem?.vigenciaFim ?? null,
+              situacaoDaDms: daDms?.situacao ?? null,
+              diasParaVencerDaDms: daDms?.diasParaVencer ?? null,
+              ultimaAte,
+              notaLigada,
+            }),
+          );
+        } catch (err: any) {
+          this.logger.warn(`a tabela do IBPT não foi lida: ${String(err?.message ?? err).slice(0, 200)}`);
+          dados.tabelaDoIbpt = { aviso: 'Não consegui ler a tabela do IBPT agora.' };
+        }
+      }
+    } else {
+      dados.certificadoDigital = { aviso: SEM_PERMISSAO };
+      dados.tabelaDoIbpt = { aviso: SEM_PERMISSAO };
+    }
+
+    // 3) O servidor da loja: a licença e a versão (só o presidente).
+    if (verServidor) {
+      const partes = servidorParaOMister((await this.licenca.vencimentoDoServidor(e.tenantId)) as ServidorLido, agora);
+      dados.servidorDaLoja = Object.assign({}, ...partes.map((p) => juntar(p)));
+      if (!e.lojaUnica) (dados.servidorDaLoja as Record<string, unknown>).observacaoDaRede = 'A empresa tem mais de uma loja: esta é a licença da empresa e a versão do servidor que falou por último.';
+    } else dados.servidorDaLoja = { aviso: 'A licença e a versão do servidor são mostradas só ao presidente.' };
+
+    // 4) O Instagram da loja (só com a conta conectada).
+    if (verInstagram) {
+      try {
+        const [c] = linhas(
+          await this.db.execute(sql`
+            select usuario, token_vence_em as "venceEm", erro from instagram_conta where tenant_id = ${e.tenantId}::uuid limit 1`),
+        );
+        const ig = instagramParaOMister(c ? { usuario: c.usuario ?? null, venceEm: c.venceEm ?? null, erro: c.erro ?? null } : null, agora);
+        if (ig) dados.instagram = juntar(ig);
+      } catch (err: any) {
+        if (!semTabela(err)) throw err;
+      }
+    }
+
+    dados.pedeAtencao = atencao.length ? atencao : 'Nada vencido nem para vencer logo, e o servidor está na versão que a loja pode ter.';
     return { ok: true, dados };
   }
 
