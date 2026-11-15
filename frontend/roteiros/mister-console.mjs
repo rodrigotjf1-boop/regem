@@ -67,6 +67,11 @@ const QUALIDADE = {
     { tema: 'financeiro e contas', quantas: 6 },
     { tema: 'outro assunto', quantas: 5 },
   ],
+  // O Mentor, parte 1: os padrões com a observação, a causa provável e a proposta.
+  melhorar: [
+    { causa: 'falta_consulta', observacao: '"estoque e compras" faltou 8 vezes, em 3 empresas (o que mais faltou)', porque: 'nenhuma consulta do Mister traz esse dado', proposta: 'Consulta nova de estoque e compras · abrir tarefa' },
+    { causa: 'erro_na_consulta', observacao: '"historia do pedido" não leu 5 vezes, de 37 (14%)', porque: 'a mesma consulta falhando mais de 10%', proposta: 'Ver o log das 5 falhas · abrir tarefa' },
+  ],
   empresas: 3,
   pessoas: 9,
   tempo: { medianaS: 6, p90S: 14.2 },
@@ -86,6 +91,29 @@ const QUALIDADE = {
     { empresa: 'Burger da Praça', perguntas: 318, semResposta: 4, custoUsd: 0.35, chave: 'ok' },
     { empresa: 'Pizzaria do Porto', perguntas: 81, semResposta: 9, custoUsd: 0.09, chave: 'chave_recusada' },
     { empresa: 'Empório Sabor da Serra Comércio de Alimentos e Bebidas Artesanais Ltda', perguntas: 13, semResposta: 4, custoUsd: 0.01, chave: null },
+  ],
+};
+
+// A segurança (o Sentinela, parte 1): só contagens; o nome comprido de propósito.
+const SEGURANCA = {
+  dias: 7,
+  saida: [
+    { nota: 'segredo', texto: 'segredo tirado', quantas: 1 },
+    { nota: 'link_tirado', texto: 'link tirado', quantas: 3 },
+    { nota: 'valor_sem_origem', texto: 'valor em reais sem origem (anotado)', quantas: 2 },
+    { nota: 'cortada', texto: 'resposta cortada pelo tamanho', quantas: 1 },
+    { nota: 'vazia', texto: 'resposta vazia', quantas: 0 },
+  ],
+  entrada: { codigoNaoVale: 11, codigosDemais: 1, codigoCalado: 2, codigoErrado: { quantas: 14, telefones: 3, calados: 1 }, outraPessoa: 2, perdeuOAcesso: 4, naoLigado: { quantas: 9, telefones: 6 } },
+  segredos: 1,
+  limite: 1,
+  atencao: [
+    { nivel: 'critico', texto: 'Uma resposta saiu sem algo parecido com uma chave de acesso (o filtro de saída tirou). Conferir qual consulta trouxe esse dado: canais e integracoes · Pizzaria do Porto · 13/11 21:04.' },
+    { nivel: 'atencao', texto: '1 telefone foi calado por 1 hora depois de 5 códigos errados seguidos para ligar ao Mister.' },
+  ],
+  porEmpresa: [
+    { empresa: 'Pizzaria do Porto', filtro: 4, segredos: 1, perdeuOAcesso: 3, outraPessoa: 0, limite: 0 },
+    { empresa: 'Empório Sabor da Serra Comércio de Alimentos e Bebidas Artesanais Ltda', filtro: 3, segredos: 0, perdeuOAcesso: 1, outraPessoa: 2, limite: 1 },
   ],
 };
 
@@ -181,6 +209,8 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
       qualidade: o.qualidade ?? QUALIDADE,
       falhaDaQualidade: !!o.falhaDaQualidade,
       avaliacoes: o.avaliacoes ?? AVALIACOES(),
+      seguranca: o.seguranca ?? SEGURANCA,
+      falhaDaSeguranca: !!o.falhaDaSeguranca,
       falhaDasAvaliacoes: !!o.falhaDasAvaliacoes,
       pedidos: [],
     };
@@ -269,6 +299,11 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
           limite: 200,
           avisos: todos.filter((a) => (resolvidos ? a.situacao === 'resolvido' : a.situacao === 'aberto')),
         });
+      }
+      if (p === '/distribuicao/mister/seguranca') {
+        if (S.falhaDaSeguranca) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
+        const dias = Number(url.searchParams.get('dias')) === 30 ? 30 : 7;
+        return responder(route, { ...S.seguranca, dias, ...(dias === 30 ? { limite: 7 } : {}) });
       }
       if (p === '/distribuicao/mister/qualidade') {
         if (S.falhaDaQualidade) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
@@ -664,6 +699,10 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
     ok(/Por que não respondeu · 17/.test(t) && /a chave de IA da empresa foi recusada 6/.test(t), 'qualidade: por que não respondeu');
     ok(/"Não tenho acesso" 19 5% das perguntas/i.test(t) && /395 de 412 · 23 sem consultar dado/.test(t), `qualidade: "não tenho acesso" e as sem consulta (${t.slice(0, 260)})`);
     ok(/O que pediram e o Mister não tem · 19/.test(t) && /estoque e compras 8/.test(t) && /outro assunto 5/.test(t), 'qualidade: o que faltou, por tema');
+    ok(
+      /O que melhorar · 2 padrões nos últimos 7 dias/.test(t) && /"estoque e compras" faltou 8 vezes, em 3 empresas \(o que mais faltou\) falta consulta nenhuma consulta do Mister traz esse dado Proposta Consulta nova de estoque e compras · abrir tarefa/i.test(t) && /erro na consulta a mesma consulta falhando mais de 10%/i.test(t),
+      `qualidade: o que melhorar, com a observação, a causa e a proposta (${t.slice(t.indexOf('O que melhorar'), t.indexOf('O que melhorar') + 260)})`,
+    );
     ok(/Burger da Praça 318 perguntas 4 sem resposta US\$ 0,35 da empresa · ok/.test(t) && /Pizzaria do Porto .* recusada/.test(t) && /sem chave própria/.test(t), 'qualidade: por empresa, com a situação da chave');
     ok((await sec.locator('button[aria-pressed="true"]:has-text("7 dias")').count()) === 1, 'qualidade: 7 dias marcado');
     await sec.locator('button:has-text("30 dias")').click();
@@ -681,13 +720,13 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
   }
   {
     // A API de antes do deploy (sem os campos da F5.2): a seção abre, com zero e "Nada faltou neste período.".
-    const { naoTem, temas, ...semF52 } = QUALIDADE;
+    const { naoTem, temas, melhorar, ...semF52 } = QUALIDADE;
     const { ctx, page, erros } = await abrir(1280, 900, { numero: conectado(), liberado: true, qualidade: semF52 });
     await naAba(page);
     const sec = page.locator('section[aria-labelledby="mister-qualidade"]');
     await sec.locator('text=Nada faltou neste período.').waitFor({ timeout: 20000 });
     const t = (await sec.innerText()).replace(/\s+/g, ' ');
-    ok(/O que pediram e o Mister não tem · 0/.test(t) && /"Não tenho acesso" 0/i.test(t) && erros.length === 0, `qualidade: a API antiga, sem os campos novos, não quebra a seção (${erros.join(' | ')})`);
+    ok(/O que pediram e o Mister não tem · 0/.test(t) && /"Não tenho acesso" 0/i.test(t) && /O que melhorar · 0 padrões nos últimos 7 dias/.test(t) && /Nenhum padrão a melhorar neste período\./.test(t) && erros.length === 0, `qualidade: a API antiga, sem os campos novos, não quebra a seção (${erros.join(' | ')})`);
     await ctx.close();
   }
   {
@@ -699,6 +738,44 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
     await sec.locator('button:has-text("Tentar de novo")').click();
     await sec.locator('text=395 de 412').waitFor({ timeout: 10000 });
     ok((await page.locator('text=● conectado').count()) === 1, 'qualidade: o erro só na seção, e "Tentar de novo" lê de novo');
+    await ctx.close();
+  }
+
+  // ── a segurança (o Sentinela, parte 1): o pede atenção, os números, as barras, por empresa, 30 dias, o vazio e o erro ──
+  {
+    const { ctx, page, S, erros } = await abrir(1280, 900, { numero: conectado(), liberado: true });
+    await naAba(page);
+    const sec = page.locator('section[aria-labelledby="mister-seguranca"]');
+    await sec.locator('text=Pede atenção').waitFor({ timeout: 20000 });
+    const t = (await sec.innerText()).replace(/\s+/g, ' ');
+    ok(/Pede atenção · 2/.test(t) && /Conferir qual consulta trouxe esse dado: canais e integracoes · Pizzaria do Porto · 13\/11 21:04/.test(t) && /1 telefone foi calado por 1 hora/.test(t), `segurança: o pede atenção (${t.slice(0, 220)})`);
+    ok(/Segredo tirado da resposta 1 o filtro tirou antes de sair/i.test(t) && /Código errado para ligar 14 de 3 telefones · 1 calado por 1 hora/i.test(t) && /Telefone não ligado 9 de 6 telefones/i.test(t) && /Limite de perguntas 1/i.test(t), 'segurança: os números, com quantos telefones (nunca quais)');
+    ok(/link tirado 3/.test(t) && /segredo tirado 1/.test(t) && !/resposta vazia/.test(t) && /código que não vale 11/.test(t) && /códigos demais · calado por 1 hora 3/.test(t) && /número de outra pessoa 2/.test(t), 'segurança: as barras da saída e da entrada, sem as que deram zero');
+    ok(/Pizzaria do Porto 4 no filtro de saída 1 segredo 3 perdeu o acesso/.test(t) && /Empório Sabor da Serra .* 1 no limite/.test(t), 'segurança: por empresa, com o segredo em destaque');
+    await sec.locator('button:has-text("30 dias")').click();
+    await sec.locator('text=Limite de perguntas').waitFor();
+    await page.waitForFunction(() => /Limite de perguntas\s*7/i.test(document.querySelector('section[aria-labelledby="mister-seguranca"]')?.textContent ?? ''), null, { timeout: 10000 });
+    ok(feitos(S, 'GET', '/distribuicao/mister/seguranca').length >= 2, 'segurança: 30 dias lê de novo no servidor');
+    ok(erros.length === 0, `segurança: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  {
+    const zero = { ...SEGURANCA, saida: SEGURANCA.saida.map((s) => ({ ...s, quantas: 0 })), entrada: { codigoNaoVale: 0, codigosDemais: 0, codigoCalado: 0, codigoErrado: { quantas: 0, telefones: 0, calados: 0 }, outraPessoa: 0, perdeuOAcesso: 0, naoLigado: { quantas: 0, telefones: 0 } }, segredos: 0, limite: 0, atencao: [], porEmpresa: [] };
+    const { ctx, page } = await abrir(1280, 900, { numero: conectado(), liberado: true, seguranca: zero });
+    await naAba(page);
+    await page.locator('section[aria-labelledby="mister-seguranca"] >> text=Nada barrado ou recusado neste período.').waitFor({ timeout: 20000 });
+    ok(true, 'segurança: o vazio diz que nada foi barrado');
+    await ctx.close();
+  }
+  {
+    const { ctx, page, S } = await abrir(1280, 900, { numero: conectado(), liberado: true, falhaDaSeguranca: true });
+    await naAba(page);
+    const sec = page.locator('section[aria-labelledby="mister-seguranca"]');
+    await sec.locator('[role="alert"] >> text=Erro interno').waitFor({ timeout: 20000 });
+    S.falhaDaSeguranca = false;
+    await sec.locator('button:has-text("Tentar de novo")').click();
+    await sec.locator('text=Pede atenção').waitFor({ timeout: 10000 });
+    ok((await page.locator('section[aria-labelledby="mister-qualidade"] >> text=395 de 412').count()) === 1, 'segurança: o erro só na seção, e "Tentar de novo" lê de novo');
     await ctx.close();
   }
 
@@ -756,6 +833,7 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
     await page.locator('text=Empório Sabor da Serra >> visible=true').first().waitFor({ timeout: 20000 });
     await page.locator('section[aria-labelledby="mister-modelos"] >> text=recusado pela Meta').waitFor({ timeout: 20000 });
     await page.locator('section[aria-labelledby="mister-qualidade"] >> text=395 de 412').waitFor({ timeout: 20000 });
+    await page.locator('section[aria-labelledby="mister-seguranca"] >> text=Pede atenção').waitFor({ timeout: 20000 });
     let m = await medir(page);
     ok(m.length === 0, `${w}px: conectado — sem barra lateral, nada passa da tela e o toque é grande (${m.join(' | ')})`);
     const tabela = await page.locator('section[aria-labelledby="mister-empresas"] table').isVisible();

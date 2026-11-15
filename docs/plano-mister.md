@@ -612,6 +612,45 @@ O cartão fica depois de "Por empresa", e não antes como no protótipo: ele nã
   - a versão mudada, sem a chave, o erro e o vazio;
   - a gaveta aberta nas 16 larguras.
 
+**A primeira rodada no ar (15/11/2026, pedida pelo dono):** 40 de 40 em 36 s, US$ 0,02, versão `a4fae716`, Haiku.
+
+### F5.4 — A segurança e o que melhorar (o Sentinela e o Mentor, parte 1; sem migration)
+
+Os dois papéis do prompt do dono que faltavam na F5, na parte 1: sem IA, só leitura e só com o que o servidor já anota. Protótipo `mockups/regem-mister-sentinela-mentor.html` (#1004), feito com as decisões recomendadas.
+
+- **Console › Mister › Segurança (o Sentinela), só para a Diretoria** (como a aba Mister) — `GET /distribuicao/mister/seguranca`, `MisterSegurancaService`. O que as proteções barraram, em 7 ou 30 dias:
+  - **na saída** (`mister_pergunta.conferencia`): segredo tirado, link tirado, valor sem origem, resposta cortada;
+  - **na entrada** (`mister_mensagem.desfecho`): código que não vale, códigos demais e o telefone calado, número de outra pessoa, telefone não ligado, quem perdeu o acesso;
+  - **o limite de perguntas** (`motivo`);
+  - **o "Pede atenção" por regra:** cada segredo tirado é crítico, com a consulta que trouxe o dado, a empresa e a hora (até 3 por nome; os outros somados); telefone calado por código errado é atenção;
+  - **por empresa:** só o que se sabe de quem é.
+  - **Nunca:** o telefone (só quantos telefones, contados sem repetir), o texto, o código digitado ou o que a consulta trouxe.
+- **"O que melhorar" (o Mentor), no fim da Qualidade** — `melhorar` na resposta da Qualidade, `padroesParaMelhorar`. Cada padrão traz a observação, a causa provável e a proposta, por regras fixas:
+  - o tema que mais faltou, 3 vezes ou mais e fora de "outro assunto" = **falta consulta**;
+  - a consulta com 10 usos ou mais que não leu mais de 10% = **erro na consulta** (até 3);
+  - a última avaliação com erradas = **instrução**;
+  - a chave ou a conta de IA da empresa, 3 perguntas ou mais = **da empresa** (nada nas instruções).
+  - Nada muda sozinho.
+- **Fica para a parte 2:**
+  - o segredo tirado como aviso ao suporte da DMS (a decisão 4 do protótipo);
+  - a análise com IA dos eventos, sempre como proposta;
+  - as decisões "virou tarefa / não se aplica" do Mentor (pedem migration);
+  - as versões candidatas das instruções testadas pela avaliação.
+
+**Conferência:**
+- `mister-seguranca.spec.ts`: as notas, os desfechos, a janela em palavras, o "Pede atenção" (crítico e atenção, até 3 por nome e o resto somado).
+- `mister-qualidade.spec.ts`: cada regra do "o que melhorar", os limites e a ordem.
+- `mister-pg.teste-spec.ts`, pela diferença antes e depois:
+  - cada nota e cada desfecho, os telefones distintos e o calado;
+  - o segredo com a consulta (sem a anotação), a empresa e o limite;
+  - por empresa e os 30 dias;
+  - nada de telefone, texto ou id;
+  - o "o que melhorar" com o tema que mais faltou e a avaliação com erradas.
+- Roteiro `mister-console`:
+  - a Segurança inteira, 30 dias, o vazio e o erro só na seção;
+  - o "o que melhorar" e a API antiga sem quebrar;
+  - as 16 larguras com a Segurança carregada.
+
 ### F2.5 — O suporte de uso: o guia "como faço…" (sem migration)
 
 Decisão do dono de 14/11/2026 ("use o recomendado"): o suporte de uso nasce de um **guia curto das telas principais, escrito por nós** a partir das telas de verdade. Não havia documentação de uso no repositório (o Bot de Suporte guarda as regras de cada loja, não o uso do Regem).

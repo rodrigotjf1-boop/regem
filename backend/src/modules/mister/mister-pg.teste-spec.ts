@@ -33,6 +33,7 @@ import { MisterRelatoriosConfigService } from './mister-relatorios-config.servic
 import { MisterRelatoriosService } from './mister-relatorios.service';
 import { MisterQualidadeService } from './mister-qualidade.service';
 import { MisterAvaliacaoService } from './mister-avaliacao.service';
+import { MisterSegurancaService } from './mister-seguranca.service';
 import { CASOS_DA_AVALIACAO, CasoDaAvaliacao } from './mister-avaliacao-casos';
 import { PRECOS_LIDOS_EM } from '../ia/ia.regras';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
@@ -2437,6 +2438,107 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_pergunta where chave like $1`, [`${chaveDaLinha}-%`]);
         if (usoAntes) await q(`update ia_uso_dia set tokens_entrada = $3, tokens_saida = $4 where tenant_id = $1 and dia = $2::date and recurso = 'mister_perguntas' and provedor = 'anthropic' and modelo = 'claude-opus-5-5' and origem = 'distribuicao'`, [A, hojeISO(), usoAntes.tokens_entrada, usoAntes.tokens_saida]);
         else await q(`delete from ia_uso_dia where tenant_id = $1 and dia = $2::date and recurso = 'mister_perguntas' and modelo = 'claude-opus-5-5' and origem = 'distribuicao'`, [A, hojeISO()]);
+      }
+    });
+
+    // ───────────────────────────── a segurança e o que melhorar (o Sentinela e o Mentor, parte 1) ─────────────────────────────
+    // De todas as empresas: a conta é pela diferença (outras partes desta spec também gravam mensagens e perguntas).
+    it('a segurança do Mister no console: o que as proteções barraram, só contagens — nunca o telefone ou o texto', async () => {
+      const seguranca = new MisterSegurancaService(db);
+      const antes = await seguranca.resumo(7);
+      const antes30 = await seguranca.resumo(30);
+      const tels = [telefone(), telefone(), telefone()];
+      const [{ nome: nomeA }] = await q(`select nome from empresa where id = $1`, [A]);
+      let n = 0;
+      const msg = (tel: string, desfecho: string, tenant: string | null = null, diasAtras = 0) =>
+        q(`insert into mister_mensagem (wamid, telefone, tenant_id, desfecho, recebida_em) values ($1, $2, $3, $4, now() - make_interval(days => $5::int))`, [`wamid.${MARCA}.seg${++n}`, tel, tenant, desfecho, diasAtras]);
+      const pergunta = (conferencia: string[], ferramentas: unknown[], motivo: string | null = null, situacao = 'respondida') =>
+        q(
+          `insert into mister_pergunta (tenant_id, colaborador_id, nivel, telefone, chave, pergunta, resposta, situacao, motivo, chamadas, ferramentas, conferencia)
+           values ($1, $2, 'presidente', $3, $4, 'pergunta secreta', 'resposta secreta', $5, $6, 1, $7::jsonb, $8::jsonb)`,
+          [A, pessoa.ana, tels[0], `seg-${MARCA}-${++n}`, situacao, motivo, JSON.stringify(ferramentas), JSON.stringify(conferencia)],
+        );
+      try {
+        // Na entrada: 3 códigos errados de 2 telefones (1 calado), outra pessoa, perdeu o acesso, resposta fixa; um de 10 dias.
+        await msg(tels[0], 'codigo_nao_vale');
+        await msg(tels[0], 'codigos_demais');
+        await msg(tels[1], 'codigo_nao_vale');
+        await msg(tels[2], 'numero_de_outra_pessoa', A);
+        await msg(tels[2], 'sem_acesso', A);
+        await msg(tels[1], 'sem_acesso', A);
+        await msg(tels[2], 'fixa');
+        await msg(tels[2], 'fixa_calada');
+        await msg(tels[1], 'codigo_nao_vale', null, 10);
+        await msg(tels[0], 'pergunta', A); // não é das proteções
+        // Na saída: um segredo e um link tirados (a consulta que trouxe), um valor sem origem, um limite.
+        await pergunta(['segredo', 'link_tirado'], [{ nome: 'canais_e_integracoes', ok: true, ms: 1 }, { nome: 'anotar_o_que_falta', ok: true, ms: 1 }]);
+        await pergunta(['valor_sem_origem'], []);
+        await pergunta([], [], 'limite', 'falhou');
+
+        const r = await seguranca.resumo(7);
+        const nota = (x: any, k: string) => x.saida.find((s: any) => s.nota === k).quantas;
+        expect(r.dias).toBe(7);
+        expect([nota(r, 'segredo') - nota(antes, 'segredo'), nota(r, 'link_tirado') - nota(antes, 'link_tirado'), nota(r, 'valor_sem_origem') - nota(antes, 'valor_sem_origem')]).toEqual([1, 1, 1]);
+        expect(r.segredos - antes.segredos).toBe(1);
+        expect(r.limite - antes.limite).toBe(1);
+        expect(r.entrada.codigoErrado.quantas - antes.entrada.codigoErrado.quantas).toBe(3);
+        expect(r.entrada.codigoErrado.telefones - antes.entrada.codigoErrado.telefones).toBe(2);
+        expect(r.entrada.codigoErrado.calados - antes.entrada.codigoErrado.calados).toBe(1);
+        expect(r.entrada.outraPessoa - antes.entrada.outraPessoa).toBe(1);
+        expect(r.entrada.perdeuOAcesso - antes.entrada.perdeuOAcesso).toBe(2);
+        expect(r.entrada.naoLigado.quantas - antes.entrada.naoLigado.quantas).toBe(2);
+        expect(r.entrada.naoLigado.telefones - antes.entrada.naoLigado.telefones).toBe(1);
+        // O "Pede atenção": o segredo com a consulta que trouxe (a anotação não é consulta), a empresa e a hora.
+        const critico = r.atencao.find((a: any) => a.nivel === 'critico' && a.texto.includes(nomeA));
+        expect(critico?.texto).toContain('Conferir qual consulta trouxe esse dado: canais e integracoes · ');
+        expect(critico?.texto).not.toContain('anotar');
+        expect(r.atencao.some((a: any) => a.nivel === 'atencao' && a.texto.includes('calado'))).toBe(true);
+        // Por empresa: só o que se sabe de quem é.
+        const daA = (x: any) => x.porEmpresa.find((e: any) => e.empresa === nomeA) ?? { filtro: 0, segredos: 0, perdeuOAcesso: 0, outraPessoa: 0, limite: 0 };
+        expect({ filtro: daA(r).filtro - daA(antes).filtro, segredos: daA(r).segredos - daA(antes).segredos, perdeuOAcesso: daA(r).perdeuOAcesso - daA(antes).perdeuOAcesso, outraPessoa: daA(r).outraPessoa - daA(antes).outraPessoa, limite: daA(r).limite - daA(antes).limite }).toEqual({
+          filtro: 2,
+          segredos: 1,
+          perdeuOAcesso: 2,
+          outraPessoa: 1,
+          limite: 1,
+        });
+        // 30 dias: o código errado de 10 dias entra.
+        expect((await seguranca.resumo(30)).entrada.codigoErrado.quantas - antes30.entrada.codigoErrado.quantas).toBe(4);
+        // Nunca o telefone, o texto ou a empresa pelo id.
+        const tudo = JSON.stringify(r);
+        for (const t of tels) expect(tudo).not.toContain(t);
+        expect(tudo).not.toContain('secreta');
+        expect(tudo).not.toContain(A);
+        expect((await seguranca.resumo('lixo')).dias).toBe(7);
+      } finally {
+        await q(`delete from mister_mensagem where wamid like $1`, [`wamid.${MARCA}.seg%`]);
+        await q(`delete from mister_pergunta where chave like $1`, [`seg-${MARCA}-%`]);
+      }
+    });
+
+    it('o que melhorar no fim da Qualidade: o tema que mais faltou vira "falta consulta", e a avaliação com erradas vira "instrução"', async () => {
+      const qualidade = new MisterQualidadeService(db);
+      const tel = telefone();
+      let n = 0;
+      try {
+        for (let i = 0; i < 9; i++)
+          await q(
+            `insert into mister_pergunta (tenant_id, colaborador_id, nivel, telefone, chave, situacao, chamadas, ferramentas)
+             values ($1, $2, 'presidente', $3, $4, 'respondida', 2, $5::jsonb)`,
+            [A, pessoa.ana, tel, `mel-${MARCA}-${++n}`, JSON.stringify([{ nome: 'anotar_o_que_falta', ok: true, ms: 1, entrada: { tema: 'canais' } }])],
+          );
+        await q(`delete from mister_avaliacao`);
+        await q(
+          `insert into mister_avaliacao (situacao, versao, consultas, modelo, total, feitas, acertos, casos, terminada_em)
+           values ('terminou', 'abcd1234', 17, 'claude-haiku-5-5', 40, 40, 39, $1::jsonb, now())`,
+          [JSON.stringify([{ id: 'c07', pergunta: 'Quanto vendi no iFood ontem?', ok: false, falhas: ['a resposta não traz 1.688,35'], consultas: [], ms: 1 }])],
+        );
+        const r = await qualidade.resumo(7);
+        expect(r.melhorar.find((p: any) => p.causa === 'falta_consulta')).toMatchObject({ observacao: expect.stringMatching(/^"delivery e canais" faltou \d+ vezes/), proposta: 'Consulta nova de delivery e canais · abrir tarefa' });
+        expect(r.melhorar.find((p: any) => p.causa === 'instrucao')).toMatchObject({ observacao: expect.stringContaining('errou 1 de 40: "Quanto vendi no iFood ontem?" — a resposta não traz 1.688,35') });
+      } finally {
+        await q(`delete from mister_pergunta where chave like $1`, [`mel-${MARCA}-%`]);
+        await q(`delete from mister_avaliacao`);
       }
     });
 
