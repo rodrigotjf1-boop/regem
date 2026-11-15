@@ -24,6 +24,7 @@ import { PrecosNa99Service } from './precos-na-99.service';
 import { ConferirAppsService } from './conferir-apps.service';
 import { MisterConsoleService } from '../mister/mister-console.service';
 import { MisterAvisosHistoricoService } from '../mister/mister-avisos-historico.service';
+import { MisterQualidadeService } from '../mister/mister-qualidade.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -40,6 +41,7 @@ export class DistribuicaoController {
     private readonly conferirApps: ConferirAppsService,
     private readonly mister: MisterConsoleService,
     private readonly avisosDoMister: MisterAvisosHistoricoService,
+    private readonly qualidadeDoMister: MisterQualidadeService,
   ) {}
 
   // iFood pelo Orzuni (R2a; mig 370) — só Diretoria. A chave `orz_live_` da loja entra aqui UMA vez e é trocada
@@ -188,6 +190,15 @@ export class DistribuicaoController {
   @PerfilDist('diretoria', 'tecnico')
   avisosParaOSuporte(@Query('situacao') situacao?: string, @Query('busca') busca?: string) {
     return this.avisosDoMister.paraOSuporte({ situacao, busca });
+  }
+
+  // A qualidade do Mister (F5, parte 1 — a linha de base): só números das perguntas de todas as empresas (respondidas,
+  // tempo, custo, consultas, motivos de não responder) — nunca o texto. Só a Diretoria, como a aba Mister.
+  @Get('mister/qualidade')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  qualidadeDoMisterNoConsole(@Query('dias') dias?: string) {
+    return this.qualidadeDoMister.resumo(dias);
   }
 
   @Post('login')

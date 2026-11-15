@@ -52,6 +52,36 @@ const MODELOS_LONGOS = [
 ];
 
 // Os avisos para o suporte da DMS (F1.4 parte B): dois abertos (um escalou) e um resolvido; o nome comprido de propósito.
+// A qualidade do Mister (F5, parte 1): só números — o roteiro confere que nenhum texto de pergunta aparece.
+const QUALIDADE = {
+  dias: 7,
+  perguntas: 412,
+  respondidas: 395,
+  pctRespondidas: 96,
+  falhas: 17,
+  semConsulta: 23,
+  empresas: 3,
+  pessoas: 9,
+  tempo: { medianaS: 6, p90S: 14.2 },
+  custo: { totalUsd: 0.45, porPerguntaUsd: 0.0011, precosLidosEm: '2026-11-12' },
+  motivos: [
+    { motivo: 'a chave de IA da empresa foi recusada', quantas: 6 },
+    { motivo: 'a IA não respondeu (passageiro)', quantas: 5 },
+    { motivo: 'sem crédito na conta de IA', quantas: 3 },
+    { motivo: 'passou do tempo', quantas: 3 },
+  ],
+  consultas: [
+    { nome: 'resumo do dia', vezes: 128, pct: 31, falhas: 0 },
+    { nome: 'vendas do periodo', vezes: 91, pct: 22, falhas: 0 },
+    { nome: 'historia do pedido', vezes: 37, pct: 9, falhas: 2 },
+  ],
+  porEmpresa: [
+    { empresa: 'Burger da Praça', perguntas: 318, semResposta: 4, custoUsd: 0.35, chave: 'ok' },
+    { empresa: 'Pizzaria do Porto', perguntas: 81, semResposta: 9, custoUsd: 0.09, chave: 'chave_recusada' },
+    { empresa: 'Empório Sabor da Serra Comércio de Alimentos e Bebidas Artesanais Ltda', perguntas: 13, semResposta: 4, custoUsd: 0.01, chave: null },
+  ],
+};
+
 const AVISOS_DO_SUPORTE = () => {
   const ha = (min) => new Date(Date.now() - min * 60_000).toISOString();
   return [
@@ -98,6 +128,8 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
       atrasoDosModelos: 0,
       avisosDoSuporte: o.avisosDoSuporte ?? AVISOS_DO_SUPORTE(),
       falhaDosAvisos: !!o.falhaDosAvisos,
+      qualidade: o.qualidade ?? QUALIDADE,
+      falhaDaQualidade: !!o.falhaDaQualidade,
       pedidos: [],
     };
     const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
@@ -171,6 +203,11 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
           limite: 200,
           avisos: todos.filter((a) => (resolvidos ? a.situacao === 'resolvido' : a.situacao === 'aberto')),
         });
+      }
+      if (p === '/distribuicao/mister/qualidade') {
+        if (S.falhaDaQualidade) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
+        const dias = Number(url.searchParams.get('dias')) === 30 ? 30 : 7;
+        return responder(route, { ...S.qualidade, dias, perguntas: dias === 30 ? S.qualidade.perguntas * 3 : S.qualidade.perguntas });
       }
       // O resto do console (frota, licenças, auditoria…) não é deste roteiro: listas vazias.
       return responder(route, []);
@@ -454,12 +491,52 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
     await ctx.close();
   }
 
+  // ── a qualidade (F5, parte 1): os números, 7 e 30 dias, o vazio e o erro ──
+  {
+    const { ctx, page, S, erros } = await abrir(1280, 900, { numero: conectado(), liberado: true });
+    await naAba(page);
+    const sec = page.locator('section[aria-labelledby="mister-qualidade"]');
+    await sec.locator('text=395 de 412').waitFor({ timeout: 20000 });
+    const t = (await sec.innerText()).replace(/\s+/g, ' ');
+    // O rótulo é em caixa alta pelo CSS (o innerText devolve "PERGUNTAS"): a conferência não diferencia.
+    ok(/Perguntas 412 3 empresas · 9 pessoas/i.test(t) && /Respondidas 96% 395 de 412/i.test(t), `qualidade: perguntas e respondidas (${t.slice(0, 140)})`);
+    ok(/metade em até 6 s · 90% em até 14,2 s/.test(t) && /US\$ 0,0011/.test(t), 'qualidade: o tempo e o custo por pergunta');
+    ok(/resumo do dia 31%/.test(t) && /historia do pedido · 2 sem ler 9%/.test(t), 'qualidade: as consultas mais usadas, com as que não leram');
+    ok(/Por que não respondeu · 17/.test(t) && /a chave de IA da empresa foi recusada 6/.test(t), 'qualidade: por que não respondeu');
+    ok(/Burger da Praça 318 perguntas 4 sem resposta US\$ 0,35 da empresa · ok/.test(t) && /Pizzaria do Porto .* recusada/.test(t) && /sem chave própria/.test(t), 'qualidade: por empresa, com a situação da chave');
+    ok((await sec.locator('button[aria-pressed="true"]:has-text("7 dias")').count()) === 1, 'qualidade: 7 dias marcado');
+    await sec.locator('button:has-text("30 dias")').click();
+    await sec.locator('text=1.236').first().waitFor({ timeout: 10000 });
+    ok(feitos(S, 'GET', '/distribuicao/mister/qualidade').length >= 2 && (await sec.locator('button[aria-pressed="true"]:has-text("30 dias")').count()) === 1, 'qualidade: 30 dias lê de novo no servidor');
+    ok(erros.length === 0, `qualidade: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  {
+    const { ctx, page } = await abrir(1280, 900, { numero: conectado(), liberado: true, qualidade: { ...QUALIDADE, perguntas: 0, respondidas: 0, falhas: 0, motivos: [], consultas: [], porEmpresa: [], tempo: null } });
+    await naAba(page);
+    await page.locator('section[aria-labelledby="mister-qualidade"] >> text=Nenhuma pergunta ao Mister neste período.').waitFor({ timeout: 20000 });
+    ok(true, 'qualidade: o vazio diz que não houve pergunta');
+    await ctx.close();
+  }
+  {
+    const { ctx, page, S } = await abrir(1280, 900, { numero: conectado(), liberado: true, falhaDaQualidade: true });
+    await naAba(page);
+    const sec = page.locator('section[aria-labelledby="mister-qualidade"]');
+    await sec.locator('[role="alert"] >> text=Erro interno').waitFor({ timeout: 20000 });
+    S.falhaDaQualidade = false;
+    await sec.locator('button:has-text("Tentar de novo")').click();
+    await sec.locator('text=395 de 412').waitFor({ timeout: 10000 });
+    ok((await page.locator('text=● conectado').count()) === 1, 'qualidade: o erro só na seção, e "Tentar de novo" lê de novo');
+    await ctx.close();
+  }
+
   // ── cada largura: a página e o diálogo inteiros na tela; tabela no largo, cartões no estreito ──
   for (const w of larguras) {
     const { ctx, page, erros } = await abrir(w, w < 700 ? 820 : 900, { numero: conectado(), liberado: true, total: 250, modelos: MODELOS_LONGOS });
     await naAba(page);
     await page.locator('text=Empório Sabor da Serra >> visible=true').first().waitFor({ timeout: 20000 });
     await page.locator('section[aria-labelledby="mister-modelos"] >> text=recusado pela Meta').waitFor({ timeout: 20000 });
+    await page.locator('section[aria-labelledby="mister-qualidade"] >> text=395 de 412').waitFor({ timeout: 20000 });
     let m = await medir(page);
     ok(m.length === 0, `${w}px: conectado — sem barra lateral, nada passa da tela e o toque é grande (${m.join(' | ')})`);
     const tabela = await page.locator('section[aria-labelledby="mister-empresas"] table').isVisible();
