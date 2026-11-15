@@ -53,6 +53,7 @@ import { BottomNav } from '@/components/app-shell/bottom-nav';
 import { LicencaAviso, LicencaSelo, useLicencaStatus } from '@/components/licenca/licenca-aviso';
 import { ModoOperacao } from '@/components/ui/modo-operacao';
 import { ServidorOfflineAviso } from '@/components/ui/servidor-offline-aviso';
+import { FaixaSemNuvem } from '@/components/ui/faixa-sem-nuvem';
 import { AtualizacaoAviso } from '@/components/ui/atualizacao-aviso';
 import { TotemAPagarAviso } from '@/components/pdv/totem-a-pagar-aviso';
 import { ClienteChegouAviso } from '@/components/pdv/cliente-chegou-aviso';
@@ -526,6 +527,7 @@ export function Shell({
             </div>
           </div>
         )}
+        {!fill && !!cat && <FaixaSemNuvem />}
         {!fill && !!cat && <FaixaDeAvisos />}
         {/* Modo fill (sem topbar): hambúrguer flutuante p/ o menu no mobile
             (some no desktop via .shell-burger). */}

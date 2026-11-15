@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **A faixa "sem conexão com a nuvem" no servidor da loja (14/11, F1.4 — o alerta local; SEM migration; não mexe no
+  `sync-daemon`).** Depois de 2 min com o envio falhando (ou 5 sem nenhum envio certo), todas as telas do servidor da loja
+  mostram a faixa: a venda local continua; o iFood, a 99 e o cardápio digital não chegam; "O que conferir"; quando volta,
+  "✅ voltou" por 1 minuto. A regra lê o `sync_falhando_desde`/`sync_ultimo_ok` que o daemon JÁ grava no `sync_state` e vem
+  na resposta da presença do PC (a cada 30 s — nenhuma leitura a mais). **Só no `.zip` 1.30.13** (é tela e rota do servidor
+  da loja; na nuvem não aparece). O ícone da bandeja não muda agora (o `.zip` não troca `edge\bandeja` — fica para o `.exe`).
+
 - **Mister: o Histórico dos avisos e a aba Avisos do console (14/11, F1.4 parte B; SEM migration; não mexe no
   `sync-daemon`).** Mister › Histórico (só o presidente: a lista com a trilha de cada aviso) e Console da distribuição ›
   Avisos (Diretoria e Técnico: os de destino "Suporte da DMS" de todas as empresas). Só na NUVEM, com o merge. Nada no
