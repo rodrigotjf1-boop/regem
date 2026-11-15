@@ -26,6 +26,7 @@ import { ChegadaModule } from '../chegada/chegada.module';
 import { AniversarioModule } from '../aniversario/aniversario.module';
 import { InstagramModule } from '../instagram/instagram.module';
 import { MessengerModule } from '../messenger/messenger.module';
+import { ModuloModule } from '../modulo/modulo.module';
 
 @Module({
   // WhatsappModule: o resumo do pedido feito pelo robô sai por escrito pela via da loja (robo-pedido.service.ts).
@@ -33,7 +34,8 @@ import { MessengerModule } from '../messenger/messenger.module';
   // AniversarioModule: o cupom pessoal e o "só aniversariantes" (mig 357).
   // InstagramModule (mig 378): o "chamar atendente" do robô no Direct do Instagram abre o caso do Direct.
   // MessengerModule (mig 386): o "chamar atendente" do robô no Messenger abre o caso do Messenger; as consultas pela chave fb:.
-  imports: [VendasModule, DeliveryModule, AtendimentoModule, FidelidadeModule, CashbackModule, WhatsappModule, ChegadaModule, AniversarioModule, InstagramModule, MessengerModule],
+  // ModuloModule (F3 de Vagas): o robô só manda o link da página de vagas com o módulo "vagas" ligado na loja.
+  imports: [VendasModule, DeliveryModule, AtendimentoModule, FidelidadeModule, CashbackModule, WhatsappModule, ChegadaModule, AniversarioModule, InstagramModule, MessengerModule, ModuloModule],
   controllers: [CardapioController, CardapioPublicoController, EventosCardapioController, RoboConsultasController, RoboPedidoController],
   // LembreteDoCarrinhoProcessor: o lembrete do pedido que ficou pela metade no robô (mig 349; só nuvem).
   // AvisoDaMudancaProcessor: a decisão do servidor da loja sobre a mudança pedida pelo robô chega ao cliente (mig 363; só nuvem).

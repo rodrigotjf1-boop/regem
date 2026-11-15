@@ -28,6 +28,7 @@ import {
   termoDaComunicacao,
   termoDaGuarda,
 } from './vagas';
+import { MODULO_VAGAS } from './pagina-para-o-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -39,7 +40,8 @@ const linhas = (r: any): any[] => r?.rows ?? r ?? [];
 const arrTexto = (lista: string[]): SQL =>
   lista.length ? sql`array[${sql.join(lista.map((x) => sql`${x}`), sql`, `)}]::text[]` : sql`'{}'::text[]`;
 
-export const MODULO_VAGAS = 'vagas';
+// O nome do módulo mora em `pagina-para-o-robo.ts` (o cardápio usa sem importar este serviço); aqui segue exportado.
+export { MODULO_VAGAS };
 
 /** No `on conflict` do reenvio: o endereço gravado é o mesmo que chegou? (a distância medida segue valendo) */
 const MESMO_ENDERECO = sql.raw(
