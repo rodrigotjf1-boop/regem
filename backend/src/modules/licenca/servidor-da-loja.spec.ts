@@ -12,11 +12,15 @@ import { escolherServidorDaLoja } from './servidor-da-loja';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // A chave de licença não entra no teste: o que se prova é QUAL equipamento a instalação e a
-// re-autorização usam, não a assinatura do lease.
+// re-autorização usam, não a assinatura do lease. O conteúdo que iria assinado fica guardado para a
+// renovação conferir o prazo (ERR-466).
 jest.mock('./lease', () => ({
   ...jest.requireActual('./lease'),
   licencaConfigurada: () => true,
-  assinarLease: () => 'lease-de-teste',
+  assinarLease: (p: any) => {
+    (globalThis as any).__ultimoLease = p;
+    return 'lease-de-teste';
+  },
 }));
 
 // QUAL `servidor_local` É O DESTA INSTALAÇÃO (ERR-108) — contra o Postgres de verdade.
@@ -253,5 +257,52 @@ descrever('qual servidor_local é o desta instalação (ERR-108)', () => {
 
     const [pedido] = await q(`select unidade_id from reautorizacao_edge where tenant_id = $1`, [p.t]);
     expect(pedido.unidade_id).toBe(p.u2);
+  });
+
+  // ERR-466: a ativação copia o fim do teste da conta no dia da instalação; o "Liberar" do console e a assinatura mudam
+  // só a CONTA (`empresa.trial_ate`). A renovação conferia a data velha da ativação: em 21/11/2026 o servidor da loja
+  // travaria (lic_ativa = 0, toda gravação recusada) com a conta valendo até fevereiro.
+  it('renovar: a conta estendida estende a licença do servidor; a conta nunca encurta; bloqueada segue recusada', async () => {
+    const t = (await q(`insert into empresa (nome, trial_ate) values ('Teste licenca do servidor', now() + interval '90 days') returning id`))[0].id as string;
+    empresas.push(t);
+    await q(
+      `insert into ativacao (tenant_id, token_hash, plano, trial, validade_ate, status, device_fingerprint)
+       values ($1, $2, 'completo', true, now() - interval '1 day', 'ativado', 'fp-servidor')`,
+      [t, randomUUID()],
+    );
+    const lease = () => (globalThis as any).__ultimoLease;
+    const [conta] = await q(`select trial_ate from empresa where id = $1`, [t]);
+
+    // A data da ativação já passou, a conta vale mais 90 dias (o caso da loja): renova, com o prazo da conta.
+    (globalThis as any).__ultimoLease = null;
+    expect(await svc.renovarLease(t, 'fp-servidor')).toEqual({ ativo: true, lease: 'lease-de-teste' });
+    expect(lease().exp).toBe(new Date(conta.trial_ate).getTime());
+
+    // O console estende mais 30 dias (a MESMA conta do `liberarLicenca`): o servidor acompanha.
+    await q(`update empresa set trial_ate = greatest(coalesce(trial_ate, now()), now()) + make_interval(0, 0, 0, 30) where id = $1`, [t]);
+    const [estendida] = await q(`select trial_ate from empresa where id = $1`, [t]);
+    expect(await svc.renovarLease(t, 'fp-servidor')).toMatchObject({ ativo: true });
+    expect(lease().exp).toBe(new Date(estendida.trial_ate).getTime());
+
+    // As duas datas passaram: expirada, como antes.
+    await q(`update empresa set trial_ate = now() - interval '2 days' where id = $1`, [t]);
+    expect(await svc.renovarLease(t, 'fp-servidor')).toEqual({ ativo: false, motivo: 'expirada' });
+
+    // A conta encurtada (o cancelamento da assinatura põe trial_ate = agora) não encurta o servidor.
+    await q(`update ativacao set validade_ate = now() + interval '5 days' where tenant_id = $1`, [t]);
+    const [ativ] = await q(`select validade_ate from ativacao where tenant_id = $1`, [t]);
+    await q(`update empresa set trial_ate = now() where id = $1`, [t]);
+    expect(await svc.renovarLease(t, 'fp-servidor')).toMatchObject({ ativo: true });
+    expect(lease().exp).toBe(new Date(ativ.validade_ate).getTime());
+
+    // Conta sem limite (legado): servidor sem prazo.
+    await q(`update empresa set trial_ate = null where id = $1`, [t]);
+    expect(await svc.renovarLease(t, 'fp-servidor')).toMatchObject({ ativo: true });
+    expect(lease().exp).toBeNull();
+
+    // A conta bloqueada pela distribuição continua cortando, e a máquina errada também.
+    expect(await svc.renovarLease(t, 'fp-de-outra-maquina')).toEqual({ ativo: false, motivo: 'fingerprint_divergente' });
+    await q(`update empresa set status = 'bloqueado' where id = $1`, [t]);
+    expect(await svc.renovarLease(t, 'fp-servidor')).toEqual({ ativo: false, motivo: 'revogada' });
   });
 });

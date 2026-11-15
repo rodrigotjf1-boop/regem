@@ -30,6 +30,7 @@ import {
 import { EdgeService } from '../edge/edge.service';
 import { EquipamentoService } from '../equipamento/equipamento.service';
 import { assinarLease, licencaConfigurada } from './lease';
+import { servidorVencido, validadeDoServidor } from './validade-do-servidor';
 import { precisaReautorizar, gerarCodigoReauth, hashCodigoReauth } from './reauth-instalacao';
 import { escolherServidorDaLoja, ligarServidorAMaquina } from './servidor-da-loja';
 import { verificarTotp, gerarSegredoBase32, otpauthUri } from '../distribuicao/totp';
@@ -358,7 +359,7 @@ export class LicencaService {
       })
       .where(eq(ativacao.id, a.id))
       .returning();
-    return { ativacaoId: row.id, lease: this.leaseDe(row) };
+    return { ativacaoId: row.id, lease: this.leaseDe(row, await this.validadeDaAtivacao(row)) };
   }
 
   // Erro de coluna inexistente (Postgres 42703). Usado p/ tolerar o intervalo em que o
@@ -600,7 +601,7 @@ export class LicencaService {
 
     // Devolve a unidade resolvida: o instalador grava em EDGE_UNIDADE_ID, que é
     // o escopo do sincronismo deste servidor local.
-    return { syncToken, unidadeId, lease: this.leaseDe(row), ativo: true };
+    return { syncToken, unidadeId, lease: this.leaseDe(row, await this.validadeDaAtivacao(row)), ativo: true };
   }
 
   // ===== RE-AUTORIZAÇÃO DE INSTALAÇÃO (F3a-2) =====
@@ -849,7 +850,7 @@ export class LicencaService {
       .set({ status: 'aprovada', confirmadoEm: new Date() })
       .where(eq(reautorizacaoEdge.id, pend.id));
     this.logger.warn(`Re-auth APROVADA: loja ${tenantId} movida p/ ${fingerprint.slice(0, 12)}… — token rotacionado.`);
-    return { syncToken, unidadeId: unidadeDoServidor, lease: this.leaseDe(row), ativo: true };
+    return { syncToken, unidadeId: unidadeDoServidor, lease: this.leaseDe(row, await this.validadeDaAtivacao(row)), ativo: true };
   }
 
   private mascararEmail(email: string): string {
@@ -863,15 +864,18 @@ export class LicencaService {
   async renovarLease(tenantId: string, fingerprint?: string, fingerprintLegacy?: string) {
     // Revogação central da distribuição (empresa bloqueada) corta o lease do edge —
     // o servidor local para depois da janela de graça. É o "clone inerte" definitivo.
-    const emp: any = await this.db.execute(sql`select status from empresa where id = ${tenantId} limit 1`);
-    if ((emp.rows ?? emp)[0]?.status === 'bloqueado') return { ativo: false, motivo: 'revogada' };
+    const emp: any = await this.db.execute(sql`select status, trial_ate as "trialAte" from empresa where id = ${tenantId} limit 1`);
+    const conta = (emp.rows ?? emp)[0];
+    if (conta?.status === 'bloqueado') return { ativo: false, motivo: 'revogada' };
     const [a] = await this.db
       .select()
       .from(ativacao)
       .where(and(eq(ativacao.tenantId, tenantId), eq(ativacao.status, 'ativado')))
       .limit(1);
     if (!a) return { ativo: false, motivo: 'sem_licenca_ativa' };
-    if (a.validadeAte && new Date(a.validadeAte) < new Date()) return { ativo: false, motivo: 'expirada' };
+    // A data da ativação, estendida pela da CONTA (o "Liberar" do console e a assinatura mudam só a conta — ERR-466).
+    const validade = validadeDoServidor(a.validadeAte, conta?.trialAte ?? null);
+    if (servidorVencido(validade)) return { ativo: false, motivo: 'expirada' };
     // Anti-clonagem NA RENOVAÇÃO: o fingerprint tem que casar com o preso na ativação.
     // Migração transparente do esquema fraco (COMPUTERNAME) p/ o forte (hash do
     // MachineGuid): aceita o NOVO ou o LEGADO; se casou pelo legado, RE-VINCULA no forte.
@@ -887,16 +891,22 @@ export class LicencaService {
         (a as any).deviceFingerprint = novo;
       }
     }
-    return { ativo: true, lease: this.leaseDe(a) };
+    return { ativo: true, lease: this.leaseDe(a, validade) };
   }
 
-  private leaseDe(a: any): string {
+  /** A validade da licença do servidor desta ativação: a dela, estendida pela da conta (`validadeDoServidor`, ERR-466). */
+  private async validadeDaAtivacao(a: any): Promise<Date | null> {
+    const r: any = await this.db.execute(sql`select trial_ate as "trialAte" from empresa where id = ${a.tenantId} limit 1`);
+    return validadeDoServidor(a.validadeAte, (r.rows ?? r)[0]?.trialAte ?? null);
+  }
+
+  private leaseDe(a: any, validade: Date | null): string {
     return assinarLease({
       tenantId: a.tenantId,
       ramo: a.ramo,
       plano: a.plano,
       modulos: (a.modulos as string[]) ?? [],
-      exp: a.validadeAte ? new Date(a.validadeAte).getTime() : null,
+      exp: validade ? validade.getTime() : null,
       fp: a.deviceFingerprint ?? null,
     });
   }
