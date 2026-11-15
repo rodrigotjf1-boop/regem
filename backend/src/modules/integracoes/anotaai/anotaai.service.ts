@@ -6,6 +6,7 @@ import { integracao, pedidoExterno, atendimentoChamado } from '../../../db/schem
 import { DeliveryService } from '../../delivery/delivery.service';
 import { agendamentoAnotaAi } from '../../delivery/adapters';
 import { fetchExterno } from '../../../common/fetch-externo';
+import { mesclarNoConfigDaIntegracao } from '../config-da-integracao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Cliente da API de Pedidos da Anota Aí (api-parceiros.anota.ai). Auth = token da
@@ -57,6 +58,16 @@ export class AnotaAiService {
       lojaId: r.merchantId ?? null,
       config: r.config ?? {},
     };
+  }
+
+  // Grava SÓ as chaves dadas na configuração, mesclando no banco (ERR-475): o fim do ciclo regravava a cópia inteira e
+  // devolvia o pedido de integração a "pendente" depois de a distribuição concluí-lo no console. Devolve o config.
+  private gravarNoConfig(
+    id: string,
+    parcial: Record<string, unknown>,
+    opcoes?: Parameters<typeof mesclarNoConfigDaIntegracao>[3],
+  ): Promise<Record<string, any> | null> {
+    return mesclarNoConfigDaIntegracao(this.db, id, parcial, opcoes);
   }
 
   async integracaoDoTenant(tenantId: string): Promise<IntegAnota | null> {
@@ -206,10 +217,8 @@ export class AnotaAiService {
     }
     // Persiste os últimos 500 ids vistos.
     const novoSeen = Array.from(seenSet).slice(-500);
-    await this.db
-      .update(integracao)
-      .set({ config: { ...(ig.config ?? {}), seen: novoSeen, lastPollAt: new Date().toISOString() } })
-      .where(eq(integracao.id, ig.id));
+    // Só as chaves do ciclo: a cópia `ig` é do começo, e a distribuição pode ter concluído o pedido de integração no meio.
+    await this.gravarNoConfig(ig.id, { seen: novoSeen, lastPollAt: new Date().toISOString() });
     if (n) this.logger.log(`tenant ${tenantId}: ${n} pedido(s) novo(s)`);
     return n;
   }
@@ -295,26 +304,20 @@ export class AnotaAiService {
     const cfgAtual: any = existente?.config ?? {};
     const jaPendente = cfgAtual?.pedidoIntegracao?.status === 'pendente';
     const criarPedido = !!tokenNovo && !jaPendente;
-    const pedido = criarPedido
-      ? {
-          status: 'pendente',
-          solicitadoEm: new Date().toISOString(),
-          solicitadoPorId: solicitanteId ?? null,
-        }
-      : cfgAtual.pedidoIntegracao;
-    const config = { ...cfgAtual, ...(pedido ? { pedidoIntegracao: pedido } : {}) };
+    // Só o pedido NOVO entra na configuração; sem ele, o que está gravado fica como está (regravar o da cópia desfaria a
+    // conclusão que a distribuição fez no meio — ERR-475).
+    const config = criarPedido
+      ? { pedidoIntegracao: { status: 'pendente', solicitadoEm: new Date().toISOString(), solicitadoPorId: solicitanteId ?? null } }
+      : {};
     if (existente) {
-      await this.db
-        .update(integracao)
-        .set({
+      await this.gravarNoConfig(existente.id, config, {
+        colunas: {
           merchantId: lojaId ?? existente.merchantId,
           ativo: true,
           ...(unidadeId ? { unidadeId } : {}),
           ...(tokenNovo ? { token: tokenNovo } : {}),
-          config,
-          updatedAt: new Date(),
-        })
-        .where(eq(integracao.id, existente.id));
+        },
+      });
     } else {
       await this.db.insert(integracao).values({
         tenantId,
