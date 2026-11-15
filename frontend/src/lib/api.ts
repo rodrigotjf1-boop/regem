@@ -639,6 +639,8 @@ export const distApi = {
   misterModelos: () => distReq('/distribuicao/mister/modelos'),
   misterPedirModelos: () => distReq('/distribuicao/mister/modelos/pedir', { method: 'POST', body: '{}' }),
   // Os avisos para o suporte da DMS (F1.4 parte B): abertos ou resolvidos nas últimas 24 h, com a busca pela empresa.
+  // A qualidade do Mister (F5, parte 1): só números das perguntas de todas as empresas, nos últimos 7 ou 30 dias.
+  misterQualidade: (dias: 7 | 30) => distReq(`/distribuicao/mister/qualidade?dias=${dias}`),
   misterAvisos: (situacao: 'abertos' | 'resolvidos', busca = '') =>
     distReq(`/distribuicao/mister/avisos?situacao=${situacao}${busca ? `&busca=${encodeURIComponent(busca)}` : ''}`),
 };

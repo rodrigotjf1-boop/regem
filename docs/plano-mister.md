@@ -457,6 +457,38 @@ A 17ª consulta (`vencimentos_e_versoes`; regras em `mister-vencimentos.ts`). S�
   - a outra empresa.
 - Prova por defeito: 6 de 6.
 
+### F5.1 — A qualidade do Mister no console, parte 1: a linha de base (sem migration)
+
+A vista "Console › Mister › Qualidade" do protótipo `mockups/regem-dependencias-e-qualidade.html`, feita com as decisões recomendadas. O dono pediu para seguir com as recomendadas enquanto estava fora; o protótipo segue para a aprovação dele.
+
+- **O que mostra:** como o Mister está respondendo em todas as empresas, nos últimos 7 ou 30 dias:
+  - as perguntas e as respondidas;
+  - as que responderam sem consultar dado;
+  - o tempo até responder (a mediana e o tempo em que 90% respondem);
+  - o custo por pergunta, pela mesma conta da tela "IA e uso";
+  - as consultas mais usadas, com as que não conseguiram ler;
+  - por que não respondeu, com os motivos de `MotivoSemResposta` em texto;
+  - por empresa, com a situação da chave.
+- **Onde fica:** a seção nova "Qualidade" da aba Mister do console, só para a Diretoria (`GET /distribuicao/mister/qualidade`, `MisterQualidadeService`).
+- **O que nunca sai:** o texto da pergunta e da resposta, o telefone e a pessoa. Cada bloco é uma consulta agregada no banco, sem laço por empresa.
+- **Fica para a parte 2** (pede migration):
+  - o assunto das perguntas sem resposta, por uma lista fechada;
+  - a avaliação de regressão, com 40 perguntas fixas numa empresa de teste e a chave da DMS;
+  - um índice por data em `mister_pergunta`, para a leitura de 30 dias continuar rápida quando a tabela crescer.
+
+**Conferência:**
+- `mister-qualidade.spec.ts`: o período, o texto de cada motivo e os motivos que somam.
+- `mister-pg.teste-spec.ts`, pela diferença antes e depois (a tabela é de todas as empresas):
+  - as respondidas e as falhas;
+  - as respondidas sem consulta;
+  - os motivos e as consultas, com a que não leu;
+  - o tempo;
+  - por empresa, com o custo pela conta da tela e a chave;
+  - os 30 dias, com a pergunta antiga;
+  - nada de texto, telefone ou pessoa;
+  - o período torto vira 7.
+- Roteiro `mister-console`: a seção (os números, 7 e 30 dias, o vazio e o erro com "Tentar de novo") nas 16 larguras.
+
 ### F2.5 — O suporte de uso: o guia "como faço…" (sem migration)
 
 Decisão do dono de 14/11/2026 ("use o recomendado"): o suporte de uso nasce de um **guia curto das telas principais, escrito por nós** a partir das telas de verdade. Não havia documentação de uso no repositório (o Bot de Suporte guarda as regras de cada loja, não o uso do Regem).
