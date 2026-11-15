@@ -458,6 +458,37 @@ A 17ª consulta (`vencimentos_e_versoes`; regras em `mister-vencimentos.ts`). S�
   - a outra empresa.
 - Prova por defeito: 6 de 6.
 
+### F3.7 — Vigilância de dependências, parte 2: as fontes oficiais lidas todo dia (migration 423)
+
+A vista "Console › Dependências" do protótipo `mockups/regem-dependencias-e-qualidade.html` (#992), feita com as decisões recomendadas enquanto o dono estava fora. O protótipo segue para a aprovação dele, e **a migration 423 espera o clique dele** antes do merge.
+
+- **A rotina** (`DependenciasService`, 06:07, só na nuvem) lê as fontes oficiais que moram no código (`modules/dependencias/dependencias-fontes.ts`). Cada uma foi aberta e conferida em 14/11:
+  - **a tabela de versões da Graph API da Meta** (HTML; a data pode vir torta, "July 29,2028"). Dela sai a validade da versão em uso: a v25.0 do WhatsApp vale até 29/07/2028. A versão fora da tabela fica "a conferir", porque a tabela atrasa: em 14/11 ela ia até a v26.0, e a API já aceitava a v27.0 do Instagram e do Messenger (testado direto na API);
+  - **a tabela "Model status" da Anthropic** (a página em Markdown). Os três modelos em uso estão ativos, com aposentadoria não antes de setembro e outubro de 2027.
+- **O que se guarda e como se compara:**
+  - Guarda-se só o trecho da tabela (`dependencia_leitura`), nunca a página: mudança de visual não vira "mudou".
+  - Trecho diferente do guardado vira "a conferir", com o antes e o depois, até alguém decidir: "conferida", ou "não se aplica", que exige a nota.
+  - Uma mudança nova zera a decisão.
+- **Quando a fonte falha:** se ela não responde, recusa (403, 429) ou vem sem a tabela, a situação é "não verificada desde" a última leitura certa, e os achados ficam como estavam. Nunca vira "em dia" nem "retirada".
+- **A tela:** a aba "Dependências" do console (Diretoria e Técnico).
+  - Mostra cada integração do inventário (`common/integracoes-em-uso.ts`) e a tabela do IBPT por estado, que vem do banco.
+  - As situações: a conferir, vencidas ou vencendo, não verificadas, em dia e conferir à mão (sem fonte automática).
+  - Traz busca, tipo, a gaveta e "Ler agora".
+  - As ações são auditadas.
+- **A busca** passa pela guarda de endereço público (`buscarUrlPublica`, V68) e só vai às URLs do código. Nada se atualiza sozinho.
+- **Fica para depois:** fontes automáticas do iFood (a página recusa robô, 403), da 99, do Mercado Pago, do PagBank, da SEFAZ e do Node; o aviso na aba Avisos do console quando uma fonte muda.
+
+**Conferência:**
+- `dependencias-fontes.spec.ts`: os leitores com os trechos reais das páginas; a validade e os 180 dias; a versão fora da tabela; o modelo deprecado; o trecho que ignora o visual.
+- `dependencias-pg.spec.ts` (aplica só a 423, uma tabela isolada):
+  - a primeira leitura, com a mudança, o antes e o depois;
+  - a decisão, que fica e é zerada pela mudança nova;
+  - a fonte sem resposta, com 403 ou sem a tabela;
+  - as recusas da decisão;
+  - a busca só nas URLs do código.
+- Roteiro `mister-console`: a aba nas 16 larguras, com a gaveta aberta, o filtro, a busca, a decisão, "Ler agora", a falta da migration e o erro. São 259 conferências.
+- Prova por defeito: 5 de 5.
+
 ### F5.1 — A qualidade do Mister no console, parte 1: a linha de base (sem migration)
 
 A vista "Console › Mister › Qualidade" do protótipo `mockups/regem-dependencias-e-qualidade.html`, feita com as decisões recomendadas. O dono pediu para seguir com as recomendadas enquanto estava fora; o protótipo segue para a aprovação dele.
@@ -611,6 +642,7 @@ O último dos nove avisos da tabela aprovada. **Nasce desligado** (padrão: 20 m
 7. ~~Releitura dos documentos e imagens no grafo de engenharia~~ — feita em 12/11.
 8. O perfil de permissões por hierarquia (o que cada gerente pode pelo Mister): fim do projeto.
 9. **Pendência de implementação para o fim (pedido do dono em 13/11/2026):** a opção de conectar o número do Mister pela conexão gratuita do Evolution, além da API oficial da Meta. O argumento: o Mister só fala com quem ligou o próprio telefone, então o risco de denúncia do número é baixo. O Regem já fala com o Evolution no WhatsApp das lojas; o que falta é o número do Mister ganhar uma porta de provedor (oficial ou Evolution), escolhida pela distribuição no console. Pede mockup da opção.
+10. **Aprovar o protótipo `mockups/regem-dependencias-e-qualidade.html` (#992).** As partes foram feitas com as recomendadas enquanto o dono estava fora: a faixa sem nuvem (#993), a Qualidade parte 1 (#994) e as Dependências parte 2 (F3.7, que espera a **migration 423** pelo clique dele antes do merge).
 
 ## 6. Como foi levantado
 

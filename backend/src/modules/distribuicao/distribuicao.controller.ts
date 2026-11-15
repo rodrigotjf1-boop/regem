@@ -24,6 +24,7 @@ import { PrecosNa99Service } from './precos-na-99.service';
 import { ConferirAppsService } from './conferir-apps.service';
 import { MisterConsoleService } from '../mister/mister-console.service';
 import { MisterAvisosHistoricoService } from '../mister/mister-avisos-historico.service';
+import { DependenciasService } from '../dependencias/dependencias.service';
 import { MisterQualidadeService } from '../mister/mister-qualidade.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -41,6 +42,7 @@ export class DistribuicaoController {
     private readonly conferirApps: ConferirAppsService,
     private readonly mister: MisterConsoleService,
     private readonly avisosDoMister: MisterAvisosHistoricoService,
+    private readonly dependencias: DependenciasService,
     private readonly qualidadeDoMister: MisterQualidadeService,
   ) {}
 
@@ -190,6 +192,34 @@ export class DistribuicaoController {
   @PerfilDist('diretoria', 'tecnico')
   avisosParaOSuporte(@Query('situacao') situacao?: string, @Query('busca') busca?: string) {
     return this.avisosDoMister.paraOSuporte({ situacao, busca });
+  }
+
+  // As dependências (F3, parte 2; mig 423): cada integração em uso com a situação lida nas fontes oficiais. Diretoria e
+  // Técnico, como a aba Avisos. "Ler agora" lê as fontes na hora (a rotina lê todo dia às 06:07).
+  @Get('dependencias')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria', 'tecnico')
+  dependenciasNoConsole() {
+    return this.dependencias.lista();
+  }
+
+  @Post('dependencias/ler-agora')
+  @Throttle({ default: { ttl: 60000, limit: 3 } })
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria', 'tecnico')
+  async lerDependenciasAgora(@DistUser() u: DistCtx) {
+    const r = await this.dependencias.vigiar();
+    await this.service.auditar(u, 'leu_dependencias', undefined, { fontes: r.map((x) => `${x.fonte}:${x.leu ? (x.mudou ? 'mudou' : 'igual') : 'falhou'}`) });
+    return { lidas: r };
+  }
+
+  @Post('dependencias/:fonte/decisao')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria', 'tecnico')
+  async decidirDependencia(@DistUser() u: DistCtx, @Param('fonte') fonte: string, @Body() dto: any) {
+    const r = await this.dependencias.decidir(fonte, dto?.decisao, dto?.nota, u?.nome ?? null);
+    await this.service.auditar(u, 'decidiu_dependencia', undefined, { fonte: r.fonte, decisao: r.decisao });
+    return r;
   }
 
   // A qualidade do Mister (F5, parte 1 — a linha de base): só números das perguntas de todas as empresas (respondidas,

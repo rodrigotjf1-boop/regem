@@ -1,3 +1,4 @@
+import { DependenciasModule } from '../dependencias/dependencias.module';
 import { Module } from '@nestjs/common';
 import { DistribuicaoService } from './distribuicao.service';
 import { DistribuicaoController } from './distribuicao.controller';
@@ -17,7 +18,7 @@ import { MisterModule } from '../mister/mister.module';
 // `ConferirAppsService`: o direito "Conferir com os apps" (aba Integrações; mig 405).
 // `MisterModule`: o número do Mister, a chave geral e as empresas com o módulo (aba Mister; mig 417).
 @Module({
-  imports: [IbptModule, IntegracaoApiModule, OrzuniModule, MisterModule],
+  imports: [IbptModule, IntegracaoApiModule, OrzuniModule, MisterModule, DependenciasModule],
   controllers: [DistribuicaoController],
   providers: [DistribuicaoService, DistribuicaoGuard, PerfilDistGuard, PrecosNa99Service, ConferirAppsService],
 })
