@@ -51,6 +51,16 @@ const MODELOS_LONGOS = [
   modelo('mister_resumo_pronto', 'recusado', { motivo: 'INVALID_FORMAT — o corpo do modelo tem um formato que a Meta não aceita para a categoria utilidade nesta conta' }),
 ];
 
+// Os avisos para o suporte da DMS (F1.4 parte B): dois abertos (um escalou) e um resolvido; o nome comprido de propósito.
+const AVISOS_DO_SUPORTE = () => {
+  const ha = (min) => new Date(Date.now() - min * 60_000).toISOString();
+  return [
+    { id: 's1', empresa: 'Burger da Praça', loja: 'Loja Centro', aviso: 'servidor sem sinal · 2 pedidos esperando', situacao: 'aberto', escalado: false, abertoEm: ha(4), resolvidoEm: null },
+    { id: 's2', empresa: 'Empório Sabor da Serra Comércio de Alimentos e Bebidas Artesanais Ltda', loja: 'Unidade Serra', aviso: 'disco do servidor quase cheio', situacao: 'aberto', escalado: true, abertoEm: ha(136), resolvidoEm: null },
+    { id: 's3', empresa: 'Pizzaria do Porto', loja: null, aviso: 'cópia de segurança atrasada', situacao: 'resolvido', escalado: false, abertoEm: ha(300), resolvidoEm: ha(60) },
+  ];
+};
+
 const medir = (page) =>
   page.evaluate(() => {
     const achados = [];
@@ -86,6 +96,8 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
       modelos: o.modelos ?? MODELOS_NAO_PEDIDOS,
       falhaDosModelos: !!o.falhaDosModelos,
       atrasoDosModelos: 0,
+      avisosDoSuporte: o.avisosDoSuporte ?? AVISOS_DO_SUPORTE(),
+      falhaDosAvisos: !!o.falhaDosAvisos,
       pedidos: [],
     };
     const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
@@ -148,6 +160,17 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
         const pedidos = S.modelos.filter((m) => m.situacao === 'nao_pedido').map((m) => m.nome);
         S.modelos = S.modelos.map((m) => (m.situacao === 'nao_pedido' ? { ...m, situacao: 'em_analise', categoria: 'utility' } : m));
         return responder(route, { modelos: S.modelos, pedidos, recusas: [] }, 201);
+      }
+      if (p === '/distribuicao/mister/avisos') {
+        if (S.falhaDosAvisos) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
+        const busca = (url.searchParams.get('busca') ?? '').toLowerCase();
+        const todos = S.avisosDoSuporte.filter((a) => !busca || a.empresa.toLowerCase().includes(busca));
+        const resolvidos = url.searchParams.get('situacao') === 'resolvidos';
+        return responder(route, {
+          contagens: { abertos: todos.filter((a) => a.situacao === 'aberto').length, resolvidos: todos.filter((a) => a.situacao === 'resolvido').length },
+          limite: 200,
+          avisos: todos.filter((a) => (resolvidos ? a.situacao === 'resolvido' : a.situacao === 'aberto')),
+        });
       }
       // O resto do console (frota, licenças, auditoria…) não é deste roteiro: listas vazias.
       return responder(route, []);
@@ -345,6 +368,43 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
     await naAba(page);
     await page.locator('section[aria-labelledby="mister-modelos"] [role="alert"]:has-text("Erro interno")').waitFor({ timeout: 20000 });
     ok((await page.locator('text=● conectado').count()) === 1, 'erro só nos modelos: o número continua na tela');
+    await ctx.close();
+  }
+
+  // ── a aba Avisos (F1.4 parte B): Diretoria e Técnico; abertos e resolvidos nas 24 h, a busca, o vazio e o erro ──
+  {
+    const { ctx, page, S } = await abrir(1280, 900, { token: TECNICO });
+    await page.waitForSelector('nav button:has-text("Frota")', { timeout: 20000 });
+    ok((await page.locator('nav button:has-text("Avisos")').count()) === 1, 'perfil técnico: a aba Avisos aparece (é o suporte)');
+    await page.click('nav button:has-text("Avisos")');
+    const sec = page.locator('section[aria-labelledby="avisos-suporte"]');
+    await sec.locator('text=Burger da Praça').first().waitFor({ timeout: 20000 });
+    const t = (await sec.innerText()).replace(/\s+/g, ' ');
+    ok(/Abertos ?2/.test(t) && /Resolvidos nas últimas 24 h ?1/.test(t), `avisos: as situações com a quantidade (${t.slice(0, 160)})`);
+    ok(/disco do servidor quase cheio/.test(t) && /escalou/.test(t) && /Unidade Serra/.test(t), 'avisos: a empresa, a loja, o aviso e o que escalou');
+    await sec.locator('button[aria-pressed]:has-text("Resolvidos")').click();
+    await sec.locator('text=resolvido às').first().waitFor();
+    ok(feitos(S, 'GET', '/distribuicao/mister/avisos').length >= 2 && /cópia de segurança atrasada/.test(await sec.innerText()), 'avisos: trocar a situação lê de novo no servidor');
+    await sec.locator('input[type="search"]').fill('zzz');
+    await sec.locator('text=Nenhuma empresa com esse nome.').waitFor();
+    ok(true, 'avisos: busca sem resultado');
+    await ctx.close();
+  }
+  {
+    const { ctx, page } = await abrir(1280, 900, { falhaDosAvisos: true });
+    await page.click('nav button:has-text("Avisos")');
+    await page.locator('section[aria-labelledby="avisos-suporte"] [role="alert"]:has-text("Erro interno")').waitFor({ timeout: 20000 });
+    ok((await page.locator('section[aria-labelledby="avisos-suporte"] button:has-text("Tentar de novo")').count()) === 1, 'avisos: o erro com "Tentar de novo"');
+    await ctx.close();
+  }
+  for (const w of larguras) {
+    const { ctx, page, erros } = await abrir(w, w < 700 ? 820 : 900);
+    await page.click('nav button:has-text("Avisos")');
+    await page.locator('section[aria-labelledby="avisos-suporte"] >> text=Burger da Praça >> visible=true').first().waitFor({ timeout: 20000 });
+    const m = await medir(page);
+    ok(m.length === 0, `${w}px: a aba Avisos sem barra lateral e nada passando da tela (${m.join(' | ')})`);
+    if (w === 375 || w === 1440) await page.screenshot({ path: foto(`${w}-avisos.png`), fullPage: true });
+    ok(erros.length === 0, `${w}px: avisos sem erro (${erros.join(' | ')})`);
     await ctx.close();
   }
 

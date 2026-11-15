@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Mister: o Histórico dos avisos e a aba Avisos do console (14/11, F1.4 parte B; SEM migration; não mexe no
+  `sync-daemon`).** Mister › Histórico (só o presidente: a lista com a trilha de cada aviso) e Console da distribuição ›
+  Avisos (Diretoria e Técnico: os de destino "Suporte da DMS" de todas as empresas). Só na NUVEM, com o merge. Nada no
+  `.zip` nem no `.exe`.
+
 - **Mister: os avisos na tela da loja — a faixa, o "Ciente" e a gaveta (14/11, F1.4 parte A; SEM migration; não mexe
   no `sync-daemon`).** A faixa abaixo do topo, para todos que estão logados na loja, com o aviso aberto mais recente,
   "Ciente" por pessoa (gravado na nuvem) e "Ver avisos"; o ⚠️ do topo depois do Ciente; a escala traz a faixa de volta.

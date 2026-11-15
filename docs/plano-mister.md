@@ -168,6 +168,17 @@ Loja que desliga o PC à noite abre um episódio de "sem sinal" por noite e o fe
 - Roteiro `mister`: a faixa, o "Ciente", o ⚠️, a gaveta, "sem conexão" e as 16 larguras (357 conferências). Os outros 6 roteiros seguem verdes com a faixa no Shell.
 - Prova por defeito: 10 de 10.
 
+**Parte B — o Histórico e a aba Avisos do console (sem migration, só nuvem):**
+- **Mister › Histórico** (só o presidente; `GET /mister/avisos/historico`, `mister-avisos-historico.service.ts`): a lista no modelo do Estoque, com contagem, situações, busca, grupo e período (hoje, 7 ou 30 dias). Os abertos aparecem sempre; os resolvidos, pela abertura no período (horário da loja).
+  - Cada aviso mostra a situação: aberto, se escalou, resolvido em quanto tempo, ou fechado porque o aviso foi desligado. Mostra também para onde foi, com o WhatsApp só pelos 4 últimos dígitos.
+  - A gaveta traz a trilha de cada fase, com o "pelo modelo da Meta" e o motivo do que não saiu.
+- **Console da distribuição › Avisos** (Diretoria e Técnico; `GET /distribuicao/mister/avisos`): os avisos com destino "Suporte da DMS" de todas as empresas, abertos ou resolvidos nas últimas 24 h, com busca pela empresa. Mostra só a empresa, a loja e o aviso.
+
+**Conferência:**
+- `mister-pg.teste-spec.ts`: os abertos sempre (até o de 40 dias); os resolvidos pelo período (7, 30, hoje); a trilha com os 4 dígitos e o modelo da Meta; o fechado por desligar; grupo, busca e situação; as recusas; a outra empresa; o suporte só com o destino da DMS, de todas as empresas, os resolvidos só das 24 h, a busca sem curinga.
+- Roteiros `mister` (416, com o Histórico nas 16 larguras, a gaveta, o vazio e o erro) e `mister-console` (174, com a aba Avisos: o técnico a vê; as situações, a busca, o erro e as 16 larguras).
+- Prova por defeito: 6 de 6.
+
 ## 4. Fases seguintes (resumo)
 
 | Fase | Entrega | Onde |
