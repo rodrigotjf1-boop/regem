@@ -22,6 +22,7 @@ import { MisterAgenteService } from './mister-agente.service';
 import { MisterAvisosConfigService } from './mister-avisos-config.service';
 import { MisterAvisosService } from './mister-avisos.service';
 import { AvisosNaTelaService } from './avisos-na-tela.service';
+import { MisterAvisosHistoricoService } from './mister-avisos-historico.service';
 import { MAX_TENTATIVAS_CONSULTA_DA_NOTA } from '../fiscal/fiscal.service';
 import { IfoodService } from '../integracoes/ifood/ifood.service';
 import { MisterEntradaService } from './mister-entrada.service';
@@ -2295,6 +2296,71 @@ export function testesDoMisterComPostgres(): void {
       ]);
       // A trilha nunca guarda o telefone inteiro.
       expect(JSON.stringify(fechado.entregas)).not.toContain(tel);
+    });
+
+    it('o histórico (F1.4 parte B): os abertos sempre, os resolvidos pelo período, a trilha com os 4 dígitos; e a lista do suporte só com o destino da DMS, de todas as empresas', async () => {
+      const historico = new MisterAvisosHistoricoService(db);
+      const aviso = (tenant: string, o: { tipo: string; chave: string; titulo: string; situacao?: string; abertoHa: string; resolvidoHa?: string; entregas: any[]; fechou?: string }) =>
+        q(
+          `insert into mister_aviso (tenant_id, unidade_id, tipo, chave, titulo, situacao, aberto_em, resolvido_em, escalado_em, entregas, dados)
+           values ($1, $2, $3, $4, $5, $6, now() - $7::interval, now() - $8::interval, null, $9::jsonb, $10::jsonb) returning id`,
+          [tenant, tenant === A ? lojaDeA : null, o.tipo, o.chave, o.titulo, o.situacao ?? 'aberto', o.abertoHa, o.resolvidoHa ?? null, JSON.stringify(o.entregas), JSON.stringify(o.fechou ? { fechou: o.fechou } : {})],
+        );
+      const em = new Date().toISOString();
+      await aviso(A, {
+        tipo: 'impressora', chave: `h1:${MARCA}`, titulo: 'Loja Centro · impressora Cozinha parada', abertoHa: '10 minutes',
+        entregas: [
+          { destino: 'tela', fase: 'abriu', em, ok: true },
+          { destino: 'gerente', fase: 'escalou', em, ok: true, final: '4821', via: 'modelo' },
+          { destino: 'presidente', fase: 'escalou', em, ok: false, final: '1234', motivo: 'fora_da_janela_e_sem_modelo' },
+        ],
+      });
+      await aviso(A, { tipo: 'caixa_24h', chave: `h2:${MARCA}`, titulo: 'Loja Centro · caixa do delivery aberto há 26 horas', situacao: 'resolvido', abertoHa: '2 days', resolvidoHa: '1 day', entregas: [{ destino: 'gerente', fase: 'abriu', em, ok: true, final: '4821' }] });
+      await aviso(A, { tipo: 'chave_ia', chave: `h3:${MARCA}`, titulo: 'A IA do Mister parou: sem crédito', situacao: 'resolvido', abertoHa: '40 days', resolvidoHa: '39 days', entregas: [] });
+      await aviso(A, { tipo: 'pedido_parado', chave: `h4:${MARCA}`, titulo: 'Loja Centro · pedido #9 sem aceite há mais de 20 min', abertoHa: '40 days', entregas: [] });
+      await aviso(A, { tipo: 'impressora', chave: `h5:${MARCA}`, titulo: 'Loja Centro · impressora Balcão parada', situacao: 'resolvido', abertoHa: '1 minute', resolvidoHa: '30 seconds', entregas: [], fechou: 'desligado' });
+      await aviso(B, { tipo: 'impressora', chave: `h6:${MARCA}`, titulo: 'Matriz · impressora parada', abertoHa: '5 minutes', entregas: [] });
+      // Os do suporte da DMS (servidor técnico, servidor sem sinal).
+      await aviso(A, { tipo: 'servidor_tecnico', chave: `d1:${MARCA}`, titulo: 'Loja Centro · disco do servidor quase cheio', abertoHa: '2 hours', entregas: [{ destino: 'dms', fase: 'abriu', em, ok: true }] });
+      await aviso(B, { tipo: 'servidor_sem_sinal', chave: `d2:${MARCA}`, titulo: 'Matriz · servidor sem sinal', situacao: 'resolvido', abertoHa: '3 hours', resolvidoHa: '2 hours', entregas: [{ destino: 'dms', fase: 'abriu', em, ok: true }] });
+      await aviso(B, { tipo: 'servidor_tecnico', chave: `d3:${MARCA}`, titulo: 'Matriz · cópia de segurança atrasada', situacao: 'resolvido', abertoHa: '2 days', resolvidoHa: '30 hours', entregas: [{ destino: 'dms', fase: 'abriu', em, ok: true }] });
+
+      // 7 dias: os abertos (mesmo o de 40 dias) primeiro, os resolvidos do período; o de 40 dias resolvido fica de fora.
+      const h7 = await historico.historico(A, { dias: '7' });
+      expect(h7.contagens).toEqual({ todos: 5, aberto: 3, resolvido: 2 });
+      expect(h7.avisos.slice(0, 3).every((a) => a.situacao === 'aberto')).toBe(true);
+      expect(h7.avisos.map((a) => a.titulo)).not.toContain('A IA do Mister parou: sem crédito');
+      const imp = h7.avisos.find((a) => a.titulo === 'Loja Centro · impressora Cozinha parada')!;
+      expect(imp).toMatchObject({ grupo: 'Na loja', situacao: 'aberto', foiPara: ['Tela do Regem na loja', 'WhatsApp do gerente da loja (••4821)'] });
+      expect(imp.trilha).toEqual([
+        { fase: 'Abriu', em, destino: 'Tela do Regem na loja', ok: true, nota: null },
+        { fase: 'Sem solução', em, destino: 'WhatsApp do gerente da loja (••4821)', ok: true, nota: 'pelo modelo da Meta, fora das 24 horas' },
+        { fase: 'Sem solução', em, destino: 'WhatsApp do presidente (••1234)', ok: false, nota: 'fora das 24 horas, e o modelo da Meta ainda não aprovado' },
+      ]);
+      expect(h7.avisos.find((a) => a.titulo.includes('Balcão'))).toMatchObject({ situacao: 'resolvido', fechouDesligado: true });
+      // 30 dias: o resolvido de 40 dias continua de fora; hoje: o de 2 dias sai.
+      expect((await historico.historico(A, { dias: '30' })).contagens).toEqual({ todos: 5, aberto: 3, resolvido: 2 });
+      expect((await historico.historico(A, { dias: '1' })).contagens).toEqual({ todos: 4, aberto: 3, resolvido: 1 });
+      // O grupo, a busca e a situação filtram no servidor também; as recusas.
+      expect((await historico.historico(A, { dias: '7', grupo: 'Servidor da loja' })).avisos.map((a) => a.titulo)).toEqual(['Loja Centro · disco do servidor quase cheio']);
+      expect((await historico.historico(A, { dias: '7', busca: 'cozinha' })).avisos).toHaveLength(1);
+      expect((await historico.historico(A, { dias: '7', situacao: 'resolvido' })).avisos.every((a) => a.situacao === 'resolvido')).toBe(true);
+      await expect(historico.historico(A, { dias: '5' })).rejects.toThrow('O período é hoje, 7 ou 30 dias.');
+      await expect(historico.historico(A, { dias: '7', grupo: 'Outro' })).rejects.toThrow('Grupo de aviso desconhecido.');
+      // A outra empresa não vê nada desta.
+      expect((await historico.historico(B, { dias: '7' })).avisos.map((a) => a.titulo)).not.toContain('Loja Centro · impressora Cozinha parada');
+
+      // O suporte da DMS: só os de destino "dms", de todas as empresas, com a empresa e a loja; resolvidos só das 24 h.
+      const abertos = await historico.paraOSuporte({ situacao: 'abertos', busca: MARCA });
+      expect(abertos.avisos).toEqual([
+        { id: expect.any(String), empresa: NOME_A, loja: 'Loja Centro', aviso: 'disco do servidor quase cheio', situacao: 'aberto', escalado: false, abertoEm: expect.any(String), resolvidoEm: null },
+      ]);
+      expect(abertos.contagens).toEqual({ abertos: 1, resolvidos: 1 });
+      const resolvidos = await historico.paraOSuporte({ situacao: 'resolvidos', busca: MARCA });
+      expect(resolvidos.avisos.map((a) => [a.empresa, a.loja, a.aviso])).toEqual([[NOME_B, null, 'servidor sem sinal']]);
+      // A busca pela empresa; o curinga do usuário não vira curinga.
+      expect((await historico.paraOSuporte({ situacao: 'abertos', busca: `Pizzaria do Porto ${MARCA}` })).avisos).toEqual([]);
+      expect((await historico.paraOSuporte({ situacao: 'abertos', busca: '%' })).avisos).toEqual([]);
     });
 
     it('a tela da loja (F1.4): o aviso aparece só na loja dele, o "Ciente" é por pessoa e sobrevive à renovação, a escala traz a faixa de volta, resolvido some; o servidor da loja pede à nuvem', async () => {

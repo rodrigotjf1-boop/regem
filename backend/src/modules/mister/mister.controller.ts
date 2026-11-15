@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
@@ -10,6 +10,7 @@ import { AuthUser } from '../../auth/auth-user';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { MisterAvisosConfigService } from './mister-avisos-config.service';
 import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
+import { MisterAvisosHistoricoService } from './mister-avisos-historico.service';
 import { MisterVinculoService } from './mister-vinculo.service';
 
 // O WHATSAPP DE QUEM ESTÁ LOGADO no Mister e a parte "Pessoas" (mig 417). Gerente e presidente, só na nuvem e só com o
@@ -22,6 +23,7 @@ export class MisterController {
     private readonly vinculo: MisterVinculoService,
     private readonly avisos: MisterAvisosConfigService,
     private readonly relatorios: MisterRelatoriosConfigService,
+    private readonly historico: MisterAvisosHistoricoService,
   ) {}
 
   /** A situação do meu WhatsApp no Mister e, se eu gerei um código que ainda vale, o código. */
@@ -76,6 +78,21 @@ export class MisterController {
   @RequireModulo('mister')
   avisosDaTela(@CurrentUser() user: AuthUser) {
     return this.avisos.daTela(user.tenantId);
+  }
+
+  /** O histórico dos avisos (F1.4 parte B): a situação, para onde foram e a trilha. Só o presidente. */
+  @Get('avisos/historico')
+  @CloudOnly()
+  @Roles('presidente')
+  @RequireModulo('mister')
+  historicoDosAvisos(
+    @CurrentUser() user: AuthUser,
+    @Query('situacao') situacao?: string,
+    @Query('busca') busca?: string,
+    @Query('grupo') grupo?: string,
+    @Query('dias') dias?: string,
+  ) {
+    return this.historico.historico(user.tenantId, { situacao, busca, grupo, dias });
   }
 
   /** Salva os avisos que mudaram (cada um inteiro). Só o presidente; toda recusa antes da gravação. */

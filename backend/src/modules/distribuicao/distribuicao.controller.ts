@@ -23,6 +23,7 @@ import { OrzuniLigacaoService } from '../orzuni/orzuni-ligacao.service';
 import { PrecosNa99Service } from './precos-na-99.service';
 import { ConferirAppsService } from './conferir-apps.service';
 import { MisterConsoleService } from '../mister/mister-console.service';
+import { MisterAvisosHistoricoService } from '../mister/mister-avisos-historico.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -38,6 +39,7 @@ export class DistribuicaoController {
     private readonly precos99: PrecosNa99Service,
     private readonly conferirApps: ConferirAppsService,
     private readonly mister: MisterConsoleService,
+    private readonly avisosDoMister: MisterAvisosHistoricoService,
   ) {}
 
   // iFood pelo Orzuni (R2a; mig 370) — só Diretoria. A chave `orz_live_` da loja entra aqui UMA vez e é trocada
@@ -177,6 +179,15 @@ export class DistribuicaoController {
     const r = await this.mister.pedirModelos();
     await this.service.auditar(u, 'pediu_modelos_mister', undefined, { pedidos: r.pedidos, recusas: r.recusas.map((x) => x.nome) });
     return r;
+  }
+
+  // Os avisos para o suporte da DMS (F1.4 parte B): os de destino "Suporte da DMS" de todas as empresas — só a empresa, a
+  // loja e o aviso. Diretoria e Técnico.
+  @Get('mister/avisos')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria', 'tecnico')
+  avisosParaOSuporte(@Query('situacao') situacao?: string, @Query('busca') busca?: string) {
+    return this.avisosDoMister.paraOSuporte({ situacao, busca });
   }
 
   @Post('login')

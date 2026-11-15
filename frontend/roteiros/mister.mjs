@@ -99,6 +99,26 @@ const RELATORIOS_PADRAO = () => [
   },
 ];
 
+// O histórico dos avisos (F1.4 parte B): dois abertos (um escalou pelo modelo da Meta) e dois resolvidos (um fechado
+// porque o aviso foi desligado); um título comprido de propósito.
+const HISTORICO = () => {
+  const ha = (min) => new Date(Date.now() - min * 60_000).toISOString();
+  return [
+    {
+      id: 'h1', grupo: 'Na loja', titulo: 'Loja Centro · pedido #284 · iFood 4821 aceito há mais de 20 min e ainda não ficou pronto', detalhe: 'Confira na cozinha se ele está sendo feito.',
+      situacao: 'aberto', fechouDesligado: false, abertoEm: ha(10), resolvidoEm: null, escaladoEm: ha(5),
+      foiPara: ['Tela do Regem na loja', 'KDS da cozinha', 'WhatsApp do gerente da loja (••4821)'],
+      trilha: [
+        { fase: 'Abriu', em: ha(10), destino: 'Tela do Regem na loja', ok: true, nota: null },
+        { fase: 'Sem solução', em: ha(5), destino: 'WhatsApp do gerente da loja (••4821)', ok: true, nota: 'pelo modelo da Meta, fora das 24 horas' },
+      ],
+    },
+    { id: 'h2', grupo: 'Na loja', titulo: 'Loja Centro · impressora Cozinha parada', detalhe: 'Confira se ela está ligada.', situacao: 'aberto', fechouDesligado: false, abertoEm: ha(3), resolvidoEm: null, escaladoEm: null, foiPara: ['Tela do Regem na loja'], trilha: [{ fase: 'Abriu', em: ha(3), destino: 'Tela do Regem na loja', ok: true, nota: null }] },
+    { id: 'h3', grupo: 'Fiscal', titulo: 'Loja Centro · certificado digital da nota vence em 18/11', detalhe: null, situacao: 'resolvido', fechouDesligado: false, abertoEm: ha(2 * 24 * 60), resolvidoEm: ha(24 * 60), escaladoEm: null, foiPara: ['WhatsApp do presidente (••1234)'], trilha: [] },
+    { id: 'h4', grupo: 'Servidor da loja', titulo: 'Loja Centro · servidor sem sinal', detalhe: null, situacao: 'resolvido', fechouDesligado: true, abertoEm: ha(120), resolvidoEm: ha(100), escaladoEm: null, foiPara: [], trilha: [] },
+  ];
+};
+
 const medir = (page) =>
   page.evaluate(() => {
     const achados = [];
@@ -133,6 +153,8 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
       avisos: o.avisos ?? AVISOS_PADRAO(), avisosFalha: !!o.avisosFalha, recusaDosAvisos: o.recusaDosAvisos ?? null, salvamentos: [],
       // a faixa dos avisos da loja (F1.4)
       daLoja: o.daLoja ?? [], semConexao: !!o.semConexao, cientes: [],
+      // o histórico (F1.4 parte B)
+      historico: o.historico ?? HISTORICO(), historicoFalha: !!o.historicoFalha, diasPedidos: [],
       relatorios: o.relatorios ?? RELATORIOS_PADRAO(), salvamentosRel: [],
     };
     const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
@@ -153,6 +175,12 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
         return responder(route, S.avisos);
       }
       if (p === '/mister/avisos/abertos' && metodo === 'GET') return responder(route, { avisos: S.daLoja, ...(S.semConexao ? { semConexao: true } : {}) });
+      if (p === '/mister/avisos/historico' && metodo === 'GET') {
+        S.diasPedidos.push(url.searchParams.get('dias'));
+        if (S.historicoFalha) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
+        const avisos = S.historico;
+        return responder(route, { contagens: { todos: avisos.length, aberto: avisos.filter((a) => a.situacao === 'aberto').length, resolvido: avisos.filter((a) => a.situacao === 'resolvido').length }, limite: 200, avisos });
+      }
       const ciente = /^\/mister\/avisos\/([^/]+)\/ciente$/.exec(p);
       if (ciente && metodo === 'POST') {
         S.cientes.push(ciente[1]);
@@ -309,6 +337,70 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     await ctx.close();
   }
 
+  // ── Mister › Histórico (F1.4 parte B): a contagem, as situações, a busca, o grupo, o período, a gaveta com a trilha,
+  //    o vazio dos filtros e o erro com "Tentar de novo" ──
+  {
+    const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=historico' });
+    await page.waitForSelector('h2:has-text("Histórico dos avisos")', { timeout: 20000 });
+    const sec = page.locator('section[aria-labelledby="historico-avisos"]');
+    await sec.locator('text=impressora Cozinha parada').first().waitFor();
+    ok(/4 avisos · últimos 7 dias/.test(await sec.innerText()), 'histórico: a contagem e o período');
+    ok(S.diasPedidos[0] === '7', 'histórico: começa pelos últimos 7 dias');
+    await sec.locator('button[aria-pressed]:has-text("Abertos")').click();
+    ok(/2 de 4 avisos/.test(await sec.innerText()), 'histórico: "Abertos" filtra (2 de 4)');
+    await sec.locator('button[aria-pressed]:has-text("Abertos")').click();
+    await page.fill('#hist-busca', 'certificado');
+    ok(/1 de 4 avisos/.test(await sec.innerText()), 'histórico: a busca pelo título');
+    await page.fill('#hist-busca', '');
+    await page.selectOption('#hist-grupo', 'O próprio Mister');
+    await sec.locator('text=Nada com esses filtros.').waitFor();
+    ok(true, 'histórico: filtro sem resultado diz que não achou');
+    await page.selectOption('#hist-grupo', '');
+    const t = await sec.innerText();
+    ok(/escalou/.test(t) && /fechado \(aviso desligado\)/.test(t) && /ninguém recebeu/.test(t) && /WhatsApp do gerente da loja \(••4821\)/.test(t), 'histórico: a situação (escalou, fechado porque desligou) e para onde foi');
+    await sec.getByRole('button', { name: /Ver.*pedido #284/ }).first().click();
+    const gaveta = page.locator('[role="dialog"]:has-text("Trilha")');
+    await gaveta.waitFor();
+    const tg = await gaveta.innerText();
+    ok(/pelo modelo da Meta, fora das 24 horas/.test(tg) && /••4821/.test(tg) && /nunca o telefone inteiro/.test(tg), 'histórico: a gaveta com a trilha (o modelo da Meta, os 4 dígitos)');
+    await page.keyboard.press('Escape');
+    await gaveta.waitFor({ state: 'detached' });
+    await page.selectOption('#hist-periodo', '1');
+    await page.waitForTimeout(400);
+    ok(S.diasPedidos.at(-1) === '1', 'histórico: mudar o período lê de novo no servidor');
+    ok(erros.length === 0, `histórico: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  {
+    const { ctx, page, S } = await abrir(1280, 900, { caminho: '/mister?parte=historico', historicoFalha: true });
+    await page.locator('[role="alert"]:has-text("Não consegui carregar o histórico")').waitFor({ timeout: 20000 });
+    S.historicoFalha = false;
+    await page.click('button:has-text("Tentar de novo")');
+    await page.waitForSelector('h2:has-text("Histórico dos avisos")');
+    ok(true, 'histórico: o erro com "Tentar de novo", que lê de novo');
+    await ctx.close();
+  }
+  {
+    const { ctx, page } = await abrir(1280, 900, { caminho: '/mister?parte=historico', historico: [] });
+    await page.locator('text=Nenhum aviso no período.').waitFor({ timeout: 20000 });
+    ok(true, 'histórico: o vazio do período');
+    await ctx.close();
+  }
+  for (const w of larguras) {
+    const { ctx, page, erros } = await abrir(w, w < 700 ? 820 : 900, { caminho: '/mister?parte=historico' });
+    await page.waitForSelector('h2:has-text("Histórico dos avisos")', { timeout: 20000 });
+    await page.locator('section[aria-labelledby="historico-avisos"] >> text=impressora Cozinha parada').first().waitFor();
+    let m = await medir(page);
+    ok(m.length === 0, `${w}px: o histórico sem barra lateral (${m.join(' | ')})`);
+    if (w === 375 || w === 1440) await page.screenshot({ path: foto(`${w}-historico.png`), fullPage: true });
+    await page.getByRole('button', { name: /Ver.*pedido #284/ }).first().click();
+    await page.locator('[role="dialog"]:has-text("Trilha")').waitFor();
+    m = await medir(page);
+    ok(m.length === 0, `${w}px: a gaveta da trilha inteira na tela (${m.join(' | ')})`);
+    ok(erros.length === 0, `${w}px: histórico sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+
   // ── Visão C&O › Módulos do produto: o Mister DESLIGADO tem de APARECER e ligar com um toque ──
   // A chave desligada usava a cor do cartão (1,05:1) e ninguém via: todo módulo nascia ligado, até o Mister.
   {
@@ -392,7 +484,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister' });
     await page.waitForSelector('text=Quem fala com o Mister', { timeout: 20000 });
     const partes = page.locator('[aria-label="Partes do Mister"] button');
-    ok((await partes.allInnerTexts()).join('|') === 'Pessoas|IA e uso|Avisos e relatórios' && (await partes.first().getAttribute('aria-pressed')) === 'true', 'presidente: as partes "Pessoas", "IA e uso" e "Avisos e relatórios", abrindo em Pessoas');
+    ok((await partes.allInnerTexts()).join('|') === 'Pessoas|IA e uso|Avisos e relatórios|Histórico' && (await partes.first().getAttribute('aria-pressed')) === 'true', 'presidente: as partes "Pessoas", "IA e uso", "Avisos e relatórios" e "Histórico", abrindo em Pessoas');
     ok(S.pedidos.length === 0, 'em Pessoas, a parte da IA não é lida');
     ok(/O número do Mister é \+55 21 90000-0000/.test(await page.locator('main').innerText()), 'o número do Mister, formatado, para salvar nos contatos');
     const linhas = (await page.locator('main table tbody tr').allInnerTexts()).map((l) => l.replace(/\s+/g, ' '));
