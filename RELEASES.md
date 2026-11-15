@@ -12,6 +12,16 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **A configuração da integração gravada por chave (15/11, ERR-475; SEM migration; não mexe no `sync-daemon`).** O fim
+  do ciclo do Cardápio Web e do Anota AI, o token do Open Delivery, o vínculo da 99, o pedir/desligar do iFood e a tela de
+  Integrações gravam só a própria chave do `integracao.config`, mesclando no banco. Antes, regravavam a cópia inteira e
+  apagavam o que outro escritor gravou no meio: o token renovado, a conclusão da distribuição, um cancelamento pendente.
+  Na nuvem vale com o merge; no servidor da loja (as integrações ficam na nuvem, mas o código vai junto), com o `.zip`.
+
+- **Cancelamento pendente do iFood e da 99 por pedido (15/11, #1014, ERR-474; SEM migration; não mexe no
+  `sync-daemon`).** Dois pedidos cancelados juntos com o canal fora do ar: os dois ficam para reenviar (antes, um apagava o
+  outro). Na nuvem vale com o merge; no servidor da loja, com o `.zip`.
+
 - **O mapa das faixas de distância maior e enquadrado (15/11; SEM migration; só tela).** Na nuvem vale com o merge; no
   servidor da loja, com o `.zip`.
 

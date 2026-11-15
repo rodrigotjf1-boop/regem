@@ -52,7 +52,8 @@ describe('pedido de marketplace não se perde em falha passageira', () => {
       },
       refletirStatusExterno: async () => {},
     };
-    svc.db = { update: () => ({ set: (v: any) => ({ where: async () => { Object.assign(cfg, v.config); } }) }) };
+    // A gravação na configuração é só das chaves do ciclo (ERR-475); aqui ela vai para a cópia do teste.
+    svc.gravarNoConfig = async (_id: string, parcial: any) => Object.assign(cfg, parcial);
     await svc.sincronizar('t1'); // 1º ciclo: gravação falha
     await svc.sincronizar('t1'); // 2º ciclo: tem de tentar de novo
     expect({ ingeridos, aceitos }).toEqual({ ingeridos: ['a1'], aceitos: ['a1'] });
@@ -123,7 +124,7 @@ describe('pedido de marketplace não se perde — 99Food, Open Delivery, Cardáp
       ingest: async () => { gravados.push('c1'); },
       refletirStatusExterno: async () => {},
     };
-    svc.db = { update: () => ({ set: (v: any) => ({ where: async () => { Object.assign(cfg, v.config); } }) }) };
+    svc.gravarNoConfig = async (_id: string, parcial: any) => Object.assign(cfg, parcial); // só o cursor (ERR-475)
     await svc.sincronizar('t1');
     const cursorAposFalha = cfg.lastPollAt;
     await svc.sincronizar('t1');

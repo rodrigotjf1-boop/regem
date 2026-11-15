@@ -2,9 +2,25 @@ import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { marcarCancelPendente, tirarCancelPendente } from './cancel-pendente';
+import { mesclarNoConfigDaIntegracao } from './config-da-integracao';
 import { IfoodService } from './ifood/ifood.service';
+import { CardapioWebService } from './cardapio-web/cardapio-web.service';
+import { AnotaAiService } from './anotaai/anotaai.service';
+import { Food99Service } from './food99/food99.service';
+import { OpenDeliveryService } from './open-delivery/open-delivery.service';
+import { DeliveryService } from '../delivery/delivery.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+// Os canais sem rede: o token devolve um de mentira e a lista de pedidos vem vazia.
+const mockFetch = async (url: string) => {
+  const corpo = String(url).includes('/oauth/token') ? { access_token: 'tk-novo', refresh_token: 'refresh-2', expires_in: 7200 } : [];
+  return { ok: true, status: 200, json: async () => corpo, text: async () => JSON.stringify(corpo) };
+};
+jest.mock('../../common/fetch-externo', () => ({
+  ...jest.requireActual('../../common/fetch-externo'),
+  fetchExterno: (url: string) => mockFetch(url),
+}));
 
 // O cancelamento pendente por pedido (ERR-474), contra o Postgres: cada operação grava só a entrada daquele pedido em
 // `integracao.config.pendingCancels` — nem o pendente de outro pedido nem outra chave da config se perdem. A tabela
@@ -105,5 +121,133 @@ descrever('o cancelamento pendente por pedido (Postgres)', () => {
     const [{ id: outra }] = await q(`insert into integracao (tenant_id, canal, ativo, config) values ($1, '99food', true, '{}'::jsonb) returning id`, [empresa]);
     expect(await tirarCancelPendente(db, outra, 'x')).toBeNull();
     expect(await marcarCancelPendente(db, outra, '123', { reasonId: 1010, reason: 'teste' })).toEqual({ 123: { reasonId: 1010, reason: 'teste', attempts: 1 } });
+  });
+});
+
+// A configuração da integração com vários escritores (ERR-475): o fim de um ciclo de leitura, a renovação do token, o
+// vínculo da loja e a tela gravam SÓ as próprias chaves — o que outro escritor gravou NO MEIO fica. Cada teste força a
+// gravação do outro escritor entre a leitura da cópia e a gravação de quem está sendo testado.
+descrever('a configuração da integração: cada escritor grava só a sua chave (Postgres)', () => {
+  const pool = new Pool({ connectionString: URL_PG });
+  const db = drizzle(pool, { schema }) as any;
+  const q = async (s: string, p: any[] = []) => (await pool.query(s, p)).rows;
+  const log = { log() {}, warn() {}, error() {}, debug() {} };
+  const empresas: string[] = [];
+  const config = async (id: string) => (await q(`select config from integracao where id = $1`, [id]))[0].config;
+  async function integracao(canal: string, cfg: Record<string, unknown>, extra: Record<string, string> = {}) {
+    const [{ id: tenant }] = await q(`insert into empresa (nome) values ($1) returning id`, [`teste config ${canal}`]);
+    empresas.push(tenant);
+    const [{ id }] = await q(
+      `insert into integracao (tenant_id, canal, ativo, token, merchant_id, client_id, client_secret, config)
+       values ($1, $2, true, $3, $4, $5, $6, $7::jsonb) returning id`,
+      [tenant, canal, extra.token ?? 'tk-velho', extra.merchant ?? null, extra.clientId ?? null, extra.clientSecret ?? null, JSON.stringify(cfg)],
+    );
+    return { tenant, id };
+  }
+
+  afterAll(async () => {
+    for (const t of empresas) {
+      await q(`delete from integracao where tenant_id = $1`, [t]).catch(() => {});
+      await q(`delete from empresa where id = $1`, [t]).catch(() => {});
+    }
+    await pool.end();
+  });
+
+  it('o ajudante mescla as chaves, tira as pedidas, grava as colunas junto e devolve o config; sem a linha, null', async () => {
+    const { id } = await integracao('cardapio_web', { env: 'sandbox', pendingState: 'abc', lastPollAt: 'x' });
+    const c = await mesclarNoConfigDaIntegracao(db, id, { tokenExp: 5, refreshToken: null }, { tirar: ['pendingState'], colunas: { token: 'tk-x', ativo: false } });
+    expect(c).toEqual({ env: 'sandbox', lastPollAt: 'x', tokenExp: 5, refreshToken: null });
+    expect((await q(`select token, ativo from integracao where id = $1`, [id]))[0]).toEqual({ token: 'tk-x', ativo: false });
+    expect(await mesclarNoConfigDaIntegracao(db, '00000000-0000-0000-0000-000000000000', { a: 1 })).toBeNull();
+  });
+
+  it('Cardápio Web: o token renovado no meio do ciclo fica — o fim do ciclo grava só o cursor (antes devolvia o refreshToken velho)', async () => {
+    const velho = new Date(Date.now() - 10 * 60000).toISOString();
+    const { tenant, id } = await integracao('cardapio_web', { env: 'sandbox', refreshToken: 'refresh-1', tokenExp: 1, lastPollAt: velho });
+    const svc = new CardapioWebService(db, { ingest: async () => {}, refletirStatusExterno: async () => {} } as any);
+    (svc as any).logger = log;
+    // A listagem relê a integração e, com o token vencido, renova: grava refresh-2 e o tokenExp novo no meio do ciclo.
+    await svc.sincronizar(tenant);
+    const c = await config(id);
+    expect({ refresh: c.refreshToken, venceDepois: c.tokenExp > Date.now(), cursorAndou: c.lastPollAt !== velho, env: c.env }).toEqual({
+      refresh: 'refresh-2',
+      venceDepois: true,
+      cursorAndou: true,
+      env: 'sandbox',
+    });
+    expect((await q(`select token from integracao where id = $1`, [id]))[0].token).toBe('tk-novo');
+  });
+
+  it('Anota AI: o pedido de integração que a distribuição conclui durante o ciclo continua concluído (antes voltava a "pendente")', async () => {
+    const { tenant, id } = await integracao('anotaai', { pedidoIntegracao: { status: 'pendente', solicitadoEm: '2026-11-15T10:00:00Z' }, seen: ['a0'] });
+    const svc = new AnotaAiService(db, { ingest: async () => {}, refletirStatusExterno: async () => {} } as any, { emit() {} } as any);
+    (svc as any).logger = log;
+    // Durante a listagem, a distribuição marca o pedido como conectado no console (como `resolverPedidoIntegracao`).
+    (svc as any).listar = async () => {
+      await q(`update integracao set config = jsonb_set(config, '{pedidoIntegracao,status}', '"conectado"'::jsonb) where id = $1`, [id]);
+      return [];
+    };
+    await svc.sincronizar(tenant);
+    const c = await config(id);
+    expect(c.pedidoIntegracao).toEqual({ status: 'conectado', solicitadoEm: '2026-11-15T10:00:00Z' });
+    expect(c.seen).toEqual(['a0']);
+    expect(typeof c.lastPollAt).toBe('string');
+  });
+
+  it('99: o vínculo da loja não apaga o cancelamento pendente gravado durante a consulta à 99; recusar tira só o vínculo', async () => {
+    const { tenant, id } = await integracao('99food', { bindPending: 123, situacaoDaLoja: { aberta: true } });
+    const svc: any = Object.create(Food99Service.prototype);
+    svc.db = db;
+    svc.logger = log;
+    const copia = (await q(`select * from integracao where id = $1`, [id]))[0];
+    svc.tenantBindPendente = async () => copia; // a cópia lida ANTES da consulta à 99
+    svc.shopDetail = async () => {
+      await marcarCancelPendente(db, id, 'ped-99', { reasonId: 1010 }); // o poller grava no meio
+      return { shop_name: 'Loja da esquina', shop_addr: 'Rua A, 1' };
+    };
+    await svc.tratarBind('{"bindStatus":"bind","appShopIDList":["shop-1"]}');
+    let c = await config(id);
+    expect(c).toMatchObject({ pendingBind: { appShopId: 'shop-1', nome: 'Loja da esquina', addr: 'Rua A, 1' }, bindPending: null, situacaoDaLoja: { aberta: true } });
+    expect(c.pendingCancels['ped-99']).toEqual({ reasonId: 1010, attempts: 1 });
+    await svc.recusarBind(tenant);
+    c = await config(id);
+    expect(c.pendingBind).toBeNull();
+    expect(Object.keys(c.pendingCancels)).toEqual(['ped-99']);
+  });
+
+  it('Open Delivery: a renovação do token não apaga a chave gravada depois que a cópia foi lida', async () => {
+    const { tenant, id } = await integracao('open_delivery', { tokenExp: 1 }, { merchant: 'https://od.exemplo.com.br', clientId: 'cli', clientSecret: 'seg' });
+    const svc = new OpenDeliveryService(db);
+    (svc as any).logger = log;
+    const ig = (await svc.integracaoDoTenant(tenant, 'open_delivery'))!;
+    await q(`update integracao set config = config || '{"cor": "#E2A340"}'::jsonb where id = $1`, [id]); // a tela salva no meio
+    expect(await (svc as any).token(ig)).toBe('tk-novo');
+    const c = await config(id);
+    expect({ cor: c.cor, venceDepois: c.tokenExp > Date.now() }).toEqual({ cor: '#E2A340', venceDepois: true });
+    expect(ig.config.cor).toBe('#E2A340'); // a cópia de quem chamou sai atualizada pelo banco
+  });
+
+  it('iFood e tela de Integrações: pedir, desligar e trocar a cor mexem só na própria chave; a cor vazia sai', async () => {
+    const { tenant, id } = await integracao('ifood', { pendingCancels: { 'ped-1': { attempts: 1 } }, pedidoIntegracao: { status: 'pendente', solicitadoEm: 'antes' } });
+    const ifood = new IfoodService(db);
+    (ifood as any).logger = log;
+    (ifood as any).alertarDistribuicao = async () => {};
+    await ifood.solicitarIntegracao(tenant, null);
+    let c = await config(id);
+    expect(c.pedidoIntegracao).toEqual({ status: 'pendente', solicitadoEm: 'antes' }); // já pendente: fica como estava
+    const delivery: any = Object.create(DeliveryService.prototype);
+    delivery.db = db;
+    await delivery.salvarIntegracao(tenant, { canal: 'ifood', cor: '#123456' });
+    expect((await config(id)).cor).toBe('#123456');
+    // O token do iFood não se regrava pela tela (é do fluxo próprio): o renovado no meio fica.
+    await q(`update integracao set token = 'tk-renovado' where id = $1`, [id]);
+    await delivery.salvarIntegracao(tenant, { canal: 'ifood', cor: '' });
+    c = await config(id);
+    expect('cor' in c).toBe(false);
+    expect((await q(`select token from integracao where id = $1`, [id]))[0].token).toBe('tk-renovado');
+    await ifood.desativarIntegracao(tenant);
+    c = await config(id);
+    expect(c.pedidoIntegracao.status).toBe('pendente_remocao');
+    expect(c.pendingCancels).toEqual({ 'ped-1': { attempts: 1 } });
   });
 });

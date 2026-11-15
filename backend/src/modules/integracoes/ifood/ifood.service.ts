@@ -6,6 +6,7 @@ import { integracao } from '../../../db/schema';
 import { fetchExterno } from '../../../common/fetch-externo';
 import { registrarDisputa, registrarEncerramento } from './ifood-disputa';
 import { marcarCancelPendente as marcarCancelPendenteNoBanco, tirarCancelPendente } from '../cancel-pendente';
+import { mesclarNoConfigDaIntegracao } from '../config-da-integracao';
 import { anotarEventoNaoTratado } from './ifood-eventos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -215,15 +216,13 @@ export class IfoodService {
       .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, CANAL)));
     const cfgAtual: any = existente?.config ?? {};
     const jaPendente = cfgAtual?.pedidoIntegracao?.status === 'pendente';
-    const pedido = jaPendente
-      ? cfgAtual.pedidoIntegracao
-      : { status: 'pendente', solicitadoEm: new Date().toISOString(), solicitadoPorId: solicitanteId ?? null };
-    const config = { ...cfgAtual, pedidoIntegracao: pedido };
+    // Só o pedido NOVO entra; o já pendente fica como está no banco (a cópia inteira apagava o que o poller ou a
+    // distribuição gravaram no meio — ERR-475).
+    const config = jaPendente
+      ? {}
+      : { pedidoIntegracao: { status: 'pendente', solicitadoEm: new Date().toISOString(), solicitadoPorId: solicitanteId ?? null } };
     if (existente) {
-      await this.db
-        .update(integracao)
-        .set({ ativo: false, ...(unidadeId ? { unidadeId } : {}), config, updatedAt: new Date() })
-        .where(eq(integracao.id, existente.id));
+      await mesclarNoConfigDaIntegracao(this.db, existente.id, config, { colunas: { ativo: false, ...(unidadeId ? { unidadeId } : {}) } });
     } else {
       await this.db.insert(integracao).values({ tenantId, unidadeId, canal: CANAL, ativo: false, config });
     }
@@ -245,10 +244,8 @@ export class IfoodService {
       status: 'pendente_remocao',
       removidoSolicitadoEm: new Date().toISOString(),
     };
-    await this.db
-      .update(integracao)
-      .set({ ativo: false, config: { ...cfgAtual, pedidoIntegracao: pedido }, updatedAt: new Date() })
-      .where(eq(integracao.id, existente.id));
+    // Só a chave do pedido, mesclada no banco: o resto da configuração fica como está (ERR-475).
+    await mesclarNoConfigDaIntegracao(this.db, existente.id, { pedidoIntegracao: pedido }, { colunas: { ativo: false } });
     void this.alertarDistribuicao(tenantId, 'remocao_integracao');
     return { ok: true };
   }
