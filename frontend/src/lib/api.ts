@@ -2137,6 +2137,9 @@ export const api = {
   cardapioBairros: () => req('/cardapio/bairros'),
   setCardapioBairros: (bairros: unknown[]) =>
     req('/cardapio/bairros', { method: 'PUT', body: JSON.stringify({ bairros }) }),
+  // Área de entrega DESENHADA no mapa (mig 425): a lista inteira, na ordem (a de cima vence onde se cruzam).
+  areasEntrega: () => req('/cardapio/areas-entrega'),
+  setAreasEntrega: (areas: unknown[]) => req('/cardapio/areas-entrega', { method: 'PUT', body: JSON.stringify({ areas }) }),
   cardapioBanners: () => req('/cardapio/banners'),
   setCardapioBanners: (banners: unknown[]) =>
     req('/cardapio/banners', { method: 'PUT', body: JSON.stringify({ banners }) }),

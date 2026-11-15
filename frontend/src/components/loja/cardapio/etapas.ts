@@ -46,10 +46,15 @@ export type EstadoFalta = {
   mesaDireta: boolean;
   isServico: boolean;
   isIndustria: boolean;
-  /** Frete por distância (precisa de localização) em vez de bairro. */
+  /** Frete pelo PONTO (distância ou área desenhada no mapa — precisa de localização) em vez de bairro. */
   areaRaio: boolean;
-  /** Modo distância: o endereço passou da maior faixa (`foraDaAreaDoRaio`) — o pedido não sai. */
-  foraDaArea?: { km: number; ateKm: number } | null;
+  /**
+   * O endereço está fora da área — o pedido não sai: no modo distância, além da maior faixa (`foraDaAreaDoRaio`); no modo
+   * mapa, fora de todas as áreas no ar (`{ mapa: true }`, mig 425).
+   */
+  foraDaArea?: { km: number; ateKm: number } | { mapa: true } | null;
+  /** Modo mapa: a área do endereço tem pedido mínimo e os itens ainda não chegam nele. */
+  minimoDaArea?: { minimo: number } | null;
   temBairros: boolean;
   /** Loja fechada e este pedido não pode ser agendado: nada sai. */
   fechadaSemAgenda: boolean;
@@ -100,10 +105,15 @@ function faltaEntrega(s: EstadoFalta): Falta {
       if (!String(c.rua ?? '').trim()) return { campo: 'rua', mensagem: 'Informe a rua' };
       if (s.areaRaio && !(c.lat && c.lng)) return { campo: 'localizacao', mensagem: 'Use sua localização para calcular o frete' };
       if (s.areaRaio && s.foraDaArea) {
+        if ('mapa' in s.foraDaArea) return { campo: 'localizacao', mensagem: 'Não entregamos nesse endereço: ele fica fora da nossa área de entrega' };
         return {
           campo: 'localizacao',
           mensagem: `Não entregamos nesse endereço: ele fica a ~${umaCasa(s.foraDaArea.km)} km, e a entrega vai até ${umaCasa(s.foraDaArea.ateKm)} km`,
         };
+      }
+      if (s.minimoDaArea) {
+        const reais = s.minimoDaArea.minimo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        return { campo: 'localizacao', mensagem: `Para este endereço, o pedido mínimo é ${reais} em itens` };
       }
     }
   }

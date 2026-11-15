@@ -272,6 +272,8 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // seletor de bairro e recalcular a taxa quando alguém corrige o endereço. Vazia no
   // servidor local, o pedido saía com a taxa antiga ou zero — cobrança errada, calada.
   { tabela: 'cardapio_bairro', direcao: 'ambos', cursor: 'atualizado_em' },
+  // A área de entrega DESENHADA NO MAPA (mig 425): o mesmo uso e a mesma gravação (apagar-e-inserir) dos bairros.
+  { tabela: 'cardapio_area_entrega', direcao: 'ambos', cursor: 'atualizado_em' },
   // ESPELHO (S1, ago/2026): transacionais viram BIDIRECIONAIS (antes só 'sobe').
   // Descem também p/ o edge espelhar o que o presidente faz na nuvem e o que a nuvem
   // materializou (pedido online → comanda). LWW por updated_at (gatilho da mig 095); o

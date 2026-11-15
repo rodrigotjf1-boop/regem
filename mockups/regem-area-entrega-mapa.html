@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regem — Área de entrega desenhada no mapa (mockup)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.17.0/dist/leaflet-geoman.css">
+<style>
+/* MOCKUP — APROVADO pelo dono em 15/11/2026 ("o protótipo está aprovado"; implementado com a mig 425). Delivery › Configurações › aba "Área de entrega", com o modo novo "Desenhada no mapa" (15/11/2026, pedido do
+   dono: "o usuário navega pelo mapa desenhando a área de entrega da forma que achar melhor, podendo cadastrar vários setores
+   e precificar da forma que achar melhor, como tem na 99Food e no iFood"). Nada aqui fala com o Regem; os dados são
+   inventados (a loja fica num ponto genérico da Penha, RJ). O mapa é o OpenStreetMap (o mesmo do Regem, sem Google) e o
+   desenho usa o Leaflet-Geoman (livre, licença MIT) — o mesmo que a tela de verdade usaria.
+   O que a tela faz:
+   (1) escolher como a loja entrega: por bairro, por distância (faixas de km) ou DESENHADA NO MAPA (novo);
+   (2) desenhar quantas áreas quiser: clicar os cantos no mapa, fechar no primeiro ponto; editar os pontos arrastando,
+       mover a área inteira, apagar;
+   (3) cada área com nome, taxa, tempo de entrega, pedido mínimo e frete grátis acima de (opcionais), no ar ou pausada —
+       editada numa GAVETA lateral;
+   (4) onde duas áreas se cruzam, vale a de CIMA da lista (setas para mudar a ordem);
+   (5) "Testar um endereço": clicar no mapa (ou um exemplo) mostra qual área atende, a taxa e o tempo — ou "fora da área";
+   (6) o que o cliente vê no cardápio e o que o atendente responde;
+   (7) a barra de "N alterações ainda não salvas" (o modelo de ajustes das Configurações).
+   Sem barra de rolagem horizontal em nenhuma largura: abaixo de 1100 px a lista vai para baixo do mapa; no celular
+   vira cartões e a gaveta ocupa a tela. */
+:root{
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --navy:#0F2230; --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9;
+  --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8; --radius:12px;
+  --display:'Archivo',system-ui,sans-serif; --body:'Figtree',system-ui,sans-serif; --mono:'JetBrains Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:var(--body);background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid #3A7FB8;outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+[hidden]{display:none!important}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+main{min-width:0;max-width:1440px;margin:0 auto;padding:20px max(16px,env(safe-area-inset-right,0px)) 120px max(16px,env(safe-area-inset-left,0px))}
+.trilha{font-family:var(--display);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#7A5209}
+h1{font-family:var(--display);font-size:26px;margin:2px 0 6px;text-wrap:balance}
+.sub{color:var(--ink-2);margin:0 0 16px;max-width:75ch}
+h2{font-family:var(--display);font-size:18px;margin:0 0 10px}
+h3{font-family:var(--display);font-size:15px;margin:0}
+.abas{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px}
+.aba{display:inline-flex;align-items:center;min-height:40px;padding:8px 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);color:var(--ink-2);font-weight:600}
+.aba[aria-current="page"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.revisao{display:flex;flex-wrap:wrap;align-items:center;gap:8px;background:#FFF7E8;border:1px dashed #E8C27A;border-radius:10px;padding:8px 12px;margin:0 0 16px;font-size:13.5px}
+.revisao b{font-family:var(--display)}
+.chip-btn{border:1px solid var(--line-2);background:var(--card);border-radius:999px;padding:4px 12px;min-height:32px;font-weight:600;font-size:13px}
+.chip-btn[aria-pressed="true"]{background:var(--navy);color:#fff;border-color:var(--navy)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px}
+.modos{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:10px;margin:0 0 16px}
+.modo{display:flex;gap:10px;align-items:flex-start;text-align:left;border:1px solid var(--line-2);background:var(--card);border-radius:12px;padding:12px;min-width:0}
+.modo[aria-pressed="true"]{border-color:var(--gold);box-shadow:inset 0 0 0 1px var(--gold);background:#FFFBF2}
+.modo .bola{flex:none;width:18px;height:18px;border-radius:50%;border:2px solid var(--line-2);margin-top:2px}
+.modo[aria-pressed="true"] .bola{border-color:var(--gold);background:radial-gradient(circle,var(--gold) 45%,transparent 50%)}
+.modo b{display:block;font-family:var(--display)}
+.modo span{color:var(--ink-2);font-size:13.5px}
+.selo-novo{display:inline-block;background:var(--gold);color:var(--on-gold);border-radius:6px;padding:0 6px;font-size:11px;font-weight:700;margin-left:6px;vertical-align:middle}
+.palco{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px;align-items:start}
+@media (max-width:1099px){.palco{grid-template-columns:minmax(0,1fr)}}
+.mapa-card{padding:0;overflow:hidden;min-width:0;isolation:isolate}
+.barra-mapa{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;padding:8px 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);font-weight:600;font-size:14px}
+.btn.prim{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.btn.perigo{color:var(--crit);border-color:#E9B4B4}
+.btn[aria-pressed="true"]{background:var(--navy);color:#fff;border-color:var(--navy)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.peq{min-height:34px;padding:4px 10px;font-size:13px}
+.dica{flex-basis:100%;font-size:13.5px;color:var(--info);background:var(--info-bg);border-radius:8px;padding:6px 10px}
+#mapa{height:min(62vh,560px);min-height:340px;width:100%;background:#E7ECF1}
+.mapa-estado{display:grid;place-items:center;height:min(62vh,560px);min-height:340px;text-align:center;padding:24px;color:var(--ink-2)}
+.mapa-estado b{display:block;color:var(--ink);font-family:var(--display);font-size:16px;margin-bottom:6px}
+.rodape-mapa{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:8px 12px;border-top:1px solid var(--line);font-size:13px;color:var(--ink-2)}
+.legenda{display:flex;flex-wrap:wrap;gap:10px}
+.legenda i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+.lista-areas{display:flex;flex-direction:column;gap:10px;min-width:0}
+.cab-lista{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;align-items:baseline}
+.nota-ordem{font-size:13px;color:var(--ink-2);margin:0}
+.area{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--card);display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 10px;align-items:start}
+.area.sel{border-color:var(--gold);box-shadow:inset 0 0 0 1px var(--gold)}
+.area .cor{width:14px;height:14px;border-radius:4px;margin-top:4px}
+.area .nome{font-family:var(--display);font-weight:700;overflow-wrap:anywhere}
+.area .info{grid-column:2/4;color:var(--ink-2);font-size:13.5px;font-family:var(--mono)}
+.area .acoes{grid-column:2/4;display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.selo{display:inline-flex;align-items:center;border-radius:999px;padding:1px 9px;font-size:12px;font-weight:700;white-space:nowrap}
+.selo.ok{background:var(--ok-bg);color:var(--ok)}
+.selo.pausa{background:var(--warn-bg);color:var(--warn)}
+.vazio{border:1px dashed var(--line-2);border-radius:12px;padding:20px;text-align:center;color:var(--ink-2)}
+.vazio b{display:block;color:var(--ink);font-family:var(--display);margin-bottom:4px}
+.teste{margin-top:16px}
+.teste .linha{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.resultado{margin-top:10px;border-radius:10px;padding:10px 12px;font-size:14px}
+.resultado.ok{background:var(--ok-bg);color:#0B4A33}
+.resultado.fora{background:var(--crit-bg);color:#7E2121}
+.resultado b{font-family:var(--display)}
+.cliente{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:16px;margin-top:16px}
+.tel{border:1px solid var(--line);border-radius:18px;padding:14px;background:#FAFBFC}
+.tel .t{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);margin-bottom:8px}
+.lin{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--line);font-size:14px}
+.lin:last-child{border-bottom:0}
+.lin span:last-child{font-family:var(--mono)}
+.aviso-fora{margin-top:8px;background:var(--crit-bg);color:#7E2121;border-radius:8px;padding:8px 10px;font-size:13.5px}
+.balao{background:#E7F7EE;border-radius:12px 12px 12px 4px;padding:10px 12px;font-size:14px;max-width:46ch}
+.balao.cli{background:#fff;border:1px solid var(--line);border-radius:12px 12px 4px 12px;margin:0 0 8px auto}
+/* gaveta */
+.fundo{position:fixed;inset:0;background:rgba(15,34,48,.45);z-index:1500}
+.gaveta{position:fixed;top:0;right:0;bottom:0;width:min(440px,100vw);background:var(--card);z-index:1600;display:flex;flex-direction:column;box-shadow:-8px 0 30px rgba(0,0,0,.18)}
+.gaveta header{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:16px;border-bottom:1px solid var(--line)}
+.gaveta .corpo{padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;flex:1}
+.gaveta footer{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--line)}
+.campo label,.campo .rot{display:block;font-weight:600;font-size:14px;margin-bottom:4px}
+.campo small{display:block;color:var(--ink-2);font-size:12.5px;margin-top:3px}
+.campo input[type=text],.campo input[type=number],.campo input[type=time]{width:100%;min-height:42px;border:1px solid var(--line-2);border-radius:10px;padding:8px 10px;background:#fff}
+.duplo{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:10px}
+.prefixo{display:flex;align-items:stretch}
+.prefixo span{display:grid;place-items:center;padding:0 10px;border:1px solid var(--line-2);border-right:0;border-radius:10px 0 0 10px;background:#F6F8FA;font-family:var(--mono);font-size:13px}
+.prefixo input{border-radius:0 10px 10px 0!important}
+.cores{display:flex;flex-wrap:wrap;gap:8px}
+.cores button{width:32px;height:32px;border-radius:8px;border:2px solid transparent}
+.cores button[aria-pressed="true"]{border-color:var(--ink)}
+.interruptor{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.interruptor button{width:48px;height:28px;border-radius:999px;border:0;background:#C8D2DC;position:relative;flex:none}
+.interruptor button::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:left .15s}
+.interruptor button[aria-pressed="true"]{background:var(--ok)}
+.interruptor button[aria-pressed="true"]::after{left:23px}
+.dias{display:flex;flex-wrap:wrap;gap:6px}
+/* diálogo */
+.dialogo{position:fixed;inset:0;display:grid;place-items:center;z-index:1700;padding:16px;background:rgba(15,34,48,.45)}
+.dialogo .caixa{background:var(--card);border-radius:14px;padding:18px;width:min(420px,100%)}
+.dialogo .caixa p{color:var(--ink-2)}
+.dialogo .botoes{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+/* barra de salvar */
+.salvar{position:fixed;left:0;right:0;bottom:0;z-index:1400;background:var(--navy);color:#fff;padding:10px max(16px,env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.salvar .btn{border-color:rgba(255,255,255,.35);background:transparent;color:#fff}
+.salvar .btn.prim{background:var(--gold);color:var(--on-gold);border-color:var(--gold)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:80px;background:var(--ink);color:#fff;border-radius:10px;padding:10px 14px;z-index:1800;max-width:calc(100vw - 32px)}
+/* notas */
+.notas{margin-top:28px}
+.notas ol,.notas ul{padding-left:20px;max-width:90ch}
+.notas li{margin:6px 0}
+.notas code{font-family:var(--mono);font-size:13px;background:#EEF2F6;border-radius:4px;padding:0 4px;overflow-wrap:anywhere}
+.notas a{color:var(--info);overflow-wrap:anywhere}
+.leaflet-container{font-family:var(--body)}
+.rotulo-area{background:rgba(255,255,255,.92);border:1px solid var(--line-2);border-radius:6px;padding:1px 6px;font-weight:700;font-size:12px;color:var(--ink);white-space:nowrap;box-shadow:none}
+.rotulo-area::before{display:none}
+@media (max-width:640px){
+  h1{font-size:22px}
+  .barra-mapa .btn{flex:1 1 auto}
+  #mapa,.mapa-estado{height:55vh;min-height:300px}
+}
+</style>
+</head>
+<body>
+<main>
+  <div class="trilha">Delivery › Configurações</div>
+  <h1>Área de entrega</h1>
+  <p class="sub">Onde a loja entrega e quanto cobra. Vale para o cardápio digital, o atendente virtual (WhatsApp e Direct) e o pedido feito no painel. O iFood e a 99 têm a área deles, no portal de cada um.</p>
+
+  <nav class="abas" aria-label="Configurações do delivery">
+    <span class="aba">Geral</span>
+    <span class="aba" aria-current="page">Área de entrega</span>
+    <span class="aba">Pagamento</span>
+    <span class="aba">Robô de atendimento</span>
+    <span class="aba">Horários</span>
+  </nav>
+
+  <div class="revisao" role="group" aria-label="Ver outros estados do protótipo">
+    <b>Protótipo — ver estado:</b>
+    <button class="chip-btn" data-estado="normal" aria-pressed="true">Com 3 áreas</button>
+    <button class="chip-btn" data-estado="vazio" aria-pressed="false">Sem área ainda</button>
+    <button class="chip-btn" data-estado="erro" aria-pressed="false">Mapa sem carregar</button>
+  </div>
+
+  <section aria-labelledby="t-modo">
+    <h2 id="t-modo">Como a loja entrega</h2>
+    <div class="modos" role="radiogroup" aria-labelledby="t-modo">
+      <button class="modo" role="radio" aria-checked="false" aria-pressed="false" data-modo="bairro"><span class="bola" aria-hidden="true"></span><span><b>Por bairro</b><span>Uma lista de bairros, cada um com a taxa.</span></span></button>
+      <button class="modo" role="radio" aria-checked="false" aria-pressed="false" data-modo="raio"><span class="bola" aria-hidden="true"></span><span><b>Por distância</b><span>Faixas de km a partir da loja (até 1 km, até 2 km…).</span></span></button>
+      <button class="modo" role="radio" aria-checked="true" aria-pressed="true" data-modo="mapa"><span class="bola" aria-hidden="true"></span><span><b>Desenhada no mapa <span class="selo-novo">novo</span></b><span>Você desenha as áreas no mapa, do jeito que quiser, e dá o preço de cada uma.</span></span></button>
+    </div>
+  </section>
+
+  <div class="palco">
+    <section class="card mapa-card" aria-labelledby="t-mapa">
+      <h2 id="t-mapa" class="sr">Mapa das áreas de entrega</h2>
+      <div class="barra-mapa">
+        <button class="btn prim" id="b-nova">＋ Nova área</button>
+        <button class="btn" id="b-editar" aria-pressed="false">✎ Editar pontos</button>
+        <button class="btn" id="b-mover" aria-pressed="false">✥ Mover área</button>
+        <button class="btn" id="b-testar" aria-pressed="false">📍 Testar um endereço</button>
+        <button class="btn" id="b-converter" title="Cria uma área para cada faixa de km que a loja já tem">Converter as faixas de km em áreas</button>
+        <div class="dica" id="dica" role="status" aria-live="polite" hidden></div>
+      </div>
+      <div id="mapa" role="application" aria-label="Mapa: arraste para navegar, use + e − para aproximar"></div>
+      <div class="dica" id="aviso-disco" style="margin:0;border-radius:0" hidden>Este protótipo foi aberto direto do disco: o mapa do OpenStreetMap recusa a página sem endereço (aparece "Access blocked"). Abra por <b>http://localhost:5178/regem-area-entrega-mapa.html</b> — no Regem de verdade o mapa carrega normalmente.</div>
+      <div class="mapa-estado" id="mapa-erro" hidden>
+        <div><b>Não deu para carregar o mapa</b>Confira a internet deste computador. As áreas salvas continuam valendo no cardápio.<br><br><button class="btn" id="b-tentar">Tentar de novo</button></div>
+      </div>
+      <div class="rodape-mapa">
+        <div class="legenda" id="legenda"></div>
+        <span>Mapa © OpenStreetMap · ● a loja</span>
+      </div>
+    </section>
+
+    <section class="lista-areas" aria-labelledby="t-areas">
+      <div class="cab-lista">
+        <h2 id="t-areas">Áreas <span id="cont" style="font-family:var(--mono);font-size:15px;color:var(--ink-2)"></span></h2>
+      </div>
+      <p class="nota-ordem">Onde duas áreas se cruzam, vale a de <b>cima</b> da lista. Use as setas para mudar a ordem. Endereço fora de todas: o pedido não sai.</p>
+      <div id="areas"></div>
+
+      <div class="card teste" aria-labelledby="t-teste">
+        <h3 id="t-teste">Testar um endereço</h3>
+        <p class="nota-ordem" style="margin:6px 0 10px">Clique em "📍 Testar um endereço" e depois num ponto do mapa — ou use um exemplo:</p>
+        <div class="linha">
+          <button class="btn peq" data-exemplo="perto">Rua perto da loja</button>
+          <button class="btn peq" data-exemplo="medio">Rua em Olaria</button>
+          <button class="btn peq" data-exemplo="longe">Endereço a 119 km</button>
+        </div>
+        <div id="resultado" aria-live="polite"></div>
+      </div>
+    </section>
+  </div>
+
+  <section aria-labelledby="t-cliente" style="margin-top:20px">
+    <h2 id="t-cliente">O que o cliente vê</h2>
+    <div class="cliente">
+      <div class="tel">
+        <div class="t">Cardápio digital · sacola</div>
+        <div class="lin"><span>Subtotal</span><span>R$ 48,00</span></div>
+        <div class="lin"><span id="cl-area">Entrega · Penha</span><span id="cl-taxa">R$ 5,00</span></div>
+        <div class="lin"><span>Tempo de entrega</span><span id="cl-tempo">25–35 min</span></div>
+        <div class="lin"><span><b>Total</b></span><span id="cl-total"><b>R$ 53,00</b></span></div>
+        <div class="aviso-fora" id="cl-fora" hidden>Não entregamos nesse endereço: ele fica fora da nossa área de entrega. Confira o endereço.</div>
+      </div>
+      <div class="tel">
+        <div class="t">Atendente virtual · WhatsApp</div>
+        <div class="balao cli">Vocês entregam na Rua Plínio de Oliveira, 300?</div>
+        <div class="balao" id="bot-resp">Entregamos sim! 😊 Para o seu endereço a taxa é <b>R$ 5,00</b> e chega em uns <b>25–35 min</b>. Quer que eu te mande o cardápio?</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="notas card" aria-labelledby="t-notas">
+    <h2 id="t-notas">Notas, regras e decisões</h2>
+    <ol>
+      <li><b>Como vale:</b> o ponto do cliente (a localização do celular ou o endereço achado no mapa) cai numa área → a taxa, o tempo, o pedido mínimo e o frete grátis dela. Fora de todas → o pedido não sai, com a mensagem de "não entregamos nesse endereço" (a mesma regra do conserto de 15/11, ERR-470). Endereço que não se acha no mapa → pede para conferir ou usar a localização.</li>
+      <li><b>Sobreposição:</b> onde duas áreas se cruzam, vale a de cima da lista. <i>Recomendado</i> (é previsível e a loja controla); a outra opção seria "vale a menor área".</li>
+      <li><b>Área pausada</b> não conta (o endereço dela fica "fora da área" até voltar) — serve para fechar uma região num dia de chuva sem apagar o desenho.</li>
+      <li><b>Onde vale:</b> cardápio digital, atendente virtual (WhatsApp, Direct, Messenger) e pedido manual no painel. O iFood e a 99 continuam com a área do portal deles (a 99 também tem polígono; o Regem não envia a área para lá nesta fase).</li>
+      <li><b>Mapa e desenho:</b> OpenStreetMap (sem Google, regra da casa) e Leaflet-Geoman (livre, MIT) para desenhar: clicar os cantos, fechar no primeiro ponto, arrastar os pontos, mover a área, apagar. Limites: até 30 áreas por loja e 300 pontos por área.</li>
+      <li><b>A conta é a mesma na tela e no servidor:</b> "o ponto está dentro da área?" roda no servidor (que decide de verdade) e na tela (que avisa antes); um teste compara os dois com os mesmos pontos.</li>
+      <li><b>Converter as faixas de km em áreas:</b> para a loja que já usa "por distância", um botão cria uma área redonda (como polígono) para cada faixa, com a mesma taxa — dá para ajustar o desenho depois. <i>Recomendado</i> ter.</li>
+      <li><b>Horário por área</b> (a 99 tem): fica para a fase 3 — no começo, toda área vale no horário da loja.</li>
+      <li><b>O fundo do mapa:</b> hoje o Regem usa os quadros públicos do OpenStreetMap (gratuitos, mantidos por voluntários). Eles exigem a origem da página — por isso o protótipo aberto do disco aparece "Access blocked", e no app de verdade carrega. A política deles não aceita uso pesado: com muitas lojas desenhando áreas, o <i>recomendado</i> é servir os quadros da nossa VPS (como o OSRM), com um arquivo do mapa do Brasil — fica como pendência de infraestrutura, antes de abrir para muitas lojas.</li>
+    </ol>
+    <h3 style="margin-top:14px">Fases (se aprovado)</h3>
+    <ol>
+      <li><b>F1 — servidor:</b> a tabela das áreas (migration), a regra "dentro da área" e a recusa no pedido do cardápio e do atendente.</li>
+      <li><b>F2 — esta tela:</b> desenhar, editar, mover, apagar, ordenar, gaveta, testar endereço, converter as faixas.</li>
+      <li><b>F3 — acabamento:</b> o atendente diz a área e a taxa; horário por área; o mapa no pedido do painel.</li>
+    </ol>
+    <h3 style="margin-top:14px">Referências de mercado (verificado em 15/11/2026)</h3>
+    <ul>
+      <li>99Food — "Como configurar a entrega feita pela loja": área circular ou <b>poligonal</b>, e cada uma com prazo, taxa e horário — <a href="https://99app.com/99food/restaurantes/guias/como-configurar-a-entrega-feita-pela-loja/">99app.com/99food/restaurantes/guias/como-configurar-a-entrega-feita-pela-loja</a></li>
+      <li>iFood — a área se edita no mapa com pincel e borracha, com taxa e tempo por faixa (fonte de terceiro, não oficial) — <a href="https://saipos.com/integracoes/ifood/como-aumentar-area-de-entrega-do-ifood">saipos.com/integracoes/ifood/como-aumentar-area-de-entrega-do-ifood</a></li>
+      <li>Wix — entrega local "desenhando no mapa" e ajustando os cantos — <a href="https://support.wix.com/pt/article/wix-stores-configurar-uma-op%C3%A7%C3%A3o-de-entrega-local">support.wix.com (entrega local)</a></li>
+      <li>Suitable — áreas marcadas por cantos no mapa, cada uma com preço e tempo — <a href="https://intercom.help/suitableapp/pt-BR/articles/7974759-como-cadastrar-areas">intercom.help/suitableapp (como cadastrar áreas)</a></li>
+    </ul>
+  </section>
+</main>
+
+<div class="salvar" id="salvar" hidden>
+  <span id="salvar-txt">1 alteração ainda não salva</span>
+  <span style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="b-descartar">Descartar</button><button class="btn prim" id="b-salvar">Salvar alterações</button></span>
+</div>
+
+<div class="fundo" id="fundo" hidden></div>
+<aside class="gaveta" id="gaveta" role="dialog" aria-modal="true" aria-labelledby="g-tit" hidden>
+  <header><h2 id="g-tit" style="margin:0">Editar área</h2><button class="btn peq" id="g-fechar" aria-label="Fechar">✕</button></header>
+  <div class="corpo">
+    <div class="campo"><label for="g-nome">Nome da área</label><input type="text" id="g-nome" maxlength="40"><small>Aparece para a equipe e na via do pedido (o cliente vê só a taxa).</small></div>
+    <div class="duplo">
+      <div class="campo"><label for="g-taxa">Taxa de entrega</label><div class="prefixo"><span>R$</span><input type="number" id="g-taxa" min="0" step="0.5" inputmode="decimal"></div></div>
+      <div class="campo"><label for="g-min">Pedido mínimo <small style="display:inline">(opcional)</small></label><div class="prefixo"><span>R$</span><input type="number" id="g-min" min="0" step="1" inputmode="decimal"></div></div>
+    </div>
+    <div class="duplo">
+      <div class="campo"><label for="g-t1">Tempo de entrega, de</label><div class="prefixo"><span>min</span><input type="number" id="g-t1" min="5" step="5"></div></div>
+      <div class="campo"><label for="g-t2">até</label><div class="prefixo"><span>min</span><input type="number" id="g-t2" min="5" step="5"></div></div>
+    </div>
+    <div class="campo"><label for="g-gratis">Frete grátis acima de <small style="display:inline">(opcional)</small></label><div class="prefixo"><span>R$</span><input type="number" id="g-gratis" min="0" step="1" inputmode="decimal"></div><small>Vazio = segue o da loja.</small></div>
+    <div class="campo"><span class="rot" id="r-cor">Cor no mapa</span><div class="cores" id="g-cores" role="group" aria-labelledby="r-cor"></div></div>
+    <div class="interruptor"><span><b>No ar</b><br><small style="color:var(--ink-2)">Pausada, o endereço dela fica fora da área.</small></span><button id="g-ar" aria-pressed="true" aria-label="Área no ar"></button></div>
+    <button class="btn" id="g-redesenhar">✎ Ajustar o desenho no mapa</button>
+  </div>
+  <footer><button class="btn" id="g-cancelar">Cancelar</button><button class="btn prim" id="g-ok">Salvar área</button></footer>
+</aside>
+
+<div class="dialogo" id="dialogo" role="alertdialog" aria-modal="true" aria-labelledby="d-tit" hidden>
+  <div class="caixa"><h2 id="d-tit">Apagar a área?</h2><p id="d-txt"></p><div class="botoes"><button class="btn" id="d-nao">Cancelar</button><button class="btn perigo" id="d-sim">Apagar área</button></div></div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.17.0/dist/leaflet-geoman.min.js"></script>
+<script>
+(function () {
+  'use strict';
+  const LOJA = [-22.8436, -43.2784];
+  const CORES = ['#0E7C66', '#E2A340', '#2C6699', '#B93232', '#7C3AED', '#C2410C'];
+  const brl = (n) => Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const $ = (s) => document.querySelector(s);
+  const em = (lat, lng) => [LOJA[0] + lat, LOJA[1] + lng];
+  const INICIAIS = () => [
+    { id: 'a1', nome: 'Penha', taxa: 5, min: 20, t1: 25, t2: 35, gratis: null, cor: CORES[0], ar: true,
+      pontos: [em(0.006, -0.008), em(0.007, 0.006), em(-0.002, 0.009), em(-0.007, 0.003), em(-0.005, -0.008)] },
+    { id: 'a2', nome: 'Olaria e Brás de Pina', taxa: 7, min: 30, t1: 35, t2: 45, gratis: 90, cor: CORES[1], ar: true,
+      pontos: [em(0.013, -0.018), em(0.016, 0.004), em(0.004, 0.02), em(-0.012, 0.016), em(-0.014, -0.006), em(-0.004, -0.02)] },
+    { id: 'a3', nome: 'Vila da Penha (pausada na chuva)', taxa: 9, min: 40, t1: 40, t2: 55, gratis: null, cor: CORES[2], ar: false,
+      pontos: [em(-0.012, -0.004), em(-0.01, 0.022), em(-0.026, 0.024), em(-0.03, 0.002)] },
+  ];
+  let areas = INICIAIS();
+  let salvas = JSON.stringify(areas);
+  let mapa = null, camadas = {}, pinoTeste = null, modo = null, selecionada = null, editando = null;
+
+  function dentro(pt, poligono) {
+    // Raio cruzando as arestas (ponto dentro do polígono) — a MESMA conta que o servidor faria.
+    const [y, x] = pt; let ok = false;
+    for (let i = 0, j = poligono.length - 1; i < poligono.length; j = i++) {
+      const [yi, xi] = poligono[i], [yj, xj] = poligono[j];
+      if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) ok = !ok;
+    }
+    return ok;
+  }
+  function areaDoPonto(pt) { return areas.find((a) => a.ar && a.pontos.length >= 3 && dentro(pt, a.pontos)) || null; }
+  function km2(pontos) {
+    // Área aproximada (projeção local), só para dar noção de tamanho.
+    const R = 6371, rad = Math.PI / 180, lat0 = LOJA[0] * rad;
+    const xy = pontos.map(([la, lo]) => [lo * rad * R * Math.cos(lat0), la * rad * R]);
+    let s = 0; for (let i = 0, j = xy.length - 1; i < xy.length; j = i++) s += (xy[j][0] + xy[i][0]) * (xy[j][1] - xy[i][1]);
+    return Math.abs(s / 2);
+  }
+  function mudou() {
+    const n = JSON.stringify(areas) === salvas ? 0 : 1;
+    $('#salvar').hidden = !n;
+    $('#salvar-txt').textContent = 'Há alterações ainda não salvas nas áreas';
+  }
+  function avisar(t) { const el = $('#toast'); el.textContent = t; el.hidden = false; clearTimeout(avisar.t); avisar.t = setTimeout(() => (el.hidden = true), 2600); }
+  function dica(t) { const d = $('#dica'); d.textContent = t || ''; d.hidden = !t; }
+
+  // ───────── lista ─────────
+  function lista() {
+    const box = $('#areas');
+    $('#cont').textContent = `(${areas.length})`;
+    if (!areas.length) {
+      box.innerHTML = '<div class="vazio"><b>Nenhuma área desenhada ainda</b>Clique em "＋ Nova área" e marque os cantos no mapa. Sem área, o cardápio não aceita entrega.</div>';
+    } else {
+      box.innerHTML = areas.map((a, i) => `
+        <article class="area${selecionada === a.id ? ' sel' : ''}" data-id="${a.id}">
+          <span class="cor" style="background:${a.cor}" aria-hidden="true"></span>
+          <span class="nome">${a.nome}</span>
+          <span class="selo ${a.ar ? 'ok' : 'pausa'}">${a.ar ? 'No ar' : 'Pausada'}</span>
+          <span class="info">${brl(a.taxa)} · ${a.t1}–${a.t2} min${a.min ? ' · mínimo ' + brl(a.min) : ''}${a.gratis ? ' · grátis acima de ' + brl(a.gratis) : ''} · ${km2(a.pontos).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} km²</span>
+          <span class="acoes">
+            <button class="btn peq" data-acao="editar">Editar</button>
+            <button class="btn peq" data-acao="ver">Ver no mapa</button>
+            <button class="btn peq" data-acao="subir" aria-label="Subir ${a.nome}" ${i === 0 ? 'disabled' : ''}>↑</button>
+            <button class="btn peq" data-acao="descer" aria-label="Descer ${a.nome}" ${i === areas.length - 1 ? 'disabled' : ''}>↓</button>
+            <button class="btn peq" data-acao="duplicar">Duplicar</button>
+            <button class="btn peq perigo" data-acao="apagar">Apagar</button>
+          </span>
+        </article>`).join('');
+    }
+    $('#legenda').innerHTML = areas.map((a) => `<span><i style="background:${a.cor};opacity:${a.ar ? 1 : 0.45}"></i>${a.nome.split(' (')[0]}</span>`).join('');
+  }
+  $('#areas').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-acao]'); if (!b) return;
+    const id = b.closest('.area').dataset.id; const i = areas.findIndex((a) => a.id === id); const a = areas[i];
+    if (b.dataset.acao === 'editar') abrirGaveta(a);
+    if (b.dataset.acao === 'ver') { selecionada = id; lista(); if (mapa && camadas[id]) mapa.fitBounds(camadas[id].getBounds(), { padding: [30, 30] }); }
+    if (b.dataset.acao === 'subir' && i > 0) { [areas[i - 1], areas[i]] = [areas[i], areas[i - 1]]; desenharTudo(); mudou(); }
+    if (b.dataset.acao === 'descer' && i < areas.length - 1) { [areas[i + 1], areas[i]] = [areas[i], areas[i + 1]]; desenharTudo(); mudou(); }
+    if (b.dataset.acao === 'duplicar') { const c = JSON.parse(JSON.stringify(a)); c.id = 'a' + Date.now(); c.nome = a.nome + ' (cópia)'; c.pontos = c.pontos.map(([la, lo]) => [la - 0.002, lo + 0.002]); areas.splice(i + 1, 0, c); desenharTudo(); mudou(); avisar('Área duplicada — ajuste o desenho no mapa'); }
+    if (b.dataset.acao === 'apagar') confirmarApagar(a);
+  });
+
+  // ───────── mapa ─────────
+  function desenharTudo() {
+    if (mapa) {
+      Object.values(camadas).forEach((c) => mapa.removeLayer(c)); camadas = {};
+      // A de CIMA da lista fica por cima no mapa: desenha de baixo para cima.
+      [...areas].reverse().forEach((a) => {
+        const p = L.polygon(a.pontos, { color: a.cor, weight: selecionada === a.id ? 4 : 2, fillOpacity: a.ar ? 0.22 : 0.07, dashArray: a.ar ? null : '6 6' }).addTo(mapa);
+        p.bindTooltip(`${a.nome.split(' (')[0]} · ${brl(a.taxa)}`, { permanent: true, direction: 'center', className: 'rotulo-area' });
+        p.on('click', (ev) => { if (modo === 'testar') return testar([ev.latlng.lat, ev.latlng.lng]); selecionada = a.id; lista(); desenharTudo(); });
+        p.on('pm:edit pm:dragend', () => { a.pontos = p.getLatLngs()[0].map((ll) => [ll.lat, ll.lng]); lista(); mudou(); });
+        camadas[a.id] = p;
+      });
+      if (modo === 'editar') ligarEdicao(true);
+      if (modo === 'mover') ligarMover(true);
+    }
+    lista();
+  }
+  function ligarEdicao(on) { Object.values(camadas).forEach((c) => (on ? c.pm.enable({ allowSelfIntersection: false }) : c.pm.disable())); }
+  function ligarMover(on) { Object.values(camadas).forEach((c) => { if (on) c.pm.enableLayerDrag(); else c.pm.disableLayerDrag(); }); }
+  function trocarModo(novo) {
+    if (!mapa) return;
+    ligarEdicao(false); ligarMover(false); mapa.pm.disableDraw();
+    modo = modo === novo ? null : novo;
+    $('#b-editar').setAttribute('aria-pressed', String(modo === 'editar'));
+    $('#b-mover').setAttribute('aria-pressed', String(modo === 'mover'));
+    $('#b-testar').setAttribute('aria-pressed', String(modo === 'testar'));
+    if (modo === 'editar') { ligarEdicao(true); dica('Arraste os pontos para mudar o desenho. Clique no meio de uma borda para criar um ponto; clique com o botão direito num ponto para tirar.'); }
+    else if (modo === 'mover') { ligarMover(true); dica('Arraste uma área para mudá-la de lugar.'); }
+    else if (modo === 'testar') dica('Clique num ponto do mapa para ver qual área atende.');
+    else dica('');
+  }
+  function iniciarMapa() {
+    if (typeof L === 'undefined' || !L.PM) return mostrarErro(true);
+    mostrarErro(false);
+    if (mapa) { mapa.invalidateSize(); return; }
+    mapa = L.map('mapa', { zoomControl: true }).setView(LOJA, 14);
+    const tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(mapa);
+    tiles.on('tileerror', () => {});
+    L.circleMarker(LOJA, { radius: 7, color: '#0F2230', fillColor: '#0F2230', fillOpacity: 1 }).addTo(mapa).bindTooltip('A loja');
+    mapa.pm.setLang('pt_br');
+    mapa.pm.setGlobalOptions({ allowSelfIntersection: false, snappable: true });
+    mapa.on('click', (ev) => { if (modo === 'testar') testar([ev.latlng.lat, ev.latlng.lng]); });
+    mapa.on('pm:create', (ev) => {
+      const pontos = ev.layer.getLatLngs()[0].map((ll) => [ll.lat, ll.lng]);
+      mapa.removeLayer(ev.layer);
+      const nova = { id: 'a' + Date.now(), nome: `Área ${areas.length + 1}`, taxa: 0, min: null, t1: 30, t2: 45, gratis: null, cor: CORES[areas.length % CORES.length], ar: true, pontos };
+      areas.push(nova); selecionada = nova.id; dica(''); desenharTudo(); mudou(); abrirGaveta(nova, true);
+    });
+    desenharTudo();
+    mapa.fitBounds(L.latLngBounds(areas.flatMap((a) => a.pontos).concat([LOJA])), { padding: [24, 24] });
+  }
+  function mostrarErro(sim) { $('#mapa').hidden = sim; $('#mapa-erro').hidden = !sim; }
+  $('#b-nova').addEventListener('click', () => {
+    if (!mapa) return;
+    trocarModo(null); modo = null;
+    mapa.pm.enableDraw('Polygon', { allowSelfIntersection: false, finishOn: null, templineStyle: { color: '#E2A340' }, hintlineStyle: { color: '#E2A340', dashArray: '5 5' } });
+    dica('Clique no mapa para marcar os cantos da área. Clique no primeiro ponto para fechar. Esc cancela.');
+  });
+  $('#b-editar').addEventListener('click', () => trocarModo('editar'));
+  $('#b-mover').addEventListener('click', () => trocarModo('mover'));
+  $('#b-testar').addEventListener('click', () => trocarModo('testar'));
+  $('#b-tentar').addEventListener('click', iniciarMapa);
+  $('#b-converter').addEventListener('click', () => {
+    // As faixas de km de hoje viram áreas redondas (um polígono de 36 pontos cada), da menor para a maior.
+    const faixas = [{ km: 0.5, taxa: 5 }, { km: 1, taxa: 5 }, { km: 1.5, taxa: 6 }, { km: 1.9, taxa: 7 }];
+    const circ = (km) => Array.from({ length: 36 }, (_, i) => { const t = (i / 36) * 2 * Math.PI; return [LOJA[0] + (km / 111.32) * Math.sin(t), LOJA[1] + (km / (111.32 * Math.cos(LOJA[0] * Math.PI / 180))) * Math.cos(t)]; });
+    areas = faixas.map((f, i) => ({ id: 'r' + i, nome: `Até ${String(f.km).replace('.', ',')} km`, taxa: f.taxa, min: null, t1: 25 + i * 5, t2: 35 + i * 5, gratis: null, cor: CORES[i % CORES.length], ar: true, pontos: circ(f.km) }));
+    selecionada = null; desenharTudo(); mudou(); if (mapa) mapa.fitBounds(camadas[areas[areas.length - 1].id].getBounds(), { padding: [20, 20] });
+    avisar('4 áreas criadas a partir das faixas de km — ajuste os desenhos e salve');
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (!$('#dialogo').hidden) return fecharDialogo();
+    if (!$('#gaveta').hidden) return fecharGaveta();
+    if (mapa) { mapa.pm.disableDraw(); trocarModo(null); modo = null; dica(''); }
+  });
+
+  // ───────── testar endereço ─────────
+  function testar(pt, rotulo) {
+    if (mapa) {
+      if (pinoTeste) mapa.removeLayer(pinoTeste);
+      pinoTeste = L.marker(pt).addTo(mapa);
+    }
+    const a = areaDoPonto(pt);
+    const r = $('#resultado');
+    if (a) {
+      r.innerHTML = `<div class="resultado ok">${rotulo ? rotulo + ': ' : ''}entrega pela área <b>${a.nome}</b> · <b>${brl(a.taxa)}</b> · ${a.t1}–${a.t2} min${a.min ? ' · pedido mínimo ' + brl(a.min) : ''}</div>`;
+      $('#cl-area').textContent = 'Entrega · ' + a.nome.split(' (')[0]; $('#cl-taxa').textContent = brl(a.taxa); $('#cl-tempo').textContent = `${a.t1}–${a.t2} min`;
+      $('#cl-total').innerHTML = `<b>${brl(48 + a.taxa)}</b>`; $('#cl-fora').hidden = true;
+      $('#bot-resp').innerHTML = `Entregamos sim! 😊 Para o seu endereço a taxa é <b>${brl(a.taxa)}</b> e chega em uns <b>${a.t1}–${a.t2} min</b>. Quer que eu te mande o cardápio?`;
+    } else {
+      const pausada = areas.find((x) => !x.ar && dentro(pt, x.pontos));
+      r.innerHTML = `<div class="resultado fora">${rotulo ? rotulo + ': ' : ''}<b>fora da área de entrega</b> — o pedido não sai${pausada ? ` (a área "${pausada.nome.split(' (')[0]}" está pausada)` : ''}.</div>`;
+      $('#cl-area').textContent = 'Entrega'; $('#cl-taxa').textContent = 'fora da área'; $('#cl-tempo').textContent = '—'; $('#cl-total').innerHTML = '<b>—</b>'; $('#cl-fora').hidden = false;
+      $('#bot-resp').innerHTML = 'Poxa, esse endereço fica fora da nossa área de entrega 😕 Se quiser, você pode retirar aqui na loja — é rapidinho!';
+    }
+  }
+  document.querySelectorAll('[data-exemplo]').forEach((b) => b.addEventListener('click', () => {
+    const ex = { perto: [em(0.001, 0.001), 'Rua perto da loja'], medio: [em(0.009, 0.012), 'Rua em Olaria'], longe: [[-21.77, -43.27], 'Endereço a 119 km'] }[b.dataset.exemplo];
+    testar(ex[0], ex[1]);
+    if (mapa) b.dataset.exemplo === 'longe' ? mapa.setView(ex[0], 9) : mapa.setView(ex[0], 14);
+  }));
+
+  // ───────── gaveta ─────────
+  let corEscolhida = null, noAr = true, ehNova = false;
+  function abrirGaveta(a, nova) {
+    editando = a; ehNova = !!nova;
+    $('#g-tit').textContent = nova ? 'Nova área' : 'Editar área';
+    $('#g-nome').value = a.nome; $('#g-taxa').value = a.taxa; $('#g-min').value = a.min ?? ''; $('#g-t1').value = a.t1; $('#g-t2').value = a.t2; $('#g-gratis').value = a.gratis ?? '';
+    corEscolhida = a.cor; noAr = a.ar;
+    $('#g-cores').innerHTML = CORES.map((c) => `<button style="background:${c}" data-cor="${c}" aria-pressed="${c === corEscolhida}" aria-label="Cor ${c}"></button>`).join('');
+    $('#g-ar').setAttribute('aria-pressed', String(noAr));
+    $('#fundo').hidden = false; $('#gaveta').hidden = false; $('#g-nome').focus();
+  }
+  function fecharGaveta() { $('#fundo').hidden = true; $('#gaveta').hidden = true; editando = null; }
+  $('#g-cores').addEventListener('click', (e) => { const b = e.target.closest('[data-cor]'); if (!b) return; corEscolhida = b.dataset.cor; $('#g-cores').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); });
+  $('#g-ar').addEventListener('click', () => { noAr = !noAr; $('#g-ar').setAttribute('aria-pressed', String(noAr)); });
+  $('#g-fechar').addEventListener('click', fecharGaveta);
+  $('#g-cancelar').addEventListener('click', () => { if (ehNova && editando) { areas = areas.filter((x) => x !== editando); desenharTudo(); mudou(); } fecharGaveta(); });
+  $('#fundo').addEventListener('click', fecharGaveta);
+  $('#g-redesenhar').addEventListener('click', () => { const id = editando?.id; fecharGaveta(); selecionada = id; trocarModo('editar'); if (mapa && camadas[id]) mapa.fitBounds(camadas[id].getBounds(), { padding: [30, 30] }); });
+  $('#g-ok').addEventListener('click', () => {
+    const nome = $('#g-nome').value.trim(); const t1 = Number($('#g-t1').value), t2 = Number($('#g-t2').value);
+    if (!nome) { avisar('Dê um nome à área'); return $('#g-nome').focus(); }
+    if (!(t2 >= t1)) { avisar('O tempo "até" tem de ser maior ou igual ao "de"'); return $('#g-t2').focus(); }
+    Object.assign(editando, { nome, taxa: Number($('#g-taxa').value) || 0, min: $('#g-min').value ? Number($('#g-min').value) : null, t1, t2, gratis: $('#g-gratis').value ? Number($('#g-gratis').value) : null, cor: corEscolhida, ar: noAr });
+    fecharGaveta(); desenharTudo(); mudou(); avisar('Área atualizada — falta salvar as alterações');
+  });
+
+  // ───────── diálogo de apagar ─────────
+  let paraApagar = null;
+  function confirmarApagar(a) { paraApagar = a; $('#d-txt').textContent = `"${a.nome}" sai do mapa. Endereços só dela passam a ficar fora da área de entrega quando você salvar.`; $('#dialogo').hidden = false; $('#d-nao').focus(); }
+  function fecharDialogo() { $('#dialogo').hidden = true; paraApagar = null; }
+  $('#d-nao').addEventListener('click', fecharDialogo);
+  $('#d-sim').addEventListener('click', () => { areas = areas.filter((x) => x !== paraApagar); fecharDialogo(); desenharTudo(); mudou(); avisar('Área apagada — falta salvar as alterações'); });
+
+  // ───────── salvar ─────────
+  $('#b-salvar').addEventListener('click', () => { salvas = JSON.stringify(areas); mudou(); avisar('Áreas de entrega salvas — já valem no cardápio e no atendente'); });
+  $('#b-descartar').addEventListener('click', () => { areas = JSON.parse(salvas); desenharTudo(); mudou(); avisar('Alterações descartadas'); });
+
+  // ───────── modos e estados do protótipo ─────────
+  document.querySelectorAll('.modo').forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll('.modo').forEach((x) => { x.setAttribute('aria-pressed', String(x === b)); x.setAttribute('aria-checked', String(x === b)); });
+    if (b.dataset.modo !== 'mapa') avisar('No protótipo, só o modo "Desenhada no mapa" está montado (os outros são os de hoje)');
+  }));
+  document.querySelectorAll('[data-estado]').forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll('[data-estado]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    if (b.dataset.estado === 'erro') { mostrarErro(true); return; }
+    areas = b.dataset.estado === 'vazio' ? [] : INICIAIS(); salvas = JSON.stringify(areas); selecionada = null;
+    iniciarMapa(); desenharTudo(); mudou(); $('#resultado').innerHTML = '';
+  }));
+
+  // Aberto do disco (file://): o OpenStreetMap devolve o quadro "Access blocked" (a política dele exige a origem da página).
+  if (location.protocol === 'file:') $('#aviso-disco').hidden = false;
+  window.addEventListener('load', iniciarMapa);
+  lista();
+})();
+</script>
+</body>
+</html>

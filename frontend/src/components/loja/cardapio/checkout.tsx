@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { buscarCep, localizacaoAtual } from '@/lib/geo';
+import { tempoDaArea } from '@/lib/area-entrega';
 import { AvisoOrigem } from '@/components/loja/aviso-origem';
 import type { Cardapio } from './use-cardapio';
 import { EvTrilha } from '../eventos/contexto';
@@ -795,9 +796,26 @@ function Endereco({ c }: { c: Cardapio }) {
   );
 }
 
+/** O tempo da entrega em texto: o da ÁREA do endereço no modo mapa (mig 425); senão o da loja (`tempo`, em minutos). */
+function tempoTexto(c: Cardapio, tempo: number | null | undefined): string | null {
+  if (c.chk.tipo === 'entrega' && c.areaDaEntrega) {
+    const t = tempoDaArea(c.areaDaEntrega);
+    if (t) return t;
+  }
+  return tempo != null ? `~${tempo} min` : null;
+}
+
 function NotaFrete({ c }: { c: Cardapio }) {
   if (c.taxaPendente) return null;
-  const onde = c.areaRaio ? (c.km != null ? `a ${c.km.toFixed(1).replace('.', ',')} km` : '') : c.bairroSel ? `em ${c.bairroSel.nome}` : '';
+  const onde = c.areaMapa
+    ? 'no seu endereço'
+    : c.areaRaio
+      ? c.km != null
+        ? `a ${c.km.toFixed(1).replace('.', ',')} km`
+        : ''
+      : c.bairroSel
+        ? `em ${c.bairroSel.nome}`
+        : '';
   return (
     <p className="c-note">
       Entrega {onde}: {c.taxa === 0 ? 'grátis' : brl(c.taxa)}.
@@ -828,7 +846,7 @@ function Quando({ c }: { c: Cardapio }) {
           <span>
             <Ic n="clock" s={16} /> O quanto antes
           </span>
-          <small>{c.soAgendado ? 'fechado agora' : tempo != null ? `~${tempo} min` : 'assim que ficar pronto'}</small>
+          <small>{c.soAgendado ? 'fechado agora' : tempoTexto(c, tempo) ?? 'assim que ficar pronto'}</small>
         </button>
         <button type="button" aria-pressed={c.agendar} onClick={() => set({ quando: 'agendar' })}>
           <span>
@@ -1288,7 +1306,7 @@ function EtapaRevisar({ c }: { c: Cardapio }) {
         <div className="c-card" data-campo="tipo">
           <Ic n="clock" />
           <div>
-            <b>{c.agendar ? (c.chk.agendamento ? `Agendado para ${fmtAgenda(c.chk.agendamento)}` : 'Agendar horário') : `O quanto antes${tempo != null ? ` · ~${tempo} min` : ''}`}</b>
+            <b>{c.agendar ? (c.chk.agendamento ? `Agendado para ${fmtAgenda(c.chk.agendamento)}` : 'Agendar horário') : `O quanto antes${tempoTexto(c, tempo) ? ` · ${tempoTexto(c, tempo)}` : ''}`}</b>
             <small>{c.soAgendado ? c.menu?.horarioLabel ?? 'Loja fechada agora' : 'Previsão confirmada depois do pedido'}</small>
           </div>
           {!c.soAgendado && c.encAtiva && (

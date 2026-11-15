@@ -315,6 +315,7 @@ const PUSH_TABLES = [
   { tabela: 'cliente', cursor: 'atualizado_em' },
   { tabela: 'cliente_endereco', cursor: 'atualizado_em' }, // endereço salvo do cliente (mig 276)
   { tabela: 'cardapio_bairro', cursor: 'atualizado_em' }, // frete por bairro (mig 276)
+  { tabela: 'cardapio_area_entrega', cursor: 'atualizado_em' }, // área desenhada no mapa (mig 425)
   { tabela: 'caixa_sessao', cursor: 'updated_at' },
   { tabela: 'comanda', cursor: 'updated_at' },
   { tabela: 'comanda_item', cursor: 'updated_at' },

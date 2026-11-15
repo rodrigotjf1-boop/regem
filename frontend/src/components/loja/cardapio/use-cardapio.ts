@@ -14,6 +14,7 @@ import {
   type CartItem,
 } from '@/components/loja/tipos';
 import { distanciaKm, taxaPorRaio, geocodificar } from '@/lib/geo';
+import { areaDoPonto, type AreaNoMapa } from '@/lib/area-entrega';
 import { capturarOrigem, desfazerRecusa, origemParaPedido, origemRecusada, recusarOrigem } from '@/components/loja/origem-clique';
 import type { OrigemClique } from '@/components/loja/origem-clique-regras';
 import { etapasAtivas, falta as faltaDaEtapa, foraDaAreaDoRaio, type Etapa, type EstadoFalta, type Falta } from './etapas';
@@ -202,7 +203,11 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
   const isIndustria = loja?.ramo === 'industria';
   const produtos: any[] = useMemo(() => menu?.produtos ?? [], [menu]);
   const bairros: any[] = useMemo(() => menu?.bairros ?? [], [menu]);
+  // Distância (faixas) ou área DESENHADA no mapa (mig 425): as duas acham a entrega pelo PONTO do cliente (não pelo bairro).
+  const areaMapa = loja?.areaModo === 'mapa';
   const areaRaio = loja?.areaModo === 'raio';
+  const precisaPonto = areaRaio || areaMapa;
+  const areasMapa: AreaNoMapa[] = useMemo(() => (Array.isArray(menu?.areas) ? menu.areas : []), [menu]);
   const template: TemplateChave = temaForcado ?? templateDe(loja?.menuTheme);
   const mesaDireta = menu?.modo === 'mesa' && !!mesa;
 
@@ -342,10 +347,10 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
     api.cardapioUltimoPedido(token, getClienteToken(token) || undefined).then(setUltimoPedido).catch(() => setUltimoPedido(null));
   }, [menu, token, chk.telefone, ident]);
 
-  // Modo raio: se o endereço não tem coordenadas, geocodifica o endereço
-  // digitado (CEP/rua) para calcular o frete por distância.
+  // Modo raio ou mapa: se o endereço não tem coordenadas, geocodifica o endereço
+  // digitado (CEP/rua) para calcular o frete (pela distância ou pela área).
   useEffect(() => {
-    if (!checkoutAberto || !menu || !areaRaio || chk.tipo !== 'entrega') return;
+    if (!checkoutAberto || !menu || !precisaPonto || chk.tipo !== 'entrega') return;
     if (chk.lat && chk.lng) return; // já tem coordenadas (endereço salvo/GPS)
     if (!chk.rua?.trim()) return;
     const cidade = loja?.endereco?.cidade ?? '';
@@ -355,7 +360,7 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
     }, 600);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [checkoutAberto, menu, areaRaio, chk.rua, chk.numero, chk.tipo, chk.lat, chk.lng]);
+  }, [checkoutAberto, menu, precisaPonto, chk.rua, chk.numero, chk.tipo, chk.lat, chk.lng]);
 
   // Prefill do nome pelo telefone (se a fidelidade estiver ativa).
   useEffect(() => {
@@ -623,31 +628,46 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
 
   // ───────────────────────── frete, cupom, benefícios, totais ─────────────────────────
   const entregaSel = !isServico && chk.tipo === 'entrega';
-  // Frete grátis só se o limite for > 0 (0/vazio = função desligada).
-  const freteGratisAcima = loja?.freteGratisAcima != null && Number(loja.freteGratisAcima) > 0 ? Number(loja.freteGratisAcima) : null;
+  // Área DESENHADA no mapa (mig 425): a de cima da lista que contém o ponto do cliente (a mesma conta do servidor).
+  const temPonto = chk.lat != null && chk.lat !== '' && chk.lng != null && chk.lng !== '';
+  const areaDaEntrega = useMemo(
+    () => (entregaSel && areaMapa && temPonto ? areaDoPonto(areasMapa, Number(chk.lat), Number(chk.lng)) : null),
+    [entregaSel, areaMapa, temPonto, areasMapa, chk.lat, chk.lng],
+  );
+  // Frete grátis só se o limite for > 0 (0/vazio = função desligada). No modo mapa, o da ÁREA vence o da loja.
+  const limiteGratis = areaDaEntrega?.freteGratisAcima ?? loja?.freteGratisAcima;
+  const freteGratisAcima = limiteGratis != null && Number(limiteGratis) > 0 ? Number(limiteGratis) : null;
   const gratisAcima = freteGratisAcima != null && total >= freteGratisAcima;
   const km = useMemo(
     () => (areaRaio ? distanciaKm(loja?.lojaLat, loja?.lojaLng, chk.lat, chk.lng) : null),
     [areaRaio, loja, chk.lat, chk.lng],
   );
   const bairroSel = bairros.find((b) => b.id === chk.bairroId);
-  // Além da maior faixa (ERR-470): o pedido não sai — antes até do frete grátis e do cupom (o servidor recusa igual).
-  const foraDaArea = useMemo(
-    () => (entregaSel && areaRaio ? foraDaAreaDoRaio(loja?.raios, km) : null),
-    [entregaSel, areaRaio, loja, km],
-  );
+  // Além da maior faixa (ERR-470) ou fora de todas as áreas desenhadas: o pedido não sai — antes até do frete grátis e do
+  // cupom (o servidor recusa igual).
+  const foraDaArea = useMemo(() => {
+    if (!entregaSel) return null;
+    if (areaRaio) return foraDaAreaDoRaio(loja?.raios, km);
+    if (areaMapa && temPonto && !areaDaEntrega) return { mapa: true as const };
+    return null;
+  }, [entregaSel, areaRaio, areaMapa, temPonto, areaDaEntrega, loja, km]);
+  // O pedido mínimo da área (só os itens; a taxa não conta) — o servidor recusa igual.
+  const minimoDaArea =
+    areaDaEntrega?.pedidoMinimo != null && total + 0.005 < Number(areaDaEntrega.pedidoMinimo) ? { minimo: Number(areaDaEntrega.pedidoMinimo) } : null;
   const freteInfo = useMemo(() => {
     if (!entregaSel) return { taxa: 0, pendente: false };
     if (foraDaArea) return { taxa: 0, pendente: true };
+    if (areaMapa && !areaDaEntrega) return { taxa: 0, pendente: true }; // sem localização ainda
     if (cupomOk?.valido && cupomOk.freteGratis) return { taxa: 0, pendente: false }; // cupom de frete grátis
     if (gratisAcima) return { taxa: 0, pendente: false };
+    if (areaMapa) return { taxa: Number(areaDaEntrega?.taxa ?? 0), pendente: false };
     if (areaRaio) {
       if (km == null) return { taxa: 0, pendente: true }; // sem localização ainda
       return { taxa: taxaPorRaio(loja?.raios ?? [], km), pendente: false };
     }
     if (!bairroSel) return { taxa: 0, pendente: true }; // sem bairro ainda
     return { taxa: Number(bairroSel.taxa ?? 0), pendente: false };
-  }, [entregaSel, foraDaArea, cupomOk, gratisAcima, areaRaio, km, loja, bairroSel]);
+  }, [entregaSel, foraDaArea, areaMapa, areaDaEntrega, cupomOk, gratisAcima, areaRaio, km, loja, bairroSel]);
   const taxa = freteInfo.taxa;
   /** Entrega sem bairro (ou sem localização, no modo raio): o frete ainda não se conhece. */
   const taxaPendente = freteInfo.pendente;
@@ -832,8 +852,10 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
     mesaDireta,
     isServico,
     isIndustria,
-    areaRaio,
+    // Distância ou mapa: não pede bairro, pede a localização (a entrega sai do ponto).
+    areaRaio: precisaPonto,
     foraDaArea,
+    minimoDaArea,
     temBairros: bairros.length > 0,
     fechadaSemAgenda,
     horarioLabel: menu?.horarioLabel ?? null,
@@ -1152,7 +1174,8 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
   return {
     // identidade da página
     token, mesa, template, menu, loja, erro, carregar,
-    isServico, isIndustria, mesaDireta, areaRaio,
+    // `areaRaio` para a tela = "a entrega sai do PONTO (pede a localização), não do bairro": distância OU área no mapa.
+    isServico, isIndustria, mesaDireta, areaRaio: precisaPonto, areaMapa,
     accent, corCabecalho, corTextoCabecalho, dark, alternarTema, showDestaques, showBanner, showUltimos, bannerIntervalo,
     // vitrine
     produtos, bairros, secoes, destaques, produtosPromo, cat, setCat, busca, setBusca, resultadosBusca,
@@ -1167,7 +1190,7 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
     // checkout
     chk, setChk, etapas, falta, avancar, abrirSacola, fecharCheckout, podeExpresso, trocarNoExpresso, ultimoDoPerfil,
     encAtiva, enc, agendar, km, bairroSel,
-    taxa, taxaPendente, foraDaArea, desc, cupomOk, aplicarCupom, tirarCupom, cuponsSugeridos,
+    taxa, taxaPendente, foraDaArea, areaDaEntrega, minimoDaArea, desc, cupomOk, aplicarCupom, tirarCupom, cuponsSugeridos,
     premios, premioSel, setPremioSel, premioDesc, premioNome,
     cashbackSaldo, cashbackDesc, usarCashback, setUsarCashback,
     totalFinal, pontosPrevistos,

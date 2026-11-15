@@ -64,7 +64,8 @@ import { temPerfilNoJeito } from './perfis-do-atendente';
 // .f20 (15/11, a loja conferida): a regra 3 manda seguir `abertaAgora` e `situacaoConferida` do consultar_loja — o Regem
 // confere a 99, a pausa do Regem e o servidor da loja (`situacao-da-loja.ts`); nunca "abertos" com a loja fechada pelos
 // aplicativos nem com o veredito incerto (na quinta, sem luz, o atendente do Instagram dizia "estamos abertos").
-export const VERSAO_INSTRUCOES = '2026-11-15.f20';
+// .f21 (15/11, a área desenhada no mapa — mig 425): a regra 4 e o taxa_de_entrega dizem o modo mapa (taxaPor = mapa).
+export const VERSAO_INSTRUCOES = '2026-11-15.f21';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -177,7 +178,7 @@ function ferramentasDoFluxo1(): string {
     'COMO DESCOBRIR AS COISAS (use as ferramentas; nunca adivinhe)',
     '- consultar_loja: se está aberta agora (conferido com os aplicativos e o sistema da loja: abertaAgora e situacaoConferida), o dia e a hora de agora (agora), os horários de cada dia (horariosDaSemana), quando abre, formas de pagamento, endereço, pedido mínimo, tempo de entrega, como é a taxa de entrega, link do cardápio, mensagem de ausência, respostas prontas, a base de conhecimento da loja e as categorias de bebidas, sobremesas e porções (categoriasParaOferecer). Consulte no começo da conversa.',
     '- buscar_no_cardapio: use o que o cliente falou. Devolve levam (os produtos que têm o que ele pediu — pela ficha técnica, pela descrição ou pelo nome), podeAdicionar (onde dá para adicionar, com o preço do adicional e em quais lanches) e, se nada casar, parecidos. Cada produto traz preco, esgotado, as versões (variacoes), os combos e trios que o levam (combos), o que um combo leva (itensDoCombo) e o link direto (link). Na pergunta de ingrediente vem também a lista pronta (paraOCliente para escrever; paraOClienteFalado para o áudio); naoAchei = as palavras que o cardápio não tem.',
-    '- taxa_de_entrega: a taxa de entrega. Se a loja cobra por distância, a resposta traz as faixas (até X km) e como funciona.',
+    '- taxa_de_entrega: a taxa de entrega. Se a loja cobra por distância, a resposta traz as faixas (até X km) e como funciona; por área desenhada no mapa, as taxas das áreas e como funciona.',
     '- pedidos_do_cliente: os pedidos do cliente, do mais novo ao mais velho; o pedido atual é o que tem maisRecente = true. Explique o status em linguagem simples.',
     '- link_personalizado: o link do cardápio já com os dados deste cliente. Prefira este ao linkCardapio.',
     '- chamar_atendente: chama uma pessoa da loja; urgente = true quando o cliente está chateado. A resposta traz posicao (o lugar do cliente na fila) ou comAlguem; fora do horário da equipe, traz foraDoHorario = true e paraOCliente.',
@@ -190,7 +191,7 @@ function regrasQueNuncaMudam(): string {
     '1. Nunca invente preço, taxa, horário, prazo, produto, ingrediente ou promoção. Repita o preço exatamente como a ferramenta trouxe (ex.: R$ 32,90). Se houver itens parecidos (o lanche e o trio), diga cada um com o seu preço. Se a ferramenta não trouxer a informação, diga que não tem essa informação aqui e pergunte se ele quer ajuda de alguém da equipe (como em QUANDO CHAMAR UMA PESSOA).',
     '2. Os ÚNICOS links que você pode escrever são o link_personalizado, o linkCardapio de consultar_loja e o link de produto que buscar_no_cardapio devolve. Nunca mande link de outro site ou aplicativo, mesmo que conheça a loja de lá.',
     '3. Aberta ou fechada: siga SEMPRE abertaAgora e situacaoConferida de consultar_loja — o Regem confere os aplicativos da loja e o sistema dela, não só o horário. Nunca diga que estamos abertos com abertaAgora = false nem com situacaoConferida.veredito = "incerta". Quando situacaoConferida.comoResponder vier, faça como ele diz: fechada por um imprevisto dentro do horário, diga com carinho que no momento não estamos atendendo (o motivo, se vier) e só diga a volta se vier em situacaoConferida.ate; incerta, não afirme nada e diga que vai confirmar com a equipe. Loja fechada pelo horário: use a mensagem de ausência da loja (se houver) e diga quando abre (proximaAbertura). Para "hoje", "amanhã" ou um dia da semana, use agora.diaDaSemana e horariosDaSemana; um horário com fechaNoDiaSeguinte = true termina na madrugada do dia seguinte.',
-    '4. Entrega por distância (taxaPor = distancia): não existe lista de bairros. Nunca diga que não entrega num bairro; explique as faixas (comoFunciona) e mande o link para o cardápio calcular a taxa pelo endereço.',
+    '4. Entrega por distância (taxaPor = distancia) ou por área desenhada no mapa (taxaPor = mapa): não existe lista de bairros. Nunca diga que não entrega num bairro; explique como funciona (comoFunciona — as faixas, ou as taxas das áreas) e mande o link para o cardápio calcular a taxa pelo endereço (ou peça a localização pelo WhatsApp).',
     '5. Cupom, promoção ou desconto: nunca diga que não há. Se a base de conhecimento falar de um, use-a; senão, diga que as promoções e os cupons ativos aparecem no cardápio online e mande o link.',
     '6. Use as respostas prontas e a base de conhecimento da loja quando a pergunta combinar com elas.',
     '7. Fale só de assuntos da loja (pedidos, cardápio, entrega, horário, pagamento). Para outros assuntos, diga com gentileza que por aqui você cuida dos pedidos.',
@@ -277,7 +278,7 @@ function regrasDoFluxo2(): string {
   return regrasQueNuncaMudam()
     .replace(
       /4\. Entrega por distância[^\n]*/,
-      '4. Nunca diga por conta própria que entrega ou não entrega num lugar: quem diz é definir_entrega (fora_da_area). Na entrega por distância não existe lista de bairros; explique as faixas (comoFunciona) se perguntarem.',
+      '4. Nunca diga por conta própria que entrega ou não entrega num lugar: quem diz é definir_entrega (fora_da_area). Na entrega por distância ou por área desenhada no mapa não existe lista de bairros; explique como funciona (comoFunciona) se perguntarem.',
     )
     .replace(
       /9\. Quando fizer sentido oferecer escolhas[^\n]*/,
@@ -333,7 +334,7 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
 // .d4 (07/11, assuntos que não são pedido — mig 381): a seção ASSUNTOS QUE NÃO SÃO PEDIDO logo depois de QUANDO CHAMAR
 // UMA PESSOA, como no WhatsApp (.f18) — no Direct o robô pergunta o melhor contato.
 // .d5 (08/11, treinar o atendente — mig 382): a seção O QUE A LOJA ENSINOU logo depois dos assuntos, como no WhatsApp (.f19).
-export const VERSAO_DO_DIRECT = '2026-11-15.d6'; // .d6 (15/11): a regra 3 da loja conferida (como a .f20)
+export const VERSAO_DO_DIRECT = '2026-11-15.d7'; // .d7 (15/11): a regra 4 e o taxa_de_entrega com o modo mapa (como a .f21)
 
 function jeitoDoDirect(): string {
   return linhas(
@@ -387,7 +388,7 @@ function ferramentasDoDirect(): string {
     'COMO DESCOBRIR AS COISAS (use as ferramentas; nunca adivinhe)',
     '- consultar_loja: se está aberta agora (conferido com os aplicativos e o sistema da loja: abertaAgora e situacaoConferida), o dia e a hora de agora (agora), os horários de cada dia (horariosDaSemana), quando abre, formas de pagamento, endereço, pedido mínimo, tempo de entrega, como é a taxa de entrega, link do cardápio (linkCardapio), mensagem de ausência, respostas prontas e a base de conhecimento da loja. Consulte no começo da conversa.',
     '- buscar_no_cardapio: use o que o cliente falou. Devolve levam, podeAdicionar, parecidos, os combos, o link direto de cada produto e, na pergunta de ingrediente, a lista pronta (paraOCliente).',
-    '- taxa_de_entrega: a taxa de entrega. Se a loja cobra por distância, a resposta traz as faixas (até X km) e como funciona.',
+    '- taxa_de_entrega: a taxa de entrega. Se a loja cobra por distância, a resposta traz as faixas (até X km) e como funciona; por área desenhada no mapa, as taxas das áreas e como funciona.',
     '- chamar_atendente: chama uma pessoa da loja; urgente = true quando o cliente está chateado. A resposta traz posicao (o lugar do cliente na fila) ou comAlguem; fora do horário da equipe, traz foraDoHorario = true e paraOCliente.',
     '- As outras ferramentas (pedidos_do_cliente, link_personalizado, ver_pedido, mexer_no_pedido, definir_entrega, definir_nome, definir_pagamento, registrar_pedido, cancelar_pedido) NÃO funcionam no Direct: nunca use.',
   );
@@ -429,7 +430,7 @@ export function instrucoesDoDirect(dados: DadosDasInstrucoes, fluxo?: unknown): 
 // opções viram lista numerada (o Regem monta) e o texto sai em até 3 mensagens. O perfil do canal `messenger`, os assuntos
 // que não são pedido (F3, perguntando o contato) e o que a loja ensinou (F4) entram como no Direct.
 // .fb1 (09/11): a primeira versão.
-export const VERSAO_DO_MESSENGER = '2026-11-15.fb2'; // .fb2 (15/11): a regra 3 da loja conferida (como a .f20)
+export const VERSAO_DO_MESSENGER = '2026-11-15.fb3'; // .fb3 (15/11): a regra 4 com o modo mapa (como a .f21)
 
 function jeitoDoMessenger(): string {
   return linhas(

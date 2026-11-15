@@ -245,15 +245,15 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
   },
   {
     id: 'taxa-e-area',
-    titulo: 'Taxa de entrega e área atendida (bairros ou raio)',
+    titulo: 'Taxa de entrega e área atendida (bairros, distância ou áreas desenhadas no mapa)',
     ...DELIVERY_CONFIG,
-    palavras: ['taxa de entrega', 'frete', 'bairro', 'raio', 'área de entrega', 'distância', 'quilômetro', 'km'],
+    palavras: ['taxa de entrega', 'frete', 'bairro', 'raio', 'área de entrega', 'distância', 'quilômetro', 'km', 'mapa', 'desenhar', 'área desenhada', 'setor'],
     passos: [
       'Abra a aba "Área de atendimento".',
-      'Escolha "Por bairro" (cada bairro com a sua taxa; o marcador liga e desliga o bairro) ou "Por raio" (faixas de distância, cada uma com a sua taxa).',
-      'Por bairro, use "＋ Bairro"; por raio, os atalhos de distância ou "＋ Faixa manual". Clique em "Salvar".',
+      'Escolha "Por bairro" (cada bairro com a sua taxa; o marcador liga e desliga o bairro), "Por distância" (faixas de km, cada uma com a sua taxa) ou "Desenhada no mapa" (você desenha as áreas no mapa, cada uma com taxa, tempo e pedido mínimo).',
+      'Por bairro, use "＋ Bairro"; por distância, os atalhos ou "＋ Faixa manual", e clique em "Salvar". Desenhada no mapa: "＋ Nova área", clique os cantos no mapa e feche no primeiro, preencha a gaveta e clique em "Salvar áreas" — fora das áreas o pedido não sai.',
     ],
-    botoes: ['Área de atendimento', 'Por bairro', 'Por raio', '＋ Bairro', '＋ Faixa manual', 'Salvar'],
+    botoes: ['Área de atendimento', 'Por bairro', 'Por distância', 'Desenhada no mapa', '＋ Bairro', '＋ Faixa manual', '＋ Nova área', 'Salvar áreas', 'Salvar'],
   },
   {
     id: 'horario',

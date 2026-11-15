@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "check:etapas": "node scripts/check-etapas.mjs",
+    "check:area": "node scripts/check-area.mjs",
     "check:eventos": "node scripts/check-eventos.mjs",
     "check:kds": "node scripts/check-kds.mjs",
     "check:balcao": "node scripts/check-balcao.mjs",
@@ -25,9 +26,10 @@
     "check:turno": "node scripts/check-turno.mjs",
     "check:sem-nuvem": "node scripts/check-sem-nuvem.mjs",
     "roteiros": "node roteiros/rodar.mjs",
-    "test": "npm run check:etapas && npm run check:eventos && npm run check:kds && npm run check:balcao && npm run check:unidades && npm run check:marcas && npm run check:conversao && npm run check:embalagem && npm run check:senhas && npm run check:tela-senhas && npm run check:painel && npm run check:vagas && npm run check:pausa && npm run check:catalogo && npm run check:rota-cozinha && npm run check:turno && npm run check:sem-nuvem"
+    "test": "npm run check:etapas && npm run check:area && npm run check:eventos && npm run check:kds && npm run check:balcao && npm run check:unidades && npm run check:marcas && npm run check:conversao && npm run check:embalagem && npm run check:senhas && npm run check:tela-senhas && npm run check:painel && npm run check:vagas && npm run check:pausa && npm run check:catalogo && npm run check:rota-cozinha && npm run check:turno && npm run check:sem-nuvem"
   },
   "dependencies": {
+    "@geoman-io/leaflet-geoman-free": "2.18.3",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "leaflet": "^1.9.4",

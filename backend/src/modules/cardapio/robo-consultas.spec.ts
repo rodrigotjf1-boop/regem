@@ -156,4 +156,20 @@ describe('consultas do robô — o que faltava no teste de 29/10', () => {
     // Por bairro, nada muda.
     expect(resumoDaLoja(MENU, 'x').entregaPorDistancia).toBeNull();
   });
+
+  it('entrega por área desenhada no mapa (mig 425): sem lista de bairros, as taxas das áreas (sem repetir) e como funciona', () => {
+    const menu: any = {
+      ...MENU,
+      loja: { ...(MENU as any).loja, areaModo: 'mapa' },
+      areas: [{ taxa: 7, poligono: [] }, { taxa: 5, poligono: [] }, { taxa: 7, poligono: [] }, { taxa: 0, poligono: [] }],
+    };
+    const r: any = resumoDaLoja(menu, 'x');
+    expect(r.taxaPor).toBe('mapa');
+    expect(r.bairros).toEqual([]); // os bairros cadastrados não valem no modo mapa
+    expect(r.entregaPorArea.taxas).toEqual(['grátis', 'R$ 5,00', 'R$ 7,00']);
+    expect(r.entregaPorArea.comoFunciona).toMatch(/áreas desenhadas no mapa/);
+    expect(r.entregaPorDistancia).toBeNull();
+    expect(taxaDoBairro(menu, 'copacabana')).toMatchObject({ modo: 'mapa', encontrado: false, taxas: ['grátis', 'R$ 5,00', 'R$ 7,00'] });
+    expect(resumoDaLoja(MENU, 'x').entregaPorArea).toBeNull();
+  });
 });

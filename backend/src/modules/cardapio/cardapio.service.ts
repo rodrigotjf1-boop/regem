@@ -9,7 +9,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
-import { recusaDaArea } from './area-de-entrega';
+import { areaDaLinha, areaDoPonto, conferirAreas, recusaDaArea, type AreaDesenhada } from './area-de-entrega';
 import {
   ajusteRepetidoDaLinha,
   clientePeloTelefone,
@@ -75,6 +75,7 @@ import {
   complementoOpcao,
   opcao,
   cardapioBairro,
+  cardapioAreaEntrega,
   banner,
   cupom,
   cupomUso,
@@ -800,6 +801,10 @@ export class CardapioService {
       for (const k of CardapioService.CAMPOS_LOJA) delete dto[k];
     }
     const row = await this.configRaw(tenantId, unidadeId);
+    // Modo "desenhada no mapa" sem nenhuma área no ar = nenhuma entrega aceita: recusa antes de gravar (a tela também trava).
+    if (dto.areaModo === 'mapa' && row?.areaModo !== 'mapa' && !(await this.temAreaNoAr(tenantId))) {
+      throw new BadRequestException('Desenhe e deixe no ar pelo menos uma área antes de usar o modo "Desenhada no mapa".');
+    }
     const vals: any = {
       ativo: dto.ativo != null ? !!dto.ativo : row?.ativo ?? false,
       modo: dto.modo ?? row?.modo ?? 'mesa',
@@ -923,8 +928,8 @@ export class CardapioService {
       endComplemento: dto.endComplemento ?? row?.endComplemento ?? null,
       endLat: dto.endLat != null ? String(dto.endLat) : row?.endLat ?? null,
       endLng: dto.endLng != null ? String(dto.endLng) : row?.endLng ?? null,
-      // Área de atendimento (bairro | raio)
-      areaModo: dto.areaModo === 'raio' ? 'raio' : dto.areaModo === 'bairro' ? 'bairro' : row?.areaModo ?? 'bairro',
+      // Área de atendimento (bairro | raio | mapa — a DESENHADA no mapa, mig 425; ligar o mapa exige área no ar, acima).
+      areaModo: ['raio', 'bairro', 'mapa'].includes(dto.areaModo) ? dto.areaModo : row?.areaModo ?? 'bairro',
       raios: Array.isArray(dto.raios)
         ? dto.raios
             .map((r: any) => ({ ateKm: Number(r.ateKm) || 0, taxa: Number(r.taxa) || 0 }))
@@ -1020,6 +1025,70 @@ export class CardapioService {
       );
     }
     return this.listarBairros(tenantId, unidadeId);
+  }
+
+  // ===== Área de entrega DESENHADA NO MAPA (mig 425 — `area-de-entrega.ts`) =====
+  /** As áreas da empresa, na ordem da lista (a de cima vence onde se cruzam). */
+  async listarAreas(tenantId: string): Promise<(AreaDesenhada & { cor: string | null })[]> {
+    const r: any = await this.db.execute(sql`
+      select id, nome, poligono, taxa, tempo_min, tempo_max, pedido_minimo, frete_gratis_acima, cor, ativo, ordem
+        from cardapio_area_entrega where tenant_id = ${tenantId} order by ordem, criado_em`);
+    return (r.rows ?? r ?? []).map((x: any) => ({ ...areaDaLinha(x), cor: x.cor ?? null }));
+  }
+
+  private async temAreaNoAr(tenantId: string): Promise<boolean> {
+    const r: any = await this.db.execute(sql`select 1 from cardapio_area_entrega where tenant_id = ${tenantId} and ativo limit 1`);
+    return (r.rows ?? r ?? []).length > 0;
+  }
+
+  /**
+   * Grava a lista INTEIRA (apagar-e-inserir, como os bairros — a exclusão sincroniza pelo gatilho da mig 425), numa transação
+   * com a trava da empresa (ERR-159: duas gravações juntas não se misturam). Toda recusa antes de gravar (V86). Com o modo
+   * mapa ligado, a lista não pode ficar sem área no ar.
+   */
+  async setAreas(tenantId: string, unidadeId: string | null, lista: unknown, ator: { id?: string | null; perfil?: string | null } = {}) {
+    const c = conferirAreas(lista);
+    if (!c.ok) throw new BadRequestException(c.erro);
+    const cores = Array.isArray(lista) ? lista.map((a: any) => (typeof a?.cor === 'string' ? a.cor.slice(0, 20) : null)) : [];
+    await this.db.transaction(async (tx: any) => {
+      await tx.execute(sql`select 1 from empresa where id = ${tenantId} for update`);
+      const modo: any = await tx.execute(sql`
+        select 1 from cardapio_config where tenant_id = ${tenantId} and area_modo = 'mapa' limit 1`);
+      if ((modo.rows ?? modo ?? []).length && !c.areas.some((a) => a.ativo))
+        throw new BadRequestException('A loja usa a área desenhada no mapa: deixe pelo menos uma área no ar (ou troque o modo antes).');
+      await tx.execute(sql`delete from cardapio_area_entrega where tenant_id = ${tenantId}`);
+      if (c.areas.length) {
+        await tx.insert(cardapioAreaEntrega).values(
+          c.areas.map((a, i) => ({
+            tenantId,
+            unidadeId,
+            nome: a.nome,
+            poligono: a.poligono,
+            taxa: String(a.taxa),
+            tempoMin: a.tempoMin,
+            tempoMax: a.tempoMax,
+            pedidoMinimo: a.pedidoMinimo != null ? String(a.pedidoMinimo) : null,
+            freteGratisAcima: a.freteGratisAcima != null ? String(a.freteGratisAcima) : null,
+            cor: cores[i] ?? null,
+            ativo: a.ativo,
+            ordem: a.ordem,
+          })),
+        );
+      }
+    });
+    await this.auditoria?.registrar({
+      tenantId,
+      unidadeId,
+      atorId: ator.id ?? null,
+      atorPerfil: ator.perfil ?? null,
+      tipo: 'delivery',
+      acao: 'salvou_areas_entrega',
+      entidadeTipo: 'cardapio_area_entrega',
+      entidadeId: null,
+      detalhe: { areas: c.areas.map((a) => ({ nome: a.nome, taxa: a.taxa, ativo: a.ativo, pontos: a.poligono.length })) },
+      origem: 'web',
+    });
+    return this.listarAreas(tenantId);
   }
 
   // ===== Banners do cardápio (gestor) =====
@@ -2122,6 +2191,22 @@ export class CardapioService {
         nome: b.nome,
         taxa: Number(b.taxa),
       })),
+      // Área DESENHADA no mapa (mig 425): só as no ar e só no modo mapa (o checkout acha a área do ponto e diz a taxa, o
+      // tempo e o mínimo antes de enviar; o servidor confere de novo). Sem o nome — é da equipe, o cliente vê a taxa.
+      areas:
+        cfg.areaModo === 'mapa'
+          ? (await this.listarAreas(cfg.tenantId))
+              .filter((a) => a.ativo)
+              .map((a) => ({
+                poligono: a.poligono,
+                taxa: a.taxa,
+                tempoMin: a.tempoMin,
+                tempoMax: a.tempoMax,
+                pedidoMinimo: a.pedidoMinimo,
+                freteGratisAcima: a.freteGratisAcima,
+                ordem: a.ordem,
+              }))
+          : [],
       categorias: cats.map((c: any) => ({ id: c.id, nome: c.nome, descricao: c.descricao ?? null, imagemRef: c.imagemRef ?? null })),
       // Banners ativos (aparecem no topo do cardápio no lugar da busca).
       banners: (await this.listarBanners(cfg.tenantId))
@@ -3671,25 +3756,35 @@ export class CardapioService {
     let semLocalizacao = false;
     let bairro: { id: string; nome: string } | null = null;
     let ponto: { lat: number; lng: number } | null = null; // onde o cliente está (o robô guarda, para não buscar de novo)
-    if (cfg.areaModo === 'raio') {
-      // Frete por raio: distância loja→cliente (Haversine) escolhe a faixa.
-      let lat = Number(dto.lat);
-      let lng = Number(dto.lng);
-      // Sem GPS do navegador → geocoda o endereço digitado (Nominatim). A cidade/
-      // estado da loja entram na busca para desambiguar. Falha → cai no fallback.
-      if (!(Number.isFinite(lat) && Number.isFinite(lng))) {
-        const q = montarEndereco([
-          dto.endereco || montarEndereco([dto.rua, dto.numero]),
-          cfg.endBairro,
-          cfg.endCidade,
-          cfg.endEstado,
-        ]);
-        const g = await geocode(q);
-        if (g) {
-          lat = g.lat;
-          lng = g.lng;
+    let area: AreaDesenhada | null = null; // modo mapa: a área que atende o ponto
+    // O ponto do cliente: o GPS do navegador (ou o que o robô guardou); sem ele, o endereço digitado achado no mapa
+    // (Nominatim — a cidade/estado da loja entram na busca para desambiguar). A distância e o mapa usam o mesmo.
+    const pontoDoCliente = async (): Promise<{ lat: number; lng: number } | null> => {
+      const lat = Number(dto.lat);
+      const lng = Number(dto.lng);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+      const q = montarEndereco([dto.endereco || montarEndereco([dto.rua, dto.numero]), cfg.endBairro, cfg.endCidade, cfg.endEstado]);
+      const g = await geocode(q);
+      return g ? { lat: g.lat, lng: g.lng } : null;
+    };
+    if (cfg.areaModo === 'mapa') {
+      // Área DESENHADA no mapa (mig 425): a de cima da lista que contém o ponto; fora de todas = `alemDaUltimaFaixa` (o
+      // robô diz "não entregamos aí" pelo mesmo campo) e o `receberPedido` recusa.
+      const p = await pontoDoCliente();
+      if (p) {
+        ponto = p;
+        area = areaDoPonto(await this.listarAreas(cfg.tenantId), p.lat, p.lng);
+        alemDaUltimaFaixa = !area;
+        if (area) {
+          taxa = area.taxa;
+          bairroNome = area.nome;
         }
-      }
+      } else semLocalizacao = true;
+    } else if (cfg.areaModo === 'raio') {
+      // Frete por raio: distância loja→cliente (Haversine) escolhe a faixa.
+      const p = await pontoDoCliente();
+      const lat = p ? p.lat : NaN;
+      const lng = p ? p.lng : NaN;
       const slat = Number(cfg.endLat);
       const slng = Number(cfg.endLng);
       const raios = [...((cfg.raios as any[]) ?? [])].sort((a, b) => Number(a.ateKm) - Number(b.ateKm));
@@ -3721,9 +3816,10 @@ export class CardapioService {
     // Valor CHEIO do frete, antes de qualquer promoção. É o que a loja deixa de
     // receber quando dá frete grátis — sem guardar aqui, esse desconto sumia.
     const taxaCheia = taxa;
-    // frete grátis acima de X
-    if (cfg.freteGratisAcima != null && total >= Number(cfg.freteGratisAcima)) taxa = 0;
-    return { taxa, taxaCheia, bairroNome, km, alemDaUltimaFaixa, semLocalizacao, bairro, ponto };
+    // Frete grátis acima de X — o da ÁREA vence o da loja; 0 ou vazio = desligado (a mesma regra da tela do cardápio).
+    const gratisAcima = Number(area?.freteGratisAcima ?? cfg.freteGratisAcima);
+    if (Number.isFinite(gratisAcima) && gratisAcima > 0 && total >= gratisAcima) taxa = 0;
+    return { taxa, taxaCheia, bairroNome, km, alemDaUltimaFaixa, semLocalizacao, bairro, ponto, area };
   }
 
   /**
@@ -4091,7 +4187,8 @@ export class CardapioService {
       ({ taxa, taxaCheia, bairroNome } = t);
       // Fora da área (ERR-470): recusa ANTES de o pedido existir — e, assim, antes do Pix. A ocorrência da recorrência
       // (`_sistema`, endereço já combinado na assinatura) segue como antes; o campo não vem de fora (a rota pública o tira).
-      const recusa = (dto as any)._sistema ? null : recusaDaArea(cfg, t);
+      // Modo mapa: o pedido mínimo da área conta só os itens (`total`, sem a taxa).
+      const recusa = (dto as any)._sistema ? null : recusaDaArea(cfg, t, total);
       if (recusa) throw new BadRequestException({ statusCode: 400, code: recusa.code, message: recusa.message });
     }
     // Endereço estruturado → compõe o texto p/ impressão/compatibilidade.

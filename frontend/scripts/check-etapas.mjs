@@ -92,6 +92,19 @@ try {
     assert.equal(falta('entrega', est({ areaRaio: true }, { bairroId: '', lat: '', lng: '' })).campo, 'localizacao');
   });
 
+  caso('entrega por área desenhada no mapa (mig 425): fora das áreas e o pedido mínimo da área bloqueiam', () => {
+    // No modo mapa a tela também pede a localização (areaRaio = "a entrega sai do ponto").
+    assert.equal(falta('entrega', est({ areaRaio: true }, { bairroId: '', lat: '', lng: '' })).campo, 'localizacao');
+    const fora = falta('entrega', est({ areaRaio: true, foraDaArea: { mapa: true } }, { bairroId: '' }));
+    assert.deepEqual(fora, { campo: 'localizacao', mensagem: 'Não entregamos nesse endereço: ele fica fora da nossa área de entrega' });
+    const minimo = falta('entrega', est({ areaRaio: true, minimoDaArea: { minimo: 30 } }, { bairroId: '' }));
+    assert.equal(minimo.campo, 'localizacao');
+    assert.match(minimo.mensagem, /^Para este endereço, o pedido mínimo é R\$\s30,00 em itens$/);
+    assert.equal(falta('entrega', est({ areaRaio: true, foraDaArea: null, minimoDaArea: null }, { bairroId: '' })), null);
+    assert.equal(falta('revisar', est({ areaRaio: true, foraDaArea: { mapa: true } }, { bairroId: '' })).campo, 'localizacao');
+    assert.equal(falta('entrega', est({ areaRaio: true, foraDaArea: { mapa: true } }, { tipo: 'retirada', bairroId: '' })), null);
+  });
+
   caso('entrega por raio além da maior faixa: bloqueia com a distância e o alcance (ERR-470)', () => {
     // As faixas da loja-piloto (a última, até 1,9 km, é R$ 0) e o pedido #71 a ~119,2 km.
     const raios = [{ ateKm: 0.5, taxa: 5 }, { ateKm: 1, taxa: 5 }, { ateKm: 1.5, taxa: 6 }, { ateKm: 1.9, taxa: 0 }];

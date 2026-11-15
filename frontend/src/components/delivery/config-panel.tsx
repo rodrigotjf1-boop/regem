@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { InputMoeda } from '@/components/ui/input-moeda';
 import { MapaAreaEntrega } from '@/components/delivery/mapa-area';
+import { AreasDesenhadas } from '@/components/delivery/area-entrega/areas-desenhadas';
 import { OrzuniIntegracao } from '@/components/integracoes/orzuni-clique';
 import { Label } from '@/components/ui/label';
 import { Chave } from '@/components/ui/chave';
@@ -226,6 +227,21 @@ export function ConfigPanel({
     } catch (e) {
       setLoja(antes); // não gravou: a tela volta ao que era
       toast.error(e instanceof Error ? e.message : 'Erro');
+    }
+  }
+
+  // Troca o modo da área de entrega (bairro | raio | mapa) e diz se gravou: o modo mapa só entra com uma área no ar (o
+  // servidor recusa sem ela — a mensagem dele aparece) e a tela das áreas só comemora quando entrou de verdade.
+  async function trocarModoArea(m: string): Promise<boolean> {
+    const antes = loja;
+    setLoja({ ...(loja ?? {}), areaModo: m });
+    try {
+      await gravarNaLoja({ areaModo: m });
+      return true;
+    } catch (e) {
+      setLoja(antes);
+      toast.error(e instanceof Error ? e.message : 'Erro');
+      return false;
     }
   }
 
@@ -854,7 +870,7 @@ export function ConfigPanel({
                 {sec === 'area' && (
                   <AreaAtendimento
                     modo={loja.areaModo ?? 'bairro'}
-                    onTrocarModo={(m) => salvarLojaPatch({ areaModo: m })}
+                    onTrocarModo={trocarModoArea}
                     lat={loja.endLat}
                     lng={loja.endLng}
                     raios={loja.raios ?? []}
@@ -1103,11 +1119,18 @@ function Horarios({ value, onChange, pode }: { value: any[]; onChange: (h: any[]
 
 const brl = (n: number) => Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
+// Os três modos da área de entrega (protótipo `mockups/regem-area-entrega-mapa.html`, aprovado em 15/11/2026).
+const MODOS_DA_AREA = [
+  { k: 'bairro', titulo: 'Por bairro', texto: 'Uma lista de bairros, cada um com a taxa.' },
+  { k: 'raio', titulo: 'Por distância', texto: 'Faixas de km a partir da loja (até 1 km, até 2 km…).' },
+  { k: 'mapa', titulo: 'Desenhada no mapa', texto: 'Você desenha as áreas no mapa, do jeito que quiser, e dá o preço de cada uma.' },
+] as const;
+
 function AreaAtendimento({
   modo, onTrocarModo, lat, lng, raios, onRaios, onSalvarRaios, bairros, onSalvarBairros, salvando, pode,
 }: {
   modo: string;
-  onTrocarModo: (m: string) => void;
+  onTrocarModo: (m: string) => Promise<boolean>;
   lat?: any;
   lng?: any;
   raios: any[];
@@ -1118,24 +1141,45 @@ function AreaAtendimento({
   salvando: boolean;
   pode: boolean;
 }) {
+  // O que a tela mostra: o modo da loja, ou o "Desenhada no mapa" escolhido e ainda sem área salva (o modo só passa a
+  // valer quando houver uma área no ar — a tela das áreas liga ao salvar).
+  const [vista, setVista] = useState(modo);
+  useEffect(() => setVista(modo), [modo]);
+  function escolher(k: string) {
+    setVista(k);
+    if (k !== 'mapa' && k !== modo) void onTrocarModo(k);
+  }
   return (
-    <div className="space-y-3">
-      {/* Modo exclusivo: por bairro OU por raio */}
-      <div className="inline-flex rounded-lg border border-border p-0.5 text-sm">
-        {([['bairro', 'Por bairro'], ['raio', 'Por raio']] as const).map(([k, lb]) => (
-          <button
-            key={k}
-            type="button"
-            disabled={!pode}
-            onClick={() => onTrocarModo(k)}
-            className={`rounded-md px-3 py-1 ${modo === k ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
-          >
-            {lb}
-          </button>
-        ))}
+    <div className="space-y-4">
+      <div role="radiogroup" aria-label="Como a loja entrega" className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+        {MODOS_DA_AREA.map((m) => {
+          const sel = vista === m.k;
+          return (
+            <button
+              key={m.k}
+              type="button"
+              role="radio"
+              aria-checked={sel}
+              disabled={!pode}
+              onClick={() => escolher(m.k)}
+              className={`flex min-w-0 items-start gap-2.5 rounded-xl border p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70 ${sel ? 'border-primary bg-primary/10 ring-1 ring-primary' : 'border-border bg-card'}`}
+            >
+              <span className={`mt-0.5 h-4 w-4 flex-none rounded-full border-2 ${sel ? 'border-primary bg-primary' : 'border-border'}`} aria-hidden="true" />
+              <span className="min-w-0">
+                <b className="block font-display text-sm">
+                  {m.titulo}
+                  {modo === m.k && <span className="ml-1.5 rounded bg-ok/15 px-1.5 py-0.5 text-[11px] font-bold text-ok">valendo</span>}
+                </b>
+                <span className="text-xs text-muted-foreground">{m.texto}</span>
+              </span>
+            </button>
+          );
+        })}
       </div>
 
-      {modo === 'raio' ? (
+      {vista === 'mapa' ? (
+        <AreasDesenhadas lat={lat} lng={lng} raios={raios} pode={pode} modoAtual={modo} aoUsarModo={() => onTrocarModo('mapa')} />
+      ) : vista === 'raio' ? (
         <FaixasRaio raios={raios} onRaios={onRaios} onSalvar={onSalvarRaios} salvando={salvando} pode={pode} lat={lat} lng={lng} />
       ) : (
         <ListaBairros bairros={bairros} onSalvar={onSalvarBairros} salvando={salvando} pode={pode} />
