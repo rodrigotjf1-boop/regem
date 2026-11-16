@@ -12,6 +12,16 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
+- **Os cabeçalhos de segurança do app (16/11, avaliação interna; SEM migration; só `frontend/next.config.mjs`).** Na NUVEM
+  com o merge: nenhuma tela pode ser embutida em outro site (menos o cardápio público `/c/...`), `nosniff` em tudo, HSTS
+  só em `app.dmsregem.com` e sem `X-Powered-By`. No servidor da loja entra com o `.zip` (o front da loja usa o mesmo
+  arquivo): moldura e `nosniff` iguais, SEM HSTS (a regra só vale para o endereço da nuvem). Nada no `.exe`.
+
+- **O anúncio da retirada da credencial antiga (16/11, #1054, F6 do Hub DMS; SEM migration; nasce desligado).** Só NUVEM
+  na prática: os cabeçalhos `Deprecation`/`Sunset` saem no guarda da porta de integração (só da nuvem) e no guarda das
+  rotas do totem, que também roda no servidor da loja — lá ele não anuncia (`ehServidorLocal()`). Os arquivos
+  (`common/retirada-credencial.ts` e os dois guardas) vão junto no próximo corte, sem efeito na loja. Nada no `.exe`.
+
 - **As rotinas agendadas, nuvem × loja (16/11, ERR-075; sem migration) → vai no `.zip`** (o servidor da loja roda os mesmos
   `@Cron`).
   - **Expurgo LGPD das fotos:** a loja passa a apagar só as fotos do disco dela, e a nuvem as do storage. Antes, o lado que
