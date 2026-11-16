@@ -51,6 +51,11 @@
   rotas do totem, que também roda no servidor da loja — lá ele não anuncia (`ehServidorLocal()`). Os arquivos
   (`common/retirada-credencial.ts` e os dois guardas) vão junto no próximo corte, sem efeito na loja. Nada no `.exe`.
 
+- **O envio das campanhas em rodízio e o cupom no modelo oficial (16/11, ERR-491; sem migration).** Só NUVEM (a rotina
+  não roda na loja). Nada a empacotar.
+  - Campanhas fora da janela ou com o teto batido não tomam mais o lote das outras empresas.
+  - O botão "copiar cupom" do modelo oficial leva o código da campanha; antes sairia o texto fixo "CUPOM".
+
 - **A landing de dentro do app (`/`) só promete o que o produto faz (16/11; só tela, sem migration).** Vale na nuvem com o
   deploy (é a página pública de `app.dmsregem.com`); acompanha o `.zip` por ser tela, sem efeito na loja.
   - Os planos e preços são os da tabela do app: 129 / 199 / 299.
