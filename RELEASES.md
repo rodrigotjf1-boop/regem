@@ -10,13 +10,40 @@
 - **Como cortar (OBRIGATÓRIO):** `powershell -File backend\edge\build-release.ps1 -Versao X.Y.Z` → só compilar no Inno / rodar `publicar.ps1` no **"TUDO OK"** do preflight. Nunca de árvore atrás do `origin/main`, nunca de `regem-edge-dist` reaproveitado.
 - **Publicar `.zip`:** `edge/publicar.ps1 -Versao X.Y.Z` → sobe no Supabase Storage (bucket `edge-updates`, nome exato `regem-edge-X.Y.Z.zip`) → `edge/publicar.ps1 -Versao X.Y.Z -SoAssinar -Url <url>` (assina o MESMO arquivo, v1 + v2 com validade) → cola versão, URL, SHA e as assinaturas no console de distribuição, **começando pelas lojas piloto / percentual baixo**. O console recusa release sem as duas assinaturas válidas.
 
-## Acumulado (NÃO empacotado) — próxima release (1.30.13)
+## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
 - **Vagas e candidatos — F5b, a condução dos aprovados (15/11, protótipo `mockups/regem-vagas-talentos.html` aprovado;
   SEM migration).** Só NUVEM: a rota nova `GET /vagas/candidatos/conducao` (o valor da ida e da volta da ficha × os dias
   da escala — 12x36 = 15, 5x2 = 22, 6x1 = 26, horista = dias marcados × 4,3 — dos aprovados e dos contratados nos últimos
   30 dias) e, em Pessoas › Candidatos, os cinco indicadores do topo com "Ver por pessoa" em gaveta. O `Indicadores` dos
   relatórios ganhou `acao` e `largo` (aditivo). Nada a empacotar — a tela de Candidatos é `soNuvem`.
+
+## Última release: `1.30.13` — gerada em 15/11/2026 da `origin/main` `1b467618`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 201.939.309 bytes, SHA-256 `0ef731217d91bfac801817f601d85bd8bb732ed873d6c83a1d123496a88fd4f3`) e entregue ao dono em Documentos; **sem `.zip`** e nada publicado no console
+
+- **Pedido do dono (15/11):** "criar .exe atualizado; quando for escolhida a opção servidor, já instalar a ponte que
+  controla o atendimento nos marketplaces" → depois: "após escolher entre servidor e PDV, na próxima etapa perguntar se
+  deseja instalar a ponte (com breve descrição do que ela faz)". Entrou no #1024; o #1026 corrigiu o empacotamento.
+- **Corte:**
+  - 1ª tentativa (worktree `C:\regem-wt-13013` em `10fd4474`): parou no passo 5b — o `npm ci` da ponte trouxe o Electron
+    45 sem o binário (ERR-478). Ao refazer à mão, o preflight reprovou certo: a `origin/main` tinha andado (#1025).
+  - 2ª: o mesmo worktree na `origin/main` `1b467618` (com o #1026), `build-release.ps1 -Versao 1.30.13` inteiro → o 5b
+    baixou o Electron sozinho → PREFLIGHT OK (único aviso: o `.iss` carimbado, sem commit) → TUDO OK → Inno 7 (713 s).
+- **Conferido:**
+  - HEAD == `origin/main` no fim do corte; migrations até a 428;
+  - o `.iss` carimbado com BOM e sem acento estragado — diff de 2 linhas, sem o `carimbar-iss.cjs` (ERR-113);
+  - a ponte 0.7.7 no pacote, com o mesmo código do `ponte-chat/`, só pt-BR/en-US;
+  - `ProductVersion` 1.30.13; o `.exe` 108 MB maior que o da 1.30.11 (a ponte).
+  - A ponte empacotada foi aberta no PR (pasta de dados de teste, só observando): sobe, e o `estado-da-ponte.json` traz o
+    executável que o ícone "Regem neste PC" procura. A página do instalador foi fotografada.
+- **Entregue** em `C:\Users\Usuário\OneDrive\Documentos\Regem - release 1.30.13 (15-11)\` (o `.exe` + LEIA-ME, SHA-256
+  da cópia conferido).
+- **Da parte do dono:** reinstalar o SERVIDOR por cima (mantém dados e pareamentos) com "Sim" na ponte; parear a ponte
+  (Configurações › Equipamentos › Novo equipamento "Ponte do chat (iFood e 99, no PC)" › Gerar código), entrar no iFood e
+  na 99 (conta principal) dentro dela, e fechar a ponte do notebook. Os PCs clientes não precisam.
+- **O `.zip` 1.30.13 não foi gerado.** Para atualizar uma loja pelo console, gerar o `.zip` da mesma `origin/main` (ou o
+  próximo corte).
+
+### O que entrou na 1.30.13 (o acumulado desde a 1.30.12)
 
 - **As propostas do Mister (15/11, F4.1; migration 428 só NUVEM; mexe no `sync-daemon` → nome na lista `SO_NUVEM`, vai
   no `.exe`).** O aviso que vai ao presidente (a nota sem resposta da SEFAZ; a impressora parada, quando a empresa a manda
@@ -1208,7 +1235,7 @@
   registro aqui; última mudança em 31/07, #246). Não empacotar como está: se um dia for usado, subir para um Electron
   com suporte e tirar o `rejectUnauthorized: false`; senão, o dono decide apagar a pasta.
 
-## Última release: `1.30.12` — gerada em 28/10/2026 da `origin/main` `b887655f`, **SÓ `.zip`** (`regem-edge-1.30.12.zip`, 32.169.780 bytes, SHA-256 `4eb8e215df975cf2b067afefab360a88f4d9a6c7f246084aeab068a687f7c9f4`); publicada no console em 29/10 04:23 (0% + a loja piloto) e **INSTALADA na loja piloto em 29/10 às 16:04**; sem `.exe`
+## Release anterior: `1.30.12` — gerada em 28/10/2026 da `origin/main` `b887655f`, **SÓ `.zip`** (`regem-edge-1.30.12.zip`, 32.169.780 bytes, SHA-256 `4eb8e215df975cf2b067afefab360a88f4d9a6c7f246084aeab068a687f7c9f4`); publicada no console em 29/10 04:23 (0% + a loja piloto) e **INSTALADA na loja piloto em 29/10 às 16:04**; sem `.exe`
 
 - **Instalação na loja piloto (29/10):** o "Instalar agora" não fazia nada — a tela estava presa em "Iniciando… 2%" por
   um `update-status.json` de 20/10 (ERR-322). Com o arquivo velho renomeado, a 1.30.12 instalou em 2 min 30 s
