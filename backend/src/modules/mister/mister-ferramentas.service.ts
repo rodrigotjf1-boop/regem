@@ -28,7 +28,10 @@ import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.servic
 import { RelatoriosService } from '../relatorios/relatorios.service';
 import { VendasService } from '../vendas/vendas.service';
 import { pessoaVale } from './mister-vinculo.service';
+import { MisterPropostasService, PropostaPendente } from './mister-propostas.service';
+import { propostaDoAviso } from './mister-procedimentos';
 import {
+  PROCEDIMENTOS_QUE_A_IA_PROPOE,
   CANAL_NA_TELA,
   ConversaDoMister,
   EtapaDoPedido,
@@ -109,6 +112,8 @@ export interface ResultadoDaFerramenta {
   ok: boolean;
   /** O que volta para o modelo (vira JSON). Com `ok: false`, `{ erro }`. */
   dados: Record<string, unknown>;
+  /** F4.3: a proposta criada (ou ainda pendente) — NÃO vai ao modelo; o agente manda os botões depois da resposta. */
+  proposta?: PropostaPendente;
 }
 
 const reais = (v: unknown): number | null => {
@@ -232,6 +237,8 @@ export class MisterFerramentasService {
     @Optional() private readonly atendimento?: AtendimentoService,
     // F3, vencimentos: a tabela do IBPT da loja (a mesma da Configuração fiscal).
     @Optional() private readonly ibpt?: IbptService,
+    // F4.3: a proposta que nasce de uma pergunta (o mesmo serviço da F4.1). Sem ele, "não consigo propor agora".
+    @Optional() private readonly propostas?: MisterPropostasService,
   ) {}
 
   // ───────────────────────────── de quem é a conversa ─────────────────────────────
@@ -382,7 +389,45 @@ export class MisterFerramentasService {
         return this.comoUsarORegem(e, en);
       case 'anotar_o_que_falta':
         return this.executar(e, nome, en);
+      case 'propor_procedimento':
+        return this.proporProcedimento(e, en, loja);
     }
+  }
+
+  /**
+   * F4.3 — a IA propõe um procedimento do catálogo para um aviso ABERTO que ele resolve. O servidor acha o aviso no escopo
+   * da pessoa (a loja da conversa; o presidente na rede, todas), o mais recente cujo procedimento é o pedido, e cria (ou
+   * renova a vencida, ou devolve a ainda pendente) pelo MESMO `propor` da F4.1. Só o presidente autoriza: para os outros,
+   * a recusa diz isso (o presidente já recebe a proposta junto do aviso). Nada executa aqui.
+   */
+  private async proporProcedimento(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    if (e.nivel !== 'presidente') return recusa('Só o presidente autoriza um procedimento do Mister. Ele recebe a proposta junto do aviso.');
+    if (!this.propostas) return recusa('Não consigo propor agora.');
+    const procedimento = String(en.procedimento ?? '');
+    if (!(PROCEDIMENTOS_QUE_A_IA_PROPOE as readonly string[]).includes(procedimento)) return recusa('Esse procedimento não está no catálogo.');
+    const lojas = loja.atual ? [loja.atual] : e.lojas.map((l) => l.id);
+    if (!lojas.length) return recusa(SEM_PERMISSAO);
+    const avisos = linhas(
+      await this.db.execute(sql`
+        select id::text as id, tenant_id::text as "tenantId", unidade_id::text as "unidadeId", tipo, chave, titulo
+          from mister_aviso
+         where tenant_id = ${e.tenantId}::uuid and situacao = 'aberto'
+           and (unidade_id is null or unidade_id in (${sql.join(
+             lojas.map((l) => sql`${l}::uuid`),
+             sql`, `,
+           )}))
+         order by aberto_em desc
+         limit 50`),
+    ) as Array<{ id: string; tenantId: string; unidadeId: string | null; tipo: string; chave: string; titulo: string }>;
+    const alvo = avisos.find((a) => propostaDoAviso(a)?.procedimento === procedimento);
+    if (!alvo) return { ok: true, dados: { proposta: null, motivo: 'Não há aviso aberto que este procedimento resolva nesta loja.' } };
+    const p = await this.propostas.propor(alvo);
+    if (!p)
+      return {
+        ok: true,
+        dados: { proposta: null, aviso: alvo.titulo, motivo: 'A proposta desse aviso já foi respondida (autorizada ou recusada); o andamento sai no próprio aviso.' },
+      };
+    return { ok: true, dados: { proposta: 'vai em seguida, com os botões Autorizar e Não agora', aviso: alvo.titulo }, proposta: p };
   }
 
   /**

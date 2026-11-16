@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
+- **Mister — F4.3, a pergunta que vira proposta (16/11, `docs/plano-mister.md`; SEM migration).** Só NUVEM: a 19ª
+  ferramenta da IA, `propor_procedimento`, propõe (nunca executa) um procedimento do catálogo para um aviso aberto no
+  escopo da pessoa — o servidor acha o aviso, a IA não vê id; só o presidente; a proposta sai depois da resposta com os
+  botões da F4.1. Nada a empacotar.
+
 - **Vagas e candidatos — F4b parte 1, avisar o banco de talentos (16/11, protótipo `mockups/regem-vagas-talentos.html`
   aprovado; SEM migration — o aviso fica no histórico da ficha, `candidato_evento` tipo 'comunicacao').** Só NUVEM:
   a faixa "Vaga aberta" em Pessoas › Candidatos e a gaveta "Avisar o banco de talentos" pela via sem número de marketing
