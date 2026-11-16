@@ -3225,6 +3225,17 @@ export class ProducaoPedidoService {
     return p;
   }
 
+  /**
+   * O KDS físico (token do aparelho, `KdsAparelhoGuard`) só mexe no cartão da LOJA dele — ou no sem loja (V4). O cartão de
+   * outra loja da mesma empresa responde como inexistente (não diz que existe).
+   */
+  async conferirCartaoDaLoja(tenantId: string, cartaoId: string, unidadeId: string | null): Promise<void> {
+    const p = await this.carregar(tenantId, cartaoId);
+    if (unidadeId && p.unidadeId && p.unidadeId !== unidadeId) {
+      throw new NotFoundException('Pedido de produção não encontrado');
+    }
+  }
+
   // ===== Transições =====
   // Avança o pedido para a próxima etapa HABILITADA da unidade. Só avança.
   // 'entregue' só pelo KDS de entrega quando existe um — e quem diz se a tela é o KDS de entrega é o CADASTRO dela, não o

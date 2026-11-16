@@ -902,6 +902,30 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
       expect(c.lojas[0].token).toMatch(/^rgm_it_/);
       expect((await q(`select count(*)::int n from integracao_autorizacao where id = $1`, [velha.id]))[0].n).toBe(1);
     });
+
+    it('o código do CLIQUE não vale na troca de 01/10 (A-04): é recusado sem ser gasto, e a troca certa ainda liga com o vínculo', async () => {
+      process.env[AUTORIZACAO_LOJA.liame.envSegredo] = randomBytes(32).toString('base64url');
+      const p = await pedir();
+      const a = await autorizar(presB, p.numero, { lojas: [B.lojas[0]] });
+      const contar = () => q(`select count(*)::int n from integracao_token_loja where tenant_id = $1`, [B.tenant]);
+      const antes = await contar();
+      // A troca de 01/10 (sem o token do DMS ID), com o segredo de cliente, o verificador e o endereço CERTOS.
+      const velha = await chamar('/integracao/autorizacao/token', {
+        corpo: { code: a.codigo, code_verifier: p.verificador, redirect_uri: VOLTA, client_id: 'liame', client_secret: process.env[AUTORIZACAO_LOJA.liame.envSegredo] },
+      });
+      expect(velha.status).toBe(400);
+      expect(await contar()).toEqual(antes); // nenhum token `rgm_it_` nasceu sem o vínculo
+      // O código não foi gasto: a troca do clique ainda vale, e o acesso nasce com o `autorizacao_id`.
+      const t = await trocar(a.codigo, p.verificador);
+      expect(t.status).toBe(200);
+      const c: any = await t.json();
+      segredos.push(c.lojas[0].ligacao);
+      const [acesso] = await q(
+        `select autorizacao_id is not null as com_vinculo from integracao_token_loja where tenant_id = $1 and unidade_id = $2 and revogado_em is null`,
+        [B.tenant, B.lojas[0]],
+      );
+      expect(acesso).toEqual({ com_vinculo: true });
+    });
   });
 
   // ───────────────────────────── o Orzuni (F6 do hub) ─────────────────────────────

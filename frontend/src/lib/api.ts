@@ -392,6 +392,28 @@ export function handleApiError(e: unknown, fallback = 'Não foi possível conclu
 // lojas"). Só vale para quem vê a rede: o servidor ignora o cabeçalho para quem é de uma loja.
 const daRede = (todas?: boolean): RequestInit => (todas ? { headers: { 'X-Unidade-Id': 'todas' } } : {});
 
+// O KDS FÍSICO pelo token do aparelho (`/kds?token=…`, TV box da cozinha — 16/11/2026): sem pessoa logada, sem cookie, o
+// token em `X-Device-Token`. Fora do `req` de propósito: o 401 daqui é o aparelho revogado, não "sessão expirada" — não
+// pode mandar a tela da cozinha para o login.
+async function reqAparelho(path: string, tokenAparelho: string, options: RequestInit = {}) {
+  let res: Response;
+  try {
+    res = await fetch(`${apiBase()}${path}`, {
+      ...options,
+      credentials: 'omit',
+      headers: { 'Content-Type': 'application/json', 'X-Device-Token': tokenAparelho, ...(options.headers || {}) },
+    });
+  } catch {
+    throw new ApiError({ status: 0, code: 'NETWORK', message: 'Sem conexão com o servidor. Verifique a internet.' });
+  }
+  const corpo: any = res.status === 204 ? null : await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = Array.isArray(corpo?.message) ? corpo.message.join(' ') : corpo?.message;
+    throw new ApiError({ status: res.status, code: corpo?.code, message: String(msg || 'Não foi possível concluir. Tente de novo.') });
+  }
+  return corpo;
+}
+
 async function req(path: string, options: RequestInit = {}) {
   const token = getJwt(); // Bearer só quando há JWT real; no modo cookie vai o cookie
   // Terminal suspenso (o servidor ainda não o reconheceu): esta chamada vai sem ele — ver `terminalSuspenso`.
@@ -1143,6 +1165,16 @@ export const api = {
     }),
   // Pedido alterado (mig 362): "Visto" no cartão — o aviso grande e o som param, o item tirado sai do cartão.
   producaoVisto: (id: string) => req(`/producao/pedidos/${id}/visto`, { method: 'POST', body: '{}' }),
+  // O KDS físico pelo token do aparelho (16/11/2026): a empresa, a loja e o KDS saem do aparelho no servidor.
+  kdsAparelhoFila: (tokenAparelho: string, canal?: string) =>
+    reqAparelho(`/producao/aparelho/fila${canal ? `?canal=${encodeURIComponent(canal)}` : ''}`, tokenAparelho),
+  kdsAparelhoAvancar: (tokenAparelho: string, id: string, de?: string) =>
+    reqAparelho(`/producao/aparelho/pedidos/${encodeURIComponent(id)}/avancar`, tokenAparelho, {
+      method: 'POST',
+      body: JSON.stringify({ de }),
+    }),
+  kdsAparelhoVisto: (tokenAparelho: string, id: string) =>
+    reqAparelho(`/producao/aparelho/pedidos/${encodeURIComponent(id)}/visto`, tokenAparelho, { method: 'POST', body: '{}' }),
   // Limpa a fila do KDS num só request (o servidor avança todos) — evita o 429.
   // `ids` = os cartões que a tela mostra (só eles saem).
   producaoLimparFila: (body: { canal?: string; setorId?: string; equipamentoId?: string; ids?: string[] }) =>
