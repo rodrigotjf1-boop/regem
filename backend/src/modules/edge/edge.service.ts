@@ -1,3 +1,4 @@
+import { ehServidorLocal } from '../../common/modo';
 import {
   BadRequestException,
   ConflictException,
@@ -60,7 +61,7 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
   private static cacheReleases: { em: number; rels: ReleaseLinha[] } | null = null;
 
   static get ehEdge(): boolean {
-    return String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
+    return ehServidorLocal();
   }
 
   // ===== Atualização do servidor local (só no edge) =====
