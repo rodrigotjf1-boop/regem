@@ -1,4 +1,5 @@
 import { ehServidorLocal } from '../common/modo';
+import { pinGeraSessaoSoDoPonto, SESSAO_SO_DO_PONTO } from './sessao-do-ponto';
 import {
   BadRequestException,
   ConflictException,
@@ -456,6 +457,7 @@ export class AuthService {
         permissoes: perfilAcesso.permissoes,
         nome: colaborador.nome,
         matricula: colaborador.matricula,
+        podeNuvem: colaborador.podeNuvem,
       })
       .from(colaborador)
       .leftJoin(funcao, eq(colaborador.funcaoId, funcao.id))
@@ -478,16 +480,21 @@ export class AuthService {
         const permissoes =
           (c.permissoes as Permissoes) ?? perfilPadrao(nivel).permissoes;
         const esc = await this.escopo(c.funcaoId);
-        const base = this.assinar({
-          colaboradorId: c.id,
-          tenantId: c.tenantId,
-          categoria: nivel,
-          setorId: esc.setorId,
-          unidadeId: c.unidadeId ?? esc.unidadeId,
-          permissoes,
-          nome: c.nome,
-          funcaoNome: c.funcaoNome,
-        });
+        // Na nuvem, o PIN de quem não tem o acesso online só abre o terminal de ponto (A-03; ver `sessao-do-ponto.ts`).
+        const soPonto = pinGeraSessaoSoDoPonto({ servidorDaLoja: ehServidorLocal(), nivel, podeNuvem: c.podeNuvem });
+        const base = this.assinar(
+          {
+            colaboradorId: c.id,
+            tenantId: c.tenantId,
+            categoria: nivel,
+            setorId: esc.setorId,
+            unidadeId: c.unidadeId ?? esc.unidadeId,
+            permissoes,
+            nome: c.nome,
+            funcaoNome: c.funcaoNome,
+          },
+          soPonto ? { so: SESSAO_SO_DO_PONTO } : {},
+        );
         return { ...base, nome: c.nome, matricula: c.matricula ?? null };
       }
     }
