@@ -22,8 +22,40 @@ import {
   paginaPadrao,
   slug,
   termoDaComunicacao,
+  mensagemDoAvisoPeloMarketing,
+  parametrosDoModeloDaVaga,
+  viaDoAviso,
+  viaManda,
 } from './vagas';
 import { fichaValida } from './vagas-exemplo-spec';
+
+describe('F4b parte 2: o aviso pelo número de marketing', () => {
+  const dados = { nome: 'Juliana Souza', loja: 'Burger da Praça', funcao: 'Chapeiro(a)', detalhe: '12x36, das 18h às 6h · R$ 1.900,00' };
+  it('a via pelo número de marketing e pela situação do modelo na Meta; só o aprovado e o Evolution mandam', () => {
+    expect(viaDoAviso(null, null)).toBe('sem');
+    expect(viaDoAviso({ provedor: 'evolution', vinculado: false }, null)).toBe('sem');
+    expect(viaDoAviso({ provedor: 'evolution', vinculado: true }, 'aprovado')).toBe('evolution');
+    expect(viaDoAviso({ provedor: 'cloud', vinculado: true }, 'aprovado')).toBe('oficial_aprovado');
+    expect(viaDoAviso({ provedor: 'cloud', vinculado: true }, 'pendente')).toBe('oficial_analise');
+    expect(viaDoAviso({ provedor: 'cloud', vinculado: true }, 'rejeitado')).toBe('oficial_recusado');
+    expect(viaDoAviso({ provedor: 'cloud', vinculado: true }, 'pausado')).toBe('oficial_recusado');
+    expect(viaDoAviso({ provedor: 'cloud', vinculado: true }, 'rascunho')).toBe('oficial_sem_modelo');
+    expect(viaDoAviso({ provedor: 'cloud', vinculado: true }, null)).toBe('oficial_sem_modelo');
+    expect(['oficial_aprovado', 'evolution', 'oficial_analise', 'oficial_sem_modelo', 'oficial_recusado', 'sem'].filter((v: any) => viaManda(v))).toEqual([
+      'oficial_aprovado',
+      'evolution',
+    ]);
+  });
+  it('os 4 parâmetros do modelo vaga_aberta (o primeiro nome) e o texto do Evolution com as duas respostas escritas', () => {
+    expect(parametrosDoModeloDaVaga(dados)).toEqual(['Juliana', 'Burger da Praça', 'Chapeiro(a)', '12x36, das 18h às 6h · R$ 1.900,00']);
+    // A Meta recusa parâmetro vazio: sem nome e sem detalhe, um texto que cabe na frase.
+    expect(parametrosDoModeloDaVaga({ ...dados, nome: ' ', detalhe: '' })).toEqual(['tudo bem', 'Burger da Praça', 'Chapeiro(a)', 'detalhes na página de vagas']);
+    expect(mensagemDoAvisoPeloMarketing(dados)).toBe(
+      'Olá, Juliana! A Burger da Praça abriu vaga de Chapeiro(a) (12x36, das 18h às 6h · R$ 1.900,00). Você deixou sua ficha no nosso banco de talentos. Quer participar da seleção?\n\n' +
+        'Responda *Tenho interesse* para participar, ou SAIR para não receber mais.',
+    );
+  });
+});
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

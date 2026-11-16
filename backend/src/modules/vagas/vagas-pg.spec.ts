@@ -10,6 +10,7 @@ import { hojeISO } from '../../common/data';
 import { ModuloService } from '../modulo/modulo.service';
 import { ColaboradorService } from '../colaborador/colaborador.service';
 import { VagasService } from './vagas.service';
+import { VagasAvisoService } from './vagas-aviso.service';
 import { MisterRelatoriosService } from '../mister/mister-relatorios.service';
 import { fichaValida } from './vagas-exemplo-spec';
 import { baseDoApp, paginaParaORobo } from './pagina-para-o-robo';
@@ -66,6 +67,17 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
     await aplicar('397_candidato_distancia.sql'); // F2: o serviço grava as colunas da distância (ERR-273: toda spec que monta a 389)
     await aplicar('427_candidato_confirmacao.sql'); // F3b: as colunas da confirmação da ficha (ERR-273)
     await aplicar('430_vaga_abertura.sql'); // F5a: as aberturas da página por dia e origem (ERR-273)
+    // F4b parte 2: a fila do aviso pelo número de marketing (438) e o que ela confere — a lista de saída das ofertas
+    // (226) e o modelo da Meta (227), as duas só da nuvem como a 389. As duas mexem também na `campanha`, que o banco de
+    // loja não tem: daqui só os comandos da tabela que a fila lê (como `avisos-status-oficial-pg.spec.ts`).
+    const daTabela = (arq: string, tabela: string) =>
+      readFileSync(MIG(arq), 'utf8')
+        .split(';')
+        .map((s) => s.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n').trim())
+        .filter((s) => new RegExp(`\\b${tabela}\\b`).test(s) && !/\bcampanha\b/i.test(s));
+    for (const s of [...daTabela('226_campanha_marketing.sql', 'marketing_optout'), ...daTabela('227_whatsapp_template.sql', 'whatsapp_template')])
+      await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(s)));
+    await aplicar('438_vaga_aviso.sql');
     const registrar = { registrar: async (e: any) => void auditoria.push(e) } as any;
     svc = new VagasService(db, registrar, new ModuloService(db, registrar), new ColaboradorService(db, registrar));
     await q(`insert into empresa (id, nome) values ($1, 'teste vagas'), ($2, 'outra empresa das vagas')`, [T, T2]);
@@ -84,7 +96,7 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
   afterAll(async () => {
     if (!pool) return;
     for (const t of [T, T2]) {
-      for (const tab of ['candidato', 'vaga_abertura', 'vaga_qr', 'vaga_pagina', 'modulo_ativacao', 'cardapio_config', 'unidade'])
+      for (const tab of ['vaga_aviso', 'whatsapp_template', 'marketing_optout', 'candidato', 'vaga_abertura', 'vaga_qr', 'vaga_pagina', 'modulo_ativacao', 'cardapio_config', 'unidade'])
         await q(`delete from ${tab} where tenant_id = $1`, [t]).catch(() => {});
       await q(`delete from empresa where id = $1`, [t]).catch(() => {});
     }
@@ -619,6 +631,119 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
       await expect(svc.marcarAvisado(gerente(), lojaB, { candidatoId: juliana, funcao: 'chapeiro' })).rejects.toThrow();
       await expect(svc.marcarAvisado(gerente(T2), lojaC, { candidatoId: juliana, funcao: 'chapeiro' })).rejects.toThrow();
     } finally {
+      for (const id of fichas) await q(`delete from candidato where id = $1`, [id]).catch(() => {});
+    }
+  });
+
+  it('F4b parte 2: o aviso pelo número de marketing — a via, a fila na régua da parte 1, uma por vez no ritmo, a conferência na hora de mandar e o histórico', async () => {
+    const fichas: string[] = [];
+    const nova = async (whatsapp: string, nome: string, extra: Record<string, any> = {}) => {
+      const r = await svc.receberFicha(codigo, fichaValida({ whatsapp, nome, funcoes: ['chapeiro'], ...extra }));
+      const [{ id }] = await q(`select id from candidato where tenant_id = $1 and protocolo = $2`, [T, r.protocolo]);
+      fichas.push(id);
+      await q(`update candidato set situacao = 'banco' where id = $1`, [id]);
+      return id as string;
+    };
+    const registrar = { registrar: async (e: any) => void auditoria.push(e) } as any;
+    let numero: any = { provedor: 'evolution', vinculado: true, instancia: 'loja-mkt', phoneId: null, numero: '5521977771234' };
+    const enviados: any[] = [];
+    const numeros: any = { resolver: async () => numero };
+    const cloud: any = {
+      enviarTemplate: async (_t: string, para: string, nome: string, _i: string, params: string[], opts: any) => {
+        enviados.push({ via: 'oficial', para, nome, params, phoneId: opts?.phoneId });
+        return { ok: true, id: `wamid.${enviados.length}` };
+      },
+      garantirModeloRelacionamento: async () => 'pendente',
+    };
+    const whatsapp: any = { enviarPorInstancia: async (_t: string, instancia: string, para: string, texto: string) => void enviados.push({ via: 'evolution', instancia, para, texto }) };
+    const aviso = new VagasAvisoService(db, svc, numeros, cloud, whatsapp, registrar);
+    const situacoes = async () => (await q(`select candidato_id, situacao, motivo from vaga_aviso where tenant_id = $1 order by criado_em, id`, [T])) as any[];
+    const ritmoPassou = () => q(`update vaga_aviso set enviado_em = enviado_em - interval '1 minute' where tenant_id = $1 and enviado_em is not null`, [T]);
+    try {
+      const juliana = await nova('(21) 3333-0290', 'Juliana Lima', { comunicacao: true });
+      const pedro = await nova('(21) 3333-0291', 'Pedro Teste', { comunicacao: true });
+      const sem = await nova('(21) 3333-0292', 'Sem Autorizacao Dois', { comunicacao: false });
+
+      // ── A via: o Evolution manda, com o final do número; a leitura da gaveta diz quem já espera.
+      expect(await aviso.via(T)).toEqual({ via: 'evolution', final: '1234', motivo: null, motivoDaMeta: null });
+      let lida: any = await aviso.comAFila(T, lojaA, await svc.avisoDoBanco(T, lojaA, 'chapeiro'));
+      expect(lida.dentro.filter((p: any) => [juliana, pedro].includes(p.id)).map((p: any) => p.naFila)).toEqual([false, false]);
+
+      // ── A fila: a mesma régua da parte 1 (quem não autorizou fica de fora), uma vez enquanto espera.
+      expect(await aviso.enfileirar(gerente(), lojaA, { funcao: 'chapeiro', candidatoIds: [juliana, pedro, sem, 'nao-e-id'] })).toMatchObject({ entraram: 2, ficaramDeFora: 1 });
+      expect((await aviso.enfileirar(gerente(), lojaA, { funcao: 'chapeiro', candidatoIds: [juliana] })).entraram).toBe(0);
+      await expect(aviso.enfileirar(gerente(), lojaA, { funcao: 'gerencia', candidatoIds: [juliana] })).rejects.toThrow('não está aberta');
+      // A ficha de outra empresa não entra na fila dela (nada vaza, mesmo com a vaga aberta lá).
+      expect(await aviso.enfileirar(gerente(T2), lojaC, { funcao: 'chapeiro', candidatoIds: [juliana] })).toMatchObject({ entraram: 0, ficaramDeFora: 1 });
+      expect(await q(`select 1 from vaga_aviso where tenant_id = $1`, [T2])).toEqual([]);
+      expect(auditoria.filter((a) => a.acao === 'vaga.aviso_na_fila').map((a) => [a.tenantId, a.detalhe.entraram])).toEqual([
+        [T, 2],
+        [T, 0],
+        [T2, 0],
+      ]);
+      lida = await aviso.comAFila(T, lojaA, await svc.avisoDoBanco(T, lojaA, 'chapeiro'));
+      expect(lida.naFila).toBe(2);
+
+      // ── A rotina: uma por vez; a segunda espera o ritmo (20 s no Evolution).
+      expect(await aviso.mandarUm(T)).toBe('enviado');
+      expect(await aviso.mandarUm(T)).toBeNull();
+      expect(enviados).toEqual([{ via: 'evolution', instancia: 'loja-mkt', para: '552133330290', texto: expect.stringContaining('Responda *Tenho interesse* para participar, ou SAIR') }]);
+      expect(enviados[0].texto).toMatch(new RegExp(`^Olá, Juliana! A ${NOME_LOJA} abriu vaga de Chapeiro\\(a\\)`));
+      // O histórico da ficha guarda quem avisou e por onde — e conta os 30 dias, como a parte 1.
+      expect(await q(`select texto, autor_nome from candidato_evento where candidato_id = $1 and de = 'aviso_vaga'`, [juliana])).toEqual([
+        { texto: 'Avisada da vaga de Chapeiro(a) pelo número de marketing da loja', autor_nome: 'Ana Gerente' },
+      ]);
+      expect((await svc.avisoDoBanco(T, lojaA, 'chapeiro')).dentro.map((p: any) => p.id)).not.toContain(juliana);
+      // E a fila tem a mesma régua dos 30 dias: avisada agora, não entra de novo.
+      expect((await aviso.enfileirar(gerente(), lojaA, { funcao: 'chapeiro', candidatoIds: [juliana] })).entraram).toBe(0);
+      auditoria.length = 0;
+
+      // ── Conferido na hora: o Pedro pediu para sair antes da vez dele — não sai, com o motivo.
+      await q(`update candidato set comunicacao_cancelada_em = now() where id = $1`, [pedro]);
+      await ritmoPassou();
+      expect(await aviso.mandarUm(T)).toBe('nao_enviado');
+      expect((await situacoes()).map((s) => [s.candidato_id, s.situacao, s.motivo])).toEqual([
+        [juliana, 'enviado', null],
+        [pedro, 'nao_enviado', 'a pessoa pediu para não receber mensagens'],
+      ]);
+      expect(enviados).toHaveLength(1);
+
+      // ── A oficial: sem o modelo aprovado não entra na fila; o pedido do modelo vai pelo caminho dos outros modelos.
+      numero = { provedor: 'cloud', vinculado: true, instancia: null, phoneId: 'PHONE-MKT', numero: '5521988885678' };
+      expect(await aviso.via(T)).toMatchObject({ via: 'oficial_sem_modelo', final: '5678', motivo: expect.stringContaining('ainda não foi enviado à Meta') });
+      const carla = await nova('(21) 3333-0293', 'Carla Teste', { comunicacao: true });
+      await expect(aviso.enfileirar(gerente(), lojaA, { funcao: 'chapeiro', candidatoIds: [carla] })).rejects.toThrow('ainda não foi enviado à Meta');
+      await q(`insert into whatsapp_template (tenant_id, nome, idioma, categoria, corpo, status) values ($1, 'vaga_aberta', 'pt_BR', 'MARKETING', 'x', 'pendente')`, [T]);
+      expect((await aviso.via(T)).via).toBe('oficial_analise');
+      expect((await aviso.pedirModelo(gerente())).via).toBe('oficial_analise');
+      expect(auditoria.some((a) => a.acao === 'vaga.modelo_pedido')).toBe(true);
+      await q(`update whatsapp_template set status = 'aprovado' where tenant_id = $1 and nome = 'vaga_aberta'`, [T]);
+      expect(await aviso.enfileirar(gerente(), lojaA, { funcao: 'chapeiro', candidatoIds: [carla] })).toMatchObject({ entraram: 1 });
+      await ritmoPassou();
+      expect(await aviso.mandarUm(T)).toBe('enviado');
+      expect(enviados[1]).toEqual({ via: 'oficial', para: '552133330293', nome: 'vaga_aberta', params: ['Carla', NOME_LOJA, 'Chapeiro(a)', expect.stringContaining('12x36')], phoneId: 'PHONE-MKT' });
+      expect((await q(`select wamid from vaga_aviso where candidato_id = $1`, [carla]))[0].wamid).toBe('wamid.2');
+
+      // ── Quem respondeu SAIR à loja não recebe; o WhatsApp que recusa vira "não enviado" com o que ele disse.
+      const dora = await nova('(21) 3333-0294', 'Dora Teste', { comunicacao: true });
+      const eli = await nova('(21) 3333-0295', 'Eli Teste', { comunicacao: true });
+      await q(`insert into marketing_optout (tenant_id, telefone, motivo) values ($1, '2133330294', 'palavra_chave')`, [T]);
+      await aviso.enfileirar(gerente(), lojaA, { funcao: 'chapeiro', candidatoIds: [dora, eli] });
+      await ritmoPassou();
+      expect(await aviso.mandarUm(T)).toBe('nao_enviado');
+      cloud.enviarTemplate = async () => {
+        throw new Error('Falha ao enviar pela Cloud API (400): janela fechada');
+      };
+      await ritmoPassou();
+      expect(await aviso.mandarUm(T)).toBe('nao_enviado');
+      const fim = Object.fromEntries((await situacoes()).map((s) => [s.candidato_id, s.motivo]));
+      expect(fim[dora]).toBe('a pessoa respondeu SAIR às mensagens da loja');
+      expect(fim[eli]).toMatch(/^o WhatsApp recusou o envio \(Falha ao enviar pela Cloud API \(400\): janela fechada\)$/);
+      expect(await q(`select 1 from candidato_evento where candidato_id = any($1::uuid[]) and de = 'aviso_vaga'`, [[dora, eli, pedro]])).toEqual([]);
+    } finally {
+      await q(`delete from vaga_aviso where tenant_id = $1`, [T]).catch(() => {});
+      await q(`delete from whatsapp_template where tenant_id = $1`, [T]).catch(() => {});
+      await q(`delete from marketing_optout where tenant_id = $1`, [T]).catch(() => {});
       for (const id of fichas) await q(`delete from candidato where id = $1`, [id]).catch(() => {});
     }
   });

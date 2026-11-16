@@ -2464,6 +2464,8 @@ const SO_NUVEM = new Set([
   'candidato_evento',
   // As aberturas da página de vagas por dia e origem (mig 430, @cloud-only): somadas pela página pública, na nuvem.
   'vaga_abertura',
+  // A fila do aviso da vaga pelo número de marketing (mig 438, @cloud-only): quem manda é a rotina da NUVEM.
+  'vaga_aviso',
   // O vigia do servidor da loja (mig 414, @cloud-only): os episódios de incidente que a NUVEM abre a partir do sinal dos
   // servidores. A rotina só roda na nuvem — a loja não tem esta tabela.
   'vigia_incidente',

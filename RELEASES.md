@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
+- **Vagas — o aviso ao banco de talentos pelo NÚMERO DE MARKETING, a fila (16/11, F4b parte 2 do protótipo
+  `mockups/regem-vagas-talentos.html` aprovado; mig 438 `@cloud-only` — tabela nova `vaga_aviso`, com `tenant_id`: entra
+  em `SO_NUVEM` no `backend/edge/sync-daemon.mjs` → vai no `.exe`).** Só NUVEM: "Avisar pelo número de marketing" põe na
+  fila quem pode receber (a régua da parte 1), e a rotina manda uma por vez no ritmo das campanhas (Evolution 20 s,
+  oficial 7 s, com o modelo `vaga_aberta` aprovado), conferindo de novo na hora. O pedido do modelo à Meta e a tela vêm
+  junto/depois; as respostas ("Tenho interesse") na parte seguinte.
+
 - **Marketing — o SAIR respondido ao NÚMERO DE MARKETING passa a valer (16/11, ERR-484; sem migration).** Só NUVEM (as duas
   entradas do WhatsApp e a conexão da instância de marketing): na API oficial, a resposta ao phone_id de marketing
   caía em "não vinculado"; no Evolution, a instância de marketing não tinha webhook. Agora SAIR, "Sair das ofertas" e "Não
