@@ -1,7 +1,11 @@
 import { BadRequestException } from '@nestjs/common';
 import {
   buscasDoEndereco,
+  conducaoDaPessoa,
   contratadoDaFicha,
+  detalheDaVaga,
+  mensagemDoAviso,
+  motivoDeNaoAvisar,
   nomeDaFuncaoParaComparar,
   protocoloLegivel,
   textoDaConfirmacao,
@@ -12,6 +16,8 @@ import {
   lerOrigem,
   lerPagina,
   lerSituacao,
+  origemQueConta,
+  origensDasFichas,
   paginaDaLinha,
   paginaPadrao,
   slug,
@@ -20,6 +26,86 @@ import {
 import { fichaValida } from './vagas-exemplo-spec';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+describe('vagas · avisar o banco de talentos (F4b, parte 1)', () => {
+  it('a vaga numa linha: as escalas ligadas da página e o salário da função', () => {
+    const p = paginaPadrao();
+    expect(detalheDaVaga(p, { salario: 'R$ 1.900,00' })).toBe('12x36, das 15h às 3h · 5x2, das 19h às 3h · horista (sex, sáb, dom) · R$ 1.900,00');
+    expect(detalheDaVaga({ ...p, horista: false }, { salario: '' })).toBe('12x36, das 15h às 3h · 5x2, das 19h às 3h');
+    expect(detalheDaVaga({ ...p, vagaFixa: false, horarios: { ...p.horarios, horista: { ...p.horarios.horista, inicio: '19:30' } } }, { salario: '' })).toBe('horista (sex, sáb, dom)');
+  });
+  it('a mensagem pronta: primeiro nome, loja, função e a vaga — sem o "SAIR" (a resposta volta a quem avisou)', () => {
+    const m = mensagemDoAviso({ nome: 'Juliana Souza', loja: 'Burger da Praça', funcao: 'Chapeiro', detalhe: '12x36, das 15h às 3h · R$ 1.900,00' });
+    expect(m).toBe(
+      'Olá, Juliana! A Burger da Praça abriu vaga de Chapeiro (12x36, das 15h às 3h · R$ 1.900,00). Você deixou sua ficha no nosso banco de talentos. Quer participar da seleção?\n\nSe não quiser mais receber avisos de vaga, é só responder dizendo.',
+    );
+    expect(m).not.toContain('SAIR');
+    expect(mensagemDoAviso({ nome: '', loja: 'X', funcao: 'Atendente', detalhe: '' })).toMatch(/^Olá! A X abriu vaga de Atendente\. /);
+  });
+  it('quem não recebe: saiu das mensagens, não autorizou, ou foi avisado desta função há menos de 30 dias', () => {
+    const hoje = '2026-11-16';
+    expect(motivoDeNaoAvisar({ aceitaEm: '2026-11-01', canceladaEm: null, avisadoEm: null }, hoje)).toBeNull();
+    expect(motivoDeNaoAvisar({ aceitaEm: '2026-11-01', canceladaEm: '2026-11-05', avisadoEm: null }, hoje)).toBe('pediu para não receber mensagens em 05/11');
+    expect(motivoDeNaoAvisar({ aceitaEm: null, canceladaEm: null, avisadoEm: null }, hoje)).toBe('não autorizou mensagens na ficha');
+    expect(motivoDeNaoAvisar({ aceitaEm: '2026-10-01', canceladaEm: null, avisadoEm: '2026-11-12' }, hoje)).toBe('já foi avisada desta função em 12/11 (de novo a partir de 12/12)');
+    // 30 dias depois, de novo
+    expect(motivoDeNaoAvisar({ aceitaEm: '2026-10-01', canceladaEm: null, avisadoEm: '2026-10-17' }, hoje)).toBeNull();
+    expect(motivoDeNaoAvisar({ aceitaEm: '2026-10-01', canceladaEm: null, avisadoEm: '2026-10-18' }, hoje)).toMatch(/de novo a partir de 17\/11/);
+  });
+});
+
+describe('vagas · de onde vêm as fichas (F5a)', () => {
+  const qrs = new Set(['salao', 'balcao']);
+  it('a origem que conta: um QR da loja ou um canal do robô; o resto vira "sem origem"', () => {
+    expect(origemQueConta('salao', qrs)).toBe('salao');
+    expect(origemQueConta(' Balcao ', qrs)).toBe('balcao');
+    expect(origemQueConta('whatsapp', qrs)).toBe('whatsapp');
+    expect(origemQueConta('direct', new Set())).toBe('direct');
+    expect(origemQueConta('fachada', qrs)).toBe(''); // QR apagado ou inventado
+    expect(origemQueConta('<script>', qrs)).toBe('');
+    expect(origemQueConta(null, qrs)).toBe('');
+    expect(origemQueConta('', qrs)).toBe('');
+  });
+  it('junta aberturas e fichas por origem: todo QR aparece, o robô e o sem origem só com número; ordem por fichas', () => {
+    const r = origensDasFichas(
+      [{ codigo: 'salao', nome: 'Salão' }, { codigo: 'balcao', nome: 'Balcão' }, { codigo: 'fachada', nome: 'Fachada' }],
+      [{ origem: 'salao', n: 64 }, { origem: 'balcao', n: 180 }, { origem: 'whatsapp', n: 38 }, { origem: '', n: 8 }, { origem: 'apagado', n: 2 }],
+      [{ origem: 'balcao', n: 21 }, { origem: 'salao', n: 5 }, { origem: 'whatsapp', n: 4 }, { origem: null, n: 1 }, { origem: 'apagado', n: 1 }],
+    );
+    expect(r).toEqual([
+      { origem: 'balcao', nome: 'Balcão', tipo: 'qr', aberturas: 180, fichas: 21 },
+      { origem: 'salao', nome: 'Salão', tipo: 'qr', aberturas: 64, fichas: 5 },
+      { origem: 'whatsapp', nome: 'Robô no WhatsApp', tipo: 'robo', aberturas: 38, fichas: 4 },
+      // o "apagado" (QR que não existe mais) soma no link sem origem: 8 + 2 aberturas, 1 + 1 fichas
+      { origem: '', nome: 'Link sem origem', tipo: 'link', aberturas: 10, fichas: 2 },
+      { origem: 'fachada', nome: 'Fachada', tipo: 'qr', aberturas: 0, fichas: 0 },
+    ]);
+    // Sem nada: só os QR, zerados (o direct e o sem origem não aparecem).
+    expect(origensDasFichas([{ codigo: 'salao', nome: 'Salão' }], [], [])).toEqual([{ origem: 'salao', nome: 'Salão', tipo: 'qr', aberturas: 0, fichas: 0 }]);
+  });
+});
+
+describe('vagas · a condução dos aprovados (F5b)', () => {
+  const base = { valorIda: 4.7, valorVolta: 18, tipoVaga: 'fixa', escala: '12x36', dias: [] as string[] };
+  it('o valor de ida e volta × os dias da escala: 12x36 = 15, 5x2 = 22, 6x1 = 26', () => {
+    expect(conducaoDaPessoa(base)).toEqual({ porDia: 22.7, diasNoMes: 15, porMes: 340.5, escala: '12x36', motivo: null });
+    expect(conducaoDaPessoa({ ...base, escala: '5x2' }).porMes).toBe(499.4);
+    expect(conducaoDaPessoa({ ...base, escala: null, jornadaDoColaborador: '6x1' })).toMatchObject({ diasNoMes: 26, escala: '6x1' });
+  });
+  it('horista: os dias marcados × 4,3 semanas; sem dias, escala a definir', () => {
+    expect(conducaoDaPessoa({ ...base, tipoVaga: 'horista', escala: null, dias: ['sex', 'sab', 'dom'] })).toMatchObject({ diasNoMes: 12.9, porMes: 292.83, escala: 'horista' });
+    expect(conducaoDaPessoa({ ...base, tipoVaga: 'horista', escala: null, dias: [] })).toMatchObject({ porMes: null, motivo: 'escala_a_definir' });
+  });
+  it('a jornada do colaborador (contratado) vale sobre a escala da ficha; "outro" não conta', () => {
+    expect(conducaoDaPessoa({ ...base, jornadaDoColaborador: '5x2' })).toMatchObject({ diasNoMes: 22, escala: '5x2' });
+    expect(conducaoDaPessoa({ ...base, jornadaDoColaborador: 'horista', dias: ['sab'] })).toMatchObject({ diasNoMes: 4.3, escala: 'horista' });
+    expect(conducaoDaPessoa({ ...base, jornadaDoColaborador: 'outro' })).toMatchObject({ diasNoMes: 15, escala: '12x36' });
+  });
+  it('sem o valor, ou com a escala "12x36 ou 5x2", fica fora da soma com o motivo', () => {
+    expect(conducaoDaPessoa({ ...base, valorIda: null })).toMatchObject({ porDia: null, porMes: null, motivo: 'sem_valor' });
+    expect(conducaoDaPessoa({ ...base, escala: 'tanto' })).toMatchObject({ porDia: 22.7, porMes: null, motivo: 'escala_a_definir' });
+  });
+});
 
 // As regras puras da ficha e da página de vagas (F1, mig 389).
 

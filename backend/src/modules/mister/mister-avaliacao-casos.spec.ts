@@ -1,4 +1,4 @@
-import { FERRAMENTAS, FERRAMENTA_DO_QUE_FALTA, TEMAS_DO_QUE_FALTA, ehFerramenta } from './mister-agente.regras';
+import { FERRAMENTAS, FERRAMENTA_DO_QUE_FALTA, TEMAS_DO_QUE_FALTA, ehConsulta, ehFerramenta } from './mister-agente.regras';
 import {
   AGORA_DA_AVALIACAO,
   CASOS_DA_AVALIACAO,
@@ -38,7 +38,8 @@ describe('a avaliação do Mister — as perguntas', () => {
 
   it('toda consulta do Mister tem pergunta na avaliação (consulta nova sem pergunta = este teste pega)', () => {
     const usadas = new Set(CASOS_DA_AVALIACAO.flatMap((c) => [...(c.consultas ?? []), ...(c.umaDasConsultas ?? [])]));
-    const semPergunta = FERRAMENTAS.map((f) => f.name).filter((n) => n !== FERRAMENTA_DO_QUE_FALTA && !usadas.has(n));
+    // Só as CONSULTAS (a anotação do que falta e a proposta da F4.3 não leem dado).
+    const semPergunta = FERRAMENTAS.map((f) => f.name).filter((n) => ehConsulta(n) && !usadas.has(n));
     expect(semPergunta).toEqual([]);
     // E o que falta tem pergunta também.
     expect(CASOS_DA_AVALIACAO.some((c) => c.anotar?.length)).toBe(true);
@@ -111,7 +112,7 @@ describe('a avaliação do Mister — a loja de teste', () => {
     expect(conversaDaAvaliacao(PRES)).toContain('Empresa de Teste da Avaliação');
     const v = versaoDasInstrucoes();
     expect(v.versao).toMatch(/^[0-9a-f]{8}$/);
-    expect(v.consultas).toBe(FERRAMENTAS.length - 1);
+    expect(v.consultas).toBe(FERRAMENTAS.filter((f) => ehConsulta(f.name)).length);
     expect(versaoDasInstrucoes()).toEqual(v);
   });
 });

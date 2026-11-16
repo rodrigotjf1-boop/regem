@@ -2,6 +2,7 @@ import { baseDaApi } from './origem-api';
 import { VERSAO_DA_TELA } from './versao-da-tela';
 import type { CanalConferido, FotosDaLoja, RespostaDaConferencia, TipoConferido } from './conferencia-apps';
 import type { RespostaDasTaxas } from './calculadora-preco';
+import type { AberturasDaPagina, AvisoDoBanco, ConducaoDosAprovados } from './vagas-ficha';
 
 // Base da API. Nuvem: NEXT_PUBLIC_API_URL (fixado no build). Edge
 // (NEXT_PUBLIC_EDGE=1): cada loja tem IP proprio, entao a API fica no MESMO host
@@ -2482,6 +2483,8 @@ export const api = {
   removerUnidade: (id: string) => req(`/unidades/${id}`, { method: 'DELETE' }),
   // Vagas e candidatos (mig 389): Pessoas › Candidatos (logado; só na nuvem) e a página pública /v/<codigo>.
   vagasCandidatos: () => req('/vagas/candidatos'),
+  // F5b: a condução dos aprovados (e dos contratados nos últimos 30 dias) — o valor informado na ficha × os dias da escala.
+  vagasConducao: () => req('/vagas/candidatos/conducao') as Promise<ConducaoDosAprovados>,
   vagasCandidato: (id: string) => req(`/vagas/candidatos/${id}`),
   vagasSituacao: (id: string, situacao: string) =>
     req(`/vagas/candidatos/${id}/situacao`, { method: 'PATCH', body: JSON.stringify({ situacao }) }),
@@ -2503,6 +2506,16 @@ export const api = {
   vagasPaginaPublica: (codigo: string) => pub(`/publico/vagas/${encodeURIComponent(codigo)}`),
   vagasEnviarFicha: (codigo: string, body: Record<string, unknown>) =>
     pub(`/publico/vagas/${encodeURIComponent(codigo)}/ficha`, { method: 'POST', body: JSON.stringify(body) }),
+  // F5a (mig 430): a página aberta conta uma abertura (a página manda uma vez por aparelho por dia).
+  vagasContarAbertura: (codigo: string, origem: string | null) =>
+    pub(`/publico/vagas/${encodeURIComponent(codigo)}/abertura`, { method: 'POST', body: JSON.stringify({ origem }) }),
+  // F5a: "De onde vêm as fichas" — aberturas e fichas por origem no período.
+  vagasAberturas: (dias: number) => req(`/vagas/aberturas?dias=${dias}`) as Promise<AberturasDaPagina>,
+  // F4b, parte 1: avisar o banco de talentos de uma função aberta (pelo WhatsApp de quem avisa) e "Marquei como avisado".
+  vagasAvisoDoBanco: (funcao?: string | null) =>
+    req(`/vagas/banco/aviso${funcao ? `?funcao=${encodeURIComponent(funcao)}` : ''}`) as Promise<AvisoDoBanco>,
+  vagasMarcarAvisado: (candidatoId: string, funcao: string) =>
+    req('/vagas/banco/aviso', { method: 'POST', body: JSON.stringify({ candidatoId, funcao }) }) as Promise<{ ok: boolean; jaAvisado: boolean }>,
   criarAlocacao: (body: Record<string, unknown>) =>
     req('/escala', { method: 'POST', body: JSON.stringify(body) }),
   alterarAlocacao: (id: string, body: Record<string, unknown>) =>

@@ -7,6 +7,7 @@ import { EscopoDoMister, MisterFerramentasService } from './mister-ferramentas.s
 import { MisterFilaService, PerguntaNaFila, Trilha } from './mister-fila.service';
 import { FimDaPergunta, modeloDasPerguntas, responderComFerramentas } from './mister-laco';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
+import type { PropostaPendente } from './mister-propostas.service';
 
 export type { FimDaPergunta } from './mister-laco';
 
@@ -135,6 +136,15 @@ export class MisterAgenteService implements OnModuleInit {
       if (saida.notas.length) this.logger.warn(`mister: a resposta a ${mascarar(ultima.telefone)} saiu com nota do filtro (${saida.notas.join(', ')})`);
       const enviada = await this.dizer(ultima.telefone, saida.texto);
       if (!enviada) return await fechar('envio', trilha);
+      // F4.3: a proposta que a pergunta criou sai logo depois da resposta, com os botões da F4.1 (só o presidente chega
+      // aqui com proposta: a ferramenta recusa os outros). Falhou o envio: a proposta vence sozinha no prazo.
+      for (const p of fim.propostas) {
+        try {
+          await this.numero.enviar(ultima.telefone, { texto: p.pergunta, botoes: p.botoes });
+        } catch (e: any) {
+          this.logger.warn(`mister: a proposta ${p.id} não saiu para ${mascarar(ultima.telefone)} (${e instanceof FalhaDoEnvioDoMister ? e.motivo : (e?.message ?? e)})`);
+        }
+      }
       await this.fila.concluir(ids, { resposta: saida.texto, trilha, perguntaJunta: pergunta });
     } catch (e: any) {
       this.logger.error(`mister: a pergunta ${ultima.id} de ${mascarar(ultima.telefone)} não foi respondida — ${e?.message ?? e}`, e?.stack);
@@ -161,19 +171,31 @@ export class MisterAgenteService implements OnModuleInit {
    * Uma pergunta ao modelo, com as ferramentas, dentro do escopo da pessoa. Devolve o texto do modelo (ainda sem o
    * filtro de saída) e o que as ferramentas trouxeram — ou o motivo de não haver resposta. Não lança por falha da IA.
    */
-  async responder(escopo: EscopoDoMister, memoria: TrocaDaMemoria[], pergunta: string, opcoes: { recurso?: string } = {}): Promise<FimDaPergunta> {
+  async responder(
+    escopo: EscopoDoMister,
+    memoria: TrocaDaMemoria[],
+    pergunta: string,
+    opcoes: { recurso?: string } = {},
+  ): Promise<FimDaPergunta & { propostas: PropostaPendente[] }> {
     // O laço é o de `mister-laco.ts` (o mesmo da avaliação de regressão): aqui as portas são a IA da empresa, com o
-    // medidor dela, e as ferramentas no escopo que o servidor resolveu.
-    return responderComFerramentas(
+    // medidor dela, e as ferramentas no escopo que o servidor resolveu. F4.3: a proposta que uma ferramenta criou fica
+    // de lado (não vai ao modelo) — quem chamou manda os botões depois da resposta.
+    const propostas: PropostaPendente[] = [];
+    const fim = await responderComFerramentas(
       {
         modelo: this.modelo(),
         recurso: opcoes.recurso,
         conversa: blocoDaConversa(this.ferramentas.conversa(escopo)),
         pedir: (p) => this.ia.pedir(escopo.tenantId, p),
-        executar: (nome, entrada) => this.ferramentas.executar(escopo, nome, entrada),
+        executar: async (nome, entrada) => {
+          const r = await this.ferramentas.executar(escopo, nome, entrada);
+          if (r.proposta && !propostas.some((p) => p.id === r.proposta!.id)) propostas.push(r.proposta);
+          return r;
+        },
       },
       memoria,
       pergunta,
     );
+    return { ...fim, propostas };
   }
 }

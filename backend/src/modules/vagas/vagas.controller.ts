@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
@@ -34,6 +34,15 @@ export class VagasPublicoController {
   ficha(@Param('codigo') codigo: string, @Body() dto: any) {
     return this.vagas.receberFicha(codigo, dto);
   }
+
+  // F5a (mig 430): a página aberta conta uma abertura (uma por aparelho por dia — o cookie do dia na página). Limite por IP
+  // folgado (a rede da loja, um Wi-Fi aberto), mas que segura um robô.
+  @Post(':codigo/abertura')
+  @HttpCode(200)
+  @Throttle({ default: { ttl: 60000, limit: 30 } })
+  abertura(@Param('codigo') codigo: string, @Body() dto: any) {
+    return this.vagas.contarAbertura(codigo, dto);
+  }
 }
 
 // Pessoas › Candidatos (a loja). Dado pessoal de candidato: só com a permissão `candidatos` (gerente e presidente por
@@ -50,6 +59,13 @@ export class VagasController {
   @Get('candidatos')
   lista(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
     return this.vagas.lista(user.tenantId, unidade);
+  }
+
+  // F5b: a condução dos aprovados e dos contratados nos últimos 30 dias (o valor que informaram × os dias da escala). Vem
+  // ANTES de `candidatos/:id`, senão o `:id` pegaria "conducao".
+  @Get('candidatos/conducao')
+  conducao(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
+    return this.vagas.conducao(user.tenantId, unidade);
   }
 
   @Get('candidatos/:id')
@@ -109,6 +125,24 @@ export class VagasController {
   @Get('qr')
   qrs(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
     return this.vagas.qrs(user.tenantId, unidade);
+  }
+
+  // F5a: "De onde vêm as fichas" — aberturas e fichas por origem no período (?dias=7|30|90).
+  @Get('aberturas')
+  aberturas(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null, @Query('dias') dias?: string) {
+    return this.vagas.aberturas(user.tenantId, unidade, dias);
+  }
+
+  // F4b, parte 1: quem do banco de talentos pode ser avisado de uma função aberta (?funcao=chapeiro) e "Marquei como avisado".
+  @Get('banco/aviso')
+  avisoDoBanco(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null, @Query('funcao') funcao?: string) {
+    return this.vagas.avisoDoBanco(user.tenantId, unidade, funcao);
+  }
+
+  @Post('banco/aviso')
+  @HttpCode(200)
+  marcarAvisado(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null, @Body() dto: any) {
+    return this.vagas.marcarAvisado(user, unidade, dto);
   }
 
   @Post('qr')

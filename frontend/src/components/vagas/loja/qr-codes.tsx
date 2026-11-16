@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { Copy, Plus, Printer, Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -11,8 +11,9 @@ import { Input } from '@/components/ui/input';
 import { Dialogo } from '@/components/ui/sobreposto';
 import { TituloLista, Vazio, texto2 } from '@/components/ui/lista';
 import { SkeletonList } from '@/components/ui/skeleton';
-import { horarioTexto } from '@/lib/vagas-ficha';
+import { horarioTexto, taxaDeFicha, type AberturasDaPagina } from '@/lib/vagas-ficha';
 import type { AjustesDaLoja } from './ajustes-da-pagina';
+import { DeOndeVem } from './de-onde-vem';
 
 // Pessoas › Candidatos › aba QR codes e links: um QR por lugar (balcão, salão, fachada…), quantas fichas vieram de cada
 // um, o link para copiar e o CARTAZ A4 para imprimir (logo da loja, funções abertas, benefícios e o QR do lugar).
@@ -52,7 +53,27 @@ ${(p.beneficios ?? []).length ? `<p class="b">🎁 ${esc(p.beneficios.join(' · 
 </div><script>window.onload=function(){setTimeout(function(){window.print()},300)}</script></body></html>`;
 }
 
-function CartaoQr({ q, link, aoImprimir, aoApagar }: { q: Qr; link: string; aoImprimir: () => void; aoApagar: () => void }) {
+function ContaDoQr({ q, noPeriodo, dias }: { q: Qr; noPeriodo: { aberturas: number; fichas: number } | null; dias: number }) {
+  // F5a: com a leitura do período, as aberturas e as fichas dele; sem ela (falhou ou lendo), as fichas de sempre.
+  if (noPeriodo) {
+    if (!noPeriodo.aberturas && !noPeriodo.fichas) return <span className={texto2}>Nenhuma abertura nos últimos {dias} dias</span>;
+    const t = taxaDeFicha(noPeriodo.aberturas, noPeriodo.fichas);
+    return (
+      <>
+        Abriram <b className="font-mono">{noPeriodo.aberturas}</b> · enviaram <b className="font-mono">{noPeriodo.fichas}</b>
+        {t !== null ? ` (${t}%)` : ''} <span className={texto2}>· {dias} dias</span>
+      </>
+    );
+  }
+  if (q.fichas === 0) return <span className={texto2}>Nenhuma ficha veio daqui ainda</span>;
+  return (
+    <>
+      <b className="font-mono">{q.fichas}</b> {q.fichas === 1 ? 'ficha veio daqui' : 'fichas vieram daqui'}
+    </>
+  );
+}
+
+function CartaoQr({ q, link, aoImprimir, aoApagar, conta }: { q: Qr; link: string; aoImprimir: () => void; aoApagar: () => void; conta: React.ReactNode }) {
   const [img, setImg] = useState('');
   useEffect(() => {
     QRCode.toDataURL(link, { width: 220, margin: 1 }).then(setImg).catch(() => setImg(''));
@@ -65,14 +86,8 @@ function CartaoQr({ q, link, aoImprimir, aoApagar }: { q: Qr; link: string; aoIm
         {img ? <img src={img} alt={`QR code de ${q.nome}`} className="h-[140px] w-[140px]" /> : <span className={texto2}>QR</span>}
       </div>
       <code className={`break-all font-mono text-xs ${texto2}`}>{link}</code>
-      <p className="text-sm">
-        {q.fichas === 0 ? (
-          <span className={texto2}>Nenhuma ficha veio daqui ainda</span>
-        ) : (
-          <>
-            <b className="font-mono">{q.fichas}</b> {q.fichas === 1 ? 'ficha veio daqui' : 'fichas vieram daqui'}
-          </>
-        )}
+      <p className="text-sm" data-qr-conta>
+        {conta}
       </p>
       <div className="flex flex-wrap gap-2">
         <Button type="button" size="sm" onClick={aoImprimir}>
@@ -99,6 +114,20 @@ export function QrCodes({ dados }: { dados: AjustesDaLoja }) {
   const [novo, setNovo] = useState<string | null>(null);
   const [apagando, setApagando] = useState<Qr | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  // F5a: o período e a leitura das aberturas; só a resposta da leitura mais nova vale (V64: trocar 7 → 90 → 30 depressa).
+  const [dias, setDias] = useState<number>(30);
+  const [aberturas, setAberturas] = useState<{ dados: AberturasDaPagina | null; erro: string; lendo: boolean }>({ dados: null, erro: '', lendo: false });
+  const leitura = useRef(0);
+  const carregarAberturas = useCallback(async (d: number) => {
+    const minha = ++leitura.current;
+    setAberturas((a) => ({ dados: a.dados?.dias === d ? a.dados : null, erro: '', lendo: true }));
+    try {
+      const r = await api.vagasAberturas(d);
+      if (minha === leitura.current) setAberturas({ dados: r, erro: '', lendo: false });
+    } catch (e) {
+      if (minha === leitura.current) setAberturas({ dados: null, erro: e instanceof Error ? e.message : 'Tente de novo.', lendo: false });
+    }
+  }, []);
   const carregar = useCallback(async () => {
     try {
       setQrs(await api.vagasQrs());
@@ -110,6 +139,9 @@ export function QrCodes({ dados }: { dados: AjustesDaLoja }) {
   useEffect(() => {
     if (dados.codigo) carregar();
   }, [carregar, dados.codigo]);
+  useEffect(() => {
+    if (dados.codigo) carregarAberturas(dias);
+  }, [carregarAberturas, dados.codigo, dias]);
 
   if (!dados.codigo) return <Vazio>Salve a página na aba &quot;Página de vagas&quot; primeiro: o endereço e os QR codes nascem com ela.</Vazio>;
   if (!qrs) return <SkeletonList />;
@@ -134,12 +166,26 @@ export function QrCodes({ dados }: { dados: AjustesDaLoja }) {
           A página está desligada: quem ler o QR vê &quot;página não encontrada&quot;. Ligue na aba &quot;Página de vagas&quot;.
         </p>
       )}
+      <DeOndeVem dias={dias} aoEscolherDias={setDias} leitura={aberturas} aoTentar={() => carregarAberturas(dias)} />
       {qrs.length === 0 ? (
         <Vazio>Nenhum QR ainda. Crie um para cada lugar onde o cartaz vai ficar.</Vazio>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {qrs.map((q) => (
-            <CartaoQr key={q.id} q={q} link={linkDe(q)} aoImprimir={() => void imprimir(q)} aoApagar={() => setApagando(q)} />
+            <CartaoQr
+              key={q.id}
+              q={q}
+              link={linkDe(q)}
+              aoImprimir={() => void imprimir(q)}
+              aoApagar={() => setApagando(q)}
+              conta={
+                <ContaDoQr
+                  q={q}
+                  dias={dias}
+                  noPeriodo={aberturas.dados ? (aberturas.dados.origens.find((o) => o.tipo === 'qr' && o.origem === q.codigo) ?? { aberturas: 0, fichas: 0 }) : null}
+                />
+              }
+            />
           ))}
         </div>
       )}

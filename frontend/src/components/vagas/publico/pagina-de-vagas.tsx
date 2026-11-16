@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { hojeIso } from '@/components/ui/lista';
-import { corpoDoEnvio, fichaVazia, origemDeclaradaDoLink, type FichaForm, type PaginaPublica } from '@/lib/vagas-ficha';
+import { aberturaJaContada, corpoDoEnvio, fichaVazia, marcarAberturaContada, origemDeclaradaDoLink, type FichaForm, type PaginaPublica } from '@/lib/vagas-ficha';
 import { varsDoTema } from './tema';
 import { Capa } from './capa';
 import { Formulario } from './formulario';
@@ -26,10 +26,17 @@ export function PaginaDeVagas({ codigo, origem }: { codigo: string; origem: stri
     setFalha(null);
     try {
       setP(await api.vagasPaginaPublica(codigo));
+      // F5a (mig 430): a página abriu — conta uma abertura por aparelho por dia (o cookie só guarda o dia; nada da pessoa).
+      // A contagem nunca atrapalha a página: falhou, fica sem contar.
+      const dia = hojeIso();
+      if (!aberturaJaContada(codigo, dia)) {
+        marcarAberturaContada(codigo, dia);
+        api.vagasContarAbertura(codigo, origem).catch(() => undefined);
+      }
     } catch (e: unknown) {
       setFalha((e as { status?: number })?.status === 404 ? 'nao-achou' : 'rede');
     }
-  }, [codigo]);
+  }, [codigo, origem]);
   useEffect(() => {
     carregar();
   }, [carregar]);

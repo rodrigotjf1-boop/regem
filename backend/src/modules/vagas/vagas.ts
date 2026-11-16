@@ -520,6 +520,128 @@ export function lerOrigem(v: unknown): string | null {
   return /^[a-z0-9][a-z0-9-]{0,29}$/.test(s) ? s : null;
 }
 
+// ── F5a (mig 430): de onde vêm as fichas ──────────────────────────────────────────────────────────────────────────
+
+/** Os canais do robô que mandam o link da ficha (`pagina-para-o-robo.ts`: `?o=whatsapp`, `?o=direct`, `?o=messenger`). */
+export const ORIGENS_DO_ROBO: Record<string, string> = { whatsapp: 'Robô no WhatsApp', direct: 'Robô no Direct do Instagram', messenger: 'Robô no Messenger' };
+
+/** Os períodos que a tela oferece (dias, contando hoje). */
+export const PERIODOS_DAS_ABERTURAS = [7, 30, 90] as const;
+
+/**
+ * A origem que CONTA: o código de um QR da loja ou um canal do robô; qualquer outra coisa (vazia, apagada, inventada)
+ * vira '' — "link sem origem". Ninguém cria linha com texto que a loja não criou.
+ */
+export function origemQueConta(v: unknown, codigosDosQr: ReadonlySet<string>): string {
+  const o = lerOrigem(v);
+  if (!o) return '';
+  return codigosDosQr.has(o) || o in ORIGENS_DO_ROBO ? o : '';
+}
+
+export interface OrigemDasFichas {
+  origem: string;
+  nome: string;
+  tipo: 'qr' | 'robo' | 'link';
+  aberturas: number;
+  fichas: number;
+}
+
+/**
+ * Junta as aberturas e as fichas do período por origem: cada QR da loja aparece (mesmo zerado — o cartão do QR mostra
+ * "nenhuma abertura"); os canais do robô e o "link sem origem" só quando têm número. A ficha de origem que não conta mais
+ * (o QR apagado) soma no "link sem origem". Ordem: mais fichas, depois mais aberturas, depois o nome.
+ */
+export function origensDasFichas(
+  qrs: Array<{ codigo: string; nome: string }>,
+  aberturas: Array<{ origem: string; n: number }>,
+  fichas: Array<{ origem: string | null; n: number }>,
+): OrigemDasFichas[] {
+  const codigos = new Set(qrs.map((q) => q.codigo));
+  const m = new Map<string, OrigemDasFichas>();
+  const pegar = (origem: string): OrigemDasFichas => {
+    let o = m.get(origem);
+    if (!o) {
+      const qr = qrs.find((q) => q.codigo === origem);
+      o = qr
+        ? { origem, nome: qr.nome, tipo: 'qr', aberturas: 0, fichas: 0 }
+        : origem in ORIGENS_DO_ROBO
+          ? { origem, nome: ORIGENS_DO_ROBO[origem], tipo: 'robo', aberturas: 0, fichas: 0 }
+          : { origem: '', nome: 'Link sem origem', tipo: 'link', aberturas: 0, fichas: 0 };
+      m.set(o.origem, o);
+    }
+    return o;
+  };
+  for (const q of qrs) pegar(q.codigo);
+  for (const a of aberturas) pegar(origemQueConta(a.origem, codigos)).aberturas += Number(a.n) || 0;
+  for (const f of fichas) pegar(origemQueConta(f.origem, codigos)).fichas += Number(f.n) || 0;
+  return [...m.values()]
+    .filter((o) => o.tipo === 'qr' || o.aberturas > 0 || o.fichas > 0)
+    .sort((a, b) => b.fichas - a.fichas || b.aberturas - a.aberturas || a.nome.localeCompare(b.nome, 'pt-BR'));
+}
+
+// ── F4b, parte 1: avisar o banco de talentos (protótipo `mockups/regem-vagas-talentos.html`, decisões 2 e 3) ─────────
+// Sem número de marketing (esta parte): a gaveta abre cada conversa no WhatsApp de quem avisa, com a mensagem pronta, e
+// "Marquei como avisado" guarda no histórico da ficha (`candidato_evento` tipo 'comunicacao', de 'aviso_vaga', para = a
+// função). O envio pelo número de marketing da loja (a fila das campanhas, o modelo `vaga_aberta`) é a parte 2.
+
+/** Cada pessoa recebe o aviso de uma função uma vez a cada 30 dias (decisão 2). */
+export const DIAS_ENTRE_AVISOS = 30;
+/** O marcador do aviso no histórico da ficha. */
+export const DE_DO_AVISO = 'aviso_vaga';
+
+const horaCurta = (s: string) => {
+  const [hh, mm] = String(s ?? '').split(':');
+  return mm === '00' ? `${Number(hh)}h` : `${Number(hh)}h${mm}`;
+};
+const NOME_CURTO_DO_DIA: Record<string, string> = { seg: 'seg', ter: 'ter', qua: 'qua', qui: 'qui', sex: 'sex', sab: 'sáb', dom: 'dom' };
+
+/** A vaga numa linha, pela Página de vagas: "12x36, das 15h às 3h · R$ 1.900,00" (as escalas ligadas e o salário). */
+export function detalheDaVaga(p: Pick<PaginaDeVagas, 'vagaFixa' | 'horista' | 'horarios'>, f: Pick<FuncaoDaPagina, 'salario'>): string {
+  const h = p.horarios;
+  const escalas = [
+    p.vagaFixa && h?.['12x36']?.ativa ? `12x36, das ${horaCurta(h['12x36'].inicio)} às ${horaCurta(h['12x36'].fim)}` : '',
+    p.vagaFixa && h?.['5x2']?.ativa ? `5x2, das ${horaCurta(h['5x2'].inicio)} às ${horaCurta(h['5x2'].fim)}` : '',
+    p.horista && h?.horista?.ativa
+      ? `horista${h.horista.dias?.length ? ` (${h.horista.dias.map((d) => NOME_CURTO_DO_DIA[d] ?? d).join(', ')})` : ''}`
+      : '',
+  ].filter(Boolean);
+  return [...escalas, String(f.salario ?? '').trim()].filter(Boolean).join(' · ');
+}
+
+/**
+ * A mensagem pronta para o WhatsApp de quem avisa — o texto do modelo `vaga_aberta` do protótipo, sem o rodapé do "SAIR"
+ * (quem trata o SAIR é o robô do número de marketing; aqui a resposta chega ao WhatsApp de quem avisou).
+ */
+export function mensagemDoAviso(p: { nome: string; loja: string; funcao: string; detalhe: string }): string {
+  const primeiro = String(p.nome ?? '').trim().split(/\s+/)[0] || '';
+  return (
+    `Olá${primeiro ? `, ${primeiro}` : ''}! A ${p.loja} abriu vaga de ${p.funcao}${p.detalhe ? ` (${p.detalhe})` : ''}. ` +
+    'Você deixou sua ficha no nosso banco de talentos. Quer participar da seleção?\n\n' +
+    'Se não quiser mais receber avisos de vaga, é só responder dizendo.'
+  );
+}
+
+/**
+ * Por que uma pessoa do banco de talentos NÃO recebe o aviso desta função — ou null (recebe). Na ordem: pediu para sair
+ * das mensagens, nunca autorizou, já foi avisada desta função nos últimos 30 dias (com a data em que pode de novo).
+ */
+export function motivoDeNaoAvisar(
+  c: { aceitaEm: string | Date | null; canceladaEm: string | Date | null; avisadoEm: string | Date | null },
+  hoje: string,
+): string | null {
+  const dia = (v: string | Date) => (v instanceof Date ? v.toISOString() : String(v)).slice(0, 10);
+  const br = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+  if (c.canceladaEm) return `pediu para não receber mensagens em ${br(dia(c.canceladaEm))}`;
+  if (!c.aceitaEm) return 'não autorizou mensagens na ficha';
+  if (c.avisadoEm) {
+    const d = new Date(`${dia(c.avisadoEm)}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + DIAS_ENTRE_AVISOS);
+    const deNovo = d.toISOString().slice(0, 10);
+    if (deNovo > hoje) return `já foi avisada desta função em ${br(dia(c.avisadoEm))} (de novo a partir de ${br(deNovo)})`;
+  }
+  return null;
+}
+
 /** Endereço público a partir do nome da loja: minúsculas, sem acento, hífen no lugar do resto. */
 export function slug(nome: string): string {
   const s = String(nome ?? '')
@@ -636,4 +758,52 @@ export function contratadoDaFicha(
     funcaoId: daLoja?.id ?? null,
     funcaoDaFicha,
   };
+}
+
+// ── F5b: a condução dos aprovados (protótipo aprovado em 15/11/2026, decisão 8) ─────────────────────────────────────
+/** Dias de trabalho no mês de cada escala. Horista = os dias marcados na ficha × 4,3 semanas. */
+export const DIAS_NO_MES_DA_ESCALA: Record<string, number> = { '12x36': 15, '5x2': 22, '6x1': 26, '5x1': 25, '4x3': 17 };
+export const SEMANAS_NO_MES = 4.3;
+
+const centavos = (v: number) => Math.round(v * 100) / 100;
+
+export interface ConducaoDaPessoa {
+  /** O valor de ida + volta que a pessoa informou na ficha (nulo quando não informou). */
+  porDia: number | null;
+  /** Os dias de trabalho no mês pela escala (nulo quando a escala ainda é "a definir"). */
+  diasNoMes: number | null;
+  /** porDia × diasNoMes (nulo quando falta um dos dois — e aí não entra na soma). */
+  porMes: number | null;
+  /** A escala usada na conta: a jornada do colaborador (contratado) ou a da ficha (aprovado). */
+  escala: string | null;
+  /** Por que não entrou na soma. */
+  motivo: 'sem_valor' | 'escala_a_definir' | null;
+}
+
+/**
+ * A condução de uma pessoa: o valor que ela informou × os dias da escala. Contratado: vale a jornada do colaborador
+ * (o que foi combinado); aprovado: a escala da ficha. "Tanto faz", "outro" ou horista sem dias = escala a definir.
+ */
+export function conducaoDaPessoa(c: {
+  valorIda: number | null;
+  valorVolta: number | null;
+  tipoVaga: string | null;
+  escala: string | null;
+  dias: string[] | null;
+  jornadaDoColaborador?: string | null;
+}): ConducaoDaPessoa {
+  const porDia = c.valorIda === null || c.valorVolta === null ? null : centavos(Number(c.valorIda) + Number(c.valorVolta));
+  const jornada = c.jornadaDoColaborador && c.jornadaDoColaborador !== 'outro' ? c.jornadaDoColaborador : null;
+  const horista = jornada ? jornada === 'horista' : c.tipoVaga === 'horista';
+  const escala = jornada ?? (horista ? 'horista' : c.escala);
+  const diasDoHorista = (c.dias ?? []).length;
+  const diasNoMes = horista
+    ? diasDoHorista
+      ? Math.round(diasDoHorista * SEMANAS_NO_MES * 10) / 10
+      : null
+    : escala && DIAS_NO_MES_DA_ESCALA[escala]
+      ? DIAS_NO_MES_DA_ESCALA[escala]
+      : null;
+  const motivo = porDia === null ? 'sem_valor' : diasNoMes === null ? 'escala_a_definir' : null;
+  return { porDia, diasNoMes, porMes: motivo ? null : centavos(porDia! * diasNoMes!), escala: escala ?? null, motivo };
 }

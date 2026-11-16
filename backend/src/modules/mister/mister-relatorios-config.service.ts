@@ -25,6 +25,10 @@ export interface RelatorioNaTela {
   tipo: TipoDeRelatorio;
   titulo: string;
   descricao: string;
+  /** Para quem vai, quando não é a régua dos avisos (o das fichas novas: quem pode ver os candidatos). */
+  vaiPara?: string;
+  /** Se a IA escreve (soma no "Uso da IA"); o das fichas novas só conta. */
+  usaIa: boolean;
   regra: RegraDoRelatorio;
   /** O último envio deste relatório na empresa (para a tela dizer "saiu ontem às 23:31" ou o motivo de não ter saído). */
   ultimo: { referencia: string; situacao: string; motivo: string | null; em: string } | null;

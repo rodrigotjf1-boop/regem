@@ -3686,6 +3686,103 @@ export function testesDoMisterComPostgres(): void {
       }
     });
 
+    // ───────────────────────────── F4.3: a pergunta que vira proposta ─────────────────────────────
+
+    it('F4.3: a IA pede o procedimento, o servidor acha o aviso aberto; sai a resposta e DEPOIS a proposta com os botões; o gerente não autoriza; sem aviso, nada', async () => {
+      comIa();
+      // As ferramentas com o serviço das propostas (o mesmo da F4.1) — as de cima não o montam.
+      const ferramentasComPropostas = new MisterFerramentasService(
+        db,
+        modulos,
+        new DashboardService(db),
+        new RelatoriosService(db, { custoEfetivoMapa: async () => ({}) } as any),
+        new EstoqueService(db, auditoria as AuditoriaService),
+        deliveryDeMentira as any,
+        cozinhaDeMentira as any,
+        servidorDeMentira as any,
+        vendasDeMentira as any,
+        escalaDeMentira as any,
+        pontoDeMentira as any,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        propostas,
+      );
+      const agenteComPropostas = new MisterAgenteService(fila, ferramentasComPropostas, ia, numero);
+      const tel = telefone();
+      const telCarlos = telefone();
+      await ligar('ana', tel);
+      await ligar('carlos', telCarlos, A, 'gerente');
+      await janelaAberta('ana');
+      await janelaAberta('carlos');
+      const contarPropostas = async () => Number((await q(`select count(*)::int as n from mister_proposta where tenant_id = $1`, [A]))[0].n);
+
+      // Sem aviso aberto: a ferramenta diz que não há o que propor; nenhuma proposta nasce; só a resposta sai.
+      numero.pedidos.length = 0;
+      expect(await mandar(tel, 'testa a impressora da cozinha?')).toBe('pergunta');
+      ia.roteiro = [usar('propor_procedimento', { procedimento: 'imprimir_teste' }, 'toolu_p0'), falar('Não há aviso aberto de impressora agora.')];
+      expect(await agenteComPropostas.esvaziar()).toBe(1);
+      expect(JSON.stringify(ia.pedidos.at(-1))).toContain('Não há aviso aberto que este procedimento resolva nesta loja.');
+      expect(await contarPropostas()).toBe(0);
+      expect(numero.enviadas.map((m) => [m.para, m.texto, m.botoes.length])).toEqual([[tel, 'Não há aviso aberto de impressora agora.', 0]]);
+
+      // Com o aviso da impressora aberto: a proposta nasce presa a ele; a resposta sai e, depois, a pergunta com os botões.
+      const [aviso] = await q(
+        `insert into mister_aviso (tenant_id, unidade_id, tipo, chave, titulo) values ($1, null, 'impressora', 'vigia:impressora_parada:srv:1:impressora:9', 'Loja Centro · impressora Cozinha parada') returning id::text as id`,
+        [A],
+      );
+      numero.pedidos.length = 0;
+      expect(await mandar(tel, 'manda uma via de teste nela')).toBe('pergunta');
+      ia.roteiro = [usar('propor_procedimento', { procedimento: 'imprimir_teste' }, 'toolu_p1'), falar('A proposta vai logo abaixo, com os botões.')];
+      expect(await agenteComPropostas.esvaziar()).toBe(1);
+      const p = await propostaDe(aviso.id);
+      expect(p).toMatchObject({ procedimento: 'imprimir_teste', situacao: 'proposta', nivel: 'botao', parametros: { servidorId: '1', impressoraId: '9' } });
+      // O que foi ao modelo NÃO leva o id da proposta (só "vai em seguida" e o título do aviso).
+      const aoModelo = JSON.stringify(ia.pedidos.at(-1));
+      expect(aoModelo).toContain('vai em seguida, com os botões Autorizar e Não agora');
+      expect(aoModelo).not.toContain(p.id);
+      expect(numero.enviadas.map((m) => [m.para, m.botoes.map((b) => b.titulo)])).toEqual([
+        [tel, []],
+        [tel, ['Autorizar', 'Não agora']],
+      ]);
+      expect(numero.enviadas[0].texto).toBe('A proposta vai logo abaixo, com os botões.');
+      expect(numero.enviadas[1].botoes.every((b) => b.id.startsWith('prop:') && b.id.includes(p.id))).toBe(true);
+
+      // Pedida de novo enquanto pendente: a MESMA proposta (não duplica), os botões vão de novo.
+      numero.pedidos.length = 0;
+      expect(await mandar(tel, 'manda de novo a proposta')).toBe('pergunta');
+      ia.roteiro = [usar('propor_procedimento', { procedimento: 'imprimir_teste' }), falar('Vai abaixo de novo.')];
+      expect(await agenteComPropostas.esvaziar()).toBe(1);
+      expect(await contarPropostas()).toBe(1);
+      expect(numero.enviadas.map((m) => m.botoes.length)).toEqual([0, 2]);
+
+      // O gerente pede: a ferramenta recusa (só o presidente autoriza); nada de botão para ele; nenhuma proposta nova.
+      numero.pedidos.length = 0;
+      expect(await mandar(telCarlos, 'testa a impressora?')).toBe('pergunta');
+      ia.roteiro = [usar('propor_procedimento', { procedimento: 'imprimir_teste' }), falar('Só o presidente autoriza.')];
+      expect(await agenteComPropostas.esvaziar()).toBe(1);
+      expect(JSON.stringify(ia.pedidos.at(-1))).toContain('Só o presidente autoriza um procedimento do Mister');
+      expect(numero.enviadas.map((m) => [m.para, m.botoes.length])).toEqual([[telCarlos, 0]]);
+      expect(await contarPropostas()).toBe(1);
+
+      // A proposta já respondida ("Não agora"): pedir de novo não cria outra nem manda botão.
+      await q(`update mister_proposta set situacao = 'recusada', respondida_em = now(), concluida_em = now() where id = $1`, [p.id]);
+      numero.pedidos.length = 0;
+      expect(await mandar(tel, 'testa a impressora de novo')).toBe('pergunta');
+      ia.roteiro = [usar('propor_procedimento', { procedimento: 'imprimir_teste' }), falar('Essa proposta já foi respondida.')];
+      expect(await agenteComPropostas.esvaziar()).toBe(1);
+      expect(JSON.stringify(ia.pedidos.at(-1))).toContain('já foi respondida');
+      expect(numero.enviadas.map((m) => m.botoes.length)).toEqual([0]);
+      expect(await contarPropostas()).toBe(1);
+      // Procedimento fora do catálogo: recusa.
+      const escopo = await ferramentasComPropostas.escopo(A, pessoa.ana, tel);
+      expect(await ferramentasComPropostas.executar(escopo!, 'propor_procedimento', { procedimento: 'cancelar_pedido' })).toEqual({ ok: false, dados: { erro: 'Esse procedimento não está no catálogo.' } });
+    });
+
     // ───────────────────────────── os relatórios (mig 420) ─────────────────────────────
 
     it('a configuração dos relatórios: o padrão desligado, o salvar com a auditoria e as recusas antes de gravar', async () => {
@@ -3694,6 +3791,13 @@ export function testesDoMisterComPostgres(): void {
       expect(tela.relatorios.map((r) => [r.tipo, r.regra, r.ultimo])).toEqual([
         ['resumo_dia', { ligado: false, hora: '23:30', diaSemana: null }, null],
         ['resumo_semana', { ligado: false, hora: '09:00', diaSemana: 1 }, null],
+        ['fichas_novas', { ligado: false, hora: '09:00', diaSemana: null }, null],
+      ]);
+      // F4c: o das fichas novas diz para quem vai e que não usa a IA.
+      expect(tela.relatorios.map((r) => [r.tipo, r.usaIa, !!r.vaiPara])).toEqual([
+        ['resumo_dia', true, false],
+        ['resumo_semana', true, false],
+        ['fichas_novas', false, true],
       ]);
       const salvo = await relatoriosConfig.salvar(usuario('ana'), { relatorios: [{ tipo: 'resumo_dia', ligado: true, hora: '22:00' }] });
       expect(salvo.relatorios[0].regra).toEqual({ ligado: true, hora: '22:00', diaSemana: null });
@@ -3838,6 +3942,83 @@ export function testesDoMisterComPostgres(): void {
       );
       expect(await relatorios.volta(agora, [A])).toMatchObject({ devidos: 0 });
       expect(await linhasDe()).toEqual([expect.objectContaining({ situacao: 'nao_enviado', motivo: 'interrompido' })]);
+    });
+
+    // F4c das vagas: o resumo das fichas novas. A leitura das fichas (o banco das vagas, a permissão, as lojas) é testada na
+    // `vagas-pg.spec.ts`, que já aplica a cadeia das vagas (ERR-451); aqui ela é um dublê, e o que se prova é o fluxo.
+    it('F4c: as fichas novas saem sem a IA, só com ficha; fora da janela o convite e, no toque, a lista da MESMA janela', async () => {
+      const relatoriosConfig = new MisterRelatoriosConfigService(db, auditoria);
+      const pedidosAIa: any[] = [];
+      const agenteDeTeste = { responder: async (...a: any[]) => (pedidosAIa.push(a), { texto: 'x', motivo: null, trilha: {}, resultados: [] }) } as any;
+      const relatorios = new MisterRelatoriosService(db, relatoriosConfig, agenteDeTeste, ferramentas, numero, entrada);
+      relatorios.onModuleInit();
+      const lidas: any[] = [];
+      let resposta: { texto: string; total: number } | null = null;
+      (relatorios as any).fichasDaPessoa = async (t: string, c: string, tel: string, d: any) => {
+        lidas.push({ t, c, tel, d });
+        return resposta;
+      };
+      await modulo(A, true);
+      await numeroConectado(true);
+      const telAna = telefone();
+      const telCarlos = telefone();
+      await ligar('ana', telAna);
+      await ligar('carlos', telCarlos, A, 'gerente');
+      const agora = new Date();
+      const hora = horaNoFuso(new Date(agora.getTime() - 10 * 60_000));
+      await relatoriosConfig.salvar(usuario('ana'), { relatorios: [{ tipo: 'fichas_novas', ligado: true, hora }] });
+      const linhasDe = () => q(`select colaborador_id, tipo, situacao, motivo, texto from mister_relatorio where tenant_id = $1 order by situacao, colaborador_id`, [A]);
+
+      // Nenhuma ficha na janela: nada sai e nenhuma linha fica (a volta seguinte pergunta de novo, sem gastar nada).
+      numero.pedidos.length = 0;
+      expect(await relatorios.volta(agora, [A])).toEqual({ devidos: 1, feitos: 0, enviados: 0, naoEnviados: 0, convites: 0 });
+      expect(numero.enviadas).toEqual([]);
+      expect(await linhasDe()).toEqual([]);
+      expect(lidas.map((l) => l.c).sort()).toEqual([pessoa.ana, pessoa.carlos].sort());
+      expect(lidas[0].d).toEqual({ referencia: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), ate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), hora });
+
+      // Com ficha: a Ana (dentro das 24 horas) recebe o texto; o Carlos (fora) recebe o convite pelo modelo. A IA não é chamada.
+      await q(`update mister_vinculo set ultima_entrada_em = now() - interval '25 hours' where colaborador_id = $1`, [pessoa.carlos]);
+      resposta = { texto: 'Bom dia, Ana! Chegou *1 ficha nova* na Página de vagas da Loja Centro desde ontem às 9h:', total: 1 };
+      expect(await relatorios.volta(agora, [A])).toEqual({ devidos: 1, feitos: 2, enviados: 1, naoEnviados: 0, convites: 1 });
+      expect(pedidosAIa).toEqual([]);
+      const [convite] = await q(`select id::text as id, trilha from mister_relatorio where colaborador_id = $1 and tipo = 'fichas_novas'`, [pessoa.carlos]);
+      expect(convite.trilha).toEqual({ convite: { referencia: lidas[0].d.referencia, ate: lidas[0].d.ate, hora }, fichas: 1 });
+      expect(numero.enviadas).toEqual([
+        { para: telAna, texto: resposta.texto, botoes: [] },
+        {
+          para: telCarlos,
+          texto: expect.stringMatching(new RegExp(`^modelo:mister_resumo_pronto:resumo das fichas novas de candidatos de \\d\\d/\\d\\d\\|${NOME_A}$`)),
+          botoes: [{ id: `mister:resumo:${convite.id}`, titulo: 'modelo' }],
+        },
+      ]);
+      expect((await linhasDe()).map((l: any) => [l.colaborador_id, l.tipo, l.situacao, l.motivo])).toEqual([
+        [pessoa.ana, 'fichas_novas', 'enviado', null],
+        [pessoa.carlos, 'fichas_novas', 'nao_enviado', 'convite_enviado'],
+      ]);
+      // A volta seguinte não repete.
+      expect(await relatorios.volta(agora, [A])).toMatchObject({ devidos: 1, feitos: 0 });
+
+      // O toque em "Ver resumo": a lista é lida de novo, para a MESMA janela, no nome de quem tocou; sai sem a IA.
+      numero.pedidos.length = 0;
+      lidas.length = 0;
+      resposta = { texto: 'Bom dia, Carlos! Chegou *1 ficha nova*', total: 1 };
+      expect(await mandar(telCarlos, 'Ver resumo', { codigoDoModelo: `mister:resumo:${convite.id}` })).toBe('tocou_modelo');
+      expect(lidas).toEqual([{ t: A, c: pessoa.carlos, tel: telCarlos, d: convite.trilha.convite }]);
+      expect(numero.enviadas.map((m) => [m.para, m.texto])).toEqual([[telCarlos, 'Bom dia, Carlos! Chegou *1 ficha nova*']]);
+      expect((await linhasDe()).find((l: any) => l.colaborador_id === pessoa.carlos)).toMatchObject({ situacao: 'enviado', motivo: null, texto: 'Bom dia, Carlos! Chegou *1 ficha nova*' });
+      expect(pedidosAIa).toEqual([]);
+
+      // As fichas sumiram antes do toque (apagadas, ou a pessoa perdeu a permissão): a pessoa fica sabendo; a linha, o motivo.
+      await q(`update mister_relatorio set situacao = 'nao_enviado', motivo = 'convite_enviado', texto = null where id = $1`, [convite.id]);
+      resposta = null;
+      numero.pedidos.length = 0;
+      expect(await mandar(telCarlos, 'Ver resumo', { codigoDoModelo: `mister:resumo:${convite.id}` })).toBe('tocou_modelo');
+      expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringContaining('não estão mais na Página de vagas')]);
+      expect((await linhasDe()).find((l: any) => l.colaborador_id === pessoa.carlos)).toMatchObject({ situacao: 'nao_enviado', motivo: 'sem_fichas', texto: null });
+      // A Ana não pega o resumo do Carlos.
+      numero.pedidos.length = 0;
+      expect(await mandar(telAna, 'Ver resumo', { codigoDoModelo: `mister:resumo:${convite.id}` })).toBe('modelo_nao_achado');
     });
   });
 }

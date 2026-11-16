@@ -166,6 +166,57 @@ export function brl(n: number): string {
   return 'R$ ' + n.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 }
 
+/** F5b — uma pessoa na condução dos aprovados (`GET /vagas/candidatos/conducao`, `conducaoDaPessoa` no servidor). */
+export interface PessoaNaConducao {
+  id: string; nome: string; situacao: string; loja: string; funcoes: string[]; tipoVaga: string; dias: string[]; meios: string[];
+  conducoes: number | null; uberMotivo: string | null; valorIda: number | null; valorVolta: number | null; contratadoEm: string | null;
+  porDia: number | null; diasNoMes: number | null; porMes: number | null; escala: string | null; motivo: 'sem_valor' | 'escala_a_definir' | null;
+}
+export interface ConducaoDosAprovados { pessoas: PessoaNaConducao[]; porMes: number; porDia: number; somadas: number; foraDaSoma: number }
+
+/** F5a — "De onde vêm as fichas" (`GET /vagas/aberturas`, `origensDasFichas` no servidor). */
+export interface OrigemDasFichas { origem: string; nome: string; tipo: 'qr' | 'robo' | 'link'; aberturas: number; fichas: number }
+export interface AberturasDaPagina {
+  dias: number;
+  desde: string;
+  /** O primeiro dia com abertura gravada (a contagem começou com a mig 430); null = nenhuma ainda. */
+  contandoDesde: string | null;
+  totais: { aberturas: number; fichas: number };
+  origens: OrigemDasFichas[];
+}
+
+/** "Viraram ficha": fichas ÷ aberturas, em %; sem abertura, null (a tela mostra "—", nunca 0% nem infinito). */
+export function taxaDeFicha(aberturas: number, fichas: number): number | null {
+  if (!aberturas) return null;
+  return Math.min(100, Math.round((fichas * 100) / aberturas));
+}
+
+// F5a — a abertura da página pública conta uma vez por aparelho por dia (decisão 7 do protótipo): um cookie só com o DIA,
+// por página. Sem nada da pessoa. Cookie bloqueado: conta de novo — preferível a não contar.
+const nomeDoCookie = (codigo: string) => `rgm_vaga_${String(codigo).replace(/[^a-z0-9-]/gi, '')}`;
+export function aberturaJaContada(codigo: string, dia: string): boolean {
+  try {
+    return document.cookie.split(';').some((c) => c.trim() === `${nomeDoCookie(codigo)}=${dia}`);
+  } catch {
+    return false;
+  }
+}
+export function marcarAberturaContada(codigo: string, dia: string): void {
+  try {
+    document.cookie = `${nomeDoCookie(codigo)}=${dia}; max-age=${2 * 24 * 60 * 60}; path=/; SameSite=Lax`;
+  } catch {
+    /* sem cookie: a próxima abertura conta de novo */
+  }
+}
+
+/** F4b, parte 1 — avisar o banco de talentos (`GET /vagas/banco/aviso`, `avisoDoBanco` no servidor). */
+export interface AvisoDoBanco {
+  funcoes: { codigo: string; nome: string; detalhe: string; dentro: number }[];
+  funcao: string | null;
+  dentro: { id: string; nome: string; funcoes: string[]; distanciaKm: number | null; autorizouEm: string | null; mensagem: string; link: string }[];
+  fora: { id: string; nome: string; motivo: string }[];
+}
+
 const digitos = (v: string) => String(v ?? '').replace(/\D/g, '');
 /** Sem o 55 do país (mesma regra do servidor, `telefoneCadastro`). */
 export function telefoneSem55(v: string): string {

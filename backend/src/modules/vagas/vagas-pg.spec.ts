@@ -10,6 +10,7 @@ import { hojeISO } from '../../common/data';
 import { ModuloService } from '../modulo/modulo.service';
 import { ColaboradorService } from '../colaborador/colaborador.service';
 import { VagasService } from './vagas.service';
+import { MisterRelatoriosService } from '../mister/mister-relatorios.service';
 import { fichaValida } from './vagas-exemplo-spec';
 import { baseDoApp, paginaParaORobo } from './pagina-para-o-robo';
 
@@ -64,6 +65,7 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
     await aplicar('389_vagas_e_candidatos.sql');
     await aplicar('397_candidato_distancia.sql'); // F2: o serviço grava as colunas da distância (ERR-273: toda spec que monta a 389)
     await aplicar('427_candidato_confirmacao.sql'); // F3b: as colunas da confirmação da ficha (ERR-273)
+    await aplicar('430_vaga_abertura.sql'); // F5a: as aberturas da página por dia e origem (ERR-273)
     const registrar = { registrar: async (e: any) => void auditoria.push(e) } as any;
     svc = new VagasService(db, registrar, new ModuloService(db, registrar), new ColaboradorService(db, registrar));
     await q(`insert into empresa (id, nome) values ($1, 'teste vagas'), ($2, 'outra empresa das vagas')`, [T, T2]);
@@ -82,7 +84,7 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
   afterAll(async () => {
     if (!pool) return;
     for (const t of [T, T2]) {
-      for (const tab of ['candidato', 'vaga_qr', 'vaga_pagina', 'modulo_ativacao', 'cardapio_config', 'unidade'])
+      for (const tab of ['candidato', 'vaga_abertura', 'vaga_qr', 'vaga_pagina', 'modulo_ativacao', 'cardapio_config', 'unidade'])
         await q(`delete from ${tab} where tenant_id = $1`, [t]).catch(() => {});
       await q(`delete from empresa where id = $1`, [t]).catch(() => {});
     }
@@ -341,6 +343,283 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
       }
       for (const id of fichas) await q(`delete from candidato where id = $1`, [id]).catch(() => {});
       for (const id of funcoes) await q(`delete from funcao where id = $1`, [id]).catch(() => {});
+    }
+  });
+
+  // F5b: a condução dos aprovados (protótipo aprovado em 15/11/2026): o valor que informaram × os dias da escala.
+  it('F5b: a condução soma os aprovados e os contratados nos últimos 30 dias da loja; sem valor ou escala a definir, fora da soma', async () => {
+    const fichas: string[] = [];
+    const colaboradores: string[] = [];
+    const nova = async (extra: Record<string, any>) => {
+      const r = await svc.receberFicha(codigo, fichaValida(extra));
+      const [{ id }] = await q(`select id from candidato where tenant_id = $1 and protocolo = $2`, [T, r.protocolo]);
+      fichas.push(id);
+      return id as string;
+    };
+    const contratadoHa = async (id: string, dias: number, colaborador: string | null = null) => {
+      await q(`update candidato set situacao = 'contratado', colaborador_id = $2 where id = $1`, [id, colaborador]);
+      await q(
+        `insert into candidato_evento (candidato_id, tenant_id, tipo, de, para, texto, criado_em)
+         values ($1, $2, 'situacao', 'aprovado', 'contratado', 'Contratado', now() - make_interval(days => $3::int))`,
+        [id, T, dias],
+      );
+    };
+    try {
+      // 12x36 (a ficha de exemplo: R$ 4,70 + R$ 18,00 = R$ 22,70 por dia) → 15 dias = R$ 340,50.
+      const doze = await nova({ whatsapp: '(21) 3333-0160', nome: 'Ana Doze Teste' });
+      // Horista de sexta, sábado e domingo, R$ 5 + R$ 5 → 3 × 4,3 = 12,9 dias = R$ 129,00.
+      const horista = await nova({ whatsapp: '(21) 3333-0161', nome: 'Bruno Horista Teste', tipo: 'horista', dias: ['sex', 'sab', 'dom'], valor_ida: '5,00', valor_volta: '5,00' });
+      // Vaga fixa "12x36 ou 5x2": a escala ainda é a definir — aparece, fora da soma.
+      const tanto = await nova({ whatsapp: '(21) 3333-0162', nome: 'Carla Tanto Teste', tipo: 'fixa', escala: 'tanto' });
+      // A pé, sem valor informado — aparece, fora da soma.
+      const ape = await nova({ whatsapp: '(21) 3333-0163', nome: 'Davi Ape Teste', meio: ['pe'], conducoes: null, uber_motivo: '', valor_ida: '', valor_volta: '' });
+      for (const id of [doze, horista, tanto, ape]) await svc.mudarSituacao(gerente(), lojaA, id, { situacao: 'aprovado' });
+      // Contratado há 10 dias, com o colaborador na 5x2 (a jornada combinada vale sobre a escala da ficha): 22 dias.
+      const [{ id: col }] = await q(`insert into colaborador (tenant_id, nome, jornada_tipo, unidade_id) values ($1, 'Eva Contratada Teste', '5x2', $2) returning id`, [T, lojaA]);
+      colaboradores.push(col);
+      const contratado = await nova({ whatsapp: '(21) 3333-0164', nome: 'Eva Contratada Teste' });
+      await contratadoHa(contratado, 10, col);
+      // Contratado há 40 dias e ficha nova: não entram.
+      const antigo = await nova({ whatsapp: '(21) 3333-0165', nome: 'Fabio Antigo Teste' });
+      await contratadoHa(antigo, 40);
+      const novo = await nova({ whatsapp: '(21) 3333-0166', nome: 'Gil Novo Teste' });
+
+      const r: any = await svc.conducao(T, lojaA);
+      const ids = r.pessoas.map((p: any) => p.id);
+      expect(ids).toEqual(expect.arrayContaining([doze, horista, tanto, ape, contratado]));
+      expect(ids).not.toContain(antigo);
+      expect(ids).not.toContain(novo);
+      const de = (id: string) => r.pessoas.find((p: any) => p.id === id);
+      expect(de(doze)).toMatchObject({ porDia: 22.7, diasNoMes: 15, porMes: 340.5, escala: '12x36', motivo: null });
+      expect(de(horista)).toMatchObject({ porDia: 10, diasNoMes: 12.9, porMes: 129, escala: 'horista', motivo: null });
+      expect(de(tanto)).toMatchObject({ porMes: null, motivo: 'escala_a_definir' });
+      expect(de(ape)).toMatchObject({ porDia: null, porMes: null, motivo: 'sem_valor' });
+      expect(de(contratado)).toMatchObject({ situacao: 'contratado', diasNoMes: 22, porMes: 499.4, escala: '5x2' });
+      expect(r).toMatchObject({ porMes: 968.9, porDia: 55.4, somadas: 3, foraDaSoma: 2 });
+      // Outra loja e outra empresa não veem; o presidente na rede vê as da empresa.
+      expect((await svc.conducao(T, lojaB)).pessoas.map((p: any) => p.id)).not.toContain(doze);
+      expect((await svc.conducao(T2, null)).pessoas.map((p: any) => p.id)).not.toContain(doze);
+      expect((await svc.conducao(T, null)).pessoas.map((p: any) => p.id)).toContain(doze);
+    } finally {
+      for (const id of fichas) await q(`delete from candidato where id = $1`, [id]).catch(() => {});
+      for (const c of colaboradores) await q(`delete from colaborador where id = $1`, [c]).catch(() => {});
+    }
+  });
+
+  // F4c: o resumo das fichas novas pelo Mister. A leitura (`fichasDaPessoa`) mora no serviço dos relatórios, mas o banco é o
+  // das vagas: o teste fica nesta spec, que já aplica a cadeia 389 → 397 → 427 (ERR-451). O escopo do Mister e o módulo de
+  // vagas são dublês — o fluxo do relatório (a vez, o convite, o toque) está na spec do Mister.
+  it('F4c: as fichas novas da janela, só das lojas que a pessoa vê, com a permissão e o módulo; nome com a inicial, sem telefone', async () => {
+    const fichas: string[] = [];
+    const paginaAntes = (await q(`select funcoes from vaga_pagina where tenant_id = $1 and unidade_id = $2`, [T, lojaA]))[0].funcoes;
+    const nova = async (whatsapp: string, nome: string, recebido: string, extra: Record<string, any> = {}, onde: { tenant?: string; loja?: string } = {}) => {
+      const r = await svc.receberFicha(codigo, fichaValida({ whatsapp, nome, ...extra }));
+      const [{ id }] = await q(`select id from candidato where tenant_id = $1 and protocolo = $2`, [T, r.protocolo]);
+      fichas.push(id);
+      await q(
+        `update candidato set recebido_em = ($2::timestamp at time zone 'America/Sao_Paulo'), tenant_id = $3, unidade_id = $4 where id = $1`,
+        [id, recebido, onde.tenant ?? T, onde.loja ?? lojaA],
+      );
+      return id as string;
+    };
+    let escopo: any = null;
+    let desligada = '';
+    const relatorios = new MisterRelatoriosService(
+      db,
+      null as any,
+      null as any,
+      { escopo: async () => escopo } as any,
+      null as any,
+      undefined,
+      { ativo: async (_t: string, loja: string, modulo: string) => modulo === 'vagas' && loja !== desligada } as any,
+    );
+    const devido = { referencia: '2026-03-11', ate: '2026-03-11', hora: '09:00' };
+    const presidente = { nivel: 'presidente', nome: 'Ana Paula', semLoja: false, permissoes: {}, lojas: [{ id: lojaA, nome: 'Loja A' }, { id: lojaB, nome: 'Loja B' }] };
+    try {
+      const a1 = await nova('(21) 3333-0170', 'Bruno Silva Santos', '2026-03-10 10:00', { funcoes: ['chapeiro'], tipo: 'fixa', escala: '12x36', comeca: 'imediato' });
+      await q(`update candidato set distancia_km = 4.2 where id = $1`, [a1]);
+      await nova('(21) 3333-0171', 'Larissa Moura', '2026-03-11 08:59', { funcoes: ['auxiliar'], tipo: 'horista', dias: ['sex', 'sab'] });
+      await nova('(21) 3333-0172', 'Fora Depois Teste', '2026-03-11 09:00'); // = o fim da janela: fica para o dia seguinte
+      await nova('(21) 3333-0173', 'Fora Antes Teste', '2026-03-10 08:59');
+      await nova('(21) 3333-0174', 'Kaua Pereira', '2026-03-10 12:00', { funcoes: ['chapeiro'], tipo: 'fixa', escala: '5x2' }, { loja: lojaB });
+      await nova('(21) 3333-0175', 'Outra Empresa Teste', '2026-03-10 12:00', {}, { tenant: T2, loja: lojaC });
+      // A página da loja A passa a chamar o chapeiro de outro jeito: o nome dela vence o de fábrica (a "auxiliar", que
+      // sai da página, fica com o nome de fábrica).
+      await q(`update vaga_pagina set funcoes = $3::jsonb where tenant_id = $1 and unidade_id = $2`, [
+        T, lojaA, JSON.stringify([{ codigo: 'chapeiro', nome: 'Chapeiro de lanche', salario: '', lideranca: false, aberta: true }]),
+      ]);
+
+      // Presidente: as duas lojas, na ordem de chegada, com a loja em cada linha.
+      escopo = presidente;
+      const r1 = await relatorios.fichasDaPessoa(T, 'c', 't', devido);
+      expect(r1?.total).toBe(3);
+      const linhas1 = r1!.texto.split('\n');
+      expect(linhas1[0]).toBe('Bom dia, Ana! Chegaram *3 fichas novas* nas Páginas de vagas das suas lojas desde ontem às 9h:');
+      expect(linhas1.filter((l) => l.startsWith('• '))).toEqual([
+        '• Bruno S. — Chapeiro de lanche · 12x36 · 4,2 km · começa já · Loja A',
+        '• Kaua P. — Chapeiro(a) · 5x2 · Loja B',
+        '• Larissa M. — Auxiliar de cozinha · horista · Loja A',
+      ]);
+      expect(r1!.texto).toMatch(/Ver as fichas: https?:\/\/\S+\/candidatos$/);
+      // Telefone e endereço ficam no Regem.
+      expect(r1!.texto).not.toMatch(/3333|0170|Rua|rua /);
+
+      // O módulo de vagas desligado na loja B: só a loja A.
+      desligada = lojaB;
+      const r2 = await relatorios.fichasDaPessoa(T, 'c', 't', devido);
+      expect(r2?.total).toBe(2);
+      expect(r2!.texto).toContain('Chegaram *2 fichas novas* na Página de vagas da Loja A desde ontem às 9h:');
+      desligada = '';
+
+      // Gerente da loja A: com a permissão Candidatos vê as dela; sem, nada.
+      escopo = { ...presidente, nivel: 'gerente', nome: 'Carlos', lojas: [{ id: lojaA, nome: 'Loja A' }], permissoes: { candidatos: true } };
+      expect((await relatorios.fichasDaPessoa(T, 'c', 't', devido))?.total).toBe(2);
+      escopo = { ...escopo, permissoes: { candidatos: false } };
+      expect(await relatorios.fichasDaPessoa(T, 'c', 't', devido)).toBeNull();
+      // Sem acesso ao Mister ou sem loja: nada.
+      escopo = null;
+      expect(await relatorios.fichasDaPessoa(T, 'c', 't', devido)).toBeNull();
+      escopo = { ...presidente, semLoja: true };
+      expect(await relatorios.fichasDaPessoa(T, 'c', 't', devido)).toBeNull();
+
+      // Dia sem ficha: nada (o resumo não sai).
+      escopo = presidente;
+      expect(await relatorios.fichasDaPessoa(T, 'c', 't', { referencia: '2026-03-20', ate: '2026-03-20', hora: '09:00' })).toBeNull();
+      // Em UTC a janela é a mesma: o horário é o da operação, escrito na consulta (V46).
+      const c = await pool.connect();
+      try {
+        await c.query(`set timezone = 'UTC'`);
+        const dbUtc = drizzle(c as any, { schema });
+        const emUtc = new MisterRelatoriosService(dbUtc, null as any, null as any, { escopo: async () => presidente } as any, null as any, undefined, { ativo: async () => true } as any);
+        expect((await emUtc.fichasDaPessoa(T, 'c', 't', devido))?.total).toBe(3);
+      } finally {
+        await c.query(`reset timezone`).catch(() => {});
+        c.release();
+      }
+    } finally {
+      for (const id of fichas) await q(`delete from candidato where id = $1`, [id]).catch(() => {});
+      await q(`update vaga_pagina set funcoes = $3::jsonb where tenant_id = $1 and unidade_id = $2`, [T, lojaA, JSON.stringify(paginaAntes)]);
+    }
+  });
+
+  // F5a (mig 430): de onde vêm as fichas — a página aberta soma; a tela lê o período por origem.
+  it('F5a: as aberturas somam certo ao mesmo tempo, na origem que conta; a tela lê aberturas e fichas do período por origem', async () => {
+    const fichas: string[] = [];
+    const hoje = hojeISO();
+    const diaHa = (n: number) => {
+      const d = new Date(`${hoje}T12:00:00Z`);
+      d.setUTCDate(d.getUTCDate() - n);
+      return d.toISOString().slice(0, 10);
+    };
+    try {
+      await q(`delete from vaga_abertura where tenant_id = $1`, [T]);
+      // 20 aberturas ao mesmo tempo pelo QR do salão somam 20 (uma gravação só, sem ler antes); o canal do robô conta no
+      // dele; a origem inventada e a sem origem caem no "link sem origem".
+      await Promise.all(Array.from({ length: 20 }, () => svc.contarAbertura(codigo, { origem: 'salao' })));
+      await svc.contarAbertura(codigo, { origem: 'whatsapp' });
+      await svc.contarAbertura(codigo, { origem: 'nao-existe' });
+      await svc.contarAbertura(codigo, {});
+      expect(await q(`select origem, aberturas, dia::text as dia from vaga_abertura where tenant_id = $1 order by origem`, [T])).toEqual([
+        { origem: '', aberturas: 2, dia: hoje },
+        { origem: 'salao', aberturas: 20, dia: hoje },
+        { origem: 'whatsapp', aberturas: 1, dia: hoje },
+      ]);
+      // Página desconhecida ou desligada: "não encontrada", nada grava.
+      await expect(svc.contarAbertura('nao-existe-esta', { origem: 'salao' })).rejects.toThrow(NotFoundException);
+      await svc.salvarPagina(gerente(), lojaA, { ligada: false });
+      await expect(svc.contarAbertura(codigo, { origem: 'salao' })).rejects.toThrow(NotFoundException);
+      await svc.salvarPagina(gerente(), lojaA, { ligada: true });
+      expect(Number((await q(`select sum(aberturas)::int as n from vaga_abertura where tenant_id = $1`, [T]))[0].n)).toBe(23);
+
+      // Dias passados: 10 dias atrás entra nos 30; 40 dias atrás, só nos 90.
+      await q(`insert into vaga_abertura (tenant_id, unidade_id, dia, origem, aberturas) values ($1, $2, $3::date, 'salao', 5), ($1, $2, $4::date, 'salao', 100)`, [
+        T, lojaA, diaHa(10), diaHa(40),
+      ]);
+      const antes: any = await svc.aberturas(T, lojaA, 30);
+      const salaoAntes = antes.origens.find((o: any) => o.origem === 'salao').fichas;
+      // Duas fichas novas pelo salão (uma de hoje, uma de 40 dias atrás) e uma pelo robô.
+      for (const [tel, origem, dias] of [['(21) 3333-0180', 'salao', 0], ['(21) 3333-0181', 'salao', 40], ['(21) 3333-0182', 'whatsapp', 0]] as const) {
+        const r = await svc.receberFicha(codigo, { ...fichaValida({ whatsapp: tel, nome: 'Origem Teste' }), origem });
+        const [{ id }] = await q(`select id from candidato where tenant_id = $1 and protocolo = $2`, [T, r.protocolo]);
+        fichas.push(id);
+        if (dias) await q(`update candidato set recebido_em = now() - make_interval(days => $2::int) where id = $1`, [id, dias]);
+      }
+      const r30: any = await svc.aberturas(T, lojaA, 30);
+      expect(r30).toMatchObject({ dias: 30, desde: diaHa(29), contandoDesde: diaHa(40) });
+      const de = (r: any, o: string) => r.origens.find((x: any) => x.origem === o);
+      expect(de(r30, 'salao')).toMatchObject({ nome: 'Salão', tipo: 'qr', aberturas: 25, fichas: salaoAntes + 1 });
+      expect(de(r30, 'whatsapp')).toMatchObject({ nome: 'Robô no WhatsApp', tipo: 'robo', aberturas: 1 });
+      expect(de(r30, '')).toMatchObject({ nome: 'Link sem origem', tipo: 'link', aberturas: 2 });
+      expect(de(r30, 'instagram')).toMatchObject({ tipo: 'qr' }); // todo QR da loja aparece, mesmo zerado
+      expect(r30.totais.aberturas).toBe(28);
+      expect(r30.totais.fichas).toBe(r30.origens.reduce((s: number, o: any) => s + o.fichas, 0));
+      const r90: any = await svc.aberturas(T, lojaA, 90);
+      expect(de(r90, 'salao')).toMatchObject({ aberturas: 125, fichas: salaoAntes + 2 });
+      // Período fora da lista vira 30; os ajustes pedem uma loja; outra empresa não vê nada desta.
+      expect((await svc.aberturas(T, lojaA, '365')).dias).toBe(30);
+      await expect(svc.aberturas(T, null, 30)).rejects.toThrow(BadRequestException);
+      const outraEmpresa: any = await svc.aberturas(T2, lojaC, 30).catch(() => ({ totais: { aberturas: 0 } }));
+      expect(outraEmpresa.totais.aberturas).toBe(0);
+    } finally {
+      for (const id of fichas) await q(`delete from candidato where id = $1`, [id]).catch(() => {});
+      await q(`delete from vaga_abertura where tenant_id = $1`, [T]).catch(() => {});
+    }
+  });
+
+  // F4b, parte 1: avisar o banco de talentos pelo WhatsApp de quem avisa; "Marquei como avisado" no histórico.
+  it('F4b: quem recebe o aviso da função aberta e quem não (com o motivo); marcar avisado vale 30 dias e não duplica', async () => {
+    const fichas: string[] = [];
+    const nova = async (whatsapp: string, nome: string, extra: Record<string, any> = {}) => {
+      const r = await svc.receberFicha(codigo, fichaValida({ whatsapp, nome, funcoes: ['chapeiro'], ...extra }));
+      const [{ id }] = await q(`select id from candidato where tenant_id = $1 and protocolo = $2`, [T, r.protocolo]);
+      fichas.push(id);
+      await q(`update candidato set situacao = 'banco' where id = $1`, [id]);
+      return id as string;
+    };
+    try {
+      const juliana = await nova('(21) 3333-0190', 'Juliana Souza', { comunicacao: true });
+      const marcos = await nova('(21) 3333-0191', 'Marcos Teste', { comunicacao: true });
+      const sem = await nova('(21) 3333-0192', 'Sem Autorizacao Teste', { comunicacao: false });
+      const atendente = await nova('(21) 3333-0193', 'Outra Funcao Teste', { comunicacao: true, funcoes: ['atendimento'] });
+      await q(`update candidato set comunicacao_cancelada_em = now() - interval '2 days' where id = $1`, [marcos]);
+      // Ficha que não está no banco não aparece.
+      const novoNaoBanco = await nova('(21) 3333-0194', 'Nao Banco Teste', { comunicacao: true });
+      await q(`update candidato set situacao = 'novo' where id = $1`, [novoNaoBanco]);
+
+      const r: any = await svc.avisoDoBanco(T, lojaA, 'chapeiro');
+      expect(r.funcao).toBe('chapeiro');
+      expect(r.funcoes.find((f: any) => f.codigo === 'chapeiro')).toMatchObject({ dentro: 1, detalhe: expect.stringContaining('12x36') });
+      expect(r.dentro.map((p: any) => p.id)).toEqual([juliana]);
+      expect(r.dentro[0].link).toMatch(/^https:\/\/wa\.me\/552133330190\?text=Ol%C3%A1%2C%20Juliana!/);
+      expect(r.dentro[0].mensagem).toContain(`A ${NOME_LOJA} abriu vaga de`);
+      const fora = Object.fromEntries(r.fora.map((p: any) => [p.id, p.motivo]));
+      expect(fora[marcos]).toMatch(/^pediu para não receber mensagens em \d\d\/\d\d$/);
+      expect(fora[sem]).toBe('não autorizou mensagens na ficha');
+      expect(Object.keys(fora)).not.toContain(atendente); // quer outra função
+      expect(Object.keys(fora)).not.toContain(novoNaoBanco);
+
+      // "Marquei como avisado": grava no histórico uma vez; dois cliques juntos não duplicam; depois a pessoa sai da lista.
+      const [a, b] = await Promise.all([
+        svc.marcarAvisado(gerente(), lojaA, { candidatoId: juliana, funcao: 'chapeiro' }),
+        svc.marcarAvisado(gerente(), lojaA, { candidatoId: juliana, funcao: 'chapeiro' }),
+      ]);
+      expect([a.jaAvisado, b.jaAvisado].sort()).toEqual([false, true]);
+      const eventos = await q(`select tipo, de, para, texto from candidato_evento where candidato_id = $1 and de = 'aviso_vaga'`, [juliana]);
+      expect(eventos).toEqual([{ tipo: 'comunicacao', de: 'aviso_vaga', para: 'chapeiro', texto: 'Avisada da vaga de Chapeiro(a) pelo WhatsApp de quem avisou' }]);
+      const r2: any = await svc.avisoDoBanco(T, lojaA, 'chapeiro');
+      expect(r2.dentro).toEqual([]);
+      expect(r2.fora.find((p: any) => p.id === juliana).motivo).toMatch(/^já foi avisada desta função em \d\d\/\d\d \(de novo a partir de \d\d\/\d\d\)$/);
+      // 31 dias depois, pode de novo.
+      await q(`update candidato_evento set criado_em = now() - interval '31 days' where candidato_id = $1 and de = 'aviso_vaga'`, [juliana]);
+      expect((await svc.avisoDoBanco(T, lojaA, 'chapeiro')).dentro.map((p: any) => p.id)).toEqual([juliana]);
+
+      // As recusas: sem autorização, função fechada, ficha de outra loja.
+      await expect(svc.marcarAvisado(gerente(), lojaA, { candidatoId: sem, funcao: 'chapeiro' })).rejects.toThrow(BadRequestException);
+      await expect(svc.marcarAvisado(gerente(), lojaA, { candidatoId: juliana, funcao: 'gerencia' })).rejects.toThrow('não está aberta');
+      await expect(svc.marcarAvisado(gerente(), lojaB, { candidatoId: juliana, funcao: 'chapeiro' })).rejects.toThrow();
+      await expect(svc.marcarAvisado(gerente(T2), lojaC, { candidatoId: juliana, funcao: 'chapeiro' })).rejects.toThrow();
+    } finally {
+      for (const id of fichas) await q(`delete from candidato where id = $1`, [id]).catch(() => {});
     }
   });
 

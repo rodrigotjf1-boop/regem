@@ -92,7 +92,9 @@ export function parametrosDoResumo(tipo: TipoDeRelatorio, d: RelatorioDevido, em
   const qual =
     tipo === 'resumo_dia'
       ? `resumo de ${nomeDoDia(d.referencia)}, ${diaMesDoRelatorio(d.referencia)}`
-      : `resumo da semana de ${diaMesDoRelatorio(d.referencia)} a ${diaMesDoRelatorio(d.ate)}`;
+      : tipo === 'fichas_novas'
+        ? `resumo das fichas novas de candidatos de ${diaMesDoRelatorio(d.referencia)}`
+        : `resumo da semana de ${diaMesDoRelatorio(d.referencia)} a ${diaMesDoRelatorio(d.ate)}`;
   return [parametro(qual), parametro(empresa)];
 }
 

@@ -97,6 +97,14 @@ const RELATORIOS_PADRAO = () => [
     // Fora das 24 horas: foi o convite pelo modelo da Meta, e o resumo espera o toque.
     ultimo: { referencia: '2026-11-02', situacao: 'nao_enviado', motivo: 'convite_enviado', em: '2026-11-09T12:05:00.000Z' },
   },
+  {
+    // F4c das vagas: só conta, sem a IA; vai a quem pode ver os candidatos.
+    tipo: 'fichas_novas', titulo: 'Fichas novas de candidatos', usaIa: false,
+    descricao: 'As fichas que chegaram na Página de vagas desde o último resumo: nome, função, escala e distância. Só nos dias em que chegou ficha. Sem telefone nem endereço no WhatsApp.',
+    vaiPara: 'o presidente e quem tem a permissão Candidatos, cada um só das lojas que vê',
+    regra: { ligado: false, hora: '09:00', diaSemana: null },
+    ultimo: null,
+  },
 ];
 
 // O histórico dos avisos (F1.4 parte B): dois abertos (um escalou pelo modelo da Meta) e dois resolvidos (um fechado
@@ -766,7 +774,9 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t0 = await page.locator('main').innerText();
-    ok(/11 ajustes em 5 grupos/.test(t0), 'avisos: os nove avisos em quatro grupos e os dois relatórios no quinto');
+    ok(/12 ajustes em 5 grupos/.test(t0), 'avisos: os nove avisos em quatro grupos e os três relatórios no quinto');
+    ok(/Fichas novas de candidatos[\s\S]*Vai para: o presidente e quem tem a permissão Candidatos, cada um só das lojas que vê\./.test(t0), 'relatórios: o das fichas novas diz para quem vai (F4c)');
+    ok(t0.includes('O de fichas novas só conta: não usa a IA.'), 'relatórios: a nota diz que o das fichas novas não usa a IA');
     ok(['Na loja', 'Servidor da loja', 'Fiscal', 'O próprio Mister'].every((g) => t0.includes(g)), 'avisos: os quatro grupos do protótipo');
     ok(/Vai para:[\s\S]*Tela do Regem na loja[\s\S]*sem resolver em 5 min: WhatsApp do gerente da loja/.test(t0), 'avisos: a impressora vai à tela e, sem resolver em 5 min, ao gerente');
     ok((t0.match(/chega numa próxima entrega/g) ?? []).length === 4, 'avisos: os quatro tipos que ainda não saem dizem que chegam numa próxima entrega');
@@ -822,6 +832,10 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     await page.click('button[role="switch"][aria-label*="Resumo da semana"]');
     await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/relatorios') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
     ok(JSON.stringify(S.salvamentosRel[1]) === JSON.stringify({ relatorios: [{ tipo: 'resumo_semana', ligado: true, hora: '09:00', diaSemana: 7 }] }), `relatórios: o resumo da semana no domingo (${JSON.stringify(S.salvamentosRel[1])})`);
+    // F4c: ligar o das fichas novas manda só ele, com o horário e sem dia da semana.
+    await page.click('button[role="switch"][aria-label*="Fichas novas de candidatos"]');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/relatorios') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
+    ok(JSON.stringify(S.salvamentosRel[2]) === JSON.stringify({ relatorios: [{ tipo: 'fichas_novas', ligado: true, hora: '09:00', diaSemana: null }] }), `relatórios: ligar as fichas novas manda só ele (${JSON.stringify(S.salvamentosRel[2])})`);
     ok(erros.length === 0, `avisos: sem erro (${erros.join(' | ')})`);
     await ctx.close();
   }

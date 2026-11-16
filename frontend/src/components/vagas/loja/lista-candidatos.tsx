@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { FileText, MessageCircle } from 'lucide-react';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
@@ -8,6 +8,10 @@ import { FiltroBusca, FiltroSelect, Filtros, ListaDados, NomeComApoio, Selo, Sit
 import { SkeletonList } from '@/components/ui/skeleton';
 import { brl, COMECA_ROTULO, DIA_ROTULO, distanciaTexto, MEIO_ROTULO, nomeDaFuncao, nomeDaOrigem, SITUACAO_ROTULO, TURNO_ESTUDO_ROTULO } from '@/lib/vagas-ficha';
 import { FichaCandidato } from './ficha-candidato';
+import { GavetaDaConducao } from './gaveta-da-conducao';
+import { IndicadoresDosCandidatos, type LeituraDaConducao } from './indicadores-dos-candidatos';
+import { FaixaVagaAberta } from './faixa-vaga-aberta';
+import { GavetaAvisarBanco } from './gaveta-avisar-banco';
 
 // Pessoas › Candidatos › aba Candidatos: as fichas da página de vagas da loja em uso (presidente na rede: todas), no
 // modelo das listas do Regem — contagem, situações que filtram, busca e filtros, cartões no celular, a ficha numa gaveta.
@@ -63,15 +67,33 @@ export function ListaCandidatos({ nomesDasFuncoes }: { nomesDasFuncoes: Record<s
   const [exp, setExp] = useState('');
   const [ateKm, setAteKm] = useState('');
   const [aberta, setAberta] = useState<string | null>(null);
+  const [conducao, setConducao] = useState<LeituraDaConducao>({ dados: null, erro: '' });
+  const [vendoConducao, setVendoConducao] = useState(false);
+  // F4b, parte 1: a gaveta de avisar o banco de talentos (a função escolhida na faixa) e a versão que relê a faixa.
+  const [avisando, setAvisando] = useState<string | null | undefined>(undefined);
+  const [versaoDoAviso, setVersaoDoAviso] = useState(0);
+  // V64: a condução se lê de novo a cada mudança na ficha — só a resposta da leitura mais nova vale
+  const leituraDaConducao = useRef(0);
 
+  const carregarConducao = useCallback(async () => {
+    const minha = ++leituraDaConducao.current;
+    setConducao((c) => ({ dados: c.dados, erro: '' }));
+    try {
+      const dados = await api.vagasConducao();
+      if (minha === leituraDaConducao.current) setConducao({ dados, erro: '' });
+    } catch (e) {
+      if (minha === leituraDaConducao.current) setConducao({ dados: null, erro: e instanceof Error ? e.message : 'tente de novo.' });
+    }
+  }, []);
   const carregar = useCallback(async () => {
+    carregarConducao();
     try {
       setLista(await api.vagasCandidatos());
       setErro('');
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Não deu para carregar as fichas.');
     }
-  }, []);
+  }, [carregarConducao]);
   useEffect(() => {
     carregar();
   }, [carregar]);
@@ -122,6 +144,10 @@ export function ListaCandidatos({ nomesDasFuncoes }: { nomesDasFuncoes: Record<s
 
   return (
     <section className="space-y-3" aria-labelledby="candidatos-titulo">
+      {lista.length > 0 && (
+        <IndicadoresDosCandidatos lista={lista} conducao={conducao} aoVerConducao={() => setVendoConducao(true)} aoTentarConducao={carregarConducao} />
+      )}
+      <FaixaVagaAberta versao={versaoDoAviso} aoAvisar={(f) => setAvisando(f)} />
       <TituloLista id="candidatos-titulo" titulo="Fichas recebidas" total={lista.length} mostrando={linhas.length} um="ficha" varios="fichas" />
       <Situacoes base={base} opcoes={SITUACOES} valor={sit} aoMudar={setSit} />
       <Filtros>
@@ -232,6 +258,19 @@ export function ListaCandidatos({ nomesDasFuncoes }: { nomesDasFuncoes: Record<s
               },
             },
           ]}
+        />
+      )}
+      {vendoConducao && conducao.dados && (
+        <GavetaDaConducao dados={conducao.dados} nomesDasFuncoes={nomesDasFuncoes} aoFechar={() => setVendoConducao(false)} />
+      )}
+      {avisando !== undefined && (
+        <GavetaAvisarBanco
+          funcaoInicial={avisando}
+          aoFechar={() => setAvisando(undefined)}
+          aoMudar={() => {
+            setVersaoDoAviso((v) => v + 1);
+            carregar();
+          }}
         />
       )}
       {aberta && (
