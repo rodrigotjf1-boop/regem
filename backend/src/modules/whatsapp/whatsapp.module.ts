@@ -10,6 +10,7 @@ import { WhatsappCaixaController } from './whatsapp-caixa.controller';
 import { RoboRespostaController } from './robo-resposta.controller';
 import { RoboRespostaService } from './robo-resposta.service';
 import { PausaNoAtendimentoService } from './pausa-no-atendimento.service';
+import { RespostasDoMarketingService } from './respostas-do-marketing.service';
 import { EvolutionEntradaController } from './evolution-entrada.controller';
 import { EvolutionEntradaService } from './evolution-entrada.service';
 import { ConferirEntregaProcessor } from './conferir-entrega.processor';
@@ -58,7 +59,9 @@ import { MisterModule } from '../mister/mister.module';
     EmpresaDaLojaGuard,
     // A pausa dos pedidos no atendimento (F3, migs 394/395): a 1ª mensagem do cliente na pausa recebe a mensagem pronta.
     PausaNoAtendimentoService,
+    // As respostas ao número de marketing que são de outro módulo (F4b parte 2 das vagas): o gancho se registra aqui.
+    RespostasDoMarketingService,
   ],
-  exports: [WhatsappService, WhatsappCloudService, WhatsappProvedorService, WhatsappNumeroService],
+  exports: [WhatsappService, WhatsappCloudService, WhatsappProvedorService, WhatsappNumeroService, RespostasDoMarketingService],
 })
 export class WhatsappModule {}

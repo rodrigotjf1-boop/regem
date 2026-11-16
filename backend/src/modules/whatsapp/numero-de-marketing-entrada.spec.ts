@@ -3,6 +3,7 @@ import { PEDE_SAIDA, PEDE_VOLTA, TEXTO_SAIU, TEXTO_VOLTOU } from '../../common/c
 import { WhatsappCloudService } from './whatsapp-cloud.service';
 import { EvolutionEntradaService } from './evolution-entrada.service';
 import { WhatsappService } from './whatsapp.service';
+import { RespostasDoMarketingService } from './respostas-do-marketing.service';
 import { whatsappMensagem } from '../../db/schema';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -197,6 +198,77 @@ describe('a instância de marketing no Evolution', () => {
     await svc.processar(aviso('SAIR', true), 'loja-mkt-abc');
     await svc.processar(aviso('quero um x-bacon'), 'loja-mkt-abc');
     expect([saida.mock.calls.length, pelaInstancia.length, robo.mock.calls.length]).toEqual([0, 0, 0]);
+  });
+});
+
+describe('as respostas de outro módulo (o aviso da vaga) pelo número de marketing', () => {
+  it('o registro: o primeiro gancho que trata leva; o que falha não segura os outros', async () => {
+    const reg = new RespostasDoMarketingService();
+    (reg as any).logger = { warn() {} };
+    const vistos: string[] = [];
+    reg.registrar(async () => {
+      throw new Error('caiu');
+    });
+    reg.registrar(async (r) => (vistos.push(r.texto), r.texto === 'Tenho interesse'));
+    reg.registrar(async () => (vistos.push('terceiro'), true));
+    const r = { tenantId: 't', telefone: DE, responder: async () => undefined };
+    expect(await reg.tratar({ ...r, texto: 'Tenho interesse' })).toBe(true);
+    expect(await reg.tratar({ ...r, texto: 'oi' })).toBe(true);
+    expect(vistos).toEqual(['Tenho interesse', 'oi', 'terceiro']);
+    expect(await new RespostasDoMarketingService().tratar({ ...r, texto: 'x' })).toBe(false);
+  });
+
+  it('API oficial: o gancho vem antes do SAIR genérico, responde pelo número de marketing, e o reenvio não passa de novo', async () => {
+    const saida = jest.spyOn(consentimento, 'registrarSaida');
+    const reg = new RespostasDoMarketingService();
+    const pedidos: any[] = [];
+    reg.registrar(async (r) => {
+      pedidos.push(r.texto);
+      if (r.texto !== 'Não quero mais receber') return false;
+      await r.responder('Pronto. Você não recebe mais avisos de vaga.');
+      return true;
+    });
+    const db: any = {
+      select: () => ({ from: () => ({ where: async () => [] }) }),
+      insert: () => ({ values: () => ({ onConflictDoNothing: () => Object.assign(Promise.resolve(), { returning: () => Promise.resolve([{ id: 'x' }]) }) }) }),
+      transaction: async (fn: any) => fn({ execute: async () => ({ rows: [], rowCount: 0 }), insert: () => ({ values: async () => undefined }) }),
+    };
+    const svc = new WhatsappCloudService(db, undefined, undefined, undefined, reg);
+    (svc as any).logger = { log() {}, warn() {}, error() {}, debug() {} };
+    (svc as any).lojaPeloMarketing = async () => ({ tenantId: 'tenant-1' });
+    const textos: any[] = [];
+    (svc as any).enviarTexto = async (_t: string, para: string, texto: string, opts: any) => textos.push({ para, texto, phoneId: opts?.phoneId });
+    const corpo = (texto: string, id: string) => ({
+      entry: [{ changes: [{ value: { metadata: { phone_number_id: MKT }, messages: [{ from: DE, id, type: 'button', button: { text: texto } }] } }] }],
+    });
+    await svc.processar(corpo('Não quero mais receber', 'wamid.G1'));
+    await svc.processar(corpo('Não quero mais receber', 'wamid.G1')); // o reenvio da Meta
+    expect(pedidos).toEqual(['Não quero mais receber']);
+    expect(textos).toEqual([{ para: DE, texto: 'Pronto. Você não recebe mais avisos de vaga.', phoneId: MKT }]);
+    expect(saida).not.toHaveBeenCalled(); // o gancho tratou: o SAIR genérico (e a saída das ofertas) não roda
+    // O que o gancho não reconhece segue para o SAIR de sempre.
+    await svc.processar(corpo('SAIR', 'wamid.G2'));
+    expect(pedidos).toEqual(['Não quero mais receber', 'SAIR']);
+    expect(saida).toHaveBeenCalledTimes(1);
+    saida.mockRestore();
+  });
+
+  it('Evolution: o gancho vem antes do SAIR genérico e responde pela instância de marketing', async () => {
+    const reg = new RespostasDoMarketingService();
+    reg.registrar(async (r) => {
+      if (r.texto !== 'Tenho interesse') return false;
+      await r.responder('Obrigado!');
+      return true;
+    });
+    const LOJA = { tenantId: 't1', marketingInstancia: 'loja-mkt-abc' };
+    let consultas = 0;
+    const db: any = { select: () => ({ from: () => ({ where: async () => (consultas++ % 2 === 0 ? [] : [LOJA]) }) }), execute: async () => ({ rows: [] }) };
+    const pelaInstancia: any[] = [];
+    const evolution: any = { enviarPorInstancia: async (_t: string, instancia: string, para: string, texto: string) => pelaInstancia.push({ instancia, para, texto }) };
+    const svc = new EvolutionEntradaService(db, evolution, undefined, undefined, undefined, undefined, reg);
+    (svc as any).logger = { log() {}, warn() {} };
+    await svc.processar({ event: 'messages.upsert', data: { key: { remoteJid: `${DE}@s.whatsapp.net`, fromMe: false, id: 'E1' }, message: { conversation: 'Tenho interesse' } } }, 'loja-mkt-abc');
+    expect(pelaInstancia).toEqual([{ instancia: 'loja-mkt-abc', para: DE, texto: 'Obrigado!' }]);
   });
 });
 

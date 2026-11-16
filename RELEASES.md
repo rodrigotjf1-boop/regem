@@ -17,7 +17,9 @@
   em `SO_NUVEM` no `backend/edge/sync-daemon.mjs` → vai no `.exe`).** Só NUVEM: "Avisar pelo número de marketing" põe na
   fila quem pode receber (a régua da parte 1), e a rotina manda uma por vez no ritmo das campanhas (Evolution 20 s,
   oficial 7 s, com o modelo `vaga_aberta` aprovado), conferindo de novo na hora. O pedido do modelo à Meta e a tela vêm
-  junto/depois; as respostas ("Tenho interesse") na parte seguinte.
+  junto/depois. **As respostas (sem migration):** pelo número de marketing, "Tenho interesse" leva a ficha a Em análise;
+  "Não quero mais receber" tira das mensagens (a situação não muda); o SAIR faz o mesmo e sai também das ofertas — com as
+  frases das cenas 3 e 4 do protótipo, uma vez por aviso. Nada a empacotar além do `.exe` já anotado.
 
 - **Marketing — o SAIR respondido ao NÚMERO DE MARKETING passa a valer (16/11, ERR-484; sem migration).** Só NUVEM (as duas
   entradas do WhatsApp e a conexão da instância de marketing): na API oficial, a resposta ao phone_id de marketing

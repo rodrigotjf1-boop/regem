@@ -24,6 +24,7 @@ import { buscarUrlPublica } from '../../common/ssrf-guard';
 import { escolherNumeroDaWaba, pedirCopiaDoApp, type ResultadoDaCopia } from './coexistencia-meta';
 import { tierParaNumero } from './limite-meta';
 import { MisterEntradaService } from '../mister/mister-entrada.service';
+import { RespostasDoMarketingService } from './respostas-do-marketing.service';
 import { decidirSincronizacao, papelDoModelo, STATUS_DA_META, type PapelDoNumero } from './modelos-por-conta';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -368,6 +369,8 @@ export class WhatsappCloudService {
     @Optional() private readonly auditoria?: AuditoriaService,
     // O número do Mister (mig 417) é da distribuição: a mensagem que chega a ele é tratada lá, nunca como a de uma loja.
     @Optional() private readonly mister?: MisterEntradaService,
+    // As respostas ao número de marketing que são de outro módulo (F4b parte 2 das vagas).
+    @Optional() private readonly respostas?: RespostasDoMarketingService,
   ) {}
 
   private token(): string {
@@ -423,12 +426,32 @@ export class WhatsappCloudService {
    * (VOLTAR), com a confirmação pelo próprio número de marketing — a pessoa acabou de escrever, a janela está aberta. A
    * mensagem de saída e de volta fica gravada (é ela que segura o reenvio da Meta — ERR-319); o resto fica de fora, como antes.
    */
+  private readonly vistosDoMarketing = new Map<string, number>(); // wamid → até quando lembrar
+
+  /** A mensagem ao número de marketing já passou pelos ganchos (o reenvio da Meta)? Marca como vista. Sem id, nunca. */
+  private marketingJaVisto(wamid: string): boolean {
+    if (!wamid) return false;
+    const agora = Date.now();
+    if ((this.vistosDoMarketing.get(wamid) ?? 0) > agora) return true;
+    this.vistosDoMarketing.set(wamid, agora + 10 * 60_000);
+    if (this.vistosDoMarketing.size > 5_000) for (const [k, ate] of this.vistosDoMarketing) if (ate <= agora) this.vistosDoMarketing.delete(k);
+    return false;
+  }
+
   private async entradaDoMarketing(tenantId: string, phoneId: string, v: any): Promise<void> {
     for (const m of v?.messages ?? []) {
       const de = soDigitos(m?.from);
       if (!de) continue;
       const texto = this.textoDe(m);
       const txt = texto.trim().toLowerCase();
+      // O reenvio da Meta (o mesmo wamid em 10 minutos) já foi tratado nesta réplica — pelo gancho ou pelo SAIR/VOLTAR (que
+      // ainda confere pelo banco, para outra réplica): não passa de novo.
+      if (this.marketingJaVisto(String(m?.id ?? ''))) continue;
+      // A resposta que é de outro módulo (o aviso da vaga: "Tenho interesse", "Não quero mais receber") vem antes do SAIR genérico.
+      if (this.respostas) {
+        const tratou = await this.respostas.tratar({ tenantId, telefone: de, texto, responder: async (t) => void (await this.enviarTexto(tenantId, de, t, { phoneId })) });
+        if (tratou) continue;
+      }
       const sai = PEDE_SAIDA.test(txt);
       if (!sai && !PEDE_VOLTA.test(txt)) {
         this.logger.log(`mensagem ao número de marketing da loja ${tenantId} de=${mascarar(de)} tipo=${m?.type}: não é SAIR nem VOLTAR, fica de fora`);

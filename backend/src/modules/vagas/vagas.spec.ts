@@ -24,9 +24,28 @@ import {
   termoDaComunicacao,
   mensagemDoAvisoPeloMarketing,
   parametrosDoModeloDaVaga,
+  respostaAoAviso,
+  textoDaSaidaDosAvisos,
+  textoDoInteresse,
   viaDoAviso,
   viaManda,
 } from './vagas';
+
+describe('F4b parte 2: as respostas ao aviso', () => {
+  it('participar, sair dos avisos de vaga ou sair de tudo — e o resto não é resposta ao aviso', () => {
+    for (const t of ['Tenho interesse', 'tenho interesse!', 'Sim', 'quero', 'Quero participar.']) expect([t, respostaAoAviso(t)]).toEqual([t, 'interesse']);
+    for (const t of ['Não quero mais receber', 'nao quero receber']) expect([t, respostaAoAviso(t)]).toEqual([t, 'nao_quero']);
+    for (const t of ['SAIR', 'parar', 'Sair das ofertas']) expect([t, respostaAoAviso(t)]).toEqual([t, 'sair']);
+    for (const t of ['quanto paga?', 'sim, mas só à noite', 'cancelar', '', null]) expect([t, respostaAoAviso(t)]).toEqual([t, null]);
+  });
+  it('as frases das cenas 3 e 4 do protótipo (com a data em que a ficha se apaga)', () => {
+    expect(textoDoInteresse('Juliana Souza', 'Burger da Praça')).toBe('Obrigado, Juliana! Avisamos a equipe da Burger da Praça. Eles chamam você por aqui para combinar a entrevista.');
+    expect(textoDaSaidaDosAvisos('Marcos Lima', 'Burger da Praça', '2027-05-10')).toBe(
+      'Pronto, Marcos. Você não recebe mais avisos de vaga da Burger da Praça. Sua ficha fica guardada até 10/05/2027 e depois é apagada.',
+    );
+    expect(textoDaSaidaDosAvisos('', 'Burger da Praça', null)).toBe('Pronto. Você não recebe mais avisos de vaga da Burger da Praça.');
+  });
+});
 import { fichaValida } from './vagas-exemplo-spec';
 
 describe('F4b parte 2: o aviso pelo número de marketing', () => {
