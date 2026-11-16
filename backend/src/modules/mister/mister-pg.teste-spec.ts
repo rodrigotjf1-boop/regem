@@ -3633,6 +3633,101 @@ export function testesDoMisterComPostgres(): void {
       }
     });
 
+    it('F4.4: a impressora que parou de responder, com o servidor na versão nova, pede o reinício do serviço SÓ àquele servidor; "feito" só com o reinício e a impressora respondendo; a recusa, a versão velha e o prazo viram "Não deu"', async () => {
+      const SRV = randomUUID();
+      const tel = telefone();
+      await ligar('ana', tel);
+      await janelaAberta('ana');
+      await avisosConfig.salvar(usuario('ana'), { regras: [{ tipo: 'impressora', ligado: true, destinos: ['presidente'], escalaMin: null, escalaPara: [] }] });
+      // O servidor da loja (o do aviso) e a versão que ele informou — `edge_status` é da nuvem: no CI outras specs a criam com o mínimo.
+      // Dois servidores na mesma loja (o principal e a reserva): o reinício vai só ao do aviso.
+      const SRV2 = randomUUID();
+      await q(`insert into equipamento (id, tenant_id, unidade_id, tipo, nome, token) values ($1, $2, $3, 'servidor_local', 'Servidor', $4)`, [SRV, A, lojaDeA, `srv-${MARCA}`]);
+      await q(`insert into equipamento (id, tenant_id, unidade_id, tipo, nome, token) values ($1, $2, $3, 'servidor_local', 'Reserva', $4)`, [SRV2, A, lojaDeA, `srv2-${MARCA}`]);
+      await pool
+        .query(`create table if not exists edge_status (id uuid primary key default gen_random_uuid(), tenant_id uuid, unidade_id uuid, recebido_em timestamptz not null default now())`)
+        .catch((e: any) => {
+          if (!['23505', '42P07'].includes(e?.code)) throw e;
+        });
+      await q(`alter table edge_status add column if not exists equipamento_id uuid`);
+      await q(`alter table edge_status add column if not exists versao text`);
+      await q(`delete from edge_status where tenant_id = $1`, [A]);
+      await q(`insert into edge_status (equipamento_id, tenant_id, unidade_id, versao, recebido_em) values ($1, $2, $3, '1.30.14', now())`, [SRV, A, lojaDeA]);
+      const parada = (n: number, motivo: string) => incidente('impressora_parada', `srv:${SRV}:impressora:${n}`, { evidencia: { impressora: `Imp ${n}`, motivo } });
+      const daImpressora = async (n: number) => propostaDe((await avisosDe()).find((a: any) => a.chave.endsWith(`:impressora:${n}`)).id);
+      const comandoDe = async (id: string) => (await q(`select comando, equipamento_id, unidade_id, dados, status from edge_comando where dados ->> 'propostaId' = $1`, [id]))[0];
+      const esperarComando = async (id: string) => {
+        for (let i = 0; i < 100 && !(await comandoDe(id)); i++) await new Promise((r) => setTimeout(r, 30));
+      };
+      numero.pedidos.length = 0;
+      try {
+        avisos.incidentes = [parada(9, 'sem_responder'), parada(10, 'aviso'), parada(11, 'sem_responder'), parada(12, 'sem_responder'), parada(14, 'sem_responder')];
+        expect(await avisos.volta([A])).toMatchObject({ abertos: 5 });
+        // O motivo do vigia ficou no aviso; sem responder + versão nova = o reinício; com aviso (sem papel) = a via de teste.
+        expect((await avisosDe()).find((a: any) => a.chave.endsWith(':impressora:10')).dados).toMatchObject({ motivo: 'aviso' });
+        const p9 = await daImpressora(9);
+        expect(p9).toMatchObject({ procedimento: 'reiniciar_impressao', situacao: 'proposta', nivel: 'botao', parametros: { servidorId: SRV, impressoraId: '9' } });
+        expect((await daImpressora(10)).procedimento).toBe('imprimir_teste');
+        expect(numero.enviadas.filter((m) => m.texto.includes('Posso reiniciar o serviço de impressão do servidor da loja?'))).toHaveLength(4);
+        expect(numero.enviadas.filter((m) => m.texto.includes('Posso mandar uma via de teste'))).toHaveLength(1);
+        // Com o servidor na versão velha, a impressora que parar agora pede a via de teste.
+        await q(`update edge_status set versao = '1.30.13' where equipamento_id = $1`, [SRV]);
+        avisos.incidentes = [...avisos.incidentes, parada(13, 'sem_responder')];
+        expect(await avisos.volta([A])).toMatchObject({ abertos: 1 });
+        expect((await daImpressora(13)).procedimento).toBe('imprimir_teste');
+
+        // Autorizada: o comando vai SÓ ao servidor do aviso.
+        numero.pedidos.length = 0;
+        expect(await mandar(tel, 'Autorizar', { botaoId: `prop:${p9.id}:sim` })).toBe('respondeu_proposta');
+        await esperarComando(p9.id);
+        expect(await comandoDe(p9.id)).toMatchObject({ comando: 'reiniciar_impressao', equipamento_id: SRV, unidade_id: lojaDeA, status: 'pendente', dados: { propostaId: p9.id } });
+        expect(await q(`select equipamento_id from edge_comando where dados ->> 'propostaId' = $1`, [p9.id])).toHaveLength(1);
+        expect(numero.enviadas.map((m) => m.texto)).toEqual(['Autorizado. Pedi ao servidor da loja para reiniciar o serviço de impressão; confiro em alguns minutos.']);
+        // O servidor reiniciou, mas a impressora ainda não respondeu: segue esperando.
+        await q(`update edge_comando set status = 'executado', resultado = 'serviço de impressão reiniciado', executado_em = now() where dados ->> 'propostaId' = $1`, [p9.id]);
+        expect(await propostas.conferir()).toBe(0);
+        // A 9 voltou: "feito".
+        avisos.incidentes = avisos.incidentes.filter((i: any) => !i.chave.endsWith(':impressora:9'));
+        expect(await avisos.volta([A])).toMatchObject({ resolvidos: 1 });
+        numero.pedidos.length = 0;
+        expect(await propostas.conferir()).toBe(1);
+        expect(await daImpressora(9)).toMatchObject({ situacao: 'feita', resultado: 'O serviço de impressão reiniciou e a impressora voltou a responder.' });
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringMatching(/^✅ Feito às \d{2}:\d{2}\. O serviço de impressão reiniciou e a impressora voltou a responder\.$/)]);
+
+        // A 11: o Windows recusou — "Não deu" na hora, com o que o servidor disse.
+        const p11 = await daImpressora(11);
+        await mandar(tel, 'Autorizar', { botaoId: `prop:${p11.id}:sim` });
+        await esperarComando(p11.id);
+        await q(`update edge_comando set status = 'erro', resultado = 'o Windows recusou o reinício (Acesso negado)', executado_em = now() where dados ->> 'propostaId' = $1`, [p11.id]);
+        numero.pedidos.length = 0;
+        expect(await propostas.conferir()).toBe(1);
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([
+          'Não deu: o servidor da loja não conseguiu reiniciar o serviço de impressão — o Windows recusou o reinício (Acesso negado). Reinicie o computador do servidor; se continuar, fale com o suporte.',
+        ]);
+        // A 12: o servidor ainda não conhecia o comando ("ignorado") — "Não deu" na hora.
+        const p12 = await daImpressora(12);
+        await mandar(tel, 'Autorizar', { botaoId: `prop:${p12.id}:sim` });
+        await esperarComando(p12.id);
+        await q(`update edge_comando set status = 'executado', resultado = 'ignorado', executado_em = now() where dados ->> 'propostaId' = $1`, [p12.id]);
+        expect(await propostas.conferir()).toBe(1);
+        expect(await daImpressora(12)).toMatchObject({ situacao: 'nao_deu', resultado: expect.stringContaining('ainda não sabe reiniciar a impressão por aqui') });
+        // A 14: o servidor não pegou no prazo.
+        const p14 = await daImpressora(14);
+        await mandar(tel, 'Autorizar', { botaoId: `prop:${p14.id}:sim` });
+        await esperarComando(p14.id);
+        expect(await propostas.conferir()).toBe(0);
+        await q(`update mister_proposta set conferir_ate = now() - interval '1 second' where id = $1`, [p14.id]);
+        expect(await propostas.conferir()).toBe(1);
+        expect(await daImpressora(14)).toMatchObject({ situacao: 'nao_deu', resultado: expect.stringContaining('não pegou o pedido') });
+      } finally {
+        avisos.incidentes = [];
+        await q(`delete from mister_aviso_regra where tenant_id = $1`, [A]);
+        await q(`delete from edge_comando where tenant_id = $1 and solicitado_por = 'mister'`, [A]);
+        await q(`delete from edge_status where tenant_id = $1`, [A]);
+        await q(`delete from equipamento where id = any($1::uuid[])`, [[SRV, SRV2]]);
+      }
+    });
+
     // ───────────────────────────── os avisos, parte 2: o canal desconectado ─────────────────────────────
 
     it('a saúde do iFood no banco: marca uma vez (o "desde" fica), limpa, e nunca mexe nas outras chaves do config (V82)', async () => {

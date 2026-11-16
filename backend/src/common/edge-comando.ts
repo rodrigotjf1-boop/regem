@@ -16,13 +16,15 @@ import { sql } from 'drizzle-orm';
 // `dados` leva conteúdo (ex.: o texto da DANFE). Banco sem a mig 269 → linha antiga, sem dados.
 // A credencial do GoGeM (`integrador`, mig 290) também é um `servidor_local`, mas não é servidor
 // de loja: nunca busca comando, e a linha endereçada a ela ficaria pendente para sempre (ERR-108).
+// `equipamentoId` (F4.4 do Mister): só aquele servidor — o do aviso. Se ele não está mais ativo na empresa, vale a loja.
 export async function enfileirarComandoEdge(
   db: any,
   tenantId: string,
   comando: string,
-  opts: { unidadeId?: string | null; dados?: any; solicitadoPor?: string | null } = {},
+  opts: { unidadeId?: string | null; dados?: any; solicitadoPor?: string | null; equipamentoId?: string | null } = {},
 ): Promise<number> {
   const uni = opts.unidadeId ?? null;
+  const so = opts.equipamentoId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(opts.equipamentoId) ? opts.equipamentoId : null;
   const dados = opts.dados != null ? JSON.stringify(opts.dados) : null;
   try {
     const r: any = await db.execute(sql`
@@ -32,9 +34,11 @@ export async function enfileirarComandoEdge(
        where e.tenant_id = ${tenantId} and e.tipo = 'servidor_local' and e.ativo
          and e.integrador is null
          and (${uni}::uuid is null or e.unidade_id = ${uni}::uuid or e.unidade_id is null)
+         and (${so}::uuid is null or e.id = ${so}::uuid)
       returning id`);
     const n = (r.rows ?? r).length;
     if (n) return n;
+    if (so) return enfileirarComandoEdge(db, tenantId, comando, { ...opts, equipamentoId: null });
     await db.execute(sql`
       insert into edge_comando (tenant_id, comando, solicitado_por, unidade_id, dados)
       values (${tenantId}, ${comando}, ${opts.solicitadoPor ?? null}, ${uni}, ${dados}::jsonb)`);

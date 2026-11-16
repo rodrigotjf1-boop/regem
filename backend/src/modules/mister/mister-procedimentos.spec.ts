@@ -2,8 +2,11 @@ import {
   CANAIS_DE_FORA,
   PIN_TENTATIVAS,
   PROCEDIMENTOS,
+  TEXTOS_DA_PROPOSTA,
   TEXTOS_DO_CANCELAMENTO,
   TEXTOS_DO_LINK,
+  TEXTOS_DO_REINICIO,
+  VERSAO_QUE_REINICIA_A_IMPRESSAO,
   apresentacaoDaProposta,
   apresentacaoDoCancelamento,
   nomeCurtoDoCliente,
@@ -16,7 +19,9 @@ import {
   lerBotao,
   perguntaDaProposta,
   propostaDoAviso,
+  reinicioServe,
   resultadoDaConsulta,
+  servidorDoAviso,
   tentativasQueRestam,
   textoDoDesfecho,
 } from './mister-procedimentos';
@@ -49,6 +54,40 @@ describe('o catálogo das propostas do Mister', () => {
       parametros: { servidorId: 'abc', impressoraId: '9' },
     });
     expect(propostaDoAviso({ tipo: 'impressora', chave: 'vigia:servico_parado:srv:abc' })).toBeNull();
+  });
+
+  it('F4.4: com o reinício servindo, a impressora parada pede o reinício do serviço do mesmo servidor (e só a impressora)', () => {
+    const chave = `vigia:impressora_parada:srv:${NOTA}:impressora:9`;
+    expect(propostaDoAviso({ tipo: 'impressora', chave }, { reinicioServe: true })).toEqual({ procedimento: 'reiniciar_impressao', parametros: { servidorId: NOTA, impressoraId: '9' } });
+    expect(propostaDoAviso({ tipo: 'impressora', chave }, { reinicioServe: false })?.procedimento).toBe('imprimir_teste');
+    expect(propostaDoAviso({ tipo: 'nota_sem_resposta', chave: `nota:${NOTA}` }, { reinicioServe: true })?.procedimento).toBe('consultar_nota');
+    // O servidor da chave, só quando é um id de verdade (a chave vem do vigia; o banco não recebe outra coisa).
+    expect(servidorDoAviso({ tipo: 'impressora', chave })).toBe(NOTA);
+    expect(servidorDoAviso({ tipo: 'impressora', chave: 'vigia:impressora_parada:srv:abc:impressora:9' })).toBeNull();
+    expect(servidorDoAviso({ tipo: 'nota_sem_resposta', chave })).toBeNull();
+  });
+
+  it('F4.4: o reinício serve à impressora que parou de responder, com o servidor na versão que sabe reiniciar', () => {
+    expect(VERSAO_QUE_REINICIA_A_IMPRESSAO).toBe('1.30.14');
+    expect(reinicioServe({ motivo: 'sem_responder', versao: '1.30.14' })).toBe(true);
+    expect(reinicioServe({ motivo: null, versao: '1.31.0' })).toBe(true);
+    expect(reinicioServe({ motivo: 'sem_responder', versao: '1.30.13' })).toBe(false);
+    expect(reinicioServe({ motivo: 'sem_responder', versao: '1.4.20' })).toBe(false);
+    // Sem papel, tampa aberta: reiniciar não resolve.
+    expect(reinicioServe({ motivo: 'aviso', versao: '1.40.0' })).toBe(false);
+    // Sem versão conhecida (ou torta): não.
+    expect(reinicioServe({ motivo: 'sem_responder', versao: null })).toBe(false);
+    expect(reinicioServe({ motivo: 'sem_responder', versao: 'dev' })).toBe(false);
+  });
+
+  it('F4.4: a pergunta e a resposta do reinício (a conversa 5 do protótipo)', () => {
+    expect(perguntaDaProposta('reiniciar_impressao')).toBe(
+      'Posso reiniciar o serviço de impressão do servidor da loja? Leva uns 20 segundos, e as vias da fila saem em seguida. A pergunta vale por 10 minutos.',
+    );
+    expect(TEXTOS_DA_PROPOSTA.autorizada('reiniciar_impressao')).toBe('Autorizado. Pedi ao servidor da loja para reiniciar o serviço de impressão; confiro em alguns minutos.');
+    expect(TEXTOS_DO_REINICIO.naoReiniciou('o Windows recusou o reinício (Acesso negado). ')).toBe(
+      'o servidor da loja não conseguiu reiniciar o serviço de impressão — o Windows recusou o reinício (Acesso negado). Reinicie o computador do servidor; se continuar, fale com o suporte.',
+    );
   });
 
   it('o botão leva a proposta e a escolha; o que não é botão de proposta não é lido', () => {

@@ -50,6 +50,7 @@ import {
   SQL_FILA_POR_IMPRESSORA, SQL_IMPRESSORAS_COM_AVISO, SQL_ESTACOES,
 } from './impressao-fila.mjs';
 import { SQL_ALTERACAO_PEDIDA, paramsDaAlteracaoPedida } from './alteracao-pedida.mjs';
+import { reiniciarServicoDeImpressao } from './comando-reiniciar-impressao.mjs';
 import {
   ehTempoEsgotado, motivoDoAdiamento, loteDepoisDoTempoEsgotado, loteDepoisDoSucesso, adiamentoViraFalha,
 } from './sync-push-ritmo.mjs';
@@ -1937,6 +1938,9 @@ async function verificarComandos(jaRecebidos) {
           resultado = await imprimirDaNuvem(c.dados);
         } else if (c.comando === 'alterar_pedido') {
           resultado = await gravarAlteracaoPedida(c.dados);
+        } else if (c.comando === 'reiniciar_impressao') {
+          // F4.4 do Mister: o presidente autorizou pelo WhatsApp; a nuvem confere depois se a impressora voltou a responder.
+          resultado = await reiniciarServicoDeImpressao(pExecFile);
         } else {
           resultado = 'ignorado';
         }

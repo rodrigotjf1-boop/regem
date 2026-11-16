@@ -270,7 +270,14 @@ export function situacaoDoVigia(i: { tenantId: string; unidadeId: string | null;
   const base = { tenantId: i.tenantId, unidadeId: i.unidadeId ?? null, tipo, chave: `vigia:${i.regra}:${i.chave}` };
   if (tipo === 'impressora') {
     const nome = String(i.evidencia?.impressora ?? i.evidencia?.nome ?? '').trim();
-    return { ...base, titulo: `${loja} · impressora${nome ? ` ${nome}` : ''} parada`, detalhe: 'Confira se ela está ligada, com papel e no cabo ou na rede.' };
+    // O motivo do vigia (F4.4): "sem_responder" ou "aviso" (sem papel, tampa) — o reinício do serviço só serve ao primeiro.
+    const motivo = i.evidencia?.motivo === 'sem_responder' || i.evidencia?.motivo === 'aviso' ? i.evidencia.motivo : null;
+    return {
+      ...base,
+      titulo: `${loja} · impressora${nome ? ` ${nome}` : ''} parada`,
+      detalhe: 'Confira se ela está ligada, com papel e no cabo ou na rede.',
+      ...(motivo ? { dados: { motivo } } : {}),
+    };
   }
   if (tipo === 'servidor_sem_sinal')
     return { ...base, titulo: `${loja} · servidor sem sinal`, detalhe: 'Confira se o computador do servidor está ligado e com internet.', dados: { pedidosEsperando: i.evidencia?.pedidosEsperando ?? null } };

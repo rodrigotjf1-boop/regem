@@ -29,7 +29,7 @@ import { RelatoriosService } from '../relatorios/relatorios.service';
 import { VendasService } from '../vendas/vendas.service';
 import { pessoaVale } from './mister-vinculo.service';
 import { MisterPropostasService, PropostaPendente } from './mister-propostas.service';
-import { propostaDoAviso } from './mister-procedimentos';
+import { PROCEDIMENTOS, propostaDoAviso } from './mister-procedimentos';
 import {
   PROCEDIMENTOS_QUE_A_IA_PROPOE,
   CANAL_NA_TELA,
@@ -429,7 +429,8 @@ export class MisterFerramentasService {
         ok: true,
         dados: { proposta: null, aviso: alvo.titulo, motivo: 'A proposta desse aviso já foi respondida (autorizada ou recusada); o andamento sai no próprio aviso.' },
       };
-    return { ok: true, dados: { proposta: 'vai em seguida, com os botões Autorizar e Não agora', aviso: alvo.titulo }, proposta: p };
+    // F4.4: o aviso da impressora pode virar a via de teste ou o reinício do serviço — "oQue" diz qual, para a IA contar.
+    return { ok: true, dados: { proposta: 'vai em seguida, com os botões Autorizar e Não agora', aviso: alvo.titulo, oQue: PROCEDIMENTOS[p.procedimento]?.nome ?? null }, proposta: p };
   }
 
   /**

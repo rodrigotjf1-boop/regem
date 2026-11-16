@@ -7,8 +7,9 @@
 // de permissões do fim do projeto, só o presidente autoriza.
 
 import type { TipoDeAviso } from './mister-avisos.regras';
+import { compararVersao } from '../edge/release-selecao';
 
-export type ProcedimentoDoMister = 'consultar_nota' | 'imprimir_teste' | 'cancelar_pedido';
+export type ProcedimentoDoMister = 'consultar_nota' | 'imprimir_teste' | 'cancelar_pedido' | 'reiniciar_impressao';
 export type NivelDaAutorizacao = 'botao' | 'pin';
 export type SituacaoDaProposta = 'proposta' | 'autorizada' | 'recusada' | 'vencida' | 'executando' | 'feita' | 'nao_deu';
 
@@ -39,31 +40,62 @@ export const PROCEDIMENTOS: Record<ProcedimentoDoMister, Procedimento> = {
   // a cozinha, os benefícios), com o presidente conferido pelo PIN no lugar da senha. Conferido quando o pedido está
   // cancelado e, se foi pago no Pix online, quando o estorno saiu no gateway (`pedido_estorno` feito).
   cancelar_pedido: { id: 'cancelar_pedido', tipoDoAviso: null, nivel: 'pin', prazoMin: 15, conferirMin: 10, nome: 'cancelar o pedido com o estorno' },
+  // F4.4 (a conversa 5 do protótipo): a impressora que parou de RESPONDER, com o servidor da loja na versão que sabe
+  // reiniciar o serviço de impressão (`edge_comando` `reiniciar_impressao`, no `.exe`). Conferido como a via de teste:
+  // o servidor reiniciou (o retorno do comando) e a impressora voltou a responder (o aviso fecha).
+  reiniciar_impressao: { id: 'reiniciar_impressao', tipoDoAviso: 'impressora', nivel: 'botao', prazoMin: 10, conferirMin: 5, nome: 'reiniciar o serviço de impressão do servidor da loja' },
 };
+
+/** A versão do servidor da loja que traz o comando `reiniciar_impressao` (o `sync-daemon` do `.exe` seguinte à 1.30.13). */
+export const VERSAO_QUE_REINICIA_A_IMPRESSAO = '1.30.14';
+
+/**
+ * Reiniciar o serviço de impressão serve? Só com a impressora sem RESPONDER (a que respondeu com aviso — sem papel, tampa
+ * aberta — não volta com reinício) e o servidor da loja na versão que sabe fazer isso. Sem saber a versão, não.
+ */
+export function reinicioServe(s: { motivo?: unknown; versao?: unknown }): boolean {
+  if (s.motivo === 'aviso') return false;
+  const v = String(s.versao ?? '').trim();
+  return /^\d+(\.\d+)*$/.test(v) && compararVersao(v, VERSAO_QUE_REINICIA_A_IMPRESSAO) >= 0;
+}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * A proposta que um aviso aberto pede, com o alvo tirado da chave do aviso; null quando nenhum procedimento serve.
  *  • nota sem resposta: `nota:<id da nota>`;
- *  • impressora parada: `vigia:impressora_parada:srv:<servidor>:impressora:<id da impressora no servidor da loja>`.
+ *  • impressora parada: `vigia:impressora_parada:srv:<servidor>:impressora:<id da impressora no servidor da loja>` — a
+ *    via de teste, ou o reinício do serviço de impressão quando ele serve (`reinicioServe`, lido pelo serviço).
  */
-export function propostaDoAviso(a: { tipo: string; chave: string }): { procedimento: ProcedimentoDoMister; parametros: Record<string, string> } | null {
+export function propostaDoAviso(
+  a: { tipo: string; chave: string },
+  opcoes: { reinicioServe?: boolean } = {},
+): { procedimento: ProcedimentoDoMister; parametros: Record<string, string> } | null {
   if (a.tipo === 'nota_sem_resposta') {
     const id = /^nota:(.+)$/.exec(a.chave)?.[1] ?? '';
     return UUID.test(id) ? { procedimento: 'consultar_nota', parametros: { notaId: id } } : null;
   }
   if (a.tipo === 'impressora') {
     const m = /^vigia:impressora_parada:srv:([^:]+):impressora:(.+)$/.exec(a.chave);
-    return m && m[1] && m[2] ? { procedimento: 'imprimir_teste', parametros: { servidorId: m[1], impressoraId: m[2] } } : null;
+    if (!m || !m[1] || !m[2]) return null;
+    return { procedimento: opcoes.reinicioServe ? 'reiniciar_impressao' : 'imprimir_teste', parametros: { servidorId: m[1], impressoraId: m[2] } };
   }
   return null;
+}
+
+/** O servidor da loja na chave do aviso da impressora (o id do equipamento), ou null. */
+export function servidorDoAviso(a: { tipo: string; chave: string }): string | null {
+  if (a.tipo !== 'impressora') return null;
+  const s = /^vigia:impressora_parada:srv:([^:]+):impressora:/.exec(a.chave)?.[1] ?? '';
+  return UUID.test(s) ? s : null;
 }
 
 /** A pergunta que vai com o aviso, antes dos botões. */
 export function perguntaDaProposta(p: ProcedimentoDoMister): string {
   const prazo = PROCEDIMENTOS[p].prazoMin;
   if (p === 'consultar_nota') return `Posso consultar esta nota de novo na SEFAZ? Leva alguns segundos. A pergunta vale por ${prazo} minutos.`;
+  if (p === 'reiniciar_impressao')
+    return `Posso reiniciar o serviço de impressão do servidor da loja? Leva uns 20 segundos, e as vias da fila saem em seguida. A pergunta vale por ${prazo} minutos.`;
   return `Posso mandar uma via de teste para esta impressora? Se ela imprimir, voltou a responder. A pergunta vale por ${prazo} minutos.`;
 }
 
@@ -83,12 +115,26 @@ export const botoesDaProposta = (propostaId: string) => [
 /** As respostas ao toque. */
 export const TEXTOS_DA_PROPOSTA = {
   autorizada: (p: ProcedimentoDoMister) =>
-    p === 'consultar_nota' ? 'Autorizado. Consultando a SEFAZ…' : 'Autorizado. Mandei a via de teste; confiro em alguns minutos.',
+    p === 'consultar_nota'
+      ? 'Autorizado. Consultando a SEFAZ…'
+      : p === 'reiniciar_impressao'
+        ? 'Autorizado. Pedi ao servidor da loja para reiniciar o serviço de impressão; confiro em alguns minutos.'
+        : 'Autorizado. Mandei a via de teste; confiro em alguns minutos.',
   recusada: 'Certo, não faço nada. O aviso continua aberto no Regem.',
   vencida: (hora: string) => `Essa pergunta valeu até as ${hora}. Se o aviso continuar, a próxima vez traz outra.`,
   jaRespondida: 'Essa pergunta já foi respondida.',
   soPresidente: 'Por enquanto, só o presidente da empresa autoriza por aqui. O aviso continua aberto no Regem.',
   naoAchada: 'Não achei essa pergunta. Ela pode ter vencido.',
+};
+
+/** F4.4: o desfecho do reinício do serviço de impressão, pelo retorno do servidor da loja e pelo aviso da impressora. */
+export const TEXTOS_DO_REINICIO = {
+  feito: 'O serviço de impressão reiniciou e a impressora voltou a responder.',
+  naoReiniciou: (dito: string) =>
+    `o servidor da loja não conseguiu reiniciar o serviço de impressão — ${dito.replace(/[.\s]+$/, '').slice(0, 160)}. Reinicie o computador do servidor; se continuar, fale com o suporte.`,
+  semVersao: 'o servidor da loja ainda não sabe reiniciar a impressão por aqui (falta a versão nova do Regem nele). Reinicie o computador do servidor.',
+  impressoraNaoVoltou: 'o serviço de impressão reiniciou, mas a impressora ainda não responde. Confira se ela está ligada, com papel e no cabo ou na rede.',
+  servidorNaoPegou: 'o servidor da loja não pegou o pedido. Confira se o computador do servidor está ligado e com internet.',
 };
 
 /** O que a SEFAZ respondeu, em português, a partir da situação da nota depois da consulta. */
