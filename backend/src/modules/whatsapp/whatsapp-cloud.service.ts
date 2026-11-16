@@ -19,7 +19,7 @@ import { portaoDoGestor } from '../atendimento/gestor-whatsapp-entrada';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig, empresa, whatsappMensagem, whatsappNumero, whatsappTemplate } from '../../db/schema';
-import { registrarSaida, registrarVolta } from '../../common/consentimento-marketing';
+import { PEDE_SAIDA, PEDE_VOLTA, TEXTO_SAIU, TEXTO_VOLTOU, registrarSaida, registrarVolta } from '../../common/consentimento-marketing';
 import { buscarUrlPublica } from '../../common/ssrf-guard';
 import { escolherNumeroDaWaba, pedirCopiaDoApp, type ResultadoDaCopia } from './coexistencia-meta';
 import { tierParaNumero } from './limite-meta';
@@ -369,6 +369,64 @@ export class WhatsappCloudService {
       .from(cardapioConfig)
       .where(eq(cardapioConfig.waCloudPhoneId, phoneNumberId));
     return cfg ?? null;
+  }
+
+  /**
+   * A loja do número de MARKETING na API oficial (papel 'marketing', da rede — o que as campanhas e as automáticas usam):
+   * só quando é de UMA loja. Quem chama já viu que o número não é o principal de ninguém. Banco sem a tabela (o de uma
+   * loja, o do CI) = nenhuma: a mensagem segue "não vinculada", como antes.
+   */
+  protected async lojaPeloMarketing(phoneNumberId: string): Promise<{ tenantId: string } | null> {
+    if (!phoneNumberId) return null;
+    let achados: any[];
+    try {
+      achados = await this.db
+        .select({ tenantId: whatsappNumero.tenantId })
+        .from(whatsappNumero)
+        .where(
+          and(
+            eq(whatsappNumero.phoneId, phoneNumberId),
+            eq(whatsappNumero.papel, 'marketing'),
+            eq(whatsappNumero.provedor, 'cloud'),
+            isNull(whatsappNumero.unidadeId),
+          ),
+        );
+    } catch (e: any) {
+      if (e?.code === '42P01' || e?.cause?.code === '42P01') return null;
+      throw e;
+    }
+    const lojas = [...new Set((achados as any[]).map((a) => String(a.tenantId)))];
+    if (lojas.length > 1) this.logger.warn(`o número de marketing ${phoneNumberId} está em ${lojas.length} lojas: a mensagem fica de fora.`);
+    return lojas.length === 1 ? { tenantId: lojas[0] } : null;
+  }
+
+  /**
+   * A mensagem que chega ao número de MARKETING. Ele só envia (campanhas, automáticas, avisos): o robô não responde por
+   * ele. Daqui valem a saída das ofertas (SAIR, os botões "Sair das ofertas" e "Não quero mais receber") e a volta
+   * (VOLTAR), com a confirmação pelo próprio número de marketing — a pessoa acabou de escrever, a janela está aberta. A
+   * mensagem de saída e de volta fica gravada (é ela que segura o reenvio da Meta — ERR-319); o resto fica de fora, como antes.
+   */
+  private async entradaDoMarketing(tenantId: string, phoneId: string, v: any): Promise<void> {
+    for (const m of v?.messages ?? []) {
+      const de = soDigitos(m?.from);
+      if (!de) continue;
+      const texto = this.textoDe(m);
+      const txt = texto.trim().toLowerCase();
+      const sai = PEDE_SAIDA.test(txt);
+      if (!sai && !PEDE_VOLTA.test(txt)) {
+        this.logger.log(`mensagem ao número de marketing da loja ${tenantId} de=${mascarar(de)} tipo=${m?.type}: não é SAIR nem VOLTAR, fica de fora`);
+        continue;
+      }
+      try {
+        const nova = await this.gravar({ tenantId, telefone: de, direcao: 'entrada', tipo: String(m?.type ?? 'text'), texto, wamid: String(m?.id ?? '') || null });
+        if (nova === false) continue; // o reenvio da Meta: já tratada
+        if (sai) await registrarSaida(this.db, { tenantId, telefone: de, origem: 'whatsapp', motivo: 'palavra_chave' });
+        else await registrarVolta(this.db, { tenantId, telefone: de, origem: 'whatsapp' });
+        await this.enviarTexto(tenantId, de, sai ? TEXTO_SAIU : TEXTO_VOLTOU, { phoneId });
+      } catch (e: any) {
+        this.logger.warn(`${sai ? 'opt-out (SAIR)' : 'volta (VOLTAR)'} pelo número de marketing de ${mascarar(de)} não gravado: ${e?.message ?? e}`);
+      }
+    }
   }
 
   // Extrai o texto de qualquer tipo de mensagem que a Meta entrega. Tipos sem texto
@@ -722,6 +780,13 @@ export class WhatsappCloudService {
           // O número do Mister não é de loja nenhuma: a conversa dele é tratada à parte (e só chega aqui porque nenhuma
           // loja tem este número — conectar recusa nos dois sentidos).
           if (await this.mister?.receberDaMeta(phoneNumberId, v)) continue;
+          // O número de MARKETING da loja (separado do principal): a resposta a uma campanha, automática ou aviso de vaga.
+          // Antes caía aqui como "não vinculado" e o SAIR se perdia (a pessoa continuava recebendo).
+          const mkt = await this.lojaPeloMarketing(phoneNumberId);
+          if (mkt) {
+            await this.entradaDoMarketing(mkt.tenantId, phoneNumberId, v);
+            continue;
+          }
           // Número da Meta que não pertence a nenhuma loja: pode ser um número de
           // teste ou uma loja que ainda não foi vinculada. Não é erro — só não temos
           // para quem entregar.
@@ -783,23 +848,19 @@ export class WhatsappCloudService {
           // "cancelar" NÃO está aqui: no delivery é o cliente querendo cancelar o PEDIDO — vai ao
           // robô, que chama o atendente (ERR-317). Todos os textos mandam responder SAIR.
           const txt = this.textoDe(m).trim().toLowerCase();
-          if (/^(sair|parar|stop|descadastrar|sair das ofertas|parar ofertas|n[aã]o quero receber)\.?$/.test(txt)) {
+          if (PEDE_SAIDA.test(txt)) {
             try {
               await registrarSaida(this.db, { tenantId: cfg.tenantId, telefone: de, origem: 'whatsapp', motivo: 'palavra_chave' });
-              await this.enviarTexto(
-                cfg.tenantId,
-                de,
-                'Pronto ✅ Você não vai mais receber ofertas e campanhas nossas. Se foi engano e quiser voltar a receber, responda VOLTAR.',
-              );
+              await this.enviarTexto(cfg.tenantId, de, TEXTO_SAIU);
             } catch (e: any) {
               this.logger.warn(`opt-out (SAIR) de ${mascarar(de)} não gravado: ${e?.message ?? e}`);
             }
             continue;
           }
-          if (/^(voltar|voltei|receber)\.?$/.test(txt)) {
+          if (PEDE_VOLTA.test(txt)) {
             try {
               await registrarVolta(this.db, { tenantId: cfg.tenantId, telefone: de, origem: 'whatsapp' });
-              await this.enviarTexto(cfg.tenantId, de, 'Feito! Você voltou a receber nossas ofertas e novidades 🎉');
+              await this.enviarTexto(cfg.tenantId, de, TEXTO_VOLTOU);
             } catch (e: any) {
               this.logger.warn(`volta (VOLTAR) de ${mascarar(de)} não gravada: ${e?.message ?? e}`);
             }
@@ -901,7 +962,8 @@ export class WhatsappCloudService {
 
   // Envia texto livre pela Cloud API. Só funciona dentro da janela de 24h; fora dela
   // a Meta exige template (será a Fase de avisos de pedido).
-  async enviarTexto(tenantId: string, numero: string, texto: string) {
+  // `opts.phoneId`: por outro número da loja (o de marketing, que responde só ao SAIR e ao VOLTAR).
+  async enviarTexto(tenantId: string, numero: string, texto: string, opts: { phoneId?: string | null } = {}) {
     const t = String(texto ?? '').trim();
     if (!t) throw new BadRequestException('Mensagem vazia.');
     const para = soDigitos(numero);
@@ -912,10 +974,11 @@ export class WhatsappCloudService {
       .from(cardapioConfig)
       .where(and(eq(cardapioConfig.tenantId, tenantId)));
     if (!cfg) throw new NotFoundException('Cardápio não configurado.');
-    if (!cfg.waCloudPhoneId)
+    const phoneId = opts.phoneId || cfg.waCloudPhoneId;
+    if (!phoneId)
       throw new BadRequestException('Esta loja não tem número da API oficial vinculado.');
 
-    const res = await fetch(`${GRAPH}/${cfg.waCloudPhoneId}/messages`, {
+    const res = await fetch(`${GRAPH}/${phoneId}/messages`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.token()}`,

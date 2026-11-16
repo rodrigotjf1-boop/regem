@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
+- **Marketing — o SAIR respondido ao NÚMERO DE MARKETING passa a valer (16/11, ERR-484; sem migration).** Só NUVEM (as duas
+  entradas do WhatsApp e a conexão da instância de marketing): na API oficial, a resposta ao phone_id de marketing
+  caía em "não vinculado"; no Evolution, a instância de marketing não tinha webhook. Agora SAIR, "Sair das ofertas" e "Não
+  quero mais receber" tiram das ofertas e VOLTAR volta, com a confirmação pelo próprio número de marketing; o robô não
+  responde por ele. A instância de marketing do Evolution que já existia ganha o webhook no próximo "Conectar" (só com a
+  entrada pelo Regem). Nada a empacotar.
+
 - **🔴 `.exe` — Mister: reiniciar o serviço de impressão pela loja (16/11, F4.4 de `docs/plano-mister.md`, a conversa 5 do
   protótipo `mockups/regem-mister.html`; sem migration).** Toca `backend/edge/sync-daemon.mjs` (o comando
   `reiniciar_impressao`) e cria `backend/edge/comando-reiniciar-impressao.mjs` → **vai no `.exe`** (a 1.30.14 tem de sair

@@ -3,7 +3,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { eq } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig } from '../../db/schema';
-import { registrarSaida, registrarVolta } from '../../common/consentimento-marketing';
+import { PEDE_SAIDA, PEDE_VOLTA, TEXTO_SAIU, TEXTO_VOLTOU, registrarSaida, registrarVolta } from '../../common/consentimento-marketing';
 import { WhatsappService } from './whatsapp.service';
 import { MsgNormalizada } from './whatsapp-cloud.service';
 import { estadoDaPausa, pausarPeloAtendente } from './robo-pausa';
@@ -36,8 +36,9 @@ import { MisterQrService } from '../mister/mister-qr.service';
 
 const RECEBIDAS_MS = 10 * 60 * 1000;
 const ESPERA_FROM_ME_MS = 4000;
-const SAIR = /^(sair|parar|stop|descadastrar|sair das ofertas|parar ofertas|n[aã]o quero receber)\.?$/;
-const VOLTAR = /^(voltar|voltei|receber)\.?$/;
+// A palavra de saída e a de volta são as MESMAS da API oficial e do número de marketing (`consentimento-marketing.ts`).
+const SAIR = PEDE_SAIDA;
+const VOLTAR = PEDE_VOLTA;
 
 const soDigitos = (v: unknown) => String(v ?? '').split('@')[0].split(':')[0].replace(/\D/g, '');
 const mascarar = (t: string) => (t.length > 4 ? `***${t.slice(-4)}` : '***');
@@ -150,6 +151,28 @@ export class EvolutionEntradaService {
     }
   }
 
+  /**
+   * A mensagem que chega à instância de MARKETING. Ela só envia: o robô não responde por ela. Daqui valem a saída das
+   * ofertas (SAIR, "Sair das ofertas", "Não quero mais receber") e a volta (VOLTAR), com a confirmação pela própria
+   * instância; o que a loja mandou (fromMe) e o resto ficam de fora, como antes. O reenvio já foi barrado (`repetida`).
+   */
+  private async entradaDoMarketing(tenantId: string, instancia: string, de: string, data: any): Promise<void> {
+    if (data?.key?.fromMe) return;
+    const txt = lerMensagemEvolution(data).texto.trim().toLowerCase();
+    const sai = SAIR.test(txt);
+    if (!sai && !VOLTAR.test(txt)) {
+      this.logger.log(`mensagem à instância de marketing ${instancia} de=${mascarar(de)}: não é SAIR nem VOLTAR, fica de fora`);
+      return;
+    }
+    try {
+      if (sai) await registrarSaida(this.db, { tenantId, telefone: de, origem: 'whatsapp', motivo: 'palavra_chave' });
+      else await registrarVolta(this.db, { tenantId, telefone: de, origem: 'whatsapp' });
+      await this.evolution.enviarPorInstancia(tenantId, instancia, de, sai ? TEXTO_SAIU : TEXTO_VOLTOU);
+    } catch (e: any) {
+      this.logger.warn(`${sai ? 'opt-out (SAIR)' : 'volta (VOLTAR)'} pela instância de marketing de ${mascarar(de)} não gravado: ${e?.message ?? e}`);
+    }
+  }
+
   private async mensagem(data: any, instancia: string): Promise<void> {
     const key = data.key;
     const id = String(key?.id ?? '');
@@ -163,6 +186,9 @@ export class EvolutionEntradaService {
 
     const [cfg] = await this.db.select().from(cardapioConfig).where(eq(cardapioConfig.evolutionInstancia, instancia));
     if (!cfg) {
+      // A instância de MARKETING da loja (a das campanhas, das automáticas e dos avisos): só o SAIR e o VOLTAR, nunca o robô.
+      const [mkt] = await this.db.select().from(cardapioConfig).where(eq(cardapioConfig.marketingInstancia, instancia));
+      if (mkt) return this.entradaDoMarketing(String(mkt.tenantId), instancia, de, data);
       this.logger.warn(`instância ${instancia} não vinculada a nenhuma loja.`);
       return;
     }
@@ -199,19 +225,13 @@ export class EvolutionEntradaService {
     const txt = lida.texto.trim().toLowerCase();
     if (SAIR.test(txt)) {
       await registrarSaida(this.db, { tenantId: cfg.tenantId, telefone: de, origem: 'whatsapp', motivo: 'palavra_chave' })
-        .then(() =>
-          this.evolution.enviar(
-            cfg.tenantId,
-            de,
-            'Pronto ✅ Você não vai mais receber ofertas e campanhas nossas. Se foi engano e quiser voltar a receber, responda VOLTAR.',
-          ),
-        )
+        .then(() => this.evolution.enviar(cfg.tenantId, de, TEXTO_SAIU))
         .catch((e: any) => this.logger.warn(`opt-out (SAIR) de ${mascarar(de)} não gravado: ${e?.message ?? e}`));
       return;
     }
     if (VOLTAR.test(txt)) {
       await registrarVolta(this.db, { tenantId: cfg.tenantId, telefone: de, origem: 'whatsapp' })
-        .then(() => this.evolution.enviar(cfg.tenantId, de, 'Feito! Você voltou a receber nossas ofertas e novidades 🎉'))
+        .then(() => this.evolution.enviar(cfg.tenantId, de, TEXTO_VOLTOU))
         .catch((e: any) => this.logger.warn(`volta (VOLTAR) de ${mascarar(de)} não gravada: ${e?.message ?? e}`));
       return;
     }
