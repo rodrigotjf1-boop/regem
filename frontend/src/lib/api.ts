@@ -653,6 +653,10 @@ export const distApi = {
   lerDependencias: () => distReq('/distribuicao/dependencias/ler-agora', { method: 'POST', body: '{}' }),
   decidirDependencia: (fonte: string, decisao: 'conferida' | 'nao_se_aplica', nota: string) =>
     distReq(`/distribuicao/dependencias/${encodeURIComponent(fonte)}/decisao`, { method: 'POST', body: JSON.stringify({ decisao, nota }) }),
+  // M2a (mig 432): "Virou tarefa" / "Não se aplica" num padrão do "O que melhorar", e desfazer.
+  decidirPadraoDoMister: (chave: string, decisao: 'tarefa' | 'nao_se_aplica', motivo: string, tarefa: string) =>
+    distReq('/distribuicao/mister/qualidade/decisao', { method: 'POST', body: JSON.stringify({ chave, decisao, motivo, tarefa }) }),
+  desfazerDecisaoDoMister: (chave: string) => distReq('/distribuicao/mister/qualidade/desfazer', { method: 'POST', body: JSON.stringify({ chave }) }),
   misterAvisos: (situacao: 'abertos' | 'resolvidos', busca = '') =>
     distReq(`/distribuicao/mister/avisos?situacao=${situacao}${busca ? `&busca=${encodeURIComponent(busca)}` : ''}`),
 };

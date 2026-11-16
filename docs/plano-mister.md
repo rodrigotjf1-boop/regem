@@ -660,7 +660,22 @@ aprovado).
 - **Onde aparece:** no Console › Avisos, pela entrega `dms`. O Histórico da loja exclui esse tipo, e a tela da loja só
   mostra o destino `tela`. O aviso leva a hora e as consultas, nunca o segredo.
 - **Ainda na parte 2:** a IA sobre os eventos, as decisões do Mentor ("virou tarefa", "não se aplica", com migration) e
-  as versões candidatas das instruções. Essas três pedem tela, então pedem protótipo antes.
+  as versões candidatas das instruções. Essas três pedem tela, então pedem protótipo antes. **O protótipo
+  `mockups/regem-mister-mentor-parte2.html` foi aprovado em 16/11/2026, com as fases M2a, S2 e M2b.**
+
+**M2a (16/11/2026, migration 432): as decisões do "O que melhorar".**
+- **A tabela:** `mister_melhoria_decisao`, só da nuvem e da distribuição (sem empresa). Guarda a chave do padrão, a
+  decisão, o motivo, a tarefa, quem decidiu e quando, e o `vale_ate` do "não se aplica". O índice único parcial deixa uma
+  só decisão valendo por padrão.
+- **A chave do padrão** fica estável entre as leituras: `falta:<tema>`, `consulta:<nome>`, `avaliacao:<id da rodada>`
+  (uma rodada nova com erradas é padrão novo) e `motivo:<motivo>`.
+- **As regras:** `comAsDecisoes` mostra "virou tarefa" à vista com a decisão e esconde o "não se aplica" até vencer (30
+  dias); vencido, o padrão volta a "aberto". O `decidir` desfaz o vencido na mesma transação. Com uma decisão valendo,
+  responde 409 "desfaça antes" (duas abas ao mesmo tempo: uma entra).
+- **As rotas:** `POST /distribuicao/mister/qualidade/decisao` e `/desfazer`, só para a Diretoria, com a auditoria do
+  console (`decidiu_padrao_do_mister`, `desfez_decisao_do_mister`).
+- **A tela:** no cartão, as situações com as contagens, "Virou tarefa" e "Não se aplica" em gaveta, e "Desfazer a
+  decisão". A API antiga, sem a chave, deixa o cartão só de leitura.
 
 ### F2.5 — O suporte de uso: o guia "como faço…" (sem migration)
 

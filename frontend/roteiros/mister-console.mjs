@@ -305,6 +305,22 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
         const dias = Number(url.searchParams.get('dias')) === 30 ? 30 : 7;
         return responder(route, { ...S.seguranca, dias, ...(dias === 30 ? { limite: 7 } : {}) });
       }
+      // M2a: as decisões do "O que melhorar" — o servidor de mentira grava e a leitura seguinte já traz a situação nova.
+      if (p === '/distribuicao/mister/qualidade/decisao') {
+        const c = JSON.parse(req.postData() || '{}');
+        S.qualidade = {
+          ...S.qualidade,
+          melhorar: (S.qualidade.melhorar ?? []).map((x) =>
+            x.chave === c.chave ? { ...x, situacao: c.decisao, decisao: { chave: c.chave, decisao: c.decisao, motivo: c.motivo || null, tarefa: c.tarefa || null, quem: 'Rita', decididaEm: '2026-11-16T12:00:00Z', valeAte: c.decisao === 'nao_se_aplica' ? '2026-12-16T12:00:00Z' : null } } : x,
+          ),
+        };
+        return responder(route, { chave: c.chave, decisao: c.decisao });
+      }
+      if (p === '/distribuicao/mister/qualidade/desfazer') {
+        const c = JSON.parse(req.postData() || '{}');
+        S.qualidade = { ...S.qualidade, melhorar: (S.qualidade.melhorar ?? []).map((x) => (x.chave === c.chave ? { ...x, situacao: 'aberto', decisao: null } : x)) };
+        return responder(route, { ok: true });
+      }
       if (p === '/distribuicao/mister/qualidade') {
         if (S.falhaDaQualidade) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
         const dias = Number(url.searchParams.get('dias')) === 30 ? 30 : 7;
@@ -717,6 +733,46 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
     await page.locator('section[aria-labelledby="mister-qualidade"] >> text=Nenhuma pergunta ao Mister neste período.').waitFor({ timeout: 20000 });
     ok(true, 'qualidade: o vazio diz que não houve pergunta');
     await ctx.close();
+  }
+  {
+    // M2a (mig 432): as decisões do "O que melhorar" — as situações que filtram, "Não se aplica" com o motivo obrigatório
+    // na gaveta, "Desfazer a decisão", e nada fora da janela no celular com a gaveta aberta.
+    const melhorar = [
+      { chave: 'falta:estoque e compras', causa: 'falta_consulta', observacao: '"estoque e compras" faltou 8 vezes, em 3 empresas (o que mais faltou)', porque: 'nenhuma consulta do Mister traz esse dado', proposta: 'Consulta nova de estoque e compras · abrir tarefa', situacao: 'aberto', decisao: null },
+      {
+        chave: 'consulta:historia do pedido', causa: 'erro_na_consulta', observacao: '"historia do pedido" não leu 5 vezes, de 37 (14%)', porque: 'a mesma consulta falhando mais de 10%', proposta: 'Ver o log das 5 falhas · abrir tarefa', situacao: 'tarefa',
+        decisao: { chave: 'consulta:historia do pedido', decisao: 'tarefa', motivo: null, tarefa: 'DMS-412', quem: 'Rita', decididaEm: '2026-11-15T12:00:00Z', valeAte: null },
+      },
+    ];
+    for (const w of [375, 1280]) {
+      const { ctx, page, S, erros } = await abrir(w, 900, { numero: conectado(), liberado: true, qualidade: { ...QUALIDADE, melhorar } });
+      await naAba(page);
+      const card = page.locator('[data-o-que-melhorar]');
+      await card.waitFor({ timeout: 20000 });
+      const t0 = (await card.innerText()).replace(/\s+/g, ' ');
+      ok(/Abertos 1/.test(t0) && /Virou tarefa 1/.test(t0) && /Não se aplica 0/.test(t0) && (await card.locator('[data-padrao]').count()) === 1, `${w} melhorar: as situações com as contagens, e só o aberto na lista (${t0.slice(0, 200)})`);
+      await card.locator('button[aria-pressed]:has-text("Virou tarefa")').click();
+      const t1 = (await card.innerText()).replace(/\s+/g, ' ');
+      ok(/Em tarefa desde 15\/11 · Rita · DMS-412/.test(t1) && (await card.locator('button:has-text("Desfazer a decisão")').count()) === 1, `${w} melhorar: a situação "virou tarefa" com quem, quando e a tarefa`);
+      await card.locator('button[aria-pressed]:has-text("Abertos")').click();
+      await card.locator('[data-padrao] button:has-text("Não se aplica")').click();
+      await page.waitForSelector('[data-gaveta-decisao]', { timeout: 5000 });
+      const salvar = page.locator('[role="dialog"] button:has-text("Salvar a decisão")');
+      ok(await salvar.isDisabled(), `${w} melhorar: "Salvar a decisão" trava sem o motivo`);
+      const m = await medir(page);
+      ok(m.length === 0, `${w} melhorar: com a gaveta aberta, nada fora da janela ${m.slice(0, 3).join(' | ')}`);
+      await page.fill('#decisao-motivo', 'o aviso da chave já vai ao presidente dela');
+      await Promise.all([page.waitForResponse((r) => r.url().endsWith('/distribuicao/mister/qualidade/decisao')), salvar.click()]);
+      const decisao = feitos(S, 'POST', '/distribuicao/mister/qualidade/decisao')[0];
+      ok(JSON.stringify(decisao?.corpo) === JSON.stringify({ chave: 'falta:estoque e compras', decisao: 'nao_se_aplica', motivo: 'o aviso da chave já vai ao presidente dela', tarefa: '' }), `${w} melhorar: salvar manda o padrão, a decisão e o motivo (${JSON.stringify(decisao?.corpo)})`);
+      await page.waitForSelector('text=Nenhum padrão nesta situação.', { timeout: 5000 }).catch(() => null);
+      ok((await card.innerText()).includes('Nenhum padrão nesta situação.'), `${w} melhorar: depois de salvar, a lista relê e o padrão sai dos abertos`);
+      await card.locator('button[aria-pressed]:has-text("Não se aplica")').click();
+      await Promise.all([page.waitForResponse((r) => r.url().endsWith('/distribuicao/mister/qualidade/desfazer')), card.locator('button:has-text("Desfazer a decisão")').click()]);
+      ok(JSON.stringify(feitos(S, 'POST', '/distribuicao/mister/qualidade/desfazer')[0]?.corpo) === JSON.stringify({ chave: 'falta:estoque e compras' }), `${w} melhorar: "Desfazer a decisão" manda o padrão`);
+      ok(erros.length === 0, `${w} melhorar: sem erro (${erros.join(' | ')})`);
+      await ctx.close();
+    }
   }
   {
     // A API de antes do deploy (sem os campos da F5.2): a seção abre, com zero e "Nada faltou neste período.".

@@ -342,7 +342,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -2364,6 +2364,47 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from ibpt_versao where uf = 'RO' and chave = $1`, [chave]);
         await q(`delete from fiscal_credencial where tenant_id = $1`, [A]);
         await q(`delete from fiscal_config where tenant_id = $1`, [A]);
+      }
+    });
+
+    // M2a (mig 432): as decisões da Diretoria nos padrões do "O que melhorar". A tabela é da distribuição (sem empresa):
+    // as chaves do teste levam a MARCA, e o teste apaga só as dele.
+    it('M2a: "virou tarefa" e "não se aplica" num padrão — uma decisão valendo por vez, o motivo obrigatório, desfazer, e o vencido não bloqueia', async () => {
+      const qualidade = new MisterQualidadeService(db);
+      const chave = `falta:tema do teste ${MARCA}`;
+      const outra = `consulta:consulta do teste ${MARCA}`;
+      try {
+        const t = await qualidade.decidir({ chave, decisao: 'tarefa', tarefa: 'DMS-412' }, 'Rita da DMS');
+        expect(t).toMatchObject({ chave, decisao: 'tarefa', tarefa: 'DMS-412', quem: 'Rita da DMS', valeAte: null });
+        // Duas vezes ao mesmo tempo (duas abas): uma entra, a outra é recusada com a frase.
+        const r = await Promise.allSettled([
+          qualidade.decidir({ chave: outra, decisao: 'nao_se_aplica', motivo: 'é da empresa' }, 'Rita'),
+          qualidade.decidir({ chave: outra, decisao: 'tarefa' }, 'Bia'),
+        ]);
+        expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+        expect(r.find((x) => x.status === 'rejected')).toMatchObject({ reason: expect.objectContaining({ message: expect.stringContaining('Desfaça a decisão antes') }) });
+        await expect(qualidade.decidir({ chave, decisao: 'nao_se_aplica', motivo: '' }, 'Rita')).rejects.toThrow('Escreva por que não se aplica.');
+        await expect(qualidade.decidir({ chave: 'inventado:x', decisao: 'tarefa' }, 'Rita')).rejects.toThrow('Padrão desconhecido.');
+        // O "não se aplica" vale 30 dias.
+        await q(`delete from mister_melhoria_decisao where chave = $1`, [outra]);
+        await qualidade.decidir({ chave: outra, decisao: 'nao_se_aplica', motivo: 'é da empresa' }, 'Rita');
+        const [na] = await q(`select round(extract(epoch from (vale_ate - decidida_em)) / 86400)::int as dias from mister_melhoria_decisao where chave = $1 and desfeita_em is null`, [outra]);
+        expect(Number(na.dias)).toBe(30);
+        // As decisões valendo, e desfazer: a linha fica (histórico) e deixa de valer.
+        expect((await qualidade.decisoesValendo()).map((d) => d.chave)).toEqual(expect.arrayContaining([chave, outra]));
+        await qualidade.desfazer(chave);
+        expect((await qualidade.decisoesValendo()).map((d) => d.chave)).not.toContain(chave);
+        expect(Number((await q(`select count(*)::int as n from mister_melhoria_decisao where chave = $1`, [chave]))[0].n)).toBe(1);
+        await expect(qualidade.desfazer(chave)).rejects.toThrow('não tem decisão valendo');
+        // Desfeita, pode decidir de novo; o "não se aplica" vencido também não bloqueia (é desfeito na mesma transação).
+        await qualidade.decidir({ chave, decisao: 'nao_se_aplica', motivo: 'já tem tarefa noutro lugar' }, 'Rita');
+        await q(`update mister_melhoria_decisao set vale_ate = now() - interval '1 minute' where chave = $1 and desfeita_em is null`, [chave]);
+        expect(await qualidade.decidir({ chave, decisao: 'tarefa' }, 'Rita')).toMatchObject({ decisao: 'tarefa' });
+        // A leitura da Qualidade traz os padrões com a situação (os do período desta spec, se houver, sem decisão = aberto).
+        const resumo: any = await qualidade.resumo(7);
+        expect(resumo.melhorar.every((x: any) => ['aberto', 'tarefa', 'nao_se_aplica'].includes(x.situacao) && typeof x.chave === 'string')).toBe(true);
+      } finally {
+        await q(`delete from mister_melhoria_decisao where chave like $1`, [`%${MARCA}`]);
       }
     });
 

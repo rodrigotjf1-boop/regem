@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
+- **Mister — as decisões do "O que melhorar" (16/11, M2a do protótipo `mockups/regem-mister-mentor-parte2.html` aprovado;
+  mig 432 `@cloud-only` — tabela nova `mister_melhoria_decisao`, da distribuição, sem `tenant_id`: o `sync-daemon` não
+  muda).** Só NUVEM (Console › Mister › Qualidade): "Virou tarefa" e "Não se aplica" (motivo obrigatório, 30 dias) em
+  cada padrão, as situações que filtram e "Desfazer a decisão", com a auditoria do console. Nada a empacotar.
+
 - **As consultas do robô presas ao cliente da conversa (16/11, ERR-483; SEM migration).** Lista de pedidos pela chave do
   telefone (o vizinho de outro DDD não aparece mais), status pelo número só do telefone da conversa, e as duas rotas e o
   "chamar atendente" pelo telefone da ficha quando ela vem. O robô é da nuvem: vale com o merge; o `.zip` leva o código
