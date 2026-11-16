@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Dialogo } from '@/components/ui/sobreposto';
+import { useModoDaLista } from '@/components/ui/lista';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Situacao = 'novo' | 'igual' | 'parecido' | 'repetido';
@@ -326,16 +327,21 @@ export function ImportarProdutos({
                 </>
               )}
             </div>
-            <div className="max-h-[46vh] overflow-auto rounded-lg border border-border">
-              <table className="w-full border-collapse sm:min-w-[640px]">
+            <CaixaDaConferencia>
+              {(empilhada) => (
+              <table className={`w-full border-collapse ${empilhada ? '' : 'min-w-[640px]'}`}>
                 <caption className="sr-only">Conferência dos produtos do arquivo</caption>
                 <thead className="sticky top-0">
                   <tr className={`border-b border-border bg-secondary text-left text-xs uppercase tracking-wide ${texto2}`}>
                     <th scope="col" className="px-3 py-2">Importar</th>
                     <th scope="col" className="px-3 py-2">Produto no arquivo</th>
-                    <th scope="col" className="hidden px-3 py-2 sm:table-cell">Unidade</th>
-                    <th scope="col" className="hidden px-3 py-2 sm:table-cell">Categoria</th>
-                    <th scope="col" className="hidden px-3 py-2 sm:table-cell">Situação</th>
+                    {!empilhada && (
+                      <>
+                        <th scope="col" className="px-3 py-2">Unidade</th>
+                        <th scope="col" className="px-3 py-2">Categoria</th>
+                        <th scope="col" className="px-3 py-2">Situação</th>
+                      </>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -361,22 +367,31 @@ export function ImportarProdutos({
                               {[l.nomeComercial ? `Na compra: ${l.nomeComercial}` : '', l.marcas?.length ? `${l.marcas.length === 1 ? 'Marca' : 'Marcas'}: ${l.marcas.join(', ')}` : ''].filter(Boolean).join(' · ')}
                             </span>
                           )}
-                          {/* No celular, o que seriam as outras colunas vem aqui embaixo. */}
-                          <span className={`block text-xs sm:hidden ${texto2}`}>{mapa[l.unidadeArquivo]}{l.categoria ? ` · ${l.categoria}` : ''}</span>
-                          <span className="mt-1 block sm:hidden">{situacao}</span>
+                          {/* Sem espaço para as colunas, o que seriam as outras colunas vem aqui embaixo. */}
+                          {empilhada && (
+                            <>
+                              <span className={`block text-xs ${texto2}`}>{mapa[l.unidadeArquivo]}{l.categoria ? ` · ${l.categoria}` : ''}</span>
+                              <span className="mt-1 block">{situacao}</span>
+                            </>
+                          )}
                         </td>
-                        <td className="hidden px-3 py-1.5 sm:table-cell">{mapa[l.unidadeArquivo]}</td>
-                        <td className={`hidden px-3 py-1.5 sm:table-cell ${texto2}`}>{l.categoria || '—'}</td>
-                        <td className="hidden px-3 py-1.5 sm:table-cell">{situacao}</td>
+                        {!empilhada && (
+                          <>
+                            <td className="px-3 py-1.5">{mapa[l.unidadeArquivo]}</td>
+                            <td className={`px-3 py-1.5 ${texto2}`}>{l.categoria || '—'}</td>
+                            <td className="px-3 py-1.5">{situacao}</td>
+                          </>
+                        )}
                       </tr>
                     );
                   })}
                   {visiveis.length === 0 && (
-                    <tr><td colSpan={5} className={`px-3 py-6 text-center ${texto2}`}>Nenhum produto nesta situação.</td></tr>
+                    <tr><td colSpan={empilhada ? 2 : 5} className={`px-3 py-6 text-center ${texto2}`}>Nenhum produto nesta situação.</td></tr>
                   )}
                 </tbody>
               </table>
-            </div>
+              )}
+            </CaixaDaConferencia>
             <p className={texto2} role="status" aria-live="polite">
               {escolhidos.length} de {importaveis.length} marcado(s) para importar. Os parecidos vêm desmarcados: marque só os que forem produtos diferentes dos que você já tem.
             </p>
@@ -386,5 +401,20 @@ export function ImportarProdutos({
         {erro && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 font-medium text-destructive">{erro}</p>}
       </div>
     </Dialogo>
+  );
+}
+
+/**
+ * A caixa da conferência (passo 3). Nunca rola para o lado (V45): a tabela vai em colunas quando cabe no espaço do DIÁLOGO e
+ * empilhada (as outras colunas descem para a célula do produto) quando não cabe. Pela largura da tela (`sm:`) ela rolava de
+ * 640 a ~704 px — 640 px de tabela no diálogo de 576 (celular deitado). É uma peça à parte porque monta junto com o passo
+ * 3: o `useModoDaLista` passa a observar o tamanho dela desde o começo (girar o celular decide de novo).
+ */
+function CaixaDaConferencia({ children }: { children: (empilhada: boolean) => React.ReactNode }) {
+  const { caixa, modo } = useModoDaLista('importar:conferencia');
+  return (
+    <div ref={caixa} className="max-h-[46vh] overflow-auto rounded-lg border border-border">
+      {children(modo === 2)}
+    </div>
   );
 }
