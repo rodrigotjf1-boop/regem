@@ -39,9 +39,11 @@ Write-Host "OK — main == origin/main ($(git log -1 --format=%h))" -ForegroundC
 # 2) Alinhar a versão no .iss (version.txt sai do EDGE_VERSAO no package.mjs) ---
 Passo "2/6  Carimbar versão $Versao no regem-edge.iss"
 $iss = Join-Path $PSScriptRoot 'regem-edge.iss'
-$txt = Get-Content $iss -Raw
+# ERR-113: le e grava em UTF-8. O Get-Content do PS 5.1 lia o arquivo sem BOM como ANSI e o Set-Content regravava o lixo
+# ("—" virava "â€”" na tela do instalador). Grava COM BOM: o Inno so le UTF-8 com BOM (sem, trata como ANSI).
+$txt = [IO.File]::ReadAllText($iss, [Text.Encoding]::UTF8)
 $txt = $txt -replace '#define\s+AppVer\s+"[^"]*"', ('#define AppVer  "' + $Versao + '"')
-Set-Content $iss -Value $txt -Encoding UTF8 -NoNewline
+[IO.File]::WriteAllText($iss, $txt, (New-Object Text.UTF8Encoding $true))
 Write-Host "OK — AppVer = $Versao" -ForegroundColor Green
 
 # 3) Rebuild do frontend (gera .next/standalone com o código atual) ------------

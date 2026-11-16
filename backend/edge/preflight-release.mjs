@@ -166,6 +166,14 @@ if (existsSync(ISS)) {
   vIss = m ? m[1] : '';
   if (vIss) ok(`.iss AppVer = ${vIss}`);
   else erro('não achei #define AppVer no regem-edge.iss');
+  // ERR-113: o texto da tela do instalador. O carimbo antigo lia o .iss como ANSI e regravava "—" como "â€”"; e sem BOM
+  // o Inno lê o UTF-8 como ANSI (o mesmo lixo na tela). O build-release.ps1 grava em UTF-8 COM BOM.
+  const bytes = readFileSync(ISS);
+  const comBom = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
+  const estragadas = bytes.toString('utf8').split('\n').filter((l) => /â€|Ã[\u0080-¿]/.test(l)).length;
+  if (estragadas) erro(`regem-edge.iss com ${estragadas} linha(s) de acento estragado ("â€", "Ã") — restaure do git e carimbe pelo build-release.ps1 (ERR-113).`);
+  else if (!comBom && /[^\x00-\x7f]/.test(bytes.toString('utf8'))) erro('regem-edge.iss tem acento/travessão e está SEM BOM: o Inno leria como ANSI e a tela mostraria "â€”" — carimbe pelo build-release.ps1 (grava UTF-8 com BOM; ERR-113).');
+  else ok('regem-edge.iss em UTF-8 sem acento estragado' + (comBom ? ' (com BOM)' : ''));
 } else erro('regem-edge.iss ausente');
 if (vTxt && vIss && vTxt !== vIss) erro(`version.txt (${vTxt}) ≠ .iss AppVer (${vIss}) — o .exe sairia com versão trocada. Alinhe os dois.`);
 else if (vTxt && vIss) ok('version.txt == .iss AppVer');
