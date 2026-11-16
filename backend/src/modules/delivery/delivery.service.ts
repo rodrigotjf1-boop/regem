@@ -1619,7 +1619,7 @@ export class DeliveryService {
     // No EDGE, o pedido externo entra em "pendentes" e já imprime 1 via do caixa na
     // impressora LOCAL (a nuvem não alcança a térmica). Delivery leva o QR de despacho
     // direto na comanda quando a loja mantém 'imprimir_qr_comanda' ligado.
-    if (String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true' && row.comandaId) {
+    if (ehServidorLocal() && row.comandaId) {
       // A falha da via não derruba o aceite, mas não passa em silêncio (antes: `catch(() => {})`).
       void this.imprimirCupomCaixaExterno(tenantId, row).catch((e) =>
         this.logger.warn(`pedido ${row.id}: a via do caixa não saiu (${e?.message ?? e})`),

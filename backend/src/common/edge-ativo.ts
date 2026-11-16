@@ -1,3 +1,4 @@
+import { ehServidorLocal } from './modo';
 import { sql } from 'drizzle-orm';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -16,7 +17,7 @@ export async function edgeAtivo(
 ): Promise<boolean> {
   // No próprio edge não há heartbeat de si mesmo (é tabela da nuvem) → false, e o
   // edge continua editando a própria config. O corte real vale na NUVEM.
-  if (process.env.EDGE_MODE === 'true') return false;
+  if (ehServidorLocal()) return false;
   if (!tenantId) return false;
   // F2 (por LOJA): quando se pergunta por uma unidade, o edge DELA tem que estar vivo —
   // não basta o tenant ter algum edge (senão a filial materializaria o pedido da matriz).

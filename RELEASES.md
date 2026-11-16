@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
+- **"É o servidor da loja?" num lugar só (16/11, V2 do registro; sem migration) → vai no `.zip`** (o código da API e o
+  `backend/scripts/apply-all-local.mjs`, que aplica as migrations na loja).
+  - As 26 comparações de `EDGE_MODE` feitas à mão viram `ehServidorLocal()`.
+  - O script das migrations passa a aceitar os mesmos valores da API: "true" em qualquer caixa e "1".
+  - Com o `EDGE_MODE=true` que o instalador grava, nada muda no comportamento.
+
 - **Os cabeçalhos de segurança do app (16/11, avaliação interna; SEM migration; só `frontend/next.config.mjs`).** Na NUVEM
   com o merge: nenhuma tela pode ser embutida em outro site (menos o cardápio público `/c/...`), `nosniff` em tudo, HSTS
   só em `app.dmsregem.com` e sem `X-Powered-By`. No servidor da loja entra com o `.zip` (o front da loja usa o mesmo

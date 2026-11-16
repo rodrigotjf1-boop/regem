@@ -1,3 +1,4 @@
+import { ehServidorLocal } from './modo';
 import {
   CanActivate,
   ExecutionContext,
@@ -13,8 +14,7 @@ import { CLOUD_ONLY } from './cloud-only.decorator';
 // os módulos cloud-only), este guard blinda em runtime caso algo vaze.
 @Injectable()
 export class CloudOnlyGuard implements CanActivate {
-  private readonly edge =
-    String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
+  private readonly edge = ehServidorLocal();
 
   constructor(private readonly reflector: Reflector) {}
 
