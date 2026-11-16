@@ -67,6 +67,10 @@
   - No passo 3, a lista fica em colunas quando cabe no diálogo e empilhada quando não cabe.
   - Antes, de 640 a ~704 px de tela (celular deitado), a tabela de 640 px rolava dentro do diálogo de 576.
 
+- **A troca de 01/10 não aceita mais código da autorização por clique (16/11, avaliação de segurança, achado A-04; SEM
+  migration).** Só NUVEM (a porta de integração é da nuvem): o código do clique apresentado à troca antiga é recusado sem
+  ser gasto. Os arquivos vão junto no próximo corte, sem efeito na loja. Nada no `.exe`.
+
 - **As rotinas agendadas, nuvem × loja (16/11, ERR-075; sem migration) → vai no `.zip`** (o servidor da loja roda os mesmos
   `@Cron`).
   - **Expurgo LGPD das fotos:** a loja passa a apagar só as fotos do disco dela, e a nuvem as do storage. Antes, o lado que
