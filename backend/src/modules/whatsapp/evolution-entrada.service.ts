@@ -17,6 +17,7 @@ import { avisarPelaMensagemDoCliente } from '../../common/aviso-ao-entregador';
 import { portaoDoGestor } from '../atendimento/gestor-whatsapp-entrada';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { assinarConversa, ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario, ehChaveDoMessenger } from '../../common/conversa-do-robo';
+import { MisterEntradaService } from '../mister/mister-entrada.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -94,6 +95,8 @@ export class EvolutionEntradaService {
     @Optional() private readonly events?: EventEmitter2,
     // O gestor que liga ou para os avisos pelo WhatsApp (mig 375) fica na auditoria. Opcional, como o de cima.
     @Optional() private readonly auditoria?: AuditoriaService,
+    // Q1 (mig 436): a instância do Mister no Evolution da distribuição — a mensagem é dele, nunca de uma loja.
+    @Optional() private readonly mister?: MisterEntradaService,
   ) {}
 
   /** Mensagem já vista nesta janela (a Evolution reenvia quando demora)? Marca como vista. */
@@ -145,6 +148,10 @@ export class EvolutionEntradaService {
     const de = telefoneDaConversa(key);
     if (!id || !de) return;
     if (this.repetida(`${instancia}:${id}`)) return;
+
+    // Q1 (mig 436): a instância do Mister (com o Evolution em uso) é tratada pelo Mister e NUNCA segue para o caminho das
+    // lojas — como o número do Mister na API oficial (`receberDaMeta`).
+    if (this.mister && (await this.mister.receberDoEvolution(instancia, { telefone: de, texto: lerMensagemEvolution(data).texto, wamid: id, deMim: !!key.fromMe }))) return;
 
     const [cfg] = await this.db.select().from(cardapioConfig).where(eq(cardapioConfig.evolutionInstancia, instancia));
     if (!cfg) {

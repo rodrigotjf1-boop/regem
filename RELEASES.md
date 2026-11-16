@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
+- **Mister — a porta do provedor do número (16/11, Q1 do protótipo `mockups/regem-mister-qr.html` aprovado; mig 436
+  `@cloud-only` — três colunas na `mister_numero`, da distribuição, sem `tenant_id`: o `sync-daemon` não muda).** Só NUVEM:
+  o número do Mister pode falar pelo Evolution da distribuição (texto, botões numerados, link escrito, 20/min), a entrada
+  do Evolution reconhece a instância do Mister, "1"/"2" respondem a autorização aberta, e sem janela os avisos e resumos
+  vão com o texto. Nasce na API oficial: nada muda até a Diretoria trocar (o console é a Q2). Nada a empacotar.
+
 - **Mister — as instruções candidatas (16/11, M2b do protótipo `mockups/regem-mister-mentor-parte2.html` aprovado; mig 435
   `@cloud-only` — tabela nova `mister_instrucao_troca`, da distribuição, sem `tenant_id`: o `sync-daemon` não muda).** Só
   NUVEM (Console › Mister › Instruções): o Mentor propõe a troca de uma linha, a avaliação roda com ela, "Publicar" só sem

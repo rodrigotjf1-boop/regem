@@ -30,7 +30,9 @@ import { IfoodService } from '../integracoes/ifood/ifood.service';
 import { IbptService } from '../fiscal/ibpt/ibpt.service';
 import { MisterEntradaService } from './mister-entrada.service';
 import { MisterPropostasService } from './mister-propostas.service';
-import { TEXTOS_DO_LINK } from './mister-procedimentos';
+import { TEXTOS_DA_PROPOSTA, TEXTOS_DO_LINK } from './mister-procedimentos';
+import { MODELO_DO_AVISO } from './mister-modelos';
+import { EvolutionEntradaService } from '../whatsapp/evolution-entrada.service';
 import { MisterFerramentasService } from './mister-ferramentas.service';
 import { MisterFilaService } from './mister-fila.service';
 import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
@@ -356,7 +358,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -4467,6 +4469,117 @@ export function testesDoMisterComPostgres(): void {
       } finally {
         await q(`delete from mister_instrucao_troca where criada_por = $1`, [QUEM]);
         await q(`delete from mister_avaliacao where pedida_por = $1`, [QUEM]);
+      }
+    });
+
+    // ───────────────────────────── a porta do provedor: o Evolution (Q1, mig 436) ─────────────────────────────
+
+    it('Q1: o Evolution — o envio (texto, botões numerados, link escrito, ritmo de 20/min, sem modelo), o número que se salva, a entrada só da instância do Mister (o eco não conta), o "2" na autorização aberta e o aviso sem janela', async () => {
+      const INSTANCIA = `mister-${MARCA}`;
+      const NUMERO_DO_QR = '5521977776666';
+      const antesEvolution = { url: process.env.EVOLUTION_API_URL, chave: process.env.EVOLUTION_API_KEY };
+      process.env.EVOLUTION_API_URL = 'https://evolution.teste/';
+      process.env.EVOLUTION_API_KEY = 'chave-do-evolution-de-teste';
+      class NumeroQueAnota extends NumeroDeMentira {
+        esperas: number[] = [];
+        protected esperar(ms: number) {
+          this.esperas.push(ms);
+          return Promise.resolve();
+        }
+      }
+      const doEvolution = new NumeroQueAnota(db);
+      const pedidosAoEvolution = (n: NumeroDeMentira) => n.pedidos.filter((p) => p.url.startsWith('https://evolution.teste/'));
+      let notaDoQ1: string | null = null;
+      const tel = telefone();
+      await ligar('ana', tel);
+      try {
+        // ── Nasce na API oficial: nada muda até trocar.
+        expect(await doEvolution.ler()).toMatchObject({ provedor: 'oficial', instancia: null, instanciaNumero: null });
+        expect(await doEvolution.semJanela()).toBe(false);
+        await q(`update mister_numero set provedor = 'evolution', instancia = $1, instancia_numero = $2 where id = 1`, [INSTANCIA, NUMERO_DO_QR]);
+        expect(await doEvolution.semJanela()).toBe(true);
+        expect(await doEvolution.daInstancia(INSTANCIA)).toMatchObject({ provedor: 'evolution', instanciaNumero: NUMERO_DO_QR });
+        expect(await doEvolution.daInstancia('instancia-de-uma-loja')).toBeNull();
+
+        // ── O envio: texto pelo Evolution da distribuição (nada pela Meta); os botões numerados; o link escrito.
+        await doEvolution.enviar(tel, { texto: 'Bom dia.' });
+        await doEvolution.enviar(tel, { texto: 'Posso consultar a nota?', botoes: [{ id: 'prop:x:sim', titulo: 'Autorizar' }, { id: 'prop:x:nao', titulo: 'Não agora' }] });
+        await doEvolution.enviar(tel, { texto: 'A autorização é no Regem.', link: { titulo: 'Abrir no Regem', url: 'https://app.dmsregem.com/m/abc' } });
+        const saidas = pedidosAoEvolution(doEvolution);
+        expect(saidas.map((p) => p.url)).toEqual(Array(3).fill(`https://evolution.teste/message/sendText/${INSTANCIA}`));
+        expect(saidas.map((p) => p.corpo)).toEqual([
+          { number: tel, text: 'Bom dia.' },
+          { number: tel, text: 'Posso consultar a nota?\n\n1. Autorizar\n2. Não agora\n\nResponda com o número.' },
+          { number: tel, text: 'A autorização é no Regem.\n\nAbrir no Regem: https://app.dmsregem.com/m/abc' },
+        ]);
+        expect(doEvolution.pedidos.some((p) => p.url.startsWith(GRAPH))).toBe(false);
+        // Sem modelo no Evolution: quem chama manda o texto (o modelo recusa com o motivo).
+        await expect(doEvolution.enviarModelo(tel, MODELO_DO_AVISO, ['a', 'b'], { tipo: 'aviso', id: randomUUID() })).rejects.toMatchObject({ motivo: 'evolution' });
+
+        // ── O ritmo: 20 por minuto; o 21º espera o mais antigo sair da conta.
+        for (let i = 0; i < 17; i++) await doEvolution.enviar(tel, { texto: `envio ${i}` });
+        expect(doEvolution.esperas).toEqual([]);
+        await doEvolution.enviar(tel, { texto: 'o 21º' });
+        expect(doEvolution.esperas).toHaveLength(1);
+        expect(doEvolution.esperas[0]).toBeGreaterThan(50_000);
+        expect(doEvolution.esperas[0]).toBeLessThanOrEqual(60_050);
+
+        // ── O Evolution que recusa, e a chave geral desligada (nada sai).
+        doEvolution.responder = (p) => (p.url.startsWith('https://evolution.teste/') ? { status: 500, corpo: { erro: 'instância desconectada' } } : undefined);
+        await expect(doEvolution.enviar(tel, { texto: 'x' })).rejects.toMatchObject({ motivo: 'evolution', status: 500 });
+        doEvolution.responder = () => undefined;
+        await q(`update mister_numero set ligado = false where id = 1`);
+        await expect(doEvolution.enviar(tel, { texto: 'x' })).rejects.toMatchObject({ motivo: 'desligado' });
+        await q(`update mister_numero set ligado = true where id = 1`);
+
+        // ── O número que as pessoas salvam é o do QR.
+        expect(await vinculo.meu(usuario('ana'))).toMatchObject({ disponivel: true, numeroDoMister: NUMERO_DO_QR });
+
+        // ── A entrada: só a instância do Mister; o eco do próprio número não vira pergunta; a loja segue o caminho dela.
+        expect(await entrada.receberDoEvolution('instancia-de-uma-loja', { telefone: tel, texto: 'oi', wamid: `${MARCA}-1`, deMim: false })).toBe(false);
+        expect(await entrada.receberDoEvolution(INSTANCIA, { telefone: tel, texto: 'eco', wamid: `${MARCA}-2`, deMim: true })).toBe(true);
+        expect(await q(`select 1 from mister_mensagem where wamid = $1`, [`evo:${MARCA}-2`])).toHaveLength(0);
+        // Pela porta do Evolution (a mesma das lojas): o aviso da instância do Mister é dele, com o id num espaço próprio.
+        // (De um telefone que não está ligado: a resposta fixa, sem pôr pergunta na fila dos outros testes.)
+        const portaDoEvolution = new EvolutionEntradaService(db, {} as any, undefined, undefined, entrada);
+        const desconhecido = telefone();
+        await portaDoEvolution.processar({ event: 'MESSAGES_UPSERT', data: { key: { id: `${MARCA}-3`, remoteJid: `${desconhecido}@s.whatsapp.net`, fromMe: false }, message: { conversation: 'oi, Mister' } } }, INSTANCIA);
+        expect((await q(`select desfecho from mister_mensagem where wamid = $1`, [`evo:${MARCA}-3`]))[0]?.desfecho).toBe('fixa');
+
+        // ── "2" com uma autorização de botão aberta: recusa ESSA autorização, e a resposta sai pelo Evolution.
+        const [prop] = await q(
+          `insert into mister_proposta (tenant_id, unidade_id, aviso_id, procedimento, parametros, nivel, vence_em)
+           values ($1, null, $2, 'consultar_nota', '{}'::jsonb, 'botao', now() + interval '10 minutes') returning id::text as id`,
+          [A, randomUUID()],
+        );
+        numero.pedidos.length = 0;
+        expect(await entrada.receberDoEvolution(INSTANCIA, { telefone: tel, texto: ' 2 ', wamid: `${MARCA}-4`, deMim: false })).toBe(true);
+        expect((await q(`select situacao from mister_proposta where id = $1`, [prop.id]))[0].situacao).toBe('recusada');
+        expect((await q(`select desfecho from mister_mensagem where wamid = $1`, [`evo:${MARCA}-4`]))[0].desfecho).toBe('respondeu_proposta');
+        expect(pedidosAoEvolution(numero).map((p) => p.corpo.text)).toEqual([TEXTOS_DA_PROPOSTA.recusada]);
+
+        // ── Sem janela: o aviso de quem não escreve há dias vai com o TEXTO (não o modelo), pelo Evolution.
+        await q(`update mister_vinculo set ultima_entrada_em = now() - interval '3 days' where colaborador_id = $1`, [pessoa.ana]);
+        numero.pedidos.length = 0;
+        avisos.incidentes = [];
+        notaDoQ1 = await notaSemResposta(9701);
+        await avisos.volta([A]);
+        const aoEvolution = pedidosAoEvolution(numero).map((p) => p.corpo.text);
+        expect(aoEvolution.some((t) => t.includes('nº 9701'))).toBe(true);
+        expect(numero.pedidos.some((p) => p.url.startsWith(GRAPH) && p.corpo?.type === 'template')).toBe(false);
+      } finally {
+        await q(`update mister_numero set provedor = 'oficial', instancia = null, instancia_numero = null, ligado = true where id = 1`);
+        await q(`delete from mister_mensagem where wamid like $1`, [`evo:${MARCA}-%`]);
+        await janelaAberta('ana');
+        if (notaDoQ1) {
+          await q(`delete from mister_proposta where aviso_id in (select id from mister_aviso where tenant_id = $1 and chave = $2)`, [A, `nota:${notaDoQ1}`]);
+          await q(`delete from mister_aviso where tenant_id = $1 and chave = $2`, [A, `nota:${notaDoQ1}`]);
+          await q(`update nota_fiscal set status = 'autorizada' where id = $1`, [notaDoQ1]);
+        }
+        if (antesEvolution.url === undefined) delete process.env.EVOLUTION_API_URL;
+        else process.env.EVOLUTION_API_URL = antesEvolution.url;
+        if (antesEvolution.chave === undefined) delete process.env.EVOLUTION_API_KEY;
+        else process.env.EVOLUTION_API_KEY = antesEvolution.chave;
       }
     });
 

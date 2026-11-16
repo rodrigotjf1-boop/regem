@@ -168,6 +168,58 @@ export class MisterEntradaService {
     return true;
   }
 
+  /**
+   * Q1 (mig 436): a entrada pelo Evolution, já com a assinatura da instância conferida pela porta do Evolution. Devolve
+   * `true` quando a instância é a do Mister (com o Evolution em uso) — aí a mensagem é tratada aqui e NUNCA segue para o
+   * caminho das lojas. O eco do que sai pelo próprio número (`fromMe`) nunca vira pergunta. "1" e "2" são a resposta à
+   * última autorização aberta da pessoa (o Evolution não tem botão), a não ser que a pergunta "de qual empresa?" esteja
+   * de pé — aí o número é a empresa, como sempre.
+   */
+  async receberDoEvolution(instancia: string, m: { telefone: string; texto: string; wamid: string | null; deMim: boolean }): Promise<boolean> {
+    if (!(await this.numero.daInstancia(instancia))) return false;
+    if (m.deMim) return true;
+    await this.numero.anotarEntradaPeloEvolution().catch((e) => this.logger.warn(`anotar a entrada falhou: ${e?.message ?? e}`));
+    const tel = soDigitos(m.telefone);
+    const entrada: MensagemDoMister = {
+      telefone: tel,
+      texto: String(m.texto ?? ''),
+      botaoId: await this.botaoPelaResposta(tel, m.texto),
+      // O id do Evolution num espaço próprio: nunca colide com o da Meta na trava de mensagem repetida.
+      wamid: m.wamid ? `evo:${m.wamid}` : null,
+      codigoDoModelo: null,
+    };
+    try {
+      const desfecho = await this.receber(entrada);
+      this.logger.log(`mister (evolution) de=${mascarar(tel)} id=${m.wamid} → ${desfecho}`);
+    } catch (e: any) {
+      this.logger.error(`mister: a mensagem ${m.wamid} (evolution) de ${mascarar(tel)} não foi tratada — ${e?.message ?? e}`, e?.stack);
+    }
+    return true;
+  }
+
+  /** "1" ou "2" com uma autorização de botão aberta para este telefone (e sem a pergunta da empresa de pé): o botão dela. */
+  private async botaoPelaResposta(tel: string, texto: unknown): Promise<string | null> {
+    const dito = String(texto ?? '').trim();
+    if (!tel || (dito !== '1' && dito !== '2')) return null;
+    try {
+      const [p] = linhas(
+        await this.db.execute(sql`
+          select p.id::text as id
+            from mister_proposta p
+            join mister_vinculo v on v.tenant_id = p.tenant_id and v.telefone = ${tel} and v.ligado_em is not null
+           where p.situacao = 'proposta' and p.nivel = 'botao' and p.vence_em > now()
+             and not exists (select 1 from mister_conversa c
+                              where c.telefone = ${tel} and c.perguntada_em > now() - make_interval(mins => ${PENDENTE_VALE_MIN}))
+           order by p.criada_em desc
+           limit 1`),
+      );
+      return p ? `prop:${p.id}:${dito === '1' ? 'sim' : 'nao'}` : null;
+    } catch (e: any) {
+      if (e?.code === '42P01' || e?.cause?.code === '42P01') return null;
+      throw e;
+    }
+  }
+
   /** Uma mensagem. Devolve o que foi feito. */
   async receber(e: MensagemDoMister): Promise<Desfecho> {
     const tel = soDigitos(e.telefone);

@@ -947,7 +947,19 @@ fase inteira:
 6. ~~Mockup do módulo~~ — aprovado em 13/11. Faltam os mockups da F1.4.
 7. ~~Releitura dos documentos e imagens no grafo de engenharia~~ — feita em 12/11.
 8. O perfil de permissões por hierarquia (o que cada gerente pode pelo Mister): fim do projeto.
-9. **Pendência de implementação para o fim (pedido do dono em 13/11/2026):** a opção de conectar o número do Mister pela conexão gratuita do Evolution, além da API oficial da Meta. O argumento: o Mister só fala com quem ligou o próprio telefone, então o risco de denúncia do número é baixo. O Regem já fala com o Evolution no WhatsApp das lojas; o que falta é o número do Mister ganhar uma porta de provedor (oficial ou Evolution), escolhida pela distribuição no console. Pede mockup da opção.
+9. **Pendência de implementação para o fim (pedido do dono em 13/11/2026):** a opção de conectar o número do Mister pela conexão gratuita do Evolution, além da API oficial da Meta. O argumento: o Mister só fala com quem ligou o próprio telefone, então o risco de denúncia do número é baixo. O Regem já fala com o Evolution no WhatsApp das lojas; o que falta é o número do Mister ganhar uma porta de provedor (oficial ou Evolution), escolhida pela distribuição no console. Protótipo `mockups/regem-mister-qr.html` aprovado em 15/11/2026 (fases Q1–Q3).
+   - **Q1 implementada (16/11/2026, mig 436): a porta do provedor.** Três colunas na `mister_numero` (`provedor` oficial |
+     evolution, `instancia`, `instancia_numero` — o número do celular do QR, que as pessoas salvam e que a Q3 anuncia). O
+     `MisterNumeroService.enviar` fala por UMA forma: no Evolution, `POST /message/sendText/<instância>` com `{number,
+     text}` no Evolution da distribuição (`EVOLUTION_API_URL`/`EVOLUTION_API_KEY`, o mesmo das lojas, instância separada);
+     os botões viram a lista numerada e o link vai escrito; ritmo de 20 por minuto em fila (por réplica); o modelo recusa
+     (no Evolution não há janela nem modelo — os avisos e os resumos conferem `semJanela()` e mandam o texto); o
+     "digitando" fica de fora. A entrada do Evolution (a porta assinada das lojas) entrega a instância do Mister a
+     `MisterEntradaService.receberDoEvolution` ANTES de procurar a loja; o eco (`fromMe`) nunca vira pergunta; "1" e "2"
+     viram o toque na última autorização de botão aberta do telefone (a pergunta "de qual empresa?" de pé tem a vez). O
+     "disponível" e o número que se salva passam por uma regra só (`numeroDisponivel`, `numeroEmUso`). Nasce na API
+     oficial: nada muda até a Diretoria trocar (Q2). O provedor é lido pelo `to_jsonb`: sem as colunas, o número segue na
+     API oficial.
 10. **Aprovar o protótipo `mockups/regem-dependencias-e-qualidade.html` (#992).** As partes foram feitas com as recomendadas enquanto o dono estava fora: a faixa sem nuvem (#993), a Qualidade parte 1 (#994), as Dependências parte 2 (F3.7, #996, com a migration 423 aplicada pelo clique dele em 15/11), o que falta (F5.2) e a avaliação de regressão (F5.3, que espera a **migration 424** pelo clique dele antes do merge; a loja de teste ficou no código, e não no banco).
 
 ## 6. Como foi levantado

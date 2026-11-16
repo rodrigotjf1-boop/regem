@@ -15,7 +15,7 @@ import {
   pedidoDeAprovacao,
   situacaoDoModelo,
 } from './mister-modelos';
-import { Resposta, soDigitos } from './mister.regras';
+import { Resposta, soDigitos, textoParaOEvolution } from './mister.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -36,8 +36,17 @@ const iso = (coluna: string) => sql.raw(`to_char(${coluna} at time zone 'UTC', '
 
 export type SituacaoDoNumero = 'sem' | 'conectado' | 'caiu';
 export type FormaDoNumero = 'coexistencia' | 'api';
+/** Q1 (mig 436): por onde o número fala — a API oficial da Meta (como sempre) ou o Evolution da distribuição. */
+export type ProvedorDoNumero = 'oficial' | 'evolution';
+/** O ritmo de envio pelo Evolution: até 20 mensagens por minuto, em fila (decisão 4 do protótipo `regem-mister-qr.html`). */
+export const RITMO_DO_EVOLUTION_POR_MINUTO = 20;
 
 export interface NumeroDoMister {
+  /** Q1: oficial (padrão) ou evolution; com evolution, a `instancia` é a do Mister no Evolution da distribuição. */
+  provedor: ProvedorDoNumero;
+  instancia: string | null;
+  /** O número do celular conectado por QR na instância (o que as pessoas salvam, com o Evolution). */
+  instanciaNumero: string | null;
   phoneId: string | null;
   wabaId: string | null;
   numero: string | null;
@@ -52,6 +61,9 @@ export interface NumeroDoMister {
 }
 
 const VAZIO: NumeroDoMister = {
+  provedor: 'oficial',
+  instancia: null,
+  instanciaNumero: null,
   phoneId: null,
   wabaId: null,
   numero: null,
@@ -65,8 +77,9 @@ const VAZIO: NumeroDoMister = {
   ultimaEntradaEm: null,
 };
 
-/** `modelo_nao_aprovado`: a Meta recusou o MODELO (não existe, não está aprovado, pausado ou desativado). */
-export type MotivoDoEnvio = 'sem_numero' | 'desligado' | 'sem_acesso' | 'meta' | 'modelo_nao_aprovado';
+/** `modelo_nao_aprovado`: a Meta recusou o MODELO (não existe, não está aprovado, pausado ou desativado). `evolution`: o
+ *  Evolution recusou ou não respondeu (Q1). */
+export type MotivoDoEnvio = 'sem_numero' | 'desligado' | 'sem_acesso' | 'meta' | 'modelo_nao_aprovado' | 'evolution';
 
 /** Um modelo do Mister como a Meta o vê agora, para o console. */
 export interface ModeloNaMeta {
@@ -95,6 +108,13 @@ export class FalhaDoEnvioDoMister extends Error {
 
 type RespostaHttp = { ok: boolean; status: number; json: () => Promise<any>; text: () => Promise<string> };
 export type Autor = { nome: string };
+
+/** Q1: o número que as pessoas veem e salvam — o da forma em uso (o celular do QR, com o Evolution). */
+export const numeroEmUso = (n: NumeroDoMister): string | null => (n.provedor === 'evolution' ? n.instanciaNumero : n.numero);
+
+/** Q1: dá para ligar e ser atendido — a chave geral ligada e a forma em uso conectada (a regra é uma, aqui). */
+export const numeroDisponivel = (n: NumeroDoMister): boolean =>
+  n.ligado && (n.provedor === 'evolution' ? !!n.instancia && !!n.instanciaNumero : n.situacao === 'conectado' && !!n.numero);
 
 /**
  * A Meta diz que o objeto não existe mais para este acesso (código 100, subcódigo 33): o número saiu da conta, a conta
@@ -131,14 +151,26 @@ export class MisterNumeroService {
   async ler(): Promise<NumeroDoMister> {
     try {
       const [l] = linhas(
+        // O provedor e a instância (Q1, mig 436) lidos pelo `to_jsonb`: com o banco ainda sem as colunas, o número segue
+        // na API oficial em vez de parecer desconectado.
         await this.db.execute(sql`
           select phone_id as "phoneId", waba_id as "wabaId", numero, nome_exibido as nome, forma, situacao, motivo, ligado,
-                 ${iso('conectado_em')} as "conectadoEm", ${iso('situacao_em')} as "situacaoEm", ${iso('ultima_entrada_em')} as "ultimaEntradaEm"
+                 ${iso('conectado_em')} as "conectadoEm", ${iso('situacao_em')} as "situacaoEm", ${iso('ultima_entrada_em')} as "ultimaEntradaEm",
+                 to_jsonb(mister_numero) ->> 'provedor' as provedor, to_jsonb(mister_numero) ->> 'instancia' as instancia,
+                 to_jsonb(mister_numero) ->> 'instancia_numero' as "instanciaNumero"
             from mister_numero where id = 1`),
       );
       if (!l) return VAZIO;
       const situacao: SituacaoDoNumero = l.situacao === 'conectado' || l.situacao === 'caiu' ? l.situacao : 'sem';
-      return { ...l, situacao, forma: l.forma === 'coexistencia' || l.forma === 'api' ? l.forma : null, ligado: l.ligado === true };
+      return {
+        ...l,
+        situacao,
+        forma: l.forma === 'coexistencia' || l.forma === 'api' ? l.forma : null,
+        ligado: l.ligado === true,
+        provedor: l.provedor === 'evolution' ? 'evolution' : 'oficial',
+        instancia: l.instancia ? String(l.instancia) : null,
+        instanciaNumero: l.instanciaNumero ? soDigitos(l.instanciaNumero) : null,
+      };
     } catch (e) {
       if (semTabela(e)) return VAZIO;
       throw e;
@@ -172,6 +204,8 @@ export class MisterNumeroService {
   async enviar(para: string, resposta: Resposta): Promise<{ wamid: string | null }> {
     const destino = soDigitos(para);
     const n = await this.ler();
+    // Q1: uma forma por vez — com o Evolution escolhido, nada sai pela API oficial.
+    if (n.provedor === 'evolution') return this.enviarPeloEvolution(destino, n, resposta);
     if (!destino || !n.phoneId || n.situacao === 'sem') throw new FalhaDoEnvioDoMister('sem_numero');
     if (!n.ligado) throw new FalhaDoEnvioDoMister('desligado');
     const token = this.token();
@@ -222,6 +256,8 @@ export class MisterNumeroService {
   async enviarModelo(para: string, modelo: ModeloDoMister, parametros: [string, string], toque: ToqueNoModelo): Promise<{ wamid: string | null }> {
     const destino = soDigitos(para);
     const n = await this.ler();
+    // Q1: o Evolution não tem janela nem modelo — quem chama confere `semJanela()` e manda o texto inteiro pelo `enviar`.
+    if (n.provedor === 'evolution') throw new FalhaDoEnvioDoMister('evolution', null, 'o Evolution não usa modelo: mande o texto pelo envio de sempre');
     if (!destino || !n.phoneId || n.situacao === 'sem') throw new FalhaDoEnvioDoMister('sem_numero');
     if (!n.ligado) throw new FalhaDoEnvioDoMister('desligado');
     const token = this.token();
@@ -250,7 +286,8 @@ export class MisterNumeroService {
     void this.ler()
       .then((n) => {
         const token = this.token();
-        if (!wamid || !n.ligado || !n.phoneId || n.situacao === 'sem' || !token) return undefined;
+        // No Evolution o "digitando" pede o telefone (não o id da mensagem): fica de fora — o Mister responde igual.
+        if (!wamid || !n.ligado || n.provedor === 'evolution' || !n.phoneId || n.situacao === 'sem' || !token) return undefined;
         return this.buscar(`${GRAPH}/${n.phoneId}/messages`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -258,6 +295,74 @@ export class MisterNumeroService {
         });
       })
       .catch(() => undefined);
+  }
+
+  // ───────────────────────────── o Evolution (Q1, mig 436) ─────────────────────────────
+
+  /** O Evolution da DISTRIBUIÇÃO (o mesmo das lojas — a instância do Mister é separada delas). Sem as duas, sem acesso. */
+  private evolution(): { url: string; chave: string } | null {
+    const url = String(process.env.EVOLUTION_API_URL ?? '').replace(/\/+$/, '');
+    const chave = String(process.env.EVOLUTION_API_KEY ?? '');
+    return url && chave ? { url, chave } : null;
+  }
+
+  /** A espera do ritmo. Separada para o teste anotar em vez de dormir. */
+  protected esperar(ms: number): Promise<void> {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
+  // O ritmo do Evolution (até 20 por minuto, em fila): os envios entram um atrás do outro e, com 20 no último minuto, o
+  // próximo espera o mais antigo sair da conta. É do NÚMERO (um só para todas as empresas), por réplica da API.
+  private enviosRecentes: number[] = [];
+  private filaDoEvolution: Promise<void> = Promise.resolve();
+  private vezNoEvolution(): Promise<void> {
+    const vez = this.filaDoEvolution.then(async () => {
+      const agora = Date.now();
+      this.enviosRecentes = this.enviosRecentes.filter((t) => agora - t < 60_000);
+      if (this.enviosRecentes.length >= RITMO_DO_EVOLUTION_POR_MINUTO) await this.esperar(60_000 - (agora - this.enviosRecentes[0]) + 50);
+      this.enviosRecentes.push(Date.now());
+    });
+    this.filaDoEvolution = vez.catch(() => undefined);
+    return vez;
+  }
+
+  /** O envio pelo Evolution: texto só (os botões viram a lista numerada; o link, escrito). A chave geral vale igual. */
+  private async enviarPeloEvolution(destino: string, n: NumeroDoMister, resposta: Resposta): Promise<{ wamid: string | null }> {
+    if (!destino || !n.instancia) throw new FalhaDoEnvioDoMister('sem_numero');
+    if (!n.ligado) throw new FalhaDoEnvioDoMister('desligado');
+    const ev = this.evolution();
+    if (!ev) throw new FalhaDoEnvioDoMister('sem_acesso');
+    const texto = cortar(textoParaOEvolution(resposta), 4096);
+    await this.vezNoEvolution();
+    const res = await this.buscar(`${ev.url}/message/sendText/${encodeURIComponent(n.instancia)}`, {
+      method: 'POST',
+      headers: { apikey: ev.chave, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ number: destino, text: texto }),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const dito = res ? (await res.text().catch(() => '')).slice(0, 200) || null : null;
+      throw new FalhaDoEnvioDoMister('evolution', res?.status ?? null, dito);
+    }
+    const j: any = await res.json().catch(() => ({}));
+    return { wamid: j?.key?.id ? String(j.key.id) : null };
+  }
+
+  /** O número fala pelo Evolution? Lá não há janela de 24 horas nem modelo: quem manda aviso e resumo manda o texto. */
+  async semJanela(): Promise<boolean> {
+    return (await this.ler()).provedor === 'evolution';
+  }
+
+  /** A instância é a do Mister (e ele está no Evolution)? É a pergunta da entrada do Evolution. */
+  async daInstancia(instancia: string): Promise<NumeroDoMister | null> {
+    const i = String(instancia ?? '').trim();
+    if (!i) return null;
+    const n = await this.ler();
+    return n.provedor === 'evolution' && n.instancia === i ? n : null;
+  }
+
+  /** Chegou mensagem pelo Evolution: anota a hora. */
+  async anotarEntradaPeloEvolution(): Promise<void> {
+    await this.db.execute(sql`update mister_numero set ultima_entrada_em = now(), atualizado_em = now() where id = 1`);
   }
 
   private async marcarQueCaiu(phoneId: string, motivo: string): Promise<void> {
