@@ -195,7 +195,9 @@ export class MidiaService {
     return { buffer, mime: EXT_MIME[ext] ?? 'application/octet-stream' };
   }
 
-  // Apaga um objeto do storage a partir da sua URL pública (rotina de expurgo LGPD).
+  // Apaga um objeto do storage a partir da sua URL pública (rotina de expurgo LGPD). O arquivo que JÁ NÃO EXISTE conta como
+  // apagado (ERR-075): o objetivo — ele não estar lá — foi cumprido, e a rotina, que só zera a referência quando o arquivo
+  // saiu, não fica presa na mesma foto todo dia.
   async remover(publicUrl: string): Promise<boolean> {
     if (!publicUrl) return false;
 
@@ -210,7 +212,7 @@ export class MidiaService {
       return fs
         .unlink(join(this.localDir(), tenant, arquivo))
         .then(() => true)
-        .catch(() => false);
+        .catch((e: any) => e?.code === 'ENOENT');
     }
 
     const { url, key, bucket } = this.cfg();
@@ -222,8 +224,12 @@ export class MidiaService {
     const res = await fetch(`${url}/storage/v1/object/${bucket}/${path}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${key}`, apikey: key },
-    });
-    return res.ok;
+    }).catch(() => null);
+    if (!res) return false; // sem resposta: tenta de novo amanhã
+    if (res.ok || res.status === 404) return true;
+    // O storage do Supabase responde ao objeto que não existe com 400 e `"statusCode":"404"` no corpo (em várias versões).
+    const corpo = res.status === 400 ? await res.text().catch(() => '') : '';
+    return /"statusCode"\s*:\s*"?404|not[_ ]?found/i.test(corpo);
   }
 
   // ---- Reconciliação de mídia local → nuvem (P4, modo híbrido) ----

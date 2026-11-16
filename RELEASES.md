@@ -12,6 +12,15 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
+- **As rotinas agendadas, nuvem × loja (16/11, ERR-075; sem migration) → vai no `.zip`** (o servidor da loja roda os mesmos
+  `@Cron`).
+  - **Expurgo LGPD das fotos:** a loja passa a apagar só as fotos do disco dela, e a nuvem as do storage. Antes, o lado que
+    não conseguia apagar zerava a referência, e o arquivo ficava órfão.
+  - A referência só sai quando o arquivo saiu, e a fila vai em páginas.
+  - A manutenção pendente há 15 dias roda só na nuvem, com o aviso de gestão da loja do pedido. Antes tocava no KDS de
+    outra loja.
+  - **Na loja, só com o `.zip`:** sem ele, o servidor da loja segue zerando a foto que é da nuvem.
+
 - **Vagas — o aviso ao banco de talentos pelo NÚMERO DE MARKETING, a fila (16/11, F4b parte 2 do protótipo
   `mockups/regem-vagas-talentos.html` aprovado; mig 438 `@cloud-only` — tabela nova `vaga_aviso`, com `tenant_id`: entra
   em `SO_NUVEM` no `backend/edge/sync-daemon.mjs` → vai no `.exe`).** Só NUVEM: "Avisar pelo número de marketing" põe na

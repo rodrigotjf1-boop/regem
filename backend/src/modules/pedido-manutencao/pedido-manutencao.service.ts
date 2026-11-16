@@ -205,9 +205,12 @@ export class PedidoManutencaoService {
 
   // Job diário (15 dias): pedidos abertos há mais de 15 dias, ainda não alertados,
   // disparam a pergunta ao C&O (manter / concluir / excluir). Retorna quantos.
+  // ERR-075: roda SÓ na nuvem (o `JobsService` pula no servidor da loja) — lá a tabela não é filtrada por loja e o aviso, sem
+  // loja nem tipo, tocava no KDS de uma loja o pedido de manutenção de outra. O aviso é de GESTÃO (para o C&O), com a loja
+  // do pedido: as telas de preparo não recebem (mig 408).
   async promoverAntigos(): Promise<number> {
     const abertos = await this.db
-      .select({ id: pedidoManutencao.id, tenantId: pedidoManutencao.tenantId, titulo: pedidoManutencao.titulo })
+      .select({ id: pedidoManutencao.id, tenantId: pedidoManutencao.tenantId, unidadeId: pedidoManutencao.unidadeId, titulo: pedidoManutencao.titulo })
       .from(pedidoManutencao)
       .where(
         and(
@@ -225,9 +228,11 @@ export class PedidoManutencaoService {
         .where(eq(pedidoManutencao.id, p.id));
       this.events.emit('kds.alerta.sistema', {
         tenantId: p.tenantId,
+        unidadeId: p.unidadeId ?? null,
         titulo: '⏳ Manutenção pendente há 15 dias',
         detalhe: `${p.titulo} — manter, concluir ou excluir?`,
         prioridade: 'danger',
+        tipo: 'gestao',
       });
     }
     return abertos.length;
