@@ -10,7 +10,33 @@
 - **Como cortar (OBRIGATÓRIO):** `powershell -File backend\edge\build-release.ps1 -Versao X.Y.Z` → só compilar no Inno / rodar `publicar.ps1` no **"TUDO OK"** do preflight. Nunca de árvore atrás do `origin/main`, nunca de `regem-edge-dist` reaproveitado.
 - **Publicar `.zip`:** `edge/publicar.ps1 -Versao X.Y.Z` → sobe no Supabase Storage (bucket `edge-updates`, nome exato `regem-edge-X.Y.Z.zip`) → `edge/publicar.ps1 -Versao X.Y.Z -SoAssinar -Url <url>` (assina o MESMO arquivo, v1 + v2 com validade) → cola versão, URL, SHA e as assinaturas no console de distribuição, **começando pelas lojas piloto / percentual baixo**. O console recusa release sem as duas assinaturas válidas.
 
-## Acumulado (NÃO empacotado) — próxima release (1.30.14)
+## Acumulado (NÃO empacotado) — próxima release (1.30.15)
+
+- **O atendente lê a foto que o cliente manda no WhatsApp (16/11, pedido do dono; SEM migration; nasce DESLIGADO).** Com
+  `ROBO_FOTOS_IA=1` na nuvem (o dono liga), a foto que o contexto não reconheceu como comprovante vai a um modelo de visão,
+  pela porta da IA da empresa (recurso `foto_do_cliente` no medidor), e o atendente recebe o que ela mostra.
+  - Comprovante: cai no caminho do comprovante (as mesmas respostas).
+  - Print da tela do cardápio com erro ou dificuldade: o atendente explica o que a tela diz e o próximo passo.
+  - Foto do pedido recebido (errado, faltando): acolhe e chama a equipe com o que a foto mostra.
+  - As instruções do atendente passam à versão `.f23` (valem já, com a leitura desligada: sem descrição, nada muda).
+  - Só NUVEM (o atendente é da nuvem): vale com o merge e a variável; o `.zip` leva o código sem efeito na loja.
+
+- **🔴 `.exe` — Mister: reiniciar o serviço de impressão pela loja (16/11, F4.4 de `docs/plano-mister.md`, a conversa 5 do
+  protótipo `mockups/regem-mister.html`; sem migration).** Toca `backend/edge/sync-daemon.mjs` (o comando
+  `reiniciar_impressao`) e cria `backend/edge/comando-reiniciar-impressao.mjs` → **vai no `.exe`** (a 1.30.14 tem de sair
+  com `.exe`: a nuvem só oferece o reinício ao servidor que informar `APP_VERSION` ≥ 1.30.14 —
+  `VERSAO_QUE_REINICIA_A_IMPRESSAO` em `mister-procedimentos.ts`; se a versão subir sem o `sync-daemon` novo, o comando
+  volta "ignorado" e o Mister diz "não deu", sem quebrar nada). Na nuvem já vale: abaixo da 1.30.14 o aviso da impressora
+  segue pedindo a via de teste. **Conferir no `.exe`:** o `RegemEdgeSync` (NSSM, conta do sistema) consegue
+  `Restart-Service RegemEdgeImpressao` numa instalação nova.
+
+## Última release: `1.30.14` — gerada em 16/11/2026 da `origin/main` `f7832ca0`, **SÓ `.zip`** (`regem-edge-1.30.14.zip`, 36.796.865 bytes, SHA-256 `d18ba769108d318b56ac65a995ae062a2fe2683d029b4554439d7c68521f7fa8`), conferido (preflight OK; o KDS pelo token do aparelho dentro do pacote) e assinado (v1 + v2, validade até 15/05/2027); entregue ao dono em `Documentos\Regem - release 1.30.14 (16-11)` com o `DADOS PARA PUBLICAR.txt`; publicação no console PENDENTE (o dono); sem `.exe`
+
+- Pedido do dono (16/11): "pode gerar o .zip" — para a TV box da cozinha do Mister Burger mostrar os pedidos (ERR-489, #1068), que abre o servidor da loja.
+- O corte: a `main` andava a cada 10–15 min e o `build-release.ps1` completo reprovava no preflight ("1 commit atrás"); o último passo foi pelo caminho curto (trazer a `main`, conferir que o front e a ponte não mudaram desde os builds deles, rebuildar só o backend, empacotar com o web já montado) e o MESMO preflight passou.
+- O que só vai no `.exe` (Mister — reiniciar o serviço de impressão, F4.4) ficou no acumulado da 1.30.15.
+
+### O que entrou na 1.30.14 (o acumulado desde a 1.30.13)
 
 - **O KDS físico pelo token do aparelho mostra os pedidos (16/11, a TV box da cozinha do Mister Burger; SEM migration;
   não mexe no `sync-daemon`; ERR-489).** O KDS aberto com `?token=` (sem pessoa logada) ficava "online" e VAZIO: a tela
@@ -83,15 +109,6 @@
   gera uma sessão que só envia a foto e marca o ponto; antes, abria a API inteira com o perfil da pessoa. **No servidor
   da loja nada muda** (o PIN entra como sempre); os arquivos vão junto no próximo corte. Nada no `.exe`.
 
-- **O atendente lê a foto que o cliente manda no WhatsApp (16/11, pedido do dono; SEM migration; nasce DESLIGADO).** Com
-  `ROBO_FOTOS_IA=1` na nuvem (o dono liga), a foto que o contexto não reconheceu como comprovante vai a um modelo de visão,
-  pela porta da IA da empresa (recurso `foto_do_cliente` no medidor), e o atendente recebe o que ela mostra.
-  - Comprovante: cai no caminho do comprovante (as mesmas respostas).
-  - Print da tela do cardápio com erro ou dificuldade: o atendente explica o que a tela diz e o próximo passo.
-  - Foto do pedido recebido (errado, faltando): acolhe e chama a equipe com o que a foto mostra.
-  - As instruções do atendente passam à versão `.f23` (valem já, com a leitura desligada: sem descrição, nada muda).
-  - Só NUVEM (o atendente é da nuvem): vale com o merge e a variável; o `.zip` leva o código sem efeito na loja.
-
 - **Estoque › Produtos › Importar — a conferência não rola mais para o lado (16/11, ERR-476; só tela, sem migration) → vai
   no `.zip`** (a tela da loja vem nele).
   - No passo 3, a lista fica em colunas quando cabe no diálogo e empilhada quando não cabe.
@@ -138,15 +155,6 @@
   quero mais receber" tiram das ofertas e VOLTAR volta, com a confirmação pelo próprio número de marketing; o robô não
   responde por ele. A instância de marketing do Evolution que já existia ganha o webhook no próximo "Conectar" (só com a
   entrada pelo Regem). Nada a empacotar.
-
-- **🔴 `.exe` — Mister: reiniciar o serviço de impressão pela loja (16/11, F4.4 de `docs/plano-mister.md`, a conversa 5 do
-  protótipo `mockups/regem-mister.html`; sem migration).** Toca `backend/edge/sync-daemon.mjs` (o comando
-  `reiniciar_impressao`) e cria `backend/edge/comando-reiniciar-impressao.mjs` → **vai no `.exe`** (a 1.30.14 tem de sair
-  com `.exe`: a nuvem só oferece o reinício ao servidor que informar `APP_VERSION` ≥ 1.30.14 —
-  `VERSAO_QUE_REINICIA_A_IMPRESSAO` em `mister-procedimentos.ts`; se a versão subir sem o `sync-daemon` novo, o comando
-  volta "ignorado" e o Mister diz "não deu", sem quebrar nada). Na nuvem já vale: abaixo da 1.30.14 o aviso da impressora
-  segue pedindo a via de teste. **Conferir no `.exe`:** o `RegemEdgeSync` (NSSM, conta do sistema) consegue
-  `Restart-Service RegemEdgeImpressao` numa instalação nova.
 
 - **Mister — a conexão por QR Code no console e o número novo (16/11, Q2 e Q3 do protótipo `mockups/regem-mister-qr.html`
   aprovado; mig 437 `@cloud-only` — oito colunas na `mister_numero`, da distribuição, sem `tenant_id`: o `sync-daemon` não
@@ -246,7 +254,7 @@
   30 dias) e, em Pessoas › Candidatos, os cinco indicadores do topo com "Ver por pessoa" em gaveta. O `Indicadores` dos
   relatórios ganhou `acao` e `largo` (aditivo). Nada a empacotar — a tela de Candidatos é `soNuvem`.
 
-## Última release: `1.30.13` — gerada em 15/11/2026 da `origin/main` `1b467618`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 201.939.309 bytes, SHA-256 `0ef731217d91bfac801817f601d85bd8bb732ed873d6c83a1d123496a88fd4f3`) e entregue ao dono em Documentos; **sem `.zip`** e nada publicado no console
+## Release anterior: `1.30.13` — gerada em 15/11/2026 da `origin/main` `1b467618`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 201.939.309 bytes, SHA-256 `0ef731217d91bfac801817f601d85bd8bb732ed873d6c83a1d123496a88fd4f3`) e entregue ao dono em Documentos; **sem `.zip`** e nada publicado no console
 
 - **Pedido do dono (15/11):** "criar .exe atualizado; quando for escolhida a opção servidor, já instalar a ponte que
   controla o atendimento nos marketplaces" → depois: "após escolher entre servidor e PDV, na próxima etapa perguntar se
