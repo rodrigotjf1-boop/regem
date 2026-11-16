@@ -1,4 +1,5 @@
 import { entregarAoRobo } from './entregar-ao-robo';
+import { soFalaDePagamento } from '../../common/comprovante-do-cliente';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -76,12 +77,46 @@ async function anotarConfirmacao(msg: any): Promise<void> {
   }
 }
 
+/**
+ * O PORTEIRO DO COMPROVANTE (16/11/2026 — pedido do dono; `common/comprovante-do-cliente.ts`): olha a FOTO ou o DOCUMENTO
+ * que o cliente manda, com o texto que estava esperando para juntar ("paguei, segue o comprovante"). Quando é um
+ * comprovante, o Regem confere o pedido e responde ele mesmo ('respondido') — a mídia não vai ao robô. Registrado UMA vez,
+ * quando o servidor sobe (`ComprovanteDoClienteService`, só na nuvem); sem ele (testes, servidor da loja), nada muda.
+ * Falha do porteiro nunca segura a mensagem: vai ao robô.
+ */
+type PorteiroDoComprovante = (msg: any, antes: string[]) => Promise<'segue' | 'respondido'>;
+let porteiroDoComprovante: PorteiroDoComprovante | null = null;
+export function definirPorteiroDoComprovante(p: PorteiroDoComprovante | null): void {
+  porteiroDoComprovante = p;
+}
+async function comprovanteRespondido(msg: any, k: string): Promise<boolean> {
+  if (!porteiroDoComprovante) return false;
+  const antes = pendentes.get(k)?.textos ?? [];
+  let decisao: 'segue' | 'respondido' = 'segue';
+  try {
+    decisao = await porteiroDoComprovante(msg, [...antes]);
+  } catch {
+    decisao = 'segue';
+  }
+  if (decisao !== 'respondido') return false;
+  // O texto que esperava para juntar: se era SÓ do pagamento, a resposta do comprovante já o respondeu (mandá-lo ao robô
+  // daria uma segunda resposta, talvez contrária); com outro assunto junto, segue para o robô no tempo dele.
+  const p = pendentes.get(k);
+  if (p && p.textos.every(soFalaDePagamento)) {
+    clearTimeout(p.timer);
+    pendentes.delete(k);
+  }
+  return true;
+}
+
 /** Entrega ao robô juntando o texto das mensagens seguidas da mesma conversa. Nunca lança. */
 export async function entregarJuntando(msg: any, entregar: (m: any) => Promise<any> = entregarComPorteiro): Promise<void> {
   // Antes de juntar: "sim" + "tira a cebola" em duas mensagens — o "sim" anota, e a mudança sobe a versão (não vale mais).
   await anotarConfirmacao(msg);
   const ms = espera();
   const k = chave(msg);
+  // A foto ou o documento que é um comprovante: o Regem respondeu — não vai ao robô.
+  if (!ehTexto(msg) && (await comprovanteRespondido(msg, k))) return;
   if (!ms) {
     await entregar(msg);
     return;

@@ -338,6 +338,8 @@ export type MsgNormalizada = {
   mensagemId: string;
   timestamp: number;
   midiaId: string | null;
+  /** O nome do arquivo, quando é documento ("Comprovante_….pdf") — um dos sinais do comprovante (`comprovante-do-cliente.ts`). */
+  arquivoNome?: string | null;
   /** O id da opção que o cliente tocou (botão ou linha da lista enviados por publico/bot/responder); o texto é o título. */
   opcaoId: string | null;
   roboSaudacao: string | null;
@@ -953,6 +955,7 @@ export class WhatsappCloudService {
             mensagemId: String(m?.id ?? ''),
             timestamp: Number(m?.timestamp ?? 0),
             midiaId: this.midiaDe(m),
+            arquivoNome: m?.document?.filename ? String(m.document.filename) : null,
             opcaoId: String(m?.interactive?.button_reply?.id ?? m?.interactive?.list_reply?.id ?? '') || null,
             roboSaudacao: cfg.roboSaudacao ?? null,
             roboAusencia: cfg.roboAusencia ?? null,

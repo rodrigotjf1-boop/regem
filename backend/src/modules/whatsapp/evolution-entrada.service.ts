@@ -45,8 +45,9 @@ const soDigitos = (v: unknown) => String(v ?? '').split('@')[0].split(':')[0].re
 const mascarar = (t: string) => (t.length > 4 ? `***${t.slice(-4)}` : '***');
 
 /** O que a mensagem da Evolution é, para o robô: tipo, texto (legenda, voto da enquete, opção tocada) e a opção. */
-export function lerMensagemEvolution(data: any): { tipo: string; texto: string; opcaoId: string | null } {
-  const m = data?.message ?? {};
+export function lerMensagemEvolution(data: any): { tipo: string; texto: string; opcaoId: string | null; arquivoNome?: string | null } {
+  // O documento com legenda vem embrulhado (`documentWithCaptionMessage`): lê o de dentro.
+  const m = data?.message?.documentWithCaptionMessage?.message ?? data?.message ?? {};
   const voto = m?.pollUpdateMessage?.vote?.selectedOptions ?? data?.pollUpdates?.[0]?.vote?.selectedOptions;
   if (Array.isArray(voto) && voto.length)
     return { tipo: 'poll', texto: voto.map((o: any) => String(o?.name ?? o ?? '')).filter(Boolean).join(', '), opcaoId: null };
@@ -67,7 +68,14 @@ export function lerMensagemEvolution(data: any): { tipo: string; texto: string; 
   if (m.audioMessage) return { tipo: 'audio', texto: '', opcaoId: null };
   if (m.imageMessage) return { tipo: 'image', texto: String(m.imageMessage.caption ?? ''), opcaoId: null };
   if (m.videoMessage) return { tipo: 'video', texto: String(m.videoMessage.caption ?? ''), opcaoId: null };
-  if (m.documentMessage) return { tipo: 'document', texto: String(m.documentMessage.caption ?? ''), opcaoId: null };
+  if (m.documentMessage)
+    return {
+      tipo: 'document',
+      texto: String(m.documentMessage.caption ?? ''),
+      opcaoId: null,
+      // o nome do arquivo ("Comprovante_….pdf"): um dos sinais do comprovante (`comprovante-do-cliente.ts`)
+      arquivoNome: String(m.documentMessage.fileName ?? m.documentMessage.title ?? '') || null,
+    };
   if (m.stickerMessage) return { tipo: 'sticker', texto: '', opcaoId: null };
   if (m.locationMessage)
     return { tipo: 'location', texto: `[localização] ${m.locationMessage.degreesLatitude},${m.locationMessage.degreesLongitude}`, opcaoId: null };
@@ -346,6 +354,7 @@ export class EvolutionEntradaService {
       mensagemId: id,
       timestamp: Number(data.messageTimestamp ?? 0),
       midiaId: ['audio', 'image', 'video', 'document', 'sticker'].includes(lida.tipo) ? id : null,
+      arquivoNome: lida.arquivoNome ?? null,
       opcaoId: lida.opcaoId,
       roboSaudacao: cfg.roboSaudacao ?? null,
       roboAusencia: cfg.roboAusencia ?? null,
