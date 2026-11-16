@@ -35,6 +35,12 @@
     segundo esbarrava no índice do sync.
     - Na nuvem já vale.
     - Na loja, só com o `.zip`: até lá, a loja com servidor ligado calcula sozinha, como deve.
+  - **🔴 `.exe` — a ordem de produção encerrada não reabre pelo sync** (V60). Toca `backend/edge/sync-daemon.mjs`
+    (`ESTADOS_TERMINAIS` e `condicaoSobrescrever`).
+    - A conclusão feita na loja sem internet, com a entrada no estoque, não volta mais a "pendência crítica" pela marca que
+      a nuvem pôs depois. Antes, lançar de novo dobrava o estoque.
+    - O envio para a nuvem já vale com o deploy.
+    - A descida para a loja, só com o `.exe` da 1.30.14, que já sai com `.exe`.
 
 - **Vagas — o aviso ao banco de talentos pelo NÚMERO DE MARKETING, a fila (16/11, F4b parte 2 do protótipo
   `mockups/regem-vagas-talentos.html` aprovado; mig 438 `@cloud-only` — tabela nova `vaga_aviso`, com `tenant_id`: entra
