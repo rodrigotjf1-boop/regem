@@ -42,7 +42,7 @@ import { exigirBooleano } from '../../common/exigir';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
 import { SegmentoImport, mapearTabela, nomeUtil, parseCsvClientes, segmentoPeloArquivo } from './importar-planilha';
 import { lerXlsx } from './ler-xlsx';
-import { urlPublicaSegura } from '../../common/ssrf-guard';
+import { fetchNoIpConferido, urlPublicaSegura } from '../../common/ssrf-guard';
 import { AtendimentoService } from '../atendimento/atendimento.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario, ehChaveDoDirect, ehChaveDoMessenger } from '../../common/conversa-do-robo';
@@ -214,7 +214,7 @@ export class ClienteService {
         headers['X-Regem-Signature'] = createHmac('sha256', secret).update(body).digest('hex');
       // `redirect: 'manual'`: a trava acima confere só o endereço cadastrado; um redirecionamento do
       // destino levaria o aviso (e a assinatura) para a rede interna sem passar por ela.
-      const res = await fetch(url, { method: 'POST', headers, body, signal: ctrl.signal, redirect: 'manual' });
+      const res = await fetchNoIpConferido(url, { method: 'POST', headers, body, signal: ctrl.signal });
       clearTimeout(t);
       if (!res.ok) {
         const b = await res.text().catch(() => '');
@@ -300,12 +300,11 @@ export class ClienteService {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (wh.secret)
         headers['X-Regem-Signature'] = createHmac('sha256', wh.secret).update(body).digest('hex');
-      const res = await fetch(wh.url, {
+      const res = await fetchNoIpConferido(wh.url, {
         method: 'POST',
         headers,
         body,
         signal: AbortSignal.timeout(8000),
-        redirect: 'manual', // ver dispararWebhook
       });
       const resp = await res.text().catch(() => '');
       return {

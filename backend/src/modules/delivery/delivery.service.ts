@@ -91,7 +91,7 @@ import {
 import { condUnidadeOuRede, sqlUnidade } from '../../common/filtro-unidade';
 import { EDGE_JANELA_MIN, edgeAtivo } from '../../common/edge-ativo';
 import { normalizarFormaPagamento } from '../../common/formas-pagamento-normaliza';
-import { urlPublicaSegura } from '../../common/ssrf-guard';
+import { fetchNoIpConferido, urlPublicaSegura } from '../../common/ssrf-guard';
 import { marcarAvisoAutomatico } from '../../common/avisos-automaticos';
 import { textoDaObservacao } from '../../common/observacao-do-pedido';
 import { chaveTelefone, formasDaChaveTelefone } from '../../common/telefone-chave';
@@ -4566,7 +4566,7 @@ export class DeliveryService {
       // bloquear o fluxo do pedido. Aparece no log do regem-api (EasyPanel).
       // `redirect: 'manual'`: a trava confere só o endereço cadastrado — um redirecionamento do destino
       // levaria o aviso para a rede interna sem passar por ela.
-      fetch(url, { method: 'POST', headers, body, redirect: 'manual' })
+      fetchNoIpConferido(url, { method: 'POST', headers, body })
         .then(async (res) => {
           const txt = await res.text().catch(() => '');
           const linha = `[n8n-aviso] evento=${evento} fonte=${fonte} → ${host} status=${res.status} ${txt.slice(0, 200)}`;
