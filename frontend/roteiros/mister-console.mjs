@@ -9,6 +9,7 @@
 // (a situação lida, o pedido uma vez só, o aprovado e o recusado, sem número e o erro); e, em cada largura, a página e o
 // diálogo inteiros na tela, sem barra lateral — tabela no largo, cartões no estreito.
 import { responder, tokenFalso } from './comum.mjs';
+import { esmagados } from './candidatos-conducao.mjs';
 
 const DIRETORIA = tokenFalso({ escopo: 'distribuicao', perfil: 'diretoria', nome: 'Rodrigo' });
 const TECNICO = tokenFalso({ escopo: 'distribuicao', perfil: 'tecnico', nome: 'Técnica' });
@@ -93,6 +94,28 @@ const QUALIDADE = {
     { empresa: 'Empório Sabor da Serra Comércio de Alimentos e Bebidas Artesanais Ltda', perguntas: 13, semResposta: 4, custoUsd: 0.01, chave: null },
   ],
 };
+
+// S2 (mig 434): a análise com IA da Segurança — a última rodada com duas propostas (o texto comprido de propósito).
+const PROPOSTAS_DA_ANALISE = () => [
+  {
+    id: 'p-1', nivel: 'atencao', titulo: 'Um telefone tentou 9 códigos errados em 12 minutos', situacao: 'aberta', tarefa: null, decididaPor: null, decididaEm: null,
+    viu: 'Final 7731, empresa Empório Sabor da Serra Comércio de Alimentos e Bebidas Artesanais Ltda, 15/11 entre 22:04 e 22:16 — os 9 com "código errado".',
+    proposta: 'Calar novas tentativas desse telefone por 1 hora (a regra que já existe cala por 30 min depois de 5).',
+    impacto: 'Só esse telefone. Conferir: nenhuma tentativa dele na próxima hora, na contagem "telefone calado".',
+  },
+  {
+    id: 'p-2', nivel: 'melhoria', titulo: 'O filtro tirou "link" de 6 respostas da consulta "canais e integrações"', situacao: 'aberta', tarefa: null, decididaPor: null, decididaEm: null,
+    viu: '6 notas link_tirado em 3 empresas, sempre depois da mesma consulta.',
+    proposta: 'A consulta devolver o caminho do menu em vez do endereço (o filtro tira links de propósito).',
+    impacto: 'Só o texto dessa consulta. Conferir: zero link_tirado nela em 7 dias e a avaliação de regressão sem erradas novas.',
+  },
+];
+const ANALISE = (o = {}) => ({
+  chaveDaDistribuicao: true, modelo: 'claude-haiku-5-5', dias: 7, prazoMin: 5, estimativaUsd: 0.02,
+  analise: { id: 'a-1', situacao: 'terminou', pedidaPor: 'Rita', dias: 7, eventos: 1284, custoUsd: 0.02, motivo: null, iniciadaEm: '2026-11-15T12:12:00Z', terminadaEm: '2026-11-15T12:12:20Z' },
+  propostas: PROPOSTAS_DA_ANALISE(),
+  ...o,
+});
 
 // A segurança (o Sentinela, parte 1): só contagens; o nome comprido de propósito.
 const SEGURANCA = {
@@ -213,6 +236,8 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
       avaliacoes: o.avaliacoes ?? AVALIACOES(),
       seguranca: o.seguranca ?? SEGURANCA,
       falhaDaSeguranca: !!o.falhaDaSeguranca,
+      analise: o.analise ?? ANALISE(),
+      leiturasRodando: 0,
       falhaDasAvaliacoes: !!o.falhaDasAvaliacoes,
       pedidos: [],
     };
@@ -301,6 +326,22 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
           limite: 200,
           avisos: todos.filter((a) => (resolvidos ? a.situacao === 'resolvido' : a.situacao === 'aberto')),
         });
+      }
+      // S2: a análise com IA — rodar passa a "rodando"; a 2ª leitura dela já traz a rodada nova terminada; decidir grava.
+      if (p === '/distribuicao/mister/seguranca/analise' && metodo === 'GET') {
+        if (S.analise.analise?.situacao === 'rodando' && ++S.leiturasRodando >= 2)
+          S.analise = { ...S.analise, analise: { ...S.analise.analise, situacao: 'terminou', eventos: 1301, custoUsd: 0.03, terminadaEm: '2026-11-16T12:00:20Z' }, propostas: PROPOSTAS_DA_ANALISE().slice(0, 1) };
+        return responder(route, S.analise);
+      }
+      if (p === '/distribuicao/mister/seguranca/analise' && metodo === 'POST') {
+        S.leiturasRodando = 0;
+        S.analise = { ...S.analise, analise: { id: 'a-2', situacao: 'rodando', pedidaPor: 'Rodrigo', dias: 7, eventos: 0, custoUsd: null, motivo: null, iniciadaEm: '2026-11-16T12:00:00Z', terminadaEm: null }, propostas: [] };
+        return responder(route, { id: 'a-2' }, 201);
+      }
+      if (p === '/distribuicao/mister/seguranca/analise/decisao') {
+        const c = JSON.parse(req.postData() || '{}');
+        S.analise = { ...S.analise, propostas: S.analise.propostas.map((x) => (x.id === c.id ? { ...x, situacao: c.decisao, tarefa: c.decisao === 'tarefa' ? c.tarefa || null : null, decididaPor: 'Rodrigo', decididaEm: '2026-11-16T12:05:00Z' } : x)) };
+        return responder(route, { id: c.id, situacao: c.decisao, tarefa: c.tarefa || null }, 201);
       }
       if (p === '/distribuicao/mister/seguranca') {
         if (S.falhaDaSeguranca) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
@@ -885,6 +926,61 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
     await ctx.close();
   }
 
+  // ── S2 (mig 434): a análise com IA da Segurança — os números da rodada, as propostas, "Virou tarefa" na gaveta, "Descartar",
+  //    "Analisar" que acompanha até terminar, a que não saiu com "Tentar de novo", e sem a chave da DMS ──
+  {
+    const { ctx, page, S, erros } = await abrir(1280, 900, { numero: conectado(), liberado: true });
+    await naAba(page);
+    const card = page.locator('[data-analise-do-sentinela]');
+    await card.locator('text=Eventos lidos').waitFor({ timeout: 20000 });
+    const t = (await card.innerText()).replace(/\s+/g, ' ');
+    ok(/Usa a chave da DMS \(não a da empresa\)\. Custo estimado: US\$ 0,02 por análise\. A última foi em 15\/11 às 09:12\./.test(t), `S2: a chave, o custo estimado e a última rodada (${t.slice(0, 260)})`);
+    ok(/Eventos lidos 1\.284 7 dias · só metadados Propostas 2 nenhuma age sozinha Custo US\$ 0,02 chave da DMS/.test(t), 'S2: os três números da rodada');
+    // Os rótulos têm caixa-alta pelo CSS, e o innerText devolve o texto como desenhado ("O QUE VIU"): sem caixa na conferência.
+    ok(/Um telefone tentou 9 códigos errados em 12 minutos atenção O que viu Final 7731/i.test(t) && /Impacto e como conferir Só esse telefone/i.test(t) && /melhoria/.test(t), `S2: cada proposta com o nível, o que viu, a proposta e o impacto (${t.slice(260, 520)})`);
+    await card.locator('[data-proposta-sentinela]').first().locator('button:has-text("Virou tarefa")').click();
+    await page.waitForSelector('[data-gaveta-sentinela]', { timeout: 5000 });
+    await page.fill('#sentinela-tarefa', 'DMS-9');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/distribuicao/mister/seguranca/analise/decisao')), page.locator('[role="dialog"] button:has-text("Salvar a decisão")').click()]);
+    ok(JSON.stringify(feitos(S, 'POST', '/distribuicao/mister/seguranca/analise/decisao')[0]?.corpo) === JSON.stringify({ id: 'p-1', decisao: 'tarefa', tarefa: 'DMS-9' }), 'S2: "Virou tarefa" manda a proposta e a tarefa');
+    await card.locator('text=Virou tarefa · DMS-9 · Rodrigo').waitFor({ timeout: 5000 });
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/distribuicao/mister/seguranca/analise/decisao')), card.locator('[data-proposta-sentinela]').nth(1).locator('button:has-text("Descartar")').click()]);
+    ok(JSON.stringify(feitos(S, 'POST', '/distribuicao/mister/seguranca/analise/decisao')[1]?.corpo) === JSON.stringify({ id: 'p-2', decisao: 'descartada', tarefa: '' }), 'S2: "Descartar" manda a proposta, sem tarefa');
+    await card.locator('text=Descartada · Rodrigo').waitFor({ timeout: 5000 });
+    ok((await card.locator('[data-proposta-sentinela] button').count()) === 0, 'S2: decidida, a proposta perde os botões e mostra quem decidiu');
+    // Analisar: a tela mostra "Analisando…" e acompanha sozinha até a rodada terminar.
+    await card.locator('button:has-text("Analisar os últimos 7 dias")').click();
+    await card.locator('button:has-text("Analisando…")').waitFor({ timeout: 5000 });
+    ok(await card.locator('button:has-text("Analisando…")').isDisabled(), 'S2: rodando, o botão trava');
+    await card.locator('text=Eventos lidos 1.301').waitFor({ timeout: 15000 }).catch(() => null);
+    ok(/Eventos lidos 1\.301/.test((await card.innerText()).replace(/\s+/g, ' ')) && feitos(S, 'POST', '/distribuicao/mister/seguranca/analise').length === 1, 'S2: "Analisar" pede UMA rodada e a tela acompanha até terminar');
+    ok(erros.length === 0, `S2: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  {
+    const falhou = ANALISE({ analise: { ...ANALISE().analise, situacao: 'falhou', motivo: 'a conta de IA da distribuição está sem crédito', eventos: 0, custoUsd: 0 }, propostas: [] });
+    const { ctx, page, S, erros } = await abrir(375, 820, { numero: conectado(), liberado: true, analise: falhou });
+    await naAba(page);
+    const card = page.locator('[data-analise-do-sentinela]');
+    await card.locator('text=A análise não saiu').waitFor({ timeout: 20000 });
+    ok((await card.innerText()).includes('A conta de IA da distribuição está sem crédito. Os números da Segurança acima seguem valendo.'), 'S2: a que não saiu diz o motivo');
+    const m = await medir(page);
+    ok(m.length === 0, `S2 375: a que não saiu, nada fora da janela ${m.slice(0, 3).join(' | ')}`);
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/distribuicao/mister/seguranca/analise') && r.request().method() === 'POST'), card.locator('button:has-text("Tentar de novo")').click()]);
+    ok(feitos(S, 'POST', '/distribuicao/mister/seguranca/analise').length === 1, 'S2: "Tentar de novo" pede outra rodada');
+    ok(erros.length === 0, `S2 falhou: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  {
+    const { ctx, page, erros } = await abrir(1280, 900, { numero: conectado(), liberado: true, analise: ANALISE({ chaveDaDistribuicao: false, analise: null, propostas: [] }) });
+    await naAba(page);
+    const card = page.locator('[data-analise-do-sentinela]');
+    await card.locator('text=Nenhuma análise ainda.').waitFor({ timeout: 20000 });
+    ok((await card.innerText()).includes('A chave de IA da distribuição não está configurada neste servidor.') && (await card.locator('button:has-text("Analisar os últimos 7 dias")').isDisabled()), 'S2: sem a chave da DMS, o aviso e o botão travado');
+    ok(erros.length === 0, `S2 sem chave: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+
   // ── cada largura: a página e o diálogo inteiros na tela; tabela no largo, cartões no estreito ──
   for (const w of larguras) {
     const { ctx, page, erros } = await abrir(w, w < 700 ? 820 : 900, { numero: conectado(), liberado: true, total: 250, modelos: MODELOS_LONGOS });
@@ -893,8 +989,19 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
     await page.locator('section[aria-labelledby="mister-modelos"] >> text=recusado pela Meta').waitFor({ timeout: 20000 });
     await page.locator('section[aria-labelledby="mister-qualidade"] >> text=395 de 412').waitFor({ timeout: 20000 });
     await page.locator('section[aria-labelledby="mister-seguranca"] >> text=Pede atenção').waitFor({ timeout: 20000 });
+    await page.locator('[data-analise-do-sentinela] >> text=Eventos lidos').waitFor({ timeout: 20000 });
     let m = await medir(page);
     ok(m.length === 0, `${w}px: conectado — sem barra lateral, nada passa da tela e o toque é grande (${m.join(' | ')})`);
+    // S2: a análise com IA legível em cada largura (nenhum texto esmagado) e a foto de cada proposta.
+    const esmagadosDaAnalise = await esmagados(page, '[data-analise-do-sentinela]');
+    ok(esmagadosDaAnalise.length === 0, `${w}px: a análise com IA sem texto esmagado ${esmagadosDaAnalise.slice(0, 3).join(' | ')}`);
+    if ([320, 375, 768, 1920].includes(w)) {
+      const cartoesDaAnalise = page.locator('[data-proposta-sentinela]');
+      for (let i = 0; i < (await cartoesDaAnalise.count()); i++) {
+        await cartoesDaAnalise.nth(i).scrollIntoViewIfNeeded();
+        await cartoesDaAnalise.nth(i).screenshot({ path: foto(`${w}-analise-proposta-${i + 1}.png`) });
+      }
+    }
     const tabela = await page.locator('section[aria-labelledby="mister-empresas"] table').isVisible();
     const cartoes = await page.locator('section[aria-labelledby="mister-empresas"] ul').isVisible();
     ok(w >= 1024 ? tabela && !cartoes : cartoes && !tabela, `${w}px: ${w >= 1024 ? 'tabela' : 'cartões'} (tabela ${tabela}, cartões ${cartoes})`);

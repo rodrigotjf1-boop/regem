@@ -645,6 +645,11 @@ export const distApi = {
   misterQualidade: (dias: 7 | 30) => distReq(`/distribuicao/mister/qualidade?dias=${dias}`),
   // A segurança do Mister (o Sentinela, parte 1): o que as proteções barraram, só contagens.
   misterSeguranca: (dias: 7 | 30) => distReq(`/distribuicao/mister/seguranca?dias=${dias}`),
+  // S2 (mig 434): a análise com IA da Segurança — a última rodada com as propostas, rodar (gasta a chave da DMS) e decidir.
+  misterAnalise: () => distReq('/distribuicao/mister/seguranca/analise'),
+  rodarAnaliseDoMister: () => distReq('/distribuicao/mister/seguranca/analise', { method: 'POST', body: '{}' }),
+  decidirPropostaDoSentinela: (id: string, decisao: 'tarefa' | 'descartada', tarefa: string) =>
+    distReq('/distribuicao/mister/seguranca/analise/decisao', { method: 'POST', body: JSON.stringify({ id, decisao, tarefa }) }),
   // A avaliação de regressão do Mister (F5.3; mig 424): as rodadas, uma com as perguntas e rodar (gasta a chave da DMS).
   misterAvaliacoes: () => distReq('/distribuicao/mister/avaliacoes'),
   misterAvaliacao: (id: string) => distReq(`/distribuicao/mister/avaliacoes/${encodeURIComponent(id)}`),
