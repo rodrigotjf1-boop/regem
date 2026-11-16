@@ -19,6 +19,12 @@
   merge. **No `.zip` 1.30.14:** o mesmo no servidor da loja — é o que a TV box da cozinha abre (`https://regem.local:3001/kds`);
   até lá ela segue vazia. Nada no `.exe`.
 
+- **A foto do catálogo enviada pela loja sobe para a nuvem mesmo com imagens de fora no cadastro (16/11, ERR-490; sem
+  migration) → vai no `.zip`.** A rotina só roda no servidor da loja; na nuvem nada muda.
+  - Antes, o lote de 25 podia ser ocupado inteiro por imagens com endereço de outro sistema (catálogo importado), e a
+    foto enviada pela loja não subia: o cardápio online ficava com a imagem quebrada.
+  - Agora o lote só traz o que é arquivo local e anda em rodízio.
+
 - **"É o servidor da loja?" num lugar só (16/11, V2 do registro; sem migration) → vai no `.zip`** (o código da API e o
   `backend/scripts/apply-all-local.mjs`, que aplica as migrations na loja).
   - As 26 comparações de `EDGE_MODE` feitas à mão viram `ehServidorLocal()`.
@@ -66,6 +72,11 @@
   comprovante pelo contexto (sem ler a imagem), confere o pedido — consulta o provedor do Pix na hora — e responde: a
   mensagem positiva, "ainda não caiu", ou chama a equipe (pagar na entrega, cancelado, nenhum pedido com o telefone). Só
   NUVEM (o atendente é da nuvem): vale com o merge; o `.zip` leva o código sem efeito na loja.
+
+- **O PIN do terminal de ponto, na nuvem, só abre o ponto para quem não tem o acesso online (16/11, avaliação de
+  segurança, achado A-03; SEM migration).** Vale na NUVEM com o merge: o PIN de quem está com "acesso online" desligado
+  gera uma sessão que só envia a foto e marca o ponto; antes, abria a API inteira com o perfil da pessoa. **No servidor
+  da loja nada muda** (o PIN entra como sempre); os arquivos vão junto no próximo corte. Nada no `.exe`.
 
 - **Estoque › Produtos › Importar — a conferência não rola mais para o lado (16/11, ERR-476; só tela, sem migration) → vai
   no `.zip`** (a tela da loja vem nele).

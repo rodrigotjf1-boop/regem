@@ -1,10 +1,12 @@
 import {
   CanActivate,
   ExecutionContext,
+  ForbiddenException,
   Inject,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { rotaDoTerminalDePonto, SESSAO_SO_DO_PONTO } from './sessao-do-ponto';
 import { JwtService } from '@nestjs/jwt';
 import { eq } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../db/drizzle.module';
@@ -101,6 +103,15 @@ export class JwtAuthGuard implements CanActivate {
       if ((Array.isArray(h) ? h[0] : h) !== payload.ap)
         throw new UnauthorizedException('Esta sessão é do app de atendimento: entre pelo celular pareado.');
       req.user.aparelhoId = payload.ap;
+    }
+
+    // A SESSÃO DO TERMINAL DE PONTO (A-03, `sessao-do-ponto.ts`): na nuvem, o PIN de quem não tem o acesso online gera
+    // uma sessão que só serve para enviar a foto e marcar o ponto. Sem isto, o PIN contornava a trava do login por senha
+    // (`pode_nuvem`) e abria a API inteira com o perfil da pessoa.
+    if (payload.so === SESSAO_SO_DO_PONTO && !rotaDoTerminalDePonto(req)) {
+      throw new ForbiddenException(
+        'Esta sessão é só do terminal de ponto. Para o resto, entre pelo servidor da loja ou peça ao presidente o acesso online.',
+      );
     }
 
     // Revalidação autoritativa contra o banco (cacheada por CACHE_MS).
