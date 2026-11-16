@@ -31,6 +31,12 @@
   rotas do totem, que também roda no servidor da loja — lá ele não anuncia (`ehServidorLocal()`). Os arquivos
   (`common/retirada-credencial.ts` e os dois guardas) vão junto no próximo corte, sem efeito na loja. Nada no `.exe`.
 
+- **A landing de dentro do app (`/`) só promete o que o produto faz (16/11; só tela, sem migration).** Vale na nuvem com o
+  deploy (é a página pública de `app.dmsregem.com`); acompanha o `.zip` por ser tela, sem efeito na loja.
+  - Os planos e preços são os da tabela do app: 129 / 199 / 299.
+  - Saem os números não medidos, o Metas L.T.D.A, "white-label" e os preços antigos; o TEF fica com "em breve".
+  - O selo do plano em destaque vira "recomendado", também em Planos e assinatura.
+
 - **Estoque › Produtos › Importar — a conferência não rola mais para o lado (16/11, ERR-476; só tela, sem migration) → vai
   no `.zip`** (a tela da loja vem nele).
   - No passo 3, a lista fica em colunas quando cabe no diálogo e empilhada quando não cabe.
