@@ -61,9 +61,11 @@ export class PedidoManutencaoService {
         prazo15d: prazo.toISOString().slice(0, 10),
       })
       .returning();
-    // Alerta ao C&O/gerente (mesmo canal dos alertas de sistema).
+    // Alerta ao C&O/gerente (mesmo canal dos alertas de sistema). Com a LOJA do pedido (ERR-494): sem ela, o pedido de
+    // manutenção de uma loja tocava nas telas de todas as lojas da rede. O tipo do aviso fica como estava.
     this.events.emit('kds.alerta.sistema', {
       tenantId,
+      unidadeId: row.unidadeId ?? null,
       titulo: '🛠️ Novo pedido de manutenção',
       detalhe: titulo,
       prioridade: row.prioridade === 'critica' ? 'danger' : 'alta',
