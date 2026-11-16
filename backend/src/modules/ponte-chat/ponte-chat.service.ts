@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Inject, Injectable, Logger, Opt
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { repetirNoImpasse } from '../../common/repetir-no-impasse';
 import { versaoInformada } from '../equipamento/presenca.service';
 import { CANAIS, CanalDaPonte, ehCanalDaPonte } from './lideranca';
 import type { PonteCtx } from './ponte-chat.guard';
@@ -272,7 +273,10 @@ export class PonteChatService {
       });
     }
     if (!validas.length) return { recebidas: 0, repetidas: 0, recusadas };
-    const { r, casos, respondeu, paraOAtendente } = await this.db.transaction(async (tx) => {
+    // A transação inteira repete se o banco a derrubar por impasse (40P01): ela é idempotente (as falas entram com
+    // `on conflict do nothing`, e a que caiu voltou inteira). O impasse visto no CI (ERR-481): a trava da empresa
+    // (robo_config) contra uma migration que trava a `empresa` e altera o robo_config ao mesmo tempo.
+    const { r, casos, respondeu, paraOAtendente } = await repetirNoImpasse(() => this.db.transaction(async (tx) => {
       // O pedido: pelo id na plataforma; sem ele, pelo número exibido; sem os dois (99), pelo CLIENTE — o pedido mais
       // recente dele na 99 (dos últimos 2 dias). O id e o número que faltam saem do pedido ligado: a conversa fica com a
       // mesma chave dos avisos que a nuvem manda (`ext:` — `chaveDaConversa`), e não vira duas.
@@ -311,7 +315,7 @@ export class PonteChatService {
       const equipe = doCliente.length ? await situacoesPorLoja(this.db, p.tenantId, doCliente.map((m) => m.unidadeId ?? null)) : undefined;
       if (!ajustes.roboResponde) return { r, casos: await casosDoChat(tx, p.tenantId, doCliente, undefined, equipe), respondeu: null, paraOAtendente: [] };
       return { r, ...(await this.roboECasos(tx, p.tenantId, doCliente, equipe, ajustes.roboModo)) };
-    });
+    }), { aoRepetir: (t) => this.logger.warn(`ponte do chat: impasse no banco ao receber (empresa ${p.tenantId}); repetindo (${t})`) });
     for (const chamado of casos.novos) this.events?.emit('atendimento.novo', { tenantId: p.tenantId, chamado });
     for (const id of casos.somados) this.events?.emit('atendimento.mudou', { tenantId: p.tenantId, id, motivo: 'cliente_escreveu_no_chat' });
     // O ATENDENTE VIRTUAL (F5): as conversas dele vão ao robô DEPOIS de gravar (a resposta confere o caso e o limite no banco),
