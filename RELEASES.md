@@ -36,6 +36,12 @@
   segue pedindo a via de teste. **Conferir no `.exe`:** o `RegemEdgeSync` (NSSM, conta do sistema) consegue
   `Restart-Service RegemEdgeImpressao` numa instalação nova.
 
+- **O tempo real manda só o sinal no caso novo do Atendimento e na batida de ponto (16/11, ERR-495; sem migration) → vai
+  no `.zip`** (o gateway roda também no servidor da loja); na nuvem vale com o deploy.
+  - Antes, o caso inteiro (nome e telefone do cliente) e o comprovante do ponto (nome do colaborador, hora, NSR) iam a
+    todo socket da empresa, inclusive aparelhos e perfis sem a permissão.
+  - Nenhuma tela usava esse conteúdo: todas releem pela API, que confere a loja e o perfil.
+
 ## Última release: `1.30.14` — gerada em 16/11/2026 da `origin/main` `f7832ca0`, **SÓ `.zip`** (`regem-edge-1.30.14.zip`, 36.796.865 bytes, SHA-256 `d18ba769108d318b56ac65a995ae062a2fe2683d029b4554439d7c68521f7fa8`), conferido (preflight OK; o KDS pelo token do aparelho dentro do pacote) e assinado (v1 + v2, validade até 15/05/2027); entregue ao dono em `Documentos\Regem - release 1.30.14 (16-11)` com o `DADOS PARA PUBLICAR.txt`; publicação no console PENDENTE (o dono); sem `.exe`
 
 - Pedido do dono (16/11): "pode gerar o .zip" — para a TV box da cozinha do Mister Burger mostrar os pedidos (ERR-489, #1068), que abre o servidor da loja.
