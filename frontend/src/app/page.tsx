@@ -2,10 +2,17 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { PLANOS_DA_LANDING } from '@/lib/planos-da-landing';
 
 // WhatsApp de suporte (só dígitos, ex.: 5521999999999). Configure em
-// NEXT_PUBLIC_WHATSAPP_SUPORTE (build-time). Sem valor, o botão não aparece.
+// NEXT_PUBLIC_WHATSAPP_SUPORTE (build-time). Sem valor, o "Suporte" do rodapé não aparece.
+// (Sem botão flutuante: decisão do dono para a landing, 12/11/2026.)
 const WHATS = (process.env.NEXT_PUBLIC_WHATSAPP_SUPORTE || '').replace(/\D/g, '');
+
+// O que esta página promete tem de existir no produto (decisões do dono de 12/11/2026 para a landing): nada de número de
+// clientes ou resultado que não medimos, o que está no plano vai com "em breve", e os preços são os da tabela do app
+// (`lib/planos-da-landing.ts`). O `npm run check:landing` confere.
+const brl0 = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
 
 // Landing pública (antes do login). Tema escuro navy + âmbar (marca).
 // Porte fiel do mockup Fable "regem-landing" — CSS escopado em .lp.
@@ -26,13 +33,15 @@ const CSS = `
 .lp .logo-mark{width:34px;height:34px;border-radius:50%;border:2.5px solid #E8A845;display:grid;place-items:center;color:#E8A845;font-size:15px;font-weight:800}
 .lp .hdr nav{display:flex;gap:28px;margin-left:auto;font-size:14.5px;font-weight:500;color:#9FB2C8}
 .lp .hdr nav a:hover{color:#F2F5F9}
-.lp .hdr .entrar{font-weight:700;font-size:14.5px}
+.lp .hdr .entrar{font-weight:700;font-size:14.5px;margin-left:26px;white-space:nowrap}
+.lp .hdr .cta{margin-left:10px;white-space:nowrap}
 .lp .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:999px;font-weight:700;transition:transform .12s,filter .15s}
 .lp .btn:hover{filter:brightness(1.07)}
 .lp .btn:active{transform:scale(.98)}
 .lp .btn-brand{background:#E8A845;color:#2A1D06;padding:12px 26px;font-size:15px}
 .lp .btn-ghost{background:#12233A;border:1px solid #1A3050;color:#F2F5F9;padding:12px 26px;font-size:15px}
-@media(max-width:820px){.lp .hdr nav{display:none}}
+@media(max-width:1000px){.lp .hdr nav{display:none}.lp .hdr{gap:12px}.lp .hdr .entrar{margin-left:auto}.lp .hdr .cta{margin-left:0}}
+@media(max-width:480px){.lp .hdr{padding:14px 4vw;gap:10px}.lp .hdr .cta{padding:12px 16px;font-size:14px}.lp .logo{font-size:18px;gap:8px}}
 .lp .hero{position:relative;z-index:1;text-align:center;padding:88px 6vw 40px;max-width:1080px;margin:0 auto}
 .lp .hero h1{font-family:var(--font-display);font-weight:800;font-size:clamp(38px,6.4vw,72px);line-height:1.06;letter-spacing:-.02em;margin:22px 0 24px}
 .lp .hero h1 em{font-style:normal;color:#E8A845}
@@ -70,6 +79,7 @@ const CSS = `
 .lp .proof{position:relative;z-index:1;display:flex;gap:clamp(24px,6vw,80px);justify-content:center;flex-wrap:wrap;padding:56px 6vw;text-align:center}
 .lp .proof div b{display:block;font-family:var(--font-mono);font-size:clamp(24px,3.4vw,34px);font-weight:700;color:#E8A845}
 .lp .proof div span{font-size:12.5px;color:#5F7590;letter-spacing:.04em}
+.lp .breve{display:inline-block;margin-left:8px;padding:2px 9px;border-radius:999px;background:rgba(232,168,69,.15);color:#E8A845;font-family:var(--font-mono);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;vertical-align:middle}
 .lp section{position:relative;z-index:1;padding:72px 6vw;max-width:1120px;margin:0 auto}
 .lp .sec-head{text-align:center;max-width:660px;margin:0 auto 46px}
 .lp .sec-head h2{font-family:var(--font-display);font-weight:800;font-size:clamp(26px,4vw,40px);letter-spacing:-.015em;margin:16px 0 12px}
@@ -101,7 +111,7 @@ const CSS = `
 .lp .plans{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;align-items:stretch}
 .lp .plan{background:#12233A;border:1px solid #1A3050;border-radius:18px;padding:28px 26px;display:flex;flex-direction:column}
 .lp .plan.hot{border-color:#E8A845;box-shadow:0 0 0 1px #E8A845,0 20px 50px rgba(232,168,69,.12);position:relative}
-.lp .plan.hot::before{content:"MAIS ESCOLHIDO";position:absolute;top:-11px;left:50%;transform:translateX(-50%);font-family:var(--font-mono);font-size:9px;letter-spacing:.2em;background:#E8A845;color:#2A1D06;font-weight:700;padding:4px 12px;border-radius:20px}
+.lp .plan.hot::before{content:"RECOMENDADO";position:absolute;top:-11px;left:50%;transform:translateX(-50%);font-family:var(--font-mono);font-size:9px;letter-spacing:.2em;background:#E8A845;color:#2A1D06;font-weight:700;padding:4px 12px;border-radius:20px}
 .lp .plan h3{font-family:var(--font-display);font-size:16px;font-weight:800}
 .lp .plan .price{font-family:var(--font-mono);font-size:34px;font-weight:700;margin:14px 0 2px}
 .lp .plan .price small{font-size:13px;color:#5F7590;font-weight:400}
@@ -157,14 +167,15 @@ export default function LandingPage() {
         <nav>
           <a href="#topo">Home</a>
           <a href="#integracoes">Integrações</a>
-          <a href="#perfis">Ramos</a>
+          <a href="#perfis">Perfis</a>
           <a href="#precos">Preços</a>
           <Link href="/como-funciona">Como funciona</Link>
         </nav>
-        <Link className="entrar" href="/entrar" style={{ marginLeft: 26 }}>
+        {/* As margens moram no CSS (`.entrar`, `.cta`): no celular o conjunto passava de 320 px e o botão ficava cortado. */}
+        <Link className="entrar" href="/entrar">
           Entrar
         </Link>
-        <Link className="btn btn-brand" href="/criar-conta" style={{ marginLeft: 10 }}>
+        <Link className="btn btn-brand cta" href="/criar-conta">
           Testar grátis
         </Link>
       </header>
@@ -284,12 +295,12 @@ export default function LandingPage() {
         </div>
       </div>
 
-      {/* PROVA SOCIAL */}
+      {/* O QUE O PRODUTO JÁ FAZ — só o que existe (antes: números de clientes e resultados que nunca medimos) */}
       <div className="proof">
-        <div><b>120+</b><span>lojas operando</span></div>
-        <div><b>48 mil</b><span>tarefas concluídas / mês</span></div>
-        <div><b>R$ 310k</b><span>em desperdício evitado</span></div>
-        <div><b>4,8★</b><span>avaliação dos gerentes</span></div>
+        <div><b>5 canais</b><span>de delivery numa fila só</span></div>
+        <div><b>Sem internet</b><span>o balcão continua vendendo</span></div>
+        <div><b>4 perfis</b><span>cada um vê só o que precisa</span></div>
+        <div><b>3 meses</b><span>grátis, do sistema completo</span></div>
       </div>
 
       {/* COMO FUNCIONA */}
@@ -316,7 +327,7 @@ export default function LandingPage() {
           <div className="step">
             <div className="step-n">📊</div>
             <h3>3 · Acompanhe tudo em tempo real</h3>
-            <p>Checklists, desperdício com foto, vistorias assinadas e ranking da equipe — do balcão ao balanço.</p>
+            <p>Checklists, desperdício e vistorias com foto e o ranking da equipe — do balcão ao balanço.</p>
           </div>
         </div>
       </section>
@@ -391,7 +402,7 @@ export default function LandingPage() {
             <div className="pr">Rede inteira</div>
             <ul>
               <li>Comparativo entre lojas</li>
-              <li>Relatórios agendados por e-mail</li>
+              <li>Avisos e resumos do Mister no WhatsApp</li>
               <li>Liga/desliga módulos</li>
               <li>Log de auditoria completo</li>
             </ul>
@@ -424,7 +435,7 @@ export default function LandingPage() {
             <ul>
               <li>Minha escala e minhas tarefas</li>
               <li>Tutoriais de cada atividade</li>
-              <li>Meu ponto e meu ranking</li>
+              <li>Meu ponto, marcado na hora</li>
               <li>Zero burocracia, zero cadastro</li>
             </ul>
           </div>
@@ -445,7 +456,7 @@ export default function LandingPage() {
           </div>
           <div className="mod">
             <span className="mi">🛍️</span>
-            <div><h3>Cardápio digital</h3><p>Loja online por ramo (food, varejo, indústria, serviços) — entrega, retirada e agendamento.</p></div>
+            <div><h3>Cardápio digital</h3><p>Loja online própria para food service — entrega, retirada e encomenda. Varejo, indústria e serviços em breve.</p></div>
             <span className="sw" aria-hidden="true" />
           </div>
           <div className="mod">
@@ -460,7 +471,7 @@ export default function LandingPage() {
           </div>
           <div className="mod">
             <span className="mi">💳</span>
-            <div><h3>TEF / Maquininha</h3><p>Pagamento integrado ao PDV — Pix, crédito e débito sem digitar valor de novo.</p></div>
+            <div><h3>TEF / Maquininha <span className="breve">em breve</span></h3><p>Crédito e débito na maquininha integrada ao PDV, sem digitar o valor de novo. O Pix já sai integrado pelo Mercado Pago e pelo PagBank.</p></div>
             <span className="sw" aria-hidden="true" />
           </div>
           <div className="mod">
@@ -534,18 +545,6 @@ export default function LandingPage() {
             <span className="sw" aria-hidden="true" />
           </div>
           <div className="mod">
-            <span className="mi">🎯</span>
-            <div>
-              <h3>Metas L.T.D.A</h3>
-              <p>
-                Metas e <strong>assiduidade</strong>: pontua o colaborador (presença, tarefas,
-                sugestões) e vira <strong>recompensa</strong> em produtos ou em reais. Integra
-                com o Regem via <strong>API</strong>.
-              </p>
-            </div>
-            <span className="sw" aria-hidden="true" />
-          </div>
-          <div className="mod">
             <span className="mi">🔌</span>
             <div>
               <h3>API aberta</h3>
@@ -565,51 +564,27 @@ export default function LandingPage() {
       {/* PREÇOS */}
       <section id="precos">
         <div className="sec-head">
-          <div className="eyebrow">Preço por unidade · sem surpresa</div>
+          <div className="eyebrow">Planos mensais · os preços do app</div>
           <h2>Comece pequeno. Escale quando quiser.</h2>
         </div>
         <p className="pricing-free">
           ✦ Todos os planos começam com <strong>3 meses grátis</strong> do sistema completo — sem cartão de crédito.
         </p>
+        {/* Os planos da tabela do app (`lib/planos-da-landing.ts`, conferida com o catálogo do servidor). */}
         <div className="plans">
-          <div className="plan">
-            <h3>Balcão</h3>
-            <div className="price">R$ 149<small>/mês</small></div>
-            <div className="per">por unidade · até 10 colaboradores</div>
-            <ul>
-              <li>Escalas e delegação automática</li>
-              <li>Checklists com tutoriais</li>
-              <li>Desperdício e vistorias com foto</li>
-              <li>Exportação Excel / JSON / Word</li>
-            </ul>
-            <Link className="btn btn-ghost" href="/criar-conta">Testar grátis</Link>
-          </div>
-          <div className="plan hot">
-            <h3>Operação</h3>
-            <div className="price">R$ 289<small>/mês</small></div>
-            <div className="per">por unidade · colaboradores ilimitados</div>
-            <ul>
-              <li>Tudo do Balcão</li>
-              <li>Estoque PVPS + recebimento por foto</li>
-              <li>Fichas técnicas e CMV automático</li>
-              <li>Fornecedores e histórico de preços</li>
-              <li>Módulos KDS + App do Colaborador</li>
-            </ul>
-            <Link className="btn btn-brand" href="/criar-conta">Começar agora</Link>
-          </div>
-          <div className="plan">
-            <h3>Rede</h3>
-            <div className="price">Sob consulta</div>
-            <div className="per">multiunidade · white-label · API</div>
-            <ul>
-              <li>Tudo do Operação</li>
-              <li>Visão C&amp;O e comparativo de lojas</li>
-              <li>Terminal de Ponto (Portaria 671)</li>
-              <li>Bot de atendimento + integrações</li>
-              <li>Onboarding assistido</li>
-            </ul>
-            <Link className="btn btn-ghost" href="/entrar">Falar com a gente</Link>
-          </div>
+          {PLANOS_DA_LANDING.map((p) => (
+            <div key={p.chave} className={p.destaque ? 'plan hot' : 'plan'}>
+              <h3>{p.nome}</h3>
+              <div className="price">{brl0(p.mensal)}<small>/mês</small></div>
+              <div className="per">{p.desc}</div>
+              <ul>
+                {p.modulos.map((m) => <li key={m}>{m}</li>)}
+              </ul>
+              <Link className={p.destaque ? 'btn btn-brand' : 'btn btn-ghost'} href="/criar-conta">
+                {p.destaque ? 'Começar agora' : 'Testar grátis'}
+              </Link>
+            </div>
+          ))}
         </div>
       </section>
 
@@ -638,40 +613,19 @@ export default function LandingPage() {
         <nav>
           <Link href="/termos">Termos de uso</Link>
           <Link href="/privacidade">Privacidade &amp; LGPD</Link>
-          <a href="#">Suporte</a>
-          <a href="#">API para desenvolvedores</a>
+          {/* O suporte pelo WhatsApp (sem botão flutuante — decisão do dono para a landing, 12/11/2026). Os dois links
+              daqui apontavam para "#": não levavam a lugar nenhum. */}
+          {WHATS && (
+            <a href={`https://wa.me/${WHATS}?text=${encodeURIComponent('Olá! Tenho uma dúvida sobre o Regem.')}`} target="_blank" rel="noopener noreferrer">
+              Suporte pelo WhatsApp
+            </a>
+          )}
         </nav>
         <div className="foot-sign">
           REGEM · NO COMANDO DE TODO O NEGÓCIO · DO BALCÃO AO BALANÇO
         </div>
       </footer>
 
-      {/* WhatsApp flutuante — tirar dúvidas antes de assinar */}
-      {WHATS && (
-        <a
-          href={`https://wa.me/${WHATS}?text=${encodeURIComponent('Olá! Tenho uma dúvida sobre o Regem.')}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Falar no WhatsApp"
-          style={{
-            position: 'fixed',
-            right: 22,
-            bottom: 22,
-            zIndex: 60,
-            width: 58,
-            height: 58,
-            borderRadius: '50%',
-            background: '#25D366',
-            display: 'grid',
-            placeItems: 'center',
-            boxShadow: '0 8px 24px rgba(0,0,0,.35)',
-          }}
-        >
-          <svg viewBox="0 0 32 32" width="30" height="30" fill="#fff" aria-hidden="true">
-            <path d="M16 3C9.4 3 4 8.4 4 15c0 2.1.6 4.1 1.6 5.9L4 29l8.3-1.6c1.7.9 3.6 1.4 5.7 1.4 6.6 0 12-5.4 12-12S22.6 3 16 3zm0 21.8c-1.8 0-3.5-.5-5-1.4l-.4-.2-3.7.7.7-3.6-.2-.4c-1-1.6-1.5-3.4-1.5-5.3C6 10 10.5 5.6 16 5.6S26 10 26 15.4 21.5 24.8 16 24.8zm5.4-7.1c-.3-.1-1.8-.9-2-1s-.5-.1-.7.1c-.2.3-.8 1-1 1.2-.2.2-.4.2-.7.1-1.8-.9-3-1.6-4.2-3.6-.3-.5.3-.5.8-1.5.1-.2 0-.4 0-.5s-.7-1.7-1-2.3c-.3-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1 1-1 2.5s1.1 2.9 1.2 3.1c.2.2 2.2 3.4 5.4 4.7 2 .9 2.8.9 3.8.8.6-.1 1.8-.7 2-1.5.3-.7.3-1.4.2-1.5-.1-.1-.3-.2-.6-.3z" />
-          </svg>
-        </a>
-      )}
     </div>
   );
 }
