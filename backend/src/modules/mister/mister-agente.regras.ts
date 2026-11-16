@@ -68,6 +68,7 @@ COMO VOCÊ TRABALHA
 - A loja segue vendendo. É normal o número de agora ser diferente do que você disse antes: diga o número de agora e, se ajudar, que ele mudou desde aquela hora. Não diga que errou, que inventou ou que respondeu sem consultar, e não peça desculpa por resposta antiga. Você só reconhece um erro seu quando a pergunta antiga está marcada "sem consulta" e a resposta dela trazia número.
 - Para o que é "agora" ou "hoje", consulte de novo em vez de repetir o número antigo.
 - Você só consulta. Você não altera pedido, preço, estoque, cadastro nem configuração, e não cancela nada. Se pedirem uma ação, diga que por enquanto você só consulta e, pelo guia de uso, onde e como ela é feita no Regem.
+- A única exceção é PROPOR, nunca fazer: quando a pessoa quer que você resolva uma impressora parada (imprimir uma via de teste) ou uma nota fiscal sem resposta da SEFAZ (consultar a nota de novo), chame propor_procedimento. Se a ferramenta disser que a proposta vai em seguida, diga em uma frase que ela chega logo abaixo, com os botões "Autorizar" e "Não agora", e que nada é feito sem a autorização. Se ela disser que não há aviso aberto para isso, ou que só o presidente autoriza, diga isso.
 - Para "como faço…" e "onde fica…", consulte o guia de uso e passe o caminho (Grupo › Item) e os passos como vieram, numa lista curta. Caminho de menu, nome de botão e nome de aba, só os que o guia trouxe: nunca invente nem complete. Se o guia diz que a tela depende de uma permissão do perfil e a pessoa não a tem, diga que quem libera é o presidente. Se o guia não achou, mas um dos assuntos que ele devolveu é o da pergunta, consulte de novo com as palavras desse assunto. Se o guia não tem o assunto, diga que ainda não sabe explicar esse caminho e cite, em uma frase, alguns assuntos que ele tem.
 - Não afirme que o Regem tem ou não tem uma função (exportar, imprimir, mandar arquivo, integração) quando nenhuma consulta, nem o guia de uso, mostrou isso. Diga que você não sabe dizer e que a pessoa confere no próprio Regem.
 - Não prometa o que as consultas não entregam: lista que vem em páginas é entregue página a página, e você diz quantas faltam.
@@ -164,7 +165,8 @@ export type NomeDaFerramenta =
   | 'conciliacao_do_periodo'
   | 'vencimentos_e_versoes'
   | 'como_usar_o_regem'
-  | 'anotar_o_que_falta';
+  | 'anotar_o_que_falta'
+  | 'propor_procedimento';
 
 // ───────────────────────────── o que falta (F5.2) ─────────────────────────────
 // Quando a pessoa pede um dado que nenhuma consulta traz, o Mister anota o TEMA (de uma lista fechada) antes de dizer
@@ -172,6 +174,13 @@ export type NomeDaFerramenta =
 // distribuição conta por tema — nunca as palavras da pessoa (são da loja).
 
 export const FERRAMENTA_DO_QUE_FALTA = 'anotar_o_que_falta' as const;
+
+// F4.3 (`docs/plano-mister.md`, "A pergunta que vira proposta"): a IA PROPÕE um procedimento do catálogo fixo
+// (`mister-procedimentos.ts`) para um aviso ABERTO que ele resolve — nunca executa. Quem acha o aviso é o servidor, no
+// escopo da pessoa (a IA não vê nem escolhe id); só o presidente autoriza, pelo mesmo botão da F4.1, que sai logo depois
+// da resposta.
+export const FERRAMENTA_DE_PROPOR = 'propor_procedimento' as const;
+export const PROCEDIMENTOS_QUE_A_IA_PROPOE = ['imprimir_teste', 'consultar_nota'] as const;
 export const TEMAS_DO_QUE_FALTA = ['vendas', 'estoque', 'financeiro', 'equipe', 'cardapio', 'clientes', 'canais', 'fiscal', 'outro'] as const;
 export type TemaDoQueFalta = (typeof TEMAS_DO_QUE_FALTA)[number];
 
@@ -347,12 +356,26 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
       additionalProperties: false,
     },
   },
+  {
+    name: 'propor_procedimento',
+    description:
+      'Não é consulta e não executa nada: PROPÕE um procedimento do catálogo para um aviso aberto que ele resolve. imprimir_teste = imprimir uma via de teste na impressora que o aviso diz estar parada; consultar_nota = consultar de novo na SEFAZ a nota fiscal que ficou sem resposta. Chame só quando a pessoa quer que o Mister resolva isso. O Regem acha o aviso aberto (você não passa id) e manda a proposta com os botões logo depois da sua resposta; só o presidente autoriza.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        procedimento: { type: 'string', enum: [...PROCEDIMENTOS_QUE_A_IA_PROPOE], description: 'O procedimento do catálogo.' },
+        loja: { type: 'string', description: 'O nome da loja, quando a conversa tem mais de uma; vazio = a loja da conversa.' },
+      },
+      required: ['procedimento'],
+      additionalProperties: false,
+    },
+  },
 ];
 
 export const ehFerramenta = (n: unknown): n is NomeDaFerramenta => FERRAMENTAS.some((f) => f.name === n);
 
-/** As ferramentas que leem dado (todas, menos a anotação do que falta): é o que conta como "consulta". */
-export const ehConsulta = (n: unknown): n is NomeDaFerramenta => ehFerramenta(n) && n !== FERRAMENTA_DO_QUE_FALTA;
+/** As ferramentas que leem dado (todas, menos a anotação do que falta e a proposta): é o que conta como "consulta". */
+export const ehConsulta = (n: unknown): n is NomeDaFerramenta => ehFerramenta(n) && n !== FERRAMENTA_DO_QUE_FALTA && n !== FERRAMENTA_DE_PROPOR;
 
 // ───────────────────────────── a memória da conversa e a trilha ─────────────────────────────
 

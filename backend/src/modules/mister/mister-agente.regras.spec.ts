@@ -170,7 +170,11 @@ describe('Mister — o que o modelo recebe', () => {
       'vencimentos_e_versoes',
       'como_usar_o_regem',
       'anotar_o_que_falta',
+      'propor_procedimento',
     ]);
+    // F4.3: propor não é consulta (não lê dado, não conta no teto de consultas) e as instruções dizem "PROPOR, nunca fazer".
+    expect(ehConsulta('propor_procedimento')).toBe(false);
+    expect(INSTRUCOES_DO_MISTER).toContain('A única exceção é PROPOR, nunca fazer');
     // A conciliação (F3.5) está na frase do que o Mister responde, e a descrição dela diz o que não fecha.
     expect(INSTRUCOES_DO_MISTER).toContain('a conciliação (o que não fecha entre a venda, o dinheiro e a nota fiscal)');
     expect(FERRAMENTAS.find((f) => f.name === 'conciliacao_do_periodo')!.description).toContain('o Pix pago em pedido cancelado sem o estorno feito');

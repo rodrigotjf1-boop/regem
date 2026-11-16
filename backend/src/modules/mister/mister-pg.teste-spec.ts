@@ -3686,6 +3686,103 @@ export function testesDoMisterComPostgres(): void {
       }
     });
 
+    // ───────────────────────────── F4.3: a pergunta que vira proposta ─────────────────────────────
+
+    it('F4.3: a IA pede o procedimento, o servidor acha o aviso aberto; sai a resposta e DEPOIS a proposta com os botões; o gerente não autoriza; sem aviso, nada', async () => {
+      comIa();
+      // As ferramentas com o serviço das propostas (o mesmo da F4.1) — as de cima não o montam.
+      const ferramentasComPropostas = new MisterFerramentasService(
+        db,
+        modulos,
+        new DashboardService(db),
+        new RelatoriosService(db, { custoEfetivoMapa: async () => ({}) } as any),
+        new EstoqueService(db, auditoria as AuditoriaService),
+        deliveryDeMentira as any,
+        cozinhaDeMentira as any,
+        servidorDeMentira as any,
+        vendasDeMentira as any,
+        escalaDeMentira as any,
+        pontoDeMentira as any,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        propostas,
+      );
+      const agenteComPropostas = new MisterAgenteService(fila, ferramentasComPropostas, ia, numero);
+      const tel = telefone();
+      const telCarlos = telefone();
+      await ligar('ana', tel);
+      await ligar('carlos', telCarlos, A, 'gerente');
+      await janelaAberta('ana');
+      await janelaAberta('carlos');
+      const contarPropostas = async () => Number((await q(`select count(*)::int as n from mister_proposta where tenant_id = $1`, [A]))[0].n);
+
+      // Sem aviso aberto: a ferramenta diz que não há o que propor; nenhuma proposta nasce; só a resposta sai.
+      numero.pedidos.length = 0;
+      expect(await mandar(tel, 'testa a impressora da cozinha?')).toBe('pergunta');
+      ia.roteiro = [usar('propor_procedimento', { procedimento: 'imprimir_teste' }, 'toolu_p0'), falar('Não há aviso aberto de impressora agora.')];
+      expect(await agenteComPropostas.esvaziar()).toBe(1);
+      expect(JSON.stringify(ia.pedidos.at(-1))).toContain('Não há aviso aberto que este procedimento resolva nesta loja.');
+      expect(await contarPropostas()).toBe(0);
+      expect(numero.enviadas.map((m) => [m.para, m.texto, m.botoes.length])).toEqual([[tel, 'Não há aviso aberto de impressora agora.', 0]]);
+
+      // Com o aviso da impressora aberto: a proposta nasce presa a ele; a resposta sai e, depois, a pergunta com os botões.
+      const [aviso] = await q(
+        `insert into mister_aviso (tenant_id, unidade_id, tipo, chave, titulo) values ($1, null, 'impressora', 'vigia:impressora_parada:srv:1:impressora:9', 'Loja Centro · impressora Cozinha parada') returning id::text as id`,
+        [A],
+      );
+      numero.pedidos.length = 0;
+      expect(await mandar(tel, 'manda uma via de teste nela')).toBe('pergunta');
+      ia.roteiro = [usar('propor_procedimento', { procedimento: 'imprimir_teste' }, 'toolu_p1'), falar('A proposta vai logo abaixo, com os botões.')];
+      expect(await agenteComPropostas.esvaziar()).toBe(1);
+      const p = await propostaDe(aviso.id);
+      expect(p).toMatchObject({ procedimento: 'imprimir_teste', situacao: 'proposta', nivel: 'botao', parametros: { servidorId: '1', impressoraId: '9' } });
+      // O que foi ao modelo NÃO leva o id da proposta (só "vai em seguida" e o título do aviso).
+      const aoModelo = JSON.stringify(ia.pedidos.at(-1));
+      expect(aoModelo).toContain('vai em seguida, com os botões Autorizar e Não agora');
+      expect(aoModelo).not.toContain(p.id);
+      expect(numero.enviadas.map((m) => [m.para, m.botoes.map((b) => b.titulo)])).toEqual([
+        [tel, []],
+        [tel, ['Autorizar', 'Não agora']],
+      ]);
+      expect(numero.enviadas[0].texto).toBe('A proposta vai logo abaixo, com os botões.');
+      expect(numero.enviadas[1].botoes.every((b) => b.id.startsWith('prop:') && b.id.includes(p.id))).toBe(true);
+
+      // Pedida de novo enquanto pendente: a MESMA proposta (não duplica), os botões vão de novo.
+      numero.pedidos.length = 0;
+      expect(await mandar(tel, 'manda de novo a proposta')).toBe('pergunta');
+      ia.roteiro = [usar('propor_procedimento', { procedimento: 'imprimir_teste' }), falar('Vai abaixo de novo.')];
+      expect(await agenteComPropostas.esvaziar()).toBe(1);
+      expect(await contarPropostas()).toBe(1);
+      expect(numero.enviadas.map((m) => m.botoes.length)).toEqual([0, 2]);
+
+      // O gerente pede: a ferramenta recusa (só o presidente autoriza); nada de botão para ele; nenhuma proposta nova.
+      numero.pedidos.length = 0;
+      expect(await mandar(telCarlos, 'testa a impressora?')).toBe('pergunta');
+      ia.roteiro = [usar('propor_procedimento', { procedimento: 'imprimir_teste' }), falar('Só o presidente autoriza.')];
+      expect(await agenteComPropostas.esvaziar()).toBe(1);
+      expect(JSON.stringify(ia.pedidos.at(-1))).toContain('Só o presidente autoriza um procedimento do Mister');
+      expect(numero.enviadas.map((m) => [m.para, m.botoes.length])).toEqual([[telCarlos, 0]]);
+      expect(await contarPropostas()).toBe(1);
+
+      // A proposta já respondida ("Não agora"): pedir de novo não cria outra nem manda botão.
+      await q(`update mister_proposta set situacao = 'recusada', respondida_em = now(), concluida_em = now() where id = $1`, [p.id]);
+      numero.pedidos.length = 0;
+      expect(await mandar(tel, 'testa a impressora de novo')).toBe('pergunta');
+      ia.roteiro = [usar('propor_procedimento', { procedimento: 'imprimir_teste' }), falar('Essa proposta já foi respondida.')];
+      expect(await agenteComPropostas.esvaziar()).toBe(1);
+      expect(JSON.stringify(ia.pedidos.at(-1))).toContain('já foi respondida');
+      expect(numero.enviadas.map((m) => m.botoes.length)).toEqual([0]);
+      expect(await contarPropostas()).toBe(1);
+      // Procedimento fora do catálogo: recusa.
+      const escopo = await ferramentasComPropostas.escopo(A, pessoa.ana, tel);
+      expect(await ferramentasComPropostas.executar(escopo!, 'propor_procedimento', { procedimento: 'cancelar_pedido' })).toEqual({ ok: false, dados: { erro: 'Esse procedimento não está no catálogo.' } });
+    });
+
     // ───────────────────────────── os relatórios (mig 420) ─────────────────────────────
 
     it('a configuração dos relatórios: o padrão desligado, o salvar com a auditoria e as recusas antes de gravar', async () => {

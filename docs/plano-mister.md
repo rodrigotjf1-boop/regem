@@ -793,6 +793,18 @@ fase inteira:
 | **F4.3 — A pergunta que vira proposta** | A ferramenta `propor_procedimento` para a IA, só com os procedimentos do catálogo. A IA propõe; a pessoa autoriza do mesmo jeito. | — |
 | **F4.4 — Procedimentos do servidor da loja** | Os que pedem comando novo no `sync-daemon`, como reiniciar o serviço de impressão da conversa 5. Vão no `.exe`. | — |
 
+**F4.3 implementada (16/11/2026, sem migration):**
+- A 19ª ferramenta, `propor_procedimento` (`imprimir_teste` ou `consultar_nota`), não é consulta e não executa: o
+  servidor acha o aviso ABERTO, no escopo da pessoa, cujo procedimento é o pedido (a IA não vê nem escolhe id) e cria a
+  proposta pelo MESMO `propor` da F4.1. A proposta continua presa a um aviso, então a tabela da 428 não muda.
+- Só o presidente: para os outros, a ferramenta responde que só o presidente autoriza (ele já recebe a proposta junto do
+  aviso).
+- A proposta não vai ao modelo, que só vê "vai em seguida, com os botões" e o título do aviso. O agente guarda a
+  proposta e, depois da resposta, manda a pergunta com os botões "Autorizar" e "Não agora", os mesmos da F4.1.
+- Pedida de novo enquanto pendente, a mesma proposta e os botões de novo. Já respondida, não renasce.
+- As instruções ganharam a exceção "PROPOR, nunca fazer".
+- A avaliação de regressão responde "não há aviso aberto": a loja de teste não tem avisos.
+
 **F4.1 implementada (15/11/2026, mig 428):**
 - `mister-procedimentos.ts` (o catálogo, puro) e `mister-propostas.service.ts` (propor, responder, executar, conferir,
   vencer, a rotina a cada 30 s) no `MisterAgenteModule`.
