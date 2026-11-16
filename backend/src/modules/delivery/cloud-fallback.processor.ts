@@ -1,9 +1,10 @@
 import { ehServidorLocal } from '../../common/modo';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
-import { and, eq, gte, isNull, lt, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, isNull, lt, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { pedidoExterno, edgeHeartbeat } from '../../db/schema';
+import { EsperaPorFalha } from '../../common/espera-por-falha';
 import { DeliveryService } from './delivery.service';
 import { deveMaterializar } from './deve-materializar';
 
@@ -34,20 +35,36 @@ export class CloudFallbackProcessor {
   private static readonly TETO_MIN = 5; // idade mínima do pedido preso
   // Servidor que BATE mas não sincroniza há mais que isto não conta como vivo (ERR-132).
   private static readonly FALHA_MIN = 10;
+  // Pedido cujo resgate falha seguidas vezes (V84, ERR-493): a leitura é de TODAS as empresas, e o que falhava sempre
+  // voltava ao lote a cada minuto — 50 deles tomavam o resgate das outras lojas. As duas primeiras falhas tentam de novo no
+  // ciclo seguinte; depois o pedido sai da consulta por 2, 4, 6… min (teto de 10). Segue "novo" no painel da loja.
+  private readonly resgateFalhou = new EsperaPorFalha();
+  /** Pedidos por ciclo (o teste diminui para provar que o que falha não toma o lote). */
+  lote = 50;
 
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly delivery: DeliveryService,
   ) {}
 
+  /** `soEmpresas`: só para o teste (no CI as specs dividem o banco). Vale apenas como LISTA — o `@Interval` não passa nada. */
   @Interval(60000)
-  async processar() {
+  async processar(soEmpresas?: string[]) {
     if (this.isEdge || this.rodando) return;
     this.rodando = true;
     try {
+      const soEstas =
+        Array.isArray(soEmpresas) && soEmpresas.length
+          ? sql`${pedidoExterno.tenantId} in (${sql.join(soEmpresas.map((t) => sql`${t}::uuid`), sql`, `)})`
+          : sql`true`;
       const corteIdade = new Date(Date.now() - CloudFallbackProcessor.TETO_MIN * 60 * 1000);
       const corteHb = new Date(Date.now() - CloudFallbackProcessor.HB_MIN * 60 * 1000);
       const corteFalha = new Date(Date.now() - CloudFallbackProcessor.FALHA_MIN * 60 * 1000);
+      // O que está em espera por falha repetida fica fora deste ciclo.
+      const emEspera = this.resgateFalhou.emEspera();
+      const semOsEmEspera = emEspera.length
+        ? sql`${pedidoExterno.id} not in (${sql.join(emEspera.map((id) => sql`${id}::uuid`), sql`, `)})`
+        : sql`true`;
 
       // Pedidos online presos há mais de TETO_MIN, sem comanda, de loja que TEM servidor
       // local cadastrado e cujo servidor está SEM batida. Duas correções (ERR-062):
@@ -80,6 +97,8 @@ export class CloudFallbackProcessor {
             eq(pedidoExterno.status, 'novo'),
             isNull(pedidoExterno.comandaId),
             lt(pedidoExterno.criadoEm, corteIdade),
+            semOsEmEspera,
+            soEstas,
             sql`(${pedidoExterno.canal} is not null and ${pedidoExterno.canal} <> 'balcao')`,
             // Pix/cartão online (ou o sinal) ainda não pago espera FORA da leitura (V84): na nuvem quem aceita depois é
             // o pagamento aprovado.
@@ -104,7 +123,10 @@ export class CloudFallbackProcessor {
             sql`not exists (select 1 from ${edgeHeartbeat} hb where hb.tenant_id = ${pedidoExterno.tenantId} and hb.recebido_em >= ${corteHb} and (hb.unidade_id = ${pedidoExterno.unidadeId} or hb.unidade_id is null))`,
           ),
         )
-        .limit(50);
+        // Quem espera há mais tempo primeiro; o parado há mais de 12 h (pendência antiga, não cliente esperando) por
+        // último: sem ordem, o lote podia vir só com eles.
+        .orderBy(sql`(${pedidoExterno.criadoEm} < now() - interval '12 hours')`, asc(pedidoExterno.criadoEm))
+        .limit(this.lote);
 
       // A MESMA regra do servidor da loja (`deveMaterializar`): o totem em dinheiro de loja que "produz só depois de pagar"
       // não vai à cozinha pelo resgate (antes ia — ERR-091 por outro caminho; auditoria do KDS, 11/11/2026).
@@ -114,9 +136,14 @@ export class CloudFallbackProcessor {
           if (!aposPagamento.has(p.tenantId)) aposPagamento.set(p.tenantId, await this.delivery.totemAposPagamento(p.tenantId));
           if (!deveMaterializar(p, aposPagamento.get(p.tenantId) ?? true)) continue;
           await this.delivery.aceitar(p.tenantId, null, p.id);
+          this.resgateFalhou.deuCerto(p.id);
           this.logger.warn(`pedido online ${p.id} resgatado na nuvem (edge inativo)`);
         } catch (e: any) {
-          this.logger.warn(`falha ao resgatar ${p.id}: ${e?.message ?? e}`);
+          const espera = this.resgateFalhou.falhou(p.id);
+          const depois = espera
+            ? ` — ${this.resgateFalhou.vezes(p.id)} falhas seguidas: nova tentativa em ${Math.round(espera / 60_000)} min (o pedido segue "novo" no painel)`
+            : '';
+          this.logger.warn(`falha ao resgatar ${p.id}: ${e?.message ?? e}${depois}`);
         }
       }
     } catch (e: any) {

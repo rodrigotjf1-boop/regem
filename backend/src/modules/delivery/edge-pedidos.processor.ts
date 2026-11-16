@@ -1,9 +1,10 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { pedidoExterno } from '../../db/schema';
 import { ehServidorLocal } from '../../common/modo';
+import { EsperaPorFalha } from '../../common/espera-por-falha';
 import { DeliveryService } from './delivery.service';
 import { deveMaterializar } from './deve-materializar';
 
@@ -35,6 +36,12 @@ export class EdgePedidosProcessor {
   // Pedido cancelado cuja venda não se desfez (erro do banco): fica FORA da consulta até esta hora (ms), para não ocupar
   // a frente dos outros nem repetir o erro a cada 15 s (V84).
   private readonly canceladoFalhouAte = new Map<string, number>();
+  // Pedido cujo ACEITE falha seguidas vezes (V84, ERR-493): as duas primeiras falhas tentam de novo no ciclo seguinte (a
+  // falha passageira não atrasa ninguém); a partir da terceira ele sai da consulta por 2, 4, 6… min (teto de 10) — não
+  // toma a vez dos outros no lote de 50 nem repete o erro a cada 15 s. Segue "novo" no painel, para alguém aceitar à mão.
+  private readonly aceiteFalhou = new EsperaPorFalha();
+  /** Pedidos por ciclo (o teste diminui para provar que o que falha não toma o lote). */
+  lote = 50;
   // Unidade DESTE edge (F2 — roteamento por loja). Setada → só materializa/imprime os
   // pedidos DESTA loja (o edge da matriz NUNCA pega o pedido da filial). Vazia (1 loja
   // ou edge antigo sem EDGE_UNIDADE_ID) → tenant-wide, comportamento atual preservado.
@@ -62,6 +69,9 @@ export class EdgePedidosProcessor {
       ];
       // F2: escopo por unidade quando o edge é de uma loja específica (nunca matriz→filial).
       if (this.unidadeId) conds.push(eq(pedidoExterno.unidadeId, this.unidadeId));
+      // O que está em espera por falha repetida fica fora deste ciclo.
+      const emEspera = this.aceiteFalhou.emEspera();
+      if (emEspera.length) conds.push(sql`${pedidoExterno.id} not in (${sql.join(emEspera.map((id) => sql`${id}::uuid`), sql`, `)})`);
       const pendentes = await this.db
         .select({
           id: pedidoExterno.id,
@@ -75,7 +85,10 @@ export class EdgePedidosProcessor {
         })
         .from(pedidoExterno)
         .where(and(...conds))
-        .limit(50);
+        // Quem espera há mais tempo primeiro; o parado há mais de 12 h (pendência antiga — o totem "a pagar" que o
+        // cliente largou —, não cliente esperando) por último: sem ordem, o lote podia vir só com eles.
+        .orderBy(sql`(${pedidoExterno.criadoEm} < now() - interval '12 hours')`, asc(pedidoExterno.criadoEm))
+        .limit(this.lote);
 
       // "Produz só depois de pago" é config por loja; lê uma vez por tenant do lote.
       const aposPagamento = new Map<string, boolean>();
@@ -89,9 +102,14 @@ export class EdgePedidosProcessor {
         if (!deveMaterializar(p, aposPagamento.get(p.tenantId) ?? true)) continue;
         try {
           await this.delivery.aceitar(p.tenantId, null, p.id);
+          this.aceiteFalhou.deuCerto(p.id);
           this.logger.log(`pedido online ${p.id} materializado no edge (comanda + produção)`);
         } catch (e: any) {
-          this.logger.warn(`falha ao materializar ${p.id}: ${e?.message ?? e}`);
+          const espera = this.aceiteFalhou.falhou(p.id);
+          const depois = espera
+            ? ` — ${this.aceiteFalhou.vezes(p.id)} falhas seguidas: nova tentativa em ${Math.round(espera / 60_000)} min (o pedido segue "novo" no painel)`
+            : '';
+          this.logger.warn(`falha ao materializar ${p.id}: ${e?.message ?? e}${depois}`);
         }
       }
 
