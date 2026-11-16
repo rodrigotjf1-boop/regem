@@ -39,6 +39,24 @@ abaixo são o detalhe manual do que esse comando faz.
   ```
 - **Confirmação:** existe `..\regem-edge-dist` com `dist\main.js` e a pasta `edge`.
 
+## Passo 1b — Empacotar a ponte do chat (desde 15/11/2026)
+
+O instalador pergunta, logo depois de Servidor/Cliente, se instala a **ponte do chat** (o programa que traz o chat do
+iFood e da 99 para o Atendimento do Regem). Ela vai **só no `.exe`** — o `.zip` de atualização não a leva — numa pasta
+própria, fora do `regem-edge-dist`.
+
+- **Ação:** montar a ponte com o Electron que ela já usa (sem dependência nova).
+- **Onde:** terminal na raiz do repositório.
+- **Como:**
+  ```bash
+  cd ponte-chat && npm ci && npm test && cd ..
+  node ponte-chat/empacotar.mjs
+  ```
+- **Confirmação:** existe `regem-ponte-dist\Regem Ponte do chat.exe` (é o nome que o ícone "Regem neste PC" reconhece) e
+  `regem-ponte-dist\versao-da-ponte.txt` com a versão do `ponte-chat/package.json`. Sem essa pasta o `.iss` **não
+  compila** (de propósito: o `.exe` nunca sai oferecendo a ponte sem ela), e o preflight (seção 7) reprova pacote velho.
+  A ponte soma ~105 MB ao `.exe`.
+
 ## Passo 2 — Baixar os binários portáteis (para não exigir nada pré-instalado)
 
 - **Ação:** juntar Node, PostgreSQL e NSSM portáteis dentro de `edge\bundle\`.

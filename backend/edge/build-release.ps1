@@ -39,9 +39,11 @@ Write-Host "OK — main == origin/main ($(git log -1 --format=%h))" -ForegroundC
 # 2) Alinhar a versão no .iss (version.txt sai do EDGE_VERSAO no package.mjs) ---
 Passo "2/6  Carimbar versão $Versao no regem-edge.iss"
 $iss = Join-Path $PSScriptRoot 'regem-edge.iss'
-$txt = Get-Content $iss -Raw
+# ERR-113: le e grava em UTF-8. O Get-Content do PS 5.1 lia o arquivo sem BOM como ANSI e o Set-Content regravava o lixo
+# ("—" virava "â€”" na tela do instalador). Grava COM BOM: o Inno so le UTF-8 com BOM (sem, trata como ANSI).
+$txt = [IO.File]::ReadAllText($iss, [Text.Encoding]::UTF8)
 $txt = $txt -replace '#define\s+AppVer\s+"[^"]*"', ('#define AppVer  "' + $Versao + '"')
-Set-Content $iss -Value $txt -Encoding UTF8 -NoNewline
+[IO.File]::WriteAllText($iss, $txt, (New-Object Text.UTF8Encoding $true))
 Write-Host "OK — AppVer = $Versao" -ForegroundColor Green
 
 # 3) Rebuild do frontend (gera .next/standalone com o código atual) ------------
@@ -68,6 +70,15 @@ Set-Location (Join-Path $repo 'backend')
 $env:EDGE_VERSAO = $Versao
 node edge/package.mjs; if ($LASTEXITCODE -ne 0) { Abortar "package.mjs falhou." }
 Set-Location $repo
+
+# 5b) A ponte do chat (vai SO no .exe; o instalador pergunta se instala) -------
+# Pasta propria (regem-ponte-dist), fora do regem-edge-dist: o .zip de atualizacao nao leva a ponte (~250 MB).
+Passo "5b/6  Empacotar a ponte do chat (empacotar.mjs → regem-ponte-dist)"
+Set-Location (Join-Path $repo 'ponte-chat')
+npm ci; if ($LASTEXITCODE -ne 0) { Abortar "npm ci (ponte-chat) falhou." }
+npm test; if ($LASTEXITCODE -ne 0) { Abortar "testes da ponte-chat falharam." }
+Set-Location $repo
+node ponte-chat/empacotar.mjs; if ($LASTEXITCODE -ne 0) { Abortar "empacotar.mjs (ponte) falhou." }
 
 # 6) PREFLIGHT — o guarda que teria pego o 1.20 --------------------------------
 Passo "6/6  Preflight (verifica web.tar/next, keyset, versão)"

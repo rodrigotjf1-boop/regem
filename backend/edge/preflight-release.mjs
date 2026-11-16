@@ -166,6 +166,14 @@ if (existsSync(ISS)) {
   vIss = m ? m[1] : '';
   if (vIss) ok(`.iss AppVer = ${vIss}`);
   else erro('não achei #define AppVer no regem-edge.iss');
+  // ERR-113: o texto da tela do instalador. O carimbo antigo lia o .iss como ANSI e regravava "—" como "â€”"; e sem BOM
+  // o Inno lê o UTF-8 como ANSI (o mesmo lixo na tela). O build-release.ps1 grava em UTF-8 COM BOM.
+  const bytes = readFileSync(ISS);
+  const comBom = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
+  const estragadas = bytes.toString('utf8').split('\n').filter((l) => /â€|Ã[\u0080-¿]/.test(l)).length;
+  if (estragadas) erro(`regem-edge.iss com ${estragadas} linha(s) de acento estragado ("â€", "Ã") — restaure do git e carimbe pelo build-release.ps1 (ERR-113).`);
+  else if (!comBom && /[^\x00-\x7f]/.test(bytes.toString('utf8'))) erro('regem-edge.iss tem acento/travessão e está SEM BOM: o Inno leria como ANSI e a tela mostraria "â€”" — carimbe pelo build-release.ps1 (grava UTF-8 com BOM; ERR-113).');
+  else ok('regem-edge.iss em UTF-8 sem acento estragado' + (comBom ? ' (com BOM)' : ''));
 } else erro('regem-edge.iss ausente');
 if (vTxt && vIss && vTxt !== vIss) erro(`version.txt (${vTxt}) ≠ .iss AppVer (${vIss}) — o .exe sairia com versão trocada. Alinhe os dois.`);
 else if (vTxt && vIss) ok('version.txt == .iss AppVer');
@@ -196,6 +204,42 @@ if (!existsSync(nodeDoBundle)) {
     erro(`não consegui rodar o node.exe do bundle: ${e.message}`);
   }
 }
+
+// ── 7) A ponte do chat que vai no .exe (15/11/2026) ──────────────────────────
+// O instalador pergunta, depois de Servidor/PC da loja, se instala a ponte do chat (o programa que traz o chat do iFood e
+// da 99 para o Atendimento). Ela sai de regem-ponte-dist (ponte-chat/empacotar.mjs — FORA do regem-edge-dist, que vira
+// também o .zip). Confere que o pacote existe, é o executável que o ícone "Regem neste PC" reconhece e tem o MESMO código
+// do ponte-chat/ desta árvore (pacote velho = a loja recebe a ponte de outra versão sem ninguém ver).
+secao('7) Ponte do chat (regem-ponte-dist)');
+const PONTE_DIST = join(REPO, 'regem-ponte-dist');
+const PONTE_SRC = join(REPO, 'ponte-chat');
+const PONTE_EXE = 'Regem Ponte do chat.exe';
+if (!existsSync(join(PONTE_DIST, PONTE_EXE))) {
+  erro(`regem-ponte-dist/${PONTE_EXE} ausente — rode "npm ci" em ponte-chat e "node ponte-chat/empacotar.mjs" (o build-release.ps1 faz os dois).`);
+} else {
+  ok(`${PONTE_EXE} presente`);
+  const vPacote = JSON.parse(readFileSync(join(PONTE_SRC, 'package.json'), 'utf8')).version;
+  const vDist = existsSync(join(PONTE_DIST, 'versao-da-ponte.txt')) ? readFileSync(join(PONTE_DIST, 'versao-da-ponte.txt'), 'utf8').trim() : '';
+  if (vDist === vPacote) ok(`versão da ponte = ${vDist} (a do ponte-chat/package.json)`);
+  else erro(`versão da ponte no pacote (${vDist || 'nenhuma'}) ≠ ponte-chat/package.json (${vPacote}) — empacote de novo.`);
+  if (existsSync(join(PONTE_DIST, 'resources', 'default_app.asar'))) erro('o pacote da ponte ainda tem o default_app.asar do Electron — empacote de novo.');
+  // O código: cada arquivo de ponte-chat/src e de assets igual no pacote, e nada a mais.
+  const diferentes = [];
+  for (const pasta of ['src', 'assets']) {
+    const origem = join(PONTE_SRC, pasta);
+    const destino = join(PONTE_DIST, 'resources', 'app', pasta);
+    const nomesOrigem = existsSync(origem) ? readdirSync(origem).sort() : [];
+    const nomesDestino = existsSync(destino) ? readdirSync(destino).sort() : [];
+    for (const n of new Set([...nomesOrigem, ...nomesDestino])) {
+      const a = join(origem, n);
+      const b = join(destino, n);
+      if (!existsSync(a) || !existsSync(b) || !readFileSync(a).equals(readFileSync(b))) diferentes.push(`${pasta}/${n}`);
+    }
+  }
+  if (diferentes.length) erro(`o código da ponte no pacote difere de ponte-chat/ (${diferentes.slice(0, 5).join(', ')}${diferentes.length > 5 ? '…' : ''}) — empacote de novo.`);
+  else ok('o código da ponte no pacote é o de ponte-chat/ desta árvore');
+}
+if (existsSync(ISS) && !/regem-ponte-dist/.test(readFileSync(ISS, 'utf8'))) erro('o regem-edge.iss não leva a regem-ponte-dist — o .exe sairia sem a ponte.');
 
 // ── Veredito ─────────────────────────────────────────────────────────────────
 console.log('');

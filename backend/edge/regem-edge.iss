@@ -59,6 +59,22 @@ Source: "bundle\nssm\*";  DestDir: "{app}\nssm";  Flags: recursesubdirs createal
 ; Runtime do Windows (VC++ x64) — o Postgres embutido precisa dele. Coloque em
 ; edge\bundle\vc_redist.x64.exe (baixe: https://aka.ms/vs/17/release/vc_redist.x64.exe).
 Source: "bundle\vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall skipifsourcedoesntexist
+; A ponte do chat (iFood e 99) - so com "Sim" na pagina dela (pedido do dono, 15/11/2026). Gerada por
+; ponte-chat/empacotar.mjs em ..\..\regem-ponte-dist (fora do regem-edge-dist: o .zip de atualizacao nao leva a ponte).
+; Sem skipifsourcedoesntexist de proposito: sem o pacote, o .exe NAO compila (nunca sai oferecendo a ponte sem ela).
+Source: "..\..\regem-ponte-dist\*"; DestDir: "{app}\ponte"; Flags: recursesubdirs createallsubdirs ignoreversion; Check: TemPonte
+
+[InstallDelete]
+; Atualizar a ponte: o codigo dela sai inteiro antes da copia (arquivo que deixou de existir numa versao nova nao fica).
+; A pasta de dados (pareamento, sessoes do iFood e da 99) fica em %APPDATA%\Regem Ponte do chat e nao e tocada.
+Type: filesandordirs; Name: "{app}\ponte\resources\app"; Check: TemPonte
+
+[Icons]
+; Os atalhos da ponte (Area de trabalho e menu Iniciar > Regem), com o icone do Regem. Saem ao desinstalar.
+Name: "{commonprograms}\Regem\Regem Ponte do chat"; Filename: "{app}\ponte\Regem Ponte do chat.exe"; \
+  WorkingDir: "{app}\ponte"; IconFilename: "{app}\ponte\resources\app\assets\regem.ico"; Check: TemPonte
+Name: "{commondesktop}\Regem Ponte do chat"; Filename: "{app}\ponte\Regem Ponte do chat.exe"; \
+  WorkingDir: "{app}\ponte"; IconFilename: "{app}\ponte\resources\app\assets\regem.ico"; Check: TemPonte
 
 [Run]
 ; 1) Instala o VC++ Redistributable silenciosamente (se estiver no bundle).
@@ -87,6 +103,12 @@ Filename: "{app}\backend\edge\bandeja\RegemServidor.exe"; Parameters: "--raiz ""
   Description: "Mostrar o icone do servidor da loja"; \
   Flags: nowait postinstall runasoriginaluser skipifdoesntexist; Check: TemIconeDoServidor
 
+; A ponte do chat: aberta como o usuario que instalou (o pareamento e as sessoes do iFood e da 99 ficam no %APPDATA%
+; dele, nunca no do administrador). Depois, abre sozinha em todo login (Registry).
+Filename: "{app}\ponte\Regem Ponte do chat.exe"; WorkingDir: "{app}\ponte"; \
+  Description: "Abrir a ponte do chat (iFood e 99)"; \
+  Flags: nowait postinstall runasoriginaluser skipifdoesntexist; Check: TemPonte
+
 [Registry]
 ; O icone da estacao abre em todo login, para qualquer usuario do PC. Sai ao desinstalar.
 Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "RegemEstacao"; \
@@ -97,11 +119,17 @@ Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
   ValueData: """{app}\backend\edge\bandeja\RegemServidor.exe"" --raiz ""{app}\backend"""; Flags: uninsdeletevalue; Check: TemIconeDoServidor
 Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "RegemServidor"; \
   Flags: deletevalue; Check: EhCliente
+; A ponte do chat abre em todo login (a janela do Gestor do iFood e o icone perto do relogio). Sai ao desinstalar. Com "Nao"
+; numa reinstalacao, nada muda: a ponte que ja estava instalada continua como estava.
+Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "RegemPonteChat"; \
+  ValueData: """{app}\ponte\Regem Ponte do chat.exe"""; Flags: uninsdeletevalue; Check: TemPonte
 
 [UninstallRun]
-; Desinstalar: fecha os icones e remove o servico da estacao (se existirem).
+; Desinstalar: fecha os icones e a ponte e remove o servico da estacao (se existirem). /T: o Electron da ponte tem varios
+; processos com o mesmo nome.
 Filename: "{sys}\taskkill.exe"; Parameters: "/IM RegemEstacao.exe /F"; Flags: runhidden; RunOnceId: "FecharIconeEstacao"
 Filename: "{sys}\taskkill.exe"; Parameters: "/IM RegemServidor.exe /F"; Flags: runhidden; RunOnceId: "FecharIconeServidor"
+Filename: "{sys}\taskkill.exe"; Parameters: "/IM ""Regem Ponte do chat.exe"" /F /T"; Flags: runhidden; RunOnceId: "FecharPonte"
 Filename: "{app}\nssm\nssm.exe"; Parameters: "stop RegemEstacaoImpressao"; Flags: runhidden skipifdoesntexist; RunOnceId: "PararEstacao"
 Filename: "{app}\nssm\nssm.exe"; Parameters: "remove RegemEstacaoImpressao confirm"; Flags: runhidden skipifdoesntexist; RunOnceId: "RemoverEstacao"
 
@@ -111,13 +139,16 @@ Type: files; Name: "{commondesktop}\Regem - parear este PC.lnk"
 Type: files; Name: "{commonprograms}\Regem\Regem - parear este PC.lnk"
 
 [Messages]
-WelcomeLabel2=Este assistente instala o Regem local e configura tudo automaticamente. Na proxima tela voce escolhe se este PC e o Servidor (cerebro da loja) ou um Cliente (so abre o app apontando pro Servidor).
+WelcomeLabel2=Este assistente instala o Regem local e configura tudo automaticamente. Na proxima tela voce escolhe se este PC e o Servidor (cerebro da loja) ou um Cliente (so abre o app apontando pro Servidor); depois, se instala aqui a ponte do chat do iFood e da 99.
 
 [Code]
 #include "assistente-nuvem.iss"
 
 var
   PgModo: TInputOptionWizardPage;     // Servidor x Cliente
+  PgPonte: TInputOptionWizardPage;    // instalar a ponte do chat? (Servidor e Cliente)
+  LblPonteDepois: TNewStaticText;
+  gModoDaPonte: Integer;              // o modo para o qual a escolha da ponte foi sugerida (-1 = ainda nao)
   PgConta: TInputQueryWizardPage;     // conta C&O (so no Servidor)
   PgLoja: TInputOptionWizardPage;     // loja deste servidor (so empresa com mais de uma)
   PgCodigo: TInputQueryWizardPage;    // codigo da trava (so loja com servidor em OUTRO computador)
@@ -197,8 +228,37 @@ begin
   PgModo.Add('Cliente (so abre o app apontando pro Servidor)');
   PgModo.SelectedValueIndex := 0;
 
+  // A ponte do chat (pedido do dono, 15/11/2026: "apos escolher entre servidor e PDV, na proxima etapa perguntar se
+  // deseja instalar a ponte, com breve descricao"). Vale nos dois modos: a ponte fala com a NUVEM (nao com o servidor da
+  // loja), entao pode ficar no servidor ou num PDV. Sugestao: Sim no Servidor, Nao no Cliente (CurPageChanged); a ponte
+  // ja instalada neste PC sugere Sim (atualiza).
+  PgPonte := CreateInputOptionPage(PgModo.ID,
+    'Ponte do chat (iFood e 99)',
+    'Deseja instalar a ponte do chat neste computador?',
+    'A ponte traz para o Atendimento do Regem as conversas dos clientes no chat do iFood e da 99, e envia por la as ' +
+    'respostas e os avisos automaticos (saiu para entrega, chegando). O Gestor de Pedidos do iFood e o portal da 99 ' +
+    'ficam abertos dentro dela. Instale em UM computador que fica ligado durante o expediente - normalmente o servidor.',
+    True, False);
+  PgPonte.Add('Sim, instalar a ponte neste computador');
+  PgPonte.Add('Nao instalar a ponte');
+  PgPonte.SelectedValueIndex := 0;   // sem tela (instalacao silenciosa) vale o padrao do Servidor
+  gModoDaPonte := -1;
+  // O que fazer depois, abaixo das duas opcoes (a lista de opcoes ocupa so a altura delas).
+  PgPonte.CheckListBox.Anchors := [akLeft, akTop, akRight];
+  PgPonte.CheckListBox.Height := ScaleY(60);
+  LblPonteDepois := TNewStaticText.Create(PgPonte);
+  LblPonteDepois.Parent := PgPonte.Surface;
+  LblPonteDepois.Anchors := [akLeft, akTop, akRight];
+  LblPonteDepois.Top := PgPonte.CheckListBox.Top + PgPonte.CheckListBox.Height + ScaleY(8);
+  LblPonteDepois.Width := PgPonte.SurfaceWidth;
+  LblPonteDepois.Height := ScaleY(48);
+  LblPonteDepois.AutoSize := False;
+  LblPonteDepois.WordWrap := True;
+  LblPonteDepois.Caption := 'Depois de instalar: pareie a ponte com o codigo de Configuracoes > Equipamentos > Novo equipamento ' +
+    '(Ponte do chat) > Gerar codigo, e entre uma vez no iFood e na 99 dentro dela. A 99 aceita um login por vez: deixe a 99 aberta so na ponte.';
+
   // Conta C&O — so o Servidor provisiona/ativa a licenca.
-  PgConta := CreateInputQueryPage(PgModo.ID,
+  PgConta := CreateInputQueryPage(PgPonte.ID,
     'Entrar com a conta C&O',
     'Use o e-mail e a senha da conta do Regem (a mesma do app).',
     'A ativacao e feita automaticamente pela nuvem. Antes de copiar qualquer arquivo, o instalador confere a conta e, se precisar, pede a loja e o codigo de seguranca.');
@@ -420,6 +480,11 @@ function TemIconeDoServidor: Boolean;
 begin
   Result := not EhCliente;
 end;
+// A ponte do chat: so com "Sim" na pagina dela (Servidor ou Cliente).
+function TemPonte: Boolean;
+begin
+  Result := (PgPonte.SelectedValueIndex = 0);
+end;
 // O codigo da estacao so com "Este PC tem impressora" marcado e digitado.
 function TemCodigoEstacao: Boolean;
 begin
@@ -464,6 +529,10 @@ begin
   // Os icones seguram os .exe abertos: fecha antes de copiar os novos.
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM RegemEstacao.exe /F', '', SW_HIDE, ewWaitUntilTerminated, rc);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM RegemServidor.exe /F', '', SW_HIDE, ewWaitUntilTerminated, rc);
+  // A ponte do chat segura os arquivos dela abertos: fecha so quando vai ser atualizada (com "Nao", segue aberta). O
+  // [Run] do fim a abre de novo. /T: o Electron tem varios processos com o mesmo nome.
+  if TemPonte then
+    Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM "Regem Ponte do chat.exe" /F /T', '', SW_HIDE, ewWaitUntilTerminated, rc);
 end;
 
 // O motivo que o script deixou em ULTIMO-ERRO.txt (UTF-8: a frase da nuvem vem com acento).
@@ -523,6 +592,16 @@ end;
 // Tela final: reflete a falha (o Inno mostraria "concluido" mesmo assim).
 procedure CurPageChanged(CurPageID: Integer);
 begin
+  // Ponte do chat: sugere pelo modo escolhido (Servidor = Sim, Cliente = Nao; ja instalada aqui = Sim). So na primeira
+  // vez para aquele modo: voltar sem trocar o modo mantem a escolha da pessoa; trocar o modo sugere de novo.
+  if (CurPageID = PgPonte.ID) and (gModoDaPonte <> PgModo.SelectedValueIndex) then
+  begin
+    gModoDaPonte := PgModo.SelectedValueIndex;
+    if (not EhCliente) or FileExists(AddBackslash(WizardDirValue) + 'ponte\Regem Ponte do chat.exe') then
+      PgPonte.SelectedValueIndex := 0
+    else
+      PgPonte.SelectedValueIndex := 1;
+  end;
   if (CurPageID = PgCodigo.ID) and (not gCodigoPedido) then
   begin
     // Marcar a caixa por codigo dispara o OnClick (pediria o codigo duas vezes): solta antes.
