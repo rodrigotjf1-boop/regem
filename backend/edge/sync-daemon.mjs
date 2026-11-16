@@ -455,7 +455,10 @@ async function setState(k, v) {
 // O cartão do KDS também (auditoria do KDS, 20/10/2026): entregue ou cancelado não volta à fila.
 // E o caso da central de atendimento (mig 350): resolvido aqui não reabre por uma cópia da nuvem ainda aberta (o robô somou
 // uma mensagem lá antes de o resolvido subir). Na nuvem, o resolvido que sobe daqui vence (sync.service, `resolvidoVence`).
-const ESTADOS_TERMINAIS = { comanda: ['fechada', 'cancelada'], producao_pedido: ['entregue', 'cancelado'], atendimento_chamado: ['resolvido'] };
+// E a ORDEM DE PRODUÇÃO encerrada (ERR-075, V60): concluída aqui sem internet — com a entrada no estoque —, não volta a
+// "pendência crítica" pela rotina da nuvem que marcou a cópia dela depois. As encerradas são as de
+// `OrdemProducaoService.ENCERRADAS` (o ordem-encerrada.spec confere). Entre duas encerradas, a data.
+const ESTADOS_TERMINAIS = { comanda: ['fechada', 'cancelada'], producao_pedido: ['entregue', 'cancelado'], atendimento_chamado: ['resolvido'], ordem_producao: ['concluida_total', 'concluida_parcial', 'nao_concluida', 'cancelada'] };
 
 // Quando a linha da nuvem sobrescreve a local (pull e restore, linha a linha e em lote):
 //  • LWW: só se a da nuvem for ESTRITAMENTE mais nova (updated_at);
@@ -510,6 +513,12 @@ function condicaoSobrescrever(tabela, cols) {
     // O "CIENTE" DO AVISO DO KDS VENCE, MESMO MAIS VELHO (mig 412): dado na nuvem, desce mesmo com a data daqui mais nova.
     if (tabela === 'alerta_kds' && cols.has('ciente_em')) {
       vence.push(`(excluded.ciente_em is not null and ${q(tabela)}.ciente_em is null)`);
+    }
+    // A ORDEM DE PRODUÇÃO ENCERRADA NA NUVEM ENTRA, MESMO MAIS VELHA (ERR-075, V60), sobre a daqui ainda aberta — a rotina
+    // daqui pode ter marcado "pendência crítica" depois. Mesma regra no envio (sync.service, `encerradaVence`).
+    if (tabela === 'ordem_producao' && cols.has('status')) {
+      const lst = ESTADOS_TERMINAIS.ordem_producao.map((s) => `'${s}'`).join(',');
+      vence.push(`(excluded.status in (${lst}) and ${q(tabela)}.status not in (${lst}))`);
     }
     cond.push(vence.length > 1 ? `(${vence.join(' or ')})` : maisNova);
   }

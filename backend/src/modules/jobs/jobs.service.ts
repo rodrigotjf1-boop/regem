@@ -153,10 +153,9 @@ export class JobsService {
 
   // Ordens de produção "aguardando lançamento" com data prevista > 1 dia viram
   // pendência crítica (sobem no painel do gerente/C&O; exigem desfecho). Mig 130.
-  // ONDE RODA: nos DOIS lados, por ora (ERR-075). ⚠️ Risco conhecido: `ordem_producao` é "a mais nova vence" sem estado final
-  // protegido — se a loja conclui a ordem sem internet e um lado marca `pendencia_critica` antes do envio chegar, a conclusão
-  // volta. A correção é proteger o estado final no sync (V60), não escolher um lado (o servidor da loja costuma estar desligado
-  // de madrugada).
+  // ONDE RODA: nos DOIS lados (ERR-075) — o servidor da loja costuma estar desligado de madrugada, então a nuvem marca também.
+  // A ordem ENCERRADA é protegida no sync (V60: sync.service `encerradaVence`/`naoReabreOrdem` e o `ESTADOS_TERMINAIS` do
+  // daemon): a conclusão feita na loja sem internet não volta a pendência pela marca que a nuvem pôs depois.
   @Cron('20 6 * * *') // 06:20 todos os dias
   async promoverOrdensPendentes() {
     try {
