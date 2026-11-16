@@ -121,6 +121,9 @@ const ACAO = ACAO_KDS;
 const MONO = 'JetBrains Mono, monospace';
 const TITULO = 'Archivo, sans-serif';
 const hm = (d: Date) => d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+// O token do KDS físico (`/kds?token=…`): lido na hora, do endereço — o mesmo que o tempo real usa (`connectAsDevice`).
+const tokenDoAparelho = (): string | null =>
+  typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('token') || null;
 
 // De onde veio o aviso, na lista "N avisos" (pelo tipo que o servidor manda — mig 408).
 const ORIGEM_DO_AVISO: Record<string, string> = {
@@ -526,14 +529,19 @@ export default function KdsPage() {
   }, []);
 
   const carregarFila = useCallback(async (): Promise<any[] | null> => {
-    if (!getToken()) return null; // fila durável requer operador logado (JWT)
+    // O KDS físico (`?token=`, TV box da cozinha — 16/11/2026) lê pela rota do APARELHO: a empresa, a loja e o KDS saem do
+    // token no servidor. Antes a fila exigia pessoa logada e a tela com o token ficava "online" e vazia para sempre.
+    const aparelho = getToken() ? null : tokenDoAparelho();
+    if (!getToken() && !aparelho) return null;
     const seq = ++filaSeq.current;
-    const despacho = despachoRef.current && !!kdsRef.current;
+    const despacho = !aparelho && despachoRef.current && !!kdsRef.current;
     try {
       // O despacho lê o pedido inteiro, com o andamento de cada estação; os outros KDS, os cartões deles.
-      const r: any = despacho
-        ? await api.kdsDespacho(kdsRef.current, canalRef.current)
-        : await api.producaoFila(setorRef.current || undefined, undefined, canalRef.current, kdsRef.current || undefined);
+      const r: any = aparelho
+        ? await api.kdsAparelhoFila(aparelho, canalRef.current)
+        : despacho
+          ? await api.kdsDespacho(kdsRef.current, canalRef.current)
+          : await api.producaoFila(setorRef.current || undefined, undefined, canalRef.current, kdsRef.current || undefined);
       // Uma leitura mais nova já saiu (trocou o KDS, o canal ou chegou outro aviso): esta resposta atrasada não vale —
       // senão a fila de antes podia cobrir a de agora.
       if (seq !== filaSeq.current) return null;
@@ -826,7 +834,9 @@ export default function KdsPage() {
   // "Visto" no cartão alterado (mig 362): o aviso grande, o som e o rodapé param; o item tirado sai do cartão.
   async function visto(id: string) {
     try {
-      await api.producaoVisto(id);
+      const aparelho = getToken() ? null : tokenDoAparelho();
+      if (aparelho) await api.kdsAparelhoVisto(aparelho, id);
+      else await api.producaoVisto(id);
     } catch {
       /* outra tela já marcou (ou o cartão saiu): a releitura corrige */
     }
@@ -858,7 +868,10 @@ export default function KdsPage() {
     avancandoRef.current.add(id);
     setAvancando(new Set(avancandoRef.current));
     try {
-      const r: any = await api.producaoAvancar(id, kdsSel || undefined, de, modoEntrega ? 'entrega' : undefined);
+      const aparelho = getToken() ? null : tokenDoAparelho();
+      const r: any = aparelho
+        ? await api.kdsAparelhoAvancar(aparelho, id, de)
+        : await api.producaoAvancar(id, kdsSel || undefined, de, modoEntrega ? 'entrega' : undefined);
       mostrarToque(textoDoToque(identPedido(p), r, nomeKds));
       await carregarFila();
     } catch (e: any) {
