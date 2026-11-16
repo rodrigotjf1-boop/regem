@@ -86,11 +86,13 @@ export function decidirComprovante(e: {
   arquivoNome?: unknown;
   pedidos: PedidoDoComprovante[];
   agora?: Date;
+  /** A leitura da foto por IA disse que É um comprovante (`foto-do-cliente.ts`): vale como a fala de pagamento. */
+  eComprovante?: boolean;
 }): DecisaoDoComprovante {
   if (!TIPOS_DE_COMPROVANTE.includes(String(e.tipo ?? ''))) return { caso: 'nao_e' };
   const agora = (e.agora ?? new Date()).getTime();
   const pedidos = [...e.pedidos].sort((a, b) => b.criadoEm.getTime() - a.criadoEm.getTime());
-  const fala = falaDePagamento(e.legenda, e.arquivoNome, ...(e.antes ?? []));
+  const fala = e.eComprovante === true || falaDePagamento(e.legenda, e.arquivoNome, ...(e.antes ?? []));
   const quitado = (p: PedidoDoComprovante) => p.pago || p.sinalPago;
 
   const aguardando = pedidos.find((p) => p.status !== 'cancelado' && p.statusPagamento === 'aguardando' && !quitado(p));

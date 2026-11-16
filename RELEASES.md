@@ -83,6 +83,15 @@
   gera uma sessão que só envia a foto e marca o ponto; antes, abria a API inteira com o perfil da pessoa. **No servidor
   da loja nada muda** (o PIN entra como sempre); os arquivos vão junto no próximo corte. Nada no `.exe`.
 
+- **O atendente lê a foto que o cliente manda no WhatsApp (16/11, pedido do dono; SEM migration; nasce DESLIGADO).** Com
+  `ROBO_FOTOS_IA=1` na nuvem (o dono liga), a foto que o contexto não reconheceu como comprovante vai a um modelo de visão,
+  pela porta da IA da empresa (recurso `foto_do_cliente` no medidor), e o atendente recebe o que ela mostra.
+  - Comprovante: cai no caminho do comprovante (as mesmas respostas).
+  - Print da tela do cardápio com erro ou dificuldade: o atendente explica o que a tela diz e o próximo passo.
+  - Foto do pedido recebido (errado, faltando): acolhe e chama a equipe com o que a foto mostra.
+  - As instruções do atendente passam à versão `.f23` (valem já, com a leitura desligada: sem descrição, nada muda).
+  - Só NUVEM (o atendente é da nuvem): vale com o merge e a variável; o `.zip` leva o código sem efeito na loja.
+
 - **Estoque › Produtos › Importar — a conferência não rola mais para o lado (16/11, ERR-476; só tela, sem migration) → vai
   no `.zip`** (a tela da loja vem nele).
   - No passo 3, a lista fica em colunas quando cabe no diálogo e empilhada quando não cabe.

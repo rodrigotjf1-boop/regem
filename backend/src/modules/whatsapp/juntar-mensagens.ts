@@ -83,22 +83,30 @@ async function anotarConfirmacao(msg: any): Promise<void> {
  * comprovante, o Regem confere o pedido e responde ele mesmo ('respondido') — a mídia não vai ao robô. Registrado UMA vez,
  * quando o servidor sobe (`ComprovanteDoClienteService`, só na nuvem); sem ele (testes, servidor da loja), nada muda.
  * Falha do porteiro nunca segura a mensagem: vai ao robô.
+ * A LEITURA DA FOTO (`common/foto-do-cliente.ts`, quando ligada): a foto que não é comprovante volta com `{ texto }` — a
+ * legenda e o que a imagem mostra, descrito pela IA —, e é ESSE texto que vai ao robô no lugar da legenda.
  */
-type PorteiroDoComprovante = (msg: any, antes: string[]) => Promise<'segue' | 'respondido'>;
+type DecisaoDaMidia = 'segue' | 'respondido' | { texto: string };
+type PorteiroDoComprovante = (msg: any, antes: string[]) => Promise<DecisaoDaMidia>;
 let porteiroDoComprovante: PorteiroDoComprovante | null = null;
 export function definirPorteiroDoComprovante(p: PorteiroDoComprovante | null): void {
   porteiroDoComprovante = p;
 }
-async function comprovanteRespondido(msg: any, k: string): Promise<boolean> {
-  if (!porteiroDoComprovante) return false;
+/** 'respondido' = o Regem respondeu (nada vai ao robô); senão a mensagem que segue (a mesma, ou com a foto descrita). */
+async function passarPeloPorteiroDaMidia(msg: any, k: string): Promise<'respondido' | { msg: any }> {
+  if (!porteiroDoComprovante) return { msg };
   const antes = pendentes.get(k)?.textos ?? [];
-  let decisao: 'segue' | 'respondido' = 'segue';
+  let decisao: DecisaoDaMidia = 'segue';
   try {
     decisao = await porteiroDoComprovante(msg, [...antes]);
   } catch {
     decisao = 'segue';
   }
-  if (decisao !== 'respondido') return false;
+  if (decisao === 'segue') return { msg };
+  if (decisao !== 'respondido') {
+    const texto = String(decisao?.texto ?? '').trim();
+    return { msg: texto ? { ...msg, texto, fotoDescrita: true } : msg };
+  }
   // O texto que esperava para juntar: se era SÓ do pagamento, a resposta do comprovante já o respondeu (mandá-lo ao robô
   // daria uma segunda resposta, talvez contrária); com outro assunto junto, segue para o robô no tempo dele.
   const p = pendentes.get(k);
@@ -106,17 +114,22 @@ async function comprovanteRespondido(msg: any, k: string): Promise<boolean> {
     clearTimeout(p.timer);
     pendentes.delete(k);
   }
-  return true;
+  return 'respondido';
 }
 
 /** Entrega ao robô juntando o texto das mensagens seguidas da mesma conversa. Nunca lança. */
-export async function entregarJuntando(msg: any, entregar: (m: any) => Promise<any> = entregarComPorteiro): Promise<void> {
+export async function entregarJuntando(msgQueChegou: any, entregar: (m: any) => Promise<any> = entregarComPorteiro): Promise<void> {
+  let msg = msgQueChegou;
   // Antes de juntar: "sim" + "tira a cebola" em duas mensagens — o "sim" anota, e a mudança sobe a versão (não vale mais).
   await anotarConfirmacao(msg);
   const ms = espera();
   const k = chave(msg);
-  // A foto ou o documento que é um comprovante: o Regem respondeu — não vai ao robô.
-  if (!ehTexto(msg) && (await comprovanteRespondido(msg, k))) return;
+  // A foto ou o documento: o comprovante o Regem responde (não vai ao robô); a foto lida pela IA segue com a descrição.
+  if (!ehTexto(msg)) {
+    const d = await passarPeloPorteiroDaMidia(msg, k);
+    if (d === 'respondido') return;
+    msg = d.msg;
+  }
   if (!ms) {
     await entregar(msg);
     return;

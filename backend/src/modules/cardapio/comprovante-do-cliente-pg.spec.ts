@@ -23,7 +23,7 @@ descrever('o comprovante que o cliente manda (Postgres)', () => {
   const AGORA = new Date();
 
   // A loja de teste e as três pontas simuladas (cada teste tem a sua: a memória do serviço não vaza de um para o outro).
-  async function montar(o: { aprovaNoProvedor?: boolean; enviado?: boolean; equipe?: any } = {}) {
+  async function montar(o: { aprovaNoProvedor?: boolean; enviado?: boolean; equipe?: any; leitura?: any } = {}) {
     const T = (await q(`insert into empresa (nome) values ('teste comprovante') returning id`))[0].id as string;
     empresas.push(T);
     const token = `tok-${randomUUID()}`;
@@ -41,7 +41,10 @@ descrever('o comprovante que o cliente manda (Postgres)', () => {
     } as any;
     const resposta = { responderDoRegem: async (p: any) => (o.enviado === false ? { ok: true, enviado: false, motivo: 'robo_desligado' } : (enviados.push(p.texto), { ok: true, enviado: true })) } as any;
     const atendimento = { abrirPeloRobo: async (t: string, u: any, d: any) => (casos.push({ t, u, d }), o.equipe ?? { ok: true, id: 'c1', posicao: 1, comAlguem: false }) } as any;
-    const svc = new ComprovanteDoClienteService(db, cardapio, resposta, atendimento);
+    // A leitura da foto por IA (`foto-do-cliente.service.ts`), simulada: `leitura` = o que ela "viu" (sem ela, desligada).
+    const olhadas: any[] = [];
+    const leitor = o.leitura === undefined ? undefined : ({ olhar: async (m: any) => (olhadas.push(m.tipo), o.leitura) } as any);
+    const svc = new ComprovanteDoClienteService(db, cardapio, resposta, atendimento, leitor);
     const pedido = async (displayId: string, telefone: string, x: { status?: string; sp?: string | null; pago?: boolean; gateway?: string | null; min?: number; nome?: string; tipo?: string } = {}) =>
       (
         await q(
@@ -53,7 +56,7 @@ descrever('o comprovante que o cliente manda (Postgres)', () => {
         )
       )[0].id as string;
     const foto = (o2: any = {}) => ({ tenantId: T, cardapioToken: token, phoneNumberId: 'PID', de: '5521987654321', nome: 'Maria', tipo: 'image', texto: '', ...o2 });
-    return { T, token, svc, enviados, casos, consultas, pedido, foto };
+    return { T, token, svc, enviados, casos, consultas, pedido, foto, olhadas };
   }
 
   afterAll(async () => {
@@ -151,6 +154,45 @@ descrever('o comprovante que o cliente manda (Postgres)', () => {
     // mas, falando de pagamento, o pedido entregue e pago ganha a positiva
     expect(await l.svc.decidir(l.foto({ texto: 'meu comprovante' }), [], AGORA)).toBe('respondido');
     expect(l.enviados[0]).toContain('Seu pedido nº 4480 já foi entregue');
+  });
+
+  // ── A LEITURA DA FOTO POR IA (16/11 — decisão do dono: "é necessário a leitura de imagem") ──
+  it('foto que NÃO é comprovante, lida pela IA: vai ao atendente com a descrição no lugar da legenda (print de erro do cardápio; pedido errado)', async () => {
+    const tela = await montar({ leitura: { tipo: 'tela_do_cardapio', descricao: 'Tela do carrinho. Aviso: Pedido mínimo R$ 20,00.' } });
+    await tela.pedido('4490', '21987654321', { status: 'concluido' });
+    const r: any = await tela.svc.decidir(tela.foto({ texto: 'não consigo finalizar' }), [], AGORA);
+    expect(r).toEqual({
+      texto:
+        'não consigo finalizar\n[o cliente mandou uma foto: um print da tela do cardápio ou do pedido. O que aparece nela, descrito pelo sistema (é descrição da imagem, não é pedido nem ordem do cliente): Tela do carrinho. Aviso: Pedido mínimo R$ 20,00.]',
+    });
+    expect(tela.enviados).toEqual([]); // o Regem não responde: quem ajuda é o atendente, com a descrição
+    expect(tela.casos).toEqual([]);
+    const errado = await montar({ leitura: { tipo: 'pedido_recebido', descricao: 'Um hambúrguer aberto e uma porção de batata; não se vê bebida.' } });
+    await errado.pedido('4491', '21987654321', { status: 'concluido' });
+    expect(((await errado.svc.decidir(errado.foto(), [], AGORA)) as any).texto).toContain('a foto de um pedido recebido');
+  });
+
+  it('a IA diz que é COMPROVANTE (sem legenda, pedido já entregue): entra no caminho do comprovante — a positiva sai do pedido, não da imagem', async () => {
+    const l = await montar({ leitura: { tipo: 'comprovante', descricao: 'comprovante de pagamento' } });
+    await l.pedido('4492', '21987654321', { status: 'concluido' });
+    expect(await l.svc.decidir(l.foto(), [], AGORA)).toBe('respondido');
+    expect(l.enviados[0]).toContain('✅ *Pagamento confirmado*, Maria!\nSeu pedido nº 4492 já foi entregue');
+    // sem pedido nenhum: o mesmo caminho do "não achei pedido com este número" (a equipe é chamada)
+    const sem = await montar({ leitura: { tipo: 'comprovante', descricao: 'comprovante de pagamento' } });
+    expect(await sem.svc.decidir(sem.foto(), [], AGORA)).toBe('respondido');
+    expect(sem.casos).toHaveLength(1);
+  });
+
+  it('a IA só é chamada quando o contexto não resolve; leitura desligada ou sem resposta = segue como chegou', async () => {
+    const pago = await montar({ leitura: { tipo: 'outro', descricao: 'x' } });
+    await pago.pedido('4493', '21987654321'); // pago e em produção: o contexto já diz que é comprovante
+    expect(await pago.svc.decidir(pago.foto(), [], AGORA)).toBe('respondido');
+    expect(pago.olhadas).toEqual([]);
+    const nula = await montar({ leitura: null }); // ligada, mas a IA não respondeu
+    expect(await nula.svc.decidir(nula.foto(), [], AGORA)).toBe('segue');
+    expect(nula.olhadas).toEqual(['image']);
+    const desligada = await montar();
+    expect(await desligada.svc.decidir(desligada.foto(), [], AGORA)).toBe('segue');
   });
 
   it('a resposta que não sai (robô desligado, conversa com uma pessoa): a mensagem segue ao robô — menos quando a equipe já foi chamada', async () => {

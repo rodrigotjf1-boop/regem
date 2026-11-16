@@ -63,4 +63,22 @@ describe('o porteiro do comprovante na entrega ao robô', () => {
     expect(porteiro).toHaveBeenCalledTimes(1);
     expect(entregar).not.toHaveBeenCalled();
   });
+
+  // A LEITURA DA FOTO (16/11): o porteiro devolve `{ texto }` — a foto segue ao robô COM a descrição no lugar da legenda.
+  it('a foto lida pela IA vai ao robô com o texto da descrição; o texto que esperava vai antes, como sempre', async () => {
+    definirPorteiroDoComprovante(async () => ({ texto: 'não consigo\n[o cliente mandou uma foto: um print… Aviso: Pedido mínimo R$ 20,00.]' }));
+    const entregar = jest.fn(async () => true);
+    await entregarJuntando(msg({ tipo: 'text', texto: 'oi' }), entregar);
+    await entregarJuntando(msg({ tipo: 'image', texto: 'não consigo', midiaId: 'M1' }), entregar);
+    const chamadas = entregar.mock.calls.map((c: any[]) => c[0]);
+    expect(chamadas.map((m: any) => m.tipo)).toEqual(['text', 'image']);
+    expect(chamadas[1]).toMatchObject({ tipo: 'image', midiaId: 'M1', fotoDescrita: true, texto: 'não consigo\n[o cliente mandou uma foto: um print… Aviso: Pedido mínimo R$ 20,00.]' });
+    // texto vazio na decisão = a mensagem segue como chegou
+    esquecerPendentes();
+    definirPorteiroDoComprovante(async () => ({ texto: '   ' }));
+    const outra = jest.fn(async () => true);
+    await entregarJuntando(msg({ tipo: 'image', texto: 'legenda' }), outra);
+    expect((outra.mock.calls[0] as any[])[0]).toMatchObject({ texto: 'legenda' });
+    expect((outra.mock.calls[0] as any[])[0].fotoDescrita).toBeUndefined();
+  });
 });

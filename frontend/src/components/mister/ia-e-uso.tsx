@@ -42,6 +42,8 @@ const PROVEDOR: Record<string, string> = { anthropic: 'Anthropic' };
 // `mister_perguntas` = o agente que responde às perguntas pelo WhatsApp (o nome vem do `RECURSO_DAS_PERGUNTAS` do servidor).
 const RECURSO: Record<string, string> = {
   copiloto: 'Copiloto do atendimento',
+  // A leitura da foto que o cliente manda ao atendente virtual (o nome vem do `RECURSO_DA_FOTO` do servidor).
+  foto_do_cliente: 'Atendente · fotos do cliente',
   prova: 'Teste da chave',
   mister_perguntas: 'Mister · perguntas',
   // Os relatórios (mig 420; o nome vem do `RECURSO_DO_RELATORIO` do servidor).

@@ -218,6 +218,14 @@ export class RoboRespostaService {
   }
 
   /**
+   * A MESMA mídia, pedida pelo próprio Regem (a leitura da foto do cliente — `cardapio/foto-do-cliente.service.ts`): quem
+   * chama está aqui dentro, então usa a senha do robô desta nuvem (sem ela configurada, o robô nem funciona: recusa).
+   */
+  midiaDoRegem(q: { instancia?: string; phoneNumberId?: string; mediaId?: string; mensagemId?: string; jid?: string }): Promise<{ buffer: Buffer; mime: string }> {
+    return this.midia(String(process.env.BOT_RESOLVER_SECRET ?? '').trim(), q);
+  }
+
+  /**
    * A MÍDIA que o cliente mandou (o áudio para transcrever), nas duas vias: API oficial pelo `mediaId` (o proxy que já
    * existia); Evolution pelo id da mensagem e o jid da conversa. Devolve o arquivo — o n8n nunca recebe credencial.
    */
