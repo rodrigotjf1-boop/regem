@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regem · Mentor e Sentinela, parte 2 (protótipo)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* REGEM · MENTOR E SENTINELA, PARTE 2 — versão 1, A APROVAR (16/11/2026). Continua o mockups/regem-mister-sentinela-mentor.html
+   (aprovado em 15/11; a parte 1 está no ar: Console › Mister › Segurança e "O que melhorar", só contagens e regras fixas).
+   1. O que melhorar com as DECISÕES: "Virou tarefa" e "Não se aplica" em cada padrão, e as situações que filtram.
+   2. Segurança · a análise com IA dos eventos (o Sentinela): só PROPOSTAS com impacto e verificação — nunca age sozinho.
+   3. Instruções candidatas (o Mentor): uma versão nova das instruções só se publica com a avaliação de regressão passando,
+      e volta à anterior com um toque.
+   Console da distribuição (escuro), só a Diretoria. Nomes, números e datas inventados. */
+:root{
+  --bg:#F1F4F8; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --gold-ink:#7A5209; --navy:#0F2230; --foco:#3A7FB8;
+  --proto:#0B1822; --proto-txt:#C9D5DF; --proto-txt2:#8FA3B4; --proto-linha:#2A3B4A;
+  --d-bg:#020617; --d-card:#0B1324; --d-linha:#1E293B; --d-txt:#F1F5F9; --d-txt2:#94A3B8; --d-ambar:#F59E0B; --d-ok:#34D399; --d-crit:#F87171; --d-azul:#7CC0F5;
+  --display:"Archivo","Segoe UI",system-ui,sans-serif; --body:"Figtree","Segoe UI",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font:15px/1.5 var(--body);background:var(--bg);color:var(--ink);overflow-x:hidden}
+[hidden]{display:none!important}
+h1,h2,h3,h4{font-family:var(--display);margin:0;text-wrap:balance}
+h1{font-size:24px;line-height:1.15} h2{font-size:18px} h3{font-size:16px}
+p{margin:0 0 10px;overflow-wrap:anywhere} p:last-child{margin-bottom:0}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--foco);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+
+.proto{background:var(--proto);color:var(--proto-txt);padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.proto .titulo{font-family:var(--display);font-weight:700;color:#fff}
+.abas{display:flex;flex-wrap:wrap;gap:6px}
+.aba{background:transparent;border:1px solid var(--proto-linha);color:var(--proto-txt);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:36px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.proto .nota{font-size:12.5px;color:var(--proto-txt2);flex:1 1 220px;min-width:0}
+.proto :focus-visible{outline-color:var(--d-azul)}
+.vista{display:none} .vista.ativa{display:block}
+
+.console{background:var(--d-bg);color:var(--d-txt);padding:20px;min-height:80vh;container-type:inline-size;container-name:console}
+.console :focus-visible{outline-color:var(--d-azul)}
+.d-sobre{font:700 11.5px var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--d-ambar)}
+.d-nav{display:flex;flex-wrap:wrap;gap:2px 4px;border-bottom:1px solid var(--d-linha);margin:12px 0 18px}
+.d-nav span{padding:8px 12px;color:var(--d-txt2);border-bottom:2px solid transparent}
+.d-nav span.atual{color:var(--d-ambar);border-bottom-color:var(--d-ambar);font-weight:600}
+.d-partes{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px}
+.d-parte{background:transparent;border:1px solid #334155;color:var(--d-txt2);padding:6px 12px;border-radius:999px;min-height:36px;font-weight:600}
+.d-parte.atual{background:#1E293B;color:var(--d-txt);border-color:#475569}
+.d-sub{color:var(--d-txt2);font-size:13.5px;margin:2px 0 12px;max-width:80ch}
+.d-situacoes{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.d-sit{background:transparent;border:1px solid #334155;color:var(--d-txt2);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:38px;font-weight:600}
+.d-sit b{font-family:var(--mono);margin-left:4px}
+.d-sit[aria-pressed="true"]{background:var(--d-ambar);border-color:var(--d-ambar);color:#231803}
+.d-btn{background:transparent;border:1px solid #334155;color:var(--d-txt);padding:8px 14px;border-radius:8px;cursor:pointer;min-height:40px;font-weight:600}
+.d-btn.pri{background:var(--d-ambar);border-color:var(--d-ambar);color:#231803}
+.d-btn[disabled]{opacity:.5;cursor:not-allowed}
+.d-selo{display:inline-block;font-size:12px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap}
+.d-selo.ok{background:rgba(16,185,129,.15);color:var(--d-ok)} .d-selo.crit{background:rgba(248,113,113,.15);color:var(--d-crit)}
+.d-selo.warn{background:rgba(245,158,11,.15);color:#FBBF24} .d-selo.neutro{background:rgba(148,163,184,.15);color:var(--d-txt2)}
+.d-cartao{background:var(--d-card);border:1px solid var(--d-linha);border-radius:12px;padding:16px;margin-bottom:12px;min-width:0}
+.d-cartao h3{margin-bottom:6px}
+.d-vazio{border:1px dashed #334155;border-radius:10px;padding:22px 12px;text-align:center;color:var(--d-txt2)}
+.ctls{border:1px dashed #475569;background:#0B1324;border-radius:10px;padding:8px 12px;margin:0 0 14px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px;color:#FCD9A0}
+.ctl{background:transparent;border:1px solid #475569;padding:4px 10px;border-radius:999px;cursor:pointer;min-height:32px;color:var(--d-txt)}
+.ctl[aria-pressed="true"]{background:#E2E8F0;border-color:#E2E8F0;color:#0B1324}
+
+/* lista em cartões (cabe em qualquer largura, sem tabela) */
+.itens{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.item{border:1px solid var(--d-linha);border-radius:10px;padding:12px;display:grid;gap:8px;min-width:0}
+.item .topo{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline;justify-content:space-between}
+.item .rot{font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--d-txt2);display:block}
+.item .tres{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:8px 14px}
+.item .tres > div{min-width:0;overflow-wrap:anywhere}
+.item .acoes{display:flex;flex-wrap:wrap;gap:8px}
+.item .marca{font-size:13px;color:var(--d-txt2)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));gap:10px;margin-bottom:12px}
+.kpi{background:var(--d-card);border:1px solid var(--d-linha);border-radius:12px;padding:12px 14px;min-width:0}
+.kpi .r{font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--d-txt2)}
+.kpi .v{font:700 22px var(--mono);margin-top:2px}
+.kpi .n{font-size:12.5px;color:var(--d-txt2)}
+.diff{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:8px}
+.diff div{border:1px solid var(--d-linha);border-radius:8px;padding:10px;font-size:13.5px;min-width:0;overflow-wrap:anywhere}
+.diff .menos{border-color:#7F1D1D;background:#1A0B0B}
+.diff .mais{border-color:#065F46;background:#04140F}
+.diff .r{font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--d-txt2);display:block;margin-bottom:4px}
+
+/* gaveta escura */
+.fundo{position:fixed;inset:0;background:rgba(2,6,23,.6);z-index:40;display:none}
+.fundo.aberto{display:block}
+.gaveta{position:fixed;top:0;right:0;bottom:0;width:min(560px,100%);background:var(--d-card);color:var(--d-txt);z-index:41;display:none;flex-direction:column;box-shadow:-8px 0 24px rgba(0,0,0,.45);border-left:1px solid var(--d-linha)}
+.gaveta.aberto{display:flex}
+.gaveta :focus-visible{outline-color:var(--d-azul)}
+.pn-cab{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:14px 18px;border-bottom:1px solid var(--d-linha)}
+.pn-corpo{padding:18px;overflow:auto;flex:1;min-height:0}
+.pn-rodape{padding:12px 18px;border-top:1px solid var(--d-linha);display:flex;flex-wrap:wrap;gap:8px}
+.fechar{background:transparent;border:0;font-size:18px;cursor:pointer;min-width:40px;min-height:40px;border-radius:8px;color:var(--d-txt)}
+.campo{display:grid;gap:4px;margin-bottom:12px}
+.campo label{font-size:13px;color:var(--d-txt2)}
+.campo select,.campo input,.campo textarea{border:1px solid #334155;background:#0F172A;color:var(--d-txt);border-radius:8px;padding:8px 10px;min-height:40px;width:100%}
+
+.notas{padding:20px;max-width:1000px;margin-inline:auto}
+.cartao{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:14px;min-width:0}
+.cartao ul,.cartao ol{margin:6px 0 0;padding-left:20px} .cartao li{margin-bottom:5px}
+.fases{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px}
+.fase{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;min-width:0}
+.tag{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:700;background:#FFF9EC;color:var(--gold-ink)}
+.toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:10px 14px;border-radius:10px;max-width:min(92vw,520px);z-index:60}
+@media (max-width:760px){.console{padding:14px}}
+</style>
+</head>
+<body>
+<div class="proto" role="region" aria-label="Controles do protótipo">
+  <span class="titulo">Mentor e Sentinela, parte 2 · protótipo</span>
+  <div class="abas" role="group" aria-label="O que ver">
+    <button class="aba" type="button" data-vista="mel" aria-pressed="true">O que melhorar · decisões</button>
+    <button class="aba" type="button" data-vista="ia" aria-pressed="false">Segurança · análise com IA</button>
+    <button class="aba" type="button" data-vista="inst" aria-pressed="false">Instruções candidatas</button>
+    <button class="aba" type="button" data-vista="notas" aria-pressed="false">Notas e decisões</button>
+  </div>
+  <span class="nota">Os botões tracejados de "Situação do protótipo" trocam o estado; não existem no app.</span>
+</div>
+
+<!-- ───────────── 1. O QUE MELHORAR · DECISÕES ───────────── -->
+<section class="vista ativa" id="v-mel" aria-label="O que melhorar, com as decisões">
+  <div class="console">
+    <div class="d-sobre">Console da distribuição</div>
+    <h1>Mister · o que melhorar</h1>
+    <div class="d-nav" aria-label="Abas do console (ilustração)"><span>Frota</span><span>Integrações</span><span>Dependências</span><span class="atual">Mister</span><span>Avisos</span><span>Auditoria</span></div>
+    <div class="d-partes" aria-label="Partes do Mister no console (ilustração)"><span class="d-parte">Número</span><span class="d-parte">Modelos</span><span class="d-parte">Empresas</span><span class="d-parte atual">Qualidade</span><span class="d-parte">Segurança</span><span class="d-parte">Instruções</span></div>
+    <p class="d-sub">O cartão "O que melhorar" (parte 1, no ar) ganha as decisões: cada padrão vira <b>tarefa</b> ou <b>não se aplica</b>, com quem decidiu e quando. As situações filtram. Nada muda no Mister por esta tela.</p>
+    <div class="d-situacoes" role="group" aria-label="Situação dos padrões" id="sits"></div>
+    <ul class="itens" id="padroes" aria-label="Os padrões"></ul>
+  </div>
+</section>
+
+<!-- ───────────── 2. SEGURANÇA · ANÁLISE COM IA ───────────── -->
+<section class="vista" id="v-ia" aria-label="Segurança, a análise com IA dos eventos">
+  <div class="console">
+    <div class="d-sobre">Console da distribuição</div>
+    <h1>Mister · segurança</h1>
+    <div class="d-partes" aria-label="Partes do Mister no console (ilustração)"><span class="d-parte">Qualidade</span><span class="d-parte atual">Segurança</span><span class="d-parte">Instruções</span></div>
+    <div class="ctls" role="group" aria-label="Situação do protótipo">
+      Situação do protótipo:
+      <button type="button" class="ctl" data-ia="antes" aria-pressed="true">antes de analisar</button>
+      <button type="button" class="ctl" data-ia="depois" aria-pressed="false">com a análise</button>
+      <button type="button" class="ctl" data-ia="erro" aria-pressed="false">a IA não respondeu</button>
+    </div>
+    <p class="d-sub">Embaixo dos números da Segurança (parte 1, no ar), a análise com IA dos eventos dos últimos 7 dias: só os metadados que o servidor já anota (desfechos, notas do filtro, motivos), nunca o texto das lojas. O Sentinela <b>propõe</b> — com o impacto e como conferir —, e uma pessoa da Diretoria decide. Ele nunca revoga chave, bloqueia pessoa nem para integração sozinho.</p>
+    <div class="d-cartao" id="ia-antes">
+      <h3>Análise com IA</h3>
+      <p class="d-sub" style="margin:0 0 10px">Usa a chave da DMS (não a da empresa). Custo estimado: US$ 0,01 a 0,03 por análise. A última foi em 15/11 às 09:12.</p>
+      <button type="button" class="d-btn pri" data-toast="Analisa os eventos dos últimos 7 dias (a chave da DMS).">Analisar os últimos 7 dias</button>
+    </div>
+    <div id="ia-depois" hidden>
+      <div class="kpis">
+        <div class="kpi"><div class="r">Eventos lidos</div><div class="v">1.284</div><div class="n">7 dias · só metadados</div></div>
+        <div class="kpi"><div class="r">Propostas</div><div class="v">2</div><div class="n">nenhuma age sozinha</div></div>
+        <div class="kpi"><div class="r">Custo</div><div class="v">US$ 0,02</div><div class="n">chave da DMS</div></div>
+      </div>
+      <ul class="itens" aria-label="As propostas do Sentinela">
+        <li class="item">
+          <div class="topo"><b>Um telefone tentou 9 códigos errados em 12 minutos</b><span class="d-selo crit">atenção</span></div>
+          <div class="tres">
+            <div><span class="rot">O que viu</span>Final 7731, empresa Burger da Praça, 15/11 entre 22:04 e 22:16 — os 9 com "código errado".</div>
+            <div><span class="rot">Proposta</span>Calar novas tentativas desse telefone por 1 hora (a regra que já existe cala por 30 min depois de 5).</div>
+            <div><span class="rot">Impacto e como conferir</span>Só esse telefone. Conferir: nenhuma tentativa dele na próxima hora, na contagem "telefone calado".</div>
+          </div>
+          <div class="acoes"><button type="button" class="d-btn" data-toast="Vira tarefa do time (nada muda agora).">Virou tarefa</button><button type="button" class="d-btn" data-toast="Descartada, com o motivo, na auditoria.">Descartar</button></div>
+        </li>
+        <li class="item">
+          <div class="topo"><b>O filtro tirou "link" de 6 respostas da consulta "canais e integrações"</b><span class="d-selo warn">melhoria</span></div>
+          <div class="tres">
+            <div><span class="rot">O que viu</span>6 notas <span class="mono">link_tirado</span> em 3 empresas, sempre depois da mesma consulta.</div>
+            <div><span class="rot">Proposta</span>A consulta devolver o caminho do menu em vez do endereço (o filtro tira links de propósito).</div>
+            <div><span class="rot">Impacto e como conferir</span>Só o texto dessa consulta. Conferir: zero <span class="mono">link_tirado</span> nela em 7 dias e a avaliação de regressão sem erradas novas.</div>
+          </div>
+          <div class="acoes"><button type="button" class="d-btn" data-toast="Vira tarefa do time (nada muda agora).">Virou tarefa</button><button type="button" class="d-btn" data-toast="Descartada, com o motivo, na auditoria.">Descartar</button></div>
+        </li>
+      </ul>
+    </div>
+    <div class="d-cartao" id="ia-erro" hidden role="alert">
+      <h3>A análise não saiu</h3>
+      <p class="d-sub" style="margin:0 0 10px">A chave da DMS respondeu "sem crédito". Os números da Segurança acima seguem valendo; nada foi gasto.</p>
+      <button type="button" class="d-btn" data-toast="Tenta de novo.">Tentar de novo</button>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────── 3. INSTRUÇÕES CANDIDATAS ───────────── -->
+<section class="vista" id="v-inst" aria-label="Instruções candidatas do Mister">
+  <div class="console">
+    <div class="d-sobre">Console da distribuição</div>
+    <h1>Mister · instruções</h1>
+    <div class="d-partes" aria-label="Partes do Mister no console (ilustração)"><span class="d-parte">Qualidade</span><span class="d-parte">Segurança</span><span class="d-parte atual">Instruções</span></div>
+    <div class="ctls" role="group" aria-label="Situação do protótipo">
+      Situação do protótipo:
+      <button type="button" class="ctl" data-inst="candidata" aria-pressed="true">candidata a testar</button>
+      <button type="button" class="ctl" data-inst="passou" aria-pressed="false">avaliação passou</button>
+      <button type="button" class="ctl" data-inst="piorou" aria-pressed="false">avaliação piorou</button>
+    </div>
+    <p class="d-sub">O Mentor propõe uma versão nova das instruções a partir de um padrão "instrução" do "O que melhorar". Ela só se publica depois de rodar a avaliação de regressão (40 perguntas, a empresa de teste, a chave da DMS) <b>sem nenhuma errada nova</b>. A versão anterior fica guardada e volta com um toque.</p>
+    <div class="kpis">
+      <div class="kpi"><div class="r">No ar</div><div class="v">a4fae716</div><div class="n">desde 15/11 · 40/40</div></div>
+      <div class="kpi"><div class="r">Candidata</div><div class="v">7c21d0b9</div><div class="n">de 16/11 · do padrão "canais"</div></div>
+    </div>
+    <div class="d-cartao">
+      <h3>O que muda na candidata</h3>
+      <div class="diff">
+        <div class="menos"><span class="r">Sai</span>Para vendas por canal, use a consulta de vendas do período.</div>
+        <div class="mais"><span class="r">Entra</span>Para vendas por canal, use a consulta de vendas do período e diga o valor de cada canal (balcão, iFood, 99, cardápio), não só o total.</div>
+      </div>
+    </div>
+    <div class="d-cartao" id="inst-candidata">
+      <h3>Avaliação de regressão</h3>
+      <p class="d-sub" style="margin:0 0 10px">Ainda não rodou para a candidata. Custo: cerca de US$ 0,04 (chave da DMS).</p>
+      <div class="acoes" style="display:flex;flex-wrap:wrap;gap:8px"><button type="button" class="d-btn pri" data-toast="Roda as 40 perguntas com a candidata.">Rodar a avaliação</button><button type="button" class="d-btn" data-toast="A candidata é descartada (fica na auditoria).">Descartar a candidata</button></div>
+    </div>
+    <div class="d-cartao" id="inst-passou" hidden>
+      <h3>Avaliação: 40/40 · nenhuma errada nova</h3>
+      <p class="d-sub" style="margin:0 0 10px">A pergunta "Quanto vendi no iFood ontem?" passou (errava na versão no ar). 16/11 às 10:41, 38 s, US$ 0,04.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px"><button type="button" class="d-btn pri" data-toast="A candidata passa a valer; a anterior fica guardada.">Publicar a candidata</button><button type="button" class="d-btn" data-toast="Nada muda.">Agora não</button></div>
+    </div>
+    <div class="d-cartao" id="inst-piorou" hidden role="alert">
+      <h3>Avaliação: 38/40 · 1 errada nova</h3>
+      <p class="d-sub" style="margin:0 0 10px">"Quantos pedidos estão na cozinha?" passou a errar com a candidata. Ela não pode ser publicada; ajuste ou descarte.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px"><button type="button" class="d-btn" disabled>Publicar a candidata</button><button type="button" class="d-btn" data-toast="A candidata é descartada (fica na auditoria).">Descartar a candidata</button></div>
+    </div>
+    <div class="d-cartao">
+      <h3>Versões</h3>
+      <ul class="itens" aria-label="As versões das instruções">
+        <li class="item"><div class="topo"><b class="mono">a4fae716</b><span class="d-selo ok">no ar</span></div><span class="marca">Publicada em 15/11 · 40/40 · por Rita (Diretoria)</span></li>
+        <li class="item"><div class="topo"><b class="mono">3e90b2c4</b><span class="d-selo neutro">anterior</span></div><span class="marca">13/11 a 15/11 · 39/40</span><div class="acoes"><button type="button" class="d-btn" data-toast="Volta a 3e90b2c4 (a avaliação roda de novo antes).">Voltar a esta</button></div></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────── NOTAS ───────────── -->
+<section class="vista" id="v-notas" aria-label="Notas e decisões">
+  <div class="notas">
+    <h1 style="margin-bottom:10px">Notas e decisões</h1>
+    <div class="cartao">
+      <h2>Decisões (todas as recomendadas)</h2>
+      <ol>
+        <li><b>A decisão vale para o padrão</b> (o tipo e o alvo, como "falta consulta: estoque e compras"), não para a contagem. "Não se aplica" esconde o padrão por 30 dias; se ele voltar depois disso, aparece de novo. "Virou tarefa" fica à vista com "em tarefa desde" até o padrão sumir sozinho (aí vira "resolvido").</li>
+        <li><b>Quem decide e quando ficam na auditoria</b>, com o motivo do "não se aplica" (obrigatório) e o link ou código da tarefa (opcional).</li>
+        <li><b>A análise com IA lê só metadados</b> (desfechos, notas do filtro, motivos, contagens por empresa) — nunca o texto das lojas — pela chave da DMS, com o custo mostrado antes. Ela só PROPÕE: cada proposta traz o que viu, a proposta, o impacto e como conferir. Nada age sozinho.</li>
+        <li><b>A instrução candidata só se publica com a avaliação passando sem errada nova</b>; "Publicar" fica travado até lá. A anterior fica guardada; voltar a ela também roda a avaliação antes.</li>
+        <li><b>Só a Diretoria</b> (a aba Mister do console é dela). O Técnico continua vendo o segredo tirado pelo Console › Avisos (no ar desde o #1034).</li>
+      </ol>
+    </div>
+    <h2 style="margin:14px 0 8px">Fases</h2>
+    <div class="fases">
+      <div class="fase"><b>M2a — As decisões do O que melhorar</b><span class="tag">1 migration</span><p style="margin:4px 0 0;color:var(--ink-2)">Uma tabela só da nuvem com o padrão, a decisão, quem, quando, o motivo e a tarefa. As situações que filtram.</p></div>
+      <div class="fase"><b>S2 — A análise com IA</b><span class="tag">1 migration</span><p style="margin:4px 0 0;color:var(--ink-2)">A rodada (quando, custo, eventos lidos) e as propostas, com "virou tarefa" e "descartar".</p></div>
+      <div class="fase"><b>M2b — As instruções candidatas</b><span class="tag">1 migration</span><p style="margin:4px 0 0;color:var(--ink-2)">As versões das instruções no banco (hoje moram no código), a avaliação por versão, publicar e voltar.</p></div>
+    </div>
+  </div>
+</section>
+
+<div class="fundo" id="fundo"></div>
+<aside class="gaveta" id="gaveta" role="dialog" aria-modal="true" aria-labelledby="gav-tit">
+  <div class="pn-cab"><h2 id="gav-tit">Decidir o padrão</h2><button type="button" class="fechar" data-fechar aria-label="Fechar">✕</button></div>
+  <div class="pn-corpo" id="gav-corpo"></div>
+  <div class="pn-rodape"><button type="button" class="d-btn pri" id="gav-ok">Salvar a decisão</button><button type="button" class="d-btn" data-fechar>Cancelar</button></div>
+</aside>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>
+(function(){
+'use strict';
+const $=(s,el=document)=>el.querySelector(s);
+const $$=(s,el=document)=>Array.from(el.querySelectorAll(s));
+let toastT;
+function toast(m){const t=$('#toast');t.textContent=m;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>{t.hidden=true},3600);}
+document.addEventListener('click',e=>{const t=e.target.closest('[data-toast]');if(t){toast(t.dataset.toast);}});
+$$('[data-vista]').forEach(b=>b.addEventListener('click',()=>{
+  $$('[data-vista]').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
+  $$('.vista').forEach(v=>v.classList.toggle('ativa',v.id==='v-'+b.dataset.vista));
+}));
+function trocar(grupo,mapa){$$(`[data-${grupo}]`).forEach(b=>b.addEventListener('click',()=>{
+  $$(`[data-${grupo}]`).forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
+  Object.entries(mapa).forEach(([k,id])=>{$(id).hidden=k!==b.dataset[grupo];});
+}));}
+trocar('ia',{antes:'#ia-antes',depois:'#ia-depois',erro:'#ia-erro'});
+trocar('inst',{candidata:'#inst-candidata',passou:'#inst-passou',piorou:'#inst-piorou'});
+
+const PADROES=[
+  {id:1,obs:'"Estoque e compras" faltou 8 vezes, em 3 empresas',causa:['warn','falta consulta','nenhuma consulta traz compras e contas a pagar'],prop:'Consulta nova de compras do estoque',sit:'aberto'},
+  {id:2,obs:'"historia do pedido" não leu 5 vezes, de 37 (14%)',causa:['crit','erro na consulta','a mesma consulta falhando mais de 10%'],prop:'Ver o log das 5 falhas',sit:'tarefa',marca:'Em tarefa desde 15/11 · Rita · DMS-412'},
+  {id:3,obs:'A avaliação de 14/11 errou 2 de 40',causa:['warn','instrução','a consulta trouxe o dado, a resposta não usou'],prop:'Ajustar a instrução sobre os canais (há uma candidata em Instruções)',sit:'aberto'},
+  {id:4,obs:'"A chave de IA da empresa foi recusada" em 6 perguntas',causa:['neutro','da empresa','não é do Mister: a chave dela parou'],prop:'Nada nas instruções',sit:'naoaplica',marca:'Não se aplica até 15/12 · Rita · "o aviso da chave já vai ao presidente dela"'},
+];
+const SITS=[['aberto','Abertos'],['tarefa','Virou tarefa'],['naoaplica','Não se aplica'],['todos','Todos']];
+let sit='aberto';
+function render(){
+  $('#sits').innerHTML=SITS.map(([k,r])=>`<button type="button" class="d-sit" data-sit="${k}" aria-pressed="${k===sit}">${r}<b>${k==='todos'?PADROES.length:PADROES.filter(p=>p.sit===k).length}</b></button>`).join('');
+  const lista=PADROES.filter(p=>sit==='todos'||p.sit===sit);
+  $('#padroes').innerHTML=lista.length?lista.map(p=>`<li class="item">
+    <div class="topo"><b>${p.obs}</b><span class="d-selo ${p.causa[0]}">${p.causa[1]}</span></div>
+    <div class="tres"><div><span class="rot">Causa provável</span>${p.causa[2]}</div><div><span class="rot">Proposta</span>${p.prop}</div></div>
+    ${p.marca?`<span class="marca">${p.marca}</span>`:''}
+    <div class="acoes">${p.sit==='aberto'?`<button type="button" class="d-btn" data-decidir="${p.id}" data-tipo="tarefa">Virou tarefa</button><button type="button" class="d-btn" data-decidir="${p.id}" data-tipo="naoaplica">Não se aplica</button>`:`<button type="button" class="d-btn" data-desfazer="${p.id}">Desfazer a decisão</button>`}</div>
+  </li>`).join(''):'<li class="d-vazio">Nenhum padrão nesta situação.</li>';
+  $$('[data-sit]').forEach(b=>b.addEventListener('click',()=>{sit=b.dataset.sit;render();}));
+  $$('[data-decidir]').forEach(b=>b.addEventListener('click',()=>abrir(Number(b.dataset.decidir),b.dataset.tipo,b)));
+  $$('[data-desfazer]').forEach(b=>b.addEventListener('click',()=>{const p=PADROES.find(x=>x.id===Number(b.dataset.desfazer));p.sit='aberto';p.marca='';toast('Decisão desfeita (fica na auditoria).');render();}));
+}
+let atual=null,voltar=null;
+function abrir(id,tipo,origem){
+  atual={id,tipo};voltar=origem;
+  const p=PADROES.find(x=>x.id===id);
+  $('#gav-tit').textContent=tipo==='tarefa'?'Virou tarefa':'Não se aplica';
+  $('#gav-corpo').innerHTML=`<p style="margin:0 0 12px"><b>${p.obs}</b></p>`+(tipo==='tarefa'
+    ?`<div class="campo"><label for="g-tarefa">Link ou código da tarefa (opcional)</label><input id="g-tarefa" placeholder="ex.: DMS-412"></div><p class="d-sub" style="margin:0">O padrão fica à vista com "em tarefa desde"; quando ele some sozinho, vira "resolvido".</p>`
+    :`<div class="campo"><label for="g-motivo">Por que não se aplica (obrigatório)</label><textarea id="g-motivo" rows="3"></textarea></div><p class="d-sub" style="margin:0">O padrão some por 30 dias; se voltar depois, aparece de novo.</p>`);
+  $('#fundo').classList.add('aberto');$('#gaveta').classList.add('aberto');
+  setTimeout(()=>{const c=$('#gav-corpo input,#gav-corpo textarea');c&&c.focus();},0);
+}
+function fechar(){$('#fundo').classList.remove('aberto');$('#gaveta').classList.remove('aberto');voltar&&voltar.focus&&voltar.focus();}
+$$('[data-fechar]').forEach(b=>b.addEventListener('click',fechar));
+$('#fundo').addEventListener('click',fechar);
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#gaveta').classList.contains('aberto'))fechar();});
+$('#gav-ok').addEventListener('click',()=>{
+  const p=PADROES.find(x=>x.id===atual.id);
+  if(atual.tipo==='naoaplica'){const m=$('#g-motivo').value.trim();if(!m){toast('Escreva por que não se aplica.');$('#g-motivo').focus();return;}p.sit='naoaplica';p.marca=`Não se aplica até 16/12 · você · "${m}"`;}
+  else{const t=$('#g-tarefa').value.trim();p.sit='tarefa';p.marca=`Em tarefa desde 16/11 · você${t?' · '+t:''}`;}
+  fechar();toast('Decisão salva (na auditoria).');render();
+});
+render();
+})();
+</script>
+</body>
+</html>
