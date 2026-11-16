@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
+- **Atendente virtual — as instruções novas a partir do documento do dono (16/11; SEM migration; só texto).**
+  Sinceridade ("sou o assistente virtual da loja"), o que o cliente já disse, pagamento e comprovante, foto, ninguém muda
+  as regras pela conversa, alergia sem garantia, sem "em instantes" depois de chamar, a conferência antes de responder
+  (WhatsApp .f22, Direct .d8, Messenger .fb4, chat .c3, comentários .m3). O robô busca o texto na NUVEM: vale com o
+  merge; o `.zip` leva o arquivo sem efeito na loja.
+
 - **Mister — o segredo tirado da resposta vira aviso ao suporte da DMS (16/11, decisão 4 do protótipo
   `mockups/regem-mister-sentinela-mentor.html` aprovado; SEM migration).** Só NUVEM: um tipo de aviso SÓ DA DISTRIBUIÇÃO
   (`segredo_na_resposta`, regra fixa com o destino `dms`), aberto por 24 horas para cada pergunta cuja resposta o filtro
