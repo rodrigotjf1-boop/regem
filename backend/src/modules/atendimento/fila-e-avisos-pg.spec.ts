@@ -93,6 +93,7 @@ descrever('fila e avisos (Postgres)', () => {
       '353_app_atendimento.sql',
       '344_robo_carrinho.sql',
       '363_robo_mudanca_do_pedido.sql',
+      '431_robo_carrinho_confirmacao.sql', // a confirmação do cliente (`confirmado_versao`), que o `select()` do carrinho lê
       '373_pedido_adicional_pix.sql',
       '379_horario_da_equipe.sql',
       '380_perfis_do_atendente.sql',

@@ -6,6 +6,8 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
   Optional,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -40,7 +42,9 @@ export const RESPOSTA_DO_PEDIDO_NO_CHAT = {
   mensagem:
     'No chat do iFood e da 99 o cliente já tem o pedido feito pela plataforma: não se monta, não se muda e não se cancela pedido aqui. Use o campo pedido da mensagem para dizer a situação; para mudar, trocar ou cancelar, chame a equipe (chamar_atendente).',
 };
-import { sqlChaveTelefone } from '../../common/telefone-chave';
+import { chaveTelefone, sqlChaveTelefone } from '../../common/telefone-chave';
+import { ehServidorLocal } from '../../common/modo';
+import { definirAnotadorDaConfirmacao } from '../whatsapp/juntar-mensagens';
 import { DeliveryService } from '../delivery/delivery.service';
 import { AtendimentoService } from '../atendimento/atendimento.service';
 import { pagoAntes, pedidaVencida, VALIDADE_DA_PEDIDA_MIN } from '../pedido-alterado/pedido-alterado';
@@ -96,6 +100,7 @@ import {
   OPCOES_DA_CONFERENCIA,
   OPCOES_DO_REPETIDO,
   type PedidoIgualNaConversa,
+  ehConfirmacaoDoResumo,
   resumoDoPedido,
   textoParaConferir,
   textoParaConferirRepetido,
@@ -246,9 +251,51 @@ export function trioDoLanche(menu: any, lanche: any): any | null {
   );
 }
 
+/** Os tipos de mensagem que podem confirmar o resumo: texto e o toque num botão ou numa opção. Áudio, foto e figurinha não. */
+const TIPOS_QUE_CONFIRMAM = new Set(['text', 'interactive', 'button', 'poll']);
+
+/** A recusa do registro sem a confirmação do cliente (mig 431): o que a IA diz e o que espera. */
+export const MENSAGEM_SEM_CONFIRMACAO =
+  'O cliente ainda não confirmou este resumo: nada foi registrado. Diga só "Confere aí e me diz se posso registrar 👆" e espere ele tocar em "Pode registrar" (ou responder que sim). Se ele respondeu por áudio, peça para tocar no botão do resumo.';
+
 @Injectable()
-export class RoboPedidoService {
+export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger('RoboPedido');
+
+  // O anotador da confirmação (mig 431) só na nuvem: é lá que o WhatsApp chega e que existe o carrinho do robô.
+  onModuleInit(): void {
+    if (!ehServidorLocal()) definirAnotadorDaConfirmacao((m) => this.anotarConfirmacao(m));
+  }
+
+  onModuleDestroy(): void {
+    definirAnotadorDaConfirmacao(null);
+  }
+
+  /**
+   * A CONFIRMAÇÃO DO CLIENTE (mig 431 — o documento do dono de 16/11/2026): chamada com CADA mensagem do WhatsApp, antes de
+   * ela ir à IA (`juntar-mensagens.ts`). Quando o cliente responde ao resumo para conferir com "Pode registrar" (ou "Sim,
+   * quero os dois"), o "1" do menu numerado ou um sim claro, e o resumo DESTA versão já foi enviado, anota
+   * `confirmado_versao = versao`. O registro exige essa anotação: quem confirma é o cliente, não a leitura que a IA faz da
+   * conversa ("obrigado", figurinha, áudio ou um "sim" a outra pergunta não registram pedido). Devolve se anotou.
+   */
+  async anotarConfirmacao(msg: any): Promise<boolean> {
+    if (!TIPOS_QUE_CONFIRMAM.has(String(msg?.tipo ?? ''))) return false;
+    if (!ehConfirmacaoDoResumo(msg?.texto)) return false;
+    const de = String(msg?.de ?? '');
+    // As conversas que não são de telefone (o teste do atendente, o chat do iFood/99, o Direct, o comentário) não têm carrinho.
+    if (/^[a-z]+:/i.test(de)) return false;
+    const tenantId = String(msg?.tenantId ?? '');
+    const chave = chaveTelefone(de);
+    if (!/^[0-9a-f-]{36}$/i.test(tenantId) || !chave) return false;
+    const r = linhasDe(
+      await this.db.execute(sql`
+        update robo_carrinho set confirmado_versao = versao
+         where tenant_id = ${tenantId}::uuid and telefone_chave = ${chave} and status = 'aberto'
+           and resumo_versao = versao and confirmado_versao is distinct from versao
+        returning id`),
+    );
+    return r.length > 0;
+  }
 
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
@@ -492,6 +539,8 @@ export class RoboPedidoService {
       status: r.status,
       pedidoId: r.pedido_id,
       resumoVersao: r.resumo_versao != null ? Number(r.resumo_versao) : null,
+      repetidoVersao: r.repetido_versao != null ? Number(r.repetido_versao) : null,
+      confirmadoVersao: r.confirmado_versao != null ? Number(r.confirmado_versao) : null,
       itensFechados: !!r.itens_fechados,
       observacao: r.observacao ?? null,
       mudanca: r.mudanca ?? null,
@@ -2702,11 +2751,14 @@ export class RoboPedidoService {
     const igual = await this.pedidoIgualDaConversa(ctx, calc.itensOut);
     const texto = igual ? textoParaConferirRepetido(calc.paraConferir, igual) : calc.paraConferir;
     const opcoes = igual ? OPCOES_DO_REPETIDO : OPCOES_DA_CONFERENCIA;
-    const enviado = await this.enviarComBotoes(ctx, texto, opcoes);
+    // Marca ANTES de enviar (mig 431): o "Pode registrar" pode chegar antes de este update terminar, e o anotador só anota a
+    // confirmação de um resumo marcado. Um resumo novo zera a confirmação: o cliente confirma o que está vendo AGORA (o
+    // reenvio com o aviso do pedido igual pede o "Sim, quero os dois", nunca o "sim" dado antes do aviso).
     await this.db.execute(
-      sql`update robo_carrinho set resumo_versao = ${c.versao}, repetido_versao = ${igual ? c.versao : null}
+      sql`update robo_carrinho set resumo_versao = ${c.versao}, repetido_versao = ${igual ? c.versao : null}, confirmado_versao = null
            where id = ${c.id}::uuid and versao = ${c.versao} and status = 'aberto'`,
     );
+    const enviado = await this.enviarComBotoes(ctx, texto, opcoes);
     const visao = enviado
       ? { ...calc.visao, proximo: this.passoDeConfirmar(true, !!igual), resumoEnviado: true, ...(igual ? { pedidoIgual: igual } : {}) }
       : {
@@ -2769,14 +2821,22 @@ export class RoboPedidoService {
         pedido: m.visao,
       };
     }
+    // O CLIENTE confirmou ESTE resumo? (mig 431 — o documento do dono de 16/11/2026): o Regem anotou ao RECEBER a mensagem
+    // dele ("Pode registrar", "1", um sim claro) — a leitura que a IA faz da conversa não basta.
+    if (c.confirmadoVersao !== c.versao) return { ...recusa('confirmar', MENSAGEM_SEM_CONFIRMACAO), pedido: est };
 
-    // Trava o carrinho até o fim (outra mensagem do mesmo cliente espera) e confere a versão de novo, já travado.
-    const falha: { msg: string | null; repetido?: boolean } = { msg: null };
+    // Trava o carrinho até o fim (outra mensagem do mesmo cliente espera) e confere a versão e a confirmação de novo, já
+    // travado.
+    const falha: { msg: string | null; repetido?: boolean; semConfirmacao?: boolean } = { msg: null };
     const resultado = await this.db.transaction(async (tx: any) => {
       const [linha] = linhasDe(
         await tx.execute(sql`select * from robo_carrinho where id = ${c.id}::uuid and status = 'aberto' for update`),
       );
       if (!linha || Number(linha.versao) !== c.versao) return null;
+      if (Number(linha.confirmado_versao) !== c.versao) {
+        falha.semConfirmacao = true;
+        return null;
+      }
       const en: any = c.entrega ?? {};
       const pg = c.pagamento as PagamentoDoCarrinho;
       const r: any = await this.cardapio.receberPedido(ctx.token, {
@@ -2840,6 +2900,7 @@ export class RoboPedidoService {
         pedido: m.visao,
       };
     }
+    if (!resultado && falha.semConfirmacao) return { ...recusa('confirmar', MENSAGEM_SEM_CONFIRMACAO), pedido: est };
     if (!resultado)
       return {
         ...(falha.msg ? recusa('nao_registrado', falha.msg) : recusa('versao', 'O pedido mudou agora: o Regem manda o resumo de novo.')),

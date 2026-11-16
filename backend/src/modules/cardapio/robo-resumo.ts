@@ -53,6 +53,45 @@ export const OPCOES_DA_CONFERENCIA = ['Pode registrar', 'Pôr observação', 'Qu
  */
 export const OPCOES_DO_REPETIDO = ['Sim, quero os dois', 'Não, foi repetido', 'Quero mudar algo'];
 
+/** A resposta do cliente sem acento, sem pontuação nem emoji, em minúsculas e com um espaço entre as palavras. */
+export function normalizarResposta(texto: unknown): string {
+  return String(texto ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// A CONFIRMAÇÃO DO RESUMO (mig 431 — o documento do dono de 16/11/2026): só conta o que o CLIENTE mandou, sozinho na
+// mensagem — o 1º botão de cada conferência ("Pode registrar", "Sim, quero os dois"), o "1" do menu numerado (Evolution) ou
+// um sim claro. "Obrigado", figurinha, emoji, áudio e "sim, mas tira a cebola" NÃO confirmam (o último muda o pedido, que
+// manda outro resumo). A cortesia em volta ("sim, pode registrar por favor", "ok obrigado") não atrapalha.
+const CONFIRMACOES = new Set(
+  [
+    OPCOES_DA_CONFERENCIA[0],
+    OPCOES_DO_REPETIDO[0],
+    '1', 'sim', 's', 'ss', 'sim sim', 'sim pode', 'sim pode registrar', 'sim pode confirmar', 'sim esta certo', 'sim ta certo', 'sim tudo certo', 'sim quero',
+    'pode', 'pode sim', 'pode registrar', 'pode confirmar', 'pode mandar', 'pode fazer', 'pode fechar', 'pode seguir',
+    'confirmo', 'confirma', 'confirmar', 'confirmado', 'confirmadissimo',
+    'isso', 'isso mesmo', 'isso ai', 'exato', 'certo', 'certinho', 'correto', 'ta certo', 'esta certo', 'tudo certo', 'ta tudo certo', 'esta tudo certo', 'tudo certinho',
+    'ok', 'okay', 'blz', 'beleza', 'fechado', 'fechou', 'perfeito', 'show', 'positivo', 'yes',
+  ].map(normalizarResposta),
+);
+const CORTESIA = new Set(['por', 'favor', 'pfv', 'pf', 'pfvr', 'obrigado', 'obrigada', 'obg', 'brigado', 'valeu', 'vlw', 'entao', 'ja', 'agora', 'moco', 'moca', 'amigo', 'amiga']);
+
+/**
+ * A mensagem do cliente confirma o resumo para conferir? Só texto (o botão chega como texto); a cortesia em volta é
+ * tirada; o que sobra tem de ser UMA confirmação conhecida. Áudio, foto e figurinha nunca (quem chama passa o tipo).
+ */
+export function ehConfirmacaoDoResumo(texto: unknown): boolean {
+  const palavras = normalizarResposta(texto).split(' ').filter(Boolean);
+  if (!palavras.length || palavras.length > 8) return false;
+  const nucleo = palavras.filter((p) => !CORTESIA.has(p)).join(' ');
+  return nucleo !== '' && CONFIRMACOES.has(nucleo);
+}
+
 /** O outro pedido como o cliente entende: o número que ele recebeu, a hora e a situação. */
 export type PedidoIgualNaConversa = { numero: string | null; hora: string | null; situacao: string };
 

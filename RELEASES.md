@@ -18,6 +18,11 @@
   (WhatsApp .f22, Direct .d8, Messenger .fb4, chat .c3, comentários .m3). O robô busca o texto na NUVEM: vale com o
   merge; o `.zip` leva o arquivo sem efeito na loja.
 
+- **A confirmação do pedido do robô vem do cliente (16/11, ERR-482; migration 431 — SÓ NUVEM, aplicar ANTES do
+  merge).** O Regem anota o "Pode registrar"/"1"/sim claro ao receber a mensagem e o registro exige essa anotação; todo
+  resumo novo a zera (o pedido igual pede o "Sim, quero os dois" de verdade). O robô e o carrinho só existem na nuvem:
+  vale com o merge; o `.zip` leva o código sem efeito na loja.
+
 - **A ponte do chat repete a gravação quando o banco acusa impasse (16/11, ERR-481; SEM migration).** A transação do
   `receber` (as falas do iFood/99 e o caso) é idempotente e passa a repetir inteira em 40P01/40001
   (`common/repetir-no-impasse.ts`), em vez de devolver 500 à ponte. O controlador da ponte é da nuvem (`@CloudOnly`):

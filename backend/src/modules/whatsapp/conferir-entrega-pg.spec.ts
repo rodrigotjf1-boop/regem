@@ -72,6 +72,7 @@ descrever('"chegou tudo certo?" (Postgres)', () => {
       '349_lembrete_do_carrinho.sql',
       '352_conferir_entrega.sql',
       '363_robo_mudanca_do_pedido.sql',
+      '431_robo_carrinho_confirmacao.sql', // a confirmação do cliente (`confirmado_versao`), que o `select()` do carrinho lê
       '379_horario_da_equipe.sql',
     ])
       await aplicar(m);
