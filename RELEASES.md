@@ -12,6 +12,25 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
+- **Os cabeçalhos de segurança do app (16/11, avaliação interna; SEM migration; só `frontend/next.config.mjs`).** Na NUVEM
+  com o merge: nenhuma tela pode ser embutida em outro site (menos o cardápio público `/c/...`), `nosniff` em tudo, HSTS
+  só em `app.dmsregem.com` e sem `X-Powered-By`. No servidor da loja entra com o `.zip` (o front da loja usa o mesmo
+  arquivo): moldura e `nosniff` iguais, SEM HSTS (a regra só vale para o endereço da nuvem). Nada no `.exe`.
+
+- **Dependências com falha conhecida, as que não mudam de versão maior (16/11, avaliação interna; SEM migration; só
+  `package.json` e `package-lock.json` dos dois lados) → vai no `.zip`** (o pacote leva o `node_modules.tar` e o
+  `web.tar`). Backend: `proxy-addr` 2.0.8, `node-forge` 1.4.3, `engine.io` 6.6.11, `socket.io-parser` 4.2.7, `qs` 6.14.3 e,
+  por `overrides`, `body-parser` 1.20.9, `multer` 2.5.0, `js-yaml` 4.3.2 e `lodash` 4.18.1. Front: `postcss` 8.5.33,
+  `nanoid` 3.3.20, `source-map-js` 1.2.2, `socket.io-parser` 4.2.7 e `lodash` 4.18.1 (por `overrides`). **Fica de fora, com
+  plano próprio: o Next 14 → 15.5** (as falhas críticas do Next 14, entre elas a execução remota de código sem login em
+  servidor Windows — o caso do servidor da loja; a nuvem roda em Linux) e o `drizzle-orm` 0.33 → 0.45 (a falha é de nome
+  de coluna vindo do pedido, que o Regem não faz). Nada no `.exe`.
+
+- **O anúncio da retirada da credencial antiga (16/11, #1054, F6 do Hub DMS; SEM migration; nasce desligado).** Só NUVEM
+  na prática: os cabeçalhos `Deprecation`/`Sunset` saem no guarda da porta de integração (só da nuvem) e no guarda das
+  rotas do totem, que também roda no servidor da loja — lá ele não anuncia (`ehServidorLocal()`). Os arquivos
+  (`common/retirada-credencial.ts` e os dois guardas) vão junto no próximo corte, sem efeito na loja. Nada no `.exe`.
+
 - **A landing de dentro do app (`/`) só promete o que o produto faz (16/11; só tela, sem migration).** Vale na nuvem com o
   deploy (é a página pública de `app.dmsregem.com`); acompanha o `.zip` por ser tela, sem efeito na loja.
   - Os planos e preços são os da tabela do app: 129 / 199 / 299.
