@@ -31,6 +31,10 @@ import { LoteSyncDto } from './dto/push.dto';
 import { assinarSync } from './sync-sig';
 import type { SyncCtxData } from './sync-token.guard';
 
+/** As situações com desfecho da ordem de produção — as `ENCERRADAS` do `OrdemProducaoService` (o ordem-encerrada.spec
+ *  confere que são as mesmas, e as mesmas do `ESTADOS_TERMINAIS` do sync-daemon). */
+export const ORDEM_ENCERRADAS = ['concluida_total', 'concluida_parcial', 'nao_concluida', 'cancelada'];
+
 @Injectable()
 export class SyncService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
@@ -845,6 +849,19 @@ export class SyncService {
         const ehAviso = lote.tabela === 'alerta_kds' && colunas.has('ciente_em');
         const cienteVence = ehAviso ? sql` or (excluded.ciente_em is not null and alerta_kds.ciente_em is null)` : sql``;
         const naoDesfazCiente = ehAviso ? sql` and not (alerta_kds.ciente_em is not null and excluded.ciente_em is null)` : sql``;
+        // ORDEM DE PRODUÇÃO ENCERRADA NÃO REABRE (ERR-075, V60): a rotina das 06:20 roda nos dois lados e marca "pendência
+        // crítica" na ordem que ainda espera o lançamento. A loja concluiu sem internet (com a entrada no estoque) e a
+        // nuvem marcou a cópia dela depois: pela data a conclusão voltava a pendência, e lançar de novo dobrava o estoque.
+        // A encerrada que sobe vence mesmo mais velha; a cópia aberta da loja não desfaz a encerrada daqui. Entre duas
+        // encerradas, a data. Mesma regra no pull do servidor da loja (sync-daemon, `ESTADOS_TERMINAIS`).
+        const ehOrdem = lote.tabela === 'ordem_producao' && colunas.has('status');
+        const encerradas = sql.join(ORDEM_ENCERRADAS.map((s) => sql`${s}`), sql`, `);
+        const naoReabreOrdem = ehOrdem
+          ? sql` and not (ordem_producao.status in (${encerradas}) and excluded.status not in (${encerradas}))`
+          : sql``;
+        const encerradaVence = ehOrdem
+          ? sql` or (excluded.status in (${encerradas}) and ordem_producao.status not in (${encerradas}))`
+          : sql``;
         // LWW (update-se-mais-nova) p/ tabela com updated_at; senão do-nothing (append imutável).
         const conflito =
           (modo === 'lww' || colunas.has('updated_at')) && setCols.length && colunas.has(lwwCol)
@@ -853,7 +870,7 @@ export class SyncService {
                 sql`, `,
               )}
               where ${sql.identifier(lote.tabela)}.tenant_id = excluded.tenant_id
-                and (${sql.identifier(lote.tabela)}.${sql.identifier(lwwCol)} < excluded.${sql.identifier(lwwCol)}${resolvidoVence}${decisaoVence}${cienteVence}${canceladoDoCartaoVence}${finalDoPedidoVence})${naoDesfazRevogacao}${naoReabreCartao}${naoVoltaANovo}${finalDoPedidoNaoSai}${naoRessuscita}${naoReabreChamado}${naoVoltaAPedida}${naoDesfazCiente}`
+                and (${sql.identifier(lote.tabela)}.${sql.identifier(lwwCol)} < excluded.${sql.identifier(lwwCol)}${resolvidoVence}${decisaoVence}${cienteVence}${canceladoDoCartaoVence}${finalDoPedidoVence}${encerradaVence})${naoDesfazRevogacao}${naoReabreCartao}${naoVoltaANovo}${finalDoPedidoNaoSai}${naoRessuscita}${naoReabreChamado}${naoVoltaAPedida}${naoDesfazCiente}${naoReabreOrdem}`
             : sql`on conflict (id) do nothing`;
         const linhaVals = (linha: any) =>
           sql`(${sql.join([tenantId, ...cols.map((c) => coagir(linha[c]))].map((v) => sql`${v}`), sql`, `)})`;
