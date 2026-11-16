@@ -317,6 +317,22 @@ export class ColaboradorService {
       );
     }
 
+    // Perfil de acesso: usa o informado ou resolve pelo nível da função principal.
+    const perfilAcessoId =
+      (await this.resolverPerfil(tenantId, dto.perfilAcessoId, principal)) ??
+      undefined;
+    // A hierarquia vale para o nível com que a pessoa vai ENTRAR: o do PERFIL (a função só vale sem perfil — a mesma
+    // regra do login e do JwtAuthGuard). Conferir só a função deixava um gerente criar um login com o perfil do
+    // presidente, ou do próprio nível, escolhendo uma função de execução (avaliação de segurança de 16/11/2026, A-01).
+    const nivelFinal = await this.categoriaDe(tenantId, perfilAcessoId ?? null, principal ?? null);
+    if (!podeCriarNivel(atorCategoria, nivelFinal)) {
+      throw new ForbiddenException(
+        nivelFinal === 'presidente'
+          ? 'Só um presidente pode cadastrar outro presidente/C&O.'
+          : `Seu perfil não pode cadastrar um colaborador com o perfil de acesso de nível "${nivelFinal}".`,
+      );
+    }
+
     // Credencial de acesso (mig 141): QUALQUER nível pode ter login — o atendente
     // opera o PDV/delivery o turno inteiro e precisa entrar com o próprio nome,
     // senão tudo que ele faz fica registrado em quem abriu o navegador. Quem não
@@ -328,11 +344,6 @@ export class ColaboradorService {
         throw new BadRequestException('Informe um usuário (apelido) ou e-mail para o login por senha.');
       senhaHash = await bcrypt.hash(dto.senha, 12);
     }
-
-    // Perfil de acesso: usa o informado ou resolve pelo nível da função principal.
-    const perfilAcessoId =
-      (await this.resolverPerfil(tenantId, dto.perfilAcessoId, principal)) ??
-      undefined;
 
     const [row] = await this.db
       .insert(colaborador)
@@ -352,7 +363,7 @@ export class ColaboradorService {
         perfilAcessoId,
         // RBAC de modo: presidente/C&O já nasce liberado pra nuvem; os demais entram
         // só no local por padrão e o presidente libera depois (Config → Acessos).
-        podeNuvem: alvoCategoria === 'presidente',
+        podeNuvem: nivelFinal === 'presidente',
       })
       .returning(publicCols);
 
@@ -521,6 +532,21 @@ export class ColaboradorService {
   }
 
   async remove(tenantId: string, id: string, ator?: Ator) {
+    // A hierarquia da exclusão é a da edição e da troca de senha (CL-2): só quem está ACIMA do nível do alvo exclui —
+    // sem ela, um gerente excluía o presidente da própria empresa (avaliação de segurança de 16/11/2026, A-02). E
+    // ninguém exclui a si mesmo: com isso, a empresa nunca fica sem presidente (um sócio só sai pela mão do outro).
+    const [alvo] = await this.db
+      .select({ id: colaborador.id, perfilAcessoId: colaborador.perfilAcessoId, funcaoId: colaborador.funcaoId })
+      .from(colaborador)
+      .where(and(eq(colaborador.id, id), eq(colaborador.tenantId, tenantId), isNull(colaborador.deletedAt)));
+    if (!alvo) throw new NotFoundException('Colaborador não encontrado.');
+    if (ator?.colaboradorId && ator.colaboradorId === id) {
+      throw new BadRequestException('Você não pode excluir o seu próprio cadastro.');
+    }
+    const alvoCategoria = await this.categoriaDe(tenantId, alvo.perfilAcessoId, alvo.funcaoId);
+    if (!podeEditarNivel(ator?.categoria ?? 'execucao', alvoCategoria)) {
+      throw new ForbiddenException('Seu perfil não pode excluir um colaborador de nível igual ou superior ao seu.');
+    }
     const [row] = await this.db
       .update(colaborador)
       .set({ deletedAt: new Date() })
