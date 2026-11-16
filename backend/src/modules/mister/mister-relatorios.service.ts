@@ -191,7 +191,8 @@ export class MisterRelatoriosService implements OnModuleInit {
     try {
       // Fora da janela de 24 h da Meta a mensagem livre não chega: vai o convite pelo modelo, e nada se gasta com IA até
       // a pessoa tocar em "Ver resumo". O período fica na trilha (o toque faz o resumo do MESMO período, mesmo dias depois).
-      if (!dentroDaJanelaDoWhatsapp(pessoa.ultimaEntrada, agora.getTime())) {
+      // Q1 (mig 436): pelo Evolution não há janela — o resumo vai direto.
+      if (!(await this.numero.semJanela()) && !dentroDaJanelaDoWhatsapp(pessoa.ultimaEntrada, agora.getTime())) {
         try {
           await this.numero.enviarModelo(pessoa.telefone, MODELO_DO_RESUMO, parametrosDoResumo(tipo, devido, pessoa.empresa), { tipo: 'resumo', id: vez.id });
         } catch (e: any) {

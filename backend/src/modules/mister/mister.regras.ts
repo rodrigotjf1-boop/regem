@@ -93,6 +93,18 @@ export const idDoBotaoDaEmpresa = (tenantId: string) => `${PREFIXO_DO_BOTAO}${te
 export type Resposta = { texto: string; botoes?: { id: string; titulo: string }[]; link?: { titulo: string; url: string } };
 
 /**
+ * Q1 (mig 436): a mesma resposta pelo Evolution, que não tem botão. Os botões viram a lista numerada ("Responda com o
+ * número" — a entrada lê "1" e "2" como a última autorização aberta, e o número da empresa pela lista de sempre); o link
+ * vai escrito depois do texto.
+ */
+export function textoParaOEvolution(r: Resposta): string {
+  const partes = [String(r.texto ?? '').trim()];
+  if (r.botoes?.length) partes.push(`${r.botoes.slice(0, 10).map((b, i) => `${i + 1}. ${b.titulo}`).join('\n')}\n\nResponda com o número.`);
+  else if (r.link?.url) partes.push(`${r.link.titulo}: ${r.link.url}`);
+  return partes.filter(Boolean).join('\n\n');
+}
+
+/**
  * A pergunta "de qual empresa?". Até três empresas, com botões; mais que isso, lista numerada (o WhatsApp só aceita
  * três botões de resposta). As empresas chegam em ordem estável (nome, depois id) para o número valer na resposta.
  */

@@ -3,7 +3,10 @@ import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { AuthUser } from '../../auth/auth-user';
 import { AuditoriaService } from '../auditoria/auditoria.service';
-import { MisterNumeroService } from './mister-numero.service';
+import { MisterNumeroService, NumeroDoMister, numeroDisponivel, numeroEmUso } from './mister-numero.service';
+
+/** O número que a pessoa vê para salvar: o da forma em uso, só com ela conectada (Q1). */
+const numeroParaMostrar = (n: NumeroDoMister) => (n.provedor === 'evolution' || n.situacao !== 'sem' ? numeroEmUso(n) : null);
 import { CODIGO_VALE_MIN, NIVEIS_DO_MISTER, linkDoCodigo, mensagemDoCodigo, novoCodigo } from './mister.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -95,9 +98,9 @@ export class MisterVinculoService {
          where tenant_id = ${user.tenantId}::uuid and colaborador_id = ${user.colaboradorId}::uuid`),
     );
     const ligado = !!(v?.telefone && v?.ligadoEm);
-    const numeroDoMister = n.situacao !== 'sem' ? n.numero : null;
+    const numeroDoMister = numeroParaMostrar(n);
     return {
-      disponivel: n.situacao === 'conectado' && n.ligado,
+      disponivel: numeroDisponivel(n),
       numeroDoMister,
       ligado,
       final: ligado ? String(v.telefone).slice(-4) : null,
@@ -117,7 +120,7 @@ export class MisterVinculoService {
   async gerarCodigo(user: AuthUser): Promise<MeuWhatsapp> {
     if (!(await this.podeFalar(user))) throw new ForbiddenException('Só gerente ou presidente liga o WhatsApp ao Mister.');
     const n = await this.numero.ler();
-    if (n.situacao !== 'conectado' || !n.numero || !n.ligado) throw new ConflictException('O Mister ainda não está disponível pelo WhatsApp. Fale com a Regem.');
+    if (!numeroDisponivel(n)) throw new ConflictException('O Mister ainda não está disponível pelo WhatsApp. Fale com a Regem.');
     for (let i = 0; ; i++) {
       try {
         await this.db.execute(sql`
@@ -182,8 +185,8 @@ export class MisterVinculoService {
          limit ${PESSOAS_NA_LISTA}`),
     );
     return {
-      disponivel: n.situacao === 'conectado' && n.ligado,
-      numeroDoMister: n.situacao !== 'sem' ? n.numero : null,
+      disponivel: numeroDisponivel(n),
+      numeroDoMister: numeroParaMostrar(n),
       souPresidente: nivel === 'presidente',
       total: lidas.length ? Number(lidas[0].total) : 0,
       pessoas: lidas.map((l) => {

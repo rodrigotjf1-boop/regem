@@ -643,13 +643,15 @@ export class MisterAvisosService implements OnModuleInit {
     const presidenteRecebe = [...alvo.values()].some((x) => x.l?.nivel === 'presidente');
     const proposta = presidenteRecebe && (fase === 'abriu' || fase === 'escalou') && this.propostas ? await this.propostas.propor(a) : null;
     const fora: Entrega[] = [];
+    // Q1 (mig 436): pelo Evolution não há janela de 24 horas nem modelo — o texto inteiro vai sempre.
+    const semJanela = await this.numero.semJanela();
     for (const { destino, l, motivo } of alvo.values()) {
       if (!l) {
         fora.push({ destino, fase, em, ok: false, motivo });
         continue;
       }
       const final = String(l.telefone).slice(-4);
-      if (!dentroDaJanelaDoWhatsapp(l.ultimaEntrada ? new Date(l.ultimaEntrada) : null, agora.getTime())) {
+      if (!semJanela && !dentroDaJanelaDoWhatsapp(l.ultimaEntrada ? new Date(l.ultimaEntrada) : null, agora.getTime())) {
         // Fora da janela, só o modelo aprovado chega: "Aviso do Mister para <loja>: <o quê>", com o botão "Ver o que
         // fazer". O toque abre a janela e traz o texto inteiro (`mostrarPeloToque`).
         try {
@@ -726,10 +728,11 @@ export class MisterAvisosService implements OnModuleInit {
     );
     const feitas: Entrega[] = [];
     const em = agora.toISOString();
+    const semJanela = await this.numero.semJanela(); // Q1: pelo Evolution, o desfecho vai sempre
     for (const l of ligados) {
       const final = String(l.telefone).slice(-4);
       if (!receberam.has(final)) continue;
-      if (!dentroDaJanelaDoWhatsapp(l.ultimaEntrada ? new Date(l.ultimaEntrada) : null, agora.getTime())) {
+      if (!semJanela && !dentroDaJanelaDoWhatsapp(l.ultimaEntrada ? new Date(l.ultimaEntrada) : null, agora.getTime())) {
         feitas.push({ destino: receberam.get(final)!, fase: 'resolveu', em, ok: false, final, motivo: 'fora_da_janela_de_24h' });
         continue;
       }
