@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
+- **O KDS físico pelo token do aparelho mostra os pedidos (16/11, a TV box da cozinha do Mister Burger; SEM migration;
+  não mexe no `sync-daemon`; ERR-489).** O KDS aberto com `?token=` (sem pessoa logada) ficava "online" e VAZIO: a tela
+  relê a fila a cada pedido novo e a rota da fila só aceitava login. Agora a fila, o avanço e o "Visto" têm rotas do
+  aparelho (`/producao/aparelho/*`, `X-Device-Token`), com a empresa, a loja e o KDS tirados do token. Na NUVEM com o
+  merge. **No `.zip` 1.30.14:** o mesmo no servidor da loja — é o que a TV box da cozinha abre (`https://regem.local:3001/kds`);
+  até lá ela segue vazia. Nada no `.exe`.
+
 - **"É o servidor da loja?" num lugar só (16/11, V2 do registro; sem migration) → vai no `.zip`** (o código da API e o
   `backend/scripts/apply-all-local.mjs`, que aplica as migrations na loja).
   - As 26 comparações de `EDGE_MODE` feitas à mão viram `ehServidorLocal()`.

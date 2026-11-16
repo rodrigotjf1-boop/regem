@@ -73,13 +73,24 @@ function historicoAvisos() {
 }
 
 // ── o estado do "servidor" simulado ──
-const S = { pedidos: [], filaFalha: false, nuvem: false, semSocket: false, fila: [], esperaAvancar: 700, vistos: [], pendentes: [], historicoAvisos: historicoAvisos(), cientes: [] };
+const S = { pedidos: [], filaFalha: false, nuvem: false, semSocket: false, fila: [], esperaAvancar: 700, vistos: [], pendentes: [], historicoAvisos: historicoAvisos(), cientes: [], aparelho: [], comLogin: [] };
+const TOKEN_APARELHO = 'tk-kds-da-cozinha';
 
 async function rotas(page) {
   await page.route('**/api/v1/**', async (route) => {
     const req = route.request();
     const url = new URL(req.url());
-    const caminho = url.pathname.replace(/^.*\/api\/v1/, '');
+    let caminho = url.pathname.replace(/^.*\/api\/v1/, '');
+    // O KDS físico pelo token do aparelho (16/11/2026): as rotas `/producao/aparelho/*` com `X-Device-Token`; o resto é
+    // o mesmo servidor simulado. Anota quem chamou e com qual token; token errado = 401, como o `KdsAparelhoGuard`.
+    if (caminho.startsWith('/producao/aparelho/')) {
+      const token = req.headers()['x-device-token'] ?? null;
+      S.aparelho.push({ caminho, busca: url.search, token });
+      if (token !== TOKEN_APARELHO) return responder(route, { code: 'KDS_TOKEN_INVALIDO', message: 'KDS não reconhecido ou revogado.' }, 401);
+      caminho = caminho.replace('/producao/aparelho/', '/producao/');
+    } else if (caminho.startsWith('/producao/')) {
+      S.comLogin.push(caminho);
+    }
     if (caminho === '/producao/fila') {
       if (S.filaFalha) return responder(route, { message: 'Serviço indisponível' }, 503);
       return responder(route, { cores: { verdeAteMin: 5, amareloAteMin: 10, usaPreparo: true, usaEntregue: true }, pedidos: S.pedidos, nuvemComServidor: S.nuvem });
@@ -591,4 +602,41 @@ export default async function roteiroKds({ nav, base, ok, foto, larguras, rapido
     await ctx.close();
   }
   S.pendentes = [];
+
+  // ── 6. o KDS físico pelo token do aparelho (16/11/2026 — a TV box da cozinha ficava "online" e vazia) ──
+  // Sem pessoa logada: só `?token=` no endereço. A fila, o avanço e o "Visto" vão pelas rotas do aparelho com o token;
+  // nada pelas rotas de quem está logado, e nenhum 401 manda a tela da cozinha para o login.
+  Object.assign(S, { pedidos: pedidosIniciais(), pausas: [], semSocket: false, nuvem: false, filaFalha: false, vistos: [], aparelho: [], comLogin: [] });
+  {
+    const ctx = await nav.newContext({ viewport: { width: 1280, height: 800 }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo' });
+    await ctx.addInitScript(() => {
+      localStorage.setItem('kds-canal', 'todos');
+      localStorage.setItem('kds-view', JSON.stringify({ escala: 1, agregar: false, uso: 'toque' }));
+    });
+    const page = await ctx.newPage();
+    const erros = [];
+    page.on('pageerror', (e) => erros.push(String(e?.message ?? e)));
+    try {
+      await rotas(page);
+      await page.goto(`${base}/kds?token=${TOKEN_APARELHO}`);
+      await page.waitForSelector('[data-kds-cartao="b12"]', { timeout: 20000 });
+      ok(true, 'aparelho: os cartões aparecem só com o token (sem pessoa logada)');
+      const filas = S.aparelho.filter((c) => c.caminho.startsWith('/producao/aparelho/fila'));
+      ok(filas.length > 0 && filas.every((c) => c.token === TOKEN_APARELHO), `aparelho: a fila vai pela rota do aparelho com o token (${filas.length}×)`);
+      ok(/canal=(balcao|delivery|todos)/.test(filas[0]?.busca ?? ''), `aparelho: o canal escolhido na tela vai junto (${filas[0]?.caminho}${filas[0]?.busca})`);
+      await page.click('[data-kds-cartao="b12"] .k-avancar');
+      await page.waitForFunction(() => !/aguarde/i.test(document.querySelector('[data-kds-cartao="b12"] .k-avancar')?.textContent || ''), null, { timeout: 10000 });
+      ok(S.aparelho.some((c) => c.caminho === '/producao/aparelho/pedidos/b12/avancar'), 'aparelho: o toque avança pela rota do aparelho');
+      ok(S.pedidos.find((p) => p.id === 'b12')?.status === 'pronto', 'aparelho: o cartão avançou (em preparo → pronto)');
+      await page.click('[data-kds-cartao="b15"] [data-kds-visto]');
+      await page.waitForFunction(() => !document.querySelector('[data-kds-cartao="b15"] [data-kds-alterado]'), null, { timeout: 10000 });
+      ok(S.aparelho.some((c) => c.caminho === '/producao/aparelho/pedidos/b15/visto'), 'aparelho: o "Visto" vai pela rota do aparelho');
+      ok(S.comLogin.length === 0, `aparelho: nada pelas rotas de quem está logado (${S.comLogin.slice(0, 3).join(', ')})`);
+      ok(!/\/entrar/.test(page.url()), `aparelho: a tela segue no KDS (${page.url()})`);
+      await page.screenshot({ path: foto('1280-aparelho-token.png') });
+      ok(erros.length === 0, `sem erro na página (aparelho): ${erros.join(' | ')}`);
+    } finally {
+      await ctx.close();
+    }
+  }
 }
