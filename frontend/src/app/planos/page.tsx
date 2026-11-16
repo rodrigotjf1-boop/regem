@@ -165,7 +165,7 @@ export default function PlanosPage() {
                   <Card className={`flex h-full flex-col gap-3 p-5 ${ehAtual ? 'border-2 border-ok' : p.destaque ? 'border-2 border-primary' : ''}`}>
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <h3 className="font-display text-lg font-bold">{p.nome}</h3>
-                      {ehAtual ? <Selo tom="ok">plano atual</Selo> : p.destaque ? <Selo tom="info">mais popular</Selo> : null}
+                      {ehAtual ? <Selo tom="ok">plano atual</Selo> : p.destaque ? <Selo tom="info">recomendado</Selo> : null}
                     </div>
                     <p className={`text-sm ${texto2}`}>{p.desc}</p>
                     <p>
