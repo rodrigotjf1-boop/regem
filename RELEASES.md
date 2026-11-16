@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
+- **Vagas e candidatos — F4b parte 1, avisar o banco de talentos (16/11, protótipo `mockups/regem-vagas-talentos.html`
+  aprovado; SEM migration — o aviso fica no histórico da ficha, `candidato_evento` tipo 'comunicacao').** Só NUVEM:
+  a faixa "Vaga aberta" em Pessoas › Candidatos e a gaveta "Avisar o banco de talentos" pela via sem número de marketing
+  (decisão 3): "Abrir no WhatsApp" com a mensagem pronta e "Marquei como avisado"; só quem autorizou mensagens e não
+  saiu, uma vez por função a cada 30 dias. O envio pelo número de marketing (fila das campanhas, modelo `vaga_aberta`) é a
+  parte 2. Nada a empacotar.
+
 - **Vagas e candidatos — F5a, de onde vêm as fichas (16/11, protótipo `mockups/regem-vagas-talentos.html` aprovado; mig
   430 `@cloud-only` — tabela nova `vaga_abertura`; mexe em `backend/edge/sync-daemon.mjs` SÓ na lista `SO_NUVEM` → vai
   no próximo `.exe`).** Na NUVEM com o merge: a página pública soma uma abertura por aparelho por dia (cookie só com o dia,

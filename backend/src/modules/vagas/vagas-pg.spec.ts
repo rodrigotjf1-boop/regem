@@ -566,6 +566,63 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
     }
   });
 
+  // F4b, parte 1: avisar o banco de talentos pelo WhatsApp de quem avisa; "Marquei como avisado" no histórico.
+  it('F4b: quem recebe o aviso da função aberta e quem não (com o motivo); marcar avisado vale 30 dias e não duplica', async () => {
+    const fichas: string[] = [];
+    const nova = async (whatsapp: string, nome: string, extra: Record<string, any> = {}) => {
+      const r = await svc.receberFicha(codigo, fichaValida({ whatsapp, nome, funcoes: ['chapeiro'], ...extra }));
+      const [{ id }] = await q(`select id from candidato where tenant_id = $1 and protocolo = $2`, [T, r.protocolo]);
+      fichas.push(id);
+      await q(`update candidato set situacao = 'banco' where id = $1`, [id]);
+      return id as string;
+    };
+    try {
+      const juliana = await nova('(21) 3333-0190', 'Juliana Souza', { comunicacao: true });
+      const marcos = await nova('(21) 3333-0191', 'Marcos Teste', { comunicacao: true });
+      const sem = await nova('(21) 3333-0192', 'Sem Autorizacao Teste', { comunicacao: false });
+      const atendente = await nova('(21) 3333-0193', 'Outra Funcao Teste', { comunicacao: true, funcoes: ['atendimento'] });
+      await q(`update candidato set comunicacao_cancelada_em = now() - interval '2 days' where id = $1`, [marcos]);
+      // Ficha que não está no banco não aparece.
+      const novoNaoBanco = await nova('(21) 3333-0194', 'Nao Banco Teste', { comunicacao: true });
+      await q(`update candidato set situacao = 'novo' where id = $1`, [novoNaoBanco]);
+
+      const r: any = await svc.avisoDoBanco(T, lojaA, 'chapeiro');
+      expect(r.funcao).toBe('chapeiro');
+      expect(r.funcoes.find((f: any) => f.codigo === 'chapeiro')).toMatchObject({ dentro: 1, detalhe: expect.stringContaining('12x36') });
+      expect(r.dentro.map((p: any) => p.id)).toEqual([juliana]);
+      expect(r.dentro[0].link).toMatch(/^https:\/\/wa\.me\/552133330190\?text=Ol%C3%A1%2C%20Juliana!/);
+      expect(r.dentro[0].mensagem).toContain(`A ${NOME_LOJA} abriu vaga de`);
+      const fora = Object.fromEntries(r.fora.map((p: any) => [p.id, p.motivo]));
+      expect(fora[marcos]).toMatch(/^pediu para não receber mensagens em \d\d\/\d\d$/);
+      expect(fora[sem]).toBe('não autorizou mensagens na ficha');
+      expect(Object.keys(fora)).not.toContain(atendente); // quer outra função
+      expect(Object.keys(fora)).not.toContain(novoNaoBanco);
+
+      // "Marquei como avisado": grava no histórico uma vez; dois cliques juntos não duplicam; depois a pessoa sai da lista.
+      const [a, b] = await Promise.all([
+        svc.marcarAvisado(gerente(), lojaA, { candidatoId: juliana, funcao: 'chapeiro' }),
+        svc.marcarAvisado(gerente(), lojaA, { candidatoId: juliana, funcao: 'chapeiro' }),
+      ]);
+      expect([a.jaAvisado, b.jaAvisado].sort()).toEqual([false, true]);
+      const eventos = await q(`select tipo, de, para, texto from candidato_evento where candidato_id = $1 and de = 'aviso_vaga'`, [juliana]);
+      expect(eventos).toEqual([{ tipo: 'comunicacao', de: 'aviso_vaga', para: 'chapeiro', texto: 'Avisada da vaga de Chapeiro(a) pelo WhatsApp de quem avisou' }]);
+      const r2: any = await svc.avisoDoBanco(T, lojaA, 'chapeiro');
+      expect(r2.dentro).toEqual([]);
+      expect(r2.fora.find((p: any) => p.id === juliana).motivo).toMatch(/^já foi avisada desta função em \d\d\/\d\d \(de novo a partir de \d\d\/\d\d\)$/);
+      // 31 dias depois, pode de novo.
+      await q(`update candidato_evento set criado_em = now() - interval '31 days' where candidato_id = $1 and de = 'aviso_vaga'`, [juliana]);
+      expect((await svc.avisoDoBanco(T, lojaA, 'chapeiro')).dentro.map((p: any) => p.id)).toEqual([juliana]);
+
+      // As recusas: sem autorização, função fechada, ficha de outra loja.
+      await expect(svc.marcarAvisado(gerente(), lojaA, { candidatoId: sem, funcao: 'chapeiro' })).rejects.toThrow(BadRequestException);
+      await expect(svc.marcarAvisado(gerente(), lojaA, { candidatoId: juliana, funcao: 'gerencia' })).rejects.toThrow('não está aberta');
+      await expect(svc.marcarAvisado(gerente(), lojaB, { candidatoId: juliana, funcao: 'chapeiro' })).rejects.toThrow();
+      await expect(svc.marcarAvisado(gerente(T2), lojaC, { candidatoId: juliana, funcao: 'chapeiro' })).rejects.toThrow();
+    } finally {
+      for (const id of fichas) await q(`delete from candidato where id = $1`, [id]).catch(() => {});
+    }
+  });
+
   it('"Apagar dados" leva a ficha e tudo dela; a auditoria não guarda nome nem telefone', async () => {
     await svc.apagar(gerente(), lojaA, idMaria);
     expect(await q(`select id from candidato where id = $1`, [idMaria])).toEqual([]);

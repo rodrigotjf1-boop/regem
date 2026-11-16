@@ -579,6 +579,69 @@ export function origensDasFichas(
     .sort((a, b) => b.fichas - a.fichas || b.aberturas - a.aberturas || a.nome.localeCompare(b.nome, 'pt-BR'));
 }
 
+// ── F4b, parte 1: avisar o banco de talentos (protótipo `mockups/regem-vagas-talentos.html`, decisões 2 e 3) ─────────
+// Sem número de marketing (esta parte): a gaveta abre cada conversa no WhatsApp de quem avisa, com a mensagem pronta, e
+// "Marquei como avisado" guarda no histórico da ficha (`candidato_evento` tipo 'comunicacao', de 'aviso_vaga', para = a
+// função). O envio pelo número de marketing da loja (a fila das campanhas, o modelo `vaga_aberta`) é a parte 2.
+
+/** Cada pessoa recebe o aviso de uma função uma vez a cada 30 dias (decisão 2). */
+export const DIAS_ENTRE_AVISOS = 30;
+/** O marcador do aviso no histórico da ficha. */
+export const DE_DO_AVISO = 'aviso_vaga';
+
+const horaCurta = (s: string) => {
+  const [hh, mm] = String(s ?? '').split(':');
+  return mm === '00' ? `${Number(hh)}h` : `${Number(hh)}h${mm}`;
+};
+const NOME_CURTO_DO_DIA: Record<string, string> = { seg: 'seg', ter: 'ter', qua: 'qua', qui: 'qui', sex: 'sex', sab: 'sáb', dom: 'dom' };
+
+/** A vaga numa linha, pela Página de vagas: "12x36, das 15h às 3h · R$ 1.900,00" (as escalas ligadas e o salário). */
+export function detalheDaVaga(p: Pick<PaginaDeVagas, 'vagaFixa' | 'horista' | 'horarios'>, f: Pick<FuncaoDaPagina, 'salario'>): string {
+  const h = p.horarios;
+  const escalas = [
+    p.vagaFixa && h?.['12x36']?.ativa ? `12x36, das ${horaCurta(h['12x36'].inicio)} às ${horaCurta(h['12x36'].fim)}` : '',
+    p.vagaFixa && h?.['5x2']?.ativa ? `5x2, das ${horaCurta(h['5x2'].inicio)} às ${horaCurta(h['5x2'].fim)}` : '',
+    p.horista && h?.horista?.ativa
+      ? `horista${h.horista.dias?.length ? ` (${h.horista.dias.map((d) => NOME_CURTO_DO_DIA[d] ?? d).join(', ')})` : ''}`
+      : '',
+  ].filter(Boolean);
+  return [...escalas, String(f.salario ?? '').trim()].filter(Boolean).join(' · ');
+}
+
+/**
+ * A mensagem pronta para o WhatsApp de quem avisa — o texto do modelo `vaga_aberta` do protótipo, sem o rodapé do "SAIR"
+ * (quem trata o SAIR é o robô do número de marketing; aqui a resposta chega ao WhatsApp de quem avisou).
+ */
+export function mensagemDoAviso(p: { nome: string; loja: string; funcao: string; detalhe: string }): string {
+  const primeiro = String(p.nome ?? '').trim().split(/\s+/)[0] || '';
+  return (
+    `Olá${primeiro ? `, ${primeiro}` : ''}! A ${p.loja} abriu vaga de ${p.funcao}${p.detalhe ? ` (${p.detalhe})` : ''}. ` +
+    'Você deixou sua ficha no nosso banco de talentos. Quer participar da seleção?\n\n' +
+    'Se não quiser mais receber avisos de vaga, é só responder dizendo.'
+  );
+}
+
+/**
+ * Por que uma pessoa do banco de talentos NÃO recebe o aviso desta função — ou null (recebe). Na ordem: pediu para sair
+ * das mensagens, nunca autorizou, já foi avisada desta função nos últimos 30 dias (com a data em que pode de novo).
+ */
+export function motivoDeNaoAvisar(
+  c: { aceitaEm: string | Date | null; canceladaEm: string | Date | null; avisadoEm: string | Date | null },
+  hoje: string,
+): string | null {
+  const dia = (v: string | Date) => (v instanceof Date ? v.toISOString() : String(v)).slice(0, 10);
+  const br = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+  if (c.canceladaEm) return `pediu para não receber mensagens em ${br(dia(c.canceladaEm))}`;
+  if (!c.aceitaEm) return 'não autorizou mensagens na ficha';
+  if (c.avisadoEm) {
+    const d = new Date(`${dia(c.avisadoEm)}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + DIAS_ENTRE_AVISOS);
+    const deNovo = d.toISOString().slice(0, 10);
+    if (deNovo > hoje) return `já foi avisada desta função em ${br(dia(c.avisadoEm))} (de novo a partir de ${br(deNovo)})`;
+  }
+  return null;
+}
+
 /** Endereço público a partir do nome da loja: minúsculas, sem acento, hífen no lugar do resto. */
 export function slug(nome: string): string {
   const s = String(nome ?? '')

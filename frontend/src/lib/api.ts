@@ -2,7 +2,7 @@ import { baseDaApi } from './origem-api';
 import { VERSAO_DA_TELA } from './versao-da-tela';
 import type { CanalConferido, FotosDaLoja, RespostaDaConferencia, TipoConferido } from './conferencia-apps';
 import type { RespostaDasTaxas } from './calculadora-preco';
-import type { AberturasDaPagina, ConducaoDosAprovados } from './vagas-ficha';
+import type { AberturasDaPagina, AvisoDoBanco, ConducaoDosAprovados } from './vagas-ficha';
 
 // Base da API. Nuvem: NEXT_PUBLIC_API_URL (fixado no build). Edge
 // (NEXT_PUBLIC_EDGE=1): cada loja tem IP proprio, entao a API fica no MESMO host
@@ -2511,6 +2511,11 @@ export const api = {
     pub(`/publico/vagas/${encodeURIComponent(codigo)}/abertura`, { method: 'POST', body: JSON.stringify({ origem }) }),
   // F5a: "De onde vêm as fichas" — aberturas e fichas por origem no período.
   vagasAberturas: (dias: number) => req(`/vagas/aberturas?dias=${dias}`) as Promise<AberturasDaPagina>,
+  // F4b, parte 1: avisar o banco de talentos de uma função aberta (pelo WhatsApp de quem avisa) e "Marquei como avisado".
+  vagasAvisoDoBanco: (funcao?: string | null) =>
+    req(`/vagas/banco/aviso${funcao ? `?funcao=${encodeURIComponent(funcao)}` : ''}`) as Promise<AvisoDoBanco>,
+  vagasMarcarAvisado: (candidatoId: string, funcao: string) =>
+    req('/vagas/banco/aviso', { method: 'POST', body: JSON.stringify({ candidatoId, funcao }) }) as Promise<{ ok: boolean; jaAvisado: boolean }>,
   criarAlocacao: (body: Record<string, unknown>) =>
     req('/escala', { method: 'POST', body: JSON.stringify(body) }),
   alterarAlocacao: (id: string, body: Record<string, unknown>) =>

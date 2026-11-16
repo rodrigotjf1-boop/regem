@@ -9,10 +9,12 @@ import { ColaboradorService } from '../colaborador/colaborador.service';
 import { ModuloService } from '../modulo/modulo.service';
 import { ehServidorLocal } from '../../common/modo';
 import { hojeISO, somarDias } from '../../common/data';
-import { instanteDe } from '../../common/fuso-sql';
+import { FUSO_SQL, instanteDe } from '../../common/fuso-sql';
 import { sqlUnidade } from '../../common/filtro-unidade';
 import { geocode } from '../../common/geocode';
 import {
+  DE_DO_AVISO,
+  DIAS_ENTRE_AVISOS,
   FalhaDeDistancia,
   FichaLida,
   MAX_TENTATIVAS_DE_DISTANCIA,
@@ -23,12 +25,15 @@ import {
   buscasDoEndereco,
   conducaoDaPessoa,
   contratadoDaFicha,
+  detalheDaVaga,
   gerarProtocolo,
   kmDeMetros,
   lerFicha,
   lerOrigem,
   lerPagina,
   lerSituacao,
+  mensagemDoAviso,
+  motivoDeNaoAvisar,
   origemQueConta,
   origensDasFichas,
   paginaDaLinha,
@@ -576,6 +581,102 @@ export class VagasService {
       origem: 'web',
     });
     return this.pagina(user.tenantId, u);
+  }
+
+  // ── F4b, parte 1: avisar o banco de talentos ─────────────────────────────────────────────────────────────────────
+
+  /**
+   * Quem do banco de talentos pode ser avisado de uma função ABERTA na Página de vagas da loja dos ajustes. Para cada
+   * função aberta, quantos recebem (a faixa "Vaga aberta" usa); para a função escolhida (a pedida, senão a primeira com
+   * gente para avisar), quem recebe — com o link `wa.me` e a mensagem pronta — e quem não recebe, com o motivo. A data do
+   * último aviso e a da saída das mensagens vêm no dia da OPERAÇÃO (V46).
+   */
+  async avisoDoBanco(tenantId: string, unidade: string | null, funcaoPedida?: unknown) {
+    const u = await this.lojaDosAjustes(tenantId, unidade);
+    const [pg] = linhas(await this.db.execute(sql`select * from vaga_pagina where tenant_id = ${tenantId} and unidade_id = ${u}::uuid`));
+    if (!pg) return { funcoes: [], funcao: null, dentro: [], fora: [] };
+    const pagina = paginaDaLinha(pg);
+    const loja = await this.lojaPublica(tenantId, u);
+    const abertas = pagina.funcoes.filter((f) => f.aberta);
+    const [banco, avisos] = await Promise.all([
+      this.db.execute(sql`
+        select c.id, c.nome, c.telefone, c.funcoes, c.distancia_km::float8 as "distanciaKm",
+               to_char(c.comunicacao_aceita_em at time zone ${FUSO_SQL}, 'YYYY-MM-DD') as "aceitaEm",
+               to_char(c.comunicacao_cancelada_em at time zone ${FUSO_SQL}, 'YYYY-MM-DD') as "canceladaEm"
+          from candidato c
+         where c.tenant_id = ${tenantId} and c.unidade_id = ${u}::uuid and c.situacao = 'banco'
+         order by c.nome, c.id`),
+      this.db.execute(sql`
+        select e.candidato_id as id, e.para as funcao,
+               to_char(max(e.criado_em) at time zone ${FUSO_SQL}, 'YYYY-MM-DD') as dia
+          from candidato_evento e join candidato c on c.id = e.candidato_id
+         where e.tenant_id = ${tenantId} and c.unidade_id = ${u}::uuid and c.situacao = 'banco'
+           and e.tipo = 'comunicacao' and e.de = ${DE_DO_AVISO}
+           and e.criado_em >= ${instanteDe(somarDias(hojeISO(), -(DIAS_ENTRE_AVISOS + 1)))}
+         group by e.candidato_id, e.para`),
+    ]);
+    const hoje = hojeISO();
+    const pessoas = linhas(banco) as any[];
+    const avisado = new Map((linhas(avisos) as any[]).map((a) => [`${a.id}|${a.funcao}`, String(a.dia)]));
+    const nomeDaFuncao = new Map(pagina.funcoes.map((f) => [f.codigo, f.nome]));
+    const separar = (codigo: string) => {
+      const dentro: any[] = [];
+      const fora: any[] = [];
+      for (const p of pessoas.filter((x) => (x.funcoes ?? []).includes(codigo))) {
+        const motivo = motivoDeNaoAvisar({ aceitaEm: p.aceitaEm, canceladaEm: p.canceladaEm, avisadoEm: avisado.get(`${p.id}|${codigo}`) ?? null }, hoje);
+        (motivo ? fora : dentro).push({ p, motivo });
+      }
+      return { dentro, fora };
+    };
+    const funcoes = abertas.map((f) => ({ codigo: f.codigo, nome: f.nome, detalhe: detalheDaVaga(pagina, f), dentro: separar(f.codigo).dentro.length }));
+    const pedida = typeof funcaoPedida === 'string' ? funcoes.find((f) => f.codigo === funcaoPedida) : undefined;
+    const escolhida = pedida ?? funcoes.find((f) => f.dentro > 0) ?? funcoes[0];
+    if (!escolhida) return { funcoes, funcao: null, dentro: [], fora: [] };
+    const { dentro, fora } = separar(escolhida.codigo);
+    return {
+      funcoes,
+      funcao: escolhida.codigo,
+      dentro: dentro.map(({ p }) => {
+        const mensagem = mensagemDoAviso({ nome: p.nome, loja: loja.nome, funcao: escolhida.nome, detalhe: escolhida.detalhe });
+        return {
+          id: p.id,
+          nome: p.nome,
+          funcoes: ((p.funcoes ?? []) as string[]).map((c) => nomeDaFuncao.get(c) ?? c),
+          distanciaKm: p.distanciaKm ?? null,
+          autorizouEm: p.aceitaEm,
+          mensagem,
+          link: `https://wa.me/55${String(p.telefone ?? '').replace(/\D/g, '')}?text=${encodeURIComponent(mensagem)}`,
+        };
+      }),
+      fora: fora.map(({ p, motivo }) => ({ id: p.id, nome: p.nome, motivo })),
+    };
+  }
+
+  /**
+   * "Marquei como avisado": guarda no histórico da ficha que a pessoa foi avisada da função. Só ficha do banco de talentos
+   * desta loja que autorizou mensagens, com a função aberta na página. Repetido dentro dos 30 dias não grava de novo (a
+   * ficha travada na transação: dois cliques não fazem duas linhas).
+   */
+  async marcarAvisado(user: AuthUser, unidade: string | null, dto: any): Promise<{ ok: true; jaAvisado: boolean }> {
+    const u = await this.lojaDosAjustes(user.tenantId, unidade);
+    const funcao = String(dto?.funcao ?? '');
+    const [pg] = linhas(await this.db.execute(sql`select * from vaga_pagina where tenant_id = ${user.tenantId} and unidade_id = ${u}::uuid`));
+    const f = pg ? paginaDaLinha(pg).funcoes.find((x) => x.codigo === funcao && x.aberta) : undefined;
+    if (!f) throw new BadRequestException('Essa função não está aberta na Página de vagas.');
+    return this.db.transaction(async (tx: any) => {
+      const c = await this.daLoja(tx, user.tenantId, u, String(dto?.candidatoId ?? ''), true);
+      if (c.situacao !== 'banco') throw new BadRequestException('Só quem está no banco de talentos recebe o aviso da vaga.');
+      if (!c.comunicacao_aceita_em || c.comunicacao_cancelada_em) throw new BadRequestException('Essa pessoa não autorizou mensagens (ou pediu para sair).');
+      if (!(c.funcoes ?? []).includes(funcao)) throw new BadRequestException('Essa pessoa não marcou essa função na ficha.');
+      // A MESMA régua da leitura (V74): o dia do último aviso, no relógio da operação, + 30 dias.
+      const [ultimo] = linhas(await tx.execute(sql`
+        select to_char(max(criado_em) at time zone ${FUSO_SQL}, 'YYYY-MM-DD') as dia from candidato_evento
+         where candidato_id = ${c.id} and tipo = 'comunicacao' and de = ${DE_DO_AVISO} and para = ${funcao}`));
+      if (ultimo?.dia && motivoDeNaoAvisar({ aceitaEm: 'sim', canceladaEm: null, avisadoEm: String(ultimo.dia) }, hojeISO()))
+        return { ok: true as const, jaAvisado: true };
+      await this.evento(tx, c, user, 'comunicacao', `Avisada da vaga de ${f.nome} pelo WhatsApp de quem avisou`, DE_DO_AVISO, funcao);
+      return { ok: true as const, jaAvisado: false };
+    });
   }
 
   // ── F5a (mig 430): de onde vêm as fichas ─────────────────────────────────────────────────────────────────────────

@@ -16,7 +16,7 @@ import { LARGURAS, LARGURAS_RAPIDO, abrirNavegador, criarConferencia } from './c
 
 const aqui = dirname(fileURLToPath(import.meta.url));
 const front = join(aqui, '..');
-const ROTEIROS = ['kds', 'tv', 'alertas', 'rota-cozinha', 'caixa-turno', 'mister', 'mister-console', 'area-entrega', 'delivery-painel', 'listas-largas', 'candidatos-conducao', 'candidatos-origens'];
+const ROTEIROS = ['kds', 'tv', 'alertas', 'rota-cozinha', 'caixa-turno', 'mister', 'mister-console', 'area-entrega', 'delivery-painel', 'listas-largas', 'candidatos-conducao', 'candidatos-origens', 'candidatos-banco'];
 
 const args = process.argv.slice(2);
 const opcao = (n) => args.find((a) => a.startsWith(`--${n}=`))?.slice(n.length + 3);

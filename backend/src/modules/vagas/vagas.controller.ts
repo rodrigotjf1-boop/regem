@@ -133,6 +133,18 @@ export class VagasController {
     return this.vagas.aberturas(user.tenantId, unidade, dias);
   }
 
+  // F4b, parte 1: quem do banco de talentos pode ser avisado de uma função aberta (?funcao=chapeiro) e "Marquei como avisado".
+  @Get('banco/aviso')
+  avisoDoBanco(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null, @Query('funcao') funcao?: string) {
+    return this.vagas.avisoDoBanco(user.tenantId, unidade, funcao);
+  }
+
+  @Post('banco/aviso')
+  @HttpCode(200)
+  marcarAvisado(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null, @Body() dto: any) {
+    return this.vagas.marcarAvisado(user, unidade, dto);
+  }
+
   @Post('qr')
   @Roles('presidente', 'gerente')
   criarQr(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null, @Body() dto: any) {

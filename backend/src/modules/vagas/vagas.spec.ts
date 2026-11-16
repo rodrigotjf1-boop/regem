@@ -3,6 +3,9 @@ import {
   buscasDoEndereco,
   conducaoDaPessoa,
   contratadoDaFicha,
+  detalheDaVaga,
+  mensagemDoAviso,
+  motivoDeNaoAvisar,
   nomeDaFuncaoParaComparar,
   protocoloLegivel,
   textoDaConfirmacao,
@@ -23,6 +26,33 @@ import {
 import { fichaValida } from './vagas-exemplo-spec';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+describe('vagas · avisar o banco de talentos (F4b, parte 1)', () => {
+  it('a vaga numa linha: as escalas ligadas da página e o salário da função', () => {
+    const p = paginaPadrao();
+    expect(detalheDaVaga(p, { salario: 'R$ 1.900,00' })).toBe('12x36, das 15h às 3h · 5x2, das 19h às 3h · horista (sex, sáb, dom) · R$ 1.900,00');
+    expect(detalheDaVaga({ ...p, horista: false }, { salario: '' })).toBe('12x36, das 15h às 3h · 5x2, das 19h às 3h');
+    expect(detalheDaVaga({ ...p, vagaFixa: false, horarios: { ...p.horarios, horista: { ...p.horarios.horista, inicio: '19:30' } } }, { salario: '' })).toBe('horista (sex, sáb, dom)');
+  });
+  it('a mensagem pronta: primeiro nome, loja, função e a vaga — sem o "SAIR" (a resposta volta a quem avisou)', () => {
+    const m = mensagemDoAviso({ nome: 'Juliana Souza', loja: 'Burger da Praça', funcao: 'Chapeiro', detalhe: '12x36, das 15h às 3h · R$ 1.900,00' });
+    expect(m).toBe(
+      'Olá, Juliana! A Burger da Praça abriu vaga de Chapeiro (12x36, das 15h às 3h · R$ 1.900,00). Você deixou sua ficha no nosso banco de talentos. Quer participar da seleção?\n\nSe não quiser mais receber avisos de vaga, é só responder dizendo.',
+    );
+    expect(m).not.toContain('SAIR');
+    expect(mensagemDoAviso({ nome: '', loja: 'X', funcao: 'Atendente', detalhe: '' })).toMatch(/^Olá! A X abriu vaga de Atendente\. /);
+  });
+  it('quem não recebe: saiu das mensagens, não autorizou, ou foi avisado desta função há menos de 30 dias', () => {
+    const hoje = '2026-11-16';
+    expect(motivoDeNaoAvisar({ aceitaEm: '2026-11-01', canceladaEm: null, avisadoEm: null }, hoje)).toBeNull();
+    expect(motivoDeNaoAvisar({ aceitaEm: '2026-11-01', canceladaEm: '2026-11-05', avisadoEm: null }, hoje)).toBe('pediu para não receber mensagens em 05/11');
+    expect(motivoDeNaoAvisar({ aceitaEm: null, canceladaEm: null, avisadoEm: null }, hoje)).toBe('não autorizou mensagens na ficha');
+    expect(motivoDeNaoAvisar({ aceitaEm: '2026-10-01', canceladaEm: null, avisadoEm: '2026-11-12' }, hoje)).toBe('já foi avisada desta função em 12/11 (de novo a partir de 12/12)');
+    // 30 dias depois, de novo
+    expect(motivoDeNaoAvisar({ aceitaEm: '2026-10-01', canceladaEm: null, avisadoEm: '2026-10-17' }, hoje)).toBeNull();
+    expect(motivoDeNaoAvisar({ aceitaEm: '2026-10-01', canceladaEm: null, avisadoEm: '2026-10-18' }, hoje)).toMatch(/de novo a partir de 17\/11/);
+  });
+});
 
 describe('vagas · de onde vêm as fichas (F5a)', () => {
   const qrs = new Set(['salao', 'balcao']);
