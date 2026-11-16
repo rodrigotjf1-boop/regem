@@ -107,6 +107,8 @@ const SEGURANCA = {
   entrada: { codigoNaoVale: 11, codigosDemais: 1, codigoCalado: 2, codigoErrado: { quantas: 14, telefones: 3, calados: 1 }, outraPessoa: 2, perdeuOAcesso: 4, naoLigado: { quantas: 9, telefones: 6 } },
   segredos: 1,
   limite: 1,
+  // F4.2a (mig 433): os links com PIN bloqueados pelo quinto PIN errado.
+  linksComPin: { bloqueados: 2, empresas: 1 },
   atencao: [
     { nivel: 'critico', texto: 'Uma resposta saiu sem algo parecido com uma chave de acesso (o filtro de saída tirou). Conferir qual consulta trouxe esse dado: canais e integracoes · Pizzaria do Porto · 13/11 21:04.' },
     { nivel: 'atencao', texto: '1 telefone foi calado por 1 hora depois de 5 códigos errados seguidos para ligar ao Mister.' },
@@ -807,6 +809,7 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
     ok(/Pede atenção · 2/.test(t) && /Conferir qual consulta trouxe esse dado: canais e integracoes · Pizzaria do Porto · 13\/11 21:04/.test(t) && /1 telefone foi calado por 1 hora/.test(t), `segurança: o pede atenção (${t.slice(0, 220)})`);
     ok(/Segredo tirado da resposta 1 o filtro tirou antes de sair/i.test(t) && /Código errado para ligar 14 de 3 telefones · 1 calado por 1 hora/i.test(t) && /Telefone não ligado 9 de 6 telefones/i.test(t) && /Limite de perguntas 1/i.test(t), 'segurança: os números, com quantos telefones (nunca quais)');
     ok(/link tirado 3/.test(t) && /segredo tirado 1/.test(t) && !/resposta vazia/.test(t) && /código que não vale 11/.test(t) && /códigos demais · calado por 1 hora 3/.test(t) && /número de outra pessoa 2/.test(t), 'segurança: as barras da saída e da entrada, sem as que deram zero');
+    ok(/link com PIN bloqueado \(5 PIN errados\) · 1 empresa 2/.test(t), `segurança: os links com PIN bloqueados (F4.2a) na entrada, com quantas empresas (${t.slice(0, 200)})`);
     ok(/Pizzaria do Porto 4 no filtro de saída 1 segredo 3 perdeu o acesso/.test(t) && /Empório Sabor da Serra .* 1 no limite/.test(t), 'segurança: por empresa, com o segredo em destaque');
     await sec.locator('button:has-text("30 dias")').click();
     await sec.locator('text=Limite de perguntas').waitFor();
@@ -816,7 +819,7 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
     await ctx.close();
   }
   {
-    const zero = { ...SEGURANCA, saida: SEGURANCA.saida.map((s) => ({ ...s, quantas: 0 })), entrada: { codigoNaoVale: 0, codigosDemais: 0, codigoCalado: 0, codigoErrado: { quantas: 0, telefones: 0, calados: 0 }, outraPessoa: 0, perdeuOAcesso: 0, naoLigado: { quantas: 0, telefones: 0 } }, segredos: 0, limite: 0, atencao: [], porEmpresa: [] };
+    const zero = { ...SEGURANCA, saida: SEGURANCA.saida.map((s) => ({ ...s, quantas: 0 })), entrada: { codigoNaoVale: 0, codigosDemais: 0, codigoCalado: 0, codigoErrado: { quantas: 0, telefones: 0, calados: 0 }, outraPessoa: 0, perdeuOAcesso: 0, naoLigado: { quantas: 0, telefones: 0 } }, segredos: 0, limite: 0, linksComPin: { bloqueados: 0, empresas: 0 }, atencao: [], porEmpresa: [] };
     const { ctx, page } = await abrir(1280, 900, { numero: conectado(), liberado: true, seguranca: zero });
     await naAba(page);
     await page.locator('section[aria-labelledby="mister-seguranca"] >> text=Nada barrado ou recusado neste período.').waitFor({ timeout: 20000 });

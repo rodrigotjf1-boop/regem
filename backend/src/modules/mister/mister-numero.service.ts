@@ -176,7 +176,8 @@ export class MisterNumeroService {
     if (!n.ligado) throw new FalhaDoEnvioDoMister('desligado');
     const token = this.token();
     if (!token) throw new FalhaDoEnvioDoMister('sem_acesso');
-    const texto = cortar(String(resposta.texto ?? '').trim(), resposta.botoes?.length ? 1024 : 4096);
+    const comLink = !resposta.botoes?.length && !!resposta.link?.url;
+    const texto = cortar(String(resposta.texto ?? '').trim(), resposta.botoes?.length || comLink ? 1024 : 4096);
     const corpo = resposta.botoes?.length
       ? {
           to: destino,
@@ -187,7 +188,18 @@ export class MisterNumeroService {
             action: { buttons: resposta.botoes.slice(0, 3).map((b) => ({ type: 'reply', reply: { id: b.id, title: cortar(b.titulo, 20) } })) },
           },
         }
-      : { to: destino, type: 'text', text: { body: texto } };
+      : comLink
+        ? {
+            // O botão de link (F4.2a), no formato da documentação da Meta ("Interactive CTA URL button messages").
+            to: destino,
+            type: 'interactive',
+            interactive: {
+              type: 'cta_url',
+              body: { text: texto },
+              action: { name: 'cta_url', parameters: { display_text: cortar(resposta.link!.titulo, 20), url: resposta.link!.url } },
+            },
+          }
+        : { to: destino, type: 'text', text: { body: texto } };
     const res = await this.buscar(`${GRAPH}/${n.phoneId}/messages`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },

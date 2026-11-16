@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
+- **Mister — o link com PIN (16/11, F4.2a do protótipo `mockups/regem-mister-pin.html` aprovado; mig 433 `@cloud-only` —
+  seis colunas novas na `mister_proposta`, que já está em SO_NUVEM: o `sync-daemon` não muda).** Só NUVEM: a página
+  pública `/m/<código>` (sem login; a prova é o código do link, do qual o banco guarda só o resumo, mais o PIN de quem
+  recebeu), "Autorizar" e "Não autorizar", 5 PIN errados bloqueiam, o botão "Abrir no Regem" na conversa e os links
+  bloqueados no Console › Mister › Segurança. Ainda sem procedimento de PIN no catálogo (a F4.2b traz o cancelamento com
+  o estorno). Nada a empacotar.
+
 - **Mister — as decisões do "O que melhorar" (16/11, M2a do protótipo `mockups/regem-mister-mentor-parte2.html` aprovado;
   mig 432 `@cloud-only` — tabela nova `mister_melhoria_decisao`, da distribuição, sem `tenant_id`: o `sync-daemon` não
   muda).** Só NUVEM (Console › Mister › Qualidade): "Virou tarefa" e "Não se aplica" (motivo obrigatório, 30 dias) em

@@ -108,3 +108,67 @@ export function resultadoDaConsulta(r: { status?: string | null; motivo?: string
 export function textoDoDesfecho(feita: boolean, resultado: string, hora: string): string {
   return feita ? `✅ Feito às ${hora}. ${resultado}` : `Não deu: ${resultado}`;
 }
+
+// ───────────────────────────── o link com PIN (F4.2a, mig 433) ─────────────────────────────
+// Protótipo `mockups/regem-mister-pin.html` (aprovado em 16/11/2026). O que mexe com dinheiro, cancelamento ou
+// configuração não se autoriza por botão: o Mister manda um link que abre `/m/<código>` no Regem, a página mostra a
+// proposta e pede o PIN de quem recebeu. O link vale uma vez e pelo prazo da proposta; o Regem guarda só o resumo do
+// código. Cinco PIN errados bloqueiam o link. O PIN nunca é digitado na conversa.
+
+/** Quantos PIN errados bloqueiam o link. */
+export const PIN_TENTATIVAS = 5;
+/** O código do link: 24 bytes aleatórios em base64url = 32 letras. Qualquer outra coisa nem chega ao banco. */
+export const ehCodigoDoLink = (c: unknown): c is string => typeof c === 'string' && /^[A-Za-z0-9_-]{32}$/.test(c);
+/** O PIN do Regem tem de 4 a 6 dígitos (o mesmo do login por PIN). */
+export const ehPinValido = (p: unknown): p is string => typeof p === 'string' && /^\d{4,6}$/.test(p);
+/** O caminho da página no app. */
+export const caminhoDoLink = (codigo: string) => `/m/${codigo}`;
+
+export type EstadoDoLink = 'proposta' | 'fazendo' | 'feito' | 'naodeu' | 'recusou' | 'venceu' | 'bloqueado';
+
+/** O estado que a página mostra, decidido no servidor pela situação gravada (a página nunca decide pelo relógio dela). */
+export function estadoDoLink(p: { situacao: string; venceEm: Date | string; bloqueadaEm?: Date | string | null }, agora = Date.now()): EstadoDoLink {
+  if (p.bloqueadaEm) return 'bloqueado';
+  switch (p.situacao) {
+    case 'proposta':
+      return new Date(p.venceEm).getTime() > agora ? 'proposta' : 'venceu';
+    case 'autorizada':
+    case 'executando':
+      return 'fazendo';
+    case 'feita':
+      return 'feito';
+    case 'nao_deu':
+      return 'naodeu';
+    case 'recusada':
+      return 'recusou';
+    default:
+      return 'venceu';
+  }
+}
+
+/** As tentativas que ainda restam neste link (nunca negativo). */
+export const tentativasQueRestam = (pinErros: unknown) => Math.max(0, PIN_TENTATIVAS - (Number(pinErros) || 0));
+
+/**
+ * O que a página mostra da proposta: o título, o que vai acontecer em itens curtos, a linha do alvo e o valor. Cada
+ * procedimento de PIN do catálogo traz o seu (a F4.2b, cancelar com o estorno); o que não tem apresentação mostra o nome.
+ */
+export function apresentacaoDaProposta(procedimento: string): { titulo: string; itens: string[]; detalhe: string | null; valor: number | null; botao: string } {
+  const nome = (PROCEDIMENTOS as Record<string, Procedimento | undefined>)[procedimento]?.nome;
+  return { titulo: nome ? `Autorizar: ${nome}?` : 'Autorizar o pedido do Mister?', itens: [], detalhe: null, valor: null, botao: 'Autorizar' };
+}
+
+export const TEXTOS_DO_LINK = {
+  /** O rótulo do botão de link na conversa (até 20 letras). */
+  botao: 'Abrir no Regem',
+  autorizada: 'Autorizado no Regem, com o seu PIN. Estou fazendo agora; aviso aqui quando terminar.',
+  recusada: 'Certo: você não autorizou no Regem. Nada foi feito.',
+  bloqueada: 'O link foi bloqueado: o PIN foi digitado errado 5 vezes. Nada foi feito. Para tentar de novo, me peça outra vez. Se não foi você, avise o suporte.',
+  /** A frase do PIN errado na página. */
+  pinErrado: (restam: number) =>
+    restam === 1 ? 'O PIN não confere. Resta 1 tentativa.' : `O PIN não confere. Restam ${restam} tentativas.`,
+  pinFormato: 'Digite o seu PIN do Regem (de 4 a 6 dígitos).',
+  naoVale: 'Este link não vale. Peça de novo ao Mister.',
+  /** A resposta a quem tenta autorizar pela conversa o que pede o PIN (a conversa 6 do protótipo). */
+  soPeloLink: (nome: string) => `Por aqui eu não consigo, ${nome}: é o tipo de coisa que pede o seu PIN. Toque em "Abrir no Regem".`,
+};

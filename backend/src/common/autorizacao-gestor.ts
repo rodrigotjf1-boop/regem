@@ -58,6 +58,9 @@ export async function autorizarPorSenhaDeGestor(
   throw new ForbiddenException('Senha de gestor inválida.');
 }
 
+/** A recusa do PIN que não confere — quem chama separa "PIN errado" (conta tentativa) de "acesso que não vale" por ela. */
+export const PIN_INVALIDO = 'PIN inválido.';
+
 /**
  * O PIN DE QUEM ESTÁ NO APP (app "Regem Atendimento", mig 353): no celular, quem decide confirma com o PRÓPRIO PIN — a
  * pessoa já entrou com ele; o PIN só prova que é ela agora. Vale só para quem está no nível pedido (a plataforma:
@@ -89,6 +92,6 @@ export async function autorizarPorPinDoUsuario(
     .where(and(eq(colaborador.tenantId, tenantId), eq(colaborador.id, colaboradorId)));
   if (!c || c.deletedAt || c.status !== 'ativo') throw new ForbiddenException('O seu acesso não vale mais.');
   if (!niveis.includes(c.nivel ?? c.categoria)) throw new ForbiddenException('Só gerente e presidente respondem. Chame o gerente.');
-  if (!c.pinHash || !(await bcrypt.compare(String(pin), c.pinHash))) throw new ForbiddenException('PIN inválido.');
+  if (!c.pinHash || !(await bcrypt.compare(String(pin), c.pinHash))) throw new ForbiddenException(PIN_INVALIDO);
   return { id: c.id, nome: c.nome };
 }

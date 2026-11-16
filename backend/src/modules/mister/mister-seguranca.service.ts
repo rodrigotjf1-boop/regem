@@ -100,6 +100,19 @@ export class MisterSegurancaService {
       if (!semTabela(e)) throw e;
     }
 
+    // Os links com PIN bloqueados (F4.2a, mig 433): o quinto PIN errado bloqueou o link. Só a contagem e quantas empresas.
+    let linksComPin = { bloqueados: 0, empresas: 0 };
+    try {
+      const [l] = linhas(
+        await this.db.execute(sql`
+          select count(*)::int as bloqueados, count(distinct tenant_id)::int as empresas from mister_proposta where bloqueada_em >= ${desde}`),
+      );
+      linksComPin = { bloqueados: Number(l?.bloqueados) || 0, empresas: Number(l?.empresas) || 0 };
+    } catch (e: any) {
+      // Sem a tabela (servidor da loja) ou sem a coluna (antes da 433): zero.
+      if (!semTabela(e) && e?.code !== '42703' && e?.cause?.code !== '42703') throw e;
+    }
+
     // Os nomes das empresas da lista — uma consulta, pela lista.
     const ids = [...new Set([...porEmpresaEntrada, ...porEmpresaSaida].map((e) => String(e.tenantId)))];
     const nomes = new Map<string, string>();
@@ -144,6 +157,7 @@ export class MisterSegurancaService {
       },
       segredos: totalDeSegredos,
       limite,
+      linksComPin,
       atencao: pedeAtencao(
         segredos.map((s) => ({ empresa: String(s.empresa ?? ''), quando: String(s.quando ?? ''), consultas: (Array.isArray(s.consultas) ? s.consultas : []).map(String).filter(ehConsulta) })),
         totalDeSegredos,

@@ -1,4 +1,21 @@
-import { PROCEDIMENTOS, botoesDaProposta, idDoBotao, lerBotao, perguntaDaProposta, propostaDoAviso, resultadoDaConsulta, textoDoDesfecho } from './mister-procedimentos';
+import {
+  PIN_TENTATIVAS,
+  PROCEDIMENTOS,
+  TEXTOS_DO_LINK,
+  apresentacaoDaProposta,
+  botoesDaProposta,
+  caminhoDoLink,
+  ehCodigoDoLink,
+  ehPinValido,
+  estadoDoLink,
+  idDoBotao,
+  lerBotao,
+  perguntaDaProposta,
+  propostaDoAviso,
+  resultadoDaConsulta,
+  tentativasQueRestam,
+  textoDoDesfecho,
+} from './mister-procedimentos';
 
 // O catálogo das propostas do Mister (F4.1): puro. O banco, o toque e a execução pelos serviços das telas estão em
 // `mister-pg.teste-spec.ts` (rodado pela `ia/ia-empresa-pg.spec.ts`).
@@ -56,5 +73,53 @@ describe('o catálogo das propostas do Mister', () => {
     expect(resultadoDaConsulta({}).feita).toBe(false);
     expect(textoDoDesfecho(true, 'A SEFAZ autorizou a nota nº 12.', '21:03')).toBe('✅ Feito às 21:03. A SEFAZ autorizou a nota nº 12.');
     expect(textoDoDesfecho(false, 'a SEFAZ continua sem responder.', '21:03')).toBe('Não deu: a SEFAZ continua sem responder.');
+  });
+});
+
+// O link com PIN (F4.2a, mig 433; protótipo `mockups/regem-mister-pin.html`): o código, o PIN, o estado da página.
+describe('o link com PIN das propostas do Mister', () => {
+  it('o código do link tem 32 letras de base64url; o resto nem chega ao banco', () => {
+    expect(ehCodigoDoLink('a'.repeat(32))).toBe(true);
+    expect(ehCodigoDoLink('Ab-_0123456789Ab-_0123456789Ab-_')).toBe(true);
+    expect(ehCodigoDoLink('a'.repeat(31))).toBe(false);
+    expect(ehCodigoDoLink('a'.repeat(33))).toBe(false);
+    expect(ehCodigoDoLink(`${'a'.repeat(31)}/`)).toBe(false);
+    expect(ehCodigoDoLink(`${'a'.repeat(30)}' `)).toBe(false);
+    expect(ehCodigoDoLink(undefined)).toBe(false);
+    expect(ehCodigoDoLink(12345)).toBe(false);
+    expect(caminhoDoLink('x'.repeat(32))).toBe(`/m/${'x'.repeat(32)}`);
+  });
+
+  it('o PIN tem de 4 a 6 dígitos, como o do login por PIN', () => {
+    for (const p of ['1234', '12345', '123456']) expect(ehPinValido(p)).toBe(true);
+    for (const p of ['123', '1234567', '12a4', ' 1234', '', null, 1234]) expect(ehPinValido(p)).toBe(false);
+  });
+
+  it('o estado da página sai da situação gravada; o bloqueio vence tudo; a pendente fora do prazo já é "venceu"', () => {
+    const agora = Date.parse('2026-11-16T21:10:00Z');
+    const depois = '2026-11-16T21:17:00Z';
+    const antes = '2026-11-16T21:00:00Z';
+    expect(estadoDoLink({ situacao: 'proposta', venceEm: depois }, agora)).toBe('proposta');
+    expect(estadoDoLink({ situacao: 'proposta', venceEm: antes }, agora)).toBe('venceu');
+    expect(estadoDoLink({ situacao: 'vencida', venceEm: antes }, agora)).toBe('venceu');
+    expect(estadoDoLink({ situacao: 'autorizada', venceEm: depois }, agora)).toBe('fazendo');
+    expect(estadoDoLink({ situacao: 'executando', venceEm: antes }, agora)).toBe('fazendo');
+    expect(estadoDoLink({ situacao: 'feita', venceEm: antes }, agora)).toBe('feito');
+    expect(estadoDoLink({ situacao: 'nao_deu', venceEm: antes }, agora)).toBe('naodeu');
+    expect(estadoDoLink({ situacao: 'recusada', venceEm: depois }, agora)).toBe('recusou');
+    expect(estadoDoLink({ situacao: 'recusada', venceEm: depois, bloqueadaEm: antes }, agora)).toBe('bloqueado');
+  });
+
+  it('as tentativas: 5 por link, nunca negativo; a frase do PIN errado diz quantas restam', () => {
+    expect(PIN_TENTATIVAS).toBe(5);
+    expect([0, 1, 4, 5, 9, null, 'x'].map(tentativasQueRestam)).toEqual([5, 4, 1, 0, 0, 5, 5]);
+    expect(TEXTOS_DO_LINK.pinErrado(4)).toBe('O PIN não confere. Restam 4 tentativas.');
+    expect(TEXTOS_DO_LINK.pinErrado(1)).toBe('O PIN não confere. Resta 1 tentativa.');
+    expect(TEXTOS_DO_LINK.botao.length).toBeLessThanOrEqual(20);
+  });
+
+  it('a apresentação: o procedimento sem a sua mostra o nome do catálogo; o desconhecido, a frase geral', () => {
+    expect(apresentacaoDaProposta('consultar_nota')).toEqual({ titulo: 'Autorizar: consultar a nota de novo na SEFAZ?', itens: [], detalhe: null, valor: null, botao: 'Autorizar' });
+    expect(apresentacaoDaProposta('nao_existe').titulo).toBe('Autorizar o pedido do Mister?');
   });
 });

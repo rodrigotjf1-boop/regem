@@ -20,6 +20,7 @@ import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { MisterAgenteService } from './mister-agente.service';
 import { MisterAvisosService } from './mister-avisos.service';
 import { MisterFerramentasService } from './mister-ferramentas.service';
+import { MisterLinkController } from './mister-link.controller';
 import { MisterPropostasService } from './mister-propostas.service';
 import { MisterRelatoriosService } from './mister-relatorios.service';
 import { MisterModule } from './mister.module';
@@ -63,6 +64,8 @@ import { MisterModule } from './mister.module';
   // Os relatórios (mig 420) moram aqui: escrevem pelo mesmo agente das perguntas. As propostas (F4.1, mig 428) também:
   // os avisos as criam e elas executam pelos serviços das telas.
   providers: [MisterFerramentasService, MisterAgenteService, MisterAvisosService, MisterRelatoriosService, MisterPropostasService],
+  // F4.2a (mig 433): as rotas públicas da página do link com PIN (`/m/<código>`), que respondem pelo serviço das propostas.
+  controllers: [MisterLinkController],
   exports: [MisterAgenteService, MisterAvisosService],
 })
 export class MisterAgenteModule {}

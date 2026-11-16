@@ -88,7 +88,9 @@ function tituloDoBotao(nome: string): string {
 
 export const idDoBotaoDaEmpresa = (tenantId: string) => `${PREFIXO_DO_BOTAO}${tenantId}`;
 
-export type Resposta = { texto: string; botoes?: { id: string; titulo: string }[] };
+// `link` (F4.2a, mig 433): o botão que ABRE um endereço ("Abrir no Regem", o link com PIN). Vai sozinho — a Meta não
+// junta botão de resposta e botão de link na mesma mensagem; com os dois, valem os botões.
+export type Resposta = { texto: string; botoes?: { id: string; titulo: string }[]; link?: { titulo: string; url: string } };
 
 /**
  * A pergunta "de qual empresa?". Até três empresas, com botões; mais que isso, lista numerada (o WhatsApp só aceita

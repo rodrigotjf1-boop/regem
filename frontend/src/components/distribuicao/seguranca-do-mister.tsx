@@ -22,6 +22,8 @@ type Seguranca = {
   };
   segredos: number;
   limite: number;
+  /** F4.2a (mig 433): os links com PIN que o quinto PIN errado bloqueou. Ausente na API antes da 433. */
+  linksComPin?: { bloqueados: number; empresas: number };
   atencao: { nivel: 'critico' | 'atencao'; texto: string }[];
   porEmpresa: { empresa: string; filtro: number; segredos: number; perdeuOAcesso: number; outraPessoa: number; limite: number }[];
 };
@@ -52,7 +54,8 @@ export function SegurancaDoMister() {
 
   const d = dados && dados.dias === dias ? dados : null;
   const e = d?.entrada;
-  const total = d ? d.saida.reduce((s, x) => s + x.quantas, 0) + (e!.codigoErrado.quantas + e!.outraPessoa + e!.perdeuOAcesso + e!.naoLigado.quantas) + d.limite : 0;
+  const bloqueados = d?.linksComPin?.bloqueados ?? 0;
+  const total = d ? d.saida.reduce((s, x) => s + x.quantas, 0) + (e!.codigoErrado.quantas + e!.outraPessoa + e!.perdeuOAcesso + e!.naoLigado.quantas) + d.limite + bloqueados : 0;
   const entradas = e
     ? [
         { nome: 'telefone não ligado (resposta fixa)', valor: e.naoLigado.quantas },
@@ -60,6 +63,7 @@ export function SegurancaDoMister() {
         { nome: 'códigos demais · calado por 1 hora', valor: e.codigosDemais + e.codigoCalado },
         { nome: 'perdeu o acesso e escreveu', valor: e.perdeuOAcesso },
         { nome: 'número de outra pessoa', valor: e.outraPessoa },
+        { nome: `link com PIN bloqueado (5 PIN errados)${d?.linksComPin?.empresas ? ` · ${plural(d.linksComPin.empresas, 'empresa', 'empresas')}` : ''}`, valor: bloqueados },
       ].filter((x) => x.valor > 0)
     : [];
   const saidas = d ? d.saida.filter((x) => x.quantas > 0).map((x) => ({ nome: x.texto, valor: x.quantas })) : [];
