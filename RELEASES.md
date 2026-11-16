@@ -27,6 +27,16 @@
   - As instruções do atendente passam à versão `.f23` (valem já, com a leitura desligada: sem descrição, nada muda).
   - Só NUVEM (o atendente é da nuvem): vale com o merge e a variável; o `.zip` leva o código sem efeito na loja.
 
+- **Os avisos do sistema levam a loja do registro (16/11, ERR-494; sem migration) → vai no `.zip`** (as rotinas rodam
+  também no servidor da loja); na nuvem vale com o deploy.
+  - "Hora de contar o estoque", "Contagem concluída", "Compra recebida" e "Novo pedido de manutenção" saíam só com a
+    empresa: numa rede de várias lojas, apareciam nas telas de todas.
+  - "Etiquetas de validade" passa a ser um aviso por loja, com a conta de cada uma.
+  - "Novo pedido de manutenção" passa a ser aviso de GESTÃO (decisão do dono, 16/11): saía sem tipo, caía em "loja" e
+    tocava também nas telas de preparo. Agora as telas de preparo (e a loja de um KDS só) não recebem por padrão; o
+    despacho, a entrega e a tela de avisos recebem — como a compra recebida e a contagem.
+  - Numa empresa de uma loja só, o resto não muda.
+
 - **🔴 `.exe` — Mister: reiniciar o serviço de impressão pela loja (16/11, F4.4 de `docs/plano-mister.md`, a conversa 5 do
   protótipo `mockups/regem-mister.html`; sem migration).** Toca `backend/edge/sync-daemon.mjs` (o comando
   `reiniciar_impressao`) e cria `backend/edge/comando-reiniciar-impressao.mjs` → **vai no `.exe`** (a 1.30.14 tem de sair
