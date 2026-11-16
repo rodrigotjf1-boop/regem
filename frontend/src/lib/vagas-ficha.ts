@@ -210,12 +210,27 @@ export function marcarAberturaContada(codigo: string, dia: string): void {
 }
 
 /** F4b, parte 1 — avisar o banco de talentos (`GET /vagas/banco/aviso`, `avisoDoBanco` no servidor). */
+/** Por onde o aviso sai (F4b parte 2, mig 438): o número de marketing da loja e a situação do modelo na Meta. */
+export type ViaDoAviso = 'oficial_aprovado' | 'oficial_analise' | 'oficial_sem_modelo' | 'oficial_recusado' | 'evolution' | 'sem';
+export interface ViaNaTela {
+  via: ViaDoAviso;
+  final: string | null;
+  motivo: string | null;
+  motivoDaMeta: string | null;
+}
+
 export interface AvisoDoBanco {
   funcoes: { codigo: string; nome: string; detalhe: string; dentro: number }[];
   funcao: string | null;
-  dentro: { id: string; nome: string; funcoes: string[]; distanciaKm: number | null; autorizouEm: string | null; mensagem: string; link: string }[];
+  dentro: { id: string; nome: string; funcoes: string[]; distanciaKm: number | null; autorizouEm: string | null; mensagem: string; link: string; naFila?: boolean }[];
   fora: { id: string; nome: string; motivo: string }[];
+  /** F4b parte 2: ausente num servidor ainda sem ela — a gaveta fica na via sem número de marketing. */
+  via?: ViaNaTela;
+  naFila?: number;
 }
+
+/** A via manda pela fila do número de marketing? (a mesma regra do servidor, `viaManda`) */
+export const viaManda = (v: ViaDoAviso | undefined) => v === 'oficial_aprovado' || v === 'evolution';
 
 const digitos = (v: string) => String(v ?? '').replace(/\D/g, '');
 /** Sem o 55 do país (mesma regra do servidor, `telefoneCadastro`). */

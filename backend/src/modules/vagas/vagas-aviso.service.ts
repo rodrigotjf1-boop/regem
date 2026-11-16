@@ -52,7 +52,7 @@ const POR_QUE_NAO_MANDA: Record<ViaDoAviso, string | null> = {
   evolution: null,
   oficial_analise: 'O modelo vaga_aberta está em análise na Meta. O envio libera quando ela aprovar.',
   oficial_sem_modelo: 'O modelo vaga_aberta ainda não foi enviado à Meta. Envie o modelo antes de avisar pelo número de marketing.',
-  oficial_recusado: 'A Meta recusou (ou pausou) o modelo vaga_aberta. Avise pelo seu WhatsApp enquanto isso.',
+  oficial_recusado: 'A Meta recusou (ou pausou) o modelo vaga_aberta. Fale com o suporte para ajustar o texto.',
   sem: 'A loja não tem número de marketing ligado. Avise pelo seu WhatsApp, com a mensagem pronta.',
 };
 
