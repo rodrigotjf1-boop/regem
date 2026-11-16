@@ -149,4 +149,62 @@ descrever('a campanha pula quem recebeu oferta automática (3B)', () => {
     ]);
     expect(saidas.map((s) => s.para)).toEqual(['5521987672001']);
   });
+
+  // ── o lote do envio em rodízio (V84, ERR-491) ──
+  /** Uma campanha "enviando" com um destinatário pendente, gravada direto (o id escolhido dá a ordem do lote). */
+  async function campanhaCom(id: string, t: string, telefone: string, extra: Record<string, unknown> = {}) {
+    const colunas = ['id', 'tenant_id', 'segmento', 'mensagem', 'intervalo_seg', 'status', ...Object.keys(extra)];
+    const valores = [id, t, 'todos', 'Promoção do rodízio', 0, 'enviando', ...Object.values(extra)];
+    await q(`insert into campanha (${colunas.join(', ')}) values (${valores.map((_, i) => `$${i + 1}`).join(', ')})`, valores);
+    await q(`insert into campanha_envio (campanha_id, tenant_id, telefone) values ($1, $2, $3)`, [id, t, telefone]);
+  }
+
+  it('campanhas fora da janela ou com o teto batido não tomam o lote: as outras saem na volta seguinte (rodízio)', async () => {
+    const t = await empresa();
+    const [c1, c2, c3, c4, c5] = Array.from({ length: 5 }, () => randomUUID()).sort();
+    const amanha = new Date(Date.now() + 86_400_000);
+    await campanhaCom(c1, t, '21987673001', { agendada: true, inicia_em: amanha }); // fora da janela
+    await campanhaCom(c2, t, '21987673002', { agendada: true, inicia_em: amanha }); // fora da janela
+    await campanhaCom(c3, t, '21987673003', { teto_dia: 1 }); // o teto do dia já foi
+    await q(`insert into campanha_envio (campanha_id, tenant_id, telefone, status, enviado_em) values ($1, $2, '21987673009', 'enviado', now() - interval '1 hour')`, [c3, t]);
+    await campanhaCom(c4, t, '21987673004');
+    await campanhaCom(c5, t, '21987673005');
+    const antes = saidas.length;
+    svc.loteDoWorker = 2;
+    try {
+      await svc.worker(); // c1 e c2: fora da janela
+      expect(saidas.slice(antes)).toEqual([]);
+      await svc.worker(); // c3: teto; c4: sai
+      await svc.worker(); // c5: sai; a página curta recomeça
+    } finally {
+      svc.loteDoWorker = 20;
+    }
+    expect(saidas.slice(antes).map((s) => s.para).sort()).toEqual(['5521987673004', '5521987673005']);
+    // As que não podiam continuam "enviando", com o destinatário à espera — voltam quando puderem.
+    const paradas = await q(
+      `select c.status, e.status as envio from campanha c join campanha_envio e on e.campanha_id = c.id and e.status = 'pendente' where c.id = any($1::uuid[])`,
+      [[c1, c2, c3]],
+    );
+    expect(paradas).toEqual(Array.from({ length: 3 }, () => ({ status: 'enviando', envio: 'pendente' })));
+    await q(`update campanha set status = 'concluida' where tenant_id = $1`, [t]);
+  });
+
+  it('modelo oficial com cupom: o botão "copiar cupom" leva o código DA CAMPANHA (saía o texto fixo "CUPOM")', async () => {
+    const t = await empresa();
+    const id = randomUUID();
+    await campanhaCom(id, t, '21987674001', { template_nome: 'promo_com_cupom', template_idioma: 'pt_BR', cupom_codigo: 'VOLTA10', instancia_tipo: 'marketing' });
+    const chamadas: any[][] = [];
+    const oficial = new CampanhaService(
+      db,
+      {} as any,
+      { resolver: async () => ({ provedor: 'cloud', phoneId: 'numero-de-marketing' }) } as any,
+      { limiteEnvio: async () => null, enviarTemplate: async (...a: any[]) => void chamadas.push(a) } as any,
+    );
+    await oficial.worker();
+    expect(chamadas).toHaveLength(1);
+    const [empresaDoEnvio, numero, modelo, , , opcoes] = chamadas[0];
+    expect([empresaDoEnvio, numero, modelo, opcoes.cupom, opcoes.phoneId]).toEqual([t, '5521987674001', 'promo_com_cupom', 'VOLTA10', 'numero-de-marketing']);
+    expect(await q(`select status from campanha_envio where campanha_id = $1`, [id])).toEqual([{ status: 'enviado' }]);
+    await q(`update campanha set status = 'concluida' where tenant_id = $1`, [t]);
+  });
 });
