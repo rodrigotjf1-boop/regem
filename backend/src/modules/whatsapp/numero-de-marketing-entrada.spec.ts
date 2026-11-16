@@ -135,6 +135,13 @@ describe('o número de marketing na API oficial', () => {
     expect(await (comLinhas([{ tenantId: 'a' }, { tenantId: 'b' }]) as any).lojaPeloMarketing(MKT)).toBeNull();
     expect(await (comLinhas([]) as any).lojaPeloMarketing(MKT)).toBeNull();
     expect(await (comLinhas([{ tenantId: 'a' }]) as any).lojaPeloMarketing('')).toBeNull();
+    // O banco de uma loja (e o do CI) não tem a tabela, que é só da nuvem: nenhuma loja, sem estourar a entrada.
+    const semTabela = new WhatsappCloudService({
+      select: () => ({ from: () => ({ where: async () => Promise.reject(Object.assign(new Error('relation "whatsapp_numero" does not exist'), { code: '42P01' })) }) }),
+    } as any);
+    expect(await (semTabela as any).lojaPeloMarketing(MKT)).toBeNull();
+    const outroErro = new WhatsappCloudService({ select: () => ({ from: () => ({ where: async () => Promise.reject(Object.assign(new Error('caiu'), { code: '57P01' })) }) }) } as any);
+    await expect((outroErro as any).lojaPeloMarketing(MKT)).rejects.toThrow('caiu');
   });
 });
 

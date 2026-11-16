@@ -373,21 +373,28 @@ export class WhatsappCloudService {
 
   /**
    * A loja do número de MARKETING na API oficial (papel 'marketing', da rede — o que as campanhas e as automáticas usam):
-   * só quando é de UMA loja. Quem chama já viu que o número não é o principal de ninguém.
+   * só quando é de UMA loja. Quem chama já viu que o número não é o principal de ninguém. Banco sem a tabela (o de uma
+   * loja, o do CI) = nenhuma: a mensagem segue "não vinculada", como antes.
    */
   protected async lojaPeloMarketing(phoneNumberId: string): Promise<{ tenantId: string } | null> {
     if (!phoneNumberId) return null;
-    const achados = await this.db
-      .select({ tenantId: whatsappNumero.tenantId })
-      .from(whatsappNumero)
-      .where(
-        and(
-          eq(whatsappNumero.phoneId, phoneNumberId),
-          eq(whatsappNumero.papel, 'marketing'),
-          eq(whatsappNumero.provedor, 'cloud'),
-          isNull(whatsappNumero.unidadeId),
-        ),
-      );
+    let achados: any[];
+    try {
+      achados = await this.db
+        .select({ tenantId: whatsappNumero.tenantId })
+        .from(whatsappNumero)
+        .where(
+          and(
+            eq(whatsappNumero.phoneId, phoneNumberId),
+            eq(whatsappNumero.papel, 'marketing'),
+            eq(whatsappNumero.provedor, 'cloud'),
+            isNull(whatsappNumero.unidadeId),
+          ),
+        );
+    } catch (e: any) {
+      if (e?.code === '42P01' || e?.cause?.code === '42P01') return null;
+      throw e;
+    }
     const lojas = [...new Set((achados as any[]).map((a) => String(a.tenantId)))];
     if (lojas.length > 1) this.logger.warn(`o número de marketing ${phoneNumberId} está em ${lojas.length} lojas: a mensagem fica de fora.`);
     return lojas.length === 1 ? { tenantId: lojas[0] } : null;
