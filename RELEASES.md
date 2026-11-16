@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **As propostas do Mister (15/11, F4.1; migration 428 só NUVEM; mexe no `sync-daemon` → nome na lista `SO_NUVEM`, vai
+  no `.exe`).** O aviso que vai ao presidente (a nota sem resposta da SEFAZ; a impressora parada, quando a empresa a manda
+  ao presidente) leva a pergunta e os botões "Autorizar" e "Não agora". Autorizado, o Regem executa pelo serviço da tela
+  (a consulta da nota; a via de teste pelo servidor da loja) e o Mister só diz "feito" com o efeito conferido. Tudo da
+  nuvem: na loja, só a classificação da tabela no daemon (`.exe`); o `.zip` leva o código, sem efeito na loja.
+
 - **A ponte do chat no instalador (15/11, pedido do dono; SEM migration; PEDE `.exe` — mexe no `.iss`, no
   `build-release.ps1` e no preflight).** Depois de Servidor/Cliente, o instalador pergunta "Deseja instalar a ponte do
   chat neste computador?" com o resumo do que ela faz (sugere Sim no Servidor, Não no Cliente, Sim onde ela já está).

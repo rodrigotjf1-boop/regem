@@ -2478,6 +2478,9 @@ const SO_NUVEM = new Set([
   // Os relatórios do Mister (mig 420, @cloud-only): o horário de cada um e cada envio. Quem faz e manda é a nuvem.
   'mister_relatorio_regra',
   'mister_relatorio',
+  // As propostas do Mister (mig 428, @cloud-only): o procedimento proposto para um aviso, a autorização e a conferência.
+  // Quem propõe, executa e confere é a nuvem.
+  'mister_proposta',
 ]);
 
 // LEGADO SEM USO: tabelas criadas nas migrations de fundação (002/003) para recursos que

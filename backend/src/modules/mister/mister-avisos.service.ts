@@ -37,6 +37,7 @@ import {
 import { MisterEntradaService, QuemTocou } from './mister-entrada.service';
 import { MODELO_DO_AVISO, parametrosDoAviso } from './mister-modelos';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
+import { MisterPropostasService } from './mister-propostas.service';
 import { pessoaVale } from './mister-vinculo.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -121,6 +122,8 @@ export class MisterAvisosService implements OnModuleInit {
     @Optional() private readonly kds?: AlertaKdsService,
     @Optional() private readonly events?: EventEmitter2,
     @Optional() private readonly entrada?: MisterEntradaService,
+    // As propostas (F4.1, mig 428): o aviso que um procedimento do catálogo resolve vai ao presidente com "Autorizar".
+    @Optional() private readonly propostas?: MisterPropostasService,
   ) {}
 
   /** O toque em "Ver o que fazer" chega pela entrada do WhatsApp, que mora no módulo de baixo: ela chama este serviço. */
@@ -141,7 +144,7 @@ export class MisterAvisosService implements OnModuleInit {
     if (!empresas.length) return false;
     const [a] = linhas(
       await this.db.execute(sql`
-        select id::text as id, tenant_id::text as "tenantId", unidade_id::text as "unidadeId", titulo, detalhe, situacao, entregas,
+        select id::text as id, tenant_id::text as "tenantId", unidade_id::text as "unidadeId", tipo, chave, titulo, detalhe, situacao, entregas,
                aberto_em as "abertoEm", resolvido_em as "resolvidoEm"
           from mister_aviso
          where id = ${id}::uuid and tenant_id in (${sql.join(empresas.map((t) => sql`${t}::uuid`), sql`, `)})`),
@@ -155,8 +158,10 @@ export class MisterAvisosService implements OnModuleInit {
     const fim = a.resolvidoEm ? new Date(a.resolvidoEm).getTime() : Date.now();
     const texto =
       a.situacao === 'aberto' ? textoDoAviso(a) : textoDoDesfecho(a, Math.max(1, Math.round((fim - new Date(a.abertoEm).getTime()) / 60_000)));
+    // A proposta (F4.1): o aviso ainda aberto vai ao presidente com a pergunta e os botões (a vencida sem resposta renova).
+    const proposta = a.situacao === 'aberto' && v!.nivel === 'presidente' && this.propostas ? await this.propostas.propor(a) : null;
     try {
-      await this.numero.enviar(quem.telefone, { texto });
+      await this.numero.enviar(quem.telefone, proposta ? { texto: `${texto}\n\n${proposta.pergunta}`, botoes: proposta.botoes } : { texto });
     } catch (e: any) {
       // Achou o aviso; o envio é que falhou. Fica no log com o motivo, e a entrada não diz "não achei".
       this.logger.warn(`o aviso ${a.id} não saiu no toque — ${e instanceof FalhaDoEnvioDoMister ? e.motivo : (e?.message ?? e)}`);
@@ -605,6 +610,10 @@ export class MisterAvisosService implements OnModuleInit {
       if (!quem.length) alvo.set(`sem:${papel}`, { destino: papel, l: null, motivo: 'ninguem_ligado' });
       for (const l of quem) if (!alvo.has(l.telefone)) alvo.set(l.telefone, { destino: papel, l, motivo });
     }
+    // A proposta (F4.1): nasce quando o aviso vai a quem pode autorizar — o presidente, até o perfil de permissões —, ao
+    // abrir ou ao escalar (a vencida sem resposta renova). Só o presidente recebe a pergunta e os botões.
+    const presidenteRecebe = [...alvo.values()].some((x) => x.l?.nivel === 'presidente');
+    const proposta = presidenteRecebe && (fase === 'abriu' || fase === 'escalou') && this.propostas ? await this.propostas.propor(a) : null;
     const fora: Entrega[] = [];
     for (const { destino, l, motivo } of alvo.values()) {
       if (!l) {
@@ -625,7 +634,8 @@ export class MisterAvisosService implements OnModuleInit {
         continue;
       }
       try {
-        await this.numero.enviar(l.telefone, { texto });
+        const comProposta = proposta && l.nivel === 'presidente';
+        await this.numero.enviar(l.telefone, comProposta ? { texto: `${texto}\n\n${proposta.pergunta}`, botoes: proposta.botoes } : { texto });
         fora.push({ destino, fase, em, ok: true, final, ...(motivo ? { motivo } : {}) });
       } catch (e: any) {
         const m = e instanceof FalhaDoEnvioDoMister ? e.motivo : 'erro';

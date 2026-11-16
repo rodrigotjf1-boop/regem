@@ -10,6 +10,7 @@ import { MisterFilaService } from './mister-fila.service';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { pessoaVale } from './mister-vinculo.service';
 import { ToqueNoModelo, toqueNoModelo } from './mister-modelos';
+import { TEXTOS_DA_PROPOSTA } from './mister-procedimentos';
 import {
   CODIGOS_ERRADOS_JANELA_MIN,
   CODIGOS_ERRADOS_MAX,
@@ -72,6 +73,8 @@ export interface QuemTocou {
 }
 /** Quem trata o toque (o serviço dos avisos ou o dos relatórios). Devolve se achou o que o modelo anunciou. */
 export type TratarToque = (id: string, quem: QuemTocou) => Promise<boolean>;
+/** Quem trata o toque num BOTÃO da conversa (a proposta do Mister, F4.1). Devolve se achou de quem é o botão. */
+export type TratarBotao = (botaoId: string, quem: QuemTocou) => Promise<boolean>;
 
 /** O que o Mister fez com a mensagem. Vai para `mister_mensagem.desfecho` e é o que os testes conferem. */
 export type Desfecho =
@@ -94,6 +97,8 @@ export type Desfecho =
   | 'so_texto'
   | 'tocou_modelo'
   | 'modelo_nao_achado'
+  | 'respondeu_proposta'
+  | 'proposta_nao_achada'
   | 'calado';
 
 interface Vinculo {
@@ -115,6 +120,12 @@ export class MisterEntradaService {
   /** O serviço dos avisos ou o dos relatórios se apresenta (eles moram em outro módulo, que importa este). */
   registrarToque(tipo: ToqueNoModelo['tipo'], tratar: TratarToque): void {
     this.toques.set(tipo, tratar);
+  }
+
+  /** Quem trata cada BOTÃO da conversa, pelo prefixo do id (`prop:` = a proposta do Mister, que mora em outro módulo). */
+  private readonly botoes = new Map<string, TratarBotao>();
+  registrarBotao(prefixo: string, tratar: TratarBotao): void {
+    this.botoes.set(prefixo, tratar);
   }
 
   constructor(
@@ -199,6 +210,11 @@ export class MisterEntradaService {
     const toque = toqueNoModelo(e.codigoDoModelo);
     if (toque) return this.tocou(tel, toque, vinculos, e.wamid ?? null);
 
+    // O toque num botão de PROPOSTA (F4.1): quem trata confere se a proposta é de uma empresa deste telefone, se a pessoa
+    // pode autorizar e se ainda vale. Não vira pergunta para a IA nem escolha de empresa.
+    const botao = e.botaoId ? [...this.botoes.entries()].find(([prefixo]) => String(e.botaoId).startsWith(prefixo)) : undefined;
+    if (botao) return this.tocouBotao(tel, String(e.botaoId), botao[1], vinculos, e.wamid ?? null);
+
     const alvo = await this.empresaDaConversa(tel, e, vinculos);
     if ('desfecho' in alvo) return alvo;
     return this.atender(tel, alvo.vinculo, alvo.texto, e.wamid ?? null, e.wamid ?? null);
@@ -224,6 +240,23 @@ export class MisterEntradaService {
     if (achou) return { desfecho: 'tocou_modelo', tenantId: vinculos.length === 1 ? vinculos[0].tenantId : null };
     await this.responder(tel, { texto: TEXTOS.modeloNaoAchado });
     return { desfecho: 'modelo_nao_achado' };
+  }
+
+  /** O toque num botão da conversa: a mensagem renova a janela de 24 horas do telefone; quem trata o botão responde. */
+  private async tocouBotao(tel: string, botaoId: string, tratar: TratarBotao, vinculos: Vinculo[], wamid: string | null): Promise<{ desfecho: Desfecho; tenantId?: string | null }> {
+    await this.db.execute(sql`update mister_vinculo set ultima_entrada_em = now() where telefone = ${tel} and ligado_em is not null`);
+    const quem: QuemTocou = {
+      telefone: tel,
+      vinculos: vinculos.map((v) => ({ tenantId: v.tenantId, colaboradorId: v.colaboradorId, unidadeId: v.unidadeId ?? null, nivel: v.nivel, empresa: v.empresa })),
+      wamid,
+    };
+    const achou = await tratar(botaoId, quem).catch((err: any) => {
+      this.logger.error(`mister: o botão de ${mascarar(tel)} não foi tratado — ${err?.message ?? err}`, err?.stack);
+      return false;
+    });
+    if (achou) return { desfecho: 'respondeu_proposta', tenantId: vinculos.length === 1 ? vinculos[0].tenantId : null };
+    await this.responder(tel, { texto: TEXTOS_DA_PROPOSTA.naoAchada });
+    return { desfecho: 'proposta_nao_achada' };
   }
 
   // ───────────────────────────── ligar pelo código ─────────────────────────────
