@@ -8,14 +8,14 @@
 
 import type { TipoDeAviso } from './mister-avisos.regras';
 
-export type ProcedimentoDoMister = 'consultar_nota' | 'imprimir_teste';
+export type ProcedimentoDoMister = 'consultar_nota' | 'imprimir_teste' | 'cancelar_pedido';
 export type NivelDaAutorizacao = 'botao' | 'pin';
 export type SituacaoDaProposta = 'proposta' | 'autorizada' | 'recusada' | 'vencida' | 'executando' | 'feita' | 'nao_deu';
 
 export interface Procedimento {
   id: ProcedimentoDoMister;
-  /** O tipo de aviso que este procedimento resolve. */
-  tipoDoAviso: TipoDeAviso;
+  /** O tipo de aviso que este procedimento resolve; null = nasce da pergunta (F4.3), preso ao alvo (o pedido). */
+  tipoDoAviso: TipoDeAviso | null;
   nivel: NivelDaAutorizacao;
   /** Por quanto tempo a proposta vale. */
   prazoMin: number;
@@ -34,6 +34,11 @@ export const PROCEDIMENTOS: Record<ProcedimentoDoMister, Procedimento> = {
   // o "Imprimir teste" da tela (`edge_comando` `testar_impressora`). Conferido quando o servidor pegou o pedido e a
   // impressora voltou a responder (o aviso fecha).
   imprimir_teste: { id: 'imprimir_teste', tipoDoAviso: 'impressora', nivel: 'botao', prazoMin: 10, conferirMin: 5, nome: 'mandar uma via de teste para a impressora' },
+  // F4.2b: cancelar um pedido com o estorno — mexe com dinheiro, então é de PIN (o link da F4.2a), vale 15 minutos. A
+  // execução é o MESMO `DeliveryService.cancelar` do botão "Cancelar" do painel (o canal, o estorno pela rotina da nuvem,
+  // a cozinha, os benefícios), com o presidente conferido pelo PIN no lugar da senha. Conferido quando o pedido está
+  // cancelado e, se foi pago no Pix online, quando o estorno saiu no gateway (`pedido_estorno` feito).
+  cancelar_pedido: { id: 'cancelar_pedido', tipoDoAviso: null, nivel: 'pin', prazoMin: 15, conferirMin: 10, nome: 'cancelar o pedido com o estorno' },
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -171,4 +176,69 @@ export const TEXTOS_DO_LINK = {
   naoVale: 'Este link não vale. Peça de novo ao Mister.',
   /** A resposta a quem tenta autorizar pela conversa o que pede o PIN (a conversa 6 do protótipo). */
   soPeloLink: (nome: string) => `Por aqui eu não consigo, ${nome}: é o tipo de coisa que pede o seu PIN. Toque em "Abrir no Regem".`,
+  /** A proposta de PIN que venceu sem resposta (a conversa 6, parte 4). */
+  vencida: (oQue: string, hora: string) => `O pedido de autorização ${oQue} venceu às ${hora} sem resposta. Nada foi feito. Se ainda precisar, é só me pedir de novo.`,
+};
+
+// ───────────────────────────── cancelar o pedido com o estorno (F4.2b) ─────────────────────────────
+
+/** O pedido como a página e a conversa o mostram — lido do banco na hora; do cliente, só o nome curto (como no painel). */
+export interface PedidoDoCancelamento {
+  /** O nome do pedido como no quadro do Mister ("#12 · iFood 5120"). */
+  nome: string;
+  /** O canal como na tela ("iFood", "Cardápio digital"). */
+  canal: string;
+  /** O canal é uma plataforma de fora (iFood, 99…): o cancelamento também vai para ela. */
+  canalExterno: boolean;
+  cliente: string | null;
+  total: number;
+  /** Pago no Pix pelo gateway da loja: o estorno sai pela rotina da nuvem (`pedido_estorno`). */
+  pagoNoPix: boolean;
+  /** O gateway como na tela ("Mercado Pago"). */
+  provedor: string | null;
+}
+
+export const PROVEDOR_NA_TELA: Record<string, string> = { mercadopago: 'Mercado Pago', pagseguro: 'PagBank', rede: 'Rede' };
+/** As plataformas de fora, que recebem o cancelamento do serviço do painel (o `statusBack` de cada uma). Lista explícita:
+ *  canal desconhecido não ganha a frase "cancelado também no …". */
+export const CANAIS_DE_FORA = ['ifood', '99food', 'anotaai', 'keeta', 'rappi', 'cardapio_web', 'delivery_direto'];
+
+/** O nome curto do cliente, como no painel: o primeiro nome e a inicial do último ("Mariana S."). */
+export function nomeCurtoDoCliente(nome: unknown): string | null {
+  const partes = String(nome ?? '').trim().split(/\s+/).filter(Boolean);
+  if (!partes.length) return null;
+  return partes.length === 1 ? partes[0] : `${partes[0]} ${partes[partes.length - 1].charAt(0).toUpperCase()}.`;
+}
+
+const reaisDoCancelamento = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+/** O que a página do link mostra do cancelamento: o que vai acontecer, em itens curtos que o serviço do painel sustenta. */
+export function apresentacaoDoCancelamento(p: PedidoDoCancelamento): { titulo: string; itens: string[]; detalhe: string | null; valor: number | null; botao: string } {
+  return {
+    titulo: `Cancelar o pedido ${p.nome}?`,
+    detalhe: [p.canal, p.cliente ? `cliente ${p.cliente}` : null, p.pagoNoPix ? 'pago por Pix' : null].filter(Boolean).join(' · ') || null,
+    valor: p.total,
+    itens: [
+      p.canalExterno ? `O pedido é cancelado no Regem e no ${p.canal}.` : 'O pedido é cancelado no Regem.',
+      p.pagoNoPix ? `O estorno do Pix é pedido ao ${p.provedor ?? 'gateway do Pix'}.` : 'Não houve Pix pago pelo Regem: nenhum estorno é pedido por aqui.',
+    ],
+    botao: 'Autorizar o cancelamento',
+  };
+}
+
+export const TEXTOS_DO_CANCELAMENTO = {
+  /** A mensagem que vai com o botão "Abrir no Regem". */
+  link: (p: PedidoDoCancelamento, hora: string) =>
+    `Para cancelar o pedido ${p.nome} (${reaisDoCancelamento(p.total)}${p.pagoNoPix ? ', Pix já pago' : ''}), a autorização é no Regem, com o seu PIN. O pedido vale até ${hora}.`,
+  /** "do cancelamento do pedido #12", para a frase da proposta vencida. */
+  doCancelamento: (nome: string) => `do cancelamento do pedido ${nome}`,
+  feito: (p: PedidoDoCancelamento) =>
+    `O pedido ${p.nome} foi cancelado no Regem${p.canalExterno ? ` e no ${p.canal}` : ''}${p.pagoNoPix ? `, e o estorno do Pix foi pedido ao ${p.provedor ?? 'gateway'}` : ''}. Autorizado por você, com o PIN.`,
+  estornoFalhou: (p: PedidoDoCancelamento, erro: string | null) =>
+    `o pedido ${p.nome} foi cancelado, mas o estorno do Pix não saiu${erro ? ` (${erro.slice(0, 160)})` : ''}. Um caso urgente entrou em Atendimento para devolver o dinheiro à mão.`,
+  estornoNaFila: (p: PedidoDoCancelamento) =>
+    `o pedido ${p.nome} foi cancelado, mas o estorno do Pix ainda não saiu no ${p.provedor ?? 'gateway'}. O Regem tenta de novo sozinho; se não sair, um caso urgente entra em Atendimento.`,
+  // O caminho do menu conferido no `shell.tsx` (V65): o pedido se cancela em Delivery › Painel.
+  naoCancelou: (p: PedidoDoCancelamento) => `o pedido ${p.nome} não aparece como cancelado. Confira em Delivery › Painel.`,
+  recusado: (motivo: string) => `${motivo.charAt(0).toLowerCase()}${motivo.slice(1)} Nada foi feito.`,
 };

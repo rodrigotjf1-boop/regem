@@ -1,8 +1,12 @@
 import {
+  CANAIS_DE_FORA,
   PIN_TENTATIVAS,
   PROCEDIMENTOS,
+  TEXTOS_DO_CANCELAMENTO,
   TEXTOS_DO_LINK,
   apresentacaoDaProposta,
+  apresentacaoDoCancelamento,
+  nomeCurtoDoCliente,
   botoesDaProposta,
   caminhoDoLink,
   ehCodigoDoLink,
@@ -23,9 +27,11 @@ import {
 const NOTA = '0e1b9a54-7f3a-4c2d-9b8e-1a2b3c4d5e6f';
 
 describe('o catálogo das propostas do Mister', () => {
-  it('todo procedimento é de botão, com prazo de 10 minutos e um tipo de aviso', () => {
+  it('os de botão valem 10 minutos e nascem de um aviso; o cancelamento é de PIN, vale 15 minutos e nasce da pergunta', () => {
     for (const p of Object.values(PROCEDIMENTOS)) {
-      expect(p).toMatchObject({ nivel: 'botao', prazoMin: 10 });
+      if (p.id === 'cancelar_pedido') expect(p).toMatchObject({ nivel: 'pin', prazoMin: 15, tipoDoAviso: null });
+      else expect(p).toMatchObject({ nivel: 'botao', prazoMin: 10 });
+      if (p.nivel === 'botao') expect(p.tipoDoAviso).not.toBeNull();
       expect(p.conferirMin).toBeGreaterThan(0);
     }
   });
@@ -121,5 +127,53 @@ describe('o link com PIN das propostas do Mister', () => {
   it('a apresentação: o procedimento sem a sua mostra o nome do catálogo; o desconhecido, a frase geral', () => {
     expect(apresentacaoDaProposta('consultar_nota')).toEqual({ titulo: 'Autorizar: consultar a nota de novo na SEFAZ?', itens: [], detalhe: null, valor: null, botao: 'Autorizar' });
     expect(apresentacaoDaProposta('nao_existe').titulo).toBe('Autorizar o pedido do Mister?');
+  });
+});
+
+// O cancelamento com o estorno (F4.2b): o que a página e a conversa dizem — só o que o serviço do painel faz.
+describe('cancelar o pedido com o estorno (F4.2b)', () => {
+  const ifood = { nome: '#284 · iFood 5120', canal: 'iFood', canalExterno: true, cliente: 'Mariana S.', total: 132.9, pagoNoPix: true, provedor: 'Mercado Pago' };
+  const balcao = { nome: '#12 · Cardápio', canal: 'Cardápio', canalExterno: false, cliente: null, total: 40, pagoNoPix: false, provedor: null };
+
+  it('o nome curto do cliente: o primeiro nome e a inicial do último', () => {
+    expect(nomeCurtoDoCliente('Mariana Souza Lima')).toBe('Mariana L.');
+    expect(nomeCurtoDoCliente('  ana  ')).toBe('ana');
+    expect(nomeCurtoDoCliente('')).toBeNull();
+    expect(nomeCurtoDoCliente(null)).toBeNull();
+  });
+
+  it('as plataformas de fora são uma lista fechada (o canal do próprio Regem não ganha "cancelado no …")', () => {
+    expect(CANAIS_DE_FORA).toEqual(expect.arrayContaining(['ifood', '99food']));
+    for (const c of ['cardapio', 'totem', 'whatsapp', 'manual']) expect(CANAIS_DE_FORA).not.toContain(c);
+  });
+
+  it('a página: o pedido do canal pago no Pix, e o do Regem sem Pix', () => {
+    expect(apresentacaoDoCancelamento(ifood)).toEqual({
+      titulo: 'Cancelar o pedido #284 · iFood 5120?',
+      detalhe: 'iFood · cliente Mariana S. · pago por Pix',
+      valor: 132.9,
+      itens: ['O pedido é cancelado no Regem e no iFood.', 'O estorno do Pix é pedido ao Mercado Pago.'],
+      botao: 'Autorizar o cancelamento',
+    });
+    expect(apresentacaoDoCancelamento(balcao)).toMatchObject({
+      detalhe: 'Cardápio',
+      itens: ['O pedido é cancelado no Regem.', 'Não houve Pix pago pelo Regem: nenhum estorno é pedido por aqui.'],
+    });
+  });
+
+  it('as frases da conversa: o link, o feito, o estorno que falhou ou ficou na fila, a recusa do serviço', () => {
+    expect(TEXTOS_DO_CANCELAMENTO.link(ifood, '21:17')).toBe(
+      'Para cancelar o pedido #284 · iFood 5120 (R$ 132,90, Pix já pago), a autorização é no Regem, com o seu PIN. O pedido vale até 21:17.',
+    );
+    expect(TEXTOS_DO_CANCELAMENTO.link(balcao, '21:17')).toContain('(R$ 40,00), a autorização');
+    expect(TEXTOS_DO_CANCELAMENTO.feito(ifood)).toBe('O pedido #284 · iFood 5120 foi cancelado no Regem e no iFood, e o estorno do Pix foi pedido ao Mercado Pago. Autorizado por você, com o PIN.');
+    expect(TEXTOS_DO_CANCELAMENTO.feito(balcao)).toBe('O pedido #12 · Cardápio foi cancelado no Regem. Autorizado por você, com o PIN.');
+    expect(TEXTOS_DO_CANCELAMENTO.estornoFalhou(ifood, 'saldo insuficiente')).toContain('(saldo insuficiente). Um caso urgente entrou em Atendimento');
+    expect(TEXTOS_DO_CANCELAMENTO.estornoNaFila(ifood)).toContain('ainda não saiu no Mercado Pago');
+    expect(TEXTOS_DO_CANCELAMENTO.naoCancelou(ifood)).toContain('Delivery › Painel');
+    expect(TEXTOS_DO_CANCELAMENTO.recusado('Pedido concluído não pode ser cancelado.')).toBe('pedido concluído não pode ser cancelado. Nada foi feito.');
+    expect(TEXTOS_DO_LINK.vencida(TEXTOS_DO_CANCELAMENTO.doCancelamento('#284'), '21:17')).toBe(
+      'O pedido de autorização do cancelamento do pedido #284 venceu às 21:17 sem resposta. Nada foi feito. Se ainda precisar, é só me pedir de novo.',
+    );
   });
 });

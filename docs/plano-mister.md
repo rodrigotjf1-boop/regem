@@ -819,6 +819,29 @@ fase inteira:
 | **F4.3 — A pergunta que vira proposta** | A ferramenta `propor_procedimento` para a IA, só com os procedimentos do catálogo. A IA propõe; a pessoa autoriza do mesmo jeito. | — |
 | **F4.4 — Procedimentos do servidor da loja** | Os que pedem comando novo no `sync-daemon`, como reiniciar o serviço de impressão da conversa 5. Vão no `.exe`. | — |
 
+**F4.2b implementada (16/11/2026, sem migration): cancelar o pedido com o estorno.**
+- O 3º procedimento do catálogo, `cancelar_pedido`: de PIN, vale 15 minutos, confere por 10. Não nasce de aviso (não há
+  aviso de "cliente pediu cancelamento"): nasce da pergunta (F4.3), com o número do pedido como a pessoa disse. O servidor
+  acha o pedido ABERTO das últimas 24 horas pelo número do dia ("#284") ou pelo do canal, na loja da conversa ou sem loja
+  (V4); nenhum ou mais de um, a frase para pedir o número como no painel. Só o presidente.
+- Uma proposta por pedido: o "aviso" da linha é um id fixo do pedido (`uuidDeChave`), e o índice único da 428 não deixa
+  duas. Renova a que acabou sem cancelar (vencida, não autorizada, bloqueada, não deu); a autorizada, a executando e a
+  feita nunca renovam. A IA não vê id nem valor: só o nome do pedido no quadro.
+- A mensagem vai DEPOIS da resposta, com o link "Abrir no Regem" (nunca com botões). A página mostra o pedido como o banco
+  o tem na hora: o canal, o nome curto do cliente, o valor, o Pix, e o que vai acontecer em itens que o serviço sustenta.
+- A execução é o MESMO `DeliveryService.cancelar` do botão "Cancelar" do painel, com o presidente que conferiu o PIN no
+  lugar da senha (como o gerente no WhatsApp) e o estoque como "devolvido" (o padrão do painel).
+- "Feito" só com o pedido cancelado e, se foi pago no Pix pelo Regem, com o estorno feito no gateway (`pedido_estorno`).
+  O estorno que falhou na 3ª tentativa (a rotina já abriu o caso urgente em Atendimento) e o que não sai em 10 minutos
+  viram "não deu", dizendo isso. A recusa do serviço (concluído, já cancelado, o prazo do Pix) vira "não deu: … Nada foi
+  feito".
+- A proposta de PIN que vence avisa quem recebeu o link (a conversa 6, parte 4); a de botão continua vencendo calada.
+- As instruções ganharam o cancelamento como PROPOR e a resposta ao "pode cancelar" escrito (é pelo link, com o PIN).
+- Diferença do protótipo: "Para resolver agora: Delivery › Pedidos" virou "Delivery › Painel" — é lá que o pedido se
+  cancela (V65). O item "A cozinha tira o cartão, e a via CANCELADO sai na impressora" ficou de fora da página: ainda não
+  foi conferido o que sai na impressora quando o cancelamento vem da nuvem, sem o PC de quem cancelou; o item volta com
+  essa conferência (V39: frase de consequência só com a linha do serviço que a sustenta).
+
 **F4.2a implementada (16/11/2026, mig 433; protótipo `mockups/regem-mister-pin.html`, aprovado em 16/11/2026):**
 - Seis colunas na `mister_proposta`: o resumo (sha256) do código do link, para quem ele foi, quando saiu, quando abriu, as
   tentativas de PIN e o bloqueio. O código inteiro nunca fica guardado, nem em log, nem na trilha.

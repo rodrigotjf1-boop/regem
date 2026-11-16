@@ -406,6 +406,8 @@ export class MisterFerramentasService {
     const procedimento = String(en.procedimento ?? '');
     if (!(PROCEDIMENTOS_QUE_A_IA_PROPOE as readonly string[]).includes(procedimento)) return recusa('Esse procedimento não está no catálogo.');
     const lojas = loja.atual ? [loja.atual] : e.lojas.map((l) => l.id);
+    if (!lojas.length && !e.lojaUnica) return recusa(SEM_PERMISSAO);
+    if (procedimento === 'cancelar_pedido') return this.proporCancelamento(e, en, e.lojaUnica && !loja.atual ? null : lojas);
     if (!lojas.length) return recusa(SEM_PERMISSAO);
     const avisos = linhas(
       await this.db.execute(sql`
@@ -428,6 +430,49 @@ export class MisterFerramentasService {
         dados: { proposta: null, aviso: alvo.titulo, motivo: 'A proposta desse aviso já foi respondida (autorizada ou recusada); o andamento sai no próprio aviso.' },
       };
     return { ok: true, dados: { proposta: 'vai em seguida, com os botões Autorizar e Não agora', aviso: alvo.titulo }, proposta: p };
+  }
+
+  /**
+   * F4.2b: a proposta de cancelar o pedido que a pessoa disse. O servidor acha o pedido ABERTO (nem cancelado nem
+   * concluído) das últimas 24 horas, pelo número do dia ("#284") ou pelo número do canal, na loja da conversa (ou sem
+   * loja, V4); `lojas` null = a empresa tem uma loja só. Nenhum ou mais de um: a frase para pedir o número como no painel.
+   * A proposta (de PIN) vai depois da resposta, com o link — a IA não vê o pedido além do nome do quadro.
+   */
+  private async proporCancelamento(e: EscopoDoMister, en: Record<string, unknown>, lojas: string[] | null): Promise<ResultadoDaFerramenta> {
+    if (!this.pode(e, 'delivery')) return recusa(SEM_PERMISSAO);
+    const dito = String(en.pedido ?? '').trim().replace(/^#/, '');
+    if (!/^[A-Za-z0-9-]{1,40}$/.test(dito)) return recusa('Diga o número do pedido como aparece no painel do Delivery.');
+    const numeroDoDia = /^\d{1,9}$/.test(dito) ? Number(dito) : null;
+    const achados = linhas(
+      await this.db.execute(sql`
+        select pe.id::text as id, pe.unidade_id::text as "unidadeId", pe.canal, pe.numero, pe.display_id as "displayId"
+          from pedido_externo pe
+         where pe.tenant_id = ${e.tenantId}::uuid
+           ${lojas ? sql`and (pe.unidade_id is null or pe.unidade_id in (${sql.join(lojas.map((l) => sql`${l}::uuid`), sql`, `)}))` : sql``}
+           and pe.status not in ('cancelado', 'concluido')
+           and pe.criado_em > now() - interval '24 hours'
+           and (pe.display_id = ${dito} ${numeroDoDia != null ? sql`or pe.numero = ${numeroDoDia}` : sql``})
+         order by pe.criado_em desc
+         limit 6`),
+    );
+    if (!achados.length) return { ok: true, dados: { proposta: null, motivo: 'Não achei pedido aberto com esse número nas últimas 24 horas nesta loja.' } };
+    if (achados.length > 1) return { ok: true, dados: { proposta: null, motivo: 'Achei mais de um pedido aberto com esse número.', pedidos: achados.map(pedidoComoNoQuadro) } };
+    if (!this.propostas) return recusa('Não consigo propor agora.');
+    const ped = await this.propostas.lerPedido(e.tenantId, achados[0].id);
+    if (!ped) return { ok: true, dados: { proposta: null, motivo: 'Não achei pedido aberto com esse número nas últimas 24 horas nesta loja.' } };
+    const p = await this.propostas.proporCancelamento({ tenantId: e.tenantId, unidadeId: achados[0].unidadeId ?? null, pedidoId: ped.id }, ped);
+    if (!p)
+      return {
+        ok: true,
+        dados: { proposta: null, pedido: ped.nome, motivo: 'O cancelamento desse pedido já foi autorizado e está em andamento; o resultado chega na conversa.' },
+      };
+    return { ok: true, dados: { proposta: 'vai em seguida, com o link "Abrir no Regem", que pede o PIN', pedido: ped.nome }, proposta: p };
+  }
+
+  /** F4.2: a proposta de PIN sai com o link (um código novo a cada envio), para quem está na conversa. */
+  async enviarLinkDaProposta(e: EscopoDoMister, p: PropostaPendente, telefone: string): Promise<boolean> {
+    if (!this.propostas || p.nivel !== 'pin') return false;
+    return !!(await this.propostas.enviarLink(p.id, e.colaboradorId, telefone, p.pergunta));
   }
 
   /**

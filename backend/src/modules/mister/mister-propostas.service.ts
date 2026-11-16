@@ -7,21 +7,31 @@ import { ehServidorLocal } from '../../common/modo';
 import { horaNoFuso } from '../../common/data';
 import { enfileirarComandoEdge } from '../../common/edge-comando';
 import { PIN_INVALIDO, autorizarPorPinDoUsuario } from '../../common/autorizacao-gestor';
+import { uuidDeChave } from '../../common/id-deterministico';
+import { pagoNoPixOnline } from '../../common/prazo-estorno-pix';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { DeliveryService } from '../delivery/delivery.service';
 import { FiscalService } from '../fiscal/fiscal.service';
 import { ModuloService } from '../modulo/modulo.service';
+import { CANAL_NA_TELA, pedidoComoNoQuadro } from './mister-agente.regras';
 import { MisterEntradaService, QuemTocou } from './mister-entrada.service';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { pessoaVale } from './mister-vinculo.service';
 import {
+  CANAIS_DE_FORA,
   EstadoDoLink,
   PIN_TENTATIVAS,
   PREFIXO_DO_BOTAO,
   PROCEDIMENTOS,
+  PROVEDOR_NA_TELA,
+  PedidoDoCancelamento,
   ProcedimentoDoMister,
   TEXTOS_DA_PROPOSTA,
+  TEXTOS_DO_CANCELAMENTO,
   TEXTOS_DO_LINK,
   apresentacaoDaProposta,
+  apresentacaoDoCancelamento,
+  nomeCurtoDoCliente,
   botoesDaProposta,
   caminhoDoLink,
   ehCodigoDoLink,
@@ -44,8 +54,19 @@ const semTabela = (e: any) => e?.code === '42P01' || e?.cause?.code === '42P01';
 export interface PropostaPendente {
   id: string;
   procedimento: ProcedimentoDoMister;
+  /** botao: vai com "Autorizar" e "Não agora"; pin (F4.2): vai com o link "Abrir no Regem" (`enviarLink`), sem botões. */
+  nivel: 'botao' | 'pin';
   pergunta: string;
   botoes: { id: string; titulo: string }[];
+}
+
+/** O pedido que a proposta de cancelamento quer cancelar, como o banco o tem agora (F4.2b). */
+interface PedidoLido extends PedidoDoCancelamento {
+  id: string;
+  status: string;
+  /** A linha do estorno do Pix (só nuvem), quando já existe: pendente | processando | feito | falhou. */
+  estorno: string | null;
+  estornoErro: string | null;
 }
 
 /** O que a página do link (`/m/<código>`, F4.2a) mostra — decidido no servidor; a página nunca sabe o PIN certo. */
@@ -97,6 +118,8 @@ export class MisterPropostasService implements OnModuleInit {
     @Optional() private readonly auditoria?: AuditoriaService,
     // F4.2a: o link só vale com o módulo Mister ligado na loja da proposta (desligar corta na hora).
     @Optional() private readonly modulos?: ModuloService,
+    // F4.2b: o cancelamento é o MESMO do botão "Cancelar" do painel do Delivery.
+    @Optional() private readonly delivery?: DeliveryService,
   ) {}
 
   /** O toque num botão de proposta chega pela entrada do WhatsApp, que mora no módulo de baixo. */
@@ -139,7 +162,74 @@ export class MisterPropostasService implements OnModuleInit {
          order by criada_em limit 1`),
     );
     if (!p || !(p.procedimento in PROCEDIMENTOS)) return null;
-    return { id: p.id, procedimento: p.procedimento, pergunta: perguntaDaProposta(p.procedimento), botoes: botoesDaProposta(p.id) };
+    return { id: p.id, procedimento: p.procedimento, nivel: 'botao', pergunta: perguntaDaProposta(p.procedimento), botoes: botoesDaProposta(p.id) };
+  }
+
+  /**
+   * F4.2b: a proposta de cancelar um pedido (nasce da pergunta, F4.3 — não de aviso). Uma por pedido: o "aviso" da linha é
+   * um id fixo do pedido (`uuidDeChave`), e o índice único da 428 não deixa duas. Renova a que acabou sem cancelar
+   * (vencida, não autorizada, bloqueada, não deu) e devolve a que ainda espera — a autorizada, a executando e a feita
+   * nunca renovam. A mensagem vai com o link (`enviarLink`), nunca com botões.
+   */
+  async proporCancelamento(a: { tenantId: string; unidadeId: string | null; pedidoId: string }, pedido: PedidoDoCancelamento): Promise<PropostaPendente | null> {
+    const proc = PROCEDIMENTOS.cancelar_pedido;
+    const avisoId = uuidDeChave('mister:cancelar_pedido:', a.tenantId, ':', a.pedidoId);
+    try {
+      await this.db.execute(sql`
+        insert into mister_proposta (tenant_id, unidade_id, aviso_id, procedimento, parametros, nivel, vence_em)
+        values (${a.tenantId}::uuid, ${a.unidadeId}::uuid, ${avisoId}::uuid, 'cancelar_pedido', ${JSON.stringify({ pedidoId: a.pedidoId })}::jsonb, ${proc.nivel},
+                clock_timestamp() + make_interval(mins => ${proc.prazoMin}::int))
+        on conflict (aviso_id, procedimento) do update
+          set situacao = 'proposta', criada_em = clock_timestamp(), vence_em = excluded.vence_em, respondida_em = null, autorizada_por = null,
+              telefone_final = null, executada_em = null, conferir_ate = null, concluida_em = null, resultado = null,
+              link_hash = null, link_para = null, link_criado_em = null, link_aberto_em = null, pin_erros = 0, bloqueada_em = null
+          where mister_proposta.situacao in ('vencida', 'recusada', 'nao_deu')
+             or (mister_proposta.situacao = 'proposta' and mister_proposta.vence_em <= now())`);
+      const [p] = linhas(
+        await this.db.execute(sql`
+          select id::text as id, vence_em as "venceEm" from mister_proposta
+           where aviso_id = ${avisoId}::uuid and procedimento = 'cancelar_pedido' and situacao = 'proposta' and vence_em > now()`),
+      );
+      if (!p) return null;
+      return { id: p.id, procedimento: 'cancelar_pedido', nivel: 'pin', pergunta: TEXTOS_DO_CANCELAMENTO.link(pedido, horaNoFuso(new Date(p.venceEm))), botoes: [] };
+    } catch (e: any) {
+      if (!semTabela(e)) this.logger.warn(`a proposta de cancelar o pedido ${a.pedidoId} não foi criada — ${e?.message ?? e}`);
+      return null;
+    }
+  }
+
+  /** O pedido como o banco o tem agora, com o estorno do Pix quando já existe (a tabela é só da nuvem). */
+  async lerPedido(tenantId: string, pedidoId: unknown): Promise<PedidoLido | null> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(pedidoId ?? ''))) return null;
+    const [pe] = linhas(
+      await this.db.execute(sql`
+        select pe.id::text as id, pe.canal, pe.numero, pe.display_id as "displayId", pe.cliente_nome as cliente, pe.total, pe.status, pe.pago,
+               pe.status_pagamento as "statusPagamento", pe.gateway_payment_id as "gatewayPaymentId", pe.gateway_provider as "gatewayProvider",
+               pe.sinal_status as "sinalStatus"
+          from pedido_externo pe
+         where pe.tenant_id = ${tenantId}::uuid and pe.id = ${String(pedidoId)}::uuid`),
+    );
+    if (!pe) return null;
+    let estorno: { situacao: string | null; erro: string | null } = { situacao: null, erro: null };
+    try {
+      const [e] = linhas(await this.db.execute(sql`select situacao, erro from pedido_estorno where pedido_id = ${pe.id}::uuid`));
+      if (e) estorno = { situacao: e.situacao ?? null, erro: e.erro ?? null };
+    } catch (e: any) {
+      if (!semTabela(e)) throw e;
+    }
+    return {
+      id: pe.id,
+      status: String(pe.status ?? ''),
+      nome: pedidoComoNoQuadro(pe),
+      canal: CANAL_NA_TELA[String(pe.canal ?? '')] ?? String(pe.canal ?? ''),
+      canalExterno: CANAIS_DE_FORA.includes(String(pe.canal ?? '')),
+      cliente: nomeCurtoDoCliente(pe.cliente),
+      total: Number(pe.total) || 0,
+      pagoNoPix: pagoNoPixOnline(pe),
+      provedor: PROVEDOR_NA_TELA[String(pe.gatewayProvider ?? '')] ?? null,
+      estorno: estorno.situacao,
+      estornoErro: estorno.erro,
+    };
   }
 
   // ───────────────────────────── a resposta ─────────────────────────────
@@ -205,7 +295,10 @@ export class MisterPropostasService implements OnModuleInit {
       await this.db.execute(sql`
         update mister_proposta p
            set situacao = 'executando', executada_em = now(),
-               conferir_ate = now() + make_interval(mins => case p.procedimento when 'imprimir_teste' then ${PROCEDIMENTOS.imprimir_teste.conferirMin}::int else ${PROCEDIMENTOS.consultar_nota.conferirMin}::int end)
+               conferir_ate = now() + make_interval(mins => case p.procedimento
+                 when 'imprimir_teste' then ${PROCEDIMENTOS.imprimir_teste.conferirMin}::int
+                 when 'cancelar_pedido' then ${PROCEDIMENTOS.cancelar_pedido.conferirMin}::int
+                 else ${PROCEDIMENTOS.consultar_nota.conferirMin}::int end)
          where id = ${id}::uuid and situacao = 'autorizada'
         returning id::text as id, tenant_id::text as "tenantId", unidade_id::text as "unidadeId", procedimento, parametros,
                   autorizada_por::text as "autorizadaPor"`),
@@ -234,7 +327,48 @@ export class MisterPropostasService implements OnModuleInit {
       });
       return 'executando';
     }
+    if (p.procedimento === 'cancelar_pedido') {
+      // F4.2b: o MESMO cancelamento do botão "Cancelar" do painel do Delivery (o canal, a venda, o estoque como "devolvido"
+      // — o padrão do painel —, os benefícios, a cozinha e o estorno do Pix pela rotina da nuvem), com o presidente que
+      // conferiu o PIN no lugar da senha (como o gerente no WhatsApp).
+      const ped = await this.lerPedido(p.tenantId, p.parametros?.pedidoId);
+      if (!ped) return this.concluir(p, false, 'o pedido não foi encontrado. Nada foi feito.');
+      if (!this.delivery) return this.concluir(p, false, 'o cancelamento não está disponível agora. Nada foi feito: cancele em Delivery › Painel.');
+      const [quem] = linhas(await this.db.execute(sql`select nome from colaborador where id = ${p.autorizadaPor}::uuid and tenant_id = ${p.tenantId}::uuid`));
+      try {
+        await this.delivery.cancelar(p.tenantId, p.autorizadaPor, 'presidente', ped.id, 'Cancelado pelo Mister, autorizado com o PIN', undefined, true, null, null, {
+          id: p.autorizadaPor,
+          nome: String(quem?.nome ?? 'o presidente'),
+        });
+      } catch (e: any) {
+        // A recusa do serviço (já cancelado, concluído, o prazo do Pix) vem antes de mudar qualquer coisa. Se o pedido ficou
+        // cancelado mesmo assim, segue para a conferência — a frase diz o que foi FEITO, não o que se supõe.
+        const depois = await this.lerPedido(p.tenantId, ped.id);
+        if (depois?.status !== 'cancelado') {
+          const motivo = String(e?.response?.message ?? e?.message ?? 'o cancelamento falhou.').slice(0, 300);
+          return this.concluir(p, false, TEXTOS_DO_CANCELAMENTO.recusado(motivo));
+        }
+        this.logger.warn(`o cancelamento do pedido ${ped.id} pela proposta ${p.id} reclamou, mas o pedido ficou cancelado — ${e?.message ?? e}`);
+      }
+      return (await this.conferirCancelamento(p, false)) ?? 'executando';
+    }
     return this.concluir(p, false, 'esse procedimento não existe mais.');
+  }
+
+  /**
+   * A conferência do cancelamento (F4.2b): "feito" só com o pedido cancelado e, se foi pago no Pix pelo Regem, com o
+   * estorno feito no gateway (`pedido_estorno`). O estorno que falhou na 3ª tentativa já abriu um caso urgente em
+   * Atendimento: "não deu", dizendo isso. Antes do prazo, espera (null); passado, "não deu" com o que falta.
+   */
+  private async conferirCancelamento(p: { id: string; tenantId: string; autorizadaPor: string | null; parametros: any }, prazoPassou: boolean): Promise<string | null> {
+    const ped = await this.lerPedido(p.tenantId, p.parametros?.pedidoId);
+    if (!ped) return this.concluir(p, false, 'o pedido não foi encontrado.');
+    if (ped.status !== 'cancelado') return prazoPassou ? this.concluir(p, false, TEXTOS_DO_CANCELAMENTO.naoCancelou(ped)) : null;
+    // Depois do estorno, o pedido pode deixar de parecer "pago no Pix": a linha do estorno também conta.
+    const comPix = { ...ped, pagoNoPix: ped.pagoNoPix || !!ped.estorno };
+    if (!comPix.pagoNoPix || ped.estorno === 'feito') return this.concluir(p, true, TEXTOS_DO_CANCELAMENTO.feito(comPix));
+    if (ped.estorno === 'falhou') return this.concluir(p, false, TEXTOS_DO_CANCELAMENTO.estornoFalhou(comPix, ped.estornoErro));
+    return prazoPassou ? this.concluir(p, false, TEXTOS_DO_CANCELAMENTO.estornoNaFila(comPix)) : null;
   }
 
   /**
@@ -264,6 +398,13 @@ export class MisterPropostasService implements OnModuleInit {
         if (await this.concluir(p, false, motivo)) n++;
       }
     }
+    // F4.2b: os cancelamentos que esperam o estorno do Pix.
+    const cancelamentos = linhas(
+      await this.db.execute(sql`
+        select id::text as id, tenant_id::text as "tenantId", autorizada_por::text as "autorizadaPor", parametros, conferir_ate as "conferirAte"
+          from mister_proposta where situacao = 'executando' and procedimento = 'cancelar_pedido'`),
+    );
+    for (const p of cancelamentos) if (await this.conferirCancelamento(p, new Date(p.conferirAte).getTime() <= Date.now())) n++;
     return n;
   }
 
@@ -292,14 +433,30 @@ export class MisterPropostasService implements OnModuleInit {
     return situacao;
   }
 
-  /** As propostas sem resposta no prazo vencem. Devolve quantas. */
+  /**
+   * As propostas sem resposta no prazo vencem. A de PIN cujo link saiu avisa quem o recebeu (a conversa 6, parte 4: "venceu
+   * sem resposta, nada foi feito"); a de botão vence calada, como na F4.1. Devolve quantas venceram.
+   */
   async vencer(): Promise<number> {
-    return linhas(
+    const vencidas = linhas(
       await this.db.execute(sql`
         update mister_proposta set situacao = 'vencida', concluida_em = now(), resultado = 'ninguém respondeu no prazo'
          where situacao = 'proposta' and vence_em <= now()
-        returning id`),
-    ).length;
+        returning id::text as id, tenant_id::text as "tenantId", nivel, procedimento, parametros, link_para::text as "linkPara", vence_em as "venceEm"`),
+    );
+    for (const v of vencidas) {
+      if (v.nivel !== 'pin' || !v.linkPara) continue;
+      const [quem] = linhas(
+        await this.db.execute(sql`
+          select telefone from mister_vinculo
+           where tenant_id = ${v.tenantId}::uuid and colaborador_id = ${v.linkPara}::uuid and ligado_em is not null and telefone is not null`),
+      );
+      if (!quem?.telefone) continue;
+      let oQue = `para ${(PROCEDIMENTOS as Record<string, { nome: string } | undefined>)[v.procedimento]?.nome ?? 'um procedimento'}`;
+      if (v.procedimento === 'cancelar_pedido') oQue = TEXTOS_DO_CANCELAMENTO.doCancelamento((await this.lerPedido(v.tenantId, v.parametros?.pedidoId))?.nome ?? '');
+      await this.falar(quem.telefone, TEXTOS_DO_LINK.vencida(oQue.trim(), horaNoFuso(new Date(v.venceEm))));
+    }
+    return vencidas.length;
   }
 
   /**
@@ -387,12 +544,18 @@ export class MisterPropostasService implements OnModuleInit {
     return p;
   }
 
-  private vistaDoLink(p: any, erro: string | null = null): VistaDoLink {
+  private async vistaDoLink(p: any, erro: string | null = null): Promise<VistaDoLink> {
     const nome = primeiroNome(p.paraNome);
+    // F4.2b: o cancelamento mostra o pedido como o banco o tem AGORA (o canal, o cliente curto, o valor, o Pix).
+    let apresentacao = apresentacaoDaProposta(p.procedimento);
+    if (p.procedimento === 'cancelar_pedido') {
+      const ped = await this.lerPedido(p.tenantId, p.parametros?.pedidoId);
+      if (ped) apresentacao = apresentacaoDoCancelamento(ped);
+    }
     return {
       estado: estadoDoLink(p),
       empresa: String(p.empresa ?? ''),
-      ...apresentacaoDaProposta(p.procedimento),
+      ...apresentacao,
       pedidoPor: `Pedido pelo Mister às ${horaNoFuso(new Date(p.criadaEm))}, para ${nome} (presidente).`,
       valeAte: new Date(p.venceEm).toISOString(),
       valeAteHora: horaNoFuso(new Date(p.venceEm)),
