@@ -25,6 +25,10 @@ type RelatorioNaTela = {
   tipo: string;
   titulo: string;
   descricao: string;
+  /** Para quem vai, quando não é a régua dos avisos (F4c: o das fichas novas vai a quem pode ver os candidatos). */
+  vaiPara?: string;
+  /** Se a IA escreve (soma no "Uso da IA"); o das fichas novas só conta. */
+  usaIa?: boolean;
   regra: RegraDoRelatorio;
   ultimo: { referencia: string; situacao: string; motivo: string | null; em: string } | null;
 };
@@ -51,6 +55,7 @@ const MOTIVO_DO_RELATORIO: Record<string, string> = {
   sem_credito: 'a chave de IA está sem crédito',
   teto_atingido: 'a chave de IA chegou ao teto de gasto',
   interrompido: 'o servidor reiniciou no meio',
+  sem_fichas: 'as fichas do resumo já não estavam na Página de vagas quando a pessoa tocou em "Ver resumo"',
 };
 const quandoFoi = (iso: string) => {
   const d = new Date(iso);
@@ -288,8 +293,9 @@ export function AvisosDoMister() {
       titulo: 'Relatórios',
       nota: (
         <span className={`text-sm ${texto2}`}>
-          Usam a IA: cada um soma no &quot;Uso da IA&quot;. O resumo chega pelo WhatsApp a quem ligou o próprio número em Pessoas. Quem não falou com o Mister nas
-          últimas 24 horas recebe antes um convite pelo modelo de mensagem aprovado pela Meta, e o resumo é feito quando a pessoa toca em &quot;Ver resumo&quot;.
+          O resumo do dia e o da semana usam a IA: cada um soma no &quot;Uso da IA&quot;. O de fichas novas só conta: não usa a IA. O resumo chega pelo WhatsApp a
+          quem ligou o próprio número em Pessoas. Quem não falou com o Mister nas últimas 24 horas recebe antes um convite pelo modelo de mensagem aprovado
+          pela Meta, e o resumo é feito quando a pessoa toca em &quot;Ver resumo&quot;.
         </span>
       ),
       itens: relatorios.map((rel) => ({
@@ -300,6 +306,11 @@ export function AvisosDoMister() {
         ajuda: (
           <>
             <span className="block">{rel.descricao}</span>
+            {rel.vaiPara && (
+              <span className="mt-1 block text-xs" data-relatorio-vai-para>
+                Vai para: {rel.vaiPara}.
+              </span>
+            )}
             {rel.ultimo && (
               <span className="mt-1 block text-xs">
                 {rel.ultimo.situacao === 'enviado'

@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
+- **Vagas e candidatos — F4c, o resumo das fichas novas pelo Mister (16/11, protótipo `mockups/regem-vagas-talentos.html`
+  aprovado; SEM migration — o tipo novo `fichas_novas` cabe na `mister_relatorio_regra`/`mister_relatorio` da 420).** Só
+  NUVEM: um relatório a mais em Mister › Avisos e relatórios, que nasce DESLIGADO (09:00). Não usa a IA: lista as fichas
+  recebidas desde a véspera no horário marcado (primeiro nome e inicial, função, escala, distância — sem telefone nem
+  endereço) para o presidente e quem tem a permissão Candidatos, só das lojas que cada um vê e com o módulo de vagas;
+  só no dia em que chegou ficha. Fora das 24 horas, o mesmo convite pelo modelo `mister_resumo_pronto`. Nada a empacotar.
+
 - **Vagas e candidatos — F5b, a condução dos aprovados (15/11, protótipo `mockups/regem-vagas-talentos.html` aprovado;
   SEM migration).** Só NUVEM: a rota nova `GET /vagas/candidatos/conducao` (o valor da ida e da volta da ficha × os dias
   da escala — 12x36 = 15, 5x2 = 22, 6x1 = 26, horista = dias marcados × 4,3 — dos aprovados e dos contratados nos últimos

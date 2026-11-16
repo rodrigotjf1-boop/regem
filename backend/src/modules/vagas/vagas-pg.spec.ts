@@ -10,6 +10,7 @@ import { hojeISO } from '../../common/data';
 import { ModuloService } from '../modulo/modulo.service';
 import { ColaboradorService } from '../colaborador/colaborador.service';
 import { VagasService } from './vagas.service';
+import { MisterRelatoriosService } from '../mister/mister-relatorios.service';
 import { fichaValida } from './vagas-exemplo-spec';
 import { baseDoApp, paginaParaORobo } from './pagina-para-o-robo';
 
@@ -401,6 +402,102 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
     } finally {
       for (const id of fichas) await q(`delete from candidato where id = $1`, [id]).catch(() => {});
       for (const c of colaboradores) await q(`delete from colaborador where id = $1`, [c]).catch(() => {});
+    }
+  });
+
+  // F4c: o resumo das fichas novas pelo Mister. A leitura (`fichasDaPessoa`) mora no serviço dos relatórios, mas o banco é o
+  // das vagas: o teste fica nesta spec, que já aplica a cadeia 389 → 397 → 427 (ERR-451). O escopo do Mister e o módulo de
+  // vagas são dublês — o fluxo do relatório (a vez, o convite, o toque) está na spec do Mister.
+  it('F4c: as fichas novas da janela, só das lojas que a pessoa vê, com a permissão e o módulo; nome com a inicial, sem telefone', async () => {
+    const fichas: string[] = [];
+    const paginaAntes = (await q(`select funcoes from vaga_pagina where tenant_id = $1 and unidade_id = $2`, [T, lojaA]))[0].funcoes;
+    const nova = async (whatsapp: string, nome: string, recebido: string, extra: Record<string, any> = {}, onde: { tenant?: string; loja?: string } = {}) => {
+      const r = await svc.receberFicha(codigo, fichaValida({ whatsapp, nome, ...extra }));
+      const [{ id }] = await q(`select id from candidato where tenant_id = $1 and protocolo = $2`, [T, r.protocolo]);
+      fichas.push(id);
+      await q(
+        `update candidato set recebido_em = ($2::timestamp at time zone 'America/Sao_Paulo'), tenant_id = $3, unidade_id = $4 where id = $1`,
+        [id, recebido, onde.tenant ?? T, onde.loja ?? lojaA],
+      );
+      return id as string;
+    };
+    let escopo: any = null;
+    let desligada = '';
+    const relatorios = new MisterRelatoriosService(
+      db,
+      null as any,
+      null as any,
+      { escopo: async () => escopo } as any,
+      null as any,
+      undefined,
+      { ativo: async (_t: string, loja: string, modulo: string) => modulo === 'vagas' && loja !== desligada } as any,
+    );
+    const devido = { referencia: '2026-03-11', ate: '2026-03-11', hora: '09:00' };
+    const presidente = { nivel: 'presidente', nome: 'Ana Paula', semLoja: false, permissoes: {}, lojas: [{ id: lojaA, nome: 'Loja A' }, { id: lojaB, nome: 'Loja B' }] };
+    try {
+      const a1 = await nova('(21) 3333-0170', 'Bruno Silva Santos', '2026-03-10 10:00', { funcoes: ['chapeiro'], tipo: 'fixa', escala: '12x36', comeca: 'imediato' });
+      await q(`update candidato set distancia_km = 4.2 where id = $1`, [a1]);
+      await nova('(21) 3333-0171', 'Larissa Moura', '2026-03-11 08:59', { funcoes: ['auxiliar'], tipo: 'horista', dias: ['sex', 'sab'] });
+      await nova('(21) 3333-0172', 'Fora Depois Teste', '2026-03-11 09:00'); // = o fim da janela: fica para o dia seguinte
+      await nova('(21) 3333-0173', 'Fora Antes Teste', '2026-03-10 08:59');
+      await nova('(21) 3333-0174', 'Kaua Pereira', '2026-03-10 12:00', { funcoes: ['chapeiro'], tipo: 'fixa', escala: '5x2' }, { loja: lojaB });
+      await nova('(21) 3333-0175', 'Outra Empresa Teste', '2026-03-10 12:00', {}, { tenant: T2, loja: lojaC });
+      // A página da loja A passa a chamar o chapeiro de outro jeito: o nome dela vence o de fábrica (a "auxiliar", que
+      // sai da página, fica com o nome de fábrica).
+      await q(`update vaga_pagina set funcoes = $3::jsonb where tenant_id = $1 and unidade_id = $2`, [
+        T, lojaA, JSON.stringify([{ codigo: 'chapeiro', nome: 'Chapeiro de lanche', salario: '', lideranca: false, aberta: true }]),
+      ]);
+
+      // Presidente: as duas lojas, na ordem de chegada, com a loja em cada linha.
+      escopo = presidente;
+      const r1 = await relatorios.fichasDaPessoa(T, 'c', 't', devido);
+      expect(r1?.total).toBe(3);
+      const linhas1 = r1!.texto.split('\n');
+      expect(linhas1[0]).toBe('Bom dia, Ana! Chegaram *3 fichas novas* nas Páginas de vagas das suas lojas desde ontem às 9h:');
+      expect(linhas1.filter((l) => l.startsWith('• '))).toEqual([
+        '• Bruno S. — Chapeiro de lanche · 12x36 · 4,2 km · começa já · Loja A',
+        '• Kaua P. — Chapeiro(a) · 5x2 · Loja B',
+        '• Larissa M. — Auxiliar de cozinha · horista · Loja A',
+      ]);
+      expect(r1!.texto).toMatch(/Ver as fichas: https?:\/\/\S+\/candidatos$/);
+      // Telefone e endereço ficam no Regem.
+      expect(r1!.texto).not.toMatch(/3333|0170|Rua|rua /);
+
+      // O módulo de vagas desligado na loja B: só a loja A.
+      desligada = lojaB;
+      const r2 = await relatorios.fichasDaPessoa(T, 'c', 't', devido);
+      expect(r2?.total).toBe(2);
+      expect(r2!.texto).toContain('Chegaram *2 fichas novas* na Página de vagas da Loja A desde ontem às 9h:');
+      desligada = '';
+
+      // Gerente da loja A: com a permissão Candidatos vê as dela; sem, nada.
+      escopo = { ...presidente, nivel: 'gerente', nome: 'Carlos', lojas: [{ id: lojaA, nome: 'Loja A' }], permissoes: { candidatos: true } };
+      expect((await relatorios.fichasDaPessoa(T, 'c', 't', devido))?.total).toBe(2);
+      escopo = { ...escopo, permissoes: { candidatos: false } };
+      expect(await relatorios.fichasDaPessoa(T, 'c', 't', devido)).toBeNull();
+      // Sem acesso ao Mister ou sem loja: nada.
+      escopo = null;
+      expect(await relatorios.fichasDaPessoa(T, 'c', 't', devido)).toBeNull();
+      escopo = { ...presidente, semLoja: true };
+      expect(await relatorios.fichasDaPessoa(T, 'c', 't', devido)).toBeNull();
+
+      // Dia sem ficha: nada (o resumo não sai).
+      escopo = presidente;
+      expect(await relatorios.fichasDaPessoa(T, 'c', 't', { referencia: '2026-03-20', ate: '2026-03-20', hora: '09:00' })).toBeNull();
+      // Em UTC a janela é a mesma: o horário é o da operação, escrito na consulta (V46).
+      const c = await pool.connect();
+      try {
+        await c.query(`set timezone = 'UTC'`);
+        const dbUtc = drizzle(c as any, { schema });
+        const emUtc = new MisterRelatoriosService(dbUtc, null as any, null as any, { escopo: async () => presidente } as any, null as any, undefined, { ativo: async () => true } as any);
+        expect((await emUtc.fichasDaPessoa(T, 'c', 't', devido))?.total).toBe(3);
+      } finally {
+        await c.query(`reset timezone`).catch(() => {});
+        c.release();
+      }
+    } finally {
+      for (const id of fichas) await q(`delete from candidato where id = $1`, [id]).catch(() => {});
+      await q(`update vaga_pagina set funcoes = $3::jsonb where tenant_id = $1 and unidade_id = $2`, [T, lojaA, JSON.stringify(paginaAntes)]);
     }
   });
 

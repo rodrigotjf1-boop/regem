@@ -3,9 +3,13 @@ import { somarDias } from '../../common/data';
 // OS RELATÓRIOS DO MISTER (mig 420; protótipo `mockups/regem-mister.html`, "Avisos e relatórios" › Relatórios): o resumo do
 // dia e o resumo da semana, no horário que a empresa escolhe. Regras puras: o padrão, a conferência do que a tela manda,
 // QUANDO cada relatório vence e a pergunta que o agente recebe para escrevê-lo.
+// F4c das vagas (protótipo `mockups/regem-vagas-talentos.html`, aprovado 15/11): as FICHAS NOVAS de candidatos — só conta,
+// sem a IA; vai a quem pode ver os candidatos (presidente e quem tem a permissão Candidatos); só no dia em que chegou ficha.
 
-export const TIPOS_DE_RELATORIO = ['resumo_dia', 'resumo_semana'] as const;
+export const TIPOS_DE_RELATORIO = ['resumo_dia', 'resumo_semana', 'fichas_novas'] as const;
 export type TipoDeRelatorio = (typeof TIPOS_DE_RELATORIO)[number];
+/** Os relatórios que a IA escreve (o de fichas novas só conta, sem a IA). */
+export type RelatorioDaIa = Exclude<TipoDeRelatorio, 'fichas_novas'>;
 export const ehTipoDeRelatorio = (t: unknown): t is TipoDeRelatorio => TIPOS_DE_RELATORIO.includes(t as TipoDeRelatorio);
 
 export interface RegraDoRelatorio {
@@ -16,19 +20,27 @@ export interface RegraDoRelatorio {
   diaSemana: number | null;
 }
 
-/** Como o protótipo: os dois desligados; o do dia às 23:30, o da semana na segunda às 09:00. */
+/** Como o protótipo: todos desligados; o do dia às 23:30, o da semana na segunda às 09:00, o das fichas às 09:00. */
 export const PADRAO_DO_RELATORIO: Record<TipoDeRelatorio, RegraDoRelatorio> = {
   resumo_dia: { ligado: false, hora: '23:30', diaSemana: null },
   resumo_semana: { ligado: false, hora: '09:00', diaSemana: 1 },
+  fichas_novas: { ligado: false, hora: '09:00', diaSemana: null },
 };
 
-export const RELATORIO_NA_TELA: Record<TipoDeRelatorio, { titulo: string; descricao: string }> = {
-  resumo_dia: { titulo: 'Resumo do dia', descricao: 'Pedidos, vendas, tempo médio, cancelamentos e o que saiu do lugar.' },
-  resumo_semana: { titulo: 'Resumo da semana', descricao: 'Os 7 dias até a véspera contra os 7 anteriores.' },
+export const RELATORIO_NA_TELA: Record<TipoDeRelatorio, { titulo: string; descricao: string; vaiPara?: string; usaIa: boolean }> = {
+  resumo_dia: { titulo: 'Resumo do dia', descricao: 'Pedidos, vendas, tempo médio, cancelamentos e o que saiu do lugar.', usaIa: true },
+  resumo_semana: { titulo: 'Resumo da semana', descricao: 'Os 7 dias até a véspera contra os 7 anteriores.', usaIa: true },
+  fichas_novas: {
+    titulo: 'Fichas novas de candidatos',
+    descricao:
+      'As fichas que chegaram na Página de vagas desde o último resumo: nome, função, escala e distância. Só nos dias em que chegou ficha. Sem telefone nem endereço no WhatsApp.',
+    vaiPara: 'o presidente e quem tem a permissão Candidatos, cada um só das lojas que vê',
+    usaIa: false,
+  },
 };
 
 /** O nome do recurso no medidor da IA ("Uso da IA"): cada relatório soma no seu. */
-export const RECURSO_DO_RELATORIO: Record<TipoDeRelatorio, string> = { resumo_dia: 'mister_resumo_dia', resumo_semana: 'mister_resumo_semana' };
+export const RECURSO_DO_RELATORIO: Record<RelatorioDaIa, string> = { resumo_dia: 'mister_resumo_dia', resumo_semana: 'mister_resumo_semana' };
 
 /** Passado disto depois do horário (o servidor parado, a rotina atrasada), o relatório do dia não sai mais. */
 export const ATRASO_MAXIMO_DO_RELATORIO_MIN = 180;
@@ -91,6 +103,8 @@ export interface RelatorioDevido {
   referencia: string;
   /** O último dia do resumo (o mesmo dia no resumo do dia). */
   ate: string;
+  /** Só nas fichas novas: o horário marcado ('HH:MM') — a janela vai da véspera nesse horário até o dia nesse horário. */
+  hora?: string;
 }
 
 /**
@@ -99,6 +113,7 @@ export interface RelatorioDevido {
  *  • Resumo do dia: o dia do envio; marcado antes das 6 h, a noite que passou (o dia anterior ao do envio).
  *  • Resumo da semana: só no dia da semana escolhido; os 7 dias até a véspera do envio (na segunda, a semana passada
  *    inteira, de segunda a domingo).
+ *  • Fichas novas: todo dia, o dia do envio e o horário marcado (as fichas das últimas 24 horas até esse horário).
  */
 export function relatorioDevido(tipo: TipoDeRelatorio, regra: RegraDoRelatorio, agora: AgoraNaOperacao): RelatorioDevido | null {
   if (!regra.ligado || !HORA.test(regra.hora) || !HORA.test(agora.hora)) return null;
@@ -111,6 +126,7 @@ export function relatorioDevido(tipo: TipoDeRelatorio, regra: RegraDoRelatorio, 
     diaSemanaDoEnvio = agora.diaSemana === 1 ? 7 : agora.diaSemana - 1;
   }
   if (atraso > ATRASO_MAXIMO_DO_RELATORIO_MIN) return null;
+  if (tipo === 'fichas_novas') return { referencia: diaDoEnvio, ate: diaDoEnvio, hora: regra.hora };
   if (tipo === 'resumo_dia') {
     const dia = minutos(regra.hora) < VIRADA_DA_NOITE_MIN ? somarDias(diaDoEnvio, -1) : diaDoEnvio;
     return { referencia: dia, ate: dia };
@@ -129,7 +145,7 @@ export const diaMesDoRelatorio = (dia: string): string => `${dia.slice(8, 10)}/$
  * A "pergunta" que o agente recebe para escrever o relatório: a mesma porta das perguntas (as consultas, o filtro de
  * saída, o medidor), com o período escrito por extenso e o começo da mensagem fixo, como no protótipo.
  */
-export function perguntaDoRelatorio(tipo: TipoDeRelatorio, d: RelatorioDevido): string {
+export function perguntaDoRelatorio(tipo: RelatorioDaIa, d: RelatorioDevido): string {
   if (tipo === 'resumo_dia') {
     const titulo = `*Resumo de ${nomeDoDia(d.referencia)}, ${diaMesDoRelatorio(d.referencia)}*`;
     return [
@@ -143,5 +159,87 @@ export function perguntaDoRelatorio(tipo: TipoDeRelatorio, d: RelatorioDevido): 
     `Escreva o meu resumo da semana de ${diaMesDoRelatorio(d.referencia)} a ${diaMesDoRelatorio(d.ate)} (de ${d.referencia} até ${d.ate}).`,
     'Traga as vendas e o faturamento comparados com os 7 dias anteriores, os dias mais fortes e os mais fracos, os produtos que mais venderam, os cancelamentos e o que saiu do lugar.',
     `Comece com "${titulo}". Sem pergunta no fim.`,
+  ].join('\n');
+}
+
+// ───────────────────────────── as fichas novas (F4c das vagas) ─────────────────────────────
+
+/** Quantas fichas o resumo escreve uma a uma; as outras viram "e mais N". */
+export const FICHAS_NO_RESUMO_MAX = 15;
+
+/** A janela das fichas no relógio da operação: da véspera no horário marcado até o dia no horário marcado. */
+export function janelaDasFichas(d: RelatorioDevido): { desde: string; ate: string } | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d.referencia) || !d.hora || !HORA.test(d.hora)) return null;
+  return { desde: `${somarDias(d.referencia, -1)} ${d.hora}:00`, ate: `${d.referencia} ${d.hora}:00` };
+}
+
+/** Uma ficha no resumo — o que vai ao WhatsApp. Telefone e endereço NUNCA (decisão 6 do protótipo). */
+export interface FichaNoResumo {
+  nome: string;
+  /** Os nomes das funções escolhidas (já traduzidos do código pela página da loja). */
+  funcoes: string[];
+  tipoVaga: string;
+  escala: string | null;
+  distanciaKm: number | null;
+  comeca: string;
+  loja: string;
+}
+
+/** "Bruno Silva Santos" → "Bruno S."; um nome só fica como está. */
+export function primeiroNomeEInicial(nome: string): string {
+  const partes = String(nome ?? '').trim().split(/\s+/).filter(Boolean);
+  if (!partes.length) return 'Sem nome';
+  const ultimo = partes.length > 1 ? partes[partes.length - 1] : '';
+  return ultimo ? `${partes[0]} ${ultimo.charAt(0).toLocaleUpperCase('pt-BR')}.` : partes[0];
+}
+
+/** A vaga em poucas letras: "12x36", "horista", "12x36 ou 5x2", "5x2 ou horista". */
+export function vagaDaFicha(f: Pick<FichaNoResumo, 'tipoVaga' | 'escala'>): string {
+  const escala = f.escala === 'tanto' ? '12x36 ou 5x2' : f.escala;
+  if (f.tipoVaga === 'horista') return 'horista';
+  if (f.tipoVaga === 'tanto') return `${escala ?? 'fixa'} ou horista`;
+  return escala ?? 'fixa';
+}
+
+/** "• Bruno S. — Chapeiro · 12x36 · 4,2 km · começa já" (com a loja no fim quando o resumo junta mais de uma). */
+export function linhaDaFicha(f: FichaNoResumo, comLoja: boolean): string {
+  const partes = [
+    f.funcoes.length ? f.funcoes.join(' / ') : 'função não marcada',
+    vagaDaFicha(f),
+    f.distanciaKm !== null && Number.isFinite(f.distanciaKm) ? `${String(Math.round(f.distanciaKm * 10) / 10).replace('.', ',')} km` : null,
+    f.comeca === 'imediato' ? 'começa já' : null,
+    comLoja ? f.loja : null,
+  ].filter(Boolean);
+  return `• ${primeiroNomeEInicial(f.nome)} — ${partes.join(' · ')}`;
+}
+
+/** "Bom dia" até 11:59, "Boa tarde" até 17:59, "Boa noite" no resto. */
+export function saudacao(hora: string): string {
+  const m = HORA.test(hora) ? minutos(hora) : 9 * 60;
+  return m < 12 * 60 ? 'Bom dia' : m < 18 * 60 ? 'Boa tarde' : 'Boa noite';
+}
+
+/** '09:00' → '9h'; '09:30' → '9h30'. */
+export const horaCurta = (hora: string): string => `${Number(hora.slice(0, 2))}h${hora.slice(3, 5) === '00' ? '' : hora.slice(3, 5)}`;
+
+/**
+ * A mensagem do resumo das fichas novas (como no protótipo, caso 1): a saudação pelo horário, quantas chegaram, de qual
+ * loja (ou "das suas lojas", com a loja em cada linha), uma linha por ficha até o teto e o endereço da tela.
+ */
+export function textoDasFichasNovas(p: { nome: string; hora: string; fichas: FichaNoResumo[]; total: number; link: string }): string {
+  const lojas = [...new Set(p.fichas.map((f) => f.loja))];
+  const varias = lojas.length > 1;
+  const primeiro = String(p.nome ?? '').trim().split(/\s+/)[0] || '';
+  const quantas = p.total === 1 ? 'Chegou *1 ficha nova*' : `Chegaram *${p.total} fichas novas*`;
+  const onde = varias ? 'nas Páginas de vagas das suas lojas' : `na Página de vagas da ${lojas[0] ?? 'loja'}`;
+  const linhas = p.fichas.slice(0, FICHAS_NO_RESUMO_MAX).map((f) => linhaDaFicha(f, varias));
+  const resto = p.total - linhas.length;
+  if (resto > 0) linhas.push(`• e mais ${resto} ${resto === 1 ? 'ficha' : 'fichas'}`);
+  return [
+    `${saudacao(p.hora)}${primeiro ? `, ${primeiro}` : ''}! ${quantas} ${onde} desde ontem às ${horaCurta(p.hora)}:`,
+    '',
+    ...linhas,
+    '',
+    `Ver as fichas: ${p.link}`,
   ].join('\n');
 }
