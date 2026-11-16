@@ -793,6 +793,17 @@ fase inteira:
 | **F4.3 — A pergunta que vira proposta** | A ferramenta `propor_procedimento` para a IA, só com os procedimentos do catálogo. A IA propõe; a pessoa autoriza do mesmo jeito. | — |
 | **F4.4 — Procedimentos do servidor da loja** | Os que pedem comando novo no `sync-daemon`, como reiniciar o serviço de impressão da conversa 5. Vão no `.exe`. | — |
 
+**F4.1 implementada (15/11/2026, mig 428):**
+- `mister-procedimentos.ts` (o catálogo, puro) e `mister-propostas.service.ts` (propor, responder, executar, conferir,
+  vencer, a rotina a cada 30 s) no `MisterAgenteModule`.
+- A entrada do WhatsApp ganhou o registro de botões por prefixo (`registrarBotao('prop:')`), como o dos toques no modelo:
+  o botão não vira pergunta para a IA.
+- O aviso que vai ao presidente leva a pergunta e os botões, dentro das 24 h ou no toque em "Ver o que fazer". A
+  proposta vencida sem resposta renova quando o aviso volta a quem autoriza; a respondida, nunca.
+- A execução não segura a resposta ao WhatsApp: segue sozinha, e a rotina pega a que ficar para trás.
+- O teste de impressora vai pelo `edge_comando` com a proposta nos dados. O "feito" sai quando o servidor marcou o
+  comando como executado E o aviso da impressora fechou.
+
 **Conferência da F4.1:**
 - spec com Postgres:
   - a proposta nasce com o aviso, e só para o presidente ligado;

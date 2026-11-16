@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { randomInt, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -27,6 +28,7 @@ import { MAX_TENTATIVAS_CONSULTA_DA_NOTA } from '../fiscal/fiscal.service';
 import { IfoodService } from '../integracoes/ifood/ifood.service';
 import { IbptService } from '../fiscal/ibpt/ibpt.service';
 import { MisterEntradaService } from './mister-entrada.service';
+import { MisterPropostasService } from './mister-propostas.service';
 import { MisterFerramentasService } from './mister-ferramentas.service';
 import { MisterFilaService } from './mister-fila.service';
 import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
@@ -251,6 +253,18 @@ export function testesDoMisterComPostgres(): void {
     const avisosConfig = new MisterAvisosConfigService(db, auditoria);
     const kdsAvisos: any[] = [];
     const emitidos: any[] = [];
+    // As propostas (F4.1, mig 428): a consulta da nota é um dublê que ANOTA com que empresa, nota e pessoa foi chamada.
+    const consultas: any[] = [];
+    let respostaDaConsulta: () => Promise<any> = async () => ({ status: 'autorizada', numero: 904 });
+    const fiscalDeMentira = {
+      consultarNota: async (tenantId: string, notaId: string, atorId: string | null) => {
+        consultas.push([tenantId, notaId, atorId]);
+        return respostaDaConsulta();
+      },
+    };
+    const propostas = new MisterPropostasService(db, numero, entrada, fiscalDeMentira as any, auditoria);
+    // O toque em "Autorizar" chega pela entrada: o serviço das propostas se apresenta a ela, como ao subir o app.
+    propostas.onModuleInit();
     const avisos = new AvisosDeTeste(
       db,
       avisosConfig,
@@ -259,6 +273,7 @@ export function testesDoMisterComPostgres(): void {
       { guardarEMostrar: async (p: any) => (kdsAvisos.push(p), { aviso: {}, situacao: 'novo' }) } as any,
       { emit: (n: string, p: any) => emitidos.push([n, p]) } as any,
       entrada,
+      propostas,
     );
     // O toque em "Ver o que fazer" chega pela entrada: o serviço dos avisos se apresenta a ela, como ao subir o app.
     avisos.onModuleInit();
@@ -313,6 +328,7 @@ export function testesDoMisterComPostgres(): void {
     };
     const limparConversas = async () => {
       await q(`delete from mister_pergunta where tenant_id = any($1::uuid[])`, [[A, B]]);
+      await q(`delete from mister_proposta where tenant_id = any($1::uuid[])`, [[A, B]]);
       await q(`delete from mister_aviso where tenant_id = any($1::uuid[])`, [[A, B]]);
       await q(`delete from mister_aviso_regra where tenant_id = any($1::uuid[])`, [[A, B]]);
       await q(`delete from mister_relatorio where tenant_id = any($1::uuid[])`, [[A, B]]);
@@ -326,7 +342,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -2967,7 +2983,20 @@ export function testesDoMisterComPostgres(): void {
       const toque = wamid();
       expect(await entrada.receberDaMeta(PHONE_ID, { messages: [{ from: telAna, id: toque, type: 'button', button: { payload: codigo, text: 'Ver o que fazer' } }] })).toBe(true);
       expect((await q(`select desfecho from mister_mensagem where wamid = $1`, [toque]))[0]).toEqual({ desfecho: 'tocou_modelo' });
-      expect(numero.enviadas).toEqual([{ para: telAna, texto: '⚠️ Loja Centro · impressora Cozinha parada.\n\nConfira se ela está ligada, com papel e no cabo ou na rede.', botoes: [] }]);
+      // A presidente recebe também a proposta da via de teste (F4.1), com os botões.
+      const [prop] = await q(`select id from mister_proposta where aviso_id = $1 and situacao = 'proposta'`, [aberto.id]);
+      expect(numero.enviadas).toEqual([
+        {
+          para: telAna,
+          texto:
+            '⚠️ Loja Centro · impressora Cozinha parada.\n\nConfira se ela está ligada, com papel e no cabo ou na rede.\n\n' +
+            'Posso mandar uma via de teste para esta impressora? Se ela imprimir, voltou a responder. A pergunta vale por 10 minutos.',
+          botoes: [
+            { id: `prop:${prop.id}:sim`, titulo: 'Autorizar' },
+            { id: `prop:${prop.id}:nao`, titulo: 'Não agora' },
+          ],
+        },
+      ]);
       const [vAna] = await q(`select ultima_entrada_em > now() - interval '1 minute' as agora from mister_vinculo where colaborador_id = $1`, [pessoa.ana]);
       expect(vAna.agora).toBe(true);
       // A Meta reenvia o mesmo toque: nada de novo.
@@ -3178,6 +3207,219 @@ export function testesDoMisterComPostgres(): void {
         expect(status).toBe('resolvido');
       } finally {
         await q(`delete from nota_fiscal where tenant_id = $1`, [A]);
+      }
+    });
+
+    // ───────────────────────────── as propostas (F4.1, mig 428) ─────────────────────────────
+
+    const notaSemResposta = (numeroDaNota: number) =>
+      q(
+        `insert into nota_fiscal (tenant_id, unidade_id, serie, numero, status, simulada, chave, tentativas_consulta, emitida_em)
+         values ($1, $2, 9, $3, 'pendente', false, $4, $5, now() - interval '3 days') returning id`,
+        [A, lojaDeA, numeroDaNota, `3326${MARCA}${numeroDaNota}`.padEnd(44, '0'), MAX_TENTATIVAS_CONSULTA_DA_NOTA],
+      ).then((r) => r[0].id as string);
+    const propostaDe = async (avisoId: string) => (await q(`select * from mister_proposta where aviso_id = $1`, [avisoId]))[0];
+    /** A execução logo depois do toque segue sozinha (não segura a resposta ao WhatsApp): espera ela fechar. */
+    const esperarFechar = async (id: string) => {
+      for (let i = 0; i < 100; i++) {
+        const [p] = await q(`select situacao from mister_proposta where id = $1`, [id]);
+        if (['feita', 'nao_deu'].includes(p?.situacao)) return p.situacao;
+        await new Promise((r) => setTimeout(r, 30));
+      }
+      throw new Error('a proposta não fechou');
+    };
+    /** O desfecho a quem autorizou sai depois de a proposta fechar no banco: espera a mensagem chegar. */
+    const esperarMensagens = async (n: number) => {
+      for (let i = 0; i < 100 && numero.enviadas.length < n; i++) await new Promise((r) => setTimeout(r, 30));
+    };
+
+    it('a proposta: a nota sem resposta vai ao presidente com "Autorizar"; o toque consulta pela porta da tela UMA vez e diz o que a SEFAZ respondeu', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      await janelaAberta('ana');
+      numero.pedidos.length = 0;
+      avisos.incidentes = [];
+      consultas.length = 0;
+      auditados.length = 0;
+      respostaDaConsulta = async () => ({ status: 'autorizada', numero: 904 });
+      try {
+        const notaId = await notaSemResposta(904);
+        expect(await avisos.volta([A])).toMatchObject({ abertos: 1 });
+        const [aviso] = await avisosDe();
+        const prop = await propostaDe(aviso.id);
+        expect(prop).toMatchObject({ tenant_id: A, unidade_id: lojaDeA, procedimento: 'consultar_nota', nivel: 'botao', situacao: 'proposta', parametros: { notaId } });
+        // Vale 10 minutos.
+        expect(Math.round((new Date(prop.vence_em).getTime() - new Date(prop.criada_em).getTime()) / 60_000)).toBe(10);
+        // O aviso e a pergunta numa mensagem só, com os dois botões.
+        expect(numero.enviadas).toHaveLength(1);
+        expect(numero.enviadas[0].texto).toContain('nota fiscal nº 904');
+        expect(numero.enviadas[0].texto).toMatch(/\n\nPosso consultar esta nota de novo na SEFAZ\? Leva alguns segundos\. A pergunta vale por 10 minutos\.$/);
+        expect(numero.enviadas[0].botoes).toEqual([
+          { id: `prop:${prop.id}:sim`, titulo: 'Autorizar' },
+          { id: `prop:${prop.id}:nao`, titulo: 'Não agora' },
+        ]);
+        // A volta repetida não cria outra proposta nem manda de novo.
+        numero.pedidos.length = 0;
+        await avisos.volta([A]);
+        expect(await q(`select id from mister_proposta where aviso_id = $1`, [aviso.id])).toHaveLength(1);
+        expect(numero.enviadas).toEqual([]);
+
+        // "Autorizar": responde na hora, consulta pela porta da tela e confere pela resposta da SEFAZ.
+        expect(await mandar(tel, 'Autorizar', { botaoId: `prop:${prop.id}:sim` })).toBe('respondeu_proposta');
+        expect(await esperarFechar(prop.id)).toBe('feita');
+        await esperarMensagens(2);
+        expect(consultas).toEqual([[A, notaId, pessoa.ana]]);
+        expect(await propostaDe(aviso.id)).toMatchObject({ situacao: 'feita', resultado: 'A SEFAZ autorizou a nota nº 904.', autorizada_por: pessoa.ana, telefone_final: tel.slice(-4) });
+        expect(numero.enviadas.map((m) => m.texto)).toEqual(['Autorizado. Consultando a SEFAZ…', expect.stringMatching(/^✅ Feito às \d{2}:\d{2}\. A SEFAZ autorizou a nota nº 904\.$/)]);
+        expect(auditados.filter((x) => x.entidadeTipo === 'mister_proposta').map((x) => [x.acao, x.tenantId, x.atorId])).toEqual([
+          ['mister_proposta_autorizada', A, pessoa.ana],
+          ['mister_proposta_executada', A, pessoa.ana],
+          ['mister_proposta_feita', A, pessoa.ana],
+        ]);
+        // O segundo toque (ou o de outro aparelho) não executa de novo.
+        numero.pedidos.length = 0;
+        expect(await mandar(tel, 'Autorizar', { botaoId: `prop:${prop.id}:sim` })).toBe('respondeu_proposta');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual(['Essa pergunta já foi respondida.']);
+        expect(consultas).toHaveLength(1);
+        // A rotina não executa a que já fechou.
+        await propostas.rotina();
+        expect(consultas).toHaveLength(1);
+      } finally {
+        await q(`delete from nota_fiscal where tenant_id = $1`, [A]);
+      }
+    });
+
+    it('a proposta: "Não agora" recusa; gerente não autoriza; telefone de outra empresa não acha; a vencida não executa; a recusa da SEFAZ vira "Não deu"', async () => {
+      const telAna = telefone();
+      const telCarlos = telefone();
+      const telBia = telefone();
+      await ligar('ana', telAna);
+      await ligar('carlos', telCarlos, A, 'gerente');
+      await ligar('anaB', telBia, B);
+      await janelaAberta('ana');
+      numero.pedidos.length = 0;
+      avisos.incidentes = [];
+      consultas.length = 0;
+      try {
+        await notaSemResposta(905);
+        await notaSemResposta(906);
+        await notaSemResposta(907);
+        await notaSemResposta(908);
+        await avisos.volta([A]);
+        const porNota = async (n: number) => {
+          const [a] = (await avisosDe()).filter((x: any) => String(x.titulo).includes(`nº ${n} `));
+          return propostaDe(a.id);
+        };
+        const p905 = await porNota(905);
+        const p906 = await porNota(906);
+        const p907 = await porNota(907);
+        const p908 = await porNota(908);
+
+        // "Não agora": recusa, sem executar.
+        numero.pedidos.length = 0;
+        expect(await mandar(telAna, 'Não agora', { botaoId: `prop:${p905.id}:nao` })).toBe('respondeu_proposta');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual(['Certo, não faço nada. O aviso continua aberto no Regem.']);
+        expect((await propostaDe(p905.aviso_id)).situacao).toBe('recusada');
+
+        // O gerente não autoriza (até o perfil de permissões): a proposta segue esperando o presidente.
+        numero.pedidos.length = 0;
+        expect(await mandar(telCarlos, 'Autorizar', { botaoId: `prop:${p906.id}:sim` })).toBe('respondeu_proposta');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual(['Por enquanto, só o presidente da empresa autoriza por aqui. O aviso continua aberto no Regem.']);
+        expect((await propostaDe(p906.aviso_id)).situacao).toBe('proposta');
+
+        // O telefone de outra empresa não acha a proposta (nem sabe que ela existe).
+        numero.pedidos.length = 0;
+        expect(await mandar(telBia, 'Autorizar', { botaoId: `prop:${p906.id}:sim` })).toBe('proposta_nao_achada');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual(['Não achei essa pergunta. Ela pode ter vencido.']);
+        expect((await propostaDe(p906.aviso_id)).situacao).toBe('proposta');
+
+        // Passou do prazo: o toque não executa, e a rotina a vence.
+        await q(`update mister_proposta set vence_em = now() - interval '1 minute' where id = $1`, [p907.id]);
+        numero.pedidos.length = 0;
+        expect(await mandar(telAna, 'Autorizar', { botaoId: `prop:${p907.id}:sim` })).toBe('respondeu_proposta');
+        expect(numero.enviadas[0].texto).toMatch(/^Essa pergunta valeu até as \d{2}:\d{2}\. Se o aviso continuar, a próxima vez traz outra\.$/);
+        expect(await propostas.vencer()).toBeGreaterThanOrEqual(1);
+        expect((await propostaDe(p907.aviso_id)).situacao).toBe('vencida');
+        expect(consultas).toEqual([]);
+
+        // A SEFAZ pede o intervalo entre consultas (a recusa vem com a frase pronta): "Não deu".
+        respostaDaConsulta = async () => {
+          throw new BadRequestException('Esta nota foi consultada há pouco. A SEFAZ limita consultas da mesma nota (rejeição 656), então a próxima pode ser feita em 3 minuto(s).');
+        };
+        numero.pedidos.length = 0;
+        expect(await mandar(telAna, 'Autorizar', { botaoId: `prop:${p908.id}:sim` })).toBe('respondeu_proposta');
+        expect(await esperarFechar(p908.id)).toBe('nao_deu');
+        await esperarMensagens(2);
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([
+          'Autorizado. Consultando a SEFAZ…',
+          'Não deu: esta nota foi consultada há pouco. A SEFAZ limita consultas da mesma nota (rejeição 656), então a próxima pode ser feita em 3 minuto(s).',
+        ]);
+        // A SEFAZ sem resposta também é "Não deu".
+        expect(consultas).toHaveLength(1);
+      } finally {
+        respostaDaConsulta = async () => ({ status: 'autorizada', numero: 904 });
+        await q(`delete from nota_fiscal where tenant_id = $1`, [A]);
+      }
+    });
+
+    it('a proposta: a impressora parada (quando vai ao presidente) pede a via de teste pelo servidor da loja; "feito" só com o servidor e a impressora respondendo', async () => {
+      const tel = telefone();
+      const telCarlos = telefone();
+      await ligar('ana', tel);
+      await ligar('carlos', telCarlos, A, 'gerente');
+      await janelaAberta('ana');
+      await janelaAberta('carlos');
+      // A empresa manda a impressora parada ao presidente e ao gerente (o padrão é a tela da loja).
+      await avisosConfig.salvar(usuario('ana'), { regras: [{ tipo: 'impressora', ligado: true, destinos: ['presidente', 'gerente'], escalaMin: null, escalaPara: [] }] });
+      numero.pedidos.length = 0;
+      try {
+        avisos.incidentes = [incidente('impressora_parada', 'srv:1:impressora:9'), incidente('impressora_parada', 'srv:1:impressora:10')];
+        expect(await avisos.volta([A])).toMatchObject({ abertos: 2 });
+        const todos = await avisosDe();
+        const do9 = await propostaDe(todos.find((a: any) => a.chave.endsWith(':impressora:9')).id);
+        const do10 = await propostaDe(todos.find((a: any) => a.chave.endsWith(':impressora:10')).id);
+        expect(do9).toMatchObject({ procedimento: 'imprimir_teste', situacao: 'proposta', parametros: { servidorId: '1', impressoraId: '9' } });
+        // Só a presidente recebe a pergunta e os botões; o gerente recebe o aviso como sempre.
+        expect(numero.enviadas.filter((m) => m.para === tel).map((m) => m.botoes.map((b) => b.titulo))).toEqual([
+          ['Autorizar', 'Não agora'],
+          ['Autorizar', 'Não agora'],
+        ]);
+        expect(numero.enviadas.filter((m) => m.para === telCarlos).map((m) => [m.botoes, m.texto.includes('Posso mandar')])).toEqual([
+          [[], false],
+          [[], false],
+        ]);
+
+        // Autorizada: o comando vai para o servidor da loja, como o "Imprimir teste" da tela.
+        numero.pedidos.length = 0;
+        expect(await mandar(tel, 'Autorizar', { botaoId: `prop:${do9.id}:sim` })).toBe('respondeu_proposta');
+        for (let i = 0; i < 50 && !(await q(`select 1 from edge_comando where dados ->> 'propostaId' = $1`, [do9.id])).length; i++) await new Promise((r) => setTimeout(r, 30));
+        const [cmd] = await q(`select comando, solicitado_por, unidade_id, dados, status from edge_comando where dados ->> 'propostaId' = $1`, [do9.id]);
+        expect(cmd).toMatchObject({ comando: 'testar_impressora', solicitado_por: 'mister', unidade_id: lojaDeA, status: 'pendente', dados: { equipamentoId: '9', propostaId: do9.id } });
+        expect((await propostaDe(do9.aviso_id)).situacao).toBe('executando');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual(['Autorizado. Mandei a via de teste; confiro em alguns minutos.']);
+        // O servidor pegou, mas a impressora ainda não respondeu: segue esperando.
+        await q(`update edge_comando set status = 'executado', resultado = 'teste enfileirado em 1 impressora(s)' where dados ->> 'propostaId' = $1`, [do9.id]);
+        expect(await propostas.conferir()).toBe(0);
+        // A impressora 9 voltou: o aviso fecha e a conferência diz "feito".
+        avisos.incidentes = [incidente('impressora_parada', 'srv:1:impressora:10')];
+        expect(await avisos.volta([A])).toMatchObject({ resolvidos: 1 });
+        numero.pedidos.length = 0;
+        expect(await propostas.conferir()).toBe(1);
+        expect(await propostaDe(do9.aviso_id)).toMatchObject({ situacao: 'feita', resultado: 'A impressora recebeu a via de teste e voltou a responder.' });
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringMatching(/^✅ Feito às \d{2}:\d{2}\. A impressora recebeu a via de teste e voltou a responder\.$/)]);
+
+        // A 10: autorizada, mas o servidor da loja não pega no prazo — "Não deu", com o que conferir.
+        expect(await mandar(tel, 'Autorizar', { botaoId: `prop:${do10.id}:sim` })).toBe('respondeu_proposta');
+        for (let i = 0; i < 50 && (await propostaDe(do10.aviso_id)).situacao !== 'executando'; i++) await new Promise((r) => setTimeout(r, 30));
+        await q(`update mister_proposta set conferir_ate = now() - interval '1 second' where id = $1`, [do10.id]);
+        numero.pedidos.length = 0;
+        expect(await propostas.conferir()).toBe(1);
+        expect(await propostaDe(do10.aviso_id)).toMatchObject({ situacao: 'nao_deu' });
+        expect(numero.enviadas.map((m) => m.texto)).toEqual(['Não deu: o servidor da loja não pegou o pedido. Confira se o computador do servidor está ligado e com internet.']);
+      } finally {
+        avisos.incidentes = [];
+        await q(`delete from mister_aviso_regra where tenant_id = $1`, [A]);
+        await q(`delete from edge_comando where tenant_id = $1 and solicitado_por = 'mister'`, [A]);
       }
     });
 

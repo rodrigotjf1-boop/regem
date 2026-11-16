@@ -5,6 +5,7 @@ import { DashboardModule } from '../dashboard/dashboard.module';
 import { DeliveryModule } from '../delivery/delivery.module';
 import { EscalaModule } from '../escala/escala.module';
 import { EstoqueModule } from '../estoque/estoque.module';
+import { FiscalModule } from '../fiscal/fiscal.module';
 import { IbptModule } from '../fiscal/ibpt/ibpt.module';
 import { IaModule } from '../ia/ia.module';
 import { IntegracoesModule } from '../integracoes/integracoes.module';
@@ -19,6 +20,7 @@ import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { MisterAgenteService } from './mister-agente.service';
 import { MisterAvisosService } from './mister-avisos.service';
 import { MisterFerramentasService } from './mister-ferramentas.service';
+import { MisterPropostasService } from './mister-propostas.service';
 import { MisterRelatoriosService } from './mister-relatorios.service';
 import { MisterModule } from './mister.module';
 
@@ -55,9 +57,12 @@ import { MisterModule } from './mister.module';
     KdsModule,
     // F3, vencimentos: a tabela do IBPT da loja (a mesma da Configuração fiscal).
     IbptModule,
+    // F4.1 (as propostas): a consulta da nota na SEFAZ é a mesma do botão da tela.
+    FiscalModule,
   ],
-  // Os relatórios (mig 420) moram aqui: escrevem pelo mesmo agente das perguntas.
-  providers: [MisterFerramentasService, MisterAgenteService, MisterAvisosService, MisterRelatoriosService],
+  // Os relatórios (mig 420) moram aqui: escrevem pelo mesmo agente das perguntas. As propostas (F4.1, mig 428) também:
+  // os avisos as criam e elas executam pelos serviços das telas.
+  providers: [MisterFerramentasService, MisterAgenteService, MisterAvisosService, MisterRelatoriosService, MisterPropostasService],
   exports: [MisterAgenteService, MisterAvisosService],
 })
 export class MisterAgenteModule {}
