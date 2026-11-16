@@ -235,6 +235,26 @@ export class DistribuicaoController {
     return this.qualidadeDoMister.resumo(dias);
   }
 
+  // M2a (mig 432): "Virou tarefa" / "Não se aplica" num padrão do "O que melhorar", e "Desfazer a decisão". Só a Diretoria;
+  // nada muda no Mister por aqui — a decisão só organiza a lista. A auditoria do console guarda quem, o padrão e a decisão.
+  @Post('mister/qualidade/decisao')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  async decidirPadraoDoMister(@DistUser() u: DistCtx, @Body() dto: any) {
+    const r = await this.qualidadeDoMister.decidir(dto, u?.nome ?? null);
+    await this.service.auditar(u, 'decidiu_padrao_do_mister', undefined, { chave: r.chave, decisao: r.decisao, tarefa: r.tarefa });
+    return r;
+  }
+
+  @Post('mister/qualidade/desfazer')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  async desfazerDecisaoDoMister(@DistUser() u: DistCtx, @Body() dto: any) {
+    const r = await this.qualidadeDoMister.desfazer(dto?.chave);
+    await this.service.auditar(u, 'desfez_decisao_do_mister', undefined, { chave: dto?.chave });
+    return r;
+  }
+
   // A segurança do Mister (o Sentinela, parte 1): o que as proteções barraram ou recusaram, só contagens — nunca o
   // telefone, o texto ou o código. Só a Diretoria, como a aba Mister.
   @Get('mister/seguranca')

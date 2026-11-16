@@ -1,11 +1,25 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { hojeISO, somarDias } from '../../common/data';
 import { PRECOS_LIDOS_EM, UsoDaChamada, custoEstimadoUsd } from '../ia/ia.regras';
 import { FUSO_SQL } from '../../common/fuso-sql';
 import { FERRAMENTA_DO_QUE_FALTA, RECURSO_DAS_PERGUNTAS, ROTULO_DO_TEMA, temaDoQueFalta } from './mister-agente.regras';
-import { EntradaDoQueMelhorar, motivoNaQualidade, motivosAgrupados, nomeDaConsultaNaQualidade, padroesParaMelhorar, pct, periodoDaQualidade, temasAgrupados } from './mister-qualidade';
+import {
+  DecisaoValendo,
+  EntradaDoQueMelhorar,
+  NAO_SE_APLICA_DIAS,
+  comAsDecisoes,
+  conferirDecisao,
+  ehChaveDoPadrao,
+  motivoNaQualidade,
+  motivosAgrupados,
+  nomeDaConsultaNaQualidade,
+  padroesParaMelhorar,
+  pct,
+  periodoDaQualidade,
+  temasAgrupados,
+} from './mister-qualidade';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -27,6 +41,65 @@ const ANOTOU_O_QUE_FALTA = sql`exists (select 1 from jsonb_array_elements(${ARRA
 @Injectable()
 export class MisterQualidadeService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
+
+  // ───────────────────────────── M2a: as decisões do "O que melhorar" (mig 432) ─────────────────────────────
+
+  /** As decisões que valem (não desfeitas). Banco sem a 432: nenhuma. */
+  async decisoesValendo(): Promise<DecisaoValendo[]> {
+    try {
+      return linhas(
+        await this.db.execute(sql`
+          select chave, decisao, motivo, tarefa, quem,
+                 to_char(decidida_em at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as "decididaEm",
+                 to_char(vale_ate at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as "valeAte"
+            from mister_melhoria_decisao where desfeita_em is null`),
+      ) as DecisaoValendo[];
+    } catch (e: any) {
+      if (semTabela(e)) return [];
+      throw e;
+    }
+  }
+
+  /**
+   * "Virou tarefa" ou "Não se aplica" num padrão. Um "não se aplica" já vencido não bloqueia: é desfeito na mesma
+   * transação. Uma decisão valendo bloqueia (desfazer antes) — o índice único parcial garante com duas abas ao mesmo tempo.
+   */
+  async decidir(dto: unknown, quem: string | null): Promise<DecisaoValendo> {
+    const d = conferirDecisao(dto);
+    if ('erro' in d) throw new BadRequestException(d.erro);
+    try {
+      return await this.db.transaction(async (tx) => {
+        await tx.execute(sql`
+          update mister_melhoria_decisao set desfeita_em = clock_timestamp()
+           where chave = ${d.chave} and desfeita_em is null and vale_ate is not null and vale_ate <= clock_timestamp()`);
+        const [l] = linhas(
+          await tx.execute(sql`
+            insert into mister_melhoria_decisao (chave, decisao, motivo, tarefa, quem, vale_ate)
+            values (${d.chave}, ${d.decisao}, ${d.motivo}, ${d.tarefa}, ${quem},
+                    ${d.decisao === 'nao_se_aplica' ? sql`clock_timestamp() + make_interval(days => ${NAO_SE_APLICA_DIAS}::int)` : sql`null`})
+            returning chave, decisao, motivo, tarefa, quem,
+                      to_char(decidida_em at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as "decididaEm",
+                      to_char(vale_ate at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as "valeAte"`),
+        );
+        return l as DecisaoValendo;
+      });
+    } catch (e: any) {
+      if (e?.code === '23505' || e?.cause?.code === '23505') throw new ConflictException('Esse padrão já tem uma decisão. Desfaça a decisão antes de decidir de novo.');
+      throw e;
+    }
+  }
+
+  /** "Desfazer a decisão": a linha fica (histórico) e deixa de valer; o padrão volta a "aberto". */
+  async desfazer(chave: unknown): Promise<{ ok: true }> {
+    if (!ehChaveDoPadrao(chave)) throw new BadRequestException('Padrão desconhecido.');
+    const r = linhas(
+      await this.db.execute(sql`
+        update mister_melhoria_decisao set desfeita_em = clock_timestamp()
+         where chave = ${chave} and desfeita_em is null returning id`),
+    );
+    if (!r.length) throw new NotFoundException('Esse padrão não tem decisão valendo.');
+    return { ok: true };
+  }
 
   async resumo(diasPedidos?: unknown) {
     const dias = periodoDaQualidade(diasPedidos);
@@ -88,13 +161,13 @@ export class MisterQualidadeService {
     try {
       const [a] = linhas(
         await this.db.execute(sql`
-          select to_char(iniciada_em at time zone ${FUSO_SQL}, 'DD/MM') as quando, acertos, total,
+          select id::text as id, to_char(iniciada_em at time zone ${FUSO_SQL}, 'DD/MM') as quando, acertos, total,
                  (select jsonb_build_object('pergunta', c ->> 'pergunta', 'falha', c -> 'falhas' ->> 0)
                     from jsonb_array_elements(casos) c where (c ->> 'ok')::boolean is false limit 1) as errada
             from mister_avaliacao where situacao = 'terminou'
            order by iniciada_em desc limit 1`),
       );
-      if (a) avaliacao = { quando: String(a.quando), acertos: Number(a.acertos) || 0, total: Number(a.total) || 0, primeiraErrada: a.errada ? { pergunta: String(a.errada.pergunta ?? ''), falha: String(a.errada.falha ?? '') } : null };
+      if (a) avaliacao = { id: String(a.id), quando: String(a.quando), acertos: Number(a.acertos) || 0, total: Number(a.total) || 0, primeiraErrada: a.errada ? { pergunta: String(a.errada.pergunta ?? ''), falha: String(a.errada.falha ?? '') } : null };
     } catch (e: any) {
       if (!semTabela(e)) throw e;
     }
@@ -153,6 +226,8 @@ export class MisterQualidadeService {
     const perguntas = Number(t?.perguntas) || 0;
     const respondidas = Number(t?.respondidas) || 0;
     const totalConsultas = consultas.reduce((s, c) => s + (Number(c.vezes) || 0), 0);
+    // M2a (mig 432): as decisões da Diretoria que valem — banco sem a 432 = nenhuma (o cartão segue como na parte 1).
+    const decisoes = await this.decisoesValendo();
     return {
       dias,
       perguntas,
@@ -162,12 +237,12 @@ export class MisterQualidadeService {
       semConsulta: Number(t?.sem_consulta) || 0,
       naoTem: { quantas: Number(t?.nao_tem) || 0, pct: pct(Number(t?.nao_tem) || 0, perguntas) },
       temas: temasAgrupados(temas.map((m) => ({ tema: m.tema, n: Number(m.n) || 0 }))),
-      melhorar: padroesParaMelhorar({
+      melhorar: comAsDecisoes(padroesParaMelhorar({
         temas: temas.map((m) => ({ tema: ROTULO_DO_TEMA[temaDoQueFalta(m.tema)], quantas: Number(m.n) || 0, empresas: Number(m.empresas) || 0 })),
         consultas: consultas.filter((c) => c.nome !== FERRAMENTA_DO_QUE_FALTA).map((c) => ({ nome: nomeDaConsultaNaQualidade(c.nome), vezes: Number(c.vezes) || 0, falhas: Number(c.falhas) || 0 })),
         avaliacao,
         motivosDaEmpresa: motivosDaEmpresa.map((m) => ({ motivo: motivoNaQualidade(m.motivo), quantas: Number(m.n) || 0, empresas: Number(m.empresas) || 0, empresa: m.empresa ? String(m.empresa) : null })),
-      }),
+      }), decisoes),
       empresas: Number(t?.empresas) || 0,
       pessoas: Number(t?.pessoas) || 0,
       tempo: t?.mediana === null || t?.mediana === undefined ? null : { medianaS: umaCasa(t.mediana), p90S: umaCasa(t.p90) },

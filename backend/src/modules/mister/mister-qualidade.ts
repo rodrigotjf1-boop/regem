@@ -86,6 +86,8 @@ export const MINIMO_DO_MOTIVO = 3;
 const OUTRO_TEMA = 'outro assunto';
 
 export interface Padrao {
+  /** M2a: o padrão, estável entre as leituras — a decisão da Diretoria vale para ele (falta:, consulta:, avaliacao:, motivo:). */
+  chave: string;
   causa: CausaProvavel;
   observacao: string;
   porque: string;
@@ -98,7 +100,7 @@ export interface EntradaDoQueMelhorar {
   /** As consultas do período, com o nome do console. */
   consultas: Array<{ nome: string; vezes: number; falhas: number }>;
   /** A última avaliação que terminou — ou null. */
-  avaliacao: { quando: string; acertos: number; total: number; primeiraErrada: { pergunta: string; falha: string } | null } | null;
+  avaliacao: { id?: string; quando: string; acertos: number; total: number; primeiraErrada: { pergunta: string; falha: string } | null } | null;
   /** Os motivos que são da empresa (chave, crédito), com o texto do console. */
   motivosDaEmpresa: Array<{ motivo: string; quantas: number; empresas: number; empresa: string | null }>;
 }
@@ -112,6 +114,7 @@ export function padroesParaMelhorar(e: EntradaDoQueMelhorar): Padrao[] {
   const tema = [...e.temas].filter((t) => t.tema !== OUTRO_TEMA).sort((a, b) => b.quantas - a.quantas || a.tema.localeCompare(b.tema))[0];
   if (tema && tema.quantas >= MINIMO_DO_TEMA)
     padroes.push({
+      chave: `falta:${tema.tema}`,
       causa: 'falta_consulta',
       observacao: `"${tema.tema}" faltou ${vezes(tema.quantas)}, em ${empresas(tema.empresas)} (o que mais faltou)`,
       porque: 'nenhuma consulta do Mister traz esse dado',
@@ -119,6 +122,7 @@ export function padroesParaMelhorar(e: EntradaDoQueMelhorar): Padrao[] {
     });
   for (const c of e.consultas.filter((x) => x.vezes >= MINIMO_DE_USOS && x.falhas / x.vezes > FALHA_DA_CONSULTA).sort((a, b) => b.falhas / b.vezes - a.falhas / a.vezes).slice(0, 3))
     padroes.push({
+      chave: `consulta:${c.nome}`,
       causa: 'erro_na_consulta',
       observacao: `"${c.nome}" não leu ${vezes(c.falhas)}, de ${c.vezes} (${pct(c.falhas, c.vezes)}%)`,
       porque: `a mesma consulta falhando mais de ${Math.round(FALHA_DA_CONSULTA * 100)}%`,
@@ -127,6 +131,8 @@ export function padroesParaMelhorar(e: EntradaDoQueMelhorar): Padrao[] {
   const a = e.avaliacao;
   if (a && a.total > 0 && a.acertos < a.total)
     padroes.push({
+      // A rodada da avaliação: uma rodada nova com erradas é um padrão novo (a decisão da anterior não a esconde).
+      chave: `avaliacao:${a.id ?? a.quando}`,
       causa: 'instrucao',
       observacao: `A avaliação de ${a.quando} errou ${a.total - a.acertos} de ${a.total}${a.primeiraErrada ? `: "${a.primeiraErrada.pergunta}" — ${a.primeiraErrada.falha}` : ''}`,
       porque: 'a resposta não bateu com a conferência da pergunta fixa',
@@ -134,10 +140,57 @@ export function padroesParaMelhorar(e: EntradaDoQueMelhorar): Padrao[] {
     });
   for (const m of e.motivosDaEmpresa.filter((x) => x.quantas >= MINIMO_DO_MOTIVO).sort((x, y) => y.quantas - x.quantas))
     padroes.push({
+      chave: `motivo:${m.motivo}`,
       causa: 'da_empresa',
       observacao: `"${m.motivo}" em ${m.quantas} perguntas${m.empresas === 1 && m.empresa ? `, todas da ${m.empresa}` : `, em ${empresas(m.empresas)}`}`,
       porque: 'não é do Mister: é a chave ou a conta de IA da empresa',
       proposta: 'Nada nas instruções · a empresa resolve no menu Mister, em "IA e uso"',
     });
   return padroes;
+}
+
+// ───────────────────────────── M2a: as decisões da Diretoria (mig 432) ─────────────────────────────
+
+export const DECISOES_DO_PADRAO = ['tarefa', 'nao_se_aplica'] as const;
+export type DecisaoDoPadrao = (typeof DECISOES_DO_PADRAO)[number];
+/** "Não se aplica" esconde o padrão por este tempo; se ele voltar depois, aparece de novo. */
+export const NAO_SE_APLICA_DIAS = 30;
+const CHAVE_DO_PADRAO = /^(falta|consulta|avaliacao|motivo):.{1,160}$/;
+export const ehChaveDoPadrao = (c: unknown): c is string => typeof c === 'string' && CHAVE_DO_PADRAO.test(c);
+
+export interface DecisaoValendo {
+  chave: string;
+  decisao: DecisaoDoPadrao;
+  motivo: string | null;
+  tarefa: string | null;
+  quem: string | null;
+  decididaEm: string;
+  valeAte: string | null;
+}
+export type SituacaoDoPadrao = 'aberto' | 'tarefa' | 'nao_se_aplica';
+export type PadraoComDecisao = Padrao & { situacao: SituacaoDoPadrao; decisao: DecisaoValendo | null };
+
+/**
+ * Cada padrão com a decisão que vale para ele: "virou tarefa" fica à vista com a decisão; "não se aplica" esconde até
+ * `valeAte` — vencido, o padrão volta a "aberto" (a decisão velha não conta mais). Sem decisão: "aberto".
+ */
+export function comAsDecisoes(padroes: Padrao[], decisoes: DecisaoValendo[], agora: Date = new Date()): PadraoComDecisao[] {
+  const porChave = new Map(decisoes.map((d) => [d.chave, d]));
+  return padroes.map((p) => {
+    const d = porChave.get(p.chave);
+    if (!d) return { ...p, situacao: 'aberto', decisao: null };
+    if (d.decisao === 'nao_se_aplica' && d.valeAte && new Date(d.valeAte).getTime() <= agora.getTime()) return { ...p, situacao: 'aberto', decisao: null };
+    return { ...p, situacao: d.decisao, decisao: d };
+  });
+}
+
+/** Confere a decisão que o console manda — ou a mensagem da recusa. */
+export function conferirDecisao(dto: unknown): { chave: string; decisao: DecisaoDoPadrao; motivo: string | null; tarefa: string | null } | { erro: string } {
+  const d = (dto ?? {}) as Record<string, unknown>;
+  if (!ehChaveDoPadrao(d.chave)) return { erro: 'Padrão desconhecido.' };
+  if (!(DECISOES_DO_PADRAO as readonly string[]).includes(String(d.decisao))) return { erro: 'A decisão é "virou tarefa" ou "não se aplica".' };
+  const motivo = typeof d.motivo === 'string' ? d.motivo.replace(/\s+/g, ' ').trim().slice(0, 300) : '';
+  const tarefa = typeof d.tarefa === 'string' ? d.tarefa.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+  if (d.decisao === 'nao_se_aplica' && !motivo) return { erro: 'Escreva por que não se aplica.' };
+  return { chave: d.chave, decisao: d.decisao as DecisaoDoPadrao, motivo: motivo || null, tarefa: tarefa || null };
 }

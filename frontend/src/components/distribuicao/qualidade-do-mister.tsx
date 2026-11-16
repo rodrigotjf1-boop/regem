@@ -168,7 +168,7 @@ export function QualidadeDoMister() {
             </ul>
           </div>
           <p className="text-xs text-slate-400">O custo é estimado pela tabela de preços lida em {doPeriodo.custo.precosLidosEm.split('-').reverse().join('/')}, a mesma da tela "IA e uso" de cada empresa.</p>
-          <OQueMelhorar padroes={doPeriodo.melhorar ?? []} dias={doPeriodo.dias} />
+          <OQueMelhorar padroes={doPeriodo.melhorar ?? []} dias={doPeriodo.dias} aoMudar={() => carregar(dias)} />
         </>
       )}
       {/* A avaliação de regressão (F5.3) não depende do período nem das perguntas das lojas: aparece sempre, com o
