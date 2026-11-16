@@ -12,6 +12,7 @@ import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { MODULO_VAGAS, VagasService } from './vagas.service';
+import { VagasAvisoService } from './vagas-aviso.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -54,7 +55,10 @@ export class VagasPublicoController {
 @RequirePerm('candidatos')
 @RequireModulo(MODULO_VAGAS)
 export class VagasController {
-  constructor(private readonly vagas: VagasService) {}
+  constructor(
+    private readonly vagas: VagasService,
+    private readonly aviso: VagasAvisoService,
+  ) {}
 
   @Get('candidatos')
   lista(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
@@ -134,15 +138,32 @@ export class VagasController {
   }
 
   // F4b, parte 1: quem do banco de talentos pode ser avisado de uma função aberta (?funcao=chapeiro) e "Marquei como avisado".
+  // F4b parte 2 (mig 438): a leitura traz também por onde o aviso sai (a via do número de marketing) e quem já está na fila.
   @Get('banco/aviso')
-  avisoDoBanco(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null, @Query('funcao') funcao?: string) {
-    return this.vagas.avisoDoBanco(user.tenantId, unidade, funcao);
+  async avisoDoBanco(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null, @Query('funcao') funcao?: string) {
+    return this.aviso.comAFila(user.tenantId, unidade, await this.vagas.avisoDoBanco(user.tenantId, unidade, funcao));
   }
 
   @Post('banco/aviso')
   @HttpCode(200)
   marcarAvisado(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null, @Body() dto: any) {
     return this.vagas.marcarAvisado(user, unidade, dto);
+  }
+
+  // F4b parte 2: "Avisar pelo número de marketing" (a fila, uma por vez no ritmo das campanhas) e "Enviar o modelo à Meta".
+  @Post('banco/aviso/fila')
+  @HttpCode(200)
+  @Throttle({ default: { ttl: 60000, limit: 20 } })
+  avisarPeloMarketing(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null, @Body() dto: any) {
+    return this.aviso.enfileirar(user, unidade, dto);
+  }
+
+  @Post('banco/aviso/modelo')
+  @HttpCode(200)
+  @Roles('presidente', 'gerente')
+  @Throttle({ default: { ttl: 60000, limit: 5 } })
+  pedirModeloDaVaga(@CurrentUser() user: AuthUser) {
+    return this.aviso.pedirModelo(user);
   }
 
   @Post('qr')

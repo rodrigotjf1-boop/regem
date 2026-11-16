@@ -237,6 +237,23 @@ export const CATALOGO_RELACIONAMENTO: Array<{
       { tipo: 'optout', texto: 'Sair das ofertas' },
     ],
   },
+  //  • vaga_aberta — MARKETING (F4b parte 2 das vagas, mig 438; o texto do protótipo `mockups/regem-vagas-talentos.html`):
+  //    o aviso da vaga ao banco de talentos, pelo número de marketing. {{1}} primeiro nome · {{2}} a loja · {{3}} a função ·
+  //    {{4}} escala, horário e salário, como na Página de vagas. Os botões voltam como texto: "Tenho interesse" leva a
+  //    ficha para Em análise; "Não quero mais receber" é a saída (a mesma do SAIR). Pedido à Meta pela gaveta "Avisar o
+  //    banco de talentos" (Vagas e candidatos).
+  {
+    nome: 'vaga_aberta',
+    categoria: 'MARKETING',
+    cabecalho: '',
+    corpo: 'Olá, {{1}}! A {{2}} abriu vaga de {{3}} ({{4}}). Você deixou sua ficha no nosso banco de talentos. Quer participar da seleção?',
+    rodape: 'Responda SAIR para não receber mais.',
+    exemplo: ['Juliana', 'Burger da Praça', 'Chapeiro', '12x36, das 18h às 6h, R$ 1.900'],
+    botoes: [
+      { tipo: 'quick_reply', texto: 'Tenho interesse' },
+      { tipo: 'quick_reply', texto: 'Não quero mais receber' },
+    ],
+  },
 ];
 
 // Só os dígitos, para comparar telefone vindo em qualquer formato.

@@ -621,6 +621,53 @@ export function mensagemDoAviso(p: { nome: string; loja: string; funcao: string;
   );
 }
 
+// ── F4b parte 2 (mig 438): o aviso pelo número de marketing da loja ──────────────────────────────────────────────────
+
+/** O modelo da Meta do aviso (no `CATALOGO_RELACIONAMENTO` da API oficial). */
+export const MODELO_DA_VAGA = 'vaga_aberta';
+/** O ritmo das campanhas: uma mensagem por loja a cada N segundos (o Evolution, mais devagar, arrisca menos o número). */
+export const RITMO_DO_AVISO_S = { evolution: 20, oficial: 7 } as const;
+/** Quantas pessoas um pedido de aviso leva de uma vez. */
+export const AVISOS_POR_PEDIDO = 300;
+
+/** Os quatro parâmetros do modelo `vaga_aberta`: primeiro nome, a loja, a função e o detalhe da vaga. */
+export function parametrosDoModeloDaVaga(p: { nome: string; loja: string; funcao: string; detalhe: string }): string[] {
+  const primeiro = String(p.nome ?? '').trim().split(/\s+/)[0] || 'tudo bem';
+  return [primeiro, String(p.loja ?? '').trim() || 'loja', String(p.funcao ?? '').trim(), String(p.detalhe ?? '').trim() || 'detalhes na página de vagas'];
+}
+
+/**
+ * O texto do aviso pela conexão do Evolution (sem modelo e sem botões): o mesmo do modelo, com as duas respostas escritas
+ * — "Tenho interesse" e SAIR — que a entrada do número de marketing reconhece.
+ */
+export function mensagemDoAvisoPeloMarketing(p: { nome: string; loja: string; funcao: string; detalhe: string }): string {
+  const primeiro = String(p.nome ?? '').trim().split(/\s+/)[0] || '';
+  return (
+    `Olá${primeiro ? `, ${primeiro}` : ''}! A ${p.loja} abriu vaga de ${p.funcao}${p.detalhe ? ` (${p.detalhe})` : ''}. ` +
+    'Você deixou sua ficha no nosso banco de talentos. Quer participar da seleção?\n\n' +
+    'Responda *Tenho interesse* para participar, ou SAIR para não receber mais.'
+  );
+}
+
+/** Por onde o aviso sai agora (o bloco "Por onde sai" da gaveta, decisão 5 do protótipo). */
+export type ViaDoAviso = 'oficial_aprovado' | 'oficial_analise' | 'oficial_sem_modelo' | 'oficial_recusado' | 'evolution' | 'sem';
+
+/**
+ * A via, pelo número de marketing da loja e pela situação do modelo na Meta: sem número de marketing ligado → 'sem' (a
+ * parte 1, pelo WhatsApp de quem avisa); Evolution → 'evolution'; oficial → pela situação do `vaga_aberta`.
+ */
+export function viaDoAviso(n: { provedor: string | null; vinculado: boolean } | null, statusDoModelo: string | null): ViaDoAviso {
+  if (!n || !n.vinculado) return 'sem';
+  if (n.provedor === 'evolution') return 'evolution';
+  if (statusDoModelo === 'aprovado') return 'oficial_aprovado';
+  if (statusDoModelo === 'pendente') return 'oficial_analise';
+  if (statusDoModelo === 'rejeitado' || statusDoModelo === 'pausado') return 'oficial_recusado';
+  return 'oficial_sem_modelo';
+}
+
+/** A via deixa mandar pela fila? Só com o modelo aprovado ou pelo Evolution. */
+export const viaManda = (v: ViaDoAviso) => v === 'oficial_aprovado' || v === 'evolution';
+
 /**
  * Por que uma pessoa do banco de talentos NÃO recebe o aviso desta função — ou null (recebe). Na ordem: pediu para sair
  * das mensagens, nunca autorizou, já foi avisada desta função nos últimos 30 dias (com a data em que pode de novo).

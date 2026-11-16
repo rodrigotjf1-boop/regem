@@ -89,7 +89,7 @@ export class VagasService {
   ) {}
 
   // ── a loja como o candidato vê (a mesma do cardápio online: Configurações › Loja) ──────────────────────────────
-  private async lojaPublica(tenantId: string, unidadeId: string) {
+  async lojaPublica(tenantId: string, unidadeId: string) {
     const r: any = await this.db.execute(sql`
       select c.unidade_id is null as "daEmpresa", c.nome_publico as "nomePublico", c.logo_ref as "logoRef",
              c.logo_emoji as "logoEmoji", c.tema_config->>'corPrimaria' as "corPrimaria"
@@ -516,7 +516,7 @@ export class VagasService {
   // A página de vagas e os QR codes são de UMA loja. A loja em uso vazia é "todas as lojas" (presidente) OU a empresa de
   // loja única (o UnidadeUnicaInterceptor zera o filtro — V86): com uma loja só, é ela; com várias, pede para escolher.
   // A loja informada é conferida na empresa (um id que não é dela devolve 404, nunca erro de chave no banco).
-  private async lojaDosAjustes(tenantId: string, unidade: string | null): Promise<string> {
+  async lojaDosAjustes(tenantId: string, unidade: string | null): Promise<string> {
     if (unidade && !/^[0-9a-f-]{36}$/i.test(unidade)) throw new NotFoundException('Loja não encontrada.');
     const lojas = linhas(await this.db.execute(sql`
       select id from unidade
