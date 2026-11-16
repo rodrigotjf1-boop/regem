@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ehServidorLocal } from '../../common/modo';
 import { IaEmpresaService } from '../ia/ia-empresa.service';
@@ -7,6 +7,7 @@ import { EscopoDoMister, MisterFerramentasService } from './mister-ferramentas.s
 import { MisterFilaService, PerguntaNaFila, Trilha } from './mister-fila.service';
 import { FimDaPergunta, modeloDasPerguntas, responderComFerramentas } from './mister-laco';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
+import { MisterInstrucoesService } from './mister-instrucoes.service';
 import type { PropostaPendente } from './mister-propostas.service';
 
 export type { FimDaPergunta } from './mister-laco';
@@ -37,6 +38,8 @@ export class MisterAgenteService implements OnModuleInit {
     private readonly ferramentas: MisterFerramentasService,
     private readonly ia: IaEmpresaService,
     private readonly numero: MisterNumeroService,
+    // M2b (mig 435): as instruções NO AR (o código com as trocas publicadas). Sem o serviço, o texto do código.
+    @Optional() private readonly instrucoes?: MisterInstrucoesService,
   ) {}
 
   onModuleInit(): void {
@@ -183,9 +186,20 @@ export class MisterAgenteService implements OnModuleInit {
     // medidor dela, e as ferramentas no escopo que o servidor resolveu. F4.3: a proposta que uma ferramenta criou fica
     // de lado (não vai ao modelo) — quem chamou manda os botões depois da resposta.
     const propostas: PropostaPendente[] = [];
+    // M2b: o texto no ar. A leitura que falha não segura a resposta: vai o texto do código (e o log diz por quê).
+    const instrucoes = this.instrucoes
+      ? await this.instrucoes.noAr().then(
+          (i) => i.texto,
+          (e) => {
+            this.logger.warn(`mister: as instruções no ar não foram lidas, vai o texto do código — ${e?.message ?? e}`);
+            return undefined;
+          },
+        )
+      : undefined;
     const fim = await responderComFerramentas(
       {
         modelo: this.modelo(),
+        instrucoes,
         recurso: opcoes.recurso,
         conversa: blocoDaConversa(this.ferramentas.conversa(escopo)),
         pedir: (p) => this.ia.pedir(escopo.tenantId, p),

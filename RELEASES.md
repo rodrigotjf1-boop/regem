@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
+- **Mister — as instruções candidatas (16/11, M2b do protótipo `mockups/regem-mister-mentor-parte2.html` aprovado; mig 435
+  `@cloud-only` — tabela nova `mister_instrucao_troca`, da distribuição, sem `tenant_id`: o `sync-daemon` não muda).** Só
+  NUVEM (Console › Mister › Instruções): o Mentor propõe a troca de uma linha, a avaliação roda com ela, "Publicar" só sem
+  errada nova; o agente, os relatórios e a avaliação passam a usar o texto no ar (o do código com as trocas). Sem troca
+  publicada, nada muda. Nada a empacotar.
+
 - **Mister — a análise com IA da Segurança (16/11, S2 do protótipo `mockups/regem-mister-mentor-parte2.html` aprovado; mig
   434 `@cloud-only` — tabelas novas `mister_analise` e `mister_analise_proposta`, da distribuição, sem `tenant_id`: o
   `sync-daemon` não muda).** Só NUVEM (Console › Mister › Segurança): "Analisar os últimos 7 dias" pela chave da DMS, só

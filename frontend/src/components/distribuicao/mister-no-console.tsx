@@ -5,6 +5,8 @@ import { distApi } from '@/lib/api';
 import { abrirCadastroDaMeta } from '@/lib/meta-sdk';
 import { QualidadeDoMister } from '@/components/distribuicao/qualidade-do-mister';
 import { SegurancaDoMister } from '@/components/distribuicao/seguranca-do-mister';
+import { InstrucoesDoMister } from '@/components/distribuicao/instrucoes-do-mister';
+import { Confirmar } from '@/components/distribuicao/confirmar-no-console';
 
 // Console da distribuição → aba "Mister" (mig 417; só Diretoria). Protótipo aprovado: `mockups/regem-mister.html`, aba
 // "Console da distribuição". Três blocos: o NÚMERO do Mister (um só, da distribuição, para todas as empresas), a CHAVE
@@ -99,53 +101,7 @@ const NEUTRO = `${BOTAO} border border-slate-600 text-slate-100 hover:bg-slate-8
 const PERIGO = `${BOTAO} border border-red-500/60 text-red-200 hover:bg-red-500/10`;
 const CARTAO = 'rounded-xl border border-slate-800 bg-slate-900/40 p-4';
 
-/** Confirmação de ação que vale para todas as empresas. Esc e "Cancelar" fecham; o foco começa em "Cancelar". */
-function Confirmar(p: { titulo: string; texto: string; acao: string; ocupado: boolean; onConfirmar: () => void; onFechar: () => void }) {
-  const idT = useId();
-  const idD = useId();
-  const cancelar = useRef<HTMLButtonElement>(null);
-  const confirmar = useRef<HTMLButtonElement>(null);
-  const { onFechar } = p;
-  useEffect(() => {
-    const antes = document.activeElement as HTMLElement | null;
-    cancelar.current?.focus();
-    const tecla = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onFechar();
-      } else if (e.key === 'Tab') {
-        // Só há dois botões: o Tab alterna entre eles e não sai do diálogo.
-        e.preventDefault();
-        (document.activeElement === cancelar.current ? confirmar : cancelar).current?.focus();
-      }
-    };
-    document.addEventListener('keydown', tecla, true);
-    return () => {
-      document.removeEventListener('keydown', tecla, true);
-      antes?.focus?.();
-    };
-  }, [onFechar]);
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/80 p-4" onMouseDown={(e) => e.target === e.currentTarget && onFechar()}>
-      <div role="alertdialog" aria-modal="true" aria-labelledby={idT} aria-describedby={idD} className="w-full max-w-md rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-xl">
-        <h3 id={idT} className="text-base font-semibold text-slate-100">
-          {p.titulo}
-        </h3>
-        <p id={idD} className="mt-2 text-sm text-slate-300">
-          {p.texto}
-        </p>
-        <div className="mt-5 flex flex-wrap justify-end gap-2">
-          <button ref={cancelar} type="button" className={NEUTRO} onClick={onFechar}>
-            Cancelar
-          </button>
-          <button ref={confirmar} type="button" className={PERIGO} disabled={p.ocupado} onClick={p.onConfirmar}>
-            {p.acao}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+// A confirmação das ações que valem para todas as empresas mora em `confirmar-no-console.tsx` (as instruções também usam).
 
 export function MisterNoConsole() {
   const idBusca = useId();
@@ -596,6 +552,9 @@ export function MisterNoConsole() {
       <QualidadeDoMister />
 
       <SegurancaDoMister />
+
+      {/* M2b (mig 435): as instruções candidatas — a troca de linha só se publica com a avaliação sem errada nova. */}
+      <InstrucoesDoMister />
 
       {dialogo === 'desconectar' && (
         <Confirmar

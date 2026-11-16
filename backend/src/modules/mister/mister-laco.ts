@@ -29,6 +29,8 @@ export interface PortasDoLaco {
   recurso?: string;
   /** O bloco "Esta conversa", já montado (`blocoDaConversa`). */
   conversa: string;
+  /** M2b (mig 435): o texto das instruções no ar (o do código com as trocas publicadas) ou o da candidata; sem ele, o do código. */
+  instrucoes?: string;
   pedir(p: PedidoDeIa): Promise<RespostaDaIa>;
   executar(nome: unknown, entrada: unknown): Promise<ResultadoDaFerramenta>;
 }
@@ -47,7 +49,7 @@ export async function responderComFerramentas(portas: PortasDoLaco, memoria: Tro
   // As instruções fixas levam a marca de cache (as ferramentas, que vêm antes delas, entram no mesmo trecho); o
   // bloco da conversa muda de pessoa para pessoa e fica depois da marca.
   const system = [
-    { type: 'text', text: INSTRUCOES_DO_MISTER, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: portas.instrucoes ?? INSTRUCOES_DO_MISTER, cache_control: { type: 'ephemeral' } },
     { type: 'text', text: portas.conversa },
   ];
   const messages: Array<{ role: 'user' | 'assistant'; content: any }> = [];
