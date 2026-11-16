@@ -1,3 +1,4 @@
+import { ehServidorLocal } from '../../common/modo';
 import { PREFIXO_BALCAO, PREFIXO_DELIVERY, rotuloSenha } from '../../common/senha-origem';
 import {
   JUSTIFICATIVA_CUPOM_NAO_IMPRESSO,
@@ -323,7 +324,7 @@ export class VendasService {
     // o chamador passa `ator` (fluxos de venda); aberturas/leituras internas não.
     if (
       ator &&
-      process.env.EDGE_MODE !== 'true' &&
+      !ehServidorLocal() &&
       ator.categoria !== 'presidente' &&
       s.abertaPorId &&
       s.abertaPorId !== ator.id

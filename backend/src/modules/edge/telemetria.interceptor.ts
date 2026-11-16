@@ -1,3 +1,4 @@
+import { ehServidorLocal } from '../../common/modo';
 import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
@@ -11,7 +12,7 @@ import { createHash } from 'crypto';
  */
 @Injectable()
 export class TelemetriaInterceptor implements NestInterceptor {
-  private readonly isEdge = String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
+  private readonly isEdge = ehServidorLocal();
   private readonly cloud = (process.env.CLOUD_API ?? '').replace(/\/$/, '');
   private readonly token = process.env.SYNC_TOKEN ?? '';
   private readonly enviados = new Map<string, number>();

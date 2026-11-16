@@ -1,3 +1,4 @@
+import { ehServidorLocal } from '../../../common/modo';
 import { Injectable, Logger } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { FalhasDoPoller } from '../../../common/falhas-do-poller';
@@ -23,7 +24,7 @@ export class Food99Poller {
 
   @Interval(30000)
   async tick() {
-    if (String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true') return;
+    if (ehServidorLocal()) return;
     if (this.rodando) return; // evita sobreposição
     this.rodando = true;
     try {

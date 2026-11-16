@@ -1,3 +1,4 @@
+import { ehServidorLocal } from '../../common/modo';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { sql } from 'drizzle-orm';
@@ -24,7 +25,7 @@ import { VendasService } from './vendas.service';
 export class EdgeImpressaoProcessor {
   private readonly logger = new Logger('EdgeImpressao');
   private rodando = false;
-  private readonly isEdge = String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
+  private readonly isEdge = ehServidorLocal();
   // F2 (roteamento por loja): setada → só imprime as comandas DESTA unidade. Vazia → tenant-wide.
   private readonly unidadeId = (process.env.EDGE_UNIDADE_ID || '').trim() || null;
 

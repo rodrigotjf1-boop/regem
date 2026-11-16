@@ -1,3 +1,4 @@
+import { ehServidorLocal } from '../../common/modo';
 import {
   CallHandler,
   ExecutionContext,
@@ -34,7 +35,7 @@ export class LicenseInterceptor implements NestInterceptor {
       return next.handle();
     }
 
-    const isEdge = String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
+    const isEdge = ehServidorLocal();
     let ativa: boolean;
 
     if (isEdge) {

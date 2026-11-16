@@ -1,3 +1,4 @@
+import { ehServidorLocal } from './common/modo';
 import { HttpAdapterHost, NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { Logger, ValidationPipe } from '@nestjs/common';
@@ -125,7 +126,7 @@ async function bootstrap() {
   // produção nuvem; sem a var (dev) libera todas.
   // Auth é por Bearer (header), não cookie → CORS aberto não vaza sessão; ainda
   // assim, na NUVEM o correto é a lista fixa dos seus domínios (o '*' é só p/ edge).
-  const ehEdgeMode = process.env.EDGE_MODE === 'true';
+  const ehEdgeMode = ehServidorLocal();
   if (isProd && !ehEdgeMode && corsOrigin?.trim() === '*') {
     // eslint-disable-next-line no-console
     console.warn(

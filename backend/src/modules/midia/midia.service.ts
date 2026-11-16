@@ -1,3 +1,4 @@
+import { ehServidorLocal } from '../../common/modo';
 import {
   BadRequestException,
   Injectable,
@@ -68,7 +69,7 @@ export class MidiaService {
   }
 
   private ehEdge(): boolean {
-    return String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
+    return ehServidorLocal();
   }
 
   temNuvem(): boolean {
