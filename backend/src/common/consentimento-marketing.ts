@@ -13,6 +13,17 @@ import { chaveTelefone, sqlChaveTelefone, telefoneCadastro } from './telefone-ch
 // A comparação é pela CHAVE do telefone (`chaveTelefone`: sem 55, sem formatação, com o nono
 // dígito) — o WhatsApp manda muitos números SEM o 9 e o cadastro tem COM (ERR-134).
 
+/**
+ * A palavra de SAÍDA das ofertas, a MESMA nas duas entradas (API oficial e Evolution) e nos dois números (o principal e o
+ * de marketing): SAIR, PARAR… e os botões "Sair das ofertas" (o opt-out dos modelos) e "Não quero mais receber" (o aviso
+ * de vaga). "cancelar" NÃO: no delivery é o cliente querendo cancelar o PEDIDO (ERR-317).
+ */
+export const PEDE_SAIDA = /^(sair|parar|stop|descadastrar|sair das ofertas|parar ofertas|n[aã]o quero (mais )?receber)\.?$/;
+/** A palavra de VOLTA às ofertas. */
+export const PEDE_VOLTA = /^(voltar|voltei|receber)\.?$/;
+export const TEXTO_SAIU = 'Pronto ✅ Você não vai mais receber ofertas e campanhas nossas. Se foi engano e quiser voltar a receber, responda VOLTAR.';
+export const TEXTO_VOLTOU = 'Feito! Você voltou a receber nossas ofertas e novidades 🎉';
+
 export type OrigemConsentimento =
   | 'cardapio_checkout'
   | 'cardapio_checkout_marcada' // a caixinha que já vinha marcada (não é um 'sim' clicado)

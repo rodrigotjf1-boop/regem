@@ -266,13 +266,20 @@ export class WhatsappService {
     return { cfg, instancia };
   }
 
-  // Conecta o número de marketing e devolve o QR. NÃO seta webhook (é só envio).
+  // Conecta o número de marketing e devolve o QR. Ele só ENVIA (o robô não responde por ele), mas a resposta SAIR/VOLTAR a
+  // uma campanha tem de chegar: com a entrada pelo Regem (EVOLUTION_PELO_REGEM), o webhook da instância aponta para a porta
+  // assinada do Regem, só com as mensagens — a entrada trata só a saída e a volta. Pelo n8n, sem webhook (o robô de lá
+  // responderia pelo número de marketing). "Conectar" de novo reaponta a instância que já existia.
   async conectarMarketing(tenantId: string) {
     const { cfg, instancia } = await this.instanciaMkt(tenantId);
+    const webhook = this.webhookDaInstancia(instancia);
+    const peloRegem = !!webhook && 'headers' in webhook;
+    const gancho = peloRegem ? { enabled: true, ...webhook, byEvents: false, base64: false, events: ['MESSAGES_UPSERT'] } : null;
     await this.req('/instance/create', {
       method: 'POST',
-      body: JSON.stringify({ instanceName: instancia, qrcode: true, integration: 'WHATSAPP-BAILEYS' }),
+      body: JSON.stringify({ instanceName: instancia, qrcode: true, integration: 'WHATSAPP-BAILEYS', ...(gancho ? { webhook: gancho } : {}) }),
     }).catch(() => {});
+    if (gancho) await this.req(`/webhook/set/${instancia}`, { method: 'POST', body: JSON.stringify({ webhook: gancho }) }).catch(() => {});
     if (cfg.marketingInstancia !== instancia) {
       await this.db
         .update(cardapioConfig)
