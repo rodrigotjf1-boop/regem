@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
+- **A ponte do chat repete a gravação quando o banco acusa impasse (16/11, ERR-481; SEM migration).** A transação do
+  `receber` (as falas do iFood/99 e o caso) é idempotente e passa a repetir inteira em 40P01/40001
+  (`common/repetir-no-impasse.ts`), em vez de devolver 500 à ponte. O controlador da ponte é da nuvem (`@CloudOnly`):
+  vale com o merge; nada a empacotar.
+
 - **Mister — o segredo tirado da resposta vira aviso ao suporte da DMS (16/11, decisão 4 do protótipo
   `mockups/regem-mister-sentinela-mentor.html` aprovado; SEM migration).** Só NUVEM: um tipo de aviso SÓ DA DISTRIBUIÇÃO
   (`segredo_na_resposta`, regra fixa com o destino `dms`), aberto por 24 horas para cada pergunta cuja resposta o filtro
