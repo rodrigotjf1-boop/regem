@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
+- **Mister — a conexão por QR Code no console e o número novo (16/11, Q2 e Q3 do protótipo `mockups/regem-mister-qr.html`
+  aprovado; mig 437 `@cloud-only` — oito colunas na `mister_numero`, da distribuição, sem `tenant_id`: o `sync-daemon` não
+  muda).** Só NUVEM (Console › Mister › "Como o Mister fala no WhatsApp"): o aceite do risco, o QR do Evolution da
+  distribuição, conectado / caiu / bloqueado, a troca de forma e o "este é o novo número do Mister" para quem está ligado.
+  A forma só vira o QR quando o celular conecta. Nada a empacotar.
+
 - **Mister — a porta do provedor do número (16/11, Q1 do protótipo `mockups/regem-mister-qr.html` aprovado; mig 436
   `@cloud-only` — três colunas na `mister_numero`, da distribuição, sem `tenant_id`: o `sync-daemon` não muda).** Só NUVEM:
   o número do Mister pode falar pelo Evolution da distribuição (texto, botões numerados, link escrito, 20/min), a entrada

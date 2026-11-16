@@ -6,6 +6,8 @@ import { IaEmpresaService } from '../ia/ia-empresa.service';
 import { custoEstimadoUsd, periodoDoUso } from '../ia/ia.regras';
 import { Autor, MisterNumeroService } from './mister-numero.service';
 import { SituacaoDaEmpresa, situacaoDaEmpresa } from './mister.regras';
+import { TEXTO_DO_ACEITE, VERSAO_DO_ACEITE } from './mister-qr';
+import { assinaturaDaInstancia } from '../../common/segredo-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -58,6 +60,20 @@ export class MisterConsoleService {
         ultimaEntradaEm: n.ultimaEntradaEm,
         qualidade: meta.qualidade,
         avisosPorDia: meta.avisosPorDia,
+      },
+      // Q2 (mig 437): a forma em uso e a conexão por QR Code (o celular no Evolution da distribuição). Sem o nome da
+      // instância nem a assinatura: só a situação, o número do celular e o aceite.
+      provedor: n.provedor,
+      qr: {
+        pronto: this.numero.evolutionPronto(assinaturaDaInstancia('conferencia')),
+        situacao: n.instanciaSituacao,
+        motivo: n.instanciaMotivo,
+        numero: n.instanciaNumero,
+        situacaoEm: n.instanciaSituacaoEm,
+        conectadoEm: n.instanciaConectadaEm,
+        aceite: n.aceite,
+        textoDoAceite: TEXTO_DO_ACEITE,
+        versaoDoAceite: VERSAO_DO_ACEITE,
       },
       liberado: n.ligado,
       cadastro: this.numero.cadastroNaMeta(),

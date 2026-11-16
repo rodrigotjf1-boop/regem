@@ -29,6 +29,13 @@ const conectado = (forma = 'coexistencia') => ({
   avisosPorDia: 2000,
 });
 const CAIU = { ...conectado(), situacao: 'caiu', motivo: 'Object with ID does not exist', situacaoEm: '2026-11-10T09:00:00Z', qualidade: null, avisosPorDia: null };
+// Q2 (mig 437): a conexão por QR Code. O texto do aceite é o do servidor (`mister-qr.ts`); a imagem, um PNG de 1 ponto.
+const TEXTO_DO_ACEITE =
+  'O WhatsApp não autoriza conexões fora da API oficial. O número pode ser bloqueado sem aviso, sobretudo se mandar mensagem para quem não falou com ele. O Mister só fala com quem ligou o próprio telefone (com o código de 10 minutos), o que reduz esse risco, mas não o elimina.\nUse um número só para o Mister, num celular que fique na distribuição, ligado e com internet.';
+const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+const QR = (o = {}) => ({ pronto: true, situacao: 'sem', motivo: null, numero: null, situacaoEm: null, conectadoEm: null, aceite: null, textoDoAceite: TEXTO_DO_ACEITE, versaoDoAceite: 'v1', ...o });
+const ACEITE = { por: 'Rodrigo', em: '2026-11-15T21:38:00-03:00', versao: 'v1' };
+const QR_CONECTADO = (o = {}) => QR({ situacao: 'conectado', numero: '5521900001111', conectadoEm: '2026-11-15T21:40:00-03:00', situacaoEm: '2026-11-15T21:40:00-03:00', aceite: ACEITE, ...o });
 const EMPRESAS = [
   { tenantId: 'a', nome: 'Burger da Praça', modulo: true, ia: { origem: 'propria', provedor: 'anthropic' }, pessoas: 3, usoUsd: 10.23, situacao: 'funcionando', motivo: null },
   { tenantId: 'b', nome: 'Pizzaria do Porto', modulo: true, ia: { origem: 'propria', provedor: 'anthropic' }, pessoas: 1, usoUsd: 2.1, situacao: 'ia_parada', motivo: 'sem_credito' },
@@ -264,8 +271,12 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
       instrucoes: o.instrucoes ?? INSTRUCOES(),
       leiturasAvaliando: 0,
       falhaDasAvaliacoes: !!o.falhaDasAvaliacoes,
+      provedor: o.provedor ?? 'oficial',
+      qr: o.qr ?? QR(),
+      conferidas: 0,
       pedidos: [],
     };
+    const qrNaResposta = () => ({ provedor: S.provedor, situacao: S.qr.situacao, motivo: S.qr.motivo, numero: S.qr.numero, situacaoEm: S.qr.situacaoEm, conectadoEm: S.qr.conectadoEm, aceite: S.qr.aceite });
     const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
     await ctx.addInitScript(
       ({ jwt, fecha }) => {
@@ -294,7 +305,33 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
       if (p === '/distribuicao/me') return responder(route, { sub: 'u1', nome: 'Rodrigo', perfil: JSON.parse(Buffer.from((o.token ?? DIRETORIA).split('.')[1], 'base64url').toString()).perfil });
       if (p === '/distribuicao/mister' && metodo === 'GET') {
         if (S.falha) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
-        return responder(route, { numero: S.numero, liberado: S.liberado, cadastro: o.cadastro ?? CADASTRO });
+        return responder(route, { numero: S.numero, liberado: S.liberado, cadastro: o.cadastro ?? CADASTRO, provedor: S.provedor, qr: S.qr });
+      }
+      if (p === '/distribuicao/mister/qr/aceite') {
+        S.qr = { ...S.qr, aceite: { ...ACEITE, versao: JSON.parse(req.postData()).versao } };
+        return responder(route, qrNaResposta(), 201);
+      }
+      if (p === '/distribuicao/mister/qr/gerar') {
+        if (o.falhaDoQr) return responder(route, { statusCode: 503, message: o.falhaDoQr }, 503);
+        if (JSON.parse(req.postData()).outroNumero) S.qr = { ...S.qr, numero: null };
+        S.qr = { ...S.qr, situacao: 'conectando', motivo: null };
+        return responder(route, { ...qrNaResposta(), qr: { imagem: PNG, codigo: null } }, 201);
+      }
+      if (p === '/distribuicao/mister/qr/conferir') {
+        S.conferidas += 1;
+        if (o.conectaNa && S.conferidas >= o.conectaNa) {
+          S.qr = { ...S.qr, situacao: 'conectado', numero: '5521900001111', conectadoEm: '2026-11-16T10:00:00-03:00', situacaoEm: '2026-11-16T10:00:00-03:00' };
+          S.provedor = 'evolution';
+        }
+        return responder(route, qrNaResposta(), 201);
+      }
+      if (p === '/distribuicao/mister/qr/trocar') {
+        S.provedor = JSON.parse(req.postData()).para === 'qr' ? 'evolution' : 'oficial';
+        return responder(route, qrNaResposta(), 201);
+      }
+      if (p === '/distribuicao/mister/qr/desconectar') {
+        S.qr = { ...S.qr, situacao: 'sem', numero: null, motivo: null };
+        return responder(route, qrNaResposta(), 201);
       }
       if (p === '/distribuicao/mister/empresas') {
         if (S.falhaDaLista) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
@@ -1099,6 +1136,155 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
     const t = (await sec.innerText()).replace(/\s+/g, ' ');
     ok(/o texto do código · sem avaliação inteira ainda/.test(t) && /A versão no ar ainda não tem uma avaliação inteira/.test(t) && /1 troca publicada não se aplica mais/.test(t) && /Nenhuma: no ar está o texto do código\./.test(t), `M2b: sem avaliação da versão no ar e com a troca quebrada (${t.slice(0, 260)})`);
     ok(erros.length === 0, `M2b sem base: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+
+  // ── Q2: a conexão por QR Code — o aceite antes do 1º QR, o QR na tela, conectado (a forma vira o QR) e a volta ──
+  {
+    const { ctx, page, erros, S } = await abrir(1280, 900, { numero: conectado(), liberado: true, conectaNa: 2 });
+    await naAba(page);
+    const sec = page.locator('section[aria-labelledby="mister-forma"]');
+    await sec.waitFor({ timeout: 20000 });
+    const opcao = (t) => sec.locator(`button[aria-pressed]:has-text("${t}")`);
+    ok((await opcao('API oficial da Meta').getAttribute('aria-pressed')) === 'true' && /em uso/.test(await opcao('API oficial da Meta').innerText()), 'Q2: abre na forma em uso (a API oficial), com "em uso"');
+    await opcao('Conexão por QR Code').click();
+    await sec.locator('[data-qr="antes"]').waitFor();
+    const antes = (await sec.innerText()).replace(/\s+/g, ' ');
+    ok(/não autoriza conexões fora da API oficial/.test(antes) && /Use um número só para o Mister/.test(antes), 'Q2: o texto do aceite é o do servidor');
+    const gerar = sec.locator('button:has-text("Gerar o QR Code")');
+    ok(await gerar.isDisabled(), 'Q2: sem o aceite, "Gerar o QR Code" fica travado');
+    await sec.locator('input[type="checkbox"]').check();
+    ok(await gerar.isEnabled(), 'Q2: marcar o aceite libera o botão');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/distribuicao/mister/qr/gerar')), gerar.click()]);
+    ok(JSON.stringify(feitos(S, 'POST', '/distribuicao/mister/qr/aceite')[0]?.corpo) === JSON.stringify({ aceito: true, versao: 'v1' }), 'Q2: o aceite vai antes, com a versão do texto');
+    ok(JSON.stringify(feitos(S, 'POST', '/distribuicao/mister/qr/gerar')[0]?.corpo) === JSON.stringify({ outroNumero: false, renovar: false }), 'Q2: o QR é pedido para o mesmo número, sem renovar');
+    await sec.locator('[data-qr="na-tela"] img[alt="QR Code para conectar o número do Mister"]').waitFor();
+    ok(/Até o celular conectar, o Mister segue falando pela API oficial/.test(await sec.innerText()), 'Q2: com o QR na tela, a oficial segue (a troca é ao conectar)');
+    await sec.locator('#forma-aviso:has-text("Conectado. O Mister passou a falar por este número")').waitFor({ timeout: 15000 });
+    await sec.locator('[data-qr="conectado"]').waitFor({ timeout: 10000 });
+    const ligado = (await sec.innerText()).replace(/\s+/g, ' ');
+    ok(/\+55 21 90000-1111/.test(ligado) && /Conexão por QR Code/.test(ligado) && /até 20 por minuto/.test(ligado) && /Rodrigo · .* · texto v1/.test(ligado), `Q2: conectado — o número do celular, o ritmo e o aceite (${ligado.slice(0, 200)})`);
+    ok(feitos(S, 'GET', '/distribuicao/mister').length >= 2 && (await page.locator('[data-oficial="fora-de-uso"]').count()) === 1, 'Q2: ao conectar, o painel é relido e a oficial aparece fora de uso');
+    ok(/em uso/.test(await opcao('Conexão por QR Code').innerText()) && !/em uso/.test(await opcao('API oficial da Meta').innerText()), 'Q2: "em uso" passa para a conexão por QR Code');
+    // a volta para a API oficial: confirmação, Esc cancela sem chamada
+    await sec.locator('button:has-text("Trocar para a API oficial")').click();
+    const dialogo = page.locator('[role="alertdialog"]');
+    await dialogo.waitFor();
+    ok(/Ninguém precisa ligar de novo/.test(await dialogo.innerText()), 'Q2: trocar para a oficial — o diálogo diz que ninguém liga de novo');
+    await page.keyboard.press('Escape');
+    await dialogo.waitFor({ state: 'detached' });
+    ok(feitos(S, 'POST', '/distribuicao/mister/qr/trocar').length === 0, 'Q2: Esc cancela a troca, sem chamada');
+    await sec.locator('button:has-text("Trocar para a API oficial")').click();
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/distribuicao/mister/qr/trocar')), dialogo.locator('button:has-text("Trocar")').click()]);
+    ok(JSON.stringify(feitos(S, 'POST', '/distribuicao/mister/qr/trocar')[0]?.corpo) === JSON.stringify({ para: 'oficial' }), 'Q2: a troca manda "para: oficial"');
+    await sec.locator('#forma-aviso:has-text("Forma trocada para a API oficial")').waitFor();
+    ok((await opcao('API oficial da Meta').getAttribute('aria-pressed')) === 'true' && /em uso/.test(await opcao('API oficial da Meta').innerText()), 'Q2: depois da troca, a oficial em uso');
+    // e de volta ao QR com o celular ainda conectado: o botão pede confirmação e troca na hora
+    await sec.locator('[data-qr="oficial"] button:has-text("Trocar para a conexão por QR Code")').click();
+    await dialogo.waitFor();
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/distribuicao/mister/qr/trocar')), dialogo.locator('button:has-text("Trocar")').click()]);
+    ok(JSON.stringify(feitos(S, 'POST', '/distribuicao/mister/qr/trocar')[1]?.corpo) === JSON.stringify({ para: 'qr' }), 'Q2: com o celular conectado, a troca para o QR é direta');
+    // desconectar o celular
+    await sec.locator('button:has-text("Desconectar")').click();
+    await dialogo.waitFor();
+    ok(/para de falar pelo WhatsApp em todas as empresas/.test(await dialogo.innerText()), 'Q2: desconectar com o QR em uso diz que o Mister para de falar');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/distribuicao/mister/qr/desconectar')), dialogo.locator('button:has-text("Desconectar")').click()]);
+    await sec.locator('[data-qr="antes"]').waitFor();
+    ok(/Aceite do risco: Rodrigo/.test(await sec.innerText()) && (await sec.locator('input[type="checkbox"]').count()) === 0, 'Q2: desconectado — o aceite que vale não é pedido de novo');
+    ok(erros.length === 0, `Q2: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  {
+    // o QR troca a cada 20 s sem refazer o aceite nem a instância (renovar)
+    const { ctx, page, erros, S } = await abrir(1280, 900, { numero: conectado(), liberado: true, qr: QR({ aceite: ACEITE }) });
+    await naAba(page);
+    const sec = page.locator('section[aria-labelledby="mister-forma"]');
+    await sec.locator('button[aria-pressed]:has-text("Conexão por QR Code")').click();
+    ok((await sec.locator('input[type="checkbox"]').count()) === 0 && /Aceite do risco: Rodrigo/.test(await sec.innerText()), 'Q2: com o aceite de agora, a caixa não aparece');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/distribuicao/mister/qr/gerar')), sec.locator('button:has-text("Gerar o QR Code")').click()]);
+    ok(feitos(S, 'POST', '/distribuicao/mister/qr/aceite').length === 0, 'Q2: com o aceite de agora, nada de aceite de novo');
+    await page.waitForResponse((r) => r.url().endsWith('/distribuicao/mister/qr/gerar'), { timeout: 30000 });
+    const pedidos = feitos(S, 'POST', '/distribuicao/mister/qr/gerar');
+    ok(pedidos.length === 2 && pedidos[1].corpo.renovar === true && pedidos[1].corpo.outroNumero === false, `Q2: depois de 20 s, um QR novo com "renovar" (${JSON.stringify(pedidos.map((x) => x.corpo))})`);
+    ok(feitos(S, 'POST', '/distribuicao/mister/qr/conferir').length >= 5, 'Q2: enquanto o QR está na tela, a conexão é conferida a cada 3 s');
+    await sec.locator('button:has-text("Cancelar")').click();
+    await sec.locator('[data-qr="antes"]').waitFor();
+    const n = feitos(S, 'POST', '/distribuicao/mister/qr/conferir').length;
+    await page.waitForTimeout(4000);
+    ok(feitos(S, 'POST', '/distribuicao/mister/qr/conferir').length === n, 'Q2: "Cancelar" para de conferir');
+    ok(erros.length === 0, `Q2 renovar: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  {
+    // bloqueado pelo WhatsApp: conectar OUTRO número; a oficial não conectada trava a volta e explica
+    const { ctx, page, erros, S } = await abrir(1280, 900, {
+      numero: SEM,
+      provedor: 'evolution',
+      qr: QR_CONECTADO({ situacao: 'bloqueado', motivo: 'O WhatsApp bloqueou este número.', situacaoEm: '2026-11-15T23:40:00-03:00' }),
+    });
+    await naAba(page);
+    const sec = page.locator('section[aria-labelledby="mister-forma"]');
+    await sec.locator('[data-qr="bloqueado"]').waitFor({ timeout: 20000 });
+    const t = (await sec.innerText()).replace(/\s+/g, ' ');
+    ok(/bloqueado pelo WhatsApp/i.test(t) && /\+55 21 90000-1111/.test(t) && /pedido de revisão/.test(t), 'Q2: bloqueado — o número, a data e o caminho da revisão');
+    ok(await sec.locator('button:has-text("Trocar para a API oficial")').isDisabled() && /pede o número oficial conectado/.test(t), 'Q2: sem a oficial conectada, a volta trava e explica');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/distribuicao/mister/qr/gerar')), sec.locator('button:has-text("Conectar outro número")').click()]);
+    ok(JSON.stringify(feitos(S, 'POST', '/distribuicao/mister/qr/gerar')[0]?.corpo) === JSON.stringify({ outroNumero: true, renovar: false }), 'Q2: "Conectar outro número" pede o QR de um número novo');
+    await sec.locator('[data-qr="na-tela"]').waitFor();
+    ok(!/segue falando pela API oficial/.test(await sec.innerText()), 'Q2: com o QR em uso, a tela não promete a oficial');
+    ok(erros.length === 0, `Q2 bloqueado: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  {
+    // o celular que caiu, o Evolution não configurado e a recusa do servidor
+    const { ctx, page } = await abrir(1280, 900, { numero: conectado(), provedor: 'evolution', qr: QR_CONECTADO({ situacao: 'caiu', motivo: 'O celular saiu da conta (desconectado no aparelho).', situacaoEm: '2026-11-15T23:10:00-03:00' }) });
+    await naAba(page);
+    const sec = page.locator('section[aria-labelledby="mister-forma"]');
+    await sec.locator('[data-qr="caiu"]').waitFor({ timeout: 20000 });
+    const t = (await sec.innerText()).replace(/\s+/g, ' ');
+    ok(/A conexão caiu em .*: o celular saiu da conta/.test(t) && /nada sai até conectar de novo/.test(t) && (await sec.locator('button:has-text("Trocar para a API oficial")').isEnabled()), `Q2: caiu — a data, o motivo, a consequência e a volta liberada (${t.slice(0, 160)})`);
+    await ctx.close();
+  }
+  {
+    const { ctx, page } = await abrir(1280, 900, { qr: QR({ pronto: false }) });
+    await naAba(page);
+    const sec = page.locator('section[aria-labelledby="mister-forma"]');
+    await sec.locator('button[aria-pressed]:has-text("Conexão por QR Code")').click();
+    await sec.locator('text=não está configurado neste servidor').waitFor();
+    ok((await sec.locator('button:has-text("Gerar o QR Code")').count()) === 0, 'Q2: sem o Evolution configurado, avisa e não oferece o QR');
+    await ctx.close();
+  }
+  {
+    const { ctx, page } = await abrir(1280, 900, { qr: QR({ aceite: ACEITE }), falhaDoQr: 'O Evolution não respondeu como esperado: o Evolution não devolveu o QR Code.' });
+    await naAba(page);
+    const sec = page.locator('section[aria-labelledby="mister-forma"]');
+    await sec.locator('button[aria-pressed]:has-text("Conexão por QR Code")').click();
+    await sec.locator('button:has-text("Gerar o QR Code")').click();
+    await sec.locator('[role="alert"]:has-text("O Evolution não respondeu como esperado")').waitFor();
+    ok((await sec.locator('[data-qr="antes"]').count()) === 1, 'Q2: a recusa do servidor aparece e a tela segue antes do QR');
+    await ctx.close();
+  }
+
+  // ── Q2 em cada largura: o aceite (texto comprido), o QR na tela e conectado, nada fora da janela nem esmagado ──
+  for (const w of larguras) {
+    const { ctx, page, erros } = await abrir(w, w < 700 ? 820 : 900, { numero: conectado(), liberado: true, qr: QR({ aceite: ACEITE }) });
+    await naAba(page);
+    const sec = page.locator('section[aria-labelledby="mister-forma"]');
+    await sec.locator('button[aria-pressed]:has-text("Conexão por QR Code")').click();
+    await sec.locator('[data-qr="antes"]').waitFor({ timeout: 20000 });
+    let m = await medir(page);
+    let e = await esmagados(page, 'section[aria-labelledby="mister-forma"]');
+    ok(m.length === 0 && e.length === 0, `${w}px Q2: antes do QR — tudo na tela e legível (${[...m, ...e].slice(0, 3).join(' | ')})`);
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/distribuicao/mister/qr/gerar')), sec.locator('button:has-text("Gerar o QR Code")').click()]);
+    await sec.locator('[data-qr="na-tela"]').waitFor();
+    m = await medir(page);
+    e = await esmagados(page, 'section[aria-labelledby="mister-forma"]');
+    ok(m.length === 0 && e.length === 0, `${w}px Q2: o QR na tela — tudo na tela e legível (${[...m, ...e].slice(0, 3).join(' | ')})`);
+    if ([320, 375, 768, 1440].includes(w)) {
+      await sec.scrollIntoViewIfNeeded();
+      await sec.screenshot({ path: foto(`${w}-qr-na-tela.png`) });
+    }
+    ok(erros.length === 0, `${w}px Q2: sem erro (${erros.join(' | ')})`);
     await ctx.close();
   }
 

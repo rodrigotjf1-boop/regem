@@ -960,6 +960,26 @@ fase inteira:
      "disponível" e o número que se salva passam por uma regra só (`numeroDisponivel`, `numeroEmUso`). Nasce na API
      oficial: nada muda até a Diretoria trocar (Q2). O provedor é lido pelo `to_jsonb`: sem as colunas, o número segue na
      API oficial.
+   - **Q2 e Q3 implementadas (16/11/2026, mig 437): o console e o número novo.** ⚠️ Divergência do protótipo: a Q2 previa
+     "sem migration", mas o estado da conexão por QR ganhou colunas PRÓPRIAS na `mister_numero` (`instancia_situacao` sem |
+     conectando | conectado | caiu | bloqueado, `instancia_motivo`, `instancia_situacao_em`, `instancia_conectada_em`, o
+     aceite em `aceite_por`/`aceite_em`/`aceite_versao` e `numero_anunciado`) — reusar `situacao`/`motivo`/`numero` da API
+     oficial apagaria o que ela sabe na volta. `MisterQrService` (só Diretoria, só nuvem; rotas `POST
+     distribuicao/mister/qr/aceite|gerar|conferir|trocar|desconectar`, cada uma na auditoria do console): o aceite do texto
+     de agora (versão `v1`) antes do 1º QR; a instância `regem-mister-<8 hex>` no Evolution da distribuição, com o webhook
+     sempre na porta assinada do Regem (`MESSAGES_UPSERT` e `CONNECTION_UPDATE`); a tela confere a cada 3 s e troca o QR a
+     cada 20 s (`renovar`: só o QR, fora da auditoria), até 6 trocas. ⚠️ Segunda divergência (mais segura): no protótipo a
+     forma mudava no clique; aqui ela vira o QR quando o celular CONECTA — até lá a API oficial segue falando, sem buraco.
+     Com o celular conectado e a oficial em uso, "Trocar para a conexão por QR Code" é direto; a volta para a oficial pede o
+     número oficial conectado. O aviso de conexão do Evolution (`connection.update`) vem pela mesma porta: aberta =
+     conectado (o número pelo `wuid` ou pelo dono da instância); fechada 403 = bloqueado; 401 = "o celular saiu"; outra =
+     caiu; o QR que vence sem ninguém ler volta a "não conectado". O envio pelo Evolution só com o celular conectado (caiu,
+     bloqueado ou o QR na tela: nada sai pelo WhatsApp; os avisos seguem no Regem). "Conectar outro número" (depois de
+     bloqueado) sai da instância antiga e abre uma nova. **Q3:** ao conectar um número que ainda não foi anunciado, a
+     gravação condicional em `numero_anunciado` escolhe quem manda, e "este é o novo número do Mister" sai pelo número novo,
+     no ritmo do envio, a cada telefone ligado (sem quem pediu PARAR AVISOS), uma vez; reconectar o mesmo celular não
+     anuncia de novo. Na API oficial o anúncio pelo modelo "Número novo do Mister" fica para quando a volta for pelo número
+     oficial NOVO (hoje o número oficial é um só). Fora do protótipo, sem dado: "Mensagens que saíram hoje".
 10. **Aprovar o protótipo `mockups/regem-dependencias-e-qualidade.html` (#992).** As partes foram feitas com as recomendadas enquanto o dono estava fora: a faixa sem nuvem (#993), a Qualidade parte 1 (#994), as Dependências parte 2 (F3.7, #996, com a migration 423 aplicada pelo clique dele em 15/11), o que falta (F5.2) e a avaliação de regressão (F5.3, que espera a **migration 424** pelo clique dele antes do merge; a loja de teste ficou no código, e não no banco).
 
 ## 6. Como foi levantado

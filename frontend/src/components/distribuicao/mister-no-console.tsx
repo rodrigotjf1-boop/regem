@@ -7,6 +7,7 @@ import { QualidadeDoMister } from '@/components/distribuicao/qualidade-do-mister
 import { SegurancaDoMister } from '@/components/distribuicao/seguranca-do-mister';
 import { InstrucoesDoMister } from '@/components/distribuicao/instrucoes-do-mister';
 import { Confirmar } from '@/components/distribuicao/confirmar-no-console';
+import { FormaDoMister, type QrNoPainel } from '@/components/distribuicao/forma-do-mister';
 
 // Console da distribuição → aba "Mister" (mig 417; só Diretoria). Protótipo aprovado: `mockups/regem-mister.html`, aba
 // "Console da distribuição". Três blocos: o NÚMERO do Mister (um só, da distribuição, para todas as empresas), a CHAVE
@@ -40,6 +41,9 @@ type Painel = {
   };
   liberado: boolean;
   cadastro: { appId: string; configId: string; graphVersion: string; pronto: boolean };
+  // Q2 (mig 437): a forma em uso e a conexão por QR Code. Ausentes num servidor ainda sem a Q2: a tela some.
+  provedor?: 'oficial' | 'evolution';
+  qr?: QrNoPainel;
 };
 type Lista = { empresas: Empresa[]; total: number; limite: number };
 
@@ -326,6 +330,11 @@ export function MisterNoConsole() {
           <p className="mt-1 max-w-3xl text-xs text-slate-300">
             Um número de WhatsApp só, da distribuição, para todas as empresas. É o telefone de quem escreve que diz de qual empresa é a conversa.
           </p>
+          {painel.provedor === 'evolution' && (
+            <p className="mt-2 max-w-3xl text-xs text-amber-200" data-oficial="fora-de-uso">
+              A API oficial está fora de uso agora: o Mister fala pela conexão por QR Code (em &quot;Como o Mister fala no WhatsApp&quot;, abaixo).
+            </p>
+          )}
         </div>
 
         {n.situacao === 'sem' && (
@@ -418,6 +427,10 @@ export function MisterNoConsole() {
           </div>
         )}
       </section>
+
+      {painel.qr && (
+        <FormaDoMister provedor={painel.provedor ?? 'oficial'} qr={painel.qr} oficialConectado={n.situacao === 'conectado'} formatar={telefoneBonito} onMudou={carregar} />
+      )}
 
       <ModelosDoMister conectado={n.situacao === 'conectado'} />
 

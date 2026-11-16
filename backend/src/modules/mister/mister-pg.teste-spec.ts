@@ -47,6 +47,8 @@ import { INSTRUCOES_DO_MENTOR, versaoDoTexto } from './mister-instrucoes';
 import { CASOS_DA_AVALIACAO, CasoDaAvaliacao, versaoDasInstrucoes } from './mister-avaliacao-casos';
 import { PRECOS_LIDOS_EM } from '../ia/ia.regras';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
+import { MisterQrService } from './mister-qr.service';
+import { assinaturaDaInstancia } from '../../common/segredo-robo';
 import { MisterVinculoService } from './mister-vinculo.service';
 import * as regras from './mister.regras';
 import { TEXTOS, idDoBotaoDaEmpresa } from './mister.regras';
@@ -358,7 +360,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -4496,7 +4498,11 @@ export function testesDoMisterComPostgres(): void {
         // ── Nasce na API oficial: nada muda até trocar.
         expect(await doEvolution.ler()).toMatchObject({ provedor: 'oficial', instancia: null, instanciaNumero: null });
         expect(await doEvolution.semJanela()).toBe(false);
-        await q(`update mister_numero set provedor = 'evolution', instancia = $1, instancia_numero = $2 where id = 1`, [INSTANCIA, NUMERO_DO_QR]);
+        // Q2 (mig 437): o envio pelo Evolution pede o celular conectado — sem ele, nada sai pelo QR.
+        await q(`update mister_numero set provedor = 'evolution', instancia = $1, instancia_numero = $2, instancia_situacao = 'caiu' where id = 1`, [INSTANCIA, NUMERO_DO_QR]);
+        await expect(doEvolution.enviar(tel, { texto: 'antes de conectar' })).rejects.toMatchObject({ motivo: 'sem_numero' });
+        expect(pedidosAoEvolution(doEvolution)).toHaveLength(0);
+        await q(`update mister_numero set instancia_situacao = 'conectado' where id = 1`);
         expect(await doEvolution.semJanela()).toBe(true);
         expect(await doEvolution.daInstancia(INSTANCIA)).toMatchObject({ provedor: 'evolution', instanciaNumero: NUMERO_DO_QR });
         expect(await doEvolution.daInstancia('instancia-de-uma-loja')).toBeNull();
@@ -4568,7 +4574,7 @@ export function testesDoMisterComPostgres(): void {
         expect(aoEvolution.some((t) => t.includes('nº 9701'))).toBe(true);
         expect(numero.pedidos.some((p) => p.url.startsWith(GRAPH) && p.corpo?.type === 'template')).toBe(false);
       } finally {
-        await q(`update mister_numero set provedor = 'oficial', instancia = null, instancia_numero = null, ligado = true where id = 1`);
+        await q(`update mister_numero set provedor = 'oficial', instancia = null, instancia_numero = null, instancia_situacao = 'sem', ligado = true where id = 1`);
         await q(`delete from mister_mensagem where wamid like $1`, [`evo:${MARCA}-%`]);
         await janelaAberta('ana');
         if (notaDoQ1) {
@@ -4580,6 +4586,185 @@ export function testesDoMisterComPostgres(): void {
         else process.env.EVOLUTION_API_URL = antesEvolution.url;
         if (antesEvolution.chave === undefined) delete process.env.EVOLUTION_API_KEY;
         else process.env.EVOLUTION_API_KEY = antesEvolution.chave;
+      }
+    });
+
+    // ──────────────────────── a conexão por QR Code no console e o número novo (Q2 e Q3, mig 437) ────────────────────────
+
+    it('Q2/Q3: o aceite antes do QR, a instância só do Mister com a porta assinada, a forma que vira o QR ao conectar, caiu × bloqueado × QR vencido, outro número, a troca, o desconectar e o número novo anunciado uma vez', async () => {
+      const antes = { url: process.env.EVOLUTION_API_URL, chave: process.env.EVOLUTION_API_KEY, segredo: process.env.BOT_RESOLVER_SECRET, base: process.env.PUBLIC_API_BASE };
+      process.env.EVOLUTION_API_URL = 'https://evolution.teste';
+      process.env.EVOLUTION_API_KEY = 'chave-do-evolution-de-teste';
+      process.env.BOT_RESOLVER_SECRET = 'segredo-do-robo-de-teste';
+      process.env.PUBLIC_API_BASE = 'https://api.teste/api/v1/';
+      class NumeroQueAnota extends NumeroDeMentira {
+        protected esperar() {
+          return Promise.resolve();
+        }
+      }
+      const doEvolution = new NumeroQueAnota(db);
+      let estado = 'connecting';
+      let dono: string | null = null;
+      doEvolution.responder = (p) => {
+        if (!p.url.startsWith('https://evolution.teste/')) return undefined;
+        if (p.url.includes('/instance/connect/')) return { status: 200, corpo: estado === 'open' ? { instance: { state: 'open' } } : { base64: 'QRBASE64', pairingCode: 'ABCD1234' } };
+        if (p.url.includes('/instance/connectionState/')) return { status: 200, corpo: { instance: { state: estado } } };
+        if (p.url.includes('/instance/fetchInstances')) return { status: 200, corpo: [{ name: decodeURIComponent(/instanceName=([^&]+)/.exec(p.url)![1]), ownerJid: dono }] };
+        if (p.url.includes('/message/sendText/')) return { status: 201, corpo: { key: { id: `evo-${randomUUID()}` } } };
+        return { status: 201, corpo: {} };
+      };
+      const aoEvolution = (trecho: string) => doEvolution.pedidos.filter((p) => p.url.startsWith('https://evolution.teste/') && p.url.includes(trecho));
+      const qr = new MisterQrService(db, doEvolution);
+      const portaDoEvolution = new EvolutionEntradaService(db, {} as any, undefined, undefined, entrada, qr);
+      const conexao = (inst: string, data: any) => portaDoEvolution.processar({ event: 'CONNECTION_UPDATE', instance: inst, data }, inst);
+      const telAna = telefone();
+      const telCarlos = telefone();
+      const telPausado = telefone();
+      await numeroConectado(true);
+      await ligar('ana', telAna);
+      await ligar('carlos', telCarlos, A, 'gerente');
+      await ligar('anaB', telPausado, B); // outra empresa, e pediu PARAR AVISOS
+      await q(`update mister_vinculo set pausado_em = now() where telefone = $1`, [telPausado]);
+      /** O aviso do número novo sai sem esperar (`void`): a conta é das mensagens com o texto dele, por telefone. */
+      const anuncios = () => aoEvolution('/message/sendText/').filter((p) => /novo número do Mister/.test(p.corpo.text) && [telAna, telCarlos, telPausado].includes(p.corpo.number));
+      const esperarAnuncios = async (n: number) => {
+        for (let i = 0; i < 100 && anuncios().length < n; i++) await new Promise((r) => setTimeout(r, 30));
+        await new Promise((r) => setTimeout(r, 60)); // e nenhum a mais
+        return anuncios();
+      };
+      try {
+        expect(qr.pronto()).toBe(true);
+        // ── O aceite: só o texto de AGORA; sem ele, nada de QR (nem pedido ao Evolution).
+        await expect(qr.gerarQr({}, { nome: 'Rodrigo' })).rejects.toBeInstanceOf(ConflictException);
+        await expect(qr.aceitar({ aceito: true, versao: 'v0' }, { nome: 'Rodrigo' })).rejects.toBeInstanceOf(BadRequestException);
+        await expect(qr.aceitar({ aceito: false, versao: 'v1' }, { nome: 'Rodrigo' })).rejects.toBeInstanceOf(BadRequestException);
+        expect(aoEvolution('')).toHaveLength(0);
+        expect((await qr.aceitar({ aceito: true, versao: 'v1' }, { nome: 'Rodrigo' })).aceite).toMatchObject({ por: 'Rodrigo', versao: 'v1', em: expect.any(String) });
+
+        // ── O QR: uma instância SÓ do Mister, com o webhook na porta assinada do Regem (mensagens e conexão).
+        const r1 = await qr.gerarQr({}, { nome: 'Rodrigo' });
+        expect(r1.qr).toEqual({ imagem: 'data:image/png;base64,QRBASE64', codigo: 'ABCD1234' });
+        const inst = r1.instancia!;
+        expect(inst).toMatch(/^regem-mister-[0-9a-f]{8}$/);
+        expect(r1).toMatchObject({ provedor: 'oficial', instanciaSituacao: 'conectando', instanciaNumero: null });
+        const [gancho] = aoEvolution('/webhook/set/');
+        expect(gancho.url).toBe(`https://evolution.teste/webhook/set/${inst}`);
+        expect(gancho.corpo.webhook).toMatchObject({
+          enabled: true,
+          url: 'https://api.teste/api/v1/publico/whatsapp/evolution/webhook',
+          headers: { 'x-regem-evolution': assinaturaDaInstancia(inst) },
+          events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'],
+        });
+        expect(aoEvolution('/instance/create')[0].corpo).toMatchObject({ instanceName: inst, qrcode: true, integration: 'WHATSAPP-BAILEYS' });
+        // Com o QR na tela, a oficial segue falando.
+        await doEvolution.enviar(telAna, { texto: 'pela oficial' });
+        expect(doEvolution.enviadas.map((m) => m.texto)).toContain('pela oficial');
+        expect(aoEvolution('/message/sendText/')).toHaveLength(0);
+        // A troca do QR a cada 20 s: só o QR novo, sem refazer a instância nem o webhook.
+        const criadas = aoEvolution('/instance/create').length;
+        await qr.gerarQr({ renovar: true }, { nome: 'Rodrigo' });
+        expect([aoEvolution('/instance/create').length, aoEvolution('/webhook/set/').length, aoEvolution('/instance/connect/').length]).toEqual([criadas, 1, 2]);
+
+        // ── O QR que venceu sem ninguém ler: volta a "não conectado" (não "caiu"); o aviso de OUTRA instância não mexe.
+        await conexao('instancia-de-uma-loja', { state: 'open', wuid: '5521900000000@s.whatsapp.net' });
+        await conexao(inst, { state: 'close', statusReason: 408 });
+        expect((await doEvolution.ler()).instanciaSituacao).toBe('sem');
+        await qr.gerarQr({}, { nome: 'Rodrigo' });
+
+        // ── Conectou (pela conferência da tela): o número do celular, a forma vira o QR, e o número novo é anunciado a
+        //    quem está ligado — menos quem pediu PARAR AVISOS —, pelo número novo.
+        estado = 'open';
+        dono = '5521988887777:12@s.whatsapp.net';
+        const c1 = await qr.conferir();
+        expect(c1).toMatchObject({ provedor: 'evolution', instanciaSituacao: 'conectado', instanciaNumero: '5521988887777', instanciaConectadaEm: expect.any(String) });
+        const primeiros = await esperarAnuncios(2);
+        expect(primeiros.map((p) => p.corpo.number).sort()).toEqual([telAna, telCarlos].sort());
+        expect(primeiros.every((p) => p.url === `https://evolution.teste/message/sendText/${inst}`)).toBe(true);
+        expect(primeiros.find((p) => p.corpo.number === telAna)!.corpo.text).toMatch(/^Oi, Ana! Este é o novo número do Mister/);
+        expect((await q(`select numero_anunciado from mister_numero where id = 1`))[0].numero_anunciado).toBe('5521988887777');
+        // Duas conferências e o aviso do Evolution juntos: ninguém recebe de novo.
+        await Promise.all([qr.conferir(), qr.conferir(), conexao(inst, { state: 'open', wuid: '5521988887777@s.whatsapp.net' })]);
+        expect(await esperarAnuncios(3)).toHaveLength(2);
+        // O número que as pessoas salvam é o do celular.
+        expect(await vinculo.meu(usuario('ana'))).toMatchObject({ numeroDoMister: '5521988887777' });
+        // O "bloqueado" de uma instância de loja não mexe no celular do Mister.
+        await conexao('instancia-de-uma-loja', { state: 'close', statusReason: 403 });
+        expect((await doEvolution.ler()).instanciaSituacao).toBe('conectado');
+
+        // ── Caiu (o celular saiu): nada sai pelo WhatsApp; reconectar o MESMO número não anuncia de novo.
+        await conexao(inst, { state: 'close', statusReason: 401 });
+        expect(await doEvolution.ler()).toMatchObject({ instanciaSituacao: 'caiu', instanciaMotivo: expect.stringContaining('O celular saiu da conta') });
+        await expect(doEvolution.enviar(telAna, { texto: 'x' })).rejects.toMatchObject({ motivo: 'sem_numero' });
+        await conexao(inst, { state: 'open', wuid: '5521988887777@s.whatsapp.net' });
+        expect((await doEvolution.ler()).instanciaSituacao).toBe('conectado');
+        expect(await esperarAnuncios(3)).toHaveLength(2);
+
+        // ── A troca: a volta para a oficial pede a oficial conectada; a ida para o QR, o celular conectado.
+        await qr.trocar({ para: 'oficial' });
+        expect((await doEvolution.ler()).provedor).toBe('oficial');
+        await expect(qr.trocar({ para: 'outra' })).rejects.toBeInstanceOf(BadRequestException);
+        expect((await qr.trocar({ para: 'qr' })).provedor).toBe('evolution');
+        expect(await esperarAnuncios(3)).toHaveLength(2); // o mesmo número: nada de anúncio
+        await numeroZerado();
+        await expect(qr.trocar({ para: 'oficial' })).rejects.toBeInstanceOf(ConflictException);
+        expect((await doEvolution.ler()).provedor).toBe('evolution');
+
+        // ── Bloqueado pelo WhatsApp (403): "conectar outro número" sai da instância antiga e abre uma NOVA.
+        await conexao(inst, { state: 'close', statusReason: 403 });
+        expect(await doEvolution.ler()).toMatchObject({ instanciaSituacao: 'bloqueado', instanciaMotivo: expect.stringContaining('bloqueou') });
+        estado = 'connecting';
+        const r2 = await qr.gerarQr({ outroNumero: true }, { nome: 'Rodrigo' });
+        expect(aoEvolution(`/instance/logout/${inst}`)).toHaveLength(1);
+        expect(r2.instancia).not.toBe(inst);
+        expect(r2).toMatchObject({ instanciaSituacao: 'conectando', instanciaNumero: null, provedor: 'evolution' });
+        // O aviso de conexão da instância NOVA (pela porta do Evolution) conecta. Com a chave geral desligada (o
+        // `numeroZerado` desliga), o número novo NÃO é anunciado nem marcado: espera o "Ligar o Mister".
+        await conexao(r2.instancia!, { state: 'open', wuid: '5521966665555@s.whatsapp.net' });
+        expect(await doEvolution.ler()).toMatchObject({ instanciaSituacao: 'conectado', instanciaNumero: '5521966665555', ligado: false });
+        expect(await esperarAnuncios(3)).toHaveLength(2);
+        expect((await q(`select numero_anunciado from mister_numero where id = 1`))[0].numero_anunciado).toBe('5521988887777');
+        await q(`update mister_numero set ligado = true where id = 1`);
+        // O Evolution fora na hora do anúncio: nenhum sai, e o número volta a "não anunciado" para a próxima tentar.
+        const evolutionNormal = doEvolution.responder;
+        doEvolution.responder = (p) => (p.url.includes('/message/sendText/') ? { status: 500, corpo: { erro: 'fora' } } : evolutionNormal(p));
+        const antesDaFalha = doEvolution.pedidos.length;
+        expect(await qr.anunciarNumeroNovo()).toBe(0);
+        expect(anuncios()).toHaveLength(4); // tentou os dois
+        doEvolution.pedidos.splice(antesDaFalha); // as tentativas que falharam saem da conta
+        expect((await q(`select numero_anunciado from mister_numero where id = 1`))[0].numero_anunciado).toBe('5521988887777');
+        doEvolution.responder = evolutionNormal;
+        expect(await qr.anunciarNumeroNovo()).toBe(2);
+        const segundos = (await esperarAnuncios(4)).slice(2);
+        expect(segundos.map((p) => p.corpo.number).sort()).toEqual([telAna, telCarlos].sort());
+        expect(segundos.every((p) => p.url === `https://evolution.teste/message/sendText/${r2.instancia}`)).toBe(true);
+        expect(await qr.anunciarNumeroNovo()).toBe(0); // uma vez só
+
+        // ── Desconectar: sai do Evolution; com o QR em uso, nada sai pelo WhatsApp até conectar de novo ou trocar.
+        const d = await qr.desconectar();
+        expect(aoEvolution(`/instance/logout/${r2.instancia}`)).toHaveLength(1);
+        expect(d).toMatchObject({ instanciaSituacao: 'sem', instanciaNumero: null, provedor: 'evolution' });
+        await expect(doEvolution.enviar(telAna, { texto: 'x' })).rejects.toMatchObject({ motivo: 'sem_numero' });
+        // O "fechou" que o próprio logout dispara não muda o "não conectado".
+        await conexao(r2.instancia!, { state: 'close', statusReason: 401 });
+        expect((await doEvolution.ler()).instanciaSituacao).toBe('sem');
+
+        // ── No servidor da loja, nada disso muda.
+        process.env.EDGE_MODE = 'true';
+        await expect(qr.aceitar({ aceito: true, versao: 'v1' }, { nome: 'Rodrigo' })).rejects.toThrow('só muda na nuvem');
+        await expect(qr.gerarQr({}, { nome: 'Rodrigo' })).rejects.toThrow('só muda na nuvem');
+        delete process.env.EDGE_MODE;
+      } finally {
+        delete process.env.EDGE_MODE;
+        await q(
+          `update mister_numero set provedor = 'oficial', instancia = null, instancia_numero = null, instancia_situacao = 'sem', instancia_motivo = null,
+                  instancia_situacao_em = null, instancia_conectada_em = null, aceite_por = null, aceite_em = null, aceite_versao = null,
+                  numero_anunciado = null, ligado = true where id = 1`,
+        );
+        await numeroConectado(true);
+        for (const [k, v] of [['EVOLUTION_API_URL', antes.url], ['EVOLUTION_API_KEY', antes.chave], ['BOT_RESOLVER_SECRET', antes.segredo], ['PUBLIC_API_BASE', antes.base]] as const) {
+          if (v === undefined) delete process.env[k];
+          else process.env[k] = v;
+        }
       }
     });
 

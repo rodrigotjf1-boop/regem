@@ -38,6 +38,9 @@ export type SituacaoDoNumero = 'sem' | 'conectado' | 'caiu';
 export type FormaDoNumero = 'coexistencia' | 'api';
 /** Q1 (mig 436): por onde o número fala — a API oficial da Meta (como sempre) ou o Evolution da distribuição. */
 export type ProvedorDoNumero = 'oficial' | 'evolution';
+/** Q2 (mig 437): a conexão por QR Code no Evolution. */
+export type SituacaoDoQr = 'sem' | 'conectando' | 'conectado' | 'caiu' | 'bloqueado';
+const SITUACOES_DO_QR: readonly SituacaoDoQr[] = ['sem', 'conectando', 'conectado', 'caiu', 'bloqueado'];
 /** O ritmo de envio pelo Evolution: até 20 mensagens por minuto, em fila (decisão 4 do protótipo `regem-mister-qr.html`). */
 export const RITMO_DO_EVOLUTION_POR_MINUTO = 20;
 
@@ -47,6 +50,15 @@ export interface NumeroDoMister {
   instancia: string | null;
   /** O número do celular conectado por QR na instância (o que as pessoas salvam, com o Evolution). */
   instanciaNumero: string | null;
+  /** Q2 (mig 437): a conexão por QR — sem, conectando (o QR na tela), conectado, caiu ou bloqueado; a frase e as horas. */
+  instanciaSituacao: SituacaoDoQr;
+  instanciaMotivo: string | null;
+  instanciaSituacaoEm: string | null;
+  instanciaConectadaEm: string | null;
+  /** O aceite do risco antes do primeiro QR (o nome, a data e a versão do texto). */
+  aceite: { por: string | null; em: string; versao: string } | null;
+  /** Q3: o último número anunciado às pessoas ligadas. */
+  numeroAnunciado: string | null;
   phoneId: string | null;
   wabaId: string | null;
   numero: string | null;
@@ -64,6 +76,12 @@ const VAZIO: NumeroDoMister = {
   provedor: 'oficial',
   instancia: null,
   instanciaNumero: null,
+  instanciaSituacao: 'sem',
+  instanciaMotivo: null,
+  instanciaSituacaoEm: null,
+  instanciaConectadaEm: null,
+  aceite: null,
+  numeroAnunciado: null,
   phoneId: null,
   wabaId: null,
   numero: null,
@@ -114,7 +132,7 @@ export const numeroEmUso = (n: NumeroDoMister): string | null => (n.provedor ===
 
 /** Q1: dá para ligar e ser atendido — a chave geral ligada e a forma em uso conectada (a regra é uma, aqui). */
 export const numeroDisponivel = (n: NumeroDoMister): boolean =>
-  n.ligado && (n.provedor === 'evolution' ? !!n.instancia && !!n.instanciaNumero : n.situacao === 'conectado' && !!n.numero);
+  n.ligado && (n.provedor === 'evolution' ? n.instanciaSituacao === 'conectado' && !!n.instancia && !!n.instanciaNumero : n.situacao === 'conectado' && !!n.numero);
 
 /**
  * A Meta diz que o objeto não existe mais para este acesso (código 100, subcódigo 33): o número saiu da conta, a conta
@@ -157,19 +175,35 @@ export class MisterNumeroService {
           select phone_id as "phoneId", waba_id as "wabaId", numero, nome_exibido as nome, forma, situacao, motivo, ligado,
                  ${iso('conectado_em')} as "conectadoEm", ${iso('situacao_em')} as "situacaoEm", ${iso('ultima_entrada_em')} as "ultimaEntradaEm",
                  to_jsonb(mister_numero) ->> 'provedor' as provedor, to_jsonb(mister_numero) ->> 'instancia' as instancia,
-                 to_jsonb(mister_numero) ->> 'instancia_numero' as "instanciaNumero"
+                 to_jsonb(mister_numero) ->> 'instancia_numero' as "instanciaNumero",
+                 -- Q2 (mig 437), pelo mesmo to_jsonb: sem as colunas, a conexão por QR lê como "sem".
+                 to_jsonb(mister_numero) ->> 'instancia_situacao' as "instanciaSituacao",
+                 to_jsonb(mister_numero) ->> 'instancia_motivo' as "instanciaMotivo",
+                 to_jsonb(mister_numero) ->> 'instancia_situacao_em' as "instanciaSituacaoEm",
+                 to_jsonb(mister_numero) ->> 'instancia_conectada_em' as "instanciaConectadaEm",
+                 to_jsonb(mister_numero) ->> 'aceite_por' as "aceitePor",
+                 to_jsonb(mister_numero) ->> 'aceite_em' as "aceiteEm",
+                 to_jsonb(mister_numero) ->> 'aceite_versao' as "aceiteVersao",
+                 to_jsonb(mister_numero) ->> 'numero_anunciado' as "numeroAnunciado"
             from mister_numero where id = 1`),
       );
       if (!l) return VAZIO;
       const situacao: SituacaoDoNumero = l.situacao === 'conectado' || l.situacao === 'caiu' ? l.situacao : 'sem';
+      const { aceitePor, aceiteEm, aceiteVersao, ...resto } = l;
       return {
-        ...l,
+        ...resto,
         situacao,
         forma: l.forma === 'coexistencia' || l.forma === 'api' ? l.forma : null,
         ligado: l.ligado === true,
         provedor: l.provedor === 'evolution' ? 'evolution' : 'oficial',
         instancia: l.instancia ? String(l.instancia) : null,
         instanciaNumero: l.instanciaNumero ? soDigitos(l.instanciaNumero) : null,
+        instanciaSituacao: (SITUACOES_DO_QR as readonly string[]).includes(l.instanciaSituacao) ? l.instanciaSituacao : 'sem',
+        instanciaMotivo: l.instanciaMotivo ?? null,
+        instanciaSituacaoEm: l.instanciaSituacaoEm ?? null,
+        instanciaConectadaEm: l.instanciaConectadaEm ?? null,
+        aceite: aceiteEm && aceiteVersao ? { por: aceitePor ?? null, em: String(aceiteEm), versao: String(aceiteVersao) } : null,
+        numeroAnunciado: l.numeroAnunciado ? soDigitos(l.numeroAnunciado) : null,
       };
     } catch (e) {
       if (semTabela(e)) return VAZIO;
@@ -328,7 +362,8 @@ export class MisterNumeroService {
 
   /** O envio pelo Evolution: texto só (os botões viram a lista numerada; o link, escrito). A chave geral vale igual. */
   private async enviarPeloEvolution(destino: string, n: NumeroDoMister, resposta: Resposta): Promise<{ wamid: string | null }> {
-    if (!destino || !n.instancia) throw new FalhaDoEnvioDoMister('sem_numero');
+    // Q2: só com o celular conectado (caiu, bloqueado ou o QR ainda na tela: nada sai pelo WhatsApp; os avisos seguem no Regem).
+    if (!destino || !n.instancia || n.instanciaSituacao !== 'conectado') throw new FalhaDoEnvioDoMister('sem_numero');
     if (!n.ligado) throw new FalhaDoEnvioDoMister('desligado');
     const ev = this.evolution();
     if (!ev) throw new FalhaDoEnvioDoMister('sem_acesso');
@@ -363,6 +398,69 @@ export class MisterNumeroService {
   /** Chegou mensagem pelo Evolution: anota a hora. */
   async anotarEntradaPeloEvolution(): Promise<void> {
     await this.db.execute(sql`update mister_numero set ultima_entrada_em = now(), atualizado_em = now() where id = 1`);
+  }
+
+  // ── a gestão da instância (Q2, mig 437) — as chamadas ao Evolution passam pelo `buscar`, como o envio ──
+
+  /** O Evolution e a assinatura da porta do Regem estão configurados neste servidor (sem os dois, nada de QR). */
+  evolutionPronto(assinatura: string): boolean {
+    return !!this.evolution() && !!assinatura;
+  }
+
+  private async noEvolution(caminho: string, init: { method: string; body?: unknown }): Promise<{ ok: boolean; status: number; j: any }> {
+    const ev = this.evolution();
+    if (!ev) throw new FalhaDoEnvioDoMister('sem_acesso');
+    const res = await this.buscar(`${ev.url}${caminho}`, {
+      method: init.method,
+      headers: { apikey: ev.chave, 'Content-Type': 'application/json' },
+      ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
+    }).catch(() => null);
+    if (!res) throw new FalhaDoEnvioDoMister('evolution', null, 'o Evolution não respondeu');
+    const j: any = await res.json().catch(() => ({}));
+    return { ok: res.ok, status: res.status, j };
+  }
+
+  /**
+   * Cria a instância do Mister (se já existe, segue) e aponta o webhook para a porta assinada do Regem — sempre o Regem,
+   * nunca o n8n: a mensagem que chega ao Mister é tratada aqui. Os eventos: mensagens e a conexão.
+   */
+  async evolutionPreparar(instancia: string, webhook: { url: string; headers: Record<string, string> }): Promise<void> {
+    const gancho = { enabled: true, url: webhook.url, headers: webhook.headers, byEvents: false, base64: false, events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'] };
+    await this.noEvolution('/instance/create', { method: 'POST', body: { instanceName: instancia, qrcode: true, integration: 'WHATSAPP-BAILEYS', webhook: gancho } }).catch(() => null);
+    const r = await this.noEvolution(`/webhook/set/${encodeURIComponent(instancia)}`, { method: 'POST', body: { webhook: gancho } });
+    if (!r.ok) throw new FalhaDoEnvioDoMister('evolution', r.status, 'o Evolution não aceitou o endereço de entrada da instância');
+  }
+
+  /** O QR Code da instância (a imagem e o código de pareamento), ou "já conectado". */
+  async evolutionQr(instancia: string): Promise<{ imagem: string | null; codigo: string | null; jaConectado: boolean }> {
+    const r = await this.noEvolution(`/instance/connect/${encodeURIComponent(instancia)}`, { method: 'GET' });
+    if (!r.ok) throw new FalhaDoEnvioDoMister('evolution', r.status, 'o Evolution não devolveu o QR Code');
+    const estado = r.j?.instance?.state ?? r.j?.state;
+    if (estado === 'open') return { imagem: null, codigo: null, jaConectado: true };
+    const b64 = String(r.j?.base64 ?? r.j?.qrcode?.base64 ?? '');
+    const imagem = b64 ? (b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`) : null;
+    return { imagem, codigo: r.j?.pairingCode ?? null, jaConectado: false };
+  }
+
+  /** O estado da conexão da instância: open, connecting ou close (null quando o Evolution não respondeu). */
+  async evolutionEstado(instancia: string): Promise<string | null> {
+    const r = await this.noEvolution(`/instance/connectionState/${encodeURIComponent(instancia)}`, { method: 'GET' }).catch(() => null);
+    if (!r?.ok) return null;
+    return String(r.j?.instance?.state ?? r.j?.state ?? '') || null;
+  }
+
+  /** O dono da instância (o número do celular conectado), como o Evolution o devolve. */
+  async evolutionDono(instancia: string): Promise<string | null> {
+    const r = await this.noEvolution(`/instance/fetchInstances?instanceName=${encodeURIComponent(instancia)}`, { method: 'GET' }).catch(() => null);
+    if (!r?.ok) return null;
+    const lista = Array.isArray(r.j) ? r.j : [r.j];
+    const i = lista.find((x: any) => (x?.name ?? x?.instance?.instanceName ?? x?.instanceName) === instancia) ?? lista[0];
+    return i?.ownerJid ?? i?.instance?.owner ?? i?.owner ?? null;
+  }
+
+  /** Sai da conta no Evolution (o celular deixa de estar conectado). Falha não segura quem chama. */
+  async evolutionSair(instancia: string): Promise<void> {
+    await this.noEvolution(`/instance/logout/${encodeURIComponent(instancia)}`, { method: 'DELETE' }).catch(() => null);
   }
 
   private async marcarQueCaiu(phoneId: string, motivo: string): Promise<void> {

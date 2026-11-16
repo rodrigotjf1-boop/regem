@@ -30,6 +30,7 @@ import { MisterAvaliacaoService } from '../mister/mister-avaliacao.service';
 import { MisterSegurancaService } from '../mister/mister-seguranca.service';
 import { MisterSentinelaService } from '../mister/mister-sentinela.service';
 import { MisterInstrucoesService } from '../mister/mister-instrucoes.service';
+import { MisterQrService } from '../mister/mister-qr.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -52,6 +53,7 @@ export class DistribuicaoController {
     private readonly segurancaDoMister: MisterSegurancaService,
     private readonly sentinela: MisterSentinelaService,
     private readonly instrucoesDoMister: MisterInstrucoesService,
+    private readonly qrDoMister: MisterQrService,
   ) {}
 
   // iFood pelo Orzuni (R2a; mig 370) — só Diretoria. A chave `orz_live_` da loja entra aqui UMA vez e é trocada
@@ -172,7 +174,69 @@ export class DistribuicaoController {
   async liberacaoDoMister(@DistUser() u: DistCtx, @Body() dto: any) {
     const r = await this.mister.liberacao(dto, u);
     await this.service.auditar(u, r.ligado ? 'ligou_mister' : 'desligou_mister', undefined, {});
+    // Q3: o número novo do QR que ficou sem anúncio enquanto a chave estava desligada sai agora (uma vez; sem número novo, nada).
+    if (r.ligado) void this.qrDoMister.anunciarNumeroNovo().catch(() => undefined);
     return r;
+  }
+
+  // A conexão do número do Mister por QR Code (Q2 e Q3; mig 437; `mockups/regem-mister-qr.html`) — só Diretoria. A
+  // resposta nunca traz o nome da instância nem a assinatura; a auditoria guarda só o final do número.
+  private qrNaResposta(n: any) {
+    return {
+      provedor: n.provedor,
+      situacao: n.instanciaSituacao,
+      motivo: n.instanciaMotivo,
+      numero: n.instanciaNumero,
+      situacaoEm: n.instanciaSituacaoEm,
+      conectadoEm: n.instanciaConectadaEm,
+      aceite: n.aceite,
+    };
+  }
+
+  @Post('mister/qr/aceite')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  async aceiteDoQrDoMister(@DistUser() u: DistCtx, @Body() dto: any) {
+    const n = await this.qrDoMister.aceitar(dto, u);
+    await this.service.auditar(u, 'aceitou_risco_qr_mister', undefined, { versao: n.aceite?.versao });
+    return this.qrNaResposta(n);
+  }
+
+  @Post('mister/qr/gerar')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  @Throttle({ default: { ttl: 60000, limit: 12 } })
+  @Header('Cache-Control', 'no-store')
+  async gerarQrDoMister(@DistUser() u: DistCtx, @Body() dto: any) {
+    const r = await this.qrDoMister.gerarQr(dto, u);
+    // A troca do QR a cada 20 s não vai à auditoria (seriam seis linhas por conexão): só o QR pedido pela pessoa.
+    if (dto?.renovar !== true) await this.service.auditar(u, 'gerou_qr_mister', undefined, { outroNumero: dto?.outroNumero === true, jaConectado: !r.qr });
+    return { ...this.qrNaResposta(r), qr: r.qr };
+  }
+
+  @Post('mister/qr/conferir')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  async conferirQrDoMister() {
+    return this.qrNaResposta(await this.qrDoMister.conferir());
+  }
+
+  @Post('mister/qr/trocar')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  async trocarFormaDoMister(@DistUser() u: DistCtx, @Body() dto: any) {
+    const n = await this.qrDoMister.trocar(dto);
+    await this.service.auditar(u, 'trocou_forma_do_mister', undefined, { para: n.provedor, final: String((n.provedor === 'evolution' ? n.instanciaNumero : n.numero) ?? '').slice(-4) });
+    return this.qrNaResposta(n);
+  }
+
+  @Post('mister/qr/desconectar')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  async desconectarQrDoMister(@DistUser() u: DistCtx) {
+    const n = await this.qrDoMister.desconectar();
+    await this.service.auditar(u, 'desconectou_qr_mister', undefined, {});
+    return this.qrNaResposta(n);
   }
 
   // Os modelos de mensagem do Mister na Meta (avisos e resumos fora das 24 horas): a situação lida ao vivo e o pedido de
