@@ -72,6 +72,10 @@ const APP_REGEMCAST = 'aplicativo-regemcast-de-teste';
 const VOLTA_REGEMCAST = 'https://cast.teste/integracoes/regem/volta';
 const LEITURAS_DO_REGEMCAST = 'pedidos.ler clientes.ler clientes.telefone.ler vendas.99food.ler';
 // O Orzuni (F6 do hub): só o clique, com o endereço de volta da ficha dele e as duas leituras do cardápio.
+// O RegeMBoard (F6, 15/11; mig 429): o menu nas TVs, loja por loja, só leitura — o catálogo e o que está esgotado.
+const APP_REGEMBOARD = 'aplicativo-regemboard-de-teste';
+const VOLTA_REGEMBOARD = 'https://board.teste/integracoes/regem/volta';
+const DISPONIBILIDADE = 'catalogo.ler catalogo.disponibilidade.ler';
 const APP_ORZUNI = 'aplicativo-orzuni-de-teste';
 const VOLTA_ORZUNI = 'https://orzuni.teste/importar/volta';
 const LEITURAS_DO_ORZUNI = 'catalogo.ler catalogo.ifood.ler';
@@ -174,6 +178,7 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
     'DMS_ID_LIGADO', 'DMS_ID_EMISSOR', 'DMS_ID_RECURSO', 'DMS_ID_APLICATIVOS',
     'AUTORIZACAO_POR_CLIQUE', 'AUTORIZACAO_DMS_RAZAO_SOCIAL', 'AUTORIZACAO_DMS_CNPJ',
     AUTORIZACAO_LOJA.liame.envRedirect, AUTORIZACAO_LOJA.liame.envSegredo, 'INTEGRACAO_ORZUNI_REDIRECT_URIS', 'INTEGRACAO_REGEMCAST_REDIRECT_URIS', 'INTEGRACAO_GOGEM_REDIRECT_URIS',
+    'INTEGRACAO_REGEMBOARD_REDIRECT_URIS',
     AUTORIZACAO_LOJA.farol.envRedirect,
   ];
   const original: Record<string, string | undefined> = Object.fromEntries(ENV.map((k) => [k, process.env[k]]));
@@ -345,6 +350,7 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
     process.env.INTEGRACAO_ORZUNI_REDIRECT_URIS = VOLTA_ORZUNI;
     process.env.INTEGRACAO_REGEMCAST_REDIRECT_URIS = VOLTA_REGEMCAST;
     process.env.INTEGRACAO_GOGEM_REDIRECT_URIS = VOLTA_GOGEM;
+    process.env.INTEGRACAO_REGEMBOARD_REDIRECT_URIS = VOLTA_REGEMBOARD;
     process.env[AUTORIZACAO_LOJA.farol.envRedirect] = VOLTA_FAROL;
     process.env.AUTORIZACAO_POR_CLIQUE = 'true';
     process.env.AUTORIZACAO_DMS_RAZAO_SOCIAL = 'DMS Exemplo Ltda';
@@ -377,6 +383,13 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
       expect(conferencia).toHaveLength(2);
       if (conferencia.some((l: any) => l.ok !== true)) throw new Error(`conferência da 426: ${JSON.stringify(conferencia)}`);
     }
+    // Da 429, só as travas de escopo (o escopo da disponibilidade do RegeMBoard). O resto dela (os gatilhos em produto, opção
+    // e pausa da loja, que são compartilhadas) fica com a spec dos avisos de retrato, que aplica a cadeia (ERR-451).
+    const travasDaDisponibilidade = mig('429_integracao_disponibilidade.sql').match(
+      /alter table integracao_token_loja drop constraint if exists ck_integracao_token_loja_escopos;[\s\S]*?'catalogo\.disponibilidade\.ler'\]::text\[\]\s*\);[\s\S]*?'catalogo\.disponibilidade\.ler'\]::text\[\]\s*\);/,
+    );
+    if (!travasDaDisponibilidade) throw new Error('a 429 mudou: o trecho das travas de escopo não foi achado');
+    await repetirNaCorridaDeCatalogo(() => pool.query(travasDaDisponibilidade[0]));
     const [fk] = await q(
       `select count(*)::int n from pg_constraint c join pg_namespace s on s.oid = c.connamespace
         where s.nspname = $1 and c.contype = 'f' and c.confrelid in ('public.empresa'::regclass, 'public.unidade'::regclass)`,
@@ -400,7 +413,9 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
     dmsId = await subirDmsIdFalso(() => `${origem}/api/v1/integracao`);
     process.env.DMS_ID_LIGADO = 'true';
     process.env.DMS_ID_EMISSOR = dmsId.emissor;
-    process.env.DMS_ID_APLICATIVOS = JSON.stringify({ liame: APP_LIAME, farol: APP_FAROL, orzuni: APP_ORZUNI, regemcast: APP_REGEMCAST, gogem: APP_GOGEM });
+    process.env.DMS_ID_APLICATIVOS = JSON.stringify({
+      liame: APP_LIAME, farol: APP_FAROL, orzuni: APP_ORZUNI, regemcast: APP_REGEMCAST, gogem: APP_GOGEM, regemboard: APP_REGEMBOARD,
+    });
     app = await NestFactory.create(AppTeste, { logger: false });
     app.setGlobalPrefix('api/v1', { exclude: ROTAS_FORA_DO_PREFIXO });
     await app.listen(0, '127.0.0.1');
@@ -1312,6 +1327,45 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
       expect(await esperarAte(() => email.mock.calls.length >= 1)).toBe(true);
       expect(email.mock.calls[0][1]).toBe('O GoGeM foi autorizado na loja Totem Centro');
       expect(email.mock.calls[0][3]).toContain('O GoGeM pode ver: cardápio do totem, pausar produtos no totem e lançar a venda do totem.');
+    });
+  });
+
+  // ───────────────────────────── o RegeMBoard: o menu nas TVs (F6 do hub, mig 429) ─────────────────────────────
+
+  describe('o RegeMBoard: o clique do menu nas TVs, loja por loja e só leitura (F6 do hub)', () => {
+    const tokenDoBoard = () => dmsId.emitir({ aplicativo: APP_REGEMBOARD, permissoes: DISPONIBILIDADE });
+
+    it('de ponta a ponta: a página diz que só lê, o presidente marca a loja da TV e a troca entrega a ligação dela', async () => {
+      const e = await empresa('Telão', ['Telão Centro', 'Telão Praia']);
+      const pres = await pessoa(e.tenant, 'Tânia Presidente', 'presidente', { email: 'tania@telao.exemplo' });
+      email.mockClear();
+      const p = await pedir({ token: tokenDoBoard(), contaCnpj: cnpjFicticio(e.raiz), mudar: { redirect_uri: VOLTA_REGEMBOARD, scope: DISPONIBILIDADE, conta_nome: 'Telão no RegeMBoard' } });
+      expect(p.r.status).toBe(201);
+      // Leitura de vendas e a volta de outro aplicativo não entram no pedido do RegeMBoard.
+      expect((await pedir({ token: tokenDoBoard(), mudar: { redirect_uri: VOLTA_REGEMBOARD, scope: 'catalogo.ler pedidos.ler' } })).r.status).toBe(400);
+      expect((await pedir({ token: tokenDoBoard(), mudar: { redirect_uri: VOLTA_GOGEM, scope: DISPONIBILIDADE } })).r.status).toBe(400);
+
+      const c: any = await (await tela(pres, p.numero, APP_REGEMBOARD)).json();
+      expect(c.tela.titulo).toBe('O RegeMBoard quer ler o cardápio e o que está esgotado das suas lojas');
+      expect(c.tela.necessarias.map((x: any) => x.rotulo)).toEqual(['Produtos e adicionais', 'O que está esgotado agora']);
+      expect(c.tela.lojas.map((l: any) => l.marcada)).toEqual([false, false]);
+
+      const a = await autorizar(pres, p.numero, { lojas: [e.lojas[0]], clientId: APP_REGEMBOARD, confirmo: false });
+      expect(a.r.status).toBe(200);
+      expect(`${a.volta?.origin}${a.volta?.pathname}`).toBe(VOLTA_REGEMBOARD);
+      const t = await trocar(a.codigo, p.verificador, { token: tokenDoBoard(), mais: { redirect_uri: VOLTA_REGEMBOARD } });
+      expect(t.status).toBe(200);
+      const { lojas } = (await t.json()) as any;
+      expect(lojas).toHaveLength(1);
+      segredos.push(lojas[0].ligacao);
+      expect(lojas[0]).toMatchObject({ loja_id: e.lojas[0], permissoes: DISPONIBILIDADE.split(' ') });
+      const [acesso] = await q(`select cliente, unidade_id, escopos from integracao_token_loja where tenant_id = $1 and revogado_em is null`, [e.tenant]);
+      expect(acesso).toEqual({ cliente: 'regemboard', unidade_id: e.lojas[0], escopos: DISPONIBILIDADE.split(' ') });
+
+      // A ligação lê o catálogo e não as vendas.
+      expect((await chamar('/integracao/pedidos', { token: tokenDoBoard(), ligacao: lojas[0].ligacao })).status).toBe(403);
+      expect(await esperarAte(() => email.mock.calls.length >= 1)).toBe(true);
+      expect(email.mock.calls[0][1]).toBe('O RegeMBoard foi autorizado na loja Telão Centro');
     });
   });
 });

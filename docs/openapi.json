@@ -4270,14 +4270,7 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
+            "description": ""
           }
         }
       }
@@ -5884,6 +5877,248 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/mister/whatsapp": {
+      "get": {
+        "operationId": "MisterController_meu",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "MisterController_desligar",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mister/whatsapp/codigo": {
+      "post": {
+        "operationId": "MisterController_gerarCodigo",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mister/pessoas": {
+      "get": {
+        "operationId": "MisterController_pessoas",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mister/pessoas/{colaboradorId}": {
+      "delete": {
+        "operationId": "MisterController_desligarPessoa",
+        "parameters": [
+          {
+            "name": "colaboradorId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/mister/avisos": {
+      "get": {
+        "operationId": "MisterController_avisosDaTela",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "patch": {
+        "operationId": "MisterController_salvarAvisos",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/mister/avisos/historico": {
+      "get": {
+        "operationId": "MisterController_historicoDosAvisos",
+        "parameters": [
+          {
+            "name": "situacao",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "busca",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "grupo",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dias",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/mister/relatorios": {
+      "get": {
+        "operationId": "MisterController_relatoriosDaTela",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "patch": {
+        "operationId": "MisterController_salvarRelatorios",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/ia/chave": {
+      "get": {
+        "operationId": "IaController_situacao",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "operationId": "IaController_salvar",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      },
+      "delete": {
+        "operationId": "IaController_remover",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/ia/chave/testar": {
+      "post": {
+        "operationId": "IaController_testar",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/ia/uso": {
+      "get": {
+        "operationId": "IaController_uso",
+        "parameters": [
+          {
+            "name": "de",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ate",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
           }
         }
       }
@@ -12638,6 +12873,64 @@
         }
       }
     },
+    "/api/v1/orzuni/clique/situacao": {
+      "get": {
+        "operationId": "OrzuniCliqueController_situacao",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orzuni/clique/iniciar": {
+      "post": {
+        "operationId": "OrzuniCliqueController_iniciar",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/orzuni/clique/concluir": {
+      "post": {
+        "operationId": "OrzuniCliqueController_concluir",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orzuni/clique/desligar": {
+      "post": {
+        "operationId": "OrzuniCliqueController_desligar",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/kds/alertas": {
       "get": {
         "operationId": "KdsAlertaController_listar",
@@ -12899,6 +13192,75 @@
         ],
         "responses": {
           "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/mister/avisos/abertos": {
+      "get": {
+        "operationId": "AvisosNaTelaController_abertos",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mister/avisos/{id}/ciente": {
+      "post": {
+        "operationId": "AvisosNaTelaController_ciente",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/mister/avisos/loja": {
+      "get": {
+        "operationId": "AvisosNaTelaController_doServidorDaLoja",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/mister/avisos/{id}/ciente/loja": {
+      "post": {
+        "operationId": "AvisosNaTelaController_cienteDoServidorDaLoja",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
             "description": ""
           }
         }
@@ -16849,6 +17211,46 @@
         }
       }
     },
+    "/api/v1/cardapio/areas-entrega": {
+      "get": {
+        "operationId": "CardapioController_areasEntrega",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "CardapioController_setAreasEntrega",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/cardapio/banners": {
       "get": {
         "operationId": "CardapioController_banners",
@@ -19945,6 +20347,249 @@
         }
       }
     },
+    "/api/v1/distribuicao/mister": {
+      "get": {
+        "operationId": "DistribuicaoController_painelDoMister",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/empresas": {
+      "get": {
+        "operationId": "DistribuicaoController_empresasDoMister",
+        "parameters": [
+          {
+            "name": "busca",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/numero/conectar": {
+      "post": {
+        "operationId": "DistribuicaoController_conectarNumeroDoMister",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/numero/desconectar": {
+      "post": {
+        "operationId": "DistribuicaoController_desconectarNumeroDoMister",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/liberacao": {
+      "post": {
+        "operationId": "DistribuicaoController_liberacaoDoMister",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/modelos": {
+      "get": {
+        "operationId": "DistribuicaoController_modelosDoMister",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/modelos/pedir": {
+      "post": {
+        "operationId": "DistribuicaoController_pedirModelosDoMister",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/avisos": {
+      "get": {
+        "operationId": "DistribuicaoController_avisosParaOSuporte",
+        "parameters": [
+          {
+            "name": "situacao",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "busca",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/dependencias": {
+      "get": {
+        "operationId": "DistribuicaoController_dependenciasNoConsole",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/dependencias/ler-agora": {
+      "post": {
+        "operationId": "DistribuicaoController_lerDependenciasAgora",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/dependencias/{fonte}/decisao": {
+      "post": {
+        "operationId": "DistribuicaoController_decidirDependencia",
+        "parameters": [
+          {
+            "name": "fonte",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/qualidade": {
+      "get": {
+        "operationId": "DistribuicaoController_qualidadeDoMisterNoConsole",
+        "parameters": [
+          {
+            "name": "dias",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/seguranca": {
+      "get": {
+        "operationId": "DistribuicaoController_segurancaDoMisterNoConsole",
+        "parameters": [
+          {
+            "name": "dias",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/avaliacoes": {
+      "get": {
+        "operationId": "DistribuicaoController_avaliacoesDoMister",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "operationId": "DistribuicaoController_rodarAvaliacaoDoMister",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/avaliacoes/{id}": {
+      "get": {
+        "operationId": "DistribuicaoController_avaliacaoDoMisterDetalhe",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/distribuicao/login": {
       "post": {
         "operationId": "DistribuicaoController_login",
@@ -21852,6 +22497,26 @@
     "/api/v1/vagas/candidatos/{id}/entrevista": {
       "post": {
         "operationId": "VagasController_entrevista",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/vagas/candidatos/{id}/contratar": {
+      "post": {
+        "operationId": "VagasController_contratar",
         "parameters": [
           {
             "name": "id",
@@ -25501,6 +26166,19 @@
             "nullable": true,
             "description": "SÓ com a permissão catalogo.ifood.ler. O preço da opção no iFood, em centavos: o da opção reutilizável (um por código PDV). null = sem preço próprio no iFood, ou opção criada só neste produto."
           },
+          "disponivel": {
+            "type": "boolean",
+            "description": "SÓ com a permissão catalogo.disponibilidade.ler. true = o adicional está à venda agora; false = esgotado ou fora do cardápio (o da opção reutilizável, que vale para todas as lojas)."
+          },
+          "indisponivel_por": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "fora_do_cardapio",
+              "esgotado"
+            ],
+            "description": "SÓ com a permissão catalogo.disponibilidade.ler. Por que o adicional não está à venda (null = está)."
+          },
           "informativa": {
             "type": "boolean",
             "description": "Sem código PDV: é só uma observação (\"ponto da carne\") — não acrescenta nem retira nada."
@@ -25652,6 +26330,20 @@
           "no_ifood": {
             "type": "boolean",
             "description": "SÓ com a permissão catalogo.ifood.ler. true = a loja diz que o produto ESTÁ no cardápio do iFood; false = não está (ou ainda não foi marcado)."
+          },
+          "disponivel": {
+            "type": "boolean",
+            "description": "SÓ com a permissão catalogo.disponibilidade.ler. true = o produto está à venda agora na loja do acesso; false = esgotado ou fora do cardápio. A pausa de um canal só (iFood, 99, totem) não conta. Muda → aviso disponibilidade.alterada."
+          },
+          "indisponivel_por": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "fora_do_cardapio",
+              "esgotado",
+              "esgotado_na_loja"
+            ],
+            "description": "SÓ com a permissão catalogo.disponibilidade.ler. Por que o produto não está à venda (null = está): fora_do_cardapio (inativo), esgotado (em todas as lojas) ou esgotado_na_loja (só nesta). O acesso sem loja só vê o de todas as lojas."
           },
           "variacoes": {
             "type": "array",

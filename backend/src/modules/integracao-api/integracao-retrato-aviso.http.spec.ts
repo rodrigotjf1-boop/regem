@@ -45,7 +45,10 @@ const CARDAPIO = [
   'categoria_produto', 'setor', 'produto', 'produto_variacao', 'produto_combo_item', 'complemento_grupo',
   'complemento_opcao', 'opcao', 'item_estoque', 'ficha_tecnica', 'ficha_ingrediente', 'item_conversao',
 ];
+// …e a que só ganha gatilho na 429 (a pausa por loja; produto e opção já estão nas doze).
+const SO_DA_429 = ['produto_pausa_estoque'];
 const ESCOPOS_FAROL = ['catalogo.ler', 'fichas.ler', 'producao.ler'];
+const ESCOPOS_REGEMBOARD = ['catalogo.ler', 'catalogo.disponibilidade.ler'];
 
 type Recebido = { caminho: string; cabecalhos: IncomingHttpHeaders; corpo: string };
 
@@ -63,6 +66,7 @@ descrever('API de integração — o cardápio e as fichas avisam (mig 316)', ()
     chave: process.env.SEGREDOS_CHAVE,
     farol: process.env.INTEGRACAO_FAROL_WEBHOOK_URLS,
     liame: process.env.INTEGRACAO_LIAME_WEBHOOK_URLS,
+    regemboard: process.env.INTEGRACAO_REGEMBOARD_WEBHOOK_URLS,
   };
   let app: INestApplication;
   let base = '';
@@ -74,6 +78,7 @@ descrever('API de integração — o cardápio e as fichas avisam (mig 316)', ()
   let receptor: Server;
   let baseFarol = '';
   let baseLiame = '';
+  let baseBoard = '';
 
   function subirReceptor(): Promise<void> {
     receptor = createServer((req, res) => {
@@ -90,6 +95,7 @@ descrever('API de integração — o cardápio e as fichas avisam (mig 316)', ()
         const porta = (receptor.address() as any).port;
         baseFarol = `http://127.0.0.1:${porta}/v1/regem/avisos/`;
         baseLiame = `http://127.0.0.1:${porta}/v1/inbox/regem/`;
+        baseBoard = `http://127.0.0.1:${porta}/v1/regemboard/avisos/`;
         ok();
       }),
     );
@@ -254,9 +260,10 @@ descrever('API de integração — o cardápio e as fichas avisam (mig 316)', ()
     await subirReceptor();
     process.env.INTEGRACAO_FAROL_WEBHOOK_URLS = baseFarol;
     process.env.INTEGRACAO_LIAME_WEBHOOK_URLS = baseLiame;
+    process.env.INTEGRACAO_REGEMBOARD_WEBHOOK_URLS = baseBoard;
 
     await pool.query(`create schema ${SCHEMA}`);
-    for (const t of [...FONTES, ...CARDAPIO]) await pool.query(`create table ${SCHEMA}.${t} (like public.${t} including all)`);
+    for (const t of [...FONTES, ...CARDAPIO, ...SO_DA_429]) await pool.query(`create table ${SCHEMA}.${t} (like public.${t} including all)`);
     // O índice único do código do cupom com o NOME de produção (o `like` gera outro) — como na spec dos cupons.
     for (const x of await repetirNaCorridaDeCatalogo(() =>
       q(`select indexname from pg_indexes where schemaname = $1 and tablename = 'cupom' and indexdef ilike '%upper(codigo)%'`, [SCHEMA]),
@@ -282,6 +289,14 @@ descrever('API de integração — o cardápio e as fichas avisam (mig 316)', ()
       expect(conferencia).toHaveLength(6);
       const falhas = conferencia.filter((l: any) => l.ok !== true).map((l: any) => l.objeto);
       if (falhas.length) throw new Error(`conferência da 316 falhou: ${falhas.join(', ')}`);
+    }
+    // A 429 (RegeMBoard: o escopo da disponibilidade, o recurso novo e os gatilhos dela), duas vezes, com a conferência.
+    for (let i = 0; i < 2; i++) {
+      const r = (await aplicar(mig('429_integracao_disponibilidade.sql'))) as unknown as any[];
+      const conferencia = r[r.length - 1].rows;
+      expect(conferencia).toHaveLength(6);
+      const falhas = conferencia.filter((l: any) => l.ok !== true).map((l: any) => l.objeto);
+      if (falhas.length) throw new Error(`conferência da 429 falhou: ${falhas.join(', ')}`);
     }
 
     const [fk] = await q(
@@ -328,6 +343,7 @@ descrever('API de integração — o cardápio e as fichas avisam (mig 316)', ()
       ['SEGREDOS_CHAVE', original.chave],
       ['INTEGRACAO_FAROL_WEBHOOK_URLS', original.farol],
       ['INTEGRACAO_LIAME_WEBHOOK_URLS', original.liame],
+      ['INTEGRACAO_REGEMBOARD_WEBHOOK_URLS', original.regemboard],
     ] as const) {
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;
@@ -652,6 +668,154 @@ descrever('API de integração — o cardápio e as fichas avisam (mig 316)', ()
       // Com as tabelas de volta, o cardápio volta a avisar.
       const r = await depoisDe(() => q(`update produto set nome = 'X-Burger de volta' where id = $1`, [id.pRede]));
       expect(r.a1).toEqual([CAT]);
+    });
+  });
+
+  // ───────────────────────────── a disponibilidade (RegeMBoard, mig 429) ─────────────────────────────
+  // Numa empresa só deste bloco (R): a A segue só com o Farol, e o "pausa do produto não avisa" lá de cima continua valendo.
+
+  describe('a disponibilidade avisa o RegeMBoard (mig 429)', () => {
+    const DISP = 'disponibilidade.alterada';
+    let R: Emp;
+    let board: { id: string; token: string; segredo: string };
+    let farolR: Awaited<ReturnType<typeof conectar>>;
+    const r: Record<string, string> = {};
+    const noBoard = () =>
+      recebidos.filter((x) => x.caminho === '/v1/regemboard/avisos/conexao-r1').map((x) => JSON.parse(x.corpo).tipo as string);
+    const recursosNaFila = async () => (await fila([R.tenant])).map((l) => l.recurso).sort();
+
+    async function catalogoPor(token: string): Promise<any> {
+      const resp = await fetch(`${base}/integracao/catalogo`, { headers: { authorization: `Bearer ${token}` } });
+      if (resp.status !== 200) throw new Error(`catálogo respondeu ${resp.status}: ${await resp.text()}`);
+      return resp.json();
+    }
+
+    beforeAll(async () => {
+      R = await empresa('Empresa R (RegeMBoard)', ['R1 matriz', 'R2 filial']);
+      const t = R.tenant;
+      r.pRede = await ins('produto', { tenant_id: t, nome: 'Smash Duplo', tipo: 'simples', preco_venda: '32.9' });
+      r.pR1 = await ins('produto', { tenant_id: t, unidade_id: R.lojas[0], nome: 'Só da matriz R1', tipo: 'simples', preco_venda: '20' });
+      r.pInativo = await ins('produto', { tenant_id: t, nome: 'Fora do cardápio', tipo: 'simples', preco_venda: '5', ativo: false });
+      r.pOk = await ins('produto', { tenant_id: t, nome: 'Sempre à venda', tipo: 'simples', preco_venda: '7' });
+      r.item = await ins('item_estoque', { tenant_id: t, nome: 'Doce de leite', unidade_medida: 'kg' });
+      r.opcao = await ins('opcao', { tenant_id: t, nome: 'Doce de leite', tipo: 'insumo', item_id: r.item });
+      r.grupo = await ins('complemento_grupo', { tenant_id: t, produto_id: r.pOk, nome: 'Extras', tipo: 'adicionar', min: 0, max: 2, ordem: 0 });
+      r.co = await ins('complemento_opcao', { tenant_id: t, grupo_id: r.grupo, nome: 'Doce de leite', ordem: 0, origem_opcao_id: r.opcao });
+      const tb = await emitir(R, R.lojas[0], 'regemboard', ESCOPOS_REGEMBOARD);
+      const segredo = segredoNovo();
+      const reg = await put(tb.token, { url: `${baseBoard}conexao-r1`, segredo });
+      if (reg.status !== 200) throw new Error(`registro do aviso do RegeMBoard falhou: ${reg.status} ${JSON.stringify(reg.corpo)}`);
+      board = { ...tb, segredo };
+      // O Farol na mesma loja, só com o catálogo: prova que quem não tem o escopo não recebe o aviso novo.
+      farolR = await conectar(R, R.lojas[0], 'conexao-fr', ['catalogo.ler']);
+    });
+
+    it('os gatilhos são 5, só nas cópias deste teste, e as colunas dos argumentos existem', async () => {
+      const gatilhos = await q(
+        `select c.relname as tabela, encode(g.tgargs, 'hex') as args
+           from pg_trigger g join pg_class c on c.oid = g.tgrelid join pg_namespace s on s.oid = c.relnamespace
+          where s.nspname = $1 and g.tgname like 'trg_integracao_disponib_%'`,
+        [SCHEMA],
+      );
+      expect(gatilhos).toHaveLength(5);
+      expect([...new Set(gatilhos.map((g) => g.tabela))].sort()).toEqual(['opcao', 'produto', 'produto_pausa_estoque']);
+      const colunas = await q(`select table_name as tabela, column_name as coluna from information_schema.columns where table_schema = $1`, [SCHEMA]);
+      const tem = (tabela: string, coluna: string) => colunas.some((c) => c.tabela === tabela && c.coluna === coluna);
+      for (const g of gatilhos) {
+        const [modo, contam] = (g.args as string).split('00').map((h) => Buffer.from(h, 'hex').toString('utf8'));
+        expect(['propria', 'rede']).toContain(modo);
+        if (modo === 'propria') expect(tem(g.tabela, 'unidade_id')).toBe(true);
+        for (const c of (contam ?? '').split(',').filter(Boolean)) expect([g.tabela, c, tem(g.tabela, c)]).toEqual([g.tabela, c, true]);
+      }
+    });
+
+    it('esgotar em todas as lojas avisa o RegeMBoard; o Farol, sem o escopo, não recebe nada', async () => {
+      await depoisDe(() => q(`update produto set pausado_estoque = true, pausa_motivo = 'Acabou' where id = $1`, [r.pRede]));
+      expect(noBoard()).toEqual([DISP]);
+      expect(tiposDe('conexao-fr')).toEqual([]);
+      const ultimo = recebidos.find((x) => x.caminho === '/v1/regemboard/avisos/conexao-r1') as Recebido;
+      expect(JSON.parse(ultimo.corpo)).toEqual({ tipo: DISP, loja_id: R.lojas[0] });
+      expect(assinaturaConfere(ultimo, board.segredo)).toBe(true);
+      // Voltou: avisa de novo.
+      await depoisDe(() => q(`update produto set pausado_estoque = false, pausa_motivo = null where id = $1`, [r.pRede]));
+      expect(noBoard()).toEqual([DISP]);
+    });
+
+    it('a pausa da loja avisa a loja dela: entrar, voltar e sair na R1 avisam; na R2, não', async () => {
+      await depoisDe(() => ins('produto_pausa_estoque', { id: randomUUID(), tenant_id: R.tenant, produto_id: r.pRede, unidade_id: R.lojas[0], pausado: true }));
+      expect(noBoard()).toEqual([DISP]);
+      await depoisDe(() => ins('produto_pausa_estoque', { id: randomUUID(), tenant_id: R.tenant, produto_id: r.pRede, unidade_id: R.lojas[1], pausado: true }));
+      expect(noBoard()).toEqual([]);
+      await depoisDe(() => q(`update produto_pausa_estoque set pausado = false where tenant_id = $1 and unidade_id = $2`, [R.tenant, R.lojas[0]]));
+      expect(noBoard()).toEqual([DISP]);
+      await depoisDe(() => q(`delete from produto_pausa_estoque where tenant_id = $1 and unidade_id = $2`, [R.tenant, R.lojas[0]]));
+      expect(noBoard()).toEqual([DISP]);
+      // Regravar a linha sem mudar a pausa (o envio da loja faz isso) não enfileira nada.
+      await zerar();
+      await q(`update produto_pausa_estoque set updated_at = now() where tenant_id = $1 and unidade_id = $2`, [R.tenant, R.lojas[1]]);
+      expect(await recursosNaFila()).toEqual([]);
+      await q(`delete from produto_pausa_estoque where tenant_id = $1`, [R.tenant]);
+    });
+
+    it('o adicional que esgota (a opção reutilizável) avisa o RegeMBoard; o Farol, não', async () => {
+      await depoisDe(() => q(`update opcao set esgotado = true where id = $1`, [r.opcao]));
+      expect(noBoard()).toEqual([DISP]);
+      expect(tiposDe('conexao-fr')).toEqual([]);
+      await depoisDe(() => q(`update opcao set esgotado = false where id = $1`, [r.opcao]));
+      expect(noBoard()).toEqual([DISP]);
+    });
+
+    it('o que não mexe na disponibilidade não enfileira o recurso novo', async () => {
+      await zerar();
+      await q(`update produto set nome = 'Smash Duplo da casa' where id = $1`, [r.pRede]);
+      await q(`update opcao set preco_custo = 3 where id = $1`, [r.opcao]);
+      await q(`update produto set preco_venda = 34 where id = $1`, [r.pOk]);
+      expect(await recursosNaFila()).toEqual(['catalogo']);
+    });
+
+    it('o catálogo: com a permissão, cada produto e adicional diz se está à venda; sem ela, nem o nome do campo', async () => {
+      await q(`update produto set pausado_estoque = true where id = $1`, [r.pRede]);
+      await ins('produto_pausa_estoque', { id: randomUUID(), tenant_id: R.tenant, produto_id: r.pR1, unidade_id: R.lojas[0], pausado: true });
+      await q(`update opcao set esgotado = true where id = $1`, [r.opcao]);
+      try {
+        const cb = await catalogoPor(board.token);
+        const doId = (pid: string) => cb.produtos.find((p: any) => p.id === pid);
+        expect(doId(r.pRede)).toMatchObject({ disponivel: false, indisponivel_por: 'esgotado' });
+        expect(doId(r.pR1)).toMatchObject({ disponivel: false, indisponivel_por: 'esgotado_na_loja' });
+        expect(doId(r.pInativo)).toMatchObject({ disponivel: false, indisponivel_por: 'fora_do_cardapio' });
+        expect(doId(r.pOk)).toMatchObject({ disponivel: true, indisponivel_por: null });
+        expect(doId(r.pOk).adicionais[0].opcoes[0]).toMatchObject({ disponivel: false, indisponivel_por: 'esgotado' });
+        // O Farol (só catalogo.ler) não vê nem o nome dos campos.
+        const cf = await catalogoPor(farolR.token);
+        expect(JSON.stringify(cf)).not.toMatch(/"disponivel"|"indisponivel_por"/);
+        // A versão: voltar o produto muda a do RegeMBoard, e a do Farol não.
+        await q(`update produto set pausado_estoque = false where id = $1`, [r.pRede]);
+        expect((await catalogoPor(board.token)).versao).not.toBe(cb.versao);
+        expect((await catalogoPor(farolR.token)).versao).toBe(cf.versao);
+      } finally {
+        await q(`update produto set pausado_estoque = false where id = $1`, [r.pRede]);
+        await q(`update opcao set esgotado = false where id = $1`, [r.opcao]);
+        await q(`delete from produto_pausa_estoque where tenant_id = $1`, [R.tenant]);
+      }
+    });
+
+    it('em massa: pausar 2.000 produtos num comando vira UMA linha na fila e leva pouco (ERR-224)', async () => {
+      await q(
+        `insert into produto (tenant_id, nome, tipo, preco_venda) select $1, 'Massa ' || n, 'simples', 10 from generate_series(1, 2000) n`,
+        [R.tenant],
+      );
+      try {
+        await zerar();
+        const inicio = Date.now();
+        await q(`update produto set pausado_estoque = true where tenant_id = $1 and nome like 'Massa %'`, [R.tenant]);
+        const ms = Date.now() - inicio;
+        expect(await fila([R.tenant])).toEqual([{ tenant: R.tenant, loja: null, recurso: 'disponibilidade' }]);
+        expect(ms).toBeLessThan(10_000);
+      } finally {
+        await q(`delete from produto where tenant_id = $1 and nome like 'Massa %'`, [R.tenant]);
+        // As 2.000 linhas mortas ficam só na cópia deste teste; o VACUUM evita estourar o tempo de quem vem depois (ERR-276).
+        await pool.query(`vacuum analyze ${SCHEMA}.produto`);
+      }
     });
   });
 });

@@ -110,6 +110,13 @@ export const PERMISSAO_NA_TELA: Partial<
     naFrase: 'o preço do iFood',
     curta: 'o preço do iFood',
   },
+  // RegeMBoard (F6 do hub, mig 429; protótipo `clique-regemboard.html`): só leitura, sem preço.
+  'catalogo.disponibilidade.ler': {
+    rotulo: 'O que está esgotado agora',
+    frase: 'Se cada produto e cada adicional está à venda agora nesta loja: esgotado, pausado ou fora do cardápio. Sem preço.',
+    naFrase: 'o que está esgotado agora',
+    curta: 'o que está esgotado',
+  },
   // Farol (F6 do hub, 15/11/2026): as fichas e a fila da cozinha, com as frases que o parceiro já lê
   // (`FRASES_DO_PARCEIRO`, aprovadas em 10/10/2026). Nenhuma leva preço, custo ou cliente.
   'fichas.ler': { rotulo: 'Fichas técnicas', frase: 'Os ingredientes de cada ficha, com quantidade e unidade. Sem custo.', naFrase: 'as fichas técnicas', curta: 'as fichas' },
@@ -374,6 +381,31 @@ export const APLICATIVOS_DO_CLIQUE: Record<string, AplicativoDoClique> = {
     naoPodeNoEmail:
       'Ele lê o cardápio, pausa produtos no canal do totem e lança a venda do totem: não pode mudar preço, cancelar ou mudar ' +
       'venda, nem ver clientes e as outras vendas.',
+  },
+  // RegeMBoard (F6 do hub, plano "Clique RegeMBoard → Regem", R-1 a R-9; protótipo `clique-regemboard.html`): o menu nas
+  // TVs da loja mostra "Esgotado" no que acabou no Regem. Loja por loja (R-4), só leitura, sem preço (R-1).
+  regemboard: {
+    nome: 'RegeMBoard',
+    faz: 'mostra o cardápio nas TVs da loja. Com isto, o produto que acabou no Regem aparece como esgotado na TV',
+    inicio: 'https://app.regemboard.com',
+    oQueLe: 'o cardápio e o que está esgotado',
+    soLe: 'Ele só lê: não muda nada no Regem.',
+    voltas: { env: 'INTEGRACAO_REGEMBOARD_REDIRECT_URIS', padrao: ['https://app.regemboard.com/integracoes/regem/volta'] },
+    necessarias: ['catalogo.ler', 'catalogo.disponibilidade.ler'],
+    opcionais: [],
+    dadoPessoal: [],
+    financeiras: [],
+    motivos: {
+      'catalogo.ler': 'Para o dono escolher, no RegeMBoard, qual produto da TV é qual do Regem.',
+      'catalogo.disponibilidade.ler': 'Para a TV mostrar “Esgotado” no que acabou, sem ninguém mexer no painel.',
+    },
+    semElas: {},
+    naoPode: [
+      { rotulo: 'Mudar qualquer coisa no Regem', frase: 'Nem preço, nem cardápio, nem pausa: ele só lê.' },
+      { rotulo: 'Ver vendas, clientes ou valores', frase: 'Nada de pedidos, de preço ou de quem comprou.' },
+      { rotulo: 'Entrar no seu Regem', frase: 'O RegeMBoard não recebe a sua senha nem a sua sessão.' },
+    ],
+    naoPodeNoEmail: 'Ele só lê o cardápio e o que está esgotado: não pode mudar nada no Regem, nem ver vendas, clientes ou valores.',
   },
 };
 

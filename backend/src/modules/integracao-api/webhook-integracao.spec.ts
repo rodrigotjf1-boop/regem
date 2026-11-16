@@ -283,12 +283,15 @@ describe('o corpo do aviso (contrato do Liame)', () => {
     expect(corpoDoAviso({ recurso: 'catalogo', id: null, versao: null }, null)).toEqual({ tipo: 'catalogo.alterado' });
   });
 
-  it('todo retrato avisado pede um escopo de leitura na hora, que o Farol pode ter — e nenhum é do carimbador', () => {
+  it('todo retrato avisado pede um escopo de leitura na hora, que um cliente da porta pode ter — e nenhum é do carimbador', () => {
     for (const r of Object.values(EVENTO_DO_RETRATO)) {
       expect(ESCOPOS_INTEGRACAO).toContain(r.escopo);
       expect(ESCOPOS_SEM_CARIMBO).toContain(r.escopo);
-      expect(CLIENTES_INTEGRACAO.farol.escopos).toContain(r.escopo);
+      expect(Object.values(CLIENTES_INTEGRACAO).some((c) => c.escopos.includes(r.escopo))).toBe(true);
     }
+    // O catálogo e as fichas são do Farol; a disponibilidade, do RegeMBoard (mig 429).
+    expect(CLIENTES_INTEGRACAO.farol.escopos).toEqual(expect.arrayContaining([EVENTO_DO_RETRATO.catalogo.escopo, EVENTO_DO_RETRATO.fichas.escopo]));
+    expect(CLIENTES_INTEGRACAO.regemboard.escopos).toContain(EVENTO_DO_RETRATO.disponibilidade.escopo);
     // Os nomes não se confundem com os dos recursos publicados (a busca do job junta os dois).
     for (const r of Object.keys(EVENTO_DO_RETRATO)) expect(Object.keys(EVENTO_DO_RECURSO)).not.toContain(r);
   });
