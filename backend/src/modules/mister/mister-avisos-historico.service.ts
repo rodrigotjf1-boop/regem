@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { hojeISO, somarDias } from '../../common/data';
 import { noPeriodo } from '../../common/fuso-sql';
-import { Destino, NOME_DO_DESTINO, TIPOS_DE_AVISO } from './mister-avisos.regras';
+import { Destino, NOME_DO_DESTINO, TIPOS_DA_DISTRIBUICAO, TIPOS_DE_AVISO } from './mister-avisos.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -92,6 +92,8 @@ export class MisterAvisosHistoricoService {
       from mister_aviso a
      where a.tenant_id = ${tenantId}::uuid
        and (a.situacao = 'aberto' or ${noPeriodo('a.aberto_em', `${somarDias(hoje, -(dias - 1))} 00:00:00`, `${hoje} 23:59:59`)})
+       -- Os avisos SÓ DA DISTRIBUIÇÃO (o segredo tirado da resposta) não são da loja: só o Console › Avisos os mostra.
+       and a.tipo not in (${sql.join(TIPOS_DA_DISTRIBUICAO.map((x) => sql`${x}`), sql`, `)})
        ${tipos.length ? sql`and a.tipo in (${sql.join(tipos.map((x) => sql`${x}`), sql`, `)})` : sql``}
        ${t ? sql`and a.titulo ilike ${`%${t}%`}` : sql``}`;
     const [c] = linhas(

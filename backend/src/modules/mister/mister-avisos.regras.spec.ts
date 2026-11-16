@@ -1,4 +1,9 @@
 import {
+  AVISOS_DA_DISTRIBUICAO,
+  SEGREDO_ABERTO_H,
+  TIPOS_DA_DISTRIBUICAO,
+  ehAvisoDaDistribuicao,
+  situacaoDoSegredo,
   DESTINOS,
   MARCOS_DO_CERTIFICADO,
   TIPOS_DE_AVISO,
@@ -293,5 +298,25 @@ describe('Mister — o pedido parado', () => {
     expect(situacaoDoPedidoParado({ ...pedido, canal: 'cardapio', displayId: null, status: 'novo' }, 'L').titulo).toBe('L · pedido #284 · Cardápio sem aceite há mais de 20 min');
     // Os botões citados são dos que o guia confere contra a tela.
     expect(GUIA_DE_USO.find((x) => x.id === 'aceitar-avancar')!.botoes).toEqual(expect.arrayContaining(['AVANÇAR', 'Despachar']));
+  });
+});
+
+describe('os avisos SÓ DA DISTRIBUIÇÃO (decisão 4 do protótipo Sentinela e Mentor)', () => {
+  it('o segredo tirado vai só ao suporte da DMS, com a regra fixa, e não é um tipo que a loja configura', () => {
+    expect(TIPOS_DA_DISTRIBUICAO).toEqual(['segredo_na_resposta']);
+    expect(AVISOS_DA_DISTRIBUICAO.segredo_na_resposta).toEqual({ ligado: true, destinos: ['dms'], escalaMin: null, escalaPara: [], parametro: null });
+    expect(TIPOS_DE_AVISO.map((t) => t.tipo)).not.toContain('segredo_na_resposta');
+    expect(ehAvisoDaDistribuicao('segredo_na_resposta')).toBe(true);
+    expect(ehAvisoDaDistribuicao('impressora')).toBe(false);
+    expect(SEGREDO_ABERTO_H).toBe(24);
+  });
+  it('o aviso diz a hora e as consultas — nunca o segredo; um por pergunta', () => {
+    const s = situacaoDoSegredo({ tenantId: 't', perguntaId: 'p1', quando: '16/11 03:12', consultas: ['canais_e_integracoes', ''] });
+    expect(s).toEqual({
+      tenantId: 't', unidadeId: null, tipo: 'segredo_na_resposta', chave: 'segredo:p1', titulo: 'Segredo tirado da resposta do Mister',
+      detalhe: 'Em 16/11 03:12, o filtro de saída trocou a resposta inteira pela frase fixa (consultas: canais_e_integracoes). O segredo não foi enviado nem guardado. Veja em Console › Mister › Segurança.',
+      dados: { consultas: ['canais_e_integracoes'] },
+    });
+    expect(situacaoDoSegredo({ tenantId: 't', perguntaId: 'p2', quando: '16/11 03:12', consultas: [] }).detalhe).toContain('pela frase fixa. O segredo');
   });
 });

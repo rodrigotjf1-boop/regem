@@ -10,11 +10,16 @@ import { MAX_TENTATIVAS_CONSULTA_DA_NOTA } from '../fiscal/fiscal.service';
 import { AlertaKdsService } from '../kds/alerta-kds.service';
 import { ModuloService } from '../modulo/modulo.service';
 import { PREPARO_DA_ENCOMENDA_MIN } from './mister-agente.regras';
+import { FUSO_SQL } from '../../common/fuso-sql';
 import { MisterAvisosConfigService } from './mister-avisos-config.service';
 import {
+  AVISOS_DA_DISTRIBUICAO,
   Destino,
   MARCOS_DO_CERTIFICADO,
   PEDIDO_PARADO_JANELA_H,
+  SEGREDO_ABERTO_H,
+  ehAvisoDaDistribuicao,
+  situacaoDoSegredo,
   RegraDoAviso,
   TEMPOS_DO_PEDIDO_PARADO,
   Situacao,
@@ -225,6 +230,27 @@ export class MisterAvisosService implements OnModuleInit {
         const s = situacaoDaChave(k);
         if (s) fora.push(s);
       }
+    } catch (e: any) {
+      if (!semTabela(e)) throw e;
+    }
+
+    // 3b) O segredo tirado da resposta do Mister nas últimas 24 horas (aviso SÓ da distribuição → suporte da DMS). Um por
+    //     pergunta; fecha sozinho quando passa das 24 horas. Nunca o segredo: a hora e as consultas daquela resposta.
+    try {
+      const notas = sql`case when jsonb_typeof(p.conferencia) = 'array' then p.conferencia else '[]'::jsonb end`;
+      const trilha = sql`case when jsonb_typeof(p.ferramentas) = 'array' then p.ferramentas else '[]'::jsonb end`;
+      const segredos = linhas(
+        await this.db.execute(sql`
+          select p.id::text as id, p.tenant_id::text as "tenantId", to_char(p.criado_em at time zone ${FUSO_SQL}, 'DD/MM HH24:MI') as quando,
+                 (select coalesce(jsonb_agg(distinct f ->> 'nome'), '[]'::jsonb) from jsonb_array_elements(${trilha}) f where (f ->> 'ok')::boolean) as consultas
+            from mister_pergunta p
+            join empresa emp on emp.id = p.tenant_id and emp.deleted_at is null
+           where p.criado_em > now() - make_interval(hours => ${SEGREDO_ABERTO_H}::int) and ${notas} ? 'segredo' ${so('p.tenant_id')}
+           order by p.criado_em desc
+           limit 200`),
+      );
+      for (const s of segredos)
+        fora.push(situacaoDoSegredo({ tenantId: s.tenantId, perguntaId: s.id, quando: String(s.quando), consultas: Array.isArray(s.consultas) ? s.consultas : [] }));
     } catch (e: any) {
       if (!semTabela(e)) throw e;
     }
@@ -446,6 +472,8 @@ export class MisterAvisosService implements OnModuleInit {
     const regras = await this.config.regrasDe([...new Set(todas.map((s) => s.tenantId))]);
     const moduloLigado = new Map<string, boolean>();
     const vale = async (s: Situacao): Promise<RegraDoAviso | null> => {
+      // O aviso só da distribuição (o segredo tirado): a regra fixa, que a empresa não muda nem desliga.
+      if (ehAvisoDaDistribuicao(s.tipo)) return AVISOS_DA_DISTRIBUICAO[s.tipo];
       const k = `${s.tenantId}|${s.unidadeId ?? ''}`;
       if (!moduloLigado.has(k)) moduloLigado.set(k, await this.modulos.ativo(s.tenantId, s.unidadeId, MODULO).catch(() => false));
       const r = regras.get(s.tenantId)?.get(s.tipo);
