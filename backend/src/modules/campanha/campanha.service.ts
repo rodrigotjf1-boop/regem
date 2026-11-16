@@ -26,6 +26,10 @@ const PUB = (process.env.PUBLIC_API_BASE || 'https://api.dmsregem.com/api/v1').r
 export class CampanhaService {
   private readonly logger = new Logger('Campanha');
   private rodando = false;
+  /** Campanhas por volta do `worker` (o teste diminui para provar o rodízio). */
+  loteDoWorker = 20;
+  /** O rodízio do `worker`: a última campanha vista — a volta seguinte continua dali; a página curta recomeça. */
+  private workerDepoisDe = '00000000-0000-0000-0000-000000000000';
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly whatsapp: WhatsappService,
@@ -622,6 +626,12 @@ export class CampanhaService {
 
   // Worker: a cada tick, envia 1 mensagem por campanha PRONTA (pacing por intervalo_seg),
   // respeitando janela de agendamento + tetos dia/semana/mês. Só na nuvem; nunca sobrepõe.
+  //
+  // O LOTE ANDA EM RODÍZIO (V84, ERR-491). A leitura é de TODAS as empresas e a campanha fora da janela de agendamento ou
+  // com o teto do dia/semana/mês batido é pulada sem sair de "enviando" (é o certo: ela volta quando puder). Com o lote
+  // sem ordem e sempre do começo, 20 campanhas nessa situação — de qualquer empresa — tomavam o lote inteiro e as das
+  // outras lojas paravam de sair. Agora a volta seguinte continua depois da última vista; a página curta recomeça.
+  // O `cupom_codigo` entra na leitura: sem ele o botão "copiar cupom" do modelo oficial saía com o texto fixo "CUPOM".
   @Interval(3000)
   async worker() {
     if (ehServidorLocal()) return;
@@ -631,14 +641,18 @@ export class CampanhaService {
       const prontas: any = await this.db.execute(sql`
         select id, tenant_id, mensagem, mensagem_b, link, imagem_ref, intervalo_seg, teto_dia,
                teto_semana, teto_mes, instancia_tipo, agendada, dias_semana, hora_inicio, hora_fim,
-               inicia_em, termina_em, template_nome, template_idioma, template_vars
+               inicia_em, termina_em, template_nome, template_idioma, template_vars, cupom_codigo
         from campanha
         where status = 'enviando'
           and (select coalesce(max(enviado_em), to_timestamp(0)) from campanha_envio e
                where e.campanha_id = campanha.id and e.status = 'enviado')
               < now() - (intervalo_seg || ' seconds')::interval
-        limit 20`);
-      for (const camp of prontas.rows ?? prontas) {
+          and id > ${this.workerDepoisDe}::uuid
+        order by id
+        limit ${this.loteDoWorker}`);
+      const lista: any[] = prontas.rows ?? prontas;
+      this.workerDepoisDe = lista.length < this.loteDoWorker ? '00000000-0000-0000-0000-000000000000' : String(lista[lista.length - 1].id);
+      for (const camp of lista) {
         // Fora da janela de agendamento → não envia agora (fica 'enviando' p/ o próximo tick).
         if (!this.dentroDaJanela(camp)) continue;
         // Tetos por período.
