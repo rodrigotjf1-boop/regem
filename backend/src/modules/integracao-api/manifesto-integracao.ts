@@ -41,6 +41,8 @@ export const ESCOPOS_DA_PORTA = [
   'catalogo.ifood.ler',
   // Liame (mig 398): os canais da Central de atendimento (`GET /integracao/atendimento/canais`).
   'atendimento.canais.ler',
+  // RegeMBoard (mig 429): acrescenta a disponibilidade ao `GET /integracao/catalogo` (sem rota própria) e o aviso dela.
+  'catalogo.disponibilidade.ler',
 ] as const satisfies readonly EscopoIntegracao[];
 
 /**
@@ -382,6 +384,7 @@ function avisos() {
     'cupom.usado': 'Um cupom foi usado num pedido: leia o uso em /cupons/usos.',
     'catalogo.alterado': 'O catálogo da loja mudou: leia /catalogo com ?versao=.',
     'fichas.alterado': 'As fichas da loja mudaram: leia /fichas com ?versao=.',
+    'disponibilidade.alterada': 'Um produto ou adicional esgotou ou voltou na loja: leia /catalogo com ?versao=.',
   };
   const novidades: Novidade[] = [
     { recurso: 'venda', id: PEDIDO, versao: 3 },
@@ -390,6 +393,7 @@ function avisos() {
     { recurso: 'cupom_uso', id: USO, versao: 1, cupom_id: CUPOM, pedido_id: PEDIDO },
     { recurso: 'catalogo', id: null, versao: null },
     { recurso: 'fichas', id: null, versao: null },
+    { recurso: 'disponibilidade', id: null, versao: null },
   ];
   const tabela: Record<string, { tipo: string; escopo: EscopoIntegracao }> = { ...EVENTO_DO_RECURSO, ...EVENTO_DO_RETRATO };
   return novidades.map((n) => {

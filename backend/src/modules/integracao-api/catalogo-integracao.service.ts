@@ -39,6 +39,15 @@ export class CatalogoIntegracaoService {
     const produtoDaLoja = daLojaDoToken(sql`p.unidade_id`, ctx);
     // O preço do iFood em centavos, como todo dinheiro da porta (numeric(12,2) × 100 é exato; bigint: até 10^12).
     const ifood = ctx.escopos.includes('catalogo.ifood.ler');
+    // A disponibilidade (RegeMBoard, mig 429): o esgotado de todas as lojas e o desta loja (`produto_pausa_estoque`, a
+    // regra de `common/pausa-loja.ts`); o do adicional, da opção reutilizável. O acesso sem loja (da empresa inteira) só
+    // vê o esgotado de todas as lojas — não há "esta loja" para conferir.
+    const disponibilidade = ctx.escopos.includes('catalogo.disponibilidade.ler');
+    const pausadoNaLoja = ctx.unidadeId
+      ? sql`exists (select 1 from produto_pausa_estoque pe
+                     where pe.tenant_id = p.tenant_id and pe.produto_id = p.id and pe.unidade_id = ${ctx.unidadeId}::uuid
+                       and pe.pausado = true and pe.deleted_at is null)`
+      : sql`false`;
 
     const categorias = await this.rows(sql`
       select c.id::text as id, c.nome, c.parent_id::text as categoria_pai_id, c.ordem, c.ativo
@@ -59,6 +68,7 @@ export class CatalogoIntegracaoService {
              p.setor_producao_id::text as setor_producao_id, p.tempo_preparo_min,
              p.ficha_id::text as ficha_id, p.ativo
              ${ifood ? sql`, (p.preco_ifood * 100)::bigint::text as preco_ifood_centavos, p.no_ifood` : sql``}
+             ${disponibilidade ? sql`, p.pausado_estoque, ${pausadoNaLoja} as pausado_na_loja` : sql``}
         from produto p
        where p.tenant_id = ${tenant} and p.deleted_at is null and ${produtoDaLoja}
        order by p.nome, p.id`);
@@ -102,6 +112,7 @@ export class CatalogoIntegracaoService {
              fi.item_id::text as retira_item_id, fi.sub_ficha_id::text as retira_sub_ficha_id,
              fi.insumo_nome as retira_nome
              ${ifood ? sql`, (op.preco_ifood * 100)::bigint::text as preco_ifood_centavos` : sql``}
+             ${disponibilidade ? sql`, op.ativo as opcao_ativo, op.esgotado as opcao_esgotado` : sql``}
         from complemento_opcao o
         join complemento_grupo g on g.id = o.grupo_id and g.tenant_id = o.tenant_id
         join produto p on p.id = g.produto_id and p.tenant_id = g.tenant_id
@@ -113,7 +124,7 @@ export class CatalogoIntegracaoService {
        order by o.grupo_id, o.ordem, o.nome, o.id`);
 
     return responderComVersao(
-      montarCatalogo(ctx.unidadeId, { categorias, setores, produtos, variacoes, combos, grupos, opcoes }, { ifood }),
+      montarCatalogo(ctx.unidadeId, { categorias, setores, produtos, variacoes, combos, grupos, opcoes }, { ifood, disponibilidade }),
       q,
     );
   }

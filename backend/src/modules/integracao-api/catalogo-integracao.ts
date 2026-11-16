@@ -18,6 +18,37 @@ import { rendeEm } from '../fichas/fichas-carga';
 // e uma versão por "maior data" deixaria essa mudança passar. Mudou o retrato, muda a versão;
 // mudou só o preço (que não está no retrato), a versão é a mesma. Com os campos do iFood, eles fazem
 // parte do retrato DAQUELE acesso: mudar o preço do iFood muda a versão do Orzuni, e a do Farol não.
+// A DISPONIBILIDADE (RegeMBoard, mig 429; `catalogo.disponibilidade.ler`) idem: esgotar um produto muda a versão do
+// RegeMBoard, e a do Farol não.
+
+/** Por que um produto ou adicional não está à venda agora na loja (null = está). */
+export type IndisponivelPor = 'fora_do_cardapio' | 'esgotado' | 'esgotado_na_loja' | null;
+
+/**
+ * A disponibilidade do PRODUTO na loja do acesso, a mesma regra da venda (`common/pausa-loja.ts`): fora do cardápio
+ * (`ativo` falso) > esgotado em todas as lojas (`pausado_estoque`) > esgotado nesta loja (`produto_pausa_estoque`). A
+ * pausa por CANAL (`canais_pausados`: iFood, 99, totem) não entra: é de um canal, e a TV da loja não é canal nenhum.
+ */
+export function disponibilidadeDoProduto(p: { ativo?: unknown; pausado_estoque?: unknown; pausado_na_loja?: unknown }): {
+  disponivel: boolean;
+  indisponivel_por: IndisponivelPor;
+} {
+  const por: IndisponivelPor =
+    p.ativo !== true ? 'fora_do_cardapio' : p.pausado_estoque === true ? 'esgotado' : p.pausado_na_loja === true ? 'esgotado_na_loja' : null;
+  return { disponivel: por === null, indisponivel_por: por };
+}
+
+/**
+ * A disponibilidade do ADICIONAL: a da opção reutilizável de onde ele foi materializado (`opcao.ativo` e
+ * `opcao.esgotado`, que valem para todas as lojas). O adicional criado só no produto não tem esgotado: está à venda.
+ */
+export function disponibilidadeDaOpcao(o: { opcao_ativo?: unknown; opcao_esgotado?: unknown }): {
+  disponivel: boolean;
+  indisponivel_por: IndisponivelPor;
+} {
+  const por: IndisponivelPor = o.opcao_ativo === false ? 'fora_do_cardapio' : o.opcao_esgotado === true ? 'esgotado' : null;
+  return { disponivel: por === null, indisponivel_por: por };
+}
 
 export type RetratoCatalogo = {
   loja_id: string | null;
@@ -93,13 +124,16 @@ function centavosOuNulo(v: unknown): number | null {
 /**
  * Monta o retrato do catálogo a partir das linhas das sete consultas (cada lista já vem ordenada). Com `ifood` (o
  * acesso tem `catalogo.ifood.ler`), o produto ganha `preco_ifood_centavos` e `no_ifood`, e a opção, `preco_ifood_centavos`.
+ * Com `disponibilidade` (o acesso tem `catalogo.disponibilidade.ler`), o produto e a opção ganham `disponivel` e
+ * `indisponivel_por`.
  */
 export function montarCatalogo(
   lojaId: string | null,
   linhas: { categorias: any[]; setores: any[]; produtos: any[]; variacoes: any[]; combos: any[]; grupos: any[]; opcoes: any[] },
-  opcoesDoRetrato: { ifood?: boolean } = {},
+  opcoesDoRetrato: { ifood?: boolean; disponibilidade?: boolean } = {},
 ): RetratoCatalogo {
   const ifood = opcoesDoRetrato.ifood === true;
+  const disponibilidade = opcoesDoRetrato.disponibilidade === true;
   const variacoes = agrupar(linhas.variacoes, 'produto_id');
   const combos = agrupar(linhas.combos, 'produto_id');
   const grupos = agrupar(linhas.grupos, 'produto_id');
@@ -128,6 +162,7 @@ export function montarCatalogo(
       ficha_id: p.ficha_id ?? null,
       ativo: p.ativo === true,
       ...(ifood ? { preco_ifood_centavos: centavosOuNulo(p.preco_ifood_centavos), no_ifood: p.no_ifood === true } : {}),
+      ...(disponibilidade ? disponibilidadeDoProduto(p) : {}),
       variacoes: (variacoes.get(p.id) ?? []).map((v) => ({
         id: v.id,
         nome: v.nome,
@@ -152,6 +187,7 @@ export function montarCatalogo(
           codigo: o.codigo ?? null,
           ordem: Number(o.ordem),
           ...(ifood ? { preco_ifood_centavos: centavosOuNulo(o.preco_ifood_centavos) } : {}),
+          ...(disponibilidade ? disponibilidadeDaOpcao(o) : {}),
           informativa: !String(o.codigo ?? '').trim(),
           acrescenta: g.tipo === 'remover' ? null : acrescenta(o),
           retira: g.tipo === 'remover' ? retira(o) : null,

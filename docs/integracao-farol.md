@@ -333,6 +333,11 @@ de qualquer um daqueles valores. A leitura da fila nem toca a tabela da venda on
 `catalogo.ifood.ler` (o Orzuni, `docs/integracao-orzuni.md`). O token do Farol não a tem e não pode tê-la: para ele, o
 catálogo segue IGUAL, sem o nome dos campos e com a mesma versão (o teste `integracao-orzuni.http.spec.ts` confere).
 
+**A disponibilidade (migration 429, 15/11/2026)** idem: `disponivel` e `indisponivel_por` no produto e no adicional, e
+o aviso `disponibilidade.alterada`, só para quem tem `catalogo.disponibilidade.ler` (o RegeMBoard,
+`docs/integracao-regemboard.md`). Para o Farol nada muda: nem os campos, nem a versão, nem os avisos (o teste
+`integracao-retrato-aviso.http.spec.ts` confere).
+
 O token do Farol **não liga a cópia das vendas** que serve ao Liame e ao RegemCast (o carimbador):
 a empresa que só tem o Farol conectado não ganha carga de vendas, fila nem reconciliação.
 
