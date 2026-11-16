@@ -8,13 +8,15 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ColaboradorService } from '../colaborador/colaborador.service';
 import { ModuloService } from '../modulo/modulo.service';
 import { ehServidorLocal } from '../../common/modo';
-import { hojeISO } from '../../common/data';
+import { hojeISO, somarDias } from '../../common/data';
+import { instanteDe } from '../../common/fuso-sql';
 import { sqlUnidade } from '../../common/filtro-unidade';
 import { geocode } from '../../common/geocode';
 import {
   FalhaDeDistancia,
   FichaLida,
   MAX_TENTATIVAS_DE_DISTANCIA,
+  PERIODOS_DAS_ABERTURAS,
   PaginaDeVagas,
   VERSAO_COMUNICACAO,
   VERSAO_GUARDA,
@@ -27,6 +29,8 @@ import {
   lerOrigem,
   lerPagina,
   lerSituacao,
+  origemQueConta,
+  origensDasFichas,
   paginaDaLinha,
   slug,
   termoDaComunicacao,
@@ -572,6 +576,63 @@ export class VagasService {
       origem: 'web',
     });
     return this.pagina(user.tenantId, u);
+  }
+
+  // ── F5a (mig 430): de onde vêm as fichas ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Uma abertura da página pública: soma 1 no dia da operação e na origem que conta (um QR da loja, um canal do robô ou
+   * "sem origem"). Uma gravação só (`on conflict`), sem ler antes — muitas aberturas ao mesmo tempo somam certo. Página
+   * desligada ou módulo desligado: "não encontrada", como a página. O "uma por aparelho por dia" é o cookie da página.
+   */
+  async contarAbertura(codigo: string, dto: any): Promise<{ ok: true }> {
+    const { linha } = await this.paginaPorCodigo(codigo);
+    const pedida = lerOrigem(dto?.origem);
+    const codigos = new Set<string>();
+    if (pedida) {
+      const [q] = linhas(await this.db.execute(sql`
+        select codigo from vaga_qr where tenant_id = ${linha.tenant_id} and unidade_id = ${linha.unidade_id} and codigo = ${pedida}`));
+      if (q) codigos.add(String(q.codigo));
+    }
+    const origem = origemQueConta(pedida, codigos);
+    await this.db.execute(sql`
+      insert into vaga_abertura (tenant_id, unidade_id, dia, origem, aberturas)
+      values (${linha.tenant_id}, ${linha.unidade_id}, ${hojeISO()}::date, ${origem}, 1)
+      on conflict (tenant_id, unidade_id, dia, origem)
+      do update set aberturas = vaga_abertura.aberturas + 1, atualizado_em = clock_timestamp()`);
+    return { ok: true };
+  }
+
+  /**
+   * "De onde vêm as fichas" da loja dos ajustes, no período (7, 30 ou 90 dias contando hoje): quantos abriram a página e
+   * quantos enviaram a ficha, por origem. As fichas contam pelo `recebido_em` no relógio da operação (V46). `contandoDesde`
+   * = o primeiro dia com abertura gravada: antes dele só há fichas (a contagem das aberturas começou com a 430).
+   */
+  async aberturas(tenantId: string, unidade: string | null, diasPedidos: unknown) {
+    const u = await this.lojaDosAjustes(tenantId, unidade);
+    const dias = (PERIODOS_DAS_ABERTURAS as readonly number[]).includes(Number(diasPedidos)) ? Number(diasPedidos) : 30;
+    const hoje = hojeISO();
+    const desde = somarDias(hoje, -(dias - 1));
+    const [qrs, ab, fi, comeco] = await Promise.all([
+      this.db.execute(sql`select codigo, nome from vaga_qr where tenant_id = ${tenantId} and unidade_id = ${u}::uuid order by criado_em, codigo`),
+      this.db.execute(sql`
+        select origem, sum(aberturas)::int as n from vaga_abertura
+         where tenant_id = ${tenantId} and unidade_id = ${u}::uuid and dia >= ${desde}::date and dia <= ${hoje}::date
+         group by origem`),
+      this.db.execute(sql`
+        select c.origem, count(*)::int as n from candidato c
+         where c.tenant_id = ${tenantId} and c.unidade_id = ${u}::uuid and c.recebido_em >= ${instanteDe(desde)}
+         group by c.origem`),
+      this.db.execute(sql`select to_char(min(dia), 'YYYY-MM-DD') as dia from vaga_abertura where tenant_id = ${tenantId} and unidade_id = ${u}::uuid`),
+    ]);
+    const origens = origensDasFichas(linhas(qrs) as any[], linhas(ab) as any[], linhas(fi) as any[]);
+    return {
+      dias,
+      desde,
+      contandoDesde: (linhas(comeco)[0]?.dia as string | null) ?? null,
+      totais: { aberturas: origens.reduce((s, o) => s + o.aberturas, 0), fichas: origens.reduce((s, o) => s + o.fichas, 0) },
+      origens,
+    };
   }
 
   // ── QR codes / marcas de origem ─────────────────────────────────────────────────────────────────────────────────

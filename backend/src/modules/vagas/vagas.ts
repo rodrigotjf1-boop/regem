@@ -520,6 +520,65 @@ export function lerOrigem(v: unknown): string | null {
   return /^[a-z0-9][a-z0-9-]{0,29}$/.test(s) ? s : null;
 }
 
+// ── F5a (mig 430): de onde vêm as fichas ──────────────────────────────────────────────────────────────────────────
+
+/** Os canais do robô que mandam o link da ficha (`pagina-para-o-robo.ts`: `?o=whatsapp`, `?o=direct`, `?o=messenger`). */
+export const ORIGENS_DO_ROBO: Record<string, string> = { whatsapp: 'Robô no WhatsApp', direct: 'Robô no Direct do Instagram', messenger: 'Robô no Messenger' };
+
+/** Os períodos que a tela oferece (dias, contando hoje). */
+export const PERIODOS_DAS_ABERTURAS = [7, 30, 90] as const;
+
+/**
+ * A origem que CONTA: o código de um QR da loja ou um canal do robô; qualquer outra coisa (vazia, apagada, inventada)
+ * vira '' — "link sem origem". Ninguém cria linha com texto que a loja não criou.
+ */
+export function origemQueConta(v: unknown, codigosDosQr: ReadonlySet<string>): string {
+  const o = lerOrigem(v);
+  if (!o) return '';
+  return codigosDosQr.has(o) || o in ORIGENS_DO_ROBO ? o : '';
+}
+
+export interface OrigemDasFichas {
+  origem: string;
+  nome: string;
+  tipo: 'qr' | 'robo' | 'link';
+  aberturas: number;
+  fichas: number;
+}
+
+/**
+ * Junta as aberturas e as fichas do período por origem: cada QR da loja aparece (mesmo zerado — o cartão do QR mostra
+ * "nenhuma abertura"); os canais do robô e o "link sem origem" só quando têm número. A ficha de origem que não conta mais
+ * (o QR apagado) soma no "link sem origem". Ordem: mais fichas, depois mais aberturas, depois o nome.
+ */
+export function origensDasFichas(
+  qrs: Array<{ codigo: string; nome: string }>,
+  aberturas: Array<{ origem: string; n: number }>,
+  fichas: Array<{ origem: string | null; n: number }>,
+): OrigemDasFichas[] {
+  const codigos = new Set(qrs.map((q) => q.codigo));
+  const m = new Map<string, OrigemDasFichas>();
+  const pegar = (origem: string): OrigemDasFichas => {
+    let o = m.get(origem);
+    if (!o) {
+      const qr = qrs.find((q) => q.codigo === origem);
+      o = qr
+        ? { origem, nome: qr.nome, tipo: 'qr', aberturas: 0, fichas: 0 }
+        : origem in ORIGENS_DO_ROBO
+          ? { origem, nome: ORIGENS_DO_ROBO[origem], tipo: 'robo', aberturas: 0, fichas: 0 }
+          : { origem: '', nome: 'Link sem origem', tipo: 'link', aberturas: 0, fichas: 0 };
+      m.set(o.origem, o);
+    }
+    return o;
+  };
+  for (const q of qrs) pegar(q.codigo);
+  for (const a of aberturas) pegar(origemQueConta(a.origem, codigos)).aberturas += Number(a.n) || 0;
+  for (const f of fichas) pegar(origemQueConta(f.origem, codigos)).fichas += Number(f.n) || 0;
+  return [...m.values()]
+    .filter((o) => o.tipo === 'qr' || o.aberturas > 0 || o.fichas > 0)
+    .sort((a, b) => b.fichas - a.fichas || b.aberturas - a.aberturas || a.nome.localeCompare(b.nome, 'pt-BR'));
+}
+
 /** Endereço público a partir do nome da loja: minúsculas, sem acento, hífen no lugar do resto. */
 export function slug(nome: string): string {
   const s = String(nome ?? '')

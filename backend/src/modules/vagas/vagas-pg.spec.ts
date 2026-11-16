@@ -65,6 +65,7 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
     await aplicar('389_vagas_e_candidatos.sql');
     await aplicar('397_candidato_distancia.sql'); // F2: o serviço grava as colunas da distância (ERR-273: toda spec que monta a 389)
     await aplicar('427_candidato_confirmacao.sql'); // F3b: as colunas da confirmação da ficha (ERR-273)
+    await aplicar('430_vaga_abertura.sql'); // F5a: as aberturas da página por dia e origem (ERR-273)
     const registrar = { registrar: async (e: any) => void auditoria.push(e) } as any;
     svc = new VagasService(db, registrar, new ModuloService(db, registrar), new ColaboradorService(db, registrar));
     await q(`insert into empresa (id, nome) values ($1, 'teste vagas'), ($2, 'outra empresa das vagas')`, [T, T2]);
@@ -83,7 +84,7 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
   afterAll(async () => {
     if (!pool) return;
     for (const t of [T, T2]) {
-      for (const tab of ['candidato', 'vaga_qr', 'vaga_pagina', 'modulo_ativacao', 'cardapio_config', 'unidade'])
+      for (const tab of ['candidato', 'vaga_abertura', 'vaga_qr', 'vaga_pagina', 'modulo_ativacao', 'cardapio_config', 'unidade'])
         await q(`delete from ${tab} where tenant_id = $1`, [t]).catch(() => {});
       await q(`delete from empresa where id = $1`, [t]).catch(() => {});
     }
@@ -498,6 +499,70 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
     } finally {
       for (const id of fichas) await q(`delete from candidato where id = $1`, [id]).catch(() => {});
       await q(`update vaga_pagina set funcoes = $3::jsonb where tenant_id = $1 and unidade_id = $2`, [T, lojaA, JSON.stringify(paginaAntes)]);
+    }
+  });
+
+  // F5a (mig 430): de onde vêm as fichas — a página aberta soma; a tela lê o período por origem.
+  it('F5a: as aberturas somam certo ao mesmo tempo, na origem que conta; a tela lê aberturas e fichas do período por origem', async () => {
+    const fichas: string[] = [];
+    const hoje = hojeISO();
+    const diaHa = (n: number) => {
+      const d = new Date(`${hoje}T12:00:00Z`);
+      d.setUTCDate(d.getUTCDate() - n);
+      return d.toISOString().slice(0, 10);
+    };
+    try {
+      await q(`delete from vaga_abertura where tenant_id = $1`, [T]);
+      // 20 aberturas ao mesmo tempo pelo QR do salão somam 20 (uma gravação só, sem ler antes); o canal do robô conta no
+      // dele; a origem inventada e a sem origem caem no "link sem origem".
+      await Promise.all(Array.from({ length: 20 }, () => svc.contarAbertura(codigo, { origem: 'salao' })));
+      await svc.contarAbertura(codigo, { origem: 'whatsapp' });
+      await svc.contarAbertura(codigo, { origem: 'nao-existe' });
+      await svc.contarAbertura(codigo, {});
+      expect(await q(`select origem, aberturas, dia::text as dia from vaga_abertura where tenant_id = $1 order by origem`, [T])).toEqual([
+        { origem: '', aberturas: 2, dia: hoje },
+        { origem: 'salao', aberturas: 20, dia: hoje },
+        { origem: 'whatsapp', aberturas: 1, dia: hoje },
+      ]);
+      // Página desconhecida ou desligada: "não encontrada", nada grava.
+      await expect(svc.contarAbertura('nao-existe-esta', { origem: 'salao' })).rejects.toThrow(NotFoundException);
+      await svc.salvarPagina(gerente(), lojaA, { ligada: false });
+      await expect(svc.contarAbertura(codigo, { origem: 'salao' })).rejects.toThrow(NotFoundException);
+      await svc.salvarPagina(gerente(), lojaA, { ligada: true });
+      expect(Number((await q(`select sum(aberturas)::int as n from vaga_abertura where tenant_id = $1`, [T]))[0].n)).toBe(23);
+
+      // Dias passados: 10 dias atrás entra nos 30; 40 dias atrás, só nos 90.
+      await q(`insert into vaga_abertura (tenant_id, unidade_id, dia, origem, aberturas) values ($1, $2, $3::date, 'salao', 5), ($1, $2, $4::date, 'salao', 100)`, [
+        T, lojaA, diaHa(10), diaHa(40),
+      ]);
+      const antes: any = await svc.aberturas(T, lojaA, 30);
+      const salaoAntes = antes.origens.find((o: any) => o.origem === 'salao').fichas;
+      // Duas fichas novas pelo salão (uma de hoje, uma de 40 dias atrás) e uma pelo robô.
+      for (const [tel, origem, dias] of [['(21) 3333-0180', 'salao', 0], ['(21) 3333-0181', 'salao', 40], ['(21) 3333-0182', 'whatsapp', 0]] as const) {
+        const r = await svc.receberFicha(codigo, { ...fichaValida({ whatsapp: tel, nome: 'Origem Teste' }), origem });
+        const [{ id }] = await q(`select id from candidato where tenant_id = $1 and protocolo = $2`, [T, r.protocolo]);
+        fichas.push(id);
+        if (dias) await q(`update candidato set recebido_em = now() - make_interval(days => $2::int) where id = $1`, [id, dias]);
+      }
+      const r30: any = await svc.aberturas(T, lojaA, 30);
+      expect(r30).toMatchObject({ dias: 30, desde: diaHa(29), contandoDesde: diaHa(40) });
+      const de = (r: any, o: string) => r.origens.find((x: any) => x.origem === o);
+      expect(de(r30, 'salao')).toMatchObject({ nome: 'Salão', tipo: 'qr', aberturas: 25, fichas: salaoAntes + 1 });
+      expect(de(r30, 'whatsapp')).toMatchObject({ nome: 'Robô no WhatsApp', tipo: 'robo', aberturas: 1 });
+      expect(de(r30, '')).toMatchObject({ nome: 'Link sem origem', tipo: 'link', aberturas: 2 });
+      expect(de(r30, 'instagram')).toMatchObject({ tipo: 'qr' }); // todo QR da loja aparece, mesmo zerado
+      expect(r30.totais.aberturas).toBe(28);
+      expect(r30.totais.fichas).toBe(r30.origens.reduce((s: number, o: any) => s + o.fichas, 0));
+      const r90: any = await svc.aberturas(T, lojaA, 90);
+      expect(de(r90, 'salao')).toMatchObject({ aberturas: 125, fichas: salaoAntes + 2 });
+      // Período fora da lista vira 30; os ajustes pedem uma loja; outra empresa não vê nada desta.
+      expect((await svc.aberturas(T, lojaA, '365')).dias).toBe(30);
+      await expect(svc.aberturas(T, null, 30)).rejects.toThrow(BadRequestException);
+      const outraEmpresa: any = await svc.aberturas(T2, lojaC, 30).catch(() => ({ totais: { aberturas: 0 } }));
+      expect(outraEmpresa.totais.aberturas).toBe(0);
+    } finally {
+      for (const id of fichas) await q(`delete from candidato where id = $1`, [id]).catch(() => {});
+      await q(`delete from vaga_abertura where tenant_id = $1`, [T]).catch(() => {});
     }
   });
 

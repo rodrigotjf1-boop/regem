@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
+- **Vagas e candidatos — F5a, de onde vêm as fichas (16/11, protótipo `mockups/regem-vagas-talentos.html` aprovado; mig
+  430 `@cloud-only` — tabela nova `vaga_abertura`; mexe em `backend/edge/sync-daemon.mjs` SÓ na lista `SO_NUVEM` → vai
+  no próximo `.exe`).** Na NUVEM com o merge: a página pública soma uma abertura por aparelho por dia (cookie só com o dia,
+  nada da pessoa) em `POST /publico/vagas/:codigo/abertura`, na origem que conta (QR da loja, canal do robô ou "sem
+  origem"); Pessoas › Candidatos › QR codes e links mostra "De onde vêm as fichas" (7, 30 ou 90 dias) e a conta de cada
+  QR. Na loja, só a classificação da tabela no daemon (`.exe`); o `.zip` leva o código, sem efeito na loja.
+
 - **Vagas e candidatos — F4c, o resumo das fichas novas pelo Mister (16/11, protótipo `mockups/regem-vagas-talentos.html`
   aprovado; SEM migration — o tipo novo `fichas_novas` cabe na `mister_relatorio_regra`/`mister_relatorio` da 420).** Só
   NUVEM: um relatório a mais em Mister › Avisos e relatórios, que nasce DESLIGADO (09:00). Não usa a IA: lista as fichas
