@@ -28,6 +28,7 @@ import { DependenciasService } from '../dependencias/dependencias.service';
 import { MisterQualidadeService } from '../mister/mister-qualidade.service';
 import { MisterAvaliacaoService } from '../mister/mister-avaliacao.service';
 import { MisterSegurancaService } from '../mister/mister-seguranca.service';
+import { MisterSentinelaService } from '../mister/mister-sentinela.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -48,6 +49,7 @@ export class DistribuicaoController {
     private readonly qualidadeDoMister: MisterQualidadeService,
     private readonly avaliacaoDoMister: MisterAvaliacaoService,
     private readonly segurancaDoMister: MisterSegurancaService,
+    private readonly sentinela: MisterSentinelaService,
   ) {}
 
   // iFood pelo Orzuni (R2a; mig 370) — só Diretoria. A chave `orz_live_` da loja entra aqui UMA vez e é trocada
@@ -262,6 +264,34 @@ export class DistribuicaoController {
   @PerfilDist('diretoria')
   segurancaDoMisterNoConsole(@Query('dias') dias?: string) {
     return this.segurancaDoMister.resumo(dias);
+  }
+
+  // A análise com IA da Segurança (o Sentinela, parte 2; S2, mig 434): a IA, pela chave da DMS, lê só os metadados e
+  // PROPÕE; a Diretoria decide cada proposta ("Virou tarefa" ou "Descartar"). Rodar gasta a chave: só pelo botão, com limite.
+  @Get('mister/seguranca/analise')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  analiseDoSentinela() {
+    return this.sentinela.ultima();
+  }
+
+  @Post('mister/seguranca/analise')
+  @Throttle({ default: { ttl: 60000, limit: 3 } })
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  async rodarAnaliseDoSentinela(@DistUser() u: DistCtx) {
+    const r = await this.sentinela.analisar(u?.nome ?? null);
+    await this.service.auditar(u, 'rodou_analise_do_sentinela', undefined, { analise: r.id });
+    return r;
+  }
+
+  @Post('mister/seguranca/analise/decisao')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  async decidirPropostaDoSentinela(@DistUser() u: DistCtx, @Body() dto: any) {
+    const r = await this.sentinela.decidir(dto, u?.nome ?? null);
+    await this.service.auditar(u, 'decidiu_proposta_do_sentinela', undefined, { proposta: r.id, decisao: r.situacao, tarefa: r.tarefa });
+    return r;
   }
 
   // A avaliação de regressão do Mister (F5.3, mig 424): as perguntas fixas numa loja de teste com dados inventados, com a

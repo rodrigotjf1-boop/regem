@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { distApi } from '@/lib/api';
+import { AnaliseDoSentinela } from './analise-do-sentinela';
 
 // A SEGURANÇA DO MISTER no console (o Sentinela do prompt do dono, parte 1; protótipo
 // mockups/regem-mister-sentinela-mentor.html, vista "Console › Mister › Segurança"). O que as proteções do Mister
@@ -165,6 +166,8 @@ export function SegurancaDoMister() {
           </div>
         </>
       )}
+      {/* S2 (mig 434): a análise com IA dos mesmos eventos — sempre à vista, mesmo com nada barrado no período. */}
+      <AnaliseDoSentinela />
     </section>
   );
 }

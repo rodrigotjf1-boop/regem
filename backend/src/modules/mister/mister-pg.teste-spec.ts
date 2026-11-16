@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomInt, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -38,6 +38,8 @@ import { MisterRelatoriosService } from './mister-relatorios.service';
 import { MisterQualidadeService } from './mister-qualidade.service';
 import { MisterAvaliacaoService } from './mister-avaliacao.service';
 import { MisterSegurancaService } from './mister-seguranca.service';
+import { MisterSentinelaService } from './mister-sentinela.service';
+import { INSTRUCOES_DO_SENTINELA } from './mister-sentinela';
 import { CASOS_DA_AVALIACAO, CasoDaAvaliacao } from './mister-avaliacao-casos';
 import { PRECOS_LIDOS_EM } from '../ia/ia.regras';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
@@ -352,7 +354,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -2580,6 +2582,122 @@ export function testesDoMisterComPostgres(): void {
       } finally {
         await q(`delete from mister_mensagem where wamid like $1`, [`wamid.${MARCA}.seg%`]);
         await q(`delete from mister_pergunta where chave like $1`, [`seg-${MARCA}-%`]);
+      }
+    });
+
+    it('S2: a análise com IA da Segurança — só metadados vão à IA (nunca texto, telefone inteiro ou id), uma rodada por vez, as propostas conferidas, a decisão uma vez, e as falhas com a frase', async () => {
+      comIa();
+      const sentinela = new MisterSentinelaService(db, ia, new MisterSegurancaService(db));
+      const tels = [telefone(), telefone()];
+      let n = 0;
+      const msg = (tel: string, desfecho: string) =>
+        q(`insert into mister_mensagem (wamid, telefone, tenant_id, desfecho, recebida_em) values ($1, $2, null, $3, now())`, [`wamid.${MARCA}.s2${++n}`, tel, desfecho]);
+      const pergunta = (conferencia: string[], ferramentas: unknown[], motivo: string | null = null, situacao = 'respondida') =>
+        q(
+          `insert into mister_pergunta (tenant_id, colaborador_id, nivel, telefone, chave, pergunta, resposta, situacao, motivo, chamadas, ferramentas, conferencia)
+           values ($1, $2, 'presidente', $3, $4, 'pergunta secreta', 'resposta secreta', $5, $6, 1, $7::jsonb, $8::jsonb)`,
+          [A, pessoa.ana, tels[0], `s2-${MARCA}-${++n}`, situacao, motivo, JSON.stringify(ferramentas), JSON.stringify(conferencia)],
+        );
+      const esperarFim = async (id: string) => {
+        for (let i = 0; i < 100; i++) {
+          const [a] = await q(`select situacao from mister_analise where id = $1`, [id]);
+          if (a && a.situacao !== 'rodando') return a.situacao;
+          await new Promise((r) => setTimeout(r, 30));
+        }
+        throw new Error('a análise não terminou');
+      };
+      const proposta = (nivel: string, titulo: string) => ({ nivel, titulo, viu: `viu ${titulo}`, proposta: `proposta ${titulo}`, impacto: `impacto ${titulo}` });
+      try {
+        await q(`update mister_analise set situacao = 'interrompida' where situacao = 'rodando'`);
+        for (let i = 0; i < 4; i++) await msg(tels[0], 'codigo_nao_vale');
+        await msg(tels[1], 'codigo_nao_vale'); // um só: não entra na lista dos telefones (precisa de 3)
+        await pergunta(['link_tirado'], [{ nome: 'canais_e_integracoes', ok: true, ms: 1 }]);
+        await pergunta([], [], 'sem_consulta', 'falhou');
+
+        // ── Os metadados: o final do telefone, as notas por consulta, os motivos — nunca o texto, o telefone ou o id.
+        const m = await sentinela.metadados();
+        expect(m.telefonesComCodigoErrado).toContainEqual(expect.objectContaining({ final: tels[0].slice(-4), vezes: 4 }));
+        expect(m.telefonesComCodigoErrado.find((t) => t.final === tels[1].slice(-4))).toBeUndefined();
+        expect(m.telefonesComCodigoErrado[0].de).toMatch(/^\d{2}\/\d{2} \d{2}:\d{2}$/);
+        expect(m.notasPorConsulta).toContainEqual(expect.objectContaining({ nota: 'link_tirado', consulta: 'canais_e_integracoes' }));
+        expect(m.motivosSemResposta).toContainEqual(expect.objectContaining({ motivo: 'sem_consulta' }));
+        const tudo = JSON.stringify(m);
+        for (const t of tels) expect(tudo).not.toContain(t);
+        expect(tudo).not.toContain('secreta');
+        expect(tudo).not.toContain(A);
+
+        // ── O cartão antes de rodar: a chave, o modelo e o custo estimado; nenhuma rodada nova ainda.
+        const antes = await sentinela.ultima();
+        expect(antes).toMatchObject({ chaveDaDistribuicao: true, dias: 7, prazoMin: 5 });
+        expect(antes.estimativaUsd).toBeGreaterThan(0);
+
+        // ── A rodada: o pedido leva as instruções e só os metadados; a resposta conferida vira as propostas (o nível fora da
+        //    lista e a proposta sem título caem).
+        ia.pedidos.length = 0;
+        ia.roteiro = [
+          falar(
+            `Segue: ${JSON.stringify({
+              propostas: [proposta('atencao', 'Um telefone tentou 4 códigos errados'), proposta('inventado', 'Nível inventado'), { ...proposta('melhoria', ''), titulo: '' }, proposta('melhoria', 'O filtro tirou link da consulta de canais')],
+            })}`,
+          ),
+        ];
+        const { id } = await sentinela.analisar('Rita');
+        expect(await esperarFim(id)).toBe('terminou');
+        const pedido = ia.pedidos.at(-1);
+        expect(JSON.stringify(pedido.system)).toContain('Você é o Sentinela do Mister');
+        expect(pedido.system).toBe(INSTRUCOES_DO_SENTINELA);
+        const aoModelo = JSON.stringify(pedido.messages);
+        expect(aoModelo).toContain(tels[0].slice(-4));
+        for (const t of tels) expect(aoModelo).not.toContain(t);
+        expect(aoModelo).not.toContain('secreta');
+        expect(aoModelo).not.toContain(A);
+        const depois = await sentinela.ultima();
+        expect(depois.analise).toMatchObject({ id, situacao: 'terminou', pedidaPor: 'Rita', dias: 7, motivo: null });
+        expect(depois.analise!.eventos).toBeGreaterThanOrEqual(6);
+        expect(depois.analise!.custoUsd).toBeGreaterThan(0);
+        expect(depois.propostas.map((p: any) => [p.nivel, p.titulo, p.situacao])).toEqual([
+          ['atencao', 'Um telefone tentou 4 códigos errados', 'aberta'],
+          ['melhoria', 'O filtro tirou link da consulta de canais', 'aberta'],
+        ]);
+
+        // ── Uma rodada por vez.
+        await q(`insert into mister_analise (pedida_por, situacao) values ('outra', 'rodando')`);
+        await expect(sentinela.analisar('Rita')).rejects.toBeInstanceOf(ConflictException);
+        // A que passou do prazo vira "interrompida" e não trava a próxima.
+        await q(`update mister_analise set iniciada_em = now() - interval '6 minutes' where situacao = 'rodando'`);
+        await sentinela.ultima(); // a leitura do cartão vence as paradas (a regra é uma, no serviço)
+        expect((await q(`select situacao, motivo from mister_analise where pedida_por = 'outra' order by iniciada_em desc limit 1`))[0]).toEqual({
+          situacao: 'interrompida',
+          motivo: 'o servidor reiniciou no meio da análise',
+        });
+
+        // ── A decisão: uma vez só, com a tarefa opcional; o descarte não guarda tarefa.
+        const [p1, p2] = depois.propostas as any[];
+        expect(await sentinela.decidir({ id: p1.id, decisao: 'tarefa', tarefa: '  DMS-9  ' }, 'Rita')).toMatchObject({ situacao: 'tarefa', tarefa: 'DMS-9' });
+        await expect(sentinela.decidir({ id: p1.id, decisao: 'descartada' }, 'Rita')).rejects.toBeInstanceOf(ConflictException);
+        await expect(sentinela.decidir({ id: randomUUID(), decisao: 'tarefa' }, 'Rita')).rejects.toBeInstanceOf(NotFoundException);
+        await expect(sentinela.decidir({ id: p2.id, decisao: 'apagar' }, 'Rita')).rejects.toBeInstanceOf(BadRequestException);
+        expect(await sentinela.decidir({ id: p2.id, decisao: 'descartada', tarefa: 'não vale' }, null)).toMatchObject({ situacao: 'descartada', tarefa: null });
+        expect((await q(`select decidida_por from mister_analise_proposta where id = $1`, [p1.id]))[0].decidida_por).toBe('Rita');
+
+        // ── A IA sem crédito: "falhou" com a frase, nenhuma proposta.
+        ia.roteiro = [{ erro: Object.assign(new Error('Your credit balance is too low'), { status: 402 }) }];
+        const semCredito = await sentinela.analisar('Rita');
+        expect(await esperarFim(semCredito.id)).toBe('falhou');
+        expect((await sentinela.ultima())).toMatchObject({ analise: { id: semCredito.id, motivo: 'a conta de IA da distribuição está sem crédito' }, propostas: [] });
+        // ── A resposta fora do formato: "falhou", nenhuma proposta; a lista vazia é uma análise sem proposta (terminou).
+        ia.roteiro = [falar('Não achei nada de mais.')];
+        const fora = await sentinela.analisar('Rita');
+        expect(await esperarFim(fora.id)).toBe('falhou');
+        expect((await sentinela.ultima()).analise).toMatchObject({ motivo: 'a IA respondeu fora do formato pedido; nenhuma proposta foi gravada' });
+        ia.roteiro = [falar('{"propostas": []}')];
+        const vazia = await sentinela.analisar('Rita');
+        expect(await esperarFim(vazia.id)).toBe('terminou');
+        expect((await sentinela.ultima()).propostas).toEqual([]);
+      } finally {
+        await q(`delete from mister_mensagem where wamid like $1`, [`wamid.${MARCA}.s2%`]);
+        await q(`delete from mister_pergunta where chave like $1`, [`s2-${MARCA}-%`]);
+        await q(`update mister_analise set situacao = 'interrompida' where situacao = 'rodando'`);
       }
     });
 

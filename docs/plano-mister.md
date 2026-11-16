@@ -663,6 +663,25 @@ aprovado).
   as versões candidatas das instruções. Essas três pedem tela, então pedem protótipo antes. **O protótipo
   `mockups/regem-mister-mentor-parte2.html` foi aprovado em 16/11/2026, com as fases M2a, S2 e M2b.**
 
+**S2 (16/11/2026, migration 434): a análise com IA da Segurança (o Sentinela, parte 2).**
+- **As tabelas:** `mister_analise` (a rodada: quem pediu, a situação, os dias, os eventos lidos, o modelo, os tokens, o
+  custo, o motivo da falha) e `mister_analise_proposta` (o nível, o título, o que viu, a proposta, o impacto, a decisão e
+  quem decidiu). Só da nuvem e da distribuição; uma rodada "rodando" por vez (índice único parcial); a que passou de 5
+  minutos vira "interrompida" (a regra é UMA, no serviço — V80).
+- **O que a IA lê** (`mister-sentinela.ts` + `MisterSentinelaService.metadados`): o resumo da Segurança, os telefones com
+  3+ códigos errados (só o FINAL, com o primeiro e o último horário), as notas do filtro por consulta e os motivos de não
+  responder. Nunca o texto, o telefone inteiro, o código ou o id da empresa — o teste confere no pedido que sai.
+- **A chamada:** `IaEmpresaService.pedirPelaDistribuicao` (a chave da DMS, sem medidor de empresa), o modelo das
+  perguntas, 1.500 tokens de saída, prazo de 60 s, em segundo plano. Só o JSON pedido vale: nível da lista fechada
+  (crítico, atenção, melhoria), os quatro textos preenchidos e cortados, no máximo 5; fora do formato, a rodada falha com a
+  frase e nada é gravado; lista vazia é rodada sem proposta. Sem crédito, chave recusada ou teto: a frase de cada um.
+- **A tela** (Console › Mister › Segurança, sempre à vista): o custo estimado ANTES de rodar, "Analisar os últimos 7 dias",
+  "Analisando…" que acompanha a cada 3 s só enquanto roda, os três números (eventos lidos, propostas, custo), cada
+  proposta com o nível, o que viu, a proposta e o impacto, "Virou tarefa" (link ou código em gaveta) e "Descartar", uma
+  vez só (409 depois); "A análise não saiu" com o motivo e "Tentar de novo"; sem a chave da DMS, o aviso e o botão travado.
+- **As rotas:** `GET/POST /distribuicao/mister/seguranca/analise` e `POST …/analise/decisao`, só Diretoria, com auditoria
+  (`rodou_analise_do_sentinela`, `decidiu_proposta_do_sentinela`); rodar com limite de 3 por minuto.
+
 **M2a (16/11/2026, migration 432): as decisões do "O que melhorar".**
 - **A tabela:** `mister_melhoria_decisao`, só da nuvem e da distribuição (sem empresa). Guarda a chave do padrão, a
   decisão, o motivo, a tarefa, quem decidiu e quando, e o `vale_ate` do "não se aplica". O índice único parcial deixa uma

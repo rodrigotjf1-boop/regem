@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
+- **Mister — a análise com IA da Segurança (16/11, S2 do protótipo `mockups/regem-mister-mentor-parte2.html` aprovado; mig
+  434 `@cloud-only` — tabelas novas `mister_analise` e `mister_analise_proposta`, da distribuição, sem `tenant_id`: o
+  `sync-daemon` não muda).** Só NUVEM (Console › Mister › Segurança): "Analisar os últimos 7 dias" pela chave da DMS, só
+  metadados, as propostas com "Virou tarefa" e "Descartar". Nada a empacotar.
+
 - **Mister — cancelar o pedido com o estorno pelo link com PIN (16/11, F4.2b; SEM migration).** Só NUVEM: o presidente
   pede ao Mister ("cancela o pedido 284"), recebe o link "Abrir no Regem", confirma com o PIN e o Regem cancela pelo MESMO
   serviço do painel; "feito" só com o estorno do Pix feito. Nada a empacotar.
