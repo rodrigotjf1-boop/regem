@@ -209,6 +209,14 @@ export function marcarAberturaContada(codigo: string, dia: string): void {
   }
 }
 
+/** F4b, parte 1 — avisar o banco de talentos (`GET /vagas/banco/aviso`, `avisoDoBanco` no servidor). */
+export interface AvisoDoBanco {
+  funcoes: { codigo: string; nome: string; detalhe: string; dentro: number }[];
+  funcao: string | null;
+  dentro: { id: string; nome: string; funcoes: string[]; distanciaKm: number | null; autorizouEm: string | null; mensagem: string; link: string }[];
+  fora: { id: string; nome: string; motivo: string }[];
+}
+
 const digitos = (v: string) => String(v ?? '').replace(/\D/g, '');
 /** Sem o 55 do país (mesma regra do servidor, `telefoneCadastro`). */
 export function telefoneSem55(v: string): string {
