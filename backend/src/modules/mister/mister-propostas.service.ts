@@ -1,24 +1,37 @@
-import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { createHash, randomBytes } from 'crypto';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { ehServidorLocal } from '../../common/modo';
 import { horaNoFuso } from '../../common/data';
 import { enfileirarComandoEdge } from '../../common/edge-comando';
+import { PIN_INVALIDO, autorizarPorPinDoUsuario } from '../../common/autorizacao-gestor';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { FiscalService } from '../fiscal/fiscal.service';
+import { ModuloService } from '../modulo/modulo.service';
 import { MisterEntradaService, QuemTocou } from './mister-entrada.service';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
+import { pessoaVale } from './mister-vinculo.service';
 import {
+  EstadoDoLink,
+  PIN_TENTATIVAS,
   PREFIXO_DO_BOTAO,
   PROCEDIMENTOS,
   ProcedimentoDoMister,
   TEXTOS_DA_PROPOSTA,
+  TEXTOS_DO_LINK,
+  apresentacaoDaProposta,
   botoesDaProposta,
+  caminhoDoLink,
+  ehCodigoDoLink,
+  ehPinValido,
+  estadoDoLink,
   lerBotao,
   perguntaDaProposta,
   propostaDoAviso,
   resultadoDaConsulta,
+  tentativasQueRestam,
   textoDoDesfecho,
 } from './mister-procedimentos';
 
@@ -34,6 +47,36 @@ export interface PropostaPendente {
   pergunta: string;
   botoes: { id: string; titulo: string }[];
 }
+
+/** O que a página do link (`/m/<código>`, F4.2a) mostra — decidido no servidor; a página nunca sabe o PIN certo. */
+export interface VistaDoLink {
+  estado: EstadoDoLink;
+  empresa: string;
+  titulo: string;
+  itens: string[];
+  detalhe: string | null;
+  valor: number | null;
+  /** O rótulo do botão de autorizar ("Autorizar o cancelamento"). */
+  botao: string;
+  /** "Pedido pelo Mister às 21:02, para Ana (presidente)." */
+  pedidoPor: string;
+  valeAte: string;
+  valeAteHora: string;
+  /** As tentativas de PIN que ainda restam neste link. */
+  restam: number;
+  resultado: string | null;
+  /** A hora em que a proposta terminou (feita, não deu, recusada, bloqueada). */
+  concluidaHora: string | null;
+  /** Quem respondeu e quando (os 4 últimos dígitos do telefone, nunca o número inteiro). */
+  respondida: { hora: string; nome: string; final: string | null } | null;
+  /** A frase do PIN errado, na resposta de "Autorizar". */
+  erro: string | null;
+}
+
+/** O resumo do código do link: o banco guarda só ele (o código inteiro nunca fica guardado). */
+const resumoDoCodigo = (codigo: string) => createHash('sha256').update(codigo).digest('hex');
+const baseDoApp = () => String(process.env.APP_URL || 'https://app.dmsregem.com').replace(/\/+$/, '');
+const primeiroNome = (nome: unknown) => String(nome ?? '').trim().split(/\s+/)[0] || 'quem recebeu';
 
 /**
  * AS PROPOSTAS DO MISTER (F4.1, mig 428). Nasce com o aviso que um procedimento do catálogo resolve; vai ao presidente com
@@ -52,6 +95,8 @@ export class MisterPropostasService implements OnModuleInit {
     // O tipo é a classe (o Nest injeta pelo tipo refletido; um `Pick` viraria `Object` e nada seria injetado).
     @Optional() private readonly fiscal?: FiscalService,
     @Optional() private readonly auditoria?: AuditoriaService,
+    // F4.2a: o link só vale com o módulo Mister ligado na loja da proposta (desligar corta na hora).
+    @Optional() private readonly modulos?: ModuloService,
   ) {}
 
   /** O toque num botão de proposta chega pela entrada do WhatsApp, que mora no módulo de baixo. */
@@ -109,12 +154,18 @@ export class MisterPropostasService implements OnModuleInit {
     if (!b || !empresas.length) return false;
     const [p] = linhas(
       await this.db.execute(sql`
-        select id::text as id, tenant_id::text as "tenantId", procedimento, situacao, vence_em as "venceEm"
+        select id::text as id, tenant_id::text as "tenantId", procedimento, situacao, vence_em as "venceEm", nivel
           from mister_proposta
          where id = ${b.propostaId}::uuid and tenant_id in (${sql.join(empresas.map((t) => sql`${t}::uuid`), sql`, `)})`),
     );
     if (!p) return false;
     const v = quem.vinculos.find((x) => x.tenantId === p.tenantId)!;
+    // A proposta de PIN (F4.2a) nunca se autoriza por botão — nem com o id montado à mão: só pela página do link.
+    if (p.nivel === 'pin') {
+      const [c] = linhas(await this.db.execute(sql`select nome from colaborador where id = ${v.colaboradorId}::uuid and tenant_id = ${p.tenantId}::uuid`));
+      await this.falar(quem.telefone, TEXTOS_DO_LINK.soPeloLink(primeiroNome(c?.nome)));
+      return true;
+    }
     if (v.nivel !== 'presidente') {
       await this.falar(quem.telefone, TEXTOS_DA_PROPOSTA.soPresidente);
       return true;
@@ -127,7 +178,7 @@ export class MisterPropostasService implements OnModuleInit {
            set situacao = ${b.autorizar ? 'autorizada' : 'recusada'}, respondida_em = now(), autorizada_por = ${v.colaboradorId}::uuid,
                telefone_final = ${final}, concluida_em = case when ${b.autorizar} then null else now() end,
                resultado = case when ${b.autorizar} then null else 'recusada pelo presidente' end
-         where id = ${p.id}::uuid and situacao = 'proposta' and vence_em > now()
+         where id = ${p.id}::uuid and situacao = 'proposta' and vence_em > now() and nivel = 'botao'
         returning id`),
     );
     if (!mudou) {
@@ -275,6 +326,173 @@ export class MisterPropostasService implements OnModuleInit {
     }
   }
 
+  // ───────────────────────────── o link com PIN (F4.2a, mig 433) ─────────────────────────────
+
+  /**
+   * Manda a proposta de PIN a quem autoriza, com o botão "Abrir no Regem". Um código NOVO a cada envio (o anterior para de
+   * valer: só o resumo do novo fica no banco) e as tentativas recomeçam. Só a proposta de PIN ainda pendente e no prazo.
+   * Devolve o endereço (para o teste), ou null quando a proposta não aceita link. O endereço nunca vai para log nem trilha.
+   */
+  async enviarLink(propostaId: string, colaboradorId: string, telefone: string, texto: string): Promise<string | null> {
+    const codigo = randomBytes(24).toString('base64url');
+    const [p] = linhas(
+      await this.db.execute(sql`
+        update mister_proposta
+           set link_hash = ${resumoDoCodigo(codigo)}, link_para = ${colaboradorId}::uuid, link_criado_em = now(), link_aberto_em = null, pin_erros = 0
+         where id = ${propostaId}::uuid and nivel = 'pin' and situacao = 'proposta' and vence_em > now()
+        returning tenant_id::text as "tenantId"`),
+    );
+    if (!p) return null;
+    const url = `${baseDoApp()}${caminhoDoLink(codigo)}`;
+    await this.auditar(p.tenantId, colaboradorId, 'mister_proposta_link_enviado', propostaId, {}, 'whatsapp');
+    try {
+      await this.numero.enviar(telefone, { texto, link: { titulo: TEXTOS_DO_LINK.botao, url } });
+    } catch (e: any) {
+      this.logger.warn(`o link da proposta ${propostaId} não saiu — ${e instanceof FalhaDoEnvioDoMister ? e.motivo : (e?.message ?? e)}`);
+    }
+    return url;
+  }
+
+  /**
+   * A proposta do link, com a régua de "acesso vale" da conversa (V75): a empresa viva, quem recebeu ainda presidente e
+   * ativo, o telefone dele ainda ligado ao Mister e o módulo ligado na loja da proposta. Código que não é de link, que não
+   * existe (ou foi trocado por um novo envio) ou acesso que não vale: 404 com a mesma frase — a página não diz qual.
+   */
+  private async linhaDoLink(codigo: unknown): Promise<any> {
+    if (!ehCodigoDoLink(codigo)) throw new NotFoundException(TEXTOS_DO_LINK.naoVale);
+    let p: any;
+    try {
+      [p] = linhas(
+        await this.db.execute(sql`
+          select mp.id::text as id, mp.tenant_id::text as "tenantId", mp.unidade_id::text as "unidadeId", mp.procedimento, mp.parametros,
+                 mp.situacao, mp.criada_em as "criadaEm", mp.vence_em as "venceEm", mp.respondida_em as "respondidaEm",
+                 mp.telefone_final as "telefoneFinal", mp.resultado, mp.concluida_em as "concluidaEm", mp.link_para::text as "linkPara",
+                 mp.link_aberto_em as "linkAbertoEm",
+                 mp.pin_erros as "pinErros", mp.bloqueada_em as "bloqueadaEm", c.nome as "paraNome", emp.nome as empresa, v.telefone
+            from mister_proposta mp
+            join empresa emp on emp.id = mp.tenant_id
+            join colaborador c on c.id = mp.link_para and c.tenant_id = mp.tenant_id
+            left join funcao f on f.id = c.funcao_id
+            left join perfil_acesso p on p.id = c.perfil_acesso_id
+            join mister_vinculo v on v.tenant_id = mp.tenant_id and v.colaborador_id = mp.link_para and v.ligado_em is not null and v.telefone is not null
+           where mp.link_hash = ${resumoDoCodigo(codigo)} and mp.nivel = 'pin'
+             and ${pessoaVale()} and coalesce(p.nivel, f.categoria::text) = 'presidente'`),
+      );
+    } catch (e: any) {
+      if (semTabela(e) || e?.code === '42703' || e?.cause?.code === '42703') throw new NotFoundException(TEXTOS_DO_LINK.naoVale);
+      throw e;
+    }
+    if (!p) throw new NotFoundException(TEXTOS_DO_LINK.naoVale);
+    if (this.modulos && !(await this.modulos.ativo(p.tenantId, p.unidadeId ?? null, 'mister'))) throw new NotFoundException(TEXTOS_DO_LINK.naoVale);
+    return p;
+  }
+
+  private vistaDoLink(p: any, erro: string | null = null): VistaDoLink {
+    const nome = primeiroNome(p.paraNome);
+    return {
+      estado: estadoDoLink(p),
+      empresa: String(p.empresa ?? ''),
+      ...apresentacaoDaProposta(p.procedimento),
+      pedidoPor: `Pedido pelo Mister às ${horaNoFuso(new Date(p.criadaEm))}, para ${nome} (presidente).`,
+      valeAte: new Date(p.venceEm).toISOString(),
+      valeAteHora: horaNoFuso(new Date(p.venceEm)),
+      restam: tentativasQueRestam(p.pinErros),
+      resultado: p.resultado ?? null,
+      concluidaHora: p.concluidaEm ? horaNoFuso(new Date(p.concluidaEm)) : null,
+      respondida: p.respondidaEm ? { hora: horaNoFuso(new Date(p.respondidaEm)), nome, final: p.telefoneFinal ?? null } : null,
+      erro,
+    };
+  }
+
+  /** A página abriu: a proposta como está. A primeira abertura deste link fica na auditoria. */
+  async verPeloLink(codigo: unknown): Promise<VistaDoLink> {
+    const p = await this.linhaDoLink(codigo);
+    if (!p.linkAbertoEm) {
+      const [primeira] = linhas(
+        await this.db.execute(sql`update mister_proposta set link_aberto_em = now() where id = ${p.id}::uuid and link_aberto_em is null returning id`),
+      );
+      if (primeira) await this.auditar(p.tenantId, p.linkPara, 'mister_proposta_link_aberto', p.id, { procedimento: p.procedimento }, 'link');
+    }
+    return this.vistaDoLink(p);
+  }
+
+  /**
+   * "Autorizar" com o PIN. A tentativa é RESERVADA antes de conferir (gravação condicional com `pin_erros < 5`): nem
+   * toques em paralelo conferem mais de 5 PIN por link. PIN errado gasta a tentativa (a quinta bloqueia o link e fecha a
+   * proposta); PIN certo devolve a reservada e autoriza UMA vez, e a execução segue sozinha pelo serviço da tela.
+   * O PIN nunca vai para a auditoria nem para log.
+   */
+  async autorizarPeloLink(codigo: unknown, pin: unknown): Promise<VistaDoLink> {
+    const p = await this.linhaDoLink(codigo);
+    if (!ehPinValido(pin)) throw new BadRequestException(TEXTOS_DO_LINK.pinFormato);
+    const [reservada] = linhas(
+      await this.db.execute(sql`
+        update mister_proposta set pin_erros = pin_erros + 1
+         where id = ${p.id}::uuid and situacao = 'proposta' and vence_em > now() and bloqueada_em is null and pin_erros < ${PIN_TENTATIVAS}
+        returning pin_erros as "pinErros"`),
+    );
+    // Vencida, já respondida ou bloqueada: a página mostra o estado.
+    if (!reservada) return this.vistaDoLink(await this.linhaDoLink(codigo));
+    try {
+      await autorizarPorPinDoUsuario(this.db, p.tenantId, p.linkPara, pin, ['presidente']);
+    } catch (e: any) {
+      if (e?.message !== PIN_INVALIDO) {
+        // Não foi o PIN (o acesso mudou entre a leitura e a conferência): a tentativa volta e o link não vale.
+        await this.db.execute(sql`update mister_proposta set pin_erros = greatest(pin_erros - 1, 0) where id = ${p.id}::uuid`);
+        throw new NotFoundException(TEXTOS_DO_LINK.naoVale);
+      }
+      const restam = tentativasQueRestam(reservada.pinErros);
+      await this.auditar(p.tenantId, p.linkPara, 'mister_proposta_pin_errado', p.id, { restam }, 'link');
+      if (restam > 0) return this.vistaDoLink(await this.linhaDoLink(codigo), TEXTOS_DO_LINK.pinErrado(restam));
+      const [bloqueou] = linhas(
+        await this.db.execute(sql`
+          update mister_proposta
+             set situacao = 'recusada', bloqueada_em = now(), concluida_em = now(), resultado = ${`link bloqueado: o PIN errado ${PIN_TENTATIVAS} vezes`}
+           where id = ${p.id}::uuid and situacao = 'proposta' and bloqueada_em is null
+          returning id`),
+      );
+      if (bloqueou) {
+        await this.auditar(p.tenantId, p.linkPara, 'mister_proposta_bloqueada', p.id, { procedimento: p.procedimento }, 'link');
+        await this.falar(p.telefone, TEXTOS_DO_LINK.bloqueada);
+      }
+      return this.vistaDoLink(await this.linhaDoLink(codigo));
+    }
+    const final = String(p.telefone ?? '').slice(-4);
+    const [mudou] = linhas(
+      await this.db.execute(sql`
+        update mister_proposta
+           set situacao = 'autorizada', respondida_em = now(), autorizada_por = link_para, telefone_final = ${final},
+               pin_erros = greatest(pin_erros - 1, 0)
+         where id = ${p.id}::uuid and situacao = 'proposta' and vence_em > now() and bloqueada_em is null
+        returning id`),
+    );
+    if (mudou) {
+      await this.auditar(p.tenantId, p.linkPara, 'mister_proposta_autorizada', p.id, { procedimento: p.procedimento, final }, 'link');
+      await this.falar(p.telefone, TEXTOS_DO_LINK.autorizada);
+      void this.executar(p.id).catch((e) => this.logger.error(`a proposta ${p.id} não executou — ${e?.message ?? e}`));
+    }
+    return this.vistaDoLink(await this.linhaDoLink(codigo));
+  }
+
+  /** "Não autorizar": fecha a proposta (o link não serve mais) e avisa na conversa. Não pede o PIN: não faz nada. */
+  async naoAutorizarPeloLink(codigo: unknown): Promise<VistaDoLink> {
+    const p = await this.linhaDoLink(codigo);
+    const final = String(p.telefone ?? '').slice(-4);
+    const [mudou] = linhas(
+      await this.db.execute(sql`
+        update mister_proposta
+           set situacao = 'recusada', respondida_em = now(), autorizada_por = link_para, telefone_final = ${final},
+               concluida_em = now(), resultado = 'não autorizada no Regem'
+         where id = ${p.id}::uuid and situacao = 'proposta' and vence_em > now() and bloqueada_em is null
+        returning id`),
+    );
+    if (mudou) {
+      await this.auditar(p.tenantId, p.linkPara, 'mister_proposta_recusada', p.id, { procedimento: p.procedimento, final }, 'link');
+      await this.falar(p.telefone, TEXTOS_DO_LINK.recusada);
+    }
+    return this.vistaDoLink(await this.linhaDoLink(codigo));
+  }
+
   // ───────────────────────────── apoio ─────────────────────────────
 
   private async falar(telefone: string, texto: string): Promise<void> {
@@ -285,9 +503,17 @@ export class MisterPropostasService implements OnModuleInit {
     }
   }
 
-  private async auditar(tenantId: string, atorId: string | null, acao: string, propostaId: string, detalhe: Record<string, unknown>): Promise<void> {
+  private async auditar(
+    tenantId: string,
+    atorId: string | null,
+    acao: string,
+    propostaId: string,
+    detalhe: Record<string, unknown>,
+    // F4.2a: 'link' = pela página `/m/<código>` com o PIN.
+    origem: 'whatsapp' | 'link' = 'whatsapp',
+  ): Promise<void> {
     await this.auditoria
-      ?.registrar({ tenantId, atorId, atorPerfil: 'presidente', tipo: 'mister', acao, entidadeTipo: 'mister_proposta', entidadeId: propostaId, detalhe, origem: 'whatsapp' } as any)
+      ?.registrar({ tenantId, atorId, atorPerfil: 'presidente', tipo: 'mister', acao, entidadeTipo: 'mister_proposta', entidadeId: propostaId, detalhe, origem } as any)
       .catch((e: any) => this.logger.warn(`a auditoria da proposta ${propostaId} falhou — ${e?.message ?? e}`));
   }
 }

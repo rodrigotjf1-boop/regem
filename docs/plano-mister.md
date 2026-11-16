@@ -819,6 +819,25 @@ fase inteira:
 | **F4.3 — A pergunta que vira proposta** | A ferramenta `propor_procedimento` para a IA, só com os procedimentos do catálogo. A IA propõe; a pessoa autoriza do mesmo jeito. | — |
 | **F4.4 — Procedimentos do servidor da loja** | Os que pedem comando novo no `sync-daemon`, como reiniciar o serviço de impressão da conversa 5. Vão no `.exe`. | — |
 
+**F4.2a implementada (16/11/2026, mig 433; protótipo `mockups/regem-mister-pin.html`, aprovado em 16/11/2026):**
+- Seis colunas na `mister_proposta`: o resumo (sha256) do código do link, para quem ele foi, quando saiu, quando abriu, as
+  tentativas de PIN e o bloqueio. O código inteiro nunca fica guardado, nem em log, nem na trilha.
+- `enviarLink` (no `MisterPropostasService`): um código novo a cada envio (24 bytes aleatórios, 32 letras), que derruba o
+  anterior e recomeça as tentativas; a mensagem vai com o botão de link "Abrir no Regem" (`cta_url`, no formato da
+  documentação da Meta). Só para proposta de PIN ainda pendente e no prazo.
+- A página pública `/m/<código>` (rotas `publico/mister/link/:codigo`, `/autorizar`, `/nao-autorizar`; limite por endereço e
+  `no-store`): a régua de "acesso vale" da conversa (V75) — empresa viva, quem recebeu ainda presidente e ativo, o telefone
+  ainda ligado e o módulo ligado; senão, "Este link não vale" (a mesma frase para tudo).
+- O PIN é conferido no servidor por `autorizarPorPinDoUsuario`, com a tentativa RESERVADA antes (gravação condicional com
+  `pin_erros < 5`): nem toques em paralelo conferem mais de 5 PIN. O quinto errado bloqueia e fecha a proposta como
+  `recusada` com o motivo. O PIN certo autoriza uma vez e executa pelo mesmo `executar` da F4.1.
+- O botão da conversa nunca autoriza proposta de PIN: responde "Por aqui eu não consigo… toque em Abrir no Regem".
+- Os links bloqueados aparecem no Console › Mister › Segurança (só a contagem e quantas empresas).
+- Diferença do protótipo: o PIN do Regem tem de 4 a 6 dígitos, então a página tem UM campo com a máscara de pontos, no
+  lugar dos 4 quadrinhos (eles diriam o tamanho do PIN e não caberiam o de 6). A tela "já respondida" virou a linha
+  "Autorizado às HH:MM por Ana (telefone com final 4821)" dentro do estado final (feito, não deu, não autorizou).
+- Ainda sem procedimento de PIN no catálogo: a F4.2b traz o cancelamento com o estorno.
+
 **F4.3 implementada (16/11/2026, sem migration):**
 - A 19ª ferramenta, `propor_procedimento` (`imprimir_teste` ou `consultar_nota`), não é consulta e não executa: o
   servidor acha o aviso ABERTO, no escopo da pessoa, cujo procedimento é o pedido (a IA não vê nem escolhe id) e cria a

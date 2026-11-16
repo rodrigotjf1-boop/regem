@@ -1,5 +1,6 @@
-import { BadRequestException } from '@nestjs/common';
-import { randomInt, randomUUID } from 'node:crypto';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import * as bcrypt from 'bcryptjs';
+import { createHash, randomInt, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Pool } from 'pg';
@@ -29,6 +30,7 @@ import { IfoodService } from '../integracoes/ifood/ifood.service';
 import { IbptService } from '../fiscal/ibpt/ibpt.service';
 import { MisterEntradaService } from './mister-entrada.service';
 import { MisterPropostasService } from './mister-propostas.service';
+import { TEXTOS_DO_LINK } from './mister-procedimentos';
 import { MisterFerramentasService } from './mister-ferramentas.service';
 import { MisterFilaService } from './mister-fila.service';
 import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
@@ -101,7 +103,7 @@ class NumeroDeMentira extends MisterNumeroService {
    * As mensagens que saíram pelo número: para quem, o texto e os botões. O MODELO da Meta aparece como
    * "modelo:<nome>:<parâmetro 1>|<parâmetro 2>", com o código do botão em `botoes[0].id`.
    */
-  get enviadas(): { para: string; texto: string; botoes: { id: string; titulo: string }[] }[] {
+  get enviadas(): { para: string; texto: string; botoes: { id: string; titulo: string }[]; link?: { titulo: string; url: string } }[] {
     return this.pedidos
       .filter((p) => p.url.endsWith('/messages') && p.corpo?.to)
       .map((p) => {
@@ -113,6 +115,14 @@ class NumeroDeMentira extends MisterNumeroService {
             botoes: [{ id: botao.parameters[0].payload, titulo: 'modelo' }],
           };
         }
+        // O botão de link (F4.2a): `interactive.type = 'cta_url'`, sem botões de resposta.
+        if (p.corpo.type === 'interactive' && p.corpo.interactive.type === 'cta_url')
+          return {
+            para: p.corpo.to,
+            texto: p.corpo.interactive.body.text,
+            botoes: [],
+            link: { titulo: p.corpo.interactive.action.parameters.display_text, url: p.corpo.interactive.action.parameters.url },
+          };
         return {
           para: p.corpo.to,
           texto: p.corpo.type === 'text' ? p.corpo.text.body : p.corpo.interactive.body.text,
@@ -342,7 +352,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -3857,6 +3867,158 @@ export function testesDoMisterComPostgres(): void {
       // Procedimento fora do catálogo: recusa.
       const escopo = await ferramentasComPropostas.escopo(A, pessoa.ana, tel);
       expect(await ferramentasComPropostas.executar(escopo!, 'propor_procedimento', { procedimento: 'cancelar_pedido' })).toEqual({ ok: false, dados: { erro: 'Esse procedimento não está no catálogo.' } });
+    });
+
+    // ───────────────────────────── o link com PIN (F4.2a, mig 433) ─────────────────────────────
+
+    it('F4.2a: o link com PIN — vale uma vez, só o resumo fica no banco, 5 PIN errados bloqueiam (nem em paralelo passa de 5), o novo envio derruba o anterior, a régua de acesso da conversa e o botão não autoriza', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      await modulo(A, true);
+      const PIN = '2580';
+      await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.ana, bcrypt.hashSync(PIN, 4)]);
+      // O serviço com o módulo (o da montagem não o recebe): é o que a página usa.
+      const links = new MisterPropostasService(db, numero, entrada, fiscalDeMentira as any, auditoria, modulos);
+      const seguranca = new MisterSegurancaService(db);
+      const bloqueadosAntes = (await seguranca.resumo(7)).linksComPin.bloqueados;
+      const novaProposta = async (nivel = 'pin', prazo = "interval '15 minutes'") =>
+        (
+          await q(
+            `insert into mister_proposta (tenant_id, unidade_id, aviso_id, procedimento, parametros, nivel, vence_em)
+             values ($1, null, $2, 'cancelar_pedido', '{}'::jsonb, $3, now() + ${prazo}) returning id`,
+            [A, randomUUID(), nivel],
+          )
+        )[0].id as string;
+      const codigoDe = (url: string | null) => /\/m\/([A-Za-z0-9_-]{32})$/.exec(String(url))?.[1] ?? '';
+      const linhaDe = async (id: string) => (await q(`select * from mister_proposta where id = $1`, [id]))[0];
+      const acoes = (id: string) => auditados.filter((a) => a.entidadeId === id).map((a) => [a.acao, a.origem]);
+      const naoVale = async (p: Promise<unknown>) => {
+        await expect(p).rejects.toBeInstanceOf(NotFoundException);
+        await expect(p).rejects.toThrow('Este link não vale. Peça de novo ao Mister.');
+      };
+      auditados.length = 0;
+      numero.pedidos.length = 0;
+
+      // ── O envio: o código novo vai no botão "Abrir no Regem", no formato da documentação da Meta; o banco guarda só o resumo.
+      const p1 = await novaProposta();
+      expect(await links.enviarLink(await novaProposta('botao'), pessoa.ana, tel, 'x')).toBeNull(); // proposta de botão não leva link
+      const url1 = await links.enviarLink(p1, pessoa.ana, tel, 'O cliente pediu o cancelamento. A autorização é no Regem, com o seu PIN.');
+      const c1 = codigoDe(url1);
+      expect(c1).toHaveLength(32);
+      const corpo = numero.pedidos.filter((p) => p.url.endsWith('/messages')).at(-1)!.corpo;
+      expect(corpo).toEqual({
+        messaging_product: 'whatsapp',
+        to: tel,
+        type: 'interactive',
+        interactive: {
+          type: 'cta_url',
+          body: { text: 'O cliente pediu o cancelamento. A autorização é no Regem, com o seu PIN.' },
+          action: { name: 'cta_url', parameters: { display_text: 'Abrir no Regem', url: url1 } },
+        },
+      });
+      const l1 = await linhaDe(p1);
+      expect(l1).toMatchObject({ link_hash: createHash('sha256').update(c1).digest('hex'), link_para: pessoa.ana, pin_erros: 0, link_aberto_em: null });
+      expect(JSON.stringify(l1)).not.toContain(c1);
+      expect(JSON.stringify(auditados)).not.toContain(c1);
+      expect(acoes(p1)).toEqual([['mister_proposta_link_enviado', 'whatsapp']]);
+
+      // ── A página abre: a proposta, as 5 tentativas; a primeira abertura fica na auditoria (uma vez só).
+      const v1 = await links.verPeloLink(c1);
+      expect(v1).toMatchObject({ estado: 'proposta', empresa: NOME_A, restam: 5, erro: null, respondida: null, botao: 'Autorizar', concluidaHora: null });
+      expect(v1.pedidoPor).toMatch(/^Pedido pelo Mister às \d{2}:\d{2}, para Ana \(presidente\)\.$/);
+      expect(v1.valeAte).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      await links.verPeloLink(c1);
+      expect(acoes(p1).filter(([a]) => a === 'mister_proposta_link_aberto')).toHaveLength(1);
+      // Código fora do formato, ou de formato certo mas de nenhum link: a mesma frase.
+      await naoVale(links.verPeloLink('../../etc'));
+      await naoVale(links.verPeloLink('A'.repeat(32)));
+
+      // ── O PIN fora do formato nem gasta tentativa; o errado gasta e diz quantas restam (sem o PIN na trilha).
+      await expect(links.autorizarPeloLink(c1, '12')).rejects.toBeInstanceOf(BadRequestException);
+      expect((await linhaDe(p1)).pin_erros).toBe(0);
+      expect((await links.autorizarPeloLink(c1, '0000')).erro).toBe('O PIN não confere. Restam 4 tentativas.');
+      const errado2 = await links.autorizarPeloLink(c1, '9999');
+      expect(errado2).toMatchObject({ estado: 'proposta', restam: 3, erro: 'O PIN não confere. Restam 3 tentativas.' });
+      expect(JSON.stringify(auditados)).not.toMatch(/0000|9999|2580/);
+
+      // ── O PIN certo: autoriza UMA vez (a tentativa reservada volta), avisa na conversa e executa sozinho.
+      numero.pedidos.length = 0;
+      const certo = await links.autorizarPeloLink(c1, PIN);
+      expect(['fazendo', 'naodeu']).toContain(certo.estado);
+      // A F4.2a não tem procedimento de PIN no catálogo: a execução diz "não existe" (a F4.2b traz o cancelamento).
+      expect(await esperarFechar(p1)).toBe('nao_deu');
+      expect(await linhaDe(p1)).toMatchObject({ autorizada_por: pessoa.ana, telefone_final: tel.slice(-4), pin_erros: 2 });
+      await esperarMensagens(2);
+      expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_LINK.autorizada, 'Não deu: esse procedimento não existe mais.']);
+      expect(acoes(p1).filter(([a]) => a === 'mister_proposta_autorizada')).toEqual([['mister_proposta_autorizada', 'link']]);
+      // Depois de respondida, o link só mostra o estado: o segundo "Autorizar" não muda nada.
+      const depois = await links.autorizarPeloLink(c1, PIN);
+      expect(depois).toMatchObject({ estado: 'naodeu', resultado: 'esse procedimento não existe mais.', respondida: { nome: 'Ana', final: tel.slice(-4) } });
+      expect(depois.concluidaHora).toMatch(/^\d{2}:\d{2}$/);
+      expect((await linhaDe(p1)).pin_erros).toBe(2);
+
+      // ── Cinco errados bloqueiam: 8 toques em paralelo conferem no máximo 5 PIN; o certo depois não passa.
+      const p2 = await novaProposta();
+      const c2 = codigoDe(await links.enviarLink(p2, pessoa.ana, tel, 'outro'));
+      numero.pedidos.length = 0;
+      await Promise.all(Array.from({ length: 8 }, (_, i) => links.autorizarPeloLink(c2, String(1000 + i))));
+      expect(await linhaDe(p2)).toMatchObject({ situacao: 'recusada', pin_erros: 5, resultado: 'link bloqueado: o PIN errado 5 vezes' });
+      expect((await linhaDe(p2)).bloqueada_em).not.toBeNull();
+      expect(acoes(p2).filter(([a]) => a === 'mister_proposta_pin_errado')).toHaveLength(5);
+      expect(acoes(p2).filter(([a]) => a === 'mister_proposta_bloqueada')).toHaveLength(1);
+      expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_LINK.bloqueada]);
+      expect(await links.autorizarPeloLink(c2, PIN)).toMatchObject({ estado: 'bloqueado', restam: 0 });
+      expect((await linhaDe(p2)).autorizada_por).toBeNull();
+      expect((await seguranca.resumo(7)).linksComPin.bloqueados - bloqueadosAntes).toBe(1);
+
+      // ── O novo envio derruba o link anterior (e as tentativas recomeçam); "Não autorizar" fecha sem PIN.
+      const p3 = await novaProposta();
+      const c3a = codigoDe(await links.enviarLink(p3, pessoa.ana, tel, 'um'));
+      await links.autorizarPeloLink(c3a, '1111');
+      const c3b = codigoDe(await links.enviarLink(p3, pessoa.ana, tel, 'dois'));
+      expect(c3b).not.toBe(c3a);
+      await naoVale(links.verPeloLink(c3a));
+      expect(await links.verPeloLink(c3b)).toMatchObject({ estado: 'proposta', restam: 5 });
+      numero.pedidos.length = 0;
+      expect(await links.naoAutorizarPeloLink(c3b)).toMatchObject({ estado: 'recusou', respondida: { nome: 'Ana' } });
+      expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_LINK.recusada]);
+      expect(await links.autorizarPeloLink(c3b, PIN)).toMatchObject({ estado: 'recusou' });
+      expect((await linhaDe(p3)).situacao).toBe('recusada');
+
+      // ── Vencida: o link mostra "venceu" e não gasta tentativa.
+      const p4 = await novaProposta();
+      const c4 = codigoDe(await links.enviarLink(p4, pessoa.ana, tel, 'quatro'));
+      await q(`update mister_proposta set vence_em = now() - interval '1 second' where id = $1`, [p4]);
+      expect(await links.verPeloLink(c4)).toMatchObject({ estado: 'venceu' });
+      expect(await links.autorizarPeloLink(c4, PIN)).toMatchObject({ estado: 'venceu' });
+      expect((await linhaDe(p4)).pin_erros).toBe(0);
+
+      // ── A régua de acesso da conversa (V75): módulo desligado, pessoa bloqueada ou telefone desligado do Mister = não vale.
+      const p5 = await novaProposta();
+      const c5 = codigoDe(await links.enviarLink(p5, pessoa.ana, tel, 'cinco'));
+      await modulo(A, false);
+      await naoVale(links.verPeloLink(c5));
+      await naoVale(links.autorizarPeloLink(c5, PIN));
+      await modulo(A, true);
+      await q(`update colaborador set status = 'bloqueado' where id = $1`, [pessoa.ana]);
+      await naoVale(links.verPeloLink(c5));
+      await q(`update colaborador set status = 'ativo' where id = $1`, [pessoa.ana]);
+      const ligacao = await linha('ana');
+      await q(`update mister_vinculo set ligado_em = null where id = $1`, [ligacao.id]);
+      await naoVale(links.autorizarPeloLink(c5, PIN));
+      await q(`update mister_vinculo set ligado_em = $2 where id = $1`, [ligacao.id, ligacao.ligado_em]);
+      expect((await linhaDe(p5)).pin_erros).toBe(0);
+      // O gerente não recebe link que valha: a página só vale para o presidente.
+      const p6 = await novaProposta();
+      const c6 = codigoDe(await links.enviarLink(p6, pessoa.carlos, tel, 'seis'));
+      await naoVale(links.verPeloLink(c6));
+
+      // ── O botão da conversa não autoriza proposta de PIN (nem com o id montado à mão): a resposta aponta o link.
+      numero.pedidos.length = 0;
+      expect(await mandar(tel, 'Autorizar', { botaoId: `prop:${p5}:sim` })).toBe('respondeu_proposta');
+      expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_LINK.soPeloLink('Ana')]);
+      expect((await linhaDe(p5)).situacao).toBe('proposta');
+      expect(await links.verPeloLink(c5)).toMatchObject({ estado: 'proposta' });
     });
 
     // ───────────────────────────── os relatórios (mig 420) ─────────────────────────────

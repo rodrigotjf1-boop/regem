@@ -3,6 +3,7 @@ import { VERSAO_DA_TELA } from './versao-da-tela';
 import type { CanalConferido, FotosDaLoja, RespostaDaConferencia, TipoConferido } from './conferencia-apps';
 import type { RespostaDasTaxas } from './calculadora-preco';
 import type { AberturasDaPagina, AvisoDoBanco, ConducaoDosAprovados } from './vagas-ficha';
+import type { VistaDoLinkDoMister } from './mister-link';
 
 // Base da API. Nuvem: NEXT_PUBLIC_API_URL (fixado no build). Edge
 // (NEXT_PUBLIC_EDGE=1): cada loja tem IP proprio, entao a API fica no MESMO host
@@ -2513,6 +2514,12 @@ export const api = {
   // F5a (mig 430): a página aberta conta uma abertura (a página manda uma vez por aparelho por dia).
   vagasContarAbertura: (codigo: string, origem: string | null) =>
     pub(`/publico/vagas/${encodeURIComponent(codigo)}/abertura`, { method: 'POST', body: JSON.stringify({ origem }) }),
+  // F4.2a (mig 433): a página do link com PIN do Mister (`/m/<código>`), sem login — a prova é o código mais o PIN.
+  misterLinkVer: (codigo: string) => pub(`/publico/mister/link/${encodeURIComponent(codigo)}`) as Promise<VistaDoLinkDoMister>,
+  misterLinkAutorizar: (codigo: string, pin: string) =>
+    pub(`/publico/mister/link/${encodeURIComponent(codigo)}/autorizar`, { method: 'POST', body: JSON.stringify({ pin }) }) as Promise<VistaDoLinkDoMister>,
+  misterLinkNaoAutorizar: (codigo: string) =>
+    pub(`/publico/mister/link/${encodeURIComponent(codigo)}/nao-autorizar`, { method: 'POST', body: '{}' }) as Promise<VistaDoLinkDoMister>,
   // F5a: "De onde vêm as fichas" — aberturas e fichas por origem no período.
   vagasAberturas: (dias: number) => req(`/vagas/aberturas?dias=${dias}`) as Promise<AberturasDaPagina>,
   // F4b, parte 1: avisar o banco de talentos de uma função aberta (pelo WhatsApp de quem avisa) e "Marquei como avisado".
