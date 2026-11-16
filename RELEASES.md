@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **O aceite de pedidos não trava com o pedido que falha sempre (16/11, ERR-493; sem migration) → vai no `.zip`** (o
+  aceite no servidor da loja); o resgate da nuvem vale com o deploy.
+  - As duas primeiras falhas de um pedido tentam de novo no ciclo seguinte, como hoje.
+  - A partir da terceira seguida, ele sai do lote por 2, 4, 6… minutos (teto de 10) e segue "novo" no painel.
+  - O lote passa a ter ordem: quem espera há mais tempo primeiro; o parado há mais de 12 h por último.
+
 - **O atendente lê a foto que o cliente manda no WhatsApp (16/11, pedido do dono; SEM migration; nasce DESLIGADO).** Com
   `ROBO_FOTOS_IA=1` na nuvem (o dono liga), a foto que o contexto não reconheceu como comprovante vai a um modelo de visão,
   pela porta da IA da empresa (recurso `foto_do_cliente` no medidor), e o atendente recebe o que ela mostra.
@@ -136,7 +142,9 @@
     - A conclusão feita na loja sem internet, com a entrada no estoque, não volta mais a "pendência crítica" pela marca que
       a nuvem pôs depois. Antes, lançar de novo dobrava o estoque.
     - O envio para a nuvem já vale com o deploy.
-    - A descida para a loja, só com o `.exe` da 1.30.14, que já sai com `.exe`.
+    - A descida para a loja: a 1.30.14 saiu SÓ `.zip`, e o `.zip` leva o daemon (o `package.mjs` copia a pasta `edge`
+      inteira e o `atualizar.ps1` a sobrepõe). A loja que atualizou já tem. Medido em 16/11 às 19:32: a loja piloto na
+      1.30.14, reiniciada na atualização, os cinco serviços rodando. O `.exe` segue necessário para a instalação NOVA.
 
 - **Vagas — o aviso ao banco de talentos pelo NÚMERO DE MARKETING, a fila (16/11, F4b parte 2 do protótipo
   `mockups/regem-vagas-talentos.html` aprovado; mig 438 `@cloud-only` — tabela nova `vaga_aviso`, com `tenant_id`: entra
