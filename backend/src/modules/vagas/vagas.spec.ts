@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import {
   buscasDoEndereco,
+  conducaoDaPessoa,
   contratadoDaFicha,
   nomeDaFuncaoParaComparar,
   protocoloLegivel,
@@ -20,6 +21,28 @@ import {
 import { fichaValida } from './vagas-exemplo-spec';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+describe('vagas · a condução dos aprovados (F5b)', () => {
+  const base = { valorIda: 4.7, valorVolta: 18, tipoVaga: 'fixa', escala: '12x36', dias: [] as string[] };
+  it('o valor de ida e volta × os dias da escala: 12x36 = 15, 5x2 = 22, 6x1 = 26', () => {
+    expect(conducaoDaPessoa(base)).toEqual({ porDia: 22.7, diasNoMes: 15, porMes: 340.5, escala: '12x36', motivo: null });
+    expect(conducaoDaPessoa({ ...base, escala: '5x2' }).porMes).toBe(499.4);
+    expect(conducaoDaPessoa({ ...base, escala: null, jornadaDoColaborador: '6x1' })).toMatchObject({ diasNoMes: 26, escala: '6x1' });
+  });
+  it('horista: os dias marcados × 4,3 semanas; sem dias, escala a definir', () => {
+    expect(conducaoDaPessoa({ ...base, tipoVaga: 'horista', escala: null, dias: ['sex', 'sab', 'dom'] })).toMatchObject({ diasNoMes: 12.9, porMes: 292.83, escala: 'horista' });
+    expect(conducaoDaPessoa({ ...base, tipoVaga: 'horista', escala: null, dias: [] })).toMatchObject({ porMes: null, motivo: 'escala_a_definir' });
+  });
+  it('a jornada do colaborador (contratado) vale sobre a escala da ficha; "outro" não conta', () => {
+    expect(conducaoDaPessoa({ ...base, jornadaDoColaborador: '5x2' })).toMatchObject({ diasNoMes: 22, escala: '5x2' });
+    expect(conducaoDaPessoa({ ...base, jornadaDoColaborador: 'horista', dias: ['sab'] })).toMatchObject({ diasNoMes: 4.3, escala: 'horista' });
+    expect(conducaoDaPessoa({ ...base, jornadaDoColaborador: 'outro' })).toMatchObject({ diasNoMes: 15, escala: '12x36' });
+  });
+  it('sem o valor, ou com a escala "12x36 ou 5x2", fica fora da soma com o motivo', () => {
+    expect(conducaoDaPessoa({ ...base, valorIda: null })).toMatchObject({ porDia: null, porMes: null, motivo: 'sem_valor' });
+    expect(conducaoDaPessoa({ ...base, escala: 'tanto' })).toMatchObject({ porDia: 22.7, porMes: null, motivo: 'escala_a_definir' });
+  });
+});
 
 // As regras puras da ficha e da página de vagas (F1, mig 389).
 

@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Vagas e candidatos — F5b, a condução dos aprovados (15/11, protótipo `mockups/regem-vagas-talentos.html` aprovado;
+  SEM migration).** Só NUVEM: a rota nova `GET /vagas/candidatos/conducao` (o valor da ida e da volta da ficha × os dias
+  da escala — 12x36 = 15, 5x2 = 22, 6x1 = 26, horista = dias marcados × 4,3 — dos aprovados e dos contratados nos últimos
+  30 dias) e, em Pessoas › Candidatos, os cinco indicadores do topo com "Ver por pessoa" em gaveta. O `Indicadores` dos
+  relatórios ganhou `acao` e `largo` (aditivo). Nada a empacotar — a tela de Candidatos é `soNuvem`.
+
 - **As propostas do Mister (15/11, F4.1; migration 428 só NUVEM; mexe no `sync-daemon` → nome na lista `SO_NUVEM`, vai
   no `.exe`).** O aviso que vai ao presidente (a nota sem resposta da SEFAZ; a impressora parada, quando a empresa a manda
   ao presidente) leva a pergunta e os botões "Autorizar" e "Não agora". Autorizado, o Regem executa pelo serviço da tela

@@ -2,6 +2,7 @@ import { baseDaApi } from './origem-api';
 import { VERSAO_DA_TELA } from './versao-da-tela';
 import type { CanalConferido, FotosDaLoja, RespostaDaConferencia, TipoConferido } from './conferencia-apps';
 import type { RespostaDasTaxas } from './calculadora-preco';
+import type { ConducaoDosAprovados } from './vagas-ficha';
 
 // Base da API. Nuvem: NEXT_PUBLIC_API_URL (fixado no build). Edge
 // (NEXT_PUBLIC_EDGE=1): cada loja tem IP proprio, entao a API fica no MESMO host
@@ -2482,6 +2483,8 @@ export const api = {
   removerUnidade: (id: string) => req(`/unidades/${id}`, { method: 'DELETE' }),
   // Vagas e candidatos (mig 389): Pessoas › Candidatos (logado; só na nuvem) e a página pública /v/<codigo>.
   vagasCandidatos: () => req('/vagas/candidatos'),
+  // F5b: a condução dos aprovados (e dos contratados nos últimos 30 dias) — o valor informado na ficha × os dias da escala.
+  vagasConducao: () => req('/vagas/candidatos/conducao') as Promise<ConducaoDosAprovados>,
   vagasCandidato: (id: string) => req(`/vagas/candidatos/${id}`),
   vagasSituacao: (id: string, situacao: string) =>
     req(`/vagas/candidatos/${id}/situacao`, { method: 'PATCH', body: JSON.stringify({ situacao }) }),

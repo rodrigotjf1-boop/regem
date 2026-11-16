@@ -52,6 +52,13 @@ export class VagasController {
     return this.vagas.lista(user.tenantId, unidade);
   }
 
+  // F5b: a condução dos aprovados e dos contratados nos últimos 30 dias (o valor que informaram × os dias da escala). Vem
+  // ANTES de `candidatos/:id`, senão o `:id` pegaria "conducao".
+  @Get('candidatos/conducao')
+  conducao(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
+    return this.vagas.conducao(user.tenantId, unidade);
+  }
+
   @Get('candidatos/:id')
   ficha(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null, @Param('id') id: string) {
     return this.vagas.ficha(user.tenantId, unidade, id);

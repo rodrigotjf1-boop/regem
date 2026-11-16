@@ -6,17 +6,28 @@ import { texto2 } from '@/components/ui/lista';
 
 // Peças pequenas das telas do menu Relatórios (mockup `mockups/regem-relatorios.html`).
 
+/** Um indicador: rótulo, número, linha de apoio e, quando há, uma ação (botão) embaixo. */
+export interface Indicador {
+  rotulo: string;
+  valor: React.ReactNode;
+  apoio?: string;
+  acao?: React.ReactNode;
+  /** Ocupa a linha inteira enquanto a grade tem duas colunas (valor longo, com ação). */
+  largo?: boolean;
+}
+
 /** Indicadores do período: rótulo, número e uma linha de apoio. */
-export function Indicadores({ itens }: { itens: ({ rotulo: string; valor: React.ReactNode; apoio?: string } | null | false | undefined)[] }) {
-  const lista = itens.filter((x): x is { rotulo: string; valor: React.ReactNode; apoio?: string } => !!x);
+export function Indicadores({ itens }: { itens: (Indicador | null | false | undefined)[] }) {
+  const lista = itens.filter((x): x is Indicador => !!x);
   if (!lista.length) return null;
   return (
     <dl className="grid grid-cols-2 gap-2 lg:grid-cols-[repeat(auto-fit,minmax(170px,1fr))]">
       {lista.map((k) => (
-        <div key={k.rotulo} className="min-w-0 rounded-md border border-border bg-card p-3">
+        <div key={k.rotulo} className={`min-w-0 rounded-md border border-border bg-card p-3${k.largo ? ' col-span-2 lg:col-span-1' : ''}`}>
           <dt className={`text-xs font-bold ${texto2}`}>{k.rotulo}</dt>
           <dd className="break-words font-mono text-xl font-semibold">{k.valor}</dd>
           {k.apoio && <dd className={`text-xs ${texto2}`}>{k.apoio}</dd>}
+          {k.acao && <dd className="mt-2">{k.acao}</dd>}
         </div>
       ))}
     </dl>

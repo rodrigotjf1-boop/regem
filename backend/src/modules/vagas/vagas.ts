@@ -637,3 +637,51 @@ export function contratadoDaFicha(
     funcaoDaFicha,
   };
 }
+
+// ── F5b: a condução dos aprovados (protótipo aprovado em 15/11/2026, decisão 8) ─────────────────────────────────────
+/** Dias de trabalho no mês de cada escala. Horista = os dias marcados na ficha × 4,3 semanas. */
+export const DIAS_NO_MES_DA_ESCALA: Record<string, number> = { '12x36': 15, '5x2': 22, '6x1': 26, '5x1': 25, '4x3': 17 };
+export const SEMANAS_NO_MES = 4.3;
+
+const centavos = (v: number) => Math.round(v * 100) / 100;
+
+export interface ConducaoDaPessoa {
+  /** O valor de ida + volta que a pessoa informou na ficha (nulo quando não informou). */
+  porDia: number | null;
+  /** Os dias de trabalho no mês pela escala (nulo quando a escala ainda é "a definir"). */
+  diasNoMes: number | null;
+  /** porDia × diasNoMes (nulo quando falta um dos dois — e aí não entra na soma). */
+  porMes: number | null;
+  /** A escala usada na conta: a jornada do colaborador (contratado) ou a da ficha (aprovado). */
+  escala: string | null;
+  /** Por que não entrou na soma. */
+  motivo: 'sem_valor' | 'escala_a_definir' | null;
+}
+
+/**
+ * A condução de uma pessoa: o valor que ela informou × os dias da escala. Contratado: vale a jornada do colaborador
+ * (o que foi combinado); aprovado: a escala da ficha. "Tanto faz", "outro" ou horista sem dias = escala a definir.
+ */
+export function conducaoDaPessoa(c: {
+  valorIda: number | null;
+  valorVolta: number | null;
+  tipoVaga: string | null;
+  escala: string | null;
+  dias: string[] | null;
+  jornadaDoColaborador?: string | null;
+}): ConducaoDaPessoa {
+  const porDia = c.valorIda === null || c.valorVolta === null ? null : centavos(Number(c.valorIda) + Number(c.valorVolta));
+  const jornada = c.jornadaDoColaborador && c.jornadaDoColaborador !== 'outro' ? c.jornadaDoColaborador : null;
+  const horista = jornada ? jornada === 'horista' : c.tipoVaga === 'horista';
+  const escala = jornada ?? (horista ? 'horista' : c.escala);
+  const diasDoHorista = (c.dias ?? []).length;
+  const diasNoMes = horista
+    ? diasDoHorista
+      ? Math.round(diasDoHorista * SEMANAS_NO_MES * 10) / 10
+      : null
+    : escala && DIAS_NO_MES_DA_ESCALA[escala]
+      ? DIAS_NO_MES_DA_ESCALA[escala]
+      : null;
+  const motivo = porDia === null ? 'sem_valor' : diasNoMes === null ? 'escala_a_definir' : null;
+  return { porDia, diasNoMes, porMes: motivo ? null : centavos(porDia! * diasNoMes!), escala: escala ?? null, motivo };
+}

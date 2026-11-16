@@ -344,6 +344,66 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
     }
   });
 
+  // F5b: a condução dos aprovados (protótipo aprovado em 15/11/2026): o valor que informaram × os dias da escala.
+  it('F5b: a condução soma os aprovados e os contratados nos últimos 30 dias da loja; sem valor ou escala a definir, fora da soma', async () => {
+    const fichas: string[] = [];
+    const colaboradores: string[] = [];
+    const nova = async (extra: Record<string, any>) => {
+      const r = await svc.receberFicha(codigo, fichaValida(extra));
+      const [{ id }] = await q(`select id from candidato where tenant_id = $1 and protocolo = $2`, [T, r.protocolo]);
+      fichas.push(id);
+      return id as string;
+    };
+    const contratadoHa = async (id: string, dias: number, colaborador: string | null = null) => {
+      await q(`update candidato set situacao = 'contratado', colaborador_id = $2 where id = $1`, [id, colaborador]);
+      await q(
+        `insert into candidato_evento (candidato_id, tenant_id, tipo, de, para, texto, criado_em)
+         values ($1, $2, 'situacao', 'aprovado', 'contratado', 'Contratado', now() - make_interval(days => $3::int))`,
+        [id, T, dias],
+      );
+    };
+    try {
+      // 12x36 (a ficha de exemplo: R$ 4,70 + R$ 18,00 = R$ 22,70 por dia) → 15 dias = R$ 340,50.
+      const doze = await nova({ whatsapp: '(21) 3333-0160', nome: 'Ana Doze Teste' });
+      // Horista de sexta, sábado e domingo, R$ 5 + R$ 5 → 3 × 4,3 = 12,9 dias = R$ 129,00.
+      const horista = await nova({ whatsapp: '(21) 3333-0161', nome: 'Bruno Horista Teste', tipo: 'horista', dias: ['sex', 'sab', 'dom'], valor_ida: '5,00', valor_volta: '5,00' });
+      // Vaga fixa "12x36 ou 5x2": a escala ainda é a definir — aparece, fora da soma.
+      const tanto = await nova({ whatsapp: '(21) 3333-0162', nome: 'Carla Tanto Teste', tipo: 'fixa', escala: 'tanto' });
+      // A pé, sem valor informado — aparece, fora da soma.
+      const ape = await nova({ whatsapp: '(21) 3333-0163', nome: 'Davi Ape Teste', meio: ['pe'], conducoes: null, uber_motivo: '', valor_ida: '', valor_volta: '' });
+      for (const id of [doze, horista, tanto, ape]) await svc.mudarSituacao(gerente(), lojaA, id, { situacao: 'aprovado' });
+      // Contratado há 10 dias, com o colaborador na 5x2 (a jornada combinada vale sobre a escala da ficha): 22 dias.
+      const [{ id: col }] = await q(`insert into colaborador (tenant_id, nome, jornada_tipo, unidade_id) values ($1, 'Eva Contratada Teste', '5x2', $2) returning id`, [T, lojaA]);
+      colaboradores.push(col);
+      const contratado = await nova({ whatsapp: '(21) 3333-0164', nome: 'Eva Contratada Teste' });
+      await contratadoHa(contratado, 10, col);
+      // Contratado há 40 dias e ficha nova: não entram.
+      const antigo = await nova({ whatsapp: '(21) 3333-0165', nome: 'Fabio Antigo Teste' });
+      await contratadoHa(antigo, 40);
+      const novo = await nova({ whatsapp: '(21) 3333-0166', nome: 'Gil Novo Teste' });
+
+      const r: any = await svc.conducao(T, lojaA);
+      const ids = r.pessoas.map((p: any) => p.id);
+      expect(ids).toEqual(expect.arrayContaining([doze, horista, tanto, ape, contratado]));
+      expect(ids).not.toContain(antigo);
+      expect(ids).not.toContain(novo);
+      const de = (id: string) => r.pessoas.find((p: any) => p.id === id);
+      expect(de(doze)).toMatchObject({ porDia: 22.7, diasNoMes: 15, porMes: 340.5, escala: '12x36', motivo: null });
+      expect(de(horista)).toMatchObject({ porDia: 10, diasNoMes: 12.9, porMes: 129, escala: 'horista', motivo: null });
+      expect(de(tanto)).toMatchObject({ porMes: null, motivo: 'escala_a_definir' });
+      expect(de(ape)).toMatchObject({ porDia: null, porMes: null, motivo: 'sem_valor' });
+      expect(de(contratado)).toMatchObject({ situacao: 'contratado', diasNoMes: 22, porMes: 499.4, escala: '5x2' });
+      expect(r).toMatchObject({ porMes: 968.9, porDia: 55.4, somadas: 3, foraDaSoma: 2 });
+      // Outra loja e outra empresa não veem; o presidente na rede vê as da empresa.
+      expect((await svc.conducao(T, lojaB)).pessoas.map((p: any) => p.id)).not.toContain(doze);
+      expect((await svc.conducao(T2, null)).pessoas.map((p: any) => p.id)).not.toContain(doze);
+      expect((await svc.conducao(T, null)).pessoas.map((p: any) => p.id)).toContain(doze);
+    } finally {
+      for (const id of fichas) await q(`delete from candidato where id = $1`, [id]).catch(() => {});
+      for (const c of colaboradores) await q(`delete from colaborador where id = $1`, [c]).catch(() => {});
+    }
+  });
+
   it('"Apagar dados" leva a ficha e tudo dela; a auditoria não guarda nome nem telefone', async () => {
     await svc.apagar(gerente(), lojaA, idMaria);
     expect(await q(`select id from candidato where id = $1`, [idMaria])).toEqual([]);
