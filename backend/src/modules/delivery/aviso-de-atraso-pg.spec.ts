@@ -76,6 +76,7 @@ descrever('aviso automático de atraso (Postgres)', () => {
       '349_lembrete_do_carrinho.sql',
       '352_conferir_entrega.sql',
       '363_robo_mudanca_do_pedido.sql', // a mudança do pedido feito (`mudanca`), que o `select()` do carrinho lê
+      '431_robo_carrinho_confirmacao.sql', // a confirmação do cliente (`confirmado_versao`), que o `select()` do carrinho lê
     ])
       await aplicar(m);
   });

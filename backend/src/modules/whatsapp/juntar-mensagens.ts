@@ -55,8 +55,31 @@ export async function entregarComPorteiro(msg: any, entregar: (m: any) => Promis
   return entregar(msg);
 }
 
+/**
+ * O ANOTADOR DA CONFIRMAÇÃO (mig 431 — o documento do dono de 16/11/2026): olha CADA mensagem do cliente, antes de juntar e
+ * antes da IA, e anota no carrinho do robô que o cliente confirmou o resumo que acabou de receber ("Pode registrar", "1",
+ * um sim claro). O registro do pedido exige essa anotação — quem confirma é o cliente, não a leitura que a IA faz. Registrado
+ * UMA vez, quando o servidor sobe (`RoboPedidoService`, só na nuvem); sem ele (testes, servidor da loja), nada acontece.
+ * Falha do anotador nunca segura a mensagem.
+ */
+type Anotador = (msg: any) => Promise<unknown>;
+let anotador: Anotador | null = null;
+export function definirAnotadorDaConfirmacao(a: Anotador | null): void {
+  anotador = a;
+}
+async function anotarConfirmacao(msg: any): Promise<void> {
+  if (!anotador) return;
+  try {
+    await anotador(msg);
+  } catch {
+    /* a mensagem segue para o robô do mesmo jeito; sem a anotação, o registro pede a confirmação de novo */
+  }
+}
+
 /** Entrega ao robô juntando o texto das mensagens seguidas da mesma conversa. Nunca lança. */
 export async function entregarJuntando(msg: any, entregar: (m: any) => Promise<any> = entregarComPorteiro): Promise<void> {
+  // Antes de juntar: "sim" + "tira a cebola" em duas mensagens — o "sim" anota, e a mudança sobe a versão (não vale mais).
+  await anotarConfirmacao(msg);
   const ms = espera();
   const k = chave(msg);
   if (!ms) {

@@ -42,6 +42,7 @@ const MIGRATIONS = [
   '361_robo_carrinho_repetido.sql',
   '363_robo_mudanca_do_pedido.sql', // a mudança do pedido feito (`mudanca`) e o "O robô faz mudanças simples"
   '379_horario_da_equipe.sql', // o horário da equipe (o chamado do robô fora do horário vira recado)
+  '431_robo_carrinho_confirmacao.sql', // a confirmação do cliente (`confirmado_versao`), que o `select()` do carrinho lê
 ].map((m) => join(__dirname, '../../../../database/migrations', m));
 const SENHA = 'senha-do-robo-de-teste';
 const CELULAR = '5521987654321';
@@ -179,7 +180,9 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     await produtos.setProdutoComplementos(t, trio, [refri.id]);
     const conversa = (tel = CELULAR) => assinarConversa(t, tel)!;
     const ctx = (tel = CELULAR) => robo.contexto(SENHA, conversa(tel), instancia);
-    return { t, u, token, instancia, ctx, conversa };
+    // A mensagem do cliente chegando pelo WhatsApp (mig 431): o anotador da confirmação vê cada uma antes da IA.
+    const responder = (texto: string, tipo = 'interactive', tel = CELULAR) => robo.anotarConfirmacao({ tenantId: t, de: tel, tipo, texto });
+    return { t, u, token, instancia, ctx, conversa, responder };
   }
 
   const campo = (r: any) => r?.pedido?.proximo?.campo;
@@ -262,6 +265,23 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     expect(enviados).toHaveLength(2);
     expect(enviados[1].texto).toContain('📝 *Observação do pedido*\ninterfone ruim, ligar ao chegar');
 
+    // A CONFIRMAÇÃO É DO CLIENTE (mig 431 — o documento do dono de 16/11): a IA chamar registrar sem o cliente ter
+    // confirmado o resumo não registra; "obrigado", figurinha, áudio e o "sim" de antes do resumo novo não confirmam.
+    expect((await robo.registrar(c, {})) as any).toMatchObject({ ok: false, motivo: 'confirmar' });
+    expect(await l.responder('obrigado', 'text')).toBe(false);
+    expect(await l.responder('👍', 'text')).toBe(false);
+    expect(await l.responder('sim', 'audio')).toBe(false);
+    expect(await l.responder('sim', 'sticker')).toBe(false);
+    expect(await l.responder('sim, mas tira a cebola', 'text')).toBe(false);
+    expect(await l.responder('Pode registrar', 'interactive', '5521900000000')).toBe(false); // outro número: outro carrinho
+    expect((await robo.registrar(c, {})) as any).toMatchObject({ ok: false, motivo: 'confirmar' });
+    expect(await q(`select count(*)::int as n from pedido_externo where tenant_id = $1`, [l.t])).toEqual([{ n: 0 }]);
+    // o toque em "Pode registrar" do resumo DESTA versão: anota (uma vez só)
+    expect(await l.responder('Pode registrar')).toBe(true);
+    expect(await l.responder('Pode registrar')).toBe(false);
+    const [conf] = await q(`select versao, confirmado_versao from robo_carrinho where tenant_id = $1 and status = 'aberto'`, [l.t]);
+    expect(conf.confirmado_versao).toBe(conf.versao);
+
     // "Pode registrar": a versão que a IA manda não conta mais (no teste ela chutava "7") — vale a do resumo enviado.
     const reg: any = await robo.registrar(c, { versao: 7 });
     expect(reg).toMatchObject({ ok: true, aceito: true, resumoEnviado: true, resumo: null });
@@ -311,7 +331,39 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     expect(r).toMatchObject({ ok: false, motivo: 'conferir' });
     expect(enviados).toHaveLength(2);
     expect(await q(`select count(*)::int as n from pedido_externo where tenant_id = $1`, [l.t])).toEqual([{ n: 0 }]);
+    // pela Evolution o resumo vem em menu numerado: o "1" digitado confirma
+    expect(await l.responder('1', 'text')).toBe(true);
     expect((await robo.registrar(c, {})) as any).toMatchObject({ ok: true });
+  });
+
+  it('a confirmação vale para o resumo que o cliente viu: mudou o pedido depois do "sim", o sim antigo não registra (mig 431)', async () => {
+    const l = await loja();
+    const c = await l.ctx();
+    await robo.mexerNosItens(c, { acao: 'adicionar', produto: 'coca lata', quantidade: 4 });
+    await robo.mexerNosItens(c, { acao: 'fechar' });
+    await robo.definirEntrega(c, { tipo: 'retirada' });
+    await robo.definirNome(c, { nome: 'Caio' });
+    await robo.definirPagamento(c, { forma: 'Cartão na retirada' });
+    // o "sim" ANTES do resumo (a resposta a outra pergunta) não vale: o resumo desta versão ainda não tinha saído
+    await q(`update robo_carrinho set resumo_versao = null where tenant_id = $1 and status = 'aberto'`, [l.t]);
+    expect(await l.responder('sim', 'text')).toBe(false);
+    await q(`update robo_carrinho set resumo_versao = versao where tenant_id = $1 and status = 'aberto'`, [l.t]);
+    // o cliente confirma, e logo depois corrige a quantidade ("na verdade, duas"): a versão sobe e o Regem manda o resumo novo
+    expect(await l.responder('Sim, pode registrar por favor', 'text')).toBe(true);
+    const antes = enviados.length;
+    const r: any = await robo.mexerNosItens(c, { acao: 'alterar', linha: 1, quantidade: 2 });
+    expect(r.pedido.itens[0]).toMatchObject({ quantidade: 2 });
+    expect(enviados.length).toBe(antes + 1); // o resumo novo
+    const [car] = await q(`select versao, resumo_versao, confirmado_versao from robo_carrinho where tenant_id = $1 and status = 'aberto'`, [l.t]);
+    expect(car.resumo_versao).toBe(car.versao);
+    expect(car.confirmado_versao).toBeNull(); // o resumo novo zerou a confirmação
+    expect((await robo.registrar(c, {})) as any).toMatchObject({ ok: false, motivo: 'confirmar' });
+    expect(await q(`select count(*)::int as n from pedido_externo where tenant_id = $1`, [l.t])).toEqual([{ n: 0 }]);
+    // o "sim" ao resumo NOVO registra — com a quantidade nova
+    expect(await l.responder('isso mesmo', 'text')).toBe(true);
+    expect((await robo.registrar(c, {})) as any).toMatchObject({ ok: true });
+    const [ped] = await q(`select itens from pedido_externo where tenant_id = $1`, [l.t]);
+    expect(ped.itens[0]).toMatchObject({ quantidade: 2 });
   });
 
   // ── PEDIDO IGUAL EM ATÉ 30 MIN (mig 360/361; pedido do dono, 03/11/2026 — decisão 1) ──
@@ -380,6 +432,7 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     await montar();
     expect(ultimo()).not.toContain('pedido igual');
     expect(ultimo()).toContain('Pode registrar');
+    expect(await l.responder('Pode registrar')).toBe(true);
     expect((await robo.registrar(c, {})) as any).toMatchObject({ ok: true });
     // o mesmo pedido de novo: o resumo vem com o aviso e os botões do pedido igual, e a versão fica marcada
     await montar();
@@ -393,16 +446,23 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     expect(visao.pedido.proximo.opcoes).toEqual(['Sim, quero os dois', 'Não, foi repetido', 'Quero mudar algo']);
     expect(visao.pedido.proximo.comoResponder).toContain('cancelar_pedido');
     // "Sim, quero os dois" → registrar_pedido: o segundo entra
+    expect(await l.responder('Sim, quero os dois')).toBe(true);
     expect((await robo.registrar(c, {})) as any).toMatchObject({ ok: true });
     expect(await pedidos()).toBe(2);
     // um igual que aparece DEPOIS do resumo (a pergunta não foi desta versão): o registrar pergunta agora e não grava
     await montar();
     await q(`update robo_carrinho set repetido_versao = null where tenant_id = $1 and status = 'aberto'`, [l.t]);
+    expect(await l.responder('Pode registrar')).toBe(true); // o cliente confirmou o resumo de antes do aviso
     const n0 = enviados.length;
     expect((await robo.registrar(c, {})) as any).toMatchObject({ ok: false, motivo: 'repetido' });
     expect(enviados.length).toBe(n0 + 1);
     expect(ultimo()).toContain('Você já fez um pedido igual hoje');
     expect(await pedidos()).toBe(2);
+    // o "Pode registrar" de ANTES do aviso não vale para o segundo pedido (mig 431): o reenvio zerou a confirmação — antes,
+    // a IA podia registrar o segundo sem o cliente escolher "Sim, quero os dois"
+    expect((await robo.registrar(c, {})) as any).toMatchObject({ ok: false, motivo: 'confirmar' });
+    expect(await pedidos()).toBe(2);
+    expect(await l.responder('Sim, quero os dois')).toBe(true);
     expect((await robo.registrar(c, {})) as any).toMatchObject({ ok: true }); // o "Sim" desta versão
     expect(await pedidos()).toBe(3);
   });
@@ -556,6 +616,7 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
       expect(conferir).toContain(pedaco);
 
     // Registrado pela conta do cardápio: o mesmo total, o saldo gasto, o uso do cupom e o resumo com o ganho.
+    expect(await l.responder('Pode registrar')).toBe(true);
     const reg: any = await robo.registrar(c, {});
     expect(reg.ok).toBe(true);
     const [ped] = await q(`select total, desconto from pedido_externo where tenant_id = $1`, [l.t]);
@@ -604,6 +665,7 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     expect(r.pedido).toMatchObject({ podeRegistrar: true, total: 'R$ 19,00' });
     expect(r.pedido.falta).toEqual([]);
 
+    expect(await l.responder('Pode registrar')).toBe(true);
     const reg: any = await robo.registrar(c, {});
     expect(reg.ok).toBe(true);
     const [ped] = await q(`select id, total from pedido_externo where tenant_id = $1`, [l.t]);

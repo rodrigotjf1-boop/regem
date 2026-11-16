@@ -1,6 +1,41 @@
-import { OPCOES_DA_CONFERENCIA, ParaConferir, partesDoItem, resumoDoPedido, textoParaConferir } from './robo-resumo';
+import {
+  OPCOES_DA_CONFERENCIA,
+  OPCOES_DO_REPETIDO,
+  ParaConferir,
+  ehConfirmacaoDoResumo,
+  normalizarResposta,
+  partesDoItem,
+  resumoDoPedido,
+  textoParaConferir,
+} from './robo-resumo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+// A CONFIRMAÇÃO DO RESUMO (mig 431 — o documento do dono de 16/11/2026): o que o CLIENTE manda e confirma o resumo para
+// conferir — o 1º botão de cada conferência, o "1" do menu numerado e o sim claro, com a cortesia em volta. Nunca o
+// "obrigado", o emoji, a resposta que muda o pedido ou o "não".
+describe('a confirmação do resumo pelo cliente (mig 431)', () => {
+  it('o 1º botão de cada conferência confirma; os outros botões não', () => {
+    expect(ehConfirmacaoDoResumo(OPCOES_DA_CONFERENCIA[0])).toBe(true);
+    expect(ehConfirmacaoDoResumo(OPCOES_DO_REPETIDO[0])).toBe(true);
+    for (const outro of [...OPCOES_DA_CONFERENCIA.slice(1), ...OPCOES_DO_REPETIDO.slice(1)]) expect(ehConfirmacaoDoResumo(outro)).toBe(false);
+  });
+
+  it('o sim claro, o "1" e a cortesia em volta confirmam (sem acento, com pontuação ou emoji)', () => {
+    for (const t of ['1', 'Sim', 'sim!', 'SIM', 's', 'Pode registrar 👍', 'pode sim', 'Sim, pode registrar por favor', 'isso mesmo', 'Está certo', 'tá tudo certo!', 'ok obrigado', 'Confirmo.', 'beleza', 'já pode registrar'])
+      expect([t, ehConfirmacaoDoResumo(t)]).toEqual([t, true]);
+  });
+
+  it('obrigado, emoji, figurinha (texto vazio), "não", a resposta que muda o pedido e o texto longo não confirmam', () => {
+    for (const t of ['obrigado', 'valeu', '👍', '😊🙏', '', '   ', null, undefined, 'não', 'nao, quero mudar', 'sim, mas tira a cebola', 'pode tirar a cebola', '2', '3', 'Quero mudar algo', 'pode ser', 'manda o cardápio', 'sim sim sim sim sim sim sim sim sim'])
+      expect([t, ehConfirmacaoDoResumo(t)]).toEqual([t, false]);
+  });
+
+  it('normalizarResposta: sem acento, sem pontuação, minúsculas, um espaço', () => {
+    expect(normalizarResposta('  Tá   CERTO!!! 👍 ')).toBe('ta certo');
+    expect(normalizarResposta('Pôr observação')).toBe('por observacao');
+  });
+});
 
 // O RESUMO DO PEDIDO DO ROBÔ (F4): do pedido GRAVADO, uma informação por linha, o que importa em negrito.
 const PED: any = {

@@ -41,6 +41,7 @@ const DA_NUVEM = [
   '352_conferir_entrega.sql',
   '361_robo_carrinho_repetido.sql',
   '363_robo_mudanca_do_pedido.sql',
+  '431_robo_carrinho_confirmacao.sql', // a confirmação do cliente (`confirmado_versao`), que o `select()` do carrinho lê
   '372_pedido_estorno.sql',
   '373_pedido_adicional_pix.sql',
 ];

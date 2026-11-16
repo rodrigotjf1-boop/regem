@@ -3984,6 +3984,9 @@ export const roboCarrinho = pgTable('robo_carrinho', {
   resumoVersao: integer('resumo_versao'),
   // mig 361: a versão para a qual o Regem perguntou do PEDIDO IGUAL (o "sim" só vale para ela).
   repetidoVersao: integer('repetido_versao'),
+  // mig 431 (16/11, o documento do dono): a versão cujo resumo o CLIENTE confirmou — o toque em "Pode registrar", o "1" ou
+  // um sim claro, anotado pelo Regem ao RECEBER a mensagem (antes da IA). Registrar exige = versao.
+  confirmadoVersao: integer('confirmado_versao'),
   itensFechados: boolean('itens_fechados').notNull().default(false),
   observacao: text('observacao'),
   // mig 349: quando o lembrete do pedido parado saiu (gravado ANTES do envio — sai uma vez só).
