@@ -62,13 +62,15 @@ export class PedidoManutencaoService {
       })
       .returning();
     // Alerta ao C&O/gerente (mesmo canal dos alertas de sistema). Com a LOJA do pedido (ERR-494): sem ela, o pedido de
-    // manutenção de uma loja tocava nas telas de todas as lojas da rede. O tipo do aviso fica como estava.
+    // manutenção de uma loja tocava nas telas de todas as lojas da rede. É aviso de GESTÃO (decisão do dono, 16/11/2026):
+    // sem o tipo ele caía em "loja" e tocava também nas telas de preparo, que não têm o que fazer com ele.
     this.events.emit('kds.alerta.sistema', {
       tenantId,
       unidadeId: row.unidadeId ?? null,
       titulo: '🛠️ Novo pedido de manutenção',
       detalhe: titulo,
       prioridade: row.prioridade === 'critica' ? 'danger' : 'alta',
+      tipo: 'gestao', // as telas de preparo não recebem por padrão (mig 408)
     });
     await this.auditoria.registrar({
       tenantId,

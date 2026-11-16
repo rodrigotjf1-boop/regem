@@ -51,11 +51,11 @@ descrever('os avisos do sistema levam a loja do registro (Postgres)', () => {
     avisos.length = 0;
   });
 
-  it('novo pedido de manutenção: o aviso vai com a loja de quem abriu', async () => {
+  it('novo pedido de manutenção: o aviso vai com a loja de quem abriu e é de gestão (não toca no preparo)', async () => {
     const svc = new PedidoManutencaoService(db, eventos, auditoria);
     await svc.criar(T, ana, { titulo: 'Chapa não esquenta' }, lojaB);
     expect(meus()).toHaveLength(1);
-    expect(meus()[0]).toMatchObject({ unidadeId: lojaB, detalhe: 'Chapa não esquenta' });
+    expect(meus()[0]).toMatchObject({ unidadeId: lojaB, detalhe: 'Chapa não esquenta', tipo: 'gestao' });
   });
 
   it('etiquetas de validade: um aviso por loja, com a conta de cada uma (a loja B não vê as vencidas da A)', async () => {
