@@ -352,7 +352,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -3866,7 +3866,9 @@ export function testesDoMisterComPostgres(): void {
       expect(await contarPropostas()).toBe(1);
       // Procedimento fora do catálogo: recusa.
       const escopo = await ferramentasComPropostas.escopo(A, pessoa.ana, tel);
-      expect(await ferramentasComPropostas.executar(escopo!, 'propor_procedimento', { procedimento: 'cancelar_pedido' })).toEqual({ ok: false, dados: { erro: 'Esse procedimento não está no catálogo.' } });
+      expect(await ferramentasComPropostas.executar(escopo!, 'propor_procedimento', { procedimento: 'apagar_tudo' })).toEqual({ ok: false, dados: { erro: 'Esse procedimento não está no catálogo.' } });
+      // F4.2b: o cancelamento está no catálogo, mas sem o número do pedido não propõe.
+      expect(await ferramentasComPropostas.executar(escopo!, 'propor_procedimento', { procedimento: 'cancelar_pedido' })).toEqual({ ok: false, dados: { erro: 'Diga o número do pedido como aparece no painel do Delivery.' } });
     });
 
     // ───────────────────────────── o link com PIN (F4.2a, mig 433) ─────────────────────────────
@@ -3945,15 +3947,15 @@ export function testesDoMisterComPostgres(): void {
       numero.pedidos.length = 0;
       const certo = await links.autorizarPeloLink(c1, PIN);
       expect(['fazendo', 'naodeu']).toContain(certo.estado);
-      // A F4.2a não tem procedimento de PIN no catálogo: a execução diz "não existe" (a F4.2b traz o cancelamento).
+      // A proposta deste teste não tem pedido nos parâmetros: o cancelamento (F4.2b) não acha o alvo e não faz nada.
       expect(await esperarFechar(p1)).toBe('nao_deu');
       expect(await linhaDe(p1)).toMatchObject({ autorizada_por: pessoa.ana, telefone_final: tel.slice(-4), pin_erros: 2 });
       await esperarMensagens(2);
-      expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_LINK.autorizada, 'Não deu: esse procedimento não existe mais.']);
+      expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_LINK.autorizada, 'Não deu: o pedido não foi encontrado. Nada foi feito.']);
       expect(acoes(p1).filter(([a]) => a === 'mister_proposta_autorizada')).toEqual([['mister_proposta_autorizada', 'link']]);
       // Depois de respondida, o link só mostra o estado: o segundo "Autorizar" não muda nada.
       const depois = await links.autorizarPeloLink(c1, PIN);
-      expect(depois).toMatchObject({ estado: 'naodeu', resultado: 'esse procedimento não existe mais.', respondida: { nome: 'Ana', final: tel.slice(-4) } });
+      expect(depois).toMatchObject({ estado: 'naodeu', resultado: 'o pedido não foi encontrado. Nada foi feito.', respondida: { nome: 'Ana', final: tel.slice(-4) } });
       expect(depois.concluidaHora).toMatch(/^\d{2}:\d{2}$/);
       expect((await linhaDe(p1)).pin_erros).toBe(2);
 
@@ -4019,6 +4021,227 @@ export function testesDoMisterComPostgres(): void {
       expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_LINK.soPeloLink('Ana')]);
       expect((await linhaDe(p5)).situacao).toBe('proposta');
       expect(await links.verPeloLink(c5)).toMatchObject({ estado: 'proposta' });
+    });
+
+    // ───────────────────────────── cancelar com o estorno (F4.2b, sem migration) ─────────────────────────────
+
+    it('F4.2b: cancelar com o estorno — a IA propõe pelo número, o link sai DEPOIS da resposta, o PIN autoriza e o cancelamento é o do painel; "feito" só com o pedido cancelado e o estorno feito; o estorno que falhou ou ficou na fila, sem Pix, a recusa do serviço, o pedido que não se acha, o vencido que avisa e renova', async () => {
+      comIa();
+      const tel = telefone();
+      await ligar('ana', tel);
+      await janelaAberta('ana');
+      await modulo(A, true);
+      const PIN = '2580';
+      await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.ana, bcrypt.hashSync(PIN, 4)]);
+      // O cancelamento do painel é um dublê que ANOTA a chamada e cancela o pedido como o serviço de verdade.
+      const cancelamentos: any[][] = [];
+      let aoCancelar: (pedidoId: string) => Promise<void> = async (id) => {
+        await q(`update pedido_externo set status = 'cancelado', cancelado_em = now() where id = $1`, [id]);
+      };
+      // Cancela PRIMEIRO e só então anota: quem espera a anotação já encontra o pedido cancelado.
+      const painel = {
+        cancelar: async (...a: any[]) => {
+          await aoCancelar(a[3]);
+          cancelamentos.push(a);
+          return {};
+        },
+      };
+      const esperarCancelados = async (n: number) => {
+        for (let i = 0; i < 100 && cancelamentos.length < n; i++) await new Promise((r) => setTimeout(r, 30));
+        expect(cancelamentos).toHaveLength(n);
+      };
+      const comCancelar = new MisterPropostasService(db, numero, entrada, fiscalDeMentira as any, auditoria, modulos, painel as any);
+      const ferramentasComCancelar = new MisterFerramentasService(
+        db,
+        modulos,
+        new DashboardService(db),
+        new RelatoriosService(db, { custoEfetivoMapa: async () => ({}) } as any),
+        new EstoqueService(db, auditoria as AuditoriaService),
+        deliveryDeMentira as any,
+        cozinhaDeMentira as any,
+        servidorDeMentira as any,
+        vendasDeMentira as any,
+        escalaDeMentira as any,
+        pontoDeMentira as any,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        comCancelar,
+      );
+      const agenteComCancelar = new MisterAgenteService(fila, ferramentasComCancelar, ia, numero);
+      const escopo = (await ferramentasComCancelar.escopo(A, pessoa.ana, tel))!;
+      const base = randomInt(50_000, 60_000);
+      const pedido = async (o: { n: number; canal?: string; pix?: boolean; horas?: number; display?: string }) =>
+        (
+          await q(
+            `insert into pedido_externo (tenant_id, unidade_id, canal, status, total, valor_bruto, taxa_entrega, taxa_entrega_dono, display_id, numero,
+                                         cliente_nome, pago, status_pagamento, gateway_payment_id, gateway_provider, criado_em)
+             values ($1, $2, $3, 'confirmado', 132.9, 132.9, 0, 'marketplace', $4, $5, 'Mariana Souza Lima', $6, $7, $8, $9, now() - make_interval(hours => $10::int))
+             returning id::text as id`,
+            [A, lojaDeA, o.canal ?? 'ifood', o.display ?? `${MARCA}${o.n}`, o.n, !!o.pix, o.pix ? 'aprovado' : 'na_entrega', o.pix ? `mp-${MARCA}-${o.n}` : null, o.pix ? 'mercadopago' : null, o.horas ?? 0],
+          )
+        )[0].id as string;
+      const propostaDoPedido = async (pedidoId: string) => (await q(`select * from mister_proposta where procedimento = 'cancelar_pedido' and parametros ->> 'pedidoId' = $1`, [pedidoId]))[0];
+      const esperar = async (id: string, situacao: string) => {
+        for (let i = 0; i < 100; i++) {
+          if ((await q(`select situacao from mister_proposta where id = $1`, [id]))[0]?.situacao === situacao) return;
+          await new Promise((r) => setTimeout(r, 30));
+        }
+        throw new Error(`a proposta não chegou a ${situacao}`);
+      };
+      const codigoDaUltima = () => /\/m\/([A-Za-z0-9_-]{32})$/.exec(String(numero.enviadas.filter((m) => m.link).at(-1)?.link?.url))?.[1] ?? '';
+      /** Propõe pela ferramenta e manda o link, como o agente faz depois da resposta. */
+      const proporEMandar = async (n: number) => {
+        const r = await ferramentasComCancelar.executar(escopo, 'propor_procedimento', { procedimento: 'cancelar_pedido', pedido: String(n) });
+        expect(r.proposta).toMatchObject({ procedimento: 'cancelar_pedido', nivel: 'pin', botoes: [] });
+        await ferramentasComCancelar.enviarLinkDaProposta(escopo, r.proposta!, tel);
+        return codigoDaUltima();
+      };
+      const estorno = (pedidoId: string, situacao: string, erro: string | null = null) =>
+        q(`insert into pedido_estorno (tenant_id, pedido_id, provedor, valor, situacao, erro) values ($1, $2, 'mercadopago', 132.9, $3, $4)`, [A, pedidoId, situacao, erro]);
+      const acoesDa = (id: string) => auditados.filter((a) => a.entidadeId === id).map((a) => a.acao);
+      auditados.length = 0;
+
+      // ── 1. A IA propõe pelo número: o modelo não vê id nem valor; a resposta sai e DEPOIS o link "Abrir no Regem".
+      const p1 = await pedido({ n: base + 1, pix: true });
+      const nome1 = `#${base + 1} · iFood ${MARCA}${base + 1}`;
+      numero.pedidos.length = 0;
+      expect(await mandar(tel, `cancela o pedido ${base + 1}`)).toBe('pergunta');
+      ia.roteiro = [usar('propor_procedimento', { procedimento: 'cancelar_pedido', pedido: `#${base + 1}` }, 'toolu_c1'), falar('O link para autorizar chega logo abaixo.')];
+      expect(await agenteComCancelar.esvaziar()).toBe(1);
+      const prop1 = await propostaDoPedido(p1);
+      expect(prop1).toMatchObject({ tenant_id: A, unidade_id: lojaDeA, nivel: 'pin', situacao: 'proposta', aviso_id: uuidDeChave('mister:cancelar_pedido:', A, ':', p1) });
+      expect(Math.round((new Date(prop1.vence_em).getTime() - new Date(prop1.criada_em).getTime()) / 60_000)).toBe(15);
+      const aoModelo = JSON.stringify(ia.pedidos.at(-1));
+      expect(aoModelo).toContain('vai em seguida, com o link');
+      expect(aoModelo).toContain('Abrir no Regem');
+      expect(aoModelo).toContain('que pede o PIN');
+      expect(aoModelo).toContain(nome1);
+      expect(aoModelo).not.toContain(prop1.id);
+      expect(aoModelo).not.toMatch(/132[,.]9/);
+      expect(numero.enviadas.map((m) => [m.para, m.texto, m.link?.titulo ?? null])).toEqual([
+        [tel, 'O link para autorizar chega logo abaixo.', null],
+        [tel, `Para cancelar o pedido ${nome1} (R$ 132,90, Pix já pago), a autorização é no Regem, com o seu PIN. O pedido vale até ${horaNoFuso(new Date(prop1.vence_em))}.`, 'Abrir no Regem'],
+      ]);
+      const c1 = codigoDaUltima();
+
+      // ── 2. A página mostra o pedido como o banco o tem (o cliente só pelo nome curto).
+      expect(await comCancelar.verPeloLink(c1)).toMatchObject({
+        estado: 'proposta',
+        titulo: `Cancelar o pedido ${nome1}?`,
+        detalhe: 'iFood · cliente Mariana L. · pago por Pix',
+        valor: 132.9,
+        itens: ['O pedido é cancelado no Regem e no iFood.', 'O estorno do Pix é pedido ao Mercado Pago.'],
+        botao: 'Autorizar o cancelamento',
+      });
+
+      // ── 3. O PIN autoriza: o cancelamento do PAINEL, com o presidente conferido no lugar da senha; o "feito" espera o estorno.
+      numero.pedidos.length = 0;
+      expect((await comCancelar.autorizarPeloLink(c1, PIN)).estado).toBe('fazendo');
+      await esperar(prop1.id, 'executando');
+      await esperarCancelados(1);
+      expect(cancelamentos).toEqual([[A, pessoa.ana, 'presidente', p1, 'Cancelado pelo Mister, autorizado com o PIN', undefined, true, null, null, { id: pessoa.ana, nome: 'Ana Souza' }]]);
+      expect(await comCancelar.conferir()).toBe(0); // cancelado, mas o estorno ainda não saiu: espera
+      await estorno(p1, 'feito');
+      expect(await comCancelar.conferir()).toBe(1);
+      expect(await propostaDoPedido(p1)).toMatchObject({ situacao: 'feita', resultado: `O pedido ${nome1} foi cancelado no Regem e no iFood, e o estorno do Pix foi pedido ao Mercado Pago. Autorizado por você, com o PIN.` });
+      await esperarMensagens(2);
+      expect(numero.enviadas.map((m) => m.texto)).toEqual([
+        TEXTOS_DO_LINK.autorizada,
+        expect.stringMatching(new RegExp(`^✅ Feito às \\d{2}:\\d{2}\\. O pedido #${base + 1} · iFood .* foi cancelado no Regem e no iFood, e o estorno do Pix foi pedido ao Mercado Pago\\. Autorizado por você, com o PIN\\.$`)),
+      ]);
+      expect(await comCancelar.verPeloLink(c1)).toMatchObject({ estado: 'feito' });
+      expect(acoesDa(prop1.id)).toEqual(expect.arrayContaining(['mister_proposta_link_enviado', 'mister_proposta_autorizada', 'mister_proposta_executada', 'mister_proposta_feita']));
+      // O pedido cancelado não é mais achado; e a proposta feita nunca renova, nem chamada direto.
+      expect((await ferramentasComCancelar.executar(escopo, 'propor_procedimento', { procedimento: 'cancelar_pedido', pedido: String(base + 1) })).dados).toEqual({
+        proposta: null,
+        motivo: 'Não achei pedido aberto com esse número nas últimas 24 horas nesta loja.',
+      });
+      expect(await comCancelar.proporCancelamento({ tenantId: A, unidadeId: lojaDeA, pedidoId: p1 }, (await comCancelar.lerPedido(A, p1))!)).toBeNull();
+      expect(await propostaDoPedido(p1)).toMatchObject({ id: prop1.id, situacao: 'feita' });
+
+      // ── 4. O estorno que falhou na 3ª tentativa: "não deu", dizendo que um caso urgente entrou em Atendimento.
+      const p2 = await pedido({ n: base + 2, pix: true });
+      const c2 = await proporEMandar(base + 2);
+      await comCancelar.autorizarPeloLink(c2, PIN);
+      const prop2 = await propostaDoPedido(p2);
+      await esperar(prop2.id, 'executando');
+      await esperarCancelados(2);
+      await estorno(p2, 'falhou', 'saldo insuficiente na conta do gateway');
+      await comCancelar.conferir();
+      expect((await propostaDoPedido(p2)).situacao).toBe('nao_deu');
+      expect((await propostaDoPedido(p2)).resultado).toContain('foi cancelado, mas o estorno do Pix não saiu (saldo insuficiente na conta do gateway). Um caso urgente entrou em Atendimento');
+
+      // ── 5. O estorno que não sai no prazo da conferência: "não deu", dizendo que o Regem tenta de novo.
+      const p3 = await pedido({ n: base + 3, pix: true });
+      const c3 = await proporEMandar(base + 3);
+      await comCancelar.autorizarPeloLink(c3, PIN);
+      const prop3 = await propostaDoPedido(p3);
+      await esperar(prop3.id, 'executando');
+      await esperarCancelados(3);
+      // Espera o estorno por 10 minutos depois de cancelar.
+      expect(Math.round((new Date((await propostaDoPedido(p3)).conferir_ate).getTime() - Date.now()) / 60_000)).toBeGreaterThanOrEqual(9);
+      await q(`update mister_proposta set conferir_ate = now() - interval '1 second' where id = $1`, [prop3.id]);
+      await comCancelar.conferir();
+      expect(await propostaDoPedido(p3)).toMatchObject({ situacao: 'nao_deu', resultado: expect.stringContaining('ainda não saiu no Mercado Pago. O Regem tenta de novo sozinho') });
+
+      // ── 6. Sem Pix pelo Regem (o cardápio pago na entrega): "feito" logo depois de cancelar.
+      const p4 = await pedido({ n: base + 4, canal: 'cardapio' });
+      const c4 = await proporEMandar(base + 4);
+      expect((await comCancelar.verPeloLink(c4)).itens).toEqual(['O pedido é cancelado no Regem.', 'Não houve Pix pago pelo Regem: nenhum estorno é pedido por aqui.']);
+      await comCancelar.autorizarPeloLink(c4, PIN);
+      expect(await esperarFechar((await propostaDoPedido(p4)).id)).toBe('feita');
+      expect((await propostaDoPedido(p4)).resultado).toBe(`O pedido #${base + 4} · Cardápio ${MARCA}${base + 4} foi cancelado no Regem. Autorizado por você, com o PIN.`);
+
+      // ── 7. A recusa do serviço do painel (o pedido foi concluído entre a proposta e o PIN): "não deu", nada feito.
+      const p5 = await pedido({ n: base + 5, pix: true });
+      const c5 = await proporEMandar(base + 5);
+      aoCancelar = async () => {
+        throw new BadRequestException('Pedido concluído não pode ser cancelado.');
+      };
+      await comCancelar.autorizarPeloLink(c5, PIN);
+      expect(await esperarFechar((await propostaDoPedido(p5)).id)).toBe('nao_deu');
+      expect((await propostaDoPedido(p5)).resultado).toBe('pedido concluído não pode ser cancelado. Nada foi feito.');
+      aoCancelar = async (id) => {
+        await q(`update pedido_externo set status = 'cancelado', cancelado_em = now() where id = $1`, [id]);
+      };
+
+      // ── 8. O pedido que não se acha: o número sem pedido, o de mais de 24 horas, o mesmo número em dois pedidos.
+      const nada = async (pedidoDito: string) => (await ferramentasComCancelar.executar(escopo, 'propor_procedimento', { procedimento: 'cancelar_pedido', pedido: pedidoDito })).dados;
+      expect(await nada(String(base + 900))).toMatchObject({ proposta: null, motivo: expect.stringContaining('Não achei pedido aberto') });
+      await pedido({ n: base + 6, horas: 30 });
+      expect(await nada(String(base + 6))).toMatchObject({ proposta: null, motivo: expect.stringContaining('Não achei pedido aberto') });
+      await pedido({ n: base + 7, display: `D${MARCA}` });
+      await pedido({ n: base + 8, display: `D${MARCA}` });
+      const dois = await nada(`D${MARCA}`);
+      expect(dois).toMatchObject({ proposta: null, motivo: 'Achei mais de um pedido aberto com esse número.' });
+      expect((dois as any).pedidos).toEqual(expect.arrayContaining([expect.stringContaining(`#${base + 8}`), expect.stringContaining(`#${base + 7}`)]));
+      // O gerente não propõe (só o presidente autoriza).
+      const telCarlos = telefone();
+      await ligar('carlos', telCarlos, A, 'gerente');
+      const doCarlos = (await ferramentasComCancelar.escopo(A, pessoa.carlos, telCarlos))!;
+      expect((await ferramentasComCancelar.executar(doCarlos, 'propor_procedimento', { procedimento: 'cancelar_pedido', pedido: String(base + 9) })).ok).toBe(false);
+
+      // ── 9. O vencido: quem recebeu o link fica sabendo; pedir de novo renova a MESMA proposta, zerada.
+      const p9 = await pedido({ n: base + 9, pix: true });
+      const c9 = await proporEMandar(base + 9);
+      await comCancelar.autorizarPeloLink(c9, '0000');
+      const prop9 = await propostaDoPedido(p9);
+      await q(`update mister_proposta set vence_em = now() - interval '1 second' where id = $1`, [prop9.id]);
+      // As que outros testes deixaram vencidas (o link da F4.2a) já saem como vencidas: este passo confere só a do pedido.
+      await q(`update mister_proposta set situacao = 'vencida' where tenant_id = $1 and situacao = 'proposta' and vence_em <= now() and id <> $2`, [A, prop9.id]);
+      numero.pedidos.length = 0;
+      expect(await comCancelar.vencer()).toBeGreaterThanOrEqual(1);
+      expect(numero.enviadas.map((m) => m.texto)).toEqual([
+        `O pedido de autorização do cancelamento do pedido #${base + 9} · iFood ${MARCA}${base + 9} venceu às ${horaNoFuso(new Date((await propostaDoPedido(p9)).vence_em))} sem resposta. Nada foi feito. Se ainda precisar, é só me pedir de novo.`,
+      ]);
+      await proporEMandar(base + 9);
+      expect(await propostaDoPedido(p9)).toMatchObject({ id: prop9.id, situacao: 'proposta', pin_erros: 0, bloqueada_em: null, respondida_em: null });
+      expect((await q(`select count(*)::int as n from mister_proposta where procedimento = 'cancelar_pedido' and parametros ->> 'pedidoId' = $1`, [p9]))[0].n).toBe(1);
     });
 
     // ───────────────────────────── os relatórios (mig 420) ─────────────────────────────

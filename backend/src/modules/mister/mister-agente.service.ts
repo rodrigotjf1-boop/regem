@@ -140,7 +140,9 @@ export class MisterAgenteService implements OnModuleInit {
       // aqui com proposta: a ferramenta recusa os outros). Falhou o envio: a proposta vence sozinha no prazo.
       for (const p of fim.propostas) {
         try {
-          await this.numero.enviar(ultima.telefone, { texto: p.pergunta, botoes: p.botoes });
+          // F4.2: a de PIN (cancelar com o estorno) vai com o link "Abrir no Regem", nunca com botões.
+          if (p.nivel === 'pin') await this.ferramentas.enviarLinkDaProposta(escopo, p, ultima.telefone);
+          else await this.numero.enviar(ultima.telefone, { texto: p.pergunta, botoes: p.botoes });
         } catch (e: any) {
           this.logger.warn(`mister: a proposta ${p.id} não saiu para ${mascarar(ultima.telefone)} (${e instanceof FalhaDoEnvioDoMister ? e.motivo : (e?.message ?? e)})`);
         }

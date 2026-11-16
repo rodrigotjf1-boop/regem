@@ -431,7 +431,8 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
     case 'anotar_o_que_falta':
       return ok({ anotado: true, siga: 'Responda agora: diga que você ainda não tem acesso a essa informação e, em uma frase, o que você consegue responder hoje.' });
     case 'propor_procedimento':
-      // F4.3: a loja de teste não tem aviso aberto — a avaliação não cria proposta nenhuma.
+      // F4.3: a loja de teste não tem aviso aberto — a avaliação não cria proposta nenhuma. F4.2b: nem pedido aberto.
+      if (en.procedimento === 'cancelar_pedido') return ok({ proposta: null, motivo: 'Não achei pedido aberto com esse número nas últimas 24 horas nesta loja.' });
       return ok({ proposta: null, motivo: 'Não há aviso aberto que este procedimento resolva nesta loja.' });
   }
 }

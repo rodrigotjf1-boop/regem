@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
+- **Mister — cancelar o pedido com o estorno pelo link com PIN (16/11, F4.2b; SEM migration).** Só NUVEM: o presidente
+  pede ao Mister ("cancela o pedido 284"), recebe o link "Abrir no Regem", confirma com o PIN e o Regem cancela pelo MESMO
+  serviço do painel; "feito" só com o estorno do Pix feito. Nada a empacotar.
+
 - **Mister — o link com PIN (16/11, F4.2a do protótipo `mockups/regem-mister-pin.html` aprovado; mig 433 `@cloud-only` —
   seis colunas novas na `mister_proposta`, que já está em SO_NUVEM: o `sync-daemon` não muda).** Só NUVEM: a página
   pública `/m/<código>` (sem login; a prova é o código do link, do qual o banco guarda só o resumo, mais o PIN de quem

@@ -69,6 +69,7 @@ COMO VOCÊ TRABALHA
 - Para o que é "agora" ou "hoje", consulte de novo em vez de repetir o número antigo.
 - Você só consulta. Você não altera pedido, preço, estoque, cadastro nem configuração, e não cancela nada. Se pedirem uma ação, diga que por enquanto você só consulta e, pelo guia de uso, onde e como ela é feita no Regem.
 - A única exceção é PROPOR, nunca fazer: quando a pessoa quer que você resolva uma impressora parada (imprimir uma via de teste) ou uma nota fiscal sem resposta da SEFAZ (consultar a nota de novo), chame propor_procedimento. Se a ferramenta disser que a proposta vai em seguida, diga em uma frase que ela chega logo abaixo, com os botões "Autorizar" e "Não agora", e que nada é feito sem a autorização. Se ela disser que não há aviso aberto para isso, ou que só o presidente autoriza, diga isso.
+- Cancelar um pedido também é só PROPOR: quando a pessoa pede para cancelar um pedido, chame propor_procedimento com cancelar_pedido e o número do pedido como ela disse. Cancelamento mexe com dinheiro: a autorização é no Regem, com o PIN, pelo link "Abrir no Regem" que chega logo abaixo — diga isso em uma frase. Se a pessoa escrever que autoriza ("pode cancelar"), responda que por aqui você não consegue, que isso pede o PIN dela, e que é pelo "Abrir no Regem". Nunca peça nem aceite o PIN na conversa. Se a ferramenta disser que não achou o pedido, ou que achou mais de um, diga isso e peça o número como aparece no painel.
 - Para "como faço…" e "onde fica…", consulte o guia de uso e passe o caminho (Grupo › Item) e os passos como vieram, numa lista curta. Caminho de menu, nome de botão e nome de aba, só os que o guia trouxe: nunca invente nem complete. Se o guia diz que a tela depende de uma permissão do perfil e a pessoa não a tem, diga que quem libera é o presidente. Se o guia não achou, mas um dos assuntos que ele devolveu é o da pergunta, consulte de novo com as palavras desse assunto. Se o guia não tem o assunto, diga que ainda não sabe explicar esse caminho e cite, em uma frase, alguns assuntos que ele tem.
 - Não afirme que o Regem tem ou não tem uma função (exportar, imprimir, mandar arquivo, integração) quando nenhuma consulta, nem o guia de uso, mostrou isso. Diga que você não sabe dizer e que a pessoa confere no próprio Regem.
 - Não prometa o que as consultas não entregam: lista que vem em páginas é entregue página a página, e você diz quantas faltam.
@@ -180,7 +181,8 @@ export const FERRAMENTA_DO_QUE_FALTA = 'anotar_o_que_falta' as const;
 // escopo da pessoa (a IA não vê nem escolhe id); só o presidente autoriza, pelo mesmo botão da F4.1, que sai logo depois
 // da resposta.
 export const FERRAMENTA_DE_PROPOR = 'propor_procedimento' as const;
-export const PROCEDIMENTOS_QUE_A_IA_PROPOE = ['imprimir_teste', 'consultar_nota'] as const;
+// F4.2b: cancelar_pedido (de PIN) nasce da pergunta, preso ao pedido que a pessoa disse — não a um aviso.
+export const PROCEDIMENTOS_QUE_A_IA_PROPOE = ['imprimir_teste', 'consultar_nota', 'cancelar_pedido'] as const;
 export const TEMAS_DO_QUE_FALTA = ['vendas', 'estoque', 'financeiro', 'equipe', 'cardapio', 'clientes', 'canais', 'fiscal', 'outro'] as const;
 export type TemaDoQueFalta = (typeof TEMAS_DO_QUE_FALTA)[number];
 
@@ -359,11 +361,12 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
   {
     name: 'propor_procedimento',
     description:
-      'Não é consulta e não executa nada: PROPÕE um procedimento do catálogo para um aviso aberto que ele resolve. imprimir_teste = imprimir uma via de teste na impressora que o aviso diz estar parada; consultar_nota = consultar de novo na SEFAZ a nota fiscal que ficou sem resposta. Chame só quando a pessoa quer que o Mister resolva isso. O Regem acha o aviso aberto (você não passa id) e manda a proposta com os botões logo depois da sua resposta; só o presidente autoriza.',
+      'Não é consulta e não executa nada: PROPÕE um procedimento do catálogo. imprimir_teste = imprimir uma via de teste na impressora que o aviso diz estar parada; consultar_nota = consultar de novo na SEFAZ a nota fiscal que ficou sem resposta (para os dois, o Regem acha o aviso aberto — você não passa id — e manda a proposta com os botões logo depois da sua resposta); cancelar_pedido = cancelar um pedido com o estorno (passe o número do pedido como a pessoa disse; o Regem acha o pedido aberto e manda o link "Abrir no Regem", que pede o PIN, logo depois da sua resposta). Chame só quando a pessoa quer que o Mister resolva isso; só o presidente autoriza.',
     input_schema: {
       type: 'object',
       properties: {
         procedimento: { type: 'string', enum: [...PROCEDIMENTOS_QUE_A_IA_PROPOE], description: 'O procedimento do catálogo.' },
+        pedido: { type: 'string', description: 'Só no cancelar_pedido: o número do pedido como a pessoa disse ("284", "#284" ou o número do iFood).' },
         loja: { type: 'string', description: 'O nome da loja, quando a conversa tem mais de uma; vazio = a loja da conversa.' },
       },
       required: ['procedimento'],
