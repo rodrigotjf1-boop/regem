@@ -166,6 +166,14 @@ export function brl(n: number): string {
   return 'R$ ' + n.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 }
 
+/** F5b — uma pessoa na condução dos aprovados (`GET /vagas/candidatos/conducao`, `conducaoDaPessoa` no servidor). */
+export interface PessoaNaConducao {
+  id: string; nome: string; situacao: string; loja: string; funcoes: string[]; tipoVaga: string; dias: string[]; meios: string[];
+  conducoes: number | null; uberMotivo: string | null; valorIda: number | null; valorVolta: number | null; contratadoEm: string | null;
+  porDia: number | null; diasNoMes: number | null; porMes: number | null; escala: string | null; motivo: 'sem_valor' | 'escala_a_definir' | null;
+}
+export interface ConducaoDosAprovados { pessoas: PessoaNaConducao[]; porMes: number; porDia: number; somadas: number; foraDaSoma: number }
+
 const digitos = (v: string) => String(v ?? '').replace(/\D/g, '');
 /** Sem o 55 do país (mesma regra do servidor, `telefoneCadastro`). */
 export function telefoneSem55(v: string): string {

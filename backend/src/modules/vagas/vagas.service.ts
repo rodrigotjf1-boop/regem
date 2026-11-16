@@ -19,6 +19,7 @@ import {
   VERSAO_COMUNICACAO,
   VERSAO_GUARDA,
   buscasDoEndereco,
+  conducaoDaPessoa,
   contratadoDaFicha,
   gerarProtocolo,
   kmDeMetros,
@@ -276,6 +277,46 @@ export class VagasService {
        where c.tenant_id = ${tenantId} ${sqlUnidade('c.unidade_id', unidade)}
        order by c.recebido_em desc, c.id desc`);
     return linhas(r);
+  }
+
+  /**
+   * F5b — a condução dos aprovados: os aprovados e os contratados nos últimos 30 dias da loja em uso, cada um com o valor
+   * de ida e volta que informou na ficha × os dias da escala (do colaborador, se contratado; da ficha, se aprovado). Quem
+   * não informou o valor ou ainda não tem escala aparece, mas fora da soma, com o motivo. A conta mora em `vagas.ts`.
+   */
+  async conducao(tenantId: string, unidade: string | null) {
+    const r: any = await this.db.execute(sql`
+      select c.id, c.nome, c.situacao, c.funcoes, c.tipo_vaga as "tipoVaga", c.escala, c.dias, c.meios_transporte as meios,
+             c.conducoes, c.uber_motivo as "uberMotivo", c.valor_ida::float8 as "valorIda", c.valor_volta::float8 as "valorVolta",
+             col.jornada_tipo as "jornadaDoColaborador", ev.em as "contratadoEm", u.nome as loja
+        from candidato c
+        join unidade u on u.id = c.unidade_id
+        left join colaborador col on col.id = c.colaborador_id and col.tenant_id = c.tenant_id
+        left join lateral (
+          select max(e.criado_em) as em from candidato_evento e
+           where e.candidato_id = c.id and e.tipo = 'situacao' and e.para = 'contratado') ev on true
+       where c.tenant_id = ${tenantId} ${sqlUnidade('c.unidade_id', unidade)}
+         and (c.situacao = 'aprovado' or (c.situacao = 'contratado' and ev.em >= now() - interval '30 days'))
+       order by c.situacao, c.nome, c.id`);
+    const pessoas = linhas(r).map((p: any) => ({
+      id: p.id,
+      nome: p.nome,
+      situacao: p.situacao,
+      loja: p.loja,
+      funcoes: p.funcoes ?? [],
+      tipoVaga: p.tipoVaga,
+      dias: p.dias ?? [],
+      meios: p.meios ?? [],
+      conducoes: p.conducoes,
+      uberMotivo: p.uberMotivo,
+      valorIda: p.valorIda,
+      valorVolta: p.valorVolta,
+      contratadoEm: p.contratadoEm,
+      ...conducaoDaPessoa(p),
+    }));
+    const somadas = pessoas.filter((p) => p.porMes !== null);
+    const soma = (f: (p: (typeof pessoas)[number]) => number) => Math.round(somadas.reduce((s, p) => s + f(p), 0) * 100) / 100;
+    return { pessoas, porMes: soma((p) => p.porMes!), porDia: soma((p) => p.porDia!), somadas: somadas.length, foraDaSoma: pessoas.length - somadas.length };
   }
 
   private async daLoja(tx: any, tenantId: string, unidade: string | null, id: string, travar = false) {
