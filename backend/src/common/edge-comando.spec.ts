@@ -94,6 +94,61 @@ descrever('edge_comando com destino (Postgres real)', () => {
     expect(await comandosDoServidor(db, T, SRV_A)).toHaveLength(1);
     expect(await comandosDoServidor(db, T, SRV_B)).toHaveLength(1);
   });
+
+  it('F4.4: com o servidor indicado, só ele recebe — mesmo com dois na loja; servidor que saiu da empresa vale a loja', async () => {
+    const SRV_A2 = randomUUID();
+    await q(`insert into equipamento (id, tenant_id, unidade_id, tipo) values ($1,$2,$3,'servidor_local')`, [SRV_A2, T, A]);
+    try {
+      expect(await enfileirarComandoEdge(db, T, 'reiniciar_impressao', { unidadeId: A, equipamentoId: SRV_A2 })).toBe(1);
+      expect(await comandosDoServidor(db, T, SRV_A2)).toHaveLength(1);
+      expect(await comandosDoServidor(db, T, SRV_A)).toHaveLength(0);
+      // O servidor do aviso desativado: o comando vai aos da loja (nunca a linha sem destino, que qualquer um pegaria).
+      await q(`delete from edge_comando`);
+      await q(`update equipamento set ativo = false where id = $1`, [SRV_A2]);
+      expect(await enfileirarComandoEdge(db, T, 'reiniciar_impressao', { unidadeId: A, equipamentoId: SRV_A2 })).toBe(1);
+      expect((await q(`select equipamento_id from edge_comando`)).rows.map((r: any) => r.equipamento_id)).toEqual([SRV_A]);
+      // Id torto não vira filtro (nem erro): vale a loja.
+      await q(`delete from edge_comando`);
+      expect(await enfileirarComandoEdge(db, T, 'reiniciar_impressao', { unidadeId: B, equipamentoId: 'nao-e-id' })).toBe(1);
+      expect((await q(`select equipamento_id from edge_comando`)).rows.map((r: any) => r.equipamento_id)).toEqual([SRV_B]);
+    } finally {
+      await q(`delete from equipamento where id = $1`, [SRV_A2]);
+    }
+  });
+});
+
+// O comando 'reiniciar_impressao' do servidor da loja (F4.4 do Mister; edge/comando-reiniciar-impressao.mjs é ESM — roda num
+// node à parte, com a execução do Windows de mentira).
+describe('reiniciar o serviço de impressão no servidor da loja', () => {
+  const rodar = (situacao: string, falhaNoReinicio: boolean) => {
+    const mod = join(__dirname, '..', '..', 'edge', 'comando-reiniciar-impressao.mjs').replace(/\\/g, '/');
+    const code = `import { reiniciarServicoDeImpressao } from 'file:///${mod.replace(/^\//, '')}';
+      const chamadas = [];
+      const executar = async (arq, args) => {
+        chamadas.push([arq, ...args].join(' '));
+        if (${falhaNoReinicio} && args.join(' ').includes('Restart-Service')) { const e = new Error('falhou'); e.stderr = 'Acesso negado.'; throw e; }
+        return { stdout: args.join(' ').includes('Get-Service') ? ${JSON.stringify(`${situacao}\r\n`)} : '' };
+      };
+      let r; try { r = await reiniciarServicoDeImpressao(executar); } catch (e) { r = 'ERRO: ' + e.message; }
+      process.stdout.write(JSON.stringify({ r, chamadas }));`;
+    return JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', code]).toString()) as { r: string; chamadas: string[] };
+  };
+
+  it('reinicia o RegemEdgeImpressao e confere que voltou a rodar', () => {
+    const { r, chamadas } = rodar('Running', false);
+    expect(r).toBe('serviço de impressão reiniciado');
+    expect(chamadas).toEqual([
+      'powershell.exe -NoProfile -NonInteractive -Command Restart-Service -Name RegemEdgeImpressao -Force -ErrorAction Stop',
+      'powershell.exe -NoProfile -NonInteractive -Command (Get-Service -Name RegemEdgeImpressao).Status',
+    ]);
+  });
+
+  it('o serviço que não voltou e o Windows que recusou viram erro com a frase (o retorno do comando vai à nuvem)', () => {
+    expect(rodar('Stopped', false).r).toBe('ERRO: o serviço não voltou a rodar depois de reiniciar');
+    const recusa = rodar('Running', true);
+    expect(recusa.r).toBe('ERRO: o Windows recusou o reinício (Acesso negado)');
+    expect(recusa.chamadas).toHaveLength(1);
+  });
 });
 
 // Página de código do conversor ESC/POS (edge/escpos.mjs é ESM — roda num node à parte).

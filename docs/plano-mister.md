@@ -860,6 +860,23 @@ fase inteira:
 | **F4.3 — A pergunta que vira proposta** | A ferramenta `propor_procedimento` para a IA, só com os procedimentos do catálogo. A IA propõe; a pessoa autoriza do mesmo jeito. | — |
 | **F4.4 — Procedimentos do servidor da loja** | Os que pedem comando novo no `sync-daemon`, como reiniciar o serviço de impressão da conversa 5. Vão no `.exe`. | — |
 
+**F4.4 implementada (16/11/2026, sem migration; vai no `.exe` 1.30.14): reiniciar o serviço de impressão.**
+- O 4º procedimento do catálogo, `reiniciar_impressao`: de botão, vale 10 minutos, confere por 5. Nasce do aviso da
+  impressora parada, no lugar da via de teste, quando o reinício SERVE: a impressora parou de RESPONDER (o motivo do vigia,
+  que agora fica em `mister_aviso.dados.motivo`; a que respondeu com aviso — sem papel, tampa — segue na via de teste) e o
+  servidor da loja do aviso informou a versão 1.30.14 ou mais nova (`edge_status.versao`, `VERSAO_QUE_REINICIA_A_IMPRESSAO`).
+  Sem a versão (ou sem a tabela), a via de teste, como antes.
+- A execução: `edge_comando` `reiniciar_impressao` SÓ ao servidor do aviso (`enfileirarComandoEdge` ganhou
+  `equipamentoId`; se ele saiu da empresa, vale a loja — nunca a linha sem destino). No servidor da loja, o `sync-daemon`
+  chama `backend/edge/comando-reiniciar-impressao.mjs`: `Restart-Service RegemEdgeImpressao -Force` e confere pelo
+  `Get-Service` que voltou a rodar (o texto do `sc query` muda com o idioma do Windows).
+- A conferência: "feito" com o reinício confirmado E o aviso da impressora fechado. "Não deu" na hora quando o Windows
+  recusou (com o que ele disse) ou quando o servidor ainda não conhece o comando ("ignorado" — versão subiu sem o
+  `sync-daemon` novo); passado o prazo, "não deu" com o que faltou (o servidor não pegou, ou a impressora ainda não responde).
+- A IA (F4.3) continua com `imprimir_teste` no catálogo dela, agora "resolver a impressora parada": o Regem escolhe entre a
+  via de teste e o reinício, e o resultado diz qual (`oQue`). A versão das instruções muda (a linha das propostas).
+- Divergência da conversa 5: "Saíram as 3 vias que estavam na fila" ficou de fora — a nuvem não vê a fila local da loja.
+
 **F4.2b implementada (16/11/2026, sem migration): cancelar o pedido com o estorno.**
 - O 3º procedimento do catálogo, `cancelar_pedido`: de PIN, vale 15 minutos, confere por 10. Não nasce de aviso (não há
   aviso de "cliente pediu cancelamento"): nasce da pergunta (F4.3), com o número do pedido como a pessoa disse. O servidor

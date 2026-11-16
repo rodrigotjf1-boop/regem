@@ -29,6 +29,7 @@ import {
   TEXTOS_DA_PROPOSTA,
   TEXTOS_DO_CANCELAMENTO,
   TEXTOS_DO_LINK,
+  TEXTOS_DO_REINICIO,
   apresentacaoDaProposta,
   apresentacaoDoCancelamento,
   nomeCurtoDoCliente,
@@ -40,7 +41,9 @@ import {
   lerBotao,
   perguntaDaProposta,
   propostaDoAviso,
+  reinicioServe,
   resultadoDaConsulta,
+  servidorDoAviso,
   tentativasQueRestam,
   textoDoDesfecho,
 } from './mister-procedimentos';
@@ -49,6 +52,8 @@ import {
 
 const linhas = (r: any) => (r?.rows ?? r ?? []) as any[];
 const semTabela = (e: any) => e?.code === '42P01' || e?.cause?.code === '42P01';
+/** O comando do servidor da loja de cada procedimento da impressora. */
+const COMANDO_DA_IMPRESSORA = { imprimir_teste: 'testar_impressora', reiniciar_impressao: 'reiniciar_impressao' } as const;
 
 /** A proposta pendente de um aviso, pronta para ir com ele: a pergunta e os botões. */
 export interface PropostaPendente {
@@ -135,7 +140,7 @@ export class MisterPropostasService implements OnModuleInit {
    * toque no modelo horas depois, a escalada) — a respondida nunca renova. Só devolve a que espera resposta.
    */
   async propor(a: { id: string; tenantId: string; unidadeId: string | null; tipo: string; chave: string }): Promise<PropostaPendente | null> {
-    const p = propostaDoAviso(a);
+    const p = propostaDoAviso(a, { reinicioServe: await this.reinicioServe(a) });
     if (!p) return null;
     const proc = PROCEDIMENTOS[p.procedimento];
     try {
@@ -150,6 +155,27 @@ export class MisterPropostasService implements OnModuleInit {
     } catch (e: any) {
       if (!semTabela(e)) this.logger.warn(`a proposta do aviso ${a.id} não foi criada — ${e?.message ?? e}`);
       return null;
+    }
+  }
+
+  /**
+   * F4.4: o aviso da impressora pede o reinício do serviço de impressão? Pelo motivo do vigia (a que parou de responder)
+   * e pela versão que o servidor da loja do aviso informou por último (`edge_status`). Sem a tabela (o banco do servidor
+   * da loja) ou sem a versão, não: fica a via de teste.
+   */
+  private async reinicioServe(a: { id: string; tenantId: string; tipo: string; chave: string }): Promise<boolean> {
+    const servidor = servidorDoAviso(a);
+    if (!servidor) return false;
+    try {
+      const [l] = linhas(
+        await this.db.execute(sql`
+          select (select dados ->> 'motivo' from mister_aviso where id = ${a.id}::uuid) as motivo,
+                 (select versao from edge_status where equipamento_id = ${servidor}::uuid and tenant_id = ${a.tenantId}::uuid) as versao`),
+      );
+      return reinicioServe({ motivo: l?.motivo, versao: l?.versao });
+    } catch (e: any) {
+      if (!semTabela(e) && e?.code !== '42703') this.logger.warn(`a versão do servidor do aviso ${a.id} não foi lida — ${e?.message ?? e}`);
+      return false;
     }
   }
 
@@ -297,6 +323,7 @@ export class MisterPropostasService implements OnModuleInit {
            set situacao = 'executando', executada_em = now(),
                conferir_ate = now() + make_interval(mins => case p.procedimento
                  when 'imprimir_teste' then ${PROCEDIMENTOS.imprimir_teste.conferirMin}::int
+                 when 'reiniciar_impressao' then ${PROCEDIMENTOS.reiniciar_impressao.conferirMin}::int
                  when 'cancelar_pedido' then ${PROCEDIMENTOS.cancelar_pedido.conferirMin}::int
                  else ${PROCEDIMENTOS.consultar_nota.conferirMin}::int end)
          where id = ${id}::uuid and situacao = 'autorizada'
@@ -324,6 +351,16 @@ export class MisterPropostasService implements OnModuleInit {
         unidadeId: p.unidadeId,
         solicitadoPor: 'mister',
         dados: { equipamentoId: String(p.parametros?.impressoraId ?? ''), propostaId: p.id },
+      });
+      return 'executando';
+    }
+    if (p.procedimento === 'reiniciar_impressao') {
+      // F4.4: o comando vai SÓ ao servidor do aviso (se ele saiu da empresa, aos da loja); quem reinicia é o `sync-daemon`.
+      await enfileirarComandoEdge(this.db, p.tenantId, 'reiniciar_impressao', {
+        unidadeId: p.unidadeId,
+        equipamentoId: String(p.parametros?.servidorId ?? ''),
+        solicitadoPor: 'mister',
+        dados: { propostaId: p.id },
       });
       return 'executando';
     }
@@ -381,14 +418,26 @@ export class MisterPropostasService implements OnModuleInit {
         select p.id::text as id, p.tenant_id::text as "tenantId", p.procedimento, p.autorizada_por::text as "autorizadaPor",
                p.conferir_ate as "conferirAte", a.situacao as aviso,
                exists (select 1 from edge_comando c
-                        where c.tenant_id = p.tenant_id and c.comando = 'testar_impressora' and c.status = 'executado'
-                          and c.dados ->> 'propostaId' = p.id::text) as executado
+                        where c.tenant_id = p.tenant_id and c.comando = ${COMANDO_DA_IMPRESSORA.imprimir_teste} and c.status = 'executado'
+                          and c.dados ->> 'propostaId' = p.id::text) as executado,
+               -- F4.4: o retorno do reinício (o do servidor que respondeu por último).
+               r.status as "statusDoReinicio", r.resultado as "retornoDoReinicio"
           from mister_proposta p
           left join mister_aviso a on a.id = p.aviso_id
-         where p.situacao = 'executando' and p.procedimento = 'imprimir_teste'`),
+          left join lateral (
+            select c.status, c.resultado from edge_comando c
+             where c.tenant_id = p.tenant_id and c.comando = ${COMANDO_DA_IMPRESSORA.reiniciar_impressao}
+               and c.dados ->> 'propostaId' = p.id::text and c.status <> 'pendente'
+             order by c.executado_em desc nulls last limit 1
+          ) r on p.procedimento = 'reiniciar_impressao'
+         where p.situacao = 'executando' and p.procedimento in ('imprimir_teste', 'reiniciar_impressao')`),
     );
     let n = 0;
     for (const p of abertas) {
+      if (p.procedimento === 'reiniciar_impressao') {
+        if (await this.conferirReinicio(p)) n++;
+        continue;
+      }
       if (p.executado && p.aviso === 'resolvido') {
         if (await this.concluir(p, true, 'A impressora recebeu a via de teste e voltou a responder.')) n++;
       } else if (new Date(p.conferirAte).getTime() <= Date.now()) {
@@ -406,6 +455,30 @@ export class MisterPropostasService implements OnModuleInit {
     );
     for (const p of cancelamentos) if (await this.conferirCancelamento(p, new Date(p.conferirAte).getTime() <= Date.now())) n++;
     return n;
+  }
+
+  /**
+   * F4.4: a conferência do reinício do serviço de impressão. O servidor que não conseguiu (o retorno "erro") e o que ainda
+   * não conhece o comando ("ignorado", sem a versão nova) dizem "não deu" na hora; "feito" só com o reinício confirmado E
+   * a impressora respondendo (o aviso fechou). Passado o prazo, "não deu" com o que faltou. Devolve a situação final, ou
+   * null enquanto espera.
+   */
+  private async conferirReinicio(p: {
+    id: string;
+    tenantId: string;
+    autorizadaPor: string | null;
+    conferirAte: string | Date;
+    aviso: string | null;
+    statusDoReinicio: string | null;
+    retornoDoReinicio: string | null;
+  }): Promise<string | null> {
+    const retorno = String(p.retornoDoReinicio ?? '').trim();
+    if (p.statusDoReinicio === 'erro') return this.concluir(p, false, TEXTOS_DO_REINICIO.naoReiniciou(retorno || 'sem detalhe'));
+    const reiniciou = p.statusDoReinicio === 'executado' && retorno !== 'ignorado';
+    if (p.statusDoReinicio === 'executado' && !reiniciou) return this.concluir(p, false, TEXTOS_DO_REINICIO.semVersao);
+    if (reiniciou && p.aviso === 'resolvido') return this.concluir(p, true, TEXTOS_DO_REINICIO.feito);
+    if (new Date(p.conferirAte).getTime() > Date.now()) return null;
+    return this.concluir(p, false, reiniciou ? TEXTOS_DO_REINICIO.impressoraNaoVoltou : TEXTOS_DO_REINICIO.servidorNaoPegou);
   }
 
   /**

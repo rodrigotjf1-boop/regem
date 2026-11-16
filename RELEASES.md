@@ -12,6 +12,15 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
+- **🔴 `.exe` — Mister: reiniciar o serviço de impressão pela loja (16/11, F4.4 de `docs/plano-mister.md`, a conversa 5 do
+  protótipo `mockups/regem-mister.html`; sem migration).** Toca `backend/edge/sync-daemon.mjs` (o comando
+  `reiniciar_impressao`) e cria `backend/edge/comando-reiniciar-impressao.mjs` → **vai no `.exe`** (a 1.30.14 tem de sair
+  com `.exe`: a nuvem só oferece o reinício ao servidor que informar `APP_VERSION` ≥ 1.30.14 —
+  `VERSAO_QUE_REINICIA_A_IMPRESSAO` em `mister-procedimentos.ts`; se a versão subir sem o `sync-daemon` novo, o comando
+  volta "ignorado" e o Mister diz "não deu", sem quebrar nada). Na nuvem já vale: abaixo da 1.30.14 o aviso da impressora
+  segue pedindo a via de teste. **Conferir no `.exe`:** o `RegemEdgeSync` (NSSM, conta do sistema) consegue
+  `Restart-Service RegemEdgeImpressao` numa instalação nova.
+
 - **Mister — a conexão por QR Code no console e o número novo (16/11, Q2 e Q3 do protótipo `mockups/regem-mister-qr.html`
   aprovado; mig 437 `@cloud-only` — oito colunas na `mister_numero`, da distribuição, sem `tenant_id`: o `sync-daemon` não
   muda).** Só NUVEM (Console › Mister › "Como o Mister fala no WhatsApp"): o aceite do risco, o QR do Evolution da

@@ -111,6 +111,10 @@ describe('Mister — os avisos: de onde vem a situação e os textos', () => {
       titulo: 'Loja Centro · impressora Cozinha parada',
       detalhe: 'Confira se ela está ligada, com papel e no cabo ou na rede.',
     });
+    // F4.4: o motivo do vigia vai nos dados (é ele que diz se reiniciar a impressão serve); outro valor não entra.
+    expect(situacaoDoVigia({ ...i, regra: 'impressora_parada', evidencia: { nome: 'Cozinha', motivo: 'sem_responder' } }, 'Loja Centro')).toMatchObject({ dados: { motivo: 'sem_responder' } });
+    expect(situacaoDoVigia({ ...i, regra: 'impressora_parada', evidencia: { nome: 'Cozinha', motivo: 'aviso' } }, 'Loja Centro')).toMatchObject({ dados: { motivo: 'aviso' } });
+    expect(situacaoDoVigia({ ...i, regra: 'impressora_parada', evidencia: { motivo: 'qualquer' } }, 'Loja Centro')).not.toHaveProperty('dados');
     expect(situacaoDoVigia({ ...i, regra: 'servidor_sem_sinal', chave: 'srv:1' }, 'Loja Centro')).toMatchObject({ tipo: 'servidor_sem_sinal', titulo: 'Loja Centro · servidor sem sinal' });
     expect(situacaoDoVigia({ ...i, regra: 'disco_baixo', chave: 'srv:1' }, 'Loja Centro')).toMatchObject({ tipo: 'servidor_tecnico', titulo: 'Loja Centro · o disco do servidor está quase cheio' });
     expect(situacaoDoVigia({ ...i, regra: 'regra_nova' }, 'Loja Centro')).toBeNull();
