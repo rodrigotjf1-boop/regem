@@ -72,10 +72,17 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
     // loja não tem: daqui só os comandos da tabela que a fila lê (como `avisos-status-oficial-pg.spec.ts`).
     const daTabela = (arq: string, tabela: string) =>
       readFileSync(MIG(arq), 'utf8')
+        // Os comentários saem ANTES do corte: um `;` dentro do comentário de uma coluna (a 300 tem) partiria o comando.
+        .replace(/--[^\n]*/g, '')
         .split(';')
-        .map((s) => s.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n').trim())
-        .filter((s) => new RegExp(`\\b${tabela}\\b`).test(s) && !/\bcampanha\b/i.test(s));
-    for (const s of [...daTabela('226_campanha_marketing.sql', 'marketing_optout'), ...daTabela('227_whatsapp_template.sql', 'whatsapp_template')])
+        .map((s) => s.trim())
+        .filter((s) => /^(create|alter)\b/i.test(s) && new RegExp(`\\b${tabela}\\b`).test(s) && !/\bcampanha\b/i.test(s));
+    // + o histórico do consentimento (300): o SAIR à resposta do aviso grava a saída das ofertas (`registrarSaida`).
+    for (const s of [
+      ...daTabela('226_campanha_marketing.sql', 'marketing_optout'),
+      ...daTabela('227_whatsapp_template.sql', 'whatsapp_template'),
+      ...daTabela('300_marketing_consentimento.sql', 'marketing_consentimento'),
+    ])
       await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(s)));
     await aplicar('438_vaga_aviso.sql');
     const registrar = { registrar: async (e: any) => void auditoria.push(e) } as any;
@@ -96,7 +103,7 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
   afterAll(async () => {
     if (!pool) return;
     for (const t of [T, T2]) {
-      for (const tab of ['vaga_aviso', 'whatsapp_template', 'marketing_optout', 'candidato', 'vaga_abertura', 'vaga_qr', 'vaga_pagina', 'modulo_ativacao', 'cardapio_config', 'unidade'])
+      for (const tab of ['vaga_aviso', 'whatsapp_template', 'marketing_optout', 'marketing_consentimento', 'candidato', 'vaga_abertura', 'vaga_qr', 'vaga_pagina', 'modulo_ativacao', 'cardapio_config', 'unidade'])
         await q(`delete from ${tab} where tenant_id = $1`, [t]).catch(() => {});
       await q(`delete from empresa where id = $1`, [t]).catch(() => {});
     }
@@ -743,6 +750,79 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
     } finally {
       await q(`delete from vaga_aviso where tenant_id = $1`, [T]).catch(() => {});
       await q(`delete from whatsapp_template where tenant_id = $1`, [T]).catch(() => {});
+      await q(`delete from marketing_optout where tenant_id = $1`, [T]).catch(() => {});
+      for (const id of fichas) await q(`delete from candidato where id = $1`, [id]).catch(() => {});
+    }
+  });
+
+  it('F4b parte 2: as respostas ao aviso — "Tenho interesse" leva a Em análise, "Não quero mais receber" e SAIR tiram das mensagens, uma vez por aviso, e o que não é resposta a aviso segue o caminho de sempre', async () => {
+    const fichas: string[] = [];
+    const nova = async (whatsapp: string, nome: string) => {
+      const r = await svc.receberFicha(codigo, fichaValida({ whatsapp, nome, funcoes: ['chapeiro'], comunicacao: true }));
+      const [{ id }] = await q(`select id from candidato where tenant_id = $1 and protocolo = $2`, [T, r.protocolo]);
+      fichas.push(id);
+      await q(`update candidato set situacao = 'banco' where id = $1`, [id]);
+      return id as string;
+    };
+    const registrar = { registrar: async (e: any) => void auditoria.push(e) } as any;
+    const aviso = new VagasAvisoService(db, svc, {} as any, {} as any, {} as any, registrar);
+    /** Um aviso já enviado a esta ficha (como a rotina deixa). */
+    const enviado = (id: string, telefone: string, haDias = 0) =>
+      q(
+        `insert into vaga_aviso (tenant_id, unidade_id, candidato_id, funcao, telefone, situacao, enviado_em)
+         values ($1, $2, $3, 'chapeiro', $4, 'enviado', now() - make_interval(days => $5::int))`,
+        [T, lojaA, id, telefone, haDias],
+      );
+    const respostas: string[] = [];
+    const responder = (telefone: string, texto: string) => aviso.responderAoAviso({ tenantId: T, telefone, texto, responder: async (t) => void respostas.push(t) });
+    const ficha = async (id: string) => (await q(`select situacao, comunicacao_cancelada_em, expurgo_em from candidato where id = $1`, [id]))[0];
+    try {
+      const juliana = await nova('(21) 3333-0390', 'Juliana Nova');
+      const marcos = await nova('(21) 3333-0391', 'Marcos Novo');
+      const rita = await nova('(21) 3333-0392', 'Rita Nova');
+      const velho = await nova('(21) 3333-0393', 'Aviso Velho');
+      await enviado(juliana, '2133330390');
+      await enviado(marcos, '2133330391');
+      await enviado(rita, '2133330392');
+      await enviado(velho, '2133330393', 31);
+
+      // "Tenho interesse" (o botão; o telefone chega com o 55 e sem o nono dígito também vale — ERR-134): Em análise, com a
+      // linha no histórico e a resposta da cena 3.
+      expect(await responder('552133330390', 'Tenho interesse')).toBe(true);
+      expect((await ficha(juliana)).situacao).toBe('analise');
+      expect(await q(`select tipo, de, para, texto, autor_nome from candidato_evento where candidato_id = $1 and texto like 'Respondeu%'`, [juliana])).toEqual([
+        { tipo: 'situacao', de: 'banco', para: 'analise', texto: 'Respondeu "Tenho interesse" ao aviso da vaga de Chapeiro(a)', autor_nome: 'WhatsApp da pessoa' },
+      ]);
+      expect(respostas.at(-1)).toBe(`Obrigado, Juliana! Avisamos a equipe da ${NOME_LOJA}. Eles chamam você por aqui para combinar a entrevista.`);
+      // O mesmo aviso não responde duas vezes: o segundo "sim" segue o caminho de sempre (não é mais resposta a aviso).
+      expect(await responder('552133330390', 'sim')).toBe(false);
+
+      // "Não quero mais receber": sai das mensagens, a situação NÃO muda, e NÃO entra na lista de saída das ofertas.
+      expect(await responder('552133330391', 'Não quero mais receber')).toBe(true);
+      const m = await ficha(marcos);
+      expect([m.situacao, !!m.comunicacao_cancelada_em]).toEqual(['banco', true]);
+      const dia = new Date(m.expurgo_em).toISOString().slice(0, 10);
+      expect(respostas.at(-1)).toBe(`Pronto, Marcos. Você não recebe mais avisos de vaga da ${NOME_LOJA}. Sua ficha fica guardada até ${dia.slice(8, 10)}/${dia.slice(5, 7)}/${dia.slice(0, 4)} e depois é apagada.`);
+      expect(await q(`select 1 from marketing_optout where tenant_id = $1 and telefone like '%33330391'`, [T])).toEqual([]);
+      // SAIR: o mesmo, e sai também das ofertas da loja.
+      expect(await responder('552133330392', 'SAIR')).toBe(true);
+      expect(!!(await ficha(rita)).comunicacao_cancelada_em).toBe(true);
+      expect((await q(`select motivo from marketing_optout where tenant_id = $1 and telefone like '%33330392'`, [T])).map((x: any) => x.motivo)).toEqual(['palavra_chave']);
+      expect((await q(`select resposta from vaga_aviso where candidato_id = any($1::uuid[]) order by enviado_em`, [[juliana, marcos, rita]])).map((x: any) => x.resposta)).toEqual([
+        'interesse',
+        'saiu',
+        'saiu',
+      ]);
+
+      // O que não é resposta a um aviso: o aviso de mais de 30 dias, um telefone sem aviso, outra empresa e outra frase.
+      expect(await responder('552133330393', 'Tenho interesse')).toBe(false);
+      expect(await responder('552199990000', 'Tenho interesse')).toBe(false);
+      expect(await aviso.responderAoAviso({ tenantId: T2, telefone: '552133330391', texto: 'sim', responder: async () => undefined })).toBe(false);
+      await enviado(velho, '2133330393');
+      expect(await responder('552133330393', 'quanto paga?')).toBe(false);
+      expect(auditoria.filter((a) => a.acao === 'candidato.respondeu_aviso').map((a) => a.detalhe.resposta)).toEqual(['interesse', 'nao_quero', 'sair']);
+    } finally {
+      await q(`delete from vaga_aviso where tenant_id = $1`, [T]).catch(() => {});
       await q(`delete from marketing_optout where tenant_id = $1`, [T]).catch(() => {});
       for (const id of fichas) await q(`delete from candidato where id = $1`, [id]).catch(() => {});
     }

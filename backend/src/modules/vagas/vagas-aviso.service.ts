@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -7,6 +7,9 @@ import { ehServidorLocal } from '../../common/modo';
 import { hojeISO, somarDias } from '../../common/data';
 import { FUSO_SQL } from '../../common/fuso-sql';
 import { saiuDoMarketing } from '../../common/marketing-quem-recebe';
+import { registrarSaida } from '../../common/consentimento-marketing';
+import { chaveTelefone, sqlChaveTelefone } from '../../common/telefone-chave';
+import { RespostaDoMarketing, RespostasDoMarketingService } from '../whatsapp/respostas-do-marketing.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
 import { WhatsappNumeroService } from '../whatsapp/whatsapp-numero.service';
@@ -23,6 +26,9 @@ import {
   mensagemDoAvisoPeloMarketing,
   paginaDaLinha,
   parametrosDoModeloDaVaga,
+  respostaAoAviso,
+  textoDaSaidaDosAvisos,
+  textoDoInteresse,
   viaDoAviso,
   viaManda,
 } from './vagas';
@@ -61,7 +67,7 @@ export interface ViaNaTela {
 }
 
 @Injectable()
-export class VagasAvisoService {
+export class VagasAvisoService implements OnModuleInit {
   private readonly logger = new Logger('VagasAviso');
   private rodando = false;
 
@@ -72,7 +78,91 @@ export class VagasAvisoService {
     private readonly cloud: WhatsappCloudService,
     private readonly whatsapp: WhatsappService,
     private readonly auditoria: AuditoriaService,
+    // As respostas ao aviso chegam pela entrada do número de marketing (o módulo do WhatsApp): o gancho se registra ao subir.
+    @Optional() private readonly respostas?: RespostasDoMarketingService,
   ) {}
+
+  onModuleInit(): void {
+    this.respostas?.registrar((r) => this.responderAoAviso(r));
+  }
+
+  // ── as respostas ao aviso (cenas 3 e 4 do protótipo) ───────────────────────────────────────────────────────────
+
+  /**
+   * A resposta ao número de marketing que é ao AVISO DA VAGA: só quando esse telefone recebeu um aviso desta empresa nos
+   * últimos 30 dias e ainda não respondeu (o mais recente). "Tenho interesse" leva a ficha do banco de talentos para Em
+   * análise; "Não quero mais receber" tira das mensagens (as fichas dessa pessoa na empresa) e a situação não muda; o SAIR
+   * faz o mesmo e sai também das ofertas da loja. A resposta vai pelo mesmo número. Cada aviso responde uma vez (gravação
+   * condicional). Devolve false quando não é resposta a um aviso — a entrada segue o caminho de sempre.
+   */
+  async responderAoAviso(r: RespostaDoMarketing): Promise<boolean> {
+    const qual = respostaAoAviso(r.texto);
+    const chave = chaveTelefone(r.telefone);
+    if (!qual || !chave) return false;
+    const [a] = linhas(
+      await this.db.execute(sql`
+        select a.id::text as id, a.candidato_id::text as "candidatoId", a.unidade_id::text as "unidadeId", a.funcao
+          from vaga_aviso a
+         where a.tenant_id = ${r.tenantId}::uuid and a.situacao = 'enviado' and a.resposta is null
+           and a.enviado_em > clock_timestamp() - make_interval(days => ${DIAS_ENTRE_AVISOS}::int)
+           and ${sqlChaveTelefone(sql`a.telefone`)} = ${chave}
+         order by a.enviado_em desc limit 1`),
+    );
+    if (!a) return false;
+    const resposta = qual === 'interesse' ? 'interesse' : 'saiu';
+    const [vez] = linhas(
+      await this.db.execute(sql`
+        update vaga_aviso set resposta = ${resposta}, respondido_em = clock_timestamp()
+         where id = ${a.id}::uuid and resposta is null returning id`),
+    );
+    if (!vez) return true; // outra entrada (o reenvio, outra réplica) já respondeu este aviso
+    const [pg] = linhas(await this.db.execute(sql`select * from vaga_pagina where tenant_id = ${r.tenantId}::uuid and unidade_id = ${a.unidadeId}::uuid`));
+    const nomeDaFuncao = (pg ? paginaDaLinha(pg).funcoes.find((f) => f.codigo === a.funcao)?.nome : null) ?? a.funcao;
+    const loja = await this.vagas.lojaPublica(r.tenantId, a.unidadeId);
+    const [c] = linhas(
+      await this.db.execute(sql`select id, tenant_id, nome, situacao, expurgo_em from candidato where id = ${a.candidatoId}::uuid and tenant_id = ${r.tenantId}::uuid`),
+    );
+    if (!c) return true;
+
+    if (qual === 'interesse') {
+      await this.db.transaction(async (tx: any) => {
+        const [mudou] = linhas(await tx.execute(sql`update candidato set situacao = 'analise' where id = ${c.id} and situacao = 'banco' returning id`));
+        await tx.execute(sql`
+          insert into candidato_evento (candidato_id, tenant_id, tipo, de, para, texto, autor_nome)
+          values (${c.id}, ${c.tenant_id}, ${mudou ? 'situacao' : 'comunicacao'}, ${mudou ? 'banco' : null}, ${mudou ? 'analise' : null},
+                  ${`Respondeu "Tenho interesse" ao aviso da vaga de ${nomeDaFuncao}`}, 'WhatsApp da pessoa')`);
+      });
+      await this.auditoria.registrar({
+        tenantId: r.tenantId, unidadeId: a.unidadeId, atorId: null, atorPerfil: null,
+        tipo: 'pessoas', acao: 'candidato.respondeu_aviso', entidadeTipo: 'candidato', entidadeId: c.id,
+        detalhe: { resposta: 'interesse', funcao: a.funcao }, origem: 'whatsapp',
+      });
+      await r.responder(textoDoInteresse(c.nome, loja.nome)).catch((e) => this.logger.warn(`a resposta ao "Tenho interesse" não saiu — ${e?.message ?? e}`));
+      return true;
+    }
+
+    // "Não quero mais receber" e SAIR: sai das mensagens da loja (todas as fichas dessa pessoa na empresa).
+    await this.db.transaction(async (tx: any) => {
+      const fichas = linhas(
+        await tx.execute(sql`
+          update candidato set comunicacao_cancelada_em = clock_timestamp()
+           where tenant_id = ${r.tenantId}::uuid and comunicacao_cancelada_em is null and ${sqlChaveTelefone(sql`telefone`)} = ${chave}
+          returning id, tenant_id`),
+      );
+      for (const f of fichas)
+        await tx.execute(sql`
+          insert into candidato_evento (candidato_id, tenant_id, tipo, texto, autor_nome)
+          values (${f.id}, ${f.tenant_id}, 'comunicacao', ${`Saiu das mensagens: respondeu "${String(r.texto).trim().slice(0, 40)}" ao aviso da vaga de ${nomeDaFuncao}`}, 'WhatsApp da pessoa')`);
+    });
+    if (qual === 'sair') await registrarSaida(this.db, { tenantId: r.tenantId, telefone: r.telefone, origem: 'whatsapp', motivo: 'palavra_chave' });
+    await this.auditoria.registrar({
+      tenantId: r.tenantId, unidadeId: a.unidadeId, atorId: null, atorPerfil: null,
+      tipo: 'pessoas', acao: 'candidato.respondeu_aviso', entidadeTipo: 'candidato', entidadeId: c.id,
+      detalhe: { resposta: qual, funcao: a.funcao }, origem: 'whatsapp',
+    });
+    await r.responder(textoDaSaidaDosAvisos(c.nome, loja.nome, c.expurgo_em)).catch((e) => this.logger.warn(`a resposta à saída dos avisos não saiu — ${e?.message ?? e}`));
+    return true;
+  }
 
   /** O número de marketing da loja e a situação do modelo `vaga_aberta` (só na oficial). */
   private async numeroEModelo(tenantId: string) {

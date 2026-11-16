@@ -19,6 +19,7 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { assinarConversa, ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario, ehChaveDoMessenger } from '../../common/conversa-do-robo';
 import { MisterEntradaService } from '../mister/mister-entrada.service';
 import { MisterQrService } from '../mister/mister-qr.service';
+import { RespostasDoMarketingService } from './respostas-do-marketing.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -101,6 +102,8 @@ export class EvolutionEntradaService {
     @Optional() private readonly mister?: MisterEntradaService,
     // Q2 (mig 437): o aviso de conexão da instância do Mister (o celular leu o QR, caiu, foi bloqueado).
     @Optional() private readonly misterQr?: MisterQrService,
+    // As respostas ao número de marketing que são de outro módulo (F4b parte 2 das vagas).
+    @Optional() private readonly respostas?: RespostasDoMarketingService,
   ) {}
 
   /** Mensagem já vista nesta janela (a Evolution reenvia quando demora)? Marca como vista. */
@@ -158,7 +161,11 @@ export class EvolutionEntradaService {
    */
   private async entradaDoMarketing(tenantId: string, instancia: string, de: string, data: any): Promise<void> {
     if (data?.key?.fromMe) return;
-    const txt = lerMensagemEvolution(data).texto.trim().toLowerCase();
+    const texto = lerMensagemEvolution(data).texto;
+    // A resposta que é de outro módulo (o aviso da vaga) vem antes do SAIR genérico; o reenvio já foi barrado (`repetida`).
+    if (this.respostas && (await this.respostas.tratar({ tenantId, telefone: de, texto, responder: async (t) => void (await this.evolution.enviarPorInstancia(tenantId, instancia, de, t)) })))
+      return;
+    const txt = texto.trim().toLowerCase();
     const sai = SAIR.test(txt);
     if (!sai && !VOLTAR.test(txt)) {
       this.logger.log(`mensagem à instância de marketing ${instancia} de=${mascarar(de)}: não é SAIR nem VOLTAR, fica de fora`);

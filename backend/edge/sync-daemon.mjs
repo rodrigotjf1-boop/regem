@@ -2365,6 +2365,8 @@ const SO_NUVEM = new Set([
   'ativacao', 'revenda', 'reautorizacao_edge', 'cadastro_pendente', 'edge_heartbeat', 'suporte_sessao',
   'telemetria_evento', 'api_client', 'webhook_subscription', 'integracao', 'integracao_token',
   'campanha', 'campanha_envio', 'marketing_optout', 'whatsapp_numero', 'whatsapp_template', 'whatsapp_mensagem',
+  // O histórico do consentimento de marketing (mig 300, @cloud-only): só a nuvem grava (o SAIR, o checkout do cardápio).
+  'marketing_consentimento',
   'cliente_otp', 'cliente_link', 'cardapio_evento', 'cardapio_senha_seq', 'pedido_notificacao', 'bot_atendimento',
   'entregador_dispositivo', 'entregador_chegada', 'entregador_localizacao', 'entregador_posicao', 'entregador_fila',
   'entregador_config', 'entregador_saida', 'entregador_fechamento', 'entregador_perfil_pagamento', 'entregador_preferencia',

@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { randomInt } from 'crypto';
 import { telefoneCadastro } from '../../common/telefone-chave';
+import { PEDE_SAIDA } from '../../common/consentimento-marketing';
 import { cepValido, telefoneValido } from '../../common/validadores-br';
 import { exigirBooleano } from '../../common/exigir';
 
@@ -667,6 +668,39 @@ export function viaDoAviso(n: { provedor: string | null; vinculado: boolean } | 
 
 /** A via deixa mandar pela fila? Só com o modelo aprovado ou pelo Evolution. */
 export const viaManda = (v: ViaDoAviso) => v === 'oficial_aprovado' || v === 'evolution';
+
+// ── as respostas ao aviso pelo número de marketing (cenas 3 e 4 do protótipo) ────────────────────────────────────────
+
+/** "Tenho interesse" (o botão do modelo) e as formas escritas que valem como ele — só na resposta a um aviso recente. */
+const RESPONDE_INTERESSE = /^(tenho interesse|interesse|sim|quero|quero participar|tenho interesse sim)[.!]*$/;
+/** "Não quero mais receber" (o botão): sai dos avisos de VAGA da loja (o SAIR sai também das ofertas). */
+const RESPONDE_NAO_QUERO = /^n[aã]o quero (mais )?receber[.!]*$/;
+
+/**
+ * O que a resposta ao aviso quer: participar, sair dos avisos de vaga ("Não quero mais receber"), sair de tudo (o SAIR —
+ * a palavra única `PEDE_SAIDA`, V94) — ou nada disso (null).
+ */
+export function respostaAoAviso(texto: unknown): 'interesse' | 'nao_quero' | 'sair' | null {
+  const t = String(texto ?? '').trim().toLowerCase();
+  if (RESPONDE_INTERESSE.test(t)) return 'interesse';
+  if (RESPONDE_NAO_QUERO.test(t)) return 'nao_quero';
+  if (PEDE_SAIDA.test(t)) return 'sair';
+  return null;
+}
+
+/** A resposta ao "Tenho interesse" (cena 3). */
+export function textoDoInteresse(nome: unknown, loja: string): string {
+  const primeiro = String(nome ?? '').trim().split(/\s+/)[0];
+  return `Obrigado${primeiro ? `, ${primeiro}` : ''}! Avisamos a equipe da ${loja}. Eles chamam você por aqui para combinar a entrevista.`;
+}
+
+/** A resposta ao "Não quero mais receber" e ao SAIR (cena 4), com a data em que a ficha se apaga (`expurgo_em`). */
+export function textoDaSaidaDosAvisos(nome: unknown, loja: string, expurgoEm: string | Date | null): string {
+  const primeiro = String(nome ?? '').trim().split(/\s+/)[0];
+  const d = expurgoEm ? (expurgoEm instanceof Date ? expurgoEm.toISOString() : String(expurgoEm)).slice(0, 10) : '';
+  const ate = /^\d{4}-\d{2}-\d{2}$/.test(d) ? ` Sua ficha fica guardada até ${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)} e depois é apagada.` : '';
+  return `Pronto${primeiro ? `, ${primeiro}` : ''}. Você não recebe mais avisos de vaga da ${loja}.${ate}`;
+}
 
 /**
  * Por que uma pessoa do banco de talentos NÃO recebe o aviso desta função — ou null (recebe). Na ordem: pediu para sair
