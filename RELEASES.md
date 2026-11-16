@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **A ponte do chat no instalador (15/11, pedido do dono; SEM migration; PEDE `.exe` — mexe no `.iss`, no
+  `build-release.ps1` e no preflight).** Depois de Servidor/Cliente, o instalador pergunta "Deseja instalar a ponte do
+  chat neste computador?" com o resumo do que ela faz (sugere Sim no Servidor, Não no Cliente, Sim onde ela já está).
+  Com Sim: `C:\regem-edge\ponte\` (o Electron da ponte com o executável `Regem Ponte do chat.exe`), atalhos, abre no fim
+  e em todo login. A ponte sai de `regem-ponte-dist` (`ponte-chat/empacotar.mjs`, passo 5b do `build-release.ps1`, seção
+  7 do preflight), FORA do `regem-edge-dist`: o `.zip` não leva a ponte (~105 MB a mais no `.exe`).
+
 - **O Relatório das Ordens de produção sem barra lateral (15/11, ERR-476 parte 2; SEM migration; só tela).** A tabela
   planejado × produzido passou para a lista do modelo do Estoque (tabela na tela larga, cartões no resto). Na nuvem vale
   com o merge; no servidor da loja, com o `.zip`.

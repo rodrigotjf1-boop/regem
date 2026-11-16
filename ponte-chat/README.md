@@ -271,5 +271,21 @@ sai do iFood e da 99 nele.
 
 ## Instalador
 
-Sob comando do dono (como os outros artefatos — `RELEASES.md`): electron-builder (NSIS) com a assinatura pela CA
-interna, no molde de `desktop/`. Ainda não gerado.
+**Vai dentro do instalador do Regem** (`RegemEdgeSetup.exe`, desde a 1.30.13 — pedido do dono de 15/11/2026). Logo
+depois de escolher Servidor ou Cliente (PC da loja), o instalador pergunta **"Deseja instalar a ponte do chat neste
+computador?"**, com o resumo do que ela faz; a sugestão é **Sim no Servidor e Não no Cliente** (e Sim onde a ponte já
+está instalada — atualiza). A ponte fala com a NUVEM, não com o servidor da loja: pode ficar no servidor ou num PDV —
+o que importa é ficar num PC ligado durante o expediente, com a 99 aberta só nela.
+
+- **Empacotar:** `node ponte-chat/empacotar.mjs` (depois do `npm ci` aqui) monta `regem-ponte-dist/` na raiz do repo: o
+  Electron desta versão com o programa em `resources/app` e o executável renomeado para `Regem Ponte do chat.exe` (o
+  nome que o ícone "Regem neste PC" reconhece); só os idiomas pt-BR e en-US do Chromium. O `build-release.ps1` faz isso
+  sozinho (passo 5b) e o `preflight-release.mjs` (seção 7) confere a versão e que o código do pacote é o desta pasta.
+- **O que o instalador faz com "Sim":** copia para `C:\regem-edge\ponte\` (o código antigo sai antes, a pasta de dados
+  em `%APPDATA%` fica), cria os atalhos "Regem Ponte do chat" na Área de trabalho e em Iniciar › Regem, abre a ponte
+  no fim (como o usuário que instalou, não como administrador) e em todo login do Windows (`HKLM\…\Run\RegemPonteChat`).
+  Numa reinstalação com "Sim", fecha a ponte antes de copiar; com "Não", não mexe na que já estava instalada.
+- **Desinstalar o Regem** fecha a ponte e tira o programa e os atalhos; a pasta de dados (pareamento e sessões) fica.
+- Depois de instalar: parear (Configurações › Equipamentos › Novo equipamento "Ponte do chat (iFood e 99, no PC)" ›
+  Gerar código) e entrar uma vez no iFood e na 99 dentro dela.
+- O `.zip` de atualização do edge **não** leva a ponte (são ~310 MB): versão nova da ponte chega pelo próximo `.exe`.

@@ -69,6 +69,15 @@ $env:EDGE_VERSAO = $Versao
 node edge/package.mjs; if ($LASTEXITCODE -ne 0) { Abortar "package.mjs falhou." }
 Set-Location $repo
 
+# 5b) A ponte do chat (vai SO no .exe; o instalador pergunta se instala) -------
+# Pasta propria (regem-ponte-dist), fora do regem-edge-dist: o .zip de atualizacao nao leva a ponte (~250 MB).
+Passo "5b/6  Empacotar a ponte do chat (empacotar.mjs → regem-ponte-dist)"
+Set-Location (Join-Path $repo 'ponte-chat')
+npm ci; if ($LASTEXITCODE -ne 0) { Abortar "npm ci (ponte-chat) falhou." }
+npm test; if ($LASTEXITCODE -ne 0) { Abortar "testes da ponte-chat falharam." }
+Set-Location $repo
+node ponte-chat/empacotar.mjs; if ($LASTEXITCODE -ne 0) { Abortar "empacotar.mjs (ponte) falhou." }
+
 # 6) PREFLIGHT — o guarda que teria pego o 1.20 --------------------------------
 Passo "6/6  Preflight (verifica web.tar/next, keyset, versão)"
 node backend/edge/preflight-release.mjs $Versao

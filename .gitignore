@@ -23,6 +23,8 @@ backend/edge/bundle/
 
 # Pasta distribuível gerada por edge/package.mjs (artefato de build)
 regem-edge-dist/
+# A ponte do chat empacotada para o instalador (ponte-chat/empacotar.mjs; vai só no .exe)
+regem-ponte-dist/
 # Pacote .zip de update do edge (artefato — sobe para o Storage, não para o git)
 regem-edge-*.zip
 
