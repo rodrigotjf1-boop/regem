@@ -4,6 +4,10 @@ import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { ehServidorLocal } from '../../common/modo';
 import { FUSO_OPERACAO, dataNoFuso, horaNoFuso } from '../../common/data';
+import { instanteDe } from '../../common/fuso-sql';
+import { podeAcessar } from '../../auth/permissoes';
+import { ModuloService } from '../modulo/modulo.service';
+import { paginaPadrao } from '../vagas/vagas';
 import { TEXTOS_DO_AGENTE, filtrarSaida, fraseDoMotivo } from './mister-agente.regras';
 import { MisterAgenteService } from './mister-agente.service';
 import { dentroDaJanelaDoWhatsapp } from './mister-avisos.regras';
@@ -14,12 +18,16 @@ import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.servi
 import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
 import {
   AgoraNaOperacao,
+  FICHAS_NO_RESUMO_MAX,
   RECURSO_DO_RELATORIO,
   RELATORIO_INTERROMPIDO_MIN,
   RegraDoRelatorio,
+  RelatorioDevido,
   TipoDeRelatorio,
+  janelaDasFichas,
   perguntaDoRelatorio,
   relatorioDevido,
+  textoDasFichasNovas,
 } from './mister-relatorios.regras';
 import { pessoaVale } from './mister-vinculo.service';
 
@@ -38,9 +46,19 @@ import { pessoaVale } from './mister-vinculo.service';
 //    Sem o modelo aprovado, fica "fora da janela e sem modelo". Sem a chave de IA, não sai, com o motivo.
 //  • O texto sai pelo MESMO agente das perguntas (as consultas, os tetos, o filtro de saída), com o recurso do relatório
 //    no medidor ("Uso da IA"). Nada daqui lança para a rotina: cada falha vira o motivo da linha e o log.
+//  • FICHAS NOVAS (F4c das vagas): sem a IA. Antes de pegar a vez, confere se a pessoa pode ver os candidatos (presidente
+//    ou a permissão Candidatos), quais lojas dela têm o módulo de vagas e se chegou ficha na janela (da véspera no horário
+//    marcado até hoje nesse horário). Sem ficha, não sai nada nem fica linha — "só nos dias em que chegou ficha". O texto
+//    leva o primeiro nome e a inicial, a função, a escala e a distância: telefone e endereço ficam no Regem. Fora das 24
+//    horas, o mesmo convite dos resumos; no toque, a lista é lida de novo para a mesma janela.
 
 const linhas = (r: any) => (r?.rows ?? r ?? []) as any[];
 const semTabela = (e: any) => e?.code === '42P01' || e?.code === '42703';
+
+/** O endereço da tela de Candidatos na nuvem (vai no fim do resumo das fichas). */
+export function linkDosCandidatos(): string {
+  return `${String(process.env.APP_URL || 'https://app.dmsregem.com').replace(/\/+$/, '')}/candidatos`;
+}
 
 /** O relógio da operação agora: o dia, a hora e o dia da semana (1 = segunda … 7 = domingo). */
 export function agoraNaOperacao(agora: Date = new Date()): AgoraNaOperacao {
@@ -74,6 +92,8 @@ export class MisterRelatoriosService implements OnModuleInit {
     private readonly ferramentas: MisterFerramentasService,
     private readonly numero: MisterNumeroService,
     @Optional() private readonly entrada?: MisterEntradaService,
+    // F4c: o módulo de vagas de cada loja. Sem ele (os testes antigos não o montam), as fichas novas não saem.
+    @Optional() private readonly modulos?: ModuloService,
   ) {}
 
   /** O toque em "Ver resumo" chega pela entrada do WhatsApp, que mora no módulo de baixo: ela chama este serviço. */
@@ -141,10 +161,21 @@ export class MisterRelatoriosService implements OnModuleInit {
     tenantId: string,
     tipo: TipoDeRelatorio,
     _regra: RegraDoRelatorio,
-    devido: { referencia: string; ate: string },
+    devido: RelatorioDevido,
     pessoa: { colaboradorId: string; telefone: string; ultimaEntrada: Date | null; empresa: string },
     agora: Date,
   ): Promise<boolean | 'convite' | null> {
+    // Fichas novas: antes da vez, se a pessoa vê candidatos e se chegou ficha. Nada a dizer = nada sai e nada fica.
+    let fichas: { texto: string; total: number } | null = null;
+    if (tipo === 'fichas_novas') {
+      try {
+        fichas = await this.fichasDaPessoa(tenantId, pessoa.colaboradorId, pessoa.telefone, devido);
+      } catch (e: any) {
+        this.logger.error(`as fichas novas de ${devido.referencia} (empresa ${tenantId}) não foram lidas — ${e?.message ?? e}`, e?.stack);
+        return null;
+      }
+      if (!fichas) return null;
+    }
     const [vez] = linhas(
       await this.db.execute(sql`
         insert into mister_relatorio (tenant_id, tipo, referencia, colaborador_id, final_do_telefone)
@@ -167,8 +198,20 @@ export class MisterRelatoriosService implements OnModuleInit {
           const m = e instanceof FalhaDoEnvioDoMister ? e.motivo : 'erro';
           return await naoSaiu(m === 'modelo_nao_aprovado' ? 'fora_da_janela_e_sem_modelo' : `convite: ${m}`);
         }
-        await this.concluir(vez.id, 'nao_enviado', CONVITE_ENVIADO, { trilha: { convite: { referencia: devido.referencia, ate: devido.ate } } });
+        await this.concluir(vez.id, 'nao_enviado', CONVITE_ENVIADO, {
+          trilha: { convite: { referencia: devido.referencia, ate: devido.ate, ...(devido.hora ? { hora: devido.hora } : {}) }, ...(fichas ? { fichas: fichas.total } : {}) },
+        });
         return 'convite';
+      }
+      if (tipo === 'fichas_novas') {
+        const texto = fichas!.texto;
+        try {
+          await this.numero.enviar(pessoa.telefone, { texto });
+        } catch (e: any) {
+          return await naoSaiu(e instanceof FalhaDoEnvioDoMister ? `envio: ${e.motivo}` : 'envio', { texto, trilha: { fichas: fichas!.total } });
+        }
+        await this.concluir(vez.id, 'enviado', null, { texto, trilha: { fichas: fichas!.total } });
+        return true;
       }
       const escopo = await this.ferramentas.escopo(tenantId, pessoa.colaboradorId, pessoa.telefone);
       if (!escopo || escopo.semLoja) return await naoSaiu('sem_acesso');
@@ -229,9 +272,32 @@ export class MisterRelatoriosService implements OnModuleInit {
     }
     const tipo = vez.tipo as TipoDeRelatorio;
     const convite = vez.trilha?.convite ?? {};
-    const devido = { referencia: String(convite.referencia ?? ''), ate: String(convite.ate ?? '') };
+    const devido: RelatorioDevido = {
+      referencia: String(convite.referencia ?? ''),
+      ate: String(convite.ate ?? ''),
+      ...(typeof convite.hora === 'string' ? { hora: convite.hora } : {}),
+    };
     const voltarAoConvite = () =>
       this.db.execute(sql`update mister_relatorio set motivo = ${CONVITE_ENVIADO} where id = ${vez.id}::uuid and motivo = ${FAZENDO_NO_TOQUE}`);
+    if (tipo === 'fichas_novas') {
+      // Sem a IA: a lista da MESMA janela, lida de novo (a ficha apagada desde o convite não aparece).
+      try {
+        const fichas = await this.fichasDaPessoa(vez.tenantId, vez.colaboradorId, quem.telefone, devido);
+        const texto = fichas?.texto ?? 'As fichas desse resumo não estão mais na Página de vagas, ou você não vê mais os candidatos dessa loja.';
+        const saiu = await this.dizer(quem.telefone, texto);
+        await this.db.execute(sql`
+          update mister_relatorio
+             set situacao = ${saiu && fichas ? 'enviado' : 'nao_enviado'}, motivo = ${!fichas ? 'sem_fichas' : saiu ? null : 'envio'},
+                 texto = ${fichas ? texto : null}, concluido_em = clock_timestamp()
+           where id = ${vez.id}::uuid and motivo = ${FAZENDO_NO_TOQUE}`);
+        return true;
+      } catch (e: any) {
+        this.logger.error(`o resumo das fichas ${vez.id} não foi feito no toque — ${e?.message ?? e}`, e?.stack);
+        await voltarAoConvite().catch(() => undefined);
+        await this.dizer(quem.telefone, TEXTOS_DO_AGENTE.passageira);
+        return true;
+      }
+    }
     try {
       const escopo = /^\d{4}-\d{2}-\d{2}$/.test(devido.referencia) && /^\d{4}-\d{2}-\d{2}$/.test(devido.ate)
         ? await this.ferramentas.escopo(vez.tenantId, vez.colaboradorId, quem.telefone)
@@ -262,6 +328,64 @@ export class MisterRelatoriosService implements OnModuleInit {
       await this.dizer(quem.telefone, TEXTOS_DO_AGENTE.passageira);
       return true;
     }
+  }
+
+  /**
+   * O resumo das fichas novas de uma pessoa — ou null quando não há o que dizer. A régua da tela de Candidatos: presidente
+   * ou a permissão Candidatos (`podeAcessar`), as lojas que ela vê (o escopo do Mister) com o módulo de vagas ligado. As
+   * fichas recebidas na janela, até o teto, com o total (`count(*) over ()`, antes do `limit`). O nome da função pela
+   * página da loja; sem ela, o nome de fábrica; sem os dois, o código.
+   */
+  async fichasDaPessoa(tenantId: string, colaboradorId: string, telefone: string, devido: RelatorioDevido): Promise<{ texto: string; total: number } | null> {
+    const janela = janelaDasFichas(devido);
+    if (!janela || !this.modulos) return null;
+    const escopo = await this.ferramentas.escopo(tenantId, colaboradorId, telefone);
+    if (!escopo || escopo.semLoja) return null;
+    if (escopo.nivel !== 'presidente' && !podeAcessar(escopo.permissoes, 'candidatos')) return null;
+    const lojas: Array<{ id: string; nome: string }> = [];
+    for (const l of escopo.lojas) if (await this.modulos.ativo(tenantId, l.id, 'vagas')) lojas.push(l);
+    if (!lojas.length) return null;
+    const ids = sql.join(
+      lojas.map((l) => sql`${l.id}::uuid`),
+      sql`, `,
+    );
+    const lidas = linhas(
+      await this.db.execute(sql`
+        select c.nome, c.funcoes, c.tipo_vaga as "tipoVaga", c.escala, c.distancia_km::float8 as "distanciaKm", c.comeca,
+               c.unidade_id::text as "unidadeId", count(*) over () as total
+          from candidato c
+         where c.tenant_id = ${tenantId}::uuid and c.unidade_id in (${ids})
+           and c.recebido_em >= ${instanteDe(janela.desde)} and c.recebido_em < ${instanteDe(janela.ate)}
+         order by c.recebido_em, c.id
+         limit ${FICHAS_NO_RESUMO_MAX}`),
+    );
+    if (!lidas.length) return null;
+    const paginas = linhas(
+      await this.db.execute(sql`select unidade_id::text as "unidadeId", funcoes from vaga_pagina where tenant_id = ${tenantId}::uuid and unidade_id in (${ids})`),
+    );
+    const deFabrica = new Map(paginaPadrao().funcoes.map((f) => [f.codigo, f.nome]));
+    const nomeDaFuncao = (unidadeId: string, codigo: string): string => {
+      const daLoja = ((paginas.find((p) => p.unidadeId === unidadeId)?.funcoes ?? []) as any[]).find((f) => f?.codigo === codigo);
+      return String(daLoja?.nome ?? deFabrica.get(codigo) ?? codigo);
+    };
+    const nomeDaLoja = new Map(lojas.map((l) => [l.id, l.nome]));
+    const total = Number(lidas[0].total);
+    const texto = textoDasFichasNovas({
+      nome: escopo.nome,
+      hora: devido.hora!,
+      total,
+      link: linkDosCandidatos(),
+      fichas: lidas.map((l) => ({
+        nome: String(l.nome ?? ''),
+        funcoes: ((l.funcoes ?? []) as string[]).map((c) => nomeDaFuncao(l.unidadeId, c)),
+        tipoVaga: String(l.tipoVaga ?? ''),
+        escala: l.escala ?? null,
+        distanciaKm: l.distanciaKm === null || l.distanciaKm === undefined ? null : Number(l.distanciaKm),
+        comeca: String(l.comeca ?? ''),
+        loja: nomeDaLoja.get(l.unidadeId) ?? '',
+      })),
+    });
+    return { texto, total };
   }
 
   /** Manda um texto pelo número do Mister. Devolve se saiu; a falha fica no log, com o motivo. */
