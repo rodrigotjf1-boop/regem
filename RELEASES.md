@@ -19,6 +19,12 @@
   merge. **No `.zip` 1.30.14:** o mesmo no servidor da loja — é o que a TV box da cozinha abre (`https://regem.local:3001/kds`);
   até lá ela segue vazia. Nada no `.exe`.
 
+- **A foto do catálogo enviada pela loja sobe para a nuvem mesmo com imagens de fora no cadastro (16/11, ERR-490; sem
+  migration) → vai no `.zip`.** A rotina só roda no servidor da loja; na nuvem nada muda.
+  - Antes, o lote de 25 podia ser ocupado inteiro por imagens com endereço de outro sistema (catálogo importado), e a
+    foto enviada pela loja não subia: o cardápio online ficava com a imagem quebrada.
+  - Agora o lote só traz o que é arquivo local e anda em rodízio.
+
 - **"É o servidor da loja?" num lugar só (16/11, V2 do registro; sem migration) → vai no `.zip`** (o código da API e o
   `backend/scripts/apply-all-local.mjs`, que aplica as migrations na loja).
   - As 26 comparações de `EDGE_MODE` feitas à mão viram `ehServidorLocal()`.
