@@ -26,6 +26,16 @@
   servidor Windows — o caso do servidor da loja; a nuvem roda em Linux) e o `drizzle-orm` 0.33 → 0.45 (a falha é de nome
   de coluna vindo do pedido, que o Regem não faz). Nada no `.exe`.
 
+- **🔴 Next 14 → 15.5.29 e React 18 → 19.3.1 (16/11, avaliação de segurança; SEM migration; só `frontend/`) → vai no
+  `.zip`, e é o motivo para cortar a 1.30.14 logo.** A linha 14 do Next não recebe mais correção; entre as falhas dela
+  está a execução de código sem login num servidor **Windows** (GHSA-p293-qw3h-jr36) — o servidor da loja. A nuvem
+  (Linux) atualiza com o merge. Na loja, só com o `.zip` (o `web.tar` leva o Next novo); até lá, vale separar o Wi-Fi
+  dos clientes da rede do servidor (`docs/seguranca-edge.md`).
+  - No código: duas páginas recebem `params`/`searchParams` do jeito novo (`/e/[token]`, `/integracoes/autorizar`);
+    quatro tipos de referência; e o `inert` da Rota da cozinha, que no React 19 é booleano (ERR-486).
+  - Conferido com o build, os testes do front, os 13 roteiros de tela e os cabeçalhos de segurança.
+  - Nada no `.exe` (o empacotamento só usa `web/server.js` e `node_modules/next`, que não mudaram de lugar).
+
 - **O anúncio da retirada da credencial antiga (16/11, #1054, F6 do Hub DMS; SEM migration; nasce desligado).** Só NUVEM
   na prática: os cabeçalhos `Deprecation`/`Sunset` saem no guarda da porta de integração (só da nuvem) e no guarda das
   rotas do totem, que também roda no servidor da loja — lá ele não anuncia (`ehServidorLocal()`). Os arquivos

@@ -103,7 +103,7 @@ function useSecoes(c: Cardapio, comMais: boolean): Secao[] {
 }
 
 /** Abas que acompanham a rolagem: devolve a seção à vista e a função de ir até uma seção. */
-function useAbas(rolagem: RefObject<HTMLDivElement>, abas: RefObject<HTMLElement>, secoes: Secao[]) {
+function useAbas(rolagem: RefObject<HTMLDivElement | null>, abas: RefObject<HTMLElement | null>, secoes: Secao[]) {
   const [ativa, setAtiva] = useState(secoes[0]?.id ?? '');
   const ativaRef = useRef(ativa);
   const ids = secoes.map((s) => s.id).join('|');

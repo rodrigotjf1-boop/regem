@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type JSX } from 'react';
 import { useRouter } from 'next/navigation';
 import { clearDistToken, distApi, getDistToken, setToken } from '@/lib/api';
 import { TokensIntegracao } from '@/components/distribuicao/tokens-integracao';

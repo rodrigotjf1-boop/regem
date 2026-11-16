@@ -71,6 +71,16 @@ de produção. **NÃO** envia `docs/`, `mockups/`, `CLAUDE.md`.
   `signtool sign /fd SHA256 /tr <timestamp> /td SHA256 /a regem-edge-setup.exe`.
   Dá integridade + confiança do SmartScreen. (Precisa do cert — pendente.)
 
+## A rede da loja (avaliação interna de segurança, 16/11/2026)
+- **O servidor da loja atende quem está na rede local**: a tela (porta 3001) e a API (porta 3002) respondem a qualquer
+  aparelho da rede. Quem está nessa rede alcança o servidor sem passar pela Cloudflare nem por firewall nenhum.
+- **Recomendação ao instalar: o Wi-Fi dos clientes fica em outra rede** (rede de visitantes do roteador, ou outra
+  internet), separada da rede dos caixas, do KDS e do servidor. Loja com uma rede só deve ligar a rede de visitantes do
+  roteador antes de divulgar a senha do Wi-Fi.
+- **Por que importa:** uma falha no que o servidor expõe na rede local (por exemplo, a do Next.js 14 que permitia
+  executar código sem login num servidor Windows, corrigida com a ida para o Next 15) só é explorável por quem está na
+  mesma rede. A separação diminui o risco enquanto a loja não recebe a atualização.
+
 ## Ainda fora de escopo (fases seguintes / decisão)
 - **Bytecode (bytenode)** no `dist` — proteção forte da lógica (substitui a ofuscação,
   que foi descartada por quebrar a DI). Fase própria; exige testar boot com V8 cache.
