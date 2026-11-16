@@ -195,6 +195,8 @@ export class GogemAvisoService {
    * O job: a cada minuto, manda o que está vencido na fila. Na loja e na nuvem — cada uma com a
    * fila dela.
    */
+  // ONDE RODA: nos DOIS lados (ERR-075) — cada um manda a fila DELE: `aviso_integracao` é fila de saída de cada máquina
+  // e não sincroniza (quem grava é quem envia).
   @Cron('*/1 * * * *')
   async rodarFila(limite = 20, soEmpresas?: string[]) {
     let linhas: any[] = [];
