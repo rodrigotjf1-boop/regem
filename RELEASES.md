@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
+- **A hierarquia no cadastro e na exclusão de colaboradores (16/11, avaliação de segurança, achados A-01 e A-02; SEM
+  migration) → vai no `.zip`** (o servidor da loja roda o mesmo serviço — a falha existe lá também até o corte).
+  - Gerente não cria mais colaborador com perfil de acesso do próprio nível ou acima (antes, criava um login de
+    presidente escolhendo uma função de execução).
+  - Gerente não exclui mais presidente nem outro gerente; ninguém exclui o próprio cadastro.
+  - Nada no `.exe`.
+
 - **Os cabeçalhos de segurança do app (16/11, avaliação interna; SEM migration; só `frontend/next.config.mjs`).** Na NUVEM
   com o merge: nenhuma tela pode ser embutida em outro site (menos o cardápio público `/c/...`), `nosniff` em tudo, HSTS
   só em `app.dmsregem.com` e sem `X-Powered-By`. No servidor da loja entra com o `.zip` (o front da loja usa o mesmo
