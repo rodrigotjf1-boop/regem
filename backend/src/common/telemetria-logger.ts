@@ -1,3 +1,4 @@
+import { ehServidorLocal } from './modo';
 import { ConsoleLogger } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { TelemetriaBridge } from './telemetria-bridge';
@@ -12,7 +13,7 @@ import { getRequestId } from './request-context';
 export class TelemetriaLogger extends ConsoleLogger {
   private static enviados = new Map<string, number>();
   private static get ehEdge(): boolean {
-    return String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
+    return ehServidorLocal();
   }
 
   error(message: any, stack?: string, context?: string) {

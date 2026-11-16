@@ -1,3 +1,4 @@
+import { ehServidorLocal } from '../common/modo';
 import {
   BadRequestException,
   ConflictException,
@@ -382,7 +383,7 @@ export class AuthService {
     // RBAC de modo (S2): o MODO NUVEM (app online) só recebe quem o presidente
     // liberou (`pode_nuvem`). No SERVIDOR LOCAL (edge, EDGE_MODE=true) qualquer
     // perfil entra — a operação da loja é local. O presidente sempre passa (dono).
-    const isEdge = process.env.EDGE_MODE === 'true';
+    const isEdge = ehServidorLocal();
     if (!isEdge && nivel !== 'presidente' && !row.podeNuvem) {
       await this.auditoria.registrar({
         tenantId: row.tenantId,

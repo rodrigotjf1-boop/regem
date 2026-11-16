@@ -1,3 +1,4 @@
+import { ehServidorLocal } from '../../common/modo';
 import { Global, Inject, Injectable, Logger, Module } from '@nestjs/common';
 import { inArray } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -13,7 +14,7 @@ import { produto, pedidoExterno, produtoPausaEstoque } from '../../db/schema';
 @Injectable()
 export class EdgeFlashSyncService {
   private readonly logger = new Logger('FlashSync');
-  private readonly isEdge = String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
+  private readonly isEdge = ehServidorLocal();
   private readonly cloud = (process.env.CLOUD_API ?? '').replace(/\/$/, '');
   private readonly token = process.env.SYNC_TOKEN ?? '';
 

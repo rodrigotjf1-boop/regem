@@ -2220,7 +2220,7 @@ export class ProducaoPedidoService {
     } catch {
       return [];
     }
-    if (String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true') return base;
+    if (ehServidorLocal()) return base;
     // Saúde recente dos servidores locais da empresa (da loja, se o usuário tem loja).
     let saudes: any[] = [];
     try {

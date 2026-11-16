@@ -1,3 +1,4 @@
+import { ehServidorLocal } from './common/modo';
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { RequestIdMiddleware } from './common/request-id.middleware';
@@ -103,7 +104,7 @@ import { AuthModule } from './auth/auth.module';
 // instanciados (o processo do edge não roda distribuição/bot/whatsapp/diretoria/
 // onboarding/cardápio-online/cliente). Licença e Integrações ficam sempre (ver
 // comentário no array). Fonte da classificação: src/edge-manifest.ts.
-const IS_EDGE = String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
+const IS_EDGE = ehServidorLocal();
 const CLOUD_ONLY_IMPORTS = IS_EDGE
   ? []
   : [
