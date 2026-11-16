@@ -62,6 +62,11 @@
   mensagem positiva, "ainda não caiu", ou chama a equipe (pagar na entrega, cancelado, nenhum pedido com o telefone). Só
   NUVEM (o atendente é da nuvem): vale com o merge; o `.zip` leva o código sem efeito na loja.
 
+- **O PIN do terminal de ponto, na nuvem, só abre o ponto para quem não tem o acesso online (16/11, avaliação de
+  segurança, achado A-03; SEM migration).** Vale na NUVEM com o merge: o PIN de quem está com "acesso online" desligado
+  gera uma sessão que só envia a foto e marca o ponto; antes, abria a API inteira com o perfil da pessoa. **No servidor
+  da loja nada muda** (o PIN entra como sempre); os arquivos vão junto no próximo corte. Nada no `.exe`.
+
 - **Estoque › Produtos › Importar — a conferência não rola mais para o lado (16/11, ERR-476; só tela, sem migration) → vai
   no `.zip`** (a tela da loja vem nele).
   - No passo 3, a lista fica em colunas quando cabe no diálogo e empilhada quando não cabe.
