@@ -1,4 +1,5 @@
 import { CardapioService } from './cardapio.service';
+import { assinarConversa } from '../../common/conversa-do-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -40,5 +41,23 @@ describe('o chamado do robô leva o resumo', () => {
   it('sem a senha do robô: recusa, nada abre (ERR-320)', async () => {
     await expect(svc.abrirAtendimento('tok', { mensagem: 'Motivo: x' }, 'errada')).rejects.toThrow('Não autorizado.');
     expect(abertos).toEqual([]);
+  });
+
+  // 16/11 — o documento do dono ("separação de acesso"): com a ficha da conversa, o caso abre (e cala o robô) no cliente
+  // que está falando, nunca no número que a IA escreveu no corpo; a ficha de outra empresa não vale; sem ficha, o corpo.
+  it('com a ficha da conversa, o caso abre no telefone DELA — não no do corpo', async () => {
+    const pedidoDe: string[] = [];
+    svc.pedidoDoChamado = async (_t: string, _n: unknown, tel: string) => (pedidoDe.push(tel), null);
+    const msg = { tipo: 'humano', telefone: '5511900000000', mensagem: 'Motivo: x\nQuer: y\nJá fiz: z' };
+    await svc.abrirAtendimento('tok', msg, 'senha-do-robo', assinarConversa('t1', '5521987654321'));
+    expect(abertos[0].d.telefone).toBe('5521987654321');
+    expect(pedidoDe[0]).toBe('5521987654321');
+    // a ficha de OUTRA empresa não vale: fica o do corpo
+    await svc.abrirAtendimento('tok', msg, 'senha-do-robo', assinarConversa('outra-empresa', '5521987654321'));
+    expect(abertos[1].d.telefone).toBe('5511900000000');
+    // ficha adulterada ou ausente: o do corpo, como antes
+    await svc.abrirAtendimento('tok', msg, 'senha-do-robo', `${assinarConversa('t1', '5521987654321')}x`);
+    await svc.abrirAtendimento('tok', msg, 'senha-do-robo');
+    expect(abertos.slice(2).map((a) => a.d.telefone)).toEqual(['5511900000000', '5511900000000']);
   });
 });

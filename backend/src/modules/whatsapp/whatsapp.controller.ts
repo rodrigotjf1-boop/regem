@@ -13,6 +13,7 @@ import { WhatsappNumeroService, Papel } from './whatsapp-numero.service';
 import { WhatsappCloudService } from './whatsapp-cloud.service';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { CABECALHO_SEGREDO_ROBO, segredoDaChamada } from '../../common/segredo-robo';
+import { CABECALHO_CONVERSA } from '../../common/conversa-do-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -351,6 +352,8 @@ export class WhatsappController {
     @Query('telefone') telefone?: string,
     @Query('phoneNumberId') phoneNumberId?: string,
     @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string,
+    // A ficha da conversa (16/11): com ela, o telefone vem dela — nunca do parâmetro (V79).
+    @Headers(CABECALHO_CONVERSA) ficha?: string,
   ) {
     return this.service.statusPedidoBot(
       instancia ?? '',
@@ -358,6 +361,7 @@ export class WhatsappController {
       telefone ?? '',
       numero ?? '',
       phoneNumberId ?? '',
+      ficha,
     );
   }
 
@@ -371,12 +375,15 @@ export class WhatsappController {
     @Query('telefone') telefone?: string,
     @Query('phoneNumberId') phoneNumberId?: string,
     @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string,
+    // A ficha da conversa (16/11): com ela, o telefone vem dela — nunca do parâmetro (V79).
+    @Headers(CABECALHO_CONVERSA) ficha?: string,
   ) {
     return this.service.pedidosPorTelefoneBot(
       instancia ?? '',
       segredoDaChamada(segredo, secret),
       telefone ?? '',
       phoneNumberId ?? '',
+      ficha,
     );
   }
 }

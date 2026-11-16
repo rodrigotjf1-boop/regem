@@ -131,6 +131,7 @@ import {
   ehChaveDoDirect,
   ehChaveDoMessenger,
   idDaChaveDoMessenger,
+  lerConversa,
 } from '../../common/conversa-do-robo';
 import { cardapioDoChat, chamarAtendenteNoChat, conversaDaChave } from '../ponte-chat/atendente-no-chat';
 import { MessengerService } from '../messenger/messenger.service';
@@ -396,7 +397,7 @@ export class CardapioService {
   // robô no número (robo-pausa.ts) — por isso só com a senha (ERR-320). O chamado vem LIGADO ao pedido do cliente
   // (o número citado, ou o pedido em andamento do mesmo telefone): sem o pedido, o cancelamento pedido pelo robô não
   // podia ser aceito na tela (o aceite cancela pelo id).
-  async abrirAtendimento(token: string, dto: any, segredo: string) {
+  async abrirAtendimento(token: string, dto: any, segredo: string, ficha?: unknown) {
     if (!segredoDoRoboOk(segredo)) throw new UnauthorizedException('Não autorizado.');
     const cfg = await this.resolver(token);
     // A conversa de TESTE do atendente (mig 382): o "telefone" é `teste:<id>` — NÃO abre caso, não pausa, não avisa
@@ -424,7 +425,11 @@ export class CardapioService {
       if (!this.instagram) throw new UnauthorizedException('Conversa do comentário inválida.');
       return this.instagram.comentarios.chamarPeloRobo(cfg.tenantId, dto);
     }
-    const pedido = await this.pedidoDoChamado(cfg.tenantId, dto?.pedidoNumero, dto?.telefone);
+    // O NÚMERO do caso é o da FICHA da conversa quando ela vem (16/11 — o documento do dono, "separação de acesso"): o caso
+    // abre (e cala o robô) no cliente que está falando, nunca num número que a IA escreveu. Sem a ficha, o do corpo.
+    const conversa = lerConversa(ficha);
+    const telefone = conversa && conversa.tenantId === cfg.tenantId ? conversa.telefone : dto?.telefone;
+    const pedido = await this.pedidoDoChamado(cfg.tenantId, dto?.pedidoNumero, telefone);
     // Cliente irritado → `urgente: true` (mig 343): a tela põe na frente, em vermelho. O mesmo cliente com um chamado
     // já aberto não ganha outro: soma ao aberto e só sobe a prioridade (abrirPeloRobo).
     // O resumo do caso (Onda 1, PR 4): motivo, o que o cliente quer e o que o robô já fez — dos campos próprios ou das
@@ -435,7 +440,7 @@ export class CardapioService {
     return this.atendimento.abrirPeloRobo(cfg.tenantId, cfg.unidadeId, {
       tipo: dto?.tipo,
       cliente: dto?.cliente,
-      telefone: dto?.telefone,
+      telefone,
       pedidoNumero: dto?.pedidoNumero || pedido?.numero || undefined,
       pedidoId: pedido?.id,
       mensagem: dto?.mensagem,
