@@ -3210,6 +3210,41 @@ export function testesDoMisterComPostgres(): void {
       }
     });
 
+    // Decisão 4 do protótipo Sentinela e Mentor: o segredo tirado da resposta vira aviso SÓ da distribuição.
+    it('o segredo tirado da resposta vira aviso ao suporte da DMS (só o destino dms, nunca o segredo); a loja não vê; fecha sozinho depois de 24 horas', async () => {
+      const historico = new MisterAvisosHistoricoService(db);
+      const [p] = await q(
+        `insert into mister_pergunta (tenant_id, colaborador_id, nivel, telefone, chave, situacao, ferramentas, conferencia)
+         values ($1, $2, 'presidente', $3, $4, 'respondida', $5::jsonb, '["segredo"]'::jsonb) returning id::text as id`,
+        [A, pessoa.ana, telefone(), `segredo:${MARCA}:${randomUUID()}`, JSON.stringify([{ nome: 'canais_e_integracoes', ok: true, ms: 40 }, { nome: 'resumo_do_dia', ok: false, ms: 9 }])],
+      );
+      try {
+        avisos.incidentes = [];
+        numero.pedidos.length = 0;
+        expect(await avisos.volta([A])).toMatchObject({ abertos: 1 });
+        const [a] = await q(`select * from mister_aviso where tenant_id = $1 and tipo = 'segredo_na_resposta'`, [A]);
+        expect(a).toMatchObject({ situacao: 'aberto', chave: `segredo:${p.id}`, titulo: 'Segredo tirado da resposta do Mister', unidade_id: null });
+        expect(a.detalhe).toContain('(consultas: canais_e_integracoes)');
+        expect(a.entregas.map((e: any) => e.destino)).toEqual(['dms']);
+        // Nada sai por WhatsApp (o destino é só o suporte) e nada aparece na tela da loja.
+        expect(numero.enviadas).toEqual([]);
+        // O Console › Avisos mostra; o Histórico da loja (o presidente), não.
+        const suporte = await historico.paraOSuporte({});
+        expect(suporte.avisos.map((x: any) => x.aviso)).toContain('Segredo tirado da resposta do Mister');
+        const daLoja = await historico.historico(A, { dias: 30 });
+        expect(daLoja.avisos.map((x: any) => x.titulo)).not.toContain('Segredo tirado da resposta do Mister');
+        // A volta seguinte não duplica; depois de 24 horas, fecha sozinho.
+        expect(await avisos.volta([A])).toMatchObject({ abertos: 0 });
+        await q(`update mister_pergunta set criado_em = now() - interval '25 hours' where id = $1`, [p.id]);
+        expect(await avisos.volta([A])).toMatchObject({ resolvidos: 1 });
+        expect((await q(`select situacao from mister_aviso where id = $1`, [a.id]))[0].situacao).toBe('resolvido');
+        // A empresa não desliga: a regra é fixa (a configuração da loja nem tem esse tipo).
+        await expect(avisosConfig.salvar(usuario('ana'), { regras: [{ tipo: 'segredo_na_resposta', ligado: false, destinos: [], escalaMin: null, escalaPara: [] }] })).rejects.toThrow();
+      } finally {
+        await q(`delete from mister_pergunta where id = $1`, [p.id]);
+      }
+    });
+
     // ───────────────────────────── as propostas (F4.1, mig 428) ─────────────────────────────
 
     const notaSemResposta = (numeroDaNota: number) =>

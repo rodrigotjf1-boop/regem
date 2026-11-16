@@ -651,6 +651,17 @@ Os dois papéis do prompt do dono que faltavam na F5, na parte 1: sem IA, só le
   - o "o que melhorar" e a API antiga sem quebrar;
   - as 16 larguras com a Segurança carregada.
 
+**F5.4, parte 2a (16/11/2026, sem migration): o segredo tirado vira aviso ao suporte da DMS** (decisão 4 do protótipo
+aprovado).
+- **O aviso:** um tipo SÓ DA DISTRIBUIÇÃO, `segredo_na_resposta`, com a regra fixa em `AVISOS_DA_DISTRIBUICAO` (destino
+  `dms`), fora de `TIPOS_DE_AVISO`. A loja não o configura nem o desliga.
+- **A fonte:** está na volta dos avisos. São as perguntas das últimas 24 horas com a nota `segredo` em `conferencia`,
+  uma por pergunta (`segredo:<id>`). O aviso fecha sozinho quando passa das 24 horas.
+- **Onde aparece:** no Console › Avisos, pela entrega `dms`. O Histórico da loja exclui esse tipo, e a tela da loja só
+  mostra o destino `tela`. O aviso leva a hora e as consultas, nunca o segredo.
+- **Ainda na parte 2:** a IA sobre os eventos, as decisões do Mentor ("virou tarefa", "não se aplica", com migration) e
+  as versões candidatas das instruções. Essas três pedem tela, então pedem protótipo antes.
+
 ### F2.5 — O suporte de uso: o guia "como faço…" (sem migration)
 
 Decisão do dono de 14/11/2026 ("use o recomendado"): o suporte de uso nasce de um **guia curto das telas principais, escrito por nós** a partir das telas de verdade. Não havia documentação de uso no repositório (o Bot de Suporte guarda as regras de cada loja, não o uso do Regem).

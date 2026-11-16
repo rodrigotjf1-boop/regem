@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
+- **Mister — o segredo tirado da resposta vira aviso ao suporte da DMS (16/11, decisão 4 do protótipo
+  `mockups/regem-mister-sentinela-mentor.html` aprovado; SEM migration).** Só NUVEM: um tipo de aviso SÓ DA DISTRIBUIÇÃO
+  (`segredo_na_resposta`, regra fixa com o destino `dms`), aberto por 24 horas para cada pergunta cuja resposta o filtro
+  trocou; aparece em Console › Avisos; a loja não vê (fora do Histórico e da tela) nem configura. Nunca o segredo: a
+  hora e as consultas. Nada a empacotar.
+
 - **Mister — F4.3, a pergunta que vira proposta (16/11, `docs/plano-mister.md`; SEM migration).** Só NUVEM: a 19ª
   ferramenta da IA, `propor_procedimento`, propõe (nunca executa) um procedimento do catálogo para um aviso aberto no
   escopo da pessoa — o servidor acha o aviso, a IA não vê id; só o presidente; a proposta sai depois da resposta com os
