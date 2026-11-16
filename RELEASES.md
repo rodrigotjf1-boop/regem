@@ -20,6 +20,11 @@
   - A manutenção pendente há 15 dias roda só na nuvem, com o aviso de gestão da loja do pedido. Antes tocava no KDS de
     outra loja.
   - **Na loja, só com o `.zip`:** sem ele, o servidor da loja segue zerando a foto que é da nuvem.
+  - **O alerta de estoque (ponto de pedido e validades) de cada loja nasce num lado só:** o servidor da loja calcula só a
+    loja dele (`EDGE_UNIDADE_ID`), e a nuvem só as lojas sem servidor ligado. Antes os dois lados abriam o mesmo alerta, e o
+    segundo esbarrava no índice do sync.
+    - Na nuvem já vale.
+    - Na loja, só com o `.zip`: até lá, a loja com servidor ligado calcula sozinha, como deve.
 
 - **Vagas — o aviso ao banco de talentos pelo NÚMERO DE MARKETING, a fila (16/11, F4b parte 2 do protótipo
   `mockups/regem-vagas-talentos.html` aprovado; mig 438 `@cloud-only` — tabela nova `vaga_aviso`, com `tenant_id`: entra
