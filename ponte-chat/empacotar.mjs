@@ -7,7 +7,9 @@
 // programa instalado. Saída: <repo>/regem-ponte-dist/ — FORA do regem-edge-dist, que também vira o .zip de atualização
 // (a ponte tem ~250 MB e só vai no .exe, e só quando a pessoa escolhe instalá-la).
 //
-// Uso (na raiz do repositório): node ponte-chat/empacotar.mjs   — antes, `npm ci` em ponte-chat (baixa o Electron).
+// Uso (na raiz do repositório): node ponte-chat/empacotar.mjs   — antes, `npm ci` em ponte-chat (traz o pacote do
+// Electron; o binário, este script baixa se faltar — ERR-478).
+import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,7 +24,16 @@ function falhar(m) {
 }
 
 const electron = join(PONTE, 'node_modules', 'electron', 'dist');
-if (!existsSync(join(electron, 'electron.exe'))) falhar(`falta o Electron em ${electron} — rode "npm ci" dentro de ponte-chat.`);
+const instalador = join(PONTE, 'node_modules', 'electron', 'install.js');
+if (!existsSync(instalador)) falhar(`falta o pacote do Electron — rode "npm ci" dentro de ponte-chat.`);
+// ERR-478: o Electron 45 não baixa mais o binário no `npm install` (o pacote não tem `postinstall`; baixa na 1ª vez que
+// roda). Num worktree novo, o `npm ci` deixava o pacote sem o `dist` e o build da release parava aqui. Baixa pelo
+// instalador do próprio pacote (a versão travada no package-lock, com a conferência de checksums dele; usa o cache).
+if (!existsSync(join(electron, 'electron.exe'))) {
+  console.log('ponte: baixando o binário do Electron (node_modules/electron/install.js)…');
+  const r = spawnSync(process.execPath, [instalador], { cwd: join(PONTE, 'node_modules', 'electron'), stdio: 'inherit' });
+  if (r.status !== 0 || !existsSync(join(electron, 'electron.exe'))) falhar(`o download do Electron falhou (saída ${r.status}) — sem internet? Confira e rode de novo.`);
+}
 const pkg = JSON.parse(readFileSync(join(PONTE, 'package.json'), 'utf8'));
 
 rmSync(SAIDA, { recursive: true, force: true });
