@@ -174,6 +174,41 @@ export interface PessoaNaConducao {
 }
 export interface ConducaoDosAprovados { pessoas: PessoaNaConducao[]; porMes: number; porDia: number; somadas: number; foraDaSoma: number }
 
+/** F5a — "De onde vêm as fichas" (`GET /vagas/aberturas`, `origensDasFichas` no servidor). */
+export interface OrigemDasFichas { origem: string; nome: string; tipo: 'qr' | 'robo' | 'link'; aberturas: number; fichas: number }
+export interface AberturasDaPagina {
+  dias: number;
+  desde: string;
+  /** O primeiro dia com abertura gravada (a contagem começou com a mig 430); null = nenhuma ainda. */
+  contandoDesde: string | null;
+  totais: { aberturas: number; fichas: number };
+  origens: OrigemDasFichas[];
+}
+
+/** "Viraram ficha": fichas ÷ aberturas, em %; sem abertura, null (a tela mostra "—", nunca 0% nem infinito). */
+export function taxaDeFicha(aberturas: number, fichas: number): number | null {
+  if (!aberturas) return null;
+  return Math.min(100, Math.round((fichas * 100) / aberturas));
+}
+
+// F5a — a abertura da página pública conta uma vez por aparelho por dia (decisão 7 do protótipo): um cookie só com o DIA,
+// por página. Sem nada da pessoa. Cookie bloqueado: conta de novo — preferível a não contar.
+const nomeDoCookie = (codigo: string) => `rgm_vaga_${String(codigo).replace(/[^a-z0-9-]/gi, '')}`;
+export function aberturaJaContada(codigo: string, dia: string): boolean {
+  try {
+    return document.cookie.split(';').some((c) => c.trim() === `${nomeDoCookie(codigo)}=${dia}`);
+  } catch {
+    return false;
+  }
+}
+export function marcarAberturaContada(codigo: string, dia: string): void {
+  try {
+    document.cookie = `${nomeDoCookie(codigo)}=${dia}; max-age=${2 * 24 * 60 * 60}; path=/; SameSite=Lax`;
+  } catch {
+    /* sem cookie: a próxima abertura conta de novo */
+  }
+}
+
 const digitos = (v: string) => String(v ?? '').replace(/\D/g, '');
 /** Sem o 55 do país (mesma regra do servidor, `telefoneCadastro`). */
 export function telefoneSem55(v: string): string {

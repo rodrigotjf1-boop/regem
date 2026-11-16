@@ -13,6 +13,8 @@ import {
   lerOrigem,
   lerPagina,
   lerSituacao,
+  origemQueConta,
+  origensDasFichas,
   paginaDaLinha,
   paginaPadrao,
   slug,
@@ -21,6 +23,37 @@ import {
 import { fichaValida } from './vagas-exemplo-spec';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+describe('vagas · de onde vêm as fichas (F5a)', () => {
+  const qrs = new Set(['salao', 'balcao']);
+  it('a origem que conta: um QR da loja ou um canal do robô; o resto vira "sem origem"', () => {
+    expect(origemQueConta('salao', qrs)).toBe('salao');
+    expect(origemQueConta(' Balcao ', qrs)).toBe('balcao');
+    expect(origemQueConta('whatsapp', qrs)).toBe('whatsapp');
+    expect(origemQueConta('direct', new Set())).toBe('direct');
+    expect(origemQueConta('fachada', qrs)).toBe(''); // QR apagado ou inventado
+    expect(origemQueConta('<script>', qrs)).toBe('');
+    expect(origemQueConta(null, qrs)).toBe('');
+    expect(origemQueConta('', qrs)).toBe('');
+  });
+  it('junta aberturas e fichas por origem: todo QR aparece, o robô e o sem origem só com número; ordem por fichas', () => {
+    const r = origensDasFichas(
+      [{ codigo: 'salao', nome: 'Salão' }, { codigo: 'balcao', nome: 'Balcão' }, { codigo: 'fachada', nome: 'Fachada' }],
+      [{ origem: 'salao', n: 64 }, { origem: 'balcao', n: 180 }, { origem: 'whatsapp', n: 38 }, { origem: '', n: 8 }, { origem: 'apagado', n: 2 }],
+      [{ origem: 'balcao', n: 21 }, { origem: 'salao', n: 5 }, { origem: 'whatsapp', n: 4 }, { origem: null, n: 1 }, { origem: 'apagado', n: 1 }],
+    );
+    expect(r).toEqual([
+      { origem: 'balcao', nome: 'Balcão', tipo: 'qr', aberturas: 180, fichas: 21 },
+      { origem: 'salao', nome: 'Salão', tipo: 'qr', aberturas: 64, fichas: 5 },
+      { origem: 'whatsapp', nome: 'Robô no WhatsApp', tipo: 'robo', aberturas: 38, fichas: 4 },
+      // o "apagado" (QR que não existe mais) soma no link sem origem: 8 + 2 aberturas, 1 + 1 fichas
+      { origem: '', nome: 'Link sem origem', tipo: 'link', aberturas: 10, fichas: 2 },
+      { origem: 'fachada', nome: 'Fachada', tipo: 'qr', aberturas: 0, fichas: 0 },
+    ]);
+    // Sem nada: só os QR, zerados (o direct e o sem origem não aparecem).
+    expect(origensDasFichas([{ codigo: 'salao', nome: 'Salão' }], [], [])).toEqual([{ origem: 'salao', nome: 'Salão', tipo: 'qr', aberturas: 0, fichas: 0 }]);
+  });
+});
 
 describe('vagas · a condução dos aprovados (F5b)', () => {
   const base = { valorIda: 4.7, valorVolta: 18, tipoVaga: 'fixa', escala: '12x36', dias: [] as string[] };
