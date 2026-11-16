@@ -916,6 +916,7 @@ export class FiscalService {
    * tem como resolvê-las. O recorte é a ORIGEM da série (`fiscal_serie`), então um lado nunca
    * mexe na pendência do outro.
    */
+  // ONDE RODA: nos DOIS lados, de propósito (ERR-075) — cada lado resolve só as notas da série DELE (`origemEmissao`).
   @Cron('*/5 * * * *')
   async reconciliarPendentes(limite = 20) {
     const origem = this.origemEmissao();
@@ -1070,6 +1071,7 @@ export class FiscalService {
    * valor da operação** no RJ (RICMS, art. 62-C, III), e transmitir fora do prazo, 100 UFIR-RJ
    * por obrigação (XIII). O prazo é o fim do primeiro dia útil subsequente à EMISSÃO.
    */
+  // ONDE RODA: nos DOIS lados, de propósito (ERR-075) — cada ponto de emissão transmite a contingência que ELE emitiu.
   @Cron('*/5 * * * *')
   async rodarContingencia(limite = 20) {
     if (this.contingenciaRodando) return { verificados: 0, transmitidas: 0, emAndamento: true };
@@ -2763,6 +2765,7 @@ export class FiscalService {
    * prazo do cancelamento comum é de 30 minutos da autorização — um job de 5 minutos gastaria um
    * sexto dele esperando. Roda na loja e na nuvem, cada uma com as notas da própria série.
    */
+  // ONDE RODA: nos DOIS lados, de propósito (ERR-075) — cada lado com as notas da própria série.
   @Cron('*/2 * * * *')
   async rodarCancelamentosAgendados() {
     try {

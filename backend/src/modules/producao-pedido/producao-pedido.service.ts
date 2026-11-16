@@ -2295,6 +2295,7 @@ export class ProducaoPedidoService {
   // EDGE — cada um limpa a SUA fila local (impressao_job é por-banco). Mantém 'impresso' 3 dias
   // (histórico do painel), 'erro' e 'descartado' (fila antiga, mig 326) 14 dias (diagnóstico) e
   // órfãos 'pendente'/'enviando' 2 dias.
+  // ONDE RODA: nos DOIS lados (ERR-075) — a fila de impressão é de cada banco; cada um limpa a sua.
   @Cron('17 4 * * *')
   async expurgarFilaImpressao() {
     try {
