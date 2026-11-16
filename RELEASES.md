@@ -43,6 +43,11 @@
   - Gerente não exclui mais presidente nem outro gerente; ninguém exclui o próprio cadastro.
   - Nada no `.exe`.
 
+- **O envio a endereço informado pela loja conecta no IP conferido (16/11, avaliação de segurança, achado A-05; SEM
+  migration) → vai no `.zip`.** O webhook do robô de WhatsApp (o código do cliente e os avisos do pedido), o "Testar
+  webhook", o aviso ao contador, a base do Open Delivery e as imagens buscadas de fora deixam de resolver o nome duas
+  vezes: a conexão vai ao endereço que a trava conferiu. Para a loja nada muda na tela. Nada no `.exe`.
+
 - **Dependências com falha conhecida, as que não mudam de versão maior (16/11, avaliação interna; SEM migration; só
   `package.json` e `package-lock.json` dos dois lados) → vai no `.zip`** (o pacote leva o `node_modules.tar` e o
   `web.tar`). Backend: `proxy-addr` 2.0.8, `node-forge` 1.4.3, `engine.io` 6.6.11, `socket.io-parser` 4.2.7, `qs` 6.14.3 e,

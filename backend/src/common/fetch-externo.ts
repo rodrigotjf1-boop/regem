@@ -16,11 +16,13 @@ export async function fetchExterno(
   url: string,
   opts: RequestInit = {},
   timeoutMs: number = FETCH_EXTERNO_TIMEOUT_MS,
+  // Quem chama um endereço que a LOJA informou passa o envio preso ao IP conferido (`fetchNoIpConferido`, A-05).
+  buscar: (url: string, init: any) => Promise<Response> = (u, i) => fetch(u, i),
 ): Promise<Response> {
   const anotar = observando();
   const inicio = anotar ? Date.now() : 0;
   try {
-    const res = await fetch(url, { ...opts, signal: opts.signal ?? AbortSignal.timeout(timeoutMs) });
+    const res = await buscar(url, { ...opts, signal: opts.signal ?? AbortSignal.timeout(timeoutMs) });
     if (anotar) anotarResposta(opts.method, url, res, Date.now() - inicio);
     return res;
   } catch (e) {
