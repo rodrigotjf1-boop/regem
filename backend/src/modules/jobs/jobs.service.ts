@@ -11,6 +11,7 @@ import { PedidoManutencaoService } from '../pedido-manutencao/pedido-manutencao.
 import { EtiquetaValidadeService } from '../etiqueta-validade/etiqueta-validade.service';
 import { PontoService, competenciaMesAnterior } from '../ponto/ponto.service';
 import { ehServidorLocal } from '../../common/modo';
+import { edgeAtivo } from '../../common/edge-ativo';
 import { PREFIXO_DA_MIDIA_LOCAL, esteLadoApaga, padraoDasFotosDoLado } from './expurgo-de-fotos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -108,7 +109,7 @@ export class JobsService {
    * `soEmpresas`: só para o teste — a rotina passa por todas, e no CI as specs dividem o banco (V32). Nunca lança.
    */
   async expurgarTelemetria(soEmpresas?: string[]): Promise<number> {
-    const empresas = soEmpresas?.length ? sql`and tenant_id in (${sql.join(soEmpresas.map((t) => sql`${t}::uuid`), sql`, `)})` : sql``;
+    const empresas = this.soAs(soEmpresas);
     try {
       const r: any = await this.db.execute(
         sql`delete from telemetria_evento where ultimo_em < now() - make_interval(days => ${JobsService.TELEMETRIA_RETENCAO_DIAS}) ${empresas}`,
@@ -212,6 +213,26 @@ export class JobsService {
     return ids.length > 1 ? ids : [null];
   }
 
+  /**
+   * As lojas cujo alerta de estoque ESTE lado calcula (ERR-075; o mesmo desenho dos esgotados do cardápio). O alerta vai e
+   * volta pelo sync com id aleatório e um aberto por (empresa, loja, tipo): se os DOIS lados abrem o mesmo, o segundo a
+   * chegar esbarra no índice (23505) e os lados divergem. Então cada loja tem UM lado:
+   *  • no servidor da loja, só a loja dele (`EDGE_UNIDADE_ID`) — as outras lojas da rede ele nem tem o movimento para
+   *    calcular; servidor antigo sem a variável: todas, como antes;
+   *  • na nuvem, só as lojas SEM servidor ligado agora (`edgeAtivo`): a do servidor ligado é ele que calcula e toca no KDS
+   *    dela (o aviso da nuvem não chega às telas ligadas ao servidor da loja).
+   */
+  async alvosDesteLado(tenantId: string, todos?: (string | null)[]): Promise<(string | null)[]> {
+    const alvos = todos ?? (await this.alvosDeAlerta(tenantId));
+    if (ehServidorLocal()) {
+      const loja = (process.env.EDGE_UNIDADE_ID || '').trim();
+      return loja && alvos[0] !== null ? alvos.filter((a) => a === loja) : alvos;
+    }
+    const fica: (string | null)[] = [];
+    for (const a of alvos) if (!(await edgeAtivo(this.db, tenantId, a))) fica.push(a);
+    return fica;
+  }
+
   private async tenantsAtivos(): Promise<string[]> {
     const r: any = await this.db.execute(
       sql`select id from empresa where deleted_at is null`,
@@ -229,8 +250,15 @@ export class JobsService {
   private padraoDasFotos(): string {
     return padraoDasFotosDoLado(ehServidorLocal(), !!(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY));
   }
+  // `soEmpresas` só vale como LISTA: o `@Cron` chama o método com o que a biblioteca `cron` passar (hoje, o `onComplete`
+  // indefinido) — nunca confiar que o primeiro argumento é o do teste.
   private soAs(soEmpresas?: string[]) {
-    return soEmpresas?.length ? sql`and tenant_id in (${sql.join(soEmpresas.map((t) => sql`${t}::uuid`), sql`, `)})` : sql``;
+    return Array.isArray(soEmpresas) && soEmpresas.length
+      ? sql`and tenant_id in (${sql.join(soEmpresas.map((t) => sql`${t}::uuid`), sql`, `)})`
+      : sql``;
+  }
+  private async empresas(soEmpresas?: string[]): Promise<string[]> {
+    return Array.isArray(soEmpresas) && soEmpresas.length ? soEmpresas : this.tenantsAtivos();
   }
   /** Tamanho da página do expurgo (o teste diminui para provar a passagem de página). */
   pagina = 500;
@@ -361,22 +389,21 @@ export class JobsService {
   }
 
   // §1.4 — Ponto de pedido: alerta os itens no/abaixo do ROP (por tenant, em tempo real).
-  // ONDE RODA: nos DOIS lados, por ora (ERR-075) — o aviso que toca no KDS da loja precisa sair DELA. ⚠️ Risco conhecido: o
-  // `alerta_estoque` nasce com id aleatório; se os dois lados abrem o mesmo alerta antes de trocar dados, o envio esbarra no
-  // índice único (23505) e os lados divergem. A correção é o id da chave do alerta (V42).
+  // ONDE RODA: nos DOIS lados, cada LOJA num só (ERR-075, `alvosDesteLado`): o servidor da loja a dele; a nuvem as lojas sem
+  // servidor ligado. Assim o mesmo alerta não nasce dos dois lados (23505 no sync) e o aviso toca no KDS que a loja usa.
   @Cron('0 6 * * *') // 06:00
-  async pontoDePedido() {
+  async pontoDePedido(soEmpresas?: string[]) {
     // Fuso da operação (common/data). `toISOString()` dava o dia certo só porque o job
     // roda às 06:00; era a mesma armadilha das seis cópias de `hojeISO`.
     const hoje = hojeISO();
     const ini = dataNoFuso(new Date(Date.now() - 27 * 86400000)); // janela 28d
-    for (const tenantId of await this.tenantsAtivos()) {
+    for (const tenantId of await this.empresas(soEmpresas)) {
       const alvos = await this.alvosDeAlerta(tenantId);
       // Virou multi-loja: o alerta antigo, de unidade nula e calculado sobre todas as
       // lojas, é substituído pelos por loja — senão ficaria aberto para sempre.
       if (alvos[0] !== null) await this.estoque.resolverAlertasSistema(tenantId, 'ponto_pedido', null);
 
-      for (const unidadeId of alvos) {
+      for (const unidadeId of await this.alvosDesteLado(tenantId, alvos)) {
         const { itens } = await this.estoque.inteligencia(tenantId, ini, hoje, true, unidadeId);
         const repor = itens.filter((i: any) => i.repor);
         if (!repor.length) {
@@ -436,14 +463,14 @@ export class JobsService {
   }
 
   // §1.6 — Validades FEFO: alerta lotes vencidos/vencendo (≤2d crítico) por tenant.
-  // ONDE RODA: nos DOIS lados, por ora (ERR-075) — o mesmo do ponto de pedido acima (o mesmo `alerta_estoque`, o mesmo risco).
+  // ONDE RODA: como o ponto de pedido acima — cada LOJA num lado só (`alvosDesteLado`, o mesmo `alerta_estoque`).
   @Cron('10 6 * * *') // 06:10
-  async validadesFefo() {
-    for (const tenantId of await this.tenantsAtivos()) {
+  async validadesFefo(soEmpresas?: string[]) {
+    for (const tenantId of await this.empresas(soEmpresas)) {
       const alvos = await this.alvosDeAlerta(tenantId);
       if (alvos[0] !== null) await this.estoque.resolverAlertasSistema(tenantId, 'validade', null);
 
-      for (const unidadeId of alvos) {
+      for (const unidadeId of await this.alvosDesteLado(tenantId, alvos)) {
         const lotes = await this.estoque.validades(tenantId, unidadeId);
         const criticos = lotes.filter(
           (l: any) => l.status === 'vencido' || l.status === 'critico',
