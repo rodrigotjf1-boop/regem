@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Regem — Autorizar com o PIN pelo Mister (protótipo)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* PROTÓTIPO — F4.2 do docs/plano-mister.md, "O link com PIN" (a conversa 6 do mockups/regem-mister.html, aprovado em
+   13/11/2026, desenha a conversa; falta a PÁGINA do Regem que o link abre). O que mexe com dinheiro, cancelamento ou
+   configuração não se autoriza por botão: o Mister manda um link que abre esta página, que mostra o que vai acontecer e
+   pede o PIN. Primeiro procedimento: cancelar um pedido com o estorno, pelo MESMO serviço do painel do Delivery.
+   Três vistas: (1) a página no celular, em cada estado; (2) a conversa antes e depois; (3) notas, fases e decisões.
+   Dados inventados; nada aqui fala com o Regem. */
+*{box-sizing:border-box}
+html,body{margin:0}
+:root{--bg:#EDF0F4;--card:#FFFFFF;--ink:#0F2230;--ink-2:#43586C;--line:#DEE5EC;--line-2:#C8D2DC;--gold:#E2A340;--on-gold:#281B06;
+  --gold-ink:#8A5A0B;--gold-bg:#FDF3E1;--navy:#0F2230;--ok:#0E7C66;--ok-bg:#E3F4EF;--crit:#B93232;--crit-bg:#FBE9E9;
+  --warn:#9A4B1C;--warn-bg:#FCEDE4;--wa:#075E54;--wa-fundo:#ECE5DD;--wa-meu:#DCF8C6;--wa-dele:#FFFFFF;
+  --display:'Archivo',sans-serif;--mono:'JetBrains Mono',monospace}
+body{font-family:'Figtree',sans-serif;font-size:15px;line-height:1.45;background:var(--bg);color:var(--ink)}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+[hidden]{display:none!important}
+:focus-visible{outline:3px solid #2F7BD0;outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.mono{font-family:var(--mono)}
+h1,h2,h3{font-family:var(--display);line-height:1.2;margin:0}
+.sub{color:var(--ink-2);font-size:13.5px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+.proto-barra{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 14px;padding:8px 14px;background:#0A1822;color:#fff}
+.proto-tit{font-family:var(--display);font-weight:700;font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--gold)}
+.proto-troca{display:flex;flex-wrap:wrap;gap:6px}
+.proto-troca button{min-height:36px;padding:0 12px;border-radius:9px;border:1px solid rgba(255,255,255,.25);background:transparent;color:#fff;font-weight:600;font-size:14px}
+.proto-troca button[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+
+main{padding:18px 16px 40px;max-width:1100px;margin:0 auto}
+.intro{max-width:80ch;margin:0 0 14px}
+.estados{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px}
+.estados .rot{width:100%;font:700 11.5px var(--display);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2)}
+.chip{min-height:36px;padding:0 12px;border-radius:999px;border:1px solid var(--line-2);background:var(--card);font-weight:600;font-size:14px}
+.chip[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+
+/* a página do Regem que o link abre: celular primeiro, isolada (sem menu do resto do Regem) */
+.palco{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:18px;align-items:start}
+.cel{width:100%;max-width:400px;margin:0 auto;background:#F7F9FB;border:1px solid var(--line-2);border-radius:22px;overflow:hidden;box-shadow:0 10px 30px rgba(15,34,48,.12)}
+.cel-topo{display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--navy);color:#fff}
+.marca{width:30px;height:30px;border-radius:50%;border:2px solid var(--gold);display:grid;place-items:center;font:800 12px var(--display);color:var(--gold);flex:none}
+.cel-topo b{font-family:var(--display);font-size:15px}
+.cel-topo span{display:block;font-size:12px;color:#B8C7D4}
+.pag{padding:16px;display:grid;gap:12px}
+.caixa{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;min-width:0}
+.caixa h2{font-size:17px;margin-bottom:4px}
+.pedido{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 12px;align-items:baseline}
+.valor{font:700 20px var(--mono)}
+.lista{margin:8px 0 0;padding:0;list-style:none;display:grid;gap:6px}
+.lista li{display:grid;grid-template-columns:22px minmax(0,1fr);gap:6px;font-size:14px}
+.lista li i{font-style:normal}
+.prazo{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:13.5px;color:var(--warn);background:var(--warn-bg);border-radius:10px;padding:8px 10px}
+.pin-rot{display:block;font-weight:700;margin-bottom:6px}
+.pin{display:flex;gap:8px;flex-wrap:nowrap}
+.pin input{flex:1 1 0;min-width:0;max-width:56px;height:56px;border:1.5px solid var(--line-2);border-radius:12px;text-align:center;font:700 24px var(--mono);background:#fff;-webkit-text-security:disc}
+.pin input:focus{border-color:var(--gold);outline:none;box-shadow:0 0 0 3px rgba(226,163,64,.35)}
+.erro{color:var(--crit);font-size:14px;margin:6px 0 0;font-weight:600}
+.btns{display:grid;gap:8px}
+.bt{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:48px;padding:0 16px;border-radius:12px;border:1px solid var(--line-2);background:#fff;font-weight:700;font-size:15px}
+.bt.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.bt[disabled]{opacity:.55;cursor:not-allowed}
+.estado{border-radius:14px;padding:14px;display:grid;gap:6px}
+.estado h2{font-size:17px}
+.estado.ok{background:var(--ok-bg);border:1px solid #9FD6C7}
+.estado.ok h2{color:var(--ok)}
+.estado.crit{background:var(--crit-bg);border:1px solid #F0B9B9}
+.estado.crit h2{color:var(--crit)}
+.estado.neutro{background:var(--card);border:1px solid var(--line)}
+.rodape{font-size:12.5px;color:var(--ink-2);text-align:center}
+.girando{width:34px;height:34px;border-radius:50%;border:4px solid var(--line);border-top-color:var(--gold);animation:gira 1s linear infinite;margin:6px auto}
+@keyframes gira{to{transform:rotate(360deg)}}
+.anota{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;min-width:0}
+.anota h3{font-size:15px;margin-bottom:6px}
+.anota ul{margin:0;padding-left:18px;display:grid;gap:4px;font-size:14px}
+
+/* WhatsApp */
+.conversas{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:18px}
+.caso h3{font-size:16px}
+.wa{max-width:400px;margin:8px auto 0;border-radius:18px;overflow:hidden;border:1px solid var(--line-2)}
+.wa-topo{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--wa);color:#fff}
+.wa-topo b{font-size:15px}
+.wa-topo span{display:block;font-size:12px;opacity:.85}
+.bolhas{background:var(--wa-fundo);padding:12px;display:grid;gap:8px}
+.bolha{max-width:88%;padding:8px 10px 18px;border-radius:10px;position:relative;font-size:14.5px;background:var(--wa-dele);overflow-wrap:anywhere}
+.bolha.meu{justify-self:end;background:var(--wa-meu)}
+.bolha .hora{position:absolute;right:8px;bottom:3px;font-size:11px;color:#667781}
+.bolha .link{display:block;margin-top:8px;padding:8px;border-top:1px solid #E4E4E4;text-align:center;color:#027EB5;font-weight:700}
+
+/* notas */
+.notas h2{font-size:19px;margin:18px 0 6px}
+.notas ol,.notas ul{padding-left:20px;display:grid;gap:6px;max-width:90ch}
+.fases{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px}
+.fase{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;min-width:0}
+.tag{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:700;background:var(--gold-bg);color:var(--gold-ink)}
+.tag.warn{background:var(--warn-bg);color:var(--warn)}
+.toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:10px 14px;border-radius:10px;max-width:min(92vw,520px);z-index:10}
+</style>
+</head>
+<body>
+<div class="proto-barra">
+  <span class="proto-tit">Protótipo · Mister · F4.2 — autorizar com o PIN</span>
+  <div class="proto-troca" role="group" aria-label="Vista">
+    <button type="button" data-vista="pagina" aria-pressed="true">A página do PIN</button>
+    <button type="button" data-vista="conversa" aria-pressed="false">Na conversa</button>
+    <button type="button" data-vista="notas" aria-pressed="false">Notas e decisões</button>
+  </div>
+</div>
+
+<main>
+  <!-- ===================== A PÁGINA ===================== -->
+  <section data-painel="pagina">
+    <p class="intro sub">O link da conversa abre esta página do Regem. Ela é só desta autorização: não tem o menu nem o resto do Regem. Mostra o que vai acontecer e pede o PIN de quem recebeu o pedido. Escolha o estado para ver cada tela.</p>
+    <div class="estados" role="group" aria-label="Estado da página">
+      <span class="rot">Estado (só no protótipo)</span>
+      <button type="button" class="chip" data-estado="proposta" aria-pressed="true">Pede o PIN</button>
+      <button type="button" class="chip" data-estado="errado" aria-pressed="false">PIN errado</button>
+      <button type="button" class="chip" data-estado="fazendo" aria-pressed="false">Fazendo</button>
+      <button type="button" class="chip" data-estado="feito" aria-pressed="false">Feito</button>
+      <button type="button" class="chip" data-estado="naodeu" aria-pressed="false">Não deu</button>
+      <button type="button" class="chip" data-estado="recusou" aria-pressed="false">Não autorizou</button>
+      <button type="button" class="chip" data-estado="venceu" aria-pressed="false">Venceu</button>
+      <button type="button" class="chip" data-estado="respondida" aria-pressed="false">Já respondida</button>
+      <button type="button" class="chip" data-estado="bloqueado" aria-pressed="false">Bloqueado</button>
+    </div>
+    <div class="palco">
+      <div class="cel" aria-label="A página no celular">
+        <div class="cel-topo"><span class="marca" aria-hidden="true">R</span><div><b>Mister</b><span>Autorização no Regem · Burger da Praça</span></div></div>
+        <div class="pag" id="pag"></div>
+      </div>
+      <div class="anota" id="anota"></div>
+    </div>
+  </section>
+
+  <!-- ===================== A CONVERSA ===================== -->
+  <section data-painel="conversa" hidden>
+    <p class="intro sub">A conversa 6 do protótipo aprovado, até o fim: o link vai no lugar do botão, e o resultado volta pela conversa. O PIN nunca é digitado aqui.</p>
+    <div class="conversas">
+      <article class="caso"><h3>1. A proposta com o link</h3><p class="sub">Dinheiro, cancelamento e configuração: a autorização é no Regem.</p>
+        <div class="wa"><div class="wa-topo"><div><b>Mister</b><span>Regem</span></div></div><div class="bolhas">
+          <div class="bolha">O cliente do pedido <b>5120</b> (iFood) pediu o cancelamento: <b>R$ 132,90</b>, Pix já pago. Isso devolve dinheiro, então a autorização é no Regem, com o seu PIN. O pedido vale até 21:17.<a class="link" href="#" data-toast="Abre a página do PIN (vista 1).">Abrir no Regem</a><span class="hora">21:02</span></div>
+          <div class="bolha meu">pode cancelar<span class="hora">21:03</span></div>
+          <div class="bolha">Por aqui eu não consigo, Ana: é o tipo de coisa que pede o seu PIN. Toque em "Abrir no Regem". O pedido vale até 21:17.<span class="hora">21:03</span></div>
+        </div></div></article>
+      <article class="caso"><h3>2. Autorizado e conferido</h3><p class="sub">O "feito" só sai com o efeito conferido.</p>
+        <div class="wa"><div class="wa-topo"><div><b>Mister</b><span>Regem</span></div></div><div class="bolhas">
+          <div class="bolha">Feito às 21:05: o pedido 5120 foi cancelado no Regem e no iFood, e o estorno de <b>R$ 132,90</b> foi pedido ao Mercado Pago (cai na conta do cliente em até 1 dia útil). Autorizado por você, com o PIN.<span class="hora">21:05</span></div>
+        </div></div></article>
+      <article class="caso"><h3>3. Não deu</h3><p class="sub">Nada pela metade: se o canal recusa, nada é devolvido.</p>
+        <div class="wa"><div class="wa-topo"><div><b>Mister</b><span>Regem</span></div></div><div class="bolhas">
+          <div class="bolha">Não deu: o iFood recusou o cancelamento do pedido 5120 (ele já saiu para entrega). Nada foi devolvido. Para cancelar agora, use Delivery › Pedidos, no pedido 5120.<span class="hora">21:05</span></div>
+        </div></div></article>
+      <article class="caso"><h3>4. Ninguém autorizou</h3><p class="sub">Venceu: nada acontece, e a pessoa fica sabendo.</p>
+        <div class="wa"><div class="wa-topo"><div><b>Mister</b><span>Regem</span></div></div><div class="bolhas">
+          <div class="bolha">O pedido de autorização do cancelamento do pedido 5120 venceu às 21:17 sem resposta. Nada foi feito. Se ainda precisar, é só me pedir de novo.<span class="hora">21:17</span></div>
+        </div></div></article>
+    </div>
+  </section>
+
+  <!-- ===================== NOTAS ===================== -->
+  <section class="notas" data-painel="notas" hidden>
+    <h1>Notas e decisões</h1>
+    <p class="sub">A F4.2 do plano do Mister ("O link com PIN"). A F4.1 (o botão, para o que é de baixo impacto) e a F4.3 (a pergunta que vira proposta) já estão no ar. Cada decisão abaixo é a recomendada; a aprovação vale para todas, ou diga qual mudar.</p>
+
+    <h2>Decisões (todas as recomendadas)</h2>
+    <ol>
+      <li><b>O link vale uma vez e pelo prazo da proposta</b> (15 minutos no que mexe com dinheiro). É um código longo e aleatório, só desta proposta e desta pessoa; o Regem guarda só o resumo dele (o "hash"), nunca o link inteiro.</li>
+      <li><b>O PIN é o mesmo que a pessoa já usa no Regem</b> (o do login por PIN e do PDV). A página não pede senha nem login completo: o link mais o PIN de quem recebeu. O PIN nunca é digitado na conversa, e "pode cancelar" escrito recebe a resposta da conversa 6.</li>
+      <li><b>Cinco PIN errados bloqueiam o link</b>; para tentar de novo, a pessoa pede ao Mister outra vez. Cada tentativa errada fica na auditoria (sem o PIN).</li>
+      <li><b>A página é isolada:</b> sem o menu, sem o resto do Regem e sem guardar nada no aparelho. Fechar e abrir de novo, dentro do prazo, volta ao mesmo ponto.</li>
+      <li><b>Só o presidente autoriza</b> (até o perfil de permissões do fim do projeto); o gerente recebe o aviso, sem link.</li>
+      <li><b>Primeiro procedimento: cancelar um pedido com o estorno</b>, pelo MESMO serviço do botão "Cancelar" do painel do Delivery (o canal, o estorno do Pix pelo gateway, a cozinha e a via "CANCELADO"). O "Feito" só sai com o pedido cancelado e o estorno pedido; o canal que recusa vira "Não deu", e nada é devolvido pela metade.</li>
+      <li><b>O que a página mostra:</b> o pedido e o canal, o valor, o que vai acontecer (em itens curtos), quem pediu e o prazo. Nada de dado do cliente além do que o pedido já mostra no painel (o nome curto).</li>
+      <li><b>Auditoria</b> de cada passo, como na F4.1: proposta, link aberto, PIN errado, autorizada, não autorizada, vencida, bloqueada, executada e conferida.</li>
+    </ol>
+
+    <h2>Fases</h2>
+    <div class="fases">
+      <div class="fase"><b>F4.2a — O link e o PIN</b><span class="tag warn">1 migration</span><p class="sub" style="margin:4px 0 0">Duas colunas em <code>mister_proposta</code>: o resumo do código do link e as tentativas de PIN. A página pública <code>/m/&lt;código&gt;</code>, a conferência do PIN no servidor (com limite por link e por endereço), "Autorizar" e "Não autorizar".</p></div>
+      <div class="fase"><b>F4.2b — Cancelar com o estorno</b><span class="tag">sem migration</span><p class="sub" style="margin:4px 0 0">O procedimento no catálogo, com o serviço do painel, a conferência do efeito e as frases da conversa. A IA propõe pela F4.3; o aviso de "cliente pediu cancelamento" pode trazer a proposta.</p></div>
+    </div>
+  </section>
+</main>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>
+(function(){
+'use strict';
+const $=(s,el=document)=>el.querySelector(s);
+const $$=(s,el=document)=>Array.from(el.querySelectorAll(s));
+let toastT;
+function toast(m){const t=$('#toast');t.textContent=m;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>{t.hidden=true},3600);}
+$$('[data-vista]').forEach(b=>b.addEventListener('click',()=>{
+  $$('[data-vista]').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
+  $$('[data-painel]').forEach(p=>{p.hidden=p.dataset.painel!==b.dataset.vista;});
+}));
+document.addEventListener('click',e=>{const t=e.target.closest('[data-toast]');if(t){e.preventDefault();toast(t.dataset.toast);}});
+
+const PROPOSTA=`<div class="caixa"><h2>Cancelar o pedido 5120?</h2>
+  <div class="pedido"><span class="sub">iFood · cliente Mariana S. · pago por Pix</span><span class="valor">R$ 132,90</span></div>
+  <ul class="lista" aria-label="O que vai acontecer">
+    <li><i aria-hidden="true">✕</i><span>O pedido é cancelado no Regem e no iFood.</span></li>
+    <li><i aria-hidden="true">↩</i><span>O estorno de <b>R$ 132,90</b> é pedido ao Mercado Pago (cai em até 1 dia útil).</span></li>
+    <li><i aria-hidden="true">🍳</i><span>A cozinha tira o cartão, e a via "CANCELADO" sai na impressora.</span></li>
+  </ul>
+  <p class="sub" style="margin:8px 0 0">Pedido pelo Mister às 21:02, para Ana (presidente).</p></div>
+  <div class="prazo" role="status"><span aria-hidden="true">⏱</span><span>Vale até <b class="mono">21:17</b> · faltam 13 min</span></div>`;
+const PIN=(erro)=>`<div class="caixa"><label class="pin-rot" id="pin-rot">Digite o seu PIN do Regem</label>
+  <div class="pin" role="group" aria-labelledby="pin-rot">${[1,2,3,4].map(i=>`<input inputmode="numeric" maxlength="1" autocomplete="off" aria-label="Dígito ${i} do PIN">`).join('')}</div>
+  ${erro?`<p class="erro" role="alert">${erro}</p>`:'<p class="sub" style="margin:6px 0 0">O mesmo PIN que você usa para entrar no Regem e no PDV.</p>'}</div>
+  <div class="btns"><button type="button" class="bt pri" data-toast="Confere o PIN no servidor e, se bater, cancela pelo serviço do painel.">Autorizar o cancelamento</button>
+  <button type="button" class="bt" data-toast="Nada é feito; o Mister avisa na conversa.">Não autorizar</button></div>`;
+const RODAPE='<p class="rodape">Esta página é só desta autorização. Nada fica guardado neste aparelho.</p>';
+const EST={
+  proposta:{pag:PROPOSTA+PIN('')+RODAPE,nota:['A página abre direto na proposta: o pedido, o valor e o que vai acontecer, em itens curtos.','Os 4 campos do PIN mostram bolinhas e usam o teclado numérico; nada é preenchido pelo navegador.','"Autorizar" só fica pronto com os 4 dígitos.']},
+  errado:{pag:PROPOSTA+PIN('O PIN não confere. Restam 4 tentativas.')+RODAPE,nota:['O PIN é conferido no servidor; a página nunca sabe o PIN certo.','Cada erro tira uma tentativa; a quinta errada bloqueia o link.','A tentativa errada fica na auditoria (sem o PIN digitado).']},
+  fazendo:{pag:`<div class="estado neutro" role="status"><div class="girando" aria-hidden="true"></div><h2 style="text-align:center">Cancelando o pedido 5120…</h2><p class="sub" style="text-align:center;margin:0">O Regem está cancelando no iFood e pedindo o estorno. Pode fechar: o resultado também chega no WhatsApp.</p></div>`+RODAPE,nota:['O PIN bateu: a proposta vira "autorizada" (uma vez só) e o Regem executa pelo serviço do painel.','Fechar a página não interrompe nada.']},
+  feito:{pag:`<div class="estado ok" role="status"><h2>Feito às 21:05</h2><p style="margin:0">O pedido 5120 foi cancelado no Regem e no iFood, e o estorno de <b>R$ 132,90</b> foi pedido ao Mercado Pago.</p><p class="sub" style="margin:0">O Mister também avisou no WhatsApp. Pode fechar esta página.</p></div>`+RODAPE,nota:['"Feito" só com o efeito conferido: o pedido cancelado e o estorno pedido ao gateway.','O resultado também vai à conversa (vista 2).']},
+  naodeu:{pag:`<div class="estado crit" role="status"><h2>Não deu</h2><p style="margin:0">O iFood recusou o cancelamento: o pedido 5120 já saiu para entrega. <b>Nada foi devolvido.</b></p><p class="sub" style="margin:0">Para resolver agora: Delivery › Pedidos, no pedido 5120.</p></div>`+RODAPE,nota:['Nada pela metade: se o canal recusa, o estorno não é pedido.','A frase diz onde resolver na tela (o caminho conferido no menu).']},
+  recusou:{pag:`<div class="estado neutro" role="status"><h2>Você não autorizou</h2><p style="margin:0">Nada foi feito com o pedido 5120.</p><p class="sub" style="margin:0">Se mudar de ideia, peça de novo ao Mister.</p></div>`+RODAPE,nota:['"Não autorizar" fecha a proposta; o link não serve mais.']},
+  venceu:{pag:`<div class="estado neutro" role="status"><h2>Este pedido de autorização venceu</h2><p style="margin:0">Ele valia até 21:17. Nada foi feito com o pedido 5120.</p><p class="sub" style="margin:0">Se ainda precisar, peça de novo ao Mister.</p></div>`+RODAPE,nota:['Depois do prazo, o link só mostra isto: nem a proposta nem o campo do PIN.']},
+  respondida:{pag:`<div class="estado neutro" role="status"><h2>Este pedido já foi respondido</h2><p style="margin:0">Autorizado às 21:05 por Ana (telefone com final 4821).</p><p class="sub" style="margin:0">O resultado está na conversa com o Mister.</p></div>`+RODAPE,nota:['Abrir o link de novo depois de responder mostra quem respondeu e quando (os 4 últimos dígitos do telefone, nunca o número inteiro).']},
+  bloqueado:{pag:`<div class="estado crit" role="status"><h2>Link bloqueado por segurança</h2><p style="margin:0">O PIN foi digitado errado 5 vezes. Nada foi feito com o pedido 5120.</p><p class="sub" style="margin:0">Para tentar de novo, peça ao Mister outra vez. Se não foi você, avise o suporte.</p></div>`+RODAPE,nota:['Cinco PIN errados bloqueiam o link (e só este link).','O bloqueio fica na auditoria e no Console › Mister › Segurança.']},
+};
+let estado='proposta';
+function desenhar(){
+  const e=EST[estado];
+  $('#pag').innerHTML=e.pag;
+  $('#anota').innerHTML=`<h3>Nesta tela</h3><ul>${e.nota.map(n=>`<li>${n}</li>`).join('')}</ul>`;
+  $$('[data-estado]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.estado===estado)));
+  const campos=$$('.pin input',$('#pag'));
+  campos.forEach((c,i)=>c.addEventListener('input',()=>{c.value=c.value.replace(/\D/g,'').slice(0,1);if(c.value&&campos[i+1])campos[i+1].focus();}));
+}
+$$('[data-estado]').forEach(b=>b.addEventListener('click',()=>{estado=b.dataset.estado;desenhar();}));
+desenhar();
+})();
+</script>
+</body>
+</html>
