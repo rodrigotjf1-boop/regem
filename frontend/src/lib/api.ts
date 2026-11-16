@@ -637,6 +637,12 @@ export const distApi = {
     distReq('/distribuicao/mister/numero/conectar', { method: 'POST', body: JSON.stringify(dto) }),
   misterDesconectar: () => distReq('/distribuicao/mister/numero/desconectar', { method: 'POST', body: '{}' }),
   misterLiberacao: (ligado: boolean) => distReq('/distribuicao/mister/liberacao', { method: 'POST', body: JSON.stringify({ ligado }) }),
+  // A conexão do número do Mister por QR Code (Q2, mig 437): o aceite do risco, o QR, a conferência, a troca de forma.
+  misterQrAceite: (versao: string) => distReq('/distribuicao/mister/qr/aceite', { method: 'POST', body: JSON.stringify({ aceito: true, versao }) }),
+  misterQrGerar: (outroNumero = false, renovar = false) => distReq('/distribuicao/mister/qr/gerar', { method: 'POST', body: JSON.stringify({ outroNumero, renovar }) }),
+  misterQrConferir: () => distReq('/distribuicao/mister/qr/conferir', { method: 'POST', body: '{}' }),
+  misterQrTrocar: (para: 'oficial' | 'qr') => distReq('/distribuicao/mister/qr/trocar', { method: 'POST', body: JSON.stringify({ para }) }),
+  misterQrDesconectar: () => distReq('/distribuicao/mister/qr/desconectar', { method: 'POST', body: '{}' }),
   // Os modelos de mensagem do Mister na Meta (avisos e resumos fora das 24 horas): a situação e o pedido de aprovação.
   misterModelos: () => distReq('/distribuicao/mister/modelos'),
   misterPedirModelos: () => distReq('/distribuicao/mister/modelos/pedir', { method: 'POST', body: '{}' }),

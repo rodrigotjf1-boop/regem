@@ -18,6 +18,7 @@ import { portaoDoGestor } from '../atendimento/gestor-whatsapp-entrada';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { assinarConversa, ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario, ehChaveDoMessenger } from '../../common/conversa-do-robo';
 import { MisterEntradaService } from '../mister/mister-entrada.service';
+import { MisterQrService } from '../mister/mister-qr.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -97,6 +98,8 @@ export class EvolutionEntradaService {
     @Optional() private readonly auditoria?: AuditoriaService,
     // Q1 (mig 436): a instância do Mister no Evolution da distribuição — a mensagem é dele, nunca de uma loja.
     @Optional() private readonly mister?: MisterEntradaService,
+    // Q2 (mig 437): o aviso de conexão da instância do Mister (o celular leu o QR, caiu, foi bloqueado).
+    @Optional() private readonly misterQr?: MisterQrService,
   ) {}
 
   /** Mensagem já vista nesta janela (a Evolution reenvia quando demora)? Marca como vista. */
@@ -134,6 +137,11 @@ export class EvolutionEntradaService {
         return;
       }
       const evento = String(corpo?.event ?? '').toLowerCase().replace(/_/g, '.');
+      // Q2 (mig 437): a conexão da instância do Mister muda a situação no console; a das lojas segue sem tratamento aqui.
+      if (evento === 'connection.update') {
+        if (this.misterQr) await this.misterQr.conexaoDoEvolution(instancia, corpo?.data);
+        return;
+      }
       if (evento !== 'messages.upsert') return;
       const lista = Array.isArray(corpo?.data) ? corpo.data : [corpo?.data];
       for (const data of lista) if (data?.key) await this.mensagem(data, instancia);

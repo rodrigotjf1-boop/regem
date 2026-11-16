@@ -14,6 +14,7 @@ import { MisterInstrucoesService } from './mister-instrucoes.service';
 import { MisterQualidadeService } from './mister-qualidade.service';
 import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
 import { MisterNumeroService } from './mister-numero.service';
+import { MisterQrService } from './mister-qr.service';
 import { MisterVinculoService } from './mister-vinculo.service';
 
 // MISTER (mig 417; `docs/plano-mister.md`): o número de WhatsApp da distribuição e a entrada das mensagens.
@@ -48,6 +49,8 @@ import { MisterVinculoService } from './mister-vinculo.service';
     MisterSentinelaService,
     // As instruções candidatas (M2b, mig 435): o texto no ar, que o agente, os relatórios e a avaliação usam.
     MisterInstrucoesService,
+    // A conexão por QR Code do número no console (Q2 e Q3, mig 437): o Evolution da distribuição, uma forma por vez.
+    MisterQrService,
   ],
   exports: [
     MisterEntradaService,
@@ -62,6 +65,7 @@ import { MisterVinculoService } from './mister-vinculo.service';
     MisterSegurancaService,
     MisterSentinelaService,
     MisterInstrucoesService,
+    MisterQrService,
   ],
 })
 export class MisterModule {}
