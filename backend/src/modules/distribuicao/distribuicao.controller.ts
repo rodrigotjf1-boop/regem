@@ -29,6 +29,7 @@ import { MisterQualidadeService } from '../mister/mister-qualidade.service';
 import { MisterAvaliacaoService } from '../mister/mister-avaliacao.service';
 import { MisterSegurancaService } from '../mister/mister-seguranca.service';
 import { MisterSentinelaService } from '../mister/mister-sentinela.service';
+import { MisterInstrucoesService } from '../mister/mister-instrucoes.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -50,6 +51,7 @@ export class DistribuicaoController {
     private readonly avaliacaoDoMister: MisterAvaliacaoService,
     private readonly segurancaDoMister: MisterSegurancaService,
     private readonly sentinela: MisterSentinelaService,
+    private readonly instrucoesDoMister: MisterInstrucoesService,
   ) {}
 
   // iFood pelo Orzuni (R2a; mig 370) — só Diretoria. A chave `orz_live_` da loja entra aqui UMA vez e é trocada
@@ -282,6 +284,65 @@ export class DistribuicaoController {
   async rodarAnaliseDoSentinela(@DistUser() u: DistCtx) {
     const r = await this.sentinela.analisar(u?.nome ?? null);
     await this.service.auditar(u, 'rodou_analise_do_sentinela', undefined, { analise: r.id });
+    return r;
+  }
+
+  // As instruções candidatas do Mister (M2b, mig 435): a versão no ar, a candidata (uma troca de linha, ou a volta da última)
+  // com a avaliação e a comparação, e as trocas publicadas. Publicar só com a avaliação sem errada nova (conferido no
+  // serviço, dentro da transação). Pedir ao Mentor e rodar a avaliação gastam a chave da DMS: com limite.
+  @Get('mister/instrucoes')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  instrucoesDoMisterNoConsole() {
+    return this.instrucoesDoMister.estado();
+  }
+
+  @Post('mister/instrucoes/candidata')
+  @Throttle({ default: { ttl: 60000, limit: 3 } })
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  async pedirCandidataAoMentor(@DistUser() u: DistCtx) {
+    const r = await this.instrucoesDoMister.proporCandidata(u?.nome ?? null);
+    await this.service.auditar(u, 'pediu_candidata_do_mentor', undefined, { candidata: r.id, versao: r.versao });
+    return r;
+  }
+
+  @Post('mister/instrucoes/volta')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  async pedirVoltaDasInstrucoes(@DistUser() u: DistCtx) {
+    const r = await this.instrucoesDoMister.proporVolta(u?.nome ?? null);
+    await this.service.auditar(u, 'pediu_volta_das_instrucoes', undefined, { candidata: r.id, versao: r.versao });
+    return r;
+  }
+
+  @Post('mister/instrucoes/avaliar')
+  @Throttle({ default: { ttl: 60000, limit: 3 } })
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  async avaliarCandidataDoMister(@DistUser() u: DistCtx) {
+    const c = await this.instrucoesDoMister.textoDaCandidata();
+    const r = await this.avaliacaoDoMister.rodar(u?.nome ?? null, { texto: c.texto, versao: c.versao });
+    await this.instrucoesDoMister.marcarAvaliacao(c.id, r.id);
+    await this.service.auditar(u, 'avaliou_candidata_do_mister', undefined, { candidata: c.id, avaliacao: r.id, versao: c.versao });
+    return r;
+  }
+
+  @Post('mister/instrucoes/publicar')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  async publicarCandidataDoMister(@DistUser() u: DistCtx) {
+    const r = await this.instrucoesDoMister.publicar(u?.nome ?? null);
+    await this.service.auditar(u, 'publicou_instrucoes_do_mister', undefined, { candidata: r.id, tipo: r.tipo, versao: r.versao });
+    return r;
+  }
+
+  @Post('mister/instrucoes/descartar')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  async descartarCandidataDoMister(@DistUser() u: DistCtx) {
+    const r = await this.instrucoesDoMister.descartar(u?.nome ?? null);
+    await this.service.auditar(u, 'descartou_candidata_do_mister', undefined, { candidata: r.id });
     return r;
   }
 

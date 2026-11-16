@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { ehServidorLocal } from '../../common/modo';
@@ -6,6 +6,7 @@ import { FalhaDaIa, IaEmpresaService, PedidoDeIa } from '../ia/ia-empresa.servic
 import { UsoDaChamada, custoEstimadoUsd } from '../ia/ia.regras';
 import { CASOS_DA_AVALIACAO, CasoDaAvaliacao, PerfilDaAvaliacao, ResultadoDoCaso, conferirCaso, conversaDaAvaliacao, executarNaAvaliacao, versaoDasInstrucoes } from './mister-avaliacao-casos';
 import { modeloDasPerguntas, responderComFerramentas } from './mister-laco';
+import { MisterInstrucoesService } from './mister-instrucoes.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -44,6 +45,8 @@ export class MisterAvaliacaoService {
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly ia: IaEmpresaService,
+    // M2b (mig 435): a avaliação roda com o texto NO AR (o do código com as trocas publicadas) — ou com o da candidata.
+    @Optional() private readonly instrucoes?: MisterInstrucoesService,
   ) {}
 
   /** A rodada "rodando" que passou do prazo vira "interrompida" (o processo caiu no meio). Nunca lança. */
@@ -59,12 +62,17 @@ export class MisterAvaliacaoService {
     }
   }
 
-  /** Começa uma rodada (em segundo plano) e devolve o id na hora. */
-  async rodar(pedidaPor: string | null): Promise<{ id: string; total: number }> {
+  /**
+   * Começa uma rodada (em segundo plano) e devolve o id na hora. Sem `comInstrucoes`, roda com o texto no ar; a candidata
+   * (M2b) passa o texto e a versão dela.
+   */
+  async rodar(pedidaPor: string | null, comInstrucoes?: { texto: string; versao: string }): Promise<{ id: string; total: number }> {
     if (ehServidorLocal()) throw new ServiceUnavailableException('A avaliação do Mister só roda na nuvem.');
     if (!this.ia.iaIncluidaDisponivel()) throw new ServiceUnavailableException('A chave de IA da distribuição não está configurada neste servidor.');
     await this.vencerAsParadas();
-    const { versao, consultas } = versaoDasInstrucoes();
+    const instrucoes = comInstrucoes ?? (this.instrucoes ? await this.instrucoes.noAr() : null);
+    const { consultas } = versaoDasInstrucoes();
+    const versao = instrucoes?.versao ?? versaoDasInstrucoes().versao;
     const modelo = modeloDasPerguntas();
     const casos = CASOS_DA_AVALIACAO;
     let id: string;
@@ -81,18 +89,18 @@ export class MisterAvaliacaoService {
       if (semTabela(e)) throw new ServiceUnavailableException('A avaliação ainda não está disponível neste servidor (falta a migration 424).');
       throw e;
     }
-    void this.executar(id, modelo, casos).catch((e: any) => this.logger.error(`avaliação ${id}: a rodada parou — ${e?.message ?? e}`, e?.stack));
+    void this.executar(id, modelo, casos, instrucoes?.texto).catch((e: any) => this.logger.error(`avaliação ${id}: a rodada parou — ${e?.message ?? e}`, e?.stack));
     return { id, total: casos.length };
   }
 
   /** As perguntas, EM_PARALELO de cada vez; cada uma grava o resultado na hora (o andamento). Exposto para o teste. */
-  async executar(id: string, modelo: string, casos: CasoDaAvaliacao[]): Promise<void> {
+  async executar(id: string, modelo: string, casos: CasoDaAvaliacao[], instrucoes?: string): Promise<void> {
     let parar: string | null = null;
     let proxima = 0;
     const trabalhar = async () => {
       while (!parar && proxima < casos.length) {
         const caso = casos[proxima++];
-        const r = await this.umaPergunta(caso, modelo);
+        const r = await this.umaPergunta(caso, modelo, instrucoes);
         if (r.paraARodada) {
           parar = r.paraARodada;
           return;
@@ -104,7 +112,7 @@ export class MisterAvaliacaoService {
     await this.fechar(id, modelo, parar);
   }
 
-  private async umaPergunta(caso: CasoDaAvaliacao, modelo: string): Promise<{ resultado: ResultadoDoCaso; uso: UsoDaChamada; paraARodada?: string }> {
+  private async umaPergunta(caso: CasoDaAvaliacao, modelo: string, instrucoes?: string): Promise<{ resultado: ResultadoDoCaso; uso: UsoDaChamada; paraARodada?: string }> {
     const perfil = caso.perfil ?? PADRAO;
     const uso: UsoDaChamada = { entrada: 0, cacheEscrita: 0, cacheLeitura: 0, saida: 0 };
     let paraARodada: string | undefined;
@@ -112,6 +120,7 @@ export class MisterAvaliacaoService {
     const fim = await responderComFerramentas(
       {
         modelo,
+        instrucoes,
         recurso: RECURSO_DA_AVALIACAO,
         conversa: conversaDaAvaliacao(perfil),
         pedir: async (p: PedidoDeIa) => {
@@ -169,7 +178,9 @@ export class MisterAvaliacaoService {
 
   /** As últimas rodadas, a versão de agora e se há chave — para o cartão do console. Nunca o texto de loja nenhuma. */
   async lista() {
-    const atual = versaoDasInstrucoes();
+    // M2b: a versão "de agora" é a do texto no ar (o do código com as trocas publicadas).
+    const doCodigo = versaoDasInstrucoes();
+    const atual = this.instrucoes ? { versao: (await this.instrucoes.noAr()).versao, consultas: doCodigo.consultas } : doCodigo;
     const base = { versaoAtual: atual, total: CASOS_DA_AVALIACAO.length, chaveDaDistribuicao: this.ia.iaIncluidaDisponivel(), modelo: modeloDasPerguntas(), prazoMin: PRAZO_DA_RODADA_MIN };
     let rodadas: any[] = [];
     try {

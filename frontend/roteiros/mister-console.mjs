@@ -117,6 +117,29 @@ const ANALISE = (o = {}) => ({
   ...o,
 });
 
+// M2b (mig 435): as instruções candidatas — a candidata com a avaliação passando, uma troca publicada e as erradas da base.
+const TROCA_PUBLICADA = {
+  id: 't-1', sai: '- Para vendas por canal, use a consulta de vendas do período.', entra: '- Para vendas por canal, use a consulta de vendas do período e diga o valor de cada canal.',
+  publicadaEm: '2026-11-15T13:00:00Z', publicadaPor: 'Rita', ultima: true,
+};
+const CANDIDATA = (o = {}) => ({
+  id: 'k-1', tipo: 'troca', versao: '7c21d0b9', criadaEm: '2026-11-16T12:30:00Z', criadaPor: 'Rodrigo',
+  sai: '- Para quantos pedidos na cozinha, use a consulta de pedidos em andamento e conte os que ainda não saíram, separando por canal e por etapa (novo, em preparo, pronto) sempre que a pessoa perguntar.',
+  entra: '- Para quantos pedidos na cozinha, use a consulta de pedidos em andamento e conte os que ainda não saíram, separando por canal e por etapa (novo, em preparo, pronto), e diga quantos estão atrasados.',
+  porque: 'a pergunta "Quantos pedidos estão na cozinha?" não falava dos atrasados',
+  avaliacao: { id: 'av-k', situacao: 'terminou', total: 40, feitas: 40, acertos: 40, custoUsd: 0.04, iniciadaEm: '2026-11-16T12:41:00Z' },
+  pode: true, motivo: null, novas: [], melhoraram: ['Quanto vendi no iFood ontem?'],
+  ...o,
+});
+const INSTRUCOES = (o = {}) => ({
+  indisponivel: false, chaveDaDistribuicao: true,
+  noAr: { versao: 'a4fae716', desde: '2026-11-15T13:00:00Z', por: 'Rita', avaliacao: { id: 'av-1', situacao: 'terminou', total: 40, feitas: 40, acertos: 39, custoUsd: 0.04, iniciadaEm: '2026-11-15T12:00:00Z' }, quebradas: [] },
+  erradasNoAr: [{ pergunta: 'Quanto vendi no iFood ontem?', falhas: ['não disse o valor do iFood'] }],
+  candidata: CANDIDATA(),
+  publicadas: [TROCA_PUBLICADA],
+  ...o,
+});
+
 // A segurança (o Sentinela, parte 1): só contagens; o nome comprido de propósito.
 const SEGURANCA = {
   dias: 7,
@@ -238,6 +261,8 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
       falhaDaSeguranca: !!o.falhaDaSeguranca,
       analise: o.analise ?? ANALISE(),
       leiturasRodando: 0,
+      instrucoes: o.instrucoes ?? INSTRUCOES(),
+      leiturasAvaliando: 0,
       falhaDasAvaliacoes: !!o.falhaDasAvaliacoes,
       pedidos: [],
     };
@@ -326,6 +351,36 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
           limite: 200,
           avisos: todos.filter((a) => (resolvidos ? a.situacao === 'resolvido' : a.situacao === 'aberto')),
         });
+      }
+      // M2b: as instruções candidatas — o servidor de mentira guarda o estado; avaliar passa a "rodando" e a 2ª leitura termina.
+      if (p === '/distribuicao/mister/instrucoes' && metodo === 'GET') {
+        const c = S.instrucoes.candidata;
+        if (c?.avaliacao?.situacao === 'rodando' && ++S.leiturasAvaliando >= 2)
+          S.instrucoes = { ...S.instrucoes, candidata: { ...c, avaliacao: { ...c.avaliacao, situacao: 'terminou', feitas: 40, acertos: 40 }, pode: true, motivo: null } };
+        return responder(route, S.instrucoes);
+      }
+      if (p === '/distribuicao/mister/instrucoes/candidata') {
+        S.instrucoes = { ...S.instrucoes, candidata: CANDIDATA({ avaliacao: null, pode: false, motivo: 'Rode a avaliação com a candidata antes de publicar.', melhoraram: [] }) };
+        return responder(route, { id: 'k-1', versao: '7c21d0b9' }, 201);
+      }
+      if (p === '/distribuicao/mister/instrucoes/volta') {
+        S.instrucoes = { ...S.instrucoes, candidata: CANDIDATA({ id: 'k-2', tipo: 'volta', versao: '3e90b2c4', sai: TROCA_PUBLICADA.entra, entra: TROCA_PUBLICADA.sai, porque: 'voltar ao texto de antes da última troca', avaliacao: null, pode: false, motivo: 'Rode a avaliação com a candidata antes de publicar.', melhoraram: [] }) };
+        return responder(route, { id: 'k-2', versao: '3e90b2c4' }, 201);
+      }
+      if (p === '/distribuicao/mister/instrucoes/avaliar') {
+        S.leiturasAvaliando = 0;
+        S.instrucoes = { ...S.instrucoes, candidata: { ...S.instrucoes.candidata, avaliacao: { id: 'av-k2', situacao: 'rodando', total: 40, feitas: 12, acertos: 12, custoUsd: null, iniciadaEm: '2026-11-16T12:50:00Z' }, pode: false } };
+        return responder(route, { id: 'av-k2', total: 40 }, 201);
+      }
+      if (p === '/distribuicao/mister/instrucoes/publicar') {
+        const c = S.instrucoes.candidata;
+        S.instrucoes = { ...S.instrucoes, noAr: { ...S.instrucoes.noAr, versao: c.versao, desde: '2026-11-16T13:00:00Z', por: 'Rodrigo' }, candidata: null, publicadas: [{ ...TROCA_PUBLICADA, ultima: false }, { id: c.id, sai: c.sai, entra: c.entra, publicadaEm: '2026-11-16T13:00:00Z', publicadaPor: 'Rodrigo', ultima: true }] };
+        return responder(route, { id: c.id, tipo: c.tipo, versao: c.versao }, 201);
+      }
+      if (p === '/distribuicao/mister/instrucoes/descartar') {
+        const c = S.instrucoes.candidata;
+        S.instrucoes = { ...S.instrucoes, candidata: null };
+        return responder(route, { id: c?.id }, 201);
       }
       // S2: a análise com IA — rodar passa a "rodando"; a 2ª leitura dela já traz a rodada nova terminada; decidir grava.
       if (p === '/distribuicao/mister/seguranca/analise' && metodo === 'GET') {
@@ -981,6 +1036,72 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
     await ctx.close();
   }
 
+  // ── M2b (mig 435): as instruções candidatas — no ar e a candidata, publicar com a confirmação, a volta que pede a
+  //    avaliação antes, "Rodar a avaliação" que acompanha até terminar, descartar, pedir ao Mentor; a errada nova que trava;
+  //    a troca quebrada e a versão no ar sem avaliação ──
+  {
+    const { ctx, page, S, erros } = await abrir(1280, 900, { numero: conectado(), liberado: true });
+    await naAba(page);
+    const sec = page.locator('[data-instrucoes-do-mister]');
+    await sec.locator('text=O que muda na candidata').waitFor({ timeout: 20000 });
+    const t = (await sec.innerText()).replace(/\s+/g, ' ');
+    ok(/No ar a4fae716 desde 15\/11 às 10:00 · por Rita · 39\/40/.test(t) && /Candidata 7c21d0b9 de 16\/11 às 09:30 · proposta pelo Mentor/.test(t), `M2b: a versão no ar e a candidata (${t.slice(0, 300)})`);
+    ok(/Sai - Para quantos pedidos na cozinha/.test(t) && /Entra - Para quantos pedidos na cozinha/.test(t) && /Avaliação: 40\/40 · nenhuma errada nova/.test(t) && /Passou a acertar: "Quanto vendi no iFood ontem\?"/.test(t), 'M2b: o que muda e a avaliação sem errada nova');
+    // Publicar pede confirmação (vale para todas as empresas).
+    await sec.locator('button:has-text("Publicar a candidata")').click();
+    await page.waitForSelector('[role="alertdialog"]');
+    ok((await page.locator('[role="alertdialog"]').innerText()).includes('O Mister passa a responder com ela em todas as empresas'), 'M2b: publicar pede confirmação');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/distribuicao/mister/instrucoes/publicar')), page.locator('[role="alertdialog"] button:has-text("Publicar")').click()]);
+    ok(feitos(S, 'POST', '/distribuicao/mister/instrucoes/publicar').length === 1, 'M2b: confirmar publica uma vez');
+    await sec.locator('text=nenhuma agora').waitFor({ timeout: 5000 });
+    ok((await sec.locator('[data-troca-publicada]').count()) === 2 && (await sec.locator('button:has-text("Voltar sem esta troca")').count()) === 1, 'M2b: depois de publicar, a troca entra na lista e só a última tem "Voltar sem esta troca"');
+    // A volta vira candidata: sem a avaliação, "Publicar" trava; a avaliação roda e a seção acompanha até terminar.
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/distribuicao/mister/instrucoes/volta')), sec.locator('button:has-text("Voltar sem esta troca")').click()]);
+    await sec.locator('text=A volta: tira a última troca publicada').waitFor({ timeout: 5000 });
+    ok(await sec.locator('button:has-text("Publicar a candidata")').isDisabled(), 'M2b: a volta sem avaliação não publica');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/distribuicao/mister/instrucoes/avaliar')), sec.locator('button:has-text("Rodar a avaliação")').click()]);
+    await sec.locator('text=Rodando com a candidata').waitFor({ timeout: 5000 });
+    // A introdução da seção também diz "sem nenhuma errada nova": espera o resultado no bloco da comparação.
+    await sec.locator('[data-comparacao] >> text=nenhuma errada nova').waitFor({ timeout: 15000 });
+    ok(await sec.locator('button:has-text("Publicar a candidata")').isEnabled(), 'M2b: a avaliação terminou sem errada nova e "Publicar" libera');
+    // Descartar e pedir outra ao Mentor.
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/distribuicao/mister/instrucoes/descartar')), sec.locator('button:has-text("Descartar a candidata")').click()]);
+    await sec.locator('[data-sem-candidata]').waitFor({ timeout: 5000 });
+    ok((await sec.innerText()).includes('A avaliação da versão no ar errou 1: "Quanto vendi no iFood ontem?".'), 'M2b: sem candidata, as erradas da versão no ar');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/distribuicao/mister/instrucoes/candidata')), sec.locator('button:has-text("Pedir uma candidata ao Mentor")').click()]);
+    await sec.locator('text=O que muda na candidata').waitFor({ timeout: 5000 });
+    ok((await sec.innerText()).includes('Ainda não rodou para a candidata. Custo: cerca de US$ 0,04 (chave da DMS).'), 'M2b: a candidata nova ainda sem avaliação, com o custo');
+    ok(erros.length === 0, `M2b: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  {
+    const ruim = INSTRUCOES({
+      candidata: CANDIDATA({ pode: false, novas: ['Quantos pedidos estão na cozinha?'], melhoraram: [], motivo: '1 pergunta passou a errar com a candidata.', avaliacao: { id: 'av-k', situacao: 'terminou', total: 40, feitas: 40, acertos: 38, custoUsd: 0.04, iniciadaEm: '2026-11-16T12:41:00Z' } }),
+    });
+    const { ctx, page, erros } = await abrir(375, 820, { numero: conectado(), liberado: true, instrucoes: ruim });
+    await naAba(page);
+    const sec = page.locator('[data-instrucoes-do-mister]');
+    await sec.locator('[data-comparacao] >> text=errada nova').waitFor({ timeout: 20000 });
+    const t = (await sec.innerText()).replace(/\s+/g, ' ');
+    ok(/Avaliação: 38\/40 · 1 errada nova/.test(t) && /Passou a errar: "Quantos pedidos estão na cozinha\?"/.test(t) && /1 pergunta passou a errar com a candidata\./.test(t), 'M2b: a errada nova aparece com o motivo');
+    ok(await sec.locator('button:has-text("Publicar a candidata")').isDisabled(), 'M2b: com errada nova, "Publicar" trava');
+    const m = await medir(page);
+    ok(m.length === 0, `M2b 375: a candidata com errada nova, nada fora da janela ${m.slice(0, 3).join(' | ')}`);
+    ok(erros.length === 0, `M2b errada nova: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  {
+    const semBase = INSTRUCOES({ candidata: null, erradasNoAr: [], publicadas: [], noAr: { versao: 'a4fae716', desde: null, por: null, avaliacao: null, quebradas: [{ id: 't-9', sai: '- uma linha que saiu do código' }] } });
+    const { ctx, page, erros } = await abrir(1280, 900, { numero: conectado(), liberado: true, instrucoes: semBase });
+    await naAba(page);
+    const sec = page.locator('[data-instrucoes-do-mister]');
+    await sec.locator('[data-sem-candidata]').waitFor({ timeout: 20000 });
+    const t = (await sec.innerText()).replace(/\s+/g, ' ');
+    ok(/o texto do código · sem avaliação inteira ainda/.test(t) && /A versão no ar ainda não tem uma avaliação inteira/.test(t) && /1 troca publicada não se aplica mais/.test(t) && /Nenhuma: no ar está o texto do código\./.test(t), `M2b: sem avaliação da versão no ar e com a troca quebrada (${t.slice(0, 260)})`);
+    ok(erros.length === 0, `M2b sem base: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+
   // ── cada largura: a página e o diálogo inteiros na tela; tabela no largo, cartões no estreito ──
   for (const w of larguras) {
     const { ctx, page, erros } = await abrir(w, w < 700 ? 820 : 900, { numero: conectado(), liberado: true, total: 250, modelos: MODELOS_LONGOS });
@@ -990,8 +1111,16 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
     await page.locator('section[aria-labelledby="mister-qualidade"] >> text=395 de 412').waitFor({ timeout: 20000 });
     await page.locator('section[aria-labelledby="mister-seguranca"] >> text=Pede atenção').waitFor({ timeout: 20000 });
     await page.locator('[data-analise-do-sentinela] >> text=Eventos lidos').waitFor({ timeout: 20000 });
+    await page.locator('[data-instrucoes-do-mister] >> text=O que muda na candidata').waitFor({ timeout: 20000 });
     let m = await medir(page);
     ok(m.length === 0, `${w}px: conectado — sem barra lateral, nada passa da tela e o toque é grande (${m.join(' | ')})`);
+    // M2b: as instruções legíveis em cada largura (a linha comprida da candidata quebra, nada esmagado) e a foto da candidata.
+    const esmagadosDasInstrucoes = await esmagados(page, '[data-instrucoes-do-mister]');
+    ok(esmagadosDasInstrucoes.length === 0, `${w}px: as instruções sem texto esmagado ${esmagadosDasInstrucoes.slice(0, 3).join(' | ')}`);
+    if ([320, 375, 768, 1920].includes(w)) {
+      await page.locator('[data-candidata]').scrollIntoViewIfNeeded();
+      await page.locator('[data-candidata]').screenshot({ path: foto(`${w}-instrucoes-candidata.png`) });
+    }
     // S2: a análise com IA legível em cada largura (nenhum texto esmagado) e a foto de cada proposta.
     const esmagadosDaAnalise = await esmagados(page, '[data-analise-do-sentinela]');
     ok(esmagadosDaAnalise.length === 0, `${w}px: a análise com IA sem texto esmagado ${esmagadosDaAnalise.slice(0, 3).join(' | ')}`);

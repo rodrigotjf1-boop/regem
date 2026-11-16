@@ -663,6 +663,28 @@ aprovado).
   as versões candidatas das instruções. Essas três pedem tela, então pedem protótipo antes. **O protótipo
   `mockups/regem-mister-mentor-parte2.html` foi aprovado em 16/11/2026, com as fases M2a, S2 e M2b.**
 
+**M2b (16/11/2026, migration 435): as instruções candidatas (o Mentor).**
+- **A decisão do desenho:** a versão nova NÃO guarda o texto inteiro — guardaria uma cópia que esconde as mudanças futuras
+  do código (como a linha do cancelamento da F4.2b) —, e sim a TROCA de uma linha: a que sai (exata) e a que entra. O texto
+  "no ar" = o do código com as trocas publicadas, em ordem (`aplicarTrocas`); a troca cuja linha sumiu do código fica de
+  fora e o console avisa. Sem troca, a versão é a mesma do código (a mesma conta de `versaoDasInstrucoes`).
+- **A tabela:** `mister_instrucao_troca` (tipo troca ou volta, a linha que sai e a que entra, o porquê, o padrão de origem,
+  a situação, a versão base e a da candidata, a rodada da avaliação, quem e quando). Uma candidata por vez.
+- **O Mentor** (`IaEmpresaService.pedirPelaDistribuicao`, o Sonnet 5.5, 800 tokens): lê as instruções numeradas e as
+  perguntas que a avaliação inteira da versão no ar errou (a pergunta fixa e a falha) e propõe UMA troca; a linha que sai
+  precisa existir no texto (conferida sem o número e sem os espaços das pontas); fora disso, nada é gravado e o console
+  diz por quê. Sem avaliação inteira da versão no ar, ou sem erradas, o Mentor nem é chamado.
+- **A avaliação por versão:** `MisterAvaliacaoService.rodar` passou a rodar com o texto no ar (ou o da candidata, pela rota
+  `instrucoes/avaliar`) e a mostrar a versão no ar como a atual.
+- **Publicar** (com confirmação na tela, porque vale para todas as empresas): a regra conferida DENTRO da transação, com a
+  candidata travada — a candidata nasceu sobre a versão no ar de agora, a avaliação dela terminou inteira com a versão
+  dela, a versão no ar tem uma avaliação inteira para comparar, e nenhuma pergunta que acertava passou a errar.
+- **A volta** ("Voltar sem esta troca", só a última): vira uma candidata que também passa pela avaliação; publicada, a troca
+  fica "retirada". O agente, os relatórios e a avaliação usam o texto no ar (cache de 30 s por réplica; o publicar limpa na
+  hora a sua); a leitura que falha não segura a resposta — vai o texto do código.
+- **As rotas:** `GET /distribuicao/mister/instrucoes`, `POST …/candidata`, `…/volta`, `…/avaliar`, `…/publicar` e
+  `…/descartar`, só Diretoria, com auditoria; pedir e avaliar com limite de 3 por minuto.
+
 **S2 (16/11/2026, migration 434): a análise com IA da Segurança (o Sentinela, parte 2).**
 - **As tabelas:** `mister_analise` (a rodada: quem pediu, a situação, os dias, os eventos lidos, o modelo, os tokens, o
   custo, o motivo da falha) e `mister_analise_proposta` (o nível, o título, o que viu, a proposta, o impacto, a decisão e

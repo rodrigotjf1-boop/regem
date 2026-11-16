@@ -40,7 +40,9 @@ import { MisterAvaliacaoService } from './mister-avaliacao.service';
 import { MisterSegurancaService } from './mister-seguranca.service';
 import { MisterSentinelaService } from './mister-sentinela.service';
 import { INSTRUCOES_DO_SENTINELA } from './mister-sentinela';
-import { CASOS_DA_AVALIACAO, CasoDaAvaliacao } from './mister-avaliacao-casos';
+import { MisterInstrucoesService } from './mister-instrucoes.service';
+import { INSTRUCOES_DO_MENTOR, versaoDoTexto } from './mister-instrucoes';
+import { CASOS_DA_AVALIACAO, CasoDaAvaliacao, versaoDasInstrucoes } from './mister-avaliacao-casos';
 import { PRECOS_LIDOS_EM } from '../ia/ia.regras';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { MisterVinculoService } from './mister-vinculo.service';
@@ -354,7 +356,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -4360,6 +4362,112 @@ export function testesDoMisterComPostgres(): void {
       await proporEMandar(base + 9);
       expect(await propostaDoPedido(p9)).toMatchObject({ id: prop9.id, situacao: 'proposta', pin_erros: 0, bloqueada_em: null, respondida_em: null });
       expect((await q(`select count(*)::int as n from mister_proposta where procedimento = 'cancelar_pedido' and parametros ->> 'pedidoId' = $1`, [p9]))[0].n).toBe(1);
+    });
+
+    // ───────────────────────────── as instruções candidatas (M2b, mig 435) ─────────────────────────────
+
+    it('M2b: as instruções candidatas — a troca de uma linha sobre o código, o Mentor pela chave da DMS, publicar só sem errada nova, a volta, a troca quebrada e o agente com o texto no ar', async () => {
+      comIa();
+      const QUEM = `Rita-${MARCA}`;
+      const instrucoes = new MisterInstrucoesService(db, ia);
+      const avaliacao = new MisterAvaliacaoService(db, ia, instrucoes);
+      const linhaQueSai = INSTRUCOES_DO_MISTER.split('\n').find((l) => l.startsWith('- ') && l.length > 40)!;
+      const linhaQueEntra = `${linhaQueSai} Diga também o número de cada canal.`;
+      const versaoCand = versaoDoTexto(INSTRUCOES_DO_MISTER.split('\n').map((l, i, todas) => (i === todas.indexOf(linhaQueSai) ? linhaQueEntra : l)).join('\n'));
+      const rodadaGravada = async (versao: string, oks: boolean[]) =>
+        (
+          await q(
+            `insert into mister_avaliacao (pedida_por, versao, consultas, modelo, total, feitas, acertos, casos, situacao, terminada_em)
+             values ($1, $2, 10, 'claude-haiku-5-5', $3, $3, $4, $5::jsonb, 'terminou', now()) returning id::text as id`,
+            [QUEM, versao, oks.length, oks.filter(Boolean).length, JSON.stringify(oks.map((ok, i) => ({ id: `c${i}`, pergunta: `Pergunta ${i}`, ok, falhas: ok ? [] : ['não consultou'], consultas: [], ms: 1 })))],
+          )
+        )[0].id as string;
+      const situacaoDa = async (id: string) => (await q(`select situacao from mister_instrucao_troca where id = $1`, [id]))[0]?.situacao;
+      try {
+        await q(`update mister_instrucao_troca set situacao = 'descartada' where situacao in ('candidata', 'no_ar')`);
+        // ── Sem troca: o no ar é o código, com a versão da avaliação.
+        const zero = await instrucoes.noAr();
+        expect(zero).toMatchObject({ texto: INSTRUCOES_DO_MISTER, versao: versaoDasInstrucoes().versao, aplicadas: [], quebradas: [] });
+        // ── Sem avaliação inteira da versão no ar: o Mentor nem é chamado.
+        ia.pedidos.length = 0;
+        await expect(instrucoes.proporCandidata(QUEM)).rejects.toThrow('A versão no ar ainda não tem uma avaliação inteira');
+        expect(ia.pedidos).toHaveLength(0);
+        await rodadaGravada(zero.versao, [true, false, true]);
+
+        // ── O Mentor que devolve uma linha que não existe: nada é gravado. O pedido leva as erradas e as instruções.
+        ia.roteiro = [falar('{"sai":"- linha inventada pelo modelo","entra":"- outra linha qualquer, comprida","porque":"x"}')];
+        await expect(instrucoes.proporCandidata(QUEM)).rejects.toBeInstanceOf(BadRequestException);
+        expect((await q(`select count(*)::int as n from mister_instrucao_troca where situacao = 'candidata'`))[0].n).toBe(0);
+        const aoMentor = ia.pedidos.at(-1);
+        expect(aoMentor.model).toBe('claude-sonnet-5-5');
+        expect(aoMentor.system).toBe(INSTRUCOES_DO_MENTOR);
+        const pedidoAoMentor = JSON.stringify(aoMentor.messages);
+        expect(pedidoAoMentor).toContain('Pergunta 1');
+        expect(pedidoAoMentor).toContain('não consultou');
+        expect(pedidoAoMentor).not.toContain('Pergunta 0'); // só as erradas
+
+        // ── A candidata boa: a troca da linha EXATA; uma por vez; o no ar não muda até publicar.
+        ia.roteiro = [falar(JSON.stringify({ sai: linhaQueSai, entra: linhaQueEntra, porque: 'faltava o número de cada canal' }))];
+        const cand = await instrucoes.proporCandidata(QUEM);
+        expect(cand.versao).toBe(versaoCand);
+        await expect(instrucoes.proporCandidata(QUEM)).rejects.toBeInstanceOf(ConflictException);
+        const comCandidata = (await instrucoes.textoDaCandidata()).texto.split('\n');
+        expect(comCandidata).toContain(linhaQueEntra);
+        expect(comCandidata).not.toContain(linhaQueSai);
+        expect((await instrucoes.noAr()).versao).toBe(zero.versao);
+
+        // ── Publicar sem a avaliação da candidata, e com uma errada nova: recusa com o motivo.
+        await expect(instrucoes.publicar(QUEM)).rejects.toThrow('Rode a avaliação com a candidata antes de publicar.');
+        await instrucoes.marcarAvaliacao(cand.id, await rodadaGravada(versaoCand, [false, true, true]));
+        expect((await instrucoes.estado()).candidata).toMatchObject({ pode: false, novas: ['Pergunta 0'], melhoraram: ['Pergunta 1'] });
+        await expect(instrucoes.publicar(QUEM)).rejects.toThrow('1 pergunta passou a errar com a candidata.');
+        expect(await situacaoDa(cand.id)).toBe('candidata');
+
+        // ── A avaliação boa: publica; o no ar passa a ser o código com a troca; a avaliação mostra a versão nova.
+        await instrucoes.marcarAvaliacao(cand.id, await rodadaGravada(versaoCand, [true, true, true]));
+        expect((await instrucoes.estado()).candidata).toMatchObject({ pode: true, novas: [], melhoraram: ['Pergunta 1'] });
+        expect(await instrucoes.publicar(QUEM)).toMatchObject({ id: cand.id, tipo: 'troca', versao: versaoCand });
+        const noAr = await instrucoes.noAr();
+        expect(noAr).toMatchObject({ versao: versaoCand, aplicadas: [cand.id], quebradas: [] });
+        expect(noAr.texto.split('\n')).toContain(linhaQueEntra);
+        expect((await avaliacao.lista()).versaoAtual.versao).toBe(versaoCand);
+        expect((await instrucoes.estado()).publicadas).toEqual([expect.objectContaining({ id: cand.id, sai: linhaQueSai, entra: linhaQueEntra, publicadaPor: QUEM, ultima: true })]);
+
+        // ── O agente responde com o texto no ar (o mesmo que a avaliação acabou de testar).
+        const agenteComInstrucoes = new MisterAgenteService(fila, ferramentas, ia, numero, instrucoes);
+        const tel = telefone();
+        await ligar('ana', tel);
+        ia.pedidos.length = 0;
+        expect(await mandar(tel, 'oi, como estão as coisas?')).toBe('pergunta');
+        ia.roteiro = [falar('Tudo certo por aqui.')];
+        expect(await agenteComInstrucoes.esvaziar()).toBe(1);
+        expect(ia.pedidos.at(-1).system[0].text).toBe(noAr.texto);
+
+        // ── A volta: vira candidata com o texto do código, passa pela avaliação e, publicada, tira a troca.
+        const volta = await instrucoes.proporVolta(QUEM);
+        expect(volta.versao).toBe(zero.versao);
+        await instrucoes.marcarAvaliacao(volta.id, await rodadaGravada(zero.versao, [true, true, true]));
+        expect(await instrucoes.publicar(QUEM)).toMatchObject({ id: volta.id, tipo: 'volta' });
+        expect(await instrucoes.noAr()).toMatchObject({ texto: INSTRUCOES_DO_MISTER, versao: zero.versao, aplicadas: [] });
+        expect([await situacaoDa(cand.id), await situacaoDa(volta.id)]).toEqual(['retirada', 'feita']);
+        await expect(instrucoes.proporVolta(QUEM)).rejects.toThrow('Não há troca publicada para tirar');
+
+        // ── A troca cuja linha sumiu do código fica de fora (e o console avisa); descartar fecha a candidata.
+        await q(
+          `insert into mister_instrucao_troca (tipo, sai, entra, situacao, versao_base, versao, publicada_em, criada_por)
+           values ('troca', '- uma linha que saiu do código', '- a nova', 'no_ar', 'x', 'y', now(), $1)`,
+          [QUEM],
+        );
+        const outraReplica = new MisterInstrucoesService(db, ia); // sem o cache da de cima
+        expect(await outraReplica.noAr()).toMatchObject({ texto: INSTRUCOES_DO_MISTER, aplicadas: [], quebradas: [expect.any(String)] });
+        expect((await outraReplica.estado()).noAr.quebradas).toEqual([expect.objectContaining({ sai: '- uma linha que saiu do código' })]);
+        const v2 = await outraReplica.proporVolta(QUEM);
+        expect((await outraReplica.descartar(QUEM)).id).toBe(v2.id);
+        await expect(outraReplica.descartar(QUEM)).rejects.toBeInstanceOf(NotFoundException);
+      } finally {
+        await q(`delete from mister_instrucao_troca where criada_por = $1`, [QUEM]);
+        await q(`delete from mister_avaliacao where pedida_por = $1`, [QUEM]);
+      }
     });
 
     // ───────────────────────────── os relatórios (mig 420) ─────────────────────────────

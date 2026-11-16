@@ -10,6 +10,7 @@ import { MisterAvisosHistoricoService } from './mister-avisos-historico.service'
 import { MisterAvaliacaoService } from './mister-avaliacao.service';
 import { MisterSegurancaService } from './mister-seguranca.service';
 import { MisterSentinelaService } from './mister-sentinela.service';
+import { MisterInstrucoesService } from './mister-instrucoes.service';
 import { MisterQualidadeService } from './mister-qualidade.service';
 import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
 import { MisterNumeroService } from './mister-numero.service';
@@ -45,6 +46,8 @@ import { MisterVinculoService } from './mister-vinculo.service';
     MisterSegurancaService,
     // A análise com IA da Segurança (o Sentinela, parte 2; S2, mig 434): a IA pela chave da DMS lê só os metadados e propõe.
     MisterSentinelaService,
+    // As instruções candidatas (M2b, mig 435): o texto no ar, que o agente, os relatórios e a avaliação usam.
+    MisterInstrucoesService,
   ],
   exports: [
     MisterEntradaService,
@@ -58,6 +61,7 @@ import { MisterVinculoService } from './mister-vinculo.service';
     MisterAvaliacaoService,
     MisterSegurancaService,
     MisterSentinelaService,
+    MisterInstrucoesService,
   ],
 })
 export class MisterModule {}

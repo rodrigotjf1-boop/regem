@@ -654,6 +654,13 @@ export const distApi = {
   misterAvaliacoes: () => distReq('/distribuicao/mister/avaliacoes'),
   misterAvaliacao: (id: string) => distReq(`/distribuicao/mister/avaliacoes/${encodeURIComponent(id)}`),
   rodarAvaliacaoDoMister: () => distReq('/distribuicao/mister/avaliacoes', { method: 'POST', body: '{}' }),
+  // M2b (mig 435): as instruções candidatas — o estado, pedir ao Mentor, a volta, avaliar, publicar e descartar.
+  misterInstrucoes: () => distReq('/distribuicao/mister/instrucoes'),
+  pedirCandidataAoMentor: () => distReq('/distribuicao/mister/instrucoes/candidata', { method: 'POST', body: '{}' }),
+  pedirVoltaDasInstrucoes: () => distReq('/distribuicao/mister/instrucoes/volta', { method: 'POST', body: '{}' }),
+  avaliarCandidataDoMister: () => distReq('/distribuicao/mister/instrucoes/avaliar', { method: 'POST', body: '{}' }),
+  publicarCandidataDoMister: () => distReq('/distribuicao/mister/instrucoes/publicar', { method: 'POST', body: '{}' }),
+  descartarCandidataDoMister: () => distReq('/distribuicao/mister/instrucoes/descartar', { method: 'POST', body: '{}' }),
   // As dependências (F3, parte 2; mig 423): o inventário com a situação lida nas fontes oficiais, ler agora e decidir.
   dependencias: () => distReq('/distribuicao/dependencias'),
   lerDependencias: () => distReq('/distribuicao/dependencias/ler-agora', { method: 'POST', body: '{}' }),
