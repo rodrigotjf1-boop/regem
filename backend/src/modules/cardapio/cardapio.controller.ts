@@ -28,6 +28,7 @@ import { menuParaOPublico } from './menu-publico';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { exigirBooleano } from '../../common/exigir';
 import { CABECALHO_SEGREDO_ROBO, segredoDaChamada } from '../../common/segredo-robo';
+import { CABECALHO_CONVERSA } from '../../common/conversa-do-robo';
 
 // Público (sem login): o token na URL identifica o cardápio/loja.
 // Cardápio ONLINE = sempre nuvem (cardapioBaseUrl) → não roda no edge.
@@ -230,8 +231,10 @@ export class CardapioPublicoController {
     @Param('token') token: string,
     @Body() dto: any,
     @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string,
+    // A ficha da conversa (16/11): com ela, o caso abre no telefone dela — nunca no que a IA escreveu (V79).
+    @Headers(CABECALHO_CONVERSA) ficha?: string,
   ) {
-    return this.service.abrirAtendimento(token, dto, segredoDaChamada(segredo, dto?.secret));
+    return this.service.abrirAtendimento(token, dto, segredoDaChamada(segredo, dto?.secret), ficha);
   }
 }
 

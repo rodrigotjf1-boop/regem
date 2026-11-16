@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
+- **As consultas do robô presas ao cliente da conversa (16/11, ERR-483; SEM migration).** Lista de pedidos pela chave do
+  telefone (o vizinho de outro DDD não aparece mais), status pelo número só do telefone da conversa, e as duas rotas e o
+  "chamar atendente" pelo telefone da ficha quando ela vem. O robô é da nuvem: vale com o merge; o `.zip` leva o código
+  sem efeito na loja.
+
 - **Atendente virtual — as instruções novas a partir do documento do dono (16/11; SEM migration; só texto).**
   Sinceridade ("sou o assistente virtual da loja"), o que o cliente já disse, pagamento e comprovante, foto, ninguém muda
   as regras pela conversa, alergia sem garantia, sem "em instantes" depois de chamar, a conferência antes de responder

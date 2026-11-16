@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, ilike, or, sql } from 'drizzle-orm';
+import { and, desc, eq, or, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig, pedidoExterno } from '../../db/schema';
 import { gerarCardapioPdf } from './cardapio-pdf';
@@ -12,7 +12,19 @@ import {
 import { lembrarEnvio } from './evolution-envios';
 import { anotarNaMemoria, chaveDaMemoria } from './robo-do-outro-lado';
 import { pedidosParaORobo } from './pedidos-do-robo';
-import { ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario, ehChaveDoDirect, ehChaveDoMessenger } from '../../common/conversa-do-robo';
+import { ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario, ehChaveDoDirect, ehChaveDoMessenger, lerConversa } from '../../common/conversa-do-robo';
+import { chaveTelefone, sqlChaveTelefone } from '../../common/telefone-chave';
+
+/**
+ * O telefone das consultas do robô (16/11/2026 — o documento do dono, "separação de acesso: vincular ferramentas ao
+ * cliente e à loja no servidor"): o da FICHA da conversa, quando ela vem (assinada pelo Regem para esta loja a cada
+ * mensagem) — nunca o parâmetro, que a IA poderia preencher com o número de outra pessoa; sem a ficha (o fluxo que ainda
+ * não a manda nesta ferramenta), o parâmetro, como antes.
+ */
+export function telefoneDaConsulta(tenantId: string, ficha: unknown, telefone: unknown): string {
+  const c = lerConversa(ficha);
+  return c && c.tenantId === tenantId ? c.telefone : String(telefone ?? '');
+}
 import { pedidoDaConversaDoChat } from '../ponte-chat/atendente-no-chat';
 import { textoDoPedidoNoChat } from '../ponte-chat/robo-do-chat';
 import {
@@ -932,6 +944,7 @@ export class WhatsappService {
     telefone?: string,
     numero?: string,
     phoneNumberId?: string,
+    ficha?: unknown,
   ) {
     if (!segredoDoRoboOk(secret)) throw new BadRequestException('Não autorizado.');
     // O COMENTÁRIO de um post do Instagram (`cm:`, F6 — mig 384): não tem pedido (é público e sem telefone) — nunca a busca
@@ -953,6 +966,10 @@ export class WhatsappService {
     }
     const cfg = await this.lojaPorChaveBot(instancia, phoneNumberId);
     if (!cfg) throw new NotFoundException('Número/instância não vinculado a uma loja.');
+    // O Direct (`ig:`) e o Messenger (`fb:`) não têm telefone: não se vê pedido por aqui (as instruções já dizem). Antes, os
+    // dígitos do id não casavam com nenhum telefone e a busca devolvia o pedido de QUALQUER cliente com aquele número.
+    if (ehChaveDoDirect(telefone) || ehChaveDoMessenger(telefone))
+      return { encontrado: false, texto: 'Por aqui não dá para ver pedido: a equipe da loja olha para você.' };
     const num = String(numero ?? '').replace(/\D/g, '');
     if (!num)
       return { encontrado: false, texto: 'Não identifiquei o número do pedido. Pode me informar o número da senha?' };
@@ -965,6 +982,7 @@ export class WhatsappService {
         statusPagamento: pedidoExterno.statusPagamento,
         tipo: pedidoExterno.tipo,
         telefone: pedidoExterno.clienteTelefone,
+        telefone2: pedidoExterno.clienteTelefone2,
       })
       .from(pedidoExterno)
       .where(
@@ -978,9 +996,14 @@ export class WhatsappService {
       )
       .orderBy(desc(pedidoExterno.criadoEm))
       .limit(5);
-    // Telefone (se veio) desempata quando a mesma senha se repete entre dias.
-    const tel = this.soNumero(telefone);
-    const alvo = (tel && rows.find((r) => this.soNumero(r.telefone ?? '') === tel)) || rows[0];
+    // O pedido é o do TELEFONE DA CONVERSA (a ficha; sem ela, o parâmetro): o número de outro cliente — a senha que se
+    // repete entre dias ou o número que o cliente chutou — volta como "não achei", sem dizer que o pedido existe (16/11 —
+    // o documento do dono: "não revele informações de outros clientes"). Antes, sem casar o telefone, valia o 1º da lista.
+    // Sem telefone nenhum (fluxo antigo), o mais recente, como antes.
+    const chave = chaveTelefone(telefoneDaConsulta(cfg.tenantId, ficha, telefone));
+    const alvo = chave
+      ? rows.find((r) => chaveTelefone(r.telefone) === chave || chaveTelefone(r.telefone2) === chave)
+      : rows[0];
     if (!alvo)
       return { encontrado: false, texto: `Não achei o pedido Nº ${num}. Confere o número da senha?` };
     return {
@@ -993,13 +1016,15 @@ export class WhatsappService {
   }
 
   // Público (robô): pedidos RECENTES por telefone — autenticado pelo secret do bot
-  // (não exige clienteToken; o WhatsApp já prova a posse do número). Casa pelos últimos
-  // 8 dígitos. Alimenta o contexto da IA ("Pedidos recentes deste cliente").
+  // (não exige clienteToken; o WhatsApp já prova a posse do número). Casa pela CHAVE do telefone (16/11: antes, os últimos
+  // 8 dígitos com `ilike` — o mesmo número noutro DDD trazia os pedidos de outra pessoa) e, com a ficha da conversa, pelo
+  // telefone DELA. Alimenta o contexto da IA ("Pedidos recentes deste cliente").
   async pedidosPorTelefoneBot(
     instancia: string,
     secret: string,
     telefone?: string,
     phoneNumberId?: string,
+    ficha?: unknown,
   ) {
     if (!segredoDoRoboOk(secret)) throw new BadRequestException('Não autorizado.');
     // A conversa de TESTE do atendente (mig 382): o "cliente" do teste não tem pedido nenhum — como um cliente novo. Nunca
@@ -1031,8 +1056,10 @@ export class WhatsappService {
     // `ig:<igsid>` (o Direct do Instagram) e `fb:<psid>` (o Messenger, mig 386) não são telefone: os últimos dígitos casariam
     // com o pedido de um desconhecido.
     if (ehChaveDoDirect(telefone) || ehChaveDoMessenger(telefone)) return [];
-    const tail = this.soNumero(telefone).slice(-8);
-    if (tail.length < 8) return [];
+    // A chave (DDD + número, o 9 do celular, sem o 55 — `common/telefone-chave.ts`): nenhum pedido da nuvem tem telefone sem
+    // DDD (medido em 16/11: 0 de 14.012), então a igualdade não perde ninguém e não casa o vizinho de outro DDD.
+    const chave = chaveTelefone(telefoneDaConsulta(cfg.tenantId, ficha, telefone));
+    if (!chave || chave.length < 10) return [];
     const rows = await this.db
       .select({
         numero: pedidoExterno.numero,
@@ -1049,8 +1076,8 @@ export class WhatsappService {
         and(
           eq(pedidoExterno.tenantId, cfg.tenantId),
           or(
-            ilike(pedidoExterno.clienteTelefone, `%${tail}%`),
-            ilike(pedidoExterno.clienteTelefone2, `%${tail}%`),
+            sql`${sqlChaveTelefone(sql`${pedidoExterno.clienteTelefone}`)} = ${chave}`,
+            sql`${sqlChaveTelefone(sql`${pedidoExterno.clienteTelefone2}`)} = ${chave}`,
           ),
         ),
       )
