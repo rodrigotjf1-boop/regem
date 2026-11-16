@@ -258,15 +258,22 @@ export class AutorizacaoLojaService {
     if (!formatoCodigoAutorizacao(body?.code)) return recusar('código fora do formato');
     const hash = hashCodigoAutorizacao(body.code);
 
+    // Só o código DESTA página (a de 01/10, sem texto guardado). O da autorização por clique (mig 336, `texto` preenchido)
+    // tem a troca dele, com o token do DMS ID e o `autorizacao_id` que a revogação por reutilização usa: aqui ele é
+    // recusado SEM ser gasto — na mesma instrução — e segue valendo para a troca certa (avaliação de segurança de
+    // 16/11/2026, A-04: a troca antiga gastava o código do clique e emitia um token sem esse vínculo).
     const [a] = await this.rows(sql`
       update integracao_autorizacao set usado_em = now()
        where codigo_hash = ${hash} and cliente = ${cliente.chave} and usado_em is null and expira_em > now()
+         and texto is null
        returning id, tenant_id, lojas, escopos, autorizado_por, desafio, redirect_uri`);
     if (!a) {
       const [v] = await this.rows(sql`
-        select usado_em is not null as usado, expira_em <= now() as vencido
+        select usado_em is not null as usado, expira_em <= now() as vencido, texto is not null as do_clique
           from integracao_autorizacao where codigo_hash = ${hash}`);
-      return recusar(!v ? 'código desconhecido' : v.usado ? 'código já usado' : v.vencido ? 'código vencido' : 'código de outro cliente');
+      return recusar(
+        !v ? 'código desconhecido' : v.do_clique ? 'código da autorização por clique na troca de 01/10' : v.usado ? 'código já usado' : v.vencido ? 'código vencido' : 'código de outro cliente',
+      );
     }
     if (body?.redirect_uri !== a.redirect_uri) return recusar('endereço de volta diferente do da autorização');
     if (!verificadorConfere(body?.code_verifier, a.desafio)) return recusar('o verificador do PKCE não confere');
