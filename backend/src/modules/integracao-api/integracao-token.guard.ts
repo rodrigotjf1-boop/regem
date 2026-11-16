@@ -15,6 +15,7 @@ import {
   esquecerTokenIntegracao,
   registrarTokenIntegracaoValidado,
 } from '../../common/integracao-limite';
+import { anunciarRetiradaNaResposta } from '../../common/retirada-credencial';
 import { ErroTokenDmsId, problemaDaParada } from '../../dms/integracao-dms';
 import { anotarChamada } from './chamada-integracao';
 import { DmsIdService, type TokenDmsIdDoRegem } from './dms-id.service';
@@ -132,6 +133,9 @@ export class IntegracaoTokenGuard implements CanActivate {
 
     let achado: IntegracaoCtxData & { limite?: LimiteContado; parceiro?: DoParceiro };
     if (peloToken) {
+      // O token colado é a credencial antiga (Hub DMS F6, P-3): toda resposta a ele, até a recusa (inválido, revogado,
+      // limite, escopo), leva o `Deprecation` e o `Sunset` — quando a distribuição ligou o anúncio. A ligação nunca leva.
+      anunciarRetiradaNaResposta(res ?? undefined);
       achado = await this.pelaViaDoToken(req, bearer as string, desafiar);
     } else if (this.dmsId.ligado) {
       achado = await this.pelaViaDoDmsId(req, bearer, desafiar);

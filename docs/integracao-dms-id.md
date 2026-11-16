@@ -440,3 +440,35 @@ criado pelo Liame JÁ SAIU pela ligação (no `audit_log`, `integracao.cupom_cri
 11/11/2026, o único cupom por integração saiu pelo `rgm_it_`): no EasyPanel do `regem-api`,
 `LIAME_ESCRITA_SO_PELA_LIGACAO=true` e reiniciar. Loja sem a ligação continua lendo pelo token, mas o
 cupom pelo Liame só volta a sair depois do clique de autorização com "Criar cupom" marcado.
+
+## 14. O anúncio da retirada da credencial antiga (F6, plano "Fim das portas antigas", P-3 — sem migration, nasce desligado)
+
+Desde o GoGeM, os clientes da porta usam a ligação do clique. As credenciais antigas (o token colado `rgm_it_` e, na
+nuvem, o caminho antigo do totem: `X-Sync-Token` com `X-Integrador: gogem`) saem com o aviso de 90 dias do Padrão DMS §12.
+No dia do anúncio, **toda resposta** a elas passa a levar:
+
+| Cabeçalho | Valor | Norma |
+|---|---|---|
+| `Deprecation` | `@<segundos>` do dia do anúncio (00:00 UTC) | RFC 9745 |
+| `Sunset` | o último dia (data HTTP, 00:00 UTC) | RFC 8594 |
+| `Link` | `<endereço>; rel="deprecation"` (só se configurado) | RFC 9745 §3 |
+
+- Vale também na recusa (401, 403, 429): quem chama com a credencial antiga vê o aviso até quando ela já não abre a rota.
+- **A ligação nunca leva** os cabeçalhos, e o **servidor da loja** também não: lá o `X-Sync-Token` fica (P-6).
+- **Nada muda além dos cabeçalhos:** a credencial segue valendo até o `Sunset`. A recusa depois dele é outra peça (P-4).
+- **Onde:** `common/retirada-credencial.ts`, chamado no `IntegracaoTokenGuard` (o `rgm_it_` nas rotas da porta) e no
+  `CredencialDoTotemGuard` (o `rgm_it_` e o caminho antigo nas cinco rotas do totem). Testes:
+  `common/retirada-credencial.spec.ts` e `credencial-totem.spec.ts` ("o anúncio da retirada").
+
+**Configuração (distribuição, EasyPanel do `regem-api`):**
+
+| Variável | O que é | Sem ela |
+|---|---|---|
+| `INTEGRACAO_ANTIGA_ANUNCIO` | o dia do anúncio, `AAAA-MM-DD` | desligado (como hoje) |
+| `INTEGRACAO_ANTIGA_SUNSET` | o último dia, `AAAA-MM-DD`, **90 dias ou mais** depois do anúncio | anúncio + 90 dias |
+| `INTEGRACAO_ANTIGA_LINK` | a página que explica o caminho do clique (só `https`) | sem `Link` |
+
+Data torta, `Sunset` a menos de 90 dias ou link que não é `https`: o anúncio **não liga** e o motivo vai ao log da API
+(`RetiradaDaCredencialAntiga`), uma vez. Anunciar errado é pior que não anunciar. Junto com as variáveis, a nota da
+retirada no hub (`docs/mudancas-nos-produtos.md`) e a publicação em Cadastro › Parceiros › Mudanças nas portas: o aviso
+aos parceiros sai NO ANÚNCIO, não no dia de tirar.

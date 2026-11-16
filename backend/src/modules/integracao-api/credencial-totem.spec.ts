@@ -10,6 +10,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { Reflector } from '@nestjs/core';
 import { UnauthorizedException } from '@nestjs/common';
 import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
+import { esquecerRetiradaLida } from '../../common/retirada-credencial';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { EquipamentoService } from '../equipamento/equipamento.service';
 import { CatalogoSyncController } from '../produto/catalogo-sync.controller';
@@ -357,6 +358,66 @@ descrever('credencial própria do GoGeM — token de integração nas rotas do t
     const token = dmsId.emitir({ aplicativo: APP_FAROL, permissoes: 'catalogo.ler fichas.ler producao.ler' });
     for (const [controller, metodo] of ROTAS)
       expect([metodo, await recusa(guard.canActivate(contexto(controller, metodo, pelaLigacao(ligacao, token)).ctx))]).toEqual([metodo, 403]);
+  });
+
+  // ───────────────────────────── o anúncio da retirada (F6, plano "Fim das portas antigas", P-3) ─────────────────────────────
+
+  /** Os cabeçalhos que a resposta recebeu, passe ou não a chamada. */
+  async function cabecalhosDaResposta(g: { canActivate: (c: any) => Promise<boolean> }, controller: any, metodo: string, headers: Record<string, string>) {
+    const { req } = contexto(controller, metodo, headers);
+    const res: any = { cab: {} as Record<string, string>, setHeader(nome: string, valor: string) { this.cab[nome] = valor; } };
+    const ctx: any = {
+      switchToHttp: () => ({ getRequest: () => req, getResponse: () => res }),
+      getHandler: () => controller.prototype[metodo],
+      getClass: () => controller,
+    };
+    await recusa(g.canActivate(ctx));
+    return res.cab as Record<string, string>;
+  }
+
+  it('o anúncio da retirada (Hub DMS F6, P-3): a credencial antiga leva Deprecation e Sunset, até na recusa; a ligação e o servidor da loja não', async () => {
+    const e = await empresa();
+    const antigo = await credencialAntiga(e, e.lojas[0]);
+    const novo = await emitir(e, e.lojas[0], 'gogem', ESCOPOS_TOTEM);
+    const ligacao = await ligacaoDe(novo, e.tenant);
+    const peloXSync = { 'x-sync-token': antigo.token, 'x-integrador': 'gogem' };
+    esquecerRetiradaLida();
+
+    // Desligado (sem a variável): nada muda.
+    expect(await cabecalhosDaResposta(guard, VendasExternaController, 'venderTotem', bearer(novo.token))).toEqual({});
+    expect(await cabecalhosDaResposta(guard, VendasExternaController, 'venderTotem', peloXSync)).toEqual({});
+
+    process.env.INTEGRACAO_ANTIGA_ANUNCIO = '2026-11-17';
+    try {
+      const esperado = { Deprecation: `@${Date.UTC(2026, 10, 17) / 1000}`, Sunset: 'Mon, 15 Feb 2027 00:00:00 GMT' };
+      // O token colado e o caminho antigo do totem na nuvem: os dois cabeçalhos.
+      expect(await cabecalhosDaResposta(guard, VendasExternaController, 'venderTotem', bearer(novo.token))).toEqual(esperado);
+      expect(await cabecalhosDaResposta(guard, VendasExternaController, 'venderTotem', peloXSync)).toEqual(esperado);
+      // Na porta de integração, o token colado recusado (o GoGeM não lê a API: 403) também leva — junto do
+      // `WWW-Authenticate` da recusa, que segue igual.
+      const naRecusa = await cabecalhosDaResposta(guardDaApi, IntegracaoApiController, 'catalogo', bearer(novo.token));
+      expect(naRecusa).toMatchObject(esperado);
+      expect(naRecusa['WWW-Authenticate']).toMatch(/insufficient_scope/);
+      // A ligação do clique: nunca.
+      expect(await cabecalhosDaResposta(guard, VendasExternaController, 'venderTotem', pelaLigacao(ligacao))).toEqual({});
+      // No servidor da loja o X-Sync-Token fica (P-6): sem anúncio.
+      process.env.EDGE_MODE = 'true';
+      try {
+        expect(await cabecalhosDaResposta(guard, VendasExternaController, 'venderTotem', peloXSync)).toEqual({});
+      } finally {
+        delete process.env.EDGE_MODE;
+      }
+      // O revogado também leva (é resposta à credencial antiga).
+      await tokensSvc.revogarPeloConsole(novo.id, 'teste do anúncio', dist);
+      expect(await cabecalhosDaResposta(guard, VendasExternaController, 'venderTotem', bearer(novo.token))).toEqual(esperado);
+      // Sunset a menos de 90 dias do anúncio: desligado (anunciar errado é pior que não anunciar).
+      process.env.INTEGRACAO_ANTIGA_SUNSET = '2026-12-01';
+      expect(await cabecalhosDaResposta(guard, VendasExternaController, 'venderTotem', peloXSync)).toEqual({});
+    } finally {
+      delete process.env.INTEGRACAO_ANTIGA_ANUNCIO;
+      delete process.env.INTEGRACAO_ANTIGA_SUNSET;
+      esquecerRetiradaLida();
+    }
   });
 });
 

@@ -2,6 +2,7 @@ import { CanActivate, ExecutionContext, Inject, Injectable } from '@nestjs/commo
 import { Reflector } from '@nestjs/core';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { ehServidorLocal } from '../../common/modo';
+import { anunciarRetiradaNaResposta } from '../../common/retirada-credencial';
 import {
   bearerDe,
   contarChamadaIntegracao,
@@ -82,14 +83,23 @@ export class CredencialDoTotemGuard implements CanActivate {
     const ligacao = ehServidorLocal() ? null : ligacaoDoCabecalho(req?.headers?.[CABECALHO_LIGACAO_NO_NODE]);
     if (ligacao && this.dmsId.ligado) return this.pelaLigacao(context, req, bearer, ligacao);
 
+    // O guard também é montado à mão (testes) com um contexto que só tem o pedido.
+    const http = context.switchToHttp();
+    const res = typeof (http as any).getResponse === 'function' ? http.getResponse() : undefined;
+
     // Sem token de integração (ou no servidor da loja): o caminho antigo. Outro Authorization não conta.
     if (ehServidorLocal() || !formatoTokenIntegracao(bearer)) {
+      // Na NUVEM, o caminho antigo do totem (`X-Sync-Token` com a marca `X-Integrador: gogem`) é credencial antiga e leva
+      // o anúncio da retirada (Hub DMS F6, P-3 e P-6). No servidor da loja o `X-Sync-Token` fica: lá, nada muda.
+      if (!ehServidorLocal()) anunciarRetiradaNaResposta(res);
       const ok = await this.antigo.canActivate(context);
       if (ok && req.sync) req.sync = { ...req.sync, integracaoTokenId: null } satisfies CtxDoTotem;
       return ok;
     }
 
     const token = bearer as string;
+    // O token colado do totem (`rgm_it_`) também é credencial antiga: toda resposta a ele leva o anúncio (P-3).
+    anunciarRetiradaNaResposta(res);
     const achado = await validarTokenIntegracao(this.db, token, { contar: true });
     if (!achado) {
       esquecerTokenIntegracao(token);
