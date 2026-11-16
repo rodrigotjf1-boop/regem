@@ -628,3 +628,48 @@ describe('autorização por clique — o GoGeM, o totem que lança venda', () =>
     expect(t.aplicativo.selo).toBe('Produto da DMS');
   });
 });
+
+// O REGEMBOARD (F6 do hub, 15/11/2026; protótipo `clique-regemboard.html`; mig 429): o menu nas TVs, loja por loja e SÓ
+// leitura — o catálogo e o que está esgotado. A permissão nova (`catalogo.disponibilidade.ler`) é só de produto da DMS.
+describe('autorização por clique — o RegeMBoard, o menu nas TVs', () => {
+  const BOARD = APLICATIVOS_DO_CLIQUE.regemboard;
+  const VOLTA_BOARD = 'https://app.regemboard.com/integracoes/regem/volta';
+  const LEITURAS = ['catalogo.ler', 'catalogo.disponibilidade.ler'];
+  const pedido = (mudar: Record<string, unknown> = {}) => ({
+    response_type: 'code',
+    redirect_uri: VOLTA_BOARD,
+    scope: 'catalogo.disponibilidade.ler catalogo.ler',
+    state: 'estado-do-board-1234567890',
+    code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
+    code_challenge_method: 'S256',
+    conta_nome: 'Brasa no RegeMBoard',
+    conta_cnpj: '11.222.333/0001-00',
+    conta_email: 'dono@board.exemplo',
+    ...mudar,
+  });
+
+  it('a ficha: por loja, as duas leituras necessárias, nenhuma opcional, a volta do painel do RegeMBoard', () => {
+    expect(BOARD.empresaInteira).toBeUndefined();
+    expect(BOARD.necessarias).toEqual(LEITURAS);
+    expect([BOARD.opcionais, BOARD.dadoPessoal, BOARD.financeiras]).toEqual([[], [], []]);
+    for (const id of BOARD.necessarias) {
+      expect(BOARD.motivos[id]).toMatch(/^Para /);
+      expect(PERMISSAO_NA_TELA[id]?.frase).toBeTruthy();
+    }
+    expect(PERMISSAO_NA_TELA['catalogo.disponibilidade.ler']?.frase).toBe(
+      'Se cada produto e cada adicional está à venda agora nesta loja: esgotado, pausado ou fora do cardápio. Sem preço.',
+    );
+    expect(clienteAutorizacao('regemboard', {})).toBeNull(); // só o clique, sem a página de 01/10
+    expect(voltasDoClique(BOARD.voltas, {})).toEqual([VOLTA_BOARD]);
+    expect(BOARD.naoPode.map((n) => n.rotulo)).toEqual(['Mudar qualquer coisa no Regem', 'Ver vendas, clientes ou valores', 'Entrar no seu Regem']);
+  });
+
+  it('o pedido: aceita as duas na ordem do catálogo; recusa vendas, clientes, custo, cupom e o totem', () => {
+    expect(conferirPedido(pedido(), BOARD, 'app-board', [VOLTA_BOARD])).toMatchObject({ necessarias: LEITURAS, opcionais: [] });
+    for (const fora of ['pedidos.ler', 'clientes.ler', 'custos.ler', 'cupons.criar', 'totem.vendas.lancar', 'catalogo.ifood.ler']) {
+      expect(conferirPedido(pedido({ scope: `catalogo.ler ${fora}` }), BOARD, 'app-board', [VOLTA_BOARD])).toEqual({
+        erro: `A permissão "${fora}" não pode ser pedida por este aplicativo na autorização por clique.`,
+      });
+    }
+  });
+});

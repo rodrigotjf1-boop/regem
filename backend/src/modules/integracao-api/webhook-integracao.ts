@@ -39,6 +39,9 @@ export type RecursoAvisado = keyof typeof EVENTO_DO_RECURSO;
 export const EVENTO_DO_RETRATO = {
   catalogo: { tipo: 'catalogo.alterado', escopo: 'catalogo.ler' },
   fichas: { tipo: 'fichas.alterado', escopo: 'fichas.ler' },
+  // RegeMBoard (mig 429): produto ou adicional que esgotou ou voltou na loja (o `catalogo.alterado` ignora a pausa de
+  // propósito, mig 403). Os gatilhos da 429 enfileiram este recurso; o resto do caminho é o mesmo dos outros retratos.
+  disponibilidade: { tipo: 'disponibilidade.alterada', escopo: 'catalogo.disponibilidade.ler' },
 } as const satisfies Record<string, { tipo: string; escopo: EscopoIntegracao }>;
 
 export type RetratoAvisado = keyof typeof EVENTO_DO_RETRATO;

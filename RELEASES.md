@@ -142,6 +142,14 @@
   etapa do endereço com a distância. A rota pública tira o campo interno `_sistema`. O cardápio online é da nuvem (já no ar
   com o deploy); no servidor da loja vale **só no `.zip` 1.30.13**.
 
+- **O RegeMBoard entra na autorização por clique do Regem: o esgotado na TV (15/11, F6 do hub; migration 429, SÓ NUVEM,
+  pelo SQL Editor; não mexe no `sync-daemon`; nasce parado).** Na NUVEM com o merge: a permissão
+  `catalogo.disponibilidade.ler` (os campos `disponivel`/`indisponivel_por` no catálogo da porta e o aviso
+  `disponibilidade.alterada`), a ficha `regemboard` no clique e o cliente `regemboard` na porta. Nada muda até o RegeMBoard
+  pedir pelo clique. **A 429 só existe na nuvem** (os gatilhos dela ficam em produto, pausa da loja e opção da NUVEM; a
+  pausa que nasce na loja chega pelo sincronismo e dispara lá). **No `.zip`:** o código vai junto, mas no servidor da loja
+  nada muda (a porta de integração é da nuvem). Nada no `.exe`.
+
 - **O GoGeM entra na autorização por clique do Regem: o totem, que lança venda (15/11, F6 do hub; SEM migration; não mexe
   no `sync-daemon`; nasce parado).** Na NUVEM com o merge: a ficha do GoGeM no clique e o guarda das cinco rotas do totem
   aceitando a ligação (token do DMS ID + `DMS-Ligacao`); pelo acesso de integração, a pausa só no canal do totem. Nada

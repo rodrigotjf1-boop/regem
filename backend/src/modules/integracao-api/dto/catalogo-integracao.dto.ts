@@ -113,6 +113,21 @@ export class OpcaoAdicionalIntegracao {
   })
   preco_ifood_centavos?: number | null;
 
+  @ApiPropertyOptional({
+    type: Boolean,
+    description:
+      'SÓ com a permissão catalogo.disponibilidade.ler. true = o adicional está à venda agora; false = esgotado ou fora ' +
+      'do cardápio (o da opção reutilizável, que vale para todas as lojas).',
+  })
+  disponivel?: boolean;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    enum: ['fora_do_cardapio', 'esgotado'],
+    description: 'SÓ com a permissão catalogo.disponibilidade.ler. Por que o adicional não está à venda (null = está).',
+  })
+  indisponivel_por?: string | null;
+
   @ApiProperty({ description: 'Sem código PDV: é só uma observação ("ponto da carne") — não acrescenta nem retira nada.' })
   informativa!: boolean;
 
@@ -205,6 +220,23 @@ export class ProdutoCatalogoIntegracao {
       '(ou ainda não foi marcado).',
   })
   no_ifood?: boolean;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    description:
+      'SÓ com a permissão catalogo.disponibilidade.ler. true = o produto está à venda agora na loja do acesso; false = ' +
+      'esgotado ou fora do cardápio. A pausa de um canal só (iFood, 99, totem) não conta. Muda → aviso disponibilidade.alterada.',
+  })
+  disponivel?: boolean;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    enum: ['fora_do_cardapio', 'esgotado', 'esgotado_na_loja'],
+    description:
+      'SÓ com a permissão catalogo.disponibilidade.ler. Por que o produto não está à venda (null = está): fora_do_cardapio ' +
+      '(inativo), esgotado (em todas as lojas) ou esgotado_na_loja (só nesta). O acesso sem loja só vê o de todas as lojas.',
+  })
+  indisponivel_por?: string | null;
 
   @ApiProperty({ type: [VariacaoCatalogoIntegracao] })
   variacoes!: VariacaoCatalogoIntegracao[];

@@ -73,7 +73,7 @@ describe('escopos', () => {
     expect(validarEscopos(['cupons.ler', 'pedidos.ler', 'cupons.ler'])).toEqual(['pedidos.ler', 'cupons.ler']);
   });
 
-  it('são os 7 do contrato do Liame + os 2 do RegemCast + os 3 do Farol + os 3 do totem (GoGeM) + o do iFood (Orzuni) + os canais da Central (Liame)', () => {
+  it('são os 7 do contrato do Liame + os 2 do RegemCast + os 3 do Farol + os 3 do totem (GoGeM) + o do iFood (Orzuni) + os canais da Central (Liame) + a disponibilidade (RegeMBoard)', () => {
     expect([...ESCOPOS_INTEGRACAO]).toEqual([
       'pedidos.ler',
       'clientes.telefone.ler',
@@ -92,12 +92,13 @@ describe('escopos', () => {
       'totem.vendas.lancar',
       'catalogo.ifood.ler',
       'atendimento.canais.ler',
+      'catalogo.disponibilidade.ler',
     ]);
   });
 
-  it('a lista do código é a do `check` das duas tabelas na migration 398 (escopo fora dela nem é gravado)', () => {
+  it('a lista do código é a do `check` das duas tabelas na migration 429 (escopo fora dela nem é gravado)', () => {
     const mig = readFileSync(
-      join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '398_integracao_canais_atendimento.sql'),
+      join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '429_integracao_disponibilidade.sql'),
       'utf8',
     );
     const listas = [...mig.matchAll(/escopos <@ array\[([^\]]+)\]::text\[\]/g)].map((m) =>
@@ -107,7 +108,7 @@ describe('escopos', () => {
     for (const lista of listas) expect(lista).toEqual([...ESCOPOS_INTEGRACAO]);
   });
 
-  it('os escopos de leitura na hora (Farol, Orzuni, canais da Central) e os do totem (GoGeM) não ligam o carimbador; todos os outros ligam', () => {
+  it('os escopos de leitura na hora (Farol, Orzuni, canais da Central, RegeMBoard) e os do totem (GoGeM) não ligam o carimbador; todos os outros ligam', () => {
     expect([...ESCOPOS_SEM_CARIMBO]).toEqual([
       'catalogo.ler',
       'fichas.ler',
@@ -117,6 +118,7 @@ describe('escopos', () => {
       'totem.vendas.lancar',
       'catalogo.ifood.ler',
       'atendimento.canais.ler',
+      'catalogo.disponibilidade.ler',
     ]);
     expect([...ESCOPOS_COM_CARIMBO]).toEqual([
       'pedidos.ler',
@@ -129,10 +131,10 @@ describe('escopos', () => {
       'clientes.ler',
       'vendas.99food.ler',
     ]);
-    // O cliente que lê vendas, clientes ou cupons liga o carimbador; o Farol, o GoGeM e o Orzuni não ligam.
+    // O cliente que lê vendas, clientes ou cupons liga o carimbador; o Farol, o GoGeM, o Orzuni e o RegeMBoard não ligam.
     for (const [chave, c] of Object.entries(CLIENTES_INTEGRACAO)) {
       const liga = c.escopos.some((e) => ESCOPOS_COM_CARIMBO.includes(e));
-      expect([chave, liga]).toEqual([chave, !['farol', 'gogem', 'orzuni'].includes(chave)]);
+      expect([chave, liga]).toEqual([chave, !['farol', 'gogem', 'orzuni', 'regemboard'].includes(chave)]);
     }
   });
 });

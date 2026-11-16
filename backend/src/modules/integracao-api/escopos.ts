@@ -31,6 +31,9 @@ export const ESCOPOS_INTEGRACAO = [
   // Liame (mig 398, Z12): as contas do Instagram e as páginas do Facebook conectadas à Central de atendimento — para o
   // Direct do Liame desligar onde o Regem já atende. Só o id e o @: nunca o acesso, mensagem ou dado de cliente.
   'atendimento.canais.ler',
+  // RegeMBoard (mig 429, Hub DMS F6): se cada produto e adicional está à venda AGORA na loja do token — esgotado,
+  // pausado ou fora do cardápio — no MESMO catálogo do `catalogo.ler`. Sozinho não abre rota: só acrescenta os campos.
+  'catalogo.disponibilidade.ler',
 ] as const;
 
 export type EscopoIntegracao = (typeof ESCOPOS_INTEGRACAO)[number];
@@ -52,6 +55,8 @@ export const ESCOPOS_SEM_CARIMBO: readonly EscopoIntegracao[] = [
   'catalogo.ifood.ler',
   // Liame (mig 398): os canais da Central, lidos na hora (a conta conectada agora).
   'atendimento.canais.ler',
+  // RegeMBoard (mig 429): a disponibilidade no catálogo, lida na hora como o resto do catálogo.
+  'catalogo.disponibilidade.ler',
 ];
 
 /** Os escopos cuja leitura depende do carimbador (todos os outros). */
@@ -79,6 +84,8 @@ export const ROTULO_ESCOPO: Record<EscopoIntegracao, string> = {
   'catalogo.ifood.ler': 'Preço do iFood e se o produto está no cardápio do iFood, no catálogo (junto de catalogo.ler)',
   'atendimento.canais.ler':
     'As contas do Instagram e as páginas do Facebook que a Central de atendimento atende (sem mensagens nem dados de cliente)',
+  'catalogo.disponibilidade.ler':
+    'Se cada produto e adicional está à venda agora na loja (esgotado, pausado ou fora do cardápio), no catálogo (junto de catalogo.ler)',
 };
 
 /**
@@ -156,6 +163,16 @@ export const CLIENTES_INTEGRACAO: Record<
     rotulo: 'Orzuni',
     abrangencia: 'loja',
     escopos: ['catalogo.ler', 'catalogo.ifood.ler'],
+    cargaDias: null,
+  },
+  // RegeMBoard (mig 429, F6): o menu nas TVs da loja mostra o que acabou. Um acesso por loja, só leitura na hora: o
+  // catálogo e a disponibilidade. Entra pelo clique (R-8: sem token colado); a entrada aqui é o que faz o Regem aceitá-lo
+  // em `DMS_ID_APLICATIVOS` (cliente fora desta lista DESLIGA a via inteira — `ligacao.regras.ts`) e em "Aplicativos
+  // conectados".
+  regemboard: {
+    rotulo: 'RegeMBoard',
+    abrangencia: 'loja',
+    escopos: ['catalogo.ler', 'catalogo.disponibilidade.ler'],
     cargaDias: null,
   },
 };
@@ -249,6 +266,12 @@ export const WEBHOOK_INTEGRACAO: Record<string, { envUrls: string; padrao: reado
   gogem: {
     envUrls: 'INTEGRACAO_GOGEM_WEBHOOK_URLS',
     padrao: ['https://api.gogem.com.br/api/v1/sync/regem/avisos/'],
+  },
+  // RegeMBoard (mig 429, F6): o cardápio e a disponibilidade avisam quando mudam — o esgotado chega à TV sem Publicar.
+  // O trecho depois da base é o id da conexão no RegeMBoard. A variável é só para teste e desenvolvimento.
+  regemboard: {
+    envUrls: 'INTEGRACAO_REGEMBOARD_WEBHOOK_URLS',
+    padrao: ['https://api.regemboard.com/v1/regem/avisos/'],
   },
 };
 

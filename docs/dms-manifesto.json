@@ -1028,6 +1028,13 @@
         "dms"
       ],
       "sensivel": false
+    },
+    "catalogo.disponibilidade.ler": {
+      "frase": "Se cada produto e cada adicional está à venda agora nesta loja: esgotado, pausado ou fora do cardápio. Sem preço.",
+      "classes": [
+        "dms"
+      ],
+      "sensivel": false
     }
   },
   "x-dms-limite": [
@@ -1101,6 +1108,15 @@
       "descricao": "As fichas da loja mudaram: leia /fichas com ?versao=.",
       "exemplo": {
         "tipo": "fichas.alterado",
+        "loja_id": "1f0c2a3b-0000-4000-8000-000000000001"
+      }
+    },
+    {
+      "tipo": "disponibilidade.alterada",
+      "permissao": "catalogo.disponibilidade.ler",
+      "descricao": "Um produto ou adicional esgotou ou voltou na loja: leia /catalogo com ?versao=.",
+      "exemplo": {
+        "tipo": "disponibilidade.alterada",
         "loja_id": "1f0c2a3b-0000-4000-8000-000000000001"
       }
     }
