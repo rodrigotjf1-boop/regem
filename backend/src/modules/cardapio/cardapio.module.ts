@@ -22,6 +22,7 @@ import { EstornoPixService } from './estorno-pix.service';
 import { EstornoPixProcessor } from './estorno-pix.processor';
 import { AdicionalPixService } from './adicional-pix.service';
 import { AdicionalPixProcessor } from './adicional-pix.processor';
+import { ComprovanteDoClienteService } from './comprovante-do-cliente.service';
 import { ChegadaModule } from '../chegada/chegada.module';
 import { AniversarioModule } from '../aniversario/aniversario.module';
 import { InstagramModule } from '../instagram/instagram.module';
@@ -53,6 +54,8 @@ import { ModuloModule } from '../modulo/modulo.module';
     EstornoPixProcessor,
     AdicionalPixService,
     AdicionalPixProcessor,
+    // O comprovante que o cliente manda no WhatsApp (16/11/2026): o Regem confere o pedido e responde (só nuvem).
+    ComprovanteDoClienteService,
   ],
 })
 export class CardapioModule {}

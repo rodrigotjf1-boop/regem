@@ -62,6 +62,7 @@ import { MisterModule } from '../mister/mister.module';
     // As respostas ao número de marketing que são de outro módulo (F4b parte 2 das vagas): o gancho se registra aqui.
     RespostasDoMarketingService,
   ],
-  exports: [WhatsappService, WhatsappCloudService, WhatsappProvedorService, WhatsappNumeroService, RespostasDoMarketingService],
+  // RoboRespostaService: a porta das respostas do robô, usada pelo comprovante do cliente (cardápio — 16/11/2026).
+  exports: [WhatsappService, WhatsappCloudService, WhatsappProvedorService, WhatsappNumeroService, RespostasDoMarketingService, RoboRespostaService],
 })
 export class WhatsappModule {}

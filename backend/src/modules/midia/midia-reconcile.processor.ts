@@ -1,3 +1,4 @@
+import { ehServidorLocal } from '../../common/modo';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { sql } from 'drizzle-orm';
@@ -22,7 +23,7 @@ const ALVOS: { tabela: string; col: string }[] = [
 @Injectable()
 export class MidiaReconcileProcessor {
   private readonly logger = new Logger('MidiaReconcile');
-  private readonly isEdge = String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
+  private readonly isEdge = ehServidorLocal();
   private rodando = false;
 
   constructor(

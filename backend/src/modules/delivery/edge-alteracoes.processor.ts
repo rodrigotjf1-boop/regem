@@ -1,3 +1,4 @@
+import { ehServidorLocal } from '../../common/modo';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { and, asc, eq, isNull, or } from 'drizzle-orm';
@@ -18,7 +19,7 @@ import { DeliveryService } from './delivery.service';
 export class EdgeAlteracoesProcessor {
   private readonly logger = new Logger('EdgeAlteracoes');
   private rodando = false;
-  private readonly isEdge = String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
+  private readonly isEdge = ehServidorLocal();
   // A loja DESTE servidor: só as alterações dela (o servidor da matriz nunca altera o pedido da filial).
   private readonly unidadeId = (process.env.EDGE_UNIDADE_ID || '').trim() || null;
 

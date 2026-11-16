@@ -37,7 +37,11 @@ if (connectionString.startsWith('enc:')) {
 // no topo — são tabelas SÓ da distribuição (ex.: telemetria, frota), que vivem na
 // NUVEM e o edge nunca escreve. Em dev/nuvem (sem EDGE_MODE) aplica tudo.
 // Tolerante a aspas e comentário na linha: EDGE_MODE=true, ="true", ='true', + # ...
-const ehEdge = /^\s*EDGE_MODE\s*=\s*["']?true["']?\s*(#.*)?$/im.test(env) || String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
+// Os MESMOS valores do `ehServidorLocal()` da API (`src/common/modo.ts`, que este script não pode importar): "true" em
+// qualquer caixa e "1", com espaços. Se a API se acha loja e este script não, ele cria na loja as tabelas só da nuvem.
+const valeComoLoja = (v) => ['true', '1'].includes(String(v ?? '').trim().toLowerCase());
+const noArquivo = env.match(/^\s*EDGE_MODE\s*=\s*["']?([^"'#\r\n]*?)["']?\s*(#.*)?$/im)?.[1];
+const ehEdge = valeComoLoja(noArquivo) || valeComoLoja(process.env.EDGE_MODE);
 
 // Em dev (monorepo) as migrations ficam em ../database/migrations; no edge
 // empacotado elas vao para ./database/migrations (dentro de backend/). Aceita os dois.

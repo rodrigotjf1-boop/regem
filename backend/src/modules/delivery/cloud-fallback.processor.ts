@@ -1,3 +1,4 @@
+import { ehServidorLocal } from '../../common/modo';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { and, eq, gte, isNull, lt, sql } from 'drizzle-orm';
@@ -28,7 +29,7 @@ import { deveMaterializar } from './deve-materializar';
 export class CloudFallbackProcessor {
   private readonly logger = new Logger('CloudFallback');
   private rodando = false;
-  private readonly isEdge = String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
+  private readonly isEdge = ehServidorLocal();
   private static readonly HB_MIN = 3; // heartbeat recente = edge ativo
   private static readonly TETO_MIN = 5; // idade mínima do pedido preso
   // Servidor que BATE mas não sincroniza há mais que isto não conta como vivo (ERR-132).

@@ -1,3 +1,4 @@
+import { ehServidorLocal } from '../../common/modo';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { and, eq, sql, type SQL } from 'drizzle-orm';
@@ -623,7 +624,7 @@ export class CampanhaService {
   // respeitando janela de agendamento + tetos dia/semana/mês. Só na nuvem; nunca sobrepõe.
   @Interval(3000)
   async worker() {
-    if (String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true') return;
+    if (ehServidorLocal()) return;
     if (this.rodando) return;
     this.rodando = true;
     try {

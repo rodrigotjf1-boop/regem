@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.14)
 
+- **"É o servidor da loja?" num lugar só (16/11, V2 do registro; sem migration) → vai no `.zip`** (o código da API e o
+  `backend/scripts/apply-all-local.mjs`, que aplica as migrations na loja).
+  - As 26 comparações de `EDGE_MODE` feitas à mão viram `ehServidorLocal()`.
+  - O script das migrations passa a aceitar os mesmos valores da API: "true" em qualquer caixa e "1".
+  - Com o `EDGE_MODE=true` que o instalador grava, nada muda no comportamento.
+
 - **Os cabeçalhos de segurança do app (16/11, avaliação interna; SEM migration; só `frontend/next.config.mjs`).** Na NUVEM
   com o merge: nenhuma tela pode ser embutida em outro site (menos o cardápio público `/c/...`), `nosniff` em tudo, HSTS
   só em `app.dmsregem.com` e sem `X-Powered-By`. No servidor da loja entra com o `.zip` (o front da loja usa o mesmo
@@ -46,6 +52,11 @@
   - Os planos e preços são os da tabela do app: 129 / 199 / 299.
   - Saem os números não medidos, o Metas L.T.D.A, "white-label" e os preços antigos; o TEF fica com "em breve".
   - O selo do plano em destaque vira "recomendado", também em Planos e assinatura.
+
+- **O comprovante que o cliente manda no WhatsApp (16/11, pedido do dono; SEM migration).** O Regem reconhece o
+  comprovante pelo contexto (sem ler a imagem), confere o pedido — consulta o provedor do Pix na hora — e responde: a
+  mensagem positiva, "ainda não caiu", ou chama a equipe (pagar na entrega, cancelado, nenhum pedido com o telefone). Só
+  NUVEM (o atendente é da nuvem): vale com o merge; o `.zip` leva o código sem efeito na loja.
 
 - **Estoque › Produtos › Importar — a conferência não rola mais para o lado (16/11, ERR-476; só tela, sem migration) → vai
   no `.zip`** (a tela da loja vem nele).

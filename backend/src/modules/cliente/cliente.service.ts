@@ -1,3 +1,4 @@
+import { ehServidorLocal } from '../../common/modo';
 import {
   BadRequestException,
   ConflictException,
@@ -1296,7 +1297,7 @@ export class ClienteService {
   // sincroniza). @Cron a cada 10 min; para sozinho quando não há mais o que preencher.
   @Cron('*/10 * * * *')
   async backfillGeocodeEnderecos() {
-    if (String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true') return;
+    if (ehServidorLocal()) return;
     try {
       const r: any = await this.db.execute(sql`
         select id, cliente_id, logradouro, numero, bairro, cidade

@@ -43,7 +43,7 @@ import { textoDaObservacao } from '../../common/observacao-do-pedido';
 
 // Estamos rodando no servidor EDGE (appliance da loja) e não na nuvem?
 function ehEdge(): boolean {
-  return String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
+  return ehServidorLocal();
 }
 
 // Um gateway de PIX resolvido para a loja. Na Rede, `token` é a chave de integração (já aberta) e `pv` o estabelecimento.
@@ -255,7 +255,7 @@ export class CardapioService {
     const lojas = await lojasAtivas(this.db, tenantId);
     if (!lojas.length) return this.sincronizarEsgotadosSemLoja(tenantId, produtos);
 
-    const noEdge = process.env.EDGE_MODE === 'true';
+    const noEdge = ehServidorLocal();
     const lojaDoEdge = process.env.EDGE_UNIDADE_ID || null;
     const calcular: string[] = [];
     for (const l of lojas) {
