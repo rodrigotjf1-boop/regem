@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { and, desc, eq, gte, inArray, or, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig, pedidoExterno } from '../../db/schema';
@@ -24,6 +24,8 @@ import { resumoDoRobo } from '../atendimento/resumo-do-robo';
 import { definirPorteiroDoComprovante } from '../whatsapp/juntar-mensagens';
 import { RoboRespostaService } from '../whatsapp/robo-resposta.service';
 import { CardapioService } from './cardapio.service';
+import { textoParaOAtendente } from '../../common/foto-do-cliente';
+import { FotoDoClienteService } from './foto-do-cliente.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -59,6 +61,8 @@ export class ComprovanteDoClienteService implements OnModuleInit, OnModuleDestro
     private readonly cardapio: CardapioService,
     private readonly resposta: RoboRespostaService,
     private readonly atendimento: AtendimentoService,
+    // A leitura da foto por IA (nasce desligada — `foto-do-cliente.service.ts`). Opcional: os testes do comprovante vivem sem ela.
+    @Optional() private readonly foto?: FotoDoClienteService,
   ) {}
 
   onModuleInit(): void {
@@ -69,8 +73,11 @@ export class ComprovanteDoClienteService implements OnModuleInit, OnModuleDestro
     definirPorteiroDoComprovante(null);
   }
 
-  /** A foto ou o documento do cliente: 'respondido' quando era um comprovante e o Regem respondeu; senão 'segue'. */
-  async decidir(msg: any, antes: string[] = [], agora: Date = new Date()): Promise<'segue' | 'respondido'> {
+  /**
+   * A foto ou o documento do cliente: 'respondido' quando era um comprovante e o Regem respondeu; `{ texto }` quando a
+   * leitura por IA descreveu a foto (o texto vai ao atendente no lugar da legenda); senão 'segue' (como chegou).
+   */
+  async decidir(msg: any, antes: string[] = [], agora: Date = new Date()): Promise<'segue' | 'respondido' | { texto: string }> {
     try {
       if (!TIPOS_DE_COMPROVANTE.includes(String(msg?.tipo ?? ''))) return 'segue';
       const tenantId = String(msg?.tenantId ?? '');
@@ -82,8 +89,16 @@ export class ComprovanteDoClienteService implements OnModuleInit, OnModuleDestro
       if (!chave || chave.length < 10) return 'segue';
 
       const pedidos = await this.pedidosDoTelefone(tenantId, chave, agora);
-      const d = decidirComprovante({ tipo: msg.tipo, legenda: msg?.texto, antes, arquivoNome: msg?.arquivoNome, pedidos, agora });
-      if (d.caso === 'nao_e') return 'segue';
+      const contexto = { tipo: msg.tipo, legenda: msg?.texto, antes, arquivoNome: msg?.arquivoNome, pedidos, agora };
+      let d = decidirComprovante(contexto);
+      if (d.caso === 'nao_e') {
+        // Pelo contexto não é comprovante: a LEITURA DA FOTO por IA (quando ligada). Comprovante sem contexto entra no
+        // caminho de baixo; o resto (print do cardápio, pedido recebido, outra coisa) vai ao atendente COM a descrição.
+        const analise = (await this.foto?.olhar(msg)) ?? null;
+        if (!analise) return 'segue';
+        if (analise.tipo === 'comprovante') d = decidirComprovante({ ...contexto, eComprovante: true });
+        if (d.caso === 'nao_e') return { texto: textoParaOAtendente(msg?.texto, analise) };
+      }
 
       // Duas fotos seguidas: a segunda não ganha outra resposta (nem vai ao robô — é o mesmo assunto).
       const k = `${tenantId}:${chave}`;

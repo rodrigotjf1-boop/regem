@@ -23,6 +23,8 @@ import { EstornoPixProcessor } from './estorno-pix.processor';
 import { AdicionalPixService } from './adicional-pix.service';
 import { AdicionalPixProcessor } from './adicional-pix.processor';
 import { ComprovanteDoClienteService } from './comprovante-do-cliente.service';
+import { FotoDoClienteService } from './foto-do-cliente.service';
+import { IaModule } from '../ia/ia.module';
 import { ChegadaModule } from '../chegada/chegada.module';
 import { AniversarioModule } from '../aniversario/aniversario.module';
 import { InstagramModule } from '../instagram/instagram.module';
@@ -36,7 +38,8 @@ import { ModuloModule } from '../modulo/modulo.module';
   // InstagramModule (mig 378): o "chamar atendente" do robô no Direct do Instagram abre o caso do Direct.
   // MessengerModule (mig 386): o "chamar atendente" do robô no Messenger abre o caso do Messenger; as consultas pela chave fb:.
   // ModuloModule (F3 de Vagas): o robô só manda o link da página de vagas com o módulo "vagas" ligado na loja.
-  imports: [VendasModule, DeliveryModule, AtendimentoModule, FidelidadeModule, CashbackModule, WhatsappModule, ChegadaModule, AniversarioModule, InstagramModule, MessengerModule, ModuloModule],
+  // IaModule: a leitura da foto do cliente fala com o modelo pela porta única da IA da empresa (o medidor de uso).
+  imports: [VendasModule, DeliveryModule, AtendimentoModule, FidelidadeModule, CashbackModule, WhatsappModule, ChegadaModule, AniversarioModule, InstagramModule, MessengerModule, ModuloModule, IaModule],
   controllers: [CardapioController, CardapioPublicoController, EventosCardapioController, RoboConsultasController, RoboPedidoController],
   // LembreteDoCarrinhoProcessor: o lembrete do pedido que ficou pela metade no robô (mig 349; só nuvem).
   // AvisoDaMudancaProcessor: a decisão do servidor da loja sobre a mudança pedida pelo robô chega ao cliente (mig 363; só nuvem).
@@ -56,6 +59,8 @@ import { ModuloModule } from '../modulo/modulo.module';
     AdicionalPixProcessor,
     // O comprovante que o cliente manda no WhatsApp (16/11/2026): o Regem confere o pedido e responde (só nuvem).
     ComprovanteDoClienteService,
+    // A leitura da foto do cliente por IA (16/11/2026; nasce desligada — ROBO_FOTOS_IA=1): a descrição vai ao atendente.
+    FotoDoClienteService,
   ],
 })
 export class CardapioModule {}

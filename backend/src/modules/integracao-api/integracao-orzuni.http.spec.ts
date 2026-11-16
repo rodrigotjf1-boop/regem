@@ -49,10 +49,14 @@ const semFkCompartilhada = (s: string) =>
 const ESCOPOS_ORZUNI = ['catalogo.ler', 'catalogo.ifood.ler'];
 const ESCOPOS_FAROL = ['catalogo.ler', 'fichas.ler', 'producao.ler'];
 const NOME_DE_DINHEIRO = /pre[cç]o|custo|margem|cmv|valor|markup|delta|centavo|venda/i;
-/** O corpo sem o que é sorteado a cada rodada (uuids e a hora ISO): a conferência de "nenhum valor de dinheiro" por
- *  dígitos não pode casar com eles — "…-6915-4550-…" num uuid já derrubou o CI do #875 (ERR-414, família do ERR-408). */
+/** O corpo sem o que é sorteado a cada rodada (uuids, a hora ISO e os hashes, como a `versao` do catálogo): a conferência
+ *  de "nenhum valor de dinheiro" por dígitos não pode casar com eles — "…-6915-4550-…" num uuid já derrubou o CI do #875
+ *  (ERR-414, família do ERR-408), e a `versao` terminada em "…41954550" derrubou o do #1067 (ERR-492). */
 const semSorteio = (s: string) =>
-  s.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, 'UUID').replace(/\d{4}-\d{2}-\d{2}T[\d:.]+Z/g, 'DATA');
+  s
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, 'UUID')
+    .replace(/\d{4}-\d{2}-\d{2}T[\d:.]+Z/g, 'DATA')
+    .replace(/"[0-9a-f]{32,64}"/gi, '"HASH"');
 
 /** Todo nome de campo de um JSON, em qualquer profundidade. */
 function nomesDosCampos(v: unknown, achados = new Set<string>()): Set<string> {
@@ -267,5 +271,22 @@ descrever('API de integração — Orzuni (catálogo com o preço do iFood)', ()
       await Promise.all(leituras.map(async (m) => [m, await recusa(guardDaApi.canActivate(contexto(IntegracaoApiController, m, token).ctx))])),
     );
     for (const [m, r] of Object.entries(resultado)) expect([m, r]).toEqual([m, m === 'catalogo' ? 'passou' : 403]);
+  });
+});
+
+// A PRÓPRIA PROTEÇÃO, sem banco (ERR-414, ERR-492): o que é sorteado sai antes da conferência por dígitos, e um valor de
+// dinheiro que vazasse continua à vista.
+describe('API de integração — Orzuni: a conferência por dígitos não cai por sorteio', () => {
+  it('uuid, hora e hash com os dígitos do preço não casam; o preço de verdade casa', () => {
+    const sorteado = JSON.stringify({
+      versao: 'a9b72ec087f4fa5adfccce1c41954550', // o hash que derrubou o CI do #1067
+      loja_id: '0b1e6915-4550-4c1e-9a3f-00000000a455', // o formato que derrubou o do #875
+      gerado_em: '2026-11-16T20:09:23.512Z', // "3.5" na hora
+    });
+    expect(semSorteio(sorteado)).not.toMatch(/4550|45\.5|9999999999/);
+    expect(semSorteio(sorteado)).not.toMatch(/32\.9|3\.5|"7(\.0+)?"/);
+    expect(semSorteio(JSON.stringify({ preco_ifood_centavos: 4550 }))).toMatch(/4550/);
+    expect(semSorteio(JSON.stringify({ preco_ifood: '45.50' }))).toMatch(/45\.5/);
+    expect(semSorteio(JSON.stringify({ preco_ifood: '9999999999.99' }))).toMatch(/9999999999/);
   });
 });
