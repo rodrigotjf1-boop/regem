@@ -31,6 +31,11 @@
   rotas do totem, que também roda no servidor da loja — lá ele não anuncia (`ehServidorLocal()`). Os arquivos
   (`common/retirada-credencial.ts` e os dois guardas) vão junto no próximo corte, sem efeito na loja. Nada no `.exe`.
 
+- **Estoque › Produtos › Importar — a conferência não rola mais para o lado (16/11, ERR-476; só tela, sem migration) → vai
+  no `.zip`** (a tela da loja vem nele).
+  - No passo 3, a lista fica em colunas quando cabe no diálogo e empilhada quando não cabe.
+  - Antes, de 640 a ~704 px de tela (celular deitado), a tabela de 640 px rolava dentro do diálogo de 576.
+
 - **As rotinas agendadas, nuvem × loja (16/11, ERR-075; sem migration) → vai no `.zip`** (o servidor da loja roda os mesmos
   `@Cron`).
   - **Expurgo LGPD das fotos:** a loja passa a apagar só as fotos do disco dela, e a nuvem as do storage. Antes, o lado que

@@ -6,6 +6,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { DeliveryService } from './delivery.service';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
+import { repetirNoImpasse } from '../../common/repetir-no-impasse';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -27,7 +28,13 @@ descrever('totem: pedido pago sai da lista ao ficar pronto (mig 301)', () => {
   let servico: DeliveryService;
   const baixas: string[] = [];
   const criadas: string[] = [];
-  const q = async (s: string, p: any[] = []) => (await pool.query(s, p)).rows;
+  // Cada chamada é UMA instrução solta: se o Postgres a derruba num impasse (40P01), nada ficou gravado e repetir é
+  // seguro. No banco dividido do CI, o insert do preparo já cruzou com a migration reaplicada por outra spec (ERR-377,
+  // reincidência de 16/11/2026); o aviso traz o detalhe do Postgres, para achar a outra ponta quando voltar.
+  const q = (s: string, p: any[] = []) =>
+    repetirNoImpasse(async () => (await pool.query(s, p)).rows, {
+      aoRepetir: (n, e: any) => console.warn(`totem-conclui: impasse no preparo (tentativa ${n}): ${e?.detail ?? e?.message}`),
+    });
 
   const empresa = async () => {
     const t = randomUUID();
