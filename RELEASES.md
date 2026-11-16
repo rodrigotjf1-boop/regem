@@ -25,7 +25,8 @@
   e em todo login. A ponte sai de `regem-ponte-dist` (`ponte-chat/empacotar.mjs`, passo 5b do `build-release.ps1`, seção
   7 do preflight), FORA do `regem-edge-dist`: o `.zip` não leva a ponte (~105 MB a mais no `.exe`). No mesmo PR, o
   ERR-113 corrigido no repositório: o carimbo da versão lê e grava o `.iss` em UTF-8 com BOM (o `carimbar-iss.cjs` à
-  mão deixa de ser preciso) e o preflight reprova `.iss` com acento estragado.
+  mão deixa de ser preciso) e o preflight reprova `.iss` com acento estragado. Depois (ERR-478): o `empacotar.mjs` baixa
+  o binário do Electron quando falta — o Electron 45 não baixa mais no `npm ci`, e o 1º corte parou no passo 5b.
 
 - **O Relatório das Ordens de produção sem barra lateral (15/11, ERR-476 parte 2; SEM migration; só tela).** A tabela
   planejado × produzido passou para a lista do modelo do Estoque (tabela na tela larga, cartões no resto). Na nuvem vale
