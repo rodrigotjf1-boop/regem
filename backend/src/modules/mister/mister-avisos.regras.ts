@@ -226,11 +226,41 @@ const PROBLEMA_TECNICO: Record<string, string> = {
 export interface Situacao {
   tenantId: string;
   unidadeId: string | null;
-  tipo: TipoDeAviso;
+  tipo: TipoDeAviso | TipoDaDistribuicao;
   chave: string;
   titulo: string;
   detalhe: string;
   dados?: Record<string, unknown>;
+}
+
+// ───────────────────────────── os avisos SÓ DA DISTRIBUIÇÃO ─────────────────────────────
+// Decisão 4 do protótipo `mockups/regem-mister-sentinela-mentor.html` (aprovado em 15/11/2026): o segredo tirado da
+// resposta do Mister vira aviso ao suporte da DMS (Console › Avisos), além da faixa da Segurança. É da DISTRIBUIÇÃO: vai
+// só ao destino `dms`, com a regra fixa daqui; a loja não vê (fora do Histórico e da tela) nem configura (fora dos tipos
+// de "Avisos e relatórios"). O aviso nunca leva o segredo: só a hora e as consultas daquela resposta.
+
+export type TipoDaDistribuicao = 'segredo_na_resposta';
+export const AVISOS_DA_DISTRIBUICAO: Record<TipoDaDistribuicao, RegraDoAviso> = { segredo_na_resposta: regra(['dms']) };
+export const TIPOS_DA_DISTRIBUICAO = Object.keys(AVISOS_DA_DISTRIBUICAO) as TipoDaDistribuicao[];
+export const ehAvisoDaDistribuicao = (t: unknown): t is TipoDaDistribuicao => typeof t === 'string' && t in AVISOS_DA_DISTRIBUICAO;
+
+/** O segredo tirado é um EVENTO: o aviso fica aberto por este tempo e depois fecha sozinho (a volta não o vê mais). */
+export const SEGREDO_ABERTO_H = 24;
+
+/** O aviso de um segredo tirado da resposta de uma pergunta (uma por pergunta). */
+export function situacaoDoSegredo(p: { tenantId: string; perguntaId: string; quando: string; consultas: string[] }): Situacao {
+  const consultas = p.consultas.filter(Boolean).slice(0, 6);
+  return {
+    tenantId: p.tenantId,
+    unidadeId: null,
+    tipo: 'segredo_na_resposta',
+    chave: `segredo:${p.perguntaId}`,
+    titulo: 'Segredo tirado da resposta do Mister',
+    detalhe:
+      `Em ${p.quando}, o filtro de saída trocou a resposta inteira pela frase fixa${consultas.length ? ` (consultas: ${consultas.join(', ')})` : ''}. ` +
+      'O segredo não foi enviado nem guardado. Veja em Console › Mister › Segurança.',
+    dados: { consultas },
+  };
 }
 
 /** O texto de um incidente do vigia, com o nome da loja. */
