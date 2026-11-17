@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Etapa do produto: "até 1" é escolha única, o máximo trava e a obrigatória segura o "Adicionar" no PDV, na mesa e no garçom
+  (17/11; ERR-505; só tela, SEM migration) → vai no `.zip`.**
+
 - **PDV · Balcão: cartões grandes por padrão, "Compactos" por pessoa, e a ordem do "Organizar" gravada de verdade (17/11;
   ERR-504; SEM migration) → vai no `.zip`** (a tela e a rota das preferências são do servidor da loja).
   - O cartão grande: 6 por linha no monitor, foto 4:3, nome de 17 px, preço em destaque; "Compactos" ao lado do "Organizar".
@@ -137,6 +140,10 @@
     tocava também nas telas de preparo. Agora as telas de preparo (e a loja de um KDS só) não recebem por padrão; o
     despacho, a entrega e a tela de avisos recebem — como a compra recebida e a contagem.
   - Numa empresa de uma loja só, o resto não muda.
+
+- **A credencial antiga pode ser desligada (17/11, Hub DMS F6 P-4; SEM migration; nasce desligado; só `.zip`).** Vale na
+  NUVEM, com `INTEGRACAO_ANTIGA_DESLIGADA=true` no `regem-api` (o dono liga). No servidor da loja nada muda: o
+  `X-Sync-Token` do totem segue valendo lá (o código vai no `.zip` sem efeito na loja).
 
 - **🔴 `.exe` — Mister: reiniciar o serviço de impressão pela loja (16/11, F4.4 de `docs/plano-mister.md`, a conversa 5 do
   protótipo `mockups/regem-mister.html`; sem migration).** Toca `backend/edge/sync-daemon.mjs` (o comando

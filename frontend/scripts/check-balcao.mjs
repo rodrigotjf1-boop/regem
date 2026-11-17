@@ -213,6 +213,41 @@ try {
     for (const p of ['/', '/delivery', '/pdvx', '/painel', '/cupons']) assert.equal(tt.naTelaDoTotem(p), false, p);
   });
 
+  // A ETAPA (pedido do dono, 17/11/2026: "com o máximo 1, consegui escolher as duas batatas"): a regra do cardápio digital.
+  writeFileSync(
+    join(tmp, 'adicionais.mjs'),
+    ts.transpileModule(readFileSync(join(raiz, 'adicionais.ts'), 'utf8'), {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
+    }).outputText,
+  );
+  const ad = await import(pathToFileURL(join(tmp, 'adicionais.mjs')).href);
+  const BATATA = { max: 1, obrigatorio: true, opcoes: [{ id: 'media' }, { id: 'grande' }] };
+  const MOLHOS = { max: 2, opcoes: [{ id: 'm1' }, { id: 'm2' }, { id: 'm3' }] };
+  const LIVRE = { max: null, opcoes: [{ id: 'l1' }, { id: 'l2' }] };
+
+  caso('etapa "até 1": a outra opção TROCA a escolha (rádio); a marcada desmarca; as outras etapas ficam', () => {
+    assert.deepEqual(ad.alternarOpcao(BATATA, ['m1'], 'media'), ['m1', 'media']);
+    assert.deepEqual(ad.alternarOpcao(BATATA, ['m1', 'media'], 'grande'), ['m1', 'grande']); // nunca as duas
+    assert.deepEqual(ad.alternarOpcao(BATATA, ['grande'], 'grande'), []); // tocar na marcada desmarca
+  });
+
+  caso('etapa "até 2": trava no limite (a lista volta igual); sem limite (vazio ou 0) aceita todas', () => {
+    assert.deepEqual(ad.alternarOpcao(MOLHOS, ['m1', 'm2'], 'm3'), ['m1', 'm2']);
+    assert.deepEqual(ad.alternarOpcao(MOLHOS, ['m1', 'm2'], 'm1'), ['m2']);
+    assert.deepEqual(ad.alternarOpcao(LIVRE, ['l1'], 'l2'), ['l1', 'l2']);
+    assert.deepEqual(ad.alternarOpcao({ ...LIVRE, max: 0 }, ['l1'], 'l2'), ['l1', 'l2']);
+    assert.equal(ad.maximoDaEtapa({ max: '2' }), 2);
+  });
+
+  caso('etapa obrigatória: o "Adicionar" espera a primeira que falta, na ordem da tela; o mínimo vale', () => {
+    assert.equal(ad.etapaQueFalta([MOLHOS, BATATA], ['m1'])?.opcoes[0].id, 'media'); // a batata falta
+    assert.equal(ad.etapaQueFalta([MOLHOS, BATATA], ['grande']), null);
+    assert.equal(ad.etapaObrigatoria({ min: 2 }), true);
+    assert.equal(ad.etapaCompleta({ min: 2, opcoes: [{ id: 'a' }, { id: 'b' }] }, ['a']), false);
+    assert.equal(ad.etapaCompleta({ min: 2, opcoes: [{ id: 'a' }, { id: 'b' }] }, ['a', 'b']), true);
+    assert.equal(ad.etapaObrigatoria(MOLHOS), false);
+  });
+
   console.log(`\ncheck:balcao — ${n} grupos de casos, todos certos.`);
 } finally {
   rmSync(tmp, { recursive: true, force: true });

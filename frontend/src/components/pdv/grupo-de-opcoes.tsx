@@ -1,7 +1,7 @@
 'use client';
 
 import { Minus, Plus } from 'lucide-react';
-import { permiteRepetir, vezesDe } from '@/lib/adicionais';
+import { alternarOpcao, etapaObrigatoria, maximoDaEtapa, permiteRepetir, vezesDe } from '@/lib/adicionais';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -27,11 +27,14 @@ export function GrupoDeOpcoes({
   const repete = permiteRepetir(grupo);
   const noGrupo = escolhidas.filter((id) => opcoes.some((o) => o.id === id)).length;
   // Máximo da etapa: vale para a soma das escolhas dela (a mesma conta do cardápio).
-  const cheio = grupo.max != null && noGrupo >= Number(grupo.max);
-  const obrigatoria = !!grupo.obrigatorio || Number(grupo.min) > 0;
-
-  const alternar = (id: string) =>
-    onMudar(escolhidas.includes(id) ? escolhidas.filter((x) => x !== id) : [...escolhidas, id]);
+  const max = maximoDaEtapa(grupo);
+  const cheio = max != null && noGrupo >= max;
+  const obrigatoria = etapaObrigatoria(grupo);
+  // "Até 1" é escolha ÚNICA: tocar em outra troca a escolha (a bolinha de rádio). Máximo maior: trava no limite. A regra
+  // é a do cardápio digital (`lib/adicionais.ts › alternarOpcao`); antes a etapa sem repetição não conferia o máximo e
+  // deixava "2/1" (pedido do dono, 17/11/2026).
+  const unica = max === 1;
+  const alternar = (id: string) => onMudar(alternarOpcao(grupo, escolhidas, id));
   const por = (id: string) => {
     if (!cheio) onMudar([...escolhidas, id]);
   };
@@ -52,14 +55,14 @@ export function GrupoDeOpcoes({
         <span className="font-display text-sm font-bold">{grupo.nome}</span>
         <span className="text-xs text-muted-foreground">
           {grupo.tipo === 'remover' ? 'retirar' : grupo.tipo === 'escolha' ? 'escolher' : 'adicionar'}
-          {repete ? ` · pode repetir${grupo.max != null ? `, até ${grupo.max}` : ''}` : grupo.max != null ? ` · até ${grupo.max}` : ''}
+          {repete ? ` · pode repetir${max != null ? `, até ${max}` : ''}` : unica ? ' · escolha 1' : max != null ? ` · até ${max}` : ''}
         </span>
         {obrigatoria && (
           <span className="rounded-full bg-warn/10 px-2 py-0.5 text-[11px] font-semibold text-warn">Obrigatório</span>
         )}
-        {grupo.max != null && (
-          <span className="ml-auto font-mono text-xs text-muted-foreground" aria-label={`${noGrupo} de ${grupo.max} escolhidas`}>
-            {noGrupo}/{grupo.max}
+        {max != null && (
+          <span className="ml-auto font-mono text-xs text-muted-foreground" aria-label={`${noGrupo} de ${max} escolhidas`}>
+            {noGrupo}/{max}
           </span>
         )}
       </legend>
@@ -75,18 +78,24 @@ export function GrupoDeOpcoes({
           const preco = Number(o.precoDelta) > 0 && (
             <span className="block font-mono text-xs font-semibold text-primary">+ {brl(Number(o.precoDelta))}</span>
           );
-          if (!repete)
+          if (!repete) {
+            const travada = !unica && cheio && n === 0;
             return (
               <label
                 key={o.id}
-                className={`flex min-h-14 min-w-0 cursor-pointer items-center gap-2.5 rounded-lg border p-2 transition-colors focus-within:ring-2 focus-within:ring-ring ${
+                data-opcao={o.id}
+                className={`flex min-h-14 min-w-0 items-center gap-2.5 rounded-lg border p-2 transition-colors focus-within:ring-2 focus-within:ring-ring ${
                   n > 0 ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/60'
-                }`}
+                } ${travada ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
               >
                 <input
-                  type="checkbox"
+                  type={unica ? 'radio' : 'checkbox'}
+                  name={unica ? `etapa-${grupo.id}` : undefined}
                   checked={n > 0}
+                  disabled={travada}
                   onChange={() => alternar(o.id)}
+                  // o rádio marcado não dispara o onChange: o toque nele desmarca (a etapa opcional pode ficar vazia)
+                  onClick={unica && n > 0 ? () => alternar(o.id) : undefined}
                   className="h-4 w-4 flex-none accent-primary"
                 />
                 {foto(o)}
@@ -96,6 +105,7 @@ export function GrupoDeOpcoes({
                 </span>
               </label>
             );
+          }
           return (
             <div
               key={o.id}

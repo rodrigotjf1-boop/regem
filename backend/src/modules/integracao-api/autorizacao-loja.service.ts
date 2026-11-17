@@ -36,7 +36,12 @@ import {
   verificadorConfere,
 } from './autorizacao-loja';
 import { gerarTokenIntegracao } from './token-integracao';
+import { credencialAntigaDesligada } from '../../common/retirada-credencial';
 import { Autorizador, IntegracaoTokenService } from './integracao-token.service';
+
+/** A troca da página de 01/10 (o token colado por loja) com a credencial antiga desligada (P-4). */
+export const TROCA_DE_01_10_RETIRADA =
+  'A troca do código pelo token colado foi retirada. Conecte pela autorização por clique do DMS ID (Padrão DMS §3).';
 import type { IntegracaoCtxData } from './integracao-token.guard';
 import { POLITICA_LIGACAO } from '../../dms/integracao-dms';
 import { PERMISSAO_NA_TELA } from './autorizacao-clique.regras';
@@ -247,6 +252,8 @@ export class AutorizacaoLojaService {
    * a loja já tinha com este cliente e cria o novo. Resposta: `{ lojas: [{ …loja, token }] }`.
    */
   async trocar(body: any) {
+    // Desligado pela distribuição (P-4): a página de 01/10 não entrega mais token colado.
+    if (credencialAntigaDesligada()) throw new ProblemaException(404, 'nao-encontrado', TROCA_DE_01_10_RETIRADA);
     const cliente = clienteAutorizacao(body?.client_id);
     if (!cliente || !segredoConfere(cliente, body?.client_secret)) {
       throw new ProblemaException(401, 'cliente-invalido', 'Cliente ou segredo de cliente inválido.');

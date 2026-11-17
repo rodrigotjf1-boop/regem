@@ -105,3 +105,26 @@ export function anunciarRetiradaNaResposta(res: { setHeader?: (nome: string, val
 export function esquecerRetiradaLida(): void {
   lido = null;
 }
+
+/**
+ * O DESLIGAMENTO DA CREDENCIAL ANTIGA (Hub DMS F6, plano "Fim das portas antigas", decisão P-4).
+ *
+ * Com `INTEGRACAO_ANTIGA_DESLIGADA=true` no ambiente (a distribuição põe no EasyPanel; só esse valor liga), a credencial
+ * antiga deixa de valer: o token colado (`rgm_it_`), na nuvem o caminho antigo do totem (`X-Sync-Token` com
+ * `X-Integrador`), e as saídas que ainda criavam ou trocavam token colado (a troca da página de 01/10, a troca
+ * automática pela ligação e a emissão pelo console da distribuição). A recusa da credencial é a de token inválido do
+ * Padrão (401 `token-invalido`), com a frase que diz o caminho do clique. Volta atrás apagando a variável. A ligação do
+ * clique e o servidor da loja não mudam.
+ *
+ * O Padrão DMS §12 pede o anúncio com 90 dias antes de desligar (a peça de cima). Em 17/11/2026 o dono decidiu desligar
+ * SEM o prazo: não havia parceiro de fora e todas as integrações da única empresa em uso já estavam no clique (a
+ * recontagem do banco achou só a chave de teste do Orzuni, de uma empresa de teste). O anúncio continua no código e o
+ * §12 continua valendo para quando houver parceiro.
+ */
+export const CREDENCIAL_RETIRADA =
+  'Esta credencial foi retirada: o token colado não vale mais. Conecte pela autorização por clique do DMS ID (Padrão DMS §3).';
+
+/** A credencial antiga está desligada neste ambiente? */
+export function credencialAntigaDesligada(env: Record<string, string | undefined> = process.env): boolean {
+  return (env.INTEGRACAO_ANTIGA_DESLIGADA ?? '').trim().toLowerCase() === 'true';
+}
