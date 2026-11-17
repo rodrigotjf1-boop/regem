@@ -1,5 +1,5 @@
 import { montarChave } from '../modules/fiscal/chave';
-import { conferirNota, lerChaveDaNfe, lerLeituraDaNota, numeroDoTexto, palavrasDaDescricao, sugerirInsumos } from './nota-por-foto';
+import { ItemNoMister, conferirNota, custosQueMudaram, destinosDosItens, lerChaveDaNfe, lerLeituraDaNota, numeroDoTexto, palavrasDaDescricao, sugerirInsumos } from './nota-por-foto';
 
 // A NOTA DO FORNECEDOR POR FOTO (M3b, parte 1 — só o que é puro): a chave conferida pelo dígito, a leitura do que a IA
 // devolve, a conferência dos totais e a sugestão do insumo de cada item (a medida "56 g" separa a carne de 120 g).
@@ -106,5 +106,54 @@ describe('a sugestão do insumo de cada item', () => {
   it('o bacon fatiado sugere o bacon em tiras (a pessoa confirma); o que não tem nada em comum, nada', () => {
     expect(sugerirInsumos('BACON FATIADO', INSUMOS).map((x) => x.id)).toEqual(['bac']);
     expect(sugerirInsumos('DETERGENTE NEUTRO', INSUMOS)).toEqual([]);
+  });
+});
+
+describe('cada item e para onde vai (a conversa e a gaveta, M3b.3)', () => {
+  const item = (o: Partial<ItemNoMister>): ItemNoMister => ({
+    descricao: 'X',
+    codigo: null,
+    quantidade: 2,
+    unidade: 'KG',
+    valorUnitarioCentavos: null,
+    valorTotalCentavos: null,
+    insumoId: 'i',
+    insumoNome: 'Queijo',
+    unidadeDoEstoque: 'kg',
+    fator: 1,
+    estado: 'ligado',
+    sugestoes: [],
+    ...o,
+  });
+  it('ligado (com e sem conversão), fora do estoque e o que ainda falta', () => {
+    expect(
+      destinosDosItens({
+        itens: [
+          item({}),
+          item({ insumoNome: 'Bacon', unidadeDoEstoque: 'pacote', fator: 2.5 }),
+          item({ estado: 'fora', insumoId: null, insumoNome: null, fator: null }),
+          item({ estado: 'item', insumoId: null, insumoNome: null, fator: null }),
+          item({ estado: 'fator', fator: null, unidadeDoEstoque: 'pacote' }),
+        ],
+      }).map((x) => x.destino),
+    ).toEqual(['Queijo', 'Bacon (5 pacote)', 'fora do estoque', 'falta dizer o insumo', 'Queijo (falta a conversão de unidade)']);
+  });
+});
+
+describe('o custo que mudou com a nota (M3b.3)', () => {
+  it('a frase da conversa 12, com o artigo de cada unidade', () => {
+    expect(custosQueMudaram([{ insumo: 'Carne 56 g', unidade: 'kg', antes: 31.9, depois: 33 }])).toEqual(['O quilo de Carne 56 g passou de R$ 31,90 para R$ 33,00.']);
+    expect(custosQueMudaram([{ insumo: 'Pão', unidade: 'caixa', antes: 10, depois: 12 }])).toEqual(['A caixa de Pão passou de R$ 10,00 para R$ 12,00.']);
+  });
+  it('só o que mudou 1% ou mais, com custo antes; até 3, os que mais mudaram', () => {
+    const m = [
+      { insumo: 'A', unidade: 'kg', antes: 10, depois: 10.05 }, // 0,5%: fica de fora
+      { insumo: 'B', unidade: 'kg', antes: 0, depois: 12 }, // sem custo antes: o primeiro custo não é mudança
+      { insumo: 'C', unidade: 'kg', antes: 10, depois: 11 }, // 10%
+      { insumo: 'D', unidade: 'kg', antes: 10, depois: 13 }, // 30%
+      { insumo: 'E', unidade: 'kg', antes: 10, depois: 8 }, // -20%
+      { insumo: 'F', unidade: 'kg', antes: 10, depois: 10.2 }, // 2%
+    ];
+    expect(custosQueMudaram(m).map((x) => x.split(' ')[3])).toEqual(['D', 'E', 'C']);
   });
 });

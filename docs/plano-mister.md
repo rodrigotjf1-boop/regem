@@ -993,7 +993,10 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
 - **Parte 2 (mig 441 `mister_de_para`, aplicada; nasce desligado por `MISTER_NOTAS=1`):** a conversa (cada item a um
   insumo, a memória do fornecedor, "Cadastrar novo", "Fora do estoque", o fator perguntado), o resumo e o "Lançar" pelo
   recebimento da tela e pelas contas por parcela.
-- **Falta (parte 3):** a mudança do custo na resposta e a nota com os itens na gaveta da parte "Documentos".
+- **Parte 2 — #1102, no ar.**
+- **Parte 3 (sem migration; atrás do `MISTER_NOTAS=1`):** o custo médio que mudou na resposta do "Lançar" (lido antes e
+  depois numa consulta só) e, na parte "Documentos", a nota com o número, os itens e o destino de cada um, as parcelas e
+  "Ver no Recebimento". **A M3b está completa.**
 
 ## 5. O que depende do dono
 

@@ -34,6 +34,14 @@ type Documento = {
   respondidoEm: string | null;
   tituloId: string | null;
   podeDesfazer: boolean;
+  /** Só da nota do fornecedor (M3b.3): cada item com o destino — a mesma linha do resumo da conversa. */
+  nota: {
+    numero: string | null;
+    parcelas: number;
+    noEstoque: number;
+    itens: { descricao: string; quanto: string; destino: string; estado: 'ligado' | 'fora' | 'item' | 'fator' }[];
+    recebimentoId: string | null;
+  } | null;
 };
 type Resposta = { dias: number; limite: number; documentos: Documento[] };
 
@@ -85,11 +93,26 @@ const quando = (iso: string) => {
   const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
   return `${dia} ${hora}`;
 };
-const nomeDoDocumento = (d: Documento) => `${d.tipo === 'conta' ? 'Conta' : d.tipo === 'nota' ? 'Nota' : d.tipo === 'outro' ? 'Imagem' : 'Boleto'} · ${d.beneficiario ?? 'sem nome lido'}`;
+// O número da nota como no protótipo ("Nota 48.213"); o que não é só número fica como veio.
+const numeroDaNota = (n: string | null | undefined) => (n && /^\d+$/.test(n) ? Number(n).toLocaleString('pt-BR') : (n ?? ''));
+const nomeDoDocumento = (d: Documento) =>
+  d.tipo === 'nota'
+    ? `Nota${d.nota?.numero ? ` ${numeroDaNota(d.nota.numero)}` : ''} · ${d.beneficiario ?? 'sem nome lido'}`
+    : `${d.tipo === 'conta' ? 'Conta' : d.tipo === 'outro' ? 'Imagem' : 'Boleto'} · ${d.beneficiario ?? 'sem nome lido'}`;
+const plural = (n: number, um: string, varios: string) => `${n} ${n === 1 ? um : varios}`;
 const comoFoiLido = (d: Documento) => {
+  // A nota que espera a resposta de algum item: quantos ainda não foram ligados ao estoque (o protótipo).
+  const pendentes = d.nota?.itens.filter((x) => x.estado === 'item' || x.estado === 'fator').length ?? 0;
+  if (d.tipo === 'nota' && d.situacao === 'falta' && pendentes > 0) return `${plural(pendentes, 'item', 'itens')} sem ligação com o estoque`;
   // O motivo da nota vem como "item:2" ou "fator:1" (qual item espera a resposta): vale a parte antes dos dois-pontos.
   if (d.situacao === 'recusado' || d.situacao === 'falta') return d.motivo ? (MOTIVO[d.motivo.split(/[,:]/)[0]] ?? 'não deu para ler tudo') : 'não deu para ler tudo';
-  if (d.tipo === 'nota') return d.situacao === 'confirmar' ? 'esperando o "Lançar" na conversa' : 'entrou em Estoque › Recebimento e nas contas a pagar';
+  if (d.tipo === 'nota') {
+    if (d.situacao === 'confirmar') return 'esperando o "Lançar" na conversa';
+    // "3 itens no estoque e a conta a pagar" (o protótipo); com parcelas, "e 2 contas a pagar".
+    return d.nota
+      ? `${plural(d.nota.noEstoque, 'item', 'itens')} no estoque e ${d.nota.parcelas > 1 ? `${d.nota.parcelas} contas` : 'a conta'} a pagar`
+      : 'entrou em Estoque › Recebimento e nas contas a pagar';
+  }
   if (d.origem.valor === 'pessoa' || d.origem.vencimento === 'pessoa') return 'valor ou vencimento ditos na conversa';
   if (d.origem.valor === 'codigo' && d.origem.vencimento === 'codigo') return 'lido pelo código de barras';
   if (d.origem.valor === 'codigo') return 'o valor pelo código de barras; o vencimento, da foto';
@@ -117,7 +140,9 @@ export function DocumentosDoMister() {
 
   const base = useMemo(() => {
     const t = semAcento(busca.trim());
-    return (dados?.documentos ?? []).filter((d) => !t || semAcento(`${d.beneficiario ?? ''} ${d.fornecedor ?? ''} ${d.linhaDigitavel ?? ''}`).includes(t));
+    return (dados?.documentos ?? []).filter(
+      (d) => !t || semAcento(`${d.beneficiario ?? ''} ${d.fornecedor ?? ''} ${d.linhaDigitavel ?? ''} ${d.nota?.numero ?? ''} ${numeroDaNota(d.nota?.numero)}`).includes(t),
+    );
   }, [dados, busca]);
   const situacoes = [
     { rotulo: 'Lançados', filtro: (d: Documento) => d.situacao === 'lancado' },
@@ -211,7 +236,8 @@ export function DocumentosDoMister() {
             />
           )}
           <p className="text-sm text-muted-foreground">
-            O boleto vai para as contas a pagar. Desfazer um lançamento por aqui vale até a conta ser paga.
+            O boleto vai para as contas a pagar; a nota do fornecedor vai para Estoque › Recebimento e para as contas a pagar. Desfazer um lançamento por
+            aqui vale até o boleto ser pago.
           </p>
         </>
       )}
@@ -274,6 +300,11 @@ function GavetaDoDocumento({ d, aoFechar, aoDesfazer }: { d: Documento; aoFechar
               {abrindoPdf ? 'Abrindo o PDF…' : 'Ver o PDF'}
             </Button>
           )}
+          {d.nota?.recebimentoId && (
+            <Link href="/operacao?aba=recebimento" className={buttonVariants({ variant: 'outline' })}>
+              Ver no Recebimento
+            </Link>
+          )}
           {d.tituloId && (
             <Link href="/financeiro" className={buttonVariants({ variant: 'outline' })}>
               Ver nas contas a pagar
@@ -295,12 +326,36 @@ function GavetaDoDocumento({ d, aoFechar, aoDesfazer }: { d: Documento; aoFechar
         </p>
       )}
       <dl className="mt-3">
-        <Campo rotulo="Valor" valor={d.valorCentavos != null ? <span className="font-mono">{reais(d.valorCentavos)}</span> : 'não lido'} origem={d.origem.valor ? ORIGEM[d.origem.valor] : null} />
-        <Campo rotulo="Vencimento" valor={d.vencimento ? diaComSemana(d.vencimento) : 'não lido'} origem={d.origem.vencimento ? ORIGEM[d.origem.vencimento] : null} />
-        <Campo rotulo="Beneficiário" valor={d.beneficiario ?? 'não lido'} origem={d.beneficiario ? 'IA' : null} />
+        <Campo rotulo={d.nota ? 'Total da nota' : 'Valor'} valor={d.valorCentavos != null ? <span className="font-mono">{reais(d.valorCentavos)}</span> : 'não lido'} origem={d.origem.valor ? ORIGEM[d.origem.valor] : null} />
+        <Campo
+          rotulo={d.nota && d.nota.parcelas > 1 ? '1ª parcela' : 'Vencimento'}
+          valor={d.vencimento ? diaComSemana(d.vencimento) : d.nota ? 'sem vencimento na nota' : 'não lido'}
+          origem={d.origem.vencimento ? ORIGEM[d.origem.vencimento] : null}
+        />
+        {d.nota && d.nota.parcelas > 1 && <Campo rotulo="Parcelas" valor={<span className="font-mono">{d.nota.parcelas}</span>} />}
+        <Campo rotulo={d.nota ? 'Emitente' : 'Beneficiário'} valor={d.beneficiario ?? 'não lido'} origem={d.beneficiario ? 'IA' : null} />
         <Campo rotulo="Fornecedor" valor={d.fornecedor ?? 'não cadastrado'} origem={d.fornecedor ? 'cadastro' : null} />
         {d.linhaDigitavel && <Campo rotulo="Linha digitável" valor={<span className="font-mono text-xs">{d.linhaDigitavel}</span>} />}
       </dl>
+      {d.nota && d.nota.itens.length > 0 && (
+        <>
+          <h4 className="mt-4 font-display font-semibold">Itens da nota</h4>
+          <ul className="mt-2 text-sm" aria-label="Itens da nota e para onde vai cada um">
+            {d.nota.itens.map((it, i) => (
+              <li key={i} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-border py-2 last:border-b-0">
+                <span className="min-w-0 break-words">
+                  {it.descricao} <span className={`font-mono text-xs ${texto2}`}>{it.quanto}</span>
+                </span>
+                <span className="flex min-w-0 flex-wrap items-center gap-2 break-words text-right">
+                  <span aria-hidden>→</span>
+                  <span className={it.estado === 'fora' ? texto2 : ''}>{it.destino}</span>
+                  {(it.estado === 'item' || it.estado === 'fator') && <Selo tom="aviso">falta</Selo>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       <h4 className="mt-4 font-display font-semibold">O que aconteceu</h4>
       <ol className="mt-2 space-y-2 border-l-2 border-border pl-4 text-sm">
         <li>
@@ -317,7 +372,13 @@ function GavetaDoDocumento({ d, aoFechar, aoDesfazer }: { d: Documento; aoFechar
         {d.respondidoEm && (
           <li>
             <span className="font-mono font-semibold">{quando(d.respondidoEm)}</span> ·{' '}
-            {d.situacao === 'desfeito' ? 'lançamento desfeito' : d.situacao === 'recusado' ? 'fechado sem lançar' : 'lançado nas contas a pagar'}
+            {d.situacao === 'desfeito'
+              ? 'lançamento desfeito'
+              : d.situacao === 'recusado'
+                ? 'fechado sem lançar'
+                : d.tipo === 'nota'
+                  ? 'lançada em Estoque › Recebimento e nas contas a pagar'
+                  : 'lançado nas contas a pagar'}
           </li>
         )}
       </ol>

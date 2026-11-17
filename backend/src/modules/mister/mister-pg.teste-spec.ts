@@ -37,6 +37,7 @@ import { MisterConversaConfigService } from './mister-conversa-config.service';
 import { FinanceiroService } from '../financeiro/financeiro.service';
 import { FRASES_DO_DOCUMENTO } from '../../common/documento-por-foto';
 import { crc16Pix } from '../../common/boleto';
+import { custosMediosNaLoja } from '../../common/custo-loja';
 import { MisterPropostasService } from './mister-propostas.service';
 import { TEXTOS_DA_PROPOSTA, TEXTOS_DO_LINK } from './mister-procedimentos';
 import { MODELO_DO_AVISO } from './mister-modelos';
@@ -5547,6 +5548,7 @@ export function testesDoMisterComPostgres(): void {
           ['DISTRIBUIDORA CARNE BOA LTDA', 'pago', false],
         ]);
         expect(lista.documentos[2]).toMatchObject({ fornecedor: 'Distribuidora Carne Boa', valorCentavos: 128490, vencimento: '2026-11-25', quem: 'Ana', origem: { valor: 'codigo', vencimento: 'codigo' } });
+        expect(lista.documentos.map((x) => x.nota)).toEqual([null, null, null]); // o resumo da nota é só da nota
         // O período fora do pedido vira o padrão; a outra empresa não vê nada.
         expect((await documentos.listar(A, '9999')).dias).toBe(30);
         expect((await documentos.listar(B, '90')).documentos).toEqual([]);
@@ -5783,7 +5785,8 @@ export function testesDoMisterComPostgres(): void {
               ...o,
             }),
           );
-        const [{ id: carne }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, 'Carne 56 g', 'kg') returning id`, [A]);
+        // A carne já tinha custo (R$ 31,90 o quilo, sem saldo): a entrada a R$ 33,00 muda o custo médio (M3b.3).
+        const [{ id: carne }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida, custo_medio) values ($1, 'Carne 56 g', 'kg', 31.90) returning id`, [A]);
         const [{ id: bacon }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, 'Bacon em tiras', 'pacote') returning id`, [A]);
         process.env.MISTER_NOTAS = '1';
         try {
@@ -5835,7 +5838,10 @@ export function testesDoMisterComPostgres(): void {
           // "Lançar": a entrada pelo recebimento (conferido, na loja única da empresa) e as contas por parcela.
           numero.pedidos.length = 0;
           expect(await tocar(telAna, `doc:lancar:${d.id}`)).toBe('respondeu_proposta');
-          expect(numero.enviadas.map((m) => m.texto)).toEqual(['Lancei em Estoque › Recebimento e nas contas a pagar (2 parcelas): 2 itens no estoque.']);
+          // O custo que mudou (o bacon não tinha custo antes: o primeiro custo não é "mudança").
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([
+            'Lancei em Estoque › Recebimento e nas contas a pagar (2 parcelas): 2 itens no estoque.\n\nO quilo de Carne 56 g passou de R$ 31,90 para R$ 33,00.',
+          ]);
           const [rec] = await q(`select id, status, nota_ref, fornecedor_id, unidade_id from recebimento where tenant_id = $1`, [A]);
           expect(rec).toMatchObject({ status: 'conferido', nota_ref: '48213', fornecedor_id: fornecedorDeA, unidade_id: lojaDeA });
           const entradas = await q(`select item_id, quantidade::float as q, custo_unitario::float as c from movimento_estoque where tenant_id = $1 and ref_tipo = 'recebimento_item' order by quantidade`, [A]);
@@ -5853,6 +5859,12 @@ export function testesDoMisterComPostgres(): void {
           numero.pedidos.length = 0;
           expect(await tocar(telAna, `doc:lancar:${d.id}`)).toBe('respondeu_proposta');
           expect(await q(`select count(*)::int as n from recebimento where tenant_id = $1`, [A])).toEqual([{ n: 1 }]);
+          // A leitura do custo em lote (uma consulta só): a linha da loja vence o cadastro; o id que não existe não volta.
+          expect(Object.fromEntries(await custosMediosNaLoja(db, A, [carne, bacon, randomUUID()], null))).toEqual({ [carne]: 33, [bacon]: 24 });
+          await q(`insert into item_estoque_unidade (id, tenant_id, item_id, unidade_id, custo_medio) values (gen_random_uuid(), $1, $2, $3, 40)`, [A, carne, lojaDeA]);
+          expect(Object.fromEntries(await custosMediosNaLoja(db, A, [carne, bacon], lojaDeA))).toEqual({ [carne]: 40, [bacon]: 24 });
+          expect(Object.fromEntries(await custosMediosNaLoja(db, B, [carne], lojaDeA))).toEqual({}); // de outra empresa, nada
+          await q(`delete from item_estoque_unidade where item_id = $1`, [carne]);
           // A memória do fornecedor.
           expect(await q(`select chave, item_id, fator::float as fator from mister_de_para where tenant_id = $1 order by chave`, [A])).toEqual([
             { chave: 'cod:1001', item_id: carne, fator: 1 },
@@ -5860,7 +5872,22 @@ export function testesDoMisterComPostgres(): void {
             { chave: 'cod:9001', item_id: null, fator: null },
           ]);
           // Na lista da tela, a nota não tem "Desfazer" (entrou pelo recebimento).
-          expect((await documentos.listar(A, '30')).documentos[0]).toMatchObject({ tipo: 'nota', podeDesfazer: false });
+          // A gaveta mostra cada item com o destino (a mesma linha do resumo da conversa), as parcelas e o recebimento.
+          expect((await documentos.listar(A, '30')).documentos[0]).toMatchObject({
+            tipo: 'nota',
+            podeDesfazer: false,
+            nota: {
+              numero: '48213',
+              parcelas: 2,
+              noEstoque: 2,
+              recebimentoId: rec.id,
+              itens: [
+                { descricao: 'BLEND BOVINO 56G', quanto: '40 KG', destino: 'Carne 56 g', estado: 'ligado' },
+                { descricao: 'BACON EM TIRAS DEFUMADO', quanto: '5 KG', destino: 'Bacon em tiras (10 pacote)', estado: 'ligado' },
+                { descricao: 'DETERGENTE NEUTRO', quanto: '10 UN', destino: 'fora do estoque', estado: 'fora' },
+              ],
+            },
+          });
 
           // A próxima nota do mesmo fornecedor: já vem ligada — o resumo direto; "Cancelar" não lança.
           ia.roteiro = [leitura({ tipo: 'nota' }), daNota({ numero: '48300', chave: null })];

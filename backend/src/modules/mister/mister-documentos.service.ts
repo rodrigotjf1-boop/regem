@@ -15,6 +15,7 @@ import {
   lerRespostaDoQueFaltou,
 } from '../../common/documento-por-foto';
 import { MAX_BYTES_DA_FOTO, mimeDaFoto } from '../../common/foto-do-cliente';
+import { NotaNoMister, destinosDosItens } from '../../common/nota-por-foto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { FinanceiroService } from '../financeiro/financeiro.service';
@@ -49,6 +50,14 @@ export interface DocumentoNaTela {
   respondidoEm: string | null;
   tituloId: string | null;
   podeDesfazer: boolean;
+  /** Só da nota do fornecedor (M3b.3): o número, as parcelas e cada item com o destino — a mesma linha da conversa. */
+  nota: {
+    numero: string | null;
+    parcelas: number;
+    noEstoque: number;
+    itens: ReturnType<typeof destinosDosItens>;
+    recebimentoId: string | null;
+  } | null;
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -57,6 +66,17 @@ const PREFIXO_DO_BOTAO = 'doc:';
 const PRAZO_DA_IA_MS = 40_000;
 const linhas = (r: any) => (r?.rows ?? r ?? []) as any[];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** O resumo da nota para a tela: sem as sugestões nem os ids dos insumos (só o que a gaveta mostra). */
+function resumoDaNota(n: NotaNoMister, recebimentoId: string | null): NonNullable<DocumentoNaTela['nota']> {
+  return {
+    numero: n.numero ?? null,
+    parcelas: Math.max(1, Array.isArray(n.duplicatas) ? n.duplicatas.length : 0),
+    noEstoque: n.itens.filter((x) => x.estado === 'ligado').length,
+    itens: destinosDosItens(n),
+    recebimentoId: recebimentoId ?? null,
+  };
+}
 
 /** `pago` = "Já paguei" do aviso de vencimento (M3a parte 4); `reabrir` = o "Desfazer" dele; `pdf` = "Ver o PDF" (4b). */
 type AcaoDoBotao = 'lancar' | 'outra' | 'desfazer' | 'pago' | 'reabrir' | 'pdf';
@@ -408,7 +428,7 @@ export class MisterDocumentosService implements OnModuleInit {
           select d.id::text as id, d.tipo, d.beneficiario, f.nome as fornecedor, d.valor_centavos as "valorCentavos",
                  d.vencimento::text as vencimento, d.situacao, d.motivo, d.dados, d.linha_digitavel as "linhaDigitavel",
                  c.nome as quem, d.telefone_final as "telefoneFinal", d.criado_em as "criadoEm", d.respondido_em as "respondidoEm",
-                 d.titulo_id::text as "tituloId", t.status as "tituloStatus"
+                 d.titulo_id::text as "tituloId", t.status as "tituloStatus", d.recebimento_id::text as "recebimentoId"
             from mister_documento d
             left join colaborador c on c.id = d.colaborador_id and c.tenant_id = d.tenant_id
             left join fornecedor f on f.id = d.fornecedor_id and f.tenant_id = d.tenant_id
@@ -444,6 +464,7 @@ export class MisterDocumentosService implements OnModuleInit {
           tituloId: l.tituloId ?? null,
           // A nota (M3b) entrou pelo recebimento: o "Desfazer" do boleto não vale para ela.
           podeDesfazer: l.tipo !== 'nota' && l.situacao === 'lancado' && l.tituloStatus === 'aberto',
+          nota: l.tipo === 'nota' && Array.isArray(l.dados?.nota?.itens) ? resumoDaNota(l.dados.nota, l.recebimentoId) : null,
         };
       }),
     };
