@@ -96,5 +96,6 @@ gerar de novo TODAS as imagens (`GERAR_COMO_FACO=1` em cada roteiro que tem `fot
 
 Tela sem roteiro próprio entra em `como-faco.mjs`: uma linha em `TELAS` com o assunto, o endereço, o passo (uma aba) e
 as marcas. A resposta simulada padrão é a lista vazia nas leituras e `{}` no resto; tela que lê outro formato traz as
-suas `respostas`. O roteiro confere também que a tela não caiu no "Algo deu errado" (a fronteira de erro do React não
-gera `pageerror`).
+suas `respostas` (ou `respostasDinamicas`, montadas na hora, como o horário das mensagens). O roteiro confere também que
+a tela não caiu no "Algo deu errado" (a fronteira de erro do React não gera `pageerror`) e, quando cai, diz o erro que o
+React registrou no console. Desde 17/11 **todo assunto do guia tem imagem** — a spec do guia reprova assunto sem ela.

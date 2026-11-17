@@ -1064,8 +1064,10 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
 - **Parte 9 (sem migration):** as integrações (iFood/99), a caixa de conversas do WhatsApp (o status conectado, duas
   conversas e as mensagens de exemplo) e, na gestão do catálogo com o iFood e a 99 ligados, o preço e a pausa por canal
   (as fotos da conferência `null` — a lista vazia quebrava `fotos.canais`). 47 assuntos com imagem.
-- **Falta (2):** "Conferir com os apps" (a aba lê a conferência) e os relatórios de vendas (11 abas com formatos
-  próprios) — pedem simular as respostas dessas leituras.
+- **Parte 10 (sem migration) — M3d COMPLETA:** "Conferir com os apps" (a conferência do iFood simulada no formato de
+  `RespostaDaConferencia`) e os relatórios de vendas (o resumo, as formas, os canais, a curva ABC e os atendentes; o
+  token do roteiro com `ver_financeiro`, como o presidente). **Os 49 assuntos do guia têm imagem**, e a spec do guia
+  passou a exigir: assunto novo nasce com a sua foto.
 
 **A tela "Resumo" (17/11/2026, sem migration; #1114, no ar):** a entrada do presidente em Mister — as três etapas para funcionar, a faixa
 "IA parada", o que o Mister faz e os últimos avisos, só com as rotas que já existem.
