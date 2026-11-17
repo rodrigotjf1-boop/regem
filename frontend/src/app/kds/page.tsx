@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import './kds-tela.css';
 import { api, getToken, podePerm } from '@/lib/api';
-import { rotuloSenha, senhaCasa } from '@/lib/senha';
+import { rotuloSenha } from '@/lib/senha';
 import { connectAsGestor, connectAsDevice, type Socket } from '@/lib/rt';
 import { KdsMapaEntregadores } from '@/components/kds/kds-mapa-entregadores';
 import { HistoricoKds } from '@/components/kds/historico-kds';
@@ -30,7 +30,9 @@ import {
   type CanalPausadoNoKds,
   type TipoDeAviso,
   agruparPorItem,
+  cartaoDaSenha,
   cartaoNaTela,
+  proximaAcaoNaEstacao,
   pedidoDoDespachoNaTela,
   contarEtapas,
   decidirTecla,
@@ -990,19 +992,35 @@ export default function KdsPage() {
     setSenhaMsg((m) => (m?.erro ? null : m));
   }
 
+  // O cartão "anda" nesta tela? A MESMA regra do botão do cartão (as etapas da loja e o "vai para"); no despacho, a ação
+  // do pedido liberada. Num ref: o Enter chega pelo ouvinte do teclado, que não acompanha cada desenho da tela.
+  const podeAndarRef = useRef<(p: any) => boolean>(() => true);
+  podeAndarRef.current = (p: any) =>
+    despachoRef.current ? !!acoesDoDespacho(p).principal?.liberada : proximaAcaoNaEstacao(p.status, proximoDoCartao(p), cores) != null;
+
   // Fase F — teclado numérico FÍSICO do equipamento: Enter avança o card daquela senha.
   // Vale para a fila INTEIRA do aparelho, não só para o que os filtros da tela mostram.
   function avancarPorSenha() {
     const s = senhaDigitadaRef.current.trim();
     if (!s) return;
     // Digitar só o número encontra as duas origens; digitar D12 ou D-12 separa o delivery
-    // do balcão (mig 275 — cada origem tem a própria sequência).
-    const alvo = pedidosRef.current.find((p) => senhaCasa(s, p.senha, p.senhaPrefixo) && p.status !== 'cancelado');
-    if (!alvo) {
+    // do balcão (mig 275 — cada origem tem a própria sequência). Entre os cartões da senha, o que ainda anda; sem vivo, o
+    // CANCELADO sai da tela com o Enter (16/11/2026 — ficava 30 min preso, sem botão e sem senha). `lib/kds-fila.ts`.
+    const achado = cartaoDaSenha(pedidosRef.current, s, (p) => podeAndarRef.current(p));
+    if (!achado) {
       setSenhaErro(true);
       avisarSenha(`Senha ${s} não está na fila`, true);
       return;
     }
+    if (achado.acao === 'ciente') {
+      const c = achado.cartao as any;
+      setSenhaDigitada('');
+      const ids: string[] = Array.isArray(c.cartoes) && c.cartoes.length ? c.cartoes.map((x: any) => String(x.id)) : [String(c.id)];
+      void Promise.all(ids.map((id) => visto(id))).then(() => avisarSenha(`${identPedido(c)}: cancelado — saiu da tela`, false));
+      if (usoRef.current === 'teclado') senhaRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    const alvo = achado.cartao as any;
     // No despacho, o Enter faz a ação do PEDIDO (despachar, chamar a senha ou entregar) — e só quando está liberada.
     if (despachoRef.current) {
       const { principal } = acoesDoDespacho(alvo);

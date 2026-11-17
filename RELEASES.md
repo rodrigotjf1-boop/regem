@@ -22,6 +22,10 @@
   tudo vai de novo ao robô. Instruções `.f24`. Só NUVEM (o atendente é da nuvem): vale com o merge; `ROBO_SEGURAR_MS=0`
   desliga. O `.zip` leva o código sem efeito na loja.
 
+- **KDS: o cartão cancelado sai pelo "Ciente" (botão ou senha + Enter); a senha vai no cartão que anda; adicionais e
+  observação em caixa alta (16/11, pedido do dono; SEM migration) → vai no `.zip`** (a tela e o servidor da loja).
+  - Antes, o cancelado ficava 30 min preso, sem botão, e o Enter da senha dizia "não está na fila".
+
 - **Empresa inativa há 2 meses é desligada — a loja e as integrações (16/11, decisão do dono; SEM migration; nasce
   DESLIGADA).** Com `DESLIGAR_INATIVAS=1` na nuvem (o dono liga), uma rotina diária desliga a empresa sem nenhum sinal de
   uso há 60 dias: ação de uma pessoa, batida do servidor da loja, sinal de aparelho, venda, ou ação da distribuição

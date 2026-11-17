@@ -3123,14 +3123,24 @@ export class ProducaoPedidoService {
     ];
   }
 
-  /** "Visto" no cartão alterado: o aviso grande e o som param; o item tirado sai do cartão. Idempotente. */
+  /**
+   * "Visto" no cartão alterado: o aviso grande e o som param; o item tirado sai do cartão. E o "Ciente" no cartão
+   * CANCELADO (16/11/2026 — pedido do dono: ficava 30 min preso na tela, sem botão e sem a senha): ele sai da fila na
+   * hora (`janelaDaFila`). Idempotente.
+   */
   async marcarVisto(tenantId: string, cartaoId: string, quem: { nome?: string | null } = {}) {
     const [c] = await this.db
       .update(producaoPedido)
       .set({ vistoEm: new Date(), vistoPor: quem.nome ?? null })
-      .where(and(eq(producaoPedido.tenantId, tenantId), eq(producaoPedido.id, cartaoId), isNotNull(producaoPedido.alteradoEm)))
+      .where(
+        and(
+          eq(producaoPedido.tenantId, tenantId),
+          eq(producaoPedido.id, cartaoId),
+          or(isNotNull(producaoPedido.alteradoEm), eq(producaoPedido.status, 'cancelado')),
+        ),
+      )
       .returning();
-    if (!c) throw new NotFoundException('Cartão alterado não encontrado.');
+    if (!c) throw new NotFoundException('Cartão alterado ou cancelado não encontrado.');
     this.events?.emit('producao.evento', {
       tenantId,
       unidadeId: c.unidadeId,
@@ -4337,11 +4347,13 @@ export class ProducaoPedidoService {
   }
 
   // Cartão que a fila do KDS mostra: os abertos das últimas 12 horas (a encomenda cujo horário ainda não passou fica) e os
-  // cancelados recentes (riscados por um tempo). A MESMA janela na fila de cada KDS e na do despacho.
+  // cancelados recentes (riscados por um tempo) — até alguém dar "Ciente" neles (o "Visto" DEPOIS do cancelamento; o de uma
+  // alteração anterior não conta). A MESMA janela na fila de cada KDS e na do despacho.
   private janelaDaFila(): SQL {
     return sql`(${this.ativosNaJanela()}
            or (status = 'cancelado'
-               and coalesce(cancelado_em, criado_em) > now() - interval '${sql.raw(String(JANELA_ACAO_MIN))} minutes'))`;
+               and coalesce(cancelado_em, criado_em) > now() - interval '${sql.raw(String(JANELA_ACAO_MIN))} minutes'
+               and (producao_pedido.visto_em is null or producao_pedido.visto_em < coalesce(cancelado_em, criado_em))))`;
   }
 
   // Os cartões EM ANDAMENTO que ainda contam: das últimas 12 h (ou a encomenda cujo horário ainda não passou). A mesma
