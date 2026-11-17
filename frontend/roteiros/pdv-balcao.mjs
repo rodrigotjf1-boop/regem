@@ -171,8 +171,18 @@ export default async function roteiroPdvBalcao({ nav, base, ok, foto: arquivoFot
     ok((await medir(page)).length === 0, `1920 com a janela aberta: nada para o lado (${umaLinha((await medir(page)).join('; '))})`);
     await page.screenshot({ path: arquivoFoto('pdv-balcao-etapas-1920.png') });
     // escolher e pôr no pedido continua igual
+    // a etapa obrigatória segura o "Adicionar"; "escolha 1" troca a escolha (pedido do dono, 17/11: "consegui as duas batatas")
+    const botao = page.locator('[role="dialog"] button[type="submit"]');
+    ok((await botao.isDisabled()) && /Escolha: Escolha a batata/.test(await botao.innerText()), `sem a batata (obrigatória), o "Adicionar" espera (${umaLinha(await botao.innerText())})`);
+    await page.click('text=Batata frita');
     await page.click('text=Batata rústica');
+    const batatas = await page.$$eval('[role="dialog"] fieldset', (fs) => [...fs[0].querySelectorAll('input')].filter((e) => e.checked).length);
+    ok(batatas === 1, `"escolha 1": a 2ª batata troca a 1ª (${batatas} marcada)`);
+    await page.click('text=Coca-Cola lata');
     await page.click('text=Guaraná Antarctica lata');
+    const bebidas = await page.$$eval('[role="dialog"] fieldset', (fs) => [...fs[1].querySelectorAll('input')].filter((e) => e.checked).length);
+    ok(bebidas === 1, `"escolha 1": a 2ª bebida troca a 1ª (${bebidas} marcada)`);
+    ok(!(await botao.isDisabled()) && /^Adicionar/.test(await botao.innerText()), `com as obrigatórias, o "Adicionar" libera (${umaLinha(await botao.innerText())})`);
     await page.click('[aria-label="Pôr Bacon"]');
     await page.click('button[type="submit"]');
     await page.waitForSelector('[role="dialog"]', { state: 'detached' });

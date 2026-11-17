@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Etapa do produto: "até 1" é escolha única, o máximo trava e a obrigatória segura o "Adicionar" no PDV, na mesa e no garçom
+  (17/11; ERR-505; só tela, SEM migration) → vai no `.zip`.**
+
 - **PDV · Balcão: cartões grandes por padrão, "Compactos" por pessoa, e a ordem do "Organizar" gravada de verdade (17/11;
   ERR-504; SEM migration) → vai no `.zip`** (a tela e a rota das preferências são do servidor da loja).
   - O cartão grande: 6 por linha no monitor, foto 4:3, nome de 17 px, preço em destaque; "Compactos" ao lado do "Organizar".
