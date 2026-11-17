@@ -20,6 +20,10 @@
   WhatsApp do presidente com a linha digitável e o botão "Já paguei" (dá baixa pelo mesmo pagar da tela, com "Desfazer");
   o vencido e não pago lembra uma vez. Vale com os avisos ligados (`MISTER_AVISOS_LIGADOS`) e os boletos por foto.
 
+- **KDS pela TV box (token do aparelho): o cabeçalho mostra o nome do aparelho e o IP com que ele chegou ao servidor
+  (17/11, pedido do dono; SEM migration; nada gravado) → vai no `.zip`** (a fila do aparelho e a tela do KDS são do
+  servidor da loja). `GET /producao/aparelho/fila` ganha o campo aditivo `aparelho: { nome, ip }`; com pessoa logada, nada muda.
+
 - **Etapa do produto: "até 1" é escolha única, o máximo trava e a obrigatória segura o "Adicionar" no PDV, na mesa e no garçom
   (17/11; ERR-505; só tela, SEM migration) → vai no `.zip`.**
 

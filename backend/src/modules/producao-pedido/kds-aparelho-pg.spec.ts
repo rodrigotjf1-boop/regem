@@ -127,6 +127,18 @@ descrever('KDS físico pelo token do aparelho (Postgres)', () => {
     expect((r.pedidos ?? []).find((p: any) => p.id === cartao.loja1)?.itens?.[0]?.descricao).toBe('X-Burger');
   });
 
+  it('a fila do aparelho diz ao cabeçalho o nome do cadastro e o IP com que ele chegou (o que o servidor vê)', async () => {
+    const kds = await entra(tk('cozinha'));
+    const r: any = await ctrl.fila(kds, 'todos', { ip: '::ffff:192.168.1.24' });
+    expect(r.aparelho).toEqual({ nome: 'KDS cozinha', ip: '192.168.1.24' });
+    // sem `req.ip` (proxy sem o cabeçalho), o endereço da conexão; nada que não seja IP vira texto na tela
+    expect((await ctrl.fila(kds, 'todos', { socket: { remoteAddress: '192.168.1.30' } }) as any).aparelho.ip).toBe('192.168.1.30');
+    expect((await ctrl.fila(kds, 'todos', { ip: '<b>x</b>' }) as any).aparelho).toEqual({ nome: 'KDS cozinha', ip: null });
+    // a fila de sempre continua ao lado (campo aditivo)
+    expect(Array.isArray(r.pedidos)).toBe(true);
+    expect(r.cores).toBeDefined();
+  });
+
   it('avança o cartão da loja dele; o da outra loja responde como inexistente; o toque velho (de) não pula etapa', async () => {
     const kds = await entra(tk('cozinha'));
     await expect(ctrl.avancar(kds, cartao.loja2, { de: 'recebido' })).rejects.toMatchObject({ status: 404 });

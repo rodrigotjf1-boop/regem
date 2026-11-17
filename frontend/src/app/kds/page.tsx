@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import './kds-tela.css';
-import { api, getToken, podePerm } from '@/lib/api';
+import { api, getToken, podePerm, type AparelhoDoKds } from '@/lib/api';
 import { rotuloSenha } from '@/lib/senha';
 import { connectAsGestor, connectAsDevice, type Socket } from '@/lib/rt';
 import { KdsMapaEntregadores } from '@/components/kds/kds-mapa-entregadores';
@@ -186,6 +186,9 @@ export default function KdsPage() {
   const [filaLida, setFilaLida] = useState(false);
   // KDS aberto pela internet numa loja com o servidor ligado (R15): a via da etapa ficaria sem quem imprima.
   const [nuvemComServidor, setNuvemComServidor] = useState(false);
+  // KDS pelo token do aparelho (TV box — 17/11/2026, pedido do dono): o nome do cadastro e o IP que o servidor vê, no
+  // cabeçalho. Só existe no modo aparelho (a fila do aparelho manda); com pessoa logada fica nulo.
+  const [aparelhoInfo, setAparelhoInfo] = useState<AparelhoDoKds | null>(null);
   // Cartões com um toque a caminho do servidor: o segundo toque no mesmo cartão espera (toque duplo não pula etapa).
   const avancandoRef = useRef<Set<string>>(new Set());
   const [avancando, setAvancando] = useState<Set<string>>(() => new Set());
@@ -552,6 +555,12 @@ export default function KdsPage() {
       else setPedidos(lista);
       if (r.cores) setCores(r.cores);
       setNuvemComServidor(r?.nuvemComServidor === true);
+      if (aparelho) {
+        const a = r?.aparelho;
+        const novo: AparelhoDoKds | null =
+          a && typeof a.nome === 'string' ? { nome: a.nome, ip: typeof a.ip === 'string' && a.ip ? a.ip : null } : null;
+        setAparelhoInfo((antes) => (antes?.nome === novo?.nome && antes?.ip === novo?.ip ? antes : novo));
+      }
       avisarChegadas(lista);
       if (!despacho) avisarAlteracoes(lista);
       setFalhaFila(null);
@@ -1228,6 +1237,13 @@ export default function KdsPage() {
         <button type="button" className="k-nome" onClick={() => abrirGaveta('tela')} aria-label={`Este KDS: ${nomeDaTela}. Abrir a configuração`}>
           {nomeDaTela} <small>{tipoDaTela}</small>
         </button>
+        {aparelhoInfo && (
+          /* KDS pelo token do aparelho (TV box): qual aparelho é e o IP com que ele chegou ao servidor. */
+          <span className="k-aparelho" title="Este aparelho e o endereço (IP) com que ele chegou ao servidor">
+            {aparelhoInfo.nome}
+            {aparelhoInfo.ip ? ` · ${aparelhoInfo.ip}` : ''}
+          </span>
+        )}
         {!mostrarMapa && (
           <div className="k-seg" role="group" aria-label="Canal">
             {([
