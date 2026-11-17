@@ -2851,7 +2851,7 @@ export function testesDoMisterComPostgres(): void {
         await venda([{ produto: xBurger, qtd: 1, variacao: grande }]); // a variação Grande: 2 carnes pela ficha
         // A venda cancelada: a baixa volta pelo estorno (como o cancelamento da tela) e não conta.
         const cancelada = await venda([{ produto: xBurger, qtd: 3 }]);
-        await q(`insert into movimento_estoque (tenant_id, item_id, tipo, quantidade, motivo, ref_tipo, ref_id) select tenant_id, item_id, 'entrada', quantidade, 'estorno', 'estorno', ref_id from movimento_estoque where ref_tipo = 'venda' and ref_id = $1`, [cancelada]);
+        await q(`insert into movimento_estoque (tenant_id, item_id, tipo, quantidade, motivo, ref_tipo, ref_id, data) select tenant_id, item_id, 'entrada', quantidade, 'estorno', 'estorno', ref_id, data from movimento_estoque where ref_tipo = 'venda' and ref_id = $1`, [cancelada]);
         await q(`update comanda set status = 'cancelada' where id = $1`, [cancelada]);
         // O mesmo dia da semana passada, até a mesma hora: 1 carne.
         await venda([{ produto: xBurger, qtd: 1 }], '7 days 5 seconds');
