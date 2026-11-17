@@ -1,4 +1,5 @@
-import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { Response } from 'express';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
@@ -25,6 +26,19 @@ export class MisterDocumentosController {
   @RequireModulo('mister')
   listar(@CurrentUser() user: AuthUser, @Query('dias') dias?: string) {
     return this.documentos.listar(user.tenantId, dias);
+  }
+
+  /** O PDF do boleto lançado (M3a parte 4b): o mesmo do "Ver o PDF" da conversa. Só do documento lançado. */
+  @Get(':id/pdf')
+  @CloudOnly()
+  @Roles('presidente')
+  @RequireModulo('mister')
+  async pdf(@CurrentUser() user: AuthUser, @Param('id') id: string, @Res() res: Response) {
+    const arquivo = await this.documentos.pdf(user.tenantId, id);
+    if (!arquivo) throw new NotFoundException('O PDF é do boleto lançado: este documento não foi lançado.');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${arquivo.nome}"`);
+    res.send(arquivo.pdf);
   }
 
   /** Desfaz o lançamento (a conta a pagar ainda em aberto): o mesmo caminho do botão "Desfazer" da conversa. */

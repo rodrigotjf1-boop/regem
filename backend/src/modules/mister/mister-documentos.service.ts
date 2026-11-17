@@ -21,6 +21,7 @@ import { FinanceiroService } from '../financeiro/financeiro.service';
 import { FalhaDaIa, IaEmpresaService } from '../ia/ia-empresa.service';
 import { MidiaDoMister, MisterEntradaService, QuemMandou, QuemTocou } from './mister-entrada.service';
 import { MisterConversaConfigService } from './mister-conversa-config.service';
+import { PdfDoDocumento, gerarPdfDoDocumento, nomeDoPdf } from './documento-pdf';
 import { MisterNumeroService } from './mister-numero.service';
 import { Resposta } from './mister.regras';
 
@@ -56,14 +57,16 @@ const PRAZO_DA_IA_MS = 40_000;
 const linhas = (r: any) => (r?.rows ?? r ?? []) as any[];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** `pago` = "Já paguei" do aviso de vencimento (M3a parte 4); `reabrir` = o "Desfazer" dele. */
-type AcaoDoBotao = 'lancar' | 'outra' | 'desfazer' | 'pago' | 'reabrir';
+/** `pago` = "Já paguei" do aviso de vencimento (M3a parte 4); `reabrir` = o "Desfazer" dele; `pdf` = "Ver o PDF" (4b). */
+type AcaoDoBotao = 'lancar' | 'outra' | 'desfazer' | 'pago' | 'reabrir' | 'pdf';
 /** "doc:<ação>:<id do documento>". */
 export function lerBotaoDoDocumento(botaoId: unknown): { acao: AcaoDoBotao; documentoId: string } | null {
-  const m = /^doc:(lancar|outra|desfazer|pago|reabrir):(.+)$/.exec(String(botaoId ?? ''));
+  const m = /^doc:(lancar|outra|desfazer|pago|reabrir|pdf):(.+)$/.exec(String(botaoId ?? ''));
   return m && UUID.test(m[2]) ? { acao: m[1] as AcaoDoBotao, documentoId: m[2] } : null;
 }
 const botao = (acao: AcaoDoBotao, id: string, titulo: string) => ({ id: `${PREFIXO_DO_BOTAO}${acao}:${id}`, titulo });
+/** Os botões do lançamento feito: "Desfazer" e "Ver o PDF" (4b). */
+const botoesDoLancado = (id: string) => [botao('desfazer', id, 'Desfazer'), botao('pdf', id, 'Ver o PDF')];
 
 /**
  * OS DOCUMENTOS POR FOTO DO MISTER (M3a, mig 439 — versão 3 do protótipo aprovada em 17/11/2026, conversas 11 a 13).
@@ -207,7 +210,7 @@ export class MisterDocumentosService implements OnModuleInit {
           });
           return true;
         }
-        await this.falar(quem.telefone, { texto: FRASES_DO_DOCUMENTO.lancado(decisao.dados), botoes: [botao('desfazer', id, 'Desfazer')] });
+        await this.falar(quem.telefone, { texto: FRASES_DO_DOCUMENTO.lancado(decisao.dados), botoes: botoesDoLancado(id) });
         return true;
       }
     }
@@ -240,8 +243,25 @@ export class MisterDocumentosService implements OnModuleInit {
       const [dados] = linhas(await this.db.execute(sql`select dados from mister_documento where id = ${d.id}::uuid`));
       await this.falar(quem.telefone, {
         texto: `Lancei nas contas a pagar${dados?.dados?.vencimento ? `, para ${String(dados.dados.vencimento).slice(8, 10)}/${String(dados.dados.vencimento).slice(5, 7)}` : ''}.`,
-        botoes: [botao('desfazer', d.id, 'Desfazer')],
+        botoes: botoesDoLancado(d.id),
       });
+      return true;
+    }
+
+    // "Ver o PDF" (4b): o boleto lançado em PDF, mandado pelo número do Mister (o toque abriu a janela de 24 horas).
+    if (b.acao === 'pdf') {
+      const arquivo = await this.pdf(d.tenantId, d.id);
+      if (!arquivo) {
+        await this.falar(quem.telefone, { texto: 'O PDF é do boleto lançado: este documento não foi lançado.' });
+        return true;
+      }
+      try {
+        await this.numero.enviarDocumento(quem.telefone, arquivo.pdf, arquivo.nome, arquivo.legenda);
+        await this.auditar(d.tenantId, v.colaboradorId, 'mister_documento_pdf', d.id, { arquivo: arquivo.nome });
+      } catch (e: any) {
+        this.logger.warn(`documento ${d.id}: o PDF não saiu — ${e?.message ?? e}`);
+        await this.falar(quem.telefone, { texto: 'Não consegui mandar o PDF agora. Tente de novo em instantes.' });
+      }
       return true;
     }
 
@@ -407,6 +427,44 @@ export class MisterDocumentosService implements OnModuleInit {
     return { resultado: r };
   }
 
+  /**
+   * O PDF do boleto lançado (4b): os dados do documento, da conta a pagar e do cadastro — nada da IA além do que já foi
+   * conferido. Só do documento lançado (com a conta). Devolve o arquivo, o nome e a legenda, ou null.
+   */
+  async pdf(tenantId: string, documentoId: string): Promise<{ pdf: Buffer; nome: string; legenda: string } | null> {
+    if (!UUID.test(String(documentoId ?? ''))) return null;
+    const [l] = linhas(
+      await this.db.execute(sql`
+        select d.tipo, d.beneficiario, d.valor_centavos as "valorCentavos", d.vencimento::text as vencimento, d.linha_digitavel as "linhaDigitavel",
+               d.codigo_barras as "codigoDeBarras", d.dados, d.criado_em as "criadoEm", d.situacao, emp.nome as empresa, c.nome as quem,
+               f.nome as fornecedor, t.status as "tituloStatus"
+          from mister_documento d
+          join empresa emp on emp.id = d.tenant_id
+          left join colaborador c on c.id = d.colaborador_id and c.tenant_id = d.tenant_id
+          left join fornecedor f on f.id = d.fornecedor_id and f.tenant_id = d.tenant_id
+          left join titulo_financeiro t on t.id = d.titulo_id and t.tenant_id = d.tenant_id
+         where d.id = ${documentoId}::uuid and d.tenant_id = ${tenantId}::uuid and d.situacao = 'lancado' and d.titulo_id is not null`),
+    );
+    if (!l) return null;
+    const dados: PdfDoDocumento = {
+      empresa: String(l.empresa ?? ''),
+      quem: l.quem ? String(l.quem).split(' ')[0] : null,
+      criadoEm: new Date(l.criadoEm).toISOString(),
+      tipo: l.tipo === 'conta' ? 'conta' : 'boleto',
+      beneficiario: l.beneficiario ?? null,
+      fornecedor: l.fornecedor ?? null,
+      valorCentavos: l.valorCentavos != null ? Number(l.valorCentavos) : null,
+      vencimento: l.vencimento ?? null,
+      linhaDigitavel: l.linhaDigitavel ?? null,
+      codigoDeBarras: l.codigoDeBarras ?? null,
+      pix: typeof l.dados?.pix === 'string' ? l.dados.pix : null,
+      origem: { valor: l.dados?.origem?.valor ?? null, vencimento: l.dados?.origem?.vencimento ?? null },
+      situacao: l.tituloStatus === 'pago' ? 'pago' : l.tituloStatus === 'cancelado' ? 'cancelado na tela' : 'em aberto nas contas a pagar',
+    };
+    const nome = nomeDoPdf(dados);
+    return { pdf: await gerarPdfDoDocumento(dados), nome, legenda: `${dados.tipo === 'conta' ? 'Conta' : 'Boleto'} · ${dados.beneficiario ?? 'lançado por foto'}` };
+  }
+
   /** "Já paguei": dá baixa na conta a pagar do documento hoje, com o "Desfazer". O aviso de vencimento fecha na volta. */
   private async marcarPago(d: { id: string; tenantId: string; situacao: string; tituloId: string | null }, atorId: string): Promise<Resposta> {
     if (d.situacao !== 'lancado' || !d.tituloId) return { texto: 'Este boleto não está nas contas a pagar.' };
@@ -526,7 +584,7 @@ export class MisterDocumentosService implements OnModuleInit {
         values (${quem.tenantId}::uuid, ${quem.unidadeId}::uuid, ${quem.colaboradorId}::uuid, ${quem.telefone.slice(-4)}, ${wamid},
                 ${r.tipo}, ${r.situacao}, ${r.motivo}, ${d?.valorCentavos ?? null}, ${d?.vencimento ?? null}::date, ${d?.beneficiario ?? null},
                 ${r.fornecedorId ?? null}::uuid, ${d?.boleto?.linhaDigitavel ?? null}, ${d?.boleto?.codigoDeBarras ?? null},
-                ${JSON.stringify(d ? { origem: d.origem, vencimento: d.vencimento, cnpj: d.cnpj } : {})}::jsonb)
+                ${JSON.stringify(d ? { origem: d.origem, vencimento: d.vencimento, cnpj: d.cnpj, ...(d.pix ? { pix: d.pix } : {}) } : {})}::jsonb)
         on conflict (wamid) where wamid is not null do nothing
         returning id::text as id`),
     );

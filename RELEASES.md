@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister: o PDF do boleto lançado, com o código de barras (17/11, M3a parte 4b; SEM migration; só NUVEM).** "Ver o PDF"
+  na conversa (no lançamento e no aviso de vencimento) e na gaveta da parte "Documentos": o que foi lido, de onde veio
+  cada campo, a linha digitável e o código de barras desenhado (ITF, o padrão da FEBRABAN). Pela conversa, o arquivo sobe
+  à Meta e vai pelo número do Mister (ou pelo Evolution). E o **Pix copia e cola impresso** no boleto: a IA transcreve, o
+  CRC16 confere, vai na mensagem seguinte do aviso de vencimento e no PDF. A tela da loja vem no `.zip`, sem efeito lá.
+
 - **Contas a pagar: pagar e estornar uma vez só (17/11, ERR-506; SEM migration) → vai no `.zip`** (a tela do Financeiro
   da loja usa o mesmo serviço). Dois "pagar" (ou dois "estornar") ao mesmo tempo lançavam a saída do caixa em dobro; agora
   a troca condicional da situação vem antes do lançamento.

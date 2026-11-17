@@ -216,7 +216,10 @@ describe('Mister — o boleto perto de vencer (M3a parte 4)', () => {
     expect(boletoNoPrazoDoAviso(3, null)).toBe(true);
   });
   it('o botão "Já paguei" leva o documento; sem documento, nenhum', () => {
-    expect(botoesDoAvisoDoBoleto('d1')).toEqual([{ id: 'doc:pago:d1', titulo: 'Já paguei' }]);
+    expect(botoesDoAvisoDoBoleto('d1')).toEqual([
+      { id: 'doc:pago:d1', titulo: 'Já paguei' },
+      { id: 'doc:pdf:d1', titulo: 'Ver o PDF' },
+    ]);
     expect(botoesDoAvisoDoBoleto(undefined)).toEqual([]);
   });
   it('a regra: a antecedência salva vale; fora da lista, o padrão; a conferência recusa o que não é 3, 1 ou 0', () => {

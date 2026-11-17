@@ -154,7 +154,7 @@ export class MisterNumeroService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
 
   /** A chamada à Meta. Separada para o teste trocar por uma resposta montada (nenhum teste fala com a Meta). */
-  protected buscar(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }): Promise<RespostaHttp> {
+  protected buscar(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string | FormData }): Promise<RespostaHttp> {
     return fetch(url, init) as unknown as Promise<RespostaHttp>;
   }
 
@@ -323,6 +323,63 @@ export class MisterNumeroService {
       const dito = String(j?.error?.error_user_msg || j?.error?.message || '').slice(0, 200) || null;
       if (aMetaNaoReconheceONumero(j?.error)) await this.marcarQueCaiu(n.phoneId, dito ?? 'A Meta não reconhece mais este número.');
       throw new FalhaDoEnvioDoMister('meta', res?.status ?? null, dito);
+    }
+    const j: any = await res.json().catch(() => ({}));
+    return { wamid: j?.messages?.[0]?.id ?? null };
+  }
+
+  /**
+   * M3a parte 4b: manda um PDF (o boleto lançado) pelo número do Mister, com o nome do arquivo e a legenda. Mesma chave
+   * geral e mesmas conferências do `enviar`. Pela API oficial, sobe o arquivo à Meta (`/media`) e manda pelo id — só
+   * dentro da janela de 24 horas (fora dela a Meta recusa; quem chama é o toque da pessoa, que abre a janela); pelo
+   * Evolution, `sendMedia` com o arquivo em base64. O mesmo caminho do documento do WhatsApp das lojas.
+   */
+  async enviarDocumento(para: string, pdf: Buffer, arquivo: string, legenda = ''): Promise<{ wamid: string | null }> {
+    const destino = soDigitos(para);
+    if (!pdf?.length) throw new FalhaDoEnvioDoMister('meta', null, 'documento vazio');
+    const n = await this.ler();
+    if (n.provedor === 'evolution') {
+      if (!destino || !n.instancia || n.instanciaSituacao !== 'conectado') throw new FalhaDoEnvioDoMister('sem_numero');
+      if (!n.ligado) throw new FalhaDoEnvioDoMister('desligado');
+      const ev = this.evolution();
+      if (!ev) throw new FalhaDoEnvioDoMister('sem_acesso');
+      await this.vezNoEvolution();
+      const res = await this.buscar(`${ev.url}/message/sendMedia/${encodeURIComponent(n.instancia)}`, {
+        method: 'POST',
+        headers: { apikey: ev.chave, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ number: destino, mediatype: 'document', mimetype: 'application/pdf', media: pdf.toString('base64'), fileName: arquivo, caption: cortar(legenda, 1024) }),
+      }).catch(() => null);
+      if (!res || !res.ok) throw new FalhaDoEnvioDoMister('evolution', res?.status ?? null, res ? (await res.text().catch(() => '')).slice(0, 200) || null : null);
+      const j: any = await res.json().catch(() => ({}));
+      return { wamid: j?.key?.id ? String(j.key.id) : null };
+    }
+    if (!destino || !n.phoneId || n.situacao === 'sem') throw new FalhaDoEnvioDoMister('sem_numero');
+    if (!n.ligado) throw new FalhaDoEnvioDoMister('desligado');
+    const token = this.token();
+    if (!token) throw new FalhaDoEnvioDoMister('sem_acesso');
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    form.append('type', 'application/pdf');
+    form.append('file', new Blob([new Uint8Array(pdf)], { type: 'application/pdf' }), arquivo);
+    const up = await this.buscar(`${GRAPH}/${n.phoneId}/media`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form }).catch(() => null);
+    const midia: any = up?.ok ? await up.json().catch(() => ({})) : null;
+    if (!midia?.id) {
+      const j: any = up ? await up.json().catch(() => ({})) : {};
+      throw new FalhaDoEnvioDoMister('meta', up?.status ?? null, String(j?.error?.message ?? 'a Meta não devolveu o id do documento').slice(0, 200));
+    }
+    const res = await this.buscar(`${GRAPH}/${n.phoneId}/messages`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to: destino,
+        type: 'document',
+        document: { id: String(midia.id), filename: arquivo, ...(legenda ? { caption: cortar(legenda, 1024) } : {}) },
+      }),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const j: any = res ? await res.json().catch(() => ({})) : {};
+      throw new FalhaDoEnvioDoMister('meta', res?.status ?? null, String(j?.error?.error_user_msg || j?.error?.message || '').slice(0, 200) || null);
     }
     const j: any = await res.json().catch(() => ({}));
     return { wamid: j?.messages?.[0]?.id ?? null };

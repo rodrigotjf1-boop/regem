@@ -197,7 +197,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
       relatorios: o.relatorios ?? RELATORIOS_PADRAO(), salvamentosRel: [],
       // M3a parte 3: os ajustes da conversa e a parte "Documentos"
       conversa: o.conversa ?? { documentosLigado: true, documentosModo: 'sozinho' }, salvamentosConv: [],
-      documentos: o.documentos ?? DOCUMENTOS(), documentosFalha: !!o.documentosFalha, diasDosDocumentos: [], desfeitos: [],
+      documentos: o.documentos ?? DOCUMENTOS(), documentosFalha: !!o.documentosFalha, diasDosDocumentos: [], desfeitos: [], pdfs: [],
     };
     const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
     await ctx.addInitScript((jwt) => localStorage.setItem('regen_token', jwt), o.token ?? PRESIDENTE);
@@ -240,6 +240,12 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
         S.diasDosDocumentos.push(url.searchParams.get('dias'));
         if (S.documentosFalha) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
         return responder(route, { dias: Number(url.searchParams.get('dias') ?? 30), limite: 200, documentos: S.documentos });
+      }
+      // M3a parte 4b: o PDF do boleto lançado (um PDF mínimo; a tela só abre o arquivo).
+      const pdfDoDoc = /^\/mister\/documentos\/([^/]+)\/pdf$/.exec(p);
+      if (pdfDoDoc && metodo === 'GET') {
+        S.pdfs.push(pdfDoDoc[1]);
+        return route.fulfill({ status: 200, contentType: 'application/pdf', body: Buffer.from('%PDF-1.4\n%%EOF\n') });
       }
       const desfazer = /^\/mister\/documentos\/([^/]+)\/desfazer$/.exec(p);
       if (desfazer && metodo === 'POST') {
@@ -1001,6 +1007,15 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     ok(/Valor[\s\S]*R\$\s?1\.284,90[\s\S]*código/.test(tg) && /Fornecedor[\s\S]*Distribuidora Sabor[\s\S]*cadastro/.test(tg) && /Linha digitável/.test(tg), 'gaveta: os campos com a origem de cada um (código, cadastro) e a linha');
     ok(/A foto não fica guardada/.test(tg), 'gaveta: diz que a foto não fica guardada');
     ok((await g.locator('a:has-text("Ver nas contas a pagar")').getAttribute('href')) === '/financeiro', 'gaveta: "Ver nas contas a pagar" abre o Financeiro');
+    // M3a parte 4b: "Ver o PDF" pede o PDF do documento (com o login) e abre.
+    const [popup] = await Promise.all([
+      page.context().waitForEvent('page', { timeout: 10000 }).catch(() => null),
+      page.waitForResponse((r) => r.url().endsWith('/mister/documentos/d1/pdf')),
+      g.locator('button:has-text("Ver o PDF")').click(),
+    ]);
+    ok(S.pdfs.join(',') === 'd1', `gaveta: "Ver o PDF" pede o PDF do documento certo (${S.pdfs.join(',')})`);
+    ok(!!popup, 'gaveta: o PDF abre em outra aba');
+    if (popup) await popup.close();
     await g.locator('button:has-text("Desfazer o lançamento")').click();
     const d = page.locator('[role="alertdialog"]');
     await d.waitFor();

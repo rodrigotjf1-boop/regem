@@ -2286,6 +2286,16 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(competencia ? { competencia } : {}),
     }),
+  // M3a parte 4b: o PDF do boleto lançado pelo Mister (com auth), como object URL para abrir (o mesmo do "Ver o PDF").
+  misterDocumentoPdfUrl: async (id: string): Promise<string> => {
+    const token = getJwt();
+    const res = await fetch(`${apiBase()}/mister/documentos/${encodeURIComponent(id)}/pdf`, {
+      credentials: ehEdge() ? 'same-origin' : 'include',
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+    if (!res.ok) throw new Error(res.status === 404 ? 'O PDF é do boleto lançado: este documento não foi lançado.' : `Erro ${res.status} ao gerar o PDF`);
+    return URL.createObjectURL(await res.blob());
+  },
   // Baixa o PDF consolidado do espelho (com auth) e devolve um object URL p/ abrir.
   pontoEspelhoPdfUrl: async (competencia: string): Promise<string> => {
     const token = getJwt();

@@ -180,6 +180,8 @@ export class MisterAvisosService implements OnModuleInit {
         quem.telefone,
         proposta ? { texto: `${texto}\n\n${proposta.pergunta}`, botoes: proposta.botoes } : doBoleto.length ? { texto, botoes: doBoleto } : { texto },
       );
+      // O Pix impresso no boleto (4b): sozinho na mensagem seguinte, para copiar inteiro.
+      if (doBoleto.length && a.dados?.pix) await this.numero.enviar(quem.telefone, { texto: String(a.dados.pix) });
     } catch (e: any) {
       // Achou o aviso; o envio é que falhou. Fica no log com o motivo, e a entrada não diz "não achei".
       this.logger.warn(`o aviso ${a.id} não saiu no toque — ${e instanceof FalhaDoEnvioDoMister ? e.motivo : (e?.message ?? e)}`);
@@ -378,7 +380,7 @@ export class MisterAvisosService implements OnModuleInit {
         await this.db.execute(sql`
           select t.tenant_id::text as "tenantId", t.unidade_id::text as "unidadeId", t.id::text as "tituloId", d.id::text as "documentoId",
                  d.beneficiario, round(t.valor * 100)::bigint as "valorCentavos", t.vencimento::text as vencimento,
-                 d.linha_digitavel as "linhaDigitavel", (t.vencimento - ${dia}::date)::int as dias
+                 d.linha_digitavel as "linhaDigitavel", d.dados ->> 'pix' as pix, (t.vencimento - ${dia}::date)::int as dias
             from titulo_financeiro t
             join mister_documento d on d.titulo_id = t.id and d.tenant_id = t.tenant_id and d.situacao = 'lancado'
             join empresa emp on emp.id = t.tenant_id and emp.deleted_at is null
@@ -743,6 +745,9 @@ export class MisterAvisosService implements OnModuleInit {
           l.telefone,
           comProposta ? { texto: `${texto}\n\n${proposta.pergunta}`, botoes: proposta.botoes } : doBoleto.length ? { texto, botoes: doBoleto } : { texto },
         );
+        // O Pix impresso no boleto (4b): sozinho na mensagem seguinte, para copiar inteiro (a falha dele não desfaz o aviso).
+        const pix = (a.dados as any)?.pix;
+        if (doBoleto.length && pix) await this.numero.enviar(l.telefone, { texto: String(pix) }).catch((e: any) => this.logger.warn(`o Pix do aviso ${a.id} não saiu — ${e?.message ?? e}`));
         fora.push({ destino, fase, em, ok: true, final, ...(motivo ? { motivo } : {}) });
       } catch (e: any) {
         const m = e instanceof FalhaDoEnvioDoMister ? e.motivo : 'erro';

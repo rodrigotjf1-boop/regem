@@ -573,6 +573,8 @@ export interface BoletoAVencer {
   valorCentavos: number;
   vencimento: string;
   linhaDigitavel: string | null;
+  /** O Pix copia e cola impresso no boleto (CRC conferido na leitura), quando tinha (4b). Vai na mensagem seguinte. */
+  pix?: string | null;
   /** Dias do "hoje" do aviso até o vencimento (negativo = venceu). */
   dias: number;
 }
@@ -594,18 +596,34 @@ export function situacaoDoBoleto(b: BoletoAVencer): Situacao {
     tipo: 'boleto_vencendo',
     chave: `boleto:${b.tituloId}`,
     titulo: `Boleto ${quando} · ${quem} · R$ ${reais}`,
-    detalhe: b.linhaDigitavel
-      ? `Linha digitável: ${b.linhaDigitavel}\n\nPague no banco e toque em "Já paguei" para dar baixa.`
-      : 'Este boleto entrou sem a linha digitável (a foto não tinha o código de barras). Pague no banco e toque em "Já paguei" para dar baixa.',
-    dados: { marco: b.dias > 0 ? 'antes' : b.dias === 0 ? 'dia' : 'vencido', documentoId: b.documentoId, tituloId: b.tituloId, vencimento: b.vencimento, dias: b.dias },
+    detalhe:
+      (b.linhaDigitavel
+        ? `Linha digitável: ${b.linhaDigitavel}`
+        : 'Este boleto entrou sem a linha digitável (a foto não tinha o código de barras).') +
+      (b.pix ? '\n\nEste boleto tem Pix: o copia e cola vem na próxima mensagem.' : '') +
+      '\n\nPague no banco e toque em "Já paguei" para dar baixa.',
+    dados: {
+      marco: b.dias > 0 ? 'antes' : b.dias === 0 ? 'dia' : 'vencido',
+      documentoId: b.documentoId,
+      tituloId: b.tituloId,
+      vencimento: b.vencimento,
+      dias: b.dias,
+      ...(b.pix ? { pix: b.pix } : {}),
+    },
   };
 }
 
 /** O boleto entra no aviso desta empresa? Pela antecedência escolhida (o vencido e não pago sempre, até 30 dias). */
 export const boletoNoPrazoDoAviso = (dias: number, antecedencia: number | null): boolean => dias >= -BOLETO_VENCIDO_ATE_DIAS && dias <= (antecedencia ?? 3);
 
-/** Os botões do aviso do boleto (só para o presidente: é quem dá baixa). */
-export const botoesDoAvisoDoBoleto = (documentoId: unknown) => (typeof documentoId === 'string' && documentoId ? [{ id: `doc:pago:${documentoId}`, titulo: 'Já paguei' }] : []);
+/** Os botões do aviso do boleto (só para o presidente: é quem dá baixa): "Já paguei" e "Ver o PDF" (4b). */
+export const botoesDoAvisoDoBoleto = (documentoId: unknown) =>
+  typeof documentoId === 'string' && documentoId
+    ? [
+        { id: `doc:pago:${documentoId}`, titulo: 'Já paguei' },
+        { id: `doc:pdf:${documentoId}`, titulo: 'Ver o PDF' },
+      ]
+    : [];
 
 // ───────────────────────────── as mensagens ─────────────────────────────
 

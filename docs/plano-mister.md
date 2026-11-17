@@ -980,10 +980,12 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
 - **Parte 3 — #1097, no ar (mig 440 `mister_conversa_config`, aplicada):** o ajuste por empresa no grupo "Conversa", o
   texto que completa o que faltou ("Lanço assim?"), a parte "Documentos" com "Desfazer o lançamento" e "Financeiro › Contas
   a pagar" no menu.
-- **Parte 4a (sem migration):** o aviso "Boleto perto de vencer" (grupo "Documentos e dinheiro"; às 9h da loja; 3 dias, 1
-  dia ou só no dia), com a linha digitável e o "Já paguei" — e o pagar/estornar da tela uma vez só (ERR-506).
-- **Falta:** 4b (o PDF do boleto com o código de barras, mandado pelo número do Mister) e 4c (o Pix lido do QR do boleto,
-  sem IA — pede uma biblioteca nova de leitura de QR).
+- **Parte 4a — #1098, no ar (sem migration):** o aviso "Boleto perto de vencer" (grupo "Documentos e dinheiro"; às 9h da
+  loja; 3 dias, 1 dia ou só no dia), com a linha digitável e o "Já paguei" — e o pagar/estornar da tela uma vez só (ERR-506).
+- **Parte 4b (sem migration):** "Ver o PDF" (na conversa e na gaveta), o PDF com o código de barras desenhado (ITF), o envio
+  de documento pelo número do Mister e o Pix copia e cola IMPRESSO (a IA transcreve, o CRC16 confere).
+- **Falta da M3a:** só o Pix que vem apenas em QR (sem o texto impresso) — ler QR sem IA pede uma biblioteca nova de imagem
+  no backend; decisão do dono.
 
 ## 5. O que depende do dono
 

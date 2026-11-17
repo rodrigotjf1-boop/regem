@@ -231,6 +231,21 @@ function Campo({ rotulo, valor, origem }: { rotulo: string; valor: React.ReactNo
 
 function GavetaDoDocumento({ d, aoFechar, aoDesfazer }: { d: Documento; aoFechar: () => void; aoDesfazer: () => void }) {
   const [confirmando, setConfirmando] = useState(false);
+  const [abrindoPdf, setAbrindoPdf] = useState(false);
+  const [erroDoPdf, setErroDoPdf] = useState('');
+  // O PDF (M3a parte 4b) é do boleto lançado: o lançado, o pago e o da conta cancelada na tela (o desfeito, não).
+  const temPdf = !!d.tituloId && (d.situacao === 'lancado' || d.situacao === 'pago' || d.situacao === 'cancelado');
+  async function verPdf() {
+    setAbrindoPdf(true);
+    setErroDoPdf('');
+    try {
+      window.open(await api.misterDocumentoPdfUrl(d.id), '_blank');
+    } catch (e) {
+      setErroDoPdf(e instanceof Error ? e.message : 'Não consegui abrir o PDF agora.');
+    } finally {
+      setAbrindoPdf(false);
+    }
+  }
   return (
     <Gaveta
       titulo={nomeDoDocumento(d)}
@@ -240,6 +255,11 @@ function GavetaDoDocumento({ d, aoFechar, aoDesfazer }: { d: Documento; aoFechar
           {d.podeDesfazer && (
             <Button type="button" variant="outline" onClick={() => setConfirmando(true)}>
               Desfazer o lançamento
+            </Button>
+          )}
+          {temPdf && (
+            <Button type="button" variant="outline" onClick={() => void verPdf()} disabled={abrindoPdf}>
+              {abrindoPdf ? 'Abrindo o PDF…' : 'Ver o PDF'}
             </Button>
           )}
           {d.tituloId && (
@@ -257,6 +277,11 @@ function GavetaDoDocumento({ d, aoFechar, aoDesfazer }: { d: Documento; aoFechar
         <Selo tom={SITUACAO[d.situacao].tom}>{SITUACAO[d.situacao].rotulo}</Selo>
         <span className={`text-sm ${texto2}`}>{comoFoiLido(d)}</span>
       </p>
+      {erroDoPdf && (
+        <p role="alert" className="mt-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm">
+          {erroDoPdf}
+        </p>
+      )}
       <dl className="mt-3">
         <Campo rotulo="Valor" valor={d.valorCentavos != null ? <span className="font-mono">{reais(d.valorCentavos)}</span> : 'não lido'} origem={d.origem.valor ? ORIGEM[d.origem.valor] : null} />
         <Campo rotulo="Vencimento" valor={d.vencimento ? diaComSemana(d.vencimento) : 'não lido'} origem={d.origem.vencimento ? ORIGEM[d.origem.vencimento] : null} />
