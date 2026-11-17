@@ -75,6 +75,8 @@ function historicoAvisos() {
 // ── o estado do "servidor" simulado ──
 const S = { pedidos: [], filaFalha: false, nuvem: false, semSocket: false, fila: [], esperaAvancar: 700, vistos: [], pendentes: [], historicoAvisos: historicoAvisos(), cientes: [], aparelho: [], comLogin: [] };
 const TOKEN_APARELHO = 'tk-kds-da-cozinha';
+const APARELHO_NOME = 'KDS tvbox 2';
+const APARELHO_IP = '192.168.1.24';
 
 async function rotas(page) {
   await page.route('**/api/v1/**', async (route) => {
@@ -83,17 +85,25 @@ async function rotas(page) {
     let caminho = url.pathname.replace(/^.*\/api\/v1/, '');
     // O KDS físico pelo token do aparelho (16/11/2026): as rotas `/producao/aparelho/*` com `X-Device-Token`; o resto é
     // o mesmo servidor simulado. Anota quem chamou e com qual token; token errado = 401, como o `KdsAparelhoGuard`.
+    let viaAparelho = false;
     if (caminho.startsWith('/producao/aparelho/')) {
       const token = req.headers()['x-device-token'] ?? null;
       S.aparelho.push({ caminho, busca: url.search, token });
       if (token !== TOKEN_APARELHO) return responder(route, { code: 'KDS_TOKEN_INVALIDO', message: 'KDS não reconhecido ou revogado.' }, 401);
       caminho = caminho.replace('/producao/aparelho/', '/producao/');
+      viaAparelho = true;
     } else if (caminho.startsWith('/producao/')) {
       S.comLogin.push(caminho);
     }
     if (caminho === '/producao/fila') {
       if (S.filaFalha) return responder(route, { message: 'Serviço indisponível' }, 503);
-      return responder(route, { cores: { verdeAteMin: 5, amareloAteMin: 10, usaPreparo: true, usaEntregue: true }, pedidos: S.pedidos, nuvemComServidor: S.nuvem });
+      // A fila do aparelho diz também qual aparelho é e o IP que o servidor viu (17/11/2026 — cabeçalho do KDS).
+      return responder(route, {
+        cores: { verdeAteMin: 5, amareloAteMin: 10, usaPreparo: true, usaEntregue: true },
+        pedidos: S.pedidos,
+        nuvemComServidor: S.nuvem,
+        ...(viaAparelho ? { aparelho: { nome: APARELHO_NOME, ip: APARELHO_IP } } : {}),
+      });
     }
     if (caminho === '/producao/kds/telas')
       return responder(route, [{ id: 'k1', nome: 'Cozinha', escopo: 'producao', proximoKdsId: null, ...(S.avisosK1 ? { avisos: S.avisosK1 } : {}) }]);
@@ -279,6 +289,7 @@ export default async function roteiroKds({ nav, base, ok, foto, larguras, rapido
   S.pausas = [];
   {
     const { ctx, page, erros } = await abrir({ w: 1280, h: 800 });
+    ok((await page.locator('.k-aparelho').count()) === 0, 'com pessoa logada o cabeçalho não mostra aparelho nem IP');
     const fontes = await page.evaluate(() => ({
       item: parseFloat(getComputedStyle(document.querySelector('.k-it')).fontSize),
       comp: parseFloat(getComputedStyle(document.querySelector('.k-comp')).fontSize),
@@ -635,10 +646,50 @@ export default async function roteiroKds({ nav, base, ok, foto, larguras, rapido
       ok(S.aparelho.some((c) => c.caminho === '/producao/aparelho/pedidos/b15/visto'), 'aparelho: o "Visto" vai pela rota do aparelho');
       ok(S.comLogin.length === 0, `aparelho: nada pelas rotas de quem está logado (${S.comLogin.slice(0, 3).join(', ')})`);
       ok(!/\/entrar/.test(page.url()), `aparelho: a tela segue no KDS (${page.url()})`);
+      // o cabeçalho diz qual aparelho é e o IP que o servidor viu (17/11/2026 — pedido do dono)
+      const cab = ((await page.locator('.k-top .k-aparelho').textContent()) || '').trim();
+      ok(cab === `${APARELHO_NOME} · ${APARELHO_IP}`, `aparelho: o cabeçalho mostra "${cab}"`);
       await page.screenshot({ path: foto('1280-aparelho-token.png') });
       ok(erros.length === 0, `sem erro na página (aparelho): ${erros.join(' | ')}`);
     } finally {
       await ctx.close();
+    }
+  }
+
+  // ── 7. o nome e o IP do aparelho no cabeçalho, em todas as larguras e nos dois temas (V45, V62) ──
+  // Sem barra para o lado, sem corte, nada fora da janela, e o texto inteiro à vista dentro da janela.
+  for (const w of larguras) {
+    for (const tema of rapido ? ['claro'] : ['claro', 'escuro']) {
+      S.pedidos = pedidosIniciais();
+      S.pausas = [];
+      const h = w < 700 ? 820 : 900;
+      const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
+      await ctx.addInitScript((t) => {
+        localStorage.setItem('kds-canal', 'todos');
+        localStorage.setItem('kds-tema', t);
+        localStorage.setItem('kds-view', JSON.stringify({ escala: 1, agregar: false, uso: 'toque' }));
+      }, tema);
+      const page = await ctx.newPage();
+      const erros = [];
+      page.on('pageerror', (e) => erros.push(String(e?.message ?? e)));
+      try {
+        await rotas(page);
+        await page.goto(`${base}/kds?token=${TOKEN_APARELHO}`);
+        await page.waitForSelector('.k-top .k-aparelho', { timeout: 20000 });
+        const m = await medir(page);
+        ok(m.achados.length === 0, `aparelho ${w}×${h} ${tema}: sem barra/corte/fora ${m.achados.slice(0, 3).join(' | ')}`);
+        const caixa = await page.evaluate(() => {
+          const el = document.querySelector('.k-top .k-aparelho');
+          const r = el.getBoundingClientRect();
+          const cs = getComputedStyle(el);
+          return { esq: r.left, dir: r.right, alto: r.height, cor: cs.color, visivel: r.width > 0 && cs.display !== 'none' && cs.visibility !== 'hidden' };
+        });
+        ok(caixa.visivel && caixa.esq >= -1 && caixa.dir <= w + 1, `aparelho ${w}×${h} ${tema}: o nome e o IP inteiros na janela (${Math.round(caixa.esq)}–${Math.round(caixa.dir)})`);
+        ok(erros.length === 0, `aparelho ${w}×${h} ${tema}: sem erro na página ${erros.join(' | ')}`);
+        if ([375, 1280, 1920].includes(w)) await page.screenshot({ path: foto(`${w}x${h}-aparelho-${tema}.png`) });
+      } finally {
+        await ctx.close();
+      }
     }
   }
 }
