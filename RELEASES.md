@@ -20,6 +20,12 @@
   total da nota, uma por parcela. → vai no `.zip`: o `RecebimentoService.confirmar` ganhou a opção `semConta` (sem efeito
   na loja) e `mister_de_para` = SO_NUVEM no `sync-daemon.mjs`.
 
+- **APK "Regem Entregador" 0.1.0+19 — PENDENTE (gerar só sob comando do dono; 17/11, revisão do app; SEM migration, nada no
+  servidor).** A fila offline não perde entrega (ERR-507), a sessão vencida volta ao login sem descartar a fila (ERR-508),
+  prazo de 20 s nas chamadas, a lista se atualiza sozinha (30 s e ao voltar ao app), um envio de GPS por vez, dinheiro com
+  vírgula, o nome "Regem Entregador", a lanterna no leitor. Antes de gerar: decidir a chave de assinatura própria (hoje é a
+  de teste deste PC).
+
 - **Mister: o PDF do boleto lançado, com o código de barras (17/11, M3a parte 4b; SEM migration; só NUVEM).** "Ver o PDF"
   na conversa (no lançamento e no aviso de vencimento) e na gaveta da parte "Documentos": o que foi lido, de onde veio
   cada campo, a linha digitável e o código de barras desenhado (ITF, o padrão da FEBRABAN). Pela conversa, o arquivo sobe

@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../api.dart';
 import '../location.dart';
 import '../outbox.dart';
+import '../formato.dart';
 import '../chat_visto.dart';
 import '../widgets/logo_do_canal.dart';
 import 'chat_screen.dart';
@@ -536,6 +537,11 @@ class _PedidoScreenState extends State<PedidoScreen> {
       Navigator.pop(context, true);
     } on ApiErro catch (e) {
       if (!mounted) return;
+      // Sessão vencida (401): o app volta à tela de entrar; a entrega segue em rota e conclui depois do login.
+      if (e.sessao) {
+        setState(() => _finalizando = false);
+        return;
+      }
       // Servidor/canal fora do ar (5xx, 408, 429) conta como falta de conexão; recusa (4xx) não.
       if (!e.recusa) return _semConexao(id, code, local);
       _aviso(e.mensagem, erro: true);
@@ -735,7 +741,7 @@ class _PedidoScreenState extends State<PedidoScreen> {
           Text(
             prepago
                 ? 'Pago online — não cobrar'
-                : 'A receber: R\$ ${aReceber.toStringAsFixed(2)}'
+                : 'A receber: ${reais(aReceber)}'
                     '  (${formas.isNotEmpty ? formas.map((f) => (f as Map)['rotulo']).join(' + ') : p['formaPagamento'] ?? ''})',
             style: TextStyle(
               fontWeight: FontWeight.bold,
@@ -749,7 +755,7 @@ class _PedidoScreenState extends State<PedidoScreen> {
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
-                'R\$ ${jaPagoOnline.toStringAsFixed(2)} já pago online — cobre só a diferença.',
+                '${reais(jaPagoOnline)} já pago online — cobre só a diferença.',
                 style: TextStyle(color: Colors.green.shade800),
               ),
             ),
@@ -757,7 +763,7 @@ class _PedidoScreenState extends State<PedidoScreen> {
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
-                'Troco para R\$ ${trocoPara.toStringAsFixed(2)} → levar R\$ ${troco.toStringAsFixed(2)}',
+                'Troco para ${reais(trocoPara)} → levar ${reais(troco)}',
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
             ),
@@ -765,7 +771,7 @@ class _PedidoScreenState extends State<PedidoScreen> {
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
-                'Taxa de entrega: R\$ ${taxa.toStringAsFixed(2)}',
+                'Taxa de entrega: ${reais(taxa)}',
                 style: TextStyle(
                   color: Colors.green.shade800,
                   fontWeight: FontWeight.w600,

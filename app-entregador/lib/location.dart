@@ -13,6 +13,25 @@ import 'api.dart';
 class LocationSender {
   static StreamSubscription<Position>? _sub;
   static Timer? _pulso; // pulso periódico com getCurrentPosition (fallback do stream)
+  // UM envio por vez e sem repetir (revisão de 17/11/2026): o stream (10 s) e o pulso (12 s) mandavam os dois — ~11
+  // envios por minuto — e, no 4G ruim, os envios presos se empilhavam. Agora o pulso só manda quando o stream ficou
+  // mais de 9 s calado, e um envio novo espera o anterior voltar.
+  static DateTime? _ultimoEnvio;
+  static bool _enviando = false;
+
+  static Future<void> _enviar(double lat, double lng, double? precisao) async {
+    if (_enviando) return;
+    _enviando = true;
+    _ultimoEnvio = DateTime.now();
+    try {
+      await Api.enviarLocalizacao(lat, lng, precisao: precisao);
+    } finally {
+      _enviando = false;
+    }
+  }
+
+  static bool get _streamRecente =>
+      _ultimoEnvio != null && DateTime.now().difference(_ultimoEnvio!) < const Duration(seconds: 9);
 
   static Future<bool> _garantirPermissao() async {
     if (!await Geolocator.isLocationServiceEnabled()) return false;
@@ -81,17 +100,16 @@ class LocationSender {
     // e parava, o rastreio envelhecia (10 min) e sumia. O stream abaixo dá updates mais finos +
     // 2º plano quando o foreground service sobe.
     Future<void> pulsar() async {
+      if (_streamRecente) return; // o stream está mandando: não gasta GPS nem dados de novo
       final p = await posicaoAtual();
-      if (p != null) {
-        Api.enviarLocalizacao(p.latitude, p.longitude, precisao: p.accuracy);
-      }
+      if (p != null) await _enviar(p.latitude, p.longitude, p.accuracy);
     }
 
     pulsar(); // imediata
     _pulso = Timer.periodic(const Duration(seconds: 12), (_) => pulsar());
     _sub = Geolocator.getPositionStream(locationSettings: _settings()).listen(
       (pos) {
-        Api.enviarLocalizacao(pos.latitude, pos.longitude, precisao: pos.accuracy);
+        _enviar(pos.latitude, pos.longitude, pos.accuracy);
       },
       // Stream morreu (erro do provedor / foreground service / SO): zera _sub p/ reabrir no
       // próximo iniciar(). O pulso acima continua postando enquanto isso.

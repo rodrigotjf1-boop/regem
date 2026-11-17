@@ -91,7 +91,18 @@ class _ScannerScreenState extends State<ScannerScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Escanear cupom')),
+      appBar: AppBar(
+        title: const Text('Escanear cupom'),
+        actions: [
+          // A lanterna: o balcão ou a cozinha com pouca luz (revisão de 17/11/2026).
+          if (_controller != null)
+            IconButton(
+              icon: const Icon(Icons.flashlight_on_outlined),
+              tooltip: 'Lanterna',
+              onPressed: () => _controller?.toggleTorch(),
+            ),
+        ],
+      ),
       body: _corpo(),
     );
   }

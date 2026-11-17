@@ -112,7 +112,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _textoEmEnvio = null;
       if (pronto == null) _texto.clear();
       if (r['saiAgora'] == false) {
-        _aviso('Mensagem na fila: sai quando o computador da loja com a ponte voltar a enviar.');
+        _aviso('Mensagem na fila: sai quando a ponte da loja voltar a enviar pelo $_plataforma.');
       }
       await _carregar(quieto: true);
     } on ApiErro catch (e) {
@@ -198,7 +198,9 @@ class _ChatScreenState extends State<ChatScreen> {
     if (p['ligada'] != true) {
       msg = 'O chat pela plataforma não está ligado nesta loja. Ligue para o cliente.';
     } else if (p['responde'] != true) {
-      msg = 'O computador da loja que envia pelo $_plataforma está desligado agora: a mensagem fica na fila até ele voltar.';
+      // Revisão de 17/11/2026: "desligado" enganava — o caso comum é o computador ligado com a ponte sem o login.
+      msg = 'A ponte da loja não está enviando pelo $_plataforma agora (o computador desligado ou sem o login no '
+          '$_plataforma): a mensagem fica na fila e sai quando ela voltar.';
     }
     if (msg == null) return null;
     return Container(
