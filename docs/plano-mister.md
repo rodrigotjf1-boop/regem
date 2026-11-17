@@ -1061,8 +1061,11 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
 - **Parte 8 (sem migration):** o robô, o WhatsApp da loja e os ajustes da pausa, com as respostas simuladas no formato
   do servidor (`/whatsapp/numeros`, `/whatsapp/robo-config`, `/atendimento/ajustes` com `pausa.temCardapio`); o roteiro
   passou a dizer POR QUE uma tela caiu (o erro que o React registra no console). 43 assuntos com imagem.
-- **Falta (6):** relatórios de vendas, conversas do WhatsApp, ligar iFood/99, conferir com os apps, preço no canal e
-  pausar produto — leem rotas próprias que o roteiro ainda não simula.
+- **Parte 9 (sem migration):** as integrações (iFood/99), a caixa de conversas do WhatsApp (o status conectado, duas
+  conversas e as mensagens de exemplo) e, na gestão do catálogo com o iFood e a 99 ligados, o preço e a pausa por canal
+  (as fotos da conferência `null` — a lista vazia quebrava `fotos.canais`). 47 assuntos com imagem.
+- **Falta (2):** "Conferir com os apps" (a aba lê a conferência) e os relatórios de vendas (11 abas com formatos
+  próprios) — pedem simular as respostas dessas leituras.
 
 **A tela "Resumo" (17/11/2026, sem migration; #1114, no ar):** a entrada do presidente em Mister — as três etapas para funcionar, a faixa
 "IA parada", o que o Mister faz e os últimos avisos, só com as rotas que já existem.

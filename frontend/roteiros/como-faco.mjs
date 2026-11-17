@@ -36,6 +36,32 @@ const CONFIG_DO_ROBO = {
     textoPadrao: 'Oi, {nome}! Gostou do pedido? Conta pra gente: {link}',
   },
 };
+// A caixa de conversas do WhatsApp: o número conectado, duas conversas de exemplo e as mensagens da primeira (o horário
+// das mensagens em segundos, como a API manda).
+const agoraS = () => Math.floor(Date.now() / 1000);
+const CONVERSAS_DO_WHATSAPP = [
+  { jids: ['5521988880001@s.whatsapp.net'], telefone: '5521988880001', nome: 'Ana Exemplo', ultimaMensagem: 'Vocês entregam no Centro?', naoLidas: 1, chamado: null },
+  { jids: ['5521988880002@s.whatsapp.net'], telefone: '5521988880002', nome: 'Bruno Exemplo', ultimaMensagem: 'Obrigado, chegou certinho!', naoLidas: 0, chamado: null },
+];
+const mensagensDaConversa = () => [
+  { id: 'm1', fromMe: false, texto: 'Oi! Vocês entregam no Centro?', timestamp: agoraS() - 300 },
+  { id: 'm2', fromMe: true, texto: 'Entregamos sim! A taxa para o Centro é R$ 5,00. Quer o cardápio?', timestamp: agoraS() - 240 },
+];
+
+// A gestão do catálogo com o iFood (pelo Orzuni) e a 99 ligados e a conferência com os apps: as fotos da conferência
+// vêm `null` (sem leitura — a lista vazia quebrava `fotos.canais`), os produtos com o preço e a situação em cada canal.
+const CATALOGO_COM_CANAIS = {
+  '/catalogo/conferencia/fotos': null,
+  '/produtos/ifood-pelo-orzuni': { ligado: true },
+  '/produtos/precos-na-99': { ligado: true },
+  '/catalogo/conferencia/ligada': { ligada: true },
+  '/produtos': [
+    { id: 'p1', nome: 'X-Burger', codigo: '101', precoVenda: 29.9, categoriaId: 'c1', ativo: true, noIfood: true, precoIfood: 33.9, na99: true, preco99: 32.9 },
+    { id: 'p2', nome: 'X-Salada', codigo: '102', precoVenda: 31.9, categoriaId: 'c1', ativo: true, noIfood: true, precoIfood: 35.9, na99: true, preco99: 34.9 },
+    { id: 'p3', nome: 'Coca-Cola lata', codigo: '201', precoVenda: 7, categoriaId: 'c2', ativo: true, noIfood: true, precoIfood: 8.5, na99: true, preco99: 8 },
+  ],
+  '/produtos/categorias': [{ id: 'c1', nome: 'Lanches' }, { id: 'c2', nome: 'Bebidas' }],
+};
 
 // Cada tela: o assunto do guia, o endereço, o passo (opcional) e as marcas, na ordem dos números.
 const TELAS = [
@@ -89,6 +115,37 @@ const TELAS = [
     marcas: (p) => [menu(p, '/delivery/entregadores'), p.locator('main').getByLabel('Como o entregador é pago').first(), botao(p, 'Salvar configurações')],
   },
   { id: 'reimprimir-cancelar-venda', caminho: '/cupons', marcas: (p) => [menu(p, '/cupons'), rotulado(p, 'Buscar por senha/nº'), em(p, ':text("Últimas vendas")')] },
+  // A aba "Integrações": um cartão por plataforma (a lista vem do servidor; vazia, a aba não mostra nenhum)
+  {
+    id: 'ligar-ifood-99', caminho: '/delivery/configuracoes?aba=integracoes',
+    respostas: { '/delivery/integracoes': ['ifood', '99food', 'anotaai', 'keeta'].map((canal) => ({ canal, ativo: false })) },
+    marcas: (p) => [
+      menu(p, '/delivery/configuracoes'),
+      em(p, 'button:text-is("Integrações")'),
+      em(p, 'button:has-text("iFood"), button[aria-label*="iFood"], button:has(img[alt*="iFood"])'),
+    ],
+  },
+  // A gestão do catálogo com o iFood e a 99 ligados: o preço e a pausa de cada canal na linha do produto. Fora por
+  // enquanto: "Conferir com os apps" (a aba lê a conferência, que o roteiro ainda não simula) e os relatórios de vendas.
+  {
+    id: 'preco-no-canal', caminho: '/catalogo', respostas: CATALOGO_COM_CANAIS,
+    marcas: (p) => [menu(p, '/catalogo'), rotulado(p, 'Buscar'), em(p, 'button[aria-label^="Mudar o preço"][aria-label*="iFood de X-Burger"]')],
+  },
+  {
+    id: 'pausar-produto', caminho: '/catalogo', respostas: CATALOGO_COM_CANAIS,
+    marcas: (p) => [menu(p, '/catalogo'), em(p, 'button[aria-label="Pausado no iFood: X-Burger"]')],
+  },
+  // A caixa de conversas: sem o status conectado, a tela mostra "WhatsApp não conectado"
+  {
+    id: 'conversas-whatsapp', caminho: '/whatsapp',
+    respostas: { '/whatsapp/status': { conectado: true }, '/whatsapp/conversas': CONVERSAS_DO_WHATSAPP, '/whatsapp/robo-config': CONFIG_DO_ROBO },
+    respostasDinamicas: { '/whatsapp/mensagens': mensagensDaConversa },
+    passo: async (p) => {
+      await em(p, 'button:has-text("Ana Exemplo")').click();
+      await p.locator('main').getByText('A taxa para o Centro', { exact: false }).first().waitFor({ timeout: 8000 }).catch(() => {});
+    },
+    marcas: (p) => [menu(p, '/whatsapp'), em(p, 'button:has-text("Ana Exemplo")'), em(p, 'button:has-text("Pausar robô")'), em(p, 'button:has-text("Enviar cardápio")')],
+  },
   // A aba "Robô de atendimento" (com os números do WhatsApp e os ajustes do robô simulados; com a lista vazia, caía)
   {
     id: 'robo', caminho: '/delivery/configuracoes?aba=robo', respostas: { '/whatsapp/numeros': NUMEROS_DO_WHATSAPP, '/whatsapp/robo-config': CONFIG_DO_ROBO },
@@ -154,6 +211,8 @@ export default async function roteiroComoFaco({ nav, base, ok, foto }) {
       const req = route.request();
       const p = new URL(req.url()).pathname.replace(/^.*\/api\/v1/, '');
       if (t.respostas && p in t.respostas) return responder(route, t.respostas[p]);
+      // resposta montada na hora (o horário das mensagens relativo a agora)
+      if (t.respostasDinamicas && p in t.respostasDinamicas) return responder(route, t.respostasDinamicas[p]());
       return responder(route, req.method() === 'GET' ? [] : {});
     });
     await page.goto(base + t.caminho);
