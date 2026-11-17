@@ -38,10 +38,6 @@
   "components/produtos/combo-editor.tsx": 1,
   "components/produtos/complementos-card.tsx": 1,
   "components/produtos/complementos-catalogo-card.tsx": 4,
-  "components/produtos/fiscal-fields.tsx": 10,
-  "components/produtos/loja-fields.tsx": 5,
-  "components/produtos/opcoes-card.tsx": 10,
-  "components/produtos/produto-form.tsx": 16,
   "components/produtos/variacoes-editor.tsx": 1,
   "components/recebimento/recebimento-form.tsx": 7,
   "components/tarefa/tarefa-modal.tsx": 1

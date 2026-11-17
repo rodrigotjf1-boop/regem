@@ -327,18 +327,18 @@ function OpcaoModal({ opcao, fichas, itens, verFin, ifoodLigado, onFechar, onSal
             <ImageUpload value={f.imagemRef} onChange={(url) => up({ imagemRef: url })} id={`opcao-${opcao.id ?? 'novo'}`} alt="Opção" maxDim={512} accept="image/png,image/jpeg" />
           </div>
           <div className="min-w-0 flex-1 space-y-2">
-            <div className="space-y-1"><Label className="text-xs">Nome</Label><Input value={f.nome} onChange={(e) => up({ nome: e.target.value })} placeholder="Ex.: Coca-Cola Lata" /></div>
+            <div className="space-y-1"><Label htmlFor="opcao-nome" className="text-xs">Nome</Label><Input id="opcao-nome" value={f.nome} onChange={(e) => up({ nome: e.target.value })} placeholder="Ex.: Coca-Cola Lata" /></div>
             <div className="flex flex-wrap gap-2">
-              <div className="min-w-[6.5rem] flex-1 space-y-1"><Label className="text-xs">Código PDV</Label><Input value={f.codigoPdv} onChange={(e) => up({ codigoPdv: e.target.value })} placeholder="opcional" /></div>
+              <div className="min-w-[6.5rem] flex-1 space-y-1"><Label htmlFor="opcao-codigo-pdv" className="text-xs">Código PDV</Label><Input id="opcao-codigo-pdv" value={f.codigoPdv} onChange={(e) => up({ codigoPdv: e.target.value })} placeholder="opcional" /></div>
               {(f.tipo === 'ficha' || f.tipo === 'insumo') && !verFin && custoDerivado == null ? null : f.tipo === 'ficha' || f.tipo === 'insumo' ? (
-                <div className="min-w-[6.5rem] flex-1 space-y-1">
-                  <Label className="text-xs">Custo</Label>
+                <div className="min-w-[6.5rem] flex-1 space-y-1" role="group" aria-labelledby="opcao-custo-rotulo">
+                  <Label id="opcao-custo-rotulo" className="text-xs">Custo</Label>
                   <p id={f.tipo === 'ficha' ? 'opcao-custo-da-ficha' : 'opcao-custo-do-insumo'} className="flex h-11 items-center rounded-md border border-dashed border-border px-3 font-mono text-sm">
                     {custoDerivado != null ? brl(custoDerivado) : '—'}
                   </p>
                 </div>
               ) : verFin ? (
-                <div className="min-w-[6.5rem] flex-1 space-y-1"><Label className="text-xs">Preço de custo</Label><Input type="number" value={f.precoCusto} onChange={(e) => up({ precoCusto: e.target.value })} placeholder="0,00" /></div>
+                <div className="min-w-[6.5rem] flex-1 space-y-1"><Label htmlFor="opcao-preco-custo" className="text-xs">Preço de custo</Label><Input id="opcao-preco-custo" type="number" value={f.precoCusto} onChange={(e) => up({ precoCusto: e.target.value })} placeholder="0,00" /></div>
               ) : null}
             </div>
             {/* iFood pelo Orzuni (mig 369): um preço no iFood por opção = por código PDV. O envio (R2a, mig 370)
@@ -367,13 +367,13 @@ function OpcaoModal({ opcao, fichas, itens, verFin, ifoodLigado, onFechar, onSal
         </div>
 
         <div className="mt-3 space-y-1">
-          <Label className="text-xs">Descrição</Label>
-          <textarea value={f.descricao} onChange={(e) => up({ descricao: e.target.value })} placeholder="Opcional" className="min-h-[48px] w-full rounded-md border border-input bg-card px-3 py-2 text-sm" />
+          <Label htmlFor="opcao-descricao" className="text-xs">Descrição</Label>
+          <textarea id="opcao-descricao" value={f.descricao} onChange={(e) => up({ descricao: e.target.value })} placeholder="Opcional" className="min-h-[48px] w-full rounded-md border border-input bg-card px-3 py-2 text-sm" />
         </div>
 
         <div className="mt-3 space-y-1">
-          <Label className="text-xs">Tipo</Label>
-          <select className={selectCls} aria-label="Tipo da opção" value={f.tipo} onChange={(e) => up({ tipo: e.target.value })}>
+          <Label htmlFor="opcao-tipo" className="text-xs">Tipo</Label>
+          <select id="opcao-tipo" className={selectCls} value={f.tipo} onChange={(e) => up({ tipo: e.target.value })}>
             <option value="simples">Produto simples</option>
             <option value="ficha">Preparado na loja (ficha técnica)</option>
             <option value="insumo">Insumo comprado pronto</option>
@@ -382,8 +382,8 @@ function OpcaoModal({ opcao, fichas, itens, verFin, ifoodLigado, onFechar, onSal
 
         {f.tipo === 'ficha' && (
           <div className="mt-2 space-y-1">
-            <Label className="text-xs">Ficha técnica</Label>
-            <select className={selectCls} aria-label="Ficha técnica" value={f.fichaId} onChange={(e) => up({ fichaId: e.target.value })}>
+            <Label htmlFor="opcao-ficha-id" className="text-xs">Ficha técnica</Label>
+            <select id="opcao-ficha-id" className={selectCls} value={f.fichaId} onChange={(e) => up({ fichaId: e.target.value })}>
               <option value="">Escolha a ficha…</option>
               {fichas.map((x) => <option key={x.id} value={x.id}>{x.nome}</option>)}
             </select>
@@ -403,16 +403,16 @@ function OpcaoModal({ opcao, fichas, itens, verFin, ifoodLigado, onFechar, onSal
         )}
         {f.tipo === 'insumo' && (
           <div className="mt-2 space-y-1">
-            <Label className="text-xs">Insumo (estoque)</Label>
-            <select className={selectCls} aria-label="Insumo" value={f.itemId} onChange={(e) => up({ itemId: e.target.value, itemUnidade: '' })}>
+            <Label htmlFor="opcao-item-id" className="text-xs">Insumo (estoque)</Label>
+            <select id="opcao-item-id" className={selectCls} value={f.itemId} onChange={(e) => up({ itemId: e.target.value, itemUnidade: '' })}>
               <option value="">Escolha o insumo…</option>
               {itens.map((x) => <option key={x.id} value={x.id}>{x.nome}</option>)}
             </select>
             {/* O insumo tem conversão no cadastro do estoque: pergunta em que unidade o adicional baixa. */}
             {unidadesDoInsumo.length > 1 && (
               <div className="space-y-1 pt-1">
-                <Label className="text-xs">Cada escolha baixa do estoque</Label>
-                <select className={selectCls} aria-label="Unidade que cada escolha baixa do estoque" value={vinculo.unidade} onChange={(e) => up({ itemUnidade: e.target.value })}>
+                <Label htmlFor="opcao-item-unidade" className="text-xs">Cada escolha baixa do estoque</Label>
+                <select id="opcao-item-unidade" className={selectCls} aria-label="Unidade que cada escolha baixa do estoque" value={vinculo.unidade} onChange={(e) => up({ itemUnidade: e.target.value })}>
                   {unidadesDoInsumo.map((u) => (
                     <option key={u.unidade} value={u.unidade}>{rotuloDaUnidade(u)}</option>
                   ))}
@@ -456,8 +456,8 @@ function OpcaoModal({ opcao, fichas, itens, verFin, ifoodLigado, onFechar, onSal
 
         {/* Destino de produção próprio — vazio herda o do produto (mig 127). */}
         {opcoesDeDestino.length > 0 && (
-          <div className="mt-3 space-y-1.5">
-            <Label className="text-xs">Destino de produção desta opção</Label>
+          <div className="mt-3 space-y-1.5" role="group" aria-labelledby="opcao-destino-rotulo">
+            <Label id="opcao-destino-rotulo" className="text-xs">Destino de produção desta opção</Label>
             <p className="text-[11px] text-muted-foreground">
               Sem seleção, herda o destino do produto. Marque para mandar esta opção a um KDS/impressora específico.
             </p>

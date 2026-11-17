@@ -53,6 +53,29 @@ const TELAS = [
       ok(pelosRotulos.every((n) => n === 1), `fiscal: os campos achados pelo rótulo (${pelosRotulos.join(', ')})`);
     },
   },
+  // Só conferência, sem foto (`semFoto`): o cadastro do produto do cardápio acha cada campo PELO RÓTULO (ERR-510) —
+  // a identificação, o preço, a produção e o fiscal.
+  {
+    id: 'rotulos-do-produto', caminho: '/produtos', semFoto: true,
+    passo: async (p, ok) => {
+      const novo = p.locator('button:has-text("Novo produto") >> visible=true').first();
+      await novo.waitFor({ timeout: 10000 }).catch(() => {});
+      if (!(await novo.count())) return ok(false, `produto: o botão "Novo produto" não apareceu — ${umaLinha(await p.locator('body').innerText(), 300)}`);
+      await novo.click();
+      await p.waitForTimeout(600);
+      // a seção dobrável "Fiscal (NCM, CFOP, PIS/COFINS…)" e, dentro dela, o <details> dos campos fiscais
+      await p.locator(':is(button, summary):has-text("Fiscal (NCM, CFOP") >> visible=true').first().click();
+      const fiscal = p.locator('summary:has-text("Fiscal (NFC-e)") >> visible=true').first();
+      await fiscal.waitFor({ timeout: 5000 });
+      await fiscal.click();
+    },
+    confere: async (p, ok) => {
+      const nomes = ['Nome', 'Categoria *', 'Código / SKU (PDV)', 'Descrição', 'Tipo', 'Unidade', 'Setor de produção (KDS)', 'NCM', 'CFOP', 'Alíq. COFINS %'];
+      const achados = await Promise.all(nomes.map((n) => p.getByLabel(n, { exact: true }).count()));
+      ok(achados.every((n) => n === 1), `produto: cada campo achado pelo rótulo (${nomes.map((n, i) => `${n}=${achados[i]}`).join(', ')})`);
+      ok((await p.getByRole('group', { name: 'Foto do produto', exact: true }).count()) === 1, 'produto: a foto é um grupo com o nome do rótulo');
+    },
+  },
 ];
 
 export default async function roteiroComoFaco({ nav, base, ok, foto }) {
@@ -72,12 +95,14 @@ export default async function roteiroComoFaco({ nav, base, ok, foto }) {
     await page.goto(base + t.caminho);
     await page.waitForSelector('main', { timeout: 20000 });
     await page.waitForTimeout(800);
-    if (t.passo) await t.passo(page);
+    if (t.passo) await t.passo(page, ok);
     const caiu = await page.locator('text=Algo deu errado').count();
     ok(caiu === 0, `como faço (${t.id}): a tela abriu (sem "Algo deu errado")`);
     if (t.confere) await t.confere(page, ok);
-    const r = await fotoDoComoFaco(page, t.id, t.marcas(page));
-    ok(r.achou.every(Boolean), `como faço (${t.id}): as marcas estão na tela (${r.achou.join(', ')})${r.gerou ? ' — imagem gerada' : ''}${(r.motivos ?? []).filter(Boolean).length ? ` — ${r.motivos.join(' | ')}` : ''}`);
+    if (!t.semFoto) {
+      const r = await fotoDoComoFaco(page, t.id, t.marcas(page));
+      ok(r.achou.every(Boolean), `como faço (${t.id}): as marcas estão na tela (${r.achou.join(', ')})${r.gerou ? ' — imagem gerada' : ''}${(r.motivos ?? []).filter(Boolean).length ? ` — ${r.motivos.join(' | ')}` : ''}`);
+    }
     ok(erros.length === 0, `como faço (${t.id}): sem erro de script (${umaLinha(erros.join(' | '))})`);
     await ctx.close();
   }

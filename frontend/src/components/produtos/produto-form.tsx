@@ -109,8 +109,8 @@ export function ProdutoForm({
       <div className="grid gap-4 lg:grid-cols-[minmax(0,240px)_1fr]">
         {/* ---------- Coluna esquerda: foto + status ---------- */}
         <div className="space-y-3">
-          <div className="space-y-1.5 rounded-xl border border-border bg-card p-3">
-            <Label className="text-xs text-muted-foreground">Foto do produto</Label>
+          <div className="space-y-1.5 rounded-xl border border-border bg-card p-3" role="group" aria-labelledby="produto-foto-rotulo">
+            <Label id="produto-foto-rotulo" className="text-xs text-muted-foreground">Foto do produto</Label>
             <ImageUpload value={f.imagemRef || undefined} onChange={(url) => set({ imagemRef: url })} alt={f.nome || 'produto'} />
             <p className="text-[11px] text-muted-foreground">Ideal <strong>quadrada 800×800</strong> (mín. 500×500). O cardápio recorta centralizado.</p>
           </div>
@@ -161,12 +161,12 @@ export function ProdutoForm({
           <Secao titulo="Identificação">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1 sm:col-span-2">
-                <Label className="text-xs">Nome</Label>
-                <Input value={f.nome} onChange={(e) => set({ nome: e.target.value })} required placeholder="Ex.: X-Burger" />
+                <Label htmlFor="produto-nome" className="text-xs">Nome</Label>
+                <Input id="produto-nome" value={f.nome} onChange={(e) => set({ nome: e.target.value })} required placeholder="Ex.: X-Burger" />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Categoria *</Label>
-                <select
+                <Label htmlFor="produto-categoria-id" className="text-xs">Categoria *</Label>
+                <select id="produto-categoria-id"
                   className={selectCls}
                   required
                   aria-invalid={!f.categoriaId}
@@ -183,12 +183,12 @@ export function ProdutoForm({
                 )}
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Código / SKU (PDV)</Label>
-                <Input value={f.codigo} onChange={(e) => set({ codigo: e.target.value })} placeholder="p/ integrações" />
+                <Label htmlFor="produto-codigo" className="text-xs">Código / SKU (PDV)</Label>
+                <Input id="produto-codigo" value={f.codigo} onChange={(e) => set({ codigo: e.target.value })} placeholder="p/ integrações" />
               </div>
               <div className="space-y-1 sm:col-span-2">
-                <Label className="text-xs">Descrição</Label>
-                <Input value={f.descricao} onChange={(e) => set({ descricao: e.target.value })} placeholder="Aparece no cardápio digital" />
+                <Label htmlFor="produto-descricao" className="text-xs">Descrição</Label>
+                <Input id="produto-descricao" value={f.descricao} onChange={(e) => set({ descricao: e.target.value })} placeholder="Aparece no cardápio digital" />
               </div>
             </div>
           </Secao>
@@ -221,14 +221,14 @@ export function ProdutoForm({
                 </div>
               )}
               <div className="space-y-1">
-                <Label className="text-xs">Preço promocional &quot;por&quot; (R$)</Label>
-                <Input type="number" value={f.precoPromocional} onChange={(e) => set({ precoPromocional: e.target.value })} placeholder="opcional (menor que o de venda)" />
+                <Label htmlFor="produto-preco-promocional" className="text-xs">Preço promocional &quot;por&quot; (R$)</Label>
+                <Input id="produto-preco-promocional" type="number" value={f.precoPromocional} onChange={(e) => set({ precoPromocional: e.target.value })} placeholder="opcional (menor que o de venda)" />
               </div>
               {/* Custo derivado (read-only) — só p/ quem vê financeiro (o servidor
                   nula o valor pros demais). Prioridade override→ficha→estoque. */}
               {verFin && (
-                <div className="space-y-1 sm:col-span-2">
-                  <Label className="text-xs">Custo (calculado)</Label>
+                <div className="space-y-1 sm:col-span-2" role="group" aria-labelledby="produto-custo-rotulo">
+                  <Label id="produto-custo-rotulo" className="text-xs">Custo (calculado)</Label>
                   {f.custoEfetivo != null ? (
                     <div className="flex h-10 items-center rounded-md border border-border bg-muted/40 px-3 text-sm">
                       <span className="font-mono font-semibold">{brl(Number(f.custoEfetivo))}</span>
@@ -257,8 +257,8 @@ export function ProdutoForm({
           <Secao titulo="Origem do custo e produção">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1">
-                <Label className="text-xs">Ficha técnica (preparado)</Label>
-                <select className={selectCls} value={f.fichaId} onChange={(e) => set({ fichaId: e.target.value, itemId: e.target.value ? '' : f.itemId })}>
+                <Label htmlFor="produto-ficha-id" className="text-xs">Ficha técnica (preparado)</Label>
+                <select id="produto-ficha-id" className={selectCls} value={f.fichaId} onChange={(e) => set({ fichaId: e.target.value, itemId: e.target.value ? '' : f.itemId })}>
                   <option value="">— sem ficha —</option>
                   {fichas.map((fi) => (
                     <option key={fi.id} value={fi.id}>{fi.nome}</option>
@@ -266,8 +266,8 @@ export function ProdutoForm({
                 </select>
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Item de estoque (revenda)</Label>
-                <select className={selectCls} aria-label="Item de estoque (revenda)" value={f.itemId || ''} onChange={(e) => set({ itemId: e.target.value, itemUnidade: '', fichaId: e.target.value ? '' : f.fichaId })}>
+                <Label htmlFor="produto-item-id" className="text-xs">Item de estoque (revenda)</Label>
+                <select id="produto-item-id" className={selectCls} value={f.itemId || ''} onChange={(e) => set({ itemId: e.target.value, itemUnidade: '', fichaId: e.target.value ? '' : f.fichaId })}>
                   <option value="">— não é revenda —</option>
                   {insumos.map((it) => (
                     <option key={it.id} value={it.id}>{it.nome}</option>
@@ -302,20 +302,20 @@ export function ProdutoForm({
                 <p className="text-[11px] text-muted-foreground">Industrializado (ex.: lata): custo e baixa vêm do estoque.</p>
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Tipo</Label>
-                <select className={selectCls} value={f.tipo} onChange={(e) => set({ tipo: e.target.value })}>
+                <Label htmlFor="produto-tipo" className="text-xs">Tipo</Label>
+                <select id="produto-tipo" className={selectCls} value={f.tipo} onChange={(e) => set({ tipo: e.target.value })}>
                   <option value="simples">Simples</option>
                   <option value="variavel">Variável (tamanhos)</option>
                   <option value="combo">Combo</option>
                 </select>
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Unidade</Label>
-                <SeletorDeUnidade ariaLabel="Unidade" value={f.unidadeMedida} onChange={(u) => set({ unidadeMedida: u })} />
+                <Label htmlFor="produto-unidade" className="text-xs">Unidade</Label>
+                <SeletorDeUnidade id="produto-unidade" value={f.unidadeMedida} onChange={(u) => set({ unidadeMedida: u })} />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Setor de produção (KDS)</Label>
-                <select aria-label="Setor de produção" className={selectCls} value={f.setorProducaoId} onChange={(e) => set({ setorProducaoId: e.target.value })}>
+                <Label htmlFor="produto-setor-producao-id" className="text-xs">Setor de produção (KDS)</Label>
+                <select id="produto-setor-producao-id" className={selectCls} value={f.setorProducaoId} onChange={(e) => set({ setorProducaoId: e.target.value })}>
                   <option value="">— nenhum —</option>
                   {setores.map((s) => (
                     <option key={s.id} value={s.id}>{s.nome}</option>
@@ -323,12 +323,12 @@ export function ProdutoForm({
                 </select>
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Tempo de preparo (min)</Label>
-                <Input type="number" value={f.tempoPreparoMin} onChange={(e) => set({ tempoPreparoMin: e.target.value })} placeholder="p/ cores do KDS" />
+                <Label htmlFor="produto-tempo-preparo-min" className="text-xs">Tempo de preparo (min)</Label>
+                <Input id="produto-tempo-preparo-min" type="number" value={f.tempoPreparoMin} onChange={(e) => set({ tempoPreparoMin: e.target.value })} placeholder="p/ cores do KDS" />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Validade (dias)</Label>
-                <Input type="number" value={f.validadeDias} onChange={(e) => set({ validadeDias: e.target.value })} placeholder="opcional" />
+                <Label htmlFor="produto-validade-dias" className="text-xs">Validade (dias)</Label>
+                <Input id="produto-validade-dias" type="number" value={f.validadeDias} onChange={(e) => set({ validadeDias: e.target.value })} placeholder="opcional" />
               </div>
             </div>
             <div className="mt-3 flex flex-wrap gap-4">
@@ -352,12 +352,12 @@ export function ProdutoForm({
           <SecaoDobravel titulo="Cardápio digital (selos e opções)">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1">
-                <Label className="text-xs">Duração (min) — serviços</Label>
-                <Input type="number" value={f.duracaoMin} onChange={(e) => set({ duracaoMin: e.target.value })} placeholder="—" />
+                <Label htmlFor="produto-duracao-min" className="text-xs">Duração (min) — serviços</Label>
+                <Input id="produto-duracao-min" type="number" value={f.duracaoMin} onChange={(e) => set({ duracaoMin: e.target.value })} placeholder="—" />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Vende em múltiplos de (B2B)</Label>
-                <Input type="number" value={f.vendaMultiplo} onChange={(e) => set({ vendaMultiplo: e.target.value })} placeholder="1" />
+                <Label htmlFor="produto-venda-multiplo" className="text-xs">Vende em múltiplos de (B2B)</Label>
+                <Input id="produto-venda-multiplo" type="number" value={f.vendaMultiplo} onChange={(e) => set({ vendaMultiplo: e.target.value })} placeholder="1" />
               </div>
             </div>
             <label className="mt-3 flex items-center gap-2 text-sm">

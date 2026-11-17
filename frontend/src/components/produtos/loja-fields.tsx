@@ -15,25 +15,25 @@ export function LojaFields({
   set: (patch: any) => void;
 }) {
   return (
-    <div className="rounded-lg border border-border p-3">
-      <Label className="text-xs">Loja / cardápio digital</Label>
+    <div className="rounded-lg border border-border p-3" role="group" aria-labelledby="loja-campos-rotulo">
+      <Label id="loja-campos-rotulo" className="text-xs">Loja / cardápio digital</Label>
       <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div className="space-y-1 sm:col-span-3">
-          <Label className="text-xs text-muted-foreground">Foto do produto</Label>
+        <div className="space-y-1 sm:col-span-3" role="group" aria-labelledby="loja-foto-rotulo">
+          <Label id="loja-foto-rotulo" className="text-xs text-muted-foreground">Foto do produto</Label>
           <ImageUpload value={f.imagemRef || undefined} onChange={(url) => set({ imagemRef: url })} alt={f.nome || 'produto'} />
           <p className="text-[11px] text-muted-foreground">Ideal: imagem <strong>quadrada 800×800px</strong> (mín. 500×500), JPG ou PNG até ~1&nbsp;MB. O cardápio recorta centralizado — deixe o produto no centro.</p>
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">Preço promocional (de/por)</Label>
-          <Input type="number" value={f.precoPromocional} onChange={(e) => set({ precoPromocional: e.target.value })} placeholder="opcional" />
+          <Label htmlFor="loja-preco-promocional" className="text-xs">Preço promocional (de/por)</Label>
+          <Input id="loja-preco-promocional" type="number" value={f.precoPromocional} onChange={(e) => set({ precoPromocional: e.target.value })} placeholder="opcional" />
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">Duração (min) — serviços</Label>
-          <Input type="number" value={f.duracaoMin} onChange={(e) => set({ duracaoMin: e.target.value })} placeholder="—" />
+          <Label htmlFor="loja-duracao-min" className="text-xs">Duração (min) — serviços</Label>
+          <Input id="loja-duracao-min" type="number" value={f.duracaoMin} onChange={(e) => set({ duracaoMin: e.target.value })} placeholder="—" />
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">Vende em múltiplos de (B2B)</Label>
-          <Input type="number" value={f.vendaMultiplo} onChange={(e) => set({ vendaMultiplo: e.target.value })} placeholder="1" />
+          <Label htmlFor="loja-venda-multiplo" className="text-xs">Vende em múltiplos de (B2B)</Label>
+          <Input id="loja-venda-multiplo" type="number" value={f.vendaMultiplo} onChange={(e) => set({ vendaMultiplo: e.target.value })} placeholder="1" />
         </div>
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
