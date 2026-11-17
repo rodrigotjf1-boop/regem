@@ -250,6 +250,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Clique em "Salvar".',
     ],
     botoes: ['Cardápio', 'Tempo de entrega (min)', 'Tempo de retirada (min)', 'Salvar'],
+    imagem: ['Delivery › Configurações, no menu', 'a aba "Cardápio"', 'o campo "Tempo de entrega (min)"'],
     notas: ['Só o presidente, o gerente e a supervisão editam esta tela.'],
   },
   {
@@ -276,6 +277,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Clique em "Salvar".',
     ],
     botoes: ['Horários', 'Mesmo horário para delivery e retirada/consumo no local', 'Salvar'],
+    imagem: ['Delivery › Configurações, no menu', 'a aba "Horários"', '"Mesmo horário para delivery e retirada/consumo no local"'],
   },
   {
     id: 'cupom-desconto',
@@ -289,6 +291,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Clique em "Adicionar cupom".',
     ],
     botoes: ['Cupons', 'Nome / Código', 'Tipo de desconto', 'Válido de', 'Válido até', 'Limite total de usos', 'Adicionar cupom'],
+    imagem: ['Delivery › Configurações, no menu', 'a aba "Cupons"', 'o botão "Adicionar cupom"'],
     notas: ['O cupom vale no cardápio digital.'],
   },
   {
@@ -567,6 +570,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Clique em "Cadastrar produto".',
     ],
     botoes: ['Produtos', 'Novo produto', 'Nome do produto', 'Unidade principal', 'Cadastrar produto', 'Importar'],
+    imagem: ['Estoque, no menu', 'a aba "Produtos"', 'o botão "Novo produto"', 'o botão "Importar"'],
     notas: ['Importar por planilha ("Importar") e excluir são só da gestão.'],
     veja: ['produto-do-cardapio'],
   },
@@ -583,6 +587,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Deixe marcado "Ajustar o estoque pela contagem (lança a diferença)" para corrigir o estoque e clique em "Salvar contagem".',
     ],
     botoes: ['Contagem', 'Nova lista', 'Criar lista', 'Contar', 'Ajustar o estoque pela contagem (lança a diferença)', 'Salvar contagem'],
+    imagem: ['Estoque, no menu', 'a aba "Contagem"', 'o botão "Nova lista"'],
     notas: ['A tela avisa os produtos que tiveram venda ou produção desde que a contagem abriu.'],
   },
   {
@@ -598,6 +603,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Clique em "Registrar desperdício".',
     ],
     botoes: ['Desperdício', 'Registrar desperdício', 'Descrição', 'Quantidade'],
+    imagem: ['Estoque, no menu', 'a aba "Desperdício"', 'o botão "Registrar desperdício"'],
     notas: [
       'Com o produto, o desperdício baixa o estoque e entra no CMV.',
       'Registrar pede a permissão de desperdício no perfil.',
@@ -617,6 +623,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Clique em "Gerar e imprimir".',
     ],
     botoes: ['Etiquetas', 'Gerar etiqueta', 'Novo (fechado)', 'Usado (aberto)', 'Gerar e imprimir', 'Modelo'],
+    imagem: ['Estoque, no menu', 'a aba "Etiquetas"', 'o botão "Gerar etiqueta"'],
     notas: ['Só aparece produto que controla validade.', 'O desenho da etiqueta fica em "Modelo", na mesma aba.'],
   },
   {
@@ -633,6 +640,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Clique em "Confirmar recebimento".',
     ],
     botoes: ['Pedidos', 'Novo pedido', 'Sugerir do estoque baixo', 'Criar pedido', 'Conferir e receber', 'Confirmar recebimento', 'Recebimento', 'Nota avulsa'],
+    imagem: ['Estoque, no menu', 'a aba "Pedidos"', 'o botão "Novo pedido"'],
     notas: [
       'O que ficar sem marcar é registrado como não veio.',
       'O recebimento gera a conta a pagar do fornecedor pelo valor conferido e não se desfaz por aqui.',

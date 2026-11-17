@@ -1045,7 +1045,11 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
   Balcão (abrir o caixa, vender, sangria e suprimento, fechar o caixa). O selo da marca passou a navy com número branco e
   borda dourada (os selos dourados do próprio app, como a quantidade no cartão, se confundiam com a marca), e o botão
   desligado se mede com o `pointer-events` ligado só durante a medida. 14 assuntos do guia com imagem.
-- **Falta:** as imagens dos outros assuntos (estoque, cadastros, relatórios, impressão, acessos…), roteiro por roteiro.
+- **Parte 4 (sem migration):** mais oito — Delivery › Configurações (horário, tempo de entrega, cupons) e o Estoque
+  (produto, contagem, desperdício, etiquetas, pedidos de compra). De passagem, o rótulo de cada campo das configurações
+  do Delivery ficou LIGADO ao campo (`Campo` com `htmlFor`/`id`, ou grupo; ERR-510). 22 assuntos do guia com imagem.
+- **Falta:** o robô e os ajustes da pausa (a aba lê rotas que o roteiro ainda não simula), cadastros, relatórios,
+  impressão, acessos, fiscal, WhatsApp e canais — roteiro por roteiro.
 
 **A tela "Resumo" (17/11/2026, sem migration; #1114, no ar):** a entrada do presidente em Mister — as três etapas para funcionar, a faixa
 "IA parada", o que o Mister faz e os últimos avisos, só com as rotas que já existem.
