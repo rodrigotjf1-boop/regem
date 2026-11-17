@@ -126,13 +126,13 @@ export default function FiscalConfigPage() {
       <div className="space-y-4">
         {erro && <p className="text-destructive">{erro}</p>}
 
-        <Card className="border-warn/40 bg-warn/5 p-4 text-sm">
-          <p className="font-semibold">A emissão ainda não está disponível</p>
+        {/* Até 17/11/2026 esta faixa dizia "a emissão ainda não está disponível" — texto de 22/09, de antes da assinatura e
+            da transmissão, que ficou valendo depois de a NFC-e passar a sair de verdade (ERR-511). */}
+        <Card className="p-4 text-sm">
+          <p className="font-semibold">Antes de emitir</p>
           <p className="mt-1 text-muted-foreground">
-            Falta a assinatura digital e a transmissão à SEFAZ. Enquanto isso, <b>nenhuma nota é
-            emitida</b> — a venda continua normal, e o sistema recusa a emissão em vez de registrar
-            uma nota que não existe na SEFAZ. Preencha os dados abaixo: eles já são conferidos antes
-            de qualquer tentativa.
+            A NFC-e é assinada com o certificado A1 e transmitida à SEFAZ. Preencha os dados abaixo, envie o certificado
+            e o CSC e teste em Homologação antes de passar para Produção: os dados são conferidos antes de cada tentativa.
           </p>
         </Card>
 
@@ -144,15 +144,15 @@ export default function FiscalConfigPage() {
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1">
-              <Label className="text-xs">Ambiente</Label>
-              <select aria-label="Ambiente" className={selectCls} value={f.ambiente} onChange={(e) => set({ ambiente: e.target.value })}>
+              <Label htmlFor="fiscal-ambiente" className="text-xs">Ambiente</Label>
+              <select id="fiscal-ambiente" className={selectCls} value={f.ambiente} onChange={(e) => set({ ambiente: e.target.value })}>
                 <option value="2">Homologação (teste)</option>
                 <option value="1">Produção</option>
               </select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Regime tributário</Label>
-              <select aria-label="Regime" className={selectCls} value={f.regime} onChange={(e) => set({ regime: e.target.value })}>
+              <Label htmlFor="fiscal-regime" className="text-xs">Regime tributário</Label>
+              <select id="fiscal-regime" className={selectCls} value={f.regime} onChange={(e) => set({ regime: e.target.value })}>
                 <option value="simples">Simples Nacional</option>
                 <option value="normal">Regime Normal</option>
               </select>
@@ -165,9 +165,8 @@ export default function FiscalConfigPage() {
                 ela integra a receita bruta; no regime normal sai da base do ICMS até 10% (SP 15%).
                 Sem escolha, a NFC-e de comanda com taxa é recusada — em vez de o sistema decidir. */}
             <div className="space-y-1 sm:col-span-2">
-              <Label className="text-xs">Taxa de serviço na NFC-e</Label>
-              <select
-                aria-label="Taxa de serviço na NFC-e"
+              <Label htmlFor="fiscal-taxa-servico-nfce" className="text-xs">Taxa de serviço na NFC-e</Label>
+              <select id="fiscal-taxa-servico-nfce"
                 className={selectCls}
                 value={f.taxaServicoNfce ?? ''}
                 onChange={(e) => set({ taxaServicoNfce: e.target.value })}
@@ -187,8 +186,8 @@ export default function FiscalConfigPage() {
                 Se incide ou não é fato tributário da loja — por isso o texto vem do contador, e a
                 emissão em produção no RJ recusa enquanto estiver em branco. */}
             <div className="space-y-1 sm:col-span-2">
-              <Label className="text-xs">Informação ao Fisco (FECP) — obrigatória no RJ</Label>
-              <Input
+              <Label htmlFor="fiscal-info-fisco" className="text-xs">Informação ao Fisco (FECP) — obrigatória no RJ</Label>
+              <Input id="fiscal-info-fisco"
                 value={f.infoFisco ?? ''}
                 onChange={(e) => set({ infoFisco: e.target.value })}
                 placeholder="Texto definido pelo contador — ex.: FECP não incidente nesta operação (Lei 8.405/19)"
@@ -222,9 +221,8 @@ export default function FiscalConfigPage() {
                 não emitir. Venda sem nota nenhuma é infração; nota sem o CPF que o cliente não
                 quis dar, não. */}
             <div className="space-y-1">
-              <Label className="text-xs">Pedido de entrega sem CPF do cliente</Label>
-              <select
-                aria-label="Pedido de entrega sem CPF do cliente"
+              <Label htmlFor="fiscal-delivery-sem-cpf" className="text-xs">Pedido de entrega sem CPF do cliente</Label>
+              <select id="fiscal-delivery-sem-cpf"
                 className={selectCls}
                 value={f.deliverySemCpf ?? 'presencial'}
                 onChange={(e) => set({ deliverySemCpf: e.target.value })}
@@ -234,86 +232,86 @@ export default function FiscalConfigPage() {
               </select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Valor a partir do qual o CPF é obrigatório</Label>
-              <Input
+              <Label htmlFor="fiscal-limite-identificacao" className="text-xs">Valor a partir do qual o CPF é obrigatório</Label>
+              <Input id="fiscal-limite-identificacao"
                 value={f.limiteIdentificacao ?? ''}
                 onChange={(e) => set({ limiteIdentificacao: e.target.value })}
                 placeholder="vazio = padrão da UF"
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Série do balcão (servidor local)</Label>
-              <Input value={f.serie ?? ''} onChange={(e) => set({ serie: e.target.value })} placeholder="1" />
+              <Label htmlFor="fiscal-serie" className="text-xs">Série do balcão (servidor local)</Label>
+              <Input id="fiscal-serie" value={f.serie ?? ''} onChange={(e) => set({ serie: e.target.value })} placeholder="1" />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Série da nuvem (delivery e pedido online)</Label>
-              <Input value={f.serieNuvem ?? ''} onChange={(e) => set({ serieNuvem: e.target.value })} placeholder="2" />
+              <Label htmlFor="fiscal-serie-nuvem" className="text-xs">Série da nuvem (delivery e pedido online)</Label>
+              <Input id="fiscal-serie-nuvem" value={f.serieNuvem ?? ''} onChange={(e) => set({ serieNuvem: e.target.value })} placeholder="2" />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">CNPJ</Label>
-              <Input value={f.cnpj ?? ''} onChange={(e) => set({ cnpj: e.target.value })} placeholder="00.000.000/0000-00" />
+              <Label htmlFor="fiscal-cnpj" className="text-xs">CNPJ</Label>
+              <Input id="fiscal-cnpj" value={f.cnpj ?? ''} onChange={(e) => set({ cnpj: e.target.value })} placeholder="00.000.000/0000-00" />
             </div>
             <div className="space-y-1 sm:col-span-2">
-              <Label className="text-xs">Razão social</Label>
-              <Input value={f.razaoSocial ?? ''} onChange={(e) => set({ razaoSocial: e.target.value })} />
+              <Label htmlFor="fiscal-razao-social" className="text-xs">Razão social</Label>
+              <Input id="fiscal-razao-social" value={f.razaoSocial ?? ''} onChange={(e) => set({ razaoSocial: e.target.value })} />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Nome fantasia</Label>
-              <Input value={f.nomeFantasia ?? ''} onChange={(e) => set({ nomeFantasia: e.target.value })} />
+              <Label htmlFor="fiscal-nome-fantasia" className="text-xs">Nome fantasia</Label>
+              <Input id="fiscal-nome-fantasia" value={f.nomeFantasia ?? ''} onChange={(e) => set({ nomeFantasia: e.target.value })} />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Inscrição estadual</Label>
-              <Input value={f.ie ?? ''} onChange={(e) => set({ ie: e.target.value })} placeholder="ISENTO" />
+              <Label htmlFor="fiscal-ie" className="text-xs">Inscrição estadual</Label>
+              <Input id="fiscal-ie" value={f.ie ?? ''} onChange={(e) => set({ ie: e.target.value })} placeholder="ISENTO" />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">UF</Label>
-              <Input value={f.uf ?? ''} onChange={(e) => set({ uf: e.target.value })} placeholder="SP" />
+              <Label htmlFor="fiscal-uf" className="text-xs">UF</Label>
+              <Input id="fiscal-uf" value={f.uf ?? ''} onChange={(e) => set({ uf: e.target.value })} placeholder="SP" />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Código IBGE da UF</Label>
-              <Input value={f.codigoUf ?? ''} onChange={(e) => set({ codigoUf: e.target.value })} placeholder="35" />
+              <Label htmlFor="fiscal-codigo-uf" className="text-xs">Código IBGE da UF</Label>
+              <Input id="fiscal-codigo-uf" value={f.codigoUf ?? ''} onChange={(e) => set({ codigoUf: e.target.value })} placeholder="35" />
             </div>
             <div className="space-y-1 sm:col-span-2">
-              <Label className="text-xs">Código IBGE do município</Label>
-              <Input value={f.codigoMunicipio ?? ''} onChange={(e) => set({ codigoMunicipio: e.target.value })} placeholder="3550308" />
+              <Label htmlFor="fiscal-codigo-municipio" className="text-xs">Código IBGE do município</Label>
+              <Input id="fiscal-codigo-municipio" value={f.codigoMunicipio ?? ''} onChange={(e) => set({ codigoMunicipio: e.target.value })} placeholder="3550308" />
             </div>
             <div className="space-y-1 sm:col-span-2">
-              <Label className="text-xs">Município</Label>
-              <Input value={f.municipio ?? ''} onChange={(e) => set({ municipio: e.target.value })} placeholder="São Paulo" />
+              <Label htmlFor="fiscal-municipio" className="text-xs">Município</Label>
+              <Input id="fiscal-municipio" value={f.municipio ?? ''} onChange={(e) => set({ municipio: e.target.value })} placeholder="São Paulo" />
             </div>
             <div className="space-y-1 sm:col-span-2">
-              <Label className="text-xs">Logradouro</Label>
-              <Input value={f.endereco ?? ''} onChange={(e) => set({ endereco: e.target.value })} placeholder="Rua das Flores" />
+              <Label htmlFor="fiscal-endereco" className="text-xs">Logradouro</Label>
+              <Input id="fiscal-endereco" value={f.endereco ?? ''} onChange={(e) => set({ endereco: e.target.value })} placeholder="Rua das Flores" />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Número</Label>
-              <Input value={f.numero ?? ''} onChange={(e) => set({ numero: e.target.value })} placeholder="100" />
+              <Label htmlFor="fiscal-numero" className="text-xs">Número</Label>
+              <Input id="fiscal-numero" value={f.numero ?? ''} onChange={(e) => set({ numero: e.target.value })} placeholder="100" />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Complemento</Label>
-              <Input value={f.complemento ?? ''} onChange={(e) => set({ complemento: e.target.value })} placeholder="LOJA 02" />
+              <Label htmlFor="fiscal-complemento" className="text-xs">Complemento</Label>
+              <Input id="fiscal-complemento" value={f.complemento ?? ''} onChange={(e) => set({ complemento: e.target.value })} placeholder="LOJA 02" />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Bairro</Label>
-              <Input value={f.bairro ?? ''} onChange={(e) => set({ bairro: e.target.value })} placeholder="Centro" />
+              <Label htmlFor="fiscal-bairro" className="text-xs">Bairro</Label>
+              <Input id="fiscal-bairro" value={f.bairro ?? ''} onChange={(e) => set({ bairro: e.target.value })} placeholder="Centro" />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">CEP</Label>
-              <Input value={f.cep ?? ''} onChange={(e) => set({ cep: e.target.value })} placeholder="00000-000" />
+              <Label htmlFor="fiscal-cep" className="text-xs">CEP</Label>
+              <Input id="fiscal-cep" value={f.cep ?? ''} onChange={(e) => set({ cep: e.target.value })} placeholder="00000-000" />
             </div>
             {/* A URL de consulta do QR Code muda de estado para estado — não existe uma
                 nacional. Sem a da UF da loja, o QR do cupom não é conferível. */}
             <div className="space-y-1 sm:col-span-2">
-              <Label className="text-xs">URL de consulta do QR Code — homologação</Label>
-              <Input
+              <Label htmlFor="fiscal-url-qrcode-homolog" className="text-xs">URL de consulta do QR Code — homologação</Label>
+              <Input id="fiscal-url-qrcode-homolog"
                 value={f.urlQrcodeHomolog ?? ''}
                 onChange={(e) => set({ urlQrcodeHomolog: e.target.value })}
                 placeholder="https://…/ConsultaQRCode.aspx (da SEFAZ do seu estado)"
               />
             </div>
             <div className="space-y-1 sm:col-span-2">
-              <Label className="text-xs">URL de consulta do QR Code — produção</Label>
-              <Input
+              <Label htmlFor="fiscal-url-qrcode-prod" className="text-xs">URL de consulta do QR Code — produção</Label>
+              <Input id="fiscal-url-qrcode-prod"
                 value={f.urlQrcodeProd ?? ''}
                 onChange={(e) => set({ urlQrcodeProd: e.target.value })}
                 placeholder="https://…/ConsultaQRCode.aspx (da SEFAZ do seu estado)"
@@ -322,16 +320,16 @@ export default function FiscalConfigPage() {
             {/* A consulta PELA CHAVE é outro endereço, diferente do QR Code — é o que aparece
                 impresso no cupom em "Consulte pela chave de acesso em…". */}
             <div className="space-y-1 sm:col-span-2">
-              <Label className="text-xs">URL de consulta pela chave de acesso — homologação</Label>
-              <Input
+              <Label htmlFor="fiscal-url-chave-homolog" className="text-xs">URL de consulta pela chave de acesso — homologação</Label>
+              <Input id="fiscal-url-chave-homolog"
                 value={f.urlChaveHomolog ?? ''}
                 onChange={(e) => set({ urlChaveHomolog: e.target.value })}
                 placeholder="a que a SEFAZ do seu estado publica para homologação"
               />
             </div>
             <div className="space-y-1 sm:col-span-2">
-              <Label className="text-xs">URL de consulta pela chave de acesso — produção</Label>
-              <Input
+              <Label htmlFor="fiscal-url-chave-prod" className="text-xs">URL de consulta pela chave de acesso — produção</Label>
+              <Input id="fiscal-url-chave-prod"
                 value={f.urlChaveProd ?? ''}
                 onChange={(e) => set({ urlChaveProd: e.target.value })}
                 placeholder="ex.: www.fazenda.rj.gov.br/nfce/consulta"

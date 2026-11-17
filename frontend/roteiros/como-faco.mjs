@@ -9,7 +9,7 @@
 import { fotoDoComoFaco, responder, tokenFalso, umaLinha } from './comum.mjs';
 
 const TUDO = { ver: true, criar: true, editar: true, excluir: true };
-const PERMISSOES = ['cadastros', 'escalas', 'impressoras', 'acessos', 'relatorios_vendas', 'cancelamentos', 'auditoria', 'turnos'];
+const PERMISSOES = ['cadastros', 'escalas', 'impressoras', 'acessos', 'relatorios_vendas', 'cancelamentos', 'auditoria', 'turnos', 'fiscal_config'];
 const TOKEN = tokenFalso({ cat: 'presidente', perfil: 'presidente', perm: Object.fromEntries(PERMISSOES.map((p) => [p, TUDO])) });
 
 const menu = (page, href) => page.locator(`aside a[href="${href}"] >> visible=true`).first();
@@ -40,6 +40,19 @@ const TELAS = [
   { id: 'cancelamentos-de-itens', caminho: '/vendas/remocoes', marcas: (p) => [menu(p, '/vendas/remocoes'), rotulado(p, 'Período'), botao(p, 'Atualizar'), em(p, 'button:has-text("Sem justificativa")')] },
   { id: 'auditoria', caminho: '/auditoria', marcas: (p) => [menu(p, '/auditoria'), rotulado(p, 'Buscar'), rotulado(p, 'De'), em(p, 'button:has-text("Tudo")')] },
   { id: 'ver-turno', caminho: '/caixa/fechamentos', marcas: (p) => [menu(p, '/caixa/fechamentos'), rotulado(p, 'Período'), em(p, 'button:has-text("Bateu")')] },
+  // A configuração fiscal: os campos achados PELO RÓTULO (o rótulo ficava solto — ERR-510). "Salvar configuração" fica
+  // no fim da página (rolar até ele tiraria o "Ambiente" da tela): os passos do guia dizem onde.
+  {
+    id: 'configurar-nota', caminho: '/fiscal-config',
+    respostas: { '/fiscal/config': { ambiente: '2', regime: 'simples', serie: '1', serieNuvem: '2' }, '/financeiro/caixa/config': { caixaLivre: false } },
+    marcas: (p) => [menu(p, '/fiscal-config'), rotulado(p, 'Ambiente'), rotulado(p, 'Regime tributário')],
+    // a faixa velha dizia "a emissão ainda não está disponível" com a NFC-e saindo de verdade (ERR-511)
+    confere: async (p, ok) => {
+      ok((await p.locator('main').getByText('ainda não está disponível').count()) === 0, 'fiscal: a tela não diz que a emissão não existe (ERR-511)');
+      const pelosRotulos = await Promise.all(['CNPJ', 'Razão social', 'Série do balcão (servidor local)', 'Pedido de entrega sem CPF do cliente'].map((n) => rotulado(p, n).count()));
+      ok(pelosRotulos.every((n) => n === 1), `fiscal: os campos achados pelo rótulo (${pelosRotulos.join(', ')})`);
+    },
+  },
 ];
 
 export default async function roteiroComoFaco({ nav, base, ok, foto }) {
@@ -62,6 +75,7 @@ export default async function roteiroComoFaco({ nav, base, ok, foto }) {
     if (t.passo) await t.passo(page);
     const caiu = await page.locator('text=Algo deu errado').count();
     ok(caiu === 0, `como faço (${t.id}): a tela abriu (sem "Algo deu errado")`);
+    if (t.confere) await t.confere(page, ok);
     const r = await fotoDoComoFaco(page, t.id, t.marcas(page));
     ok(r.achou.every(Boolean), `como faço (${t.id}): as marcas estão na tela (${r.achou.join(', ')})${r.gerou ? ' — imagem gerada' : ''}${(r.motivos ?? []).filter(Boolean).length ? ` — ${r.motivos.join(' | ')}` : ''}`);
     ok(erros.length === 0, `como faço (${t.id}): sem erro de script (${umaLinha(erros.join(' | '))})`);

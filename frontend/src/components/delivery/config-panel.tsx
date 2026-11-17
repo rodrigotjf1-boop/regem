@@ -543,16 +543,16 @@ export function ConfigPanel({
                     <div className="max-w-xl space-y-3 rounded-lg border border-border p-3">
                       <div className="flex flex-wrap items-end gap-2">
                         <div>
-                          <label className="mb-1 block text-xs text-muted-foreground">Nome (opcional)</label>
-                          <Input className="w-40" placeholder="ex.: Boas-vindas" value={novoCupom.nome} onChange={(e) => setNovoCupom((s) => ({ ...s, nome: e.target.value }))} />
+                          <label htmlFor="cupom-nome" className="mb-1 block text-xs text-muted-foreground">Nome (opcional)</label>
+                          <Input id="cupom-nome" className="w-40" placeholder="ex.: Boas-vindas" value={novoCupom.nome} onChange={(e) => setNovoCupom((s) => ({ ...s, nome: e.target.value }))} />
                         </div>
                         <div>
-                          <label className="mb-1 block text-xs text-muted-foreground">Nome / Código</label>
-                          <Input className="w-32" placeholder="CÓDIGO" value={novoCupom.codigo} onChange={(e) => setNovoCupom((s) => ({ ...s, codigo: e.target.value.toUpperCase() }))} />
+                          <label htmlFor="cupom-codigo" className="mb-1 block text-xs text-muted-foreground">Nome / Código</label>
+                          <Input id="cupom-codigo" className="w-32" placeholder="CÓDIGO" value={novoCupom.codigo} onChange={(e) => setNovoCupom((s) => ({ ...s, codigo: e.target.value.toUpperCase() }))} />
                         </div>
                         <div>
-                          <label className="mb-1 block text-xs text-muted-foreground">Tipo de desconto</label>
-                          <select aria-label="Tipo do cupom" className="flex h-11 w-40 rounded-md border border-input bg-card px-2 text-sm" value={novoCupom.tipo} onChange={(e) => setNovoCupom((s) => ({ ...s, tipo: e.target.value }))}>
+                          <label htmlFor="cupom-tipo" className="mb-1 block text-xs text-muted-foreground">Tipo de desconto</label>
+                          <select id="cupom-tipo" className="flex h-11 w-40 rounded-md border border-input bg-card px-2 text-sm" value={novoCupom.tipo} onChange={(e) => setNovoCupom((s) => ({ ...s, tipo: e.target.value }))}>
                             <option value="percentual">Percentual (%)</option>
                             <option value="valor">Valor fixo (R$)</option>
                             <option value="fretegratis">Frete grátis</option>
@@ -560,52 +560,52 @@ export function ConfigPanel({
                         </div>
                         {novoCupom.tipo === 'valor' && (
                           <div>
-                            <label className="mb-1 block text-xs text-muted-foreground">Valor</label>
-                            <InputMoeda className="w-32" value={novoCupom.valor} onChange={(v) => setNovoCupom((s) => ({ ...s, valor: v }))} ariaLabel="Valor do cupom" />
+                            <label htmlFor="cupom-valor" className="mb-1 block text-xs text-muted-foreground">Valor</label>
+                            <InputMoeda id="cupom-valor" className="w-32" value={novoCupom.valor} onChange={(v) => setNovoCupom((s) => ({ ...s, valor: v }))} ariaLabel="Valor do cupom" />
                           </div>
                         )}
                         {novoCupom.tipo === 'percentual' && (
                           <div>
-                            <label className="mb-1 block text-xs text-muted-foreground">% de desconto</label>
+                            <label htmlFor="cupom-percentual" className="mb-1 block text-xs text-muted-foreground">% de desconto</label>
                             <div className="relative w-24">
-                              <Input type="number" className="pr-6" placeholder="0" value={novoCupom.valor} onChange={(e) => setNovoCupom((s) => ({ ...s, valor: e.target.value }))} />
+                              <Input id="cupom-percentual" type="number" className="pr-6" placeholder="0" value={novoCupom.valor} onChange={(e) => setNovoCupom((s) => ({ ...s, valor: e.target.value }))} />
                               <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
                             </div>
                           </div>
                         )}
                         {novoCupom.tipo === 'percentual' && (
                           <div>
-                            <label className="mb-1 block text-xs text-muted-foreground">Teto do desconto</label>
-                            <InputMoeda className="w-32" value={novoCupom.tetoDesconto} onChange={(v) => setNovoCupom((s) => ({ ...s, tetoDesconto: v }))} placeholder="opcional" ariaLabel="Teto do desconto" />
+                            <label htmlFor="cupom-teto" className="mb-1 block text-xs text-muted-foreground">Teto do desconto</label>
+                            <InputMoeda id="cupom-teto" className="w-32" value={novoCupom.tetoDesconto} onChange={(v) => setNovoCupom((s) => ({ ...s, tetoDesconto: v }))} placeholder="opcional" ariaLabel="Teto do desconto" />
                           </div>
                         )}
                         <div>
-                          <label className="mb-1 block text-xs text-muted-foreground">Pedido mínimo</label>
-                          <InputMoeda className="w-32" value={novoCupom.minimo} onChange={(v) => setNovoCupom((s) => ({ ...s, minimo: v }))} placeholder="opcional" ariaLabel="Pedido mínimo" />
+                          <label htmlFor="cupom-minimo" className="mb-1 block text-xs text-muted-foreground">Pedido mínimo</label>
+                          <InputMoeda id="cupom-minimo" className="w-32" value={novoCupom.minimo} onChange={(v) => setNovoCupom((s) => ({ ...s, minimo: v }))} placeholder="opcional" ariaLabel="Pedido mínimo" />
                         </div>
                       </div>
 
                       {/* Período de atividade + limite total de usos */}
                       <div className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
                         <div>
-                          <label className="mb-1 block text-xs text-muted-foreground">Válido de</label>
-                          <Input type="date" className="w-40" value={novoCupom.validoDe} onChange={(e) => setNovoCupom((s) => ({ ...s, validoDe: e.target.value }))} />
+                          <label htmlFor="cupom-de" className="mb-1 block text-xs text-muted-foreground">Válido de</label>
+                          <Input id="cupom-de" type="date" className="w-40" value={novoCupom.validoDe} onChange={(e) => setNovoCupom((s) => ({ ...s, validoDe: e.target.value }))} />
                         </div>
                         <div>
-                          <label className="mb-1 block text-xs text-muted-foreground">Válido até</label>
-                          <Input type="date" className="w-40" value={novoCupom.validade} onChange={(e) => setNovoCupom((s) => ({ ...s, validade: e.target.value }))} />
+                          <label htmlFor="cupom-ate" className="mb-1 block text-xs text-muted-foreground">Válido até</label>
+                          <Input id="cupom-ate" type="date" className="w-40" value={novoCupom.validade} onChange={(e) => setNovoCupom((s) => ({ ...s, validade: e.target.value }))} />
                         </div>
                         <div>
-                          <label className="mb-1 block text-xs text-muted-foreground">Limite total de usos</label>
-                          <Input type="number" className="w-32" placeholder="ilimitado" value={novoCupom.maxUsos} onChange={(e) => setNovoCupom((s) => ({ ...s, maxUsos: e.target.value }))} />
+                          <label htmlFor="cupom-limite" className="mb-1 block text-xs text-muted-foreground">Limite total de usos</label>
+                          <Input id="cupom-limite" type="number" className="w-32" placeholder="ilimitado" value={novoCupom.maxUsos} onChange={(e) => setNovoCupom((s) => ({ ...s, maxUsos: e.target.value }))} />
                         </div>
                       </div>
 
                       {/* Condicional de uso */}
                       <div className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
                         <div>
-                          <label className="mb-1 block text-xs text-muted-foreground">Condição de uso</label>
-                          <select aria-label="Condição do cupom" className="flex h-11 w-56 rounded-md border border-input bg-card px-2 text-sm" value={novoCupom.condicao} onChange={(e) => setNovoCupom((s) => ({ ...s, condicao: e.target.value }))}>
+                          <label htmlFor="cupom-condicao" className="mb-1 block text-xs text-muted-foreground">Condição de uso</label>
+                          <select id="cupom-condicao" className="flex h-11 w-56 rounded-md border border-input bg-card px-2 text-sm" value={novoCupom.condicao} onChange={(e) => setNovoCupom((s) => ({ ...s, condicao: e.target.value }))}>
                             <option value="nenhuma">Sem condição (uso livre)</option>
                             <option value="novos">Só clientes novos (1º pedido)</option>
                             <option value="dias">Cliente há X dias sem comprar</option>
@@ -621,14 +621,14 @@ export function ConfigPanel({
                         )}
                         {novoCupom.condicao === 'dias' && (
                           <div>
-                            <label className="mb-1 block text-xs text-muted-foreground">Dias sem comprar</label>
-                            <Input className="w-24" type="number" placeholder="ex: 30" value={novoCupom.minDiasSemCompra} onChange={(e) => setNovoCupom((s) => ({ ...s, minDiasSemCompra: e.target.value }))} />
+                            <label htmlFor="cupom-dias" className="mb-1 block text-xs text-muted-foreground">Dias sem comprar</label>
+                            <Input id="cupom-dias" className="w-24" type="number" placeholder="ex: 30" value={novoCupom.minDiasSemCompra} onChange={(e) => setNovoCupom((s) => ({ ...s, minDiasSemCompra: e.target.value }))} />
                           </div>
                         )}
                         {novoCupom.condicao === 'max' && (
                           <div>
-                            <label className="mb-1 block text-xs text-muted-foreground">Máx. usos/cliente</label>
-                            <Input className="w-24" type="number" placeholder="ex: 1" value={novoCupom.maxPorCliente} onChange={(e) => setNovoCupom((s) => ({ ...s, maxPorCliente: e.target.value }))} />
+                            <label htmlFor="cupom-max" className="mb-1 block text-xs text-muted-foreground">Máx. usos/cliente</label>
+                            <Input id="cupom-max" className="w-24" type="number" placeholder="ex: 1" value={novoCupom.maxPorCliente} onChange={(e) => setNovoCupom((s) => ({ ...s, maxPorCliente: e.target.value }))} />
                           </div>
                         )}
                         <Button type="button" onClick={addCupom} disabled={somenteGestor}>Adicionar cupom</Button>
@@ -692,8 +692,9 @@ export function ConfigPanel({
                       pode={isGestor}
                     />
                     <div className="space-y-1.5">
-                      <Label>Cupom só até este cashback usado (R$)</Label>
+                      <Label htmlFor="cupom-max-cashback">Cupom só até este cashback usado (R$)</Label>
                       <Input
+                        id="cupom-max-cashback"
                         type="number"
                         min="0"
                         step="0.01"
@@ -710,8 +711,9 @@ export function ConfigPanel({
                       </p>
                     </div>
                     <div className="space-y-1.5">
-                      <Label>Intervalo mínimo p/ pontuar fidelidade (horas)</Label>
+                      <Label htmlFor="fidelidade-intervalo">Intervalo mínimo p/ pontuar fidelidade (horas)</Label>
                       <Input
+                        id="fidelidade-intervalo"
                         type="number"
                         min="0"
                         step="1"
@@ -1049,7 +1051,7 @@ function Secao({ dica, children }: { dica: string; children: React.ReactNode }) 
 export function Campo({ label, children }: { label: string; children: React.ReactNode }) {
   const id = useId();
   const unico = Children.count(children) === 1 && isValidElement<{ id?: string }>(children) ? children : null;
-  const ehControle = !!unico && (unico.type === Input || unico.type === 'input' || unico.type === 'select' || unico.type === 'textarea');
+  const ehControle = !!unico && (unico.type === Input || unico.type === InputMoeda || unico.type === 'input' || unico.type === 'select' || unico.type === 'textarea');
   if (unico && ehControle) {
     const idDoCampo = unico.props.id ?? `${id}-campo`;
     return (
@@ -1517,8 +1519,8 @@ function Robo({ loja, up, onSalvar, salvando, pode }: { loja: any; up: (p: any) 
       </Campo>
 
       {/* Mensagens pré-definidas */}
-      <div className="space-y-2">
-        <Label className="text-xs">Respostas prontas (gatilho → resposta)</Label>
+      <div className="space-y-2" role="group" aria-labelledby="robo-respostas-prontas">
+        <Label id="robo-respostas-prontas" className="text-xs">Respostas prontas (gatilho → resposta)</Label>
         {msgs.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma. Ex.: “horário” → “Funcionamos das 18h às 23h”.</p>}
         {msgs.map((m, i) => (
           <div key={i} className="flex flex-col gap-2 rounded-lg border border-border p-2 sm:flex-row sm:items-start">
