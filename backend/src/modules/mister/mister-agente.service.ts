@@ -9,12 +9,14 @@ import { FimDaPergunta, modeloDasPerguntas, responderComFerramentas } from './mi
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { MisterInstrucoesService } from './mister-instrucoes.service';
 import type { PropostaPendente } from './mister-propostas.service';
-import { PedidoDoRelatorio, botaoDoPdf } from './insumo-vendido';
+import { PedidoDoRelatorio, botaoDoPdf, linkDoRelatorio } from './insumo-vendido';
 import { enviarPdfDoInsumo } from './mister-anexos.service';
 import { GraficoDaConversa, imagemDoGrafico } from './grafico/grafico-do-insumo';
 
 /** M3c.2: o balão da resposta leva o botão "PDF" só quando cabe no corpo de uma mensagem com botões (1024 na Meta). */
 const CABE_COM_BOTAO = 1000;
+/** M3c.4: o endereço do Regem (o mesmo do link "Abrir no Regem" das propostas). */
+const baseDoApp = () => String(process.env.APP_URL || 'https://app.dmsregem.com').replace(/\/+$/, '');
 /** M3c.3: no máximo duas imagens de gráfico por resposta (duas consultas comparadas). */
 const IMAGENS_POR_RESPOSTA = 2;
 type AnexoDaResposta = { pedido: PedidoDoRelatorio; enviarPdf: boolean; grafico?: GraficoDaConversa };
@@ -149,13 +151,16 @@ export class MisterAgenteService implements OnModuleInit {
       // M3c.2: o relatório da resposta. Pedido "em PDF": o PDF vai logo depois. Senão, o botão "PDF" no balão — só pela
       // API oficial (a conexão por QR não tem botão, e o "1" de lá é da autorização) e só quando o texto cabe.
       const pdfs = fim.anexos.filter((a) => a.enviarPdf);
+      // M3c.4: com um relatório só, o link da página ("Ver no Regem") vai no fim do texto — depois do filtro de saída, que
+      // tira link do que a IA escreve: este sai do código, para o próprio Regem, e abre com o usuário de quem toca.
+      const texto = fim.anexos.length === 1 ? `${saida.texto}\n\nVer no Regem: ${linkDoRelatorio(baseDoApp(), fim.anexos[0].pedido)}` : saida.texto;
       const comBotao =
-        !pdfs.length && fim.anexos.length === 1 && saida.texto.length <= CABE_COM_BOTAO && (await this.numero.ler()).provedor !== 'evolution'
+        !pdfs.length && fim.anexos.length === 1 && texto.length <= CABE_COM_BOTAO && (await this.numero.ler()).provedor !== 'evolution'
           ? [{ id: botaoDoPdf(fim.anexos[0].pedido), titulo: 'PDF' }]
           : undefined;
       // M3c.3: a imagem do gráfico vai antes do texto (como no protótipo). A que falha não segura a resposta.
       for (const a of fim.anexos.filter((x) => x.grafico).slice(0, IMAGENS_POR_RESPOSTA)) await this.mandarGrafico(ultima.telefone, a.grafico!);
-      const enviada = await this.dizer(ultima.telefone, saida.texto, comBotao);
+      const enviada = await this.dizer(ultima.telefone, texto, comBotao);
       if (!enviada) return await fechar('envio', trilha);
       for (const a of pdfs) await enviarPdfDoInsumo(this.ferramentas, this.numero, escopo, a.pedido, ultima.telefone, this.logger);
       // F4.3: a proposta que a pergunta criou sai logo depois da resposta, com os botões da F4.1 (só o presidente chega

@@ -2920,6 +2920,26 @@ export function testesDoMisterComPostgres(): void {
         expect(await comInsumo.pdfDoInsumo({ ...e, lojaUnica: false, presa: null, lojas: [{ id: lojaDeA, nome: 'Loja Centro' }] }, { ...cmp.anexo.pedido, loja: outraLoja })).toEqual(fora);
         expect(await comInsumo.pdfDoInsumo({ ...e, lojaUnica: false, presa: null, lojas: [{ id: lojaDeA, nome: 'Loja Centro' }] }, { ...cmp.anexo.pedido, loja: lojaDeA })).toMatchObject({ nome: `carne-56-g-${hoje}.pdf` });
 
+        // ── M3c.4: a página do relatório no Regem, no escopo de quem está logado (sem telefone) ──
+        const daTela = (await comInsumo.escopoDaTela(A, pessoa.ana))!;
+        expect(daTela).toMatchObject({ nivel: 'presidente', lojaUnica: true, tenantId: A });
+        const pagina: any = await comInsumo.relatorioDoPedido(daTela, cmp.anexo.pedido);
+        expect(pagina.plano.titulo).toMatch(/^Carne 56 g · \d\d\/\d\d, até \d\d:\d\d contra \d\d\/\d\d$/);
+        expect(pagina.plano.numeros[0]).toEqual({ valor: '8 unidades', rotulo: 'Loja Centro' });
+        expect(pagina.relatorio.total).toBe(8);
+        // Quem não é presidente nem gerente (ou não está mais ativo) não abre; a empresa B não vê o insumo de A.
+        expect(await comInsumo.escopoDaTela(A, randomUUID())).toBeNull();
+        expect(await comInsumo.escopoDaTela(A, pessoa.carlos)).toMatchObject({ nivel: 'gerente' });
+        await q(`update colaborador set status = 'bloqueado' where id = $1`, [pessoa.carlos]);
+        expect(await comInsumo.escopoDaTela(A, pessoa.carlos)).toBeNull();
+        await q(`update colaborador set status = 'ativo', funcao_id = $2 where id = $1`, [pessoa.carlos, funcao['execucao-a']]);
+        expect(await comInsumo.escopoDaTela(A, pessoa.carlos)).toBeNull();
+        await q(`update colaborador set funcao_id = $2 where id = $1`, [pessoa.carlos, funcao['gerente-a']]);
+        expect(await comInsumo.relatorioDoPedido((await comInsumo.escopoDaTela(B, pessoa.anaB))!, cmp.anexo.pedido)).toEqual({ erro: 'Este insumo não está mais no estoque.' });
+        // O link da resposta: a página do Regem com o pedido (abre com o usuário de quem toca).
+        const base = String(process.env.APP_URL || 'https://app.dmsregem.com').replace(/\/+$/, '');
+        const comLink = (texto: string, de: string, ate: string) => `${texto}\n\nVer no Regem: ${base}/mister/relatorio?insumo=${c56}&de=${de}&ate=${ate}`;
+
         // O agente: "manda em PDF" → a resposta e logo depois o documento (sem botão).
         comIa();
         const agenteComInsumo = new MisterAgenteService(fila, comInsumo, ia, numero);
@@ -2928,7 +2948,7 @@ export function testesDoMisterComPostgres(): void {
         ia.roteiro = [usar('insumo_vendido', { insumo: 'carne 56 g', pdf: true }), falar('Hoje, 8 carnes de 56 g. O PDF vai em seguida.')];
         await agenteComInsumo.esvaziar();
         expect(numero.enviadas.map((m) => m.texto)).toEqual([
-          'Hoje, 8 carnes de 56 g. O PDF vai em seguida.',
+          comLink('Hoje, 8 carnes de 56 g. O PDF vai em seguida.', hoje, hoje),
           expect.stringMatching(new RegExp(`^documento:carne-56-g-${hoje}\\.pdf\\|Carne 56 g · `)),
         ]);
         expect(numero.enviadas[0].botoes).toEqual([]);
@@ -2939,7 +2959,7 @@ export function testesDoMisterComPostgres(): void {
         await agenteComInsumo.esvaziar();
         expect(numero.enviadas).toHaveLength(1);
         const [resposta] = numero.enviadas;
-        expect(resposta).toMatchObject({ texto: 'Hoje, 8 carnes de 56 g.', botoes: [{ id: `rel:pdf:${c56}:${hoje}:${hoje}:-:-:-`, titulo: 'PDF' }] });
+        expect(resposta).toMatchObject({ texto: comLink('Hoje, 8 carnes de 56 g.', hoje, hoje), botoes: [{ id: `rel:pdf:${c56}:${hoje}:${hoje}:-:-:-`, titulo: 'PDF' }] });
         // O toque em "PDF": o relatório refeito no escopo de quem tocou, e o documento.
         const anexos = new MisterAnexosService(db, comInsumo, numero, entrada);
         anexos.onModuleInit();
@@ -2959,7 +2979,7 @@ export function testesDoMisterComPostgres(): void {
         await perguntar(tel, 'e na semana?');
         ia.roteiro = [usar('insumo_vendido', { insumo: 'carne 56 g', periodo: 'ultimos_7_dias' }), falar('Nos últimos 7 dias, 8 carnes de 56 g.')];
         await agenteComInsumo.esvaziar();
-        expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringMatching(/^imagem:\d+$/), 'Nos últimos 7 dias, 8 carnes de 56 g.']);
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringMatching(/^imagem:\d+$/), comLink('Nos últimos 7 dias, 8 carnes de 56 g.', somarDias(hoje, -6), hoje)]);
         expect(numero.enviadas[1].botoes.map((b) => b.titulo)).toEqual(['PDF']);
         // A imagem subiu à Meta como PNG (o formulário do /media).
         expect(numero.pedidos.filter((p) => p.corpo?.formulario)).toEqual([expect.objectContaining({ corpo: expect.objectContaining({ type: 'image/png', arquivo: 'grafico.png' }) })]);
@@ -2970,7 +2990,7 @@ export function testesDoMisterComPostgres(): void {
           await perguntar(tel, 'e na semana, de novo?');
           ia.roteiro = [usar('insumo_vendido', { insumo: 'carne 56 g', periodo: 'ultimos_7_dias' }), falar('Os mesmos 8.')];
           await agenteComInsumo.esvaziar();
-          expect(numero.enviadas.map((m) => m.texto)).toEqual(['Os mesmos 8.']);
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([comLink('Os mesmos 8.', somarDias(hoje, -6), hoje)]);
         } finally {
           numero.responder = () => undefined;
         }

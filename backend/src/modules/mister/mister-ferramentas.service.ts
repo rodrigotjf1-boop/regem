@@ -39,7 +39,7 @@ import {
   seriePorDia,
   seriePorHora,
 } from './insumo-vendido';
-import { gerarPdfDoInsumo, nomeDoPdfDoInsumo, planoDoPdfDoInsumo } from './relatorio-insumo-pdf';
+import { PlanoDoPdfDoInsumo, gerarPdfDoInsumo, nomeDoPdfDoInsumo, planoDoPdfDoInsumo } from './relatorio-insumo-pdf';
 import { GraficoDaConversa, valeAImagem } from './grafico/grafico-do-insumo';
 import { MisterPropostasService, PropostaPendente } from './mister-propostas.service';
 import { PROCEDIMENTOS, propostaDoAviso } from './mister-procedimentos';
@@ -278,6 +278,27 @@ export class MisterFerramentasService {
          where g.tenant_id = ${tenantId}::uuid and g.colaborador_id = ${colaboradorId}::uuid
            and g.telefone = ${telefone} and g.ligado_em is not null and ${pessoaVale()}`),
     );
+    return this.escopoDaPessoa(tenantId, colaboradorId, p);
+  }
+
+  /**
+   * M3c.4: o MESMO escopo para quem abre a página do relatório no Regem (logado, sem telefone): a pessoa ativa, presidente
+   * ou gerente, com o módulo ligado; as lojas, a loja presa e as permissões pela mesma régua da conversa.
+   */
+  async escopoDaTela(tenantId: string, colaboradorId: string): Promise<EscopoDoMister | null> {
+    const [p] = linhas(
+      await this.db.execute(sql`
+        select c.nome, emp.nome as empresa, coalesce(p.nivel, f.categoria::text) as nivel, c.unidade_id as "unidadeId", p.permissoes
+          from colaborador c
+          left join funcao f on f.id = c.funcao_id
+          left join perfil_acesso p on p.id = c.perfil_acesso_id
+          join empresa emp on emp.id = c.tenant_id
+         where c.tenant_id = ${tenantId}::uuid and c.id = ${colaboradorId}::uuid and ${pessoaVale()}`),
+    );
+    return this.escopoDaPessoa(tenantId, colaboradorId, p);
+  }
+
+  private async escopoDaPessoa(tenantId: string, colaboradorId: string, p: any): Promise<EscopoDoMister | null> {
     if (!p || (p.nivel !== 'presidente' && p.nivel !== 'gerente')) return null;
     const unidadeId: string | null = p.unidadeId ?? null;
     if (!(await this.modulos.ativo(tenantId, unidadeId, MODULO))) return null;
@@ -1340,6 +1361,16 @@ export class MisterFerramentasService {
    * torto: devolve a frase para a conversa.
    */
   async pdfDoInsumo(e: EscopoDoMister, pedido: PedidoDoRelatorio): Promise<{ pdf: Buffer; nome: string; legenda: string } | { erro: string }> {
+    const r = await this.relatorioDoPedido(e, pedido);
+    if ('erro' in r) return r;
+    return { pdf: await gerarPdfDoInsumo(r.plano, r.nome), nome: r.nome, legenda: r.plano.titulo };
+  }
+
+  /**
+   * M3c.4 — a página do relatório no Regem ("Ver no Regem"): o MESMO plano do PDF (os textos, os números e as barras),
+   * refeito no escopo de quem abre, com as mesmas conferências do PDF.
+   */
+  async relatorioDoPedido(e: EscopoDoMister, pedido: PedidoDoRelatorio): Promise<{ plano: PlanoDoPdfDoInsumo; nome: string; relatorio: RelatorioDoInsumo } | { erro: string }> {
     if (e.semLoja) return { erro: SEM_LOJA };
     if (!this.pode(e, 'estoque') && !this.pode(e, 'relatorios_vendas')) return { erro: SEM_PERMISSAO };
     // A loja do pedido tem de ser uma que a pessoa consulta (a presa, ou uma das lojas dela; a loja única = sem filtro).
@@ -1371,8 +1402,7 @@ export class MisterFerramentasService {
     if (!insumo) return { erro: 'Este insumo não está mais no estoque.' };
     const r = await this.lerRelatorioDoInsumo(e, insumo, p, loja, p2);
     const plano = planoDoPdfDoInsumo(r, { empresa: e.empresa, pedidoPor: e.nome, geradoEm: new Date().toISOString() });
-    const nome = nomeDoPdfDoInsumo(r, p.de, p.ate);
-    return { pdf: await gerarPdfDoInsumo(plano, nome), nome, legenda: plano.titulo };
+    return { plano, nome: nomeDoPdfDoInsumo(r, p.de, p.ate), relatorio: r };
   }
 
   /** O quadro do Delivery (`GET /delivery/pedidos`) e a fila da cozinha (`GET /producao-pedido/fila`), agora. */

@@ -174,6 +174,35 @@ export function botaoDoPdf(p: PedidoDoRelatorio): string {
   return ['rel', 'pdf', p.insumoId, p.de, p.ate, p.loja ?? '-', p.compararDe ?? '-', p.compararAte ?? '-'].join(':');
 }
 
+/** M3c.4: o endereço da página do relatório no Regem (abre com o usuário de quem toca; refeita no escopo dele). */
+export function linkDoRelatorio(base: string, p: PedidoDoRelatorio): string {
+  const q = new URLSearchParams({ insumo: p.insumoId, de: p.de, ate: p.ate });
+  if (p.loja) q.set('loja', p.loja);
+  if (p.compararDe) {
+    q.set('compararDe', p.compararDe);
+    q.set('compararAte', p.compararAte ?? p.compararDe);
+  }
+  return `${String(base).replace(/\/+$/, '')}/mister/relatorio?${q.toString()}`;
+}
+
+const SO_UUID = new RegExp(`^${UUID}$`, 'i');
+const SO_DIA = new RegExp(`^${DIA}$`);
+
+/** Os parâmetros da página (a mesma régua do botão: só id e datas no formato; o resto, a página recusa). */
+export function pedidoDaPagina(q: Record<string, unknown>): PedidoDoRelatorio | null {
+  const s = (k: string) => (q[k] === undefined || q[k] === null || q[k] === '' ? null : String(q[k]).trim());
+  const insumo = s('insumo');
+  const de = s('de');
+  const ate = s('ate') ?? de;
+  const loja = s('loja');
+  const compararDe = s('compararDe');
+  const compararAte = s('compararAte') ?? compararDe;
+  if (!insumo || !SO_UUID.test(insumo) || !de || !SO_DIA.test(de) || !ate || !SO_DIA.test(ate)) return null;
+  if (loja && !SO_UUID.test(loja)) return null;
+  if ((compararDe && !SO_DIA.test(compararDe)) || (compararAte && !SO_DIA.test(compararAte))) return null;
+  return { insumoId: insumo.toLowerCase(), de, ate, loja: loja ? loja.toLowerCase() : null, compararDe, compararAte: compararDe ? compararAte : null };
+}
+
 export function lerBotaoDoPdf(id: unknown): PedidoDoRelatorio | null {
   const m = BOTAO_DO_PDF.exec(String(id ?? ''));
   if (!m) return null;

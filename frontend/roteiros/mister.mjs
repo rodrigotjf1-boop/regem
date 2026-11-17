@@ -210,6 +210,39 @@ const DOCUMENTOS = () => [
   }),
 ];
 
+// M3c.4: o relatório do link — o plano que o servidor devolve (o MESMO do PDF), com os números da conversa 16.
+const RELATORIO_INSUMO = () => {
+  const valores = [62, 70, 85, 90, 101, 160, 171, 58, 66, 80, 88, 97, 150, 168, 74, 40];
+  return {
+    total: 1486,
+    nomeDoPdf: 'carne-120-g-2026-11-01-a-2026-11-16.pdf',
+    plano: {
+      cabecalho: 'Burger da Praça · Loja Centro',
+      gerado: 'Gerado em 16/11/2026, 22:43 pelo Mister, a pedido de Ana',
+      titulo: 'Carne 120 g · de 01/11 a 16/11 contra 01/10 a 16/10',
+      numeros: [
+        { valor: '1.486 unidades', rotulo: 'Loja Centro' },
+        { valor: '178,3 kg', rotulo: 'pela ficha técnica' },
+        { valor: '+13%', rotulo: 'contra 01/10 a 16/10 (1.312)' },
+      ],
+      grafico: {
+        titulo: 'Carne 120 g por dia (unidades)',
+        barras: valores.map((v, i) => ({ rotulo: String(i + 1).padStart(2, '0'), valor: v, texto: String(v) })),
+        linha: { valor: 82, texto: 'média de 01/10 a 16/10: 82 por dia' },
+        nota: null,
+      },
+      deOnde: [
+        { produto: 'X-Tudo', detalhe: '812 vendidos', valor: '812' },
+        { produto: 'Duplo Bacon Especial da Casa com Cheddar Cremoso', detalhe: '2 por unidade, 209 vendidos', valor: '418' },
+        { produto: 'Salada', detalhe: '256 vendidos', valor: '256' },
+      ],
+      outros: null,
+      fonte: 'Fonte: As vendas fechadas, baixadas pela ficha técnica de cada produto (Estoque › Fichas técnicas). O total é o que saiu do estoque; cancelamento devolve.',
+    },
+  };
+};
+const LINK_DO_RELATORIO = '?insumo=11111111-2222-3333-4444-555555555555&de=2026-11-01&ate=2026-11-16&compararDe=2026-10-01&compararAte=2026-10-16';
+
 const medir = (page) =>
   page.evaluate(() => {
     const achados = [];
@@ -250,6 +283,8 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
       // M3a parte 3: os ajustes da conversa e a parte "Documentos"
       conversa: o.conversa ?? { documentosLigado: true, documentosModo: 'sozinho' }, salvamentosConv: [],
       documentos: o.documentos ?? DOCUMENTOS(), documentosFalha: !!o.documentosFalha, diasDosDocumentos: [], desfeitos: [], pdfs: [],
+      // M3c.4: a página do relatório do link
+      relatorio: o.relatorio ?? RELATORIO_INSUMO(), relatorioRecusa: o.relatorioRecusa ?? null, relatorioPedidos: [], relatorioPdfs: [],
     };
     const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
     await ctx.addInitScript((jwt) => localStorage.setItem('regen_token', jwt), o.token ?? PRESIDENTE);
@@ -292,6 +327,16 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
         S.diasDosDocumentos.push(url.searchParams.get('dias'));
         if (S.documentosFalha) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
         return responder(route, { dias: Number(url.searchParams.get('dias') ?? 30), limite: 200, documentos: S.documentos });
+      }
+      // M3c.4: a página do relatório do link e o PDF dela (pelos mesmos parâmetros).
+      if (p === '/mister/relatorio/insumo' && metodo === 'GET') {
+        S.relatorioPedidos.push(url.search);
+        if (S.relatorioRecusa) return responder(route, { statusCode: 403, message: S.relatorioRecusa }, 403);
+        return responder(route, S.relatorio);
+      }
+      if (p === '/mister/relatorio/insumo/pdf' && metodo === 'GET') {
+        S.relatorioPdfs.push(url.search);
+        return route.fulfill({ status: 200, contentType: 'application/pdf', body: Buffer.from('%PDF-1.4\n%%EOF\n') });
       }
       // M3a parte 4b: o PDF do boleto lançado (um PDF mínimo; a tela só abre o arquivo).
       const pdfDoDoc = /^\/mister\/documentos\/([^/]+)\/pdf$/.exec(p);
@@ -1169,6 +1214,65 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     ok(itensEsmagados.length === 0, `${w}px: os itens da nota sem texto esmagado (${itensEsmagados.join(', ')} px)`);
     if (w === 320 || w === 375) await page.locator('[role="dialog"]').screenshot({ path: foto(`${w}-nota-gaveta.png`) });
     ok(erros.length === 0, `${w}px: Documentos sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+
+  // ── M3c.4: a página do relatório do link ("Ver no Regem"): o plano do servidor, mudar o período, baixar o PDF ──
+  {
+    const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: `/mister/relatorio${LINK_DO_RELATORIO}` });
+    await page.waitForSelector('#titulo-do-relatorio', { timeout: 20000 });
+    const t = await page.locator('main').innerText();
+    ok(/Carne 120 g · de 01\/11 a 16\/11 contra 01\/10 a 16\/10/.test(t), 'relatório: o título do plano do servidor');
+    ok(/1\.486 unidades/.test(t) && /178,3 kg/.test(t) && /\+13%/.test(t) && /contra 01\/10 a 16\/10 \(1\.312\)/.test(t), 'relatório: os números, com o que cada um é');
+    ok(/média de 01\/10 a 16\/10: 82 por dia/.test(t), 'relatório: a legenda da média do outro período');
+    ok(/De onde saiu/.test(t) && /X-Tudo/.test(t) && /2 por unidade, 209 vendidos/.test(t), 'relatório: de onde saiu, com o detalhe');
+    ok(/Burger da Praça · Loja Centro · Gerado em 16\/11\/2026, 22:43 pelo Mister, a pedido de Ana/.test(t), 'relatório: de quem é e quem pediu');
+    ok(S.relatorioPedidos[0] === LINK_DO_RELATORIO, `relatório: lê com os parâmetros do link (${S.relatorioPedidos[0]})`);
+    ok((await page.locator('[role="img"][aria-label*="Maior valor: 07, 171"]').count()) === 1, 'relatório: o gráfico com o maior valor descrito para o leitor de tela');
+    // Mudar o período: lê de novo com as datas novas; a comparação continua.
+    await page.locator('input[type="date"]').first().fill('2026-11-10');
+    await Promise.all([page.waitForResponse((r) => r.url().includes('/mister/relatorio/insumo?') && r.url().includes('de=2026-11-10')), page.click('button:has-text("Mudar o período")')]);
+    const ultimo = S.relatorioPedidos.at(-1) ?? '';
+    ok(ultimo.includes('de=2026-11-10') && ultimo.includes('ate=2026-11-16') && ultimo.includes('compararDe=2026-10-01'), `relatório: mudar o período lê de novo e mantém a comparação (${ultimo})`);
+    // Baixar o PDF: o mesmo pedido, com o login, e abre.
+    await page.waitForSelector('#titulo-do-relatorio');
+    const [popup] = await Promise.all([
+      page.context().waitForEvent('page', { timeout: 10000 }).catch(() => null),
+      page.waitForResponse((r) => r.url().includes('/mister/relatorio/insumo/pdf?')),
+      page.click('button:has-text("Baixar PDF")'),
+    ]);
+    ok(!!popup && (S.relatorioPdfs[0] ?? '').includes('de=2026-11-10'), `relatório: "Baixar PDF" pede o PDF do período na tela e abre (${S.relatorioPdfs[0]})`);
+    if (popup) await popup.close();
+    ok(erros.length === 0, `relatório: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  {
+    // A recusa do servidor (a loja que a pessoa não consulta, o gerente sem a permissão): a frase dele e "Tentar de novo".
+    const r = await abrir(1280, 900, { caminho: `/mister/relatorio${LINK_DO_RELATORIO}`, relatorioRecusa: 'Este relatório é de uma loja que você não consulta.' });
+    await r.page.waitForSelector('text=Este relatório é de uma loja que você não consulta.', { timeout: 20000 });
+    ok(true, 'relatório: a recusa do servidor aparece com a frase dele');
+    r.S.relatorioRecusa = null;
+    await r.page.click('button:has-text("Tentar de novo")');
+    await r.page.waitForSelector('#titulo-do-relatorio', { timeout: 20000 });
+    ok(true, 'relatório: "Tentar de novo" lê de novo');
+    await r.ctx.close();
+    // Nada vendido no período: o vazio diz, sem gráfico nem "de onde saiu".
+    const v = await abrir(1280, 900, { caminho: `/mister/relatorio${LINK_DO_RELATORIO}`, relatorio: { ...RELATORIO_INSUMO(), total: 0 } });
+    await v.page.waitForSelector('text=Nenhuma venda deste insumo no período.', { timeout: 20000 });
+    ok((await v.page.locator('text=De onde saiu').count()) === 0, 'relatório: o vazio sem gráfico nem "de onde saiu"');
+    await v.ctx.close();
+  }
+  for (const w of larguras) {
+    const { ctx, page, erros } = await abrir(w, w < 700 ? 820 : 900, { caminho: `/mister/relatorio${LINK_DO_RELATORIO}` });
+    await page.waitForSelector('#titulo-do-relatorio', { timeout: 20000 });
+    const m = await medir(page);
+    ok(m.length === 0, `${w}px: o relatório sem barra lateral e com toque grande (${m.join(' | ')})`);
+    const esmagado = await page.evaluate(() =>
+      [...document.querySelectorAll('main li span, main dd')].filter((s) => /Duplo Bacon|1\.486/.test(s.textContent ?? '') && s.getBoundingClientRect().width > 0 && s.getBoundingClientRect().width < 60).map((s) => Math.round(s.getBoundingClientRect().width)),
+    );
+    ok(esmagado.length === 0, `${w}px: o relatório sem texto esmagado (${esmagado.join(', ')} px)`);
+    if (w === 320 || w === 375 || w === 1440) await page.locator('main').screenshot({ path: foto(`${w}-relatorio.png`) });
+    ok(erros.length === 0, `${w}px: o relatório sem erro (${erros.join(' | ')})`);
     await ctx.close();
   }
 }
