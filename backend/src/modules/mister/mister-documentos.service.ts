@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { ehServidorLocal } from '../../common/modo';
 import {
@@ -7,9 +7,11 @@ import {
   MODELO_DO_DOCUMENTO_PADRAO,
   ModoDoBoleto,
   RECURSO_DO_DOCUMENTO,
+  OrigemDoCampo,
   decidirDocumento,
   instrucoesDoDocumento,
   lerLeituraDaFoto,
+  lerRespostaDoQueFaltou,
 } from '../../common/documento-por-foto';
 import { MAX_BYTES_DA_FOTO, mimeDaFoto } from '../../common/foto-do-cliente';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -17,8 +19,34 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { FinanceiroService } from '../financeiro/financeiro.service';
 import { FalhaDaIa, IaEmpresaService } from '../ia/ia-empresa.service';
 import { MidiaDoMister, MisterEntradaService, QuemMandou, QuemTocou } from './mister-entrada.service';
+import { MisterConversaConfigService } from './mister-conversa-config.service';
 import { MisterNumeroService } from './mister-numero.service';
 import { Resposta } from './mister.regras';
+
+/** Quanto tempo o documento que espera o valor ou o vencimento aceita a resposta em texto. */
+const COMPLETAR_EM_MIN = 30;
+const DIAS_DA_LISTA = [7, 30, 90] as const;
+const LIMITE_DA_LISTA = 200;
+
+/** Um documento na parte "Documentos" (Mister na loja). A situação "pago" e "cancelado" vem da conta a pagar ligada. */
+export interface DocumentoNaTela {
+  id: string;
+  tipo: string;
+  beneficiario: string | null;
+  fornecedor: string | null;
+  valorCentavos: number | null;
+  vencimento: string | null;
+  situacao: 'confirmar' | 'falta' | 'recusado' | 'lancado' | 'desfeito' | 'pago' | 'cancelado';
+  motivo: string | null;
+  origem: { valor: OrigemDoCampo | null; vencimento: OrigemDoCampo | null };
+  linhaDigitavel: string | null;
+  quem: string | null;
+  telefoneFinal: string | null;
+  criadoEm: string;
+  respondidoEm: string | null;
+  tituloId: string | null;
+  podeDesfazer: boolean;
+}
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -60,13 +88,15 @@ export class MisterDocumentosService implements OnModuleInit {
     private readonly numero: MisterNumeroService,
     private readonly ia: IaEmpresaService,
     private readonly financeiro: FinanceiroService,
+    private readonly conversa: MisterConversaConfigService,
     @Optional() private readonly entrada?: MisterEntradaService,
     @Optional() private readonly auditoria?: AuditoriaService,
   ) {}
 
-  /** A foto e os botões chegam pela entrada do WhatsApp, que mora no módulo de baixo. */
+  /** A foto, o texto que completa e os botões chegam pela entrada do WhatsApp, que mora no módulo de baixo. */
   onModuleInit(): void {
     this.entrada?.registrarDocumento((quem, midia, wamid) => this.receber(quem, midia, wamid));
+    this.entrada?.registrarTextoDoDocumento((quem, texto) => this.completarPeloTexto(quem, texto));
     this.entrada?.registrarBotao(PREFIXO_DO_BOTAO, (botaoId, quem) => this.responderBotao(botaoId, quem));
   }
 
@@ -79,9 +109,9 @@ export class MisterDocumentosService implements OnModuleInit {
     return String(process.env.MISTER_DOCUMENTOS_MODELO ?? '').trim() || MODELO_DO_DOCUMENTO_PADRAO;
   }
 
-  /** O jeito de lançar o boleto conferido. O ajuste por empresa entra com a parte "Documentos" (M3a.3); até lá, o padrão aprovado. */
-  protected async modoDoBoleto(_tenantId: string): Promise<ModoDoBoleto> {
-    return 'sozinho';
+  /** O jeito de lançar o boleto conferido: o ajuste da empresa em "Avisos e relatórios › Conversa" (mig 440). */
+  protected async modoDoBoleto(tenantId: string): Promise<ModoDoBoleto> {
+    return (await this.conversa.daEmpresa(tenantId)).documentosModo;
   }
 
   // ───────────────────────────── a foto ──────────────────────────
@@ -91,6 +121,8 @@ export class MisterDocumentosService implements OnModuleInit {
     const tipo = midia.tipo === 'imagem' ? mimeDaFoto(midia.mime) : String(midia.mime ?? '').toLowerCase().startsWith('application/pdf') ? 'application/pdf' : null;
     // Figurinha, áudio, planilha: não é com os documentos (segue como antes).
     if (!tipo) return false;
+    // A empresa desligou "Lançar boletos e notas por foto": a foto segue como antes ("só leio texto").
+    if (!(await this.conversa.daEmpresa(quem.tenantId)).documentosLigado) return false;
     if (quem.nivel !== 'presidente') {
       await this.falar(quem.telefone, { texto: FRASES_DO_DOCUMENTO.soPresidente });
       return true;
@@ -221,23 +253,163 @@ export class MisterDocumentosService implements OnModuleInit {
       return true;
     }
 
-    // Desfazer: só o lançado, e só com a conta a pagar ainda em aberto (o MESMO cancelamento da tela).
-    if (d.situacao !== 'lancado' || !d.tituloId) {
-      await this.falar(quem.telefone, { texto: d.situacao === 'desfeito' ? FRASES_DO_DOCUMENTO.naoDaParaDesfazer : FRASES_DO_DOCUMENTO.jaRespondido });
+    // Desfazer: o mesmo caminho do botão da tela.
+    const r = await this.desfazer(d, v.colaboradorId, 'presidente');
+    await this.falar(quem.telefone, {
+      texto: r === 'feito' ? FRASES_DO_DOCUMENTO.desfeito : r === 'nao_da' || d.situacao === 'desfeito' ? FRASES_DO_DOCUMENTO.naoDaParaDesfazer : FRASES_DO_DOCUMENTO.jaRespondido,
+    });
+    return true;
+  }
+
+  // ───────────────────────────── o texto que completa ──────────────────────────
+
+  /**
+   * A conversa 13: o documento que esperava o valor ou o vencimento recebe o que a pessoa escreveu ("vence dia 30, 480
+   * reais"). Só o último documento ESPERANDO desta pessoa, dos últimos 30 minutos, e só quando o texto traz o que faltou
+   * (senão é pergunta ao Mister, como sempre). Completo, pergunta "Lanço assim?" — nunca lança sozinho o que foi dito.
+   */
+  async completarPeloTexto(quem: QuemMandou, texto: string): Promise<boolean> {
+    if (!this.ligado() || quem.nivel !== 'presidente') return false;
+    let d: any;
+    try {
+      [d] = linhas(
+        await this.db.execute(sql`
+          select id::text as id, tipo, motivo, valor_centavos as "valorCentavos", vencimento::text as vencimento, beneficiario,
+                 linha_digitavel as linha, codigo_barras as codigo, dados
+            from mister_documento
+           where tenant_id = ${quem.tenantId}::uuid and colaborador_id = ${quem.colaboradorId}::uuid and situacao = 'falta'
+             and criado_em > clock_timestamp() - make_interval(mins => ${COMPLETAR_EM_MIN})
+           order by criado_em desc
+           limit 1`),
+      );
+    } catch (e: any) {
+      if (e?.code === '42P01' || e?.cause?.code === '42P01') return false;
+      throw e;
+    }
+    if (!d) return false;
+    const falta = String(d.motivo ?? '')
+      .split(',')
+      .filter((f): f is 'valor' | 'vencimento' => f === 'valor' || f === 'vencimento');
+    const dito = falta.length ? lerRespostaDoQueFaltou(texto, falta) : null;
+    if (!dito) return false;
+
+    const valor = dito.valorCentavos ?? (d.valorCentavos != null ? Number(d.valorCentavos) : null);
+    const vencimento = dito.vencimento ?? d.vencimento ?? null;
+    const origem = {
+      valor: (dito.valorCentavos != null ? 'pessoa' : (d.dados?.origem?.valor ?? null)) as OrigemDoCampo | null,
+      vencimento: (dito.vencimento ? 'pessoa' : (d.dados?.origem?.vencimento ?? null)) as OrigemDoCampo | null,
+    };
+    const resta = (['valor', 'vencimento'] as const).filter((f) => (f === 'valor' ? valor == null : vencimento == null));
+    const [mudou] = linhas(
+      await this.db.execute(sql`
+        update mister_documento
+           set valor_centavos = ${valor}, vencimento = ${vencimento}::date,
+               situacao = ${resta.length ? 'falta' : 'confirmar'}, motivo = ${resta.length ? resta.join(',') : 'informado'},
+               dados = dados || ${JSON.stringify({ origem, vencimento })}::jsonb, atualizado_em = clock_timestamp()
+         where id = ${d.id}::uuid and situacao = 'falta'
+        returning id`),
+    );
+    // Outra mensagem completou no mesmo instante: ela responde; esta não vira pergunta.
+    if (!mudou) return true;
+    if (resta.length) {
+      await this.falar(quem.telefone, { texto: FRASES_DO_DOCUMENTO.perguntar([...resta]) });
       return true;
     }
+    const dados: DadosDoLancamento = {
+      tipo: d.tipo === 'conta' ? 'conta' : 'boleto',
+      valorCentavos: valor,
+      vencimento,
+      beneficiario: d.beneficiario ?? null,
+      cnpj: d.dados?.cnpj ?? null,
+      boleto: d.linha ? ({ ok: true, linhaDigitavel: d.linha, codigoDeBarras: d.codigo } as any) : null,
+      origem,
+    };
+    await this.falar(quem.telefone, {
+      texto: FRASES_DO_DOCUMENTO.confirmar(dados, 'informado'),
+      botoes: [botao('lancar', d.id, 'Lançar'), botao('outra', d.id, 'Mandar outra foto')],
+    });
+    return true;
+  }
+
+  // ───────────────────────────── a tela ("Documentos") ──────────────────────────
+
+  /** Os documentos da empresa no período (7, 30 ou 90 dias; os mais novos primeiro, até 200). Só o presidente (a rota). */
+  async listar(tenantId: string, diasPedidos?: unknown): Promise<{ dias: number; limite: number; documentos: DocumentoNaTela[] }> {
+    const dias = DIAS_DA_LISTA.find((x) => String(x) === String(diasPedidos ?? '')) ?? 30;
+    let lidas: any[] = [];
     try {
-      await this.financeiro.cancelar(d.tenantId, v.colaboradorId, 'presidente', d.tituloId, null);
+      lidas = linhas(
+        await this.db.execute(sql`
+          select d.id::text as id, d.tipo, d.beneficiario, f.nome as fornecedor, d.valor_centavos as "valorCentavos",
+                 d.vencimento::text as vencimento, d.situacao, d.motivo, d.dados, d.linha_digitavel as "linhaDigitavel",
+                 c.nome as quem, d.telefone_final as "telefoneFinal", d.criado_em as "criadoEm", d.respondido_em as "respondidoEm",
+                 d.titulo_id::text as "tituloId", t.status as "tituloStatus"
+            from mister_documento d
+            left join colaborador c on c.id = d.colaborador_id and c.tenant_id = d.tenant_id
+            left join fornecedor f on f.id = d.fornecedor_id and f.tenant_id = d.tenant_id
+            left join titulo_financeiro t on t.id = d.titulo_id and t.tenant_id = d.tenant_id
+           where d.tenant_id = ${tenantId}::uuid and d.criado_em > now() - make_interval(days => ${dias})
+           order by d.criado_em desc
+           limit ${LIMITE_DA_LISTA}`),
+      );
+    } catch (e: any) {
+      if (!(e?.code === '42P01' || e?.cause?.code === '42P01')) throw e;
+    }
+    return {
+      dias,
+      limite: LIMITE_DA_LISTA,
+      documentos: lidas.map((l) => {
+        const situacao: DocumentoNaTela['situacao'] =
+          l.situacao === 'lancado' && l.tituloStatus === 'pago' ? 'pago' : l.situacao === 'lancado' && l.tituloStatus === 'cancelado' ? 'cancelado' : l.situacao;
+        return {
+          id: l.id,
+          tipo: l.tipo,
+          beneficiario: l.beneficiario ?? null,
+          fornecedor: l.fornecedor ?? null,
+          valorCentavos: l.valorCentavos != null ? Number(l.valorCentavos) : null,
+          vencimento: l.vencimento ?? null,
+          situacao,
+          motivo: l.motivo ?? null,
+          origem: { valor: l.dados?.origem?.valor ?? null, vencimento: l.dados?.origem?.vencimento ?? null },
+          linhaDigitavel: l.linhaDigitavel ?? null,
+          quem: l.quem ? String(l.quem).split(' ')[0] : null,
+          telefoneFinal: l.telefoneFinal ?? null,
+          criadoEm: new Date(l.criadoEm).toISOString(),
+          respondidoEm: l.respondidoEm ? new Date(l.respondidoEm).toISOString() : null,
+          tituloId: l.tituloId ?? null,
+          podeDesfazer: l.situacao === 'lancado' && l.tituloStatus === 'aberto',
+        };
+      }),
+    };
+  }
+
+  /** "Desfazer o lançamento" pela tela: o mesmo caminho do botão da conversa. Devolve o documento como a tela mostra. */
+  async desfazerPelaTela(tenantId: string, atorId: string, atorPerfil: string, documentoId: string): Promise<{ resultado: 'feito' | 'nao_da' | 'ja_respondido' }> {
+    if (!UUID.test(String(documentoId ?? ''))) throw new NotFoundException('Documento não encontrado.');
+    const d = await this.documentoDoBotao(documentoId, [tenantId]);
+    if (!d) throw new NotFoundException('Documento não encontrado.');
+    const r = await this.desfazer(d, atorId, atorPerfil);
+    if (r === 'nao_da') throw new BadRequestException(FRASES_DO_DOCUMENTO.naoDaParaDesfazer);
+    if (r === 'ja_respondido') throw new BadRequestException(d.situacao === 'desfeito' ? 'Este lançamento já foi desfeito.' : 'Este documento não foi lançado.');
+    return { resultado: r };
+  }
+
+  /**
+   * Desfaz o lançamento: só o documento lançado, e só com a conta a pagar ainda em aberto — pelo MESMO cancelamento da
+   * tela do Financeiro (que recusa a conta paga). Depois, a passagem condicional "lancado" → "desfeito".
+   */
+  private async desfazer(d: { id: string; tenantId: string; situacao: string; tituloId: string | null }, atorId: string, atorPerfil: string): Promise<'feito' | 'nao_da' | 'ja_respondido'> {
+    if (d.situacao !== 'lancado' || !d.tituloId) return 'ja_respondido';
+    try {
+      await this.financeiro.cancelar(d.tenantId, atorId, atorPerfil, d.tituloId, null);
     } catch {
-      await this.falar(quem.telefone, { texto: FRASES_DO_DOCUMENTO.naoDaParaDesfazer });
-      return true;
+      return 'nao_da';
     }
     await this.db.execute(sql`
       update mister_documento set situacao = 'desfeito', respondido_em = now(), atualizado_em = clock_timestamp()
        where id = ${d.id}::uuid and situacao = 'lancado'`);
-    await this.auditar(d.tenantId, v.colaboradorId, 'mister_documento_desfeito', d.id, { titulo: d.tituloId });
-    await this.falar(quem.telefone, { texto: FRASES_DO_DOCUMENTO.desfeito });
-    return true;
+    await this.auditar(d.tenantId, atorId, 'mister_documento_desfeito', d.id, { titulo: d.tituloId });
+    return 'feito';
   }
 
   // ───────────────────────────── por dentro ──────────────────────────

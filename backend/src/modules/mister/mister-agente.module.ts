@@ -20,6 +20,7 @@ import { VendasModule } from '../vendas/vendas.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { MisterAgenteService } from './mister-agente.service';
 import { MisterAvisosService } from './mister-avisos.service';
+import { MisterDocumentosController } from './mister-documentos.controller';
 import { MisterDocumentosService } from './mister-documentos.service';
 import { MisterFerramentasService } from './mister-ferramentas.service';
 import { MisterLinkController } from './mister-link.controller';
@@ -70,7 +71,8 @@ import { MisterModule } from './mister.module';
   // M3a (mig 439): os documentos por foto lançam a conta a pagar pelo serviço do Financeiro.
   providers: [MisterFerramentasService, MisterAgenteService, MisterAvisosService, MisterRelatoriosService, MisterPropostasService, MisterDocumentosService],
   // F4.2a (mig 433): as rotas públicas da página do link com PIN (`/m/<código>`), que respondem pelo serviço das propostas.
-  controllers: [MisterLinkController],
+  // M3a parte 3: a parte "Documentos" do Mister na loja (a lista e o "Desfazer o lançamento").
+  controllers: [MisterLinkController, MisterDocumentosController],
   exports: [MisterAgenteService, MisterAvisosService],
 })
 export class MisterAgenteModule {}

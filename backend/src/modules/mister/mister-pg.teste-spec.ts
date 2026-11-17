@@ -30,6 +30,7 @@ import { IfoodService } from '../integracoes/ifood/ifood.service';
 import { IbptService } from '../fiscal/ibpt/ibpt.service';
 import { MisterEntradaService } from './mister-entrada.service';
 import { MisterDocumentosService } from './mister-documentos.service';
+import { MisterConversaConfigService } from './mister-conversa-config.service';
 import { FinanceiroService } from '../financeiro/financeiro.service';
 import { FRASES_DO_DOCUMENTO } from '../../common/documento-por-foto';
 import { MisterPropostasService } from './mister-propostas.service';
@@ -405,7 +406,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -5194,7 +5195,8 @@ export function testesDoMisterComPostgres(): void {
     // não) e o cadastro (o fornecedor existe ou não). A conta a pagar sai pelo serviço DE VERDADE do Financeiro.
     describe('os documentos por foto (M3a)', () => {
       const financeiro = new FinanceiroService(db, auditoria, {} as any);
-      const documentos = new DocumentosDeTeste(db, numero, ia, financeiro, entrada, auditoria);
+      const conversa = new MisterConversaConfigService(db, auditoria);
+      const documentos = new DocumentosDeTeste(db, numero, ia, financeiro, conversa, entrada, auditoria);
       /** R$ 1.284,90, vence 25/11/2026 (boleto bancário feito à mão, os mesmos vetores do `common/boleto.spec.ts`). */
       const LINHA_DO_BOLETO = '00191234546789012345767890123457716410000128490';
       const CODIGO_DO_BOLETO = '00197164100001284901234567890123456789012345';
@@ -5232,6 +5234,7 @@ export function testesDoMisterComPostgres(): void {
         process.env.MISTER_DOCUMENTOS = '1';
         comIa();
         await q(`delete from titulo_financeiro where tenant_id = any($1::uuid[])`, [[A, B]]);
+        await q(`delete from mister_conversa_config where tenant_id = any($1::uuid[])`, [[A, B]]);
         telAna = telefone();
         await ligar('ana', telAna);
         telCarlos = telefone();
@@ -5428,6 +5431,122 @@ export function testesDoMisterComPostgres(): void {
         expect(baixou()).toEqual([]);
         expect(await docs()).toEqual([]);
         expect(await titulos()).toEqual([]);
+      });
+
+      // ─────────── parte 3: o ajuste da empresa, o texto que completa, a lista e o "Desfazer" pela tela ───────────
+
+      it('o ajuste da empresa: "pergunta antes" segura o boleto que lançaria sozinho; desligado, a foto segue como antes; o salvar confere', async () => {
+        expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: true, documentosModo: 'sozinho' });
+        await expect(conversa.salvar(usuario('ana'), { documentosModo: 'sempre' })).rejects.toBeInstanceOf(BadRequestException);
+        await expect(conversa.salvar(usuario('ana'), { documentosLigado: 'sim' })).rejects.toBeInstanceOf(BadRequestException);
+        await expect(conversa.salvar(usuario('ana'), {})).rejects.toBeInstanceOf(BadRequestException);
+        // Salvar só o modo mantém o "ligado" (o ausente mantém o salvo).
+        expect(await conversa.salvar(usuario('ana'), { documentosModo: 'perguntar' })).toEqual({ conversa: { documentosLigado: true, documentosModo: 'perguntar' } });
+        expect(auditados.find((a) => a.acao === 'mister_conversa_alterada')).toMatchObject({ detalhe: { antes: { documentosModo: 'sozinho' }, depois: { documentosModo: 'perguntar' } } });
+        // A outra empresa não muda.
+        expect(await conversa.daEmpresa(B)).toEqual({ documentosLigado: true, documentosModo: 'sozinho' });
+
+        ia.roteiro = [leitura({ linhaDigitavel: LINHA_DO_BOLETO, beneficiario: 'DISTRIBUIDORA CARNE BOA LTDA', cnpj: CNPJ, valor: '1.284,90', vencimento: '2026-11-25' })];
+        expect(await foto(telAna, novaMidia())).toBe('documento');
+        expect((await docs())[0]).toMatchObject({ situacao: 'confirmar', motivo: 'modo', fornecedor_id: fornecedorDeA });
+        expect(await titulos()).toEqual([]);
+
+        // Desligado na empresa: nem baixa nem lê; a foto vira o "só leio texto". Salvar só o "ligado" mantém o modo salvo.
+        await conversa.salvar(usuario('ana'), { documentosLigado: false });
+        expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: false, documentosModo: 'perguntar' });
+        numero.pedidos.length = 0;
+        ia.pedidos.length = 0;
+        expect(await foto(telAna, novaMidia())).toBe('so_texto');
+        expect(baixou()).toEqual([]);
+        expect(ia.pedidos).toEqual([]);
+        expect(await docs()).toHaveLength(1);
+      });
+
+      it('a foto ruim pergunta o valor e o vencimento; o texto completa e pergunta "Lanço assim?"; pergunta de verdade segue para o Mister; depois de 30 min não completa', async () => {
+        ia.roteiro = [leitura({ legivel: false, beneficiario: 'Gás Rio' })];
+        expect(await foto(telAna, novaMidia())).toBe('documento');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([FRASES_DO_DOCUMENTO.perguntar(['valor', 'vencimento'])]);
+        const [d] = await docs();
+        expect(d).toMatchObject({ situacao: 'falta', motivo: 'valor,vencimento', beneficiario: 'Gás Rio' });
+
+        // Uma pergunta de verdade, com o documento esperando: segue para a fila do Mister.
+        expect(await mandar(telAna, 'quanto vendi hoje?')).toBe('pergunta');
+        expect((await docs())[0].situacao).toBe('falta');
+
+        // Só o valor: pergunta o que ainda falta.
+        numero.pedidos.length = 0;
+        expect(await mandar(telAna, 'são 480 reais')).toBe('documento');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([FRASES_DO_DOCUMENTO.perguntar(['vencimento'])]);
+        expect((await docs())[0]).toMatchObject({ situacao: 'falta', motivo: 'vencimento', valor_centavos: '48000' });
+
+        // O vencimento: completo — pergunta "Lanço assim?" (o que foi dito nunca lança sozinho).
+        numero.pedidos.length = 0;
+        expect(await mandar(telAna, 'vence 15/03/2030, é do gás')).toBe('documento');
+        const [completo] = await docs();
+        expect(completo).toMatchObject({ situacao: 'confirmar', motivo: 'informado', valor_centavos: '48000' });
+        expect(completo.dados).toMatchObject({ origem: { valor: 'pessoa', vencimento: 'pessoa' }, vencimento: '2030-03-15' });
+        expect(numero.enviadas[0].texto).toContain('R$ 480,00 · vence 15/03 (sexta)');
+        expect(numero.enviadas[0].texto).toContain('Sem o código de barras, ele entra sem a linha para pagar. Lanço assim?');
+        expect(numero.enviadas[0].botoes).toEqual([
+          { id: `doc:lancar:${completo.id}`, titulo: 'Lançar' },
+          { id: `doc:outra:${completo.id}`, titulo: 'Mandar outra foto' },
+        ]);
+        expect(await titulos()).toEqual([]);
+        numero.pedidos.length = 0;
+        expect(await tocar(telAna, `doc:lancar:${completo.id}`)).toBe('respondeu_proposta');
+        expect(await titulos()).toMatchObject([{ vencimento: '2030-03-15', descricao: 'Boleto · Gás Rio', status: 'aberto' }]);
+        expect(numero.enviadas.map((m) => m.texto)).toEqual(['Lancei nas contas a pagar, para 15/03.']);
+
+        // Outro documento esperando, mas de 31 minutos atrás: o texto já não completa (é pergunta).
+        ia.roteiro = [leitura({ legivel: false, beneficiario: 'Água' })];
+        expect(await foto(telAna, novaMidia())).toBe('documento');
+        await q(`update mister_documento set criado_em = criado_em - interval '31 minutes' where tenant_id = $1 and situacao = 'falta'`, [A]);
+        expect(await mandar(telAna, '120 reais vence 10/04/2030')).toBe('pergunta');
+        // O gerente nunca completa o documento de ninguém.
+        expect(await mandar(telCarlos, '120 reais vence 10/04/2030')).toBe('pergunta');
+      });
+
+      it('a parte "Documentos": a situação pela conta (pago, cancelado), quem mandou e o "Desfazer" pela tela — só da empresa e só com a conta em aberto', async () => {
+        ia.roteiro = [
+          leitura({ linhaDigitavel: LINHA_DO_BOLETO, beneficiario: 'DISTRIBUIDORA CARNE BOA LTDA', cnpj: CNPJ, valor: '1.284,90', vencimento: '2026-11-25' }),
+          leitura({ linhaDigitavel: LINHA_DO_BOLETO, beneficiario: 'DISTRIBUIDORA CARNE BOA LTDA', cnpj: CNPJ, valor: '1.284,90', vencimento: '2026-11-25' }),
+          leitura({ tipo: 'conta', linhaDigitavel: LINHA_DA_CONTA, beneficiario: 'Light', valor: '480,00', vencimento: '2026-11-28' }),
+        ];
+        expect(await foto(telAna, novaMidia())).toBe('documento');
+        expect(await foto(telAna, novaMidia())).toBe('documento');
+        expect(await foto(telAna, novaMidia())).toBe('documento');
+        const [primeiro, segundo] = await docs();
+        const [t1] = await titulos();
+        await q(`update titulo_financeiro set status = 'pago' where id = $1`, [t1.id]);
+
+        const lista = await documentos.listar(A, '30');
+        expect(lista).toMatchObject({ dias: 30, limite: 200 });
+        expect(lista.documentos.map((x) => [x.beneficiario, x.situacao, x.podeDesfazer])).toEqual([
+          ['Light', 'confirmar', false],
+          ['DISTRIBUIDORA CARNE BOA LTDA', 'lancado', true],
+          ['DISTRIBUIDORA CARNE BOA LTDA', 'pago', false],
+        ]);
+        expect(lista.documentos[2]).toMatchObject({ fornecedor: 'Distribuidora Carne Boa', valorCentavos: 128490, vencimento: '2026-11-25', quem: 'Ana', origem: { valor: 'codigo', vencimento: 'codigo' } });
+        // O período fora do pedido vira o padrão; a outra empresa não vê nada.
+        expect((await documentos.listar(A, '9999')).dias).toBe(30);
+        expect((await documentos.listar(B, '90')).documentos).toEqual([]);
+
+        // Desfazer pela tela: o lançado em aberto sai; o pago não; o da outra empresa não existe para ela.
+        await expect(documentos.desfazerPelaTela(B, pessoa.anaB, 'presidente', segundo.id)).rejects.toBeInstanceOf(NotFoundException);
+        await expect(documentos.desfazerPelaTela(A, pessoa.ana, 'presidente', primeiro.id)).rejects.toBeInstanceOf(BadRequestException);
+        expect(await documentos.desfazerPelaTela(A, pessoa.ana, 'presidente', segundo.id)).toEqual({ resultado: 'feito' });
+        await expect(documentos.desfazerPelaTela(A, pessoa.ana, 'presidente', segundo.id)).rejects.toBeInstanceOf(BadRequestException);
+        await expect(documentos.desfazerPelaTela(A, pessoa.ana, 'presidente', 'nao-e-uuid')).rejects.toBeInstanceOf(NotFoundException);
+        const depois = await documentos.listar(A, '30');
+        expect(depois.documentos.map((x) => x.situacao)).toEqual(['confirmar', 'desfeito', 'pago']);
+        expect((await titulos()).map((t) => t.status).sort()).toEqual(['cancelado', 'pago']);
+
+        // A conta cancelada na tela do Financeiro aparece como "cancelado" (o documento continua lançado).
+        numero.pedidos.length = 0;
+        expect(await tocar(telAna, `doc:lancar:${(await docs())[2].id}`)).toBe('respondeu_proposta');
+        const conta = (await titulos()).find((t) => t.descricao === 'Conta · Light')!;
+        await financeiro.cancelar(A, pessoa.ana, 'presidente', conta.id, null);
+        expect((await documentos.listar(A, '30')).documentos[0]).toMatchObject({ beneficiario: 'Light', situacao: 'cancelado', podeDesfazer: false });
       });
     });
   });

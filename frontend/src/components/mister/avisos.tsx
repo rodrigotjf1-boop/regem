@@ -32,6 +32,23 @@ type RelatorioNaTela = {
   regra: RegraDoRelatorio;
   ultimo: { referencia: string; situacao: string; motivo: string | null; em: string } | null;
 };
+/** Os ajustes da conversa (mig 440; versão 3 do protótipo, grupo "Conversa"): por enquanto, os documentos por foto. */
+type ModoDoBoleto = 'sozinho' | 'perguntar';
+type Conversa = { documentosLigado: boolean; documentosModo: ModoDoBoleto };
+const CONV = 'conversa:documentos';
+const MODOS_DO_BOLETO: { v: ModoDoBoleto; rotulo: string }[] = [
+  { v: 'sozinho', rotulo: 'boleto: sozinho se o código confere' },
+  { v: 'perguntar', rotulo: 'boleto: pergunta antes' },
+];
+const paraValorDaConversa = (c: Conversa): string => JSON.stringify({ documentosLigado: c.documentosLigado, documentosModo: c.documentosModo });
+const deValorDaConversa = (v: Valor | undefined): Conversa => {
+  try {
+    const c = JSON.parse(String(v ?? ''));
+    return { documentosLigado: c.documentosLigado !== false, documentosModo: c.documentosModo === 'perguntar' ? 'perguntar' : 'sozinho' };
+  } catch {
+    return { documentosLigado: true, documentosModo: 'sozinho' };
+  }
+};
 
 /** Os relatórios (mig 420) ficam nos mesmos valores da tela, com a chave `rel:<tipo>`. */
 const REL = 'rel:';
@@ -188,6 +205,7 @@ export function AvisosDoMister() {
   const [erro, setErro] = useState('');
   const [mudando, setMudando] = useState<AvisoNaTela | null>(null);
   const [relatorios, setRelatorios] = useState<RelatorioNaTela[] | null>(null);
+  const [conversa, setConversa] = useState<Conversa | null>(null);
 
   // Cada parte (avisos e relatórios) troca só os SEUS valores: salvar uma e falhar a outra mantém a pendência da que falhou.
   const aplicar = useCallback((d: DaTela) => {
@@ -204,17 +222,30 @@ export function AvisosDoMister() {
     setSalvos((s) => ({ ...s, ...v }));
     setValores((x) => ({ ...x, ...v }));
   }, []);
+  const aplicarConversa = useCallback((c: Conversa) => {
+    const v = paraValorDaConversa(c);
+    setConversa(c);
+    setSalvos((s) => ({ ...s, [CONV]: v }));
+    setValores((x) => ({ ...x, [CONV]: v }));
+  }, []);
 
   const ler = useCallback(async () => {
     setErroLeitura(false);
     try {
-      const [d, r] = await Promise.all([api.get('/mister/avisos'), api.get('/mister/relatorios')]);
+      const [d, r, c] = await Promise.all([
+        api.get('/mister/avisos'),
+        api.get('/mister/relatorios'),
+        // Os ajustes da conversa: se a leitura falhar, o grupo não aparece (os avisos seguem).
+        api.get('/mister/conversa').catch(() => null),
+      ]);
       aplicar(d as DaTela);
       aplicarRelatorios(((r as { relatorios?: RelatorioNaTela[] })?.relatorios ?? []) as RelatorioNaTela[]);
+      const lida = (c as { conversa?: Conversa } | null)?.conversa;
+      if (lida) aplicarConversa(lida);
     } catch {
       setErroLeitura(true);
     }
-  }, [aplicar, aplicarRelatorios]);
+  }, [aplicar, aplicarRelatorios, aplicarConversa]);
 
   useEffect(() => {
     void ler();
@@ -288,8 +319,7 @@ export function AvisosDoMister() {
         };
       }),
     }));
-    if (!relatorios?.length) return dosAvisos;
-    const doGrupo: GrupoDeAjustes = {
+    const doGrupo: GrupoDeAjustes | null = !relatorios?.length ? null : {
       titulo: 'Relatórios',
       nota: (
         <span className={`text-sm ${texto2}`}>
@@ -360,8 +390,57 @@ export function AvisosDoMister() {
         },
       })),
     };
-    return [...dosAvisos, doGrupo];
-  }, [dados, valores, nomes, relatorios]);
+    // A conversa (versão 3, M3a parte 3): o primeiro ajuste é o dos documentos por foto.
+    const daConversa: GrupoDeAjustes | null = !conversa
+      ? null
+      : {
+          titulo: 'Conversa',
+          nota: <span className={`text-sm ${texto2}`}>Como o Mister lê e responde.</span>,
+          itens: [
+            {
+              id: CONV,
+              rotulo: 'Lançar boletos por foto',
+              tipo: 'livre' as const,
+              palavras: 'boleto conta foto documento contas a pagar código de barras lançar',
+              ajuda: (
+                <>
+                  <span className="block">
+                    Mande a foto ou o PDF de um boleto ou de uma conta para o Mister: ele lê, confere pelo código de barras e lança nas contas a pagar.
+                    Sozinho, só o boleto cujo código confere e de fornecedor já cadastrado, sempre com &quot;Desfazer&quot;; o resto ele pergunta antes.
+                  </span>
+                  <span className="mt-1 block text-xs">Por enquanto, só o presidente manda. Cada foto usa a IA e soma no &quot;Uso da IA&quot;.</span>
+                  <span className="mt-1 block">
+                    <Selo tom="info">a leitura da nota do fornecedor vem numa próxima entrega</Selo>
+                  </span>
+                </>
+              ),
+              desenhar: (v: Valor, mudar: (x: Valor) => void) => {
+                const atual = deValorDaConversa(v);
+                return (
+                  <span className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
+                    <label className="flex items-center gap-1 text-sm">
+                      <span className="sr-only">Como lançar o boleto</span>
+                      <select
+                        className="min-h-10 max-w-full rounded-md border border-input bg-background px-2"
+                        value={atual.documentosModo}
+                        onChange={(e) => mudar(paraValorDaConversa({ ...atual, documentosModo: e.target.value === 'perguntar' ? 'perguntar' : 'sozinho' }))}
+                      >
+                        {MODOS_DO_BOLETO.map((m) => (
+                          <option key={m.v} value={m.v}>
+                            {m.rotulo}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <Chave ligada={atual.documentosLigado} rotulo="Lançar boletos por foto" aoMudar={(l) => mudar(paraValorDaConversa({ ...atual, documentosLigado: l }))} />
+                  </span>
+                );
+              },
+            },
+          ],
+        };
+    return [...dosAvisos, ...(doGrupo ? [doGrupo] : []), ...(daConversa ? [daConversa] : [])];
+  }, [dados, valores, nomes, relatorios, conversa]);
 
   const salvar = async () => {
     if (!dados) return;
@@ -372,9 +451,13 @@ export function AvisosDoMister() {
       const rels = (relatorios ?? [])
         .filter((r) => valores[REL + r.tipo] !== salvos[REL + r.tipo])
         .map((r) => ({ tipo: r.tipo, ...deValorDoRelatorio(valores[REL + r.tipo]) }));
+      const conv = conversa && valores[CONV] !== salvos[CONV] ? deValorDaConversa(valores[CONV]) : null;
       if (regras.length) aplicar((await api.patch('/mister/avisos', { regras })) as DaTela);
       if (rels.length) aplicarRelatorios(((await api.patch('/mister/relatorios', { relatorios: rels })) as { relatorios: RelatorioNaTela[] }).relatorios);
-      toast.success(rels.length && !regras.length ? 'Relatórios do Mister salvos.' : 'Avisos do Mister salvos.');
+      if (conv) aplicarConversa(((await api.patch('/mister/conversa', conv)) as { conversa: Conversa }).conversa);
+      toast.success(
+        regras.length ? 'Avisos do Mister salvos.' : rels.length ? 'Relatórios do Mister salvos.' : conv ? 'Ajustes da conversa salvos.' : 'Nada para salvar.',
+      );
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Não deu para salvar.');
     } finally {

@@ -5,6 +5,7 @@ import {
   decidirDocumento,
   diaComSemana,
   lerLeituraDaFoto,
+  lerRespostaDoQueFaltou,
 } from './documento-por-foto';
 
 // O DOCUMENTO POR FOTO (M3a, conversas 11 a 13 do protótipo aprovado): a IA lê, o código confere, e a decisão é pura.
@@ -88,8 +89,15 @@ describe('a decisão', () => {
   it('sem código e sem valor: pergunta o que faltou', () => {
     expect(decidirDocumento(leitura({ vencimento: '2026-11-30' }), true, 'sozinho', HOJE)).toMatchObject({ acao: 'perguntar', falta: ['valor'] });
   });
-  it('foto ilegível sem código: outra foto', () => {
-    expect(decidirDocumento(leitura({ legivel: false }), true, 'sozinho', HOJE)).toEqual({ acao: 'outra_foto', porque: 'ilegivel' });
+  it('foto ilegível sem código (conversa 13): pergunta o valor e o vencimento — o que a IA leu numa foto ruim não vale', () => {
+    expect(decidirDocumento(leitura({ legivel: false }), true, 'sozinho', HOJE)).toMatchObject({ acao: 'perguntar', falta: ['valor', 'vencimento'] });
+    expect(decidirDocumento(leitura({ legivel: false, valorCentavos: 48000 }), true, 'sozinho', HOJE)).toMatchObject({
+      acao: 'perguntar',
+      falta: ['valor', 'vencimento'],
+      dados: { valorCentavos: null, vencimento: null, beneficiario: 'Distribuidora Sabor Ltda.' },
+    });
+    // Ilegível, mas com os dois lidos: não dá para confiar nem para perguntar — outra foto.
+    expect(decidirDocumento(leitura({ legivel: false, valorCentavos: 48000, vencimento: '2026-11-30' }), true, 'sozinho', HOJE)).toEqual({ acao: 'outra_foto', porque: 'ilegivel' });
   });
   it('nota do fornecedor e outra imagem', () => {
     expect(decidirDocumento(leitura({ tipo: 'nota' }), true, 'sozinho', HOJE)).toEqual({ acao: 'nota' });
@@ -109,7 +117,42 @@ describe('as frases', () => {
       '📄 Boleto · Distribuidora Sabor Ltda.\nR$ 1.284,90 · vence 25/11 (quarta)\n\nO código de barras confere com o valor e o vencimento, e Distribuidora Sabor Ltda. já é seu fornecedor. Lancei nas contas a pagar.',
     );
   });
-  it('a pergunta do que faltou', () => {
-    expect(FRASES_DO_DOCUMENTO.perguntar(['valor', 'vencimento'])).toContain('o valor nem o vencimento');
+  it('a pergunta do que faltou: outra foto OU dizer o que faltou (conversa 13)', () => {
+    expect(FRASES_DO_DOCUMENTO.perguntar(['valor', 'vencimento'])).toBe(
+      'Não consegui ler o valor nem o vencimento com certeza.\n\nManda outra foto com o documento inteiro, de perto e com luz. Ou me diz o valor e o vencimento (por exemplo: 480,00, vence dia 30).',
+    );
+    expect(FRASES_DO_DOCUMENTO.perguntar(['vencimento'])).toContain('Ou me diz o vencimento (por exemplo: vence dia 30).');
+  });
+  it('completado na conversa: "Lanço assim?" (conversa 13)', () => {
+    const d = decidirDocumento(leitura({ beneficiario: 'Gás Rio', valorCentavos: 48000, vencimento: '2026-11-30' }), true, 'sozinho', HOJE);
+    if (d.acao !== 'confirmar') throw new Error('esperava confirmar');
+    expect(FRASES_DO_DOCUMENTO.confirmar(d.dados, 'informado')).toBe(
+      '📄 Boleto · Gás Rio\nR$ 480,00 · vence 30/11 (segunda)\n\nSem o código de barras, ele entra sem a linha para pagar. Lanço assim?',
+    );
+  });
+});
+
+describe('a resposta em texto ao que faltou', () => {
+  const ambos: Array<'valor' | 'vencimento'> = ['valor', 'vencimento'];
+  it('a frase da conversa 13', () => {
+    expect(lerRespostaDoQueFaltou('vence dia 30, 480 reais, é do gás', ambos, HOJE)).toEqual({ valorCentavos: 48000, vencimento: '2026-11-30' });
+  });
+  it('as formas da data: dd/mm, dd/mm/aaaa, "30 de novembro", "dia 5" (o próximo dia 5)', () => {
+    expect(lerRespostaDoQueFaltou('30/11', ['vencimento'], HOJE)).toEqual({ vencimento: '2026-11-30' });
+    expect(lerRespostaDoQueFaltou('vence 05/01/2027', ['vencimento'], HOJE)).toEqual({ vencimento: '2027-01-05' });
+    expect(lerRespostaDoQueFaltou('vence 5/1', ['vencimento'], HOJE)).toEqual({ vencimento: '2027-01-05' });
+    expect(lerRespostaDoQueFaltou('vence 10/11', ['vencimento'], HOJE)).toEqual({ vencimento: '2026-11-10' }); // atrasado: este ano
+    expect(lerRespostaDoQueFaltou('30 de novembro', ['vencimento'], HOJE)).toEqual({ vencimento: '2026-11-30' });
+    expect(lerRespostaDoQueFaltou('dia 5', ['vencimento'], HOJE)).toEqual({ vencimento: '2026-12-05' });
+    expect(lerRespostaDoQueFaltou('31/02', ['vencimento'], HOJE)).toBeNull();
+  });
+  it('as formas do valor, sem pegar os números da data', () => {
+    expect(lerRespostaDoQueFaltou('R$ 1.284,90 vence 25/11', ambos, HOJE)).toEqual({ valorCentavos: 128490, vencimento: '2026-11-25' });
+    expect(lerRespostaDoQueFaltou('480,00', ['valor'], HOJE)).toEqual({ valorCentavos: 48000 });
+    expect(lerRespostaDoQueFaltou('25/11 e o valor é 90', ambos, HOJE)).toEqual({ valorCentavos: 9000, vencimento: '2026-11-25' });
+  });
+  it('só o que foi pedido; nada reconhecido = null (vira pergunta ao Mister)', () => {
+    expect(lerRespostaDoQueFaltou('480 reais vence dia 30', ['vencimento'], HOJE)).toEqual({ vencimento: '2026-11-30' });
+    expect(lerRespostaDoQueFaltou('quanto vendi hoje?', ambos, HOJE)).toBeNull();
   });
 });

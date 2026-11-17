@@ -27,6 +27,11 @@
   Mister e ele lança nas contas a pagar (sozinho, com "Desfazer", só o boleto que confere de fornecedor cadastrado; o
   resto pergunta). Só NUVEM: vale com o merge. O `.zip` leva o código sem efeito na loja e a classificação
   `mister_documento` = SO_NUVEM no `sync-daemon.mjs` (a loja não pede a tabela).
+  - **Parte 3 (mig 440 `mister_conversa_config` SÓ NUVEM):** o ajuste por empresa em Mister › Avisos e relatórios ›
+    Conversa ("Lançar boletos por foto": ligado e "sozinho / pergunta antes"); a foto ruim pede outra foto OU o valor e o
+    vencimento, e o texto da pessoa completa ("vence dia 30, 480 reais" → "Lanço assim?"); a parte "Documentos" com a
+    gaveta e o "Desfazer o lançamento"; "Financeiro › Contas a pagar" no menu. `mister_conversa_config` = SO_NUVEM no
+    daemon. A tela da loja vem no `.zip`, sem efeito lá (o Mister é só da nuvem).
 
 - **Vias impressas: "SENHA 5 - BALCÃO", o canal embaixo da senha no delivery, caixa alta e o cupom maior (16/11, pedidos do
   dono; SEM migration) → vai no `.zip`** (quem imprime é o servidor da loja).

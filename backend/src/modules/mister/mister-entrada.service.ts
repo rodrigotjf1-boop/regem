@@ -94,6 +94,8 @@ export interface QuemMandou {
 }
 /** Quem trata a foto (o serviço dos documentos, M3a). Devolve se tratou; `false` segue o caminho de antes ("só leio texto"). */
 export type TratarDocumento = (quem: QuemMandou, midia: MidiaDoMister, wamid: string | null) => Promise<boolean>;
+/** Quem trata o TEXTO que completa um documento (M3a parte 3: o valor ou o vencimento que a foto não trouxe). `false` = é pergunta. */
+export type TratarTextoDoDocumento = (quem: QuemMandou, texto: string) => Promise<boolean>;
 
 /** Quem tocou no botão do modelo: o telefone e os vínculos dele que valem agora (empresa, pessoa, loja e nível). */
 export interface QuemTocou {
@@ -163,6 +165,11 @@ export class MisterEntradaService {
   private documento: TratarDocumento | null = null;
   registrarDocumento(tratar: TratarDocumento): void {
     this.documento = tratar;
+  }
+  /** M3a parte 3: quem completa, pelo texto, o documento que ficou esperando o valor ou o vencimento. */
+  private textoDoDocumento: TratarTextoDoDocumento | null = null;
+  registrarTextoDoDocumento(tratar: TratarTextoDoDocumento): void {
+    this.textoDoDocumento = tratar;
   }
 
   constructor(
@@ -614,6 +621,16 @@ export class MisterEntradaService {
       if (!vez.length) return { desfecho: 'calado', tenantId: v.tenantId };
       await this.responder(tel, { texto: TEXTOS_DO_AGENTE.soTexto });
       return { desfecho: 'so_texto', tenantId: v.tenantId };
+    }
+    // M3a parte 3: o texto que completa um documento que esperava o valor ou o vencimento (conversa 13). Só quando há um
+    // documento esperando desta pessoa e o texto traz o que faltou; senão, é pergunta como sempre.
+    if (this.textoDoDocumento) {
+      const quem: QuemMandou = { telefone: tel, tenantId: v.tenantId, colaboradorId: v.colaboradorId, unidadeId: v.unidadeId ?? null, nivel: v.nivel, nome: v.nome };
+      const completou = await this.textoDoDocumento(quem, texto).catch((err: any) => {
+        this.logger.error(`mister: o texto do documento de ${mascarar(tel)} não foi tratado — ${err?.message ?? err}`, err?.stack);
+        return false;
+      });
+      if (completou) return { desfecho: 'documento', tenantId: v.tenantId };
     }
     // Uma pergunta: entra na fila com a empresa, a pessoa, a loja e o nível DESTE vínculo, e o agente é acordado.
     const nova = await this.fila.enfileirar({ tenantId: v.tenantId, colaboradorId: v.colaboradorId, unidadeId: v.unidadeId ?? null, nivel: v.nivel, telefone: tel }, texto, chave, wamid);

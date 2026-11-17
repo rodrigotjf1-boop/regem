@@ -108,10 +108,14 @@ export function lerLeituraDaFoto(texto: unknown): LeituraDaFoto | null {
 }
 
 export type ModoDoBoleto = 'sozinho' | 'perguntar';
+/** Por que o Mister pergunta antes de lançar. `informado`: a pessoa completou na conversa o que a foto não trouxe. */
+export type PorqueConfirma = 'conta' | 'sem_codigo' | 'fornecedor_novo' | 'modo' | 'informado';
+/** De onde veio um campo: o código de barras (conferido, sem IA), a leitura da foto (IA) ou a pessoa na conversa. */
+export type OrigemDoCampo = 'codigo' | 'ia' | 'pessoa';
 
 export type DecisaoDoDocumento =
   | { acao: 'lancar'; dados: DadosDoLancamento }
-  | { acao: 'confirmar'; dados: DadosDoLancamento; porque: 'conta' | 'sem_codigo' | 'fornecedor_novo' | 'modo' }
+  | { acao: 'confirmar'; dados: DadosDoLancamento; porque: PorqueConfirma }
   | { acao: 'perguntar'; dados: DadosDoLancamento; falta: Array<'valor' | 'vencimento'> }
   | { acao: 'outra_foto'; porque: 'ilegivel' | 'codigo_nao_confere' }
   | { acao: 'nota' }
@@ -124,8 +128,8 @@ export interface DadosDoLancamento {
   beneficiario: string | null;
   cnpj: string | null;
   boleto: BoletoLido | null;
-  /** De onde veio cada campo: "codigo" (sem IA, conferido), "ia" (lido da foto). */
-  origem: { valor: 'codigo' | 'ia' | null; vencimento: 'codigo' | 'ia' | null };
+  /** De onde veio cada campo: "codigo" (sem IA, conferido), "ia" (lido da foto), "pessoa" (dito na conversa). */
+  origem: { valor: OrigemDoCampo | null; vencimento: OrigemDoCampo | null };
 }
 
 /**
@@ -162,10 +166,15 @@ export function decidirDocumento(
     },
   };
 
-  if (!boleto && !leitura.legivel) return { acao: 'outra_foto', porque: 'ilegivel' };
   const falta: Array<'valor' | 'vencimento'> = [];
   if (dados.valorCentavos == null) falta.push('valor');
   if (dados.vencimento == null) falta.push('vencimento');
+  // Foto ruim sem código (conversa 13): o que a IA não leu, a pessoa pode dizer; o que ela leu numa foto ruim não vale
+  // sozinho — se não falta nada, pede outra foto.
+  if (!boleto && !leitura.legivel) {
+    if (!falta.length) return { acao: 'outra_foto', porque: 'ilegivel' };
+    return { acao: 'perguntar', dados: { ...dados, valorCentavos: null, vencimento: null, origem: { valor: null, vencimento: null } }, falta: ['valor', 'vencimento'] };
+  }
   if (falta.length) return { acao: 'perguntar', dados, falta };
 
   if (!boleto) return { acao: 'confirmar', dados, porque: 'sem_codigo' };
@@ -175,6 +184,70 @@ export function decidirDocumento(
   if (!fornecedorConhecido) return { acao: 'confirmar', dados, porque: 'fornecedor_novo' };
   if (modo !== 'sozinho') return { acao: 'confirmar', dados, porque: 'modo' };
   return { acao: 'lancar', dados };
+}
+
+// ─────────────────────────── a resposta em texto ao que faltou ───────────────────────────
+
+const MESES = 'jan fev mar abr mai jun jul ago set out nov dez'.split(' ');
+
+/** AAAA-MM-DD de dia/mês(/ano), conferindo que existe. */
+function isoDe(dia: number, mes: number, ano: number): string | null {
+  const d = new Date(Date.UTC(ano, mes - 1, dia));
+  return d.getUTCFullYear() === ano && d.getUTCMonth() === mes - 1 && d.getUTCDate() === dia ? d.toISOString().slice(0, 10) : null;
+}
+
+/**
+ * O que a pessoa escreveu para completar o documento (conversa 13: "vence dia 30, 480 reais, é do gás"). Só os campos
+ * pedidos (`falta`); o resto do texto é ignorado. A data sem ano é a próxima (até 60 dias para trás vale este ano: boleto
+ * atrasado); "dia 30" é o dia 30 deste mês, ou do próximo se já passou. Nada reconhecido → null (a mensagem segue como
+ * pergunta ao Mister).
+ */
+export function lerRespostaDoQueFaltou(
+  texto: unknown,
+  falta: Array<'valor' | 'vencimento'>,
+  hoje: Date = new Date(),
+): { valorCentavos?: number; vencimento?: string } | null {
+  let t = ` ${String(texto ?? '').toLowerCase().replace(/\s+/g, ' ')} `;
+  const r: { valorCentavos?: number; vencimento?: string } = {};
+  const anoHoje = hoje.getUTCFullYear();
+  const hojeIso = hoje.toISOString().slice(0, 10);
+  const comAno = (dia: number, mes: number, ano: number | null) => {
+    if (ano != null) return isoDe(dia, mes, ano < 100 ? 2000 + ano : ano);
+    const este = isoDe(dia, mes, anoHoje);
+    if (!este) return null;
+    const dias = (Date.parse(`${este}T00:00:00Z`) - Date.parse(`${hojeIso}T00:00:00Z`)) / 86_400_000;
+    return dias < -60 ? isoDe(dia, mes, anoHoje + 1) : este;
+  };
+
+  // A data primeiro (e sai do texto, para os números dela não virarem valor).
+  let venc = null as string | null;
+  t = t.replace(/(\d{1,2})\/(\d{1,2})(?:\/(\d{4}|\d{2}))?(?!\d)/, (m, d, mm, a) => {
+    venc = comAno(Number(d), Number(mm), a ? Number(a) : null);
+    return ' ';
+  });
+  if (!venc)
+    t = t.replace(new RegExp(`\\b(\\d{1,2}) de (${MESES.join('|')})[a-zç]*(?: de (\\d{4}))?`), (m, d, mes, a) => {
+      venc = comAno(Number(d), MESES.indexOf(mes) + 1, a ? Number(a) : null);
+      return ' ';
+    });
+  if (!venc)
+    t = t.replace(/\b(?:vence(?:ndo)?|vencimento|dia)\s+(?:(?:no|o)?\s*dia\s+)?(\d{1,2})\b(?!\s*(?:reais|r\$|,\d))/, (m, d) => {
+      const dia = Number(d);
+      const mesHoje = hoje.getUTCMonth() + 1;
+      let iso = isoDe(dia, mesHoje, anoHoje);
+      if (iso && iso < hojeIso) iso = mesHoje === 12 ? isoDe(dia, 1, anoHoje + 1) : isoDe(dia, mesHoje + 1, anoHoje);
+      venc = iso;
+      return ' ';
+    });
+
+  // O valor: o primeiro número que sobrou ("480", "480,00", "R$ 1.284,90", "480 reais").
+  const valor = /(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+,\d{1,2}|\d+(?:\.\d{2})?)(?!\d)/.exec(t);
+  if (falta.includes('valor') && valor) {
+    const c = centavosDoTexto(valor[1]);
+    if (c != null) r.valorCentavos = c;
+  }
+  if (falta.includes('vencimento') && venc) r.vencimento = venc;
+  return Object.keys(r).length ? r : null;
 }
 
 // ─────────────────────────────── as frases da conversa ───────────────────────────────
@@ -205,19 +278,25 @@ function cabecalho(d: DadosDoLancamento): string {
 export const FRASES_DO_DOCUMENTO = {
   lancado: (d: DadosDoLancamento) =>
     `${cabecalho(d)}\n\nO código de barras confere com o valor e o vencimento, e ${d.beneficiario ?? 'o beneficiário'} já é seu fornecedor. Lancei nas contas a pagar.`,
-  confirmar: (d: DadosDoLancamento, porque: 'conta' | 'sem_codigo' | 'fornecedor_novo' | 'modo') => {
+  confirmar: (d: DadosDoLancamento, porque: PorqueConfirma) => {
     const motivo =
       porque === 'conta'
         ? 'O código de barras conferiu; o vencimento eu li da foto.'
-        : porque === 'sem_codigo'
+        : porque === 'sem_codigo' || (porque === 'informado' && !d.boleto)
           ? 'Sem o código de barras, ele entra sem a linha para pagar.'
-          : porque === 'fornecedor_novo'
-            ? `O código de barras conferiu. ${d.beneficiario ?? 'O beneficiário'} ainda não está nos seus fornecedores.`
-            : 'O código de barras conferiu.';
-    return `${cabecalho(d)}\n\n${motivo} Lanço nas contas a pagar?`;
+          : porque === 'informado'
+            ? 'O código de barras conferiu; o que faltava você me disse.'
+            : porque === 'fornecedor_novo'
+              ? `O código de barras conferiu. ${d.beneficiario ?? 'O beneficiário'} ainda não está nos seus fornecedores.`
+              : 'O código de barras conferiu.';
+    return `${cabecalho(d)}\n\n${motivo} ${porque === 'informado' ? 'Lanço assim?' : 'Lanço nas contas a pagar?'}`;
   },
-  perguntar: (falta: Array<'valor' | 'vencimento'>) =>
-    `Não consegui ler ${falta.map((f) => (f === 'valor' ? 'o valor' : 'o vencimento')).join(' nem ')} com certeza.\n\nManda outra foto com o documento inteiro, de perto e com luz.`,
+  // Conversa 13: pede outra foto OU que a pessoa diga só o que faltou (a resposta em texto completa o documento).
+  perguntar: (falta: Array<'valor' | 'vencimento'>) => {
+    const nomes = falta.map((f) => (f === 'valor' ? 'o valor' : 'o vencimento'));
+    const exemplo = falta.length === 2 ? '480,00, vence dia 30' : falta[0] === 'valor' ? '480,00' : 'vence dia 30';
+    return `Não consegui ler ${nomes.join(' nem ')} com certeza.\n\nManda outra foto com o documento inteiro, de perto e com luz. Ou me diz ${nomes.join(' e ')} (por exemplo: ${exemplo}).`;
+  },
   outraFoto: (porque: 'ilegivel' | 'codigo_nao_confere') =>
     porque === 'codigo_nao_confere'
       ? 'Li a linha digitável, mas os dígitos não conferem: algum número saiu errado na foto.\n\nManda outra foto da linha de números, de perto e com luz.'
