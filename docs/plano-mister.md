@@ -1024,8 +1024,14 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
 **Andamento da M3e (17/11/2026):**
 - **Parte 1 (sem migration):** o aviso "Ponto esquecido" (11º tipo, grupo "Pessoas e ponto"; o resumo do dia seguinte às
   10h ao gerente, ou turno a turno 30 min / 1 hora depois), pela escala contra o ponto, só nas lojas que usam o terminal.
+- **Parte 1 — #1112, no ar.**
 - **Falta:** o arquivo do ponto do mês (dia 1 às 06:00 ao presidente; "Enviar à contabilidade" pede o responsável
   cadastrado e o modelo da Meta).
+
+**Andamento da M3g (17/11/2026):**
+- **Parte 1 (sem migration):** `corrigir_documento` — o vencimento do boleto que o Mister lançou, pela conta da tela,
+  com "Desfazer" no balão; só o presidente; o valor nunca.
+- **Falta:** criar e publicar (o recado no mural, com "Publicar" / "Mudar o texto").
 
 ## 5. O que depende do dono
 

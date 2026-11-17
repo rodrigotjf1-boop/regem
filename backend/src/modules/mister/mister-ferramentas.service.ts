@@ -42,6 +42,7 @@ import {
 import { PlanoDoPdfDoInsumo, gerarPdfDoInsumo, nomeDoPdfDoInsumo, planoDoPdfDoInsumo } from './relatorio-insumo-pdf';
 import { GraficoDaConversa, valeAImagem } from './grafico/grafico-do-insumo';
 import { MisterNumeroService } from './mister-numero.service';
+import { MisterDocumentosService } from './mister-documentos.service';
 import { dentroDaJanelaDoWhatsapp } from './mister-avisos.regras';
 import { ASSUNTOS_DO_LINK, AssuntoDoLink, TELA_DO_ASSUNTO, acharPessoa, enderecoDoApp, mensagemDoLink, resumoDaContagem } from './link-de-conferencia';
 import { MisterPropostasService, PropostaPendente } from './mister-propostas.service';
@@ -135,6 +136,8 @@ export interface ResultadoDaFerramenta {
    * manda o PDF depois da resposta; senão, o botão "PDF" no balão da resposta (só pela API oficial, que tem botão).
    */
   anexo?: { pedido: PedidoDoRelatorio; enviarPdf: boolean; grafico?: GraficoDaConversa };
+  /** M3g: os botões que a resposta leva (o "Desfazer" da correção) — NÃO vão ao modelo; só pela API oficial. */
+  botoes?: { id: string; titulo: string }[];
 }
 
 const reais = (v: unknown): number | null => {
@@ -262,6 +265,8 @@ export class MisterFerramentasService {
     @Optional() private readonly propostas?: MisterPropostasService,
     // M3c.5: o link de conferência sai pelo número do Mister. Sem ele, "não consigo mandar agora".
     @Optional() private readonly numero?: MisterNumeroService,
+    // M3g: corrigir o que o Mister lançou (o vencimento do boleto) é do serviço dos documentos.
+    @Optional() private readonly documentos?: MisterDocumentosService,
   ) {}
 
   // ───────────────────────────── de quem é a conversa ─────────────────────────────
@@ -439,7 +444,17 @@ export class MisterFerramentasService {
         return this.insumoVendido(e, en, loja);
       case 'mandar_link':
         return this.mandarLink(e, en, loja);
+      case 'corrigir_documento':
+        return this.corrigirDocumento(e, en);
     }
+  }
+
+  /** M3g — corrigir o vencimento do boleto que o Mister lançou (conversa 22). O "Desfazer" vai como botão na resposta. */
+  private async corrigirDocumento(e: EscopoDoMister, en: Record<string, unknown>): Promise<ResultadoDaFerramenta> {
+    if (!this.documentos) return recusa('Não consigo corrigir agora.');
+    const r = await this.documentos.corrigirVencimento(e, en.boleto, en.vencimento);
+    if ('erro' in r) return recusa(r.erro);
+    return { ok: true, dados: r.dados, ...(r.botoes.length ? { botoes: r.botoes } : {}) };
   }
 
   /**

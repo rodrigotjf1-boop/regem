@@ -154,10 +154,9 @@ export class MisterAgenteService implements OnModuleInit {
       // M3c.4: com um relatório só, o link da página ("Ver no Regem") vai no fim do texto — depois do filtro de saída, que
       // tira link do que a IA escreve: este sai do código, para o próprio Regem, e abre com o usuário de quem toca.
       const texto = fim.anexos.length === 1 ? `${saida.texto}\n\nVer no Regem: ${linkDoRelatorio(baseDoApp(), fim.anexos[0].pedido)}` : saida.texto;
-      const comBotao =
-        !pdfs.length && fim.anexos.length === 1 && texto.length <= CABE_COM_BOTAO && (await this.numero.ler()).provedor !== 'evolution'
-          ? [{ id: botaoDoPdf(fim.anexos[0].pedido), titulo: 'PDF' }]
-          : undefined;
+      // M3g: os botões que as ferramentas trouxeram (o "Desfazer" da correção) vão no mesmo balão, antes do "PDF" (até 3).
+      const pedidos = [...fim.botoes, ...(!pdfs.length && fim.anexos.length === 1 ? [{ id: botaoDoPdf(fim.anexos[0].pedido), titulo: 'PDF' }] : [])].slice(0, 3);
+      const comBotao = pedidos.length && texto.length <= CABE_COM_BOTAO && (await this.numero.ler()).provedor !== 'evolution' ? pedidos : undefined;
       // M3c.3: a imagem do gráfico vai antes do texto (como no protótipo). A que falha não segura a resposta.
       for (const a of fim.anexos.filter((x) => x.grafico).slice(0, IMAGENS_POR_RESPOSTA)) await this.mandarGrafico(ultima.telefone, a.grafico!);
       const enviada = await this.dizer(ultima.telefone, texto, comBotao);
@@ -215,13 +214,15 @@ export class MisterAgenteService implements OnModuleInit {
     memoria: TrocaDaMemoria[],
     pergunta: string,
     opcoes: { recurso?: string } = {},
-  ): Promise<FimDaPergunta & { propostas: PropostaPendente[]; anexos: AnexoDaResposta[] }> {
+  ): Promise<FimDaPergunta & { propostas: PropostaPendente[]; anexos: AnexoDaResposta[]; botoes: { id: string; titulo: string }[] }> {
     // O laço é o de `mister-laco.ts` (o mesmo da avaliação de regressão): aqui as portas são a IA da empresa, com o
     // medidor dela, e as ferramentas no escopo que o servidor resolveu. F4.3: a proposta que uma ferramenta criou fica
     // de lado (não vai ao modelo) — quem chamou manda os botões depois da resposta.
     const propostas: PropostaPendente[] = [];
     // M3c.2: o relatório que uma consulta trouxe (o mesmo pedido duas vezes conta uma).
     const anexos: AnexoDaResposta[] = [];
+    // M3g: os botões da resposta (o "Desfazer" da correção), sem repetir.
+    const botoes: { id: string; titulo: string }[] = [];
     // M2b: o texto no ar. A leitura que falha não segura a resposta: vai o texto do código (e o log diz por quê).
     const instrucoes = this.instrucoes
       ? await this.instrucoes.noAr().then(
@@ -242,6 +243,7 @@ export class MisterAgenteService implements OnModuleInit {
         executar: async (nome, entrada) => {
           const r = await this.ferramentas.executar(escopo, nome, entrada);
           if (r.proposta && !propostas.some((p) => p.id === r.proposta!.id)) propostas.push(r.proposta);
+          for (const b of r.botoes ?? []) if (!botoes.some((x) => x.id === b.id)) botoes.push(b);
           if (r.anexo) {
             const ja = anexos.find((a) => botaoDoPdf(a.pedido) === botaoDoPdf(r.anexo!.pedido));
             if (ja) ja.enviarPdf = ja.enviarPdf || r.anexo.enviarPdf;
@@ -253,6 +255,6 @@ export class MisterAgenteService implements OnModuleInit {
       memoria,
       pergunta,
     );
-    return { ...fim, propostas, anexos };
+    return { ...fim, propostas, anexos, botoes };
   }
 }

@@ -5675,6 +5675,76 @@ export function testesDoMisterComPostgres(): void {
         expect(await titulos()).toHaveLength(1);
       });
 
+      // M3g (conversa 22): "o boleto da Distribuidora vence dia 28, não 25" — corrige o vencimento pela conta da tela, com
+      // "Desfazer"; o valor nunca; o gerente não; o "Desfazer" só enquanto o vencimento for o corrigido.
+      it('corrigir o vencimento do boleto lançado (M3g): pela conta da tela, com "Desfazer"; o gerente não; o Desfazer velho não volta', async () => {
+        ia.roteiro = [leitura({ linhaDigitavel: LINHA_DO_BOLETO, beneficiario: 'DISTRIBUIDORA CARNE BOA LTDA', cnpj: CNPJ, valor: '1.284,90', vencimento: '2026-11-25' })];
+        expect(await foto(telAna, novaMidia())).toBe('documento');
+        const [d] = await docs();
+        const comDocumentos = new MisterFerramentasService(
+          db,
+          modulos,
+          null as any,
+          null as any,
+          null as any,
+          null as any,
+          null as any,
+          null as any,
+          null as any,
+          null as any,
+          null as any,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          numero,
+          documentos,
+        );
+        const e = (await comDocumentos.escopo(A, pessoa.ana, telAna))!;
+        const r: any = await comDocumentos.executar(e, 'corrigir_documento', { boleto: 'a distribuidora', vencimento: '2026-11-28' });
+        expect(r).toMatchObject({
+          ok: true,
+          dados: { corrigido: true, de: '25/11', para: '28/11 (sábado)', codigoDeBarrasDiz: '25/11' },
+          botoes: [{ id: `doc:volta:${d.id}:2026-11-25`, titulo: 'Desfazer' }],
+        });
+        // A conta a pagar mudou pelo serviço da tela (com a auditoria dele); o documento guarda a correção.
+        expect((await titulos())[0]).toMatchObject({ vencimento: '2026-11-28', status: 'aberto' });
+        expect(Number((await titulos())[0].valor)).toBe(1284.9); // o valor não muda
+        expect(auditados.filter((a) => a.acao === 'editou_titulo').at(-1)).toMatchObject({ tenantId: A, atorId: pessoa.ana });
+        expect((await docs())[0].dados.correcao).toEqual({ de: '2026-11-25', para: '2026-11-28' });
+        // O gerente não corrige; a data torta e o nome que não existe são recusados.
+        const doCarlos = (await comDocumentos.escopo(A, pessoa.carlos, telCarlos))!;
+        expect(await comDocumentos.executar(doCarlos, 'corrigir_documento', { boleto: 'distribuidora', vencimento: '2026-11-29' })).toMatchObject({ ok: false });
+        expect(((await comDocumentos.executar(e, 'corrigir_documento', { boleto: 'distribuidora', vencimento: '2026-02-30' })) as any).dados.erro).toContain('existe no calendário');
+        expect(((await comDocumentos.executar(e, 'corrigir_documento', { boleto: 'padaria', vencimento: '2026-11-29' })) as any).dados.erro).toContain('Não achei');
+        // O "Desfazer": volta para 25/11.
+        numero.pedidos.length = 0;
+        expect(await tocar(telAna, `doc:volta:${d.id}:2026-11-25`)).toBe('respondeu_proposta');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual(['Desfeito: o vencimento voltou para 25/11.']);
+        expect((await titulos())[0].vencimento).toBe('2026-11-25');
+        // O mesmo "Desfazer" de novo (o vencimento já não é o corrigido): não volta nada.
+        numero.pedidos.length = 0;
+        expect(await tocar(telAna, `doc:volta:${d.id}:2026-11-25`)).toBe('respondeu_proposta');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual(['Este vencimento já mudou de novo (ou a conta não está mais em aberto): não desfiz.']);
+        // O gerente não desfaz.
+        await comDocumentos.executar(e, 'corrigir_documento', { boleto: 'distribuidora', vencimento: '2026-11-30' });
+        numero.pedidos.length = 0;
+        expect(await tocar(telCarlos, `doc:volta:${d.id}:2026-11-25`)).toBe('respondeu_proposta');
+        expect((await titulos())[0].vencimento).toBe('2026-11-30');
+        // Pela conversa: o "Desfazer" vai no balão da resposta.
+        const agenteDoc = new MisterAgenteService(fila, comDocumentos, ia, numero);
+        numero.pedidos.length = 0;
+        await perguntar(telAna, 'o boleto da distribuidora vence dia 29');
+        ia.roteiro = [usar('corrigir_documento', { boleto: 'distribuidora', vencimento: '2026-11-29' }), falar('Corrigi o vencimento para 29/11.')];
+        await agenteDoc.esvaziar();
+        expect(numero.enviadas).toEqual([expect.objectContaining({ texto: 'Corrigi o vencimento para 29/11.', botoes: [{ id: `doc:volta:${d.id}:2026-11-30`, titulo: 'Desfazer' }] })]);
+        expect((await titulos())[0].vencimento).toBe('2026-11-29');
+      });
+
       it('a conta de consumo pergunta antes; o gerente e a outra empresa não lançam; o toque repetido não lança duas vezes; paga, não desfaz', async () => {
         ia.roteiro = [leitura({ tipo: 'conta', linhaDigitavel: LINHA_DA_CONTA, beneficiario: 'Light', valor: '480,00', vencimento: '2026-11-28' })];
         expect(await foto(telAna, novaMidia())).toBe('documento');

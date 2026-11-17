@@ -173,6 +173,7 @@ describe('Mister — o que o modelo recebe', () => {
       'anotar_o_que_falta',
       'propor_procedimento',
       'mandar_link',
+      'corrigir_documento',
     ]);
     // F4.3: propor não é consulta (não lê dado, não conta no teto de consultas) e as instruções dizem "PROPOR, nunca fazer".
     expect(ehConsulta('propor_procedimento')).toBe(false);
