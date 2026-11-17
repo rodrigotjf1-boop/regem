@@ -167,6 +167,8 @@ class NumeroDeMentira extends MisterNumeroService {
         // O documento (M3a parte 4b): "documento:<arquivo>|<legenda>", pelo id que a Meta devolveu no `/media`.
         if (p.corpo.type === 'document')
           return { para: p.corpo.to, texto: `documento:${p.corpo.document.filename}|${p.corpo.document.caption ?? ''}|${p.corpo.document.id}`, botoes: [] };
+        // A imagem (M3c.3, o gráfico): "imagem:<id da mídia>".
+        if (p.corpo.type === 'image') return { para: p.corpo.to, texto: `imagem:${p.corpo.image.id}`, botoes: [] };
         return {
           para: p.corpo.to,
           texto: p.corpo.type === 'text' ? p.corpo.text.body : p.corpo.interactive.body.text,
@@ -2950,6 +2952,28 @@ export function testesDoMisterComPostgres(): void {
         expect(numero.enviadas.map((m) => m.texto)).toEqual(['Este relatório não está mais disponível para você.']);
         // O botão torto não é deste serviço.
         expect(await anexos.tocou('rel:pdf:nada', { telefone: tel, vinculos: [], wamid: null })).toBe(false);
+
+        // ── M3c.3: a imagem do gráfico, antes do texto ──
+        // Hoje tudo caiu numa hora só (uma barra não é gráfico): nenhuma imagem acima. A semana tem 7 barras: vai a imagem.
+        numero.pedidos.length = 0;
+        await perguntar(tel, 'e na semana?');
+        ia.roteiro = [usar('insumo_vendido', { insumo: 'carne 56 g', periodo: 'ultimos_7_dias' }), falar('Nos últimos 7 dias, 8 carnes de 56 g.')];
+        await agenteComInsumo.esvaziar();
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringMatching(/^imagem:\d+$/), 'Nos últimos 7 dias, 8 carnes de 56 g.']);
+        expect(numero.enviadas[1].botoes.map((b) => b.titulo)).toEqual(['PDF']);
+        // A imagem subiu à Meta como PNG (o formulário do /media).
+        expect(numero.pedidos.filter((p) => p.corpo?.formulario)).toEqual([expect.objectContaining({ corpo: expect.objectContaining({ type: 'image/png', arquivo: 'grafico.png' }) })]);
+        // A imagem que falha (a Meta recusa a mídia) não segura a resposta: o texto sai do mesmo jeito.
+        numero.pedidos.length = 0;
+        numero.responder = (p) => (p.url.endsWith('/media') ? { status: 500, corpo: { error: { message: 'falhou' } } } : undefined);
+        try {
+          await perguntar(tel, 'e na semana, de novo?');
+          ia.roteiro = [usar('insumo_vendido', { insumo: 'carne 56 g', periodo: 'ultimos_7_dias' }), falar('Os mesmos 8.')];
+          await agenteComInsumo.esvaziar();
+          expect(numero.enviadas.map((m) => m.texto)).toEqual(['Os mesmos 8.']);
+        } finally {
+          numero.responder = () => undefined;
+        }
       } finally {
         if (criados.comandas.length) {
           await q(`delete from movimento_estoque where ref_id = any($1::uuid[])`, [criados.comandas]);

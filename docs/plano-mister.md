@@ -1007,9 +1007,12 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
 - **Parte 2 (sem migration):** "compara com outubro" (`compararDe`/`compararAte`), "manda em PDF" (o PDF depois da
   resposta) e o botão "PDF" no balão (só a API oficial); o toque refaz o escopo de quem tocou; o PDF com o gráfico de
   barras e a linha da média, pelo `pdfkit` (`relatorio-insumo-pdf.ts`: o plano puro e o desenho).
-- **Falta:** o gráfico como imagem na conversa (sem biblioteca nova: a imagem sai do código), a página do link (abre no
-  Regem com o usuário; o de encaminhar é só leitura e vale 7 dias — migration) e os links de conferência a quem o
-  presidente pedir.
+- **Parte 2 — #1108, no ar.**
+- **Parte 3 (sem migration):** a imagem do gráfico antes do texto — a tela de pixels e o PNG feitos no código
+  (`grafico/tela.ts`), as letras da Figtree num atlas gerado uma vez (`frontend/roteiros/fonte-do-grafico.mjs`), o
+  `enviarImagem` do número do Mister. Sem biblioteca de imagem.
+- **Falta:** a página do link (abre no Regem com o usuário; o de encaminhar é só leitura e vale 7 dias — migration) e os
+  links de conferência a quem o presidente pedir.
 
 ## 5. O que depende do dono
 

@@ -64,3 +64,11 @@ Protótipo de referência das quatro primeiras: `mockups/regem-kds-cozinha.html`
    ou o Engine.IO simulado do `kds.mjs` quando a tela depende de evento.
 3. Ponha o nome na lista `ROTEIROS` de `rodar.mjs` e na tabela acima.
 4. Confira que a conferência **pega o defeito**: desfaça de propósito o que ela protege, rode e veja a falha.
+
+## Fora dos roteiros: o atlas de letras do gráfico do Mister
+
+`fonte-do-grafico.mjs` não é roteiro (não está no `rodar.mjs`): usa o mesmo navegador para desenhar, uma vez, as letras da
+Figtree (`src/fonts/figtree-var.woff2`, licença SIL OFL) e grava a transparência delas em
+`backend/src/modules/mister/grafico/fonte-do-grafico.ts` — o servidor monta a imagem do gráfico do Mister com elas, sem
+biblioteca de imagem. Rodar de novo (dentro de `frontend/`, `node roteiros/fonte-do-grafico.mjs`) só ao mudar a fonte, os
+tamanhos ou as letras.
