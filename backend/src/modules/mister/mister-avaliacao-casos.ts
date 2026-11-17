@@ -204,6 +204,9 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
     case 'mandar_link':
       // M3c.5: na loja de teste ninguém mais ligou o WhatsApp ao Mister — nada é mandado.
       return recusa('Ninguém mais desta empresa ligou o WhatsApp ao Mister. Cada um liga o seu em Mister › Pessoas.');
+    case 'corrigir_documento':
+      // M3g: na loja de teste não há boleto lançado pelo Mister — nada é corrigido.
+      return recusa('Não achei boleto lançado pelo Mister, ainda em aberto, com esse nome.');
     case 'produtos_mais_vendidos': {
       const p = periodoPedido(en);
       const ordem = String(en.ordem ?? 'quantidade').trim().toLowerCase() || 'quantidade';

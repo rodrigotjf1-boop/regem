@@ -1,6 +1,6 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
-import { hojeISO } from '../../common/data';
+import { hojeISO, somarDias } from '../../common/data';
 import { ehServidorLocal } from '../../common/modo';
 import {
   DadosDoLancamento,
@@ -30,6 +30,12 @@ import { Resposta } from './mister.regras';
 /** Quanto tempo o documento que espera o valor ou o vencimento aceita a resposta em texto. */
 const COMPLETAR_EM_MIN = 30;
 const DIAS_DA_LISTA = [7, 30, 90] as const;
+/** Para achar o boleto pelo nome dito (M3g): minúsculas, sem acento. */
+const semAcento = (s: unknown) =>
+  String(s ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase();
 const LIMITE_DA_LISTA = 200;
 
 /** Um documento na parte "Documentos" (Mister na loja). A situação "pago" e "cancelado" vem da conta a pagar ligada. */
@@ -249,6 +255,8 @@ export class MisterDocumentosService implements OnModuleInit {
   async responderBotao(botaoId: string, quem: QuemTocou): Promise<boolean> {
     // M3b: a escolha do insumo de um item da nota ("doc:ni:…") é do serviço das notas.
     if (String(botaoId ?? '').startsWith('doc:ni:')) return this.notas ? this.notas.escolher(botaoId, quem) : false;
+    // M3g: o "Desfazer" da correção do vencimento.
+    if (String(botaoId ?? '').startsWith('doc:volta:')) return this.desfazerCorrecao(String(botaoId), quem);
     const b = lerBotaoDoDocumento(botaoId);
     const empresas = quem.vinculos.map((v) => v.tenantId);
     if (!b || !empresas.length) return false;
@@ -468,6 +476,130 @@ export class MisterDocumentosService implements OnModuleInit {
         };
       }),
     };
+  }
+
+  // ───────────────────────────── M3g: corrigir o que o Mister lançou ─────────────────────────────
+
+  /**
+   * M3g — corrigir o VENCIMENTO de um boleto (ou conta) lançado pelo Mister (conversa 22: "o boleto da Distribuidora vence
+   * dia 28, não 25"). Só o presidente; só o documento lançado com a conta ainda em aberto; pelo MESMO
+   * `FinanceiroService.atualizar` da tela (a conta inteira, só o vencimento muda). O documento guarda o de antes, para o
+   * "Desfazer". O aviso de vencimento segue a conta: avisa pela data nova. O VALOR nunca se corrige por aqui (é dinheiro):
+   * isso é na tela de Contas a pagar.
+   */
+  async corrigirVencimento(
+    e: { tenantId: string; colaboradorId: string; nivel: string },
+    boleto: unknown,
+    vencimento: unknown,
+  ): Promise<{ dados: Record<string, unknown>; botoes: { id: string; titulo: string }[] } | { erro: string }> {
+    if (e.nivel !== 'presidente') return { erro: FRASES_DO_DOCUMENTO.soPresidente };
+    const novo = String(vencimento ?? '').trim();
+    const hoje = hojeISO();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(novo) || Number.isNaN(Date.parse(`${novo}T12:00:00Z`)) || new Date(`${novo}T12:00:00Z`).toISOString().slice(0, 10) !== novo)
+      return { erro: 'O vencimento precisa ser uma data (AAAA-MM-DD) que existe no calendário.' };
+    if (novo < somarDias(hoje, -30) || novo > somarDias(hoje, 366)) return { erro: 'O vencimento novo precisa estar entre 30 dias atrás e um ano à frente.' };
+    const palavras = semAcento(boleto)
+      .split(/\s+/)
+      .filter((w) => w.length >= 3 && !['boleto', 'conta', 'da', 'do', 'de'].includes(w));
+    if (!palavras.length) return { erro: 'Diga de quem é o boleto (o nome que aparece nele).' };
+    const lancados = linhas(
+      await this.db.execute(sql`
+        select d.id::text as id, d.beneficiario, f.nome as fornecedor, d.vencimento::text as vencimento, d.valor_centavos as "valorCentavos",
+               d.dados -> 'origem' ->> 'vencimento' as "origemDoVencimento", d.titulo_id::text as "tituloId"
+          from mister_documento d
+          join titulo_financeiro t on t.id = d.titulo_id and t.tenant_id = d.tenant_id and t.status = 'aberto'
+          left join fornecedor f on f.id = d.fornecedor_id and f.tenant_id = d.tenant_id
+         where d.tenant_id = ${e.tenantId}::uuid and d.situacao = 'lancado' and d.tipo in ('boleto', 'conta')
+         order by d.criado_em desc
+         limit 200`),
+    );
+    const casam = lancados.filter((d) => {
+      const nome = semAcento(`${d.beneficiario ?? ''} ${d.fornecedor ?? ''}`);
+      return palavras.every((w) => nome.includes(w));
+    });
+    const dm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+    const reaisDe = (c: unknown) => (Number(c ?? 0) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    if (!casam.length) return { erro: 'Não achei boleto lançado pelo Mister, ainda em aberto, com esse nome.' };
+    if (casam.length > 1)
+      return {
+        dados: {
+          precisaEscolher: casam.slice(0, 5).map((d) => `${d.beneficiario ?? d.fornecedor ?? 'sem nome'} · ${reaisDe(d.valorCentavos)} · vence ${d.vencimento ? dm(d.vencimento) : 'sem data'}`),
+          siga: 'Pergunte qual destes boletos, com o nome e o valor como vieram.',
+        },
+        botoes: [],
+      };
+    const d = casam[0];
+    if (d.vencimento === novo) return { erro: `O vencimento desse boleto já é ${dm(novo)}.` };
+    const antes = String(d.vencimento ?? '');
+    await this.mudarVencimento(e.tenantId, e.colaboradorId, d.tituloId, novo);
+    await this.db.execute(sql`
+      update mister_documento set vencimento = ${novo}::date, atualizado_em = clock_timestamp(),
+             dados = coalesce(dados, '{}'::jsonb) || jsonb_build_object('correcao', jsonb_build_object('de', ${antes || null}::text, 'para', ${novo}::text))
+       where id = ${d.id}::uuid and tenant_id = ${e.tenantId}::uuid`);
+    const DIAS_DA_SEMANA = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
+    return {
+      dados: {
+        corrigido: true,
+        boleto: d.beneficiario ?? d.fornecedor,
+        de: antes ? dm(antes) : null,
+        para: `${dm(novo)} (${DIAS_DA_SEMANA[new Date(`${novo}T12:00:00Z`).getUTCDay()]})`,
+        ...(d.origemDoVencimento === 'codigo' && antes
+          ? { codigoDeBarrasDiz: dm(antes), siga: `Diga que o código de barras diz ${dm(antes)}: se o fornecedor prorrogou, é para guardar o boleto novo para pagar.` }
+          : {}),
+        avisos: 'O aviso de vencimento segue a data nova.',
+        desfazer: 'Vai o botão "Desfazer" logo na sua resposta (pela API oficial).',
+      },
+      botoes: antes ? [{ id: `${PREFIXO_DO_BOTAO}volta:${d.id}:${antes}`, titulo: 'Desfazer' }] : [],
+    };
+  }
+
+  /** A conta inteira pelo MESMO serviço da tela, só com o vencimento novo. */
+  private async mudarVencimento(tenantId: string, atorId: string, tituloId: string, vencimento: string): Promise<void> {
+    const [t] = linhas(
+      await this.db.execute(sql`
+        select tipo, descricao, categoria, fornecedor_id::text as "fornecedorId", valor::text as valor, recorrencia, foto_ref as "fotoRef"
+          from titulo_financeiro where id = ${tituloId}::uuid and tenant_id = ${tenantId}::uuid`),
+    );
+    // O valor vai como está gravado (o texto do banco): a correção do vencimento não mexe nem na forma do valor.
+    await this.financeiro.atualizar(
+      tenantId,
+      atorId,
+      'presidente',
+      tituloId,
+      { tipo: t.tipo, descricao: t.descricao, categoria: t.categoria ?? undefined, fornecedorId: t.fornecedorId ?? undefined, valor: t.valor, vencimento, recorrencia: t.recorrencia ?? undefined, fotoRef: t.fotoRef ?? undefined } as any,
+      null,
+    );
+  }
+
+  /** O "Desfazer" da correção ("doc:volta:<documento>:<data de antes>"): só se o vencimento ainda for o corrigido. */
+  private async desfazerCorrecao(botaoId: string, quem: QuemTocou): Promise<boolean> {
+    const m = /^doc:volta:([0-9a-f-]{36}):(\d{4}-\d{2}-\d{2})$/i.exec(botaoId);
+    if (!m || !UUID.test(m[1])) return false;
+    const empresas = quem.vinculos.map((v) => v.tenantId);
+    if (!empresas.length) return false;
+    const d = await this.documentoDoBotao(m[1], empresas);
+    if (!d) return false;
+    const v = quem.vinculos.find((x) => x.tenantId === d.tenantId)!;
+    if (v.nivel !== 'presidente') {
+      await this.falar(quem.telefone, { texto: FRASES_DO_DOCUMENTO.soPresidente });
+      return true;
+    }
+    const [atual] = linhas(
+      await this.db.execute(sql`
+        select d.vencimento::text as vencimento, d.dados -> 'correcao' ->> 'para' as para, d.titulo_id::text as "tituloId", t.status
+          from mister_documento d join titulo_financeiro t on t.id = d.titulo_id and t.tenant_id = d.tenant_id
+         where d.id = ${d.id}::uuid and d.tenant_id = ${d.tenantId}::uuid`),
+    );
+    if (!atual || atual.status !== 'aberto' || !atual.para || atual.vencimento !== atual.para) {
+      await this.falar(quem.telefone, { texto: 'Este vencimento já mudou de novo (ou a conta não está mais em aberto): não desfiz.' });
+      return true;
+    }
+    await this.mudarVencimento(d.tenantId, v.colaboradorId, atual.tituloId, m[2]);
+    await this.db.execute(sql`
+      update mister_documento set vencimento = ${m[2]}::date, atualizado_em = clock_timestamp(), dados = dados - 'correcao'
+       where id = ${d.id}::uuid and tenant_id = ${d.tenantId}::uuid`);
+    await this.falar(quem.telefone, { texto: `Desfeito: o vencimento voltou para ${m[2].slice(8, 10)}/${m[2].slice(5, 7)}.` });
+    return true;
   }
 
   /** "Desfazer o lançamento" pela tela: o mesmo caminho do botão da conversa. Devolve o documento como a tela mostra. */
