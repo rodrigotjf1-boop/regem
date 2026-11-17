@@ -6,7 +6,10 @@
 
 /** Nome do canal como o cliente e o entregador o conhecem. Canal desconhecido sai como veio. */
 export const ROTULO_CANAL: Record<string, string> = {
-  cardapio: 'Cardápio',
+  cardapio: 'Regem', // o cardápio próprio da loja (pedido do dono, 16/11/2026: "iFood, 99Food, Anota Aí, Regem")
+  // O cartão da cozinha guarda o canal do cardápio próprio já escrito ("Cardápio" — `delivery.service` › PLAT): na via de
+  // produção ele também sai "Regem".
+  'cardápio': 'Regem',
   manual: 'Telefone',
   n8n: 'WhatsApp',
   ifood: 'iFood',
