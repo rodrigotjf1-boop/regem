@@ -93,3 +93,8 @@ O selo do número é navy com número branco e borda dourada — nunca dourado: 
 quantidade no cartão do Balcão, as contagens do painel do Delivery). Botão desligado tem `pointer-events: none` e o
 `elementFromPoint` passa por ele; a medida liga o `pointer-events` só durante a conferência. Mudou o selo ou a marca:
 gerar de novo TODAS as imagens (`GERAR_COMO_FACO=1` em cada roteiro que tem `fotoDoComoFaco`).
+
+Tela sem roteiro próprio entra em `como-faco.mjs`: uma linha em `TELAS` com o assunto, o endereço, o passo (uma aba) e
+as marcas. A resposta simulada padrão é a lista vazia nas leituras e `{}` no resto; tela que lê outro formato traz as
+suas `respostas`. O roteiro confere também que a tela não caiu no "Algo deu errado" (a fronteira de erro do React não
+gera `pageerror`).
