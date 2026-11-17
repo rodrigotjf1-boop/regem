@@ -15,9 +15,28 @@ describe('a leitura da foto do cliente (serviço)', () => {
     }
   });
 
-  function montar(o: { resposta?: string; recusou?: boolean; falha?: any; mime?: string; bytes?: number; acesso?: boolean } = {}) {
+  // O texto de uma consulta `sql` do drizzle (só os pedaços fixos), para o banco de mentira saber o que responder.
+  const textoDaConsulta = (q: any) => (q?.queryChunks ?? []).flatMap((c: any) => (Array.isArray(c?.value) ? c.value : [])).join(' ');
+
+  function montar(
+    o: { resposta?: string; recusou?: boolean; falha?: any; mime?: string; bytes?: number; acesso?: boolean; lojaLe?: boolean; semVaga?: boolean } = {},
+  ) {
     const pedidos: any[] = [];
     const midias: any[] = [];
+    const gravadas: string[] = [];
+    // A chave da loja (mig 442: nasce desligada; aqui ligada salvo `lojaLe: false`) e a vaga do dia (F7).
+    const db = {
+      execute: async (q: any) => {
+        const t = textoDaConsulta(q);
+        if (/fotos_ler/.test(t)) return { rows: [{ ler: o.lojaLe !== false }] };
+        if (/insert into robo_foto_lida/.test(t)) return { rows: o.semVaga ? [] : [{ lidas: 1 }] };
+        if (/update robo_foto_lida/.test(t)) {
+          gravadas.push(t);
+          return { rows: [] };
+        }
+        return { rows: [] };
+      },
+    } as any;
     const ia = {
       temAcesso: async () => o.acesso !== false,
       pedir: async (tenantId: string, p: any) => {
@@ -29,9 +48,50 @@ describe('a leitura da foto do cliente (serviço)', () => {
     const resposta = {
       midiaDoRegem: async (q: any) => (midias.push(q), { buffer: Buffer.alloc(o.bytes ?? 2048, 7), mime: o.mime ?? 'image/jpeg' }),
     } as any;
-    return { svc: new FotoDoClienteService(ia, resposta), pedidos, midias };
+    return { svc: new FotoDoClienteService(ia, resposta, db), pedidos, midias, gravadas };
   }
-  const foto = (x: any = {}) => ({ tenantId: 't1', tipo: 'image', texto: 'não consigo finalizar', phoneNumberId: 'PID', midiaId: 'M1', mensagemId: 'wamid.1', loja: { nome: 'Mister Burguer' }, ...x });
+  const foto = (x: any = {}) => ({
+    tenantId: 't1',
+    tipo: 'image',
+    texto: 'não consigo finalizar',
+    de: '5521999998888',
+    phoneNumberId: 'PID',
+    midiaId: 'M1',
+    mensagemId: 'wamid.1',
+    loja: { nome: 'Mister Burguer' },
+    ...x,
+  });
+
+  // Fechar a foto (17/11/2026, mig 442): a chave da LOJA, o limite do dia (F7) e a descrição guardada para o caso (F5).
+  it('a loja não ligou "Ler as fotos": nem baixa a mídia nem chama a IA (mesmo com a distribuição liberando)', async () => {
+    process.env.ROBO_FOTOS_IA = '1';
+    delete process.env.EDGE_MODE;
+    const l = montar({ lojaLe: false });
+    expect(l.svc.disponivel()).toBe(true);
+    expect(await l.svc.olhar(foto())).toBeNull();
+    expect(l.midias).toEqual([]);
+    expect(l.pedidos).toEqual([]);
+  });
+
+  it('o limite do dia acabou: a IA não é chamada e a foto segue sem descrição', async () => {
+    process.env.ROBO_FOTOS_IA = '1';
+    delete process.env.EDGE_MODE;
+    const l = montar({ semVaga: true });
+    expect(await l.svc.olhar(foto())).toBeNull();
+    expect(l.pedidos).toEqual([]);
+    expect(l.gravadas).toEqual([]);
+  });
+
+  it('leu: a descrição fica guardada para o caso; fora do formato, nada se guarda', async () => {
+    process.env.ROBO_FOTOS_IA = '1';
+    delete process.env.EDGE_MODE;
+    const l = montar();
+    expect(await l.svc.olhar(foto())).not.toBeNull();
+    expect(l.gravadas).toHaveLength(1);
+    const ruim = montar({ resposta: 'não consigo ver' });
+    expect(await ruim.svc.olhar(foto())).toBeNull();
+    expect(ruim.gravadas).toEqual([]);
+  });
 
   it('nasce desligado: sem ROBO_FOTOS_IA=1 não baixa a mídia nem chama a IA', async () => {
     delete process.env.ROBO_FOTOS_IA;

@@ -2405,6 +2405,9 @@ const SO_NUVEM = new Set([
   // "Já mandei este aviso ao cliente da 99" (mig 388, @cloud-only): o rastreio da 99 sai pelo WhatsApp da loja, só da
   // nuvem — a loja não tem esta tabela.
   'pedido_aviso_99',
+  // As fotos do cliente lidas pela IA (mig 442, @cloud-only): o limite por dia e a última descrição. A leitura e o robô
+  // moram na nuvem — a loja não tem esta tabela.
+  'robo_foto_lida',
   // Os avisos ao entregador (mig 391, @cloud-only): o app do entregador fala com a nuvem; o Atendimento do servidor da
   // loja pede à nuvem — a loja não tem esta tabela.
   'entregador_aviso',
