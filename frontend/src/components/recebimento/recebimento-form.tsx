@@ -175,15 +175,15 @@ export function RecebimentoForm({
               placeholder="Opcional"
             />
           </div>
-          <div className="space-y-1.5">
-            <Label>Foto da nota</Label>
+          <div className="space-y-1.5" role="group" aria-labelledby="recebimento-foto-rotulo">
+            <Label id="recebimento-foto-rotulo">Foto da nota</Label>
             <ImageUpload value={notaFotoRef} onChange={setNotaFotoRef} />
           </div>
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-3" role="group" aria-labelledby="recebimento-itens-rotulo">
           <div className="flex items-center justify-between">
-            <Label>Conferência de itens</Label>
+            <Label id="recebimento-itens-rotulo">Conferência de itens</Label>
             <Button
               type="button"
               size="sm"
@@ -207,6 +207,7 @@ export function RecebimentoForm({
             >
               <div className="flex items-center gap-2">
                 <Select
+                  aria-label={`Item ${i + 1} da nota`}
                   value={l.itemId}
                   onChange={(e) => setLinha(i, { itemId: e.target.value })}
                 >
@@ -236,8 +237,10 @@ export function RecebimentoForm({
 
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 <div className="space-y-1">
-                  <Label className="text-xs">Esperado</Label>
+                  {/* um conjunto de campos por item da nota: o id leva a posição do item */}
+                  <Label htmlFor={`recebimento-${i}-esperado`} className="text-xs">Esperado</Label>
                   <Input
+                    id={`recebimento-${i}-esperado`}
                     type="number"
                     inputMode="decimal"
                     value={l.qtdEsperada}
@@ -251,8 +254,9 @@ export function RecebimentoForm({
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">Recebido</Label>
+                  <Label htmlFor={`recebimento-${i}-recebido`} className="text-xs">Recebido</Label>
                   <Input
+                    id={`recebimento-${i}-recebido`}
                     type="number"
                     inputMode="decimal"
                     value={l.qtdRecebida}
@@ -266,8 +270,9 @@ export function RecebimentoForm({
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">Custo unit. (R$)</Label>
+                  <Label htmlFor={`recebimento-${i}-custo`} className="text-xs">Custo unit. (R$)</Label>
                   <Input
+                    id={`recebimento-${i}-custo`}
                     type="number"
                     inputMode="decimal"
                     value={l.custoUnitario}
@@ -278,8 +283,9 @@ export function RecebimentoForm({
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">Divergência</Label>
+                  <Label htmlFor={`recebimento-${i}-divergencia`} className="text-xs">Divergência</Label>
                   <Select
+                    id={`recebimento-${i}-divergencia`}
                     value={l.divergencia}
                     onChange={(e) => setLinha(i, { divergencia: e.target.value })}
                   >
@@ -291,8 +297,9 @@ export function RecebimentoForm({
                   </Select>
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">Validade</Label>
+                  <Label htmlFor={`recebimento-${i}-validade`} className="text-xs">Validade</Label>
                   <Input
+                    id={`recebimento-${i}-validade`}
                     type="date"
                     value={l.validade}
                     onChange={(e) => setLinha(i, { validade: e.target.value })}

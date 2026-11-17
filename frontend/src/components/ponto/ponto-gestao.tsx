@@ -146,8 +146,8 @@ export function PontoGestao({
       {acao === 'incluir' && (
         <div className="grid gap-2 sm:grid-cols-2">
           <div className="space-y-1">
-            <Label className="text-xs">Tipo</Label>
-            <Select value={tipo} onChange={(e) => setTipo(e.target.value)}>
+            <Label htmlFor="ponto-tipo" className="text-xs">Tipo</Label>
+            <Select id="ponto-tipo" value={tipo} onChange={(e) => setTipo(e.target.value)}>
               {TIPOS_MARCACAO.map((t) => (
                 <option key={t.value} value={t.value}>
                   {t.label}
@@ -156,8 +156,8 @@ export function PontoGestao({
             </Select>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Data e hora</Label>
-            <Input
+            <Label htmlFor="ponto-marcado-em" className="text-xs">Data e hora</Label>
+            <Input id="ponto-marcado-em"
               type="datetime-local"
               value={marcadoEm}
               onChange={(e) => setMarcadoEm(e.target.value)}
@@ -169,8 +169,8 @@ export function PontoGestao({
       {acao === 'abono' && (
         <div className="grid gap-2 sm:grid-cols-2">
           <div className="space-y-1">
-            <Label className="text-xs">Tipo</Label>
-            <Select
+            <Label htmlFor="ponto-subtipo" className="text-xs">Tipo</Label>
+            <Select id="ponto-subtipo"
               value={subtipo}
               onChange={(e) => setSubtipo(e.target.value as any)}
             >
@@ -179,18 +179,19 @@ export function PontoGestao({
             </Select>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Dia</Label>
-            <Input
+            <Label htmlFor="ponto-data-abono" className="text-xs">Dia</Label>
+            <Input id="ponto-data-abono"
               type="date"
               value={dataAbono}
               onChange={(e) => setDataAbono(e.target.value)}
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">
+            <Label htmlFor="ponto-minutos" className="text-xs">
               Minutos (vazio = abona a jornada do dia)
             </Label>
             <Input
+              id="ponto-minutos"
               type="number"
               inputMode="numeric"
               value={minutos}
@@ -199,8 +200,8 @@ export function PontoGestao({
             />
           </div>
           {subtipo === 'atestado' && (
-            <div className="space-y-1">
-              <Label className="text-xs">Foto do atestado</Label>
+            <div className="space-y-1" role="group" aria-labelledby="ponto-atestado-rotulo">
+              <Label id="ponto-atestado-rotulo" className="text-xs">Foto do atestado</Label>
               <ImageUpload value={atestadoRef} onChange={setAtestadoRef} />
             </div>
           )}
@@ -210,8 +211,8 @@ export function PontoGestao({
       {acao === 'desconsiderar' && (
         <div className="grid gap-2 sm:grid-cols-2">
           <div className="space-y-1">
-            <Label className="text-xs">Dia</Label>
-            <Select
+            <Label htmlFor="ponto-dia-sel" className="text-xs">Dia</Label>
+            <Select id="ponto-dia-sel"
               value={diaSel}
               onChange={(e) => {
                 setDiaSel(e.target.value);
@@ -227,8 +228,8 @@ export function PontoGestao({
             </Select>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Marcação</Label>
-            <Select
+            <Label htmlFor="ponto-marcacao-id" className="text-xs">Marcação</Label>
+            <Select id="ponto-marcacao-id"
               value={marcacaoId}
               onChange={(e) => setMarcacaoId(e.target.value)}
               disabled={!diaSel}
@@ -245,8 +246,8 @@ export function PontoGestao({
       )}
 
       <div className="space-y-1">
-        <Label className="text-xs">Justificativa</Label>
-        <Input
+        <Label htmlFor="ponto-justificativa" className="text-xs">Justificativa</Label>
+        <Input id="ponto-justificativa"
           value={justificativa}
           onChange={(e) => setJustificativa(e.target.value)}
           placeholder="Motivo da correção (obrigatório, fica na auditoria)"

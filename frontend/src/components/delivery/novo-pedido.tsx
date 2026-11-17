@@ -154,8 +154,8 @@ export function NovoPedido({ onFechar, onCriado }: { onFechar: () => void; onCri
 
         <div className="flex flex-col gap-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <div className="space-y-1"><Label className="text-xs">Cliente</Label><Input value={cliente} onChange={(e) => setCliente(e.target.value)} placeholder="Nome" /></div>
-            <div className="space-y-1"><Label className="text-xs">Telefone</Label><Input inputMode="tel" value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="(00) 0000-0000" /></div>
+            <div className="space-y-1"><Label htmlFor="novo-pedido-cliente" className="text-xs">Cliente</Label><Input id="novo-pedido-cliente" value={cliente} onChange={(e) => setCliente(e.target.value)} placeholder="Nome" /></div>
+            <div className="space-y-1"><Label htmlFor="novo-pedido-telefone" className="text-xs">Telefone</Label><Input id="novo-pedido-telefone" inputMode="tel" value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="(00) 0000-0000" /></div>
           </div>
           {achou && (
             <p className="rounded-md bg-ok/10 px-2.5 py-1.5 text-xs text-ok">
@@ -178,22 +178,22 @@ export function NovoPedido({ onFechar, onCriado }: { onFechar: () => void; onCri
           )}
           {tipo === 'entrega' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <div className="space-y-1"><Label className="text-xs">CEP</Label><Input value={cep} inputMode="numeric" onChange={(e) => setCep(e.target.value)} onBlur={(e) => cepBlur(e.target.value)} placeholder="00000-000" /></div>
+              <div className="space-y-1"><Label htmlFor="novo-pedido-cep" className="text-xs">CEP</Label><Input id="novo-pedido-cep" value={cep} inputMode="numeric" onChange={(e) => setCep(e.target.value)} onBlur={(e) => cepBlur(e.target.value)} placeholder="00000-000" /></div>
               <div className="flex items-end"><span className="text-xs text-muted-foreground">Preenche rua e bairro automaticamente.</span></div>
-              <div className="col-span-2 space-y-1"><Label className="text-xs">Rua</Label><Input value={rua} onChange={(e) => setRua(e.target.value)} placeholder="Rua / logradouro" /></div>
-              <div className="space-y-1"><Label className="text-xs">Número</Label><Input value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="123" /></div>
-              <div className="space-y-1"><Label className="text-xs">Bairro</Label><Input value={bairro} onChange={(e) => setBairro(e.target.value)} placeholder="Bairro" /></div>
-              <div className="col-span-2 space-y-1"><Label className="text-xs">Referência</Label><Input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Ponto de referência" /></div>
+              <div className="col-span-2 space-y-1"><Label htmlFor="novo-pedido-rua" className="text-xs">Rua</Label><Input id="novo-pedido-rua" value={rua} onChange={(e) => setRua(e.target.value)} placeholder="Rua / logradouro" /></div>
+              <div className="space-y-1"><Label htmlFor="novo-pedido-numero" className="text-xs">Número</Label><Input id="novo-pedido-numero" value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="123" /></div>
+              <div className="space-y-1"><Label htmlFor="novo-pedido-bairro" className="text-xs">Bairro</Label><Input id="novo-pedido-bairro" value={bairro} onChange={(e) => setBairro(e.target.value)} placeholder="Bairro" /></div>
+              <div className="col-span-2 space-y-1"><Label htmlFor="novo-pedido-ref" className="text-xs">Referência</Label><Input id="novo-pedido-ref" value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Ponto de referência" /></div>
             </div>
           )}
           <div className="space-y-1">
-            <Label className="text-xs">Forma de pagamento</Label>
-            <select value={forma} onChange={(e) => setForma(e.target.value)} aria-label="Forma de pagamento" className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm">
+            <Label htmlFor="novo-pedido-forma" className="text-xs">Forma de pagamento</Label>
+            <select id="novo-pedido-forma" value={forma} onChange={(e) => setForma(e.target.value)} aria-label="Forma de pagamento" className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm">
               {formas.map((f) => <option key={f.id} value={f.nome}>{f.nome}</option>)}
             </select>
           </div>
           {ehDinheiro && (
-            <div className="space-y-1"><Label className="text-xs">Troco para</Label><Input inputMode="decimal" value={trocoPara} onChange={(e) => setTrocoPara(e.target.value)} placeholder="0,00" /></div>
+            <div className="space-y-1"><Label htmlFor="novo-pedido-troco-para" className="text-xs">Troco para</Label><Input id="novo-pedido-troco-para" inputMode="decimal" value={trocoPara} onChange={(e) => setTrocoPara(e.target.value)} placeholder="0,00" /></div>
           )}
 
           <div className="mt-1 border-t border-border pt-2">
