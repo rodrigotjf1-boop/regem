@@ -41,6 +41,9 @@ import {
 } from './insumo-vendido';
 import { PlanoDoPdfDoInsumo, gerarPdfDoInsumo, nomeDoPdfDoInsumo, planoDoPdfDoInsumo } from './relatorio-insumo-pdf';
 import { GraficoDaConversa, valeAImagem } from './grafico/grafico-do-insumo';
+import { MisterNumeroService } from './mister-numero.service';
+import { dentroDaJanelaDoWhatsapp } from './mister-avisos.regras';
+import { ASSUNTOS_DO_LINK, AssuntoDoLink, TELA_DO_ASSUNTO, acharPessoa, enderecoDoApp, mensagemDoLink, resumoDaContagem } from './link-de-conferencia';
 import { MisterPropostasService, PropostaPendente } from './mister-propostas.service';
 import { PROCEDIMENTOS, propostaDoAviso } from './mister-procedimentos';
 import {
@@ -257,6 +260,8 @@ export class MisterFerramentasService {
     @Optional() private readonly ibpt?: IbptService,
     // F4.3: a proposta que nasce de uma pergunta (o mesmo serviço da F4.1). Sem ele, "não consigo propor agora".
     @Optional() private readonly propostas?: MisterPropostasService,
+    // M3c.5: o link de conferência sai pelo número do Mister. Sem ele, "não consigo mandar agora".
+    @Optional() private readonly numero?: MisterNumeroService,
   ) {}
 
   // ───────────────────────────── de quem é a conversa ─────────────────────────────
@@ -432,7 +437,81 @@ export class MisterFerramentasService {
         return this.proporProcedimento(e, en, loja);
       case 'insumo_vendido':
         return this.insumoVendido(e, en, loja);
+      case 'mandar_link':
+        return this.mandarLink(e, en, loja);
     }
+  }
+
+  /**
+   * M3c.5 — o link de conferência (conversa 18): o presidente pede, e o Mister manda a outra pessoa da empresa, ligada a
+   * ele, o resumo e o botão "Abrir no Regem" (abre com o usuário dela). Só o presidente; só a quem ligou o WhatsApp ao
+   * Mister, não pausou as mensagens e pode ver a tela; a loja é a de quem recebe (a presa) ou a da conversa. Fora da janela
+   * de 24 horas da Meta não há mensagem livre: o Mister diz isso ao presidente (nenhum modelo novo).
+   */
+  private async mandarLink(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    if (e.nivel !== 'presidente') return recusa('Só o presidente manda link de conferência pelo Mister.');
+    if (!this.numero) return recusa('Não consigo mandar agora.');
+    const assunto = String(en.assunto ?? '') as AssuntoDoLink;
+    if (!(ASSUNTOS_DO_LINK as readonly string[]).includes(assunto)) return recusa('Esse link não está no catálogo. Hoje dá para mandar: a contagem de estoque de hoje.');
+    const ligados = linhas(
+      await this.db.execute(sql`
+        select g.colaborador_id::text as "colaboradorId", g.telefone, g.ultima_entrada_em as "ultimaEntrada", g.pausado_em as "pausadoEm", c.nome
+          from mister_vinculo g
+          join colaborador c on c.id = g.colaborador_id and c.tenant_id = g.tenant_id
+          left join funcao f on f.id = c.funcao_id
+          left join perfil_acesso p on p.id = c.perfil_acesso_id
+          join empresa emp on emp.id = g.tenant_id
+         where g.tenant_id = ${e.tenantId}::uuid and g.ligado_em is not null and g.telefone is not null
+           and g.colaborador_id <> ${e.colaboradorId}::uuid and ${pessoaVale()}
+         order by c.nome`),
+    );
+    const achado = acharPessoa(en.para, ligados);
+    if (achado.tipo === 'nenhum')
+      return recusa(
+        ligados.length
+          ? `Não achei essa pessoa entre quem ligou o WhatsApp ao Mister nesta empresa: ${ligados.map((l) => primeiroNome(String(l.nome))).join(', ')}.`
+          : 'Ninguém mais desta empresa ligou o WhatsApp ao Mister. Cada um liga o seu em Mister › Pessoas.',
+      );
+    if (achado.tipo === 'escolher') return { ok: true, dados: { precisaEscolher: achado.opcoes, siga: 'Pergunte para qual destas pessoas, com os nomes como vieram.' } };
+    const alvo = achado.pessoa;
+    const nome = primeiroNome(String(alvo.nome));
+    if (alvo.pausadoEm) return recusa(`${nome} pausou as mensagens do Mister (respondeu PARAR AVISOS). Peça a ${nome} para reativar em Mister › Pessoas.`);
+    const deles = await this.escopo(e.tenantId, alvo.colaboradorId, alvo.telefone);
+    if (!deles || deles.semLoja) return recusa(`${nome} não tem mais acesso ao Mister.`);
+    const tela = TELA_DO_ASSUNTO[assunto];
+    if (!this.pode(deles, tela.permissao)) return recusa(`O perfil de ${nome} no Regem não abre ${tela.onde}.`);
+    // A loja do link: a de quem recebe, quando ela é presa a uma loja; senão, a da conversa.
+    const lojaDoLink = deles.presa ? { atual: deles.presa, nome: deles.lojas[0]?.nome ?? loja.nome } : loja;
+    const hoje = hojeISO();
+    const [c] = linhas(
+      await this.db.execute(sql`
+        select count(ci.*)::int as itens,
+               (count(*) filter (where ci.contado is not null))::int as contados,
+               (count(*) filter (where ci.contado is not null and ci.contado <> ci.saldo_sistema))::int as "comDiferenca"
+          from contagem_execucao x
+          join contagem_lista l on l.id = x.lista_id and l.tenant_id = x.tenant_id
+          join contagem_item ci on ci.execucao_id = x.id
+         where x.tenant_id = ${e.tenantId}::uuid and x.data = ${hoje}::date ${sqlUnidade('l.unidade_id', lojaDoLink.atual)}`),
+    );
+    const naLoja = lojaDoLink.nome === 'todas as lojas' ? 'em nenhuma loja' : `na ${lojaDoLink.nome}`;
+    if (!c || !Number(c.itens)) return recusa(`Ainda não tem contagem de estoque de hoje ${naLoja}. O link vai quando a contagem começar.`);
+    const resumo = resumoDaContagem({ itens: Number(c.itens), contados: Number(c.contados), comDiferenca: Number(c.comDiferenca) });
+    // Fora da janela de 24 horas da Meta só sai modelo aprovado: o Mister não manda e diz por quê.
+    if (!(await this.numero.semJanela()) && !dentroDaJanelaDoWhatsapp(alvo.ultimaEntrada ? new Date(alvo.ultimaEntrada) : null, Date.now()))
+      return recusa(
+        `${nome} não escreve ao Mister há mais de 24 horas, e o WhatsApp só deixa o Mister mandar mensagem livre depois que a pessoa escreve. Peça a ${nome} para mandar um "oi" ao Mister e peça o link de novo.`,
+      );
+    const dia = `${hoje.slice(8, 10)}/${hoje.slice(5, 7)}`;
+    try {
+      await this.numero.enviar(alvo.telefone, {
+        texto: mensagemDoLink({ quemPediu: e.nome, assunto, dia, loja: lojaDoLink.nome, resumo }),
+        link: { titulo: 'Abrir no Regem', url: `${enderecoDoApp()}${tela.caminho}` },
+      });
+    } catch (err: any) {
+      this.logger.warn(`mister: o link de conferência não saiu (${err?.motivo ?? err?.message ?? err})`);
+      return recusa(`Não consegui mandar o link para ${nome} agora. Tente de novo em instantes.`);
+    }
+    return { ok: true, dados: { enviadoPara: nome, loja: lojaDoLink.nome, dia, resumo, abreEm: `${tela.onde}, com o usuário de ${nome}` } };
   }
 
   /**

@@ -3005,6 +3005,88 @@ export function testesDoMisterComPostgres(): void {
       }
     });
 
+    // ───────────────────────────── o link de conferência (M3c.5) ─────────────────────────────
+    // O presidente pede "manda pro Carlos o link da contagem de hoje": o Mister manda ao Carlos (ligado, gerente) o resumo e
+    // o botão "Abrir no Regem". Só o presidente; só a quem está ligado, não pausou e escreveu nas últimas 24 horas.
+    it('o link de conferência (M3c.5): o resumo da contagem de hoje ao Carlos, com o botão; as recusas', async () => {
+      const telAna = telefone();
+      const telCarlos = telefone();
+      await ligar('ana', telAna);
+      await ligar('carlos', telCarlos, A, 'gerente');
+      const comLink = new MisterFerramentasService(
+        db,
+        modulos,
+        null as any,
+        null as any,
+        null as any,
+        null as any,
+        null as any,
+        null as any,
+        null as any,
+        null as any,
+        null as any,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        numero,
+      );
+      const hoje = hojeISO();
+      const itens: string[] = [];
+      let lista: string | null = null;
+      try {
+        // A contagem de hoje na Loja Centro: 3 itens, 2 contados, 1 com diferença.
+        for (const nome of ['Carne 56 g (contagem)', 'Pão (contagem)', 'Queijo (contagem)'])
+          itens.push((await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, $2, 'unidade') returning id::text as id`, [A, nome]))[0].id);
+        [{ id: lista }] = await q(`insert into contagem_lista (tenant_id, unidade_id, nome, recorrencia) values ($1, $2, 'Câmara fria', 'diaria') returning id::text as id`, [A, lojaDeA]);
+        const [{ id: exec }] = await q(`insert into contagem_execucao (tenant_id, lista_id, data, status) values ($1, $2, $3::date, 'aberta') returning id::text as id`, [A, lista, hoje]);
+        await q(
+          `insert into contagem_item (tenant_id, execucao_id, item_id, saldo_sistema, contado) values ($1, $2, $3, 10, 10), ($1, $2, $4, 5, 4), ($1, $2, $5, 8, null)`,
+          [A, exec, itens[0], itens[1], itens[2]],
+        );
+        const e = (await comLink.escopo(A, pessoa.ana, telAna))!;
+        numero.pedidos.length = 0;
+        const r: any = await comLink.executar(e, 'mandar_link', { para: 'o Carlos', assunto: 'contagem_de_hoje' });
+        expect(r).toMatchObject({ ok: true, dados: { enviadoPara: 'Carlos', loja: 'Loja Centro', resumo: '3 itens (2 contados), 1 com diferença' } });
+        const [m] = numero.enviadas;
+        expect(numero.enviadas).toHaveLength(1);
+        expect(m.para).toBe(telCarlos);
+        expect(m.texto).toBe(`📋 Ana pediu para você conferir a contagem de estoque de hoje, ${hoje.slice(8, 10)}/${hoje.slice(5, 7)}, na Loja Centro: 3 itens (2 contados), 1 com diferença. Abre em Estoque › Contagem, com o seu usuário.`);
+        expect(m.link).toEqual({ titulo: 'Abrir no Regem', url: `${String(process.env.APP_URL || 'https://app.dmsregem.com').replace(/\/+$/, '')}/operacao?aba=contagem` });
+
+        // O gerente não manda; o assunto fora do catálogo não vai; a pessoa que não está ligada: os nomes de quem está.
+        const doCarlos = (await comLink.escopo(A, pessoa.carlos, telCarlos))!;
+        expect(await comLink.executar(doCarlos, 'mandar_link', { para: 'Ana', assunto: 'contagem_de_hoje' })).toEqual({ ok: false, dados: { erro: 'Só o presidente manda link de conferência pelo Mister.' } });
+        expect(await comLink.executar(e, 'mandar_link', { para: 'Carlos', assunto: 'caixa' })).toMatchObject({ ok: false });
+        const ninguem: any = await comLink.executar(e, 'mandar_link', { para: 'Zé', assunto: 'contagem_de_hoje' });
+        expect(ninguem.dados.erro).toContain('Não achei essa pessoa');
+        expect(ninguem.dados.erro).toContain('Carlos');
+        // Fora da janela de 24 horas: não manda e diz por quê.
+        numero.pedidos.length = 0;
+        await q(`update mister_vinculo set ultima_entrada_em = now() - interval '25 hours' where colaborador_id = $1`, [pessoa.carlos]);
+        const fora: any = await comLink.executar(e, 'mandar_link', { para: 'Carlos', assunto: 'contagem_de_hoje' });
+        expect(fora.dados.erro).toContain('há mais de 24 horas');
+        expect(numero.enviadas).toEqual([]);
+        // Pausou as mensagens (PARAR AVISOS): não manda.
+        await q(`update mister_vinculo set ultima_entrada_em = now(), pausado_em = now() where colaborador_id = $1`, [pessoa.carlos]);
+        expect(((await comLink.executar(e, 'mandar_link', { para: 'Carlos', assunto: 'contagem_de_hoje' })) as any).dados.erro).toContain('pausou');
+        await q(`update mister_vinculo set pausado_em = null where colaborador_id = $1`, [pessoa.carlos]);
+        // Sem contagem hoje (a de ontem não conta): diz que ainda não tem.
+        await q(`update contagem_execucao set data = $2::date where lista_id = $1`, [lista, somarDias(hoje, -1)]);
+        expect(((await comLink.executar(e, 'mandar_link', { para: 'Carlos', assunto: 'contagem_de_hoje' })) as any).dados.erro).toBe(
+          'Ainda não tem contagem de estoque de hoje na Loja Centro. O link vai quando a contagem começar.',
+        );
+        expect(numero.enviadas).toEqual([]);
+      } finally {
+        if (lista) await q(`delete from contagem_lista where id = $1`, [lista]);
+        await q(`delete from item_estoque where id = any($1::uuid[])`, [itens]);
+      }
+    });
+
     // ───────────────────────────── a avaliação de regressão (F5.3, mig 424) ─────────────────────────────
     // O modelo de mentira responde CERTO a cada pergunta (a consulta, a entrada e os números do caso): prova o caminho
     // inteiro — o laço de verdade, a loja de teste, a conferência, o andamento gravado e o custo. Só a distribuição: a

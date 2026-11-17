@@ -1015,8 +1015,10 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
 - **Parte 4 (sem migration):** a página `/mister/relatorio` ("Ver no Regem", no fim da resposta) com o mesmo plano do
   PDF, "Mudar o período" e "Baixar PDF"; as rotas refazem o relatório no escopo de quem abre (`escopoDaTela`, a mesma
   régua da conversa pelo login).
-- **Falta:** o link para encaminhar a quem não tem usuário (só leitura, 7 dias, na auditoria — migration) e os links de
-  conferência a quem o presidente pedir (conversa 18).
+- **Parte 4 — #1110, no ar.**
+- **Parte 5 (sem migration):** `mandar_link` — o link de conferência a quem o presidente pedir (conversa 18), por
+  enquanto a contagem de estoque de hoje; fora da janela de 24 horas o Mister diz que a pessoa precisa escrever antes.
+- **Falta:** o link para encaminhar a quem não tem usuário (só leitura, 7 dias, na auditoria — migration).
 
 ## 5. O que depende do dono
 
