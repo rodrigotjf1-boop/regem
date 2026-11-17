@@ -148,8 +148,8 @@ export function TarefaModal({
 
   function FotoSlots({ exige }: { exige: boolean }) {
     return (
-      <div className="space-y-1.5">
-        <Label className="text-xs">
+      <div className="space-y-1.5" role="group" aria-labelledby="tarefa-fotos-rotulo">
+        <Label id="tarefa-fotos-rotulo" className="text-xs">
           Fotos de comprovação {exige ? '(obrigatória)' : '(opcional)'} — até 3
         </Label>
         <div className="flex flex-wrap gap-2">

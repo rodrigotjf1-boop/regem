@@ -34,8 +34,8 @@ export function SplitPagamento({
       </label>
       {!dividir ? (
         <>
-          <label className="mt-2 block text-sm font-medium">Forma de pagamento</label>
-          <select className="mt-1 w-full rounded-lg border border-border bg-background p-2 text-sm" value={formaUnica} onChange={(e) => onFormaUnica(e.target.value)}>
+          <label htmlFor="split-forma-unica" className="mt-2 block text-sm font-medium">Forma de pagamento</label>
+          <select id="split-forma-unica" className="mt-1 w-full rounded-lg border border-border bg-background p-2 text-sm" value={formaUnica} onChange={(e) => onFormaUnica(e.target.value)}>
             {opcoes.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </>

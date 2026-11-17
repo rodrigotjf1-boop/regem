@@ -641,12 +641,12 @@ export default function ProdutosPage() {
                     {f.controlaValidade && (
                       <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <div className="space-y-1">
-                          <Label className="text-xs">Validade fechado (dias)</Label>
-                          <Input type="number" value={f.validadeFechadoDias ?? ''} onChange={(e) => set({ validadeFechadoDias: e.target.value })} placeholder="ex.: 90" />
+                          <Label htmlFor="produtos-validade-fechado-dias" className="text-xs">Validade fechado (dias)</Label>
+                          <Input id="produtos-validade-fechado-dias" type="number" value={f.validadeFechadoDias ?? ''} onChange={(e) => set({ validadeFechadoDias: e.target.value })} placeholder="ex.: 90" />
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-xs">Validade após aberto (dias)</Label>
-                          <Input type="number" value={f.validadeAbertoDias ?? ''} onChange={(e) => set({ validadeAbertoDias: e.target.value })} placeholder="RDC 216: até 30" />
+                          <Label htmlFor="produtos-validade-aberto-dias" className="text-xs">Validade após aberto (dias)</Label>
+                          <Input id="produtos-validade-aberto-dias" type="number" value={f.validadeAbertoDias ?? ''} onChange={(e) => set({ validadeAbertoDias: e.target.value })} placeholder="RDC 216: até 30" />
                         </div>
                       </div>
                     )}

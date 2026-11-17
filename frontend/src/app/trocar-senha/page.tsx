@@ -44,17 +44,17 @@ export default function TrocarSenhaPage() {
       <div className="max-w-md">
         <Card className="space-y-3 p-4">
           <div className="space-y-1">
-            <Label className="text-xs">Senha atual</Label>
+            <Label htmlFor="trocar-senha-atual" className="text-xs">Senha atual</Label>
             {/* Sem preencher a senha salva: num PC da loja, quem achasse a sessão aberta trocaria a senha sem sabê-la. */}
-            <Input type="password" value={atual} onChange={(e) => setAtual(e.target.value)} autoComplete="new-password" />
+            <Input id="trocar-senha-atual" type="password" value={atual} onChange={(e) => setAtual(e.target.value)} autoComplete="new-password" />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Nova senha</Label>
-            <Input type="password" value={nova} onChange={(e) => setNova(e.target.value)} placeholder="mín. 6 caracteres" autoComplete="new-password" />
+            <Label htmlFor="trocar-senha-nova" className="text-xs">Nova senha</Label>
+            <Input id="trocar-senha-nova" type="password" value={nova} onChange={(e) => setNova(e.target.value)} placeholder="mín. 6 caracteres" autoComplete="new-password" />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Confirmar nova senha</Label>
-            <Input type="password" value={conf} onChange={(e) => setConf(e.target.value)} autoComplete="new-password" />
+            <Label htmlFor="trocar-senha-conf" className="text-xs">Confirmar nova senha</Label>
+            <Input id="trocar-senha-conf" type="password" value={conf} onChange={(e) => setConf(e.target.value)} autoComplete="new-password" />
           </div>
           <Button type="button" onClick={salvar} disabled={salvando}>
             {salvando ? 'Salvando…' : 'Alterar senha'}

@@ -60,8 +60,8 @@ export function ComplementosCard({
 
       <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-border pt-3">
         <div className="flex-1 space-y-1">
-          <Label className="text-xs">Novo grupo</Label>
-          <Input
+          <Label htmlFor="complementos-nome" className="text-xs">Novo grupo</Label>
+          <Input id="complementos-nome"
             value={novoGrupo.nome}
             onChange={(e) => setNovoGrupo((s) => ({ ...s, nome: e.target.value }))}
             placeholder="Ex.: Remover ingredientes / Adicionais"

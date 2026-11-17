@@ -173,9 +173,9 @@ export default function PontoBaixaPage() {
 
           {/* Leitor USB / digitação */}
           <Card className="p-4">
-            <label className="mb-1.5 flex items-center gap-2 text-sm font-medium"><ScanLine className="h-4 w-4 text-primary" /> Leitor USB / código</label>
+            <label htmlFor="ponto-baixa-codigo" className="mb-1.5 flex items-center gap-2 text-sm font-medium"><ScanLine className="h-4 w-4 text-primary" /> Leitor USB / código</label>
             <div className="flex gap-2">
-              <Input ref={inputRef} value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="Aponte o leitor ou digite o código + Enter" autoFocus
+              <Input id="ponto-baixa-codigo" ref={inputRef} value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="Aponte o leitor ou digite o código + Enter" autoFocus
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); processar(codigo); } }} onBlur={foca} />
               <Button type="button" disabled={busy || !codigo.trim()} onClick={() => processar(codigo)}>Ler</Button>
             </div>

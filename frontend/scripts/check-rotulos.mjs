@@ -1,7 +1,8 @@
 // Rótulo LIGADO ao campo (ERR-510): o leitor de tela diz o nome do campo e clicar no rótulo foca o campo. Um rótulo
 // (<Label> ou <label>) é SOLTO quando não tem `htmlFor` e não envolve um controle (input, select, textarea, Input…) —
 // na tela parece certo, mas o campo fica sem nome (o detector está em `rotulos-soltos.mjs`). Havia 221 no app quando a
-// conferência nasceu (17/11/2026): ela é uma CATRACA — `scripts/rotulos-soltos-base.json` guarda a contagem de cada
+// conferência nasceu (17/11/2026) e a base chegou a ZERO no mesmo dia (#1120–#1124): todo rótulo solto novo reprova. Ela
+// é uma CATRACA — `scripts/rotulos-soltos-base.json` guarda a contagem de cada
 // arquivo; reprova se um arquivo passar da base (rótulo solto novo) e também se ficar ABAIXO dela (corrigiu: baixe a base
 // no mesmo PR, com `--atualizar`, para a dívida não voltar calada). Arquivo que não está na base tem base 0.
 // Uso: npm run check:rotulos                    (confere)
@@ -11,7 +12,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { rotulosSoltos } from './rotulos-soltos.mjs';
+import { idFixoEmLaco, rotulosSoltos } from './rotulos-soltos.mjs';
 
 const aqui = dirname(fileURLToPath(import.meta.url));
 const src = join(aqui, '..', 'src');
@@ -37,8 +38,15 @@ caso('o <label> cru solto também conta', () => assert.equal(rotulosSoltos('cons
 caso('o rótulo que repassa as props ({...props}) não conta', () => assert.equal(rotulosSoltos('const L = (p) => <label {...p} />;').length, 0));
 caso('o rótulo com id (nome do grupo por aria-labelledby) está ligado', () =>
   assert.equal(rotulosSoltos('const a = <div role="group" aria-labelledby="r"><Label id="r">Tema</Label><Button /></div>;').length, 0));
+caso('o rótulo espaçador com aria-hidden não conta', () => assert.equal(rotulosSoltos('const a = <div><label aria-hidden="true">&nbsp;</label><button /></div>;').length, 0));
+caso('htmlFor fixo dentro de um laço é achado (cada item repetiria o id)', () => {
+  assert.equal(idFixoEmLaco('const a = itens.map((i) => <div><Label htmlFor="qtd">Qtd</Label><Input id="qtd" /></div>);').length, 1);
+  assert.equal(idFixoEmLaco('const a = itens.map((i) => <div><Label htmlFor={`qtd-${i}`}>Qtd</Label><Input id={`qtd-${i}`} /></div>);').length, 0);
+  assert.equal(idFixoEmLaco('const a = <div><Label htmlFor="qtd">Qtd</Label><Input id="qtd" /></div>;').length, 0);
+});
 
-// A contagem de hoje, arquivo a arquivo (só os que têm algum).
+// A contagem de hoje, arquivo a arquivo (só os que têm algum), e os rótulos com id fixo dentro de laço (sem base).
+const emLaco = [];
 function contar() {
   const contagem = {};
   const andar = (dir) => {
@@ -46,8 +54,11 @@ function contar() {
       const p = join(dir, e.name);
       if (e.isDirectory()) andar(p);
       else if (e.name.endsWith('.tsx')) {
-        const s = rotulosSoltos(readFileSync(p, 'utf8'), p);
-        if (s.length) contagem[relative(src, p).replace(/\\/g, '/')] = s.length;
+        const texto = readFileSync(p, 'utf8');
+        const rel = relative(src, p).replace(/\\/g, '/');
+        const s = rotulosSoltos(texto, p);
+        if (s.length) contagem[rel] = s.length;
+        for (const r of idFixoEmLaco(texto, p)) emLaco.push(`${rel} linha ${r.linha}: ${r.texto}`);
       }
     }
   };
@@ -56,6 +67,9 @@ function contar() {
 }
 
 const hoje = contar();
+caso('nenhum rótulo com id fixo dentro de laço (o id leva o item)', () => {
+  if (emLaco.length) assert.fail(`id fixo num laço repete a cada item — use htmlFor={\`x-\${item}\`}:\n   ${emLaco.join('\n   ')}`);
+});
 const total = Object.values(hoje).reduce((s, x) => s + x, 0);
 if (process.argv.includes('--atualizar')) {
   writeFileSync(BASE, JSON.stringify(hoje, null, 2) + '\n');

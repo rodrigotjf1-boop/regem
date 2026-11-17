@@ -108,8 +108,8 @@ export default function GarcomPage() {
             {sel.modo === 'comandas' && (
               <div className="flex items-end gap-2">
                 <div className="flex-1 space-y-1">
-                  <Label className="text-xs">Nova comanda</Label>
-                  <Input value={novoIdent} onChange={(e) => setNovoIdent(e.target.value)} placeholder="cliente/pulseira" />
+                  <Label htmlFor="garcom-novo-ident" className="text-xs">Nova comanda</Label>
+                  <Input id="garcom-novo-ident" value={novoIdent} onChange={(e) => setNovoIdent(e.target.value)} placeholder="cliente/pulseira" />
                 </div>
                 <Button type="button" size="sm" onClick={novaComanda}>Abrir</Button>
               </div>
@@ -152,8 +152,8 @@ export default function GarcomPage() {
           <h2 className="mb-2 font-display text-sm font-bold">Abrir mesa</h2>
           <div className="flex items-end gap-2">
             <div className="flex-1 space-y-1">
-              <Label className="text-xs">Número / nome</Label>
-              <Input value={novoNum} onChange={(e) => setNovoNum(e.target.value)} placeholder="Ex.: 12" />
+              <Label htmlFor="garcom-novo-num" className="text-xs">Número / nome</Label>
+              <Input id="garcom-novo-num" value={novoNum} onChange={(e) => setNovoNum(e.target.value)} placeholder="Ex.: 12" />
             </div>
             <Button type="button" onClick={abrirMesa}>Abrir</Button>
           </div>

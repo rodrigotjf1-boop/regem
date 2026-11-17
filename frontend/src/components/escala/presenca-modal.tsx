@@ -80,8 +80,8 @@ export function PresencaModal({
           ))}
         </div>
         {ehJust && (
-          <div className="space-y-1.5">
-            <Label className="text-xs">Comprovante (atestado, foto)</Label>
+          <div className="space-y-1.5" role="group" aria-labelledby="presenca-comprovante-rotulo">
+            <Label id="presenca-comprovante-rotulo" className="text-xs">Comprovante (atestado, foto)</Label>
             <ImageUpload
               value={comprovante}
               onChange={(url) => setComprovante(url)}
@@ -91,8 +91,8 @@ export function PresencaModal({
           </div>
         )}
         <div className="space-y-1.5">
-          <Label className="text-xs">Observação (opcional)</Label>
-          <Input value={obs} onChange={(e) => setObs(e.target.value)} placeholder="motivo / detalhe" />
+          <Label htmlFor="presenca-obs" className="text-xs">Observação (opcional)</Label>
+          <Input id="presenca-obs" value={obs} onChange={(e) => setObs(e.target.value)} placeholder="motivo / detalhe" />
         </div>
         <div className="flex justify-end gap-2 pt-1">
           <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>

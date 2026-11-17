@@ -667,8 +667,8 @@ function CancelarModal({
 
   return (
     <Modal onClose={onClose} titulo={`Cancelar pedido #${pedido.numero ?? ''}`}>
-      <label className="block text-sm font-medium">Motivo</label>
-      <Input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo do cancelamento" />
+      <label htmlFor="retirada-motivo" className="block text-sm font-medium">Motivo</label>
+      <Input id="retirada-motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo do cancelamento" />
 
       {jaProduziu && (
         <>
@@ -699,8 +699,8 @@ function CancelarModal({
         </>
       )}
 
-      <label className="mt-3 block text-sm font-medium">Senha de quem libera</label>
-      <Input {...campoSenha} aria-label="Senha de quem libera (presidente, gerente ou supervisão)" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="presidente, gerente ou supervisão" />
+      <label htmlFor="retirada-senha" className="mt-3 block text-sm font-medium">Senha de quem libera</label>
+      <Input id="retirada-senha" {...campoSenha} aria-label="Senha de quem libera (presidente, gerente ou supervisão)" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="presidente, gerente ou supervisão" />
 
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose} disabled={busy}>Voltar</Button>

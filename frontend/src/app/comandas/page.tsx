@@ -157,12 +157,12 @@ export default function ComandasPage() {
             <h2 className="font-display text-sm font-bold">Nova comanda</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div className="space-y-1">
-                <Label className="text-xs">Mesa</Label>
-                <Input value={mesa} onChange={(e) => setMesa(e.target.value)} placeholder="Ex.: 12" />
+                <Label htmlFor="comandas-mesa" className="text-xs">Mesa</Label>
+                <Input id="comandas-mesa" value={mesa} onChange={(e) => setMesa(e.target.value)} placeholder="Ex.: 12" />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Cliente</Label>
-                <Input value={cliente} onChange={(e) => setCliente(e.target.value)} placeholder="opcional" />
+                <Label htmlFor="comandas-cliente" className="text-xs">Cliente</Label>
+                <Input id="comandas-cliente" value={cliente} onChange={(e) => setCliente(e.target.value)} placeholder="opcional" />
               </div>
             </div>
             <Button type="button" onClick={novaComanda} className="w-full">Abrir comanda</Button>
@@ -203,8 +203,8 @@ export default function ComandasPage() {
             </div>
 
             {/* Adicionar item */}
-            <div className="rounded-lg border border-border p-3">
-              <Label className="text-xs">Adicionar item</Label>
+            <div className="rounded-lg border border-border p-3" role="group" aria-labelledby="comandas-adicionar-item-rotulo">
+              <Label id="comandas-adicionar-item-rotulo" className="text-xs">Adicionar item</Label>
               <div className="mt-2 flex flex-wrap gap-2">
                 <select className={`${selectCls} flex-1`} value={prodId} onChange={(e) => onProd(e.target.value)}>
                   <option value="">— produto —</option>

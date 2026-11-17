@@ -56,8 +56,8 @@ export function AcessoSenhaCard() {
       </p>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <div className="space-y-1 sm:col-span-2">
-          <Label className="text-xs">Colaborador</Label>
-          <select aria-label="Colaborador" className={selectCls} value={id} onChange={(e) => setId(e.target.value)}>
+          <Label htmlFor="acesso-senha-id" className="text-xs">Colaborador</Label>
+          <select id="acesso-senha-id" className={selectCls} value={id} onChange={(e) => setId(e.target.value)}>
             <option value="">— selecione —</option>
             {pessoas.map((p) => (
               <option key={p.id} value={p.id}>
@@ -67,12 +67,12 @@ export function AcessoSenhaCard() {
           </select>
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">E-mail de login {alvo?.email ? '(atual)' : '(definir)'}</Label>
-          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={alvo?.email || 'voce@empresa.com'} />
+          <Label htmlFor="acesso-senha-email" className="text-xs">E-mail de login {alvo?.email ? '(atual)' : '(definir)'}</Label>
+          <Input id="acesso-senha-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={alvo?.email || 'voce@empresa.com'} />
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">Nova senha</Label>
-          <Input type="text" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="mín. 6 caracteres" />
+          <Label htmlFor="acesso-senha-senha" className="text-xs">Nova senha</Label>
+          <Input id="acesso-senha-senha" type="text" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="mín. 6 caracteres" />
         </div>
       </div>
       <Button type="button" className="mt-3" onClick={salvar} disabled={salvando}>

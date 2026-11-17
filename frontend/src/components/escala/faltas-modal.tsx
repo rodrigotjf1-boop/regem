@@ -41,8 +41,8 @@ export function FaltasModal({ onClose }: { onClose: () => void }) {
           <span className="font-mono text-xs text-muted-foreground">{faltas.length}</span>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <div className="space-y-1"><Label className="text-xs">De</Label><Input type="date" value={de} onChange={(e) => setDe(e.target.value)} /></div>
-          <div className="space-y-1"><Label className="text-xs">Até</Label><Input type="date" value={ate} onChange={(e) => setAte(e.target.value)} /></div>
+          <div className="space-y-1"><Label htmlFor="faltas-de" className="text-xs">De</Label><Input id="faltas-de" type="date" value={de} onChange={(e) => setDe(e.target.value)} /></div>
+          <div className="space-y-1"><Label htmlFor="faltas-ate" className="text-xs">Até</Label><Input id="faltas-ate" type="date" value={ate} onChange={(e) => setAte(e.target.value)} /></div>
         </div>
 
         {resumo.length > 0 && (

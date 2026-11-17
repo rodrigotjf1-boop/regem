@@ -118,9 +118,11 @@ export default function DespachoPage() {
           </p>
         ) : (
           <div className="mt-5">
-            <label className="mb-1 block text-xs font-semibold text-[#5B6B78]">Quem vai levar?</label>
+            {/* com entregadores, o rótulo é do seletor; sem, do campo do nome (que tem o próprio nome quando os dois aparecem) */}
+            <label htmlFor={info?.entregadores?.length ? 'entrega-entregador' : 'entrega-nome-manual'} className="mb-1 block text-xs font-semibold text-[#5B6B78]">Quem vai levar?</label>
             {info?.entregadores?.length ? (
               <select
+                id="entrega-entregador"
                 value={entregador}
                 onChange={(e) => setEntregador(e.target.value)}
                 className="h-12 w-full rounded-xl border border-[#D8DEE6] bg-white px-3 text-base"
@@ -132,6 +134,8 @@ export default function DespachoPage() {
             ) : null}
             {(entregador === '__manual__' || !info?.entregadores?.length) && (
               <input
+                id="entrega-nome-manual"
+                aria-label="Nome do entregador"
                 value={nomeManual}
                 onChange={(e) => setNomeManual(e.target.value)}
                 placeholder="Nome do entregador"

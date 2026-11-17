@@ -177,8 +177,8 @@ export default function CuponsPage() {
         <Card className="p-3">
           <div className="flex flex-wrap items-end gap-2">
             <div className="flex-1 space-y-1">
-              <Label className="text-xs">Buscar por senha/nº</Label>
-              <Input
+              <Label htmlFor="cupons-busca" className="text-xs">Buscar por senha/nº</Label>
+              <Input id="cupons-busca"
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
                 onKeyDown={(e) => {
@@ -315,8 +315,8 @@ export default function CuponsPage() {
             ) : (
               <div className="space-y-2 border-t border-border pt-3">
                 <div className="space-y-1">
-                  <Label className="text-xs">Motivo do cancelamento (opcional)</Label>
-                  <Input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex.: pedido errado" />
+                  <Label htmlFor="cupons-motivo" className="text-xs">Motivo do cancelamento (opcional)</Label>
+                  <Input id="cupons-motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex.: pedido errado" />
                 </div>
                 <DestinoDosInsumos
                   key={sel.id}

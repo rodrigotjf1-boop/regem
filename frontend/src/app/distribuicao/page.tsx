@@ -783,8 +783,9 @@ export default function DistHome() {
                 <div className="w-full max-w-md rounded-xl border border-slate-800 bg-slate-900 p-5" onClick={(e) => e.stopPropagation()}>
                   <h3 className="font-semibold text-slate-100">Finalizar integração iFood</h3>
                   <p className="mt-1 text-xs text-slate-400">Loja: <strong className="text-slate-200">{modalIfood.loja}</strong>. Depois que o cliente autorizar a loja no Portal do Parceiro, pegue o <strong>Merchant ID</strong> (UUID da loja) no Portal do Desenvolvedor e cole abaixo. Client ID/Secret são globais da Regem (env).</p>
-                  <label className="mt-3 block text-[11px] text-slate-400">Merchant ID (ID da loja no iFood)</label>
+                  <label htmlFor="distribuicao-ifood-merchant" className="mt-3 block text-[11px] text-slate-400">Merchant ID (ID da loja no iFood)</label>
                   <input
+                    id="distribuicao-ifood-merchant"
                     autoFocus
                     value={modalIfood.merchant}
                     onChange={(e) => setModalIfood((m) => (m ? { ...m, merchant: e.target.value } : m))}
