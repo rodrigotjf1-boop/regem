@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **PDV · Balcão sem o "Todos": abre na primeira categoria (16/11, pedido do dono; só tela, sem migration) → vai no `.zip`**
+  (a tela da loja vem nele).
+  - A barra de categorias perde o "Todos"; a tela abre na primeira categoria com produto, na ordem do "Organizar".
+  - O produto de subcategoria aparece na categoria de cima; o sem categoria ganha a pílula "Sem categoria".
+
 - **Empresa inativa há 2 meses é desligada — a loja e as integrações (16/11, decisão do dono; SEM migration; nasce
   DESLIGADA).** Com `DESLIGAR_INATIVAS=1` na nuvem (o dono liga), uma rotina diária desliga a empresa sem nenhum sinal de
   uso há 60 dias: ação de uma pessoa, batida do servidor da loja, sinal de aparelho, venda, ou ação da distribuição

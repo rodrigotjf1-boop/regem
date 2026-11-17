@@ -108,6 +108,51 @@ try {
     assert.equal(b.chaveDoItem({ produtoId: 'p1' }), b.chaveDoItem({ produtoId: 'p1', variacaoId: null, complementos: [], observacao: undefined }));
   });
 
+  // Sem o "Todos" (pedido do dono, 16/11/2026): abre na 1ª categoria com produto, na ordem da tela.
+  const TOPO = [{ id: 'porcoes' }, { id: 'burger' }, { id: 'bebidas' }, { id: 'vazia' }];
+  const TODAS = [...TOPO, { id: 'refri', parentId: 'bebidas' }, { id: 'lata', parentId: 'refri' }];
+  const PRODS = [{ categoriaId: 'burger' }, { categoriaId: 'lata' }, { categoriaId: 'porcoes' }];
+
+  caso('categoria do balcão: sem escolha, a 1ª categoria (na ordem da tela) que tem produto', () => {
+    assert.equal(b.categoriasDoBalcao(TOPO, TODAS, PRODS, '').atual, 'porcoes');
+    // a 1ª da ordem pessoal sem produto é pulada
+    assert.equal(b.categoriasDoBalcao([{ id: 'vazia' }, ...TOPO], TODAS, PRODS, '').atual, 'porcoes');
+    assert.equal(b.categoriasDoBalcao([{ id: 'bebidas' }, { id: 'burger' }], TODAS, PRODS, '').atual, 'bebidas');
+  });
+
+  caso('categoria do balcão: a escolhida vale enquanto existir (mesmo vazia); a que sumiu volta para a 1ª', () => {
+    assert.equal(b.categoriasDoBalcao(TOPO, TODAS, PRODS, 'burger').atual, 'burger');
+    assert.equal(b.categoriasDoBalcao(TOPO, TODAS, PRODS, 'vazia').atual, 'vazia');
+    assert.equal(b.categoriasDoBalcao(TOPO, TODAS, PRODS, 'apagada').atual, 'porcoes');
+    // a subcategoria não é pílula: escolher o id dela também volta para a 1ª
+    assert.equal(b.categoriasDoBalcao(TOPO, TODAS, PRODS, 'refri').atual, 'porcoes');
+  });
+
+  caso('categoria do balcão: o produto de subcategoria conta na categoria de cima; sem categoria vira a pílula própria', () => {
+    const r = b.categoriasDoBalcao(TOPO, TODAS, PRODS, '');
+    assert.equal(r.topoDe('lata'), 'bebidas');
+    assert.equal(r.topoDe('refri'), 'bebidas');
+    assert.equal(r.topoDe('burger'), 'burger');
+    assert.equal(r.semCategoria, false);
+    const comSolto = [...PRODS, { categoriaId: null }, { categoriaId: 'apagada' }];
+    const s = b.categoriasDoBalcao(TOPO, TODAS, comSolto, b.SEM_CATEGORIA);
+    assert.equal(s.semCategoria, true);
+    assert.equal(s.atual, b.SEM_CATEGORIA);
+    assert.equal(s.topoDe(null), b.SEM_CATEGORIA);
+    assert.equal(s.topoDe('apagada'), b.SEM_CATEGORIA);
+    // só produtos soltos: abre em "Sem categoria"; sem a pílula, escolher "Sem categoria" volta para a 1ª
+    assert.equal(b.categoriasDoBalcao(TOPO, TODAS, [{ categoriaId: null }], '').atual, b.SEM_CATEGORIA);
+    assert.equal(b.categoriasDoBalcao(TOPO, TODAS, PRODS, b.SEM_CATEGORIA).atual, 'porcoes');
+  });
+
+  caso('categoria do balcão: sem produto nenhum, a 1ª categoria; sem categoria nenhuma, vazio (mostra tudo)', () => {
+    assert.equal(b.categoriasDoBalcao(TOPO, TODAS, [], '').atual, 'porcoes');
+    assert.equal(b.categoriasDoBalcao([], [], [{ categoriaId: null }], '').atual, b.SEM_CATEGORIA);
+    assert.equal(b.categoriasDoBalcao([], [], [], '').atual, '');
+    // pai em laço (dado torto) não trava
+    assert.equal(b.categoriasDoBalcao(TOPO, [{ id: 'x', parentId: 'y' }, { id: 'y', parentId: 'x' }], [{ categoriaId: 'x' }], '').atual, b.SEM_CATEGORIA);
+  });
+
   console.log(`\ncheck:balcao — ${n} grupos de casos, todos certos.`);
 } finally {
   rmSync(tmp, { recursive: true, force: true });
