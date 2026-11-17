@@ -27,11 +27,12 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
  *
  * O QUE faz, numa instrução só (ou tudo, ou nada — e uma segunda rotina ao mesmo tempo não repete):
  *  · a empresa passa a `bloqueado` — o MESMO estado do "Revogar" do console (o `LicenseInterceptor` corta a escrita e
- *    a sincronização), e volta pelo MESMO "Liberar";
+ *    a sincronização), e volta pelo MESMO "Liberar/Renovar";
  *  · as integrações ligadas dela passam a desligadas (`ativo = false`; credencial e configuração ficam como estão,
  *    para religar sem refazer a conexão) — as rotinas dos canais só olham as ligadas;
  *  · fica o registro na auditoria da distribuição (`desligou_por_inatividade`), com os dias, o último sinal e QUAIS
- *    integrações estavam ligadas — é o que o console mostra e o que se usa para religar.
+ *    integrações estavam ligadas (os canais e os ids) — o "Liberar/Renovar" do console religa essas pelos ids
+ *    (`DistribuicaoService.liberarLicenca`).
  * Nada é apagado: pedidos, vendas e cadastros ficam onde estão.
  */
 export const DIAS_DE_INATIVIDADE = 60;
@@ -121,18 +122,20 @@ export class InatividadeProcessor {
            set ativo = false, updated_at = now()
           from desligadas d
          where g.tenant_id = d.id and g.ativo = true
-        returning g.tenant_id, g.canal
+        returning g.tenant_id, g.id, g.canal
       ),
       feito as (
         select d.id, i.ultimo,
-               coalesce((select jsonb_agg(distinct g.canal) from integracoes g where g.tenant_id = d.id), '[]'::jsonb) as canais
+               coalesce((select jsonb_agg(distinct g.canal) from integracoes g where g.tenant_id = d.id), '[]'::jsonb) as canais,
+               coalesce((select jsonb_agg(g.id) from integracoes g where g.tenant_id = d.id), '[]'::jsonb) as ids
           from desligadas d
           join inativas i on i.id = d.id
       ),
+      -- Os ids das integrações desligadas ficam no registro: é por eles que o "Liberar" do console religa as mesmas.
       registro as (
         insert into distribuicao_auditoria (usuario_nome, perfil, acao, alvo, detalhe)
         select 'Regem (rotina)', 'sistema', 'desligou_por_inatividade', f.id::text,
-               jsonb_build_object('dias', ${dias}::int, 'ultimoSinal', f.ultimo, 'integracoes', f.canais)
+               jsonb_build_object('dias', ${dias}::int, 'ultimoSinal', f.ultimo, 'integracoes', f.canais, 'integracaoIds', f.ids)
           from feito f
         returning alvo
       )

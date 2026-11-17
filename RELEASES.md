@@ -23,6 +23,14 @@
   - Só NUVEM (as tabelas da distribuição são de lá): vale com o merge e a variável; o `.zip` leva o código sem efeito na
     loja.
 
+- **Console › Licenças: o "Revogar" desliga também as integrações, e o "Liberar/Renovar" religa as mesmas (16/11,
+  ERR-501, decisão do dono; SEM migration).** O bloqueio sozinho não parava as rotinas dos canais: a empresa revogada
+  seguia recebendo pedidos que ninguém podia aceitar. Agora o "Revogar" desliga as integrações ligadas dela e guarda
+  quais; o "Liberar/Renovar" religa as que o "Revogar" e a rotina de inatividade desligaram (a que a loja tinha desligado
+  por conta própria fica como está). Credencial e configuração ficam. Empresa inexistente responde "Empresa não
+  encontrada." em vez de um "ok" sem efeito.
+  - Só NUVEM: vale com o deploy.
+
 - **O aceite de pedidos não trava com o pedido que falha sempre (16/11, ERR-493; sem migration) → vai no `.zip`** (o
   aceite no servidor da loja); o resgate da nuvem vale com o deploy.
   - As duas primeiras falhas de um pedido tentam de novo no ciclo seguinte, como hoje.
