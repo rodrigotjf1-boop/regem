@@ -139,8 +139,9 @@ export function KdsDespacho({
                   {itens.map((it: any, i: number) => (
                     <li key={`${it.descricao}-${i}`} className="break-words" style={{ textDecoration: cancelado ? 'line-through' : undefined }}>
                       <span className="font-bold tabular-nums" style={{ fontFamily: MONO }}>{Number(it.quantidade)}×</span> {it.descricao}
-                      {it.complementosTexto ? <span style={{ color: T.muted }}> · {it.complementosTexto}</span> : null}
-                      {it.observacao ? <span className="block font-semibold" style={{ color: T.muted, fontSize: fs(14) }}>Obs.: {it.observacao}</span> : null}
+                      {/* adicionais e observação em CAIXA ALTA (pedido do dono, 16/11/2026), como no cartão das estações */}
+                      {it.complementosTexto ? <span className="uppercase" style={{ color: T.muted }}> · {it.complementosTexto}</span> : null}
+                      {it.observacao ? <span className="block font-semibold uppercase" style={{ color: T.muted, fontSize: fs(14) }}>Obs.: {it.observacao}</span> : null}
                     </li>
                   ))}
                 </ul>

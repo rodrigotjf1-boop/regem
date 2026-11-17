@@ -195,8 +195,8 @@ export class DeliveryController {
     return this.service.falhasDeEnvio(user.tenantId, atual);
   }
 
-  // Aviso do PDV: pedidos do totem em dinheiro sem pagar há mais de 8 min (só com a loja em
-  // "produzir só após o pagamento"). Mesma permissão de quem cobra o pedido na Retirada.
+  // O ícone e o aviso do PDV: os pedidos do totem em dinheiro ainda não pagos (esperando, na cozinha ou prontos), nos
+  // dois modos da loja. Mesma permissão de quem cobra o pedido na Retirada.
   @Get('totem/aguardando-pagamento')
   @UseGuards(JwtAuthGuard, PermissoesGuard)
   @RequirePerm('delivery')

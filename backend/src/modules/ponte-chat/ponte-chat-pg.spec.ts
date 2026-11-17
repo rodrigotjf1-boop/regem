@@ -9,6 +9,7 @@ import { EquipamentoService } from '../equipamento/equipamento.service';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { PonteChatGuard, type PonteCtx } from './ponte-chat.guard';
 import { ERRO_AVISO_SEM_SENTIDO, PonteChatService } from './ponte-chat.service';
+import { chatsDoIfoodSemResposta } from './chat-sem-resposta';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -483,5 +484,85 @@ descrever('ponte do chat (Postgres)', () => {
     expect((await erro(svc.resultado(d, outra, { ok: false, erro: 'x' })))?.status).toBe(409);
     // e a mensagem que não existe continua 409 também quando "enviada"
     expect((await erro(svc.resultado(d, '00000000-0000-4000-8000-000000000000', { ok: true, id: 'sb-x' })))?.status).toBe(409);
+  });
+
+  // ───────────────── o chat do iFood sem ninguém respondendo (a leitura do aviso do Mister, 16/11/2026) ─────────────────
+  // Na loja, em 16/11, o Gestor do iFood dentro da ponte caiu para o login e ficou mais de duas horas assim, sem ninguém
+  // ser avisado: os avisos "saiu" pararam na fila e o cliente ficou sem resposta.
+  describe('o chat do iFood sem ninguém respondendo', () => {
+    const ler = () => chatsDoIfoodSemResposta(db, [T]);
+    const daLoja = async (loja: string) => (await ler()).find((x) => x.unidadeId === loja) ?? null;
+    const semLogin = { ...logada(false), maquina: 'DESKTOP-SERVIDOR' };
+    const status = (id: string, s: string) => q(`update pedido_externo set status = $2 where id = $1`, [id, s]);
+
+    beforeEach(async () => {
+      await q(`delete from pedido_externo where tenant_id = $1`, [T]);
+    });
+
+    it('com a ponte logada e dando sinal a loja não aparece; com o iFood dela sem login, aparece com o PC e os pedidos em andamento', async () => {
+      const d = await entrar(delivery);
+      await svc.estado(d, logada(true));
+      expect(await daLoja(lojaA)).toBeNull();
+      await pedido(lojaA);
+      await pedido(lojaA);
+      await svc.estado(d, semLogin);
+      expect(await daLoja(lojaA)).toEqual({ tenantId: T, unidadeId: lojaA, loja: 'Loja A', motivo: 'sem_login', ponte: 'Ponte do delivery', maquina: 'DESKTOP-SERVIDOR', pedidos: 2 });
+      // logou de novo: some na leitura seguinte
+      await svc.estado(d, logada(true));
+      expect(await daLoja(lojaA)).toBeNull();
+    });
+
+    it('nenhuma ponte da loja dando sinal: "sem_sinal", com o PC que deu sinal por último (mesmo que estivesse logado)', async () => {
+      await svc.estado(await entrar(delivery), logada(true));
+      await svc.estado(await entrar(servidor), logada(true));
+      await q(`update chat_ponte set visto_em = now() - interval '10 minutes' where equipamento_id = $1`, [delivery.id]);
+      await q(`update chat_ponte set visto_em = now() - interval '3 hours' where equipamento_id = $1`, [servidor.id]);
+      expect(await daLoja(lojaA)).toMatchObject({ motivo: 'sem_sinal', ponte: 'Ponte do delivery', maquina: 'CX-DELIVERY', pedidos: 0 });
+    });
+
+    it('a reserva logada cobre a principal sem login; a ponte pausada fica de fora; desligada nos ajustes, ninguém aparece', async () => {
+      const d = await entrar(delivery);
+      const s = await entrar(servidor);
+      await svc.estado(d, semLogin);
+      await svc.estado(s, logada(true));
+      expect(await daLoja(lojaA)).toBeNull(); // a outra ponte responde
+      // a que respondia pausa neste PC: sobra a sem login
+      await svc.estado(s, { ...logada(true), pausada: true });
+      expect(await daLoja(lojaA)).toMatchObject({ motivo: 'sem_login', ponte: 'Ponte do delivery' });
+      // as duas pausadas: é decisão de quem está no PC — a loja não aparece
+      await svc.estado(d, { ...semLogin, pausada: true });
+      expect(await daLoja(lojaA)).toBeNull();
+      // sem pausa e sem login, mas com a ponte DESLIGADA nos ajustes: ninguém aparece
+      await svc.estado(d, semLogin);
+      expect(await daLoja(lojaA)).toMatchObject({ motivo: 'sem_login' });
+      await ligar(false);
+      expect(await ler()).toEqual([]);
+    });
+
+    it('os pedidos contados: só os do iFood, em andamento, da loja da ponte e das últimas 6 horas', async () => {
+      await svc.estado(await entrar(delivery), semLogin);
+      await pedido(lojaA); // a caminho: conta
+      await status(await pedido(lojaA), 'novo'); // conta
+      await status(await pedido(lojaA), 'concluido');
+      await status(await pedido(lojaA), 'cancelado');
+      await pedido(lojaA, { canal: '99food' }); // outro canal
+      await pedido(lojaB); // outra loja
+      await pedido(lojaA, { minAtras: 7 * 60 }); // de 7 horas atrás
+      expect((await daLoja(lojaA))?.pedidos).toBe(2);
+    });
+
+    it('a ponte revogada não conta, e só aparecem as empresas pedidas', async () => {
+      for (const p of [delivery, servidor, pdvB]) await svc.estado(await entrar(p), logada(false));
+      await q(`update chat_ponte set visto_em = now() - interval '1 hour' where tenant_id = $1`, [T]);
+      expect((await ler()).map((x) => [x.unidadeId, x.motivo]).sort()).toEqual([[lojaA, 'sem_sinal'], [lojaB, 'sem_sinal']].sort());
+      expect(await chatsDoIfoodSemResposta(db, [T2])).toEqual([]);
+      // a única ponte da loja B revogada: a loja B deixa de usar a ponte e some da leitura
+      await q(`update equipamento set revogado_em = now() where id = $1`, [pdvB.id]);
+      try {
+        expect((await ler()).map((x) => x.unidadeId)).toEqual([lojaA]);
+      } finally {
+        await q(`update equipamento set revogado_em = null where id = $1`, [pdvB.id]);
+      }
+    });
   });
 });

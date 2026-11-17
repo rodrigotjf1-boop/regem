@@ -22,3 +22,17 @@ export function rotuloSenha(senha?: number | string | null, prefixo?: string | n
   const p = (prefixo ?? '').trim();
   return p ? `${p}-${senha}` : String(senha);
 }
+
+/** A origem da senha por extenso, na via IMPRESSA (pedido do dono, 16/11/2026). */
+export const ORIGEM_DA_SENHA: Record<string, string> = { [PREFIXO_BALCAO]: 'BALCÃO', [PREFIXO_DELIVERY]: 'DELIVERY' };
+
+/**
+ * A senha como sai na VIA IMPRESSA — "SENHA 5 - BALCÃO", "SENHA 9 - DELIVERY" (pedido do dono, 16/11/2026: "SENHA B - 5"
+ * era difícil de entender; o número e o canal por extenso). As telas (KDS, TV de senhas, PDV) seguem com o rótulo curto
+ * (`rotuloSenha`). Sem prefixo (pedido anterior à mig 275), só "SENHA 5". Vazio = sem senha.
+ */
+export function senhaNaVia(senha?: number | string | null, prefixo?: string | null): string {
+  if (senha == null || senha === '') return '';
+  const origem = ORIGEM_DA_SENHA[(prefixo ?? '').trim().toUpperCase()];
+  return origem ? `SENHA ${senha} - ${origem}` : `SENHA ${senha}`;
+}

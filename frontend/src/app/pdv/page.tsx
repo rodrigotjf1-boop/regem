@@ -2,17 +2,17 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ListX, PauseCircle, Search, SlidersHorizontal, Users } from 'lucide-react';
+import { ListX, PauseCircle, Search, Users } from 'lucide-react';
 import { api, getToken } from '@/lib/api';
 import { rotuloSenha } from '@/lib/senha';
 import { textosDasEscolhas } from '@/lib/adicionais';
-import { buscarProdutos, centavos, chaveDoItem, notasSugeridas, valorDigitado } from '@/lib/balcao';
+import { SEM_CATEGORIA, buscarProdutos, categoriasDoBalcao, centavos, chaveDoItem, notasSugeridas, valorDigitado } from '@/lib/balcao';
 import { toast } from '@/lib/toast';
 import { uuid } from '@/lib/uuid';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { ServidorStatus } from '@/components/ui/servidor-status';
-import { Skeleton } from '@/components/ui/skeleton';
+import { TotemAPagarIcone } from '@/components/pdv/totem-a-pagar-icone';
 import { Button } from '@/components/ui/button';
 import { InputMoeda } from '@/components/ui/input-moeda';
 import { Dialogo } from '@/components/ui/sobreposto';
@@ -22,6 +22,7 @@ import { TerminalGate } from '@/components/pdv/terminal-gate';
 import { BuscarCupom } from '@/components/pdv/buscar-cupom';
 import { DividirConta, type PagamentoDaVenda } from '@/components/pdv/balcao/dividir-conta';
 import { EditorDoItem, type EscolhaDoItem } from '@/components/pdv/balcao/editor-do-item';
+import { CartaoDoProduto, CartaoDoProdutoCarregando, gradeDeProdutos as classeDaGrade, tamanhoDoCartao, type TamanhoDoCartao } from '@/components/pdv/balcao/cartao-do-produto';
 import { LinhaDoPedido, type ItemDoPedido } from '@/components/pdv/balcao/linha-do-pedido';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -49,6 +50,8 @@ export default function PdvPage() {
   // NÃO altera o catálogo. `organizando` liga o modo arrastar; `dragCat` = índice arrastado.
   const [ordemPdv, setOrdemPdv] = useState<string[]>([]);
   const [organizando, setOrganizando] = useState(false);
+  // O tamanho dos cartões (17/11/2026): da pessoa, gravado nas preferências como a ordem; grande é o padrão.
+  const [tamanhoCartao, setTamanhoCartao] = useState<TamanhoDoCartao>('grande');
   const [dragCat, setDragCat] = useState<number | null>(null);
   const [carrinho, setCarrinho] = useState<ItemDoPedido[]>([]);
   const [destaque, setDestaque] = useState<string | null>(null); // linha que acabou de entrar/mudar
@@ -97,6 +100,7 @@ export default function PdvPage() {
         api.modulosMeus().catch(() => null),
       ]);
       setOrdemPdv(Array.isArray((pr as any)?.pdvOrdemCategorias) ? (pr as any).pdvOrdemCategorias : []);
+      setTamanhoCartao(tamanhoDoCartao((pr as any)?.pdvCartoes));
       // PDV = canal balcão: só produtos ativos e marcados para o balcão.
       setProdutos(
         ps.filter(
@@ -443,12 +447,25 @@ export default function PdvPage() {
     }
   }
 
+  // O tamanho dos cartões (pedido do dono, 17/11/2026): aplica na hora e grava nas preferências da pessoa.
+  async function mudarTamanho(t: TamanhoDoCartao) {
+    if (t === tamanhoCartao) return;
+    setTamanhoCartao(t);
+    try {
+      await api.patchPrefs({ pdvCartoes: t });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao salvar o tamanho dos cartões');
+    }
+  }
+
+  // Sem o "Todos" (pedido do dono, 16/11/2026): abre na 1ª categoria — na ordem pessoal — que tem produto (a regra mora em
+  // `lib/balcao.ts`, conferida pelo `check:balcao`).
+  const { atual: catEfetiva, semCategoria: temSemCategoria, topoDe } = categoriasDoBalcao(catsTop, categorias, produtos, catAtiva);
+
   // Com texto na busca, o resultado vale para o cardápio inteiro (a categoria deixa de filtrar).
   const textoBusca = busca.trim();
   const achados = textoBusca ? buscarProdutos(produtos, textoBusca) : null;
-  const visiveis = catAtiva
-    ? produtos.filter((p) => p.categoriaId === catAtiva)
-    : produtos;
+  const visiveis = catEfetiva ? produtos.filter((p) => topoDe(p.categoriaId) === catEfetiva) : produtos;
 
   // Agrupa por categoria (com cabeçalho), preservando a ordem dos produtos.
   const grupos = (() => {
@@ -489,7 +506,7 @@ export default function PdvPage() {
 
   const pilula = (ligado: boolean) =>
     `min-h-10 rounded-full border px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${ligado ? 'border-primary bg-primary/15 text-foreground' : 'border-border bg-card text-muted-foreground hover:text-foreground'}`;
-  const gradeDeProdutos = 'grid grid-cols-[repeat(auto-fill,minmax(8.75rem,1fr))] gap-2';
+  const gradeDeProdutos = classeDaGrade(tamanhoCartao);
 
   return (
     <Shell fill>
@@ -505,6 +522,8 @@ export default function PdvPage() {
           <h1 className="font-display text-lg font-bold">Balcão</h1>
           {carregado && <CaixaPanel caixa={caixa} onChange={reloadCaixa} embedded />}
           <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+            {/* O Balcão não tem o topo do Shell: o ícone do totem em dinheiro a pagar vem aqui (sem permissão, some). */}
+            <TotemAPagarIcone />
             <ServidorStatus />
             <BuscarCupom />
           </div>
@@ -534,24 +553,46 @@ export default function PdvPage() {
               <kbd className="rounded border border-border bg-secondary px-1.5 py-0.5 font-mono text-[11px] font-semibold">F2</kbd>
             </label>
             <div className="flex flex-wrap gap-1.5">
-              <button type="button" aria-pressed={!catAtiva && !achados} onClick={() => { setCatAtiva(''); setBusca(''); }} className={pilula(!catAtiva && !achados)}>
-                Todos
-              </button>
               {catsTop.map((c, i) => (
                 <button
                   key={c.id}
                   type="button"
-                  aria-pressed={catAtiva === c.id && !achados}
+                  aria-pressed={catEfetiva === c.id && !achados}
                   draggable={organizando}
                   onDragStart={organizando ? () => setDragCat(i) : undefined}
                   onDragOver={organizando ? (e) => e.preventDefault() : undefined}
                   onDrop={organizando ? () => soltarCat(i) : undefined}
                   onClick={() => { if (!organizando) { setCatAtiva(c.id); setBusca(''); } }}
-                  className={`${pilula(catAtiva === c.id && !achados)} ${organizando ? 'cursor-grab' : ''} ${dragCat === i ? 'opacity-50' : ''}`}
+                  className={`${pilula(catEfetiva === c.id && !achados)} ${organizando ? 'cursor-grab' : ''} ${dragCat === i ? 'opacity-50' : ''}`}
                 >
                   {organizando && <span className="mr-1 text-muted-foreground" aria-hidden>⠿</span>}{c.nome}
                 </button>
               ))}
+              {temSemCategoria && (
+                <button
+                  type="button"
+                  aria-pressed={catEfetiva === SEM_CATEGORIA && !achados}
+                  onClick={() => { if (!organizando) { setCatAtiva(SEM_CATEGORIA); setBusca(''); } }}
+                  className={pilula(catEfetiva === SEM_CATEGORIA && !achados)}
+                >
+                  Sem categoria
+                </button>
+              )}
+              {/* O tamanho dos cartões: grandes (o padrão — a foto e o nome em destaque) ou compactos (cabem mais). */}
+              <div role="group" aria-label="Tamanho dos cartões" className="ml-auto flex flex-wrap items-center gap-1">
+                {(['grande', 'compacto'] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    aria-pressed={tamanhoCartao === t}
+                    data-tamanho-cartao={t}
+                    onClick={() => void mudarTamanho(t)}
+                    className={`${pilula(tamanhoCartao === t)} text-xs`}
+                  >
+                    {t === 'grande' ? 'Cartões grandes' : 'Compactos'}
+                  </button>
+                ))}
+              </div>
               {/* Organizar: reordenar as categorias arrastando — a ordem é PESSOAL (por usuário),
                   não altera o catálogo. Salva em uiPrefs.pdvOrdemCategorias. */}
               <button
@@ -559,7 +600,7 @@ export default function PdvPage() {
                 onClick={() => setOrganizando((v) => !v)}
                 aria-pressed={organizando}
                 title="Reordene as categorias arrastando — a ordem é só sua (não muda o catálogo)."
-                className={`ml-auto ${pilula(organizando)} text-xs`}
+                className={`${pilula(organizando)} text-xs`}
               >
                 {organizando ? '✓ Concluir' : '↕ Organizar'}
               </button>
@@ -568,12 +609,7 @@ export default function PdvPage() {
             <div className="space-y-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
               {!carregado && (
                 <div className={gradeDeProdutos}>
-                  {Array.from({ length: 10 }).map((_, i) => (
-                    <div key={i} className="min-h-[5.5rem] rounded-xl border border-border bg-card p-3">
-                      <Skeleton className="h-4 w-3/4" />
-                      <Skeleton className="mt-3 h-4 w-1/3" />
-                    </div>
-                  ))}
+                  {Array.from({ length: 10 }).map((_, i) => <CartaoDoProdutoCarregando key={i} tamanho={tamanhoCartao} />)}
                 </div>
               )}
               {carregado && produtos.length === 0 && (
@@ -596,39 +632,7 @@ export default function PdvPage() {
                     {g.itens.map((p) => {
                       const qtd = noPedido.get(p.id) ?? 0;
                       return (
-                        <button
-                          key={p.id}
-                          type="button"
-                          data-produto={p.id}
-                          onClick={() => tap(p)}
-                          aria-label={`${p.nome}, ${brl(Number(p.precoVenda))}${qtd ? `, ${qtd} no pedido` : ''}`}
-                          className="relative flex min-h-[5.5rem] flex-col gap-1 rounded-xl border border-border bg-card p-2.5 text-left transition hover:border-primary hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-[.98]"
-                        >
-                          <span className="flex items-start gap-2">
-                            {p.imagemRef && (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={p.imagemRef} alt="" className="h-10 w-10 flex-none rounded-lg object-cover" />
-                            )}
-                            <span className="min-w-0 flex-1">
-                              {p.codigo && <span className="block font-mono text-[11px] leading-tight text-muted-foreground">{p.codigo}</span>}
-                              <span className={`line-clamp-2 break-words text-sm font-bold leading-tight ${qtd ? 'pr-6' : ''}`}>{p.nome}</span>
-                            </span>
-                          </span>
-                          <span className="mt-auto flex items-end justify-between gap-2">
-                            <span className="font-mono text-sm font-bold leading-tight">
-                              {p.tipo === 'variavel' && <span className="block font-sans text-[10.5px] font-medium text-muted-foreground">a partir de</span>}
-                              {brl(Number(p.precoVenda))}
-                            </span>
-                            {p.tipo === 'variavel' && (
-                              <span title="Tem tamanhos para escolher" className="grid h-6 w-6 flex-none place-items-center rounded-md border border-border bg-secondary text-muted-foreground">
-                                <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
-                              </span>
-                            )}
-                          </span>
-                          {qtd > 0 && (
-                            <span className="absolute right-1.5 top-1.5 grid h-6 min-w-6 place-items-center rounded-full bg-primary px-1.5 font-mono text-xs font-bold text-primary-foreground">{qtd}</span>
-                          )}
-                        </button>
+                        <CartaoDoProduto key={p.id} produto={p} qtd={qtd} aoTocar={() => tap(p)} tamanho={tamanhoCartao} />
                       );
                     })}
                   </div>

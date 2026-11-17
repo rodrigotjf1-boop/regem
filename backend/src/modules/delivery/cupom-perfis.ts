@@ -49,6 +49,52 @@ export interface PerfilCupom {
   // S5 — impressoras (equipamento.id) DIRECIONADAS a este perfil. Vazio/ausente =
   // roteamento padrão (impressoras com faz_cupom). As vias saem de cada impressora.
   impressoras?: string[];
+  // O CUPOM INTEIRO MAIOR (pedido do dono, 16/11/2026: "aumentar o cupom do caixa em 30%; os de produção estão muito
+  // pequenos, aumentar 150%"): quantos passos da régua de tamanhos (`NIVEIS_DA_FONTE`) cada linha sobe — 0 a 2, até o
+  // Grande. A térmica só amplia em passos inteiros: 1 passo = Normal → Média (~+40%); 2 = Normal → Grande (o dobro).
+  aumento?: number;
+}
+
+/**
+ * A régua de tamanhos REAIS da térmica — a MESMA do editor (`perfis-cupom.tsx › NIVEIS_FONTE`): a fonte pequena embutida
+ * (Font B = `mini`) combinada com a ampliação inteira. Pequena, Normal, Média (~+40%), Grande (2×), Enorme (3×).
+ */
+export const NIVEIS_DA_FONTE: ReadonlyArray<{ mini: boolean; escala: number }> = [
+  { mini: true, escala: 1 },
+  { mini: false, escala: 1 },
+  { mini: true, escala: 2 },
+  { mini: false, escala: 2 },
+  { mini: false, escala: 3 },
+];
+export const AUMENTO_MAXIMO = 2;
+/** O degrau mais alto a que o aumento leva: o Grande (2×, 24 colunas na bobina de 80 mm). */
+export const NIVEL_MAXIMO_DO_AUMENTO = 3;
+
+/** O degrau da régua de um estilo (a mesma conta do editor). */
+export function nivelDaFonte(mini: boolean, escala: number): number {
+  if (escala >= 3) return 4;
+  if (escala === 2) return mini ? 2 : 3;
+  return mini ? 0 : 1;
+}
+
+/**
+ * O estilo com o cupom aumentado `passos` degraus — no máximo até o GRANDE (2×: 24 colunas na bobina de 80 mm). O que já é
+ * Grande ou maior fica como está: o aumento serve às linhas pequenas (a loja que gravou tudo em "Normal" — a de 16/11), o
+ * padrão do Regem (que já traz os itens da produção em Grande) não vira Enorme, e o adicional em Média não passa o item. O
+ * aumento nunca diminui nada.
+ */
+export function subirNivelDaFonte(mini: boolean, escala: number, passos: number): { mini: boolean; escala: number } {
+  const n = Math.max(0, Math.min(AUMENTO_MAXIMO, Math.floor(Number(passos) || 0)));
+  const de = nivelDaFonte(mini, escala);
+  if (!n || escala >= 4 || de >= NIVEL_MAXIMO_DO_AUMENTO) return { mini, escala };
+  const para = Math.min(NIVEL_MAXIMO_DO_AUMENTO, de + n);
+  return para > de ? { ...NIVEIS_DA_FONTE[para] } : { mini, escala };
+}
+
+/** O aumento gravado (0 a 2), ou undefined quando não veio um número válido. */
+export function aumentoGravado(v: unknown): number | undefined {
+  const n = Number(v);
+  return v !== null && v !== undefined && v !== '' && Number.isFinite(n) ? Math.max(0, Math.min(AUMENTO_MAXIMO, Math.floor(n))) : undefined;
 }
 
 // Normaliza a fonte para uma escala inteira 1..4 (source of truth), aceitando o
@@ -150,6 +196,7 @@ const CAIXA: PerfilCupom = {
   nome: 'Cliente — balcão',
   descricao: 'Cupom da venda de balcão entregue ao cliente.',
   grupo: 'cliente',
+  aumento: 1, // 16/11/2026: o cupom do caixa um passo maior (Normal → Média, ~+40%)
   campos: [
     C('senha', 'Senha', { negrito: true, alinhamento: 'centro' }),
     C('tipoFiscal', 'Fiscal ou informativo', { alinhamento: 'centro' }),
@@ -200,11 +247,13 @@ const ENTREGADOR: PerfilCupom = {
     'Via geral do pedido de delivery e de retirada (sai no caixa e vai com o entregador): cliente, endereço, valores, pagamento e troco.',
   grupo: 'cliente',
   campos: [
+    // A SENHA no alto, e logo abaixo dela o canal e o nº do pedido no canal (pedido do dono, 16/11/2026: "SENHA 9 -
+    // DELIVERY" e, embaixo, "iFood 6214"). Primeiro da lista: a loja que gravou o perfil antes dela a recebe no alto.
+    C('senha', 'Senha (com o canal e o nº do pedido no canal logo abaixo)', { negrito: true, alinhamento: 'centro', escala: 2 }),
     C('nomeLoja', 'Nome da loja', { negrito: true, alinhamento: 'centro' }),
     C('pedidoRegem', 'Nº do pedido (o do painel do delivery)', { negrito: true, alinhamento: 'centro', escala: 2 }),
-    C('plataforma', 'Canal e nº do pedido no canal', { alinhamento: 'centro' }),
+    C('plataforma', 'Canal e nº do pedido no canal (quando a senha não aparece)', { alinhamento: 'centro' }),
     C('tipoPedido', 'Tipo do pedido (DELIVERY / RETIRADA)', { negrito: true, alinhamento: 'centro' }),
-    C('senha', 'Senha', { visivel: false, negrito: true, alinhamento: 'centro' }),
     C('dataHora', 'Data e hora do pedido', { alinhamento: 'centro' }),
     C('ticket', 'Nº do ticket (controle)', { visivel: false }),
     C('cliente', 'Nome do cliente', { negrito: true, escala: 2 }),
@@ -256,6 +305,7 @@ const PRODUCAO_BALCAO: PerfilCupom = {
   nome: 'Produção — balcão',
   descricao: 'Via de produção do balcão/mesa: o pedido inteiro, só com o que importa — sem valores e sem pagamento.',
   grupo: 'producao',
+  aumento: 2, // 16/11/2026: as vias de produção dois passos maiores (Normal → Grande, o dobro)
   campos: CAMPOS_PRODUCAO(),
 };
 
@@ -270,6 +320,7 @@ const PRODUCAO_DELIVERY: PerfilCupom = {
   descricao:
     'Via de produção do pedido de canal: o pedido inteiro com a identificação (nº do pedido, canal, nome) para anexar à embalagem — sem endereço, valores e pagamento.',
   grupo: 'producao',
+  aumento: 2,
   campos: [
     C('pedidoRegem', 'Nº do pedido (o do painel do delivery)', { negrito: true, alinhamento: 'centro', escala: 2 }),
     C('plataforma', 'Canal e nº do pedido no canal', { alinhamento: 'centro' }),
@@ -289,6 +340,7 @@ const PRODUCAO: PerfilCupom = {
   nome: 'Produção (geral)',
   descricao: 'Perfil de produção genérico (compatibilidade).',
   grupo: 'producao',
+  aumento: 2,
   campos: [
     C('nomeLoja', 'Nome da loja', { negrito: true, alinhamento: 'centro' }),
     C('dataHora', 'Data e hora do pedido'),
@@ -417,10 +469,13 @@ const KEYS_VALIDAS = new Set(CAMPOS_CATALOGO.map((c) => c.key));
 //  - Perfil sem campos gravados (nunca editado, ou "Redefinir padrão") = o padrão do Regem inteiro.
 export function perfilEfetivo(
   id: string,
-  override?: { campos?: Partial<CampoCupom>[]; impressoras?: string[] } | null,
+  override?: { campos?: Partial<CampoCupom>[]; impressoras?: string[]; aumento?: number } | null,
 ): PerfilCupom {
-  const base = CUPOM_PERFIS_PADRAO[id];
-  if (!base) throw new Error(`Perfil de cupom desconhecido: ${id}`);
+  const padrao = CUPOM_PERFIS_PADRAO[id];
+  if (!padrao) throw new Error(`Perfil de cupom desconhecido: ${id}`);
+  // O cupom inteiro maior (16/11/2026): o gravado pela loja vale (até 0 = "como está"); sem nada gravado, o do padrão.
+  const aumento = aumentoGravado(override?.aumento);
+  const base: PerfilCupom = aumento === undefined ? padrao : { ...padrao, aumento };
   // S5 — impressoras direcionadas ao perfil (sobrepõe o roteamento padrão faz_cupom).
   const imprs = Array.isArray(override?.impressoras)
     ? override!.impressoras!.filter((x): x is string => typeof x === 'string')
@@ -509,6 +564,7 @@ export function perfilCustom(def: any): PerfilCupom | null {
     ...(Array.isArray(def.impressoras)
       ? { impressoras: def.impressoras.filter((x: any) => typeof x === 'string') }
       : {}),
+    ...(aumentoGravado(def.aumento) ? { aumento: aumentoGravado(def.aumento) } : {}),
   };
 }
 

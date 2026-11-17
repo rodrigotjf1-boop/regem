@@ -164,6 +164,26 @@ chega e a busca do programa funciona no portal de verdade.
   por ele não mostra o que o cliente e o usuário principal trocaram. As mensagens do cliente só chegam à ponte se ela usar
   a conta que conversa com o cliente (a principal) — ou se a 99 tiver uma permissão de chat para o usuário extra.
 
+## O que a versão 0.7.8 muda (16/11 — o iFood sem login chama quem está no PC)
+
+- **O que aconteceu:** em 16/11, na loja, o Gestor do iFood dentro da ponte caiu para a tela de login às 18:37 e ficou
+  assim mais de duas horas. A ponte dizia "iFood: entre com o login da loja" só no ícone perto do relógio; ninguém viu.
+  Os avisos "saiu" pararam na fila e o cliente que escreveu no chat do iFood ficou sem resposta.
+- **Agora a ponte chama:** sem login por 1 minuto, ela mostra a janela do iFood (sem tomar o teclado de quem está no
+  caixa), pisca na barra de tarefas e solta um aviso do Windows pelo ícone ("O iFood saiu do login neste PC…"). Vale
+  quando o login cai, quando o programa abre e o iFood segue sem login, e de novo a cada 10 minutos enquanto durar. Não
+  chama com a ponte pausada neste PC, desligada nos ajustes do Regem, sem pareamento ou em "só observar". A regra está
+  em `src/login-do-ifood.js`.
+- **O motivo da queda fica anotado:** em 16/11 a renovação do acesso do iFood (`oauth/token/refresh`) não deixou linha de
+  resposta no diagnóstico, e não deu para dizer se foi a internet da loja ou o iFood. Agora a chamada que fica sem
+  resposta vira `chamada_falhou` (com o erro da rede: `net::ERR_…`), a recusa do iFood vira `resposta` com o `status`, e
+  cada virada do login vira `login_ifood` (logado: sim ou não), além do `chamou_para_o_login` com o motivo.
+- **Na nuvem, junto:** o aviso "iFood ou 99 desconectado" do Mister passa a abrir também quando ninguém responde pelo
+  chat do iFood com pedido em andamento (vai ao gerente pelo WhatsApp e à tela da loja).
+- **Ainda não provado numa janela de verdade:** a regra e o diagnóstico têm teste; o comportamento da janela (aparecer sem
+  virar a janela ativa, piscar, o aviso do Windows) precisa da prova de tela antes do `.exe` — as variáveis
+  `REGEM_PONTE_LOGIN_CONFIRMAR_MS` e `REGEM_PONTE_LOGIN_REPETIR_MS` encurtam os prazos para ela.
+
 ## O que a versão 0.7.7 muda (12/11 — o "envio incerto" da 99 com explicação)
 
 - **O que faltava:** em 10/11, dois avisos pela 99 terminaram "envio incerto" (a ponte apertou "Enviar" e a 99 não

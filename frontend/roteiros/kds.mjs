@@ -511,7 +511,9 @@ export default async function roteiroKds({ nav, base, ok, foto, larguras, rapido
     const canc = page.locator('[data-kds-cartao="d245"]');
     ok((await canc.count()) === 1 && /\bcancelado\b/.test((await canc.getAttribute('class')) ?? ''), 'cancelado: o cartão aparece cinza');
     t = await cab('d245');
-    ok(/Cancelado/i.test(t) && /iFood #5530/i.test(t) && (await canc.locator('.k-avancar').count()) === 0, `cancelado: a etiqueta e nenhum botão de avançar ("${t}")`);
+    ok(/Cancelado/i.test(t) && /iFood #5530/i.test(t) && (await canc.locator('.k-avancar:not([data-kds-ciente])').count()) === 0, `cancelado: a etiqueta e nenhum botão de avançar ("${t}")`);
+    // 16/11/2026: o cancelado sai da tela pelo "Ciente" (antes ficava 30 min, sem botão)
+    ok(/^ciente$/i.test((await canc.locator('[data-kds-ciente]').innerText()).trim()), 'cancelado: o botão "Ciente" tira o cartão da tela');
 
     // alterado e ainda não visto (já estava assim na 1ª leitura): o aviso invertido, a exclamação, NOVO e TIRAR — e nada
     // no rodapé (a 1ª leitura é a base; o som que repete cobre o que já estava na tela)

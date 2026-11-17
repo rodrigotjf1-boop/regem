@@ -12,11 +12,89 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **PDV · Balcão: cartões grandes por padrão, "Compactos" por pessoa, e a ordem do "Organizar" gravada de verdade (17/11;
+  ERR-504; SEM migration) → vai no `.zip`** (a tela e a rota das preferências são do servidor da loja).
+  - O cartão grande: 6 por linha no monitor, foto 4:3, nome de 17 px, preço em destaque; "Compactos" ao lado do "Organizar".
+  - O DTO das preferências aceita a ordem das categorias e o tamanho dos cartões (antes descartava a ordem).
+
+- **PDV · Balcão: o cartão do produto com a foto em cima e a janela das etapas larga com a foto de cada opção (17/11, pedido
+  do dono; SEM migration) → vai no `.zip`** (a tela e a leitura do produto são do servidor da loja).
+  - O cartão: foto grande em cima (ou o ícone), nome em destaque, preço no pé; o painel do pedido não mudou.
+  - A janela das etapas larga, opções em grade, a foto da opção (a do cadastro da opção; senão, a do produto do código).
+
+- **Vias impressas: "SENHA 5 - BALCÃO", o canal embaixo da senha no delivery, caixa alta e o cupom maior (16/11, pedidos do
+  dono; SEM migration) → vai no `.zip`** (quem imprime é o servidor da loja).
+  - A senha por extenso em todas as vias; no cupom do delivery, a senha no alto e o canal ("iFood 6214") logo abaixo.
+  - O cardápio próprio sai "Regem". Adicional e observação em maiúsculas.
+  - "Tamanho do cupom inteiro" por perfil: o caixa 1 passo maior (~+40%), a produção 2 (o dobro), até o Grande.
+
+- **Totem em dinheiro: o ícone em todos os PDVs, o "pronto e não pago" e a via "PAGO NO CAIXA" (16/11, pedidos do dono; SEM
+  migration) → vai no `.zip`** (o PDV e a impressão da loja são do servidor da loja).
+  - Ícone com a contagem desde a chegada do pedido; o clique abre Retirada / Encomendas; vermelho com pronto e não pago.
+  - O "avançar" não conclui o totem em dinheiro não pago. O totem pago no totem sai só com a produção.
+  - A via do caixa do dinheiro só depois do pagamento, com "PAGO NO CAIXA" e a forma cobrada.
+
+- **PDV · Balcão sem o "Todos": abre na primeira categoria (16/11, pedido do dono; só tela, sem migration) → vai no `.zip`**
+  (a tela da loja vem nele).
+  - A barra de categorias perde o "Todos"; a tela abre na primeira categoria com produto, na ordem do "Organizar".
+  - O produto de subcategoria aparece na categoria de cima; o sem categoria ganha a pílula "Sem categoria".
+
+- **O atendente responde uma vez por vez — fim da "conversa picotada" (16/11, pedido do dono; SEM migration).** O cliente
+  que manda outra mensagem enquanto a resposta é preparada recebe UMA resposta, que considera tudo: a velha é segurada e
+  tudo vai de novo ao robô. Instruções `.f24`. Só NUVEM (o atendente é da nuvem): vale com o merge; `ROBO_SEGURAR_MS=0`
+  desliga. O `.zip` leva o código sem efeito na loja.
+
+- **KDS: o cartão cancelado sai pelo "Ciente" (botão ou senha + Enter); a senha vai no cartão que anda; adicionais e
+  observação em caixa alta (16/11, pedido do dono; SEM migration) → vai no `.zip`** (a tela e o servidor da loja).
+  - Antes, o cancelado ficava 30 min preso, sem botão, e o Enter da senha dizia "não está na fila".
+
+- **Empresa inativa há 2 meses é desligada — a loja e as integrações (16/11, decisão do dono; SEM migration; nasce
+  DESLIGADA).** Com `DESLIGAR_INATIVAS=1` na nuvem (o dono liga), uma rotina diária desliga a empresa sem nenhum sinal de
+  uso há 60 dias: ação de uma pessoa, batida do servidor da loja, sinal de aparelho, venda, ou ação da distribuição
+  sobre ela. Quem paga e a própria Regem nunca entram.
+  - A empresa fica `bloqueado` (o mesmo estado do "Revogar" do console; volta pelo "Liberar") e as integrações ligadas
+    dela são desligadas — credencial e configuração ficam, nada é apagado.
+  - Fica o registro `desligou_por_inatividade` na auditoria do console, com os dias, o último sinal e quais integrações
+    estavam ligadas.
+  - Só NUVEM (as tabelas da distribuição são de lá): vale com o merge e a variável; o `.zip` leva o código sem efeito na
+    loja.
+
+- **Console › Licenças: o "Revogar" desliga também as integrações, e o "Liberar/Renovar" religa as mesmas (16/11,
+  ERR-501, decisão do dono; SEM migration).** O bloqueio sozinho não parava as rotinas dos canais: a empresa revogada
+  seguia recebendo pedidos que ninguém podia aceitar. Agora o "Revogar" desliga as integrações ligadas dela e guarda
+  quais; o "Liberar/Renovar" religa as que o "Revogar" e a rotina de inatividade desligaram (a que a loja tinha desligado
+  por conta própria fica como está). Credencial e configuração ficam. Empresa inexistente responde "Empresa não
+  encontrada." em vez de um "ok" sem efeito.
+  - Só NUVEM: vale com o deploy.
+
 - **O aceite de pedidos não trava com o pedido que falha sempre (16/11, ERR-493; sem migration) → vai no `.zip`** (o
   aceite no servidor da loja); o resgate da nuvem vale com o deploy.
   - As duas primeiras falhas de um pedido tentam de novo no ciclo seguinte, como hoje.
   - A partir da terceira seguida, ele sai do lote por 2, 4, 6… minutos (teto de 10) e segue "novo" no painel.
   - O lote passa a ter ordem: quem espera há mais tempo primeiro; o parado há mais de 12 h por último.
+
+- **O iFood sem login na ponte do chat avisa gente (16/11, ERR-497; SEM migration) → ponte 0.7.8 vai no próximo `.exe`.**
+  No 1º dia da ponte no servidor da loja o iFood dela caiu para o login e ficou mais de duas horas sem ninguém saber.
+  - **Nuvem (vale com o merge):** o aviso "iFood ou 99 desconectado" do Mister abre também com o chat do iFood sem ninguém
+    respondendo e pedido em andamento; vai ao gerente pelo WhatsApp e à tela da loja, com onde clicar.
+  - **Ponte 0.7.8 (só no `.exe`; o `.zip` não leva a ponte):** sem login por 1 minuto, mostra a janela do iFood sem tomar
+    o teclado, pisca na barra de tarefas e solta o aviso do Windows; insiste a cada 10 minutos. O diagnóstico anota a
+    chamada sem resposta e a recusa do iFood.
+  - **Antes de gerar o `.exe`:** a prova de tela da ponte (a janela aparece sem virar a janela ativa; o aviso do Windows
+    sai) — `REGEM_PONTE_LOGIN_CONFIRMAR_MS` e `REGEM_PONTE_LOGIN_REPETIR_MS` encurtam os prazos.
+
+- **Cardápio Web: o pedido despachado ou finalizado no painel de lá anda no Regem (16/11, ERR-496; sem migration).** Das
+  12 situações da API do Cardápio Web, três não eram traduzidas: `released` (liberado para a saída) passa a virar
+  despachado, `waiting_to_catch` (liberado para a retirada) vira pronto e `closed` (finalizado) vira concluído. Antes o
+  pedido ficava parado na situação em que estava.
+  - Só NUVEM (a rotina e o aviso do Cardápio Web rodam lá): vale com o deploy; o `.zip` leva o código sem efeito na loja.
+
+- **Cardápio Web: o pedido do iFood que ele também devolve não entra quando o iFood está ligado direto no Regem (16/11,
+  decisão do dono; sem migration).** A consulta do Cardápio Web devolve os pedidos que ele recebeu do iFood; a loja com o
+  iFood ligado no Regem e dentro do Cardápio Web receberia o mesmo pedido duas vezes e viraria duas vendas. Com o iFood
+  direto ligado na mesma loja (ou sem loja), a cópia não entra; o pedido que já tinha entrado segue sendo acompanhado; o
+  resto do Cardápio Web (cardápio, portal, extensão do WhatsApp) entra como sempre. Não aconteceu em nenhuma loja.
+  - Só NUVEM: vale com o deploy.
 
 - **O atendente lê a foto que o cliente manda no WhatsApp (16/11, pedido do dono; SEM migration; nasce DESLIGADO).** Com
   `ROBO_FOTOS_IA=1` na nuvem (o dono liga), a foto que o contexto não reconheceu como comprovante vai a um modelo de visão,
