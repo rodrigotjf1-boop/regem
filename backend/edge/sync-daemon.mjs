@@ -2500,6 +2500,9 @@ const SO_NUVEM = new Set([
   // As propostas do Mister (mig 428, @cloud-only): o procedimento proposto para um aviso, a autorização e a conferência.
   // Quem propõe, executa e confere é a nuvem.
   'mister_proposta',
+  // Os documentos por foto do Mister (mig 439, @cloud-only): o boleto ou a conta que chegou pelo WhatsApp do Mister, o
+  // que foi lido e a conta a pagar criada. Quem lê e lança é a nuvem (a conta a pagar desce pelo sync de sempre).
+  'mister_documento',
 ]);
 
 // LEGADO SEM USO: tabelas criadas nas migrations de fundação (002/003) para recursos que
