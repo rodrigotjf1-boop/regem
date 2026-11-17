@@ -1048,8 +1048,13 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
 - **Parte 4 (sem migration):** mais oito — Delivery › Configurações (horário, tempo de entrega, cupons) e o Estoque
   (produto, contagem, desperdício, etiquetas, pedidos de compra). De passagem, o rótulo de cada campo das configurações
   do Delivery ficou LIGADO ao campo (`Campo` com `htmlFor`/`id`, ou grupo; ERR-510). 22 assuntos do guia com imagem.
-- **Falta:** o robô e os ajustes da pausa (a aba lê rotas que o roteiro ainda não simula), cadastros, relatórios,
-  impressão, acessos, fiscal, WhatsApp e canais — roteiro por roteiro.
+- **Parte 5 (sem migration):** mais onze, por um roteiro novo só do "como faço" (`roteiros/como-faco.mjs`: as telas
+  sem roteiro próprio, com a resposta simulada padrão e a conferência de que a tela não caiu no "Algo deu errado") —
+  Cadastros (colaborador, entregador, produto do cardápio), Escala, Impressoras (adicionar, onde cada documento sai),
+  Acessos (permissões do perfil, acesso da pessoa), Cancelamentos de itens, Auditoria e Turnos. A Auditoria tinha o
+  rótulo solto (ERR-510, reincidência) e ficou ligada. 33 assuntos do guia com imagem.
+- **Falta:** relatórios de vendas, o robô e os ajustes da pausa (leem rotas que o roteiro ainda não simula), fiscal,
+  WhatsApp, atendimento e canais (iFood, 99, catálogo) — com as respostas simuladas de cada tela.
 
 **A tela "Resumo" (17/11/2026, sem migration; #1114, no ar):** a entrada do presidente em Mister — as três etapas para funcionar, a faixa
 "IA parada", o que o Mister faz e os últimos avisos, só com as rotas que já existem.

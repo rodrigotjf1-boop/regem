@@ -154,8 +154,9 @@ export default function AuditoriaPage() {
           {/* Filtros: busca + período */}
           <Card className="flex flex-wrap items-end gap-3 p-4">
             <div className="min-w-[220px] flex-1 space-y-1">
-              <Label className="text-xs">Buscar</Label>
+              <Label htmlFor="auditoria-busca" className="text-xs">Buscar</Label>
               <Input
+                id="auditoria-busca"
                 type="search"
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
@@ -163,12 +164,12 @@ export default function AuditoriaPage() {
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">De</Label>
-              <Input type="date" value={de} onChange={(e) => setDe(e.target.value)} className="w-40" />
+              <Label htmlFor="auditoria-de" className="text-xs">De</Label>
+              <Input id="auditoria-de" type="date" value={de} onChange={(e) => setDe(e.target.value)} className="w-40" />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Até</Label>
-              <Input type="date" value={ate} onChange={(e) => setAte(e.target.value)} className="w-40" />
+              <Label htmlFor="auditoria-ate" className="text-xs">Até</Label>
+              <Input id="auditoria-ate" type="date" value={ate} onChange={(e) => setAte(e.target.value)} className="w-40" />
             </div>
           </Card>
 

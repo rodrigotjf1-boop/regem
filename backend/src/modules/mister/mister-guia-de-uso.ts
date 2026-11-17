@@ -513,6 +513,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       '"Exportar CSV" baixa a lista.',
     ],
     botoes: ['Período', 'Bateu', 'Faltou dinheiro', 'Sobrou dinheiro', 'Ver fechamento', 'Exportar CSV'],
+    imagem: ['Relatórios › Turnos, no menu', 'o "Período"', 'as situações, começando por "Bateu"'],
     notas: ['Só o presidente e o gerente abrem esta tela.'],
   },
   {
@@ -542,6 +543,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       '"Exportar CSV" baixa a lista.',
     ],
     botoes: ['Período', 'Atualizar', 'Sem justificativa', 'Com justificativa', 'Exportar CSV'],
+    imagem: ['Relatórios › Cancelamentos de itens, no menu', 'o "Período"', 'o botão "Atualizar"', 'a situação "Sem justificativa"'],
     notas: ['Mostra os itens retirados de comandas de mesa depois de lançados, com quem retirou e a justificativa, até 300 linhas.'],
   },
   {
@@ -553,6 +555,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
     palavras: ['auditoria', 'quem fez', 'quem alterou', 'quem mudou o preço', 'quem mexeu', 'histórico de ações', 'registro', 'log'],
     passos: ['Use "Buscar" (usuário, ação ou detalhe), o período ("De" e "Até") e os botões de tipo ("Tudo", "Acesso", "Configuração", "Estoque"…).'],
     botoes: ['Buscar', 'De', 'Até', 'Tudo', 'Acesso', 'Configuração', 'Estoque'],
+    imagem: ['Auditoria, no menu', 'o campo "Buscar"', 'o período ("De" e "Até")', 'os filtros por tipo, começando por "Tudo"'],
     notas: ['Só o presidente e o gerente veem. Os registros não se editam nem se apagam; a tela mostra os 300 mais recentes do filtro.'],
   },
 
@@ -662,6 +665,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Clique em "Adicionar".',
     ],
     botoes: ['Colaboradores', 'Nome', 'Usuário de acesso (apelido, sem espaço)', 'Adicionar'],
+    imagem: ['Cadastros, no menu', 'o cartão "Colaboradores"'],
     notas: ['O gerente cria colaborador de supervisão e de execução; o presidente, de qualquer nível.', 'O perfil e o acesso pela internet se ajustam nos acessos.'],
     veja: ['acesso-da-pessoa'],
   },
@@ -678,6 +682,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Clique em "Adicionar".',
     ],
     botoes: ['Funções', 'Colaboradores', 'Adicionar'],
+    imagem: ['Cadastros, no menu', 'o cartão "Funções" (a função com entregador no nome)', 'o cartão "Colaboradores"'],
     notas: ['O entregador é um colaborador com a função de entregador: é assim que ele aparece no delivery.'],
     veja: ['pagamento-entregador'],
   },
@@ -695,6 +700,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Para opcionais e adicionais, abra a aba "Complementos" do produto salvo, crie o grupo em "Adicionar grupo" e as opções em "＋ opção".',
     ],
     botoes: ['Cardápio', '＋ Novo produto', 'Nome', 'Categoria *', 'Código / SKU (PDV)', 'Cadastrar produto', 'Complementos', 'Adicionar grupo', '＋ opção', 'Categorias', '＋ Adicionar'],
+    imagem: ['Cadastros, no menu', 'o cartão "Cardápio"'],
     notas: ['Categoria nova: na lateral "Categorias", "＋ Adicionar".', 'Depois de criado, o preço muda na gestão do catálogo.'],
     veja: ['preco-no-canal'],
   },
@@ -714,6 +720,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Clique em "Gerar escala".',
     ],
     botoes: ['Gerar escala', 'Colaborador', 'Vaga (etiqueta)', 'Entrada', 'Saída', 'Recorrência', '1 dia', '1 mês', 'Dias de folga na semana', 'Feriado / evento'],
+    imagem: ['Escalas, no menu', 'o botão "Gerar escala", no alto da tela'],
     notas: [
       'O gerador monta uma pessoa e uma vaga por vez.',
       'Conflito (a mesma pessoa em dois lugares no mesmo turno) é bloqueado.',
@@ -735,6 +742,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Clique em "Salvar". Para testar, "Imprimir teste" na linha da impressora.',
     ],
     botoes: ['Impressoras', 'Impressora', 'Nome da impressora', 'Direcionamento', 'Conexão', 'IP', 'Porta', 'Nome no Windows', 'Salvar', 'Imprimir teste'],
+    imagem: ['Configurações › Impressoras e cupons, no menu', 'a parte "Impressoras"', 'o botão "Impressora"'],
     notas: ['Com o servidor da loja ligado, a página de teste sai em segundos.'],
     veja: ['onde-cada-documento-sai'],
   },
@@ -751,6 +759,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Clique em "Salvar alterações".',
     ],
     botoes: ['Onde cada documento sai', 'Via do cliente', 'Via do delivery', 'Via da retirada', 'Comanda do entregador', 'Salvar alterações'],
+    imagem: ['Configurações › Impressoras e cupons, no menu', 'a parte "Onde cada documento sai"'],
     notas: ['Documento sem escolha sai em todas as impressoras de cupom.', 'Só o presidente e o gerente mudam.'],
   },
   {
@@ -817,6 +826,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Clique em "Salvar perfil". Perfil novo: "Novo perfil", o nome e o nível, e "Adicionar perfil".',
     ],
     botoes: ['Perfis', 'Permissões', 'Buscar permissão', 'Salvar perfil', 'Novo perfil', 'Adicionar perfil'],
+    imagem: ['Configurações › Acessos & perfis, no menu', 'a parte "Perfis" (cada perfil da lista tem o botão "Permissões")', 'o botão "Novo perfil"'],
     notas: ['A tela é só do presidente.', 'As mudanças valem no próximo login do colaborador.'],
   },
   {
@@ -832,6 +842,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Clique em "Salvar". Para tirar o acesso na hora, "Bloquear".',
     ],
     botoes: ['Pessoas', 'Acesso', 'Perfil', 'App do colaborador', 'Acesso pela internet (nuvem)', 'Salvar', 'Bloquear'],
+    imagem: ['Configurações › Acessos & perfis, no menu', 'a parte "Pessoas" (cada pessoa da lista tem o botão "Acesso")'],
     notas: [
       'A tela é só do presidente.',
       'O usuário, a senha e o PIN nascem no cadastro do colaborador.',
