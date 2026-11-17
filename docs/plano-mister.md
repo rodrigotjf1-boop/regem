@@ -1031,7 +1031,11 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
 **Andamento da M3g (17/11/2026):**
 - **Parte 1 (sem migration):** `corrigir_documento` — o vencimento do boleto que o Mister lançou, pela conta da tela,
   com "Desfazer" no balão; só o presidente; o valor nunca.
-- **Falta:** criar e publicar (o recado no mural, com "Publicar" / "Mudar o texto").
+- **Parte 1 — #1113, no ar.**
+- **Falta:** criar e publicar (o recado no mural, com "Publicar" / "Mudar o texto" — guardar o rascunho pede migration).
+
+**A tela "Resumo" (17/11/2026, sem migration):** a entrada do presidente em Mister — as três etapas para funcionar, a faixa
+"IA parada", o que o Mister faz e os últimos avisos, só com as rotas que já existem.
 
 ## 5. O que depende do dono
 
