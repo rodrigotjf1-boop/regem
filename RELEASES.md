@@ -138,6 +138,10 @@
     despacho, a entrega e a tela de avisos recebem — como a compra recebida e a contagem.
   - Numa empresa de uma loja só, o resto não muda.
 
+- **A credencial antiga pode ser desligada (17/11, Hub DMS F6 P-4; SEM migration; nasce desligado; só `.zip`).** Vale na
+  NUVEM, com `INTEGRACAO_ANTIGA_DESLIGADA=true` no `regem-api` (o dono liga). No servidor da loja nada muda: o
+  `X-Sync-Token` do totem segue valendo lá (o código vai no `.zip` sem efeito na loja).
+
 - **🔴 `.exe` — Mister: reiniciar o serviço de impressão pela loja (16/11, F4.4 de `docs/plano-mister.md`, a conversa 5 do
   protótipo `mockups/regem-mister.html`; sem migration).** Toca `backend/edge/sync-daemon.mjs` (o comando
   `reiniciar_impressao`) e cria `backend/edge/comando-reiniciar-impressao.mjs` → **vai no `.exe`** (a 1.30.14 tem de sair

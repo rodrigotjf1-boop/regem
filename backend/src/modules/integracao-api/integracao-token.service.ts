@@ -22,10 +22,15 @@ import {
 } from './validar-token-integracao';
 import type { AplicativoAprovado } from '../../dms/integracao-dms';
 import type { IntegracaoCtxData } from './integracao-token.guard';
+import { credencialAntigaDesligada } from '../../common/retirada-credencial';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A emissão pelo console da distribuição, com a credencial antiga desligada (P-4). */
+export const EMISSAO_RETIRADA =
+  'O token colado foi retirado: não se emite mais por aqui. A integração nova é pela autorização por clique do DMS ID.';
 
 /** Quem autorizou, como o sistema o vê hoje: nível e "ver valores em R$" do perfil. */
 export type Autorizador = { id: string; nome: string; presidente: boolean; verFinanceiro: boolean };
@@ -252,6 +257,8 @@ export class IntegracaoTokenService {
    * autorização. Devolve o token em claro UMA vez — o banco guarda só o hash.
    */
   async emitir(dto: any, autor: { sub: string; nome?: string; perfil?: string }) {
+    // Desligado pela distribuição (P-4): integração nova é pela autorização por clique.
+    if (credencialAntigaDesligada()) throw new BadRequestException(EMISSAO_RETIRADA);
     const tenantId = this.uuid(dto?.tenantId, 'tenantId');
     const cliente = String(dto?.cliente ?? 'liame');
     if (!ehClienteIntegracao(cliente)) {
