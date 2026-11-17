@@ -173,7 +173,8 @@ const TELAS = [
       '/relatorios/vendas': {
         resumo: { faturado: 4820.5, vendas: 132, ticketMedio: 36.52, gorjeta: 0, canceladas: 2, recebido: 4820.5 },
         porForma: [{ forma: 'Pix', qtd: 58, total: 2110.3 }, { forma: 'Crédito', qtd: 44, total: 1702.2 }, { forma: 'Dinheiro', qtd: 30, total: 1008 }],
-        porCanal: [{ canal: 'Balcão', qtd: 70, total: 2400 }, { canal: 'iFood', qtd: 40, total: 1650.5 }, { canal: 'Cardápio', qtd: 22, total: 770 }],
+        // os canais como o servidor manda (`relatorios.service.ts`: mesa, delivery/app e balcão; a tela põe a maiúscula)
+        porCanal: [{ canal: 'delivery/app', qtd: 62, total: 2420.5 }, { canal: 'balcão', qtd: 58, total: 1980 }, { canal: 'mesa', qtd: 12, total: 420 }],
       },
       '/relatorios/produtos': {
         itens: [
