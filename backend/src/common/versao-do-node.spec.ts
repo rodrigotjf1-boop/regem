@@ -53,4 +53,18 @@ describe('a versão do Node da nuvem (Dockerfiles e CI)', () => {
     expect(['20.19.5', '22.23.3', '24.22.0', '24.18.0', '26.12.0'].filter(corrigida)).toEqual([]);
     expect(['22.23.4', '24.22.1', '24.23.0', '26.12.1'].every(corrigida)).toBe(true);
   });
+
+  // Avaliação de segurança de 16/11/2026: o container da tela rodava como root (o do backend já usava `USER node`).
+  it('as duas imagens de execução rodam como o usuário sem privilégio (`USER node` depois do último FROM, antes do CMD)', () => {
+    for (const projeto of ['backend', 'frontend']) {
+      const linhas = ler(projeto, 'Dockerfile').split(/\r?\n/).map((l) => l.trim());
+      const ultimoFrom = linhas.map((l, i) => (/^FROM\s/i.test(l) ? i : -1)).filter((i) => i >= 0).pop() as number;
+      const execucao = linhas.slice(ultimoFrom);
+      const usuario = execucao.findIndex((l) => /^USER\s+node$/i.test(l));
+      const comando = execucao.findIndex((l) => /^CMD\s/i.test(l));
+      expect([projeto, usuario >= 0, comando > usuario]).toEqual([projeto, true, true]);
+      // nenhum USER root depois (voltaria a rodar como root)
+      expect([projeto, execucao.slice(usuario + 1).some((l) => /^USER\s+(root|0)\b/i.test(l))]).toEqual([projeto, false]);
+    }
+  });
 });
