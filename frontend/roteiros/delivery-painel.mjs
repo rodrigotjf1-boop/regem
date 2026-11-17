@@ -97,8 +97,19 @@ export default async function roteiroDeliveryPainel({ nav, base, ok, foto, largu
   // ── M3d: a imagem do "como faço" de pausar um canal — 1: Delivery › Painel no menu; 2: "⏸ Pausar" (só com GERAR_COMO_FACO=1) ──
   {
     const { ctx, page, erros } = await abrir(1280, 800);
-    const r = await fotoDoComoFaco(page, 'pausar-canal', [page.locator('aside a[href="/delivery"] >> visible=true').first(), page.locator('button:has-text("⏸ Pausar") >> visible=true').first()]);
-    ok(r.achou.every(Boolean), `como faço (pausar-canal): as marcas estão na tela (${r.achou.join(', ')})${r.gerou ? ' — imagem gerada' : ''}`);
+    const conferir = (id, r) => ok(r.achou.every(Boolean), `como faço (${id}): as marcas estão na tela (${r.achou.join(', ')})${r.gerou ? ' — imagem gerada' : ''}${(r.motivos ?? []).filter(Boolean).length ? ` — ${r.motivos.join(' | ')}` : ''}`);
+    const menu = page.locator('aside a[href="/delivery"] >> visible=true').first();
+    conferir('pausar-canal', await fotoDoComoFaco(page, 'pausar-canal', [menu, page.locator('button:has-text("⏸ Pausar") >> visible=true').first()]));
+    // O tempo de preparo fica no fim da janela da ⚙️ (longa): a imagem mostra onde ela está — 1: o menu; 2: a ⚙️.
+    conferir('tempo-de-preparo', await fotoDoComoFaco(page, 'tempo-de-preparo', [menu, page.locator('button[title="Configurações do delivery"] >> visible=true').first()]));
+    // Aceitar e avançar: o pedido "Em análise" selecionado — 1: o pedido na lista; 2: "AVANÇAR"; 3: "FINALIZAR".
+    const pedido = page.locator('main table tbody tr', { hasText: 'Mariana' }).first();
+    await pedido.click();
+    const avancar = page.locator('main button:has-text("AVANÇAR")').first();
+    ok(await avancar.isEnabled(), 'como faço (aceitar-avancar): com o pedido selecionado, "AVANÇAR" fica ligado');
+    conferir('aceitar-avancar', await fotoDoComoFaco(page, 'aceitar-avancar', [pedido, avancar, page.locator('main button:has-text("FINALIZAR")').first()]));
+    // Cancelar: o mesmo pedido selecionado — 1: o pedido; 2: "CANCELAR".
+    conferir('cancelar-pedido', await fotoDoComoFaco(page, 'cancelar-pedido', [pedido, page.locator('main button:has-text("CANCELAR")').first()]));
     ok(erros.length === 0, `como faço: sem erro (${erros.join(' | ')})`);
     await ctx.close();
   }

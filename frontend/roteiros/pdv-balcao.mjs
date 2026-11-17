@@ -8,7 +8,7 @@
 //  • o ícone do totem a pagar no cabeçalho do Balcão;
 //  • o TAMANHO dos cartões (17/11, "a primeira tela parece não ter mudado"): grande é o padrão (foto 4:3, nome de 17 px);
 //    "Compactos" encolhe na hora, grava nas preferências da pessoa e a tela reabre compacta.
-import { responder, tokenFalso, umaLinha } from './comum.mjs';
+import { fotoDoComoFaco, responder, tokenFalso, umaLinha } from './comum.mjs';
 
 const TOKEN = tokenFalso({ cat: 'presidente', perfil: 'presidente', nome: 'Rodrigo' });
 
@@ -94,7 +94,7 @@ const cartoes = (page) =>
   );
 
 export default async function roteiroPdvBalcao({ nav, base, ok, foto: arquivoFoto, larguras }) {
-  async function abrir(w, h, prefs = {}) {
+  async function abrir(w, h, prefs = {}, o = {}) {
     const gravadas = [];
     const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
     await ctx.addInitScript((jwt) => {
@@ -111,7 +111,8 @@ export default async function roteiroPdvBalcao({ nav, base, ok, foto: arquivoFot
       if (p === '/produtos/categorias') return responder(route, CATS);
       if (p === '/produtos/p1') return responder(route, DETALHE_COMBO);
       if (p.startsWith('/produtos/')) return responder(route, { ...PRODUTOS.find((x) => `/produtos/${x.id}` === p), variacoes: [], complementos: [] });
-      if (p === '/financeiro/caixa') return responder(route, { id: 'cx-1', status: 'aberta', origem: 'pdv', turnoNumero: 3, abertaEm: new Date().toISOString(), operadorNome: 'Rodrigo', horasAberto: 1 });
+      if (p === '/financeiro/caixa')
+        return responder(route, o.caixaFechado ? null : { id: 'cx-1', status: 'aberta', origem: 'pdv', turnoNumero: 3, abertaEm: new Date().toISOString(), operadorNome: 'Rodrigo', horasAberto: 1 });
       if (p === '/financeiro/caixa/pendencias') return responder(route, { total: 0, pedidos: [] });
       if (p === '/financeiro/formas-pagamento')
         return responder(route, [
@@ -229,5 +230,33 @@ export default async function roteiroPdvBalcao({ nav, base, ok, foto: arquivoFot
     if (w === 375 || w === 768 || w === 1280) await page.screenshot({ path: arquivoFoto(`pdv-balcao-${w}.png`) });
     ok(erros.length === 0, `${w}px: sem erro na página (${umaLinha(erros.join(' | '))})`);
     await ctx.close();
+  }
+
+  // ── M3d: as imagens do "como faço" do caixa e da venda no Balcão (só gera com GERAR_COMO_FACO=1; sem a variável,
+  //    confere que cada marca está na tela, inteira e na frente) ──
+  {
+    const conferir = (id, r) => ok(r.achou.every(Boolean), `como faço (${id}): as marcas estão na tela (${r.achou.join(', ')})${r.gerou ? ' — imagem gerada' : ''}${(r.motivos ?? []).filter(Boolean).length ? ` — ${r.motivos.join(' | ')}` : ''}`);
+    const menuDe = (page) => page.locator('aside a[href="/pdv"] >> visible=true').first();
+    {
+      const { ctx, page, erros } = await abrir(1280, 800);
+      const caixaBotao = (nome) => page.locator(`main button:text-is("${nome}")`).first();
+      conferir('sangria', await fotoDoComoFaco(page, 'sangria', [menuDe(page), caixaBotao('Sangria'), caixaBotao('Suprimento')]));
+      conferir('fechar-caixa', await fotoDoComoFaco(page, 'fechar-caixa', [menuDe(page), caixaBotao('Fechar turno')]));
+      // A venda: um produto simples no pedido — 1: o menu; 2: o cartão do produto; 3: "Receber".
+      const produto = page.locator('[data-produto="p2"]');
+      await produto.click();
+      await page.waitForSelector('[data-teste="total"]:not(:text-is("R$ 0,00"))');
+      conferir('venda-balcao', await fotoDoComoFaco(page, 'venda-balcao', [menuDe(page), produto, page.locator('[data-teste="receber"]')]));
+      ok(erros.length === 0, `como faço (caixa): sem erro (${umaLinha(erros.join(' | '))})`);
+      await ctx.close();
+    }
+    {
+      const { ctx, page, erros } = await abrir(1280, 800, {}, { caixaFechado: true });
+      const abrirTurno = page.locator('main button:text-is("Abrir turno")').first();
+      await abrirTurno.waitFor({ timeout: 15000 });
+      conferir('abrir-caixa', await fotoDoComoFaco(page, 'abrir-caixa', [menuDe(page), abrirTurno]));
+      ok(erros.length === 0, `como faço (abrir o caixa): sem erro (${umaLinha(erros.join(' | '))})`);
+      await ctx.close();
+    }
   }
 }

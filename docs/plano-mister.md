@@ -1041,7 +1041,11 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
   de entrega (roteiro da área) e os três do próprio Mister: ligar o WhatsApp, a chave de IA e os relatórios (roteiro do
   Mister). A marca agora rola até a vista e só vale se o centro dela estiver na janela e for dela mesma (o item cortado
   pelo menu ou coberto reprova o roteiro, com o motivo); os relatórios, no fim da parte, saem pela busca ("resumo").
-- **Falta:** as imagens dos outros assuntos do guia (caixa, PDV, estoque, cadastros…), roteiro por roteiro.
+- **Parte 3 (sem migration):** mais sete — do painel do Delivery (aceitar e avançar, cancelar, tempo de preparo) e do
+  Balcão (abrir o caixa, vender, sangria e suprimento, fechar o caixa). O selo da marca passou a navy com número branco e
+  borda dourada (os selos dourados do próprio app, como a quantidade no cartão, se confundiam com a marca), e o botão
+  desligado se mede com o `pointer-events` ligado só durante a medida. 14 assuntos do guia com imagem.
+- **Falta:** as imagens dos outros assuntos (estoque, cadastros, relatórios, impressão, acessos…), roteiro por roteiro.
 
 **A tela "Resumo" (17/11/2026, sem migration; #1114, no ar):** a entrada do presidente em Mister — as três etapas para funcionar, a faixa
 "IA parada", o que o Mister faz e os últimos avisos, só com as rotas que já existem.

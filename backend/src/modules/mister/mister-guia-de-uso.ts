@@ -208,6 +208,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       '"VOLTAR" reabre um pedido concluído e pede a senha de quem libera (presidente, gerente ou supervisão).',
     ],
     botoes: ['AVANÇAR', 'Em análise', 'Despachar', 'PRONTO', 'FINALIZAR', 'VOLTAR'],
+    imagem: ['o pedido selecionado na lista', 'o botão "AVANÇAR"', 'o botão "FINALIZAR"'],
     notas: ['Pedido do iFood, da 99, do Keeta e do Rappi não se edita pelo Regem.'],
   },
   {
@@ -222,6 +223,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Clique em "Confirmar cancelamento".',
     ],
     botoes: ['CANCELAR', 'Cancelar', 'Motivo', '♻️ Reutilizados (ficam no estoque)', '🗑️ Perda (saem do estoque)', 'Confirmar cancelamento'],
+    imagem: ['o pedido selecionado na lista', 'o botão "CANCELAR"'],
     notas: ['Não dá para desfazer: a venda é estornada, a cozinha é avisada e o pedido não reabre.'],
   },
   {
@@ -235,6 +237,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Na mesma janela ficam os "Tipos de delivery": entrega, retirar na loja e consumir no local.',
     ],
     botoes: ['⚙️', 'Tempos de preparo', 'Editar', 'Salvar', 'Tipos de delivery'],
+    imagem: ['Delivery › Painel, no menu', 'o botão "⚙️"'],
   },
   {
     id: 'tempo-de-entrega',
@@ -431,6 +434,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Clique em "Abrir turno" e informe o troco inicial.',
     ],
     botoes: ['Parear este terminal', 'Abrir turno'],
+    imagem: ['PDV · Balcão › Balcão, no menu', 'o botão "Abrir turno"'],
     notas: ['O código do terminal vale 15 minutos e só uma vez.'],
   },
   {
@@ -445,6 +449,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Depois de "Venda concluída", clique em "Nova venda".',
     ],
     botoes: ['Dividir conta', 'Receber', 'Venda concluída', 'Nova venda', 'Em espera'],
+    imagem: ['PDV · Balcão › Balcão, no menu', 'o cartão do produto (o número no canto é a quantidade no pedido)', 'o botão "Receber"'],
     notas: ['"Em espera" (F8) guarda a venda para depois.'],
   },
   {
@@ -458,6 +463,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Clique em "Confirmar".',
     ],
     botoes: ['Sangria', 'Suprimento', 'Valor', 'Confirmar'],
+    imagem: ['PDV · Balcão › Balcão, no menu', 'o botão "Sangria"', 'o botão "Suprimento"'],
   },
   {
     id: 'fechar-caixa',
@@ -470,6 +476,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Clique em "Fechar turno", confira o contado, o esperado e a diferença e clique em "Concluir".',
     ],
     botoes: ['Fechar turno', 'Dinheiro na gaveta', 'Cartão (terminal)', 'Pix', 'Concluir'],
+    imagem: ['PDV · Balcão › Balcão, no menu', 'o botão "Fechar turno"'],
     notas: ['Diferença acima do limite vira ocorrência para a gestão.', 'Caixa aberto há mais de 24 horas pede o fechamento.'],
     veja: ['ver-turno'],
   },
