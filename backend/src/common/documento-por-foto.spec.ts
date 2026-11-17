@@ -7,6 +7,7 @@ import {
   lerLeituraDaFoto,
   lerRespostaDoQueFaltou,
 } from './documento-por-foto';
+import { crc16Pix } from './boleto';
 
 // O DOCUMENTO POR FOTO (M3a, conversas 11 a 13 do protótipo aprovado): a IA lê, o código confere, e a decisão é pura.
 // As linhas digitáveis são as do teste do boleto (calculadas à mão): o bancário de R$ 1.284,90 para 25/11/2026 e a conta
@@ -24,8 +25,15 @@ const leitura = (p: Partial<LeituraDaFoto>): LeituraDaFoto => ({
   valorCentavos: null,
   vencimento: null,
   legivel: true,
+  pix: null,
   ...p,
 });
+/** O Pix estático do Manual do Banco Central (CRC 1D3D, sem valor dentro) e um com o valor de R$ 1.284,90. */
+const PIX_SEM_VALOR = '00020126580014br.gov.bcb.pix0136123e4567-e12b-12d1-a456-4266554400005204000053039865802BR5913Fulano de Tal6008BRASILIA62070503***63041D3D';
+const pixComValor = (valor: string) => {
+  const corpo = `00020126580014br.gov.bcb.pix0136123e4567-e12b-12d1-a456-42665544000052040000530398654${String(valor.length).padStart(2, '0')}${valor}5802BR5913Fulano de Tal6008BRASILIA62070503***6304`;
+  return corpo + crc16Pix(corpo);
+};
 
 describe('o que a IA devolve', () => {
   it('lê o JSON, mesmo com texto em volta, e normaliza os campos', () => {
@@ -38,7 +46,21 @@ describe('o que a IA devolve', () => {
       valorCentavos: 128490,
       vencimento: '2026-11-25',
       legivel: true,
+      pix: null,
     });
+  });
+  it('o Pix copia e cola impresso: fica só com o CRC certo (a quebra de linha da transcrição sai; o espaço do nome fica)', () => {
+    const com = (pix: string) => lerLeituraDaFoto(JSON.stringify({ tipo: 'boleto', pixCopiaECola: pix }))!.pix;
+    expect(com(PIX_SEM_VALOR)).toBe(PIX_SEM_VALOR);
+    expect(com(`${PIX_SEM_VALOR.slice(0, 40)}\n${PIX_SEM_VALOR.slice(40)}`)).toBe(PIX_SEM_VALOR);
+    // Um código sem espaço no nome, transcrito com um espaço no meio: sem espaço, confere.
+    const semEspaco = pixComValor('480.00').replace('Fulano de Tal', 'FulanoDeTalXY'); // os mesmos 13 caracteres do campo 59
+    const corpo = semEspaco.slice(0, -4);
+    const certo = corpo + crc16Pix(corpo);
+    expect(com(`${certo.slice(0, 30)} ${certo.slice(30)}`)).toBe(certo);
+    // Um caractere trocado na transcrição: o CRC não fecha e o Pix cai.
+    expect(com(PIX_SEM_VALOR.replace('Fulano', 'Fulana'))).toBeNull();
+    expect(com('não tem')).toBeNull();
   });
   it('fora do formato: nada (o Mister pede outra foto, não chuta)', () => {
     expect(lerLeituraDaFoto('não consegui')).toBeNull();
@@ -98,6 +120,13 @@ describe('a decisão', () => {
     });
     // Ilegível, mas com os dois lidos: não dá para confiar nem para perguntar — outra foto.
     expect(decidirDocumento(leitura({ legivel: false, valorCentavos: 48000, vencimento: '2026-11-30' }), true, 'sozinho', HOJE)).toEqual({ acao: 'outra_foto', porque: 'ilegivel' });
+  });
+  it('o Pix impresso vai junto quando o valor bate (ou ele não tem valor); com outro valor, cai', () => {
+    const decide = (pix: string) => decidirDocumento(leitura({ linhaDigitavel: BANCARIO, pix }), true, 'sozinho', HOJE) as any;
+    expect(decide(pixComValor('1284.90')).dados.pix).toBe(pixComValor('1284.90'));
+    expect(decide(PIX_SEM_VALOR).dados.pix).toBe(PIX_SEM_VALOR);
+    expect(decide(pixComValor('99.00')).dados.pix).toBeNull();
+    expect((decidirDocumento(leitura({ linhaDigitavel: BANCARIO }), true, 'sozinho', HOJE) as any).dados.pix).toBeNull();
   });
   it('nota do fornecedor e outra imagem', () => {
     expect(decidirDocumento(leitura({ tipo: 'nota' }), true, 'sozinho', HOJE)).toEqual({ acao: 'nota' });

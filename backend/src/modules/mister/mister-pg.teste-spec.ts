@@ -33,6 +33,7 @@ import { MisterDocumentosService } from './mister-documentos.service';
 import { MisterConversaConfigService } from './mister-conversa-config.service';
 import { FinanceiroService } from '../financeiro/financeiro.service';
 import { FRASES_DO_DOCUMENTO } from '../../common/documento-por-foto';
+import { crc16Pix } from '../../common/boleto';
 import { MisterPropostasService } from './mister-propostas.service';
 import { TEXTOS_DA_PROPOSTA, TEXTOS_DO_LINK } from './mister-procedimentos';
 import { MODELO_DO_AVISO } from './mister-modelos';
@@ -88,8 +89,15 @@ class NumeroDeMentira extends MisterNumeroService {
   pedidos: Pedido[] = [];
   /** O que a Meta de mentira responde a cada pedido: `undefined` = o padrão (200 com o que aquele endereço devolve). */
   responder: (p: Pedido) => { status: number; corpo: any } | undefined = () => undefined;
-  protected async buscar(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) {
-    const p: Pedido = { url, metodo: init?.method ?? 'GET', corpo: init?.body ? JSON.parse(init.body) : null };
+  protected async buscar(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string | FormData }) {
+    // M3a parte 4b: o arquivo sobe à Meta como formulário (`/media`); o corpo anotado é o que o formulário levou.
+    const formulario = init?.body instanceof FormData ? init.body : null;
+    const corpo = formulario
+      ? { formulario: true, type: formulario.get('type'), arquivo: (formulario.get('file') as any)?.name ?? null, bytes: (formulario.get('file') as any)?.size ?? 0 }
+      : init?.body
+        ? JSON.parse(init.body as string)
+        : null;
+    const p: Pedido = { url, metodo: init?.method ?? 'GET', corpo };
     this.pedidos.push(p);
     // M3a: a mídia de mentira — os metadados na Graph API e o arquivo no endereço temporário (os dois pedem o Bearer).
     const meta = new RegExp(`^${GRAPH.replace(/\./g, '\\.')}/(\\d+)$`).exec(url)?.[1];
@@ -112,6 +120,7 @@ class NumeroDeMentira extends MisterNumeroService {
   midias = new Map<string, { mime: string; bytes: Buffer }>();
   private padrao(p: Pedido): any {
     if (p.url.endsWith('/messages')) return { messages: [{ id: `wamid.saida.${randomUUID()}` }] };
+    if (p.url.endsWith('/media') && p.metodo === 'POST') return { id: `${randomInt(1e9, 1e10)}` };
     if (p.url.includes('/phone_numbers')) return { data: [] };
     if (p.url.includes('fields=display_phone_number')) return { display_phone_number: '+55 21 90000-0000', verified_name: 'Mister', quality_rating: 'GREEN', whatsapp_business_manager_messaging_limit: 'TIER_2K' };
     if (p.url.includes('/message_templates') && p.metodo === 'POST') {
@@ -149,6 +158,9 @@ class NumeroDeMentira extends MisterNumeroService {
             botoes: [],
             link: { titulo: p.corpo.interactive.action.parameters.display_text, url: p.corpo.interactive.action.parameters.url },
           };
+        // O documento (M3a parte 4b): "documento:<arquivo>|<legenda>", pelo id que a Meta devolveu no `/media`.
+        if (p.corpo.type === 'document')
+          return { para: p.corpo.to, texto: `documento:${p.corpo.document.filename}|${p.corpo.document.caption ?? ''}|${p.corpo.document.id}`, botoes: [] };
         return {
           para: p.corpo.to,
           texto: p.corpo.type === 'text' ? p.corpo.text.body : p.corpo.interactive.body.text,
@@ -5268,7 +5280,7 @@ export function testesDoMisterComPostgres(): void {
         expect(d).toMatchObject({ situacao: 'lancado', tipo: 'boleto', titulo_id: t.id, valor_centavos: '128490', colaborador_id: pessoa.ana, fornecedor_id: fornecedorDeA, codigo_barras: CODIGO_DO_BOLETO, telefone_final: telAna.slice(-4) });
         expect(d.dados).toEqual({ origem: { valor: 'codigo', vencimento: 'codigo' }, vencimento: '2026-11-25', cnpj: CNPJ });
         expect(numero.enviadas).toHaveLength(1);
-        expect(numero.enviadas[0]).toMatchObject({ para: telAna, botoes: [{ id: `doc:desfazer:${d.id}`, titulo: 'Desfazer' }] });
+        expect(numero.enviadas[0]).toMatchObject({ para: telAna, botoes: [{ id: `doc:desfazer:${d.id}`, titulo: 'Desfazer' }, { id: `doc:pdf:${d.id}`, titulo: 'Ver o PDF' }] });
         expect(numero.enviadas[0].texto).toContain('R$ 1.284,90 · vence 25/11 (quarta)');
         expect(numero.enviadas[0].texto).toContain('Lancei nas contas a pagar');
         expect(auditados.map((a) => a.acao)).toEqual(expect.arrayContaining(['criou_titulo', 'mister_documento_lancado']));
@@ -5316,7 +5328,7 @@ export function testesDoMisterComPostgres(): void {
         expect(ts[0]).toMatchObject({ origem: 'mister', vencimento: '2026-11-28', fornecedor_id: null, descricao: 'Conta · Light' });
         expect(Number(ts[0].valor)).toBe(480);
         expect(numero.enviadas.map((m) => m.texto).sort()).toEqual([FRASES_DO_DOCUMENTO.jaRespondido, 'Lancei nas contas a pagar, para 28/11.']);
-        expect(numero.enviadas.find((m) => m.texto.startsWith('Lancei'))!.botoes).toEqual([{ id: `doc:desfazer:${d.id}`, titulo: 'Desfazer' }]);
+        expect(numero.enviadas.find((m) => m.texto.startsWith('Lancei'))!.botoes).toEqual([{ id: `doc:desfazer:${d.id}`, titulo: 'Desfazer' }, { id: `doc:pdf:${d.id}`, titulo: 'Ver o PDF' }]);
         // E o toque depois, sozinho, também não.
         numero.pedidos.length = 0;
         expect(await tocar(telAna, `doc:lancar:${d.id}`)).toBe('respondeu_proposta');
@@ -5577,7 +5589,7 @@ export function testesDoMisterComPostgres(): void {
           await volta('2026-11-22T12:00:00Z');
           expect(await doBoleto()).toMatchObject([{ situacao: 'aberto', chave: `boleto:${t.id}` }]);
           expect(numero.enviadas).toHaveLength(1);
-          expect(numero.enviadas[0]).toMatchObject({ para: telAna, botoes: [{ id: `doc:pago:${d.id}`, titulo: 'Já paguei' }] });
+          expect(numero.enviadas[0]).toMatchObject({ para: telAna, botoes: [{ id: `doc:pago:${d.id}`, titulo: 'Já paguei' }, { id: `doc:pdf:${d.id}`, titulo: 'Ver o PDF' }] });
           expect(numero.enviadas[0].texto).toContain('Boleto vence em 3 dias (25/11) · DISTRIBUIDORA CARNE BOA LTDA · R$ 1.284,90');
           expect(numero.enviadas[0].texto).toContain('Linha digitável: 00191.23454 67890.123457 67890.123457 7 16410000128490');
           // 23/11: o mesmo marco — nada sai.
@@ -5586,7 +5598,7 @@ export function testesDoMisterComPostgres(): void {
           // 25/11 às 9h: o lembrete do dia, com o "Já paguei".
           await volta('2026-11-25T12:05:00Z');
           expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringContaining('🔔 Lembrete: Boleto vence hoje (25/11)')]);
-          expect(numero.enviadas[0].botoes).toEqual([{ id: `doc:pago:${d.id}`, titulo: 'Já paguei' }]);
+          expect(numero.enviadas[0].botoes).toEqual([{ id: `doc:pago:${d.id}`, titulo: 'Já paguei' }, { id: `doc:pdf:${d.id}`, titulo: 'Ver o PDF' }]);
 
           // O gerente não dá baixa; o presidente dá — uma vez: o segundo toque ouve "já estava paga".
           numero.pedidos.length = 0;
@@ -5662,6 +5674,81 @@ export function testesDoMisterComPostgres(): void {
         } finally {
           await q(`delete from mister_aviso where tenant_id = $1 and tipo = 'boleto_vencendo'`, [A]);
           await q(`delete from mister_aviso_regra where tenant_id = $1`, [A]);
+        }
+      });
+
+      it('"Ver o PDF" (4b): o boleto lançado sai em PDF pelo número do Mister (sobe à Meta e vai pelo id); o não lançado não tem; a recusa da Meta tem a frase', async () => {
+        ia.roteiro = [
+          leitura({ linhaDigitavel: LINHA_DO_BOLETO, beneficiario: 'DISTRIBUIDORA CARNE BOA LTDA', cnpj: CNPJ, valor: '1.284,90', vencimento: '2026-11-25' }),
+          leitura({ tipo: 'conta', linhaDigitavel: LINHA_DA_CONTA, beneficiario: 'Light', valor: '480,00', vencimento: '2026-11-28' }),
+        ];
+        expect(await foto(telAna, novaMidia())).toBe('documento');
+        expect(await foto(telAna, novaMidia())).toBe('documento');
+        const [lancado, aConferir] = await docs();
+        expect([lancado.situacao, aConferir.situacao]).toEqual(['lancado', 'confirmar']);
+        numero.pedidos.length = 0;
+        expect(await tocar(telAna, `doc:pdf:${lancado.id}`)).toBe('respondeu_proposta');
+        const subida = numero.pedidos.find((p) => p.url.endsWith('/media'));
+        expect(subida?.corpo).toMatchObject({ formulario: true, type: 'application/pdf', arquivo: 'boleto-distribuidora-carne-boa-ltda-2026-11-25.pdf' });
+        expect(subida!.corpo.bytes).toBeGreaterThan(2000);
+        expect(numero.enviadas).toEqual([
+          { para: telAna, texto: expect.stringMatching(/^documento:boleto-distribuidora-carne-boa-ltda-2026-11-25\.pdf\|Boleto · DISTRIBUIDORA CARNE BOA LTDA\|\d+$/), botoes: [] },
+        ]);
+        expect(auditados.map((a) => a.acao)).toContain('mister_documento_pdf');
+
+        // O documento não lançado (a conta esperando o "Lançar"): sem PDF, e nada sobe.
+        numero.pedidos.length = 0;
+        expect(await tocar(telAna, `doc:pdf:${aConferir.id}`)).toBe('respondeu_proposta');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual(['O PDF é do boleto lançado: este documento não foi lançado.']);
+        expect(numero.pedidos.some((p) => p.url.endsWith('/media'))).toBe(false);
+
+        // A Meta recusa a subida: a frase, e nenhuma mensagem de documento pela metade.
+        numero.responder = (p) => (p.url.endsWith('/media') ? { status: 400, corpo: { error: { message: 'Param file must be a file' } } } : undefined);
+        numero.pedidos.length = 0;
+        expect(await tocar(telAna, `doc:pdf:${lancado.id}`)).toBe('respondeu_proposta');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual(['Não consegui mandar o PDF agora. Tente de novo em instantes.']);
+        // A Meta responde 200 sem o id do arquivo: nenhum documento sai com um id que não existe.
+        numero.responder = (p) => (p.url.endsWith('/media') ? { status: 200, corpo: {} } : undefined);
+        numero.pedidos.length = 0;
+        expect(await tocar(telAna, `doc:pdf:${lancado.id}`)).toBe('respondeu_proposta');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual(['Não consegui mandar o PDF agora. Tente de novo em instantes.']);
+        numero.responder = () => undefined;
+
+        // O gerente não pede o PDF da empresa.
+        numero.pedidos.length = 0;
+        expect(await tocar(telCarlos, `doc:pdf:${lancado.id}`)).toBe('respondeu_proposta');
+        expect(numero.pedidos.some((p) => p.url.endsWith('/media'))).toBe(false);
+      });
+
+      it('o Pix impresso no boleto (4b): fica com o documento e vai na mensagem seguinte do aviso; com o valor de outra cobrança, cai', async () => {
+        const pixDe = (valor: string) => {
+          const corpo = `00020126580014br.gov.bcb.pix0136123e4567-e12b-12d1-a456-42665544000052040000530398654${String(valor.length).padStart(2, '0')}${valor}5802BR5913Fulano de Tal6008BRASILIA62070503***6304`;
+          return corpo + crc16Pix(corpo);
+        };
+        const PIX = pixDe('1284.90');
+        ia.roteiro = [
+          leitura({ linhaDigitavel: LINHA_DO_BOLETO, beneficiario: 'DISTRIBUIDORA CARNE BOA LTDA', cnpj: CNPJ, valor: '1.284,90', vencimento: '2026-11-25', pixCopiaECola: PIX }),
+          leitura({ linhaDigitavel: LINHA_DO_BOLETO, beneficiario: 'DISTRIBUIDORA CARNE BOA LTDA', cnpj: CNPJ, valor: '1.284,90', vencimento: '2026-11-25', pixCopiaECola: pixDe('99.00') }),
+        ];
+        expect(await foto(telAna, novaMidia())).toBe('documento');
+        expect(await foto(telAna, novaMidia())).toBe('documento');
+        const [comPix, outraCobranca] = await docs();
+        expect(comPix.dados.pix).toBe(PIX);
+        expect(outraCobranca.dados.pix).toBeUndefined();
+        // Só o primeiro fica em aberto (o segundo é desfeito), para o aviso ser um só.
+        await documentos.desfazerPelaTela(A, pessoa.ana, 'presidente', outraCobranca.id);
+        try {
+          await q(`update mister_vinculo set ultima_entrada_em = '2026-11-22T11:00:00Z' where telefone = $1`, [telAna]);
+          numero.pedidos.length = 0;
+          await avisos.volta([A], new Date('2026-11-22T12:00:00Z'));
+          expect(numero.enviadas.map((m) => m.para)).toEqual([telAna, telAna]);
+          expect(numero.enviadas[0].texto).toContain('Este boleto tem Pix: o copia e cola vem na próxima mensagem.');
+          expect(numero.enviadas[1]).toEqual({ para: telAna, texto: PIX, botoes: [] });
+          // No PDF também (o arquivo sai maior que o mesmo boleto sem o Pix).
+          const com = (await documentos.pdf(A, comPix.id))!;
+          expect(com.pdf.length).toBeGreaterThan(2000);
+        } finally {
+          await q(`delete from mister_aviso where tenant_id = $1 and tipo = 'boleto_vencendo'`, [A]);
         }
       });
     });

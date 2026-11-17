@@ -14,7 +14,7 @@
 //   · não é documento.
 // O conteúdo da foto vai só na chamada da IA; não é guardado nem vai para o registro (como a foto do cliente).
 
-import { BoletoLido, lerBoleto } from './boleto';
+import { BoletoLido, lerBoleto, lerPixCopiaECola } from './boleto';
 
 export const RECURSO_DO_DOCUMENTO = 'mister_documento';
 /** O modelo mais forte lê o documento (decisão do protótipo: a leitura pede precisão; o custo é de centavo por foto). */
@@ -36,6 +36,11 @@ export interface LeituraDaFoto {
   vencimento: string | null;
   /** A IA achou a foto legível? */
   legivel: boolean;
+  /**
+   * M3a parte 4b: o "Pix copia e cola" IMPRESSO em texto no boleto (o QR a IA não lê). Só fica se o CRC16 conferir
+   * (`lerPixCopiaECola`): um caractere errado e ele cai — nunca vai ao presidente um Pix que não confere.
+   */
+  pix: string | null;
 }
 
 export function instrucoesDoDocumento(): string {
@@ -43,8 +48,9 @@ export function instrucoesDoDocumento(): string {
     'Você lê a foto de um documento que o dono de um restaurante mandou para o assistente de gestão dele.',
     'Responda SÓ com um JSON, sem texto antes ou depois, neste formato:',
     '{"tipo": "boleto" | "conta" | "nota" | "outro", "linhaDigitavel": string|null, "beneficiario": string|null,',
-    ' "cnpj": string|null, "valor": string|null, "vencimento": "AAAA-MM-DD"|null, "legivel": true|false}',
+    ' "cnpj": string|null, "valor": string|null, "vencimento": "AAAA-MM-DD"|null, "legivel": true|false, "pixCopiaECola": string|null}',
     'Regras:',
+    '- pixCopiaECola: SÓ se o documento traz impresso, em texto, o código "Pix copia e cola" (começa com 000201): transcreva-o inteiro, exatamente como está. Não tente ler o QR code. Sem o texto impresso, ou sem ler tudo com certeza, null.',
     '- "boleto": boleto bancário de cobrança (linha digitável de 47 dígitos). "conta": conta de consumo ou tributo (luz, gás, água, telefone, prefeitura; linha de 48 dígitos começando com 8). "nota": nota fiscal ou DANFE de fornecedor. "outro": qualquer outra coisa.',
     '- linhaDigitavel: transcreva os DÍGITOS da linha digitável impressa (a sequência numérica longa perto do código de barras), só os números, na ordem. Se não conseguir ler TODOS os dígitos com certeza, use null. Nunca complete nem invente dígito.',
     '- beneficiario: o nome de quem recebe (o cedente/beneficiário ou a empresa da conta). cnpj: o CNPJ dele, só números.',
@@ -104,7 +110,24 @@ export function lerLeituraDaFoto(texto: unknown): LeituraDaFoto | null {
     valorCentavos: centavosDoTexto(j?.valor),
     vencimento: dataValida(j?.vencimento),
     legivel: j?.legivel !== false,
+    // Só o Pix cujo CRC16 confere (um caractere trocado na transcrição e ele cai).
+    pix: pixDaTranscricao(j?.pixCopiaECola),
   };
+}
+
+/**
+ * O Pix transcrito: o código tem espaço de verdade dentro (o nome do recebedor), então não dá para tirar todo espaço
+ * de uma vez. Tenta o texto como veio, sem as quebras de linha da transcrição e sem espaço nenhum; vale o primeiro cujo
+ * CRC16 confere. Nenhum confere → null.
+ */
+function pixDaTranscricao(v: unknown): string | null {
+  const t = String(v ?? '').trim();
+  if (!t) return null;
+  for (const c of [t, t.replace(/[\r\n]+/g, ''), t.replace(/\s+/g, '')]) {
+    const p = lerPixCopiaECola(c);
+    if (p) return p.copiaECola;
+  }
+  return null;
 }
 
 export type ModoDoBoleto = 'sozinho' | 'perguntar';
@@ -130,6 +153,8 @@ export interface DadosDoLancamento {
   boleto: BoletoLido | null;
   /** De onde veio cada campo: "codigo" (sem IA, conferido), "ia" (lido da foto), "pessoa" (dito na conversa). */
   origem: { valor: OrigemDoCampo | null; vencimento: OrigemDoCampo | null };
+  /** O Pix copia e cola impresso (CRC conferido), quando o valor dele — se tiver — bate com o do documento. */
+  pix?: string | null;
 }
 
 /**
@@ -164,7 +189,14 @@ export function decidirDocumento(
       valor: valorCodigo != null ? 'codigo' : leitura.valorCentavos != null ? 'ia' : null,
       vencimento: vencCodigo != null ? 'codigo' : leitura.vencimento != null ? 'ia' : null,
     },
+    pix: null,
   };
+  // O Pix impresso: o CRC já conferiu na leitura; com valor dentro dele, tem de bater com o do documento (senão é de
+  // outra cobrança, e cai). Sem valor dentro (o Pix de valor livre), vale.
+  if (leitura.pix) {
+    const p = lerPixCopiaECola(leitura.pix);
+    if (p && (p.valorCentavos == null || dados.valorCentavos == null || p.valorCentavos === dados.valorCentavos)) dados.pix = p.copiaECola;
+  }
 
   const falta: Array<'valor' | 'vencimento'> = [];
   if (dados.valorCentavos == null) falta.push('valor');
