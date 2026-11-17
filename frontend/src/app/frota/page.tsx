@@ -97,27 +97,27 @@ export default function FrotaPage() {
         <Card className="space-y-3 p-4">
           <h2 className="font-display text-base font-bold">Emitir ativação (nova loja)</h2>
           <div className="grid gap-2 sm:grid-cols-2">
-            <div><Label className="text-xs">Loja (tenantId)</Label><Input value={form.tenantId} onChange={(e) => setForm({ ...form, tenantId: e.target.value })} placeholder="uuid da empresa" /></div>
+            <div><Label htmlFor="frota-tenant-id" className="text-xs">Loja (tenantId)</Label><Input id="frota-tenant-id" value={form.tenantId} onChange={(e) => setForm({ ...form, tenantId: e.target.value })} placeholder="uuid da empresa" /></div>
             <div>
-              <Label className="text-xs">Ramo</Label>
-              <select className="flex h-10 w-full rounded-md border border-input bg-card px-2 text-sm" value={form.ramo} onChange={(e) => setForm({ ...form, ramo: e.target.value })}>
+              <Label htmlFor="frota-ramo" className="text-xs">Ramo</Label>
+              <select id="frota-ramo" className="flex h-10 w-full rounded-md border border-input bg-card px-2 text-sm" value={form.ramo} onChange={(e) => setForm({ ...form, ramo: e.target.value })}>
                 <option value="food_service">Food service (restaurantes)</option>
                 <option value="varejo" disabled>Varejo (em breve)</option>
                 <option value="industria" disabled>Indústria (em breve)</option>
                 <option value="servicos" disabled>Serviços (em breve)</option>
               </select>
             </div>
-            <div><Label className="text-xs">Plano</Label><Input value={form.plano} onChange={(e) => setForm({ ...form, plano: e.target.value })} placeholder="basico / pro / completo" /></div>
+            <div><Label htmlFor="frota-plano" className="text-xs">Plano</Label><Input id="frota-plano" value={form.plano} onChange={(e) => setForm({ ...form, plano: e.target.value })} placeholder="basico / pro / completo" /></div>
             <div className="flex items-end gap-3">
               <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4 accent-primary" checked={form.trial} onChange={(e) => setForm({ ...form, trial: e.target.checked })} /> Trial</label>
-              <div className="flex-1"><Label className="text-xs">Validade (dias)</Label><Input type="number" value={form.validadeDias} onChange={(e) => setForm({ ...form, validadeDias: e.target.value })} placeholder="vazio = sem prazo" /></div>
+              <div className="flex-1"><Label htmlFor="frota-validade-dias" className="text-xs">Validade (dias)</Label><Input id="frota-validade-dias" type="number" value={form.validadeDias} onChange={(e) => setForm({ ...form, validadeDias: e.target.value })} placeholder="vazio = sem prazo" /></div>
             </div>
           </div>
-          <div>
-            <Label className="text-xs">Módulos inclusos</Label>
+          <div role="group" aria-labelledby="frota-modulos-rotulo">
+            <Label id="frota-modulos-rotulo" className="text-xs">Módulos inclusos</Label>
             <div className="mt-1 flex flex-wrap gap-1.5">
               {MODULOS.map((m) => (
-                <button key={m} type="button" onClick={() => toggleMod(m)} className={`rounded-full border px-2.5 py-1 text-xs ${form.modulos.includes(m) ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}>{m}</button>
+                <button key={m} type="button" onClick={() => toggleMod(m)} aria-pressed={form.modulos.includes(m)} className={`rounded-full border px-2.5 py-1 text-xs ${form.modulos.includes(m) ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}>{m}</button>
               ))}
             </div>
           </div>

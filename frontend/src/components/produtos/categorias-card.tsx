@@ -75,8 +75,8 @@ export function CategoriasCard({
       {/* Categorias planas (sem subcategoria): só nome + adicionar. */}
       <div className="flex items-end gap-2">
         <div className="min-w-0 flex-1 space-y-1">
-          <Label className="text-xs">Nova categoria</Label>
-          <Input
+          <Label htmlFor="categoria-cat-nome" className="text-xs">Nova categoria</Label>
+          <Input id="categoria-cat-nome"
             value={catNome}
             onChange={(e) => setCatNome(e.target.value)}
             placeholder="Ex.: Bebidas"
@@ -205,19 +205,19 @@ function EditarCategoriaModal({ categoria, onFechar, onSalvo }: { categoria: any
           <ImageUpload value={imagemRef} onChange={setImagemRef} id={`cat-${categoria.id}`} alt="Categoria" />
           <div className="min-w-0 flex-1 space-y-2">
             <div className="space-y-1">
-              <Label className="text-xs">Nome</Label>
-              <Input value={nome} onChange={(e) => setNome(e.target.value)} />
+              <Label htmlFor="categoria-nome" className="text-xs">Nome</Label>
+              <Input id="categoria-nome" value={nome} onChange={(e) => setNome(e.target.value)} />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Descrição</Label>
-              <textarea value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Opcional" className="min-h-[52px] w-full rounded-md border border-input bg-card px-3 py-2 text-sm" />
+              <Label htmlFor="categoria-descricao" className="text-xs">Descrição</Label>
+              <textarea id="categoria-descricao" value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Opcional" className="min-h-[52px] w-full rounded-md border border-input bg-card px-3 py-2 text-sm" />
             </div>
           </div>
         </div>
 
-        <div className="mt-4">
+        <div className="mt-4" role="group" aria-labelledby="categoria-disponibilidade-rotulo">
           <div className="mb-1 flex items-center justify-between">
-            <Label className="text-xs">Disponibilidade</Label>
+            <Label id="categoria-disponibilidade-rotulo" className="text-xs">Disponibilidade</Label>
             <button type="button" onClick={addJanela} className="text-xs font-semibold text-primary">＋ janela</button>
           </div>
           <p className="mb-2 text-[11px] text-muted-foreground">Sem janelas = categoria sempre visível no cardápio.</p>

@@ -100,12 +100,11 @@ export function DiaEspecialModal({
         </div>
         {ehFerias ? (
           <div className="space-y-1.5">
-            <Label className="text-xs">Colaborador</Label>
-            <select
+            <Label htmlFor="dia-especial-colaborador-id" className="text-xs">Colaborador</Label>
+            <select id="dia-especial-colaborador-id"
               value={colaboradorId}
               onChange={(e) => setColaboradorId(e.target.value)}
               className="flex h-10 w-full rounded-md border border-input bg-card px-2 text-sm"
-              aria-label="Colaborador de férias"
             >
               <option value="">— escolher —</option>
               {colabs.map((c) => (
@@ -115,8 +114,8 @@ export function DiaEspecialModal({
           </div>
         ) : (
           <div className="space-y-1.5">
-            <Label className="text-xs">Nome</Label>
-            <Input
+            <Label htmlFor="dia-especial-nome" className="text-xs">Nome</Label>
+            <Input id="dia-especial-nome"
               value={nome}
               onChange={(e) => setNome(e.target.value)}
               placeholder={tipo === 'feriado' ? 'Ex.: Natal' : 'Ex.: Reunião geral / reforço'}
@@ -126,17 +125,17 @@ export function DiaEspecialModal({
         )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div className="space-y-1.5">
-            <Label className="text-xs">{ehFerias ? 'Início das férias' : 'Data'}</Label>
-            <Input type="date" value={data} onChange={(e) => setData(e.target.value)} />
+            <Label htmlFor="dia-especial-data" className="text-xs">{ehFerias ? 'Início das férias' : 'Data'}</Label>
+            <Input id="dia-especial-data" type="date" value={data} onChange={(e) => setData(e.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs">{ehFerias ? 'Fim das férias' : 'Até (opcional)'}</Label>
-            <Input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
+            <Label htmlFor="dia-especial-data-fim" className="text-xs">{ehFerias ? 'Fim das férias' : 'Até (opcional)'}</Label>
+            <Input id="dia-especial-data-fim" type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
           </div>
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs">Observação (opcional)</Label>
-          <Input value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="detalhe do aviso" />
+          <Label htmlFor="dia-especial-descricao" className="text-xs">Observação (opcional)</Label>
+          <Input id="dia-especial-descricao" value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="detalhe do aviso" />
         </div>
         <div className="flex justify-end gap-2 pt-1">
           <Button type="button" variant="outline" onClick={onClose}>

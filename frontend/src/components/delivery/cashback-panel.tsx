@@ -141,8 +141,8 @@ export function CashbackPanel({ pode }: { pode: boolean }) {
         <p className="text-sm font-semibold">{form.id ? 'Editar plano de cashback' : 'Novo plano de cashback'}</p>
 
         <div>
-          <label className="mb-1 block text-xs text-muted-foreground">Tipo de cashback</label>
-          <select aria-label="Tipo" className="flex h-11 w-full rounded-md border border-input bg-card px-2 text-sm" value={form.tipo} onChange={(e) => set({ tipo: e.target.value })} disabled={!pode}>
+          <label htmlFor="cashback-tipo" className="mb-1 block text-xs text-muted-foreground">Tipo de cashback</label>
+          <select id="cashback-tipo" className="flex h-11 w-full rounded-md border border-input bg-card px-2 text-sm" value={form.tipo} onChange={(e) => set({ tipo: e.target.value })} disabled={!pode}>
             <option value="valor">Retorno em valor (R$) — % do pedido vira saldo</option>
             <option value="pontos">Pontos — troca por produtos</option>
           </select>
@@ -151,12 +151,12 @@ export function CashbackPanel({ pode }: { pode: boolean }) {
         {form.tipo === 'valor' ? (
           <div className="grid gap-2 sm:grid-cols-2">
             <div>
-              <label className="mb-1 block text-xs text-muted-foreground">% de retorno</label>
-              <Input type="number" value={form.percentual} onChange={(e) => set({ percentual: e.target.value })} placeholder="ex.: 10" disabled={!pode} />
+              <label htmlFor="cashback-percentual" className="mb-1 block text-xs text-muted-foreground">% de retorno</label>
+              <Input id="cashback-percentual" type="number" value={form.percentual} onChange={(e) => set({ percentual: e.target.value })} placeholder="ex.: 10" disabled={!pode} />
             </div>
             <div>
-              <label className="mb-1 block text-xs text-muted-foreground">Base do cálculo</label>
-              <select aria-label="Base" className="flex h-11 w-full rounded-md border border-input bg-card px-2 text-sm" value={form.base} onChange={(e) => set({ base: e.target.value })} disabled={!pode}>
+              <label htmlFor="cashback-base" className="mb-1 block text-xs text-muted-foreground">Base do cálculo</label>
+              <select id="cashback-base" className="flex h-11 w-full rounded-md border border-input bg-card px-2 text-sm" value={form.base} onChange={(e) => set({ base: e.target.value })} disabled={!pode}>
                 <option value="total">Total do pedido</option>
                 <option value="sem_frete">Total sem a taxa de entrega</option>
               </select>
@@ -164,15 +164,15 @@ export function CashbackPanel({ pode }: { pode: boolean }) {
           </div>
         ) : (
           <div className="space-y-3">
-            <div>
-              <label className="mb-1 block text-xs text-muted-foreground">Faixas de pontos (aplica a que der mais pontos)</label>
+            <div role="group" aria-labelledby="cashback-faixas-rotulo">
+              <label id="cashback-faixas-rotulo" className="mb-1 block text-xs text-muted-foreground">Faixas de pontos (aplica a que der mais pontos)</label>
               <div className="space-y-2">
                 {form.regras.map((r: any, i: number) => (
                   <div key={i} className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground">A cada R$</span>
-                    <Input className="w-20" type="number" value={r.reais} onChange={(e) => setRegra(i, { reais: e.target.value })} placeholder="1" disabled={!pode} />
+                    <Input aria-label={`Faixa ${i + 1}: a cada R$`} className="w-20" type="number" value={r.reais} onChange={(e) => setRegra(i, { reais: e.target.value })} placeholder="1" disabled={!pode} />
                     <span className="text-xs text-muted-foreground">=</span>
-                    <Input className="w-20" type="number" value={r.pontos} onChange={(e) => setRegra(i, { pontos: e.target.value })} placeholder="2" disabled={!pode} />
+                    <Input aria-label={`Faixa ${i + 1}: pontos`} className="w-20" type="number" value={r.pontos} onChange={(e) => setRegra(i, { pontos: e.target.value })} placeholder="2" disabled={!pode} />
                     <span className="text-xs text-muted-foreground">pontos</span>
                     {form.regras.length > 1 && pode && <button type="button" onClick={() => delRegra(i)} className="text-destructive">×</button>}
                   </div>
@@ -205,13 +205,13 @@ export function CashbackPanel({ pode }: { pode: boolean }) {
                 </button>
               )}
             </div>
-            <div>
-              <label className="mb-1 block text-xs text-muted-foreground">Produtos para resgate (pontos)</label>
+            <div role="group" aria-labelledby="cashback-produtos-rotulo">
+              <label id="cashback-produtos-rotulo" className="mb-1 block text-xs text-muted-foreground">Produtos para resgate (pontos)</label>
               <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border border-border p-2">
                 {produtos.map((p) => (
                   <div key={p.id} className="flex items-center gap-2 text-sm">
                     <span className="min-w-0 flex-1 truncate">{p.nome}</span>
-                    <Input className="w-24" type="number" value={prodPontos(p.id)} onChange={(e) => setProdPontos(p.id, e.target.value)} placeholder="pontos" disabled={!pode} />
+                    <Input aria-label={`Pontos para resgatar ${p.nome}`} className="w-24" type="number" value={prodPontos(p.id)} onChange={(e) => setProdPontos(p.id, e.target.value)} placeholder="pontos" disabled={!pode} />
                   </div>
                 ))}
                 {produtos.length === 0 && <p className="text-xs text-muted-foreground">Nenhum produto cadastrado.</p>}

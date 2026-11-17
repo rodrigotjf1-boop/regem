@@ -169,11 +169,11 @@ function ComplementoModal({ complemento, opcoes, onFechar, onSalvo }: { compleme
           <button type="button" onClick={onFechar} className="ml-auto text-sm text-muted-foreground hover:underline">Fechar ✕</button>
         </div>
 
-        <div className="space-y-1"><Label className="text-xs">Nome</Label><Input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Escolha a bebida" /></div>
+        <div className="space-y-1"><Label htmlFor="complemento-nome" className="text-xs">Nome</Label><Input id="complemento-nome" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Escolha a bebida" /></div>
 
         <div className="mt-3 space-y-1">
-          <Label className="text-xs">O cliente pode escolher</Label>
-          <select className={selectCls} aria-label="Regra de escolha" value={regra} onChange={(e) => setRegra(e.target.value)}>
+          <Label htmlFor="complemento-regra" className="text-xs">O cliente pode escolher</Label>
+          <select id="complemento-regra" className={selectCls} value={regra} onChange={(e) => setRegra(e.target.value)}>
             <option value="uma">Apenas uma das opções</option>
             <option value="varias_sem_repeticao">Mais de uma (sem repetição)</option>
             <option value="varias_com_repeticao">Mais de uma (com repetição)</option>
@@ -188,9 +188,9 @@ function ComplementoModal({ complemento, opcoes, onFechar, onSalvo }: { compleme
           {varios && (
             <div className="ml-auto flex items-center gap-1.5 text-sm">
               <span className="text-muted-foreground">mín</span>
-              <Input type="number" value={min} onChange={(e) => setMin(e.target.value)} className="h-8 w-16" />
+              <Input aria-label="Mínimo de escolhas" type="number" value={min} onChange={(e) => setMin(e.target.value)} className="h-8 w-16" />
               <span className="text-muted-foreground">máx</span>
-              <Input type="number" value={max} onChange={(e) => setMax(e.target.value)} className="h-8 w-16" placeholder="—" />
+              <Input aria-label="Máximo de escolhas" type="number" value={max} onChange={(e) => setMax(e.target.value)} className="h-8 w-16" placeholder="—" />
             </div>
           )}
         </div>
@@ -202,11 +202,11 @@ function ComplementoModal({ complemento, opcoes, onFechar, onSalvo }: { compleme
           </span>
         </label>
 
-        <div className="mt-3">
-          <Label className="text-xs">Disponível em</Label>
+        <div className="mt-3" role="group" aria-labelledby="complemento-canais-rotulo">
+          <Label id="complemento-canais-rotulo" className="text-xs">Disponível em</Label>
           <div className="mt-1 flex flex-wrap gap-1.5">
             {CANAIS.map((c) => (
-              <button key={c.v} type="button" onClick={() => toggleCanal(c.v)}
+              <button key={c.v} type="button" onClick={() => toggleCanal(c.v)} aria-pressed={canais.includes(c.v)}
                 className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${canais.includes(c.v) ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'}`}>
                 {c.l}
               </button>
@@ -214,8 +214,8 @@ function ComplementoModal({ complemento, opcoes, onFechar, onSalvo }: { compleme
           </div>
         </div>
 
-        <div className="mt-4">
-          <Label className="text-xs">Opções deste complemento</Label>
+        <div className="mt-4" role="group" aria-labelledby="complemento-opcoes-rotulo">
+          <Label id="complemento-opcoes-rotulo" className="text-xs">Opções deste complemento</Label>
           <div className="mt-1 flex gap-1.5">
             <select className={selectCls} aria-label="Adicionar opção" value={addId} onChange={(e) => setAddId(e.target.value)}>
               <option value="">Escolha uma opção…</option>
