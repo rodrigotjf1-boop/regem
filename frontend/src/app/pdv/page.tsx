@@ -6,7 +6,7 @@ import { ListX, PauseCircle, Search, SlidersHorizontal, Users } from 'lucide-rea
 import { api, getToken } from '@/lib/api';
 import { rotuloSenha } from '@/lib/senha';
 import { textosDasEscolhas } from '@/lib/adicionais';
-import { buscarProdutos, centavos, chaveDoItem, notasSugeridas, valorDigitado } from '@/lib/balcao';
+import { SEM_CATEGORIA, buscarProdutos, categoriasDoBalcao, centavos, chaveDoItem, notasSugeridas, valorDigitado } from '@/lib/balcao';
 import { toast } from '@/lib/toast';
 import { uuid } from '@/lib/uuid';
 import { Shell } from '@/components/app-shell/shell';
@@ -443,12 +443,14 @@ export default function PdvPage() {
     }
   }
 
+  // Sem o "Todos" (pedido do dono, 16/11/2026): abre na 1ª categoria — na ordem pessoal — que tem produto (a regra mora em
+  // `lib/balcao.ts`, conferida pelo `check:balcao`).
+  const { atual: catEfetiva, semCategoria: temSemCategoria, topoDe } = categoriasDoBalcao(catsTop, categorias, produtos, catAtiva);
+
   // Com texto na busca, o resultado vale para o cardápio inteiro (a categoria deixa de filtrar).
   const textoBusca = busca.trim();
   const achados = textoBusca ? buscarProdutos(produtos, textoBusca) : null;
-  const visiveis = catAtiva
-    ? produtos.filter((p) => p.categoriaId === catAtiva)
-    : produtos;
+  const visiveis = catEfetiva ? produtos.filter((p) => topoDe(p.categoriaId) === catEfetiva) : produtos;
 
   // Agrupa por categoria (com cabeçalho), preservando a ordem dos produtos.
   const grupos = (() => {
@@ -534,24 +536,31 @@ export default function PdvPage() {
               <kbd className="rounded border border-border bg-secondary px-1.5 py-0.5 font-mono text-[11px] font-semibold">F2</kbd>
             </label>
             <div className="flex flex-wrap gap-1.5">
-              <button type="button" aria-pressed={!catAtiva && !achados} onClick={() => { setCatAtiva(''); setBusca(''); }} className={pilula(!catAtiva && !achados)}>
-                Todos
-              </button>
               {catsTop.map((c, i) => (
                 <button
                   key={c.id}
                   type="button"
-                  aria-pressed={catAtiva === c.id && !achados}
+                  aria-pressed={catEfetiva === c.id && !achados}
                   draggable={organizando}
                   onDragStart={organizando ? () => setDragCat(i) : undefined}
                   onDragOver={organizando ? (e) => e.preventDefault() : undefined}
                   onDrop={organizando ? () => soltarCat(i) : undefined}
                   onClick={() => { if (!organizando) { setCatAtiva(c.id); setBusca(''); } }}
-                  className={`${pilula(catAtiva === c.id && !achados)} ${organizando ? 'cursor-grab' : ''} ${dragCat === i ? 'opacity-50' : ''}`}
+                  className={`${pilula(catEfetiva === c.id && !achados)} ${organizando ? 'cursor-grab' : ''} ${dragCat === i ? 'opacity-50' : ''}`}
                 >
                   {organizando && <span className="mr-1 text-muted-foreground" aria-hidden>⠿</span>}{c.nome}
                 </button>
               ))}
+              {temSemCategoria && (
+                <button
+                  type="button"
+                  aria-pressed={catEfetiva === SEM_CATEGORIA && !achados}
+                  onClick={() => { if (!organizando) { setCatAtiva(SEM_CATEGORIA); setBusca(''); } }}
+                  className={pilula(catEfetiva === SEM_CATEGORIA && !achados)}
+                >
+                  Sem categoria
+                </button>
+              )}
               {/* Organizar: reordenar as categorias arrastando — a ordem é PESSOAL (por usuário),
                   não altera o catálogo. Salva em uiPrefs.pdvOrdemCategorias. */}
               <button
