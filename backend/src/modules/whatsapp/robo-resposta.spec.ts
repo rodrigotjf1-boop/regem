@@ -6,6 +6,7 @@ import {
   esquecerAvisosDeChamado,
   menuNumerado,
 } from './robo-resposta.service';
+import { MARCA_DA_RESPOSTA_SEGURADA, entregarSegurando, esquecerAndamentos } from './resposta-em-andamento';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -97,6 +98,28 @@ describe('resposta do robô — travas', () => {
   it('nada para enviar: 400', async () => {
     const { svc } = montar(LOJA_EVO);
     await expect(svc.responder(SENHA, { instancia: 'i', para: TEL })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  // A conversa picotada (16/11/2026): o cliente escreveu enquanto esta resposta era preparada — ela não sai.
+  it('resposta que ficou velha (o cliente escreveu enquanto ela era preparada): nada sai, e diz o motivo', async () => {
+    const entregues: any[] = [];
+    const entregar = async (x: any) => {
+      entregues.push(x);
+      return true;
+    };
+    try {
+      await entregarSegurando({ tenantId: 't1', provedor: 'evolution', de: TEL, tipo: 'text', texto: 'oi', mensagemId: 'a' }, entregar);
+      await entregarSegurando({ tenantId: 't1', provedor: 'evolution', de: TEL, tipo: 'text', texto: 'tem x-bacon?', mensagemId: 'b' }, entregar);
+      const { svc, chamadas } = montar(LOJA_EVO);
+      expect(await svc.responder(SENHA, { instancia: 'i', para: TEL, texto: 'Oi! Tudo bem?' })).toEqual({ ok: true, enviado: false, motivo: 'resposta_superada' });
+      expect(chamadas).toHaveLength(0);
+      await new Promise((r) => setImmediate(r));
+      expect(entregues.map((x) => x.texto)).toEqual(['oi', `${MARCA_DA_RESPOSTA_SEGURADA}\noi\ntem x-bacon?`]);
+      // a resposta da reentrega sai
+      expect(await svc.responder(SENHA, { instancia: 'i', para: TEL, texto: 'Oi! Temos sim.' })).toMatchObject({ ok: true, enviado: true });
+    } finally {
+      esquecerAndamentos();
+    }
   });
 
   // 30/10, loja piloto: o robô chamou o atendente e o aviso "já chamei" era segurado pelo próprio chamado.

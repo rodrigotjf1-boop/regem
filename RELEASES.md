@@ -17,6 +17,11 @@
   - A barra de categorias perde o "Todos"; a tela abre na primeira categoria com produto, na ordem do "Organizar".
   - O produto de subcategoria aparece na categoria de cima; o sem categoria ganha a pílula "Sem categoria".
 
+- **O atendente responde uma vez por vez — fim da "conversa picotada" (16/11, pedido do dono; SEM migration).** O cliente
+  que manda outra mensagem enquanto a resposta é preparada recebe UMA resposta, que considera tudo: a velha é segurada e
+  tudo vai de novo ao robô. Instruções `.f24`. Só NUVEM (o atendente é da nuvem): vale com o merge; `ROBO_SEGURAR_MS=0`
+  desliga. O `.zip` leva o código sem efeito na loja.
+
 - **Empresa inativa há 2 meses é desligada — a loja e as integrações (16/11, decisão do dono; SEM migration; nasce
   DESLIGADA).** Com `DESLIGAR_INATIVAS=1` na nuvem (o dono liga), uma rotina diária desliga a empresa sem nenhum sinal de
   uso há 60 dias: ação de uma pessoa, batida do servidor da loja, sinal de aparelho, venda, ou ação da distribuição
