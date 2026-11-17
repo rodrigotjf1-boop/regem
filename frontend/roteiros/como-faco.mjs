@@ -10,7 +10,8 @@ import { fotoDoComoFaco, responder, tokenFalso, umaLinha } from './comum.mjs';
 
 const TUDO = { ver: true, criar: true, editar: true, excluir: true };
 const PERMISSOES = ['cadastros', 'escalas', 'impressoras', 'acessos', 'relatorios_vendas', 'cancelamentos', 'auditoria', 'turnos', 'fiscal_config', 'cupons', 'delivery', 'pedidos', 'fiscal', 'producao_kds', 'loja'];
-const TOKEN = tokenFalso({ cat: 'presidente', perfil: 'presidente', perm: Object.fromEntries(PERMISSOES.map((p) => [p, TUDO])) });
+// `ver_financeiro`: o presidente vê os valores em R$ (sem ela, os relatórios mostram só as quantidades e um aviso)
+const TOKEN = tokenFalso({ cat: 'presidente', perfil: 'presidente', perm: { ...Object.fromEntries(PERMISSOES.map((p) => [p, TUDO])), ver_financeiro: true } });
 
 const menu = (page, href) => page.locator(`aside a[href="${href}"] >> visible=true`).first();
 const em = (page, seletor) => page.locator('main').locator(seletor).first();
@@ -50,6 +51,23 @@ const mensagensDaConversa = () => [
 
 // A gestão do catálogo com o iFood (pelo Orzuni) e a 99 ligados e a conferência com os apps: as fotos da conferência
 // vêm `null` (sem leitura — a lista vazia quebrava `fotos.canais`), os produtos com o preço e a situação em cada canal.
+// A conferência com o iFood (`RespostaDaConferencia`, `lib/conferencia-apps.ts`): lida agora, uma linha igual, uma com o
+// preço diferente e uma que só existe no app.
+const linhaConferida = (chave, nome, pdv, precoApp, regem, situacao, motivo) => ({
+  chave, tipo: 'item', nome, pdv, grupos: ['Lanches'], precos: [precoApp], promoDe: null, pausado: false, imagem: null,
+  regem, ligaPeloId: false, situacao, motivo, outros: [],
+});
+const conferenciaDoIfood = () => ({
+  loja: { id: 'l1', nome: 'Loja Exemplo' }, canal: 'ifood',
+  canais: { ifood: { ligado: true, motivo: null, pendentes: 2 }, '99food': { ligado: true, motivo: null, pendentes: 0 } },
+  estado: 'ok', motivo: null, lendoAgora: false, lidoEm: new Date().toISOString(), erro: null, erroEm: null,
+  itens: [
+    linhaConferida('101', 'X-Burger', '101', 33.9, { id: 'p1', nome: 'X-Burger', preco: 33.9, ativo: true }, 'igual', null),
+    linhaConferida('102', 'X-Salada', '102', 36.9, { id: 'p2', nome: 'X-Salada', preco: 35.9, ativo: true }, 'preco', 'precoDiferente'),
+    linhaConferida('app-1', 'Combo Família', null, 59.9, null, 'soApp', 'semCodigo'),
+  ],
+  opcoes: [],
+});
 const CATALOGO_COM_CANAIS = {
   '/catalogo/conferencia/fotos': null,
   '/produtos/ifood-pelo-orzuni': { ligado: true },
@@ -125,8 +143,21 @@ const TELAS = [
       em(p, 'button:has-text("iFood"), button[aria-label*="iFood"], button:has(img[alt*="iFood"])'),
     ],
   },
-  // A gestão do catálogo com o iFood e a 99 ligados: o preço e a pausa de cada canal na linha do produto. Fora por
-  // enquanto: "Conferir com os apps" (a aba lê a conferência, que o roteiro ainda não simula) e os relatórios de vendas.
+  // A aba "Conferir com os apps", com a conferência do iFood simulada (com a lista vazia, a aba caía)
+  {
+    id: 'conferir-apps', caminho: '/catalogo', respostas: CATALOGO_COM_CANAIS, respostasDinamicas: { '/catalogo/conferencia': conferenciaDoIfood },
+    passo: async (p) => {
+      await em(p, '[role="tab"]:has-text("Conferir com os apps")').click();
+      await p.locator('main').getByText('Preço diferente').first().waitFor({ timeout: 8000 }).catch(() => {});
+    },
+    marcas: (p) => [
+      menu(p, '/catalogo'),
+      em(p, '[role="tab"]:has-text("Conferir com os apps")'),
+      em(p, 'button:has-text("iFood"):has-text("a resolver")'),
+      em(p, 'button:has-text("Preço diferente")'),
+    ],
+  },
+  // A gestão do catálogo com o iFood e a 99 ligados: o preço e a pausa de cada canal na linha do produto.
   {
     id: 'preco-no-canal', caminho: '/catalogo', respostas: CATALOGO_COM_CANAIS,
     marcas: (p) => [menu(p, '/catalogo'), rotulado(p, 'Buscar'), em(p, 'button[aria-label^="Mudar o preço"][aria-label*="iFood de X-Burger"]')],
@@ -134,6 +165,32 @@ const TELAS = [
   {
     id: 'pausar-produto', caminho: '/catalogo', respostas: CATALOGO_COM_CANAIS,
     marcas: (p) => [menu(p, '/catalogo'), em(p, 'button[aria-label="Pausado no iFood: X-Burger"]')],
+  },
+  // Os relatórios de vendas: a aba "Vendas" lê o resumo do período (com a lista vazia, `resumo.vendas` caía)
+  {
+    id: 'relatorios-de-vendas', caminho: '/relatorios',
+    respostas: {
+      '/relatorios/vendas': {
+        resumo: { faturado: 4820.5, vendas: 132, ticketMedio: 36.52, gorjeta: 0, canceladas: 2, recebido: 4820.5 },
+        porForma: [{ forma: 'Pix', qtd: 58, total: 2110.3 }, { forma: 'Crédito', qtd: 44, total: 1702.2 }, { forma: 'Dinheiro', qtd: 30, total: 1008 }],
+        porCanal: [{ canal: 'Balcão', qtd: 70, total: 2400 }, { canal: 'iFood', qtd: 40, total: 1650.5 }, { canal: 'Cardápio', qtd: 22, total: 770 }],
+      },
+      '/relatorios/produtos': {
+        itens: [
+          { descricao: 'X-Burger', qtd: 60, bruto: 1794, desconto: 0, faturamento: 1794, custo: 720, lucro: 1074, margemPct: 59.9, pct: 37.2, classe: 'A' },
+          { descricao: 'X-Salada', qtd: 41, bruto: 1307.9, desconto: 0, faturamento: 1307.9, custo: 540, lucro: 767.9, margemPct: 58.7, pct: 27.1, classe: 'A' },
+          { descricao: 'Coca-Cola lata', qtd: 95, bruto: 665, desconto: 0, faturamento: 665, custo: 285, lucro: 380, margemPct: 57.1, pct: 13.8, classe: 'B' },
+        ],
+      },
+      '/relatorios/atendentes': {
+        atendentes: [
+          { nome: 'Caixa 1', vendas: 70, total: 2400, gorjeta: 0, ticketMedio: 34.29 },
+          { nome: 'Delivery', vendas: 62, total: 2420.5, gorjeta: 0, ticketMedio: 39.04 },
+        ],
+      },
+    },
+    // o "Período" marca só o seletor (pelo rótulo, a marca pegava o cartão inteiro do período)
+    marcas: (p) => [menu(p, '/relatorios'), em(p, ':is(button,[role="tab"]):text-is("Vendas")'), em(p, 'select'), botao(p, 'Atualizar')],
   },
   // A caixa de conversas: sem o status conectado, a tela mostra "WhatsApp não conectado"
   {

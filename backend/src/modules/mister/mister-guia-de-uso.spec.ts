@@ -366,4 +366,12 @@ describe('M3d — a imagem do "como faço"', () => {
     }
     expect(arquivos.map((n) => n.replace(/\.png$/, '')).sort()).toEqual([...comImagem].sort());
   });
+
+  // Desde a M3d parte 10 (17/11/2026) TODO assunto tem a imagem da tela: assunto novo no guia nasce com a sua foto
+  // (uma linha em `frontend/roteiros/como-faco.mjs` e `GERAR_COMO_FACO=1`), e o que cada número marca em `imagem`.
+  it('todo assunto do guia tem imagem, com uma descrição por número marcado', () => {
+    const semImagem = GUIA_DE_USO.filter((s) => !s.imagem?.length).map((s) => s.id);
+    expect(semImagem).toEqual([]);
+    for (const s of GUIA_DE_USO) for (const marca of s.imagem ?? []) expect(marca.trim().length).toBeGreaterThan(3);
+  });
 });

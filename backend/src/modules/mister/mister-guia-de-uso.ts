@@ -399,6 +399,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Filtre pela situação ("Só no Regem", "Preço diferente", "Não dá para ligar"…) e resolva na linha: "Criar no Regem", "Ligar a um produto", "Corrigir o código" ou "Ignorar".',
     ],
     botoes: ['Conferir com os apps', 'iFood', '99', 'Só no Regem', 'Preço diferente', 'Não dá para ligar', 'Criar no Regem', 'Ligar a um produto', 'Corrigir o código', 'Ignorar'],
+    imagem: ['Delivery › Gestão do catálogo, no menu', 'a aba "Conferir com os apps"', 'o app conferido (iFood ou 99), com quantos há a resolver', 'as situações, como "Preço diferente"'],
     notas: ['A aba aparece quando a conferência está ligada na empresa.'],
   },
   {
@@ -539,6 +540,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Se quiser, "Só uma faixa de horário"; com mais de uma loja, o presidente pode "Somar todas as lojas". Clique em "Atualizar".',
     ],
     botoes: ['Vendas', 'Balcão / Salão', 'Delivery', 'Turnos / Caixa', 'Estoque', 'Produção', 'Período', 'Personalizado', 'Só uma faixa de horário', 'Somar todas as lojas', 'Atualizar'],
+    imagem: ['Relatórios › Relatórios de vendas, no menu', 'a aba "Vendas" (as outras ao lado)', 'o "Período"', 'o botão "Atualizar"'],
   },
   {
     id: 'cancelamentos-de-itens',
