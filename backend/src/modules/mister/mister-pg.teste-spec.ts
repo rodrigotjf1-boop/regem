@@ -38,6 +38,7 @@ import { FinanceiroService } from '../financeiro/financeiro.service';
 import { FRASES_DO_DOCUMENTO } from '../../common/documento-por-foto';
 import { crc16Pix } from '../../common/boleto';
 import { custosMediosNaLoja } from '../../common/custo-loja';
+import { VendasService } from '../vendas/vendas.service';
 import { MisterPropostasService } from './mister-propostas.service';
 import { TEXTOS_DA_PROPOSTA, TEXTOS_DO_LINK } from './mister-procedimentos';
 import { MODELO_DO_AVISO } from './mister-modelos';
@@ -2795,6 +2796,114 @@ export function testesDoMisterComPostgres(): void {
       }
     });
 
+    // ───────────────────────────── o relatório por insumo (M3c) ─────────────────────────────
+    // A baixa é a de VERDADE (`VendasService.baixarEstoqueExterno`, a mesma da conclusão do pedido), sobre fichas reais: o
+    // total é o que a venda baixou; "de onde saiu" é a ficha de cada produto; o adicional fica em "outros"; a venda
+    // cancelada (com o estorno) não conta; a outra empresa não vê nada.
+    it('o insumo que a venda baixou pela ficha (M3c): o total, os quilos, por hora, de onde saiu, "outros", a comparação e a escolha', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      const vendasDeVerdade = new VendasService(db, auditoria as any, { emit: () => true } as any, null as any, null as any, {} as any);
+      const comInsumo = new MisterFerramentasService(db, modulos, null as any, null as any, null as any, null as any, null as any, null as any, vendasDeVerdade, null as any, null as any);
+      const criados: { comandas: string[]; produtos: string[]; fichas: string[]; itens: string[] } = { comandas: [], produtos: [], fichas: [], itens: [] };
+      try {
+        const insumo = async (nome: string, unidade: string) => {
+          const [{ id }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, $2, $3) returning id::text as id`, [A, nome, unidade]);
+          criados.itens.push(id);
+          return id as string;
+        };
+        const c56 = await insumo('Carne 56 g', 'unidade');
+        const c120 = await insumo('Carne 120 g', 'unidade');
+        const bacon = await insumo('Bacon em tiras', 'kg');
+        await q(`insert into item_conversao (tenant_id, item_id, unidade_de, fator, unidade_para) values ($1, $2, 'unidade', 56, 'grama')`, [A, c56]);
+        const ficha = async (nome: string, linhas: Array<[string, number]>) => {
+          const [{ id }] = await q(`insert into ficha_tecnica (tenant_id, nome) values ($1, $2) returning id::text as id`, [A, nome]);
+          criados.fichas.push(id);
+          for (const [item, qtd] of linhas) await q(`insert into ficha_ingrediente (tenant_id, ficha_id, item_id, insumo_nome, quantidade) values ($1, $2, $3, 'x', $4)`, [A, id, item, qtd]);
+          return id as string;
+        };
+        const produtoCom = async (nome: string, fichaId: string | null) => {
+          const [{ id }] = await q(`insert into produto (tenant_id, nome, ficha_id) values ($1, $2, $3) returning id::text as id`, [A, nome, fichaId]);
+          criados.produtos.push(id);
+          return id as string;
+        };
+        const xBurger = await produtoCom('X-Burger', await ficha('X-Burger', [[c56, 1]]));
+        const duplo = await produtoCom('Combo Duplo', await ficha('Duplo', [[c56, 2], [bacon, 0.03]]));
+        const coca = await produtoCom('Coca-Cola', null);
+        const [{ id: grande }] = await q(`insert into produto_variacao (tenant_id, produto_id, nome, fator_ficha) values ($1, $2, 'Grande', 2) returning id::text as id`, [A, xBurger]);
+        // Uma venda fechada (há `atras`) com os itens; a baixa pela venda de verdade.
+        const venda = async (itens: Array<{ produto: string; qtd: number; variacao?: string; extraCarne?: number }>, atras = "5 seconds", tenant = A) => {
+          const [{ id: comanda }] = await q(
+            `insert into comanda (tenant_id, unidade_id, status, total, forma, aberta_em, fechada_em) values ($1, $2, 'fechada', 10, 'dinheiro', now() - interval '${atras}' - interval '10 minutes', now() - interval '${atras}') returning id::text as id`,
+            [tenant, tenant === A ? lojaDeA : null],
+          );
+          criados.comandas.push(comanda);
+          for (const it of itens) {
+            const [{ id: ci }] = await q(`insert into comanda_item (tenant_id, comanda_id, produto_id, variacao_id, descricao, quantidade, preco_unitario) values ($1, $2, $3, $4, 'item', $5, 10) returning id::text as id`, [tenant, comanda, it.produto, it.variacao ?? null, it.qtd]);
+            if (it.extraCarne) await q(`insert into comanda_item_complemento (tenant_id, comanda_item_id, tipo, nome, item_id, quantidade) values ($1, $2, 'adicionar', 'Carne extra', $3, $4)`, [tenant, ci, c56, it.extraCarne]);
+          }
+          await vendasDeVerdade.baixarEstoqueExterno(tenant, comanda, false);
+          return comanda;
+        };
+        await venda([{ produto: xBurger, qtd: 2 }, { produto: coca, qtd: 1 }]); // 2 carnes
+        await venda([{ produto: duplo, qtd: 1 }]); // 2 carnes (2 por combo)
+        await venda([{ produto: xBurger, qtd: 1, extraCarne: 1 }]); // 1 da ficha + 1 do adicional ("outros")
+        await venda([{ produto: xBurger, qtd: 1, variacao: grande }]); // a variação Grande: 2 carnes pela ficha
+        // A venda cancelada: a baixa volta pelo estorno (como o cancelamento da tela) e não conta.
+        const cancelada = await venda([{ produto: xBurger, qtd: 3 }]);
+        await q(`insert into movimento_estoque (tenant_id, item_id, tipo, quantidade, motivo, ref_tipo, ref_id) select tenant_id, item_id, 'entrada', quantidade, 'estorno', 'estorno', ref_id from movimento_estoque where ref_tipo = 'venda' and ref_id = $1`, [cancelada]);
+        await q(`update comanda set status = 'cancelada' where id = $1`, [cancelada]);
+        // O mesmo dia da semana passada, até a mesma hora: 1 carne.
+        await venda([{ produto: xBurger, qtd: 1 }], '7 days 5 seconds');
+
+        const e = (await comInsumo.escopo(A, pessoa.ana, tel))!;
+        const r: any = await comInsumo.executar(e, 'insumo_vendido', { insumo: 'carnes de 56g' });
+        expect(r.ok).toBe(true);
+        expect(r.dados).toMatchObject({
+          loja: 'Loja Centro',
+          insumo: 'Carne 56 g',
+          unidadeDoEstoque: 'unidade',
+          total: 8,
+          totalEmQuilos: 0.448, // 8 × 56 g, pela conversão do cadastro
+          comparacao: { mediaDasUltimas4: 1, diferencaPct: 700 },
+        });
+        expect(r.dados.periodo).toMatch(/^hoje \(\d\d\/\d\d\), até \d\d:\d\d$/);
+        expect(r.dados.porHora.reduce((a: number, x: any) => a + x.quantidade, 0)).toBe(8);
+        expect(r.dados.deOndeSaiu).toEqual([
+          { produto: 'X-Burger', quantidade: 3, porUnidadeVendida: 1, unidadesVendidas: 3 },
+          { produto: 'Combo Duplo', quantidade: 2, porUnidadeVendida: 2, unidadesVendidas: 1 },
+          { produto: 'X-Burger · Grande', quantidade: 2, porUnidadeVendida: 2, unidadesVendidas: 1 },
+        ]);
+        expect(r.dados.outros).toBe(1); // a carne extra do adicional
+        // A medida decide: a de 120 g não vendeu nada hoje (e não puxa a de 56 g).
+        expect((await comInsumo.executar(e, 'insumo_vendido', { insumo: 'carne 120g' })).dados).toMatchObject({ insumo: 'Carne 120 g', total: 0, deOndeSaiu: [] });
+        // "carne" sozinha: pergunta qual; o que não existe, recusa; o bacon em kg, sem "totalEmQuilos" repetido.
+        expect((await comInsumo.executar(e, 'insumo_vendido', { insumo: 'carne' })).dados).toMatchObject({ precisaEscolher: ['Carne 120 g', 'Carne 56 g'] });
+        expect(await comInsumo.executar(e, 'insumo_vendido', { insumo: 'detergente' })).toMatchObject({ ok: false });
+        const b: any = await comInsumo.executar(e, 'insumo_vendido', { insumo: 'bacon' });
+        expect(b.dados).toMatchObject({ insumo: 'Bacon em tiras', total: 0.03 });
+        expect(b.dados.totalEmQuilos).toBeUndefined();
+        // Vários dias: por dia, com zero onde não vendeu, e sem a comparação.
+        const semana: any = await comInsumo.executar(e, 'insumo_vendido', { insumo: 'carne 56 g', periodo: 'ultimos_7_dias' });
+        expect(semana.dados.porDia).toHaveLength(7);
+        expect(semana.dados.porDia.at(-1).quantidade).toBe(8);
+        expect(semana.dados.comparacao).toBeUndefined();
+        // A outra empresa não vê a venda desta (o insumo nem existe lá).
+        const telB = telefone();
+        await ligar('anaB', telB, B);
+        const deB = (await comInsumo.escopo(B, pessoa.anaB, telB))!;
+        expect(await comInsumo.executar(deB, 'insumo_vendido', { insumo: 'carne 56 g' })).toMatchObject({ ok: false });
+      } finally {
+        if (criados.comandas.length) {
+          await q(`delete from movimento_estoque where ref_id = any($1::uuid[])`, [criados.comandas]);
+          await q(`delete from comanda where id = any($1::uuid[])`, [criados.comandas]);
+        }
+        await q(`delete from produto where id = any($1::uuid[])`, [criados.produtos]);
+        await q(`delete from ficha_tecnica where id = any($1::uuid[])`, [criados.fichas]);
+        await q(`delete from item_estoque where id = any($1::uuid[])`, [criados.itens]);
+      }
+    });
+
     // ───────────────────────────── a avaliação de regressão (F5.3, mig 424) ─────────────────────────────
     // O modelo de mentira responde CERTO a cada pergunta (a consulta, a entrada e os números do caso): prova o caminho
     // inteiro — o laço de verdade, a loja de teste, a conferência, o andamento gravado e o custo. Só a distribuição: a
@@ -2811,6 +2920,7 @@ export function testesDoMisterComPostgres(): void {
         c15: { periodo: 'ontem' },
         c28: { periodo: 'esta_semana' },
         c37: { ordem: 'lucro' },
+        c41: { insumo: 'carne 56 g', periodo: 'hoje' },
       };
       const EXTRAS: Record<string, string[]> = { c37: ['produtos_mais_vendidos'], c38: ['servidor_e_incidentes'] };
       const entradaDe = (c: CasoDaAvaliacao, nome: string): Record<string, unknown> =>
@@ -2863,18 +2973,18 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_avaliacao`);
       });
 
-      it('a rodada inteira com as respostas certas: 40 de 40, o andamento, o custo, a lista e as perguntas na ordem', async () => {
+      it('a rodada inteira com as respostas certas: 41 de 41, o andamento, o custo, a lista e as perguntas na ordem', async () => {
         const ia = iaDeMentira();
         const servico = new MisterAvaliacaoService(db, ia as any);
         const r = await servico.rodar('Rita da DMS');
-        expect(r.total).toBe(40);
+        expect(r.total).toBe(41);
         const fim = await terminar(r.id);
-        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 40, acertos: 40, motivo: null });
+        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 41, acertos: 41, motivo: null });
         // O mesmo laço do agente: as instruções e as ferramentas de verdade, e o recurso da avaliação.
         expect(ia.pedidos.every((p) => p.recurso === 'mister_avaliacao' && p.tools === FERRAMENTAS && p.system[0].text === INSTRUCOES_DO_MISTER)).toBe(true);
         const lista = await servico.lista();
-        expect(lista).toMatchObject({ disponivel: true, total: 40, chaveDaDistribuicao: true });
-        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 40, acertos: 40, falhas: 0, oQueFalhou: [] });
+        expect(lista).toMatchObject({ disponivel: true, total: 41, chaveDaDistribuicao: true });
+        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 41, acertos: 41, falhas: 0, oQueFalhou: [] });
         // O custo pela tabela de preços do modelo, sobre os tokens somados de todas as chamadas.
         expect(lista.rodadas[0].custoUsd).toBeGreaterThan(0);
         const [tok] = await q(`select tokens_entrada, tokens_cache_leitura, tokens_saida from mister_avaliacao where id = $1`, [r.id]);
@@ -2894,7 +3004,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
         expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
         const r = await servico.rodar('Rita');
-        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 39 });
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 40 });
         const [velha] = await q(`select situacao, motivo from mister_avaliacao where id = $1`, [parada]);
         expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
         const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);

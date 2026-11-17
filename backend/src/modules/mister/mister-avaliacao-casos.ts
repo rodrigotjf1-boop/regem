@@ -229,6 +229,38 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
         produtos: nomes.slice(0, quantos).map(([produto, quantidade], n) => ({ posicao: n + 1, produto, quantidade, faturamento: v(Math.round(quantidade * 23.45 * 100) / 100) })),
       });
     }
+    case 'insumo_vendido': {
+      // M3c: os números da conversa 15 do protótipo (versão 3) — "carne 56 g" hoje; "carne" sozinha pede a escolha.
+      const pedido = String(en.insumo ?? '').toLowerCase();
+      if (!/carne|hamb|blend/.test(pedido)) return recusa('Não achei esse insumo no estoque. Pergunte o nome como está em Estoque › Produtos.');
+      if (!/56|120/.test(pedido)) return ok({ precisaEscolher: ['Carne 56 g', 'Carne 120 g'], siga: 'Pergunte qual destes insumos a pessoa quis dizer, com os nomes como vieram, e consulte de novo com o escolhido.' });
+      const de120 = /120/.test(pedido);
+      const p = periodoPedido(en);
+      return ok({
+        loja: LOJA,
+        periodo: ROTULO[p],
+        insumo: de120 ? 'Carne 120 g' : 'Carne 56 g',
+        unidadeDoEstoque: 'unidade',
+        total: de120 ? 96 : 212,
+        totalEmQuilos: de120 ? 11.52 : 11.872,
+        porHora: [
+          { rotulo: '18h', quantidade: de120 ? 6 : 12 },
+          { rotulo: '19h', quantidade: de120 ? 22 : 48 },
+          { rotulo: '20h', quantidade: de120 ? 31 : 71 },
+          { rotulo: '21h', quantidade: de120 ? 25 : 54 },
+          { rotulo: '22h', quantidade: de120 ? 12 : 27 },
+        ],
+        deOndeSaiu: de120
+          ? [{ produto: 'X-Tudo', quantidade: 96, porUnidadeVendida: 1, unidadesVendidas: 96 }]
+          : [
+              { produto: 'X-Burger', quantidade: 120, porUnidadeVendida: 1, unidadesVendidas: 120 },
+              { produto: 'Combo Duplo', quantidade: 64, porUnidadeVendida: 2, unidadesVendidas: 32 },
+              { produto: 'Kids', quantidade: 28, porUnidadeVendida: 1, unidadesVendidas: 28 },
+            ],
+        comparacao: { mediaDasUltimas4: de120 ? 90.5 : 179.7, diferencaPct: de120 ? 6 : 18, contra: 'segundas anteriores, até a mesma hora' },
+        fonte: 'As vendas fechadas, baixadas pela ficha técnica de cada produto (Estoque › Fichas técnicas). O total é o que saiu do estoque; cancelamento devolve.',
+      });
+    }
     case 'pedidos_em_andamento':
       return ok({
         loja: LOJA,
@@ -503,6 +535,8 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c38', pergunta: 'O servidor da loja está bem?', perfil: { nivel: 'gerente', verValores: true }, contem: ['perfil|acesso|presidente'] },
   { id: 'c39', pergunta: 'Bom dia!', semConsulta: true },
   { id: 'c40', pergunta: 'Quanto vendi hoje? E tem alguma coisa com o estoque baixo?', consultas: ['estoque_em_alerta'], umaDasConsultas: ['resumo_do_dia', 'vendas_do_periodo'], numeros: ['4.321,45'], contem: ['Pão de hambúrguer'] },
+  // M3c: o relatório por insumo pela ficha técnica (conversa 15 do protótipo, versão 3).
+  { id: 'c41', pergunta: 'Quantas carnes de 56 g foram vendidas hoje?', consultas: ['insumo_vendido'], numeros: ['212'], contem: ['X-Burger'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

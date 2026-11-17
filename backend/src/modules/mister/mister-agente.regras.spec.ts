@@ -155,6 +155,7 @@ describe('Mister — o que o modelo recebe', () => {
       'resumo_do_dia',
       'vendas_do_periodo',
       'produtos_mais_vendidos',
+      'insumo_vendido',
       'pedidos_em_andamento',
       'estoque_em_alerta',
       'servidor_e_incidentes',
