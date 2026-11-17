@@ -19,6 +19,14 @@ import { mesclarNoConfigDaIntegracao } from '../config-da-integracao';
 //   config.pendingState / config.codeVerifier = PKCE em voo (entre conectar e callback)
 const CANAL = 'cardapio_web';
 
+/**
+ * O pedido que o Cardápio Web recebeu DO iFood (`sales_channel: 'ifood'`). A consulta dele devolve também esses
+ * (docs.cardapioweb.com › Pedidos › Polling de pedidos: "Pedidos recebidos através de integrações como o iFood também
+ * são retornados nesse endpoint"). Os outros valores (`catalog`, `store_front_catalog`, `portal`, `whatsapp_extension`)
+ * são pedidos do próprio Cardápio Web.
+ */
+export const ehPedidoDoIfood = (o: any): boolean => String(o?.sales_channel ?? '').trim().toLowerCase() === 'ifood';
+
 type Ambiente = 'sandbox' | 'producao';
 
 function bases(env: Ambiente) {
@@ -370,10 +378,36 @@ export class CardapioWebService {
     return (r?.rows ?? r)?.[0]?.id ?? null;
   }
 
+  /**
+   * O PEDIDO DO iFOOD QUE O CARDÁPIO WEB TAMBÉM DEVOLVE NÃO ENTRA QUANDO O iFOOD ESTÁ LIGADO DIRETO NO REGEM (decisão do
+   * dono, 16/11/2026). A loja com o iFood ligado no Regem E dentro do Cardápio Web receberia o mesmo pedido duas vezes —
+   * uma pelo canal `ifood`, outra pelo `cardapio_web` — e viraria duas vendas.
+   *  · iFood direto = integração `ifood` ligada da MESMA loja de destino, ou sem loja (V4: da loja OU sem loja);
+   *  · o pedido que JÁ entrou pelo Cardápio Web segue sendo acompanhado (as mudanças de situação dele continuam
+   *    chegando) — a guarda só barra o que ainda não entrou;
+   *  · o resto do Cardápio Web (cardápio, portal, extensão do WhatsApp) entra como sempre.
+   */
+  private async barrarPedidoDoIfood(tenantId: string, unidadeId: string | null, orderId: string): Promise<boolean> {
+    const r: any = await this.db.execute(sql`
+      select
+        exists (
+          select 1 from integracao
+           where tenant_id = ${tenantId}::uuid and canal = 'ifood' and ativo = true
+             and (unidade_id is null or ${unidadeId}::uuid is null or unidade_id = ${unidadeId}::uuid)
+        ) as "ifoodDireto",
+        exists (
+          select 1 from pedido_externo
+           where tenant_id = ${tenantId}::uuid and canal = ${CANAL} and external_id = ${orderId}
+        ) as "jaEntrou"`);
+    const l = (r.rows ?? r)[0] ?? {};
+    return l.ifoodDireto === true && l.jaEntrou !== true;
+  }
+
   // Ingere uma lista de LiteOrders: detalhe → delivery.ingest → aceita no CW.
   // Idempotente por externalId (re-puxar não duplica).
   // Retorna quantos entraram e quantos FALHARAM (detalhe indisponível ou erro ao gravar) —
   // com falha, o poller não avança o cursor e a lista volta no próximo ciclo (ERR-061).
+  // O pedido do iFood barrado (`barrarPedidoDoIfood`) não conta nem como entrou nem como falha: o cursor anda.
   private async ingerirLista(
     tenantId: string,
     unidadeId: string | null,
@@ -383,10 +417,20 @@ export class CardapioWebService {
     let falhas = 0;
     for (const o of lite) {
       try {
+        // A lista já diz a origem (`sales_channel` do LiteOrder): o barrado nem tem o detalhe buscado.
+        if (ehPedidoDoIfood(o) && (await this.barrarPedidoDoIfood(tenantId, unidadeId, String(o.id)))) {
+          this.logger.log(`CW pedido ${o.id} veio do iFood e o iFood está ligado direto no Regem — não entra (evita a venda em dobro)`);
+          continue;
+        }
         const raw = await this.pedido(tenantId, String(o.id));
         if (!raw) {
           falhas++;
           this.logger.warn(`pedido ${o?.id}: detalhe indisponível — volta no próximo ciclo`);
+          continue;
+        }
+        // A lista sem a origem: confere pelo detalhe.
+        if (!ehPedidoDoIfood(o) && ehPedidoDoIfood(raw) && (await this.barrarPedidoDoIfood(tenantId, unidadeId, String(o.id)))) {
+          this.logger.log(`CW pedido ${o.id} veio do iFood e o iFood está ligado direto no Regem — não entra (evita a venda em dobro)`);
           continue;
         }
         await this.delivery.ingest(tenantId, unidadeId, 'cardapio_web', raw, {
@@ -481,6 +525,12 @@ export class CardapioWebService {
     const unidadeId = await this.unidadeDestino(alvo.tenantId, alvo.unidadeId ?? null);
     const raw = await this.pedido(alvo.tenantId, String(orderId));
     if (!raw) return { ok: false };
+    // O pedido do iFood com o iFood ligado direto no Regem não entra (como na consulta). `ok`: o aviso foi tratado — o
+    // Cardápio Web não precisa mandar de novo.
+    if (ehPedidoDoIfood(raw) && (await this.barrarPedidoDoIfood(alvo.tenantId, unidadeId, String(orderId)))) {
+      this.logger.log(`webhook CW pedido ${orderId} veio do iFood e o iFood está ligado direto no Regem — não entra (evita a venda em dobro)`);
+      return { ok: true };
+    }
     await this.delivery.ingest(alvo.tenantId, unidadeId, 'cardapio_web', raw, {
       taxaEntrega: Number(raw?.delivery_fee) || 0,
       trocoPara: raw?.payments?.[0]?.change_for ?? undefined,
