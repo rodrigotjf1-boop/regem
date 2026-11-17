@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, getCategoria } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { avisarEstornoGogem } from '@/lib/estorno-gogem';
@@ -15,6 +15,7 @@ import { useSenhaSemSalvar } from '@/lib/use-senha-sem-salvar';
 import { avisarComprovante } from '@/lib/comprovante';
 import { ItensDaPerda, type MarcaDaPerda } from '@/components/delivery/itens-da-perda';
 import { ClientesEsperando, minutosDesde, ondeDaChegada } from '@/components/pdv/clientes-esperando';
+import { avisarTotemMudou } from '@/components/pdv/totem-a-pagar-dados';
 
 /* "Cheguei" na retirada (mig 354): o pedido que ainda espera o cliente e já tem a chegada dele. */
 const esperandoCliente = (p: any) => !!p?.chegada && p.status !== 'concluido' && p.status !== 'cancelado';
@@ -88,6 +89,8 @@ export default function RetiradaPage() {
   const [cat, setCat] = useState<string | null>(null);
   const ehGestor = ['presidente', 'gerente', 'supervisao'].includes(cat ?? '');
 
+  // O ícone e a faixa do totem relêem na hora quando a lista do totem muda aqui (pagou, cancelou, entregou).
+  const totemVisto = useRef<string | null>(null);
   const reload = useCallback(async () => {
     try {
       const [p, c, f] = await Promise.all([
@@ -98,6 +101,12 @@ export default function RetiradaPage() {
       // Backend novo devolve { pedidos, origensEmUso }; compat com o array antigo.
       const pedidosArr = Array.isArray(p) ? p : ((p as any)?.pedidos ?? []);
       setPedidos(pedidosArr);
+      const totem = pedidosArr
+        .filter((x: any) => /^(totem|gogem)$/i.test(String(x.canal ?? '')))
+        .map((x: any) => `${x.id}:${x.status}:${x.pago ? 1 : 0}`)
+        .join(',');
+      if (totemVisto.current !== null && totemVisto.current !== totem) avisarTotemMudou();
+      totemVisto.current = totem;
       setOrigensEmUso(Array.isArray(p) ? {} : ((p as any)?.origensEmUso ?? {}));
       if (!Array.isArray(p) && (p as any)?.totemAposPagamento != null)
         setTotemAposPagamento(!!(p as any).totemAposPagamento);
@@ -400,7 +409,10 @@ function PedidoCard({
     ? { txt: 'Pagando no totem', cls: 'bg-warn/10 text-warn' }
     : totemReceberPrimeiro && p.status === 'novo'
       ? { txt: 'Aguardando pagamento', cls: 'bg-warn/10 text-warn' }
-      : st;
+      // Totem em dinheiro PRONTO e ainda não pago (a loja produz antes de cobrar — 16/11/2026): cobre antes de entregar.
+      : p.grupoCanal === 'totem' && p.status === 'pronto' && !p.pago
+        ? { txt: 'Pronto · não pago', cls: 'bg-destructive text-white' }
+        : st;
   // Há quanto tempo o cliente do totem espera para pagar (a lista se atualiza a cada 15 s).
   const esperaMin =
     totemReceberPrimeiro && p.status === 'novo' && p.criadoEm
