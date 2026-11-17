@@ -2,7 +2,7 @@
 // decisão do teclado. A tela (`app/kds/page.tsx`) e os cartões (`components/kds/*`) só desenham o
 // que sai daqui. Conferido por `scripts/check-kds.mjs` (npm run check:kds).
 
-import { rotuloSenha } from './senha';
+import { rotuloSenha, senhaCasa } from './senha';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -369,6 +369,29 @@ export function proximaAcaoNaEstacao(status: string, proximoNome?: string | null
   if (viraPronto) return proximoNome ? `Pronto → ${proximoNome}` : 'Pronto';
   if (status === 'pronto' && etapas.usaEntregue === false) return null;
   return proximaAcao(status);
+}
+
+/**
+ * O cartão que o ENTER DA SENHA atende (KDS por teclado — pedido do dono, 16/11/2026: "o item cancelado aparece no KDS
+ * riscado e como cancelado, porém não conseguimos avançar pelo número da senha, fica preso no KDS"):
+ *  • entre os cartões vivos da senha, o primeiro que ainda tem etapa para andar NESTA tela (`podeAndar`) — o pedido
+ *    alterado deixa o cartão velho "pronto" com a mesma senha (mig 362), e o Enter caía nele e era recusado;
+ *  • sem nenhum que ande, o primeiro vivo (o servidor diz por que não anda, como antes);
+ *  • sem vivo, o CANCELADO da senha: o Enter dá "Ciente" e ele sai da tela (antes ficava 30 min, sem botão e sem senha).
+ * null = a senha não está na fila.
+ */
+export function cartaoDaSenha<T extends { senha?: any; senhaPrefixo?: any; status?: string }>(
+  lista: T[],
+  digitado: string,
+  podeAndar: (p: T) => boolean,
+): { cartao: T; acao: 'avancar' | 'ciente' } | null {
+  const daSenha = (lista ?? []).filter((p) => senhaCasa(digitado, p.senha, p.senhaPrefixo));
+  const vivos = daSenha.filter((p) => p.status !== 'cancelado');
+  const anda = vivos.find((p) => podeAndar(p));
+  if (anda) return { cartao: anda, acao: 'avancar' };
+  if (vivos.length) return { cartao: vivos[0], acao: 'avancar' };
+  const cancelado = daSenha.find((p) => p.status === 'cancelado');
+  return cancelado ? { cartao: cancelado, acao: 'ciente' } : null;
 }
 
 // O pedido do despacho que tem este cartão (o evento do tempo real vem por cartão; o despacho mostra o pedido inteiro) e

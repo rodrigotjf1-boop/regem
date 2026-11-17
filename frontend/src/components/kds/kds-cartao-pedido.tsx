@@ -268,6 +268,18 @@ export function KdsCartaoPedido({
             {ocupado ? 'Aguarde…' : acao}
           </button>
         )}
+        {/* O CANCELADO sai da tela pelo "Ciente" (16/11/2026 — ficava 30 min preso, sem botão); no teclado, a senha + Enter. */}
+        {cancelado && onVisto && (
+          <button
+            type="button"
+            className="k-avancar"
+            data-kds-ciente
+            onClick={() => onVisto(String(p.id))}
+            aria-label={`Ciente do cancelamento: tirar ${senhaDoCartao(p)} da tela`}
+          >
+            Ciente
+          </button>
+        )}
       </div>
     </article>
   );
