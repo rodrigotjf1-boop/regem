@@ -63,7 +63,37 @@ export interface MensagemDoMister {
   wamid?: string | null;
   /** O código do botão de um MODELO da Meta (o toque em "Ver o que fazer" ou "Ver resumo"). */
   codigoDoModelo?: string | null;
+  /** M3a: a foto ou o PDF que veio na mensagem (pela API oficial). */
+  midia?: MidiaDoMister | null;
 }
+
+/** M3a (versão 3 do protótipo): a foto ou o documento que chegou na conversa. O arquivo se baixa pelo `id` da Meta. */
+export interface MidiaDoMister {
+  tipo: 'imagem' | 'documento';
+  id: string;
+  mime: string | null;
+}
+
+/** A mídia de uma mensagem da Meta: a foto (`type: image`) ou o arquivo (`type: document`), pelo id. Outra coisa → null. */
+export function midiaDaMeta(m: any): MidiaDoMister | null {
+  const tipo = String(m?.type ?? '');
+  const corpo = tipo === 'image' ? m?.image : tipo === 'document' ? m?.document : null;
+  const id = String(corpo?.id ?? '').trim();
+  if (!corpo || !id) return null;
+  return { tipo: tipo === 'image' ? 'imagem' : 'documento', id, mime: corpo?.mime_type ? String(corpo.mime_type) : null };
+}
+
+/** Quem mandou a mídia: o vínculo que vale para esta conversa (a empresa já escolhida). */
+export interface QuemMandou {
+  telefone: string;
+  tenantId: string;
+  colaboradorId: string;
+  unidadeId: string | null;
+  nivel: NivelDoMister;
+  nome: string;
+}
+/** Quem trata a foto (o serviço dos documentos, M3a). Devolve se tratou; `false` segue o caminho de antes ("só leio texto"). */
+export type TratarDocumento = (quem: QuemMandou, midia: MidiaDoMister, wamid: string | null) => Promise<boolean>;
 
 /** Quem tocou no botão do modelo: o telefone e os vínculos dele que valem agora (empresa, pessoa, loja e nível). */
 export interface QuemTocou {
@@ -99,6 +129,7 @@ export type Desfecho =
   | 'modelo_nao_achado'
   | 'respondeu_proposta'
   | 'proposta_nao_achada'
+  | 'documento'
   | 'calado';
 
 interface Vinculo {
@@ -126,6 +157,12 @@ export class MisterEntradaService {
   private readonly botoes = new Map<string, TratarBotao>();
   registrarBotao(prefixo: string, tratar: TratarBotao): void {
     this.botoes.set(prefixo, tratar);
+  }
+
+  /** M3a: quem trata a foto de um documento (o serviço dos documentos, no módulo do agente). */
+  private documento: TratarDocumento | null = null;
+  registrarDocumento(tratar: TratarDocumento): void {
+    this.documento = tratar;
   }
 
   constructor(
@@ -157,6 +194,8 @@ export class MisterEntradaService {
         wamid: m?.id ? String(m.id) : null,
         // O toque no botão de resposta rápida de um MODELO chega como `type: button`, com o código em `button.payload`.
         codigoDoModelo: m?.type === 'button' && m?.button?.payload ? String(m.button.payload) : null,
+        // M3a: a foto (`type: image`) ou o arquivo (`type: document`) — o conteúdo se baixa pelo id.
+        midia: midiaDaMeta(m),
       };
       try {
         const desfecho = await this.receber(entrada);
@@ -269,7 +308,7 @@ export class MisterEntradaService {
 
     const alvo = await this.empresaDaConversa(tel, e, vinculos);
     if ('desfecho' in alvo) return alvo;
-    return this.atender(tel, alvo.vinculo, alvo.texto, e.wamid ?? null, e.wamid ?? null);
+    return this.atender(tel, alvo.vinculo, alvo.texto, e.wamid ?? null, e.wamid ?? null, e.midia ?? null);
   }
 
   /**
@@ -531,9 +570,25 @@ export class MisterEntradaService {
    * `chave` = a identidade da mensagem na fila das perguntas (a mesma nunca entra duas vezes); `wamid` = o id dela na
    * Meta, para o agente marcar como lida e mostrar "digitando".
    */
-  private async atender(tel: string, v: Vinculo, texto: string, chave: string | null, wamid: string | null): Promise<{ desfecho: Desfecho; tenantId: string }> {
+  private async atender(
+    tel: string,
+    v: Vinculo,
+    texto: string,
+    chave: string | null,
+    wamid: string | null,
+    midia: MidiaDoMister | null = null,
+  ): Promise<{ desfecho: Desfecho; tenantId: string }> {
     await this.db.execute(sql`update mister_vinculo set ultima_entrada_em = now() where id = ${v.id}::uuid`);
     const nome = primeiroNome(v.nome);
+    // M3a: a foto de um documento vai a quem lê documentos (quando ele está ligado); senão, segue como antes.
+    if (midia && this.documento) {
+      const quem: QuemMandou = { telefone: tel, tenantId: v.tenantId, colaboradorId: v.colaboradorId, unidadeId: v.unidadeId ?? null, nivel: v.nivel, nome: v.nome };
+      const tratou = await this.documento(quem, midia, wamid).catch((err: any) => {
+        this.logger.error(`mister: o documento de ${mascarar(tel)} não foi lido — ${err?.message ?? err}`, err?.stack);
+        return false;
+      });
+      if (tratou) return { desfecho: 'documento', tenantId: v.tenantId };
+    }
     if (ehPararAvisos(texto)) {
       await this.db.execute(sql`update mister_vinculo set pausado_em = coalesce(pausado_em, now()), atualizado_em = now() where id = ${v.id}::uuid`);
       await this.auditar(v, 'mister_whatsapp_parou', tel);

@@ -22,6 +22,12 @@
   - O cartão: foto grande em cima (ou o ícone), nome em destaque, preço no pé; o painel do pedido não mudou.
   - A janela das etapas larga, opções em grade, a foto da opção (a do cadastro da opção; senão, a do produto do código).
 
+- **Mister: o boleto e a conta por foto (17/11, M3a partes 1 e 2; mig 439 `mister_documento` SÓ NUVEM; nasce DESLIGADO).**
+  Com `MISTER_DOCUMENTOS=1` no `regem-api` (o dono liga), o presidente manda a foto ou o PDF do boleto ao WhatsApp do
+  Mister e ele lança nas contas a pagar (sozinho, com "Desfazer", só o boleto que confere de fornecedor cadastrado; o
+  resto pergunta). Só NUVEM: vale com o merge. O `.zip` leva o código sem efeito na loja e a classificação
+  `mister_documento` = SO_NUVEM no `sync-daemon.mjs` (a loja não pede a tabela).
+
 - **Vias impressas: "SENHA 5 - BALCÃO", o canal embaixo da senha no delivery, caixa alta e o cupom maior (16/11, pedidos do
   dono; SEM migration) → vai no `.zip`** (quem imprime é o servidor da loja).
   - A senha por extenso em todas as vias; no cupom do delivery, a senha no alto e o canal ("iFood 6214") logo abaixo.
