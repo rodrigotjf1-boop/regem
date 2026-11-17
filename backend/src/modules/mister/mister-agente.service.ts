@@ -159,6 +159,8 @@ export class MisterAgenteService implements OnModuleInit {
       const comBotao = pedidos.length && texto.length <= CABE_COM_BOTAO && (await this.numero.ler()).provedor !== 'evolution' ? pedidos : undefined;
       // M3c.3: a imagem do gráfico vai antes do texto (como no protótipo). A que falha não segura a resposta.
       for (const a of fim.anexos.filter((x) => x.grafico).slice(0, IMAGENS_POR_RESPOSTA)) await this.mandarGrafico(ultima.telefone, a.grafico!);
+      // M3d: a imagem da tela do "como faço" (pelo endereço público), também antes do texto; uma por resposta.
+      for (const im of fim.imagens.slice(0, 1)) await this.mandarTela(ultima.telefone, im);
       const enviada = await this.dizer(ultima.telefone, texto, comBotao);
       if (!enviada) return await fechar('envio', trilha);
       for (const a of pdfs) await enviarPdfDoInsumo(this.ferramentas, this.numero, escopo, a.pedido, ultima.telefone, this.logger);
@@ -182,6 +184,16 @@ export class MisterAgenteService implements OnModuleInit {
   }
 
   /** M3c.3: a imagem do gráfico (o PNG feito pelo código). Nunca lança: a falha fica no log e a resposta segue sem ela. */
+  /** M3d: a imagem da tela do "como faço". Nunca lança: a falha fica no log e a resposta segue sem ela. */
+  private async mandarTela(telefone: string, im: { url: string; legenda: string }): Promise<void> {
+    try {
+      await this.numero.enviarImagemPorLink(telefone, im.url, im.legenda);
+    } catch (e: any) {
+      const motivo = e instanceof FalhaDoEnvioDoMister ? `${e.motivo}${e.status ? ` ${e.status}` : ''}` : String(e?.message ?? e);
+      this.logger.warn(`mister: a imagem da tela não saiu para ${mascarar(telefone)} (${motivo})`);
+    }
+  }
+
   private async mandarGrafico(telefone: string, g: GraficoDaConversa): Promise<void> {
     try {
       await this.numero.enviarImagem(telefone, imagemDoGrafico(g));
@@ -214,7 +226,7 @@ export class MisterAgenteService implements OnModuleInit {
     memoria: TrocaDaMemoria[],
     pergunta: string,
     opcoes: { recurso?: string } = {},
-  ): Promise<FimDaPergunta & { propostas: PropostaPendente[]; anexos: AnexoDaResposta[]; botoes: { id: string; titulo: string }[] }> {
+  ): Promise<FimDaPergunta & { propostas: PropostaPendente[]; anexos: AnexoDaResposta[]; botoes: { id: string; titulo: string }[]; imagens: { url: string; legenda: string }[] }> {
     // O laço é o de `mister-laco.ts` (o mesmo da avaliação de regressão): aqui as portas são a IA da empresa, com o
     // medidor dela, e as ferramentas no escopo que o servidor resolveu. F4.3: a proposta que uma ferramenta criou fica
     // de lado (não vai ao modelo) — quem chamou manda os botões depois da resposta.
@@ -223,6 +235,8 @@ export class MisterAgenteService implements OnModuleInit {
     const anexos: AnexoDaResposta[] = [];
     // M3g: os botões da resposta (o "Desfazer" da correção), sem repetir.
     const botoes: { id: string; titulo: string }[] = [];
+    // M3d: as imagens das telas do "como faço" (sem repetir).
+    const imagens: { url: string; legenda: string }[] = [];
     // M2b: o texto no ar. A leitura que falha não segura a resposta: vai o texto do código (e o log diz por quê).
     const instrucoes = this.instrucoes
       ? await this.instrucoes.noAr().then(
@@ -244,6 +258,7 @@ export class MisterAgenteService implements OnModuleInit {
           const r = await this.ferramentas.executar(escopo, nome, entrada);
           if (r.proposta && !propostas.some((p) => p.id === r.proposta!.id)) propostas.push(r.proposta);
           for (const b of r.botoes ?? []) if (!botoes.some((x) => x.id === b.id)) botoes.push(b);
+          for (const im of r.imagens ?? []) if (!imagens.some((x) => x.url === im.url)) imagens.push(im);
           if (r.anexo) {
             const ja = anexos.find((a) => botaoDoPdf(a.pedido) === botaoDoPdf(r.anexo!.pedido));
             if (ja) ja.enviarPdf = ja.enviarPdf || r.anexo.enviarPdf;
@@ -255,6 +270,6 @@ export class MisterAgenteService implements OnModuleInit {
       memoria,
       pergunta,
     );
-    return { ...fim, propostas, anexos, botoes };
+    return { ...fim, propostas, anexos, botoes, imagens };
   }
 }

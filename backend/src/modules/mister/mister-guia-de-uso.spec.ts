@@ -351,3 +351,19 @@ describe('Mister — a consulta "como usar o Regem"', () => {
     if (comModulo) expect(quemAbre(comModulo)).toContain(MODULOS.find((m) => m.chave === comModulo.modulo)!.label);
   });
 });
+
+describe('M3d — a imagem do "como faço"', () => {
+  const PUBLICO = join(__dirname, '../../../../frontend/public/como-faco');
+  it('cada assunto com imagem tem o PNG dos roteiros na pasta pública (e nenhum PNG sobra sem assunto)', () => {
+    const comImagem = GUIA_DE_USO.filter((s) => s.imagem).map((s) => s.id);
+    expect(comImagem.length).toBeGreaterThan(0);
+    const arquivos = readdirSync(PUBLICO).filter((n) => n.endsWith('.png'));
+    for (const id of comImagem) {
+      expect(arquivos).toContain(`${id}.png`);
+      const png = readFileSync(join(PUBLICO, `${id}.png`));
+      expect(png.subarray(1, 4).toString('latin1')).toBe('PNG');
+      expect(statSync(join(PUBLICO, `${id}.png`)).size).toBeLessThan(800_000); // vai pelo WhatsApp: leve
+    }
+    expect(arquivos.map((n) => n.replace(/\.png$/, '')).sort()).toEqual([...comImagem].sort());
+  });
+});

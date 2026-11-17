@@ -1034,7 +1034,12 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
 - **Parte 1 — #1113, no ar.**
 - **Falta:** criar e publicar (o recado no mural, com "Publicar" / "Mudar o texto" — guardar o rascunho pede migration).
 
-**A tela "Resumo" (17/11/2026, sem migration):** a entrada do presidente em Mister — as três etapas para funcionar, a faixa
+**Andamento da M3d (17/11/2026):**
+- **Parte 1 (sem migration):** a imagem da tela no "como faço", feita pelos roteiros (`GERAR_COMO_FACO=1`) e mandada pelo
+  endereço público antes do texto; a primeira é "Pausar os pedidos de um canal".
+- **Falta:** as imagens dos outros assuntos do guia, roteiro por roteiro.
+
+**A tela "Resumo" (17/11/2026, sem migration; #1114, no ar):** a entrada do presidente em Mister — as três etapas para funcionar, a faixa
 "IA parada", o que o Mister faz e os últimos avisos, só com as rotas que já existem.
 
 ## 5. O que depende do dono

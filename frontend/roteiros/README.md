@@ -72,3 +72,12 @@ Figtree (`src/fonts/figtree-var.woff2`, licença SIL OFL) e grava a transparênc
 `backend/src/modules/mister/grafico/fonte-do-grafico.ts` — o servidor monta a imagem do gráfico do Mister com elas, sem
 biblioteca de imagem. Rodar de novo (dentro de `frontend/`, `node roteiros/fonte-do-grafico.mjs`) só ao mudar a fonte, os
 tamanhos ou as letras.
+
+## As imagens do "como faço" do Mister
+
+`fotoDoComoFaco(page, id, marcas)` (em `comum.mjs`) marca, na tela de verdade e com os dados de exemplo do roteiro, os
+lugares numerados (1, 2, 3…) num contorno dourado e salva `public/como-faco/<id>.png` — o Mister manda a imagem pelo
+endereço público quando alguém pergunta "como faço". Sem variável, o roteiro só confere que as marcas estão na tela; para
+gerar de novo (a tela mudou): `GERAR_COMO_FACO=1 node roteiros/rodar.mjs <roteiro>`, e o PNG entra no git. O assunto do
+guia (`backend/src/modules/mister/mister-guia-de-uso.ts`) diz em `imagem` o que cada número marca, e a spec do guia confere
+que o arquivo existe.
