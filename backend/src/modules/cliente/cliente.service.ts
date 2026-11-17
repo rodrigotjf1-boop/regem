@@ -2,6 +2,8 @@ import { ehServidorLocal } from '../../common/modo';
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
+  HttpStatus,
   Inject,
   Injectable,
   Logger,
@@ -42,6 +44,8 @@ import { exigirBooleano } from '../../common/exigir';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
 import { SegmentoImport, mapearTabela, nomeUtil, parseCsvClientes, segmentoPeloArquivo } from './importar-planilha';
 import { lerXlsx } from './ler-xlsx';
+import { escreverCsv, escreverXlsx } from '../../common/escrever-planilha';
+import { JanelaPorChave } from '../../common/janela-por-chave';
 import { fetchNoIpConferido, urlPublicaSegura } from '../../common/ssrf-guard';
 import { AtendimentoService } from '../atendimento/atendimento.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -53,6 +57,10 @@ import PDFDocument from 'pdfkit';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const soDigitos = (s?: string) => (s ?? '').replace(/\D/g, '');
 const OTP_MIN = 5; // validade do código em minutos
+const OTP_MAX_TENTATIVAS = 5; // palpites por código
+const OTP_INTERVALO_SEG = 60; // um código novo por telefone a cada minuto
+const OTP_POR_TELEFONE = 5; // códigos novos por telefone…
+const OTP_JANELA_MS = 15 * 60 * 1000; // …a cada 15 minutos
 
 // ===== Import de contatos (.vcf / vCard) =====
 // Normalização ÚNICA do import: só dígitos e, se vier com DDI 55 (len>11), remove — alinha
@@ -168,6 +176,9 @@ export class ClienteService {
     // Aniversário (Onda 3, mig 357). Opcional: os testes montam sem ele (uma instância só com o banco).
     @Optional() private readonly aniversarioInj?: AniversarioService,
   ) {}
+
+  /** O teto de códigos novos por telefone (por loja): quem chama de vários IPs não passa dele. */
+  private readonly codigosPorTelefone = new JanelaPorChave(OTP_POR_TELEFONE, OTP_JANELA_MS);
 
   private aniversarioLocal?: AniversarioService;
   private get aniversario(): AniversarioService {
@@ -815,30 +826,26 @@ export class ClienteService {
 
   private readonly EXPORT_HEAD = ['Nome', 'Telefone', 'Pedidos', 'Último pedido', 'Ticket médio', 'Total gasto', 'Canais'];
 
-  private gerarCsv(linhas: any[]): string {
-    const esc = (v: any) => {
-      const s = String(v ?? '');
-      return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-    };
-    const body = linhas.map((l) =>
-      [l.nome, l.telefone, l.pedidos, l.ultimo, this.brl(l.ticket), this.brl(l.total), l.canais]
-        .map(esc)
-        .join(';'),
-    );
-    return [this.EXPORT_HEAD.join(';'), ...body].join('\r\n');
+  // O NOME É O CLIENTE QUEM ESCREVE (no cardápio): "=1+1" virava FÓRMULA quando a loja abria a planilha (segunda rodada
+  // da avaliação de segurança, B-03). As duas saídas passam pelo escritor comum (`common/escrever-planilha`): o CSV põe
+  // um apóstrofo no texto que começa com = + - @, e o Excel sai como .xlsx de verdade, com o texto DENTRO da célula
+  // (nunca avaliado) — antes era uma página HTML com extensão .xls, que o Excel e o LibreOffice avaliam.
+  private gerarCsv(linhas: any[]): Buffer {
+    return escreverCsv([
+      this.EXPORT_HEAD,
+      ...linhas.map((l) => [l.nome, l.telefone, l.pedidos, l.ultimo, this.brl(l.ticket), this.brl(l.total), l.canais]),
+    ]);
   }
 
-  private gerarXls(linhas: any[]): string {
-    const esc = (v: any) =>
-      String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const th = this.EXPORT_HEAD.map((h) => `<th>${esc(h)}</th>`).join('');
-    const tr = linhas
-      .map(
-        (l) =>
-          `<tr><td>${esc(l.nome)}</td><td>${esc(l.telefone)}</td><td>${l.pedidos}</td><td>${esc(l.ultimo)}</td><td>${esc(this.brl(l.ticket))}</td><td>${esc(this.brl(l.total))}</td><td>${esc(l.canais)}</td></tr>`,
-      )
-      .join('');
-    return `<html><head><meta charset="utf-8"></head><body><table border="1"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></body></html>`;
+  private gerarXlsx(linhas: any[]): Buffer {
+    const centavos = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+    return escreverXlsx(
+      [
+        this.EXPORT_HEAD,
+        ...linhas.map((l) => [l.nome, l.telefone, l.pedidos, l.ultimo, centavos(l.ticket), centavos(l.total), l.canais]),
+      ],
+      { planilha: 'Clientes', larguras: [32, 16, 9, 14, 13, 13, 24] },
+    );
   }
 
   private gerarPdf(linhas: any[]): Promise<Buffer> {
@@ -907,15 +914,13 @@ export class ClienteService {
       return {
         filename: `clientes-${stamp}.csv`,
         mime: 'text/csv;charset=utf-8',
-        base64: Buffer.from(String.fromCharCode(0xfeff) + this.gerarCsv(linhas), 'utf8').toString(
-          'base64',
-        ),
+        base64: this.gerarCsv(linhas).toString('base64'),
       };
     if (formato === 'excel')
       return {
-        filename: `clientes-${stamp}.xls`,
-        mime: 'application/vnd.ms-excel',
-        base64: Buffer.from(this.gerarXls(linhas), 'utf8').toString('base64'),
+        filename: `clientes-${stamp}.xlsx`,
+        mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        base64: this.gerarXlsx(linhas).toString('base64'),
       };
     const buf = await this.gerarPdf(linhas);
     return { filename: `clientes-${stamp}.pdf`, mime: 'application/pdf', base64: buf.toString('base64') };
@@ -1053,13 +1058,30 @@ export class ClienteService {
     // Código seguro (uniforme, imprevisível): randomInt em vez de Math.random.
     const codigo = String(randomInt(100000, 1000000)); // 6 dígitos [100000..999999]
     const expira = new Date(Date.now() + OTP_MIN * 60000);
-    await this.db
-      .delete(clienteOtp)
-      .where(and(eq(clienteOtp.tenantId, tenantId), eq(clienteOtp.telefone, tel)));
-    // Guarda só o HASH — o texto puro nunca vai ao banco.
-    await this.db
-      .insert(clienteOtp)
-      .values({ tenantId, telefone: tel, codigoHash: hashOtp(codigo), expiraEm: expira });
+    // UM CÓDIGO NOVO POR TELEFONE A CADA MINUTO, e poucos por quarto de hora (segunda rodada da avaliação de segurança,
+    // B-02). Cada código novo zera as tentativas e manda uma mensagem: sem intervalo por telefone, dois pedidos seguidos
+    // devolviam as cinco tentativas a quem estava adivinhando. A decisão é tomada com o telefone travado (a tabela não tem
+    // índice único: dois pedidos em paralelo gravavam dois códigos). Dentro do minuto, o pedido repetido não troca nada:
+    // o código que já foi segue valendo, com as tentativas que ele tem.
+    const decisao = await this.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('cliente-otp'), hashtext(${`${tenantId}:${tel}`}))`);
+      const doTelefone = and(eq(clienteOtp.tenantId, tenantId), eq(clienteOtp.telefone, tel));
+      const [recente] = await tx
+        .select({ expiraEm: clienteOtp.expiraEm })
+        .from(clienteOtp)
+        .where(and(doTelefone, sql`${clienteOtp.criadoEm} > now() - interval '${sql.raw(String(OTP_INTERVALO_SEG))} seconds'`))
+        .orderBy(desc(clienteOtp.criadoEm))
+        .limit(1);
+      if (recente) return { recente: recente.expiraEm };
+      if (!this.codigosPorTelefone.contar(`${tenantId}:${tel}`)) return { teto: true as const };
+      await tx.delete(clienteOtp).where(doTelefone);
+      // Guarda só o HASH — o texto puro nunca vai ao banco.
+      await tx.insert(clienteOtp).values({ tenantId, telefone: tel, codigoHash: hashOtp(codigo), expiraEm: expira });
+      return { novo: true as const };
+    });
+    if ('teto' in decisao)
+      throw new HttpException('Muitos códigos pedidos para este número. Tente de novo em alguns minutos.', HttpStatus.TOO_MANY_REQUESTS);
+    if ('recente' in decisao) return { ok: true, expiraEm: decisao.recente, enviado: true };
 
     // Loja (para o texto da mensagem) + disparo do webhook (best-effort).
     const [cfg] = await this.db
@@ -1099,40 +1121,59 @@ export class ClienteService {
   ) {
     const tenantId = await this.tenantDoCardapio(cardapioToken);
     const tel = telefoneCadastro(dto.telefone); // o mesmo do envio (ERR-135)
-    const [otp] = await this.db
-      .select()
-      .from(clienteOtp)
-      .where(and(eq(clienteOtp.tenantId, tenantId), eq(clienteOtp.telefone, tel)));
-    if (!otp || otp.expiraEm < new Date())
+    const doTelefone = and(eq(clienteOtp.tenantId, tenantId), eq(clienteOtp.telefone, tel));
+    // A tentativa é RESERVADA antes de comparar, na mesma instrução que confere a validade e o teto (B-02). Ler,
+    // comparar e só então gravar "tentativas + 1" deixava dez pedidos em paralelo lerem o mesmo zero: dez palpites num
+    // código de cinco, e o contador terminava em 1.
+    const reservadas = await this.db
+      .update(clienteOtp)
+      .set({ tentativas: sql`${clienteOtp.tentativas} + 1` })
+      .where(and(doTelefone, sql`${clienteOtp.expiraEm} > now()`, sql`${clienteOtp.tentativas} < ${OTP_MAX_TENTATIVAS}`))
+      .returning({ id: clienteOtp.id, codigoHash: clienteOtp.codigoHash });
+    if (!reservadas.length) {
+      // só para a frase: o código venceu (ou não existe) × as tentativas acabaram
+      const [linha] = await this.db
+        .select({ tentativas: clienteOtp.tentativas, expiraEm: clienteOtp.expiraEm })
+        .from(clienteOtp)
+        .where(doTelefone)
+        .orderBy(desc(clienteOtp.criadoEm))
+        .limit(1);
+      if (linha && linha.expiraEm >= new Date() && linha.tentativas >= OTP_MAX_TENTATIVAS)
+        throw new BadRequestException('Muitas tentativas. Peça um novo código.');
       throw new BadRequestException('Código expirado. Peça um novo.');
-    if (otp.tentativas >= 5)
-      throw new BadRequestException('Muitas tentativas. Peça um novo código.');
-    // Compara HASH com HASH (o banco não tem o código em claro).
-    if (!otp.codigoHash || hashOtp(String(dto.codigo ?? '')) !== otp.codigoHash) {
-      await this.db
-        .update(clienteOtp)
-        .set({ tentativas: otp.tentativas + 1 })
-        .where(eq(clienteOtp.id, otp.id));
-      throw new BadRequestException('Código incorreto.');
     }
+    // Compara HASH com HASH (o banco não tem o código em claro).
+    const informado = hashOtp(String(dto.codigo ?? ''));
+    const otp = reservadas.find((o) => !!o.codigoHash && o.codigoHash === informado);
+    if (!otp) throw new BadRequestException('Código incorreto.');
 
     // Código ok: acha/cria o cliente. Nome é obrigatório ao criar.
-    let c = await this.cadastroPorTelefone(tenantId, tel);
-    if (!c) {
-      const nome = dto.nome?.trim();
-      if (!nome) throw new BadRequestException('Informe seu nome.');
-      [c] = await this.db
-        .insert(cliente)
-        .values({ tenantId, telefone: tel, nome, consentimentoLgpd: true })
-        .returning();
-    } else if (dto.nome?.trim() && dto.nome.trim() !== c.nome) {
-      [c] = await this.db
-        .update(cliente)
-        .set({ nome: dto.nome.trim(), atualizadoEm: new Date() })
-        .where(eq(cliente.id, c.id))
-        .returning();
-    }
-    await this.db.delete(clienteOtp).where(eq(clienteOtp.id, otp.id));
+    const existente = await this.cadastroPorTelefone(tenantId, tel);
+    const nome = dto.nome?.trim();
+    if (!existente && !nome) throw new BadRequestException('Informe seu nome.');
+    // O código é GASTO na mesma transação que cria ou renomeia o cliente: de duas confirmações certas ao mesmo tempo, a
+    // segunda espera a primeira, não acha mais o código e sai — sem isso, cada uma criava um cliente (a tabela não tem
+    // índice único por telefone). O que falhar no meio devolve o código.
+    const c = await this.db.transaction(async (tx) => {
+      const gasto = await tx.delete(clienteOtp).where(eq(clienteOtp.id, otp.id)).returning({ id: clienteOtp.id });
+      if (!gasto.length) throw new BadRequestException('Código expirado. Peça um novo.');
+      if (!existente) {
+        const [novo] = await tx
+          .insert(cliente)
+          .values({ tenantId, telefone: tel, nome: nome as string, consentimentoLgpd: true })
+          .returning();
+        return novo;
+      }
+      if (nome && nome !== existente.nome) {
+        const [renomeado] = await tx
+          .update(cliente)
+          .set({ nome, atualizadoEm: new Date() })
+          .where(eq(cliente.id, existente.id))
+          .returning();
+        return renomeado;
+      }
+      return existente;
+    });
 
     return {
       clienteToken: assinarCliente(c.id, tenantId),
