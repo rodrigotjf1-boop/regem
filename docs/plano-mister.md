@@ -977,10 +977,13 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
   (`claude-sonnet-5-5`, recurso `mister_documento`) → o código decide; lança sozinho só o boleto bancário que confere, de
   fornecedor cadastrado, com "Desfazer"; o resto pergunta. Pelo `FinanceiroService` da tela. **Nasce desligado:
   `MISTER_DOCUMENTOS=1` no `regem-api`.**
-- **Parte 3 (mig 440 `mister_conversa_config`):** o ajuste por empresa no grupo "Conversa", o texto que completa o que
-  faltou ("Lanço assim?"), a parte "Documentos" com "Desfazer o lançamento" e "Financeiro › Contas a pagar" no menu.
-- **Falta:** parte 4a (o aviso "Boleto perto de vencer" às 9h, com a linha digitável e o "Já paguei" — e o pagar/estornar
-  da tela uma vez só, ERR-506), 4b (o PDF do boleto, mandado pelo número do Mister) e 4c (o Pix lido do QR do boleto, sem IA).
+- **Parte 3 — #1097, no ar (mig 440 `mister_conversa_config`, aplicada):** o ajuste por empresa no grupo "Conversa", o
+  texto que completa o que faltou ("Lanço assim?"), a parte "Documentos" com "Desfazer o lançamento" e "Financeiro › Contas
+  a pagar" no menu.
+- **Parte 4a (sem migration):** o aviso "Boleto perto de vencer" (grupo "Documentos e dinheiro"; às 9h da loja; 3 dias, 1
+  dia ou só no dia), com a linha digitável e o "Já paguei" — e o pagar/estornar da tela uma vez só (ERR-506).
+- **Falta:** 4b (o PDF do boleto com o código de barras, mandado pelo número do Mister) e 4c (o Pix lido do QR do boleto,
+  sem IA — pede uma biblioteca nova de leitura de QR).
 
 ## 5. O que depende do dono
 

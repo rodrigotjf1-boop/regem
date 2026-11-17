@@ -39,6 +39,12 @@ import {
   textoDoAviso,
   textoDoDesfecho,
   textoDoLembrete,
+  ANTECEDENCIAS_DO_BOLETO,
+  BOLETO_VENCIDO_ATE_DIAS,
+  boletoNoPrazoDoAviso,
+  botoesDoAvisoDoBoleto,
+  diaDoAvisoDoBoleto,
+  situacaoDoBoleto,
 } from './mister-avisos.regras';
 import { MisterEntradaService, QuemTocou } from './mister-entrada.service';
 import { MODELO_DO_AVISO, parametrosDoAviso } from './mister-modelos';
@@ -152,7 +158,7 @@ export class MisterAvisosService implements OnModuleInit {
     const [a] = linhas(
       await this.db.execute(sql`
         select id::text as id, tenant_id::text as "tenantId", unidade_id::text as "unidadeId", tipo, chave, titulo, detalhe, situacao, entregas,
-               aberto_em as "abertoEm", resolvido_em as "resolvidoEm"
+               aberto_em as "abertoEm", resolvido_em as "resolvidoEm", dados
           from mister_aviso
          where id = ${id}::uuid and tenant_id in (${sql.join(empresas.map((t) => sql`${t}::uuid`), sql`, `)})`),
     );
@@ -167,8 +173,13 @@ export class MisterAvisosService implements OnModuleInit {
       a.situacao === 'aberto' ? textoDoAviso(a) : textoDoDesfecho(a, Math.max(1, Math.round((fim - new Date(a.abertoEm).getTime()) / 60_000)));
     // A proposta (F4.1): o aviso ainda aberto vai ao presidente com a pergunta e os botões (a vencida sem resposta renova).
     const proposta = a.situacao === 'aberto' && v!.nivel === 'presidente' && this.propostas ? await this.propostas.propor(a) : null;
+    // O boleto ainda aberto (M3a parte 4): o presidente recebe o "Já paguei" no toque também.
+    const doBoleto = a.situacao === 'aberto' && a.tipo === 'boleto_vencendo' && v!.nivel === 'presidente' ? botoesDoAvisoDoBoleto(a.dados?.documentoId) : [];
     try {
-      await this.numero.enviar(quem.telefone, proposta ? { texto: `${texto}\n\n${proposta.pergunta}`, botoes: proposta.botoes } : { texto });
+      await this.numero.enviar(
+        quem.telefone,
+        proposta ? { texto: `${texto}\n\n${proposta.pergunta}`, botoes: proposta.botoes } : doBoleto.length ? { texto, botoes: doBoleto } : { texto },
+      );
     } catch (e: any) {
       // Achou o aviso; o envio é que falhou. Fica no log com o motivo, e a entrada não diz "não achei".
       this.logger.warn(`o aviso ${a.id} não saiu no toque — ${e instanceof FalhaDoEnvioDoMister ? e.motivo : (e?.message ?? e)}`);
@@ -357,6 +368,29 @@ export class MisterAvisosService implements OnModuleInit {
 
     // 7) O pedido parado. Nasce DESLIGADO: só nas empresas que ligaram, com o tempo que escolheram.
     fora.push(...(await this.pedidosParados(so)));
+
+    // 8) O boleto lançado por foto perto de vencer (M3a parte 4): a conta a pagar em aberto que veio de um documento do
+    //    Mister, de 3 dias antes até 30 dias depois do vencimento, contados do "hoje" do aviso (o dia muda às 9h da loja).
+    //    A antecedência de cada empresa é conferida na volta, com a regra. Banco sem a 439: nada.
+    const dia = diaDoAvisoDoBoleto(agora);
+    try {
+      const boletos = linhas(
+        await this.db.execute(sql`
+          select t.tenant_id::text as "tenantId", t.unidade_id::text as "unidadeId", t.id::text as "tituloId", d.id::text as "documentoId",
+                 d.beneficiario, round(t.valor * 100)::bigint as "valorCentavos", t.vencimento::text as vencimento,
+                 d.linha_digitavel as "linhaDigitavel", (t.vencimento - ${dia}::date)::int as dias
+            from titulo_financeiro t
+            join mister_documento d on d.titulo_id = t.id and d.tenant_id = t.tenant_id and d.situacao = 'lancado'
+            join empresa emp on emp.id = t.tenant_id and emp.deleted_at is null
+           where t.status = 'aberto' and t.tipo = 'pagar' and t.vencimento is not null
+             and t.vencimento between ${dia}::date - ${BOLETO_VENCIDO_ATE_DIAS}::int and ${dia}::date + ${ANTECEDENCIAS_DO_BOLETO[0]}::int
+             ${so('t.tenant_id')}`),
+      );
+      for (const b of boletos)
+        fora.push(situacaoDoBoleto({ ...b, unidadeId: b.unidadeId ?? null, valorCentavos: Number(b.valorCentavos), dias: Number(b.dias) }));
+    } catch (e: any) {
+      if (!semTabela(e)) throw e;
+    }
     return fora;
   }
 
@@ -511,7 +545,10 @@ export class MisterAvisosService implements OnModuleInit {
       const k = `${s.tenantId}|${s.unidadeId ?? ''}`;
       if (!moduloLigado.has(k)) moduloLigado.set(k, await this.modulos.ativo(s.tenantId, s.unidadeId, MODULO).catch(() => false));
       const r = regras.get(s.tenantId)?.get(s.tipo);
-      return moduloLigado.get(k) && r?.ligado ? r : null;
+      if (!moduloLigado.get(k) || !r?.ligado) return null;
+      // O boleto: só dentro da antecedência que a empresa escolheu (3 dias, 1 dia ou só no dia).
+      if (s.tipo === 'boleto_vencendo' && !boletoNoPrazoDoAviso(Number((s.dados as any)?.dias), r.parametro)) return null;
+      return r;
     };
     const valendo: { s: Situacao; r: RegraDoAviso }[] = [];
     const vistas = new Set<string>();
@@ -592,7 +629,8 @@ export class MisterAvisosService implements OnModuleInit {
         if (calado) res.calados++;
         else {
           res.resolvidos++;
-          res.entregas += await this.desfecho(a, agora);
+          // O boleto que saiu da lista (pago — o "Já paguei" já respondeu —, cancelado ou além dos 30 dias): sem "resolvido".
+          if (a.tipo !== 'boleto_vencendo') res.entregas += await this.desfecho(a, agora);
         }
         await this.fecharCasos(a);
       } catch (e: any) {
@@ -699,7 +737,12 @@ export class MisterAvisosService implements OnModuleInit {
       }
       try {
         const comProposta = proposta && l.nivel === 'presidente';
-        await this.numero.enviar(l.telefone, comProposta ? { texto: `${texto}\n\n${proposta.pergunta}`, botoes: proposta.botoes } : { texto });
+        // O boleto perto de vencer (M3a parte 4): o presidente recebe o "Já paguei".
+        const doBoleto = a.tipo === 'boleto_vencendo' && l.nivel === 'presidente' ? botoesDoAvisoDoBoleto((a.dados as any)?.documentoId) : [];
+        await this.numero.enviar(
+          l.telefone,
+          comProposta ? { texto: `${texto}\n\n${proposta.pergunta}`, botoes: proposta.botoes } : doBoleto.length ? { texto, botoes: doBoleto } : { texto },
+        );
         fora.push({ destino, fase, em, ok: true, final, ...(motivo ? { motivo } : {}) });
       } catch (e: any) {
         const m = e instanceof FalhaDoEnvioDoMister ? e.motivo : 'erro';

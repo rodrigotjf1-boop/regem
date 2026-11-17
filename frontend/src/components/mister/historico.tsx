@@ -29,7 +29,7 @@ type Aviso = {
 };
 type Resposta = { contagens: { todos: number; aberto: number; resolvido: number }; limite: number; avisos: Aviso[] };
 
-const GRUPOS = ['Na loja', 'Servidor da loja', 'Fiscal', 'O próprio Mister'];
+const GRUPOS = ['Na loja', 'Servidor da loja', 'Fiscal', 'O próprio Mister', 'Documentos e dinheiro'];
 const PERIODOS = [
   { v: '7', rotulo: 'Últimos 7 dias' },
   { v: '1', rotulo: 'Hoje' },

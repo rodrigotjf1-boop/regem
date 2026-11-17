@@ -31,6 +31,11 @@ import {
   textoDoAviso,
   textoDoDesfecho,
   textoDoLembrete,
+  ANTECEDENCIAS_DO_BOLETO,
+  boletoNoPrazoDoAviso,
+  botoesDoAvisoDoBoleto,
+  diaDoAvisoDoBoleto,
+  situacaoDoBoleto,
 } from './mister-avisos.regras';
 import { REGRAS_DO_VIGIA } from '../vigia/vigia.regras';
 import { diasParaVencer } from '../fiscal/certificado';
@@ -41,9 +46,24 @@ import { GUIA_DE_USO } from './mister-guia-de-uso';
 // cada situação e os textos.
 
 describe('Mister — os avisos: o padrão aprovado em 14/11', () => {
-  it('nove avisos, na ordem do protótipo, cada um com os destinos da tabela aprovada', () => {
+  it('nove avisos, na ordem do protótipo, cada um com os destinos da tabela aprovada — e o do boleto (versão 3) por último', () => {
     const tabela = Object.fromEntries(TIPOS_DE_AVISO.map((t) => [t.tipo, { ...t.padrao }]));
-    expect(TIPOS_DE_AVISO.map((t) => t.tipo)).toEqual(['impressora', 'pedido_parado', 'caixa_24h', 'canal_desconectado', 'servidor_sem_sinal', 'servidor_tecnico', 'nota_sem_resposta', 'certificado', 'chave_ia']);
+    expect(TIPOS_DE_AVISO.map((t) => t.tipo)).toEqual([
+      'impressora',
+      'pedido_parado',
+      'caixa_24h',
+      'canal_desconectado',
+      'servidor_sem_sinal',
+      'servidor_tecnico',
+      'nota_sem_resposta',
+      'certificado',
+      'chave_ia',
+      'boleto_vencendo',
+    ]);
+    expect(TIPOS_DE_AVISO.find((t) => t.tipo === 'boleto_vencendo')).toMatchObject({
+      grupo: 'Documentos e dinheiro',
+      padrao: { ligado: true, destinos: ['presidente'], escalaMin: null, escalaPara: [], parametro: 3 },
+    });
     expect(tabela.impressora).toEqual({ ligado: true, destinos: ['tela'], escalaMin: 5, escalaPara: ['gerente'], parametro: null });
     expect(tabela.pedido_parado).toEqual({ ligado: false, destinos: ['kds', 'tela', 'gerente'], escalaMin: null, escalaPara: [], parametro: 20 });
     expect(tabela.caixa_24h.destinos).toEqual(['gerente']);
@@ -155,6 +175,58 @@ describe('Mister — os avisos: de onde vem a situação e os textos', () => {
     expect(dentroDaJanelaDoWhatsapp(new Date(agora - 23 * 3_600_000), agora)).toBe(true);
     expect(dentroDaJanelaDoWhatsapp(new Date(agora - 24 * 3_600_000), agora)).toBe(false);
     expect(dentroDaJanelaDoWhatsapp(null, agora)).toBe(false);
+  });
+});
+
+describe('Mister — o boleto perto de vencer (M3a parte 4)', () => {
+  const b = (dias: number, o: Partial<Parameters<typeof situacaoDoBoleto>[0]> = {}) =>
+    situacaoDoBoleto({
+      tenantId: 't',
+      unidadeId: null,
+      tituloId: 'tit',
+      documentoId: 'doc',
+      beneficiario: 'Distribuidora Sabor',
+      valorCentavos: 128490,
+      vencimento: '2026-11-25',
+      linhaDigitavel: '00191.23454 67890.123457 67890.123457 7 16410000128490',
+      dias,
+      ...o,
+    });
+  it('o dia do aviso vira às 9h da loja (antes, ainda é o dia anterior)', () => {
+    expect(diaDoAvisoDoBoleto(new Date('2026-11-22T11:59:00Z'))).toBe('2026-11-21'); // 8h59 em Brasília
+    expect(diaDoAvisoDoBoleto(new Date('2026-11-22T12:00:00Z'))).toBe('2026-11-22'); // 9h00
+    expect(diaDoAvisoDoBoleto(new Date('2026-11-23T02:30:00Z'))).toBe('2026-11-22'); // 23h30 do dia 22 em Brasília (na nuvem, já é 23 em UTC)
+    expect(diaDoAvisoDoBoleto(new Date('2026-11-23T10:00:00Z'))).toBe('2026-11-22'); // 7h do dia 23: ainda o 22
+  });
+  it('o título, a linha e os marcos (antes, no dia, venceu); a chave é a da conta', () => {
+    expect(b(3)).toMatchObject({ chave: 'boleto:tit', titulo: 'Boleto vence em 3 dias (25/11) · Distribuidora Sabor · R$ 1.284,90', dados: { marco: 'antes', documentoId: 'doc' } });
+    expect(b(1).titulo).toContain('vence amanhã (25/11)');
+    expect(b(0)).toMatchObject({ titulo: expect.stringContaining('vence hoje (25/11)'), dados: { marco: 'dia' } });
+    expect(b(-1)).toMatchObject({ titulo: expect.stringContaining('venceu em 25/11 e não foi marcado como pago'), dados: { marco: 'vencido' } });
+    expect(b(2).detalhe).toContain('Linha digitável: 00191.23454 67890.123457 67890.123457 7 16410000128490');
+    expect(b(2, { linhaDigitavel: null, beneficiario: null }).detalhe).toContain('entrou sem a linha digitável');
+    expect(b(2, { beneficiario: null }).titulo).toBe('Boleto vence em 2 dias (25/11) · boleto · R$ 1.284,90');
+  });
+  it('a antecedência da empresa e o vencido até 30 dias', () => {
+    expect(ANTECEDENCIAS_DO_BOLETO).toEqual([3, 1, 0]);
+    expect([4, 3, 1, 0].map((d) => boletoNoPrazoDoAviso(d, 3))).toEqual([false, true, true, true]);
+    expect([2, 1, 0].map((d) => boletoNoPrazoDoAviso(d, 1))).toEqual([false, true, true]);
+    expect([1, 0, -1].map((d) => boletoNoPrazoDoAviso(d, 0))).toEqual([false, true, true]);
+    expect([-30, -31].map((d) => boletoNoPrazoDoAviso(d, 3))).toEqual([true, false]);
+    expect(boletoNoPrazoDoAviso(3, null)).toBe(true);
+  });
+  it('o botão "Já paguei" leva o documento; sem documento, nenhum', () => {
+    expect(botoesDoAvisoDoBoleto('d1')).toEqual([{ id: 'doc:pago:d1', titulo: 'Já paguei' }]);
+    expect(botoesDoAvisoDoBoleto(undefined)).toEqual([]);
+  });
+  it('a regra: a antecedência salva vale; fora da lista, o padrão; a conferência recusa o que não é 3, 1 ou 0', () => {
+    expect(regraQueVale('boleto_vencendo', { ligado: true, destinos: ['presidente'], escalaMin: null, escalaPara: [], parametro: 0 }).parametro).toBe(0);
+    expect(regraQueVale('boleto_vencendo', { ligado: true, destinos: ['presidente'], escalaMin: null, escalaPara: [], parametro: 7 }).parametro).toBe(3);
+    expect(regraQueVale('boleto_vencendo', { ligado: true, destinos: ['presidente'], escalaMin: null, escalaPara: [], parametro: null }).parametro).toBe(3);
+    const base = { tipo: 'boleto_vencendo', ligado: true, destinos: ['presidente'], escalaMin: null, escalaPara: [] };
+    expect(conferirRegras({ regras: [{ ...base, parametro: 1 }] })).toEqual([{ tipo: 'boleto_vencendo', regra: { ligado: true, destinos: ['presidente'], escalaMin: null, escalaPara: [], parametro: 1 } }]);
+    for (const p of [2, null, undefined, '', 'tres'])
+      expect(conferirRegras({ regras: [{ ...base, parametro: p }] })).toEqual({ erro: expect.stringContaining('quando avisar do boleto') });
   });
 });
 
