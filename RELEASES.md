@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Vias impressas: "SENHA 5 - BALCÃO", o canal embaixo da senha no delivery, caixa alta e o cupom maior (16/11, pedidos do
+  dono; SEM migration) → vai no `.zip`** (quem imprime é o servidor da loja).
+  - A senha por extenso em todas as vias; no cupom do delivery, a senha no alto e o canal ("iFood 6214") logo abaixo.
+  - O cardápio próprio sai "Regem". Adicional e observação em maiúsculas.
+  - "Tamanho do cupom inteiro" por perfil: o caixa 1 passo maior (~+40%), a produção 2 (o dobro), até o Grande.
+
 - **PDV · Balcão sem o "Todos": abre na primeira categoria (16/11, pedido do dono; só tela, sem migration) → vai no `.zip`**
   (a tela da loja vem nele).
   - A barra de categorias perde o "Todos"; a tela abre na primeira categoria com produto, na ordem do "Organizar".
