@@ -1003,9 +1003,13 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
 - **Parte 1 (sem migration):** a 20ª consulta, `insumo_vendido` — o que a venda baixou de um insumo (o total real, pela
   baixa da venda menos o estorno), em quilos pela conversão do cadastro, por hora ou por dia, de onde saiu (a ficha de cada
   produto pela mesma conta da baixa; o resto em "outros") e, hoje, a comparação com as 4 semanas anteriores.
-- **Falta:** o gráfico como imagem na conversa (sem biblioteca nova: a imagem sai do código), o PDF do relatório
-  (`pdfkit`), a página do link (abre no Regem com o usuário; o de encaminhar é só leitura e vale 7 dias — migration) e os
-  links de conferência a quem o presidente pedir.
+- **Parte 1 — #1107, no ar.**
+- **Parte 2 (sem migration):** "compara com outubro" (`compararDe`/`compararAte`), "manda em PDF" (o PDF depois da
+  resposta) e o botão "PDF" no balão (só a API oficial); o toque refaz o escopo de quem tocou; o PDF com o gráfico de
+  barras e a linha da média, pelo `pdfkit` (`relatorio-insumo-pdf.ts`: o plano puro e o desenho).
+- **Falta:** o gráfico como imagem na conversa (sem biblioteca nova: a imagem sai do código), a página do link (abre no
+  Regem com o usuário; o de encaminhar é só leitura e vale 7 dias — migration) e os links de conferência a quem o
+  presidente pedir.
 
 ## 5. O que depende do dono
 

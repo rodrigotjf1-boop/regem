@@ -246,12 +246,15 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
   {
     name: 'insumo_vendido',
     description:
-      'Quanto a venda gastou de UM insumo do estoque num período, pela ficha técnica de cada produto: o total na unidade do insumo (e em quilos quando o cadastro diz como converter), por hora (um dia) ou por dia, e de onde saiu (cada produto, quanto usa por unidade vendida e quantas vendeu; "outros" é o que a ficha não explica). Use para "quantas carnes de 56 g foram vendidas hoje", "quanto de bacon saiu no mês", "e de 120 g?". Para comparar períodos ("compara com outubro"), consulte cada um e compare. Hoje vem com a comparação com o mesmo dia das 4 semanas anteriores, até a mesma hora. "cercaDeUnidadesPeloPesoDoNome" é uma estimativa: diga "cerca de". Se vier "precisaEscolher", pergunte qual. Sem período, hoje.',
+      'Quanto a venda gastou de UM insumo do estoque num período, pela ficha técnica de cada produto: o total na unidade do insumo (e em quilos quando o cadastro diz como converter), por hora (um dia) ou por dia, e de onde saiu (cada produto, quanto usa por unidade vendida e quantas vendeu; "outros" é o que a ficha não explica). Use para "quantas carnes de 56 g foram vendidas hoje", "quanto de bacon saiu no mês", "e de 120 g?". Para comparar com outro período ("compara com outubro no mesmo período"), passe "compararDe" e "compararAte": vem o total do outro período e a diferença. Hoje vem com a comparação com o mesmo dia das 4 semanas anteriores, até a mesma hora. "cercaDeUnidadesPeloPesoDoNome" é uma estimativa: diga "cerca de". Se vier "precisaEscolher", pergunte qual. Quando a pessoa pedir o relatório em PDF ("manda em PDF"), passe "pdf": true — o Regem manda o PDF com o gráfico logo depois da sua resposta. Sem período, hoje.',
     input_schema: {
       type: 'object',
       properties: {
         insumo: { type: 'string', description: 'O insumo como a pessoa disse, no singular (ex.: "carne 56 g", "bacon", "pão brioche").' },
         ...PERIODO,
+        compararDe: { type: 'string', description: 'Início do período para comparar, AAAA-MM-DD.' },
+        compararAte: { type: 'string', description: 'Fim do período para comparar, AAAA-MM-DD.' },
+        pdf: { type: 'boolean', description: 'true quando a pessoa pede o relatório em PDF.' },
         loja: LOJA,
       },
       required: ['insumo'],

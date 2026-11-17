@@ -28,8 +28,18 @@ import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.servic
 import { RelatoriosService } from '../relatorios/relatorios.service';
 import { VendasService } from '../vendas/vendas.service';
 import { pessoaVale } from './mister-vinculo.service';
-import { chaveUnidade } from '../../common/conversao-unidade';
-import { acharInsumo, comparacaoComAsSemanas, deOndeSairam, emQuilos, seriePorDia, seriePorHora } from './insumo-vendido';
+import {
+  PedidoDoRelatorio,
+  RelatorioDoInsumo,
+  acharInsumo,
+  comparacaoComAsSemanas,
+  dadosDoRelatorio,
+  deOndeSairam,
+  emQuilos,
+  seriePorDia,
+  seriePorHora,
+} from './insumo-vendido';
+import { gerarPdfDoInsumo, nomeDoPdfDoInsumo, planoDoPdfDoInsumo } from './relatorio-insumo-pdf';
 import { MisterPropostasService, PropostaPendente } from './mister-propostas.service';
 import { PROCEDIMENTOS, propostaDoAviso } from './mister-procedimentos';
 import {
@@ -116,6 +126,11 @@ export interface ResultadoDaFerramenta {
   dados: Record<string, unknown>;
   /** F4.3: a proposta criada (ou ainda pendente) — NÃO vai ao modelo; o agente manda os botões depois da resposta. */
   proposta?: PropostaPendente;
+  /**
+   * M3c.2: o relatório que a resposta pode levar — NÃO vai ao modelo. `enviarPdf` (a pessoa pediu "em PDF"): o agente
+   * manda o PDF depois da resposta; senão, o botão "PDF" no balão da resposta (só pela API oficial, que tem botão).
+   */
+  anexo?: { pedido: PedidoDoRelatorio; enviarPdf: boolean };
 }
 
 const reais = (v: unknown): number | null => {
@@ -1177,6 +1192,13 @@ export class MisterFerramentasService {
     const hoje = hojeISO();
     const p = periodoDaFerramenta(en, hoje, 'hoje');
     if ('erro' in p) return recusa(p.erro);
+    // M3c.2: "compara com outubro" — o outro período, pelas duas datas.
+    let p2: { de: string; ate: string; rotulo: string } | null = null;
+    if (en.compararDe !== undefined || en.compararAte !== undefined) {
+      const c = periodoDaFerramenta({ de: en.compararDe, ate: en.compararAte ?? en.compararDe }, hoje);
+      if ('erro' in c) return recusa(`O período da comparação: ${c.erro}`);
+      p2 = c;
+    }
     const insumos = linhas(
       await this.db.execute(sql`
         select id::text as id, nome, nome_comercial as "nomeComercial", unidade_medida as "unidade" from item_estoque
@@ -1188,9 +1210,33 @@ export class MisterFerramentasService {
     if (achado.tipo === 'escolher')
       return { ok: true, dados: { precisaEscolher: achado.opcoes, siga: 'Pergunte qual destes insumos a pessoa quis dizer, com os nomes como vieram, e consulte de novo com o escolhido.' } };
     const insumo = insumos.find((i) => i.id === achado.id)!;
+    const r = await this.lerRelatorioDoInsumo(e, { id: insumo.id, nome: insumo.nome, unidade: insumo.unidade }, p, loja, p2);
+    const querPdf = en.pdf === true || en.pdf === 'true';
+    return {
+      ok: true,
+      dados: { ...dadosDoRelatorio(r), ...(querPdf ? { pdf: 'O PDF deste relatório vai logo depois da sua resposta, pelo Regem: diga que ele vai em seguida.' } : {}) },
+      anexo: { pedido: { insumoId: insumo.id, de: p.de, ate: p.ate, loja: loja.atual, compararDe: p2?.de ?? null, compararAte: p2?.ate ?? null }, enviarPdf: querPdf },
+    };
+  }
+
+  /**
+   * A leitura do relatório de um insumo (M3c): a MESMA para a resposta da conversa, o PDF e o toque em "PDF". O total é o
+   * que a venda REALMENTE baixou (a saída de venda de cada comanda fechada no período, menos o estorno — a definição de
+   * venda dos relatórios: comanda fechada, pela hora do fechamento, no fuso da loja). "De onde saiu" é a ficha de cada
+   * produto vendido, pela mesma conta da baixa (`VendasService.consumoPorUnidade`); o resto vai em "outros".
+   */
+  private async lerRelatorioDoInsumo(
+    e: EscopoDoMister,
+    insumo: { id: string; nome: string; unidade: string },
+    p: { de: string; ate: string; rotulo: string },
+    loja: { atual: string | null; nome: string },
+    p2: { de: string; ate: string; rotulo: string } | null,
+  ): Promise<RelatorioDoInsumo> {
+    const hoje = hojeISO();
     const umDia = p.de === p.ate;
     const ehHoje = umDia && p.de === hoje;
-    const ate = ehHoje ? `${hoje} ${horaAgora()}:59` : `${p.ate} 23:59:59`;
+    const agora = horaAgora();
+    const ate = ehHoje ? `${hoje} ${agora}:59` : `${p.ate} 23:59:59`;
 
     // O consumo líquido do insumo por comanda fechada (a saída da venda menos o estorno), agrupado.
     const consumo = (de: string, fim: string, grupo: 'hora' | 'dia' | 'total') =>
@@ -1230,43 +1276,90 @@ export class MisterFerramentasService {
       vendidos.map((v) => ({ produto: String(v.nome ?? ''), vendidos: Number(v.q) || 0, porUnidade: porUnidade.get(`${v.produtoId}|${v.variacaoId ?? ''}`)?.get(insumo.id) ?? 0 })),
     );
 
-    // O total em quilos (pela conversão do cadastro) e, sendo hoje, o mesmo dia das 4 semanas anteriores até a mesma hora.
+    // O total em quilos (pela conversão do cadastro) e, num dia, o mesmo dia das 4 semanas anteriores (até a mesma hora, hoje).
     const conversoes = linhas(
       await this.db.execute(sql`
         select unidade_de as "unidadeDe", fator, unidade_para as "unidadePara" from item_conversao
          where tenant_id = ${e.tenantId}::uuid and item_id = ${insumo.id}::uuid`),
     );
     const quilos = emQuilos(total, insumo.unidade, conversoes, insumo.nome);
-    let comparacao: ReturnType<typeof comparacaoComAsSemanas> = null;
+    let semanas: RelatorioDoInsumo['semanas'] = null;
     if (umDia) {
       const anteriores: number[] = [];
       for (const k of [1, 2, 3, 4]) {
         const dia = somarDias(p.de, -7 * k);
-        const [l] = linhas(await consumo(`${dia} 00:00:00`, ehHoje ? `${dia} ${horaAgora()}:59` : `${dia} 23:59:59`, 'total'));
+        const [l] = linhas(await consumo(`${dia} 00:00:00`, ehHoje ? `${dia} ${agora}:59` : `${dia} 23:59:59`, 'total'));
         anteriores.push(Number(l?.q ?? 0));
       }
-      comparacao = comparacaoComAsSemanas(total, anteriores);
+      const c = comparacaoComAsSemanas(total, anteriores);
+      const nomeDoDia = ['domingos', 'segundas', 'terças', 'quartas', 'quintas', 'sextas', 'sábados'][new Date(`${p.de}T12:00:00Z`).getUTCDay()];
+      if (c) semanas = { media: c.media, diferencaPct: c.diferencaPct, contra: `${nomeDoDia} anteriores${ehHoje ? ', até a mesma hora' : ''}` };
     }
-    const nomeDoDia = umDia ? ['domingos', 'segundas', 'terças', 'quartas', 'quintas', 'sextas', 'sábados'][new Date(`${p.de}T12:00:00Z`).getUTCDay()] : null;
+    // "compara com outubro": o total do outro período (inteiro: um período fechado no passado).
+    let comparado: RelatorioDoInsumo['comparado'] = null;
+    if (p2) {
+      const [l] = linhas(await consumo(`${p2.de} 00:00:00`, `${p2.ate} 23:59:59`, 'total'));
+      const total2 = quantidade(Number(l?.q ?? 0));
+      const dias = Math.round((Date.parse(`${p2.ate}T12:00:00Z`) - Date.parse(`${p2.de}T12:00:00Z`)) / 86_400_000) + 1;
+      comparado = { periodo: p2.rotulo, total: total2, dias, diferencaPct: total2 > 0 ? Math.round(((total - total2) / total2) * 100) : null };
+    }
     return {
-      ok: true,
-      dados: {
-        loja: loja.nome,
-        periodo: ehHoje ? `${p.rotulo}, até ${horaAgora()}` : p.rotulo,
-        insumo: insumo.nome,
-        unidadeDoEstoque: insumo.unidade,
-        total,
-        ...(quilos.kg != null && chaveUnidade(insumo.unidade) !== 'kg' ? { totalEmQuilos: quilos.kg } : {}),
-        ...(quilos.cercaDeUnidades != null ? { cercaDeUnidadesPeloPesoDoNome: quilos.cercaDeUnidades } : {}),
-        ...(umDia
-          ? { porHora: seriePorHora(grupos.map((l) => ({ hora: Number(l.g), quantidade: Number(l.q) || 0 }))) }
-          : { porDia: seriePorDia(grupos.map((l) => ({ dia: String(l.g), quantidade: Number(l.q) || 0 })), p.de, p.ate) }),
-        deOndeSaiu: origem.produtos.map((x) => ({ produto: x.produto, quantidade: x.quantidade, porUnidadeVendida: x.porUnidade, unidadesVendidas: x.vendidos })),
-        ...(origem.outros != null ? { outros: origem.outros, outrosEh: 'o que a ficha dos produtos acima não explica: outros produtos, adicionais, a embalagem do delivery ou ficha mudada no período' } : {}),
-        ...(comparacao ? { comparacao: { mediaDasUltimas4: comparacao.media, diferencaPct: comparacao.diferencaPct, contra: `${nomeDoDia} anteriores${ehHoje ? ', até a mesma hora' : ''}` } } : {}),
-        fonte: 'As vendas fechadas, baixadas pela ficha técnica de cada produto (Estoque › Fichas técnicas). O total é o que saiu do estoque; cancelamento devolve.',
-      },
+      loja: loja.nome,
+      periodo: p.rotulo,
+      ateAs: ehHoje ? agora : null,
+      insumo,
+      total,
+      kg: quilos.kg,
+      cercaDeUnidades: quilos.cercaDeUnidades,
+      serie: umDia
+        ? { por: 'hora', pontos: seriePorHora(grupos.map((l) => ({ hora: Number(l.g), quantidade: Number(l.q) || 0 }))) }
+        : { por: 'dia', pontos: seriePorDia(grupos.map((l) => ({ dia: String(l.g), quantidade: Number(l.q) || 0 })), p.de, p.ate) },
+      deOndeSaiu: origem.produtos,
+      outros: origem.outros,
+      semanas,
+      comparado,
     };
+  }
+
+  /**
+   * M3c.2 — o PDF do relatório de um insumo, refeito NO ESCOPO de quem pede (o toque em "PDF" ou o "manda em PDF"): a
+   * permissão, a loja e as datas são conferidas de novo; o insumo tem de ser da empresa da pessoa. Nunca lança por dado
+   * torto: devolve a frase para a conversa.
+   */
+  async pdfDoInsumo(e: EscopoDoMister, pedido: PedidoDoRelatorio): Promise<{ pdf: Buffer; nome: string; legenda: string } | { erro: string }> {
+    if (e.semLoja) return { erro: SEM_LOJA };
+    if (!this.pode(e, 'estoque') && !this.pode(e, 'relatorios_vendas')) return { erro: SEM_PERMISSAO };
+    // A loja do pedido tem de ser uma que a pessoa consulta (a presa, ou uma das lojas dela; a loja única = sem filtro).
+    let loja: { atual: string | null; nome: string };
+    if (e.lojaUnica) loja = { atual: null, nome: e.lojas[0]?.nome ?? e.empresa };
+    else if (e.presa) {
+      if (pedido.loja && pedido.loja !== e.presa) return { erro: 'Este relatório é de uma loja que você não consulta.' };
+      loja = { atual: e.presa, nome: e.lojas[0]?.nome ?? e.empresa };
+    } else if (!pedido.loja) loja = { atual: null, nome: 'todas as lojas' };
+    else {
+      const l = e.lojas.find((x) => x.id === pedido.loja);
+      if (!l) return { erro: 'Este relatório é de uma loja que você não consulta.' };
+      loja = { atual: l.id, nome: l.nome };
+    }
+    const hoje = hojeISO();
+    const p = periodoDaFerramenta({ de: pedido.de, ate: pedido.ate }, hoje);
+    if ('erro' in p) return { erro: p.erro };
+    let p2: { de: string; ate: string; rotulo: string } | null = null;
+    if (pedido.compararDe) {
+      const c = periodoDaFerramenta({ de: pedido.compararDe, ate: pedido.compararAte ?? pedido.compararDe }, hoje);
+      if ('erro' in c) return { erro: c.erro };
+      p2 = c;
+    }
+    const [insumo] = linhas(
+      await this.db.execute(sql`
+        select id::text as id, nome, unidade_medida as "unidade" from item_estoque
+         where id = ${pedido.insumoId}::uuid and tenant_id = ${e.tenantId}::uuid and deleted_at is null`),
+    );
+    if (!insumo) return { erro: 'Este insumo não está mais no estoque.' };
+    const r = await this.lerRelatorioDoInsumo(e, insumo, p, loja, p2);
+    const plano = planoDoPdfDoInsumo(r, { empresa: e.empresa, pedidoPor: e.nome, geradoEm: new Date().toISOString() });
+    const nome = nomeDoPdfDoInsumo(r, p.de, p.ate);
+    return { pdf: await gerarPdfDoInsumo(plano, nome), nome, legenda: plano.titulo };
   }
 
   /** O quadro do Delivery (`GET /delivery/pedidos`) e a fila da cozinha (`GET /producao-pedido/fila`), agora. */

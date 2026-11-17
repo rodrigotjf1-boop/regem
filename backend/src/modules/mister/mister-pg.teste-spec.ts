@@ -39,6 +39,7 @@ import { FRASES_DO_DOCUMENTO } from '../../common/documento-por-foto';
 import { crc16Pix } from '../../common/boleto';
 import { custosMediosNaLoja } from '../../common/custo-loja';
 import { VendasService } from '../vendas/vendas.service';
+import { MisterAnexosService } from './mister-anexos.service';
 import { MisterPropostasService } from './mister-propostas.service';
 import { TEXTOS_DA_PROPOSTA, TEXTOS_DO_LINK } from './mister-procedimentos';
 import { MODELO_DO_AVISO } from './mister-modelos';
@@ -2893,6 +2894,62 @@ export function testesDoMisterComPostgres(): void {
         await ligar('anaB', telB, B);
         const deB = (await comInsumo.escopo(B, pessoa.anaB, telB))!;
         expect(await comInsumo.executar(deB, 'insumo_vendido', { insumo: 'carne 56 g' })).toMatchObject({ ok: false });
+
+        // ── M3c.2: "compara com a semana passada", o PDF e o botão "PDF" ──
+        const hoje = hojeISO();
+        const d7 = somarDias(hoje, -7);
+        const cmp: any = await comInsumo.executar(e, 'insumo_vendido', { insumo: 'carne 56 g', compararDe: d7, compararAte: d7, pdf: true });
+        expect(cmp.dados.comparadoCom).toEqual({ periodo: expect.any(String), total: 1, diferencaPct: 700 });
+        expect(cmp.dados.pdf).toContain('logo depois da sua resposta');
+        // O anexo não vai ao modelo: é o pedido para refazer o relatório (na loja única, sem filtro de loja).
+        expect(cmp.anexo).toEqual({ pedido: { insumoId: c56, de: hoje, ate: hoje, loja: null, compararDe: d7, compararAte: d7 }, enviarPdf: true });
+        expect(JSON.stringify(cmp.dados)).not.toContain(c56);
+        // O PDF, refeito no escopo de quem pede; de outra empresa, o insumo não existe; a data torta é recusada.
+        const pdf: any = await comInsumo.pdfDoInsumo(e, cmp.anexo.pedido);
+        expect(pdf.pdf.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+        expect(pdf.nome).toBe(`carne-56-g-${hoje}.pdf`);
+        expect(pdf.legenda).toMatch(/^Carne 56 g · \d\d\/\d\d, até \d\d:\d\d contra \d\d\/\d\d$/);
+        expect(await comInsumo.pdfDoInsumo(deB, cmp.anexo.pedido)).toEqual({ erro: 'Este insumo não está mais no estoque.' });
+        expect(await comInsumo.pdfDoInsumo(e, { ...cmp.anexo.pedido, de: '2026-02-30', ate: '2026-02-30' })).toMatchObject({ erro: expect.stringContaining('formato') });
+        // A loja do botão tem de ser uma que a pessoa consulta: a presa a uma loja e a de uma empresa de várias lojas.
+        const outraLoja = randomUUID();
+        const fora = { erro: 'Este relatório é de uma loja que você não consulta.' };
+        expect(await comInsumo.pdfDoInsumo({ ...e, lojaUnica: false, presa: lojaDeA, lojas: [{ id: lojaDeA, nome: 'Loja Centro' }] }, { ...cmp.anexo.pedido, loja: outraLoja })).toEqual(fora);
+        expect(await comInsumo.pdfDoInsumo({ ...e, lojaUnica: false, presa: null, lojas: [{ id: lojaDeA, nome: 'Loja Centro' }] }, { ...cmp.anexo.pedido, loja: outraLoja })).toEqual(fora);
+        expect(await comInsumo.pdfDoInsumo({ ...e, lojaUnica: false, presa: null, lojas: [{ id: lojaDeA, nome: 'Loja Centro' }] }, { ...cmp.anexo.pedido, loja: lojaDeA })).toMatchObject({ nome: `carne-56-g-${hoje}.pdf` });
+
+        // O agente: "manda em PDF" → a resposta e logo depois o documento (sem botão).
+        comIa();
+        const agenteComInsumo = new MisterAgenteService(fila, comInsumo, ia, numero);
+        numero.pedidos.length = 0;
+        await perguntar(tel, 'quantas carnes de 56g hoje? manda em PDF');
+        ia.roteiro = [usar('insumo_vendido', { insumo: 'carne 56 g', pdf: true }), falar('Hoje, 8 carnes de 56 g. O PDF vai em seguida.')];
+        await agenteComInsumo.esvaziar();
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([
+          'Hoje, 8 carnes de 56 g. O PDF vai em seguida.',
+          expect.stringMatching(new RegExp(`^documento:carne-56-g-${hoje}\\.pdf\\|Carne 56 g · `)),
+        ]);
+        expect(numero.enviadas[0].botoes).toEqual([]);
+        // Sem pedir o PDF: o botão "PDF" no balão da resposta.
+        numero.pedidos.length = 0;
+        await perguntar(tel, 'e quantas hoje?');
+        ia.roteiro = [usar('insumo_vendido', { insumo: 'carne 56 g' }), falar('Hoje, 8 carnes de 56 g.')];
+        await agenteComInsumo.esvaziar();
+        expect(numero.enviadas).toHaveLength(1);
+        const [resposta] = numero.enviadas;
+        expect(resposta).toMatchObject({ texto: 'Hoje, 8 carnes de 56 g.', botoes: [{ id: `rel:pdf:${c56}:${hoje}:${hoje}:-:-:-`, titulo: 'PDF' }] });
+        // O toque em "PDF": o relatório refeito no escopo de quem tocou, e o documento.
+        const anexos = new MisterAnexosService(db, comInsumo, numero, entrada);
+        anexos.onModuleInit();
+        numero.pedidos.length = 0;
+        expect(await mandar(tel, 'PDF', { botaoId: resposta.botoes[0].id })).toBe('respondeu_proposta');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringMatching(new RegExp(`^documento:carne-56-g-${hoje}\\.pdf\\|`))]);
+        // O mesmo botão tocado por quem é de outra empresa: não está disponível (nada da empresa A sai).
+        numero.pedidos.length = 0;
+        expect(await mandar(telB, 'PDF', { botaoId: resposta.botoes[0].id })).toBe('respondeu_proposta');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual(['Este relatório não está mais disponível para você.']);
+        // O botão torto não é deste serviço.
+        expect(await anexos.tocou('rel:pdf:nada', { telefone: tel, vinculos: [], wamid: null })).toBe(false);
       } finally {
         if (criados.comandas.length) {
           await q(`delete from movimento_estoque where ref_id = any($1::uuid[])`, [criados.comandas]);

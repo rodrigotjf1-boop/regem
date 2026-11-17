@@ -109,6 +109,78 @@ export function comparacaoComAsSemanas(total: number, anteriores: number[]): { m
   return { media: arredondar(media, 1), diferencaPct: Math.round(((total - media) / media) * 100) };
 }
 
+// ───────────────────────────── o relatório inteiro (M3c parte 2) ─────────────────────────────
+
+/** O que o Mister leu de um insumo — a MESMA leitura para a resposta, o PDF e (depois) a imagem e o link. */
+export interface RelatorioDoInsumo {
+  loja: string;
+  /** O período como a conversa diz ("hoje (17/11)", "de 01/11 a 16/11"). */
+  periodo: string;
+  /** Sendo hoje, até que horas ("22:40"); senão null. */
+  ateAs: string | null;
+  insumo: { id: string; nome: string; unidade: string };
+  total: number;
+  kg: number | null;
+  cercaDeUnidades: number | null;
+  serie: { por: 'hora' | 'dia'; pontos: Array<{ rotulo: string; quantidade: number; dia?: string }> };
+  deOndeSaiu: Array<{ produto: string; quantidade: number; porUnidade: number; vendidos: number }>;
+  outros: number | null;
+  /** Um dia: o mesmo dia das 4 semanas anteriores (até a mesma hora, sendo hoje). */
+  semanas: { media: number; diferencaPct: number; contra: string } | null;
+  /** "compara com outubro": o outro período, o total e a diferença. */
+  comparado: { periodo: string; total: number; dias: number; diferencaPct: number | null } | null;
+}
+
+export const FONTE_DO_RELATORIO =
+  'As vendas fechadas, baixadas pela ficha técnica de cada produto (Estoque › Fichas técnicas). O total é o que saiu do estoque; cancelamento devolve.';
+
+/** O que vai ao modelo (vira JSON na conversa). */
+export function dadosDoRelatorio(r: RelatorioDoInsumo): Record<string, unknown> {
+  return {
+    loja: r.loja,
+    periodo: r.ateAs ? `${r.periodo}, até ${r.ateAs}` : r.periodo,
+    insumo: r.insumo.nome,
+    unidadeDoEstoque: r.insumo.unidade,
+    total: r.total,
+    ...(r.kg != null && chaveUnidade(r.insumo.unidade) !== 'kg' ? { totalEmQuilos: r.kg } : {}),
+    ...(r.cercaDeUnidades != null ? { cercaDeUnidadesPeloPesoDoNome: r.cercaDeUnidades } : {}),
+    ...(r.serie.por === 'hora' ? { porHora: r.serie.pontos } : { porDia: r.serie.pontos }),
+    deOndeSaiu: r.deOndeSaiu.map((x) => ({ produto: x.produto, quantidade: x.quantidade, porUnidadeVendida: x.porUnidade, unidadesVendidas: x.vendidos })),
+    ...(r.outros != null ? { outros: r.outros, outrosEh: 'o que a ficha dos produtos acima não explica: outros produtos, adicionais, a embalagem do delivery ou ficha mudada no período' } : {}),
+    ...(r.semanas ? { comparacao: { mediaDasUltimas4: r.semanas.media, diferencaPct: r.semanas.diferencaPct, contra: r.semanas.contra } } : {}),
+    ...(r.comparado ? { comparadoCom: { periodo: r.comparado.periodo, total: r.comparado.total, diferencaPct: r.comparado.diferencaPct } } : {}),
+    fonte: FONTE_DO_RELATORIO,
+  };
+}
+
+/** O pedido de um relatório: o bastante para refazê-lo depois (no toque em "PDF"), sempre no escopo de quem tocou. */
+export interface PedidoDoRelatorio {
+  insumoId: string;
+  de: string;
+  ate: string;
+  /** A loja da consulta (null = todas as que a pessoa consulta, ou a loja única). */
+  loja: string | null;
+  compararDe: string | null;
+  compararAte: string | null;
+}
+
+export const PREFIXO_DO_RELATORIO = 'rel:';
+const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+const DIA = '\\d{4}-\\d{2}-\\d{2}';
+const BOTAO_DO_PDF = new RegExp(`^rel:pdf:(${UUID}):(${DIA}):(${DIA}):(${UUID}|-):(${DIA}|-):(${DIA}|-)$`, 'i');
+
+/** O id do botão "PDF" (cabe nos 256 caracteres da Meta: ~125). Não leva nada que a pessoa não possa ver: o toque refaz o escopo. */
+export function botaoDoPdf(p: PedidoDoRelatorio): string {
+  return ['rel', 'pdf', p.insumoId, p.de, p.ate, p.loja ?? '-', p.compararDe ?? '-', p.compararAte ?? '-'].join(':');
+}
+
+export function lerBotaoDoPdf(id: unknown): PedidoDoRelatorio | null {
+  const m = BOTAO_DO_PDF.exec(String(id ?? ''));
+  if (!m) return null;
+  const ou = (v: string) => (v === '-' ? null : v.toLowerCase());
+  return { insumoId: m[1].toLowerCase(), de: m[2], ate: m[3], loja: ou(m[4]), compararDe: ou(m[5]), compararAte: ou(m[6]) };
+}
+
 /**
  * De onde saiu o insumo: a ficha de cada produto vendido (o consumo de uma unidade × quanto vendeu), do que mais usou para o
  * que menos (até 6). O que a ficha não explica — adicionais, "sem" pedido pelo cliente, a embalagem do delivery, um produto
