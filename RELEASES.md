@@ -12,6 +12,17 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Empresa inativa há 2 meses é desligada — a loja e as integrações (16/11, decisão do dono; SEM migration; nasce
+  DESLIGADA).** Com `DESLIGAR_INATIVAS=1` na nuvem (o dono liga), uma rotina diária desliga a empresa sem nenhum sinal de
+  uso há 60 dias: ação de uma pessoa, batida do servidor da loja, sinal de aparelho, venda, ou ação da distribuição
+  sobre ela. Quem paga e a própria Regem nunca entram.
+  - A empresa fica `bloqueado` (o mesmo estado do "Revogar" do console; volta pelo "Liberar") e as integrações ligadas
+    dela são desligadas — credencial e configuração ficam, nada é apagado.
+  - Fica o registro `desligou_por_inatividade` na auditoria do console, com os dias, o último sinal e quais integrações
+    estavam ligadas.
+  - Só NUVEM (as tabelas da distribuição são de lá): vale com o merge e a variável; o `.zip` leva o código sem efeito na
+    loja.
+
 - **O aceite de pedidos não trava com o pedido que falha sempre (16/11, ERR-493; sem migration) → vai no `.zip`** (o
   aceite no servidor da loja); o resgate da nuvem vale com o deploy.
   - As duas primeiras falhas de um pedido tentam de novo no ciclo seguinte, como hoje.
