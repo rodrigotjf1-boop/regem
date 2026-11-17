@@ -323,17 +323,72 @@ export const FRASES_DA_NOTA = {
     `1 ${it.unidade ?? 'unidade'} tem quantos ${it.unidadeDoEstoque}? Responda só o número.`,
   /** O resumo antes de lançar (conversa 12): cada item, para onde vai, e a pergunta. */
   resumo: (n: NotaNoMister): string => {
-    const linhas = n.itens.map((it) => {
-      const quanto = `${qtd(it.quantidade)} ${it.unidade ?? ''}`.trim();
-      if (it.estado === 'fora') return `• ${it.descricao}, ${quanto} → fora do estoque`;
-      const noEstoque = it.fator != null && it.fator !== 1 ? ` (${qtd(it.quantidade * it.fator)} ${it.unidadeDoEstoque})` : '';
-      return `• ${it.descricao}, ${quanto} → ${it.insumoNome}${noEstoque}`;
-    });
+    const linhas = destinosDosItens(n).map((d) => `• ${d.descricao}, ${d.quanto} → ${d.destino}`);
     const pagamento = n.duplicatas.length
       ? `Pagamento: ${n.duplicatas.map((d) => `R$ ${reaisDe(d.valorCentavos)} para ${dataCurta(d.vencimento)}`).join('; ')}.`
       : 'Sem parcelas na nota: a conta a pagar entra sem vencimento.';
     return `${FRASES_DA_NOTA.cabecalho(n)}\n${linhas.join('\n')}\n\n${pagamento}\n\nLanço a entrada no estoque e a conta a pagar de R$ ${reaisDe(n.valorTotalCentavos)}?`;
   },
-  lancada: (n: NotaNoMister, contas: number): string =>
-    `Lancei em Estoque › Recebimento e nas contas a pagar${contas > 1 ? ` (${contas} parcelas)` : ''}: ${n.itens.filter((x) => x.estado === 'ligado').length} itens no estoque.`,
+  lancada: (n: NotaNoMister, contas: number, custos: string[] = []): string =>
+    `Lancei em Estoque › Recebimento e nas contas a pagar${contas > 1 ? ` (${contas} parcelas)` : ''}: ${n.itens.filter((x) => x.estado === 'ligado').length} itens no estoque.` +
+    (custos.length ? `\n\n${custos.join('\n')}` : ''),
 } as const;
+
+/**
+ * Cada item da nota e para onde vai: a MESMA linha no resumo da conversa e na gaveta da parte "Documentos" (M3b.3). O
+ * item que ainda espera a resposta diz o que falta.
+ */
+export function destinosDosItens(n: Pick<NotaNoMister, 'itens'>): Array<{ descricao: string; quanto: string; destino: string; estado: ItemNoMister['estado'] }> {
+  return n.itens.map((it) => {
+    const quanto = `${qtd(it.quantidade)} ${it.unidade ?? ''}`.trim();
+    const destino =
+      it.estado === 'fora'
+        ? 'fora do estoque'
+        : it.estado === 'item'
+          ? 'falta dizer o insumo'
+          : it.estado === 'fator'
+            ? `${it.insumoNome} (falta a conversão de unidade)`
+            : `${it.insumoNome}${it.fator != null && it.fator !== 1 ? ` (${qtd(it.quantidade * it.fator)} ${it.unidadeDoEstoque})` : ''}`;
+    return { descricao: it.descricao, quanto, destino, estado: it.estado };
+  });
+}
+
+/**
+ * M3b.3: as frases do custo médio que mudou com a entrada (a conversa 12: "O quilo da carne 56 g passou de R$ 31,90 para
+ * R$ 33,00"). Só o que mudou 1% ou mais e tinha custo antes (o primeiro custo não é "mudança"); até 3, os que mais
+ * mudaram. O nome da unidade como a pessoa fala ("o quilo", "o litro", "a unidade", "o pacote").
+ */
+export function custosQueMudaram(m: Array<{ insumo: string; unidade: string; antes: number; depois: number }>): string[] {
+  // As unidades da lista do estoque (`estoque/unidades.ts`), com o artigo certo.
+  const NOME: Record<string, string> = {
+    kg: 'O quilo',
+    grama: 'O grama',
+    litro: 'O litro',
+    ml: 'O ml',
+    unidade: 'A unidade',
+    caixa: 'A caixa',
+    fardo: 'O fardo',
+    pacote: 'O pacote',
+    saco: 'O saco',
+    lata: 'A lata',
+    garrafa: 'A garrafa',
+    pote: 'O pote',
+    bisnaga: 'A bisnaga',
+    bandeja: 'A bandeja',
+    galão: 'O galão',
+    balde: 'O balde',
+    rolo: 'O rolo',
+    fita: 'A fita',
+    peça: 'A peça',
+    dúzia: 'A dúzia',
+    maço: 'O maço',
+    cartela: 'A cartela',
+    porção: 'A porção',
+  };
+  const reaisDe4 = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return m
+    .filter((x) => x.antes > 0 && Math.abs(x.depois - x.antes) / x.antes >= 0.01)
+    .sort((a, b) => Math.abs(b.depois - b.antes) / b.antes - Math.abs(a.depois - a.antes) / a.antes)
+    .slice(0, 3)
+    .map((x) => `${NOME[x.unidade] ?? `Cada ${x.unidade}`} de ${x.insumo} passou de R$ ${reaisDe4(x.antes)} para R$ ${reaisDe4(x.depois)}.`);
+}

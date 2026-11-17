@@ -54,6 +54,27 @@ export async function custoMedioNaLoja(
   return c == null ? null : String(c);
 }
 
+// O mesmo custo de VÁRIOS insumos numa consulta só (o Mister mostra o antes e o depois de cada item da nota):
+// a mesma regra do `custoMedioNaLoja` — o da loja quando a linha existe, senão o do cadastro.
+export async function custosMediosNaLoja(
+  db: any,
+  tenantId: string,
+  itemIds: string[],
+  unidadeId: string | null,
+): Promise<Map<string, number | null>> {
+  const m = new Map<string, number | null>();
+  if (!itemIds.length) return m;
+  const r = await db.execute(sql`
+    select i.id::text as id, coalesce(iu.custo_medio, i.custo_medio) as c
+      from item_estoque i
+      left join item_estoque_unidade iu
+        on iu.item_id = i.id and iu.unidade_id = ${unidadeId}::uuid and iu.deleted_at is null
+     where i.tenant_id = ${tenantId}
+       and i.id in (${sql.join(itemIds.map((id) => sql`${id}::uuid`), sql`, `)})`);
+  for (const x of rows(r)) m.set(String(x.id), x.c == null ? null : Number(x.c));
+  return m;
+}
+
 // Custo médio para gravar numa SAÍDA (venda, desperdício, produção). A loja é a do
 // movimento: a explícita, ou a que o gatilho da mig 253 vai resolver pela origem — a MESMA
 // função, chamada antes do INSERT, para o custo gravado e a loja gravada nunca divergirem.

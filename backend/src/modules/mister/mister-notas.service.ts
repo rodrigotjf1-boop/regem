@@ -2,12 +2,14 @@ import { BadRequestException, Inject, Injectable, Logger, Optional } from '@nest
 import { sql } from 'drizzle-orm';
 import { hojeISO } from '../../common/data';
 import { Conversao, fatorParaEstoque } from '../../common/conversao-unidade';
+import { custosMediosNaLoja, lojaDeControle } from '../../common/custo-loja';
 import {
   FRASES_DA_NOTA,
   ItemNoMister,
   NotaNoMister,
   chaveDoDePara,
   conferirNota,
+  custosQueMudaram,
   fatorDoTexto,
   instrucoesDaNota,
   lerLeituraDaNota,
@@ -247,6 +249,14 @@ export class MisterNotasService {
     const loja = unidadeId ?? (await this.lojaUnica(tenantId));
     let recebimentoId: string | null = null;
     const titulos: string[] = [];
+    // M3b.3: o custo médio de cada insumo ANTES da entrada (a mesma leitura das telas: o da loja, ou o do cadastro).
+    // Numa consulta só, e nunca derruba o lançamento: sem a leitura, a resposta sai sem a linha do custo.
+    const ligados = [...new Map(nota.itens.filter((it) => it.estado === 'ligado' && it.insumoId).map((it) => [it.insumoId as string, it])).values()];
+    const lerCustos = () =>
+      lojaDeControle(this.db, tenantId, loja)
+        .then((controle) => custosMediosNaLoja(this.db, tenantId, ligados.map((it) => it.insumoId as string), controle))
+        .catch(() => null);
+    const antes = await lerCustos();
     try {
       const itens = nota.itens
         .filter((it) => it.estado === 'ligado' && it.insumoId && it.fator)
@@ -305,7 +315,15 @@ export class MisterNotasService {
     await this.auditoria
       ?.registrar({ tenantId, atorId: colaboradorId, atorPerfil: 'presidente', tipo: 'mister', acao: 'mister_nota_lancada', entidadeTipo: 'mister_documento', entidadeId: documentoId, detalhe: { recebimento: recebimentoId, titulos } } as any)
       .catch(() => undefined);
-    return { texto: FRASES_DA_NOTA.lancada(nota, titulos.length) };
+    // M3b.3: o custo que mudou com a entrada (o protótipo: "O quilo da carne 56 g passou de R$ 31,90 para R$ 33,00").
+    const depois = antes ? await lerCustos() : null;
+    const mudancas: Array<{ insumo: string; unidade: string; antes: number; depois: number }> = [];
+    for (const it of ligados) {
+      const a = antes?.get(it.insumoId as string);
+      const c = depois?.get(it.insumoId as string);
+      if (a != null && c != null) mudancas.push({ insumo: it.insumoNome ?? '', unidade: it.unidadeDoEstoque ?? 'unidade', antes: a, depois: c });
+    }
+    return { texto: FRASES_DA_NOTA.lancada(nota, titulos.length, custosQueMudaram(mudancas)) };
   }
 
   // ───────────────────────────── por dentro ──────────────────────────

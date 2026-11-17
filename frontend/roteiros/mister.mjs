@@ -157,7 +157,57 @@ const DOCUMENTOS = () => [
   doc({ id: 'd5', beneficiario: 'Embalagens Rio', fornecedor: 'Embalagens Rio', valorCentavos: 89000, vencimento: '2026-11-12', situacao: 'pago', tituloId: 't5', podeDesfazer: false }),
   doc({ id: 'd6', beneficiario: 'Distribuidora Sabor Ltda.', situacao: 'recusado', motivo: 'codigo_nao_confere', valorCentavos: null, vencimento: null, origem: { valor: null, vencimento: null }, linhaDigitavel: null, respondidoEm: null, tituloId: null, podeDesfazer: false }),
   // M3b: a nota do fornecedor lançada (entrou pelo recebimento: sem "Desfazer" e sem o PDF do boleto).
-  doc({ id: 'd7', tipo: 'nota', beneficiario: 'Frigorífico Boa Carne', fornecedor: 'Frigorífico Boa Carne', valorCentavos: 264000, vencimento: '2026-12-16', motivo: 'itens_ligados', origem: { valor: null, vencimento: null }, linhaDigitavel: null, tituloId: 't7', podeDesfazer: false }),
+  doc({
+    id: 'd7',
+    tipo: 'nota',
+    beneficiario: 'Frigorífico Boa Carne',
+    fornecedor: 'Frigorífico Boa Carne',
+    valorCentavos: 264000,
+    vencimento: '2026-12-16',
+    motivo: 'itens_ligados',
+    origem: { valor: null, vencimento: null },
+    linhaDigitavel: null,
+    tituloId: 't7',
+    podeDesfazer: false,
+    // M3b.3: cada item com o destino (a mesma linha do resumo da conversa), as parcelas e o recebimento.
+    nota: {
+      numero: '48213',
+      parcelas: 2,
+      noEstoque: 2,
+      recebimentoId: 'r7',
+      itens: [
+        { descricao: 'BLEND BOVINO 56G', quanto: '40 KG', destino: 'Carne 56 g', estado: 'ligado' },
+        { descricao: 'BACON EM TIRAS DEFUMADO FATIADO PACOTE 1 KG RESFRIADO', quanto: '5 KG', destino: 'Bacon em tiras (10 pacote)', estado: 'ligado' },
+        { descricao: 'DETERGENTE NEUTRO', quanto: '10 UN', destino: 'fora do estoque', estado: 'fora' },
+      ],
+    },
+  }),
+  // A nota que ainda espera a resposta de um item na conversa.
+  doc({
+    id: 'd8',
+    tipo: 'nota',
+    beneficiario: 'Hortifruti Verde',
+    fornecedor: 'Hortifruti Verde',
+    valorCentavos: 31240,
+    vencimento: null,
+    situacao: 'falta',
+    motivo: 'item:1',
+    origem: { valor: null, vencimento: null },
+    linhaDigitavel: null,
+    respondidoEm: null,
+    tituloId: null,
+    podeDesfazer: false,
+    nota: {
+      numero: '1907',
+      parcelas: 1,
+      noEstoque: 1,
+      recebimentoId: null,
+      itens: [
+        { descricao: 'TOMATE ITALIANO', quanto: '12 KG', destino: 'Tomate', estado: 'ligado' },
+        { descricao: 'RÚCULA MAÇO', quanto: '20 UN', destino: 'falta dizer o insumo', estado: 'item' },
+      ],
+    },
+  }),
 ];
 
 const medir = (page) =>
@@ -981,8 +1031,9 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     await page.waitForSelector('#documentos-mister', { timeout: 20000 });
     await page.locator('text=Gás Rio >> visible=true').first().waitFor();
     const t = await page.locator('main').innerText();
-    ok(/Documentos lidos/.test(t) && /7 documentos/.test(t), 'documentos: o título com a contagem');
-    ok(/Nota · Frigorífico Boa Carne/.test(t) && /entrou em Estoque › Recebimento e nas contas a pagar/.test(t), 'documentos: a nota do fornecedor (M3b) com o que aconteceu');
+    ok(/Documentos lidos/.test(t) && /8 documentos/.test(t), 'documentos: o título com a contagem');
+    ok(/Nota 48\.213 · Frigorífico Boa Carne/.test(t) && /2 itens no estoque e 2 contas a pagar/.test(t), 'documentos: a nota do fornecedor (M3b) com o número e o que entrou, como no protótipo');
+    ok(/Nota 1\.907 · Hortifruti Verde/.test(t) && /1 item sem ligação com o estoque/.test(t), 'documentos: a nota que espera um item diz quantos faltam ligar');
     ok(S.diasDosDocumentos[0] === '30', `documentos: lê os últimos 30 dias (${S.diasDosDocumentos.join(',')})`);
     ok(['Lançados', 'Falta informação', 'A conferir', 'Pagos', 'Não lançados'].every((s) => t.includes(s)), 'documentos: as cinco situações');
     ok(/lido pelo código de barras/.test(t) && /valor ou vencimento ditos na conversa/.test(t) && /os números da linha não conferiram/.test(t), 'documentos: como cada um foi lido (código, conversa, a recusa com o motivo)');
@@ -997,6 +1048,9 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     await page.fill('#docs-busca', 'light');
     await page.locator('text=Unidade Consumidora >> visible=true').first().waitFor();
     ok((await page.locator('text=Embalagens Rio >> visible=true').count()) === 0, 'documentos: a busca pelo fornecedor');
+    await page.fill('#docs-busca', '48213');
+    await page.locator('text=Frigorífico Boa Carne >> visible=true').first().waitFor();
+    ok((await page.locator('text=Gás Rio >> visible=true').count()) === 0, 'documentos: a busca pelo número da nota');
     await page.fill('#docs-busca', '');
     // O período vai ao servidor.
     await Promise.all([page.waitForResponse((r) => r.url().includes('/mister/documentos?dias=7')), page.selectOption('#docs-periodo', '7')]);
@@ -1029,7 +1083,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     await page.locator('text=desfeito >> visible=true').first().waitFor();
     ok(true, 'desfazer: a lista é lida de novo e mostra "desfeito"');
     // A nota do fornecedor (M3b): a gaveta sem "Desfazer" e sem o PDF do boleto (o que mudar é no Recebimento).
-    await page.locator('button[aria-label="Ver: Nota · Frigorífico Boa Carne"] >> visible=true').first().click();
+    await page.locator('button[aria-label="Ver: Nota 48.213 · Frigorífico Boa Carne"] >> visible=true').first().click();
     const gn = page.locator('[role="dialog"]');
     await gn.waitFor();
     ok(
@@ -1038,6 +1092,21 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     );
     const tgn = await gn.innerText();
     ok(/cada item ligado a um insumo do estoque/.test(tgn), `nota: a gaveta diz o que aconteceu antes de lançar (${tgn.replace(/\s+/g, ' ').slice(0, 300)})`);
+    ok(/Total da nota[\s\S]*R\$\s?2\.640,00/.test(tgn) && /1ª parcela[\s\S]*16\/12, quarta/.test(tgn) && /Parcelas[\s\S]*2/.test(tgn) && /Emitente[\s\S]*Frigorífico Boa Carne/.test(tgn), 'nota: o total, a 1ª parcela, as parcelas e o emitente');
+    ok(
+      /Itens da nota/.test(tgn) && /BLEND BOVINO 56G[\s\S]*40 KG[\s\S]*Carne 56 g/.test(tgn) && /Bacon em tiras \(10 pacote\)/.test(tgn) && /DETERGENTE NEUTRO[\s\S]*fora do estoque/.test(tgn),
+      'nota: cada item com o destino (a mesma linha do resumo da conversa)',
+    );
+    ok(/lançada em Estoque › Recebimento e nas contas a pagar/.test(tgn), 'nota: o que aconteceu diz onde entrou');
+    ok((await gn.locator('a:has-text("Ver no Recebimento")').getAttribute('href')) === '/operacao?aba=recebimento', 'nota: "Ver no Recebimento" abre Estoque › Recebimento');
+    await page.keyboard.press('Escape');
+    await gn.waitFor({ state: 'detached' });
+    // A nota que espera um item: o item pendente diz o que falta, com o selo; sem recebimento ainda.
+    await page.locator('button[aria-label="Ver: Nota 1.907 · Hortifruti Verde"] >> visible=true').first().click();
+    await gn.waitFor();
+    const tgf = await gn.innerText();
+    ok(/RÚCULA MAÇO[\s\S]*falta dizer o insumo[\s\S]*falta/.test(tgf) && /sem vencimento na nota/.test(tgf), `nota pendente: o item que falta e "sem vencimento" (${tgf.replace(/\s+/g, ' ').slice(0, 300)})`);
+    ok((await gn.locator('a:has-text("Ver no Recebimento")').count()) === 0, 'nota pendente: sem "Ver no Recebimento" (ainda não entrou)');
     await page.keyboard.press('Escape');
     ok(erros.length === 0, `documentos: sem erro (${erros.join(' | ')})`);
     await ctx.close();
@@ -1085,6 +1154,20 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     await page.waitForSelector('[role="alertdialog"]');
     m = await medir(page);
     ok(m.length === 0, `${w}px: o diálogo de desfazer inteiro na tela (${m.join(' | ')})`);
+    // A gaveta da nota (M3b.3): os itens com descrição longa cabem, sem barra lateral.
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[role="alertdialog"]', { state: 'detached' });
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[role="dialog"]', { state: 'detached' });
+    await page.locator('button[aria-label="Ver: Nota 48.213 · Frigorífico Boa Carne"] >> visible=true').first().click();
+    await page.locator('[role="dialog"]:has-text("Itens da nota")').waitFor();
+    m = await medir(page);
+    ok(m.length === 0, `${w}px: a gaveta da nota inteira na tela (${m.join(' | ')})`);
+    const itensEsmagados = await page.evaluate(() =>
+      [...document.querySelectorAll('[role="dialog"] li span')].filter((s) => /BACON EM TIRAS|Bacon em tiras/.test(s.textContent ?? '') && s.getBoundingClientRect().width > 0 && s.getBoundingClientRect().width < 90).map((s) => Math.round(s.getBoundingClientRect().width)),
+    );
+    ok(itensEsmagados.length === 0, `${w}px: os itens da nota sem texto esmagado (${itensEsmagados.join(', ')} px)`);
+    if (w === 320 || w === 375) await page.locator('[role="dialog"]').screenshot({ path: foto(`${w}-nota-gaveta.png`) });
     ok(erros.length === 0, `${w}px: Documentos sem erro (${erros.join(' | ')})`);
     await ctx.close();
   }
