@@ -56,7 +56,8 @@ export function EditorDoItem({
     <Dialogo
       titulo={produto.nome}
       aoFechar={aoFechar}
-      largura="sm"
+      // Com tamanho ou etapas, a janela larga (pedido do dono, 17/11/2026): as opções em grade, sem tanta rolagem.
+      largura={variacoes.length || complementos.length ? 'lg' : 'sm'}
       voltarPara="busca-balcao"
       rodape={
         <>
@@ -83,9 +84,9 @@ export function EditorDoItem({
     >
       <form id={form} onSubmit={confirmar}>
         {variacoes.length > 0 && (
-          <div className="mb-3">
-            <p className="mb-1.5 text-xs font-semibold text-muted-foreground">Tamanho</p>
-            <div className="space-y-1.5">
+          <div className="mb-4">
+            <p className="mb-2 font-display text-sm font-bold">Tamanho</p>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,11rem),1fr))] gap-2">
               {variacoes.map((vr: any) => (
                 <button
                   key={vr.id}

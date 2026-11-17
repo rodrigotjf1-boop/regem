@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ListX, PauseCircle, Search, SlidersHorizontal, Users } from 'lucide-react';
+import { ListX, PauseCircle, Search, Users } from 'lucide-react';
 import { api, getToken } from '@/lib/api';
 import { rotuloSenha } from '@/lib/senha';
 import { textosDasEscolhas } from '@/lib/adicionais';
@@ -13,7 +13,6 @@ import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { ServidorStatus } from '@/components/ui/servidor-status';
 import { TotemAPagarIcone } from '@/components/pdv/totem-a-pagar-icone';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { InputMoeda } from '@/components/ui/input-moeda';
 import { Dialogo } from '@/components/ui/sobreposto';
@@ -23,6 +22,7 @@ import { TerminalGate } from '@/components/pdv/terminal-gate';
 import { BuscarCupom } from '@/components/pdv/buscar-cupom';
 import { DividirConta, type PagamentoDaVenda } from '@/components/pdv/balcao/dividir-conta';
 import { EditorDoItem, type EscolhaDoItem } from '@/components/pdv/balcao/editor-do-item';
+import { CartaoDoProduto, CartaoDoProdutoCarregando, GRADE_DE_PRODUTOS } from '@/components/pdv/balcao/cartao-do-produto';
 import { LinhaDoPedido, type ItemDoPedido } from '@/components/pdv/balcao/linha-do-pedido';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -492,7 +492,7 @@ export default function PdvPage() {
 
   const pilula = (ligado: boolean) =>
     `min-h-10 rounded-full border px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${ligado ? 'border-primary bg-primary/15 text-foreground' : 'border-border bg-card text-muted-foreground hover:text-foreground'}`;
-  const gradeDeProdutos = 'grid grid-cols-[repeat(auto-fill,minmax(8.75rem,1fr))] gap-2';
+  const gradeDeProdutos = GRADE_DE_PRODUTOS;
 
   return (
     <Shell fill>
@@ -580,12 +580,7 @@ export default function PdvPage() {
             <div className="space-y-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
               {!carregado && (
                 <div className={gradeDeProdutos}>
-                  {Array.from({ length: 10 }).map((_, i) => (
-                    <div key={i} className="min-h-[5.5rem] rounded-xl border border-border bg-card p-3">
-                      <Skeleton className="h-4 w-3/4" />
-                      <Skeleton className="mt-3 h-4 w-1/3" />
-                    </div>
-                  ))}
+                  {Array.from({ length: 10 }).map((_, i) => <CartaoDoProdutoCarregando key={i} />)}
                 </div>
               )}
               {carregado && produtos.length === 0 && (
@@ -608,39 +603,7 @@ export default function PdvPage() {
                     {g.itens.map((p) => {
                       const qtd = noPedido.get(p.id) ?? 0;
                       return (
-                        <button
-                          key={p.id}
-                          type="button"
-                          data-produto={p.id}
-                          onClick={() => tap(p)}
-                          aria-label={`${p.nome}, ${brl(Number(p.precoVenda))}${qtd ? `, ${qtd} no pedido` : ''}`}
-                          className="relative flex min-h-[5.5rem] flex-col gap-1 rounded-xl border border-border bg-card p-2.5 text-left transition hover:border-primary hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-[.98]"
-                        >
-                          <span className="flex items-start gap-2">
-                            {p.imagemRef && (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={p.imagemRef} alt="" className="h-10 w-10 flex-none rounded-lg object-cover" />
-                            )}
-                            <span className="min-w-0 flex-1">
-                              {p.codigo && <span className="block font-mono text-[11px] leading-tight text-muted-foreground">{p.codigo}</span>}
-                              <span className={`line-clamp-2 break-words text-sm font-bold leading-tight ${qtd ? 'pr-6' : ''}`}>{p.nome}</span>
-                            </span>
-                          </span>
-                          <span className="mt-auto flex items-end justify-between gap-2">
-                            <span className="font-mono text-sm font-bold leading-tight">
-                              {p.tipo === 'variavel' && <span className="block font-sans text-[10.5px] font-medium text-muted-foreground">a partir de</span>}
-                              {brl(Number(p.precoVenda))}
-                            </span>
-                            {p.tipo === 'variavel' && (
-                              <span title="Tem tamanhos para escolher" className="grid h-6 w-6 flex-none place-items-center rounded-md border border-border bg-secondary text-muted-foreground">
-                                <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
-                              </span>
-                            )}
-                          </span>
-                          {qtd > 0 && (
-                            <span className="absolute right-1.5 top-1.5 grid h-6 min-w-6 place-items-center rounded-full bg-primary px-1.5 font-mono text-xs font-bold text-primary-foreground">{qtd}</span>
-                          )}
-                        </button>
+                        <CartaoDoProduto key={p.id} produto={p} qtd={qtd} aoTocar={() => tap(p)} />
                       );
                     })}
                   </div>
