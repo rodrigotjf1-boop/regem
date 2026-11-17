@@ -1,0 +1,2250 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regem — Atendente: alérgenos, pedido agendado e foto (mockup)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* MOCKUP "Atendente: alérgenos, pedido agendado e foto", feito em 16/11/2026 para o dono aprovar ANTES de qualquer
+   código de tela. Nada aqui fala com o Regem; os dados são inventados (loja de exemplo "Mister Burguer").
+   São as três pendências que o changelog de 16/11 deixou "pedindo protótipo" + a foto, cuja leitura por IA já está no servidor (PR #1067), desligada:
+   PARTE 1 · ALÉRGENOS E RESTRIÇÕES DO PRODUTO — hoje o cadastro não tem onde marcar; quando o cliente pergunta "tem
+     lactose?", o atendente virtual não sabe e oferece a equipe. O produto já tem ficha técnica (insumos do estoque) e os
+     selos "S/ glúten" e "S/ lactose" (mig 042), postos à mão.
+   PARTE 2 · PEDIDO AGENDADO — hoje o "Quando?" do cardápio só existe com o modo Encomenda ligado (mig 186: antecedência
+     em HORAS, dias à frente, capacidade por DIA, sinal). Aqui o pedido comum ganha hora marcada em janelas de 15 min, em
+     cima do que a encomenda já tem: o campo `agendamento` do pedido, o "Quando?" do checkout, a agenda e o cartão do KDS
+     "começa HH:MM" (visível desde o aceite, neutro, sem atrasar antes da hora).
+   PARTE 3 · O ATENDENTE LÊ A FOTO E AJUDA COM PRINT — pedido do dono: o cliente manda print do erro ou da dificuldade,
+     foto do pedido errado; "o ideal era o robô mandar um print de uma simulação de pedido corrigindo ou ajudando".
+   Regras de tela seguidas: nenhuma barra de rolagem para o lado de 320 a 1920 px (a lista vira cartões pelo ESPAÇO da
+   peça, as abas quebram a linha), criar e editar em gaveta lateral, datas e horas com seletor nativo, Esc fecha só o
+   que está por cima, todo botão responde (aviso ou estado), vazio/carregando/erro nas listas. */
+:root{
+  --bg:#EDF0F4; --card:#FFFFFF; --ink:#0F2230; --ink-2:#43586C; --line:#DCE3EA; --line-2:#C5CFD9;
+  --gold:#E2A340; --on-gold:#281B06; --navy:#0F2230;
+  --ok:#0E7C66; --ok-ink:#0B6654; --ok-bg:#E2F3EE;
+  --crit:#B4231C; --crit-bg:#FBE9E7; --warn:#8A4B12; --warn-bg:#FCEDE0; --info:#1F5F96; --info-bg:#E6F0F8;
+  --ouro:#7A5209; --ouro-bg:#FCF1DD; --neutro-bg:#EEF2F6; --radius:12px;
+  --display:'Archivo',sans-serif; --body:'Figtree',sans-serif; --mono:'JetBrains Mono',monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:var(--body);background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45;overflow-wrap:anywhere}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+button:disabled{cursor:not-allowed}
+:focus-visible{outline:3px solid #2F7CC0;outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+[hidden]{display:none!important}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+html.travado{overflow:hidden}
+code{font-family:var(--mono);font-size:12.5px;background:var(--neutro-bg);border-radius:5px;padding:0 4px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* faixa do protótipo (fora do app) */
+.proto{background:#0B1822;color:#D5E0EA;padding:10px 16px;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
+.proto strong{font-family:var(--display);color:#fff;font-size:14px}
+.proto .obs{font-size:12.5px;color:#9FB2C4}
+.abas{display:flex;flex-wrap:wrap;gap:8px}
+.aba{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:6px 14px;border-radius:10px;border:1px solid #2E4456;background:#13283A;color:#D5E0EA;font-weight:600;font-size:14px;text-align:left}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+
+main{max-width:1500px;margin:0 auto;padding:16px 16px 110px;min-width:0;container-type:inline-size;container-name:principal}
+.vista > h1{font-family:var(--display);font-size:clamp(20px,2.4vw,26px);margin:4px 0 6px}
+.intro{color:var(--ink-2);max-width:940px;margin:0 0 14px}
+.trilha{font-family:var(--display);font-size:11.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ouro);margin:0 0 8px}
+h2.sec{font-family:var(--display);font-size:18px;margin:18px 0 6px}
+.leg{font-size:13px;color:var(--ink-2);margin:10px 2px 0}
+
+/* sub-telas de cada parte (abas da tela) */
+.subabas{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px;padding:0 0 12px;border-bottom:1px solid var(--line)}
+.subaba{min-height:40px;padding:6px 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);color:var(--ink-2);font-weight:600;font-size:14px;text-align:left}
+.subaba:hover{border-color:var(--ink-2);color:var(--ink)}
+.subaba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+
+/* controles do protótipo (trocam a situação mostrada) */
+.ctls{background:#F7F9FB;border:1px dashed var(--line-2);border-radius:var(--radius);padding:10px 12px;margin:0 0 16px;display:grid;gap:8px}
+.ctl{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;font-size:13px}
+.ctl > span{font-weight:700;color:var(--ink-2);margin-right:2px}
+.ctl button{min-height:36px;padding:4px 12px;border-radius:9px;border:1px solid var(--line-2);background:var(--card);font-weight:600;font-size:13px;text-align:left}
+.ctl button[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+
+/* peças comuns */
+.cartao{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;min-width:0}
+.cartao > h2,.cartao > h3{font-family:var(--display);font-size:16px;margin:0 0 8px;display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center}
+.cartao > h2 small,.cartao > h3 small{font-family:var(--body);font-weight:600;font-size:12.5px;color:var(--ink-2)}
+.cartao ul,.cartao ol{margin:0;padding-left:20px}
+.cartao li{margin:0 0 5px}
+.grade2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:14px;align-items:start}
+.pilha{display:grid;gap:14px;min-width:0;align-content:start}
+.bt{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px;padding:6px 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);font-weight:600;font-size:14px;text-align:center}
+.bt:hover{border-color:var(--ink-2)}
+.bt.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.bt.perigo{background:var(--crit);border-color:var(--crit);color:#fff}
+.bt.fino{min-height:36px;padding:4px 10px;font-size:13px}
+.bt[disabled]{opacity:.55}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.selo{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;font-weight:700;font-size:12.5px;line-height:1.5}
+.selo.ok{background:var(--ok-bg);color:var(--ok-ink)} .selo.crit{background:var(--crit-bg);color:var(--crit)}
+.selo.info{background:var(--info-bg);color:var(--info)} .selo.warn{background:var(--warn-bg);color:var(--warn)}
+.selo.neutro{background:var(--neutro-bg);color:var(--ink-2)} .selo.ouro{background:var(--ouro-bg);color:var(--ouro)}
+.selo.novo{background:var(--gold);color:var(--on-gold);font-size:10.5px;letter-spacing:.06em;border-radius:6px;padding:1px 6px}
+.selo.noar{background:var(--ok);color:#fff;font-size:10.5px;letter-spacing:.06em;border-radius:6px;padding:1px 6px;text-transform:uppercase}
+.aviso{border-left:4px solid var(--info);background:var(--info-bg);padding:10px 12px;border-radius:8px;font-size:14px;margin:0}
+.aviso.warn{border-color:#C77A2E;background:var(--warn-bg)} .aviso.crit{border-color:var(--crit);background:var(--crit-bg)}
+.aviso.ok{border-color:var(--ok);background:var(--ok-bg)} .aviso.ouro{border-color:var(--gold);background:var(--ouro-bg)}
+.aviso b{display:block}
+.aviso .acoes{margin-top:8px}
+
+/* linhas de insumo/produto dentro de um cartão, a ficha técnica e o resultado */
+.cartao.cq{container-type:inline-size;container-name:cartao}
+.ins{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr) auto;gap:6px 12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.ins:last-of-type{border-bottom:0}
+.ins .q b{display:block;font-size:14.5px}
+.ins .q small{font-size:12.5px;color:var(--ink-2)}
+@container cartao (max-width:560px){.ins{grid-template-columns:minmax(0,1fr)}.ins .bt{justify-self:start}}
+.cartao .ficha{list-style:none;margin:0 0 10px;padding:0}
+.cartao .ficha li{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 10px;padding:7px 0;border-bottom:1px dashed var(--line);margin:0}
+.result{background:#F7F9FB;border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;gap:6px;min-width:0}
+.result .lin{display:flex;flex-wrap:wrap;gap:2px 10px;align-items:baseline}
+.result .lin > .rot{flex:0 0 112px}
+.result .lin > span:last-child{flex:1 1 180px;min-width:0}
+/* a pergunta ao fechar o turno com agendados */
+.fech{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:6px 12px;align-items:center;background:#fff;border:1px solid #EBCBA6;border-radius:10px;padding:8px 10px;margin-top:8px}
+.fech small{display:block;font-size:12.5px;color:var(--ink-2)}
+@container principal (max-width:720px){.fech{grid-template-columns:minmax(0,1fr)}}
+
+/* etiquetas de alérgeno */
+.als{display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center}
+.al{display:inline-block;border-radius:6px;padding:1px 7px;font-size:12.5px;font-weight:700;line-height:1.5}
+.al.c{background:#E7ECF2;color:var(--ink);border:1px solid var(--line-2)}
+.al.p{background:var(--warn-bg);color:var(--warn);border:1px solid #EBCBA6}
+.al.n{background:var(--ok-bg);color:var(--ok-ink);border:1px solid #BFE3D8}
+.al.q{background:#fff;color:var(--ink-2);border:1px dashed var(--line-2)}
+.rot{font-size:12.5px;font-weight:700;color:var(--ink-2)}
+
+/* lista no modelo do Estoque: situações com contagem, busca e filtros, tabela que vira cartões */
+.barra-l{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:10px;margin:0 0 10px}
+.barra-l h2{font-family:var(--display);font-size:20px;margin:0}
+.barra-l .resumo{color:var(--ink-2);font-size:13.5px;margin:2px 0 0}
+.sits{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}
+.sit{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:4px 12px;border-radius:999px;border:1.5px solid var(--line-2);background:var(--card);font-weight:600;font-size:14px}
+.sit b{font-family:var(--mono);font-size:13px}
+.sit[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.filtros{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:10px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin:0 0 12px}
+.campo{display:flex;flex-direction:column;gap:4px;min-width:0}
+.campo label,.campo .rot{font-size:12.5px;font-weight:700;color:var(--ink-2)}
+.campo input,.campo select,.campo textarea{min-height:42px;border:1.5px solid var(--line-2);border-radius:10px;padding:6px 10px;background:#fff;width:100%;min-width:0;max-width:100%}
+.campo textarea{min-height:170px;resize:vertical;line-height:1.5}
+.campo .ajuda{font-size:12.5px;color:var(--ink-2)}
+.campo .conta{font-size:12px;color:var(--ink-2);text-align:right;font-family:var(--mono)}
+.tabela{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);min-width:0}
+.tabela table{width:100%;border-collapse:collapse;overflow-wrap:break-word}
+.tabela th{font-size:12px;letter-spacing:.06em;text-transform:uppercase;text-align:left;color:var(--ink-2);background:#F7F9FB;padding:10px 12px;border-bottom:1px solid var(--line)}
+.tabela thead tr:first-child th:first-child{border-top-left-radius:var(--radius)} .tabela thead tr:first-child th:last-child{border-top-right-radius:var(--radius)}
+.tabela td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+.tabela tr:last-child td{border-bottom:none}
+.tabela .nome{font-weight:700}
+.tabela .sub{display:block;font-size:12.5px;color:var(--ink-2)}
+.tabela .c-acoes .acoes{justify-content:flex-end}
+@container principal (max-width:900px){
+  .tabela{border:none;background:none}
+  .tabela thead{display:none}
+  .tabela table,.tabela tbody{display:block}
+  .tabela tbody tr{display:block;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin:0 0 10px}
+  .tabela td{display:block;border:none;padding:3px 0}
+  .tabela td[data-rot]::before{content:attr(data-rot);display:block;font-size:12px;font-weight:700;color:var(--ink-2);margin-top:4px}
+  .tabela .c-acoes .acoes{justify-content:stretch;margin-top:8px}
+  .tabela .c-acoes .bt{flex:1 1 130px}
+}
+.vazio{background:var(--card);border:1px dashed var(--line-2);border-radius:var(--radius);padding:32px 16px;text-align:center;color:var(--ink-2)}
+.vazio b{display:block;font-family:var(--display);font-size:17px;color:var(--ink);margin:0 0 4px}
+.vazio .acoes{justify-content:center;margin-top:12px}
+.vazio.erro b{color:var(--crit)}
+.esq{display:grid;gap:10px}
+.esq i{display:block;height:64px;border-radius:var(--radius);background:linear-gradient(90deg,#E4E9EF 25%,#F2F5F8 37%,#E4E9EF 63%);background-size:400% 100%;animation:brilho 1.4s ease infinite}
+@keyframes brilho{0%{background-position:100% 50%}100%{background-position:0 50%}}
+
+/* sobrepostos: a gaveta lateral e o diálogo (ficam fora do <main>) */
+.fundo{position:fixed;inset:0;background:rgba(15,34,48,.5);z-index:40;display:flex;justify-content:flex-end}
+.fundo.centro{align-items:center;justify-content:center;padding:12px}
+.gaveta{width:min(600px,100%);height:100%;background:var(--card);display:flex;flex-direction:column;box-shadow:-12px 0 32px rgba(15,34,48,.2);min-width:0}
+.dialogo{width:min(520px,100%);max-height:100%;background:var(--card);border-radius:16px;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(15,34,48,.3);min-width:0}
+.gaveta > header,.dialogo > header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.gaveta > header h2,.dialogo > header h2{font-family:var(--display);font-size:19px;margin:0}
+.gaveta > header p,.dialogo > header p{margin:2px 0 0;font-size:13px;color:var(--ink-2)}
+.fechar{width:40px;height:40px;border-radius:10px;border:1px solid var(--line-2);background:#fff;font-size:17px;flex:none}
+.gaveta .corpo,.dialogo .corpo{flex:1;overflow-y:auto;padding:14px 18px;display:grid;gap:16px;align-content:start;min-width:0}
+.gaveta > footer,.dialogo > footer{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line);background:#F7F9FB}
+.dialogo > footer{border-radius:0 0 16px 16px}
+fieldset{border:0;margin:0;padding:0;min-width:0}
+legend{font-family:var(--display);font-weight:700;font-size:14.5px;margin:0 0 8px;padding:0}
+.seg{display:flex;flex-wrap:wrap;border:1.5px solid var(--line-2);border-radius:10px;overflow:hidden;background:#fff}
+.seg button{flex:1 1 auto;min-height:40px;padding:4px 12px;border:0;background:#fff;font-weight:600;font-size:14px;box-shadow:inset -1px -1px 0 var(--line)}
+.seg button[aria-pressed="true"]{background:var(--navy);color:#fff;box-shadow:none}
+.seg button:disabled{color:#5F6E7C;background:#F3F5F8}
+.seg button[aria-pressed="true"]:disabled{background:#44586B;color:#fff}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip-al{min-height:38px;padding:4px 12px;border-radius:999px;border:1.5px solid var(--line-2);background:#fff;font-weight:600;font-size:13.5px}
+.chip-al[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.chips.pode .chip-al[aria-pressed="true"]{background:var(--warn-bg);border-color:#C77A2E;color:var(--warn)}
+.chip-al:disabled{background:#F3F5F8;color:#7C8894;border-style:dashed}
+.sub-g{font-size:12.5px;font-weight:700;color:var(--ink-2);margin:8px 0 4px}
+.sub-g:first-of-type{margin-top:0}
+.expande{background:none;border:0;padding:6px 0;min-height:36px;color:var(--info);font-weight:700;font-size:13.5px;text-align:left;text-decoration:underline}
+/* linha de alérgeno na gaveta do produto */
+.al-linha{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,290px);gap:4px 12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.al-linha:last-child{border-bottom:0}
+.al-linha b{display:block;font-size:14.5px}
+.al-linha small{font-size:12.5px;color:var(--ink-2)}
+.al-linha select{min-height:40px;border:1.5px solid var(--line-2);border-radius:10px;padding:4px 6px;background:#fff;width:100%;min-width:0;font-size:14px}
+.al-linha .fixo{font-weight:700;font-size:14px}
+.al-linha.mao{background:#FFF9EC;box-shadow:inset 3px 0 0 var(--gold);padding-left:10px;padding-right:6px;border-radius:6px}
+.gaveta{container-type:inline-size;container-name:gaveta}
+@container gaveta (max-width:540px){.al-linha{grid-template-columns:minmax(0,1fr)}}
+
+/* celulares: WhatsApp e cardápio online */
+.fones{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),400px));justify-content:center;gap:18px;align-items:start}
+.fones.com-lado{grid-template-columns:minmax(0,1fr);justify-content:stretch}
+.fones.com-lado > .caso-f{max-width:420px;width:100%;justify-self:center}
+@container principal (min-width:820px){.fones.com-lado{grid-template-columns:minmax(0,380px) minmax(0,1fr)}}
+.caso-f{min-width:0}
+.caso-f > h2{font-family:var(--display);font-size:16px;margin:0 0 8px;display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center}
+.fone{width:100%;border-radius:28px;background:#0F2230;padding:10px;box-shadow:0 16px 40px rgba(15,34,48,.25)}
+.fone .vidro{border-radius:20px;background:#FAFAFA;overflow:hidden;display:flex;flex-direction:column}
+.wa-topo,.lp-topo{background:#008069;color:#fff;padding:10px 14px;display:flex;align-items:center;gap:10px}
+.lp-topo{background:var(--navy)}
+.av{width:34px;height:34px;border-radius:50%;background:#0F2230;color:var(--gold);display:grid;place-items:center;font-family:var(--display);font-weight:800;font-size:12px;flex:none}
+.lp-topo .av{background:var(--gold);color:var(--on-gold)}
+.wa-topo b,.lp-topo b{display:block;font-size:15px} .wa-topo small,.lp-topo small{font-size:12px;color:#E9FBF6}
+.wa{background:#EFEAE2;padding:12px 10px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.bolha{max-width:90%;background:#fff;color:#111B21;border-radius:10px;padding:7px 9px;font-size:14px;box-shadow:0 1px 1px rgba(0,0,0,.08);min-width:0}
+.bolha.eu{align-self:flex-end;background:#D9FDD3}
+.bolha p{margin:0 0 8px} .bolha p:last-of-type{margin-bottom:0}
+.bolha small.h{display:block;text-align:right;font-size:11px;color:#54656F;margin-top:2px}
+.bolha .quem{display:block;font-size:11.5px;font-weight:700;color:#0B6E3A;margin:0 0 2px}
+.wa-dia{align-self:center;background:#fff;border-radius:8px;font-size:12px;color:#54656F;padding:3px 10px;text-align:center;max-width:92%}
+.qr{display:flex;flex-wrap:wrap;gap:6px;max-width:90%}
+.qr button{flex:1 1 120px;min-height:38px;border-radius:10px;border:0;background:#fff;color:#027EB5;font-weight:700;font-size:13.5px;box-shadow:0 1px 1px rgba(0,0,0,.08);padding:4px 10px}
+.wa-escrever{background:#F0F2F5;padding:8px 10px;display:flex;gap:8px;align-items:center}
+.wa-escrever span{flex:1;background:#fff;border-radius:999px;padding:9px 14px;color:#54656F;font-size:14px}
+.lp-corpo{padding:14px;background:#F6F7F9;display:flex;flex-direction:column;gap:10px;min-width:0}
+.lp-foto{height:120px;border-radius:14px;background:radial-gradient(ellipse at 50% 62%,#6B4226 0 22%,transparent 23%),radial-gradient(ellipse at 50% 48%,#F2C14E 0 27%,transparent 28%),radial-gradient(ellipse at 50% 40%,#D9923F 0 30%,transparent 31%),linear-gradient(135deg,#F7E3C2,#EBCB98)}
+.lp-nome{font-family:var(--display);font-size:19px;margin:0}
+.lp-desc{margin:0;font-size:13.5px;color:var(--ink-2)}
+.lp-preco{margin:0;font-family:var(--mono);font-weight:700;font-size:17px}
+.lp-alerg{background:#fff;border:1px solid var(--line);border-left:4px solid #C77A2E;border-radius:12px;padding:10px 12px;display:grid;gap:5px}
+.lp-alerg h4{margin:0;font-family:var(--display);font-size:14px}
+.lp-alerg p{margin:0;font-size:13.5px}
+.lp-alerg .cautela{font-size:12.5px;color:var(--ink-2);border-top:1px dashed var(--line-2);padding-top:6px}
+.lp-bt{min-height:48px;border-radius:12px;border:0;background:var(--gold);color:var(--on-gold);font-weight:800;font-size:15px;width:100%;padding:6px 10px}
+.lp-bt:disabled{background:#ECE7DE;color:#6E675B}
+.lp-sec{background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:grid;gap:8px;min-width:0}
+.lp-sec h3{font-family:var(--display);font-size:15px;margin:0}
+.lp-linha{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 10px;font-size:14px}
+.lp-linha .mono{font-weight:700}
+.c-seg{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,120px),1fr));gap:8px}
+.c-seg button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;min-height:56px;padding:8px 10px;border-radius:12px;border:1.5px solid var(--line-2);background:#fff;font-weight:700;font-size:14px}
+.c-seg button small{font-weight:500;font-size:12px;color:var(--ink-2)}
+.c-seg button[aria-pressed="true"]{border-color:var(--navy);background:#F2F6FA;box-shadow:inset 0 0 0 1px var(--navy)}
+.c-seg button:disabled{background:#F3F5F8;color:#55616E}
+.lp-aviso{background:var(--warn-bg);border:1.5px solid #EBCBA6;border-radius:12px;padding:10px 12px;font-size:14px}
+.lp-aviso b{display:block}
+.lp-ok{background:var(--ok-bg);color:var(--ok-ink);border-radius:12px;padding:10px 12px;font-weight:700;font-size:14px}
+.lp-ok small{display:block;font-weight:500;color:var(--ink)}
+
+/* painel do Delivery e a tira do KDS */
+.painel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);min-width:0}
+.p-topo{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 14px;border-bottom:1px solid var(--line)}
+.p-topo .esp{flex:1 1 auto}
+.p-turno{font-weight:700;color:var(--ok-ink)}
+.p-corpo{padding:12px 14px;display:grid;gap:10px;min-width:0}
+.ped{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,.8fr) minmax(0,.8fr) minmax(0,1.4fr);gap:6px 14px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0}
+.ped .q b{display:block;font-size:14.5px}
+.ped small{display:block;font-size:12.5px;color:var(--ink-2)}
+.ped .hora{font-weight:700;font-size:17px;display:block}
+.ped .hora .mono{font-size:17px}
+.ped.saiu{background:#F7F9FB;border-style:dashed}
+.ped .acoes{justify-content:flex-end}
+@container principal (max-width:900px){.ped{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.ped .q,.ped .acoes{grid-column:1/-1}.ped .acoes{justify-content:flex-start}}
+@container principal (max-width:460px){.ped{grid-template-columns:minmax(0,1fr)}}
+.kds{--k-bg:#EDF0F4;--k-panel:#FFFFFF;--k-panel-2:#F1F4F7;--k-line:#D5DCE4;--k-ink:#0F2230;--k-muted:#4F6476;background:var(--k-bg);border:1px solid var(--k-line);border-radius:var(--radius);padding:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:10px;min-width:0}
+.k-card{display:flex;flex-direction:column;min-width:0;background:var(--k-panel);color:var(--k-ink);border:1px solid var(--k-line)}
+.k-cab{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 10px;padding:10px 14px;border-bottom:1px solid var(--k-line);min-width:0}
+.k-card.t-agenda .k-cab{border-bottom:2px dashed var(--k-line)}
+.k-ident{font:800 25px/1.08 var(--display);min-width:0}
+.k-tempo{display:inline-flex;align-items:baseline;padding:2px 9px;background:var(--ok);color:#fff;font:700 21px/1.15 var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.k-tempo small{font:700 13px var(--body);margin:0 3px}
+.k-card.t-agenda .k-tempo{background:var(--k-panel-2);color:var(--k-ink);border:1.5px dashed var(--k-muted)}
+.k-sub{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-weight:700;font-size:14px;color:var(--k-muted);min-width:0}
+.k-tag{display:inline-block;border:1.5px solid currentColor;padding:0 6px;font-weight:800;font-size:12.5px;letter-spacing:.05em;text-transform:uppercase;line-height:1.5;color:var(--k-ink)}
+.k-cc{display:flex;flex-direction:column;flex:1;gap:10px;padding:12px 14px 14px;min-width:0}
+.k-itens{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.k-it{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;font-size:18px;line-height:1.25}
+.k-q{font-family:var(--mono);font-weight:700}
+.k-d{font-weight:800}
+.k-avancar{width:100%;min-height:48px;background:var(--k-panel-2);color:var(--k-ink);border:2px solid var(--k-ink);font:800 15px var(--display);letter-spacing:.08em;text-transform:uppercase}
+/* o cartão no desenho que o KDS usa desde 12/11/2026: etiquetas à esquerda, senha grande à direita, linha escura embaixo
+   do cabeçalho; os itens com a caixinha; no rodapé o tempo (a cor do status só aqui), a etapa e o botão à direita */
+.k-cab{border-bottom:2px solid var(--k-ink);gap:6px 10px}
+.k-card.t-agenda .k-cab{border-bottom:2px dashed var(--k-muted)}
+.k-etqs{display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center;min-width:0;flex:1 1 120px}
+.k-ident{margin-left:auto}
+.k-tag.cheia{background:var(--k-ink);color:var(--k-panel);border-color:var(--k-ink)}
+.k-it{grid-template-columns:auto auto minmax(0,1fr);align-items:start}
+.k-cx{width:22px;height:22px;border:2px solid var(--k-muted);border-radius:4px;margin-top:1px}
+.k-pe{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;padding:10px 14px;border-top:1px solid var(--k-line);min-width:0}
+.k-prazo{flex:1 1 0;min-width:6em;display:flex;flex-direction:column;font-size:14px;font-weight:700;line-height:1.25;color:var(--k-muted)}
+.k-prazo b{color:var(--k-ink);font-weight:800}
+.k-pe .k-avancar{width:auto;flex:0 1 auto;margin-left:auto;max-width:100%;padding:0 14px;background:var(--k-panel)}
+
+/* ajustes (modelo de Configurações) */
+.aj-grupo{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);min-width:0}
+.aj-grupo + .aj-grupo{margin-top:14px}
+.aj-grupo > header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:4px 10px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.aj-grupo > header h2{font-family:var(--display);font-size:16px;margin:0;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.aj-grupo > header span.q{font-size:12.5px;color:var(--ink-2);font-weight:600}
+.aj{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,260px);gap:6px 16px;padding:12px 14px;border-bottom:1px solid var(--line);align-items:center}
+.aj:last-child{border-bottom:0}
+.aj .t b{display:block;font-size:14.5px}
+.aj .t small{display:block;font-size:12.5px;color:var(--ink-2)}
+.aj .ctrl{display:flex;justify-content:flex-end;align-items:center;gap:8px;min-width:0}
+.aj .ctrl select{min-height:40px;border:1.5px solid var(--line-2);border-radius:10px;padding:4px 10px;background:#fff;width:100%;min-width:0}
+.aj .fixo{font-weight:700;font-size:14px;text-align:right}
+.aj.largo{grid-template-columns:minmax(0,1fr)}
+.aj.mudou{background:#FFF9EC;box-shadow:inset 3px 0 0 var(--gold)}
+.aj.desligado .t b{color:var(--ink-2)}
+.aj.desligado .ctrl select,.aj.desligado .ctrl .sw{opacity:.6}
+@container principal (max-width:640px){.aj{grid-template-columns:minmax(0,1fr)}.aj .ctrl{justify-content:flex-start}.aj .fixo{text-align:left}}
+.sw{width:52px;height:30px;border-radius:999px;border:0;background:#B9C4CF;position:relative;flex:none}
+.sw::after{content:'';position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:left .15s}
+.sw[aria-checked="true"]{background:var(--ok)}
+.sw[aria-checked="true"]::after{left:25px}
+.sw-rot{font-size:13px;font-weight:700;color:var(--ink-2);min-width:68px;text-align:right}
+.barra{position:fixed;left:0;right:0;bottom:0;background:var(--navy);color:#fff;padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:flex-end;z-index:30}
+.barra span{margin-right:auto;font-weight:700}
+.barra .bt:not(.pri){background:transparent;color:#fff;border-color:#6A8196}
+
+/* o print de ajuda (o "celular" com as marcações) e a foto que o cliente manda */
+.print{width:100%;max-width:250px;border-radius:18px;background:#0F2230;padding:6px;margin:0}
+.print .tela{border-radius:13px;background:#F6F7F9;overflow:hidden;display:flex;flex-direction:column;font-size:12px;line-height:1.3;color:#132536}
+.p-cab{background:var(--pcor,#0F2230);color:#fff;padding:7px 9px;display:flex;align-items:center;gap:6px;font-weight:700;font-size:12px}
+.p-cab i{width:16px;height:16px;border-radius:50%;background:var(--gold);flex:none}
+.p-cab span{min-width:0}
+.p-tit{background:#fff;border-bottom:1px solid #DCE3EA;padding:6px 10px;font-weight:700;font-size:12px}
+.p-corpo{padding:11px 11px 10px;display:grid;gap:7px}
+.p-l{position:relative;background:#fff;border:1px solid #DCE3EA;border-radius:8px;padding:6px 8px;display:flex;justify-content:space-between;gap:6px;align-items:center;min-width:0}
+.p-l span{min-width:0}
+.p-l .v{font-family:var(--mono);font-weight:700;font-size:11.5px;white-space:nowrap}
+.p-l.bot{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:800;justify-content:center;text-align:center}
+.p-l.bot.off{background:#ECE7DE;border-color:#ECE7DE;color:#6E675B}
+.p-l.campo-p{color:#5A6B7B;border-style:dashed}
+.p-l.erro{background:var(--crit-bg);border-color:#E5A9A3;color:var(--crit);font-weight:700}
+.p-l.certo{background:var(--ok-bg);border-color:#BFE3D8;color:var(--ok-ink);font-weight:700}
+.p-l.alvo{outline:2.5px solid var(--gold);outline-offset:1px;box-shadow:0 0 0 5px rgba(226,163,64,.28)}
+.p-l .n,.pa-leg .n{width:20px;height:20px;border-radius:50%;background:var(--gold);color:var(--on-gold);font:800 11px/1 var(--display);display:grid;place-items:center;flex:none}
+.p-l .n{position:absolute;top:-9px;left:-8px;border:2px solid #fff}
+.p-seg{display:flex;gap:4px;position:relative}
+.p-seg span{flex:1;text-align:center;border:1px solid #DCE3EA;border-radius:8px;background:#fff;padding:5px 3px;font-weight:700;font-size:11.5px;min-width:0}
+.p-seg span.on{background:#0F2230;color:#fff;border-color:#0F2230}
+.p-seg.alvo{outline:2.5px solid var(--gold);outline-offset:2px;border-radius:8px;box-shadow:0 0 0 5px rgba(226,163,64,.28)}
+.p-seg .n{position:absolute;top:-10px;left:-8px;width:20px;height:20px;border-radius:50%;background:var(--gold);color:var(--on-gold);font:800 11px/1 var(--display);display:grid;place-items:center;border:2px solid #fff}
+.p-qr{width:54px;height:54px;border-radius:6px;background:conic-gradient(#0F2230 25%,#fff 0 50%,#0F2230 0 75%,#fff 0) 0 0/18px 18px;border:3px solid #fff;outline:1px solid #DCE3EA;justify-self:center}
+.p-qr.velho{opacity:.25}
+.p-etapas{list-style:none;margin:0;padding:0;display:grid;gap:5px}
+.p-etapas li{position:relative;display:flex;gap:6px;align-items:center;background:#fff;border:1px solid #DCE3EA;border-radius:8px;padding:5px 8px}
+.p-etapas li i{width:10px;height:10px;border-radius:50%;border:2px solid #9AA9B7;flex:none}
+.p-etapas li.feito i{background:var(--ok);border-color:var(--ok)}
+.p-etapas li.agora{font-weight:800}
+.p-etapas li.agora i{background:var(--gold);border-color:var(--gold)}
+.p-etapas li.alvo{outline:2.5px solid var(--gold);outline-offset:1px;box-shadow:0 0 0 5px rgba(226,163,64,.28)}
+.p-etapas .n{position:absolute;top:-9px;left:-8px;width:20px;height:20px;border-radius:50%;background:var(--gold);color:var(--on-gold);font:800 11px/1 var(--display);display:grid;place-items:center;border:2px solid #fff}
+.pa-leg{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:5px;font-size:13px}
+.pa-leg li{display:flex;gap:7px;align-items:flex-start;margin:0}
+.anexo{margin:0 0 6px;display:grid;gap:4px;justify-items:start}
+.anexo figcaption{font-size:11.5px;color:#54656F;font-weight:600}
+.foto-cli{width:100%;max-width:230px;border-radius:8px;overflow:hidden;border:1px solid #C9D3DB;background:#F6F7F9;font-size:12px;line-height:1.3;color:#132536}
+.foto-cli .p-corpo{padding:9px}
+.foto-cli.comida{height:150px;position:relative;background:linear-gradient(160deg,#8A6846,#6E5136)}
+.foto-cli.comida .cx{position:absolute;left:14%;top:26%;width:46%;height:56%;background:#D1AE78;border:3px solid #B58F58;border-radius:6px}
+.foto-cli.comida .bg{position:absolute;left:14%;top:14%;right:14%;bottom:14%;border-radius:50%;background:radial-gradient(circle,#F2C14E 0 34%,#5B3A22 35% 52%,#D9923F 53% 100%)}
+.foto-cli.comida .lt{position:absolute;right:13%;top:30%;width:15%;height:46%;border-radius:6px;background:linear-gradient(#C9CED3 0 12%,#B8141C 13% 100%)}
+.foto-cli.comida .gd{position:absolute;right:30%;bottom:8%;width:20%;height:20%;background:#F4F1EA;transform:rotate(14deg)}
+.foto-cli.recibo{background:#fff;font-family:var(--mono);font-size:11.5px}
+.foto-cli.recibo .p-corpo{gap:3px}
+.foto-cli.recibo b{font-size:13px}
+.galeria{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:14px}
+.passo{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;display:grid;gap:8px;justify-items:center;align-content:start;min-width:0}
+.passo > *{width:100%;max-width:270px}
+.passo h3{font-family:var(--display);font-size:15px;margin:0;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.passo .pa-leg{margin-top:2px}
+.passo .print{max-width:270px}
+
+/* o caso na Central de atendimento */
+.caso{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);min-width:0;container-type:inline-size;container-name:caso}
+.c-topo{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:flex-start;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--line)}
+.c-topo h2{font-family:var(--display);font-size:18px;margin:4px 0 2px}
+.c-topo .sub{font-size:13px;color:var(--ink-2)}
+.c-corpo{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;padding:12px 14px}
+@container caso (min-width:720px){.c-corpo{grid-template-columns:minmax(0,1.3fr) minmax(0,1fr)}}
+.col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.bloco{border:1px solid var(--line);border-radius:10px;padding:12px;min-width:0}
+.bloco > h3{font-family:var(--display);font-size:14px;margin:0 0 8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.bloco > h3 .dir{margin-left:auto;font-family:var(--body);font-size:12px;font-weight:600;color:var(--ink-2)}
+.bloco p{margin:0 0 6px} .bloco p:last-child{margin-bottom:0}
+.bloco.foto-ia{background:#FFFBF2;border-color:#EBD3A2}
+.resumo-robo{background:#F6F9FC}
+.resumo-robo dl,.dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 10px;margin:0;font-size:14px}
+.resumo-robo dt,.dl dt{font-weight:700;color:var(--ink-2);font-size:12.5px;padding-top:2px}
+.resumo-robo dd,.dl dd{margin:0}
+@container caso (max-width:420px){.resumo-robo dl{grid-template-columns:minmax(0,1fr)}.resumo-robo dd{margin-bottom:4px}}
+.msgs{display:flex;flex-direction:column;gap:6px}
+.msg{max-width:88%;padding:7px 10px;border-radius:12px;font-size:14px}
+.msg small{display:block;font-size:11px;color:var(--ink-2);margin-top:2px}
+.msg.cli{background:var(--neutro-bg);align-self:flex-start;border-top-left-radius:4px}
+.msg.robo{background:var(--info-bg);align-self:flex-end;border-top-right-radius:4px}
+.linha-tempo{list-style:none;margin:0;padding:0;display:grid;gap:6px;font-size:13.5px}
+.linha-tempo li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px}
+.linha-tempo .h{font-family:var(--mono);color:var(--ink-2);font-size:12.5px}
+
+/* opções lado a lado (A × B × C) e as decisões */
+.opcoes{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px}
+.opcao{background:var(--card);border:1.5px solid var(--line);border-radius:var(--radius);padding:12px;min-width:0}
+.opcao.rec{border-color:var(--gold);box-shadow:inset 0 0 0 1px var(--gold)}
+.opcao h3{font-family:var(--display);font-size:15px;margin:0 0 6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.opcao ul{margin:0;padding-left:18px;font-size:13.5px}
+.opcao li{margin:0 0 4px}
+.notas{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:14px;align-items:start}
+.notas + .notas{margin-top:14px}
+.notas.extras{grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr))}
+.cartao .decs{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.cartao .dec{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:0}
+.dec .cod{display:inline-block;font-family:var(--mono);font-weight:700;font-size:12.5px;background:var(--navy);color:#fff;border-radius:6px;padding:1px 7px;margin-right:6px}
+.dec .perg{font-weight:700}
+.dec .ops{margin:6px 0;padding-left:18px;font-size:13.5px}
+.dec .ops li{margin:0 0 2px}
+.dec .rec{margin:0;background:var(--ouro-bg);border-left:4px solid var(--gold);border-radius:6px;padding:6px 10px;font-size:13.5px}
+.pede{display:grid;gap:8px}
+.pede div{border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13.5px}
+.pede b{font-family:var(--display)}
+
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);pointer-events:none;background:var(--navy);color:#fff;padding:10px 16px;border-radius:10px;font-weight:700;z-index:60;width:max-content;max-width:calc(100vw - 32px);box-shadow:0 10px 26px rgba(0,0,0,.25);text-align:center}
+</style>
+</head>
+<body>
+
+<header class="proto">
+  <strong>Protótipo · atendente: alérgenos, pedido agendado e foto</strong>
+  <span class="obs">aprovado em 16/11/2026 · dados inventados · nada aqui fala com o Regem</span>
+  <nav class="abas" aria-label="Partes do protótipo">
+    <button type="button" class="aba" data-grupo="vista" data-valor="alerg">1 · Alérgenos</button>
+    <button type="button" class="aba" data-grupo="vista" data-valor="agend">2 · Pedido agendado</button>
+    <button type="button" class="aba" data-grupo="vista" data-valor="foto">3 · Foto e print de ajuda</button>
+    <button type="button" class="aba" data-grupo="vista" data-valor="notas">Notas e decisões</button>
+  </nav>
+</header>
+
+<main>
+
+<!-- ═════════════════════════ PARTE 1 · ALÉRGENOS E RESTRIÇÕES DO PRODUTO ═════════════════════════ -->
+<section class="vista" id="v-alerg" aria-labelledby="t-alerg">
+  <h1 id="t-alerg">Alérgenos e restrições do produto</h1>
+  <p class="intro">Hoje o cadastro não tem onde marcar alérgenos: quando o cliente pergunta "tem lactose?", o atendente virtual diz o que acha nos ingredientes e oferece confirmar com a equipe. Aqui o produto passa a ter a informação — e ela chega ao cardápio online e à resposta do atendente. Todo produto começa em <b>"não informado"</b>.</p>
+
+  <nav class="subabas" aria-label="Telas da parte 1">
+    <button type="button" class="subaba" data-grupo="subA" data-valor="cadastro">1 · Onde se marca</button>
+    <button type="button" class="subaba" data-grupo="subA" data-valor="conf">2 · Conferência</button>
+    <button type="button" class="subaba" data-grupo="subA" data-valor="cliente">3 · O que o cliente vê</button>
+    <button type="button" class="subaba" data-grupo="subA" data-valor="ajuste">4 · Ajuste</button>
+  </nav>
+
+  <!-- ───────── 1.1 Onde se marca ───────── -->
+  <div data-mostra="subA:cadastro">
+    <div class="ctls">
+      <div class="ctl"><span>Forma de marcar:</span>
+        <button type="button" data-grupo="forma" data-valor="B">B · no insumo, e o produto herda (recomendada)</button>
+        <button type="button" data-grupo="forma" data-valor="A">A · no produto, à mão</button></div>
+    </div>
+
+    <div class="opcoes" style="margin-bottom:14px">
+      <article class="opcao rec">
+        <h3>B · No insumo, e o produto herda <span class="selo ouro">Recomendada</span></h3>
+        <ul>
+          <li>Marca-se o <b>insumo</b> uma vez (o pão, o queijo), olhando o rótulo do fornecedor.</li>
+          <li>O produto do cardápio <b>herda pela ficha técnica</b>, que o Regem já tem.</li>
+          <li>Trocou o fornecedor do pão? Muda o insumo, e os 9 lanches mudam juntos.</li>
+          <li>No produto fica só o <b>ajuste</b>: "pode conter — contato no preparo" e o produto sem ficha.</li>
+        </ul>
+      </article>
+      <article class="opcao">
+        <h3>A · No produto, à mão</h3>
+        <ul>
+          <li>Cada produto do cardápio é marcado um por um.</li>
+          <li>Simples de entender e não depende da ficha técnica.</li>
+          <li>Trocou um ingrediente? É preciso lembrar de abrir cada produto que o usa.</li>
+          <li>Continua existindo dentro da B, para o produto que não tem ficha (a Coca lata).</li>
+        </ul>
+      </article>
+    </div>
+
+    <!-- forma B -->
+    <div class="grade2" data-mostra="forma:B">
+      <article class="cartao cq">
+        <p class="trilha">Estoque › Produtos › editar</p>
+        <h2>1 · No insumo <small>6 dos 31 insumos da loja</small></h2>
+        <div class="ins">
+          <div class="q"><b>Pão brioche</b><small>Padaria · usado em 9 produtos</small></div>
+          <div class="als"><span class="selo ok">Informado</span><span class="al c">Trigo</span><span class="al c">Leite</span><span class="al c">Ovos</span></div>
+          <button type="button" class="bt fino" data-abrir="g-insumo" data-insumo="pao">Marcar alérgenos</button>
+        </div>
+        <div class="ins">
+          <div class="q"><b>Queijo cheddar</b><small>Laticínios · usado em 7 produtos</small></div>
+          <div class="als"><span class="selo ok">Informado</span><span class="al c">Leite</span></div>
+          <button type="button" class="bt fino" data-abrir="g-insumo" data-insumo="cheddar">Marcar alérgenos</button>
+        </div>
+        <div class="ins">
+          <div class="q"><b>Bacon fatiado</b><small>Carnes · usado em 4 produtos</small></div>
+          <div class="als"><span class="selo ok">Informado</span><span class="al p">Pode conter soja</span></div>
+          <button type="button" class="bt fino" data-abrir="g-insumo" data-insumo="bacon">Marcar alérgenos</button>
+        </div>
+        <div class="ins">
+          <div class="q"><b>Carne bovina 150 g</b><small>Carnes · usado em 8 produtos</small></div>
+          <div class="als"><span class="selo ok">Informado</span><span class="al n">Nenhum da lista</span></div>
+          <button type="button" class="bt fino" data-abrir="g-insumo" data-insumo="carne">Marcar alérgenos</button>
+        </div>
+        <div class="ins">
+          <div class="q"><b>Maionese da casa</b><small>Molhos · usado em 6 produtos</small></div>
+          <div class="als"><span class="selo ok">Informado</span><span class="al c">Ovos</span></div>
+          <button type="button" class="bt fino" data-abrir="g-insumo" data-insumo="maionese">Marcar alérgenos</button>
+        </div>
+        <div class="ins">
+          <div class="q"><b>Batata palito congelada</b><small>Congelados · usado em 4 produtos</small></div>
+          <div class="als"><span class="selo neutro">Não informado</span><span class="al q">ninguém conferiu o rótulo</span></div>
+          <button type="button" class="bt fino pri" data-abrir="g-insumo" data-insumo="batata">Marcar alérgenos</button>
+        </div>
+        <p class="leg">Na tela de verdade é a gaveta de editar o insumo, que já existe, com um grupo a mais: "Alérgenos e restrições".</p>
+      </article>
+
+      <div class="pilha">
+        <article class="cartao cq">
+          <p class="trilha">Cadastros › Cardápio › produto</p>
+          <h2>2 · O produto herda pela ficha técnica</h2>
+          <p style="margin:0 0 8px"><b>Número 07</b> · <span style="color:var(--ink-2)">Lanches · <span class="mono">R$ 32,00</span> · ficha técnica com 5 insumos</span></p>
+          <ul class="ficha" aria-label="Ficha técnica do Número 07">
+            <li><span>Pão brioche</span><span class="als"><span class="al c">Trigo</span><span class="al c">Leite</span><span class="al c">Ovos</span></span></li>
+            <li><span>Carne bovina 150 g</span><span class="als"><span class="al n">Nenhum da lista</span></span></li>
+            <li><span>Queijo cheddar</span><span class="als"><span class="al c">Leite</span></span></li>
+            <li><span>Bacon fatiado</span><span class="als"><span class="al p">Pode conter soja</span></span></li>
+            <li><span>Maionese da casa</span><span class="als"><span class="al c">Ovos</span></span></li>
+          </ul>
+          <div class="result" aria-label="O que o Número 07 tem">
+            <div class="lin"><span class="rot">Contém</span><span>Trigo (glúten), leite e ovos <span class="selo neutro">pela ficha</span></span></div>
+            <div class="lin"><span class="rot">Pode conter</span><span>Soja <span class="selo neutro">pela ficha</span> · Amendoim, contato no preparo <span class="selo ouro">à mão</span></span></div>
+            <div class="lin"><span class="rot">Glúten e lactose</span><span>Contém glúten · contém lactose</span></div>
+            <div class="lin"><span class="rot">Os outros 16</span><span>Não contém</span></div>
+          </div>
+          <div class="acoes" style="margin-top:10px"><button type="button" class="bt pri" data-abrir="g-produto">Ajustar no produto</button></div>
+        </article>
+        <article class="cartao">
+          <h3>Como o produto herda</h3>
+          <ol>
+            <li>Um insumo da ficha <b>contém</b> → o produto contém.</li>
+            <li>Nenhum contém, mas <b>falta conferir</b> algum insumo → fica "não informado" naquele alérgeno. A ausência nunca se presume.</li>
+            <li>Todos conferidos e algum diz <b>"pode conter"</b> → o produto pode conter.</li>
+            <li>Todos conferidos e nenhum tem → <b>não contém</b> — e mesmo assim o cliente lê a frase de cautela.</li>
+          </ol>
+          <p class="leg" style="margin-top:8px">O ajuste à mão no produto serve para somar cautela ("pode conter — contato no preparo") e para o produto sem ficha. O que a ficha diz que <b>contém</b> não se apaga no produto: corrige-se o insumo.</p>
+        </article>
+      </div>
+    </div>
+
+    <!-- forma A -->
+    <div class="pilha" data-mostra="forma:A">
+      <article class="cartao cq">
+        <p class="trilha">Cadastros › Cardápio › produto</p>
+        <h2>No produto, à mão <small>4 dos 20 produtos do cardápio</small></h2>
+        <div class="ins">
+          <div class="q"><b>Número 07</b><small>Lanches · <span class="mono">R$ 32,00</span></small></div>
+          <div class="als"><span class="selo ok">Informado</span><span class="al c">Trigo (glúten)</span><span class="al c">Leite</span><span class="al c">Ovos</span><span class="al p">Pode conter soja</span></div>
+          <button type="button" class="bt fino" data-abrir="g-produto" data-prod="Número 07">Marcar alérgenos</button>
+        </div>
+        <div class="ins">
+          <div class="q"><b>Trio 07</b><small>Combos · <span class="mono">R$ 41,90</span></small></div>
+          <div class="als"><span class="selo neutro">Não informado</span></div>
+          <button type="button" class="bt fino pri" data-abrir="g-produto" data-prod="Trio 07">Marcar alérgenos</button>
+        </div>
+        <div class="ins">
+          <div class="q"><b>X-Bacon</b><small>Lanches · <span class="mono">R$ 29,00</span></small></div>
+          <div class="als"><span class="selo ok">Informado</span><span class="al c">Trigo (glúten)</span><span class="al c">Leite</span><span class="al c">Ovos</span></div>
+          <button type="button" class="bt fino" data-abrir="g-produto" data-prod="X-Bacon">Marcar alérgenos</button>
+        </div>
+        <div class="ins">
+          <div class="q"><b>Coca lata</b><small>Bebidas · <span class="mono">R$ 6,00</span></small></div>
+          <div class="als"><span class="selo ok">Informado</span><span class="al n">Nenhum da lista</span></div>
+          <button type="button" class="bt fino" data-abrir="g-produto" data-prod="Coca lata">Marcar alérgenos</button>
+        </div>
+      </article>
+      <p class="aviso warn"><b>O ponto fraco da forma A</b>Se o pão passar a ter leite, alguém precisa lembrar de abrir cada lanche que leva pão. Na forma B, muda o insumo e o Regem refaz a conta.</p>
+    </div>
+  </div>
+
+  <!-- ───────── 1.2 Conferência ───────── -->
+  <div data-mostra="subA:conf">
+    <div class="ctls">
+      <div class="ctl"><span>A lista:</span>
+        <button type="button" data-grupo="listaA" data-valor="dados">com produtos</button>
+        <button type="button" data-grupo="listaA" data-valor="vazio">cardápio sem produto</button>
+        <button type="button" data-grupo="listaA" data-valor="carregando">carregando</button>
+        <button type="button" data-grupo="listaA" data-valor="erro">sem conexão</button></div>
+    </div>
+    <p class="trilha">Cadastros › Cardápio › Alérgenos <span style="letter-spacing:0;text-transform:none;color:var(--ink-2)">(o lugar no menu é a decisão A8)</span></p>
+    <div class="barra-l">
+      <div><h2 id="conf-titulo">Alérgenos do cardápio · 20 produtos</h2>
+        <p class="resumo" id="conf-resumo">12 informados · 8 não informados</p></div>
+    </div>
+    <div data-mostra="listaA:dados">
+      <div class="sits" role="group" aria-label="Situação" id="conf-sits"></div>
+      <div class="filtros" role="group" aria-label="Busca e filtros">
+        <div class="campo"><label for="conf-busca">Buscar produto</label><input id="conf-busca" type="search" placeholder="Ex.: trio, batata" autocomplete="off"></div>
+        <div class="campo"><label for="conf-alerg">Alérgeno</label>
+          <select id="conf-alerg"><option value="">Todos</option><option>Trigo (glúten)</option><option>Leite</option><option>Ovos</option><option>Soja</option><option>Amendoim</option><option>Castanhas</option><option>Crustáceos</option><option>Peixes</option></select></div>
+        <div class="campo"><label for="conf-origem">De onde vem</label>
+          <select id="conf-origem"><option value="">Todas as origens</option><option value="ficha">Pela ficha técnica</option><option value="mao">À mão (no produto)</option></select></div>
+      </div>
+      <div id="conf-lista" aria-live="polite"></div>
+    </div>
+    <div class="vazio" data-mostra="listaA:vazio"><b>Nenhum produto no cardápio</b>Cadastre os produtos em Cadastros › Cardápio. Cada um começa como "não informado".</div>
+    <div data-mostra="listaA:carregando"><div class="esq" aria-hidden="true"><i></i><i></i><i></i></div><span class="sr" role="status">Carregando os produtos…</span></div>
+    <div class="vazio erro" data-mostra="listaA:erro" role="alert"><b>Não deu para ler os produtos</b>A conexão com o Regem falhou. Nada foi alterado.
+      <div class="acoes"><button type="button" class="bt pri" data-acao="conf-tentar">Tentar de novo</button></div></div>
+    <p class="leg">"Informado" = todos os alérgenos da lista têm resposta. "Não informado" mostra o que falta (um insumo sem conferir, um produto sem ficha) e o que já se sabe.</p>
+  </div>
+
+  <!-- ───────── 1.3 O que o cliente vê ───────── -->
+  <div data-mostra="subA:cliente">
+    <div class="ctls">
+      <div class="ctl"><span>No cardápio online, o produto está:</span>
+        <button type="button" data-grupo="prodA" data-valor="informado">informado</button>
+        <button type="button" data-grupo="prodA" data-valor="nao">não informado</button></div>
+      <div class="ctl"><span>No WhatsApp, o cliente pergunta de um produto:</span>
+        <button type="button" data-grupo="casoA" data-valor="contem">informado e contém</button>
+        <button type="button" data-grupo="casoA" data-valor="naocontem">informado e não contém</button>
+        <button type="button" data-grupo="casoA" data-valor="nao">não informado</button></div>
+    </div>
+    <div class="fones">
+      <article class="caso-f">
+        <h2>Cardápio online · a página do produto</h2>
+        <div class="fone"><div class="vidro">
+          <div class="lp-topo"><span class="av">MB</span><div><b>Mister Burguer</b><small>Aberto até 23:00</small></div></div>
+          <div class="lp-corpo">
+            <div class="lp-foto" role="img" aria-label="Foto do lanche (desenho)"></div>
+            <h3 class="lp-nome" data-mostra="prodA:informado">Número 07</h3>
+            <h3 class="lp-nome" data-mostra="prodA:nao">Milk-shake de chocolate</h3>
+            <p class="lp-desc" data-mostra="prodA:informado">Pão brioche, burger de 150 g, cheddar, bacon e maionese da casa.</p>
+            <p class="lp-desc" data-mostra="prodA:nao">Sorvete de creme batido com calda de chocolate. 400 ml.</p>
+            <p class="lp-preco" data-mostra="prodA:informado">R$ 32,00</p>
+            <p class="lp-preco" data-mostra="prodA:nao">R$ 18,00</p>
+            <div class="lp-alerg" data-mostra="prodA:informado">
+              <h4>Alérgenos</h4>
+              <p><b>Contém:</b> leite, trigo (glúten) e ovos.</p>
+              <p><b>Pode conter:</b> soja e amendoim.</p>
+              <p>Contém glúten · contém lactose.</p>
+              <p class="cautela" data-cautela></p>
+              <p style="font-size:12.5px;color:var(--ink-2)">Vale para o lanche como vem. Adicionais podem mudar.</p>
+            </div>
+            <button type="button" class="lp-bt" data-toast="No protótipo, o botão só mostra o lugar dele.">Adicionar</button>
+          </div>
+        </div></div>
+        <p class="leg" data-mostra="prodA:informado">"Contém" vem primeiro, depois "pode conter", depois glúten e lactose, e a frase de cautela da loja por último.</p>
+        <p class="leg" data-mostra="prodA:nao">Produto "não informado" não ganha o bloco: a página fica como é hoje (decisão A4). Quem pergunta ao atendente recebe a oferta de confirmar com a equipe.</p>
+      </article>
+
+      <article class="caso-f">
+        <h2 data-mostra="casoA:contem">WhatsApp · informado e contém</h2>
+        <h2 data-mostra="casoA:naocontem">WhatsApp · informado e não contém</h2>
+        <h2 data-mostra="casoA:nao">WhatsApp · não informado <span class="selo neutro">como é hoje</span></h2>
+        <div class="fone"><div class="vidro">
+          <div class="wa-topo"><span class="av">MB</span><div><b>Mister Burguer</b><small>conta comercial</small></div></div>
+          <div class="wa">
+            <span class="wa-dia">HOJE</span>
+            <div data-mostra="casoA:contem" style="display:contents">
+              <div class="bolha eu"><p>O Número 07 tem lactose?</p><small class="h">19:12</small></div>
+              <div class="bolha">
+                <p>Tem, sim. O Número 07 <b>contém leite (lactose)</b>: está no queijo cheddar e no pão brioche.</p>
+                <p>Ele também contém trigo (glúten) e ovos, e pode conter soja e amendoim.</p>
+                <p data-cautela></p>
+                <small class="h">19:12</small>
+              </div>
+            </div>
+            <div data-mostra="casoA:naocontem" style="display:contents">
+              <div class="bolha eu"><p>O X-Bacon leva amendoim? Meu filho é alérgico</p><small class="h">19:12</small></div>
+              <div class="bolha">
+                <p>Pelo cadastro da loja, o X-Bacon <b>não leva amendoim</b> nos ingredientes.</p>
+                <p>Só não consigo garantir que não haja traços: ele é feito na mesma cozinha de outros alimentos.</p>
+                <p data-cautela></p>
+                <p>Como é alergia, quer que eu confirme com a equipe antes de você pedir?</p>
+                <small class="h">19:12</small>
+              </div>
+              <div class="qr"><button type="button" data-toast="No protótipo: o atendente chama a equipe, com o resumo.">Sim, quero confirmar</button><button type="button" data-toast="No protótipo: a conversa segue para o pedido.">Não, obrigado</button></div>
+            </div>
+            <div data-mostra="casoA:nao" style="display:contents">
+              <div class="bolha eu"><p>O milk-shake de chocolate tem glúten?</p><small class="h">19:12</small></div>
+              <div class="bolha">
+                <p>Essa informação a loja ainda não cadastrou para o Milk-shake de chocolate, e com restrição alimentar eu prefiro não arriscar.</p>
+                <p>Quer que eu confirme com a equipe?</p>
+                <small class="h">19:12</small>
+              </div>
+              <div class="qr"><button type="button" data-toast="No protótipo: o atendente chama a equipe, com o resumo.">Sim, quero ajuda</button><button type="button" data-toast="No protótipo: a conversa segue.">Não, obrigado</button></div>
+            </div>
+          </div>
+          <div class="wa-escrever"><span>Mensagem</span></div>
+        </div></div>
+        <p class="leg" data-mostra="casoA:contem">O atendente responde primeiro ao que foi perguntado, diz de onde vem e termina com a frase de cautela da loja.</p>
+        <p class="leg" data-mostra="casoA:naocontem">Mesmo com "não contém" no cadastro, ele <b>nunca garante ausência de traços</b> e oferece a equipe — é a regra de alergia que o atendente já segue.</p>
+        <p class="leg" data-mostra="casoA:nao">Sem cadastro, nada muda: é o comportamento de hoje.</p>
+      </article>
+    </div>
+  </div>
+
+  <!-- ───────── 1.4 Ajuste ───────── -->
+  <div data-mostra="subA:ajuste" data-barra="alerg">
+    <p class="trilha">Delivery › Configurações › Cardápio digital › Cardápio</p>
+    <div class="aj-grupo">
+      <header><h2>Alérgenos <span class="selo novo">NOVO</span></h2><span class="q">1 ajuste</span></header>
+      <div class="aj largo" data-linha="cautela">
+        <div class="t"><b>Frase de cautela da loja</b><small>Aparece embaixo dos alérgenos na página do produto e no fim da resposta do atendente virtual. Vale para a loja inteira.</small></div>
+        <div class="campo">
+          <label for="frase-cautela" class="sr">Frase de cautela da loja</label>
+          <textarea id="frase-cautela" data-aj="cautela" maxlength="240">Nossa cozinha prepara alimentos com leite, trigo, ovos, soja, amendoim e castanhas. Não garantimos a ausência de traços. Em caso de alergia, fale com a nossa equipe antes de pedir.</textarea>
+          <span class="conta" id="conta-cautela">0/240</span>
+          <div class="acoes"><button type="button" class="bt fino" data-acao="cautela-padrao">Voltar ao texto padrão</button></div>
+        </div>
+      </div>
+    </div>
+    <h2 class="sec">Como fica</h2>
+    <div class="grade2">
+      <article class="cartao"><h3>No cardápio online</h3>
+        <div class="lp-alerg"><h4>Alérgenos</h4><p><b>Contém:</b> leite, trigo (glúten) e ovos.</p><p class="cautela" data-cautela></p></div></article>
+      <article class="cartao"><h3>Na resposta do atendente</h3>
+        <div class="wa" style="border-radius:10px"><div class="bolha"><p>Tem, sim. O Número 07 <b>contém leite (lactose)</b>.</p><p data-cautela></p><small class="h">19:12</small></div></div></article>
+    </div>
+    <p class="leg">A frase vazia não é aceita: sem ela, o cliente poderia ler "não contém" como garantia.</p>
+  </div>
+</section>
+
+<!-- ═════════════════════════ PARTE 2 · PEDIDO AGENDADO ═════════════════════════ -->
+<section class="vista" id="v-agend" aria-labelledby="t-agend" hidden>
+  <h1 id="t-agend">Pedido agendado</h1>
+  <p class="intro">Hoje, com a loja fechada, o atendente não aceita "quero para as 19h". O Regem já tem a <b>encomenda</b> (pedido para dia e hora à frente, com sinal, pensada para marmita, bolo e kit). O pedido agendado é o pedido comum do cardápio com <b>hora marcada</b>, em janelas de 15 min, montado em cima do que a encomenda já usa: o campo do horário no pedido, o "Para quando?" do fechamento, a agenda e o cartão "começa HH:MM" do KDS.</p>
+
+  <nav class="subabas" aria-label="Telas da parte 2">
+    <button type="button" class="subaba" data-grupo="subG" data-valor="cardapio">1 · Cardápio online</button>
+    <button type="button" class="subaba" data-grupo="subG" data-valor="whats">2 · WhatsApp</button>
+    <button type="button" class="subaba" data-grupo="subG" data-valor="loja">3 · Na loja</button>
+    <button type="button" class="subaba" data-grupo="subG" data-valor="pag">4 · Pagamento</button>
+    <button type="button" class="subaba" data-grupo="subG" data-valor="avisos">5 · Avisos ao cliente</button>
+    <button type="button" class="subaba" data-grupo="subG" data-valor="ajustes">6 · Ajustes</button>
+  </nav>
+
+  <!-- ───────── 2.1 Cardápio online ───────── -->
+  <div data-mostra="subG:cardapio">
+    <div class="ctls">
+      <div class="ctl"><span>A loja agora:</span>
+        <button type="button" data-grupo="lojaG" data-valor="fechada">fechada (16:10 · abre às 18:00)</button>
+        <button type="button" data-grupo="lojaG" data-valor="aberta">aberta (20:10)</button></div>
+      <div class="ctl"><span>Pagamento do agendado:</span>
+        <button type="button" data-grupo="pagG" data-valor="pix">só Pix (recomendado)</button>
+        <button type="button" data-grupo="pagG" data-valor="ambos">Pix ou na entrega</button></div>
+      <div class="ctl"><span>O pedido:</span>
+        <button type="button" data-grupo="chkG" data-valor="escolha">fechando o pedido</button>
+        <button type="button" data-grupo="chkG" data-valor="feito">depois de confirmar</button></div>
+    </div>
+    <div class="fones com-lado">
+      <article class="caso-f">
+        <h2>Fechamento do pedido · "Para quando?"</h2>
+        <div class="fone"><div class="vidro">
+          <div class="lp-topo"><span class="av">MB</span><div><b>Mister Burguer</b><small data-mostra="lojaG:fechada">Fechada agora · abre hoje às 18:00</small><small data-mostra="lojaG:aberta">Aberta até 23:00</small></div></div>
+
+          <div class="lp-corpo" data-mostra="chkG:escolha">
+            <div class="lp-aviso" data-mostra="lojaG:fechada" role="status"><b>A loja está fechada agora</b>Abrimos hoje às 18:00. Deixe o pedido agendado: a cozinha começa assim que abrir.</div>
+            <div class="lp-sec">
+              <h3>Seu pedido</h3>
+              <div class="lp-linha"><span>1× Trio 07</span><span class="mono">R$ 41,90</span></div>
+              <div class="lp-linha"><span>Entrega · Rua das Acácias, 120</span><span class="mono">R$ 5,00</span></div>
+              <div class="lp-linha"><b>Total</b><b class="mono">R$ 46,90</b></div>
+            </div>
+            <div class="lp-sec">
+              <h3 id="q-tit">Para quando?</h3>
+              <div class="c-seg" role="group" aria-labelledby="q-tit">
+                <button type="button" id="q-agora" data-quando="agora">O quanto antes<small id="q-agora-sub">cerca de 40 min</small></button>
+                <button type="button" id="q-agendar" data-quando="agendar">Agendar<small>escolha o dia e o horário</small></button>
+              </div>
+              <div id="q-campos" style="display:grid;gap:8px">
+                <div class="campo"><label for="q-dia">Dia</label><input type="date" id="q-dia"></div>
+                <div class="campo"><label for="q-janela">Horário (janelas de 15 min)</label><select id="q-janela"></select>
+                  <span class="ajuda" id="q-ajuda"></span></div>
+                <p class="lp-ok" id="q-resumo" role="status" style="margin:0"></p>
+              </div>
+            </div>
+            <div class="lp-sec">
+              <h3 id="pg-tit">Pagamento</h3>
+              <div class="c-seg" role="group" aria-labelledby="pg-tit">
+                <button type="button" id="pg-pix" data-pag="pix">Pix<small id="pg-pix-sub">pague agora</small></button>
+                <button type="button" id="pg-entrega" data-pag="entrega">Na entrega<small id="pg-entrega-sub">dinheiro ou cartão</small></button>
+              </div>
+              <p class="leg" id="pg-nota" style="margin:0"></p>
+            </div>
+            <button type="button" class="lp-bt" id="q-confirmar">Agendar pedido · R$ 46,90</button>
+          </div>
+
+          <div class="lp-corpo" data-mostra="chkG:feito">
+            <div class="lp-ok" id="feito-topo" role="status"></div>
+            <div class="lp-sec">
+              <h3>Pedido nº 1051</h3>
+              <div class="lp-linha"><span>1× Trio 07</span><span class="mono">R$ 41,90</span></div>
+              <div class="lp-linha"><span>Entrega</span><span class="mono">R$ 5,00</span></div>
+              <div class="lp-linha"><b>Total</b><b class="mono">R$ 46,90</b></div>
+              <div class="lp-linha"><span id="feito-pag">Pix pago</span></div>
+            </div>
+            <div class="lp-sec" id="feito-acoes">
+              <h3>Precisa mudar?</h3>
+              <p class="leg" style="margin:0" id="feito-ate"></p>
+              <div class="acoes">
+                <button type="button" class="bt" data-toast="No Regem: abre o mesmo 'Para quando?', com as janelas livres.">Mudar o horário</button>
+                <button type="button" class="bt" data-toast="No Regem: confirma, cancela e devolve o Pix sozinho.">Cancelar o pedido</button>
+              </div>
+            </div>
+            <button type="button" class="lp-bt" data-acao="chk-voltar">Fazer outro pedido</button>
+          </div>
+        </div></div>
+      </article>
+
+      <div class="pilha">
+        <article class="cartao">
+          <h3>O que o cliente consegue escolher</h3>
+          <ul>
+            <li><b>Só horário em que a loja atende</b> (o horário de funcionamento que a loja já cadastrou). Dia em que a loja não abre não tem janela.</li>
+            <li><b>Antecedência mínima</b>: com a loja aberta, a primeira janela é a de 45 min à frente (ajuste). Com a loja fechada, a primeira é a da abertura mais o tempo de entrega.</li>
+            <li><b>Janelas de 15 min</b>: "19:30" quer dizer que chega entre 19:30 e 19:45.</li>
+            <li><b>Limite por janela</b>: a janela cheia aparece na lista como "esgotado" e não dá para escolher.</li>
+            <li><b>Loja fechada</b>: "O quanto antes" fica apagado e o cardápio já abre em "Agendar", na primeira janela.</li>
+          </ul>
+        </article>
+        <article class="cartao">
+          <h3>O que já existe e continua igual</h3>
+          <ul>
+            <li>O bloco "Quando?" com "O quanto antes" e "Agendar" já está no fechamento — hoje só aparece para a loja com a <b>encomenda</b> ligada, com um campo único de data e hora.</li>
+            <li>O servidor confere tudo de novo ao receber o pedido (horário, janela, limite): a tela só ajuda.</li>
+            <li>A encomenda (dias à frente, sinal, repetir toda semana) não muda para quem já usa.</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────── 2.2 WhatsApp ───────── -->
+  <div data-mostra="subG:whats">
+    <div class="ctls">
+      <div class="ctl"><span>O cliente (loja fechada, 16:10):</span>
+        <button type="button" data-grupo="zapG" data-valor="aceita">aceita agendar</button>
+        <button type="button" data-grupo="zapG" data-valor="cheio">pede um horário que já encheu</button>
+        <button type="button" data-grupo="zapG" data-valor="espera">prefere esperar a loja abrir</button></div>
+    </div>
+    <div class="fones">
+      <article class="caso-f">
+        <h2>WhatsApp da loja</h2>
+        <div class="fone"><div class="vidro">
+          <div class="wa-topo"><span class="av">MB</span><div><b>Mister Burguer</b><small>conta comercial</small></div></div>
+          <div class="wa">
+            <span class="wa-dia">HOJE</span>
+            <div class="bolha eu"><p>Boa tarde! Quero um Trio 07 pra entrega</p><small class="h">16:10</small></div>
+            <div class="bolha">
+              <p>Boa tarde, Ana! Agora estamos fechados — abrimos hoje às <b>18:00</b>.</p>
+              <p>Posso deixar o seu pedido <b>agendado</b>: você escolhe o horário e ele chega na hora marcada. Quer agendar?</p>
+              <small class="h">16:10</small>
+            </div>
+            <div class="qr"><button type="button" data-toast="No protótipo: use os botões 'O cliente' acima.">Agendar</button><button type="button" data-toast="No protótipo: use os botões 'O cliente' acima.">Não, obrigado</button></div>
+
+            <div data-mostra="zapG:aceita" style="display:contents">
+              <div class="bolha eu"><p>Quero sim, pra 19:30</p><small class="h">16:11</small></div>
+              <div class="bolha">
+                <p>19:30 está livre. Confere o pedido:</p>
+                <p>🗓️ <b>Agendado para hoje, 19:30</b><br>chega entre 19:30 e 19:45</p>
+                <p>1× Trio 07 — R$ 41,90<br>Entrega: Rua das Acácias, 120 — R$ 5,00<br><b>Total: R$ 46,90</b> · Pix</p>
+                <p>Posso confirmar?</p>
+                <small class="h">16:11</small>
+              </div>
+              <div class="qr"><button type="button" data-toast="No protótipo: a conversa abaixo mostra o que vem depois.">Confirmar pedido</button><button type="button" data-toast="No protótipo: o atendente pergunta o que mudar.">Mudar algo</button></div>
+              <div class="bolha eu"><p>Confirmar pedido</p><small class="h">16:12</small></div>
+              <div class="bolha">
+                <p>Pedido nº 1051 registrado. Para valer o agendamento, pague o Pix de <b>R$ 46,90</b>:</p>
+                <small class="h">16:12</small>
+              </div>
+              <div class="qr"><button type="button" data-toast="No protótipo: copia o código do Pix do pedido.">Copiar código Pix</button></div>
+              <div class="bolha">
+                <p>✅ <b>Pix recebido!</b> Seu pedido nº 1051 está <b>agendado para hoje, 19:30</b>.</p>
+                <p>A cozinha começa às 18:50 e eu te aviso por aqui. Para mudar o horário ou cancelar, é só me chamar.</p>
+                <small class="h">16:14</small>
+              </div>
+            </div>
+
+            <div data-mostra="zapG:cheio" style="display:contents">
+              <div class="bolha eu"><p>Quero sim, pra 19:15</p><small class="h">16:11</small></div>
+              <div class="bolha">
+                <p>O horário das 19:15 já encheu. Os mais perto que tenho livres são <b>19:00</b> e <b>19:30</b>. Qual prefere?</p>
+                <small class="h">16:11</small>
+              </div>
+              <div class="qr"><button type="button" data-toast="No protótipo: segue para o resumo, como em 'aceita agendar'.">19:00</button><button type="button" data-toast="No protótipo: segue para o resumo, como em 'aceita agendar'.">19:30</button><button type="button" data-toast="No protótipo: o atendente mostra mais janelas livres.">Outro horário</button></div>
+            </div>
+
+            <div data-mostra="zapG:espera" style="display:contents">
+              <div class="bolha eu"><p>Não, eu peço quando abrir</p><small class="h">16:11</small></div>
+              <div class="bolha"><p>Combinado, Ana! Às 18:00 é só me chamar ou pedir pelo cardápio.</p><small class="h">16:11</small></div>
+            </div>
+          </div>
+          <div class="wa-escrever"><span>Mensagem</span></div>
+        </div></div>
+        <p class="leg" data-mostra="zapG:aceita">O resumo traz o horário em destaque e pede a confirmação pelo botão — o pedido só é registrado com a confirmação do resumo atual, como já é hoje.</p>
+        <p class="leg" data-mostra="zapG:cheio">O atendente consulta as janelas livres no Regem (não decide sozinho) e oferece as duas mais perto.</p>
+        <p class="leg" data-mostra="zapG:espera">Sem insistir: o atendente oferece uma vez.</p>
+      </article>
+    </div>
+  </div>
+
+  <!-- ───────── 2.3 Na loja ───────── -->
+  <div data-mostra="subG:loja">
+    <div class="ctls">
+      <div class="ctl"><span>O momento:</span>
+        <button type="button" data-grupo="momento" data-valor="antes">antes da hora (18:20)</button>
+        <button type="button" data-grupo="momento" data-valor="preparo">entrou em preparo (18:50)</button>
+        <button type="button" data-grupo="momento" data-valor="pausa">a loja pausou</button>
+        <button type="button" data-grupo="momento" data-valor="fechou">vão fechar o turno antes</button></div>
+      <div class="ctl"><span>A lista:</span>
+        <button type="button" data-grupo="listaG" data-valor="dados">com agendados</button>
+        <button type="button" data-grupo="listaG" data-valor="vazio">nenhum agendado</button>
+        <button type="button" data-grupo="listaG" data-valor="carregando">carregando</button>
+        <button type="button" data-grupo="listaG" data-valor="erro">sem conexão</button></div>
+    </div>
+    <p class="trilha">Delivery › Painel</p>
+    <div class="painel">
+      <div class="p-topo">
+        <span class="p-turno">● Turno 01</span><span>Operador: Rafael</span><span class="esp"></span>
+        <button type="button" class="bt fino" data-toast="No protótipo, a pausa está no botão 'a loja pausou' acima.">⏸ Pausar</button>
+        <button type="button" class="bt fino" data-acao="ir-fechar">Fechar turno</button>
+        <button type="button" class="bt fino pri" data-toast="No protótipo, o pedido novo não abre.">+ Novo pedido</button>
+      </div>
+      <div class="p-corpo">
+        <div class="sits" role="group" aria-label="Situação dos pedidos" id="painel-sits"></div>
+        <div id="painel-avisos" style="display:grid;gap:10px"></div>
+        <div id="painel-lista" aria-live="polite" style="display:grid;gap:8px"></div>
+      </div>
+    </div>
+    <p class="leg">"Agendados" é a situação nova: o pedido aceito que ainda não entrou em preparo. Na hora de começar, ele passa sozinho para "Em produção". Continua aparecendo em Delivery › Encomendas · agenda, por dia.</p>
+
+    <h2 class="sec">Na cozinha (KDS)</h2>
+    <div class="kds" id="kds-tira" aria-label="Cartões do KDS (tema claro)"></div>
+    <p class="leg">É o cartão da encomenda que o KDS já tem, só com a etiqueta "Agendado" no lugar de "Encomenda": aparece desde o aceite, neutro, com "começa HH:MM" no rodapé, e não entra em "Atrasados" antes da hora. Quando chega a hora de começar, o tempo passa a contar. Hoje esse começo é fixo em 30 min antes do horário; aqui passa a ser o tempo de entrega (40 min) ou de retirada (20 min) que a loja já cadastrou — decisão G3.</p>
+  </div>
+
+  <!-- ───────── 2.4 Pagamento ───────── -->
+  <div data-mostra="subG:pag">
+    <div class="opcoes">
+      <article class="opcao rec">
+        <h3>Pix na hora do agendamento <span class="selo ouro">Recomendada</span></h3>
+        <div class="lp-sec" style="margin:0 0 10px;background:#F7F9FB">
+          <div class="c-seg"><button type="button" aria-pressed="true" data-toast="No protótipo, a escolha fica na tela 1 · Cardápio online.">Pix<small>pague agora para confirmar</small></button><button type="button" disabled>Na entrega<small>só para pedido de agora</small></button></div>
+          <p class="leg" style="margin:0">O agendamento vale quando o Pix cai.</p>
+        </div>
+        <ul>
+          <li>O pedido só entra na agenda <b>pago</b>. Pix que não é pago vence e o pedido é cancelado, liberando a janela — é a regra de hoje do Pix do cardápio.</li>
+          <li>A cozinha produz sem o cliente estar esperando: pago, ninguém fica com o lanche na mão.</li>
+          <li>Cancelou antes de entrar em preparo? O valor <b>volta sozinho</b> (o estorno automático do Pix já existe).</li>
+          <li>Depende de a loja ter o Pix do cardápio ligado (Mercado Pago ou PagBank).</li>
+        </ul>
+      </article>
+      <article class="opcao">
+        <h3>Pagar na entrega</h3>
+        <div class="lp-sec" style="margin:0 0 10px;background:#F7F9FB">
+          <div class="c-seg"><button type="button" data-toast="No protótipo, a escolha fica na tela 1 · Cardápio online.">Pix<small>pague agora</small></button><button type="button" aria-pressed="true" data-toast="No protótipo, a escolha fica na tela 1 · Cardápio online.">Na entrega<small>dinheiro ou cartão</small></button></div>
+          <p class="leg" style="margin:0">O agendamento vale na hora, sem pagar.</p>
+        </div>
+        <ul>
+          <li>Mais fácil para quem não usa Pix; funciona em loja sem Pix no cardápio.</li>
+          <li>Risco: a janela fica presa e a cozinha produz para alguém que pode não estar — pior na retirada.</li>
+          <li>Trote ocupa janela: com limite por janela, um pedido falso tira a vaga de um de verdade.</li>
+        </ul>
+      </article>
+    </div>
+    <p class="aviso ouro" style="margin-top:14px"><b>Recomendação: Pix na hora para todo pedido agendado.</b>É o mesmo motivo do sinal da encomenda — garantir a produção de quem não está esperando —, só que aqui o pedido é comum e paga inteiro. A loja sem Pix no cardápio pode liberar "na entrega" (decisão G5).</p>
+    <p class="leg">A encomenda continua com a regra de sinal dela (percentual, prazo para cancelar). O pedido agendado não usa sinal.</p>
+  </div>
+
+  <!-- ───────── 2.5 Avisos ao cliente ───────── -->
+  <div data-mostra="subG:avisos">
+    <div class="ctls">
+      <div class="ctl"><span>O aviso:</span>
+        <button type="button" data-grupo="avisoG" data-valor="confirma">confirmação do agendamento</button>
+        <button type="button" data-grupo="avisoG" data-valor="preparo">entrou em preparo</button>
+        <button type="button" data-grupo="avisoG" data-valor="mudar">mudar o horário</button>
+        <button type="button" data-grupo="avisoG" data-valor="cancelar">cancelar</button>
+        <button type="button" data-grupo="avisoG" data-valor="tarde">mudar depois que entrou em preparo</button></div>
+    </div>
+    <div class="fones com-lado">
+      <article class="caso-f">
+        <h2>WhatsApp da cliente</h2>
+        <div class="fone"><div class="vidro">
+          <div class="wa-topo"><span class="av">MB</span><div><b>Mister Burguer</b><small>conta comercial</small></div></div>
+          <div class="wa">
+            <span class="wa-dia">HOJE</span>
+            <div data-mostra="avisoG:confirma" style="display:contents">
+              <div class="bolha">
+                <p>🗓️ <b>Pedido agendado</b>, Ana!</p>
+                <p>Pedido nº 1051 · <b>hoje, 19:30</b><br>chega entre 19:30 e 19:45</p>
+                <p>1× Trio 07 · R$ 46,90 · Pix pago ✅</p>
+                <p>A cozinha começa às 18:50 e eu te aviso. Para mudar o horário ou cancelar, responda por aqui ou abra o pedido.</p>
+                <small class="h">16:14</small>
+              </div>
+              <div class="qr"><button type="button" data-toast="No protótipo: abre a página do pedido no cardápio.">Ver meu pedido</button></div>
+            </div>
+            <div data-mostra="avisoG:preparo" style="display:contents">
+              <div class="bolha">
+                <p>👨‍🍳 <b>Seu pedido entrou em preparo!</b></p>
+                <p>Pedido nº 1051 · previsto para chegar entre <b>19:30 e 19:45</b>. Aviso de novo quando sair para entrega.</p>
+                <small class="h">18:50</small>
+              </div>
+              <div class="qr"><button type="button" data-toast="No protótipo: abre a página do pedido no cardápio.">Acompanhar pedido</button></div>
+            </div>
+            <div data-mostra="avisoG:mudar" style="display:contents">
+              <div class="bolha eu"><p>Dá pra mudar meu pedido pra 20h?</p><small class="h">17:05</small></div>
+              <div class="bolha">
+                <p>Dá, sim: 20:00 está livre. Mudo o pedido nº 1051 de 19:30 para <b>20:00</b>?</p>
+                <small class="h">17:05</small>
+              </div>
+              <div class="qr"><button type="button" data-toast="No protótipo: a conversa abaixo mostra o que vem depois.">Sim, mudar</button><button type="button" data-toast="No protótipo: o horário fica como está.">Deixar 19:30</button></div>
+              <div class="bolha eu"><p>Sim, mudar</p><small class="h">17:06</small></div>
+              <div class="bolha">
+                <p>Pronto! 🗓️ <b>Agendado para hoje, 20:00</b> (chega entre 20:00 e 20:15). A cozinha começa às 19:20.</p>
+                <small class="h">17:06</small>
+              </div>
+            </div>
+            <div data-mostra="avisoG:cancelar" style="display:contents">
+              <div class="bolha eu"><p>Preciso cancelar o pedido de hoje</p><small class="h">17:05</small></div>
+              <div class="bolha">
+                <p>Cancelo o pedido nº 1051, agendado para hoje às 19:30? O Pix de R$ 46,90 volta para a mesma conta.</p>
+                <small class="h">17:05</small>
+              </div>
+              <div class="qr"><button type="button" data-toast="No protótipo: a conversa abaixo mostra o que vem depois.">Sim, cancelar</button><button type="button" data-toast="No protótipo: o pedido fica como está.">Não cancelar</button></div>
+              <div class="bolha eu"><p>Sim, cancelar</p><small class="h">17:06</small></div>
+              <div class="bolha">
+                <p>Pedido nº 1051 cancelado. O estorno do Pix já foi pedido; o prazo para cair é do seu banco.</p>
+                <small class="h">17:06</small>
+              </div>
+            </div>
+            <div data-mostra="avisoG:tarde" style="display:contents">
+              <div class="bolha"><p>👨‍🍳 <b>Seu pedido entrou em preparo!</b> Pedido nº 1051 · previsto para 19:30.</p><small class="h">18:50</small></div>
+              <div class="bolha eu"><p>Nossa, dá pra mudar pra 20h30?</p><small class="h">18:58</small></div>
+              <div class="bolha">
+                <p>O pedido nº 1051 já está sendo preparado, então o horário eu não consigo mais mudar por aqui. Chamei a equipe da loja para ver o que dá para fazer.</p>
+                <small class="h">18:58</small>
+              </div>
+            </div>
+          </div>
+          <div class="wa-escrever"><span>Mensagem</span></div>
+        </div></div>
+      </article>
+
+      <div class="pilha">
+        <article class="cartao">
+          <h3>Quando cada aviso sai</h3>
+          <dl class="dl">
+            <dt>Confirmação</dt><dd>Quando o agendamento passa a valer (Pix pago, ou na hora se for "na entrega"). Traz o horário, o começo do preparo e como mudar.</dd>
+            <dt>Entrou em preparo</dt><dd>Na hora em que o cartão começa a contar na cozinha. Um aviso só por pedido.</dd>
+            <dt>Saiu / pronto</dt><dd>Os avisos de hoje ("saiu para entrega", "pronto para retirar"), sem mudança.</dd>
+            <dt>Horário mudou</dt><dd>Na hora, por quem mudou: a cliente, o atendente virtual ou a loja.</dd>
+            <dt>Cancelado</dt><dd>Na hora, com a volta do Pix.</dd>
+          </dl>
+        </article>
+        <article class="cartao">
+          <h3>Mudar e cancelar: até quando</h3>
+          <ul>
+            <li><b>Até entrar em preparo</b>, a cliente muda o horário ou cancela sozinha: pela página do pedido ou pedindo ao atendente virtual, que confirma por botão.</li>
+            <li><b>Depois que entrou em preparo</b>, o atendente não muda nem cancela: chama a equipe (o caminho de hoje).</li>
+            <li>O novo horário passa pelas mesmas regras: janela livre, antecedência, loja atendendo.</li>
+          </ul>
+        </article>
+        <p class="aviso"><b>Aviso muito depois da conversa</b>O WhatsApp só deixa a loja escrever livremente até 24 h depois da última mensagem do cliente. Pedido agendado para outro dia pode precisar de um modelo de mensagem aprovado pela Meta para o "entrou em preparo" — a conferir no código quais modelos de pedido a loja já tem.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────── 2.6 Ajustes ───────── -->
+  <div data-mostra="subG:ajustes" data-barra="agend">
+    <p class="trilha">Delivery › Configurações › Cardápio digital › Encomenda</p>
+    <div class="aj-grupo">
+      <header><h2>Pedido agendado <span class="selo novo">NOVO</span></h2><span class="q">4 ajustes</span></header>
+      <div class="aj" data-linha="ag-ligado">
+        <div class="t"><b>Aceitar pedido agendado</b><small>O cliente escolhe o dia e a janela de 15 min no cardápio online e no WhatsApp. Com a loja fechada, o atendente oferece agendar para a abertura. Nasce desligado.</small></div>
+        <div class="ctrl"><span class="sw-rot" id="ag-ligado-rot">Desligado</span><button type="button" class="sw" role="switch" aria-checked="false" data-aj="ag-ligado" aria-label="Aceitar pedido agendado"></button></div>
+      </div>
+      <div class="aj" data-linha="ag-antec" data-depende>
+        <div class="t"><b>Antecedência mínima</b><small>Quanto tempo antes do horário o pedido precisa ser feito, com a loja aberta.</small></div>
+        <div class="ctrl"><label for="ag-antec" class="sr">Antecedência mínima</label>
+          <select id="ag-antec" data-aj="ag-antec"><option value="30">30 min</option><option value="45" selected>45 min</option><option value="60">1 hora</option><option value="90">1 h 30</option><option value="120">2 horas</option></select></div>
+      </div>
+      <div class="aj" data-linha="ag-dias" data-depende>
+        <div class="t"><b>Até quantos dias à frente</b><small>Até que dia o cliente consegue marcar.</small></div>
+        <div class="ctrl"><label for="ag-dias" class="sr">Até quantos dias à frente</label>
+          <select id="ag-dias" data-aj="ag-dias"><option value="0">Só para hoje</option><option value="1" selected>Hoje e amanhã</option><option value="2">Até 2 dias à frente</option><option value="3">Até 3 dias à frente</option><option value="7">Até 7 dias à frente</option></select></div>
+      </div>
+      <div class="aj" data-linha="ag-limite" data-depende>
+        <div class="t"><b>Limite de pedidos por janela</b><small>Quantos pedidos agendados cabem em cada janela de 15 min. A janela cheia aparece "esgotada" para o cliente.</small></div>
+        <div class="ctrl"><label for="ag-limite" class="sr">Limite de pedidos por janela</label>
+          <select id="ag-limite" data-aj="ag-limite"><option value="2">2 pedidos</option><option value="3">3 pedidos</option><option value="4" selected>4 pedidos</option><option value="6">6 pedidos</option><option value="8">8 pedidos</option><option value="0">Sem limite</option></select></div>
+      </div>
+      <div class="aj" data-depende>
+        <div class="t"><b>Tamanho da janela</b><small>Fixo nesta versão.</small></div>
+        <div class="ctrl"><span class="fixo">15 min</span></div>
+      </div>
+      <div class="aj" data-depende>
+        <div class="t"><b>Quando o pedido entra em preparo</b><small>O tempo de entrega e o de retirada da loja, antes do horário marcado. Muda em Delivery › Configurações › Cardápio digital › Cardápio.</small></div>
+        <div class="ctrl"><span class="fixo">40 min antes (entrega)<br>20 min antes (retirada)</span></div>
+      </div>
+    </div>
+    <p class="leg">Os ajustes da <b>encomenda</b>, na mesma tela, continuam como estão: antecedência em horas, dias à frente, limite por dia e sinal. Uma loja pode usar os dois: o agendado para o lanche de hoje, a encomenda para o bolo de sábado.</p>
+  </div>
+</section>
+
+<!-- ═════════════════════════ PARTE 3 · O ATENDENTE LÊ A FOTO E AJUDA COM PRINT ═════════════════════════ -->
+<section class="vista" id="v-foto" aria-labelledby="t-foto" hidden>
+  <h1 id="t-foto">O atendente lê a foto e ajuda com print</h1>
+  <p class="intro">O pedido do dono: "tem cliente que tem dificuldade no link e manda print de erro ou da dificuldade em fechar o pedido; o ideal era o robô mandar um print de uma simulação de pedido corrigindo ou ajudando; manda foto de pedido errado, itens faltando". A leitura da imagem por IA já está no servidor (PR #1067), sem tela e desligada: hoje ela se liga do lado da Regem, para todas as lojas de uma vez; o ajuste por loja é o desta tela. Aqui está o que tem cara: o ajuste, as conversas e os prints de ajuda.</p>
+
+  <nav class="subabas" aria-label="Telas da parte 3">
+    <button type="button" class="subaba" data-grupo="subF" data-valor="ajuste">1 · O ajuste</button>
+    <button type="button" class="subaba" data-grupo="subF" data-valor="conversas">2 · Conversas de exemplo</button>
+    <button type="button" class="subaba" data-grupo="subF" data-valor="prints">3 · Os prints de ajuda</button>
+  </nav>
+
+  <!-- ───────── 3.1 O ajuste ───────── -->
+  <div data-mostra="subF:ajuste" data-barra="foto">
+    <p class="trilha">Delivery › Configurações › Operação › Atendimento</p>
+    <div class="aj-grupo">
+      <header><h2>Fotos do cliente <span class="selo novo">NOVO</span></h2><span class="q">2 ajustes</span></header>
+      <div class="aj" data-linha="ft-ler">
+        <div class="t"><b>Ler as fotos que o cliente manda</b><small>O atendente virtual passa a entender a foto ou o print que chega no WhatsApp — um erro do cardápio, um pedido com problema — e responde de acordo. Desligado, ele diz que não consegue ver e pede para o cliente escrever, como hoje. Nasce desligado.</small></div>
+        <div class="ctrl"><span class="sw-rot" id="ft-ler-rot">Desligado</span><button type="button" class="sw" role="switch" aria-checked="false" data-aj="ft-ler" aria-label="Ler as fotos que o cliente manda"></button></div>
+      </div>
+      <div class="aj" data-linha="ft-print">
+        <div class="t"><b>Mandar print de ajuda</b> <span class="selo neutro">decisão F4</span><small>Quando o cliente trava num passo do cardápio, o atendente manda a imagem daquele passo com as marcações. No máximo um print por resposta, sempre com uma frase e a oferta de montar o pedido pela conversa. Nasce desligado.</small></div>
+        <div class="ctrl"><span class="sw-rot" id="ft-print-rot">Desligado</span><button type="button" class="sw" role="switch" aria-checked="false" data-aj="ft-print" aria-label="Mandar print de ajuda"></button></div>
+      </div>
+      <div class="aj">
+        <div class="t"><b>Gasto estimado</b><small>Estimativa pela tabela de preços do modelo (a mesma de Mister › IA e uso): com 200 fotos no mês, menos de R$ 2,00. Sai da chave de IA da empresa. O print de ajuda não gasta IA: é uma imagem pronta.</small></div>
+        <div class="ctrl"><span class="fixo">menos de R$ 0,01<br>por foto lida</span></div>
+      </div>
+    </div>
+
+    <h2 class="sec">O que acontece com a foto</h2>
+    <div class="grade2">
+      <article class="cartao">
+        <h3>Com o ajuste ligado</h3>
+        <ol>
+          <li>O cliente manda a foto ou o print no WhatsApp da loja.</li>
+          <li>A foto vai ao provedor de IA <b>só para ser descrita</b> em texto.</li>
+          <li>O atendente virtual recebe a descrição e responde.</li>
+          <li>A foto <b>não fica guardada</b> no Regem: fica a descrição.</li>
+        </ol>
+        <p class="leg" style="margin-top:8px">Áudio e texto já funcionam assim.</p>
+      </article>
+      <article class="cartao">
+        <h3>Com o ajuste desligado <span class="selo neutro">como é hoje</span></h3>
+        <div class="wa" style="border-radius:10px">
+          <div class="bolha eu"><figure class="anexo"><div class="foto-cli" role="img" aria-label="Uma foto qualquer que a cliente mandou" style="height:70px;background:linear-gradient(135deg,#C9D3DB,#E6ECF1)"></div><figcaption>📷 foto</figcaption></figure><small class="h">19:02</small></div>
+          <div class="bolha"><p>Não consigo ver a foto por aqui. Pode me escrever o que aparece na tela ou o que você precisa?</p><small class="h">19:02</small></div>
+        </div>
+      </article>
+    </div>
+  </div>
+
+  <!-- ───────── 3.2 Conversas de exemplo ───────── -->
+  <div data-mostra="subF:conversas">
+    <div class="ctls">
+      <div class="ctl"><span>A foto que o cliente manda:</span>
+        <button type="button" data-grupo="casoF" data-valor="a">a · print do "pedido mínimo"</button>
+        <button type="button" data-grupo="casoF" data-valor="b">b · "fora da área de entrega"</button>
+        <button type="button" data-grupo="casoF" data-valor="c">c · Pix vencido</button>
+        <button type="button" data-grupo="casoF" data-valor="d">d · cliente perdido, sem erro na tela</button>
+        <button type="button" data-grupo="casoF" data-valor="e">e · pedido errado ou item faltando</button>
+        <button type="button" data-grupo="casoF" data-valor="f">f · comprovante de pagamento (no ar)</button></div>
+    </div>
+
+    <div class="fones com-lado">
+      <article class="caso-f">
+        <h2 data-mostra="casoF:a">a · Print do cardápio com "Pedido mínimo R$ 20,00"</h2>
+        <h2 data-mostra="casoF:b">b · Print com o endereço fora da área de entrega</h2>
+        <h2 data-mostra="casoF:c">c · Print do Pix vencido</h2>
+        <h2 data-mostra="casoF:d">d · "Não consigo finalizar", sem erro na tela</h2>
+        <h2 data-mostra="casoF:e">e · Foto do pedido com item faltando</h2>
+        <h2 data-mostra="casoF:f">f · Comprovante de pagamento <span class="selo noar">no ar</span></h2>
+        <div class="fone"><div class="vidro">
+          <div class="wa-topo"><span class="av">MB</span><div><b>Mister Burguer</b><small>conta comercial</small></div></div>
+          <div class="wa">
+            <span class="wa-dia">HOJE</span>
+
+            <!-- a -->
+            <div data-mostra="casoF:a" style="display:contents">
+              <div class="bolha eu">
+                <figure class="anexo"><div class="foto-cli" role="img" aria-label="Print do carrinho: 1 Coca lata, subtotal de R$ 6,00, aviso de pedido mínimo de R$ 20,00 e o botão Continuar apagado">
+                  <div class="p-cab"><i></i><span>Mister Burguer</span></div><div class="p-tit">Seu carrinho</div>
+                  <div class="p-corpo"><div class="p-l"><span>1× Coca lata</span><span class="v">R$ 6,00</span></div><div class="p-l"><span>Subtotal</span><span class="v">R$ 6,00</span></div><div class="p-l erro"><span>Pedido mínimo R$ 20,00</span></div><div class="p-l bot off"><span>Continuar</span></div></div>
+                </div><figcaption>📷 print que a cliente mandou</figcaption></figure>
+                <p>não tá indo</p><small class="h">19:02</small></div>
+              <div class="bolha"><p>Vi o seu print, Ana: o carrinho está em R$ 6,00 e o <b>pedido mínimo é R$ 20,00</b>. Faltam R$ 14,00 para o botão "Continuar" liberar.</p><small class="h">19:02</small></div>
+              <div class="bolha">
+                <figure class="anexo"><div data-print="carrinho"></div><figcaption>🖼️ print de ajuda · passo 3 de 6</figcaption></figure>
+                <p>É nesta tela: quando o subtotal passa do mínimo (1), o botão libera (2). Se preferir, eu monto o pedido com você por aqui mesmo.</p>
+                <small class="h">19:02</small></div>
+              <div class="qr"><button type="button" data-toast="No protótipo: o atendente passa a montar o pedido na conversa.">Montar por aqui</button><button type="button" data-toast="No protótipo: o atendente manda o link do cardápio.">Vou tentar no link</button></div>
+            </div>
+
+            <!-- b -->
+            <div data-mostra="casoF:b" style="display:contents">
+              <div class="bolha eu">
+                <figure class="anexo"><div class="foto-cli" role="img" aria-label="Print da etapa de entrega: endereço Estrada do Lago, 4500 e o aviso de que a loja não entrega nesse endereço, que fica a 9 km, e a entrega vai até 6 km">
+                  <div class="p-cab"><i></i><span>Mister Burguer</span></div><div class="p-tit">Entrega</div>
+                  <div class="p-corpo"><div class="p-seg"><span class="on">Entrega</span><span>Retirar na loja</span></div><div class="p-l"><span>Estrada do Lago, 4500</span></div><div class="p-l erro"><span>Não entregamos nesse endereço: ele fica a ~9 km, e a entrega vai até 6 km</span></div><div class="p-l bot off"><span>Continuar</span></div></div>
+                </div><figcaption>📷 print que o cliente mandou</figcaption></figure>
+                <p>por que não aceita meu endereço?</p><small class="h">19:20</small></div>
+              <div class="bolha"><p>Pelo print, o cardápio não liberou a entrega para a Estrada do Lago, 4500. Conferi aqui: ela fica a uns 9 km, e a nossa entrega vai até 6 km.</p><p>Dá para <b>retirar na loja</b> — fica pronto em uns 20 min. Se o endereço do print estiver errado, me mande o certo que eu confiro a taxa.</p><small class="h">19:20</small></div>
+              <div class="bolha">
+                <figure class="anexo"><div data-print="endereco"></div><figcaption>🖼️ print de ajuda · passo 4 de 6</figcaption></figure>
+                <p>Para retirar, toque em "Retirar na loja" (1) nesta tela. Ou eu monto o pedido para retirada por aqui. Quer?</p>
+                <small class="h">19:20</small></div>
+              <div class="qr"><button type="button" data-toast="No protótipo: o atendente monta o pedido para retirada.">Montar para retirada</button><button type="button" data-toast="No protótipo: o atendente pede o endereço certo.">Mandar outro endereço</button></div>
+            </div>
+
+            <!-- c -->
+            <div data-mostra="casoF:c" style="display:contents">
+              <div class="bolha eu">
+                <figure class="anexo"><div class="foto-cli" role="img" aria-label="Print do pagamento: código do Pix apagado e o aviso Pix vencido, o tempo para pagar acabou">
+                  <div class="p-cab"><i></i><span>Mister Burguer</span></div><div class="p-tit">Pagamento · Pix</div>
+                  <div class="p-corpo"><div class="p-qr velho"></div><div class="p-l erro"><span>Pix vencido · o tempo para pagar acabou</span></div><div class="p-l"><span>Total</span><span class="v">R$ 43,00</span></div></div>
+                </div><figcaption>📷 print que a cliente mandou</figcaption></figure>
+                <p>fui pagar e deu isso</p><small class="h">19:31</small></div>
+              <div class="bolha"><p>Esse código Pix do print venceu — ele tem prazo para pagar. Conferi aqui: o pagamento não entrou e o pedido não foi adiante, então nada foi cobrado.</p><p>Eu monto o pedido de novo com você aqui na conversa e te mando um Pix novo. Quer?</p><small class="h">19:31</small></div>
+              <div class="qr"><button type="button" data-toast="No protótipo: o atendente monta o pedido e manda um Pix novo.">Sim, montar aqui</button><button type="button" data-toast="No protótipo: o atendente manda o link do cardápio.">Vou refazer no link</button></div>
+            </div>
+
+            <!-- d -->
+            <div data-mostra="casoF:d" style="display:contents">
+              <div class="bolha eu"><p>não consigo finalizar o pedido</p><small class="h">20:02</small></div>
+              <div class="bolha eu">
+                <figure class="anexo"><div class="foto-cli" role="img" aria-label="Print da etapa de entrega, sem erro: o campo Rua e número vazio e o botão Continuar apagado">
+                  <div class="p-cab"><i></i><span>Mister Burguer</span></div><div class="p-tit">Entrega</div>
+                  <div class="p-corpo"><div class="p-seg"><span class="on">Entrega</span><span>Retirar na loja</span></div><div class="p-l campo-p"><span>Rua e número</span></div><div class="p-l"><span>Taxa de entrega</span><span class="v">—</span></div><div class="p-l bot off"><span>Continuar</span></div></div>
+                </div><figcaption>📷 print que o cliente mandou</figcaption></figure>
+                <small class="h">20:02</small></div>
+              <div class="bolha"><p>Pelo seu print, você está na etapa da <b>entrega</b> e não tem erro na tela: falta só preencher a rua com o número. Aí a taxa aparece e o botão "Continuar" libera.</p><small class="h">20:02</small></div>
+              <div class="bolha">
+                <figure class="anexo"><div data-print="endereco"></div><figcaption>🖼️ print de ajuda · passo 4 de 6</figcaption></figure>
+                <p>Nesta tela: escolha entrega ou retirada (1), digite o endereço com o número (2) e confira a taxa (3). Se ficar mais fácil, eu monto o pedido com você por aqui.</p>
+                <small class="h">20:02</small></div>
+              <div class="qr"><button type="button" data-toast="No protótipo: o atendente passa a montar o pedido na conversa.">Montar por aqui</button><button type="button" data-toast="No protótipo: a conversa segue.">Consegui, obrigado</button></div>
+            </div>
+
+            <!-- e -->
+            <div data-mostra="casoF:e" style="display:contents">
+              <div class="bolha eu">
+                <figure class="anexo"><div class="foto-cli comida" role="img" aria-label="Foto: uma caixa aberta com um hambúrguer e uma lata de refrigerante ao lado; não aparece batata"><span class="cx"><span class="bg"></span></span><span class="lt"></span><span class="gd"></span></div><figcaption>📷 foto que a cliente mandou</figcaption></figure>
+                <p>veio faltando a batata do trio</p><small class="h">20:05</small></div>
+              <div class="bolha"><p>Poxa, Ana, sinto muito por isso.</p><p>Recebi a sua foto e já chamei a equipe da loja com urgência, com o seu pedido nº 1042 junto. É a equipe que resolve, e a resposta vem por aqui.</p><small class="h">20:05</small></div>
+            </div>
+
+            <!-- f -->
+            <div data-mostra="casoF:f" style="display:contents">
+              <div class="bolha eu">
+                <figure class="anexo"><div class="foto-cli recibo" role="img" aria-label="Comprovante de Pix de R$ 46,90 para Mister Burguer">
+                  <div class="p-corpo"><b>Comprovante de Pix</b><span>Banco Exemplo S.A.</span><span>Valor: R$ 46,90</span><span>16/11/2026 · 19:02</span><span>Para: Mister Burguer</span></div>
+                </div><figcaption>📷 foto que a cliente mandou</figcaption></figure>
+                <p>paguei</p><small class="h">19:03</small></div>
+              <div class="bolha"><p>✅ <b>Pagamento confirmado</b>, Ana!</p><p>Seu pedido nº 1043 já está em produção 👨‍🍳.</p><p>Obrigado pela preferência 🙌</p><small class="h">19:03</small></div>
+            </div>
+          </div>
+          <div class="wa-escrever"><span>Mensagem</span></div>
+        </div></div>
+      </article>
+
+      <div class="pilha">
+        <!-- o que a IA devolveu + o que o atendente fez, por caso -->
+        <article class="cartao" data-mostra="casoF:a">
+          <h3>O que aconteceu aqui</h3>
+          <div class="bloco foto-ia" style="margin-bottom:10px"><h3>📷 O que a foto mostra <span class="dir">texto da IA</span></h3><p>Tela de carrinho de um cardápio online. Um item: 1 Coca lata, R$ 6,00. Subtotal R$ 6,00. Aviso em vermelho: "Pedido mínimo R$ 20,00". Botão "Continuar" apagado.</p></div>
+          <ul>
+            <li>Conferiu o pedido mínimo <b>no Regem</b> — o print mostra onde a cliente travou, mas não vale como preço nem como regra.</li>
+            <li>Explicou em uma frase e mandou <b>1 print de ajuda</b>, o do passo "Carrinho".</li>
+            <li>Ofereceu montar o pedido pela conversa.</li>
+          </ul>
+        </article>
+        <article class="cartao" data-mostra="casoF:b">
+          <h3>O que aconteceu aqui</h3>
+          <div class="bloco foto-ia" style="margin-bottom:10px"><h3>📷 O que a foto mostra <span class="dir">texto da IA</span></h3><p>Etapa de entrega de um cardápio online. "Entrega" selecionado. Endereço digitado: Estrada do Lago, 4500. Aviso em vermelho: "Não entregamos nesse endereço: ele fica a ~9 km, e a entrega vai até 6 km". Botão "Continuar" apagado.</p></div>
+          <ul>
+            <li>Conferiu a distância e a área de entrega <b>no Regem</b>, com o endereço lido do print.</li>
+            <li>Ofereceu a <b>retirada</b> e pediu o endereço certo, caso o do print esteja errado.</li>
+            <li>Mandou 1 print de ajuda, o do passo "Endereço e taxa", apontando "Retirar na loja".</li>
+          </ul>
+        </article>
+        <article class="cartao" data-mostra="casoF:c">
+          <h3>O que aconteceu aqui</h3>
+          <div class="bloco foto-ia" style="margin-bottom:10px"><h3>📷 O que a foto mostra <span class="dir">texto da IA</span></h3><p>Etapa de pagamento por Pix. O código aparece apagado. Aviso em vermelho: "Pix vencido · o tempo para pagar acabou". Total R$ 43,00.</p></div>
+          <ul>
+            <li>Conferiu a situação do pedido <b>no Regem</b> antes de falar de pagamento (o print não aprova nem nega nada).</li>
+            <li>Não mandou print: o caminho mais curto é montar o pedido de novo na conversa, com um Pix novo do sistema.</li>
+            <li>Nunca escreve chave Pix por conta própria — o Pix é sempre o do pedido.</li>
+          </ul>
+        </article>
+        <article class="cartao" data-mostra="casoF:d">
+          <h3>O que aconteceu aqui</h3>
+          <div class="bloco foto-ia" style="margin-bottom:10px"><h3>📷 O que a foto mostra <span class="dir">texto da IA</span></h3><p>Etapa de entrega de um cardápio online, sem aviso de erro. "Entrega" selecionado. Campo "Rua e número" vazio. Taxa de entrega sem valor. Botão "Continuar" apagado.</p></div>
+          <ul>
+            <li>Reconheceu <b>em que passo</b> o cliente está e disse o que falta.</li>
+            <li>Mandou o print de ajuda <b>daquele passo</b>, com os três pontos marcados.</li>
+            <li>Ofereceu montar o pedido pela conversa. Sem erro na tela, não chama a equipe.</li>
+          </ul>
+        </article>
+        <article class="cartao" data-mostra="casoF:f">
+          <h3>O que aconteceu aqui <span class="selo noar">no ar</span></h3>
+          <ul>
+            <li>Isto <b>já funciona</b>, e sem ler a imagem: o Regem reconhece o comprovante pelo contexto da conversa e responde pelo pedido que está no sistema.</li>
+            <li>Pago no sistema → "✅ Pagamento confirmado…". Ainda não entrou → "em conferência", sem acusar ninguém. O comprovante sozinho nunca aprova o pagamento.</li>
+            <li>Com a leitura da foto ligada, a descrição só ajuda a reconhecer que a imagem é um comprovante. A regra não muda.</li>
+          </ul>
+        </article>
+
+        <!-- e: o caso chega na Central de atendimento -->
+        <div data-mostra="casoF:e" class="pilha">
+          <p class="aviso"><b>O atendente acolhe, não promete nada e chama a equipe com urgência.</b>Nada de "vamos reenviar", "vamos devolver" ou prazo: quem decide é uma pessoa. O caso chega assim na Central de atendimento:</p>
+          <p class="trilha" style="margin:0">Atendimento › o caso</p>
+          <article class="caso" aria-label="O caso na Central de atendimento">
+            <div class="c-topo">
+              <div style="min-width:0">
+                <div class="als"><span class="selo ok">WhatsApp</span><span class="selo crit">Urgente</span><span class="selo neutro">Na fila · 1º</span></div>
+                <h2>Ana P. · faltou item · pedido nº 1042</h2>
+                <p class="sub" style="margin:0">Aberto às 20:05 pelo atendente virtual · esperando há 1 min</p>
+              </div>
+              <div class="acoes">
+                <button type="button" class="bt pri" data-toast="No protótipo: o caso passa para você e sai da fila.">Pegar o caso</button>
+                <button type="button" class="bt" data-toast="No protótipo: abre a escolha de quem recebe.">Passar</button>
+              </div>
+            </div>
+            <div class="c-corpo">
+              <div class="col">
+                <section class="bloco foto-ia">
+                  <h3>📷 O que a foto mostra <span class="selo novo">NOVO</span> <span class="dir">texto da IA · 20:05</span></h3>
+                  <p>Uma caixa de lanche aberta com um hambúrguer e, ao lado, uma lata de refrigerante e um guardanapo, sobre uma mesa. <b>Não aparece batata frita na foto.</b></p>
+                  <p style="font-size:12.5px;color:var(--ink-2)">Leitura automática: pode errar. O Regem guarda só este texto; a foto está na conversa do WhatsApp da loja.</p>
+                </section>
+                <section class="bloco resumo-robo">
+                  <h3>🤖 O robô resumiu <span class="dir">aberto às 20:05</span></h3>
+                  <dl><dt>Motivo</dt><dd>Faltou item: a batata do Trio 07</dd><dt>Quer</dt><dd>Não disse (reenvio ou devolução)</dd><dt>Já fiz</dt><dd>Acolhi, não prometi nada e chamei a equipe com urgência</dd></dl>
+                </section>
+                <section class="bloco">
+                  <h3>Conversa no WhatsApp</h3>
+                  <div class="msgs">
+                    <div class="msg cli">📷 (foto) veio faltando a batata do trio<small>Ana · 20:05</small></div>
+                    <div class="msg robo">Poxa, Ana, sinto muito por isso. Recebi a sua foto e já chamei a equipe da loja com urgência, com o seu pedido nº 1042 junto.<small>atendente virtual · 20:05</small></div>
+                  </div>
+                </section>
+              </div>
+              <div class="col">
+                <section class="bloco">
+                  <h3>Pedido ligado · nº 1042 <span class="dir">total <span class="mono">R$ 46,90</span></span></h3>
+                  <p>1× Trio 07 <span style="color:var(--ink-2)">(Número 07, batata frita e Coca lata)</span></p>
+                  <p style="font-size:13.5px;color:var(--ink-2)">Cardápio online · entrega · Pix pago · entregue às 19:48</p>
+                  <div class="acoes" style="margin-top:8px"><button type="button" class="bt fino" data-toast="No protótipo: abre o pedido no painel do Delivery.">Abrir o pedido</button></div>
+                </section>
+                <section class="bloco">
+                  <h3>Histórico do caso</h3>
+                  <ol class="linha-tempo">
+                    <li><span class="h">20:05</span><span>Ana mandou uma foto e escreveu no WhatsApp</span></li>
+                    <li><span class="h">20:05</span><span>A IA descreveu a foto</span></li>
+                    <li><span class="h">20:05</span><span>O atendente virtual abriu o caso como urgente</span></li>
+                  </ol>
+                </section>
+              </div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────── 3.3 Os prints de ajuda ───────── -->
+  <div data-mostra="subF:prints">
+    <div class="ctls">
+      <div class="ctl"><span>Como o print é feito:</span>
+        <button type="button" data-grupo="opcaoP" data-valor="A">A · imagens prontas (recomendada)</button>
+        <button type="button" data-grupo="opcaoP" data-valor="B">B · com o nome e as cores da loja</button>
+        <button type="button" data-grupo="opcaoP" data-valor="C">C · gerado na hora, com o pedido do cliente</button></div>
+    </div>
+    <div class="opcoes" style="margin-bottom:14px">
+      <article class="opcao rec">
+        <h3>A · Imagens prontas por passo <span class="selo ouro">Recomendada</span></h3>
+        <ul><li>Seis imagens, uma por passo, geradas do cardápio de verdade com uma <b>loja de demonstração</b>.</li><li>Iguais para todas as lojas: sai na hora, não gasta IA, não erra dado do cliente.</li><li>Quando o cardápio mudar de cara, as seis são geradas de novo.</li></ul>
+      </article>
+      <article class="opcao">
+        <h3>B · Com o nome e as cores da loja</h3>
+        <ul><li>As mesmas seis, com o nome e a cor do cardápio da loja.</li><li>O cliente reconhece melhor a tela.</li><li>Um jogo de imagens por loja, refeito quando ela muda o tema do cardápio.</li></ul>
+      </article>
+      <article class="opcao">
+        <h3>C · Gerado na hora, com o pedido do cliente</h3>
+        <ul><li>O print mostra o carrinho e o endereço <b>do próprio cliente</b>.</li><li>O mais claro — e o mais caro e lento: monta a tela e tira a imagem a cada vez (alguns segundos).</li><li>Mexe com dado pessoal na imagem. Fica para depois.</li></ul>
+      </article>
+    </div>
+
+    <div class="galeria" id="galeria" aria-label="Os seis prints de ajuda"></div>
+
+    <h2 class="sec">Regras do print de ajuda</h2>
+    <div class="grade2">
+      <article class="cartao">
+        <ul>
+          <li><b>No máximo 1 print por resposta.</b></li>
+          <li><b>Sempre com uma frase</b> dizendo o que olhar — os números da frase são os da imagem.</li>
+          <li><b>Sempre oferecendo montar o pedido pela conversa.</b></li>
+          <li>O print mostra o caminho. Preço, taxa, pedido mínimo e área de entrega o atendente confere no Regem.</li>
+        </ul>
+      </article>
+      <article class="cartao">
+        <h3>Quando o atendente manda</h3>
+        <ul>
+          <li>O cliente mandou print de um erro do cardápio (casos a e b) ou disse que não consegue seguir (caso d).</li>
+          <li>Não manda em reclamação, em foto de pedido com problema nem em comprovante.</li>
+          <li>Se o cliente segue travado depois do print, o atendente monta o pedido pela conversa — não manda print atrás de print (decisão F3).</li>
+        </ul>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════════ NOTAS E DECISÕES ═════════════════════════ -->
+<section class="vista" id="v-notas" aria-labelledby="t-notas" hidden>
+  <h1 id="t-notas">Notas e decisões</h1>
+  <p class="intro">São 26 decisões, numeradas por parte: <b>A</b> de alérgenos, <b>G</b> de agendado, <b>F</b> de foto. Cada uma traz as opções e uma recomendação. Aprovar o protótipo vale por todas as recomendadas — ou diga o código da que quer mudar.</p>
+
+  <div class="notas">
+    <article class="cartao">
+      <h2>Parte 1 · Alérgenos <small>A1 a A9</small></h2>
+      <ol class="decs">
+        <li class="dec"><span class="cod">A1</span><span class="perg">Onde marcar os alérgenos?</span>
+          <ul class="ops"><li>A · no produto do cardápio, à mão</li><li>B · no insumo, e o produto herda pela ficha técnica, com ajuste no produto</li></ul>
+          <p class="rec">Recomendo <b>B</b>, porque o insumo é marcado uma vez e vale para todos os produtos que o usam; trocar o fornecedor atualiza tudo. A forma A continua existindo dentro da B, para o produto sem ficha.</p></li>
+        <li class="dec"><span class="cod">A2</span><span class="perg">Falta conferir um insumo da ficha: o que o produto mostra?</span>
+          <ul class="ops"><li>a · "não informado" naquele alérgeno, mostrando o que já se sabe que contém</li><li>b · presumir "não contém"</li></ul>
+          <p class="rec">Recomendo <b>a</b>, porque ausência nunca se presume: um "não contém" errado é o pior erro desta tela.</p></li>
+        <li class="dec"><span class="cod">A3</span><span class="perg">O ajuste à mão no produto pode apagar um "contém" que vem da ficha?</span>
+          <ul class="ops"><li>a · não: só soma cautela ("pode conter — contato no preparo") e preenche o que a ficha não sabe</li><li>b · pode, com aviso e registro na auditoria</li></ul>
+          <p class="rec">Recomendo <b>a</b>, porque um clique errado não pode esconder o que está no rótulo; quem discorda corrige o insumo ou a ficha.</p></li>
+        <li class="dec"><span class="cod">A4</span><span class="perg">Produto "não informado": o que aparece no cardápio online?</span>
+          <ul class="ops"><li>a · nada: a página fica como é hoje</li><li>b · "Alérgenos: não informado"</li></ul>
+          <p class="rec">Recomendo <b>a</b>, porque a loja que ainda não preencheu não muda de cara, e quem pergunta ao atendente continua recebendo a oferta de confirmar com a equipe.</p></li>
+        <li class="dec"><span class="cod">A5</span><span class="perg">Com o cadastro informado, o atendente responde sozinho?</span>
+          <ul class="ops"><li>a · sim: diz o que contém ou não contém pelo cadastro, nunca garante ausência de traços, fecha com a frase de cautela e, se for alergia, oferece a equipe</li><li>b · sempre chama a equipe</li></ul>
+          <p class="rec">Recomendo <b>a</b>, porque a resposta vem do cadastro da loja; a equipe só entra quando o cliente quer confirmar.</p></li>
+        <li class="dec"><span class="cod">A6</span><span class="perg">Os selos "S/ glúten" e "S/ lactose" que o produto já tem</span>
+          <ul class="ops"><li>a · continuam como estão, postos à mão, e a tela recusa o selo que contradiz o cadastro (selo "S/ lactose" num produto que contém leite)</li><li>b · passam a sair sozinhos do cadastro novo</li></ul>
+          <p class="rec">Recomendo <b>a</b>, porque não muda o que já está no ar e fecha a contradição perigosa.</p></li>
+        <li class="dec"><span class="cod">A7</span><span class="perg">Adicionais e opções (bacon extra, queijo extra) entram nesta versão?</span>
+          <ul class="ops"><li>a · não: vale o produto como vem, e o cardápio diz "adicionais podem mudar"</li><li>b · sim, somando os alérgenos de cada opção escolhida</li></ul>
+          <p class="rec">Recomendo <b>a</b> agora, porque a opção ligada ao estoque é mais um caminho a provar; a <b>b</b> vira a fase seguinte.</p></li>
+        <li class="dec"><span class="cod">A8</span><span class="perg">Onde fica a conferência no menu?</span>
+          <ul class="ops"><li>a · Cadastros › Cardápio, numa visão "Alérgenos"</li><li>b · Estoque, junto dos insumos</li><li>c · Delivery › Gestão do catálogo</li></ul>
+          <p class="rec">Recomendo <b>a</b>, porque a pergunta é "o que o meu cardápio diz ao cliente", e a correção do insumo fica a um toque.</p></li>
+        <li class="dec"><span class="cod">A9</span><span class="perg">A frase de cautela padrão</span>
+          <ul class="ops"><li>a · a do protótipo, editável por loja e nunca vazia</li><li>b · outro texto</li></ul>
+          <p class="rec">Recomendo <b>a</b>, porque diz o que a cozinha manipula, não promete e manda falar com a equipe.</p></li>
+      </ol>
+    </article>
+
+    <article class="cartao">
+      <h2>Parte 2 · Pedido agendado <small>G1 a G10</small></h2>
+      <ol class="decs">
+        <li class="dec"><span class="cod">G1</span><span class="perg">Recurso novo ou a encomenda estendida?</span>
+          <ul class="ops"><li>a · "Pedido agendado" como ajuste próprio, em cima das peças da encomenda (o horário no pedido, o "Para quando?", a agenda, o cartão do KDS)</li><li>b · mudar a encomenda para aceitar janelas</li></ul>
+          <p class="rec">Recomendo <b>a</b>, porque a encomenda tem regras de quem já usa (antecedência em horas, sinal, limite por dia, repetir toda semana) que não podem mudar.</p></li>
+        <li class="dec"><span class="cod">G2</span><span class="perg">Como o cliente escolhe o horário?</span>
+          <ul class="ops"><li>a · o dia (seletor de data) e a lista das janelas de 15 min</li><li>b · o campo único de data e hora que a encomenda usa hoje</li></ul>
+          <p class="rec">Recomendo <b>a</b>, porque só a lista mostra a janela esgotada e esconde o horário em que a loja não atende.</p></li>
+        <li class="dec"><span class="cod">G3</span><span class="perg">Quando o pedido entra em preparo?</span>
+          <ul class="ops"><li>a · o tempo de entrega (ou de retirada) da loja antes do horário</li><li>b · os 30 min fixos que a encomenda usa hoje no KDS</li><li>c · um ajuste novo</li></ul>
+          <p class="rec">Recomendo <b>a</b>, porque é um número que a loja já mantém e o mesmo que o cliente lê em "O quanto antes".</p></li>
+        <li class="dec"><span class="cod">G4</span><span class="perg">Quando o cartão aparece no KDS?</span>
+          <ul class="ops"><li>a · desde o aceite, neutro, com "começa HH:MM" (como a encomenda hoje)</li><li>b · só na hora de começar</li></ul>
+          <p class="rec">Recomendo <b>a</b>, porque é o que já existe e a cozinha enxerga o que vem pela frente.</p></li>
+        <li class="dec"><span class="cod">G5</span><span class="perg">Pagamento do pedido agendado</span>
+          <ul class="ops"><li>a · só Pix, na hora do agendamento</li><li>b · Pix ou pagar na entrega</li><li>c · a loja escolhe num ajuste</li></ul>
+          <p class="rec">Recomendo <b>a</b>, porque a cozinha produz sem o cliente estar esperando e o estorno automático já existe. A loja sem Pix no cardápio fica com a <b>b</b>.</p></li>
+        <li class="dec"><span class="cod">G6</span><span class="perg">Mudar o horário e cancelar</span>
+          <ul class="ops"><li>a · até entrar em preparo, o cliente faz sozinho: pela página do pedido ou pelo atendente virtual, com confirmação por botão; depois, só a equipe</li><li>b · sempre pela equipe</li></ul>
+          <p class="rec">Recomendo <b>a</b>, porque é o motivo mais comum de contato num pedido marcado e, antes do preparo, não há nada a perder.</p></li>
+        <li class="dec"><span class="cod">G7</span><span class="perg">A loja pausa os pedidos</span>
+          <ul class="ops"><li>a · a pausa segura só pedido novo: os agendados confirmados continuam, e as janelas da pausa deixam de ser oferecidas</li><li>b · a pausa segura também os agendados</li></ul>
+          <p class="rec">Recomendo <b>a</b>, porque o cliente já pagou e recebeu a confirmação.</p></li>
+        <li class="dec"><span class="cod">G8</span><span class="perg">Vão fechar o turno com agendado para depois</span>
+          <ul class="ops"><li>a · o Regem pergunta um por um (manter, mudar o horário, cancelar e avisar) e não fecha sem a resposta</li><li>b · cancela todos sozinho e avisa</li><li>c · não pergunta, como hoje</li></ul>
+          <p class="rec">Recomendo <b>a</b>, porque o Regem não cancela pedido pago sozinho, e ninguém descobre o agendado só quando o cliente reclama.</p></li>
+        <li class="dec"><span class="cod">G9</span><span class="perg">O que conta no limite por janela?</span>
+          <ul class="ops"><li>a · só os pedidos agendados daquela janela</li><li>b · os agendados mais o movimento da hora</li></ul>
+          <p class="rec">Recomendo <b>a</b> nesta versão, porque é uma conta que o cliente e a loja entendem; a <b>b</b> pede medir a cozinha.</p></li>
+        <li class="dec"><span class="cod">G10</span><span class="perg">Valores de fábrica</span>
+          <ul class="ops"><li>a · antecedência de 45 min, hoje e amanhã, 4 pedidos por janela, janela fixa de 15 min</li><li>b · outros valores</li></ul>
+          <p class="rec">Recomendo <b>a</b>, porque são prudentes para uma cozinha de lanche; a loja muda em Ajustes.</p></li>
+      </ol>
+    </article>
+
+    <article class="cartao">
+      <h2>Parte 3 · Foto e print de ajuda <small>F1 a F7</small></h2>
+      <ol class="decs">
+        <li class="dec"><span class="cod">F1</span><span class="perg">O que o Regem guarda da foto?</span>
+          <ul class="ops"><li>a · só a descrição em texto; a foto não fica guardada</li><li>b · também a foto, por 30 dias, para a equipe ver na Central</li></ul>
+          <p class="rec">Recomendo <b>a</b>, porque é o mínimo de dado pessoal e a foto continua na conversa do WhatsApp da loja.</p></li>
+        <li class="dec"><span class="cod">F2</span><span class="perg">Como o print de ajuda é feito?</span>
+          <ul class="ops"><li>A · imagens prontas por passo, geradas do cardápio de verdade com uma loja de demonstração</li><li>B · as mesmas, com o nome e as cores da loja</li><li>C · gerado na hora, com o pedido do próprio cliente</li></ul>
+          <p class="rec">Recomendo <b>A</b>, porque sai na hora, não gasta IA e não erra dado do cliente. A B é um acabamento para depois; a C é a mais cara e a mais lenta.</p></li>
+        <li class="dec"><span class="cod">F3</span><span class="perg">Quantos prints o atendente manda?</span>
+          <ul class="ops"><li>a · 1 por resposta e, se o cliente seguir travado, monta o pedido pela conversa</li><li>b · 1 por resposta, sem limite na conversa</li></ul>
+          <p class="rec">Recomendo <b>a</b>, porque quem não conseguiu com um print quer ser atendido, não receber outro.</p></li>
+        <li class="dec"><span class="cod">F4</span><span class="perg">O print de ajuda tem liga/desliga próprio?</span>
+          <ul class="ops"><li>a · sim, separado de "Ler as fotos", nascendo desligado</li><li>b · vai junto com "Ler as fotos"</li></ul>
+          <p class="rec">Recomendo <b>a</b>, porque o print serve também para quem só escreve "não consigo finalizar", e a loja pode querer um sem o outro.</p></li>
+        <li class="dec"><span class="cod">F5</span><span class="perg">Foto de pedido errado ou item faltando</span>
+          <ul class="ops"><li>a · o atendente acolhe, não promete e chama a equipe com urgência, com "O que a foto mostra" no caso</li><li>b · o atendente já propõe a solução (reenvio ou devolução)</li></ul>
+          <p class="rec">Recomendo <b>a</b>, porque dinheiro e reenvio são decisão de gente, e a foto não prova sozinha o que veio.</p></li>
+        <li class="dec"><span class="cod">F6</span><span class="perg">Em quais canais a foto é lida?</span>
+          <ul class="ops"><li>a · só no WhatsApp</li><li>b · também no Direct do Instagram e no Messenger</li></ul>
+          <p class="rec">Recomendo <b>a</b> agora, porque é onde o cliente manda o print do cardápio; nos outros o atendente segue pedindo para escrever.</p></li>
+        <li class="dec"><span class="cod">F7</span><span class="perg">Limite de fotos lidas</span>
+          <ul class="ops"><li>a · até 5 por cliente por dia; depois o atendente pede para escrever</li><li>b · sem limite</li></ul>
+          <p class="rec">Recomendo <b>a</b>, porque trava o gasto sem atrapalhar ninguém.</p></li>
+      </ol>
+    </article>
+
+  </div>
+
+  <div class="notas extras">
+      <article class="cartao">
+        <h2>O que cada parte pede</h2>
+        <div class="pede">
+          <div><b>Alérgenos</b> · Migration: os alérgenos no insumo, o ajuste no produto e a frase de cautela da loja. Tela: o grupo novo nas duas gavetas, a conferência, o bloco na página do produto e o ajuste. Robô: a busca do cardápio passa a devolver os alérgenos, e a instrução de alergia ganha os três casos.</div>
+          <div><b>Pedido agendado</b> · Migration: os quatro ajustes na configuração do cardápio (o pedido usa o campo de horário que já existe). Tela: o "Para quando?" com dia e janelas, a situação "Agendados" e a pergunta ao fechar o turno. Robô: consultar as janelas livres e agendar, mudar e cancelar com confirmação. Mais uma rotina: o aviso "entrou em preparo" na hora.</div>
+          <div><b>Foto e print</b> · Migration: os dois ajustes do atendimento. Tela: o grupo "Fotos do cliente" e o bloco "O que a foto mostra" no caso. Robô: a descrição da foto na conversa (já no servidor, PR #1067, desligada) e a ferramenta de mandar o print de um passo.</div>
+        </div>
+      </article>
+
+      <article class="cartao">
+        <h2>Fica de fora desta versão</h2>
+        <ul>
+          <li><b>Alérgenos:</b> adicionais e opções; a busca "o que vocês têm sem leite?"; mandar os alérgenos ao iFood e à 99; tabela nutricional.</li>
+          <li><b>Agendado:</b> pedidos do iFood e da 99 (têm o agendamento deles); repetir toda semana e sinal (são da encomenda); agendar pelo balcão ou pelo "+ Novo pedido" do painel; um botão de adiantar no painel (a cozinha já pode começar antes pelo cartão do KDS); limite pelo movimento da cozinha.</li>
+          <li><b>Foto:</b> vídeo e documento; Direct e Messenger; o print com o pedido do cliente (opção C); a IA decidir reenvio ou devolução; guardar a foto no Regem.</li>
+        </ul>
+      </article>
+
+      <article class="cartao">
+        <h2>A conferir no código</h2>
+        <ul>
+          <li>Como o produto do cardápio se liga à ficha técnica e aos insumos, e quantos produtos da loja têm ficha.</li>
+          <li>Onde os selos "S/ glúten" e "S/ lactose" aparecem hoje e quem os edita.</li>
+          <li>O painel do Delivery de hoje tem duas tabelas (pendentes e em andamento); aqui "Agendados" aparece como situação que filtra.</li>
+          <li>O prazo de vencimento do Pix do cardápio (a frase do caso c não diz o tempo).</li>
+          <li>Quais modelos de mensagem a loja já tem aprovados para avisos de pedido fora das 24 h.</li>
+          <li>Se o robô consegue cancelar um pedido hoje (li que o cancelamento vai para a equipe) e se o cancelamento no painel pede a senha do gestor também para o agendado.</li>
+          <li>Se a conversa do caso, na Central, mostra a imagem que o cliente mandou.</li>
+          <li>O preço por foto do modelo de IA usado e onde o gasto aparece (li "Mister › IA e uso"); o "menos de R$ 0,01" sai da tabela de preços do projeto para o modelo usado (US$ 0,10 por milhão de tokens de entrada; uma foto dá de 2 a 5 mil); a conta de verdade é a do provedor.</li>
+          <li>O texto exato dos avisos do cardápio que os prints imitam ("Pedido mínimo…", "Pix vencido…").</li>
+        </ul>
+      </article>
+
+      <article class="cartao">
+        <h2>O que eu li antes de desenhar</h2>
+        <ul>
+          <li><b>Encomenda</b> (mig 186 a 190): ligada por loja, antecedência em horas, dias à frente, limite por dia, sinal e repetir toda semana; o "Quando?" do fechamento; Delivery › Encomendas · agenda; PDV › Retirada / Encomendas.</li>
+          <li><b>KDS:</b> o cartão marcado para depois aparece desde o aceite, neutro, com "começa HH:MM"; o tempo conta a partir de 30 min antes.</li>
+          <li><b>Pagamento:</b> pedido com Pix ainda não pago não vai à cozinha; pedido pago e cancelado tem o Pix devolvido sozinho.</li>
+          <li><b>Atendente:</b> em alergia nunca garante ausência e oferece a equipe; comprovante não aprova pagamento; a resposta "✅ Pagamento confirmado…" já está no ar.</li>
+          <li>A lista de alérgenos é a da ANVISA para rotulagem (RDC 727/2022), mais glúten e lactose. Não conferi se a cidade da loja exige algo além disso.</li>
+        </ul>
+      </article>
+  </div>
+</section>
+
+</main>
+
+<!-- ═════════════════════════ SOBREPOSTOS (fora do <main>): gavetas e diálogos ═════════════════════════ -->
+
+<!-- gaveta: alérgenos do INSUMO (Estoque › Produtos) -->
+<div class="fundo" id="g-insumo" hidden>
+  <aside class="gaveta" role="dialog" aria-modal="true" aria-labelledby="g-insumo-t">
+    <header><div style="min-width:0"><h2 id="g-insumo-t">Alérgenos do insumo</h2><p id="g-insumo-sub">Estoque › Produtos</p></div>
+      <button type="button" class="fechar" data-fechar aria-label="Fechar">✕</button></header>
+    <div class="corpo">
+      <fieldset>
+        <legend>Este insumo</legend>
+        <div class="seg" role="group" aria-label="Situação do insumo">
+          <button type="button" data-ins-sit="nao">Não informado</button>
+          <button type="button" data-ins-sit="inf">Conferi o rótulo</button>
+        </div>
+        <p class="leg">Enquanto estiver "não informado", os produtos que usam este insumo ficam sem resposta nos alérgenos que ninguém confirmou.</p>
+      </fieldset>
+      <fieldset id="ins-contem">
+        <legend>Contém</legend>
+        <div id="ins-chips-c"></div>
+        <p class="leg">O que não for marcado conta como "não contém".</p>
+      </fieldset>
+      <div>
+        <button type="button" class="expande" id="ins-pode-bt" aria-expanded="false" aria-controls="ins-pode">＋ O rótulo diz "pode conter"</button>
+        <fieldset id="ins-pode" hidden>
+          <legend>Pode conter (está escrito no rótulo)</legend>
+          <div id="ins-chips-p"></div>
+        </fieldset>
+      </div>
+      <fieldset>
+        <legend>Glúten</legend>
+        <div class="seg" role="group" aria-label="Glúten">
+          <button type="button" data-ins-glu="sim">Contém glúten</button>
+          <button type="button" data-ins-glu="nao">Não contém glúten</button>
+        </div>
+        <p class="leg" id="ins-glu-nota"></p>
+      </fieldset>
+      <fieldset>
+        <legend>Lactose</legend>
+        <div class="seg" role="group" aria-label="Lactose">
+          <button type="button" data-ins-lac="sim">Contém lactose</button>
+          <button type="button" data-ins-lac="nao">Não contém lactose</button>
+        </div>
+        <p class="leg" id="ins-lac-nota"></p>
+      </fieldset>
+      <p class="aviso" id="ins-usado"></p>
+    </div>
+    <footer><button type="button" class="bt" data-fechar>Cancelar</button><button type="button" class="bt pri" data-acao="salvar-insumo">Salvar insumo</button></footer>
+  </aside>
+</div>
+
+<!-- gaveta: alérgenos do PRODUTO (Cadastros › Cardápio) -->
+<div class="fundo" id="g-produto" hidden>
+  <aside class="gaveta" role="dialog" aria-modal="true" aria-labelledby="g-produto-t">
+    <header><div style="min-width:0"><h2 id="g-produto-t">Alérgenos do produto</h2><p id="g-produto-sub">Cadastros › Cardápio</p></div>
+      <button type="button" class="fechar" data-fechar aria-label="Fechar">✕</button></header>
+    <div class="corpo">
+      <p class="aviso" id="prod-aviso"></p>
+      <div id="prod-linhas"></div>
+      <div>
+        <button type="button" class="expande" id="prod-outros-bt" aria-expanded="false" aria-controls="prod-outros"></button>
+        <div id="prod-outros" hidden></div>
+      </div>
+      <div class="result" aria-live="polite">
+        <span class="rot">Como fica para o cliente</span>
+        <div id="prod-previa"></div>
+      </div>
+    </div>
+    <footer><button type="button" class="bt" data-fechar>Cancelar</button><button type="button" class="bt pri" data-acao="salvar-produto">Salvar produto</button></footer>
+  </aside>
+</div>
+
+<!-- gaveta: mudar o horário do pedido agendado (Delivery › Painel) -->
+<div class="fundo" id="g-horario" hidden>
+  <aside class="gaveta" role="dialog" aria-modal="true" aria-labelledby="g-horario-t">
+    <header><div style="min-width:0"><h2 id="g-horario-t">Mudar o horário</h2><p id="g-horario-sub"></p></div>
+      <button type="button" class="fechar" data-fechar aria-label="Fechar">✕</button></header>
+    <div class="corpo">
+      <div class="campo"><label for="h-dia">Dia</label><input type="date" id="h-dia"></div>
+      <div class="campo"><label for="h-janela">Horário (janelas de 15 min)</label><select id="h-janela"></select><span class="ajuda" id="h-ajuda"></span></div>
+      <p class="aviso" id="h-resumo" role="status"></p>
+      <p class="leg">O cliente recebe o novo horário no WhatsApp. Valem as mesmas regras de quem agenda: janela livre e loja atendendo.</p>
+    </div>
+    <footer><button type="button" class="bt" data-fechar>Cancelar</button><button type="button" class="bt pri" data-acao="salvar-horario">Salvar o novo horário</button></footer>
+  </aside>
+</div>
+
+<!-- diálogo: cancelar o pedido agendado -->
+<div class="fundo centro" id="d-cancelar" hidden>
+  <div class="dialogo" role="dialog" aria-modal="true" aria-labelledby="d-cancelar-t" aria-describedby="d-cancelar-d">
+    <header><h2 id="d-cancelar-t">Cancelar o pedido agendado?</h2><button type="button" class="fechar" data-fechar aria-label="Fechar">✕</button></header>
+    <div class="corpo">
+      <p id="d-cancelar-d" style="margin:0"></p>
+      <div class="campo"><label for="c-motivo">Motivo</label>
+        <select id="c-motivo"><option>A loja não vai atender nesse horário</option><option>Falta de ingrediente</option><option>O cliente pediu</option><option>Outro motivo</option></select></div>
+      <p class="aviso warn" style="margin:0"><b>O que acontece</b>A janela fica livre de novo, o cliente recebe o aviso do cancelamento e o Pix volta sozinho para a conta dele.</p>
+    </div>
+    <footer><button type="button" class="bt" data-fechar>Voltar</button><button type="button" class="bt perigo" data-acao="confirmar-cancelar">Cancelar o pedido</button></footer>
+  </div>
+</div>
+
+<!-- diálogo: o print de ajuda maior, com a frase que vai junto -->
+<div class="fundo centro" id="d-print" hidden>
+  <div class="dialogo" role="dialog" aria-modal="true" aria-labelledby="d-print-t">
+    <header><h2 id="d-print-t">Print de ajuda</h2><button type="button" class="fechar" data-fechar aria-label="Fechar">✕</button></header>
+    <div class="corpo" id="d-print-corpo" style="justify-items:center"></div>
+    <footer><button type="button" class="bt" data-fechar>Fechar</button></footer>
+  </div>
+</div>
+
+<!-- a barra das alterações não salvas (modelo de Configurações) -->
+<div class="barra" id="barra" hidden role="region" aria-label="Alterações">
+  <span id="barra-txt" aria-live="polite">1 alteração ainda não salva</span>
+  <button type="button" class="bt" data-acao="barra-descartar">Descartar</button>
+  <button type="button" class="bt pri" data-acao="barra-salvar">Salvar</button>
+</div>
+<div id="toast" role="status" hidden></div>
+
+<script>
+(() => {
+  'use strict';
+  const $ = (s, el = document) => el.querySelector(s);
+  const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const juntar = (l) => (l.length < 2 ? l.join('') : `${l.slice(0, -1).join(', ')} e ${l[l.length - 1]}`);
+  const dois = (n) => String(n).padStart(2, '0');
+
+  // O estado de cada controle; [data-mostra="grupo:valor|valor grupo2:valor"] aparece quando TODAS as condições valem.
+  const estado = {
+    vista: 'alerg',
+    subA: 'cadastro', forma: 'B', listaA: 'dados', prodA: 'informado', casoA: 'contem',
+    subG: 'cardapio', lojaG: 'fechada', pagG: 'pix', chkG: 'escolha', zapG: 'aceita', momento: 'antes', listaG: 'dados', avisoG: 'confirma',
+    subF: 'ajuste', casoF: 'a', opcaoP: 'A',
+  };
+  const vale = (cond) => cond.trim().split(/\s+/).every((c) => { const [g, v] = c.split(':'); return v.split('|').includes(estado[g]); });
+
+  // ───────── aviso (toast) ─────────
+  let tempoDoAviso;
+  function avisar(m) {
+    const t = $('#toast'); const barra = $('#barra');
+    t.textContent = m; t.hidden = false;
+    t.style.bottom = `${barra.hidden ? 24 : barra.offsetHeight + 12}px`; // nunca por cima da barra de salvar
+    clearTimeout(tempoDoAviso); tempoDoAviso = setTimeout(() => { t.hidden = true; }, 3800);
+  }
+
+  // ───────── sobrepostos: uma pilha; Esc fecha só o de cima; o foco volta para quem abriu ─────────
+  const pilha = [];
+  const preparar = {};
+  function abrir(id, origem) {
+    const f = document.getElementById(id);
+    if (!f) return;
+    if (preparar[id]) preparar[id](origem);
+    f.hidden = false;
+    pilha.push({ f, origem });
+    document.documentElement.classList.add('travado');
+    ($('.fechar', f) || f).focus();
+  }
+  function fechar() {
+    const t = pilha.pop();
+    if (!t) return;
+    t.f.hidden = true;
+    if (!pilha.length) document.documentElement.classList.remove('travado');
+    if (t.origem && document.contains(t.origem)) t.origem.focus();
+  }
+  document.addEventListener('keydown', (e) => {
+    if (!pilha.length) return;
+    const f = pilha[pilha.length - 1].f;
+    if (e.key === 'Escape') { e.preventDefault(); fechar(); return; }
+    if (e.key !== 'Tab') return;
+    const fs = $$('button,input,select,textarea', f).filter((x) => !x.disabled && x.offsetParent !== null);
+    if (!fs.length) return;
+    if (e.shiftKey && document.activeElement === fs[0]) { e.preventDefault(); fs[fs.length - 1].focus(); }
+    else if (!e.shiftKey && document.activeElement === fs[fs.length - 1]) { e.preventDefault(); fs[0].focus(); }
+  });
+  $$('.fundo').forEach((f) => f.addEventListener('mousedown', (e) => { if (e.target === f) fechar(); }));
+
+  // ═════════════ PARTE 1 · ALÉRGENOS ═════════════
+  const GRUPOS = [
+    ['Cereais (e suas estirpes)', ['Trigo', 'Centeio', 'Cevada', 'Aveia']],
+    ['Outros', ['Crustáceos', 'Ovos', 'Peixes', 'Amendoim', 'Soja', 'Leite', 'Látex natural']],
+    ['Castanhas', ['Amêndoa', 'Avelã', 'Castanha-de-caju', 'Castanha-do-pará', 'Macadâmia', 'Nozes', 'Pecã', 'Pistache', 'Pinoli', 'Castanhas (outras)']],
+  ];
+  const TODOS = GRUPOS.flatMap((g) => g[1]);
+  const CEREAIS = GRUPOS[0][1];
+  const ROTULO = { Trigo: 'Trigo (glúten)', 'Castanhas (outras)': 'Castanhas' };
+  const rot = (a) => ROTULO[a] || a;
+
+  // os insumos do exemplo (Estoque › Produtos)
+  const INSUMOS = {
+    pao: { nome: 'Pão brioche', usado: 9, sit: 'inf', c: ['Trigo', 'Leite', 'Ovos'], p: [], glu: 'sim', lac: 'sim' },
+    cheddar: { nome: 'Queijo cheddar', usado: 7, sit: 'inf', c: ['Leite'], p: [], glu: 'nao', lac: 'sim' },
+    bacon: { nome: 'Bacon fatiado', usado: 4, sit: 'inf', c: [], p: ['Soja'], glu: 'nao', lac: 'nao' },
+    carne: { nome: 'Carne bovina 150 g', usado: 8, sit: 'inf', c: [], p: [], glu: 'nao', lac: 'nao' },
+    maionese: { nome: 'Maionese da casa', usado: 6, sit: 'inf', c: ['Ovos'], p: [], glu: 'nao', lac: 'nao' },
+    batata: { nome: 'Batata palito congelada', usado: 4, sit: 'nao', c: [], p: [], glu: 'nao', lac: 'nao' },
+  };
+  let ins = null; // a cópia que a gaveta edita
+  const chipsDe = (tipo) => GRUPOS.map(([nome, itens]) => `<p class="sub-g">${nome}</p><div class="chips ${tipo === 'p' ? 'pode' : ''}">${itens.map((a) => `<button type="button" class="chip-al" data-ins-${tipo}="${esc(a)}" aria-pressed="false">${esc(a)}</button>`).join('')}</div>`).join('');
+  $('#ins-chips-c').innerHTML = chipsDe('c');
+  $('#ins-chips-p').innerHTML = chipsDe('p');
+  function desenharInsumo() {
+    const inf = ins.sit === 'inf';
+    $$('[data-ins-sit]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.insSit === ins.sit)));
+    $$('[data-ins-c]').forEach((b) => { b.setAttribute('aria-pressed', String(ins.c.includes(b.dataset.insC))); b.disabled = !inf; });
+    $$('[data-ins-p]').forEach((b) => { b.setAttribute('aria-pressed', String(ins.p.includes(b.dataset.insP))); b.disabled = !inf || ins.c.includes(b.dataset.insP); });
+    const temCereal = ins.c.some((a) => CEREAIS.includes(a));
+    if (temCereal) ins.glu = 'sim';
+    $$('[data-ins-glu]').forEach((b) => { b.setAttribute('aria-pressed', String(inf && b.dataset.insGlu === ins.glu)); b.disabled = !inf || temCereal; });
+    $$('[data-ins-lac]').forEach((b) => { b.setAttribute('aria-pressed', String(inf && b.dataset.insLac === ins.lac)); b.disabled = !inf; });
+    $('#ins-glu-nota').textContent = !inf ? 'Marque "Conferi o rótulo" para responder.' : temCereal ? 'Marcado sozinho: trigo, centeio, cevada e aveia têm glúten.' : 'Sem cereal marcado: diga o que o rótulo traz.';
+    $('#ins-lac-nota').textContent = !inf ? 'Marque "Conferi o rótulo" para responder.' : ins.c.includes('Leite') ? 'Sugerido pelo leite. Mude se o rótulo disser "zero lactose".' : 'Sem leite marcado: diga o que o rótulo traz.';
+    $('#ins-usado').innerHTML = `<b>Usado em ${ins.usado} produtos do cardápio</b>Ao salvar, eles passam a herdar esta marcação pela ficha técnica.`;
+  }
+  preparar['g-insumo'] = (origem) => {
+    const base = INSUMOS[(origem && origem.dataset.insumo) || 'cheddar'];
+    ins = { ...base, c: [...base.c], p: [...base.p] };
+    $('#g-insumo-sub').textContent = `${ins.nome} · Estoque › Produtos`;
+    const abre = ins.p.length > 0;
+    $('#ins-pode').hidden = !abre; $('#ins-pode-bt').setAttribute('aria-expanded', String(abre));
+    desenharInsumo();
+  };
+  $('#g-insumo').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b || b.disabled) return;
+    if (b.dataset.insSit) ins.sit = b.dataset.insSit;
+    else if (b.dataset.insC) {
+      const a = b.dataset.insC;
+      ins.c = ins.c.includes(a) ? ins.c.filter((x) => x !== a) : [...ins.c, a];
+      ins.p = ins.p.filter((x) => x !== a);
+      if (a === 'Leite') ins.lac = ins.c.includes('Leite') ? 'sim' : 'nao';
+    } else if (b.dataset.insP) { const a = b.dataset.insP; ins.p = ins.p.includes(a) ? ins.p.filter((x) => x !== a) : [...ins.p, a]; }
+    else if (b.dataset.insGlu) ins.glu = b.dataset.insGlu;
+    else if (b.dataset.insLac) ins.lac = b.dataset.insLac;
+    else if (b.id === 'ins-pode-bt') { const ab = $('#ins-pode').hidden; $('#ins-pode').hidden = !ab; b.setAttribute('aria-expanded', String(ab)); return; }
+    else return;
+    desenharInsumo();
+  });
+
+  // os 20 produtos do cardápio de exemplo: 12 informados, 8 não
+  const PRODS = [
+    { n: 'Número 07', cat: 'Lanches', sit: 'inf', c: ['Trigo', 'Leite', 'Ovos'], p: ['Soja', 'Amendoim'], maoP: ['Amendoim'], origem: 'ajuste' },
+    { n: 'Número 03', cat: 'Lanches', sit: 'inf', c: ['Trigo', 'Leite', 'Ovos'], p: ['Soja'], origem: 'ficha' },
+    { n: 'Número 12', cat: 'Lanches', sit: 'inf', c: ['Trigo', 'Leite', 'Ovos', 'Soja'], p: [], origem: 'ficha' },
+    { n: 'X-Bacon', cat: 'Lanches', sit: 'inf', c: ['Trigo', 'Leite', 'Ovos'], p: ['Soja'], origem: 'ficha' },
+    { n: 'X-Salada', cat: 'Lanches', sit: 'inf', c: ['Trigo', 'Leite', 'Ovos'], p: [], origem: 'ficha' },
+    { n: 'X-Egg', cat: 'Lanches', sit: 'inf', c: ['Trigo', 'Leite', 'Ovos'], p: [], origem: 'ficha' },
+    { n: 'Veggie burger', cat: 'Lanches', sit: 'inf', c: ['Trigo', 'Soja'], p: ['Castanhas (outras)'], maoP: ['Castanhas (outras)'], origem: 'ajuste' },
+    { n: 'Trio 07', cat: 'Combos', sit: 'nao', c: ['Trigo', 'Leite', 'Ovos'], p: [], origem: 'ficha', falta: 'Falta conferir 1 insumo: Batata palito congelada' },
+    { n: 'Combo família', cat: 'Combos', sit: 'nao', c: ['Trigo', 'Leite', 'Ovos'], p: [], origem: 'ficha', falta: 'Falta conferir 2 insumos: Batata palito congelada e Molho barbecue' },
+    { n: 'Batata frita', cat: 'Porções', sit: 'nao', c: [], p: [], origem: 'ficha', falta: 'Falta conferir 1 insumo: Batata palito congelada' },
+    { n: 'Batata com cheddar', cat: 'Porções', sit: 'nao', c: ['Leite'], p: [], origem: 'ficha', falta: 'Falta conferir 1 insumo: Batata palito congelada' },
+    { n: 'Onion rings', cat: 'Porções', sit: 'nao', c: [], p: [], origem: 'nenhuma', falta: 'Sem ficha técnica e ninguém marcou' },
+    { n: 'Milk-shake de chocolate', cat: 'Sobremesas', sit: 'nao', c: [], p: [], origem: 'nenhuma', falta: 'Sem ficha técnica e ninguém marcou' },
+    { n: 'Milk-shake de morango', cat: 'Sobremesas', sit: 'nao', c: [], p: [], origem: 'nenhuma', falta: 'Sem ficha técnica e ninguém marcou' },
+    { n: 'Brownie', cat: 'Sobremesas', sit: 'nao', c: [], p: [], origem: 'nenhuma', falta: 'Sem ficha técnica e ninguém marcou' },
+    { n: 'Coca lata', cat: 'Bebidas', sit: 'inf', c: [], p: [], origem: 'mao' },
+    { n: 'Guaraná lata', cat: 'Bebidas', sit: 'inf', c: [], p: [], origem: 'mao' },
+    { n: 'Água sem gás', cat: 'Bebidas', sit: 'inf', c: [], p: [], origem: 'mao' },
+    { n: 'Suco de laranja', cat: 'Bebidas', sit: 'inf', c: [], p: [], origem: 'ficha' },
+    { n: 'Molho da casa', cat: 'Extras', sit: 'inf', c: ['Ovos', 'Leite'], p: [], origem: 'ficha' },
+  ];
+  const ORIGEM = { ficha: 'Pela ficha técnica', mao: 'À mão, no produto', ajuste: 'Pela ficha + ajuste à mão', nenhuma: '—' };
+  const ehMao = (p) => p.origem === 'mao' || p.origem === 'ajuste';
+  const conf = { sit: 'todos', busca: '', alerg: '', origem: '' };
+  const SITS_CONF = [['todos', 'Todos', () => true], ['inf', 'Informados', (p) => p.sit === 'inf'], ['nao', 'Não informados', (p) => p.sit === 'nao'], ['mao', 'Marcados à mão', ehMao]];
+  $('#conf-sits').innerHTML = SITS_CONF.map(([k, r, f]) => `<button type="button" class="sit" data-conf-sit="${k}" aria-pressed="false">${r} <b>${PRODS.filter(f).length}</b></button>`).join('');
+  const sem = (t) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  function etiquetas(p) {
+    const e = p.c.map((a) => `<span class="al c">${esc(rot(a))}</span>`).concat(p.p.map((a) => `<span class="al p">Pode conter ${esc(rot(a).toLowerCase())}</span>`));
+    if (!e.length) e.push(p.sit === 'inf' ? '<span class="al n">Nenhum da lista</span>' : '<span class="al q">sem resposta</span>');
+    else if (p.sit === 'nao') e.push('<span class="al q">o resto, sem resposta</span>');
+    return `<div class="als">${e.join('')}</div>`;
+  }
+  function desenharConferencia() {
+    $$('[data-conf-sit]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.confSit === conf.sit)));
+    const fSit = SITS_CONF.find((s) => s[0] === conf.sit)[2];
+    const alvo = { 'Trigo (glúten)': 'Trigo', Castanhas: 'Castanhas (outras)' }[conf.alerg] || conf.alerg;
+    const lista = PRODS.filter((p) => fSit(p)
+      && (!conf.busca || sem(p.n).includes(sem(conf.busca)))
+      && (!alvo || p.c.includes(alvo) || p.p.includes(alvo))
+      && (!conf.origem || (conf.origem === 'ficha' ? p.origem === 'ficha' || p.origem === 'ajuste' : ehMao(p))));
+    const el = $('#conf-lista');
+    if (!lista.length) {
+      const naoInf = PRODS.filter((p) => p.sit === 'nao').length;
+      el.innerHTML = `<div class="vazio"><b>Nenhum produto com esse filtro</b>${alvo ? `Nenhum produto tem ${esc(conf.alerg.toLowerCase())} marcado. Os ${naoInf} não informados ainda podem ter.` : 'Mude a busca ou os filtros.'}<div class="acoes"><button type="button" class="bt" data-acao="conf-limpar">Limpar os filtros</button></div></div>`;
+      return;
+    }
+    el.innerHTML = `<div class="tabela"><table><caption class="sr">Produtos do cardápio e a situação dos alérgenos</caption>
+      <thead><tr><th scope="col">Produto</th><th scope="col">Situação</th><th scope="col">Alérgenos</th><th scope="col">De onde vem</th><th scope="col"><span class="sr">Ações</span></th></tr></thead>
+      <tbody>${lista.map((p) => `<tr>
+        <td><span class="nome">${esc(p.n)}</span><span class="sub">${esc(p.cat)}</span></td>
+        <td data-rot="Situação"><span class="selo ${p.sit === 'inf' ? 'ok' : 'neutro'}">${p.sit === 'inf' ? 'Informado' : 'Não informado'}</span>${p.falta ? `<span class="sub">${esc(p.falta)}</span>` : ''}</td>
+        <td data-rot="Alérgenos">${etiquetas(p)}</td>
+        <td data-rot="De onde vem">${ORIGEM[p.origem]}</td>
+        <td class="c-acoes"><div class="acoes"><button type="button" class="bt fino" data-abrir="g-produto" data-prod="${esc(p.n)}">Editar<span class="sr"> ${esc(p.n)}</span></button></div></td>
+      </tr>`).join('')}</tbody></table></div>`;
+  }
+  $('#conf-busca').addEventListener('input', (e) => { conf.busca = e.target.value.trim(); desenharConferencia(); });
+  $('#conf-alerg').addEventListener('change', (e) => { conf.alerg = e.target.value; desenharConferencia(); });
+  $('#conf-origem').addEventListener('change', (e) => { conf.origem = e.target.value; desenharConferencia(); });
+
+  // a gaveta do produto: o que vem da ficha fica travado; o ajuste à mão só soma cautela (decisão A3)
+  const FONTE_07 = { Trigo: 'Pão brioche', Leite: 'Pão brioche e Queijo cheddar', Ovos: 'Pão brioche e Maionese da casa', Soja: 'Bacon fatiado (o rótulo diz "pode conter")' };
+  const NOMES_V = { contem: 'Contém', pode: 'Pode conter — contato no preparo', nao: 'Não contém', ni: 'Não informado' };
+  let prod = null; // { p, linhas: { alérgeno: { base, v, fixo, de } } }
+  function linhaDoProduto(a) {
+    // `base` = o que a ficha diz (ou "não informado"); `v` = o que vale agora; `livre` = produto sem ficha, tudo à mão.
+    const l = prod.linhas[a];
+    const ajuste = !l.livre && !l.fixo && l.v !== l.base; // o ajuste à mão por cima da ficha
+    const daFicha = `Pela ficha${prod.p.n === 'Número 07' && FONTE_07[a] ? `: ${FONTE_07[a]}` : ' técnica'}.`;
+    let nota;
+    if (l.fixo) nota = `${daFicha} Para mudar, corrija o insumo.`;
+    else if (ajuste) nota = 'Marcado à mão, neste produto.';
+    else if (l.livre) nota = l.v === 'ni' ? 'Ninguém marcou ainda.' : 'Marcado à mão, neste produto.';
+    else if (l.base === 'ni') nota = 'Falta conferir um insumo da ficha.';
+    else nota = daFicha;
+    let ctrl;
+    if (l.fixo) ctrl = '<span class="fixo">Contém</span>';
+    else {
+      // Por cima da ficha, o ajuste só soma cautela (decisão A3): "não contém" → pode conter / contém; "pode conter" → contém.
+      const ops = l.livre || l.base === 'ni' ? ['ni', 'contem', 'pode', 'nao'] : l.base === 'pode' ? ['pode', 'contem'] : ['nao', 'pode', 'contem'];
+      const texto = (o) => (!l.livre && o === l.base && o === 'pode' ? 'Pode conter (pela ficha)' : !l.livre && o === l.base && o === 'nao' ? 'Não contém (pela ficha)' : NOMES_V[o]);
+      ctrl = `<select data-prod-al="${esc(a)}" aria-label="${esc(rot(a))}">${ops.map((o) => `<option value="${o}"${o === l.v ? ' selected' : ''}>${texto(o)}</option>`).join('')}</select>`;
+    }
+    return `<div class="al-linha${ajuste ? ' mao' : ''}"><div><b>${esc(rot(a))}${ajuste ? ' <span class="selo ouro">à mão</span>' : ''}</b><small>${esc(nota)}</small></div>${ctrl}</div>`;
+  }
+  function desenharProduto() {
+    const principais = [...new Set(['Trigo', 'Leite', 'Ovos', 'Soja', 'Amendoim', ...prod.p.c, ...prod.p.p])];
+    const outros = TODOS.filter((a) => !principais.includes(a));
+    $('#prod-linhas').innerHTML = principais.map(linhaDoProduto).join('');
+    $('#prod-outros').innerHTML = outros.map(linhaDoProduto).join('');
+    const aberto = !$('#prod-outros').hidden;
+    $('#prod-outros-bt').textContent = aberto ? `Esconder os outros ${outros.length} alérgenos` : `Mostrar os outros ${outros.length} alérgenos`;
+    const de = (v) => TODOS.filter((a) => prod.linhas[a].v === v);
+    const c = de('contem'); const pd = de('pode'); const ni = de('ni');
+    const glu = c.some((a) => CEREAIS.includes(a)); const lac = c.includes('Leite');
+    const linhas = [];
+    if (c.length) linhas.push(`<div class="lin"><span class="rot">Contém</span><span>${esc(juntar(c.map((a) => rot(a).toLowerCase())))}</span></div>`);
+    if (pd.length) linhas.push(`<div class="lin"><span class="rot">Pode conter</span><span>${esc(juntar(pd.map((a) => rot(a).toLowerCase())))}</span></div>`);
+    if (ni.length) linhas.push(`<div class="lin"><span class="rot">Sem resposta</span><span>${ni.length} ${ni.length === 1 ? 'alérgeno' : 'alérgenos'}: o produto continua "não informado" — o cardápio não mostra o bloco e o atendente oferece a equipe.</span></div>`);
+    else {
+      if (!c.length && !pd.length) linhas.push('<div class="lin"><span>Nenhum alérgeno da lista. A frase de cautela aparece mesmo assim.</span></div>');
+      linhas.push(`<div class="lin"><span class="rot">Glúten e lactose</span><span>${glu ? 'Contém glúten' : 'Não contém glúten'} · ${lac ? 'contém lactose' : 'não contém lactose'}</span></div>`);
+    }
+    $('#prod-previa').innerHTML = linhas.join('');
+  }
+  preparar['g-produto'] = (origem) => {
+    const nome = (origem && origem.dataset.prod) || 'Número 07';
+    const p = PRODS.find((x) => x.n === nome) || PRODS[0];
+    const formaA = estado.forma === 'A' && estado.subA === 'cadastro';
+    const tudoAMao = formaA || p.origem === 'mao' || p.origem === 'nenhuma';
+    prod = { p, linhas: {} };
+    TODOS.forEach((a) => {
+      // na forma A não há ficha: o produto que ninguém marcou começa todo em "não informado"
+      const v = formaA && p.sit === 'nao' ? 'ni' : p.c.includes(a) ? 'contem' : p.p.includes(a) ? 'pode' : p.sit === 'inf' ? 'nao' : 'ni';
+      const ajusteAntigo = !tudoAMao && (p.maoP || []).includes(a); // já tinha um ajuste à mão por cima da ficha
+      prod.linhas[a] = { v, base: ajusteAntigo ? 'nao' : v, fixo: !tudoAMao && v === 'contem', livre: tudoAMao };
+    });
+    $('#g-produto-sub').textContent = `${p.n} · Cadastros › Cardápio`;
+    const av = $('#prod-aviso');
+    av.className = 'aviso';
+    if (tudoAMao) av.innerHTML = `<b>${formaA ? 'Forma A: tudo é marcado aqui, à mão' : 'Este produto não tem ficha técnica'}</b>Marque cada alérgeno. O que ficar "não informado" deixa o produto sem resposta para o cliente.`;
+    else if (p.falta) { av.className = 'aviso warn'; av.innerHTML = `<b>${esc(p.falta)}</b>O que a ficha já sabe aparece travado. O resto fica "não informado" até o insumo ser conferido em Estoque › Produtos.`; }
+    else av.innerHTML = '<b>Vem da ficha técnica</b>Mude aqui só o que a ficha não sabe — por exemplo, o contato no preparo. O que ela diz que contém não se apaga aqui.';
+    $('#prod-outros').hidden = true; $('#prod-outros-bt').setAttribute('aria-expanded', 'false');
+    desenharProduto();
+  };
+  $('#g-produto').addEventListener('change', (e) => {
+    const s = e.target.closest('[data-prod-al]');
+    if (!s) return;
+    const a = s.dataset.prodAl;
+    prod.linhas[a].v = s.value;
+    desenharProduto();
+    const novo = $(`[data-prod-al="${CSS.escape(a)}"]`); if (novo) novo.focus();
+  });
+  $('#prod-outros-bt').addEventListener('click', (e) => { const ab = $('#prod-outros').hidden; $('#prod-outros').hidden = !ab; e.currentTarget.setAttribute('aria-expanded', String(ab)); desenharProduto(); });
+
+  // a frase de cautela (ajuste) aparece no cardápio e na resposta do atendente
+  const CAUTELA_PADRAO = $('#frase-cautela').value;
+  function espalharCautela() {
+    const t = $('#frase-cautela').value.trim();
+    $$('[data-cautela]').forEach((el) => { el.textContent = t || '(a frase de cautela não pode ficar vazia)'; });
+    $('#conta-cautela').textContent = `${$('#frase-cautela').value.length}/240`;
+  }
+
+  // ═════════════ PARTE 2 · PEDIDO AGENDADO ═════════════
+  const ENTREGA_MIN = 40; const RETIRADA_MIN = 20; const ANTECEDENCIA_MIN = 45;
+  const ABRE = 18 * 60; const ULTIMA = 22 * 60 + 45;
+  const hm = (min) => `${dois(Math.floor(min / 60))}:${dois(min % 60)}`;
+  const emMin = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
+  const sobe15 = (min) => Math.ceil(min / 15) * 15;
+  const iso = (d) => `${d.getFullYear()}-${dois(d.getMonth() + 1)}-${dois(d.getDate())}`;
+  const HOJE = iso(new Date());
+  const maisDias = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return iso(d); };
+  const nomeDoDia = (d) => (d === HOJE ? 'hoje' : d === maisDias(1) ? 'amanhã' : `${d.slice(8)}/${d.slice(5, 7)}`);
+  // As janelas livres de um dia. "agora" é o relógio do exemplo (em minutos); janela cheia sai marcada.
+  function janelasDe(dia, agoraMin, cheias) {
+    let inicio = sobe15(ABRE + ENTREGA_MIN); // a cozinha abre e precisa do tempo de entrega
+    if (dia === HOJE) inicio = Math.max(inicio, sobe15(agoraMin + ANTECEDENCIA_MIN));
+    const l = [];
+    for (let m = inicio; m <= ULTIMA; m += 15) l.push({ t: hm(m), cheia: dia === HOJE && cheias.includes(hm(m)) });
+    return l;
+  }
+  const opcoesDeJanela = (l, sel) => l.map((j) => `<option value="${j.t}"${j.cheia ? ' disabled' : ''}${j.t === sel ? ' selected' : ''}>${j.t} – ${hm(emMin(j.t) + 15)}${j.cheia ? ' · esgotado' : ''}</option>`).join('');
+
+  const chk = { quando: 'agendar', dia: HOJE, janela: '', pag: 'pix' };
+  const relogioDaLoja = () => (estado.lojaG === 'aberta' ? 20 * 60 + 10 : 16 * 60 + 10);
+  const cheiasDaLoja = () => (estado.lojaG === 'aberta' ? ['21:15'] : ['19:15']);
+  function reiniciarCheckout() { chk.quando = estado.lojaG === 'aberta' ? 'agora' : 'agendar'; chk.dia = HOJE; chk.janela = ''; chk.pag = 'pix'; }
+  function desenharCheckout() {
+    const fechada = estado.lojaG === 'fechada';
+    if (fechada) chk.quando = 'agendar';
+    const agendar = chk.quando === 'agendar';
+    $('#q-agora').disabled = fechada;
+    $('#q-agora').setAttribute('aria-pressed', String(!agendar));
+    $('#q-agendar').setAttribute('aria-pressed', String(agendar));
+    $('#q-agora-sub').textContent = fechada ? 'fechado agora' : `cerca de ${ENTREGA_MIN} min`;
+    $('#q-campos').hidden = !agendar;
+    const dia = $('#q-dia'); dia.min = HOJE; dia.max = maisDias(1); dia.value = chk.dia;
+    const l = janelasDe(chk.dia, relogioDaLoja(), cheiasDaLoja());
+    if (!l.some((j) => j.t === chk.janela && !j.cheia)) chk.janela = (l.find((j) => !j.cheia) || { t: '' }).t;
+    $('#q-janela').innerHTML = opcoesDeJanela(l, chk.janela);
+    const nCheias = l.filter((j) => j.cheia).length;
+    $('#q-ajuda').textContent = `${chk.dia === HOJE && !fechada ? `Pedidos com ${ANTECEDENCIA_MIN} min de antecedência.` : `Primeiro horário: ${l[0].t} (a cozinha abre às 18:00).`} A loja atende até 23:00.${nCheias ? ` ${nCheias} janela esgotada.` : ''}`;
+    const comeca = hm(emMin(chk.janela) - ENTREGA_MIN);
+    $('#q-resumo').innerHTML = `🗓️ Agendado para ${nomeDoDia(chk.dia)}, <span class="mono">${chk.janela}</span><small>Chega entre ${chk.janela} e ${hm(emMin(chk.janela) + 15)} · a cozinha começa às ${comeca}</small>`;
+    // pagamento
+    const soPix = agendar && estado.pagG === 'pix';
+    if (soPix) chk.pag = 'pix';
+    $('#pg-pix').setAttribute('aria-pressed', String(chk.pag === 'pix'));
+    $('#pg-entrega').setAttribute('aria-pressed', String(chk.pag === 'entrega'));
+    $('#pg-entrega').disabled = soPix;
+    $('#pg-pix-sub').textContent = agendar ? 'pague agora para confirmar' : 'pague agora';
+    $('#pg-entrega-sub').textContent = soPix ? 'só para pedido de agora' : 'dinheiro ou cartão';
+    $('#pg-nota').textContent = !agendar ? 'Pedido para agora: as formas de sempre.' : chk.pag === 'pix' ? 'O agendamento vale quando o Pix cai. Cancelou antes de entrar em preparo? O valor volta sozinho.' : 'O agendamento vale na hora. Você paga ao receber.';
+    $('#q-confirmar').textContent = agendar ? 'Agendar pedido · R$ 46,90' : 'Fazer pedido · R$ 46,90';
+    // depois de confirmar
+    $('#feito-topo').innerHTML = agendar ? `✅ Pedido agendado<small>${nomeDoDia(chk.dia)}, ${chk.janela} · chega entre ${chk.janela} e ${hm(emMin(chk.janela) + 15)}</small>` : `✅ Pedido recebido<small>Previsão: cerca de ${ENTREGA_MIN} min</small>`;
+    $('#feito-pag').textContent = chk.pag === 'pix' ? 'Pix pago ✅' : 'Pagamento na entrega';
+    $('#feito-acoes').hidden = !agendar;
+    $('#feito-ate').textContent = `Até as ${comeca}, quando a cozinha começa, você muda o horário ou cancela por aqui. Depois disso, fale com a loja.`;
+  }
+  $('#q-agora').addEventListener('click', () => { chk.quando = 'agora'; desenharCheckout(); });
+  $('#q-agendar').addEventListener('click', () => { chk.quando = 'agendar'; desenharCheckout(); });
+  $('#q-dia').addEventListener('change', (e) => { const v = e.target.value; chk.dia = v && v >= HOJE && v <= maisDias(1) ? v : HOJE; chk.janela = ''; desenharCheckout(); });
+  $('#q-janela').addEventListener('change', (e) => { chk.janela = e.target.value; desenharCheckout(); });
+  $('#pg-pix').addEventListener('click', () => { chk.pag = 'pix'; desenharCheckout(); });
+  $('#pg-entrega').addEventListener('click', () => { chk.pag = 'entrega'; desenharCheckout(); });
+  $('#q-confirmar').addEventListener('click', () => { estado.chkG = 'feito'; aplicar(); avisar(chk.quando === 'agendar' ? (chk.pag === 'pix' ? 'No protótipo, o Pix já foi pago: pedido agendado.' : 'Pedido agendado (protótipo).') : 'Pedido recebido (protótipo).'); });
+
+  // o painel do Delivery: a situação "Agendados"
+  const AGENDADOS = [
+    { n: 1051, senha: 'D-251', cli: 'Ana P.', tipo: 'Entrega', itens: [['1×', 'Trio 07']], total: 'R$ 46,90', dia: 'hoje', hora: '19:30', entra: '18:50', falta: 'em 30 min' },
+    { n: 1052, senha: 'D-252', cli: 'Bruno M.', tipo: 'Retirada', itens: [['2×', 'X-Bacon'], ['2×', 'Coca lata']], total: 'R$ 70,00', dia: 'hoje', hora: '20:00', entra: '19:40', falta: 'em 1 h 20' },
+    { n: 1054, senha: 'D-254', cli: 'Carla S.', tipo: 'Entrega', itens: [['1×', 'Número 07'], ['1×', 'Coca lata']], total: 'R$ 43,00', dia: 'amanhã', hora: '19:00', entra: '18:20', falta: 'amanhã' },
+  ];
+  let sitPainel = 'agendados';
+  let pedidoAberto = AGENDADOS[0];
+  const fechamento = { 1051: '', 1052: '' };
+  function desenharLoja() {
+    const m = estado.momento;
+    const emPreparo = m === 'preparo';
+    const contas = [['analise', 'Em análise', 1], ['producao', 'Em produção', emPreparo ? 5 : 4], ['prontos', 'Prontos', 1], ['rota', 'Em rota', 3], ['agendados', 'Agendados', emPreparo ? 2 : 3]];
+    $('#painel-sits').innerHTML = contas.map(([k, r, n]) => `<button type="button" class="sit" data-sit-painel="${k}" aria-pressed="${sitPainel === k}">${r} <b>${n}</b></button>`).join('');
+    // os avisos do momento
+    const av = [];
+    if (emPreparo) av.push('<p class="aviso ok" role="status"><b>🔔 18:50 · o pedido nº 1051 entrou em preparo</b>Ele saiu de "Agendados" sozinho: o cartão começou a contar na cozinha, o painel tocou e a Ana recebeu o aviso no WhatsApp.</p>');
+    if (m === 'pausa') av.push('<p class="aviso warn" role="status"><b>⏸ Cardápio digital pausado das 18:30 às 19:10 · Muitos pedidos agora</b>A pausa segura só pedido novo. Os 3 agendados já confirmados continuam — o nº 1051 entra em preparo às 18:50, dentro da pausa. No cardápio e no WhatsApp, as janelas que cairiam na pausa deixam de ser oferecidas.</p>');
+    if (m === 'fechou') {
+      const linha = (p) => `<div class="fech"><div class="q"><b>#${p.n} · ${p.cli}</b><small>${p.tipo} · hoje, ${p.hora} · ${p.total} · Pix pago</small></div>
+        <div class="seg" role="group" aria-label="O que fazer com o pedido ${p.n}">${[['manter', 'Manter'], ['mudar', 'Mudar o horário'], ['cancelar', 'Cancelar e avisar']].map(([k, r]) => `<button type="button" data-fech="${p.n}:${k}" aria-pressed="${fechamento[p.n] === k}">${r}</button>`).join('')}</div></div>`;
+      av.push(`<div class="aviso warn"><b>Antes de fechar o turno: 2 pedidos agendados para hoje</b>O Regem não cancela pedido sozinho. Diga o que fazer com cada um — sem isso, o turno não fecha. "Manter" quer dizer que alguém vai produzir na hora marcada.
+        ${AGENDADOS.slice(0, 2).map(linha).join('')}
+        <div class="acoes"><button type="button" class="bt pri" data-acao="fechar-turno">Fechar o turno</button><button type="button" class="bt" data-acao="voltar-turno">Voltar</button></div></div>`);
+    }
+    $('#painel-avisos').innerHTML = av.join('');
+    // a lista
+    const el = $('#painel-lista');
+    if (estado.listaG === 'carregando') { el.innerHTML = '<div class="esq" aria-hidden="true"><i></i><i></i></div><span class="sr" role="status">Carregando os pedidos…</span>'; }
+    else if (estado.listaG === 'erro') { el.innerHTML = '<div class="vazio erro" role="alert"><b>Não deu para ler os pedidos</b>A conexão com o Regem falhou. Os pedidos agendados continuam guardados.<div class="acoes"><button type="button" class="bt pri" data-acao="painel-tentar">Tentar de novo</button></div></div>'; }
+    else if (sitPainel !== 'agendados') { el.innerHTML = '<div class="vazio"><b>O protótipo mostra só os agendados</b>Nas outras situações ficam os pedidos de sempre — e o agendado, depois que entra em preparo.<div class="acoes"><button type="button" class="bt" data-sit-painel="agendados">Ver os agendados</button></div></div>'; }
+    else if (estado.listaG === 'vazio') { el.innerHTML = '<div class="vazio"><b>Nenhum pedido agendado</b>Quando um cliente marcar um horário, o pedido aparece aqui até entrar em preparo.</div>'; }
+    else {
+      el.innerHTML = AGENDADOS.map((p) => {
+        const saiu = emPreparo && p.n === 1051;
+        const naPausa = m === 'pausa' && p.n === 1051;
+        return `<div class="ped${saiu ? ' saiu' : ''}">
+          <div class="q"><b>#${p.n} · ${p.cli}</b><small>${p.tipo} · ${p.itens.map((i) => i.join(' ')).join(', ')} · <span class="mono">${p.total}</span> · Pix pago</small></div>
+          <div><small>Agendado para</small><span class="hora">${p.dia}, <span class="mono">${p.hora}</span></span></div>
+          <div>${saiu ? '<small>Em produção</small><span class="hora">desde <span class="mono">18:50</span></span><small>saiu de "Agendados"</small>' : `<small>Entra em preparo</small><span class="hora"><span class="mono">${p.entra}</span></span><small>${naPausa ? '<span class="selo warn">durante a pausa</span>' : p.falta}</small>`}</div>
+          <div class="acoes">${saiu ? '' : `<button type="button" class="bt fino" data-abrir="g-horario" data-ped="${p.n}">Mudar o horário<span class="sr"> do pedido ${p.n}</span></button><button type="button" class="bt fino" data-abrir="d-cancelar" data-ped="${p.n}">Cancelar<span class="sr"> o pedido ${p.n}</span></button>`}</div>
+        </div>`;
+      }).join('');
+    }
+    // a tira do KDS
+    const itensDoCartao = (itens) => `<ul class="k-itens">${itens.map(([q, d]) => `<li class="k-it"><span class="k-cx" aria-hidden="true"></span><span class="k-q">${q}</span><span class="k-d">${d}</span></li>`).join('')}</ul>`;
+    const cartao = (p, agenda) => `<article class="k-card${agenda ? ' t-agenda' : ''}" aria-label="Senha ${p.senha}, agendado para ${p.hora}, ${agenda ? `começa ${p.entra}` : '0 minutos, recebido'}">
+      <div class="k-cab"><span class="k-etqs"><span class="k-tag cheia">Viagem</span><span class="k-tag">Cardápio Regem</span><span class="k-tag">Agendado · para ${p.hora}</span></span><span class="k-ident">${p.senha}</span></div>
+      <div class="k-cc">${itensDoCartao(p.itens)}</div>
+      <div class="k-pe">${agenda ? `<span class="k-tempo"><small>começa</small>${p.entra}</span>` : '<span class="k-tempo">0<small>min</small></span>'}<span class="k-prazo"><span>Recebido</span></span>
+        <button type="button" class="k-avancar" data-toast="No protótipo: a cozinha começa o pedido. Antes da hora, o cartão também deixa começar.">Começar</button></div></article>`;
+    $('#kds-tira').innerHTML = `<article class="k-card" aria-label="Senha B-12, 6 minutos, em preparo">
+      <div class="k-cab"><span class="k-etqs"><span class="k-tag">Balcão</span></span><span class="k-ident">B-12</span></div>
+      <div class="k-cc">${itensDoCartao([['1×', 'X-Bacon']])}</div>
+      <div class="k-pe"><span class="k-tempo">6<small>min</small></span><span class="k-prazo"><span>Em preparo</span></span><button type="button" class="k-avancar" data-toast="No protótipo: o pedido de agora, para comparar.">Pronto</button></div></article>`
+      + cartao(AGENDADOS[0], !emPreparo) + cartao(AGENDADOS[1], true);
+  }
+  const hor = { dia: HOJE, janela: '20:00' };
+  function desenharHorario() {
+    const dia = $('#h-dia'); dia.min = HOJE; dia.max = maisDias(1); dia.value = hor.dia;
+    const l = janelasDe(hor.dia, 18 * 60 + 20, ['19:15']);
+    if (!l.some((j) => j.t === hor.janela && !j.cheia)) hor.janela = (l.find((j) => !j.cheia) || { t: '' }).t;
+    $('#h-janela').innerHTML = opcoesDeJanela(l, hor.janela);
+    $('#h-ajuda').textContent = `Primeiro horário livre: ${l.find((j) => !j.cheia).t}. A loja atende até 23:00.`;
+    const antes = pedidoAberto.tipo === 'Retirada' ? RETIRADA_MIN : ENTREGA_MIN;
+    $('#h-resumo').innerHTML = `<b>Novo horário: ${nomeDoDia(hor.dia)}, ${hor.janela}</b>O pedido entra em preparo às ${hm(emMin(hor.janela) - antes)} (${antes} min antes, o tempo de ${pedidoAberto.tipo === 'Retirada' ? 'retirada' : 'entrega'} da loja).`;
+  }
+  const pedidoDe = (origem) => AGENDADOS.find((p) => String(p.n) === (origem && origem.dataset.ped)) || AGENDADOS[0];
+  preparar['g-horario'] = (origem) => { pedidoAberto = pedidoDe(origem); hor.dia = HOJE; hor.janela = '20:00'; $('#g-horario-sub').textContent = `Pedido nº ${pedidoAberto.n} · ${pedidoAberto.cli} · agendado para ${pedidoAberto.dia}, ${pedidoAberto.hora}`; desenharHorario(); };
+  preparar['d-cancelar'] = (origem) => { pedidoAberto = pedidoDe(origem); $('#d-cancelar-d').innerHTML = `Pedido <b>nº ${pedidoAberto.n}</b> · ${pedidoAberto.cli} · ${pedidoAberto.dia}, ${pedidoAberto.hora} · <span class="mono">${pedidoAberto.total}</span>, Pix pago.`; };
+  $('#h-dia').addEventListener('change', (e) => { const v = e.target.value; hor.dia = v && v >= HOJE && v <= maisDias(1) ? v : HOJE; desenharHorario(); });
+  $('#h-janela').addEventListener('change', (e) => { hor.janela = e.target.value; desenharHorario(); });
+
+  // ═════════════ PARTE 3 · OS PRINTS DE AJUDA ═════════════
+  const LOJA_DO_PRINT = { A: { nome: 'Loja Demonstração', cor: '#0F2230' }, B: { nome: 'Mister Burguer', cor: '#7A1F1F' }, C: { nome: 'Mister Burguer', cor: '#7A1F1F' } };
+  const num = (i) => `<span class="n" aria-hidden="true">${i}</span>`;
+  const L = (txt, v, cls, alvo) => `<div class="p-l ${cls || ''}${alvo ? ' alvo' : ''}">${alvo ? num(alvo) : ''}<span>${txt}</span>${v ? `<span class="v">${v}</span>` : ''}</div>`;
+  const SEG = (ops, on, alvo) => `<div class="p-seg${alvo ? ' alvo' : ''}">${alvo ? num(alvo) : ''}${ops.map((o, i) => `<span class="${i === on ? 'on' : ''}">${o}</span>`).join('')}</div>`;
+  const PASSOS = [
+    { k: 'produto', t: 'Escolher o produto', tit: () => 'Cardápio',
+      tela: () => SEG(['Lanches', 'Combos', 'Bebidas'], 0, 1) + L('Número 07', 'R$ 32,00', '', 2) + L('Trio 07', 'R$ 41,90') + L('X-Bacon', 'R$ 29,00') + L('Coca lata', 'R$ 6,00'),
+      leg: () => ['Escolha a categoria', 'Toque no produto para abrir'],
+      frase: 'Escolha a categoria (1) e toque no produto que você quer (2). Se preferir, eu monto o pedido com você por aqui.' },
+    { k: 'adicionais', t: 'Adicionais', tit: () => 'Número 07 · R$ 32,00',
+      tela: () => L('☑ Bacon extra', '+ R$ 5,00', '', 1) + L('☐ Cheddar extra', '+ R$ 4,00') + L('Observação (ex.: sem cebola)', '', 'campo-p', 2) + L('Adicionar · R$ 37,00', '', 'bot', 3),
+      leg: () => ['Marque o que quer a mais', 'Escreva a observação, se tiver', 'Toque em "Adicionar"'],
+      frase: 'Marque os adicionais (1), escreva a observação se tiver (2) e toque em "Adicionar" (3). Se preferir, eu monto o pedido com você por aqui.' },
+    { k: 'carrinho', t: 'Carrinho', tit: () => 'Seu carrinho',
+      // na opção C a tela traz o pedido da própria cliente (o Trio 07 da Ana, da parte 2)
+      tela: (o) => (o === 'C' ? L('1× Trio 07', 'R$ 41,90') + L('Subtotal', 'R$ 41,90') : L('1× Número 07 + bacon', 'R$ 37,00') + L('1× Coca lata', 'R$ 6,00') + L('Subtotal', 'R$ 43,00'))
+        + L('Pedido mínimo de R$ 20,00 ✓', '', 'certo', 1) + L('Continuar', '', 'bot', 2),
+      leg: () => ['O subtotal precisa passar do pedido mínimo', 'Aí o botão "Continuar" libera'],
+      frase: 'É nesta tela: quando o subtotal passa do mínimo (1), o botão libera (2). Se preferir, eu monto o pedido com você por aqui mesmo.' },
+    { k: 'endereco', t: 'Endereço e taxa', tit: () => 'Entrega',
+      tela: (o) => SEG(['Entrega', 'Retirar na loja'], 0, 1) + L(o === 'C' ? 'Rua das Acácias, 120' : 'Rua e número', '', o === 'C' ? '' : 'campo-p', 2) + L('Taxa de entrega', 'R$ 5,00', '', 3) + L('Continuar', '', 'bot'),
+      leg: () => ['Escolha entrega ou retirada', 'Digite o endereço com o número', 'A taxa aparece aqui'],
+      frase: 'Nesta tela: escolha entrega ou retirada (1), digite o endereço com o número (2) e confira a taxa (3). Se ficar mais fácil, eu monto o pedido com você por aqui.' },
+    { k: 'pagamento', t: 'Pagamento e Pix', tit: () => 'Pagamento',
+      tela: (o) => SEG(['Pix', 'Dinheiro', 'Cartão'], 0, 1) + L('Total', o === 'C' ? 'R$ 46,90' : 'R$ 48,00') + L('Fazer pedido', '', 'bot', 2) + '<div class="p-qr"></div>' + L('Copiar código Pix', '', '', 3),
+      leg: () => ['Escolha como pagar', 'Toque em "Fazer pedido"', 'No Pix, copie o código e pague no app do banco antes do prazo'],
+      frase: 'Escolha a forma de pagamento (1) e toque em "Fazer pedido" (2). No Pix, copie o código (3) e pague no app do seu banco. Se preferir, eu monto o pedido com você por aqui.' },
+    { k: 'acompanhar', t: 'Acompanhar o pedido', tit: (o) => (o === 'C' ? 'Pedido nº 1051' : 'Pedido nº 1043'),
+      tela: () => `<ul class="p-etapas"><li class="feito"><i></i>Recebido</li><li class="agora alvo">${num(1)}<i></i>Em preparo</li><li><i></i>Saiu para entrega</li><li><i></i>Entregue</li></ul>` + L('Acompanhar entrega', '', 'bot', 2),
+      leg: () => ['Aqui aparece a etapa do pedido', 'Quando sair, toque para acompanhar'],
+      frase: 'O pedido entrou! Nesta tela você vê a etapa em que ele está (1) e, quando sair, acompanha a entrega (2).' },
+  ];
+  function printDe(k, o, largura) {
+    const i = PASSOS.findIndex((p) => p.k === k); const p = PASSOS[i]; const loja = LOJA_DO_PRINT[o];
+    const leg = p.leg(o);
+    return `<div class="print" role="img" aria-label="Print de ajuda, passo ${i + 1} de 6, ${esc(p.t)}: ${esc(leg.map((t, j) => `${j + 1}, ${t}`).join('; '))}" style="--pcor:${loja.cor}${largura ? `;max-width:${largura}px` : ''}">
+      <div class="tela"><div class="p-cab"><i></i><span>${loja.nome}</span></div><div class="p-tit">${p.tit(o)}</div><div class="p-corpo">${p.tela(o)}</div></div></div>`;
+  }
+  const legendaDe = (p, o) => `<ol class="pa-leg">${p.leg(o).map((t, j) => `<li>${num(j + 1)}<span>${esc(t)}</span></li>`).join('')}</ol>`;
+  $$('[data-print]').forEach((el) => { el.outerHTML = printDe(el.dataset.print, 'A'); });
+  function desenharGaleria() {
+    const o = estado.opcaoP;
+    $('#galeria').innerHTML = PASSOS.map((p, i) => `<article class="passo"><h3>${i + 1} · ${esc(p.t)}${o === 'C' ? ' <span class="selo neutro">gerado na hora</span>' : ''}</h3>${printDe(p.k, o)}${legendaDe(p, o)}
+      <button type="button" class="bt fino" data-abrir="d-print" data-passo="${p.k}">Ver maior, com a frase</button></article>`).join('');
+  }
+  preparar['d-print'] = (origem) => {
+    const k = (origem && origem.dataset.passo) || 'carrinho'; const i = PASSOS.findIndex((p) => p.k === k); const p = PASSOS[i]; const o = estado.opcaoP;
+    $('#d-print-t').textContent = `Print de ajuda · passo ${i + 1} de 6 · ${p.t}`;
+    $('#d-print-corpo').innerHTML = `${printDe(k, o, 290)}<div style="justify-self:stretch">${legendaDe(p, o)}</div>
+      <div class="bloco" style="justify-self:stretch"><h3>A frase que vai junto</h3><div class="wa" style="border-radius:10px"><div class="bolha"><p>${esc(p.frase)}</p></div></div></div>`;
+  };
+
+  // ═════════════ AJUSTES: a barra das alterações não salvas ═════════════
+  const valorDe = (el) => (el.matches('.sw') ? el.getAttribute('aria-checked') : el.value);
+  const porValor = (el, v) => { if (el.matches('.sw')) el.setAttribute('aria-checked', v); else el.value = v; };
+  const salvo = {};
+  $$('[data-aj]').forEach((el) => { salvo[el.dataset.aj] = valorDe(el); });
+  const grupoDaBarra = () => (estado.vista === 'alerg' && estado.subA === 'ajuste' ? 'alerg' : estado.vista === 'agend' && estado.subG === 'ajustes' ? 'agend' : estado.vista === 'foto' && estado.subF === 'ajuste' ? 'foto' : '');
+  function desenharAjustes() {
+    $$('.sw[data-aj]').forEach((s) => { const r = document.getElementById(`${s.dataset.aj}-rot`); if (r) r.textContent = s.getAttribute('aria-checked') === 'true' ? 'Ligado' : 'Desligado'; });
+    const ligado = $('[data-aj="ag-ligado"]').getAttribute('aria-checked') === 'true';
+    $$('[data-depende]').forEach((l) => { l.classList.toggle('desligado', !ligado); $$('select', l).forEach((s) => { s.disabled = !ligado; }); });
+    $$('[data-linha]').forEach((l) => { const el = $('[data-aj]', l); l.classList.toggle('mudou', valorDe(el) !== salvo[el.dataset.aj]); });
+    const g = grupoDaBarra();
+    const n = g ? $$(`[data-barra="${g}"] [data-aj]`).filter((el) => valorDe(el) !== salvo[el.dataset.aj]).length : 0;
+    $('#barra').hidden = !n;
+    $('#barra-txt').textContent = n === 1 ? '1 alteração ainda não salva' : `${n} alterações ainda não salvas`;
+  }
+  document.addEventListener('click', (e) => {
+    const s = e.target.closest('.sw[data-aj]');
+    if (!s) return;
+    s.setAttribute('aria-checked', String(s.getAttribute('aria-checked') !== 'true'));
+    desenharAjustes();
+  });
+  document.addEventListener('change', (e) => { if (e.target.matches('select[data-aj]')) desenharAjustes(); });
+  $('#frase-cautela').addEventListener('input', () => { espalharCautela(); desenharAjustes(); });
+
+  // ═════════════ O QUE LIGA TUDO ═════════════
+  function aplicar() {
+    $$('[data-mostra]').forEach((el) => { el.hidden = !vale(el.dataset.mostra); });
+    $$('[data-grupo]').forEach((b) => b.setAttribute('aria-pressed', String(estado[b.dataset.grupo] === b.dataset.valor)));
+    $$('.vista').forEach((s) => { s.hidden = s.id !== `v-${estado.vista}`; });
+    desenharConferencia(); desenharCheckout(); desenharLoja(); desenharGaleria(); desenharAjustes();
+  }
+  const ACOES = {
+    'conf-tentar': () => { estado.listaA = 'dados'; aplicar(); avisar('Lista lida de novo (protótipo).'); },
+    'conf-limpar': () => { conf.sit = 'todos'; conf.busca = ''; conf.alerg = ''; conf.origem = ''; $('#conf-busca').value = ''; $('#conf-alerg').value = ''; $('#conf-origem').value = ''; desenharConferencia(); $('#conf-busca').focus(); },
+    'cautela-padrao': () => { $('#frase-cautela').value = CAUTELA_PADRAO; espalharCautela(); desenharAjustes(); avisar('Texto padrão de volta. Falta salvar, se você tinha mudado.'); },
+    'salvar-insumo': () => { const n = ins.nome; const u = ins.usado; fechar(); avisar(`${n} salvo (protótipo): ${u} produtos herdam a marcação.`); },
+    'salvar-produto': () => { const n = prod.p.n; fechar(); avisar(`Alérgenos do ${n} salvos (protótipo).`); },
+    'chk-voltar': () => { estado.chkG = 'escolha'; reiniciarCheckout(); aplicar(); },
+    'ir-fechar': () => { estado.momento = 'fechou'; aplicar(); avisar('Antes de fechar, o Regem pergunta dos agendados.'); },
+    'voltar-turno': () => { estado.momento = 'antes'; aplicar(); },
+    'fechar-turno': () => {
+      const falta = Object.keys(fechamento).find((n) => !fechamento[n]);
+      if (falta) { avisar(`Falta decidir o pedido nº ${falta}.`); return; }
+      avisar('Turno fechado (protótipo), com a decisão de cada agendado gravada.');
+    },
+    'painel-tentar': () => { estado.listaG = 'dados'; aplicar(); avisar('Pedidos lidos de novo (protótipo).'); },
+    'salvar-horario': () => { const n = pedidoAberto.n; const t = `${nomeDoDia(hor.dia)}, ${hor.janela}`; fechar(); avisar(`Pedido nº ${n}: novo horário ${t} (protótipo). O cliente foi avisado.`); },
+    'confirmar-cancelar': () => { const n = pedidoAberto.n; fechar(); avisar(`Pedido nº ${n} cancelado (protótipo). O Pix volta sozinho.`); },
+    'barra-salvar': () => {
+      if (grupoDaBarra() === 'alerg' && !$('#frase-cautela').value.trim()) { avisar('Escreva a frase de cautela: ela não pode ficar vazia.'); $('#frase-cautela').focus(); return; }
+      $$(`[data-barra="${grupoDaBarra()}"] [data-aj]`).forEach((el) => { salvo[el.dataset.aj] = valorDe(el); });
+      desenharAjustes(); avisar('Ajustes salvos (protótipo).');
+    },
+    'barra-descartar': () => { $$(`[data-barra="${grupoDaBarra()}"] [data-aj]`).forEach((el) => porValor(el, salvo[el.dataset.aj])); espalharCautela(); desenharAjustes(); avisar('Alterações descartadas.'); },
+  };
+  document.addEventListener('click', (e) => {
+    const alvo = e.target.closest('button');
+    if (!alvo || alvo.disabled) return;
+    if (alvo.dataset.grupo) {
+      const g = alvo.dataset.grupo;
+      estado[g] = alvo.dataset.valor;
+      if (g === 'lojaG') { estado.chkG = 'escolha'; reiniciarCheckout(); }
+      if (g === 'pagG') chk.pag = 'pix';
+      if (g === 'momento') { sitPainel = 'agendados'; fechamento[1051] = ''; fechamento[1052] = ''; }
+      aplicar();
+      if (g === 'vista') window.scrollTo(0, 0);
+      return;
+    }
+    if (alvo.dataset.confSit) { conf.sit = alvo.dataset.confSit; desenharConferencia(); return; }
+    if (alvo.dataset.sitPainel) { sitPainel = alvo.dataset.sitPainel; desenharLoja(); const b = $(`#painel-sits [data-sit-painel="${sitPainel}"]`); if (b) b.focus(); return; }
+    if (alvo.dataset.fech) {
+      const [n, k] = alvo.dataset.fech.split(':');
+      fechamento[n] = k; desenharLoja();
+      const b = $(`[data-fech="${n}:${k}"]`); if (b) b.focus();
+      if (k === 'mudar') { const o = document.createElement('button'); o.dataset.ped = n; abrir('g-horario', o); pilha[pilha.length - 1].origem = b; }
+      return;
+    }
+    if ('fechar' in alvo.dataset) { fechar(); return; }
+    if (alvo.dataset.abrir) { abrir(alvo.dataset.abrir, alvo); return; }
+    if (alvo.dataset.acao && ACOES[alvo.dataset.acao]) { ACOES[alvo.dataset.acao](); return; }
+    if (alvo.dataset.toast) avisar(alvo.dataset.toast);
+  });
+
+  reiniciarCheckout();
+  espalharCautela();
+  aplicar();
+})();
+</script>
+</body>
+</html>
