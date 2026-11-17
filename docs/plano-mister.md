@@ -1037,7 +1037,11 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
 **Andamento da M3d (17/11/2026):**
 - **Parte 1 (sem migration):** a imagem da tela no "como faço", feita pelos roteiros (`GERAR_COMO_FACO=1`) e mandada pelo
   endereço público antes do texto; a primeira é "Pausar os pedidos de um canal".
-- **Falta:** as imagens dos outros assuntos do guia, roteiro por roteiro.
+- **Parte 2 (sem migration):** mais seis imagens — "Rota da cozinha" e os produtos de cada KDS (roteiro da rota), a área
+  de entrega (roteiro da área) e os três do próprio Mister: ligar o WhatsApp, a chave de IA e os relatórios (roteiro do
+  Mister). A marca agora rola até a vista e só vale se o centro dela estiver na janela e for dela mesma (o item cortado
+  pelo menu ou coberto reprova o roteiro, com o motivo); os relatórios, no fim da parte, saem pela busca ("resumo").
+- **Falta:** as imagens dos outros assuntos do guia (caixa, PDV, estoque, cadastros…), roteiro por roteiro.
 
 **A tela "Resumo" (17/11/2026, sem migration; #1114, no ar):** a entrada do presidente em Mister — as três etapas para funcionar, a faixa
 "IA parada", o que o Mister faz e os últimos avisos, só com as rotas que já existem.

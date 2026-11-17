@@ -5,7 +5,7 @@
 // gravada; desenhar uma área clicando os cantos no mapa e fechando no primeiro; a gaveta; salvar a lista inteira e ligar o
 // modo; "Testar um endereço" dentro e fora; converter as faixas; a ordem; apagar com confirmação; a recusa do servidor; e as
 // 16 larguras com a gaveta e o diálogo abertos (nenhuma barra lateral).
-import { responder, tokenFalso, umaLinha } from './comum.mjs';
+import { fotoDoComoFaco, responder, tokenFalso, umaLinha } from './comum.mjs';
 
 const TOKEN = tokenFalso({ cat: 'presidente', perfil: 'presidente', perm: { loja: { ver: true, editar: true }, delivery: { ver: true } } });
 const LOJA = { lat: -22.8436, lng: -43.2784 };
@@ -98,6 +98,13 @@ export default async function roteiroAreaEntrega({ nav, base, ok, foto, larguras
     const cards = await page.locator('[role="radiogroup"] [role="radio"]').allInnerTexts();
     ok(cards.length === 3 && /Por bairro/.test(cards[0]) && /Por distância/.test(cards[1]) && /Desenhada no mapa/.test(cards[2]), `os três modos (${cards.map((c) => umaLinha(c, 30)).join(' | ')})`);
     ok(/valendo/.test(cards[0]), 'o modo de hoje marcado "valendo" (bairro)');
+    // M3d: a imagem do "como faço" — 1: Delivery › Configurações no menu; 2: a aba "Área de atendimento"; 3: os três modos.
+    const comoFaco = await fotoDoComoFaco(page, 'taxa-e-area', [
+      page.locator('aside a[href="/delivery/configuracoes"] >> visible=true').first(),
+      page.locator('main button:has-text("Área de atendimento") >> visible=true').first(),
+      page.locator('[role="radiogroup"][aria-label="Como a loja entrega"]').first(),
+    ]);
+    ok(comoFaco.achou.every(Boolean), `como faço (taxa-e-area): as marcas estão na tela (${comoFaco.achou.join(', ')})${comoFaco.gerou ? ' — imagem gerada' : ''}`);
     ok(await page.locator('text=Bairro + taxa').isVisible(), 'por bairro: a lista dos bairros');
     await page.click('[role="radio"]:has-text("Por distância")');
     await page.waitForTimeout(500);

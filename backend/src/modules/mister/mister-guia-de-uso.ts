@@ -260,6 +260,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Por bairro, use "＋ Bairro"; por distância, os atalhos ou "＋ Faixa manual", e clique em "Salvar". Desenhada no mapa: "＋ Nova área", clique os cantos no mapa e feche no primeiro, preencha a gaveta e clique em "Salvar áreas" — fora das áreas o pedido não sai.',
     ],
     botoes: ['Área de atendimento', 'Por bairro', 'Por distância', 'Desenhada no mapa', '＋ Bairro', '＋ Faixa manual', '＋ Nova área', 'Salvar áreas', 'Salvar'],
+    imagem: ['Delivery › Configurações, no menu', 'a aba "Área de atendimento"', 'os três modos: "Por bairro", "Por distância" e "Desenhada no mapa"'],
   },
   {
     id: 'horario',
@@ -751,6 +752,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Clique em "Salvar a ordem" e confirme.',
     ],
     botoes: ['Editar a ordem', 'Antes', 'Depois', 'Junto com…', 'Quando ficar pronto, vai para', 'Salvar a ordem'],
+    imagem: ['Configurações › Rota da cozinha, no menu', 'o botão "Editar a ordem"'],
     notas: ['O despacho só pode ficar na última etapa.', 'Nada muda na cozinha até salvar.'],
     veja: ['produtos-do-kds'],
   },
@@ -768,6 +770,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Clique em "Salvar ajustes deste KDS".',
     ],
     botoes: ['Configurar este KDS', 'Lugar no fluxo', 'Estação de preparo', 'KDS de despacho', 'Produtos que aparecem aqui', 'Salvar ajustes deste KDS', 'Vai para produção (KDS)'],
+    imagem: ['"Lugar no fluxo" e "Quando ficar pronto, vai para", na gaveta "Configurar este KDS"', '"Produtos que aparecem aqui"', 'o botão "Salvar ajustes deste KDS"'],
     notas: ['O produto só vai à cozinha com "Vai para produção (KDS)" ligado no cadastro dele.'],
   },
   {
@@ -891,6 +894,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'O código vale 10 minutos e uma vez só; vencido, "Gerar outro código". Para desligar, "Desligar".',
     ],
     botoes: ['Pessoas', 'Ligar o meu WhatsApp', 'Gerar outro código', 'Desligar'],
+    imagem: ['Mister, no menu', 'o botão "Ligar o meu WhatsApp", na sua linha'],
     notas: ['Só a própria pessoa liga o seu número, entrando com o usuário dela.', 'Mandar PARAR AVISOS no WhatsApp suspende os avisos; VOLTAR AVISOS volta.'],
   },
   {
@@ -907,6 +911,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'O passo a passo para criar a chave está em "Como criar a chave, passo a passo".',
     ],
     botoes: ['IA e uso', 'Chave de IA', 'Chave de API', 'Testar conexão', 'Salvar chave', 'Como criar a chave, passo a passo'],
+    imagem: ['Mister, no menu', 'a parte "IA e uso"', 'o campo "Chave de API"', 'o botão "Salvar chave"'],
     notas: ['Só o presidente cadastra ou troca a chave. Ela fica cifrada e não aparece de novo.', 'Na mesma parte, o uso da IA mostra o gasto por período.'],
   },
   {
@@ -918,11 +923,12 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
     modulo: 'mister',
     palavras: ['resumo do dia', 'resumo da semana', 'relatório do mister', 'avisos do mister', 'para onde vai o aviso', 'horário do resumo'],
     passos: [
-      'Abra a parte "Avisos e relatórios" e vá ao grupo "Relatórios".',
+      'Abra a parte "Avisos e relatórios" e vá ao grupo "Relatórios" (fica no fim; digitar a palavra resumo em "Buscar" traz ele para cima).',
       'Ligue o resumo do dia (ou o da semana) e escolha o horário.',
       'Clique em "Salvar alterações". Para mudar o destino de um aviso, "Mudar" nele.',
     ],
-    botoes: ['Avisos e relatórios', 'Relatórios', 'Salvar alterações', 'Mudar'],
+    botoes: ['Avisos e relatórios', 'Relatórios', 'Buscar', 'Salvar alterações', 'Mudar'],
+    imagem: ['Mister, no menu', 'a parte "Avisos e relatórios"', 'o campo "Buscar", com "resumo" digitado', 'o grupo "Relatórios"'],
     notas: ['Só o presidente muda. O resumo chega a quem ligou o próprio WhatsApp ao Mister e falou com ele nas últimas 24 horas.'],
   },
 ];
