@@ -104,6 +104,31 @@ export async function perguntaDoCliente(db: any, tenantId: string, telefone: str
   return partes.join('\n').trim() || null;
 }
 
+/**
+ * O id (wamid) da última mensagem que o cliente mandou, dos últimos 30 minutos (a API oficial grava a conversa — mig 215,
+ * só nuvem). É a mensagem a que o robô reage (a linha `REACAO:`) e a que leva o "digitando…" entre os balões, quando o
+ * fluxo do n8n não manda o `responderA` (17/11/2026 — `robo-resposta.service.ts`).
+ */
+export async function idDaUltimaDoCliente(db: any, tenantId: string, telefone: string): Promise<string | null> {
+  const formas = formasDaChaveTelefone(chaveTelefone(telefone));
+  if (!formas.length) return null;
+  const r = await db.execute(sql`
+    select wamid
+      from whatsapp_mensagem
+     where tenant_id = ${tenantId}::uuid
+       and telefone in (${sql.join(
+         formas.map((f) => sql`${f}`),
+         sql`, `,
+       )})
+       and direcao = 'entrada'
+       and wamid is not null
+       and criado_em > now() - interval '30 minutes'
+     order by criado_em desc, id desc
+     limit 1`);
+  const id = String(linhasDe(r)[0]?.wamid ?? '').trim();
+  return id || null;
+}
+
 /** O cliente pediu para VER: foto, imagem, "me mostra". */
 export const pedeFoto = (texto: unknown): boolean =>
   /\b(fotos?|fotinh[ao]s?|imagem|imagens|mostr(a|e|ar|em))\b/.test(normalizar(texto));

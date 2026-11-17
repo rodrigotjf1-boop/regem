@@ -17,11 +17,68 @@ describe('instruções do robô', () => {
     expect(instrucoesDoRobo({ loja: '  ' }).texto).toContain('clientes da loja no WhatsApp');
   });
 
-  it('tom humano: curto, pelo nome, uma pergunta por vez, sem markdown', () => {
+  it('tom humano: curto, pelo nome, uma pergunta por vez; no WhatsApp, a formatação dele (.f25), no Direct sem markdown', () => {
     expect(texto).toContain('como uma pessoa atenciosa da equipe');
     expect(texto).toContain('pelo primeiro nome');
     expect(texto).toContain('Uma pergunta por vez');
-    expect(texto).toContain('Sem markdown');
+    expect(texto).not.toContain('Sem markdown');
+    expect(texto).toContain('Escreva com a formatação do WhatsApp (veja COMO ESCREVER NO WHATSAPP).');
+    expect(instrucoesDoDirect({ loja: 'Mister Burguer' }).texto).toContain('Sem markdown: nada de asterisco, cerquilha ou tabela.');
+  });
+
+  // .f25 (17/11/2026) — pedido do dono: "respostas arrumadas e formatadas com emoticons quando necessário".
+  describe('COMO ESCREVER NO WHATSAPP (.f25)', () => {
+    const f1 = texto;
+    const f2 = instrucoesDoRobo({ loja: 'Mister Burguer' }, '2').texto;
+    const direct = instrucoesDoDirect({ loja: 'Mister Burguer' }).texto;
+
+    it('a versão subiu e a seção está nos dois fluxos do WhatsApp, logo depois do JEITO DE CONVERSAR — e não no Direct', () => {
+      expect(VERSAO_INSTRUCOES >= '2026-11-17.f25').toBe(true);
+      for (const t of [f1, f2]) {
+        const jeito = t.indexOf('JEITO DE CONVERSAR');
+        const como = t.indexOf('COMO ESCREVER NO WHATSAPP (');
+        expect(jeito).toBeGreaterThan(-1);
+        expect(como).toBeGreaterThan(jeito);
+        expect(como).toBeLessThan(t.indexOf('SE PERGUNTAREM SE VOCÊ É ROBÔ'));
+      }
+      expect(direct).not.toContain('COMO ESCREVER NO WHATSAPP');
+      expect(direct).not.toContain('REACAO');
+    });
+
+    it('negrito com UM asterisco, lista com o emoji do assunto, sem dois asteriscos/cerquilha/tabela', () => {
+      for (const t of [f1, f2]) {
+        expect(t).toContain('Negrito do WhatsApp é com UM asterisco de cada lado: *X-Bacon*.');
+        expect(t).toContain('Nunca use dois asteriscos, cerquilha, tabela nem link entre colchetes.');
+        expect(t).toContain('🍔 lanche, 🍟 porção, 🥤 bebida');
+        expect(t).toContain('Emoji com propósito, como em COMO ESCREVER NO WHATSAPP — nenhum em reclamação ou assunto delicado.');
+        expect(t).not.toContain('No máximo 1 emoji por mensagem');
+      }
+    });
+
+    it('o exemplo não traz preço nem produto de verdade (vêm das ferramentas)', () => {
+      expect(f2).toContain('o nome e o preço vêm SEMPRE da busca, nunca deste exemplo');
+      const exemplo = f2.slice(f2.indexOf('- Exemplo de lista'), f2.indexOf('- Conversa (confirmar'));
+      expect(exemplo).not.toMatch(/R\$\s*\d/);
+    });
+
+    it('assunto delicado e resposta a áudio sem formatação; a REAÇÃO só a quem escreveu, nunca em reclamação', () => {
+      for (const t of [f1, f2]) {
+        expect(t).toContain('Reclamação, atraso, cancelamento, alergia ou cobrança: texto simples, sem negrito e sem emoji.');
+        expect(t).toContain('A resposta a um ÁUDIO do cliente vira voz: sem negrito, sem lista e sem emoji.');
+        expect(t).toContain('uma linha sozinha REACAO: ❤️ (ou 👍, 😊, 🙏, 😄, 🎉)');
+        expect(t).toContain('Só quando ele ESCREVEU (nunca a um áudio), nunca em reclamação e nunca duas vezes seguidas.');
+        expect(t).toContain('vem antes da linha OPCOES');
+      }
+    });
+
+    it('as reações das instruções são as que a porta da resposta aceita', () => {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { REACOES } = require('../whatsapp/formato-da-resposta');
+      const linha = f2.split('\n').find((l) => l.includes('uma linha sozinha REACAO')) ?? '';
+      const citadas = (linha.match(/\p{Extended_Pictographic}️?/gu) ?? []) as string[];
+      expect(citadas.length).toBeGreaterThanOrEqual(6);
+      for (const e of citadas) expect(REACOES).toContain(e);
+    });
   });
 
   // .f22 (16/11/2026) — o documento "Atendente virtual — Mister Burguer" que o dono mandou ("considere o que melhorar").
