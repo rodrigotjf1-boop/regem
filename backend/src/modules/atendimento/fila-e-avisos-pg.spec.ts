@@ -10,6 +10,7 @@ import { lerAjusteDaPonte } from '../ponte-chat/ajustes-da-ponte.service';
 import { AJUSTE_DA_FILA_PADRAO, FilaEAvisosService, lerAjusteDaFila } from './fila-e-avisos.service';
 import { AtendimentoService } from './atendimento.service';
 import { AtendimentoController } from './atendimento.controller';
+import { guardarDescricaoDaFoto, reservarLeituraDaFoto, ultimaFotoParaOCaso } from '../cardapio/foto-lida';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -98,6 +99,7 @@ descrever('fila e avisos (Postgres)', () => {
       '379_horario_da_equipe.sql',
       '380_perfis_do_atendente.sql',
       '381_assuntos_do_atendente.sql',
+      '442_fotos_do_cliente.sql', // "Fotos do cliente" (`robo_config.fotos_ler`, `robo_foto_lida`) — o GET dos ajustes lê
     ])
       await aplicar(m);
     A = await empresa('teste aviso ao gerente A');
@@ -113,7 +115,7 @@ descrever('fila e avisos (Postgres)', () => {
   });
   afterAll(async () => {
     delete process.env.EDGE_MODE;
-    for (const t of ['atendimento_chamado', 'robo_config', 'colaborador'])
+    for (const t of ['atendimento_chamado', 'robo_foto_lida', 'robo_config', 'colaborador'])
       await q(`delete from ${t} where tenant_id = any($1::uuid[])`, [empresas]).catch(() => {});
     await q(`delete from empresa where id = any($1::uuid[])`, [empresas]).catch(() => {});
     await pool.end();
@@ -309,6 +311,125 @@ descrever('fila e avisos (Postgres)', () => {
     expect(auditados.map((a) => a.acao)).toEqual(['robo_cobra_adicional_pix_ligado']);
     expect((await rota.salvarAjustes(user, null, { alterado: { roboCobraPix: false } })).alterado.roboCobraPix).toBe(false);
     await expect(rota.salvarAjustes(user, null, { alterado: {} })).rejects.toThrow('nada para salvar');
+  });
+
+  // FOTOS DO CLIENTE (mig 442 — protótipo `regem-atendente-alergenos-agendado.html`, parte 3, decisões F1, F5 e F7).
+  describe('fotos do cliente (mig 442)', () => {
+    const user = (t: string) => ({ tenantId: t, colaboradorId: null, categoria: 'gerente' }) as any;
+
+    it('"Ler as fotos que o cliente manda": nasce desligado; só verdadeiro ou falso; grava só a dela (V82); auditoria', async () => {
+      const F = await empresa('teste fotos ajuste');
+      const antes = process.env.ROBO_FOTOS_IA;
+      try {
+        delete process.env.ROBO_FOTOS_IA;
+        expect(await svc.fotosDoCliente(F)).toEqual({ ler: false, liberadaNaDistribuicao: false, limitePorDia: 5 });
+        await svc.salvar(user(F), { avisarGerenteMin: 10 });
+        await expect(svc.salvarFotosDoCliente(user(F), 'sim')).rejects.toThrow('Ler as fotos que o cliente manda');
+        auditados.length = 0;
+        process.env.ROBO_FOTOS_IA = '1';
+        expect(await svc.salvarFotosDoCliente(user(F), true)).toEqual({ ler: true, liberadaNaDistribuicao: true, limitePorDia: 5 });
+        expect((await svc.ajustes(F)).avisarGerenteMin).toBe(10); // a fila salva antes continua
+        await svc.salvarFotosDoCliente(user(F), true); // de novo: nada muda, nada na auditoria
+        expect(auditados.map((a) => a.acao)).toEqual(['robo_fotos_ler_ligado']);
+        // a rota: confere ANTES de gravar qualquer grupo (V86) e devolve o grupo
+        const nada = { ajustes: async () => ({}) } as any;
+        const rota = new AtendimentoController(
+          {} as any,
+          {} as any,
+          nada,
+          nada,
+          svc,
+          { ajustes: async () => null } as any,
+          { ajustes: async () => null } as any,
+          { somDoAlterado: async () => '1min' } as any,
+          { ajustes: async () => null } as any,
+          {} as any,
+        );
+        await expect(rota.salvarAjustes(user(F), null, { fila: { avisarGerenteMin: 2 }, fotos: { ler: 'não' } })).rejects.toThrow('Ler as fotos');
+        expect((await svc.ajustes(F)).avisarGerenteMin).toBe(10);
+        const r: any = await rota.salvarAjustes(user(F), null, { fotos: { ler: false } });
+        expect(r.fotos).toEqual({ ler: false, liberadaNaDistribuicao: true, limitePorDia: 5 });
+      } finally {
+        if (antes === undefined) delete process.env.ROBO_FOTOS_IA;
+        else process.env.ROBO_FOTOS_IA = antes;
+      }
+    });
+
+    it('até 5 fotos lidas por cliente por dia, mesmo chegando juntas (a vaga é reservada na própria gravação — V98)', async () => {
+      const F = await empresa('teste fotos limite');
+      // Força o cruzamento: segura as reservas até as 8 chegarem e solta todas juntas (V98 — paralelo passa por sorte).
+      const original = pool.query;
+      let chegaram = 0;
+      let soltar!: () => void;
+      const solta = new Promise<void>((r) => (soltar = r));
+      const prazo = setTimeout(() => soltar(), 2000);
+      (pool as any).query = async function (this: any, ...args: any[]) {
+        const t = typeof args[0] === 'string' ? args[0] : String(args[0]?.text ?? '');
+        if (/insert into robo_foto_lida/.test(t)) {
+          if (++chegaram >= 8) soltar();
+          await solta;
+        }
+        return (original as any).apply(pool, args);
+      };
+      let r: (number | null)[] = [];
+      try {
+        r = await Promise.all(Array.from({ length: 8 }, () => reservarLeituraDaFoto(db, F, '(21) 99999-0001', '2026-11-17')));
+      } finally {
+        clearTimeout(prazo);
+        (pool as any).query = original;
+      }
+      expect(chegaram).toBe(8);
+      expect(r.filter((x) => x != null).sort()).toEqual([1, 2, 3, 4, 5]);
+      expect(r.filter((x) => x == null)).toHaveLength(3);
+      // o mesmo cliente por outra forma do número conta junto; outro dia e outro cliente têm a sua vaga
+      expect(await reservarLeituraDaFoto(db, F, '5521999990001', '2026-11-17')).toBeNull();
+      expect(await reservarLeituraDaFoto(db, F, '5521999990001', '2026-11-18')).toBe(1);
+      expect(await reservarLeituraDaFoto(db, F, '5521999990002', '2026-11-17')).toBe(1);
+      // as linhas de mais de 3 dias desta empresa saem na reserva
+      expect(await reservarLeituraDaFoto(db, F, '5521999990003', '2026-11-22')).toBe(1);
+      expect((await q(`select dia::text as dia from robo_foto_lida where tenant_id = $1 order by dia`, [F])).map((l) => l.dia)).toEqual(['2026-11-22']);
+    });
+
+    it('"O que a foto mostra": a última foto lida vai ao caso que o robô abre; comprovante e foto velha não', async () => {
+      const F = await empresa('teste fotos caso');
+      const atendimento = new AtendimentoService(db, eventos, {} as any, undefined, svc);
+      const hoje = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+      const dados = (tel: string) => ({ tipo: 'erro', telefone: tel, mensagem: 'Motivo: faltou a batata\nQuer: não disse\nJá fiz: chamei a equipe' }) as any;
+      const ler = async (tel: string, tipo: string, descricao: string) => {
+        expect(await reservarLeituraDaFoto(db, F, tel, hoje)).not.toBeNull();
+        await guardarDescricaoDaFoto(db, F, tel, { tipo: tipo as any, descricao }, hoje);
+      };
+      const detalhe = async (id: string) => (await q(`select detalhe from atendimento_chamado where id = $1`, [id]))[0].detalhe;
+      await ler('21988880001', 'pedido_recebido', 'Caixa aberta com um hambúrguer e uma lata. Não aparece batata.');
+      const caso1 = await atendimento.abrirPeloRobo(F, null, dados('5521988880001'));
+      const d1 = await detalhe(caso1.id);
+      expect(d1.foto).toMatchObject({ tipo: 'pedido_recebido', descricao: 'Caixa aberta com um hambúrguer e uma lata. Não aparece batata.' });
+      expect(new Date(d1.foto.em).getTime()).toBeGreaterThan(Date.now() - 120_000);
+      // soma ao caso aberto: a foto nova mesclada no banco, o resto do detalhe fica (V82)
+      await q(`update atendimento_chamado set detalhe = detalhe || '{"escalado":{"minutos":3}}'::jsonb where id = $1`, [caso1.id]);
+      await ler('21988880001', 'tela_do_cardapio', 'Carrinho com aviso: Pedido mínimo R$ 20,00.');
+      const somado = await atendimento.abrirPeloRobo(F, null, dados('21988880001'));
+      expect(somado.id).toBe(caso1.id);
+      const d2 = await detalhe(caso1.id);
+      expect(d2.foto.descricao).toBe('Carrinho com aviso: Pedido mínimo R$ 20,00.');
+      expect(d2.escalado).toEqual({ minutos: 3 });
+      // comprovante não vai; foto de mais de 60 min não vai; quem nunca mandou foto, nada
+      await ler('21988880002', 'comprovante', 'comprovante de pagamento');
+      await ler('21988880003', 'pedido_recebido', 'Pizza amassada.');
+      await q(`update robo_foto_lida set ultima_em = now() - interval '61 minutes' where tenant_id = $1 and telefone_chave like '%88880003'`, [F]);
+      for (const tel of ['21988880002', '21988880003', '21988880004']) {
+        const c = await atendimento.abrirPeloRobo(F, null, dados(tel));
+        expect((await detalhe(c.id))?.foto).toBeUndefined();
+      }
+      // o que o robô manda nunca vira a foto do caso: quem põe é o Regem
+      const c5 = await atendimento.abrirPeloRobo(F, null, { ...dados('21988880005'), foto: { tipo: 'outro', descricao: 'inventada', em: new Date().toISOString() } });
+      expect((await detalhe(c5.id))?.foto).toBeUndefined();
+      // o caso que não é do WhatsApp não procura foto
+      await ler('21988880006', 'pedido_recebido', 'Lanche frio.');
+      expect(await ultimaFotoParaOCaso(db, F, '21988880006')).not.toBeNull();
+      const direct = await atendimento.abrirPeloRobo(F, null, { ...dados('21988880006'), canal: 'instagram' });
+      expect((await detalhe(direct.id))?.foto).toBeUndefined();
+    });
   });
 
   it('"Dizer ao cliente a posição na fila" desligado: o robô não recebe a posição (o "já tem alguém" segue)', async () => {

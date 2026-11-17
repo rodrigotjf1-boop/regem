@@ -53,6 +53,7 @@ import { ehGestor } from '../../auth/niveis';
 import { PRESENCA_VALE_MIN } from './presenca';
 import { FilaEAvisosService } from './fila-e-avisos.service';
 import { ehServidorLocal } from '../../common/modo';
+import { ultimaFotoParaOCaso } from '../cardapio/foto-lida';
 
 /**
  * O RECADO PARA A ABERTURA na fila (mig 379): recado ativo e ninguém com ele (sem responsável, sem esperar o cliente) — a
@@ -164,7 +165,16 @@ export class AtendimentoService {
    * dois — nenhum índice impede; o pior caso é um chamado a mais no painel.
    */
   async abrirPeloRobo(tenantId: string, unidadeId: string | null, dto: DadosDoChamado) {
-    const r = await abrirChamadoPeloRobo(this.db, (ev, p) => this.events.emit(ev, p), tenantId, unidadeId, dto);
+    // "O que a foto mostra" (mig 442, F5): a última foto que a IA leu desta conversa de WhatsApp vai junto do caso. Quem
+    // põe é o Regem (nunca o que o robô mandou); não leu, o caso abre sem o bloco.
+    const doWhatsapp = !dto.canal || dto.canal === 'whatsapp';
+    const foto = doWhatsapp
+      ? await ultimaFotoParaOCaso(this.db, tenantId, dto.telefone).catch((e: any) => {
+          this.logger.warn(`foto do cliente não lida para o caso: ${String(e?.code ?? e?.message ?? e).slice(0, 120)}`);
+          return null;
+        })
+      : null;
+    const r = await abrirChamadoPeloRobo(this.db, (ev, p) => this.events.emit(ev, p), tenantId, unidadeId, { ...dto, foto });
     return this.comAPosicaoDoAjuste(tenantId, r);
   }
 

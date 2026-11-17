@@ -16,6 +16,7 @@ import { DisputaIfood } from '@/components/atendimento/disputa-ifood';
 import { AvaliacaoIfood } from '@/components/atendimento/avaliacao-ifood';
 import { Pedido99 } from '@/components/atendimento/pedido-99';
 import { ResumoDoRobo, resumoCurto } from '@/components/atendimento/resumo-do-robo';
+import { FotoDoCaso } from '@/components/atendimento/foto-do-caso';
 import { ChatDoIfood } from '@/components/atendimento/chat-do-ifood';
 import { FaixaDaPonte } from '@/components/atendimento/faixa-da-ponte';
 import { AlertaDoAdicionalPix } from '@/components/atendimento/alerta-do-adicional-pix';
@@ -843,6 +844,9 @@ function Caso({
                 <span className="min-w-0 flex-1 basis-52 text-sm">Até {hora(c.prazoEm)} para responder. Passado o prazo, a plataforma decide sozinha.</span>
               </div>
             )}
+
+            {/* "O que a foto mostra" (mig 442, F5): a foto que a IA leu antes de o robô chamar a equipe. */}
+            <FotoDoCaso foto={c.detalhe?.foto} />
 
             {/* O resumo do robô (PR 4) no lugar do texto corrido; o texto inteiro (com o que foi somado depois) fica a um clique. */}
             {c.detalhe?.robo && resumoCurto(c.detalhe.robo) ? (

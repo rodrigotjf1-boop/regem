@@ -224,6 +224,8 @@ type Resposta = {
   gestorWa?: GrupoDoWhatsapp | null;
   // O copiloto (mig 376): ligado na empresa; disponível = a distribuição ligou o modelo.
   copiloto?: { ligado: boolean; disponivel: boolean } | null;
+  // "Fotos do cliente" (mig 442): ler as fotos (da empresa, nasce desligado), se a distribuição liberou e o limite por dia.
+  fotos?: { ler: boolean; liberadaNaDistribuicao: boolean; limitePorDia: number } | null;
   // O Instagram Direct (mig 377): se a distribuição liberou e a conta conectada (nunca o acesso).
   instagram?: EstadoDoInstagram | null;
   messenger?: EstadoDoMessenger | null;
@@ -244,6 +246,7 @@ type Resposta = {
 
 const paraValores = (r: Resposta): Valores => ({
   ...(r.copiloto ? { copilotoLigado: r.copiloto.ligado } : {}),
+  ...(r.fotos ? { fotosLer: r.fotos.ler } : {}),
   ...(r.instagram?.conta
     ? {
         instagramFila: r.instagram.conta.filaLigada,
@@ -468,7 +471,7 @@ export function AjustesDoAtendimento() {
   };
   const grupoDoPerfil: GrupoDeAjustes = {
     titulo: 'Perfil do atendente virtual',
-    nota: 'Sempre vale: o perfil muda o jeito de falar, nunca as regras — o robô nunca inventa preço, prazo, taxa nem promoção; segue as regras de cada canal; no máximo 1 emoji por mensagem; cliente chateado: o robô fica sério e chama a equipe. O perfil do chat do iFood e da 99 vale quando "Quem responde no chat" é o atendente virtual (grupo "iFood e 99 · chat pela ponte"); o dos comentários do Instagram, quando "Robô responde comentários" está ligado (grupo "Instagram · Direct e comentários"). O do Messenger do Facebook, quando "Robô responde no Messenger" está ligado (grupo "Messenger do Facebook").',
+    nota: 'Sempre vale: o perfil muda o jeito de falar, nunca as regras — o robô nunca inventa preço, prazo, taxa nem promoção; segue as regras de cada canal; emoji só quando combina (no WhatsApp, também no começo de cada linha de uma lista; nos outros canais, no máximo 1 por mensagem); cliente chateado: o robô fica sério, sem emoji, e chama a equipe. O perfil do chat do iFood e da 99 vale quando "Quem responde no chat" é o atendente virtual (grupo "iFood e 99 · chat pela ponte"); o dos comentários do Instagram, quando "Robô responde comentários" está ligado (grupo "Instagram · Direct e comentários"). O do Messenger do Facebook, quando "Robô responde no Messenger" está ligado (grupo "Messenger do Facebook").',
     itens: CANAIS_DO_PERFIL.flatMap(({ nome, chave }) => [
       {
         id: `perfil${chave}`,
@@ -1010,6 +1013,26 @@ export function AjustesDoAtendimento() {
         ],
       }
     : null;
+  // "Fotos do cliente" (mig 442; protótipo `mockups/regem-atendente-alergenos-agendado.html`, parte 3 — decisões F1, F6 e F7):
+  // a leitura da foto que chega no WhatsApp. Nasce desligado. O "Mandar print de ajuda" entra com a entrega do print.
+  const grupoDasFotos: GrupoDeAjustes | null = resp?.fotos
+    ? {
+        titulo: 'Fotos do cliente',
+        nota: resp.fotos.liberadaNaDistribuicao
+          ? `Sempre vale: só no WhatsApp · até ${resp.fotos.limitePorDia} fotos lidas por cliente por dia (depois o atendente pede para escrever) · o Regem guarda só a descrição em texto, nunca a foto (a foto continua na conversa do WhatsApp da loja) · sai da chave de IA da empresa, menos de R$ 0,01 por foto lida (o gasto aparece em Mister › IA e uso).`
+          : 'A leitura de fotos ainda não foi liberada pela distribuição Regem. Você pode deixar ligado: ela começa quando for liberada.',
+        itens: [
+          {
+            id: 'fotosLer',
+            rotulo: 'Ler as fotos que o cliente manda',
+            tipo: 'chave',
+            ajuda:
+              'O atendente virtual passa a entender a foto ou o print que chega no WhatsApp — um erro do cardápio, um pedido com problema — e responde de acordo. Na foto de pedido com problema, ele chama a equipe e o caso mostra "O que a foto mostra". Desligado, ele diz que não consegue ver e pede para o cliente escrever, como hoje.',
+            palavras: 'foto fotos imagem print leitura ler ia inteligência artificial cliente atendente virtual',
+          },
+        ],
+      }
+    : null;
   // O Instagram Direct (mig 377; protótipo v7): conectar a conta profissional da loja e "Mensagens do Direct na fila".
   // O robô no Direct (mig 378; protótipo v8): "Robô responde no Direct" (nasce desligado) e "Cardápio que o robô usa"
   // (só com mais de um cardápio — com um, é ele).
@@ -1183,6 +1206,7 @@ export function AjustesDoAtendimento() {
     grupoDaFila,
     ...(grupoDoGestor ? [grupoDoGestor] : []),
     ...(grupoDoCopiloto ? [grupoDoCopiloto] : []),
+    ...(grupoDasFotos ? [grupoDasFotos] : []),
     ...(grupoDoMessenger ? [grupoDoMessenger] : []),
     ...(grupoDoInstagram ? [grupoDoInstagram] : []),
     ...(resp?.ponte && (resp.conectadoIfood || resp.conectado99) ? [grupoDaPonte] : []),
@@ -1211,6 +1235,7 @@ export function AjustesDoAtendimento() {
     let alterado: { som?: string; roboMuda?: boolean; roboCobraPix?: boolean } | null = null;
     const gestorWa: Record<string, boolean | number | null> = {};
     let copiloto: { ligado: boolean } | null = null;
+    let fotos: { ler: boolean } | null = null;
     let instagram: {
       filaLigada?: boolean;
       roboResponde?: boolean;
@@ -1266,6 +1291,10 @@ export function AjustesDoAtendimento() {
       }
       if (k === 'copilotoLigado') {
         copiloto = { ligado: valores[k] === true };
+        continue;
+      }
+      if (k === 'fotosLer') {
+        fotos = { ler: valores[k] === true };
         continue;
       }
       if (k === 'instagramFila') {
@@ -1364,6 +1393,7 @@ export function AjustesDoAtendimento() {
         ...(Object.keys(ponte).length ? { ponte } : {}),
         ...(Object.keys(gestorWa).length ? { gestorWa } : {}),
         ...(copiloto ? { copiloto } : {}),
+        ...(fotos ? { fotos } : {}),
         ...(instagram ? { instagram } : {}),
         ...(messenger ? { messenger } : {}),
       });
