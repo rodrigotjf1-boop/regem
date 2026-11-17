@@ -68,10 +68,30 @@ export const umaLinha = (t, n = 160) => String(t ?? '').replace(/\s*\n\s*/g, ' /
 export const PASTA_DO_COMO_FACO = new URL('../public/como-faco/', import.meta.url);
 
 export async function fotoDoComoFaco(page, id, marcas) {
+  // Cada marca rola até a vista (o item do menu pode estar abaixo, na parte do menu que rola) e só vale achada se o
+  // centro dela está dentro da janela E é dela mesma: o item cortado pelo menu ou coberto por outro reprova o roteiro,
+  // em vez de virar um contorno em cima do que está na frente.
+  for (const m of marcas) await m.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
+  const janela = page.viewportSize() ?? { width: 0, height: 0 };
   const caixas = [];
-  for (const m of marcas) caixas.push(await m.boundingBox().catch(() => null));
-  const achou = caixas.map((c) => !!c && c.width > 0 && c.height > 0);
-  if (process.env.GERAR_COMO_FACO !== '1' || achou.some((x) => !x)) return { gerou: false, achou };
+  const achou = [];
+  const motivos = []; // por que cada marca reprovou (para a mensagem do roteiro)
+  for (const m of marcas) {
+    const c = await m.boundingBox().catch(() => null);
+    caixas.push(c);
+    if (!c || c.width <= 0 || c.height <= 0) { achou.push(false); motivos.push('não está na página'); continue; }
+    const centro = { x: c.x + c.width / 2, y: c.y + c.height / 2 };
+    const dentro = centro.x >= 0 && centro.y >= 0 && centro.x <= janela.width && centro.y <= janela.height;
+    if (!dentro) { achou.push(false); motivos.push(`fora da janela (${Math.round(centro.x)}, ${Math.round(centro.y)})`); continue; }
+    const naFrente = await m.evaluate((el, p) => {
+      const alvo = document.elementFromPoint(p.x, p.y);
+      if (alvo && (el === alvo || el.contains(alvo))) return '';
+      return alvo ? `${alvo.tagName.toLowerCase()} "${(alvo.textContent ?? '').trim().slice(0, 30)}"` : 'nada';
+    }, centro).catch(() => 'erro ao medir');
+    achou.push(naFrente === '');
+    motivos.push(naFrente === '' ? '' : `coberta por ${naFrente}`);
+  }
+  if (process.env.GERAR_COMO_FACO !== '1' || achou.some((x) => !x)) return { gerou: false, achou, motivos };
   await page.evaluate((cx) => {
     const camada = document.createElement('div');
     camada.id = 'marcas-do-como-faco';

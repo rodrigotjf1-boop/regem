@@ -81,3 +81,10 @@ endereço público quando alguém pergunta "como faço". Sem variável, o roteir
 gerar de novo (a tela mudou): `GERAR_COMO_FACO=1 node roteiros/rodar.mjs <roteiro>`, e o PNG entra no git. O assunto do
 guia (`backend/src/modules/mister/mister-guia-de-uso.ts`) diz em `imagem` o que cada número marca, e a spec do guia confere
 que o arquivo existe.
+
+Cada marca rola até a vista antes da foto e só vale achada se o centro dela está dentro da janela **e** é dela mesma
+(`elementFromPoint`): o item do menu cortado pela parte que rola, ou coberto por uma gaveta, reprova o roteiro com o motivo
+("fora da janela (x, y)", "coberta por button …"), em vez de virar um contorno em cima do que está na frente. Se rolar até
+uma marca tira outra da tela (o grupo no fim de uma página longa), traga a marca para cima pela própria tela — a busca de
+ajustes, um filtro — e diga isso nos passos do guia. Marca de algo que um perfil não vê (a faixa de partes do Mister, que o
+gerente não tem) fica de fora se o assunto vale para esse perfil.

@@ -3,7 +3,7 @@
 // (antes, depois, junto, incluir, renomear, arrastar), a recusa do despacho fora do fim, o diálogo de salvar e o corpo
 // que vai ao servidor, o simulador, a gaveta do KDS, a loja com servidor (só mostra) e as larguras com a edição, o diálogo
 // e a gaveta abertos: sem barra lateral, sem corte e toque ≥ 44 px.
-import { responder, tokenFalso, umaLinha } from './comum.mjs';
+import { fotoDoComoFaco, responder, tokenFalso, umaLinha } from './comum.mjs';
 
 const TOKEN = tokenFalso({ cat: 'presidente', perfil: 'presidente', perm: { producao_kds: { ver: true } } });
 const K = (id, nome, o = {}) => ({ id, nome, escopo: 'producao', ativo: true, proximoKdsId: null, unidadeId: 'u1', imprimeAoAvancar: false, imprimeNoStatus: 'pronto', impressoraDestinoId: null, impressora: null, produtos: 0, ...o });
@@ -98,6 +98,11 @@ export default async function roteiroRotaCozinha({ nav, base, ok, foto, larguras
   ok(/1 · Preparo/i.test(t) && /2 · Etapa 2/i.test(t) && /3 · Saída/i.test(t), 'as etapas numeradas, com o nome ou "Etapa N"');
   ok(/Estações ligadas nesta loja/.test(t) && /Impressora da cozinha/.test(t), 'nota do modo estações com a padrão');
   ok(/X-Burger está marcado em Chapa e Montagem/.test(t) && /Como Chapa manda para Montagem, Montagem recebe X-Burger duas vezes/.test(t), 'nota do produto em dois KDS');
+  // M3d: a imagem do "como faço" — 1: Configurações › Rota da cozinha no menu; 2: "Editar a ordem" (só com GERAR_COMO_FACO=1).
+  {
+    const r = await fotoDoComoFaco(page, 'rota-da-cozinha', [page.locator('aside a[href="/rota-cozinha"] >> visible=true').first(), page.locator('button:has-text("Editar a ordem") >> visible=true').first()]);
+    ok(r.achou.every(Boolean), `como faço (rota-da-cozinha): as marcas estão na tela (${r.achou.join(', ')})${r.gerou ? ' — imagem gerada' : ''}`);
+  }
   ok(/Fritadeira desligado:.*passa direto para Despacho/.test(t), 'nota do desligado pulado');
   ok(/Fora da rota:.*Sobremesas/.test(t), 'nota dos ligados fora da rota');
   ok(/Vai para Montagem/.test(t) && /Sim, ao ficar pronto, na Impressora do balcão/.test(t) && /Recebe de\s*Chapa/.test(t), 'cada KDS: vai para, imprime, recebe de');
@@ -119,6 +124,16 @@ export default async function roteiroRotaCozinha({ nav, base, ok, foto, larguras
   await page.click('button:has-text("Editar Chapa")');
   await page.waitForSelector('#kds-produtos-titulo, [aria-labelledby="kds-produtos-titulo"]', { timeout: 8000 });
   ok(true, '"Editar Chapa" abre a gaveta Configurar este KDS');
+  // M3d: a imagem do "como faço" dos produtos de cada KDS — 1: "Lugar no fluxo"; 2: "Produtos que aparecem aqui"; 3: salvar.
+  {
+    const gaveta = page.locator('[aria-labelledby="kds-produtos-titulo"]');
+    const r = await fotoDoComoFaco(page, 'produtos-do-kds', [
+      gaveta.locator('fieldset:has(legend:text-is("Lugar no fluxo"))').first(),
+      gaveta.locator('span:text-is("Produtos que aparecem aqui")').first(),
+      gaveta.locator('button:has-text("Salvar ajustes deste KDS")').first(),
+    ]);
+    ok(r.achou.every(Boolean), `como faço (produtos-do-kds): as marcas estão na tela (${r.achou.join(', ')})${r.gerou ? ' — imagem gerada' : ''}`);
+  }
   await page.keyboard.press('Escape');
   await page.waitForSelector('[aria-labelledby="kds-produtos-titulo"]', { state: 'detached' });
 

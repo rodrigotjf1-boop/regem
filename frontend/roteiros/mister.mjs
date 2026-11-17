@@ -11,7 +11,7 @@
 // a recusa do servidor aparece com a frase dele; apagar pede confirmação; o uso com os rótulos, o custo e o total, vazio,
 // erro e "Tentar de novo"; os atalhos de período; o guia em gaveta; gerente não entra; e, em cada largura, a página, a
 // gaveta e o diálogo inteiros na tela, sem barra lateral.
-import { responder, tokenFalso, umaLinha } from './comum.mjs';
+import { fotoDoComoFaco, responder, tokenFalso, umaLinha } from './comum.mjs';
 
 const PRESIDENTE = tokenFalso({ cat: 'presidente', perfil: 'presidente', perm: {} });
 const GERENTE = tokenFalso({ cat: 'gerente', perfil: 'gerente', perm: { delivery: { ver: true } } });
@@ -690,6 +690,35 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     await page.waitForSelector('text=Chave de IA');
     ok(daIa(S, 'GET', '/ia/chave').length === 1, 'abrir "IA e uso": aí sim a chave é lida');
     ok(erros.length === 0, `sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+
+  // ── M3d: as imagens do "como faço" do Mister — ligar o WhatsApp, a chave de IA e os relatórios (só gera com
+  //    GERAR_COMO_FACO=1; sem a variável, confere que cada marca está na tela, inteira e na frente) ──
+  {
+    const { ctx, page } = await abrir(1280, 900, { caminho: '/mister?parte=pessoas', pessoas: NINGUEM });
+    const ligar = page.locator('main table button:has-text("Ligar o meu WhatsApp")').first();
+    await ligar.waitFor({ timeout: 20000 });
+    const menu = page.locator('aside a[href="/mister"] >> visible=true').first();
+    const parte = (nome) => page.locator(`[aria-label="Partes do Mister"] button:has-text("${nome}")`).first();
+    const conferir = (id, r) => ok(r.achou.every(Boolean), `como faço (${id}): as marcas estão na tela (${r.achou.join(', ')})${r.gerou ? ' — imagem gerada' : ''}${(r.motivos ?? []).filter(Boolean).length ? ` — ${(r.motivos ?? []).join(' | ')}` : ''}`);
+    // Só duas marcas: o gerente também liga o próprio WhatsApp e, para ele, não há a faixa de partes (abre já em Pessoas).
+    conferir('mister-ligar-whatsapp', await fotoDoComoFaco(page, 'mister-ligar-whatsapp', [menu, ligar]));
+    await parte('IA e uso').click();
+    await page.waitForSelector('text=Chave de IA');
+    conferir('mister-chave-de-ia', await fotoDoComoFaco(page, 'mister-chave-de-ia', [
+      menu, parte('IA e uso'), page.locator('main input[type="password"]').first(), page.locator('main button:has-text("Salvar chave")').first(),
+    ]));
+    // Os relatórios ficam no fim da parte (uns 2.900 px abaixo): rolar até eles tira a faixa das partes da tela e a
+    // conferência reprova. A busca da tela de ajustes ("resumo") traz o grupo para cima — e vira a dica da imagem.
+    await parte('Avisos e relatórios').click();
+    await page.waitForSelector('#mister-avisos-titulo');
+    await page.fill('#mister-avisos-busca', 'resumo');
+    const grupoDosRelatorios = page.locator('main h3:text-is("Relatórios")').first();
+    await grupoDosRelatorios.waitFor();
+    conferir('mister-resumo-e-avisos', await fotoDoComoFaco(page, 'mister-resumo-e-avisos', [
+      menu, parte('Avisos e relatórios'), page.locator('#mister-avisos-busca'), grupoDosRelatorios,
+    ]));
     await ctx.close();
   }
 
