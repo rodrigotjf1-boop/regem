@@ -1,4 +1,37 @@
-import { acharInsumo, botaoDoPdf, comparacaoComAsSemanas, deOndeSairam, emQuilos, lerBotaoDoPdf, pesoNoNome, seriePorDia, seriePorHora } from './insumo-vendido';
+import {
+  acharInsumo,
+  botaoDoPdf,
+  comparacaoComAsSemanas,
+  deOndeSairam,
+  emQuilos,
+  lerBotaoDoPdf,
+  linkDoRelatorio,
+  pedidoDaPagina,
+  pesoNoNome,
+  seriePorDia,
+  seriePorHora,
+} from './insumo-vendido';
+
+describe('o link da página do relatório (M3c.4)', () => {
+  const pedido = { insumoId: '11111111-2222-3333-4444-555555555555', de: '2026-11-01', ate: '2026-11-16', loja: null, compararDe: '2026-10-01', compararAte: '2026-10-16' };
+  it('o endereço do Regem com o pedido, e a página lê o mesmo pedido de volta', () => {
+    const link = linkDoRelatorio('https://app.dmsregem.com/', pedido);
+    expect(link).toBe('https://app.dmsregem.com/mister/relatorio?insumo=11111111-2222-3333-4444-555555555555&de=2026-11-01&ate=2026-11-16&compararDe=2026-10-01&compararAte=2026-10-16');
+    expect(pedidoDaPagina(Object.fromEntries(new URL(link).searchParams))).toEqual(pedido);
+    const comLoja = { ...pedido, loja: '99999999-8888-7777-6666-555555555555', compararDe: null, compararAte: null };
+    expect(pedidoDaPagina(Object.fromEntries(new URL(linkDoRelatorio('https://x', comLoja)).searchParams))).toEqual(comLoja);
+  });
+  it('a página recusa o que não é id ou data (o servidor confere o resto no escopo de quem abre)', () => {
+    expect(pedidoDaPagina({ insumo: 'nada', de: '2026-11-01' })).toBeNull();
+    expect(pedidoDaPagina({ insumo: pedido.insumoId, de: "2026-11-01' or 1=1" })).toBeNull();
+    expect(pedidoDaPagina({ insumo: pedido.insumoId, de: 'ontem', ate: '2026-11-01' })).toBeNull();
+    expect(pedidoDaPagina({ insumo: pedido.insumoId, de: '2026-11-01', ate: 'hoje' })).toBeNull();
+    expect(pedidoDaPagina({ insumo: pedido.insumoId, de: '2026-11-01', loja: 'x' })).toBeNull();
+    expect(pedidoDaPagina({ insumo: pedido.insumoId, de: '2026-11-01', compararDe: 'ontem' })).toBeNull();
+    // Sem "ate": o mesmo dia.
+    expect(pedidoDaPagina({ insumo: pedido.insumoId, de: '2026-11-01' })).toEqual({ ...pedido, ate: '2026-11-01', compararDe: null, compararAte: null });
+  });
+});
 
 describe('o botão "PDF" (M3c.2)', () => {
   const pedido = { insumoId: '11111111-2222-3333-4444-555555555555', de: '2026-11-01', ate: '2026-11-16', loja: null, compararDe: '2026-10-01', compararAte: '2026-10-16' };

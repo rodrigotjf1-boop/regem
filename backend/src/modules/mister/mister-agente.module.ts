@@ -29,6 +29,7 @@ import { MisterFerramentasService } from './mister-ferramentas.service';
 import { MisterLinkController } from './mister-link.controller';
 import { MisterPropostasService } from './mister-propostas.service';
 import { MisterRelatoriosService } from './mister-relatorios.service';
+import { MisterRelatorioController } from './mister-relatorio.controller';
 import { MisterModule } from './mister.module';
 
 // O AGENTE DE IA DO MISTER (mig 418; `docs/plano-mister.md`, F2): responde às perguntas da fila.
@@ -88,7 +89,8 @@ import { MisterModule } from './mister.module';
   ],
   // F4.2a (mig 433): as rotas públicas da página do link com PIN (`/m/<código>`), que respondem pelo serviço das propostas.
   // M3a parte 3: a parte "Documentos" do Mister na loja (a lista e o "Desfazer o lançamento").
-  controllers: [MisterLinkController, MisterDocumentosController],
+  // M3c.4: a página do relatório por insumo ("Ver no Regem") e o PDF dela.
+  controllers: [MisterLinkController, MisterDocumentosController, MisterRelatorioController],
   exports: [MisterAgenteService, MisterAvisosService],
 })
 export class MisterAgenteModule {}

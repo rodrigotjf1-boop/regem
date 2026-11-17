@@ -1011,8 +1011,12 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
 - **Parte 3 (sem migration):** a imagem do gráfico antes do texto — a tela de pixels e o PNG feitos no código
   (`grafico/tela.ts`), as letras da Figtree num atlas gerado uma vez (`frontend/roteiros/fonte-do-grafico.mjs`), o
   `enviarImagem` do número do Mister. Sem biblioteca de imagem.
-- **Falta:** a página do link (abre no Regem com o usuário; o de encaminhar é só leitura e vale 7 dias — migration) e os
-  links de conferência a quem o presidente pedir.
+- **Parte 3 — #1109, no ar.**
+- **Parte 4 (sem migration):** a página `/mister/relatorio` ("Ver no Regem", no fim da resposta) com o mesmo plano do
+  PDF, "Mudar o período" e "Baixar PDF"; as rotas refazem o relatório no escopo de quem abre (`escopoDaTela`, a mesma
+  régua da conversa pelo login).
+- **Falta:** o link para encaminhar a quem não tem usuário (só leitura, 7 dias, na auditoria — migration) e os links de
+  conferência a quem o presidente pedir (conversa 18).
 
 ## 5. O que depende do dono
 

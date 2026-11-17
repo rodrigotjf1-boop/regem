@@ -2300,6 +2300,19 @@ export const api = {
     if (!res.ok) throw new Error(res.status === 404 ? 'O PDF é do boleto lançado: este documento não foi lançado.' : `Erro ${res.status} ao gerar o PDF`);
     return URL.createObjectURL(await res.blob());
   },
+  // M3c.4: o PDF do relatório por insumo do Mister (com auth), pelos mesmos parâmetros da página, como object URL.
+  misterRelatorioPdfUrl: async (parametros: string): Promise<string> => {
+    const token = getJwt();
+    const res = await fetch(`${apiBase()}/mister/relatorio/insumo/pdf?${parametros}`, {
+      credentials: ehEdge() ? 'same-origin' : 'include',
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { message?: unknown };
+      throw new Error(typeof j?.message === 'string' ? j.message : `Erro ${res.status} ao gerar o PDF`);
+    }
+    return URL.createObjectURL(await res.blob());
+  },
   // Baixa o PDF consolidado do espelho (com auth) e devolve um object URL p/ abrir.
   pontoEspelhoPdfUrl: async (competencia: string): Promise<string> => {
     const token = getJwt();
