@@ -21,6 +21,49 @@ export const MAX_BYTES_DA_FOTO = 5 * 1024 * 1024;
 export const DESCRICAO_MAX = 400;
 export const RECURSO_DA_FOTO = 'foto_do_cliente';
 
+// FECHAR A FOTO (17/11/2026 — protótipo `mockups/regem-atendente-alergenos-agendado.html`, parte 3, decisões F1, F5 e F7;
+// mig 442). Três portas, todas no servidor:
+//  • a DISTRIBUIÇÃO libera a leitura (`ROBO_FOTOS_IA=1` — a chave geral, desliga tudo de uma vez);
+//  • a LOJA liga "Ler as fotos que o cliente manda" (`robo_config.fotos_ler`, nasce desligado);
+//  • até `LIMITE_DE_FOTOS_POR_DIA` fotos lidas por cliente por dia da loja (F7) — depois a foto segue sem descrição e o
+//    atendente pede para escrever (as instruções já dizem isso para a foto sem descrição).
+// A última descrição fica `JANELA_DA_FOTO_NO_CASO_MIN` minutos à mão para o caso que o atendente abrir em seguida mostrar
+// em "O que a foto mostra" (F5). Do comprovante não vai nada ao caso (a descrição é fixa e não ajuda).
+
+/** Até quantas fotos de um cliente a IA lê por dia (decisão F7 — trava o gasto sem atrapalhar ninguém). */
+export const LIMITE_DE_FOTOS_POR_DIA = 5;
+/** As linhas do limite com mais de tantos dias saem na própria reserva (a descrição que importa já foi para o caso). */
+export const DIAS_DA_LINHA_DA_FOTO = 3;
+/** Por quanto tempo a última descrição vai para o caso que o atendente abrir. */
+export const JANELA_DA_FOTO_NO_CASO_MIN = 60;
+
+/** A distribuição liberou a leitura nesta nuvem (`ROBO_FOTOS_IA=1`). */
+export function leituraLiberadaNaDistribuicao(env: NodeJS.ProcessEnv = process.env): boolean {
+  return String(env.ROBO_FOTOS_IA ?? '').trim() === '1';
+}
+
+/** "O que a foto mostra" no caso: a descrição, o tipo e a hora — gravado em `atendimento_chamado.detalhe.foto`. */
+export type FotoNoCaso = { tipo: TipoDaFoto; descricao: string; em: string };
+
+/**
+ * A última foto lida desta conversa vai ao caso? Só a de até `JANELA_DA_FOTO_NO_CASO_MIN` minutos, com descrição e que não é
+ * comprovante. `agora` entra para o teste.
+ */
+export function fotoParaOCaso(
+  linha: { ultima_tipo?: unknown; ultima_descricao?: unknown; ultima_em?: unknown } | null | undefined,
+  agora: Date = new Date(),
+): FotoNoCaso | null {
+  if (!linha) return null;
+  const tipo = String(linha.ultima_tipo ?? '') as TipoDaFoto;
+  const descricao = String(linha.ultima_descricao ?? '').trim();
+  const em = linha.ultima_em ? new Date(linha.ultima_em as any) : null;
+  if (!descricao || !em || Number.isNaN(em.getTime())) return null;
+  if (!(TIPOS_DA_FOTO as readonly string[]).includes(tipo) || tipo === 'comprovante') return null;
+  const idade = agora.getTime() - em.getTime();
+  if (idade < -60_000 || idade > JANELA_DA_FOTO_NO_CASO_MIN * 60_000) return null;
+  return { tipo, descricao: descricao.slice(0, DESCRICAO_MAX), em: em.toISOString() };
+}
+
 export function mimeDaFoto(mime: unknown): (typeof MIMES_DA_FOTO)[number] | null {
   const m = String(mime ?? '').split(';')[0].trim().toLowerCase();
   const normal = m === 'image/jpg' ? 'image/jpeg' : m;

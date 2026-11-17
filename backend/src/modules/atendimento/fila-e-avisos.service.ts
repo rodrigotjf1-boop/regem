@@ -7,6 +7,7 @@ import { AuthUser } from '../../auth/auth-user';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ehServidorLocal } from '../../common/modo';
 import { exigirBooleano } from '../../common/exigir';
+import { LIMITE_DE_FOTOS_POR_DIA, leituraLiberadaNaDistribuicao } from '../../common/foto-do-cliente';
 import { AJUSTE_DA_EQUIPE_PADRAO, type AjusteDaEquipe, ajusteDaLinha, inicioDoCasoSql, lerAjusteDaEquipe, recadoAtivoSql } from './horario-da-equipe';
 import { type PerfisDoAtendente, perfisDaEmpresa, salvarPerfisDoAtendente } from '../cardapio/perfis-do-atendente';
 import { type AssuntosDoAtendente, assuntosDaEmpresa, paraOResponsavelSql, salvarAssuntosDoAtendente } from '../cardapio/assuntos-do-atendente';
@@ -255,6 +256,46 @@ export class FilaEAvisosService {
    */
   salvarAssuntos(user: AuthUser, dto: unknown): Promise<AssuntosDoAtendente> {
     return salvarAssuntosDoAtendente(this.db, user, dto, this.auditoria ? (e) => this.auditoria!.registrar(e as any) : undefined);
+  }
+
+  /**
+   * "Fotos do cliente" (mig 442; grupo dos ajustes — `mockups/regem-atendente-alergenos-agendado.html`, parte 3): "Ler as
+   * fotos que o cliente manda" da empresa (nasce DESLIGADO), se a distribuição liberou a leitura nesta nuvem
+   * (`ROBO_FOTOS_IA` — sem ela, a tela mostra o ajuste travado) e o limite por cliente por dia (F7). Sem linha (ou banco
+   * sem a 442), desligado.
+   */
+  async fotosDoCliente(tenantId: string): Promise<{ ler: boolean; liberadaNaDistribuicao: boolean; limitePorDia: number }> {
+    const r: any = await this.db.execute(
+      sql`select coalesce((to_jsonb(rc) ->> 'fotos_ler')::boolean, false) as ler from robo_config rc where rc.tenant_id = ${tenantId}::uuid`,
+    );
+    return {
+      ler: (r.rows ?? r)[0]?.ler === true,
+      liberadaNaDistribuicao: leituraLiberadaNaDistribuicao(),
+      limitePorDia: LIMITE_DE_FOTOS_POR_DIA,
+    };
+  }
+
+  /** Grava SÓ a coluna dele (`fotos_ler`, V82); só verdadeiro ou falso (V15); a mudança vai à auditoria. */
+  async salvarFotosDoCliente(user: AuthUser, ler: unknown) {
+    const ligado = exigirBooleano(ler, 'Ler as fotos que o cliente manda');
+    const antes = await this.fotosDoCliente(user.tenantId);
+    if (antes.ler === ligado) return antes;
+    await this.db.execute(sql`
+      insert into robo_config (tenant_id, fotos_ler, atualizado_por)
+      values (${user.tenantId}::uuid, ${ligado}, ${user.colaboradorId}::uuid)
+      on conflict (tenant_id) do update
+         set fotos_ler = excluded.fotos_ler, atualizado_por = excluded.atualizado_por, atualizado_em = now()`);
+    await this.auditoria?.registrar({
+      tenantId: user.tenantId,
+      atorId: user.colaboradorId,
+      atorPerfil: user.categoria,
+      tipo: 'config',
+      acao: ligado ? 'robo_fotos_ler_ligado' : 'robo_fotos_ler_desligado',
+      entidadeTipo: 'robo_config',
+      entidadeId: user.tenantId,
+      detalhe: {},
+    });
+    return this.fotosDoCliente(user.tenantId);
   }
 
   /**

@@ -5,6 +5,7 @@ import { chaveTelefone, sqlChaveTelefone } from '../../common/telefone-chave';
 import { canalValido } from './fila';
 import type { ResumoDoRobo } from './resumo-do-robo';
 import type { EnderecoDoCaso } from './endereco-depois-que-saiu';
+import type { FotoNoCaso } from '../../common/foto-do-cliente';
 import {
   type ForaDoHorario,
   type Recado,
@@ -61,10 +62,15 @@ export type DadosDoChamado = {
    * da loja. Não é gravado no caso.
    */
   cardapioId?: string | null;
+  /**
+   * "O que a foto mostra" (mig 442, decisão F5): a última foto que a IA leu desta conversa, de até 60 min — vai para
+   * `detalhe.foto` (a gaveta do caso mostra). Só a descrição em texto (F1). Quem põe é o Regem, nunca o robô.
+   */
+  foto?: FotoNoCaso | null;
 };
 
 /**
- * O que o chamado guarda em `detalhe` do que chegou: o resumo do robô, o endereço do pedido que já saiu e o recado. No
+ * O que o chamado guarda em `detalhe` do que chegou: o resumo do robô, o endereço do pedido que já saiu, a foto e o recado. No
  * RECADO PARA O RESPONSÁVEL (mig 381), o resumo leva também as linhas "Assunto / Quem / Contato / Já fiz" da mensagem e a
  * marca `responsavel` (só no caso novo — somar não muda quando o robô deixou o recado).
  */
@@ -77,6 +83,7 @@ function detalheDoChamado(
   const robo = doRecado ? resumoComORecado(dto.resumo, dto.mensagem) : dto.resumo;
   if (robo) d.robo = { ...robo, em: new Date().toISOString() };
   if (dto.endereco) d.endereco = dto.endereco;
+  if (dto.foto) d.foto = dto.foto;
   if (recado) d.recado = recado;
   if (doRecado?.marca) d.responsavel = doRecado.marca;
   return Object.keys(d).length ? d : null;

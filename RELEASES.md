@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Atendente virtual: fotos do cliente (17/11; mig 442 SÓ NUVEM — `robo_config.fotos_ler`/`print_ajuda` e
+  `robo_foto_lida`; nasce DESLIGADO).** "Ler as fotos que o cliente manda" por loja (Delivery › Configurações ›
+  Atendimento › "Fotos do cliente"), até 5 fotos lidas por cliente por dia e "📷 O que a foto mostra" no caso. Antes,
+  #1104: as respostas formatadas no WhatsApp (instruções .f25), a reação e os balões (`ROBO_BALOES=1`). Tudo só na nuvem
+  → vai no `.zip` sem efeito na loja: `robo_foto_lida` = SO_NUVEM no `sync-daemon.mjs`.
+
 - **Mister: a nota do fornecedor por foto (17/11, M3b parte 2; mig 441 SÓ NUVEM — `mister_de_para` e
   `mister_documento.recebimento_id`; nasce DESLIGADO).** Com `MISTER_NOTAS=1` (além do `MISTER_DOCUMENTOS=1`) no
   `regem-api` (o dono liga), a foto da nota do fornecedor vira conversa: cada item vai a um insumo (a sugestão pela

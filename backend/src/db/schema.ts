@@ -12,6 +12,8 @@ import {
   time,
   jsonb,
   unique,
+  smallint,
+  primaryKey,
 } from 'drizzle-orm/pg-core';
 
 // Espelha as tabelas das migrations (Fase 0). Cresce por fatia,
@@ -3951,9 +3953,31 @@ export const roboConfig = pgTable('robo_config', {
   // O cliente da 99 pelo WhatsApp da loja (mig 388): nasce desligado — rastreio, "chegando", "sem contato" e a posição.
   // O "já mandei" de cada aviso mora em `pedido_aviso_99` (mig 388; lida e gravada em SQL — DeliveryService).
   cliente99Whatsapp: boolean('cliente_99_whatsapp').notNull().default(false),
+  // "Ler as fotos que o cliente manda" e "Mandar print de ajuda" (mig 442, grupo "Fotos do cliente"): nascem desligados.
+  fotosLer: boolean('fotos_ler').notNull().default(false),
+  printAjuda: boolean('print_ajuda').notNull().default(false),
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
   atualizadoPor: uuid('atualizado_por'),
 });
+
+// As fotos do cliente lidas pela IA (mig 442, @cloud-only): uma linha por cliente e dia da loja — o limite (até 5 por
+// dia, reservado na mesma instrução que confere o teto) e a ÚLTIMA descrição, que o caso aberto em seguida mostra em
+// "O que a foto mostra". Só a descrição em texto, nunca a foto. Regras em `common/foto-do-cliente.ts`.
+export const roboFotoLida = pgTable(
+  'robo_foto_lida',
+  {
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => empresa.id, { onDelete: 'cascade' }),
+    telefoneChave: text('telefone_chave').notNull(),
+    dia: date('dia').notNull(),
+    lidas: smallint('lidas').notNull().default(0),
+    ultimaTipo: text('ultima_tipo'),
+    ultimaDescricao: text('ultima_descricao'),
+    ultimaEm: timestamp('ultima_em', { withTimezone: true }),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.tenantId, t.telefoneChave, t.dia] }) }),
+);
 
 // "Já avisei este pedido do atraso" (mig 347, @cloud-only): gravado ANTES do envio — o aviso sai uma vez só.
 export const pedidoAvisoAtraso = pgTable('pedido_aviso_atraso', {

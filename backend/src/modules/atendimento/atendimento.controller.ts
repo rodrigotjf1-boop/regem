@@ -17,6 +17,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { CloudOnly } from '../../common/cloud-only.decorator';
+import { exigirBooleano } from '../../common/exigir';
 import { Pedido99Service, RespostaAo99 } from './pedido-99.service';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
@@ -275,7 +276,7 @@ export class AtendimentoController {
   @CloudOnly()
   @Roles('presidente', 'gerente')
   async ajustes(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
-    const [da99, fila, doIfood, cheguei, repetido, som, roboMuda, ponte, roboCobraPix, gestorWa, copiloto, instagram, equipe, perfis, assuntos, messenger, pausa] = await Promise.all([
+    const [da99, fila, doIfood, cheguei, repetido, som, roboMuda, ponte, roboCobraPix, gestorWa, copiloto, instagram, equipe, perfis, assuntos, messenger, pausa, fotos] = await Promise.all([
       this.pedido99.ajustes(user.tenantId),
       this.filaEAvisos.ajustes(user.tenantId),
       this.chatIfood.ajustes(user.tenantId),
@@ -304,6 +305,8 @@ export class AtendimentoController {
       this.messenger ? this.messenger.ajuste(user.tenantId) : Promise.resolve(null),
       // "Pausa dos pedidos" (F2, mig 393): o aviso antes de reabrir e o som, da loja em uso (sem linha dela, a da empresa).
       this.pausa ? this.pausa.ajustes(user.tenantId, unidade) : Promise.resolve(null),
+      // "Fotos do cliente" (mig 442): ler as fotos (da empresa), se a distribuição liberou e o limite por dia.
+      this.filaEAvisos.fotosDoCliente(user.tenantId),
     ]);
     const alterado = { som, sons: SONS_DO_ALTERADO, roboMuda, roboCobraPix };
     return {
@@ -336,6 +339,7 @@ export class AtendimentoController {
       instagram,
       messenger,
       pausa,
+      fotos,
     };
   }
 
@@ -363,6 +367,8 @@ export class AtendimentoController {
     // O copiloto (mig 376): liga/desliga só com booleano (V15), conferido antes de gravar qualquer grupo.
     if (dto?.copiloto !== undefined && typeof dto.copiloto?.ligado !== 'boolean')
       throw new BadRequestException('Copiloto: escolha ligado ou desligado.');
+    // "Fotos do cliente" (mig 442): só verdadeiro ou falso (V15), conferido antes de gravar qualquer grupo (V86).
+    if (dto?.fotos !== undefined) exigirBooleano(dto.fotos?.ler, 'Ler as fotos que o cliente manda');
     // "Instagram Direct" (migs 377/378): a fila, o robô e o cardápio do robô — conferidos (com o banco) antes de gravar
     // qualquer grupo (V86); só booleano nos liga/desliga (V15); o que não veio fica (V16).
     const instagram = dto?.instagram !== undefined && this.instagram ? await this.instagram.conferirAjuste(user.tenantId, dto.instagram) : null;
@@ -388,6 +394,7 @@ export class AtendimentoController {
     if (alterado?.roboCobraPix !== undefined) await this.filaEAvisos.salvarRoboCobraAdicionalPix(user, alterado.roboCobraPix);
     if (gestorWa) await this.gestorWa?.salvar(user, gestorWa);
     if (dto?.copiloto !== undefined) await this.copiloto?.salvar(user, dto.copiloto.ligado);
+    if (dto?.fotos !== undefined) await this.filaEAvisos.salvarFotosDoCliente(user, dto.fotos.ler);
     if (instagram) await this.instagram?.salvarAjuste(user, instagram);
     if (messenger) await this.messenger?.salvarAjuste(user, messenger);
     if (pausa) await this.pausa?.salvarAjustes(user, unidade, pausa);
