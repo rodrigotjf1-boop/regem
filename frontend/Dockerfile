@@ -27,8 +27,13 @@ ENV NODE_ENV=production
 # Necessário para o server standalone aceitar conexões do proxy do EasyPanel.
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
-COPY --from=build /app/.next/standalone ./
-COPY --from=build /app/.next/static ./.next/static
-COPY --from=build /app/public ./public
+# O servidor roda como o usuário sem privilégio da imagem (`node`), como o do backend: sem isto ele rodava como root
+# (avaliação de segurança de 16/11/2026). A pasta e os arquivos são dele, para o Next gravar o que precisar em
+# `.next/cache`; a porta 3000 não pede privilégio.
+RUN chown node:node /app
+USER node
+COPY --chown=node:node --from=build /app/.next/standalone ./
+COPY --chown=node:node --from=build /app/.next/static ./.next/static
+COPY --chown=node:node --from=build /app/public ./public
 EXPOSE 3000
 CMD ["node", "server.js"]
