@@ -11,8 +11,20 @@ import * as net from 'node:net';
 import * as http from 'node:http';
 import * as https from 'node:https';
 import { Readable } from 'node:stream';
+import { enderecoRecusado } from './envio-seguro';
 
-function ipPrivadoOuLocal(ip: string): boolean {
+/**
+ * O IP é interno, reservado ou de túnel? A CLASSIFICAÇÃO é a mesma do envio estrito (`envio-seguro.ts`): além das
+ * faixas privadas, as reservadas do IPv4 e as do IPv6 que levam um IPv4 dentro (NAT64, 6to4, Teredo) — por elas, um
+ * endereço "público" pode chegar a uma rede interna (segunda rodada da avaliação de segurança, a ressalva do A-05).
+ * O que este guarda NÃO herda do envio estrito, de propósito: aceitar http e porta fora do padrão (o robô de WhatsApp
+ * de uma loja pode estar assim).
+ */
+export function ipPrivadoOuLocal(ip: string): boolean {
+  return faixaPrivada(ip) || enderecoRecusado(ip);
+}
+
+function faixaPrivada(ip: string): boolean {
   const v = net.isIP(ip);
   if (v === 0) return true; // não é IP válido → trata como suspeito
   if (v === 4) {
@@ -30,7 +42,7 @@ function ipPrivadoOuLocal(ip: string): boolean {
   if (low === '::1' || low === '::') return true;
   if (low.startsWith('fc') || low.startsWith('fd')) return true; // ULA
   if (low.startsWith('fe80')) return true; // link-local
-  if (low.startsWith('::ffff:')) return ipPrivadoOuLocal(low.slice(7)); // IPv4-mapped
+  if (low.startsWith('::ffff:')) return faixaPrivada(low.slice(7)); // IPv4-mapped
   return false;
 }
 

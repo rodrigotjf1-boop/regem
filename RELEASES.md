@@ -21,6 +21,18 @@
   - As instruções do atendente passam à versão `.f23` (valem já, com a leitura desligada: sem descrição, nada muda).
   - Só NUVEM (o atendente é da nuvem): vale com o merge e a variável; o `.zip` leva o código sem efeito na loja.
 
+- **Segurança, segunda rodada da avaliação (16/11; SEM migration; só `.zip` — não toca `sync` nem `edge`).** Na NUVEM vale
+  com o merge; na LOJA, com o `.zip` seguinte. O que muda no servidor da loja:
+  - **O PIN só marca o ponto.** A sessão do `POST /auth/pin` (o terminal de ponto) passa a servir só para enviar a foto e
+    marcar o ponto, para qualquer nível, também no servidor da loja (antes, na loja, ela abria a API inteira). Quem tem
+    acesso à gestão entra com a senha. **Conferir depois de instalar:** bater o ponto pelo terminal com foto.
+  - O tempo real não aceita a sessão do PIN nem a de quem foi excluído ou bloqueado.
+  - O PIN confere um de cada vez por loja (em paralelo, a trava dos 10 erros deixava passar mais de 10).
+  - O código do cliente no cardápio e o do cadastro: a tentativa é reservada antes de comparar; pedir código de novo
+    dentro de um minuto não troca o código.
+  - A exportação de clientes "Excel" sai como `.xlsx` (era `.xls`); o CSV não deixa o nome do cliente virar fórmula.
+  - O guarda dos endereços que a loja cadastra recusa também as faixas especiais (NAT64, 6to4, reservadas).
+
 - **🔴 `.exe` — Mister: reiniciar o serviço de impressão pela loja (16/11, F4.4 de `docs/plano-mister.md`, a conversa 5 do
   protótipo `mockups/regem-mister.html`; sem migration).** Toca `backend/edge/sync-daemon.mjs` (o comando
   `reiniciar_impressao`) e cria `backend/edge/comando-reiniciar-impressao.mjs` → **vai no `.exe`** (a 1.30.14 tem de sair

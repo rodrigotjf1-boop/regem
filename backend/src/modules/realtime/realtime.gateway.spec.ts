@@ -161,3 +161,68 @@ describe('RealtimeGateway — salas da loja, prioridade e quem manda alerta', ()
     expect(server.emits.map((e: any) => e.room)).toEqual([`unidade:${U1}`]);
   });
 });
+
+// SEGUNDA RODADA DA AVALIAÇÃO DE SEGURANÇA (16/11/2026, B-01): o guarda das rotas recusava a sessão do terminal de ponto
+// fora das duas rotas dela, e o tempo real aceitava o mesmo token — entrava nas salas da empresa e recebia o ponto dos
+// colegas, os pedidos e os alertas (com nível de gerente, ainda mandava alerta ao KDS).
+describe('RealtimeGateway — só a sessão geral abre o tempo real (B-01)', () => {
+  const U1 = '11111111-1111-4111-8111-111111111111';
+  const PESSOA = '44444444-4444-4444-8444-444444444444';
+  function conectar(payload: any, banco?: any) {
+    const salas: string[] = [];
+    const erros: any[] = [];
+    let derrubado = false;
+    const g = new RealtimeGateway({ verify: () => payload } as any, {} as any, undefined, banco);
+    (g as any).server = fakeServer();
+    const sock: any = {
+      handshake: { auth: { jwt: 'x' }, headers: {} },
+      data: {},
+      join: (s: string) => salas.push(s),
+      emit: (ev: string, p: any) => erros.push([ev, p]),
+      disconnect: () => { derrubado = true; },
+    };
+    return g.handleConnection(sock).then(() => ({ salas, erros, derrubado: () => derrubado, sock }));
+  }
+  const base = { tenant: 't1', sub: PESSOA, cat: 'gerente', uni: U1 };
+
+  it('a sessão do terminal de ponto é recusada: nenhuma sala, sem contexto, desconectada', async () => {
+    const r = await conectar({ ...base, so: 'ponto' });
+    expect(r.salas).toEqual([]);
+    expect(r.sock.data.ctx).toBeUndefined();
+    expect(r.derrubado()).toBe(true);
+    expect(r.erros).toEqual([['erro', { motivo: 'esta sessão não abre o tempo real' }]]);
+  });
+
+  it('qualquer marca de sessão restrita é recusada, não só a do ponto; a do app de atendimento (presa ao aparelho) também', async () => {
+    for (const marca of [{ so: 'outra-coisa' }, { so: true }, { ap: '55555555-5555-4555-8555-555555555555' }]) {
+      const r = await conectar({ ...base, ...marca });
+      expect([marca, r.salas, r.derrubado()]).toEqual([marca, [], true]);
+    }
+  });
+
+  it('a sessão geral segue entrando (o controle do teste acima)', async () => {
+    const r = await conectar(base);
+    expect(r.derrubado()).toBe(false);
+    expect(r.salas).toEqual(expect.arrayContaining(['tenant:t1', `unidade:${U1}`, `pdv:${PESSOA}`]));
+  });
+
+  it('o excluído e o bloqueado não entram (a regra do guarda das rotas); quem segue ativo, entra', async () => {
+    const banco = (linha: any) => ({ execute: async () => ({ rows: linha ? [linha] : [] }) });
+    const excluido = await conectar(base, banco({ status: 'ativo', deleted_at: new Date() }));
+    expect([excluido.salas, excluido.derrubado()]).toEqual([[], true]);
+    expect(excluido.erros).toEqual([['erro', { motivo: 'acesso encerrado ou bloqueado' }]]);
+    const bloqueado = await conectar(base, banco({ status: 'bloqueado', deleted_at: null }));
+    expect([bloqueado.salas, bloqueado.derrubado()]).toEqual([[], true]);
+    const ativo = await conectar(base, banco({ status: 'ativo', deleted_at: null }));
+    expect(ativo.derrubado()).toBe(false);
+    expect(ativo.salas).toContain('tenant:t1');
+    // sem linha de colaborador (a sessão de suporte), segue pelo token, como no guarda
+    const semLinha = await conectar({ ...base, sub: 'sup:tecnico', cat: 'suporte', uni: null }, banco(null));
+    expect(semLinha.derrubado()).toBe(false);
+  });
+
+  it('o banco fora do ar na conferência: a conexão é recusada (fecha, não abre)', async () => {
+    const r = await conectar(base, { execute: async () => { throw new Error('banco fora'); } });
+    expect([r.salas, r.derrubado()]).toEqual([[], true]);
+  });
+});
