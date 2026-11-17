@@ -1053,8 +1053,10 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
   Cadastros (colaborador, entregador, produto do cardápio), Escala, Impressoras (adicionar, onde cada documento sai),
   Acessos (permissões do perfil, acesso da pessoa), Cancelamentos de itens, Auditoria e Turnos. A Auditoria tinha o
   rótulo solto (ERR-510, reincidência) e ficou ligada. 33 assuntos do guia com imagem.
-- **Falta:** relatórios de vendas, o robô e os ajustes da pausa (leem rotas que o roteiro ainda não simula), fiscal,
-  WhatsApp, atendimento e canais (iFood, 99, catálogo) — com as respostas simuladas de cada tela.
+- **Parte 6 (sem migration):** a configuração da nota fiscal (34 assuntos com imagem), junto com a catraca dos rótulos
+  soltos (`npm run check:rotulos`) e a faixa velha da tela fiscal corrigida (ERR-511).
+- **Falta:** relatórios de vendas, o robô e os ajustes da pausa (leem rotas que o roteiro ainda não simula), WhatsApp,
+  atendimento e canais (iFood, 99, catálogo) — com as respostas simuladas de cada tela.
 
 **A tela "Resumo" (17/11/2026, sem migration; #1114, no ar):** a entrada do presidente em Mister — as três etapas para funcionar, a faixa
 "IA parada", o que o Mister faz e os últimos avisos, só com as rotas que já existem.

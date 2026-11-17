@@ -876,11 +876,12 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
     perm: 'fiscal_config',
     palavras: ['configurar nota', 'certificado digital', 'certificado a1', 'csc', 'emitir nota', 'fiscal', 'série'],
     passos: [
-      'Preencha os dados da empresa e da nota e clique em "Salvar configuração".',
+      'Preencha os dados da empresa e da nota e clique em "Salvar configuração" (no fim da página).',
       'Em "Certificado A1 (.pfx)", escolha o arquivo, digite a "Senha do certificado" e clique em "Enviar certificado". "Testar certificado" e "Testar conexão com a SEFAZ" conferem.',
       'No CSC, escolha o "Ambiente", preencha "ID do CSC" e o código e clique em "Salvar CSC".',
     ],
     botoes: ['Salvar configuração', 'Certificado A1 (.pfx)', 'Senha do certificado', 'Enviar certificado', 'Testar certificado', 'Testar conexão com a SEFAZ', 'Ambiente', 'ID do CSC', 'Salvar CSC'],
+    imagem: ['Financeiro › Configuração, no menu', 'o "Ambiente" (Homologação para testar, Produção para valer)', 'o "Regime tributário" (os dados da empresa seguem abaixo)'],
     notas: ['Só o presidente abre, e a configuração só muda pela nuvem, não no servidor da loja.', 'O certificado e o CSC não aparecem de volta depois de salvos.'],
   },
 

@@ -13,6 +13,7 @@ export function InputMoeda({
   placeholder,
   className,
   ariaLabel,
+  id,
 }: {
   value: string | number | null | undefined;
   onChange: (v: string) => void;
@@ -20,6 +21,8 @@ export function InputMoeda({
   placeholder?: string;
   className?: string;
   ariaLabel?: string;
+  /** Para o rótulo apontar (`<Label htmlFor>`): vai no campo de texto, não no envoltório. */
+  id?: string;
 }) {
   const display =
     value === '' || value == null || Number.isNaN(Number(value))
@@ -34,6 +37,7 @@ export function InputMoeda({
     <div className={`relative ${className ?? ''}`}>
       <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">R$</span>
       <Input
+        id={id}
         inputMode="numeric"
         value={display}
         onChange={handle}
