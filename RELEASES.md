@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **PDV · Balcão: o cartão do produto com a foto em cima e a janela das etapas larga com a foto de cada opção (17/11, pedido
+  do dono; SEM migration) → vai no `.zip`** (a tela e a leitura do produto são do servidor da loja).
+  - O cartão: foto grande em cima (ou o ícone), nome em destaque, preço no pé; o painel do pedido não mudou.
+  - A janela das etapas larga, opções em grade, a foto da opção (a do cadastro da opção; senão, a do produto do código).
+
 - **Vias impressas: "SENHA 5 - BALCÃO", o canal embaixo da senha no delivery, caixa alta e o cupom maior (16/11, pedidos do
   dono; SEM migration) → vai no `.zip`** (quem imprime é o servidor da loja).
   - A senha por extenso em todas as vias; no cupom do delivery, a senha no alto e o canal ("iFood 6214") logo abaixo.

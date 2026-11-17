@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, notInArray, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   complemento,
@@ -1859,13 +1859,55 @@ export class ProdutoService {
           ).map((o) => o.id)
         : [],
     );
+    // A FOTO de cada opção para quem VENDE (pedido do dono, 17/11/2026: "se os itens tiverem foto no cadastro, puxar e
+    // colocar ao lado do nome"): a da opção de origem (Cadastros › Cardápio › Opções — a mesma do cardápio digital); sem
+    // ela, a do produto com o mesmo código PDV. O editor do Cadastros segue como era.
+    const fotos = modo.paraVender ? await this.fotosDasOpcoes(tenantId, opcoes) : null;
     return grupos.map((g) => ({
       ...g,
       regra:
         (g.origemComplementoId && regraDaOrigem.get(g.origemComplementoId)) ||
         (g.max === 1 ? 'uma' : 'varias_sem_repeticao'),
-      opcoes: opcoes.filter((o) => o.grupoId === g.id && !(o.origemOpcaoId && pausadasNoRegem.has(o.origemOpcaoId))),
+      opcoes: opcoes
+        .filter((o) => o.grupoId === g.id && !(o.origemOpcaoId && pausadasNoRegem.has(o.origemOpcaoId)))
+        .map((o) => (fotos ? { ...o, imagemRef: fotos.get(o.id) ?? null } : o)),
     }));
+  }
+
+  /** A foto de cada opção (por id): a da opção de origem; sem ela, a do produto do mesmo código PDV. Duas leituras, no lote. */
+  private async fotosDasOpcoes(
+    tenantId: string,
+    opcoes: { id: string; origemOpcaoId: string | null; codigoPdv: string | null }[],
+  ): Promise<Map<string, string>> {
+    const origens = [...new Set(opcoes.map((o) => o.origemOpcaoId).filter(Boolean))] as string[];
+    const daOrigem = new Map<string, string>();
+    if (origens.length) {
+      const rs = await this.db
+        .select({ id: opcao.id, imagemRef: opcao.imagemRef })
+        .from(opcao)
+        .where(and(eq(opcao.tenantId, tenantId), inArray(opcao.id, origens), isNotNull(opcao.imagemRef)));
+      for (const r of rs) if (r.imagemRef?.trim()) daOrigem.set(r.id, r.imagemRef);
+    }
+    const codigoDe = (o: { codigoPdv: string | null }) => (o.codigoPdv ?? '').trim();
+    const codigos = [
+      ...new Set(opcoes.filter((o) => !(o.origemOpcaoId && daOrigem.has(o.origemOpcaoId))).map(codigoDe).filter(Boolean)),
+    ];
+    const doProduto = new Map<string, string>();
+    if (codigos.length) {
+      const rs = await this.db
+        .select({ codigo: produto.codigo, imagemRef: produto.imagemRef })
+        .from(produto)
+        .where(and(eq(produto.tenantId, tenantId), inArray(produto.codigo, codigos), isNull(produto.deletedAt), isNotNull(produto.imagemRef)))
+        // código repetido em dois produtos (V57): fica sempre o mesmo (o primeiro pela ordem), nunca um a cada leitura
+        .orderBy(produto.codigo, produto.id);
+      for (const r of rs) if (r.codigo && r.imagemRef?.trim() && !doProduto.has(r.codigo)) doProduto.set(r.codigo, r.imagemRef);
+    }
+    const fotos = new Map<string, string>();
+    for (const o of opcoes) {
+      const foto = (o.origemOpcaoId && daOrigem.get(o.origemOpcaoId)) || doProduto.get(codigoDe(o));
+      if (foto) fotos.set(o.id, foto);
+    }
+    return fotos;
   }
 
   async criarGrupo(
