@@ -2912,7 +2912,9 @@ export function testesDoMisterComPostgres(): void {
 
     it('a configuração dos avisos: o padrão aprovado, o salvar com a auditoria do antes e do depois, e as recusas', async () => {
       const tela = await avisosConfig.daTela(A);
-      expect(tela.avisos).toHaveLength(9);
+      // Os nove do protótipo aprovado em 14/11 e o do boleto perto de vencer (versão 3, M3a parte 4).
+      expect(tela.avisos).toHaveLength(10);
+      expect(tela.avisos[9]).toMatchObject({ tipo: 'boleto_vencendo', grupo: 'Documentos e dinheiro', regra: { ligado: true, destinos: ['presidente'], parametro: 3 } });
       expect(tela.avisos[0]).toMatchObject({ tipo: 'impressora', padrao: true, jaFunciona: true, regra: { ligado: true, destinos: ['tela'], escalaMin: 5, escalaPara: ['gerente'] } });
       expect(tela.avisos.find((a) => a.tipo === 'pedido_parado')).toMatchObject({ jaFunciona: true, regra: { ligado: false, parametro: 20 } });
       expect(tela.destinos.map((d) => d.id)).toEqual(['presidente', 'gerente', 'tela', 'kds', 'atendimento', 'dms']);
@@ -5547,6 +5549,120 @@ export function testesDoMisterComPostgres(): void {
         const conta = (await titulos()).find((t) => t.descricao === 'Conta · Light')!;
         await financeiro.cancelar(A, pessoa.ana, 'presidente', conta.id, null);
         expect((await documentos.listar(A, '30')).documentos[0]).toMatchObject({ beneficiario: 'Light', situacao: 'cancelado', podeDesfazer: false });
+      });
+
+      // ─────────── parte 4: o boleto perto de vencer, com o "Já paguei" ───────────
+
+      it('o boleto perto de vencer: abre às 9h na antecedência da empresa com a linha e o "Já paguei", lembra no dia, dá baixa uma vez e fecha sem "resolvido"; "Desfazer" reabre', async () => {
+        ia.roteiro = [leitura({ linhaDigitavel: LINHA_DO_BOLETO, beneficiario: 'DISTRIBUIDORA CARNE BOA LTDA', cnpj: CNPJ, valor: '1.284,90', vencimento: '2026-11-25' })];
+        expect(await foto(telAna, novaMidia())).toBe('documento');
+        const [d] = await docs();
+        const [t] = await titulos();
+        const doBoleto = () => q(`select situacao, chave, titulo from mister_aviso where tenant_id = $1 and tipo = 'boleto_vencendo' order by aberto_em`, [A]);
+        // A janela de 24 horas do WhatsApp aberta perto da hora da volta (o texto vai direto, com os botões).
+        const janela = (iso: string) => q(`update mister_vinculo set ultima_entrada_em = $2::timestamptz - interval '1 hour' where telefone = $1`, [telAna, iso]);
+        const volta = async (iso: string) => {
+          await janela(iso);
+          numero.pedidos.length = 0;
+          await avisos.volta([A], new Date(iso));
+        };
+        try {
+          // 21/11, meio-dia em Brasília: faltam 4 dias — fora dos 3 dias do padrão.
+          await volta('2026-11-21T15:00:00Z');
+          expect(await doBoleto()).toEqual([]);
+          // 22/11 às 8h30 em Brasília: antes das 9h, o "hoje" do aviso ainda é 21/11.
+          await volta('2026-11-22T11:30:00Z');
+          expect(await doBoleto()).toEqual([]);
+          // 22/11 às 9h: faltam 3 dias — abre, com a linha digitável e o "Já paguei" ao presidente.
+          await volta('2026-11-22T12:00:00Z');
+          expect(await doBoleto()).toMatchObject([{ situacao: 'aberto', chave: `boleto:${t.id}` }]);
+          expect(numero.enviadas).toHaveLength(1);
+          expect(numero.enviadas[0]).toMatchObject({ para: telAna, botoes: [{ id: `doc:pago:${d.id}`, titulo: 'Já paguei' }] });
+          expect(numero.enviadas[0].texto).toContain('Boleto vence em 3 dias (25/11) · DISTRIBUIDORA CARNE BOA LTDA · R$ 1.284,90');
+          expect(numero.enviadas[0].texto).toContain('Linha digitável: 00191.23454 67890.123457 67890.123457 7 16410000128490');
+          // 23/11: o mesmo marco — nada sai.
+          await volta('2026-11-23T13:00:00Z');
+          expect(numero.enviadas).toEqual([]);
+          // 25/11 às 9h: o lembrete do dia, com o "Já paguei".
+          await volta('2026-11-25T12:05:00Z');
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringContaining('🔔 Lembrete: Boleto vence hoje (25/11)')]);
+          expect(numero.enviadas[0].botoes).toEqual([{ id: `doc:pago:${d.id}`, titulo: 'Já paguei' }]);
+
+          // O gerente não dá baixa; o presidente dá — uma vez: o segundo toque ouve "já estava paga".
+          numero.pedidos.length = 0;
+          expect(await tocar(telCarlos, `doc:pago:${d.id}`)).toBe('respondeu_proposta');
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([FRASES_DO_DOCUMENTO.soPresidente]);
+          expect((await titulos())[0].status).toBe('aberto');
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:pago:${d.id}`)).toBe('respondeu_proposta');
+          expect((await titulos())[0].status).toBe('pago');
+          expect(numero.enviadas[0].texto).toMatch(/^Marquei como pago hoje, \d\d\/\d\d\. Saiu da lista de vencimentos\.$/);
+          expect(numero.enviadas[0].botoes).toEqual([{ id: `doc:reabrir:${d.id}`, titulo: 'Desfazer' }]);
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:pago:${d.id}`)).toBe('respondeu_proposta');
+          expect(numero.enviadas[0].texto).toContain('já estava paga');
+          expect(await q(`select tipo from lancamento_caixa where titulo_id = $1`, [t.id])).toEqual([{ tipo: 'saida' }]);
+          expect(auditados.map((x) => x.acao)).toEqual(expect.arrayContaining(['pagou_titulo', 'mister_documento_pago']));
+
+          // A volta seguinte fecha o aviso, sem a mensagem de "resolvido" (o "Já paguei" já respondeu).
+          await volta('2026-11-25T12:10:00Z');
+          expect((await doBoleto()).map((x) => x.situacao)).toEqual(['resolvido']);
+          expect(numero.enviadas).toEqual([]);
+          // Na lista da tela, o documento aparece como pago.
+          expect((await documentos.listar(A, '30')).documentos[0]).toMatchObject({ situacao: 'pago', podeDesfazer: false });
+
+          // "Desfazer" o pagamento: a conta volta a aberta (um estorno só) e o aviso reabre na volta seguinte.
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:reabrir:${d.id}`)).toBe('respondeu_proposta');
+          expect(numero.enviadas[0].texto).toBe('Desfeito: o boleto voltou para as contas a pagar, em aberto.');
+          expect((await titulos())[0].status).toBe('aberto');
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:reabrir:${d.id}`)).toBe('respondeu_proposta');
+          expect(numero.enviadas[0].texto).toContain('não está paga');
+          expect((await q(`select tipo from lancamento_caixa where titulo_id = $1 order by tipo`, [t.id])).map((x) => x.tipo)).toEqual(['entrada', 'saida']);
+          await volta('2026-11-25T12:15:00Z');
+          expect((await doBoleto()).map((x) => x.situacao)).toEqual(['resolvido', 'aberto']);
+        } finally {
+          await q(`delete from mister_aviso where tenant_id = $1 and tipo = 'boleto_vencendo'`, [A]);
+          await q(`delete from lancamento_caixa where tenant_id = $1`, [A]);
+        }
+      });
+
+      it('a antecedência da empresa: "só no dia" abre no dia; o vencido e não pago lembra uma vez; a outra empresa não vê o boleto', async () => {
+        ia.roteiro = [leitura({ linhaDigitavel: LINHA_DO_BOLETO, beneficiario: 'DISTRIBUIDORA CARNE BOA LTDA', cnpj: CNPJ, valor: '1.284,90', vencimento: '2026-11-25' })];
+        expect(await foto(telAna, novaMidia())).toBe('documento');
+        const doBoleto = () => q(`select situacao, titulo from mister_aviso where tenant_id = $1 and tipo = 'boleto_vencendo' order by aberto_em`, [A]);
+        const volta = async (iso: string) => {
+          await q(`update mister_vinculo set ultima_entrada_em = $2::timestamptz - interval '1 hour' where telefone = $1`, [telAna, iso]);
+          numero.pedidos.length = 0;
+          await avisos.volta([A, B], new Date(iso));
+        };
+        const avisosConfig = new MisterAvisosConfigService(db, auditoria);
+        // A recusa: antecedência fora da lista.
+        await expect(avisosConfig.salvar(usuario('ana'), { regras: [{ tipo: 'boleto_vencendo', ligado: true, destinos: ['presidente'], escalaMin: null, escalaPara: [], parametro: 2 }] })).rejects.toBeInstanceOf(
+          BadRequestException,
+        );
+        await avisosConfig.salvar(usuario('ana'), { regras: [{ tipo: 'boleto_vencendo', ligado: true, destinos: ['presidente'], escalaMin: null, escalaPara: [], parametro: 0 }] });
+        try {
+          await volta('2026-11-24T12:00:00Z');
+          expect(await doBoleto()).toEqual([]);
+          await volta('2026-11-25T12:00:00Z');
+          expect(await doBoleto()).toMatchObject([{ situacao: 'aberto', titulo: expect.stringContaining('Boleto vence hoje (25/11)') }]);
+          // Passou do dia sem baixa: um lembrete ("venceu"), uma vez.
+          await volta('2026-11-26T12:00:00Z');
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringContaining('Boleto venceu em 25/11 e não foi marcado como pago')]);
+          await volta('2026-11-27T12:00:00Z');
+          expect(numero.enviadas).toEqual([]);
+          // A outra empresa não recebe nada do boleto de A.
+          expect(await q(`select count(*)::int as n from mister_aviso where tenant_id = $1 and tipo = 'boleto_vencendo'`, [B])).toEqual([{ n: 0 }]);
+          // 31 dias depois do vencimento: sai da lista, calado.
+          await volta('2026-12-27T12:00:00Z');
+          expect((await doBoleto()).map((x) => x.situacao)).toEqual(['resolvido']);
+          expect(numero.enviadas).toEqual([]);
+        } finally {
+          await q(`delete from mister_aviso where tenant_id = $1 and tipo = 'boleto_vencendo'`, [A]);
+          await q(`delete from mister_aviso_regra where tenant_id = $1`, [A]);
+        }
       });
     });
   });

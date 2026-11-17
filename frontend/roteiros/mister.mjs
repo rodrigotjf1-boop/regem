@@ -82,6 +82,8 @@ const AVISOS_PADRAO = () => ({
     { tipo: 'nota_sem_resposta', grupo: 'Fiscal', titulo: 'Nota fiscal sem resposta', descricao: 'Nota que ficou pendente depois de todas as tentativas.', jaFunciona: false, padrao: true, regra: regraAv(['atendimento', 'presidente']) },
     { tipo: 'certificado', grupo: 'Fiscal', titulo: 'Certificado digital perto de vencer', descricao: 'A 60, 30, 15, 7 e 1 dia do vencimento.', jaFunciona: false, padrao: true, regra: regraAv(['presidente']) },
     { tipo: 'chave_ia', grupo: 'O próprio Mister', titulo: 'A chave de IA parou', descricao: 'Sem crédito, no teto de gasto ou recusada.', jaFunciona: true, padrao: true, regra: regraAv(['presidente']) },
+    // M3a parte 4: o boleto lançado por foto perto de vencer (a antecedência no `parametro`: 3, 1 ou 0 dia).
+    { tipo: 'boleto_vencendo', grupo: 'Documentos e dinheiro', titulo: 'Boleto perto de vencer', descricao: 'Os boletos lançados por foto no Mister. Vai com a linha digitável; "Já paguei" dá baixa na conta e tira o boleto da lista. Às 9h da loja.', jaFunciona: true, padrao: true, regra: regraAv(['presidente'], { parametro: 3 }) },
   ],
 });
 // Os relatórios (mig 420): os dois desligados, como o padrão; o do dia com um envio que não saiu (fora da janela).
@@ -824,7 +826,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t0 = await page.locator('main').innerText();
-    ok(/13 ajustes em 6 grupos/.test(t0), 'avisos: os nove avisos em quatro grupos, os três relatórios no quinto e a conversa (M3a) no sexto');
+    ok(/14 ajustes em 7 grupos/.test(t0), 'avisos: os nove avisos em quatro grupos, o do boleto (M3a) no quinto, os três relatórios no sexto e a conversa (M3a) no sétimo');
     ok(/Fichas novas de candidatos[\s\S]*Vai para: o presidente e quem tem a permissão Candidatos, cada um só das lojas que vê\./.test(t0), 'relatórios: o das fichas novas diz para quem vai (F4c)');
     ok(t0.includes('O de fichas novas só conta: não usa a IA.'), 'relatórios: a nota diz que o das fichas novas não usa a IA');
     ok(['Na loja', 'Servidor da loja', 'Fiscal', 'O próprio Mister'].every((g) => t0.includes(g)), 'avisos: os quatro grupos do protótipo');
@@ -938,7 +940,8 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t = await page.locator('main').innerText();
-    ok(/13 ajustes em 6 grupos/.test(t), 'conversa: o grupo "Conversa" entra como o sexto, com um ajuste');
+    ok(/14 ajustes em 7 grupos/.test(t), 'conversa: o grupo "Conversa" entra com um ajuste, e "Documentos e dinheiro" com o do boleto');
+    ok(/Documentos e dinheiro[\s\S]*Boleto perto de vencer[\s\S]*Já paguei/.test(t), 'boleto: o aviso novo no grupo "Documentos e dinheiro", com o "Já paguei"');
     ok(/Lançar boletos por foto/.test(t) && /só o presidente manda/.test(t) && /a leitura da nota do fornecedor vem numa próxima entrega/.test(t), 'conversa: o ajuste diz o que faz, quem manda e que a nota vem depois');
     const sel = page.locator('select:has(option:text-is("boleto: pergunta antes"))');
     ok((await sel.inputValue()) === 'sozinho', 'conversa: o modo salvo (sozinho) vem marcado');
@@ -951,6 +954,15 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     await page.click('button[role="switch"][aria-label*="Lançar boletos por foto"]');
     await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/conversa') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
     ok(JSON.stringify(S.salvamentosConv[1]) === JSON.stringify({ documentosLigado: false, documentosModo: 'perguntar' }), `conversa: desligar manda desligado e mantém o modo (${JSON.stringify(S.salvamentosConv[1])})`);
+    // M3a parte 4: "Quando avisar do boleto" — o padrão (3 dias antes e no dia) e "só no dia", salvo pela mesma barra.
+    const quando = page.locator('select:has(option:text-is("só no dia"))');
+    ok((await quando.inputValue()) === '3', 'boleto: o padrão é "3 dias antes e no dia"');
+    await quando.selectOption('0');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/avisos') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
+    ok(
+      JSON.stringify(S.salvamentos.at(-1)) === JSON.stringify({ regras: [{ tipo: 'boleto_vencendo', ligado: true, destinos: ['presidente'], escalaMin: null, escalaPara: [], parametro: 0 }] }),
+      `boleto: salvar manda o aviso inteiro com a antecedência (${JSON.stringify(S.salvamentos.at(-1))})`,
+    );
     ok(erros.length === 0, `conversa: sem erro (${erros.join(' | ')})`);
     await ctx.close();
   }

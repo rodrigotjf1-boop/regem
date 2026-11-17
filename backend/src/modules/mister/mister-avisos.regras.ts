@@ -7,7 +7,7 @@
 // Cada aviso vai para quem resolve: o que a equipe resolve aparece na tela da loja e no KDS; o que pede o gestor vai pelo
 // WhatsApp do Mister; o técnico vai ao suporte da DMS. Tudo também fica na trilha do aviso.
 
-import { FUSO_OPERACAO, horaNoFuso } from '../../common/data';
+import { FUSO_OPERACAO, dataNoFuso, horaNoFuso, somarDias } from '../../common/data';
 import { POLLER_ERRO_APOS_MS } from '../../common/falhas-do-poller';
 import { diasParaVencer } from '../fiscal/certificado';
 import { pedidoComoNoQuadro } from './mister-agente.regras';
@@ -30,6 +30,8 @@ export const NOME_DO_DESTINO: Record<Destino, string> = {
 export const DESTINOS_DA_ESCALA = ['gerente', 'presidente'] as const;
 export const TEMPOS_DA_ESCALA = [5, 15, 30, 120] as const;
 export const TEMPOS_DO_PEDIDO_PARADO = [15, 20, 30] as const;
+/** M3a parte 4: quando avisar do boleto — 3 dias antes e no dia (o padrão), 1 dia antes e no dia, ou só no dia. */
+export const ANTECEDENCIAS_DO_BOLETO = [3, 1, 0] as const;
 
 export type TipoDeAviso =
   | 'impressora'
@@ -40,7 +42,8 @@ export type TipoDeAviso =
   | 'servidor_tecnico'
   | 'nota_sem_resposta'
   | 'certificado'
-  | 'chave_ia';
+  | 'chave_ia'
+  | 'boleto_vencendo';
 
 export interface RegraDoAviso {
   ligado: boolean;
@@ -53,7 +56,7 @@ export interface RegraDoAviso {
 
 export interface TipoDoAviso {
   tipo: TipoDeAviso;
-  grupo: 'Na loja' | 'Servidor da loja' | 'Fiscal' | 'O próprio Mister';
+  grupo: 'Na loja' | 'Servidor da loja' | 'Fiscal' | 'O próprio Mister' | 'Documentos e dinheiro';
   titulo: string;
   descricao: string;
   /** O padrão aprovado em 14/11/2026. */
@@ -145,6 +148,15 @@ export const TIPOS_DE_AVISO: TipoDoAviso[] = [
     padrao: regra(['presidente']),
     jaFunciona: true,
   },
+  // Versão 3 do protótipo (aprovada em 17/11/2026), M3a parte 4: o boleto lançado por foto perto de vencer.
+  {
+    tipo: 'boleto_vencendo',
+    grupo: 'Documentos e dinheiro',
+    titulo: 'Boleto perto de vencer',
+    descricao: 'Os boletos lançados por foto no Mister. Vai com a linha digitável; "Já paguei" dá baixa na conta e tira o boleto da lista. Às 9h da loja.',
+    padrao: regra(['presidente'], { parametro: 3 }),
+    jaFunciona: true,
+  },
 ];
 
 export const ehTipoDeAviso = (t: unknown): t is TipoDeAviso => TIPOS_DE_AVISO.some((x) => x.tipo === t);
@@ -160,7 +172,14 @@ export function regraQueVale(tipo: TipoDeAviso, salva: Partial<RegraDoAviso> | n
     destinos: so(salva.destinos, DESTINOS),
     escalaMin: salva.escalaMin ?? null,
     escalaPara: so(salva.escalaPara, DESTINOS_DA_ESCALA),
-    parametro: tipo === 'pedido_parado' ? (salva.parametro ?? p.parametro) : null,
+    parametro:
+      tipo === 'pedido_parado'
+        ? (salva.parametro ?? p.parametro)
+        : tipo === 'boleto_vencendo'
+          ? (ANTECEDENCIAS_DO_BOLETO as readonly number[]).includes(Number(salva.parametro)) && salva.parametro !== null
+            ? Number(salva.parametro)
+            : p.parametro
+          : null,
   };
 }
 
@@ -193,6 +212,11 @@ export function conferirRegras(dto: unknown): { tipo: TipoDeAviso; regra: RegraD
     if (tipo === 'pedido_parado') {
       parametro = Number(r.parametro);
       if (!(TEMPOS_DO_PEDIDO_PARADO as readonly number[]).includes(parametro)) return { erro: 'O tempo do pedido parado é 15, 20 ou 30 minutos.' };
+    }
+    if (tipo === 'boleto_vencendo') {
+      parametro = r.parametro === null || r.parametro === undefined || r.parametro === '' ? NaN : Number(r.parametro);
+      if (!(ANTECEDENCIAS_DO_BOLETO as readonly number[]).includes(parametro))
+        return { erro: 'Escolha quando avisar do boleto: 3 dias antes e no dia, 1 dia antes e no dia, ou só no dia.' };
     }
     saida.push({ tipo, regra: { ligado: r.ligado, destinos: destinos as Destino[], escalaMin, escalaPara: escalaMin === null ? [] : (escalaPara as Destino[]), parametro } });
   }
@@ -526,6 +550,62 @@ export function situacaoDoChatSemResposta(
     dados: { canal: 'ifood', chat: true, motivo: c.motivo, pedidos: c.pedidos },
   };
 }
+
+// ───────────────────────────── o boleto perto de vencer (M3a parte 4) ─────────────────────────────
+
+/** A hora da loja em que o dia do boleto vira: antes dela, ainda vale o dia anterior (ninguém recebe aviso de madrugada). */
+export const HORA_DO_AVISO_DO_BOLETO = 9;
+/** O boleto vencido e não pago fica na lista até 30 dias depois (aí sai calado). */
+export const BOLETO_VENCIDO_ATE_DIAS = 30;
+
+/** O "hoje" do aviso do boleto: o dia da loja, ou o anterior antes das 9h. */
+export function diaDoAvisoDoBoleto(agora: Date): string {
+  const hoje = dataNoFuso(agora);
+  return Number(horaNoFuso(agora).slice(0, 2)) < HORA_DO_AVISO_DO_BOLETO ? somarDias(hoje, -1) : hoje;
+}
+
+export interface BoletoAVencer {
+  tenantId: string;
+  unidadeId: string | null;
+  tituloId: string;
+  documentoId: string;
+  beneficiario: string | null;
+  valorCentavos: number;
+  vencimento: string;
+  linhaDigitavel: string | null;
+  /** Dias do "hoje" do aviso até o vencimento (negativo = venceu). */
+  dias: number;
+}
+
+/**
+ * O boleto lançado por foto, em aberto, perto de vencer. O marco ("antes", "dia", "vencido") muda uma vez e vira
+ * lembrete; a antecedência escolhida pela empresa decide quando abre (a volta confere `dias` contra a regra). A chave é a
+ * da conta a pagar: pago ou cancelado, o aviso fecha.
+ */
+export function situacaoDoBoleto(b: BoletoAVencer): Situacao {
+  const dia = `${b.vencimento.slice(8, 10)}/${b.vencimento.slice(5, 7)}`;
+  const reais = (b.valorCentavos / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const quem = b.beneficiario ?? 'boleto';
+  const quando =
+    b.dias > 1 ? `vence em ${b.dias} dias (${dia})` : b.dias === 1 ? `vence amanhã (${dia})` : b.dias === 0 ? `vence hoje (${dia})` : `venceu em ${dia} e não foi marcado como pago`;
+  return {
+    tenantId: b.tenantId,
+    unidadeId: b.unidadeId,
+    tipo: 'boleto_vencendo',
+    chave: `boleto:${b.tituloId}`,
+    titulo: `Boleto ${quando} · ${quem} · R$ ${reais}`,
+    detalhe: b.linhaDigitavel
+      ? `Linha digitável: ${b.linhaDigitavel}\n\nPague no banco e toque em "Já paguei" para dar baixa.`
+      : 'Este boleto entrou sem a linha digitável (a foto não tinha o código de barras). Pague no banco e toque em "Já paguei" para dar baixa.',
+    dados: { marco: b.dias > 0 ? 'antes' : b.dias === 0 ? 'dia' : 'vencido', documentoId: b.documentoId, tituloId: b.tituloId, vencimento: b.vencimento, dias: b.dias },
+  };
+}
+
+/** O boleto entra no aviso desta empresa? Pela antecedência escolhida (o vencido e não pago sempre, até 30 dias). */
+export const boletoNoPrazoDoAviso = (dias: number, antecedencia: number | null): boolean => dias >= -BOLETO_VENCIDO_ATE_DIAS && dias <= (antecedencia ?? 3);
+
+/** Os botões do aviso do boleto (só para o presidente: é quem dá baixa). */
+export const botoesDoAvisoDoBoleto = (documentoId: unknown) => (typeof documentoId === 'string' && documentoId ? [{ id: `doc:pago:${documentoId}`, titulo: 'Já paguei' }] : []);
 
 // ───────────────────────────── as mensagens ─────────────────────────────
 

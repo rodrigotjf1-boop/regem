@@ -208,19 +208,29 @@ export class FinanceiroService {
     atual: string | null = null,
   ) {
     return this.db.transaction(async (tx) => {
+      // Uma vez só (M3a parte 4: o "Já paguei" do Mister e a tela chamam este mesmo método): a troca condicional
+      // "aberto" → "pago" vem ANTES do lançamento. Dois pedidos ao mesmo tempo: o segundo espera a trava da linha, relê
+      // a situação e não acha mais "aberto" — nada lança (antes, os dois liam "aberto" e lançavam a saída duas vezes).
       const [t] = await tx
-        .select()
-        .from(tituloFinanceiro)
+        .update(tituloFinanceiro)
+        .set({ status: 'pago' })
         .where(
           and(
             eq(tituloFinanceiro.id, id),
             eq(tituloFinanceiro.tenantId, tenantId),
             condUnidade(tituloFinanceiro.unidadeId, atual),
+            eq(tituloFinanceiro.status, 'aberto'),
           ),
-        );
-      if (!t) throw new NotFoundException('Título não encontrado');
-      if (t.status !== 'aberto')
+        )
+        .returning();
+      if (!t) {
+        const [existe] = await tx
+          .select({ id: tituloFinanceiro.id })
+          .from(tituloFinanceiro)
+          .where(and(eq(tituloFinanceiro.id, id), eq(tituloFinanceiro.tenantId, tenantId), condUnidade(tituloFinanceiro.unidadeId, atual)));
+        if (!existe) throw new NotFoundException('Título não encontrado');
         throw new BadRequestException('Título não está aberto');
+      }
 
       const valor = dto.valor != null ? dto.valor : Number(t.valor);
       await tx.insert(lancamentoCaixa).values({
@@ -235,10 +245,6 @@ export class FinanceiroService {
         descricao: t.descricao,
         criadoPorId: atorId,
       });
-      await tx
-        .update(tituloFinanceiro)
-        .set({ status: 'pago' })
-        .where(eq(tituloFinanceiro.id, t.id));
 
       // Recorrência: gera o próximo título em aberto.
       const prox = proximaData(t.vencimento, t.recorrencia);
@@ -281,6 +287,21 @@ export class FinanceiroService {
     atual: string | null = null,
   ) {
     return this.db.transaction(async (tx) => {
+      // Uma vez só: a troca condicional "pago" → "aberto" vem ANTES do lançamento inverso. O segundo pedido ao mesmo
+      // tempo não acha mais "pago" e nada lança (antes, os dois achavam o mesmo pagamento e o estornavam duas vezes).
+      const [reaberto] = await tx
+        .update(tituloFinanceiro)
+        .set({ status: 'aberto' })
+        .where(
+          and(
+            eq(tituloFinanceiro.id, id),
+            eq(tituloFinanceiro.tenantId, tenantId),
+            condUnidade(tituloFinanceiro.unidadeId, atual),
+            eq(tituloFinanceiro.status, 'pago'),
+          ),
+        )
+        .returning({ id: tituloFinanceiro.id });
+      if (!reaberto) throw new BadRequestException('Esta conta não está paga: não há o que estornar.');
       const [lanc] = await tx
         .select()
         .from(lancamentoCaixa)
@@ -307,10 +328,6 @@ export class FinanceiroService {
         estornoDe: lanc.id,
         criadoPorId: atorId,
       });
-      await tx
-        .update(tituloFinanceiro)
-        .set({ status: 'aberto' })
-        .where(eq(tituloFinanceiro.id, id));
 
       await this.auditoria.registrar({
         tenantId,

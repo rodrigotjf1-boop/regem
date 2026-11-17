@@ -1,5 +1,6 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
+import { hojeISO } from '../../common/data';
 import { ehServidorLocal } from '../../common/modo';
 import {
   DadosDoLancamento,
@@ -55,10 +56,11 @@ const PRAZO_DA_IA_MS = 40_000;
 const linhas = (r: any) => (r?.rows ?? r ?? []) as any[];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-type AcaoDoBotao = 'lancar' | 'outra' | 'desfazer';
+/** `pago` = "Já paguei" do aviso de vencimento (M3a parte 4); `reabrir` = o "Desfazer" dele. */
+type AcaoDoBotao = 'lancar' | 'outra' | 'desfazer' | 'pago' | 'reabrir';
 /** "doc:<ação>:<id do documento>". */
 export function lerBotaoDoDocumento(botaoId: unknown): { acao: AcaoDoBotao; documentoId: string } | null {
-  const m = /^doc:(lancar|outra|desfazer):(.+)$/.exec(String(botaoId ?? ''));
+  const m = /^doc:(lancar|outra|desfazer|pago|reabrir):(.+)$/.exec(String(botaoId ?? ''));
   return m && UUID.test(m[2]) ? { acao: m[1] as AcaoDoBotao, documentoId: m[2] } : null;
 }
 const botao = (acao: AcaoDoBotao, id: string, titulo: string) => ({ id: `${PREFIXO_DO_BOTAO}${acao}:${id}`, titulo });
@@ -253,6 +255,17 @@ export class MisterDocumentosService implements OnModuleInit {
       return true;
     }
 
+    // "Já paguei" e o "Desfazer" dele (M3a parte 4): o MESMO pagar e o MESMO estornar da tela das contas a pagar, que
+    // fazem uma vez só (a troca condicional da situação — ERR-506).
+    if (b.acao === 'pago') {
+      await this.falar(quem.telefone, await this.marcarPago(d, v.colaboradorId));
+      return true;
+    }
+    if (b.acao === 'reabrir') {
+      await this.falar(quem.telefone, await this.reabrir(d, v.colaboradorId));
+      return true;
+    }
+
     // Desfazer: o mesmo caminho do botão da tela.
     const r = await this.desfazer(d, v.colaboradorId, 'presidente');
     await this.falar(quem.telefone, {
@@ -392,6 +405,39 @@ export class MisterDocumentosService implements OnModuleInit {
     if (r === 'nao_da') throw new BadRequestException(FRASES_DO_DOCUMENTO.naoDaParaDesfazer);
     if (r === 'ja_respondido') throw new BadRequestException(d.situacao === 'desfeito' ? 'Este lançamento já foi desfeito.' : 'Este documento não foi lançado.');
     return { resultado: r };
+  }
+
+  /** "Já paguei": dá baixa na conta a pagar do documento hoje, com o "Desfazer". O aviso de vencimento fecha na volta. */
+  private async marcarPago(d: { id: string; tenantId: string; situacao: string; tituloId: string | null }, atorId: string): Promise<Resposta> {
+    if (d.situacao !== 'lancado' || !d.tituloId) return { texto: 'Este boleto não está nas contas a pagar.' };
+    try {
+      await this.financeiro.pagar(d.tenantId, atorId, 'presidente', d.tituloId, {} as any, null);
+    } catch (e: any) {
+      if (e instanceof BadRequestException) return { texto: 'Esta conta já estava paga, ou foi cancelada na tela.' };
+      if (e instanceof NotFoundException) return { texto: 'Este boleto não está mais nas contas a pagar.' };
+      this.logger.warn(`documento ${d.id}: o "Já paguei" falhou — ${e?.message ?? e}`);
+      return { texto: 'Não consegui dar baixa agora. Tente de novo em instantes.' };
+    }
+    await this.auditar(d.tenantId, atorId, 'mister_documento_pago', d.id, { titulo: d.tituloId });
+    const hoje = hojeISO();
+    return {
+      texto: `Marquei como pago hoje, ${hoje.slice(8, 10)}/${hoje.slice(5, 7)}. Saiu da lista de vencimentos.`,
+      botoes: [botao('reabrir', d.id, 'Desfazer')],
+    };
+  }
+
+  /** O "Desfazer" do "Já paguei": estorna o pagamento (a conta volta a aberta e à lista de vencimentos). */
+  private async reabrir(d: { id: string; tenantId: string; tituloId: string | null }, atorId: string): Promise<Resposta> {
+    if (!d.tituloId) return { texto: 'Este boleto não está nas contas a pagar.' };
+    try {
+      await this.financeiro.estornar(d.tenantId, atorId, 'presidente', d.tituloId, null);
+    } catch (e: any) {
+      if (e instanceof BadRequestException || e instanceof NotFoundException) return { texto: 'Esta conta não está paga: não há o que desfazer.' };
+      this.logger.warn(`documento ${d.id}: o "Desfazer" do pagamento falhou — ${e?.message ?? e}`);
+      return { texto: 'Não consegui desfazer agora. Tente de novo em instantes.' };
+    }
+    await this.auditar(d.tenantId, atorId, 'mister_documento_reaberto', d.id, { titulo: d.tituloId });
+    return { texto: 'Desfeito: o boleto voltou para as contas a pagar, em aberto.' };
   }
 
   /**

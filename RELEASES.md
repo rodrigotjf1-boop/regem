@@ -12,6 +12,14 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Contas a pagar: pagar e estornar uma vez só (17/11, ERR-506; SEM migration) → vai no `.zip`** (a tela do Financeiro
+  da loja usa o mesmo serviço). Dois "pagar" (ou dois "estornar") ao mesmo tempo lançavam a saída do caixa em dobro; agora
+  a troca condicional da situação vem antes do lançamento.
+- **Mister: o boleto perto de vencer com o "Já paguei" (17/11, M3a parte 4a; SEM migration; só NUVEM).** Aviso novo em
+  Avisos e relatórios › "Documentos e dinheiro": às 9h da loja, 3 dias antes e no dia (ou 1 dia antes, ou só no dia), ao
+  WhatsApp do presidente com a linha digitável e o botão "Já paguei" (dá baixa pelo mesmo pagar da tela, com "Desfazer");
+  o vencido e não pago lembra uma vez. Vale com os avisos ligados (`MISTER_AVISOS_LIGADOS`) e os boletos por foto.
+
 - **Etapa do produto: "até 1" é escolha única, o máximo trava e a obrigatória segura o "Adicionar" no PDV, na mesa e no garçom
   (17/11; ERR-505; só tela, SEM migration) → vai no `.zip`.**
 
