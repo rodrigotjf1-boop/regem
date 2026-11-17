@@ -12,6 +12,14 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister: a nota do fornecedor por foto (17/11, M3b parte 2; mig 441 SÓ NUVEM — `mister_de_para` e
+  `mister_documento.recebimento_id`; nasce DESLIGADO).** Com `MISTER_NOTAS=1` (além do `MISTER_DOCUMENTOS=1`) no
+  `regem-api` (o dono liga), a foto da nota do fornecedor vira conversa: cada item vai a um insumo (a sugestão pela
+  descrição, a memória do fornecedor, "Cadastrar novo", "Fora do estoque"), a unidade que não converte é perguntada ("1 KG
+  tem quantos pacote?"), e o resumo pede o "Lançar": a entrada pelo MESMO recebimento da tela e as contas a pagar pelo
+  total da nota, uma por parcela. → vai no `.zip`: o `RecebimentoService.confirmar` ganhou a opção `semConta` (sem efeito
+  na loja) e `mister_de_para` = SO_NUVEM no `sync-daemon.mjs`.
+
 - **Mister: o PDF do boleto lançado, com o código de barras (17/11, M3a parte 4b; SEM migration; só NUVEM).** "Ver o PDF"
   na conversa (no lançamento e no aviso de vencimento) e na gaveta da parte "Documentos": o que foi lido, de onde veio
   cada campo, a linha digitável e o código de barras desenhado (ITF, o padrão da FEBRABAN). Pela conversa, o arquivo sobe

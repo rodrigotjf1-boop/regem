@@ -21,6 +21,7 @@ import { FinanceiroService } from '../financeiro/financeiro.service';
 import { FalhaDaIa, IaEmpresaService } from '../ia/ia-empresa.service';
 import { MidiaDoMister, MisterEntradaService, QuemMandou, QuemTocou } from './mister-entrada.service';
 import { MisterConversaConfigService } from './mister-conversa-config.service';
+import { MisterNotasService } from './mister-notas.service';
 import { PdfDoDocumento, gerarPdfDoDocumento, nomeDoPdf } from './documento-pdf';
 import { MisterNumeroService } from './mister-numero.service';
 import { Resposta } from './mister.regras';
@@ -96,6 +97,8 @@ export class MisterDocumentosService implements OnModuleInit {
     private readonly conversa: MisterConversaConfigService,
     @Optional() private readonly entrada?: MisterEntradaService,
     @Optional() private readonly auditoria?: AuditoriaService,
+    // M3b: a nota do fornecedor (a leitura dos itens, as perguntas e o lançamento pelo recebimento) mora à parte.
+    @Optional() private readonly notas?: MisterNotasService,
   ) {}
 
   /** A foto, o texto que completa e os botões chegam pela entrada do WhatsApp, que mora no módulo de baixo. */
@@ -143,11 +146,11 @@ export class MisterDocumentosService implements OnModuleInit {
     }
 
     let texto: string;
+    const bloco =
+      tipo === 'application/pdf'
+        ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: arquivo.buffer.toString('base64') } }
+        : { type: 'image', source: { type: 'base64', media_type: tipo, data: arquivo.buffer.toString('base64') } };
     try {
-      const bloco =
-        tipo === 'application/pdf'
-          ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: arquivo.buffer.toString('base64') } }
-          : { type: 'image', source: { type: 'base64', media_type: tipo, data: arquivo.buffer.toString('base64') } };
       const r = await this.ia.pedir(quem.tenantId, {
         recurso: RECURSO_DO_DOCUMENTO,
         modelo: this.modelo(),
@@ -174,6 +177,11 @@ export class MisterDocumentosService implements OnModuleInit {
 
     switch (decisao.acao) {
       case 'nota':
+        // M3b: com as notas ligadas, a leitura dos itens e a conversa (sempre pergunta antes de lançar).
+        if (this.notas?.ligadas()) {
+          await this.notas.receber(quem, wamid, bloco, this.modelo());
+          return true;
+        }
         await this.registrar(quem, wamid, { tipo: 'nota', situacao: 'recusado', motivo: 'nota' });
         await this.falar(quem.telefone, { texto: FRASES_DO_DOCUMENTO.nota });
         return true;
@@ -219,6 +227,8 @@ export class MisterDocumentosService implements OnModuleInit {
   // ───────────────────────────── os botões ──────────────────────────
 
   async responderBotao(botaoId: string, quem: QuemTocou): Promise<boolean> {
+    // M3b: a escolha do insumo de um item da nota ("doc:ni:…") é do serviço das notas.
+    if (String(botaoId ?? '').startsWith('doc:ni:')) return this.notas ? this.notas.escolher(botaoId, quem) : false;
     const b = lerBotaoDoDocumento(botaoId);
     const empresas = quem.vinculos.map((v) => v.tenantId);
     if (!b || !empresas.length) return false;
@@ -227,6 +237,25 @@ export class MisterDocumentosService implements OnModuleInit {
     const v = quem.vinculos.find((x) => x.tenantId === d.tenantId)!;
     if (v.nivel !== 'presidente') {
       await this.falar(quem.telefone, { texto: FRASES_DO_DOCUMENTO.soPresidente });
+      return true;
+    }
+
+    // M3b: a nota do fornecedor só tem "Lançar" e "Cancelar"; o resto (desfazer, pagar, PDF) é do boleto.
+    if (d.tipo === 'nota') {
+      if (b.acao === 'lancar' && this.notas) {
+        await this.falar(quem.telefone, await this.notas.lancar(d.id, d.tenantId, v.colaboradorId, d.unidadeId ?? null));
+        return true;
+      }
+      if (b.acao === 'outra') {
+        const [mudou] = linhas(
+          await this.db.execute(sql`
+            update mister_documento set situacao = 'recusado', motivo = 'cancelado', respondido_em = now(), atualizado_em = clock_timestamp()
+             where id = ${d.id}::uuid and situacao in ('confirmar', 'falta') returning id`),
+        );
+        await this.falar(quem.telefone, { texto: mudou ? 'Certo: não lancei a nota.' : FRASES_DO_DOCUMENTO.jaRespondido });
+        return true;
+      }
+      await this.falar(quem.telefone, { texto: 'A nota entrou pelo Estoque › Recebimento: o que mudar nela é por lá.' });
       return true;
     }
 
@@ -303,6 +332,8 @@ export class MisterDocumentosService implements OnModuleInit {
    */
   async completarPeloTexto(quem: QuemMandou, texto: string): Promise<boolean> {
     if (!this.ligado() || quem.nivel !== 'presidente') return false;
+    // M3b: a resposta ao "1 CX tem quantos kg?" da nota que espera o fator.
+    if (this.notas?.ligadas() && (await this.notas.responderFator(quem, texto))) return true;
     let d: any;
     try {
       [d] = linhas(
@@ -311,6 +342,7 @@ export class MisterDocumentosService implements OnModuleInit {
                  linha_digitavel as linha, codigo_barras as codigo, dados
             from mister_documento
            where tenant_id = ${quem.tenantId}::uuid and colaborador_id = ${quem.colaboradorId}::uuid and situacao = 'falta'
+             and tipo <> 'nota'
              and criado_em > clock_timestamp() - make_interval(mins => ${COMPLETAR_EM_MIN})
            order by criado_em desc
            limit 1`),
@@ -410,7 +442,8 @@ export class MisterDocumentosService implements OnModuleInit {
           criadoEm: new Date(l.criadoEm).toISOString(),
           respondidoEm: l.respondidoEm ? new Date(l.respondidoEm).toISOString() : null,
           tituloId: l.tituloId ?? null,
-          podeDesfazer: l.situacao === 'lancado' && l.tituloStatus === 'aberto',
+          // A nota (M3b) entrou pelo recebimento: o "Desfazer" do boleto não vale para ela.
+          podeDesfazer: l.tipo !== 'nota' && l.situacao === 'lancado' && l.tituloStatus === 'aberto',
         };
       }),
     };
@@ -421,6 +454,7 @@ export class MisterDocumentosService implements OnModuleInit {
     if (!UUID.test(String(documentoId ?? ''))) throw new NotFoundException('Documento não encontrado.');
     const d = await this.documentoDoBotao(documentoId, [tenantId]);
     if (!d) throw new NotFoundException('Documento não encontrado.');
+    if (d.tipo === 'nota') throw new BadRequestException('A nota entrou pelo Estoque › Recebimento: o que mudar nela é por lá.');
     const r = await this.desfazer(d, atorId, atorPerfil);
     if (r === 'nao_da') throw new BadRequestException(FRASES_DO_DOCUMENTO.naoDaParaDesfazer);
     if (r === 'ja_respondido') throw new BadRequestException(d.situacao === 'desfeito' ? 'Este lançamento já foi desfeito.' : 'Este documento não foi lançado.');
@@ -443,7 +477,8 @@ export class MisterDocumentosService implements OnModuleInit {
           left join colaborador c on c.id = d.colaborador_id and c.tenant_id = d.tenant_id
           left join fornecedor f on f.id = d.fornecedor_id and f.tenant_id = d.tenant_id
           left join titulo_financeiro t on t.id = d.titulo_id and t.tenant_id = d.tenant_id
-         where d.id = ${documentoId}::uuid and d.tenant_id = ${tenantId}::uuid and d.situacao = 'lancado' and d.titulo_id is not null`),
+         where d.id = ${documentoId}::uuid and d.tenant_id = ${tenantId}::uuid and d.situacao = 'lancado' and d.titulo_id is not null
+           and d.tipo in ('boleto', 'conta')`),
     );
     if (!l) return null;
     const dados: PdfDoDocumento = {
@@ -525,7 +560,7 @@ export class MisterDocumentosService implements OnModuleInit {
   protected async documentoDoBotao(documentoId: string, empresas: string[]): Promise<any | null> {
     const [d] = linhas(
       await this.db.execute(sql`
-        select id::text as id, tenant_id::text as "tenantId", unidade_id::text as "unidadeId", situacao, titulo_id::text as "tituloId"
+        select id::text as id, tenant_id::text as "tenantId", unidade_id::text as "unidadeId", situacao, tipo, titulo_id::text as "tituloId"
           from mister_documento
          where id = ${documentoId}::uuid and tenant_id in (${sql.join(empresas.map((t) => sql`${t}::uuid`), sql`, `)})`),
     );

@@ -15,6 +15,7 @@ import { LicencaModule } from '../licenca/licenca.module';
 import { ModuloModule } from '../modulo/modulo.module';
 import { PontoModule } from '../ponto/ponto.module';
 import { ProducaoPedidoModule } from '../producao-pedido/producao-pedido.module';
+import { RecebimentoModule } from '../recebimento/recebimento.module';
 import { RelatoriosModule } from '../relatorios/relatorios.module';
 import { VendasModule } from '../vendas/vendas.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
@@ -22,6 +23,7 @@ import { MisterAgenteService } from './mister-agente.service';
 import { MisterAvisosService } from './mister-avisos.service';
 import { MisterDocumentosController } from './mister-documentos.controller';
 import { MisterDocumentosService } from './mister-documentos.service';
+import { MisterNotasService } from './mister-notas.service';
 import { MisterFerramentasService } from './mister-ferramentas.service';
 import { MisterLinkController } from './mister-link.controller';
 import { MisterPropostasService } from './mister-propostas.service';
@@ -65,11 +67,22 @@ import { MisterModule } from './mister.module';
     FiscalModule,
     // M3a (documentos por foto): a conta a pagar sai pelo MESMO serviço da tela do Financeiro.
     FinanceiroModule,
+    // M3b (a nota do fornecedor por foto): a entrada no estoque sai pelo MESMO recebimento da tela.
+    RecebimentoModule,
   ],
   // Os relatórios (mig 420) moram aqui: escrevem pelo mesmo agente das perguntas. As propostas (F4.1, mig 428) também:
   // os avisos as criam e elas executam pelos serviços das telas.
-  // M3a (mig 439): os documentos por foto lançam a conta a pagar pelo serviço do Financeiro.
-  providers: [MisterFerramentasService, MisterAgenteService, MisterAvisosService, MisterRelatoriosService, MisterPropostasService, MisterDocumentosService],
+  // M3a (mig 439): os documentos por foto lançam a conta a pagar pelo serviço do Financeiro. M3b (mig 441): a nota do
+  // fornecedor, pelo recebimento do Estoque.
+  providers: [
+    MisterFerramentasService,
+    MisterAgenteService,
+    MisterAvisosService,
+    MisterRelatoriosService,
+    MisterPropostasService,
+    MisterDocumentosService,
+    MisterNotasService,
+  ],
   // F4.2a (mig 433): as rotas públicas da página do link com PIN (`/m/<código>`), que respondem pelo serviço das propostas.
   // M3a parte 3: a parte "Documentos" do Mister na loja (a lista e o "Desfazer o lançamento").
   controllers: [MisterLinkController, MisterDocumentosController],

@@ -14,6 +14,9 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { PausaDoCanalService } from '../delivery/pausa-do-canal.service';
 import { DashboardService } from '../dashboard/dashboard.service';
 import { EstoqueService } from '../estoque/estoque.service';
+import { RecebimentoService } from '../recebimento/recebimento.service';
+import { montarChave } from '../fiscal/chave';
+import { MisterNotasService } from './mister-notas.service';
 import { FalhaDaIa, IaEmpresaService } from '../ia/ia-empresa.service';
 import { RelatoriosService } from '../relatorios/relatorios.service';
 import { ModuloService } from '../modulo/modulo.service';
@@ -418,7 +421,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -5210,7 +5213,10 @@ export function testesDoMisterComPostgres(): void {
     describe('os documentos por foto (M3a)', () => {
       const financeiro = new FinanceiroService(db, auditoria, {} as any);
       const conversa = new MisterConversaConfigService(db, auditoria);
-      const documentos = new DocumentosDeTeste(db, numero, ia, financeiro, conversa, entrada, auditoria);
+      // M3b: a nota pelo recebimento e pelo cadastro do estoque DE VERDADE (o evento do estoque é um dublê).
+      const recebimentos = new RecebimentoService(db, auditoria, { emit: () => true } as any);
+      const notas = new MisterNotasService(db, numero, ia, recebimentos, financeiro, new EstoqueService(db, auditoria), auditoria);
+      const documentos = new DocumentosDeTeste(db, numero, ia, financeiro, conversa, entrada, auditoria, notas);
       /** R$ 1.284,90, vence 25/11/2026 (boleto bancário feito à mão, os mesmos vetores do `common/boleto.spec.ts`). */
       const LINHA_DO_BOLETO = '00191234546789012345767890123457716410000128490';
       const CODIGO_DO_BOLETO = '00197164100001284901234567890123456789012345';
@@ -5750,6 +5756,143 @@ export function testesDoMisterComPostgres(): void {
         } finally {
           await q(`delete from mister_aviso where tenant_id = $1 and tipo = 'boleto_vencendo'`, [A]);
         }
+      });
+
+      // ─────────── M3b parte 2: a nota do fornecedor (conversa 12) ───────────
+
+      it('a nota do fornecedor (M3b): liga cada item ao insumo, pergunta o que falta (o fator), lança pelo recebimento e pelas contas por parcela; a próxima nota do fornecedor já vem ligada', async () => {
+        const CHAVE = montarChave({ codigoUf: 33, ano2: '26', mes2: '11', cnpj: CNPJ, modelo: '55', serie: 1, numero: 48213, tpEmis: 1, cNF: '12345678' });
+        const daNota = (o: Record<string, unknown> = {}) =>
+          falar(
+            JSON.stringify({
+              chave: CHAVE,
+              emitenteNome: 'Distribuidora Carne Boa',
+              emitenteCnpj: CNPJ,
+              numero: '48213',
+              valorTotal: '2.640,00',
+              duplicatas: [
+                { vencimento: '2026-12-16', valor: '1.320,00' },
+                { vencimento: '2027-01-16', valor: '1.320,00' },
+              ],
+              itens: [
+                { descricao: 'BLEND BOVINO 56G', codigo: '1001', quantidade: '40', unidade: 'KG', valorUnitario: '33,00', valorTotal: '1.320,00' },
+                { descricao: 'BACON EM TIRAS DEFUMADO', codigo: '2001', quantidade: '5', unidade: 'KG', valorUnitario: '48,00', valorTotal: '240,00' },
+                { descricao: 'DETERGENTE NEUTRO', codigo: '9001', quantidade: '10', unidade: 'UN', valorUnitario: '108,00', valorTotal: '1.080,00' },
+              ],
+              legivel: true,
+              ...o,
+            }),
+          );
+        const [{ id: carne }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, 'Carne 56 g', 'kg') returning id`, [A]);
+        const [{ id: bacon }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, 'Bacon em tiras', 'pacote') returning id`, [A]);
+        process.env.MISTER_NOTAS = '1';
+        try {
+          // A primeira leitura diz "nota"; a segunda lê os itens.
+          ia.roteiro = [leitura({ tipo: 'nota' }), daNota()];
+          expect(await foto(telAna, novaMidia())).toBe('documento');
+          const [d] = await docs();
+          expect(d).toMatchObject({ tipo: 'nota', situacao: 'falta', motivo: 'item:0', beneficiario: 'Distribuidora Carne Boa', valor_centavos: '264000', fornecedor_id: fornecedorDeA });
+          expect(ia.pedidos[1].system).toContain('DANFE');
+          // 1º item: a sugestão pela medida (a carne de 56 g).
+          expect(numero.enviadas.at(-1)!.texto).toBe('O "BLEND BOVINO 56G" (40 KG) é o "Carne 56 g" que já existe, ou cadastro um novo?');
+          expect(numero.enviadas.at(-1)!.botoes.map((b) => b.id)).toEqual([`doc:ni:${d.id}:0:0`, `doc:ni:${d.id}:0:n`, `doc:ni:${d.id}:0:f`]);
+          // O gerente não escolhe.
+          numero.pedidos.length = 0;
+          expect(await tocar(telCarlos, `doc:ni:${d.id}:0:0`)).toBe('respondeu_proposta');
+          expect(numero.enviadas.map((m) => m.texto)).toEqual(['Lançar nota por foto, por enquanto, é só com o presidente.']);
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:ni:${d.id}:0:0`)).toBe('respondeu_proposta');
+          // 2º item: o bacon (o insumo é contado em pacote, a nota vem em KG): pergunta o fator.
+          expect(numero.enviadas.at(-1)!.texto).toContain('O "BACON EM TIRAS DEFUMADO" (5 KG) é o "Bacon em tiras"');
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:ni:${d.id}:1:0`)).toBe('respondeu_proposta');
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringContaining('1 KG tem quantos pacote? Responda só o número.')]);
+          // O toque repetido no item já respondido não muda nada.
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:ni:${d.id}:0:f`)).toBe('respondeu_proposta');
+          expect(numero.enviadas.map((m) => m.texto)).toEqual(['Este item já foi respondido.']);
+          // O fator pelo texto.
+          numero.pedidos.length = 0;
+          expect(await mandar(telAna, '2 pacotes')).toBe('documento');
+          // 3º item: o detergente não tem insumo parecido — "Cadastrar novo" ou "Fora do estoque".
+          expect(numero.enviadas.at(-1)!.texto).toBe('Não achei o "DETERGENTE NEUTRO" (10 UN) no seu estoque. Cadastro um novo, ou ele não entra no estoque?');
+          expect(numero.enviadas.at(-1)!.botoes.map((b) => b.titulo)).toEqual(['Cadastrar novo', 'Fora do estoque']);
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:ni:${d.id}:2:f`)).toBe('respondeu_proposta');
+          // O resumo antes de lançar (nunca lança sem o "Lançar").
+          const resumo = numero.enviadas.at(-1)!;
+          expect(resumo.texto).toContain('🧾 Nota 48213 · Distribuidora Carne Boa · R$ 2.640,00');
+          expect(resumo.texto).toContain('• BLEND BOVINO 56G, 40 KG → Carne 56 g');
+          expect(resumo.texto).toContain('• BACON EM TIRAS DEFUMADO, 5 KG → Bacon em tiras (10 pacote)');
+          expect(resumo.texto).toContain('• DETERGENTE NEUTRO, 10 UN → fora do estoque');
+          expect(resumo.texto).toContain('Pagamento: R$ 1.320,00 para 16/12; R$ 1.320,00 para 16/01.');
+          expect(resumo.botoes).toEqual([
+            { id: `doc:lancar:${d.id}`, titulo: 'Lançar' },
+            { id: `doc:outra:${d.id}`, titulo: 'Cancelar' },
+          ]);
+          expect(await q(`select count(*)::int as n from recebimento where tenant_id = $1`, [A])).toEqual([{ n: 0 }]);
+
+          // "Lançar": a entrada pelo recebimento (conferido, na loja única da empresa) e as contas por parcela.
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:lancar:${d.id}`)).toBe('respondeu_proposta');
+          expect(numero.enviadas.map((m) => m.texto)).toEqual(['Lancei em Estoque › Recebimento e nas contas a pagar (2 parcelas): 2 itens no estoque.']);
+          const [rec] = await q(`select id, status, nota_ref, fornecedor_id, unidade_id from recebimento where tenant_id = $1`, [A]);
+          expect(rec).toMatchObject({ status: 'conferido', nota_ref: '48213', fornecedor_id: fornecedorDeA, unidade_id: lojaDeA });
+          const entradas = await q(`select item_id, quantidade::float as q, custo_unitario::float as c from movimento_estoque where tenant_id = $1 and ref_tipo = 'recebimento_item' order by quantidade`, [A]);
+          expect(entradas).toEqual([
+            { item_id: bacon, q: 10, c: 24 },
+            { item_id: carne, q: 40, c: 33 },
+          ]);
+          const contas = await q(`select valor::float as v, vencimento::text as venc, origem, fornecedor_id, descricao from titulo_financeiro where tenant_id = $1 order by vencimento`, [A]);
+          expect(contas).toEqual([
+            { v: 1320, venc: '2026-12-16', origem: 'mister', fornecedor_id: fornecedorDeA, descricao: 'NF 48213 · Distribuidora Carne Boa (1/2)' },
+            { v: 1320, venc: '2027-01-16', origem: 'mister', fornecedor_id: fornecedorDeA, descricao: 'NF 48213 · Distribuidora Carne Boa (2/2)' },
+          ]);
+          expect((await docs())[0]).toMatchObject({ situacao: 'lancado', recebimento_id: rec.id });
+          // O "Lançar" repetido não lança de novo.
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:lancar:${d.id}`)).toBe('respondeu_proposta');
+          expect(await q(`select count(*)::int as n from recebimento where tenant_id = $1`, [A])).toEqual([{ n: 1 }]);
+          // A memória do fornecedor.
+          expect(await q(`select chave, item_id, fator::float as fator from mister_de_para where tenant_id = $1 order by chave`, [A])).toEqual([
+            { chave: 'cod:1001', item_id: carne, fator: 1 },
+            { chave: 'cod:2001', item_id: bacon, fator: 2 },
+            { chave: 'cod:9001', item_id: null, fator: null },
+          ]);
+          // Na lista da tela, a nota não tem "Desfazer" (entrou pelo recebimento).
+          expect((await documentos.listar(A, '30')).documentos[0]).toMatchObject({ tipo: 'nota', podeDesfazer: false });
+
+          // A próxima nota do mesmo fornecedor: já vem ligada — o resumo direto; "Cancelar" não lança.
+          ia.roteiro = [leitura({ tipo: 'nota' }), daNota({ numero: '48300', chave: null })];
+          numero.pedidos.length = 0;
+          expect(await foto(telAna, novaMidia())).toBe('documento');
+          const segunda = (await docs())[1];
+          expect(segunda).toMatchObject({ situacao: 'confirmar', motivo: 'itens_ligados' });
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringContaining('🧾 Nota 48300')]);
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:outra:${segunda.id}`)).toBe('respondeu_proposta');
+          expect(numero.enviadas.map((m) => m.texto)).toEqual(['Certo: não lancei a nota.']);
+          expect(await q(`select count(*)::int as n from recebimento where tenant_id = $1`, [A])).toEqual([{ n: 1 }]);
+
+          // A nota cujos itens não somam o total: pede outra foto, sem perguntar nada.
+          ia.roteiro = [leitura({ tipo: 'nota' }), daNota({ itens: [{ descricao: 'BLEND BOVINO 56G', quantidade: '40', unidade: 'KG', valorTotal: '1.320,00' }] })];
+          numero.pedidos.length = 0;
+          expect(await foto(telAna, novaMidia())).toBe('documento');
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringContaining('Os itens que consegui ler não somam o total da nota')]);
+          expect((await docs())[2]).toMatchObject({ tipo: 'nota', situacao: 'recusado', motivo: 'itens_nao_somam' });
+        } finally {
+          delete process.env.MISTER_NOTAS;
+          for (const t of ['movimento_estoque', 'lote', 'recebimento_item', 'recebimento', 'mister_de_para', 'item_estoque_unidade', 'item_conversao', 'item_fornecedor', 'item_estoque'])
+            await q(`delete from ${t} where tenant_id = $1`, [A]).catch(() => undefined);
+        }
+      });
+
+      it('a nota com as notas DESLIGADAS segue com a frase de antes (nada é lido nem lançado)', async () => {
+        ia.roteiro = [leitura({ tipo: 'nota' })];
+        expect(await foto(telAna, novaMidia())).toBe('documento');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([FRASES_DO_DOCUMENTO.nota]);
+        expect(ia.pedidos).toHaveLength(1);
+        expect((await docs())[0]).toMatchObject({ tipo: 'nota', situacao: 'recusado', motivo: 'nota' });
       });
     });
   });
