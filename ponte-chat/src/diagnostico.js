@@ -108,9 +108,27 @@ class Diagnostico {
     this.anotar({ ev: 'chamada', metodo: String(metodo || ''), url: this.endereco(url) });
   }
 
-  /** A resposta de uma chamada do Gestor (o chat do pedido, o pedido, o canal): onde aparecem os ids, como marca. */
-  resposta(url, json) {
-    this.anotar({ ev: 'resposta', url: this.endereco(url), chaves: json && typeof json === 'object' ? Object.keys(json).slice(0, 30) : null, ids: this.varrer(json) });
+  /**
+   * A resposta de uma chamada do Gestor (o chat do pedido, o pedido, o canal): onde aparecem os ids, como marca. O `status`
+   * só entra quando é de recusa ou erro (400 em diante) — é o que diz que o iFood RESPONDEU "não" (0.7.8).
+   */
+  resposta(url, json, status) {
+    const linha = { ev: 'resposta', url: this.endereco(url), chaves: json && typeof json === 'object' ? Object.keys(json).slice(0, 30) : null, ids: this.varrer(json) };
+    if (Number(status) >= 400) linha.status = Number(status);
+    this.anotar(linha);
+  }
+
+  /**
+   * Uma chamada do Gestor que ficou SEM resposta (0.7.8): a rede caiu, o endereço não resolveu, a conexão foi recusada, ou
+   * a página desistiu dela. Em 16/11/2026 a renovação do acesso do iFood não teve linha de resposta e o Gestor caiu para o
+   * login; sem esta linha não dava para dizer se foi a internet da loja ou o iFood. `erro` é o texto do Chromium
+   * ("net::ERR_…"); `cancelada` = a própria página desistiu (troca de tela).
+   */
+  falha(metodo, url, { erro, cancelada, bloqueio } = {}) {
+    const linha = { ev: 'chamada_falhou', metodo: String(metodo || ''), url: this.endereco(url), erro: String(erro || '').slice(0, 120) };
+    if (cancelada) linha.cancelada = true;
+    if (bloqueio) linha.bloqueio = String(bloqueio).slice(0, 60);
+    this.anotar(linha);
   }
 
   anotar(obj) {
