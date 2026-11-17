@@ -335,8 +335,26 @@ export class MisterNumeroService {
    * Evolution, `sendMedia` com o arquivo em base64. O mesmo caminho do documento do WhatsApp das lojas.
    */
   async enviarDocumento(para: string, pdf: Buffer, arquivo: string, legenda = ''): Promise<{ wamid: string | null }> {
-    const destino = soDigitos(para);
     if (!pdf?.length) throw new FalhaDoEnvioDoMister('meta', null, 'documento vazio');
+    return this.enviarMidia(para, pdf, { tipo: 'document', mime: 'application/pdf', arquivo, legenda });
+  }
+
+  /**
+   * M3c.3: manda uma IMAGEM (o gráfico do relatório, um PNG feito pelo código) pelo número do Mister, com a legenda. O
+   * mesmo caminho do documento: pela API oficial sobe à Meta (`/media`) e manda pelo id; pelo Evolution, `sendMedia`.
+   */
+  async enviarImagem(para: string, png: Buffer, legenda = ''): Promise<{ wamid: string | null }> {
+    if (!png?.length) throw new FalhaDoEnvioDoMister('meta', null, 'imagem vazia');
+    return this.enviarMidia(para, png, { tipo: 'image', mime: 'image/png', arquivo: 'grafico.png', legenda });
+  }
+
+  /** O documento e a imagem: as mesmas conferências do `enviar`, a mídia subida e a mensagem pelo id. */
+  private async enviarMidia(
+    para: string,
+    bytes: Buffer,
+    m: { tipo: 'document' | 'image'; mime: string; arquivo: string; legenda: string },
+  ): Promise<{ wamid: string | null }> {
+    const destino = soDigitos(para);
     const n = await this.ler();
     if (n.provedor === 'evolution') {
       if (!destino || !n.instancia || n.instanciaSituacao !== 'conectado') throw new FalhaDoEnvioDoMister('sem_numero');
@@ -347,7 +365,7 @@ export class MisterNumeroService {
       const res = await this.buscar(`${ev.url}/message/sendMedia/${encodeURIComponent(n.instancia)}`, {
         method: 'POST',
         headers: { apikey: ev.chave, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ number: destino, mediatype: 'document', mimetype: 'application/pdf', media: pdf.toString('base64'), fileName: arquivo, caption: cortar(legenda, 1024) }),
+        body: JSON.stringify({ number: destino, mediatype: m.tipo, mimetype: m.mime, media: bytes.toString('base64'), fileName: m.arquivo, caption: cortar(m.legenda, 1024) }),
       }).catch(() => null);
       if (!res || !res.ok) throw new FalhaDoEnvioDoMister('evolution', res?.status ?? null, res ? (await res.text().catch(() => '')).slice(0, 200) || null : null);
       const j: any = await res.json().catch(() => ({}));
@@ -359,22 +377,23 @@ export class MisterNumeroService {
     if (!token) throw new FalhaDoEnvioDoMister('sem_acesso');
     const form = new FormData();
     form.append('messaging_product', 'whatsapp');
-    form.append('type', 'application/pdf');
-    form.append('file', new Blob([new Uint8Array(pdf)], { type: 'application/pdf' }), arquivo);
+    form.append('type', m.mime);
+    form.append('file', new Blob([new Uint8Array(bytes)], { type: m.mime }), m.arquivo);
     const up = await this.buscar(`${GRAPH}/${n.phoneId}/media`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form }).catch(() => null);
     const midia: any = up?.ok ? await up.json().catch(() => ({})) : null;
     if (!midia?.id) {
       const j: any = up ? await up.json().catch(() => ({})) : {};
-      throw new FalhaDoEnvioDoMister('meta', up?.status ?? null, String(j?.error?.message ?? 'a Meta não devolveu o id do documento').slice(0, 200));
+      throw new FalhaDoEnvioDoMister('meta', up?.status ?? null, String(j?.error?.message ?? `a Meta não devolveu o id ${m.tipo === 'image' ? 'da imagem' : 'do documento'}`).slice(0, 200));
     }
+    const legenda = m.legenda ? { caption: cortar(m.legenda, 1024) } : {};
     const res = await this.buscar(`${GRAPH}/${n.phoneId}/messages`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         messaging_product: 'whatsapp',
         to: destino,
-        type: 'document',
-        document: { id: String(midia.id), filename: arquivo, ...(legenda ? { caption: cortar(legenda, 1024) } : {}) },
+        type: m.tipo,
+        ...(m.tipo === 'document' ? { document: { id: String(midia.id), filename: m.arquivo, ...legenda } } : { image: { id: String(midia.id), ...legenda } }),
       }),
     }).catch(() => null);
     if (!res || !res.ok) {

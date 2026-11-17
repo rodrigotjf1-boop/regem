@@ -40,6 +40,7 @@ import {
   seriePorHora,
 } from './insumo-vendido';
 import { gerarPdfDoInsumo, nomeDoPdfDoInsumo, planoDoPdfDoInsumo } from './relatorio-insumo-pdf';
+import { GraficoDaConversa, valeAImagem } from './grafico/grafico-do-insumo';
 import { MisterPropostasService, PropostaPendente } from './mister-propostas.service';
 import { PROCEDIMENTOS, propostaDoAviso } from './mister-procedimentos';
 import {
@@ -130,7 +131,7 @@ export interface ResultadoDaFerramenta {
    * M3c.2: o relatório que a resposta pode levar — NÃO vai ao modelo. `enviarPdf` (a pessoa pediu "em PDF"): o agente
    * manda o PDF depois da resposta; senão, o botão "PDF" no balão da resposta (só pela API oficial, que tem botão).
    */
-  anexo?: { pedido: PedidoDoRelatorio; enviarPdf: boolean };
+  anexo?: { pedido: PedidoDoRelatorio; enviarPdf: boolean; grafico?: GraficoDaConversa };
 }
 
 const reais = (v: unknown): number | null => {
@@ -1212,10 +1213,22 @@ export class MisterFerramentasService {
     const insumo = insumos.find((i) => i.id === achado.id)!;
     const r = await this.lerRelatorioDoInsumo(e, { id: insumo.id, nome: insumo.nome, unidade: insumo.unidade }, p, loja, p2);
     const querPdf = en.pdf === true || en.pdf === 'true';
+    // M3c.3: a imagem do gráfico vai na conversa junto da resposta (o MESMO plano do PDF), quando há o que mostrar.
+    const plano = planoDoPdfDoInsumo(r, { empresa: e.empresa, pedidoPor: e.nome, geradoEm: new Date().toISOString() });
+    const grafico: GraficoDaConversa = { titulo: plano.titulo, numeros: plano.numeros, grafico: plano.grafico, cabecalho: plano.cabecalho };
+    const comImagem = valeAImagem(grafico);
     return {
       ok: true,
-      dados: { ...dadosDoRelatorio(r), ...(querPdf ? { pdf: 'O PDF deste relatório vai logo depois da sua resposta, pelo Regem: diga que ele vai em seguida.' } : {}) },
-      anexo: { pedido: { insumoId: insumo.id, de: p.de, ate: p.ate, loja: loja.atual, compararDe: p2?.de ?? null, compararAte: p2?.ate ?? null }, enviarPdf: querPdf },
+      dados: {
+        ...dadosDoRelatorio(r),
+        ...(comImagem ? { grafico: 'A imagem do gráfico vai junto da sua resposta, pelo Regem: não descreva as barras uma a uma, diga só o que importa.' } : {}),
+        ...(querPdf ? { pdf: 'O PDF deste relatório vai logo depois da sua resposta, pelo Regem: diga que ele vai em seguida.' } : {}),
+      },
+      anexo: {
+        pedido: { insumoId: insumo.id, de: p.de, ate: p.ate, loja: loja.atual, compararDe: p2?.de ?? null, compararAte: p2?.ate ?? null },
+        enviarPdf: querPdf,
+        ...(comImagem ? { grafico } : {}),
+      },
     };
   }
 

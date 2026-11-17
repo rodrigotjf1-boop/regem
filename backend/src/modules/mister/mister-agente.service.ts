@@ -11,10 +11,13 @@ import { MisterInstrucoesService } from './mister-instrucoes.service';
 import type { PropostaPendente } from './mister-propostas.service';
 import { PedidoDoRelatorio, botaoDoPdf } from './insumo-vendido';
 import { enviarPdfDoInsumo } from './mister-anexos.service';
+import { GraficoDaConversa, imagemDoGrafico } from './grafico/grafico-do-insumo';
 
 /** M3c.2: o balão da resposta leva o botão "PDF" só quando cabe no corpo de uma mensagem com botões (1024 na Meta). */
 const CABE_COM_BOTAO = 1000;
-type AnexoDaResposta = { pedido: PedidoDoRelatorio; enviarPdf: boolean };
+/** M3c.3: no máximo duas imagens de gráfico por resposta (duas consultas comparadas). */
+const IMAGENS_POR_RESPOSTA = 2;
+type AnexoDaResposta = { pedido: PedidoDoRelatorio; enviarPdf: boolean; grafico?: GraficoDaConversa };
 
 export type { FimDaPergunta } from './mister-laco';
 
@@ -150,6 +153,8 @@ export class MisterAgenteService implements OnModuleInit {
         !pdfs.length && fim.anexos.length === 1 && saida.texto.length <= CABE_COM_BOTAO && (await this.numero.ler()).provedor !== 'evolution'
           ? [{ id: botaoDoPdf(fim.anexos[0].pedido), titulo: 'PDF' }]
           : undefined;
+      // M3c.3: a imagem do gráfico vai antes do texto (como no protótipo). A que falha não segura a resposta.
+      for (const a of fim.anexos.filter((x) => x.grafico).slice(0, IMAGENS_POR_RESPOSTA)) await this.mandarGrafico(ultima.telefone, a.grafico!);
       const enviada = await this.dizer(ultima.telefone, saida.texto, comBotao);
       if (!enviada) return await fechar('envio', trilha);
       for (const a of pdfs) await enviarPdfDoInsumo(this.ferramentas, this.numero, escopo, a.pedido, ultima.telefone, this.logger);
@@ -169,6 +174,16 @@ export class MisterAgenteService implements OnModuleInit {
       this.logger.error(`mister: a pergunta ${ultima.id} de ${mascarar(ultima.telefone)} não foi respondida — ${e?.message ?? e}`, e?.stack);
       await this.dizer(ultima.telefone, TEXTOS_DO_AGENTE.passageira);
       await fechar('erro').catch((erro) => this.logger.error(`mister: a pergunta ${ultima.id} não foi fechada — ${erro?.message ?? erro}`));
+    }
+  }
+
+  /** M3c.3: a imagem do gráfico (o PNG feito pelo código). Nunca lança: a falha fica no log e a resposta segue sem ela. */
+  private async mandarGrafico(telefone: string, g: GraficoDaConversa): Promise<void> {
+    try {
+      await this.numero.enviarImagem(telefone, imagemDoGrafico(g));
+    } catch (e: any) {
+      const motivo = e instanceof FalhaDoEnvioDoMister ? `${e.motivo}${e.status ? ` ${e.status}` : ''}` : String(e?.message ?? e);
+      this.logger.warn(`mister: a imagem do gráfico não saiu para ${mascarar(telefone)} (${motivo})`);
     }
   }
 
