@@ -1,4 +1,25 @@
-import { acharInsumo, comparacaoComAsSemanas, deOndeSairam, emQuilos, pesoNoNome, seriePorDia, seriePorHora } from './insumo-vendido';
+import { acharInsumo, botaoDoPdf, comparacaoComAsSemanas, deOndeSairam, emQuilos, lerBotaoDoPdf, pesoNoNome, seriePorDia, seriePorHora } from './insumo-vendido';
+
+describe('o botão "PDF" (M3c.2)', () => {
+  const pedido = { insumoId: '11111111-2222-3333-4444-555555555555', de: '2026-11-01', ate: '2026-11-16', loja: null, compararDe: '2026-10-01', compararAte: '2026-10-16' };
+  it('vai e volta, e cabe nos 256 caracteres da Meta', () => {
+    const id = botaoDoPdf(pedido);
+    expect(id).toBe('rel:pdf:11111111-2222-3333-4444-555555555555:2026-11-01:2026-11-16:-:2026-10-01:2026-10-16');
+    expect(lerBotaoDoPdf(id)).toEqual(pedido);
+    const comLoja = { ...pedido, loja: '99999999-8888-7777-6666-555555555555' };
+    expect(lerBotaoDoPdf(botaoDoPdf(comLoja))).toEqual(comLoja);
+    expect(botaoDoPdf(comLoja).length).toBeLessThanOrEqual(256);
+  });
+  it('o torto não passa (nada de SQL nem de texto no lugar do id)', () => {
+    expect(lerBotaoDoPdf('rel:pdf:nada')).toBeNull();
+    expect(lerBotaoDoPdf("rel:pdf:11111111-2222-3333-4444-555555555555:2026-11-01:2026-11-16:'; drop:-:-")).toBeNull();
+    expect(lerBotaoDoPdf('doc:pdf:11111111-2222-3333-4444-555555555555')).toBeNull();
+    // O id certo com qualquer coisa a mais (no fim ou no começo) também não.
+    expect(lerBotaoDoPdf(`${botaoDoPdf(pedido)}:lixo`)).toBeNull();
+    expect(lerBotaoDoPdf(`x${botaoDoPdf(pedido)}`)).toBeNull();
+    expect(lerBotaoDoPdf(null)).toBeNull();
+  });
+});
 
 // M3c — o relatório por insumo do Mister (versão 3 do protótipo, conversas 15 e 16; decisão 10): só o que é puro.
 

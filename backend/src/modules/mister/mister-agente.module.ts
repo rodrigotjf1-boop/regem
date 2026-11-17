@@ -20,6 +20,7 @@ import { RelatoriosModule } from '../relatorios/relatorios.module';
 import { VendasModule } from '../vendas/vendas.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { MisterAgenteService } from './mister-agente.service';
+import { MisterAnexosService } from './mister-anexos.service';
 import { MisterAvisosService } from './mister-avisos.service';
 import { MisterDocumentosController } from './mister-documentos.controller';
 import { MisterDocumentosService } from './mister-documentos.service';
@@ -82,6 +83,8 @@ import { MisterModule } from './mister.module';
     MisterPropostasService,
     MisterDocumentosService,
     MisterNotasService,
+    // M3c.2: o PDF do relatório por insumo (o toque em "PDF" e o "manda em PDF").
+    MisterAnexosService,
   ],
   // F4.2a (mig 433): as rotas públicas da página do link com PIN (`/m/<código>`), que respondem pelo serviço das propostas.
   // M3a parte 3: a parte "Documentos" do Mister na loja (a lista e o "Desfazer o lançamento").

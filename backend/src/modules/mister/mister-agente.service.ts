@@ -9,6 +9,12 @@ import { FimDaPergunta, modeloDasPerguntas, responderComFerramentas } from './mi
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { MisterInstrucoesService } from './mister-instrucoes.service';
 import type { PropostaPendente } from './mister-propostas.service';
+import { PedidoDoRelatorio, botaoDoPdf } from './insumo-vendido';
+import { enviarPdfDoInsumo } from './mister-anexos.service';
+
+/** M3c.2: o balão da resposta leva o botão "PDF" só quando cabe no corpo de uma mensagem com botões (1024 na Meta). */
+const CABE_COM_BOTAO = 1000;
+type AnexoDaResposta = { pedido: PedidoDoRelatorio; enviarPdf: boolean };
 
 export type { FimDaPergunta } from './mister-laco';
 
@@ -137,8 +143,16 @@ export class MisterAgenteService implements OnModuleInit {
       const saida = filtrarSaida(fim.texto, fim.resultados);
       const trilha: Trilha = { ...fim.trilha, conferencia: saida.notas };
       if (saida.notas.length) this.logger.warn(`mister: a resposta a ${mascarar(ultima.telefone)} saiu com nota do filtro (${saida.notas.join(', ')})`);
-      const enviada = await this.dizer(ultima.telefone, saida.texto);
+      // M3c.2: o relatório da resposta. Pedido "em PDF": o PDF vai logo depois. Senão, o botão "PDF" no balão — só pela
+      // API oficial (a conexão por QR não tem botão, e o "1" de lá é da autorização) e só quando o texto cabe.
+      const pdfs = fim.anexos.filter((a) => a.enviarPdf);
+      const comBotao =
+        !pdfs.length && fim.anexos.length === 1 && saida.texto.length <= CABE_COM_BOTAO && (await this.numero.ler()).provedor !== 'evolution'
+          ? [{ id: botaoDoPdf(fim.anexos[0].pedido), titulo: 'PDF' }]
+          : undefined;
+      const enviada = await this.dizer(ultima.telefone, saida.texto, comBotao);
       if (!enviada) return await fechar('envio', trilha);
+      for (const a of pdfs) await enviarPdfDoInsumo(this.ferramentas, this.numero, escopo, a.pedido, ultima.telefone, this.logger);
       // F4.3: a proposta que a pergunta criou sai logo depois da resposta, com os botões da F4.1 (só o presidente chega
       // aqui com proposta: a ferramenta recusa os outros). Falhou o envio: a proposta vence sozinha no prazo.
       for (const p of fim.propostas) {
@@ -158,10 +172,10 @@ export class MisterAgenteService implements OnModuleInit {
     }
   }
 
-  /** Manda um texto pelo número do Mister. Devolve se saiu; a falha fica no log, com o motivo. */
-  private async dizer(telefone: string, texto: string): Promise<boolean> {
+  /** Manda um texto pelo número do Mister (com botões, quando vierem). Devolve se saiu; a falha fica no log, com o motivo. */
+  private async dizer(telefone: string, texto: string, botoes?: { id: string; titulo: string }[]): Promise<boolean> {
     try {
-      await this.numero.enviar(telefone, { texto });
+      await this.numero.enviar(telefone, botoes?.length ? { texto, botoes } : { texto });
       return true;
     } catch (e: any) {
       const motivo = e instanceof FalhaDoEnvioDoMister ? `${e.motivo}${e.status ? ` ${e.status}` : ''}${e.detalhe ? ` — ${e.detalhe}` : ''}` : String(e?.message ?? e);
@@ -181,11 +195,13 @@ export class MisterAgenteService implements OnModuleInit {
     memoria: TrocaDaMemoria[],
     pergunta: string,
     opcoes: { recurso?: string } = {},
-  ): Promise<FimDaPergunta & { propostas: PropostaPendente[] }> {
+  ): Promise<FimDaPergunta & { propostas: PropostaPendente[]; anexos: AnexoDaResposta[] }> {
     // O laço é o de `mister-laco.ts` (o mesmo da avaliação de regressão): aqui as portas são a IA da empresa, com o
     // medidor dela, e as ferramentas no escopo que o servidor resolveu. F4.3: a proposta que uma ferramenta criou fica
     // de lado (não vai ao modelo) — quem chamou manda os botões depois da resposta.
     const propostas: PropostaPendente[] = [];
+    // M3c.2: o relatório que uma consulta trouxe (o mesmo pedido duas vezes conta uma).
+    const anexos: AnexoDaResposta[] = [];
     // M2b: o texto no ar. A leitura que falha não segura a resposta: vai o texto do código (e o log diz por quê).
     const instrucoes = this.instrucoes
       ? await this.instrucoes.noAr().then(
@@ -206,12 +222,17 @@ export class MisterAgenteService implements OnModuleInit {
         executar: async (nome, entrada) => {
           const r = await this.ferramentas.executar(escopo, nome, entrada);
           if (r.proposta && !propostas.some((p) => p.id === r.proposta!.id)) propostas.push(r.proposta);
+          if (r.anexo) {
+            const ja = anexos.find((a) => botaoDoPdf(a.pedido) === botaoDoPdf(r.anexo!.pedido));
+            if (ja) ja.enviarPdf = ja.enviarPdf || r.anexo.enviarPdf;
+            else anexos.push({ ...r.anexo });
+          }
           return r;
         },
       },
       memoria,
       pergunta,
     );
-    return { ...fim, propostas };
+    return { ...fim, propostas, anexos };
   }
 }
