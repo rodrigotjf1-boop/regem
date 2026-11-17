@@ -92,4 +92,50 @@ void main() {
     expect(r.recusadas.single['motivo'], contains('1,2 km'));
     expect(await Outbox.pendentes(), 0);
   });
+
+  // ── Revisão de 17/11/2026 ──────────────────────────────────────────────────────────────────────────────────────────
+  test('a entrega guardada DURANTE o reenvio continua na fila (antes o fim do reenvio a apagava)', () async {
+    await guardar('p1', codigo: '1111');
+    final r = await Outbox.flush(enviar: (id, cod, local) async {
+      // o entregador marca outra entrega sem sinal enquanto a p1 está sendo enviada
+      await guardar('p2', codigo: '2222');
+      return {'ok': true, 'valid': true};
+    });
+    expect(r.confirmadas, 1);
+    expect(await Outbox.pendentesIds(), {'p2'});
+  });
+
+  test('dois reenvios ao mesmo tempo (abrir o app + a conexão voltando): cada entrega vai UMA vez', () async {
+    await guardar('p1', codigo: '1');
+    await guardar('p2', codigo: '2');
+    final enviados = <String>[];
+    Future<Map<String, dynamic>> enviar(String id, String? cod, Map<String, dynamic>? local) async {
+      enviados.add(id);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      return {'ok': true, 'valid': true};
+    }
+
+    final a = Outbox.flush(enviar: enviar);
+    final b = Outbox.flush(enviar: enviar);
+    final ra = await a;
+    final rb = await b;
+    expect(enviados, ['p1', 'p2']);
+    expect(ra.confirmadas, 2);
+    expect(rb.confirmadas, 2); // o segundo recebe o mesmo resultado
+    expect(await Outbox.pendentes(), 0);
+    // terminado, um reenvio novo roda de novo (nada na fila: nada enviado)
+    expect((await Outbox.flush(enviar: enviar)).confirmadas, 0);
+  });
+
+  test('401 (a sessão venceu) não é recusa: a entrega fica para depois do novo login', () async {
+    await guardar('p3', codigo: '3');
+    final r = await Outbox.flush(
+      enviar: (id, cod, local) async => throw const ApiErro(401, 'Sua sessão venceu. Entre de novo com seu usuário e senha.'),
+    );
+    expect(r.recusadas, isEmpty);
+    expect(await Outbox.pendentesIds(), {'p3'});
+    expect(const ApiErro(401, '').sessao, isTrue);
+    expect(const ApiErro(401, '').recusa, isFalse);
+    expect(const ApiErro(403, '').recusa, isTrue);
+  });
 }

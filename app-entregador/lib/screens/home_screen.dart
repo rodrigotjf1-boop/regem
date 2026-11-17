@@ -23,7 +23,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Map<String, dynamic>? _perfil;
   List<dynamic> _pedidos = [];
   Map<String, dynamic>? _saida; // { saida, paradas: [...] } — roteiro multi-parada
@@ -40,16 +40,26 @@ class _HomeScreenState extends State<HomeScreen> {
   Set<String> _pendentesIds = {}; // pedidos guardados sem sinal, aguardando confirmação
   Set<String> _chatNovos = {}; // pedidos em que o cliente escreveu no chat do iFood/99 e o entregador não viu
   StreamSubscription<List<ConnectivityResult>>? _connSub;
+  // A lista dos pedidos se atualiza sozinha (revisão de 17/11/2026): o pedido que a loja despacha para mim pelo painel
+  // aparecia só quando eu puxava a tela — e o GPS da entrega só ligava aí. Em segundo plano, só os avisos continuam.
+  Timer? _pedidosTimer;
+  bool _emSegundoPlano = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _carregar();
+    _pedidosTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!_emSegundoPlano) _carregar(quieto: true);
+    });
     _sincronizarPendentes();
     _carregarFila();
     // Poll leve do estado da fila: posição na fila muda quando outros entram/saem, e o
     // botão "Procurar" aparece quando eu viro o 1º. 8s equilibra responsividade × bateria.
-    _filaTimer = Timer.periodic(const Duration(seconds: 8), (_) => _carregarFila());
+    _filaTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+      if (!_emSegundoPlano) _carregarFila();
+    });
     // Os avisos do atendimento (mig 391): a cada 20 s — com o app aberto ou em segundo plano (a localização da entrega
     // mantém o app vivo); aviso novo toca a notificação do celular.
     Notificacoes.iniciar().then((_) => _carregarAvisos());
@@ -63,10 +73,24 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _connSub?.cancel();
     _filaTimer?.cancel();
     _avisosTimer?.cancel();
+    _pedidosTimer?.cancel();
     super.dispose();
+  }
+
+  // Voltou para o app: atualiza na hora os pedidos, a fila, os avisos e as entregas guardadas sem sinal.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState estado) {
+    _emSegundoPlano = estado != AppLifecycleState.resumed;
+    if (estado == AppLifecycleState.resumed) {
+      _carregar(quieto: true);
+      _carregarFila();
+      _carregarAvisos();
+      _sincronizarPendentes();
+    }
   }
 
   // ===== Os avisos do atendimento (mig 391, 10/11/2026) =====
@@ -161,31 +185,33 @@ class _HomeScreenState extends State<HomeScreen> {
     return 'R\$ ${v.toStringAsFixed(2).replaceAll('.', ',')}';
   }
 
-  Future<void> _carregar() async {
-    setState(() => _erro = null);
+  // `quieto` (a volta de 30 s e o voltar ao app): só os pedidos e o roteiro, sem a faixa de erro se a rede falhar.
+  // Completo: o perfil, os ganhos e a preferência também — tudo AO MESMO TEMPO (antes, um depois do outro: cinco
+  // esperas seguidas no 4G).
+  Future<void> _carregar({bool quieto = false}) async {
+    if (!quieto) setState(() => _erro = null);
     try {
-      final p = await Api.perfil();
-      final peds = await Api.pedidos();
-      Map<String, dynamic>? saida;
-      try {
-        saida = await Api.saida();
-      } catch (_) {}
-      // Ganhos do dia — best-effort (se a loja não configurou, vem zerado).
-      Map<String, dynamic> g = {};
-      try {
-        g = await Api.ganhos();
-      } catch (_) {}
-      bool pref = false;
-      try {
-        pref = await Api.preferencia();
-      } catch (_) {}
+      final r = await Future.wait<dynamic>([
+        Api.pedidos(),
+        Api.saida().then<dynamic>((v) => v, onError: (_) => null),
+        if (!quieto) ...[
+          Api.perfil(),
+          // Ganhos do dia — best-effort (se a loja não configurou, vem zerado).
+          Api.ganhos().then<dynamic>((v) => v, onError: (_) => <String, dynamic>{}),
+          Api.preferencia().then<dynamic>((v) => v, onError: (_) => false),
+        ],
+      ]);
+      final peds = r[0] as List<dynamic>;
+      final saida = r[1] as Map<String, dynamic>?;
       if (mounted) {
         setState(() {
-          _perfil = p;
+          if (!quieto) {
+            _perfil = r[2] as Map<String, dynamic>;
+            _ganhos = r[3] as Map<String, dynamic>;
+            _compartilhaContato = r[4] as bool;
+          }
           _pedidos = peds;
           _saida = saida;
-          _ganhos = g;
-          _compartilhaContato = pref;
           _carregando = false;
         });
       }
@@ -206,7 +232,8 @@ class _HomeScreenState extends State<HomeScreen> {
         LocationSender.parar();
       }
     } catch (e) {
-      if (mounted) {
+      // A volta automática que falha (sem rede) não pinta a tela de erro: fica o que já estava.
+      if (mounted && (!quieto || _carregando)) {
         setState(() {
           _erro = e.toString().replaceFirst('Exception: ', '');
           _carregando = false;
@@ -498,6 +525,25 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _sair() async {
+    // Entrega guardada sem sinal ainda não enviada: avisa antes (ela fica no celular até a próxima entrada).
+    final pendentes = await Outbox.pendentes();
+    if (pendentes > 0 && mounted) {
+      final sair = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(pendentes > 1 ? '$pendentes entregas ainda não foram enviadas' : '1 entrega ainda não foi enviada'),
+          content: const Text(
+            'Ela foi guardada sem sinal e sai quando a internet voltar, com você logado neste celular. '
+            'Se sair agora, ela espera a sua próxima entrada.',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sair assim mesmo')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Ficar')),
+          ],
+        ),
+      );
+      if (sair != true) return;
+    }
     LocationSender.parar();
     await Api.sair();
     if (mounted) {

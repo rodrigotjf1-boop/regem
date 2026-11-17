@@ -5,7 +5,9 @@ import '../widgets/regem_mark.dart';
 import 'home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  /// Aberta porque a sessão venceu (de dentro do app): mostra o motivo logo de cara.
+  final bool sessaoVencida;
+  const LoginScreen({super.key, this.sessaoVencida = false});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -16,6 +18,12 @@ class _LoginScreenState extends State<LoginScreen> {
   final _senha = TextEditingController();
   bool _carregando = false;
   String? _erro;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.sessaoVencida) _erro = Api.msgSessaoVencida;
+  }
 
   @override
   void dispose() {
@@ -42,7 +50,7 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       }
     } catch (e) {
-      setState(() => _erro = e.toString().replaceFirst('Exception: ', ''));
+      if (mounted) setState(() => _erro = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _carregando = false);
     }

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -10,7 +11,11 @@ class ApiErro implements Exception {
   const ApiErro(this.status, this.mensagem);
 
   /// Recusa definitiva do pedido (código errado, pedido fora de rota…).
-  bool get recusa => status >= 400 && status < 500 && status != 408 && status != 429;
+  bool get recusa => status >= 400 && status < 500 && status != 401 && status != 408 && status != 429;
+
+  /// A sessão venceu (o login do Regem vale 12 h): não é recusa do pedido — o app volta à tela de entrar e a entrega
+  /// guardada sem sinal fica na fila até o novo login (revisão de 17/11/2026).
+  bool get sessao => status == 401;
 
   @override
   String toString() => mensagem;
@@ -21,6 +26,14 @@ class ApiErro implements Exception {
 class Api {
   // Produção. (Para testar contra o dev local, troque pela URL da sua máquina.)
   static const String base = 'https://api.dmsregem.com/api/v1';
+
+  /// Prazo de cada chamada (revisão de 17/11/2026): no 4G ruim, sem ele a tela ficava girando por minutos.
+  static const Duration _prazo = Duration(seconds: 20);
+
+  /// O login do Regem vale 12 h. Vencido (401 numa chamada com a sessão), o app volta à tela de entrar — antes ficava
+  /// "logado" com tudo falhando em "Usuário ou senha inválidos", e a fila de entregas sem sinal as dava por recusadas.
+  static final ValueNotifier<bool> sessaoVencida = ValueNotifier(false);
+  static const String msgSessaoVencida = 'Sua sessão venceu. Entre de novo com seu usuário e senha.';
 
   static String? _token;
 
@@ -54,20 +67,21 @@ class Api {
       Uri.parse('$base/auth/login'),
       headers: const {'Content-Type': 'application/json'},
       body: jsonEncode({'identificador': identificador, 'senha': senha}),
-    );
+    ).timeout(_prazo);
     if (r.statusCode >= 200 && r.statusCode < 300) {
       final j = jsonDecode(r.body) as Map<String, dynamic>;
       final token = j['access_token'] as String?;
       if (token == null) throw Exception('Login sem token.');
       await _salvarToken(token);
+      sessaoVencida.value = false;
       return j;
     }
-    throw Exception(_erro(r));
+    throw Exception(_erro(r, login: true));
   }
 
   /// Perfil do entregador (nome, função, ehEntregador, permissões).
   static Future<Map<String, dynamic>> perfil() async {
-    final r = await http.get(Uri.parse('$base/entregador/perfil'), headers: _headers);
+    final r = await http.get(Uri.parse('$base/entregador/perfil'), headers: _headers).timeout(_prazo);
     if (r.statusCode >= 200 && r.statusCode < 300) {
       return jsonDecode(r.body) as Map<String, dynamic>;
     }
@@ -81,7 +95,7 @@ class Api {
         Uri.parse('$base/entregador/dispositivo'),
         headers: _headers,
         body: jsonEncode({'fcmToken': fcmToken, 'plataforma': 'android'}),
-      );
+      ).timeout(_prazo);
     } catch (_) {
       // silencioso
     }
@@ -90,7 +104,7 @@ class Api {
   /// E1 — assume o pedido pelo código do cupom (URL do QR ou token).
   static Future<Map<String, dynamic>> scan(String codigo) async {
     final r = await http.post(Uri.parse('$base/entregador/scan'),
-        headers: _headers, body: jsonEncode({'codigo': codigo}));
+        headers: _headers, body: jsonEncode({'codigo': codigo})).timeout(_prazo);
     if (r.statusCode >= 200 && r.statusCode < 300) {
       return jsonDecode(r.body) as Map<String, dynamic>;
     }
@@ -99,7 +113,7 @@ class Api {
 
   /// E1 — meus pedidos em rota.
   static Future<List<dynamic>> pedidos() async {
-    final r = await http.get(Uri.parse('$base/entregador/pedidos'), headers: _headers);
+    final r = await http.get(Uri.parse('$base/entregador/pedidos'), headers: _headers).timeout(_prazo);
     if (r.statusCode >= 200 && r.statusCode < 300) {
       final j = jsonDecode(r.body);
       return j is List ? j : <dynamic>[];
@@ -131,7 +145,7 @@ class Api {
     final r = await http.post(
       Uri.parse('$base/entregador/pedido/$id/chegando'),
       headers: _headers,
-    );
+    ).timeout(_prazo);
     if (r.statusCode >= 200 && r.statusCode < 300) {
       return jsonDecode(r.body) as Map<String, dynamic>;
     }
@@ -144,7 +158,7 @@ class Api {
     final r = await http.post(
       Uri.parse('$base/entregador/pedido/$id/sem-contato'),
       headers: _headers,
-    );
+    ).timeout(_prazo);
     if (r.statusCode >= 200 && r.statusCode < 300) {
       return jsonDecode(r.body) as Map<String, dynamic>;
     }
@@ -215,7 +229,7 @@ class Api {
       Uri.parse('$base/entregador/pedido/$id/rota'),
       headers: _headers,
       body: jsonEncode({if (lat != null) 'lat': lat, if (lng != null) 'lng': lng}),
-    );
+    ).timeout(_prazo);
     if (r.statusCode >= 200 && r.statusCode < 300) {
       return jsonDecode(r.body) as Map<String, dynamic>;
     }
@@ -229,7 +243,7 @@ class Api {
         Uri.parse('$base/entregador/localizacao'),
         headers: _headers,
         body: jsonEncode({'lat': lat, 'lng': lng, if (precisao != null) 'precisao': precisao}),
-      );
+      ).timeout(_prazo);
     } catch (_) {
       // silencioso
     }
@@ -237,7 +251,7 @@ class Api {
 
   /// E5 — meus ganhos do período (entregas + valores em centavos, pelo modelo da loja).
   static Future<Map<String, dynamic>> ganhos() async {
-    final r = await http.get(Uri.parse('$base/entregador/ganhos'), headers: _headers);
+    final r = await http.get(Uri.parse('$base/entregador/ganhos'), headers: _headers).timeout(_prazo);
     if (r.statusCode >= 200 && r.statusCode < 300) {
       return jsonDecode(r.body) as Map<String, dynamic>;
     }
@@ -289,7 +303,7 @@ class Api {
 
   /// Fase 4 — minha preferência (compartilhar contato no aviso ao cliente).
   static Future<bool> preferencia() async {
-    final r = await http.get(Uri.parse('$base/entregador/preferencia'), headers: _headers);
+    final r = await http.get(Uri.parse('$base/entregador/preferencia'), headers: _headers).timeout(_prazo);
     if (r.statusCode >= 200 && r.statusCode < 300) {
       final j = jsonDecode(r.body) as Map<String, dynamic>;
       return j['compartilhaContato'] == true;
@@ -302,7 +316,7 @@ class Api {
       Uri.parse('$base/entregador/preferencia'),
       headers: _headers,
       body: jsonEncode({'compartilhaContato': compartilhaContato}),
-    );
+    ).timeout(_prazo);
     if (r.statusCode >= 200 && r.statusCode < 300) {
       final j = jsonDecode(r.body) as Map<String, dynamic>;
       return j['compartilhaContato'] == true;
@@ -312,7 +326,7 @@ class Api {
 
   /// M3 — minha saída (roteiro) ativa: { saida, paradas: [...] }.
   static Future<Map<String, dynamic>> saida() async {
-    final r = await http.get(Uri.parse('$base/entregador/saida'), headers: _headers);
+    final r = await http.get(Uri.parse('$base/entregador/saida'), headers: _headers).timeout(_prazo);
     if (r.statusCode >= 200 && r.statusCode < 300) {
       return jsonDecode(r.body) as Map<String, dynamic>;
     }
@@ -321,7 +335,7 @@ class Api {
 
   /// M3 — pega a próxima saída (forma o roteiro com os pedidos prontos e atrela a mim).
   static Future<Map<String, dynamic>> proximaSaida() async {
-    final r = await http.post(Uri.parse('$base/entregador/saida/proxima'), headers: _headers);
+    final r = await http.post(Uri.parse('$base/entregador/saida/proxima'), headers: _headers).timeout(_prazo);
     if (r.statusCode >= 200 && r.statusCode < 300) {
       return jsonDecode(r.body) as Map<String, dynamic>;
     }
@@ -332,7 +346,7 @@ class Api {
   /// Estado do meu botão: { botao: entrar_fila|na_fila|procurar|iniciar|em_entrega,
   /// posicao, reservados, maxPedidos, temSaida }.
   static Future<Map<String, dynamic>> estadoFila() async {
-    final r = await http.get(Uri.parse('$base/entregador/fila/estado'), headers: _headers);
+    final r = await http.get(Uri.parse('$base/entregador/fila/estado'), headers: _headers).timeout(_prazo);
     if (r.statusCode >= 200 && r.statusCode < 300) {
       return jsonDecode(r.body) as Map<String, dynamic>;
     }
@@ -342,7 +356,7 @@ class Api {
   /// Entra na fila da loja (geofence: precisa estar na loja). Manda a minha posição atual.
   static Future<Map<String, dynamic>> filaEntrar(double lat, double lng) async {
     final r = await http.post(Uri.parse('$base/entregador/fila/entrar'),
-        headers: _headers, body: jsonEncode({'lat': lat, 'lng': lng}));
+        headers: _headers, body: jsonEncode({'lat': lat, 'lng': lng})).timeout(_prazo);
     if (r.statusCode >= 200 && r.statusCode < 300) {
       return jsonDecode(r.body) as Map<String, dynamic>;
     }
@@ -351,13 +365,13 @@ class Api {
 
   /// Sai da fila (solta o carrinho reservado).
   static Future<void> filaSair() async {
-    final r = await http.post(Uri.parse('$base/entregador/fila/sair'), headers: _headers);
+    final r = await http.post(Uri.parse('$base/entregador/fila/sair'), headers: _headers).timeout(_prazo);
     if (r.statusCode < 200 || r.statusCode >= 300) throw Exception(_erro(r));
   }
 
   /// "Procurar pedido": reserva o lote de prontos livres (até o lote/entregador). Só o 1º da fila.
   static Future<Map<String, dynamic>> procurarPedidos() async {
-    final r = await http.post(Uri.parse('$base/entregador/procurar'), headers: _headers);
+    final r = await http.post(Uri.parse('$base/entregador/procurar'), headers: _headers).timeout(_prazo);
     if (r.statusCode >= 200 && r.statusCode < 300) {
       return jsonDecode(r.body) as Map<String, dynamic>;
     }
@@ -366,14 +380,18 @@ class Api {
 
   /// "Iniciar entrega(s)": despacha o lote reservado + roteiriza + avisa o 1º cliente.
   static Future<Map<String, dynamic>> iniciarEntregas() async {
-    final r = await http.post(Uri.parse('$base/entregador/iniciar'), headers: _headers);
+    final r = await http.post(Uri.parse('$base/entregador/iniciar'), headers: _headers).timeout(_prazo);
     if (r.statusCode >= 200 && r.statusCode < 300) {
       return jsonDecode(r.body) as Map<String, dynamic>;
     }
     throw Exception(_erro(r));
   }
 
-  static String _erro(http.Response r) {
+  static String _erro(http.Response r, {bool login = false}) {
+    if (r.statusCode == 401 && !login) {
+      if (_token != null) sessaoVencida.value = true;
+      return msgSessaoVencida;
+    }
     try {
       final j = jsonDecode(r.body);
       if (j is Map && j['message'] != null) return j['message'].toString();

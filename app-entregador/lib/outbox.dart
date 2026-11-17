@@ -77,15 +77,34 @@ class Outbox {
   ///    lista de recusadas, para o app AVISAR o entregador (o pedido segue em rota). Antes a
   ///    recusa sumia calada: 200 com `valid:false` contava como entregue (LIC-073) e o 4xx era
   ///    descartado (LIC-039);
-  ///  • fica — sem rede, 5xx, 408, 429: tenta de novo depois.
+  ///  • fica — sem rede, 5xx, 401 (a sessão venceu: sai depois do novo login), 408, 429: tenta de novo depois.
+  ///
+  /// UM reenvio por vez (revisão de 17/11/2026): abrir o app e duas trocas de conexão seguidas (Wi-Fi → 4G) disparavam
+  /// reenvios juntos — quem chama durante um reenvio recebe o MESMO resultado. E o fim do reenvio grava por cima da fila
+  /// de AGORA, não da cópia lida no começo: a entrega guardada sem sinal durante o reenvio sumia.
+  static Future<ResultadoEnvio>? _emCurso;
+
   static Future<ResultadoEnvio> flush({
     Future<Map<String, dynamic>> Function(String pedidoId, String? codigo, Map<String, dynamic>? local)? enviar,
-  }) async {
+  }) {
+    final atual = _emCurso;
+    if (atual != null) return atual;
+    final f = _reenviar(enviar).whenComplete(() => _emCurso = null);
+    _emCurso = f;
+    return f;
+  }
+
+  /// A identidade de um item da fila: o pedido e a hora em que foi guardado (o mesmo pedido guardado de novo é outro).
+  static String _chave(Map<String, dynamic> e) => '${e['pedidoId']}|${e['ts']}';
+
+  static Future<ResultadoEnvio> _reenviar(
+    Future<Map<String, dynamic>> Function(String pedidoId, String? codigo, Map<String, dynamic>? local)? enviar,
+  ) async {
     final envia = enviar ??
         (String id, String? cod, Map<String, dynamic>? local) => Api.finalizar(id, codigo: cod, local: local);
     final itens = await _ler();
     if (itens.isEmpty) return const ResultadoEnvio(0, []);
-    final restantes = <Map<String, dynamic>>[];
+    final tratados = <String>{}; // confirmados e recusados: saem da fila
     final recusadas = <Map<String, dynamic>>[];
     var confirmadas = 0;
     for (final e in itens) {
@@ -101,17 +120,19 @@ class Outbox {
         } else {
           confirmadas++;
         }
+        tratados.add(_chave(e));
       } on ApiErro catch (err) {
         if (err.recusa) {
           recusadas.add({...e, 'motivo': err.mensagem});
-        } else {
-          restantes.add(e);
+          tratados.add(_chave(e));
         }
+        // o resto (5xx, 401, 408, 429) fica para tentar de novo depois
       } catch (err) {
-        restantes.add(e); // sem rede ou falha desconhecida → tenta de novo depois
+        // sem rede ou falha desconhecida → fica para tentar de novo depois
       }
     }
-    await _salvar(restantes);
+    final agora = await _ler();
+    await _salvar(agora.where((e) => !tratados.contains(_chave(e))).toList());
     return ResultadoEnvio(confirmadas, recusadas);
   }
 }
