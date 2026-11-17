@@ -75,3 +75,33 @@ test('a chamada anota o método e a forma do endereço, com os ids em marca', ()
   assert.equal(l.url, `order-manager-api.ifood.com.br/orderManager/v1.0/chat/orders/<${d.marca(PEDIDO)}>`);
   assert.ok(!JSON.stringify(l).includes(PEDIDO));
 });
+
+test('a chamada sem resposta (0.7.8): o erro da rede, o método e a forma do endereço — e se foi a página que desistiu', () => {
+  const d = new Diagnostico(null, 'sal', { gravar: false });
+  d.falha('POST', 'https://order-manager-api.ifood.com.br/orderManager/v1.0/oauth/token/refresh', { erro: 'net::ERR_INTERNET_DISCONNECTED' });
+  assert.deepEqual({ ...d.ultimos.at(-1), t: undefined }, {
+    t: undefined,
+    ev: 'chamada_falhou',
+    metodo: 'POST',
+    url: 'order-manager-api.ifood.com.br/orderManager/v1.0/oauth/token/refresh',
+    erro: 'net::ERR_INTERNET_DISCONNECTED',
+  });
+  d.falha('GET', `https://order-manager-api.ifood.com.br/orderManager/v1.0/chat/orders/${PEDIDO}`, { erro: 'net::ERR_ABORTED', cancelada: true, bloqueio: 'mixed-content' });
+  const l = d.ultimos.at(-1);
+  assert.equal(l.cancelada, true);
+  assert.equal(l.bloqueio, 'mixed-content');
+  assert.ok(!JSON.stringify(l).includes(PEDIDO), 'o id do pedido vira marca também na falha');
+  // sem texto de erro, a linha sai do mesmo jeito (nunca lança)
+  d.falha(undefined, 'endereço torto');
+  assert.deepEqual([d.ultimos.at(-1).ev, d.ultimos.at(-1).metodo, d.ultimos.at(-1).url, d.ultimos.at(-1).erro], ['chamada_falhou', '', null, '']);
+});
+
+test('a resposta leva o status só quando é recusa ou erro (400 em diante)', () => {
+  const d = new Diagnostico(null, 'sal', { gravar: false });
+  d.resposta('https://order-manager-api.ifood.com.br/orderManager/v1.0/oauth/token/refresh', { code: 'Unauthorized' }, 401);
+  assert.equal(d.ultimos.at(-1).status, 401);
+  d.resposta('https://order-manager-api.ifood.com.br/orderManager/v1.0/oauth/token/refresh', { accessToken: 'x' }, 200);
+  assert.equal('status' in d.ultimos.at(-1), false);
+  d.resposta('https://order-manager-api.ifood.com.br/orderManager/v1.0/merchants/experiences', { a: 1 });
+  assert.equal('status' in d.ultimos.at(-1), false);
+});

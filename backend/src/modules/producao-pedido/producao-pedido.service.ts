@@ -12,11 +12,11 @@ import { Cron } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { and, desc, eq, inArray, isNotNull, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { PREFIXO_BALCAO, rotuloSenha } from '../../common/senha-origem';
+import { PREFIXO_BALCAO, rotuloSenha, senhaNaVia } from '../../common/senha-origem';
 import { linhasDasEscolhas, separarEscolhas, textoDasEscolhas, type Escolha } from '../../common/adicionais';
 import { linhaDoPedido, pedidoNoCanal, perfilDeProducao, tipoNaProducao } from '../../common/via-do-pedido';
 import { textoDaObservacao } from '../../common/observacao-do-pedido';
-import { textoNaVia } from '../../common/texto-na-via';
+import { caixaAltaNaVia, textoNaVia } from '../../common/texto-na-via';
 import {
   equipamento,
   produtoDestinoProducao,
@@ -41,7 +41,7 @@ import {
   deliveryConfig,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
-import { perfilEfetivo } from '../delivery/cupom-perfis';
+import { AUMENTO_MAXIMO, perfilEfetivo, subirNivelDaFonte } from '../delivery/cupom-perfis';
 import { edgeAtivo } from '../../common/edge-ativo';
 import { alvosDoDocumento, regrasDaLoja, type DocumentoImpressao } from '../../common/regras-impressao';
 import { enfileirarComandoEdge } from '../../common/edge-comando';
@@ -1248,9 +1248,9 @@ export class ProducaoPedidoService {
       if (canal) l.push(`@C ${canal}`);
       l.push(`@B ${cab}`);
       if (ctx.cliente) l.push(`@B ${textoNaVia(ctx.cliente)}`);
-      if (ctx.senha) l.push(`@S senha ${rotuloSenha(ctx.senha, ctx.senhaPrefixo)}`);
+      if (ctx.senha) l.push(`@S ${senhaNaVia(ctx.senha, ctx.senhaPrefixo)}`);
     } else {
-      if (ctx.senha) l.push(`>>> SENHA ${rotuloSenha(ctx.senha, ctx.senhaPrefixo)} <<<`);
+      if (ctx.senha) l.push(`>>> ${senhaNaVia(ctx.senha, ctx.senhaPrefixo)} <<<`);
       l.push(`${cab}${numero ? ` · #${numero}` : ''}`);
       if (tipo && canal) l.push(`@B ${canal}`);
       if (ctx.cliente) l.push(`@B ${textoNaVia(ctx.cliente)}`);
@@ -1262,10 +1262,11 @@ export class ProducaoPedidoService {
     for (const it of its) {
       const { descricao, escolhas } = itemNaVia(it);
       l.push(`${completo ? '@B ' : ''}${Number(it.quantidade)}x ${textoNaVia(descricao)}${it.novo ? MARCA_NOVO : ''}`);
-      for (const c of it.combo ?? []) l.push(`  - ${textoNaVia(c)}`);
+      // Item do combo, adicional e observação em CAIXA ALTA (16/11/2026).
+      for (const c of it.combo ?? []) l.push(`  - ${caixaAltaNaVia(c)}`);
       // Cada escolha na sua linha, recuada e em negrito: no combo, a batata e a bebida não passam batidas.
-      for (const e of linhasDasEscolhas(escolhas)) l.push(`@B   ${textoNaVia(e)}`);
-      if (it.observacao) l.push(`  ** OBS: ${textoNaVia(it.observacao)}`);
+      for (const e of linhasDasEscolhas(escolhas)) l.push(`@B   ${caixaAltaNaVia(e)}`);
+      if (it.observacao) l.push(`  ** OBS: ${caixaAltaNaVia(it.observacao)}`);
     }
     // Pedido completo: o que sai em outro lugar, pequeno e só a linha do item (sem complemento nem observação — é para a
     // cozinha saber o que mais vai no pedido, não para fazer).
@@ -1363,6 +1364,8 @@ export class ProducaoPedidoService {
         obs?: { negrito?: boolean; escala?: number; mini?: boolean }; // estilo da observação (só em itens)
         agrupado?: boolean;
       }[];
+      id?: string;
+      aumento?: number; // o cupom inteiro maior: passos da régua de tamanhos (16/11/2026 — `cupom-perfis.ts`)
     },
     dados: any,
     cabecalho?: string,
@@ -1376,7 +1379,12 @@ export class ProducaoPedidoService {
     const linhasDe = (t: unknown) => String(t ?? '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
     // Texto (uma ou mais linhas) de cada campo a partir dos dados. [] = não imprime.
     const CAMPO: Record<string, () => string[]> = {
-      senha: () => (dados.senha != null ? [`SENHA ${rotuloSenha(dados.senha, dados.senhaPrefixo)}`] : []),
+      // "SENHA 9 - DELIVERY" (16/11/2026); no cupom do delivery, o canal e o nº do pedido nele logo abaixo da senha.
+      senha: () => {
+        if (dados.senha == null || dados.senha === '') return [];
+        const linha = senhaNaVia(dados.senha, dados.senhaPrefixo);
+        return perfil.id === 'entregador' && dados.plataforma ? [linha, textoNaVia(dados.plataforma)] : [linha];
+      },
       tipoFiscal: () => [dados.fiscal ? 'CUPOM FISCAL' : 'CUPOM NAO FISCAL'],
       nomeLoja: () => linhasDe(dados.nomeLoja),
       dataHora: () => [dados.dataHora ?? dataHoraNoFuso()],
@@ -1402,7 +1410,11 @@ export class ProducaoPedidoService {
           ? [`Troco para ${money(dados.troco)}`, ...(dados.trocoLevar ? [`LEVAR TROCO: ${money(dados.trocoLevar)}`] : [])]
           : [],
       avisoFiscal: () => (dados.fiscal ? [] : ['Este documento nao tem valor fiscal']),
-      plataforma: () => (dados.plataforma ? [textoNaVia(dados.plataforma)] : []),
+      // No cupom do delivery com a senha à vista, o canal já saiu embaixo dela — não repete.
+      plataforma: () =>
+        !dados.plataforma || (perfil.id === 'entregador' && mostra('senha') && dados.senha != null && dados.senha !== '')
+          ? []
+          : [textoNaVia(dados.plataforma)],
       // "PEDIDO #10" — o número do painel do delivery (pedido do dono, 28/10/2026: é por ele que se procura o pedido).
       pedidoRegem: () => {
         const t = linhaDoPedido(dados.pedidoRegem);
@@ -1420,7 +1432,7 @@ export class ProducaoPedidoService {
       // texto do cliente comece a linha (a impressora lê marcas no começo da linha).
       observacao: () => {
         const t = textoDaObservacao(dados.observacao);
-        return t ? [`OBS: ${t}`] : [];
+        return t ? [`OBS: ${t.toLocaleUpperCase('pt-BR')}`] : []; // em caixa alta (16/11/2026)
       },
       telefone: () => (dados.telefone ? [textoNaVia(dados.telefone)] : []),
       taxaEntrega: () => (dados.taxaEntrega != null ? [`Entrega: ${money(dados.taxaEntrega)}`] : []),
@@ -1469,6 +1481,13 @@ export class ProducaoPedidoService {
       (negrito ? 'B' : '') +
       (mini ? 'S' : '') +
       (esc >= 3 ? `D${esc}` : esc === 2 ? 'D' : '');
+    // O CUPOM INTEIRO MAIOR (16/11/2026): cada linha sobe `aumento` degraus da régua da térmica (`cupom-perfis.ts`) — o
+    // caixa um (Normal → Média), a produção dois (Normal → Grande). Só marcas que o programa da loja já entende.
+    const subir = Math.max(0, Math.min(AUMENTO_MAXIMO, Math.floor(Number(perfil.aumento) || 0)));
+    const estilo = (align: string, negrito: boolean, mini: boolean, esc: number): string => {
+      const s = subirNivelDaFonte(mini, esc, subir);
+      return flagStr(align, negrito, s.mini, s.escala);
+    };
     let prev: { idx: number; text: string } | null = null;
     for (const c of perfil.campos) {
       if (!c.visivel) continue;
@@ -1479,9 +1498,9 @@ export class ProducaoPedidoService {
         if (!(dados.itens ?? []).length) continue;
         // Via "pedido completo" (mig 335): os itens desta impressora em negrito; os de outro lugar depois, pequenos.
         const outros: OutroItemDaVia[] = Array.isArray(dados.outros) ? dados.outros : [];
-        const fNome = flagStr(c.alinhamento, !!c.negrito || outros.length > 0, !!c.mini, escOf(c));
-        const fComp = c.comp ? flagStr(c.alinhamento, !!c.comp.negrito, !!c.comp.mini, escOf(c.comp)) : fNome;
-        const fObs = c.obs ? flagStr(c.alinhamento, !!c.obs.negrito, !!c.obs.mini, escOf(c.obs)) : fNome;
+        const fNome = estilo(c.alinhamento, !!c.negrito || outros.length > 0, !!c.mini, escOf(c));
+        const fComp = c.comp ? estilo(c.alinhamento, !!c.comp.negrito, !!c.comp.mini, escOf(c.comp)) : fNome;
+        const fObs = c.obs ? estilo(c.alinhamento, !!c.obs.negrito, !!c.obs.mini, escOf(c.obs)) : fNome;
         const put = (f: string, t: string) => out.push(f ? `@${f} ${t}` : t);
         out.push(sep);
         for (const it of dados.itens ?? []) {
@@ -1489,10 +1508,11 @@ export class ProducaoPedidoService {
           const { descricao, escolhas } = itemNaVia(it);
           // O item que entrou numa alteração do pedido (mig 362) sai marcado — na cozinha e na via do entregador.
           put(fNome, `${Number(it.quantidade)}x ${textoNaVia(descricao)}${it.novo ? MARCA_NOVO : ''}`);
-          for (const c of Array.isArray(it.combo) ? it.combo : []) put(fComp, `   - ${textoNaVia(c)}`);
+          // Item do combo, adicional e observação em CAIXA ALTA (16/11/2026) — o nome do produto fica como está.
+          for (const c of Array.isArray(it.combo) ? it.combo : []) put(fComp, `   - ${caixaAltaNaVia(c)}`);
           // Uma escolha por linha (pedido do dono, 28/10/2026): no combo, a batata e a bebida cada uma na sua.
-          for (const e of linhasDasEscolhas(escolhas)) put(fComp, `   ${textoNaVia(e)}`);
-          if (it.observacao) put(fObs, `   OBS: ${textoNaVia(it.observacao)}`);
+          for (const e of linhasDasEscolhas(escolhas)) put(fComp, `   ${caixaAltaNaVia(e)}`);
+          if (it.observacao) put(fObs, `   OBS: ${caixaAltaNaVia(it.observacao)}`);
           if (dados.mostrarValoresItem) put(fNome, `   ${money(Number(it.precoUnitario) * Number(it.quantidade))}`);
         }
         if (outros.length) {
@@ -1518,7 +1538,7 @@ export class ProducaoPedidoService {
         prev = null;
         continue;
       }
-      const flags = flagStr(c.alinhamento, !!c.negrito, !!c.mini, escOf(c));
+      const flags = estilo(c.alinhamento, !!c.negrito, !!c.mini, escOf(c));
       for (const t of linhas) {
         if (t.startsWith('@QR:')) out.push(t); // QR: linha própria (o escpos centraliza)
         else out.push(flags ? `@${flags} ${t}` : t);
@@ -1539,11 +1559,11 @@ export class ProducaoPedidoService {
   // já destaca (centralizado, negrito, fonte dupla).
   private renderEtiquetaItem(ctx: any, it: any, numero?: number | null): string {
     const l: string[] = ['*** COLAR NO PRODUTO ***'];
-    if (ctx.senha) l.push(`>>> SENHA ${rotuloSenha(ctx.senha, ctx.senhaPrefixo)} <<<`);
+    if (ctx.senha) l.push(`>>> ${senhaNaVia(ctx.senha, ctx.senhaPrefixo)} <<<`);
     else if (numero) l.push(`>>> #${numero} <<<`);
     l.push(`${Number(it.quantidade)}x ${textoNaVia(it.descricao)}`);
-    if (it.complementosTexto) l.push(textoNaVia(it.complementosTexto));
-    if (it.observacao) l.push(`OBS: ${textoNaVia(it.observacao)}`);
+    if (it.complementosTexto) l.push(caixaAltaNaVia(it.complementosTexto));
+    if (it.observacao) l.push(`OBS: ${caixaAltaNaVia(it.observacao)}`);
     return l.join('\n');
   }
 
@@ -2295,6 +2315,7 @@ export class ProducaoPedidoService {
   // EDGE — cada um limpa a SUA fila local (impressao_job é por-banco). Mantém 'impresso' 3 dias
   // (histórico do painel), 'erro' e 'descartado' (fila antiga, mig 326) 14 dias (diagnóstico) e
   // órfãos 'pendente'/'enviando' 2 dias.
+  // ONDE RODA: nos DOIS lados (ERR-075) — a fila de impressão é de cada banco; cada um limpa a sua.
   @Cron('17 4 * * *')
   async expurgarFilaImpressao() {
     try {
@@ -3122,14 +3143,24 @@ export class ProducaoPedidoService {
     ];
   }
 
-  /** "Visto" no cartão alterado: o aviso grande e o som param; o item tirado sai do cartão. Idempotente. */
+  /**
+   * "Visto" no cartão alterado: o aviso grande e o som param; o item tirado sai do cartão. E o "Ciente" no cartão
+   * CANCELADO (16/11/2026 — pedido do dono: ficava 30 min preso na tela, sem botão e sem a senha): ele sai da fila na
+   * hora (`janelaDaFila`). Idempotente.
+   */
   async marcarVisto(tenantId: string, cartaoId: string, quem: { nome?: string | null } = {}) {
     const [c] = await this.db
       .update(producaoPedido)
       .set({ vistoEm: new Date(), vistoPor: quem.nome ?? null })
-      .where(and(eq(producaoPedido.tenantId, tenantId), eq(producaoPedido.id, cartaoId), isNotNull(producaoPedido.alteradoEm)))
+      .where(
+        and(
+          eq(producaoPedido.tenantId, tenantId),
+          eq(producaoPedido.id, cartaoId),
+          or(isNotNull(producaoPedido.alteradoEm), eq(producaoPedido.status, 'cancelado')),
+        ),
+      )
       .returning();
-    if (!c) throw new NotFoundException('Cartão alterado não encontrado.');
+    if (!c) throw new NotFoundException('Cartão alterado ou cancelado não encontrado.');
     this.events?.emit('producao.evento', {
       tenantId,
       unidadeId: c.unidadeId,
@@ -3223,6 +3254,17 @@ export class ProducaoPedidoService {
       );
     if (!p) throw new NotFoundException('Pedido de produção não encontrado');
     return p;
+  }
+
+  /**
+   * O KDS físico (token do aparelho, `KdsAparelhoGuard`) só mexe no cartão da LOJA dele — ou no sem loja (V4). O cartão de
+   * outra loja da mesma empresa responde como inexistente (não diz que existe).
+   */
+  async conferirCartaoDaLoja(tenantId: string, cartaoId: string, unidadeId: string | null): Promise<void> {
+    const p = await this.carregar(tenantId, cartaoId);
+    if (unidadeId && p.unidadeId && p.unidadeId !== unidadeId) {
+      throw new NotFoundException('Pedido de produção não encontrado');
+    }
   }
 
   // ===== Transições =====
@@ -4325,11 +4367,13 @@ export class ProducaoPedidoService {
   }
 
   // Cartão que a fila do KDS mostra: os abertos das últimas 12 horas (a encomenda cujo horário ainda não passou fica) e os
-  // cancelados recentes (riscados por um tempo). A MESMA janela na fila de cada KDS e na do despacho.
+  // cancelados recentes (riscados por um tempo) — até alguém dar "Ciente" neles (o "Visto" DEPOIS do cancelamento; o de uma
+  // alteração anterior não conta). A MESMA janela na fila de cada KDS e na do despacho.
   private janelaDaFila(): SQL {
     return sql`(${this.ativosNaJanela()}
            or (status = 'cancelado'
-               and coalesce(cancelado_em, criado_em) > now() - interval '${sql.raw(String(JANELA_ACAO_MIN))} minutes'))`;
+               and coalesce(cancelado_em, criado_em) > now() - interval '${sql.raw(String(JANELA_ACAO_MIN))} minutes'
+               and (producao_pedido.visto_em is null or producao_pedido.visto_em < coalesce(cancelado_em, criado_em))))`;
   }
 
   // Os cartões EM ANDAMENTO que ainda contam: das últimas 12 h (ou a encomenda cujo horário ainda não passou). A mesma

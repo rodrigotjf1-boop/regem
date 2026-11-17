@@ -557,6 +557,27 @@ try {
     assert.equal(k.tempoDepois(em, '2026-11-12T22:00:00.000Z'), '2 h depois');
   });
 
+  // 16/11/2026, pedido do dono: o cartão cancelado ficava preso — o Enter da senha o pulava ("não está na fila").
+  caso('Enter da senha: o cartão que anda; sem vivo, o CANCELADO sai com "Ciente"; senha de fora = null', () => {
+    const anda = (p) => k.proximaAcaoNaEstacao(p.status, null, { usaEntregue: false }) != null;
+    const velhoPronto = { id: 'v', senha: 12, senhaPrefixo: 'B', status: 'pronto' }; // o da alteração (mig 362)
+    const novo = { id: 'n', senha: 12, senhaPrefixo: 'B', status: 'recebido' };
+    const cancelado = { id: 'c', senha: 7, senhaPrefixo: 'B', status: 'cancelado' };
+    const outraOrigem = { id: 'd', senha: 12, senhaPrefixo: 'D', status: 'preparo' };
+    // o velho "pronto" (sem etapa a andar com o entregue desligado) vem antes na fila, mas o Enter vai no que anda
+    assert.deepEqual(k.cartaoDaSenha([velhoPronto, novo], '12', anda), { cartao: novo, acao: 'avancar' });
+    // "12" casa as duas origens: vai no primeiro que anda; "D12" separa
+    assert.equal(k.cartaoDaSenha([velhoPronto, outraOrigem, novo], '12', anda).cartao.id, 'd');
+    assert.equal(k.cartaoDaSenha([velhoPronto, outraOrigem, novo], 'B-12', anda).cartao.id, 'n');
+    // nenhum anda: o primeiro vivo (o servidor diz por quê, como antes)
+    assert.deepEqual(k.cartaoDaSenha([velhoPronto], '12', anda), { cartao: velhoPronto, acao: 'avancar' });
+    // só o cancelado: "Ciente" (antes: "Senha 7 não está na fila" e o cartão ficava 30 min)
+    assert.deepEqual(k.cartaoDaSenha([cancelado], '7', anda), { cartao: cancelado, acao: 'ciente' });
+    assert.deepEqual(k.cartaoDaSenha([cancelado, { ...cancelado, id: 'c2', status: 'preparo' }], '7', anda).acao, 'avancar');
+    assert.equal(k.cartaoDaSenha([novo, cancelado], '99', anda), null);
+    assert.equal(k.cartaoDaSenha([], '7', anda), null);
+  });
+
   console.log(`\ncheck:kds — ${n} casos, tudo certo`);
 } finally {
   rmSync(tmp, { recursive: true, force: true });

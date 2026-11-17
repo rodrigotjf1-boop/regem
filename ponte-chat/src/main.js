@@ -32,7 +32,7 @@ if (process.env.ELECTRON_RUN_AS_NODE) {
   process.exit(0);
 }
 
-const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, safeStorage, shell } = require('electron');
+const { app, BrowserWindow, Menu, Notification, Tray, dialog, ipcMain, safeStorage, shell } = require('electron');
 const crypto = require('crypto');
 const os = require('os');
 const path = require('path');
@@ -50,6 +50,7 @@ const { Jornal } = require('./jornal');
 const { Saida } = require('./saida');
 const { INSTALAR_VIGIA, ESTADO_DA_TELA, ABRIR_PEDIDOS, avaliarTela, deveVoltarAoQuadro, mexeuDesde } = require('./tela-livre');
 const local = require('./estado-local');
+const loginDoIfood = require('./login-do-ifood');
 
 const GESTOR = process.env.REGEM_PONTE_GESTOR || 'https://gestordepedidos.ifood.com.br/';
 const SO_OBSERVAR = process.argv.includes('--so-observar') || process.env.REGEM_PONTE_SO_OBSERVAR === '1';
@@ -65,6 +66,9 @@ const ECO_MS = Number(process.env.REGEM_PONTE_ECO_MS) || 20000; // quanto espera
 // A 99 (4a): o portal (a prova troca pela 99 de mentira); "logada" = respondeu o polling do IM nos últimos 5 min
 const NOVENTA = process.env.REGEM_PONTE_99 || 'https://merchant.99app.com/pt-BR/store/pc-v2/order';
 const LOGADA_99_MS = Number(process.env.REGEM_PONTE_99_LOGADA_MS) || 5 * 60 * 1000;
+// 0.7.8: o iFood sem login — chama a pessoa depois de 1 min sem login e insiste a cada 10 min (a prova de tela encurta)
+const LOGIN_CONFIRMAR_MS = Number(process.env.REGEM_PONTE_LOGIN_CONFIRMAR_MS) || loginDoIfood.CONFIRMAR_MS;
+const LOGIN_REPETIR_MS = Number(process.env.REGEM_PONTE_LOGIN_REPETIR_MS) || loginDoIfood.REPETIR_MS;
 const ICONE = path.join(__dirname, '..', 'assets', 'regem.ico');
 
 app.setName('Regem Ponte do chat');
@@ -111,6 +115,11 @@ if (!app.requestSingleInstanceLock()) {
   // depois do envio (11/11 — a fila da 99 ficou parada achando que era alguém da loja)
   let gavetaDoPrograma99 = null;
   let fechouGaveta99Em = 0; // a última tentativa de fechar essa conversa (no máximo uma a cada 30 s)
+  // O login do iFood (0.7.8): desde quando está sem login (a partida do programa conta), a última vez que a ponte chamou
+  // a pessoa, e se o iFood já esteve logado nesta execução (para dizer "caiu" ou "abriu sem login").
+  let semLoginDesde = Date.now();
+  let chamouParaOLoginEm = 0;
+  let jaEsteveLogado = false;
 
   const fila = new FilaDeEntrada(async (lote) => {
     const cred = cfg.credencial();
@@ -253,6 +262,57 @@ if (!app.requestSingleInstanceLock()) {
     return naTela && ultimo > 0 && Date.now() - ultimo <= LOGADA_99_MS;
   }
 
+  /**
+   * O iFood ficou sem login (0.7.8 — a regra em `login-do-ifood.js`): MOSTRA a janela do Gestor sem tomar o teclado de quem
+   * está no caixa (não ativa a janela), pisca na barra de tarefas e solta o aviso do Windows pelo ícone perto do relógio.
+   * Em 16/11/2026 o login caiu às 18:37 e a ponte ficou duas horas dizendo isso só no ícone. Nada aqui derruba a ponte.
+   */
+  function chamarParaOLogin(motivo) {
+    const t = loginDoIfood.textosDaChamada(motivo, Date.now() - semLoginDesde);
+    chamouParaOLoginEm = Date.now();
+    if (diagnostico) diagnostico.anotar({ ev: 'chamou_para_o_login', motivo });
+    registrarErro(t.registro);
+    try {
+      if (gestor && !gestor.isDestroyed()) {
+        gestor.showInactive(); // aparece (também se estava escondida ou minimizada) sem virar a janela ativa
+        gestor.moveTop();
+        gestor.flashFrame(true); // para quando a pessoa clicar na janela (o `focus`, em `abrirGestor`)
+      } else abrirGestor();
+    } catch {
+      /* a janela é só o chamado: a ponte segue */
+    }
+    try {
+      if (bandeja && process.platform === 'win32') bandeja.displayBalloon({ title: 'Regem · Ponte do chat', content: t.aviso, iconType: 'warning' });
+      else if (Notification.isSupported()) {
+        const n = new Notification({ title: 'Regem · Ponte do chat', body: t.aviso, icon: ICONE });
+        n.on('click', () => abrirGestor());
+        n.show();
+      }
+    } catch {
+      /* sem o aviso do Windows, a janela e o ícone já dizem */
+    }
+  }
+
+  /** Acompanha o login do iFood: anota cada virada no diagnóstico e, sem login, decide se chama a pessoa (0.7.8). */
+  function conferirLoginDoIfood() {
+    const agora = Date.now();
+    if (estado.logadoNoIfood) {
+      if (semLoginDesde && diagnostico) diagnostico.anotar({ ev: 'login_ifood', logado: true });
+      semLoginDesde = 0;
+      jaEsteveLogado = true;
+      return;
+    }
+    if (!semLoginDesde) {
+      semLoginDesde = agora;
+      if (diagnostico) diagnostico.anotar({ ev: 'login_ifood', logado: false });
+    }
+    const motivo = loginDoIfood.motivoParaChamar(
+      { agora, logado: false, semLoginDesde, chamouEm: chamouParaOLoginEm, jaEsteveLogado, pareada: !!cfg.credencial(), pausada: !!estado.pausadaEm, ligada: estado.ligada, soObservar: SO_OBSERVAR },
+      { confirmarMs: LOGIN_CONFIRMAR_MS, repetirMs: LOGIN_REPETIR_MS },
+    );
+    if (motivo) chamarParaOLogin(motivo);
+  }
+
   async function sinalDeVida() {
     estado.logadoNoIfood = logadoNoIfood();
     estado.logadoNa99 = logadoNa99();
@@ -275,6 +335,7 @@ if (!app.requestSingleInstanceLock()) {
       if (antes && !estado.ligada) fila.esvaziar(); // desligada: nada de conversa de cliente guardada aqui
     }
     tratarClassificacao(c);
+    conferirLoginDoIfood(); // depois da resposta da nuvem: só chama a pessoa com a ponte ligada nos ajustes
   }
 
   function abrirGestor() {
@@ -327,10 +388,15 @@ if (!app.requestSingleInstanceLock()) {
       },
       aoMudarChat: () => {
         estado.logadoNoIfood = logadoNoIfood();
+        conferirLoginDoIfood(); // a virada do login fica anotada na hora (o chamado à pessoa sai no sinal de vida)
         atualizarBandeja();
       },
       diagnostico,
       registrarErro,
+    });
+    // A pessoa clicou na janela: para de piscar na barra de tarefas (o chamado do iFood sem login — 0.7.8).
+    gestor.on('focus', () => {
+      if (gestor && !gestor.isDestroyed()) gestor.flashFrame(false);
     });
     gestor.on('close', (e) => {
       // Fechar a janela não para a ponte: ela segue no ícone perto do relógio ("Sair da ponte" encerra).
@@ -930,6 +996,7 @@ if (!app.requestSingleInstanceLock()) {
     try {
       bandeja = new Tray(ICONE);
       bandeja.on('click', () => abrirEstado());
+      bandeja.on('balloon-click', () => abrirGestor()); // o aviso do iFood sem login (0.7.8): o clique abre a janela do iFood
     } catch {
       bandeja = null; // sem ícone (teste): a janela mostra a situação no título
     }

@@ -232,6 +232,7 @@ export class AlertaKdsService {
   }
 
   /** Guardados por 90 dias: a limpeza roda nos dois lados, em lotes (a exclusão sincroniza). */
+  // ONDE RODA: nos DOIS lados (ERR-075) — em lotes; a exclusão sincroniza, e o segundo lado só não acha o que o primeiro apagou.
   @Interval(6 * 3600_000)
   async limpar() {
     try {

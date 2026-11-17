@@ -219,6 +219,7 @@ export class KdsAlertaService {
   // Uma volta por vez: com muitas empresas a volta pode passar de 20 s, e duas voltas juntas disputavam o banco.
   private rodando = false;
 
+  // ONDE RODA: nos DOIS lados (ERR-075) — o agendado e o condicional valem para as telas de CADA lado ("cada um mostra o seu").
   @Interval(20000)
   async tick() {
     if (this.rodando) return;

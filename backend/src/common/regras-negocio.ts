@@ -194,6 +194,8 @@ export type UiPrefs = {
   // Ordem PESSOAL das categorias no PDV Balcão (arrastável, POR USUÁRIO) — NÃO altera o
   // catálogo. Lista de ids de categoria; categorias fora da lista vão para o fim.
   pdvOrdemCategorias?: string[];
+  // O tamanho dos cartões de produto no PDV · Balcão (17/11/2026): grande (padrão) ou compacto.
+  pdvCartoes?: 'grande' | 'compacto';
 };
 
 /** Mantém apenas chaves conhecidas com valores válidos (ignora o resto). */
@@ -210,6 +212,7 @@ export function sanitizeUiPrefs(p: any): UiPrefs {
       .slice(0, 200);
     if (ordem.length) out.pdvOrdemCategorias = ordem;
   }
+  if (p?.pdvCartoes === 'grande' || p?.pdvCartoes === 'compacto') out.pdvCartoes = p.pdvCartoes;
   return out;
 }
 

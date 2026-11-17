@@ -954,6 +954,22 @@ fase inteira:
   - o gerente não recebe botão;
 - prova por defeito.
 
+### Versão 3 do protótipo — o Mister mais inteligente (aprovada pelo dono em 17/11/2026)
+
+`mockups/regem-mister.html`, marcas "v3": conversas 11 a 22, a parte "Documentos", a aba "Arquivos e links" e as 12
+decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.md`, 17/11/2026). Uma entrega por PR:
+
+| Entrega | O que entra |
+|---|---|
+| **M3a · Boleto por foto** | A leitura (código de barras e Pix sem IA, o resto pela IA), o lançamento nas contas a pagar com "Desfazer", a parte "Documentos", o aviso de vencimento com a linha e o Pix, "Já paguei", o PDF do boleto e "Financeiro › Contas a pagar" no menu. |
+| **M3b · Nota do fornecedor** | A leitura, a ligação dos itens com o estoque, a pergunta do que falta e o lançamento em Estoque › Recebimento e nas contas a pagar, sempre com a confirmação. |
+| **M3c · Relatórios** | O gráfico na conversa, o relatório por insumo pela ficha técnica, o PDF, a página do link e os links de conferência a quem o presidente pedir. |
+| **M3d · "Como faço" com a tela** | As imagens geradas pelos roteiros de tela, com as marcações, e o teste que confere cada uma. |
+| **M3e · Ponto** | O ponto esquecido pela escala e o arquivo do ponto do mês pelo Mister, ao presidente e ao responsável cadastrado. |
+| **M3f · Áudio** | Ouvir e responder, depois do teste das duas empresas (custo por minuto medido). |
+| **M3g · Corrigir e criar** | Corrigir o que o Mister lançou e criar o que a pessoa pedir, com confirmação. |
+| **Resumo** | A tela de entrada da versão 1, que ainda não tem código. |
+
 ## 5. O que depende do dono
 
 1. ~~Onde a IA roda~~ — decidido: nuvem.

@@ -24,6 +24,7 @@ import { WhatsappService } from './whatsapp.service';
 import { WhatsappCloudService, cabeEmBotoes, opcoesValidas } from './whatsapp-cloud.service';
 import { EstadoPausa, estadoDaPausa } from './robo-pausa';
 import { idDoEnvio, marcarDoRobo } from './mensagens-do-robo';
+import { fimDaResposta } from './resposta-em-andamento';
 import { linkDoCardapioDaLoja, separarLinkDoCardapio, soLinksDaLoja } from './links-do-robo';
 import {
   escolherProduto,
@@ -154,12 +155,27 @@ export class RoboRespostaService {
     if (trocados) this.logger.warn(`resposta do robô: ${trocados} link(s) de fora trocado(s) pelo do cardápio (${via})`);
     const opcoes = opcoesValidas(p?.opcoes ?? []);
     const audio = String(p?.audio?.base64 ?? '').trim();
-    if (!texto && !opcoes.length && !audio) throw new BadRequestException('Nada para enviar (texto, opções ou áudio).');
+    // A RESPOSTA EM ANDAMENTO (16/11/2026 — `resposta-em-andamento.ts`): esta resposta encerra a da conversa, em todo
+    // caminho de saída. A que não sai (vazia, robô desligado, conversa com uma pessoa) solta o que o cliente mandou
+    // enquanto ela era preparada; a que sairia, mas ficou velha (o cliente escreveu depois que ela começou), é descartada e
+    // tudo vai de novo ao robô — o cliente recebe UMA resposta, que considera tudo.
+    if (!texto && !opcoes.length && !audio) {
+      fimDaResposta(loja.tenantId, para, false);
+      throw new BadRequestException('Nada para enviar (texto, opções ou áudio).');
+    }
 
-    if (!cfg.roboAtivo || !cfg.ativo) return { ok: true, enviado: false, motivo: 'robo_desligado' };
+    if (!cfg.roboAtivo || !cfg.ativo) {
+      fimDaResposta(loja.tenantId, para, false);
+      return { ok: true, enviado: false, motivo: 'robo_desligado' };
+    }
     if (await this.pausada(cfg, para)) {
+      fimDaResposta(loja.tenantId, para, false);
       this.logger.log(`resposta do robô segurada: conversa pausada (${via}) de=***${para.slice(-4)}`);
       return { ok: true, enviado: false, motivo: 'conversa_pausada' };
+    }
+    if (fimDaResposta(loja.tenantId, para, true) === 'descartar') {
+      this.logger.log(`resposta do robô descartada: o cliente escreveu enquanto ela era preparada (${via}) de=***${para.slice(-4)} — vai de novo ao robô com tudo`);
+      return { ok: true, enviado: false, motivo: 'resposta_superada' };
     }
 
     const enviados: string[] = [];
@@ -215,6 +231,14 @@ export class RoboRespostaService {
       await marcarDoRobo(this.db, loja.tenantId, para, ids, this.logger);
     }
     return { ok: true, enviado: true, enviados };
+  }
+
+  /**
+   * A MESMA mídia, pedida pelo próprio Regem (a leitura da foto do cliente — `cardapio/foto-do-cliente.service.ts`): quem
+   * chama está aqui dentro, então usa a senha do robô desta nuvem (sem ela configurada, o robô nem funciona: recusa).
+   */
+  midiaDoRegem(q: { instancia?: string; phoneNumberId?: string; mediaId?: string; mensagemId?: string; jid?: string }): Promise<{ buffer: Buffer; mime: string }> {
+    return this.midia(String(process.env.BOT_RESOLVER_SECRET ?? '').trim(), q);
   }
 
   /**

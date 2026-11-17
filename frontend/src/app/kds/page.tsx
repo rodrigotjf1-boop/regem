@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import './kds-tela.css';
 import { api, getToken, podePerm } from '@/lib/api';
-import { rotuloSenha, senhaCasa } from '@/lib/senha';
+import { rotuloSenha } from '@/lib/senha';
 import { connectAsGestor, connectAsDevice, type Socket } from '@/lib/rt';
 import { KdsMapaEntregadores } from '@/components/kds/kds-mapa-entregadores';
 import { HistoricoKds } from '@/components/kds/historico-kds';
@@ -30,7 +30,9 @@ import {
   type CanalPausadoNoKds,
   type TipoDeAviso,
   agruparPorItem,
+  cartaoDaSenha,
   cartaoNaTela,
+  proximaAcaoNaEstacao,
   pedidoDoDespachoNaTela,
   contarEtapas,
   decidirTecla,
@@ -121,6 +123,9 @@ const ACAO = ACAO_KDS;
 const MONO = 'JetBrains Mono, monospace';
 const TITULO = 'Archivo, sans-serif';
 const hm = (d: Date) => d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+// O token do KDS físico (`/kds?token=…`): lido na hora, do endereço — o mesmo que o tempo real usa (`connectAsDevice`).
+const tokenDoAparelho = (): string | null =>
+  typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('token') || null;
 
 // De onde veio o aviso, na lista "N avisos" (pelo tipo que o servidor manda — mig 408).
 const ORIGEM_DO_AVISO: Record<string, string> = {
@@ -526,14 +531,19 @@ export default function KdsPage() {
   }, []);
 
   const carregarFila = useCallback(async (): Promise<any[] | null> => {
-    if (!getToken()) return null; // fila durável requer operador logado (JWT)
+    // O KDS físico (`?token=`, TV box da cozinha — 16/11/2026) lê pela rota do APARELHO: a empresa, a loja e o KDS saem do
+    // token no servidor. Antes a fila exigia pessoa logada e a tela com o token ficava "online" e vazia para sempre.
+    const aparelho = getToken() ? null : tokenDoAparelho();
+    if (!getToken() && !aparelho) return null;
     const seq = ++filaSeq.current;
-    const despacho = despachoRef.current && !!kdsRef.current;
+    const despacho = !aparelho && despachoRef.current && !!kdsRef.current;
     try {
       // O despacho lê o pedido inteiro, com o andamento de cada estação; os outros KDS, os cartões deles.
-      const r: any = despacho
-        ? await api.kdsDespacho(kdsRef.current, canalRef.current)
-        : await api.producaoFila(setorRef.current || undefined, undefined, canalRef.current, kdsRef.current || undefined);
+      const r: any = aparelho
+        ? await api.kdsAparelhoFila(aparelho, canalRef.current)
+        : despacho
+          ? await api.kdsDespacho(kdsRef.current, canalRef.current)
+          : await api.producaoFila(setorRef.current || undefined, undefined, canalRef.current, kdsRef.current || undefined);
       // Uma leitura mais nova já saiu (trocou o KDS, o canal ou chegou outro aviso): esta resposta atrasada não vale —
       // senão a fila de antes podia cobrir a de agora.
       if (seq !== filaSeq.current) return null;
@@ -826,7 +836,9 @@ export default function KdsPage() {
   // "Visto" no cartão alterado (mig 362): o aviso grande, o som e o rodapé param; o item tirado sai do cartão.
   async function visto(id: string) {
     try {
-      await api.producaoVisto(id);
+      const aparelho = getToken() ? null : tokenDoAparelho();
+      if (aparelho) await api.kdsAparelhoVisto(aparelho, id);
+      else await api.producaoVisto(id);
     } catch {
       /* outra tela já marcou (ou o cartão saiu): a releitura corrige */
     }
@@ -858,7 +870,10 @@ export default function KdsPage() {
     avancandoRef.current.add(id);
     setAvancando(new Set(avancandoRef.current));
     try {
-      const r: any = await api.producaoAvancar(id, kdsSel || undefined, de, modoEntrega ? 'entrega' : undefined);
+      const aparelho = getToken() ? null : tokenDoAparelho();
+      const r: any = aparelho
+        ? await api.kdsAparelhoAvancar(aparelho, id, de)
+        : await api.producaoAvancar(id, kdsSel || undefined, de, modoEntrega ? 'entrega' : undefined);
       mostrarToque(textoDoToque(identPedido(p), r, nomeKds));
       await carregarFila();
     } catch (e: any) {
@@ -977,19 +992,35 @@ export default function KdsPage() {
     setSenhaMsg((m) => (m?.erro ? null : m));
   }
 
+  // O cartão "anda" nesta tela? A MESMA regra do botão do cartão (as etapas da loja e o "vai para"); no despacho, a ação
+  // do pedido liberada. Num ref: o Enter chega pelo ouvinte do teclado, que não acompanha cada desenho da tela.
+  const podeAndarRef = useRef<(p: any) => boolean>(() => true);
+  podeAndarRef.current = (p: any) =>
+    despachoRef.current ? !!acoesDoDespacho(p).principal?.liberada : proximaAcaoNaEstacao(p.status, proximoDoCartao(p), cores) != null;
+
   // Fase F — teclado numérico FÍSICO do equipamento: Enter avança o card daquela senha.
   // Vale para a fila INTEIRA do aparelho, não só para o que os filtros da tela mostram.
   function avancarPorSenha() {
     const s = senhaDigitadaRef.current.trim();
     if (!s) return;
     // Digitar só o número encontra as duas origens; digitar D12 ou D-12 separa o delivery
-    // do balcão (mig 275 — cada origem tem a própria sequência).
-    const alvo = pedidosRef.current.find((p) => senhaCasa(s, p.senha, p.senhaPrefixo) && p.status !== 'cancelado');
-    if (!alvo) {
+    // do balcão (mig 275 — cada origem tem a própria sequência). Entre os cartões da senha, o que ainda anda; sem vivo, o
+    // CANCELADO sai da tela com o Enter (16/11/2026 — ficava 30 min preso, sem botão e sem senha). `lib/kds-fila.ts`.
+    const achado = cartaoDaSenha(pedidosRef.current, s, (p) => podeAndarRef.current(p));
+    if (!achado) {
       setSenhaErro(true);
       avisarSenha(`Senha ${s} não está na fila`, true);
       return;
     }
+    if (achado.acao === 'ciente') {
+      const c = achado.cartao as any;
+      setSenhaDigitada('');
+      const ids: string[] = Array.isArray(c.cartoes) && c.cartoes.length ? c.cartoes.map((x: any) => String(x.id)) : [String(c.id)];
+      void Promise.all(ids.map((id) => visto(id))).then(() => avisarSenha(`${identPedido(c)}: cancelado — saiu da tela`, false));
+      if (usoRef.current === 'teclado') senhaRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    const alvo = achado.cartao as any;
     // No despacho, o Enter faz a ação do PEDIDO (despachar, chamar a senha ou entregar) — e só quando está liberada.
     if (despachoRef.current) {
       const { principal } = acoesDoDespacho(alvo);

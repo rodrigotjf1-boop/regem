@@ -3,7 +3,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../../db/drizzle.module';
 import { integracao } from '../../../db/schema';
 import { fetchExterno } from '../../../common/fetch-externo';
-import { urlPublicaSegura } from '../../../common/ssrf-guard';
+import { fetchNoIpConferido, urlPublicaSegura } from '../../../common/ssrf-guard';
 import { mesclarNoConfigDaIntegracao } from '../config-da-integracao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -80,7 +80,7 @@ export class OpenDeliveryService {
           client_id: ig.clientId,
           client_secret: ig.clientSecret,
         }).toString(),
-      });
+      }, undefined, fetchNoIpConferido); // conecta no endereço conferido (A-05)
       if (!res.ok) {
         this.logger.error(`token ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
         return null;
@@ -117,7 +117,7 @@ export class OpenDeliveryService {
         'Content-Type': 'application/json',
         ...(init.headers ?? {}),
       },
-    });
+    }, undefined, fetchNoIpConferido); // conecta no endereço conferido (A-05)
     return res;
   }
 

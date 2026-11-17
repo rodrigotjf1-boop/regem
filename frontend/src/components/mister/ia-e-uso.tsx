@@ -42,11 +42,15 @@ const PROVEDOR: Record<string, string> = { anthropic: 'Anthropic' };
 // `mister_perguntas` = o agente que responde às perguntas pelo WhatsApp (o nome vem do `RECURSO_DAS_PERGUNTAS` do servidor).
 const RECURSO: Record<string, string> = {
   copiloto: 'Copiloto do atendimento',
+  // A leitura da foto que o cliente manda ao atendente virtual (o nome vem do `RECURSO_DA_FOTO` do servidor).
+  foto_do_cliente: 'Atendente · fotos do cliente',
   prova: 'Teste da chave',
   mister_perguntas: 'Mister · perguntas',
   // Os relatórios (mig 420; o nome vem do `RECURSO_DO_RELATORIO` do servidor).
   mister_resumo_dia: 'Mister · resumo do dia',
   mister_resumo_semana: 'Mister · resumo da semana',
+  // Os documentos por foto (M3a, mig 439; o nome vem do `RECURSO_DO_DOCUMENTO` do servidor).
+  mister_documento: 'Mister · boletos por foto',
 };
 const MODELO: Record<string, string> = {
   'claude-haiku-5-5': 'Claude Haiku 5.5',

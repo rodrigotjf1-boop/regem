@@ -661,6 +661,8 @@
   font-size: calc(16px * var(--esc));
   font-weight: 600;
   color: var(--k-ink);
+  /* Adicionais, observação e detalhes do item em CAIXA ALTA (pedido do dono, 16/11/2026): a cozinha lê de longe. */
+  text-transform: uppercase;
 }
 .k-comp li {
   overflow-wrap: anywhere;
@@ -673,6 +675,7 @@
   font-size: calc(16px * var(--esc));
   font-weight: 800;
   overflow-wrap: anywhere;
+  text-transform: uppercase;
 }
 .k-mini {
   font-size: calc(15px * var(--esc));

@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm';
 import * as schema from '../../db/schema';
 import { DeliveryService } from './delivery.service';
 import { fetchExterno } from '../../common/fetch-externo';
+import * as ssrf from '../../common/ssrf-guard';
 import { enviosDoPedido, expurgarEnvios, falhasDeEnvio, gravarEnvio, NaoEnviado, resumirEnvio } from './pedido-envio';
 import type { ChamadaExterna, Observacao } from '../../common/chamadas-externas';
 
@@ -94,7 +95,14 @@ descrever('registro dos envios do pedido (Postgres real)', () => {
     }
     await pool.end();
   });
+  // O aviso ao robô de WhatsApp sai pelo envio preso ao IP conferido (`fetchNoIpConferido`, A-05), que não passa pelo
+  // `fetch` global. Aqui ele repassa ao `fetch` SIMULADO de cada teste: o que se prova é o que o Regem REGISTRA diante
+  // da resposta do robô (a conexão no IP conferido tem o teste dela, `common/ssrf-ip-conferido.spec.ts`).
+  beforeEach(() => {
+    jest.spyOn(ssrf, 'fetchNoIpConferido').mockImplementation((url: any, init: any) => (global.fetch as any)(url, init));
+  });
   afterEach(() => {
+    jest.restoreAllMocks();
     global.fetch = fetchOriginal;
     delete process.env.EDGE_MODE;
   });

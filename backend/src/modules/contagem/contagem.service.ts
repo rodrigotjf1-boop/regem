@@ -558,8 +558,10 @@ export class ContagemService {
     const nSusp = resumo.suspeitos.length;
     // Avisa dashboard/KDS que a contagem foi concluída. Item que se moveu durante a
     // contagem sobe a prioridade: é um ajuste que pode estar errado e alguém precisa ver.
+    // Com a LOJA da lista (ERR-494): a contagem é de uma loja, e o aviso sem ela ia às telas de gestão de todas.
     this.events.emit('kds.alerta.sistema', {
       tenantId,
+      unidadeId: await this.lojaDaLista(tenantId, resumo.listaId),
       titulo: nSusp ? 'Contagem concluída — confira' : 'Contagem concluída',
       detalhe: nSusp
         ? `${nSusp} item(ns) tiveram movimento durante a contagem; o ajuste desses pode estar errado.`
@@ -581,6 +583,9 @@ export class ContagemService {
   }
 
   // Alerta por horário: toda hora cheia, avisa as listas que vencem agora.
+  // ONDE RODA: nos DOIS lados, cada um para as telas DELE (como os alertas programados do KDS): o servidor da loja só tem
+  // as listas dela; a nuvem, as de todas. O aviso vai com a LOJA da lista (ERR-494): sem ela, numa rede de várias lojas a
+  // "hora de contar" de uma lista aparecia nas telas de gestão de todas as lojas.
   @Cron('0 * * * *')
   async alertasContagem() {
     const listas = await this.db
@@ -612,6 +617,7 @@ export class ContagemService {
       }
       this.events.emit('kds.alerta.sistema', {
         tenantId: l.tenantId,
+        unidadeId: l.unidadeId ?? null,
         titulo: `Contagem: ${l.nome}`,
         detalhe: `Hora de contar o estoque desta lista${alvo}.`,
         prioridade: 'media',

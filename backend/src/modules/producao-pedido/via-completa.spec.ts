@@ -133,11 +133,13 @@ descrever('as vias do pedido: via do delivery e via de produção completa (Post
     const [via] = await jobs(comanda, 'cliente');
     expect(via.eq).toBe(l.caixa);
     const texto = via.linhas.join('\n');
-    for (const t of ['@CB Loja Fictícia', '@CB DELIVERY', '@CBD PEDIDO #284', '@C Cardápio 12', '@BD Cliente Fictício', '@BSD Rua Fictícia, 10', '@BSD Ref: portão azul',
+    for (const t of ['@CB Loja Fictícia', '@CB DELIVERY', '@CBD PEDIDO #284', '@CBD Regem 12', '@BD Cliente Fictício', '@BSD Rua Fictícia, 10', '@BSD Ref: portão azul',
       '@BD TOTAL: R$ 44,00', '@CB COBRAR R$ 44,00', '@B Troco para R$ 100,00', '@B LEVAR TROCO: R$ 56,00', 'Entrega: R$ 6,00', '@C Obrigado pela preferência'])
       expect(via.linhas).toContain(t);
-    // Dono, 28/10/2026: na via do caixa (vai com o entregador) o número do painel, não a senha.
-    expect(texto).not.toMatch(/SENHA/i);
+    // Dono, 16/11/2026: a senha no alto, por extenso, e o canal com o nº do pedido nele logo abaixo (só ali).
+    expect(via.linhas[0]).toMatch(/^@CBD SENHA \d+ - DELIVERY$/);
+    expect(via.linhas[1]).toBe('@CBD Regem 12');
+    expect(via.linhas.filter((x: string) => /Regem 12/.test(x))).toHaveLength(1);
     expect(texto).not.toMatch(/Venda balcao/i);
 
     const prod = await jobs(comanda, 'producao');
@@ -146,12 +148,13 @@ descrever('as vias do pedido: via do delivery e via de produção completa (Post
     const c = completa.linhas.join('\n');
     expect(completa.linhas).toEqual(
       // Os componentes do combo multiplicados pela quantidade do item (2 combos = 2 batatas).
-      expect.arrayContaining(['@CB DELIVERY', '@CBD PEDIDO #284', '@C Cardápio 12', '@CBD Cliente Fictício', '@BD 2x Burger Fictício', '@B    OBS: bem passado',
-        '@BD 2x Combo Fictício', '@BSD    - 2x Batata Fictícia', '@BSD    - 2x Refri Fictício', `@S ${TITULO_OUTROS_ITENS}`, '@S 1x Refri Fictício']),
+      // 16/11/2026: o padrão da produção dois passos maior (até o Grande) e adicionais e observação em caixa alta.
+      expect.arrayContaining(['@CBD DELIVERY', '@CBD PEDIDO #284', '@CD Regem 12', '@CBD Cliente Fictício', '@BD 2x Burger Fictício', '@BD    OBS: BEM PASSADO',
+        '@BD 2x Combo Fictício', '@BD    - 2X BATATA FICTÍCIA', '@BD    - 2X REFRI FICTÍCIO', `@S ${TITULO_OUTROS_ITENS}`, '@S 1x Refri Fictício']),
     );
     // O número do PAINEL (284), não o da cozinha (outro contador); a senha pequena, a do cartão do KDS.
-    expect(completa.linhas.slice(0, 2)).toEqual(['@CBD PEDIDO #284', '@C Cardápio 12']);
-    expect(c).toMatch(/@CS SENHA D-\d+/);
+    expect(completa.linhas.slice(0, 2)).toEqual(['@CBD PEDIDO #284', '@CD Regem 12']);
+    expect(c).toMatch(/@CSD SENHA \d+ - DELIVERY/);
     expect(c).not.toMatch(/@CBD SENHA/);
     // Só o que importa: sem valores, endereço, pagamento, cabeçalho e rodapé.
     expect(c).not.toMatch(/R\$|Rua Fictícia|Dinheiro|Troco|Loja Fictícia|Obrigado/);
@@ -179,7 +182,7 @@ descrever('as vias do pedido: via do delivery e via de produção completa (Post
     expect(prod[0].linhas.join('\n')).not.toContain('Combo Fictício'); // o combo sem setor não tem impressora
     // A via sem perfil (loja que nunca editou) diz DELIVERY no lugar de "BALCAO" e traz o canal e o nome; o número do
     // painel em destaque, o do canal logo abaixo, e a senha pequena no fim do cabeçalho (dono, 28/10/2026).
-    expect(prod[0].linhas.slice(0, 6)).toEqual(['*** PRODUCAO ***', '@CBD PEDIDO #284', '@C Cardápio 12', '@B DELIVERY', '@B Cliente Fictício', expect.stringMatching(/^@S senha D-\d+$/)]);
+    expect(prod[0].linhas.slice(0, 6)).toEqual(['*** PRODUCAO ***', '@CBD PEDIDO #284', '@C Regem 12', '@B DELIVERY', '@B Cliente Fictício', expect.stringMatching(/^@S SENHA \d+ - DELIVERY$/)]);
     expect(prod[0].linhas.join('\n')).not.toMatch(/>>> SENHA|DELIVERY · #/); // nem a senha grande nem o nº da cozinha
     expect(prod[0].linhas.join('\n')).not.toContain('BALCAO');
     // A impressora marcada que saiu de uso também não conta.
@@ -202,7 +205,7 @@ descrever('as vias do pedido: via do delivery e via de produção completa (Post
     expect(via).toContain('@CB RETIRADA');
     expect(via.join('\n')).not.toContain('Rua Fictícia');
     const completa = (await jobs(comanda, 'producao')).find((j) => j.eq === l.caixa)!;
-    expect(completa.linhas).toContain('@CB RETIRADA');
+    expect(completa.linhas).toContain('@CBD RETIRADA');
   });
 
   it('a venda que desce da nuvem (servidor da loja) e a reimpressão saem iguais', async () => {
@@ -222,7 +225,7 @@ descrever('as vias do pedido: via do delivery e via de produção completa (Post
     const r: any = await vendas.reimprimirViasExterno(l.t, randomUUID(), comanda, null, null, null);
     expect(r.ok).toBe(true);
     const [reimpressa] = await jobs(comanda, 'cliente');
-    expect(reimpressa.linhas).toEqual(expect.arrayContaining(['@BD Cliente Fictício', '@B LEVAR TROCO: R$ 56,00', '@CBD PEDIDO #284', '@C Cardápio 12']));
+    expect(reimpressa.linhas).toEqual(expect.arrayContaining(['@BD Cliente Fictício', '@B LEVAR TROCO: R$ 56,00', '@CBD PEDIDO #284', '@CBD Regem 12']));
     expect(reimpressa.linhas.join('\n')).not.toMatch(/Venda balcao/i);
   });
 
@@ -243,7 +246,7 @@ descrever('as vias do pedido: via do delivery e via de produção completa (Post
     );
     const prodJobs = await jobs(cmd, 'producao');
     const completa = prodJobs.find((j) => j.eq === l.caixa)!;
-    expect(completa.linhas).toEqual(expect.arrayContaining(['@CBD SENHA B-7', '@CB BALCAO', '@CBD Ana', '@BD 1x Burger Fictício', '@S 1x Refri Fictício']));
+    expect(completa.linhas).toEqual(expect.arrayContaining(['@CBD SENHA 7 - BALCÃO', '@CBD BALCAO', '@CBD Ana', '@BD 1x Burger Fictício', '@S 1x Refri Fictício']));
     expect(completa.linhas.join('\n')).not.toMatch(/DELIVERY|RETIRADA|R\$/);
   });
 });

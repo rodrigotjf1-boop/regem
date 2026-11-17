@@ -358,6 +358,7 @@ export class JobsService {
   }
 
   // As fotos de desperdício e vistoria retidas > 90 dias (não tinham rotina de expurgo). Pelo created_at → cobre também as antigas.
+  // ONDE RODA: nos DOIS lados, cada um com as fotos que ELE consegue apagar (ERR-075, `padraoDasFotos`).
   @Cron('7 3 * * *') // 03:07 todos os dias
   async expurgarFotosOperacao(soEmpresas?: string[]) {
     const RETENCAO_DIAS = 90;

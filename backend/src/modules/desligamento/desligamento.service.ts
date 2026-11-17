@@ -11,7 +11,7 @@ import { EscalaService } from '../escala/escala.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 
 import { hojeISO } from '../../common/data';
-import { urlPublicaSegura } from '../../common/ssrf-guard';
+import { fetchNoIpConferido, urlPublicaSegura } from '../../common/ssrf-guard';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const addDays = (iso: string, d: number) => {
@@ -203,7 +203,7 @@ export class DesligamentoService {
         headers['X-Regem-Signature'] = createHmac('sha256', row.clientSecret).update(body).digest('hex');
       }
       // `redirect: 'manual'`: a trava confere só o endereço cadastrado, não o destino de um redirecionamento.
-      const r = await fetch(url, { method: 'POST', headers, body, signal: AbortSignal.timeout(8000), redirect: 'manual' });
+      const r = await fetchNoIpConferido(url, { method: 'POST', headers, body, signal: AbortSignal.timeout(8000) });
       return r.ok;
     } catch {
       return false;

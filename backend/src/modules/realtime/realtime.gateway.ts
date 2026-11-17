@@ -15,6 +15,7 @@ import { Server, Socket } from 'socket.io';
 import { EquipamentoService } from '../equipamento/equipamento.service';
 import { PresencaService, enderecoDoHost, ipDoPc, versaoInformada } from '../equipamento/presenca.service';
 import { lerCookieSessao } from '../../auth/cookie-sessao';
+import { tokenAbreOTempoReal } from '../../auth/sessao-do-ponto';
 import { ehServidorLocal } from '../../common/modo';
 import { ehTipoDeAviso, prioridadeDoKds } from '../../common/avisos-do-kds';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -86,6 +87,20 @@ export class RealtimeGateway
     return lojas;
   }
 
+  /**
+   * Quem entrou com login segue com acesso? A mesma regra do `JwtAuthGuard` (ERR-192): o excluído e o bloqueado não
+   * entram — sem isto, o token deles (12 h) seguia abrindo o tempo real depois de perder todas as rotas. Quem não tem
+   * linha de colaborador (a sessão de suporte, de vida curta) segue como o guarda trata: pelo token. Sem o banco (os
+   * testes que montam o gateway só com o JWT), não confere.
+   */
+  async pessoaSegueComAcesso(payload: any): Promise<boolean> {
+    if (!this.db || typeof payload?.sub !== 'string' || !UUID_RE.test(payload.sub)) return true;
+    const r: any = await this.db.execute(sql`select status, deleted_at from colaborador where id = ${payload.sub}::uuid`);
+    const pessoa = ((r.rows ?? r) as any[])[0];
+    if (!pessoa) return true;
+    return !pessoa.deleted_at && pessoa.status !== 'bloqueado';
+  }
+
   async handleConnection(socket: Socket) {
     try {
       const auth: any = socket.handshake.auth ?? {};
@@ -131,6 +146,10 @@ export class RealtimeGateway
           auth.jwt || lerCookieSessao({ headers: socket.handshake.headers } as any);
         if (!jwt) return this.recusar(socket, 'sem credenciais');
         const p: any = this.jwt.verify(jwt);
+        // Só a sessão GERAL abre o tempo real: a do terminal de ponto e a do app de atendimento, não (B-01).
+        if (!tokenAbreOTempoReal(p)) return this.recusar(socket, 'esta sessão não abre o tempo real');
+        // E só enquanto a pessoa segue com acesso: o guarda das rotas recusa o excluído e o bloqueado a cada pedido.
+        if (!(await this.pessoaSegueComAcesso(p))) return this.recusar(socket, 'acesso encerrado ou bloqueado');
         const lojas = await this.lojasDoLogin(p.tenant, p, auth.unidade);
         const ctx: SockCtx = {
           tenantId: p.tenant,
@@ -217,7 +236,10 @@ export class RealtimeGateway
     return true;
   }
 
-  // Marcação de ponto gravada em qualquer origem (web/terminal/gestor) → broadcast ao vivo.
+  // Marcação de ponto gravada em qualquer origem (web/terminal/gestor) → o sinal ao vivo.
+  // SÓ O AVISO (ERR-495): antes ia o comprovante inteiro — o nome do colaborador, a hora, o NSR e o hash — a TODO socket da
+  // empresa (KDS, outras lojas, qualquer perfil), a cada batida. Nenhuma tela usa o conteúdo; quem acompanha o ponto lê
+  // pela API de Pessoas & Ponto, que confere a permissão.
   @OnEvent('ponto.marcado')
   onPontoMarcado(p: {
     tenantId: string;
@@ -226,7 +248,11 @@ export class RealtimeGateway
     comprovante: any;
   }) {
     if (!this.server) return;
-    this.server.to(`tenant:${p.tenantId}`).emit('ponto:marcado', p);
+    const loja = p.unidadeId;
+    this.server.to(`tenant:${p.tenantId}`).emit('ponto:marcado', {
+      unidadeId: typeof loja === 'string' && UUID_RE.test(loja) ? loja : null,
+      em: new Date().toISOString(),
+    });
   }
 
   // Aviso para o rodapé do KDS, JÁ GUARDADO (onda 3 da auditoria do KDS, mig 412): os módulos emitem `kds.alerta.sistema`
@@ -324,11 +350,16 @@ export class RealtimeGateway
   }
 
   // Chamado de atendimento aberto (handoff do robô) → sino no app do tenant.
+  // SÓ O AVISO, com o id (ERR-495): a sala da empresa tem TODO mundo — os aparelhos (KDS, terminal de ponto) e qualquer
+  // perfil, de todas as lojas. Antes ia a linha inteira do caso, com o nome e o telefone do cliente e o resumo da conversa,
+  // para quem não tem a permissão de Atendimento. As telas nunca usaram o conteúdo: relêem a fila (`GET /atendimento/fila`),
+  // que filtra a loja e o perfil — como no `atendimento:mudou`.
   @OnEvent('atendimento.novo')
   onAtendimentoNovo(p: { tenantId: string; chamado: any }) {
     if (!this.server) return;
+    const id = p?.chamado?.id;
     this.server.to(`tenant:${p.tenantId}`).emit('atendimento:novo', {
-      chamado: p.chamado,
+      id: typeof id === 'string' && UUID_RE.test(id) ? id : null,
       em: new Date().toISOString(),
     });
   }

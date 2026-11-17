@@ -1,6 +1,7 @@
 import { createServer, Server } from 'node:http';
 import { AddressInfo } from 'node:net';
-import { buscarUrlPublica, urlPublicaSegura } from './ssrf-guard';
+import * as ssrf from './ssrf-guard';
+import { buscarUrlPublica, conferirUrlPublica, EnderecoNaoPublico, urlPublicaSegura } from './ssrf-guard';
 import { ClienteService } from '../modules/cliente/cliente.service';
 import { DesligamentoService } from '../modules/desligamento/desligamento.service';
 import { OpenDeliveryService } from '../modules/integracoes/open-delivery/open-delivery.service';
@@ -66,23 +67,26 @@ describe('a trava anti-SSRF', () => {
   });
 
   it('buscarUrlPublica: o redirecionamento para a rede interna NÃO é seguido; para outro público, é', async () => {
-    const fetchSimulado = jest.spyOn(globalThis, 'fetch').mockImplementation(async (url: any, init: any) => {
-      expect(init?.redirect).toBe('manual'); // nunca deixa o fetch seguir sozinho
-      const u = String(url);
-      if (u === `${PUBLICO}/para-dentro`)
+    // A rede simulada no lugar do envio preso ao IP: confere o endereço como ele (interno → recusa) e responde por mapa.
+    const chamados: string[] = [];
+    const redeSimulada = async (url: string) => {
+      chamados.push(url);
+      if (!(await conferirUrlPublica(url))) throw new EnderecoNaoPublico();
+      if (url === `${PUBLICO}/para-dentro`)
         return new Response(null, { status: 302, headers: { location: 'http://169.254.169.254/latest/meta-data' } });
-      if (u === `${PUBLICO}/para-fora`)
+      if (url === `${PUBLICO}/para-fora`)
         return new Response(null, { status: 301, headers: { location: '/foto-certa.png' } });
-      if (u === `${PUBLICO}/foto-certa.png`) return new Response('png', { status: 200 });
-      throw new Error(`não devia buscar ${u}`);
-    });
-    expect(await buscarUrlPublica(`${PUBLICO}/para-dentro`)).toBeNull();
-    expect(fetchSimulado).toHaveBeenCalledTimes(1);
+      if (url === `${PUBLICO}/foto-certa.png`) return new Response('png', { status: 200 });
+      throw new Error(`não devia buscar ${url}`);
+    };
+    expect(await buscarUrlPublica(`${PUBLICO}/para-dentro`, {}, 3, redeSimulada)).toBeNull();
+    // o salto para a rede interna foi recusado na conferência: nada foi buscado lá
+    expect(chamados).toEqual([`${PUBLICO}/para-dentro`, 'http://169.254.169.254/latest/meta-data']);
 
-    fetchSimulado.mockClear();
-    const r = await buscarUrlPublica(`${PUBLICO}/para-fora`);
+    chamados.length = 0;
+    const r = await buscarUrlPublica(`${PUBLICO}/para-fora`, {}, 3, redeSimulada);
     expect(r?.status).toBe(200);
-    expect(fetchSimulado.mock.calls.map((c) => String(c[0]))).toEqual([`${PUBLICO}/para-fora`, `${PUBLICO}/foto-certa.png`]);
+    expect(chamados).toEqual([`${PUBLICO}/para-fora`, `${PUBLICO}/foto-certa.png`]);
   });
 });
 
@@ -97,10 +101,12 @@ describe('os caminhos que chamam o endereço da loja', () => {
     expect(r).not.toHaveProperty('resposta');
   });
 
-  it('webhook do n8n (OTP e eventos) e o aviso do contador não seguem redirecionamento', async () => {
+  it('webhook do n8n (OTP e eventos) e o aviso do contador saem pelo envio preso ao IP conferido (que nunca segue redirecionamento)', async () => {
     const vistos: any[] = [];
-    jest.spyOn(globalThis, 'fetch').mockImplementation(async (_u: any, init: any) => {
-      vistos.push(init?.redirect);
+    // O `fetch` global não pode ser chamado nestes caminhos: ele resolveria o nome de novo depois da conferência (A-05).
+    const fetchGlobal = jest.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('não devia usar o fetch global'));
+    jest.spyOn(ssrf, 'fetchNoIpConferido').mockImplementation(async (_u: any, init: any) => {
+      vistos.push(init?.method);
       return new Response('ok', { status: 200 });
     });
     const cli = new ClienteService({} as any, {} as any, {} as any);
@@ -111,7 +117,8 @@ describe('os caminhos que chamam o endereço da loja', () => {
     const des = new DesligamentoService(consulta as any, {} as any, {} as any);
     expect(await (des as any).enviarPontoContador('t1', { whatsapp: '21999999999', nome: 'Contador' }, { id: 'c1', nome: 'Ana' }, '2026-10-01', '2026-10-15')).toBe(true);
 
-    expect(vistos).toEqual(['manual', 'manual']);
+    expect(vistos).toEqual(['POST', 'POST']);
+    expect(fetchGlobal).not.toHaveBeenCalled();
   });
 
   it('aviso ao contador: n8n com endereço interno não é chamado', async () => {

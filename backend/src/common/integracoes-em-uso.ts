@@ -58,7 +58,7 @@ export const INTEGRACOES_EM_USO: IntegracaoEmUso[] = [
     id: 'anthropic',
     nome: 'Anthropic · modelos de IA',
     tipo: 'ia',
-    usamos: 'o Mister, o robô de atendimento, o copiloto e as marcações do Instagram',
+    usamos: 'o Mister, o robô de atendimento, o copiloto, as marcações do Instagram e a leitura da foto que o cliente manda',
     modelos: ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5'],
   },
   {

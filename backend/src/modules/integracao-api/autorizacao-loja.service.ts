@@ -36,7 +36,12 @@ import {
   verificadorConfere,
 } from './autorizacao-loja';
 import { gerarTokenIntegracao } from './token-integracao';
+import { credencialAntigaDesligada } from '../../common/retirada-credencial';
 import { Autorizador, IntegracaoTokenService } from './integracao-token.service';
+
+/** A troca da página de 01/10 (o token colado por loja) com a credencial antiga desligada (P-4). */
+export const TROCA_DE_01_10_RETIRADA =
+  'A troca do código pelo token colado foi retirada. Conecte pela autorização por clique do DMS ID (Padrão DMS §3).';
 import type { IntegracaoCtxData } from './integracao-token.guard';
 import { POLITICA_LIGACAO } from '../../dms/integracao-dms';
 import { PERMISSAO_NA_TELA } from './autorizacao-clique.regras';
@@ -247,6 +252,8 @@ export class AutorizacaoLojaService {
    * a loja já tinha com este cliente e cria o novo. Resposta: `{ lojas: [{ …loja, token }] }`.
    */
   async trocar(body: any) {
+    // Desligado pela distribuição (P-4): a página de 01/10 não entrega mais token colado.
+    if (credencialAntigaDesligada()) throw new ProblemaException(404, 'nao-encontrado', TROCA_DE_01_10_RETIRADA);
     const cliente = clienteAutorizacao(body?.client_id);
     if (!cliente || !segredoConfere(cliente, body?.client_secret)) {
       throw new ProblemaException(401, 'cliente-invalido', 'Cliente ou segredo de cliente inválido.');
@@ -258,15 +265,22 @@ export class AutorizacaoLojaService {
     if (!formatoCodigoAutorizacao(body?.code)) return recusar('código fora do formato');
     const hash = hashCodigoAutorizacao(body.code);
 
+    // Só o código DESTA página (a de 01/10, sem texto guardado). O da autorização por clique (mig 336, `texto` preenchido)
+    // tem a troca dele, com o token do DMS ID e o `autorizacao_id` que a revogação por reutilização usa: aqui ele é
+    // recusado SEM ser gasto — na mesma instrução — e segue valendo para a troca certa (avaliação de segurança de
+    // 16/11/2026, A-04: a troca antiga gastava o código do clique e emitia um token sem esse vínculo).
     const [a] = await this.rows(sql`
       update integracao_autorizacao set usado_em = now()
        where codigo_hash = ${hash} and cliente = ${cliente.chave} and usado_em is null and expira_em > now()
+         and texto is null
        returning id, tenant_id, lojas, escopos, autorizado_por, desafio, redirect_uri`);
     if (!a) {
       const [v] = await this.rows(sql`
-        select usado_em is not null as usado, expira_em <= now() as vencido
+        select usado_em is not null as usado, expira_em <= now() as vencido, texto is not null as do_clique
           from integracao_autorizacao where codigo_hash = ${hash}`);
-      return recusar(!v ? 'código desconhecido' : v.usado ? 'código já usado' : v.vencido ? 'código vencido' : 'código de outro cliente');
+      return recusar(
+        !v ? 'código desconhecido' : v.do_clique ? 'código da autorização por clique na troca de 01/10' : v.usado ? 'código já usado' : v.vencido ? 'código vencido' : 'código de outro cliente',
+      );
     }
     if (body?.redirect_uri !== a.redirect_uri) return recusar('endereço de volta diferente do da autorização');
     if (!verificadorConfere(body?.code_verifier, a.desafio)) return recusar('o verificador do PKCE não confere');

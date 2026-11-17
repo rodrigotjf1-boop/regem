@@ -958,11 +958,27 @@ export function agendamentoAnotaAi(raw: any): Date | null {
 // estágio do fluxo do Regem. Lenient por palavra-chave — robusto a valores que a
 // doc não documenta. Retorna null quando é "novo/confirmado/em produção" (o pedido
 // segue o fluxo normal de ingestão) ou quando não reconhece.
+//
+// Hoje só o Cardápio Web usa (a lista e o aviso dele). As 12 situações da API dele (docs.cardapioweb.com › Pedidos ›
+// Polling de pedidos, lidas em 16/11/2026): waiting_confirmation, pending_payment, pending_online_payment,
+// scheduled_confirmed, confirmed, ready, released, waiting_to_catch, delivered, canceling, canceled, closed.
+// Três não casavam com palavra nenhuma e caíam em "fluxo normal" (ERR-496): o pedido que a loja despachava ou
+// finalizava no painel do Cardápio Web ficava parado no Regem — 137 pedidos `closed` seguiam "novo" numa empresa.
+const SITUACOES_DO_CARDAPIO_WEB: Record<string, 'pronto' | 'despachado' | 'concluido'> = {
+  waiting_to_catch: 'pronto', // "Despachar pedido" de retirada/mesa: liberado, esperando o cliente
+  released: 'despachado', // "Despachar pedido" de entrega: liberado para a saída (a retirada vira "pronto" no reflexo)
+  closed: 'concluido', // "Finalizar pedido": estado final, não volta
+};
+
 export function mapStatusExterno(
   valor: unknown,
 ): 'pronto' | 'despachado' | 'concluido' | 'cancelado' | null {
   const s = String(valor ?? '').toLowerCase().trim();
   if (!s) return null;
+  // O vocabulário do canal pelo valor EXATO, antes das palavras soltas (V20: a lista oficial, não a adivinhação).
+  if (Object.prototype.hasOwnProperty.call(SITUACOES_DO_CARDAPIO_WEB, s)) return SITUACOES_DO_CARDAPIO_WEB[s];
+  // `canceling` cai aqui e vira cancelado: a documentação lista o valor e não diz o que ele é — fica como estava até
+  // a definição (ERR-496, em aberto).
   if (/cancel|reject|negad|denied|recus|declin/.test(s)) return 'cancelado';
   if (/deliver(ed)?|conclu|finish|finaliz|complet|entreg|done/.test(s)) return 'concluido';
   if (/rota|route|dispatch|transit|saiu|out.?for|shipping|a.?caminho|em.?entrega/.test(s)) return 'despachado';

@@ -8,8 +8,23 @@ import { lookup } from 'node:dns/promises';
 // 'node:net'` vira `undefined` em runtime → `net.isIP` crasha ("reading 'isIP'"),
 // derrubando TODO webhook (OTP e avisos n8n). `import * as net` funciona sempre.
 import * as net from 'node:net';
+import * as http from 'node:http';
+import * as https from 'node:https';
+import { Readable } from 'node:stream';
+import { enderecoRecusado } from './envio-seguro';
 
-function ipPrivadoOuLocal(ip: string): boolean {
+/**
+ * O IP é interno, reservado ou de túnel? A CLASSIFICAÇÃO é a mesma do envio estrito (`envio-seguro.ts`): além das
+ * faixas privadas, as reservadas do IPv4 e as do IPv6 que levam um IPv4 dentro (NAT64, 6to4, Teredo) — por elas, um
+ * endereço "público" pode chegar a uma rede interna (segunda rodada da avaliação de segurança, a ressalva do A-05).
+ * O que este guarda NÃO herda do envio estrito, de propósito: aceitar http e porta fora do padrão (o robô de WhatsApp
+ * de uma loja pode estar assim).
+ */
+export function ipPrivadoOuLocal(ip: string): boolean {
+  return faixaPrivada(ip) || enderecoRecusado(ip);
+}
+
+function faixaPrivada(ip: string): boolean {
   const v = net.isIP(ip);
   if (v === 0) return true; // não é IP válido → trata como suspeito
   if (v === 4) {
@@ -27,32 +42,117 @@ function ipPrivadoOuLocal(ip: string): boolean {
   if (low === '::1' || low === '::') return true;
   if (low.startsWith('fc') || low.startsWith('fd')) return true; // ULA
   if (low.startsWith('fe80')) return true; // link-local
-  if (low.startsWith('::ffff:')) return ipPrivadoOuLocal(low.slice(7)); // IPv4-mapped
+  if (low.startsWith('::ffff:')) return faixaPrivada(low.slice(7)); // IPv4-mapped
   return false;
 }
 
-// true = URL pública e segura para fetch a partir do servidor.
-export async function urlPublicaSegura(u?: string | null): Promise<boolean> {
-  if (!u) return false;
+export type EnderecoConferido = { address: string; family: number };
+/** As trocas de TESTE (só por código, nunca por variável de ambiente): o resolvedor e a regra de "é interno". */
+export type OpcoesDaConferencia = {
+  resolver?: (host: string) => Promise<EnderecoConferido[]>;
+  ehInterno?: (ip: string) => boolean;
+};
+
+/**
+ * Confere o endereço e devolve os IPs CONFERIDOS (nulo = não é público): protocolo http(s), nada de nome local, e
+ * nenhum dos endereços que o nome resolve é interno. Quem vai conectar usa ESTES endereços (`fetchNoIpConferido`).
+ */
+export async function conferirUrlPublica(
+  u: string | null | undefined,
+  o: OpcoesDaConferencia = {},
+): Promise<{ url: URL; enderecos: EnderecoConferido[] } | null> {
+  if (!u) return null;
   let url: URL;
   try {
     url = new URL(u);
   } catch {
-    return false;
+    return null;
   }
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') return false;
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
   const host = url.hostname.replace(/^\[|\]$/g, ''); // tira colchetes de IPv6
   const h = host.toLowerCase();
   if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal'))
-    return false;
-  if (net.isIP(host)) return !ipPrivadoOuLocal(host);
+    return null;
+  const ehInterno = o.ehInterno ?? ipPrivadoOuLocal;
+  const familia = net.isIP(host);
+  if (familia) return ehInterno(host) ? null : { url, enderecos: [{ address: host, family: familia }] };
   try {
-    const enderecos = await lookup(host, { all: true });
-    if (!enderecos.length) return false;
-    return enderecos.every((e) => !ipPrivadoOuLocal(e.address));
+    const enderecos = o.resolver ? await o.resolver(host) : await lookup(host, { all: true });
+    if (!enderecos.length) return null;
+    if (enderecos.some((e) => ehInterno(e.address))) return null;
+    return { url, enderecos: enderecos.map((e) => ({ address: e.address, family: e.family })) };
   } catch {
-    return false; // não resolveu → não arrisca
+    return null; // não resolveu → não arrisca
   }
+}
+
+// true = URL pública e segura para fetch a partir do servidor.
+export async function urlPublicaSegura(u?: string | null): Promise<boolean> {
+  return (await conferirUrlPublica(u)) !== null;
+}
+
+/** O endereço deixou de ser público entre a conferência de quem chama e a conexão (ou nunca foi). */
+export class EnderecoNaoPublico extends Error {
+  constructor() {
+    super('endereço bloqueado: não é um endereço público da internet');
+    this.name = 'EnderecoNaoPublico';
+  }
+}
+
+/**
+ * O `fetch` PRESO AO IP CONFERIDO, para endereço que vem de fora (o webhook que a loja cadastra, a base de uma
+ * integração, a foto de um produto). Confere o endereço e conecta SÓ nos IPs que conferiu: o `lookup` da conexão devolve
+ * os conferidos, então um DNS que muda entre a conferência e a conexão não leva a outro lugar — era a brecha de conferir
+ * com `urlPublicaSegura` e depois chamar o `fetch`, que resolve o nome de novo (avaliação de segurança de 16/11/2026,
+ * A-05). No HTTPS o certificado segue conferido pelo NOME. Nunca segue redirecionamento (o 3xx é a resposta). Devolve a
+ * `Response` de sempre (`ok`, `status`, `headers`, `text()`, `body`); endereço que não é público → `EnderecoNaoPublico`.
+ */
+export async function fetchNoIpConferido(
+  endereco: string,
+  init: { method?: string; headers?: Record<string, string>; body?: string | Buffer | null; signal?: AbortSignal | null } = {},
+  o: OpcoesDaConferencia = {},
+): Promise<Response> {
+  const c = await conferirUrlPublica(endereco, o);
+  if (!c) throw new EnderecoNaoPublico();
+  const metodo = (init.method ?? 'GET').toUpperCase();
+  const lib = c.url.protocol === 'https:' ? https : http;
+  // O `lookup` da conexão: só os endereços conferidos (o Node pede um ou a lista inteira, conforme a versão).
+  const lookupFixo = (_host: string, opcoes: any, cb: (...a: any[]) => void) => {
+    if (opcoes?.all) cb(null, c.enderecos);
+    else cb(null, c.enderecos[0].address, c.enderecos[0].family);
+  };
+  // O `fetch` manda estes dois por conta própria, e há servidor que recusa pedido sem eles; quem chama pode trocar.
+  // Sem `accept-encoding`: a resposta vem sem compressão (aqui ninguém descomprime).
+  const cabecalhosDoPedido: Record<string, string> = { accept: '*/*', 'user-agent': 'node' };
+  for (const [nome, valor] of Object.entries(init.headers ?? {})) cabecalhosDoPedido[nome.toLowerCase()] = valor;
+  const temCorpo = init.body != null && metodo !== 'GET' && metodo !== 'HEAD';
+  // O tamanho do corpo, como o `fetch` manda (sem ele o Node enviaria em pedaços, e há destino que não aceita).
+  if (temCorpo && !cabecalhosDoPedido['content-length']) cabecalhosDoPedido['content-length'] = String(Buffer.byteLength(init.body as string | Buffer));
+  return new Promise<Response>((resolve, reject) => {
+    const req = lib.request(
+      c.url,
+      { method: metodo, headers: cabecalhosDoPedido, lookup: lookupFixo as any, ...(init.signal ? { signal: init.signal } : {}) },
+      (res) => {
+        const cabecalhos = new Headers();
+        for (const [nome, valor] of Object.entries(res.headers)) {
+          if (Array.isArray(valor)) for (const v of valor) cabecalhos.append(nome, v);
+          else if (valor != null) cabecalhos.set(nome, String(valor));
+        }
+        const status = res.statusCode ?? 502;
+        const semCorpo = metodo === 'HEAD' || status === 204 || status === 205 || status === 304;
+        if (semCorpo) res.resume();
+        try {
+          resolve(new Response(semCorpo ? null : (Readable.toWeb(res) as any), { status, statusText: res.statusMessage ?? '', headers: cabecalhos }));
+        } catch (e) {
+          res.destroy();
+          reject(e);
+        }
+      },
+    );
+    req.on('error', reject);
+    if (temCorpo) req.write(init.body as string | Buffer);
+    req.end();
+  });
 }
 
 // GET de um endereço que a LOJA informou (foto de produto, imagem de campanha), seguindo no máximo
@@ -65,11 +165,20 @@ export async function buscarUrlPublica(
   url: string,
   init: RequestInit = {},
   saltos = 3,
+  // Só os testes trocam (a rede simulada): em produção é sempre o envio preso ao IP conferido.
+  buscar: (url: string, init: { method?: string; headers?: Record<string, string>; signal?: AbortSignal | null }) => Promise<Response> = fetchNoIpConferido,
 ): Promise<Response | null> {
   let atual = url;
+  const cabecalhos = Object.fromEntries(new Headers(init.headers ?? {}).entries());
   for (let i = 0; i <= saltos; i++) {
-    if (!(await urlPublicaSegura(atual))) return null;
-    const res = await fetch(atual, { ...init, method: 'GET', redirect: 'manual' });
+    // Conferido e conectado no MESMO endereço (A-05): o `fetch` resolveria o nome de novo depois da conferência.
+    let res: Response;
+    try {
+      res = await buscar(atual, { method: 'GET', headers: cabecalhos, signal: init.signal ?? null });
+    } catch (e) {
+      if (e instanceof EnderecoNaoPublico) return null;
+      throw e;
+    }
     const destino = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
     if (!destino) return res;
     await res.body?.cancel().catch(() => undefined); // libera a conexão do salto

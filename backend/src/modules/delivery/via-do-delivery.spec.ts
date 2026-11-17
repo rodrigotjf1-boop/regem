@@ -46,7 +46,7 @@ describe('via do delivery — dados do pedido e impressão', () => {
       senha: 5,
       senhaPrefixo: 'D',
       tipoPedido: 'DELIVERY',
-      plataforma: 'Cardápio 12',
+      plataforma: 'Regem 12', // o cardápio próprio sai "Regem" (16/11/2026)
       pedidoRegem: '#284',
       dataHora: '22/10/2026, 21:30:00', // a hora do pedido, no fuso da loja
       cliente: 'Cliente Fictício',
@@ -90,9 +90,10 @@ describe('via do delivery — dados do pedido e impressão', () => {
       'Obrigado!\nVolte sempre',
     );
     const linhas = conteudo.split('\n');
-    // Dono, 28/10/2026: "PEDIDO #284" (o número do painel) em destaque, o do canal logo abaixo e menor, sem a senha.
-    expect(linhas.slice(0, 5)).toEqual(['@CB Loja Fictícia', '@CB Rua da Loja, 1', '@CBD PEDIDO #284', '@C Cardápio 12', '@CB DELIVERY']);
-    expect(conteudo).not.toMatch(/SENHA/i);
+    // Dono, 16/11/2026: a SENHA no alto ("SENHA 5 - DELIVERY") e o canal com o nº do pedido nele logo abaixo — o canal não
+    // repete mais embaixo do "PEDIDO #284" (antes, 28/10: o número do painel em destaque e sem a senha).
+    expect(linhas.slice(0, 6)).toEqual(['@CBD SENHA 5 - DELIVERY', '@CBD Regem 12', '@CB Loja Fictícia', '@CB Rua da Loja, 1', '@CBD PEDIDO #284', '@CB DELIVERY']);
+    expect(linhas.filter((l) => /Regem 12/.test(l))).toHaveLength(1);
     expect(linhas).toEqual(
       expect.arrayContaining([
         '@BD Cliente Fictício', // nome em destaque
@@ -100,8 +101,8 @@ describe('via do delivery — dados do pedido e impressão', () => {
         '@BSD Centro',
         '@BSD Ref: portão azul',
         '2x Lanche Fictício', // a lista do cardápio sai da descrição...
-        '@B    + 2x Bacon', // ...e vira a linha do adicional, em negrito
-        '@B    OBS: bem gelado',
+        '@B    + 2X BACON', // ...e vira a linha do adicional, em negrito
+        '@B    OBS: BEM GELADO',
         'Entrega: R$ 6,00',
         'Desconto: -R$ 2,00',
         '@BD TOTAL: R$ 34,00', // do tamanho da senha
@@ -128,12 +129,12 @@ describe('via do delivery — dados do pedido e impressão', () => {
     );
     const linhas = conteudo.split('\n');
     const i = linhas.indexOf('@BSD Ref: portão azul');
-    expect(linhas[i + 1]).toBe('@B OBS: interfone ruim @GAVETA');
+    expect(linhas[i + 1]).toBe('@B OBS: INTERFONE RUIM @GAVETA'); // em caixa alta (16/11/2026)
     expect(linhas.some((l) => l.trim() === '@GAVETA')).toBe(false);
     // Sem observação, nada; e a retirada também mostra (não tem endereço, mas tem o recado).
     expect(producao.renderCupomPerfil(perfilEfetivo('entregador', null), dadosDaViaDoDelivery(pedido(), itens))).not.toContain('OBS: interfone');
     const ret = producao.renderCupomPerfil(perfilEfetivo('entregador', null), dadosDaViaDoDelivery(pedido({ tipo: 'retirada', observacao: 'vou buscar às 20h' }), itens));
-    expect(ret).toContain('@B OBS: vou buscar às 20h');
+    expect(ret).toContain('@B OBS: VOU BUSCAR ÀS 20H');
   });
 
   it('pago online sai "PAGO - NADA A COBRAR" (antes, "COBRAR R$ 0,00")', () => {
@@ -157,23 +158,79 @@ describe('via do delivery — dados do pedido e impressão', () => {
     const linhas = conteudo.split('\n');
     const i = linhas.indexOf('1x Trio 08');
     expect(i).toBeGreaterThan(-1);
-    expect(linhas.slice(i + 1, i + 3)).toEqual(['@B    + Batata média', '@B    + Coca-Cola lata']);
-    expect(linhas).toContain('@C iFood 6214');
+    expect(linhas.slice(i + 1, i + 3)).toEqual(['@B    + BATATA MÉDIA', '@B    + COCA-COLA LATA']); // em caixa alta (16/11/2026)
+    expect(linhas).toContain('@C iFood 6214'); // sem senha no pedido, o canal fica na linha dele
   });
 
   it('via de produção de quem nunca editou o modelo: "PEDIDO #10", o canal embaixo, a senha pequena e o combo uma escolha por linha', () => {
     const ctx = { origem: 'delivery', plataforma: 'iFood', senhaPlataforma: '6214', senha: 1, senhaPrefixo: 'D', cliente: 'Ana', pedidoNumero: 10 };
     const its = [{ quantidade: 1, descricao: 'Trio 08', complementosTexto: 'Batata média · Coca-Cola lata', observacao: 'sem gelo' }];
     const linhas = (servico as any).renderTicket(ctx, its, 57, null).split('\n');
-    expect(linhas.slice(0, 6)).toEqual(['*** PRODUCAO ***', '@CBD PEDIDO #10', '@C iFood 6214', '@B DELIVERY', '@B Ana', '@S senha D-1']);
+    expect(linhas.slice(0, 6)).toEqual(['*** PRODUCAO ***', '@CBD PEDIDO #10', '@C iFood 6214', '@B DELIVERY', '@B Ana', '@S SENHA 1 - DELIVERY']);
     expect(linhas.join('\n')).not.toContain('#57'); // o número da cozinha (outro contador) não sai
     const i = linhas.indexOf('1x Trio 08');
-    expect(linhas.slice(i + 1, i + 4)).toEqual(['@B   + Batata média', '@B   + Coca-Cola lata', '  ** OBS: sem gelo']);
+    expect(linhas.slice(i + 1, i + 4)).toEqual(['@B   + BATATA MÉDIA', '@B   + COCA-COLA LATA', '  ** OBS: SEM GELO']);
     // Sem o número do painel (cartão antigo): o cabeçalho de antes, com a senha grande.
     const antigo = (servico as any).renderTicket({ ...ctx, pedidoNumero: null }, its, 57, null).split('\n');
-    expect(antigo).toEqual(expect.arrayContaining(['>>> SENHA D-1 <<<', 'DELIVERY · #57', '@B iFood 6214']));
+    expect(antigo).toEqual(expect.arrayContaining(['>>> SENHA 1 - DELIVERY <<<', 'DELIVERY · #57', '@B iFood 6214']));
     // Balcão (sem canal): como sempre — a senha é por onde a cozinha chama.
     const balcao = (servico as any).renderTicket({ origem: 'balcao', senha: 7, senhaPrefixo: 'B', pedidoNumero: 10 }, its, 58, null).split('\n');
-    expect(balcao.slice(0, 3)).toEqual(['*** PRODUCAO ***', '>>> SENHA B-7 <<<', 'BALCAO · #58']);
+    expect(balcao.slice(0, 3)).toEqual(['*** PRODUCAO ***', '>>> SENHA 7 - BALCÃO <<<', 'BALCAO · #58']);
+  });
+});
+
+// Pedido do dono, 16/11/2026: o cupom do caixa ~30% maior, os de produção muito maiores, a senha por extenso, o canal
+// embaixo da senha no cupom do delivery e o adicional e a observação em caixa alta.
+describe('as vias de 16/11: senha por extenso, canal embaixo, caixa alta e o cupom maior', () => {
+  const servico = new ProducaoPedidoService({} as any, {} as any, {} as any);
+  const its = [
+    { quantidade: 1, descricao: 'X-Bacon', complementosTexto: 'Cheddar extra', observacao: 'sem cebola', precoUnitario: 30 },
+  ];
+  // o perfil de produção como a loja de 16/11 gravou: todos os campos em "Normal" (sem escala)
+  const daLoja = (id: string, extra: any = {}) =>
+    perfilEfetivo(id, {
+      campos: [
+        { key: 'senha', visivel: true, negrito: true, alinhamento: 'centro' },
+        { key: 'mesa', visivel: true, negrito: true, alinhamento: 'esquerda' },
+        { key: 'dataHora', visivel: true, negrito: false, alinhamento: 'esquerda' },
+        { key: 'itens', visivel: true, negrito: false, alinhamento: 'esquerda' },
+      ],
+      ...extra,
+    } as any);
+
+  it('produção da loja (tudo em Normal): dois passos maior — o dobro —, senha por extenso, adicional e observação em caixa alta', () => {
+    const linhas = servico.renderCupomPerfil(daLoja('producao_balcao'), { senha: 7, senhaPrefixo: 'B', itens: its }).split('\n');
+    expect(linhas).toEqual(
+      expect.arrayContaining(['@CBD SENHA 7 - BALCÃO', '@BD BALCAO', '@D 1x X-Bacon', '@D    + CHEDDAR EXTRA', '@D    OBS: SEM CEBOLA']),
+    );
+    // a loja que escolher "Como os campos estão" volta ao tamanho gravado
+    const comoEsta = servico.renderCupomPerfil(daLoja('producao_balcao', { aumento: 0 }), { senha: 7, senhaPrefixo: 'B', itens: its }).split('\n');
+    expect(comoEsta).toEqual(expect.arrayContaining(['@CB SENHA 7 - BALCÃO', '@B BALCAO', '1x X-Bacon', '   + CHEDDAR EXTRA', '   OBS: SEM CEBOLA']));
+  });
+
+  it('caixa: um passo maior — o Normal vira Média (~+40%); o que já é Grande fica', () => {
+    const linhas = servico
+      .renderCupomPerfil(perfilEfetivo('caixa', null), { senha: 5, senhaPrefixo: 'B', dataHora: '16/11/2026 23:00', itens: its, totalGeral: 30 })
+      .replace(/ /g, ' ')
+      .split('\n');
+    expect(linhas).toContain('@SD 16/11/2026 23:00'); // Normal → Média
+    expect(linhas).toContain('@CBSD SENHA 5 - BALCÃO'); // a senha do padrão (Normal) também sobe para a Média
+    // a loja de 16/11 gravou a senha do caixa em Grande: fica Grande (o aumento não passa do Grande)
+    const daLoja = perfilEfetivo('caixa', { campos: [{ key: 'senha', visivel: true, negrito: true, alinhamento: 'centro', escala: 2 }, { key: 'itens', visivel: true }] } as any);
+    expect(servico.renderCupomPerfil(daLoja, { senha: 5, senhaPrefixo: 'B', itens: its }).split('\n')[0]).toBe('@CBD SENHA 5 - BALCÃO');
+  });
+
+  it('cupom do delivery: a senha no alto e o canal com o nº do pedido nele logo abaixo — uma vez só; sem a senha à vista, o canal na linha dele', () => {
+    const dados = { senha: 9, senhaPrefixo: 'D', plataforma: 'iFood 6214', pedidoRegem: 284, itens: its };
+    const linhas = servico.renderCupomPerfil(perfilEfetivo('entregador', null), dados).split('\n');
+    expect(linhas.slice(0, 2)).toEqual(['@CBD SENHA 9 - DELIVERY', '@CBD iFood 6214']);
+    expect(linhas.filter((l) => l.includes('iFood 6214'))).toHaveLength(1);
+    const semSenha = servico
+      .renderCupomPerfil(perfilEfetivo('entregador', { campos: [{ key: 'senha', visivel: false }, { key: 'plataforma', visivel: true, alinhamento: 'centro' }, { key: 'itens', visivel: true }] } as any), dados)
+      .split('\n');
+    expect(semSenha).toContain('@C iFood 6214');
+    expect(semSenha.join('\n')).not.toContain('SENHA');
+    // o cardápio próprio sai "Regem"
+    expect(dadosDaViaDoDelivery({ canal: 'cardapio', displayId: '12', numero: 284 } as any, []).plataforma).toBe('Regem 12');
   });
 });

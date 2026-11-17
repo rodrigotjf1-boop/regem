@@ -96,6 +96,8 @@ export class FinanceiroService {
     atorPerfil: string,
     dto: CreateTituloDto,
     atual: string | null = null,
+    // M3a: quem lança por fora da tela diz de onde veio (o Mister lança o boleto por foto com `origem: 'mister'`).
+    opcoes: { origem?: string } = {},
   ) {
     const [row] = await this.db
       .insert(tituloFinanceiro)
@@ -109,7 +111,7 @@ export class FinanceiroService {
         valor: String(dto.valor),
         vencimento: dto.vencimento,
         recorrencia: dto.recorrencia ?? 'nenhuma',
-        origem: 'manual',
+        origem: opcoes.origem ?? 'manual',
         fotoRef: dto.fotoRef,
         criadoPorId: atorId,
       })

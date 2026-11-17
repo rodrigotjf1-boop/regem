@@ -1,15 +1,20 @@
 import { ehServidorLocal } from '../common/modo';
+import { SESSAO_SO_DO_PONTO } from './sessao-do-ponto';
 import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Inject,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { and, eq, isNotNull, isNull, or, sql } from 'drizzle-orm';
-import { randomInt } from 'node:crypto';
+import { randomBytes, randomInt } from 'node:crypto';
+import { JanelaPorChave } from '../common/janela-por-chave';
+import { FilaCheia, UmPorVez } from '../common/um-por-vez';
 import * as bcrypt from 'bcryptjs';
 import { DRIZZLE, DrizzleDB } from '../db/drizzle.module';
 import {
@@ -51,6 +56,17 @@ const PIN_MAX_FALHAS = 10;
 // por IP no controller é apenas teto volumétrico: sozinho ele seria burlado por
 // um atacante distribuído e, apertado demais, barra a troca de turno legítima.
 const PIN_JANELA_MIN = 5;
+// As conferências de PIN da mesma loja (ou do mesmo aparelho) rodam UMA DE CADA VEZ: a trava acima lê as falhas, compara
+// e só depois grava a falha — em paralelo, todas liam antes de qualquer gravação e passavam juntas do teto (segunda
+// rodada da avaliação de segurança, B-02). Quantas cabem na fila; além disso, 429 na hora.
+const PIN_FILA = 8;
+
+// O código do cadastro (e-mail): 5 tentativas por código, e no máximo 6 códigos por hora para o mesmo e-mail — cada
+// código novo zera as tentativas e manda um e-mail a quem talvez não tenha pedido.
+const CODIGO_MAX_TENTATIVAS = 5;
+const CODIGOS_POR_EMAIL_POR_HORA = 6;
+
+const muitasDeUmaVez = (frase: string) => new HttpException(frase, HttpStatus.TOO_MANY_REQUESTS);
 
 @Injectable()
 export class AuthService {
@@ -59,6 +75,22 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly auditoria: AuditoriaService,
   ) {}
+
+  private readonly pinUmPorVez = new UmPorVez(PIN_FILA);
+  private readonly codigosPorEmail = new JanelaPorChave(CODIGOS_POR_EMAIL_POR_HORA, 60 * 60 * 1000);
+
+  /** Mais um código para este e-mail? Passou do teto da hora: 429, sem gerar nem mandar. */
+  private contarCodigoDoEmail(email: string): void {
+    if (!this.codigosPorEmail.contar(email))
+      throw muitasDeUmaVez('Muitos códigos pedidos para este e-mail. Tente de novo em uma hora.');
+  }
+
+  // O login de um e-mail que não existe comparava com nada e respondia mais rápido do que o de um que existe: o tempo
+  // da resposta dizia se o e-mail tem conta. Agora compara com um hash de mentira (gerado uma vez, na primeira falta).
+  private hashDeMentira?: Promise<string>;
+  private senhaDeMentira(): Promise<string> {
+    return (this.hashDeMentira ??= bcrypt.hash(randomBytes(24).toString('hex'), 12));
+  }
 
   // Onboarding em transação: empresa -> função Presidente -> colaborador admin.
   // Valida CNPJ pelos dígitos verificadores (14 dígitos, não todos iguais).
@@ -117,6 +149,8 @@ export class AuthService {
     if ((receita.situacao ?? '').toUpperCase() === 'BAIXADA') {
       throw new BadRequestException('Este CNPJ consta como BAIXADO (encerrado) na Receita Federal.');
     }
+    // O teto de códigos por e-mail (refazer o cadastro também gera código novo e zera as tentativas).
+    this.contarCodigoDoEmail(email);
     // Limpa qualquer pendência antiga do mesmo e-mail/CNPJ (reenvio/refazer limpo).
     await this.db
       .delete(cadastroPendente)
@@ -162,19 +196,21 @@ export class AuthService {
       await this.db.delete(cadastroPendente).where(eq(cadastroPendente.id, pend.id));
       throw new BadRequestException('Código expirado. Refaça o cadastro.');
     }
-    if ((pend.tentativas ?? 0) >= 5) {
+    // A tentativa é RESERVADA antes de comparar, na mesma instrução que confere o teto (B-02). Ler, comparar e só então
+    // gravar "tentativas + 1" deixava dez pedidos em paralelo lerem o mesmo zero: dez palpites num código de cinco.
+    const [reservada] = await this.db
+      .update(cadastroPendente)
+      .set({ tentativas: sql`${cadastroPendente.tentativas} + 1` })
+      .where(and(eq(cadastroPendente.id, pend.id), sql`${cadastroPendente.tentativas} < ${CODIGO_MAX_TENTATIVAS}`))
+      .returning({ codigoHash: cadastroPendente.codigoHash, payload: cadastroPendente.payload });
+    if (!reservada) {
       await this.db.delete(cadastroPendente).where(eq(cadastroPendente.id, pend.id));
       throw new BadRequestException('Muitas tentativas. Refaça o cadastro.');
     }
-    const ok = await bcrypt.compare(cod, pend.codigoHash);
-    if (!ok) {
-      await this.db
-        .update(cadastroPendente)
-        .set({ tentativas: (pend.tentativas ?? 0) + 1 })
-        .where(eq(cadastroPendente.id, pend.id));
-      throw new BadRequestException('Código incorreto.');
-    }
-    const p = pend.payload as CadastroPayload;
+    // o código da linha reservada (um reenvio no meio do caminho troca o código: vale o que estava na reserva)
+    const ok = await bcrypt.compare(cod, reservada.codigoHash);
+    if (!ok) throw new BadRequestException('Código incorreto.');
+    const p = reservada.payload as CadastroPayload;
     // Re-checa dedup (CNPJ/e-mail podem ter sido tomados entre o passo 1 e o 2).
     const [cnpjExiste] = await this.db
       .select({ id: empresa.id })
@@ -190,9 +226,9 @@ export class AuthService {
       await this.db.delete(cadastroPendente).where(eq(cadastroPendente.id, pend.id));
       throw new ConflictException('CNPJ ou e-mail já cadastrado. Faça login.');
     }
-    const sessao = await this.criarContaVerificada(p);
-    await this.db.delete(cadastroPendente).where(eq(cadastroPendente.id, pend.id));
-    return sessao;
+    // O pendente é gasto DENTRO da transação que cria a conta: duas confirmações certas ao mesmo tempo criam uma conta
+    // só (a segunda espera a primeira, não acha mais o pendente e sai), e a conta que não nasceu devolve o pendente.
+    return this.criarContaVerificada(p, pend.id);
   }
 
   // Reenvia o código (rate-limit 1/min). Não revela se o e-mail tem pendência.
@@ -204,28 +240,45 @@ export class AuthService {
       .where(eq(cadastroPendente.email, em))
       .limit(1);
     if (!pend) return { ok: true };
-    if (pend.reenviadoEm && Date.now() - new Date(pend.reenviadoEm).getTime() < 60_000) {
-      throw new BadRequestException('Aguarde um minuto para reenviar o código.');
-    }
+    const cedo = () => new BadRequestException('Aguarde um minuto para reenviar o código.');
+    // a leitura só poupa o trabalho de gerar o código; quem decide é a gravação abaixo
+    if (pend.reenviadoEm && Date.now() - new Date(pend.reenviadoEm).getTime() < 60_000) throw cedo();
+    // o teto da hora ANTES de trocar o código: recusado aqui, o código que a pessoa já tem segue valendo
+    this.contarCodigoDoEmail(em);
     const codigo = String(randomInt(0, 1_000_000)).padStart(6, '0');
     const codigoHash = await bcrypt.hash(codigo, 10);
-    await this.db
+    // O intervalo de um minuto é conferido NA GRAVAÇÃO (B-02): três reenvios em paralelo liam o mesmo "já passou um
+    // minuto" e mandavam três códigos, cada um zerando as tentativas. Só o que grava manda.
+    const [renovado] = await this.db
       .update(cadastroPendente)
       .set({
         codigoHash,
         tentativas: 0,
         expiraEm: new Date(Date.now() + 15 * 60 * 1000),
-        reenviadoEm: new Date(),
+        reenviadoEm: sql`now()`,
       })
-      .where(eq(cadastroPendente.id, pend.id));
+      .where(
+        and(
+          eq(cadastroPendente.id, pend.id),
+          sql`(${cadastroPendente.reenviadoEm} is null or ${cadastroPendente.reenviadoEm} < now() - interval '60 seconds')`,
+        ),
+      )
+      .returning({ id: cadastroPendente.id });
+    if (!renovado) throw cedo();
     const nome = (pend.payload as CadastroPayload)?.nome ?? '';
     await enviarCodigoVerificacao(em, nome, codigo);
     return { ok: true };
   }
 
   // Cria a conta a partir do cadastro verificado e devolve a sessão assinada.
-  private async criarContaVerificada(p: CadastroPayload) {
+  private async criarContaVerificada(p: CadastroPayload, pendenteId: string) {
     const result = await this.db.transaction(async (tx) => {
+      // Gasta o pendente primeiro (a linha fica presa até o fim desta transação): quem chegar junto espera e não o acha.
+      const gasto = await tx
+        .delete(cadastroPendente)
+        .where(eq(cadastroPendente.id, pendenteId))
+        .returning({ id: cadastroPendente.id });
+      if (!gasto.length) throw new ConflictException('Este cadastro já foi concluído. Faça login.');
       // G-1: todo cadastro novo ganha 3 meses (90 dias) do sistema COMPLETO.
       const [emp] = await tx
         .insert(empresa)
@@ -349,11 +402,10 @@ export class AuthService {
     const loginWeb = row?.perfilNivel ? row.loginWeb : pad.loginWeb;
     const permissoes = (row?.permissoes as Permissoes) ?? pad.permissoes;
 
-    if (
-      !row ||
-      !row.senhaHash ||
-      !(await bcrypt.compare(dto.senha, row.senhaHash))
-    ) {
+    // A comparação roda SEMPRE (com um hash de mentira quando não há conta ou senha): sem ela, a resposta mais rápida
+    // dizia que o e-mail não tem conta.
+    const senhaConfere = await bcrypt.compare(String(dto.senha ?? ''), row?.senhaHash ?? (await this.senhaDeMentira()));
+    if (!row || !row.senhaHash || !senhaConfere) {
       // Falha auditável só quando o e-mail existe (temos o tenant p/ atribuir).
       if (row) {
         await this.auditoria.registrar({
@@ -434,7 +486,21 @@ export class AuthService {
       .from(unidade)
       .where(eq(unidade.id, dto.unidadeId));
     if (!uni) throw new UnauthorizedException('Unidade inválida');
+    return this.pinNaFila(`loja:${dto.unidadeId}`, () => this.pinLoginNaVez(dto, uni.tenantId));
+  }
 
+  /** Uma conferência de PIN de cada vez por loja ou aparelho (ver `PIN_FILA`); a fila cheia responde 429 na hora. */
+  private async pinNaFila<T>(chave: string, conferir: () => Promise<T>): Promise<T> {
+    try {
+      return await this.pinUmPorVez.rodar(chave, conferir);
+    } catch (e) {
+      if (e instanceof FilaCheia) throw muitasDeUmaVez('Muitas tentativas de PIN ao mesmo tempo. Tente de novo.');
+      throw e;
+    }
+  }
+
+  private async pinLoginNaVez(dto: PinLoginDto, tenantId: string) {
+    const uni = { tenantId };
     // Lockout: bloqueia após muitas falhas recentes na mesma unidade.
     if (await this.pinBloqueado(dto.unidadeId)) {
       throw new ForbiddenException(
@@ -478,16 +544,21 @@ export class AuthService {
         const permissoes =
           (c.permissoes as Permissoes) ?? perfilPadrao(nivel).permissoes;
         const esc = await this.escopo(c.funcaoId);
-        const base = this.assinar({
-          colaboradorId: c.id,
-          tenantId: c.tenantId,
-          categoria: nivel,
-          setorId: esc.setorId,
-          unidadeId: c.unidadeId ?? esc.unidadeId,
-          permissoes,
-          nome: c.nome,
-          funcaoNome: c.funcaoNome,
-        });
+        // A sessão do PIN é SEMPRE a do terminal de ponto: só marca o ponto e envia a foto, na nuvem e no servidor da
+        // loja, para qualquer nível (A-03 e a segunda rodada; ver `sessao-do-ponto.ts`).
+        const base = this.assinar(
+          {
+            colaboradorId: c.id,
+            tenantId: c.tenantId,
+            categoria: nivel,
+            setorId: esc.setorId,
+            unidadeId: c.unidadeId ?? esc.unidadeId,
+            permissoes,
+            nome: c.nome,
+            funcaoNome: c.funcaoNome,
+          },
+          { so: SESSAO_SO_DO_PONTO },
+        );
         return { ...base, nome: c.nome, matricula: c.matricula ?? null };
       }
     }
@@ -513,6 +584,10 @@ export class AuthService {
    */
   async pinLoginNoAparelho(ap: { id: string; tenantId: string; unidadeId: string | null }, pin: string) {
     if (!/^\d{4,6}$/.test(String(pin ?? ''))) throw new UnauthorizedException('PIN deve ter de 4 a 6 dígitos.');
+    return this.pinNaFila(`aparelho:${ap.id}`, () => this.pinLoginNoAparelhoNaVez(ap, pin));
+  }
+
+  private async pinLoginNoAparelhoNaVez(ap: { id: string; tenantId: string; unidadeId: string | null }, pin: string) {
     const falhas: any = await this.db.execute(sql`
       select count(*)::int as n from audit_log
        where acao = 'pin_falhou' and entidade_tipo = 'equipamento' and entidade_id = ${ap.id}::uuid
@@ -639,7 +714,7 @@ export class AuthService {
     return { ok: true };
   }
 
-  // `extra`: marcas a mais no token — hoje só `ap`, o celular do app de atendimento (mig 353).
+  // `extra`: marcas a mais no token — `ap`, o celular do app de atendimento (mig 353), e `so`, a sessão do terminal de ponto.
   private assinar(user: AuthUser, extra: Record<string, unknown> = {}) {
     const access_token = this.jwt.sign({
       ...extra,

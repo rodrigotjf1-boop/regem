@@ -32,6 +32,7 @@ import {
   situacaoDaNotaSemResposta,
   situacaoDoCaixa,
   situacaoDoCertificadoDaLoja,
+  situacaoDoChatSemResposta,
   situacaoDoIfoodSemResposta,
   situacaoDoPedidoParado,
   situacaoDoVigia,
@@ -44,6 +45,7 @@ import { MODELO_DO_AVISO, parametrosDoAviso } from './mister-modelos';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { MisterPropostasService } from './mister-propostas.service';
 import { pessoaVale } from './mister-vinculo.service';
+import { ChatSemResposta, chatsDoIfoodSemResposta } from '../ponte-chat/chat-sem-resposta';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -334,6 +336,25 @@ export class MisterAvisosService implements OnModuleInit {
       if (s) fora.push(s);
     }
 
+    // 6b) O CHAT do iFood sem ninguém respondendo: a ponte do chat ligada nos ajustes e nenhum PC respondendo pelo iFood (o
+    //     Gestor da ponte caiu para o login, ou a ponte parou de dar sinal). Só ABRE com pedido do iFood em andamento — a
+    //     ponte desligada de madrugada não incomoda ninguém — e, depois de aberto, segue até alguém voltar a responder
+    //     (senão "resolveria" quando os pedidos acabam, com o chat ainda sem resposta).
+    const chats = await this.chatsSemResposta(soEmpresas);
+    if (chats.length) {
+      const jaAbertos = new Set(
+        linhas(
+          await this.db.execute(sql`
+            select a.tenant_id::text || '|' || a.chave as k from mister_aviso a
+             where a.situacao = 'aberto' and a.chave like 'chat:ifood:%' ${so('a.tenant_id')}`),
+        ).map((x) => String(x.k)),
+      );
+      for (const c of chats) {
+        const s = situacaoDoChatSemResposta(c, c.loja);
+        if (c.pedidos > 0 || jaAbertos.has(`${s.tenantId}|${s.chave}`)) fora.push(s);
+      }
+    }
+
     // 7) O pedido parado. Nasce DESLIGADO: só nas empresas que ligaram, com o tempo que escolheram.
     fora.push(...(await this.pedidosParados(so)));
     return fora;
@@ -428,6 +449,19 @@ export class MisterAvisosService implements OnModuleInit {
       fora.push(situacaoDoPedidoParado({ ...p, unidadeId, parametro: Number(p.parametro) }, String(p.loja ?? '')));
     }
     return fora;
+  }
+
+  /**
+   * As lojas com o chat do iFood sem ninguém respondendo (`ponte-chat/chat-sem-resposta.ts`). Banco sem as tabelas da
+   * ponte (mig 366) = nenhuma.
+   */
+  protected async chatsSemResposta(soEmpresas?: string[]): Promise<ChatSemResposta[]> {
+    try {
+      return await chatsDoIfoodSemResposta(this.db, soEmpresas);
+    } catch (e: any) {
+      if (semTabela(e)) return [];
+      throw e;
+    }
   }
 
   /**

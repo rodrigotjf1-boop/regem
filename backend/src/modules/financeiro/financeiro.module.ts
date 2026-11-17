@@ -7,5 +7,7 @@ import { ProducaoPedidoModule } from '../producao-pedido/producao-pedido.module'
   imports: [ProducaoPedidoModule], // impressão dos cupons de caixa (sangria/suprimento/fechamento)
   controllers: [FinanceiroController],
   providers: [FinanceiroService],
+  // M3a: o Mister lança a conta a pagar do boleto por foto pelo MESMO serviço da tela.
+  exports: [FinanceiroService],
 })
 export class FinanceiroModule {}

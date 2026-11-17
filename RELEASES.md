@@ -10,7 +10,168 @@
 - **Como cortar (OBRIGATÓRIO):** `powershell -File backend\edge\build-release.ps1 -Versao X.Y.Z` → só compilar no Inno / rodar `publicar.ps1` no **"TUDO OK"** do preflight. Nunca de árvore atrás do `origin/main`, nunca de `regem-edge-dist` reaproveitado.
 - **Publicar `.zip`:** `edge/publicar.ps1 -Versao X.Y.Z` → sobe no Supabase Storage (bucket `edge-updates`, nome exato `regem-edge-X.Y.Z.zip`) → `edge/publicar.ps1 -Versao X.Y.Z -SoAssinar -Url <url>` (assina o MESMO arquivo, v1 + v2 com validade) → cola versão, URL, SHA e as assinaturas no console de distribuição, **começando pelas lojas piloto / percentual baixo**. O console recusa release sem as duas assinaturas válidas.
 
-## Acumulado (NÃO empacotado) — próxima release (1.30.14)
+## Acumulado (NÃO empacotado) — próxima release (1.30.15)
+
+- **PDV · Balcão: cartões grandes por padrão, "Compactos" por pessoa, e a ordem do "Organizar" gravada de verdade (17/11;
+  ERR-504; SEM migration) → vai no `.zip`** (a tela e a rota das preferências são do servidor da loja).
+  - O cartão grande: 6 por linha no monitor, foto 4:3, nome de 17 px, preço em destaque; "Compactos" ao lado do "Organizar".
+  - O DTO das preferências aceita a ordem das categorias e o tamanho dos cartões (antes descartava a ordem).
+
+- **PDV · Balcão: o cartão do produto com a foto em cima e a janela das etapas larga com a foto de cada opção (17/11, pedido
+  do dono; SEM migration) → vai no `.zip`** (a tela e a leitura do produto são do servidor da loja).
+  - O cartão: foto grande em cima (ou o ícone), nome em destaque, preço no pé; o painel do pedido não mudou.
+  - A janela das etapas larga, opções em grade, a foto da opção (a do cadastro da opção; senão, a do produto do código).
+
+- **Mister: o boleto e a conta por foto (17/11, M3a partes 1 e 2; mig 439 `mister_documento` SÓ NUVEM; nasce DESLIGADO).**
+  Com `MISTER_DOCUMENTOS=1` no `regem-api` (o dono liga), o presidente manda a foto ou o PDF do boleto ao WhatsApp do
+  Mister e ele lança nas contas a pagar (sozinho, com "Desfazer", só o boleto que confere de fornecedor cadastrado; o
+  resto pergunta). Só NUVEM: vale com o merge. O `.zip` leva o código sem efeito na loja e a classificação
+  `mister_documento` = SO_NUVEM no `sync-daemon.mjs` (a loja não pede a tabela).
+
+- **Vias impressas: "SENHA 5 - BALCÃO", o canal embaixo da senha no delivery, caixa alta e o cupom maior (16/11, pedidos do
+  dono; SEM migration) → vai no `.zip`** (quem imprime é o servidor da loja).
+  - A senha por extenso em todas as vias; no cupom do delivery, a senha no alto e o canal ("iFood 6214") logo abaixo.
+  - O cardápio próprio sai "Regem". Adicional e observação em maiúsculas.
+  - "Tamanho do cupom inteiro" por perfil: o caixa 1 passo maior (~+40%), a produção 2 (o dobro), até o Grande.
+
+- **Totem em dinheiro: o ícone em todos os PDVs, o "pronto e não pago" e a via "PAGO NO CAIXA" (16/11, pedidos do dono; SEM
+  migration) → vai no `.zip`** (o PDV e a impressão da loja são do servidor da loja).
+  - Ícone com a contagem desde a chegada do pedido; o clique abre Retirada / Encomendas; vermelho com pronto e não pago.
+  - O "avançar" não conclui o totem em dinheiro não pago. O totem pago no totem sai só com a produção.
+  - A via do caixa do dinheiro só depois do pagamento, com "PAGO NO CAIXA" e a forma cobrada.
+
+- **PDV · Balcão sem o "Todos": abre na primeira categoria (16/11, pedido do dono; só tela, sem migration) → vai no `.zip`**
+  (a tela da loja vem nele).
+  - A barra de categorias perde o "Todos"; a tela abre na primeira categoria com produto, na ordem do "Organizar".
+  - O produto de subcategoria aparece na categoria de cima; o sem categoria ganha a pílula "Sem categoria".
+
+- **O atendente responde uma vez por vez — fim da "conversa picotada" (16/11, pedido do dono; SEM migration).** O cliente
+  que manda outra mensagem enquanto a resposta é preparada recebe UMA resposta, que considera tudo: a velha é segurada e
+  tudo vai de novo ao robô. Instruções `.f24`. Só NUVEM (o atendente é da nuvem): vale com o merge; `ROBO_SEGURAR_MS=0`
+  desliga. O `.zip` leva o código sem efeito na loja.
+
+- **KDS: o cartão cancelado sai pelo "Ciente" (botão ou senha + Enter); a senha vai no cartão que anda; adicionais e
+  observação em caixa alta (16/11, pedido do dono; SEM migration) → vai no `.zip`** (a tela e o servidor da loja).
+  - Antes, o cancelado ficava 30 min preso, sem botão, e o Enter da senha dizia "não está na fila".
+
+- **Empresa inativa há 2 meses é desligada — a loja e as integrações (16/11, decisão do dono; SEM migration; nasce
+  DESLIGADA).** Com `DESLIGAR_INATIVAS=1` na nuvem (o dono liga), uma rotina diária desliga a empresa sem nenhum sinal de
+  uso há 60 dias: ação de uma pessoa, batida do servidor da loja, sinal de aparelho, venda, ou ação da distribuição
+  sobre ela. Quem paga e a própria Regem nunca entram.
+  - A empresa fica `bloqueado` (o mesmo estado do "Revogar" do console; volta pelo "Liberar") e as integrações ligadas
+    dela são desligadas — credencial e configuração ficam, nada é apagado.
+  - Fica o registro `desligou_por_inatividade` na auditoria do console, com os dias, o último sinal e quais integrações
+    estavam ligadas.
+  - Só NUVEM (as tabelas da distribuição são de lá): vale com o merge e a variável; o `.zip` leva o código sem efeito na
+    loja.
+
+- **Console › Licenças: o "Revogar" desliga também as integrações, e o "Liberar/Renovar" religa as mesmas (16/11,
+  ERR-501, decisão do dono; SEM migration).** O bloqueio sozinho não parava as rotinas dos canais: a empresa revogada
+  seguia recebendo pedidos que ninguém podia aceitar. Agora o "Revogar" desliga as integrações ligadas dela e guarda
+  quais; o "Liberar/Renovar" religa as que o "Revogar" e a rotina de inatividade desligaram (a que a loja tinha desligado
+  por conta própria fica como está). Credencial e configuração ficam. Empresa inexistente responde "Empresa não
+  encontrada." em vez de um "ok" sem efeito.
+  - Só NUVEM: vale com o deploy.
+
+- **O aceite de pedidos não trava com o pedido que falha sempre (16/11, ERR-493; sem migration) → vai no `.zip`** (o
+  aceite no servidor da loja); o resgate da nuvem vale com o deploy.
+  - As duas primeiras falhas de um pedido tentam de novo no ciclo seguinte, como hoje.
+  - A partir da terceira seguida, ele sai do lote por 2, 4, 6… minutos (teto de 10) e segue "novo" no painel.
+  - O lote passa a ter ordem: quem espera há mais tempo primeiro; o parado há mais de 12 h por último.
+
+- **O iFood sem login na ponte do chat avisa gente (16/11, ERR-497; SEM migration) → ponte 0.7.8 vai no próximo `.exe`.**
+  No 1º dia da ponte no servidor da loja o iFood dela caiu para o login e ficou mais de duas horas sem ninguém saber.
+  - **Nuvem (vale com o merge):** o aviso "iFood ou 99 desconectado" do Mister abre também com o chat do iFood sem ninguém
+    respondendo e pedido em andamento; vai ao gerente pelo WhatsApp e à tela da loja, com onde clicar.
+  - **Ponte 0.7.8 (só no `.exe`; o `.zip` não leva a ponte):** sem login por 1 minuto, mostra a janela do iFood sem tomar
+    o teclado, pisca na barra de tarefas e solta o aviso do Windows; insiste a cada 10 minutos. O diagnóstico anota a
+    chamada sem resposta e a recusa do iFood.
+  - **Antes de gerar o `.exe`:** a prova de tela da ponte (a janela aparece sem virar a janela ativa; o aviso do Windows
+    sai) — `REGEM_PONTE_LOGIN_CONFIRMAR_MS` e `REGEM_PONTE_LOGIN_REPETIR_MS` encurtam os prazos.
+
+- **Cardápio Web: o pedido despachado ou finalizado no painel de lá anda no Regem (16/11, ERR-496; sem migration).** Das
+  12 situações da API do Cardápio Web, três não eram traduzidas: `released` (liberado para a saída) passa a virar
+  despachado, `waiting_to_catch` (liberado para a retirada) vira pronto e `closed` (finalizado) vira concluído. Antes o
+  pedido ficava parado na situação em que estava.
+  - Só NUVEM (a rotina e o aviso do Cardápio Web rodam lá): vale com o deploy; o `.zip` leva o código sem efeito na loja.
+
+- **Cardápio Web: o pedido do iFood que ele também devolve não entra quando o iFood está ligado direto no Regem (16/11,
+  decisão do dono; sem migration).** A consulta do Cardápio Web devolve os pedidos que ele recebeu do iFood; a loja com o
+  iFood ligado no Regem e dentro do Cardápio Web receberia o mesmo pedido duas vezes e viraria duas vendas. Com o iFood
+  direto ligado na mesma loja (ou sem loja), a cópia não entra; o pedido que já tinha entrado segue sendo acompanhado; o
+  resto do Cardápio Web (cardápio, portal, extensão do WhatsApp) entra como sempre. Não aconteceu em nenhuma loja.
+  - Só NUVEM: vale com o deploy.
+
+- **O atendente lê a foto que o cliente manda no WhatsApp (16/11, pedido do dono; SEM migration; nasce DESLIGADO).** Com
+  `ROBO_FOTOS_IA=1` na nuvem (o dono liga), a foto que o contexto não reconheceu como comprovante vai a um modelo de visão,
+  pela porta da IA da empresa (recurso `foto_do_cliente` no medidor), e o atendente recebe o que ela mostra.
+  - Comprovante: cai no caminho do comprovante (as mesmas respostas).
+  - Print da tela do cardápio com erro ou dificuldade: o atendente explica o que a tela diz e o próximo passo.
+  - Foto do pedido recebido (errado, faltando): acolhe e chama a equipe com o que a foto mostra.
+  - As instruções do atendente passam à versão `.f23` (valem já, com a leitura desligada: sem descrição, nada muda).
+  - Só NUVEM (o atendente é da nuvem): vale com o merge e a variável; o `.zip` leva o código sem efeito na loja.
+
+- **Segurança, segunda rodada da avaliação (16/11; SEM migration; só `.zip` — não toca `sync` nem `edge`).** Na NUVEM vale
+  com o merge; na LOJA, com o `.zip` seguinte. O que muda no servidor da loja:
+  - **O PIN só marca o ponto.** A sessão do `POST /auth/pin` (o terminal de ponto) passa a servir só para enviar a foto e
+    marcar o ponto, para qualquer nível, também no servidor da loja (antes, na loja, ela abria a API inteira). Quem tem
+    acesso à gestão entra com a senha. **Conferir depois de instalar:** bater o ponto pelo terminal com foto.
+  - O tempo real não aceita a sessão do PIN nem a de quem foi excluído ou bloqueado.
+  - O PIN confere um de cada vez por loja (em paralelo, a trava dos 10 erros deixava passar mais de 10).
+  - O código do cliente no cardápio e o do cadastro: a tentativa é reservada antes de comparar; pedir código de novo
+    dentro de um minuto não troca o código.
+  - A exportação de clientes "Excel" sai como `.xlsx` (era `.xls`); o CSV não deixa o nome do cliente virar fórmula.
+  - O guarda dos endereços que a loja cadastra recusa também as faixas especiais (NAT64, 6to4, reservadas).
+
+- **Os avisos do sistema levam a loja do registro (16/11, ERR-494; sem migration) → vai no `.zip`** (as rotinas rodam
+  também no servidor da loja); na nuvem vale com o deploy.
+  - "Hora de contar o estoque", "Contagem concluída", "Compra recebida" e "Novo pedido de manutenção" saíam só com a
+    empresa: numa rede de várias lojas, apareciam nas telas de todas.
+  - "Etiquetas de validade" passa a ser um aviso por loja, com a conta de cada uma.
+  - "Novo pedido de manutenção" passa a ser aviso de GESTÃO (decisão do dono, 16/11): saía sem tipo, caía em "loja" e
+    tocava também nas telas de preparo. Agora as telas de preparo (e a loja de um KDS só) não recebem por padrão; o
+    despacho, a entrega e a tela de avisos recebem — como a compra recebida e a contagem.
+  - Numa empresa de uma loja só, o resto não muda.
+
+- **A credencial antiga pode ser desligada (17/11, Hub DMS F6 P-4; SEM migration; nasce desligado; só `.zip`).** Vale na
+  NUVEM, com `INTEGRACAO_ANTIGA_DESLIGADA=true` no `regem-api` (o dono liga). No servidor da loja nada muda: o
+  `X-Sync-Token` do totem segue valendo lá (o código vai no `.zip` sem efeito na loja).
+
+- **🔴 `.exe` — Mister: reiniciar o serviço de impressão pela loja (16/11, F4.4 de `docs/plano-mister.md`, a conversa 5 do
+  protótipo `mockups/regem-mister.html`; sem migration).** Toca `backend/edge/sync-daemon.mjs` (o comando
+  `reiniciar_impressao`) e cria `backend/edge/comando-reiniciar-impressao.mjs` → **vai no `.exe`** (a 1.30.14 tem de sair
+  com `.exe`: a nuvem só oferece o reinício ao servidor que informar `APP_VERSION` ≥ 1.30.14 —
+  `VERSAO_QUE_REINICIA_A_IMPRESSAO` em `mister-procedimentos.ts`; se a versão subir sem o `sync-daemon` novo, o comando
+  volta "ignorado" e o Mister diz "não deu", sem quebrar nada). Na nuvem já vale: abaixo da 1.30.14 o aviso da impressora
+  segue pedindo a via de teste. **Conferir no `.exe`:** o `RegemEdgeSync` (NSSM, conta do sistema) consegue
+  `Restart-Service RegemEdgeImpressao` numa instalação nova.
+
+- **O tempo real manda só o sinal no caso novo do Atendimento e na batida de ponto (16/11, ERR-495; sem migration) → vai
+  no `.zip`** (o gateway roda também no servidor da loja); na nuvem vale com o deploy.
+  - Antes, o caso inteiro (nome e telefone do cliente) e o comprovante do ponto (nome do colaborador, hora, NSR) iam a
+    todo socket da empresa, inclusive aparelhos e perfis sem a permissão.
+  - Nenhuma tela usava esse conteúdo: todas releem pela API, que confere a loja e o perfil.
+
+## Última release: `1.30.14` — gerada em 16/11/2026 da `origin/main` `f7832ca0`, **SÓ `.zip`** (`regem-edge-1.30.14.zip`, 36.796.865 bytes, SHA-256 `d18ba769108d318b56ac65a995ae062a2fe2683d029b4554439d7c68521f7fa8`), conferido (preflight OK; o KDS pelo token do aparelho dentro do pacote) e assinado (v1 + v2, validade até 15/05/2027); entregue ao dono em `Documentos\Regem - release 1.30.14 (16-11)` com o `DADOS PARA PUBLICAR.txt`; publicação no console PENDENTE (o dono); sem `.exe`
+
+- Pedido do dono (16/11): "pode gerar o .zip" — para a TV box da cozinha do Mister Burger mostrar os pedidos (ERR-489, #1068), que abre o servidor da loja.
+- O corte: a `main` andava a cada 10–15 min e o `build-release.ps1` completo reprovava no preflight ("1 commit atrás"); o último passo foi pelo caminho curto (trazer a `main`, conferir que o front e a ponte não mudaram desde os builds deles, rebuildar só o backend, empacotar com o web já montado) e o MESMO preflight passou.
+- O que só vai no `.exe` (Mister — reiniciar o serviço de impressão, F4.4) ficou no acumulado da 1.30.15.
+
+### O que entrou na 1.30.14 (o acumulado desde a 1.30.13)
+
+- **O KDS físico pelo token do aparelho mostra os pedidos (16/11, a TV box da cozinha do Mister Burger; SEM migration;
+  não mexe no `sync-daemon`; ERR-489).** O KDS aberto com `?token=` (sem pessoa logada) ficava "online" e VAZIO: a tela
+  relê a fila a cada pedido novo e a rota da fila só aceitava login. Agora a fila, o avanço e o "Visto" têm rotas do
+  aparelho (`/producao/aparelho/*`, `X-Device-Token`), com a empresa, a loja e o KDS tirados do token. Na NUVEM com o
+  merge. **No `.zip` 1.30.14:** o mesmo no servidor da loja — é o que a TV box da cozinha abre (`https://regem.local:3001/kds`);
+  até lá ela segue vazia. Nada no `.exe`.
+
+- **A foto do catálogo enviada pela loja sobe para a nuvem mesmo com imagens de fora no cadastro (16/11, ERR-490; sem
+  migration) → vai no `.zip`.** A rotina só roda no servidor da loja; na nuvem nada muda.
+  - Antes, o lote de 25 podia ser ocupado inteiro por imagens com endereço de outro sistema (catálogo importado), e a
+    foto enviada pela loja não subia: o cardápio online ficava com a imagem quebrada.
+  - Agora o lote só traz o que é arquivo local e anda em rodízio.
 
 - **"É o servidor da loja?" num lugar só (16/11, V2 do registro; sem migration) → vai no `.zip`** (o código da API e o
   `backend/scripts/apply-all-local.mjs`, que aplica as migrations na loja).
@@ -22,6 +183,18 @@
   com o merge: nenhuma tela pode ser embutida em outro site (menos o cardápio público `/c/...`), `nosniff` em tudo, HSTS
   só em `app.dmsregem.com` e sem `X-Powered-By`. No servidor da loja entra com o `.zip` (o front da loja usa o mesmo
   arquivo): moldura e `nosniff` iguais, SEM HSTS (a regra só vale para o endereço da nuvem). Nada no `.exe`.
+
+- **A hierarquia no cadastro e na exclusão de colaboradores (16/11, avaliação de segurança, achados A-01 e A-02; SEM
+  migration) → vai no `.zip`** (o servidor da loja roda o mesmo serviço — a falha existe lá também até o corte).
+  - Gerente não cria mais colaborador com perfil de acesso do próprio nível ou acima (antes, criava um login de
+    presidente escolhendo uma função de execução).
+  - Gerente não exclui mais presidente nem outro gerente; ninguém exclui o próprio cadastro.
+  - Nada no `.exe`.
+
+- **O envio a endereço informado pela loja conecta no IP conferido (16/11, avaliação de segurança, achado A-05; SEM
+  migration) → vai no `.zip`.** O webhook do robô de WhatsApp (o código do cliente e os avisos do pedido), o "Testar
+  webhook", o aviso ao contador, a base do Open Delivery e as imagens buscadas de fora deixam de resolver o nome duas
+  vezes: a conexão vai ao endereço que a trava conferiu. Para a loja nada muda na tela. Nada no `.exe`.
 
 - **Dependências com falha conhecida, as que não mudam de versão maior (16/11, avaliação interna; SEM migration; só
   `package.json` e `package-lock.json` dos dois lados) → vai no `.zip`** (o pacote leva o `node_modules.tar` e o
@@ -47,6 +220,11 @@
   rotas do totem, que também roda no servidor da loja — lá ele não anuncia (`ehServidorLocal()`). Os arquivos
   (`common/retirada-credencial.ts` e os dois guardas) vão junto no próximo corte, sem efeito na loja. Nada no `.exe`.
 
+- **O envio das campanhas em rodízio e o cupom no modelo oficial (16/11, ERR-491; sem migration).** Só NUVEM (a rotina
+  não roda na loja). Nada a empacotar.
+  - Campanhas fora da janela ou com o teto batido não tomam mais o lote das outras empresas.
+  - O botão "copiar cupom" do modelo oficial leva o código da campanha; antes sairia o texto fixo "CUPOM".
+
 - **A landing de dentro do app (`/`) só promete o que o produto faz (16/11; só tela, sem migration).** Vale na nuvem com o
   deploy (é a página pública de `app.dmsregem.com`); acompanha o `.zip` por ser tela, sem efeito na loja.
   - Os planos e preços são os da tabela do app: 129 / 199 / 299.
@@ -58,10 +236,19 @@
   mensagem positiva, "ainda não caiu", ou chama a equipe (pagar na entrega, cancelado, nenhum pedido com o telefone). Só
   NUVEM (o atendente é da nuvem): vale com o merge; o `.zip` leva o código sem efeito na loja.
 
+- **O PIN do terminal de ponto, na nuvem, só abre o ponto para quem não tem o acesso online (16/11, avaliação de
+  segurança, achado A-03; SEM migration).** Vale na NUVEM com o merge: o PIN de quem está com "acesso online" desligado
+  gera uma sessão que só envia a foto e marca o ponto; antes, abria a API inteira com o perfil da pessoa. **No servidor
+  da loja nada muda** (o PIN entra como sempre); os arquivos vão junto no próximo corte. Nada no `.exe`.
+
 - **Estoque › Produtos › Importar — a conferência não rola mais para o lado (16/11, ERR-476; só tela, sem migration) → vai
   no `.zip`** (a tela da loja vem nele).
   - No passo 3, a lista fica em colunas quando cabe no diálogo e empilhada quando não cabe.
   - Antes, de 640 a ~704 px de tela (celular deitado), a tabela de 640 px rolava dentro do diálogo de 576.
+
+- **A troca de 01/10 não aceita mais código da autorização por clique (16/11, avaliação de segurança, achado A-04; SEM
+  migration).** Só NUVEM (a porta de integração é da nuvem): o código do clique apresentado à troca antiga é recusado sem
+  ser gasto. Os arquivos vão junto no próximo corte, sem efeito na loja. Nada no `.exe`.
 
 - **As rotinas agendadas, nuvem × loja (16/11, ERR-075; sem migration) → vai no `.zip`** (o servidor da loja roda os mesmos
   `@Cron`).
@@ -81,7 +268,9 @@
     - A conclusão feita na loja sem internet, com a entrada no estoque, não volta mais a "pendência crítica" pela marca que
       a nuvem pôs depois. Antes, lançar de novo dobrava o estoque.
     - O envio para a nuvem já vale com o deploy.
-    - A descida para a loja, só com o `.exe` da 1.30.14, que já sai com `.exe`.
+    - A descida para a loja: a 1.30.14 saiu SÓ `.zip`, e o `.zip` leva o daemon (o `package.mjs` copia a pasta `edge`
+      inteira e o `atualizar.ps1` a sobrepõe). A loja que atualizou já tem. Medido em 16/11 às 19:32: a loja piloto na
+      1.30.14, reiniciada na atualização, os cinco serviços rodando. O `.exe` segue necessário para a instalação NOVA.
 
 - **Vagas — o aviso ao banco de talentos pelo NÚMERO DE MARKETING, a fila (16/11, F4b parte 2 do protótipo
   `mockups/regem-vagas-talentos.html` aprovado; mig 438 `@cloud-only` — tabela nova `vaga_aviso`, com `tenant_id`: entra
@@ -100,15 +289,6 @@
   quero mais receber" tiram das ofertas e VOLTAR volta, com a confirmação pelo próprio número de marketing; o robô não
   responde por ele. A instância de marketing do Evolution que já existia ganha o webhook no próximo "Conectar" (só com a
   entrada pelo Regem). Nada a empacotar.
-
-- **🔴 `.exe` — Mister: reiniciar o serviço de impressão pela loja (16/11, F4.4 de `docs/plano-mister.md`, a conversa 5 do
-  protótipo `mockups/regem-mister.html`; sem migration).** Toca `backend/edge/sync-daemon.mjs` (o comando
-  `reiniciar_impressao`) e cria `backend/edge/comando-reiniciar-impressao.mjs` → **vai no `.exe`** (a 1.30.14 tem de sair
-  com `.exe`: a nuvem só oferece o reinício ao servidor que informar `APP_VERSION` ≥ 1.30.14 —
-  `VERSAO_QUE_REINICIA_A_IMPRESSAO` em `mister-procedimentos.ts`; se a versão subir sem o `sync-daemon` novo, o comando
-  volta "ignorado" e o Mister diz "não deu", sem quebrar nada). Na nuvem já vale: abaixo da 1.30.14 o aviso da impressora
-  segue pedindo a via de teste. **Conferir no `.exe`:** o `RegemEdgeSync` (NSSM, conta do sistema) consegue
-  `Restart-Service RegemEdgeImpressao` numa instalação nova.
 
 - **Mister — a conexão por QR Code no console e o número novo (16/11, Q2 e Q3 do protótipo `mockups/regem-mister-qr.html`
   aprovado; mig 437 `@cloud-only` — oito colunas na `mister_numero`, da distribuição, sem `tenant_id`: o `sync-daemon` não
@@ -208,7 +388,7 @@
   30 dias) e, em Pessoas › Candidatos, os cinco indicadores do topo com "Ver por pessoa" em gaveta. O `Indicadores` dos
   relatórios ganhou `acao` e `largo` (aditivo). Nada a empacotar — a tela de Candidatos é `soNuvem`.
 
-## Última release: `1.30.13` — gerada em 15/11/2026 da `origin/main` `1b467618`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 201.939.309 bytes, SHA-256 `0ef731217d91bfac801817f601d85bd8bb732ed873d6c83a1d123496a88fd4f3`) e entregue ao dono em Documentos; **sem `.zip`** e nada publicado no console
+## Release anterior: `1.30.13` — gerada em 15/11/2026 da `origin/main` `1b467618`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 201.939.309 bytes, SHA-256 `0ef731217d91bfac801817f601d85bd8bb732ed873d6c83a1d123496a88fd4f3`) e entregue ao dono em Documentos; **sem `.zip`** e nada publicado no console
 
 - **Pedido do dono (15/11):** "criar .exe atualizado; quando for escolhida a opção servidor, já instalar a ponte que
   controla o atendimento nos marketplaces" → depois: "após escolher entre servidor e PDV, na próxima etapa perguntar se

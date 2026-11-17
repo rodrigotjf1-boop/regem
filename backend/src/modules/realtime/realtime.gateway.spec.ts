@@ -61,6 +61,76 @@ describe('RealtimeGateway — device:ping (W1)', () => {
   });
 });
 
+// ERR-495: a sala da empresa tem os aparelhos (KDS, terminal de ponto) e todo perfil, de todas as lojas. O aviso de caso
+// novo do Atendimento levava a linha inteira do caso — nome e telefone do cliente, o resumo da conversa — a todos eles.
+describe('RealtimeGateway — caso novo do Atendimento: só o aviso', () => {
+  const ID = '99999999-9999-4999-8999-999999999999';
+  const caso = {
+    id: ID,
+    tenantId: 't1',
+    clienteNome: 'Maria de Teste',
+    clienteTelefone: '5521999990000',
+    resumo: 'Pedido veio sem a batata',
+    detalhe: { pedido: { numero: 4821 }, conversa: ['oi', 'cadê meu pedido?'] },
+  };
+
+  it('vai o id e a hora — nada do cliente nem da conversa', () => {
+    const { g, server } = make();
+    g.onAtendimentoNovo({ tenantId: 't1', chamado: caso });
+    expect(server.emits).toHaveLength(1);
+    const { room, ev, payload } = server.emits[0];
+    expect([room, ev]).toEqual(['tenant:t1', 'atendimento:novo']);
+    expect(Object.keys(payload).sort()).toEqual(['em', 'id']);
+    expect(payload.id).toBe(ID);
+    const tudo = JSON.stringify(payload);
+    for (const segredo of ['Maria', '5521999990000', 'batata', '4821', 'cadê']) expect(tudo).not.toContain(segredo);
+  });
+
+  it('caso sem id (ou id estranho): o aviso sai do mesmo jeito, com id nulo — a tela relê a fila', () => {
+    const { g, server } = make();
+    g.onAtendimentoNovo({ tenantId: 't1', chamado: { clienteNome: 'Sem id' } });
+    g.onAtendimentoNovo({ tenantId: 't1', chamado: { id: '<script>', clienteNome: 'Id estranho' } });
+    g.onAtendimentoNovo({ tenantId: 't1', chamado: null });
+    expect(server.emits.map((e: any) => [e.ev, e.payload.id, Object.keys(e.payload).sort().join(',')])).toEqual([
+      ['atendimento:novo', null, 'em,id'],
+      ['atendimento:novo', null, 'em,id'],
+      ['atendimento:novo', null, 'em,id'],
+    ]);
+  });
+});
+
+// ERR-495, o mesmo no ponto: a cada batida ia o comprovante inteiro (nome do colaborador, hora, NSR, hash) à sala da empresa.
+describe('RealtimeGateway — ponto marcado: só o aviso', () => {
+  const LOJA = '11111111-1111-4111-8111-111111111111';
+
+  it('vai a loja e a hora do aviso — nada de quem bateu, nem o NSR, nem o hash', () => {
+    const { g, server } = make();
+    g.onPontoMarcado({
+      tenantId: 't1',
+      unidadeId: LOJA,
+      origem: 'terminal',
+      comprovante: { nsr: 918273, tipo: 'entrada', colaboradorId: 'c1', colaboradorNome: 'João de Teste', marcadoEm: '2026-11-16T11:02:00Z', hash: 'abc123def456' },
+    });
+    expect(server.emits).toHaveLength(1);
+    const { room, ev, payload } = server.emits[0];
+    expect([room, ev]).toEqual(['tenant:t1', 'ponto:marcado']);
+    expect(Object.keys(payload).sort()).toEqual(['em', 'unidadeId']);
+    expect(payload.unidadeId).toBe(LOJA);
+    const tudo = JSON.stringify(payload);
+    for (const dado of ['João', '918273', 'abc123def456', 'c1', 'entrada', '11:02']) expect(tudo).not.toContain(dado);
+  });
+
+  it('sem loja (ou loja estranha): o aviso sai com a loja nula', () => {
+    const { g, server } = make();
+    g.onPontoMarcado({ tenantId: 't1', origem: 'web', comprovante: { colaboradorNome: 'Sem loja' } });
+    g.onPontoMarcado({ tenantId: 't1', unidadeId: 'nao-e-uuid', origem: 'web', comprovante: {} });
+    expect(server.emits.map((e: any) => [e.payload.unidadeId, Object.keys(e.payload).sort().join(',')])).toEqual([
+      [null, 'em,unidadeId'],
+      [null, 'em,unidadeId'],
+    ]);
+  });
+});
+
 // AUDITORIA DO KDS (11/11/2026): o KDS entra com login e nunca recebia o alerta da LOJA; prioridades fora do padrão
 // ('media'/'baixa') passavam na frente do cancelado; qualquer login mandava alerta a todas as telas.
 describe('RealtimeGateway — salas da loja, prioridade e quem manda alerta', () => {
@@ -159,5 +229,70 @@ describe('RealtimeGateway — salas da loja, prioridade e quem manda alerta', ()
     const gerente: any = { data: { ctx: { tenantId: 't1', role: 'gestor', categoria: 'gerente', unidadeId: U1 } } };
     expect((g.onAlerta(gerente, { titulo: 'Mesa 7', prioridade: 'baixa' }) as any).alerta.prioridade).toBe('info');
     expect(server.emits.map((e: any) => e.room)).toEqual([`unidade:${U1}`]);
+  });
+});
+
+// SEGUNDA RODADA DA AVALIAÇÃO DE SEGURANÇA (16/11/2026, B-01): o guarda das rotas recusava a sessão do terminal de ponto
+// fora das duas rotas dela, e o tempo real aceitava o mesmo token — entrava nas salas da empresa e recebia o ponto dos
+// colegas, os pedidos e os alertas (com nível de gerente, ainda mandava alerta ao KDS).
+describe('RealtimeGateway — só a sessão geral abre o tempo real (B-01)', () => {
+  const U1 = '11111111-1111-4111-8111-111111111111';
+  const PESSOA = '44444444-4444-4444-8444-444444444444';
+  function conectar(payload: any, banco?: any) {
+    const salas: string[] = [];
+    const erros: any[] = [];
+    let derrubado = false;
+    const g = new RealtimeGateway({ verify: () => payload } as any, {} as any, undefined, banco);
+    (g as any).server = fakeServer();
+    const sock: any = {
+      handshake: { auth: { jwt: 'x' }, headers: {} },
+      data: {},
+      join: (s: string) => salas.push(s),
+      emit: (ev: string, p: any) => erros.push([ev, p]),
+      disconnect: () => { derrubado = true; },
+    };
+    return g.handleConnection(sock).then(() => ({ salas, erros, derrubado: () => derrubado, sock }));
+  }
+  const base = { tenant: 't1', sub: PESSOA, cat: 'gerente', uni: U1 };
+
+  it('a sessão do terminal de ponto é recusada: nenhuma sala, sem contexto, desconectada', async () => {
+    const r = await conectar({ ...base, so: 'ponto' });
+    expect(r.salas).toEqual([]);
+    expect(r.sock.data.ctx).toBeUndefined();
+    expect(r.derrubado()).toBe(true);
+    expect(r.erros).toEqual([['erro', { motivo: 'esta sessão não abre o tempo real' }]]);
+  });
+
+  it('qualquer marca de sessão restrita é recusada, não só a do ponto; a do app de atendimento (presa ao aparelho) também', async () => {
+    for (const marca of [{ so: 'outra-coisa' }, { so: true }, { ap: '55555555-5555-4555-8555-555555555555' }]) {
+      const r = await conectar({ ...base, ...marca });
+      expect([marca, r.salas, r.derrubado()]).toEqual([marca, [], true]);
+    }
+  });
+
+  it('a sessão geral segue entrando (o controle do teste acima)', async () => {
+    const r = await conectar(base);
+    expect(r.derrubado()).toBe(false);
+    expect(r.salas).toEqual(expect.arrayContaining(['tenant:t1', `unidade:${U1}`, `pdv:${PESSOA}`]));
+  });
+
+  it('o excluído e o bloqueado não entram (a regra do guarda das rotas); quem segue ativo, entra', async () => {
+    const banco = (linha: any) => ({ execute: async () => ({ rows: linha ? [linha] : [] }) });
+    const excluido = await conectar(base, banco({ status: 'ativo', deleted_at: new Date() }));
+    expect([excluido.salas, excluido.derrubado()]).toEqual([[], true]);
+    expect(excluido.erros).toEqual([['erro', { motivo: 'acesso encerrado ou bloqueado' }]]);
+    const bloqueado = await conectar(base, banco({ status: 'bloqueado', deleted_at: null }));
+    expect([bloqueado.salas, bloqueado.derrubado()]).toEqual([[], true]);
+    const ativo = await conectar(base, banco({ status: 'ativo', deleted_at: null }));
+    expect(ativo.derrubado()).toBe(false);
+    expect(ativo.salas).toContain('tenant:t1');
+    // sem linha de colaborador (a sessão de suporte), segue pelo token, como no guarda
+    const semLinha = await conectar({ ...base, sub: 'sup:tecnico', cat: 'suporte', uni: null }, banco(null));
+    expect(semLinha.derrubado()).toBe(false);
+  });
+
+  it('o banco fora do ar na conferência: a conexão é recusada (fecha, não abre)', async () => {
+    const r = await conectar(base, { execute: async () => { throw new Error('banco fora'); } });
+    expect([r.salas, r.derrubado()]).toEqual([[], true]);
   });
 });
