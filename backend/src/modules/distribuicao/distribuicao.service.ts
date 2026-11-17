@@ -24,6 +24,11 @@ const PERFIS: PerfilDist[] = ['diretoria', 'tecnico', 'financeiro'];
 
 // Lista de uuids (JÁ validados) como literal de array do Postgres, passada como PARÂMETRO.
 const listaPg = (ids: string[]) => `{${ids.join(',')}}`;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Os canais que o Revogar desligou ou o Liberar religou, lidos do registro gravado na mesma instrução. */
+const canaisDo = (detalhe: any, chave: string): string[] =>
+  Array.isArray(detalhe?.[chave]) ? (detalhe[chave] as unknown[]).map(String).sort() : [];
 
 // Console da distribuição (Fase 1): realm de auth SEPARADO das lojas. Token assinado
 // com `escopo: 'distribuicao'` e secret próprio (DIST_JWT_SECRET, cai no JWT_SECRET em
@@ -240,24 +245,96 @@ export class DistribuicaoService {
     return r.rows ?? r;
   }
 
-  // Revoga: bloqueia a conta (o LicenseInterceptor corta escrita/sync). Reversível.
+  // Revoga: bloqueia a conta (o LicenseInterceptor corta escrita/sync) e DESLIGA as integrações ligadas dela.
+  // Decisão do dono (16/11/2026): o bloqueio sozinho não parava as rotinas dos canais, que só olham
+  // `integracao.ativo` — a empresa revogada seguia recebendo pedidos que ninguém aceitava (ERR-501).
+  // Credencial e configuração ficam; o registro guarda QUAIS foram desligadas (os ids) e o "Liberar" religa essas.
+  // Uma instrução só: o bloqueio, o desligamento e o registro entram juntos ou nada entra. Reversível.
   async revogarLicenca(tenantId: string, autor: any) {
-    await this.db.execute(sql`update empresa set status = 'bloqueado' where id = ${tenantId}`);
-    await this.auditar(autor, 'revogou_licenca', tenantId);
-    return { ok: true };
+    if (!UUID.test(String(tenantId ?? ''))) throw new NotFoundException('Empresa não encontrada.');
+    const r: any = await this.db.execute(sql`
+      with bloqueada as (
+        update empresa set status = 'bloqueado' where id = ${tenantId}::uuid returning id
+      ),
+      desligadas as (
+        update integracao g
+           set ativo = false, updated_at = now()
+          from bloqueada b
+         where g.tenant_id = b.id and g.ativo = true
+        returning g.id, g.canal
+      ),
+      registro as (
+        insert into distribuicao_auditoria (usuario_id, usuario_nome, perfil, acao, alvo, detalhe)
+        select ${autor?.id ?? autor?.sub ?? null}::uuid, ${autor?.nome ?? null}::text, ${autor?.perfil ?? null}::text,
+               'revogou_licenca', b.id::text,
+               jsonb_build_object(
+                 'integracoes', coalesce((select jsonb_agg(distinct d.canal) from desligadas d), '[]'::jsonb),
+                 'integracaoIds', coalesce((select jsonb_agg(d.id) from desligadas d), '[]'::jsonb))
+          from bloqueada b
+        returning detalhe
+      )
+      select detalhe from registro`);
+    const linha = ((r.rows ?? r) as any[])[0];
+    if (!linha) throw new NotFoundException('Empresa não encontrada.');
+    return { ok: true, integracoesDesligadas: canaisDo(linha.detalhe, 'integracoes') };
   }
 
   // Libera/renova: reativa + estende o trial por N dias (a partir do maior entre agora
   // e o fim atual). Serve p/ soltar uma loja bloqueada ou dar mais prazo.
+  // Religa as integrações que os DESLIGAMENTOS desde o último "Liberar" desligaram (este "Revogar" e a rotina de
+  // inatividade) — todos eles, não só o último: um segundo "Revogar" acha tudo já desligado e grava a lista vazia.
+  // Pelos ids guardados e só as que seguem desligadas; a que a loja tinha desligado por conta própria antes fica como
+  // está. Registro antigo, sem os ids, não religa nada. Uma instrução só, como o Revogar.
   async liberarLicenca(tenantId: string, dias: number, autor: any) {
+    if (!UUID.test(String(tenantId ?? ''))) throw new NotFoundException('Empresa não encontrada.');
     const d = Math.max(1, Math.min(3650, Number(dias) || 30));
-    await this.db.execute(sql`
-      update empresa
-      set status = 'ativo',
-          trial_ate = greatest(coalesce(trial_ate, now()), now()) + make_interval(0, 0, 0, ${d})
-      where id = ${tenantId}`);
-    await this.auditar(autor, 'liberou_licenca', tenantId, { dias: d });
-    return { ok: true };
+    const r: any = await this.db.execute(sql`
+      with ultima_liberacao as (
+        select max(criado_em) as em from distribuicao_auditoria
+         where alvo = ${tenantId}::text and acao = 'liberou_licenca'
+      ),
+      desligamentos as (
+        select a.detalhe
+          from distribuicao_auditoria a, ultima_liberacao u
+         where a.alvo = ${tenantId}::text
+           and a.acao in ('revogou_licenca', 'desligou_por_inatividade')
+           and (u.em is null or a.criado_em > u.em)
+      ),
+      liberada as (
+        update empresa
+           set status = 'ativo',
+               trial_ate = greatest(coalesce(trial_ate, now()), now()) + make_interval(0, 0, 0, ${d}::int)
+         where id = ${tenantId}::uuid
+        returning id
+      ),
+      ids as (
+        select distinct x.v::uuid as id
+          from desligamentos s
+         cross join lateral jsonb_array_elements_text(
+                case when jsonb_typeof(s.detalhe -> 'integracaoIds') = 'array' then s.detalhe -> 'integracaoIds' else '[]'::jsonb end
+              ) as x(v)
+      ),
+      religadas as (
+        update integracao g
+           set ativo = true, updated_at = now()
+          from ids i, liberada l
+         where g.id = i.id and g.tenant_id = l.id and g.ativo = false
+        returning g.canal
+      ),
+      registro as (
+        insert into distribuicao_auditoria (usuario_id, usuario_nome, perfil, acao, alvo, detalhe)
+        select ${autor?.id ?? autor?.sub ?? null}::uuid, ${autor?.nome ?? null}::text, ${autor?.perfil ?? null}::text,
+               'liberou_licenca', l.id::text,
+               jsonb_build_object(
+                 'dias', ${d}::int,
+                 'integracoesReligadas', coalesce((select jsonb_agg(distinct g.canal) from religadas g), '[]'::jsonb))
+          from liberada l
+        returning detalhe
+      )
+      select detalhe from registro`);
+    const linha = ((r.rows ?? r) as any[])[0];
+    if (!linha) throw new NotFoundException('Empresa não encontrada.');
+    return { ok: true, integracoesReligadas: canaisDo(linha.detalhe, 'integracoesReligadas') };
   }
 
   async mudarPlano(tenantId: string, plano: string, autor: any) {

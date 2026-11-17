@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { DIAS_DE_INATIVIDADE, InatividadeProcessor } from './inatividade.processor';
+import { DistribuicaoService } from '../distribuicao/distribuicao.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -183,7 +184,11 @@ descrever('empresa inativa há 2 meses é desligada (Postgres)', () => {
     const r = await registros(ids.parada);
     expect(r).toHaveLength(1);
     expect(r[0]).toMatchObject({ usuario_nome: 'Regem (rotina)', perfil: 'sistema' });
-    expect(r[0].detalhe).toEqual({ dias: DIAS_DE_INATIVIDADE, ultimoSinal: null, integracoes: ['cardapio_web', 'ifood'] });
+    const { integracaoIds, ...resto } = r[0].detalhe;
+    expect(resto).toEqual({ dias: DIAS_DE_INATIVIDADE, ultimoSinal: null, integracoes: ['cardapio_web', 'ifood'] });
+    // Os ids exatos das que foram desligadas (o "Liberar" religa por eles) — a que já estava desligada não entra.
+    const idsLigadasAntes = (await q(`select id from integracao where tenant_id = $1 and canal in ('cardapio_web', 'ifood') order by id`, [ids.parada])).map((l) => l.id);
+    expect([...integracaoIds].sort()).toEqual(idsLigadasAntes);
     expect(await registros(ids['pessoa agiu ha 59 dias'])).toHaveLength(0);
     expect(await registros(ids['ja bloqueada'])).toHaveLength(0);
   });
@@ -247,6 +252,79 @@ descrever('empresa inativa há 2 meses é desligada (Postgres)', () => {
       await expect(proc.tick()).resolves.toBeUndefined();
       expect(erro).toHaveBeenCalledWith(expect.stringContaining('banco fora'));
       erro.mockRestore();
+    });
+  });
+
+  // O "Revogar" e o "Liberar/Renovar" da aba Licenças do console (ERR-501, decisão do dono de 16/11/2026): o bloqueio
+  // sozinho não parava as rotinas dos canais. O Revogar desliga as integrações e guarda quais; o Liberar religa essas.
+  describe('o Revogar e o Liberar/Renovar do console', () => {
+    const dist = () => new DistribuicaoService(db, {} as any, {} as any);
+    const autor = { sub: randomUUID(), nome: 'Diretoria de teste', perfil: 'diretoria' };
+    const integracoesDe = async (T: string) =>
+      Object.fromEntries((await q(`select canal, ativo from integracao where tenant_id = $1`, [T])).map((l) => [l.canal, l.ativo]));
+    const registrosDe = (T: string) =>
+      q(`select acao, usuario_id, usuario_nome, perfil, detalhe from distribuicao_auditoria where alvo = $1 order by criado_em`, [T]);
+
+    it('o Revogar bloqueia a empresa, desliga as integrações ligadas dela e registra quais (e quem)', async () => {
+      const T = await empresa('revogada', { criadaHa: 5 });
+      await integracao(T, 'ifood', true);
+      await integracao(T, 'cardapio_web', true);
+      await integracao(T, 'anotaai', false); // a loja já tinha desligado: não entra na lista
+      expect(await dist().revogarLicenca(T, autor)).toEqual({ ok: true, integracoesDesligadas: ['cardapio_web', 'ifood'] });
+      expect((await situacao()).revogada).toBe('bloqueado');
+      expect(await integracoesDe(T)).toEqual({ ifood: false, cardapio_web: false, anotaai: false });
+      // A credencial e a configuração ficam: religar não pede a conexão de novo.
+      for (const g of await q(`select token, config from integracao where tenant_id = $1`, [T]))
+        expect([g.token, g.config]).toEqual(['credencial-de-teste', { guardado: 'sim' }]);
+      // As das outras empresas não mudam.
+      expect(await ligadas(ids['pessoa agiu ha 59 dias'])).toEqual(['ifood']);
+      const regs = await registrosDe(T);
+      expect(regs).toHaveLength(1);
+      expect(regs[0]).toMatchObject({ acao: 'revogou_licenca', usuario_id: autor.sub, usuario_nome: 'Diretoria de teste', perfil: 'diretoria' });
+      expect(regs[0].detalhe.integracoes).toEqual(['cardapio_web', 'ifood']);
+      const idsDesligados = (await q(`select id from integracao where tenant_id = $1 and canal <> 'anotaai' order by id`, [T])).map((l) => l.id);
+      expect([...regs[0].detalhe.integracaoIds].sort()).toEqual(idsDesligados);
+    });
+
+    it('revogar de novo não perde o que religar: o Liberar religa as do primeiro Revogar, e só elas', async () => {
+      const T = ids.revogada;
+      expect(await dist().revogarLicenca(T, autor)).toEqual({ ok: true, integracoesDesligadas: [] }); // já estava tudo desligado
+      expect(await dist().liberarLicenca(T, 30, autor)).toEqual({ ok: true, integracoesReligadas: ['cardapio_web', 'ifood'] });
+      expect((await situacao()).revogada).toBe('ativo');
+      expect(await integracoesDe(T)).toEqual({ ifood: true, cardapio_web: true, anotaai: false }); // a da loja segue desligada
+      const regs = await registrosDe(T);
+      expect(regs.map((l) => l.acao)).toEqual(['revogou_licenca', 'revogou_licenca', 'liberou_licenca']);
+      expect(regs[2].detalhe).toEqual({ dias: 30, integracoesReligadas: ['cardapio_web', 'ifood'] });
+      const [{ dias }] = await q(`select round(extract(epoch from (trial_ate - now())) / 86400) as dias from empresa where id = $1`, [T]);
+      expect(Number(dias)).toBe(30);
+    });
+
+    it('um Liberar depois do outro (só renovar o prazo) não religa o que a loja desligou no meio', async () => {
+      const T = ids.revogada;
+      await q(`update integracao set ativo = false where tenant_id = $1 and canal = 'ifood'`, [T]); // a loja desligou o iFood
+      expect(await dist().liberarLicenca(T, 10, autor)).toEqual({ ok: true, integracoesReligadas: [] });
+      expect((await integracoesDe(T)).ifood).toBe(false);
+      expect((await integracoesDe(T)).cardapio_web).toBe(true);
+    });
+
+    it('o Liberar religa o que a rotina de inatividade desligou, e a rotina não a desliga de novo', async () => {
+      const T = await empresa('desligada pela rotina');
+      await integracao(T, 'ifood', true);
+      expect(nomes(await proc.desligar(DIAS_DE_INATIVIDADE, [T]))).toEqual(['desligada pela rotina']);
+      expect((await integracoesDe(T)).ifood).toBe(false);
+      expect(await dist().liberarLicenca(T, 30, autor)).toEqual({ ok: true, integracoesReligadas: ['ifood'] });
+      expect((await situacao())['desligada pela rotina']).toBe('ativo');
+      expect((await integracoesDe(T)).ifood).toBe(true);
+      expect(await proc.inativas(DIAS_DE_INATIVIDADE, [T])).toEqual([]); // o Liberar vale como sinal da distribuição
+    });
+
+    it('empresa que não existe ou identificador inválido: recusa com o motivo e não grava nada', async () => {
+      const inexistente = randomUUID();
+      for (const id of [inexistente, 'nao-e-um-uuid', '']) {
+        await expect(dist().revogarLicenca(id, autor)).rejects.toThrow('Empresa não encontrada.');
+        await expect(dist().liberarLicenca(id, 30, autor)).rejects.toThrow('Empresa não encontrada.');
+      }
+      expect(await registrosDe(inexistente)).toHaveLength(0);
     });
   });
 });
