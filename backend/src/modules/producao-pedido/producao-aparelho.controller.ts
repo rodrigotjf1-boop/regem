@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ProducaoPedidoService } from './producao-pedido.service';
 import { AparelhoKds, KdsAparelhoGuard, type KdsAparelhoCtx } from './kds-aparelho.guard';
+import { ipDoPc } from '../equipamento/presenca.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -15,13 +16,17 @@ const CANAIS = new Set(['balcao', 'delivery', 'todos']);
 export class ProducaoAparelhoController {
   constructor(private readonly service: ProducaoPedidoService) {}
 
+  // `aparelho` (17/11/2026, pedido do dono): o nome do cadastro e o IP com que ESTE aparelho chegou ao servidor, para o
+  // cabeçalho do KDS dizer qual TV box é e onde ela está na rede. O IP é o que o servidor vê (`req.ip`, o mesmo da presença
+  // dos PCs — `ipDoPc`): nada é gravado, só se mostra. Campo novo, ao lado da fila de sempre (aditivo).
   @Get('fila')
-  fila(@AparelhoKds() kds: KdsAparelhoCtx, @Query('canal') canal?: string) {
-    return this.service.filaKds(kds.tenantId, {
+  async fila(@AparelhoKds() kds: KdsAparelhoCtx, @Query('canal') canal?: string, @Req() req?: any) {
+    const fila = await this.service.filaKds(kds.tenantId, {
       unidadeId: kds.unidadeId ?? undefined,
       canal: canal && CANAIS.has(canal) ? canal : undefined,
       equipamentoId: kds.equipamentoId,
     });
+    return { ...fila, aparelho: { nome: kds.nome, ip: ipDoPc(req?.ip ?? req?.socket?.remoteAddress) } };
   }
 
   @Post('pedidos/:id/avancar')

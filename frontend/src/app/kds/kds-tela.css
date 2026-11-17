@@ -91,6 +91,16 @@
   text-transform: uppercase;
   white-space: nowrap;
 }
+/* KDS pelo token do aparelho (TV box, 17/11/2026): o nome do cadastro e o IP que o servidor vê, ao lado do nome da tela.
+   Texto pequeno em mono, na cor apagada do tema (a mesma do "TODOS"); quebra a linha no estreito, nunca rola. */
+.k-aparelho {
+  align-self: center;
+  padding: 0 8px;
+  font: 600 13px/1.25 var(--fm);
+  color: var(--k-muted);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .k-seg {
   display: flex;
   flex-wrap: wrap;
@@ -305,6 +315,7 @@
   }
   .k-logo { order: 1; }
   .k-nome { order: 2; }
+  .k-aparelho { order: 2; }
   .k-seg { order: 3; }
   .k-etapas { order: 4; }
   .k-esp1 { order: 5; }

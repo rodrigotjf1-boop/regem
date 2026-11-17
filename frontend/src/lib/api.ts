@@ -392,6 +392,9 @@ export function handleApiError(e: unknown, fallback = 'Não foi possível conclu
 // lojas"). Só vale para quem vê a rede: o servidor ignora o cabeçalho para quem é de uma loja.
 const daRede = (todas?: boolean): RequestInit => (todas ? { headers: { 'X-Unidade-Id': 'todas' } } : {});
 
+/** O KDS aberto pelo token do aparelho: o nome do cadastro e o IP com que ele chegou ao servidor (`null` se não deu). */
+export type AparelhoDoKds = { nome: string; ip: string | null };
+
 // O KDS FÍSICO pelo token do aparelho (`/kds?token=…`, TV box da cozinha — 16/11/2026): sem pessoa logada, sem cookie, o
 // token em `X-Device-Token`. Fora do `req` de propósito: o 401 daqui é o aparelho revogado, não "sessão expirada" — não
 // pode mandar a tela da cozinha para o login.
@@ -1165,8 +1168,9 @@ export const api = {
     }),
   // Pedido alterado (mig 362): "Visto" no cartão — o aviso grande e o som param, o item tirado sai do cartão.
   producaoVisto: (id: string) => req(`/producao/pedidos/${id}/visto`, { method: 'POST', body: '{}' }),
-  // O KDS físico pelo token do aparelho (16/11/2026): a empresa, a loja e o KDS saem do aparelho no servidor.
-  kdsAparelhoFila: (tokenAparelho: string, canal?: string) =>
+  // O KDS físico pelo token do aparelho (16/11/2026): a empresa, a loja e o KDS saem do aparelho no servidor. A resposta
+  // traz também `aparelho` (17/11/2026): o nome do cadastro e o IP com que o aparelho chegou ao servidor (cabeçalho).
+  kdsAparelhoFila: (tokenAparelho: string, canal?: string): Promise<{ pedidos?: any[]; cores?: any; aparelho?: AparelhoDoKds }> =>
     reqAparelho(`/producao/aparelho/fila${canal ? `?canal=${encodeURIComponent(canal)}` : ''}`, tokenAparelho),
   kdsAparelhoAvancar: (tokenAparelho: string, id: string, de?: string) =>
     reqAparelho(`/producao/aparelho/pedidos/${encodeURIComponent(id)}/avancar`, tokenAparelho, {
