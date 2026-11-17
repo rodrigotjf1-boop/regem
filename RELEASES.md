@@ -53,6 +53,13 @@
   pedido ficava parado na situação em que estava.
   - Só NUVEM (a rotina e o aviso do Cardápio Web rodam lá): vale com o deploy; o `.zip` leva o código sem efeito na loja.
 
+- **Cardápio Web: o pedido do iFood que ele também devolve não entra quando o iFood está ligado direto no Regem (16/11,
+  decisão do dono; sem migration).** A consulta do Cardápio Web devolve os pedidos que ele recebeu do iFood; a loja com o
+  iFood ligado no Regem e dentro do Cardápio Web receberia o mesmo pedido duas vezes e viraria duas vendas. Com o iFood
+  direto ligado na mesma loja (ou sem loja), a cópia não entra; o pedido que já tinha entrado segue sendo acompanhado; o
+  resto do Cardápio Web (cardápio, portal, extensão do WhatsApp) entra como sempre. Não aconteceu em nenhuma loja.
+  - Só NUVEM: vale com o deploy.
+
 - **O atendente lê a foto que o cliente manda no WhatsApp (16/11, pedido do dono; SEM migration; nasce DESLIGADO).** Com
   `ROBO_FOTOS_IA=1` na nuvem (o dono liga), a foto que o contexto não reconheceu como comprovante vai a um modelo de visão,
   pela porta da IA da empresa (recurso `foto_do_cliente` no medidor), e o atendente recebe o que ela mostra.
