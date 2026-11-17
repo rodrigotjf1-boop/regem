@@ -261,12 +261,12 @@ export function CaixaPanel({
             <h3 className="mb-3 font-display font-semibold capitalize">{mov} (dinheiro)</h3>
             <div className="space-y-3">
               <div className="space-y-1">
-                <Label className="text-xs">Valor</Label>
-                <Input type="number" inputMode="decimal" value={movValor} onChange={(e) => setMovValor(e.target.value)} placeholder="0,00" autoFocus />
+                <Label htmlFor="caixa-mov-valor" className="text-xs">Valor</Label>
+                <Input id="caixa-mov-valor" type="number" inputMode="decimal" value={movValor} onChange={(e) => setMovValor(e.target.value)} placeholder="0,00" autoFocus />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">{mov === 'sangria' ? 'Motivo (opcional)' : 'Descrição (opcional)'}</Label>
-                <Input value={movDesc} onChange={(e) => setMovDesc(e.target.value)} placeholder={mov === 'sangria' ? 'Ex.: retirada p/ cofre' : 'Ex.: troco extra'} />
+                <Label htmlFor="caixa-mov-descricao" className="text-xs">{mov === 'sangria' ? 'Motivo (opcional)' : 'Descrição (opcional)'}</Label>
+                <Input id="caixa-mov-descricao" value={movDesc} onChange={(e) => setMovDesc(e.target.value)} placeholder={mov === 'sangria' ? 'Ex.: retirada p/ cofre' : 'Ex.: troco extra'} />
               </div>
               {mov === 'sangria' && pedeSenha && (
                 <div className="space-y-1">
@@ -309,8 +309,9 @@ export function CaixaPanel({
                 <div className="space-y-3">
                   {([['dinheiro', 'Dinheiro na gaveta'], ['cartao', 'Cartão (terminal)'], ['pix', 'Pix']] as const).map(([k, label], i) => (
                     <div key={k} className="space-y-1">
-                      <Label className="text-xs">{label}</Label>
+                      <Label htmlFor={`caixa-fechar-${k}`} className="text-xs">{label}</Label>
                       <Input
+                        id={`caixa-fechar-${k}`}
                         type="number"
                         inputMode="decimal"
                         value={informados[k] ?? ''}
@@ -321,8 +322,8 @@ export function CaixaPanel({
                     </div>
                   ))}
                   <div className="space-y-1">
-                    <Label className="text-xs">Observação (opcional)</Label>
-                    <Input value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Ex.: falta de troco no início" />
+                    <Label htmlFor="caixa-fechar-obs" className="text-xs">Observação (opcional)</Label>
+                    <Input id="caixa-fechar-obs" value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Ex.: falta de troco no início" />
                   </div>
                 </div>
                 <div className="mt-4 flex gap-2">

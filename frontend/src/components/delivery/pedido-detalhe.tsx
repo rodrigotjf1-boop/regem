@@ -406,12 +406,12 @@ export function PedidoDetalhe({
             </p>
             <div className="mt-3 space-y-3">
               <div className="space-y-1">
-                <Label className="text-xs">Motivo</Label>
-                <Input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex.: cliente desistiu" autoFocus />
+                <Label htmlFor="pedido-cancelar-motivo" className="text-xs">Motivo</Label>
+                <Input id="pedido-cancelar-motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex.: cliente desistiu" autoFocus />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Senha de quem libera (presidente, gerente ou supervisão)</Label>
-                <Input {...campoSenha} aria-label="Senha de quem libera (presidente, gerente ou supervisão)" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="senha de quem libera" />
+                <Label htmlFor="pedido-cancelar-senha" className="text-xs">Senha de quem libera (presidente, gerente ou supervisão)</Label>
+                <Input {...campoSenha} id="pedido-cancelar-senha" aria-label="Senha de quem libera (presidente, gerente ou supervisão)" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="senha de quem libera" />
               </div>
             </div>
             {/* Só o pedido já aceito tem cozinha: perda baixa o insumo do estoque (se a produção
@@ -459,8 +459,8 @@ export function PedidoDetalhe({
             </p>
             <ItensDaPerda pedidoId={p.id} onChange={setPerda} />
             <div className="space-y-1">
-              <Label className="text-xs">Senha de quem libera (presidente, gerente ou supervisão)</Label>
-              <Input {...campoSenha} aria-label="Senha de quem libera (presidente, gerente ou supervisão)" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="senha de quem libera" />
+              <Label htmlFor="pedido-perda-senha" className="text-xs">Senha de quem libera (presidente, gerente ou supervisão)</Label>
+              <Input {...campoSenha} id="pedido-perda-senha" aria-label="Senha de quem libera (presidente, gerente ou supervisão)" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="senha de quem libera" />
             </div>
             <div className="flex gap-2">
               <Button type="button" variant="ghost" className="flex-1" onClick={() => setModo('view')}>Voltar</Button>
@@ -553,8 +553,8 @@ export function PedidoDetalhe({
               </div>
             )}
 
-            <div className="mt-3">
-              <Label className="text-xs">Adicionar item</Label>
+            <div className="mt-3" role="group" aria-labelledby="pedido-adicionar-item-rotulo">
+              <Label id="pedido-adicionar-item-rotulo" className="text-xs">Adicionar item</Label>
               <div className="mt-1 max-h-64 overflow-y-auto rounded-lg border border-border p-2">
                 <SeletorProduto onAdd={addProduto} enviando={busy} />
               </div>

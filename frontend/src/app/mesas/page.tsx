@@ -210,8 +210,8 @@ export default function MesasPage() {
             {sel.modo === 'comandas' && (
               <div className="flex items-end gap-2">
                 <div className="flex-1 space-y-1">
-                  <Label className="text-xs">Nova comanda (cliente/pulseira)</Label>
-                  <Input value={novoIdent} onChange={(e) => setNovoIdent(e.target.value)} placeholder="Ex.: João / 07" />
+                  <Label htmlFor="mesas-novo-ident" className="text-xs">Nova comanda (cliente/pulseira)</Label>
+                  <Input id="mesas-novo-ident" value={novoIdent} onChange={(e) => setNovoIdent(e.target.value)} placeholder="Ex.: João / 07" />
                 </div>
                 <Button type="button" size="sm" onClick={novaComanda}>Abrir</Button>
               </div>
@@ -330,13 +330,12 @@ export default function MesasPage() {
           <h2 className="mb-2 font-display text-sm font-bold">Abrir mesa</h2>
           <div className="flex flex-wrap items-end gap-2">
             <div className="flex-1 space-y-1">
-              <Label className="text-xs">Número / nome</Label>
-              <Input value={novoNum} onChange={(e) => setNovoNum(e.target.value)} placeholder="Ex.: 12" />
+              <Label htmlFor="mesas-novo-num" className="text-xs">Número / nome</Label>
+              <Input id="mesas-novo-num" value={novoNum} onChange={(e) => setNovoNum(e.target.value)} placeholder="Ex.: 12" />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Modo</Label>
-              <select
-                aria-label="Modo da mesa"
+              <Label htmlFor="mesas-novo-modo" className="text-xs">Modo</Label>
+              <select id="mesas-novo-modo"
                 className="flex h-11 w-44 rounded-md border border-input bg-card px-3 text-sm"
                 value={novoModo}
                 onChange={(e) => setNovoModo(e.target.value)}
@@ -421,8 +420,8 @@ function QrMesaCard() {
         <>
           <div className="flex items-end gap-2">
             <div className="space-y-1">
-              <Label className="text-xs">Número da mesa</Label>
-              <Input value={num} onChange={(e) => setNum(e.target.value)} placeholder="Ex.: 12" className="w-32" />
+              <Label htmlFor="mesas-num" className="text-xs">Número da mesa</Label>
+              <Input id="mesas-num" value={num} onChange={(e) => setNum(e.target.value)} placeholder="Ex.: 12" className="w-32" />
             </div>
           </div>
           {link ? (
