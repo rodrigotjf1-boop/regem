@@ -1055,8 +1055,12 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
   rótulo solto (ERR-510, reincidência) e ficou ligada. 33 assuntos do guia com imagem.
 - **Parte 6 (sem migration):** a configuração da nota fiscal (34 assuntos com imagem), junto com a catraca dos rótulos
   soltos (`npm run check:rotulos`) e a faixa velha da tela fiscal corrigida (ERR-511).
-- **Falta:** relatórios de vendas, o robô e os ajustes da pausa (leem rotas que o roteiro ainda não simula), WhatsApp,
-  atendimento e canais (iFood, 99, catálogo) — com as respostas simuladas de cada tela.
+- **Parte 7 (sem migration):** mais seis — aplicativos conectados, atendimento, cores do KDS, notas fiscais, pagamento
+  do entregador e cupons (reimprimir/cancelar venda). De passagem, a página dos entregadores dava React #418 (a
+  categoria do token lida no desenho; ERR-513). 40 assuntos do guia com imagem.
+- **Falta (9):** relatórios de vendas, robô, ajustes da pausa, WhatsApp da loja, conversas do WhatsApp, ligar iFood/99,
+  conferir com os apps, preço no canal e pausar produto — leem rotas próprias que o roteiro ainda não simula (com a
+  resposta padrão, caem ou aparecem "não conectado"/vazias).
 
 **A tela "Resumo" (17/11/2026, sem migration; #1114, no ar):** a entrada do presidente em Mister — as três etapas para funcionar, a faixa
 "IA parada", o que o Mister faz e os últimos avisos, só com as rotas que já existem.

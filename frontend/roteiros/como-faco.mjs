@@ -9,7 +9,7 @@
 import { fotoDoComoFaco, responder, tokenFalso, umaLinha } from './comum.mjs';
 
 const TUDO = { ver: true, criar: true, editar: true, excluir: true };
-const PERMISSOES = ['cadastros', 'escalas', 'impressoras', 'acessos', 'relatorios_vendas', 'cancelamentos', 'auditoria', 'turnos', 'fiscal_config'];
+const PERMISSOES = ['cadastros', 'escalas', 'impressoras', 'acessos', 'relatorios_vendas', 'cancelamentos', 'auditoria', 'turnos', 'fiscal_config', 'cupons', 'delivery', 'pedidos', 'fiscal', 'producao_kds', 'loja'];
 const TOKEN = tokenFalso({ cat: 'presidente', perfil: 'presidente', perm: Object.fromEntries(PERMISSOES.map((p) => [p, TUDO])) });
 
 const menu = (page, href) => page.locator(`aside a[href="${href}"] >> visible=true`).first();
@@ -53,6 +53,27 @@ const TELAS = [
       ok(pelosRotulos.every((n) => n === 1), `fiscal: os campos achados pelo rótulo (${pelosRotulos.join(', ')})`);
     },
   },
+  // M3d parte 6. Fora por enquanto (pedem as respostas simuladas de cada tela): as conversas do WhatsApp e as
+  // integrações (aparecem "não conectado"/vazias com a resposta padrão) e a gestão do catálogo (cai, como os relatórios).
+  { id: 'aplicativos-conectados', caminho: '/integracoes', marcas: (p) => [menu(p, '/integracoes'), em(p, 'h2:has-text("Aplicativos conectados")')] },
+  { id: 'atendimento', caminho: '/atendimento', marcas: (p) => [menu(p, '/atendimento'), em(p, 'button:has-text("Abertos")'), em(p, ':text-is("Fila")')] },
+  { id: 'cores-do-kds', caminho: '/producao-config', marcas: (p) => [menu(p, '/producao-config'), rotulado(p, 'Verde até'), rotulado(p, 'Amarelo até')] },
+  { id: 'nota-fiscal', caminho: '/notas', marcas: (p) => [menu(p, '/notas'), em(p, ':text("Últimas notas")')] },
+  {
+    // a configuração de verdade (com a lista vazia, a diária e a taxa apareciam "NaN")
+    id: 'pagamento-entregador', caminho: '/delivery/entregadores',
+    respostas: {
+      '/entregador/pagamento/config': { modelo: 'diaria_taxas', diariaCentavos: 5000, taxaEntregaCentavos: 500, taxaFixaCentavos: 0, raioChegadaM: 70, baseTaxa: 'real', periodicidade: 'dia', maxPedidosEntregador: 1 },
+      '/entregador/pagamento/perfis': { entregadores: [] },
+    },
+    // o <label> envolve o texto e o seletor (o nome inclui as opções): a busca pelo rótulo não é exata
+    marcas: (p) => [menu(p, '/delivery/entregadores'), p.locator('main').getByLabel('Como o entregador é pago').first(), botao(p, 'Salvar configurações')],
+  },
+  { id: 'reimprimir-cancelar-venda', caminho: '/cupons', marcas: (p) => [menu(p, '/cupons'), rotulado(p, 'Buscar por senha/nº'), em(p, ':text("Últimas vendas")')] },
+  // Só conferência, sem foto: as telas que leem a categoria do token não podem quebrar a hidratação (V35; os
+  // entregadores davam React #418 — o aviso de cima só existia no navegador)
+  { id: 'hidratacao-fichas', caminho: '/fichas', semFoto: true },
+  { id: 'hidratacao-meu-dia', caminho: '/meu-dia', semFoto: true },
   // Só conferência, sem foto (`semFoto`): o cadastro do produto do cardápio acha cada campo PELO RÓTULO (ERR-510) —
   // a identificação, o preço, a produção e o fiscal.
   {

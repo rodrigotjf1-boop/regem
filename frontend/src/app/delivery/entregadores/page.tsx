@@ -153,7 +153,10 @@ function PerfilEntregadorRow({ ent, onSalvo }: { ent: any; onSalvo: () => void }
 }
 
 export default function EntregadoresPage() {
-  const podeConfig = ['presidente', 'gerente'].includes(getCategoria() ?? '');
+  // A categoria vem do token no navegador: lida no desenho, o servidor (sem token) desenhava sem o aviso de cima e o
+  // navegador com ele — a hidratação quebrava (React #418, V35). Lida depois de montar, os dois começam iguais.
+  const [podeConfig, setPodeConfig] = useState(false);
+  useEffect(() => setPodeConfig(['presidente', 'gerente'].includes(getCategoria() ?? '')), []);
   const [cfg, setCfg] = useState<any>(null);
   const [salvando, setSalvando] = useState(false);
   const [fech, setFech] = useState<any>(null);
