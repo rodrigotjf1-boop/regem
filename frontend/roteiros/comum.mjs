@@ -84,7 +84,11 @@ export async function fotoDoComoFaco(page, id, marcas) {
     const dentro = centro.x >= 0 && centro.y >= 0 && centro.x <= janela.width && centro.y <= janela.height;
     if (!dentro) { achou.push(false); motivos.push(`fora da janela (${Math.round(centro.x)}, ${Math.round(centro.y)})`); continue; }
     const naFrente = await m.evaluate((el, p) => {
+      // Botão desligado tem `pointer-events: none` e o elementFromPoint passa por ele: liga só durante a medida.
+      const antes = el.style.pointerEvents;
+      el.style.pointerEvents = 'auto';
       const alvo = document.elementFromPoint(p.x, p.y);
+      el.style.pointerEvents = antes;
       if (alvo && (el === alvo || el.contains(alvo))) return '';
       return alvo ? `${alvo.tagName.toLowerCase()} "${(alvo.textContent ?? '').trim().slice(0, 30)}"` : 'nada';
     }, centro).catch(() => 'erro ao medir');
@@ -101,7 +105,9 @@ export async function fotoDoComoFaco(page, id, marcas) {
       contorno.style.cssText = `position:fixed;left:${c.x - 4}px;top:${c.y - 4}px;width:${c.width + 8}px;height:${c.height + 8}px;border:3px solid #E2A340;border-radius:10px`;
       const numero = document.createElement('div');
       numero.textContent = String(i + 1);
-      numero.style.cssText = `position:fixed;left:${Math.max(2, c.x - 16)}px;top:${Math.max(2, c.y - 16)}px;width:26px;height:26px;border-radius:13px;background:#E2A340;color:#0F2230;font:700 15px/26px Arial,sans-serif;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.35)`;
+      // O selo da marca é navy com número branco e borda dourada: o app tem selos DOURADOS com número (a quantidade no
+      // cartão do Balcão, as contagens do painel do Delivery) e um "1" dourado do app se confundia com a marca 1.
+      numero.style.cssText = `position:fixed;left:${Math.max(2, c.x - 17)}px;top:${Math.max(2, c.y - 17)}px;width:30px;height:30px;box-sizing:border-box;border-radius:15px;background:#0F2230;border:3px solid #E2A340;color:#fff;font:700 15px/24px Arial,sans-serif;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.45)`;
       camada.append(contorno, numero);
     });
     document.body.append(camada);

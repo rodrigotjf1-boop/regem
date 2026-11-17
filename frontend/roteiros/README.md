@@ -88,3 +88,8 @@ Cada marca rola até a vista antes da foto e só vale achada se o centro dela es
 uma marca tira outra da tela (o grupo no fim de uma página longa), traga a marca para cima pela própria tela — a busca de
 ajustes, um filtro — e diga isso nos passos do guia. Marca de algo que um perfil não vê (a faixa de partes do Mister, que o
 gerente não tem) fica de fora se o assunto vale para esse perfil.
+
+O selo do número é navy com número branco e borda dourada — nunca dourado: o app já tem selos dourados com número (a
+quantidade no cartão do Balcão, as contagens do painel do Delivery). Botão desligado tem `pointer-events: none` e o
+`elementFromPoint` passa por ele; a medida liga o `pointer-events` só durante a conferência. Mudou o selo ou a marca:
+gerar de novo TODAS as imagens (`GERAR_COMO_FACO=1` em cada roteiro que tem `fotoDoComoFaco`).
