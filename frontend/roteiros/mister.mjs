@@ -646,10 +646,13 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
 
   // ── PESSOAS, presidente: as duas partes, a lista inteira, e a IA só é lida quando aberta ──
   {
-    const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister' });
+    const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=pessoas' });
     await page.waitForSelector('text=Quem fala com o Mister', { timeout: 20000 });
     const partes = page.locator('[aria-label="Partes do Mister"] button');
-    ok((await partes.allInnerTexts()).join('|') === 'Pessoas|IA e uso|Avisos e relatórios|Documentos|Histórico' && (await partes.first().getAttribute('aria-pressed')) === 'true', 'presidente: as partes "Pessoas", "IA e uso", "Avisos e relatórios", "Documentos" e "Histórico", abrindo em Pessoas');
+    ok(
+      (await partes.allInnerTexts()).join('|') === 'Resumo|Pessoas|IA e uso|Avisos e relatórios|Documentos|Histórico' && (await partes.nth(1).getAttribute('aria-pressed')) === 'true',
+      'presidente: as partes "Resumo", "Pessoas", "IA e uso", "Avisos e relatórios", "Documentos" e "Histórico", com o link abrindo em Pessoas',
+    );
     ok(S.pedidos.length === 0, 'em Pessoas, a parte da IA não é lida');
     ok(/O número do Mister é \+55 21 90000-0000/.test(await page.locator('main').innerText()), 'o número do Mister, formatado, para salvar nos contatos');
     const linhas = (await page.locator('main table tbody tr').allInnerTexts()).map((l) => l.replace(/\s+/g, ' '));
@@ -692,7 +695,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
 
   // ── PESSOAS: ligar o meu WhatsApp — o código, o QR, o link, a espera e o "Ligado" ──
   {
-    const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister', pessoas: NINGUEM, ligaNaLeitura: 2 });
+    const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=pessoas', pessoas: NINGUEM, ligaNaLeitura: 2 });
     await page.click('main table button:has-text("Ligar o meu WhatsApp")');
     const dialogo = page.locator('[role="dialog"]');
     await dialogo.locator('text=Esperando a sua mensagem').waitFor({ timeout: 15000 });
@@ -718,7 +721,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
 
   // ── PESSOAS: o código vence — "Gerar outro código" ──
   {
-    const { ctx, page, S } = await abrir(1280, 900, { caminho: '/mister', pessoas: NINGUEM, valeMs: 2000 });
+    const { ctx, page, S } = await abrir(1280, 900, { caminho: '/mister?parte=pessoas', pessoas: NINGUEM, valeMs: 2000 });
     await page.click('main table button:has-text("Ligar o meu WhatsApp")');
     const dialogo = page.locator('[role="dialog"]');
     await dialogo.locator('text=O código venceu. Gere outro para ligar.').waitFor({ timeout: 15000 });
@@ -731,21 +734,21 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
 
   // ── PESSOAS: o Mister indisponível, a recusa do servidor e o erro ao carregar ──
   {
-    const { ctx, page, S } = await abrir(1280, 900, { caminho: '/mister', pessoas: NINGUEM, disponivel: false });
+    const { ctx, page, S } = await abrir(1280, 900, { caminho: '/mister?parte=pessoas', pessoas: NINGUEM, disponivel: false });
     await page.waitForSelector('text=O Mister ainda não está disponível pelo WhatsApp');
     ok(await page.locator('main table button:has-text("Ligar o meu WhatsApp")').isDisabled(), 'Mister indisponível: avisa e trava o "Ligar"');
     ok(!/\+55 21/.test(await page.locator('main').innerText()) && S.codigos === 0, 'Mister indisponível: não mostra número e não gera código');
     await ctx.close();
   }
   {
-    const { ctx, page } = await abrir(1280, 900, { caminho: '/mister', pessoas: NINGUEM, recusaDoCodigo: 'O Mister ainda não está disponível pelo WhatsApp. Fale com a Regem.' });
+    const { ctx, page } = await abrir(1280, 900, { caminho: '/mister?parte=pessoas', pessoas: NINGUEM, recusaDoCodigo: 'O Mister ainda não está disponível pelo WhatsApp. Fale com a Regem.' });
     await page.click('main table button:has-text("Ligar o meu WhatsApp")');
     await page.waitForSelector('[role="dialog"] [role="alert"]:has-text("Fale com a Regem")');
     ok((await page.locator('[role="dialog"] button:has-text("Tentar de novo")').count()) === 1, 'recusa ao gerar o código: a frase do servidor, com "Tentar de novo"');
     await ctx.close();
   }
   {
-    const { ctx, page, S } = await abrir(1280, 900, { caminho: '/mister', pessoasFalha: true });
+    const { ctx, page, S } = await abrir(1280, 900, { caminho: '/mister?parte=pessoas', pessoasFalha: true });
     await page.waitForSelector('text=Não consegui carregar as pessoas agora.');
     S.pessoasFalha = false;
     await page.click('main button:has-text("Tentar de novo")');
@@ -883,7 +886,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
 
   // ── cada largura, PESSOAS: a lista, o diálogo de desligar e o de ligar com o código, sem barra lateral ──
   for (const w of larguras) {
-    const a = await abrir(w, w < 700 ? 820 : 900, { caminho: '/mister' });
+    const a = await abrir(w, w < 700 ? 820 : 900, { caminho: '/mister?parte=pessoas' });
     await a.page.locator('text=Marina Alves de Albuquerque Figueiredo >> visible=true').first().waitFor({ timeout: 20000 });
     let m = await medir(a.page);
     ok(m.length === 0, `${w}px: Pessoas — sem barra lateral e com toque grande (${m.join(' | ')})`);
@@ -894,7 +897,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     ok(m.length === 0, `${w}px: o diálogo de desligar inteiro na tela (${m.join(' | ')})`);
     ok(a.erros.length === 0, `${w}px: Pessoas sem erro (${a.erros.join(' | ')})`);
     await a.ctx.close();
-    const b = await abrir(w, w < 700 ? 820 : 900, { caminho: '/mister', pessoas: NINGUEM });
+    const b = await abrir(w, w < 700 ? 820 : 900, { caminho: '/mister?parte=pessoas', pessoas: NINGUEM });
     await b.page.locator('button:has-text("Ligar o meu WhatsApp") >> visible=true').first().click();
     await b.page.locator('[role="dialog"] img').waitFor({ timeout: 15000 });
     m = await medir(b.page);
@@ -1285,6 +1288,64 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     ok(esmagado.length === 0, `${w}px: o relatório sem texto esmagado (${esmagado.join(', ')} px)`);
     if (w === 320 || w === 375 || w === 1440) await page.locator('main').screenshot({ path: foto(`${w}-relatorio.png`) });
     ok(erros.length === 0, `${w}px: o relatório sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+
+  // ── RESUMO (a entrada do presidente, versão 1 do protótipo): as três etapas, o que o Mister faz, os últimos avisos ──
+  {
+    const { ctx, page, erros } = await abrir(1280, 900, { caminho: '/mister' });
+    await page.waitForSelector('#mister-etapas', { timeout: 20000 });
+    await page.locator('text=Últimos avisos >> visible=true').waitFor();
+    const t = await page.locator('main').innerText();
+    ok((await page.locator('[aria-label="Partes do Mister"] button').first().getAttribute('aria-pressed')) === 'true', 'resumo: o presidente entra pelo Resumo');
+    ok(/Para o Mister funcionar/.test(t) && /2 de 3 etapas concluídas\./.test(t), `resumo: as três etapas, com quantas estão feitas (${(t.match(/\d de 3 etapas concluídas\./) ?? [''])[0]})`);
+    ok(/Módulo ligado/.test(t) && /A IA incluída no seu plano: funcionando\./.test(t) && /Ligue pelo seu celular/.test(t), 'resumo: o módulo, a IA incluída no plano e o WhatsApp que falta ligar');
+    ok(/O que o Mister faz por esta empresa/.test(t) && /Relatórios com gráfico e por insumo/.test(t) && /Ponto esquecido/.test(t) && /Áudio[\s\S]*em breve/.test(t), 'resumo: o que o Mister faz, com o áudio em breve');
+    ok(/Loja Centro · impressora Cozinha parada/.test(t), 'resumo: os últimos avisos do histórico');
+    // Cada etapa leva à parte onde se resolve.
+    await page.click('button:has-text("Ligar o meu WhatsApp")');
+    await page.waitForSelector('text=Quem fala com o Mister', { timeout: 20000 });
+    ok((await page.locator('h1').first().innerText()).includes('Pessoas'), 'resumo: "Ligar o meu WhatsApp" abre Pessoas');
+    ok(erros.length === 0, `resumo: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  {
+    // A chave da empresa sem crédito: a faixa "IA parada" e o "Resolver" que abre IA e uso.
+    const parada = { provedoresAceitos: ['anthropic'], origem: 'propria', chave: { provedor: 'anthropic', final: 'A1b2', situacao: 'sem_credito', conferidaEm: null, salvaEm: null } };
+    const { ctx, page } = await abrir(1280, 900, { caminho: '/mister', estado: parada });
+    await page.waitForSelector('#mister-etapas', { timeout: 20000 });
+    await page.locator('text=IA parada. >> visible=true').waitFor();
+    const t = await page.locator('main').innerText();
+    ok(/A chave de IA da empresa está sem crédito/.test(t) && /Sua chave da Anthropic · final A1b2 · está sem crédito\./.test(t) && /1 de 3 etapas concluídas\./.test(t), 'resumo: a IA parada, na faixa e na etapa');
+    ok(/Perguntas sobre a loja[\s\S]*precisa da chave de IA/.test(t), 'resumo: o que depende da IA diz que precisa da chave');
+    await page.click('button:has-text("Resolver")');
+    await page.waitForSelector('h1:has-text("IA e uso")', { timeout: 20000 });
+    ok(true, 'resumo: "Resolver" abre IA e uso');
+    await ctx.close();
+    // Os avisos que não deu para ler: a frase e "Tentar de novo" (as etapas seguem).
+    const f = await abrir(1280, 900, { caminho: '/mister', historicoFalha: true });
+    await f.page.waitForSelector('text=Não consegui ler os avisos agora.', { timeout: 20000 });
+    ok((await f.page.locator('text=2 de 3 etapas concluídas.').count()) === 1, 'resumo: o erro dos avisos não derruba as etapas');
+    f.S.historicoFalha = false;
+    await f.page.click('button:has-text("Tentar de novo")');
+    await f.page.locator('text=Loja Centro · impressora Cozinha parada >> visible=true').waitFor({ timeout: 20000 });
+    ok(true, 'resumo: "Tentar de novo" lê os avisos de novo');
+    await f.ctx.close();
+  }
+  for (const w of larguras) {
+    const { ctx, page, erros } = await abrir(w, w < 700 ? 820 : 900, { caminho: '/mister' });
+    await page.waitForSelector('#mister-etapas', { timeout: 20000 });
+    await page.locator('text=Últimos avisos >> visible=true').waitFor();
+    const m = await medir(page);
+    ok(m.length === 0, `${w}px: o Resumo sem barra lateral e com toque grande (${m.join(' | ')})`);
+    const esmagado = await page.evaluate(() =>
+      [...document.querySelectorAll('#mister-etapas ~ * li span, main li span')]
+        .filter((s) => /^(Ligue pelo seu celular|Ligado em Visão|A IA incluída)/.test(s.textContent ?? '') && s.getBoundingClientRect().width > 0 && s.getBoundingClientRect().width < 150)
+        .map((s) => Math.round(s.getBoundingClientRect().width)),
+    );
+    ok(esmagado.length === 0, `${w}px: o Resumo sem texto esmagado (${esmagado.join(', ')} px)`);
+    if (w === 320 || w === 375 || w === 1440) await page.locator('main').screenshot({ path: foto(`${w}-resumo.png`) });
+    ok(erros.length === 0, `${w}px: o Resumo sem erro (${erros.join(' | ')})`);
     await ctx.close();
   }
 }
