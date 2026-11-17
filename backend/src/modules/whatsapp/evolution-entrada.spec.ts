@@ -3,6 +3,7 @@ import { PgDialect } from 'drizzle-orm/pg-core';
 import { EvolutionEntradaService, lerMensagemEvolution, telefoneDaConversa } from './evolution-entrada.service';
 import { esquecerEnvios, lembrarEnvio } from './evolution-envios';
 import { enderecoDoRobo, entregarAoRobo } from './entregar-ao-robo';
+import { esquecerAndamentos } from './resposta-em-andamento';
 import { assinaturaDaInstancia, assinaturaDaInstanciaOk, assinarParaORobo } from '../../common/segredo-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -91,10 +92,14 @@ describe('entrada pela Evolution — as travas', () => {
       return { ok: true, status: 200 } as any;
     });
     esquecerEnvios();
+    // cada teste é uma conversa nova: a resposta "em andamento" de um não segura a mensagem do seguinte
+    // (`resposta-em-andamento.ts` — aqui o robô de mentira nunca responde)
+    esquecerAndamentos();
   });
   afterEach(() => {
     espiao.mockRestore();
     jest.useRealTimers();
+    esquecerAndamentos();
   });
   afterAll(() => {
     delete process.env.ROBO_JUNTAR_MS;

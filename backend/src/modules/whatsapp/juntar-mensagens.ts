@@ -1,4 +1,5 @@
 import { entregarAoRobo } from './entregar-ao-robo';
+import { entregarSegurando } from './resposta-em-andamento';
 import { soFalaDePagamento } from '../../common/comprovante-do-cliente';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -48,12 +49,15 @@ export function definirPorteiroDaPausa(p: Porteiro | null): void {
   porteiro = p;
 }
 export async function entregarComPorteiro(msg: any, entregar: (m: any) => Promise<any> = entregarAoRobo): Promise<any> {
+  // Uma resposta por vez em cada conversa (`resposta-em-andamento.ts`): com uma em andamento, o texto que chega espera; o
+  // que vai de novo ao robô passa por este mesmo caminho (com o porteiro).
+  const deNovo = (m: any) => entregarComPorteiro(m, entregar);
   if (porteiro) {
     const decisao = await porteiro(msg).catch(() => 'segue' as const);
     if (decisao === 'respondido') return true;
-    if (decisao === 'falar') return entregar({ ...msg, responderFalado: true });
+    if (decisao === 'falar') return entregarSegurando({ ...msg, responderFalado: true }, entregar, deNovo);
   }
-  return entregar(msg);
+  return entregarSegurando(msg, entregar, deNovo);
 }
 
 /**

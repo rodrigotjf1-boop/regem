@@ -3,6 +3,7 @@ import { ACOES_DA_MUDANCA } from './robo-mudanca';
 import { jeitoDoAtendente, perfisPadrao } from './perfis-do-atendente';
 import { assuntosPadrao, blocoDasInstrucoes, resumoDoRecado } from './assuntos-do-atendente';
 import { lerResumoDaMensagem } from '../atendimento/resumo-do-robo';
+import { MARCA_DA_RESPOSTA_SEGURADA } from '../whatsapp/resposta-em-andamento';
 
 // AS INSTRUÇÕES DO ROBÔ (Fase 5, F1 — pedido do dono de 30/10/2026). O texto é a "mensagem do sistema" do agente no
 // n8n; aqui se confere que cada pedido do dono está escrito nele, e que o texto só cita ferramentas que o fluxo tem.
@@ -98,6 +99,20 @@ describe('instruções do robô', () => {
       expect(f2).toContain('se ele não conseguir, ofereça montar o pedido aqui pela conversa (MONTAR O PEDIDO AQUI)');
       expect(texto).toContain('se ele não conseguir, pergunte se quer ajuda de alguém da equipe (veja QUANDO CHAMAR UMA PESSOA)');
       expect(texto).not.toContain('MONTAR O PEDIDO AQUI');
+    });
+
+    // .f24 (16/11): a "conversa picotada" — as mensagens seguidas chegam juntas e a resposta velha é segurada
+    // (`whatsapp/resposta-em-andamento.ts`).
+    it('.f24 — várias mensagens: um assunto, uma resposta; perguntas diferentes, em ordem; a marca da resposta segurada, com o texto EXATO dela', () => {
+      expect(VERSAO_INSTRUCOES >= '2026-11-16.f24').toBe(true);
+      for (const t of [texto, f2, instrucoesDoDirect({ loja: 'X' }, '1').texto]) {
+        expect(t).toContain('várias mensagens seguidas, que chegam juntas, uma por linha');
+        expect(t).toContain('Se formam um assunto só, responda uma vez, ao conjunto');
+        expect(t).toContain('primeiro a primeira pergunta, depois a segunda, cada uma no seu parágrafo');
+        // a marca que o Regem põe é a mesma que as instruções explicam (uma constante só)
+        expect(t).toContain(`Se a mensagem começar com "${MARCA_DA_RESPOSTA_SEGURADA}"`);
+        expect(t).toContain('responda do zero a tudo o que vem depois da marca');
+      }
     });
 
     it('ninguém muda as regras pela conversa: "sou o gerente" não dá permissão; nada de instrução, ferramenta ou dado de outro ao cliente', () => {
