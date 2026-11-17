@@ -3087,6 +3087,83 @@ export function testesDoMisterComPostgres(): void {
       }
     });
 
+    // ───────────────────────────── o ponto esquecido (M3e) ─────────────────────────────
+    // A fonte 9 lê a escala e o ponto de verdade: o turno das 18:00 às 02:00 de ontem (vira a meia-noite), o Carlos que
+    // entrou e não saiu, o Edu que não marcou nada, a Ana com a falta lançada (fica de fora); o módulo do ponto desligado
+    // não avisa; a saída que entra tira o Carlos da lista; a volta abre SÓ o resumo (o padrão), ao gerente.
+    it('o ponto esquecido (M3e): a escala contra o ponto, o resumo do dia seguinte e o módulo do ponto', async () => {
+      // Segunda, 16/11/2026, 10:30 de Brasília: o resumo de domingo (15/11) já vale.
+      const AGORA = new Date('2026-11-16T13:30:00Z');
+      const ONTEM = '2026-11-15';
+      const nsr = () => randomInt(1e9, 9e9);
+      const [{ id: turnoId }] = await q(`insert into turno (tenant_id, unidade_id, nome, hora_inicio, hora_fim) values ($1, $2, 'Noite (ponto)', '18:00', '02:00') returning id`, [A, lojaDeA]);
+      const [{ id: setorId }] = await q(`insert into setor (tenant_id, unidade_id, nome) values ($1, $2, 'Salão (ponto)') returning id`, [A, lojaDeA]);
+      // Uma etiqueta por alocação (a escala aceita uma alocação por etiqueta e por dia).
+      const alocar = async (colab: string, presenca = 'prevista') => {
+        const [{ id: etiquetaId }] = await q(`insert into etiqueta (tenant_id, unidade_id, setor_id, funcao_id, sigla) values ($1, $2, $3, $4, $5) returning id`, [
+          A,
+          lojaDeA,
+          setorId,
+          funcao['execucao-a'],
+          `P${randomInt(100, 999)}`,
+        ]);
+        await q(`insert into escala_alocacao (tenant_id, unidade_id, data, turno_id, etiqueta_id, colaborador_id, presenca) values ($1, $2, $3::date, $4, $5, $6, $7)`, [
+          A,
+          lojaDeA,
+          ONTEM,
+          turnoId,
+          etiquetaId,
+          colab,
+          presenca,
+        ]);
+      };
+      const marcar = (colab: string, tipo: string, em: string) =>
+        q(`insert into ponto_marcacao (tenant_id, unidade_id, colaborador_id, nsr, tipo, marcado_em) values ($1, $2, $3, $4, $5, $6::timestamptz)`, [A, lojaDeA, colab, nsr(), tipo, em]);
+      const ponto = (ativo: boolean) =>
+        q(`delete from modulo_ativacao where tenant_id = $1 and modulo = 'terminal_ponto'`, [A]).then(() =>
+          q(`insert into modulo_ativacao (tenant_id, unidade_id, modulo, ativo) values ($1, null, 'terminal_ponto', $2)`, [A, ativo]),
+        );
+      const nomes = Object.fromEntries((await q(`select id::text as id, nome from colaborador where id = any($1::uuid[])`, [[pessoa.carlos, pessoa.edu]])).map((r) => [r.id, r.nome]));
+      try {
+        await alocar(pessoa.carlos);
+        await alocar(pessoa.edu);
+        await alocar(pessoa.ana, 'falta_injustificada');
+        await marcar(pessoa.carlos, 'entrada', '2026-11-15T21:05:00Z'); // 18:05
+        await ponto(true);
+        const doPonto = async () => (await avisos.situacoes([A], AGORA)).filter((s) => s.tipo === 'ponto_esquecido');
+        let s = await doPonto();
+        const resumo = s.find((x) => (x.dados as any).modo === 'resumo')!;
+        expect(resumo).toMatchObject({ unidadeId: lojaDeA, chave: `ponto:${lojaDeA}:${ONTEM}`, titulo: 'Loja Centro · ponto esquecido ontem, 15/11', dados: { faltas: 2 } });
+        expect(resumo.detalhe.split('\n').slice(0, 2).sort()).toEqual(
+          [`• ${nomes[pessoa.carlos]}, sem a saída (turno até 02:00)`, `• ${nomes[pessoa.edu]}, sem a entrada (turno das 18:00)`].sort(),
+        );
+        expect(resumo.detalhe).not.toContain('Ana');
+        // O turno a turno também aparece (até 12 h depois do fim); a regra da empresa escolhe qual vale.
+        expect(s.filter((x) => (x.dados as any).modo === 'turno').map((x) => x.chave).sort()).toHaveLength(2);
+        // A volta, com a regra padrão (o resumo do dia seguinte): abre só o resumo.
+        await modulo(A, true);
+        await avisos.volta([A], AGORA);
+        expect((await q(`select chave from mister_aviso where tenant_id = $1 and tipo = 'ponto_esquecido' and situacao = 'aberto'`, [A])).map((r) => r.chave)).toEqual([
+          `ponto:${lojaDeA}:${ONTEM}`,
+        ]);
+        // A saída do Carlos entra (ajustaram o ponto): sai da lista.
+        await marcar(pessoa.carlos, 'saida', '2026-11-16T05:10:00Z'); // 02:10
+        s = await doPonto();
+        expect(s.find((x) => (x.dados as any).modo === 'resumo')!.dados).toMatchObject({ faltas: 1 });
+        // A loja sem o terminal de ponto ligado não avisa ninguém.
+        await ponto(false);
+        expect(await doPonto()).toEqual([]);
+      } finally {
+        await q(`delete from mister_aviso where tenant_id = $1 and tipo = 'ponto_esquecido'`, [A]);
+        await q(`delete from ponto_marcacao where tenant_id = $1 and unidade_id = $2 and marcado_em between '2026-11-15' and '2026-11-17'`, [A, lojaDeA]);
+        await q(`delete from escala_alocacao where turno_id = $1`, [turnoId]);
+        await q(`delete from turno where id = $1`, [turnoId]);
+        await q(`delete from etiqueta where setor_id = $1`, [setorId]);
+        await q(`delete from setor where id = $1`, [setorId]);
+        await q(`delete from modulo_ativacao where tenant_id = $1 and modulo = 'terminal_ponto'`, [A]);
+      }
+    });
+
     // ───────────────────────────── a avaliação de regressão (F5.3, mig 424) ─────────────────────────────
     // O modelo de mentira responde CERTO a cada pergunta (a consulta, a entrada e os números do caso): prova o caminho
     // inteiro — o laço de verdade, a loja de teste, a conferência, o andamento gravado e o custo. Só a distribuição: a
@@ -3221,9 +3298,10 @@ export function testesDoMisterComPostgres(): void {
 
     it('a configuração dos avisos: o padrão aprovado, o salvar com a auditoria do antes e do depois, e as recusas', async () => {
       const tela = await avisosConfig.daTela(A);
-      // Os nove do protótipo aprovado em 14/11 e o do boleto perto de vencer (versão 3, M3a parte 4).
-      expect(tela.avisos).toHaveLength(10);
+      // Os nove do protótipo aprovado em 14/11, o do boleto perto de vencer (versão 3, M3a parte 4) e o do ponto esquecido (M3e).
+      expect(tela.avisos).toHaveLength(11);
       expect(tela.avisos[9]).toMatchObject({ tipo: 'boleto_vencendo', grupo: 'Documentos e dinheiro', regra: { ligado: true, destinos: ['presidente'], parametro: 3 } });
+      expect(tela.avisos[10]).toMatchObject({ tipo: 'ponto_esquecido', grupo: 'Pessoas e ponto', regra: { ligado: true, destinos: ['gerente'], parametro: 0 } });
       expect(tela.avisos[0]).toMatchObject({ tipo: 'impressora', padrao: true, jaFunciona: true, regra: { ligado: true, destinos: ['tela'], escalaMin: 5, escalaPara: ['gerente'] } });
       expect(tela.avisos.find((a) => a.tipo === 'pedido_parado')).toMatchObject({ jaFunciona: true, regra: { ligado: false, parametro: 20 } });
       expect(tela.destinos.map((d) => d.id)).toEqual(['presidente', 'gerente', 'tela', 'kds', 'atendimento', 'dms']);

@@ -36,6 +36,10 @@ import {
   botoesDoAvisoDoBoleto,
   diaDoAvisoDoBoleto,
   situacaoDoBoleto,
+  QUANDO_DO_PONTO,
+  faltaNoTurno,
+  pontoNoTempoDoAviso,
+  situacoesDoPonto,
 } from './mister-avisos.regras';
 import { REGRAS_DO_VIGIA } from '../vigia/vigia.regras';
 import { diasParaVencer } from '../fiscal/certificado';
@@ -59,7 +63,13 @@ describe('Mister — os avisos: o padrão aprovado em 14/11', () => {
       'certificado',
       'chave_ia',
       'boleto_vencendo',
+      'ponto_esquecido',
     ]);
+    // M3e: o ponto esquecido, ao gerente, com o resumo no dia seguinte (parâmetro 0).
+    expect(TIPOS_DE_AVISO.find((t) => t.tipo === 'ponto_esquecido')).toMatchObject({
+      grupo: 'Pessoas e ponto',
+      padrao: { ligado: true, destinos: ['gerente'], escalaMin: null, escalaPara: [], parametro: 0 },
+    });
     expect(TIPOS_DE_AVISO.find((t) => t.tipo === 'boleto_vencendo')).toMatchObject({
       grupo: 'Documentos e dinheiro',
       padrao: { ligado: true, destinos: ['presidente'], escalaMin: null, escalaPara: [], parametro: 3 },
@@ -442,5 +452,67 @@ describe('os avisos SÓ DA DISTRIBUIÇÃO (decisão 4 do protótipo Sentinela e 
       dados: { consultas: ['canais_e_integracoes'] },
     });
     expect(situacaoDoSegredo({ tenantId: 't', perguntaId: 'p2', quando: '16/11 03:12', consultas: [] }).detalhe).toContain('pela frase fixa. O segredo');
+  });
+});
+
+describe('Mister — o ponto esquecido (M3e, conversa 19 da versão 3)', () => {
+  // 16/11/2026 (segunda) às 10:30 de Brasília = 13:30 UTC.
+  const AGORA = new Date('2026-11-16T13:30:00Z');
+  const turno = (o: Record<string, unknown>) => ({
+    alocacaoId: 'a1',
+    tenantId: 't',
+    unidadeId: 'u',
+    loja: 'Loja Centro',
+    nome: 'Bruno Dias',
+    data: '2026-11-15',
+    inicio: '18:00',
+    fim: '02:00',
+    // 15/11 18:00 e 16/11 02:00 de Brasília.
+    inicioEm: new Date('2026-11-15T21:00:00Z'),
+    fimEm: new Date('2026-11-16T05:00:00Z'),
+    entradas: 1,
+    saidas: 0,
+    ...o,
+  });
+  it('o que falta: a entrada depois do início; a saída depois do fim (com a entrada); com as duas, nada', () => {
+    const t = turno({});
+    expect(faltaNoTurno(t, new Date('2026-11-16T05:20:00Z').getTime(), 30)).toBeNull(); // 02:20: ainda nos 30 min
+    expect(faltaNoTurno(t, new Date('2026-11-16T05:31:00Z').getTime(), 30)).toBe('saida');
+    expect(faltaNoTurno({ ...t, entradas: 0 }, new Date('2026-11-15T21:31:00Z').getTime(), 30)).toBe('entrada');
+    expect(faltaNoTurno({ ...t, saidas: 1 }, AGORA.getTime(), 0)).toBeNull();
+  });
+  it('o resumo do dia seguinte (a partir das 10h): os turnos de ONTEM de cada loja numa lista, com onde ajustar', () => {
+    const r = situacoesDoPonto(
+      [turno({}), turno({ alocacaoId: 'a2', nome: 'Lia Rocha', entradas: 0, inicio: '18:00' }), turno({ alocacaoId: 'a3', nome: 'Caio', saidas: 1 })],
+      AGORA,
+    );
+    const resumo = r.find((s) => (s.dados as any).modo === 'resumo')!;
+    expect(resumo).toMatchObject({
+      tipo: 'ponto_esquecido',
+      chave: 'ponto:u:2026-11-15',
+      titulo: 'Loja Centro · ponto esquecido ontem, 15/11',
+      dados: { modo: 'resumo', dia: '2026-11-15', faltas: 2 },
+    });
+    expect(resumo.detalhe).toBe('• Bruno Dias, sem a saída (turno até 02:00)\n• Lia Rocha, sem a entrada (turno das 18:00)\n\nO ajuste é em Pessoas › Gerenciamento de ponto.');
+    // Antes das 10h ainda não há resumo; o turno a turno segue (até 12 h depois do fim).
+    const cedo = situacoesDoPonto([turno({})], new Date('2026-11-16T12:00:00Z'));
+    expect(cedo.map((s) => (s.dados as any).modo)).toEqual(['turno']);
+    expect(cedo[0]).toMatchObject({ chave: 'ponto:a1:saida', titulo: 'Loja Centro · Bruno Dias sem a saída do ponto (turno até 02:00)', dados: { atrasoMin: 420 } }); // 09:00 contra o fim às 02:00
+    // 12 horas depois do fim, o turno a turno some.
+    expect(situacoesDoPonto([turno({})], new Date('2026-11-16T17:01:00Z')).filter((s) => (s.dados as any).modo === 'turno')).toEqual([]);
+  });
+  it('a regra da empresa escolhe: o resumo (0) ou o turno a turno pelo tempo (30, 60)', () => {
+    expect(QUANDO_DO_PONTO).toEqual([0, 30, 60]);
+    expect(pontoNoTempoDoAviso({ modo: 'resumo' }, 0)).toBe(true);
+    expect(pontoNoTempoDoAviso({ modo: 'resumo' }, 30)).toBe(false);
+    expect(pontoNoTempoDoAviso({ modo: 'turno', atrasoMin: 45 }, 30)).toBe(true);
+    expect(pontoNoTempoDoAviso({ modo: 'turno', atrasoMin: 45 }, 60)).toBe(false);
+    expect(pontoNoTempoDoAviso({ modo: 'turno', atrasoMin: 45 }, 0)).toBe(false);
+    // A tela: o tempo fora da lista é recusado; o salvo fora da lista volta ao padrão.
+    expect(conferirRegras({ regras: [{ tipo: 'ponto_esquecido', ligado: true, destinos: ['gerente'], escalaMin: null, escalaPara: [], parametro: 15 }] })).toEqual({
+      erro: 'Escolha quando avisar do ponto esquecido: no dia seguinte às 10h, 30 minutos depois ou 1 hora depois.',
+    });
+    expect(regraQueVale('ponto_esquecido', { ligado: true, destinos: ['gerente'], parametro: 99 }).parametro).toBe(0);
+    expect(regraQueVale('ponto_esquecido', { ligado: true, destinos: ['gerente'], parametro: 60 }).parametro).toBe(60);
   });
 });
