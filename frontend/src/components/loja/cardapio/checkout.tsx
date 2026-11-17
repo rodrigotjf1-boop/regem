@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef, useState, type JSX } from 'react';
 import { buscarCep, localizacaoAtual } from '@/lib/geo';
 import { tempoDaArea } from '@/lib/area-entrega';
 import { AvisoOrigem } from '@/components/loja/aviso-origem';

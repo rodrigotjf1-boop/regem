@@ -1,4 +1,4 @@
-import { CUPOM_PERFIS_PADRAO, perfilEfetivo } from './cupom-perfis';
+import { AUMENTO_MAXIMO, CUPOM_PERFIS_PADRAO, perfilCustom, perfilEfetivo, subirNivelDaFonte } from './cupom-perfis';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -12,11 +12,11 @@ describe('perfis de cupom — padrão do Regem × o que a loja gravou', () => {
     const p = perfilEfetivo('entregador', { impressoras: ['imp-1'] });
     expect(ordem(p)).toEqual(ordem(CUPOM_PERFIS_PADRAO.entregador));
     expect(p.impressoras).toEqual(['imp-1']);
-    // Dono, 28/10/2026: "PEDIDO #10" (o número do painel) em destaque, o do canal logo abaixo e menor, e sem a senha.
-    expect(ordem(p).slice(0, 4)).toEqual(['nomeLoja', 'pedidoRegem', 'plataforma', 'tipoPedido']);
+    // Dono, 16/11/2026: a SENHA no alto (com o canal embaixo, no desenho); depois o "PEDIDO #10" em destaque.
+    expect(ordem(p).slice(0, 5)).toEqual(['senha', 'nomeLoja', 'pedidoRegem', 'plataforma', 'tipoPedido']);
     expect(campo(p, 'pedidoRegem')).toMatchObject({ visivel: true, negrito: true, escala: 2 });
     expect(campo(p, 'plataforma').escala).toBeUndefined();
-    expect(campo(p, 'senha').visivel).toBe(false);
+    expect(campo(p, 'senha')).toMatchObject({ visivel: true, negrito: true, escala: 2 });
     expect(campo(p, 'endereco')).toMatchObject({ negrito: true, mini: true, escala: 2 }); // destaque intermediário
     expect(campo(p, 'totalGeral')).toMatchObject({ negrito: true, escala: 2 }); // do tamanho da senha
     expect(campo(p, 'troco')).toMatchObject({ negrito: true, visivel: true });
@@ -119,5 +119,62 @@ describe('perfis de cupom — padrão do Regem × o que a loja gravou', () => {
     expect(campo(pd, 'pedidoRegem')).toMatchObject({ visivel: true, negrito: true, escala: 2 });
     expect(campo(pd, 'senha')).toMatchObject({ visivel: true, mini: true });
     expect(campo(pd, 'senha').escala).toBeUndefined();
+  });
+});
+
+// O CUPOM INTEIRO MAIOR (pedido do dono, 16/11/2026: "aumentar o cupom do caixa em 30%; os de produção estão muito
+// pequenos, aumentar 150%"): a térmica só amplia em passos inteiros — cada linha sobe degraus da régua, até o Grande.
+describe('perfis de cupom — o aumento do cupom inteiro', () => {
+  const N = (mini: boolean, escala: number) => ({ mini, escala });
+  const campo = (p: any, key: string) => p.campos.find((c: any) => c.key === key);
+  const ordem = (p: any) => p.campos.map((c: any) => c.key);
+
+  it('a régua: Normal sobe para Média (1 passo) e Grande (2); o que já é Grande ou maior fica; nunca diminui', () => {
+    expect(subirNivelDaFonte(false, 1, 1)).toEqual(N(true, 2)); // Normal → Média (~+40%)
+    expect(subirNivelDaFonte(false, 1, 2)).toEqual(N(false, 2)); // Normal → Grande (o dobro)
+    expect(subirNivelDaFonte(true, 1, 2)).toEqual(N(true, 2)); // Pequena → Média
+    expect(subirNivelDaFonte(true, 2, 2)).toEqual(N(false, 2)); // Média → Grande (o adicional não passa do item)
+    expect(subirNivelDaFonte(false, 2, 2)).toEqual(N(false, 2)); // Grande fica
+    expect(subirNivelDaFonte(false, 3, 2)).toEqual(N(false, 3)); // Enorme fica
+    expect(subirNivelDaFonte(false, 4, 2)).toEqual(N(false, 4)); // 4× fica
+    expect(subirNivelDaFonte(false, 1, 0)).toEqual(N(false, 1));
+    expect(subirNivelDaFonte(false, 1, -3)).toEqual(N(false, 1));
+    expect(subirNivelDaFonte(false, 1, NaN)).toEqual(N(false, 1));
+    expect(subirNivelDaFonte(false, 1, 9)).toEqual(N(false, 2)); // no máximo 2 passos, até o Grande
+    expect(AUMENTO_MAXIMO).toBe(2);
+  });
+
+  it('o padrão: o caixa 1 passo, a produção 2; o que a loja gravou vale (até o 0); sem nada gravado, o padrão', () => {
+    expect(perfilEfetivo('caixa', null).aumento).toBe(1);
+    for (const id of ['producao_balcao', 'producao_delivery', 'producao']) expect(perfilEfetivo(id, null).aumento).toBe(2);
+    expect(perfilEfetivo('entregador', null).aumento).toBeUndefined();
+    // a loja que gravou os campos e não o aumento (a loja de 16/11) recebe o padrão
+    const gravados = { campos: [{ key: 'senha', visivel: true, negrito: true, alinhamento: 'centro' }, { key: 'itens', visivel: true }] } as any;
+    expect(perfilEfetivo('producao_balcao', gravados).aumento).toBe(2);
+    expect(perfilEfetivo('producao_balcao', { ...gravados, aumento: 0 }).aumento).toBe(0);
+    expect(perfilEfetivo('producao_balcao', { ...gravados, aumento: 1 }).aumento).toBe(1);
+    // só o aumento e as impressoras gravados (sem campos): o padrão inteiro com o aumento gravado
+    const so = perfilEfetivo('caixa', { impressoras: ['imp-1'], aumento: 0 });
+    expect(so).toMatchObject({ aumento: 0, impressoras: ['imp-1'] });
+    expect(so.campos).toEqual(CUPOM_PERFIS_PADRAO.caixa.campos);
+    // lixo gravado não vale: fica o padrão
+    expect(perfilEfetivo('caixa', { aumento: 'muito' } as any).aumento).toBe(1);
+    expect(perfilEfetivo('caixa', { aumento: 7 }).aumento).toBe(2);
+    // o perfil personalizado guarda o seu
+    expect(perfilCustom({ id: 'custom_1', campos: [{ key: 'itens', visivel: true }], aumento: 2 })?.aumento).toBe(2);
+    expect(perfilCustom({ id: 'custom_1', campos: [{ key: 'itens', visivel: true }] })?.aumento).toBeUndefined();
+  });
+
+  it('o cupom do delivery: a senha no alto, visível, e a loja que gravou o perfil antes dela a recebe no alto também', () => {
+    expect(campo(CUPOM_PERFIS_PADRAO.entregador, 'senha')).toMatchObject({ visivel: true, negrito: true, escala: 2 });
+    // o perfil gravado da loja de 16/11: sem o campo da senha
+    const daLoja = perfilEfetivo('entregador', {
+      campos: ['nomeLoja', 'dataHora', 'ticket', 'plataforma', 'pedidoRegem', 'cliente', 'itens'].map((key) => ({ key, visivel: true })),
+    } as any);
+    expect(ordem(daLoja)[0]).toBe('senha');
+    expect(campo(daLoja, 'senha').visivel).toBe(true);
+    // quem escondeu a senha de propósito continua sem ela
+    const escondida = perfilEfetivo('entregador', { campos: [{ key: 'senha', visivel: false }, { key: 'itens', visivel: true }] } as any);
+    expect(campo(escondida, 'senha').visivel).toBe(false);
   });
 });

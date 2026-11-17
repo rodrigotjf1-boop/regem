@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   AVISOS_DA_DISTRIBUICAO,
   SEGREDO_ABERTO_H,
@@ -7,6 +9,9 @@ import {
   DESTINOS,
   MARCOS_DO_CERTIFICADO,
   TIPOS_DE_AVISO,
+  PONTE_ATALHO,
+  PONTE_ICONE,
+  PONTE_MENU_ABRIR_IFOOD,
   TIPO_DA_REGRA_DO_VIGIA,
   conferirRegras,
   dentroDaJanelaDoWhatsapp,
@@ -19,6 +24,7 @@ import {
   situacaoDaNotaSemResposta,
   situacaoDoCaixa,
   situacaoDoCertificadoDaLoja,
+  situacaoDoChatSemResposta,
   situacaoDoIfoodSemResposta,
   situacaoDoPedidoParado,
   situacaoDoVigia,
@@ -272,6 +278,45 @@ describe('Mister — os avisos, parte 2: o canal desconectado', () => {
     );
     // O botão citado é um dos que o guia confere contra a tela.
     expect(GUIA_DE_USO.find((x) => x.id === 'ligar-ifood-99')!.botoes).toEqual(expect.arrayContaining(['Integrações', 'Conectar com 99Food']));
+  });
+
+  it('o chat do iFood sem resposta: um aviso por loja, o motivo no título (sem hora nem contagem) e o que fazer no detalhe', () => {
+    const base = { tenantId: 't1', unidadeId: 'u1', ponte: 'Servidor com ponte', maquina: 'DESKTOP-SERVIDOR', pedidos: 1 };
+    const semLogin = situacaoDoChatSemResposta({ ...base, motivo: 'sem_login' }, 'Loja Centro');
+    expect(semLogin).toMatchObject({
+      tenantId: 't1',
+      unidadeId: 'u1',
+      tipo: 'canal_desconectado',
+      chave: 'chat:ifood:u1',
+      titulo: 'Loja Centro · chat do iFood sem resposta: a ponte do chat "Servidor com ponte" está sem login no iFood',
+      dados: { canal: 'ifood', chat: true, motivo: 'sem_login', pedidos: 1 },
+    });
+    expect(semLogin.detalhe).toBe(
+      'No computador da ponte (DESKTOP-SERVIDOR), clique no ícone "Regem · Ponte do chat", perto do relógio, depois em "Abrir o Gestor do iFood", ' +
+        'e entre com o login da loja nessa janela (o login feito em outro navegador não vale). Até lá, responda os clientes pelo Gestor de Pedidos do iFood. ' +
+        'Há 1 pedido do iFood em andamento.',
+    );
+    const semSinal = situacaoDoChatSemResposta({ ...base, unidadeId: null, maquina: null, ponte: '', motivo: 'sem_sinal', pedidos: 0 }, 'Burger do Zé');
+    // a ponte sem loja atende a empresa inteira: a chave é a da empresa; sem nome nem máquina, o texto não deixa buraco
+    expect(semSinal).toMatchObject({ unidadeId: null, chave: 'chat:ifood:empresa', titulo: 'Burger do Zé · chat do iFood sem resposta: a ponte do chat parou de dar sinal' });
+    expect(semSinal.detalhe).toBe(
+      'O computador da ponte está desligado, sem internet ou com o programa fechado. Ligue o computador e abra o "Regem Ponte do chat" pelo atalho da Área de trabalho. ' +
+        'Até lá, responda os clientes pelo Gestor de Pedidos do iFood.',
+    );
+    // o título não muda enquanto dura (o desfecho o repete): nem hora, nem número
+    expect(semLogin.titulo).not.toMatch(/\d/);
+    expect(situacaoDoChatSemResposta({ ...base, motivo: 'sem_login', pedidos: 9 }, 'Loja Centro').titulo).toBe(semLogin.titulo);
+  });
+
+  it('os nomes que o aviso do chat cita existem no programa da ponte e no instalador (V65)', () => {
+    const raiz = join(__dirname, '..', '..', '..', '..');
+    const ponte = readFileSync(join(raiz, 'ponte-chat', 'src', 'main.js'), 'utf8');
+    expect(ponte).toContain(`{ label: '${PONTE_MENU_ABRIR_IFOOD}', click: () => abrirGestor() }`);
+    expect(ponte).toContain(`bandeja.setToolTip(\`${PONTE_ICONE}\\n`);
+    const instalador = readFileSync(join(raiz, 'backend', 'edge', 'regem-edge.iss'), 'utf8');
+    expect(instalador).toContain(`Name: "{commondesktop}\\${PONTE_ATALHO}"`);
+    // e a descrição do tipo, na tela Mister › Avisos, fala do chat
+    expect(TIPOS_DE_AVISO.find((t) => t.tipo === 'canal_desconectado')?.descricao).toContain('o chat do iFood ficou sem ninguém respondendo');
   });
 });
 

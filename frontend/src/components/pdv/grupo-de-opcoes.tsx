@@ -1,7 +1,7 @@
 'use client';
 
 import { Minus, Plus } from 'lucide-react';
-import { permiteRepetir, vezesDe } from '@/lib/adicionais';
+import { alternarOpcao, etapaObrigatoria, maximoDaEtapa, permiteRepetir, vezesDe } from '@/lib/adicionais';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -11,6 +11,9 @@ const brl = (n: number) =>
 // Etapa comum: marcar/desmarcar, como sempre. Etapa "com repetição" (definida no complemento do
 // catálogo): a mesma opção pode entrar mais de uma vez — "+1 fatia de bacon" duas vezes —, com
 // − n + como no cardápio do cliente. `escolhidas` é a lista inteira do item (o id repetido conta).
+// As opções saem em GRADE que se ajusta ao espaço (pedido do dono, 17/11/2026: a janela das etapas mais larga, sem tanta
+// rolagem): duas, três ou quatro por linha na janela larga do balcão, uma por linha no celular do garçom — pela largura
+// da própria janela, não da tela. Com foto no cadastro, a foto vai ao lado do nome.
 export function GrupoDeOpcoes({
   grupo,
   escolhidas,
@@ -24,10 +27,14 @@ export function GrupoDeOpcoes({
   const repete = permiteRepetir(grupo);
   const noGrupo = escolhidas.filter((id) => opcoes.some((o) => o.id === id)).length;
   // Máximo da etapa: vale para a soma das escolhas dela (a mesma conta do cardápio).
-  const cheio = grupo.max != null && noGrupo >= Number(grupo.max);
-
-  const alternar = (id: string) =>
-    onMudar(escolhidas.includes(id) ? escolhidas.filter((x) => x !== id) : [...escolhidas, id]);
+  const max = maximoDaEtapa(grupo);
+  const cheio = max != null && noGrupo >= max;
+  const obrigatoria = etapaObrigatoria(grupo);
+  // "Até 1" é escolha ÚNICA: tocar em outra troca a escolha (a bolinha de rádio). Máximo maior: trava no limite. A regra
+  // é a do cardápio digital (`lib/adicionais.ts › alternarOpcao`); antes a etapa sem repetição não conferia o máximo e
+  // deixava "2/1" (pedido do dono, 17/11/2026).
+  const unica = max === 1;
+  const alternar = (id: string) => onMudar(alternarOpcao(grupo, escolhidas, id));
   const por = (id: string) => {
     if (!cheio) onMudar([...escolhidas, id]);
   };
@@ -36,44 +43,79 @@ export function GrupoDeOpcoes({
     if (i >= 0) onMudar([...escolhidas.slice(0, i), ...escolhidas.slice(i + 1)]);
   };
 
+  const foto = (o: any) =>
+    o.imagemRef ? (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={o.imagemRef} alt="" loading="lazy" decoding="async" className="h-11 w-11 flex-none rounded-md object-cover" />
+    ) : null;
+
   return (
-    <div className="mb-3">
-      <p className="mb-1.5 text-xs font-semibold text-muted-foreground">
-        {grupo.nome}{' '}
-        <span className="font-normal">
-          ({grupo.tipo === 'remover' ? 'retirar' : 'adicionar'}
-          {repete ? ` · pode repetir${grupo.max != null ? `, até ${grupo.max}` : ''}` : ''})
+    <fieldset className="mb-4 min-w-0">
+      <legend className="mb-2 flex w-full flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span className="font-display text-sm font-bold">{grupo.nome}</span>
+        <span className="text-xs text-muted-foreground">
+          {grupo.tipo === 'remover' ? 'retirar' : grupo.tipo === 'escolha' ? 'escolher' : 'adicionar'}
+          {repete ? ` · pode repetir${max != null ? `, até ${max}` : ''}` : unica ? ' · escolha 1' : max != null ? ` · até ${max}` : ''}
         </span>
-      </p>
-      <div className="space-y-1">
+        {obrigatoria && (
+          <span className="rounded-full bg-warn/10 px-2 py-0.5 text-[11px] font-semibold text-warn">Obrigatório</span>
+        )}
+        {max != null && (
+          <span className="ml-auto font-mono text-xs text-muted-foreground" aria-label={`${noGrupo} de ${max} escolhidas`}>
+            {noGrupo}/{max}
+          </span>
+        )}
+      </legend>
+      <div
+        className={`grid gap-2 ${
+          repete
+            ? 'grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))]'
+            : 'grid-cols-[repeat(auto-fill,minmax(min(100%,12.5rem),1fr))]'
+        }`}
+      >
         {opcoes.map((o) => {
           const n = vezesDe(escolhidas, o.id);
           const preco = Number(o.precoDelta) > 0 && (
-            <span className="font-mono text-xs text-primary">+ {brl(Number(o.precoDelta))}</span>
+            <span className="block font-mono text-xs font-semibold text-primary">+ {brl(Number(o.precoDelta))}</span>
           );
-          if (!repete)
+          if (!repete) {
+            const travada = !unica && cheio && n === 0;
             return (
               <label
                 key={o.id}
-                className={`flex cursor-pointer items-center gap-2 rounded-lg border p-2.5 ${n > 0 ? 'border-primary bg-primary/10' : 'border-border'}`}
+                data-opcao={o.id}
+                className={`flex min-h-14 min-w-0 items-center gap-2.5 rounded-lg border p-2 transition-colors focus-within:ring-2 focus-within:ring-ring ${
+                  n > 0 ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/60'
+                } ${travada ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
               >
                 <input
-                  type="checkbox"
+                  type={unica ? 'radio' : 'checkbox'}
+                  name={unica ? `etapa-${grupo.id}` : undefined}
                   checked={n > 0}
+                  disabled={travada}
                   onChange={() => alternar(o.id)}
-                  className="h-4 w-4 accent-primary"
+                  // o rádio marcado não dispara o onChange: o toque nele desmarca (a etapa opcional pode ficar vazia)
+                  onClick={unica && n > 0 ? () => alternar(o.id) : undefined}
+                  className="h-4 w-4 flex-none accent-primary"
                 />
-                <span className="flex-1 text-sm">{o.nome}</span>
-                {preco}
+                {foto(o)}
+                <span className="min-w-0 flex-1">
+                  <span className="line-clamp-2 break-words text-sm font-medium leading-tight">{o.nome}</span>
+                  {preco}
+                </span>
               </label>
             );
+          }
           return (
             <div
               key={o.id}
-              className={`flex items-center gap-2 rounded-lg border p-1.5 pl-2.5 ${n > 0 ? 'border-primary bg-primary/10' : 'border-border'}`}
+              className={`flex min-h-14 min-w-0 items-center gap-2.5 rounded-lg border p-1.5 pl-2 ${n > 0 ? 'border-primary bg-primary/10' : 'border-border'}`}
             >
-              <span className="min-w-0 flex-1 text-sm">{o.nome}</span>
-              {preco}
+              {foto(o)}
+              <span className="min-w-0 flex-1">
+                <span className="line-clamp-2 break-words text-sm font-medium leading-tight">{o.nome}</span>
+                {preco}
+              </span>
               <div className="flex flex-none items-center gap-1">
                 <button
                   type="button"
@@ -101,6 +143,6 @@ export function GrupoDeOpcoes({
           );
         })}
       </div>
-    </div>
+    </fieldset>
   );
 }

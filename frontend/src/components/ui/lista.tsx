@@ -234,7 +234,7 @@ export function distintos<T>(linhas: T[], campo: (r: T) => string | null | undef
 //   0 = tabela como sempre · 1 = tabela com as ações só em ícone · 2 = cartões.
 // `forma` identifica as colunas e as ações: mudou, a tabela pede outra largura e mede-se do começo.
 const useEfeitoDeLayout = typeof window === 'undefined' ? useEffect : useLayoutEffect;
-export function useModoDaLista(forma: string): { caixa: React.RefObject<HTMLDivElement>; modo: 0 | 1 | 2 } {
+export function useModoDaLista(forma: string): { caixa: React.RefObject<HTMLDivElement | null>; modo: 0 | 1 | 2 } {
   const caixa = useRef<HTMLDivElement>(null);
   const pede = useRef<[number, number]>([0, 0]); // a largura que a tabela pediu em cada modo
   const atual = useRef<0 | 1 | 2>(0);

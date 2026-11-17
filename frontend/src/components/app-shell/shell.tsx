@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
+  Banknote,
   BarChart3,
   Bike,
   Boxes,
@@ -56,6 +57,7 @@ import { ServidorOfflineAviso } from '@/components/ui/servidor-offline-aviso';
 import { FaixaSemNuvem } from '@/components/ui/faixa-sem-nuvem';
 import { AtualizacaoAviso } from '@/components/ui/atualizacao-aviso';
 import { TotemAPagarAviso } from '@/components/pdv/totem-a-pagar-aviso';
+import { TotemAPagarIcone } from '@/components/pdv/totem-a-pagar-icone';
 import { ClienteChegouAviso } from '@/components/pdv/cliente-chegou-aviso';
 import { AlertaDeAtendimento, SinoDoAtendimento } from '@/components/atendimento/alerta-de-atendimento';
 import { ChipDeAvisos, FaixaDeAvisos, LeitorDeAvisos } from '@/components/mister/faixa-de-avisos';
@@ -146,6 +148,9 @@ const NAV: NavNode[] = [
   {
     label: 'Financeiro', icon: Wallet,
     children: [
+      // As contas a pagar e a receber (a tela já existia sem item no menu — decisão 12 da versão 3 do Mister, 17/11/2026:
+      // o "Ver nas contas a pagar" do boleto lançado por foto abre aqui). Mesma permissão da API (`financeiro`).
+      { href: '/financeiro', label: 'Contas a pagar', icon: Banknote, perm: 'financeiro', soGestao: true },
       { href: '/formas-pagamento', label: 'Formas de pagamento', icon: CreditCard, perm: 'formas_pagamento' },
       { href: '/notas', label: 'Notas fiscais', icon: ReceiptText, perm: 'fiscal' },
       { href: '/tef', label: 'TEF / maquininha', icon: CreditCard, perm: 'tef' },
@@ -520,6 +525,8 @@ export function Shell({
               <span className="hidden items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 font-mono text-xs text-muted-foreground sm:inline-flex">
                 <Clock className="h-3.5 w-3.5" /> {rel}
               </span>
+              {/* O totem em dinheiro a pagar (16/11/2026): só nas telas do PDV — o ícone some fora delas e sem pedido. */}
+              {!!cat && temPerm('delivery', perms, cat === 'presidente') && <TotemAPagarIcone />}
               {!!cat && temPerm('pedidos', perms, cat === 'presidente') && <SinoDoAtendimento />}
               {!!cat && <ChipDeAvisos />}
               {actions}

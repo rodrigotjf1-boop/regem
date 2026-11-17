@@ -11,6 +11,7 @@ import { CloudOnly } from '../../common/cloud-only.decorator';
 import { MisterAvisosConfigService } from './mister-avisos-config.service';
 import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
 import { MisterAvisosHistoricoService } from './mister-avisos-historico.service';
+import { MisterConversaConfigService } from './mister-conversa-config.service';
 import { MisterVinculoService } from './mister-vinculo.service';
 
 // O WHATSAPP DE QUEM ESTÁ LOGADO no Mister e a parte "Pessoas" (mig 417). Gerente e presidente, só na nuvem e só com o
@@ -24,6 +25,7 @@ export class MisterController {
     private readonly avisos: MisterAvisosConfigService,
     private readonly relatorios: MisterRelatoriosConfigService,
     private readonly historico: MisterAvisosHistoricoService,
+    private readonly conversa: MisterConversaConfigService,
   ) {}
 
   /** A situação do meu WhatsApp no Mister e, se eu gerei um código que ainda vale, o código. */
@@ -120,5 +122,23 @@ export class MisterController {
   @RequireModulo('mister')
   salvarRelatorios(@CurrentUser() user: AuthUser, @Body() dto: unknown) {
     return this.relatorios.salvar(user, dto);
+  }
+
+  /** Os ajustes da conversa (mig 440): ligar a leitura de documentos por foto e o modo do boleto. Só o presidente. */
+  @Get('conversa')
+  @CloudOnly()
+  @Roles('presidente')
+  @RequireModulo('mister')
+  conversaDaTela(@CurrentUser() user: AuthUser) {
+    return this.conversa.daTela(user.tenantId);
+  }
+
+  /** Salva os ajustes da conversa (o ausente mantém o salvo). Só o presidente; toda recusa antes da gravação. */
+  @Patch('conversa')
+  @CloudOnly()
+  @Roles('presidente')
+  @RequireModulo('mister')
+  salvarConversa(@CurrentUser() user: AuthUser, @Body() dto: unknown) {
+    return this.conversa.salvar(user, dto);
   }
 }

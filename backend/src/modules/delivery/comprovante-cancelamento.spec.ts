@@ -139,7 +139,7 @@ descrever('comprovante do cancelamento e quem libera (Postgres real)', () => {
         '@B Insumos: PERDA (saem do estoque)',
       ]),
     );
-    expect(c.linhas.join('\n')).toMatch(/@CB SENHA D-\d+/);
+    expect(c.linhas.join('\n')).toMatch(/@CB SENHA \d+ - DELIVERY/);
     expect(c.linhas.some((s) => /^\d{2}\/\d{2}\/\d{4}, \d{2}:\d{2}:\d{2}$/.test(s))).toBe(true);
     expect((await q(`select motivo_cancelamento from pedido_externo where id = $1`, [id]))[0].motivo_cancelamento).toBe(
       'Cliente desistiu (autorizado por Supervisora Teste)',
@@ -201,7 +201,7 @@ descrever('comprovante do cancelamento e quem libera (Postgres real)', () => {
     expect(r.comprovante.enfileirados).toBe(1);
     const [c] = await comprovantes(l);
     expect(c.eq).toBe(l.caixaDelivery);
-    expect(c.linhas).toEqual(expect.arrayContaining(['@CBD CANCELAMENTO', '@CB SENHA B-7', '@B Motivo: Lançado errado', 'Atendente: Gerente Teste', '@B Autorizado por: Gerente Teste']));
+    expect(c.linhas).toEqual(expect.arrayContaining(['@CBD CANCELAMENTO', '@CB SENHA 7 - BALCÃO', '@B Motivo: Lançado errado', 'Atendente: Gerente Teste', '@B Autorizado por: Gerente Teste']));
     expect(c.linhas.join('\n')).not.toContain('Insumos'); // a venda não tinha baixado nada
 
     // Caixa com o cancelamento livre (o presidente liberou): quem cancelou é a atendente, sem gestor.

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { textosDasEscolhas } from '@/lib/adicionais';
+import { etapaQueFalta, textosDasEscolhas } from '@/lib/adicionais';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { GrupoDeOpcoes } from '@/components/pdv/grupo-de-opcoes';
@@ -201,6 +201,8 @@ export function SeletorProduto({
           0,
         );
         const variacaoObrig = picker.variacoes.length > 0 && !pickVar;
+        // A etapa obrigatória ainda sem escolha segura o "Adicionar à mesa" (17/11/2026).
+        const faltaEtapa = variacaoObrig ? null : etapaQueFalta(picker.complementos as any[], pickOpc);
         return (
           <div className="fixed inset-0 z-30 grid place-items-center overflow-y-auto bg-black/50 p-4" onClick={() => setPicker(null)}>
             <Card className="w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
@@ -241,8 +243,8 @@ export function SeletorProduto({
                 <span className="text-sm text-muted-foreground">Item</span>
                 <span className="font-mono text-lg font-bold">{brl(base + extra)}</span>
               </div>
-              <Button type="button" className="mt-3 w-full" disabled={variacaoObrig || enviando} onClick={confirmar}>
-                {variacaoObrig ? 'Escolha uma opção' : 'Adicionar à mesa'}
+              <Button type="button" className="mt-3 w-full" disabled={variacaoObrig || !!faltaEtapa || enviando} onClick={confirmar}>
+                {variacaoObrig ? 'Escolha uma opção' : faltaEtapa ? `Escolha: ${faltaEtapa.nome}` : 'Adicionar à mesa'}
               </Button>
             </Card>
           </div>

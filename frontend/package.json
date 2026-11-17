@@ -26,8 +26,9 @@
     "check:turno": "node scripts/check-turno.mjs",
     "check:sem-nuvem": "node scripts/check-sem-nuvem.mjs",
     "check:landing": "node scripts/check-landing.mjs",
+    "check:csv": "node scripts/check-csv.mjs",
     "roteiros": "node roteiros/rodar.mjs",
-    "test": "npm run check:etapas && npm run check:area && npm run check:eventos && npm run check:kds && npm run check:balcao && npm run check:unidades && npm run check:marcas && npm run check:conversao && npm run check:embalagem && npm run check:senhas && npm run check:tela-senhas && npm run check:painel && npm run check:vagas && npm run check:pausa && npm run check:catalogo && npm run check:rota-cozinha && npm run check:turno && npm run check:sem-nuvem && npm run check:landing"
+    "test": "npm run check:etapas && npm run check:area && npm run check:eventos && npm run check:kds && npm run check:balcao && npm run check:unidades && npm run check:marcas && npm run check:conversao && npm run check:embalagem && npm run check:senhas && npm run check:tela-senhas && npm run check:painel && npm run check:vagas && npm run check:pausa && npm run check:catalogo && npm run check:rota-cozinha && npm run check:turno && npm run check:sem-nuvem && npm run check:landing && npm run check:csv"
   },
   "dependencies": {
     "@geoman-io/leaflet-geoman-free": "2.18.3",
@@ -35,10 +36,10 @@
     "clsx": "^2.1.1",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.417.0",
-    "next": "^14.2.35",
+    "next": "^15.5.29",
     "qrcode": "^1.5.4",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "socket.io-client": "^4.8.3",
     "tailwind-merge": "^2.4.0"
   },
@@ -46,8 +47,8 @@
     "@types/leaflet": "^1.9.22",
     "@types/node": "^20.14.0",
     "@types/qrcode": "^1.5.6",
-    "@types/react": "^18.3.3",
-    "@types/react-dom": "^18.3.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.4.19",
     "postcss": "^8.4.40",
     "tailwindcss": "^3.4.7",

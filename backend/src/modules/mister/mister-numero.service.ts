@@ -124,7 +124,11 @@ export class FalhaDoEnvioDoMister extends Error {
   }
 }
 
-type RespostaHttp = { ok: boolean; status: number; json: () => Promise<any>; text: () => Promise<string> };
+type RespostaHttp = { ok: boolean; status: number; json: () => Promise<any>; text: () => Promise<string>; arrayBuffer?: () => Promise<ArrayBuffer> };
+
+/** M3a: a mídia que chega pelo número do Mister só vem dos domínios da Meta (como a do WhatsApp das lojas). */
+const HOSTS_DA_MIDIA = ['fbsbx.com', 'fbcdn.net', 'facebook.com', 'whatsapp.net'];
+const MAX_MIDIA_DO_MISTER = 20 * 1024 * 1024;
 export type Autor = { nome: string };
 
 /** Q1: o número que as pessoas veem e salvam — o da forma em uso (o celular do QR, com o Evolution). */
@@ -156,6 +160,47 @@ export class MisterNumeroService {
 
   private token(): string {
     return process.env.WA_CLOUD_TOKEN ?? '';
+  }
+
+  /**
+   * M3a (versão 3 do protótipo): baixa a foto ou o PDF que chegou pelo número do Mister na API oficial. A credencial é a
+   * da distribuição (o número é dela). Primeiro os metadados (a Meta devolve um endereço temporário), depois o arquivo,
+   * que também pede o token. Endereço fora dos domínios da Meta, arquivo grande demais ou qualquer falha → null.
+   */
+  async baixarMidia(mediaId: string): Promise<{ buffer: Buffer; mime: string } | null> {
+    const id = String(mediaId ?? '').trim();
+    const token = this.token();
+    // Estrito: o id vai concatenado no endereço da Graph API.
+    if (!/^[0-9]{5,32}$/.test(id) || !token) return null;
+    const auth = { Authorization: `Bearer ${token}` };
+    const meta = await this.buscar(`${GRAPH}/${id}`, { headers: auth }).catch(() => null);
+    if (!meta?.ok) {
+      this.logger.warn(`mídia ${id}: a Meta não deu os metadados (${meta?.status ?? 'sem resposta'})`);
+      return null;
+    }
+    const j: any = await meta.json().catch(() => ({}));
+    const url = String(j?.url ?? '');
+    const mime = String(j?.mime_type ?? 'application/octet-stream');
+    if (Number(j?.file_size ?? 0) > MAX_MIDIA_DO_MISTER) return null;
+    let host = '';
+    try {
+      const u = new URL(url);
+      if (u.protocol !== 'https:') return null;
+      host = u.hostname;
+    } catch {
+      return null;
+    }
+    if (!HOSTS_DA_MIDIA.some((h) => host === h || host.endsWith(`.${h}`))) {
+      this.logger.warn(`mídia ${id}: endereço fora dos domínios da Meta (${host})`);
+      return null;
+    }
+    const bin = await this.buscar(url, { headers: auth }).catch(() => null);
+    if (!bin?.ok || !bin.arrayBuffer) {
+      this.logger.warn(`mídia ${id}: o arquivo não veio (${bin?.status ?? 'sem resposta'})`);
+      return null;
+    }
+    const buffer = Buffer.from(await bin.arrayBuffer());
+    return buffer.length > MAX_MIDIA_DO_MISTER ? null : { buffer, mime };
   }
 
   /** O que a janela da Meta precisa para abrir (o mesmo aplicativo das lojas). */

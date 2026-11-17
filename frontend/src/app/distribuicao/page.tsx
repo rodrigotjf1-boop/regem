@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type JSX } from 'react';
 import { useRouter } from 'next/navigation';
 import { clearDistToken, distApi, getDistToken, setToken } from '@/lib/api';
 import { TokensIntegracao } from '@/components/distribuicao/tokens-integracao';
@@ -554,7 +554,7 @@ export default function DistHome() {
                           <td className="p-3">
                             <div className="flex gap-1.5">
                               <button onClick={() => { const d = prompt('Liberar/renovar por quantos dias?', '30'); if (d) acaoLicenca(distApi.liberarLicenca(l.id, Number(d))); }} className="rounded border border-slate-700 px-2 py-1 text-xs text-emerald-400 hover:border-emerald-500">Liberar/Renovar</button>
-                              {l.status !== 'bloqueado' && <button onClick={() => { if (confirm(`Revogar a licença de "${l.nome}"? A loja fica bloqueada para escrever/sincronizar.`)) acaoLicenca(distApi.revogarLicenca(l.id)); }} className="rounded border border-slate-700 px-2 py-1 text-xs text-red-400 hover:border-red-500">Revogar</button>}
+                              {l.status !== 'bloqueado' && <button onClick={() => { if (confirm(`Revogar a licença de "${l.nome}"? A loja fica bloqueada para escrever/sincronizar e as integrações ligadas dela (iFood, 99, Cardápio Web…) são desligadas. O "Liberar/Renovar" religa as mesmas.`)) acaoLicenca(distApi.revogarLicenca(l.id)); }} className="rounded border border-slate-700 px-2 py-1 text-xs text-red-400 hover:border-red-500">Revogar</button>}
                             </div>
                           </td>
                         )}

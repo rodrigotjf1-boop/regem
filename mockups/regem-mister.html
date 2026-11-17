@@ -32,10 +32,24 @@
    - O console da distribuição é escuro, como o de verdade; o app da loja usa os tokens do Regem (.app-light).
    - "Avisos e relatórios" e as conversas de aprovação mostram entregas futuras (F1.2, F3 e F4): cada uma diz a fase.
 
-   VERSÃO 2 (14/11/2026, a aprovar): "para onde vai" cada aviso. O dono disse que o destino depende do tipo do aviso e
+   VERSÃO 2 (14/11/2026, aprovada no mesmo dia): "para onde vai" cada aviso. O dono disse que o destino depende do tipo do aviso e
    aprovou a tabela ("vamos de ok e com o tempo vamos atualizando os avisos"): nove avisos em quatro grupos, cada um com
    os destinos (WhatsApp do presidente, do gerente, tela da loja, KDS, caso no Atendimento, suporte da DMS) e quem avisar
-   se ninguém resolver, editáveis numa gaveta. O pedido sai como no quadro do Delivery (#284 · iFood 4821). */
+   se ninguém resolver, editáveis numa gaveta. O pedido sai como no quadro do Delivery (#284 · iFood 4821).
+
+   VERSÃO 3 — APROVADA PELO DONO em 17/11/2026 ("1 aprovado"): o Mister mais inteligente, pedido em 16/11. Novidades marcadas com "v3":
+   - Documentos por foto: boleto e nota do fornecedor. O Mister lê a foto, reconhece o tipo e lança; o que não entendeu,
+     pede outra foto ou pergunta o campo. O código de barras do boleto e a chave da nota se leem SEM IA (o dígito
+     verificador confere); a IA lê o resto. Parte nova "Documentos" em Mister na loja, com a gaveta de cada um.
+   - Boletos: aviso de vencimento com a linha digitável e o Pix copia e cola (quando o boleto tiver), "Já paguei" e o PDF.
+   - Relatórios com gráfico (dia, semana, mês ou o período pedido) e por insumo, pela ficha técnica ("quantas carnes de
+     56 g hoje?"), como imagem na conversa, PDF ou link para ver. Aba nova "Arquivos e links" com os modelos.
+   - "Como faço…" com a imagem da tela do Regem e os lugares numerados (gerada pelos roteiros de tela).
+   - Links de conferência encaminhados a quem o presidente pedir.
+   - Ponto e escala: ponto esquecido e o arquivo do ponto do mês ao presidente ou à contabilidade (o responsável
+     cadastrado, com nome e WhatsApp).
+   - Áudio: ouvir e responder em áudio. Conversa dinâmica: segue o assunto, refaz, corrige e cria (com confirmação).
+   Decisões com a recomendada em "Notas e decisões". Nada aqui muda o que as versões 1 e 2 aprovaram. */
 :root{
   --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
   --gold:#E8A845; --on-gold:#281B06; --gold-ink:#7A5209; --gold-bg:#FFF9EC; --navy:#0F2230;
@@ -157,7 +171,8 @@ a{color:var(--info);text-underline-offset:2px}
 .aj.mudou{background:var(--gold-bg);box-shadow:inset 3px 0 0 var(--gold)}
 .aj .t{font-weight:600} .aj .d{font-size:13.5px;color:var(--ink-2)}
 .aj .ctrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end}
-.aj .ctrl input,.aj .ctrl select{border:1px solid var(--line-2);border-radius:8px;padding:6px 8px;min-height:38px;background:#fff}
+.aj .ctrl input,.aj .ctrl select{border:1px solid var(--line-2);border-radius:8px;padding:6px 8px;min-height:38px;background:#fff;max-width:100%;min-width:0}
+.aj .ctrl{min-width:0}
 .destinos{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}
 .destinos .selo{white-space:normal}
 .btn-peq{min-height:32px;padding:4px 10px;font-size:13px}
@@ -268,6 +283,73 @@ pre.fio{font:12.5px/1.35 var(--mono);background:var(--neutro-bg);border-radius:1
   #ajustes .aj .ctrl{justify-content:flex-start}
 }
 
+/* VERSÃO 3 */
+.v3{font:700 10.5px var(--display);background:var(--info-bg);color:var(--info);padding:1px 6px;border-radius:4px;letter-spacing:.05em;vertical-align:2px;white-space:nowrap}
+.sep-v3{display:flex;align-items:center;gap:10px;margin:34px 0 6px}
+.sep-v3::after{content:"";flex:1;height:1px;background:var(--line-2)}
+.midia{display:block;border-radius:8px;overflow:hidden;margin:-2px -4px 6px;background:#fff;border:1px solid #D5DDE3}
+.foto-doc{display:block;position:relative;height:112px;background:linear-gradient(160deg,#F7F3EA,#E6DDCB);padding:10px 56px 10px 12px;font:600 10.5px var(--mono);color:#5B4B35}
+.foto-doc .lin{display:block;height:6px;border-radius:3px;background:rgba(91,75,53,.25);margin:6px 0;width:70%}
+.foto-doc .lin.c{width:45%}
+.foto-doc .barras{position:absolute;left:12px;right:12px;bottom:10px;height:24px;background:repeating-linear-gradient(90deg,#2B2B2B 0 2px,transparent 2px 4px,#2B2B2B 4px 5px,transparent 5px 8px)}
+.foto-doc.tremida .lin,.foto-doc.tremida .barras{filter:blur(2px);opacity:.75}
+.foto-doc .rot{position:absolute;right:8px;top:8px;background:rgba(255,255,255,.9);border-radius:4px;padding:1px 6px;font:700 10px var(--body);color:#43586C}
+.doc-msg{display:flex;gap:10px;align-items:center;background:#F3F6F8;border-radius:8px;padding:8px 10px;margin:-2px -4px 6px;min-width:0}
+.doc-msg .ico{width:32px;height:38px;border-radius:4px;background:var(--crit);color:#fff;display:grid;place-items:center;font:800 10px var(--display);flex:none}
+.doc-msg > span:not(.ico){min-width:0}
+.rot-f{font:600 10.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+.doc-msg b{display:block;font-size:13px;line-height:1.25;overflow-wrap:anywhere} .doc-msg span{font-size:11.5px;color:#5E6E7A}
+.audio{display:flex;gap:8px;align-items:center;min-width:0;padding:2px 0}
+.audio .play{width:30px;height:30px;border-radius:50%;background:var(--c-wa);color:#fff;display:grid;place-items:center;font-size:11px;flex:none}
+.audio .onda{flex:1;min-width:40px;height:20px;background:repeating-linear-gradient(90deg,#7C8B96 0 2px,transparent 2px 5px);border-radius:2px;opacity:.8}
+.audio small{font:600 11px var(--mono);color:#5E6E7A;flex:none}
+.linha-dig{display:block;font:600 11.5px var(--mono);background:#F3F6F8;border-radius:6px;padding:6px 8px;margin:6px 0;overflow-wrap:anywhere;word-break:break-all}
+.grafico-msg{padding:6px 6px 2px}
+.grafico-msg svg,.grafico svg{display:block;width:100%;height:auto}
+svg .eixo{stroke:#C8D2DC;stroke-width:1} svg .grade{stroke:#E4EAF0;stroke-width:1} svg .barra{fill:#2F4A60} svg .barra.max{fill:#C98B26} svg .barra.parcial{fill:#9DB0C0}
+svg .rot-g{fill:#43586C;font-size:9px} svg .val-g{fill:#132536;font-size:9.5px;font-weight:700} svg .media{stroke:#B93232;stroke-width:1.5;stroke-dasharray:5 4}
+svg .media-t{fill:#B93232;font-size:9.5px;font-weight:700}
+.tela-mini{display:grid;grid-template-columns:82px minmax(0,1fr);font-size:10px;background:#EDF0F4;min-width:0}
+.tela-mini .m-lado{background:var(--navy);color:#C9D5DF;padding:8px 6px;display:grid;gap:3px;align-content:start}
+.tela-mini .m-lado span{padding:2px 4px;border-radius:3px;overflow-wrap:anywhere}
+.tela-mini .m-lado .on{background:rgba(232,168,69,.28);color:#fff;font-weight:700}
+.tela-mini .m-corpo{padding:8px;display:grid;gap:5px;align-content:start;min-width:0}
+.tela-mini .m-tit{font:700 11.5px var(--display);color:var(--ink)}
+.tela-mini .m-btn{justify-self:start;background:var(--gold);color:var(--on-gold);border-radius:4px;padding:2px 6px;font-weight:700}
+.tela-mini .m-campo{background:#fff;border:1px solid var(--line-2);border-radius:4px;padding:3px 5px;color:var(--ink-2);overflow-wrap:anywhere}
+.marca-n{display:inline-grid;place-items:center;width:17px;height:17px;border-radius:50%;background:var(--crit);color:#fff;font:800 10px var(--display);margin-right:4px;vertical-align:-3px;flex:none}
+.filtros{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px}
+.filtro{background:#fff;border:1px solid var(--line-2);padding:5px 12px;border-radius:999px;cursor:pointer;min-height:38px;font-weight:600;color:var(--ink-2)}
+.filtro[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.filtro .n{font-family:var(--mono);margin-left:4px}
+.busca-doc{border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;min-height:42px;width:min(340px,100%);margin-bottom:12px;background:#fff}
+.lido{font:700 10px var(--display);padding:1px 5px;border-radius:4px;margin-left:4px;letter-spacing:.04em;white-space:nowrap}
+.lido.cod{background:var(--ok-bg);color:var(--ok)} .lido.ia{background:var(--info-bg);color:var(--info)} .lido.pessoa{background:var(--neutro-bg);color:var(--neutro)}
+.campos-f{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));gap:10px 16px;margin:10px 0}
+.campos-f dt{font:600 10.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)} .campos-f dd{margin:0;font-weight:600;overflow-wrap:anywhere}
+.trilha{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:6px;font-size:13.5px}
+.trilha li{display:flex;flex-wrap:wrap;gap:4px 10px;justify-content:space-between;border-left:2px solid var(--line-2);padding-left:10px}
+/* arquivos e links */
+.arquivos{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,430px),1fr));gap:22px;align-items:start}
+.arquivo-caso h2{margin-bottom:2px} .arquivo-caso > .sub{font-size:13.5px;margin-bottom:10px}
+.folha{background:#fff;border:1px solid var(--line-2);border-radius:4px;box-shadow:0 6px 20px rgba(19,37,54,.12);padding:22px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.folha-cab{display:flex;justify-content:space-between;gap:8px 12px;align-items:flex-start;border-bottom:2px solid var(--navy);padding-bottom:10px;flex-wrap:wrap}
+.folha-cab .marca-f{font:800 15px var(--display);letter-spacing:.04em}
+.folha-cab .marca-f small{display:block;font:500 10.5px var(--body);color:var(--ink-2);letter-spacing:0}
+.folha-cab .quando{font-size:12px;color:var(--ink-2);text-align:right}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,128px),1fr));gap:8px}
+.kpi{border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:0}
+.kpi b{display:block;font:700 18px var(--mono);font-variant-numeric:tabular-nums}
+.kpi span{font-size:12px;color:var(--ink-2)}
+.folha-rod{font-size:11px;color:var(--ink-2);border-top:1px solid var(--line);padding-top:8px}
+.pix-linha{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.pix-linha .qr{width:92px;height:92px;padding:5px}
+.pix-linha > div{flex:1 1 180px;min-width:0}
+.tela-link{border:8px solid #1B2A36;border-radius:28px;background:#EDF0F4;overflow:hidden;max-width:360px}
+.tela-link .barra-end{background:#fff;border-bottom:1px solid var(--line);padding:7px 12px;font:600 11.5px var(--mono);color:var(--ink-2);overflow-wrap:anywhere}
+.tela-link .conteudo{padding:12px;display:grid;gap:10px}
+@container principal (max-width: 520px){ .folha{padding:14px} }
+
 @media (max-width: 900px){
   .app{grid-template-columns:minmax(0,1fr)} .lado{display:none} .menu-cel{display:inline}
   .pagina,.notas,.console{padding:14px} .topo{padding:10px 14px}
@@ -276,7 +358,7 @@ pre.fio{font:12.5px/1.35 var(--mono);background:var(--neutro-bg);border-radius:1
 @media (prefers-reduced-motion: reduce){ *{transition:none!important;scroll-behavior:auto!important} }
 </style>
 </head>
-<body data-situacao="tudo" data-pessoas="com" data-chave="ok" data-uso="com" data-numero="conectado" data-ligar="esperando">
+<body data-situacao="tudo" data-pessoas="com" data-chave="ok" data-uso="com" data-numero="conectado" data-ligar="esperando" data-docs="com">
 <a class="pular" href="#conteudo">Pular para o conteúdo</a>
 
 <header class="proto">
@@ -286,6 +368,7 @@ pre.fio{font:12.5px/1.35 var(--mono);background:var(--neutro-bg);border-radius:1
     <button class="aba" data-aba="celular" aria-pressed="false">No celular</button>
     <button class="aba" data-aba="modulos" aria-pressed="false">Módulos</button>
     <button class="aba" data-aba="console" aria-pressed="false">Console da distribuição</button>
+    <button class="aba" data-aba="arquivos" aria-pressed="false">Arquivos e links · v3</button>
     <button class="aba" data-aba="notas" aria-pressed="false">Notas e decisões</button>
   </nav>
   <span class="nota">Dados inventados. Nada aqui fala com o Regem.</span>
@@ -321,6 +404,7 @@ pre.fio{font:12.5px/1.35 var(--mono);background:var(--neutro-bg);border-radius:1
           <button class="parte" data-parte="pessoas" aria-pressed="false">Pessoas</button>
           <button class="parte" data-parte="ia" aria-pressed="false">IA e uso</button>
           <button class="parte" data-parte="avisos" aria-pressed="false">Avisos e relatórios</button>
+          <button class="parte" data-parte="documentos" aria-pressed="false">Documentos <span class="v3">v3</span></button>
         </div>
 
         <!-- RESUMO -->
@@ -363,10 +447,14 @@ pre.fio{font:12.5px/1.35 var(--mono);background:var(--neutro-bg);border-radius:1
               <h2>O que o Mister faz por esta empresa</h2>
               <ul class="linhas">
                 <li><div><strong>Vigia do servidor da loja</strong><div class="sub peq">Sem sinal, serviço parado, disco, cópia de segurança, impressora.</div></div><span class="selo ok">ligado</span></li>
-                <li><div><strong>Avisos no WhatsApp e no Regem</strong><div class="sub peq">O problema que a loja resolve chega para quem está ligado.</div></div><span class="selo info">em breve</span></li>
-                <li><div><strong>Perguntas sobre a loja</strong><div class="sub peq">"Como está a loja agora?", "por que o pedido atrasou?"</div></div><span class="selo info">em breve</span></li>
-                <li><div><strong>Resumo do dia e da semana</strong><div class="sub peq">No horário que você escolher.</div></div><span class="selo neutro">depois</span></li>
-                <li><div><strong>Propostas para você autorizar</strong><div class="sub peq">Ele propõe, você autoriza, o servidor executa e ele confere.</div></div><span class="selo neutro">depois</span></li>
+                <li><div><strong>Avisos no WhatsApp e no Regem</strong><div class="sub peq">O problema que a loja resolve chega para quem está ligado.</div></div><span class="selo ok">ligado</span></li>
+                <li><div><strong>Perguntas sobre a loja</strong><div class="sub peq">"Como está a loja agora?", "por que o pedido atrasou?"</div></div><span class="selo ok">ligado</span></li>
+                <li><div><strong>Resumo do dia e da semana</strong><div class="sub peq">No horário que você escolher.</div></div><span class="selo ok">ligado</span></li>
+                <li><div><strong>Propostas para você autorizar</strong><div class="sub peq">Ele propõe, você autoriza, o servidor executa e ele confere.</div></div><span class="selo ok">ligado</span></li>
+                <li><div><strong>Boletos e notas por foto</strong> <span class="v3">v3</span><div class="sub peq">Mande a foto: ele lê, lança e avisa do vencimento.</div></div><span class="selo info">em breve</span></li>
+                <li><div><strong>Relatórios com gráfico e por insumo</strong> <span class="v3">v3</span><div class="sub peq">"Quantas carnes de 56 g vendemos hoje?", em imagem, PDF ou link.</div></div><span class="selo info">em breve</span></li>
+                <li><div><strong>Ponto e escala</strong> <span class="v3">v3</span><div class="sub peq">Ponto esquecido e o arquivo do ponto do mês para a contabilidade.</div></div><span class="selo info">em breve</span></li>
+                <li><div><strong>Áudio</strong> <span class="v3">v3</span><div class="sub peq">Fale com ele por áudio; ele responde em áudio, com o texto junto.</div></div><span class="selo info">em breve</span></li>
               </ul>
             </div>
             <div class="cartao">
@@ -504,9 +592,9 @@ pre.fio{font:12.5px/1.35 var(--mono);background:var(--neutro-bg);border-radius:1
 
         <!-- AVISOS E RELATÓRIOS -->
         <div data-parte-vista="avisos" hidden>
-          <div class="faixa info"><span class="fase">Próxima entrega · versão 2 (14/11)</span><br>Cada aviso vai para quem resolve: o que a equipe resolve aparece na tela da loja e no KDS; o que pede o gestor vai pelo WhatsApp do Mister; o técnico vai ao suporte da DMS. Tudo também fica no sino do Regem. Os destinos abaixo são o ponto de partida aprovado em 14/11 e mudam em "Mudar".</div>
+          <div class="faixa info"><span class="fase">Versão 2 no ar desde 14/11 · o que tem "v3" é proposta da versão 3</span><br>Cada aviso vai para quem resolve: o que a equipe resolve aparece na tela da loja e no KDS; o que pede o gestor vai pelo WhatsApp do Mister; o técnico vai ao suporte da DMS. Tudo também fica no sino do Regem. Os destinos abaixo são o ponto de partida aprovado em 14/11 e mudam em "Mudar".</div>
           <div class="cartao ajustes" id="ajustes">
-            <h2>Avisos <span class="sub peq">· 9 ajustes</span></h2>
+            <h2>Avisos <span class="sub peq">· 12 ajustes</span></h2>
             <p class="sub">O que o Mister avisa e para quem.</p>
             <h3 class="grupo-aj">Na loja</h3>
             <div class="aj"><div><div class="t" id="av1">Impressora parada</div><div class="d">Uma impressora deixou de responder com via na fila.</div>
@@ -539,18 +627,82 @@ pre.fio{font:12.5px/1.35 var(--mono);background:var(--neutro-bg);border-radius:1
             <div class="aj"><div><div class="t" id="av9">A chave de IA parou</div><div class="d">Sem crédito, no teto de gasto ou recusada: as perguntas e os relatórios param até a chave voltar.</div>
               <div class="destinos" data-destinos-de="chaveia"><span class="sub peq">Vai para:</span><span class="selo neutro">WhatsApp do presidente</span><button class="btn btn-peq" data-abre="gav-destino" data-nome="A chave de IA parou" data-destinos="presidente" data-escala="" data-escala-para="">Mudar</button></div></div>
               <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="av9"></button></div></div>
+            <h3 class="grupo-aj">Documentos e dinheiro <span class="v3">v3</span></h3>
+            <div class="aj"><div><div class="t" id="av10">Boleto perto de vencer</div><div class="d">Vai com a linha digitável e, quando o boleto tiver, o Pix copia e cola. "Já paguei" tira o boleto da lista.</div>
+              <div class="destinos" data-destinos-de="boleto"><span class="sub peq">Vai para:</span><span class="selo neutro">WhatsApp do presidente</span><button class="btn btn-peq" data-abre="gav-destino" data-nome="Boleto perto de vencer" data-destinos="presidente" data-escala="" data-escala-para="">Mudar</button></div></div>
+              <div class="ctrl"><label class="sr" for="av10q">Quando avisar do boleto</label><select id="av10q"><option selected>3 dias antes e no dia</option><option>1 dia antes e no dia</option><option>só no dia</option></select><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="av10"></button></div></div>
+            <h3 class="grupo-aj">Pessoas e ponto <span class="v3">v3</span></h3>
+            <div class="aj"><div><div class="t" id="av11">Ponto esquecido</div><div class="d">Entrada ou saída que falta depois do horário da escala. O aviso diz quem, qual turno e onde ajustar.</div>
+              <div class="destinos" data-destinos-de="ponto"><span class="sub peq">Vai para:</span><span class="selo neutro">WhatsApp do gerente da loja</span><button class="btn btn-peq" data-abre="gav-destino" data-nome="Ponto esquecido" data-destinos="gerente" data-escala="" data-escala-para="">Mudar</button></div></div>
+              <div class="ctrl"><label class="sr" for="av11t">Quando avisar do ponto esquecido</label><select id="av11t"><option selected>no dia seguinte, às 10h</option><option>30 min depois</option><option>1 hora depois</option></select><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="av11"></button></div></div>
+            <div class="aj"><div><div class="t" id="av12">Arquivo do ponto do mês</div><div class="d">O espelho de ponto do mês em PDF, depois que o último turno do mês fecha. Com um toque, vai à contabilidade.</div>
+              <div class="destinos"><span class="sub peq">Vai para:</span><span class="selo neutro">WhatsApp do presidente</span><span class="sub peq">· com um toque: Juliana Prado, Contabilidade Prado (o responsável cadastrado, WhatsApp final <span class="mono">7788</span>)</span></div></div>
+              <div class="ctrl"><label class="sr" for="av12q">Quando gerar o arquivo do ponto</label><select id="av12q"><option selected>dia 1, às 06:00</option><option>último dia, às 23:59</option></select><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="av12"></button></div></div>
 
-            <h2 style="margin-top:18px">Relatórios <span class="sub peq">· 2 ajustes</span></h2>
+            <h2 style="margin-top:18px">Relatórios <span class="sub peq">· 4 ajustes</span></h2>
             <p class="sub">Usam a IA. Cada um soma no "Uso da IA".</p>
             <div class="aj"><div><div class="t" id="r1">Resumo do dia</div><div class="d">Pedidos, vendas, tempo médio, cancelamentos e o que saiu do lugar.</div></div>
               <div class="ctrl"><label class="sr" for="r1h">Horário do resumo do dia</label><input id="r1h" type="time" value="23:30"><span class="estado-liga">Desligado</span><button class="liga" role="switch" aria-checked="false" aria-labelledby="r1"></button></div></div>
             <div class="aj"><div><div class="t" id="r2">Resumo da semana</div><div class="d">A semana contra a anterior.</div></div>
               <div class="ctrl"><label class="sr" for="r2d">Dia do resumo da semana</label><select id="r2d"><option selected>segunda</option><option>terça</option><option>domingo</option></select><label class="sr" for="r2h">Horário do resumo da semana</label><input id="r2h" type="time" value="09:00"><span class="estado-liga">Desligado</span><button class="liga" role="switch" aria-checked="false" aria-labelledby="r2"></button></div></div>
+            <div class="aj"><div><div class="t" id="r3">Como o relatório chega <span class="v3">v3</span></div><div class="d">Vale para os resumos e para o que você pedir na conversa. O texto vai sempre; o gráfico, do jeito escolhido.</div></div>
+              <div class="ctrl"><label class="sr" for="r3f">Formato do relatório</label><select id="r3f"><option selected>gráfico na conversa</option><option>PDF</option><option>link para ver no Regem</option><option>só texto</option></select></div></div>
+            <div class="aj"><div><div class="t" id="r4">Relatório por insumo <span class="v3">v3</span></div><div class="d">Quanto saiu de cada insumo pela ficha técnica: carnes de 56 g e de 120 g, pão, queijo. Na unidade do insumo, com o total em quilos.</div></div>
+              <div class="ctrl"><label class="sr" for="r4p">Período do relatório por insumo</label><select id="r4p"><option>por dia</option><option selected>por semana</option><option>por mês</option></select><span class="estado-liga">Desligado</span><button class="liga" role="switch" aria-checked="false" aria-labelledby="r4"></button></div></div>
+
+            <h2 style="margin-top:18px">Conversa <span class="sub peq">· 3 ajustes</span> <span class="v3">v3</span></h2>
+            <p class="sub">Como o Mister lê e responde.</p>
+            <div class="aj"><div><div class="t" id="c1">Lançar boletos e notas por foto</div><div class="d">Quem pode mandar: o presidente, e o gerente se você permitir. A nota do fornecedor sempre pergunta antes, porque mexe no estoque e no custo.</div></div>
+              <div class="ctrl"><label class="sr" for="c1m">Como lançar o boleto</label><select id="c1m"><option selected>boleto: sozinho se o código confere</option><option>boleto: pergunta antes</option></select><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="c1"></button></div></div>
+            <div class="aj"><div><div class="t" id="c2">Responder em áudio</div><div class="d">O texto vai junto, sempre. O áudio que você manda o Mister ouve e mostra o que entendeu.</div></div>
+              <div class="ctrl"><label class="sr" for="c2q">Quando responder em áudio</label><select id="c2q"><option selected>quando eu mandar áudio</option><option>sempre</option><option>nunca</option></select></div></div>
+            <div class="aj"><div><div class="t" id="c3">Mostrar a tela no "como faço"</div><div class="d">Manda a imagem da tela do Regem com os lugares para clicar e preencher, numerados.</div></div>
+              <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="c3"></button></div></div>
             <div class="barra-salvar" id="barra-salvar" hidden>
               <span id="barra-texto" role="status">1 alteração ainda não salva</span>
               <span class="acoes"><button class="btn" id="aj-descartar">Descartar</button><button class="btn pri" id="aj-salvar">Salvar alterações</button></span>
             </div>
           </div>
+        </div>
+
+        <!-- DOCUMENTOS (versão 3) -->
+        <div data-parte-vista="documentos" hidden>
+          <div class="faixa info"><span class="fase">Versão 3 · aprovada em 17/11/2026</span><br>Os boletos e as notas que chegaram por foto no WhatsApp do Mister: o que ele leu, onde lançou e o que ainda falta. Quem manda a foto vê o mesmo na conversa.</div>
+          <div class="ctls"><span>Situação do protótipo:</span>
+            <button class="ctl" data-ctl="docs" data-valor="com" aria-pressed="true">com documentos</button>
+            <button class="ctl" data-ctl="docs" data-valor="vazio" aria-pressed="false">nenhum ainda</button>
+            <button class="ctl" data-ctl="docs" data-valor="erro" aria-pressed="false">erro ao carregar</button>
+          </div>
+          <div class="cartao">
+            <h2>Documentos lidos <span class="sub peq mono" data-mostra="docs:com">· 6</span></h2>
+            <p class="sub">Mande a foto de um boleto ou da nota do fornecedor para o Mister. Ele reconhece o tipo, lê e lança; se faltar algo, pergunta na conversa.</p>
+            <div class="vazio" data-mostra="docs:vazio"><span class="grande" aria-hidden="true">📷</span>Nenhum documento ainda. Tire a foto de um boleto e mande para o Mister no WhatsApp.</div>
+            <div class="vazio" data-mostra="docs:erro" role="alert"><span class="grande" aria-hidden="true">⚠️</span>Não consegui carregar os documentos agora.<br><button class="btn" style="margin-top:8px" data-aviso="Carregando de novo…">Tentar de novo</button></div>
+            <div data-mostra="docs:com">
+              <div class="filtros" role="group" aria-label="Filtrar por situação">
+                <button class="filtro" data-filtro-doc="todos" aria-pressed="true">Todos<span class="n">6</span></button>
+                <button class="filtro" data-filtro-doc="lancado" aria-pressed="false">Lançados<span class="n">3</span></button>
+                <button class="filtro" data-filtro-doc="falta" aria-pressed="false">Falta informação<span class="n">1</span></button>
+                <button class="filtro" data-filtro-doc="conferir" aria-pressed="false">A conferir<span class="n">1</span></button>
+                <button class="filtro" data-filtro-doc="pago" aria-pressed="false">Pagos<span class="n">1</span></button>
+              </div>
+              <label class="sr" for="busca-doc">Buscar documento</label>
+              <input id="busca-doc" class="busca-doc" type="search" placeholder="Buscar por fornecedor ou número">
+              <table class="tab" id="tab-docs">
+                <caption class="sr">Documentos lidos por foto, com valor, vencimento, situação e quem mandou</caption>
+                <thead><tr><th>Documento</th><th>Valor e vencimento</th><th>Situação</th><th>Mandou</th><th><span class="sr">Ações</span></th></tr></thead>
+                <tbody>
+                  <tr data-sit="lancado"><td data-rot="Documento"><strong>Boleto · Distribuidora Sabor Ltda.</strong><div class="sub peq">lido pelo código de barras</div></td><td data-rot="Valor e vencimento"><span class="mono">R$ 1.284,90</span><div class="sub peq">vence 25/11 (quarta)</div></td><td data-rot="Situação"><span class="selo ok">lançado</span></td><td data-rot="Mandou">Ana · 16/11 22:41</td><td><div class="acoes"><button class="btn" data-abre="gav-doc" data-nome="Boleto · Distribuidora Sabor Ltda.">Ver</button></div></td></tr>
+                  <tr data-sit="lancado"><td data-rot="Documento"><strong>Nota 48.213 · Frigorífico Boa Carne</strong><div class="sub peq">3 itens no estoque e a conta a pagar</div></td><td data-rot="Valor e vencimento"><span class="mono">R$ 2.640,00</span><div class="sub peq">vence 16/12 (quarta)</div></td><td data-rot="Situação"><span class="selo ok">lançada</span></td><td data-rot="Mandou">Ana · 16/11 21:05</td><td><div class="acoes"><button class="btn" data-abre="gav-doc" data-nome="Nota 48.213 · Frigorífico Boa Carne">Ver</button></div></td></tr>
+                  <tr data-sit="lancado"><td data-rot="Documento"><strong>Boleto · Gás Rio</strong><div class="sub peq">sem código: valor e vencimento ditos na conversa</div></td><td data-rot="Valor e vencimento"><span class="mono">R$ 480,00</span><div class="sub peq">vence 30/11 (segunda)</div></td><td data-rot="Situação"><span class="selo ok">lançado</span></td><td data-rot="Mandou">Ana · 16/11 18:12</td><td><div class="acoes"><button class="btn" data-abre="gav-doc" data-nome="Boleto · Gás Rio">Ver</button></div></td></tr>
+                  <tr data-sit="falta"><td data-rot="Documento"><strong>Boleto · conta de luz</strong><div class="sub peq">a foto ficou tremida</div></td><td data-rot="Valor e vencimento"><span class="sub">não lido</span></td><td data-rot="Situação"><span class="selo warn">falta informação</span><div class="sub peq">esperando outra foto</div></td><td data-rot="Mandou">Carlos · 16/11 15:20</td><td><div class="acoes"><button class="btn" data-abre="gav-doc" data-nome="Boleto · conta de luz">Ver</button></div></td></tr>
+                  <tr data-sit="conferir"><td data-rot="Documento"><strong>Nota 1.907 · Hortifruti Verde</strong><div class="sub peq">2 itens sem ligação com o estoque</div></td><td data-rot="Valor e vencimento"><span class="mono">R$ 312,40</span><div class="sub peq">à vista</div></td><td data-rot="Situação"><span class="selo info">a conferir</span></td><td data-rot="Mandou">Ana · 16/11 11:48</td><td><div class="acoes"><button class="btn" data-abre="gav-doc" data-nome="Nota 1.907 · Hortifruti Verde">Ver</button></div></td></tr>
+                  <tr data-sit="pago"><td data-rot="Documento"><strong>Boleto · Embalagens Rio</strong><div class="sub peq">lido pelo código de barras</div></td><td data-rot="Valor e vencimento"><span class="mono">R$ 890,00</span><div class="sub peq">venceu 12/11</div></td><td data-rot="Situação"><span class="selo neutro">pago</span><div class="sub peq">"Já paguei" em 12/11</div></td><td data-rot="Mandou">Ana · 05/11 10:02</td><td><div class="acoes"><button class="btn" data-abre="gav-doc" data-nome="Boleto · Embalagens Rio">Ver</button></div></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <p class="sub peq">O boleto vai para as contas a pagar; a nota do fornecedor vai para Estoque › Recebimento e para as contas a pagar. Desfazer um lançamento por aqui vale até o boleto ser pago.</p>
         </div>
       </main>
     </div>
@@ -561,7 +713,7 @@ pre.fio{font:12.5px/1.35 var(--mono);background:var(--neutro-bg);border-radius:1
 <section class="vista" id="v-celular" aria-label="No celular">
   <main class="notas" style="max-width:1240px">
     <h1>Como fica a conversa no WhatsApp</h1>
-    <p class="sub" style="margin:6px 0 18px;max-width:80ch">Dez situações, do primeiro contato à autorização. O número do Mister é um só para todas as lojas: é o telefone de quem escreve que diz de qual empresa é a conversa.</p>
+    <p class="sub" style="margin:6px 0 18px;max-width:80ch">Dez situações das versões 1 e 2, do primeiro contato à autorização, e doze novas da versão 3, mais abaixo. O número do Mister é um só para todas as lojas: é o telefone de quem escreve que diz de qual empresa é a conversa.</p>
     <div class="celulares">
 
       <article class="caso"><h3>1. Ligar o WhatsApp</h3><p class="sub">O código sai do Regem, vale 10 minutos e uma vez.</p>
@@ -626,6 +778,106 @@ pre.fio{font:12.5px/1.35 var(--mono);background:var(--neutro-bg);border-radius:1
         <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
           <div class="bolha meu">PARAR AVISOS<span class="hora">08:12</span></div>
           <div class="bolha dele">Certo, Ana: este WhatsApp não recebe mais os avisos do Mister. Você ainda pode me perguntar.<br><br>Para voltar, responda VOLTAR AVISOS.<span class="hora">08:12</span></div>
+        </div></div></article>
+
+    </div>
+
+    <h2 class="sep-v3">Versão 3 <span class="v3">aprovada 17/11</span></h2>
+    <p class="sub" style="margin:0 0 18px;max-width:80ch">Fotos de documentos, gráficos, a tela do Regem, ponto, áudio e a conversa que segue o assunto. Dentro das 24 horas da conversa, imagem, PDF e áudio vão direto, sem modelo da Meta; fora delas, o aviso sai pelo modelo de texto que já existe e o resto vem no toque.</p>
+    <div class="celulares">
+
+      <article class="caso"><h3>11. Boleto por foto, lançado sozinho</h3><p class="sub">O código de barras confere o valor e o vencimento, e o fornecedor já é cadastrado. <span class="fase">v3 · M3a</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha meu"><span class="midia"><span class="foto-doc" role="img" aria-label="Foto de um boleto da Distribuidora Sabor"><span class="rot">foto</span>DISTRIBUIDORA SABOR LTDA<span class="lin"></span><span class="lin c"></span><span class="barras"></span></span></span><span class="hora">22:41</span></div>
+          <div class="bolha dele">📄 <b>Boleto da Distribuidora Sabor Ltda.</b><br>R$ 1.284,90 · vence <b>25/11 (quarta)</b><br><br>O código de barras confere com o valor e o vencimento, e a Distribuidora Sabor já é sua fornecedora. Lancei nas contas a pagar.<br><br>Aviso você em 22/11 e no dia, com a linha digitável.<div class="botoes-wa"><span>Desfazer</span><span>Ver no Regem</span></div><span class="hora">22:41</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>12. Nota do fornecedor, conferida antes</h3><p class="sub">Mexe no estoque e no custo da ficha: ele mostra o que leu e pergunta. <span class="fase">v3 · M3b</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha meu"><span class="midia"><span class="foto-doc" role="img" aria-label="Foto da nota fiscal do Frigorífico Boa Carne"><span class="rot">foto</span>DANFE · FRIGORÍFICO BOA CARNE<span class="lin"></span><span class="lin"></span><span class="lin c"></span><span class="barras"></span></span></span><span class="hora">21:03</span></div>
+          <div class="bolha dele">🧾 <b>Nota 48.213 · Frigorífico Boa Carne</b> · R$ 2.640,00<br>• Blend 56 g, 40 kg → <i>Carne 56 g</i><br>• Blend 120 g, 30 kg → <i>Carne 120 g</i><br>• Bacon fatiado, 5 kg → não achei no estoque<br>Pagamento: boleto para 16/12.<br><br>O bacon é o "Bacon em tiras" que já existe, ou cadastro um novo?<div class="botoes-wa"><span>É o Bacon em tiras</span><span>Cadastrar novo</span></div><span class="hora">21:03</span></div>
+          <div class="bolha meu">É o Bacon em tiras<span class="hora">21:04</span></div>
+          <div class="bolha dele">Tudo certo. Lanço a entrada no estoque e a conta a pagar de R$ 2.640,00 para 16/12?<div class="botoes-wa"><span>Lançar</span><span>Ver antes</span></div><span class="hora">21:04</span></div>
+          <div class="bolha meu">Lançar<span class="hora">21:05</span></div>
+          <div class="bolha dele">Lancei em Estoque › Recebimento e nas contas a pagar. O quilo da carne 56 g passou de R$ 31,90 para R$ 33,00.<div class="botoes-wa"><span>Ver no Regem</span></div><span class="hora">21:05</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>13. Foto ruim ou campo que falta</h3><p class="sub">Pede outra foto ou pergunta só o que faltou. <span class="fase">v3 · M3a</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha meu"><span class="midia"><span class="foto-doc tremida" role="img" aria-label="Foto tremida de um boleto"><span class="rot">foto</span>GÁS RIO<span class="lin"></span><span class="lin c"></span><span class="barras"></span></span></span><span class="hora">18:10</span></div>
+          <div class="bolha dele">Não consegui ler o valor nem o vencimento: a parte de baixo ficou tremida.<br><br>Manda outra foto com o boleto inteiro, de perto e com luz. Ou me diz o valor e o vencimento.<span class="hora">18:10</span></div>
+          <div class="bolha meu">vence dia 30, 480 reais, é do gás<span class="hora">18:11</span></div>
+          <div class="bolha dele"><b>Boleto · Gás Rio</b> · R$ 480,00 · vence 30/11 (segunda).<br>Sem o código de barras, ele entra sem a linha para pagar. Lanço assim?<div class="botoes-wa"><span>Lançar</span><span>Mandar outra foto</span></div><span class="hora">18:11</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>14. Vencimento com a linha e o Pix</h3><p class="sub">O Mister não paga: entrega o que você precisa para pagar no banco. <span class="fase">v3 · M3a</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha dele">💳 <b>Vence amanhã (25/11)</b> · Distribuidora Sabor · R$ 1.284,90<br>Linha digitável:<span class="linha-dig">00190.00009 01234.567898 01234.567890 1 16410000128490</span>Este boleto tem Pix: o copia e cola vem na próxima mensagem.<div class="botoes-wa"><span>Já paguei</span><span>Ver o PDF</span></div><span class="hora">09:00</span></div>
+          <div class="bolha dele"><span class="linha-dig">00020101021226850014br.gov.bcb.pix2563qrpix.exemplo.com.br/qr/v2/cobv/9d36b84f5204000053039865406128490…</span><span class="hora">09:00</span></div>
+          <div class="bolha meu">Já paguei<span class="hora">11:32</span></div>
+          <div class="bolha dele">Marquei como pago hoje, 24/11. Saiu da lista de vencimentos.<div class="botoes-wa"><span>Desfazer</span></div><span class="hora">11:32</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>15. Pergunta por insumo, com gráfico</h3><p class="sub">Pela ficha técnica: o que a venda baixou de cada insumo. <span class="fase">v3 · M3c</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha meu">quantas carnes de 56g foram vendidas hoje?<span class="hora">22:40</span></div>
+          <div class="bolha dele"><span class="midia grafico-msg">
+            <svg viewBox="0 0 260 120" role="img" aria-label="Carnes de 56 g por hora, hoje: 18h 12, 19h 48, 20h 71, 21h 54, 22h 27">
+              <line class="eixo" x1="10" y1="95" x2="250" y2="95"/>
+              <rect class="barra" x="19" y="82.2" width="30" height="12.8"/><rect class="barra" x="67" y="43.8" width="30" height="51.2"/><rect class="barra max" x="115" y="19.3" width="30" height="75.7"/><rect class="barra" x="163" y="37.4" width="30" height="57.6"/><rect class="barra" x="211" y="66.2" width="30" height="28.8"/>
+              <text class="val-g" x="34" y="78" text-anchor="middle">12</text><text class="val-g" x="82" y="40" text-anchor="middle">48</text><text class="val-g" x="130" y="15" text-anchor="middle">71</text><text class="val-g" x="178" y="33" text-anchor="middle">54</text><text class="val-g" x="226" y="62" text-anchor="middle">27</text>
+              <text class="rot-g" x="34" y="110" text-anchor="middle">18h</text><text class="rot-g" x="82" y="110" text-anchor="middle">19h</text><text class="rot-g" x="130" y="110" text-anchor="middle">20h</text><text class="rot-g" x="178" y="110" text-anchor="middle">21h</text><text class="rot-g" x="226" y="110" text-anchor="middle">22h</text>
+            </svg></span><b>Hoje até 22:40 · Loja Centro</b><br>212 carnes de 56 g (11,9 kg):<br>• X-Burger: 120<br>• Combo Duplo: 64 (2 por combo)<br>• Kids: 28<br>18% acima da média das últimas 4 segundas.<div class="botoes-wa"><span>PDF</span><span>Ver no link</span></div><span class="hora">22:40</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>16. A conversa segue o assunto</h3><p class="sub">"E no mês?", "compara", "manda em PDF": ele lembra o que foi falado. <span class="fase">v3 · M3c</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha meu">e de 120g no mês?<span class="hora">22:42</span></div>
+          <div class="bolha dele"><b>Novembro, de 1 a 16 · Loja Centro</b><br>1.486 carnes de 120 g (178,3 kg). Média de 93 por dia; o melhor foi o sábado, 14/11, com 171.<span class="hora">22:42</span></div>
+          <div class="bolha meu">compara com outubro no mesmo período e manda em PDF<span class="hora">22:43</span></div>
+          <div class="bolha dele"><span class="doc-msg"><span class="ico" aria-hidden="true">PDF</span><span><b>Carnes 120 g · out × nov (1 a 16).pdf</b><span>2 páginas · PDF · 184 KB</span></span></span>Outubro, de 1 a 16: 1.312. Novembro está 13% acima.<span class="hora">22:43</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>17. "Como faço", com a tela</h3><p class="sub">A imagem é da tela de verdade, com os lugares numerados. <span class="fase">v3 · M3d</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha meu">como cadastro uma forma de pagamento?<span class="hora">15:02</span></div>
+          <div class="bolha dele"><span class="midia"><span class="tela-mini" role="img" aria-label="Tela de Formas de pagamento do Regem, com o item do menu, o botão Nova forma e os campos numerados de 1 a 3">
+            <span class="m-lado"><span>Painel</span><span>Delivery</span><span>Estoque</span><span>Financeiro</span><span class="on"><span class="marca-n">1</span>Formas de pagamento</span></span>
+            <span class="m-corpo"><span class="m-tit">Formas de pagamento</span><span class="m-btn"><span class="marca-n">2</span>＋ Nova forma</span><span class="m-campo"><span class="marca-n">3</span>Nome: Vale-refeição</span><span class="m-campo">Tipo: outro</span><span class="m-btn">Salvar</span></span>
+          </span></span><b>1.</b> No menu, Financeiro › Formas de pagamento.<br><b>2.</b> Toque em "＋ Nova forma".<br><b>3.</b> Preencha Nome e Tipo e toque em Salvar.<br>A forma aparece no PDV e no cardápio digital.<span class="hora">15:02</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>18. Link de conferência para quem você pedir</h3><p class="sub">Vai para quem está ligado ao Mister e abre no Regem com o usuário da pessoa. <span class="fase">v3 · M3c</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha meu">manda pro Carlos o link da contagem de estoque de hoje<span class="hora">16:20</span></div>
+          <div class="bolha dele">Mandei para o Carlos (Loja Centro) o link da <b>contagem de hoje, 16/11</b>: 42 itens, 3 com diferença. Ele abre em Estoque › Contagem com o usuário dele.<span class="hora">16:20</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>19. Ponto esquecido</h3><p class="sub">Pela escala, ao gerente da loja: um resumo no dia seguinte, ou 30 min depois. <span class="fase">v3 · M3e</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha dele">🕒 <b>Loja Centro</b> · ponto esquecido ontem, 15/11:<br>• Bruno Dias, sem a saída (turno até 02:00)<br>• Lia Rocha, sem a entrada (turno das 18:00)<br><br>O ajuste é em Pessoas › Gerenciamento de ponto.<div class="botoes-wa"><span>Ver no Regem</span></div><span class="hora">10:00</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>20. Arquivo do ponto do mês</h3><p class="sub">Depois do último turno do mês; à contabilidade com um toque. <span class="fase">v3 · M3e</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha dele">📁 <b>Ponto de outubro · Loja Centro</b> (1 a 31/10)<br>14 colaboradores · 2 ajustes feitos · 1 pendente (Bruno Dias, 28/10).<span class="doc-msg" style="margin:8px 0 6px"><span class="ico" aria-hidden="true">PDF</span><span><b>Espelho de ponto · outubro 2026 · Loja Centro.pdf</b><span>16 páginas · PDF</span></span></span>Envio à contabilidade? Juliana Prado, Contabilidade Prado (WhatsApp final <span class="mono">7788</span>).<div class="botoes-wa"><span>Enviar à contabilidade</span><span>Ver antes</span></div><span class="hora">06:00</span></div>
+          <div class="bolha meu">Enviar à contabilidade<span class="hora">06:03</span></div>
+          <div class="bolha dele">Enviado às 06:04 para Juliana Prado. Fica no fechamento de outubro, em Pessoas › Gerenciamento de ponto.<span class="hora">06:04</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>21. Áudio</h3><p class="sub">Ele ouve, mostra o que entendeu e responde em áudio, com o texto junto. <span class="fase">v3 · M3f</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha meu"><span class="audio" role="img" aria-label="Áudio de 7 segundos"><span class="play" aria-hidden="true">▶</span><span class="onda"></span><small>0:07</small></span><span class="hora">12:15</span></div>
+          <div class="bolha dele">🎙️ Entendi: "quanto vendemos ontem na Barra?"<br><br><b>Loja Barra · domingo, 15/11</b>: R$ 6.380,40 em 131 pedidos.<span class="hora">12:15</span></div>
+          <div class="bolha dele"><span class="audio" role="img" aria-label="Resposta em áudio de 9 segundos"><span class="play" aria-hidden="true">▶</span><span class="onda"></span><small>0:09</small></span><span class="hora">12:15</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>22. Corrigir e criar</h3><p class="sub">Corrige o que lançou e escreve o que você pedir; o que publica, pergunta antes. <span class="fase">v3 · M3g</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha meu">o boleto da Distribuidora vence dia 28, não 25<span class="hora">23:02</span></div>
+          <div class="bolha dele">Corrigi o vencimento do boleto da Distribuidora Sabor para <b>28/11 (sábado)</b>. O código de barras diz 25/11: se o fornecedor prorrogou, guarde o boleto novo para pagar. Aviso você em 25/11 e no dia 28.<div class="botoes-wa"><span>Desfazer</span></div><span class="hora">23:02</span></div>
+          <div class="bolha meu">escreve um recado pro mural: amanhã a loja abre às 18h<span class="hora">23:05</span></div>
+          <div class="bolha dele">Ficou assim:<br><i>"📢 Amanhã, terça (17/11), a loja abre às 18h."</i><br><br>Publico no Mural &amp; clima da Loja Centro?<div class="botoes-wa"><span>Publicar</span><span>Mudar o texto</span></div><span class="hora">23:05</span></div>
         </div></div></article>
 
     </div>
@@ -740,11 +992,167 @@ pre.fio{font:12.5px/1.35 var(--mono);background:var(--neutro-bg);border-radius:1
   </main>
 </section>
 
+<!-- ═════════════════════ ARQUIVOS E LINKS (versão 3) ═════════════════════ -->
+<section class="vista" id="v-arquivos" aria-label="Arquivos e links">
+  <main class="notas" style="max-width:1240px">
+    <h1>O que o Mister manda além do texto <span class="v3">v3</span></h1>
+    <p class="sub" style="margin:6px 0 18px;max-width:80ch">O PDF do relatório, o PDF do boleto, a página do link e a imagem da tela do "como faço". Tudo sai do código do Regem, com os números da loja; a IA escolhe o relatório e escreve o texto, mas não desenha o gráfico nem soma.</p>
+    <div class="arquivos">
+
+      <article class="arquivo-caso"><h2>PDF do relatório</h2><p class="sub">Conversa 16: "compara com outubro e manda em PDF". Página 1 de 2.</p>
+        <div class="folha">
+          <div class="folha-cab"><div class="marca-f">REGEM<small>Burger da Praça · Loja Centro</small></div><div class="quando">Gerado em 16/11/2026, 22:43<br>pelo Mister, a pedido de Ana</div></div>
+          <h4>Carnes de 120 g · novembro (1 a 16) contra outubro</h4>
+          <div class="kpis"><div class="kpi"><b>1.486</b><span>carnes em novembro</span></div><div class="kpi"><b>178,3 kg</b><span>pela ficha técnica</span></div><div class="kpi"><b>+13%</b><span>contra outubro (1.312)</span></div></div>
+          <figure class="grafico" style="margin:0">
+            <svg viewBox="0 0 480 204" role="img" aria-label="Carnes de 120 g por dia em novembro, de 1 a 16, com a média de outubro. O maior dia foi 14/11, sábado, com 171; o dia 16 vai até 22:40, com 40.">
+              <line class="grade" x1="30" y1="127.1" x2="470" y2="127.1"/><line class="grade" x1="30" y1="84.3" x2="470" y2="84.3"/><line class="grade" x1="30" y1="41.4" x2="470" y2="41.4"/>
+              <text class="rot-g" x="26" y="130" text-anchor="end">50</text><text class="rot-g" x="26" y="87" text-anchor="end">100</text><text class="rot-g" x="26" y="44" text-anchor="end">150</text><text class="rot-g" x="26" y="173" text-anchor="end">0</text>
+              <rect class="barra" x="34.75" y="67.1" width="18" height="102.9"/><rect class="barra" x="62.25" y="122.9" width="18" height="47.1"/><rect class="barra" x="89.75" y="116.9" width="18" height="53.1"/><rect class="barra" x="117.25" y="110" width="18" height="60"/>
+              <rect class="barra" x="144.75" y="101.4" width="18" height="68.6"/><rect class="barra" x="172.25" y="62.9" width="18" height="107.1"/><rect class="barra" x="199.75" y="41.4" width="18" height="128.6"/><rect class="barra" x="227.25" y="71.4" width="18" height="98.6"/>
+              <rect class="barra" x="254.75" y="125.4" width="18" height="44.6"/><rect class="barra" x="282.25" y="115.1" width="18" height="54.9"/><rect class="barra" x="309.75" y="108.3" width="18" height="61.7"/><rect class="barra" x="337.25" y="98" width="18" height="72"/>
+              <rect class="barra" x="364.75" y="58.6" width="18" height="111.4"/><rect class="barra max" x="392.25" y="23.4" width="18" height="146.6"/><rect class="barra" x="419.75" y="87.7" width="18" height="82.3"/><rect class="barra parcial" x="447.25" y="135.7" width="18" height="34.3"/>
+              <line class="eixo" x1="30" y1="170" x2="470" y2="170"/>
+              <line class="media" x1="30" y1="99.7" x2="470" y2="99.7"/>
+              <line class="media" x1="34" y1="9" x2="52" y2="9"/><text class="media-t" x="56" y="12">média de outubro: 82 por dia</text>
+              <text class="val-g" x="401.25" y="19" text-anchor="middle">171</text><text class="val-g" x="456.25" y="131" text-anchor="middle">40</text>
+              <text class="rot-g" x="43.75" y="183" text-anchor="middle">1</text><text class="rot-g" x="71.25" y="183" text-anchor="middle">2</text><text class="rot-g" x="98.75" y="183" text-anchor="middle">3</text><text class="rot-g" x="126.25" y="183" text-anchor="middle">4</text><text class="rot-g" x="153.75" y="183" text-anchor="middle">5</text><text class="rot-g" x="181.25" y="183" text-anchor="middle">6</text><text class="rot-g" x="208.75" y="183" text-anchor="middle">7</text><text class="rot-g" x="236.25" y="183" text-anchor="middle">8</text>
+              <text class="rot-g" x="263.75" y="183" text-anchor="middle">9</text><text class="rot-g" x="291.25" y="183" text-anchor="middle">10</text><text class="rot-g" x="318.75" y="183" text-anchor="middle">11</text><text class="rot-g" x="346.25" y="183" text-anchor="middle">12</text><text class="rot-g" x="373.75" y="183" text-anchor="middle">13</text><text class="rot-g" x="401.25" y="183" text-anchor="middle">14</text><text class="rot-g" x="428.75" y="183" text-anchor="middle">15</text><text class="rot-g" x="456.25" y="183" text-anchor="middle">16</text>
+              <text class="rot-g" x="208.75" y="196" text-anchor="middle">sáb</text><text class="rot-g" x="401.25" y="196" text-anchor="middle">sáb</text>
+            </svg>
+            <figcaption class="sub peq">Carnes de 120 g por dia. O dia 16 vai até 22:40 (barra clara).</figcaption>
+          </figure>
+          <div><div class="rot-f">De onde saíram</div>
+            <ul class="linhas">
+              <li><div>X-Tudo</div><span class="mono">812</span></li>
+              <li><div>Duplo Bacon <span class="sub peq">(2 por lanche, 209 lanches)</span></div><span class="mono">418</span></li>
+              <li><div>Salada</div><span class="mono">256</span></li>
+            </ul>
+          </div>
+          <div class="folha-rod">Fonte: as vendas da Loja Centro baixadas pela ficha técnica de cada produto. Na página 2, o mesmo para outubro e a tabela dia a dia.</div>
+        </div>
+      </article>
+
+      <article class="arquivo-caso"><h2>PDF do boleto lançado</h2><p class="sub">Conversa 14: "Ver o PDF". O que foi lido e de onde veio cada campo.</p>
+        <div class="folha">
+          <div class="folha-cab"><div class="marca-f">REGEM<small>Burger da Praça · contas a pagar</small></div><div class="quando">Lançado por foto em 16/11/2026, 22:41<br>por Ana, pelo Mister</div></div>
+          <h4>Boleto · Distribuidora Sabor Ltda.</h4>
+          <dl class="campos-f">
+            <div><dt>Valor</dt><dd class="mono">R$ 1.284,90 <span class="lido cod">código</span></dd></div>
+            <div><dt>Vencimento</dt><dd>25/11/2026, quarta <span class="lido cod">código</span></dd></div>
+            <div><dt>Beneficiário</dt><dd>Distribuidora Sabor Ltda. <span class="lido ia">IA</span></dd></div>
+            <div><dt>Fornecedor no Regem</dt><dd>Distribuidora Sabor <span class="lido pessoa">cadastro</span></dd></div>
+          </dl>
+          <div><div class="rot-f">Linha digitável</div><span class="linha-dig">00190.00009 01234.567898 01234.567890 1 16410000128490</span></div>
+          <div class="pix-linha">
+            <svg class="qr" viewBox="0 0 21 21" role="img" aria-label="QR do Pix (ilustração)"><rect width="21" height="21" fill="#fff"/><path fill="#132536" d="M1 1h7v7H1zM13 1h7v7h-7zM1 13h7v7H1zM3 3v3h3V3zM15 3v3h3V3zM3 15v3h3v-3zM10 1h1v2h-1zM10 5h2v1h-2zM9 9h2v2H9zM12 9h1v1h-1zM14 10h2v1h-2zM17 9h3v1h-3zM1 10h2v1H1zM5 9h2v2H5zM10 13h2v1h-2zM13 12h1v3h-1zM15 13h2v2h-2zM18 12h2v1h-2zM10 16h1v4h-1zM12 17h3v1h-3zM16 16h1v2h-1zM18 15h2v2h-2zM13 19h2v1h-2zM17 19h3v1h-3z"/></svg>
+            <div><div class="rot-f">Pix copia e cola</div><span class="linha-dig">00020101021226850014br.gov.bcb.pix2563qrpix.exemplo.com.br/qr/v2/cobv/9d36b84f…128490</span></div>
+          </div>
+          <div class="folha-rod">Avisos de vencimento: 22/11 e 25/11, no WhatsApp do presidente. "código" = lido do código de barras, sem IA, conferido pelo dígito verificador; "IA" = lido da foto pela IA; "cadastro" = do cadastro do Regem.</div>
+        </div>
+      </article>
+
+      <article class="arquivo-caso"><h2>A página do link</h2><p class="sub">Conversa 15: "Ver no link". Abre no Regem com o usuário da pessoa. O link para encaminhar a quem não tem usuário (a contabilidade, um sócio) é só leitura e vale 7 dias.</p>
+        <div class="tela-link">
+          <div class="barra-end">app.dmsregem.com/r/k7Qe9…</div>
+          <div class="conteudo">
+            <div><span class="onde">Relatório do Mister</span><h2 style="margin-top:2px">Carnes de 56 g · hoje</h2><p class="sub peq">Loja Centro · segunda, 16/11 · até 22:40</p></div>
+            <div class="kpis"><div class="kpi"><b>212</b><span>carnes</span></div><div class="kpi"><b>11,9 kg</b><span>pela ficha</span></div></div>
+            <div class="grafico">
+              <svg viewBox="0 0 260 120" role="img" aria-label="Carnes de 56 g por hora, hoje: 18h 12, 19h 48, 20h 71, 21h 54, 22h 27">
+                <line class="eixo" x1="10" y1="95" x2="250" y2="95"/>
+                <rect class="barra" x="19" y="82.2" width="30" height="12.8"/><rect class="barra" x="67" y="43.8" width="30" height="51.2"/><rect class="barra max" x="115" y="19.3" width="30" height="75.7"/><rect class="barra" x="163" y="37.4" width="30" height="57.6"/><rect class="barra" x="211" y="66.2" width="30" height="28.8"/>
+                <text class="val-g" x="34" y="78" text-anchor="middle">12</text><text class="val-g" x="82" y="40" text-anchor="middle">48</text><text class="val-g" x="130" y="15" text-anchor="middle">71</text><text class="val-g" x="178" y="33" text-anchor="middle">54</text><text class="val-g" x="226" y="62" text-anchor="middle">27</text>
+                <text class="rot-g" x="34" y="110" text-anchor="middle">18h</text><text class="rot-g" x="82" y="110" text-anchor="middle">19h</text><text class="rot-g" x="130" y="110" text-anchor="middle">20h</text><text class="rot-g" x="178" y="110" text-anchor="middle">21h</text><text class="rot-g" x="226" y="110" text-anchor="middle">22h</text>
+              </svg>
+            </div>
+            <ul class="linhas">
+              <li><div>X-Burger</div><span class="mono">120</span></li>
+              <li><div>Combo Duplo <span class="sub peq">(2 por combo)</span></div><span class="mono">64</span></li>
+              <li><div>Kids</div><span class="mono">28</span></li>
+            </ul>
+            <div class="acoes"><button class="btn" data-aviso="Baixa o PDF deste relatório.">Baixar PDF</button><button class="btn" data-aviso="Muda o período: hoje, 7 dias, 30 dias ou as datas que quiser.">Mudar o período</button></div>
+          </div>
+        </div>
+      </article>
+
+      <article class="arquivo-caso"><h2>A imagem do "como faço"</h2><p class="sub">Conversa 17. Feita pelos roteiros de tela a cada versão do Regem, com dados de exemplo: é sempre a tela de verdade e nunca traz dado de uma loja.</p>
+        <div class="midia" style="margin:0;max-width:540px"><span class="tela-mini" style="font-size:12.5px;grid-template-columns:120px minmax(0,1fr)" role="img" aria-label="Tela de Formas de pagamento do Regem com três marcações numeradas">
+          <span class="m-lado"><span>Painel</span><span>Delivery</span><span>Estoque</span><span>Financeiro</span><span class="on"><span class="marca-n">1</span>Formas de pagamento</span><span>Notas fiscais</span></span>
+          <span class="m-corpo"><span class="m-tit" style="font-size:14px">Formas de pagamento</span><span class="sub">Formas pré-definidas</span><span class="m-btn"><span class="marca-n">2</span>＋ Nova forma</span><span class="m-campo"><span class="marca-n">3</span>Nome: Vale-refeição</span><span class="m-campo">Tipo: outro</span><span class="m-campo">Mostrar no cardápio digital: sim</span><span class="m-btn">Salvar</span></span>
+        </span></div>
+        <ol class="passos"><li>No menu, <strong>Financeiro › Formas de pagamento</strong>.</li><li>Toque em <strong>"＋ Nova forma"</strong>.</li><li>Preencha <strong>Nome</strong> e <strong>Tipo</strong> e toque em <strong>Salvar</strong>.</li></ol>
+        <p class="sub peq">O teste que já confere o caminho de cada resposta do "como faço" (49 telas) passa a conferir também que a imagem existe e é da versão de agora.</p>
+      </article>
+
+    </div>
+  </main>
+</section>
+
 <!-- ═════════════════════ NOTAS E DECISÕES ═════════════════════ -->
 <section class="vista" id="v-notas" aria-label="Notas e decisões">
   <main class="notas">
     <h1>Notas do protótipo</h1>
-    <p class="sub" style="margin:6px 0 16px">13/11/2026 · versão 1 · aprovado pelo dono em 13/11/2026</p>
+    <p class="sub" style="margin:6px 0 16px">Versão 1 aprovada em 13/11/2026 · versão 2 aprovada em 14/11/2026 · <strong>versão 3 aprovada em 17/11/2026</strong></p>
+
+    <div class="cartao" style="border-color:var(--info)"><h3>Versão 3 <span class="v3">aprovada 17/11</span> · o Mister mais inteligente</h3>
+      <p>O pedido do dono em 16/11, item por item, e onde cada um está no protótipo:</p><ul>
+      <li><strong>Ler e mandar imagens na conversa</strong>, sem modelo da Meta quando possível: conversas 11 a 17 e a aba "Arquivos e links".</li>
+      <li><strong>"Como faço" com a tela do Regem</strong>, dizendo onde clicar e o que preencher: conversa 17.</li>
+      <li><strong>Boletos e notas por foto</strong>, com o tipo reconhecido e o lançamento; foto melhor ou pergunta quando falta algo: conversas 11, 12 e 13 e a parte "Documentos".</li>
+      <li><strong>Aviso de vencimento</strong> com código de barras ou Pix e o PDF moderno: conversa 14 e a aba "Arquivos e links".</li>
+      <li><strong>Relatórios com gráfico</strong> por dia, semana, mês ou período, e <strong>por insumo pela ficha técnica</strong>, em PDF ou link: conversas 15 e 16, "Avisos e relatórios" e "Arquivos e links".</li>
+      <li><strong>Links de conferência</strong> encaminhados a quem o presidente pedir: conversa 18.</li>
+      <li><strong>Ponto e escala</strong>: ponto esquecido e o arquivo do ponto do mês para o presidente ou para o responsável cadastrado: conversas 19 e 20 e o grupo "Pessoas e ponto".</li>
+      <li><strong>Áudio</strong>, ouvir e responder: conversa 21. <strong>Conversa dinâmica</strong>, que segue o assunto, corrige e cria: conversas 16 e 22.</li></ul></div>
+
+    <div class="cartao"><h3>Decisões da versão 3 (a recomendada em cada uma)</h3><ol>
+      <li><strong>Boleto por foto.</strong> Recomendo: <strong>lança sozinho quando o código de barras confere</strong> (o valor e o vencimento estão dentro do código e o dígito verificador confirma a leitura) e o fornecedor já é cadastrado, <strong>com "Desfazer"</strong> até ser pago. Nos outros casos, pergunta antes. A outra opção é perguntar sempre (ajuste em "Conversa").</li>
+      <li><strong>Nota do fornecedor.</strong> Recomendo: <strong>sempre mostra e pergunta antes de lançar</strong>, porque mexe no estoque e no custo da ficha. A chave da nota se lê do código de barras dela, sem IA. Quando a busca da nota na SEFAZ entrar (a Fase I do roadmap), os itens vêm do XML oficial e a foto vira só o atalho.</li>
+      <li><strong>Pagar.</strong> O Mister <strong>não paga</strong>: entrega a linha digitável e o Pix copia e cola, e o pagamento é no banco. "Já paguei" marca como pago com "Desfazer".</li>
+      <li><strong>Áudio.</strong> A Anthropic não recebe áudio. Recomendo <strong>testar a transcrição e a voz em duas empresas</strong> (as mesmas já decididas para teste: OpenAI e Google) e ficar com a melhor em português, pelo custo por minuto medido. Responde em áudio quando a pessoa manda áudio, sempre com o texto junto.</li>
+      <li><strong>A imagem do "como faço".</strong> Recomendo: <strong>gerada pelos roteiros de tela a cada versão</strong>, com dados de exemplo, e as marcações pelo lugar do botão na tela de verdade. A outra opção, fotos tiradas à mão, envelhece a cada mudança de tela.</li>
+      <li><strong>Gráfico e PDF.</strong> Recomendo: <strong>feitos pelo código, sem IA</strong>. A IA escolhe o relatório e escreve o texto; a conta e o desenho são do Regem, iguais em todo pedido.</li>
+      <li><strong>Link para ver.</strong> Recomendo: <strong>abre no Regem com o usuário da pessoa</strong>. Para quem não tem usuário, só quando o presidente pede: link só de leitura, que vale 7 dias e fica na auditoria.</li>
+      <li><strong>Quando gerar o arquivo do ponto.</strong> Recomendo: <strong>dia 1, às 06:00</strong>. A loja vende até perto das 02h, então às 23:59 do último dia a saída do último turno ainda não existe. Vai ao presidente; à contabilidade com um toque, para o responsável cadastrado (nome e WhatsApp). O arquivo oficial AFD da Portaria 671 ainda não existe no Regem e fica numa fase própria; o espelho em PDF já existe.</li>
+      <li><strong>Ponto esquecido.</strong> Recomendo: <strong>um resumo no dia seguinte, às 10h</strong>, ao gerente da loja. "30 min depois" acorda o gerente com a saída das 02:00; fica como opção.</li>
+      <li><strong>Relatório por insumo.</strong> Pelo que a venda baixou pela ficha técnica, na unidade do insumo, com o total em quilos. Se o nome bater com mais de um insumo, o Mister pergunta qual.</li>
+      <li><strong>Corrigir e criar.</strong> Corrigir o que o Mister lançou vai por botão com "Desfazer". Criar e publicar (recado no mural, por exemplo): ele mostra o texto e pergunta antes. O que mexe com dinheiro continua no PIN.</li>
+      <li><strong>Contas a pagar no menu.</strong> A tela de contas a pagar já existe, mas não tem item no menu. Recomendo <strong>"Financeiro › Contas a pagar"</strong>, para o "Ver no Regem" do boleto ter onde abrir.</li></ol></div>
+
+    <div class="cartao"><h3>Imagem, PDF e áudio no WhatsApp: o que a Meta deixa</h3><ul>
+      <li><strong>Dentro das 24 horas da última mensagem da pessoa:</strong> imagem, PDF e áudio vão direto, sem modelo.</li>
+      <li><strong>Fora das 24 horas</strong> (o aviso de vencimento das 09:00, o arquivo do ponto das 06:00): pela API oficial, só por modelo aprovado. Recomendo usar o modelo de aviso que já existe: o texto chega pelo modelo e a imagem, o PDF ou o código vêm no toque em "Ver o que fazer". Nenhum modelo novo.</li>
+      <li><strong>Pela conexão por QR Code</strong> (Evolution, já no console), não há modelo nem janela de 24 horas.</li>
+      <li>Os formatos e os limites de tamanho se conferem na documentação da Meta na hora de implementar.</li></ul></div>
+
+    <div class="cartao"><h3>O que já existe por trás e o que é novo</h3><ul>
+      <li><strong>Já existe:</strong> a leitura de foto pela IA (o atendente lê a foto que o cliente manda); o gerador de PDF no servidor (o espelho de ponto e o cardápio em PDF); o espelho de ponto enviado ao contador cadastrado, com nome e WhatsApp, hoje por um clique; o aviso do fechamento do ponto no dia 1; a baixa de estoque pela ficha técnica em cada venda, que é a base do relatório por insumo; as contas a pagar; os roteiros que fotografam as telas.</li>
+      <li><strong>Novo:</strong> a leitura do código de barras e do Pix do boleto, a leitura da nota, a parte "Documentos", o aviso de vencimento, os gráficos, a página do link, a imagem da tela no "como faço", o ponto esquecido, o envio do ponto pelo Mister e o áudio.</li>
+      <li><strong>Não existe e fica de fora:</strong> o AFD oficial do ponto e a busca da nota na SEFAZ (Fase I).</li></ul></div>
+
+    <div class="cartao"><h3>Fases da versão 3 (uma por PR)</h3><ol>
+      <li><strong>M3a · Boleto por foto:</strong> leitura, lançamento com "Desfazer", a parte "Documentos", o aviso de vencimento com a linha e o Pix, o PDF do boleto e "Contas a pagar" no menu.</li>
+      <li><strong>M3b · Nota do fornecedor:</strong> leitura, a ligação dos itens com o estoque, a pergunta do que falta, o lançamento no recebimento e nas contas a pagar.</li>
+      <li><strong>M3c · Relatórios:</strong> gráfico na conversa, por insumo pela ficha técnica, o PDF, a página do link e os links de conferência.</li>
+      <li><strong>M3d · "Como faço" com a tela:</strong> as imagens geradas pelos roteiros e o teste que confere cada uma.</li>
+      <li><strong>M3e · Ponto:</strong> ponto esquecido e o arquivo do mês pelo Mister.</li>
+      <li><strong>M3f · Áudio:</strong> ouvir e responder, depois do teste das duas empresas.</li>
+      <li><strong>M3g · Corrigir e criar</strong> pela conversa, com confirmação.</li>
+      <li>E a tela <strong>Resumo</strong> da versão 1, que ainda não tem código.</li></ol></div>
+
+    <div class="cartao"><h3>Custo estimado da versão 3</h3><ul>
+      <li><strong>Ler um documento:</strong> perto de US$ 0,01 por foto no modelo mais forte (Sonnet 5.5), pela tabela de 12/11. O código de barras, o Pix e a chave da nota não usam IA.</li>
+      <li><strong>Gráfico, PDF e link:</strong> sem IA; só o texto da resposta.</li>
+      <li><strong>Áudio:</strong> depende da empresa escolhida. Mede-se no teste da fase M3f.</li></ul></div>
+
+    <div class="cartao"><h3>Referências de mercado (versão 3)</h3>
+      <table class="tab"><caption class="sr">Referências de mercado da versão 3 por trilha</caption>
+        <thead><tr><th>Trilha</th><th>Produto</th><th>O que aproveitei</th><th>Situação</th></tr></thead><tbody>
+        <tr><td data-rot="Trilha">Tradicional</td><td data-rot="Produto"><a href="https://timesbrasil.com.br/cripto-brasil/fintech-aposta-em-assistente-de-ia-no-whatsapp-para-centralizar-a-gestao-financeira/">Magie (assistente financeiro no WhatsApp)</a></td><td data-rot="O que aproveitei">Áudio, texto e imagem na mesma conversa, com boleto e Pix: conversas 11, 14 e 21.</td><td data-rot="Situação">visto pela busca em 16/11/2026, página não aberta</td></tr>
+        <tr><td data-rot="Trilha">Moderno</td><td data-rot="Produto"><a href="https://n8n.io/workflows/12289-send-sales-forecast-charts-and-answer-qanda-on-whatsapp-with-openai/">n8n · gráficos e perguntas no WhatsApp</a></td><td data-rot="O que aproveitei">O gráfico em imagem vem na resposta da pergunta: conversa 15.</td><td data-rot="Situação">visto pela busca em 16/11/2026, página não aberta</td></tr>
+        <tr><td data-rot="Trilha">Inovador</td><td data-rot="Produto"><a href="https://www.dontpayfull.com/labs/ainotate/">AInotate</a></td><td data-rot="O que aproveitei">A resposta de "como faço" com a tela e os passos numerados: conversa 17.</td><td data-rot="Situação">visto pela busca em 16/11/2026, página não aberta</td></tr>
+      </tbody></table></div>
 
     <div class="cartao"><h3>O que é</h3>
       <p>O Mister é o canal do presidente (e do gerente, quando você permite) com os agentes do Regem, por um número de WhatsApp próprio. Um número só, da distribuição, atende todas as lojas. O número da loja continua só para os clientes.</p>
@@ -842,6 +1250,30 @@ pre.fio{font:12.5px/1.35 var(--mono);background:var(--neutro-bg);border-radius:1
     <div class="aj"><div><div class="t" id="p3">Autorizar pelo WhatsApp</div><div class="d">Só o que é de baixo impacto, por botão. O que mexe com dinheiro, cancelamento ou configuração continua pedindo o PIN no Regem.</div></div><div class="ctrl"><button class="liga" role="switch" aria-checked="false" aria-labelledby="p3" data-solto></button></div></div>
   </div>
   <div class="pn-rodape"><button class="btn" data-fecha>Cancelar</button><button class="btn pri" data-fecha data-aviso="Permissões salvas.">Salvar</button></div>
+</aside>
+
+<aside class="gaveta" id="gav-doc" role="dialog" aria-modal="true" aria-labelledby="gav-doc-t">
+  <div class="pn-cab"><h3 id="gav-doc-t"><span data-nome-aqui>Boleto · Distribuidora Sabor Ltda.</span></h3><button class="fechar" data-fecha aria-label="Fechar">✕</button></div>
+  <div class="pn-corpo">
+    <span class="midia" style="margin:0 0 12px"><span class="foto-doc" role="img" aria-label="A foto que chegou pelo WhatsApp"><span class="rot">a foto que chegou</span>DISTRIBUIDORA SABOR LTDA<span class="lin"></span><span class="lin c"></span><span class="barras"></span></span></span>
+    <p><span class="selo ok">lançado</span> <span class="sub peq">nas contas a pagar, em 16/11 às 22:41</span></p>
+    <dl class="campos-f">
+      <div><dt>Valor</dt><dd class="mono">R$ 1.284,90 <span class="lido cod">código</span></dd></div>
+      <div><dt>Vencimento</dt><dd>25/11, quarta <span class="lido cod">código</span></dd></div>
+      <div><dt>Beneficiário</dt><dd>Distribuidora Sabor Ltda. <span class="lido ia">IA</span></dd></div>
+      <div><dt>Fornecedor</dt><dd>Distribuidora Sabor <span class="lido pessoa">cadastro</span></dd></div>
+    </dl>
+    <div class="rot-f">Linha digitável</div><span class="linha-dig">00190.00009 01234.567898 01234.567890 1 16410000128490</span>
+    <div class="rot-f" style="margin-top:12px">Avisos de vencimento</div><p class="peq">22/11 e 25/11, no WhatsApp do presidente, com a linha e o Pix.</p>
+    <div class="rot-f" style="margin-top:12px">O que aconteceu</div>
+    <ul class="trilha">
+      <li><span>Ana mandou a foto pelo WhatsApp</span><span class="mono peq">16/11 22:41</span></li>
+      <li><span>Lido: código de barras conferido pelo dígito verificador</span><span class="mono peq">22:41</span></li>
+      <li><span>Lançado nas contas a pagar (fornecedor já cadastrado)</span><span class="mono peq">22:41</span></li>
+    </ul>
+    <p class="sub peq" style="margin-top:12px">"código" = lido do código de barras, sem IA; "IA" = lido da foto; "cadastro" = do cadastro do Regem.</p>
+  </div>
+  <div class="pn-rodape"><button class="btn perigo" data-fecha data-aviso="Lançamento desfeito: o boleto saiu das contas a pagar.">Desfazer o lançamento</button><button class="btn" data-aviso="Abre o PDF do boleto.">Ver o PDF</button><button class="btn pri" data-fecha>Fechar</button></div>
 </aside>
 
 <div class="dialogo" id="dlg-ligar" role="dialog" aria-modal="true" aria-labelledby="dlg-ligar-t">
@@ -989,6 +1421,11 @@ pre.fio{font:12.5px/1.35 var(--mono);background:var(--neutro-bg);border-radius:1
     if (t.matches('a[href="#"]')) e.preventDefault();
     if (t.dataset.aba) return vista(t.dataset.aba);
     if (t.dataset.parte) return parte(t.dataset.parte);
+    if (t.dataset.filtroDoc) {
+      $$('[data-filtro-doc]').forEach((f) => f.setAttribute('aria-pressed', String(f === t)));
+      $$('#tab-docs tbody tr').forEach((r) => { r.hidden = t.dataset.filtroDoc !== 'todos' && r.dataset.sit !== t.dataset.filtroDoc; });
+      return;
+    }
     if (t.dataset.irParte) return parte(t.dataset.irParte);
     if (t.dataset.opcao !== undefined) {
       $$('[data-opcao]').forEach((o) => o.setAttribute('aria-pressed', String(o === t)));
@@ -1015,6 +1452,10 @@ pre.fio{font:12.5px/1.35 var(--mono);background:var(--neutro-bg);border-radius:1
     if (t.id === 'ia-salvar') { estado('chave', 'ok'); $('#ia-chave').value = ''; $('#ia-teste').hidden = true; avisar('Chave conferida e salva.'); }
     if (t.id === 'd-conectar') { estado('numero', 'conectado'); avisar('Número do Mister conectado.'); }
     if (t.id === 'd-geral-confirma') { $('#d-geral-texto').textContent = 'desligada'; $('#d-geral').textContent = 'Ligar o Mister'; avisar('Mister desligado nesta nuvem.'); }
+  });
+  $('#busca-doc').addEventListener('input', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    $$('#tab-docs tbody tr').forEach((r) => { r.hidden = q !== '' && !r.textContent.toLowerCase().includes(q); });
   });
   $('#fundo').addEventListener('click', () => { if (aberto && aberto.getAttribute('role') !== 'alertdialog' && aberto.id !== 'dlg-ligar') fechar(); });
 

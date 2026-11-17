@@ -5,6 +5,7 @@ import { Minus, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialogo } from '@/components/ui/sobreposto';
 import { GrupoDeOpcoes } from '@/components/pdv/grupo-de-opcoes';
+import { etapaQueFalta } from '@/lib/adicionais';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) => Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -44,10 +45,13 @@ export function EditorDoItem({
   const todas = complementos.flatMap((g: any) => g.opcoes ?? []);
   const extra = opcoes.reduce((s, id) => s + (Number(todas.find((o: any) => o.id === id)?.precoDelta) || 0), 0);
   const faltaTamanho = variacoes.length > 0 && !variacaoId;
+  // A etapa obrigatória ainda sem escolha segura o "Adicionar", como no cardápio digital (17/11/2026).
+  const faltaEtapa = faltaTamanho ? null : etapaQueFalta(complementos, opcoes);
+  const falta = faltaTamanho || !!faltaEtapa;
 
   const confirmar = (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (faltaTamanho) return;
+    if (falta) return;
     aoConfirmar({ variacaoId, complementos: opcoes, observacao: obs.trim() || undefined, qtd });
   };
   const passo = 'grid h-11 w-11 place-items-center rounded-md hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
@@ -56,7 +60,8 @@ export function EditorDoItem({
     <Dialogo
       titulo={produto.nome}
       aoFechar={aoFechar}
-      largura="sm"
+      // Com tamanho ou etapas, a janela larga (pedido do dono, 17/11/2026): as opções em grade, sem tanta rolagem.
+      largura={variacoes.length || complementos.length ? 'lg' : 'sm'}
       voltarPara="busca-balcao"
       rodape={
         <>
@@ -75,17 +80,17 @@ export function EditorDoItem({
               Tirar do pedido
             </Button>
           )}
-          <Button type="submit" form={form} disabled={faltaTamanho}>
-            {faltaTamanho ? 'Escolha o tamanho' : `${editando ? 'Salvar' : 'Adicionar'} · ${brl((base + extra) * qtd)}`}
+          <Button type="submit" form={form} disabled={falta}>
+            {faltaTamanho ? 'Escolha o tamanho' : faltaEtapa ? `Escolha: ${faltaEtapa.nome}` : `${editando ? 'Salvar' : 'Adicionar'} · ${brl((base + extra) * qtd)}`}
           </Button>
         </>
       }
     >
       <form id={form} onSubmit={confirmar}>
         {variacoes.length > 0 && (
-          <div className="mb-3">
-            <p className="mb-1.5 text-xs font-semibold text-muted-foreground">Tamanho</p>
-            <div className="space-y-1.5">
+          <div className="mb-4">
+            <p className="mb-2 font-display text-sm font-bold">Tamanho</p>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,11rem),1fr))] gap-2">
               {variacoes.map((vr: any) => (
                 <button
                   key={vr.id}

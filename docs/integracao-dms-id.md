@@ -472,3 +472,28 @@ Data torta, `Sunset` a menos de 90 dias ou link que não é `https`: o anúncio 
 (`RetiradaDaCredencialAntiga`), uma vez. Anunciar errado é pior que não anunciar. Junto com as variáveis, a nota da
 retirada no hub (`docs/mudancas-nos-produtos.md`) e a publicação em Cadastro › Parceiros › Mudanças nas portas: o aviso
 aos parceiros sai NO ANÚNCIO, não no dia de tirar.
+
+## 15. O desligamento da credencial antiga (F6, P-4 — sem migration, nasce desligado)
+
+Com `INTEGRACAO_ANTIGA_DESLIGADA=true` no EasyPanel do `regem-api` (só esse valor liga), a credencial antiga deixa de
+valer na nuvem:
+
+| O que | Antes | Desligada |
+|---|---|---|
+| `rgm_it_` nas rotas da porta (`IntegracaoTokenGuard`) | vale até ser revogado | 401 `token-invalido`, com a frase do clique, sem ir ao banco |
+| `rgm_it_` e `X-Sync-Token` nas cinco rotas do totem, **na nuvem** | valem | 401 `token-invalido`, com a frase do clique |
+| `X-Sync-Token` nas cinco rotas do totem, **no servidor da loja** | vale | vale (P-6: o totem fala com o servidor pela rede da loja) |
+| A troca da página de 01/10 (`POST /integracao/autorizacao/token` sem `Authorization`) | entrega o token colado | 404 `nao-encontrado` |
+| A troca automática (`POST /integracao/dms-id/ligacao`) | troca o token colado pela ligação | 404 `nao-encontrado` |
+| A emissão pelo console da distribuição | emite o token colado | recusada (400), com a frase |
+| A ligação do clique | — | **não muda** |
+
+A recusa usa o tipo `token-invalido` do Padrão (não se criou tipo novo de problema): para quem chama, credencial
+retirada é credencial que não vale. Volta atrás apagando a variável e clicando em Implantar.
+
+**Sem os 90 dias do §12 (decisão do dono, 17/11/2026):** não havia parceiro de fora e todas as integrações da única
+empresa em uso já estavam no clique (a recontagem do banco achou 6 acessos pela ligação e só a chave de teste do Orzuni,
+de uma empresa de teste). O anúncio da seção 14 continua no código e o §12 continua valendo para quando houver parceiro.
+**Onde:** `common/retirada-credencial.ts` (`credencialAntigaDesligada`), os dois guardas, `autorizacao-loja.service.ts`
+(`trocar`), `ligacao-integracao.service.ts` (`trocar`) e `integracao-token.service.ts` (`emitir`). Teste:
+`integracao-api/credencial-antiga-desligada.spec.ts`.

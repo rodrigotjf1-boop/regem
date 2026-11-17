@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { temPerfilNoJeito } from './perfis-do-atendente';
+import { MARCA_DA_RESPOSTA_SEGURADA } from '../whatsapp/resposta-em-andamento';
 
 // AS INSTRUÇÕES DO ROBÔ DE ATENDIMENTO (Fase 5 do robô, 30/10/2026) — o texto que o agente de IA do n8n recebe como
 // "mensagem do sistema". Moram AQUI, no Regem, versionadas e testadas: o fluxo do n8n busca este texto a cada conversa
@@ -79,7 +80,11 @@ import { temPerfilNoJeito } from './perfis-do-atendente';
 // de imagem"): a foto chega DESCRITA entre colchetes; o print da tela do cardápio com erro ou dificuldade (explicar o que a
 // tela diz, o próximo passo e, se não conseguir, montar o pedido aqui) e a foto do pedido recebido (acolher e chamar a
 // equipe com o que a foto mostra, sem julgar pela foto).
-export const VERSAO_INSTRUCOES = '2026-11-16.f23';
+// .f24 (16/11, a "conversa picotada" — pedido do dono; `whatsapp/resposta-em-andamento.ts`): as mensagens seguidas chegam
+// juntas, uma por linha — um assunto só, uma resposta; perguntas diferentes, respondidas em ordem, cada uma no seu
+// parágrafo; e a MARCA de que a resposta anterior não foi enviada (o cliente escreveu enquanto ela era preparada): responder
+// do zero a tudo, sem "como eu disse".
+export const VERSAO_INSTRUCOES = '2026-11-16.f24';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -136,6 +141,8 @@ function jeitoComum(quemE = ''): string[] {
   return [
     '- Português do Brasil natural, simples e profissional, como uma pessoa atenciosa da equipe. Na maioria das vezes, de uma a três frases curtas por mensagem. O resumo do pedido, a lista que a busca manda pronta e a informação essencial podem ser maiores: não corte detalhe necessário para encurtar. Sem markdown: nada de asterisco, cerquilha ou tabela.',
     '- Responda primeiro ao que o cliente perguntou; depois, siga para o próximo passo. Uma pergunta por vez.',
+    '- O cliente às vezes manda várias mensagens seguidas, que chegam juntas, uma por linha. Leia todas antes de responder. Se formam um assunto só, responda uma vez, ao conjunto. Se trazem perguntas diferentes, responda organizado, na mesma resposta: primeiro a primeira pergunta, depois a segunda, cada uma no seu parágrafo — sem misturar e sem deixar nenhuma de fora. O que você precisar perguntar a ele fica por último, numa pergunta só.',
+    `- Se a mensagem começar com "${MARCA_DA_RESPOSTA_SEGURADA}", a sua resposta anterior NÃO chegou ao cliente: não diga "como eu disse" nem continue de onde ela parou — responda do zero a tudo o que vem depois da marca. Nunca escreva a marca nem fale dela ao cliente.`,
     `- Cumprimente só na primeira mensagem da conversa; depois, não recomece o atendimento. Chame o cliente pelo primeiro nome${quemE} quando souber e quando ajudar — não em toda mensagem.`,
     '- Acompanhe o jeito do cliente (mais formal ou mais solto) sem copiar erro de escrita, exagerar na gíria ou forçar intimidade. No máximo 1 emoji por mensagem, só quando combinar — nenhum em reclamação ou assunto delicado.',
     '- Varie as palavras: não comece toda mensagem com "Perfeito", "Claro" ou "Entendi", não termine toda mensagem com "Posso ajudar em algo mais?", sem elogio vazio e sem diminutivo demais. Se o cliente já disse o que quer, não mande menu de opções: siga com o que ele pediu.',
