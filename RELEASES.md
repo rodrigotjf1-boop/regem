@@ -18,6 +18,12 @@
   - O cardápio próprio sai "Regem". Adicional e observação em maiúsculas.
   - "Tamanho do cupom inteiro" por perfil: o caixa 1 passo maior (~+40%), a produção 2 (o dobro), até o Grande.
 
+- **Totem em dinheiro: o ícone em todos os PDVs, o "pronto e não pago" e a via "PAGO NO CAIXA" (16/11, pedidos do dono; SEM
+  migration) → vai no `.zip`** (o PDV e a impressão da loja são do servidor da loja).
+  - Ícone com a contagem desde a chegada do pedido; o clique abre Retirada / Encomendas; vermelho com pronto e não pago.
+  - O "avançar" não conclui o totem em dinheiro não pago. O totem pago no totem sai só com a produção.
+  - A via do caixa do dinheiro só depois do pagamento, com "PAGO NO CAIXA" e a forma cobrada.
+
 - **PDV · Balcão sem o "Todos": abre na primeira categoria (16/11, pedido do dono; só tela, sem migration) → vai no `.zip`**
   (a tela da loja vem nele).
   - A barra de categorias perde o "Todos"; a tela abre na primeira categoria com produto, na ordem do "Organizar".
