@@ -39,6 +39,12 @@
   - **Antes de gerar o `.exe`:** a prova de tela da ponte (a janela aparece sem virar a janela ativa; o aviso do Windows
     sai) — `REGEM_PONTE_LOGIN_CONFIRMAR_MS` e `REGEM_PONTE_LOGIN_REPETIR_MS` encurtam os prazos.
 
+- **Cardápio Web: o pedido despachado ou finalizado no painel de lá anda no Regem (16/11, ERR-496; sem migration).** Das
+  12 situações da API do Cardápio Web, três não eram traduzidas: `released` (liberado para a saída) passa a virar
+  despachado, `waiting_to_catch` (liberado para a retirada) vira pronto e `closed` (finalizado) vira concluído. Antes o
+  pedido ficava parado na situação em que estava.
+  - Só NUVEM (a rotina e o aviso do Cardápio Web rodam lá): vale com o deploy; o `.zip` leva o código sem efeito na loja.
+
 - **O atendente lê a foto que o cliente manda no WhatsApp (16/11, pedido do dono; SEM migration; nasce DESLIGADO).** Com
   `ROBO_FOTOS_IA=1` na nuvem (o dono liga), a foto que o contexto não reconheceu como comprovante vai a um modelo de visão,
   pela porta da IA da empresa (recurso `foto_do_cliente` no medidor), e o atendente recebe o que ela mostra.
