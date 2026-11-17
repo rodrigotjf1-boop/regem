@@ -193,6 +193,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Ajuste "Avisar antes de reabrir", "Som do aviso" e "Mensagem ao cliente durante a pausa" e salve.',
     ],
     botoes: ['Atendimento', 'Pausa dos pedidos', 'Avisar antes de reabrir', 'Som do aviso', 'Mensagem ao cliente durante a pausa'],
+    imagem: ['Delivery › Configurações, no menu', 'a aba "Atendimento"', 'o grupo "Pausa dos pedidos"'],
     veja: ['pausar-canal'],
   },
   {
@@ -321,6 +322,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Clique em "Salvar escolha".',
     ],
     botoes: ['Robô de atendimento', 'Números de WhatsApp da loja', 'Grátis (não oficial)', 'Oficial (Meta)', 'Conectar (QR)', 'Conectar com a Meta (recomendado)', 'Salvar escolha'],
+    imagem: ['Delivery › Configurações, no menu', 'a aba "Robô de atendimento"', 'o cartão do "Número Principal" (o de Marketing fica ao lado)'],
     notas: ['Na API oficial, a Meta cobra as mensagens direto da loja.'],
   },
   {
@@ -334,6 +336,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Clique em "Salvar".',
     ],
     botoes: ['Robô de atendimento', 'Robô ativo', 'Saudação (primeira mensagem)', 'Mensagem de ausência (loja fechada/pausada)', 'Salvar', 'Cardápio'],
+    imagem: ['Delivery › Configurações, no menu', 'a aba "Robô de atendimento"', '"Robô ativo"'],
     notas: ['O robô só responde com o cardápio digital ligado (aba "Cardápio").'],
     veja: ['conversas-whatsapp'],
   },

@@ -1058,9 +1058,11 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
 - **Parte 7 (sem migration):** mais seis — aplicativos conectados, atendimento, cores do KDS, notas fiscais, pagamento
   do entregador e cupons (reimprimir/cancelar venda). De passagem, a página dos entregadores dava React #418 (a
   categoria do token lida no desenho; ERR-513). 40 assuntos do guia com imagem.
-- **Falta (9):** relatórios de vendas, robô, ajustes da pausa, WhatsApp da loja, conversas do WhatsApp, ligar iFood/99,
-  conferir com os apps, preço no canal e pausar produto — leem rotas próprias que o roteiro ainda não simula (com a
-  resposta padrão, caem ou aparecem "não conectado"/vazias).
+- **Parte 8 (sem migration):** o robô, o WhatsApp da loja e os ajustes da pausa, com as respostas simuladas no formato
+  do servidor (`/whatsapp/numeros`, `/whatsapp/robo-config`, `/atendimento/ajustes` com `pausa.temCardapio`); o roteiro
+  passou a dizer POR QUE uma tela caiu (o erro que o React registra no console). 43 assuntos com imagem.
+- **Falta (6):** relatórios de vendas, conversas do WhatsApp, ligar iFood/99, conferir com os apps, preço no canal e
+  pausar produto — leem rotas próprias que o roteiro ainda não simula.
 
 **A tela "Resumo" (17/11/2026, sem migration; #1114, no ar):** a entrada do presidente em Mister — as três etapas para funcionar, a faixa
 "IA parada", o que o Mister faz e os últimos avisos, só com as rotas que já existem.
