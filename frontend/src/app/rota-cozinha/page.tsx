@@ -26,7 +26,9 @@ import {
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const LARGURA_DA_COLUNA = 230; // abaixo disso por coluna, a rota empilha (de cima para baixo)
 const semInert = {};
-const inerte = { inert: '' } as any; // React 18: atributo cru (o leitor de tela e o Tab pulam a parte esmaecida)
+// O leitor de tela e o Tab pulam a parte esmaecida. No React 19 o `inert` é booleano: a string vazia do React 18
+// (`inert: ''`) passou a valer "desligado" — o roteiro `rota-cozinha` pegou na ida para o Next 15.
+const inerte = { inert: true };
 
 // Configurações › Rota da cozinha (onda 2 da auditoria do KDS, mig 410; protótipo aprovado `mockups/regem-kds-cozinha.html`,
 // aba 2). A corrente inteira num lugar só: as etapas (colunas, na ordem desta cozinha), o "vai para" e a impressão de cada

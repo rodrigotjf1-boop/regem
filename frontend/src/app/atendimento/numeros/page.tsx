@@ -67,7 +67,7 @@ const dataHora = (iso: string) =>
 const casos = (n: number) => `${n} ${n === 1 ? 'caso' : 'casos'}`;
 
 /** A largura da peça (não da janela): o placar e as listas se arrumam por ela. */
-function useLargura<T extends HTMLElement>(): [React.RefObject<T>, number] {
+function useLargura<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
   const ref = useRef<T>(null);
   const [l, setL] = useState(0);
   useEffect(() => {

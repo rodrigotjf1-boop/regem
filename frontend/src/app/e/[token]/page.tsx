@@ -1,14 +1,17 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // QR do entregador (Fase 4) — página PÚBLICA aberta ao escanear o QR do cupom.
 // O entregador se identifica e confirma a saída → o pedido vai para "em rota".
 
-export default function DespachoPage({ params }: { params: { token: string } }) {
-  const { token } = params;
+export default function DespachoPage() {
+  // Pelo `useParams`, como as outras páginas públicas: no Next 15 o `params` da página chega como promessa.
+  const params = useParams<{ token: string }>();
+  const token = String(params?.token ?? '');
   const [info, setInfo] = useState<any>(null);
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(true);
