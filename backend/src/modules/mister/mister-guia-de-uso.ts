@@ -307,6 +307,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Para desligar, "Desativar integração".',
     ],
     botoes: ['Integrações', 'Solicitar integração', 'Conectar com 99Food', 'Já autorizei', 'Desativar integração'],
+    imagem: ['Delivery › Configurações, no menu', 'a aba "Integrações"', 'o cartão do iFood (o da 99Food fica ao lado)'],
     notas: ['O preço e a pausa no iFood pelo Orzuni são outra ligação, no cartão do Orzuni da mesma aba.'],
   },
   {
@@ -353,6 +354,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       '"Enviar cardápio" manda o cardápio; "Resolver chamado" fecha o atendimento.',
     ],
     botoes: ['Pausar robô', 'Até eu retomar', 'Retomar robô', 'Enviar cardápio', 'Resolver chamado'],
+    imagem: ['Delivery › WhatsApp, no menu', 'a conversa aberta na lista', 'o botão "Pausar robô"', 'o botão "Enviar cardápio"'],
     notas: ['Ao responder, o robô fica calado na conversa por um tempo.'],
   },
   {
@@ -367,6 +369,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'No iFood e na 99, deixar o preço em branco faz o Regem parar de mexer no preço de lá.',
     ],
     botoes: ['Produtos e preços', '＋ pôr o preço', 'Salvar'],
+    imagem: ['Delivery › Gestão do catálogo, no menu', 'o campo "Buscar"', 'o preço do produto no iFood (o lápis muda; a 99 fica na coluna ao lado)'],
     notas: [
       'A coluna do iFood aparece quando o iFood pelo Orzuni está ligado na empresa; a da 99, quando o preço e a pausa na 99 estão ligados. Essa ligação é feita pela equipe do Regem.',
       'Só o presidente e quem vê valores em reais mudam o preço; os outros veem o valor sem o lápis.',
@@ -382,6 +385,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'Para todos os canais de uma vez, "Pausar em todos" na linha do produto; "Reativar em todos" volta.',
     ],
     botoes: ['Produtos e preços', 'No ar', 'Pausado', 'Pausar em todos', 'Reativar em todos'],
+    imagem: ['Delivery › Gestão do catálogo, no menu', '"No ar" do produto na coluna do iFood (um clique vira "Pausado")'],
     notas: ['Pausar no Regem tira o produto do balcão e do cardápio digital.'],
   },
   {
