@@ -1492,7 +1492,8 @@ export class VendasService {
     documento?: DocumentoImpressao,
     // Pedido ALTERADO (mig 362): o destaque no alto, o "<< NOVO" nos itens que entraram e a impressora que já tinha
     // imprimido a via (sem ela, a regra de sempre escolhe).
-    alterado?: { cabecalho: string; novos: Set<string>; alvo?: string | null },
+    // `forma`: a que sai na via no lugar da gravada na venda (o totem cobrado no balcão, "PAGO NO CAIXA" — 16/11/2026).
+    alterado?: { cabecalho: string; novos?: Set<string>; alvo?: string | null; forma?: string },
   ): Promise<{ enfileirados: number; aviso: string | null }> {
     const [c] = await this.db
       .select()
@@ -1519,7 +1520,7 @@ export class VendasService {
         complementosTexto: compTexto,
         observacao: it.observacao,
         escolhas: comps, // a via tira da descrição e destaca numa linha própria
-        novo: !!alterado?.novos.has(it.id),
+        novo: !!alterado?.novos?.has(it.id),
       });
     }
 
@@ -1528,7 +1529,7 @@ export class VendasService {
       comandaId,
       c.unidadeId ?? null,
       c.abertaPorId ?? null,
-      { senha: c.senha, senhaPrefixo: c.senhaPrefixo ?? null, mesa: c.mesa, itens: viaClienteItens, total: Number(c.total), forma: c.forma ?? null },
+      { senha: c.senha, senhaPrefixo: c.senhaPrefixo ?? null, mesa: c.mesa, itens: viaClienteItens, total: Number(c.total), forma: alterado?.forma ?? c.forma ?? null },
       null,
       alterado?.alvo ?? null,
       qrData,
