@@ -18,6 +18,25 @@ const botao = (page, texto) => em(page, `button:text-is("${texto}")`);
 const cartao = (page, titulo) => em(page, `button:has(:text-is("${titulo}"))`);
 const rotulado = (page, rotulo) => page.locator('main').getByLabel(rotulo, { exact: true }).first();
 
+// Os números do WhatsApp da loja (a aba do robô lê `principal.provedor`: a API sempre manda os dois papéis).
+const numero = (papel, ligado) => ({
+  papel, provedor: 'evolution', numero: ligado ? '5521900000000' : null, instancia: ligado ? 'loja-exemplo' : null,
+  phoneId: null, wabaId: null, status: ligado ? 'conectado' : 'desconectado', verificado: ligado, vinculado: ligado,
+});
+const NUMEROS_DO_WHATSAPP = { principal: numero('principal', true), marketing: numero('marketing', false), termo: { versao: '1', evolution: '', cloud: '' } };
+// Os ajustes do robô no formato de `whatsapp-provedor.service.ts › roboConfig` (a pausa, os avisos e o "Pedir avaliação").
+const CONFIG_DO_ROBO = {
+  pausaMinutos: 30, opcoesPausa: [15, 30, 60, 120, 240, 0],
+  avisoAtraso: false, avisoAtrasoToleranciaMin: 10, lembreteCarrinho: false, conferirEntrega: false, cliente99Whatsapp: false,
+  opcoesToleranciaAtraso: [0, 5, 10, 15, 20, 30],
+  avaliacao: {
+    ativa: false, link: null, texto: 'Oi, {nome}! Gostou do pedido? Conta pra gente: {link}', depoisMin: 40, soSemProblema: true, aPartirDo: 1, deNovoDias: 60,
+    doMes: { enviados: 0, tocaram: 0 },
+    opcoes: { depoisMin: [20, 40, 60, 120], aPartirDo: [1, 2, 3, 4, 5], deNovoDias: [30, 60, 90, 180] },
+    textoPadrao: 'Oi, {nome}! Gostou do pedido? Conta pra gente: {link}',
+  },
+};
+
 // Cada tela: o assunto do guia, o endereço, o passo (opcional) e as marcas, na ordem dos números.
 const TELAS = [
   { id: 'cadastrar-colaborador', caminho: '/cadastros', marcas: (p) => [menu(p, '/cadastros'), cartao(p, 'Colaboradores')] },
@@ -70,6 +89,26 @@ const TELAS = [
     marcas: (p) => [menu(p, '/delivery/entregadores'), p.locator('main').getByLabel('Como o entregador é pago').first(), botao(p, 'Salvar configurações')],
   },
   { id: 'reimprimir-cancelar-venda', caminho: '/cupons', marcas: (p) => [menu(p, '/cupons'), rotulado(p, 'Buscar por senha/nº'), em(p, ':text("Últimas vendas")')] },
+  // A aba "Robô de atendimento" (com os números do WhatsApp e os ajustes do robô simulados; com a lista vazia, caía)
+  {
+    id: 'robo', caminho: '/delivery/configuracoes?aba=robo', respostas: { '/whatsapp/numeros': NUMEROS_DO_WHATSAPP, '/whatsapp/robo-config': CONFIG_DO_ROBO },
+    marcas: (p) => [menu(p, '/delivery/configuracoes'), em(p, 'button:text-is("Robô de atendimento")'), em(p, 'label:has-text("Robô ativo")')],
+  },
+  {
+    id: 'whatsapp-da-loja', caminho: '/delivery/configuracoes?aba=robo', respostas: { '/whatsapp/numeros': NUMEROS_DO_WHATSAPP, '/whatsapp/robo-config': CONFIG_DO_ROBO },
+    marcas: (p) => [menu(p, '/delivery/configuracoes'), em(p, 'button:text-is("Robô de atendimento")'), em(p, ':text("Número Principal")')],
+  },
+  {
+    // o grupo "Pausa dos pedidos" só aparece com o cardápio digital da loja (`pausa.temCardapio`)
+    id: 'ajustes-da-pausa', caminho: '/delivery/configuracoes?aba=atendimento',
+    respostas: {
+      '/atendimento/ajustes': {
+        conectado99: false, ajuste99: null, fila: { avisarGerenteMin: 0, dizerPosicao: false },
+        pausa: { temCardapio: true, minutos: 5, som: 'bipe', mensagem: null, mensagemPadrao: 'Estamos com os pedidos pausados agora. Voltamos já!', mensagemMax: 700, opcoes: { minutos: [0, 1, 3, 5, 10] } },
+      },
+    },
+    marcas: (p) => [menu(p, '/delivery/configuracoes'), em(p, 'button:text-is("Atendimento")'), em(p, 'h3:text-is("Pausa dos pedidos")')],
+  },
   // Só conferência, sem foto: as telas que leem a categoria do token não podem quebrar a hidratação (V35; os
   // entregadores davam React #418 — o aviso de cima só existia no navegador)
   { id: 'hidratacao-fichas', caminho: '/fichas', semFoto: true },
@@ -106,6 +145,10 @@ export default async function roteiroComoFaco({ nav, base, ok, foto }) {
     const page = await ctx.newPage();
     const erros = [];
     page.on('pageerror', (e) => erros.push(String(e?.message ?? e)));
+    // a fronteira de erro do React segura a queda sem `pageerror`, mas o React registra o erro no console: guardado
+    // para dizer POR QUE a tela caiu
+    const doConsole = [];
+    page.on('console', (m) => { if (m.type() === 'error') doConsole.push(m.text()); });
     await page.route('**/socket.io/**', (r) => r.abort());
     await page.route('**/api/v1/**', async (route) => {
       const req = route.request();
@@ -118,7 +161,7 @@ export default async function roteiroComoFaco({ nav, base, ok, foto }) {
     await page.waitForTimeout(800);
     if (t.passo) await t.passo(page, ok);
     const caiu = await page.locator('text=Algo deu errado').count();
-    ok(caiu === 0, `como faço (${t.id}): a tela abriu (sem "Algo deu errado")`);
+    ok(caiu === 0, `como faço (${t.id}): a tela abriu (sem "Algo deu errado")${caiu ? ` — ${umaLinha(doConsole.filter((x) => !/Failed to load resource/.test(x)).slice(0, 2).join(' | '), 400)}` : ''}`);
     if (t.confere) await t.confere(page, ok);
     if (!t.semFoto) {
       const r = await fotoDoComoFaco(page, t.id, t.marcas(page));
