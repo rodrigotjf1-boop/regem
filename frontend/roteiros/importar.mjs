@@ -4,9 +4,10 @@
 // fora da janela; a conferência em colunas quando cabe e empilhada (as outras colunas descem para a célula do produto)
 // quando não cabe — pelo ESPAÇO do diálogo, não pela largura da tela (V45): entre 640 e ~704 px a tabela de 640 px rolava
 // dentro do diálogo de 576 px.
-import { responder, tokenFalso } from './comum.mjs';
+import { fotoDoComoFaco, responder, tokenFalso } from './comum.mjs';
 
-const TOKEN = tokenFalso({ cat: 'presidente', perfil: 'presidente', perm: { estoque: { ver: true, criar: true, editar: true } } });
+// `desperdicio`: o "Registrar desperdício" só aparece com a permissão dele (a foto do "como faço" da aba).
+const TOKEN = tokenFalso({ cat: 'presidente', perfil: 'presidente', perm: { estoque: { ver: true, criar: true, editar: true }, desperdicio: { ver: true, criar: true } } });
 
 const ITENS = [{ id: 'i1', nome: 'Farinha de trigo', unidade: 'kg', saldo: 12, estoqueMinimo: 5, categoria: 'Secos', ativo: true }];
 const linha = (n, nome, situacao, extra = {}) => ({
@@ -169,6 +170,40 @@ export default async function roteiroImportar({ nav, base, ok, foto, larguras })
     const m = await medir(page);
     ok(!(await colunas()) && m.length === 0, `1024 → 660: ao estreitar, empilha de novo e não rola ${m.slice(0, 3).join(' | ')}`);
     ok(erros.length === 0, `girar: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+
+  // ── M3d: a imagem do "como faço" do produto do estoque — 1: Estoque no menu; 2: a aba "Produtos"; 3: "Novo produto";
+  //    4: "Importar" (só gera com GERAR_COMO_FACO=1; sem a variável, confere que cada marca está na tela e na frente) ──
+  {
+    const { ctx, page, erros } = await abrir(1280);
+    const main = page.locator('main');
+    const r = await fotoDoComoFaco(page, 'produto-do-estoque', [
+      page.locator('aside a[href="/operacao"] >> visible=true').first(),
+      main.getByRole('tab', { name: 'Produtos', exact: true }).or(main.locator('button:text-is("Produtos")')).first(),
+      main.locator('button:has-text("Novo produto")').first(),
+      main.locator('button:has-text("Importar")').first(),
+    ]);
+    ok(r.achou.every(Boolean), `como faço (produto-do-estoque): as marcas estão na tela (${r.achou.join(', ')})${r.gerou ? ' — imagem gerada' : ''}${(r.motivos ?? []).filter(Boolean).length ? ` — ${r.motivos.join(' | ')}` : ''}`);
+    ok(erros.length === 0, `como faço: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  // As outras abas do Estoque — 1: Estoque no menu; 2: a aba; 3: o botão que começa (cada uma num contexto novo).
+  for (const [id, nomeDaAba, botao] of [
+    ['contagem', 'Contagem', 'Nova lista'],
+    ['desperdicio', 'Desperdício', 'Registrar desperdício'],
+    ['etiqueta-de-validade', 'Etiquetas', 'Gerar etiqueta'],
+    ['compra-e-recebimento', 'Pedidos', 'Novo pedido'],
+  ]) {
+    const { ctx, page, erros } = await abrir(1280);
+    const main = page.locator('main');
+    const aba = main.getByRole('tab', { name: nomeDaAba, exact: true }).or(main.locator(`button:text-is("${nomeDaAba}")`)).first();
+    await aba.click();
+    const comeca = main.locator(`button:has-text("${botao}")`).first();
+    await comeca.waitFor({ timeout: 8000 }).catch(() => {});
+    const r = await fotoDoComoFaco(page, id, [page.locator('aside a[href="/operacao"] >> visible=true').first(), aba, comeca]);
+    ok(r.achou.every(Boolean), `como faço (${id}): as marcas estão na tela (${r.achou.join(', ')})${r.gerou ? ' — imagem gerada' : ''}${(r.motivos ?? []).filter(Boolean).length ? ` — ${r.motivos.join(' | ')}` : ''}`);
+    ok(erros.length === 0, `como faço (${id}): sem erro (${erros.join(' | ')})`);
     await ctx.close();
   }
 }

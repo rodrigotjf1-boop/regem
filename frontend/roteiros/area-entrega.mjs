@@ -140,6 +140,38 @@ export default async function roteiroAreaEntrega({ nav, base, ok, foto, larguras
     await ctx.close();
   }
 
+  // ── M3d: as imagens do "como faço" das outras abas de Delivery › Configurações — 1: o menu; 2: a aba; 3: o campo
+  //    principal dela (só gera com GERAR_COMO_FACO=1; sem a variável, confere que cada marca está na tela e na frente) ──
+  {
+    const { ctx, page, erros } = await abrir(1280, 900);
+    const menu = page.locator('aside a[href="/delivery/configuracoes"] >> visible=true').first();
+    const ABAS = [
+      ['horario', 'Horários', 'text=Mesmo horário para delivery e retirada/consumo no local'],
+      // o campo, não o rótulo (o selo do número cobria a primeira letra do rótulo)
+      ['tempo-de-entrega', 'Cardápio', (p) => p.locator('main').getByLabel('Tempo de entrega (min)', { exact: true })],
+      ['cupom-desconto', 'Cupons', 'button:has-text("Adicionar cupom")'],
+      // "Robô de atendimento" e "Atendimento" leem várias rotas (números do WhatsApp, pausa, avisos) que este roteiro não
+      // simula — com o {} genérico a tela cai. As imagens delas esperam um roteiro que simule essas rotas.
+    ];
+    for (const [id, nomeDaAba, chave] of ABAS) {
+      const aba = page.locator(`main button:text-is("${nomeDaAba}") >> visible=true`).first();
+      await aba.click();
+      const alvo = (typeof chave === 'function' ? chave(page) : page.locator('main').locator(chave)).first();
+      await alvo.waitFor({ timeout: 8000 }).catch(() => {});
+      const r = await fotoDoComoFaco(page, id, [menu, aba, alvo]);
+      ok(r.achou.every(Boolean), `como faço (${id}): as marcas estão na tela (${r.achou.join(', ')})${r.gerou ? ' — imagem gerada' : ''}${(r.motivos ?? []).filter(Boolean).length ? ` — ${r.motivos.join(' | ')}` : ''}`);
+    }
+    // O rótulo de cada campo das configurações é LIGADO ao campo (o <Label> ficava solto: nenhum campo tinha nome
+    // acessível). Na aba "Cardápio": os campos de texto pelo rótulo; o botão "Editar tema" num grupo com o nome do rótulo.
+    await page.locator('main button:text-is("Cardápio") >> visible=true').first().click();
+    const main = page.locator('main');
+    const pelosRotulos = await Promise.all(['Tempo de entrega (min)', 'Tempo de retirada (min)', 'Subtítulo'].map((n) => main.getByLabel(n, { exact: true }).count()));
+    ok(pelosRotulos.every((n) => n === 1), `configurações: cada campo achado pelo rótulo (${pelosRotulos.join(', ')})`);
+    ok((await main.getByRole('group', { name: 'Aparência do cardápio', exact: true }).count()) === 1, 'configurações: o rótulo do botão vira o nome do grupo (clicar nele não abre o editor)');
+    ok(erros.length === 0, `como faço (abas): sem erro de script (${umaLinha(erros.join(' | '))})`);
+    await ctx.close();
+  }
+
   // ── desenhar, a gaveta, salvar e ligar o modo; testar um ponto ──
   {
     const { ctx, page, erros, S } = await abrir(1280, 1000);

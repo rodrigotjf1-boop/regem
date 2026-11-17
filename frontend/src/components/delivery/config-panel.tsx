@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { Children, cloneElement, isValidElement, useEffect, useId, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { api, getUnidadeAtual } from '@/lib/api';
 import { toast } from '@/lib/toast';
@@ -1042,10 +1042,26 @@ function Secao({ dica, children }: { dica: string; children: React.ReactNode }) 
     </div>
   );
 }
+// O rótulo LIGADO ao campo (o leitor de tela diz o nome do campo; clicar no rótulo foca o campo). Antes o <Label> ficava
+// solto, sem `htmlFor`: nenhum dos 42 campos das configurações do Delivery tinha nome acessível. Um controle só (Input,
+// select, textarea) ganha o `id` e o rótulo aponta para ele; outra coisa (botão, um bloco com vários) vira um grupo com o
+// rótulo como nome — envolver num <label> faria o clique no rótulo acionar o botão.
 export function Campo({ label, children }: { label: string; children: React.ReactNode }) {
+  const id = useId();
+  const unico = Children.count(children) === 1 && isValidElement<{ id?: string }>(children) ? children : null;
+  const ehControle = !!unico && (unico.type === Input || unico.type === 'input' || unico.type === 'select' || unico.type === 'textarea');
+  if (unico && ehControle) {
+    const idDoCampo = unico.props.id ?? `${id}-campo`;
+    return (
+      <div className="space-y-1">
+        <Label htmlFor={idDoCampo} className="text-xs">{label}</Label>
+        {cloneElement(unico, { id: idDoCampo })}
+      </div>
+    );
+  }
   return (
-    <div className="space-y-1">
-      <Label className="text-xs">{label}</Label>
+    <div className="space-y-1" role="group" aria-labelledby={`${id}-rotulo`}>
+      <Label id={`${id}-rotulo`} className="text-xs">{label}</Label>
       {children}
     </div>
   );
