@@ -48,6 +48,8 @@ describe('sessão do terminal de ponto: as regras', () => {
 
 const URL_PG = process.env.TEST_PG_URL;
 const descrever = URL_PG ? describe : describe.skip;
+// A limpeza apaga cada empresa de teste em cascata (umas 160 tabelas filhas): com o banco ocupado, passa dos 5 s padrão.
+jest.setTimeout(60_000);
 if (!URL_PG) console.warn('sessao-do-ponto.spec: sem TEST_PG_URL — a parte com Postgres foi PULADA');
 
 descrever('sessão do terminal de ponto: o PIN e o guarda (Postgres real)', () => {

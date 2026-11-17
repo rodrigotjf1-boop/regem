@@ -25,6 +25,8 @@ const enviados = enviarCodigoVerificacao as jest.Mock;
 
 const URL_PG = process.env.TEST_PG_URL;
 const descrever = URL_PG ? describe : describe.skip;
+// A limpeza apaga cada empresa de teste em cascata (umas 160 tabelas filhas): com o banco ocupado, passa dos 5 s padrão.
+jest.setTimeout(60_000);
 if (!URL_PG) console.warn('codigos-e-pin-pg.spec: sem TEST_PG_URL — PULADO');
 
 const frases = (rs: PromiseSettledResult<unknown>[]) => rs.map((r) => (r.status === 'fulfilled' ? 'ok' : String((r.reason as Error)?.message)));
