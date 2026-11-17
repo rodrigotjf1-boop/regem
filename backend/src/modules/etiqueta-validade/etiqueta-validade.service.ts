@@ -731,7 +731,13 @@ export class EtiquetaValidadeService {
     const hoje = hojeISO();
     // A vencer nas próximas 24h (status ainda ativo) e vencidas não resolvidas.
     const rows = await this.db
-      .select({ tenantId: etiquetaValidade.tenantId, descricao: etiquetaValidade.descricao, validade: etiquetaValidade.validade, status: etiquetaValidade.status })
+      .select({
+        tenantId: etiquetaValidade.tenantId,
+        unidadeId: etiquetaValidade.unidadeId,
+        descricao: etiquetaValidade.descricao,
+        validade: etiquetaValidade.validade,
+        status: etiquetaValidade.status,
+      })
       .from(etiquetaValidade)
       .where(
         and(
@@ -740,16 +746,20 @@ export class EtiquetaValidadeService {
           lte(etiquetaValidade.validade, addDias(hoje, 1)),
         ),
       );
-    const porTenant = new Map<string, { vencendo: number; vencidas: number }>();
+    // Um aviso por LOJA (ERR-494): a etiqueta é de uma loja. Antes a conta era da empresa inteira e o aviso, sem loja, ia às
+    // telas de todas — a loja B via "3 vencidas" que eram da loja A. A etiqueta sem loja (rede de uma loja) segue como era.
+    const porLoja = new Map<string, { tenantId: string; unidadeId: string | null; vencendo: number; vencidas: number }>();
     for (const r of rows) {
-      const g = porTenant.get(r.tenantId) ?? { vencendo: 0, vencidas: 0 };
+      const chave = `${r.tenantId}|${r.unidadeId ?? ''}`;
+      const g = porLoja.get(chave) ?? { tenantId: r.tenantId, unidadeId: r.unidadeId ?? null, vencendo: 0, vencidas: 0 };
       if (r.validade < hoje) g.vencidas++;
       else g.vencendo++;
-      porTenant.set(r.tenantId, g);
+      porLoja.set(chave, g);
     }
-    for (const [tenantId, g] of porTenant) {
+    for (const g of porLoja.values()) {
       this.events.emit('kds.alerta.sistema', {
-        tenantId,
+        tenantId: g.tenantId,
+        unidadeId: g.unidadeId,
         titulo: '🏷️ Etiquetas de validade',
         detalhe: `${g.vencendo} a vencer · ${g.vencidas} vencida(s)`,
         prioridade: g.vencidas > 0 ? 'danger' : 'alta',

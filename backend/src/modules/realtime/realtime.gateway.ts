@@ -236,7 +236,10 @@ export class RealtimeGateway
     return true;
   }
 
-  // Marcação de ponto gravada em qualquer origem (web/terminal/gestor) → broadcast ao vivo.
+  // Marcação de ponto gravada em qualquer origem (web/terminal/gestor) → o sinal ao vivo.
+  // SÓ O AVISO (ERR-495): antes ia o comprovante inteiro — o nome do colaborador, a hora, o NSR e o hash — a TODO socket da
+  // empresa (KDS, outras lojas, qualquer perfil), a cada batida. Nenhuma tela usa o conteúdo; quem acompanha o ponto lê
+  // pela API de Pessoas & Ponto, que confere a permissão.
   @OnEvent('ponto.marcado')
   onPontoMarcado(p: {
     tenantId: string;
@@ -245,7 +248,11 @@ export class RealtimeGateway
     comprovante: any;
   }) {
     if (!this.server) return;
-    this.server.to(`tenant:${p.tenantId}`).emit('ponto:marcado', p);
+    const loja = p.unidadeId;
+    this.server.to(`tenant:${p.tenantId}`).emit('ponto:marcado', {
+      unidadeId: typeof loja === 'string' && UUID_RE.test(loja) ? loja : null,
+      em: new Date().toISOString(),
+    });
   }
 
   // Aviso para o rodapé do KDS, JÁ GUARDADO (onda 3 da auditoria do KDS, mig 412): os módulos emitem `kds.alerta.sistema`
@@ -343,11 +350,16 @@ export class RealtimeGateway
   }
 
   // Chamado de atendimento aberto (handoff do robô) → sino no app do tenant.
+  // SÓ O AVISO, com o id (ERR-495): a sala da empresa tem TODO mundo — os aparelhos (KDS, terminal de ponto) e qualquer
+  // perfil, de todas as lojas. Antes ia a linha inteira do caso, com o nome e o telefone do cliente e o resumo da conversa,
+  // para quem não tem a permissão de Atendimento. As telas nunca usaram o conteúdo: relêem a fila (`GET /atendimento/fila`),
+  // que filtra a loja e o perfil — como no `atendimento:mudou`.
   @OnEvent('atendimento.novo')
   onAtendimentoNovo(p: { tenantId: string; chamado: any }) {
     if (!this.server) return;
+    const id = p?.chamado?.id;
     this.server.to(`tenant:${p.tenantId}`).emit('atendimento:novo', {
-      chamado: p.chamado,
+      id: typeof id === 'string' && UUID_RE.test(id) ? id : null,
       em: new Date().toISOString(),
     });
   }

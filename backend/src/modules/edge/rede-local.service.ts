@@ -50,6 +50,7 @@ export class RedeLocalService implements OnApplicationBootstrap {
     return this.ultima;
   }
 
+  // ONDE RODA: só no SERVIDOR DA LOJA (ERR-075) — o `medir()` sai cedo na nuvem; é a rede da loja que interessa.
   @Interval(MEDIR_REDE_A_CADA_MS)
   async medirNoIntervalo(): Promise<void> {
     await this.medir();

@@ -620,9 +620,11 @@ export class ComprasService {
       detalhe: { nome: lista.nome, itens: lista.itens, itensComFalta: lista.comFalta },
     });
 
+    // Com a LOJA da lista (ERR-494): a compra entra no estoque de uma loja; sem ela o aviso ia a todas as lojas da rede.
     if (lista.enviarKds)
       this.events.emit('kds.alerta.sistema', {
         tenantId,
+        unidadeId: lista.unidadeId ?? null,
         titulo: `Compra recebida: ${lista.nome}`,
         detalhe: 'Itens entraram no estoque.',
         prioridade: 'baixa',

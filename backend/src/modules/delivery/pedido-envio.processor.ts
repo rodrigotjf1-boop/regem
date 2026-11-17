@@ -19,6 +19,7 @@ export class PedidoEnvioProcessor {
 
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
 
+  // ONDE RODA: nos DOIS lados (ERR-075) — a tabela do registro de envios não sincroniza; cada máquina limpa o próprio diário.
   @Cron('20 4 * * *') // 04:20 todos os dias
   async expurgar(dias = DIAS_GUARDA_ENVIOS): Promise<number> {
     try {

@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **O aceite de pedidos não trava com o pedido que falha sempre (16/11, ERR-493; sem migration) → vai no `.zip`** (o
+  aceite no servidor da loja); o resgate da nuvem vale com o deploy.
+  - As duas primeiras falhas de um pedido tentam de novo no ciclo seguinte, como hoje.
+  - A partir da terceira seguida, ele sai do lote por 2, 4, 6… minutos (teto de 10) e segue "novo" no painel.
+  - O lote passa a ter ordem: quem espera há mais tempo primeiro; o parado há mais de 12 h por último.
+
 - **O atendente lê a foto que o cliente manda no WhatsApp (16/11, pedido do dono; SEM migration; nasce DESLIGADO).** Com
   `ROBO_FOTOS_IA=1` na nuvem (o dono liga), a foto que o contexto não reconheceu como comprovante vai a um modelo de visão,
   pela porta da IA da empresa (recurso `foto_do_cliente` no medidor), e o atendente recebe o que ela mostra.
@@ -33,6 +39,16 @@
   - A exportação de clientes "Excel" sai como `.xlsx` (era `.xls`); o CSV não deixa o nome do cliente virar fórmula.
   - O guarda dos endereços que a loja cadastra recusa também as faixas especiais (NAT64, 6to4, reservadas).
 
+- **Os avisos do sistema levam a loja do registro (16/11, ERR-494; sem migration) → vai no `.zip`** (as rotinas rodam
+  também no servidor da loja); na nuvem vale com o deploy.
+  - "Hora de contar o estoque", "Contagem concluída", "Compra recebida" e "Novo pedido de manutenção" saíam só com a
+    empresa: numa rede de várias lojas, apareciam nas telas de todas.
+  - "Etiquetas de validade" passa a ser um aviso por loja, com a conta de cada uma.
+  - "Novo pedido de manutenção" passa a ser aviso de GESTÃO (decisão do dono, 16/11): saía sem tipo, caía em "loja" e
+    tocava também nas telas de preparo. Agora as telas de preparo (e a loja de um KDS só) não recebem por padrão; o
+    despacho, a entrega e a tela de avisos recebem — como a compra recebida e a contagem.
+  - Numa empresa de uma loja só, o resto não muda.
+
 - **🔴 `.exe` — Mister: reiniciar o serviço de impressão pela loja (16/11, F4.4 de `docs/plano-mister.md`, a conversa 5 do
   protótipo `mockups/regem-mister.html`; sem migration).** Toca `backend/edge/sync-daemon.mjs` (o comando
   `reiniciar_impressao`) e cria `backend/edge/comando-reiniciar-impressao.mjs` → **vai no `.exe`** (a 1.30.14 tem de sair
@@ -41,6 +57,12 @@
   volta "ignorado" e o Mister diz "não deu", sem quebrar nada). Na nuvem já vale: abaixo da 1.30.14 o aviso da impressora
   segue pedindo a via de teste. **Conferir no `.exe`:** o `RegemEdgeSync` (NSSM, conta do sistema) consegue
   `Restart-Service RegemEdgeImpressao` numa instalação nova.
+
+- **O tempo real manda só o sinal no caso novo do Atendimento e na batida de ponto (16/11, ERR-495; sem migration) → vai
+  no `.zip`** (o gateway roda também no servidor da loja); na nuvem vale com o deploy.
+  - Antes, o caso inteiro (nome e telefone do cliente) e o comprovante do ponto (nome do colaborador, hora, NSR) iam a
+    todo socket da empresa, inclusive aparelhos e perfis sem a permissão.
+  - Nenhuma tela usava esse conteúdo: todas releem pela API, que confere a loja e o perfil.
 
 ## Última release: `1.30.14` — gerada em 16/11/2026 da `origin/main` `f7832ca0`, **SÓ `.zip`** (`regem-edge-1.30.14.zip`, 36.796.865 bytes, SHA-256 `d18ba769108d318b56ac65a995ae062a2fe2683d029b4554439d7c68521f7fa8`), conferido (preflight OK; o KDS pelo token do aparelho dentro do pacote) e assinado (v1 + v2, validade até 15/05/2027); entregue ao dono em `Documentos\Regem - release 1.30.14 (16-11)` com o `DADOS PARA PUBLICAR.txt`; publicação no console PENDENTE (o dono); sem `.exe`
 
@@ -148,7 +170,9 @@
     - A conclusão feita na loja sem internet, com a entrada no estoque, não volta mais a "pendência crítica" pela marca que
       a nuvem pôs depois. Antes, lançar de novo dobrava o estoque.
     - O envio para a nuvem já vale com o deploy.
-    - A descida para a loja, só com o `.exe` da 1.30.14, que já sai com `.exe`.
+    - A descida para a loja: a 1.30.14 saiu SÓ `.zip`, e o `.zip` leva o daemon (o `package.mjs` copia a pasta `edge`
+      inteira e o `atualizar.ps1` a sobrepõe). A loja que atualizou já tem. Medido em 16/11 às 19:32: a loja piloto na
+      1.30.14, reiniciada na atualização, os cinco serviços rodando. O `.exe` segue necessário para a instalação NOVA.
 
 - **Vagas — o aviso ao banco de talentos pelo NÚMERO DE MARKETING, a fila (16/11, F4b parte 2 do protótipo
   `mockups/regem-vagas-talentos.html` aprovado; mig 438 `@cloud-only` — tabela nova `vaga_aviso`, com `tenant_id`: entra
