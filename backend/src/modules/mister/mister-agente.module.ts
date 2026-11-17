@@ -5,6 +5,7 @@ import { DashboardModule } from '../dashboard/dashboard.module';
 import { DeliveryModule } from '../delivery/delivery.module';
 import { EscalaModule } from '../escala/escala.module';
 import { EstoqueModule } from '../estoque/estoque.module';
+import { FinanceiroModule } from '../financeiro/financeiro.module';
 import { FiscalModule } from '../fiscal/fiscal.module';
 import { IbptModule } from '../fiscal/ibpt/ibpt.module';
 import { IaModule } from '../ia/ia.module';
@@ -19,6 +20,7 @@ import { VendasModule } from '../vendas/vendas.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { MisterAgenteService } from './mister-agente.service';
 import { MisterAvisosService } from './mister-avisos.service';
+import { MisterDocumentosService } from './mister-documentos.service';
 import { MisterFerramentasService } from './mister-ferramentas.service';
 import { MisterLinkController } from './mister-link.controller';
 import { MisterPropostasService } from './mister-propostas.service';
@@ -60,10 +62,13 @@ import { MisterModule } from './mister.module';
     IbptModule,
     // F4.1 (as propostas): a consulta da nota na SEFAZ é a mesma do botão da tela.
     FiscalModule,
+    // M3a (documentos por foto): a conta a pagar sai pelo MESMO serviço da tela do Financeiro.
+    FinanceiroModule,
   ],
   // Os relatórios (mig 420) moram aqui: escrevem pelo mesmo agente das perguntas. As propostas (F4.1, mig 428) também:
   // os avisos as criam e elas executam pelos serviços das telas.
-  providers: [MisterFerramentasService, MisterAgenteService, MisterAvisosService, MisterRelatoriosService, MisterPropostasService],
+  // M3a (mig 439): os documentos por foto lançam a conta a pagar pelo serviço do Financeiro.
+  providers: [MisterFerramentasService, MisterAgenteService, MisterAvisosService, MisterRelatoriosService, MisterPropostasService, MisterDocumentosService],
   // F4.2a (mig 433): as rotas públicas da página do link com PIN (`/m/<código>`), que respondem pelo serviço das propostas.
   controllers: [MisterLinkController],
   exports: [MisterAgenteService, MisterAvisosService],
