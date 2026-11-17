@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **PDV · Balcão: cartões grandes por padrão, "Compactos" por pessoa, e a ordem do "Organizar" gravada de verdade (17/11;
+  ERR-504; SEM migration) → vai no `.zip`** (a tela e a rota das preferências são do servidor da loja).
+  - O cartão grande: 6 por linha no monitor, foto 4:3, nome de 17 px, preço em destaque; "Compactos" ao lado do "Organizar".
+  - O DTO das preferências aceita a ordem das categorias e o tamanho dos cartões (antes descartava a ordem).
+
 - **PDV · Balcão: o cartão do produto com a foto em cima e a janela das etapas larga com a foto de cada opção (17/11, pedido
   do dono; SEM migration) → vai no `.zip`** (a tela e a leitura do produto são do servidor da loja).
   - O cartão: foto grande em cima (ou o ícone), nome em destaque, preço no pé; o painel do pedido não mudou.

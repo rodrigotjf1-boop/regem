@@ -22,7 +22,7 @@ import { TerminalGate } from '@/components/pdv/terminal-gate';
 import { BuscarCupom } from '@/components/pdv/buscar-cupom';
 import { DividirConta, type PagamentoDaVenda } from '@/components/pdv/balcao/dividir-conta';
 import { EditorDoItem, type EscolhaDoItem } from '@/components/pdv/balcao/editor-do-item';
-import { CartaoDoProduto, CartaoDoProdutoCarregando, GRADE_DE_PRODUTOS } from '@/components/pdv/balcao/cartao-do-produto';
+import { CartaoDoProduto, CartaoDoProdutoCarregando, gradeDeProdutos as classeDaGrade, tamanhoDoCartao, type TamanhoDoCartao } from '@/components/pdv/balcao/cartao-do-produto';
 import { LinhaDoPedido, type ItemDoPedido } from '@/components/pdv/balcao/linha-do-pedido';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -50,6 +50,8 @@ export default function PdvPage() {
   // NÃO altera o catálogo. `organizando` liga o modo arrastar; `dragCat` = índice arrastado.
   const [ordemPdv, setOrdemPdv] = useState<string[]>([]);
   const [organizando, setOrganizando] = useState(false);
+  // O tamanho dos cartões (17/11/2026): da pessoa, gravado nas preferências como a ordem; grande é o padrão.
+  const [tamanhoCartao, setTamanhoCartao] = useState<TamanhoDoCartao>('grande');
   const [dragCat, setDragCat] = useState<number | null>(null);
   const [carrinho, setCarrinho] = useState<ItemDoPedido[]>([]);
   const [destaque, setDestaque] = useState<string | null>(null); // linha que acabou de entrar/mudar
@@ -98,6 +100,7 @@ export default function PdvPage() {
         api.modulosMeus().catch(() => null),
       ]);
       setOrdemPdv(Array.isArray((pr as any)?.pdvOrdemCategorias) ? (pr as any).pdvOrdemCategorias : []);
+      setTamanhoCartao(tamanhoDoCartao((pr as any)?.pdvCartoes));
       // PDV = canal balcão: só produtos ativos e marcados para o balcão.
       setProdutos(
         ps.filter(
@@ -444,6 +447,17 @@ export default function PdvPage() {
     }
   }
 
+  // O tamanho dos cartões (pedido do dono, 17/11/2026): aplica na hora e grava nas preferências da pessoa.
+  async function mudarTamanho(t: TamanhoDoCartao) {
+    if (t === tamanhoCartao) return;
+    setTamanhoCartao(t);
+    try {
+      await api.patchPrefs({ pdvCartoes: t });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao salvar o tamanho dos cartões');
+    }
+  }
+
   // Sem o "Todos" (pedido do dono, 16/11/2026): abre na 1ª categoria — na ordem pessoal — que tem produto (a regra mora em
   // `lib/balcao.ts`, conferida pelo `check:balcao`).
   const { atual: catEfetiva, semCategoria: temSemCategoria, topoDe } = categoriasDoBalcao(catsTop, categorias, produtos, catAtiva);
@@ -492,7 +506,7 @@ export default function PdvPage() {
 
   const pilula = (ligado: boolean) =>
     `min-h-10 rounded-full border px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${ligado ? 'border-primary bg-primary/15 text-foreground' : 'border-border bg-card text-muted-foreground hover:text-foreground'}`;
-  const gradeDeProdutos = GRADE_DE_PRODUTOS;
+  const gradeDeProdutos = classeDaGrade(tamanhoCartao);
 
   return (
     <Shell fill>
@@ -564,6 +578,21 @@ export default function PdvPage() {
                   Sem categoria
                 </button>
               )}
+              {/* O tamanho dos cartões: grandes (o padrão — a foto e o nome em destaque) ou compactos (cabem mais). */}
+              <div role="group" aria-label="Tamanho dos cartões" className="ml-auto flex flex-wrap items-center gap-1">
+                {(['grande', 'compacto'] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    aria-pressed={tamanhoCartao === t}
+                    data-tamanho-cartao={t}
+                    onClick={() => void mudarTamanho(t)}
+                    className={`${pilula(tamanhoCartao === t)} text-xs`}
+                  >
+                    {t === 'grande' ? 'Cartões grandes' : 'Compactos'}
+                  </button>
+                ))}
+              </div>
               {/* Organizar: reordenar as categorias arrastando — a ordem é PESSOAL (por usuário),
                   não altera o catálogo. Salva em uiPrefs.pdvOrdemCategorias. */}
               <button
@@ -571,7 +600,7 @@ export default function PdvPage() {
                 onClick={() => setOrganizando((v) => !v)}
                 aria-pressed={organizando}
                 title="Reordene as categorias arrastando — a ordem é só sua (não muda o catálogo)."
-                className={`ml-auto ${pilula(organizando)} text-xs`}
+                className={`${pilula(organizando)} text-xs`}
               >
                 {organizando ? '✓ Concluir' : '↕ Organizar'}
               </button>
@@ -580,7 +609,7 @@ export default function PdvPage() {
             <div className="space-y-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
               {!carregado && (
                 <div className={gradeDeProdutos}>
-                  {Array.from({ length: 10 }).map((_, i) => <CartaoDoProdutoCarregando key={i} />)}
+                  {Array.from({ length: 10 }).map((_, i) => <CartaoDoProdutoCarregando key={i} tamanho={tamanhoCartao} />)}
                 </div>
               )}
               {carregado && produtos.length === 0 && (
@@ -603,7 +632,7 @@ export default function PdvPage() {
                     {g.itens.map((p) => {
                       const qtd = noPedido.get(p.id) ?? 0;
                       return (
-                        <CartaoDoProduto key={p.id} produto={p} qtd={qtd} aoTocar={() => tap(p)} />
+                        <CartaoDoProduto key={p.id} produto={p} qtd={qtd} aoTocar={() => tap(p)} tamanho={tamanhoCartao} />
                       );
                     })}
                   </div>

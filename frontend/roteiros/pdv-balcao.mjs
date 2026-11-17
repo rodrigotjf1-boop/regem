@@ -5,7 +5,9 @@
 //  • a janela das etapas: larga (no monitor, a largura do diálogo grande), as opções em grade (várias por linha), a foto de
 //    cada opção ao lado do nome, e o combo de três etapas SEM rolagem no monitor de 1080 px de altura;
 //  • em cada largura: nenhuma barra de rolagem para o lado (a página, a grade e a janela aberta), a janela inteira na tela;
-//  • o ícone do totem a pagar no cabeçalho do Balcão.
+//  • o ícone do totem a pagar no cabeçalho do Balcão;
+//  • o TAMANHO dos cartões (17/11, "a primeira tela parece não ter mudado"): grande é o padrão (foto 4:3, nome de 17 px);
+//    "Compactos" encolhe na hora, grava nas preferências da pessoa e a tela reabre compacta.
 import { responder, tokenFalso, umaLinha } from './comum.mjs';
 
 const TOKEN = tokenFalso({ cat: 'presidente', perfil: 'presidente', nome: 'Rodrigo' });
@@ -85,12 +87,15 @@ const cartoes = (page) =>
         nome: nome?.textContent ?? '',
         nomeDentro: !!nr && nr.left >= r.left - 0.5 && nr.right <= r.right + 0.5,
         letra: nome ? parseFloat(getComputedStyle(nome).fontSize) : 0,
+        tamanho: b.getAttribute('data-tamanho'),
+        topo: Math.round(r.top),
       };
     }),
   );
 
 export default async function roteiroPdvBalcao({ nav, base, ok, foto: arquivoFoto, larguras }) {
-  async function abrir(w, h) {
+  async function abrir(w, h, prefs = {}) {
+    const gravadas = [];
     const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
     await ctx.addInitScript((jwt) => {
       localStorage.setItem('regen_token', jwt);
@@ -117,11 +122,15 @@ export default async function roteiroPdvBalcao({ nav, base, ok, foto: arquivoFot
       if (p === '/delivery/totem/aguardando-pagamento')
         return responder(route, { ativo: true, aposPagamento: true, minutos: 8, pedidos: [{ id: 'tt1', senha: '12', clienteNome: null, total: 31, minutos: 2, status: 'novo', pronto: false, atrasado: false }] });
       if (p === '/vendas/acertos') return responder(route, []);
+      if (p === '/colaborador/me/prefs') {
+        if (route.request().method() === 'PATCH') gravadas.push(JSON.parse(route.request().postData() || '{}'));
+        return responder(route, prefs);
+      }
       return responder(route, {});
     });
     await page.goto(base + '/pdv');
     await page.waitForSelector('[data-produto]', { timeout: 30000 });
-    return { ctx, page, erros };
+    return { ctx, page, erros, gravadas };
   }
 
   // ── o monitor da loja (1920 × 1080): os cartões e a janela do combo ──
@@ -130,10 +139,13 @@ export default async function roteiroPdvBalcao({ nav, base, ok, foto: arquivoFot
     const cs = await cartoes(page);
     ok(cs.length === 18, `a 1ª categoria abre com os 18 cartões dela (${cs.length})`);
     const comFoto = cs.filter((c) => c.foto);
-    ok(comFoto.length === 16 && comFoto.every((c) => c.foto.w >= 140 && c.foto.h >= 85), `a foto do cadastro grande no cartão (${umaLinha(comFoto.map((c) => `${Math.round(c.foto.w)}x${Math.round(c.foto.h)}`).slice(0, 3).join(' '))})`);
+    ok(cs.every((c) => c.tamanho === 'grande'), 'o cartão grande é o padrão');
+    const naLinha = cs.filter((c) => Math.abs(c.topo - cs[0].topo) < 2).length;
+    ok(naLinha === 6, `6 cartões grandes por linha no monitor (${naLinha})`);
+    ok(comFoto.length === 16 && comFoto.every((c) => c.foto.w >= 180 && c.foto.h >= 135), `a foto do cadastro GRANDE no cartão (${umaLinha(comFoto.map((c) => `${Math.round(c.foto.w)}x${Math.round(c.foto.h)}`).slice(0, 3).join(' '))})`);
     ok(cs.filter((c) => !c.foto).every((c) => c.icone), 'sem foto: o ícone no lugar (o cartão do mesmo tamanho)');
-    ok(cs.every((c) => c.nomeDentro && c.letra >= 15), `o nome dentro do cartão, em letra de 15 px ou mais (${cs[0]?.letra} px)`);
-    ok(cs.every((c) => c.largura >= 150), `cada cartão com 150 px ou mais (${Math.round(Math.min(...cs.map((c) => c.largura)))} px)`);
+    ok(cs.every((c) => c.nomeDentro && c.letra >= 17), `o nome dentro do cartão, em letra de 17 px ou mais (${cs[0]?.letra} px)`);
+    ok(cs.every((c) => c.largura >= 180), `cada cartão com 180 px ou mais (${Math.round(Math.min(...cs.map((c) => c.largura)))} px)`);
     ok(await page.locator('[data-totem-a-pagar="1"]').isVisible(), 'o ícone do totem a pagar no cabeçalho do Balcão');
     await page.screenshot({ path: arquivoFoto('pdv-balcao-1920.png') });
 
@@ -169,6 +181,25 @@ export default async function roteiroPdvBalcao({ nav, base, ok, foto: arquivoFot
     ok((await page.evaluate(() => document.querySelector('[data-produto="p1"] .rounded-full.bg-primary')?.textContent)) === '1', 'o cartão mostra 1 no pedido');
     ok(erros.length === 0, `sem erro na página (${umaLinha(erros.join(' | '))})`);
     await ctx.close();
+  }
+
+  // ── o tamanho dos cartões: "Compactos" encolhe na hora, grava, e a tela reabre compacta ──
+  {
+    const { ctx, page, erros, gravadas } = await abrir(1920, 1080);
+    const antes = await cartoes(page);
+    ok(await page.locator('[data-tamanho-cartao="grande"][aria-pressed="true"]').isVisible(), '"Cartões grandes" marcado ao abrir');
+    await page.click('[data-tamanho-cartao="compacto"]');
+    await page.waitForSelector('[data-produto][data-tamanho="compacto"]');
+    const depois = await cartoes(page);
+    ok(Math.max(...depois.map((c) => c.largura)) < Math.min(...antes.map((c) => c.largura)), `compactos: os cartões menores na hora (${Math.round(antes[0].largura)} → ${Math.round(depois[0].largura)} px)`);
+    await page.waitForTimeout(300);
+    ok(gravadas.some((g) => g.pdvCartoes === 'compacto'), `a escolha vai para as preferências (${umaLinha(JSON.stringify(gravadas))})`);
+    await page.screenshot({ path: arquivoFoto('pdv-balcao-compacto-1920.png') });
+    ok(erros.length === 0, `compacto: sem erro na página (${umaLinha(erros.join(' | '))})`);
+    await ctx.close();
+    const r = await abrir(1920, 1080, { pdvCartoes: 'compacto' });
+    ok((await cartoes(r.page)).every((c) => c.tamanho === 'compacto'), 'gravado compacto: a tela reabre compacta');
+    await r.ctx.close();
   }
 
   // ── cada largura: a grade e a janela aberta, sem nada para o lado ──
