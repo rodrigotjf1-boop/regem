@@ -153,6 +153,66 @@ try {
     assert.equal(b.categoriasDoBalcao(TOPO, [{ id: 'x', parentId: 'y' }, { id: 'y', parentId: 'x' }], [{ categoriaId: 'x' }], '').atual, b.SEM_CATEGORIA);
   });
 
+
+  // O TOTEM EM DINHEIRO A PAGAR (pedido do dono, 16/11/2026): o ícone desde a chegada, o pronto e não pago primeiro.
+  writeFileSync(
+    join(tmp, 'totem-a-pagar.mjs'),
+    ts.transpileModule(readFileSync(join(raiz, 'totem-a-pagar.ts'), 'utf8'), {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
+    }).outputText,
+  );
+  const tt = await import(pathToFileURL(join(tmp, 'totem-a-pagar.mjs')).href);
+  const P = (id, o = {}) => ({ id, senha: id.toUpperCase(), clienteNome: null, total: 10, minutos: 1, status: 'novo', pronto: false, atrasado: false, ...o });
+
+  caso('totem a pagar: a resposta do servidor (a nova e a antiga) vira a lista da tela', () => {
+    const r = tt.lerTotemAPagar({ ativo: true, aposPagamento: false, minutos: 8, pedidos: [
+      { id: 'a', senha: 'B12', total: '25.5', minutos: 9, status: 'pronto', pronto: true, atrasado: true },
+      { id: 'b', senha: '', total: 10, minutos: 2 },
+      { senha: 'sem id' },
+    ] });
+    assert.equal(r.aposPagamento, false);
+    assert.equal(r.pedidos.length, 2); // o sem id não entra
+    assert.deepEqual(r.pedidos[0], { id: 'a', senha: 'B12', clienteNome: null, total: 25.5, minutos: 9, status: 'pronto', pronto: true, atrasado: true });
+    assert.equal(r.pedidos[1].senha, null); // senha vazia = sem senha
+    assert.equal(r.pedidos[1].status, 'novo'); // servidor antigo: sem status = esperando
+    // servidor antigo: só "atrasado" pelos minutos; e com a loja fora do "após pagamento" (ativo falso), nada
+    assert.equal(tt.lerTotemAPagar({ ativo: true, minutos: 8, pedidos: [{ id: 'c', minutos: 8 }] }).pedidos[0].atrasado, true);
+    assert.deepEqual(tt.lerTotemAPagar({ ativo: false, pedidos: [{ id: 'x' }] }).pedidos, []);
+    assert.deepEqual(tt.lerTotemAPagar(null), { pedidos: [], aposPagamento: null, minutos: 8 });
+  });
+
+  caso('totem a pagar: o resumo separa o pronto e não pago (urgente) do atrasado; a faixa chama o pronto primeiro', () => {
+    const pronto = P('b1', { pronto: true, status: 'pronto', atrasado: true });
+    const atrasado = P('b2', { atrasado: true, minutos: 12 });
+    const novo = P('b3');
+    const r = tt.resumoDoTotemAPagar([pronto, atrasado, novo]);
+    assert.equal(r.total, 3);
+    assert.deepEqual(r.prontos.map((p) => p.id), ['b1']);
+    assert.deepEqual(r.atrasados.map((p) => p.id), ['b2']); // o pronto atrasado conta só como pronto
+    assert.deepEqual(tt.textoDaFaixa(r, 8), { tom: 'urgente', texto: 'Senha B1 do totem está PRONTA e NÃO PAGA (dinheiro): cobre antes de entregar' });
+    assert.match(tt.textoDaFaixa(tt.resumoDoTotemAPagar([pronto, P('b4', { pronto: true })]), 8).texto, /^2 pedidos do totem estão PRONTOS e NÃO PAGOS/);
+    assert.deepEqual(tt.textoDaFaixa(tt.resumoDoTotemAPagar([atrasado, novo]), 8), { tom: 'atencao', texto: '1 pedido do totem espera pagamento em dinheiro há mais de 8 min' });
+    assert.equal(tt.textoDaFaixa(tt.resumoDoTotemAPagar([novo]), 8), null); // só chegou: o ícone basta
+    assert.equal(tt.rotuloDoIcone(r), 'Totem: 3 pedidos esperando pagamento em dinheiro, 1 pronto sem pagar. Abrir Retirada / Encomendas');
+    assert.equal(tt.rotuloDoIcone(tt.resumoDoTotemAPagar([novo])), 'Totem: 1 pedido esperando pagamento em dinheiro. Abrir Retirada / Encomendas');
+  });
+
+  caso('totem a pagar: o bipe toca no pedido novo e quando um fica PRONTO, uma vez cada', () => {
+    const vistos = new Set();
+    const prontos = new Set();
+    assert.equal(tt.precisaBipar(vistos, prontos, [P('a')]), true); // chegou
+    assert.equal(tt.precisaBipar(vistos, prontos, [P('a')]), false); // o mesmo de novo
+    assert.equal(tt.precisaBipar(vistos, prontos, [P('a', { pronto: true })]), true); // ficou pronto sem pagar
+    assert.equal(tt.precisaBipar(vistos, prontos, [P('a', { pronto: true })]), false);
+    assert.equal(tt.precisaBipar(vistos, prontos, [P('a', { pronto: true }), P('b')]), true); // outro chegou
+    assert.equal(tt.precisaBipar(vistos, prontos, []), false); // pagaram todos: silêncio
+  });
+
+  caso('totem a pagar: o ícone e a faixa só nas telas do PDV', () => {
+    for (const p of ['/pdv', '/pdv/retirada', '/mesas', '/mesas/3']) assert.equal(tt.naTelaDoTotem(p), true, p);
+    for (const p of ['/', '/delivery', '/pdvx', '/painel', '/cupons']) assert.equal(tt.naTelaDoTotem(p), false, p);
+  });
+
   console.log(`\ncheck:balcao — ${n} grupos de casos, todos certos.`);
 } finally {
   rmSync(tmp, { recursive: true, force: true });

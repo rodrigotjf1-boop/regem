@@ -26,8 +26,9 @@
     "check:turno": "node scripts/check-turno.mjs",
     "check:sem-nuvem": "node scripts/check-sem-nuvem.mjs",
     "check:landing": "node scripts/check-landing.mjs",
+    "check:csv": "node scripts/check-csv.mjs",
     "roteiros": "node roteiros/rodar.mjs",
-    "test": "npm run check:etapas && npm run check:area && npm run check:eventos && npm run check:kds && npm run check:balcao && npm run check:unidades && npm run check:marcas && npm run check:conversao && npm run check:embalagem && npm run check:senhas && npm run check:tela-senhas && npm run check:painel && npm run check:vagas && npm run check:pausa && npm run check:catalogo && npm run check:rota-cozinha && npm run check:turno && npm run check:sem-nuvem && npm run check:landing"
+    "test": "npm run check:etapas && npm run check:area && npm run check:eventos && npm run check:kds && npm run check:balcao && npm run check:unidades && npm run check:marcas && npm run check:conversao && npm run check:embalagem && npm run check:senhas && npm run check:tela-senhas && npm run check:painel && npm run check:vagas && npm run check:pausa && npm run check:catalogo && npm run check:rota-cozinha && npm run check:turno && npm run check:sem-nuvem && npm run check:landing && npm run check:csv"
   },
   "dependencies": {
     "@geoman-io/leaflet-geoman-free": "2.18.3",

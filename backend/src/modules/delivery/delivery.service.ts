@@ -25,12 +25,13 @@ import { MENSAGEM_PRAZO_DO_PIX, pagoNoPixOnline, podeCancelarPagoNoPix } from '.
 import { textoDasEscolhas } from '../../common/adicionais';
 import { serieDaSenha } from './serie-da-senha';
 import { retidosVencidos } from './totem-retido.query';
-import { MINUTOS_ALERTA_TOTEM, totemDinheiroSemPagar } from './totem-a-pagar.query';
+import { MINUTOS_ALERTA_TOTEM, totemDinheiroAPagar } from './totem-a-pagar.query';
 import { motivoVendaDesfeita } from '../fiscal/nfce-totem';
 import { gravarAvisoCancelamentoTotem, resultadoDoAviso } from '../gogem/aviso-gogem';
 import { GogemAvisoService } from '../gogem/gogem-aviso.service';
 import { ehServidorLocal } from '../../common/modo';
 import { horaNoFuso } from '../../common/data';
+import { linhasDaViaPagaNoCaixa, nomeDaForma } from '../../common/via-paga-no-caixa';
 import { exigirBooleano } from '../../common/exigir';
 import { autorizarPorSenhaDeGestor } from '../../common/autorizacao-gestor';
 import { conferirRegras, DocumentoImpressao } from '../../common/regras-impressao';
@@ -1620,10 +1621,13 @@ export class DeliveryService {
     // impressora LOCAL (a nuvem não alcança a térmica). Delivery leva o QR de despacho
     // direto na comanda quando a loja mantém 'imprimir_qr_comanda' ligado.
     if (ehServidorLocal() && row.comandaId) {
-      // A falha da via não derruba o aceite, mas não passa em silêncio (antes: `catch(() => {})`).
-      void this.imprimirCupomCaixaExterno(tenantId, row).catch((e) =>
-        this.logger.warn(`pedido ${row.id}: a via do caixa não saiu (${e?.message ?? e})`),
-      );
+      // Totem: a via do caixa NÃO sai no aceite (pedido do dono, 16/11/2026). O de dinheiro ainda não foi pago: a via sai
+      // depois do pagamento no balcão, com "PAGO NO CAIXA" (`imprimirViaPagaNoCaixa`); o pago no totem (cartão/PIX) não
+      // passa por aqui. A falha da via não derruba o aceite, mas não passa em silêncio (antes: `catch(() => {})`).
+      if (DeliveryService.grupoCanal(row.canal ?? '') !== 'totem')
+        void this.imprimirCupomCaixaExterno(tenantId, row).catch((e) =>
+          this.logger.warn(`pedido ${row.id}: a via do caixa não saiu (${e?.message ?? e})`),
+        );
       // Este servidor aceitou: o processador de "aceito fora" nunca o imprime de novo, nem se o
       // vínculo do pedido trocar de comanda (aceite em dobro com a nuvem, ERR-251).
       void this.marcarImpressoNoServidor(row.id);
@@ -1648,6 +1652,14 @@ export class DeliveryService {
   // nuvem não alcança a térmica da loja e não grava trabalho de impressão para ela. Aqui saem a
   // via (pela regra do documento) e a produção. Quem chama cuida de imprimir uma vez só.
   async imprimirPedidoAceitoFora(tenantId: string, ped: any): Promise<{ enfileirados: number; aviso: string | null }> {
+    // Totem: só a PRODUÇÃO (pedido do dono, 16/11/2026). O pago no totem (cartão/PIX, liberado pela nuvem) já tem a via do
+    // cliente, impressa no totem — a do caixa sobrava; o de dinheiro tem a via "PAGO NO CAIXA" na hora do pagamento, no
+    // servidor que cobrou. Marca o pedido mesmo sem papel de produção (loja só com KDS): não há mais o que esperar.
+    if (DeliveryService.grupoCanal(ped.canal ?? '') === 'totem') {
+      const producao = await this.producao.materializarProducaoLocal(tenantId, ped.comandaId);
+      await this.marcarImpressoNoServidor(ped.id);
+      return { enfileirados: producao, aviso: null };
+    }
     const qrData = await this.qrDespacho(tenantId, ped);
     const res = await this.vendas.materializarPedidoExternoLocal(tenantId, ped.comandaId, qrData, this.documentoDoPedido(ped));
     if (res.enfileirados > 0) await this.marcarImpressoNoServidor(ped.id);
@@ -1680,6 +1692,21 @@ export class DeliveryService {
   private async imprimirCupomCaixaExterno(tenantId: string, ped: any) {
     const qrData = await this.qrDespacho(tenantId, ped);
     await this.vendas.materializarCupomCaixa(tenantId, ped.comandaId, qrData, this.documentoDoPedido(ped));
+  }
+
+  // TOTEM EM DINHEIRO COBRADO NO BALCÃO (pedido do dono, 16/11/2026): a via do caixa com a MESMA senha e "PAGO NO CAIXA" no
+  // alto, com a forma cobrada e a hora. O cliente leva esta e entrega a do totem ao atendimento. Sai pela regra de sempre da
+  // via do totem (a impressora de cupom da loja). Nunca rejeita (é chamada com `void`): sem impressora, fica o motivo no log.
+  private async imprimirViaPagaNoCaixa(tenantId: string, ped: any, forma: string): Promise<void> {
+    try {
+      const res = await this.vendas.materializarCupomCaixa(tenantId, ped.comandaId, undefined, undefined, {
+        cabecalho: linhasDaViaPagaNoCaixa(forma, horaNoFuso(new Date())),
+        forma: nomeDaForma(forma),
+      });
+      if (!res?.enfileirados) this.logger.warn(`totem ${ped.id}: a via "PAGO NO CAIXA" não saiu (${res?.aviso ?? 'sem impressora de cupom'})`);
+    } catch (e: any) {
+      this.logger.warn(`totem ${ped.id}: a via "PAGO NO CAIXA" não saiu (${e?.message ?? e})`);
+    }
   }
 
   async avancar(
@@ -1720,6 +1747,12 @@ export class DeliveryService {
     if (!proximo) throw new BadRequestException('Pedido já concluído.');
     // Retirada não passa por "despachado" (não há entregador): pronto → concluído.
     const novo = ped.tipo === 'retirada' && proximo === 'despachado' ? 'concluido' : proximo;
+    // Totem em DINHEIRO ainda não pago não sai da lista pelo "avançar" (pedido do dono, 16/11/2026: "pode sumir da tela de
+    // retiradas/encomendas, porém somente quando pago"): a cobrança é o "Cobrar e entregar" da Retirada (`entregarBalcao`).
+    if (novo === 'concluido' && !ped.pago && DeliveryService.grupoCanal(ped.canal ?? '') === 'totem')
+      throw new BadRequestException(
+        'Pedido do totem ainda não foi pago: cobre em PDV · Balcão › Retirada / Encomendas, no "Cobrar e entregar".',
+      );
     const patch: any = { status: novo };
     if (novo === 'pronto') patch.prontoEm = new Date();
     if (novo === 'despachado') {
@@ -2224,13 +2257,14 @@ export class DeliveryService {
     return { totemAposPagamento: v };
   }
 
-  // Aviso do PDV: pedidos do totem em DINHEIRO sem pagar há mais de 8 min. Só existe com a loja
-  // em "produzir só após o pagamento" — no outro modo o pedido já está na cozinha e a cobrança
-  // é na entrega. Só leitura: nada muda no pedido (ver `totem-a-pagar.query.ts`).
+  // O ícone e o aviso do PDV: TODO pedido do totem em DINHEIRO ainda não pago, desde a chegada (pedido do dono,
+  // 16/11/2026) — nos dois modos da loja: no "produzir só após o pagamento" ele espera o "Receber pagamento"; no outro, vai
+  // para a cozinha e pode ficar PRONTO sem ninguém ter cobrado (o caso mais urgente, que vem primeiro). Só leitura: nada
+  // muda no pedido (ver `totem-a-pagar.query.ts`). `aposPagamento` diz à tela qual dos dois é o da loja.
   async totemAguardandoPagamento(tenantId: string, atual: string | null) {
-    const ativo = await this.totemAposPagamento(tenantId);
-    const pedidos = ativo ? await totemDinheiroSemPagar(this.db, tenantId, atual) : [];
-    return { ativo, minutos: MINUTOS_ALERTA_TOTEM, pedidos };
+    const aposPagamento = await this.totemAposPagamento(tenantId);
+    const pedidos = await totemDinheiroAPagar(this.db, tenantId, atual);
+    return { ativo: true, aposPagamento, minutos: MINUTOS_ALERTA_TOTEM, pedidos };
   }
 
   // "Receber pagamento" do totem (modo APÓS pagamento): cobra o dinheiro no caixa e
@@ -2298,6 +2332,9 @@ export class DeliveryService {
           ),
         );
     }
+    // A via do caixa SÓ AGORA, depois do pagamento (pedido do dono, 16/11/2026): a mesma senha, com "PAGO NO CAIXA" e a
+    // forma cobrada no alto. Só no servidor da loja (a nuvem não alcança a térmica). Nunca derruba o pagamento.
+    if (ehServidorLocal() && row.comandaId) void this.imprimirViaPagaNoCaixa(tenantId, row, f);
     return row;
   }
 
@@ -2461,6 +2498,10 @@ export class DeliveryService {
           ),
         );
     }
+    // Totem em DINHEIRO cobrado aqui ("Cobrar e entregar"): a via do caixa sai agora, com "PAGO NO CAIXA" (pedido do dono,
+    // 16/11/2026). O pago antes (no totem ou no "Receber pagamento") não imprime de novo.
+    if (sessaoId && row.comandaId && ehServidorLocal() && DeliveryService.grupoCanal(row.canal ?? '') === 'totem')
+      void this.imprimirViaPagaNoCaixa(tenantId, row, formaCobrada || 'dinheiro');
     // Status-back de conclusão aos canais.
     void this.dispararWebhook(tenantId, row);
     if (row.tipo === 'retirada') void this.statusBackCw(tenantId, row, 'finalize');

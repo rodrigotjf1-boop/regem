@@ -12,6 +12,16 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **PDV · Balcão: cartões grandes por padrão, "Compactos" por pessoa, e a ordem do "Organizar" gravada de verdade (17/11;
+  ERR-504; SEM migration) → vai no `.zip`** (a tela e a rota das preferências são do servidor da loja).
+  - O cartão grande: 6 por linha no monitor, foto 4:3, nome de 17 px, preço em destaque; "Compactos" ao lado do "Organizar".
+  - O DTO das preferências aceita a ordem das categorias e o tamanho dos cartões (antes descartava a ordem).
+
+- **PDV · Balcão: o cartão do produto com a foto em cima e a janela das etapas larga com a foto de cada opção (17/11, pedido
+  do dono; SEM migration) → vai no `.zip`** (a tela e a leitura do produto são do servidor da loja).
+  - O cartão: foto grande em cima (ou o ícone), nome em destaque, preço no pé; o painel do pedido não mudou.
+  - A janela das etapas larga, opções em grade, a foto da opção (a do cadastro da opção; senão, a do produto do código).
+
 - **Mister: o boleto e a conta por foto (17/11, M3a partes 1 e 2; mig 439 `mister_documento` SÓ NUVEM; nasce DESLIGADO).**
   Com `MISTER_DOCUMENTOS=1` no `regem-api` (o dono liga), o presidente manda a foto ou o PDF do boleto ao WhatsApp do
   Mister e ele lança nas contas a pagar (sozinho, com "Desfazer", só o boleto que confere de fornecedor cadastrado; o
@@ -23,6 +33,12 @@
   - A senha por extenso em todas as vias; no cupom do delivery, a senha no alto e o canal ("iFood 6214") logo abaixo.
   - O cardápio próprio sai "Regem". Adicional e observação em maiúsculas.
   - "Tamanho do cupom inteiro" por perfil: o caixa 1 passo maior (~+40%), a produção 2 (o dobro), até o Grande.
+
+- **Totem em dinheiro: o ícone em todos os PDVs, o "pronto e não pago" e a via "PAGO NO CAIXA" (16/11, pedidos do dono; SEM
+  migration) → vai no `.zip`** (o PDV e a impressão da loja são do servidor da loja).
+  - Ícone com a contagem desde a chegada do pedido; o clique abre Retirada / Encomendas; vermelho com pronto e não pago.
+  - O "avançar" não conclui o totem em dinheiro não pago. O totem pago no totem sai só com a produção.
+  - A via do caixa do dinheiro só depois do pagamento, com "PAGO NO CAIXA" e a forma cobrada.
 
 - **PDV · Balcão sem o "Todos": abre na primeira categoria (16/11, pedido do dono; só tela, sem migration) → vai no `.zip`**
   (a tela da loja vem nele).
@@ -94,6 +110,18 @@
   - Foto do pedido recebido (errado, faltando): acolhe e chama a equipe com o que a foto mostra.
   - As instruções do atendente passam à versão `.f23` (valem já, com a leitura desligada: sem descrição, nada muda).
   - Só NUVEM (o atendente é da nuvem): vale com o merge e a variável; o `.zip` leva o código sem efeito na loja.
+
+- **Segurança, segunda rodada da avaliação (16/11; SEM migration; só `.zip` — não toca `sync` nem `edge`).** Na NUVEM vale
+  com o merge; na LOJA, com o `.zip` seguinte. O que muda no servidor da loja:
+  - **O PIN só marca o ponto.** A sessão do `POST /auth/pin` (o terminal de ponto) passa a servir só para enviar a foto e
+    marcar o ponto, para qualquer nível, também no servidor da loja (antes, na loja, ela abria a API inteira). Quem tem
+    acesso à gestão entra com a senha. **Conferir depois de instalar:** bater o ponto pelo terminal com foto.
+  - O tempo real não aceita a sessão do PIN nem a de quem foi excluído ou bloqueado.
+  - O PIN confere um de cada vez por loja (em paralelo, a trava dos 10 erros deixava passar mais de 10).
+  - O código do cliente no cardápio e o do cadastro: a tentativa é reservada antes de comparar; pedir código de novo
+    dentro de um minuto não troca o código.
+  - A exportação de clientes "Excel" sai como `.xlsx` (era `.xls`); o CSV não deixa o nome do cliente virar fórmula.
+  - O guarda dos endereços que a loja cadastra recusa também as faixas especiais (NAT64, 6to4, reservadas).
 
 - **Os avisos do sistema levam a loja do registro (16/11, ERR-494; sem migration) → vai no `.zip`** (as rotinas rodam
   também no servidor da loja); na nuvem vale com o deploy.

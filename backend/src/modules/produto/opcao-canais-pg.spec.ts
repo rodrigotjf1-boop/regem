@@ -235,4 +235,25 @@ descrever('complemento por canal (Postgres real)', () => {
     await expect(produtos.fotoDaOpcao(l.t, l.op, { url } as any, ator)).rejects.toThrow(/Foto inválida/);
     await expect(produtos.fotoDaOpcao((await loja()).t, l.op, url, ator)).rejects.toThrow(/não encontrado/);
   });
+
+  it('17/11 — a foto da opção para vender (PDV): a do cadastro da opção; sem ela, a do produto do mesmo código; o Cadastros segue sem', async () => {
+    const l = await loja();
+    const fotos = async (t: string, p: string) =>
+      ((await produtos.getOne(t, p)) as any).complementos.flatMap((g: any) => g.opcoes.map((o: any) => o.imagemRef));
+    expect(await fotos(l.t, l.p)).toEqual([null]); // sem foto em lugar nenhum
+    // o produto com o mesmo código PDV (A01) tem foto: ela vale; o apagado e o de outra empresa não contam
+    await q(`insert into produto (tenant_id, nome, codigo, preco_venda, imagem_ref, deleted_at) values ($1, 'Bacon velho', 'A01', 8, 'https://x/apagado.jpg', now())`, [l.t]);
+    const outra = await loja();
+    await q(`insert into produto (tenant_id, nome, codigo, preco_venda, imagem_ref) values ($1, 'Bacon de outra', 'A01', 8, 'https://x/outra.jpg')`, [outra.t]);
+    expect(await fotos(l.t, l.p)).toEqual([null]);
+    await q(`insert into produto (tenant_id, nome, codigo, preco_venda, imagem_ref) values ($1, 'Bacon (porção)', 'A01', 8, 'https://x/produto.jpg')`, [l.t]);
+    expect(await fotos(l.t, l.p)).toEqual(['https://x/produto.jpg']);
+    // a foto da própria opção (Cadastros › Cardápio › Opções) vence a do produto
+    const url = 'https://projeto.supabase.co/storage/v1/object/public/midia/t/bacon.jpg';
+    await produtos.fotoDaOpcao(l.t, l.op, url, ator);
+    expect(await fotos(l.t, l.p)).toEqual([url]);
+    // o editor do Cadastros (sem a leitura de vender) segue como era
+    const cadastro = (await produtos.complementosDe(l.t, l.p)) as any[];
+    expect(cadastro[0].opcoes[0]).not.toHaveProperty('imagemRef');
+  });
 });
