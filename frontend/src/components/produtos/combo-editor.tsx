@@ -19,9 +19,9 @@ export function ComboEditor({
   editId: string | null;
 }) {
   return (
-    <div className="rounded-lg border border-border p-3">
+    <div className="rounded-lg border border-border p-3" role="group" aria-labelledby="combo-componentes-rotulo">
       <div className="mb-2 flex items-center justify-between">
-        <Label className="text-xs">Componentes do combo</Label>
+        <Label id="combo-componentes-rotulo" className="text-xs">Componentes do combo</Label>
         <Button type="button" variant="ghost" size="sm" onClick={() => set({ combo: [...f.combo, { componenteProdutoId: '', quantidade: '1' }] })}>
           ＋ item
         </Button>

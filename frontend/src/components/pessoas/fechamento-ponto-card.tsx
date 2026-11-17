@@ -186,16 +186,16 @@ export function FechamentoPontoCard({
           </p>
           <div className="flex flex-wrap items-end gap-2">
             <div className="min-w-[9rem] flex-1">
-              <label className="mb-1 block text-[11px] text-muted-foreground">Nome</label>
-              <Input
+              <label htmlFor="fechamento-ponto-resp-nome" className="mb-1 block text-[11px] text-muted-foreground">Nome</label>
+              <Input id="fechamento-ponto-resp-nome"
                 value={respNome}
                 onChange={(e) => setRespNome(e.target.value)}
                 placeholder="Responsável do RH"
               />
             </div>
             <div className="min-w-[9rem] flex-1">
-              <label className="mb-1 block text-[11px] text-muted-foreground">WhatsApp</label>
-              <Input
+              <label htmlFor="fechamento-ponto-resp-tel" className="mb-1 block text-[11px] text-muted-foreground">WhatsApp</label>
+              <Input id="fechamento-ponto-resp-tel"
                 value={respTel}
                 onChange={(e) => setRespTel(e.target.value)}
                 placeholder="(11) 90000-0000"

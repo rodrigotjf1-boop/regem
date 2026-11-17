@@ -1041,7 +1041,8 @@ function AbaPerfil({
                 <input id="lp-e-cep" className="c-in" inputMode="numeric" value={end.cep} onChange={(e) => setEnd({ ...end, cep: e.target.value })} onBlur={(e) => void cepBlur(e.target.value)} />
               </div>
               <div className="c-f">
-                <label>&nbsp;</label>
+                {/* espaçador do alinhamento (o CSS da .c-f usa o <label>): sem texto, fora da leitura */}
+                <label aria-hidden="true">&nbsp;</label>
                 <button type="button" className="p-btn2" onClick={usarLocalizacao}>
                   <Ic n="pin" s={16} /> Usar minha localização
                 </button>

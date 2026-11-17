@@ -84,14 +84,14 @@ export function GavetaArea({
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
-            <Label>Taxa de entrega</Label>
-            <InputMoeda value={taxa} onChange={setTaxa} disabled={!pode} ariaLabel="Taxa de entrega" />
+            <Label htmlFor="area-taxa">Taxa de entrega</Label>
+            <InputMoeda id="area-taxa" value={taxa} onChange={setTaxa} disabled={!pode} ariaLabel="Taxa de entrega" />
           </div>
           <div>
-            <Label>
+            <Label htmlFor="area-minimo">
               Pedido mínimo <span className="font-normal text-muted-foreground">(opcional)</span>
             </Label>
-            <InputMoeda value={minimo} onChange={setMinimo} disabled={!pode} ariaLabel="Pedido mínimo" placeholder="sem mínimo" />
+            <InputMoeda id="area-minimo" value={minimo} onChange={setMinimo} disabled={!pode} ariaLabel="Pedido mínimo" placeholder="sem mínimo" />
           </div>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -105,10 +105,10 @@ export function GavetaArea({
           </div>
         </div>
         <div>
-          <Label>
+          <Label htmlFor="area-frete-gratis">
             Frete grátis acima de <span className="font-normal text-muted-foreground">(opcional)</span>
           </Label>
-          <InputMoeda value={gratis} onChange={setGratis} disabled={!pode} ariaLabel="Frete grátis acima de" placeholder="segue o da loja" />
+          <InputMoeda id="area-frete-gratis" value={gratis} onChange={setGratis} disabled={!pode} ariaLabel="Frete grátis acima de" placeholder="segue o da loja" />
           <p className="mt-1 text-xs text-muted-foreground">Vazio = segue o frete grátis da loja.</p>
         </div>
         <div>

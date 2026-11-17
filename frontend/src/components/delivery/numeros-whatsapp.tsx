@@ -480,16 +480,16 @@ function CardNumero({
                 <summary className="cursor-pointer">avançado — informar o código do número manualmente</summary>
                 <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
                   <div>
-                    <Label className="text-xs">Phone Number ID</Label>
-                    <Input value={phoneId} onChange={(e) => setPhoneId(e.target.value)} placeholder="Phone Number ID" disabled={!pode} />
+                    <Label htmlFor="numero-whatsapp-phone-id" className="text-xs">Phone Number ID</Label>
+                    <Input id="numero-whatsapp-phone-id" value={phoneId} onChange={(e) => setPhoneId(e.target.value)} placeholder="Phone Number ID" disabled={!pode} />
                   </div>
                   <div>
-                    <Label className="text-xs">WABA ID</Label>
-                    <Input value={wabaId} onChange={(e) => setWabaId(e.target.value)} placeholder="WABA ID" disabled={!pode} />
+                    <Label htmlFor="numero-whatsapp-waba-id" className="text-xs">WABA ID</Label>
+                    <Input id="numero-whatsapp-waba-id" value={wabaId} onChange={(e) => setWabaId(e.target.value)} placeholder="WABA ID" disabled={!pode} />
                   </div>
                   <div>
-                    <Label className="text-xs">Número (exibir)</Label>
-                    <Input value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="5521999999999" disabled={!pode} />
+                    <Label htmlFor="numero-whatsapp-numero" className="text-xs">Número (exibir)</Label>
+                    <Input id="numero-whatsapp-numero" value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="5521999999999" disabled={!pode} />
                   </div>
                 </div>
               </details>

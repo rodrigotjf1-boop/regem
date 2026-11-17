@@ -164,8 +164,8 @@ function NovoPedidoForm({ onCancel, onCreated }: { onCancel: () => void; onCreat
             <option value="critica">Crítica</option>
           </select>
         </div>
-        <div className="space-y-1.5">
-          <Label>Fotos (até 3)</Label>
+        <div className="space-y-1.5" role="group" aria-labelledby="manutencao-fotos-rotulo">
+          <Label id="manutencao-fotos-rotulo">Fotos (até 3)</Label>
           <div className="flex flex-wrap gap-2">
             {[0, 1, 2].map((i) => (
               <div key={i} className="h-24 w-24">

@@ -15,9 +15,9 @@ export function VariacoesEditor({
   set: (patch: any) => void;
 }) {
   return (
-    <div className="rounded-lg border border-border p-3">
+    <div className="rounded-lg border border-border p-3" role="group" aria-labelledby="variacoes-rotulo">
       <div className="mb-2 flex items-center justify-between">
-        <Label className="text-xs">Variações (tamanho/unidade · grade)</Label>
+        <Label id="variacoes-rotulo" className="text-xs">Variações (tamanho/unidade · grade)</Label>
         <Button type="button" variant="ghost" size="sm" onClick={() => set({ variacoes: [...f.variacoes, { nome: '', codigo: '', precoVenda: '', fatorFicha: '1', tamanho: '', cor: '' }] })}>
           ＋ variação
         </Button>

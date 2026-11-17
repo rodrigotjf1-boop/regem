@@ -812,8 +812,8 @@ function AutenticadorAntiClone() {
               <p className="break-all font-mono text-xs text-secondary-foreground">{secret}</p>
               <div className="flex flex-wrap items-end gap-2">
                 <div>
-                  <Label className="text-xs">Código do app</Label>
-                  <Input inputMode="numeric" maxLength={6} value={codigo}
+                  <Label htmlFor="servidor-codigo" className="text-xs">Código do app</Label>
+                  <Input id="servidor-codigo" inputMode="numeric" maxLength={6} value={codigo}
                     onChange={(e) => setCodigo(e.target.value.replace(/\D/g, ''))}
                     placeholder="000000" className="w-28 font-mono" />
                 </div>

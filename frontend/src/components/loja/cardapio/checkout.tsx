@@ -1033,8 +1033,8 @@ function FormasPagamento({ c }: { c: Cardapio }) {
       </div>
       {/* Sub-opções de cartão (formas cadastradas na config do cardápio) */}
       {c.chk.forma === 'cartao' && bandeiras.length > 0 && (
-        <div className="c-f" data-campo="bandeira">
-          <label>Qual cartão?</label>
+        <div className="c-f" data-campo="bandeira" role="group" aria-labelledby="checkout-bandeira-rotulo">
+          <label id="checkout-bandeira-rotulo">Qual cartão?</label>
           <div className="m-chips">
             {bandeiras.map((b) => (
               <button key={b} type="button" aria-pressed={c.chk.bandeira === b} onClick={() => set({ bandeira: b })}>

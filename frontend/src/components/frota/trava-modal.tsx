@@ -121,7 +121,7 @@ export function TravaModal({ ativacao, onClose, onChange }: { ativacao: any; onC
                 <img src={qr} alt="QR do app autenticador" className="rounded border border-border" width={200} height={200} />
                 <p className="break-all font-mono text-[11px] text-muted-foreground">{secret}</p>
                 <div className="flex flex-wrap items-end gap-2">
-                  <div><Label className="text-xs">Código do app</Label><Input inputMode="numeric" maxLength={6} value={codigo} onChange={(e) => setCodigo(e.target.value.replace(/\D/g, ''))} placeholder="000000" className="w-28 font-mono" /></div>
+                  <div><Label htmlFor="trava-codigo" className="text-xs">Código do app</Label><Input id="trava-codigo" inputMode="numeric" maxLength={6} value={codigo} onChange={(e) => setCodigo(e.target.value.replace(/\D/g, ''))} placeholder="000000" className="w-28 font-mono" /></div>
                   <Button type="button" onClick={confirmarTotp} disabled={confirmando}>{confirmando ? 'Confirmando…' : 'Confirmar'}</Button>
                 </div>
               </div>

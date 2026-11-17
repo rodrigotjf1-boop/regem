@@ -390,8 +390,8 @@ export function ProdutoForm({
         </div>
 
         <div className="grid grid-cols-1 gap-x-4 gap-y-5 md:grid-cols-2">
-        <div className="space-y-1.5">
-          <Label>Fornecedores</Label>
+        <div className="space-y-1.5" role="group" aria-labelledby="item-estoque-fornecedores-rotulo">
+          <Label id="item-estoque-fornecedores-rotulo">Fornecedores</Label>
           <p className={ajuda}>Marque um ou mais. O 1º marcado é o principal.</p>
           {forns.length === 0 ? (
             <p className={ajuda}>Nenhum fornecedor cadastrado ainda — crie abaixo.</p>
@@ -405,8 +405,8 @@ export function ProdutoForm({
           </div>
         </div>
 
-        <div className="space-y-1.5">
-          <Label>Setores de estoque</Label>
+        <div className="space-y-1.5" role="group" aria-labelledby="item-estoque-setores-rotulo">
+          <Label id="item-estoque-setores-rotulo">Setores de estoque</Label>
           <p className={ajuda}>Onde o produto fica guardado. Pode ser mais de um; o 1º marcado é o principal.</p>
           {setores.length === 0 ? (
             <p className={ajuda}>Nenhum setor cadastrado. Os setores são criados em Cadastros.</p>
@@ -477,9 +477,9 @@ export function ProdutoForm({
         )}
 
         {/* Conversões: as duas unidades vêm da lista, não são digitadas. */}
-        <div className="space-y-2 border-t border-border pt-3">
+        <div className="space-y-2 border-t border-border pt-3" role="group" aria-labelledby="item-estoque-conversoes-rotulo">
           <div className="flex items-center justify-between gap-2">
-            <Label>Conversões</Label>
+            <Label id="item-estoque-conversoes-rotulo">Conversões</Label>
             <Button type="button" size="sm" variant="outline"
               onClick={() => setConversoes((cs) => [...cs, { unidadeDe: unidade || 'fardo', fator: '', unidadePara: unidade === 'unidade' ? 'kg' : 'unidade' }])}>
               <Plus className="h-4 w-4" /> Conversão

@@ -483,8 +483,8 @@ function TemplateEditor({ template, onSaved }: { template: any; onSaved: () => v
               )}
             </div>
             <div className="space-y-1.5">
-              <Label>Tamanho (mm)</Label>
-              <select
+              <Label htmlFor="etiquetas-is-custom">Tamanho (mm)</Label>
+              <select id="etiquetas-is-custom"
                 className={selectCls}
                 value={isCustom ? 'custom' : tamanho}
                 onChange={(e) => { if (e.target.value !== 'custom') setTamanho(e.target.value); else if (!isCustom) setTamanho(`${cw}x${ch}`); }}
@@ -556,8 +556,8 @@ function TemplateEditor({ template, onSaved }: { template: any; onSaved: () => v
         </div>
 
         {/* Prévia (E5) */}
-        <div className="space-y-1.5">
-          <Label>Prévia — {cw} × {ch} mm</Label>
+        <div className="space-y-1.5" role="group" aria-labelledby="etiquetas-previa-rotulo">
+          <Label id="etiquetas-previa-rotulo">Prévia — {cw} × {ch} mm</Label>
           <div className="flex justify-center rounded-lg border border-dashed border-border bg-secondary/30 p-4">
             {moderno && !pequenaDemais ? (
               <PreviaModerna

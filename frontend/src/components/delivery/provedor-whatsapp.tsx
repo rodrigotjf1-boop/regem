@@ -189,16 +189,16 @@ export function ProvedorWhatsapp({ pode, onEstado }: { pode: boolean; onEstado?:
       {escolha === 'cloud' && pode && (
         <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
           <div>
-            <Label className="text-xs">Identificação do número</Label>
-            <Input value={phoneId} onChange={(e) => setPhoneId(e.target.value)} placeholder="Phone Number ID" />
+            <Label htmlFor="provedor-whatsapp-phone-id" className="text-xs">Identificação do número</Label>
+            <Input id="provedor-whatsapp-phone-id" value={phoneId} onChange={(e) => setPhoneId(e.target.value)} placeholder="Phone Number ID" />
           </div>
           <div>
-            <Label className="text-xs">Conta do WhatsApp Business</Label>
-            <Input value={wabaId} onChange={(e) => setWabaId(e.target.value)} placeholder="WABA ID" />
+            <Label htmlFor="provedor-whatsapp-waba-id" className="text-xs">Conta do WhatsApp Business</Label>
+            <Input id="provedor-whatsapp-waba-id" value={wabaId} onChange={(e) => setWabaId(e.target.value)} placeholder="WABA ID" />
           </div>
           <div>
-            <Label className="text-xs">Número (só para exibir)</Label>
-            <Input value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="5521999999999" />
+            <Label htmlFor="provedor-whatsapp-numero" className="text-xs">Número (só para exibir)</Label>
+            <Input id="provedor-whatsapp-numero" value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="5521999999999" />
           </div>
           <div className="sm:col-span-3">
             <Button
