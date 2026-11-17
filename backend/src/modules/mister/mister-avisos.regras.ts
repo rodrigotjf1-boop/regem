@@ -101,7 +101,7 @@ export const TIPOS_DE_AVISO: TipoDoAviso[] = [
     tipo: 'canal_desconectado',
     grupo: 'Na loja',
     titulo: 'iFood ou 99 desconectado',
-    descricao: 'A loja parou de receber pedidos de um canal.',
+    descricao: 'A loja parou de receber pedidos de um canal, ou o chat do iFood ficou sem ninguém respondendo (a ponte do chat sem login ou sem sinal).',
     padrao: regra(['gerente', 'tela']),
     jaFunciona: true,
   },
@@ -486,6 +486,44 @@ export function situacaoDa99SemLogin(
       `Sem o login, o Regem não confirma os pedidos da 99 nem avisa a saída para entrega (código ${i.errno}). ` +
       `Conecte de novo ${noGuia('ligar-ifood-99', 'Integrações')}${botao ? `, no botão ${botao}` : ''}.`,
     dados: { canal: '99', errno: i.errno },
+  };
+}
+
+/** Os nomes que o aviso do chat cita, como estão no programa da ponte e no instalador (a spec confere nos dois — V65). */
+export const PONTE_ICONE = 'Regem · Ponte do chat';
+export const PONTE_MENU_ABRIR_IFOOD = 'Abrir o Gestor do iFood';
+export const PONTE_ATALHO = 'Regem Ponte do chat';
+
+/**
+ * O CHAT do iFood sem ninguém respondendo (16/11/2026): a ponte do chat está ligada nos ajustes, mas nenhum PC responde
+ * pelo iFood — o Gestor dentro da ponte caiu para a tela de login (`sem_login`) ou a ponte parou de dar sinal
+ * (`sem_sinal`). Na loja, em 16/11, isso durou mais de duas horas sem ninguém saber: os avisos "saiu" pararam na fila e o
+ * cliente ficou sem resposta. É o mesmo tipo do canal desconectado (vai ao gerente e à tela da loja): para quem opera, é o
+ * iFood que parou. Um aviso por loja (não por PC); o título não leva hora nem contagem, para não mudar enquanto dura.
+ * Quem chama só ABRE com pedido do iFood em andamento (`pedidos`) — a ponte desligada de madrugada não incomoda ninguém.
+ */
+export function situacaoDoChatSemResposta(
+  c: { tenantId: string; unidadeId: string | null; motivo: 'sem_login' | 'sem_sinal'; ponte: string; maquina: string | null; pedidos: number },
+  loja: string,
+): Situacao {
+  const nome = String(c.ponte ?? '').trim();
+  const pc = nome ? ` "${nome}"` : '';
+  const onde = c.maquina ? ` (${c.maquina})` : '';
+  const enquanto = 'Até lá, responda os clientes pelo Gestor de Pedidos do iFood.';
+  const pedidos = c.pedidos > 0 ? ` Há ${c.pedidos} ${c.pedidos === 1 ? 'pedido' : 'pedidos'} do iFood em andamento.` : '';
+  const semLogin = c.motivo === 'sem_login';
+  return {
+    tenantId: c.tenantId,
+    unidadeId: c.unidadeId,
+    tipo: 'canal_desconectado',
+    chave: `chat:ifood:${c.unidadeId ?? 'empresa'}`,
+    titulo: semLogin
+      ? `${loja} · chat do iFood sem resposta: a ponte do chat${pc} está sem login no iFood`
+      : `${loja} · chat do iFood sem resposta: a ponte do chat${pc} parou de dar sinal`,
+    detalhe: semLogin
+      ? `No computador da ponte${onde}, clique no ícone "${PONTE_ICONE}", perto do relógio, depois em "${PONTE_MENU_ABRIR_IFOOD}", e entre com o login da loja nessa janela (o login feito em outro navegador não vale). ${enquanto}${pedidos}`
+      : `O computador da ponte${onde} está desligado, sem internet ou com o programa fechado. Ligue o computador e abra o "${PONTE_ATALHO}" pelo atalho da Área de trabalho. ${enquanto}${pedidos}`,
+    dados: { canal: 'ifood', chat: true, motivo: c.motivo, pedidos: c.pedidos },
   };
 }
 

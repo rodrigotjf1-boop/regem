@@ -36,6 +36,9 @@ function ligarLeitor(wc, { aoChegar, aoMudarChat, diagnostico, registrarErro }) 
   const filtro = filtroDoChat();
   const sockets = new Map(); // `${sessão}|${requestId}` → endereço (só os do chat)
   const corpos = new Map();
+  // As chamadas que interessam ao diagnóstico, do pedido até a resposta: a que termina SEM resposta vira `chamada_falhou`
+  // (0.7.8 — em 16/11 a renovação do acesso do iFood ficou sem resposta e nada dizia se era a rede ou o iFood).
+  const pedidas = new Map(); // `${sessão}|${requestId}` → { metodo, url }
   const vistos = new Vistos();
   const memoria = new MemoriaDoChat(); // o que a loja já mandou em cada conversa (contra o envio em dobro)
   const historicos = new Map(); // id do pedido → quando o histórico da conversa chegou (a última vez)
@@ -113,21 +116,35 @@ function ligarLeitor(wc, { aoChegar, aoMudarChat, diagnostico, registrarErro }) 
         // abrir uma conversa = o Gestor carrega o canal dela (`…/group_channels/sendbird_gc_cm_<pedido>_<loja>`)
         const canal = /\/v3\/(?:sdk\/)?group_channels\/(sendbird_gc_cm_[0-9a-f-]+_[0-9a-f-]+)(?:[/?]|$)/i.exec(rq.url || '');
         if (canal && rq.method === 'GET') ultimoCanal = { canal: canal[1], em: Date.now() };
-        if (diagnostico && interessa(rq.url || '')) diagnostico.chamada(rq.method, rq.url);
+        if (diagnostico && interessa(rq.url || '')) {
+          diagnostico.chamada(rq.method, rq.url);
+          pedidas.set(chave(p.requestId), { metodo: rq.method, url: rq.url });
+          if (pedidas.size > 300) pedidas.delete(pedidas.keys().next().value); // teto: a chamada que nunca termina não fica para sempre
+        }
+        return;
+      }
+      if (metodo === 'Network.loadingFailed') {
+        const k = chave(p.requestId);
+        corpos.delete(k);
+        const pedida = pedidas.get(k);
+        if (!pedida) return;
+        pedidas.delete(k);
+        if (diagnostico) diagnostico.falha(pedida.metodo, pedida.url, { erro: p.errorText, cancelada: p.canceled, bloqueio: p.blockedReason });
         return;
       }
       if (metodo === 'Network.responseReceived') {
+        pedidas.delete(chave(p.requestId)); // teve resposta: não é falha de rede
         const r = p.response || {};
         const url = r.url || '';
         const historico = HISTORICO.test(url); // vale também sem o diagnóstico: é o que evita o envio em dobro
         const diag = !!diagnostico && interessa(url);
         if (!historico && !diag) return;
-        if ((p.type === 'XHR' || p.type === 'Fetch') && /json/i.test(r.mimeType || '')) corpos.set(chave(p.requestId), { url, sid, historico, diag });
+        if ((p.type === 'XHR' || p.type === 'Fetch') && /json/i.test(r.mimeType || '')) corpos.set(chave(p.requestId), { url, sid, historico, diag, status: r.status });
         else if (diag) diagnostico.anotar({ ev: 'resposta_sem_corpo', url: diagnostico.endereco(url), tipo: p.type, mime: r.mimeType, status: r.status });
         return;
       }
       if (metodo === 'Network.loadingFinished' && corpos.has(chave(p.requestId))) {
-        const { url, sid: s, historico, diag } = corpos.get(chave(p.requestId));
+        const { url, sid: s, historico, diag, status } = corpos.get(chave(p.requestId));
         corpos.delete(chave(p.requestId));
         const anotar = (o) => {
           if (diag) diagnostico.anotar(o);
@@ -149,7 +166,7 @@ function ligarLeitor(wc, { aoChegar, aoMudarChat, diagnostico, registrarErro }) 
               const doPedido = pedidoDoCanal((/group_channels\/(sendbird_gc_cm_[^/?]+)\/messages/i.exec(url) || [])[1]);
               if (doPedido) historicos.set(doPedido.toLowerCase(), Date.now());
             }
-            if (diag) diagnostico.resposta(url, j);
+            if (diag) diagnostico.resposta(url, j, status);
           })
           .catch((e) => anotar({ ev: 'corpo_falhou', url: diagnostico && diagnostico.endereco(url), sessao: Boolean(s), erro: String((e && e.message) || e).slice(0, 160) }));
       }

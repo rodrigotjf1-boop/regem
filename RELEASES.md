@@ -18,6 +18,16 @@
   - A partir da terceira seguida, ele sai do lote por 2, 4, 6… minutos (teto de 10) e segue "novo" no painel.
   - O lote passa a ter ordem: quem espera há mais tempo primeiro; o parado há mais de 12 h por último.
 
+- **O iFood sem login na ponte do chat avisa gente (16/11, ERR-497; SEM migration) → ponte 0.7.8 vai no próximo `.exe`.**
+  No 1º dia da ponte no servidor da loja o iFood dela caiu para o login e ficou mais de duas horas sem ninguém saber.
+  - **Nuvem (vale com o merge):** o aviso "iFood ou 99 desconectado" do Mister abre também com o chat do iFood sem ninguém
+    respondendo e pedido em andamento; vai ao gerente pelo WhatsApp e à tela da loja, com onde clicar.
+  - **Ponte 0.7.8 (só no `.exe`; o `.zip` não leva a ponte):** sem login por 1 minuto, mostra a janela do iFood sem tomar
+    o teclado, pisca na barra de tarefas e solta o aviso do Windows; insiste a cada 10 minutos. O diagnóstico anota a
+    chamada sem resposta e a recusa do iFood.
+  - **Antes de gerar o `.exe`:** a prova de tela da ponte (a janela aparece sem virar a janela ativa; o aviso do Windows
+    sai) — `REGEM_PONTE_LOGIN_CONFIRMAR_MS` e `REGEM_PONTE_LOGIN_REPETIR_MS` encurtam os prazos.
+
 - **O atendente lê a foto que o cliente manda no WhatsApp (16/11, pedido do dono; SEM migration; nasce DESLIGADO).** Com
   `ROBO_FOTOS_IA=1` na nuvem (o dono liga), a foto que o contexto não reconheceu como comprovante vai a um modelo de visão,
   pela porta da IA da empresa (recurso `foto_do_cliente` no medidor), e o atendente recebe o que ela mostra.

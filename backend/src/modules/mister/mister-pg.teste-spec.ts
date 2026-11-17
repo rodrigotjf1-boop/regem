@@ -167,6 +167,11 @@ class AvisosDeTeste extends MisterAvisosService {
   protected async incidentesDoVigia(so?: string[]) {
     return this.incidentes ?? super.incidentesDoVigia(so);
   }
+  /** A leitura do chat do iFood sem resposta, trocável: a lista de mentira; null = o banco de verdade. */
+  chats: any[] | null = [];
+  protected async chatsSemResposta(so?: string[]) {
+    return this.chats ?? super.chatsSemResposta(so);
+  }
 }
 
 export function testesDoMisterComPostgres(): void {
@@ -3800,6 +3805,49 @@ export function testesDoMisterComPostgres(): void {
         expect(await avisos.volta([A], agora)).toMatchObject({ abertos: 0 });
       } finally {
         await q(`delete from integracao where tenant_id = $1 and canal in ('ifood', '99food')`, [A]);
+      }
+    });
+
+    it('o chat do iFood sem resposta (a ponte sem login): só abre com pedido em andamento; aberto, segue até alguém responder; diz onde clicar', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      await janelaAberta('ana');
+      numero.pedidos.length = 0;
+      numero.enviadas.length = 0;
+      avisos.incidentes = [];
+      const chat = { tenantId: A, unidadeId: lojaDeA, loja: 'Loja Centro', motivo: 'sem_login' as const, ponte: 'Servidor com ponte', maquina: 'DESKTOP-SERVIDOR', pedidos: 0 };
+      try {
+        // Sem pedido do iFood em andamento (a loja fechada, a ponte desligada de madrugada): não incomoda ninguém.
+        avisos.chats = [chat];
+        expect(await avisos.volta([A])).toMatchObject({ situacoes: 0, abertos: 0 });
+        // Com pedido em andamento: abre, no tipo do canal desconectado (o padrão: o gerente e a tela da loja).
+        avisos.chats = [{ ...chat, pedidos: 3 }];
+        expect(await avisos.volta([A])).toMatchObject({ situacoes: 1, abertos: 1 });
+        const aviso = (await avisosDe()).find((a: any) => a.chave === `chat:ifood:${lojaDeA}`);
+        expect(aviso).toMatchObject({
+          tipo: 'canal_desconectado',
+          unidade_id: lojaDeA,
+          titulo: 'Loja Centro · chat do iFood sem resposta: a ponte do chat "Servidor com ponte" está sem login no iFood',
+        });
+        expect(aviso.detalhe).toBe(
+          'No computador da ponte (DESKTOP-SERVIDOR), clique no ícone "Regem · Ponte do chat", perto do relógio, depois em "Abrir o Gestor do iFood", ' +
+            'e entre com o login da loja nessa janela (o login feito em outro navegador não vale). Até lá, responda os clientes pelo Gestor de Pedidos do iFood. ' +
+            'Há 3 pedidos do iFood em andamento.',
+        );
+        expect(numero.enviadas).toEqual([{ para: tel, texto: expect.stringContaining('chat do iFood sem resposta'), botoes: [] }]);
+        expect(aviso.entregas.map((e: any) => [e.destino, e.ok])).toEqual(expect.arrayContaining([['gerente', true], ['tela', true]]));
+        // Os pedidos acabaram e o chat segue sem resposta: o aviso continua aberto (não "resolve" sozinho), sem abrir outro.
+        avisos.chats = [chat];
+        expect(await avisos.volta([A])).toMatchObject({ situacoes: 1, abertos: 0, resolvidos: 0 });
+        // Alguém entrou com o login na ponte: a loja some da leitura e o aviso resolve.
+        avisos.chats = [];
+        expect(await avisos.volta([A])).toMatchObject({ resolvidos: 1 });
+        // No banco de verdade deste teste as tabelas da ponte (mig 366) podem não existir: a leitura devolve nada, sem erro.
+        avisos.chats = null;
+        expect((await avisos.situacoes([A])).filter((s) => s.chave.startsWith('chat:ifood:'))).toEqual([]);
+      } finally {
+        avisos.chats = [];
+        await q(`delete from mister_aviso where tenant_id = $1 and chave like 'chat:ifood:%'`, [A]);
       }
     });
 
