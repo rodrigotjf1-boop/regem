@@ -181,6 +181,44 @@ export class VendasService {
     return { disponivel, podeEncomendar: !!p.fichaId };
   }
 
+  /**
+   * M3c (o relatório por insumo do Mister): o consumo de UMA unidade de cada produto vendido, com a variação, pela MESMA
+   * conta da baixa da venda (`acumularProduto`; só os ingredientes, sem adicionais nem a embalagem do delivery). Só lê. A
+   * chave é `produtoId|variacaoId` (vazio sem variação). Os produtos e as variações saem numa consulta cada; a ficha de
+   * cada par é explodida uma vez.
+   */
+  async consumoPorUnidade(
+    tenantId: string,
+    pares: Array<{ produtoId: string; variacaoId: string | null }>,
+  ): Promise<Map<string, Map<string, number>>> {
+    const fora = new Map<string, Map<string, number>>();
+    const ids = [...new Set(pares.map((x) => x.produtoId).filter(Boolean))];
+    if (!ids.length) return fora;
+    const produtos = await this.db
+      .select()
+      .from(produto)
+      .where(and(eq(produto.tenantId, tenantId), inArray(produto.id, ids)));
+    const porId = new Map(produtos.map((p: any) => [String(p.id), p]));
+    const variacoes = [...new Set(pares.map((x) => x.variacaoId).filter(Boolean))] as string[];
+    const fatores = new Map<string, number>();
+    if (variacoes.length) {
+      const vs = await this.db
+        .select({ id: produtoVariacao.id, fatorFicha: produtoVariacao.fatorFicha })
+        .from(produtoVariacao)
+        .where(and(eq(produtoVariacao.tenantId, tenantId), inArray(produtoVariacao.id, variacoes)));
+      for (const v of vs) fatores.set(String(v.id), Number(v.fatorFicha) || 1);
+    }
+    for (const par of pares) {
+      const chave = `${par.produtoId}|${par.variacaoId ?? ''}`;
+      const p = porId.get(par.produtoId);
+      if (fora.has(chave) || !p) continue;
+      const consumo = new Map<string, number>();
+      await this.acumularProduto(this.db, tenantId, p, par.variacaoId ? (fatores.get(par.variacaoId) ?? 1) : 1, 1, [], consumo);
+      fora.set(chave, consumo);
+    }
+    return fora;
+  }
+
   // Preview do split de atacado: por item, quanto sai no ato e quanto vira
   // encomenda, dado o estoque disponível. Somente leitura (não vende nem baixa).
   async preverEncomendaAtacado(

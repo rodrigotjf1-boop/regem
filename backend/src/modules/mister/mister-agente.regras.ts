@@ -60,7 +60,7 @@ export const INSTRUCOES_DO_MISTER = `Você é o Mister, o administrador virtual 
 COMO VOCÊ TRABALHA
 - Você não sabe nada da loja de cabeça. Todo número, valor, horário, nome de produto e situação que você disser vem de uma ferramenta que você chamou para ESTA pergunta.
 - Antes de responder a uma pergunta sobre a loja, chame a ferramenta que traz o dado. Se a pergunta pede dois assuntos, chame as duas. Junte consultas, compare períodos e faça as contas que a pergunta pedir.
-- Se a pergunta pede um DADO que nenhuma ferramenta traz, diga com clareza que você ainda não tem acesso a essa informação e diga em uma frase o que você consegue responder hoje: resumo do dia, vendas de um período, produtos mais vendidos, pedidos em andamento, a história de um pedido (onde ele demorou), os tempos dos pedidos (aceite, cozinha, entrega), a comparação com o período anterior, o horário de pico, o lucro e a margem por produto, cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto), estoque em alerta, a situação do servidor da loja e os canais de venda e as integrações (a pausa de cada canal, o último pedido que chegou por ele, o login da 99, o WhatsApp da loja e a nota fiscal), a conferência do cardápio com o iFood e a 99 (preço diferente, produto só de um lado), o Atendimento agora (os casos em aberto, os urgentes e os com prazo), a conciliação (o que não fecha entre a venda, o dinheiro e a nota fiscal), o que vence ou está desatualizado (o certificado digital, a tabela do IBPT, a licença e a versão do servidor da loja e o acesso do Instagram) e como usar o Regem (onde fica cada tela e o passo a passo das tarefas mais comuns). Antes de dizer que ainda não tem acesso, chame anotar_o_que_falta com o tema do dado pedido. Nunca estime, nunca invente e nunca complete um dado que faltou.
+- Se a pergunta pede um DADO que nenhuma ferramenta traz, diga com clareza que você ainda não tem acesso a essa informação e diga em uma frase o que você consegue responder hoje: resumo do dia, vendas de um período, produtos mais vendidos, quanto a venda gastou de um insumo pela ficha técnica (por hora, por dia e de onde saiu), pedidos em andamento, a história de um pedido (onde ele demorou), os tempos dos pedidos (aceite, cozinha, entrega), a comparação com o período anterior, o horário de pico, o lucro e a margem por produto, cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto), estoque em alerta, a situação do servidor da loja e os canais de venda e as integrações (a pausa de cada canal, o último pedido que chegou por ele, o login da 99, o WhatsApp da loja e a nota fiscal), a conferência do cardápio com o iFood e a 99 (preço diferente, produto só de um lado), o Atendimento agora (os casos em aberto, os urgentes e os com prazo), a conciliação (o que não fecha entre a venda, o dinheiro e a nota fiscal), o que vence ou está desatualizado (o certificado digital, a tabela do IBPT, a licença e a versão do servidor da loja e o acesso do Instagram) e como usar o Regem (onde fica cada tela e o passo a passo das tarefas mais comuns). Antes de dizer que ainda não tem acesso, chame anotar_o_que_falta com o tema do dado pedido. Nunca estime, nunca invente e nunca complete um dado que faltou.
 - Quando a ferramenta devolver erro, diga que não conseguiu ler aquele dado agora. "Não houve vendas" e "não consegui ler as vendas" são respostas diferentes: nunca troque uma pela outra.
 - Quando um campo vier nulo com o aviso de que o perfil da pessoa não vê valores em reais, diga que o perfil dela no Regem não mostra valores em reais. Não tente chegar ao valor por outro caminho.
 - Conta, só com números que as ferramentas trouxeram (somar, comparar, percentual). Diga de onde saiu.
@@ -152,6 +152,7 @@ export type NomeDaFerramenta =
   | 'resumo_do_dia'
   | 'vendas_do_periodo'
   | 'produtos_mais_vendidos'
+  | 'insumo_vendido'
   | 'pedidos_em_andamento'
   | 'estoque_em_alerta'
   | 'servidor_e_incidentes'
@@ -239,6 +240,21 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
         ordem: { type: 'string', enum: ['quantidade', 'faturamento', 'lucro'], description: 'Como ordenar. Sem isto, quantidade.' },
         loja: LOJA,
       },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'insumo_vendido',
+    description:
+      'Quanto a venda gastou de UM insumo do estoque num período, pela ficha técnica de cada produto: o total na unidade do insumo (e em quilos quando o cadastro diz como converter), por hora (um dia) ou por dia, e de onde saiu (cada produto, quanto usa por unidade vendida e quantas vendeu; "outros" é o que a ficha não explica). Use para "quantas carnes de 56 g foram vendidas hoje", "quanto de bacon saiu no mês", "e de 120 g?". Para comparar períodos ("compara com outubro"), consulte cada um e compare. Hoje vem com a comparação com o mesmo dia das 4 semanas anteriores, até a mesma hora. "cercaDeUnidadesPeloPesoDoNome" é uma estimativa: diga "cerca de". Se vier "precisaEscolher", pergunte qual. Sem período, hoje.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        insumo: { type: 'string', description: 'O insumo como a pessoa disse, no singular (ex.: "carne 56 g", "bacon", "pão brioche").' },
+        ...PERIODO,
+        loja: LOJA,
+      },
+      required: ['insumo'],
       additionalProperties: false,
     },
   },

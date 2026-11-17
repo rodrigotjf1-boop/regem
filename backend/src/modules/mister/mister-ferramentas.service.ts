@@ -28,6 +28,8 @@ import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.servic
 import { RelatoriosService } from '../relatorios/relatorios.service';
 import { VendasService } from '../vendas/vendas.service';
 import { pessoaVale } from './mister-vinculo.service';
+import { chaveUnidade } from '../../common/conversao-unidade';
+import { acharInsumo, comparacaoComAsSemanas, deOndeSairam, emQuilos, seriePorDia, seriePorHora } from './insumo-vendido';
 import { MisterPropostasService, PropostaPendente } from './mister-propostas.service';
 import { PROCEDIMENTOS, propostaDoAviso } from './mister-procedimentos';
 import {
@@ -391,6 +393,8 @@ export class MisterFerramentasService {
         return this.executar(e, nome, en);
       case 'propor_procedimento':
         return this.proporProcedimento(e, en, loja);
+      case 'insumo_vendido':
+        return this.insumoVendido(e, en, loja);
     }
   }
 
@@ -1156,6 +1160,111 @@ export class MisterFerramentasService {
           noDelivery: quantidade(i.qtdDelivery),
           noBalcao: quantidade(i.qtdBalcao),
         })),
+      },
+    };
+  }
+
+  /**
+   * M3c — o que a venda baixou de UM insumo no período (conversas 15 e 16 da versão 3 do protótipo; decisão 10). O total
+   * é o que a venda REALMENTE baixou: a saída de venda de cada comanda fechada no período, menos o que voltou no estorno —
+   * a MESMA definição de venda dos relatórios (comanda fechada, pela hora do fechamento, no fuso da loja). "De onde saiu"
+   * é a ficha de cada produto vendido, explodida pela mesma conta da baixa (`VendasService.consumoPorUnidade`); o que a
+   * ficha não explica fica em "outros". Um dia → por hora (e, sendo hoje, a comparação com o mesmo dia das 4 semanas
+   * anteriores até a mesma hora); mais de um → por dia.
+   */
+  private async insumoVendido(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    if (!this.pode(e, 'estoque') && !this.pode(e, 'relatorios_vendas')) return recusa(SEM_PERMISSAO);
+    const hoje = hojeISO();
+    const p = periodoDaFerramenta(en, hoje, 'hoje');
+    if ('erro' in p) return recusa(p.erro);
+    const insumos = linhas(
+      await this.db.execute(sql`
+        select id::text as id, nome, nome_comercial as "nomeComercial", unidade_medida as "unidade" from item_estoque
+         where tenant_id = ${e.tenantId}::uuid and deleted_at is null
+         order by nome limit 2000`),
+    );
+    const achado = acharInsumo(en.insumo, insumos);
+    if (achado.tipo === 'nenhum') return recusa(`Não achei esse insumo no estoque. Pergunte o nome como está em Estoque › Produtos.`);
+    if (achado.tipo === 'escolher')
+      return { ok: true, dados: { precisaEscolher: achado.opcoes, siga: 'Pergunte qual destes insumos a pessoa quis dizer, com os nomes como vieram, e consulte de novo com o escolhido.' } };
+    const insumo = insumos.find((i) => i.id === achado.id)!;
+    const umDia = p.de === p.ate;
+    const ehHoje = umDia && p.de === hoje;
+    const ate = ehHoje ? `${hoje} ${horaAgora()}:59` : `${p.ate} 23:59:59`;
+
+    // O consumo líquido do insumo por comanda fechada (a saída da venda menos o estorno), agrupado.
+    const consumo = (de: string, fim: string, grupo: 'hora' | 'dia' | 'total') =>
+      this.db.execute(sql`
+        select ${grupo === 'hora' ? sql`extract(hour from c.fechada_em at time zone ${FUSO_SQL})::int` : grupo === 'dia' ? sql`to_char(c.fechada_em at time zone ${FUSO_SQL}, 'YYYY-MM-DD')` : sql`0`} as g,
+               coalesce(sum(s.quantidade::numeric - coalesce(est.q, 0)), 0)::float as q
+          from comanda c
+          join movimento_estoque s
+            on s.tenant_id = c.tenant_id and s.ref_tipo = 'venda' and s.ref_id = c.id and s.item_id = ${insumo.id}::uuid and s.tipo = 'saida'
+          left join lateral (
+            select sum(x.quantidade::numeric) as q from movimento_estoque x
+             where x.tenant_id = c.tenant_id and x.ref_tipo = 'estorno' and x.ref_id = c.id and x.item_id = ${insumo.id}::uuid and x.tipo = 'entrada'
+          ) est on true
+         where c.tenant_id = ${e.tenantId}::uuid and c.status = 'fechada' ${sqlUnidade('c.unidade_id', loja.atual)}
+           and ${noPeriodo('c.fechada_em', de, fim)}
+         group by 1 order by 1`);
+    const grupos = linhas(await consumo(`${p.de} 00:00:00`, ate, umDia ? 'hora' : 'dia'));
+    const total = quantidade(grupos.reduce((a, l) => a + Number(l.q || 0), 0));
+
+    // Os produtos vendidos no período (produto e variação) e o consumo de uma unidade de cada, pela ficha.
+    const vendidos = linhas(
+      await this.db.execute(sql`
+        select ci.produto_id::text as "produtoId", ci.variacao_id::text as "variacaoId",
+               coalesce(p.nome, min(ci.descricao)) || coalesce(' · ' || v.nome, '') as nome, sum(ci.quantidade::numeric)::float as q
+          from comanda_item ci
+          join comanda c on c.id = ci.comanda_id
+          left join produto p on p.id = ci.produto_id and p.tenant_id = c.tenant_id
+          left join produto_variacao v on v.id = ci.variacao_id and v.tenant_id = c.tenant_id
+         where c.tenant_id = ${e.tenantId}::uuid and c.status = 'fechada' ${sqlUnidade('c.unidade_id', loja.atual)}
+           and ${noPeriodo('c.fechada_em', `${p.de} 00:00:00`, ate)} and ci.produto_id is not null
+         group by ci.produto_id, ci.variacao_id, p.nome, v.nome
+         order by q desc limit 80`),
+    );
+    const porUnidade = total > 0 ? await this.vendas.consumoPorUnidade(e.tenantId, vendidos.map((v) => ({ produtoId: v.produtoId, variacaoId: v.variacaoId ?? null }))) : new Map();
+    const origem = deOndeSairam(
+      total,
+      vendidos.map((v) => ({ produto: String(v.nome ?? ''), vendidos: Number(v.q) || 0, porUnidade: porUnidade.get(`${v.produtoId}|${v.variacaoId ?? ''}`)?.get(insumo.id) ?? 0 })),
+    );
+
+    // O total em quilos (pela conversão do cadastro) e, sendo hoje, o mesmo dia das 4 semanas anteriores até a mesma hora.
+    const conversoes = linhas(
+      await this.db.execute(sql`
+        select unidade_de as "unidadeDe", fator, unidade_para as "unidadePara" from item_conversao
+         where tenant_id = ${e.tenantId}::uuid and item_id = ${insumo.id}::uuid`),
+    );
+    const quilos = emQuilos(total, insumo.unidade, conversoes, insumo.nome);
+    let comparacao: ReturnType<typeof comparacaoComAsSemanas> = null;
+    if (umDia) {
+      const anteriores: number[] = [];
+      for (const k of [1, 2, 3, 4]) {
+        const dia = somarDias(p.de, -7 * k);
+        const [l] = linhas(await consumo(`${dia} 00:00:00`, ehHoje ? `${dia} ${horaAgora()}:59` : `${dia} 23:59:59`, 'total'));
+        anteriores.push(Number(l?.q ?? 0));
+      }
+      comparacao = comparacaoComAsSemanas(total, anteriores);
+    }
+    const nomeDoDia = umDia ? ['domingos', 'segundas', 'terças', 'quartas', 'quintas', 'sextas', 'sábados'][new Date(`${p.de}T12:00:00Z`).getUTCDay()] : null;
+    return {
+      ok: true,
+      dados: {
+        loja: loja.nome,
+        periodo: ehHoje ? `${p.rotulo}, até ${horaAgora()}` : p.rotulo,
+        insumo: insumo.nome,
+        unidadeDoEstoque: insumo.unidade,
+        total,
+        ...(quilos.kg != null && chaveUnidade(insumo.unidade) !== 'kg' ? { totalEmQuilos: quilos.kg } : {}),
+        ...(quilos.cercaDeUnidades != null ? { cercaDeUnidadesPeloPesoDoNome: quilos.cercaDeUnidades } : {}),
+        ...(umDia
+          ? { porHora: seriePorHora(grupos.map((l) => ({ hora: Number(l.g), quantidade: Number(l.q) || 0 }))) }
+          : { porDia: seriePorDia(grupos.map((l) => ({ dia: String(l.g), quantidade: Number(l.q) || 0 })), p.de, p.ate) }),
+        deOndeSaiu: origem.produtos.map((x) => ({ produto: x.produto, quantidade: x.quantidade, porUnidadeVendida: x.porUnidade, unidadesVendidas: x.vendidos })),
+        ...(origem.outros != null ? { outros: origem.outros, outrosEh: 'o que a ficha dos produtos acima não explica: outros produtos, adicionais, a embalagem do delivery ou ficha mudada no período' } : {}),
+        ...(comparacao ? { comparacao: { mediaDasUltimas4: comparacao.media, diferencaPct: comparacao.diferencaPct, contra: `${nomeDoDia} anteriores${ehHoje ? ', até a mesma hora' : ''}` } } : {}),
+        fonte: 'As vendas fechadas, baixadas pela ficha técnica de cada produto (Estoque › Fichas técnicas). O total é o que saiu do estoque; cancelamento devolve.',
       },
     };
   }
