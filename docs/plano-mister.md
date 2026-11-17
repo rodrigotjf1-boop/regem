@@ -970,6 +970,18 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
 | **M3g · Corrigir e criar** | Corrigir o que o Mister lançou e criar o que a pessoa pedir, com confirmação. |
 | **Resumo** | A tela de entrada da versão 1, que ainda não tem código. |
 
+**Andamento da M3a (17/11/2026):**
+- **Parte 1 — #1092, no ar:** `common/boleto.ts`, a linha digitável e o código de barras (bancário e arrecadação, os
+  dígitos verificadores da FEBRABAN, o fator de vencimento com a volta de 22/02/2025) e o Pix copia e cola (CRC16), sem IA.
+- **Parte 2 — #1094, no ar (mig 439 `mister_documento`, aplicada):** a foto ou o PDF pelo WhatsApp do Mister → a IA lê
+  (`claude-sonnet-5-5`, recurso `mister_documento`) → o código decide; lança sozinho só o boleto bancário que confere, de
+  fornecedor cadastrado, com "Desfazer"; o resto pergunta. Pelo `FinanceiroService` da tela. **Nasce desligado:
+  `MISTER_DOCUMENTOS=1` no `regem-api`.**
+- **Parte 3 (mig 440 `mister_conversa_config`):** o ajuste por empresa no grupo "Conversa", o texto que completa o que
+  faltou ("Lanço assim?"), a parte "Documentos" com "Desfazer o lançamento" e "Financeiro › Contas a pagar" no menu.
+- **Falta:** parte 4a (o aviso "Boleto perto de vencer" às 9h, com a linha digitável e o "Já paguei" — e o pagar/estornar
+  da tela uma vez só, ERR-506), 4b (o PDF do boleto, mandado pelo número do Mister) e 4c (o Pix lido do QR do boleto, sem IA).
+
 ## 5. O que depende do dono
 
 1. ~~Onde a IA roda~~ — decidido: nuvem.

@@ -2503,6 +2503,8 @@ const SO_NUVEM = new Set([
   // Os documentos por foto do Mister (mig 439, @cloud-only): o boleto ou a conta que chegou pelo WhatsApp do Mister, o
   // que foi lido e a conta a pagar criada. Quem lê e lança é a nuvem (a conta a pagar desce pelo sync de sempre).
   'mister_documento',
+  // Os ajustes da conversa do Mister por empresa (mig 440, @cloud-only): ligar a leitura de documentos e o modo do boleto.
+  'mister_conversa_config',
 ]);
 
 // LEGADO SEM USO: tabelas criadas nas migrations de fundação (002/003) para recursos que

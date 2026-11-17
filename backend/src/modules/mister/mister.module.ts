@@ -13,6 +13,7 @@ import { MisterSentinelaService } from './mister-sentinela.service';
 import { MisterInstrucoesService } from './mister-instrucoes.service';
 import { MisterQualidadeService } from './mister-qualidade.service';
 import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
+import { MisterConversaConfigService } from './mister-conversa-config.service';
 import { MisterNumeroService } from './mister-numero.service';
 import { MisterQrService } from './mister-qr.service';
 import { MisterVinculoService } from './mister-vinculo.service';
@@ -51,6 +52,8 @@ import { MisterVinculoService } from './mister-vinculo.service';
     MisterInstrucoesService,
     // A conexão por QR Code do número no console (Q2 e Q3, mig 437): o Evolution da distribuição, uma forma por vez.
     MisterQrService,
+    // Os ajustes da conversa por empresa (M3a parte 3, mig 440): ligar a leitura de documentos e o modo do boleto.
+    MisterConversaConfigService,
   ],
   exports: [
     MisterEntradaService,
@@ -66,6 +69,7 @@ import { MisterVinculoService } from './mister-vinculo.service';
     MisterSentinelaService,
     MisterInstrucoesService,
     MisterQrService,
+    MisterConversaConfigService,
   ],
 })
 export class MisterModule {}

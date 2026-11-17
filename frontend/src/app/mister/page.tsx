@@ -10,6 +10,7 @@ import { Partes } from '@/components/ui/partes';
 import { SkeletonList } from '@/components/ui/skeleton';
 import { NO_SERVIDOR_DA_LOJA } from '@/components/ui/so-pela-nuvem';
 import { AvisosDoMister } from '@/components/mister/avisos';
+import { DocumentosDoMister } from '@/components/mister/documentos';
 import { HistoricoDosAvisos } from '@/components/mister/historico';
 import { IaEUso } from '@/components/mister/ia-e-uso';
 import { PessoasDoMister } from '@/components/mister/pessoas';
@@ -22,8 +23,9 @@ import { PessoasDoMister } from '@/components/mister/pessoas';
 // Só na nuvem e só com o módulo ligado (ele nasce desligado, em Visão C&O › Módulos do produto).
 // O servidor é quem barra de verdade (rotas `mister/*`: gerente e presidente; `ia/*`: só o presidente); aqui a tela só explica.
 
-type Parte = 'pessoas' | 'ia' | 'avisos' | 'historico';
-const TITULO: Record<Parte, string> = { pessoas: 'Pessoas', ia: 'IA e uso', avisos: 'Avisos e relatórios', historico: 'Histórico' };
+// "Documentos" (M3a parte 3, versão 3 do protótipo aprovada em 17/11/2026): os boletos que chegaram por foto. Só o presidente.
+type Parte = 'pessoas' | 'ia' | 'avisos' | 'documentos' | 'historico';
+const TITULO: Record<Parte, string> = { pessoas: 'Pessoas', ia: 'IA e uso', avisos: 'Avisos e relatórios', documentos: 'Documentos', historico: 'Histórico' };
 
 function Aviso({ titulo, children }: { titulo: string; children: React.ReactNode }) {
   return (
@@ -56,7 +58,7 @@ export default function MisterPage() {
     setCat(c);
     // Um link pode abrir direto numa parte (`/mister?parte=ia`). Só o presidente tem a parte da IA.
     const pedida = new URLSearchParams(window.location.search).get('parte');
-    if (c === 'presidente' && (pedida === 'ia' || pedida === 'avisos' || pedida === 'historico')) setParte(pedida);
+    if (c === 'presidente' && (pedida === 'ia' || pedida === 'avisos' || pedida === 'documentos' || pedida === 'historico')) setParte(pedida);
     if ((c === 'presidente' || c === 'gerente') && !NO_SERVIDOR_DA_LOJA) void lerModulo();
   }, [lerModulo]);
 
@@ -104,13 +106,24 @@ export default function MisterPage() {
               { key: 'pessoas', label: TITULO.pessoas },
               { key: 'ia', label: TITULO.ia },
               { key: 'avisos', label: TITULO.avisos },
+              { key: 'documentos', label: TITULO.documentos },
               { key: 'historico', label: TITULO.historico },
             ]}
             ativa={aberta}
             aoEscolher={setParte}
           />
         )}
-        {aberta === 'ia' ? <IaEUso /> : aberta === 'avisos' ? <AvisosDoMister /> : aberta === 'historico' ? <HistoricoDosAvisos /> : <PessoasDoMister />}
+        {aberta === 'ia' ? (
+          <IaEUso />
+        ) : aberta === 'avisos' ? (
+          <AvisosDoMister />
+        ) : aberta === 'documentos' ? (
+          <DocumentosDoMister />
+        ) : aberta === 'historico' ? (
+          <HistoricoDosAvisos />
+        ) : (
+          <PessoasDoMister />
+        )}
       </div>
     );
   }

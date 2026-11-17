@@ -127,6 +127,35 @@ const HISTORICO = () => {
   ];
 };
 
+// A parte "Documentos" (M3a parte 3, versão 3 do protótipo aprovada em 17/11): o que o servidor devolve.
+const doc = (o) => ({
+  id: 'd1',
+  tipo: 'boleto',
+  beneficiario: 'Distribuidora Sabor Ltda.',
+  fornecedor: 'Distribuidora Sabor',
+  valorCentavos: 128490,
+  vencimento: '2026-11-25',
+  situacao: 'lancado',
+  motivo: 'sozinho',
+  origem: { valor: 'codigo', vencimento: 'codigo' },
+  linhaDigitavel: '00191.23454 67890.123457 67890.123457 7 16410000128490',
+  quem: 'Ana',
+  telefoneFinal: '4321',
+  criadoEm: '2026-11-16T22:41:00Z',
+  respondidoEm: '2026-11-16T22:41:00Z',
+  tituloId: 't1',
+  podeDesfazer: true,
+  ...o,
+});
+const DOCUMENTOS = () => [
+  doc({}),
+  doc({ id: 'd2', beneficiario: 'Gás Rio', fornecedor: null, valorCentavos: 48000, vencimento: '2026-11-30', origem: { valor: 'pessoa', vencimento: 'pessoa' }, motivo: 'informado', linhaDigitavel: null, tituloId: 't2' }),
+  doc({ id: 'd3', beneficiario: null, fornecedor: null, valorCentavos: null, vencimento: null, situacao: 'falta', motivo: 'valor,vencimento', origem: { valor: null, vencimento: null }, linhaDigitavel: null, respondidoEm: null, tituloId: null, podeDesfazer: false }),
+  doc({ id: 'd4', beneficiario: 'Light Serviços de Eletricidade S.A. — Unidade Consumidora 4102938475', fornecedor: null, valorCentavos: 31240, vencimento: '2026-12-02', situacao: 'confirmar', motivo: 'conta', origem: { valor: 'codigo', vencimento: 'ia' }, linhaDigitavel: '83640000004-5 80000123456-9 78901234567-2 89012345678-6', respondidoEm: null, tituloId: null, podeDesfazer: false }),
+  doc({ id: 'd5', beneficiario: 'Embalagens Rio', fornecedor: 'Embalagens Rio', valorCentavos: 89000, vencimento: '2026-11-12', situacao: 'pago', tituloId: 't5', podeDesfazer: false }),
+  doc({ id: 'd6', beneficiario: 'Distribuidora Sabor Ltda.', situacao: 'recusado', motivo: 'codigo_nao_confere', valorCentavos: null, vencimento: null, origem: { valor: null, vencimento: null }, linhaDigitavel: null, respondidoEm: null, tituloId: null, podeDesfazer: false }),
+];
+
 const medir = (page) =>
   page.evaluate(() => {
     const achados = [];
@@ -164,6 +193,9 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
       // o histórico (F1.4 parte B)
       historico: o.historico ?? HISTORICO(), historicoFalha: !!o.historicoFalha, diasPedidos: [],
       relatorios: o.relatorios ?? RELATORIOS_PADRAO(), salvamentosRel: [],
+      // M3a parte 3: os ajustes da conversa e a parte "Documentos"
+      conversa: o.conversa ?? { documentosLigado: true, documentosModo: 'sozinho' }, salvamentosConv: [],
+      documentos: o.documentos ?? DOCUMENTOS(), documentosFalha: !!o.documentosFalha, diasDosDocumentos: [], desfeitos: [],
     };
     const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
     await ctx.addInitScript((jwt) => localStorage.setItem('regen_token', jwt), o.token ?? PRESIDENTE);
@@ -194,6 +226,24 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
         S.cientes.push(ciente[1]);
         S.daLoja = S.daLoja.map((a) => (a.id === ciente[1] ? { ...a, ciente: true } : a));
         return responder(route, { ok: true }, 201);
+      }
+      if (p === '/mister/conversa' && metodo === 'GET') return responder(route, { conversa: S.conversa });
+      if (p === '/mister/conversa' && metodo === 'PATCH') {
+        const corpo = JSON.parse(req.postData() || '{}');
+        S.salvamentosConv.push(corpo);
+        S.conversa = { ...S.conversa, ...corpo };
+        return responder(route, { conversa: S.conversa });
+      }
+      if (p === '/mister/documentos' && metodo === 'GET') {
+        S.diasDosDocumentos.push(url.searchParams.get('dias'));
+        if (S.documentosFalha) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
+        return responder(route, { dias: Number(url.searchParams.get('dias') ?? 30), limite: 200, documentos: S.documentos });
+      }
+      const desfazer = /^\/mister\/documentos\/([^/]+)\/desfazer$/.exec(p);
+      if (desfazer && metodo === 'POST') {
+        S.desfeitos.push(desfazer[1]);
+        S.documentos = S.documentos.map((d) => (d.id === desfazer[1] ? { ...d, situacao: 'desfeito', podeDesfazer: false } : d));
+        return responder(route, { resultado: 'feito' }, 201);
       }
       if (p === '/mister/relatorios' && metodo === 'GET') return responder(route, { relatorios: S.relatorios });
       if (p === '/mister/relatorios' && metodo === 'PATCH') {
@@ -492,7 +542,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister' });
     await page.waitForSelector('text=Quem fala com o Mister', { timeout: 20000 });
     const partes = page.locator('[aria-label="Partes do Mister"] button');
-    ok((await partes.allInnerTexts()).join('|') === 'Pessoas|IA e uso|Avisos e relatórios|Histórico' && (await partes.first().getAttribute('aria-pressed')) === 'true', 'presidente: as partes "Pessoas", "IA e uso", "Avisos e relatórios" e "Histórico", abrindo em Pessoas');
+    ok((await partes.allInnerTexts()).join('|') === 'Pessoas|IA e uso|Avisos e relatórios|Documentos|Histórico' && (await partes.first().getAttribute('aria-pressed')) === 'true', 'presidente: as partes "Pessoas", "IA e uso", "Avisos e relatórios", "Documentos" e "Histórico", abrindo em Pessoas');
     ok(S.pedidos.length === 0, 'em Pessoas, a parte da IA não é lida');
     ok(/O número do Mister é \+55 21 90000-0000/.test(await page.locator('main').innerText()), 'o número do Mister, formatado, para salvar nos contatos');
     const linhas = (await page.locator('main table tbody tr').allInnerTexts()).map((l) => l.replace(/\s+/g, ' '));
@@ -774,7 +824,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t0 = await page.locator('main').innerText();
-    ok(/12 ajustes em 5 grupos/.test(t0), 'avisos: os nove avisos em quatro grupos e os três relatórios no quinto');
+    ok(/13 ajustes em 6 grupos/.test(t0), 'avisos: os nove avisos em quatro grupos, os três relatórios no quinto e a conversa (M3a) no sexto');
     ok(/Fichas novas de candidatos[\s\S]*Vai para: o presidente e quem tem a permissão Candidatos, cada um só das lojas que vê\./.test(t0), 'relatórios: o das fichas novas diz para quem vai (F4c)');
     ok(t0.includes('O de fichas novas só conta: não usa a IA.'), 'relatórios: a nota diz que o das fichas novas não usa a IA');
     ok(['Na loja', 'Servidor da loja', 'Fiscal', 'O próprio Mister'].every((g) => t0.includes(g)), 'avisos: os quatro grupos do protótipo');
@@ -880,6 +930,121 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     ok(m.length === 0, `${w}px: a gaveta "Para onde vai" inteira na tela (${m.join(' | ')})`);
     if (w === 375) await page.screenshot({ path: foto('375-avisos-gaveta.png') });
     ok(erros.length === 0, `${w}px: Avisos sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+
+  // ── M3a parte 3: o grupo "Conversa" (o ajuste dos documentos) salva pela mesma barra ──
+  {
+    const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
+    await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
+    const t = await page.locator('main').innerText();
+    ok(/13 ajustes em 6 grupos/.test(t), 'conversa: o grupo "Conversa" entra como o sexto, com um ajuste');
+    ok(/Lançar boletos por foto/.test(t) && /só o presidente manda/.test(t) && /a leitura da nota do fornecedor vem numa próxima entrega/.test(t), 'conversa: o ajuste diz o que faz, quem manda e que a nota vem depois');
+    const sel = page.locator('select:has(option:text-is("boleto: pergunta antes"))');
+    ok((await sel.inputValue()) === 'sozinho', 'conversa: o modo salvo (sozinho) vem marcado');
+    await sel.selectOption('perguntar');
+    await page.waitForSelector('text=1 alteração ainda não salva');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/conversa') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
+    ok(JSON.stringify(S.salvamentosConv[0]) === JSON.stringify({ documentosLigado: true, documentosModo: 'perguntar' }), `conversa: salvar manda o ajuste inteiro (${JSON.stringify(S.salvamentosConv[0])})`);
+    ok(S.salvamentos.length === 0 && S.salvamentosRel.length === 0, 'conversa: salvar a conversa não manda os avisos nem os relatórios');
+    await page.waitForSelector('text=Ajustes da conversa salvos.');
+    await page.click('button[role="switch"][aria-label*="Lançar boletos por foto"]');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/conversa') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
+    ok(JSON.stringify(S.salvamentosConv[1]) === JSON.stringify({ documentosLigado: false, documentosModo: 'perguntar' }), `conversa: desligar manda desligado e mantém o modo (${JSON.stringify(S.salvamentosConv[1])})`);
+    ok(erros.length === 0, `conversa: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+
+  // ── M3a parte 3: a parte "Documentos" — a lista, as situações, a gaveta e o "Desfazer o lançamento" ──
+  {
+    const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=documentos' });
+    await page.waitForSelector('#documentos-mister', { timeout: 20000 });
+    await page.locator('text=Gás Rio >> visible=true').first().waitFor();
+    const t = await page.locator('main').innerText();
+    ok(/Documentos lidos/.test(t) && /6 documentos/.test(t), 'documentos: o título com a contagem');
+    ok(S.diasDosDocumentos[0] === '30', `documentos: lê os últimos 30 dias (${S.diasDosDocumentos.join(',')})`);
+    ok(['Lançados', 'Falta informação', 'A conferir', 'Pagos', 'Não lançados'].every((s) => t.includes(s)), 'documentos: as cinco situações');
+    ok(/lido pelo código de barras/.test(t) && /valor ou vencimento ditos na conversa/.test(t) && /os números da linha não conferiram/.test(t), 'documentos: como cada um foi lido (código, conversa, a recusa com o motivo)');
+    ok(/R\$\s?1\.284,90/.test(t) && /vence 25\/11, quarta/.test(t) && /não lido/.test(t), 'documentos: o valor, o vencimento com o dia da semana e o "não lido"');
+    ok(/Ana · 16\/11 19:41/.test(t), 'documentos: quem mandou e quando (no relógio da loja)');
+    // A situação filtra.
+    await page.locator('button:has-text("Pagos")').first().click();
+    await page.locator('text=Embalagens Rio >> visible=true').first().waitFor();
+    ok((await page.locator('text=Gás Rio >> visible=true').count()) === 0, 'documentos: "Pagos" mostra só o pago');
+    await page.locator('button:has-text("Pagos")').first().click();
+    // A busca.
+    await page.fill('#docs-busca', 'light');
+    await page.locator('text=Unidade Consumidora >> visible=true').first().waitFor();
+    ok((await page.locator('text=Embalagens Rio >> visible=true').count()) === 0, 'documentos: a busca pelo fornecedor');
+    await page.fill('#docs-busca', '');
+    // O período vai ao servidor.
+    await Promise.all([page.waitForResponse((r) => r.url().includes('/mister/documentos?dias=7')), page.selectOption('#docs-periodo', '7')]);
+    ok(S.diasDosDocumentos.includes('7'), 'documentos: trocar o período lê de novo com os dias');
+    // A gaveta do lançado: os campos com a origem e o "Desfazer".
+    await page.locator('text=Distribuidora Sabor Ltda. >> visible=true').first().waitFor();
+    await page.locator('button[aria-label^="Ver"] >> visible=true').first().click();
+    const g = page.locator('[role="dialog"]');
+    await g.waitFor();
+    const tg = await g.innerText();
+    ok(/Valor[\s\S]*R\$\s?1\.284,90[\s\S]*código/.test(tg) && /Fornecedor[\s\S]*Distribuidora Sabor[\s\S]*cadastro/.test(tg) && /Linha digitável/.test(tg), 'gaveta: os campos com a origem de cada um (código, cadastro) e a linha');
+    ok(/A foto não fica guardada/.test(tg), 'gaveta: diz que a foto não fica guardada');
+    ok((await g.locator('a:has-text("Ver nas contas a pagar")').getAttribute('href')) === '/financeiro', 'gaveta: "Ver nas contas a pagar" abre o Financeiro');
+    await g.locator('button:has-text("Desfazer o lançamento")').click();
+    const d = page.locator('[role="alertdialog"]');
+    await d.waitFor();
+    ok(/A conta a pagar de R\$\s?1\.284,90 \(Distribuidora Sabor Ltda\.\) é cancelada/.test(await d.innerText()), 'desfazer: o diálogo diz o que acontece, com o valor e o nome');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/documentos/d1/desfazer')), d.locator('button:has-text("Desfazer")').click()]);
+    ok(S.desfeitos.join(',') === 'd1', 'desfazer: manda o documento certo');
+    await page.waitForSelector('[role="dialog"]', { state: 'detached' });
+    await page.locator('text=desfeito >> visible=true').first().waitFor();
+    ok(true, 'desfazer: a lista é lida de novo e mostra "desfeito"');
+    ok(erros.length === 0, `documentos: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  {
+    const vazio = await abrir(1280, 900, { caminho: '/mister?parte=documentos', documentos: [] });
+    await vazio.page.waitForSelector('text=Nenhum documento ainda', { timeout: 20000 });
+    ok(true, 'documentos: o vazio explica como mandar a foto');
+    await vazio.ctx.close();
+    const falha = await abrir(1280, 900, { caminho: '/mister?parte=documentos', documentosFalha: true });
+    await falha.page.waitForSelector('text=Não consegui carregar os documentos agora', { timeout: 20000 });
+    falha.S.documentosFalha = false;
+    await falha.page.click('button:has-text("Tentar de novo")');
+    await falha.page.locator('text=Gás Rio >> visible=true').first().waitFor();
+    ok(true, 'documentos: o erro tem "Tentar de novo", que lê de novo');
+    await falha.ctx.close();
+    const gerente = await abrir(1280, 900, { caminho: '/mister?parte=documentos', token: GERENTE });
+    await gerente.page.waitForSelector('h1', { timeout: 20000 });
+    await gerente.page.waitForTimeout(800);
+    ok(!gerente.S.doMister.some((x) => x.p === '/mister/documentos'), 'documentos: o gerente não chama a rota dos documentos');
+    await gerente.ctx.close();
+  }
+
+  // ── cada largura, DOCUMENTOS: a lista, a gaveta e o diálogo inteiros, sem barra lateral; a foto de cada cartão ──
+  for (const w of larguras) {
+    const { ctx, page, erros } = await abrir(w, w < 700 ? 820 : 900, { caminho: '/mister?parte=documentos' });
+    await page.locator('text=Gás Rio >> visible=true').first().waitFor({ timeout: 20000 });
+    let m = await medir(page);
+    ok(m.length === 0, `${w}px: Documentos — sem barra lateral e com toque grande (${m.join(' | ')})`);
+    const esmagado = await page.evaluate(() =>
+      [...document.querySelectorAll('main span, main td')].filter((s) => /^Light Serviços|lido pelo código de barras/.test(s.textContent ?? '') && s.getBoundingClientRect().width > 0 && s.getBoundingClientRect().width < 90).map((s) => Math.round(s.getBoundingClientRect().width)),
+    );
+    ok(esmagado.length === 0, `${w}px: Documentos — nenhum texto esmagado (${esmagado.join(', ')} px)`);
+    if (w === 320 || w === 375 || w === 1440) {
+      const lista = page.locator('section[aria-labelledby="documentos-mister"]');
+      await lista.scrollIntoViewIfNeeded();
+      await lista.screenshot({ path: foto(`${w}-documentos.png`) });
+    }
+    await page.locator('button[aria-label^="Ver"] >> visible=true').first().click();
+    await page.waitForSelector('[role="dialog"]');
+    m = await medir(page);
+    ok(m.length === 0, `${w}px: a gaveta do documento inteira na tela (${m.join(' | ')})`);
+    if (w === 320 || w === 375) await page.locator('[role="dialog"]').screenshot({ path: foto(`${w}-documento-gaveta.png`) });
+    await page.locator('[role="dialog"] button:has-text("Desfazer o lançamento")').click();
+    await page.waitForSelector('[role="alertdialog"]');
+    m = await medir(page);
+    ok(m.length === 0, `${w}px: o diálogo de desfazer inteiro na tela (${m.join(' | ')})`);
+    ok(erros.length === 0, `${w}px: Documentos sem erro (${erros.join(' | ')})`);
     await ctx.close();
   }
 }
