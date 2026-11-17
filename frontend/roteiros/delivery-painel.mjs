@@ -2,7 +2,7 @@
 // A API simulada. Confere: a lista nunca rola para o lado — em cada largura ela escolhe a tabela inteira, a compacta (sem o
 // código externo e a data) ou os cartões, pelo espaço que tem; nos cartões, tocar seleciona o pedido, a caixa marca sem
 // selecionar, "Todos" marca a lista e o "Ordenar" reordena; na tabela, o cabeçalho ordena e a caixa marca.
-import { responder, tokenFalso, umaLinha } from './comum.mjs';
+import { fotoDoComoFaco, responder, tokenFalso, umaLinha } from './comum.mjs';
 
 const TOKEN = tokenFalso({ cat: 'gerente', perfil: 'gerente', perm: { delivery: { ver: true, editar: true }, pedidos: { ver: true } } });
 
@@ -93,6 +93,15 @@ export default async function roteiroDeliveryPainel({ nav, base, ok, foto, largu
     await ctx.close();
   }
   ok(vistos.has('cartoes') && (vistos.has('tabela') || vistos.has('compacta')), `os degraus aparecem conforme o espaço (${[...vistos].join(', ')})`);
+
+  // ── M3d: a imagem do "como faço" de pausar um canal — 1: Delivery › Painel no menu; 2: "⏸ Pausar" (só com GERAR_COMO_FACO=1) ──
+  {
+    const { ctx, page, erros } = await abrir(1280, 800);
+    const r = await fotoDoComoFaco(page, 'pausar-canal', [page.locator('aside a[href="/delivery"] >> visible=true').first(), page.locator('button:has-text("⏸ Pausar") >> visible=true').first()]);
+    ok(r.achou.every(Boolean), `como faço (pausar-canal): as marcas estão na tela (${r.achou.join(', ')})${r.gerou ? ' — imagem gerada' : ''}`);
+    ok(erros.length === 0, `como faço: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
 
   // ── cartões (celular): tocar seleciona; a caixa marca sem selecionar; "Todos"; ordenar ──
   {

@@ -138,6 +138,8 @@ export interface ResultadoDaFerramenta {
   anexo?: { pedido: PedidoDoRelatorio; enviarPdf: boolean; grafico?: GraficoDaConversa };
   /** M3g: os botões que a resposta leva (o "Desfazer" da correção) — NÃO vão ao modelo; só pela API oficial. */
   botoes?: { id: string; titulo: string }[];
+  /** M3d: a imagem da tela do "como faço" (o endereço público do PNG dos roteiros) — NÃO vai ao modelo; vai antes do texto. */
+  imagens?: { url: string; legenda: string }[];
 }
 
 const reais = (v: unknown): number | null => {
@@ -843,11 +845,19 @@ export class MisterFerramentasService {
       if (s.soPresidente) return false;
       return s.perm ? this.pode(e, s.perm) : true;
     };
+    // M3d: a imagem da tela (o primeiro assunto que tem e que a pessoa abre) vai antes do texto, pelo endereço público.
+    const comImagem = achadas.find((s) => s.imagem && abre(s));
     return {
       ok: true,
+      ...(comImagem ? { imagens: [{ url: `${enderecoDoApp()}/como-faco/${comImagem.id}.png`, legenda: comImagem.titulo }] } : {}),
       dados: {
         encontrado: true,
         assunto,
+        ...(comImagem
+          ? {
+              imagem: `A imagem da tela vai junto da sua resposta, com os lugares numerados: ${comImagem.imagem!.map((m, i) => `${i + 1} = ${m}`).join('; ')}. Cite os números nos passos.`,
+            }
+          : {}),
         secoes: achadas.map((s) => ({
           assunto: s.titulo,
           ondeFica: s.caminho.join(' › '),

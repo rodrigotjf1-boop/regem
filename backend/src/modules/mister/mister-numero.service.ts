@@ -348,6 +348,46 @@ export class MisterNumeroService {
     return this.enviarMidia(para, png, { tipo: 'image', mime: 'image/png', arquivo: 'grafico.png', legenda });
   }
 
+  /**
+   * M3d: uma imagem PÚBLICA pelo endereço (a tela do "como faço", um PNG estático do Regem, sem dado de loja): a Meta e o
+   * Evolution buscam o arquivo; nada sobe daqui. As mesmas conferências do `enviar`. Só endereço do próprio Regem.
+   */
+  async enviarImagemPorLink(para: string, url: string, legenda = ''): Promise<{ wamid: string | null }> {
+    if (!/^https:\/\/[^/\s]+\/como-faco\/[a-z0-9-]+\.png$/.test(url)) throw new FalhaDoEnvioDoMister('meta', null, 'endereço de imagem fora do padrão');
+    const destino = soDigitos(para);
+    const n = await this.ler();
+    if (n.provedor === 'evolution') {
+      if (!destino || !n.instancia || n.instanciaSituacao !== 'conectado') throw new FalhaDoEnvioDoMister('sem_numero');
+      if (!n.ligado) throw new FalhaDoEnvioDoMister('desligado');
+      const ev = this.evolution();
+      if (!ev) throw new FalhaDoEnvioDoMister('sem_acesso');
+      await this.vezNoEvolution();
+      const res = await this.buscar(`${ev.url}/message/sendMedia/${encodeURIComponent(n.instancia)}`, {
+        method: 'POST',
+        headers: { apikey: ev.chave, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ number: destino, mediatype: 'image', mimetype: 'image/png', media: url, fileName: 'tela.png', caption: cortar(legenda, 1024) }),
+      }).catch(() => null);
+      if (!res || !res.ok) throw new FalhaDoEnvioDoMister('evolution', res?.status ?? null, res ? (await res.text().catch(() => '')).slice(0, 200) || null : null);
+      const j: any = await res.json().catch(() => ({}));
+      return { wamid: j?.key?.id ? String(j.key.id) : null };
+    }
+    if (!destino || !n.phoneId || n.situacao === 'sem') throw new FalhaDoEnvioDoMister('sem_numero');
+    if (!n.ligado) throw new FalhaDoEnvioDoMister('desligado');
+    const token = this.token();
+    if (!token) throw new FalhaDoEnvioDoMister('sem_acesso');
+    const res = await this.buscar(`${GRAPH}/${n.phoneId}/messages`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messaging_product: 'whatsapp', to: destino, type: 'image', image: { link: url, ...(legenda ? { caption: cortar(legenda, 1024) } : {}) } }),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const j: any = res ? await res.json().catch(() => ({})) : {};
+      throw new FalhaDoEnvioDoMister('meta', res?.status ?? null, String(j?.error?.error_user_msg || j?.error?.message || '').slice(0, 200) || null);
+    }
+    const j: any = await res.json().catch(() => ({}));
+    return { wamid: j?.messages?.[0]?.id ?? null };
+  }
+
   /** O documento e a imagem: as mesmas conferências do `enviar`, a mídia subida e a mensagem pelo id. */
   private async enviarMidia(
     para: string,

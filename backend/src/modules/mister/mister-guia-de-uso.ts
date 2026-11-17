@@ -44,6 +44,11 @@ export interface SecaoDoGuia {
    * caminho de menu ("›") por conta própria.
    */
   veja?: string[];
+  /**
+   * M3d: o que cada número marca na imagem da tela (`frontend/public/como-faco/<id>.png`, feita pelos roteiros com dados
+   * de exemplo — `GERAR_COMO_FACO=1`), na ordem das marcas. A spec confere que o arquivo existe.
+   */
+  imagem?: string[];
 }
 
 // ───────────────────────────── a busca ─────────────────────────────
@@ -176,6 +181,7 @@ export const GUIA_DE_USO: SecaoDoGuia[] = [
       'O aviso antes de reabrir e a mensagem ao cliente durante a pausa se ajustam nas configurações do delivery.',
     ],
     veja: ['ajustes-da-pausa'],
+    imagem: ['Delivery › Painel, no menu', 'o botão "⏸ Pausar"'],
   },
   {
     id: 'ajustes-da-pausa',

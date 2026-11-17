@@ -60,3 +60,37 @@ export const responder = (route, corpo, status = 200) =>
 
 /** Texto numa linha só, curto (para a mensagem da conferência). */
 export const umaLinha = (t, n = 160) => String(t ?? '').replace(/\s*\n\s*/g, ' / ').slice(0, n);
+
+// ── M3d: a imagem do "como faço" do Mister ──────────────────────────────────────────────────────────────────────────
+// A tela de verdade (com os dados de exemplo do roteiro — nunca dado de loja), com os lugares numerados (1, 2, 3…) num
+// contorno dourado, salva em `frontend/public/como-faco/<id>.png`: o servidor manda pelo endereço público. Só gera com
+// GERAR_COMO_FACO=1 (a imagem muda só quando a tela muda; o arquivo entra no git). Sem a variável, só confere as marcas.
+export const PASTA_DO_COMO_FACO = new URL('../public/como-faco/', import.meta.url);
+
+export async function fotoDoComoFaco(page, id, marcas) {
+  const caixas = [];
+  for (const m of marcas) caixas.push(await m.boundingBox().catch(() => null));
+  const achou = caixas.map((c) => !!c && c.width > 0 && c.height > 0);
+  if (process.env.GERAR_COMO_FACO !== '1' || achou.some((x) => !x)) return { gerou: false, achou };
+  await page.evaluate((cx) => {
+    const camada = document.createElement('div');
+    camada.id = 'marcas-do-como-faco';
+    camada.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647';
+    cx.forEach((c, i) => {
+      const contorno = document.createElement('div');
+      contorno.style.cssText = `position:fixed;left:${c.x - 4}px;top:${c.y - 4}px;width:${c.width + 8}px;height:${c.height + 8}px;border:3px solid #E2A340;border-radius:10px`;
+      const numero = document.createElement('div');
+      numero.textContent = String(i + 1);
+      numero.style.cssText = `position:fixed;left:${Math.max(2, c.x - 16)}px;top:${Math.max(2, c.y - 16)}px;width:26px;height:26px;border-radius:13px;background:#E2A340;color:#0F2230;font:700 15px/26px Arial,sans-serif;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.35)`;
+      camada.append(contorno, numero);
+    });
+    document.body.append(camada);
+  }, caixas);
+  const { fileURLToPath } = await import('node:url');
+  const { mkdirSync } = await import('node:fs');
+  const pasta = fileURLToPath(PASTA_DO_COMO_FACO);
+  mkdirSync(pasta, { recursive: true });
+  await page.screenshot({ path: `${pasta}${id}.png` });
+  await page.evaluate(() => document.getElementById('marcas-do-como-faco')?.remove());
+  return { gerou: true, achou };
+}

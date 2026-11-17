@@ -168,7 +168,8 @@ class NumeroDeMentira extends MisterNumeroService {
         if (p.corpo.type === 'document')
           return { para: p.corpo.to, texto: `documento:${p.corpo.document.filename}|${p.corpo.document.caption ?? ''}|${p.corpo.document.id}`, botoes: [] };
         // A imagem (M3c.3, o gráfico): "imagem:<id da mídia>".
-        if (p.corpo.type === 'image') return { para: p.corpo.to, texto: `imagem:${p.corpo.image.id}`, botoes: [] };
+        // M3d: a imagem pelo endereço público: "imagem:<link>".
+        if (p.corpo.type === 'image') return { para: p.corpo.to, texto: `imagem:${p.corpo.image.id ?? p.corpo.image.link}`, botoes: [] };
         return {
           para: p.corpo.to,
           texto: p.corpo.type === 'text' ? p.corpo.text.body : p.corpo.interactive.body.text,
@@ -3085,6 +3086,30 @@ export function testesDoMisterComPostgres(): void {
         if (lista) await q(`delete from contagem_lista where id = $1`, [lista]);
         await q(`delete from item_estoque where id = any($1::uuid[])`, [itens]);
       }
+    });
+
+    // ───────────────────────────── o "como faço" com a imagem da tela (M3d) ─────────────────────────────
+    it('o "como faço" com a imagem da tela (M3d): a imagem pelo endereço público antes do texto; quem não abre a tela, sem imagem', async () => {
+      comIa();
+      const tel = telefone();
+      await ligar('ana', tel);
+      numero.pedidos.length = 0;
+      await perguntar(tel, 'como eu pauso o iFood?');
+      ia.roteiro = [usar('como_usar_o_regem', { assunto: 'pausar o iFood' }), falar('Em Delivery › Painel (1), toque em "⏸ Pausar" (2).')];
+      await agente.esvaziar();
+      const base = String(process.env.APP_URL || 'https://app.dmsregem.com').replace(/\/+$/, '');
+      expect(numero.enviadas.map((m) => m.texto)).toEqual([`imagem:${base}/como-faco/pausar-canal.png`, 'Em Delivery › Painel (1), toque em "⏸ Pausar" (2).']);
+      // O modelo soube o que cada número marca (e não recebeu o endereço da imagem).
+      const resultado = JSON.parse(ia.pedidos[1].messages.at(-1).content[0].content);
+      expect(resultado.imagem).toBe('A imagem da tela vai junto da sua resposta, com os lugares numerados: 1 = Delivery › Painel, no menu; 2 = o botão "⏸ Pausar". Cite os números nos passos.');
+      expect(JSON.stringify(resultado)).not.toContain('como-faco');
+      // O endereço de fora do padrão não sai (só o PNG estático do próprio Regem).
+      await expect(numero.enviarImagemPorLink(tel, 'https://exemplo.com/foto.jpg')).rejects.toThrow();
+      // Quem não abre a tela (o perfil sem o Delivery) recebe o caminho, mas não a imagem.
+      const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+      const semDelivery = await ferramentas.executar({ ...e, nivel: 'gerente', permissoes: { ...(e.permissoes as any), delivery: false } as any }, 'como_usar_o_regem', { assunto: 'pausar o iFood' });
+      expect(semDelivery.imagens).toBeUndefined();
+      expect((semDelivery.dados as any).imagem).toBeUndefined();
     });
 
     // ───────────────────────────── o ponto esquecido (M3e) ─────────────────────────────
