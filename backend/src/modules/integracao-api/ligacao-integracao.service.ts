@@ -10,8 +10,13 @@ import { podeTrocar, TROCA_RECUSADA } from './ligacao.regras';
 import { ProblemaException } from './problema';
 import { formatoTokenIntegracao } from './token-integracao';
 import { validarTokenIntegracao } from './validar-token-integracao';
+import { credencialAntigaDesligada } from '../../common/retirada-credencial';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+/** A troca automática do token colado pela ligação, com a credencial antiga desligada (P-4 e P-8). */
+export const TROCA_AUTOMATICA_RETIRADA =
+  'A troca do token colado pela ligação foi retirada. Conecte pela autorização por clique do DMS ID (Padrão DMS §3).';
 
 /** A ligação entregue na troca: o segredo em claro sai aqui e em mais lugar nenhum. */
 export type LigacaoEntregue = {
@@ -48,6 +53,8 @@ export class LigacaoIntegracaoService {
   }
 
   async trocar(tokenIntegracao: unknown, aplicativo: string, aplicativos: Readonly<Record<string, string>>): Promise<LigacaoEntregue> {
+    // Desligado pela distribuição (P-4): sem token colado, não há o que trocar (P-8).
+    if (credencialAntigaDesligada()) throw new ProblemaException(404, 'nao-encontrado', TROCA_AUTOMATICA_RETIRADA);
     const recusar = (motivo: string): never => {
       this.log.warn(`troca automática recusada: ${motivo}`);
       throw new ProblemaException(401, 'ligacao-invalida', TROCA_RECUSADA);
