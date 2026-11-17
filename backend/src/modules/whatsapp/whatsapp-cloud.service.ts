@@ -270,6 +270,20 @@ function mascarar(tel?: string): string {
 
 
 /** Corta no limite da Meta, com "…" quando corta. */
+/**
+ * O corpo da REAÇÃO, como no exemplo da doc da Meta ("Reaction messages"): `messaging_product`, `recipient_type`, `to`,
+ * `type: reaction` e `reaction` com o `message_id` (o wamid da mensagem do cliente) e o `emoji`.
+ */
+export function corpoDaReacao(para: string, wamid: string, emoji: string) {
+  return {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: para,
+    type: 'reaction',
+    reaction: { message_id: wamid, emoji },
+  };
+}
+
 export function cortar(s: string, max: number): string {
   const t = String(s ?? '').trim();
   return t.length <= max ? t : `${t.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
@@ -982,9 +996,9 @@ export class WhatsappCloudService {
    * "Digitando…" no celular do cliente enquanto o robô pensa, e a mensagem dele fica como LIDA — o mesmo pedido faz as
    * duas coisas (doc da Meta, "Typing indicators": `status: read` + `typing_indicator`). Some quando a resposta sai ou em
    * 25 s. Só para mensagem que VAI ao robô (a Meta pede: só mostre se vai responder). Dispara e segue: nunca lança e
-   * não segura a entrada — sem ele, o robô responde igual.
+   * não segura a entrada — sem ele, o robô responde igual. Também entre os balões da resposta (`robo-resposta.service.ts`).
    */
-  private mostrarDigitando(phoneNumberId: string, wamid: string): void {
+  mostrarDigitando(phoneNumberId: string, wamid: string): void {
     if (!/^[0-9]{5,32}$/.test(phoneNumberId) || !wamid || !(process.env.WA_CLOUD_TOKEN ?? '').trim()) return;
     void fetch(`${GRAPH}/${phoneNumberId}/messages`, {
       method: 'POST',
@@ -1055,6 +1069,32 @@ export class WhatsappCloudService {
       status: json?.messages?.[0]?.message_status ?? 'accepted',
     });
     return { ok: true, id: wamid };
+  }
+
+  /**
+   * REAÇÃO a uma mensagem do cliente (17/11/2026 — a linha `REACAO:` do robô, `formato-da-resposta.ts`), com o corpo da
+   * doc da Meta (`corpoDaReacao`). Só mensagem RECEBIDA do cliente, de até 30 dias (a Meta recusa as outras com o erro
+   * 131009, pelo webhook). Não entra na caixa de conversas (não é mensagem) e a Meta só manda o status `sent`. Lança na
+   * recusa, como o envio de texto.
+   */
+  async enviarReacao(tenantId: string, numero: string, wamid: string, emoji: string) {
+    const para = soDigitos(numero);
+    if (!para) throw new BadRequestException('Número inválido.');
+    const id = String(wamid ?? '').trim();
+    const e = String(emoji ?? '').trim();
+    if (!id || !e) throw new BadRequestException('Reação sem a mensagem ou sem o emoji.');
+    const cfg = await this.cfgDoEnvio(tenantId);
+    const res = await fetch(`${GRAPH}/${cfg.waCloudPhoneId}/messages`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.token()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(corpoDaReacao(para, id, e)),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const corpo = res ? await res.text().catch(() => '') : '';
+      throw new BadRequestException(`Falha ao reagir pela Cloud API (${res?.status ?? 'sem resposta'}): ${corpo.slice(0, 200)}`);
+    }
+    const json: any = await res.json().catch(() => ({}));
+    return { ok: true, id: json?.messages?.[0]?.id ?? null };
   }
 
   // A config da loja com o número da API oficial — sem ele não há o que enviar.

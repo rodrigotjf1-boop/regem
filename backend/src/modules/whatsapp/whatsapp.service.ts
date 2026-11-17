@@ -49,6 +49,14 @@ const EVENTS = ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'];
  * `findMessages` devolve depois na caixa de conversas (a marca da fala do robô, mig 385). Lê o corpo da resposta (o `req`
  * leu uma cópia); sem corpo ou sem o id: nulo. Nunca rejeita (o envio já saiu).
  */
+/**
+ * O corpo da REAÇÃO na Evolution 2.3.7 (`SendReactionDto`: `key` da mensagem — `remoteJid`, `fromMe`, `id` — e
+ * `reaction`). A mensagem é a do CLIENTE: `fromMe: false`.
+ */
+export function corpoDaReacaoEvolution(remoteJid: string, id: string, emoji: string) {
+  return { key: { remoteJid, fromMe: false, id }, reaction: emoji };
+}
+
 async function idDaMensagemEnviada(res: Response): Promise<string | null> {
   try {
     const j: any = await res.json();
@@ -659,6 +667,30 @@ export class WhatsappService {
     if (!res || !res.ok) {
       const body = res ? await res.text().catch(() => '') : '';
       throw new BadRequestException(`Falha ao enviar (${res?.status ?? 'sem resposta'}): ${body.slice(0, 150)}`);
+    }
+    return { ok: true, id: await idDaMensagemEnviada(res) };
+  }
+
+  /**
+   * REAÇÃO a uma mensagem do cliente (17/11/2026 — a linha `REACAO:` do robô, `formato-da-resposta.ts`):
+   * `POST /message/sendReaction/<instância>` com o corpo do `SendReactionDto` da Evolution 2.3.7 (`corpoDaReacaoEvolution`).
+   * `jid` = a conversa como a Evolution mandou (pode ser `@lid`); sem ele, o número em `@s.whatsapp.net`. Lança na recusa.
+   */
+  async enviarReacao(tenantId: string, numero: string, mensagemId: string, jid: string | null | undefined, emoji: string) {
+    const id = String(mensagemId ?? '').trim();
+    const e = String(emoji ?? '').trim();
+    if (!id || !e) throw new BadRequestException('Reação sem a mensagem ou sem o emoji.');
+    const number = this.soNumero(numero);
+    const remoteJid = String(jid ?? '').trim() || (number ? `${number}@s.whatsapp.net` : '');
+    if (!remoteJid) throw new BadRequestException('Número inválido.');
+    const { instancia } = await this.instanciaDe(tenantId);
+    const res = await this.req(`/message/sendReaction/${instancia}`, {
+      method: 'POST',
+      body: JSON.stringify(corpoDaReacaoEvolution(remoteJid, id, e)),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const body = res ? await res.text().catch(() => '') : '';
+      throw new BadRequestException(`Falha ao reagir (${res?.status ?? 'sem resposta'}): ${body.slice(0, 150)}`);
     }
     return { ok: true, id: await idDaMensagemEnviada(res) };
   }

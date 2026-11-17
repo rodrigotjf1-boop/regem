@@ -31,12 +31,23 @@ import {
   fotoServe,
   legendaDoProduto,
   linkComProduto,
+  idDaUltimaDoCliente,
   pedeFoto,
   perguntaDoCliente,
   produtoDoLink,
   produtosDaLoja,
 } from './foto-do-produto';
 import { buscarUrlPublica } from '../../common/ssrf-guard';
+import {
+  Reacao,
+  baloesLigados,
+  emBaloes,
+  paraOWhatsapp,
+  pausaAntesDoBalao,
+  semFormatacao,
+  separarOpcoesSoltas,
+  separarReacao,
+} from './formato-da-resposta';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -55,9 +66,47 @@ export type PedidoDeResposta = {
   botaoLista?: string;
   /** Nota de voz (OGG/Opus na API oficial; qualquer formato na Evolution, que converte). */
   audio?: { base64?: string; mime?: string };
+  /**
+   * O id da mensagem do cliente a que esta resposta responde (o fluxo 2.3 do n8n manda — 17/11/2026): a reação da linha
+   * `REACAO:` e o "digitando…" entre os balões. Sem ele, na API oficial vale a última mensagem do cliente gravada; na
+   * Evolution não há reação.
+   */
+  responderA?: string;
+  /** Evolution: o jid da conversa como ela mandou (pode ser `@lid`) — a reação vai a ele. */
+  jid?: string;
 };
 
 const soDigitos = (v: unknown) => String(v ?? '').split('@')[0].split(':')[0].replace(/\D/g, '');
+
+/** O id de mensagem que dá para usar (wamid da Meta ou `key.id` da Evolution). */
+const idDeMensagem = (v: unknown): string | null => {
+  const t = String(v ?? '').trim();
+  return /^[A-Za-z0-9._:=+/-]{6,200}$/.test(t) ? t : null;
+};
+
+/**
+ * O que o robô mandou, pronto para o canal (17/11/2026 — `formato-da-resposta.ts`): as linhas de controle saem (`REACAO:`
+ * vira a reação; `OPCOES:` fora da última linha vira as opções, quando o n8n não mandou nenhuma), o texto ganha o formato
+ * do canal e o título das opções fica sem formatação (botão e lista não mostram negrito).
+ */
+export function lerResposta(p: PedidoDeResposta | undefined, formatar: (t: unknown) => string): { texto: string; opcoes: Opcao[]; reacao: Reacao | null } {
+  const { texto: semReacao, reacao } = separarReacao(p?.texto);
+  const soltas = separarOpcoesSoltas(semReacao);
+  const pedidas = Array.isArray(p?.opcoes) ? (p?.opcoes as Opcao[]) : [];
+  const opcoes = (pedidas.length ? pedidas : soltas.opcoes).map((o: any) =>
+    o && typeof o === 'object' ? { ...o, titulo: semFormatacao(o.titulo), ...(o.descricao ? { descricao: semFormatacao(o.descricao) } : {}) } : o,
+  );
+  return { texto: formatar(soltas.texto).trim(), opcoes: opcoesValidas(opcoes), reacao };
+}
+
+/**
+ * A resposta para um canal SEM formatação e sem reação (Direct, Messenger, chat do iFood e da 99, comentário): o texto
+ * sem negrito; só a reação, sem texto nem opções = o emoji como texto.
+ */
+function semFormatacaoNoCanal(p: PedidoDeResposta | undefined): { bruto: string; opcoes: Opcao[] } {
+  const lida = lerResposta(p, semFormatacao);
+  return { bruto: lida.texto || (lida.reacao && !lida.opcoes.length ? lida.reacao : ''), opcoes: lida.opcoes };
+}
 
 /**
  * O AVISO DE QUE CHAMOU ALGUÉM (30/10/2026, ligando o robô na loja piloto): o robô chama o atendente pela ferramenta e,
@@ -147,19 +196,23 @@ export class RoboRespostaService {
 
     const para = soDigitos(p?.para);
     if (!para) throw new BadRequestException('Número inválido.');
+    // .f25 (17/11/2026): as linhas de controle saem e o texto ganha a formatação do WhatsApp (formato-da-resposta.ts) —
+    // antes do filtro de links, que confere os endereços no texto já arrumado.
+    const lida = lerResposta(p, paraOWhatsapp);
+    const bruto = lida.texto;
+    const reacao = lida.reacao;
     // Só o link do cardápio da loja sai (o modelo já escreveu o endereço da loja em outros sistemas — links-do-robo.ts).
-    const bruto = String(p?.texto ?? '').trim();
     const { texto, trocados } = cfg.token
       ? soLinksDaLoja(bruto, linkDoCardapioDaLoja(cfg.token), [cfg.site, cfg.instagram ? 'instagram.com' : null])
       : { texto: bruto, trocados: 0 };
     if (trocados) this.logger.warn(`resposta do robô: ${trocados} link(s) de fora trocado(s) pelo do cardápio (${via})`);
-    const opcoes = opcoesValidas(p?.opcoes ?? []);
+    const opcoes = lida.opcoes;
     const audio = String(p?.audio?.base64 ?? '').trim();
     // A RESPOSTA EM ANDAMENTO (16/11/2026 — `resposta-em-andamento.ts`): esta resposta encerra a da conversa, em todo
     // caminho de saída. A que não sai (vazia, robô desligado, conversa com uma pessoa) solta o que o cliente mandou
     // enquanto ela era preparada; a que sairia, mas ficou velha (o cliente escreveu depois que ela começou), é descartada e
     // tudo vai de novo ao robô — o cliente recebe UMA resposta, que considera tudo.
-    if (!texto && !opcoes.length && !audio) {
+    if (!texto && !opcoes.length && !audio && !reacao) {
       fimDaResposta(loja.tenantId, para, false);
       throw new BadRequestException('Nada para enviar (texto, opções ou áudio).');
     }
@@ -183,7 +236,18 @@ export class RoboRespostaService {
     // caixa de conversas oferecer "Corrigir" nela (mig 385). Anotada no `finally`: o que já saiu fica marcado mesmo se o
     // envio seguinte falhar; a anotação nunca derruba a resposta (mensagens-do-robo.ts).
     const ids: (string | null)[] = [];
+    // Os BALÕES (17/11/2026, `ROBO_BALOES=1` — nasce desligado): a resposta longa com parágrafos sai em até 3 mensagens, com
+    // o "digitando…" antes de cada uma. Não com a voz nem com o botão do link (uma mensagem só, como antes).
+    const partes = baloesLigados() && !audio ? emBaloes(texto) : [texto];
     try {
+      // A REAÇÃO (a linha `REACAO:`) vai antes do texto. Não deu para reagir e não há mais nada: o emoji vai como texto.
+      if (reacao) {
+        if (await this.reagir(via, loja.tenantId, para, p, reacao)) enviados.push('reacao');
+        else if (!texto && !opcoes.length && !audio) {
+          ids.push(idDoEnvio(await this.enviarTexto(via, loja.tenantId, para, reacao)));
+          enviados.push('texto');
+        }
+      }
       if (audio) {
         const r =
           via === 'cloud'
@@ -213,18 +277,21 @@ export class RoboRespostaService {
         ids.push(idDoEnvio(r));
         enviados.push(r?.comFoto ? 'botao_link_com_foto' : 'botao_link');
       } else if (opcoes.length) {
+        // Com balões, os de antes vão como texto e o último leva as opções.
+        const ultimo = await this.baloesAntesDoUltimo(via, loja.tenantId, para, p, partes, ids, enviados);
         if (via === 'cloud' && opcoes.length <= 10) {
-          ids.push(idDoEnvio(await this.cloud.enviarOpcoes(loja.tenantId, para, texto, opcoes, p?.botaoLista)));
+          ids.push(idDoEnvio(await this.cloud.enviarOpcoes(loja.tenantId, para, ultimo, opcoes, p?.botaoLista)));
           enviados.push(cabeEmBotoes(opcoes) ? 'botoes' : 'lista');
         } else if (via === 'evolution' && p?.opcoesComo === 'enquete' && opcoes.length >= 2 && opcoes.length <= 12) {
-          ids.push(idDoEnvio(await this.evolution.enviarEnquete(loja.tenantId, para, texto, opcoes.map((o) => o.titulo))));
+          ids.push(idDoEnvio(await this.evolution.enviarEnquete(loja.tenantId, para, ultimo, opcoes.map((o) => o.titulo))));
           enviados.push('enquete');
         } else {
-          ids.push(idDoEnvio(await this.enviarTexto(via, loja.tenantId, para, menuNumerado(texto, opcoes))));
+          ids.push(idDoEnvio(await this.enviarTexto(via, loja.tenantId, para, menuNumerado(ultimo, opcoes))));
           enviados.push('menu_numerado');
         }
       } else if (texto) {
-        ids.push(idDoEnvio(await this.enviarTexto(via, loja.tenantId, para, texto)));
+        const ultimo = await this.baloesAntesDoUltimo(via, loja.tenantId, para, p, partes, ids, enviados);
+        ids.push(idDoEnvio(await this.enviarTexto(via, loja.tenantId, para, ultimo)));
         enviados.push('texto');
       }
     } finally {
@@ -315,8 +382,7 @@ export class RoboRespostaService {
     const alvo = await this.instagram.alvoDoRobo(p?.instancia, p?.para);
     if (!alvo.ligado) return { ok: true, enviado: false, motivo: alvo.motivo };
     const link = linkDoCardapioDaLoja(alvo.cardapio.token);
-    const bruto = String(p?.texto ?? '').trim();
-    const opcoes = opcoesValidas(p?.opcoes ?? []);
+    const { bruto, opcoes } = semFormatacaoNoCanal(p);
     const temAudio = !!String(p?.audio?.base64 ?? '').trim();
     if (!bruto && !opcoes.length && !temAudio) throw new BadRequestException('Nada para enviar (texto, opções ou áudio).');
     const { texto: daLoja, trocados } = soLinksDaLoja(bruto, link, [alvo.cardapio.site, alvo.cardapio.instagram ? 'instagram.com' : null]);
@@ -337,8 +403,7 @@ export class RoboRespostaService {
     const alvo = await this.messenger.alvoDoRobo(p?.instancia, p?.para);
     if (!alvo.ligado) return { ok: true, enviado: false, motivo: alvo.motivo };
     const link = linkDoCardapioDaLoja(alvo.cardapio.token);
-    const bruto = String(p?.texto ?? '').trim();
-    const opcoes = opcoesValidas(p?.opcoes ?? []);
+    const { bruto, opcoes } = semFormatacaoNoCanal(p);
     const temAudio = !!String(p?.audio?.base64 ?? '').trim();
     if (!bruto && !opcoes.length && !temAudio) throw new BadRequestException('Nada para enviar (texto, opções ou áudio).');
     const { texto: daLoja, trocados } = soLinksDaLoja(bruto, link, [alvo.cardapio.site, alvo.cardapio.instagram ? 'instagram.com' : null]);
@@ -356,9 +421,9 @@ export class RoboRespostaService {
    */
   private async responderNoComentario(p: PedidoDeResposta): Promise<RespostaDoRobo> {
     if (!this.instagram) throw new NotFoundException('Instagram indisponível.');
-    const bruto = String(p?.texto ?? '').trim();
+    const { bruto, opcoes } = semFormatacaoNoCanal(p);
     const temAudio = !!String(p?.audio?.base64 ?? '').trim();
-    if (!bruto && !opcoesValidas(p?.opcoes ?? []).length && !temAudio) throw new BadRequestException('Nada para enviar (texto, opções ou áudio).');
+    if (!bruto && !opcoes.length && !temAudio) throw new BadRequestException('Nada para enviar (texto, opções ou áudio).');
     return this.instagram.comentarios.responderDoRobo([p?.instancia, p?.para], bruto, temAudio);
   }
 
@@ -370,8 +435,7 @@ export class RoboRespostaService {
    * sai no chat: nem o do cardápio (a trava barra; as instruções do chat já dizem para não mandar).
    */
   private async responderNoChat(p: PedidoDeResposta): Promise<RespostaDoRobo> {
-    const bruto = String(p?.texto ?? '').trim();
-    const opcoes = opcoesValidas(p?.opcoes ?? []);
+    const { bruto, opcoes } = semFormatacaoNoCanal(p);
     const temAudio = !!String(p?.audio?.base64 ?? '').trim();
     if (!bruto && !opcoes.length && !temAudio) throw new BadRequestException('Nada para enviar (texto, opções ou áudio).');
     const texto = opcoesNoChat(bruto, opcoes);
@@ -391,10 +455,17 @@ export class RoboRespostaService {
     if (ids.some((id) => !id) || new Set(ids).size !== 1) throw new BadRequestException('Conversa de teste inválida.');
     const teste = await testeDaChave(this.db, chaveDoTeste(ids[0] as string));
     if (!teste) throw new NotFoundException('Conversa de teste não encontrada.');
-    const bruto = String(p?.texto ?? '').trim();
-    const opcoes = opcoesValidas(p?.opcoes ?? []);
+    // O MESMO formato do caminho de verdade (17/11/2026 — V74): no WhatsApp, a formatação dele e a reação (uma linha
+    // 'sistema' diz que o atendente reagiu); nos outros canais, sem formatação e o emoji como texto.
+    const noWhatsapp = teste.canal === 'whatsapp';
+    const lida = noWhatsapp ? lerResposta(p, paraOWhatsapp) : null;
+    const { bruto, opcoes } = lida ? { bruto: lida.texto, opcoes: lida.opcoes } : semFormatacaoNoCanal(p);
     const temAudio = !!String(p?.audio?.base64 ?? '').trim();
-    if (!bruto && !opcoes.length && !temAudio) throw new BadRequestException('Nada para enviar (texto, opções ou áudio).');
+    if (!bruto && !opcoes.length && !temAudio && !lida?.reacao) throw new BadRequestException('Nada para enviar (texto, opções ou áudio).');
+    if (lida?.reacao) {
+      await gravarMensagem(this.db, teste, { autor: 'sistema', texto: `O atendente reagiu com ${lida.reacao} à mensagem do cliente.` });
+      if (!bruto && !opcoes.length && !temAudio) return { ok: true, enviado: true };
+    }
     // O teste do CHAT DO iFOOD (F5, mig 383): a MESMA trava do caminho de verdade (`travaDaPlataforma`, V74) — as opções
     // numeradas na linha, as partes que sairiam (uma linha de robô por parte); barrada, o texto do robô fica (para o gerente
     // ver o que ele escreveu) e uma linha 'sistema' diz o motivo e o que iria no lugar.
@@ -422,8 +493,69 @@ export class RoboRespostaService {
       if (teste.canal === 'direct') texto = comOrigemDoDirect(texto, link).trim();
     }
     if (!texto && temAudio) texto = AUDIO_NO_TESTE;
-    await gravarMensagem(this.db, teste, { autor: 'robo', texto, opcoes });
+    // Os balões, como sairiam no WhatsApp (`ROBO_BALOES=1`): uma linha do robô por balão, as opções no último.
+    const partes = noWhatsapp && baloesLigados() && !temAudio ? emBaloes(texto) : [texto];
+    for (let i = 0; i < partes.length - 1; i++) await gravarMensagem(this.db, teste, { autor: 'robo', texto: partes[i] });
+    await gravarMensagem(this.db, teste, { autor: 'robo', texto: partes[partes.length - 1] ?? '', opcoes });
     return { ok: true, enviado: true };
+  }
+
+  /** Para o teste não esperar de verdade entre os balões. */
+  private esperar = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+  /**
+   * Os balões antes do último vão como texto, cada um seguido do "digitando…" e da pausa pelo tamanho do próximo
+   * (`pausaAntesDoBalao`); devolve o último, que o chamador manda (sozinho ou com as opções). Um balão só = nada sai aqui.
+   */
+  private async baloesAntesDoUltimo(
+    via: 'cloud' | 'evolution',
+    tenantId: string,
+    para: string,
+    p: PedidoDeResposta,
+    partes: string[],
+    ids: (string | null)[],
+    enviados: string[],
+  ): Promise<string> {
+    for (let i = 0; i < partes.length - 1; i++) {
+      ids.push(idDoEnvio(await this.enviarTexto(via, tenantId, para, partes[i])));
+      enviados.push('texto');
+      const ms = pausaAntesDoBalao(partes[i + 1]);
+      if (via === 'cloud') {
+        const wamid = await this.idDaMensagemDoCliente(tenantId, para, p);
+        if (wamid) this.cloud.mostrarDigitando(String(p?.phoneNumberId ?? ''), wamid);
+      } else this.evolution.mostrarDigitando(String(p?.instancia ?? ''), para, ms);
+      await this.esperar(ms);
+    }
+    return partes[partes.length - 1] ?? '';
+  }
+
+  /** A mensagem do cliente a que o robô reage: a que o n8n disse (`responderA`) ou, na API oficial, a última gravada. */
+  private async idDaMensagemDoCliente(tenantId: string, para: string, p: PedidoDeResposta): Promise<string | null> {
+    const pedida = idDeMensagem(p?.responderA);
+    if (pedida) return pedida;
+    return idDaUltimaDoCliente(this.db, tenantId, para).catch((e: any) => {
+      this.logger.warn(`última mensagem do cliente não lida (sem reação/"digitando"): ${e?.message ?? e}`);
+      return null;
+    });
+  }
+
+  /** Reage à mensagem do cliente. Devolve se reagiu; a recusa vai para o log e nunca derruba a resposta. */
+  private async reagir(via: 'cloud' | 'evolution', tenantId: string, para: string, p: PedidoDeResposta, emoji: Reacao): Promise<boolean> {
+    try {
+      if (via === 'cloud') {
+        const wamid = await this.idDaMensagemDoCliente(tenantId, para, p);
+        if (!wamid) return false;
+        await this.cloud.enviarReacao(tenantId, para, wamid, emoji);
+      } else {
+        const id = idDeMensagem(p?.responderA);
+        if (!id) return false;
+        await this.evolution.enviarReacao(tenantId, para, id, p?.jid, emoji);
+      }
+      return true;
+    } catch (e: any) {
+      this.logger.warn(`reação do robô não saiu (${via}) de=***${para.slice(-4)}: ${e?.message ?? e}`);
+      return false;
+    }
   }
 
   private enviarTexto(via: 'cloud' | 'evolution', tenantId: string, para: string, texto: string) {

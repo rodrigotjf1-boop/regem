@@ -4,8 +4,12 @@ import {
   RoboRespostaService,
   avisoDoChamadoLiberado,
   esquecerAvisosDeChamado,
+  lerResposta,
   menuNumerado,
 } from './robo-resposta.service';
+import { semFormatacao } from './formato-da-resposta';
+import { corpoDaReacao } from './whatsapp-cloud.service';
+import { corpoDaReacaoEvolution } from './whatsapp.service';
 import { MARCA_DA_RESPOSTA_SEGURADA, entregarSegurando, esquecerAndamentos } from './resposta-em-andamento';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -37,6 +41,8 @@ function montar(cfg: any, linhaPausa?: any, dados: { produtos?: any[]; conversa?
     enviar: async (...a: any[]) => chamadas.push(['evo.texto', ...a.slice(1)]),
     enviarEnquete: async (...a: any[]) => chamadas.push(['evo.enquete', ...a.slice(1)]),
     enviarAudio: async (...a: any[]) => chamadas.push(['evo.voz', a[1]]),
+    enviarReacao: async (...a: any[]) => chamadas.push(['evo.reacao', a[1], a[2], a[3], a[4]]),
+    mostrarDigitando: (...a: any[]) => chamadas.push(['evo.digitando', a[0], a[1]]),
   };
   const cloud: any = {
     enviarTexto: async (...a: any[]) => chamadas.push(['cloud.texto', ...a.slice(1)]),
@@ -47,9 +53,12 @@ function montar(cfg: any, linhaPausa?: any, dados: { produtos?: any[]; conversa?
       chamadas.push(['cloud.link', a[1], a[2], a[3], a[4]]);
       return { ok: true, comFoto: !!a[5] };
     },
+    enviarReacao: async (...a: any[]) => chamadas.push(['cloud.reacao', a[1], a[2], a[3]]),
+    mostrarDigitando: (...a: any[]) => chamadas.push(['cloud.digitando', a[0], a[1]]),
   };
   const svc = new RoboRespostaService(db, evolution, cloud);
   (svc as any).logger = { log() {}, warn() {} };
+  (svc as any).esperar = async () => undefined; // os balões não esperam de verdade no teste
   // A foto "serve" sem ir à rede (JPEG pequeno).
   (svc as any).buscarFoto = async () => ({
     status: 206,
@@ -332,5 +341,153 @@ describe('resposta do robô — como cada via mostra', () => {
     expect(menuNumerado('', [{ titulo: 'A', descricao: 'primeira' }, { titulo: ' ' }, { titulo: 'B' }])).toBe(
       '1) A — primeira\n2) B\n\nResponda com o número da opção.',
     );
+  });
+});
+
+// .f25 (17/11/2026 — pedido do dono: "respostas arrumadas e formatadas com emoticons"): o formato de cada canal, a linha
+// REACAO e os balões, todos na porta única (formato-da-resposta.ts).
+describe('resposta do robô — formato, reação e balões (17/11/2026)', () => {
+  const antes = { segredo: process.env.BOT_RESOLVER_SECRET, baloes: process.env.ROBO_BALOES };
+  beforeAll(() => (process.env.BOT_RESOLVER_SECRET = SENHA));
+  afterEach(() => {
+    esquecerAndamentos();
+    if (antes.baloes === undefined) delete process.env.ROBO_BALOES;
+    else process.env.ROBO_BALOES = antes.baloes;
+  });
+  afterAll(() => {
+    if (antes.segredo === undefined) delete process.env.BOT_RESOLVER_SECRET;
+    else process.env.BOT_RESOLVER_SECRET = antes.segredo;
+  });
+
+  it('WhatsApp: o markdown do modelo sai no jeito do WhatsApp (negrito com um asterisco, lista com "•")', async () => {
+    const { svc, chamadas } = montar(LOJA_EVO);
+    await svc.responder(SENHA, { instancia: 'i', para: TEL, texto: '## Lanches\n- **X-Bacon** — R$ 32,90\n- **X-Salada** — R$ 28,00' });
+    expect(chamadas).toEqual([['evo.texto', TEL, '*Lanches*\n• *X-Bacon* — R$ 32,90\n• *X-Salada* — R$ 28,00']]);
+  });
+
+  it('a linha OPCOES perdida no meio vira as opções (o n8n só tira a da última linha); o título fica sem negrito', async () => {
+    const { svc, chamadas } = montar(LOJA_CLOUD);
+    await svc.responder(SENHA, { phoneNumberId: '123456', para: TEL, texto: 'Quer no trio?\nOPCOES: **Sim, no trio** | Só o lanche\nREACAO: 🍆' });
+    expect(chamadas).toEqual([['cloud.opcoes', TEL, 'Quer no trio?', 2]]);
+    const lida = lerResposta({ texto: 'x', opcoes: [{ titulo: '**Sim**', descricao: '_com batata_' }] }, semFormatacao);
+    expect(lida.opcoes).toEqual([{ id: '1', titulo: 'Sim', descricao: 'com batata' }]);
+  });
+
+  it('API oficial: REACAO reage à mensagem que o n8n disse e o texto vai depois; só a reação = só ela', async () => {
+    const a = montar(LOJA_CLOUD);
+    expect(await a.svc.responder(SENHA, { phoneNumberId: '123456', para: TEL, responderA: 'wamid.ABC123=', texto: 'De nada! Volte sempre.\nREACAO: ❤️' })).toEqual({
+      ok: true,
+      enviado: true,
+      enviados: ['reacao', 'texto'],
+    });
+    expect(a.chamadas).toEqual([
+      ['cloud.reacao', TEL, 'wamid.ABC123=', '❤️'],
+      ['cloud.texto', TEL, 'De nada! Volte sempre.'],
+    ]);
+    const b = montar(LOJA_CLOUD);
+    expect(await b.svc.responder(SENHA, { phoneNumberId: '123456', para: TEL, responderA: 'wamid.ABC123=', texto: 'REACAO: 👍' })).toEqual({
+      ok: true,
+      enviado: true,
+      enviados: ['reacao'],
+    });
+    expect(b.chamadas).toEqual([['cloud.reacao', TEL, 'wamid.ABC123=', '👍']]);
+  });
+
+  it('API oficial sem o responderA (fluxo antigo): reage à última mensagem do cliente gravada', async () => {
+    const { svc, chamadas } = montar(LOJA_CLOUD, undefined, { conversa: [{ wamid: 'wamid.ULTIMA1' }] });
+    await svc.responder(SENHA, { phoneNumberId: '123456', para: TEL, texto: 'REACAO: 🙏' });
+    expect(chamadas).toEqual([['cloud.reacao', TEL, 'wamid.ULTIMA1', '🙏']]);
+  });
+
+  it('Evolution: reage com o id e o jid que o n8n mandou; sem o id e sem texto, o emoji vai como texto', async () => {
+    const a = montar(LOJA_EVO);
+    await a.svc.responder(SENHA, { instancia: 'i', para: TEL, responderA: 'ABCDEF123', jid: '999@lid', texto: 'REACAO: 👍' });
+    expect(a.chamadas).toEqual([['evo.reacao', TEL, 'ABCDEF123', '999@lid', '👍']]);
+    const b = montar(LOJA_EVO);
+    expect(await b.svc.responder(SENHA, { instancia: 'i', para: TEL, texto: 'REACAO: ❤' })).toEqual({ ok: true, enviado: true, enviados: ['texto'] });
+    expect(b.chamadas).toEqual([['evo.texto', TEL, '❤️']]);
+  });
+
+  it('a reação recusada nunca derruba a resposta: o texto sai igual', async () => {
+    const { svc, chamadas } = montar(LOJA_CLOUD);
+    (svc as any).cloud.enviarReacao = async () => {
+      throw new Error('131009');
+    };
+    expect(await svc.responder(SENHA, { phoneNumberId: '123456', para: TEL, responderA: 'wamid.ABC123=', texto: 'Obrigado você!\nREACAO: 😊' })).toEqual({
+      ok: true,
+      enviado: true,
+      enviados: ['texto'],
+    });
+    expect(chamadas).toEqual([['cloud.texto', TEL, 'Obrigado você!']]);
+  });
+
+  it('o corpo da reação segue a doc de cada via (Meta "Reaction messages"; Evolution 2.3.7 SendReactionDto)', () => {
+    expect(corpoDaReacao(TEL, 'wamid.X', '😀')).toEqual({
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: TEL,
+      type: 'reaction',
+      reaction: { message_id: 'wamid.X', emoji: '😀' },
+    });
+    expect(corpoDaReacaoEvolution('5521@s.whatsapp.net', 'ID1', '🚀')).toEqual({ key: { remoteJid: '5521@s.whatsapp.net', fromMe: false, id: 'ID1' }, reaction: '🚀' });
+  });
+
+  const p1 = `Temos sim! ${'a'.repeat(200)}`;
+  const p2 = `🍔 *X-Bacon* — R$ 32,90 ${'b'.repeat(120)}`;
+  const p3 = `Quer pedir pelo cardápio? ${'c'.repeat(100)}`;
+
+  it('balões desligados (o padrão): a resposta longa vai numa mensagem só', async () => {
+    delete process.env.ROBO_BALOES;
+    const { svc, chamadas } = montar(LOJA_EVO);
+    await svc.responder(SENHA, { instancia: 'i', para: TEL, texto: [p1, p2, p3].join('\n\n') });
+    expect(chamadas).toEqual([['evo.texto', TEL, [p1, p2, p3].join('\n\n')]]);
+  });
+
+  it('balões ligados: um por parágrafo, com o "digitando…" antes do próximo; as opções vão no último', async () => {
+    process.env.ROBO_BALOES = '1';
+    const evo = montar(LOJA_EVO);
+    await evo.svc.responder(SENHA, { instancia: 'inst-1', para: TEL, texto: [p1, p2, p3].join('\n\n') });
+    expect(evo.chamadas).toEqual([
+      ['evo.texto', TEL, p1],
+      ['evo.digitando', 'inst-1', TEL],
+      ['evo.texto', TEL, p2],
+      ['evo.digitando', 'inst-1', TEL],
+      ['evo.texto', TEL, p3],
+    ]);
+    const cloud = montar(LOJA_CLOUD);
+    await cloud.svc.responder(SENHA, { phoneNumberId: '123456', para: TEL, responderA: 'wamid.ABC123=', texto: [p1, p3].join('\n\n'), opcoes: ops(2) });
+    expect(cloud.chamadas).toEqual([
+      ['cloud.texto', TEL, p1],
+      ['cloud.digitando', '123456', 'wamid.ABC123='],
+      ['cloud.opcoes', TEL, p3, 2],
+    ]);
+  });
+
+  it('balões ligados, mas com voz: uma mensagem só depois da voz (como antes)', async () => {
+    process.env.ROBO_BALOES = '1';
+    const { svc, chamadas } = montar(LOJA_EVO);
+    await svc.responder(SENHA, { instancia: 'i', para: TEL, texto: [p1, p2].join('\n\n'), audio: { base64: 'T2dn' } });
+    expect(chamadas.map((c: any[]) => c[0])).toEqual(['evo.voz', 'evo.texto']);
+  });
+
+  // V100 / ERR-504: campo novo no corpo de uma rota passa pelo MESMO ValidationPipe da API (whitelist) — `responderA` e
+  // `jid` não podem ser descartados calados. O corpo da rota é um tipo (não uma classe): o pipe não tem o que filtrar.
+  it('responderA e jid chegam ao serviço pelo ValidationPipe da API (main.ts)', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { ValidationPipe } = require('@nestjs/common');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { RoboRespostaController } = require('./robo-resposta.controller');
+    const [metatype] = Reflect.getMetadata('design:paramtypes', RoboRespostaController.prototype, 'responder');
+    const pipe = new ValidationPipe({ whitelist: true, transform: true });
+    const corpo = { phoneNumberId: '1', para: TEL, texto: 'oi', responderA: 'wamid.X1', jid: '9@lid' };
+    expect(await pipe.transform(corpo, { type: 'body', metatype, data: '' })).toMatchObject({ responderA: 'wamid.X1', jid: '9@lid' });
+  });
+
+  it('canal sem formatação (Direct, Messenger, chat, comentário): sem negrito e sem a linha de controle', () => {
+    expect(lerResposta({ texto: 'O **X-Bacon** sai por *R$ 32,90*\nREACAO: 👍' }, semFormatacao)).toEqual({
+      texto: 'O X-Bacon sai por R$ 32,90',
+      opcoes: [],
+      reacao: '👍',
+    });
   });
 });

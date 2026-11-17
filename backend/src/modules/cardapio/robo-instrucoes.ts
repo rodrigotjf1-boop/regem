@@ -84,7 +84,13 @@ import { MARCA_DA_RESPOSTA_SEGURADA } from '../whatsapp/resposta-em-andamento';
 // juntas, uma por linha — um assunto só, uma resposta; perguntas diferentes, respondidas em ordem, cada uma no seu
 // parágrafo; e a MARCA de que a resposta anterior não foi enviada (o cliente escreveu enquanto ela era preparada): responder
 // do zero a tudo, sem "como eu disse".
-export const VERSAO_INSTRUCOES = '2026-11-16.f24';
+// .f25 (17/11, pedido do dono: "respostas arrumadas e formatadas com emoticons quando necessário"): no WhatsApp sai o "sem
+// markdown" e entra COMO ESCREVER NO WHATSAPP — o negrito do WhatsApp (um asterisco) no produto e no preço, listas uma por
+// linha com o emoji do assunto (o mesmo jeito do resumo do pedido que o Regem manda), conversa curta com um emoji quando
+// combina, nada disso em assunto delicado nem na resposta a um áudio; e a REAÇÃO (linha REACAO: ❤️) quando o cliente só
+// agradece ou se despede. A porta da resposta (`whatsapp/formato-da-resposta.ts`) converte o markdown que escapar e tira
+// as linhas de controle. Direct, Messenger, chat e comentários ficam como estavam (lá o asterisco aparece escrito).
+export const VERSAO_INSTRUCOES = '2026-11-17.f25';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -232,10 +238,47 @@ function fotoEDocumento(fluxo2: boolean): string {
   );
 }
 
+/**
+ * O jeito comum no WhatsApp (.f25): o "sem markdown" e o "no máximo 1 emoji" dão lugar a COMO ESCREVER NO WHATSAPP. Nos
+ * outros canais (Direct, Messenger) o jeito comum fica letra por letra.
+ */
+function jeitoComumNoWhatsapp(): string[] {
+  return jeitoComum().map((l) =>
+    l
+      .replace('Sem markdown: nada de asterisco, cerquilha ou tabela.', 'Escreva com a formatação do WhatsApp (veja COMO ESCREVER NO WHATSAPP).')
+      .replace('No máximo 1 emoji por mensagem, só quando combinar — nenhum em reclamação ou assunto delicado.', 'Emoji com propósito, como em COMO ESCREVER NO WHATSAPP — nenhum em reclamação ou assunto delicado.'),
+  );
+}
+
+/**
+ * COMO ESCREVER NO WHATSAPP (.f25 — pedido do dono de 17/11): o negrito do WhatsApp, as listas com o emoji do assunto (o
+ * jeito do resumo do pedido que o Regem manda — `robo-resumo.ts`), a conversa curta, o assunto delicado e o áudio sem
+ * formatação, e a REAÇÃO. O exemplo não traz preço nem produto de verdade (vêm sempre das ferramentas).
+ */
+function comoEscreverNoWhatsapp(): string {
+  return linhas(
+    'COMO ESCREVER NO WHATSAPP (a mensagem tem de ser fácil de ler no celular)',
+    '- Negrito do WhatsApp é com UM asterisco de cada lado: *X-Bacon*. Use no nome do produto, no preço e no que o cliente precisa achar rápido (o total, o horário, o número do pedido). Nunca use dois asteriscos, cerquilha, tabela nem link entre colchetes.',
+    '- Itálico, com um sublinhado de cada lado (_sem cebola_), só para observação.',
+    '- Três ou mais itens (produtos, horários, formas de pagamento, taxas): um por linha, cada linha começando com o emoji do assunto ou com "•", com uma linha em branco antes e depois da lista. Emojis do assunto: 🍔 lanche, 🍟 porção, 🥤 bebida, 🍰 sobremesa, 🕒 horário, 📍 endereço, 💳 pagamento, 🛵 entrega, 🏪 retirada, 💰 valor, 🎁 cashback ou prêmio, ✅ feito, ⚠️ atenção.',
+    '- Exemplo de lista (o nome e o preço vêm SEMPRE da busca, nunca deste exemplo):',
+    '  Temos sim! 🍔',
+    '',
+    '  🍔 *nome do lanche* — R$ preço da busca',
+    '  🍟 *nome do trio* (com batata e refri) — R$ preço da busca',
+    '',
+    '  Quer pedir pelo cardápio? 👇',
+    '- Conversa (confirmar, perguntar, agradecer): texto corrido e curto, sem lista, com um emoji no fim quando combinar. A pergunta fica por último, antes da linha OPCOES.',
+    '- Reclamação, atraso, cancelamento, alergia ou cobrança: texto simples, sem negrito e sem emoji.',
+    '- A resposta a um ÁUDIO do cliente vira voz: sem negrito, sem lista e sem emoji.',
+    '- REAGIR: quando o cliente só agradece, elogia, se despede ou manda uma figurinha e não há nada a responder, reaja à mensagem dele em vez de escrever mais — uma linha sozinha REACAO: ❤️ (ou 👍, 😊, 🙏, 😄, 🎉) e, se quiser, uma frase curta antes. Só quando ele ESCREVEU (nunca a um áudio), nunca em reclamação e nunca duas vezes seguidas. A linha REACAO não aparece para o cliente e vem antes da linha OPCOES.',
+  );
+}
+
 function jeitoDeConversar(): string {
   return linhas(
     'JEITO DE CONVERSAR',
-    ...jeitoComum(),
+    ...jeitoComumNoWhatsapp(),
     '- Quando o cliente pedir algo, confirme em poucas palavras o que entendeu (ex.: "Anotado: um X-Bacon 👍").',
     '- Quando o cliente falar por áudio, escreva como quem fala: frases curtas, sem listas, sem link no meio do texto (o link vai à parte, num botão). Se a busca trouxer paraOClienteFalado, responda com ele (o resumo pronto, que já termina perguntando a preferência) no lugar da lista.',
     '- Se o cliente disser que não entendeu o áudio, que não consegue ouvir ou pedir por escrito, repita por escrito, com clareza, o que você disse no último áudio. Isso NÃO é motivo para chamar atendente.',
@@ -416,6 +459,7 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
     const texto = [
       ...abertura,
       jeitoDeConversar(),
+      comoEscreverNoWhatsapp(),
       sinceridade(dados),
       cardapioPrimeiroComAjuda(),
       oQueOClienteJaDisse(true),
@@ -439,6 +483,7 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
   const texto = [
     ...abertura,
     jeitoDeConversar(),
+    comoEscreverNoWhatsapp(),
     sinceridade(dados),
     cardapioPrimeiro(),
     oQueOClienteJaDisse(false),
