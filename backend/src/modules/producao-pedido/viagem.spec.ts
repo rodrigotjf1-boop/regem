@@ -157,7 +157,7 @@ descrever('comer aqui / viagem chega à cozinha: pedido de produção e via impr
       ((producao as any).renderTicket({ senha: 7, senhaPrefixo: 'B', consumo }, itens, 3, { perfil: p, cabecalho: 'Loja de teste' }) as string).split('\n');
     const viagem = via('viagem');
     expect(viagem[0]).toBe(`@CBD ${MARCA_VIAGEM}`); // antes de qualquer campo do perfil
-    expect(viagem[1]).toBe('@CB SENHA B-7');
+    expect(viagem[1]).toBe('@CB SENHA 7 - BALCÃO');
     expect(viagem.join('\n')).toContain('2x Lanche de teste');
     for (const c of ['local', null]) expect(via(c).join('\n')).not.toContain('VIAGEM');
     // A via de produção leva só o que importa (dono, 23/10/2026): o cabeçalho da loja sai só pelo campo "Nome da loja".

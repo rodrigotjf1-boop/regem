@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, getCategoria, getToken } from '@/lib/api';
 import { toast } from '@/lib/toast';
+import { baixarCsv } from '@/lib/csv';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,19 +17,6 @@ function statusConclusao(pct: number) {
   if (pct >= 85) return { label: 'Acima da meta', cor: 'var(--ok)' };
   if (pct >= 70) return { label: 'Atenção', cor: 'var(--warn)' };
   return { label: 'Plano de ação', cor: 'var(--destructive)' };
-}
-
-function baixarCsv(nome: string, linhas: Record<string, any>[]) {
-  if (!linhas.length) return;
-  const cols = Object.keys(linhas[0]);
-  const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const csv = [cols.join(';'), ...linhas.map((l) => cols.map((c) => esc(l[c])).join(';'))].join('\n');
-  const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${nome}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
 }
 
 function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) {

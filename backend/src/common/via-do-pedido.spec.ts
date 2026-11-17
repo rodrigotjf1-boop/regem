@@ -15,12 +15,12 @@ describe('via do pedido — dados do pedido de canal no papel', () => {
     expect(rotuloDoCanal('ifood')).toBe('iFood');
     expect(rotuloDoCanal('99food')).toBe('99Food');
     expect(rotuloDoCanal('n8n')).toBe('WhatsApp');
-    expect(rotuloDoCanal('Cardápio')).toBe('Cardápio'); // o rótulo que a venda já grava passa direto
+    expect(rotuloDoCanal('Cardápio')).toBe('Regem'); // o rótulo que o cartão da cozinha grava sai "Regem" (16/11/2026)
     expect(rotuloDoCanal('canal_novo')).toBe('canal_novo');
     // Sem "#" (dono, 28/10/2026): o "#" é do número do pedido no Regem, o do painel ("PEDIDO #10").
     expect(pedidoNoCanal('ifood', '6214')).toBe('iFood 6214');
     expect(pedidoNoCanal('99food', '60023')).toBe('99Food 60023');
-    expect(pedidoNoCanal('cardapio', '#12')).toBe('Cardápio 12'); // o "#" que vier no código sai
+    expect(pedidoNoCanal('cardapio', '#12')).toBe('Regem 12'); // o "#" que vier no código sai
     expect(pedidoNoCanal('anotaai', null)).toBe('Anota Aí');
     expect(pedidoNoCanal(null, null)).toBeUndefined();
   });

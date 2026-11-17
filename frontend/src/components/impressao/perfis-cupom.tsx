@@ -26,6 +26,20 @@ const NIVEIS_FONTE = [
   { i: 3, label: 'Grande', pt: 24, mini: false, escala: 2, px: 24 },
   { i: 4, label: 'Enorme', pt: 36, mini: false, escala: 3, px: 34 },
 ];
+// O CUPOM INTEIRO MAIOR (pedido do dono, 16/11/2026): cada linha sobe estes passos da régua acima — a mesma conta do
+// servidor (`cupom-perfis.ts › subirNivelDaFonte`). Ausente = o padrão do Regem para o perfil (vem do servidor).
+const AUMENTOS = [
+  { n: 0, label: 'Como os campos estão' },
+  { n: 1, label: 'Um passo maior (~+40%)' },
+  { n: 2, label: 'Dois passos maiores (até o dobro)' },
+];
+const aumentoDe = (p: any): number => {
+  const n = Number(p?.aumento);
+  return Number.isFinite(n) ? Math.max(0, Math.min(2, Math.floor(n))) : 0;
+};
+/** O degrau na prévia com o aumento: até o Grande; o que já é Grande ou maior fica como está (como no servidor). */
+const comAumento = (nivel: number, aumento: number) => (nivel >= 3 ? nivel : Math.min(3, nivel + aumento));
+
 // Índice do nível a partir do campo (aceita o legado tamanho='grande' == 2×).
 function nivelDe(c: any): number {
   const mag = c?.escala >= 3 ? 3 : c?.escala >= 2 ? 2 : c?.tamanho === 'grande' ? 2 : 1;
@@ -36,7 +50,7 @@ function nivelDe(c: any): number {
 
 // Valores fictícios por campo, só para a prévia.
 const CUPOM_MOCK: Record<string, string[]> = {
-  senha: ['SENHA D-12'],
+  senha: ['SENHA 12 - DELIVERY'],
   tipoFiscal: ['*** NAO FISCAL ***'],
   nomeLoja: ['REGEM'],
   dataHora: ['02/08/2026 20:15'],
@@ -108,7 +122,11 @@ function camposParaSalvar(campos: any[]) {
 // Impressoras do perfil: só vai quando há alguma marcada — sem nenhuma, o perfil volta ao
 // roteamento padrão (as impressoras de cupom).
 const impressorasParaSalvar = (p: any) => (Array.isArray(p.impressoras) && p.impressoras.length ? { impressoras: p.impressoras } : {});
-const padraoParaSalvar = (p: any) => ({ campos: camposParaSalvar(p.campos), ...impressorasParaSalvar(p) });
+const padraoParaSalvar = (p: any) => ({
+  campos: camposParaSalvar(p.campos),
+  ...impressorasParaSalvar(p),
+  ...(Number.isFinite(Number(p.aumento)) ? { aumento: aumentoDe(p) } : {}),
+});
 // Nos modelos de PRODUÇÃO, a impressora marcada recebe a via completa do pedido (uma via, o pedido inteiro); sem
 // nenhuma, só saem as vias direcionadas pelos produtos e setores. Nos outros, sem nenhuma vale a impressora de cupom.
 const ehProducao = (p: any) => p.grupo === 'producao';
@@ -353,8 +371,10 @@ function EditorPerfil({
 
   // Com o campo "Troco" no cupom, o troco sai nele, não na linha do pagamento (como no servidor).
   const trocoProprio = p.campos.some((c: any) => c.key === 'troco' && c.visivel);
+  const aumento = aumentoDe(p);
   const previa = (() => {
-    // Cada linha guarda o texto cru + estilo; alinhamento e quebra ficam no CSS da prévia.
+    // Cada linha guarda o texto cru + estilo; alinhamento e quebra ficam no CSS da prévia. O degrau já leva o aumento do
+    // cupom inteiro (`comAumento`), como o servidor faz ao imprimir.
     const out: { txt: string; bold: boolean; lvl: number; align: string; dir?: string }[] = [];
     for (const c of p.campos) {
       if (!c.visivel) continue;
@@ -369,7 +389,7 @@ function EditorPerfil({
         const proprio = { negrito: c.negrito, escala: c.escala, mini: c.mini };
         for (const t of mock) {
           const s = t.startsWith('   OBS:') ? c.obs ?? proprio : t.startsWith('   ') ? c.comp ?? proprio : proprio;
-          out.push({ txt: t, bold: !!s.negrito, lvl: nivelDe(s), align: c.alinhamento });
+          out.push({ txt: t, bold: !!s.negrito, lvl: comAumento(nivelDe(s), aumento), align: c.alinhamento });
         }
         continue;
       }
@@ -380,7 +400,7 @@ function EditorPerfil({
         anterior.bold = anterior.bold || c.negrito;
         continue;
       }
-      for (const t of mock) out.push({ txt: t, bold: c.negrito, lvl: nivelDe(c), align: c.alinhamento });
+      for (const t of mock) out.push({ txt: t, bold: c.negrito, lvl: comAumento(nivelDe(c), aumento), align: c.alinhamento });
     }
     return out;
   })();
@@ -469,6 +489,25 @@ function EditorPerfil({
               </p>
             </div>
           )}
+
+          <div>
+            <label className="text-sm font-medium" htmlFor={`${formId}-aumento`}>Tamanho do cupom inteiro</label>
+            <select
+              id={`${formId}-aumento`}
+              value={aumento}
+              disabled={!pode}
+              onChange={(e) => mudar((x) => ({ ...x, aumento: Number(e.target.value) }))}
+              className={`mt-1 block w-full max-w-sm ${CONTROLE}`}
+            >
+              {AUMENTOS.map((a) => (
+                <option key={a.n} value={a.n}>{a.label}</option>
+              ))}
+            </select>
+            <p className={`mt-1 text-xs ${texto2}`}>
+              Cada linha sobe estes passos da régua de tamanhos (Pequena, Normal, Média, Grande), até o Grande. A
+              impressora térmica só aumenta a letra em passos: não há 30% ou 150% exatos. O que já é Grande ou maior fica como está.
+            </p>
+          </div>
 
           <div>
             <div className="flex flex-wrap items-center justify-between gap-2">

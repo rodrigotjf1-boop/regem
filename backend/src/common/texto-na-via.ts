@@ -15,3 +15,12 @@ export function textoNaVia(v: unknown): string {
     .trim()
     .replace(/^@+\s*/, '');
 }
+
+/**
+ * Adicional, item do combo e observação (do item e do pedido) em CAIXA ALTA na via (pedido do dono, 16/11/2026: a cozinha
+ * e o entregador leem de relance). Sempre DEPOIS de separar as escolhas da descrição (`common/adicionais.ts` compara o
+ * texto como veio). O nome do produto fica como está.
+ */
+export function caixaAltaNaVia(v: unknown): string {
+  return textoNaVia(v).toLocaleUpperCase('pt-BR');
+}

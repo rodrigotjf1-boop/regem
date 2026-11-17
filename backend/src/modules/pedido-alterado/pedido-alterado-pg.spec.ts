@@ -498,4 +498,29 @@ descrever('pedido alterado pela equipe (Postgres real)', () => {
     const h: any = await delivery.alteracoesDoPedido(l.t, p.id);
     expect(h.alteracoes.map((x: any) => x.situacao)).toEqual(['recusada', 'recusada']);
   });
+
+  // 16/11/2026, pedido do dono: "o item cancelado aparece no KDS riscado e como cancelado, porém não conseguimos avançar pelo
+  // número da senha, fica preso no KDS" — o cartão cancelado ficava 30 min na fila, sem botão. Agora o "Ciente" o tira.
+  it('o cartão cancelado fica riscado na fila até o "Ciente"; o "Visto" de uma alteração ANTERIOR não conta; cartão vivo sem alteração não aceita', async () => {
+    const l = await loja();
+    const p = await pedidoAceito(l);
+    const [cartao] = await cartoesDa(p.comandaId);
+    // vivo e sem alteração: o "Visto" continua recusado (não é dele)
+    await expect(producao.marcarVisto(l.t, cartao.id)).rejects.toThrow('Cartão alterado ou cancelado não encontrado.');
+    // cancelado: aparece riscado
+    await q(`update producao_pedido set status = 'cancelado', cancelado_em = now() where id = $1`, [cartao.id]);
+    expect((await cartaoNoKds(l, p.comandaId)).cartoes.map((c: any) => c.status)).toEqual(['cancelado']);
+    // "Ciente": sai da fila na hora (e de outra empresa não mexe)
+    await expect(producao.marcarVisto(randomUUID(), cartao.id)).rejects.toThrow('Cartão alterado ou cancelado não encontrado.');
+    expect((await cartaoNoKds(l, p.comandaId)).cartoes).toHaveLength(1);
+    await producao.marcarVisto(l.t, cartao.id, { nome: 'Chapa de teste' });
+    expect((await cartaoNoKds(l, p.comandaId)).cartoes).toHaveLength(0);
+    expect((await cartoesDa(p.comandaId))[0]).toMatchObject({ status: 'cancelado', visto_por: 'Chapa de teste' });
+    // o "Visto" de uma alteração ANTES do cancelamento não tira o cancelado da tela
+    await q(`update producao_pedido set visto_em = now() - interval '5 minutes', cancelado_em = now() - interval '1 minute' where id = $1`, [cartao.id]);
+    expect((await cartaoNoKds(l, p.comandaId)).cartoes.map((c: any) => c.status)).toEqual(['cancelado']);
+    // e o cancelado de mais de 30 min sai sozinho, como antes
+    await q(`update producao_pedido set visto_em = null, cancelado_em = now() - interval '31 minutes' where id = $1`, [cartao.id]);
+    expect((await cartaoNoKds(l, p.comandaId)).cartoes).toHaveLength(0);
+  });
 });

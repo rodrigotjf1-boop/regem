@@ -186,6 +186,6 @@ descrever('Cozinha em estações — a forma de cada impressora (Postgres)', () 
     await q(`insert into producao_pedido_item (tenant_id, pedido_id, descricao, quantidade) values ($1,$2,'Lanche da etapa',1)`, [T, card]);
     await svc.avancar(T, ATOR.id, card, 'entrega', ETAPA); // recebido → preparo: o KDS imprime nesta etapa
     const [job] = await q(`select conteudo from impressao_job where pedido_id = $1 and equipamento_id = $2`, [card, impBar]);
-    expect(String(job?.conteudo)).toContain('SENHA B-7');
+    expect(String(job?.conteudo)).toContain('SENHA 7 - BALCÃO');
   });
 });

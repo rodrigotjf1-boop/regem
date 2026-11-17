@@ -94,8 +94,8 @@ descrever('reimpressão: num lugar só', () => {
     await vendas.reimprimirViasExterno(l.t, randomUUID(), l.comanda, null, null, l.pdvDelivery);
     const [j] = await jobs(l.comanda);
     expect(j.conteudo).toContain('X-burger');
-    expect(j.conteudo).toMatch(/2x Bacon/);
-    expect(j.conteudo).toMatch(/sem cebola/);
+    expect(j.conteudo).toMatch(/2X BACON/); // o adicional em caixa alta (16/11/2026)
+    expect(j.conteudo).toMatch(/SEM CEBOLA/);
   });
 
   it('sem terminal: sai onde a via desta venda saiu antes — a IMPRESSA, não a que deu erro', async () => {
