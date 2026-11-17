@@ -32,6 +32,12 @@ export const TEMPOS_DA_ESCALA = [5, 15, 30, 120] as const;
 export const TEMPOS_DO_PEDIDO_PARADO = [15, 20, 30] as const;
 /** M3a parte 4: quando avisar do boleto — 3 dias antes e no dia (o padrão), 1 dia antes e no dia, ou só no dia. */
 export const ANTECEDENCIAS_DO_BOLETO = [3, 1, 0] as const;
+/**
+ * M3e: quando avisar do ponto esquecido — 0 = um resumo no dia seguinte, às 10h da loja (o padrão: a loja vende até perto
+ * das 02h, e "30 min depois" acordaria o gerente com a saída das 02:00); 30 ou 60 = tantos minutos depois do horário.
+ */
+export const QUANDO_DO_PONTO = [0, 30, 60] as const;
+export const HORA_DO_RESUMO_DO_PONTO = 10;
 
 export type TipoDeAviso =
   | 'impressora'
@@ -43,7 +49,8 @@ export type TipoDeAviso =
   | 'nota_sem_resposta'
   | 'certificado'
   | 'chave_ia'
-  | 'boleto_vencendo';
+  | 'boleto_vencendo'
+  | 'ponto_esquecido';
 
 export interface RegraDoAviso {
   ligado: boolean;
@@ -56,7 +63,7 @@ export interface RegraDoAviso {
 
 export interface TipoDoAviso {
   tipo: TipoDeAviso;
-  grupo: 'Na loja' | 'Servidor da loja' | 'Fiscal' | 'O próprio Mister' | 'Documentos e dinheiro';
+  grupo: 'Na loja' | 'Servidor da loja' | 'Fiscal' | 'O próprio Mister' | 'Documentos e dinheiro' | 'Pessoas e ponto';
   titulo: string;
   descricao: string;
   /** O padrão aprovado em 14/11/2026. */
@@ -157,6 +164,15 @@ export const TIPOS_DE_AVISO: TipoDoAviso[] = [
     padrao: regra(['presidente'], { parametro: 3 }),
     jaFunciona: true,
   },
+  // Versão 3 do protótipo (aprovada em 17/11/2026), M3e: a entrada ou a saída que falta depois do horário da escala.
+  {
+    tipo: 'ponto_esquecido',
+    grupo: 'Pessoas e ponto',
+    titulo: 'Ponto esquecido',
+    descricao: 'Entrada ou saída que falta depois do horário da escala. O aviso diz quem, qual turno e onde ajustar. Só nas lojas que usam o terminal de ponto.',
+    padrao: regra(['gerente'], { parametro: 0 }),
+    jaFunciona: true,
+  },
 ];
 
 export const ehTipoDeAviso = (t: unknown): t is TipoDeAviso => TIPOS_DE_AVISO.some((x) => x.tipo === t);
@@ -179,7 +195,11 @@ export function regraQueVale(tipo: TipoDeAviso, salva: Partial<RegraDoAviso> | n
           ? (ANTECEDENCIAS_DO_BOLETO as readonly number[]).includes(Number(salva.parametro)) && salva.parametro !== null
             ? Number(salva.parametro)
             : p.parametro
-          : null,
+          : tipo === 'ponto_esquecido'
+            ? (QUANDO_DO_PONTO as readonly number[]).includes(Number(salva.parametro)) && salva.parametro !== null
+              ? Number(salva.parametro)
+              : p.parametro
+            : null,
   };
 }
 
@@ -217,6 +237,11 @@ export function conferirRegras(dto: unknown): { tipo: TipoDeAviso; regra: RegraD
       parametro = r.parametro === null || r.parametro === undefined || r.parametro === '' ? NaN : Number(r.parametro);
       if (!(ANTECEDENCIAS_DO_BOLETO as readonly number[]).includes(parametro))
         return { erro: 'Escolha quando avisar do boleto: 3 dias antes e no dia, 1 dia antes e no dia, ou só no dia.' };
+    }
+    if (tipo === 'ponto_esquecido') {
+      parametro = r.parametro === null || r.parametro === undefined || r.parametro === '' ? NaN : Number(r.parametro);
+      if (!(QUANDO_DO_PONTO as readonly number[]).includes(parametro))
+        return { erro: 'Escolha quando avisar do ponto esquecido: no dia seguinte às 10h, 30 minutos depois ou 1 hora depois.' };
     }
     saida.push({ tipo, regra: { ligado: r.ligado, destinos: destinos as Destino[], escalaMin, escalaPara: escalaMin === null ? [] : (escalaPara as Destino[]), parametro } });
   }
@@ -615,6 +640,99 @@ export function situacaoDoBoleto(b: BoletoAVencer): Situacao {
 
 /** O boleto entra no aviso desta empresa? Pela antecedência escolhida (o vencido e não pago sempre, até 30 dias). */
 export const boletoNoPrazoDoAviso = (dias: number, antecedencia: number | null): boolean => dias >= -BOLETO_VENCIDO_ATE_DIAS && dias <= (antecedencia ?? 3);
+
+// ───────────────────────────── o ponto esquecido (M3e, conversa 19 da versão 3) ─────────────────────────────
+
+/** Um turno da escala com as marcações que caíram na janela dele (de 3 h antes do início a 6 h depois do fim). */
+export interface TurnoDoPonto {
+  alocacaoId: string;
+  tenantId: string;
+  unidadeId: string;
+  loja: string;
+  nome: string;
+  /** O dia da escala (AAAA-MM-DD): o turno que vira a meia-noite é do dia em que começou. */
+  data: string;
+  inicio: string;
+  fim: string;
+  inicioEm: Date;
+  fimEm: Date;
+  entradas: number;
+  saidas: number;
+}
+
+export const ONDE_AJUSTAR_O_PONTO = 'O ajuste é em Pessoas › Gerenciamento de ponto.';
+/** O turno a turno ("30 min" e "1 hora depois") some 12 horas depois do fim do turno. */
+export const PONTO_POR_TURNO_ATE_H = 12;
+
+/** O que falta no turno agora: a entrada (passou do início) ou a saída (teve entrada, passou do fim e não saiu). */
+export function faltaNoTurno(t: Pick<TurnoDoPonto, 'entradas' | 'saidas' | 'inicioEm' | 'fimEm'>, agoraMs: number, folgaMin: number): 'entrada' | 'saida' | null {
+  if (t.entradas === 0) return agoraMs >= t.inicioEm.getTime() + folgaMin * 60_000 ? 'entrada' : null;
+  if (t.saidas === 0) return agoraMs >= t.fimEm.getTime() + folgaMin * 60_000 ? 'saida' : null;
+  return null;
+}
+
+const turnoDaFalta = (t: Pick<TurnoDoPonto, 'inicio' | 'fim'>, falta: 'entrada' | 'saida') => (falta === 'saida' ? `turno até ${t.fim}` : `turno das ${t.inicio}`);
+/** O nome da marcação que falta, como a pessoa lê. */
+const NOME_DA_FALTA = { entrada: 'entrada', saida: 'saída' } as const;
+
+/**
+ * As situações do ponto esquecido. Duas formas, e a regra de cada empresa escolhe uma (`pontoNoTempoDoAviso`):
+ *  • o resumo do dia seguinte (o padrão): a partir das 10h da loja, os turnos de ONTEM com a entrada ou a saída que falta,
+ *    um aviso por loja ("Loja Centro · ponto esquecido ontem, 15/11", com a lista);
+ *  • turno a turno (30 min ou 1 hora depois): cada falta é um aviso, até 12 horas depois do fim do turno.
+ * Some quando ajustam o ponto (a marcação entra) ou quando passa o tempo — e fecha calado, sem "resolvido".
+ */
+export function situacoesDoPonto(turnos: TurnoDoPonto[], agora: Date): Situacao[] {
+  const agoraMs = agora.getTime();
+  const ontem = somarDias(dataNoFuso(agora), -1);
+  const menor = Math.min(...QUANDO_DO_PONTO.filter((x) => x > 0));
+  const fora: Situacao[] = [];
+  for (const t of turnos) {
+    const falta = faltaNoTurno(t, agoraMs, menor);
+    if (!falta || agoraMs > t.fimEm.getTime() + PONTO_POR_TURNO_ATE_H * 3_600_000) continue;
+    const desde = (falta === 'entrada' ? t.inicioEm : t.fimEm).getTime();
+    fora.push({
+      tenantId: t.tenantId,
+      unidadeId: t.unidadeId,
+      tipo: 'ponto_esquecido',
+      chave: `ponto:${t.alocacaoId}:${falta}`,
+      titulo: `${t.loja} · ${t.nome} sem a ${NOME_DA_FALTA[falta]} do ponto (${turnoDaFalta(t, falta)})`,
+      detalhe: ONDE_AJUSTAR_O_PONTO,
+      dados: { modo: 'turno', falta, atrasoMin: Math.floor((agoraMs - desde) / 60_000) },
+    });
+  }
+  if (Number(horaNoFuso(agora).slice(0, 2)) >= HORA_DO_RESUMO_DO_PONTO) {
+    const porLoja = new Map<string, { t: TurnoDoPonto; linhas: string[] }>();
+    for (const t of turnos.filter((x) => x.data === ontem).sort((a, b) => a.nome.localeCompare(b.nome))) {
+      const falta = faltaNoTurno(t, agoraMs, 0);
+      if (!falta) continue;
+      const k = `${t.tenantId}|${t.unidadeId}`;
+      const l = porLoja.get(k) ?? { t, linhas: [] };
+      l.linhas.push(`• ${t.nome}, sem a ${NOME_DA_FALTA[falta]} (${turnoDaFalta(t, falta)})`);
+      porLoja.set(k, l);
+    }
+    const dia = `${ontem.slice(8, 10)}/${ontem.slice(5, 7)}`;
+    for (const { t, linhas } of porLoja.values())
+      fora.push({
+        tenantId: t.tenantId,
+        unidadeId: t.unidadeId,
+        tipo: 'ponto_esquecido',
+        chave: `ponto:${t.unidadeId}:${ontem}`,
+        titulo: `${t.loja} · ponto esquecido ontem, ${dia}`,
+        detalhe: `${linhas.join('\n')}\n\n${ONDE_AJUSTAR_O_PONTO}`,
+        dados: { modo: 'resumo', dia: ontem, faltas: linhas.length },
+      });
+  }
+  return fora;
+}
+
+/** A situação do ponto vale para esta empresa? O resumo, para quem escolheu "no dia seguinte"; o turno a turno, pelo tempo. */
+export function pontoNoTempoDoAviso(dados: unknown, parametro: number | null): boolean {
+  const d = (dados ?? {}) as { modo?: string; atrasoMin?: number };
+  const p = parametro ?? 0;
+  if (d.modo === 'resumo') return p === 0;
+  return p > 0 && Number(d.atrasoMin) >= p;
+}
 
 /** Os botões do aviso do boleto (só para o presidente: é quem dá baixa): "Já paguei" e "Ver o PDF" (4b). */
 export const botoesDoAvisoDoBoleto = (documentoId: unknown) =>

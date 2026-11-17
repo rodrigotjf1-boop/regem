@@ -11,6 +11,7 @@ import { AlertaKdsService } from '../kds/alerta-kds.service';
 import { ModuloService } from '../modulo/modulo.service';
 import { PREPARO_DA_ENCOMENDA_MIN } from './mister-agente.regras';
 import { FUSO_SQL } from '../../common/fuso-sql';
+import { dataNoFuso, somarDias } from '../../common/data';
 import { MisterAvisosConfigService } from './mister-avisos-config.service';
 import {
   AVISOS_DA_DISTRIBUICAO,
@@ -45,6 +46,9 @@ import {
   botoesDoAvisoDoBoleto,
   diaDoAvisoDoBoleto,
   situacaoDoBoleto,
+  TurnoDoPonto,
+  pontoNoTempoDoAviso,
+  situacoesDoPonto,
 } from './mister-avisos.regras';
 import { MisterEntradaService, QuemTocou } from './mister-entrada.service';
 import { MODELO_DO_AVISO, parametrosDoAviso } from './mister-modelos';
@@ -393,7 +397,56 @@ export class MisterAvisosService implements OnModuleInit {
     } catch (e: any) {
       if (!semTabela(e)) throw e;
     }
+    // 9) O ponto esquecido (M3e): os turnos de ontem e de hoje da escala (a alocação ativa, com colaborador, sem falta
+    //    lançada), com as marcações de entrada e de saída que caíram na janela de cada turno — de 3 h antes do início a 6 h
+    //    depois do fim (o turno que vira a meia-noite termina no dia seguinte). Só as lojas que USAM o ponto: o módulo do
+    //    terminal ligado e alguma marcação nos últimos 14 dias — senão todo turno pareceria "sem a entrada".
+    fora.push(...(await this.pontosEsquecidos(so, agora)));
     return fora;
+  }
+
+  private async pontosEsquecidos(so: (col: string) => ReturnType<typeof sql>, agora: Date): Promise<Situacao[]> {
+    const hoje = dataNoFuso(agora);
+    const linhasDosTurnos = linhas(
+      await this.db.execute(sql`
+        select a.id::text as "alocacaoId", a.tenant_id::text as "tenantId", a.unidade_id::text as "unidadeId", u.nome as loja, c.nome,
+               a.data::text as data, to_char(j.ini, 'HH24:MI') as inicio, to_char(j.fim, 'HH24:MI') as fim, j.inicio_em as "inicioEm", j.fim_em as "fimEm",
+               (select count(*) from ponto_marcacao m
+                 where m.tenant_id = a.tenant_id and m.colaborador_id = a.colaborador_id and m.tipo = 'entrada'
+                   and m.marcado_em between j.inicio_em - interval '3 hours' and j.fim_em + interval '6 hours')::int as entradas,
+               (select count(*) from ponto_marcacao m
+                 where m.tenant_id = a.tenant_id and m.colaborador_id = a.colaborador_id and m.tipo = 'saida'
+                   and m.marcado_em between j.inicio_em - interval '3 hours' and j.fim_em + interval '6 hours')::int as saidas
+          from escala_alocacao a
+          join turno t on t.id = a.turno_id
+          join colaborador c on c.id = a.colaborador_id and c.deleted_at is null
+          join unidade u on u.id = a.unidade_id and u.deleted_at is null
+          join empresa emp on emp.id = a.tenant_id and emp.deleted_at is null
+          cross join lateral (
+            select coalesce(a.hora_inicio_override, t.hora_inicio) as ini, coalesce(a.hora_fim_override, t.hora_fim) as fim
+          ) h
+          cross join lateral (
+            select h.ini, h.fim,
+                   ((a.data + h.ini) at time zone ${FUSO_SQL}) as inicio_em,
+                   ((a.data + h.fim + case when h.fim <= h.ini then interval '1 day' else interval '0' end) at time zone ${FUSO_SQL}) as fim_em
+          ) j
+         where a.status = 'ativa' and a.deleted_at is null and a.colaborador_id is not null
+           and a.presenca not in ('falta_justificada', 'falta_injustificada')
+           and a.data between ${somarDias(hoje, -1)}::date and ${hoje}::date
+           and exists (select 1 from ponto_marcacao m2
+                        where m2.tenant_id = a.tenant_id and m2.unidade_id = a.unidade_id and m2.marcado_em > ${agora.toISOString()}::timestamptz - interval '14 days')
+           ${so('a.tenant_id')}`),
+    );
+    if (!linhasDosTurnos.length) return [];
+    const usaPonto = new Map<string, boolean>();
+    const turnos: TurnoDoPonto[] = [];
+    for (const l of linhasDosTurnos) {
+      const k = `${l.tenantId}|${l.unidadeId}`;
+      if (!usaPonto.has(k)) usaPonto.set(k, await this.modulos.ativo(l.tenantId, l.unidadeId, 'terminal_ponto').catch(() => false));
+      if (!usaPonto.get(k)) continue;
+      turnos.push({ ...l, inicioEm: new Date(l.inicioEm), fimEm: new Date(l.fimEm), entradas: Number(l.entradas), saidas: Number(l.saidas) });
+    }
+    return situacoesDoPonto(turnos, agora);
   }
 
   /**
@@ -550,6 +603,8 @@ export class MisterAvisosService implements OnModuleInit {
       if (!moduloLigado.get(k) || !r?.ligado) return null;
       // O boleto: só dentro da antecedência que a empresa escolheu (3 dias, 1 dia ou só no dia).
       if (s.tipo === 'boleto_vencendo' && !boletoNoPrazoDoAviso(Number((s.dados as any)?.dias), r.parametro)) return null;
+      // O ponto esquecido: o resumo do dia seguinte OU o turno a turno, pelo tempo que a empresa escolheu.
+      if (s.tipo === 'ponto_esquecido' && !pontoNoTempoDoAviso(s.dados, r.parametro)) return null;
       return r;
     };
     const valendo: { s: Situacao; r: RegraDoAviso }[] = [];
@@ -632,7 +687,8 @@ export class MisterAvisosService implements OnModuleInit {
         else {
           res.resolvidos++;
           // O boleto que saiu da lista (pago — o "Já paguei" já respondeu —, cancelado ou além dos 30 dias): sem "resolvido".
-          if (a.tipo !== 'boleto_vencendo') res.entregas += await this.desfecho(a, agora);
+          // O ponto esquecido que saiu (ajustaram, ou o dia passou): também sem — o resumo não fala do que mudou depois.
+          if (a.tipo !== 'boleto_vencendo' && a.tipo !== 'ponto_esquecido') res.entregas += await this.desfecho(a, agora);
         }
         await this.fecharCasos(a);
       } catch (e: any) {

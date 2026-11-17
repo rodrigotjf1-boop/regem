@@ -84,6 +84,8 @@ const AVISOS_PADRAO = () => ({
     { tipo: 'chave_ia', grupo: 'O próprio Mister', titulo: 'A chave de IA parou', descricao: 'Sem crédito, no teto de gasto ou recusada.', jaFunciona: true, padrao: true, regra: regraAv(['presidente']) },
     // M3a parte 4: o boleto lançado por foto perto de vencer (a antecedência no `parametro`: 3, 1 ou 0 dia).
     { tipo: 'boleto_vencendo', grupo: 'Documentos e dinheiro', titulo: 'Boleto perto de vencer', descricao: 'Os boletos lançados por foto no Mister. Vai com a linha digitável; "Já paguei" dá baixa na conta e tira o boleto da lista. Às 9h da loja.', jaFunciona: true, padrao: true, regra: regraAv(['presidente'], { parametro: 3 }) },
+    // M3e: o ponto esquecido, ao gerente, com o resumo no dia seguinte.
+    { tipo: 'ponto_esquecido', grupo: 'Pessoas e ponto', titulo: 'Ponto esquecido', descricao: 'Entrada ou saída que falta depois do horário da escala. O aviso diz quem, qual turno e onde ajustar. Só nas lojas que usam o terminal de ponto.', jaFunciona: true, padrao: true, regra: regraAv(['gerente'], { parametro: 0 }) },
   ],
 });
 // Os relatórios (mig 420): os dois desligados, como o padrão; o do dia com um envio que não saiu (fora da janela).
@@ -929,7 +931,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t0 = await page.locator('main').innerText();
-    ok(/14 ajustes em 7 grupos/.test(t0), 'avisos: os nove avisos em quatro grupos, o do boleto (M3a) no quinto, os três relatórios no sexto e a conversa (M3a) no sétimo');
+    ok(/15 ajustes em 8 grupos/.test(t0), "avisos: os nove avisos em quatro grupos, o do boleto (M3a), o do ponto (M3e), os três relatórios e a conversa (M3a)");
     ok(/Fichas novas de candidatos[\s\S]*Vai para: o presidente e quem tem a permissão Candidatos, cada um só das lojas que vê\./.test(t0), 'relatórios: o das fichas novas diz para quem vai (F4c)');
     ok(t0.includes('O de fichas novas só conta: não usa a IA.'), 'relatórios: a nota diz que o das fichas novas não usa a IA');
     ok(['Na loja', 'Servidor da loja', 'Fiscal', 'O próprio Mister'].every((g) => t0.includes(g)), 'avisos: os quatro grupos do protótipo');
@@ -1043,7 +1045,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t = await page.locator('main').innerText();
-    ok(/14 ajustes em 7 grupos/.test(t), 'conversa: o grupo "Conversa" entra com um ajuste, e "Documentos e dinheiro" com o do boleto');
+    ok(/15 ajustes em 8 grupos/.test(t), "conversa: o grupo Conversa entra com um ajuste, Documentos e dinheiro com o do boleto e Pessoas e ponto com o do ponto");
     ok(/Documentos e dinheiro[\s\S]*Boleto perto de vencer[\s\S]*Já paguei/.test(t), 'boleto: o aviso novo no grupo "Documentos e dinheiro", com o "Já paguei"');
     ok(/Lançar boletos por foto/.test(t) && /só o presidente manda/.test(t) && /a leitura da nota do fornecedor vem numa próxima entrega/.test(t), 'conversa: o ajuste diz o que faz, quem manda e que a nota vem depois');
     const sel = page.locator('select:has(option:text-is("boleto: pergunta antes"))');
@@ -1065,6 +1067,16 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     ok(
       JSON.stringify(S.salvamentos.at(-1)) === JSON.stringify({ regras: [{ tipo: 'boleto_vencendo', ligado: true, destinos: ['presidente'], escalaMin: null, escalaPara: [], parametro: 0 }] }),
       `boleto: salvar manda o aviso inteiro com a antecedência (${JSON.stringify(S.salvamentos.at(-1))})`,
+    );
+    // M3e: "Quando avisar do ponto esquecido" — o padrão (no dia seguinte, às 10h) e "30 min depois", pela mesma barra.
+    ok(/Pessoas e ponto[\s\S]*Ponto esquecido[\s\S]*Só nas lojas que usam o terminal de ponto/.test(t), 'ponto: o aviso novo no grupo "Pessoas e ponto", dizendo que é só onde há terminal de ponto');
+    const doPonto = page.locator('select:has(option:text-is("30 min depois"))');
+    ok((await doPonto.inputValue()) === '0', 'ponto: o padrão é "no dia seguinte, às 10h"');
+    await doPonto.selectOption('30');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/avisos') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
+    ok(
+      JSON.stringify(S.salvamentos.at(-1)) === JSON.stringify({ regras: [{ tipo: 'ponto_esquecido', ligado: true, destinos: ['gerente'], escalaMin: null, escalaPara: [], parametro: 30 }] }),
+      `ponto: salvar manda o aviso inteiro com o tempo (${JSON.stringify(S.salvamentos.at(-1))})`,
     );
     ok(erros.length === 0, `conversa: sem erro (${erros.join(' | ')})`);
     await ctx.close();

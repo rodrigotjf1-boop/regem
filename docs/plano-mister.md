@@ -1018,7 +1018,14 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
 - **Parte 4 — #1110, no ar.**
 - **Parte 5 (sem migration):** `mandar_link` — o link de conferência a quem o presidente pedir (conversa 18), por
   enquanto a contagem de estoque de hoje; fora da janela de 24 horas o Mister diz que a pessoa precisa escrever antes.
+- **Parte 5 — #1111, no ar.**
 - **Falta:** o link para encaminhar a quem não tem usuário (só leitura, 7 dias, na auditoria — migration).
+
+**Andamento da M3e (17/11/2026):**
+- **Parte 1 (sem migration):** o aviso "Ponto esquecido" (11º tipo, grupo "Pessoas e ponto"; o resumo do dia seguinte às
+  10h ao gerente, ou turno a turno 30 min / 1 hora depois), pela escala contra o ponto, só nas lojas que usam o terminal.
+- **Falta:** o arquivo do ponto do mês (dia 1 às 06:00 ao presidente; "Enviar à contabilidade" pede o responsável
+  cadastrado e o modelo da Meta).
 
 ## 5. O que depende do dono
 

@@ -42,6 +42,12 @@ const ANTECEDENCIAS_DO_BOLETO = [
   { v: 1, rotulo: '1 dia antes e no dia' },
   { v: 0, rotulo: 'só no dia' },
 ];
+/** M3e: quando avisar do ponto esquecido (o `parametro` da regra; o servidor confere a mesma lista). */
+const QUANDO_DO_PONTO = [
+  { v: 0, rotulo: 'no dia seguinte, às 10h' },
+  { v: 30, rotulo: '30 min depois' },
+  { v: 60, rotulo: '1 hora depois' },
+];
 const MODOS_DO_BOLETO: { v: ModoDoBoleto; rotulo: string }[] = [
   { v: 'sozinho', rotulo: 'boleto: sozinho se o código confere' },
   { v: 'perguntar', rotulo: 'boleto: pergunta antes' },
@@ -327,6 +333,22 @@ export function AvisosDoMister() {
                       onChange={(e) => mudar(paraValor({ ...atual, parametro: Number(e.target.value) }))}
                     >
                       {ANTECEDENCIAS_DO_BOLETO.map((x) => (
+                        <option key={x.v} value={x.v}>
+                          {x.rotulo}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {a.tipo === 'ponto_esquecido' && (
+                  <label className="flex items-center gap-1 text-sm">
+                    <span className="sr-only">Quando avisar do ponto esquecido</span>
+                    <select
+                      className="min-h-10 max-w-full rounded-md border border-input bg-background px-2"
+                      value={atual.parametro ?? 0}
+                      onChange={(e) => mudar(paraValor({ ...atual, parametro: Number(e.target.value) }))}
+                    >
+                      {QUANDO_DO_PONTO.map((x) => (
                         <option key={x.v} value={x.v}>
                           {x.rotulo}
                         </option>
