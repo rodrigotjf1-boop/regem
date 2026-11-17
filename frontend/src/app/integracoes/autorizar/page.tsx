@@ -10,6 +10,8 @@ import { AutorizarTela } from '@/components/integracoes/autorizar-tela';
 // aplicativo empurrou, com a senha e uma ligação por loja); sem ele, segue a página de 01/10.
 export const metadata: Metadata = { title: 'Autorizar aplicativo · Regem', robots: { index: false, follow: false } };
 
-export default function AutorizarPage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
-  return searchParams.request_uri ? <AutorizarCliqueTela /> : <AutorizarTela />;
+// No Next 15 o `searchParams` da página chega como promessa.
+export default async function AutorizarPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const pedido = await searchParams;
+  return pedido.request_uri ? <AutorizarCliqueTela /> : <AutorizarTela />;
 }

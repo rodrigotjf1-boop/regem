@@ -20,7 +20,7 @@ function focaveis(painel: HTMLElement): HTMLElement[] {
 // Os painéis abertos, do de baixo para o de cima. O teclado (Esc e Tab) é só do de CIMA: um diálogo aberto de dentro
 // de uma gaveta fecha sozinho com o Esc, e a gaveta continua. As duas escutas ficam no mesmo nó (o `document`), e o
 // `stopPropagation` não impede a outra de rodar — sem a pilha, um Esc fechava os dois.
-const pilha: React.RefObject<HTMLDivElement>[] = [];
+const pilha: React.RefObject<HTMLDivElement | null>[] = [];
 const ouvintesDaPilha = new Set<() => void>();
 const avisarPilha = () => ouvintesDaPilha.forEach((f) => f());
 
