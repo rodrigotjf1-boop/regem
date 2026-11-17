@@ -72,6 +72,16 @@ export async function fotoDoComoFaco(page, id, marcas) {
   // centro dela está dentro da janela E é dela mesma: o item cortado pelo menu ou coberto por outro reprova o roteiro,
   // em vez de virar um contorno em cima do que está na frente.
   for (const m of marcas) await m.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
+  // A tela pode estar se acomodando (o detalhe do pedido chega e muda a altura do bloco de cima, e os botões descem):
+  // medir no meio disso confere um ponto velho e reprova à toa — na rodada de todos os roteiros, com a máquina carregada,
+  // o "FINALIZAR" saiu "coberto". Mede de novo até duas medidas seguidas baterem (no máximo ~1,5 s).
+  let antes = null;
+  for (let tentativa = 0; tentativa < 10; tentativa++) {
+    const agora = JSON.stringify(await Promise.all(marcas.map((m) => m.boundingBox().catch(() => null))));
+    if (agora === antes) break;
+    antes = agora;
+    await page.waitForTimeout(150);
+  }
   const janela = page.viewportSize() ?? { width: 0, height: 0 };
   const caixas = [];
   const achou = [];

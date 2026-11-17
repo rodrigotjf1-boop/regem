@@ -189,23 +189,23 @@ export function FidelidadePanel({ pode }: { pode: boolean }) {
 
             <div className="grid gap-2 sm:grid-cols-2">
               <div>
-                <label className="mb-1 block text-xs text-muted-foreground">Ganha 1 ponto por pedido com…</label>
-                <select aria-label="Qualificador" className="flex h-11 w-full rounded-md border border-input bg-card px-2 text-sm" value={form.qualificadorTipo} onChange={(e) => set({ qualificadorTipo: e.target.value, qualificadorId: '' })} disabled={!pode}>
+                <label htmlFor="fidelidade-qualificador-tipo" className="mb-1 block text-xs text-muted-foreground">Ganha 1 ponto por pedido com…</label>
+                <select id="fidelidade-qualificador-tipo" className="flex h-11 w-full rounded-md border border-input bg-card px-2 text-sm" value={form.qualificadorTipo} onChange={(e) => set({ qualificadorTipo: e.target.value, qualificadorId: '' })} disabled={!pode}>
                   <option value="qualquer">Qualquer pedido</option>
                   <option value="categoria">Item de uma categoria</option>
                   <option value="produto">Um produto específico</option>
                 </select>
               </div>
               {form.qualificadorTipo === 'categoria' && (
-                <div>
-                  <label className="mb-1 block text-xs text-muted-foreground">Categorias (uma ou mais)</label>
+                <div role="group" aria-labelledby="fidelidade-categorias-rotulo">
+                  <label id="fidelidade-categorias-rotulo" className="mb-1 block text-xs text-muted-foreground">Categorias (uma ou mais)</label>
                   <ListaFiltravel itens={categorias} selecionados={form.qualificadorIds} onChange={(ids) => set({ qualificadorIds: ids })} disabled={!pode} placeholder="Filtrar categoria…" />
                 </div>
               )}
               {form.qualificadorTipo === 'produto' && (
                 <div>
-                  <label className="mb-1 block text-xs text-muted-foreground">Produto</label>
-                  <select aria-label="Produto" className="flex h-11 w-full rounded-md border border-input bg-card px-2 text-sm" value={form.qualificadorId} onChange={(e) => set({ qualificadorId: e.target.value })} disabled={!pode}>
+                  <label htmlFor="fidelidade-qualificador-id" className="mb-1 block text-xs text-muted-foreground">Produto</label>
+                  <select id="fidelidade-qualificador-id" className="flex h-11 w-full rounded-md border border-input bg-card px-2 text-sm" value={form.qualificadorId} onChange={(e) => set({ qualificadorId: e.target.value })} disabled={!pode}>
                     <option value="">Selecione…</option>
                     {produtos.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
                   </select>
@@ -215,12 +215,12 @@ export function FidelidadePanel({ pode }: { pode: boolean }) {
 
             <div className="grid gap-2 sm:grid-cols-2">
               <div>
-                <label className="mb-1 block text-xs text-muted-foreground">Pontos para ganhar o prêmio</label>
-                <Input type="number" min={1} value={form.pontosMeta} onChange={(e) => set({ pontosMeta: e.target.value })} disabled={!pode} />
+                <label htmlFor="fidelidade-pontos-meta" className="mb-1 block text-xs text-muted-foreground">Pontos para ganhar o prêmio</label>
+                <Input id="fidelidade-pontos-meta" type="number" min={1} value={form.pontosMeta} onChange={(e) => set({ pontosMeta: e.target.value })} disabled={!pode} />
               </div>
               <div>
-                <label className="mb-1 block text-xs text-muted-foreground">Tipo de prêmio</label>
-                <select aria-label="Recompensa" className="flex h-11 w-full rounded-md border border-input bg-card px-2 text-sm" value={form.recompensaTipo} onChange={(e) => set({ recompensaTipo: e.target.value })} disabled={!pode}>
+                <label htmlFor="fidelidade-recompensa-tipo" className="mb-1 block text-xs text-muted-foreground">Tipo de prêmio</label>
+                <select id="fidelidade-recompensa-tipo" className="flex h-11 w-full rounded-md border border-input bg-card px-2 text-sm" value={form.recompensaTipo} onChange={(e) => set({ recompensaTipo: e.target.value })} disabled={!pode}>
                   <option value="percentual_proximo">% de desconto no próximo pedido</option>
                   <option value="percentual_produtos">% de desconto em produtos selecionados</option>
                   <option value="valor_fixo">R$ fixo no próximo pedido</option>
@@ -230,19 +230,20 @@ export function FidelidadePanel({ pode }: { pode: boolean }) {
 
             <div className="grid gap-2 sm:grid-cols-2">
               <div>
-                <label className="mb-1 block text-xs text-muted-foreground">{form.recompensaTipo === 'valor_fixo' ? 'Valor do desconto' : '% de desconto'}</label>
+                {/* um dos dois campos de cada vez: os dois com o mesmo id, e o rótulo aponta para o que estiver na tela */}
+                <label htmlFor="fidelidade-recompensa-valor" className="mb-1 block text-xs text-muted-foreground">{form.recompensaTipo === 'valor_fixo' ? 'Valor do desconto' : '% de desconto'}</label>
                 {form.recompensaTipo === 'valor_fixo' ? (
-                  <InputMoeda value={form.recompensaValor} onChange={(v) => set({ recompensaValor: v })} disabled={!pode} ariaLabel="Valor do desconto" />
+                  <InputMoeda id="fidelidade-recompensa-valor" value={form.recompensaValor} onChange={(v) => set({ recompensaValor: v })} disabled={!pode} ariaLabel="Valor do desconto" />
                 ) : (
                   <div className="relative">
-                    <Input type="number" className="pr-6" value={form.recompensaValor} onChange={(e) => set({ recompensaValor: e.target.value })} disabled={!pode} />
+                    <Input id="fidelidade-recompensa-valor" type="number" className="pr-6" value={form.recompensaValor} onChange={(e) => set({ recompensaValor: e.target.value })} disabled={!pode} />
                     <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
                   </div>
                 )}
               </div>
               {form.recompensaTipo === 'percentual_produtos' && (
-                <div>
-                  <label className="mb-1 block text-xs text-muted-foreground">Produtos com desconto</label>
+                <div role="group" aria-labelledby="fidelidade-produtos-rotulo">
+                  <label id="fidelidade-produtos-rotulo" className="mb-1 block text-xs text-muted-foreground">Produtos com desconto</label>
                   <ListaFiltravel itens={produtos} selecionados={form.recompensaProdutos} onChange={(ids) => set({ recompensaProdutos: ids })} disabled={!pode} placeholder="Filtrar produto…" />
                 </div>
               )}
@@ -360,12 +361,12 @@ function Participantes({ planos, pode }: { planos: any[]; pode: boolean }) {
           {pode && (
             <div className="flex flex-wrap items-end gap-2 rounded-lg border border-border p-3">
               <div>
-                <label className="mb-1 block text-xs text-muted-foreground">Telefone do cliente</label>
-                <Input className="w-52" placeholder="(DDD) número" value={ajuste.telefone} onChange={(e) => setAjuste((s) => ({ ...s, telefone: e.target.value }))} />
+                <label htmlFor="fidelidade-telefone" className="mb-1 block text-xs text-muted-foreground">Telefone do cliente</label>
+                <Input id="fidelidade-telefone" className="w-52" placeholder="(DDD) número" value={ajuste.telefone} onChange={(e) => setAjuste((s) => ({ ...s, telefone: e.target.value }))} />
               </div>
               <div>
-                <label className="mb-1 block text-xs text-muted-foreground">Pontos (+ adiciona / − retira)</label>
-                <Input className="w-28" type="number" placeholder="ex: 1 ou -1" value={ajuste.delta} onChange={(e) => setAjuste((s) => ({ ...s, delta: e.target.value }))} />
+                <label htmlFor="fidelidade-delta" className="mb-1 block text-xs text-muted-foreground">Pontos (+ adiciona / − retira)</label>
+                <Input id="fidelidade-delta" className="w-28" type="number" placeholder="ex: 1 ou -1" value={ajuste.delta} onChange={(e) => setAjuste((s) => ({ ...s, delta: e.target.value }))} />
               </div>
               <Button type="button" onClick={aplicar}>Aplicar</Button>
             </div>

@@ -210,12 +210,13 @@ export function EventosPanel({ linkCardapio }: { linkCardapio: string }) {
                   <div className="space-y-3 border-t border-border p-3">
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div className="space-y-1">
-                        <Label className="text-xs">Começa quantos dias antes do dia do evento</Label>
-                        <Input type="number" min={0} max={lim.diasAntes} disabled={!pode} value={form.diasAntes} placeholder={`padrão: ${l.periodoPadrao.antes}`} onChange={(e) => setForm({ ...form, diasAntes: e.target.value })} />
+                        {/* os campos do evento aberto: o id leva a chave do evento (a lista tem vários) */}
+                        <Label htmlFor={`evento-${l.chave}-dias-antes`} className="text-xs">Começa quantos dias antes do dia do evento</Label>
+                        <Input id={`evento-${l.chave}-dias-antes`} type="number" min={0} max={lim.diasAntes} disabled={!pode} value={form.diasAntes} placeholder={`padrão: ${l.periodoPadrao.antes}`} onChange={(e) => setForm({ ...form, diasAntes: e.target.value })} />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-xs">Termina quantos dias depois</Label>
-                        <Input type="number" min={0} max={lim.diasDepois} disabled={!pode} value={form.diasDepois} placeholder={`padrão: ${l.periodoPadrao.depois}`} onChange={(e) => setForm({ ...form, diasDepois: e.target.value })} />
+                        <Label htmlFor={`evento-${l.chave}-dias-depois`} className="text-xs">Termina quantos dias depois</Label>
+                        <Input id={`evento-${l.chave}-dias-depois`} type="number" min={0} max={lim.diasDepois} disabled={!pode} value={form.diasDepois} placeholder={`padrão: ${l.periodoPadrao.depois}`} onChange={(e) => setForm({ ...form, diasDepois: e.target.value })} />
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground">
@@ -223,19 +224,19 @@ export function EventosPanel({ linkCardapio }: { linkCardapio: string }) {
                     </p>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div className="space-y-1">
-                        <Label className="text-xs">Título da faixa (até {lim.titulo} caracteres)</Label>
-                        <Input maxLength={lim.titulo} disabled={!pode} value={form.titulo} placeholder="Em branco = título padrão do evento" onChange={(e) => setForm({ ...form, titulo: e.target.value })} />
+                        <Label htmlFor={`evento-${l.chave}-titulo`} className="text-xs">Título da faixa (até {lim.titulo} caracteres)</Label>
+                        <Input id={`evento-${l.chave}-titulo`} maxLength={lim.titulo} disabled={!pode} value={form.titulo} placeholder="Em branco = título padrão do evento" onChange={(e) => setForm({ ...form, titulo: e.target.value })} />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-xs">Texto da faixa (até {lim.texto} caracteres)</Label>
-                        <Input maxLength={lim.texto} disabled={!pode} value={form.texto} placeholder="Em branco = texto padrão do evento" onChange={(e) => setForm({ ...form, texto: e.target.value })} />
+                        <Label htmlFor={`evento-${l.chave}-texto`} className="text-xs">Texto da faixa (até {lim.texto} caracteres)</Label>
+                        <Input id={`evento-${l.chave}-texto`} maxLength={lim.texto} disabled={!pode} value={form.texto} placeholder="Em branco = texto padrão do evento" onChange={(e) => setForm({ ...form, texto: e.target.value })} />
                       </div>
                     </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">
+                    <div className="space-y-1" role="group" aria-labelledby={`evento-${l.chave}-colecao-rotulo`}>
+                      <Label id={`evento-${l.chave}-colecao-rotulo`} className="text-xs">
                         Produtos da coleção do evento ({form.colecao.length} de {lim.colecao})
                       </Label>
-                      <Input placeholder="Filtrar produtos…" value={filtro} onChange={(e) => setFiltro(e.target.value)} disabled={!pode} />
+                      <Input aria-label="Filtrar os produtos da coleção" placeholder="Filtrar produtos…" value={filtro} onChange={(e) => setFiltro(e.target.value)} disabled={!pode} />
                       <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border border-input p-2">
                         {produtosFiltrados.map((p) => {
                           const marcado = form.colecao.includes(p.id);
@@ -258,8 +259,9 @@ export function EventosPanel({ linkCardapio }: { linkCardapio: string }) {
                     </div>
                     {l.temJogo && (
                       <div className="space-y-1">
-                        <Label className="text-xs">Cupom do mini-jogo ({l.chave === 'pascoa' ? 'caça aos ovos' : 'gostosuras ou travessuras'})</Label>
+                        <Label htmlFor={`evento-${l.chave}-cupom-jogo`} className="text-xs">Cupom do mini-jogo ({l.chave === 'pascoa' ? 'caça aos ovos' : 'gostosuras ou travessuras'})</Label>
                         <select
+                          id={`evento-${l.chave}-cupom-jogo`}
                           aria-label="Cupom do mini-jogo"
                           disabled={!pode}
                           value={form.cupomJogo}

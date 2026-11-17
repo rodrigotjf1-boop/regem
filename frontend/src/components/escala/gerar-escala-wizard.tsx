@@ -203,8 +203,8 @@ export function GerarEscalaWizard({
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <Label className="text-xs">Colaborador</Label>
-            <select aria-label="Colaborador" className={selectCls} value={colaboradorId} onChange={(e) => escolherColab(e.target.value)}>
+            <Label htmlFor="gerar-escala-colaborador-id" className="text-xs">Colaborador</Label>
+            <select id="gerar-escala-colaborador-id" className={selectCls} value={colaboradorId} onChange={(e) => escolherColab(e.target.value)}>
               <option value="">— escolher —</option>
               {colabsElegiveis.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
             </select>
@@ -213,8 +213,8 @@ export function GerarEscalaWizard({
             )}
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs">Vaga (etiqueta)</Label>
-            <select aria-label="Vaga (etiqueta)" className={selectCls} value={etiquetaId} onChange={(e) => escolherEtiqueta(e.target.value)}>
+            <Label htmlFor="gerar-escala-etiqueta-id" className="text-xs">Vaga (etiqueta)</Label>
+            <select id="gerar-escala-etiqueta-id" className={selectCls} value={etiquetaId} onChange={(e) => escolherEtiqueta(e.target.value)}>
               <option value="">— escolher —</option>
               {etiquetas.map((et) => <option key={et.id} value={et.id}>{et.sigla}{et.setorNome ? ` · ${et.setorNome}` : ''}</option>)}
             </select>
@@ -222,20 +222,20 @@ export function GerarEscalaWizard({
         </div>
 
         <div className="space-y-1.5">
-          <Label className="text-xs">Tipo de escala</Label>
-          <select aria-label="Tipo de escala" className={selectCls} value={jornadaTipo} onChange={(e) => trocarTipo(e.target.value)}>
+          <Label htmlFor="gerar-escala-jornada-tipo" className="text-xs">Tipo de escala</Label>
+          <select id="gerar-escala-jornada-tipo" className={selectCls} value={jornadaTipo} onChange={(e) => trocarTipo(e.target.value)}>
             {JORNADAS.filter((j) => j.value !== 'outro').map((j) => <option key={j.value} value={j.value}>{j.label}</option>)}
           </select>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <Label className="text-xs">Entrada</Label>
-            <Input type="time" value={horaInicio} onChange={(e) => setHoraInicio(e.target.value)} />
+            <Label htmlFor="gerar-escala-hora-inicio" className="text-xs">Entrada</Label>
+            <Input id="gerar-escala-hora-inicio" type="time" value={horaInicio} onChange={(e) => setHoraInicio(e.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs">Saída</Label>
-            <Input type="time" value={horaFim} onChange={(e) => setHoraFim(e.target.value)} />
+            <Label htmlFor="gerar-escala-hora-fim" className="text-xs">Saída</Label>
+            <Input id="gerar-escala-hora-fim" type="time" value={horaFim} onChange={(e) => setHoraFim(e.target.value)} />
           </div>
         </div>
 
@@ -251,8 +251,8 @@ export function GerarEscalaWizard({
         </div>
 
         {perguntaFolga ? (
-          <div className="space-y-1.5">
-            <Label className="text-xs">
+          <div className="space-y-1.5" role="group" aria-labelledby="gerar-escala-folgas-rotulo">
+            <Label id="gerar-escala-folgas-rotulo" className="text-xs">
               Dias de folga na semana{need !== null ? ` (${need})` : ''}
               {!recorrente && <span className="ml-1 text-muted-foreground">· usados na recorrência</span>}
             </Label>
@@ -275,12 +275,12 @@ export function GerarEscalaWizard({
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <Label className="text-xs">{recorrente ? 'Início' : 'Dia'}</Label>
-            <Input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} />
+            <Label htmlFor="gerar-escala-data-inicio" className="text-xs">{recorrente ? 'Início' : 'Dia'}</Label>
+            <Input id="gerar-escala-data-inicio" type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs">Recorrência</Label>
-            <select aria-label="Recorrência" className={selectCls} value={periodo} onChange={(e) => setPeriodo(e.target.value)}>
+            <Label htmlFor="gerar-escala-periodo" className="text-xs">Recorrência</Label>
+            <select id="gerar-escala-periodo" className={selectCls} value={periodo} onChange={(e) => setPeriodo(e.target.value)}>
               {PERIODOS.map((p) => <option key={p.v} value={p.v}>{p.l}</option>)}
             </select>
           </div>
