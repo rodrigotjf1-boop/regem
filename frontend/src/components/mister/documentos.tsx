@@ -63,6 +63,16 @@ const MOTIVO: Record<string, string> = {
   fornecedor_novo: 'o beneficiário ainda não é seu fornecedor',
   modo: 'sua empresa pede para conferir antes',
   informado: 'completado com o que você disse na conversa',
+  // A nota do fornecedor (M3b).
+  itens_nao_somam: 'os itens lidos não somam o total da nota',
+  duplicatas_nao_somam: 'as parcelas lidas não somam o total da nota',
+  chave_de_outro_emitente: 'a chave de acesso não é do emitente da nota',
+  sem_itens: 'não deu para ler os itens',
+  sem_total: 'não deu para ler o total da nota',
+  cancelado: 'você cancelou na conversa',
+  item: 'esperando você dizer a que insumo vai um item',
+  fator: 'esperando a conversão de unidade de um item',
+  itens_ligados: 'cada item ligado a um insumo do estoque',
 };
 const ORIGEM: Record<Exclude<Origem, null>, string> = { codigo: 'código', ia: 'IA', pessoa: 'conversa' };
 
@@ -77,7 +87,9 @@ const quando = (iso: string) => {
 };
 const nomeDoDocumento = (d: Documento) => `${d.tipo === 'conta' ? 'Conta' : d.tipo === 'nota' ? 'Nota' : d.tipo === 'outro' ? 'Imagem' : 'Boleto'} · ${d.beneficiario ?? 'sem nome lido'}`;
 const comoFoiLido = (d: Documento) => {
-  if (d.situacao === 'recusado' || d.situacao === 'falta') return d.motivo ? (MOTIVO[d.motivo.split(',')[0]] ?? 'não deu para ler tudo') : 'não deu para ler tudo';
+  // O motivo da nota vem como "item:2" ou "fator:1" (qual item espera a resposta): vale a parte antes dos dois-pontos.
+  if (d.situacao === 'recusado' || d.situacao === 'falta') return d.motivo ? (MOTIVO[d.motivo.split(/[,:]/)[0]] ?? 'não deu para ler tudo') : 'não deu para ler tudo';
+  if (d.tipo === 'nota') return d.situacao === 'confirmar' ? 'esperando o "Lançar" na conversa' : 'entrou em Estoque › Recebimento e nas contas a pagar';
   if (d.origem.valor === 'pessoa' || d.origem.vencimento === 'pessoa') return 'valor ou vencimento ditos na conversa';
   if (d.origem.valor === 'codigo' && d.origem.vencimento === 'codigo') return 'lido pelo código de barras';
   if (d.origem.valor === 'codigo') return 'o valor pelo código de barras; o vencimento, da foto';
@@ -234,7 +246,7 @@ function GavetaDoDocumento({ d, aoFechar, aoDesfazer }: { d: Documento; aoFechar
   const [abrindoPdf, setAbrindoPdf] = useState(false);
   const [erroDoPdf, setErroDoPdf] = useState('');
   // O PDF (M3a parte 4b) é do boleto lançado: o lançado, o pago e o da conta cancelada na tela (o desfeito, não).
-  const temPdf = !!d.tituloId && (d.situacao === 'lancado' || d.situacao === 'pago' || d.situacao === 'cancelado');
+  const temPdf = d.tipo !== 'nota' && !!d.tituloId && (d.situacao === 'lancado' || d.situacao === 'pago' || d.situacao === 'cancelado');
   async function verPdf() {
     setAbrindoPdf(true);
     setErroDoPdf('');
@@ -298,7 +310,8 @@ function GavetaDoDocumento({ d, aoFechar, aoDesfazer }: { d: Documento; aoFechar
         {d.motivo && (
           <li>
             {d.situacao === 'lancado' || d.situacao === 'pago' || d.situacao === 'desfeito' || d.situacao === 'cancelado' ? 'Antes de lançar: ' : ''}
-            {MOTIVO[d.motivo.split(',')[0]] ?? (d.motivo === 'sozinho' ? 'o código conferiu e o fornecedor já é cadastrado' : d.motivo)}
+            {MOTIVO[d.motivo.split(/[,:]/)[0]] ??
+              (d.motivo === 'sozinho' ? 'o código conferiu e o fornecedor já é cadastrado' : d.motivo)}
           </li>
         )}
         {d.respondidoEm && (

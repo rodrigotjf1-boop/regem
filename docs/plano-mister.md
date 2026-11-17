@@ -987,6 +987,14 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
 - **Falta da M3a:** só o Pix que vem apenas em QR (sem o texto impresso) — ler QR sem IA pede uma biblioteca nova de imagem
   no backend; decisão do dono.
 
+**Andamento da M3b (17/11/2026):**
+- **Parte 1 — #1101, no ar (sem migration):** `common/nota-por-foto.ts` — a chave da NF-e pelo dígito, a leitura do DANFE,
+  a conferência dos totais e a sugestão do insumo.
+- **Parte 2 (mig 441 `mister_de_para`, aplicada; nasce desligado por `MISTER_NOTAS=1`):** a conversa (cada item a um
+  insumo, a memória do fornecedor, "Cadastrar novo", "Fora do estoque", o fator perguntado), o resumo e o "Lançar" pelo
+  recebimento da tela e pelas contas por parcela.
+- **Falta (parte 3):** a mudança do custo na resposta e a nota com os itens na gaveta da parte "Documentos".
+
 ## 5. O que depende do dono
 
 1. ~~Onde a IA roda~~ — decidido: nuvem.

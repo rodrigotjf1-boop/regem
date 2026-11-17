@@ -191,8 +191,24 @@ export function palavrasDaDescricao(s: unknown): string[] {
     .toLowerCase()
     .replace(/(\d+)[,.](\d+)/g, '$1.$2')
     .replace(/(\d+(?:\.\d+)?)\s*(kg|gr|g|ml|l|un)\b/g, (_m, n, u) => ` ${n}${u === 'gr' ? 'g' : u} `);
-  return [...new Set(t.split(/[^a-z0-9.]+/).filter((w) => w && !PALAVRAS_VAZIAS.has(w) && !/^\.+$/.test(w)))];
+  return [...new Set(t.split(/[^a-z0-9.]+/).filter((w) => w && !PALAVRAS_VAZIAS.has(w) && !/^\.+$/.test(w)).map((w) => SINONIMOS[w] ?? w))];
 }
+/**
+ * Os nomes que o fornecedor e a loja dão à MESMA coisa no ramo de lanches ("BLEND BOVINO 56G" na nota é a "Carne 56 g"
+ * do estoque). A lista é curta de propósito: a sugestão é só sugestão (a pessoa confirma), e a medida continua separando.
+ */
+const SINONIMOS: Record<string, string> = {
+  blend: 'carne',
+  bovino: 'carne',
+  bovina: 'carne',
+  hamburguer: 'carne',
+  hamburger: 'carne',
+  burger: 'carne',
+  mucarela: 'mussarela',
+  muzzarela: 'mussarela',
+  mozarela: 'mussarela',
+  mozzarella: 'mussarela',
+};
 const ehMedida = (w: string) => /^\d+(\.\d+)?(kg|g|ml|l|un)$/.test(w);
 
 export interface InsumoParaSugerir {
@@ -229,3 +245,95 @@ export function sugerirInsumos(descricao: string, insumos: InsumoParaSugerir[]):
   }
   return fora.sort((x, y) => y.nota - x.nota || x.nome.localeCompare(y.nome)).slice(0, 3);
 }
+
+// ───────────────────────────── a nota na conversa (M3b parte 2) ─────────────────────────────
+
+/**
+ * Um item da nota no Mister: o que a nota diz e a que insumo do estoque ele vai.
+ *   ligado — o insumo e o fator (quantas unidades de estoque vale 1 unidade da nota) estão certos;
+ *   fora   — não entra no estoque (material de limpeza, frete): só na conta a pagar;
+ *   item   — falta escolher o insumo (a pergunta com a sugestão);
+ *   fator  — o insumo está escolhido, mas a unidade da nota não chega à do estoque ("1 CX tem quantos kg?").
+ */
+export interface ItemNoMister extends ItemDaNota {
+  insumoId: string | null;
+  insumoNome: string | null;
+  unidadeDoEstoque: string | null;
+  fator: number | null;
+  estado: 'ligado' | 'fora' | 'item' | 'fator';
+  sugestoes: { id: string; nome: string }[];
+}
+
+export interface NotaNoMister {
+  chave: string | null;
+  numero: string | null;
+  emitenteNome: string | null;
+  emitenteCnpj: string | null;
+  valorTotalCentavos: number;
+  duplicatas: { vencimento: string; valorCentavos: number }[];
+  itens: ItemNoMister[];
+}
+
+/** A próxima pergunta da nota (na ordem dos itens), ou null quando tudo está resolvido. */
+export function proximaPendencia(n: Pick<NotaNoMister, 'itens'>): { indice: number; tipo: 'item' | 'fator' } | null {
+  const i = n.itens.findIndex((x) => x.estado === 'item' || x.estado === 'fator');
+  return i < 0 ? null : { indice: i, tipo: n.itens[i].estado as 'item' | 'fator' };
+}
+
+/**
+ * A chave da memória "este produto deste fornecedor é tal insumo" (o de-para): pelo código do fornecedor quando há; sem
+ * código, pelas palavras da descrição (a mesma normalização da sugestão).
+ */
+export function chaveDoDePara(item: Pick<ItemDaNota, 'codigo' | 'descricao'>): string {
+  const cod = String(item.codigo ?? '').trim().toLowerCase();
+  return cod ? `cod:${cod}`.slice(0, 80) : `desc:${palavrasDaDescricao(item.descricao).join(' ')}`.slice(0, 120);
+}
+
+/** "40" / "2,5" / "1.5" → número positivo (a resposta ao "1 CX tem quantos kg?"); fora disso, null. */
+export function fatorDoTexto(texto: unknown): number | null {
+  const m = /(\d+(?:[.,]\d+)?)/.exec(String(texto ?? ''));
+  if (!m) return null;
+  const n = Number(m[1].replace(',', '.'));
+  return Number.isFinite(n) && n > 0 && n < 100000 ? n : null;
+}
+
+const reaisDe = (c: number) => (c / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const qtd = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+const dataCurta = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+
+export const FRASES_DA_NOTA = {
+  problema: (p: ProblemaDaNota[]): string =>
+    p.includes('chave_de_outro_emitente')
+      ? 'A chave de acesso desta nota não é do emitente que aparece nela. Confira se é a nota certa e mande outra foto.'
+      : p.includes('itens_nao_somam')
+        ? 'Os itens que consegui ler não somam o total da nota: alguma linha ficou de fora. Manda outra foto com a lista de produtos inteira, de perto e com luz.'
+        : p.includes('duplicatas_nao_somam')
+          ? 'As parcelas que li não somam o total da nota. Manda outra foto com a parte da fatura (as duplicatas) bem visível.'
+          : 'Não consegui ler a nota inteira: a foto ficou tremida, cortada ou escura. Manda outra foto com a nota inteira, de perto e com luz.',
+  cabecalho: (n: Pick<NotaNoMister, 'numero' | 'emitenteNome' | 'valorTotalCentavos'>): string =>
+    `🧾 Nota ${n.numero ?? 's/n'} · ${n.emitenteNome ?? 'fornecedor'} · R$ ${reaisDe(n.valorTotalCentavos)}`,
+  perguntaItem: (it: ItemNoMister): string => {
+    const quanto = `${qtd(it.quantidade)} ${it.unidade ?? ''}`.trim();
+    return it.sugestoes.length
+      ? `O "${it.descricao}" (${quanto}) é o "${it.sugestoes[0].nome}" que já existe, ou cadastro um novo?`
+      : `Não achei o "${it.descricao}" (${quanto}) no seu estoque. Cadastro um novo, ou ele não entra no estoque?`;
+  },
+  perguntaFator: (it: ItemNoMister): string =>
+    `Na nota, o "${it.descricao}" vem em ${it.unidade ?? 'unidade'}, e o "${it.insumoNome}" do estoque é contado em ${it.unidadeDoEstoque}. ` +
+    `1 ${it.unidade ?? 'unidade'} tem quantos ${it.unidadeDoEstoque}? Responda só o número.`,
+  /** O resumo antes de lançar (conversa 12): cada item, para onde vai, e a pergunta. */
+  resumo: (n: NotaNoMister): string => {
+    const linhas = n.itens.map((it) => {
+      const quanto = `${qtd(it.quantidade)} ${it.unidade ?? ''}`.trim();
+      if (it.estado === 'fora') return `• ${it.descricao}, ${quanto} → fora do estoque`;
+      const noEstoque = it.fator != null && it.fator !== 1 ? ` (${qtd(it.quantidade * it.fator)} ${it.unidadeDoEstoque})` : '';
+      return `• ${it.descricao}, ${quanto} → ${it.insumoNome}${noEstoque}`;
+    });
+    const pagamento = n.duplicatas.length
+      ? `Pagamento: ${n.duplicatas.map((d) => `R$ ${reaisDe(d.valorCentavos)} para ${dataCurta(d.vencimento)}`).join('; ')}.`
+      : 'Sem parcelas na nota: a conta a pagar entra sem vencimento.';
+    return `${FRASES_DA_NOTA.cabecalho(n)}\n${linhas.join('\n')}\n\n${pagamento}\n\nLanço a entrada no estoque e a conta a pagar de R$ ${reaisDe(n.valorTotalCentavos)}?`;
+  },
+  lancada: (n: NotaNoMister, contas: number): string =>
+    `Lancei em Estoque › Recebimento e nas contas a pagar${contas > 1 ? ` (${contas} parcelas)` : ''}: ${n.itens.filter((x) => x.estado === 'ligado').length} itens no estoque.`,
+} as const;

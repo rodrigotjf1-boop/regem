@@ -175,12 +175,15 @@ export class RecebimentoService {
   }
 
   // Confirma: lança as entradas no ledger, cria lotes (se validade) e fecha.
+  // `semConta` (M3b, a nota do fornecedor pelo Mister): não cria a conta a pagar pela soma dos itens do estoque — quem
+  // chama cria as contas pelo TOTAL da nota, uma por parcela (a nota tem item fora do estoque, frete e mais de uma parcela).
   async confirmar(
     tenantId: string,
     atorId: string,
     atorPerfil: string,
     id: string,
     atual: string | null = null,
+    opcoes: { semConta?: boolean } = {},
   ) {
     const res = await this.db.transaction(async (tx) => {
       // TRAVA a linha antes de ler o status. Sem `for update` isto é check-then-act:
@@ -250,7 +253,7 @@ export class RecebimentoService {
       }
 
       // Contas a pagar nascem do recebimento (fornecedor + valor).
-      if (rec.fornecedorId && valorTotal > 0) {
+      if (!opcoes.semConta && rec.fornecedorId && valorTotal > 0) {
         await tx.insert(tituloFinanceiro).values({
           tenantId,
           unidadeId: rec.unidadeId,

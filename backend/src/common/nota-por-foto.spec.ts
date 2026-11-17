@@ -91,14 +91,17 @@ describe('a sugestão do insumo de cada item', () => {
     { id: 'bac', nome: 'Bacon em tiras' },
     { id: 'pao', nome: 'Pão brioche' },
   ];
-  it('as palavras: minúsculas, sem acento, a medida num token só', () => {
-    expect(palavrasDaDescricao('BLEND BOVINO 56 G')).toEqual(['blend', 'bovino', '56g']);
+  it('as palavras: minúsculas, sem acento, a medida num token só, os sinônimos do ramo num nome só', () => {
+    expect(palavrasDaDescricao('BLEND BOVINO 56 G')).toEqual(['carne', '56g']);
     expect(palavrasDaDescricao('Queijo 1,5 kg')).toEqual(['queijo', '1.5kg']);
     expect(palavrasDaDescricao('Pão de Açúcar 120gr')).toEqual(['pao', 'acucar', '120g']);
+    expect(palavrasDaDescricao('QUEIJO MUÇARELA')).toEqual(['queijo', 'mussarela']);
   });
-  it('a medida separa: a de 56 g vai para a carne de 56 g, nunca para a de 120 g', () => {
+  it('a medida separa: a de 56 g vai para a carne de 56 g, nunca para a de 120 g (o "blend" da nota é a carne do estoque)', () => {
     expect(sugerirInsumos('BLEND BOVINO 56G', INSUMOS).map((x) => x.id)).toEqual(['c56']);
     expect(sugerirInsumos('CARNE BOVINA 120G', INSUMOS).map((x) => x.id)).toEqual(['c120']);
+    // Sem o nome comercial: o "blend" ainda chega à carne de 56 g.
+    expect(sugerirInsumos('BLEND 56G', [{ id: 'c56', nome: 'Carne 56 g' }, { id: 'c120', nome: 'Carne 120 g' }]).map((x) => x.id)).toEqual(['c56']);
   });
   it('o bacon fatiado sugere o bacon em tiras (a pessoa confirma); o que não tem nada em comum, nada', () => {
     expect(sugerirInsumos('BACON FATIADO', INSUMOS).map((x) => x.id)).toEqual(['bac']);

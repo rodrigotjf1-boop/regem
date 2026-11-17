@@ -156,6 +156,8 @@ const DOCUMENTOS = () => [
   doc({ id: 'd4', beneficiario: 'Light Serviços de Eletricidade S.A. — Unidade Consumidora 4102938475', fornecedor: null, valorCentavos: 31240, vencimento: '2026-12-02', situacao: 'confirmar', motivo: 'conta', origem: { valor: 'codigo', vencimento: 'ia' }, linhaDigitavel: '83640000004-5 80000123456-9 78901234567-2 89012345678-6', respondidoEm: null, tituloId: null, podeDesfazer: false }),
   doc({ id: 'd5', beneficiario: 'Embalagens Rio', fornecedor: 'Embalagens Rio', valorCentavos: 89000, vencimento: '2026-11-12', situacao: 'pago', tituloId: 't5', podeDesfazer: false }),
   doc({ id: 'd6', beneficiario: 'Distribuidora Sabor Ltda.', situacao: 'recusado', motivo: 'codigo_nao_confere', valorCentavos: null, vencimento: null, origem: { valor: null, vencimento: null }, linhaDigitavel: null, respondidoEm: null, tituloId: null, podeDesfazer: false }),
+  // M3b: a nota do fornecedor lançada (entrou pelo recebimento: sem "Desfazer" e sem o PDF do boleto).
+  doc({ id: 'd7', tipo: 'nota', beneficiario: 'Frigorífico Boa Carne', fornecedor: 'Frigorífico Boa Carne', valorCentavos: 264000, vencimento: '2026-12-16', motivo: 'itens_ligados', origem: { valor: null, vencimento: null }, linhaDigitavel: null, tituloId: 't7', podeDesfazer: false }),
 ];
 
 const medir = (page) =>
@@ -979,7 +981,8 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     await page.waitForSelector('#documentos-mister', { timeout: 20000 });
     await page.locator('text=Gás Rio >> visible=true').first().waitFor();
     const t = await page.locator('main').innerText();
-    ok(/Documentos lidos/.test(t) && /6 documentos/.test(t), 'documentos: o título com a contagem');
+    ok(/Documentos lidos/.test(t) && /7 documentos/.test(t), 'documentos: o título com a contagem');
+    ok(/Nota · Frigorífico Boa Carne/.test(t) && /entrou em Estoque › Recebimento e nas contas a pagar/.test(t), 'documentos: a nota do fornecedor (M3b) com o que aconteceu');
     ok(S.diasDosDocumentos[0] === '30', `documentos: lê os últimos 30 dias (${S.diasDosDocumentos.join(',')})`);
     ok(['Lançados', 'Falta informação', 'A conferir', 'Pagos', 'Não lançados'].every((s) => t.includes(s)), 'documentos: as cinco situações');
     ok(/lido pelo código de barras/.test(t) && /valor ou vencimento ditos na conversa/.test(t) && /os números da linha não conferiram/.test(t), 'documentos: como cada um foi lido (código, conversa, a recusa com o motivo)');
@@ -1025,6 +1028,17 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     await page.waitForSelector('[role="dialog"]', { state: 'detached' });
     await page.locator('text=desfeito >> visible=true').first().waitFor();
     ok(true, 'desfazer: a lista é lida de novo e mostra "desfeito"');
+    // A nota do fornecedor (M3b): a gaveta sem "Desfazer" e sem o PDF do boleto (o que mudar é no Recebimento).
+    await page.locator('button[aria-label="Ver: Nota · Frigorífico Boa Carne"] >> visible=true').first().click();
+    const gn = page.locator('[role="dialog"]');
+    await gn.waitFor();
+    ok(
+      (await gn.locator('button:has-text("Ver o PDF")').count()) === 0 && (await gn.locator('button:has-text("Desfazer o lançamento")').count()) === 0,
+      'nota: a gaveta sem "Ver o PDF" e sem "Desfazer"',
+    );
+    const tgn = await gn.innerText();
+    ok(/cada item ligado a um insumo do estoque/.test(tgn), `nota: a gaveta diz o que aconteceu antes de lançar (${tgn.replace(/\s+/g, ' ').slice(0, 300)})`);
+    await page.keyboard.press('Escape');
     ok(erros.length === 0, `documentos: sem erro (${erros.join(' | ')})`);
     await ctx.close();
   }

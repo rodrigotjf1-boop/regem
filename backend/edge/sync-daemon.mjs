@@ -2505,6 +2505,8 @@ const SO_NUVEM = new Set([
   'mister_documento',
   // Os ajustes da conversa do Mister por empresa (mig 440, @cloud-only): ligar a leitura de documentos e o modo do boleto.
   'mister_conversa_config',
+  // O de-para dos produtos da nota do fornecedor para os insumos (mig 441, @cloud-only): a memória da nota por foto.
+  'mister_de_para',
 ]);
 
 // LEGADO SEM USO: tabelas criadas nas migrations de fundação (002/003) para recursos que
