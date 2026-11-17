@@ -12,6 +12,7 @@ import { uuid } from '@/lib/uuid';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { ServidorStatus } from '@/components/ui/servidor-status';
+import { TotemAPagarIcone } from '@/components/pdv/totem-a-pagar-icone';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { InputMoeda } from '@/components/ui/input-moeda';
@@ -507,6 +508,8 @@ export default function PdvPage() {
           <h1 className="font-display text-lg font-bold">Balcão</h1>
           {carregado && <CaixaPanel caixa={caixa} onChange={reloadCaixa} embedded />}
           <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+            {/* O Balcão não tem o topo do Shell: o ícone do totem em dinheiro a pagar vem aqui (sem permissão, some). */}
+            <TotemAPagarIcone />
             <ServidorStatus />
             <BuscarCupom />
           </div>
