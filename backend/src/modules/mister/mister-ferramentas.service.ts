@@ -47,7 +47,9 @@ import { MisterLinkPublicoService } from './mister-link-publico.service';
 import { TEXTOS_DO_LINK_PUBLICO, VALIDADE_DO_LINK_DIAS, diaMesDe } from './mister-link-publico';
 import { MisterRecadosService } from './mister-recados.service';
 import { TEXTOS_DO_RECADO, VALIDADE_DO_RECADO_MIN, botaoDoRecado, ondeVai, textoDoRecado } from './mister-recado';
-import { dentroDaJanelaDoWhatsapp } from './mister-avisos.regras';
+import { ONDE_VER_O_GASTO, dentroDaJanelaDoWhatsapp, nomeDoMesDoGasto } from './mister-avisos.regras';
+import { WhatsappGastoService } from '../whatsapp/whatsapp-gasto.service';
+import { FRANQUIA_DO_ATENDIMENTO, FRASE_DO_ESTIMADO, LinhaSomada, mesesAntes, primeiroDoMes, projecaoDoMes, resumoDasLinhas, ultimoDoMes } from '../whatsapp/whatsapp-gasto';
 import { ASSUNTOS_DO_LINK, AssuntoDoLink, TELA_DO_ASSUNTO, acharPessoa, enderecoDoApp, mensagemDoLink, resumoDaContagem } from './link-de-conferencia';
 import { MisterPropostasService, PropostaPendente } from './mister-propostas.service';
 import { PROCEDIMENTOS, propostaDoAviso } from './mister-procedimentos';
@@ -482,6 +484,86 @@ export class MisterFerramentasService {
         return this.cancelarLinks(e);
       case 'escrever_recado':
         return this.escreverRecado(e, en, loja);
+      case 'gasto_do_whatsapp':
+        return this.gastoDoWhatsapp(e);
+    }
+  }
+
+  /**
+   * "Quanto gastei de WhatsApp?" (G3 do protótipo `mockups/regem-whatsapp-gasto.html`, conversa 4): o gasto do mês na Meta,
+   * do que a nuvem guardou lendo a Meta (mig 445) — os mesmos números de WhatsApp › Uso e gasto. Só o presidente (decisão 2:
+   * é o dinheiro da empresa). Banco sem a 445: "não li".
+   */
+  private async gastoDoWhatsapp(e: EscopoDoMister): Promise<ResultadoDaFerramenta> {
+    if (e.nivel !== 'presidente') return recusa('O gasto do WhatsApp oficial é do presidente: só ele vê.');
+    const agora = new Date();
+    const hoje = hojeISO();
+    try {
+      // Quem tem leitura do gasto usa a API oficial (a nuvem só lê as contas oficiais). Sem nenhuma leitura: a conexão por
+      // QR Code, ou a primeira leitura que ainda não aconteceu (os números da API oficial dizem qual).
+      const [lei] = linhas(
+        await this.db.execute(sql`
+          select count(*)::int as contas, to_char(max(lido_em) at time zone ${FUSO_SQL}, 'DD/MM HH24:MI') as lido, max(moeda) as moeda,
+                 bool_or(fonte_do_custo = 'tabela') as estimado, max(erro) as erro
+            from whatsapp_gasto_leitura where tenant_id = ${e.tenantId}::uuid`),
+      );
+      if (!Number(lei?.contas)) {
+        let oficial = false;
+        try {
+          oficial = linhas(await this.db.execute(sql`select 1 as tem from (${WhatsappGastoService.sqlContas(e.tenantId)}) x limit 1`)).length > 0;
+        } catch (err: any) {
+          if (!semTabela(err)) throw err;
+        }
+        return oficial
+          ? { ok: true, dados: { oficial: true, lido: false, explica: 'A primeira leitura do gasto na Meta ainda não aconteceu: o Regem lê a cada 30 minutos.' } }
+          : { ok: true, dados: { oficial: false, explica: 'A loja usa a conexão por QR Code: a Meta não cobra por mensagem, então não há gasto para mostrar.' } };
+      }
+      if (!lei.lido)
+        return { ok: true, dados: { oficial: true, lido: false, explica: 'A leitura do gasto na Meta ainda não deu certo: o Regem tenta de novo a cada 30 minutos.' } };
+      const doMes = linhas(
+        await this.db.execute(sql`
+          select numero, ${hoje}::text as dia, categoria, tipo, sum(mensagens)::int as mensagens, sum(custo)::float8 as custo
+            from whatsapp_gasto
+           where tenant_id = ${e.tenantId}::uuid and dia >= ${primeiroDoMes(hoje)}::date and dia <= ${hoje}::date
+           group by 1, 3, 4`),
+      ) as LinhaSomada[];
+      // O mesmo dia do mês passado (o dia 31 vira o último dia de um mês mais curto).
+      const anterior = mesesAntes(hoje, 1);
+      const mesmoDia = [somarDias(anterior, Number(hoje.slice(8, 10)) - 1), ultimoDoMes(anterior)].sort()[0];
+      const [passado] = linhas(
+        await this.db.execute(sql`
+          select coalesce(sum(custo), 0)::float8 as custo from whatsapp_gasto
+           where tenant_id = ${e.tenantId}::uuid and dia >= ${anterior}::date and dia <= ${mesmoDia}::date`),
+      );
+      const r = resumoDasLinhas(doMes, { tipo: 'mes', de: primeiroDoMes(hoje), ate: hoje, mesCorrente: true });
+      // Valor em NÚMERO, não em texto: o filtro de saída só reconhece como origem o valor em número (as outras consultas
+      // devolvem assim, e o modelo escreve o "R$"). Texto pronto marcava "valor sem origem" em toda resposta do gasto.
+      const reais = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+      const NOME: Record<string, string> = { marketing: 'marketing', utilidade: 'avisos do pedido (utilidade)', atendimento: 'atendimento', autenticacao: 'autenticação', outros: 'outros' };
+      const porNumero = new Map<string, number>();
+      for (const l of doMes) if (l.categoria === 'SERVICE') porNumero.set(String(l.numero).slice(-4), (porNumero.get(String(l.numero).slice(-4)) ?? 0) + (Number(l.mensagens) || 0));
+      const projecao = projecaoDoMes(r.total.custo, agora);
+      return {
+        ok: true,
+        dados: {
+          oficial: true,
+          mes: `${nomeDoMesDoGasto(hoje.slice(0, 7))} de ${hoje.slice(0, 4)}`,
+          moeda: lei.moeda ?? 'BRL',
+          ateAgora: reais(r.total.custo),
+          lidoAs: String(lei.lido),
+          mensagensEntregues: r.total.mensagens,
+          mensagensCobradas: r.total.cobradas,
+          porTipo: r.tipos.filter((t) => t.mensagens > 0).map((t) => ({ tipo: NOME[t.grupo], gasto: reais(t.custo), mensagens: t.mensagens, gratis: t.gratis })),
+          atendimentoGratis: [...porNumero].map(([final, usadas]) => ({ numeroFinal: final, usadas, de: FRANQUIA_DO_ATENDIMENTO, acabou: usadas >= FRANQUIA_DO_ATENDIMENTO })),
+          projecaoDoMes: projecao !== null ? reais(Math.round(projecao)) : null,
+          ateOMesmoDiaDoMesPassado: reais(Number(passado?.custo) || 0),
+          onde: ONDE_VER_O_GASTO,
+          aviso: lei.estimado ? FRASE_DO_ESTIMADO : 'Valores aproximados que a Meta informa; a fatura oficial é a da Meta.',
+        },
+      };
+    } catch (err: any) {
+      if (semTabela(err)) return recusa('Não consegui ler este dado agora.');
+      throw err;
     }
   }
 

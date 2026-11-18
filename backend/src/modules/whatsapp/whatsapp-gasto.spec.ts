@@ -1,4 +1,12 @@
 import {
+  FRASE_DO_ESTIMADO,
+  custoEstimado,
+  custoNaoMostrado,
+  precoPublicado,
+  PRECO_PUBLICADO_BRL,
+  estimativaDaCampanha,
+  grupoDaCampanha,
+  precoPorMensagem,
   FRANQUIA_DO_ATENDIMENTO,
   MINUTOS_DA_VOLTA,
   MINUTOS_ENTRE_LEITURAS,
@@ -35,6 +43,55 @@ describe('gasto do WhatsApp oficial — regras puras', () => {
     const servico = readFileSync(join(__dirname, 'whatsapp-gasto.service.ts'), 'utf8');
     expect(servico).toContain('@Interval(MINUTOS_DA_VOLTA * 60_000)');
     expect(servico).not.toContain('@Interval(MINUTOS_ENTRE_LEITURAS');
+  });
+
+  it('a conta cobrada por meio de um parceiro: a recusa do custo pela Meta e o custo estimado pelo preço publicado (mig 448)', () => {
+    // A resposta real da Meta na primeira leitura (18/11/2026, 05:40).
+    const recusa = {
+      error: {
+        message: 'O CUSTO não é mostrado para empresas que fazem cobranças por meio de um parceiro. Para entender suas cobranças, fale com o parceiro.',
+        type: 'OAuthException',
+        code: 10,
+        error_subcode: 2388184,
+        fbtrace_id: 'Ab1',
+      },
+    };
+    expect(custoNaoMostrado(400, recusa)).toBe(true);
+    expect(custoNaoMostrado(400, { error: { code: 10, message: 'Cost is not shown for businesses billed through a partner' } })).toBe(true);
+    expect(custoNaoMostrado(400, { error: { code: 100, error_subcode: 33, message: 'Unsupported get request' } })).toBe(false);
+    expect(custoNaoMostrado(500, recusa)).toBe(false);
+    expect(custoEstimado('MARKETING', 'REGULAR', 412)).toBe(132.5404); // 4 casas, como a coluna
+    expect(custoEstimado('SERVICE', 'REGULAR', 100)).toBe(3.5);
+    expect(custoEstimado('SERVICE', 'FREE_CUSTOMER_SERVICE', 900)).toBe(0);
+    expect(custoEstimado('UTILITY', 'REGULAR', 2)).toBe(0.07);
+    expect(precoPublicado('MARKETING_LITE')).toBe(PRECO_PUBLICADO_BRL.marketing);
+    expect(precoPublicado('AUTHENTICATION')).toBe(PRECO_PUBLICADO_BRL.utilidade);
+    expect(FRASE_DO_ESTIMADO).toContain('cobrada por meio de um parceiro');
+  });
+
+  it('G3: o preço por mensagem — o que a conta pagou (com histórico), senão o publicado; e a categoria do modelo', () => {
+    expect(precoPorMensagem('marketing', { mensagens: 498, custo: 160.21 })).toEqual({ preco: 0.3217, fonte: 'conta' });
+    expect(precoPorMensagem('marketing', { mensagens: 19, custo: 6.1 })).toEqual({ preco: PRECO_PUBLICADO_BRL.marketing, fonte: 'tabela' });
+    expect(precoPorMensagem('utilidade', null)).toEqual({ preco: 0.035, fonte: 'tabela' });
+    expect(precoPorMensagem('marketing', { mensagens: 50, custo: 0 })).toEqual({ preco: PRECO_PUBLICADO_BRL.marketing, fonte: 'tabela' });
+    expect(grupoDaCampanha('MARKETING')).toBe('marketing');
+    expect(grupoDaCampanha(undefined)).toBe('marketing');
+    expect(grupoDaCampanha('UTILITY')).toBe('utilidade');
+    expect(grupoDaCampanha('AUTHENTICATION')).toBe('autenticacao');
+    expect(grupoDaCampanha('SERVICE')).toBeNull();
+  });
+
+  it('G3: a campanha contra os alertas — aonde o mês vai, o MAIOR valor que ela passa e o próximo', () => {
+    expect(estimativaDaCampanha({ mensagens: 412, preco: 0.3217, custoDoMes: 49.26, valores: [100, 200, 400] })).toEqual({
+      estimativa: 132.54,
+      depois: 181.8,
+      passaDe: 100,
+      proximo: 200,
+    });
+    expect(estimativaDaCampanha({ mensagens: 1000, preco: 0.3217, custoDoMes: 49.26, valores: [100, 200, 400] })).toMatchObject({ depois: 370.96, passaDe: 200, proximo: 400 });
+    // o valor que o mês já passou não conta de novo; sem valores, nada passa
+    expect(estimativaDaCampanha({ mensagens: 10, preco: 0.3217, custoDoMes: 150, valores: [100, 200] })).toMatchObject({ passaDe: null, proximo: 200 });
+    expect(estimativaDaCampanha({ mensagens: 10, preco: 0.3217, custoDoMes: 0, valores: [] })).toEqual({ estimativa: 3.22, depois: 3.22, passaDe: null, proximo: null });
   });
 
   it('o grupo da tela para cada categoria da Meta', () => {

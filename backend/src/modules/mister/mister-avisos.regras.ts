@@ -12,6 +12,7 @@ import { POLLER_ERRO_APOS_MS } from '../../common/falhas-do-poller';
 import { diasParaVencer } from '../fiscal/certificado';
 import { pedidoComoNoQuadro } from './mister-agente.regras';
 import { GUIA_DE_USO } from './mister-guia-de-uso';
+import { FRASE_DO_ESTIMADO } from '../whatsapp/whatsapp-gasto';
 
 export const DESTINOS = ['presidente', 'gerente', 'tela', 'kds', 'atendimento', 'dms'] as const;
 export type Destino = (typeof DESTINOS)[number];
@@ -893,6 +894,8 @@ export interface GastoDoMes {
   quando: string;
   projecao: number | null;
   moeda: string | null;
+  /** O custo é estimado pelo preço publicado (a Meta não mostra o custo desta conta — mig 448). */
+  estimado?: boolean;
 }
 
 /** Os valores que avisam agora: os que o gasto do mês já passou e que ainda não avisaram no mês (ou o aviso segue aberto). */
@@ -911,6 +914,7 @@ export function situacaoDoGasto(g: GastoDoMes, valor: number, valores: number[])
     proximo !== null
       ? `Próximo alerta: ${r(proximo)}.`
       : 'Este era o último alerta do mês. Para avisar acima disso, ponha mais um valor no Regem, no menu Mister, em "Avisos e relatórios".',
+    ...(g.estimado ? [FRASE_DO_ESTIMADO] : []),
     ONDE_VER_O_GASTO,
   ];
   return {

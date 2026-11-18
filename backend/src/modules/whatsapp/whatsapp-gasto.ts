@@ -185,6 +185,30 @@ export function linhasDeModeloPorDia(pontos: PontoDoModelo[], fuso = FUSO_OPERAC
 export const arredondar4 = (n: number): number => Math.round(n * 10000) / 10000;
 export const arredondar2 = (n: number): number => Math.round(n * 100) / 100;
 
+/**
+ * A Meta não mostra o CUSTO desta conta: ela é cobrada por meio de um parceiro (a primeira leitura real, 18/11/2026 —
+ * "O CUSTO não é mostrado para empresas que fazem cobranças por meio de um parceiro", código 10/2388184). A quantidade de
+ * mensagens a Meta continua devolvendo; o custo, o Regem estima pelo preço publicado.
+ */
+export function custoNaoMostrado(status: number, json: any): boolean {
+  const e = json?.error;
+  if (status !== 400 || Number(e?.code) !== 10) return false;
+  return Number(e?.error_subcode) === 2388184 || /parceiro|partner/i.test(String(e?.message ?? ''));
+}
+
+/** O preço publicado de uma mensagem cobrada da categoria (o atendimento cobrado custa como a utilidade). */
+export function precoPublicado(categoria: unknown): number {
+  return grupoDaCategoria(categoria) === 'marketing' ? PRECO_PUBLICADO_BRL.marketing : PRECO_PUBLICADO_BRL.utilidade;
+}
+
+/** O custo estimado: só a mensagem cobrada (REGULAR) custa, pelo preço publicado; a grátis não custa nada. */
+export const custoEstimado = (categoria: unknown, tipo: unknown, mensagens: number): number =>
+  ehCobrada(tipo) ? arredondar4((Number(mensagens) || 0) * precoPublicado(categoria)) : 0;
+
+/** A frase que acompanha o valor estimado (tela, alerta e Mister). */
+export const FRASE_DO_ESTIMADO =
+  'Valores estimados pelo preço publicado da Meta: esta conta é cobrada por meio de um parceiro, e a Meta não mostra o custo dela.';
+
 /** A mensagem de erro da Meta, curta e sem nada que identifique o token (o `fbtrace_id` fica de fora). */
 export function erroDaMeta(status: number, json: any): string {
   const e = json?.error;
@@ -340,4 +364,53 @@ export function papelDoNumero(numero: string, numeros: { numero: string | null; 
   const d = finalDoNumero(numero);
   if (d.length < 8) return null;
   return numeros.find((n) => finalDoNumero(n.numero) === d)?.papel ?? null;
+}
+
+// ───────────────────────────── G3: a estimativa antes de enviar a campanha ─────────────────────────────
+// Decisão 6 do protótipo: o diálogo de enviar mostra o custo estimado e se a campanha passa de um alerta; não bloqueia.
+
+/**
+ * O preço publicado da Meta por mensagem entregue no Brasil, em reais, desde 01/10/2026 (a tabela da Meta relatada por
+ * terceiros, conferida em 18/11/2026). Só vale quando a conta não tem histórico: o preço de verdade é o que a PRÓPRIA conta
+ * pagou (`precoPorMensagem`).
+ */
+export const PRECO_PUBLICADO_BRL: Record<'marketing' | 'utilidade' | 'autenticacao', number> = {
+  marketing: 0.3217,
+  utilidade: 0.035,
+  autenticacao: 0.035,
+};
+/** O preço pela conta: das mensagens cobradas dos últimos 60 dias, com pelo menos 20 delas. */
+export const DIAS_DO_PRECO_DA_CONTA = 60;
+export const MINIMO_PARA_O_PRECO_DA_CONTA = 20;
+/** Até quantas mensagens a estimativa aceita (uma campanha grande, com folga). */
+export const MENSAGENS_MAX_DA_ESTIMATIVA = 1_000_000;
+
+export type GrupoDaCampanha = 'marketing' | 'utilidade' | 'autenticacao';
+/** A categoria do modelo (MARKETING, UTILITY, AUTHENTICATION) no grupo da estimativa; outra: recusa. */
+export function grupoDaCampanha(categoria: unknown): GrupoDaCampanha | null {
+  const g = grupoDaCategoria(categoria ?? 'MARKETING');
+  return g === 'marketing' || g === 'utilidade' || g === 'autenticacao' ? g : null;
+}
+
+/** O preço por mensagem: o que a conta pagou (custo ÷ mensagens cobradas) quando há histórico; senão, o publicado. */
+export function precoPorMensagem(grupo: GrupoDaCampanha, cobradas: { mensagens: number; custo: number } | null): { preco: number; fonte: 'conta' | 'tabela' } {
+  if (cobradas && cobradas.mensagens >= MINIMO_PARA_O_PRECO_DA_CONTA && cobradas.custo > 0)
+    return { preco: arredondar4(cobradas.custo / cobradas.mensagens), fonte: 'conta' };
+  return { preco: PRECO_PUBLICADO_BRL[grupo], fonte: 'tabela' };
+}
+
+/**
+ * A campanha contra os alertas do mês: o custo estimado, aonde o gasto do mês vai, o MAIOR valor que ela faz passar (nenhum
+ * = null) e o próximo valor depois dela.
+ */
+export function estimativaDaCampanha(p: { mensagens: number; preco: number; custoDoMes: number; valores: number[] }) {
+  const estimativa = arredondar2(p.mensagens * p.preco);
+  const depois = arredondar2(p.custoDoMes + estimativa);
+  const passados = p.valores.filter((v) => v > p.custoDoMes && v <= depois);
+  return {
+    estimativa,
+    depois,
+    passaDe: passados.length ? Math.max(...passados) : null,
+    proximo: p.valores.filter((v) => v > depois).sort((a, b) => a - b)[0] ?? null,
+  };
 }

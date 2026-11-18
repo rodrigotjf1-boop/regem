@@ -261,7 +261,10 @@ describe('Mister — o que o modelo recebe', () => {
       'link_para_encaminhar',
       'cancelar_links',
       'escrever_recado',
+      // G3 do gasto do WhatsApp oficial (18/11/2026): "quanto gastei de WhatsApp?" — consulta, só o presidente.
+      'gasto_do_whatsapp',
     ]);
+    expect(ehConsulta('gasto_do_whatsapp')).toBe(true);
     // M3c (mig 443): criar e cancelar o link para encaminhar não são consulta — não leem dado para responder.
     expect(ehConsulta('link_para_encaminhar')).toBe(false);
     expect(ehConsulta('cancelar_links')).toBe(false);

@@ -23,7 +23,7 @@ import { ModuloService } from '../modulo/modulo.service';
 import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
 import { WhatsappGastoService } from '../whatsapp/whatsapp-gasto.service';
 import { MisterConsoleService } from './mister-console.service';
-import { FERRAMENTAS, FERRAMENTA_DO_QUE_FALTA, INSTRUCOES_DO_MISTER, TETOS, TEXTOS_DO_AGENTE } from './mister-agente.regras';
+import { FERRAMENTAS, FERRAMENTA_DO_QUE_FALTA, INSTRUCOES_DO_MISTER, TETOS, TEXTOS_DO_AGENTE, filtrarSaida } from './mister-agente.regras';
 import { MisterAgenteService } from './mister-agente.service';
 import { MisterAvisosConfigService } from './mister-avisos-config.service';
 import { MisterAvisosService } from './mister-avisos.service';
@@ -440,7 +440,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -3908,18 +3908,18 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_avaliacao`);
       });
 
-      it('a rodada inteira com as respostas certas: 42 de 42, o andamento, o custo, a lista e as perguntas na ordem', async () => {
+      it('a rodada inteira com as respostas certas: 43 de 43, o andamento, o custo, a lista e as perguntas na ordem', async () => {
         const ia = iaDeMentira();
         const servico = new MisterAvaliacaoService(db, ia as any);
         const r = await servico.rodar('Rita da DMS');
-        expect(r.total).toBe(42);
+        expect(r.total).toBe(43);
         const fim = await terminar(r.id);
-        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 42, acertos: 42, motivo: null });
+        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 43, acertos: 43, motivo: null });
         // O mesmo laço do agente: as instruções e as ferramentas de verdade, e o recurso da avaliação.
         expect(ia.pedidos.every((p) => p.recurso === 'mister_avaliacao' && p.tools === FERRAMENTAS && p.system[0].text === INSTRUCOES_DO_MISTER)).toBe(true);
         const lista = await servico.lista();
-        expect(lista).toMatchObject({ disponivel: true, total: 42, chaveDaDistribuicao: true });
-        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 42, acertos: 42, falhas: 0, oQueFalhou: [] });
+        expect(lista).toMatchObject({ disponivel: true, total: 43, chaveDaDistribuicao: true });
+        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 43, acertos: 43, falhas: 0, oQueFalhou: [] });
         // O custo pela tabela de preços do modelo, sobre os tokens somados de todas as chamadas.
         expect(lista.rodadas[0].custoUsd).toBeGreaterThan(0);
         const [tok] = await q(`select tokens_entrada, tokens_cache_leitura, tokens_saida from mister_avaliacao where id = $1`, [r.id]);
@@ -3939,7 +3939,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
         expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
         const r = await servico.rodar('Rita');
-        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 41 });
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 42 });
         const [velha] = await q(`select situacao, motivo from mister_avaliacao where id = $1`, [parada]);
         expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
         const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);
@@ -7220,6 +7220,45 @@ export function testesDoMisterComPostgres(): void {
         ).rejects.toThrow('o KDS e o Atendimento não recebem aviso de gasto');
         // O salvo continua o de antes (desligado, com os dois valores).
         expect((await avisosConfig.daTela(A)).avisos.find((a) => a.tipo === 'gasto_whatsapp')).toMatchObject({ regra: { ligado: false, valores: [150, 500] } });
+      });
+
+      it('G3: "quanto gastei de WhatsApp?" — o presidente vê o mês por tipo, a franquia e o mês passado; o gerente não; o estimado diz que é', async () => {
+        // A ferramenta lê o mês de HOJE (o relógio de verdade): o gasto entra no dia 1º e hoje do mês corrente.
+        const hoje = hojeISO();
+        await gasto(`${hoje.slice(0, 7)}-01`, 'MARKETING', 'REGULAR', 412, 132.54);
+        await gasto(hoje, 'SERVICE', 'FREE_CUSTOMER_SERVICE', 950, 0);
+        const tel = telefone();
+        await ligar('carlos', tel, A, 'gerente');
+        const doPresidente = (await ferramentas.escopo(A, pessoa.ana, telAna))!;
+        const r: any = await ferramentas.executar(doPresidente, 'gasto_do_whatsapp', {});
+        expect(r.ok).toBe(true);
+        expect(r.dados).toMatchObject({
+          oficial: true,
+          ateAgora: 132.54,
+          lidoAs: '18/11 20:05',
+          porTipo: [{ tipo: 'marketing', gasto: 132.54, mensagens: 412 }, { tipo: 'atendimento', gasto: 0, mensagens: 950, gratis: 950 }],
+          atendimentoGratis: [{ numeroFinal: '2210', usadas: 950, de: 1000, acabou: false }],
+          onde: 'Veja no Regem, no menu WhatsApp, em "Uso e gasto".',
+          aviso: 'Valores aproximados que a Meta informa; a fatura oficial é a da Meta.',
+        });
+        expect(r.dados.ateOMesmoDiaDoMesPassado).toBe(0);
+        // O valor vem em NÚMERO: a resposta com "R$ 132,54" tem origem para o filtro de saída (texto pronto marcava
+        // "valor sem origem" em toda resposta do gasto).
+        expect(filtrarSaida('Em novembro você gastou R$ 132,54 de WhatsApp oficial.', [r.dados]).notas).not.toContain('valor_sem_origem');
+        const doGerente = (await ferramentas.escopo(A, pessoa.carlos, tel))!;
+        expect(await ferramentas.executar(doGerente, 'gasto_do_whatsapp', {})).toEqual({ ok: false, dados: { erro: 'O gasto do WhatsApp oficial é do presidente: só ele vê.' } });
+        // A conta cobrada por meio de um parceiro: o custo é estimado e a resposta diz.
+        await q(`update whatsapp_gasto_leitura set fonte_do_custo = 'tabela' where tenant_id = $1`, [A]);
+        expect(((await ferramentas.executar(doPresidente, 'gasto_do_whatsapp', {})) as any).dados.aviso).toContain('cobrada por meio de um parceiro');
+      });
+
+      it('G3: o alerta de gasto da conta cobrada por meio de um parceiro diz que o valor é estimado', async () => {
+        await valores([100]);
+        await q(`update whatsapp_gasto_leitura set fonte_do_custo = 'tabela' where tenant_id = $1`, [A]);
+        await gasto('2026-11-14', 'MARKETING', 'REGULAR', 412, 132.5404);
+        await volta('2026-11-18T23:10:00Z');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringContaining('passou de R$ 100,00')]);
+        expect(numero.enviadas[0].texto).toContain('Valores estimados pelo preço publicado da Meta: esta conta é cobrada por meio de um parceiro');
       });
 
       it('o cartão "Alertas de gasto deste mês" da tela de gasto: a regra, o gasto do mês e quando passou de cada valor', async () => {

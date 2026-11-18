@@ -449,7 +449,8 @@ export class MisterAvisosService implements OnModuleInit {
                  coalesce(sum(g.custo) filter (where g.categoria = 'UTILITY'), 0)::float8 as utilidade,
                  coalesce(sum(g.custo) filter (where g.categoria = 'SERVICE'), 0)::float8 as atendimento,
                  (select to_char(max(l.lido_em) at time zone ${FUSO_SQL}, 'DD/MM, HH24:MI') from whatsapp_gasto_leitura l where l.tenant_id = g.tenant_id) as quando,
-                 (select max(l.moeda) from whatsapp_gasto_leitura l where l.tenant_id = g.tenant_id) as moeda
+                 (select max(l.moeda) from whatsapp_gasto_leitura l where l.tenant_id = g.tenant_id) as moeda,
+                 (select bool_or(l.fonte_do_custo = 'tabela') from whatsapp_gasto_leitura l where l.tenant_id = g.tenant_id) as estimado
             from whatsapp_gasto g
             join empresa emp on emp.id = g.tenant_id and emp.deleted_at is null
            where g.dia >= ${`${mes}-01`}::date and g.dia <= ${hoje}::date ${so('g.tenant_id')}
@@ -493,6 +494,7 @@ export class MisterAvisosService implements OnModuleInit {
           quando: String(g.quando ?? ''),
           projecao: projecaoDoMes(custo, agora),
           moeda: g.moeda ?? null,
+          estimado: g.estimado === true,
         };
         const daEmpresa = new Map<string, 'aberto' | 'resolvido'>();
         for (const [k, v] of doMes) if (k.startsWith(`${t}|`)) daEmpresa.set(k.slice(t.length + 1), v);

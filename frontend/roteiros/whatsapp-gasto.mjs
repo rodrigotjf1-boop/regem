@@ -69,6 +69,8 @@ const CENARIOS = {
   erro: () => ({ ...BASE(), leitura: { ...BASE().leitura, erro: { motivo: 'A Meta respondeu 500: An unknown error has occurred. (código 1)', conta: { papel: 'principal', final: '2210' } } } }),
   primeira: () => ({ ...BASE(), leitura: { lidoEm: null, algumaLida: false, tentouEm: null, erro: null, moeda: null, minutos: 30 }, total: { custo: 0, mensagens: 0, cobradas: 0 } }),
   qr: () => ({ oficial: false }),
+  // G3 (mig 448): a conta cobrada por meio de um parceiro — a Meta não mostra o custo; o valor é estimado.
+  estimado: () => ({ ...BASE(), leitura: { ...BASE().leitura, fonteDoCusto: 'tabela' } }),
   vazio: () => ({ ...BASE(), total: { custo: 0, mensagens: 0, cobradas: 0 }, projecao: 0, tipos: BASE().tipos.map((t) => ({ ...t, mensagens: 0, cobradas: 0, gratis: 0, custo: 0 })), dias: BASE().dias.map((d) => ({ ...d, custo: 0, marketing: 0 })), franquia: [], deOndeVeio: [] }),
   tres: () => ({
     ...BASE(),
@@ -177,6 +179,7 @@ export default async function roteiroWhatsappGasto({ nav, base, ok, foto: arquiv
       await ctx.close();
     }
     for (const [cenario, frase] of [
+      ['estimado', 'esta conta é cobrada por meio de um parceiro'],
       ['primeira', 'A primeira leitura do gasto chega em até 30 minutos.'],
       ['qr', 'Esta loja usa a conexão por QR Code.'],
       ['vazio', 'Nenhuma mensagem entregue neste período.'],
@@ -185,6 +188,7 @@ export default async function roteiroWhatsappGasto({ nav, base, ok, foto: arquiv
       await page.waitForSelector(`text=${frase}`, { timeout: 30000 });
       const achados = await medir(page);
       ok(achados.length === 0, `${w}px · ${cenario}: a frase certa e sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+      if (cenario === 'estimado') ok((await texto(page)).toLowerCase().includes('gasto estimado em'), `${w}px · estimado: o número grande diz "Gasto estimado"`);
       await ctx.close();
     }
     {

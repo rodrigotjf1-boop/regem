@@ -7,8 +7,10 @@ import { type GastoOficial, PAPEL, dinheiro, inteiro, nomeDoMes } from './tipos'
 // a franquia do atendimento de cada número (as 1.000 grátis do mês).
 export function NumerosDoGasto({ g }: { g: GastoOficial }) {
   const moeda = g.leitura.moeda;
-  const rotulo =
+  const base =
     g.periodo.tipo === 'mes' ? `Gasto em ${nomeDoMes(g.periodo.de.slice(0, 7)).split(' de ')[0].toLowerCase()}` : g.periodo.tipo === 'passado' ? 'Gasto no mês passado' : 'Gasto no período';
+  // A conta cobrada por meio de um parceiro: o valor é estimado (mig 448).
+  const rotulo = g.leitura.fonteDoCusto === 'tabela' ? base.replace(/^Gasto/, 'Gasto estimado') : base;
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <Numero rotulo={rotulo} valor={dinheiro(g.total.custo, moeda)} apoio={`${g.periodo.de.split('-').reverse().join('/')} a ${g.periodo.ate.split('-').reverse().join('/')}`} destaque />
