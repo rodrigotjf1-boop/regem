@@ -1,7 +1,6 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { hojeISO, somarDias } from '../../common/data';
-import { ehServidorLocal } from '../../common/modo';
 import {
   DadosDoLancamento,
   FRASES_DO_DOCUMENTO,
@@ -10,6 +9,7 @@ import {
   RECURSO_DO_DOCUMENTO,
   OrigemDoCampo,
   decidirDocumento,
+  documentosNaInstalacao,
   instrucoesDoDocumento,
   lerLeituraDaFoto,
   lerRespostaDoQueFaltou,
@@ -134,9 +134,9 @@ export class MisterDocumentosService implements OnModuleInit {
     this.entrada?.registrarBotao(PREFIXO_DO_BOTAO, (botaoId, quem) => this.responderBotao(botaoId, quem));
   }
 
-  /** A leitura de documentos está ligada nesta nuvem? */
+  /** A leitura de documentos está ligada nesta nuvem? (A regra mora em `documentosNaInstalacao`: a tela lê a mesma.) */
   ligado(): boolean {
-    return !ehServidorLocal() && process.env.MISTER_DOCUMENTOS === '1';
+    return documentosNaInstalacao();
   }
 
   modelo(): string {

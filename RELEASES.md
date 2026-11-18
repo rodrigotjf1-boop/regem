@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister › Resumo: "Boletos e notas por foto" (18/11; SEM migration).** A linha do protótipo, com o estado que o
+  servidor diz (em breve, desligado, precisa da chave de IA ou ligado). Só nuvem → vai no `.zip` sem efeito na loja.
+
 - **Mister: o arquivo do ponto do mês (18/11, M3e parte 2; SEM migration).** O 12º aviso: no dia 1 às 06:00 da loja, o
   espelho do mês anterior em PDF ao presidente, com "Enviar ao contador" (o MESMO envio da tela, pelo WhatsApp da loja) e
   "Ver antes". Tudo só na nuvem (o agente e os avisos não sobem na loja) → vai no `.zip` sem efeito na loja; o daemon

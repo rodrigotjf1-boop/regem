@@ -15,6 +15,15 @@
 // O conteúdo da foto vai só na chamada da IA; não é guardado nem vai para o registro (como a foto do cliente).
 
 import { BoletoLido, lerBoleto, lerPixCopiaECola } from './boleto';
+import { ehServidorLocal } from './modo';
+
+/**
+ * A leitura de documentos por foto está ligada NESTA instalação? Só na nuvem e só com `MISTER_DOCUMENTOS=1` (o dono liga).
+ * A regra é uma só: o serviço dos documentos decide por ela, e a configuração da conversa a mostra à tela.
+ */
+export const documentosNaInstalacao = (): boolean => !ehServidorLocal() && process.env.MISTER_DOCUMENTOS === '1';
+/** A nota do fornecedor por foto (M3b): a variável própria `MISTER_NOTAS=1`, além dos documentos. */
+export const notasNaInstalacao = (): boolean => documentosNaInstalacao() && process.env.MISTER_NOTAS === '1';
 
 export const RECURSO_DO_DOCUMENTO = 'mister_documento';
 /** O modelo mais forte lê o documento (decisão do protótipo: a leitura pede precisão; o custo é de centavo por foto). */

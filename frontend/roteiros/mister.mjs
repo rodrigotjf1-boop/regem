@@ -286,6 +286,8 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
       relatorios: o.relatorios ?? RELATORIOS_PADRAO(), salvamentosRel: [],
       // M3a parte 3: os ajustes da conversa e a parte "Documentos"
       conversa: o.conversa ?? { documentosLigado: true, documentosModo: 'sozinho' }, salvamentosConv: [],
+      // Os documentos por foto ligados nesta instalação (a variável que o dono liga), como o servidor manda.
+      disponivelDocs: o.disponivelDocs ?? true,
       documentos: o.documentos ?? DOCUMENTOS(), documentosFalha: !!o.documentosFalha, diasDosDocumentos: [], desfeitos: [], pdfs: [],
       // M3c.4: a página do relatório do link
       relatorio: o.relatorio ?? RELATORIO_INSUMO(), relatorioRecusa: o.relatorioRecusa ?? null, relatorioPedidos: [], relatorioPdfs: [],
@@ -320,12 +322,13 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
         S.daLoja = S.daLoja.map((a) => (a.id === ciente[1] ? { ...a, ciente: true } : a));
         return responder(route, { ok: true }, 201);
       }
-      if (p === '/mister/conversa' && metodo === 'GET') return responder(route, { conversa: S.conversa });
+      const disponivel = () => ({ documentos: S.disponivelDocs, notas: S.disponivelDocs });
+      if (p === '/mister/conversa' && metodo === 'GET') return responder(route, { conversa: S.conversa, disponivel: disponivel() });
       if (p === '/mister/conversa' && metodo === 'PATCH') {
         const corpo = JSON.parse(req.postData() || '{}');
         S.salvamentosConv.push(corpo);
         S.conversa = { ...S.conversa, ...corpo };
-        return responder(route, { conversa: S.conversa });
+        return responder(route, { conversa: S.conversa, disponivel: disponivel() });
       }
       if (p === '/mister/documentos' && metodo === 'GET') {
         S.diasDosDocumentos.push(url.searchParams.get('dias'));
@@ -1334,11 +1337,27 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     ok(/Módulo ligado/.test(t) && /A IA incluída no seu plano: funcionando\./.test(t) && /Ligue pelo seu celular/.test(t), 'resumo: o módulo, a IA incluída no plano e o WhatsApp que falta ligar');
     ok(/O que o Mister faz por esta empresa/.test(t) && /Relatórios com gráfico e por insumo/.test(t) && /Ponto e escala[\s\S]*o arquivo do ponto do mês/.test(t) && /Áudio[\s\S]*em breve/.test(t), 'resumo: o que o Mister faz, com o ponto e escala e o áudio em breve');
     ok(/Loja Centro · impressora Cozinha parada/.test(t), 'resumo: os últimos avisos do histórico');
+    // Versão 3: os boletos e as notas por foto, ligados (a função na instalação, a empresa com a leitura ligada, a IA ok).
+    ok(/Boletos e notas por foto\s*Mande a foto: ele lê, lança e avisa do vencimento\.\s*ligado/.test(t), 'resumo: os boletos e as notas por foto, ligados');
     // Cada etapa leva à parte onde se resolve.
     await page.click('button:has-text("Ligar o meu WhatsApp")');
     await page.waitForSelector('text=Quem fala com o Mister', { timeout: 20000 });
     ok((await page.locator('h1').first().innerText()).includes('Pessoas'), 'resumo: "Ligar o meu WhatsApp" abre Pessoas');
     ok(erros.length === 0, `resumo: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  // Os boletos e as notas por foto: "em breve" sem a função na instalação; "desligado" com a empresa tendo desligado a leitura.
+  for (const [o, rotulo] of [
+    [{ disponivelDocs: false }, 'em breve'],
+    [{ conversa: { documentosLigado: false, documentosModo: 'sozinho' } }, 'desligado'],
+  ]) {
+    const { ctx, page, erros } = await abrir(1280, 900, { caminho: '/mister', ...o });
+    await page.waitForSelector('#mister-etapas', { timeout: 20000 });
+    await page.locator('text=Boletos e notas por foto >> visible=true').waitFor();
+    await page.waitForFunction((r) => new RegExp(`Boletos e notas por foto\\s*Mande a foto: ele lê, lança e avisa do vencimento\\.\\s*${r}`).test(document.querySelector('main')?.innerText ?? ''), rotulo, { timeout: 10000 }).catch(() => {});
+    const t = await page.locator('main').innerText();
+    ok(new RegExp(`Boletos e notas por foto\\s*Mande a foto: ele lê, lança e avisa do vencimento\\.\\s*${rotulo}`).test(t), `resumo: os boletos e as notas por foto, ${rotulo}`);
+    ok(erros.length === 0, `resumo (${rotulo}): sem erro (${erros.join(' | ')})`);
     await ctx.close();
   }
   {
