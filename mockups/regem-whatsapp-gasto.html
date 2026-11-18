@@ -1,0 +1,916 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regem · protótipo do gasto do WhatsApp oficial</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* REGEM · PROTÓTIPO DO USO E GASTO DO WHATSAPP OFICIAL — versão 1, APROVADA PELO DONO em 18/11/2026 ("aprovado"), com as oito decisões recomendadas.
+   O pedido do dono (18/11/2026): "seria bom um controle de uso da api oficial, um local para acompanhar o gasto, e até
+   com opção de alertas de gasto da api oficial da meta, com opção de mais de um alerta [valor 1 - alerta 1, valor 2 novo
+   alerta, valor 3 - novo alerta ...]" e, em seguida, "alertas pelo Mister".
+
+   Por que agora: desde 01/10/2026 a Meta voltou a cobrar a mensagem de atendimento (a resposta dentro das 24 h) depois
+   de 1.000 por mês em cada número, e o modelo de utilidade dentro da conversa aberta deixou de ser grátis. Quem usa a API
+   oficial paga a Meta direto (o Regem é Tech Provider: a Meta cobra a loja, sem nada nosso no meio) e hoje só vê o gasto
+   no Gerenciador de Negócios da Meta.
+
+   O que este protótipo mostra:
+   1. WhatsApp › Uso e gasto (só o presidente): o gasto do mês que a Meta informa, por tipo de mensagem, por dia, de onde
+      veio (campanha, aviso do pedido, atendimento), a franquia de 1.000 do atendimento, os meses anteriores e como estão
+      os alertas deste mês.
+   2. Mister › Avisos e relatórios: dois avisos novos no grupo "Documentos e dinheiro" — "Gasto do WhatsApp oficial", com
+      QUANTOS VALORES o presidente quiser (até 10; cada um avisa uma vez por mês), e "Atendimento grátis perto do fim".
+   3. No celular: como os alertas chegam pelo Mister, e a pergunta "quanto gastei?".
+   4. Na campanha: o custo estimado ANTES de enviar e se ela vai passar de um alerta.
+   5. Notas e decisões, com a recomendada primeiro, e as fases.
+
+   Onde a tela real difere, de propósito:
+   - Os botões "Situação do protótipo" trocam os estados para a aprovação; não existem no app.
+   - Os números são inventados (uma loja com dois números oficiais). O filtro de número não muda os números aqui.
+   - Só a API oficial tem gasto por mensagem: a loja na conexão por QR Code vê o estado vazio. */
+:root{
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --gold-ink:#7A5209; --gold-bg:#FFF9EC; --navy:#0F2230;
+  --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9; --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8;
+  --neutro:#43586C; --neutro-bg:#EAEFF4; --foco:#3A7FB8;
+  --c-wa:#0B6E3A; --wa-fundo:#EDE6DB; --wa-dele:#FFFFFF; --wa-meu:#D9F5CF;
+  --proto:#0B1822; --proto-txt:#C9D5DF; --proto-txt2:#8FA3B4; --proto-linha:#2A3B4A; --d-azul:#7CC0F5;
+  --s-mkt:#C98B26; --s-uti:#2F4A60; --s-ate:#3E8E6E; --s-aut:#7A6AA8;
+  --radius:12px; --display:"Archivo","Segoe UI",system-ui,sans-serif; --body:"Figtree","Segoe UI",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font:15px/1.5 var(--body);background:var(--bg);color:var(--ink);overflow-x:hidden}
+[hidden]{display:none!important}
+h1,h2,h3,h4{font-family:var(--display);margin:0;text-wrap:balance}
+h1{font-size:26px;line-height:1.15} h2{font-size:18px} h3{font-size:16px} h4{font-size:14px}
+p{margin:0 0 10px;overflow-wrap:anywhere} p:last-child{margin-bottom:0}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--foco);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.pular{position:absolute;left:8px;top:-60px;background:var(--gold);color:var(--on-gold);padding:8px 12px;border-radius:8px;font-weight:700;z-index:99}
+.pular:focus{top:8px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.sub{color:var(--ink-2)} .peq{font-size:13.5px}
+.junto{white-space:nowrap}
+
+/* faixa do protótipo */
+.proto{background:var(--proto);color:var(--proto-txt);padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.proto .titulo{font-family:var(--display);font-weight:700;color:#fff}
+.abas{display:flex;flex-wrap:wrap;gap:6px}
+.aba{background:transparent;border:1px solid var(--proto-linha);color:var(--proto-txt);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:36px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.proto .nota{font-size:12.5px;color:var(--proto-txt2);flex:1 1 220px;min-width:0}
+.proto :focus-visible{outline-color:var(--d-azul)}
+.vista{display:none} .vista.ativa{display:block}
+
+/* casca do app da loja */
+.app{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:80vh}
+.lado{background:var(--navy);color:#C9D5DF;padding:16px 12px}
+.marca{font-family:var(--display);font-weight:800;color:#fff;font-size:18px;padding:4px 8px 14px;letter-spacing:.02em}
+.marca small{display:block;font:500 11.5px var(--body);color:#8FA3B4;letter-spacing:0}
+.lado ul{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.lado li{padding:8px 10px;border-radius:8px;display:flex;justify-content:space-between;gap:8px;align-items:center}
+.lado li.atual{background:rgba(232,168,69,.18);color:#fff;box-shadow:inset 3px 0 0 var(--gold);font-weight:600}
+.principal{min-width:0;container-type:inline-size;container-name:principal}
+.topo{background:#fff;border-bottom:1px solid var(--line);padding:10px 20px;display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;justify-content:space-between}
+.onde{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--gold-ink)}
+.quem{font-size:13.5px;color:var(--ink-2)}
+.menu-cel{display:none;font-size:13px;color:var(--ink-2)}
+.pagina{padding:20px;max-width:1160px}
+.cab{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:flex-end;justify-content:space-between;margin-bottom:14px}
+.cab > div{min-width:0}
+.cab .sub{max-width:68ch;margin-top:4px}
+.partes{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px;padding:0 0 12px;border-bottom:1px solid var(--line)}
+.parte{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:999px;min-height:40px;font-weight:600;color:var(--ink-2)}
+.parte[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.parte[disabled]{cursor:default}
+
+/* peças */
+.cartao{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;min-width:0}
+.cartao > h2,.cartao > h3{margin-bottom:6px}
+.grade2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:14px;margin-bottom:14px}
+.grade2 > .cartao{margin-bottom:0}
+.ctls{border:1px dashed var(--line-2);background:#FFFBF0;border-radius:10px;padding:8px 12px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px;color:var(--gold-ink)}
+.ctl{background:#fff;border:1px solid var(--line-2);padding:4px 10px;border-radius:999px;cursor:pointer;min-height:32px;color:var(--ink)}
+.ctl[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.selo{display:inline-block;font-size:12.5px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.selo.ok{background:var(--ok-bg);color:var(--ok)} .selo.crit{background:var(--crit-bg);color:var(--crit)}
+.selo.warn{background:var(--warn-bg);color:var(--warn)} .selo.info{background:var(--info-bg);color:var(--info)} .selo.neutro{background:var(--neutro-bg);color:var(--neutro)}
+.btn{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:10px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink)}
+.btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.btn.perigo{color:var(--crit);border-color:#E3B5B5}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.btn-peq{min-height:32px;padding:4px 10px;font-size:13px}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.faixa{border-radius:10px;padding:10px 14px;margin-bottom:14px;border:1px solid}
+.faixa.crit{background:var(--crit-bg);border-color:#E3B5B5;color:#7A1E1E} .faixa.warn{background:var(--warn-bg);border-color:#EBC7B0;color:#6F3410}
+.faixa.info{background:var(--info-bg);border-color:#BFD6EA;color:#1D4C77} .faixa.ok{background:var(--ok-bg);border-color:#B5DCC8;color:#0B4A33}
+a{color:var(--info);text-underline-offset:2px}
+.vazio{text-align:center;color:var(--ink-2);padding:26px 12px;border:1px dashed var(--line-2);border-radius:10px;background:#fff}
+.vazio .grande{font-size:28px;display:block;margin-bottom:4px}
+.vazio .acoes{justify-content:center;margin-top:12px}
+.fase{font:700 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--gold-ink)}
+.novo{font:700 10.5px var(--display);background:var(--gold);color:var(--on-gold);padding:1px 6px;border-radius:4px;letter-spacing:.05em;white-space:nowrap}
+
+/* filtros do período */
+.filtros{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:flex-end;margin:0 0 14px}
+.filtro-grupo{display:flex;flex-wrap:wrap;gap:6px}
+.filtro{background:#fff;border:1px solid var(--line-2);padding:5px 12px;border-radius:999px;cursor:pointer;min-height:38px;font-weight:600;color:var(--ink-2)}
+.filtro[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.campo{display:grid;gap:4px;min-width:0}
+.campo label{font-weight:600;font-size:13.5px}
+.campo input,.campo select{border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;min-height:40px;background:#fff;width:100%;min-width:0}
+.campo .ajuda{font-size:13px;color:var(--ink-2)}
+.filtros .campo{flex:1 1 170px;max-width:240px}
+
+/* números grandes */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:12px;margin-bottom:14px}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;min-width:0}
+.kpi .r{font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+.kpi b{display:block;font:700 26px/1.2 var(--mono);font-variant-numeric:tabular-nums;margin:4px 0 2px;overflow-wrap:anywhere}
+.kpi .sub{font-size:13px}
+.kpi.destaque{border-color:var(--gold);background:var(--gold-bg)}
+.medidor{height:8px;border-radius:999px;background:var(--neutro-bg);overflow:hidden;margin:8px 0 4px}
+.medidor span{display:block;height:100%;background:var(--warn);border-radius:999px}
+
+/* por tipo */
+.tipos{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:12px}
+.tipo{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 16px;align-items:baseline}
+.tipo .nome{font-weight:700;display:flex;gap:8px;align-items:center;min-width:0}
+.tipo .nome i{width:12px;height:12px;border-radius:3px;flex:none;display:inline-block}
+.tipo .d{grid-column:1 / -1;font-size:13.5px;color:var(--ink-2)}
+.tipo .valor{font:700 16px var(--mono);text-align:right;white-space:nowrap}
+.tipo .trilho{grid-column:1 / -1;height:10px;border-radius:999px;background:var(--neutro-bg);overflow:hidden}
+.tipo .trilho span{display:block;height:100%;border-radius:999px}
+.tipo .conta{grid-column:1 / -1;font:500 12.5px var(--mono);color:var(--ink-2);overflow-wrap:anywhere}
+
+/* gasto por dia: colunas no largo, linhas no estreito (o mesmo HTML) */
+.dias{list-style:none;margin:10px 0 0;padding:0;display:grid;grid-template-columns:repeat(18,minmax(0,1fr));gap:4px;align-items:end;height:230px;border-bottom:1px solid var(--line-2)}
+.dia{display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;min-width:0;gap:3px}
+.dia .v{font:600 10px var(--mono);color:var(--ink);white-space:nowrap}
+.dia .b{width:100%;max-width:34px;height:calc(var(--h) * 0.82%);min-height:3px;background:var(--s-uti);border-radius:4px 4px 0 0}
+.dia.campanha .b{background:var(--s-mkt)}
+.dia.hoje .b{background:repeating-linear-gradient(45deg,var(--s-uti) 0 4px,#6B8396 4px 8px)}
+.dia .d{font:600 10.5px var(--mono);color:var(--ink-2);padding-bottom:4px}
+.legenda{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--ink-2);margin-top:10px}
+.legenda i{width:12px;height:12px;border-radius:3px;display:inline-block;margin-right:6px;vertical-align:-1px}
+@container principal (max-width: 760px){
+  .dias{grid-template-columns:minmax(0,1fr);height:auto;border-bottom:0;gap:3px}
+  .dia{display:grid;grid-template-columns:42px minmax(0,1fr) 64px;align-items:center;gap:8px;height:auto}
+  .dia .d{order:1;padding:0} .dia .b{order:2;height:12px;width:max(3px,calc(var(--h) * 1%));max-width:none;border-radius:0 4px 4px 0}
+  .dia .v{order:3;text-align:right}
+}
+
+/* tabela que vira cartões pelo espaço da peça */
+.tab{width:100%;border-collapse:collapse}
+.tab th{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:8px 10px;border-bottom:2px solid var(--line-2)}
+.tab td{padding:11px 10px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:break-word}
+.tab td.num,.tab th.num{text-align:right;white-space:nowrap}
+.tab tfoot td{font-weight:700;border-bottom:0}
+@container principal (max-width: 820px){
+  .tab thead{display:none}
+  .tab,.tab tbody,.tab tfoot,.tab tr,.tab td{display:block;width:100%}
+  .tab tr{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px;background:#fff}
+  .tab td{padding:4px 0;border:0;text-align:left!important;white-space:normal!important}
+  .tab td[data-rot]::before{content:attr(data-rot);display:block;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+  .tab tfoot tr{background:var(--neutro-bg)}
+}
+.linhas{list-style:none;margin:0;padding:0}
+.linhas li{display:flex;flex-wrap:wrap;gap:6px 12px;justify-content:space-between;align-items:baseline;padding:10px 0;border-top:1px solid var(--line)}
+.linhas li:first-child{border-top:0}
+.linhas li > div{min-width:0;flex:1 1 200px}
+
+/* esqueleto do carregando */
+.esq{background:linear-gradient(90deg,#E6EBF0 25%,#F2F5F8 50%,#E6EBF0 75%);background-size:200% 100%;animation:esq 1.2s infinite;border-radius:8px}
+@keyframes esq{to{background-position:-200% 0}}
+
+/* ajustes do Mister (a mesma peça do protótipo aprovado) */
+.aj{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 16px;align-items:center;padding:12px 10px;border-top:1px solid var(--line)}
+.aj.contexto{opacity:.62}
+.aj.mudou{background:var(--gold-bg);box-shadow:inset 3px 0 0 var(--gold)}
+.aj .t{font-weight:600} .aj .d{font-size:13.5px;color:var(--ink-2)}
+.aj .ctrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end;min-width:0}
+.aj .ctrl select{border:1px solid var(--line-2);border-radius:8px;padding:6px 8px;min-height:38px;background:#fff;max-width:100%;min-width:0}
+.destinos{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}
+.destinos .selo{white-space:normal}
+.valores{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}
+.valor-chip{font:700 12.5px var(--mono);background:var(--gold-bg);border:1px solid #EBCB8F;color:var(--gold-ink);padding:2px 9px;border-radius:999px;white-space:nowrap}
+.valor-chip.foi{background:var(--ok-bg);border-color:#B5DCC8;color:var(--ok)}
+.grupo-aj{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-2);margin:16px 0 2px}
+.liga{position:relative;width:52px;height:30px;border-radius:999px;border:1px solid var(--line-2);background:var(--neutro-bg);cursor:pointer;flex:none;padding:0}
+.liga::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:left .15s}
+.liga[aria-checked="true"]{background:var(--ok);border-color:var(--ok)} .liga[aria-checked="true"]::after{left:25px}
+.estado-liga{font-size:13px;color:var(--ink-2);min-width:68px}
+.barra-salvar{position:sticky;bottom:0;background:var(--navy);color:#fff;border-radius:12px 12px 0 0;padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;z-index:5;margin-top:12px}
+.barra-salvar .btn{border-color:#3C5568;background:transparent;color:#fff} .barra-salvar .btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.barra-salvar :focus-visible{outline-color:var(--d-azul)}
+@container principal (max-width: 620px){
+  .aj{grid-template-columns:minmax(0,1fr)}
+  .aj .ctrl{justify-content:flex-start}
+}
+
+/* gaveta e diálogo */
+.fundo{position:fixed;inset:0;background:rgba(15,34,48,.45);z-index:40;display:none}
+.fundo.aberto{display:block}
+.gaveta{position:fixed;top:0;right:0;bottom:0;width:min(520px,100%);background:#fff;z-index:41;display:none;flex-direction:column;box-shadow:-8px 0 24px rgba(15,34,48,.18);container-type:inline-size;container-name:painel}
+.gaveta.aberto{display:flex}
+.dialogo{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(560px,calc(100% - 24px));max-height:calc(100% - 24px);background:#fff;z-index:41;display:none;flex-direction:column;border-radius:14px;box-shadow:0 12px 40px rgba(15,34,48,.3);container-type:inline-size;container-name:painel}
+.dialogo.aberto{display:flex}
+.pn-cab{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line)}
+.pn-cab h2{min-width:0;overflow-wrap:anywhere}
+.pn-corpo{padding:18px;overflow:auto;flex:1;min-height:0}
+.pn-rodape{padding:12px 18px;border-top:1px solid var(--line);background:#F7F9FB;display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.dialogo .pn-rodape{border-radius:0 0 14px 14px}
+.fechar{background:transparent;border:0;font-size:18px;cursor:pointer;min-width:40px;min-height:40px;border-radius:8px;flex:none}
+.marcar{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:0 0 12px;display:grid;gap:8px}
+.marcar legend{font-weight:700;padding:0 4px}
+.marcar label{display:flex;gap:8px;align-items:center;min-height:32px}
+.lista-valores{list-style:none;margin:10px 0;padding:0;display:grid;gap:8px}
+.linha-valor{display:grid;grid-template-columns:76px minmax(0,1fr) auto;gap:8px;align-items:center}
+.linha-valor label{font-weight:700;font-size:13.5px}
+.linha-valor .reais{display:flex;align-items:center;border:1px solid var(--line-2);border-radius:10px;background:#fff;min-height:42px;padding:0 10px;min-width:0}
+.linha-valor .reais span{font:600 14px var(--mono);color:var(--ink-2);margin-right:6px}
+.linha-valor .reais input{border:0;outline:0;min-width:0;width:100%;font:600 15px var(--mono);background:transparent;min-height:40px}
+.linha-valor .reais:focus-within{outline:3px solid var(--foco);outline-offset:2px}
+.linha-valor .reais.erro{border-color:var(--crit);background:var(--crit-bg)}
+.linha-valor .st{grid-column:2 / -1;font-size:12.5px;color:var(--ink-2);margin-top:-4px}
+@container painel (max-width: 380px){
+  .linha-valor{grid-template-columns:minmax(0,1fr) auto}
+  .linha-valor label{grid-column:1 / -1}
+  .linha-valor .st{grid-column:1 / -1}
+}
+.erro-txt{color:var(--crit);font-weight:600;font-size:13.5px}
+.resumo{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:10px 18px;margin:0 0 12px}
+.resumo dt{font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+.resumo dd{margin:0;font-weight:600;overflow-wrap:anywhere}
+.avisos{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:60;display:grid;gap:8px;width:min(440px,calc(100% - 24px))}
+.aviso{background:var(--navy);color:#fff;border-radius:10px;padding:10px 14px;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+
+/* celular */
+.pagina-cel{padding:20px;max-width:1240px;container-type:inline-size;container-name:principal}
+.celulares{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:22px 18px;align-items:start}
+.caso h3{margin-bottom:2px} .caso > .sub{font-size:13.5px;margin-bottom:8px}
+.cel{border:8px solid #1B2A36;border-radius:28px;background:var(--wa-fundo);overflow:hidden;max-width:360px}
+.cel-topo{background:var(--c-wa);color:#fff;padding:10px 14px;display:flex;gap:10px;align-items:center}
+.cel-topo .foto{width:34px;height:34px;border-radius:50%;background:#fff;color:var(--c-wa);display:grid;place-items:center;font:800 15px var(--display);flex:none}
+.cel-topo b{display:block;line-height:1.2} .cel-topo span{font-size:12.5px;opacity:.9}
+.conv{padding:12px 10px;display:grid;gap:8px;min-height:150px;align-content:start}
+.bolha{max-width:92%;padding:7px 10px;border-radius:10px;font-size:14px;line-height:1.4;box-shadow:0 1px 1px rgba(0,0,0,.12);overflow-wrap:anywhere}
+.bolha.dele{background:var(--wa-dele);justify-self:start;border-top-left-radius:2px}
+.bolha.meu{background:var(--wa-meu);justify-self:end;border-top-right-radius:2px}
+.bolha .hora{display:block;text-align:right;font-size:11px;color:#5E6E7A;margin-top:2px}
+.bolha ul{margin:4px 0;padding-left:18px}
+.botoes-wa{display:grid;gap:4px;margin-top:6px}
+.botoes-wa span{background:#fff;border:1px solid #D5DDE3;border-radius:8px;padding:6px 8px;text-align:center;color:#0B5CAD;font-weight:600;font-size:13.5px}
+
+/* notas */
+.notas{padding:20px;max-width:1000px;margin-inline:auto;container-type:inline-size;container-name:principal}
+.notas .cartao ul,.notas .cartao ol{margin:6px 0 0;padding-left:20px} .notas .cartao li{margin-bottom:5px}
+.decisao{border-top:1px solid var(--line);padding:12px 0}
+.decisao:first-of-type{border-top:0}
+.decisao h3{font-size:15px;margin-bottom:4px}
+.decisao ol{margin:4px 0 0}
+.rec{font:700 11px var(--display);background:var(--ok-bg);color:var(--ok);padding:1px 7px;border-radius:4px;letter-spacing:.04em;white-space:nowrap}
+
+@media (max-width: 900px){
+  .app{grid-template-columns:minmax(0,1fr)} .lado{display:none} .menu-cel{display:inline}
+  .pagina,.notas,.pagina-cel{padding:14px} .topo{padding:10px 14px}
+  .btn,.parte,.filtro{min-height:44px}
+}
+@media (prefers-reduced-motion: reduce){ *{transition:none!important;animation:none!important;scroll-behavior:auto!important} }
+</style>
+</head>
+<body data-situacao="tudo" data-campanha="passa">
+<a class="pular" href="#conteudo">Pular para o conteúdo</a>
+
+<header class="proto">
+  <span class="titulo">Protótipo · Gasto do WhatsApp oficial</span>
+  <nav class="abas" aria-label="Partes do protótipo">
+    <button class="aba" data-aba="gasto" aria-pressed="true">Uso e gasto</button>
+    <button class="aba" data-aba="alertas" aria-pressed="false">Alertas no Mister</button>
+    <button class="aba" data-aba="celular" aria-pressed="false">No celular</button>
+    <button class="aba" data-aba="campanha" aria-pressed="false">Na campanha</button>
+    <button class="aba" data-aba="notas" aria-pressed="false">Notas e decisões</button>
+  </nav>
+  <span class="nota">Dados inventados. Nada aqui fala com o Regem nem com a Meta.</span>
+</header>
+
+<div id="conteudo">
+
+<!-- ═════════════════════ USO E GASTO ═════════════════════ -->
+<section class="vista ativa" id="v-gasto" aria-label="Uso e gasto">
+  <div class="app">
+    <nav class="lado" aria-label="Menu do aplicativo">
+      <div class="marca">REGEM<small>No comando de todo o negócio</small></div>
+      <ul>
+        <li>Painel</li><li>Delivery</li><li>Atendimento</li>
+        <li class="atual" aria-current="page">WhatsApp</li>
+        <li>Marketing</li><li>Estoque</li><li>Relatórios</li><li>Mister</li><li>Configurações</li>
+      </ul>
+    </nav>
+    <div class="principal">
+      <div class="topo">
+        <span><span class="menu-cel">☰ Menu · </span><span class="onde">WhatsApp › Uso e gasto</span></span>
+        <span class="quem">Ana · presidente</span>
+      </div>
+      <main class="pagina">
+        <div class="cab">
+          <div>
+            <h1>Uso e gasto do WhatsApp oficial</h1>
+            <p class="sub">O que a Meta cobra das mensagens da loja pela API oficial. A Meta cobra a loja direto, no cartão cadastrado no Gerenciador de Negócios; o Regem só mostra e avisa.</p>
+          </div>
+          <div class="acoes"><button class="btn" data-aba="alertas">Alertas de gasto</button></div>
+        </div>
+
+        <div class="ctls"><span>Situação do protótipo:</span>
+          <button class="ctl" data-ctl="situacao" data-valor="tudo" aria-pressed="true">tudo certo</button>
+          <button class="ctl" data-ctl="situacao" data-valor="carregando" aria-pressed="false">carregando</button>
+          <button class="ctl" data-ctl="situacao" data-valor="erro" aria-pressed="false">a Meta não respondeu</button>
+          <button class="ctl" data-ctl="situacao" data-valor="primeiro" aria-pressed="false">primeira leitura</button>
+          <button class="ctl" data-ctl="situacao" data-valor="semmister" aria-pressed="false">sem o Mister</button>
+          <button class="ctl" data-ctl="situacao" data-valor="qr" aria-pressed="false">conexão por QR Code</button>
+        </div>
+
+        <!-- conexão por QR Code: não há gasto por mensagem -->
+        <div class="vazio" data-mostra="situacao:qr">
+          <span class="grande" aria-hidden="true">📱</span>
+          <strong>Esta loja usa a conexão por QR Code.</strong>
+          <p class="sub" style="max-width:60ch;margin:6px auto 0">Pela conexão por QR Code a Meta não cobra por mensagem, então não há gasto para acompanhar. O controle de gasto e os alertas valem para quem usa a API oficial.</p>
+          <div class="acoes"><button class="btn" data-aviso="No app: abre Delivery › Configurações, aba Robô de atendimento.">Ver como o WhatsApp está ligado</button></div>
+        </div>
+
+        <!-- primeira leitura -->
+        <div class="vazio" data-mostra="situacao:primeiro">
+          <span class="grande" aria-hidden="true">⏳</span>
+          <strong>A primeira leitura do gasto chega em até 30 minutos.</strong>
+          <p class="sub" style="max-width:60ch;margin:6px auto 0">O Regem pergunta à Meta o gasto da conta a cada 30 minutos. Os meses anteriores (até 12) entram na mesma leitura.</p>
+        </div>
+
+        <div data-mostra="situacao:tudo|carregando|erro|semmister">
+          <div class="filtros" role="group" aria-label="Período e número">
+            <div class="filtro-grupo" role="group" aria-label="Período">
+              <button class="filtro" data-periodo="mes" aria-pressed="true">Este mês</button>
+              <button class="filtro" data-periodo="passado" aria-pressed="false">Mês passado</button>
+              <button class="filtro" data-periodo="tres" aria-pressed="false">Últimos 3 meses</button>
+              <button class="filtro" data-periodo="outro" aria-pressed="false">Outro período</button>
+            </div>
+            <div class="campo" data-periodo-outro hidden><label for="p-de">De</label><input id="p-de" type="date" value="2026-11-01"></div>
+            <div class="campo" data-periodo-outro hidden><label for="p-ate">Até</label><input id="p-ate" type="date" value="2026-11-18"></div>
+            <div class="campo"><label for="p-numero">Número</label>
+              <select id="p-numero"><option>Os dois números</option><option>Principal · final 2210</option><option>Marketing · final 7731</option></select></div>
+          </div>
+
+          <div class="faixa crit" data-mostra="situacao:erro" role="status">
+            <strong>A Meta não respondeu na última leitura (21:30).</strong> Os números abaixo são da leitura das 21:00. O Regem tenta de novo sozinho em 5 minutos.
+            <div class="acoes" style="margin-top:8px"><button class="btn btn-peq" data-aviso="Lendo o gasto na Meta…">Tentar de novo</button></div>
+          </div>
+          <p class="sub peq" data-mostra="situacao:tudo|semmister|carregando">Valores aproximados que a Meta informa · última leitura hoje, 21:30 · lê de novo a cada 30 minutos. A fatura oficial é a da Meta.</p>
+
+          <!-- carregando -->
+          <div data-mostra="situacao:carregando" aria-busy="true" aria-label="Carregando o gasto">
+            <div class="kpis"><div class="kpi"><div class="esq" style="height:90px"></div></div><div class="kpi"><div class="esq" style="height:90px"></div></div><div class="kpi"><div class="esq" style="height:90px"></div></div><div class="kpi"><div class="esq" style="height:90px"></div></div></div>
+            <div class="cartao"><div class="esq" style="height:180px"></div></div>
+          </div>
+
+          <div data-mostra="situacao:tudo|erro|semmister">
+            <div class="kpis">
+              <div class="kpi destaque"><div class="r">Gasto em novembro</div><b>R$ 205,43</b><div class="sub">de 01/11 até hoje, 21:30</div></div>
+              <div class="kpi"><div class="r">Neste ritmo, o mês fecha em</div><b>~ R$ 345</b><div class="sub">a média dos dias até agora × 30 dias</div></div>
+              <div class="kpi"><div class="r">Mensagens cobradas</div><b>1.790</b><div class="sub">de 2.790 entregues · a Meta cobra só o que foi entregue</div></div>
+              <div class="kpi"><div class="r">Atendimento grátis · principal</div><b>1.000 de 1.000</b>
+                <div class="medidor" role="img" aria-label="1.000 de 1.000 usadas"><span style="width:100%"></span></div>
+                <div class="sub">acabou em 15/11 · desde então cada resposta custa ~R$ 0,035</div></div>
+            </div>
+
+            <div class="cartao">
+              <h2>Por tipo de mensagem</h2>
+              <p class="sub peq">A Meta cobra pelo tipo. Preço no Brasil desde 01/10/2026: marketing ~R$ 0,3217; utilidade, atendimento e autenticação ~R$ 0,035.</p>
+              <ul class="tipos">
+                <li class="tipo"><span class="nome"><i style="background:var(--s-mkt)" aria-hidden="true"></i>Marketing</span><span class="valor">R$ 160,21</span>
+                  <span class="d">Campanhas e mensagens automáticas de promoção (cashback vencendo, aniversário).</span>
+                  <span class="trilho" aria-hidden="true"><span style="width:78%;background:var(--s-mkt)"></span></span>
+                  <span class="conta">498 mensagens · 78% do gasto</span></li>
+                <li class="tipo"><span class="nome"><i style="background:var(--s-uti)" aria-hidden="true"></i>Utilidade</span><span class="valor">R$ 38,22</span>
+                  <span class="d">Avisos do pedido (confirmado, saiu para entrega) a quem não estava com a conversa aberta.</span>
+                  <span class="trilho" aria-hidden="true"><span style="width:19%;background:var(--s-uti)"></span></span>
+                  <span class="conta">1.092 mensagens · 19% do gasto</span></li>
+                <li class="tipo"><span class="nome"><i style="background:var(--s-ate)" aria-hidden="true"></i>Atendimento</span><span class="valor">R$ 7,00</span>
+                  <span class="d">Respostas do robô e da equipe dentro das 24 horas da conversa. As primeiras 1.000 do mês, em cada número, são grátis.</span>
+                  <span class="trilho" aria-hidden="true"><span style="width:3%;background:var(--s-ate)"></span></span>
+                  <span class="conta">1.200 mensagens · 1.000 grátis · 200 cobradas · 3% do gasto</span></li>
+                <li class="tipo"><span class="nome"><i style="background:var(--s-aut)" aria-hidden="true"></i>Autenticação</span><span class="valor">R$ 0,00</span>
+                  <span class="d">Códigos de acesso. A loja não usa.</span>
+                  <span class="conta">0 mensagens</span></li>
+              </ul>
+            </div>
+
+            <div class="cartao">
+              <h2>Gasto por dia</h2>
+              <p class="sub peq">Em reais, de 01/11 a hoje. O dia 14 teve a campanha "Sexta do burger".</p>
+              <ol class="dias" aria-label="Gasto por dia em novembro">
+                <li class="dia" style="--h:2.2"><span class="v">3,10</span><span class="b"></span><span class="d">01</span></li>
+                <li class="dia" style="--h:2.8"><span class="v">3,85</span><span class="b"></span><span class="d">02</span></li>
+                <li class="dia" style="--h:1.7"><span class="v">2,40</span><span class="b"></span><span class="d">03</span></li>
+                <li class="dia" style="--h:2.0"><span class="v">2,75</span><span class="b"></span><span class="d">04</span></li>
+                <li class="dia" style="--h:2.3"><span class="v">3,20</span><span class="b"></span><span class="d">05</span></li>
+                <li class="dia" style="--h:3.3"><span class="v">4,60</span><span class="b"></span><span class="d">06</span></li>
+                <li class="dia" style="--h:3.7"><span class="v">5,10</span><span class="b"></span><span class="d">07</span></li>
+                <li class="dia" style="--h:2.2"><span class="v">3,05</span><span class="b"></span><span class="d">08</span></li>
+                <li class="dia" style="--h:2.1"><span class="v">2,90</span><span class="b"></span><span class="d">09</span></li>
+                <li class="dia" style="--h:2.4"><span class="v">3,30</span><span class="b"></span><span class="d">10</span></li>
+                <li class="dia" style="--h:2.6"><span class="v">3,65</span><span class="b"></span><span class="d">11</span></li>
+                <li class="dia" style="--h:3.0"><span class="v">4,20</span><span class="b"></span><span class="d">12</span></li>
+                <li class="dia" style="--h:3.6"><span class="v">4,95</span><span class="b"></span><span class="d">13</span></li>
+                <li class="dia campanha" style="--h:100"><span class="v">137,80</span><span class="b"></span><span class="d">14</span></li>
+                <li class="dia" style="--h:3.9"><span class="v">5,40</span><span class="b"></span><span class="d">15</span></li>
+                <li class="dia" style="--h:3.2"><span class="v">4,35</span><span class="b"></span><span class="d">16</span></li>
+                <li class="dia" style="--h:3.6"><span class="v">4,90</span><span class="b"></span><span class="d">17</span></li>
+                <li class="dia hoje" style="--h:4.3"><span class="v">5,93</span><span class="b"></span><span class="d">18</span></li>
+              </ol>
+              <div class="legenda"><span><i style="background:var(--s-uti)" aria-hidden="true"></i>dia comum</span><span><i style="background:var(--s-mkt)" aria-hidden="true"></i>dia com campanha</span><span><i style="background:repeating-linear-gradient(45deg,var(--s-uti) 0 4px,#6B8396 4px 8px)" aria-hidden="true"></i>hoje, até agora</span></div>
+            </div>
+
+            <div class="grade2">
+              <div class="cartao">
+                <h2>De onde veio</h2>
+                <table class="tab">
+                  <caption class="sr">O gasto de novembro por campanha, aviso e atendimento</caption>
+                  <thead><tr><th scope="col">O que mandou</th><th scope="col">Tipo</th><th scope="col" class="num">Mensagens</th><th scope="col" class="num">Gasto</th></tr></thead>
+                  <tbody>
+                    <tr><td data-rot="O que mandou"><strong>Campanha "Sexta do burger"</strong><div class="sub peq">14/11 · número de marketing</div></td><td data-rot="Tipo">Marketing</td><td data-rot="Mensagens" class="num mono">412</td><td data-rot="Gasto" class="num mono">R$ 132,54</td></tr>
+                    <tr><td data-rot="O que mandou"><strong>Cashback vencendo</strong><div class="sub peq">automática do Marketing</div></td><td data-rot="Tipo">Marketing</td><td data-rot="Mensagens" class="num mono">86</td><td data-rot="Gasto" class="num mono">R$ 27,67</td></tr>
+                    <tr><td data-rot="O que mandou"><strong>Pedido saiu para entrega</strong><div class="sub peq">aviso do pedido</div></td><td data-rot="Tipo">Utilidade</td><td data-rot="Mensagens" class="num mono">640</td><td data-rot="Gasto" class="num mono">R$ 22,40</td></tr>
+                    <tr><td data-rot="O que mandou"><strong>Pedido confirmado</strong><div class="sub peq">aviso do pedido</div></td><td data-rot="Tipo">Utilidade</td><td data-rot="Mensagens" class="num mono">452</td><td data-rot="Gasto" class="num mono">R$ 15,82</td></tr>
+                    <tr><td data-rot="O que mandou"><strong>Respostas do robô e da equipe</strong><div class="sub peq">1.000 grátis no número principal</div></td><td data-rot="Tipo">Atendimento</td><td data-rot="Mensagens" class="num mono">1.200</td><td data-rot="Gasto" class="num mono">R$ 7,00</td></tr>
+                  </tbody>
+                  <tfoot><tr><td data-rot="Total">Total de novembro</td><td></td><td data-rot="Mensagens" class="num mono">2.790</td><td data-rot="Gasto" class="num mono">R$ 205,43</td></tr></tfoot>
+                </table>
+              </div>
+              <div class="cartao">
+                <h2>Alertas de gasto deste mês</h2>
+                <div class="faixa info" data-mostra="situacao:semmister" style="margin-bottom:10px">Os alertas vão pelo Mister, e ele está desligado. Ligue em Visão C&amp;O › Módulos do produto para receber os avisos no WhatsApp.</div>
+                <ul class="linhas" id="resumo-alertas">
+                  <li><div><strong class="mono">R$ 100,00</strong><div class="sub peq">Alerta 1 · WhatsApp do presidente</div></div><span class="selo ok">avisado 14/11 18:12</span></li>
+                  <li><div><strong class="mono">R$ 200,00</strong><div class="sub peq">Alerta 2 · WhatsApp do presidente</div></div><span class="selo ok">avisado hoje 20:05</span></li>
+                  <li><div><strong class="mono">R$ 400,00</strong><div class="sub peq">Alerta 3 · faltam R$ 194,57</div></div><span class="selo neutro">ainda não</span></li>
+                  <li><div><strong>Atendimento grátis perto do fim</strong><div class="sub peq">900 de 1.000 no número principal</div></div><span class="selo ok">avisado 13/11 21:40</span></li>
+                </ul>
+                <div class="acoes" style="margin-top:10px"><button class="btn" data-aba="alertas">Mudar os alertas</button></div>
+                <p class="sub peq" style="margin-top:8px">Os valores e para quem vai ficam no Mister › Avisos e relatórios.</p>
+              </div>
+            </div>
+
+            <div class="cartao">
+              <h2>Meses anteriores</h2>
+              <table class="tab">
+                <caption class="sr">O gasto dos meses anteriores</caption>
+                <thead><tr><th scope="col">Mês</th><th scope="col" class="num">Mensagens cobradas</th><th scope="col" class="num">Gasto</th><th scope="col">Observação</th></tr></thead>
+                <tbody>
+                  <tr><td data-rot="Mês"><strong>Outubro de 2026</strong></td><td data-rot="Mensagens cobradas" class="num mono">1.410</td><td data-rot="Gasto" class="num mono">R$ 96,30</td><td data-rot="Observação" class="sub peq">1º mês com o atendimento cobrado depois das 1.000 grátis</td></tr>
+                  <tr><td data-rot="Mês"><strong>Setembro de 2026</strong></td><td data-rot="Mensagens cobradas" class="num mono">690</td><td data-rot="Gasto" class="num mono">R$ 41,10</td><td data-rot="Observação" class="sub peq">atendimento ainda grátis</td></tr>
+                  <tr><td data-rot="Mês"><strong>Agosto de 2026</strong></td><td data-rot="Mensagens cobradas" class="num mono">512</td><td data-rot="Gasto" class="num mono">R$ 29,85</td><td data-rot="Observação" class="sub peq">—</td></tr>
+                </tbody>
+              </table>
+              <p class="sub peq" style="margin-top:8px">A Meta guarda até 12 meses.</p>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ ALERTAS NO MISTER ═════════════════════ -->
+<section class="vista" id="v-alertas" aria-label="Alertas no Mister">
+  <div class="app">
+    <nav class="lado" aria-label="Menu do aplicativo">
+      <div class="marca">REGEM<small>No comando de todo o negócio</small></div>
+      <ul>
+        <li>Painel</li><li>Delivery</li><li>Atendimento</li><li>WhatsApp</li><li>Marketing</li><li>Estoque</li><li>Relatórios</li>
+        <li class="atual" aria-current="page">Mister</li><li>Configurações</li>
+      </ul>
+    </nav>
+    <div class="principal">
+      <div class="topo">
+        <span><span class="menu-cel">☰ Menu · </span><span class="onde">Mister › Avisos e relatórios</span></span>
+        <span class="quem">Ana · presidente</span>
+      </div>
+      <main class="pagina">
+        <div class="cab"><div><h1>Mister</h1><p class="sub">O administrador virtual da sua loja. Ele avisa, responde e pede a sua autorização pelo WhatsApp.</p></div></div>
+        <div class="partes" role="group" aria-label="Partes do Mister">
+          <button class="parte" disabled aria-pressed="false">Resumo</button>
+          <button class="parte" disabled aria-pressed="false">Pessoas</button>
+          <button class="parte" disabled aria-pressed="false">IA e uso</button>
+          <button class="parte" disabled aria-pressed="true">Avisos e relatórios</button>
+          <button class="parte" disabled aria-pressed="false">Documentos</button>
+        </div>
+        <div class="faixa info">Cada aviso vai para quem resolve. Os dois avisos marcados com <span class="novo">NOVO</span> são deste protótipo; o resto da lista continua como está no ar (aqui só o grupo "Documentos e dinheiro").</div>
+
+        <div class="cartao" id="ajustes">
+          <h2>Avisos</h2>
+          <h3 class="grupo-aj">Documentos e dinheiro</h3>
+
+          <div class="aj contexto"><div><div class="t" id="av-boleto">Boleto perto de vencer</div><div class="d">Os boletos lançados por foto no Mister. Vai com a linha digitável.</div>
+            <div class="destinos"><span class="sub peq">Vai para:</span><span class="selo neutro">WhatsApp do presidente</span></div></div>
+            <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="av-boleto" disabled></button></div></div>
+
+          <div class="aj" data-aj="gasto"><div><div class="t" id="av-gasto">Gasto do WhatsApp oficial <span class="novo">NOVO</span></div>
+            <div class="d">Quando o gasto do mês na Meta passa de cada valor. Cada valor avisa uma vez por mês; no dia 1º tudo recomeça. O aviso diz quanto foi, de onde veio e o próximo valor.</div>
+            <div class="valores" id="chips-gasto"><span class="sub peq">Valores:</span><span class="valor-chip foi">R$ 100,00 ✓</span><span class="valor-chip foi">R$ 200,00 ✓</span><span class="valor-chip">R$ 400,00</span><button class="btn btn-peq" data-abre="gav-valores">Valores</button></div>
+            <div class="destinos"><span class="sub peq">Vai para:</span><span class="selo neutro" id="dest-gasto">WhatsApp do presidente</span><button class="btn btn-peq" data-abre="gav-destino" data-nome="Gasto do WhatsApp oficial">Mudar</button></div></div>
+            <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="av-gasto"></button></div></div>
+
+          <div class="aj" data-aj="franquia"><div><div class="t" id="av-franquia">Atendimento grátis perto do fim <span class="novo">NOVO</span></div>
+            <div class="d">A Meta dá 1.000 mensagens de atendimento grátis por mês em cada número; da 1.001ª em diante, cada resposta do robô e da equipe custa ~R$ 0,035. Avisa quando um número passa de 900. Sem forma de pagamento na Meta, as respostas param depois das 1.000.</div>
+            <div class="destinos"><span class="sub peq">Vai para:</span><span class="selo neutro">WhatsApp do presidente</span><button class="btn btn-peq" data-abre="gav-destino" data-nome="Atendimento grátis perto do fim">Mudar</button></div></div>
+            <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="av-franquia"></button></div></div>
+
+          <p class="sub peq" style="margin-top:10px">Os dois só aparecem nas empresas com o WhatsApp oficial. Não têm "se ninguém resolver": são avisos de valor, não de um problema a resolver.</p>
+          <div class="barra-salvar" id="barra-salvar" hidden><span id="barra-texto">1 alteração ainda não salva</span><span class="acoes"><button class="btn" id="aj-descartar">Descartar</button><button class="btn pri" id="aj-salvar">Salvar</button></span></div>
+        </div>
+      </main>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ NO CELULAR ═════════════════════ -->
+<section class="vista" id="v-celular" aria-label="No celular">
+  <div class="pagina-cel">
+    <div class="cab"><div><h1>No celular</h1><p class="sub">Como os alertas chegam pelo número do Mister. O texto é fixo (não usa IA) e sai na hora da leitura que viu o valor passar.</p></div></div>
+    <div class="celulares">
+      <article class="caso"><h3>1. Passou de um valor</h3><p class="sub">O alerta 2 de 3. Diz o total, de onde veio, a projeção e o próximo valor.</p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha dele">💸 <strong>Gasto do WhatsApp oficial</strong><br>O gasto de novembro passou de <strong>R$ 200,00</strong>: R$ 201,40 até agora (18/11, 20:05).
+              <ul><li>Marketing: R$ 160,21 (campanha "Sexta do burger", 412 envios)</li><li>Avisos do pedido: R$ 36,19</li><li>Atendimento: R$ 5,00 (as 1.000 grátis acabaram em 15/11)</li></ul>
+              Neste ritmo, o mês fecha perto de R$ 340. Próximo alerta: R$ 400,00.
+              <div class="botoes-wa"><span>Ver o gasto</span></div><span class="hora">20:05</span></div>
+          </div></div></article>
+
+      <article class="caso"><h3>2. O último valor do mês</h3><p class="sub">Depois do último valor, o Mister não avisa mais naquele mês e diz como pôr outro.</p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha dele">💸 <strong>Gasto do WhatsApp oficial</strong><br>O gasto de novembro passou de <strong>R$ 400,00</strong>: R$ 402,90 até agora (28/11, 19:40).<br>Este era o último alerta de novembro. Para avisar acima disso, ponha mais um valor em Mister › Avisos e relatórios.
+              <div class="botoes-wa"><span>Ver o gasto</span></div><span class="hora">19:40</span></div>
+          </div></div></article>
+
+      <article class="caso"><h3>3. Atendimento grátis perto do fim</h3><p class="sub">Em 900 das 1.000 de um número. Lembra da forma de pagamento.</p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha dele">📨 <strong>Atendimento grátis perto do fim</strong><br>O número principal (final 2210) já usou 900 das 1.000 mensagens de atendimento grátis de novembro. Da 1.001ª em diante, cada resposta do robô e da equipe custa ~R$ 0,035.<br>Confira se há uma forma de pagamento na Meta: sem ela, a Meta para de entregar essas respostas até o dia 1º.
+              <div class="botoes-wa"><span>Ver o gasto</span></div><span class="hora">21:40</span></div>
+          </div></div></article>
+
+      <article class="caso"><h3>4. A pergunta ao Mister</h3><p class="sub">"Quanto gastei?" responde com os mesmos números da tela. <span class="fase">fase G3</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu">quanto gastei de whatsapp este mês?<span class="hora">21:52</span></div>
+            <div class="bolha dele">Em novembro, até agora (18/11, 21:30): <strong>R$ 205,43</strong> na Meta.<br>Marketing R$ 160,21 · avisos do pedido R$ 38,22 · atendimento R$ 7,00.<br>No mesmo dia de outubro: R$ 61,30.<span class="hora">21:52</span></div>
+          </div></div></article>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ NA CAMPANHA ═════════════════════ -->
+<section class="vista" id="v-campanha" aria-label="Na campanha">
+  <div class="app">
+    <nav class="lado" aria-label="Menu do aplicativo">
+      <div class="marca">REGEM<small>No comando de todo o negócio</small></div>
+      <ul>
+        <li>Painel</li><li>Delivery</li><li>Atendimento</li><li>WhatsApp</li>
+        <li class="atual" aria-current="page">Marketing</li><li>Estoque</li><li>Relatórios</li><li>Mister</li><li>Configurações</li>
+      </ul>
+    </nav>
+    <div class="principal">
+      <div class="topo">
+        <span><span class="menu-cel">☰ Menu · </span><span class="onde">Marketing</span></span>
+        <span class="quem">Ana · presidente</span>
+      </div>
+      <main class="pagina">
+        <div class="cab"><div><h1>Campanha "Sexta do burger"</h1><p class="sub">Antes de enviar, o Regem mostra quanto a Meta deve cobrar e se a campanha passa de um alerta de gasto. <span class="fase">fase G3</span></p></div></div>
+        <div class="ctls"><span>Situação do protótipo:</span>
+          <button class="ctl" data-ctl="campanha" data-valor="passa" aria-pressed="true">passa de um alerta</button>
+          <button class="ctl" data-ctl="campanha" data-valor="abaixo" aria-pressed="false">não passa</button>
+          <button class="ctl" data-ctl="campanha" data-valor="semalerta" aria-pressed="false">sem alertas</button>
+          <button class="ctl" data-ctl="campanha" data-valor="qr" aria-pressed="false">conexão por QR Code</button>
+        </div>
+        <div class="cartao">
+          <dl class="resumo">
+            <div><dt>Público</dt><dd>412 clientes que autorizaram mensagens</dd></div>
+            <div><dt>Modelo</dt><dd>sexta_do_burger · marketing</dd></div>
+            <div><dt>Número</dt><dd>Marketing · final 7731</dd></div>
+          </dl>
+          <div class="acoes"><button class="btn pri" data-abre="dlg-enviar">Enviar agora</button></div>
+          <p class="sub peq" style="margin-top:8px">Toque em "Enviar agora" para ver o diálogo.</p>
+        </div>
+      </main>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ NOTAS E DECISÕES ═════════════════════ -->
+<section class="vista" id="v-notas" aria-label="Notas e decisões">
+  <div class="notas">
+    <div class="cab"><div><h1>Notas e decisões</h1><p class="sub">O que fica por trás das telas, as fases e as decisões com a recomendada primeiro.</p></div></div>
+
+    <div class="cartao">
+      <h2>De onde vêm os números</h2>
+      <ul>
+        <li><strong>O gasto:</strong> a própria Meta, pela consulta de preço da conta (<span class="mono">pricing_analytics</span>), que devolve as mensagens entregues e o custo aproximado por tipo, por número e por meia hora, na moeda da conta. O Regem lê a cada 30 minutos e guarda; a tela e os alertas leem o que foi guardado, nunca a Meta ao vivo.</li>
+        <li><strong>De onde veio:</strong> o desempenho dos modelos que o Regem já lê da Meta (o mesmo do Marketing, com o custo de cada modelo), mais o atendimento, que não usa modelo.</li>
+        <li><strong>A franquia:</strong> as mensagens de atendimento entregues no mês, por número, contra as 1.000 grátis.</li>
+        <li><strong>A projeção:</strong> a média dos dias até agora × os dias do mês. Uma campanha grande puxa a média para cima; a tela diz como a conta é feita.</li>
+        <li><strong>A estimativa da campanha:</strong> o público × o preço por mensagem que a própria Meta cobrou desta conta no mês anterior (custo ÷ mensagens, por tipo); sem histórico, o preço publicado da Meta para o Brasil.</li>
+      </ul>
+    </div>
+
+    <div class="cartao">
+      <h2>Fases depois da aprovação</h2>
+      <ol>
+        <li><strong>G1 · a leitura e a tela.</strong> A rotina na nuvem (a cada 30 minutos, uma consulta por conta oficial ligada) e a tela WhatsApp › Uso e gasto, só para o presidente (a regra no servidor). <span class="fase">1 migration</span>: a tabela do gasto, só na nuvem (empresa, conta, número, dia, tipo, mensagens, custo, moeda, hora da leitura).</li>
+        <li><strong>G2 · os alertas pelo Mister.</strong> Os dois avisos novos em "Documentos e dinheiro", a gaveta dos valores (até 10) e o "já avisei" uma vez por mês por valor. <span class="fase">1 migration</span>: os valores na regra do aviso.</li>
+        <li><strong>G3 · antes de gastar.</strong> A estimativa no diálogo de enviar campanha e a pergunta "quanto gastei?" ao Mister. Sem migration.</li>
+      </ol>
+      <p class="sub peq">Nada muda para a loja na conexão por QR Code. Na loja com servidor, nada roda no servidor: o gasto é só da nuvem.</p>
+    </div>
+
+    <div class="cartao">
+      <h2>Decisões</h2>
+      <div class="decisao"><h3>1. De onde vem o número do gasto</h3><ol>
+        <li><span class="rec">recomendada</span> A consulta de preço da Meta, lida a cada 30 minutos: é o número que a própria Meta dá, mais perto da fatura.</li>
+        <li>Contar as mensagens pelos avisos de entrega e multiplicar por uma tabela de preços: mais imediato, mas a tabela muda a cada trimestre e se afasta da fatura.</li></ol></div>
+      <div class="decisao"><h3>2. Quem vê a tela</h3><ol>
+        <li><span class="rec">recomendada</span> Só o presidente: é dinheiro da empresa, cobrado no cartão dela.</li>
+        <li>O presidente e o gerente.</li></ol>
+        <p class="sub peq">Os alertas vão para quem o presidente escolher no "Mudar", como os outros avisos do Mister.</p></div>
+      <div class="decisao"><h3>3. Os valores do alerta</h3><ol>
+        <li><span class="rec">recomendada</span> Até 10 valores em reais; cada um avisa uma vez por mês, quando o gasto do mês passa dele. Um valor novo que o mês já passou avisa na leitura seguinte, uma vez.</li>
+        <li>Valores em porcentagem de um orçamento do mês.</li></ol></div>
+      <div class="decisao"><h3>4. Como os avisos nascem</h3><ol>
+        <li><span class="rec">recomendada</span> "Gasto do WhatsApp oficial" nasce desligado e sem valores; a gaveta sugere R$ 100, R$ 200 e R$ 400 e o presidente salva. "Atendimento grátis perto do fim" nasce ligado, para o presidente (perder as respostas do robô é pior que um aviso a mais).</li>
+        <li>Os dois nascem desligados.</li></ol></div>
+      <div class="decisao"><h3>5. O mês</h3><ol>
+        <li><span class="rec">recomendada</span> O mês do calendário no fuso da loja. A fatura da Meta pode diferir por algumas horas na virada; a tela diz que a fatura oficial é a da Meta.</li></ol></div>
+      <div class="decisao"><h3>6. Estimativa antes de enviar a campanha</h3><ol>
+        <li><span class="rec">recomendada</span> Sim: avisar antes de gastar é melhor que avisar depois. O diálogo mostra o custo e se passa de um alerta; não bloqueia o envio.</li>
+        <li>Não; só os alertas depois.</li></ol></div>
+      <div class="decisao"><h3>7. Sem o Mister ligado</h3><ol>
+        <li><span class="rec">recomendada</span> A tela mostra o gasto do mesmo jeito e diz que os alertas vão pelo Mister.</li></ol></div>
+      <div class="decisao"><h3>8. O gasto de todas as empresas no console da DMS</h3><ol>
+        <li><span class="rec">recomendada</span> Fica para depois: primeiro a loja vê o próprio gasto.</li></ol></div>
+    </div>
+
+    <div class="cartao">
+      <h2>Fontes (conferidas em 18/11/2026)</h2>
+      <ul>
+        <li><a href="https://developers.facebook.com/docs/whatsapp/pricing" rel="noopener" target="_blank">Meta · preços da plataforma</a>: por mensagem entregue; desde 01/10/2026, atendimento cobrado depois de 1.000 por número por mês, e sem forma de pagamento a Meta para de entregar essas mensagens.</li>
+        <li><a href="https://developers.facebook.com/docs/whatsapp/business-management-api/analytics" rel="noopener" target="_blank">Meta · consulta de preço (pricing_analytics)</a>: custo aproximado na moeda da conta, por meia hora, dia ou mês, por tipo e por número; até 12 meses para trás.</li>
+        <li>Preço no Brasil em reais (relatado por terceiros, a conferir na tabela da Meta): marketing ~R$ 0,3217; utilidade, autenticação e atendimento ~R$ 0,035.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<!-- gaveta: os valores do alerta -->
+<div class="fundo" id="fundo"></div>
+<aside class="gaveta" id="gav-valores" role="dialog" aria-modal="true" aria-labelledby="gv-titulo" tabindex="-1">
+  <div class="pn-cab"><h2 id="gv-titulo">Valores do alerta de gasto</h2><button class="fechar" data-fecha aria-label="Fechar">✕</button></div>
+  <div class="pn-corpo">
+    <p class="sub peq">Cada valor avisa uma vez por mês, quando o gasto do mês na Meta passa dele. No dia 1º tudo recomeça. Até 10 valores; o Regem põe em ordem ao salvar.</p>
+    <dl class="resumo">
+      <div><dt>Gasto de novembro</dt><dd class="mono">R$ 205,43 até agora</dd></div>
+      <div><dt>Já avisados</dt><dd>R$ 100 (14/11) · R$ 200 (hoje)</dd></div>
+    </dl>
+    <ol class="lista-valores" id="lista-valores"></ol>
+    <div class="acoes"><button class="btn" id="v-novo">＋ Novo valor</button></div>
+    <p class="erro-txt" id="v-erro" role="alert" hidden></p>
+    <h3 style="margin-top:16px;font-size:14px">Como chega no WhatsApp</h3>
+    <div class="cel" style="margin-top:6px"><div class="conv" style="min-height:0">
+      <div class="bolha dele">💸 <strong>Gasto do WhatsApp oficial</strong><br>O gasto de novembro passou de <strong>R$ 200,00</strong>: R$ 201,40 até agora (18/11, 20:05). … Próximo alerta: R$ 400,00.<span class="hora">20:05</span></div>
+    </div></div>
+  </div>
+  <div class="pn-rodape"><button class="btn" data-fecha>Cancelar</button><button class="btn pri" id="v-salvar">Salvar valores</button></div>
+</aside>
+
+<!-- gaveta: para onde vai (a mesma do protótipo aprovado do Mister, sem o "se ninguém resolver") -->
+<aside class="gaveta" id="gav-destino" role="dialog" aria-modal="true" aria-labelledby="gd-titulo" tabindex="-1">
+  <div class="pn-cab"><h2 id="gd-titulo">Para onde vai: <span data-nome-aqui></span></h2><button class="fechar" data-fecha aria-label="Fechar">✕</button></div>
+  <div class="pn-corpo">
+    <fieldset class="marcar"><legend>Vai para</legend>
+      <label for="gd-pres"><input id="gd-pres" type="checkbox" name="destino" value="presidente" checked> WhatsApp do presidente</label>
+      <label for="gd-ger"><input id="gd-ger" type="checkbox" name="destino" value="gerente"> WhatsApp do gerente da loja</label>
+      <label for="gd-tela"><input id="gd-tela" type="checkbox" name="destino" value="tela"> Tela do Regem na loja</label>
+      <label for="gd-dms"><input id="gd-dms" type="checkbox" name="destino" value="dms"> Suporte da DMS</label>
+    </fieldset>
+    <p class="sub peq">O KDS da cozinha e o caso no Atendimento não aparecem aqui: gasto não é assunto da cozinha nem do atendimento.</p>
+  </div>
+  <div class="pn-rodape"><button class="btn" data-fecha>Cancelar</button><button class="btn pri" id="gd-salvar">Usar estes destinos</button></div>
+</aside>
+
+<!-- diálogo: enviar a campanha -->
+<div class="dialogo" id="dlg-enviar" role="dialog" aria-modal="true" aria-labelledby="de-titulo" tabindex="-1">
+  <div class="pn-cab"><h2 id="de-titulo">Enviar a campanha "Sexta do burger"?</h2><button class="fechar" data-fecha aria-label="Fechar">✕</button></div>
+  <div class="pn-corpo">
+    <dl class="resumo">
+      <div><dt>Para</dt><dd>412 clientes</dd></div>
+      <div data-mostra="campanha:passa|abaixo|semalerta"><dt>Custo estimado na Meta</dt><dd class="mono">~ R$ 132,54</dd></div>
+    </dl>
+    <p class="sub peq" data-mostra="campanha:passa|abaixo|semalerta">412 × ~R$ 0,3217 (o preço de marketing que a Meta cobrou desta conta em outubro). A Meta cobra só o que for entregue.</p>
+    <div class="faixa warn" data-mostra="campanha:passa">Gasto de novembro até agora: <span class="mono">R$ 49,26</span>. Com esta campanha vai a cerca de <span class="mono">R$ 181,80</span> e <strong>passa do alerta de R$ 100,00</strong>. O Mister avisa quando passar.</div>
+    <div class="faixa info" data-mostra="campanha:abaixo">Gasto de novembro até agora: <span class="mono">R$ 49,26</span>. Com esta campanha vai a cerca de <span class="mono">R$ 181,80</span>; o próximo alerta é de R$ 200,00.</div>
+    <div class="faixa info" data-mostra="campanha:semalerta">Gasto de novembro até agora: <span class="mono">R$ 49,26</span>. Você não tem alerta de gasto; os valores ficam no Mister › Avisos e relatórios.</div>
+    <div class="faixa info" data-mostra="campanha:qr">Pela conexão por QR Code a Meta não cobra por mensagem. O risco é outro: muitas mensagens de uma vez podem bloquear o número.</div>
+  </div>
+  <div class="pn-rodape"><button class="btn" data-fecha>Cancelar</button><button class="btn pri" data-fecha data-aviso="Campanha na fila de envio.">Enviar para 412 clientes</button></div>
+</div>
+
+<div class="avisos" id="avisos" aria-live="polite"></div>
+
+<script>
+(function(){
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const corpo = document.body;
+  const reais = (n) => 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const GASTO = 205.43;
+  const AVISADOS = { 100: '14/11', 200: 'hoje' };
+
+  function avisar(texto){
+    const a = document.createElement('div'); a.className = 'aviso'; a.textContent = texto;
+    $('#avisos').appendChild(a); setTimeout(() => a.remove(), 3200);
+  }
+
+  /* estados do protótipo: data-ctl="grupo" data-valor="x" troca; data-mostra="grupo:a|b" aparece */
+  function aplicar(){
+    $$('[data-mostra]').forEach((el) => {
+      const [grupo, valores] = el.dataset.mostra.split(':');
+      el.hidden = !valores.split('|').includes(corpo.dataset[grupo]);
+    });
+    $$('.ctl[data-ctl]').forEach((b) => b.setAttribute('aria-pressed', String(corpo.dataset[b.dataset.ctl] === b.dataset.valor)));
+  }
+
+  function vista(id){
+    if (!$('#v-' + id)) id = 'gasto';
+    $$('.vista').forEach((v) => v.classList.toggle('ativa', v.id === 'v-' + id));
+    $$('.aba').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.aba === id)));
+    history.replaceState(null, '', '#' + id);
+    window.scrollTo(0, 0);
+  }
+
+  /* gaveta e diálogo: foco preso, Esc fecha, o foco volta para quem abriu */
+  let aberto = null, quemAbriu = null;
+  const focaveis = (el) => $$('button, [href], input, select, [tabindex]:not([tabindex="-1"])', el).filter((x) => !x.disabled && x.offsetParent !== null);
+  function abrir(id, de){
+    const p = $('#' + id); if (!p) return;
+    if (de && de.dataset.nome) $$('[data-nome-aqui]', p).forEach((n) => { n.textContent = de.dataset.nome; });
+    if (id === 'gav-valores') { rascunho = valores.slice(); desenharValores(); $('#v-erro').hidden = true; }
+    aberto = p; quemAbriu = de || null;
+    p.classList.add('aberto'); $('#fundo').classList.add('aberto');
+    (focaveis(p)[0] || p).focus();
+  }
+  function fechar(){
+    if (!aberto) return;
+    aberto.classList.remove('aberto'); $('#fundo').classList.remove('aberto');
+    const volta = quemAbriu; aberto = null; quemAbriu = null;
+    if (volta && document.contains(volta)) volta.focus();
+  }
+  document.addEventListener('keydown', (e) => {
+    if (!aberto) return;
+    if (e.key === 'Escape') { e.preventDefault(); fechar(); return; }
+    if (e.key !== 'Tab') return;
+    const f = focaveis(aberto); if (!f.length) return;
+    const primeiro = f[0], ultimo = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === primeiro) { e.preventDefault(); ultimo.focus(); }
+    else if (!e.shiftKey && document.activeElement === ultimo) { e.preventDefault(); primeiro.focus(); }
+  });
+
+  /* os valores do alerta */
+  let valores = [100, 200, 400];
+  let rascunho = valores.slice();
+  const MAX = 10;
+  function textoDoValor(v){ return v === null || v === undefined || Number.isNaN(v) ? '' : v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function lerValor(t){
+    const s = String(t || '').trim().replace(/\./g, '').replace(',', '.');
+    if (!s) return null;
+    const n = Number(s);
+    return Number.isFinite(n) ? Math.round(n * 100) / 100 : NaN;
+  }
+  function situacaoDoValor(v){
+    if (v === null || Number.isNaN(v)) return '';
+    if (AVISADOS[v]) return 'avisado ' + AVISADOS[v];
+    if (v <= GASTO) return 'o mês já passou deste valor: avisa na próxima leitura, uma vez';
+    return 'faltam ' + reais(Math.round((v - GASTO) * 100) / 100);
+  }
+  function desenharValores(){
+    const ol = $('#lista-valores'); ol.innerHTML = '';
+    rascunho.forEach((v, i) => {
+      const li = document.createElement('li'); li.className = 'linha-valor';
+      const id = 'valor-' + i;
+      li.innerHTML = `<label for="${id}">Alerta ${i + 1}</label><span class="reais"><span aria-hidden="true">R$</span><input id="${id}" inputmode="decimal" autocomplete="off" aria-describedby="${id}-st" value="${textoDoValor(v)}"></span><button class="btn btn-peq perigo" data-tirar="${i}" aria-label="Tirar o alerta ${i + 1}">Tirar</button><span class="st" id="${id}-st">${situacaoDoValor(v)}</span>`;
+      ol.appendChild(li);
+    });
+    $('#v-novo').disabled = rascunho.length >= MAX;
+    $('#v-novo').textContent = rascunho.length >= MAX ? 'Máximo de 10 valores' : '＋ Novo valor';
+  }
+  $('#lista-valores').addEventListener('input', (e) => {
+    const i = Number(e.target.id.replace('valor-', ''));
+    rascunho[i] = lerValor(e.target.value);
+    $('#' + e.target.id + '-st').textContent = situacaoDoValor(rascunho[i]);
+    e.target.parentElement.classList.remove('erro');
+  });
+  function salvarValores(){
+    const erro = $('#v-erro'); erro.hidden = true;
+    $$('#lista-valores .reais').forEach((r) => r.classList.remove('erro'));
+    const marcar = (i, msg) => { const r = $$('#lista-valores .reais')[i]; if (r) r.classList.add('erro'); erro.textContent = msg; erro.hidden = false; };
+    for (let i = 0; i < rascunho.length; i++) {
+      const v = rascunho[i];
+      if (v === null) return marcar(i, `Escreva o valor do alerta ${i + 1}, ou tire a linha.`);
+      if (Number.isNaN(v) || v < 1 || v > 100000) return marcar(i, `O alerta ${i + 1} precisa ser um valor entre R$ 1,00 e R$ 100.000,00.`);
+      if (rascunho.indexOf(v) !== i) return marcar(i, `O valor ${reais(v)} está repetido.`);
+    }
+    valores = rascunho.slice().sort((a, b) => a - b);
+    desenharChips();
+    fechar();
+    avisar(valores.length ? `Valores salvos: ${valores.map(reais).join(' · ')}.` : 'Sem valores: o alerta de gasto fica desligado.');
+  }
+  function desenharChips(){
+    const caixa = $('#chips-gasto');
+    caixa.innerHTML = '<span class="sub peq">Valores:</span>' + (valores.length
+      ? valores.map((v) => `<span class="valor-chip${AVISADOS[v] ? ' foi' : ''}">${reais(v)}${AVISADOS[v] ? ' ✓' : ''}</span>`).join('')
+      : '<span class="sub peq">nenhum</span>') + '<button class="btn btn-peq" data-abre="gav-valores">Valores</button>';
+    const lista = $('#resumo-alertas');
+    const franquia = lista.lastElementChild;
+    lista.innerHTML = '';
+    valores.forEach((v, i) => {
+      const li = document.createElement('li');
+      const st = AVISADOS[v] ? `<span class="selo ok">avisado ${AVISADOS[v]}</span>` : v <= GASTO ? '<span class="selo warn">avisa na próxima leitura</span>' : '<span class="selo neutro">ainda não</span>';
+      const sub = AVISADOS[v] || v <= GASTO ? `Alerta ${i + 1} · ${$('#dest-gasto').textContent}` : `Alerta ${i + 1} · faltam ${reais(Math.round((v - GASTO) * 100) / 100)}`;
+      li.innerHTML = `<div><strong class="mono">${reais(v)}</strong><div class="sub peq">${sub}</div></div>${st}`;
+      lista.appendChild(li);
+    });
+    lista.appendChild(franquia);
+  }
+
+  /* ajustes: conta o que mudou e mostra a barra */
+  const chaves = $$('#ajustes .liga:not([disabled])');
+  chaves.forEach((c) => { c.dataset.original = c.getAttribute('aria-checked'); });
+  function barra(){
+    let n = 0;
+    chaves.forEach((c) => { const mudou = c.getAttribute('aria-checked') !== c.dataset.original; c.closest('.aj').classList.toggle('mudou', mudou); if (mudou) n++; });
+    $('#barra-salvar').hidden = n === 0;
+    $('#barra-texto').textContent = n === 1 ? '1 alteração ainda não salva' : n + ' alterações ainda não salvas';
+  }
+  function virar(c){
+    const ligado = c.getAttribute('aria-checked') !== 'true';
+    c.setAttribute('aria-checked', String(ligado));
+    const rot = c.parentElement.querySelector('.estado-liga'); if (rot) rot.textContent = ligado ? 'Ligado' : 'Desligado';
+  }
+
+  document.addEventListener('click', (e) => {
+    const t = e.target.closest('button, a'); if (!t) return;
+    if (t.matches('a[href="#"]')) e.preventDefault();
+    if (t.dataset.aba) return vista(t.dataset.aba);
+    if (t.dataset.periodo) {
+      $$('[data-periodo]').forEach((b) => b.setAttribute('aria-pressed', String(b === t)));
+      $$('[data-periodo-outro]').forEach((c) => { c.hidden = t.dataset.periodo !== 'outro'; });
+      return;
+    }
+    if (t.matches('.liga') && !t.disabled) { virar(t); barra(); return; }
+    if (t.dataset.tirar !== undefined) { rascunho.splice(Number(t.dataset.tirar), 1); desenharValores(); const f = $('#lista-valores input'); (f || $('#v-novo')).focus(); return; }
+    if (t.id === 'v-novo') {
+      if (rascunho.length >= MAX) return;
+      const maior = rascunho.filter((v) => typeof v === 'number' && !Number.isNaN(v)).reduce((a, b) => Math.max(a, b), 0);
+      rascunho.push(maior ? maior * 2 : 100); desenharValores();
+      const ult = $$('#lista-valores input').pop(); if (ult) { ult.focus(); ult.select(); }
+      return;
+    }
+    if (t.id === 'v-salvar') return salvarValores();
+    if (t.id === 'gd-salvar') {
+      const nomes = { presidente: 'WhatsApp do presidente', gerente: 'WhatsApp do gerente da loja', tela: 'Tela do Regem na loja', dms: 'Suporte da DMS' };
+      const marc = $$('#gav-destino input[name="destino"]:checked').map((c) => nomes[c.value]);
+      if (!marc.length) { avisar('Escolha pelo menos um destino, ou desligue o aviso.'); return; }
+      if ($('#gav-destino [data-nome-aqui]').textContent.startsWith('Gasto')) $('#dest-gasto').textContent = marc.join(' · ');
+      fechar(); avisar('Destinos atualizados.'); return;
+    }
+    if (t.id === 'aj-descartar') { chaves.forEach((c) => { if (c.getAttribute('aria-checked') !== c.dataset.original) virar(c); }); barra(); avisar('Alterações descartadas.'); return; }
+    if (t.id === 'aj-salvar') { chaves.forEach((c) => { c.dataset.original = c.getAttribute('aria-checked'); }); barra(); avisar('Avisos do Mister salvos.'); return; }
+    if (t.dataset.ctl) { corpo.dataset[t.dataset.ctl] = t.dataset.valor; aplicar(); }
+    if (t.dataset.fecha !== undefined) fechar();
+    if (t.dataset.abre) abrir(t.dataset.abre, t);
+    if (t.dataset.aviso) avisar(t.dataset.aviso);
+  });
+  $('#fundo').addEventListener('click', fechar);
+
+  aplicar();
+  vista((location.hash || '#gasto').slice(1));
+})();
+</script>
+</body>
+</html>
