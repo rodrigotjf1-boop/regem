@@ -265,14 +265,33 @@ export default async function roteiroAvaliacoes({ nav, base, ok, foto: arquivoFo
         return responder(route, robo());
       }
       if (p === '/whatsapp/robo-config') return responder(route, robo());
+      // Os números do WhatsApp (a mesma aba os lê): o principal na API oficial, o de marketing sem número.
+      if (p === '/whatsapp/numeros') {
+        const numero = (papel, n) => ({ papel, provedor: 'cloud', numero: n, instancia: null, phoneId: n ? 'pn-1' : null, wabaId: n ? 'waba-1' : null, status: n ? 'conectado' : 'desligado', verificado: !!n, vinculado: !!n });
+        return responder(route, { principal: numero('principal', '5521999990771'), marketing: numero('marketing', null), termo: { versao: '1', evolution: '', cloud: '' } });
+      }
       if (p === '/cardapio/config') return responder(route, { id: 'cfg', ativo: true, roboAtivo: true, provedor: 'cloud' });
       if (/banners|cupons|regras-sinal|formas|impressoras|integrac|numeros|eventos|fidelidade|cashback|bairros|areas/.test(p)) return responder(route, []);
       return responder(route, {});
     });
+    const errosAj = [];
+    page.on('pageerror', (e) => errosAj.push(String(e?.message ?? e)));
+    page.on('console', (m) => {
+      if (m.type() === 'error') errosAj.push(m.text().slice(0, 200));
+    });
     await page.goto(base + '/delivery/configuracoes?aba=robo');
     const cartao = page.locator('[data-nota-do-pedido]');
     await cartao.waitFor({ timeout: 30000 });
-    await cartao.getByLabel('Nota que abre caso no Atendimento').waitFor({ timeout: 10000 });
+    try {
+      await cartao.getByLabel('Nota que abre caso no Atendimento').waitFor({ timeout: 10000 });
+    } catch (e) {
+      // O motivo na mão: o que o cartão mostra e a foto dele.
+      await page.screenshot({ path: arquivoFoto(`avaliacoes-ajuste-falhou-${w}.png`) }).catch(() => {});
+      const quantos = await cartao.count().catch(() => -1);
+      ok(false, `${w}px · ajuste: o cartão não mostrou os campos (${quantos} cartão(ões); ${umaLinha(await cartao.first().innerText().catch(() => '?'), 300)}; erros: ${umaLinha(errosAj.join(' | '), 300)})`);
+      await ctx.close();
+      continue;
+    }
     const achados = await medir(page);
     ok(achados.length === 0, `${w}px · ajuste: sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
     ok((await cartao.innerText()).includes('Link do Google: colado ✓'), `${w}px · ajuste: diz que o link do Google está colado (vai só na nota 5)`);
