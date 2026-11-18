@@ -2512,6 +2512,8 @@ const SO_NUVEM = new Set([
   'mister_de_para',
   // Os links para encaminhar um relatório a quem não tem usuário (mig 443, @cloud-only): a foto do relatório, só leitura.
   'mister_link_publico',
+  // O rascunho do recado no mural que espera o "Publicar" (mig 444, @cloud-only). O comunicado publicado desce pelo sync.
+  'mister_recado',
 ]);
 
 // LEGADO SEM USO: tabelas criadas nas migrations de fundação (002/003) para recursos que

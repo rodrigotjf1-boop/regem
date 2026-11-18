@@ -41,6 +41,9 @@ import { custosMediosNaLoja } from '../../common/custo-loja';
 import { VendasService } from '../vendas/vendas.service';
 import { MisterAnexosService } from './mister-anexos.service';
 import { MisterLinkPublicoService } from './mister-link-publico.service';
+import { MisterRecadosService } from './mister-recados.service';
+import { TEXTOS_DO_RECADO } from './mister-recado';
+import { MuralService } from '../mural/mural.service';
 import { TETO_DE_LINKS_VIVOS, TEXTOS_DO_LINK_PUBLICO } from './mister-link-publico';
 import { MisterPropostasService } from './mister-propostas.service';
 import { TEXTOS_DA_PROPOSTA, TEXTOS_DO_LINK } from './mister-procedimentos';
@@ -416,6 +419,7 @@ export function testesDoMisterComPostgres(): void {
       await q(`delete from mister_pergunta where tenant_id = any($1::uuid[])`, [[A, B]]);
       await q(`delete from mister_proposta where tenant_id = any($1::uuid[])`, [[A, B]]);
       await q(`delete from mister_link_publico where tenant_id = any($1::uuid[])`, [[A, B]]);
+      await q(`delete from mister_recado where tenant_id = any($1::uuid[])`, [[A, B]]);
       await q(`delete from mister_documento where tenant_id = any($1::uuid[])`, [[A, B]]);
       await q(`delete from mister_aviso where tenant_id = any($1::uuid[])`, [[A, B]]);
       await q(`delete from mister_aviso_regra where tenant_id = any($1::uuid[])`, [[A, B]]);
@@ -430,7 +434,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -3278,6 +3282,190 @@ export function testesDoMisterComPostgres(): void {
       } finally {
         if (lista) await q(`delete from contagem_lista where id = $1`, [lista]);
         await q(`delete from item_estoque where id = any($1::uuid[])`, [itens]);
+      }
+    });
+
+    // ───────────────────────────── o recado no mural (M3g parte 2, mig 444) ─────────────────────────────
+    // "escreve um recado pro mural: amanhã a loja abre às 18h": o Mister mostra o texto e pergunta; "Publicar" publica pelo
+    // MESMO serviço da tela do Mural & clima, uma vez só, em nome de quem pediu; "Mudar o texto" descarta.
+    it('o recado no mural (M3g parte 2): o rascunho com "Publicar" e "Mudar o texto", publicado pelo serviço do mural uma vez só; as recusas', async () => {
+      const telAna = telefone();
+      const telCarlos = telefone();
+      const telB = telefone();
+      await ligar('ana', telAna);
+      await ligar('carlos', telCarlos, A, 'gerente');
+      await ligar('anaB', telB, B);
+      const mural = new MuralService(db);
+      const recados = new MisterRecadosService(db, mural, entrada, numero, auditoria);
+      recados.onModuleInit();
+      const sem = undefined as any;
+      const f = new MisterFerramentasService(db, modulos, null as any, null as any, null as any, null as any, null as any, null as any, null as any, null as any, null as any, sem, sem, sem, sem, sem, sem, sem, sem, numero, sem, sem, recados);
+      const comunicados = () =>
+        q(`select id::text as id, titulo, corpo, audiencia, unidade_id::text as "unidadeId", autor_colaborador_id::text as autor from comunicado where tenant_id = any($1::uuid[]) and deleted_at is null order by created_at`, [[A, B]]);
+      const recado = async (id: string) => (await q(`select * from mister_recado where id = $1`, [id]))[0];
+      const idDe = (r: any) => String(r.botoes[0].id).slice('rec:pub:'.length);
+      const tocar = async (tel: string, botaoId: string) => {
+        numero.pedidos.length = 0;
+        expect(await mandar(tel, botaoId.startsWith('rec:pub:') ? 'Publicar' : 'Mudar o texto', { botaoId })).toBe('respondeu_proposta');
+        return numero.enviadas.map((m) => m.texto);
+      };
+      const lojaBarra: string[] = [];
+      await q(`delete from comunicado where tenant_id = any($1::uuid[])`, [[A, B]]);
+      try {
+        const eAna = (await f.escopo(A, pessoa.ana, telAna))!;
+        const TEXTO = '📢 Amanhã, terça (17/11), a loja abre às 18h.';
+        // O rascunho: o texto como ficou, onde vai e os dois botões (fora do que vai ao modelo). Nada publicado ainda.
+        const r: any = await f.executar(eAna, 'escrever_recado', { texto: `  ${TEXTO}  ` });
+        expect(r).toEqual({
+          ok: true,
+          dados: { comoFicou: TEXTO, ondeVai: 'Mural & clima da Loja Centro', siga: expect.stringContaining('Não diga que publicou') },
+          botoes: [
+            { id: expect.stringMatching(/^rec:pub:[0-9a-f-]{36}$/), titulo: 'Publicar' },
+            { id: expect.stringMatching(/^rec:mudar:[0-9a-f-]{36}$/), titulo: 'Mudar o texto' },
+          ],
+        });
+        expect(JSON.stringify(r.dados)).not.toContain('rec:');
+        const r1 = await recado(idDe(r));
+        expect(r1).toMatchObject({ tenant_id: A, unidade_id: lojaDeA, colaborador_id: pessoa.ana, texto: TEXTO, loja_nome: 'Loja Centro', situacao: 'rascunho', comunicado_id: null });
+        expect(Math.round((new Date(r1.vence_em).getTime() - new Date(r1.criado_em).getTime()) / 60000)).toBe(30);
+        expect(await comunicados()).toEqual([]);
+
+        // O botão tocado por outra pessoa da empresa, ou de outra empresa: não está disponível — e nada se publica.
+        expect(await tocar(telCarlos, r.botoes[0].id)).toEqual([TEXTOS_DO_RECADO.naoDisponivel]);
+        expect(await tocar(telB, r.botoes[0].id)).toEqual([TEXTOS_DO_RECADO.naoDisponivel]);
+        expect(await comunicados()).toEqual([]);
+
+        // "Publicar" de quem pediu: o comunicado pelo serviço do mural, na loja, com a Ana como autora; a hora na resposta.
+        auditados.length = 0;
+        const [publicado] = await tocar(telAna, r.botoes[0].id);
+        expect(publicado).toMatch(/^Publicado no Mural & clima da Loja Centro, às \d\d:\d\d\.$/);
+        const [c] = await comunicados();
+        expect(c).toEqual({ id: expect.any(String), titulo: TEXTO, corpo: null, audiencia: 'loja', unidadeId: lojaDeA, autor: pessoa.ana });
+        expect(await recado(idDe(r))).toMatchObject({ situacao: 'publicado', comunicado_id: c.id });
+        expect(auditados).toEqual([expect.objectContaining({ tenantId: A, atorId: pessoa.ana, acao: 'mister_recado_publicado', entidadeTipo: 'comunicado', entidadeId: c.id, origem: 'whatsapp', detalhe: { recado: idDe(r), loja: 'Loja Centro' } })]);
+        // O mural da tela mostra o recado (o MESMO serviço da tela lê).
+        const doFeed = await mural.feed({ tenantId: A, colaboradorId: pessoa.carlos, unidadeId: lojaDeA } as any);
+        expect(doFeed.comunicados.map((x: any) => [x.titulo, x.autorNome])).toEqual([[TEXTO, 'Ana Souza']]);
+        // O toque de novo (e o "Mudar o texto" depois de publicado): já foi, às tantas — nada se publica outra vez.
+        expect(await tocar(telAna, r.botoes[0].id)).toEqual([expect.stringMatching(/^Este recado já foi publicado, às \d\d:\d\d\.$/)]);
+        expect(await tocar(telAna, r.botoes[1].id)).toEqual([expect.stringMatching(/^Este recado já foi publicado/)]);
+        expect(await comunicados()).toHaveLength(1);
+
+        // "Mudar o texto": descarta, e o "Publicar" daquele rascunho já não publica.
+        const r2: any = await f.executar(eAna, 'escrever_recado', { texto: 'Reunião de equipe\n\nSexta, 20/11, às 15h.' });
+        expect(await tocar(telAna, r2.botoes[1].id)).toEqual([TEXTOS_DO_RECADO.mudar]);
+        expect(await recado(idDe(r2))).toMatchObject({ situacao: 'descartado' });
+        expect(await tocar(telAna, r2.botoes[0].id)).toEqual([TEXTOS_DO_RECADO.trocado]);
+        // O rascunho novo descarta o anterior da mesma pessoa: o botão velho não publica um texto que ela já trocou.
+        const r3: any = await f.executar(eAna, 'escrever_recado', { texto: 'Reunião de equipe\n\nSexta, 20/11, às 15h.' });
+        const r4: any = await f.executar(eAna, 'escrever_recado', { texto: 'Reunião de equipe\n\nSexta, 20/11, às 16h, na Loja Centro.' });
+        expect(await tocar(telAna, r3.botoes[0].id)).toEqual([TEXTOS_DO_RECADO.trocado]);
+        expect(await tocar(telAna, r4.botoes[0].id)).toEqual([expect.stringMatching(/^Publicado no Mural & clima da Loja Centro/)]);
+        expect((await comunicados()).at(-1)).toMatchObject({ titulo: 'Reunião de equipe', corpo: 'Sexta, 20/11, às 16h, na Loja Centro.' });
+        expect(await comunicados()).toHaveLength(2);
+
+        // Vencido (30 minutos): não publica.
+        const r5: any = await f.executar(eAna, 'escrever_recado', { texto: 'Inventário no domingo.' });
+        await q(`update mister_recado set criado_em = now() - interval '31 minutes', vence_em = now() - interval '1 minute' where id = $1`, [idDe(r5)]);
+        expect(await tocar(telAna, r5.botoes[0].id)).toEqual([TEXTOS_DO_RECADO.venceu]);
+        expect(await recado(idDe(r5))).toMatchObject({ situacao: 'rascunho', comunicado_id: null });
+        expect(await comunicados()).toHaveLength(2);
+
+        // O mural falha: o rascunho volta a esperar e o toque seguinte publica.
+        const quemAna = { telefone: telAna, vinculos: [{ tenantId: A, colaboradorId: pessoa.ana, unidadeId: null, nivel: 'presidente' as const, empresa: NOME_A }], wamid: null };
+        const quebrado = new MisterRecadosService(db, { publicar: async () => Promise.reject(new Error('o banco caiu')) } as any, undefined, numero, auditoria);
+        const r6: any = await f.executar(eAna, 'escrever_recado', { texto: 'Uniforme novo chega na quinta.' });
+        numero.pedidos.length = 0;
+        expect(await quebrado.tocou(r6.botoes[0].id, quemAna)).toBe(true);
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_RECADO.falhou]);
+        expect(await recado(idDe(r6))).toMatchObject({ situacao: 'rascunho', respondido_em: null, comunicado_id: null });
+        expect(await tocar(telAna, r6.botoes[0].id)).toEqual([expect.stringMatching(/^Publicado no Mural/)]);
+        // Dois toques ao mesmo tempo: um comunicado só.
+        const r7: any = await f.executar(eAna, 'escrever_recado', { texto: 'Treinamento do caixa no sábado.' });
+        numero.pedidos.length = 0;
+        expect(await Promise.all([recados.tocou(r7.botoes[0].id, quemAna), recados.tocou(r7.botoes[0].id, quemAna)])).toEqual([true, true]);
+        expect((await comunicados()).filter((x) => x.titulo === 'Treinamento do caixa no sábado.')).toHaveLength(1);
+        // O botão que não é do recado (ou de um recado que não existe) não é deste serviço.
+        expect(await recados.tocou('rec:pub:nada', quemAna)).toBe(false);
+        expect(await recados.tocou(`rec:pub:${randomUUID()}`, quemAna)).toBe(false);
+
+        // As recusas da ferramenta: quem não é presidente nem gerente, o perfil sem o Mural & clima, o texto vazio, comprido
+        // ou com link, e a conexão por QR Code (que não tem botão). Nenhuma guarda rascunho.
+        const antes = (await q(`select count(*)::int as n from mister_recado where tenant_id = $1`, [A]))[0].n;
+        expect(await f.executar({ ...eAna, nivel: 'execucao' as any }, 'escrever_recado', { texto: 'Oi' })).toEqual({ ok: false, dados: { erro: TEXTOS_DO_RECADO.soGestor } });
+        // A permissão do perfil vale para o gerente (o presidente abre tudo, como nas consultas).
+        const eGerente = (await f.escopo(A, pessoa.carlos, telCarlos))!;
+        expect(await f.executar({ ...eGerente, permissoes: { ...eGerente.permissoes, mural: false } as any }, 'escrever_recado', { texto: 'Oi' })).toEqual({ ok: false, dados: { erro: TEXTOS_DO_RECADO.semPermissao } });
+        expect(await f.executar(eAna, 'escrever_recado', { texto: ' ' })).toEqual({ ok: false, dados: { erro: TEXTOS_DO_RECADO.vazio } });
+        expect(await f.executar(eAna, 'escrever_recado', { texto: 'x'.repeat(501) })).toEqual({ ok: false, dados: { erro: TEXTOS_DO_RECADO.longo } });
+        expect(await f.executar(eAna, 'escrever_recado', { texto: 'O treino está em https://exemplo.com' })).toEqual({ ok: false, dados: { erro: TEXTOS_DO_RECADO.comLink } });
+        await q(`update mister_numero set provedor = 'evolution' where id = 1`);
+        try {
+          expect(await f.executar(eAna, 'escrever_recado', { texto: 'Oi, equipe' })).toEqual({ ok: false, dados: { erro: TEXTOS_DO_RECADO.semBotao } });
+        } finally {
+          await q(`update mister_numero set provedor = 'oficial' where id = 1`);
+        }
+        expect((await q(`select count(*)::int as n from mister_recado where tenant_id = $1`, [A]))[0].n).toBe(antes);
+
+        // O gerente: escreve e publica na loja dele; se muda de loja antes do toque, o botão deixa de valer para ele.
+        const eCarlos = (await f.escopo(A, pessoa.carlos, telCarlos))!;
+        const g1: any = await f.executar(eCarlos, 'escrever_recado', { texto: 'Escala da semana que vem já está no Regem.' });
+        expect(g1.dados.ondeVai).toBe('Mural & clima da Loja Centro');
+        expect(await tocar(telCarlos, g1.botoes[0].id)).toEqual([expect.stringMatching(/^Publicado no Mural & clima da Loja Centro/)]);
+        expect((await comunicados()).at(-1)).toMatchObject({ autor: pessoa.carlos, unidadeId: lojaDeA, audiencia: 'loja' });
+        const [{ id: barra }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja Barra') returning id::text as id`, [A]);
+        lojaBarra.push(barra);
+        const g2: any = await f.executar((await f.escopo(A, pessoa.carlos, telCarlos))!, 'escrever_recado', { texto: 'Contagem de estoque amanhã cedo.' });
+        await q(`update colaborador set unidade_id = $2 where id = $1`, [pessoa.carlos, barra]);
+        expect(await tocar(telCarlos, g2.botoes[0].id)).toEqual([TEXTOS_DO_RECADO.naoDisponivel]);
+        await q(`update colaborador set unidade_id = $2 where id = $1`, [pessoa.carlos, lojaDeA]);
+        // Rebaixado depois do rascunho: o vínculo deixa de valer e o botão não publica.
+        const g3: any = await f.executar((await f.escopo(A, pessoa.carlos, telCarlos))!, 'escrever_recado', { texto: 'Reunião rápida às 17h.' });
+        await q(`update colaborador set funcao_id = $2 where id = $1`, [pessoa.carlos, funcao['execucao-a']]);
+        numero.pedidos.length = 0;
+        await mandar(telCarlos, 'Publicar', { botaoId: g3.botoes[0].id });
+        expect((await recado(idDe(g3))).situacao).toBe('rascunho');
+        await q(`update colaborador set funcao_id = $2 where id = $1`, [pessoa.carlos, funcao['gerente-a']]);
+
+        // O presidente na empresa de várias lojas, sem dizer a loja: o recado vai para todas (o mural da rede).
+        const eAnaDuas = (await f.escopo(A, pessoa.ana, telAna))!;
+        expect(eAnaDuas.lojaUnica).toBe(false);
+        const p1: any = await f.executar(eAnaDuas, 'escrever_recado', { texto: 'Feliz Natal, equipe!' });
+        expect(p1.dados.ondeVai).toBe('Mural & clima de todas as lojas');
+        expect(await tocar(telAna, p1.botoes[0].id)).toEqual([expect.stringMatching(/^Publicado no Mural & clima de todas as lojas, às /)]);
+        expect((await comunicados()).at(-1)).toMatchObject({ titulo: 'Feliz Natal, equipe!', audiencia: 'rede', unidadeId: null });
+        const p2: any = await f.executar(eAnaDuas, 'escrever_recado', { texto: 'Na Barra, o caixa abre às 17h.', loja: 'Loja Barra' });
+        expect(p2.dados.ondeVai).toBe('Mural & clima da Loja Barra');
+        expect((await recado(idDe(p2))).unidade_id).toBe(barra);
+        await q(`delete from unidade where id = $1`, [barra]);
+        lojaBarra.length = 0;
+
+        // O agente: o texto na resposta, com "Publicar" e "Mudar o texto" no balão (fora do que a IA vê).
+        comIa();
+        const agente = new MisterAgenteService(fila, f, ia, numero);
+        numero.pedidos.length = 0;
+        ia.pedidos.length = 0;
+        await perguntar(telAna, 'escreve um recado pro mural: amanhã a loja abre às 18h');
+        ia.roteiro = [usar('escrever_recado', { texto: TEXTO }), falar(`Ficou assim: "${TEXTO}" Publico no Mural & clima da Loja Centro?`)];
+        await agente.esvaziar();
+        expect(numero.enviadas).toEqual([
+          {
+            para: telAna,
+            texto: `Ficou assim: "${TEXTO}" Publico no Mural & clima da Loja Centro?`,
+            botoes: [
+              { id: expect.stringMatching(/^rec:pub:/), titulo: 'Publicar' },
+              { id: expect.stringMatching(/^rec:mudar:/), titulo: 'Mudar o texto' },
+            ],
+          },
+        ]);
+        expect(JSON.stringify(ia.pedidos)).not.toContain('rec:pub:');
+        // E o toque no botão dessa resposta publica.
+        expect(await tocar(telAna, numero.enviadas[0].botoes[0].id)).toEqual([expect.stringMatching(/^Publicado no Mural & clima da Loja Centro/)]);
+      } finally {
+        await q(`update colaborador set unidade_id = $2, funcao_id = $3 where id = $1`, [pessoa.carlos, lojaDeA, funcao['gerente-a']]);
+        if (lojaBarra.length) await q(`delete from unidade where id = any($1::uuid[])`, [lojaBarra]);
+        await q(`delete from comunicado where tenant_id = any($1::uuid[])`, [[A, B]]);
+        await q(`delete from mister_recado where tenant_id = any($1::uuid[])`, [[A, B]]);
       }
     });
 

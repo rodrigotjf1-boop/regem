@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister: o recado no mural pela conversa (18/11, M3g parte 2; mig 444 SÓ NUVEM — `mister_recado`).** "Escreve um
+  recado pro mural…": o Mister mostra o texto e pergunta, com "Publicar" e "Mudar o texto"; o "Publicar" publica pelo
+  MESMO serviço da tela do Mural & clima, uma vez só, em nome de quem pediu. Tudo só na nuvem → vai no `.zip` sem efeito
+  na loja (o comunicado desce pelo sync de sempre): `mister_recado` = SO_NUVEM no `sync-daemon.mjs` (o daemon mudou →
+  o `.exe` do próximo corte leva junto).
+
 - **Atendimento sem as linhas "Too Many Requests" empilhadas: chave própria por peça do caso, o 429 em português e as
   leituras do caso só com a aba à vista (18/11; ERR-514; só tela, SEM migration) → vai no `.zip`.**
 

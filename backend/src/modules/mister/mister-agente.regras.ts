@@ -81,6 +81,7 @@ COMO VOCÊ TRABALHA
 - Mandar o link de conferência que o presidente pede também é permitido: "manda pro Carlos o link da contagem de hoje" — chame mandar_link com a pessoa como ele disse e o assunto. Diga a quem foi, o resumo que a ferramenta devolveu e que abre com o usuário da pessoa. Se ela disser que não mandou, diga o motivo como veio.
 - Criar o link para encaminhar um relatório a quem NÃO tem usuário no Regem (a contabilidade, um sócio) também é permitido, só quando o presidente pede: chame link_para_encaminhar. Diga de que é o relatório, que o link é só para ler, até quando vale e que quem tiver o link vê o relatório como está agora (ele não atualiza). O endereço vai sozinho no fim da sua resposta: não escreva link. Se pedirem para cancelar os links, chame cancelar_links e diga quantos pararam de valer.
 - Corrigir o vencimento de um boleto que VOCÊ lançou também é permitido, quando o presidente diz a data certa: chame corrigir_documento com o nome do boleto e a data nova. Diga o que mudou (de quando para quando) e que o botão "Desfazer" vai junto. O valor de uma conta nunca se corrige pela conversa: diga que é na tela de Contas a pagar.
+- Escrever um recado para o Mural & clima também é permitido, quando o presidente ou o gerente pede: chame escrever_recado com o texto pronto, curto, como vai aparecer no mural (a primeira linha é o título, datas com o dia da semana, sem link). Mostre o texto como ficou, entre aspas, e pergunte se publica no lugar que a ferramenta disse; os botões "Publicar" e "Mudar o texto" vão junto. Nunca diga que publicou: só o toque em "Publicar" publica. Se a pessoa pedir outro texto, chame escrever_recado de novo com o texto novo.
 - Para "como faço…" e "onde fica…", consulte o guia de uso e passe o caminho (Grupo › Item) e os passos como vieram, numa lista curta. Caminho de menu, nome de botão e nome de aba, só os que o guia trouxe: nunca invente nem complete. Se o guia diz que a tela depende de uma permissão do perfil e a pessoa não a tem, diga que quem libera é o presidente. Se o guia não achou, mas um dos assuntos que ele devolveu é o da pergunta, consulte de novo com as palavras desse assunto. Se o guia não tem o assunto, diga que ainda não sabe explicar esse caminho e cite, em uma frase, alguns assuntos que ele tem.
 - Não afirme que o Regem tem ou não tem uma função (exportar, imprimir, mandar arquivo, integração) quando nenhuma consulta, nem o guia de uso, mostrou isso. Diga que você não sabe dizer e que a pessoa confere no próprio Regem.
 - Não prometa o que as consultas não entregam: lista que vem em páginas é entregue página a página, e você diz quantas faltam.
@@ -183,7 +184,8 @@ export type NomeDaFerramenta =
   | 'mandar_link'
   | 'corrigir_documento'
   | 'link_para_encaminhar'
-  | 'cancelar_links';
+  | 'cancelar_links'
+  | 'escrever_recado';
 
 // ───────────────────────────── o que falta (F5.2) ─────────────────────────────
 // Quando a pessoa pede um dado que nenhuma consulta traz, o Mister anota o TEMA (de uma lista fechada) antes de dizer
@@ -206,6 +208,8 @@ export const FERRAMENTA_DE_CORRIGIR = 'corrigir_documento' as const;
 // só leitura, 7 dias) e cancelar_links os fecha — nenhuma das duas lê dado para a resposta (não são consulta).
 export const FERRAMENTA_DO_LINK_PUBLICO = 'link_para_encaminhar' as const;
 export const FERRAMENTA_DE_CANCELAR_LINKS = 'cancelar_links' as const;
+// M3g parte 2 (mig 444): o recado no mural — guarda o RASCUNHO; quem publica é a pessoa, pelo botão "Publicar".
+export const FERRAMENTA_DO_RECADO = 'escrever_recado' as const;
 /** As ferramentas que NÃO são consulta: anotam, propõem, mandam, corrigem ou criam — não trazem dado da loja para a resposta. */
 export const FERRAMENTAS_QUE_NAO_SAO_CONSULTA: readonly string[] = [
   FERRAMENTA_DO_QUE_FALTA,
@@ -214,6 +218,7 @@ export const FERRAMENTAS_QUE_NAO_SAO_CONSULTA: readonly string[] = [
   FERRAMENTA_DE_CORRIGIR,
   FERRAMENTA_DO_LINK_PUBLICO,
   FERRAMENTA_DE_CANCELAR_LINKS,
+  FERRAMENTA_DO_RECADO,
 ];
 // F4.2b: cancelar_pedido (de PIN) nasce da pergunta, preso ao pedido que a pessoa disse — não a um aviso.
 export const PROCEDIMENTOS_QUE_A_IA_PROPOE = ['imprimir_teste', 'consultar_nota', 'cancelar_pedido'] as const;
@@ -476,6 +481,20 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
     description:
       'Não é consulta: CANCELA todos os links para encaminhar que ainda valem nesta empresa (os que link_para_encaminhar criou): eles param de abrir na hora. Só o presidente. Chame quando ele pedir para cancelar, apagar ou tirar do ar os links que mandou. Diga quantos foram cancelados.',
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'escrever_recado',
+    description:
+      'Não é consulta: GUARDA o rascunho de um recado para o Mural & clima (o mural dos colaboradores no Regem) e devolve o texto como ficou e onde vai. NÃO publica: quem publica é a pessoa, pelo botão "Publicar" que vai junto da sua resposta, pelo Regem; "Mudar o texto" descarta o rascunho. Só o presidente e o gerente (o gerente, na loja dele). Escreva o texto pronto, curto (até 500 letras), como deve aparecer no mural: a primeira linha é o título; datas com o dia da semana; sem link. Na empresa de várias lojas, sem loja o recado vai para todas. Para mudar o texto, chame de novo com o texto novo.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        texto: { type: 'string', description: 'O recado como vai aparecer no mural, pronto (ex.: "📢 Amanhã, terça (17/11), a loja abre às 18h.").' },
+        loja: LOJA,
+      },
+      required: ['texto'],
+      additionalProperties: false,
+    },
   },
 ];
 
