@@ -48,6 +48,7 @@ import { TEXTOS_DO_LINK_PUBLICO, VALIDADE_DO_LINK_DIAS, diaMesDe } from './miste
 import { MisterRecadosService } from './mister-recados.service';
 import { MisterMemoriaService } from './mister-memoria.service';
 import { MisterVigiaService } from './mister-vigia.service';
+import { canalDito, referenciaDaImpressora, referenciaDoCaixa, referenciaDoCanal } from './mister-vigia';
 import { TEXTOS_DO_RECADO, VALIDADE_DO_RECADO_MIN, botaoDoRecado, ondeVai, textoDoRecado } from './mister-recado';
 import { ONDE_VER_O_GASTO, dentroDaJanelaDoWhatsapp, nomeDoMesDoGasto } from './mister-avisos.regras';
 import { WhatsappGastoService } from '../whatsapp/whatsapp-gasto.service';
@@ -125,6 +126,8 @@ const MODULO = 'mister';
 const SEM_VALORES = 'O perfil desta pessoa no Regem não mostra valores em reais: os valores vêm vazios.';
 const SEM_PERMISSAO = 'O perfil desta pessoa no Regem não dá acesso a esta informação. Quem muda o perfil é o presidente.';
 const SEM_LOJA = 'O cadastro desta pessoa não está ligado a uma loja. Ela precisa pedir ao presidente para acertar o cadastro no Regem.';
+/** Texto sem acento e em minúsculas, com os espaços apertados (para achar "a impressora da cozinha" por "Cozinha"). */
+const semAcentoMin = (t: unknown) => String(t ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 /** M4d: o ajuste da empresa desligado (nasce assim) — o caminho do menu da tela (V65). */
 const VIGIA_DESLIGADO = 'O "fica de olho" e os lembretes estão desligados nesta empresa: o presidente liga em Mister › Jeito e memória.';
 
@@ -642,6 +645,11 @@ export class MisterFerramentasService {
       return r.ok ? { ok: true, dados: { parou: true, pedido: r.rotulo, siga: 'Diga em uma frase que parou de olhar.' } } : recusa(r.erro);
     }
     if (en.acao !== 'comecar') return recusa('Diga se é para começar, parar ou listar.');
+    // M4d parte 2: o caixa, a impressora e o canal (cada um com a permissão da consulta onde o dado aparece).
+    if (en.alvo === 'caixa') return this.olharCaixa(e, en, loja);
+    if (en.alvo === 'impressora') return this.olharImpressora(e, en, loja);
+    if (en.alvo === 'canal') return this.olharCanal(e, en, loja);
+    if (en.alvo !== undefined && en.alvo !== 'pedido') return recusa('Diga o que olhar: um pedido, um caixa, uma impressora ou um canal.');
     if (!this.pode(e, 'delivery')) return recusa(SEM_PERMISSAO);
     const n = numeroDoPedido(en.numero);
     if (!n) return recusa('Diga o número do pedido (o do canal ou o número do dia).');
@@ -679,6 +687,76 @@ export class MisterFerramentasService {
         siga: 'Diga em uma frase que vai ficar de olho no pedido e avisar quando ele mudar.',
       },
     };
+  }
+
+  /** O que o "fica de olho" devolve ao modelo depois de marcar (o caixa, a impressora, o canal). */
+  private combinado(r: { ok: true; rotulo: string; jaEstava?: true }, quando: string): ResultadoDaFerramenta {
+    return {
+      ok: true,
+      dados: {
+        combinado: true,
+        oQue: r.rotulo,
+        avisaQuando: quando,
+        ate: 'as 06:00',
+        ...(r.jaEstava ? { observacao: 'Já estava de olho nisso.' } : {}),
+        siga: `Diga em uma frase que vai ficar de olho e avisar quando ${quando}.`,
+      },
+    };
+  }
+
+  /** M4d parte 2: o caixa aberto da loja (a permissão do relatório de turnos, como em caixas_e_sangrias), até fechar. */
+  private async olharCaixa(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    if (!this.pode(e, 'relatorios_vendas')) return recusa(SEM_PERMISSAO);
+    const qual = semAcentoMin(en.qual);
+    const origem = /deliv|entreg/.test(qual) ? 'delivery' : /balc|pdv|loja|salao/.test(qual) ? 'pdv' : null;
+    const abertos = linhas(
+      await this.db.execute(sql`
+        select s.id::text as id, s.origem, col.nome as "abertoPor", to_char(s.aberta_em at time zone ${FUSO_SQL}, 'DD/MM HH24:MI') as desde
+          from caixa_sessao s
+          left join colaborador col on col.id = s.aberta_por_id and col.tenant_id = s.tenant_id
+         where s.tenant_id = ${e.tenantId}::uuid and s.status = 'aberta' ${sqlUnidade('s.unidade_id', loja.atual)}
+           ${origem ? sql`and s.origem = ${origem}` : sql``}
+         order by s.aberta_em
+         limit 6`),
+    );
+    const nome = (c: any) => `caixa ${c.origem === 'delivery' ? 'do delivery' : 'do balcão'}${c.abertoPor ? ` (aberto por ${primeiroNome(String(c.abertoPor))})` : ''}`;
+    if (!abertos.length) return recusa(`Nenhum caixa ${origem === 'delivery' ? 'do delivery ' : origem === 'pdv' ? 'do balcão ' : ''}aberto agora em ${loja.nome}: não há o que olhar.`);
+    if (abertos.length > 1) return { ok: true, dados: { maisDeUmCaixa: abertos.map((c) => ({ caixa: nome(c), abertoDesde: String(c.desde) })), observacao: 'Pergunte qual deles.' } };
+    const r = await this.vigia!.olhar({ tenantId: e.tenantId, colaboradorId: e.colaboradorId }, { alvo: 'caixa', referencia: referenciaDoCaixa(String(abertos[0].id)), rotulo: nome(abertos[0]), estado: 'aberta' });
+    return r.ok ? this.combinado(r, 'ele fechar') : recusa(r.erro);
+  }
+
+  /** M4d parte 2: a impressora parada da loja (o incidente do vigia que a loja vê), até voltar a responder. */
+  private async olharImpressora(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    const daLoja = loja.atual ? sql`and (i.unidade_id = ${loja.atual}::uuid or i.unidade_id is null)` : sql``;
+    let paradas = linhas(
+      await this.db.execute(sql`
+        select i.id::text as id, coalesce(i.evidencia ->> 'impressora', '') as nome, to_char(i.primeira_em at time zone ${FUSO_SQL}, 'DD/MM HH24:MI') as desde
+          from vigia_incidente i
+         where i.tenant_id = ${e.tenantId}::uuid and i.situacao = 'aberto' and i.regra = 'impressora_parada' and i.publico in ('loja', 'ambos') ${daLoja}
+         order by i.primeira_em
+         limit 10`),
+    );
+    const qual = semAcentoMin(en.qual).replace(/^impressora( da| do)?\s*/, '').trim();
+    if (qual) paradas = paradas.filter((p) => semAcentoMin(p.nome).includes(qual) || qual.includes(semAcentoMin(p.nome)));
+    if (!paradas.length) return recusa(`Nenhuma impressora${qual ? ` "${String(en.qual ?? '').trim()}"` : ''} parada agora em ${loja.nome}: não há o que olhar.`);
+    if (paradas.length > 1) return { ok: true, dados: { maisDeUmaImpressora: paradas.map((p) => ({ impressora: p.nome || 'sem nome', paradaDesde: String(p.desde) })), observacao: 'Pergunte qual delas.' } };
+    const p = paradas[0];
+    const r = await this.vigia!.olhar({ tenantId: e.tenantId, colaboradorId: e.colaboradorId }, { alvo: 'impressora', referencia: referenciaDaImpressora(String(p.id)), rotulo: `impressora ${p.nome || 'parada'}`.trim(), estado: 'aberto' });
+    return r.ok ? this.combinado(r, 'ela voltar a responder') : recusa(r.erro);
+  }
+
+  /** M4d parte 2: o canal pausado da loja, pela MESMA regra do "Pausar" do Delivery, até reabrir. */
+  private async olharCanal(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    if (!this.pode(e, 'delivery')) return recusa(SEM_PERMISSAO);
+    const canal = canalDito(en.qual);
+    if (!canal) return recusa('Diga qual canal: iFood, 99 ou cardápio.');
+    if (!this.pausa) return recusa('Não consigo ler a pausa dos canais agora.');
+    const estado: any = await this.pausa.estado(e.tenantId, loja.atual);
+    const nome = NOME_DO_CANAL[canal as keyof typeof NOME_DO_CANAL] ?? canal;
+    if (!estado?.canais?.find((c: any) => c.canal === canal)?.pausa) return recusa(`O ${nome} não está pausado agora em ${loja.nome}: não há o que olhar.`);
+    const r = await this.vigia!.olhar({ tenantId: e.tenantId, colaboradorId: e.colaboradorId }, { alvo: 'canal', referencia: referenciaDoCanal(canal, loja.atual), rotulo: nome, estado: 'pausado' });
+    return r.ok ? this.combinado(r, 'ele reabrir') : recusa(r.erro);
   }
 
   /** Versão 4, M4d — o lembrete na hora marcada (mig 452). O "quando" vem na hora da loja; o serviço confere. */

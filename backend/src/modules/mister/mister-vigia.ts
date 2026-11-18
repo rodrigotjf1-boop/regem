@@ -103,7 +103,52 @@ export function textoDoLembreteNaHora(rotulo: string): string {
 
 /** A referência guardada do pedido do canal (o id dele) e a leitura de volta. */
 export const referenciaDoPedido = (id: string) => `pe:${id}`;
-export const idDaReferencia = (ref: unknown): string | null => {
-  const m = /^pe:([0-9a-f-]{36})$/i.exec(String(ref ?? ''));
+export const idDaReferencia = (ref: unknown, prefixo = 'pe'): string | null => {
+  const m = new RegExp(`^${prefixo}:([0-9a-f-]{36})$`, 'i').exec(String(ref ?? ''));
   return m ? m[1].toLowerCase() : null;
 };
+
+// ───────────────────────────── o caixa, a impressora e o canal (a parte 2) ─────────────────────────────
+
+/** Os alvos do "fica de olho" (os mesmos da restrição da mig 452). */
+export const ALVOS_DO_OLHO = ['pedido', 'caixa', 'impressora', 'canal'] as const;
+export type AlvoDoOlho = (typeof ALVOS_DO_OLHO)[number];
+
+/** O caixa aberto: olha até fechar (`cx:<id da sessão>`). */
+export const referenciaDoCaixa = (id: string) => `cx:${id}`;
+/** A impressora parada: olha até voltar a responder (`vi:<id do incidente do vigia>`). */
+export const referenciaDaImpressora = (id: string) => `vi:${id}`;
+/** O canal pausado: olha até reabrir (`canal:<ifood|food99|cardapio>:<loja ou "rede">`). */
+export const referenciaDoCanal = (canal: string, unidadeId: string | null) => `canal:${canal}:${unidadeId ?? 'rede'}`;
+export function canalDaReferencia(ref: unknown): { canal: string; unidadeId: string | null } | null {
+  const m = /^canal:(ifood|food99|cardapio):(rede|[0-9a-f-]{36})$/i.exec(String(ref ?? ''));
+  return m ? { canal: m[1].toLowerCase(), unidadeId: m[2].toLowerCase() === 'rede' ? null : m[2].toLowerCase() } : null;
+}
+
+/** O canal como a pessoa diz ("iFood", "99", "cardápio") → a chave da pausa; ou null. */
+export function canalDito(dito: unknown): 'ifood' | 'food99' | 'cardapio' | null {
+  const t = String(dito ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, '');
+  if (/ifood/.test(t)) return 'ifood';
+  if (/^99|99food|food99/.test(t)) return 'food99';
+  if (/cardapio|site|proprio/.test(t)) return 'cardapio';
+  return null;
+}
+
+/** A mensagem quando o caixa, a impressora ou o canal muda. `hora` = a hora daquela mudança na loja (ou null). */
+export function textoDaMudanca(alvo: string, rotulo: string, estado: string, hora: string | null): string {
+  const as = hora ? ` às ${hora}` : '';
+  if (alvo === 'pedido') return textoDaMudancaDoPedido(rotulo, estado, hora);
+  if (alvo === 'caixa') return estado === 'fechada' ? `✅ O ${rotulo} fechou${as}.` : `👀 O ${rotulo} mudou: ${estado}.`;
+  if (alvo === 'impressora') return estado === 'aberto' ? `⚠️ A ${rotulo} parou de novo${as}.` : `✅ A ${rotulo} voltou a responder${as}.`;
+  if (alvo === 'canal') return estado === 'pausado' ? `⏸ O ${rotulo} foi pausado de novo${as}.` : `✅ O ${rotulo} voltou: a pausa acabou${as}.`;
+  return `👀 ${rotulo}: ${estado}.`;
+}
+
+/** O estado em que o "fica de olho" de cada alvo termina (avisa e encerra). */
+export function estadoFinal(alvo: string, estado: string): boolean {
+  if (alvo === 'pedido') return SITUACOES_FINAIS_DO_PEDIDO.includes(estado);
+  if (alvo === 'caixa') return estado === 'fechada';
+  if (alvo === 'impressora') return estado !== 'aberto';
+  if (alvo === 'canal') return estado === 'aberto';
+  return false;
+}

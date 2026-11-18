@@ -12,18 +12,23 @@ import { acharPeloTrecho } from './mister-memoria';
 import { MODELO_DO_AVISO } from './mister-modelos';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { pessoaVale } from './mister-vinculo.service';
+import { PausaDoCanalService } from '../delivery/pausa-do-canal.service';
 import {
+  AlvoDoOlho,
   LEMBRETES_MAX,
   OLHOS_MAX,
   SITUACOES_FINAIS_DO_PEDIDO,
+  canalDaReferencia,
   conferirTextoDoLembrete,
+  estadoFinal,
   fimDaNoite,
   lerQuando,
   quandoNaConversa,
   referenciaDoPedido,
-  textoDaMudancaDoPedido,
+  textoDaMudanca,
   textoDoLembreteNaHora,
 } from './mister-vigia';
+import { horaNoFuso } from '../../common/data';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -47,6 +52,9 @@ const MODULO = 'mister';
 export type QuemPedeVigia = { tenantId: string; colaboradorId: string };
 type Resultado<T> = ({ ok: true } & T) | { ok: false; erro: string };
 
+/** Um "fica de olho" ativo com a situação de agora do alvo (`agora` null = não li nesta volta). */
+type Olhado = { id: string; tenantId: string; colaboradorId: string; alvo: AlvoDoOlho; rotulo: string; estado: string | null; sumiu: boolean; agora: string | null; hora: string | null };
+
 export interface ResultadoDaVoltaDoVigia {
   lembretes: number;
   mudancas: number;
@@ -65,6 +73,8 @@ export class MisterVigiaService implements OnModuleInit {
     private readonly modulos: ModuloService,
     private readonly conversa: MisterConversaConfigService,
     @Optional() private readonly entrada?: MisterEntradaService,
+    // M4d parte 2: o canal pausado é lido pela MESMA regra do "Pausar" do Delivery. Sem ele, o canal não é olhado.
+    @Optional() private readonly pausa?: PausaDoCanalService,
   ) {}
 
   /** O toque em "Ver o que fazer" (fora das 24 horas) chega pela entrada do WhatsApp: ela chama este serviço. */
@@ -82,8 +92,17 @@ export class MisterVigiaService implements OnModuleInit {
   /** Fica de olho num pedido do canal (já achado e conferido pela ferramenta): avisa quando ele mudar de situação. */
   async olharPedido(q: QuemPedeVigia, pedido: { id: string; rotulo: string; status: string }, agora = new Date()): Promise<Resultado<{ rotulo: string; ate: string; jaEstava?: true }>> {
     if (SITUACOES_FINAIS_DO_PEDIDO.includes(pedido.status)) return { ok: false, erro: `O ${pedido.rotulo} já está ${pedido.status === 'cancelado' ? 'cancelado' : 'entregue'}: não há mais o que olhar.` };
+    return this.olhar(q, { alvo: 'pedido', referencia: referenciaDoPedido(pedido.id), rotulo: pedido.rotulo, estado: pedido.status }, agora);
+  }
+
+  /**
+   * Fica de olho em qualquer alvo já achado e conferido pela ferramenta (o pedido, o caixa aberto, a impressora parada, o
+   * canal pausado), até as 06:00 da loja. O mesmo alvo duas vezes = uma linha; o teto de 3 com a trava da empresa.
+   */
+  async olhar(q: QuemPedeVigia, a: { alvo: AlvoDoOlho; referencia: string; rotulo: string; estado: string }, agora = new Date()): Promise<Resultado<{ rotulo: string; ate: string; jaEstava?: true }>> {
     const ate = fimDaNoite(agora);
-    const referencia = referenciaDoPedido(pedido.id);
+    const { referencia } = a;
+    const pedido = { rotulo: a.rotulo, status: a.estado };
     try {
       return await this.db.transaction(async (tx: any) => {
         await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${q.tenantId}), ${TRAVA_DO_VIGIA})`);
@@ -93,7 +112,7 @@ export class MisterVigiaService implements OnModuleInit {
           return { ok: false as const, erro: `Você já tem ${OLHOS_MAX} "fica de olho" ativos (${ativos.map((a) => a.rotulo).join('; ')}). Diga qual parar.` };
         await tx.execute(sql`
           insert into mister_vigia (tenant_id, colaborador_id, tipo, alvo, referencia, rotulo, estado, quando)
-          values (${q.tenantId}::uuid, ${q.colaboradorId}::uuid, 'olho', 'pedido', ${referencia}, ${pedido.rotulo.slice(0, 200)}, ${pedido.status}, ${ate.toISOString()}::timestamptz)`);
+          values (${q.tenantId}::uuid, ${q.colaboradorId}::uuid, 'olho', ${a.alvo}, ${referencia}, ${pedido.rotulo.slice(0, 200)}, ${pedido.status}, ${ate.toISOString()}::timestamptz)`);
         return { ok: true as const, rotulo: pedido.rotulo, ate: '06:00' };
       });
     } catch (e: any) {
@@ -226,11 +245,42 @@ export class MisterVigiaService implements OnModuleInit {
       res.lembretes++;
     }
 
-    // 3) Os pedidos olhados: a situação de agora contra a última vista. O `case` só converte a referência bem formada.
-    const olhados = linhas(
+    // 3) O que está sendo olhado (o pedido, o caixa, a impressora, o canal): a situação de agora contra a última vista.
+    const olhados: Olhado[] = [...(await this.pedidosOlhados(so)), ...(await this.caixasOlhados(so)), ...(await this.impressorasOlhadas(so)), ...(await this.canaisOlhados(so, agora))];
+    for (const l of olhados) {
+      if (!(await empresaVale(l.tenantId))) {
+        await cancelarDesligado(l.id);
+        continue;
+      }
+      if (l.sumiu) {
+        const r = linhas(await this.db.execute(sql`update mister_vigia set situacao = 'cancelado', resultado = 'o que estava sendo olhado não existe mais', atualizado_em = clock_timestamp() where id = ${l.id}::uuid and situacao = 'ativo' returning id`));
+        res.cancelados += r.length;
+        continue;
+      }
+      // Não li agora (o canal sem a leitura da pausa): fica para a próxima volta — nunca "mudou" por falta de leitura.
+      if (l.agora === null || l.agora === String(l.estado ?? '')) continue;
+      const final = estadoFinal(l.alvo, l.agora);
+      // Gravação condicional pelo estado de antes: duas voltas ao mesmo tempo mandam UMA mensagem por mudança.
+      const meu = linhas(
+        await this.db.execute(sql`
+          update mister_vigia set estado = ${l.agora}, situacao = ${final ? 'feito' : 'ativo'}, avisado_em = clock_timestamp(), atualizado_em = clock_timestamp()
+           where id = ${l.id}::uuid and situacao = 'ativo' and estado is not distinct from ${l.estado ?? null}
+           returning id`),
+      );
+      if (!meu.length) continue;
+      await this.entregar(l, textoDaMudanca(l.alvo, String(l.rotulo), l.agora, l.hora), `o ${l.rotulo} mudou`, agora);
+      res.mudancas++;
+    }
+    return res;
+  }
+
+  // ── a situação de agora de cada alvo (o `case` só converte a referência bem formada) ──
+
+  private async pedidosOlhados(so: ReturnType<typeof sql>): Promise<Olhado[]> {
+    return linhas(
       await this.db.execute(sql`
         select v.id::text as id, v.tenant_id::text as "tenantId", v.colaborador_id::text as "colaboradorId", v.rotulo, v.estado,
-               pe.id is not null as achou, pe.status, pe.deleted_at is not null as apagado,
+               (pe.id is null or pe.deleted_at is not null) as sumiu, pe.status as agora,
                to_char(case pe.status
                          when 'confirmado' then pe.confirmado_em when 'pronto' then pe.pronto_em when 'despachado' then pe.despachado_em
                          when 'entregue' then pe.entregue_em when 'concluido' then pe.concluido_em when 'cancelado' then pe.cancelado_em
@@ -240,32 +290,68 @@ export class MisterVigiaService implements OnModuleInit {
             on pe.tenant_id = v.tenant_id
            and pe.id = case when v.referencia ~ '^pe:[0-9a-fA-F-]{36}$' then substring(v.referencia from 4)::uuid end
          where v.situacao = 'ativo' and v.tipo = 'olho' and v.alvo = 'pedido' ${so}`),
-    );
-    for (const l of olhados) {
-      if (!(await empresaVale(l.tenantId))) {
-        await cancelarDesligado(l.id);
-        continue;
-      }
-      if (!l.achou || l.apagado) {
-        const r = linhas(await this.db.execute(sql`update mister_vigia set situacao = 'cancelado', resultado = 'o pedido não existe mais', atualizado_em = clock_timestamp() where id = ${l.id}::uuid and situacao = 'ativo' returning id`));
-        res.cancelados += r.length;
-        continue;
-      }
-      const agoraStatus = String(l.status);
-      if (agoraStatus === String(l.estado ?? '')) continue;
-      const final = SITUACOES_FINAIS_DO_PEDIDO.includes(agoraStatus);
-      // Gravação condicional pelo estado de antes: duas voltas ao mesmo tempo mandam UMA mensagem por mudança.
-      const meu = linhas(
+    ).map((l) => ({ ...l, alvo: 'pedido' as const }));
+  }
+
+  /** O caixa aberto: olha até fechar. */
+  private async caixasOlhados(so: ReturnType<typeof sql>): Promise<Olhado[]> {
+    return linhas(
+      await this.db.execute(sql`
+        select v.id::text as id, v.tenant_id::text as "tenantId", v.colaborador_id::text as "colaboradorId", v.rotulo, v.estado,
+               s.id is null as sumiu, s.status as agora, to_char(s.fechada_em at time zone ${FUSO_SQL}, 'HH24:MI') as hora
+          from mister_vigia v
+          left join caixa_sessao s
+            on s.tenant_id = v.tenant_id
+           and s.id = case when v.referencia ~ '^cx:[0-9a-fA-F-]{36}$' then substring(v.referencia from 4)::uuid end
+         where v.situacao = 'ativo' and v.tipo = 'olho' and v.alvo = 'caixa' ${so}`),
+    ).map((l) => ({ ...l, alvo: 'caixa' as const }));
+  }
+
+  /**
+   * A impressora parada (o incidente do vigia): olha até voltar a responder. Banco sem a tabela do vigia (414, só nuvem):
+   * nenhuma — a falta dela não pode parar a volta dos outros alvos (V37).
+   */
+  private async impressorasOlhadas(so: ReturnType<typeof sql>): Promise<Olhado[]> {
+    try {
+      return linhas(
         await this.db.execute(sql`
-          update mister_vigia set estado = ${agoraStatus}, situacao = ${final ? 'feito' : 'ativo'}, avisado_em = clock_timestamp(), atualizado_em = clock_timestamp()
-           where id = ${l.id}::uuid and situacao = 'ativo' and estado is not distinct from ${l.estado ?? null}
-           returning id`),
-      );
-      if (!meu.length) continue;
-      await this.entregar(l, textoDaMudancaDoPedido(String(l.rotulo), agoraStatus, l.hora ? String(l.hora) : null), `o ${l.rotulo} mudou`, agora);
-      res.mudancas++;
+          select v.id::text as id, v.tenant_id::text as "tenantId", v.colaborador_id::text as "colaboradorId", v.rotulo, v.estado,
+                 i.id is null as sumiu, i.situacao as agora, to_char(i.fechado_em at time zone ${FUSO_SQL}, 'HH24:MI') as hora
+            from mister_vigia v
+            left join vigia_incidente i
+              on i.tenant_id = v.tenant_id
+             and i.id = case when v.referencia ~ '^vi:[0-9a-fA-F-]{36}$' then substring(v.referencia from 4)::uuid end
+           where v.situacao = 'ativo' and v.tipo = 'olho' and v.alvo = 'impressora' ${so}`),
+      ).map((l) => ({ ...l, alvo: 'impressora' as const }));
+    } catch (e: any) {
+      if (semTabela(e)) return [];
+      throw e;
     }
-    return res;
+  }
+
+  /** O canal pausado: pela MESMA regra do "Pausar" do Delivery (uma leitura por empresa e loja nesta volta). */
+  private async canaisOlhados(so: ReturnType<typeof sql>, agora: Date): Promise<Olhado[]> {
+    const rows = linhas(
+      await this.db.execute(sql`
+        select v.id::text as id, v.tenant_id::text as "tenantId", v.colaborador_id::text as "colaboradorId", v.rotulo, v.estado, v.referencia
+          from mister_vigia v
+         where v.situacao = 'ativo' and v.tipo = 'olho' and v.alvo = 'canal' ${so}`),
+    );
+    const lidos = new Map<string, any>();
+    const fora: Olhado[] = [];
+    for (const l of rows) {
+      const ref = canalDaReferencia(l.referencia);
+      if (!ref) {
+        fora.push({ ...l, alvo: 'canal', sumiu: true, agora: null, hora: null });
+        continue;
+      }
+      const chave = `${l.tenantId}:${ref.unidadeId ?? 'rede'}`;
+      if (!lidos.has(chave)) lidos.set(chave, this.pausa ? await this.pausa.estado(l.tenantId, ref.unidadeId, agora).catch(() => null) : null);
+      const estado = lidos.get(chave);
+      const agoraDoCanal = estado ? (estado.canais?.find((c: any) => c.canal === ref.canal)?.pausa ? 'pausado' : 'aberto') : null;
+      fora.push({ ...l, alvo: 'canal', sumiu: false, agora: agoraDoCanal, hora: agoraDoCanal ? horaNoFuso(agora) : null });
+    }
+    return fora;
   }
 
   /**
@@ -308,12 +394,12 @@ export class MisterVigiaService implements OnModuleInit {
   async mostrarPeloToque(id: string, quem: QuemTocou): Promise<boolean> {
     const [v] = linhas(
       await this.db.execute(sql`
-        select tipo, rotulo, estado, tenant_id::text as "tenantId", colaborador_id::text as "colaboradorId", resultado
+        select tipo, alvo, rotulo, estado, tenant_id::text as "tenantId", colaborador_id::text as "colaboradorId", resultado
           from mister_vigia where id = ${id}::uuid`),
     );
     if (!v || v.resultado !== 'modelo') return false;
     if (!quem.vinculos.some((x) => x.tenantId === v.tenantId && x.colaboradorId === v.colaboradorId)) return false;
-    const texto = v.tipo === 'lembrete' ? textoDoLembreteNaHora(String(v.rotulo)) : textoDaMudancaDoPedido(String(v.rotulo), String(v.estado ?? ''), null);
+    const texto = v.tipo === 'lembrete' ? textoDoLembreteNaHora(String(v.rotulo)) : textoDaMudanca(String(v.alvo), String(v.rotulo), String(v.estado ?? ''), null);
     await this.numero.enviar(quem.telefone, { texto });
     return true;
   }

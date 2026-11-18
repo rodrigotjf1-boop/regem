@@ -1,5 +1,12 @@
 import {
   LEMBRETE_DIAS_MAX,
+  canalDaReferencia,
+  canalDito,
+  estadoFinal,
+  referenciaDaImpressora,
+  referenciaDoCaixa,
+  referenciaDoCanal,
+  textoDaMudanca,
   conferirTextoDoLembrete,
   fimDaNoite,
   idDaReferencia,
@@ -79,5 +86,39 @@ describe('mister — o vigia: o pedido', () => {
     expect(idDaReferencia(`pe:${id.toUpperCase()}`)).toBe(id);
     expect(idDaReferencia('pe:1; drop table x')).toBeNull();
     expect(idDaReferencia(null)).toBeNull();
+  });
+});
+
+describe('mister — o vigia: o caixa, a impressora e o canal (parte 2)', () => {
+  const ID = '0b9f1c2e-1111-4aaa-8bbb-123456789abc';
+  it('as referências de cada alvo, e a do canal lida de volta (a loja ou a rede); malformada = null', () => {
+    expect(referenciaDoCaixa(ID)).toBe(`cx:${ID}`);
+    expect(referenciaDaImpressora(ID)).toBe(`vi:${ID}`);
+    expect(idDaReferencia(`cx:${ID}`, 'cx')).toBe(ID);
+    expect(idDaReferencia(`cx:${ID}`, 'pe')).toBeNull();
+    expect(referenciaDoCanal('ifood', ID)).toBe(`canal:ifood:${ID}`);
+    expect(canalDaReferencia(referenciaDoCanal('ifood', ID))).toEqual({ canal: 'ifood', unidadeId: ID });
+    expect(canalDaReferencia(referenciaDoCanal('food99', null))).toEqual({ canal: 'food99', unidadeId: null });
+    expect(canalDaReferencia('canal:orkut:rede')).toBeNull();
+    expect(canalDaReferencia('canal:ifood:1; drop')).toBeNull();
+  });
+
+  it('o canal como a pessoa diz', () => {
+    expect(['iFood', 'o ifood', 'IFOOD'].map(canalDito)).toEqual(['ifood', 'ifood', 'ifood']);
+    expect(['99', '99food', '99 Food'].map(canalDito)).toEqual(['food99', 'food99', 'food99']);
+    expect(['cardápio', 'nosso cardapio', 'o site'].map(canalDito)).toEqual(['cardapio', 'cardapio', 'cardapio']);
+    expect(canalDito('rappi')).toBeNull();
+  });
+
+  it('a frase de cada mudança e quando o olhar termina', () => {
+    expect(textoDaMudanca('caixa', 'caixa do delivery (aberto por Bruna)', 'fechada', '23:10')).toBe('✅ O caixa do delivery (aberto por Bruna) fechou às 23:10.');
+    expect(textoDaMudanca('impressora', 'impressora Cozinha', 'recuperado', '21:05')).toBe('✅ A impressora Cozinha voltou a responder às 21:05.');
+    expect(textoDaMudanca('canal', 'iFood', 'aberto', '20:40')).toBe('✅ O iFood voltou: a pausa acabou às 20:40.');
+    expect(textoDaMudanca('canal', 'iFood', 'pausado', '21:00')).toBe('⏸ O iFood foi pausado de novo às 21:00.');
+    expect(textoDaMudanca('pedido', '#284 · iFood 4821', 'pronto', null)).toBe('👀 O #284 · iFood 4821 ficou pronto.');
+    expect([estadoFinal('caixa', 'fechada'), estadoFinal('caixa', 'aberta')]).toEqual([true, false]);
+    expect([estadoFinal('impressora', 'recuperado'), estadoFinal('impressora', 'encerrado'), estadoFinal('impressora', 'aberto')]).toEqual([true, true, false]);
+    expect([estadoFinal('canal', 'aberto'), estadoFinal('canal', 'pausado')]).toEqual([true, false]);
+    expect([estadoFinal('pedido', 'entregue'), estadoFinal('pedido', 'despachado')]).toEqual([true, false]);
   });
 });

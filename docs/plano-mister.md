@@ -1222,8 +1222,16 @@ conversa"): a memória entra no bloco da conversa, sem quebrar o cache.
   concluído, cancelado) encerra. Empresa que desligou o ajuste ou o módulo: o marcado é cancelado sem mandar. A entrega é
   pelo número do Mister; fora das 24 horas, o modelo aprovado ("Ver o que fazer"), e o toque traz o texto só a quem é. A
   linha guarda o resultado, nunca o telefone. A avaliação ganhou as perguntas 45 ("me avisa quando o pedido 284 sair") e
-  46 ("me lembra amanhã às 10h de pagar o gás"). **Parte 2** (sem migration — a tabela já aceita): o "fica de olho" no
-  caixa, na impressora e no canal, e a senha do balcão.
+  46 ("me lembra amanhã às 10h de pagar o gás"). Renumerada de 451 para 452 (ERR-526: a 451 do G3b entrou antes; na
+  nuvem ela entrou com o nome `451_mister_vigia`). **No ar (#1153).**
+- **M4d parte 2 — o "fica de olho" no caixa, na impressora e no canal (sem migration — a `mister_vigia` já aceita os
+  alvos):** `ficar_de_olho` ganhou o `alvo` e o `qual`. O CAIXA aberto da loja (delivery ou balcão, com a permissão do
+  relatório de turnos, como `caixas_e_sangrias`), até fechar; a IMPRESSORA parada (o incidente `impressora_parada` que a
+  loja vê, achada pelo nome), até voltar a responder; o CANAL pausado (iFood, 99 ou cardápio, pela MESMA regra do
+  "Pausar" do Delivery, com a permissão do Delivery), até reabrir. Só se olha o que está naquele estado ("não está pausado
+  agora: não há o que olhar"). A volta lê cada alvo à parte; banco sem a tabela do vigia (só nuvem) não para os outros
+  alvos (V37). Avaliação: pergunta 47 ("me avisa quando o iFood voltar"). Fica de fora a senha do balcão (não está na
+  decisão 8 do protótipo).
 
 ## 5. O que depende do dono
 

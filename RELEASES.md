@@ -25,7 +25,8 @@
   **M4a** mig 447 SÓ NUVEM (#1145: o perfil e o jeito da empresa em Mister › "Jeito e memória"); **M4b** mig 449 SÓ NUVEM
   (#1147, `mister_memoria`: "O que o Mister sabe", a ferramenta `lembrar` e a lista com Anotar, Mudar e Esquecer); **M4c**
   SEM migration (#1150: os avisos escritos pelo Mister, um ajuste por grupo, nascendo desligado); **M4d parte 1** mig 452
-  SÓ NUVEM (`mister_vigia`: o "fica de olho" num pedido e o lembrete, nascendo desligado). Tudo só na nuvem → vai no
+  SÓ NUVEM (#1153, `mister_vigia`: o "fica de olho" num pedido e o lembrete, nascendo desligado); **M4d parte 2** SEM
+  migration (o "fica de olho" no caixa, na impressora e no canal). Tudo só na nuvem → vai no
   `.zip` sem efeito na loja; `mister_memoria` e `mister_vigia` = SO_NUVEM no `sync-daemon.mjs` (o daemon mudou → o `.exe`
   do próximo corte leva junto).
 
