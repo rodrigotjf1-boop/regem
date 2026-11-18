@@ -18,6 +18,8 @@ export type ResumoDoGasto =
         minutos: number;
         /** 'tabela': a Meta não mostra o custo da conta (cobrada por meio de um parceiro) — o valor é estimado (mig 448). */
         fonteDoCusto?: 'meta' | 'tabela' | null;
+        /** O gasto por modelo que a Meta não deixou ler, com o motivo (mig 451). */
+        modelosErro?: { motivo: string; conta: { papel: string; final: string } | null } | null;
       };
       total: { custo: number; mensagens: number; cobradas: number };
       projecao: number | null;
