@@ -1120,7 +1120,8 @@ conversa"): a memória entra no bloco da conversa, sem quebrar o cache.
    `mister_pergunta` já guarda, só da própria pessoa); as instruções do Mister nos mesmos blocos do atendente (jeito de
    conversar, como escrever no WhatsApp, o que a pessoa já disse, a conferência antes de responder) e a saída pelo mesmo
    formatador do WhatsApp do atendente (`whatsapp/formato-da-resposta.ts`: negrito, lista com o emoji do assunto,
-   reação). A troca das instruções passa pela avaliação de regressão (as 41 perguntas) antes de valer.
+   reação). A troca das instruções é conferida pela avaliação de regressão (as 41 perguntas de Console › Mister ›
+   Qualidade) logo depois do deploy: errada nova que a versão anterior acertava = a troca volta.
 2. **Com migration e protótipo aprovado antes:** o perfil do Mister (os mesmos perfis do atendente e o "jeito da
    empresa") e a memória da loja e da pessoa, numa lista que o presidente vê e apaga.
 3. **Com protótipo aprovado antes:** o aviso escrito pelo agente (a regra continua detectando sem IA; o texto fixo fica
@@ -1132,7 +1133,15 @@ conversa"): a memória entra no bloco da conversa, sem quebrar o cache.
   ordem pedida, como antes. A resposta ao modelo, a trilha e os anexos (PDF, gráfico, imagem do "como faço") seguem a
   ordem do pedido. No processo, no máximo 4 ferramentas ao mesmo tempo somadas todas as conversas
   (`TETOS.consultasNoProcesso`; o pool do banco tem 10 conexões para a API inteira, e antes o máximo era 3). O teto de
-  10 consultas por pergunta segue decidido na ordem do pedido. A avaliação de regressão roda o mesmo laço.
+  10 consultas por pergunta segue decidido na ordem do pedido. A avaliação de regressão roda o mesmo laço. **No ar (#1134).**
+- **Entrega 1, parte 2 — o jeito de escrever do atendente (sem migration):** a seção "Como você escreve" virou os blocos
+  do atendente — JEITO DE CONVERSAR, COMO ESCREVER NO WHATSAPP (negrito de um asterisco, lista com o emoji do assunto,
+  exemplo sem número de verdade, problema sem emoji, REAGIR), NÚMEROS, DATAS E PEDIDOS, O QUE A PESSOA JÁ DISSE, SE
+  PERGUNTAREM SE VOCÊ É ROBÔ e ANTES DE MANDAR CADA RESPOSTA, CONFIRA —, com todas as regras de conteúdo de antes. O
+  filtro de saída passa pelo mesmo formatador do atendente (título em negrito, tabela em lista; o link do markdown deixa
+  só o rótulo). A **reação**: a linha `REACAO:` sai do texto e o número do Mister reage à mensagem da pessoa pela API
+  oficial (o corpo da doc da Meta, igual ao das lojas); quando a reação é a resposta inteira e não dá para reagir (conexão
+  por QR, sem o id da mensagem, a Meta recusou), o emoji vai como texto. Na memória fica o emoji.
 
 ## 5. O que depende do dono
 

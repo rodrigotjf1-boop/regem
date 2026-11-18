@@ -175,6 +175,8 @@ class NumeroDeMentira extends MisterNumeroService {
         // A imagem (M3c.3, o gráfico): "imagem:<id da mídia>".
         // M3d: a imagem pelo endereço público: "imagem:<link>".
         if (p.corpo.type === 'image') return { para: p.corpo.to, texto: `imagem:${p.corpo.image.id ?? p.corpo.image.link}`, botoes: [] };
+        // Versão 4: a reação à mensagem da pessoa — "reacao:<emoji>|<id da mensagem>".
+        if (p.corpo.type === 'reaction') return { para: p.corpo.to, texto: `reacao:${p.corpo.reaction.emoji}|${p.corpo.reaction.message_id}`, botoes: [] };
         return {
           para: p.corpo.to,
           texto: p.corpo.type === 'text' ? p.corpo.text.body : p.corpo.interactive.body.text,
@@ -1296,6 +1298,48 @@ export function testesDoMisterComPostgres(): void {
       expect(await q(`select 1 from ia_uso_dia where tenant_id = $1`, [B])).toEqual([]);
     });
 
+    it('versão 4, a reação: o "valeu" ganha a reação na mensagem da pessoa, sem texto; a reação recusada vira o emoji em texto; frase e reação saem as duas; na memória fica o emoji', async () => {
+      comIa();
+      const tel = telefone();
+      await ligar('ana', tel);
+      // Só a reação, com o id da mensagem: reage e não escreve nada (o corpo é o da doc da Meta).
+      numero.pedidos.length = 0;
+      const id1 = wamid();
+      expect(await mandar(tel, 'valeu!', { wamid: id1 })).toBe('pergunta');
+      ia.roteiro = [falar('REACAO: 👍')];
+      await agente.esvaziar();
+      expect(numero.pedidos.filter((p) => p.corpo?.type === 'reaction').map((p) => p.corpo)).toEqual([
+        { messaging_product: 'whatsapp', recipient_type: 'individual', to: tel, type: 'reaction', reaction: { message_id: id1, emoji: '👍' } },
+      ]);
+      expect(numero.enviadas).toEqual([{ para: tel, texto: `reacao:👍|${id1}`, botoes: [] }]);
+      // A Meta recusou a reação: o emoji vai como texto — nunca silêncio.
+      numero.pedidos.length = 0;
+      numero.responder = (p) => (p.corpo?.type === 'reaction' ? { status: 400, corpo: { error: { message: 'recusada' } } } : undefined);
+      const id2 = wamid();
+      await mandar(tel, 'obrigado', { wamid: id2 });
+      ia.roteiro = [falar('REACAO: 🙏')];
+      await agente.esvaziar();
+      numero.responder = () => undefined;
+      expect(numero.enviadas).toEqual([
+        { para: tel, texto: `reacao:🙏|${id2}`, botoes: [] },
+        { para: tel, texto: '🙏', botoes: [] },
+      ]);
+      // Frase e reação: reage e manda a frase, sem a linha REACAO.
+      numero.pedidos.length = 0;
+      const id3 = wamid();
+      await mandar(tel, 'show, era isso', { wamid: id3 });
+      ia.roteiro = [falar('Disponha! Qualquer coisa é só chamar.\nREACAO: 👏')];
+      await agente.esvaziar();
+      expect(numero.enviadas).toEqual([
+        { para: tel, texto: `reacao:👏|${id3}`, botoes: [] },
+        { para: tel, texto: 'Disponha! Qualquer coisa é só chamar.', botoes: [] },
+      ]);
+      // As três respondidas; na memória, o emoji no lugar da resposta vazia (o modelo não aceita resposta vazia).
+      const respondidas = (await perguntasDe('ana')).filter((p) => p.situacao === 'respondida' && p.resposta);
+      expect(respondidas.map((p) => p.resposta)).toEqual(['👍', '🙏', 'Disponha! Qualquer coisa é só chamar.']);
+      expect((await fila.memoria(A, pessoa.ana)).map((m) => m.resposta)).toEqual(['👍', '🙏', 'Disponha! Qualquer coisa é só chamar.']);
+    });
+
     it('a memória da conversa vai junto na pergunta seguinte, com a hora e as consultas de cada resposta, e uma conversa não vê a de outra pessoa', async () => {
       comIa();
       const tel = telefone();
@@ -1614,7 +1658,8 @@ export function testesDoMisterComPostgres(): void {
       await perguntar(tel, 'quanto vendi hoje?');
       ia.roteiro = [usar('resumo_do_dia', {}), falar('## Resumo\n**Hoje**: R$ 0,00 no balcão.\nA meta era R$ 9.999,90. Veja em https://exemplo.com/painel agora.')];
       await agente.esvaziar();
-      expect(numero.enviadas.at(-1)!.texto).toBe('Resumo\n*Hoje*: R$ 0,00 no balcão.\nA meta era R$ 9.999,90. Veja em agora.');
+      // Versão 4: o mesmo formatador do atendente — o título vira negrito.
+      expect(numero.enviadas.at(-1)!.texto).toBe('*Resumo*\n*Hoje*: R$ 0,00 no balcão.\nA meta era R$ 9.999,90. Veja em agora.');
       expect((await perguntasDe('ana'))[0].conferencia).toEqual(['link_tirado', 'valor_sem_origem']);
       // Resposta que parece trazer um segredo não sai: vai a frase fixa.
       await perguntar(tel, 'qual é a chave?');

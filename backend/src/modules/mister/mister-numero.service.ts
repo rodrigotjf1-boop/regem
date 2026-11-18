@@ -15,7 +15,7 @@ import {
   pedidoDeAprovacao,
   situacaoDoModelo,
 } from './mister-modelos';
-import { Resposta, soDigitos, textoParaOEvolution } from './mister.regras';
+import { Resposta, corpoDaReacaoDoMister, soDigitos, textoParaOEvolution } from './mister.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -490,6 +490,28 @@ export class MisterNumeroService {
         });
       })
       .catch(() => undefined);
+  }
+
+  /**
+   * Versão 4: REAGE à mensagem da pessoa (a linha `REACAO:` da resposta, como no atendente virtual), com o corpo da doc da
+   * Meta (`corpoDaReacaoDoMister`). Só pela API oficial, com o número ligado e o id da mensagem; no Evolution devolve
+   * false e quem chama manda o emoji como texto. Nunca lança: devolve se a Meta aceitou.
+   */
+  async reagir(para: string, wamid: string, emoji: string): Promise<boolean> {
+    try {
+      const destino = soDigitos(para);
+      const n = await this.ler();
+      const token = this.token();
+      if (!destino || !wamid || !emoji || !n.ligado || n.provedor === 'evolution' || !n.phoneId || n.situacao === 'sem' || !token) return false;
+      const res = await this.buscar(`${GRAPH}/${n.phoneId}/messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(corpoDaReacaoDoMister(destino, wamid, emoji)),
+      });
+      return !!res?.ok;
+    } catch {
+      return false;
+    }
   }
 
   // ───────────────────────────── o Evolution (Q1, mig 436) ─────────────────────────────

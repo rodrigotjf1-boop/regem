@@ -18,6 +18,8 @@ import {
   primeiroNome,
   situacaoDaEmpresa,
 } from './mister.regras';
+import { corpoDaReacaoDoMister } from './mister.regras';
+import { corpoDaReacao } from '../whatsapp/whatsapp-cloud.service';
 
 const A = { tenantId: '11111111-1111-4111-8111-111111111111', nome: 'Burger da Praça' };
 const B = { tenantId: '22222222-2222-4222-8222-222222222222', nome: 'Pizzaria do Porto' };
@@ -168,5 +170,13 @@ describe('Mister — os textos só prometem o que existe', () => {
     expect(TEXTOS.desconhecido).not.toMatch(/pergunt/i);
     const todos = [TEXTOS.desconhecido, TEXTOS.ligado('Ana', 'X'), TEXTOS.parou('Ana'), TEXTOS.voltou('Ana'), TEXTOS.seguindo('X')];
     for (const t of todos) expect(t).not.toMatch(/relat[óo]rio|autoriza/i);
+  });
+});
+
+describe('Mister — a reação (versão 4)', () => {
+  it('o corpo é o da doc da Meta ("Reaction messages") e o MESMO do WhatsApp das lojas', () => {
+    const corpo = corpoDaReacaoDoMister('5521999990000', 'wamid.HBgM', '👍');
+    expect(corpo).toEqual({ messaging_product: 'whatsapp', recipient_type: 'individual', to: '5521999990000', type: 'reaction', reaction: { message_id: 'wamid.HBgM', emoji: '👍' } });
+    expect(corpo).toEqual(corpoDaReacao('5521999990000', 'wamid.HBgM', '👍'));
   });
 });

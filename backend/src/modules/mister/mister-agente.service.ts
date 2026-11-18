@@ -153,12 +153,22 @@ export class MisterAgenteService implements OnModuleInit {
       const saida = filtrarSaida(fim.texto, fim.resultados);
       const trilha: Trilha = { ...fim.trilha, conferencia: saida.notas };
       if (saida.notas.length) this.logger.warn(`mister: a resposta a ${mascarar(ultima.telefone)} saiu com nota do filtro (${saida.notas.join(', ')})`);
+      // Versão 4: a REAÇÃO (a linha REACAO da resposta, como no atendente) vai à mensagem da pessoa. Quando ela é a resposta
+      // inteira (sem texto e sem nada que as ferramentas trouxeram) e não deu para reagir (QR, sem o id da mensagem, a Meta
+      // recusou), o emoji vai como texto — nunca silêncio. Na memória fica o emoji (o modelo não aceita resposta vazia).
+      const reagiu = saida.reacao && ultima.wamid ? await this.numero.reagir(ultima.telefone, ultima.wamid, saida.reacao) : false;
+      const resposta = saida.texto || saida.reacao || '';
+      const extras = fim.anexos.length + fim.imagens.length + fim.links.length + fim.botoes.length + fim.propostas.length;
+      if (!saida.texto && saida.reacao && !extras) {
+        if (!reagiu && !(await this.dizer(ultima.telefone, saida.reacao))) return await fechar('envio', trilha);
+        return await this.fila.concluir(ids, { resposta, trilha, perguntaJunta: pergunta });
+      }
       // M3c.2: o relatório da resposta. Pedido "em PDF": o PDF vai logo depois. Senão, o botão "PDF" no balão — só pela
       // API oficial (a conexão por QR não tem botão, e o "1" de lá é da autorização) e só quando o texto cabe.
       const pdfs = fim.anexos.filter((a) => a.enviarPdf);
       // M3c.4: com um relatório só, o link da página ("Ver no Regem") vai no fim do texto — depois do filtro de saída, que
       // tira link do que a IA escreve: este sai do código, para o próprio Regem, e abre com o usuário de quem toca.
-      const comVerNoRegem = fim.anexos.length === 1 ? `${saida.texto}\n\nVer no Regem: ${linkDoRelatorio(baseDoApp(), fim.anexos[0].pedido)}` : saida.texto;
+      const comVerNoRegem = fim.anexos.length === 1 ? `${resposta}\n\nVer no Regem: ${linkDoRelatorio(baseDoApp(), fim.anexos[0].pedido)}` : resposta;
       // M3c (mig 443): o link para encaminhar a quem não tem usuário também sai do código (nunca passa pela IA nem fica
       // guardado na pergunta): uma linha por link, com a data até quando vale.
       const texto = fim.links.slice(0, LINKS_POR_RESPOSTA).reduce((t, l) => `${t}\n\n${linhaDoLinkNaConversa(l.url, l.vence)}`, comVerNoRegem);
@@ -183,7 +193,7 @@ export class MisterAgenteService implements OnModuleInit {
           this.logger.warn(`mister: a proposta ${p.id} não saiu para ${mascarar(ultima.telefone)} (${e instanceof FalhaDoEnvioDoMister ? e.motivo : (e?.message ?? e)})`);
         }
       }
-      await this.fila.concluir(ids, { resposta: saida.texto, trilha, perguntaJunta: pergunta });
+      await this.fila.concluir(ids, { resposta, trilha, perguntaJunta: pergunta });
     } catch (e: any) {
       this.logger.error(`mister: a pergunta ${ultima.id} de ${mascarar(ultima.telefone)} não foi respondida — ${e?.message ?? e}`, e?.stack);
       await this.dizer(ultima.telefone, TEXTOS_DO_AGENTE.passageira);
