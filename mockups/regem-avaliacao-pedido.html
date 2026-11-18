@@ -8,13 +8,14 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <style>
-/* REGEM · PROTÓTIPO DA AVALIAÇÃO DO PEDIDO — versão 1, para aprovação (18/11/2026).
+/* REGEM · PROTÓTIPO DA AVALIAÇÃO DO PEDIDO — versão 1, APROVADA em 18/11/2026 com a correção do dono: o link do Google
+   só na nota 5 (decisão 4); as outras nove decisões, as recomendadas.
    O pedido do dono (18/11/2026): "analise o uso do flow na api oficial da meta, uso para avaliação e verificar outra
    solução que seria possível o uso." Depois: QR na via NÃO (a via do delivery já tem o QR do entregador); o público é o
    Cardápio Regem; o formulário (Flow) só existe no WhatsApp oficial — na conexão por QR Code, fica a página do pedido.
    O que este protótipo mostra:
    - No celular: o "Avaliar pedido" depois do "Tudo certo 👍" do "Chegou tudo certo?", o formulário do WhatsApp (Flow),
-     o obrigado com o link do Google para TODAS as notas, a nota baixa que vira caso no Atendimento, o "Tive um problema"
+     o obrigado (com o link do Google só na nota 5), a nota baixa que vira caso no Atendimento, o "Tive um problema"
      que não pede nota e a loja na conexão por QR Code.
    - Na página do pedido (/r/…): o "Como foi o pedido?" depois da entrega, para todos, com os estados.
    - Na loja: Delivery › Avaliações (lista no modelo do Estoque, gaveta do pedido) e a nota baixa no Atendimento.
@@ -414,8 +415,8 @@ a{color:var(--info);text-underline-offset:2px}
       </div>
 
       <div class="caso">
-        <h3>3. Nota 3, 4 ou 5: o obrigado e o Google</h3>
-        <p class="sub">O link do Google vai com o obrigado de TODAS as notas, se a loja colou o link no cartão do Google. Quem deu nota não recebe depois a mensagem separada do Google.</p>
+        <h3>3. Nota 5: o obrigado e o Google</h3>
+        <p class="sub">O link do Google vai com o obrigado só na nota 5, se a loja colou o link no cartão do Google (decisão do dono). Quem deu nota não recebe depois a mensagem separada do Google.</p>
         <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister Burger</b><span>conta comercial</span></div></div>
           <div class="conv">
             <div class="bolha meu"><span class="enviado">📋 <b>Avaliação enviada</b></span><span class="sub peq">Ver resposta</span><span class="hora">20:54</span></div>
@@ -424,12 +425,22 @@ a{color:var(--info);text-underline-offset:2px}
       </div>
 
       <div class="caso">
+        <h3>3b. Nota 3 ou 4: só o obrigado</h3>
+        <p class="sub">O mesmo obrigado, sem o link do Google. A nota e o que pesou vão para a lista de Avaliações; a nota 3 só vira caso se a loja escolher "1, 2 ou 3" nos ajustes.</p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister Burger</b><span>conta comercial</span></div></div>
+          <div class="conv">
+            <div class="bolha meu"><span class="enviado">📋 <b>Avaliação enviada</b></span><span class="sub peq">Ver resposta</span><span class="hora">21:32</span></div>
+            <div class="bolha dele">Obrigado pela nota, Rafael! 💛 Ela vai direto para a equipe — é assim que a gente melhora.<span class="hora">21:32</span></div>
+          </div></div>
+      </div>
+
+      <div class="caso">
         <h3>4. Nota 1 ou 2: vira caso no Atendimento</h3>
-        <p class="sub">O pedido de desculpas e o caso "Avaliação" (o mesmo tipo das notas baixas do iFood), ligado ao pedido. O link do Google vai também — pedir só a quem gostou é proibido pelo Google.</p>
+        <p class="sub">O pedido de desculpas e o caso "Avaliação" (o mesmo tipo das notas baixas do iFood), ligado ao pedido. Sem o link do Google.</p>
         <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister Burger</b><span>conta comercial</span></div></div>
           <div class="conv">
             <div class="bolha meu"><span class="enviado">📋 <b>Avaliação enviada</b></span><span class="sub peq">Ver resposta</span><span class="hora">20:14</span></div>
-            <div class="bolha dele">Poxa, Carlos, sinto muito. 😔 Já passei a sua avaliação do pedido #2838 para a equipe — alguém fala com você aqui em instantes.<br><br>Se quiser, sua opinião também pode ir para o Google: <span style="color:#0B5CAD">g.page/r/mister-burger/review</span><span class="hora">20:14</span></div>
+            <div class="bolha dele">Poxa, Carlos, sinto muito. 😔 Já passei a sua avaliação do pedido #2838 para a equipe — alguém fala com você aqui em instantes.<span class="hora">20:14</span></div>
             <div class="bolha dele">Oi, Carlos! Aqui é a Ana, da Mister Burger. Vi que o pedido chegou frio e demorou. Posso te mandar outro lanche agora ou te devolver o valor do lanche?<span class="hora">20:19</span></div>
           </div></div>
       </div>
@@ -469,7 +480,8 @@ a{color:var(--info);text-underline-offset:2px}
     </div></div>
     <div class="ctls"><span>Situação do protótipo:</span>
       <button class="ctl" data-ctl="pagina" data-valor="avaliar" aria-pressed="true">avaliar</button>
-      <button class="ctl" data-ctl="pagina" data-valor="avaliado" aria-pressed="false">avaliado (nota 3–5)</button>
+      <button class="ctl" data-ctl="pagina" data-valor="avaliado5" aria-pressed="false">avaliado (nota 5)</button>
+      <button class="ctl" data-ctl="pagina" data-valor="avaliado" aria-pressed="false">avaliado (nota 3–4)</button>
       <button class="ctl" data-ctl="pagina" data-valor="baixa" aria-pressed="false">avaliado (nota 1–2)</button>
       <button class="ctl" data-ctl="pagina" data-valor="jaavaliou" aria-pressed="false">já avaliou pelo WhatsApp</button>
       <button class="ctl" data-ctl="pagina" data-valor="fechou" aria-pressed="false">prazo encerrado</button>
@@ -509,20 +521,22 @@ a{color:var(--info);text-underline-offset:2px}
               <span class="sub peq">A nota vai para a Mister Burger. Você pode avaliar até 7 dias depois da entrega.</span>
             </form>
 
-            <div class="bloco fim-ok" data-mostra="pagina:avaliado" role="status">
+            <div class="bloco fim-ok" data-mostra="pagina:avaliado5" role="status">
               <span class="grande" aria-hidden="true">💛</span><strong>Obrigado pela nota!</strong>
               <span class="sub peq">Ela vai direto para a equipe da Mister Burger.</span>
               <button type="button" class="btn google largo" data-google>Contar também no Google</button>
             </div>
+            <div class="bloco fim-ok" data-mostra="pagina:avaliado" role="status">
+              <span class="grande" aria-hidden="true">💛</span><strong>Obrigado pela nota!</strong>
+              <span class="sub peq">Ela vai direto para a equipe da Mister Burger — é assim que a gente melhora.</span>
+            </div>
             <div class="bloco fim-ok" data-mostra="pagina:baixa" role="status">
               <span class="grande" aria-hidden="true">😔</span><strong>Sinto muito pelo pedido.</strong>
               <span class="sub peq">A equipe da Mister Burger já recebeu a sua avaliação e vai falar com você pelo WhatsApp do pedido.</span>
-              <button type="button" class="btn google largo" data-google>Contar também no Google</button>
             </div>
             <div class="bloco fim-ok" data-mostra="pagina:jaavaliou">
               <span class="estrelas-txt" style="font-size:22px">★★★★<span class="vazia">★</span></span><strong>Você já avaliou este pedido</strong>
               <span class="sub peq">Pelo WhatsApp, hoje às 20:54. Obrigado!</span>
-              <button type="button" class="btn google largo" data-google>Contar também no Google</button>
             </div>
             <div class="bloco fim-ok" data-mostra="pagina:fechou">
               <strong>A avaliação deste pedido encerrou</strong>
@@ -536,7 +550,7 @@ a{color:var(--info);text-underline-offset:2px}
         <ul class="sub peq" style="padding-left:18px;margin:6px 0 0">
           <li>O "Como foi o pedido?" só aparece com o pedido <strong>entregue</strong>, só em pedido do Regem e só com o ajuste ligado.</li>
           <li>Uma avaliação por pedido: quem avaliou pelo WhatsApp vê "Você já avaliou"; a segunda tentativa não grava.</li>
-          <li>O botão do Google só aparece se a loja colou o link no cartão "Pedir avaliação no Google" — para todas as notas.</li>
+          <li>O botão do Google só aparece na nota 5 (também no "Você já avaliou", se a nota foi 5) e se a loja colou o link no cartão "Pedir avaliação no Google".</li>
           <li>Nota 1 ou 2 abre o caso no Atendimento, como no WhatsApp; a página diz que a loja vai falar pelo WhatsApp do pedido.</li>
           <li>Teclado: as estrelas são um grupo de escolha (setas mudam a nota); o envio sem nota diz o que falta, sem apagar o texto.</li>
           <li>A página lê de novo a cada 8 s enquanto o pedido anda (como hoje); depois de entregue, para de ler.</li>
@@ -661,9 +675,9 @@ a{color:var(--info);text-underline-offset:2px}
             <div class="ctrl"><select id="sel-caso"><option value="1">Só a nota 1</option><option value="2" selected>1 ou 2</option><option value="3">1, 2 ou 3</option></select></div></div>
           <div class="aj" data-mudavel><div><div class="t"><label for="sel-prazo">Prazo para avaliar</label></div><div class="d">Depois da entrega. Passou, a página mostra "A avaliação deste pedido encerrou".</div></div>
             <div class="ctrl"><select id="sel-prazo"><option value="2">2 dias</option><option value="7" selected>7 dias</option><option value="30">30 dias</option></select></div></div>
-          <div class="aj"><div><div class="t">Depois da nota</div><div class="d">O obrigado leva o link do Google do cartão abaixo, para todas as notas (o Google proíbe pedir avaliação só a quem gostou). Sem link no cartão, vai só o obrigado.</div></div><div class="ctrl"><span class="estado-liga">Link: colado ✓</span></div></div>
+          <div class="aj"><div><div class="t">Depois da nota</div><div class="d">Na nota 5, o obrigado leva o link do Google do cartão abaixo. Nas notas de 1 a 4, só o obrigado. Sem link no cartão, vai só o obrigado.</div></div><div class="ctrl"><span class="estado-liga">Link: colado ✓</span></div></div>
 
-          <div class="aj contexto"><div><div class="t">Pedir avaliação no Google depois da entrega</div><div class="d">Quem já deu nota pelo Regem não recebe esta mensagem: o link do Google foi junto com o obrigado.</div></div><div class="ctrl"><span class="estado-liga">Ligado</span></div></div>
+          <div class="aj contexto"><div><div class="t">Pedir avaliação no Google depois da entrega</div><div class="d">Quem já deu nota pelo Regem não recebe esta mensagem: na nota 5, o link do Google foi junto com o obrigado; nas outras, não vai.</div></div><div class="ctrl"><span class="estado-liga">Ligado</span></div></div>
         </div>
         <div class="barra-salvar" id="barra" hidden><span id="barra-txt">1 alteração ainda não salva</span><span class="acoes"><button class="btn" id="desfazer">Desfazer</button><button class="btn pri" id="salvar">Salvar</button></span></div>
       </main>
@@ -677,8 +691,8 @@ a{color:var(--info);text-underline-offset:2px}
     <div class="cartao">
       <h2>O que este protótipo mostra</h2>
       <ul>
-        <li><strong>No celular:</strong> o botão "Avaliar pedido" depois do "Tudo certo 👍", o formulário do WhatsApp, o obrigado com o Google para todas as notas, a nota baixa que vira caso, o "Tive um problema" que não pede nota e a loja por QR Code.</li>
-        <li><strong>Página do pedido:</strong> o "Como foi o pedido?" depois da entrega, para todos, com os estados (avaliado, nota baixa, já avaliou, prazo, não enviou).</li>
+        <li><strong>No celular:</strong> o botão "Avaliar pedido" depois do "Tudo certo 👍", o formulário do WhatsApp, o obrigado com o Google só na nota 5, o obrigado sem o Google na nota 3 ou 4, a nota baixa que vira caso, o "Tive um problema" que não pede nota e a loja por QR Code.</li>
+        <li><strong>Página do pedido:</strong> o "Como foi o pedido?" depois da entrega, para todos, com os estados (nota 5 com o Google, nota 3 ou 4, nota baixa, já avaliou, prazo, não enviou).</li>
         <li><strong>Delivery › Avaliações:</strong> lista no modelo do Estoque — nota média, quantos avaliaram, as notas, situações que filtram, busca, por onde, período e a gaveta do pedido.</li>
         <li><strong>Ajustes:</strong> o cartão novo no Robô de atendimento, nascendo desligado.</li>
       </ul>
@@ -697,7 +711,7 @@ a{color:var(--info);text-underline-offset:2px}
     <div class="cartao">
       <h2>Fases depois da aprovação</h2>
       <ul>
-        <li><span class="fase">A1 · 1 migration</span> — a tabela das avaliações (pedido, nota, o que pesou, comentário, por onde, quando; uma por pedido, só nuvem); o "Como foi o pedido?" na página do pedido; Delivery › Avaliações (no servidor da loja, a tela pede à nuvem); o caso "Avaliação" no Atendimento; quem deu nota não recebe a mensagem separada do Google; o ajuste novo.</li>
+        <li><span class="fase">A1 · 1 migration</span> — a tabela das avaliações (pedido, nota, o que pesou, comentário, por onde, quando; uma por pedido, só nuvem); o "Como foi o pedido?" na página do pedido; Delivery › Avaliações (no servidor da loja, a tela pede à nuvem); o caso "Avaliação" no Atendimento; o link do Google só na nota 5; quem deu nota não recebe a mensagem separada do Google; o ajuste novo.</li>
         <li><span class="fase">A2 · 1 migration</span> — o formulário do WhatsApp oficial: a DMS cria e publica na conta de cada loja (o número do formulário publicado guardado por conta); o botão depois do "Tudo certo 👍"; a resposta <code>nfm_reply</code> lida antes do robô.</li>
         <li><span class="fase">A3 · opcional, depois</span> — o modelo de utilidade fora da janela de 24 h (decisão 8).</li>
       </ul>
@@ -715,10 +729,10 @@ a{color:var(--info);text-underline-offset:2px}
         <li><span class="rec">recomendada</span> Só a página do pedido (o link já vai quando o pedido sai).</li>
         <li>Botões ou enquete pela conexão por QR Code: o WhatsApp muda isso sem aviso e aumenta o risco de bloqueio do número.</li></ol></div>
       <div class="decisao"><h3>4. O link do Google depois da nota</h3><ol>
-        <li><span class="rec">recomendada</span> Para todas as notas, no obrigado, se a loja colou o link. A política do Google proíbe pedir avaliação só a quem gostou.</li>
-        <li>Só para nota 4 ou 5: proibido pelo Google; as avaliações da loja podem ser removidas.</li>
+        <li><span class="rec">decisão do dono</span> Só na nota 5, no obrigado, se a loja colou o link (18/11/2026). Nas notas de 1 a 4, só o obrigado, sem o Google.</li>
+        <li>Para todas as notas: é o que a política do Google permite (a que estava recomendada).</li>
         <li>Não mostrar: fica só a mensagem separada do cartão do Google.</li></ol>
-        <p class="sub peq">Hoje o cartão "Pedir avaliação no Google" nasce em "só pedidos sem problema", escolhido pelo dono em 04/11 com o aviso na tela. Esta decisão vale só para o link junto com a nota.</p></div>
+        <p class="sub peq">⚠️ O risco fica registrado: a política do Google ("Manipulação de nota") proíbe pedir avaliação só a quem gostou, e o Google pode remover avaliações da loja se entender que ela filtra. É a mesma escolha do cartão "Pedir avaliação no Google" ("só pedidos sem problema", do dono em 04/11). Voltar para "todas as notas" é trocar uma regra no servidor, sem migration.</p></div>
       <div class="decisao"><h3>5. Que nota vira caso no Atendimento</h3><ol>
         <li><span class="rec">recomendada</span> 1 ou 2, ajustável (só 1 · 1 ou 2 · 1, 2 ou 3).</li>
         <li>Fixo em 1, 2 ou 3, como a entrada das notas do iFood.</li>
@@ -873,7 +887,7 @@ a{color:var(--info);text-underline-offset:2px}
   $('#form-nota').addEventListener('submit', (e) => {
     e.preventDefault();
     if (!nota) { $('#erro-nota').hidden = false; $('.estrela').focus(); return; }
-    corpo.dataset.pagina = nota <= 2 ? 'baixa' : 'avaliado'; aplicar();
+    corpo.dataset.pagina = nota <= 2 ? 'baixa' : nota === 5 ? 'avaliado5' : 'avaliado'; aplicar();
   });
 
   /* ── ajustes ── */
