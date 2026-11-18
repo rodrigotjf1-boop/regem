@@ -76,6 +76,17 @@ import {
   SITUACAO_DO_CASO,
   situacaoDoCertificado,
   variacaoPct,
+  CONVERSAS_ACHADAS_MAX,
+  PERGUNTA_ACHADA_MAX,
+  RESPOSTA_ACHADA_MAX,
+  cortarTexto,
+  diasDaBusca,
+  ehConsulta,
+  nomeDaConsulta,
+  valoresEmReais,
+  padraoDaPalavra,
+  palavrasDaBusca,
+  semValoresNoTexto,
 } from './mister-agente.regras';
 import { GUIA_DE_USO, SecaoDoGuia, buscarNoGuia, quemAbre } from './mister-guia-de-uso';
 import { canceladoComVendaDePe, concluidoSemPagamento, pixSemEstorno, vendaComNotaComProblema, vendaDesfeitaComNota } from './mister-conciliacao';
@@ -402,6 +413,8 @@ export class MisterFerramentasService {
     if (nome === 'como_usar_o_regem') return this.comoUsarORegem(e, entrada);
     // A anotação do que falta (F5.2) também não lê dado: o tema fica na trilha da pergunta (quem grava é o agente).
     if (nome === FERRAMENTA_DO_QUE_FALTA) return { ok: true, dados: { anotado: true, siga: 'Responda agora: diga que você ainda não tem acesso a essa informação e, em uma frase, o que você consegue responder hoje.' } };
+    // Versão 4: as conversas anteriores são da própria pessoa, não de uma loja — respondem também a quem está sem loja.
+    if (nome === 'conversas_anteriores') return this.conversasAnteriores(e, entrada);
     if (e.semLoja) return recusa(SEM_LOJA);
     const en = (entrada && typeof entrada === 'object' && !Array.isArray(entrada) ? entrada : {}) as Record<string, unknown>;
     const loja = this.loja(e, en.loja);
@@ -451,6 +464,8 @@ export class MisterFerramentasService {
         return this.conciliacao(e, en, loja);
       case 'como_usar_o_regem':
         return this.comoUsarORegem(e, en);
+      case 'conversas_anteriores':
+        return this.conversasAnteriores(e, en);
       case 'anotar_o_que_falta':
         return this.executar(e, nome, en);
       case 'propor_procedimento':
@@ -529,6 +544,67 @@ export class MisterFerramentasService {
     if (!this.linksPublicos) return recusa('Não consigo cancelar agora.');
     const cancelados = await this.linksPublicos.cancelarTodos(e);
     return { ok: true, dados: { cancelados, siga: cancelados ? 'Diga quantos links foram cancelados e que eles já não abrem.' : 'Diga que não havia link para encaminhar valendo nesta empresa.' } };
+  }
+
+  /**
+   * Versão 4 — as conversas anteriores (o padrão do Hermes de procurar nas conversas antigas): a pergunta e a resposta
+   * desta pessoa, NESTA empresa, dos últimos 30 dias (o texto que `mister_pergunta` guarda), pelas palavras do assunto —
+   * as que acertam mais palavras primeiro e, empatadas, as mais novas. Nunca a conversa de outra pessoa nem a de outra
+   * empresa (a trava é o escopo do servidor, não o modelo). Quem não vê valores hoje recebe o texto sem os valores em reais.
+   * Os valores ditos naquela resposta voltam em `valoresDitos` (o filtro de saída não acusa de "sem origem" a lembrança).
+   */
+  private async conversasAnteriores(e: EscopoDoMister, entrada: unknown): Promise<ResultadoDaFerramenta> {
+    const en = (entrada && typeof entrada === 'object' && !Array.isArray(entrada) ? entrada : {}) as Record<string, unknown>;
+    const palavras = palavrasDaBusca(en.busca);
+    const dias = diasDaBusca(en.dias);
+    if (!palavras.length) return recusa('Diga as palavras do assunto (por exemplo: iFood, caixa, carne).');
+    try {
+      const acertos = sql.join(
+        palavras.map((p) => sql`(case when coalesce(pergunta, '') ilike ${padraoDaPalavra(p)} or coalesce(resposta, '') ilike ${padraoDaPalavra(p)} then 1 else 0 end)`),
+        sql` + `,
+      );
+      const achadas = linhas(
+        await this.db.execute(sql`
+          select criado_em as "criadoEm", pergunta, resposta, ferramentas
+            from (select criado_em, pergunta, resposta, ferramentas, ${acertos} as acertos
+                    from mister_pergunta
+                   where tenant_id = ${e.tenantId}::uuid and colaborador_id = ${e.colaboradorId}::uuid
+                     and situacao = 'respondida' and resposta is not null
+                     and criado_em > now() - make_interval(days => ${dias})) c
+           where acertos > 0
+           order by acertos desc, criado_em desc
+           limit ${CONVERSAS_ACHADAS_MAX}`),
+      );
+      const conversas = achadas.map((l) => {
+        const quando = new Date(l.criadoEm);
+        const consultas = [...new Set((Array.isArray(l.ferramentas) ? l.ferramentas : []).filter((f: any) => f?.ok && ehConsulta(f?.nome)).map((f: any) => nomeDaConsulta(f.nome)))];
+        const resposta = cortarTexto(l.resposta, RESPOSTA_ACHADA_MAX);
+        const valores = e.verValores ? valoresEmReais(resposta).map((c) => c / 100) : [];
+        return {
+          quando: `${diaMesDe(quando)} às ${horaNoFuso(quando)}`,
+          pergunta: cortarTexto(l.pergunta, PERGUNTA_ACHADA_MAX),
+          resposta: e.verValores ? resposta : semValoresNoTexto(resposta),
+          ...(consultas.length ? { consultasNaquelaHora: consultas } : {}),
+          ...(valores.length ? { valoresDitos: valores } : {}),
+        };
+      });
+      return {
+        ok: true,
+        dados: {
+          busca: palavras.join(' '),
+          dias,
+          achadas: conversas.length,
+          conversas,
+          comoUsar: conversas.length
+            ? 'É o que foi dito naquele dia. Diga o dia; para o número de agora, consulte de novo.'
+            : `Nada com essas palavras nos últimos ${dias} dias. Diga isso à pessoa; não invente lembrança.`,
+        },
+      };
+    } catch (err: any) {
+      // V11: o motivo fica no log deste servidor; para o modelo vai só "não li".
+      this.logger.error(`ferramenta conversas_anteriores falhou: ${String(err?.message ?? err).slice(0, 300)}`, err?.stack);
+      return recusa('Não consegui ler as conversas anteriores agora.');
+    }
   }
 
   /** M3g — corrigir o vencimento do boleto que o Mister lançou (conversa 22). O "Desfazer" vai como botão na resposta. */

@@ -70,7 +70,7 @@ export const INSTRUCOES_DO_MISTER = `Você é o Mister, o administrador virtual 
 COMO VOCÊ TRABALHA
 - Você não sabe nada da loja de cabeça. Todo número, valor, horário, nome de produto e situação que você disser vem de uma ferramenta que você chamou para ESTA pergunta.
 - Antes de responder a uma pergunta sobre a loja, chame a ferramenta que traz o dado. Se a pergunta pede dois assuntos, chame as duas. Junte consultas, compare períodos e faça as contas que a pergunta pedir.
-- Se a pergunta pede um DADO que nenhuma ferramenta traz, diga com clareza que você ainda não tem acesso a essa informação e diga em uma frase o que você consegue responder hoje: resumo do dia, vendas de um período, produtos mais vendidos, quanto a venda gastou de um insumo pela ficha técnica (por hora, por dia e de onde saiu), pedidos em andamento, a história de um pedido (onde ele demorou), os tempos dos pedidos (aceite, cozinha, entrega), a comparação com o período anterior, o horário de pico, o lucro e a margem por produto, cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto), estoque em alerta, a situação do servidor da loja e os canais de venda e as integrações (a pausa de cada canal, o último pedido que chegou por ele, o login da 99, o WhatsApp da loja e a nota fiscal), a conferência do cardápio com o iFood e a 99 (preço diferente, produto só de um lado), o Atendimento agora (os casos em aberto, os urgentes e os com prazo), a conciliação (o que não fecha entre a venda, o dinheiro e a nota fiscal), o que vence ou está desatualizado (o certificado digital, a tabela do IBPT, a licença e a versão do servidor da loja e o acesso do Instagram) e como usar o Regem (onde fica cada tela e o passo a passo das tarefas mais comuns). Antes de dizer que ainda não tem acesso, chame anotar_o_que_falta com o tema do dado pedido. Nunca estime, nunca invente e nunca complete um dado que faltou.
+- Se a pergunta pede um DADO que nenhuma ferramenta traz, diga com clareza que você ainda não tem acesso a essa informação e diga em uma frase o que você consegue responder hoje: resumo do dia, vendas de um período, produtos mais vendidos, quanto a venda gastou de um insumo pela ficha técnica (por hora, por dia e de onde saiu), pedidos em andamento, a história de um pedido (onde ele demorou), os tempos dos pedidos (aceite, cozinha, entrega), a comparação com o período anterior, o horário de pico, o lucro e a margem por produto, cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto), estoque em alerta, a situação do servidor da loja e os canais de venda e as integrações (a pausa de cada canal, o último pedido que chegou por ele, o login da 99, o WhatsApp da loja e a nota fiscal), a conferência do cardápio com o iFood e a 99 (preço diferente, produto só de um lado), o Atendimento agora (os casos em aberto, os urgentes e os com prazo), a conciliação (o que não fecha entre a venda, o dinheiro e a nota fiscal), o que vence ou está desatualizado (o certificado digital, a tabela do IBPT, a licença e a versão do servidor da loja e o acesso do Instagram) como usar o Regem (onde fica cada tela e o passo a passo das tarefas mais comuns) e o que já foi conversado com você nos últimos 30 dias. Antes de dizer que ainda não tem acesso, chame anotar_o_que_falta com o tema do dado pedido. Nunca estime, nunca invente e nunca complete um dado que faltou.
 - Quando a ferramenta devolver erro, diga que não conseguiu ler aquele dado agora. "Não houve vendas" e "não consegui ler as vendas" são respostas diferentes: nunca troque uma pela outra.
 - Quando um campo vier nulo com o aviso de que o perfil da pessoa não vê valores em reais, diga que o perfil dela no Regem não mostra valores em reais. Não tente chegar ao valor por outro caminho.
 - Conta, só com números que as ferramentas trouxeram (somar, comparar, percentual). Diga de onde saiu.
@@ -126,7 +126,8 @@ NÚMEROS, DATAS E PEDIDOS
 
 O QUE A PESSOA JÁ DISSE
 - Aproveite o que a pessoa já disse na conversa (a loja, o período, o produto, o pedido): "e ontem?" depois de uma pergunta de vendas é a mesma pergunta para ontem. Pergunte só o que falta de verdade.
-- Nunca invente lembrança: não diga que a pessoa pediu ou falou algo que não está na conversa.
+- Quando a pessoa falar de algo conversado antes e que não está nesta conversa ("o que você me disse do iFood semana passada?", "como ficou aquele caixa?"), chame conversas_anteriores com as palavras do assunto. O que vier de lá é o que foi dito naquele dia: diga o dia e, para o número de agora, consulte de novo.
+- Nunca invente lembrança: não diga que a pessoa pediu ou falou algo que não está na conversa nem nas conversas anteriores.
 
 SE PERGUNTAREM SE VOCÊ É ROBÔ
 - Você é o Mister, o administrador virtual do Regem. Se perguntarem se você é robô, inteligência artificial ou uma pessoa, diga a verdade em uma frase e siga ajudando. Nunca diga que é uma pessoa.
@@ -211,6 +212,7 @@ export type NomeDaFerramenta =
   | 'conciliacao_do_periodo'
   | 'vencimentos_e_versoes'
   | 'como_usar_o_regem'
+  | 'conversas_anteriores'
   | 'anotar_o_que_falta'
   | 'propor_procedimento'
   | 'mandar_link'
@@ -218,6 +220,53 @@ export type NomeDaFerramenta =
   | 'link_para_encaminhar'
   | 'cancelar_links'
   | 'escrever_recado';
+
+// ───────────────────────────── as conversas anteriores (versão 4) ─────────────────────────────
+// O padrão do Hermes de procurar nas conversas antigas, sobre o texto que `mister_pergunta` já guarda por 30 dias.
+
+/** Até quantos dias para trás a busca olha (o texto da pergunta e da resposta fica guardado 30 dias). */
+export const DIAS_DAS_CONVERSAS = 30;
+/** Quantas conversas a busca devolve, e o tamanho de cada parte. */
+export const CONVERSAS_ACHADAS_MAX = 5;
+export const PERGUNTA_ACHADA_MAX = 300;
+export const RESPOSTA_ACHADA_MAX = 700;
+
+/** As palavras que não ajudam a achar o assunto ("o que você me disse do iFood" → "ifood"). */
+const PALAVRAS_SEM_ASSUNTO = new Set(
+  'a o e de da do das dos em no na nos nas um uma com por para pra que se me te mim voce voces disse falou falei perguntei pergunta resposta aquele aquela aquilo isso isto esse essa sobre como ficou foi era lembra lembrei semana passada ontem hoje dia dias mes ultimo ultima'.split(' '),
+);
+
+/**
+ * As palavras da busca: sem acento e caixa, sem as palavras que não dizem o assunto, com pelo menos 3 letras, até 5.
+ * Cada uma vira um padrão de ILIKE com os curingas escapados (a pessoa não manda curinga para o banco).
+ */
+export function palavrasDaBusca(busca: unknown): string[] {
+  const palavras = String(busca ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((p) => p.length >= 3 && !PALAVRAS_SEM_ASSUNTO.has(p));
+  return [...new Set(palavras)].slice(0, 5);
+}
+
+/** O padrão de ILIKE da palavra, com `%`, `_` e `\` escapados. */
+export const padraoDaPalavra = (p: string): string => `%${p.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+
+/** Quantos dias a busca olha: o pedido, entre 1 e 30; sem pedido (ou fora disso), 30. */
+export function diasDaBusca(dias: unknown): number {
+  const n = Math.floor(Number(dias));
+  return Number.isFinite(n) && n >= 1 && n <= DIAS_DAS_CONVERSAS ? n : DIAS_DAS_CONVERSAS;
+}
+
+/** Os valores em reais de um texto antigo, para quem NÃO vê valores hoje (o perfil pode ter mudado desde aquela conversa). */
+export const semValoresNoTexto = (t: string): string => String(t ?? '').replace(/R\$\s?\d[\d.]*(?:,\d{1,2})?/g, 'R$ (oculto)');
+
+/** Corta o texto antigo no tamanho dado, com "…" quando corta. */
+export const cortarTexto = (t: unknown, max: number): string => {
+  const s = String(t ?? '').trim();
+  return s.length <= max ? s : `${s.slice(0, max - 1).trimEnd()}…`;
+};
 
 // ───────────────────────────── o que falta (F5.2) ─────────────────────────────
 // Quando a pessoa pede um dado que nenhuma consulta traz, o Mister anota o TEMA (de uma lista fechada) antes de dizer
@@ -437,6 +486,22 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
     },
   },
   {
+    // Versão 4 (padrão do Hermes: a busca nas conversas antigas). Só as conversas desta pessoa nesta empresa, dos 30 dias
+    // em que o texto fica guardado.
+    name: 'conversas_anteriores',
+    description:
+      'Procura nas conversas desta pessoa com você dos últimos 30 dias: a pergunta dela e a sua resposta, com o dia e a hora. Use quando ela falar de algo já conversado ("o que você me disse do iFood semana passada?", "como ficou aquele caixa?", "lembra do que te perguntei ontem?"). O que vem daqui é o que foi dito NAQUELE dia: diga o dia e, para o número de agora, consulte de novo.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        busca: { type: 'string', description: 'As palavras do assunto, como a pessoa diria (ex.: "iFood", "caixa aberto", "carne"). Sem "você", "disse", "semana".' },
+        dias: { type: 'integer', minimum: 1, maximum: DIAS_DAS_CONVERSAS, description: `Quantos dias para trás (padrão ${DIAS_DAS_CONVERSAS}).` },
+      },
+      required: ['busca'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'anotar_o_que_falta',
     description:
       'Não é consulta: não traz dado nenhum. Chame quando a pessoa pede um dado que nenhuma outra ferramenta traz e você vai dizer que ainda não tem acesso a essa informação, ANTES de responder. Passe só o tema, da lista; nunca as palavras da pessoa. A equipe do Regem vê quantas vezes cada tema faltou, para saber o que construir. Não chame quando uma ferramenta devolveu erro (isso é "não consegui ler agora") nem para assunto que não é da loja.',
@@ -569,7 +634,7 @@ export function perguntaDaMemoria(t: TrocaDaMemoria): string {
   return `[pergunta feita às ${t.hora} · ${como}]\n${t.pergunta}`;
 }
 
-const CAMPOS_DA_ENTRADA = ['periodo', 'de', 'ate', 'dia', 'loja', 'quantos', 'ordem', 'busca', 'pagina', 'numero', 'assunto', 'tema'] as const;
+const CAMPOS_DA_ENTRADA = ['periodo', 'de', 'ate', 'dia', 'dias', 'loja', 'quantos', 'ordem', 'busca', 'pagina', 'numero', 'assunto', 'tema'] as const;
 
 /**
  * O que foi pedido a uma ferramenta, para a trilha: só os campos conhecidos, curtos. É o PEDIDO (período, loja, ordem),
