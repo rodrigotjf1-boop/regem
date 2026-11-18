@@ -29,6 +29,7 @@ import { MisterFerramentasService } from './mister-ferramentas.service';
 import { MisterLinkController } from './mister-link.controller';
 import { MisterLinkPublicoController } from './mister-link-publico.controller';
 import { MisterLinkPublicoService } from './mister-link-publico.service';
+import { MisterPontoDoMesService } from './mister-ponto-do-mes.service';
 import { MisterPropostasService } from './mister-propostas.service';
 import { MisterRecadosService } from './mister-recados.service';
 import { MisterRelatoriosService } from './mister-relatorios.service';
@@ -96,6 +97,8 @@ import { MisterModule } from './mister.module';
     MisterLinkPublicoService,
     // M3g parte 2 (mig 444): o rascunho do recado no mural e o toque em "Publicar" / "Mudar o texto".
     MisterRecadosService,
+    // M3e parte 2: os botões do arquivo do ponto do mês ("Enviar ao contador" e "Ver antes").
+    MisterPontoDoMesService,
   ],
   // F4.2a (mig 433): as rotas públicas da página do link com PIN (`/m/<código>`), que respondem pelo serviço das propostas.
   // M3a parte 3: a parte "Documentos" do Mister na loja (a lista e o "Desfazer o lançamento").

@@ -1040,8 +1040,24 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
 - **Parte 1 (sem migration):** o aviso "Ponto esquecido" (11º tipo, grupo "Pessoas e ponto"; o resumo do dia seguinte às
   10h ao gerente, ou turno a turno 30 min / 1 hora depois), pela escala contra o ponto, só nas lojas que usam o terminal.
 - **Parte 1 — #1112, no ar.**
-- **Falta:** o arquivo do ponto do mês (dia 1 às 06:00 ao presidente; "Enviar à contabilidade" pede o responsável
-  cadastrado e o modelo da Meta).
+- **Parte 2 (sem migration):** o 12º aviso, "Arquivo do ponto do mês" (grupo "Pessoas e ponto", ao presidente), conversa
+  20. Do dia 1 às 06:00 da loja até o fim do dia 5, o aviso lê o fechamento do mês anterior que a rotina do dia 1 já grava
+  (`JobsService.fecharPontoMensal` → `ponto_fechamento`), das empresas que marcaram ponto no mês e que ainda não mandaram
+  à contabilidade: "📁 Ponto de outubro · <empresa> (1 a 31/10)", os colaboradores, as pendências (com nome e dia) e o
+  responsável pelo final do WhatsApp (nunca o número). Ao presidente vão os botões e, logo depois, o espelho em PDF (o
+  MESMO da tela de Gerenciamento de ponto). "Enviar ao contador" usa o MESMO envio da tela
+  (`PontoService.enviarEspelhoContador`: o WhatsApp da loja, o fechamento marcado como enviado, a auditoria), com a
+  reserva no próprio aviso (`dados.envioEm`, que a renovação dos avisos passou a preservar; a reserva de mais de 3
+  minutos não segura): o toque duplo manda uma vez. "Ver antes" diz onde conferir, com o link para o Regem. Mandado
+  (pelo Mister ou pela tela), o aviso fecha calado. Sem responsável cadastrado, o aviso diz onde cadastrar e vai só com
+  "Ver antes".
+- **Decisões da parte 2 (as recomendadas, 18/11):** (1) o botão é "Enviar ao contador" e não "Enviar à contabilidade",
+  como no protótipo: a Meta aceita até 20 letras no título do botão (são 22); (2) o PDF só ao presidente (tem as horas de
+  todos); (3) a janela vai até o dia 5 (a contabilidade fecha a folha nos primeiros dias) e depois o aviso fecha calado;
+  (4) o envio ao contador sai pelo WhatsApp da loja, como na tela — o número do Mister não fala com quem não está
+  ligado a ele, e assim não precisa de modelo novo da Meta; (5) por empresa, como o fechamento de hoje (o protótipo
+  mostra uma loja: o espelho por loja fica para quando o fechamento for por loja).
+- **M3e COMPLETA.**
 
 **Andamento da M3g (17/11/2026):**
 - **Parte 1 (sem migration):** `corrigir_documento` — o vencimento do boleto que o Mister lançou, pela conta da tela,

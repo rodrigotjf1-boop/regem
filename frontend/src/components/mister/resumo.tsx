@@ -46,7 +46,12 @@ const RECURSOS: { nome: string; descricao: string; estado: (iaOk: boolean) => { 
   { nome: 'Resumo do dia e da semana', descricao: 'No horário que você escolher, em "Avisos e relatórios".', estado: (ok) => (ok ? { rotulo: 'ligado', tom: 'ok' } : { rotulo: 'precisa da chave de IA', tom: 'aviso' }) },
   { nome: 'Propostas para você autorizar', descricao: 'Ele propõe, você autoriza, o servidor executa e ele confere.', estado: () => ({ rotulo: 'ligado', tom: 'ok' }) },
   { nome: 'Relatórios com gráfico e por insumo', descricao: 'Em imagem na conversa, em PDF ou no link para ver no Regem.', estado: (ok) => (ok ? { rotulo: 'ligado', tom: 'ok' } : { rotulo: 'precisa da chave de IA', tom: 'aviso' }) },
-  { nome: 'Ponto esquecido', descricao: 'Pela escala, ao gerente da loja: um resumo no dia seguinte.', estado: () => ({ rotulo: 'ligado', tom: 'ok' }) },
+  // O nome do protótipo ("Ponto e escala"), agora que o arquivo do ponto do mês também funciona (M3e parte 2).
+  {
+    nome: 'Ponto e escala',
+    descricao: 'O ponto esquecido, pela escala, ao gerente da loja; e o arquivo do ponto do mês, com um toque à contabilidade.',
+    estado: () => ({ rotulo: 'ligado', tom: 'ok' }),
+  },
   { nome: 'Áudio', descricao: 'Fale com ele por áudio; ele responde em áudio, com o texto junto.', estado: () => ({ rotulo: 'em breve', tom: 'neutro' }) },
 ];
 

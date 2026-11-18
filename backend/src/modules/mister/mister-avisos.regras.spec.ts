@@ -64,7 +64,17 @@ describe('Mister — os avisos: o padrão aprovado em 14/11', () => {
       'chave_ia',
       'boleto_vencendo',
       'ponto_esquecido',
+      'ponto_do_mes',
     ]);
+    // M3e parte 2: o arquivo do ponto do mês, ao presidente (o protótipo: "Vai para: WhatsApp do presidente"), sem parâmetro.
+    expect(TIPOS_DE_AVISO.find((t) => t.tipo === 'ponto_do_mes')).toMatchObject({
+      grupo: 'Pessoas e ponto',
+      titulo: 'Arquivo do ponto do mês',
+      padrao: { ligado: true, destinos: ['presidente'], escalaMin: null, escalaPara: [], parametro: null },
+    });
+    // A mensagem do arquivo do ponto vai com a pasta, não com o sinal de alerta.
+    expect(textoDoAviso({ tipo: 'ponto_do_mes', titulo: 'Ponto de outubro · Mister Burger (1 a 31/10)', detalhe: 'x' })).toBe('📁 Ponto de outubro · Mister Burger (1 a 31/10).\n\nx');
+    expect(textoDoAviso({ tipo: 'impressora', titulo: 'A impressora parou', detalhe: null })).toBe('⚠️ A impressora parou.');
     // M3e: o ponto esquecido, ao gerente, com o resumo no dia seguinte (parâmetro 0).
     expect(TIPOS_DE_AVISO.find((t) => t.tipo === 'ponto_esquecido')).toMatchObject({
       grupo: 'Pessoas e ponto',
