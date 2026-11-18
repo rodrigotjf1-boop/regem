@@ -1,6 +1,6 @@
 import { FalhaDaIa, PedidoDeIa, RespostaDaIa } from '../ia/ia-empresa.service';
 import { PRECOS_POR_MILHAO } from '../ia/ia.regras';
-import { FERRAMENTAS, INSTRUCOES_DO_MISTER, MODELO_DAS_PERGUNTAS, MotivoSemResposta, RECURSO_DAS_PERGUNTAS, TETOS, TrocaDaMemoria, entradaParaATrilha, perguntaDaMemoria } from './mister-agente.regras';
+import { FERRAMENTAS, INSTRUCOES_DO_MISTER, MODELO_DAS_PERGUNTAS, MotivoSemResposta, RECURSO_DAS_PERGUNTAS, TETOS, TrocaDaMemoria, entradaParaATrilha, perguntaDaMemoria, podeRodarJunto } from './mister-agente.regras';
 
 /** O modelo das perguntas: o da distribuição (`MISTER_MODELO_PERGUNTAS`), se estiver na tabela de preços; senão o padrão. */
 export function modeloDasPerguntas(): string {
@@ -21,6 +21,56 @@ import type { Trilha } from './mister-fila.service';
 //    rodam (no escopo que o SERVIDOR resolveu; ou nos dados da avaliação). O laço não sabe qual é qual.
 //  • Os blocos do modelo voltam inteiros na vez seguinte, sem edição. Falha da IA vira o motivo (quem chama escolhe a
 //    frase); qualquer outro erro sobe.
+//  • As consultas que o modelo pede na MESMA vez rodam juntas (até `TETOS.consultasJuntas`), como o Hermes faz com as
+//    ferramentas de uma mesma volta: a pergunta que pede o resumo, as vendas e o estoque não espera uma depois da outra.
+//    Se a vez traz uma ação (propor, mandar o link, corrigir), tudo roda uma de cada vez, na ordem pedida. A resposta ao
+//    modelo, a trilha e o `colher` seguem SEMPRE a ordem do pedido, termine quem terminar primeiro.
+
+/** Quantas ferramentas rodam ao mesmo tempo NESTE PROCESSO, somadas todas as conversas. Quem espera não segura conexão. */
+export class Vagas {
+  private livres: number;
+  private readonly espera: Array<() => void> = [];
+
+  constructor(total: number) {
+    this.livres = Math.max(1, Math.floor(total));
+  }
+
+  async com<T>(trabalho: () => Promise<T>): Promise<T> {
+    if (this.livres > 0) this.livres--;
+    else await new Promise<void>((entrar) => this.espera.push(entrar));
+    try {
+      return await trabalho();
+    } finally {
+      // A vaga passa direto a quem espera (sem voltar ao contador): ninguém fura a fila.
+      const proximo = this.espera.shift();
+      if (proximo) proximo();
+      else this.livres++;
+    }
+  }
+}
+
+/**
+ * Roda as tarefas com no máximo `juntas` ao mesmo tempo e devolve os resultados NA ORDEM das tarefas. Se uma falha, as
+ * que já começaram terminam, nenhuma nova começa e o primeiro erro sobe (com `juntas` = 1, é o "uma de cada vez" de antes).
+ */
+export async function rodarNaOrdem<T>(tarefas: ReadonlyArray<() => Promise<T>>, juntas: number): Promise<T[]> {
+  const fora = new Array<T>(tarefas.length);
+  let proxima = 0;
+  let falha: { erro: unknown } | null = null;
+  const trabalhador = async () => {
+    while (!falha && proxima < tarefas.length) {
+      const i = proxima++;
+      try {
+        fora[i] = await tarefas[i]();
+      } catch (erro) {
+        falha ??= { erro };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(Math.max(1, Math.floor(juntas)), tarefas.length) }, trabalhador));
+  if (falha) throw (falha as { erro: unknown }).erro;
+  return fora;
+}
 
 export interface PortasDoLaco {
   /** O modelo desta pergunta. */
@@ -33,6 +83,8 @@ export interface PortasDoLaco {
   instrucoes?: string;
   pedir(p: PedidoDeIa): Promise<RespostaDaIa>;
   executar(nome: unknown, entrada: unknown): Promise<ResultadoDaFerramenta>;
+  /** Recebe cada resultado na ORDEM em que o modelo pediu (as consultas juntas terminam em qualquer ordem). */
+  colher?(r: ResultadoDaFerramenta): void;
 }
 
 export type FimDaPergunta = { texto: string; motivo: null; trilha: Trilha; resultados: unknown[] } | { texto: null; motivo: MotivoSemResposta; trilha: Trilha };
@@ -84,18 +136,27 @@ export async function responderComFerramentas(portas: PortasDoLaco, memoria: Tro
 
       // O que o modelo disse volta INTEIRO (com os blocos de raciocínio), e cada pedido de ferramenta recebe a resposta.
       messages.push({ role: 'assistant', content: r.conteudo });
-      const respostas: any[] = [];
-      for (const p of pedidos) {
-        if (trilha.ferramentas.length >= TETOS.ferramentas) {
-          respostas.push({ type: 'tool_result', tool_use_id: p.id, content: JSON.stringify({ erro: 'Limite de consultas desta pergunta atingido. Responda com o que já tem.' }), is_error: true });
-          continue;
+      // O teto da pergunta decide-se na ordem do pedido, antes de rodar: o que passa dele nem roda.
+      const rodam = pedidos.slice(0, Math.max(0, TETOS.ferramentas - trilha.ferramentas.length));
+      const juntas = rodam.every((p: any) => podeRodarJunto(p.name)) ? TETOS.consultasJuntas : 1;
+      const feitos = await rodarNaOrdem(
+        rodam.map((p: any) => async () => {
+          const t0 = Date.now();
+          const feito = await portas.executar(p.name, p.input);
+          return { feito, ms: Date.now() - t0 };
+        }),
+        juntas,
+      );
+      const respostas = pedidos.map((p: any, i: number) => {
+        if (i >= feitos.length) {
+          return { type: 'tool_result', tool_use_id: p.id, content: JSON.stringify({ erro: 'Limite de consultas desta pergunta atingido. Responda com o que já tem.' }), is_error: true };
         }
-        const t0 = Date.now();
-        const feito = await portas.executar(p.name, p.input);
-        trilha.ferramentas.push({ nome: String(p.name).slice(0, 60), ms: Date.now() - t0, ok: feito.ok, entrada: entradaParaATrilha(p.input) });
+        const { feito, ms } = feitos[i];
+        trilha.ferramentas.push({ nome: String(p.name).slice(0, 60), ms, ok: feito.ok, entrada: entradaParaATrilha(p.input) });
+        portas.colher?.(feito);
         if (feito.ok) resultados.push(feito.dados);
-        respostas.push({ type: 'tool_result', tool_use_id: p.id, content: JSON.stringify(feito.dados), ...(feito.ok ? {} : { is_error: true }) });
-      }
+        return { type: 'tool_result', tool_use_id: p.id, content: JSON.stringify(feito.dados), ...(feito.ok ? {} : { is_error: true }) };
+      });
       messages.push({ role: 'user', content: respostas });
     }
     return { texto: null, motivo: 'nao_fechou', trilha };

@@ -48,6 +48,13 @@ export const TETOS = {
   esperaMaxMin: 15,
   /** Conversas respondidas ao mesmo tempo neste processo. */
   paralelas: 3,
+  /** Consultas de UMA vez do modelo que rodam juntas (o resumo, as vendas e o estoque pedidos de uma vez). */
+  consultasJuntas: 3,
+  /**
+   * Ferramentas rodando ao mesmo tempo no processo, somadas todas as conversas: o pool do banco (10) é da API inteira.
+   * Antes das consultas juntas o máximo já era 3 (uma por conversa); fica 4.
+   */
+  consultasNoProcesso: 4,
 } as const;
 
 // ───────────────────────────── o que o modelo recebe ─────────────────────────────
@@ -476,6 +483,13 @@ export const ehFerramenta = (n: unknown): n is NomeDaFerramenta => FERRAMENTAS.s
 
 /** As ferramentas que leem dado (todas, menos as de `FERRAMENTAS_QUE_NAO_SAO_CONSULTA`): é o que conta como "consulta". */
 export const ehConsulta = (n: unknown): n is NomeDaFerramenta => ehFerramenta(n) && !FERRAMENTAS_QUE_NAO_SAO_CONSULTA.includes(n);
+
+/**
+ * Pode rodar junto com as outras da mesma vez? As consultas (só leem), a anotação do que falta (não grava nada ali) e o
+ * nome que não existe (volta recusado na hora). O que FAZ algo (propor, mandar ou criar link, cancelar links, corrigir) —
+ * toda ferramenta de `FERRAMENTAS_QUE_NAO_SAO_CONSULTA`, menos a anotação — põe a vez inteira em fila, uma de cada vez.
+ */
+export const podeRodarJunto = (n: unknown): boolean => !ehFerramenta(n) || ehConsulta(n) || n === FERRAMENTA_DO_QUE_FALTA;
 
 // ───────────────────────────── a memória da conversa e a trilha ─────────────────────────────
 

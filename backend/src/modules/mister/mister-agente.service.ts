@@ -5,7 +5,7 @@ import { IaEmpresaService } from '../ia/ia-empresa.service';
 import { MotivoSemResposta, TETOS, TEXTOS_DO_AGENTE, blocoDaConversa, filtrarSaida, fraseDoMotivo, TrocaDaMemoria, juntarPerguntas } from './mister-agente.regras';
 import { EscopoDoMister, MisterFerramentasService } from './mister-ferramentas.service';
 import { MisterFilaService, PerguntaNaFila, Trilha } from './mister-fila.service';
-import { FimDaPergunta, modeloDasPerguntas, responderComFerramentas } from './mister-laco';
+import { FimDaPergunta, Vagas, modeloDasPerguntas, responderComFerramentas } from './mister-laco';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { MisterInstrucoesService } from './mister-instrucoes.service';
 import type { PropostaPendente } from './mister-propostas.service';
@@ -46,6 +46,8 @@ const mascarar = (t: string) => (t.length > 4 ? `***${t.slice(-4)}` : '***');
 export class MisterAgenteService implements OnModuleInit {
   private readonly logger = new Logger(MisterAgenteService.name);
   private emCurso = 0;
+  /** As ferramentas de todas as conversas dividem estas vagas (as consultas de uma vez rodam juntas — `mister-laco.ts`). */
+  private readonly vagas = new Vagas(TETOS.consultasNoProcesso);
 
   constructor(
     private readonly fila: MisterFilaService,
@@ -270,8 +272,9 @@ export class MisterAgenteService implements OnModuleInit {
         recurso: opcoes.recurso,
         conversa: blocoDaConversa(this.ferramentas.conversa(escopo)),
         pedir: (p) => this.ia.pedir(escopo.tenantId, p),
-        executar: async (nome, entrada) => {
-          const r = await this.ferramentas.executar(escopo, nome, entrada);
+        executar: (nome, entrada) => this.vagas.com(() => this.ferramentas.executar(escopo, nome, entrada)),
+        // Na ordem do pedido (as consultas juntas terminam em qualquer ordem): os anexos e as imagens saem na ordem pedida.
+        colher: (r) => {
           if (r.proposta && !propostas.some((p) => p.id === r.proposta!.id)) propostas.push(r.proposta);
           for (const b of r.botoes ?? []) if (!botoes.some((x) => x.id === b.id)) botoes.push(b);
           for (const im of r.imagens ?? []) if (!imagens.some((x) => x.url === im.url)) imagens.push(im);
@@ -281,7 +284,6 @@ export class MisterAgenteService implements OnModuleInit {
             if (ja) ja.enviarPdf = ja.enviarPdf || r.anexo.enviarPdf;
             else anexos.push({ ...r.anexo });
           }
-          return r;
         },
       },
       memoria,

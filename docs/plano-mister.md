@@ -1087,6 +1087,41 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
 **A tela "Resumo" (17/11/2026, sem migration; #1114, no ar):** a entrada do presidente em Mister — as três etapas para funcionar, a faixa
 "IA parada", o que o Mister faz e os últimos avisos, só com as rotas que já existem.
 
+### Versão 4 — o Mister com o jeito do atendente (padrões do Hermes Agent; aprovada pelo dono em 18/11/2026)
+
+**Por quê.** O dono achou o Mister "um número de alerta robótico". O levantamento no código confirmou quatro causas: a
+memória são as 6 últimas perguntas em 2 horas (depois ele recomeça do zero); o aviso é texto montado pelo código, sem IA
+("⚠️ título. detalhe", "🔔 Lembrete", "✅ Resolvido"); a voz é a mesma para toda empresa; e as consultas de uma resposta
+rodam uma depois da outra.
+
+**De onde vêm os padrões.** O dono pediu a análise do Hermes Agent (NousResearch, licença MIT) e decidiu **trazer os
+padrões dele para a estrutura que temos**, sem trocar o Mister por outro programa, e que o comportamento siga o do
+**atendente virtual do cardápio** (`cardapio/robo-instrucoes.ts`). O que se aproveita: as ferramentas da mesma vez
+rodando juntas; a busca nas conversas antigas; a memória curta e limitada, em dois blocos (o que o agente sabe do lugar e
+como a pessoa gosta), com a ferramenta de lembrar, trocar e esquecer e sem guardar número; a identidade/voz separada das
+regras; o "fica de olho nisso" que só fala quando algo mudou. O que fica de fora: terminal, arquivos e skill criada
+sozinha sem avaliação. O desenho de cache do Mister já é o do Hermes (instruções fixas com cache + o bloco "Esta
+conversa"): a memória entra no bloco da conversa, sem quebrar o cache.
+
+**As entregas (cada uma num ou mais PRs; tudo nasce desligado onde muda o que a pessoa recebe):**
+1. **Sem migration e sem tela nova:** as consultas da mesma vez juntas; a busca nas conversas dos 30 dias (o texto que
+   `mister_pergunta` já guarda, só da própria pessoa); as instruções do Mister nos mesmos blocos do atendente (jeito de
+   conversar, como escrever no WhatsApp, o que a pessoa já disse, a conferência antes de responder) e a saída pelo mesmo
+   formatador do WhatsApp do atendente (`whatsapp/formato-da-resposta.ts`: negrito, lista com o emoji do assunto,
+   reação). A troca das instruções passa pela avaliação de regressão (as 41 perguntas) antes de valer.
+2. **Com migration e protótipo aprovado antes:** o perfil do Mister (os mesmos perfis do atendente e o "jeito da
+   empresa") e a memória da loja e da pessoa, numa lista que o presidente vê e apaga.
+3. **Com protótipo aprovado antes:** o aviso escrito pelo agente (a regra continua detectando sem IA; o texto fixo fica
+   de reserva quando a IA falha e fora das 24 horas, pelo modelo da Meta) e o "fica de olho nisso" / "me lembra às 10h".
+
+**Andamento:**
+- **Entrega 1, parte 1 — as consultas juntas (sem migration):** as consultas que o modelo pede na mesma vez rodam juntas
+  (até 3 — `TETOS.consultasJuntas`); a vez que traz uma ação (propor, mandar o link, corrigir) roda uma de cada vez, na
+  ordem pedida, como antes. A resposta ao modelo, a trilha e os anexos (PDF, gráfico, imagem do "como faço") seguem a
+  ordem do pedido. No processo, no máximo 4 ferramentas ao mesmo tempo somadas todas as conversas
+  (`TETOS.consultasNoProcesso`; o pool do banco tem 10 conexões para a API inteira, e antes o máximo era 3). O teto de
+  10 consultas por pergunta segue decidido na ordem do pedido. A avaliação de regressão roda o mesmo laço.
+
 ## 5. O que depende do dono
 
 1. ~~Onde a IA roda~~ — decidido: nuvem.
