@@ -16,7 +16,7 @@ import {
   proximaPendencia,
   sugerirInsumos,
 } from '../../common/nota-por-foto';
-import { RECURSO_DO_DOCUMENTO } from '../../common/documento-por-foto';
+import { RECURSO_DO_DOCUMENTO, notasNaInstalacao } from '../../common/documento-por-foto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { EstoqueService } from '../estoque/estoque.service';
@@ -69,8 +69,9 @@ export class MisterNotasService {
     @Optional() private readonly auditoria?: AuditoriaService,
   ) {}
 
+  /** A nota por foto está ligada nesta instalação? (A regra mora em `notasNaInstalacao`: a tela lê a mesma.) */
   ligadas(): boolean {
-    return process.env.MISTER_NOTAS === '1';
+    return notasNaInstalacao();
   }
 
   // ───────────────────────────── a foto da nota ──────────────────────────

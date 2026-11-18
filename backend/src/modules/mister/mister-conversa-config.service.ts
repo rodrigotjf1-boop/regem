@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable, Optional } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { AuthUser } from '../../auth/auth-user';
-import { ModoDoBoleto } from '../../common/documento-por-foto';
+import { ModoDoBoleto, documentosNaInstalacao, notasNaInstalacao } from '../../common/documento-por-foto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 
@@ -65,8 +65,12 @@ export class MisterConversaConfigService {
     }
   }
 
-  async daTela(tenantId: string): Promise<{ conversa: ConversaDoMister }> {
-    return { conversa: await this.daEmpresa(tenantId) };
+  /**
+   * O que a tela mostra: os ajustes da empresa e se a função está ligada NESTA instalação (a variável que o dono liga —
+   * a mesma regra que os serviços usam). A tela Resumo diz "em breve" quando ela ainda não está ligada.
+   */
+  async daTela(tenantId: string): Promise<{ conversa: ConversaDoMister; disponivel: { documentos: boolean; notas: boolean } }> {
+    return { conversa: await this.daEmpresa(tenantId), disponivel: { documentos: documentosNaInstalacao(), notas: notasNaInstalacao() } };
   }
 
   /** Salva o que veio (o ausente mantém o salvo), numa gravação só, e audita o antes e o depois. */

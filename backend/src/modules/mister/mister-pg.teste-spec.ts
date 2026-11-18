@@ -6579,7 +6579,26 @@ export function testesDoMisterComPostgres(): void {
         await expect(conversa.salvar(usuario('ana'), { documentosLigado: 'sim' })).rejects.toBeInstanceOf(BadRequestException);
         await expect(conversa.salvar(usuario('ana'), {})).rejects.toBeInstanceOf(BadRequestException);
         // Salvar só o modo mantém o "ligado" (o ausente mantém o salvo).
-        expect(await conversa.salvar(usuario('ana'), { documentosModo: 'perguntar' })).toEqual({ conversa: { documentosLigado: true, documentosModo: 'perguntar' } });
+        expect(await conversa.salvar(usuario('ana'), { documentosModo: 'perguntar' })).toEqual({
+          conversa: { documentosLigado: true, documentosModo: 'perguntar' },
+          disponivel: { documentos: true, notas: process.env.MISTER_NOTAS === '1' },
+        });
+        // A tela sabe se a função está ligada NESTA instalação (a mesma regra dos serviços): sem a variável, "em breve".
+        const notasAntes = process.env.MISTER_NOTAS;
+        try {
+          process.env.MISTER_NOTAS = '1';
+          expect((await conversa.daTela(A)).disponivel).toEqual({ documentos: true, notas: true });
+          delete process.env.MISTER_DOCUMENTOS;
+          expect((await conversa.daTela(A)).disponivel).toEqual({ documentos: false, notas: false });
+          process.env.EDGE_MODE = 'true';
+          process.env.MISTER_DOCUMENTOS = '1';
+          expect((await conversa.daTela(A)).disponivel).toEqual({ documentos: false, notas: false });
+        } finally {
+          delete process.env.EDGE_MODE;
+          process.env.MISTER_DOCUMENTOS = '1';
+          if (notasAntes === undefined) delete process.env.MISTER_NOTAS;
+          else process.env.MISTER_NOTAS = notasAntes;
+        }
         expect(auditados.find((a) => a.acao === 'mister_conversa_alterada')).toMatchObject({ detalhe: { antes: { documentosModo: 'sozinho' }, depois: { documentosModo: 'perguntar' } } });
         // A outra empresa não muda.
         expect(await conversa.daEmpresa(B)).toEqual({ documentosLigado: true, documentosModo: 'sozinho' });

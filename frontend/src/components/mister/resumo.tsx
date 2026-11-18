@@ -35,7 +35,13 @@ const quando = (ts: string) => {
 };
 
 /** O que o Mister faz por esta empresa: o estado de cada recurso, como o servidor o liga. */
-const RECURSOS: { nome: string; descricao: string; estado: (iaOk: boolean) => { rotulo: string; tom: Tom } }[] = [
+/**
+ * Os documentos por foto, como o servidor diz (`GET /mister/conversa`): `null` = não li (o recurso fica pelo estado da IA);
+ * `disponivel` = a função ligada nesta instalação; `ligado` = a empresa deixou ligada em "Avisos e relatórios › Conversa".
+ */
+type Documentos = { disponivel: boolean; ligado: boolean } | null;
+
+const RECURSOS: { nome: string; descricao: string; estado: (iaOk: boolean, documentos: Documentos) => { rotulo: string; tom: Tom } }[] = [
   { nome: 'Vigia do servidor da loja', descricao: 'Sem sinal, serviço parado, disco, cópia de segurança, impressora.', estado: () => ({ rotulo: 'ligado', tom: 'ok' }) },
   { nome: 'Avisos no WhatsApp e no Regem', descricao: 'O problema que a loja resolve chega para quem está ligado.', estado: () => ({ rotulo: 'ligado', tom: 'ok' }) },
   {
@@ -45,6 +51,19 @@ const RECURSOS: { nome: string; descricao: string; estado: (iaOk: boolean) => { 
   },
   { nome: 'Resumo do dia e da semana', descricao: 'No horário que você escolher, em "Avisos e relatórios".', estado: (ok) => (ok ? { rotulo: 'ligado', tom: 'ok' } : { rotulo: 'precisa da chave de IA', tom: 'aviso' }) },
   { nome: 'Propostas para você autorizar', descricao: 'Ele propõe, você autoriza, o servidor executa e ele confere.', estado: () => ({ rotulo: 'ligado', tom: 'ok' }) },
+  // Versão 3 do protótipo (M3a e M3b): o estado vem da função na instalação, do ajuste da empresa e da IA.
+  {
+    nome: 'Boletos e notas por foto',
+    descricao: 'Mande a foto: ele lê, lança e avisa do vencimento.',
+    estado: (ok, d) =>
+      d && !d.disponivel
+        ? { rotulo: 'em breve', tom: 'neutro' }
+        : d && !d.ligado
+          ? { rotulo: 'desligado', tom: 'neutro' }
+          : ok
+            ? { rotulo: 'ligado', tom: 'ok' }
+            : { rotulo: 'precisa da chave de IA', tom: 'aviso' },
+  },
   { nome: 'Relatórios com gráfico e por insumo', descricao: 'Em imagem na conversa, em PDF ou no link para ver no Regem.', estado: (ok) => (ok ? { rotulo: 'ligado', tom: 'ok' } : { rotulo: 'precisa da chave de IA', tom: 'aviso' }) },
   // O nome do protótipo ("Ponto e escala"), agora que o arquivo do ponto do mês também funciona (M3e parte 2).
   {
@@ -97,6 +116,8 @@ export function ResumoDoMister({ aoAbrir }: { aoAbrir: (p: ParteDoMister) => voi
   const [meu, setMeu] = useState<Leitura<Meu> | null>(null);
   const [lista, setLista] = useState<Leitura<Lista> | null>(null);
   const [avisos, setAvisos] = useState<Leitura<Aviso[]> | null>(null);
+  // Os documentos por foto (só o estado de uma linha): a leitura que falha não vira erro na tela — a linha fica pela IA.
+  const [documentos, setDocumentos] = useState<Documentos>(null);
 
   const ler = useCallback(<T,>(rota: string, por: (r: unknown) => T, guardar: (l: Leitura<T> | null) => void) => {
     guardar(null);
@@ -114,6 +135,13 @@ export function ResumoDoMister({ aoAbrir }: { aoAbrir: (p: ParteDoMister) => voi
   useEffect(() => {
     lerEtapas();
     lerAvisos();
+    api
+      .get('/mister/conversa')
+      .then((r) => {
+        const d = r as { conversa?: { documentosLigado?: boolean }; disponivel?: { documentos?: boolean } };
+        setDocumentos({ disponivel: d?.disponivel?.documentos !== false, ligado: d?.conversa?.documentosLigado !== false });
+      })
+      .catch(() => setDocumentos(null));
   }, [lerEtapas, lerAvisos]);
 
   const c = chave?.dado;
@@ -202,7 +230,7 @@ export function ResumoDoMister({ aoAbrir }: { aoAbrir: (p: ParteDoMister) => voi
         </h2>
         <ul className="mt-2">
           {RECURSOS.map((r) => {
-            const e = r.estado(iaOk || carregandoEtapas);
+            const e = r.estado(iaOk || carregandoEtapas, documentos);
             return (
               <li key={r.nome} className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1 border-b border-border py-2.5 last:border-b-0">
                 <span className="min-w-0 flex-1">
