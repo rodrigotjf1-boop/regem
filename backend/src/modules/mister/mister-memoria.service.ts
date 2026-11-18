@@ -23,8 +23,8 @@ import { pessoaVale } from './mister-vinculo.service';
 //    que…" ao mesmo tempo não passam do limite.
 //  • Quem pode: o presidente, tudo da empresa; pela conversa, cada pessoa anota da empresa e anota, troca e esquece o
 //    que é DELA; trocar e esquecer o que é da empresa, só o presidente (decisão 5 do protótipo).
-//  • Só pessoas que ainda valem (a régua do vínculo, `pessoaVale`) aparecem e entram na conversa; quem desliga o
-//    WhatsApp do Mister perde a memória dela junto (`apagarDaPessoa`).
+//  • Só pessoas que ainda valem (a régua do vínculo, `pessoaVale`) aparecem na tela; quem desliga o WhatsApp do Mister
+//    perde a memória dela junto (o apagar mora no `desligarPessoa` do vínculo — importar este serviço lá fecharia um ciclo).
 //  • Só na nuvem: sem a 449 (ou no servidor da loja), nada se lê e nada se grava — a conversa segue sem memória.
 
 const linhas = (r: any) => (r?.rows ?? r ?? []) as any[];
@@ -77,7 +77,10 @@ export class MisterMemoriaService {
     try {
       const itens = linhas(
         await this.db.execute(sql`
-          select ${ITEM} from mister_memoria m
+          select ${ITEM},
+                 -- Quem disse ou escreveu (a tela mostra "Anotado na conversa com Ana"); só o nome, da mesma empresa.
+                 (select a.nome from colaborador a where a.id = m.anotado_por and a.tenant_id = m.tenant_id) as "anotadoPor"
+            from mister_memoria m
            where m.tenant_id = ${tenantId}::uuid
              and (m.colaborador_id is null or exists (
                    select 1 from colaborador c
@@ -86,7 +89,7 @@ export class MisterMemoriaService {
                      join empresa emp on emp.id = c.tenant_id
                     where c.id = m.colaborador_id and c.tenant_id = m.tenant_id and ${pessoaVale()}))
            order by m.criado_em, m.id`),
-      ) as ItemDaMemoria[];
+      ) as (ItemDaMemoria & { anotadoPor: string | null })[];
       const pessoas = linhas(
         await this.db.execute(sql`
           select c.id::text as id, c.nome
@@ -201,17 +204,6 @@ export class MisterMemoriaService {
     } catch (e: any) {
       if (semTabela(e)) return { ok: false, erro: 'A memória do Mister ainda não está disponível.' };
       throw e;
-    }
-  }
-
-  /** Quem desliga o WhatsApp do Mister (ou é desligado pelo presidente) perde a memória dele junto. Nunca lança. */
-  async apagarDaPessoa(tenantId: string, colaboradorId: string): Promise<number> {
-    try {
-      const r = linhas(await this.db.execute(sql`delete from mister_memoria where tenant_id = ${tenantId}::uuid and colaborador_id = ${colaboradorId}::uuid returning id`));
-      return r.length;
-    } catch (e: any) {
-      if (!semTabela(e)) this.logger.warn(`mister: a memória da pessoa não foi apagada ao desligar — ${e?.message ?? e}`);
-      return 0;
     }
   }
 

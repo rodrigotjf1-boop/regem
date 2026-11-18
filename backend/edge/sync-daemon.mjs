@@ -2514,6 +2514,9 @@ const SO_NUVEM = new Set([
   'mister_link_publico',
   // O rascunho do recado no mural que espera o "Publicar" (mig 444, @cloud-only). O comunicado publicado desce pelo sync.
   'mister_recado',
+  // A memória do Mister (versão 4, M4b, mig 449, @cloud-only): o que ele sabe da empresa e de cada pessoa — só a nuvem
+  // conversa com o Mister; a loja não tem esta tabela.
+  'mister_memoria',
   // O gasto do WhatsApp oficial (mig 445, @cloud-only): o que a Meta informa por dia e por modelo, e a situação da
   // leitura de cada conta. Quem lê a Meta é a nuvem — a loja não tem estas tabelas.
   'whatsapp_gasto',

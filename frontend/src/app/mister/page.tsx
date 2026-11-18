@@ -14,6 +14,7 @@ import { DocumentosDoMister } from '@/components/mister/documentos';
 import { HistoricoDosAvisos } from '@/components/mister/historico';
 import { IaEUso } from '@/components/mister/ia-e-uso';
 import { JeitoDoMister } from '@/components/mister/jeito';
+import { MemoriaDoMister } from '@/components/mister/memoria';
 import { PessoasDoMister } from '@/components/mister/pessoas';
 import { ResumoDoMister } from '@/components/mister/resumo';
 
@@ -27,7 +28,8 @@ import { ResumoDoMister } from '@/components/mister/resumo';
 
 // "Documentos" (M3a parte 3, versão 3 do protótipo aprovada em 17/11/2026): os boletos que chegaram por foto. Só o presidente.
 // "Jeito e memória" (versão 4, `mockups/regem-mister-jeito-memoria.html`, aprovado em 18/11/2026): o perfil e o jeito da
-// empresa (M4a); a memória, os avisos escritos e o "fica de olho" entram na mesma parte, cada um na sua fase. Só o presidente.
+// empresa (M4a) e "O que o Mister sabe" (M4b, mig 449); os avisos escritos e o "fica de olho" entram na mesma parte, cada
+// um na sua fase. Só o presidente.
 type Parte = 'resumo' | 'pessoas' | 'ia' | 'avisos' | 'documentos' | 'historico' | 'jeito';
 const TITULO: Record<Parte, string> = {
   resumo: 'Resumo',
@@ -139,7 +141,10 @@ export default function MisterPage() {
         ) : aberta === 'historico' ? (
           <HistoricoDosAvisos />
         ) : aberta === 'jeito' ? (
-          <JeitoDoMister />
+          <div className="space-y-8">
+            <JeitoDoMister />
+            <MemoriaDoMister />
+          </div>
         ) : (
           <PessoasDoMister />
         )}

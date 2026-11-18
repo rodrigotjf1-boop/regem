@@ -12,7 +12,8 @@ import { SkeletonList } from '@/components/ui/skeleton';
 // MISTER › "JEITO E MEMÓRIA" (versão 4 do Mister; protótipo `mockups/regem-mister-jeito-memoria.html`, aprovado pelo dono em
 // 18/11/2026). Fase M4a: o PERFIL (os mesmos do atendente virtual) e o "JEITO DA EMPRESA" — a mesma rota dos ajustes da
 // conversa (`/mister/conversa`, mig 447), que grava só o que veio. Os avisos escritos pelo Mister (M4c), o "fica de olho"
-// (M4d) e "O que o Mister sabe" (M4b) entram nesta mesma parte, cada um na sua fase. Só o presidente (a rota barra).
+// (M4d) entram nesta mesma parte, cada um na sua fase; "O que o Mister sabe" (M4b) fica logo abaixo (`memoria.tsx`). Só o
+// presidente (a rota barra).
 
 /** Os perfis, na ordem e com os nomes do atendente virtual (as chaves são as do servidor — `perfis-do-atendente.ts`). */
 export const PERFIS_DO_MISTER: { v: string; rotulo: string }[] = [

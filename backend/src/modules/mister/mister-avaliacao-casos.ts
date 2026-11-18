@@ -611,6 +611,8 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c42', pergunta: 'O que você me disse do iFood naquele dia que teve cancelamento?', consultas: ['conversas_anteriores'], numeros: ['23'], contem: ['14/11|15/11|sexta|sábado'] },
   // G3 do gasto do WhatsApp oficial (18/11/2026): "quanto gastei?" — o presidente vê o gasto do mês que a Meta informa.
   { id: 'c43', pergunta: 'Quanto gastei de WhatsApp este mês?', consultas: ['gasto_do_whatsapp'], numeros: ['205,43'] },
+  // Versão 4, M4b: a memória (o padrão do Hermes). Quando a pessoa pede para lembrar, ele anota pela ferramenta e diz o que ficou.
+  { id: 'c44', pergunta: 'Lembra que aqui a gente chama o X-Burger Smash só de "smash".', consultas: ['lembrar'], contem: ['anot|lembr|guard'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

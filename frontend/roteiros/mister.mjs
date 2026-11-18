@@ -11,6 +11,9 @@
 // a recusa do servidor aparece com a frase dele; apagar pede confirmação; o uso com os rótulos, o custo e o total, vazio,
 // erro e "Tentar de novo"; os atalhos de período; o guia em gaveta; gerente não entra; e, em cada largura, a página, a
 // gaveta e o diálogo inteiros na tela, sem barra lateral.
+// JEITO E MEMÓRIA (versão 4): o perfil e o jeito da empresa (M4a); "O que o Mister sabe" (M4b) — a lista com as duas
+// situações, o medidor, a busca e a origem, anotar com a recusa do servidor no campo, mudar, esquecer, vazio e erro, e a
+// gaveta e o diálogo abertos em cada largura.
 import { fotoDoComoFaco, responder, tokenFalso, umaLinha } from './comum.mjs';
 
 const PRESIDENTE = tokenFalso({ cat: 'presidente', perfil: 'presidente', perm: {} });
@@ -250,6 +253,35 @@ const RELATORIO_INSUMO = () => {
 };
 const LINK_DO_RELATORIO = '?insumo=11111111-2222-3333-4444-555555555555&de=2026-11-01&ate=2026-11-16&compararDe=2026-10-01&compararAte=2026-10-16';
 
+// Versão 4, M4b: "O que o Mister sabe" — as anotações da empresa e de duas pessoas (a mais longa de 300 letras, a
+// largura que aperta o cartão).
+const ANA = '11111111-aaaa-4aaa-8aaa-000000000001';
+const CARLOS = '11111111-aaaa-4aaa-8aaa-000000000002';
+const MEMORIA = () => [
+  { id: 'm-e1', colaboradorId: null, texto: 'O pico da noite é das 20h às 22h; no sábado começa às 19h.', origem: 'conversa', criadoEm: '2026-11-18T00:40:00Z', anotadoPor: 'Ana Souza' },
+  { id: 'm-e2', colaboradorId: null, texto: '"Smash" é o X-Burger Smash; "trio" é lanche com batata e refrigerante.', origem: 'presidente', criadoEm: '2026-11-16T13:05:00Z', anotadoPor: 'Rodrigo Teixeira' },
+  { id: 'm-e3', colaboradorId: null, texto: `A loja ainda fecha os pedidos do delivery no Eclética: pedido "em aberto" no painel não é atraso. ${'Confira antes no Eclética. '.repeat(7)}`.slice(0, 300).trim(), origem: 'conversa', criadoEm: '2026-11-15T03:12:00Z', anotadoPor: 'Ana Souza' },
+  { id: 'm-p1', colaboradorId: ANA, texto: 'Ana prefere os valores sem centavos e a resposta mais curta.', origem: 'conversa', criadoEm: '2026-11-18T12:12:00Z', anotadoPor: 'Ana Souza' },
+  { id: 'm-p2', colaboradorId: CARLOS, texto: 'Carlos chama a cozinha de "chapa" e o delivery de "rua".', origem: 'conversa', criadoEm: '2026-11-16T01:47:00Z', anotadoPor: 'Carlos Lima' },
+];
+/** A resposta de GET /mister/memoria montada como o servidor monta (`MisterMemoriaService.daTela`). */
+const memoriaDaTela = (itens) => {
+  const nomes = { [ANA]: 'Ana Souza', [CARLOS]: 'Carlos Lima' };
+  const letras = (l) => l.reduce((s, i) => s + i.texto.length, 0);
+  const daEmpresa = itens.filter((i) => !i.colaboradorId);
+  const dePessoas = itens.filter((i) => i.colaboradorId);
+  return {
+    disponivel: true,
+    limites: { empresa: 2200, pessoa: 1375 },
+    empresa: { itens: daEmpresa, letras: letras(daEmpresa) },
+    pessoas: [...new Set(dePessoas.map((i) => i.colaboradorId))].map((id) => {
+      const dela = dePessoas.filter((i) => i.colaboradorId === id);
+      return { colaboradorId: id, nome: nomes[id], itens: dela, letras: letras(dela) };
+    }),
+    pessoasLigadas: [{ id: ANA, nome: 'Ana Souza' }, { id: CARLOS, nome: 'Carlos Lima' }],
+  };
+};
+
 const medir = (page) =>
   page.evaluate(() => {
     const achados = [];
@@ -290,6 +322,8 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
       // M3a parte 3: os ajustes da conversa e a parte "Documentos"
       // Versão 4, M4a (mig 447): o perfil, o jeito e os grupos de aviso vêm junto (o padrão: nada muda).
       conversa: o.conversa ?? { documentosLigado: true, documentosModo: 'sozinho', perfil: 'hoje', jeito: null, avisosEscritos: [] }, salvamentosConv: [], conversaFalha: !!o.conversaFalha,
+      // Versão 4, M4b: a memória (as anotações cruas; a resposta da tela se monta como o servidor monta).
+      memoria: o.memoria ?? MEMORIA(), memoriaFalha: !!o.memoriaFalha, memoriaRecusa: o.memoriaRecusa ?? null, memoriaPedidos: [],
       // Os documentos por foto ligados nesta instalação (a variável que o dono liga), como o servidor manda.
       disponivelDocs: o.disponivelDocs ?? true,
       documentos: o.documentos ?? DOCUMENTOS(), documentosFalha: !!o.documentosFalha, diasDosDocumentos: [], desfeitos: [], pdfs: [],
@@ -336,6 +370,30 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
         S.salvamentosConv.push(corpo);
         S.conversa = { ...S.conversa, ...corpo };
         return responder(route, { conversa: S.conversa, disponivel: disponivel() });
+      }
+      // Versão 4, M4b (mig 449): "O que o Mister sabe" — a lista, anotar, mudar e esquecer (a recusa vem do servidor).
+      if (p === '/mister/memoria' && metodo === 'GET') {
+        if (S.memoriaFalha) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
+        return responder(route, memoriaDaTela(S.memoria));
+      }
+      const daMemoria = /^\/mister\/memoria(?:\/([^/]+))?$/.exec(p);
+      if (daMemoria && metodo !== 'GET') {
+        const corpo = JSON.parse(req.postData() || '{}');
+        S.memoriaPedidos.push({ metodo, id: daMemoria[1] ?? null, corpo });
+        if (S.memoriaRecusa && metodo !== 'DELETE') return responder(route, { statusCode: 400, message: S.memoriaRecusa }, 400);
+        if (metodo === 'POST') {
+          const item = { id: `m${S.memoriaPedidos.length}`, colaboradorId: corpo.sobre === 'empresa' ? null : corpo.sobre, texto: corpo.texto, origem: 'presidente', criadoEm: '2026-11-18T13:00:00Z', anotadoPor: 'Rodrigo Teixeira' };
+          S.memoria = [...S.memoria, item];
+          return responder(route, { item, uso: 'ok' }, 201);
+        }
+        if (metodo === 'PATCH') {
+          S.memoria = S.memoria.map((i) => (i.id === daMemoria[1] ? { ...i, texto: corpo.texto } : i));
+          return responder(route, { item: S.memoria.find((i) => i.id === daMemoria[1]), uso: 'ok' });
+        }
+        if (metodo === 'DELETE') {
+          S.memoria = S.memoria.filter((i) => i.id !== daMemoria[1]);
+          return responder(route, { item: { id: daMemoria[1] }, uso: 'ok' });
+        }
       }
       if (p === '/mister/documentos' && metodo === 'GET') {
         S.diasDosDocumentos.push(url.searchParams.get('dias'));
@@ -1473,6 +1531,75 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     ok(true, 'jeito: "Tentar de novo" lê de novo');
     await f.ctx.close();
   }
+  // ── Versão 4, M4b (mig 449): "O que o Mister sabe" — a lista, as duas situações, o medidor, a busca e a origem; anotar,
+  //    a recusa do servidor no campo, mudar e esquecer; vazio e erro ──
+  {
+    const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=jeito' });
+    await page.waitForSelector('#mister-sabe', { timeout: 20000 });
+    const secao = page.locator('section[aria-labelledby="mister-sabe"]');
+    await secao.locator('text=O pico da noite').first().waitFor({ timeout: 20000 });
+    let t = await secao.innerText();
+    ok(/5 anotações/.test(t) && /Da empresa\s*3/.test(t) && /De cada pessoa\s*2/.test(t), `memória: a contagem e as duas situações com a quantidade (${t.slice(0, 160).replace(/\s+/g, ' ')})`);
+    ok(/de 2\.200 letras usadas/.test(t) && /nunca guarda número/.test(t), 'memória: o medidor da empresa e a regra do que não se guarda');
+    ok(/Anotado na conversa com Ana/.test(t) && /Escrito por você/.test(t) && !/Ana prefere/.test(t), 'memória: "Da empresa" mostra só o da empresa, com de onde veio');
+    await secao.locator('button:has-text("De cada pessoa")').click();
+    t = await secao.innerText();
+    ok(/Ana prefere/.test(t) && /De Carlos Lima/.test(t) && !/O pico da noite/.test(t) && /Ana Souza: 60 de 1\.375 letras/.test(t), `memória: "De cada pessoa" com o dono e a conta de cada um (${t.slice(0, 400).replace(/\s+/g, ' ')})`);
+    await secao.locator('button:has-text("Da empresa")').click();
+    await page.locator('#memoria-busca').fill('smash');
+    await page.waitForSelector('text=1 de 5 anotações');
+    await page.locator('#memoria-busca').fill('');
+    await page.getByLabel('De onde veio', { exact: true }).selectOption('presidente');
+    t = await secao.innerText();
+    ok(/Smash/.test(t) && !/O pico da noite/.test(t), 'memória: o filtro de origem ("Escrito por você")');
+    await page.getByLabel('De onde veio', { exact: true }).selectOption('');
+    // Anotar: a recusa do servidor aparece no campo, nada some; depois salva e a lista lê de novo.
+    await secao.locator('button:has-text("Anotar")').click();
+    const gaveta = page.locator('[role="dialog"]');
+    await gaveta.waitFor();
+    ok((await page.getByLabel('Sobre', { exact: true }).locator('option').allInnerTexts()).join('|') === 'A empresa (vale para todos)|Ana Souza|Carlos Lima', 'memória: "Sobre" com a empresa e quem ligou o WhatsApp');
+    S.memoriaRecusa = 'Tem um valor em reais: o Mister não guarda número — ele consulta na hora. Tire o valor e salve.';
+    await page.getByLabel('O que o Mister deve lembrar', { exact: true }).fill('A meta é R$ 5.000 por noite.');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/memoria') && r.request().method() === 'POST'), gaveta.locator('button:has-text("Salvar")').click()]);
+    await gaveta.locator('[role="alert"]:has-text("Tem um valor em reais")').waitFor();
+    ok((await page.getByLabel('O que o Mister deve lembrar', { exact: true }).inputValue()) === 'A meta é R$ 5.000 por noite.', 'memória: a recusa aparece no campo e o texto fica para corrigir');
+    S.memoriaRecusa = null;
+    await page.getByLabel('Sobre', { exact: true }).selectOption(CARLOS);
+    await page.getByLabel('O que o Mister deve lembrar', { exact: true }).fill('  Carlos   trabalha de quinta a domingo.  ');
+    ok(/Ainda cabem 1\.319 letras de Carlos Lima/.test(await gaveta.innerText()), 'memória: quanto ainda cabe, da pessoa escolhida');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/memoria') && r.request().method() === 'POST'), gaveta.locator('button:has-text("Salvar")').click()]);
+    await page.waitForSelector('text=6 anotações');
+    ok(JSON.stringify(S.memoriaPedidos.at(-1).corpo) === JSON.stringify({ sobre: CARLOS, texto: 'Carlos trabalha de quinta a domingo.' }), `memória: anotar manda o dono e o texto limpo (${JSON.stringify(S.memoriaPedidos.at(-1).corpo)})`);
+    // Mudar: a gaveta abre com o texto e o dono fixo; vai só o texto.
+    await secao.locator('button[aria-label^="Mudar: O pico da noite"]').click();
+    await gaveta.waitFor();
+    ok((await page.getByLabel('O que o Mister deve lembrar', { exact: true }).inputValue()).startsWith('O pico da noite') && /Sobre:\s*a empresa/.test(await gaveta.innerText()), 'memória: "Mudar" abre com o texto e o dono');
+    await page.getByLabel('O que o Mister deve lembrar', { exact: true }).fill('O pico da noite é das 20h às 22h.');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/memoria/m-e1') && r.request().method() === 'PATCH'), gaveta.locator('button:has-text("Salvar")').click()]);
+    ok(JSON.stringify(S.memoriaPedidos.at(-1).corpo) === JSON.stringify({ texto: 'O pico da noite é das 20h às 22h.' }), 'memória: mudar manda só o texto');
+    // Esquecer: o diálogo com a anotação, e a lista sem ela.
+    await secao.locator('button[aria-label^="Esquecer: \\"Smash\\""]').click();
+    const dialogo = page.locator('[role="alertdialog"]');
+    await dialogo.waitFor();
+    ok(/Smash/.test(await dialogo.innerText()) && /Não dá para desfazer/.test(await dialogo.innerText()), 'memória: o diálogo de esquecer mostra a anotação e avisa que não se desfaz');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/memoria/m-e2') && r.request().method() === 'DELETE'), dialogo.locator('button:has-text("Esquecer")').click()]);
+    await page.waitForSelector('text=5 anotações');
+    ok(!/Smash/.test(await secao.innerText()), 'memória: esquecida, sai da lista');
+    ok(erros.length === 0, `memória: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+    // Nada anotado: a frase de vazio. A leitura que falha: a frase e "Tentar de novo".
+    const v = await abrir(1280, 900, { caminho: '/mister?parte=jeito', memoria: [] });
+    await v.page.waitForSelector('text=O Mister ainda não anotou nada.', { timeout: 20000 });
+    ok(true, 'memória: o vazio com a explicação');
+    await v.ctx.close();
+    const f = await abrir(1280, 900, { caminho: '/mister?parte=jeito', memoriaFalha: true });
+    await f.page.waitForSelector('text=Não deu para ler o que o Mister sabe agora.', { timeout: 20000 });
+    f.S.memoriaFalha = false;
+    await f.page.locator('[role="alert"]:has-text("o que o Mister sabe") button:has-text("Tentar de novo")').click();
+    await f.page.waitForSelector('#mister-sabe', { timeout: 20000 });
+    ok(true, 'memória: "Tentar de novo" lê de novo');
+    await f.ctx.close();
+  }
   for (const w of larguras) {
     const { ctx, page, erros } = await abrir(w, w < 700 ? 820 : 900, { caminho: '/mister?parte=jeito' });
     await page.waitForSelector('#mister-jeito-titulo', { timeout: 20000 });
@@ -1488,6 +1615,35 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const caixa = await page.locator('main').boundingBox();
     ok(!!area && !!caixa && area.width >= Math.min(caixa.width - 80, 480) * 0.6, `${w}px: a caixa do jeito não fica espremida (${Math.round(area?.width ?? 0)} px)`);
     if (w === 320 || w === 375 || w === 1440) await page.locator('main').screenshot({ path: foto(`${w}-jeito.png`) });
+    // "O que o Mister sabe": a lista (com a anotação de 300 letras), as pessoas, a gaveta de anotar e o diálogo de esquecer
+    // — cada um ABERTO nesta largura, sem barra lateral e com o texto da anotação legível (V45).
+    const secao = page.locator('section[aria-labelledby="mister-sabe"]');
+    await secao.locator('text=O pico da noite').first().waitFor({ timeout: 20000 });
+    m = await medir(page);
+    ok(m.length === 0, `${w}px: "O que o Mister sabe" sem barra lateral e com toque grande (${m.join(' | ')})`);
+    const estreito = await page.evaluate(() =>
+      [...document.querySelectorAll('section[aria-labelledby="mister-sabe"] span')]
+        .filter((s) => /^(O pico da noite|A loja ainda fecha)/.test(s.textContent ?? '') && s.getBoundingClientRect().width > 0 && s.getBoundingClientRect().width < 150)
+        .map((s) => Math.round(s.getBoundingClientRect().width)),
+    );
+    ok(estreito.length === 0, `${w}px: o texto da anotação não fica espremido (${estreito.join(', ')} px)`);
+    await secao.locator('button:has-text("De cada pessoa")').click();
+    m = await medir(page);
+    ok(m.length === 0, `${w}px: "De cada pessoa" sem barra lateral (${m.join(' | ')})`);
+    await secao.locator('button:has-text("Anotar")').click();
+    await page.locator('[role="dialog"]').waitFor();
+    await page.getByLabel('O que o Mister deve lembrar', { exact: true }).fill('x'.repeat(300));
+    m = await medir(page);
+    ok(m.length === 0, `${w}px: a gaveta "Anotar" aberta, inteira e sem barra lateral (${m.join(' | ')})`);
+    if (w === 320 || w === 1440) await page.locator('[role="dialog"]').screenshot({ path: foto(`${w}-memoria-anotar.png`) });
+    await page.keyboard.press('Escape');
+    await page.locator('[role="dialog"]').waitFor({ state: 'detached' });
+    await secao.locator('button[aria-label^="Esquecer: Ana prefere"]').first().click();
+    await page.locator('[role="alertdialog"]').waitFor();
+    m = await medir(page);
+    ok(m.length === 0, `${w}px: o diálogo "Esquecer" aberto, inteiro e sem barra lateral (${m.join(' | ')})`);
+    await page.keyboard.press('Escape');
+    if (w === 320 || w === 375 || w === 1440) await secao.screenshot({ path: foto(`${w}-memoria.png`) });
     ok(erros.length === 0, `${w}px: "Jeito e memória" sem erro (${erros.join(' | ')})`);
     await ctx.close();
   }

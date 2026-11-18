@@ -225,7 +225,16 @@ export class MisterVinculoService {
          where tenant_id = ${user.tenantId}::uuid and colaborador_id = ${alvo}::uuid and (telefone is not null or codigo is not null)
         returning id`),
     );
-    if (r.length) await this.auditar(user, 'mister_whatsapp_desligado', proprio ? { por: 'a própria pessoa' } : { por: 'presidente', colaboradorId: alvo }, alvo);
+    if (r.length) {
+      // Versão 4, M4b (mig 449): quem desliga o WhatsApp do Mister perde a memória dele junto (decisão 5 do protótipo
+      // `regem-mister-jeito-memoria.html`). Sem a 449 (ou no servidor da loja), não há memória a apagar.
+      await this.db
+        .execute(sql`delete from mister_memoria where tenant_id = ${user.tenantId}::uuid and colaborador_id = ${alvo}::uuid`)
+        .catch((e: any) => {
+          if (e?.code !== '42P01' && e?.cause?.code !== '42P01') throw e;
+        });
+      await this.auditar(user, 'mister_whatsapp_desligado', proprio ? { por: 'a própria pessoa' } : { por: 'presidente', colaboradorId: alvo }, alvo);
+    }
     return { desligado: r.length > 0 };
   }
 
