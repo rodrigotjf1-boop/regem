@@ -93,6 +93,21 @@ export const idDoBotaoDaEmpresa = (tenantId: string) => `${PREFIXO_DO_BOTAO}${te
 export type Resposta = { texto: string; botoes?: { id: string; titulo: string }[]; link?: { titulo: string; url: string } };
 
 /**
+ * Versão 4: o corpo da REAÇÃO pela API oficial, como no exemplo da doc da Meta ("Reaction messages") — o MESMO de
+ * `corpoDaReacao` do WhatsApp das lojas (a spec confere os dois iguais; importar de lá fecharia um ciclo de arquivos,
+ * porque o serviço do WhatsApp importa a entrada do Mister).
+ */
+export function corpoDaReacaoDoMister(para: string, wamid: string, emoji: string) {
+  return {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: para,
+    type: 'reaction',
+    reaction: { message_id: wamid, emoji },
+  };
+}
+
+/**
  * Q1 (mig 436): a mesma resposta pelo Evolution, que não tem botão. Os botões viram a lista numerada ("Responda com o
  * número" — a entrada lê "1" e "2" como a última autorização aberta, e o número da empresa pela lista de sempre); o link
  * vai escrito depois do texto.
