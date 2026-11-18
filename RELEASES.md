@@ -17,6 +17,12 @@
   MESMO serviço da tela do Mural & clima, uma vez só, em nome de quem pediu. Tudo só na nuvem → vai no `.zip` sem efeito
   na loja (o comunicado desce pelo sync de sempre): `mister_recado` = SO_NUVEM no `sync-daemon.mjs` (o daemon mudou →
   o `.exe` do próximo corte leva junto).
+- **WhatsApp › Uso e gasto (18/11, G1 do protótipo `mockups/regem-whatsapp-gasto.html`; mig 445 SÓ NUVEM —
+  `whatsapp_gasto`, `whatsapp_gasto_modelo`, `whatsapp_gasto_leitura`).** A nuvem lê na Meta, a cada 30 minutos, o gasto
+  de cada conta oficial (`pricing_analytics`; na primeira vez, os 12 meses) e o gasto por modelo (de 3 em 3 horas); a tela
+  nova WhatsApp › Uso e gasto (botão na tela de WhatsApp, só o presidente) mostra o mês, por tipo, por dia, de onde veio, a
+  franquia de 1.000 do atendimento de cada número e os meses anteriores. Tudo só na nuvem → vai no `.zip` sem efeito na
+  loja: as três tabelas = SO_NUVEM no `sync-daemon.mjs` (o daemon mudou → o `.exe` do próximo corte leva junto).
 
 - **Atendimento sem as linhas "Too Many Requests" empilhadas: chave própria por peça do caso, o 429 em português e as
   leituras do caso só com a aba à vista (18/11; ERR-514; só tela, SEM migration) → vai no `.zip`.**

@@ -4020,3 +4020,60 @@ export const roboCarrinho = pgTable('robo_carrinho', {
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ===== O gasto do WhatsApp oficial (mig 445, @cloud-only; protótipo `mockups/regem-whatsapp-gasto.html`, 18/11/2026) =====
+// O que a Meta informa (`pricing_analytics`), por dia no fuso da loja, conta, número, categoria e tipo de preço.
+export const whatsappGasto = pgTable(
+  'whatsapp_gasto',
+  {
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => empresa.id, { onDelete: 'cascade' }),
+    wabaId: text('waba_id').notNull(),
+    numero: text('numero').notNull().default(''),
+    dia: date('dia').notNull(),
+    categoria: text('categoria').notNull(),
+    tipo: text('tipo').notNull(),
+    mensagens: integer('mensagens').notNull().default(0),
+    custo: numeric('custo', { precision: 14, scale: 4 }).notNull().default('0'),
+    lidoEm: timestamp('lido_em', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.tenantId, t.wabaId, t.numero, t.dia, t.categoria, t.tipo] }) }),
+);
+
+// O gasto por dia e por modelo (`template_analytics`): o "De onde veio" da tela.
+export const whatsappGastoModelo = pgTable(
+  'whatsapp_gasto_modelo',
+  {
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => empresa.id, { onDelete: 'cascade' }),
+    wabaId: text('waba_id').notNull(),
+    dia: date('dia').notNull(),
+    modeloId: text('modelo_id').notNull(),
+    modeloNome: text('modelo_nome').notNull(),
+    categoria: text('categoria'),
+    mensagens: integer('mensagens').notNull().default(0),
+    custo: numeric('custo', { precision: 14, scale: 4 }).notNull().default('0'),
+    lidoEm: timestamp('lido_em', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.tenantId, t.wabaId, t.dia, t.modeloId] }) }),
+);
+
+// A situação da leitura de cada conta oficial: a última que deu certo, a última tentativa e o motivo da falha.
+export const whatsappGastoLeitura = pgTable(
+  'whatsapp_gasto_leitura',
+  {
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => empresa.id, { onDelete: 'cascade' }),
+    wabaId: text('waba_id').notNull(),
+    lidoEm: timestamp('lido_em', { withTimezone: true }),
+    tentouEm: timestamp('tentou_em', { withTimezone: true }),
+    erro: text('erro'),
+    moeda: text('moeda'),
+    historicoAte: date('historico_ate'),
+    modelosLidosEm: timestamp('modelos_lidos_em', { withTimezone: true }),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.tenantId, t.wabaId] }) }),
+);

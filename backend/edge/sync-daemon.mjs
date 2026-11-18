@@ -2514,6 +2514,11 @@ const SO_NUVEM = new Set([
   'mister_link_publico',
   // O rascunho do recado no mural que espera o "Publicar" (mig 444, @cloud-only). O comunicado publicado desce pelo sync.
   'mister_recado',
+  // O gasto do WhatsApp oficial (mig 445, @cloud-only): o que a Meta informa por dia e por modelo, e a situação da
+  // leitura de cada conta. Quem lê a Meta é a nuvem — a loja não tem estas tabelas.
+  'whatsapp_gasto',
+  'whatsapp_gasto_modelo',
+  'whatsapp_gasto_leitura',
 ]);
 
 // LEGADO SEM USO: tabelas criadas nas migrations de fundação (002/003) para recursos que
