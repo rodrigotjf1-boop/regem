@@ -1390,15 +1390,20 @@ export function testesDoMisterComPostgres(): void {
           falar('Pronto.'),
         ];
         await agente.esvaziar();
-        expect(lidos).toEqual([
-          ['delivery', A, null],
-          ['cozinha', A, undefined],
-          ['delivery', A, praia],
-          ['cozinha', A, praia],
-          ['delivery', A, centro],
-          ['cozinha', A, centro],
-          ['servidor', A],
-        ]);
+        // As consultas da mesma vez rodam juntas (versão 4 do Mister): a ordem ENTRE elas não é fixa. Confere-se o conjunto
+        // — cada leitura com a empresa e a loja dela, `null` (todas as lojas) diferente de `undefined`.
+        const emOrdem = (l: unknown[][]) => [...l].sort((a, b) => a.map(String).join('|').localeCompare(b.map(String).join('|')));
+        expect(emOrdem(lidos)).toEqual(
+          emOrdem([
+            ['delivery', A, null],
+            ['cozinha', A, undefined],
+            ['delivery', A, praia],
+            ['cozinha', A, praia],
+            ['delivery', A, centro],
+            ['cozinha', A, centro],
+            ['servidor', A],
+          ]),
+        );
         const doPresidente = Object.fromEntries(ia.pedidos[1].messages[2].content.map((r: any) => [r.tool_use_id, { erro: !!r.is_error, dados: JSON.parse(r.content) }]));
         expect(doPresidente.p1.dados.loja).toBe('todas as lojas');
         expect(doPresidente.p4).toEqual({ erro: true, dados: { erro: 'Não achei essa loja. As lojas são: 1. Loja Centro; 2. Loja Praia.' } });
