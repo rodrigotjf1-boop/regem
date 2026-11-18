@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **O prazo da IA da empresa passa a ser TOTAL (18/11, ERR-525; SEM migration; só nuvem).** `IaEmpresaService` manda ao SDK da
+  Anthropic o sinal do prazo total junto do `timeout` de cada tentativa: com `maxRetries: 1`, "15 s" chegava a ~30 s (o
+  robô, a foto, o copiloto e o Mister esperavam o dobro). A IA só roda na nuvem → vai no `.zip` sem efeito na loja.
+
 - **Mister com o jeito do atendente — versão 4 (18/11; protótipo `mockups/regem-mister-jeito-memoria.html`).** Entrega 1
   SEM migration (#1134, #1136, #1137: as consultas juntas, o formato e a reação do WhatsApp, as conversas anteriores);
   **M4a** mig 447 SÓ NUVEM (#1145: o perfil e o jeito da empresa em Mister › "Jeito e memória"); **M4b** mig 449 SÓ NUVEM
