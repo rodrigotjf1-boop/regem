@@ -118,6 +118,48 @@ describe('instruções do robô', () => {
     });
   });
 
+  // .f27 (18/11/2026) — o jeito da loja: "quando vem algo faltando ou errado já pedimos uma foto para análise e iniciamos
+  // o atendimento".
+  describe('item faltando ou errado: chama a equipe direto e pede a foto (.f27)', () => {
+    const f1 = texto;
+    const f2 = instrucoesDoRobo({ loja: 'Mister Burguer' }, '2').texto;
+    const trecho = (t: string, de: string, ate: string) => t.slice(t.indexOf(de), t.indexOf(ate, t.indexOf(de)));
+
+    it('a versão subiu', () => {
+      expect(VERSAO_INSTRUCOES >= '2026-11-18.f27').toBe(true);
+    });
+
+    it('chama direto, urgente, com o pedido no resumo — e pede a foto na mesma mensagem', () => {
+      for (const t of [f1, f2]) {
+        expect(t).toContain('- ITEM FALTANDO OU ERRADO no pedido que chegou: acolha em uma frase, sem emoji');
+        expect(t).toContain('Consulte pedidos_do_cliente para pôr no Motivo o número do pedido mais recente (se não achar, chame assim mesmo)');
+        expect(t).toContain('Chame a equipe com urgente = true e, no Já fiz, "pedi a foto do que veio"');
+        expect(t).toContain('Na MESMA mensagem, diga que chamou alguém da equipe e peça para ele já mandar aqui uma foto do que veio');
+        expect(t).toContain('não prometa troca, reembolso nem prazo');
+        // fora do horário da equipe: a frase da loja como veio e, depois dela, o pedido da foto
+        expect(t).toContain('Se chamar_atendente voltar foraDoHorario = true, mande o paraOCliente como veio e, logo depois dele, o pedido da foto.');
+      }
+    });
+
+    it('saiu do "pergunte antes" — atraso, mudar e cancelar continuam perguntando', () => {
+      for (const t of [f1, f2]) {
+        const perguntar = trecho(t, '- Nos outros casos, PERGUNTE ANTES', '\n');
+        expect(perguntar).not.toContain('faltando');
+        expect(perguntar).toContain('atraso (consulte antes pedidos_do_cliente');
+        expect(perguntar).toContain('cancelar um pedido');
+      }
+      // o fluxo 2 ainda troca os casos próprios dele (as substituições acharam o texto)
+      expect(f2).toContain('tentou montar o pedido aqui e não deu certo; ');
+      expect(f2).toContain('quer cancelar um pedido; quer mudar um pedido e você não pode mudar');
+    });
+
+    it('a foto que chega depois do chamado não abre outro', () => {
+      for (const t of [f1, f2]) {
+        expect(t).toContain('Se você já chamou a equipe por esse problema nesta conversa (por exemplo, quando pediu a foto), não chame de novo');
+      }
+    });
+  });
+
   // .f22 (16/11/2026) — o documento "Atendente virtual — Mister Burguer" que o dono mandou ("considere o que melhorar").
   describe('o documento do dono (16/11): o que faltava nas instruções', () => {
     const f2 = instrucoesDoRobo({ loja: 'Mister Burguer' }, '2').texto;
@@ -278,8 +320,10 @@ describe('instruções do robô', () => {
 
   // Dica do dono (30/10, depois do teste no celular): antes de passar para o atendimento, perguntar se o cliente está com
   // dificuldade e se quer ajuda; o chamado leva o resumo da dificuldade.
-  it('pergunta ANTES de chamar a equipe — direto só quando o cliente pediu uma pessoa ou está chateado', () => {
-    expect(texto).toContain('Chame direto, sem perguntar, só em dois casos: o cliente PEDIU para falar com uma pessoa; ou está chateado (urgente).');
+  it('pergunta ANTES de chamar a equipe — direto só quando o cliente pediu uma pessoa, está chateado ou veio item faltando/errado (.f27)', () => {
+    expect(texto).toContain(
+      'Chame direto, sem perguntar, só em três casos: o cliente PEDIU para falar com uma pessoa; está chateado (urgente); ou veio item faltando ou errado no pedido que ele recebeu (urgente — veja ITEM FALTANDO OU ERRADO abaixo).',
+    );
     expect(texto).toContain('PERGUNTE ANTES');
     expect(texto).toContain('OPCOES: Sim, quero ajuda | Não, obrigado');
     expect(texto).toContain('Só chame depois que ele disser que sim');
