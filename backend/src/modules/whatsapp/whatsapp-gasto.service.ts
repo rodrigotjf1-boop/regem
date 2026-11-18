@@ -9,6 +9,7 @@ import {
   DIAS_DE_HISTORICO_DE_MODELO,
   HORAS_ENTRE_LEITURAS_DE_MODELO,
   MESES_DE_HISTORICO,
+  MINUTOS_DA_VOLTA,
   MINUTOS_ENTRE_LEITURAS,
   LinhaDoGasto,
   LinhaDoModelo,
@@ -89,7 +90,8 @@ export class WhatsappGastoService {
 
   // ───────────────────────────── a rotina ─────────────────────────────
 
-  @Interval(MINUTOS_ENTRE_LEITURAS * 60_000)
+  // A volta a cada 5 minutos (ERR-521: o relógio recomeça a cada deploy); cada conta é lida de 30 em 30 (`contasParaLer`).
+  @Interval(MINUTOS_DA_VOLTA * 60_000)
   async rotina(): Promise<number> {
     if (ehServidorLocal() || this.rodando || !this.token()) return 0;
     this.rodando = true;
