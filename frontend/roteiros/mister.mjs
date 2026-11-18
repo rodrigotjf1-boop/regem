@@ -288,7 +288,8 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
       historico: o.historico ?? HISTORICO(), historicoFalha: !!o.historicoFalha, diasPedidos: [],
       relatorios: o.relatorios ?? RELATORIOS_PADRAO(), salvamentosRel: [],
       // M3a parte 3: os ajustes da conversa e a parte "Documentos"
-      conversa: o.conversa ?? { documentosLigado: true, documentosModo: 'sozinho' }, salvamentosConv: [],
+      // Versão 4, M4a (mig 447): o perfil, o jeito e os grupos de aviso vêm junto (o padrão: nada muda).
+      conversa: o.conversa ?? { documentosLigado: true, documentosModo: 'sozinho', perfil: 'hoje', jeito: null, avisosEscritos: [] }, salvamentosConv: [], conversaFalha: !!o.conversaFalha,
       // Os documentos por foto ligados nesta instalação (a variável que o dono liga), como o servidor manda.
       disponivelDocs: o.disponivelDocs ?? true,
       documentos: o.documentos ?? DOCUMENTOS(), documentosFalha: !!o.documentosFalha, diasDosDocumentos: [], desfeitos: [], pdfs: [],
@@ -326,7 +327,10 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
         return responder(route, { ok: true }, 201);
       }
       const disponivel = () => ({ documentos: S.disponivelDocs, notas: S.disponivelDocs });
-      if (p === '/mister/conversa' && metodo === 'GET') return responder(route, { conversa: S.conversa, disponivel: disponivel() });
+      if (p === '/mister/conversa' && metodo === 'GET') {
+        if (S.conversaFalha) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
+        return responder(route, { conversa: S.conversa, disponivel: disponivel() });
+      }
       if (p === '/mister/conversa' && metodo === 'PATCH') {
         const corpo = JSON.parse(req.postData() || '{}');
         S.salvamentosConv.push(corpo);
@@ -658,8 +662,8 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     await page.waitForSelector('text=Quem fala com o Mister', { timeout: 20000 });
     const partes = page.locator('[aria-label="Partes do Mister"] button');
     ok(
-      (await partes.allInnerTexts()).join('|') === 'Resumo|Pessoas|IA e uso|Avisos e relatórios|Documentos|Histórico' && (await partes.nth(1).getAttribute('aria-pressed')) === 'true',
-      'presidente: as partes "Resumo", "Pessoas", "IA e uso", "Avisos e relatórios", "Documentos" e "Histórico", com o link abrindo em Pessoas',
+      (await partes.allInnerTexts()).join('|') === 'Resumo|Pessoas|IA e uso|Avisos e relatórios|Documentos|Histórico|Jeito e memória' && (await partes.nth(1).getAttribute('aria-pressed')) === 'true',
+      'presidente: as partes "Resumo", "Pessoas", "IA e uso", "Avisos e relatórios", "Documentos", "Histórico" e "Jeito e memória" (versão 4), com o link abrindo em Pessoas',
     );
     ok(S.pedidos.length === 0, 'em Pessoas, a parte da IA não é lida');
     ok(/O número do Mister é \+55 21 90000-0000/.test(await page.locator('main').innerText()), 'o número do Mister, formatado, para salvar nos contatos');
@@ -1432,6 +1436,62 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     ok(true, 'resumo: "Tentar de novo" lê os avisos de novo');
     await f.ctx.close();
   }
+  // ── Versão 4, M4a: a parte "Jeito e memória" — o perfil e o jeito da empresa, salvando só o que mudou ──
+  {
+    const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=jeito' });
+    await page.waitForSelector('#mister-jeito-titulo', { timeout: 20000 });
+    const partes = await page.locator('[aria-label="Partes do Mister"] button').allInnerTexts();
+    ok(/Jeito e memória/.test(partes.at(-1) ?? ''), `jeito: a parte nova é a última das partes (${partes.join(' · ')})`);
+    const t = await page.locator('main').innerText();
+    ok(/O jeito do Mister/.test(t) && /As regras não mudam com o perfil/.test(t) && /os mesmos perfis do atendente virtual/.test(t), 'jeito: o título, o aviso das regras e a ajuda do perfil');
+    const perfil = page.getByLabel('Perfil', { exact: true });
+    ok((await perfil.inputValue()) === 'hoje', 'jeito: o padrão é "Como hoje"');
+    const nomes = await perfil.locator('option').allInnerTexts();
+    ok(nomes.join('|') === 'Como hoje|Profissional|Cordial|Gentil|Descontraído|Objetivo|Acolhedor', `jeito: os 7 perfis do atendente, na ordem (${nomes.join('|')})`);
+    const salvar = () => Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/conversa') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
+    await perfil.selectOption('descontraido');
+    await page.waitForSelector('text=1 alteração ainda não salva');
+    await salvar();
+    ok(JSON.stringify(S.salvamentosConv.at(-1)) === JSON.stringify({ perfil: 'descontraido' }), `jeito: salvar manda SÓ o perfil (${JSON.stringify(S.salvamentosConv.at(-1))})`);
+    await page.waitForSelector('text=Salvo. Vale da próxima pergunta em diante.');
+    const jeito = page.getByLabel('Jeito da empresa', { exact: true });
+    await jeito.fill('Fale como sócio, sem formalidade.');
+    await salvar();
+    ok(JSON.stringify(S.salvamentosConv.at(-1)) === JSON.stringify({ jeito: 'Fale como sócio, sem formalidade.' }), `jeito: salvar manda SÓ o jeito (${JSON.stringify(S.salvamentosConv.at(-1))})`);
+    await jeito.fill('   ');
+    await salvar();
+    ok(JSON.stringify(S.salvamentosConv.at(-1)) === JSON.stringify({ jeito: null }), `jeito: o jeito em branco vai como null (${JSON.stringify(S.salvamentosConv.at(-1))})`);
+    ok((await perfil.inputValue()) === 'descontraido', 'jeito: o perfil salvo segue marcado depois de salvar o jeito');
+    ok(erros.length === 0, `jeito: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+    // A leitura que falha: a frase e "Tentar de novo".
+    const f = await abrir(1280, 900, { caminho: '/mister?parte=jeito', conversaFalha: true });
+    await f.page.waitForSelector('text=Não deu para ler o jeito do Mister agora.', { timeout: 20000 });
+    f.S.conversaFalha = false;
+    await f.page.click('button:has-text("Tentar de novo")');
+    await f.page.waitForSelector('#mister-jeito-titulo', { timeout: 20000 });
+    ok(true, 'jeito: "Tentar de novo" lê de novo');
+    await f.ctx.close();
+  }
+  for (const w of larguras) {
+    const { ctx, page, erros } = await abrir(w, w < 700 ? 820 : 900, { caminho: '/mister?parte=jeito' });
+    await page.waitForSelector('#mister-jeito-titulo', { timeout: 20000 });
+    let m = await medir(page);
+    ok(m.length === 0, `${w}px: "Jeito e memória" sem barra lateral e com toque grande (${m.join(' | ')})`);
+    // Com uma alteração (a barra de salvar aparece) e o jeito preenchido: continua sem barra lateral.
+    await page.getByLabel('Perfil', { exact: true }).selectOption('objetivo');
+    await page.getByLabel('Jeito da empresa', { exact: true }).fill('Fale como sócio, sem formalidade. No fim da noite, comece pelo que deu errado.');
+    await page.waitForSelector('text=2 alterações ainda não salvas');
+    m = await medir(page);
+    ok(m.length === 0, `${w}px: "Jeito e memória" com a barra de salvar, sem barra lateral (${m.join(' | ')})`);
+    const area = await page.getByLabel('Jeito da empresa', { exact: true }).boundingBox();
+    const caixa = await page.locator('main').boundingBox();
+    ok(!!area && !!caixa && area.width >= Math.min(caixa.width - 80, 480) * 0.6, `${w}px: a caixa do jeito não fica espremida (${Math.round(area?.width ?? 0)} px)`);
+    if (w === 320 || w === 375 || w === 1440) await page.locator('main').screenshot({ path: foto(`${w}-jeito.png`) });
+    ok(erros.length === 0, `${w}px: "Jeito e memória" sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+
   for (const w of larguras) {
     const { ctx, page, erros } = await abrir(w, w < 700 ? 820 : 900, { caminho: '/mister' });
     await page.waitForSelector('#mister-etapas', { timeout: 20000 });

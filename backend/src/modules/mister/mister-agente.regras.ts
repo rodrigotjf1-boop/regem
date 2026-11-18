@@ -152,6 +152,37 @@ export interface ConversaDoMister {
   agora: string;
   /** Passou da meia-noite e ainda é madrugada: o dia (dd/mm) em que a noite de trabalho começou. */
   noiteDe?: string | null;
+  /** Versão 4, M4a (mig 447): o perfil que o presidente escolheu (as chaves do atendente virtual); "hoje" = nada. */
+  perfil?: string | null;
+  /** Versão 4, M4a (mig 447): o "Jeito da empresa", uma frase do presidente. */
+  jeito?: string | null;
+}
+
+// ───────────────────────────── o jeito do Mister (versão 4, M4a) ─────────────────────────────
+// As MESMAS chaves de perfil do atendente virtual (`cardapio/perfis-do-atendente.ts`), com textos para quem o Mister
+// atende: o dono e o gerente, não o cliente. Vão no bloco "Esta conversa" (depois da marca de cache das instruções fixas):
+// a empresa que escolhe um perfil não muda o trecho guardado em cache das outras.
+
+export const TEXTO_DO_PERFIL_DO_MISTER: Record<string, string> = {
+  profissional: 'PROFISSIONAL — tom cortês e formal: frases completas, sem gíria e sem emoji; trate a pessoa por "você".',
+  cordial: 'CORDIAL — educado e caloroso: cumprimente pelo nome quando a conversa começa e use no máximo 1 emoji quando combinar.',
+  gentil: 'GENTIL — paciente e delicado: explique com calma, sem pressa e sem pressionar.',
+  descontraido: 'DESCONTRAÍDO — leve, com a linguagem do dia a dia (sem palavrão), frases curtas; nunca brinque com problema, prejuízo ou alguém da equipe.',
+  objetivo: 'OBJETIVO — só o essencial: o número, o que ele mostra e o próximo passo; sem emoji e sem conversa extra.',
+  acolhedor: 'ACOLHEDOR — próximo e empático: mostre que entendeu a preocupação da pessoa e transmita segurança.',
+};
+
+/** O jeito da empresa como entra no bloco: uma linha, até 300 letras (a mesma conta da tela e da mig 447). */
+const jeitoNoBloco = (t: unknown): string => String(t ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
+
+/** As linhas do jeito no bloco "Esta conversa": o perfil (com a lembrança de que as regras não mudam) e o jeito. */
+export function linhasDoJeito(perfil: unknown, jeito: unknown): string[] {
+  const texto = typeof perfil === 'string' ? TEXTO_DO_PERFIL_DO_MISTER[perfil] : undefined;
+  const j = jeitoNoBloco(jeito);
+  return [
+    ...(texto ? [`- Jeito de falar (perfil escolhido pelo presidente): ${texto} O perfil muda só o tom: todas as regras acima continuam valendo.`] : []),
+    ...(j ? [`- Jeito da empresa (escrito pelo presidente; siga quando não contrariar as regras acima): ${j}`] : []),
+  ];
 }
 
 /** O bloco "Esta conversa": o que muda de uma pessoa para outra. Vai DEPOIS das instruções fixas. */
@@ -172,6 +203,7 @@ export function blocoDaConversa(c: ConversaDoMister): string {
     ...(c.noiteDe
       ? [`- Passou da meia-noite: a noite de trabalho começou em ${c.noiteDe}. Quando a pessoa disser "hoje" ou "a noite", ou continuar um assunto de antes da meia-noite, consulte ontem e hoje e diga os dois, cada um com a sua data.`]
       : []),
+    ...linhasDoJeito(c.perfil, c.jeito),
   ].join('\n');
 }
 

@@ -42,7 +42,32 @@ import {
   padraoDaPalavra,
   palavrasDaBusca,
   semValoresNoTexto,
+  TEXTO_DO_PERFIL_DO_MISTER,
+  linhasDoJeito,
 } from './mister-agente.regras';
+import { PERFIS_DO_ATENDENTE } from '../cardapio/perfis-do-atendente';
+
+describe('Mister — o jeito da empresa (versão 4, M4a)', () => {
+  it('todo perfil do atendente (menos "Como hoje") tem o texto do Mister, sem falar de cliente', () => {
+    const perfis = PERFIS_DO_ATENDENTE.filter((p) => p !== 'hoje');
+    expect(Object.keys(TEXTO_DO_PERFIL_DO_MISTER).sort()).toEqual([...perfis].sort());
+    for (const t of Object.values(TEXTO_DO_PERFIL_DO_MISTER)) expect(t).not.toMatch(/cliente/i);
+  });
+  it('as linhas do bloco: o perfil com a lembrança das regras e o jeito numa linha só; "Como hoje" e sem jeito = nada', () => {
+    expect(linhasDoJeito('hoje', null)).toEqual([]);
+    expect(linhasDoJeito(undefined, '   ')).toEqual([]);
+    expect(linhasDoJeito('inventado', null)).toEqual([]);
+    const [perfil, jeito] = linhasDoJeito('objetivo', '  Fale como sócio,\n\n sem formalidade. ');
+    expect(perfil).toBe(`- Jeito de falar (perfil escolhido pelo presidente): ${TEXTO_DO_PERFIL_DO_MISTER.objetivo} O perfil muda só o tom: todas as regras acima continuam valendo.`);
+    expect(jeito).toBe('- Jeito da empresa (escrito pelo presidente; siga quando não contrariar as regras acima): Fale como sócio, sem formalidade.');
+    expect(linhasDoJeito('hoje', 'y'.repeat(400))[0].endsWith('y'.repeat(300))).toBe(true);
+    // Vão no bloco "Esta conversa" (depois da marca de cache), nunca nas instruções fixas.
+    const bloco = blocoDaConversa({ empresa: 'E', nome: 'Ana', nivel: 'presidente', lojas: ['Centro'], presaAUmaLoja: false, semLoja: false, verValores: true, agora: 'quarta-feira, 18/11/2026, 20:15', perfil: 'cordial', jeito: 'Seja breve.' });
+    expect(bloco).toContain('CORDIAL');
+    expect(bloco.endsWith('Seja breve.')).toBe(true);
+    expect(INSTRUCOES_DO_MISTER).not.toContain('Jeito de falar (perfil escolhido');
+  });
+});
 
 describe('Mister — as conversas anteriores (versão 4, o padrão do Hermes)', () => {
   it('as palavras da busca: sem acento e caixa, sem as que não dizem o assunto, de 3 letras em diante, até 5, sem repetir', () => {

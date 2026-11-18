@@ -1176,6 +1176,12 @@ conversa"): a memória entra no bloco da conversa, sem quebrar o cache.
   (1 migration, `mister_memoria` só na nuvem; recusa número, dado de cliente e segredo; limites do Hermes: 2.200 letras da
   empresa e 1.375 de cada pessoa), **M4c** avisos escritos (sem migration; o texto fixo de reserva) e **M4d** "fica de
   olho" e lembrete (1 migration, `mister_vigia`), uma por PR, nessa ordem.
+- **M4a — o perfil e o jeito da empresa (mig 447, só nuvem):** colunas `perfil`, `jeito` e `avisos_escritos` em
+  `mister_conversa_config` (a 446 é de outra frente, o gasto do WhatsApp). Salvar grava só os campos que vieram, numa
+  instrução; sem as colunas da 447, a leitura usa as da 440 (o ajuste dos documentos não volta ao padrão). O perfil (as
+  chaves do atendente, com textos para o dono e o gerente) e o jeito entram no bloco "Esta conversa", depois da marca de
+  cache. Tela: Mister › "Jeito e memória" (só o presidente), no modelo de ajustes, com o perfil e o jeito; os avisos
+  escritos e o "fica de olho" aparecem na tela quando as fases deles entrarem (sem controle sem efeito).
 
 ## 5. O que depende do dono
 
