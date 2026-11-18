@@ -81,6 +81,43 @@ describe('instruções do robô', () => {
     });
   });
 
+  // .f26 (18/11/2026) — o teste do dono com o fluxo 2.3 no celular.
+  describe('o teste do dono no celular (.f26)', () => {
+    const f1 = texto;
+    const f2 = instrucoesDoRobo({ loja: 'Mister Burguer' }, '2').texto;
+
+    it('a versão subiu', () => {
+      expect(VERSAO_INSTRUCOES >= '2026-11-18.f26').toBe(true);
+    });
+
+    it('nunca oferecer "montar o pedido aqui" por conta própria — nem no preço, no "cadê meu pedido" ou no áudio', () => {
+      expect(f2).toContain('NÃO ofereça montar o pedido aqui pela conversa por conta própria — em resposta NENHUMA');
+      expect(f2).toContain('situação do pedido ("cadê meu pedido")');
+      expect(f2).toContain('nem "quer ajuda para montar um pedido por aqui?"');
+      // e o caminho de quando o cliente pede continua (não sumiu nenhuma etapa)
+      expect(f2).toContain('Só se o cliente disser que não consegue ou não quer usar o link');
+      expect(f2).toContain('Se o próprio cliente pedir para pedir por aqui');
+    });
+
+    it('sem pedido em andamento: diz isso e oferece o link do cardápio', () => {
+      for (const t of [f1, f2]) expect(t).toContain('Sem pedido em andamento, diga isso e, se quiser oferecer algo, ofereça o link do cardápio.');
+    });
+
+    it('a resposta a um áudio: o que foi perguntado e no máximo uma frase do produto, até 3 frases', () => {
+      for (const t of [f1, f2]) {
+        expect(t).toContain('nunca leia a descrição inteira');
+        expect(t).toContain('No máximo 3 frases.');
+      }
+    });
+
+    it('depois de chamar a equipe, nada de prometer tempo ("só um momento", "já te respondem")', () => {
+      for (const t of [f1, f2]) {
+        expect(t).toContain('não diga "só um momento", "já te respondem", "em instantes", "logo" nem "rapidinho"');
+        expect(t).toContain('Nunca prometa tempo');
+      }
+    });
+  });
+
   // .f22 (16/11/2026) — o documento "Atendente virtual — Mister Burguer" que o dono mandou ("considere o que melhorar").
   describe('o documento do dono (16/11): o que faltava nas instruções', () => {
     const f2 = instrucoesDoRobo({ loja: 'Mister Burguer' }, '2').texto;
@@ -264,7 +301,7 @@ describe('instruções do robô', () => {
   it('depois de chamar: o lugar na fila (posicao) ou "já tem alguém" (comAlguem), sem prometer tempo', () => {
     expect(texto).toContain('Se a resposta de chamar_atendente trouxer posicao');
     expect(texto).toContain('se trouxer comAlguem = true');
-    expect(texto).toContain('Nunca prometa tempo.');
+    expect(texto).toContain('Nunca prometa tempo:'); // .f26: com a lista do que não se diz ("só um momento", "já te respondem"…)
   });
 
   // .f16 (mig 379): o horário da equipe — fora dele, o chamado vira recado e a resposta traz a frase para o cliente.
@@ -410,7 +447,8 @@ describe('instruções do robô — fluxo 2 (o pedido na conversa)', () => {
   });
 
   it('F5 (teste do dono): não insiste em montar pelo chat; escolha não vira item novo; troco; endereço; foto; lista inteira', () => {
-    expect(texto).toContain('NÃO ofereça montar o pedido aqui pela conversa nas respostas sobre produto, preço ou cardápio');
+    // .f26: a regra ficou mais forte — em resposta nenhuma (produto, preço, cardápio, "cadê meu pedido", áudio)
+    expect(texto).toContain('NÃO ofereça montar o pedido aqui pela conversa por conta própria — em resposta NENHUMA: produto, preço, cardápio');
     expect(texto).toContain('Se o próprio cliente pedir para pedir por aqui');
     expect(texto).toContain('NUNCA adicione o produto de novo para responder uma escolha');
     expect(texto).toContain('nunca marque "sem troco" por conta própria');
