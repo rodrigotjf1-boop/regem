@@ -14,6 +14,7 @@ import { MisterInstrucoesService } from './mister-instrucoes.service';
 import { MisterQualidadeService } from './mister-qualidade.service';
 import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
 import { MisterConversaConfigService } from './mister-conversa-config.service';
+import { MisterMemoriaService } from './mister-memoria.service';
 import { MisterNumeroService } from './mister-numero.service';
 import { MisterQrService } from './mister-qr.service';
 import { MisterVinculoService } from './mister-vinculo.service';
@@ -54,6 +55,8 @@ import { MisterVinculoService } from './mister-vinculo.service';
     MisterQrService,
     // Os ajustes da conversa por empresa (M3a parte 3, mig 440): ligar a leitura de documentos e o modo do boleto.
     MisterConversaConfigService,
+    // A memória do Mister (versão 4, M4b, mig 449): o que ele sabe da empresa e de cada pessoa.
+    MisterMemoriaService,
   ],
   exports: [
     MisterEntradaService,
@@ -70,6 +73,7 @@ import { MisterVinculoService } from './mister-vinculo.service';
     MisterInstrucoesService,
     MisterQrService,
     MisterConversaConfigService,
+    MisterMemoriaService,
   ],
 })
 export class MisterModule {}

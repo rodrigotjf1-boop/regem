@@ -9,6 +9,8 @@ import { FimDaPergunta, Vagas, modeloDasPerguntas, responderComFerramentas } fro
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { MisterInstrucoesService } from './mister-instrucoes.service';
 import { MisterConversaConfigService } from './mister-conversa-config.service';
+import { MisterMemoriaService } from './mister-memoria.service';
+import { linhasDaMemoria } from './mister-memoria';
 import type { PropostaPendente } from './mister-propostas.service';
 import { PedidoDoRelatorio, botaoDoPdf, linkDoRelatorio } from './insumo-vendido';
 import { enviarPdfDoInsumo } from './mister-anexos.service';
@@ -59,6 +61,8 @@ export class MisterAgenteService implements OnModuleInit {
     @Optional() private readonly instrucoes?: MisterInstrucoesService,
     // Versão 4, M4a (mig 447): o perfil e o jeito da empresa. Sem o serviço (ou sem a migration), como hoje.
     @Optional() private readonly conversaConfig?: MisterConversaConfigService,
+    // Versão 4, M4b (mig 449): a memória da empresa e da pessoa. Sem o serviço (ou sem a migration), sem memória.
+    @Optional() private readonly memoria?: MisterMemoriaService,
   ) {}
 
   /** O perfil e o jeito da empresa para o bloco da conversa. A leitura que falha não segura a resposta: vai sem eles. */
@@ -70,6 +74,18 @@ export class MisterAgenteService implements OnModuleInit {
     } catch (e: any) {
       this.logger.warn(`mister: o jeito da empresa não foi lido, a resposta vai sem ele — ${e?.message ?? e}`);
       return { perfil: null, jeito: null };
+    }
+  }
+
+  /** As linhas da memória (o que se sabe da empresa e desta pessoa). A leitura que falha não segura a resposta: vai sem ela. */
+  private async memoriaDaConversa(escopo: EscopoDoMister): Promise<{ memoria: string[] }> {
+    if (!this.memoria) return { memoria: [] };
+    try {
+      const m = await this.memoria.paraAConversa(escopo.tenantId, escopo.colaboradorId);
+      return { memoria: linhasDaMemoria(m.empresa, m.pessoa, escopo.nome) };
+    } catch (e: any) {
+      this.logger.warn(`mister: a memória não foi lida, a resposta vai sem ela — ${e?.message ?? e}`);
+      return { memoria: [] };
     }
   }
 
@@ -295,7 +311,7 @@ export class MisterAgenteService implements OnModuleInit {
         modelo: this.modelo(),
         instrucoes,
         recurso: opcoes.recurso,
-        conversa: blocoDaConversa({ ...this.ferramentas.conversa(escopo), ...(await this.jeitoDaEmpresa(escopo.tenantId)) }),
+        conversa: blocoDaConversa({ ...this.ferramentas.conversa(escopo), ...(await this.jeitoDaEmpresa(escopo.tenantId)), ...(await this.memoriaDaConversa(escopo)) }),
         pedir: (p) => this.ia.pedir(escopo.tenantId, p),
         executar: (nome, entrada) => this.vagas.com(() => this.ferramentas.executar(escopo, nome, entrada)),
         // Na ordem do pedido (as consultas juntas terminam em qualquer ordem): os anexos e as imagens saem na ordem pedida.

@@ -44,6 +44,7 @@ import {
   semValoresNoTexto,
   TEXTO_DO_PERFIL_DO_MISTER,
   linhasDoJeito,
+  podeRodarJunto,
 } from './mister-agente.regras';
 import { PERFIS_DO_ATENDENTE } from '../cardapio/perfis-do-atendente';
 
@@ -263,8 +264,12 @@ describe('Mister — o que o modelo recebe', () => {
       'escrever_recado',
       // G3 do gasto do WhatsApp oficial (18/11/2026): "quanto gastei de WhatsApp?" — consulta, só o presidente.
       'gasto_do_whatsapp',
+      'lembrar',
     ]);
     expect(ehConsulta('gasto_do_whatsapp')).toBe(true);
+    // Versão 4, M4b (mig 449): anotar na memória não é consulta — não lê dado para responder — e não roda junto com outra.
+    expect(ehConsulta('lembrar')).toBe(false);
+    expect(podeRodarJunto('lembrar')).toBe(false);
     // M3c (mig 443): criar e cancelar o link para encaminhar não são consulta — não leem dado para responder.
     expect(ehConsulta('link_para_encaminhar')).toBe(false);
     expect(ehConsulta('cancelar_links')).toBe(false);

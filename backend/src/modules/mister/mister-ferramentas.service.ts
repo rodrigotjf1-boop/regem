@@ -46,6 +46,7 @@ import { MisterDocumentosService } from './mister-documentos.service';
 import { MisterLinkPublicoService } from './mister-link-publico.service';
 import { TEXTOS_DO_LINK_PUBLICO, VALIDADE_DO_LINK_DIAS, diaMesDe } from './mister-link-publico';
 import { MisterRecadosService } from './mister-recados.service';
+import { MisterMemoriaService } from './mister-memoria.service';
 import { TEXTOS_DO_RECADO, VALIDADE_DO_RECADO_MIN, botaoDoRecado, ondeVai, textoDoRecado } from './mister-recado';
 import { ONDE_VER_O_GASTO, dentroDaJanelaDoWhatsapp, nomeDoMesDoGasto } from './mister-avisos.regras';
 import { WhatsappGastoService } from '../whatsapp/whatsapp-gasto.service';
@@ -61,6 +62,7 @@ import {
   LimitesDoKds,
   PREPARO_DA_ENCOMENDA_MIN,
   atrasoNaCozinha,
+  FERRAMENTA_DE_LEMBRAR,
   FERRAMENTA_DO_QUE_FALTA,
   NivelDoMister,
   NomeDaFerramenta,
@@ -295,6 +297,8 @@ export class MisterFerramentasService {
     @Optional() private readonly linksPublicos?: MisterLinkPublicoService,
     // M3g parte 2 (mig 444): o rascunho do recado no mural (o "Publicar" é dele também).
     @Optional() private readonly recados?: MisterRecadosService,
+    // Versão 4, M4b (mig 449): a memória do Mister (a ferramenta `lembrar`).
+    @Optional() private readonly memoria?: MisterMemoriaService,
   ) {}
 
   // ───────────────────────────── de quem é a conversa ─────────────────────────────
@@ -417,6 +421,8 @@ export class MisterFerramentasService {
     if (nome === FERRAMENTA_DO_QUE_FALTA) return { ok: true, dados: { anotado: true, siga: 'Responda agora: diga que você ainda não tem acesso a essa informação e, em uma frase, o que você consegue responder hoje.' } };
     // Versão 4: as conversas anteriores são da própria pessoa, não de uma loja — respondem também a quem está sem loja.
     if (nome === 'conversas_anteriores') return this.conversasAnteriores(e, entrada);
+    // Versão 4, M4b: a memória também não depende de loja.
+    if (nome === FERRAMENTA_DE_LEMBRAR) return this.lembrar(e, entrada);
     if (e.semLoja) return recusa(SEM_LOJA);
     const en = (entrada && typeof entrada === 'object' && !Array.isArray(entrada) ? entrada : {}) as Record<string, unknown>;
     const loja = this.loja(e, en.loja);
@@ -486,6 +492,8 @@ export class MisterFerramentasService {
         return this.escreverRecado(e, en, loja);
       case 'gasto_do_whatsapp':
         return this.gastoDoWhatsapp(e);
+      case 'lembrar':
+        return this.lembrar(e, en);
     }
   }
 
@@ -564,6 +572,44 @@ export class MisterFerramentasService {
     } catch (err: any) {
       if (semTabela(err)) return recusa('Não consegui ler este dado agora.');
       throw err;
+    }
+  }
+
+  /**
+   * Versão 4, M4b — a memória pela conversa (a ferramenta `lembrar`; o padrão do Hermes). "sobre" mim = a pessoa da conversa
+   * (o servidor decide quem é, nunca o modelo); empresa = vale para todos. Trocar e esquecer acham a anotação pelo trecho.
+   * A conferência do texto, o limite e a permissão são do serviço (a mesma régua da tela). Nunca lança.
+   */
+  private async lembrar(e: EscopoDoMister, entrada: unknown): Promise<ResultadoDaFerramenta> {
+    if (!this.memoria) return recusa('A memória do Mister ainda não está disponível.');
+    const en = (entrada && typeof entrada === 'object' && !Array.isArray(entrada) ? entrada : {}) as Record<string, unknown>;
+    const acao = en.acao;
+    if (acao !== 'anotar' && acao !== 'trocar' && acao !== 'esquecer') return recusa('Diga se é para anotar, trocar ou esquecer.');
+    if (en.sobre !== 'mim' && en.sobre !== 'empresa') return recusa('Diga se a anotação é sobre a pessoa ("mim") ou sobre a empresa.');
+    const sobre = en.sobre === 'mim' ? e.colaboradorId : null;
+    const quem = { tenantId: e.tenantId, colaboradorId: e.colaboradorId, presidente: e.nivel === 'presidente', origem: 'conversa' as const };
+    try {
+      const r =
+        acao === 'anotar'
+          ? await this.memoria.anotar(quem, sobre, en.texto)
+          : acao === 'trocar'
+            ? await this.memoria.trocar(quem, { sobre, trecho: en.trecho }, en.texto)
+            : await this.memoria.esquecer(quem, { sobre, trecho: en.trecho });
+      if (!r.ok) return recusa(r.anotadas?.length ? `${r.erro} O que está anotado: ${r.anotadas.map((t) => `"${t}"`).join('; ')}.` : r.erro);
+      const feito = acao === 'anotar' ? 'anotado' : acao === 'trocar' ? 'trocado' : 'esquecido';
+      return {
+        ok: true,
+        dados: {
+          [feito]: true,
+          texto: r.item.texto,
+          sobre: sobre ? 'esta pessoa' : 'a empresa',
+          uso: r.uso,
+          siga: acao === 'esquecer' ? 'Diga em uma frase o que esqueceu ("Esqueci ✅ …").' : 'Diga em uma frase o que ficou anotado ("Anotado ✅ …").',
+        },
+      };
+    } catch (err: any) {
+      this.logger.error(`ferramenta lembrar falhou: ${String(err?.message ?? err).slice(0, 300)}`, err?.stack);
+      return recusa('Não consegui mexer na memória agora.');
     }
   }
 

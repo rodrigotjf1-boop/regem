@@ -12,6 +12,7 @@ import { MisterAvisosConfigService } from './mister-avisos-config.service';
 import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
 import { MisterAvisosHistoricoService } from './mister-avisos-historico.service';
 import { MisterConversaConfigService } from './mister-conversa-config.service';
+import { MisterMemoriaService } from './mister-memoria.service';
 import { MisterVinculoService } from './mister-vinculo.service';
 
 // O WHATSAPP DE QUEM ESTÁ LOGADO no Mister e a parte "Pessoas" (mig 417). Gerente e presidente, só na nuvem e só com o
@@ -26,6 +27,7 @@ export class MisterController {
     private readonly relatorios: MisterRelatoriosConfigService,
     private readonly historico: MisterAvisosHistoricoService,
     private readonly conversa: MisterConversaConfigService,
+    private readonly memoria: MisterMemoriaService,
   ) {}
 
   /** A situação do meu WhatsApp no Mister e, se eu gerei um código que ainda vale, o código. */
@@ -140,5 +142,54 @@ export class MisterController {
   @RequireModulo('mister')
   salvarConversa(@CurrentUser() user: AuthUser, @Body() dto: unknown) {
     return this.conversa.salvar(user, dto);
+  }
+
+  // ── Versão 4, M4b (mig 449): "O que o Mister sabe" — só o presidente, só na nuvem, com o módulo ligado ──
+
+  /** O que o Mister sabe da empresa e de cada pessoa que ainda vale, com o uso de letras. */
+  @Get('memoria')
+  @CloudOnly()
+  @Roles('presidente')
+  @RequireModulo('mister')
+  memoriaDaTela(@CurrentUser() user: AuthUser) {
+    return this.memoria.daTela(user.tenantId);
+  }
+
+  /** Anota: `sobre` = "empresa" ou o id de uma pessoa da empresa; `texto` = uma frase (o servidor confere). */
+  @Post('memoria')
+  @CloudOnly()
+  @Roles('presidente')
+  @RequireModulo('mister')
+  async anotar(@CurrentUser() user: AuthUser, @Body() dto: unknown) {
+    const d = (dto ?? {}) as { sobre?: unknown; texto?: unknown };
+    const sobre = d.sobre === 'empresa' ? null : typeof d.sobre === 'string' ? d.sobre : undefined;
+    if (sobre === undefined) return MisterMemoriaService.paraATela({ ok: false, erro: 'Diga sobre quem é a anotação: a empresa ou uma pessoa.' });
+    if (sobre && !/^[0-9a-f-]{36}$/i.test(sobre)) return MisterMemoriaService.paraATela({ ok: false, erro: 'Essa pessoa não é desta empresa.' });
+    return MisterMemoriaService.paraATela(await this.memoria.anotar(this.quem(user), sobre, d.texto));
+  }
+
+  /** Troca o texto de uma anotação. */
+  @Patch('memoria/:id')
+  @CloudOnly()
+  @Roles('presidente')
+  @RequireModulo('mister')
+  async trocarMemoria(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: unknown) {
+    return MisterMemoriaService.paraATela(await this.memoria.trocar(this.quem(user), { id }, ((dto ?? {}) as { texto?: unknown }).texto));
+  }
+
+  /** Esquece uma anotação (não dá para desfazer). */
+  @Delete('memoria/:id')
+  @CloudOnly()
+  @Roles('presidente')
+  @RequireModulo('mister')
+  async esquecerMemoria(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const r = await this.memoria.esquecer(this.quem(user), { id });
+    if (!r.ok && r.erro === 'Essa anotação não existe mais.') MisterMemoriaService.naoAchada();
+    return MisterMemoriaService.paraATela(r);
+  }
+
+  /** Quem mexe pela tela: o presidente (a rota barra os outros). */
+  private quem(user: AuthUser) {
+    return { tenantId: user.tenantId, colaboradorId: user.colaboradorId, presidente: true, origem: 'presidente' as const };
   }
 }
