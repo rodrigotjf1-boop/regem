@@ -10,6 +10,7 @@ import { Chave } from '@/components/ui/chave';
 import { Selo, texto2 } from '@/components/ui/lista';
 import { SkeletonList } from '@/components/ui/skeleton';
 import { Gaveta } from '@/components/ui/sobreposto';
+import { GavetaDosValores, textoDoValor } from './gaveta-dos-valores';
 
 // MISTER › AVISOS E RELATÓRIOS — "para onde vai" cada aviso (versão 2 do protótipo `mockups/regem-mister.html`, aprovada
 // em 14/11/2026). Cada aviso vai para quem resolve; o padrão é a tabela que o dono aprovou e cada empresa muda em "Mudar".
@@ -17,7 +18,18 @@ import { Gaveta } from '@/components/ui/sobreposto';
 // ajuste" e UMA barra de "Salvar alterações" — o "Mudar" abre a gaveta e "Aplicar" leva a escolha para a barra.
 
 type Destino = 'presidente' | 'gerente' | 'tela' | 'kds' | 'atendimento' | 'dms';
-type Regra = { ligado: boolean; destinos: Destino[]; escalaMin: number | null; escalaPara: Destino[]; parametro: number | null };
+type Regra = {
+  ligado: boolean;
+  destinos: Destino[];
+  escalaMin: number | null;
+  escalaPara: Destino[];
+  parametro: number | null;
+  /** Só no gasto do WhatsApp oficial (G2, mig 446): os valores do alerta, em reais. */
+  valores?: number[];
+};
+/** Os avisos de dinheiro do WhatsApp oficial (G2): sem KDS nem Atendimento e sem "se ninguém resolver" (o servidor confere). */
+const TIPOS_DO_GASTO = ['gasto_whatsapp', 'franquia_atendimento'];
+const DESTINOS_DO_GASTO: Destino[] = ['presidente', 'gerente', 'tela', 'dms'];
 type AvisoNaTela = { tipo: string; grupo: string; titulo: string; descricao: string; jaFunciona: boolean; regra: Regra; padrao: boolean };
 type DaTela = { avisos: AvisoNaTela[]; destinos: { id: Destino; nome: string }[] };
 type RegraDoRelatorio = { ligado: boolean; hora: string; diaSemana: number | null };
@@ -103,11 +115,20 @@ const paraValor = (r: Regra): string =>
     escalaMin: r.escalaMin,
     escalaPara: ORDEM.filter((d) => r.escalaPara.includes(d)),
     parametro: r.parametro,
+    // Só o gasto do WhatsApp tem valores (nos outros a chave nem aparece: o texto dos outros avisos não muda).
+    ...(Array.isArray(r.valores) ? { valores: r.valores } : {}),
   });
 const deValor = (v: Valor | undefined): Regra => {
   try {
     const r = JSON.parse(String(v ?? ''));
-    return { ligado: !!r.ligado, destinos: r.destinos ?? [], escalaMin: r.escalaMin ?? null, escalaPara: r.escalaPara ?? [], parametro: r.parametro ?? null };
+    return {
+      ligado: !!r.ligado,
+      destinos: r.destinos ?? [],
+      escalaMin: r.escalaMin ?? null,
+      escalaPara: r.escalaPara ?? [],
+      parametro: r.parametro ?? null,
+      ...(Array.isArray(r.valores) ? { valores: r.valores.map(Number) } : {}),
+    };
   } catch {
     return { ligado: false, destinos: [], escalaMin: null, escalaPara: [], parametro: null };
   }
@@ -126,6 +147,9 @@ function GavetaDoDestino({
   aoAplicar: (r: Regra) => void;
   aoFechar: () => void;
 }) {
+  // O gasto do WhatsApp (G2): só os destinos de dinheiro e nada de "se ninguém resolver".
+  const doGasto = TIPOS_DO_GASTO.includes(aviso.tipo);
+  const opcoes = doGasto ? ORDEM.filter((d) => DESTINOS_DO_GASTO.includes(d)) : ORDEM;
   const [destinos, setDestinos] = useState<Destino[]>(regra.destinos);
   const [escalaMin, setEscalaMin] = useState<number | null>(regra.escalaMin);
   const [escalaPara, setEscalaPara] = useState<Destino[]>(regra.escalaPara);
@@ -154,7 +178,7 @@ function GavetaDoDestino({
       <p className={`text-sm ${texto2}`}>Escolha quem fica sabendo deste aviso. O que você escolher aqui vale para todas as lojas da empresa.</p>
       <fieldset className="mt-4 space-y-1 rounded-lg border border-border p-3">
         <legend className="px-1 text-sm font-bold">Na hora</legend>
-        {ORDEM.map((d) => (
+        {opcoes.map((d) => (
           <label key={d} className="flex min-h-10 items-center gap-2 text-sm">
             <input type="checkbox" className="h-4 w-4" checked={destinos.includes(d)} onChange={() => setDestinos((l) => virar(l, d))} />
             {nomes[d]}
@@ -166,7 +190,12 @@ function GavetaDoDestino({
           </p>
         )}
       </fieldset>
-      <fieldset className="mt-3 space-y-2 rounded-lg border border-border p-3">
+      {doGasto && (
+        <p className={`mt-3 text-sm ${texto2}`}>
+          É um aviso de valor, não de um problema a resolver: não tem &quot;se ninguém resolver&quot;. O KDS e o Atendimento não recebem aviso de gasto.
+        </p>
+      )}
+      <fieldset className="mt-3 space-y-2 rounded-lg border border-border p-3" hidden={doGasto}>
         <legend className="px-1 text-sm font-bold">Se ninguém resolver</legend>
         <label className="flex flex-wrap items-center gap-2 text-sm">
           Depois de
@@ -216,6 +245,8 @@ export function AvisosDoMister() {
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
   const [mudando, setMudando] = useState<AvisoNaTela | null>(null);
+  // Os valores do alerta de gasto (G2): a gaveta própria; "Aplicar" leva para a barra de "Salvar".
+  const [editandoValores, setEditandoValores] = useState<AvisoNaTela | null>(null);
   const [relatorios, setRelatorios] = useState<RelatorioNaTela[] | null>(null);
   const [conversa, setConversa] = useState<Conversa | null>(null);
 
@@ -302,6 +333,23 @@ export function AvisosDoMister() {
                   Mudar
                 </Button>
               </span>
+              {a.tipo === 'gasto_whatsapp' && (
+                <span className="mt-2 flex flex-wrap items-center gap-1.5" data-valores-do-gasto>
+                  <span className="text-xs">Valores:</span>
+                  {(r.valores ?? []).length ? (
+                    (r.valores ?? []).map((v) => (
+                      <Selo key={v} tom="info">
+                        R$ {textoDoValor(v)}
+                      </Selo>
+                    ))
+                  ) : (
+                    <Selo tom={r.ligado ? 'aviso' : 'neutro'}>nenhum valor</Selo>
+                  )}
+                  <Button type="button" size="sm" variant="outline" className="min-h-9" onClick={() => setEditandoValores(a)} aria-label="Mudar os valores do alerta de gasto">
+                    Valores
+                  </Button>
+                </span>
+              )}
             </>
           ),
           desenhar: (v: Valor, mudar: (x: Valor) => void) => {
@@ -356,7 +404,15 @@ export function AvisosDoMister() {
                     </select>
                   </label>
                 )}
-                <Chave ligada={atual.ligado} rotulo={`Aviso ${a.titulo}`} aoMudar={(l) => mudar(paraValor({ ...atual, ligado: l }))} />
+                <Chave
+                  ligada={atual.ligado}
+                  rotulo={`Aviso ${a.titulo}`}
+                  aoMudar={(l) => {
+                    mudar(paraValor({ ...atual, ligado: l }));
+                    // Ligar o alerta de gasto sem valor: a gaveta dos valores abre (com a sugestão) — sem valor ele não salva.
+                    if (l && a.tipo === 'gasto_whatsapp' && !(atual.valores ?? []).length) setEditandoValores(a);
+                  }}
+                />
               </span>
             );
           },
@@ -543,6 +599,16 @@ export function AvisosDoMister() {
           </p>
         }
       />
+      {editandoValores && (
+        <GavetaDosValores
+          valores={deValor(valores[editandoValores.tipo]).valores ?? []}
+          aoFechar={() => setEditandoValores(null)}
+          aoAplicar={(v) => {
+            setValores((x) => ({ ...x, [editandoValores.tipo]: paraValor({ ...deValor(x[editandoValores.tipo]), valores: v }) }));
+            setEditandoValores(null);
+          }}
+        />
+      )}
       {mudando && (
         <GavetaDoDestino
           aviso={mudando}

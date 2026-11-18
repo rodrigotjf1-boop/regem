@@ -19,6 +19,10 @@
   espelho do mês anterior em PDF ao presidente, com "Enviar ao contador" (o MESMO envio da tela, pelo WhatsApp da loja) e
   "Ver antes". Tudo só na nuvem (o agente e os avisos não sobem na loja) → vai no `.zip` sem efeito na loja; o daemon
   não mudou.
+- **Os alertas de gasto do WhatsApp oficial pelo Mister (18/11, G2; mig 446 SÓ NUVEM — `mister_aviso_regra.valores`).**
+  Dois avisos novos em Mister › Avisos e relatórios ("Gasto do WhatsApp oficial", com até 10 valores, nasce desligado; e
+  "Atendimento grátis perto do fim", nasce ligado) e o cartão "Alertas de gasto deste mês" em WhatsApp › Uso e gasto. Tudo
+  só na nuvem → vai no `.zip` sem efeito na loja (o Mister não roda no servidor da loja).
 
 - **Mister: o recado no mural pela conversa (18/11, M3g parte 2; mig 444 SÓ NUVEM — `mister_recado`).** "Escreve um
   recado pro mural…": o Mister mostra o texto e pergunta, com "Publicar" e "Mudar o texto"; o "Publicar" publica pelo

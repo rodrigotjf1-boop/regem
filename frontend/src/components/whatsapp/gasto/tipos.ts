@@ -26,7 +26,26 @@ export type ResumoDoGasto =
       filtroNumero: string | null;
       meses: { mes: string; custo: number; cobradas: number; mensagens: number }[];
       deOndeVeio: { nome: string; apoio: string; grupo: string; mensagens: number; custo: number }[];
+      /** Os alertas de gasto do mês corrente, pelo Mister (G2). Banco sem as tabelas do Mister: null. */
+      alertas?: AlertasDoMes | null;
     };
+
+export type AlertasDoMes = {
+  mes: string;
+  custoDoMes: number;
+  gasto: { ligado: boolean; destinos: string[]; valores: { valor: number; passouEm: string | null }[] };
+  franquia: { ligado: boolean; destinos: string[]; numeros: { final: string; passouEm: string | null }[] };
+};
+
+/** O nome de cada destino dos avisos do Mister (o mesmo do servidor). */
+export const DESTINO: Record<string, string> = {
+  presidente: 'WhatsApp do presidente',
+  gerente: 'WhatsApp do gerente da loja',
+  tela: 'Tela do Regem na loja',
+  kds: 'KDS da cozinha',
+  atendimento: 'Caso no Atendimento',
+  dms: 'Suporte da DMS',
+};
 
 export type GastoOficial = Extract<ResumoDoGasto, { oficial: true }>;
 

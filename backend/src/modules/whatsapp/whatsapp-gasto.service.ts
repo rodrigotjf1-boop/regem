@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common'
 import { Interval } from '@nestjs/schedule';
 import { SQL, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { RegraDoAviso, chaveDoGasto, regraQueVale } from '../mister/mister-avisos.regras';
 import { ehServidorLocal } from '../../common/modo';
 import { FUSO_OPERACAO, dataNoFuso, somarDias } from '../../common/data';
 import {
@@ -441,6 +442,55 @@ export class WhatsappGastoService {
       filtroNumero: filtroNumero || null,
       meses: meses.map((m) => ({ mes: String(m.mes), custo: arredondar2(Number(m.custo) || 0), cobradas: Number(m.cobradas) || 0, mensagens: Number(m.mensagens) || 0 })),
       deOndeVeio,
+      alertas: await this.alertasDoMes(tenantId, hoje),
     };
+  }
+
+  /**
+   * Os alertas de gasto do mês corrente (G2, pelo Mister): a regra de cada um (o padrão, quando a empresa não mudou), o
+   * gasto do mês e quando o gasto passou de cada valor (o aviso aberto no mês). Banco sem as tabelas do Mister: null.
+   */
+  private async alertasDoMes(tenantId: string, hoje: string) {
+    const mes = hoje.slice(0, 7);
+    try {
+      const r1: any = await this.db.execute(sql`
+        select tipo, ligado, destinos, escala_min as "escalaMin", escala_para as "escalaPara", parametro, valores::float8[] as valores
+          from mister_aviso_regra where tenant_id = ${tenantId}::uuid and tipo in ('gasto_whatsapp', 'franquia_atendimento')`);
+      const salvas = (r1?.rows ?? r1 ?? []) as any[];
+      const r2: any = await this.db.execute(sql`
+        select tipo, chave, min(aberto_em) as em from mister_aviso
+         where tenant_id = ${tenantId}::uuid and tipo in ('gasto_whatsapp', 'franquia_atendimento')
+           and (chave like ${`gasto:${mes}:%`} or chave like ${`franquia:${mes}:%`})
+         group by 1, 2`);
+      const doMes = (r2?.rows ?? r2 ?? []) as any[];
+      const r3: any = await this.db.execute(sql`
+        select coalesce(sum(custo), 0)::float8 as custo from whatsapp_gasto
+         where tenant_id = ${tenantId}::uuid and dia >= ${primeiroDoMes(hoje)}::date and dia <= ${hoje}::date`);
+      const custoDoMes = arredondar2(Number((r3?.rows ?? r3 ?? [])[0]?.custo) || 0);
+      const regra = (tipo: 'gasto_whatsapp' | 'franquia_atendimento'): RegraDoAviso => {
+        const l = salvas.find((x) => x.tipo === tipo);
+        return regraQueVale(tipo, l ? { ligado: l.ligado, destinos: l.destinos, escalaMin: l.escalaMin, escalaPara: l.escalaPara, parametro: l.parametro, ...(l.valores ? { valores: l.valores.map(Number) } : {}) } : null);
+      };
+      const g = regra('gasto_whatsapp');
+      const f = regra('franquia_atendimento');
+      const quando = (em: unknown) => (em ? new Date(em as string).toISOString() : null);
+      return {
+        mes,
+        custoDoMes,
+        gasto: {
+          ligado: g.ligado,
+          destinos: g.destinos,
+          valores: (g.valores ?? []).map((v) => ({ valor: v, passouEm: quando(doMes.find((a) => a.tipo === 'gasto_whatsapp' && a.chave === chaveDoGasto(mes, v))?.em) })),
+        },
+        franquia: {
+          ligado: f.ligado,
+          destinos: f.destinos,
+          numeros: doMes.filter((a) => a.tipo === 'franquia_atendimento').map((a) => ({ final: String(a.chave).slice(-4), passouEm: quando(a.em) })),
+        },
+      };
+    } catch (e: any) {
+      if (e?.code === '42P01' || e?.code === '42703') return null;
+      throw e;
+    }
   }
 }
