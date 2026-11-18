@@ -440,7 +440,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -6578,13 +6578,15 @@ export function testesDoMisterComPostgres(): void {
       // ─────────── parte 3: o ajuste da empresa, o texto que completa, a lista e o "Desfazer" pela tela ───────────
 
       it('o ajuste da empresa: "pergunta antes" segura o boleto que lançaria sozinho; desligado, a foto segue como antes; o salvar confere', async () => {
-        expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: true, documentosModo: 'sozinho' });
+        // Versão 4 (mig 447): o jeito vem junto, no padrão (nada muda).
+        const SEM_JEITO = { perfil: 'hoje', jeito: null, avisosEscritos: [] };
+        expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: true, documentosModo: 'sozinho', ...SEM_JEITO });
         await expect(conversa.salvar(usuario('ana'), { documentosModo: 'sempre' })).rejects.toBeInstanceOf(BadRequestException);
         await expect(conversa.salvar(usuario('ana'), { documentosLigado: 'sim' })).rejects.toBeInstanceOf(BadRequestException);
         await expect(conversa.salvar(usuario('ana'), {})).rejects.toBeInstanceOf(BadRequestException);
         // Salvar só o modo mantém o "ligado" (o ausente mantém o salvo).
         expect(await conversa.salvar(usuario('ana'), { documentosModo: 'perguntar' })).toEqual({
-          conversa: { documentosLigado: true, documentosModo: 'perguntar' },
+          conversa: { documentosLigado: true, documentosModo: 'perguntar', ...SEM_JEITO },
           disponivel: { documentos: true, notas: process.env.MISTER_NOTAS === '1' },
         });
         // A tela sabe se a função está ligada NESTA instalação (a mesma regra dos serviços): sem a variável, "em breve".
@@ -6605,7 +6607,7 @@ export function testesDoMisterComPostgres(): void {
         }
         expect(auditados.find((a) => a.acao === 'mister_conversa_alterada')).toMatchObject({ detalhe: { antes: { documentosModo: 'sozinho' }, depois: { documentosModo: 'perguntar' } } });
         // A outra empresa não muda.
-        expect(await conversa.daEmpresa(B)).toEqual({ documentosLigado: true, documentosModo: 'sozinho' });
+        expect(await conversa.daEmpresa(B)).toEqual({ documentosLigado: true, documentosModo: 'sozinho', ...SEM_JEITO });
 
         ia.roteiro = [leitura({ linhaDigitavel: LINHA_DO_BOLETO, beneficiario: 'DISTRIBUIDORA CARNE BOA LTDA', cnpj: CNPJ, valor: '1.284,90', vencimento: '2026-11-25' })];
         expect(await foto(telAna, novaMidia())).toBe('documento');
@@ -6614,13 +6616,60 @@ export function testesDoMisterComPostgres(): void {
 
         // Desligado na empresa: nem baixa nem lê; a foto vira o "só leio texto". Salvar só o "ligado" mantém o modo salvo.
         await conversa.salvar(usuario('ana'), { documentosLigado: false });
-        expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: false, documentosModo: 'perguntar' });
+        expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: false, documentosModo: 'perguntar', ...SEM_JEITO });
         numero.pedidos.length = 0;
         ia.pedidos.length = 0;
         expect(await foto(telAna, novaMidia())).toBe('so_texto');
         expect(baixou()).toEqual([]);
         expect(ia.pedidos).toEqual([]);
         expect(await docs()).toHaveLength(1);
+      });
+
+      it('versão 4, M4a: o perfil e o jeito da empresa — o salvar confere e grava só o que veio, e o bloco da conversa leva os dois depois da marca de cache', async () => {
+        await expect(conversa.salvar(usuario('ana'), { perfil: 'animado' })).rejects.toBeInstanceOf(BadRequestException);
+        await expect(conversa.salvar(usuario('ana'), { jeito: 'x'.repeat(301) })).rejects.toBeInstanceOf(BadRequestException);
+        await expect(conversa.salvar(usuario('ana'), { jeito: 42 })).rejects.toBeInstanceOf(BadRequestException);
+        await expect(conversa.salvar(usuario('ana'), { avisosEscritos: ['loja', 'cozinha'] })).rejects.toBeInstanceOf(BadRequestException);
+        await expect(conversa.salvar(usuario('ana'), { avisosEscritos: 'loja' })).rejects.toBeInstanceOf(BadRequestException);
+        // O jeito vira uma linha só, com os espaços apertados; os grupos saem na ordem da tela, sem repetir.
+        const r = await conversa.salvar(usuario('ana'), { perfil: 'descontraido', jeito: '  Fale como sócio,\n sem formalidade.  ', avisosEscritos: ['fiscal', 'loja', 'loja'] });
+        expect(r.conversa).toEqual({ documentosLigado: true, documentosModo: 'sozinho', perfil: 'descontraido', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'] });
+        expect(auditados.filter((a) => a.acao === 'mister_conversa_alterada').at(-1)).toMatchObject({ detalhe: { antes: { perfil: 'hoje', jeito: null }, depois: { perfil: 'descontraido' } } });
+        // Salvar só o perfil não apaga o jeito, os grupos nem o ajuste dos documentos.
+        await conversa.salvar(usuario('ana'), { documentosModo: 'perguntar' });
+        await conversa.salvar(usuario('ana'), { perfil: 'objetivo' });
+        expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: true, documentosModo: 'perguntar', perfil: 'objetivo', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'] });
+        // Jeito em branco apaga (null); a outra empresa segue no padrão.
+        await conversa.salvar(usuario('ana'), { jeito: '   ' });
+        expect((await conversa.daEmpresa(A)).jeito).toBeNull();
+        expect(await conversa.daEmpresa(B)).toMatchObject({ perfil: 'hoje', jeito: null, avisosEscritos: [] });
+        // Duas gravações ao mesmo tempo, de campos diferentes: nenhuma apaga a outra (grava só o que veio, sem ler antes).
+        await conversa.salvar(usuario('ana'), { jeito: 'Comece pelo que deu errado.' });
+        await Promise.all([conversa.salvar(usuario('ana'), { perfil: 'cordial' }), conversa.salvar(usuario('ana'), { avisosEscritos: ['servidor'] })]);
+        expect(await conversa.daEmpresa(A)).toMatchObject({ perfil: 'cordial', avisosEscritos: ['servidor'], jeito: 'Comece pelo que deu errado.', documentosModo: 'perguntar' });
+        // A lista vazia também é um array do Postgres (LIC-074: o array do JS no `sql` vira lista de parâmetros — ERR-520).
+        await conversa.salvar(usuario('ana'), { avisosEscritos: [] });
+        expect((await conversa.daEmpresa(A)).avisosEscritos).toEqual([]);
+        await conversa.salvar(usuario('ana'), { avisosEscritos: ['servidor'] });
+
+        // O agente: o perfil e o jeito vão no bloco "Esta conversa" (depois da marca de cache); as instruções fixas não mudam.
+        const agenteComJeito = new MisterAgenteService(fila, ferramentas, ia, numero, undefined, conversa);
+        const escopo = (await ferramentas.escopo(A, pessoa.ana, telAna))!;
+        ia.pedidos.length = 0;
+        ia.roteiro = [falar('Oi, Ana! 😊')];
+        expect((await agenteComJeito.responder(escopo, [], 'oi')).texto).toBe('Oi, Ana! 😊');
+        const [pedido] = ia.pedidos;
+        expect(pedido.system[0]).toEqual({ type: 'text', text: INSTRUCOES_DO_MISTER, cache_control: { type: 'ephemeral' } });
+        expect(pedido.system[1].cache_control).toBeUndefined();
+        expect(pedido.system[1].text).toContain('- Jeito de falar (perfil escolhido pelo presidente): CORDIAL');
+        expect(pedido.system[1].text).toContain('todas as regras acima continuam valendo');
+        expect(pedido.system[1].text).toContain('- Jeito da empresa (escrito pelo presidente; siga quando não contrariar as regras acima): Comece pelo que deu errado.');
+        // "Como hoje" e sem jeito: o bloco fica como era (nenhuma linha nova).
+        await conversa.salvar(usuario('ana'), { perfil: 'hoje', jeito: null });
+        ia.pedidos.length = 0;
+        ia.roteiro = [falar('Oi!')];
+        await agenteComJeito.responder(escopo, [], 'oi');
+        expect(ia.pedidos[0].system[1].text).not.toMatch(/Jeito de falar|Jeito da empresa/);
       });
 
       it('a foto ruim pergunta o valor e o vencimento; o texto completa e pergunta "Lanço assim?"; pergunta de verdade segue para o Mister; depois de 30 min não completa', async () => {

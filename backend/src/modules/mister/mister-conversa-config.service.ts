@@ -1,9 +1,10 @@
 import { BadRequestException, Inject, Injectable, Optional } from '@nestjs/common';
-import { sql } from 'drizzle-orm';
+import { SQL, sql } from 'drizzle-orm';
 import { AuthUser } from '../../auth/auth-user';
 import { ModoDoBoleto, documentosNaInstalacao, notasNaInstalacao } from '../../common/documento-por-foto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { PERFIS_DO_ATENDENTE, PerfilDoAtendente } from '../cardapio/perfis-do-atendente';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -11,17 +12,37 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 // O primeiro é o dos documentos por foto (M3a, parte 3): ligar a leitura e o jeito de lançar o boleto. Sem linha salva,
 // vale o padrão (ligado, "sozinho se o código confere"). Só o presidente muda (o controlador). Só na nuvem: no servidor
 // da loja a tabela não existe (lê como o padrão).
+//
+// Versão 4, M4a (mig 447; protótipo `mockups/regem-mister-jeito-memoria.html`, aprovado em 18/11/2026): o JEITO do
+// Mister — o perfil (as mesmas chaves do atendente virtual), o "Jeito da empresa" (uma frase de até 300 letras) e os
+// grupos de aviso escritos pelo Mister com o contexto (usados na M4c). Padrão: "Como hoje", sem jeito, nenhum grupo —
+// nada muda até o presidente escolher. Salvar grava SÓ os campos que vieram (o ausente mantém o salvo — V16), na mesma
+// instrução, sem ler antes para escrever tudo de volta.
 
 const linhas = (r: any) => (r?.rows ?? r ?? []) as any[];
-const semTabela = (e: any) => e?.code === '42P01' || e?.code === '42703' || e?.cause?.code === '42P01';
+const semTabela = (e: any) => e?.code === '42P01' || e?.code === '42703' || e?.cause?.code === '42P01' || e?.cause?.code === '42703';
 
 export const MODOS_DO_BOLETO: readonly ModoDoBoleto[] = ['sozinho', 'perguntar'];
+/** Os grupos de aviso que o Mister pode escrever com o contexto (os grupos da parte "Avisos e relatórios"). */
+export const GRUPOS_DE_AVISO_ESCRITO = ['loja', 'servidor', 'fiscal', 'mister'] as const;
+export type GrupoDeAvisoEscrito = (typeof GRUPOS_DE_AVISO_ESCRITO)[number];
+/** O "Jeito da empresa" cabe nisto (uma linha só — a mesma conta da restrição da mig 447). */
+export const JEITO_DO_MISTER_MAX = 300;
 
 export interface ConversaDoMister {
   documentosLigado: boolean;
   documentosModo: ModoDoBoleto;
+  perfil: PerfilDoAtendente;
+  jeito: string | null;
+  avisosEscritos: GrupoDeAvisoEscrito[];
 }
-export const CONVERSA_PADRAO: ConversaDoMister = { documentosLigado: true, documentosModo: 'sozinho' };
+export const CONVERSA_PADRAO: ConversaDoMister = { documentosLigado: true, documentosModo: 'sozinho', perfil: 'hoje', jeito: null, avisosEscritos: [] };
+
+/** O jeito como vai ao banco e às instruções: uma linha, espaços apertados; vazio vira null. */
+export const jeitoLimpo = (v: unknown): string | null => {
+  const t = String(v ?? '').replace(/\s+/g, ' ').trim();
+  return t ? t : null;
+};
 
 /** O que a tela manda. Cada campo é opcional (ausente mantém o salvo — V16); presente, tem de ser válido (V15). */
 export function conferirConversa(dto: unknown): Partial<ConversaDoMister> | { erro: string } {
@@ -35,9 +56,35 @@ export function conferirConversa(dto: unknown): Partial<ConversaDoMister> | { er
     if (!MODOS_DO_BOLETO.includes(d.documentosModo)) return { erro: 'Escolha como lançar o boleto.' };
     fora.documentosModo = d.documentosModo;
   }
+  if (d.perfil !== undefined) {
+    if (!(PERFIS_DO_ATENDENTE as readonly string[]).includes(d.perfil)) return { erro: 'Escolha um dos perfis da lista.' };
+    fora.perfil = d.perfil;
+  }
+  if (d.jeito !== undefined) {
+    if (d.jeito !== null && typeof d.jeito !== 'string') return { erro: 'O jeito da empresa é um texto.' };
+    const j = jeitoLimpo(d.jeito);
+    if (j && j.length > JEITO_DO_MISTER_MAX) return { erro: `O jeito da empresa cabe em ${JEITO_DO_MISTER_MAX} letras.` };
+    fora.jeito = j;
+  }
+  if (d.avisosEscritos !== undefined) {
+    if (!Array.isArray(d.avisosEscritos) || d.avisosEscritos.some((g: unknown) => !(GRUPOS_DE_AVISO_ESCRITO as readonly unknown[]).includes(g)))
+      return { erro: 'Escolha os grupos de aviso da lista.' };
+    fora.avisosEscritos = GRUPOS_DE_AVISO_ESCRITO.filter((g) => d.avisosEscritos.includes(g));
+  }
   if (!Object.keys(fora).length) return { erro: 'Nada para salvar.' };
   return fora;
 }
+
+/** A coluna de cada campo e o valor como vai ao banco. */
+const COLUNA: Record<keyof ConversaDoMister, { coluna: string; valor: (v: any) => SQL }> = {
+  documentosLigado: { coluna: 'documentos_ligado', valor: (v) => sql`${v}` },
+  documentosModo: { coluna: 'documentos_modo', valor: (v) => sql`${v}` },
+  perfil: { coluna: 'perfil', valor: (v) => sql`${v}` },
+  jeito: { coluna: 'jeito', valor: (v) => sql`${v}` },
+  // O array do JS, no `sql` do Drizzle, vira LISTA de parâmetros (um "record"), não um text[] (LIC-074, ERR-520): vai como
+  // UM parâmetro (`sql.param`), que o `pg` converte em array — inclusive o vazio.
+  avisosEscritos: { coluna: 'avisos_escritos', valor: (v) => sql`${sql.param(v)}::text[]` },
+};
 
 @Injectable()
 export class MisterConversaConfigService {
@@ -50,17 +97,34 @@ export class MisterConversaConfigService {
   async daEmpresa(tenantId: string): Promise<ConversaDoMister> {
     try {
       const [l] = linhas(
-        await this.db.execute(sql`
-          select documentos_ligado as "documentosLigado", documentos_modo as "documentosModo"
-            from mister_conversa_config where tenant_id = ${tenantId}::uuid`),
+        await this.db
+          .execute(
+            sql`
+          select documentos_ligado as "documentosLigado", documentos_modo as "documentosModo",
+                 perfil, jeito, avisos_escritos as "avisosEscritos"
+            from mister_conversa_config where tenant_id = ${tenantId}::uuid`,
+          )
+          .catch(async (e: any) => {
+            // Sem as colunas da 447 (a migration ainda não entrou): os ajustes dos documentos (440) continuam valendo, e o
+            // jeito fica no padrão — nunca devolver "sozinho" para quem salvou "perguntar".
+            if (e?.code !== '42703' && e?.cause?.code !== '42703') throw e;
+            return this.db.execute(sql`
+              select documentos_ligado as "documentosLigado", documentos_modo as "documentosModo"
+                from mister_conversa_config where tenant_id = ${tenantId}::uuid`);
+          }),
       );
-      if (!l) return { ...CONVERSA_PADRAO };
+      if (!l) return { ...CONVERSA_PADRAO, avisosEscritos: [] };
+      const avisos = Array.isArray(l.avisosEscritos) ? l.avisosEscritos : [];
       return {
         documentosLigado: l.documentosLigado !== false,
         documentosModo: MODOS_DO_BOLETO.includes(l.documentosModo) ? l.documentosModo : CONVERSA_PADRAO.documentosModo,
+        perfil: (PERFIS_DO_ATENDENTE as readonly string[]).includes(l.perfil) ? l.perfil : 'hoje',
+        jeito: jeitoLimpo(l.jeito),
+        avisosEscritos: GRUPOS_DE_AVISO_ESCRITO.filter((g) => avisos.includes(g)),
       };
     } catch (e: any) {
-      if (semTabela(e)) return { ...CONVERSA_PADRAO };
+      // Sem a 440 (a migration ainda não entrou, ou o servidor da loja): o padrão, que não muda nada.
+      if (semTabela(e)) return { ...CONVERSA_PADRAO, avisosEscritos: [] };
       throw e;
     }
   }
@@ -73,18 +137,25 @@ export class MisterConversaConfigService {
     return { conversa: await this.daEmpresa(tenantId), disponivel: { documentos: documentosNaInstalacao(), notas: notasNaInstalacao() } };
   }
 
-  /** Salva o que veio (o ausente mantém o salvo), numa gravação só, e audita o antes e o depois. */
+  /**
+   * Salva o que veio numa instrução só: a linha nova nasce com o padrão nos campos que não vieram; a que já existe muda só
+   * os campos que vieram (dois presidentes salvando partes diferentes ao mesmo tempo não apagam um ao outro). Audita o
+   * antes e o depois.
+   */
   async salvar(user: AuthUser, dto: unknown) {
     const r = conferirConversa(dto);
     if ('erro' in r) throw new BadRequestException(r.erro);
     const antes = await this.daEmpresa(user.tenantId);
-    const depois: ConversaDoMister = { ...antes, ...r };
+    const campos = Object.keys(r) as (keyof ConversaDoMister)[];
+    const colunas = campos.map((c) => sql.raw(COLUNA[c].coluna));
+    const valores = campos.map((c) => COLUNA[c].valor(r[c]));
+    const atualizar = campos.map((c) => sql.raw(`${COLUNA[c].coluna} = excluded.${COLUNA[c].coluna}`));
     await this.db.execute(sql`
-      insert into mister_conversa_config (tenant_id, documentos_ligado, documentos_modo, alterado_por, atualizado_em)
-      values (${user.tenantId}::uuid, ${depois.documentosLigado}, ${depois.documentosModo}, ${user.colaboradorId}::uuid, now())
+      insert into mister_conversa_config (tenant_id, ${sql.join(colunas, sql`, `)}, alterado_por, atualizado_em)
+      values (${user.tenantId}::uuid, ${sql.join(valores, sql`, `)}, ${user.colaboradorId}::uuid, now())
       on conflict (tenant_id) do update
-         set documentos_ligado = excluded.documentos_ligado, documentos_modo = excluded.documentos_modo,
-             alterado_por = excluded.alterado_por, atualizado_em = now()`);
+         set ${sql.join(atualizar, sql`, `)}, alterado_por = excluded.alterado_por, atualizado_em = now()`);
+    const depois = await this.daEmpresa(user.tenantId);
     await this.auditoria?.registrar({
       tenantId: user.tenantId,
       atorId: user.colaboradorId,
@@ -95,6 +166,7 @@ export class MisterConversaConfigService {
       entidadeId: user.tenantId,
       detalhe: { antes, depois },
     });
-    return this.daTela(user.tenantId);
+    // O mesmo formato da leitura (`daTela`), sem ler de novo: o salvo e o que está ligado nesta instalação.
+    return { conversa: depois, disponivel: { documentos: documentosNaInstalacao(), notas: notasNaInstalacao() } };
   }
 }

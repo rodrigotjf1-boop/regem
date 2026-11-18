@@ -8,6 +8,7 @@ import { MisterFilaService, PerguntaNaFila, Trilha } from './mister-fila.service
 import { FimDaPergunta, Vagas, modeloDasPerguntas, responderComFerramentas } from './mister-laco';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { MisterInstrucoesService } from './mister-instrucoes.service';
+import { MisterConversaConfigService } from './mister-conversa-config.service';
 import type { PropostaPendente } from './mister-propostas.service';
 import { PedidoDoRelatorio, botaoDoPdf, linkDoRelatorio } from './insumo-vendido';
 import { enviarPdfDoInsumo } from './mister-anexos.service';
@@ -56,7 +57,21 @@ export class MisterAgenteService implements OnModuleInit {
     private readonly numero: MisterNumeroService,
     // M2b (mig 435): as instruções NO AR (o código com as trocas publicadas). Sem o serviço, o texto do código.
     @Optional() private readonly instrucoes?: MisterInstrucoesService,
+    // Versão 4, M4a (mig 447): o perfil e o jeito da empresa. Sem o serviço (ou sem a migration), como hoje.
+    @Optional() private readonly conversaConfig?: MisterConversaConfigService,
   ) {}
+
+  /** O perfil e o jeito da empresa para o bloco da conversa. A leitura que falha não segura a resposta: vai sem eles. */
+  private async jeitoDaEmpresa(tenantId: string): Promise<{ perfil: string | null; jeito: string | null }> {
+    if (!this.conversaConfig) return { perfil: null, jeito: null };
+    try {
+      const c = await this.conversaConfig.daEmpresa(tenantId);
+      return { perfil: c.perfil, jeito: c.jeito };
+    } catch (e: any) {
+      this.logger.warn(`mister: o jeito da empresa não foi lido, a resposta vai sem ele — ${e?.message ?? e}`);
+      return { perfil: null, jeito: null };
+    }
+  }
 
   onModuleInit(): void {
     this.fila.registrar(() => this.acordar());
@@ -280,7 +295,7 @@ export class MisterAgenteService implements OnModuleInit {
         modelo: this.modelo(),
         instrucoes,
         recurso: opcoes.recurso,
-        conversa: blocoDaConversa(this.ferramentas.conversa(escopo)),
+        conversa: blocoDaConversa({ ...this.ferramentas.conversa(escopo), ...(await this.jeitoDaEmpresa(escopo.tenantId)) }),
         pedir: (p) => this.ia.pedir(escopo.tenantId, p),
         executar: (nome, entrada) => this.vagas.com(() => this.ferramentas.executar(escopo, nome, entrada)),
         // Na ordem do pedido (as consultas juntas terminam em qualquer ordem): os anexos e as imagens saem na ordem pedida.
