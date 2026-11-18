@@ -27,6 +27,20 @@ const MODELO_PADRAO = 'claude-haiku-5-5';
  */
 export const PRAZOS_DA_FOTO = { totalMs: 15_000, graphMs: 10_000, minimoDaIaMs: 3_000 } as const;
 
+/** A promessa dentro do prazo, ou null quando ele passa. A que chegar depois é descartada sem rejeição solta (V3). */
+async function dentroDoPrazo<T>(promessa: Promise<T>, ms: number): Promise<T | null> {
+  let relogio: ReturnType<typeof setTimeout> | undefined;
+  const prazo = new Promise<null>((resolver) => {
+    relogio = setTimeout(() => resolver(null), ms);
+  });
+  try {
+    return await Promise.race([promessa, prazo]);
+  } finally {
+    if (relogio) clearTimeout(relogio);
+    promessa.catch(() => undefined);
+  }
+}
+
 /**
  * A LEITURA DA FOTO DO CLIENTE (16/11/2026 — decisão do dono; as regras em `common/foto-do-cliente.ts`). Baixa a foto que
  * chegou pelo WhatsApp (pela mesma porta da mídia do robô, nas duas vias) e pede ao modelo de visão o tipo e a descrição,
@@ -108,22 +122,31 @@ export class FotoDoClienteService {
           this.logger.warn('foto não lida: o prazo da leitura acabou antes da IA da empresa');
           return null;
         }
-        const r = await this.ia.pedir(tenantId, {
-          recurso: RECURSO_DA_FOTO,
-          modelo: this.modelo(),
-          maxTokens: 300,
-          system: instrucoesDaFoto(msg?.loja?.nome ?? null),
-          messages: [
-            {
-              role: 'user',
-              content: [
-                { type: 'image', source: { type: 'base64', media_type: tipo, data: buffer.toString('base64') } },
-                { type: 'text', text: perguntaDaFoto(msg?.texto) },
-              ],
-            },
-          ],
-          prazoMs: resta,
-        });
+        // O `prazoMs` vale por tentativa do provedor (o cliente repete uma vez): o relógio daqui garante o prazo TOTAL
+        // da leitura (LIC-035) — passou, a foto segue sem descrição e a resposta atrasada é descartada.
+        const r = await dentroDoPrazo(
+          this.ia.pedir(tenantId, {
+            recurso: RECURSO_DA_FOTO,
+            modelo: this.modelo(),
+            maxTokens: 300,
+            system: instrucoesDaFoto(msg?.loja?.nome ?? null),
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  { type: 'image', source: { type: 'base64', media_type: tipo, data: buffer.toString('base64') } },
+                  { type: 'text', text: perguntaDaFoto(msg?.texto) },
+                ],
+              },
+            ],
+            prazoMs: resta,
+          }),
+          resta,
+        );
+        if (r === null) {
+          this.logger.warn('foto não lida: a IA da empresa não respondeu no prazo da leitura');
+          return null;
+        }
         if (r.recusou) return null;
         analise = lerAnaliseDaFoto(r.texto);
       }

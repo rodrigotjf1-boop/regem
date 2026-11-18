@@ -19,7 +19,7 @@ describe('a leitura da foto do cliente (serviço)', () => {
   const textoDaConsulta = (q: any) => (q?.queryChunks ?? []).flatMap((c: any) => (Array.isArray(c?.value) ? c.value : [])).join(' ');
 
   function montar(
-    o: { resposta?: string; recusou?: boolean; falha?: any; mime?: string; bytes?: number; acesso?: boolean; lojaLe?: boolean; semVaga?: boolean } = {},
+    o: { resposta?: string; recusou?: boolean; falha?: any; mime?: string; bytes?: number; acesso?: boolean; lojaLe?: boolean; semVaga?: boolean; demoraMs?: number } = {},
   ) {
     const pedidos: any[] = [];
     const midias: any[] = [];
@@ -41,6 +41,7 @@ describe('a leitura da foto do cliente (serviço)', () => {
       temAcesso: async () => o.acesso !== false,
       pedir: async (tenantId: string, p: any) => {
         pedidos.push({ tenantId, p });
+        if (o.demoraMs) await new Promise((r) => setTimeout(r, o.demoraMs));
         if (o.falha) throw o.falha;
         return { texto: o.resposta ?? '{"tipo":"tela_do_cardapio","descricao":"Tela do carrinho. Aviso: Pedido mínimo R$ 20,00."}', recusou: !!o.recusou };
       },
@@ -118,6 +119,25 @@ describe('a leitura da foto do cliente (serviço)', () => {
     expect(p.messages[0].content[0]).toMatchObject({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg' } });
     expect(p.messages[0].content[0].source.data).toBe(Buffer.alloc(2048, 7).toString('base64'));
     expect(p.messages[0].content[1]).toEqual({ type: 'text', text: 'Legenda que o cliente escreveu junto: "não consigo finalizar"' });
+  });
+
+  it('o prazo é TOTAL (G5a, LIC-035): a IA que passa dele não segura a foto — segue sem descrição, no prazo, e nada se guarda', async () => {
+    process.env.ROBO_FOTOS_IA = '1';
+    delete process.env.EDGE_MODE;
+    const l = montar({ demoraMs: 1_500 });
+    l.svc.prazos = { totalMs: 400, graphMs: 200, minimoDaIaMs: 50 };
+    const inicio = Date.now();
+    expect(await l.svc.olhar(foto())).toBeNull();
+    expect(Date.now() - inicio).toBeLessThan(1_000);
+    expect(l.pedidos).toHaveLength(1);
+    expect(l.pedidos[0].p.prazoMs).toBeLessThanOrEqual(400);
+    expect(l.gravadas).toEqual([]);
+    // Sem o Graph, o prazo inteiro vai à IA (como hoje: 15 s).
+    const padrao = montar();
+    await padrao.svc.olhar(foto());
+    expect(padrao.pedidos[0].p.prazoMs).toBeGreaterThan(14_900);
+    expect(padrao.pedidos[0].p.prazoMs).toBeLessThanOrEqual(15_000);
+    await new Promise((r) => setTimeout(r, 1_200)); // a resposta atrasada chega e é descartada sem erro
   });
 
   it('só foto: áudio, vídeo e documento não são lidos; no servidor da loja nunca', async () => {
