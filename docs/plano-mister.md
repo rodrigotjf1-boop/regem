@@ -1047,7 +1047,19 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
 - **Parte 1 (sem migration):** `corrigir_documento` — o vencimento do boleto que o Mister lançou, pela conta da tela,
   com "Desfazer" no balão; só o presidente; o valor nunca.
 - **Parte 1 — #1113, no ar.**
-- **Falta:** criar e publicar (o recado no mural, com "Publicar" / "Mudar o texto" — guardar o rascunho pede migration).
+- **Parte 2 (mig 444, só nuvem):** `escrever_recado` — o recado no mural (conversa 22). O Mister escreve o texto pronto,
+  guarda o RASCUNHO em `mister_recado` e a resposta mostra o texto entre aspas com "Publicar" e "Mudar o texto" no
+  balão (só pela API oficial: pela conexão por QR Code a ferramenta recusa e manda publicar em Mural & clima). O toque
+  em "Publicar" reserva o rascunho com gravação condicional (o toque duplo publica uma vez) e publica pelo MESMO
+  `MuralService.publicar` da tela, em nome de quem pediu, com a auditoria `mister_recado_publicado`; o comunicado desce
+  para a loja pelo sync de sempre. "Mudar o texto" descarta e a pessoa diz como quer. Presidente e gerente (o gerente
+  com o Mural & clima no perfil e só na loja dele); só quem pediu publica; o rascunho vale 30 minutos e o novo descarta o
+  anterior da mesma pessoa; até 500 letras, sem link; a primeira linha é o título do comunicado.
+- **Decisões da parte 2 (as recomendadas, 18/11):** (1) o gerente também escreve recado, como na tela (o Mural & clima
+  aceita presidente, gerente e supervisão), mas só na loja dele; (2) na empresa de várias lojas, sem loja, o recado vai
+  para todas (o mural da rede) e a pergunta diz isso; (3) 30 minutos de prazo no botão; (4) nada de link no recado; (5) a
+  falha do mural devolve o rascunho (o toque seguinte tenta de novo).
+- **M3g COMPLETA.**
 
 **Andamento da M3d (17/11/2026):**
 - **Parte 1 (sem migration):** a imagem da tela no "como faço", feita pelos roteiros (`GERAR_COMO_FACO=1`) e mandada pelo

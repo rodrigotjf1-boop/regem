@@ -199,11 +199,16 @@ describe('Mister — o que o modelo recebe', () => {
       'corrigir_documento',
       'link_para_encaminhar',
       'cancelar_links',
+      'escrever_recado',
     ]);
     // M3c (mig 443): criar e cancelar o link para encaminhar não são consulta — não leem dado para responder.
     expect(ehConsulta('link_para_encaminhar')).toBe(false);
     expect(ehConsulta('cancelar_links')).toBe(false);
     expect(INSTRUCOES_DO_MISTER).toContain('chame link_para_encaminhar');
+    // M3g parte 2 (mig 444): o recado só guarda o rascunho (não é consulta), e as instruções dizem que só o toque publica.
+    expect(ehConsulta('escrever_recado')).toBe(false);
+    expect(INSTRUCOES_DO_MISTER).toContain('Nunca diga que publicou: só o toque em "Publicar" publica.');
+    expect(FERRAMENTAS.find((f) => f.name === 'escrever_recado')!.description).toContain('NÃO publica');
     // F4.3: propor não é consulta (não lê dado, não conta no teto de consultas) e as instruções dizem "PROPOR, nunca fazer".
     expect(ehConsulta('propor_procedimento')).toBe(false);
     expect(INSTRUCOES_DO_MISTER).toContain('A única exceção é PROPOR, nunca fazer');
