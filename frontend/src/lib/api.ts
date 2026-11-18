@@ -1807,6 +1807,11 @@ export const api = {
     aPartirDo?: number;
     deNovoDias?: number;
   }) => req('/whatsapp/avaliacao', { method: 'POST', body: JSON.stringify(body) }),
+  // "Pedir uma nota depois da entrega" (mig 453): só os campos que mudaram (o ausente mantém). Ler vem no robo-config.
+  whatsappNotaSalvar: (body: { ativa?: boolean; casoAte?: number; prazoDias?: number }) =>
+    req('/whatsapp/nota-do-pedido', { method: 'POST', body: JSON.stringify(body) }),
+  // Delivery › Avaliações (mig 453): as notas do período (hoje, 7 ou 30 dias) com os números do período inteiro.
+  deliveryAvaliacoes: (periodo: string) => req(`/delivery/avaliacoes?${new URLSearchParams({ periodo }).toString()}`),
   // "Chegou tudo certo?" depois da entrega (mig 352): só o liga/desliga.
   whatsappConferirEntregaSalvar: (conferirEntrega: boolean) =>
     req('/whatsapp/robo-config', {

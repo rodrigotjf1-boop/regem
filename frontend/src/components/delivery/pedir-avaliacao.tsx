@@ -209,7 +209,8 @@ export function PedirAvaliacao({ pode, loja }: { pode: boolean; loja: any }) {
           <p className="text-[11px] text-muted-foreground">
             Uma mensagem por pedido de ENTREGA dos canais da própria loja, pelo WhatsApp oficial, só se o cliente falou com a
             loja nas últimas 24 h e sem ninguém da equipe na conversa. Quem já tocou no link e quem pediu para não receber
-            mensagens não recebem. Pedido do iFood e da 99: a avaliação é pedida pela própria plataforma, no app dela.
+            mensagens não recebem. Quem já deu nota pelo Regem também não: na nota 5, o link do Google foi junto com o
+            obrigado; nas outras, não vai. Pedido do iFood e da 99: a avaliação é pedida pela própria plataforma, no app dela.
           </p>
           {!oficial && <p className="text-[11px] font-semibold text-foreground">Disponível só com o WhatsApp oficial da loja.</p>}
         </>

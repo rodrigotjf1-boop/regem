@@ -242,7 +242,9 @@ export function grupoDoPlacar(l: LinhaDoCaso): GrupoDosCasos | null {
   if (l.paraOResponsavel) return null; // o recado para o responsável (mig 381) não conta no tempo de espera
   if (l.tipo === 'disputa') return 'disputa';
   if (l.tipo === 'cancelamento_99' || l.tipo === 'reembolso_99') return 'pedido99';
-  if (l.tipo === 'avaliacao') return 'avaliacao';
+  // "Avaliações do iFood" é a do iFood; a nota baixa do pedido do Regem (mig 453) a equipe responde pelo WhatsApp do
+  // pedido — conta como os casos do robô (tempo até alguém pegar).
+  if (l.tipo === 'avaliacao') return l.canal === 'ifood' ? 'avaliacao' : 'casos';
   if (l.tipo === 'cancelamento') return 'cancelamento';
   return 'casos';
 }

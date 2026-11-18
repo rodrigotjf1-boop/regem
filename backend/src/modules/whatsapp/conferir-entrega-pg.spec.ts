@@ -130,6 +130,8 @@ descrever('"chegou tudo certo?" (Postgres)', () => {
     await escreveu(t);
     const ifood = await pedido(t, { canal: 'ifood' });
     const n99 = await pedido(t, { canal: '99food' });
+    // O Anota Aí também fica de fora (decisão 9 da avaliação do pedido, 18/11/2026): o contato com o cliente é dele.
+    const anotaai = await pedido(t, { canal: 'anotaai' });
     const retirada = await pedido(t, { tipo: 'retirada' });
     const cedo = await pedido(t, { min: 10 });
     const tarde = await pedido(t, { min: 200 });
@@ -145,7 +147,7 @@ descrever('"chegou tudo certo?" (Postgres)', () => {
     const ids = lista.map((c) => c.id);
     expect(ids).toContain(ok.id);
     expect(lista.find((c) => c.id === ok.id)?.para).toBe(NA_CONVERSA);
-    for (const fora of [ifood, n99, retirada, cedo, tarde, aCaminho, semConversa, daQr, daDesligada]) expect(ids).not.toContain(fora.id);
+    for (const fora of [ifood, n99, anotaai, retirada, cedo, tarde, aCaminho, semConversa, daQr, daDesligada]) expect(ids).not.toContain(fora.id);
   });
 
   it('ERR-360: 210 pedidos de quem não escreveu à loja não tomam a vez — o pedido mais novo, com a conversa aberta, recebe a pergunta', async () => {

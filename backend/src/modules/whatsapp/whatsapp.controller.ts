@@ -157,6 +157,15 @@ export class WhatsappController {
     return this.provedores.salvarAvaliacao(user, dto);
   }
 
+  // "Pedir uma nota depois da entrega" (mig 453): grava SÓ os ajustes dela (V82). Ler vem no `robo-config`. Só nuvem.
+  @Post('whatsapp/nota-do-pedido')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('bot')
+  salvarNotaDoPedido(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.provedores.salvarNota(user, dto);
+  }
+
   // Modelos aprovados na Meta (API oficial). Alimenta a escolha do modelo num
   // aviso ou campanha, e mostra ao lojista o que ja foi aprovado.
   @Get('whatsapp/cloud/templates')
