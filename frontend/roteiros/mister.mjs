@@ -86,6 +86,8 @@ const AVISOS_PADRAO = () => ({
     { tipo: 'boleto_vencendo', grupo: 'Documentos e dinheiro', titulo: 'Boleto perto de vencer', descricao: 'Os boletos lançados por foto no Mister. Vai com a linha digitável; "Já paguei" dá baixa na conta e tira o boleto da lista. Às 9h da loja.', jaFunciona: true, padrao: true, regra: regraAv(['presidente'], { parametro: 3 }) },
     // M3e: o ponto esquecido, ao gerente, com o resumo no dia seguinte.
     { tipo: 'ponto_esquecido', grupo: 'Pessoas e ponto', titulo: 'Ponto esquecido', descricao: 'Entrada ou saída que falta depois do horário da escala. O aviso diz quem, qual turno e onde ajustar. Só nas lojas que usam o terminal de ponto.', jaFunciona: true, padrao: true, regra: regraAv(['gerente'], { parametro: 0 }) },
+    // M3e parte 2: o arquivo do ponto do mês, ao presidente, sem parâmetro (como o servidor manda).
+    { tipo: 'ponto_do_mes', grupo: 'Pessoas e ponto', titulo: 'Arquivo do ponto do mês', descricao: 'O espelho de ponto do mês em PDF, depois que o último turno do mês fecha. Com um toque, vai à contabilidade.', jaFunciona: true, padrao: true, regra: regraAv(['presidente']) },
   ],
 });
 // Os relatórios (mig 420): os dois desligados, como o padrão; o do dia com um envio que não saiu (fora da janela).
@@ -963,7 +965,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t0 = await page.locator('main').innerText();
-    ok(/15 ajustes em 8 grupos/.test(t0), "avisos: os nove avisos em quatro grupos, o do boleto (M3a), o do ponto (M3e), os três relatórios e a conversa (M3a)");
+    ok(/16 ajustes em 8 grupos/.test(t0), "avisos: os nove avisos em quatro grupos, o do boleto (M3a), os dois do ponto (M3e), os três relatórios e a conversa (M3a)");
     ok(/Fichas novas de candidatos[\s\S]*Vai para: o presidente e quem tem a permissão Candidatos, cada um só das lojas que vê\./.test(t0), 'relatórios: o das fichas novas diz para quem vai (F4c)');
     ok(t0.includes('O de fichas novas só conta: não usa a IA.'), 'relatórios: a nota diz que o das fichas novas não usa a IA');
     ok(['Na loja', 'Servidor da loja', 'Fiscal', 'O próprio Mister'].every((g) => t0.includes(g)), 'avisos: os quatro grupos do protótipo');
@@ -1077,7 +1079,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t = await page.locator('main').innerText();
-    ok(/15 ajustes em 8 grupos/.test(t), "conversa: o grupo Conversa entra com um ajuste, Documentos e dinheiro com o do boleto e Pessoas e ponto com o do ponto");
+    ok(/16 ajustes em 8 grupos/.test(t), "conversa: o grupo Conversa entra com um ajuste, Documentos e dinheiro com o do boleto e Pessoas e ponto com os dois do ponto");
     ok(/Documentos e dinheiro[\s\S]*Boleto perto de vencer[\s\S]*Já paguei/.test(t), 'boleto: o aviso novo no grupo "Documentos e dinheiro", com o "Já paguei"');
     ok(/Lançar boletos por foto/.test(t) && /só o presidente manda/.test(t) && /a leitura da nota do fornecedor vem numa próxima entrega/.test(t), 'conversa: o ajuste diz o que faz, quem manda e que a nota vem depois');
     const sel = page.locator('select:has(option:text-is("boleto: pergunta antes"))');
@@ -1102,6 +1104,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     );
     // M3e: "Quando avisar do ponto esquecido" — o padrão (no dia seguinte, às 10h) e "30 min depois", pela mesma barra.
     ok(/Pessoas e ponto[\s\S]*Ponto esquecido[\s\S]*Só nas lojas que usam o terminal de ponto/.test(t), 'ponto: o aviso novo no grupo "Pessoas e ponto", dizendo que é só onde há terminal de ponto');
+    ok(/Pessoas e ponto[\s\S]*Arquivo do ponto do mês[\s\S]*Com um toque, vai à contabilidade\./.test(t), 'ponto do mês: o 12º aviso no grupo "Pessoas e ponto", com a descrição do protótipo');
     const doPonto = page.locator('select:has(option:text-is("30 min depois"))');
     ok((await doPonto.inputValue()) === '0', 'ponto: o padrão é "no dia seguinte, às 10h"');
     await doPonto.selectOption('30');
@@ -1329,7 +1332,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     ok((await page.locator('[aria-label="Partes do Mister"] button').first().getAttribute('aria-pressed')) === 'true', 'resumo: o presidente entra pelo Resumo');
     ok(/Para o Mister funcionar/.test(t) && /2 de 3 etapas concluídas\./.test(t), `resumo: as três etapas, com quantas estão feitas (${(t.match(/\d de 3 etapas concluídas\./) ?? [''])[0]})`);
     ok(/Módulo ligado/.test(t) && /A IA incluída no seu plano: funcionando\./.test(t) && /Ligue pelo seu celular/.test(t), 'resumo: o módulo, a IA incluída no plano e o WhatsApp que falta ligar');
-    ok(/O que o Mister faz por esta empresa/.test(t) && /Relatórios com gráfico e por insumo/.test(t) && /Ponto esquecido/.test(t) && /Áudio[\s\S]*em breve/.test(t), 'resumo: o que o Mister faz, com o áudio em breve');
+    ok(/O que o Mister faz por esta empresa/.test(t) && /Relatórios com gráfico e por insumo/.test(t) && /Ponto e escala[\s\S]*o arquivo do ponto do mês/.test(t) && /Áudio[\s\S]*em breve/.test(t), 'resumo: o que o Mister faz, com o ponto e escala e o áudio em breve');
     ok(/Loja Centro · impressora Cozinha parada/.test(t), 'resumo: os últimos avisos do histórico');
     // Cada etapa leva à parte onde se resolve.
     await page.click('button:has-text("Ligar o meu WhatsApp")');
