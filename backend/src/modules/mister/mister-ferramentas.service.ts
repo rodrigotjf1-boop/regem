@@ -47,6 +47,7 @@ import { MisterLinkPublicoService } from './mister-link-publico.service';
 import { TEXTOS_DO_LINK_PUBLICO, VALIDADE_DO_LINK_DIAS, diaMesDe } from './mister-link-publico';
 import { MisterRecadosService } from './mister-recados.service';
 import { MisterMemoriaService } from './mister-memoria.service';
+import { MisterVigiaService } from './mister-vigia.service';
 import { TEXTOS_DO_RECADO, VALIDADE_DO_RECADO_MIN, botaoDoRecado, ondeVai, textoDoRecado } from './mister-recado';
 import { ONDE_VER_O_GASTO, dentroDaJanelaDoWhatsapp, nomeDoMesDoGasto } from './mister-avisos.regras';
 import { WhatsappGastoService } from '../whatsapp/whatsapp-gasto.service';
@@ -124,6 +125,8 @@ const MODULO = 'mister';
 const SEM_VALORES = 'O perfil desta pessoa no Regem não mostra valores em reais: os valores vêm vazios.';
 const SEM_PERMISSAO = 'O perfil desta pessoa no Regem não dá acesso a esta informação. Quem muda o perfil é o presidente.';
 const SEM_LOJA = 'O cadastro desta pessoa não está ligado a uma loja. Ela precisa pedir ao presidente para acertar o cadastro no Regem.';
+/** M4d: o ajuste da empresa desligado (nasce assim) — o caminho do menu da tela (V65). */
+const VIGIA_DESLIGADO = 'O "fica de olho" e os lembretes estão desligados nesta empresa: o presidente liga em Mister › Jeito e memória.';
 
 /** De quem é a conversa — resolvido no servidor a cada pergunta. O modelo nunca escreve nada disto. */
 export interface EscopoDoMister {
@@ -299,6 +302,8 @@ export class MisterFerramentasService {
     @Optional() private readonly recados?: MisterRecadosService,
     // Versão 4, M4b (mig 449): a memória do Mister (a ferramenta `lembrar`).
     @Optional() private readonly memoria?: MisterMemoriaService,
+    // Versão 4, M4d (mig 452): o "fica de olho" e o lembrete.
+    @Optional() private readonly vigia?: MisterVigiaService,
   ) {}
 
   // ───────────────────────────── de quem é a conversa ─────────────────────────────
@@ -423,6 +428,8 @@ export class MisterFerramentasService {
     if (nome === 'conversas_anteriores') return this.conversasAnteriores(e, entrada);
     // Versão 4, M4b: a memória também não depende de loja.
     if (nome === FERRAMENTA_DE_LEMBRAR) return this.lembrar(e, entrada);
+    // Versão 4, M4d: o lembrete é da pessoa, não de uma loja.
+    if (nome === 'lembrete') return this.lembrete(e, entrada);
     if (e.semLoja) return recusa(SEM_LOJA);
     const en = (entrada && typeof entrada === 'object' && !Array.isArray(entrada) ? entrada : {}) as Record<string, unknown>;
     const loja = this.loja(e, en.loja);
@@ -494,6 +501,10 @@ export class MisterFerramentasService {
         return this.gastoDoWhatsapp(e);
       case 'lembrar':
         return this.lembrar(e, en);
+      case 'ficar_de_olho':
+        return this.ficarDeOlho(e, en, loja);
+      case 'lembrete':
+        return this.lembrete(e, en);
     }
   }
 
@@ -610,6 +621,88 @@ export class MisterFerramentasService {
     } catch (err: any) {
       this.logger.error(`ferramenta lembrar falhou: ${String(err?.message ?? err).slice(0, 300)}`, err?.stack);
       return recusa('Não consegui mexer na memória agora.');
+    }
+  }
+
+  /**
+   * Versão 4, M4d — "fica de olho" num pedido dos canais (mig 452). Acha o pedido como a história do pedido acha (o
+   * número do canal ou do dia, 3 dias, a loja da pessoa) e com a mesma permissão (Delivery); quem olha a cada minuto e
+   * fala quando muda é o `MisterVigiaService`. "mim" é sempre a pessoa da conversa (o servidor decide).
+   */
+  private async ficarDeOlho(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    if (!this.vigia) return recusa('O "fica de olho" ainda não está disponível.');
+    const q = { tenantId: e.tenantId, colaboradorId: e.colaboradorId };
+    if (!(await this.vigia.ligado(e.tenantId))) return recusa(VIGIA_DESLIGADO);
+    if (en.acao === 'listar') {
+      const marcados = await this.vigia.listar(q, 'olho');
+      return { ok: true, dados: { marcados, ...(marcados.length ? {} : { observacao: 'Nenhum "fica de olho" ativo.' }) } };
+    }
+    if (en.acao === 'parar') {
+      const r = await this.vigia.cancelar(q, 'olho', en.trecho);
+      return r.ok ? { ok: true, dados: { parou: true, pedido: r.rotulo, siga: 'Diga em uma frase que parou de olhar.' } } : recusa(r.erro);
+    }
+    if (en.acao !== 'comecar') return recusa('Diga se é para começar, parar ou listar.');
+    if (!this.pode(e, 'delivery')) return recusa(SEM_PERMISSAO);
+    const n = numeroDoPedido(en.numero);
+    if (!n) return recusa('Diga o número do pedido (o do canal ou o número do dia).');
+    const soNumero = n.replace(/^[A-Z]/, '');
+    const achados = linhas(
+      await this.db.execute(sql`
+        select pe.id::text as id, pe.canal, pe.display_id as "displayId", pe.numero, pe.status, pe.criado_em as "criadoEm"
+          from pedido_externo pe
+         where pe.tenant_id = ${e.tenantId}::uuid and pe.deleted_at is null ${sqlUnidadeOuRede('pe.unidade_id', loja.atual)}
+           and pe.criado_em > now() - interval '3 days'
+           and (upper(pe.display_id) = ${n} or pe.display_id = ${soNumero} or pe.numero::text = ${soNumero})
+         order by pe.criado_em desc
+         limit 6`),
+    );
+    if (!achados.length) return recusa(`Não achei pedido dos canais com o número ${n} nos últimos 3 dias em ${loja.nome}.`);
+    if (achados.length > 1)
+      return {
+        ok: true,
+        dados: {
+          maisDeUmPedido: achados.map((p) => ({ comoAparece: pedidoComoNoQuadro(p), chegou: dataHoraCurta(p.criadoEm), situacao: SITUACAO_DO_PEDIDO[String(p.status)] ?? String(p.status) })),
+          observacao: 'Pergunte qual deles, pelo horário em que chegou.',
+        },
+      };
+    const pe = achados[0];
+    const r = await this.vigia.olharPedido(q, { id: String(pe.id), rotulo: pedidoComoNoQuadro(pe), status: String(pe.status) });
+    if (!r.ok) return recusa(r.erro);
+    return {
+      ok: true,
+      dados: {
+        combinado: true,
+        pedido: r.rotulo,
+        situacaoAgora: SITUACAO_DO_PEDIDO[String(pe.status)] ?? String(pe.status),
+        ate: 'as 06:00',
+        ...(r.jaEstava ? { observacao: 'Já estava de olho neste pedido.' } : {}),
+        siga: 'Diga em uma frase que vai ficar de olho no pedido e avisar quando ele mudar.',
+      },
+    };
+  }
+
+  /** Versão 4, M4d — o lembrete na hora marcada (mig 452). O "quando" vem na hora da loja; o serviço confere. */
+  private async lembrete(e: EscopoDoMister, entrada: unknown): Promise<ResultadoDaFerramenta> {
+    if (!this.vigia) return recusa('O lembrete ainda não está disponível.');
+    const en = (entrada && typeof entrada === 'object' && !Array.isArray(entrada) ? entrada : {}) as Record<string, unknown>;
+    const q = { tenantId: e.tenantId, colaboradorId: e.colaboradorId };
+    try {
+      if (!(await this.vigia.ligado(e.tenantId))) return recusa(VIGIA_DESLIGADO);
+      if (en.acao === 'listar') {
+        const marcados = await this.vigia.listar(q, 'lembrete');
+        return { ok: true, dados: { marcados, ...(marcados.length ? {} : { observacao: 'Nenhum lembrete marcado.' }) } };
+      }
+      if (en.acao === 'cancelar') {
+        const r = await this.vigia.cancelar(q, 'lembrete', en.trecho);
+        return r.ok ? { ok: true, dados: { cancelado: true, lembrete: r.rotulo, siga: 'Diga em uma frase que cancelou.' } } : recusa(r.erro);
+      }
+      if (en.acao !== 'criar') return recusa('Diga se é para criar, listar ou cancelar.');
+      const r = await this.vigia.lembrar(q, en.texto, en.quando);
+      if (!r.ok) return recusa(r.erro);
+      return { ok: true, dados: { marcado: true, lembrete: r.texto, quando: r.quando, siga: `Repita em uma frase o dia e a hora ("Combinado: ${r.quando}").` } };
+    } catch (err: any) {
+      this.logger.error(`ferramenta lembrete falhou: ${String(err?.message ?? err).slice(0, 300)}`, err?.stack);
+      return recusa('Não consegui marcar o lembrete agora.');
     }
   }
 

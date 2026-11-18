@@ -100,7 +100,8 @@ export function parametrosDoResumo(tipo: TipoDeRelatorio, d: RelatorioDevido, em
 
 // ───────────────────────────── o botão ─────────────────────────────
 
-export type ToqueNoModelo = { tipo: 'aviso' | 'resumo'; id: string };
+/** `vigia` (versão 4, M4d, mig 452): o lembrete ou a mudança do "fica de olho" que saiu fora das 24 horas. */
+export type ToqueNoModelo = { tipo: 'aviso' | 'resumo' | 'vigia'; id: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -109,7 +110,7 @@ export const codigoDoBotao = (t: ToqueNoModelo): string => `mister:${t.tipo}:${t
 
 /** O toque num botão de modelo do Mister — ou null (outro botão, código malformado, id que não é uuid). */
 export function toqueNoModelo(codigo: unknown): ToqueNoModelo | null {
-  const m = /^mister:(aviso|resumo):(.+)$/.exec(String(codigo ?? '').trim());
+  const m = /^mister:(aviso|resumo|vigia):(.+)$/.exec(String(codigo ?? '').trim());
   if (!m) return null;
   const id = m[2].toLowerCase();
   return UUID.test(id) ? { tipo: m[1] as ToqueNoModelo['tipo'], id } : null;
