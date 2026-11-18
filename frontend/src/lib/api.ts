@@ -2612,6 +2612,7 @@ export const api = {
   misterRelatorioPublico: (codigo: string) => pub(`/publico/mister/relatorio/${encodeURIComponent(codigo)}`) as Promise<VistaDoRelatorioPublico>,
   misterRelatorioPublicoPdf: async (codigo: string): Promise<Blob> => {
     const res = await fetch(`${apiBase()}/publico/mister/relatorio/${encodeURIComponent(codigo)}/pdf`);
+    if (res.status === 429) throw muitasChamadas();
     if (!res.ok) {
       const j = (await res.json().catch(() => ({}))) as { message?: unknown };
       throw new ApiError({ status: res.status, message: typeof j?.message === 'string' ? j.message : `Erro ${res.status} ao gerar o PDF` });

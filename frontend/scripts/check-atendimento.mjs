@@ -47,8 +47,16 @@ caso('as leituras automáticas do caso param com a aba escondida', () => {
 caso('o cliente da API troca o 429 por uma frase em português, nos três caminhos', () => {
   const api = ler('lib/api.ts');
   assert.match(api, /export const MSG_MUITAS_CHAMADAS = '[^']+'/);
-  const vezes = (api.match(/if \(res\.status === 429\) throw muitasChamadas\(\);/g) || []).length;
-  assert.equal(vezes, 3, `o 429 tratado em ${vezes} de 3 caminhos (req, pub, reqAparelho)`);
+  // Cada um dos três caminhos gerais trata o 429 dentro do próprio corpo (do nome da função até a próxima `async function`
+  // ou o fim do arquivo). Outros caminhos que leem a API à parte (o PDF do link do Mister) podem tratar também: não conta.
+  for (const nome of ['reqAparelho', 'req', 'pub']) {
+    const inicio = api.search(new RegExp(`async function ${nome}\\(`));
+    assert.ok(inicio >= 0, `não achei o caminho ${nome}`);
+    const resto = api.slice(inicio + 1);
+    const fim = resto.search(/\nasync function |\nexport const api = /);
+    const corpo = fim >= 0 ? resto.slice(0, fim) : resto;
+    assert.match(corpo, /if \(res\.status === 429\) throw muitasChamadas\(\);/, `o caminho ${nome} não troca o 429 pela frase`);
+  }
 });
 
 console.log(`\ncheck:atendimento — ${n} grupos de casos, todos certos.`);
