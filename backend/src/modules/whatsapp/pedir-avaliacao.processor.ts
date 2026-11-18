@@ -119,6 +119,9 @@ export class PedirAvaliacaoProcessor {
            and p.concluido_em < now() - make_interval(mins => rc.avaliacao_depois_min)
            and p.concluido_em > now() - make_interval(hours => ${ATE_HORAS})
            and not exists (select 1 from avaliacao_pedida a where a.pedido_id = p.id)
+           -- Quem deu NOTA pelo Regem (mig 453) não recebe esta mensagem: na nota 5 o link do Google foi junto com o
+           -- obrigado; nas outras não vai (decisão do dono, 18/11/2026). No where (ERR-360): não toma a vez dos outros.
+           and not exists (select 1 from pedido_avaliacao nd where nd.pedido_id = p.id)
       )
       select b.id, b.tenant_id, b.unidade_id, b.cliente_id, b.cliente_nome, b.chave, conversa.para,
              b.avaliacao_ativa, b.avaliacao_link, b.avaliacao_texto, b.avaliacao_depois_min, b.avaliacao_so_sem_problema,

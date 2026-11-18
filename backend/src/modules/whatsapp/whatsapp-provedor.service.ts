@@ -16,6 +16,7 @@ import { WhatsappService } from './whatsapp.service';
 import { WhatsappCloudService } from './whatsapp-cloud.service';
 import { comMarcaDoRobo } from './mensagens-do-robo';
 import { OPCOES_A_PARTIR_DO, OPCOES_DEPOIS_MIN, OPCOES_DE_NOVO_DIAS, TEXTO_PADRAO, ajustesNovos, lerAvaliacao } from './pedir-avaliacao';
+import { OPCOES_CASO_ATE, OPCOES_PRAZO_DIAS, ajustesDaNotaNovos, lerNota } from '../avaliacao-pedido/nota-do-pedido';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Escolha do PROVEDOR de WhatsApp pela loja (F2c).
@@ -197,7 +198,46 @@ export class WhatsappProvedorService {
         opcoes: { depoisMin: OPCOES_DEPOIS_MIN, aPartirDo: OPCOES_A_PARTIR_DO, deNovoDias: OPCOES_DE_NOVO_DIAS },
         textoPadrao: TEXTO_PADRAO,
       },
+      // "Pedir uma nota depois da entrega" (mig 453): os ajustes e as opções da tela.
+      nota: {
+        ...(await lerNota(this.db, tenantId)),
+        opcoes: { casoAte: OPCOES_CASO_ATE, prazoDias: OPCOES_PRAZO_DIAS },
+      },
     };
+  }
+
+  /**
+   * Salva os ajustes da "nota do pedido" (mig 453) — SÓ as colunas dela (V82): o ausente mantém (V16), o liga/desliga só
+   * verdadeiro/falso (V15), os números só das opções. Cada mudança vai para a auditoria.
+   */
+  async salvarNota(ator: AuthUser, dto: any) {
+    const antes = await lerNota(this.db, ator.tenantId);
+    const novo = ajustesDaNotaNovos(dto, antes);
+    const colunas = {
+      ativa: sql`nota_ativa = excluded.nota_ativa`,
+      casoAte: sql`nota_caso_ate = excluded.nota_caso_ate`,
+      prazoDias: sql`nota_prazo_dias = excluded.nota_prazo_dias`,
+    };
+    const mudar = (Object.keys(colunas) as (keyof typeof colunas)[]).filter((k) => dto[k] !== undefined).map((k) => colunas[k]);
+    await this.db.execute(sql`
+      insert into robo_config (tenant_id, nota_ativa, nota_caso_ate, nota_prazo_dias, atualizado_por)
+      values (${ator.tenantId}::uuid, ${novo.ativa}, ${novo.casoAte}, ${novo.prazoDias}, ${ator.colaboradorId}::uuid)
+      on conflict (tenant_id) do update
+         set ${sql.join(mudar, sql`, `)}, atualizado_por = excluded.atualizado_por, atualizado_em = now()`);
+    const mudou: Record<string, { de: unknown; para: unknown }> = {};
+    for (const k of ['ativa', 'casoAte', 'prazoDias'] as const) if (antes[k] !== novo[k]) mudou[k] = { de: antes[k], para: novo[k] };
+    if (Object.keys(mudou).length)
+      await this.auditoria.registrar({
+        tenantId: ator.tenantId,
+        atorId: ator.colaboradorId,
+        atorPerfil: ator.categoria,
+        tipo: 'config',
+        acao: antes.ativa !== novo.ativa ? (novo.ativa ? 'nota_do_pedido_ligada' : 'nota_do_pedido_desligada') : 'nota_do_pedido_alterada',
+        entidadeTipo: 'robo_config',
+        entidadeId: ator.tenantId,
+        detalhe: mudou,
+      });
+    return this.roboConfig(ator.tenantId);
   }
 
   /**

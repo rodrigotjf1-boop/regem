@@ -119,8 +119,12 @@ export type RespostaDoChamado = {
   assunto?: AssuntoDoAtendente;
 } & Partial<Omit<ForaDoHorario, 'posicao'>>;
 
-/** Os tipos de hoje do chamado do robô; o que vier fora (e não for um recado aceito) vira `humano` — como sempre foi. */
-const TIPOS_DO_CHAMADO = ['mudanca', 'erro', 'humano', 'outro', 'cancelamento'];
+/**
+ * Os tipos de hoje do chamado do robô; o que vier fora (e não for um recado aceito) vira `humano` — como sempre foi.
+ * `avaliacao`: a nota baixa do pedido do Regem (mig 453) — quem abre é o Regem, pela página do pedido (o placar a conta com
+ * os casos do robô; a avaliação do iFood tem a entrada própria, `registrarAvaliacao`).
+ */
+const TIPOS_DO_CHAMADO = ['mudanca', 'erro', 'humano', 'outro', 'cancelamento', 'avaliacao'];
 
 /**
  * Abre um chamado (handoff do robô → humano) e avisa a tela em tempo real.

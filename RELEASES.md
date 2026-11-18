@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **A nota do pedido pelo cliente (18/11, fase A1 do protótipo `mockups/regem-avaliacao-pedido.html`; mig 453 SÓ NUVEM —
+  `pedido_avaliacao` e `robo_config.nota_*`).** "Como foi o pedido?" na página do pedido (`/r/…`) depois da entrega, a
+  nota baixa vira caso "Avaliação" no Atendimento, Delivery › Avaliações (no servidor da loja, a tela pede à nuvem) e o
+  ajuste "Pedir uma nota depois da entrega" (nasce desligado); o link do Google só na nota 5; o "Chegou tudo certo?" passa
+  a barrar também o Anota Aí. `pedido_avaliacao` = SO_NUVEM no `sync-daemon.mjs` (o daemon mudou → o `.exe` do próximo
+  corte leva junto); a tela nova e a rota da loja vão no `.zip`.
+
 - **O prazo da IA da empresa passa a ser TOTAL (18/11, ERR-525; SEM migration; só nuvem).** `IaEmpresaService` manda ao SDK da
   Anthropic o sinal do prazo total junto do `timeout` de cada tentativa: com `maxRetries: 1`, "15 s" chegava a ~30 s (o
   robô, a foto, o copiloto e o Mister esperavam o dobro). A IA só roda na nuvem → vai no `.zip` sem efeito na loja.

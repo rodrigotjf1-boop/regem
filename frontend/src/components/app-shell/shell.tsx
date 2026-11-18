@@ -40,6 +40,7 @@ import {
   Settings,
   ShieldCheck,
   ShoppingCart,
+  Star,
   Store,
   UserPlus,
   Users,
@@ -118,6 +119,8 @@ const NAV: NavNode[] = [
       { href: '/delivery/mapa', label: 'Mapa ao vivo', icon: MapPin, perm: 'delivery' },
       { href: '/delivery/entregadores', label: 'Entregadores', icon: Bike, perm: 'delivery' },
       { href: '/clientes', label: 'Clientes', icon: Users, perm: 'delivery' },
+      // A nota do pedido pelo cliente (mig 453): a lista no modelo do Estoque. A mesma permissão da rota do servidor.
+      { href: '/delivery/avaliacoes', label: 'Avaliações', icon: Star, perm: 'delivery' },
       { href: '/whatsapp', label: 'WhatsApp', icon: MessageCircle, perm: 'delivery', tambem: ['/whatsapp/gasto'] },
       { href: '/marketing', label: 'Marketing', icon: Megaphone, perm: 'delivery' },
       { href: '/catalogo', label: 'Gestão do catálogo', icon: Store, perm: 'delivery' },

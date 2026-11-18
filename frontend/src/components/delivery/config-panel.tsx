@@ -24,6 +24,7 @@ import { LembreteCarrinho } from '@/components/delivery/lembrete-carrinho';
 import { Cliente99Whatsapp } from '@/components/delivery/cliente-99-whatsapp';
 import { ConferirEntrega } from '@/components/delivery/conferir-entrega';
 import { PedirAvaliacao } from '@/components/delivery/pedir-avaliacao';
+import { NotaDoPedido } from '@/components/delivery/nota-do-pedido';
 import { AjustesDoAtendimento } from '@/components/atendimento/ajustes-do-atendimento';
 import { localizacaoAtual, geocodificar, mapaEmbedUrl } from '@/lib/geo';
 import { INDICADO_PARA, ROTULO_TEMPLATE, TEMPLATES, templateDe } from '@/components/loja/cardapio/tipos-template';
@@ -1509,6 +1510,7 @@ function Robo({ loja, up, onSalvar, salvando, pode }: { loja: any; up: (p: any) 
       <AvisoDeAtraso pode={pode} loja={loja} />
       <LembreteCarrinho pode={pode} loja={loja} />
       <ConferirEntrega pode={pode} loja={loja} />
+      <NotaDoPedido pode={pode} />
       <PedirAvaliacao pode={pode} loja={loja} />
       <Cliente99Whatsapp pode={pode} loja={loja} />
 

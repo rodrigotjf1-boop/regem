@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import 'leaflet/dist/leaflet.css';
+import { ComoFoiOPedido } from '@/components/rastreio/como-foi-o-pedido';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Rastreio PÚBLICO do cliente (sem login) — consome GET /rastreio/:token.
@@ -289,12 +290,16 @@ export default function RastreioPage() {
             )}
 
             {entregue ? (
-              // Após a entrega, o acompanhamento ao vivo encerra (o link "expira"): só o agradecimento.
-              <div style={{ background: '#fff', border: '1px solid #d9e0e8', borderRadius: 14, padding: 28, textAlign: 'center', boxShadow: '0 8px 24px rgba(15,34,48,.06)' }}>
-                <div style={{ fontSize: 40 }}>✅</div>
-                <p style={{ fontSize: 15, fontWeight: 700, color: NAVY, margin: '8px 0 4px' }}>Pedido entregue</p>
-                <p style={{ fontSize: 13, color: '#48586a' }}>Bom apetite! 🍽️ O acompanhamento ao vivo foi encerrado.</p>
-              </div>
+              // Após a entrega, o acompanhamento ao vivo encerra (o link "expira"): o agradecimento e, se a loja ligou,
+              // o "Como foi o pedido?" (a nota do pedido — mig 453).
+              <>
+                <div style={{ background: '#fff', border: '1px solid #d9e0e8', borderRadius: 14, padding: 28, textAlign: 'center', boxShadow: '0 8px 24px rgba(15,34,48,.06)' }}>
+                  <div style={{ fontSize: 40 }}>✅</div>
+                  <p style={{ fontSize: 15, fontWeight: 700, color: NAVY, margin: '8px 0 4px' }}>Pedido entregue</p>
+                  <p style={{ fontSize: 13, color: '#48586a' }}>Bom apetite! 🍽️ O acompanhamento ao vivo foi encerrado.</p>
+                </div>
+                <ComoFoiOPedido token={token} />
+              </>
             ) : (
               <>
                 <div style={{ background: '#fff', border: '1px solid #d9e0e8', borderRadius: 14, overflow: 'hidden', boxShadow: '0 8px 24px rgba(15,34,48,.06)' }}>

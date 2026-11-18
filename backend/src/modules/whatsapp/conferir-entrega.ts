@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { chaveTelefone, sqlChaveTelefone } from '../../common/telefone-chave';
 import { abrirChamadoPeloRobo, type Emitir } from '../atendimento/abrir-chamado';
+import { CANAIS_FORA_DO_REGEM } from '../avaliacao-pedido/nota-do-pedido';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -21,8 +22,13 @@ export const RESPOSTA_ATE_HORAS = 6;
 
 export const ACAO_PERGUNTA = 'conferir_entrega';
 export const ACAO_RESPOSTA = 'conferir_entrega_resposta';
-/** Canais de marketplace: o contato com o cliente é da plataforma (termos do iFood e da 99). */
-export const CANAIS_DE_FORA = ['ifood', '99food'];
+/**
+ * Os canais cujo cliente não é do Regem: os marketplaces (o contato é da plataforma — termos do iFood e da 99), os
+ * integrados (Anota Aí, Cardápio Web… — o contato é deles) e o totem. A MESMA lista da nota do pedido (decisão 9 do
+ * protótipo `mockups/regem-avaliacao-pedido.html`, aprovado em 18/11/2026: o "Chegou tudo certo?" passa a barrar também o
+ * Anota Aí — regra de `DeliveryService.podeAvisarPeloWhatsapp`).
+ */
+export const CANAIS_DE_FORA: readonly string[] = CANAIS_FORA_DO_REGEM;
 
 export type RespostaDaConferencia = 'ok' | 'problema' | 'nao_chegou';
 

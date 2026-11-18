@@ -8,7 +8,10 @@ import * as schema from '../../db/schema';
 import { PedirAvaliacaoProcessor } from './pedir-avaliacao.processor';
 import { TEXTO_PADRAO, lerAvaliacao, textoDaAvaliacao } from './pedir-avaliacao';
 import { WhatsappProvedorService } from './whatsapp-provedor.service';
-import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
+import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
+import { NotaDoPedidoService } from '../avaliacao-pedido/nota-do-pedido.service';
+import { OPCOES_DO_PESO } from '../avaliacao-pedido/nota-do-pedido';
 import { hojeISO } from '../../common/data';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -53,12 +56,14 @@ descrever('"pedir avaliação" depois da entrega (Postgres)', () => {
   const empresas: string[] = [];
   const pubAntes = process.env.PUBLIC_API_BASE;
 
-  const aplicar = (arq: string) =>
+  const aplicar = (arq: string, travarEmpresa = false) =>
     repetirNaCorridaDeCatalogo(async () => {
       const c = await admin.connect();
       try {
         await c.query('begin');
-        const r: any = await c.query(readFileSync(MIG(arq), 'utf8'));
+        const texto = readFileSync(MIG(arq), 'utf8');
+        // A migration que cria tabela com chave para `empresa` E altera outra: `empresa` travada PRIMEIRO (ERR-377).
+        const r: any = await c.query(travarEmpresa ? comTravaDaEmpresa(texto) : texto);
         await c.query('commit');
         return r;
       } catch (e) {
@@ -79,6 +84,11 @@ descrever('"pedir avaliação" depois da entrega (Postgres)', () => {
     const r = await aplicar('365_pedir_avaliacao.sql');
     const conf = (Array.isArray(r) ? r[r.length - 1] : r).rows as { objeto: string; ok: boolean }[];
     if (conf.length !== 6 || conf.some((l) => !l.ok)) throw new Error(`conferência da 365: ${JSON.stringify(conf)}`);
+    // A nota do pedido (mig 453): a tabela nova e os ajustes no `robo_config`. Aqui, e não numa spec própria: esta já aplica
+    // a cadeia do robô (ERR-451).
+    const r453 = await aplicar('453_pedido_avaliacao.sql', true);
+    const conf453 = (Array.isArray(r453) ? r453[r453.length - 1] : r453).rows as { objeto: string; ok: boolean }[];
+    if (conf453.length !== 4 || conf453.some((l) => !l.ok)) throw new Error(`conferência da 453: ${JSON.stringify(conf453)}`);
     await admin.query(`create schema ${SCHEMA}`);
     await admin.query(`
       create table ${SCHEMA}.marketing_optout (
@@ -96,7 +106,7 @@ descrever('"pedir avaliação" depois da entrega (Postgres)', () => {
     else process.env.PUBLIC_API_BASE = pubAntes;
     await pool.end();
     if (empresas.length) {
-      for (const t of ['avaliacao_pedida', 'pedido_aviso_atraso', 'pedido_envio', 'atendimento_chamado', 'robo_pausa', 'robo_config', 'whatsapp_mensagem', 'pedido_externo', 'cliente', 'cardapio_config'])
+      for (const t of ['pedido_avaliacao', 'avaliacao_pedida', 'pedido_aviso_atraso', 'pedido_envio', 'atendimento_chamado', 'robo_pausa', 'robo_config', 'whatsapp_mensagem', 'pedido_externo', 'cliente', 'cardapio_config'])
         await admin.query(`delete from ${t} where tenant_id = any($1::uuid[])`, [empresas]).catch(() => {});
       await admin.query('delete from empresa where id = any($1::uuid[])', [empresas]).catch(() => {});
     }
@@ -410,7 +420,7 @@ descrever('"pedir avaliação" depois da entrega (Postgres)', () => {
   });
 
   it('o plano: a conversa (cada forma do número na condição do índice), a memória do cliente e os casos do pedido pelo ÍNDICE (LIC-113)', async () => {
-    await admin.query('analyze whatsapp_mensagem, avaliacao_pedida, atendimento_chamado');
+    await admin.query('analyze whatsapp_mensagem, avaliacao_pedida, atendimento_chamado, pedido_avaliacao');
     const explicar = async (consulta: any) => {
       const c = await pool.connect();
       try {
@@ -437,6 +447,8 @@ descrever('"pedir avaliação" depois da entrega (Postgres)', () => {
       sql`select 1 from avaliacao_pedida a where a.tenant_id = ${t}::uuid and a.chave_telefone = ${CHAVE} and a.tocou_em is not null`,
       sql`select max(a.criado_em) from avaliacao_pedida a where a.tenant_id = ${t}::uuid and a.chave_telefone = ${CHAVE} and a.resultado = 'enviado'`,
       sql`select 1 from avaliacao_pedida a where a.pedido_id = ${randomUUID()}::uuid`,
+      // quem já deu nota pelo Regem (mig 453)
+      sql`select 1 from pedido_avaliacao nd where nd.pedido_id = ${randomUUID()}::uuid`,
     ])
       expect(await explicar(busca)).not.toMatch(/Seq Scan/);
   });
@@ -501,5 +513,189 @@ descrever('"pedir avaliação" depois da entrega (Postgres)', () => {
         [t, randomUUID(), `219${String(Math.random()).slice(2, 10)}`, resultado, dias, tocou ? new Date() : null],
       );
     expect((await lerAvaliacao(db, t)).doMes).toEqual({ enviados: 2, tocaram: 2 });
+  });
+
+  // ───────────────────────── A NOTA DO PEDIDO (mig 453, fase A1) ─────────────────────────
+  // Aqui (e não numa spec própria) porque esta spec já aplica a cadeia do robô (ERR-451). As regras sem banco estão em
+  // `avaliacao-pedido/nota-do-pedido.spec.ts`.
+  const eventos: string[] = [];
+  const notas = new NotaDoPedidoService(db, { emit: (e: string) => void eventos.push(e) } as any);
+  type LojaDaNota = { ativa?: boolean; casoAte?: number; prazoDias?: number; link?: string | null };
+  /** A loja com a nota do pedido ligada (ou não), a nota que abre caso, o prazo e o link do cartão do Google. */
+  async function lojaDaNota(o: LojaDaNota = {}) {
+    const t = (await q(`insert into empresa (nome) values ('Mister Teste') returning id`))[0].id as string;
+    empresas.push(t);
+    await q(`insert into robo_config (tenant_id, nota_ativa, nota_caso_ate, nota_prazo_dias, avaliacao_link) values ($1, $2, $3, $4, $5)`, [
+      t,
+      o.ativa ?? true,
+      o.casoAte ?? 2,
+      o.prazoDias ?? 7,
+      o.link === undefined ? LINK : o.link,
+    ]);
+    return t;
+  }
+  /** O token do link do rastreio (nasce com a linha — mig 212). */
+  const tokenDe = async (id: string) => (await q(`select rastreio_token from pedido_externo where id = $1`, [id]))[0].rastreio_token as string;
+  const notaDe = (id: string) => q(`select nota, pesou, comentario, origem, chamado_id from pedido_avaliacao where pedido_id = $1`, [id]);
+
+  it('a nota pela página: o estado de cada situação — aberta, de fora (Anota Aí, iFood), não entregue, encerrou, desligado — e o token que não existe', async () => {
+    const t = await lojaDaNota();
+    const ok = await pedido(t); // entregue há 60 min
+    const e = await notas.estadoPublico(await tokenDe(ok));
+    expect(e).toMatchObject({ situacao: 'aberta', loja: 'Mister Teste', prazoDias: 7, feita: null, google: null });
+    expect(e.opcoes).toEqual(OPCOES_DO_PESO);
+    expect(Math.abs(new Date(e.ate!).getTime() - (Date.now() - 60 * 60_000 + 7 * 86_400_000))).toBeLessThan(120_000);
+    for (const canal of ['anotaai', 'ifood', '99food', 'totem']) expect((await notas.estadoPublico(await tokenDe(await pedido(t, { canal })))).situacao).toBe('fora');
+    expect((await notas.estadoPublico(await tokenDe(await pedido(t, { status: 'despachado' })))).situacao).toBe('nao_entregue');
+    expect((await notas.estadoPublico(await tokenDe(await pedido(t, { min: 8 * 24 * 60 })))).situacao).toBe('encerrada');
+    const desligada = await lojaDaNota({ ativa: false });
+    expect(await notas.estadoPublico(await tokenDe(await pedido(desligada)))).toMatchObject({ situacao: 'desligado', loja: null, ate: null });
+    const semAjuste = (await q(`insert into empresa (nome) values ('sem robô') returning id`))[0].id as string;
+    empresas.push(semAjuste);
+    expect((await notas.estadoPublico(await tokenDe(await pedido(semAjuste)))).situacao).toBe('desligado');
+    await expect(notas.estadoPublico('naoexiste12345678')).rejects.toThrow(NotFoundException);
+    await expect(notas.estadoPublico('../')).rejects.toThrow(NotFoundException);
+  });
+
+  it('grava UMA vez: a nota 5 devolve o Google, a 4 não; a segunda vez e a corrida de duas abas não gravam outra; fora da regra não grava', async () => {
+    const t = await lojaDaNota();
+    const p5 = await pedido(t);
+    const tk = await tokenDe(p5);
+    const r = await notas.avaliarPelaPagina(tk, { nota: 5, pesou: ['Tempo de entrega', 'Sabor'], comentario: ' Chegou quentinho! ' });
+    expect(r).toMatchObject({ situacao: 'avaliado', caso: false, google: LINK, feita: { nota: 5, origem: 'pagina' } });
+    expect(await notaDe(p5)).toEqual([{ nota: 5, pesou: ['Sabor', 'Tempo de entrega'], comentario: 'Chegou quentinho!', origem: 'pagina', chamado_id: null }]);
+    await expect(notas.avaliarPelaPagina(tk, { nota: 1 })).rejects.toThrow(ConflictException);
+    expect(await notaDe(p5)).toHaveLength(1);
+    // A página aberta de novo: "Você já avaliou", com o Google porque a nota foi 5.
+    expect(await notas.estadoPublico(tk)).toMatchObject({ situacao: 'avaliado', feita: { nota: 5, origem: 'pagina' }, google: LINK });
+    // Nota 4: só o obrigado (decisão do dono — o Google só na 5); e a página depois também não mostra o Google.
+    const p4 = await pedido(t);
+    expect(await notas.avaliarPelaPagina(await tokenDe(p4), { nota: 4 })).toMatchObject({ google: null, caso: false });
+    expect((await notas.estadoPublico(await tokenDe(p4))).google).toBeNull();
+    // Duas abas ao mesmo tempo: uma grava, a outra recebe "Você já avaliou" (o índice único — V24).
+    const pc = await pedido(t);
+    const tkc = await tokenDe(pc);
+    const corrida = await Promise.allSettled([notas.avaliarPelaPagina(tkc, { nota: 5 }), notas.avaliarPelaPagina(tkc, { nota: 3 })]);
+    expect(corrida.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+    expect((corrida.find((x) => x.status === 'rejected') as PromiseRejectedResult).reason).toBeInstanceOf(ConflictException);
+    expect(await notaDe(pc)).toHaveLength(1);
+    // Sem link no cartão do Google: a nota 5 vai só com o obrigado.
+    const semLink = await lojaDaNota({ link: null });
+    expect((await notas.avaliarPelaPagina(await tokenDe(await pedido(semLink)), { nota: 5 })).google).toBeNull();
+    // Fora da regra: nada grava.
+    const naoEntregue = await pedido(t, { status: 'despachado' });
+    await expect(notas.avaliarPelaPagina(await tokenDe(naoEntregue), { nota: 5 })).rejects.toThrow(/depois que o pedido for entregue/);
+    const velho = await pedido(t, { min: 8 * 24 * 60 });
+    await expect(notas.avaliarPelaPagina(await tokenDe(velho), { nota: 5 })).rejects.toThrow(/encerrou/);
+    const deFora = await pedido(t, { canal: 'anotaai' });
+    await expect(notas.avaliarPelaPagina(await tokenDe(deFora), { nota: 5 })).rejects.toThrow(ForbiddenException);
+    const novo = await pedido(t);
+    await expect(notas.avaliarPelaPagina(await tokenDe(novo), { nota: 7 })).rejects.toThrow(/nota de 1 a 5/);
+    for (const id of [naoEntregue, velho, deFora, novo]) expect(await notaDe(id)).toEqual([]);
+  });
+
+  it('a nota baixa abre o caso "Avaliação" ligado ao pedido (até a nota da loja); a do mesmo telefone soma ao caso aberto', async () => {
+    eventos.length = 0;
+    const t = await lojaDaNota();
+    const p2 = await pedido(t);
+    expect(await notas.avaliarPelaPagina(await tokenDe(p2), { nota: 2, pesou: ['Temperatura'], comentario: 'Chegou frio.' })).toMatchObject({ caso: true, google: null });
+    const [nd] = await notaDe(p2);
+    expect(nd.chamado_id).toBeTruthy();
+    const [c] = await q(`select tipo, canal, status, pedido_id, mensagem, cliente from atendimento_chamado where id = $1`, [nd.chamado_id]);
+    expect(c).toMatchObject({ tipo: 'avaliacao', canal: 'cardapio', status: 'aberto', pedido_id: p2, cliente: 'Renata Lima' });
+    expect(c.mensagem).toContain('Nota 2 de 5 (Ruim) pela página do pedido');
+    expect(c.mensagem).toContain('O que mais pesou: Temperatura.');
+    expect(c.mensagem).toContain('Comentário: "Chegou frio."');
+    expect(eventos).toContain('atendimento.novo');
+    // Nota 3 com "até 2": sem caso.
+    const p3 = await pedido(t, { telefone: '21900001111' });
+    expect((await notas.avaliarPelaPagina(await tokenDe(p3), { nota: 3 })).caso).toBe(false);
+    expect((await notaDe(p3))[0].chamado_id).toBeNull();
+    // "1, 2 ou 3": a nota 3 abre.
+    const t3 = await lojaDaNota({ casoAte: 3 });
+    expect((await notas.avaliarPelaPagina(await tokenDe(await pedido(t3)), { nota: 3 })).caso).toBe(true);
+    // O mesmo telefone com caso aberto nas últimas 12 h: a nota soma a ele, não abre outro.
+    const outro = await pedido(t);
+    await notas.avaliarPelaPagina(await tokenDe(outro), { nota: 1 });
+    expect((await notaDe(outro))[0].chamado_id).toBe(nd.chamado_id);
+    expect((await q(`select count(*)::int as n from atendimento_chamado where tenant_id = $1`, [t]))[0].n).toBe(1);
+  });
+
+  it('Delivery › Avaliações: os números contam o período inteiro; a loja da linha ou sem loja (V4); hoje × 7 dias; o pedido e o caso', async () => {
+    const t = await lojaDaNota();
+    const [lojaA, lojaB] = [randomUUID(), randomUUID()];
+    // [nota, há quantos dias, loja, comentário]
+    const linhas: [number, number, string | null, string | null][] = [
+      [5, 0, lojaA, 'Chegou quentinho!'],
+      [2, 0, lojaA, 'Frio.'],
+      [4, 1, null, null],
+      [3, 2, lojaB, null],
+      [1, 10, lojaA, 'Velho.'],
+    ];
+    const ids: string[] = [];
+    for (const [i, [nota, dias, loja, comentario]] of linhas.entries()) {
+      const id = await pedido(t);
+      ids.push(id);
+      await q(
+        `insert into pedido_avaliacao (tenant_id, unidade_id, pedido_id, nota, comentario, origem, criado_em)
+         values ($1, $2, $3, $4, $5, 'pagina', now() - make_interval(days => $6) - make_interval(secs => $7))`,
+        [t, loja, id, nota, comentario, dias, i],
+      );
+    }
+    await q(`update pedido_externo set itens = '[{"nome":"Smash duplo","quantidade":1},{"nome":"Batata média","quantidade":2}]'::jsonb where id = $1`, [ids[0]]);
+    const [caso] = await q(`insert into atendimento_chamado (tenant_id, tipo, canal, status, pedido_id) values ($1, 'avaliacao', 'cardapio', 'aberto', $2) returning id`, [t, ids[1]]);
+    await q(`update pedido_avaliacao set chamado_id = $1 where pedido_id = $2`, [caso.id, ids[1]]);
+    // Os entregues do Regem no período: os 5 acima mais 1 sem nota; o Anota Aí e a retirada não contam.
+    await pedido(t);
+    await pedido(t, { canal: 'anotaai' });
+    await pedido(t, { tipo: 'retirada' });
+    // Outra empresa não aparece.
+    const outra = await lojaDaNota();
+    await q(`insert into pedido_avaliacao (tenant_id, pedido_id, nota, origem) values ($1, $2, 5, 'pagina')`, [outra, await pedido(outra)]);
+
+    const daLojaA = await notas.listaNaNuvem(t, lojaA, '7');
+    expect(daLojaA.kpis).toEqual({ avaliacoes: 3, media: 3.7, entregues: 6, notas: { 1: 0, 2: 1, 3: 0, 4: 1, 5: 1 } });
+    expect(daLojaA.lista.map((l: any) => l.nota)).toEqual([5, 2, 4]); // a mais nova primeiro
+    expect(daLojaA.lista[0]).toMatchObject({
+      comentario: 'Chegou quentinho!',
+      origem: 'pagina',
+      pedido: { id: ids[0], cliente: 'Renata Lima', itens: '1× Smash duplo · 2× Batata média', total: 50, minutos: 30 },
+      caso: null,
+    });
+    expect(daLojaA.lista[1].caso).toEqual({ id: caso.id, status: 'aberto' });
+    expect(daLojaA).toMatchObject({ periodo: '7', mais: false, ajustes: { ativa: true, casoAte: 2, prazoDias: 7 } });
+    // O presidente com "todas as lojas": a loja B entra; a de 10 dias continua fora dos 7 dias.
+    expect((await notas.listaNaNuvem(t, null, '7')).kpis.avaliacoes).toBe(4);
+    expect((await notas.listaNaNuvem(t, null, '30')).kpis.avaliacoes).toBe(5);
+    expect((await notas.listaNaNuvem(t, null, 'hoje')).lista.map((l: any) => l.nota)).toEqual([5, 2]);
+    // Período desconhecido vira 7 dias; a lista pela porta do servidor da loja é a mesma.
+    expect((await notas.lista(t, lojaA, 'qualquer')).periodo).toBe('7');
+  });
+
+  it('quem deu nota pelo Regem não recebe a mensagem separada do Google (na nota 5 o link foi junto com o obrigado)', async () => {
+    const { t, id } = await cenario();
+    await q(`insert into pedido_avaliacao (tenant_id, pedido_id, nota, origem) values ($1, $2, 4, 'pagina')`, [t, id]);
+    expect((await rotina.candidatos()).map((c) => c.id)).not.toContain(id);
+    await rotina.pedir();
+    expect(await decisao(id)).toBeNull();
+    expect(meus(t)).toHaveLength(0);
+  });
+
+  it('o ajuste da nota: nasce desligado; grava SÓ o que a tela mandou (V16) e não mexe no do Google (V82); vai à auditoria', async () => {
+    const t = (await q(`insert into empresa (nome) values ('teste ajuste nota') returning id`))[0].id as string;
+    empresas.push(t);
+    const ator: any = { tenantId: t, colaboradorId: null, categoria: 'gerente' };
+    expect((await ajustes.roboConfig(t)).nota).toEqual({ ativa: false, casoAte: 2, prazoDias: 7, opcoes: { casoAte: [1, 2, 3], prazoDias: [2, 7, 30] } });
+    await ajustes.salvarAvaliacao(ator, { ativa: true, link: LINK });
+    const r = await ajustes.salvarNota(ator, { ativa: true });
+    expect(r.nota).toMatchObject({ ativa: true, casoAte: 2, prazoDias: 7 });
+    expect(r.avaliacao).toMatchObject({ ativa: true, link: LINK });
+    await ajustes.salvarNota(ator, { casoAte: 3, prazoDias: 30 });
+    expect((await ajustes.roboConfig(t)).nota).toMatchObject({ ativa: true, casoAte: 3, prazoDias: 30 });
+    expect((await ajustes.roboConfig(t)).avaliacao).toMatchObject({ ativa: true, link: LINK });
+    expect(auditados.map((a) => a.acao)).toEqual(['pedir_avaliacao_ligado', 'nota_do_pedido_ligada', 'nota_do_pedido_alterada']);
+    expect(auditados[2].detalhe).toEqual({ casoAte: { de: 2, para: 3 }, prazoDias: { de: 7, para: 30 } });
+    await expect(ajustes.salvarNota(ator, { casoAte: 5 })).rejects.toThrow(/Nota que abre caso/);
+    await expect(ajustes.salvarNota(ator, { ativa: 'sim' })).rejects.toThrow();
   });
 });
