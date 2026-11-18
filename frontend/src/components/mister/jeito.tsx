@@ -12,8 +12,8 @@ import { SkeletonList } from '@/components/ui/skeleton';
 // MISTER › "JEITO E MEMÓRIA" (versão 4 do Mister; protótipo `mockups/regem-mister-jeito-memoria.html`, aprovado pelo dono em
 // 18/11/2026). Fase M4a: o PERFIL (os mesmos do atendente virtual) e o "JEITO DA EMPRESA" — a mesma rota dos ajustes da
 // conversa (`/mister/conversa`, mig 447), que grava só o que veio. Fase M4c: os AVISOS ESCRITOS pelo Mister, um ajuste por
-// grupo (a mesma rota, a coluna `avisos_escritos` da 447). O "fica de olho" (M4d) entra nesta mesma parte na fase dele; "O
-// que o Mister sabe" (M4b) fica logo abaixo (`memoria.tsx`). Só o presidente (a rota barra).
+// grupo (a mesma rota, a coluna `avisos_escritos` da 447). Fase M4d: a chave "Fica de olho" e lembretes (mig 452, nasce
+// desligada). "O que o Mister sabe" (M4b) fica logo abaixo (`memoria.tsx`). Só o presidente (a rota barra).
 
 /** Os perfis, na ordem e com os nomes do atendente virtual (as chaves são as do servidor — `perfis-do-atendente.ts`). */
 export const PERFIS_DO_MISTER: { v: string; rotulo: string }[] = [
@@ -41,8 +41,14 @@ const comoTexto = (lista: unknown): string =>
     .join(',');
 const comoLista = (v: Valor | undefined): string[] => String(v ?? '').split(',').filter(Boolean);
 
-type Conversa = { perfil?: string; jeito?: string | null; avisosEscritos?: string[] };
-const doServidor = (c: Conversa | undefined): Valores => ({ perfil: c?.perfil ?? 'hoje', jeito: c?.jeito ?? '', avisosEscritos: comoTexto(c?.avisosEscritos) });
+type Conversa = { perfil?: string; jeito?: string | null; avisosEscritos?: string[]; ficaDeOlho?: boolean };
+const doServidor = (c: Conversa | undefined): Valores => ({
+  perfil: c?.perfil ?? 'hoje',
+  jeito: c?.jeito ?? '',
+  avisosEscritos: comoTexto(c?.avisosEscritos),
+  // M4d (mig 452): nasce desligado; o servidor antigo (sem o campo) também é "desligado".
+  ficaDeOlho: c?.ficaDeOlho === true,
+});
 
 /** As marcas dos grupos (decisão 7 do protótipo: um por grupo, nascendo desligado). */
 function MarcasDosAvisos({ valor, aoMudar }: { valor: Valor; aoMudar: (v: Valor) => void }) {
@@ -136,6 +142,13 @@ export function JeitoDoMister() {
               'Em vez do texto fixo, o Mister escreve o aviso com o que importa: há quanto tempo, se é o único, o que fazer. Quem descobre o problema continua sendo a regra, sem IA. Sem IA, sem crédito ou fora das 24 horas, vai o texto de hoje. Gasta cerca de US$ 0,001 por aviso, na chave da empresa.',
             desenhar: (v, aoMudar) => <MarcasDosAvisos valor={v} aoMudar={aoMudar} />,
           },
+          {
+            id: 'ficaDeOlho',
+            rotulo: '"Fica de olho" e lembretes',
+            tipo: 'chave',
+            palavras: 'fica de olho lembrete lembrar avisar pedido',
+            ajuda: 'Pela conversa: "me avisa quando o #284 sair", "me lembra amanhã às 10h de pagar o gás". Até 3 "fica de olho" e 10 lembretes por pessoa.',
+          },
         ],
       },
     ],
@@ -156,6 +169,7 @@ export function JeitoDoMister() {
     if (mudou.includes('perfil')) corpo.perfil = String(valores.perfil);
     if (mudou.includes('jeito')) corpo.jeito = String(valores.jeito ?? '').trim() || null;
     if (mudou.includes('avisosEscritos')) corpo.avisosEscritos = comoLista(valores.avisosEscritos);
+    if (mudou.includes('ficaDeOlho')) corpo.ficaDeOlho = valores.ficaDeOlho === true;
     setSalvando(true);
     setErro(undefined);
     try {

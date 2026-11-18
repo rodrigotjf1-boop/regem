@@ -1534,6 +1534,14 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     await grupoFiscal.uncheck();
     await salvar();
     ok(JSON.stringify(S.salvamentosConv.at(-1)) === JSON.stringify({ avisosEscritos: ['loja'] }), `avisos escritos: desmarcar manda a lista sem ele (${JSON.stringify(S.salvamentosConv.at(-1))})`);
+    // M4d: a chave "Fica de olho" e lembretes — nasce desligada; ligar manda SÓ ela.
+    const olho = page.getByRole('switch', { name: '"Fica de olho" e lembretes' });
+    ok((await olho.getAttribute('aria-checked')) === 'false', '"fica de olho": nasce desligado');
+    ok(/me avisa quando o #284 sair/.test(await page.locator('main').innerText()), '"fica de olho": a ajuda traz os exemplos da conversa');
+    await olho.click();
+    await salvar();
+    ok(JSON.stringify(S.salvamentosConv.at(-1)) === JSON.stringify({ ficaDeOlho: true }), `"fica de olho": ligar manda SÓ a chave (${JSON.stringify(S.salvamentosConv.at(-1))})`);
+    ok((await olho.getAttribute('aria-checked')) === 'true', '"fica de olho": segue ligado depois de salvar');
     ok(erros.length === 0, `jeito: sem erro (${erros.join(' | ')})`);
     await ctx.close();
     // A leitura que falha: a frase e "Tentar de novo".
@@ -1624,7 +1632,9 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     await page.getByLabel('Jeito da empresa', { exact: true }).fill('Fale como sócio, sem formalidade. No fim da noite, comece pelo que deu errado.');
     // M4c: os quatro grupos marcados (a linha das marcas quebra no estreito).
     for (const g of ['Na loja', 'Servidor', 'Fiscal', 'O próprio Mister']) await page.getByLabel(g, { exact: true }).check();
-    await page.waitForSelector('text=3 alterações ainda não salvas');
+    // M4d: a chave do "fica de olho" ligada também.
+    await page.getByRole('switch', { name: '"Fica de olho" e lembretes' }).click();
+    await page.waitForSelector('text=4 alterações ainda não salvas');
     m = await medir(page);
     ok(m.length === 0, `${w}px: "Jeito e memória" com a barra de salvar, sem barra lateral (${m.join(' | ')})`);
     const area = await page.getByLabel('Jeito da empresa', { exact: true }).boundingBox();

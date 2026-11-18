@@ -1209,7 +1209,21 @@ conversa"): a memória entra no bloco da conversa, sem quebrar o cache.
   nenhum link, o pedido ("#284", "nº 1234") e a loja como estão no título; não passou, sem IA, sem crédito ou a IA
   falhou: vai o texto fixo de sempre, com o motivo na trilha (`reserva`); o escrito fica marcado (`escrito`). Fora das 24
   horas vai o modelo aprovado e a IA nem é chamada. O lembrete e o desfecho ficam fixos. Nada de telefone nem de id no que
-  vai à IA (ERR-524: o `aberto_em` do `db.execute` chega como texto — lido como ISO no SQL).
+  vai à IA (ERR-524: o `aberto_em` do `db.execute` chega como texto — lido como ISO no SQL). **No ar (#1150).**
+- **M4d parte 1 — o "fica de olho" num pedido e o lembrete (mig 452, só nuvem — `mister_vigia` e
+  `mister_conversa_config.fica_de_olho`):** o ajuste "“Fica de olho” e lembretes" em Mister › "Jeito e memória" › Avisos,
+  nascendo DESLIGADO. Duas ferramentas novas (não são consulta, uma de cada vez): `ficar_de_olho` (comecar/parar/listar —
+  acha o pedido dos canais como a história do pedido, com a permissão do Delivery; vale até as 06:00 da loja) e `lembrete`
+  (criar/listar/cancelar — o texto numa linha de até 200 letras, sem link nem senha; o "quando" em AAAA-MM-DDTHH:MM da
+  loja, no futuro e até 30 dias). Até 3 "fica de olho" e 10 lembretes ativos por pessoa, conferidos e gravados na mesma
+  transação com a trava da empresa (V98). A volta de cada minuto (`MisterVigiaService`): vence calado o "fica de olho"
+  depois das 06:00; o lembrete da hora é marcado "feito" ANTES de sair (no máximo uma vez); o pedido olhado que mudou de
+  situação sai numa mensagem só por mudança (gravação condicional pelo estado de antes), e a situação final (entregue,
+  concluído, cancelado) encerra. Empresa que desligou o ajuste ou o módulo: o marcado é cancelado sem mandar. A entrega é
+  pelo número do Mister; fora das 24 horas, o modelo aprovado ("Ver o que fazer"), e o toque traz o texto só a quem é. A
+  linha guarda o resultado, nunca o telefone. A avaliação ganhou as perguntas 45 ("me avisa quando o pedido 284 sair") e
+  46 ("me lembra amanhã às 10h de pagar o gás"). **Parte 2** (sem migration — a tabela já aceita): o "fica de olho" no
+  caixa, na impressora e no canal, e a senha do balcão.
 
 ## 5. O que depende do dono
 

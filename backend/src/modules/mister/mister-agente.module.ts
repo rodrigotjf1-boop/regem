@@ -30,6 +30,7 @@ import { MisterLinkController } from './mister-link.controller';
 import { MisterLinkPublicoController } from './mister-link-publico.controller';
 import { MisterLinkPublicoService } from './mister-link-publico.service';
 import { MisterPontoDoMesService } from './mister-ponto-do-mes.service';
+import { MisterVigiaService } from './mister-vigia.service';
 import { MisterPropostasService } from './mister-propostas.service';
 import { MisterRecadosService } from './mister-recados.service';
 import { MisterRelatoriosService } from './mister-relatorios.service';
@@ -99,6 +100,8 @@ import { MisterModule } from './mister.module';
     MisterRecadosService,
     // M3e parte 2: os botões do arquivo do ponto do mês ("Enviar ao contador" e "Ver antes").
     MisterPontoDoMesService,
+    // Versão 4, M4d (mig 452): o "fica de olho" e o lembrete — a volta de cada minuto e o toque fora das 24 horas.
+    MisterVigiaService,
   ],
   // F4.2a (mig 433): as rotas públicas da página do link com PIN (`/m/<código>`), que respondem pelo serviço das propostas.
   // M3a parte 3: a parte "Documentos" do Mister na loja (a lista e o "Desfazer o lançamento").

@@ -8,7 +8,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { perfilPadrao } from '../../auth/permissoes';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
-import { hojeISO, horaNoFuso, somarDias } from '../../common/data';
+import { dataNoFuso, hojeISO, horaNoFuso, somarDias } from '../../common/data';
 import { uuidDeChave } from '../../common/id-deterministico';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { PausaDoCanalService } from '../delivery/pausa-do-canal.service';
@@ -37,6 +37,8 @@ import { MisterDocumentosService } from './mister-documentos.service';
 import { MisterConversaConfigService } from './mister-conversa-config.service';
 import { MisterMemoriaService } from './mister-memoria.service';
 import { RECUSAS_DA_MEMORIA } from './mister-memoria';
+import { MisterVigiaService } from './mister-vigia.service';
+import { fimDaNoite } from './mister-vigia';
 import { FinanceiroService } from '../financeiro/financeiro.service';
 import { FRASES_DO_DOCUMENTO } from '../../common/documento-por-foto';
 import { crc16Pix } from '../../common/boleto';
@@ -442,7 +444,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -3859,6 +3861,8 @@ export function testesDoMisterComPostgres(): void {
         c41: { insumo: 'carne 56 g', periodo: 'hoje' },
         c42: { busca: 'iFood cancelamento' },
         c44: { acao: 'anotar', sobre: 'empresa', texto: '"Smash" é o X-Burger Smash.' },
+        c45: { acao: 'comecar', numero: '284' },
+        c46: { acao: 'criar', texto: 'pagar o gás', quando: '2026-11-14T10:00' },
       };
       const EXTRAS: Record<string, string[]> = { c37: ['produtos_mais_vendidos'], c38: ['servidor_e_incidentes'] };
       const entradaDe = (c: CasoDaAvaliacao, nome: string): Record<string, unknown> =>
@@ -3911,18 +3915,18 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_avaliacao`);
       });
 
-      it('a rodada inteira com as respostas certas: 44 de 44, o andamento, o custo, a lista e as perguntas na ordem', async () => {
+      it('a rodada inteira com as respostas certas: 46 de 46, o andamento, o custo, a lista e as perguntas na ordem', async () => {
         const ia = iaDeMentira();
         const servico = new MisterAvaliacaoService(db, ia as any);
         const r = await servico.rodar('Rita da DMS');
-        expect(r.total).toBe(44);
+        expect(r.total).toBe(46);
         const fim = await terminar(r.id);
-        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 44, acertos: 44, motivo: null });
+        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 46, acertos: 46, motivo: null });
         // O mesmo laço do agente: as instruções e as ferramentas de verdade, e o recurso da avaliação.
         expect(ia.pedidos.every((p) => p.recurso === 'mister_avaliacao' && p.tools === FERRAMENTAS && p.system[0].text === INSTRUCOES_DO_MISTER)).toBe(true);
         const lista = await servico.lista();
-        expect(lista).toMatchObject({ disponivel: true, total: 44, chaveDaDistribuicao: true });
-        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 44, acertos: 44, falhas: 0, oQueFalhou: [] });
+        expect(lista).toMatchObject({ disponivel: true, total: 46, chaveDaDistribuicao: true });
+        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 46, acertos: 46, falhas: 0, oQueFalhou: [] });
         // O custo pela tabela de preços do modelo, sobre os tokens somados de todas as chamadas.
         expect(lista.rodadas[0].custoUsd).toBeGreaterThan(0);
         const [tok] = await q(`select tokens_entrada, tokens_cache_leitura, tokens_saida from mister_avaliacao where id = $1`, [r.id]);
@@ -3942,7 +3946,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
         expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
         const r = await servico.rodar('Rita');
-        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 43 });
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 45 });
         const [velha] = await q(`select situacao, motivo from mister_avaliacao where id = $1`, [parada]);
         expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
         const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);
@@ -4102,6 +4106,126 @@ export function testesDoMisterComPostgres(): void {
         escritor.incidentes = [];
         await escritor.volta([A]);
         ia.roteiro = [];
+      }
+    });
+
+    it('versão 4, M4d: o "fica de olho" num pedido e o lembrete — o ajuste desligado, o teto com a trava, a volta que fala só quando muda, o lembrete uma vez só, fora das 24 h pelo modelo e o toque, o desligar e o vencer', async () => {
+      const conversaCfg = new MisterConversaConfigService(db, auditoria);
+      const vigia = new MisterVigiaService(db, numero, modulos, conversaCfg, entrada);
+      vigia.onModuleInit();
+      const ferr = new (MisterFerramentasService as any)(db, modulos, ...Array(9).fill(null), ...Array(12).fill(undefined), undefined, vigia) as MisterFerramentasService;
+      const tel = telefone();
+      await ligar('carlos', tel, A, 'gerente');
+      await janelaAberta('carlos');
+      const e = (await ferr.escopo(A, pessoa.carlos, tel))!;
+      await q(`delete from mister_vigia where tenant_id = any($1::uuid[])`, [[A, B]]);
+      const pedidos: string[] = [];
+      const novoPedido = async (status = 'confirmado') => {
+        const display = String(randomInt(100000, 999999));
+        const [p] = await q(
+          `insert into pedido_externo (tenant_id, unidade_id, canal, status, total, valor_bruto, taxa_entrega, taxa_entrega_dono, display_id, criado_em, confirmado_em)
+           values ($1, $2, 'ifood', $3, 50, 50, 0, 0, $4, now() - interval '20 minutes', now() - interval '18 minutes') returning id::text as id`,
+          [A, lojaDeA, status, display],
+        );
+        pedidos.push(p.id);
+        return { id: p.id as string, display };
+      };
+      const olhar = (numeroDito: string) => ferr.executar(e, 'ficar_de_olho', { acao: 'comecar', numero: numeroDito });
+      const vigiasDe = () => q(`select * from mister_vigia where tenant_id = $1 order by criado_em`, [A]);
+      const textos = () => numero.enviadas.map((m) => m.texto);
+      try {
+        // Nasce desligado: nada se marca, e a frase diz onde o presidente liga.
+        const p1 = await novoPedido();
+        expect(await olhar(p1.display)).toEqual({ ok: false, dados: { erro: expect.stringContaining('Mister › Jeito e memória') } });
+        expect(await ferr.executar(e, 'lembrete', { acao: 'criar', texto: 'pagar o gás', quando: '2030-01-01T10:00' })).toMatchObject({ ok: false });
+        expect(await vigiasDe()).toEqual([]);
+
+        // Ligado: fica de olho no pedido (o mesmo pedido duas vezes = uma linha), até as 06:00 da loja.
+        await conversaCfg.salvar(usuario('ana'), { ficaDeOlho: true });
+        const r1 = await olhar(`#${p1.display}`);
+        expect(r1).toMatchObject({ ok: true, dados: { combinado: true, pedido: expect.stringContaining(p1.display), situacaoAgora: 'em preparo', ate: 'as 06:00' } });
+        expect((await olhar(p1.display)).dados).toMatchObject({ observacao: 'Já estava de olho neste pedido.' });
+        const [v1] = await vigiasDe();
+        expect(v1).toMatchObject({ tipo: 'olho', alvo: 'pedido', referencia: `pe:${p1.id}`, estado: 'confirmado', situacao: 'ativo', colaborador_id: pessoa.carlos });
+        expect(new Date(v1.quando).toISOString()).toBe(fimDaNoite(new Date()).toISOString());
+        // Pedido que já acabou não se olha.
+        const acabado = await novoPedido('entregue');
+        expect((await olhar(acabado.display)).dados.erro).toContain('já está entregue');
+
+        // O teto (3 por pessoa), com dois pedidos AO MESMO TEMPO quando só cabe um: a trava da empresa deixa passar só um.
+        const p2 = await novoPedido();
+        expect((await olhar(p2.display)).ok).toBe(true);
+        const [p3, p4] = [await novoPedido(), await novoPedido()];
+        const juntos = await Promise.all([olhar(p3.display), olhar(p4.display)]);
+        expect(juntos.map((x) => x.ok).sort()).toEqual([false, true]);
+        expect(String((juntos.find((x) => !x.ok) as any).dados.erro)).toContain('Você já tem 3 "fica de olho" ativos');
+        expect((await vigiasDe()).filter((v: any) => v.situacao === 'ativo')).toHaveLength(3);
+
+        // A volta: sem mudança, calada; o pedido saiu → UMA mensagem (duas voltas juntas não repetem); entregue → a última.
+        numero.pedidos.length = 0;
+        expect(await vigia.volta(new Date(), [A])).toMatchObject({ mudancas: 0, lembretes: 0 });
+        expect(numero.enviadas).toEqual([]);
+        await q(`update pedido_externo set status = 'despachado', despachado_em = now() where id = $1`, [p1.id]);
+        const [va, vb] = await Promise.all([vigia.volta(new Date(), [A]), vigia.volta(new Date(), [A])]);
+        expect(va.mudancas + vb.mudancas).toBe(1);
+        expect(textos()).toEqual([expect.stringMatching(new RegExp(`^✅ O .*${p1.display} saiu para entrega às \\d\\d:\\d\\d\\.$`))]);
+        expect(numero.enviadas[0].para).toBe(tel);
+        await q(`update pedido_externo set status = 'entregue', entregue_em = now() where id = $1`, [p1.id]);
+        expect(await vigia.volta(new Date(), [A])).toMatchObject({ mudancas: 1 });
+        expect(textos().at(-1)).toMatch(/foi entregue às \d\d:\d\d\. Deixo de olhar este pedido\.$/);
+        expect((await vigiasDe()).find((v: any) => v.referencia === `pe:${p1.id}`)).toMatchObject({ situacao: 'feito', estado: 'entregue', resultado: 'enviado' });
+
+        // "Para de olhar" pela conversa, e a lista.
+        expect(await ferr.executar(e, 'ficar_de_olho', { acao: 'parar', trecho: p2.display })).toMatchObject({ ok: true, dados: { parou: true } });
+        expect((await ferr.executar(e, 'ficar_de_olho', { acao: 'listar' })).dados.marcados).toHaveLength(1);
+
+        // O lembrete: marcado para amanhã às 10:00 da loja; na hora, duas voltas juntas mandam UMA vez.
+        const amanha = somarDias(dataNoFuso(new Date()), 1);
+        const rl = await ferr.executar(e, 'lembrete', { acao: 'criar', texto: 'pagar o gás', quando: `${amanha}T10:00` });
+        expect(rl).toMatchObject({ ok: true, dados: { marcado: true, lembrete: 'pagar o gás', quando: `amanhã, ${amanha.slice(8, 10)}/${amanha.slice(5, 7)}, às 10:00` } });
+        expect((await ferr.executar(e, 'lembrete', { acao: 'criar', texto: 'a senha do cofre é 1234', quando: `${amanha}T11:00` })).dados.erro).toContain('não guarda senha');
+        await q(`update mister_vigia set quando = now() - interval '1 minute' where tenant_id = $1 and tipo = 'lembrete'`, [A]);
+        numero.pedidos.length = 0;
+        const [la, lb] = await Promise.all([vigia.volta(new Date(), [A]), vigia.volta(new Date(), [A])]);
+        expect(la.lembretes + lb.lembretes).toBe(1);
+        expect(numero.enviadas).toEqual([{ para: tel, texto: '🔔 Lembrete que você pediu: pagar o gás.', botoes: [] }]);
+        expect((await vigiasDe()).find((v: any) => v.tipo === 'lembrete')).toMatchObject({ situacao: 'feito', resultado: 'enviado' });
+
+        // Fora das 24 horas: o modelo aprovado; o toque em "Ver o que fazer" traz o texto (só a quem é).
+        await ferr.executar(e, 'lembrete', { acao: 'criar', texto: 'ligar para o contador', quando: `${amanha}T09:00` });
+        await q(`update mister_vigia set quando = now() - interval '1 minute' where tenant_id = $1 and tipo = 'lembrete' and situacao = 'ativo'`, [A]);
+        await q(`update mister_vinculo set ultima_entrada_em = now() - interval '2 days' where colaborador_id = $1`, [pessoa.carlos]);
+        numero.pedidos.length = 0;
+        expect(await vigia.volta(new Date(), [A])).toMatchObject({ lembretes: 1 });
+        expect(numero.enviadas).toHaveLength(1);
+        expect(numero.enviadas[0].texto).toMatch(/^modelo:mister_aviso:/);
+        const modelo = (await vigiasDe()).find((v: any) => v.rotulo === 'ligar para o contador');
+        expect(modelo).toMatchObject({ situacao: 'feito', resultado: 'modelo' });
+        expect(numero.enviadas[0].botoes[0].id).toBe(`mister:vigia:${modelo.id}`);
+        numero.pedidos.length = 0;
+        expect(await mandar(tel, 'Ver o que fazer', { codigoDoModelo: `mister:vigia:${modelo.id}` })).toBe('tocou_modelo');
+        expect(textos()).toEqual(['🔔 Lembrete que você pediu: ligar para o contador.']);
+        await janelaAberta('carlos');
+
+        // O "fica de olho" que passou das 06:00 sai calado.
+        await q(`update mister_vigia set quando = now() - interval '1 minute' where tenant_id = $1 and tipo = 'olho' and situacao = 'ativo'`, [A]);
+        numero.pedidos.length = 0;
+        expect((await vigia.volta(new Date(), [A])).vencidos).toBe(1);
+        expect(numero.enviadas).toEqual([]);
+
+        // O presidente desligou o ajuste: o que estava marcado é cancelado na volta, sem mandar nada.
+        await ferr.executar(e, 'lembrete', { acao: 'criar', texto: 'conferir o estoque', quando: `${amanha}T08:00` });
+        await conversaCfg.salvar(usuario('ana'), { ficaDeOlho: false });
+        await q(`update mister_vigia set quando = now() - interval '1 minute' where tenant_id = $1 and tipo = 'lembrete' and situacao = 'ativo'`, [A]);
+        expect(await vigia.volta(new Date(), [A])).toMatchObject({ lembretes: 0, cancelados: 1 });
+        expect(numero.enviadas).toEqual([]);
+        expect((await vigiasDe()).find((v: any) => v.rotulo === 'conferir o estoque')).toMatchObject({ situacao: 'cancelado', resultado: 'desligado' });
+        // A trilha nunca guarda o telefone.
+        expect(JSON.stringify(await vigiasDe())).not.toContain(tel);
+      } finally {
+        await conversaCfg.salvar(usuario('ana'), { ficaDeOlho: false });
+        await q(`delete from mister_vigia where tenant_id = any($1::uuid[])`, [[A, B]]);
+        await q(`delete from pedido_externo where id = any($1::uuid[])`, [pedidos]);
       }
     });
 
@@ -6655,8 +6779,8 @@ export function testesDoMisterComPostgres(): void {
       // ─────────── parte 3: o ajuste da empresa, o texto que completa, a lista e o "Desfazer" pela tela ───────────
 
       it('o ajuste da empresa: "pergunta antes" segura o boleto que lançaria sozinho; desligado, a foto segue como antes; o salvar confere', async () => {
-        // Versão 4 (mig 447): o jeito vem junto, no padrão (nada muda).
-        const SEM_JEITO = { perfil: 'hoje', jeito: null, avisosEscritos: [] };
+        // Versão 4 (mig 447): o jeito vem junto, no padrão (nada muda). M4d (mig 452): o "fica de olho" nasce desligado.
+        const SEM_JEITO = { perfil: 'hoje', jeito: null, avisosEscritos: [], ficaDeOlho: false };
         expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: true, documentosModo: 'sozinho', ...SEM_JEITO });
         await expect(conversa.salvar(usuario('ana'), { documentosModo: 'sempre' })).rejects.toBeInstanceOf(BadRequestException);
         await expect(conversa.salvar(usuario('ana'), { documentosLigado: 'sim' })).rejects.toBeInstanceOf(BadRequestException);
@@ -6710,12 +6834,16 @@ export function testesDoMisterComPostgres(): void {
         await expect(conversa.salvar(usuario('ana'), { avisosEscritos: 'loja' })).rejects.toBeInstanceOf(BadRequestException);
         // O jeito vira uma linha só, com os espaços apertados; os grupos saem na ordem da tela, sem repetir.
         const r = await conversa.salvar(usuario('ana'), { perfil: 'descontraido', jeito: '  Fale como sócio,\n sem formalidade.  ', avisosEscritos: ['fiscal', 'loja', 'loja'] });
-        expect(r.conversa).toEqual({ documentosLigado: true, documentosModo: 'sozinho', perfil: 'descontraido', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'] });
+        expect(r.conversa).toEqual({ documentosLigado: true, documentosModo: 'sozinho', perfil: 'descontraido', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false });
         expect(auditados.filter((a) => a.acao === 'mister_conversa_alterada').at(-1)).toMatchObject({ detalhe: { antes: { perfil: 'hoje', jeito: null }, depois: { perfil: 'descontraido' } } });
         // Salvar só o perfil não apaga o jeito, os grupos nem o ajuste dos documentos.
         await conversa.salvar(usuario('ana'), { documentosModo: 'perguntar' });
         await conversa.salvar(usuario('ana'), { perfil: 'objetivo' });
-        expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: true, documentosModo: 'perguntar', perfil: 'objetivo', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'] });
+        expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: true, documentosModo: 'perguntar', perfil: 'objetivo', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false });
+        // M4d (mig 452): o "fica de olho" liga e desliga só com booleano (V15), sem mexer no resto.
+        await expect(conversa.salvar(usuario('ana'), { ficaDeOlho: 'sim' })).rejects.toBeInstanceOf(BadRequestException);
+        expect((await conversa.salvar(usuario('ana'), { ficaDeOlho: true })).conversa).toMatchObject({ ficaDeOlho: true, perfil: 'objetivo', avisosEscritos: ['loja', 'fiscal'] });
+        await conversa.salvar(usuario('ana'), { ficaDeOlho: false });
         // Jeito em branco apaga (null); a outra empresa segue no padrão.
         await conversa.salvar(usuario('ana'), { jeito: '   ' });
         expect((await conversa.daEmpresa(A)).jeito).toBeNull();

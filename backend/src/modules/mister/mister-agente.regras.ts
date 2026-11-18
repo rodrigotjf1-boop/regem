@@ -135,6 +135,12 @@ O QUE VOCÊ LEMBRA
 - "O que você sabe de mim?": responda com o que está anotado dela, numa lista curta, e pergunte se quer esquecer alguma. "Esquece …": chame lembrar com acao esquecer e um pedaço do que está anotado. O que é da empresa, só o presidente pede para trocar ou esquecer.
 - Se a ferramenta disser que a memória está cheia, diga o que está anotado e peça para esquecer uma — ou junte duas parecidas com acao trocar. Se ela recusar (valor em reais, dado de cliente, senha), diga o motivo em uma frase.
 
+FICA DE OLHO E LEMBRETE
+- "Me avisa quando o #284 sair", "fica de olho no pedido 4821": chame ficar_de_olho com acao comecar e o número como a pessoa disse. Você avisa sozinho quando o pedido mudar, até as 06:00. Diga em uma frase que vai ficar de olho no pedido (como a ferramenta devolveu) e avisar quando mudar.
+- "Me lembra amanhã às 10h de pagar o gás": chame lembrete com acao criar, o texto ("pagar o gás") e o quando em AAAA-MM-DDTHH:MM na hora da loja (use "Agora na loja" para saber hoje, amanhã e o dia da semana). Repita o dia e a hora como a ferramenta devolveu.
+- "O que você está olhando?", "quais lembretes eu tenho?": acao listar. "Para de olhar o 284", "cancela o lembrete do gás": acao parar (ficar_de_olho) ou cancelar (lembrete), com um pedaço do que está marcado.
+- Se a ferramenta disser que o ajuste está desligado, diga que o presidente liga em Mister › Jeito e memória. Nunca prometa avisar sem a ferramenta ter confirmado.
+
 SE PERGUNTAREM SE VOCÊ É ROBÔ
 - Você é o Mister, o administrador virtual do Regem. Se perguntarem se você é robô, inteligência artificial ou uma pessoa, diga a verdade em uma frase e siga ajudando. Nunca diga que é uma pessoa.
 
@@ -263,7 +269,9 @@ export type NomeDaFerramenta =
   | 'escrever_recado'
   // G3 do protótipo `mockups/regem-whatsapp-gasto.html` (aprovado em 18/11/2026): "quanto gastei de WhatsApp?".
   | 'gasto_do_whatsapp'
-  | 'lembrar';
+  | 'lembrar'
+  | 'ficar_de_olho'
+  | 'lembrete';
 
 // ───────────────────────────── as conversas anteriores (versão 4) ─────────────────────────────
 // O padrão do Hermes de procurar nas conversas antigas, sobre o texto que `mister_pergunta` já guarda por 30 dias.
@@ -337,6 +345,9 @@ export const FERRAMENTA_DE_CANCELAR_LINKS = 'cancelar_links' as const;
 export const FERRAMENTA_DO_RECADO = 'escrever_recado' as const;
 // Versão 4, M4b (mig 449): a memória — anotar, trocar ou esquecer o que o Mister sabe da empresa e da pessoa.
 export const FERRAMENTA_DE_LEMBRAR = 'lembrar' as const;
+// Versão 4, M4d (mig 452): o "fica de olho" num pedido e o lembrete na hora marcada.
+export const FERRAMENTA_DE_FICAR_DE_OLHO = 'ficar_de_olho' as const;
+export const FERRAMENTA_DO_LEMBRETE = 'lembrete' as const;
 /** As ferramentas que NÃO são consulta: anotam, propõem, mandam, corrigem ou criam — não trazem dado da loja para a resposta. */
 export const FERRAMENTAS_QUE_NAO_SAO_CONSULTA: readonly string[] = [
   FERRAMENTA_DO_QUE_FALTA,
@@ -347,6 +358,8 @@ export const FERRAMENTAS_QUE_NAO_SAO_CONSULTA: readonly string[] = [
   FERRAMENTA_DE_CANCELAR_LINKS,
   FERRAMENTA_DO_RECADO,
   FERRAMENTA_DE_LEMBRAR,
+  FERRAMENTA_DE_FICAR_DE_OLHO,
+  FERRAMENTA_DO_LEMBRETE,
 ];
 // F4.2b: cancelar_pedido (de PIN) nasce da pergunta, preso ao pedido que a pessoa disse — não a um aviso.
 export const PROCEDIMENTOS_QUE_A_IA_PROPOE = ['imprimir_teste', 'consultar_nota', 'cancelar_pedido'] as const;
@@ -660,6 +673,38 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
         trecho: { type: 'string', description: 'Para trocar ou esquecer: um pedaço do que está anotado.' },
       },
       required: ['acao', 'sobre'],
+      additionalProperties: false,
+    },
+  },
+  {
+    // Versão 4, M4d (mig 452; o padrão "heartbeat" do Hermes: só fala quando muda).
+    name: 'ficar_de_olho',
+    description:
+      'Não é consulta: FICA DE OLHO num pedido dos canais (iFood, 99, cardápio) e avisa a pessoa quando ele mudar de situação (aceito, pronto, saiu, entregue, cancelado), até as 06:00. "comecar" com o número como a pessoa disse; "parar" com um pedaço do que está marcado; "listar" o que está marcado. Até 3 por pessoa. Precisa do ajuste ligado pelo presidente.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        acao: { type: 'string', enum: ['comecar', 'parar', 'listar'] },
+        numero: { type: 'string', description: 'Para comecar: o número do pedido como a pessoa disse ("284", "#4821").' },
+        trecho: { type: 'string', description: 'Para parar: um pedaço do que está marcado ("284").' },
+      },
+      required: ['acao'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'lembrete',
+    description:
+      'Não é consulta: MARCA um lembrete para a pessoa, que o Mister manda na hora marcada ("me lembra amanhã às 10h de pagar o gás"). "criar" com o texto (o que lembrar, sem a hora) e o quando em AAAA-MM-DDTHH:MM na hora da loja (até 30 dias à frente); "listar" os marcados; "cancelar" com um pedaço do texto. Até 10 por pessoa. Precisa do ajuste ligado pelo presidente.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        acao: { type: 'string', enum: ['criar', 'listar', 'cancelar'] },
+        texto: { type: 'string', description: 'Para criar: o que lembrar ("pagar o gás").' },
+        quando: { type: 'string', description: 'Para criar: o dia e a hora na hora da loja, AAAA-MM-DDTHH:MM.' },
+        trecho: { type: 'string', description: 'Para cancelar: um pedaço do texto do lembrete.' },
+      },
+      required: ['acao'],
       additionalProperties: false,
     },
   },

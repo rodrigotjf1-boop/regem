@@ -25,10 +25,10 @@ const fim = (texto: string | null, ferramentas: Array<{ nome: string; ok?: boole
     : { texto, motivo: null, resultados, trilha: { ferramentas: ferramentas.map((f) => ({ nome: f.nome, ok: f.ok ?? true, ms: 1, entrada: f.entrada ?? {} })) } }) as FimDaPergunta;
 
 describe('a avaliação do Mister — as perguntas', () => {
-  it('são 44 (a c43 do gasto do WhatsApp, G3; a c44 da memória, M4b), com id e pergunta únicos, e cada uma confere alguma coisa', () => {
-    expect(CASOS_DA_AVALIACAO).toHaveLength(44);
-    expect(new Set(CASOS_DA_AVALIACAO.map((c) => c.id)).size).toBe(44);
-    expect(new Set(CASOS_DA_AVALIACAO.map((c) => `${c.pergunta}|${c.perfil?.nivel ?? 'presidente'}|${c.perfil?.verValores ?? true}`)).size).toBe(44);
+  it('são 46 (a c43 do gasto do WhatsApp, G3; a c44 da memória, M4b; a c45 e a c46 do fica de olho e do lembrete, M4d), com id e pergunta únicos, e cada uma confere alguma coisa', () => {
+    expect(CASOS_DA_AVALIACAO).toHaveLength(46);
+    expect(new Set(CASOS_DA_AVALIACAO.map((c) => c.id)).size).toBe(46);
+    expect(new Set(CASOS_DA_AVALIACAO.map((c) => `${c.pergunta}|${c.perfil?.nivel ?? 'presidente'}|${c.perfil?.verValores ?? true}`)).size).toBe(46);
     for (const c of CASOS_DA_AVALIACAO) {
       const confere = (c.consultas?.length ?? 0) + (c.umaDasConsultas?.length ?? 0) + (c.numeros?.length ?? 0) + (c.contem?.length ?? 0) + (c.anotar?.length ?? 0) + (c.semValores ? 1 : 0) + (c.semConsulta ? 1 : 0);
       expect({ id: c.id, confere: confere > 0 }).toEqual({ id: c.id, confere: true });
