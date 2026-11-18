@@ -81,8 +81,8 @@ existe, volte ao passo 1).
 ### 3. Trocar a conexão do backend para o role sem bypass
 ```
 Onde: EasyPanel → serviço regem-api → aba Environment
-Variável DATABASE_URL (troque o usuário, mesma senha/host do formato do pooler):
-  postgresql://regem_rls.baglkwaahkjgwvnfabic:<senha do passo 1>@aws-0-sa-east-1.pooler.supabase.com:6543/postgres
+Variável DATABASE_URL (troque o usuário, mesma senha/host do formato do pooler; o id é o do projeto Supabase do Regem):
+  postgresql://regem_rls.<id-do-projeto>:<senha do passo 1>@aws-0-sa-east-1.pooler.supabase.com:6543/postgres
 Adicione também:
   RLS_ENABLED = true
 Salvar → Deploy.

@@ -13,6 +13,7 @@ import { ContaDoInstagram, situacaoDoInstagram, useVoltaDoInstagram, type Estado
 import { ContaDoMessenger, situacaoDoMessenger, useVoltaDoMessenger, type EstadoDoMessenger } from '@/components/atendimento/messenger-da-loja';
 import { TestarAtendente } from '@/components/atendimento/testar-atendente';
 import { CampoDaMensagemDaPausa } from '@/components/atendimento/mensagem-da-pausa';
+import { QuemLeAsFotos, quemLeAgora, useSituacaoDoGraph } from '@/components/integracoes/graph-clique';
 
 // AJUSTES DO ATENDIMENTO — Delivery › Configurações › Operação › Atendimento (protótipo
 // `mockups/regem-central-atendimento.html`, vista "ajustes"; o grupo do "Cheguei" é do `mockups/regem-relacionamento.html`).
@@ -380,6 +381,8 @@ export function AjustesDoAtendimento() {
   // A volta do login do Facebook (`?messenger=`): avisa; com mais de uma página, abre a escolha.
   const [escolherPagina, setEscolherPagina] = useState(false);
   useVoltaDoMessenger((escolher) => setEscolherPagina(escolher));
+  // O DMS Graph (G5b): "Quem lê as fotos agora" em Fotos do cliente — só com o Graph liberado para a empresa.
+  const { s: graph } = useSituacaoDoGraph(podeMudar === true && !NO_SERVIDOR_DA_LOJA);
 
   const ler = () => {
     setEstado('carregando');
@@ -1019,7 +1022,11 @@ export function AjustesDoAtendimento() {
     ? {
         titulo: 'Fotos do cliente',
         nota: resp.fotos.liberadaNaDistribuicao
-          ? `Sempre vale: só no WhatsApp · até ${resp.fotos.limitePorDia} fotos lidas por cliente por dia (depois o atendente pede para escrever) · o Regem guarda só a descrição em texto, nunca a foto (a foto continua na conversa do WhatsApp da loja) · sai da chave de IA da empresa, menos de R$ 0,01 por foto lida (o gasto aparece em Mister › IA e uso).`
+          ? `Sempre vale: só no WhatsApp · até ${resp.fotos.limitePorDia} fotos lidas por cliente por dia (depois o atendente pede para escrever) · o Regem guarda só a descrição em texto, nunca a foto (a foto continua na conversa do WhatsApp da loja) · ${
+              graph?.ligacao
+                ? 'com o DMS Graph ligado, a foto é lida dentro da franquia dele; a chave de IA da empresa fica de reserva, menos de R$ 0,01 por foto lida (o gasto aparece em Mister › IA e uso).'
+                : 'sai da chave de IA da empresa, menos de R$ 0,01 por foto lida (o gasto aparece em Mister › IA e uso).'
+            }`
           : 'A leitura de fotos ainda não foi liberada pela distribuição Regem. Você pode deixar ligado: ela começa quando for liberada.',
         itens: [
           {
@@ -1030,6 +1037,19 @@ export function AjustesDoAtendimento() {
               'O atendente virtual passa a entender a foto ou o print que chega no WhatsApp — um erro do cardápio, um pedido com problema — e responde de acordo. Na foto de pedido com problema, ele chama a equipe e o caso mostra "O que a foto mostra". Desligado, ele diz que não consegue ver e pede para o cliente escrever, como hoje.',
             palavras: 'foto fotos imagem print leitura ler ia inteligência artificial cliente atendente virtual',
           },
+          // O DMS Graph (G5b; protótipo `mockups/regem-graph-clique.html`, vista 1): quem lê a foto agora e o caminho do cartão.
+          ...(graph?.ligado
+            ? [
+                {
+                  id: 'fotosQuemLe',
+                  rotulo: 'Quem lê as fotos agora',
+                  tipo: 'livre' as const,
+                  ajuda: quemLeAgora(graph).texto,
+                  palavras: 'dms graph foto fotos quem lê leitura ia reserva franquia',
+                  desenhar: () => <QuemLeAsFotos s={graph} />,
+                },
+              ]
+            : []),
         ],
       }
     : null;

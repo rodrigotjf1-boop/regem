@@ -2525,6 +2525,10 @@ const SO_NUVEM = new Set([
   'whatsapp_gasto',
   'whatsapp_gasto_modelo',
   'whatsapp_gasto_leitura',
+  // O DMS Graph (mig 450, @cloud-only): a ligação da EMPRESA com o Graph (segredo cifrado com a chave da nuvem) e o pedido
+  // do clique em curso. Quem lê a foto do cliente e fala com o Graph é a nuvem — a loja não tem estas tabelas.
+  'graph_ligacao',
+  'graph_clique_pedido',
 ]);
 
 // LEGADO SEM USO: tabelas criadas nas migrations de fundação (002/003) para recursos que

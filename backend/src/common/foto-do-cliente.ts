@@ -105,6 +105,9 @@ function limpar(descricao: unknown): string {
     .slice(0, DESCRICAO_MAX);
 }
 
+/** A mesma limpeza para a descrição que vem do DMS Graph (`graph/graph.regras.ts`, G5a): uma regra só para as duas vias. */
+export const limparDescricao = (descricao: unknown): string => limpar(descricao);
+
 /** A resposta do modelo → a análise, ou null (fora do formato, tipo desconhecido, sem descrição). */
 export function lerAnaliseDaFoto(texto: unknown): AnaliseDaFoto | null {
   const t = String(texto ?? '');

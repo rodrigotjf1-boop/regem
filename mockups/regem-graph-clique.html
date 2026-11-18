@@ -1,0 +1,563 @@
+<title>DMS Graph pelo clique</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* PROTÓTIPO do CLIQUE REGEM → DMS GRAPH (18/11/2026), etapas G4 (a página do Graph) e G5 (o cartão no Regem) do plano
+   "DMS Graph no Hub", aprovado com as decisões G-1 a G-8 recomendadas. Nada aqui fala com o Regem nem com o Graph; os
+   dados são inventados. Visual de uma tela só, de propósito: o Regem no tema claro do app (.app-light) e o Graph no
+   escuro dele (public/style.css). Layout: faixa de vistas no topo, uma vista por vez, janelas centradas como no app. */
+:root{
+  color-scheme: light;
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E2A340; --on-gold:#281B06; --navy:#0F2230; --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9;
+  --warn:#8A4B12; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8; --radius:12px;
+  --gr-bg:#101117; --gr-card:#181923; --gr-line:#303043; --gr-line-2:#48485e; --gr-ink:#F3F2FA; --gr-ink-2:#BDBACC;
+  --gr-acc:#B9A8FF; --gr-on-acc:#170D31; --gr-link:#CAC1FF; --gr-alerta:#FFCA8B; --gr-ok:#A7E0B5;
+  --proto-bg:#0B1822; --proto-ink:#D5E0EA; --proto-ink-2:#9FB2C4; --proto-line:#2E4456; --proto-btn:#13283A;
+  --display:'Archivo',system-ui,sans-serif; --body:'Figtree',system-ui,sans-serif; --mono:'JetBrains Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+body{font-family:var(--body);background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45;overflow-x:hidden}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid #3A7FB8;outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+.proto{background:var(--proto-bg);color:var(--proto-ink);padding-block:10px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
+.proto strong{font-family:var(--display);color:#fff;font-size:14px}
+.proto .obs{font-size:12.5px;color:var(--proto-ink-2)}
+.abas{display:flex;flex-wrap:wrap;gap:8px}
+.aba{display:inline-flex;align-items:center;min-height:38px;padding:6px 14px;border-radius:10px;border:1px solid var(--proto-line);background:var(--proto-btn);color:var(--proto-ink);font-weight:600;font-size:13.5px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+
+main{max-width:1180px;margin:0 auto;padding-block:16px 96px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.vista > h1{font-family:var(--display);font-size:clamp(20px,2.4vw,26px);margin:4px 0 6px;text-wrap:balance}
+.intro{color:var(--ink-2);max-width:900px;margin:0 0 14px}
+.ctls{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;margin:0 0 16px;display:grid;gap:8px}
+.ctl{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;font-size:13px}
+.ctl > span{font-weight:700;color:var(--ink-2);margin-right:2px}
+.ctl button{min-height:36px;padding:0 12px;border-radius:9px;border:1px solid var(--line-2);background:var(--card);font-weight:600;font-size:13px}
+.ctl button[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+
+.app{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+.app-topo{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.app-topo .eb{font-size:11px;font-weight:800;letter-spacing:.08em;color:var(--warn);text-transform:uppercase}
+.app-topo h2{font-family:var(--display);font-size:20px;margin:0;flex:1 1 100%}
+.cfg-abas{display:flex;flex-wrap:wrap;gap:4px 6px;padding:10px 14px;border-bottom:1px solid var(--line)}
+.cfg-aba{padding:6px 10px;border-radius:8px;font-size:13.5px;color:var(--ink-2)}
+.cfg-aba.on{background:#FCF1DD;color:#7A5209;font-weight:700}
+.app-corpo{padding:16px}
+
+.cartoes{display:flex;flex-wrap:wrap;gap:14px}
+.cartao{width:200px;max-width:100%;display:flex;flex-direction:column;align-items:center;gap:10px;border:1px solid var(--line);border-radius:16px;background:var(--card);padding:18px 14px;text-align:center}
+.cartao.novo{border:2px solid var(--gold);box-shadow:0 0 0 4px #FCF1DD}
+.selo{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:2px 9px;font-size:11.5px;font-weight:700}
+.selo .bol{width:8px;height:8px;border-radius:50%}
+.selo.ativo{background:var(--ok-bg);color:var(--ok)} .selo.ativo .bol{background:var(--ok)}
+.selo.off{background:#EEF2F6;color:var(--ink-2)} .selo.off .bol{background:#A7B4C2}
+.selo.atencao{background:var(--warn-bg);color:var(--warn)} .selo.atencao .bol{background:var(--warn)}
+.logo{width:72px;height:72px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-family:var(--display);font-weight:800;font-size:22px}
+.logo.sm{width:36px;height:36px;border-radius:9px;font-size:13px}
+.logo.if{background:#C3122B;color:#fff} .logo.n99{background:#FFD21F;color:#2A2300}
+.logo.oz{background:#2B2F3A;color:#3DDC97} .logo.gr{background:var(--gr-bg);color:var(--gr-acc)}
+.cartao b{font-size:15.5px}
+.cartao small{font-size:12.5px;color:var(--ink-2)}
+
+.janela-fundo{background:#E6EBF1;border-radius:var(--radius);padding:24px 12px;display:flex;justify-content:center}
+.janela{width:100%;max-width:560px;background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:0 12px 32px rgba(15,34,48,.18)}
+.j-topo{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);box-shadow:inset 0 3px 0 var(--gr-acc)}
+.j-topo b{font-family:var(--display);font-size:16px}
+.j-topo .fechar{margin-left:auto;border:0;background:none;font-size:16px;color:var(--ink-2);padding:6px;border-radius:6px}
+.j-corpo{padding:16px;display:grid;gap:14px}
+.lead{margin:0;font-size:15px}
+.linha-info{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;font-size:13.5px;color:var(--ink-2)}
+.linha-info b{color:var(--ink)}
+.bloco{border:1px solid var(--line);border-radius:10px;padding:12px}
+.bloco h3{margin:0 0 8px;font-size:14px;font-family:var(--display)}
+.perm{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.perm li{display:flex;gap:10px;align-items:flex-start;font-size:14px}
+.perm .ic{flex:none;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;margin-top:1px}
+.ic.sim{background:var(--ok-bg);color:var(--ok)}
+.ic.nao{background:var(--crit-bg);color:var(--crit)}
+.perm small{display:block;color:var(--ink-2);font-size:12.5px}
+.btn{min-height:44px;padding:0 16px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);font-weight:700;font-size:14.5px;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.btn.perigo{border-color:#E7B4B4;color:var(--crit)}
+.btn.largo{width:100%}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.nota{font-size:13px;color:var(--ink-2);margin:0}
+.aviso{border-radius:10px;padding:10px 12px;font-size:13.5px;display:flex;gap:10px;align-items:flex-start}
+.aviso.info{background:var(--info-bg);color:#1F4C73}
+.aviso.ok{background:var(--ok-bg);color:var(--ok)}
+.aviso.erro{background:var(--crit-bg);color:#8C2222}
+.aviso.warn{background:var(--warn-bg);color:var(--warn)}
+.aviso b{display:block;margin-bottom:2px}
+.kv{display:grid;grid-template-columns:minmax(120px,max-content) 1fr;gap:6px 12px;font-size:14px;margin:0}
+.kv dt{color:var(--ink-2)} .kv dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.mono{font-family:var(--mono);font-size:12.5px;font-variant-numeric:tabular-nums}
+.medidor{display:grid;gap:6px}
+.medidor .barra{height:10px;border-radius:999px;background:#E6EBF1;overflow:hidden}
+.medidor .barra i{display:block;height:100%;background:var(--ok);border-radius:999px}
+.medidor .barra i.cheia{background:var(--warn)}
+.medidor .rot{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 12px;font-size:13px;color:var(--ink-2)}
+.medidor .rot b{color:var(--ink);font-family:var(--mono);font-variant-numeric:tabular-nums}
+.dialogo{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:14px;box-shadow:0 10px 26px rgba(15,34,48,.2);display:grid;gap:10px}
+.dialogo h4{margin:0;font-family:var(--display);font-size:16px}
+
+/* ajuste "Fotos do cliente" (Atendimento) */
+.ajuste{display:grid;gap:8px;border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--card)}
+.ajuste .topo{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between}
+.ajuste .topo b{font-size:14.5px}
+.chave{flex:none;width:44px;height:26px;border-radius:999px;border:0;background:var(--line-2);position:relative}
+.chave::after{content:'';position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s}
+.chave[aria-pressed="true"]{background:var(--ok)}
+.chave[aria-pressed="true"]::after{left:21px}
+.quem-le{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13.5px;border-top:1px dashed var(--line);padding-top:8px}
+.quem-le a{color:#7A5209;font-weight:700}
+
+/* o DMS Graph (páginas dele, no tema escuro dele) */
+.gr{background:var(--gr-bg);color:var(--gr-ink);border-radius:var(--radius);padding:24px 12px;display:flex;justify-content:center}
+.gr-pag{width:100%;max-width:560px;display:grid;gap:14px}
+.gr-marca{display:flex;align-items:center;gap:10px;font-family:var(--display);font-weight:800;font-size:18px}
+.gr-marca span{color:var(--gr-link)}
+.gr-card{background:var(--gr-card);border:1px solid var(--gr-line);border-radius:14px;padding:14px;display:grid;gap:8px}
+.gr-card h3{margin:0;font-size:12.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--gr-ink-2)}
+.gr-pag h2{font-family:var(--display);font-size:20px;margin:0;text-wrap:balance}
+.gr small,.gr .sub{color:var(--gr-ink-2);font-size:13px}
+.gr-selo{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:2px 9px;font-size:12px;font-weight:700;background:rgba(185,168,255,.14);color:var(--gr-link)}
+.gr-perm{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.gr-perm li{display:flex;gap:10px;align-items:flex-start;justify-content:space-between}
+.gr-perm .t{min-width:0}
+.gr-perm .t b{display:block;font-size:14px}
+.gr-perm .t small{display:block}
+.gr-tag{flex:none;font-size:11.5px;font-weight:700;color:var(--gr-ink-2);border:1px solid var(--gr-line);border-radius:999px;padding:2px 8px}
+.gr-tag.sens{color:var(--gr-alerta);border-color:rgba(255,202,139,.45)}
+.gr-btn{min-height:46px;border-radius:10px;border:0;font-weight:800;font-size:15px;padding:0 16px;width:100%}
+.gr-btn.pri{background:var(--gr-acc);color:var(--gr-on-acc)}
+.gr-btn.sec{background:transparent;border:1px solid var(--gr-line-2);color:var(--gr-ink)}
+.gr-btn.perigo{background:transparent;border:1px solid rgba(255,138,138,.5);color:#FFB4B4;width:auto}
+.gr-alerta{border:1px solid rgba(255,202,139,.45);background:rgba(255,202,139,.08);color:#FFE2BF;border-radius:10px;padding:10px 12px;font-size:13.5px;display:grid;gap:4px}
+.gr-nao{margin:0;padding-left:18px;font-size:13.5px;color:var(--gr-ink-2)}
+.gr-sessao{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px;color:var(--gr-ink-2)}
+.gr-sessao b{color:var(--gr-ink)}
+.gr-sessao a{color:var(--gr-link)}
+.gr-dmsid{display:flex;align-items:center;justify-content:center;gap:10px}
+.gr-dmsid .id{width:22px;height:22px;border-radius:6px;background:#2C6699;color:#fff;font-size:11px;font-weight:800;display:inline-flex;align-items:center;justify-content:center}
+.gr-lista{display:grid;gap:10px}
+.gr-app{display:grid;gap:8px;border:1px solid var(--gr-line);border-radius:12px;padding:12px}
+.gr-app .top{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;justify-content:space-between}
+.gr-app dl{display:grid;grid-template-columns:minmax(110px,max-content) 1fr;gap:4px 10px;margin:0;font-size:13px}
+.gr-app dt{color:var(--gr-ink-2)} .gr-app dd{margin:0;min-width:0;overflow-wrap:anywhere}
+
+.email{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;font-size:14px}
+.email .cab{background:#F6F8FB;border-bottom:1px solid var(--line);padding:10px 14px;display:grid;gap:2px;font-size:13px;color:var(--ink-2)}
+.email .cab b{color:var(--ink)}
+.email .txt{padding:14px;display:grid;gap:8px}
+.email .txt p{margin:0}
+
+.lado{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:16px;align-items:start}
+.lado > *{min-width:0}
+.legenda{font-size:12.5px;font-weight:700;color:var(--ink-2);text-transform:uppercase;letter-spacing:.05em;margin:0 0 6px}
+.tabela-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px;background:var(--card);border:1px solid var(--line)}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:#F6F8FB;font-size:12.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-2)}
+@media (max-width:640px){
+  table.cartoes-sm thead{display:none}
+  table.cartoes-sm tr{display:grid;border-bottom:1px solid var(--line);padding:6px 0}
+  table.cartoes-sm td{border:0;padding:3px 12px}
+}
+.spinner{width:22px;height:22px;border-radius:50%;border:3px solid #E6EBF1;border-top-color:var(--gold);animation:gira 1s linear infinite}
+@keyframes gira{to{transform:rotate(360deg)}}
+</style>
+
+<div class="proto" role="navigation" aria-label="Vistas do protótipo">
+  <strong>Protótipo · DMS Graph pelo clique</strong>
+  <div class="abas" id="abas">
+    <button class="aba" type="button" data-v="v1" aria-pressed="true">1 · No Regem</button>
+    <button class="aba" type="button" data-v="v2" aria-pressed="false">2 · Antes de ligar</button>
+    <button class="aba" type="button" data-v="v3" aria-pressed="false">3 · No Graph: autorizar</button>
+    <button class="aba" type="button" data-v="v4" aria-pressed="false">4 · A volta</button>
+    <button class="aba" type="button" data-v="v5" aria-pressed="false">5 · Ligado</button>
+    <button class="aba" type="button" data-v="v6" aria-pressed="false">6 · No Graph: aplicativos conectados</button>
+    <button class="aba" type="button" data-v="v7" aria-pressed="false">7 · Erros</button>
+    <button class="aba" type="button" data-v="v8" aria-pressed="false">Notas e decisões</button>
+  </div>
+  <span class="obs">Dados inventados. Nada aqui fala com o Regem nem com o Graph.</span>
+</div>
+
+<main>
+
+<!-- ───────────── 1 · No Regem ───────────── -->
+<section class="vista" id="v1">
+  <h1>Delivery › Configurações › Integrações e Atendimento</h1>
+  <p class="intro">O DMS Graph entra como mais um cartão em Integrações, ao lado do iFood, da 99 e do Orzuni (GR-1). Em Atendimento, o ajuste "Ler as fotos que o cliente manda" passa a dizer quem lê a foto agora e aponta o cartão.</p>
+  <div class="ctls">
+    <div class="ctl"><span>Situação do DMS Graph</span>
+      <button type="button" data-g="sit" data-val="off" aria-pressed="true">Não ligado</button>
+      <button type="button" data-g="sit" data-val="on" aria-pressed="false">Ligado</button>
+      <button type="button" data-g="sit" data-val="cheia" aria-pressed="false">Franquia do mês acabou</button>
+    </div>
+  </div>
+  <div class="app">
+    <div class="app-topo"><span class="eb">Delivery</span><h2>Configurações do delivery</h2></div>
+    <div class="cfg-abas" aria-label="Abas das configurações">
+      <span class="cfg-aba">Horários</span><span class="cfg-aba">Entrega</span><span class="cfg-aba">Cupons</span><span class="cfg-aba">Banners</span><span class="cfg-aba on" aria-current="page">Integrações</span><span class="cfg-aba">Robô de atendimento</span><span class="cfg-aba">Atendimento</span>
+    </div>
+    <div class="app-corpo">
+      <div class="cartoes">
+        <div class="cartao"><span class="selo ativo"><span class="bol"></span>ativo</span><span class="logo if">iF</span><b>iFood</b></div>
+        <div class="cartao"><span class="selo ativo"><span class="bol"></span>ativo</span><span class="logo n99">99</span><b>99Food</b></div>
+        <div class="cartao"><span class="selo ativo"><span class="bol"></span>ligado</span><span class="logo oz">OZ</span><b>Orzuni</b></div>
+        <div class="cartao novo">
+          <span class="selo off" data-sit="off"><span class="bol"></span>não ligado</span>
+          <span class="selo ativo" data-sit="on" hidden><span class="bol"></span>ligado</span>
+          <span class="selo atencao" data-sit="cheia" hidden><span class="bol"></span>franquia acabou</span>
+          <span class="logo gr">G</span><b>DMS Graph</b>
+          <small>Lê as fotos que os clientes mandam no WhatsApp</small>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="legenda" style="margin-top:22px">Atendimento › Fotos do cliente (o ajuste de hoje, com a linha nova)</h2>
+  <div class="ajuste">
+    <div class="topo"><b>Ler as fotos que o cliente manda</b><button class="chave" type="button" aria-pressed="true" aria-label="Ler as fotos que o cliente manda"></button></div>
+    <p class="nota">O atendente virtual passa a entender a foto ou o print que chega no WhatsApp e responde de acordo.</p>
+    <div class="quem-le" data-sit="off">
+      <span class="selo off"><span class="bol"></span>IA da empresa</span>
+      <span>Quem lê agora: a chave de IA da empresa (o gasto aparece em Mister › IA e uso). Com o DMS Graph, a foto é lida dentro da franquia do mês. <a href="#v2" data-ir="v2">Ligar o DMS Graph</a></span>
+    </div>
+    <div class="quem-le" data-sit="on" hidden>
+      <span class="selo ativo"><span class="bol"></span>DMS Graph</span>
+      <span>Quem lê agora: o DMS Graph (87 de 500 fotos neste mês). Se ele não responder em 15 segundos, a foto vai à IA da empresa.</span>
+    </div>
+    <div class="quem-le" data-sit="cheia" hidden>
+      <span class="selo atencao"><span class="bol"></span>IA da empresa até 01/12</span>
+      <span>A franquia do DMS Graph deste mês acabou em 25/11. Até 01/12, as fotos são lidas pela IA da empresa; se a empresa não tiver chave, o atendente pede para o cliente escrever, como hoje.</span>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────── 2 · Antes de ligar ───────────── -->
+<section class="vista" id="v2" hidden>
+  <h1>A janela antes de ligar</h1>
+  <p class="intro">Só o presidente liga (GR-2). A ligação vale para a empresa inteira, todas as lojas (G-3). O Regem pede uma permissão só (GR-3).</p>
+  <div class="ctls">
+    <div class="ctl"><span>Quem abriu</span>
+      <button type="button" data-g="perfil" data-val="pres" aria-pressed="true">Presidente</button>
+      <button type="button" data-g="perfil" data-val="ger" aria-pressed="false">Gerente</button>
+    </div>
+  </div>
+  <div class="janela-fundo">
+    <div class="janela" role="dialog" aria-label="DMS Graph">
+      <div class="j-topo"><span class="logo gr sm" aria-hidden="true">G</span><b>DMS Graph</b><button class="fechar" type="button" aria-label="Fechar">✕</button></div>
+      <div class="j-corpo">
+        <p class="lead">Com o DMS Graph ligado, as fotos e os prints que os clientes mandam no WhatsApp são lidos por ele, dentro da franquia do mês. A IA da empresa fica de reserva.</p>
+        <div class="linha-info">Vale para: <b>Casa do Hambúrguer Ltda.</b> <span>(a empresa inteira, todas as lojas)</span></div>
+        <div class="bloco">
+          <h3>O que o Regem vai pedir ao DMS Graph</h3>
+          <ul class="perm">
+            <li><span class="ic sim" aria-hidden="true">✓</span><span>Analisar as fotos e os documentos que os seus clientes mandam, sem guardar o arquivo<small>O Graph devolve só o que leu na foto; a foto continua na conversa do WhatsApp da loja.</small></span></li>
+          </ul>
+        </div>
+        <div data-perfil="pres">
+          <button class="btn pri largo" type="button">Conectar ao DMS Graph</button>
+          <p class="nota" style="margin-top:8px">Você vai para a página do DMS Graph, entra com o DMS ID, confere o pedido e autoriza. Ninguém copia chave.</p>
+        </div>
+        <div class="aviso info" data-perfil="ger" hidden>
+          <span aria-hidden="true">ℹ</span>
+          <span><b>Só quem é presidente liga o DMS Graph</b>Você vê aqui quando a empresa estiver ligada.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────── 3 · No Graph: autorizar ───────────── -->
+<section class="vista" id="v3" hidden>
+  <h1>A página de autorização do DMS Graph</h1>
+  <p class="intro">É a tela única de autorização do Padrão DMS (§3), na ordem fixa. O Graph não tem senha própria: a pessoa entra com o DMS ID (G-1), e a conta da empresa no Graph nasce no primeiro clique, pelo CNPJ que o Regem mandou no pedido.</p>
+  <div class="ctls">
+    <div class="ctl"><span>Passo</span>
+      <button type="button" data-g="passo" data-val="entrar" aria-pressed="true">Entrar</button>
+      <button type="button" data-g="passo" data-val="pedido" aria-pressed="false">O pedido</button>
+    </div>
+    <div class="ctl"><span>A conta no Graph</span>
+      <button type="button" data-g="conta" data-val="nova" aria-pressed="true">Primeira vez (nasce agora)</button>
+      <button type="button" data-g="conta" data-val="sua" aria-pressed="false">Já existe, é sua</button>
+      <button type="button" data-g="conta" data-val="outra" aria-pressed="false">Já existe, de outra pessoa</button>
+    </div>
+  </div>
+  <div class="gr">
+    <div class="gr-pag">
+      <div class="gr-marca"><span class="logo gr sm" aria-hidden="true">G</span>DMS <span>Graph</span></div>
+
+      <div data-passo="entrar" style="display:grid;gap:14px">
+        <h2>O Regem pede acesso ao DMS Graph para a sua empresa</h2>
+        <div class="gr-card">
+          <p class="sub" style="margin:0">Para ver o pedido e autorizar, entre com a mesma conta que você usa nos produtos da DMS.</p>
+          <button class="gr-btn pri gr-dmsid" type="button"><span class="id" aria-hidden="true">ID</span>Entrar com o DMS ID</button>
+          <small>A senha você digita no DMS ID, nunca aqui. O pedido vale por 10 minutos.</small>
+        </div>
+      </div>
+
+      <div data-passo="pedido" hidden style="display:grid;gap:14px">
+        <div class="gr-sessao">Entrou como <b>ana@casadohamburguer.com.br</b> pelo DMS ID · <a href="#v3">Não é você? Sair</a></div>
+        <h2>O Regem pede acesso ao DMS Graph</h2>
+
+        <div class="gr-card">
+          <h3>O aplicativo</h3>
+          <div><b>Regem</b> · DMS Tecnologias · CNPJ 12.345.678/0001-90</div>
+          <div><span class="gr-selo">✓ Produto da DMS</span></div>
+        </div>
+
+        <div class="gr-card">
+          <h3>Quem pede</h3>
+          <div><b>Casa do Hambúrguer Ltda.</b> · CNPJ 98.765.432/0001-10</div>
+          <small>No Regem, pedido por quem é presidente da empresa.</small>
+          <div class="gr-alerta" data-conta="nova"><b>Primeira vez desta empresa no DMS Graph</b><span>A conta da empresa nasce agora, com você como responsável. Só você autoriza de novo, depois (GR-4).</span></div>
+          <div class="gr-alerta" data-conta="outra" hidden><b>Esta empresa já tem conta no DMS Graph, de outra pessoa</b><span>Só quem criou a conta pode autorizar aplicativos para ela. Peça a essa pessoa para conectar pelo Regem.</span></div>
+        </div>
+
+        <div class="gr-card" data-conta="nova sua">
+          <h3>Onde vale</h3>
+          <div>A empresa inteira: todas as lojas da Casa do Hambúrguer no Regem.</div>
+        </div>
+
+        <div class="gr-card" data-conta="nova sua">
+          <h3>O que o Regem vai poder fazer</h3>
+          <ul class="gr-perm">
+            <li><span class="t"><b>Analisar as fotos e os documentos que os seus clientes mandam, sem guardar o arquivo</b><small>Para o atendente virtual entender a foto ou o print que chega no WhatsApp. O Graph guarda o resultado da leitura por 24 horas, cifrado, só para não ler a mesma foto duas vezes.</small></span><span class="gr-tag sens">sensível</span></li>
+          </ul>
+        </div>
+
+        <div class="gr-card" data-conta="nova sua">
+          <h3>O que o Regem não pode</h3>
+          <ul class="gr-nao">
+            <li>Ver o que outras empresas mandaram ao Graph</li>
+            <li>Usar o Graph para criar imagens ou vídeos</li>
+            <li>Passar da franquia do mês: depois dela, o Graph recusa até o mês seguinte</li>
+          </ul>
+        </div>
+
+        <div class="gr-card" data-conta="nova sua">
+          <small>Vale até você desligar, aqui em Aplicativos conectados ou no Regem. Você recebe um e-mail do DMS Graph a cada aplicativo ligado.</small>
+          <div class="acoes" style="margin-top:4px">
+            <button class="gr-btn pri" type="button">Autorizar</button>
+            <button class="gr-btn sec" type="button">Agora não</button>
+          </div>
+        </div>
+        <div class="gr-card" data-conta="outra" hidden>
+          <button class="gr-btn sec" type="button">Voltar ao Regem</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────── 4 · A volta ───────────── -->
+<section class="vista" id="v4" hidden>
+  <h1>A volta ao Regem</h1>
+  <p class="intro">O Graph devolve o código; o Regem troca o código pela ligação de servidor para servidor e mostra o resultado. A pessoa nunca vê código nem segredo. O e-mail ao dono é do Graph, como manda o Padrão, e não se desliga.</p>
+  <div class="lado">
+    <div>
+      <p class="legenda">Durante a troca (1 a 2 segundos)</p>
+      <div class="janela-fundo">
+        <div class="janela"><div class="j-corpo" style="justify-items:center;text-align:center;padding:28px 16px">
+          <div class="spinner" role="status" aria-label="Ligando"></div>
+          <b>Ligando ao DMS Graph…</b>
+          <p class="nota">Não feche esta página.</p>
+        </div></div>
+      </div>
+      <p class="legenda" style="margin-top:16px">Pronto (volta à aba Integrações)</p>
+      <div class="aviso ok" role="status">
+        <span aria-hidden="true">✓</span>
+        <span><b>DMS Graph ligado</b>As fotos que os clientes mandam no WhatsApp passam a ser lidas pelo DMS Graph, em todas as lojas. A IA da empresa fica de reserva.</span>
+      </div>
+    </div>
+    <div>
+      <p class="legenda">O e-mail do DMS Graph ao responsável pela conta</p>
+      <div class="email">
+        <div class="cab"><span>De: <b>DMS Graph</b></span><span>Para: <b>ana@casadohamburguer.com.br</b></span><span>Assunto: <b>O Regem foi ligado à sua conta do DMS Graph</b></span></div>
+        <div class="txt">
+          <p>O aplicativo <b>Regem</b> (DMS Tecnologias) foi ligado à conta da <b>Casa do Hambúrguer Ltda.</b> no DMS Graph em 18/11/2026 às 14:05, por ana@casadohamburguer.com.br.</p>
+          <p>Ele pode: analisar as fotos e os documentos que os seus clientes mandam, sem guardar o arquivo.</p>
+          <p>Não foi você? Entre no DMS Graph com o DMS ID e desligue em Aplicativos conectados.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────── 5 · Ligado ───────────── -->
+<section class="vista" id="v5" hidden>
+  <h1>A janela com o DMS Graph ligado</h1>
+  <p class="intro">Mostra quem ligou, a franquia do mês, a última leitura e a reserva, e deixa desligar (GR-5, GR-6).</p>
+  <div class="ctls">
+    <div class="ctl"><span>Situação</span>
+      <button type="button" data-g="lig" data-val="ok" aria-pressed="true">Ligado</button>
+      <button type="button" data-g="lig" data-val="cheia" aria-pressed="false">Franquia acabou</button>
+      <button type="button" data-g="lig" data-val="desl" aria-pressed="false">Desligado no Graph</button>
+      <button type="button" data-g="lig" data-val="conf" aria-pressed="false">Confirmar o desligar</button>
+    </div>
+  </div>
+  <div class="janela-fundo">
+    <div class="janela" role="dialog" aria-label="DMS Graph">
+      <div class="j-topo"><span class="logo gr sm" aria-hidden="true">G</span><b>DMS Graph</b>
+        <span class="selo ativo" data-lig="ok conf"><span class="bol"></span>ligado</span>
+        <span class="selo atencao" data-lig="cheia" hidden><span class="bol"></span>franquia acabou</span>
+        <span class="selo off" data-lig="desl" hidden><span class="bol"></span>desligado</span>
+        <button class="fechar" type="button" aria-label="Fechar">✕</button></div>
+      <div class="j-corpo">
+        <div class="aviso erro" data-lig="desl" hidden>
+          <span aria-hidden="true">!</span>
+          <span><b>A ligação foi desligada no DMS Graph em 20/11, 09:12</b>As fotos voltaram a ser lidas pela IA da empresa. Para usar o Graph de novo, conecte outra vez.</span>
+        </div>
+        <div class="aviso warn" data-lig="cheia" hidden>
+          <span aria-hidden="true">!</span>
+          <span><b>A franquia de novembro acabou em 25/11</b>Até 01/12, as fotos são lidas pela IA da empresa. Nada muda na conversa com o cliente.</span>
+        </div>
+        <dl class="kv" data-lig="ok cheia conf">
+          <dt>Empresa</dt><dd>Casa do Hambúrguer Ltda. (todas as lojas)</dd>
+          <dt>Ligado por</dt><dd>Ana (presidente) em 18/11, 14:05</dd>
+          <dt>Última leitura</dt><dd>há 3 min · loja Centro</dd>
+          <dt>Reserva</dt><dd>IA da empresa (chave ligada em Mister › IA e uso)</dd>
+        </dl>
+        <div class="medidor" data-lig="ok conf">
+          <div class="rot"><span>Fotos lidas em novembro</span><span><b>87</b> de <b>500</b></span></div>
+          <div class="barra" role="img" aria-label="87 de 500 fotos lidas em novembro"><i style="width:17.4%"></i></div>
+          <p class="nota">A franquia volta a zero no dia 1º de cada mês.</p>
+        </div>
+        <div class="medidor" data-lig="cheia" hidden>
+          <div class="rot"><span>Fotos lidas em novembro</span><span><b>500</b> de <b>500</b></span></div>
+          <div class="barra" role="img" aria-label="500 de 500 fotos lidas em novembro"><i class="cheia" style="width:100%"></i></div>
+        </div>
+        <div class="acoes" data-lig="ok cheia">
+          <button class="btn perigo" type="button">Desligar</button>
+        </div>
+        <div class="acoes" data-lig="desl" hidden>
+          <button class="btn pri" type="button">Conectar ao DMS Graph de novo</button>
+        </div>
+        <div class="dialogo" role="alertdialog" aria-label="Desligar o DMS Graph" data-lig="conf" hidden>
+          <h4>Desligar o DMS Graph da empresa?</h4>
+          <p class="nota">As fotos voltam a ser lidas pela IA da empresa (ou o atendente pede para o cliente escrever, se a empresa não tiver chave). Para voltar, é só conectar de novo.</p>
+          <div class="acoes"><button class="btn" type="button">Cancelar</button><button class="btn perigo" type="button">Desligar</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────── 6 · No Graph: aplicativos conectados ───────────── -->
+<section class="vista" id="v6" hidden>
+  <h1>Aplicativos conectados, no DMS Graph</h1>
+  <p class="intro">O Padrão (§3) pede que a conta veja e desligue, no próprio destino, cada aplicativo que ligou. No Graph é uma tela só, depois de entrar com o DMS ID (GR-7).</p>
+  <div class="ctls">
+    <div class="ctl"><span>Situação</span>
+      <button type="button" data-g="apps" data-val="lista" aria-pressed="true">Com o Regem ligado</button>
+      <button type="button" data-g="apps" data-val="conf" aria-pressed="false">Confirmar o desligar</button>
+      <button type="button" data-g="apps" data-val="vazia" aria-pressed="false">Nenhum aplicativo</button>
+    </div>
+  </div>
+  <div class="gr">
+    <div class="gr-pag">
+      <div class="gr-marca"><span class="logo gr sm" aria-hidden="true">G</span>DMS <span>Graph</span></div>
+      <div class="gr-sessao">Entrou como <b>ana@casadohamburguer.com.br</b> · Casa do Hambúrguer Ltda. · <a href="#v6">Sair</a></div>
+      <h2>Aplicativos conectados</h2>
+      <div class="gr-lista" data-apps="lista conf">
+        <div class="gr-app">
+          <div class="top"><b>Regem</b><span class="gr-selo">ligado</span></div>
+          <dl>
+            <dt>Pode</dt><dd>Analisar as fotos e os documentos que os seus clientes mandam, sem guardar o arquivo</dd>
+            <dt>Ligado em</dt><dd>18/11/2026, 14:05, por ana@casadohamburguer.com.br</dd>
+            <dt>Último uso</dt><dd>há 3 min</dd>
+            <dt>Este mês</dt><dd><span class="mono">87</span> de <span class="mono">500</span> fotos</dd>
+          </dl>
+          <div data-apps="lista"><button class="gr-btn perigo" type="button">Desligar</button></div>
+          <div class="gr-alerta" data-apps="conf" hidden>
+            <b>Desligar o Regem?</b>
+            <span>O Regem para de mandar fotos ao Graph na hora e volta à IA da empresa. O que já foi lido não muda.</span>
+            <div class="acoes" style="margin-top:6px"><button class="gr-btn sec" type="button" style="width:auto">Cancelar</button><button class="gr-btn perigo" type="button">Desligar</button></div>
+          </div>
+        </div>
+      </div>
+      <div class="gr-card" data-apps="vazia" hidden>
+        <b>Nenhum aplicativo está ligado à sua conta</b>
+        <small>Para ligar, use o botão "Conectar ao DMS Graph" no produto: no Regem, em Delivery › Configurações › Integrações.</small>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────── 7 · Erros ───────────── -->
+<section class="vista" id="v7" hidden>
+  <h1>O que aparece quando não dá certo</h1>
+  <p class="intro">Toda volta sem ligação diz o que aconteceu e o que fazer, e nada muda no que já existia. Em nenhum caso a conversa com o cliente para: sem o Graph, a foto segue pelo caminho de hoje.</p>
+  <div class="lado">
+    <div class="aviso warn"><span aria-hidden="true">!</span><span><b>Você não autorizou no DMS Graph</b>Nada mudou. Se quiser ligar, comece de novo pelo botão "Conectar ao DMS Graph".</span></div>
+    <div class="aviso warn"><span aria-hidden="true">!</span><span><b>O pedido venceu</b>A página do DMS Graph ficou aberta mais de 10 minutos. Comece de novo; nada foi ligado.</span></div>
+    <div class="aviso erro"><span aria-hidden="true">!</span><span><b>Não foi possível falar com o DMS Graph agora</b>Tente de novo em alguns minutos. Se continuar, avise o suporte. As fotos seguem pela IA da empresa.</span></div>
+    <div class="aviso erro"><span aria-hidden="true">!</span><span><b>Esta empresa já tem conta no DMS Graph, de outra pessoa</b>Só quem criou a conta autoriza aplicativos para ela. Peça a essa pessoa para conectar pelo Regem.</span></div>
+    <div class="aviso warn"><span aria-hidden="true">!</span><span><b>Este pedido começou em outra janela</b>Por segurança, a volta só vale na janela que pediu. Comece de novo por aqui.</span></div>
+    <div class="aviso info"><span aria-hidden="true">ℹ</span><span><b>A DMS pausou o DMS Graph</b>Quando a DMS para a integração, o Graph recusa ligação nova e leitura. As fotos seguem pela IA da empresa até a DMS religar.</span></div>
+  </div>
+</section>
+
+<!-- ───────────── Notas e decisões ───────────── -->
+<section class="vista" id="v8" hidden>
+  <h1>Notas e decisões</h1>
+  <p class="intro">As decisões G-1 a G-8 já foram aprovadas com o plano (18/11/2026). As GR-1 a GR-7 são as das telas; pela sua regra, sigo a recomendada de cada uma se você não disser outra.</p>
+  <div class="tabela-wrap">
+    <table class="cartoes-sm">
+      <caption class="sr">Decisões das telas do clique Regem → DMS Graph</caption>
+      <thead><tr><th>#</th><th>Decisão</th><th>Recomendada</th><th>Alternativa</th></tr></thead>
+      <tbody>
+        <tr><td>GR-1</td><td>Onde fica o botão</td><td>Delivery › Configurações › Integrações, cartão "DMS Graph"; em Atendimento › Fotos do cliente, uma linha diz quem lê agora e aponta o cartão</td><td>Só no ajuste das fotos</td></tr>
+        <tr><td>GR-2</td><td>Quem liga e desliga no Regem</td><td>Só o presidente; os outros veem a situação</td><td>Presidente e gerente</td></tr>
+        <tr><td>GR-3</td><td>O que o Regem pede</td><td>Só "Analisar as fotos e os documentos que os seus clientes mandam, sem guardar o arquivo" (necessária, sensível); nada opcional</td><td>—</td></tr>
+        <tr><td>GR-4</td><td>Quem autoriza de novo uma conta do Graph que já existe</td><td>Só quem a criou (o primeiro que autorizou pelo DMS ID); outra pessoa vê "peça a quem criou"</td><td>Qualquer pessoa que entre com o DMS ID e venha do mesmo CNPJ pelo Regem</td></tr>
+        <tr><td>GR-5</td><td>A franquia na tela</td><td>O cartão mostra as fotos do mês (usadas de total) e avisa quando acabar; a leitura segue pela IA da empresa até o dia 1º</td><td>Só um aviso quando acabar</td></tr>
+        <tr><td>GR-6</td><td>Desligado do lado do Graph</td><td>O cartão marca "desligado" com a data, e a leitura volta sozinha à IA da empresa</td><td>Avisar no sino também</td></tr>
+        <tr><td>GR-7</td><td>"Aplicativos conectados" no Graph</td><td>Uma tela só, depois de entrar com o DMS ID: a lista, o que cada um pode, o uso do mês e "Desligar" com confirmação</td><td>—</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h2 class="legenda" style="margin-top:20px">O que fica fora da tela</h2>
+  <ul class="intro" style="margin-top:0">
+    <li>O segredo da ligação fica só na nuvem do Regem, cifrado; nunca aparece na tela nem vai ao servidor da loja.</li>
+    <li>O pedido nasce no servidor do Regem (pedido empurrado com PKCE); o navegador leva só o número, e a volta só vale na sessão que pediu.</li>
+    <li>A foto vai ao Graph pela porta MCP com uma chave de repetição feita do número da mensagem do WhatsApp: a mesma foto nunca é lida nem contada duas vezes.</li>
+    <li>O Graph não guarda a foto. O resultado da leitura fica cifrado por 24 horas, só para a repetição; o registro de uso guarda só a conta, o tamanho, o tempo e se deu certo.</li>
+    <li>Ligar e desligar ficam na auditoria do Regem; o e-mail ao responsável é do Graph.</li>
+    <li>A franquia do piloto (500 por mês, nos exemplos) é configuração do Graph e muda sem nova versão; o preço fica para depois de medir o uso.</li>
+  </ul>
+</section>
+
+</main>
+
+<script>
+(() => {
+  const abas = document.querySelectorAll('#abas .aba');
+  function mostrar(id) {
+    abas.forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.v === id)));
+    document.querySelectorAll('.vista').forEach((v) => { v.hidden = v.id !== id; });
+    window.scrollTo({ top: 0 });
+  }
+  abas.forEach((b) => b.addEventListener('click', () => mostrar(b.dataset.v)));
+  document.querySelectorAll('[data-ir]').forEach((a) => a.addEventListener('click', (e) => { e.preventDefault(); mostrar(a.dataset.ir); }));
+  document.querySelectorAll('.ctl button[data-g]').forEach((b) => b.addEventListener('click', () => {
+    const g = b.dataset.g;
+    document.querySelectorAll(`.ctl button[data-g="${g}"]`).forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    document.querySelectorAll(`[data-${g}]`).forEach((el) => {
+      if (el.matches('button[data-g]')) return;
+      el.hidden = !el.getAttribute(`data-${g}`).split(' ').includes(b.dataset.val);
+    });
+  }));
+  document.querySelectorAll('.chave').forEach((c) => c.addEventListener('click', () => {
+    c.setAttribute('aria-pressed', String(c.getAttribute('aria-pressed') !== 'true'));
+  }));
+})();
+</script>

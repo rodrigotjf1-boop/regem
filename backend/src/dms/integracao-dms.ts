@@ -10,7 +10,7 @@
 import { createHash, createHmac, createPublicKey, randomBytes, randomUUID, timingSafeEqual, verify as conferirAssinatura, type JsonWebKey, type KeyObject } from 'node:crypto';
 import { isIP } from 'node:net';
 
-export const VERSAO_PACOTE = '0.10.2';
+export const VERSAO_PACOTE = '0.11.0';
 
 const DIA_MS = 86_400_000;
 
@@ -18,7 +18,7 @@ const DIA_MS = 86_400_000;
 // 1. Produtos e classes (Padrão §1)
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-export const PRODUTOS = ['regem', 'regemcast', 'liame', 'farol', 'gogem', 'regemboard', 'orzuni', 'muraljob'] as const;
+export const PRODUTOS = ['regem', 'regemcast', 'liame', 'farol', 'gogem', 'regemboard', 'orzuni', 'muraljob', 'graph'] as const;
 export type Produto = (typeof PRODUTOS)[number];
 
 export function ehProduto(v: unknown): v is Produto {

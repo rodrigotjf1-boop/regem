@@ -1,6 +1,6 @@
-# Estrutura real do banco (nuvem — projeto Supabase `Regem` / `baglkwaahkjgwvnfabic`, sa-east-1)
+# Estrutura real do banco (nuvem — o projeto Supabase do Regem, `<id-do-projeto>`, sa-east-1)
 
-<!-- Migrado de Oregon (`regen`/`yhwcehdoaqhexkriyehv`, us-west-2) → SP em 06/09/2026. Ver memória migracao-supabase-oregon-sp. -->
+<!-- Migrado do projeto antigo em Oregon (us-west-2) → SP em 06/09/2026. Ver memória migracao-supabase-oregon-sp. -->
 
 > Fonte da verdade da estrutura **real** em produção (não é o `schema.ts` do Drizzle — eles divergem).
 > Gerado de `information_schema.columns` (schema `public`) em **02/08/2026**.

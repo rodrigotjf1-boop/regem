@@ -1619,6 +1619,12 @@ export const api = {
   orzuniCliqueConcluir: (volta: { code: string | null; state: string | null; iss: string | null; error: string | null }) =>
     req('/orzuni/clique/concluir', { method: 'POST', body: JSON.stringify(volta) }),
   orzuniCliqueDesligar: () => req('/orzuni/clique/desligar', { method: 'POST' }) as Promise<{ desligada: boolean }>,
+  // O clique Regem → DMS Graph (mig 450, G5): a situação da EMPRESA, ligar (devolve a página do Graph), a volta e desligar.
+  graphCliqueSituacao: () => req('/graph/clique/situacao'),
+  graphCliqueIniciar: () => req('/graph/clique/iniciar', { method: 'POST' }) as Promise<{ url: string }>,
+  graphCliqueConcluir: (volta: { code: string | null; state: string | null; iss: string | null; error: string | null }) =>
+    req('/graph/clique/concluir', { method: 'POST', body: JSON.stringify(volta) }),
+  graphCliqueDesligar: () => req('/graph/clique/desligar', { method: 'POST' }) as Promise<{ desligada: boolean }>,
   salvarIntegracao: (body: Record<string, unknown>) =>
     req('/delivery/integracoes', { method: 'PUT', body: JSON.stringify(body) }),
   // Testa a conexão do gateway de PIX (Mercado Pago, PagBank, Rede). Vazio = o servidor usa o salvo.
