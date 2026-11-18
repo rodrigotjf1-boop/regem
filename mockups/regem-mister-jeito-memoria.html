@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regem · Mister — jeito e memória (protótipo)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* REGEM · MISTER — JEITO E MEMÓRIA — versão 1, A APROVAR (18/11/2026). Versão 4 do Mister (docs/plano-mister.md, "Versão 4"),
+   entregas 2 e 3: o Mister com o jeito do atendente virtual e os padrões do Hermes Agent (memória curta e limitada, "fica
+   de olho", aviso escrito com contexto). A entrega 1 já está no ar (consultas juntas, os blocos do atendente, a reação e
+   as conversas anteriores).
+   1. Na loja — Mister › parte nova "Jeito e memória": o perfil do Mister (os mesmos do atendente) e o jeito da empresa,
+      os avisos escritos pelo Mister e o "fica de olho"; e "O que o Mister sabe", da empresa e de cada pessoa, com
+      Anotar, Mudar e Esquecer.
+   2. No celular — as conversas: lembrar, usar o que lembrou, "o que você sabe de mim?", esquecer, o aviso escrito com
+      contexto (antes e depois), fica de olho e lembrete.
+   3. Notas e decisões — oito decisões com a recomendada primeiro, as fases e o que fica de fora.
+   Os botões "Situação do protótipo" trocam os estados para a aprovação; não existem no app. Nomes, números e datas
+   inventados. O app da loja usa os tokens do Regem (.app-light). */
+:root{
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --gold-ink:#7A5209; --gold-bg:#FFF9EC; --navy:#0F2230;
+  --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9; --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8;
+  --neutro:#43586C; --neutro-bg:#EAEFF4; --foco:#3A7FB8;
+  --c-wa:#0B6E3A; --wa-fundo:#EDE6DB; --wa-dele:#FFFFFF; --wa-meu:#D9F5CF;
+  --proto:#0B1822; --proto-txt:#C9D5DF; --proto-txt2:#8FA3B4; --proto-linha:#2A3B4A; --d-azul:#7CC0F5;
+  --radius:12px; --display:"Archivo","Segoe UI",system-ui,sans-serif; --body:"Figtree","Segoe UI",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font:15px/1.5 var(--body);background:var(--bg);color:var(--ink);overflow-x:hidden}
+[hidden]{display:none!important}
+h1,h2,h3,h4{font-family:var(--display);margin:0;text-wrap:balance}
+h1{font-size:26px;line-height:1.15} h2{font-size:18px} h3{font-size:16px} h4{font-size:14px}
+p{margin:0 0 10px;overflow-wrap:anywhere} p:last-child{margin-bottom:0}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--foco);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.sub{color:var(--ink-2)} .peq{font-size:13.5px}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+
+/* faixa do protótipo */
+.proto{background:var(--proto);color:var(--proto-txt);padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.proto .titulo{font-family:var(--display);font-weight:700;color:#fff}
+.abas{display:flex;flex-wrap:wrap;gap:6px}
+.aba{background:transparent;border:1px solid var(--proto-linha);color:var(--proto-txt);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:36px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.proto .nota{font-size:12.5px;color:var(--proto-txt2);flex:1 1 220px;min-width:0}
+.proto :focus-visible{outline-color:var(--d-azul)}
+.vista{display:none} .vista.ativa{display:block}
+
+/* casca do app da loja */
+.app{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:80vh}
+.lado{background:var(--navy);color:#C9D5DF;padding:16px 12px}
+.lado .marca{font:800 18px var(--display);color:#fff;margin:2px 8px 14px}
+.lado ul{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.lado li{padding:8px 10px;border-radius:8px}
+.lado li.atual{background:rgba(232,168,69,.18);color:#fff;box-shadow:inset 3px 0 0 var(--gold);font-weight:600}
+.principal{min-width:0;container-type:inline-size;container-name:principal}
+.topo{background:#fff;border-bottom:1px solid var(--line);padding:10px 20px;display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;justify-content:space-between}
+.conteudo{padding:20px;max-width:1120px}
+.cab{margin-bottom:14px} .cab .sub{max-width:72ch;margin-top:4px}
+.partes{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px;padding:0 0 12px;border-bottom:1px solid var(--line)}
+.parte{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:999px;min-height:40px;font-weight:600;color:var(--ink-2)}
+.parte[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.v4{display:inline-block;margin-left:6px;padding:0 6px;border-radius:999px;font-size:11px;font-weight:800;background:var(--gold);color:var(--on-gold)}
+.cartao{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;min-width:0}
+.cartao > h2{margin-bottom:4px}
+.cartao > .sub{margin-bottom:10px}
+.selo{display:inline-block;font-size:12.5px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.selo.ok{background:var(--ok-bg);color:var(--ok)} .selo.warn{background:var(--warn-bg);color:var(--warn)} .selo.info{background:var(--info-bg);color:var(--info)} .selo.neutro{background:var(--neutro-bg);color:var(--neutro)}
+.btn{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:10px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink)}
+.btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.btn.perigo{color:var(--crit);border-color:#E3B5B5}
+.btn-peq{min-height:34px;padding:4px 10px;font-size:13.5px}
+.ctls{border:1px dashed #9AA9B6;background:#fff;border-radius:10px;padding:8px 12px;margin:0 0 14px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px;color:var(--gold-ink)}
+.ctl{background:#fff;border:1px solid var(--line-2);padding:4px 10px;border-radius:999px;cursor:pointer;min-height:32px}
+.ctl[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+
+/* ajustes (o modelo de Configurações) */
+.grupo-aj{font:600 12.5px var(--display);text-transform:uppercase;letter-spacing:.05em;color:var(--ink-2);margin:14px 0 2px}
+.aj{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 16px;align-items:center;padding:12px 10px;border-top:1px solid var(--line)}
+.aj.mudou{background:var(--gold-bg);box-shadow:inset 3px 0 0 var(--gold)}
+.aj .t{font-weight:600} .aj .d{font-size:13.5px;color:var(--ink-2)}
+.aj .ctrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end;min-width:0}
+.aj .ctrl select{border:1px solid var(--line-2);border-radius:8px;padding:6px 8px;min-height:40px;background:#fff;max-width:100%;min-width:0}
+.aj.largo{grid-template-columns:minmax(0,1fr)}
+.aj.largo .ctrl{justify-content:flex-start}
+.aj textarea{width:100%;min-height:72px;border:1px solid var(--line-2);border-radius:10px;padding:8px 10px;resize:vertical}
+/* O editor de texto da linha larga ocupa a linha inteira (o justify-content da linha não pode encolher a coluna). */
+.aj .ctrl.campo-largo{display:grid;grid-template-columns:minmax(0,1fr);gap:4px;width:100%;max-width:640px;justify-content:stretch}
+.aj .conta{font-size:12.5px;color:var(--ink-2)}
+.chave{position:relative;display:inline-flex;align-items:center;gap:8px;cursor:pointer;min-height:40px}
+.chave input{position:absolute;opacity:0;width:44px;height:26px;margin:0;cursor:pointer}
+.chave .trilho{width:44px;height:26px;border-radius:999px;background:#C8D2DC;position:relative;flex:none;transition:background .15s}
+.chave .trilho::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .15s}
+.chave input:checked + .trilho{background:var(--ok)}
+.chave input:checked + .trilho::after{transform:translateX(18px)}
+.chave input:focus-visible + .trilho{outline:3px solid var(--foco);outline-offset:2px}
+.marcas{display:flex;flex-wrap:wrap;gap:6px 14px}
+.marcas label{display:inline-flex;gap:6px;align-items:center;min-height:32px}
+.barra-salvar{position:sticky;bottom:0;background:var(--navy);color:#fff;border-radius:12px;padding:10px 14px;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between;margin-top:8px}
+.barra-salvar .btn{min-height:36px}
+
+/* o que o Mister sabe */
+.situacoes{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 10px}
+.sit{background:#fff;border:1px solid var(--line-2);color:var(--ink-2);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:38px;font-weight:600}
+.sit b{font-family:var(--mono);margin-left:4px}
+.sit[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.medidor{display:grid;gap:4px;margin:6px 0 12px;max-width:520px}
+.medidor .barra{height:8px;border-radius:999px;background:var(--neutro-bg);overflow:hidden}
+.medidor .barra span{display:block;height:100%;background:var(--ok)}
+.medidor .rot{font-size:13px;color:var(--ink-2)}
+.filtros{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.filtros input,.filtros select{border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;min-height:42px;background:#fff;min-width:0;flex:1 1 200px;max-width:340px}
+.itens{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.item{border:1px solid var(--line);border-radius:10px;padding:12px;display:grid;gap:6px;min-width:0}
+.item .texto{font-weight:600;overflow-wrap:anywhere}
+.item .meta{font-size:13px;color:var(--ink-2);display:flex;flex-wrap:wrap;gap:4px 12px}
+.item .acoes{display:flex;flex-wrap:wrap;gap:8px}
+.vazio{border:1px dashed var(--line-2);border-radius:10px;padding:22px 14px;text-align:center;color:var(--ink-2)}
+.carregando .linha-falsa{height:58px;border-radius:10px;background:linear-gradient(90deg,#EEF2F6,#F8FAFC,#EEF2F6);margin-bottom:10px}
+.regra{border-left:3px solid var(--info);background:var(--info-bg);border-radius:8px;padding:8px 12px;font-size:13.5px;margin-bottom:12px}
+
+/* gaveta e diálogo */
+.fundo{position:fixed;inset:0;background:rgba(15,34,48,.45);z-index:40;display:none}
+.fundo.aberto{display:block}
+.gaveta{position:fixed;top:0;right:0;bottom:0;width:min(520px,100%);background:#fff;z-index:41;display:none;flex-direction:column;box-shadow:-8px 0 24px rgba(15,34,48,.18)}
+.gaveta.aberto{display:flex}
+.pn-cab{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line)}
+.pn-corpo{padding:18px;overflow:auto;flex:1;min-height:0}
+.pn-rodape{padding:12px 18px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:8px}
+.fechar{background:transparent;border:0;font-size:18px;cursor:pointer;min-width:40px;min-height:40px;border-radius:8px}
+.campo{display:grid;gap:4px;margin-bottom:12px}
+.campo label{font-weight:600;font-size:14px}
+.campo select,.campo textarea{border:1px solid var(--line-2);border-radius:10px;padding:9px 12px;min-height:42px;background:#fff;width:100%;min-width:0}
+.campo textarea{min-height:96px;resize:vertical}
+.campo .ajuda{font-size:13.5px;color:var(--ink-2)}
+.campo .erro{font-size:13.5px;color:var(--crit);font-weight:600}
+.dialogo{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(440px,calc(100% - 32px));background:#fff;border-radius:14px;z-index:42;display:none;padding:18px;box-shadow:0 12px 32px rgba(15,34,48,.25)}
+.dialogo.aberto{display:block}
+.dialogo .acoes{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin-top:14px}
+.toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:10px 14px;border-radius:10px;max-width:min(92vw,520px);z-index:60}
+
+/* celular */
+.celulares{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,290px),1fr));gap:22px 18px;align-items:start;padding:20px;max-width:1240px}
+.cel-bloco{min-width:0}
+.cel-bloco > h3{margin-bottom:4px} .cel-bloco > p{font-size:13.5px;color:var(--ink-2)}
+.cel{border:8px solid #1B2A36;border-radius:28px;background:var(--wa-fundo);overflow:hidden;max-width:360px}
+.cel-topo{background:var(--c-wa);color:#fff;padding:10px 14px;display:flex;gap:10px;align-items:center}
+.cel-topo .foto{width:34px;height:34px;border-radius:50%;background:#fff;color:var(--c-wa);display:grid;place-items:center;font:800 15px var(--display);flex:none}
+.cel-topo b{display:block;line-height:1.2} .cel-topo span{font-size:12.5px;opacity:.9}
+.cel-corpo{padding:10px;display:grid;gap:6px}
+.bolha{max-width:88%;padding:7px 10px;border-radius:10px;font-size:14px;line-height:1.4;box-shadow:0 1px 1px rgba(0,0,0,.12);overflow-wrap:anywhere;position:relative}
+.bolha.dele{background:var(--wa-dele);justify-self:start;border-top-left-radius:2px}
+.bolha.meu{background:var(--wa-meu);justify-self:end;border-top-right-radius:2px}
+.bolha .hora{display:block;text-align:right;font-size:11px;color:#5E6E7A;margin-top:2px}
+.bolha .reacao{position:absolute;right:6px;bottom:-12px;background:#fff;border-radius:999px;padding:0 5px;font-size:13px;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.bolha.com-reacao{margin-bottom:10px}
+.dia{justify-self:center;background:#E1F2FB;color:#38505E;font-size:11.5px;border-radius:6px;padding:2px 8px}
+.rotulo-antes{justify-self:center;font:700 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:#5E6E7A}
+
+/* notas */
+.notas{padding:20px;max-width:1000px}
+.notas .cartao ul,.notas .cartao ol{margin:6px 0 0;padding-left:20px} .notas .cartao li{margin-bottom:6px}
+.decisao{border-top:1px solid var(--line);padding:12px 0} .decisao:first-of-type{border-top:0}
+.decisao h3{margin-bottom:4px}
+.rec{display:inline-block;margin-left:4px;padding:0 8px;border-radius:999px;font-size:12px;font-weight:700;background:var(--ok-bg);color:var(--ok)}
+.fases{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:12px}
+.fase{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;min-width:0}
+.fase h4{margin-bottom:4px}
+
+@container principal (max-width: 560px){
+  .aj{grid-template-columns:minmax(0,1fr)}
+  .aj .ctrl{justify-content:flex-start}
+}
+@media (max-width:860px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  .lado{display:none}
+  .conteudo{padding:14px}
+  .celulares,.notas{padding:14px}
+}
+</style>
+</head>
+<body>
+
+<div class="proto" role="region" aria-label="Protótipo">
+  <span class="titulo">Mister · jeito e memória · versão 1, a aprovar</span>
+  <div class="abas" role="group" aria-label="Partes do protótipo">
+    <button class="aba" data-vista="loja" aria-pressed="true">Na loja</button>
+    <button class="aba" data-vista="celular" aria-pressed="false">No celular</button>
+    <button class="aba" data-vista="notas" aria-pressed="false">Notas e decisões</button>
+  </div>
+  <span class="nota">Versão 4 do Mister, entregas 2 e 3. A entrega 1 (consultas juntas, o jeito de escrever do atendente, a reação e as conversas anteriores) já está no ar.</span>
+</div>
+
+<!-- ───────────── NA LOJA ───────────── -->
+<section class="vista ativa" id="v-loja" aria-label="Na loja">
+  <div class="app">
+    <nav class="lado" aria-label="Menu">
+      <div class="marca">Regem</div>
+      <ul>
+        <li>Painel</li><li>Delivery</li><li>Balcão</li><li>Estoque</li><li>Relatórios</li>
+        <li class="atual" aria-current="page">Mister</li><li>Configurações</li>
+      </ul>
+    </nav>
+    <div class="principal">
+      <div class="topo"><b>Burger da Praça</b><span class="sub peq">Ana Souza · presidente</span></div>
+      <main class="conteudo">
+        <div class="cab">
+          <h1>Mister</h1>
+          <p class="sub">O administrador virtual da sua loja. Aqui cada gestor liga o próprio WhatsApp ao Mister, e você cuida da chave de IA da empresa.</p>
+        </div>
+        <div class="partes" role="group" aria-label="Partes do Mister">
+          <button class="parte" aria-pressed="false">Resumo</button>
+          <button class="parte" aria-pressed="false">Pessoas</button>
+          <button class="parte" aria-pressed="false">IA e uso</button>
+          <button class="parte" aria-pressed="false">Avisos e relatórios</button>
+          <button class="parte" aria-pressed="false">Documentos</button>
+          <button class="parte" aria-pressed="false">Histórico</button>
+          <button class="parte" aria-pressed="true">Jeito e memória<span class="v4">v4</span></button>
+        </div>
+
+        <div class="ctls" role="group" aria-label="Situação do protótipo">
+          <span>Situação do protótipo:</span>
+          <button class="ctl" data-sit="com" aria-pressed="true">Com memória</button>
+          <button class="ctl" data-sit="vazio" aria-pressed="false">Vazio</button>
+          <button class="ctl" data-sit="carregando" aria-pressed="false">Carregando</button>
+          <button class="ctl" data-sit="erro" aria-pressed="false">Não deu para ler</button>
+        </div>
+
+        <!-- o jeito -->
+        <section class="cartao" aria-labelledby="t-jeito">
+          <h2 id="t-jeito">O jeito do Mister</h2>
+          <p class="sub">Como ele fala com você e com os gerentes. As regras não mudam: número só de consulta, só o que cada perfil pode ver, e nada é feito sem a sua autorização.</p>
+
+          <div class="grupo-aj">Conversa · 2 ajustes</div>
+          <div class="aj" id="aj-perfil">
+            <div><div class="t" id="r-perfil">Perfil</div><div class="d">O tom das respostas — os mesmos perfis do atendente virtual. "Como hoje" não muda nada.</div></div>
+            <div class="ctrl">
+              <select id="perfil" aria-labelledby="r-perfil">
+                <option>Como hoje</option><option>Profissional</option><option>Cordial</option><option>Gentil</option><option>Descontraído</option><option>Objetivo</option><option>Acolhedor</option>
+              </select>
+            </div>
+          </div>
+          <div class="aj largo" id="aj-jeito">
+            <div><div class="t" id="r-jeito">Jeito da empresa</div><div class="d">Uma frase sobre como o Mister deve falar com vocês. Ele segue quando não contrariar as regras.</div></div>
+            <div class="ctrl campo-largo">
+              <textarea id="jeito" maxlength="300" aria-labelledby="r-jeito" aria-describedby="conta-jeito">Fale como sócio, sem formalidade. No fim da noite, comece pelo que deu errado.</textarea>
+              <span class="conta" id="conta-jeito">78 de 300 letras</span>
+            </div>
+          </div>
+
+          <div class="grupo-aj">Avisos · 2 ajustes</div>
+          <div class="aj largo" id="aj-avisos">
+            <div><div class="t" id="r-avisos">Avisos escritos pelo Mister</div><div class="d">Em vez do texto fixo, o Mister escreve o aviso com o que importa: o pedido, há quanto tempo, se é o único, o que fazer. Quem descobre o problema continua sendo a regra, sem IA. Sem IA, sem crédito ou fora das 24 horas, vai o texto de hoje. Gasta cerca de US$ 0,001 por aviso, na chave da empresa.</div></div>
+            <div class="ctrl">
+              <div class="marcas" role="group" aria-labelledby="r-avisos">
+                <label><input type="checkbox" id="av-loja" checked> Na loja</label>
+                <label><input type="checkbox" id="av-servidor"> Servidor</label>
+                <label><input type="checkbox" id="av-fiscal"> Fiscal</label>
+                <label><input type="checkbox" id="av-mister"> O próprio Mister</label>
+              </div>
+            </div>
+          </div>
+          <div class="aj" id="aj-olho">
+            <div><div class="t" id="r-olho">"Fica de olho" e lembretes</div><div class="d">Pela conversa: "me avisa quando o #284 sair", "me lembra amanhã às 10h de pagar o gás". Até 3 "fica de olho" e 10 lembretes por pessoa.</div></div>
+            <div class="ctrl"><label class="chave"><input type="checkbox" id="olho" role="switch" aria-labelledby="r-olho" checked><span class="trilho" aria-hidden="true"></span></label></div>
+          </div>
+
+          <div class="barra-salvar" id="barra" hidden>
+            <span><b id="n-alt">1</b> alteração ainda não salva</span>
+            <span style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-peq" id="descartar">Descartar</button><button class="btn pri btn-peq" id="salvar">Salvar</button></span>
+          </div>
+        </section>
+
+        <!-- o que sabe -->
+        <section class="cartao" aria-labelledby="t-sabe">
+          <div style="display:flex;flex-wrap:wrap;gap:8px 12px;justify-content:space-between;align-items:flex-start">
+            <div style="min-width:0;flex:1 1 280px"><h2 id="t-sabe">O que o Mister sabe <span class="sub mono" id="t-total">(10)</span></h2>
+              <p class="sub">O que ele anotou nas conversas — quando alguém pede "lembra que…" ou corrige o jeito dele — e o que você escreveu aqui. Vale da próxima conversa em diante.</p></div>
+            <button class="btn pri" id="anotar">＋ Anotar</button>
+          </div>
+          <p class="regra">Ele nunca guarda número (venda, valor, estoque — número vem sempre da consulta), dado de cliente, senha, código ou PIN: o Regem recusa na hora.</p>
+
+          <div class="situacoes" role="group" aria-label="De quem">
+            <button class="sit" data-quem="empresa" aria-pressed="true">Da empresa <b>6</b></button>
+            <button class="sit" data-quem="pessoas" aria-pressed="false">De cada pessoa <b>4</b></button>
+          </div>
+
+          <div class="medidor" id="medidor">
+            <div class="barra" aria-hidden="true"><span style="width:64%"></span></div>
+            <span class="rot" id="medidor-rot">1.412 de 2.200 letras usadas. Cheio, o Mister junta as anotações parecidas ou pede para esquecer uma.</span>
+          </div>
+
+          <div class="filtros">
+            <label class="sr" for="busca">Buscar no que o Mister sabe</label>
+            <input id="busca" type="search" placeholder="Buscar no que ele sabe">
+            <label class="sr" for="origem">De onde veio</label>
+            <select id="origem"><option>Todas as origens</option><option>Anotado na conversa</option><option>Escrito por você</option></select>
+          </div>
+
+          <div id="lista-com">
+            <ul class="itens" id="itens-empresa">
+              <li class="item"><span class="texto">O pico da noite é das 20h às 22h; no sábado começa às 19h.</span><span class="meta"><span>Anotado na conversa com Ana</span><span class="mono">17/11 21:40</span></span><span class="acoes"><button class="btn btn-peq" data-mudar>Mudar</button><button class="btn btn-peq perigo" data-esquecer>Esquecer</button></span></li>
+              <li class="item"><span class="texto">"Smash" é o X-Burger Smash; "trio" é lanche com batata e refrigerante.</span><span class="meta"><span>Escrito por você</span><span class="mono">16/11 10:05</span></span><span class="acoes"><button class="btn btn-peq" data-mudar>Mudar</button><button class="btn btn-peq perigo" data-esquecer>Esquecer</button></span></li>
+              <li class="item"><span class="texto">A loja ainda fecha os pedidos do delivery no Eclética: pedido "em aberto" no painel não é atraso.</span><span class="meta"><span>Anotado na conversa com Ana</span><span class="mono">15/11 00:12</span></span><span class="acoes"><button class="btn btn-peq" data-mudar>Mudar</button><button class="btn btn-peq perigo" data-esquecer>Esquecer</button></span></li>
+              <li class="item"><span class="texto">O caixa do delivery é fechado pelo Carlos no fim da noite.</span><span class="meta"><span>Anotado na conversa com Carlos</span><span class="mono">14/11 23:58</span></span><span class="acoes"><button class="btn btn-peq" data-mudar>Mudar</button><button class="btn btn-peq perigo" data-esquecer>Esquecer</button></span></li>
+              <li class="item"><span class="texto">A impressora da cozinha costuma parar quando acaba o papel; trocar o rolo resolve.</span><span class="meta"><span>Anotado na conversa com Ana</span><span class="mono">14/11 20:31</span></span><span class="acoes"><button class="btn btn-peq" data-mudar>Mudar</button><button class="btn btn-peq perigo" data-esquecer>Esquecer</button></span></li>
+              <li class="item"><span class="texto">Promoção de terça: trio com 15% de desconto, só no balcão.</span><span class="meta"><span>Escrito por você</span><span class="mono">12/11 09:40</span></span><span class="acoes"><button class="btn btn-peq" data-mudar>Mudar</button><button class="btn btn-peq perigo" data-esquecer>Esquecer</button></span></li>
+            </ul>
+            <ul class="itens" id="itens-pessoas" hidden>
+              <li class="item"><span class="texto">Ana prefere os valores sem centavos e a resposta mais curta.</span><span class="meta"><span>De Ana Souza · anotado na conversa</span><span class="mono">18/11 09:12</span></span><span class="acoes"><button class="btn btn-peq" data-mudar>Mudar</button><button class="btn btn-peq perigo" data-esquecer>Esquecer</button></span></li>
+              <li class="item"><span class="texto">Ana quer o resumo da noite começando pelo que deu errado.</span><span class="meta"><span>De Ana Souza · anotado na conversa</span><span class="mono">16/11 01:20</span></span><span class="acoes"><button class="btn btn-peq" data-mudar>Mudar</button><button class="btn btn-peq perigo" data-esquecer>Esquecer</button></span></li>
+              <li class="item"><span class="texto">Carlos chama a cozinha de "chapa" e o delivery de "rua".</span><span class="meta"><span>De Carlos Lima · anotado na conversa</span><span class="mono">15/11 22:47</span></span><span class="acoes"><button class="btn btn-peq" data-mudar>Mudar</button><button class="btn btn-peq perigo" data-esquecer>Esquecer</button></span></li>
+              <li class="item"><span class="texto">Carlos trabalha de quinta a domingo; nos outros dias não precisa do resumo.</span><span class="meta"><span>De Carlos Lima · escrito por você</span><span class="mono">14/11 11:02</span></span><span class="acoes"><button class="btn btn-peq" data-mudar>Mudar</button><button class="btn btn-peq perigo" data-esquecer>Esquecer</button></span></li>
+            </ul>
+          </div>
+          <div class="vazio" id="lista-vazio" hidden>
+            <p><b>O Mister ainda não anotou nada.</b></p>
+            <p>Ele anota o que vocês pedirem para lembrar ("lembra que o pico é às 20h") e o jeito de cada um. Você também pode escrever aqui, em "Anotar".</p>
+          </div>
+          <div class="carregando" id="lista-carregando" hidden aria-busy="true" aria-label="Carregando o que o Mister sabe">
+            <div class="linha-falsa"></div><div class="linha-falsa"></div><div class="linha-falsa"></div>
+          </div>
+          <div class="vazio" id="lista-erro" hidden role="alert">
+            <p><b>Não deu para ler o que o Mister sabe agora.</b></p>
+            <p><button class="btn" id="de-novo">Tentar de novo</button></p>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+</section>
+
+<!-- gaveta: anotar / mudar -->
+<div class="fundo" id="fundo"></div>
+<aside class="gaveta" id="gaveta" role="dialog" aria-modal="true" aria-labelledby="g-titulo">
+  <div class="pn-cab"><h2 id="g-titulo">Anotar</h2><button class="fechar" id="g-fechar" aria-label="Fechar">✕</button></div>
+  <div class="pn-corpo">
+    <div class="campo">
+      <label for="g-sobre">Sobre</label>
+      <select id="g-sobre"><option>A empresa (vale para todos)</option><option>Ana Souza</option><option>Carlos Lima</option></select>
+      <span class="ajuda">Da empresa: entra em toda conversa. De uma pessoa: só na conversa dela.</span>
+    </div>
+    <div class="campo">
+      <label for="g-texto">O que o Mister deve lembrar</label>
+      <textarea id="g-texto" maxlength="300" aria-describedby="g-ajuda g-erro">O fornecedor da carne entrega às terças e sextas, até as 11h.</textarea>
+      <span class="ajuda" id="g-ajuda">Uma frase. Contexto e preferência — nunca número, dado de cliente, senha ou código.</span>
+      <span class="erro" id="g-erro" hidden>Tem um valor em reais: o Mister não guarda número — ele consulta na hora. Tire o valor e salve.</span>
+    </div>
+    <p class="sub peq">Ainda cabem 788 letras da empresa.</p>
+  </div>
+  <div class="pn-rodape"><button class="btn pri" id="g-salvar">Salvar</button><button class="btn" id="g-cancelar">Cancelar</button><button class="btn" id="g-mostrar-erro">Ver a recusa (protótipo)</button></div>
+</aside>
+
+<!-- diálogo: esquecer -->
+<div class="dialogo" id="dialogo" role="alertdialog" aria-modal="true" aria-labelledby="d-titulo" aria-describedby="d-texto">
+  <h2 id="d-titulo">Esquecer esta anotação?</h2>
+  <p id="d-texto" class="sub">O Mister deixa de usar isto a partir da próxima conversa. Não dá para desfazer; se precisar, é só anotar de novo.</p>
+  <div class="acoes"><button class="btn" id="d-cancelar">Cancelar</button><button class="btn pri" id="d-esquecer">Esquecer</button></div>
+</div>
+
+<!-- ───────────── NO CELULAR ───────────── -->
+<section class="vista" id="v-celular" aria-label="No celular">
+  <div class="celulares">
+    <div class="cel-bloco">
+      <h3>1. "Lembra que…"</h3>
+      <p>Ele anota e diz o que anotou. O presidente vê e apaga em "Jeito e memória".</p>
+      <div class="cel"><div class="cel-topo"><span class="foto">M</span><div><b>Mister</b><span>Regem</span></div></div>
+        <div class="cel-corpo">
+          <div class="bolha meu">lembra que eu prefiro os valores sem centavos e resposta curta<span class="hora">09:12</span></div>
+          <div class="bolha dele">Anotado ✅ Daqui pra frente, valores sem centavos e direto ao ponto.<span class="hora">09:12</span></div>
+        </div></div>
+    </div>
+    <div class="cel-bloco">
+      <h3>2. Usando o que lembrou</h3>
+      <p>No dia seguinte, sem precisar pedir de novo. O número continua vindo da consulta.</p>
+      <div class="cel"><div class="cel-topo"><span class="foto">M</span><div><b>Mister</b><span>Regem</span></div></div>
+        <div class="cel-corpo">
+          <div class="dia">19/11</div>
+          <div class="bolha meu">quanto vendi ontem?<span class="hora">10:03</span></div>
+          <div class="bolha dele">Ontem, na Loja Centro: <b>R$ 5.111</b> em <b>212 vendas</b>. 💰 O pico foi às 21h, dentro do horário de sempre.<span class="hora">10:03</span></div>
+        </div></div>
+    </div>
+    <div class="cel-bloco">
+      <h3>3. "O que você sabe de mim?" e esquecer</h3>
+      <p>Cada pessoa vê e apaga o que é dela pela conversa. O que é da empresa, só o presidente apaga.</p>
+      <div class="cel"><div class="cel-topo"><span class="foto">M</span><div><b>Mister</b><span>Regem</span></div></div>
+        <div class="cel-corpo">
+          <div class="bolha meu">o que você sabe de mim?<span class="hora">22:40</span></div>
+          <div class="bolha dele">De você, Ana, anotei duas coisas:<br><br>• Valores sem centavos e resposta curta<br>• O resumo da noite começa pelo que deu errado<br><br>Quer que eu esqueça alguma?<span class="hora">22:40</span></div>
+          <div class="bolha meu">esquece a dos centavos<span class="hora">22:41</span></div>
+          <div class="bolha dele">Esqueci ✅ Volto a mostrar os centavos.<span class="hora">22:41</span></div>
+        </div></div>
+    </div>
+    <div class="cel-bloco">
+      <h3>4. O aviso, antes e depois</h3>
+      <p>A regra que descobre o problema é a mesma. Muda o texto: com o contexto e o que fazer.</p>
+      <div class="cel"><div class="cel-topo"><span class="foto">M</span><div><b>Mister</b><span>Regem</span></div></div>
+        <div class="cel-corpo">
+          <span class="rotulo-antes">Hoje (texto fixo)</span>
+          <div class="bolha dele">⚠️ Loja Centro · #284 · iFood 4821 aceito há 25 min e ainda não ficou pronto.<br><br>Confira na cozinha se ele está sendo feito.<span class="hora">21:15</span></div>
+          <span class="rotulo-antes">Escrito pelo Mister</span>
+          <div class="bolha dele">Ana, o <b>#284 · iFood 4821</b> está há <b>25 min</b> na cozinha — passou dos 20 min da loja. É o único atrasado agora; os outros 3 estão no prazo. Vale perguntar na chapa o que houve. 🍔<span class="hora">21:15</span></div>
+        </div></div>
+    </div>
+    <div class="cel-bloco">
+      <h3>5. "Fica de olho"</h3>
+      <p>Até o fim da noite de trabalho. Só fala quando muda; se nada mudar, fica quieto.</p>
+      <div class="cel"><div class="cel-topo"><span class="foto">M</span><div><b>Mister</b><span>Regem</span></div></div>
+        <div class="cel-corpo">
+          <div class="bolha meu">me avisa quando o 284 sair<span class="hora">21:16</span></div>
+          <div class="bolha dele">Combinado: fico de olho no <b>#284 · iFood 4821</b> e te aviso quando sair. 🛵<span class="hora">21:16</span></div>
+          <div class="bolha dele">✅ O <b>#284 · iFood 4821</b> saiu às 21:42, com o Juca.<span class="hora">21:42</span></div>
+        </div></div>
+    </div>
+    <div class="cel-bloco">
+      <h3>6. Lembrete</h3>
+      <p>Fora das 24 horas, vai pelo modelo da Meta que já está aprovado; o toque traz o texto.</p>
+      <div class="cel"><div class="cel-topo"><span class="foto">M</span><div><b>Mister</b><span>Regem</span></div></div>
+        <div class="cel-corpo">
+          <div class="bolha meu com-reacao">me lembra amanhã às 10h de pagar o gás<span class="hora">23:50</span><span class="reacao" aria-label="Reação do Mister: 👍">👍</span></div>
+          <div class="bolha dele">Combinado: amanhã, 19/11, às 10:00. 🕒<span class="hora">23:50</span></div>
+          <div class="dia">19/11</div>
+          <div class="bolha dele">🔔 Lembrete que você pediu: pagar o gás.<span class="hora">10:00</span></div>
+        </div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────── NOTAS ───────────── -->
+<section class="vista" id="v-notas" aria-label="Notas e decisões">
+  <div class="notas">
+    <div class="cartao">
+      <h2>De onde vem</h2>
+      <p>O dono achou o Mister "um número de alerta robótico" e pediu o comportamento do atendente virtual do cardápio, com os padrões do Hermes Agent (NousResearch) trazidos para a estrutura que temos — sem trocar o Mister por outro programa.</p>
+      <p><b>Já no ar (entrega 1, sem migration):</b> as consultas de uma mesma vez rodam juntas; as instruções nos blocos do atendente e a saída pelo mesmo formatador do WhatsApp; a reação ("valeu" ganha 👍); as conversas anteriores dos últimos 30 dias.</p>
+      <p><b>Este protótipo (entregas 2 e 3):</b> o perfil e o jeito da empresa; a memória curta e limitada (o padrão MEMORY.md/USER.md do Hermes, com os mesmos limites); o aviso escrito com contexto; o "fica de olho" (o padrão "heartbeat" do Hermes, que só fala quando algo muda) e o lembrete.</p>
+    </div>
+    <div class="cartao">
+      <h2>Decisões (a recomendada primeiro)</h2>
+      <div class="decisao"><h3>1. Onde fica</h3><ol><li>Parte nova "Jeito e memória" em Mister, só o presidente. <span class="rec">recomendada</span></li><li>O perfil dentro de "Avisos e relatórios" e a memória numa parte à parte.</li></ol></div>
+      <div class="decisao"><h3>2. Quem anota</h3><ol><li>O Mister anota sozinho quando a pessoa pede ("lembra que…") ou corrige o jeito dele, e sempre diz "Anotado" com o que anotou; o presidente vê e apaga aqui. <span class="rec">recomendada</span></li><li>Só com confirmação a cada vez ("Posso anotar?").</li></ol></div>
+      <div class="decisao"><h3>3. O que pode ser anotado</h3><ol><li>Contexto e preferência (como chamar, apelidos de produto, o pico que a pessoa contou, o que priorizar). Nunca número de venda, valor ou estoque, dado de cliente, senha, código ou PIN: o servidor recusa (a mesma régua do filtro de segredo, mais a de número). <span class="rec">recomendada</span></li><li>Livre, com revisão do presidente.</li></ol></div>
+      <div class="decisao"><h3>4. Tamanho</h3><ol><li>Os limites do Hermes: 2.200 letras da empresa e 1.375 de cada pessoa. Cheio, o Mister junta as parecidas ou pede para esquecer uma — nunca apaga sozinho. <span class="rec">recomendada</span></li><li>Por quantidade: 20 anotações da empresa e 10 de cada pessoa.</li></ol></div>
+      <div class="decisao"><h3>5. Quem vê</h3><ol><li>A da empresa entra em toda conversa da empresa; a de uma pessoa, só na conversa dela. O presidente vê e muda tudo aqui; o gerente pergunta "o que você sabe de mim?" e pede para esquecer a dele. Quem sai da empresa perde a memória junto com o vínculo. <span class="rec">recomendada</span></li><li>O gerente também com uma tela própria.</li></ol></div>
+      <div class="decisao"><h3>6. Perfil</h3><ol><li>Os mesmos 7 do atendente (Como hoje, Profissional, Cordial, Gentil, Descontraído, Objetivo, Acolhedor) e o "Jeito da empresa" (300 letras), um para a empresa; nasce em "Como hoje". <span class="rec">recomendada</span></li><li>Um perfil por pessoa.</li></ol></div>
+      <div class="decisao"><h3>7. Avisos escritos pelo Mister</h3><ol><li>Um ajuste por grupo de aviso, nascendo desligado. A regra continua descobrindo sem IA; a IA só escreve o texto, na chave da empresa, com o texto fixo de reserva (sem chave ou crédito, a IA passou de 10 segundos, ou fora das 24 horas). <span class="rec">recomendada</span></li><li>Todos os avisos de uma vez.</li></ol></div>
+      <div class="decisao"><h3>8. "Fica de olho" e lembrete</h3><ol><li>Até 3 "fica de olho" por pessoa (um pedido, um caixa, a impressora, um canal), que vencem no fim da noite de trabalho (6h) e só falam quando muda; até 10 lembretes por pessoa, até 30 dias; fora das 24 horas pelo modelo da Meta já aprovado. <span class="rec">recomendada</span></li><li>Sem limite por pessoa.</li></ol></div>
+    </div>
+    <div class="cartao">
+      <h2>Fases</h2>
+      <div class="fases">
+        <div class="fase"><h4>M4a · perfil e jeito</h4><p class="peq">1 migration: o perfil e o jeito em <span class="mono">mister_conversa_config</span>. Entram no bloco "Esta conversa" (o cache das instruções fixas continua).</p></div>
+        <div class="fase"><h4>M4b · memória</h4><p class="peq">1 migration: <span class="mono">mister_memoria</span> (só na nuvem). A ferramenta de anotar, mudar e esquecer; a lista desta tela; a conferência que recusa número e segredo; o filtro de "valor sem origem" aceita o valor arredondado quando a pessoa pediu sem centavos; a avaliação ganha perguntas de memória.</p></div>
+        <div class="fase"><h4>M4c · avisos escritos</h4><p class="peq">Sem migration (os ajustes vão na mesma linha da M4a). O texto fixo de reserva continua igual ao de hoje.</p></div>
+        <div class="fase"><h4>M4d · fica de olho e lembrete</h4><p class="peq">1 migration: <span class="mono">mister_vigia</span> (o que olhar, até quando, o último estado). Usa a rotina dos avisos que já roda a cada minuto.</p></div>
+      </div>
+    </div>
+    <div class="cartao">
+      <h2>O que fica de fora</h2>
+      <ul>
+        <li>O Mister criar "habilidades" sozinho (as skills do Hermes): só com a avaliação de regressão, e fica para depois.</li>
+        <li>Terminal, arquivos e qualquer acesso fora das consultas — o Mister continua só consultando e propondo.</li>
+        <li>Memória com número: número vem sempre da consulta, na hora.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>
+(() => {
+  const $ = (s, el = document) => el.querySelector(s);
+  const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+  const avisar = (t) => { const el = $('#toast'); el.textContent = t; el.hidden = false; clearTimeout(avisar.t); avisar.t = setTimeout(() => (el.hidden = true), 2600); };
+
+  // abas do protótipo
+  $$('.aba').forEach((b) => b.addEventListener('click', () => {
+    $$('.aba').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    $$('.vista').forEach((v) => v.classList.toggle('ativa', v.id === `v-${b.dataset.vista}`));
+  }));
+
+  // situação do protótipo
+  const listas = { com: '#lista-com', vazio: '#lista-vazio', carregando: '#lista-carregando', erro: '#lista-erro' };
+  const mostrar = (sit) => {
+    $$('.ctl').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.sit === sit)));
+    Object.entries(listas).forEach(([k, s]) => ($(s).hidden = k !== sit));
+    $('#medidor').hidden = sit !== 'com';
+    $('#t-total').textContent = sit === 'com' ? '(10)' : sit === 'vazio' ? '(0)' : '';
+  };
+  $$('.ctl').forEach((b) => b.addEventListener('click', () => mostrar(b.dataset.sit)));
+  $('#de-novo').addEventListener('click', () => mostrar('com'));
+
+  // da empresa × de cada pessoa
+  $$('.sit').forEach((b) => b.addEventListener('click', () => {
+    $$('.sit').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    const empresa = b.dataset.quem === 'empresa';
+    $('#itens-empresa').hidden = !empresa; $('#itens-pessoas').hidden = empresa;
+    $('#medidor .barra span').style.width = empresa ? '64%' : '30%';
+    $('#medidor-rot').textContent = empresa
+      ? '1.412 de 2.200 letras usadas. Cheio, o Mister junta as anotações parecidas ou pede para esquecer uma.'
+      : 'Ana: 410 de 1.375 letras · Carlos: 236 de 1.375 letras.';
+  }));
+
+  // ajustes: a barra das alterações
+  const iniciais = new Map();
+  const campos = ['#perfil', '#jeito', '#av-loja', '#av-servidor', '#av-fiscal', '#av-mister', '#olho'];
+  const valor = (el) => (el.type === 'checkbox' ? el.checked : el.value);
+  campos.forEach((s) => iniciais.set(s, valor($(s))));
+  const conferir = () => {
+    const mudados = campos.filter((s) => valor($(s)) !== iniciais.get(s));
+    $('#barra').hidden = !mudados.length;
+    $('#n-alt').textContent = String(mudados.length);
+    $('#aj-perfil').classList.toggle('mudou', mudados.includes('#perfil'));
+    $('#aj-jeito').classList.toggle('mudou', mudados.includes('#jeito'));
+    $('#aj-avisos').classList.toggle('mudou', mudados.some((s) => s.startsWith('#av-')));
+    $('#aj-olho').classList.toggle('mudou', mudados.includes('#olho'));
+    $('#conta-jeito').textContent = `${$('#jeito').value.length} de 300 letras`;
+  };
+  campos.forEach((s) => $(s).addEventListener('input', conferir));
+  campos.forEach((s) => $(s).addEventListener('change', conferir));
+  $('#descartar').addEventListener('click', () => { campos.forEach((s) => { const el = $(s); if (el.type === 'checkbox') el.checked = iniciais.get(s); else el.value = iniciais.get(s); }); conferir(); });
+  $('#salvar').addEventListener('click', () => { campos.forEach((s) => iniciais.set(s, valor($(s)))); conferir(); avisar('Salvo. Vale da próxima conversa em diante.'); });
+
+  // gaveta
+  let antes = null;
+  const abrirGaveta = (titulo) => { antes = document.activeElement; $('#g-titulo').textContent = titulo; $('#g-erro').hidden = true; $('#fundo').classList.add('aberto'); $('#gaveta').classList.add('aberto'); $('#g-texto').focus(); };
+  const fecharGaveta = () => { $('#fundo').classList.remove('aberto'); $('#gaveta').classList.remove('aberto'); antes?.focus?.(); };
+  $('#anotar').addEventListener('click', () => abrirGaveta('Anotar'));
+  $$('[data-mudar]').forEach((b) => b.addEventListener('click', () => { abrirGaveta('Mudar a anotação'); $('#g-texto').value = b.closest('.item').querySelector('.texto').textContent; }));
+  $('#g-fechar').addEventListener('click', fecharGaveta);
+  $('#g-cancelar').addEventListener('click', fecharGaveta);
+  $('#fundo').addEventListener('click', () => { if (!$('#dialogo').classList.contains('aberto')) fecharGaveta(); });
+  $('#g-salvar').addEventListener('click', () => { fecharGaveta(); avisar('Anotado. O Mister usa da próxima conversa em diante.'); });
+  $('#g-mostrar-erro').addEventListener('click', () => { $('#g-erro').hidden = false; $('#g-texto').setAttribute('aria-invalid', 'true'); });
+
+  // diálogo de esquecer
+  let alvo = null;
+  const abrirDialogo = (item) => { alvo = item; antes = document.activeElement; $('#fundo').classList.add('aberto'); $('#dialogo').classList.add('aberto'); $('#d-cancelar').focus(); };
+  const fecharDialogo = () => { $('#dialogo').classList.remove('aberto'); if (!$('#gaveta').classList.contains('aberto')) $('#fundo').classList.remove('aberto'); antes?.focus?.(); };
+  $$('[data-esquecer]').forEach((b) => b.addEventListener('click', () => abrirDialogo(b.closest('.item'))));
+  $('#d-cancelar').addEventListener('click', fecharDialogo);
+  $('#d-esquecer').addEventListener('click', () => { alvo?.remove(); fecharDialogo(); avisar('Esquecido.'); });
+
+  // Esc fecha só o de cima
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if ($('#dialogo').classList.contains('aberto')) fecharDialogo();
+    else if ($('#gaveta').classList.contains('aberto')) fecharGaveta();
+  });
+})();
+</script>
+</body>
+</html>
