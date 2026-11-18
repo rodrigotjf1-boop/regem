@@ -3,6 +3,7 @@ import {
   AGORA_DA_AVALIACAO,
   CASOS_DA_AVALIACAO,
   CasoDaAvaliacao,
+  RESPOSTA_ERRADA_MAX,
   conferirCaso,
   conversaDaAvaliacao,
   executarNaAvaliacao,
@@ -134,6 +135,15 @@ describe('a avaliação do Mister — a conferência por regra', () => {
   it('a resposta certa passa', () => {
     const r = conferirCaso(caso({ consultas: ['resumo_do_dia'], numeros: ['4.321,45'], contem: ['delivery'] }), fim('Hoje: R$ 4.321,45, a maior parte no Delivery.', [{ nome: 'resumo_do_dia' }], [{ faturamento: 4321.45 }]));
     expect(r).toEqual({ id: 'x', pergunta: 'p', ok: true, falhas: [], consultas: ['resumo_do_dia'], ms: 0 });
+  });
+
+  it('a que erra guarda o texto que saiu, cortado (para saber a causa); a certa não guarda nada', () => {
+    const errada = conferirCaso(caso({ consultas: ['produtos_mais_vendidos'] }), fim('Os três somam R$ 10.857,35, a R$ 23,45 cada.', [{ nome: 'produtos_mais_vendidos' }], [{ faturamento: 3845.8 }]));
+    expect(errada).toMatchObject({ ok: false, falhas: ['disse um valor em reais que nenhuma consulta trouxe'], resposta: 'Os três somam R$ 10.857,35, a R$ 23,45 cada.' });
+    expect(conferirCaso(caso({}), fim('x'.repeat(RESPOSTA_ERRADA_MAX + 50), [], [], null)).resposta).toBeUndefined();
+    expect(conferirCaso(caso({ consultas: ['resumo_do_dia'] }), fim('y'.repeat(RESPOSTA_ERRADA_MAX + 50))).resposta).toHaveLength(RESPOSTA_ERRADA_MAX);
+    // A que não respondeu não tem texto: nada a guardar.
+    expect(conferirCaso(caso({}), fim(null, [], [], 'nao_fechou')).resposta).toBeUndefined();
   });
 
   it('cada regra reprova o que deve', () => {

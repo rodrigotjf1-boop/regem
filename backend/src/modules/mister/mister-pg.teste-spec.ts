@@ -3769,14 +3769,16 @@ export function testesDoMisterComPostgres(): void {
       const nsr = () => randomInt(1e9, 9e9);
       const [{ id: turnoId }] = await q(`insert into turno (tenant_id, unidade_id, nome, hora_inicio, hora_fim) values ($1, $2, 'Noite (ponto)', '18:00', '02:00') returning id`, [A, lojaDeA]);
       const [{ id: setorId }] = await q(`insert into setor (tenant_id, unidade_id, nome) values ($1, $2, 'Salão (ponto)') returning id`, [A, lojaDeA]);
-      // Uma etiqueta por alocação (a escala aceita uma alocação por etiqueta e por dia).
+      // Uma etiqueta por alocação (a escala aceita uma alocação por etiqueta e por dia). A sigla em SEQUÊNCIA: sorteada, duas
+      // iguais na mesma loja batiam no índice único (unidade, sigla, contador) — ERR-519.
+      let siglas = 0;
       const alocar = async (colab: string, presenca = 'prevista') => {
         const [{ id: etiquetaId }] = await q(`insert into etiqueta (tenant_id, unidade_id, setor_id, funcao_id, sigla) values ($1, $2, $3, $4, $5) returning id`, [
           A,
           lojaDeA,
           setorId,
           funcao['execucao-a'],
-          `P${randomInt(100, 999)}`,
+          `P${++siglas}`,
         ]);
         await q(`insert into escala_alocacao (tenant_id, unidade_id, data, turno_id, etiqueta_id, colaborador_id, presenca) values ($1, $2, $3::date, $4, $5, $6, $7)`, [
           A,

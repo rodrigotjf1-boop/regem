@@ -602,7 +602,15 @@ export interface ResultadoDoCaso {
   falhas: string[];
   consultas: string[];
   ms: number;
+  /**
+   * Só nas que erraram: o texto que saiu, cortado (a loja de teste é inventada — não há dado de loja nenhuma). Sem ele, uma
+   * falha como "valor que nenhuma consulta trouxe" não diz se foi uma conta não pedida ou um número inventado.
+   */
+  resposta?: string;
 }
+
+/** Quanto do texto da resposta errada fica guardado. */
+export const RESPOSTA_ERRADA_MAX = 800;
 
 /** Confere a resposta de uma pergunta pelas regras do caso. */
 export function conferirCaso(caso: CasoDaAvaliacao, fim: FimDaPergunta, ms = 0): ResultadoDoCaso {
@@ -629,5 +637,5 @@ export function conferirCaso(caso: CasoDaAvaliacao, fim: FimDaPergunta, ms = 0):
   // Para todas: nenhum valor em reais que as consultas não trouxeram (o filtro de saída de verdade).
   const resultados = 'resultados' in fim ? fim.resultados : [];
   if (filtrarSaida(texto, resultados).notas.includes('valor_sem_origem')) falhas.push('disse um valor em reais que nenhuma consulta trouxe');
-  return { id: caso.id, pergunta: caso.pergunta, ok: falhas.length === 0, falhas, consultas, ms };
+  return { id: caso.id, pergunta: caso.pergunta, ok: falhas.length === 0, falhas, consultas, ms, ...(falhas.length ? { resposta: String(texto ?? '').slice(0, RESPOSTA_ERRADA_MAX) } : {}) };
 }
