@@ -259,6 +259,19 @@ function Conteudo({ g, relendo, lerAgora, misterLigado }: { g: GastoOficial; rel
             <h2 id="gasto-de-onde" className="font-display text-lg font-bold">
               De onde veio
             </h2>
+            {g.leitura.modelosErro && (
+              // O gasto por modelo que a Meta não deixou ler (mig 451): "não li", nunca a lista como se fosse vazia (V37).
+              <div role="status" data-modelos-erro className="rounded-lg border border-warn/40 bg-warn/10 px-4 py-3 text-sm">
+                <p>
+                  <strong>Não consegui ler o gasto por modelo na Meta</strong>
+                  {g.leitura.modelosErro.conta
+                    ? ` — a conta do número ${PAPEL[g.leitura.modelosErro.conta.papel]?.toLowerCase() ?? ''} final ${g.leitura.modelosErro.conta.final}`
+                    : ''}
+                  . As campanhas e os avisos do pedido dessa conta ficam de fora da lista abaixo; o gasto por tipo, acima, está completo. O Regem tenta de novo a cada 30 minutos.
+                </p>
+                <p className={cn('mt-1 break-words text-xs', texto2)}>{g.leitura.modelosErro.motivo}</p>
+              </div>
+            )}
             {g.deOndeVeio.length ? (
               <ListaDados
                 legenda="O gasto do período por campanha, aviso do pedido e atendimento"

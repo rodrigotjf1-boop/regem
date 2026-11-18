@@ -94,6 +94,8 @@ describe('Mister — os modelos de mensagem da Meta', () => {
   it('o toque: só o código do Mister, com tipo conhecido e id que é uuid', () => {
     expect(toqueNoModelo(codigoDoBotao({ tipo: 'aviso', id: ID }))).toEqual({ tipo: 'aviso', id: ID });
     expect(toqueNoModelo(`mister:resumo:${ID.toUpperCase()}`)).toEqual({ tipo: 'resumo', id: ID });
+    // Versão 4, M4d: o lembrete e o "fica de olho" que saíram fora das 24 horas.
+    expect(toqueNoModelo(codigoDoBotao({ tipo: 'vigia', id: ID }))).toEqual({ tipo: 'vigia', id: ID });
     expect(toqueNoModelo(`mister:outro:${ID}`)).toBeNull();
     expect(toqueNoModelo('mister:aviso:1; drop table x')).toBeNull();
     expect(toqueNoModelo('empresa:123')).toBeNull();

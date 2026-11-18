@@ -1,0 +1,939 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regem · protótipo da avaliação do pedido</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* REGEM · PROTÓTIPO DA AVALIAÇÃO DO PEDIDO — versão 1, APROVADA em 18/11/2026 com a correção do dono: o link do Google
+   só na nota 5 (decisão 4); as outras nove decisões, as recomendadas.
+   O pedido do dono (18/11/2026): "analise o uso do flow na api oficial da meta, uso para avaliação e verificar outra
+   solução que seria possível o uso." Depois: QR na via NÃO (a via do delivery já tem o QR do entregador); o público é o
+   Cardápio Regem; o formulário (Flow) só existe no WhatsApp oficial — na conexão por QR Code, fica a página do pedido.
+   O que este protótipo mostra:
+   - No celular: o "Avaliar pedido" depois do "Tudo certo 👍" do "Chegou tudo certo?", o formulário do WhatsApp (Flow),
+     o obrigado (com o link do Google só na nota 5), a nota baixa que vira caso no Atendimento, o "Tive um problema"
+     que não pede nota e a loja na conexão por QR Code.
+   - Na página do pedido (/r/…): o "Como foi o pedido?" depois da entrega, para todos, com os estados.
+   - Na loja: Delivery › Avaliações (lista no modelo do Estoque, gaveta do pedido) e a nota baixa no Atendimento.
+   - Os ajustes: Delivery › Configurações › Operação › Robô de atendimento › "Pedir uma nota depois da entrega".
+   - Notas e decisões: o que a Meta exige, as fases e as dez decisões, com a recomendada primeiro.
+   Os botões "Situação do protótipo" trocam os estados para a aprovação; não existem no app. Dados inventados. */
+:root{
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --gold-ink:#7A5209; --gold-bg:#FFF9EC; --navy:#0F2230;
+  --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9; --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8;
+  --neutro:#43586C; --neutro-bg:#EAEFF4; --foco:#3A7FB8;
+  --c-wa:#0B6E3A; --wa-fundo:#EDE6DB; --wa-dele:#FFFFFF; --wa-meu:#D9F5CF;
+  --proto:#0B1822; --proto-txt:#C9D5DF; --proto-txt2:#8FA3B4; --proto-linha:#2A3B4A; --d-azul:#7CC0F5;
+  --s-mkt:#C98B26; --s-uti:#2F4A60; --s-ate:#3E8E6E; --s-aut:#7A6AA8;
+  --radius:12px; --display:"Archivo","Segoe UI",system-ui,sans-serif; --body:"Figtree","Segoe UI",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font:15px/1.5 var(--body);background:var(--bg);color:var(--ink);overflow-x:hidden}
+[hidden]{display:none!important}
+h1,h2,h3,h4{font-family:var(--display);margin:0;text-wrap:balance}
+h1{font-size:26px;line-height:1.15} h2{font-size:18px} h3{font-size:16px} h4{font-size:14px}
+p{margin:0 0 10px;overflow-wrap:anywhere} p:last-child{margin-bottom:0}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--foco);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.pular{position:absolute;left:8px;top:-60px;background:var(--gold);color:var(--on-gold);padding:8px 12px;border-radius:8px;font-weight:700;z-index:99}
+.pular:focus{top:8px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.sub{color:var(--ink-2)} .peq{font-size:13.5px}
+.junto{white-space:nowrap}
+
+/* faixa do protótipo */
+.proto{background:var(--proto);color:var(--proto-txt);padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.proto .titulo{font-family:var(--display);font-weight:700;color:#fff}
+.abas{display:flex;flex-wrap:wrap;gap:6px}
+.aba{background:transparent;border:1px solid var(--proto-linha);color:var(--proto-txt);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:36px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.proto .nota{font-size:12.5px;color:var(--proto-txt2);flex:1 1 220px;min-width:0}
+.proto :focus-visible{outline-color:var(--d-azul)}
+.vista{display:none} .vista.ativa{display:block}
+
+/* casca do app da loja */
+.app{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:80vh}
+.lado{background:var(--navy);color:#C9D5DF;padding:16px 12px}
+.marca{font-family:var(--display);font-weight:800;color:#fff;font-size:18px;padding:4px 8px 14px;letter-spacing:.02em}
+.marca small{display:block;font:500 11.5px var(--body);color:#8FA3B4;letter-spacing:0}
+.lado ul{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.lado li{padding:8px 10px;border-radius:8px;display:flex;justify-content:space-between;gap:8px;align-items:center}
+.lado li.atual{background:rgba(232,168,69,.18);color:#fff;box-shadow:inset 3px 0 0 var(--gold);font-weight:600}
+.principal{min-width:0;container-type:inline-size;container-name:principal}
+.topo{background:#fff;border-bottom:1px solid var(--line);padding:10px 20px;display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;justify-content:space-between}
+.onde{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--gold-ink)}
+.quem{font-size:13.5px;color:var(--ink-2)}
+.menu-cel{display:none;font-size:13px;color:var(--ink-2)}
+.pagina{padding:20px;max-width:1160px}
+.cab{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:flex-end;justify-content:space-between;margin-bottom:14px}
+.cab > div{min-width:0}
+.cab .sub{max-width:68ch;margin-top:4px}
+.partes{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px;padding:0 0 12px;border-bottom:1px solid var(--line)}
+.parte{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:999px;min-height:40px;font-weight:600;color:var(--ink-2)}
+.parte[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.parte[disabled]{cursor:default}
+
+/* peças */
+.cartao{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;min-width:0}
+.cartao > h2,.cartao > h3{margin-bottom:6px}
+.grade2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:14px;margin-bottom:14px}
+.grade2 > .cartao{margin-bottom:0}
+.ctls{border:1px dashed var(--line-2);background:#FFFBF0;border-radius:10px;padding:8px 12px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px;color:var(--gold-ink)}
+.ctl{background:#fff;border:1px solid var(--line-2);padding:4px 10px;border-radius:999px;cursor:pointer;min-height:32px;color:var(--ink)}
+.ctl[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.selo{display:inline-block;font-size:12.5px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.selo.ok{background:var(--ok-bg);color:var(--ok)} .selo.crit{background:var(--crit-bg);color:var(--crit)}
+.selo.warn{background:var(--warn-bg);color:var(--warn)} .selo.info{background:var(--info-bg);color:var(--info)} .selo.neutro{background:var(--neutro-bg);color:var(--neutro)}
+.btn{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:10px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink)}
+.btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.btn.perigo{color:var(--crit);border-color:#E3B5B5}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.btn-peq{min-height:32px;padding:4px 10px;font-size:13px}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.faixa{border-radius:10px;padding:10px 14px;margin-bottom:14px;border:1px solid}
+.faixa.crit{background:var(--crit-bg);border-color:#E3B5B5;color:#7A1E1E} .faixa.warn{background:var(--warn-bg);border-color:#EBC7B0;color:#6F3410}
+.faixa.info{background:var(--info-bg);border-color:#BFD6EA;color:#1D4C77} .faixa.ok{background:var(--ok-bg);border-color:#B5DCC8;color:#0B4A33}
+a{color:var(--info);text-underline-offset:2px}
+.vazio{text-align:center;color:var(--ink-2);padding:26px 12px;border:1px dashed var(--line-2);border-radius:10px;background:#fff}
+.vazio .grande{font-size:28px;display:block;margin-bottom:4px}
+.vazio .acoes{justify-content:center;margin-top:12px}
+.fase{font:700 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--gold-ink)}
+.novo{font:700 10.5px var(--display);background:var(--gold);color:var(--on-gold);padding:1px 6px;border-radius:4px;letter-spacing:.05em;white-space:nowrap}
+
+/* filtros do período */
+.filtros{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:flex-end;margin:0 0 14px}
+.filtro-grupo{display:flex;flex-wrap:wrap;gap:6px}
+.filtro{background:#fff;border:1px solid var(--line-2);padding:5px 12px;border-radius:999px;cursor:pointer;min-height:38px;font-weight:600;color:var(--ink-2)}
+.filtro[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.campo{display:grid;gap:4px;min-width:0}
+.campo label{font-weight:600;font-size:13.5px}
+.campo input,.campo select{border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;min-height:40px;background:#fff;width:100%;min-width:0}
+.campo .ajuda{font-size:13px;color:var(--ink-2)}
+.filtros .campo{flex:1 1 170px;max-width:240px}
+
+/* números grandes */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:12px;margin-bottom:14px}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;min-width:0}
+.kpi .r{font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+.kpi b{display:block;font:700 26px/1.2 var(--mono);font-variant-numeric:tabular-nums;margin:4px 0 2px;overflow-wrap:anywhere}
+.kpi .sub{font-size:13px}
+.kpi.destaque{border-color:var(--gold);background:var(--gold-bg)}
+.medidor{height:8px;border-radius:999px;background:var(--neutro-bg);overflow:hidden;margin:8px 0 4px}
+.medidor span{display:block;height:100%;background:var(--warn);border-radius:999px}
+
+/* por tipo */
+.tipos{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:12px}
+.tipo{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 16px;align-items:baseline}
+.tipo .nome{font-weight:700;display:flex;gap:8px;align-items:center;min-width:0}
+.tipo .nome i{width:12px;height:12px;border-radius:3px;flex:none;display:inline-block}
+.tipo .d{grid-column:1 / -1;font-size:13.5px;color:var(--ink-2)}
+.tipo .valor{font:700 16px var(--mono);text-align:right;white-space:nowrap}
+.tipo .trilho{grid-column:1 / -1;height:10px;border-radius:999px;background:var(--neutro-bg);overflow:hidden}
+.tipo .trilho span{display:block;height:100%;border-radius:999px}
+.tipo .conta{grid-column:1 / -1;font:500 12.5px var(--mono);color:var(--ink-2);overflow-wrap:anywhere}
+
+/* gasto por dia: colunas no largo, linhas no estreito (o mesmo HTML) */
+.dias{list-style:none;margin:10px 0 0;padding:0;display:grid;grid-template-columns:repeat(18,minmax(0,1fr));gap:4px;align-items:end;height:230px;border-bottom:1px solid var(--line-2)}
+.dia{display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;min-width:0;gap:3px}
+.dia .v{font:600 10px var(--mono);color:var(--ink);white-space:nowrap}
+.dia .b{width:100%;max-width:34px;height:calc(var(--h) * 0.82%);min-height:3px;background:var(--s-uti);border-radius:4px 4px 0 0}
+.dia.campanha .b{background:var(--s-mkt)}
+.dia.hoje .b{background:repeating-linear-gradient(45deg,var(--s-uti) 0 4px,#6B8396 4px 8px)}
+.dia .d{font:600 10.5px var(--mono);color:var(--ink-2);padding-bottom:4px}
+.legenda{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--ink-2);margin-top:10px}
+.legenda i{width:12px;height:12px;border-radius:3px;display:inline-block;margin-right:6px;vertical-align:-1px}
+@container principal (max-width: 760px){
+  .dias{grid-template-columns:minmax(0,1fr);height:auto;border-bottom:0;gap:3px}
+  .dia{display:grid;grid-template-columns:42px minmax(0,1fr) 64px;align-items:center;gap:8px;height:auto}
+  .dia .d{order:1;padding:0} .dia .b{order:2;height:12px;width:max(3px,calc(var(--h) * 1%));max-width:none;border-radius:0 4px 4px 0}
+  .dia .v{order:3;text-align:right}
+}
+
+/* tabela que vira cartões pelo espaço da peça */
+.tab{width:100%;border-collapse:collapse}
+.tab th{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:8px 10px;border-bottom:2px solid var(--line-2)}
+.tab td{padding:11px 10px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:break-word}
+.tab td.num,.tab th.num{text-align:right;white-space:nowrap}
+.tab tfoot td{font-weight:700;border-bottom:0}
+@container principal (max-width: 820px){
+  .tab thead{display:none}
+  .tab,.tab tbody,.tab tfoot,.tab tr,.tab td{display:block;width:100%}
+  .tab tr{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px;background:#fff}
+  .tab td{padding:4px 0;border:0;text-align:left!important;white-space:normal!important}
+  .tab td[data-rot]::before{content:attr(data-rot);display:block;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+  .tab tfoot tr{background:var(--neutro-bg)}
+}
+.linhas{list-style:none;margin:0;padding:0}
+.linhas li{display:flex;flex-wrap:wrap;gap:6px 12px;justify-content:space-between;align-items:baseline;padding:10px 0;border-top:1px solid var(--line)}
+.linhas li:first-child{border-top:0}
+.linhas li > div{min-width:0;flex:1 1 200px}
+
+/* esqueleto do carregando */
+.esq{background:linear-gradient(90deg,#E6EBF0 25%,#F2F5F8 50%,#E6EBF0 75%);background-size:200% 100%;animation:esq 1.2s infinite;border-radius:8px}
+@keyframes esq{to{background-position:-200% 0}}
+
+/* ajustes do Mister (a mesma peça do protótipo aprovado) */
+.aj{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 16px;align-items:center;padding:12px 10px;border-top:1px solid var(--line)}
+.aj.contexto{opacity:.62}
+.aj.mudou{background:var(--gold-bg);box-shadow:inset 3px 0 0 var(--gold)}
+.aj .t{font-weight:600} .aj .d{font-size:13.5px;color:var(--ink-2)}
+.aj .ctrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end;min-width:0}
+.aj .ctrl select{border:1px solid var(--line-2);border-radius:8px;padding:6px 8px;min-height:38px;background:#fff;max-width:100%;min-width:0}
+.destinos{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}
+.destinos .selo{white-space:normal}
+.valores{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}
+.valor-chip{font:700 12.5px var(--mono);background:var(--gold-bg);border:1px solid #EBCB8F;color:var(--gold-ink);padding:2px 9px;border-radius:999px;white-space:nowrap}
+.valor-chip.foi{background:var(--ok-bg);border-color:#B5DCC8;color:var(--ok)}
+.grupo-aj{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-2);margin:16px 0 2px}
+.liga{position:relative;width:52px;height:30px;border-radius:999px;border:1px solid var(--line-2);background:var(--neutro-bg);cursor:pointer;flex:none;padding:0}
+.liga::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:left .15s}
+.liga[aria-checked="true"]{background:var(--ok);border-color:var(--ok)} .liga[aria-checked="true"]::after{left:25px}
+.estado-liga{font-size:13px;color:var(--ink-2);min-width:68px}
+.barra-salvar{position:sticky;bottom:0;background:var(--navy);color:#fff;border-radius:12px 12px 0 0;padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;z-index:5;margin-top:12px}
+.barra-salvar .btn{border-color:#3C5568;background:transparent;color:#fff} .barra-salvar .btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.barra-salvar :focus-visible{outline-color:var(--d-azul)}
+@container principal (max-width: 620px){
+  .aj{grid-template-columns:minmax(0,1fr)}
+  .aj .ctrl{justify-content:flex-start}
+}
+
+/* gaveta e diálogo */
+.fundo{position:fixed;inset:0;background:rgba(15,34,48,.45);z-index:40;display:none}
+.fundo.aberto{display:block}
+.gaveta{position:fixed;top:0;right:0;bottom:0;width:min(520px,100%);background:#fff;z-index:41;display:none;flex-direction:column;box-shadow:-8px 0 24px rgba(15,34,48,.18);container-type:inline-size;container-name:painel}
+.gaveta.aberto{display:flex}
+.dialogo{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(560px,calc(100% - 24px));max-height:calc(100% - 24px);background:#fff;z-index:41;display:none;flex-direction:column;border-radius:14px;box-shadow:0 12px 40px rgba(15,34,48,.3);container-type:inline-size;container-name:painel}
+.dialogo.aberto{display:flex}
+.pn-cab{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line)}
+.pn-cab h2{min-width:0;overflow-wrap:anywhere}
+.pn-corpo{padding:18px;overflow:auto;flex:1;min-height:0}
+.pn-rodape{padding:12px 18px;border-top:1px solid var(--line);background:#F7F9FB;display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.dialogo .pn-rodape{border-radius:0 0 14px 14px}
+.fechar{background:transparent;border:0;font-size:18px;cursor:pointer;min-width:40px;min-height:40px;border-radius:8px;flex:none}
+.marcar{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:0 0 12px;display:grid;gap:8px}
+.marcar legend{font-weight:700;padding:0 4px}
+.marcar label{display:flex;gap:8px;align-items:center;min-height:32px}
+.lista-valores{list-style:none;margin:10px 0;padding:0;display:grid;gap:8px}
+.linha-valor{display:grid;grid-template-columns:76px minmax(0,1fr) auto;gap:8px;align-items:center}
+.linha-valor label{font-weight:700;font-size:13.5px}
+.linha-valor .reais{display:flex;align-items:center;border:1px solid var(--line-2);border-radius:10px;background:#fff;min-height:42px;padding:0 10px;min-width:0}
+.linha-valor .reais span{font:600 14px var(--mono);color:var(--ink-2);margin-right:6px}
+.linha-valor .reais input{border:0;outline:0;min-width:0;width:100%;font:600 15px var(--mono);background:transparent;min-height:40px}
+.linha-valor .reais:focus-within{outline:3px solid var(--foco);outline-offset:2px}
+.linha-valor .reais.erro{border-color:var(--crit);background:var(--crit-bg)}
+.linha-valor .st{grid-column:2 / -1;font-size:12.5px;color:var(--ink-2);margin-top:-4px}
+@container painel (max-width: 380px){
+  .linha-valor{grid-template-columns:minmax(0,1fr) auto}
+  .linha-valor label{grid-column:1 / -1}
+  .linha-valor .st{grid-column:1 / -1}
+}
+.erro-txt{color:var(--crit);font-weight:600;font-size:13.5px}
+.resumo{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:10px 18px;margin:0 0 12px}
+.resumo dt{font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+.resumo dd{margin:0;font-weight:600;overflow-wrap:anywhere}
+.avisos{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:60;display:grid;gap:8px;width:min(440px,calc(100% - 24px))}
+.aviso{background:var(--navy);color:#fff;border-radius:10px;padding:10px 14px;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+
+/* celular */
+.pagina-cel{padding:20px;max-width:1240px;container-type:inline-size;container-name:principal}
+.celulares{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:22px 18px;align-items:start}
+.caso h3{margin-bottom:2px} .caso > .sub{font-size:13.5px;margin-bottom:8px}
+.cel{border:8px solid #1B2A36;border-radius:28px;background:var(--wa-fundo);overflow:hidden;max-width:360px}
+.cel-topo{background:var(--c-wa);color:#fff;padding:10px 14px;display:flex;gap:10px;align-items:center}
+.cel-topo .foto{width:34px;height:34px;border-radius:50%;background:#fff;color:var(--c-wa);display:grid;place-items:center;font:800 15px var(--display);flex:none}
+.cel-topo b{display:block;line-height:1.2} .cel-topo span{font-size:12.5px;opacity:.9}
+.conv{padding:12px 10px;display:grid;gap:8px;min-height:150px;align-content:start}
+.bolha{max-width:92%;padding:7px 10px;border-radius:10px;font-size:14px;line-height:1.4;box-shadow:0 1px 1px rgba(0,0,0,.12);overflow-wrap:anywhere}
+.bolha.dele{background:var(--wa-dele);justify-self:start;border-top-left-radius:2px}
+.bolha.meu{background:var(--wa-meu);justify-self:end;border-top-right-radius:2px}
+.bolha .hora{display:block;text-align:right;font-size:11px;color:#5E6E7A;margin-top:2px}
+.bolha ul{margin:4px 0;padding-left:18px}
+.botoes-wa{display:grid;gap:4px;margin-top:6px}
+.botoes-wa span{background:#fff;border:1px solid #D5DDE3;border-radius:8px;padding:6px 8px;text-align:center;color:#0B5CAD;font-weight:600;font-size:13.5px}
+
+/* notas */
+.notas{padding:20px;max-width:1000px;margin-inline:auto;container-type:inline-size;container-name:principal}
+.notas .cartao ul,.notas .cartao ol{margin:6px 0 0;padding-left:20px} .notas .cartao li{margin-bottom:5px}
+.decisao{border-top:1px solid var(--line);padding:12px 0}
+.decisao:first-of-type{border-top:0}
+.decisao h3{font-size:15px;margin-bottom:4px}
+.decisao ol{margin:4px 0 0}
+.rec{font:700 11px var(--display);background:var(--ok-bg);color:var(--ok);padding:1px 7px;border-radius:4px;letter-spacing:.04em;white-space:nowrap}
+
+@media (max-width: 900px){
+  .app{grid-template-columns:minmax(0,1fr)} .lado{display:none} .menu-cel{display:inline}
+  .pagina,.notas,.pagina-cel{padding:14px} .topo{padding:10px 14px}
+  .btn,.parte,.filtro{min-height:44px}
+}
+@media (prefers-reduced-motion: reduce){ *{transition:none!important;animation:none!important;scroll-behavior:auto!important} }
+
+/* ───── peças da avaliação ───── */
+:root{ --estrela:#C98B26; --estrela-vazia:#C8D2DC; }
+.estrelas-txt{color:var(--estrela);letter-spacing:1px;font-size:15px;white-space:nowrap}
+.estrelas-txt .vazia{color:var(--estrela-vazia)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.chip{font-size:12.5px;font-weight:600;background:var(--neutro-bg);color:var(--neutro);padding:2px 9px;border-radius:999px;white-space:nowrap}
+.citacao{border-left:3px solid var(--line-2);padding:2px 0 2px 10px;margin:8px 0 0;color:var(--ink);font-style:italic;overflow-wrap:anywhere}
+
+/* o formulário do WhatsApp (Flow), dentro do celular */
+.flow{background:#fff;border-radius:16px 16px 0 0;margin:-4px -2px 0;box-shadow:0 -2px 10px rgba(0,0,0,.12);display:grid}
+.flow-cab{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid #E3E8EC;font-weight:700}
+.flow-cab .x{font-size:18px;color:#5E6E7A;line-height:1}
+.flow-corpo{padding:12px 14px;display:grid;gap:12px;font-size:14px}
+.flow-corpo h4{font-family:var(--body);font-size:15px}
+.flow-op{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #EEF1F4}
+.flow-op .bola{width:18px;height:18px;border-radius:50%;border:2px solid #8A99A5;flex:none}
+.flow-op.marcada .bola{border:5px solid var(--c-wa)}
+.flow-op .quad{width:18px;height:18px;border-radius:4px;border:2px solid #8A99A5;flex:none}
+.flow-op.marcada .quad{background:var(--c-wa);border-color:var(--c-wa);box-shadow:inset 0 0 0 2px #fff}
+.flow-texto{border:1px solid #C8D2DC;border-radius:8px;padding:8px 10px;min-height:56px;color:#5E6E7A;font-size:13.5px}
+.flow-rodape{padding:10px 14px 14px;display:grid;gap:6px;text-align:center}
+.flow-btn{background:var(--c-wa);color:#fff;border-radius:999px;padding:9px;font-weight:700}
+.flow-rodape small{color:#5E6E7A;font-size:11.5px}
+.enviado{display:flex;gap:8px;align-items:center}
+.enviado b{font-size:13.5px}
+.cta-wa{display:flex;gap:6px;justify-content:center;align-items:center}
+
+/* a página do pedido (navegador do celular) */
+.nav-cel{background:#F1F3F4;color:#3C4043;padding:8px 12px;font:500 12.5px var(--mono);display:flex;gap:8px;align-items:center;border-bottom:1px solid #DADCE0;overflow-wrap:anywhere}
+.nav-cel::before{content:"🔒";font-size:11px}
+.pag-pedido{background:#fff;padding:16px;display:grid;gap:12px;min-height:420px;align-content:start}
+.pag-pedido h3{font-size:18px}
+.pag-pedido .bloco{border:1px solid var(--line);border-radius:12px;padding:14px;display:grid;gap:10px}
+.estrelas{display:flex;gap:4px;flex-wrap:wrap}
+.estrela{background:transparent;border:0;font-size:34px;line-height:1;color:var(--estrela-vazia);cursor:pointer;min-width:44px;min-height:44px;padding:0;border-radius:8px}
+.estrela[aria-checked="true"],.estrela.acesa{color:var(--estrela)}
+.nome-nota{font-weight:700;min-height:1.5em}
+.opcoes{display:flex;flex-wrap:wrap;gap:6px}
+.opcao{background:#fff;border:1px solid var(--line-2);border-radius:999px;padding:6px 12px;min-height:40px;cursor:pointer;font-weight:600;color:var(--ink-2)}
+.opcao[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.pag-pedido textarea{width:100%;min-height:80px;border:1px solid var(--line-2);border-radius:10px;padding:8px 10px;font:inherit;resize:vertical}
+.contador{font-size:12.5px;color:var(--ink-2);text-align:right}
+.btn.largo{width:100%}
+.btn.google{background:#fff;border-color:var(--line-2);color:var(--info)}
+.fim-ok{text-align:center;display:grid;gap:8px;justify-items:center}
+.fim-ok .grande{font-size:36px}
+
+/* a lista de avaliações */
+.situacoes{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px}
+.situacao{background:#fff;border:1px solid var(--line-2);padding:6px 12px;border-radius:999px;min-height:40px;cursor:pointer;font-weight:600;color:var(--ink-2);display:inline-flex;gap:8px;align-items:center}
+.situacao .n{font:700 12.5px var(--mono);background:var(--neutro-bg);color:var(--neutro);padding:0 7px;border-radius:999px}
+.situacao[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.situacao[aria-pressed="true"] .n{background:rgba(255,255,255,.18);color:#fff}
+.dist{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:6px}
+.dist li{display:grid;grid-template-columns:66px minmax(0,1fr) 34px;gap:8px;align-items:center;font-size:13.5px}
+.dist .trilho{height:10px;border-radius:999px;background:var(--neutro-bg);overflow:hidden}
+.dist .trilho span{display:block;height:100%;background:var(--estrela);border-radius:999px}
+.dist .q{font:600 12.5px var(--mono);text-align:right}
+.coment{max-width:38ch;color:var(--ink-2);overflow-wrap:anywhere}
+.tempo{font:600 12.5px var(--mono);color:var(--ink-2)}
+.estado-lista{margin-bottom:14px}
+.caso-linha{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#fff}
+.caso-linha > div{min-width:0;flex:1 1 220px}
+@container painel (max-width: 380px){ .dist li{grid-template-columns:52px minmax(0,1fr) 30px} }
+.notas a{overflow-wrap:anywhere}
+</style>
+</head>
+<body data-pagina="avaliar" data-lista="tudo" data-flow="aprovado">
+<a class="pular" href="#conteudo">Pular para o conteúdo</a>
+
+<header class="proto">
+  <span class="titulo">Protótipo · Avaliação do pedido</span>
+  <nav class="abas" aria-label="Partes do protótipo">
+    <button class="aba" data-aba="celular" aria-pressed="true">No celular</button>
+    <button class="aba" data-aba="pagina" aria-pressed="false">Página do pedido</button>
+    <button class="aba" data-aba="loja" aria-pressed="false">Delivery › Avaliações</button>
+    <button class="aba" data-aba="ajustes" aria-pressed="false">Ajustes</button>
+    <button class="aba" data-aba="notas" aria-pressed="false">Notas e decisões</button>
+  </nav>
+  <span class="nota">Dados inventados. Nada aqui fala com o Regem nem com a Meta.</span>
+</header>
+
+<div id="conteudo">
+
+<!-- ═════════════ NO CELULAR ═════════════ -->
+<section class="vista ativa" id="v-celular" aria-label="No celular">
+  <div class="pagina-cel">
+    <div class="cab">
+      <div>
+        <h1>No celular do cliente</h1>
+        <p class="sub">Só pedidos do Regem (cardápio, balcão e telefone). iFood, 99 e Anota Aí têm a avaliação deles e não recebem nada daqui.
+          O formulário (Flow) é do WhatsApp oficial; na conexão por QR Code, a nota fica na página do pedido (caso 6).</p>
+      </div>
+    </div>
+    <div class="celulares">
+
+      <div class="caso">
+        <h3>1. "Tudo certo 👍" → Avaliar pedido</h3>
+        <p class="sub">O "Chegou tudo certo?" que já existe (20 min a 3 h depois da entrega). Quem responde "Tudo certo" ganha o botão do formulário, na mesma conversa — dentro da janela de 24 h, sem custo de modelo.</p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister Burger</b><span>conta comercial</span></div></div>
+          <div class="conv">
+            <div class="bolha dele">Oi, Marina! Seu pedido #2841 chegou tudo certo? 🙂
+              <div class="botoes-wa"><span>Tudo certo 👍</span><span>Tive um problema</span><span>Não chegou</span></div><span class="hora">20:51</span></div>
+            <div class="bolha meu">Tudo certo 👍<span class="hora">20:53</span></div>
+            <div class="bolha dele">Que bom! 😊 Obrigado pela preferência.<br>Quer dar uma nota para o pedido? Leva 10 segundos.
+              <div class="botoes-wa"><span class="cta-wa">📋 Avaliar pedido</span></div><span class="hora">20:53</span></div>
+          </div></div>
+      </div>
+
+      <div class="caso">
+        <h3>2. O formulário do WhatsApp</h3>
+        <p class="sub">Abre por cima da conversa. Uma tela só: a nota (obrigatória), o que pesou e o comentário (opcionais). Sem estrela nativa no WhatsApp: as notas vêm em opções.</p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister Burger</b><span>conta comercial</span></div></div>
+          <div class="conv" style="padding-bottom:0">
+            <div class="flow" role="img" aria-label="O formulário do WhatsApp: a nota de 1 a 5, o que mais pesou e o comentário">
+              <div class="flow-cab"><span class="x" aria-hidden="true">✕</span><span>Avaliar pedido</span></div>
+              <div class="flow-corpo">
+                <div><h4>Como foi o pedido #2841?</h4>
+                  <div class="flow-op marcada"><span class="bola"></span><span class="estrelas-txt">★★★★★</span> Excelente</div>
+                  <div class="flow-op"><span class="bola"></span><span class="estrelas-txt">★★★★<span class="vazia">★</span></span> Bom</div>
+                  <div class="flow-op"><span class="bola"></span><span class="estrelas-txt">★★★<span class="vazia">★★</span></span> Regular</div>
+                  <div class="flow-op"><span class="bola"></span><span class="estrelas-txt">★★<span class="vazia">★★★</span></span> Ruim</div>
+                  <div class="flow-op"><span class="bola"></span><span class="estrelas-txt">★<span class="vazia">★★★★</span></span> Péssimo</div>
+                </div>
+                <div><h4>O que mais pesou? <span class="sub peq">(opcional)</span></h4>
+                  <div class="flow-op marcada"><span class="quad"></span>Sabor</div>
+                  <div class="flow-op"><span class="quad"></span>Temperatura</div>
+                  <div class="flow-op marcada"><span class="quad"></span>Tempo de entrega</div>
+                  <div class="flow-op"><span class="quad"></span>Embalagem</div>
+                  <div class="flow-op"><span class="quad"></span>Pedido completo</div>
+                  <div class="flow-op"><span class="quad"></span>Preço</div>
+                </div>
+                <div><h4>Quer contar mais? <span class="sub peq">(opcional)</span></h4>
+                  <div class="flow-texto">Chegou quentinho e rápido!</div></div>
+              </div>
+              <div class="flow-rodape"><span class="flow-btn">Enviar avaliação</span><small>Gerenciado pela empresa</small></div>
+            </div>
+          </div></div>
+      </div>
+
+      <div class="caso">
+        <h3>3. Nota 5: o obrigado e o Google</h3>
+        <p class="sub">O link do Google vai com o obrigado só na nota 5, se a loja colou o link no cartão do Google (decisão do dono). Quem deu nota não recebe depois a mensagem separada do Google.</p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister Burger</b><span>conta comercial</span></div></div>
+          <div class="conv">
+            <div class="bolha meu"><span class="enviado">📋 <b>Avaliação enviada</b></span><span class="sub peq">Ver resposta</span><span class="hora">20:54</span></div>
+            <div class="bolha dele">Obrigado pela nota, Marina! 💛 Ela vai direto para a equipe.<br><br>Se puder, conte também no Google — ajuda muito a gente:<br><span style="color:#0B5CAD">g.page/r/mister-burger/review</span><span class="hora">20:54</span></div>
+          </div></div>
+      </div>
+
+      <div class="caso">
+        <h3>3b. Nota 3 ou 4: só o obrigado</h3>
+        <p class="sub">O mesmo obrigado, sem o link do Google. A nota e o que pesou vão para a lista de Avaliações; a nota 3 só vira caso se a loja escolher "1, 2 ou 3" nos ajustes.</p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister Burger</b><span>conta comercial</span></div></div>
+          <div class="conv">
+            <div class="bolha meu"><span class="enviado">📋 <b>Avaliação enviada</b></span><span class="sub peq">Ver resposta</span><span class="hora">21:32</span></div>
+            <div class="bolha dele">Obrigado pela nota, Rafael! 💛 Ela vai direto para a equipe — é assim que a gente melhora.<span class="hora">21:32</span></div>
+          </div></div>
+      </div>
+
+      <div class="caso">
+        <h3>4. Nota 1 ou 2: vira caso no Atendimento</h3>
+        <p class="sub">O pedido de desculpas e o caso "Avaliação" (o mesmo tipo das notas baixas do iFood), ligado ao pedido. Sem o link do Google.</p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister Burger</b><span>conta comercial</span></div></div>
+          <div class="conv">
+            <div class="bolha meu"><span class="enviado">📋 <b>Avaliação enviada</b></span><span class="sub peq">Ver resposta</span><span class="hora">20:14</span></div>
+            <div class="bolha dele">Poxa, Carlos, sinto muito. 😔 Já passei a sua avaliação do pedido #2838 para a equipe — alguém fala com você aqui em instantes.<span class="hora">20:14</span></div>
+            <div class="bolha dele">Oi, Carlos! Aqui é a Ana, da Mister Burger. Vi que o pedido chegou frio e demorou. Posso te mandar outro lanche agora ou te devolver o valor do lanche?<span class="hora">20:19</span></div>
+          </div></div>
+      </div>
+
+      <div class="caso">
+        <h3>5. "Tive um problema": não pede nota</h3>
+        <p class="sub">Continua como hoje: o caso no Atendimento e a equipe responde. A nota não é pedida no WhatsApp; a página do pedido continua com o "Como foi o pedido?" se ele quiser.</p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister Burger</b><span>conta comercial</span></div></div>
+          <div class="conv">
+            <div class="bolha dele">Oi, Júlia! Seu pedido #2830 chegou tudo certo? 🙂
+              <div class="botoes-wa"><span>Tudo certo 👍</span><span>Tive um problema</span><span>Não chegou</span></div><span class="hora">20:22</span></div>
+            <div class="bolha meu">Tive um problema<span class="hora">20:25</span></div>
+            <div class="bolha dele">Poxa, sinto muito! Já avisei a equipe. Me conta aqui o que aconteceu que alguém responde em instantes.<span class="hora">20:25</span></div>
+          </div></div>
+      </div>
+
+      <div class="caso">
+        <h3>6. Conexão por QR Code: a página do pedido</h3>
+        <p class="sub">Sem formulário e sem botão: o link do "Acompanhe sua entrega" que já vai quando o pedido sai. Depois da entrega, a mesma página mostra o "Como foi o pedido?".</p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister Burger</b><span>WhatsApp</span></div></div>
+          <div class="conv">
+            <div class="bolha dele">Seu pedido #2830 saiu para entrega! 🛵 Acompanhe aqui:<br><span style="color:#0B5CAD">app.dmsregem.com/r/k7Q2…</span><span class="hora">19:58</span></div>
+            <div class="bolha dele" style="background:#FFF9EC">Nenhuma mensagem nova pede a nota: o cliente que abre o link depois da entrega vê o "Como foi o pedido?". <a href="#pagina" data-aba="pagina">Ver a página</a><span class="hora">protótipo</span></div>
+          </div></div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ PÁGINA DO PEDIDO ═════════════ -->
+<section class="vista" id="v-pagina" aria-label="Página do pedido">
+  <div class="pagina-cel">
+    <div class="cab"><div>
+      <h1>Página do pedido (/r/…)</h1>
+      <p class="sub">A página "Acompanhe sua entrega" que já existe. Depois da entrega, abaixo do "Pedido entregue", entra o "Como foi o pedido?" — para todos os pedidos do Regem, com WhatsApp oficial ou por QR Code. Sem login: o link é do pedido.</p>
+    </div></div>
+    <div class="ctls"><span>Situação do protótipo:</span>
+      <button class="ctl" data-ctl="pagina" data-valor="avaliar" aria-pressed="true">avaliar</button>
+      <button class="ctl" data-ctl="pagina" data-valor="avaliado5" aria-pressed="false">avaliado (nota 5)</button>
+      <button class="ctl" data-ctl="pagina" data-valor="avaliado" aria-pressed="false">avaliado (nota 3–4)</button>
+      <button class="ctl" data-ctl="pagina" data-valor="baixa" aria-pressed="false">avaliado (nota 1–2)</button>
+      <button class="ctl" data-ctl="pagina" data-valor="jaavaliou" aria-pressed="false">já avaliou pelo WhatsApp</button>
+      <button class="ctl" data-ctl="pagina" data-valor="fechou" aria-pressed="false">prazo encerrado</button>
+      <button class="ctl" data-ctl="pagina" data-valor="erro" aria-pressed="false">não enviou</button>
+    </div>
+    <div class="celulares">
+      <div class="caso">
+        <div class="cel" style="max-width:380px">
+          <div class="nav-cel">app.dmsregem.com/r/k7Q2…</div>
+          <div class="pag-pedido">
+            <div><span class="sub peq">Acompanhe sua entrega</span><h3>Pedido #2830</h3></div>
+            <div><span class="selo ok">entregue</span></div>
+            <div class="bloco"><strong>Pedido entregue</strong><span class="sub peq">Bom apetite! 🍽️ O acompanhamento ao vivo foi encerrado.</span></div>
+
+            <form class="bloco" id="form-nota" data-mostra="pagina:avaliar|erro" novalidate>
+              <div role="radiogroup" aria-labelledby="t-nota" class="estrelas" id="estrelas">
+                <strong id="t-nota" style="flex-basis:100%">Como foi o pedido?</strong>
+                <button type="button" class="estrela" role="radio" aria-checked="false" data-nota="1" aria-label="1 de 5: péssimo">★</button>
+                <button type="button" class="estrela" role="radio" aria-checked="false" data-nota="2" aria-label="2 de 5: ruim">★</button>
+                <button type="button" class="estrela" role="radio" aria-checked="false" data-nota="3" aria-label="3 de 5: regular">★</button>
+                <button type="button" class="estrela" role="radio" aria-checked="false" data-nota="4" aria-label="4 de 5: bom">★</button>
+                <button type="button" class="estrela" role="radio" aria-checked="false" data-nota="5" aria-label="5 de 5: excelente">★</button>
+              </div>
+              <div class="nome-nota" id="nome-nota" aria-live="polite">Toque nas estrelas</div>
+              <div role="group" aria-labelledby="t-pesou">
+                <strong id="t-pesou">O que mais pesou? <span class="sub peq">(opcional)</span></strong>
+                <div class="opcoes" style="margin-top:6px">
+                  <button type="button" class="opcao" aria-pressed="false">Sabor</button><button type="button" class="opcao" aria-pressed="false">Temperatura</button><button type="button" class="opcao" aria-pressed="false">Tempo de entrega</button><button type="button" class="opcao" aria-pressed="false">Embalagem</button><button type="button" class="opcao" aria-pressed="false">Pedido completo</button><button type="button" class="opcao" aria-pressed="false">Preço</button>
+                </div>
+              </div>
+              <div class="campo"><label for="coment">Quer contar mais? <span class="sub peq">(opcional)</span></label>
+                <textarea id="coment" maxlength="300" placeholder="O que a loja precisa saber"></textarea>
+                <span class="contador" id="contador">0 de 300</span></div>
+              <p class="erro-txt" id="erro-nota" hidden>Escolha uma nota de 1 a 5.</p>
+              <div class="faixa crit" data-mostra="pagina:erro" style="margin:0">Não deu para enviar agora. Confira a internet e toque em "Enviar avaliação" de novo — o que você escreveu continua aqui.</div>
+              <button type="submit" class="btn pri largo" id="enviar-nota">Enviar avaliação</button>
+              <span class="sub peq">A nota vai para a Mister Burger. Você pode avaliar até 7 dias depois da entrega.</span>
+            </form>
+
+            <div class="bloco fim-ok" data-mostra="pagina:avaliado5" role="status">
+              <span class="grande" aria-hidden="true">💛</span><strong>Obrigado pela nota!</strong>
+              <span class="sub peq">Ela vai direto para a equipe da Mister Burger.</span>
+              <button type="button" class="btn google largo" data-google>Contar também no Google</button>
+            </div>
+            <div class="bloco fim-ok" data-mostra="pagina:avaliado" role="status">
+              <span class="grande" aria-hidden="true">💛</span><strong>Obrigado pela nota!</strong>
+              <span class="sub peq">Ela vai direto para a equipe da Mister Burger — é assim que a gente melhora.</span>
+            </div>
+            <div class="bloco fim-ok" data-mostra="pagina:baixa" role="status">
+              <span class="grande" aria-hidden="true">😔</span><strong>Sinto muito pelo pedido.</strong>
+              <span class="sub peq">A equipe da Mister Burger já recebeu a sua avaliação e vai falar com você pelo WhatsApp do pedido.</span>
+            </div>
+            <div class="bloco fim-ok" data-mostra="pagina:jaavaliou">
+              <span class="estrelas-txt" style="font-size:22px">★★★★<span class="vazia">★</span></span><strong>Você já avaliou este pedido</strong>
+              <span class="sub peq">Pelo WhatsApp, hoje às 20:54. Obrigado!</span>
+            </div>
+            <div class="bloco fim-ok" data-mostra="pagina:fechou">
+              <strong>A avaliação deste pedido encerrou</strong>
+              <span class="sub peq">Dá para avaliar até 7 dias depois da entrega. Para falar com a loja, use o WhatsApp do pedido.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="caso">
+        <h3>O que muda na página</h3>
+        <ul class="sub peq" style="padding-left:18px;margin:6px 0 0">
+          <li>O "Como foi o pedido?" só aparece com o pedido <strong>entregue</strong>, só em pedido do Regem e só com o ajuste ligado.</li>
+          <li>Uma avaliação por pedido: quem avaliou pelo WhatsApp vê "Você já avaliou"; a segunda tentativa não grava.</li>
+          <li>O botão do Google só aparece na nota 5 (também no "Você já avaliou", se a nota foi 5) e se a loja colou o link no cartão "Pedir avaliação no Google".</li>
+          <li>Nota 1 ou 2 abre o caso no Atendimento, como no WhatsApp; a página diz que a loja vai falar pelo WhatsApp do pedido.</li>
+          <li>Teclado: as estrelas são um grupo de escolha (setas mudam a nota); o envio sem nota diz o que falta, sem apagar o texto.</li>
+          <li>A página lê de novo a cada 8 s enquanto o pedido anda (como hoje); depois de entregue, para de ler.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ DELIVERY › AVALIAÇÕES ═════════════ -->
+<section class="vista" id="v-loja" aria-label="Delivery › Avaliações">
+  <div class="app">
+    <nav class="lado" aria-label="Menu do aplicativo">
+      <div class="marca">REGEM<small>Mister Burger · Centro</small></div>
+      <ul><li>Painel</li><li>Mapa ao vivo</li><li>Entregadores</li><li>Clientes</li><li class="atual">Avaliações <span class="novo">novo</span></li><li>WhatsApp</li><li>Marketing</li><li>Gestão do catálogo</li><li>Configurações</li></ul>
+    </nav>
+    <div class="principal">
+      <div class="topo"><span><span class="menu-cel">☰ Menu · </span><span class="onde">Delivery › Avaliações</span></span><span class="quem">Ana · presidente</span></div>
+      <main class="pagina">
+        <div class="cab"><div>
+          <h1>Avaliações <span class="sub mono" id="total-titulo">(8)</span></h1>
+          <p class="sub">As notas que os clientes deram aos pedidos do Regem, pelo WhatsApp oficial ou pela página do pedido. Nota 1 ou 2 também vira caso no Atendimento.</p>
+        </div></div>
+
+        <div class="ctls"><span>Situação do protótipo:</span>
+          <button class="ctl" data-ctl="lista" data-valor="tudo" aria-pressed="true">com avaliações</button>
+          <button class="ctl" data-ctl="lista" data-valor="vazio" aria-pressed="false">nenhuma no período</button>
+          <button class="ctl" data-ctl="lista" data-valor="carregando" aria-pressed="false">carregando</button>
+          <button class="ctl" data-ctl="lista" data-valor="erro" aria-pressed="false">não leu</button>
+        </div>
+
+        <div class="filtros" role="group" aria-label="Filtros">
+          <div class="filtro-grupo" role="group" aria-label="Período">
+            <button class="filtro" data-periodo="hoje" aria-pressed="false">Hoje</button>
+            <button class="filtro" data-periodo="7" aria-pressed="true">7 dias</button>
+            <button class="filtro" data-periodo="30" aria-pressed="false">30 dias</button>
+          </div>
+          <div class="campo"><label for="busca">Buscar</label><input id="busca" type="search" placeholder="Cliente ou nº do pedido" autocomplete="off"></div>
+          <div class="campo"><label for="origem">Por onde</label><select id="origem"><option value="">Todas</option><option value="whatsapp">WhatsApp</option><option value="pagina">Página do pedido</option></select></div>
+        </div>
+
+        <div data-mostra="lista:carregando" class="estado-lista">
+          <div class="kpis"><div class="kpi"><div class="esq" style="height:70px"></div></div><div class="kpi"><div class="esq" style="height:70px"></div></div><div class="kpi"><div class="esq" style="height:70px"></div></div></div>
+          <div class="esq" style="height:220px"></div>
+        </div>
+        <div data-mostra="lista:erro" class="estado-lista">
+          <div class="faixa crit">Não consegui ler as avaliações agora. As notas continuam sendo gravadas. <button class="btn btn-peq" data-ctl="lista" data-valor="tudo">Tentar de novo</button></div>
+        </div>
+        <div data-mostra="lista:vazio" class="estado-lista">
+          <div class="vazio"><span class="grande" aria-hidden="true">⭐</span><strong>Nenhuma avaliação nos últimos 7 dias</strong>
+            <p class="sub peq">As notas chegam depois do "Tudo certo 👍" no WhatsApp oficial e pela página do pedido. Confira se o ajuste está ligado.</p>
+            <div class="acoes"><button class="btn" data-aba="ajustes">Ver o ajuste</button><button class="btn" data-periodo-vazio="30">Ver 30 dias</button></div></div>
+        </div>
+
+        <div data-mostra="lista:tudo">
+          <div class="kpis">
+            <div class="kpi destaque"><span class="r">Nota média</span><b id="k-media">3,6</b><span class="sub" id="k-media-sub">8 avaliações · 7 dias</span></div>
+            <div class="kpi"><span class="r">Avaliaram</span><b id="k-taxa">17%</b><span class="sub">8 de 46 pedidos entregues do Regem</span></div>
+            <div class="kpi"><span class="r">Notas</span><ul class="dist" id="dist" aria-label="Quantas avaliações de cada nota"></ul></div>
+          </div>
+
+          <div class="situacoes" role="group" aria-label="Situação">
+            <button class="situacao" data-sit="todas" aria-pressed="true">Todas <span class="n" data-cont="todas">8</span></button>
+            <button class="situacao" data-sit="baixa" aria-pressed="false">Nota 1 ou 2 <span class="n" data-cont="baixa">2</span></button>
+            <button class="situacao" data-sit="coment" aria-pressed="false">Com comentário <span class="n" data-cont="coment">6</span></button>
+            <button class="situacao" data-sit="caso" aria-pressed="false">Caso aberto <span class="n" data-cont="caso">1</span></button>
+          </div>
+
+          <div class="cartao" style="padding:0 12px">
+            <table class="tab">
+              <caption class="sr">Avaliações dos pedidos</caption>
+              <thead><tr><th>Nota</th><th>Pedido</th><th>Cliente</th><th>O que pesou e o comentário</th><th>Quando</th><th class="num">Ação</th></tr></thead>
+              <tbody id="linhas"></tbody>
+            </table>
+            <div class="vazio" id="sem-filtro" hidden style="margin:12px 0">Nenhuma avaliação com esses filtros. <button class="btn btn-peq" id="limpar">Limpar filtros</button></div>
+          </div>
+
+          <div class="cartao">
+            <h3>No Atendimento</h3>
+            <p class="sub peq">A nota 1 ou 2 abre o caso "Avaliação" ligado ao pedido — o mesmo tipo das notas baixas do iFood. Uma conversa aberta do mesmo telefone há menos de 12 h recebe a avaliação em vez de abrir outro caso.</p>
+            <div class="caso-linha"><div><strong>Avaliação <span class="estrelas-txt">★★<span class="vazia">★★★</span></span> · Pedido #2838</strong><div class="sub peq">Carlos M. · "Chegou frio e demorou quase uma hora." · Temperatura, Tempo de entrega</div></div><span class="selo warn">aberto</span></div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ AJUSTES ═════════════ -->
+<section class="vista" id="v-ajustes" aria-label="Ajustes">
+  <div class="app">
+    <nav class="lado" aria-label="Menu do aplicativo">
+      <div class="marca">REGEM<small>Mister Burger · Centro</small></div>
+      <ul><li>Painel</li><li>Mapa ao vivo</li><li>Entregadores</li><li>Clientes</li><li>Avaliações</li><li>WhatsApp</li><li>Marketing</li><li>Gestão do catálogo</li><li class="atual">Configurações</li></ul>
+    </nav>
+    <div class="principal">
+      <div class="topo"><span><span class="menu-cel">☰ Menu · </span><span class="onde">Delivery › Configurações › Operação</span></span><span class="quem">Ana · presidente</span></div>
+      <main class="pagina">
+        <div class="cab"><div><h1>Robô de atendimento</h1><p class="sub">Os ajustes que já existem aparecem apagados; o novo é o "Pedir uma nota depois da entrega".</p></div></div>
+        <div class="ctls"><span>Situação do protótipo:</span>
+          <button class="ctl" data-ctl="flow" data-valor="aprovado" aria-pressed="true">formulário publicado</button>
+          <button class="ctl" data-ctl="flow" data-valor="preparo" aria-pressed="false">em preparo</button>
+          <button class="ctl" data-ctl="flow" data-valor="recusado" aria-pressed="false">a Meta recusou</button>
+          <button class="ctl" data-ctl="flow" data-valor="qr" aria-pressed="false">conexão por QR Code</button>
+        </div>
+        <div class="cartao" style="padding:6px 8px">
+          <div class="aj contexto"><div><div class="t">Perguntar "Chegou tudo certo?" depois da entrega</div><div class="d">Disponível só com o WhatsApp oficial da loja.</div></div><div class="ctrl"><span class="estado-liga">Ligado</span></div></div>
+
+          <div class="aj" id="aj-nota"><div>
+              <div class="t">Pedir uma nota depois da entrega <span class="novo">novo</span></div>
+              <div class="d">No WhatsApp oficial, quem responde "Tudo certo 👍" recebe o botão "Avaliar pedido". Na página do pedido, o "Como foi o pedido?" aparece depois da entrega — também na conexão por QR Code. Só pedidos do Regem: iFood, 99 e Anota Aí têm a avaliação deles.</div>
+              <div class="destinos">
+                <span class="selo ok" data-mostra="flow:aprovado">Formulário do WhatsApp: publicado</span>
+                <span class="selo info" data-mostra="flow:preparo">Formulário do WhatsApp: a DMS está preparando (até 1 dia útil). Enquanto isso, só a página do pedido.</span>
+                <span class="selo crit" data-mostra="flow:recusado">Formulário do WhatsApp: a Meta recusou e a DMS está vendo. Enquanto isso, só a página do pedido.</span>
+                <span class="selo neutro" data-mostra="flow:qr">Conexão por QR Code: só a página do pedido (o formulário é do WhatsApp oficial).</span>
+              </div>
+            </div>
+            <div class="ctrl"><button class="liga" role="switch" aria-checked="false" aria-labelledby="t-liga-nota" id="liga-nota"></button><span class="estado-liga" id="t-liga-nota">Desligado</span></div>
+          </div>
+          <div class="aj" data-mudavel><div><div class="t"><label for="sel-caso">Nota que abre caso no Atendimento</label></div><div class="d">O caso "Avaliação", ligado ao pedido.</div></div>
+            <div class="ctrl"><select id="sel-caso"><option value="1">Só a nota 1</option><option value="2" selected>1 ou 2</option><option value="3">1, 2 ou 3</option></select></div></div>
+          <div class="aj" data-mudavel><div><div class="t"><label for="sel-prazo">Prazo para avaliar</label></div><div class="d">Depois da entrega. Passou, a página mostra "A avaliação deste pedido encerrou".</div></div>
+            <div class="ctrl"><select id="sel-prazo"><option value="2">2 dias</option><option value="7" selected>7 dias</option><option value="30">30 dias</option></select></div></div>
+          <div class="aj"><div><div class="t">Depois da nota</div><div class="d">Na nota 5, o obrigado leva o link do Google do cartão abaixo. Nas notas de 1 a 4, só o obrigado. Sem link no cartão, vai só o obrigado.</div></div><div class="ctrl"><span class="estado-liga">Link: colado ✓</span></div></div>
+
+          <div class="aj contexto"><div><div class="t">Pedir avaliação no Google depois da entrega</div><div class="d">Quem já deu nota pelo Regem não recebe esta mensagem: na nota 5, o link do Google foi junto com o obrigado; nas outras, não vai.</div></div><div class="ctrl"><span class="estado-liga">Ligado</span></div></div>
+        </div>
+        <div class="barra-salvar" id="barra" hidden><span id="barra-txt">1 alteração ainda não salva</span><span class="acoes"><button class="btn" id="desfazer">Desfazer</button><button class="btn pri" id="salvar">Salvar</button></span></div>
+      </main>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ NOTAS E DECISÕES ═════════════ -->
+<section class="vista" id="v-notas" aria-label="Notas e decisões">
+  <div class="notas">
+    <div class="cartao">
+      <h2>O que este protótipo mostra</h2>
+      <ul>
+        <li><strong>No celular:</strong> o botão "Avaliar pedido" depois do "Tudo certo 👍", o formulário do WhatsApp, o obrigado com o Google só na nota 5, o obrigado sem o Google na nota 3 ou 4, a nota baixa que vira caso, o "Tive um problema" que não pede nota e a loja por QR Code.</li>
+        <li><strong>Página do pedido:</strong> o "Como foi o pedido?" depois da entrega, para todos, com os estados (nota 5 com o Google, nota 3 ou 4, nota baixa, já avaliou, prazo, não enviou).</li>
+        <li><strong>Delivery › Avaliações:</strong> lista no modelo do Estoque — nota média, quantos avaliaram, as notas, situações que filtram, busca, por onde, período e a gaveta do pedido.</li>
+        <li><strong>Ajustes:</strong> o cartão novo no Robô de atendimento, nascendo desligado.</li>
+      </ul>
+    </div>
+    <div class="cartao">
+      <h2>O que a Meta exige para o formulário (Flow)</h2>
+      <ul>
+        <li>Empresa verificada, nome de exibição aprovado e número com qualidade alta. Não precisa do selo verde ou azul. A Mister Burger é verificada.</li>
+        <li>Só no WhatsApp oficial. Na conexão por QR Code não existe formulário: fica a página do pedido.</li>
+        <li><strong>Formulário sem servidor próprio</strong> (sem "endpoint"): a resposta volta como uma mensagem <code>nfm_reply</code> com os campos. Sem chave de criptografia nem servidor de dados para manter.</li>
+        <li>Quem cria e publica o formulário na conta da loja é a DMS, pela distribuição. A loja não faz nada além de ligar o ajuste.</li>
+        <li>Formulário publicado não se edita: mudar o texto é publicar uma versão nova. Sem componente de estrela: a nota vai em opções de escolha única, e o comentário em caixa de texto (até 300 letras aqui; a Meta aceita 600).</li>
+        <li>Hoje o Regem não lê <code>nfm_reply</code>: a resposta passaria pelo robô como texto vazio. A fase A2 trata antes do robô, como a resposta do "Chegou tudo certo?".</li>
+      </ul>
+    </div>
+    <div class="cartao">
+      <h2>Fases depois da aprovação</h2>
+      <ul>
+        <li><span class="fase">A1 · 1 migration</span> — a tabela das avaliações (pedido, nota, o que pesou, comentário, por onde, quando; uma por pedido, só nuvem); o "Como foi o pedido?" na página do pedido; Delivery › Avaliações (no servidor da loja, a tela pede à nuvem); o caso "Avaliação" no Atendimento; o link do Google só na nota 5; quem deu nota não recebe a mensagem separada do Google; o ajuste novo.</li>
+        <li><span class="fase">A2 · 1 migration</span> — o formulário do WhatsApp oficial: a DMS cria e publica na conta de cada loja (o número do formulário publicado guardado por conta); o botão depois do "Tudo certo 👍"; a resposta <code>nfm_reply</code> lida antes do robô.</li>
+        <li><span class="fase">A3 · opcional, depois</span> — o modelo de utilidade fora da janela de 24 h (decisão 8).</li>
+      </ul>
+    </div>
+    <div class="cartao">
+      <h2>Decisões</h2>
+      <div class="decisao"><h3>1. Onde pedir a nota</h3><ol>
+        <li><span class="rec">recomendada</span> Depois do "Tudo certo 👍" do "Chegou tudo certo?" (dentro da janela de 24 h, nenhuma mensagem a mais para quem não respondeu) e na página do pedido.</li>
+        <li>Uma mensagem própria N minutos depois da entrega: mais uma mensagem para todos, e fora da janela vira modelo pago.</li>
+        <li>Só na página do pedido.</li></ol></div>
+      <div class="decisao"><h3>2. Como o cliente dá a nota no WhatsApp oficial</h3><ol>
+        <li><span class="rec">recomendada</span> O formulário do WhatsApp (Flow): nota, o que pesou e comentário numa tela só.</li>
+        <li>Uma lista de 1 a 5 e depois "quer contar mais?" em texto: funciona sem formulário, mas são duas ou três mensagens e o comentário se mistura com a conversa do robô.</li></ol></div>
+      <div class="decisao"><h3>3. Na conexão por QR Code</h3><ol>
+        <li><span class="rec">recomendada</span> Só a página do pedido (o link já vai quando o pedido sai).</li>
+        <li>Botões ou enquete pela conexão por QR Code: o WhatsApp muda isso sem aviso e aumenta o risco de bloqueio do número.</li></ol></div>
+      <div class="decisao"><h3>4. O link do Google depois da nota</h3><ol>
+        <li><span class="rec">decisão do dono</span> Só na nota 5, no obrigado, se a loja colou o link (18/11/2026). Nas notas de 1 a 4, só o obrigado, sem o Google.</li>
+        <li>Para todas as notas: é o que a política do Google permite (a que estava recomendada).</li>
+        <li>Não mostrar: fica só a mensagem separada do cartão do Google.</li></ol>
+        <p class="sub peq">⚠️ O risco fica registrado: a política do Google ("Manipulação de nota") proíbe pedir avaliação só a quem gostou, e o Google pode remover avaliações da loja se entender que ela filtra. É a mesma escolha do cartão "Pedir avaliação no Google" ("só pedidos sem problema", do dono em 04/11). Voltar para "todas as notas" é trocar uma regra no servidor, sem migration.</p></div>
+      <div class="decisao"><h3>5. Que nota vira caso no Atendimento</h3><ol>
+        <li><span class="rec">recomendada</span> 1 ou 2, ajustável (só 1 · 1 ou 2 · 1, 2 ou 3).</li>
+        <li>Fixo em 1, 2 ou 3, como a entrada das notas do iFood.</li>
+        <li>Nenhuma: só a lista.</li></ol></div>
+      <div class="decisao"><h3>6. Onde a loja vê as notas</h3><ol>
+        <li><span class="rec">recomendada</span> Delivery › Avaliações, uma tela própria abaixo de Clientes, no modelo do Estoque.</li>
+        <li>Uma aba em Relatórios › Atendimento.</li></ol></div>
+      <div class="decisao"><h3>7. Prazo para avaliar</h3><ol>
+        <li><span class="rec">recomendada</span> 7 dias depois da entrega, ajustável (2, 7 ou 30 dias).</li>
+        <li>Sem prazo: nota de pedido antigo pesa na média de hoje.</li></ol></div>
+      <div class="decisao"><h3>8. Fora da janela de 24 h</h3><ol>
+        <li><span class="rec">recomendada</span> Não mandar nada na primeira versão: fica a página do pedido.</li>
+        <li>Um modelo de utilidade com o botão do formulário (ligado ao pedido, sem promoção): ~R$ 0,035 por mensagem, cobrada (fase A3).</li></ol></div>
+      <div class="decisao"><h3>9. Que pedidos</h3><ol>
+        <li><span class="rec">recomendada</span> Só pedidos do Regem (cardápio, balcão e telefone). iFood, 99 e Anota Aí ficam de fora, e o "Chegou tudo certo?" passa a barrar o Anota Aí também (a regra "aviso pelo WhatsApp só a pedido do Regem").</li>
+        <li>Todos os pedidos com telefone: o cliente de outro canal receberia mensagem do número da loja.</li></ol></div>
+      <div class="decisao"><h3>10. Quem vê as avaliações</h3><ol>
+        <li><span class="rec">recomendada</span> Quem tem Delivery: o presidente vê todas as lojas; o gerente, a loja dele.</li>
+        <li>Só o presidente.</li></ol></div>
+    </div>
+    <div class="cartao">
+      <h2>Fontes (conferidas em 18/11/2026)</h2>
+      <ul>
+        <li>Meta — WhatsApp Flows: <a href="https://developers.facebook.com/docs/whatsapp/flows" target="_blank" rel="noopener">developers.facebook.com/docs/whatsapp/flows</a></li>
+        <li>Meta — componentes do Flow JSON (escolha única e múltipla até 20 opções, caixa de texto até 600 letras, sem estrela): <a href="https://developers.facebook.com/docs/whatsapp/flows/reference/flowjson/components" target="_blank" rel="noopener">…/flowjson/components</a></li>
+        <li>Google — conteúdo proibido, "Manipulação de nota": não desencorajar avaliação negativa nem pedir só as positivas; pedir a todos é permitido: <a href="https://support.google.com/contributionpolicy/answer/7400114" target="_blank" rel="noopener">support.google.com/contributionpolicy/answer/7400114</a></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<div class="fundo" id="fundo" data-fecha></div>
+<aside class="gaveta" id="gav-av" role="dialog" aria-modal="true" aria-labelledby="gav-titulo" tabindex="-1">
+  <div class="pn-cab"><h2 id="gav-titulo">Pedido</h2><button class="fechar" data-fecha aria-label="Fechar">✕</button></div>
+  <div class="pn-corpo" id="gav-corpo"></div>
+  <div class="pn-rodape"><button class="btn" data-fecha>Fechar</button><button class="btn pri" id="gav-pedido">Ver o pedido</button></div>
+</aside>
+<div class="avisos" id="avisos" aria-live="polite"></div>
+
+<script>
+(function(){
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const corpo = document.body;
+  function avisar(texto){
+    const a = document.createElement('div'); a.className = 'aviso'; a.textContent = texto;
+    $('#avisos').appendChild(a); setTimeout(() => a.remove(), 3200);
+  }
+  function aplicar(){
+    $$('[data-mostra]').forEach((el) => {
+      const [grupo, valores] = el.dataset.mostra.split(':');
+      el.hidden = !valores.split('|').includes(corpo.dataset[grupo]);
+    });
+    $$('.ctl[data-ctl]').forEach((b) => b.setAttribute('aria-pressed', String(corpo.dataset[b.dataset.ctl] === b.dataset.valor)));
+  }
+  function vista(id){
+    if (!$('#v-' + id)) id = 'celular';
+    $$('.vista').forEach((v) => v.classList.toggle('ativa', v.id === 'v-' + id));
+    $$('.aba').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.aba === id)));
+    history.replaceState(null, '', '#' + id);
+    window.scrollTo(0, 0);
+  }
+
+  /* ── as avaliações (inventadas) ── */
+  const AV = [
+    { n: 2841, cli: 'Marina S.', nota: 5, quando: 'hoje 20:54', dia: 0, por: 'whatsapp', pesou: ['Sabor', 'Tempo de entrega'], txt: 'Chegou quentinho e rápido!', min: 32, itens: '1× Smash duplo · 1× Batata média · 1× Refri lata', total: 'R$ 54,90' },
+    { n: 2838, cli: 'Carlos M.', nota: 2, quando: 'hoje 20:14', dia: 0, por: 'whatsapp', pesou: ['Temperatura', 'Tempo de entrega'], txt: 'Chegou frio e demorou quase uma hora.', min: 58, caso: 'aberto', itens: '2× Cheddar bacon · 1× Onion rings', total: 'R$ 78,40' },
+    { n: 2830, cli: 'Júlia R.', nota: 4, quando: 'hoje 19:50', dia: 0, por: 'pagina', pesou: ['Embalagem'], txt: '', min: 35, itens: '1× Clássico · 1× Milk-shake', total: 'R$ 41,80' },
+    { n: 2822, cli: 'Pedro A.', nota: 5, quando: 'ontem 21:40', dia: 1, por: 'whatsapp', pesou: ['Sabor'], txt: 'Melhor smash da cidade.', min: 28, itens: '1× Smash triplo · 1× Batata grande', total: 'R$ 62,00' },
+    { n: 2815, cli: 'Ana P.', nota: 1, quando: 'ontem 21:05', dia: 1, por: 'pagina', pesou: ['Pedido completo'], txt: 'Faltou a batata.', min: 41, caso: 'resolvido', itens: '1× Combo família', total: 'R$ 119,90' },
+    { n: 2809, cli: 'Rafael T.', nota: 3, quando: 'ontem 20:44', dia: 1, por: 'whatsapp', pesou: ['Preço'], txt: 'Bom, mas achei caro.', min: 37, itens: '1× Vegano · 1× Suco', total: 'R$ 46,50' },
+    { n: 2797, cli: 'Bruna L.', nota: 5, quando: '16/11 20:30', dia: 2, por: 'whatsapp', pesou: [], txt: '', min: 30, itens: '1× Clássico · 1× Batata média', total: 'R$ 38,90' },
+    { n: 2790, cli: 'Diego F.', nota: 4, quando: '16/11 19:58', dia: 2, por: 'pagina', pesou: ['Tempo de entrega'], txt: 'Demorou um pouco, mas estava ótimo.', min: 45, itens: '2× Smash duplo', total: 'R$ 69,80' },
+  ];
+  const NOMES = ['', 'Péssimo', 'Ruim', 'Regular', 'Bom', 'Excelente'];
+  const estrelas = (n) => `<span class="estrelas-txt" aria-label="nota ${n} de 5">${'★'.repeat(n)}<span class="vazia">${'★'.repeat(5 - n)}</span></span>`;
+  const porOnde = (p) => (p === 'whatsapp' ? 'WhatsApp' : 'Página do pedido');
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  let sit = 'todas', periodo = '7';
+  const SIT = { todas: () => true, baixa: (a) => a.nota <= 2, coment: (a) => !!a.txt, caso: (a) => a.caso === 'aberto' };
+  function doPeriodo(){ return AV.filter((a) => (periodo === 'hoje' ? a.dia === 0 : true)); }
+  function filtradas(){
+    const q = $('#busca').value.trim().toLowerCase();
+    const o = $('#origem').value;
+    return doPeriodo().filter(SIT[sit]).filter((a) => !o || a.por === o).filter((a) => !q || a.cli.toLowerCase().includes(q) || String(a.n).includes(q.replace('#', '')));
+  }
+  function desenhar(){
+    const base = doPeriodo();
+    Object.keys(SIT).forEach((k) => { const el = $(`[data-cont="${k}"]`); if (el) el.textContent = base.filter(SIT[k]).length; });
+    const media = base.length ? base.reduce((s, a) => s + a.nota, 0) / base.length : 0;
+    $('#k-media').textContent = media.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    const rot = { hoje: 'hoje', 7: '7 dias', 30: '30 dias' }[periodo];
+    $('#k-media-sub').textContent = `${base.length} avaliações · ${rot}`;
+    $('#total-titulo').textContent = `(${base.length})`;
+    const maior = Math.max(1, ...[1, 2, 3, 4, 5].map((n) => base.filter((a) => a.nota === n).length));
+    $('#dist').innerHTML = [5, 4, 3, 2, 1].map((n) => { const q = base.filter((a) => a.nota === n).length; return `<li><span>${'★'.repeat(n)}</span><span class="trilho"><span style="width:${(q / maior) * 100}%"></span></span><span class="q">${q}</span></li>`; }).join('');
+    const lista = filtradas();
+    $('#linhas').innerHTML = lista.map((a) => `<tr>
+      <td data-rot="Nota">${estrelas(a.nota)}<div class="sub peq">${NOMES[a.nota]}</div></td>
+      <td data-rot="Pedido" class="mono">#${a.n}<div class="tempo">entregue em ${a.min} min</div></td>
+      <td data-rot="Cliente">${esc(a.cli)}<div class="sub peq">${porOnde(a.por)}</div></td>
+      <td data-rot="O que pesou e o comentário">${a.pesou.length ? `<div class="chips">${a.pesou.map((p) => `<span class="chip">${p}</span>`).join('')}</div>` : '<span class="sub peq">—</span>'}${a.txt ? `<div class="coment">"${esc(a.txt)}"</div>` : ''}${a.caso ? `<div style="margin-top:6px"><span class="selo ${a.caso === 'aberto' ? 'warn' : 'ok'}">caso ${a.caso}</span></div>` : ''}</td>
+      <td data-rot="Quando" class="tempo">${a.quando}</td>
+      <td data-rot="Ação" class="num"><button class="btn btn-peq" data-ver="${a.n}" aria-label="Ver a avaliação do pedido ${a.n}">Ver</button></td></tr>`).join('');
+    $('#sem-filtro').hidden = lista.length > 0;
+    $$('.situacao').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.sit === sit)));
+    $$('.filtro[data-periodo]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.periodo === periodo)));
+  }
+  function encherGaveta(a){
+    $('#gav-titulo').textContent = `Pedido #${a.n} · ${a.cli}`;
+    $('#gav-corpo').innerHTML = `
+      <div style="font-size:26px">${estrelas(a.nota)}</div>
+      <p><strong>${NOMES[a.nota]}</strong> · ${a.quando} · ${porOnde(a.por)}${a.por === 'whatsapp' ? ' (formulário)' : ''}</p>
+      ${a.pesou.length ? `<h4>O que mais pesou</h4><div class="chips" style="margin-bottom:10px">${a.pesou.map((p) => `<span class="chip">${p}</span>`).join('')}</div>` : ''}
+      ${a.txt ? `<h4>Comentário</h4><p class="citacao">"${esc(a.txt)}"</p>` : '<p class="sub peq">Sem comentário.</p>'}
+      <h4 style="margin-top:14px">O pedido</h4>
+      <dl class="resumo"><div><dt>Itens</dt><dd>${a.itens}</dd></div><div><dt>Total</dt><dd class="mono">${a.total}</dd></div><div><dt>Entregue em</dt><dd class="mono">${a.min} min</dd></div><div><dt>Canal</dt><dd>Cardápio Regem</dd></div></dl>
+      ${a.caso ? `<div class="caso-linha"><div><strong>Caso "Avaliação" no Atendimento</strong><div class="sub peq">${a.caso === 'aberto' ? 'Aberto — a equipe está falando com o cliente.' : 'Resolvido hoje às 21:20 por Ana.'}</div></div><button type="button" class="btn btn-peq" data-atend>Abrir no Atendimento</button></div>` : ''}`;
+  }
+
+  /* ── gaveta: foco preso, Esc fecha, o foco volta ── */
+  let aberto = null, quemAbriu = null;
+  const focaveis = (el) => $$('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])', el).filter((x) => !x.disabled && x.offsetParent !== null);
+  function abrir(id, de){ const p = $('#' + id); aberto = p; quemAbriu = de || null; p.classList.add('aberto'); $('#fundo').classList.add('aberto'); (focaveis(p)[0] || p).focus(); }
+  function fechar(){ if (!aberto) return; aberto.classList.remove('aberto'); $('#fundo').classList.remove('aberto'); const v = quemAbriu; aberto = null; quemAbriu = null; if (v && document.contains(v)) v.focus(); }
+  document.addEventListener('keydown', (e) => {
+    if (!aberto) return;
+    if (e.key === 'Escape') { e.preventDefault(); fechar(); return; }
+    if (e.key !== 'Tab') return;
+    const f = focaveis(aberto); if (!f.length) return;
+    if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
+    else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
+  });
+
+  /* ── a página do pedido ── */
+  let nota = 0;
+  function marcarNota(n){
+    nota = n;
+    $$('.estrela').forEach((b) => { const v = Number(b.dataset.nota); b.setAttribute('aria-checked', String(v === n)); b.classList.toggle('acesa', v <= n); b.tabIndex = v === (n || 1) ? 0 : -1; });
+    $('#nome-nota').textContent = n ? `${n} de 5 · ${NOMES[n]}` : 'Toque nas estrelas';
+    $('#erro-nota').hidden = true;
+  }
+  $('#estrelas').addEventListener('keydown', (e) => {
+    if (!['ArrowRight', 'ArrowUp', 'ArrowLeft', 'ArrowDown'].includes(e.key)) return;
+    e.preventDefault();
+    const n = Math.min(5, Math.max(1, (nota || 0) + (e.key === 'ArrowRight' || e.key === 'ArrowUp' ? 1 : -1)));
+    marcarNota(n); $(`.estrela[data-nota="${n}"]`).focus();
+  });
+  $('#coment').addEventListener('input', (e) => { $('#contador').textContent = `${e.target.value.length} de 300`; });
+  $('#form-nota').addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (!nota) { $('#erro-nota').hidden = false; $('.estrela').focus(); return; }
+    corpo.dataset.pagina = nota <= 2 ? 'baixa' : nota === 5 ? 'avaliado5' : 'avaliado'; aplicar();
+  });
+
+  /* ── ajustes ── */
+  const inicial = { liga: false, caso: '2', prazo: '7' };
+  function contarMudancas(){
+    const atual = { liga: $('#liga-nota').getAttribute('aria-checked') === 'true', caso: $('#sel-caso').value, prazo: $('#sel-prazo').value };
+    const n = Object.keys(inicial).filter((k) => inicial[k] !== atual[k]).length;
+    $('#aj-nota').classList.toggle('mudou', atual.liga !== inicial.liga);
+    $('#sel-caso').closest('.aj').classList.toggle('mudou', atual.caso !== inicial.caso);
+    $('#sel-prazo').closest('.aj').classList.toggle('mudou', atual.prazo !== inicial.prazo);
+    $('#barra').hidden = n === 0;
+    $('#barra-txt').textContent = n === 1 ? '1 alteração ainda não salva' : `${n} alterações ainda não salvas`;
+    return atual;
+  }
+  function ligar(v){ $('#liga-nota').setAttribute('aria-checked', String(v)); $('#t-liga-nota').textContent = v ? 'Ligado' : 'Desligado'; }
+  $('#liga-nota').addEventListener('click', () => { ligar($('#liga-nota').getAttribute('aria-checked') !== 'true'); contarMudancas(); });
+  ['#sel-caso', '#sel-prazo'].forEach((s) => $(s).addEventListener('change', contarMudancas));
+  $('#desfazer').addEventListener('click', () => { ligar(inicial.liga); $('#sel-caso').value = inicial.caso; $('#sel-prazo').value = inicial.prazo; contarMudancas(); avisar('Alterações desfeitas.'); });
+  $('#salvar').addEventListener('click', () => { const a = contarMudancas(); Object.assign(inicial, a); contarMudancas(); avisar(a.liga ? 'Salvo. A nota passa a ser pedida nos próximos pedidos entregues.' : 'Salvo. A nota não é pedida.'); });
+
+  /* ── cliques ── */
+  document.addEventListener('click', (e) => {
+    const t = e.target.closest('button, a'); if (!t) { if (e.target.closest('[data-fecha]')) fechar(); return; }
+    if (t.dataset.aba) { e.preventDefault(); fechar(); return vista(t.dataset.aba); }
+    if (t.dataset.ctl) { corpo.dataset[t.dataset.ctl] = t.dataset.valor; aplicar(); if (t.dataset.ctl === 'pagina' && t.dataset.valor === 'avaliar') marcarNota(0); return; }
+    if (t.hasAttribute('data-fecha')) return fechar();
+    if (t.classList.contains('estrela')) return marcarNota(Number(t.dataset.nota));
+    if (t.classList.contains('opcao')) return t.setAttribute('aria-pressed', String(t.getAttribute('aria-pressed') !== 'true'));
+    if (t.dataset.sit) { sit = t.dataset.sit; return desenhar(); }
+    if (t.dataset.periodo) { periodo = t.dataset.periodo; return desenhar(); }
+    if (t.dataset.periodoVazio) { periodo = t.dataset.periodoVazio; corpo.dataset.lista = 'tudo'; aplicar(); return desenhar(); }
+    if (t.id === 'limpar') { sit = 'todas'; $('#busca').value = ''; $('#origem').value = ''; return desenhar(); }
+    if (t.dataset.ver) { encherGaveta(AV.find((a) => a.n === Number(t.dataset.ver))); return abrir('gav-av', t); }
+    if (t.hasAttribute('data-google')) { avisar('No app, abre a página de avaliação da loja no Google.'); return; }
+    if (t.hasAttribute('data-atend')) { avisar('No app, abre o caso em Atendimento.'); return; }
+    if (t.id === 'gav-pedido') { avisar('No app, abre o pedido no painel do Delivery.'); return; }
+  });
+  $('#fundo').addEventListener('click', fechar);
+  $('#busca').addEventListener('input', desenhar);
+  $('#origem').addEventListener('change', desenhar);
+
+  marcarNota(0);
+  desenhar();
+  aplicar();
+  vista((location.hash || '#celular').slice(1));
+})();
+</script>
+</body>
+</html>

@@ -35,8 +35,10 @@ export interface ConversaDoMister {
   perfil: PerfilDoAtendente;
   jeito: string | null;
   avisosEscritos: GrupoDeAvisoEscrito[];
+  /** M4d (mig 452): o "fica de olho" e os lembretes pela conversa — nasce desligado. */
+  ficaDeOlho: boolean;
 }
-export const CONVERSA_PADRAO: ConversaDoMister = { documentosLigado: true, documentosModo: 'sozinho', perfil: 'hoje', jeito: null, avisosEscritos: [] };
+export const CONVERSA_PADRAO: ConversaDoMister = { documentosLigado: true, documentosModo: 'sozinho', perfil: 'hoje', jeito: null, avisosEscritos: [], ficaDeOlho: false };
 
 /** O jeito como vai ao banco e às instruções: uma linha, espaços apertados; vazio vira null. */
 export const jeitoLimpo = (v: unknown): string | null => {
@@ -71,6 +73,11 @@ export function conferirConversa(dto: unknown): Partial<ConversaDoMister> | { er
       return { erro: 'Escolha os grupos de aviso da lista.' };
     fora.avisosEscritos = GRUPOS_DE_AVISO_ESCRITO.filter((g) => d.avisosEscritos.includes(g));
   }
+  if (d.ficaDeOlho !== undefined) {
+    // V15: liga/desliga só com booleano de verdade (nunca `!!dto.campo`).
+    if (typeof d.ficaDeOlho !== 'boolean') return { erro: '"Fica de olho" e lembretes: diga se fica ligado ou desligado.' };
+    fora.ficaDeOlho = d.ficaDeOlho;
+  }
   if (!Object.keys(fora).length) return { erro: 'Nada para salvar.' };
   return fora;
 }
@@ -84,7 +91,19 @@ const COLUNA: Record<keyof ConversaDoMister, { coluna: string; valor: (v: any) =
   // O array do JS, no `sql` do Drizzle, vira LISTA de parâmetros (um "record"), não um text[] (LIC-074, ERR-520): vai como
   // UM parâmetro (`sql.param`), que o `pg` converte em array — inclusive o vazio.
   avisosEscritos: { coluna: 'avisos_escritos', valor: (v) => sql`${sql.param(v)}::text[]` },
+  ficaDeOlho: { coluna: 'fica_de_olho', valor: (v) => sql`${v}` },
 };
+
+/**
+ * As colunas lidas, da migration mais nova para a mais velha: sem a coluna de uma (42703 — a migration ainda não entrou),
+ * lê as da anterior. Nunca devolver o padrão de um campo que está salvo (o "perguntar" dos documentos, o perfil).
+ */
+const LEITURAS = [
+  sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho"`,
+  sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos"`,
+  sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo"`,
+];
+const semColuna = (e: any) => e?.code === '42703' || e?.cause?.code === '42703';
 
 @Injectable()
 export class MisterConversaConfigService {
@@ -96,23 +115,16 @@ export class MisterConversaConfigService {
   /** Os ajustes que valem para a empresa (o salvo, ou o padrão). */
   async daEmpresa(tenantId: string): Promise<ConversaDoMister> {
     try {
-      const [l] = linhas(
-        await this.db
-          .execute(
-            sql`
-          select documentos_ligado as "documentosLigado", documentos_modo as "documentosModo",
-                 perfil, jeito, avisos_escritos as "avisosEscritos"
-            from mister_conversa_config where tenant_id = ${tenantId}::uuid`,
-          )
-          .catch(async (e: any) => {
-            // Sem as colunas da 447 (a migration ainda não entrou): os ajustes dos documentos (440) continuam valendo, e o
-            // jeito fica no padrão — nunca devolver "sozinho" para quem salvou "perguntar".
-            if (e?.code !== '42703' && e?.cause?.code !== '42703') throw e;
-            return this.db.execute(sql`
-              select documentos_ligado as "documentosLigado", documentos_modo as "documentosModo"
-                from mister_conversa_config where tenant_id = ${tenantId}::uuid`);
-          }),
-      );
+      let l: any;
+      for (let i = 0; ; i++) {
+        try {
+          [l] = linhas(await this.db.execute(sql`select ${LEITURAS[i]} from mister_conversa_config where tenant_id = ${tenantId}::uuid`));
+          break;
+        } catch (e: any) {
+          // Sem as colunas desta migration: lê as da anterior (as da 440 sempre existem quando a tabela existe).
+          if (!semColuna(e) || i === LEITURAS.length - 1) throw e;
+        }
+      }
       if (!l) return { ...CONVERSA_PADRAO, avisosEscritos: [] };
       const avisos = Array.isArray(l.avisosEscritos) ? l.avisosEscritos : [];
       return {
@@ -121,6 +133,7 @@ export class MisterConversaConfigService {
         perfil: (PERFIS_DO_ATENDENTE as readonly string[]).includes(l.perfil) ? l.perfil : 'hoje',
         jeito: jeitoLimpo(l.jeito),
         avisosEscritos: GRUPOS_DE_AVISO_ESCRITO.filter((g) => avisos.includes(g)),
+        ficaDeOlho: l.ficaDeOlho === true,
       };
     } catch (e: any) {
       // Sem a 440 (a migration ainda não entrou, ou o servidor da loja): o padrão, que não muda nada.

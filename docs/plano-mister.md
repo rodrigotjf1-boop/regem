@@ -1198,6 +1198,40 @@ conversa"): a memória entra no bloco da conversa, sem quebrar o cache.
   diálogo. A avaliação de regressão ganhou a pergunta 44 ("lembra que aqui a gente chama o X-Burger Smash só de
   smash" → chama `lembrar` e diz o que anotou; a 43 é a do gasto do WhatsApp, G3). Fica para depois: o filtro de "valor
   sem origem" aceitar o valor arredondado quando a pessoa pediu sem centavos (o protótipo cita; só com o caso real).
+  **No ar (#1147).**
+- **M4c — os avisos escritos pelo Mister (sem migration; a coluna `avisos_escritos` da 447):** um ajuste por grupo em
+  Mister › "Jeito e memória" › Avisos ("Na loja", "Servidor", "Fiscal", "O próprio Mister"), nascendo desligado;
+  "Documentos e dinheiro" e "Pessoas e ponto" ficam no texto fixo (têm botões e PDF). A regra continua descobrindo o
+  problema sem IA; ao ABRIR e ao ESCALAR, com o grupo ligado e alguém dentro das 24 horas, a IA (na chave da empresa,
+  recurso `mister_aviso_escrito`, até 10 s) escreve o texto com os fatos do aviso — o título, o detalhe, há quanto tempo,
+  o tempo da loja, até 5 outros avisos abertos — no perfil e no jeito da empresa (M4a). Uma escrita por aviso e fase,
+  a mesma para todos que recebem. A conferência (`mister-avisos-escritos.ts`): nenhum número que o aviso não trouxe,
+  nenhum link, o pedido ("#284", "nº 1234") e a loja como estão no título; não passou, sem IA, sem crédito ou a IA
+  falhou: vai o texto fixo de sempre, com o motivo na trilha (`reserva`); o escrito fica marcado (`escrito`). Fora das 24
+  horas vai o modelo aprovado e a IA nem é chamada. O lembrete e o desfecho ficam fixos. Nada de telefone nem de id no que
+  vai à IA (ERR-524: o `aberto_em` do `db.execute` chega como texto — lido como ISO no SQL). **No ar (#1150).**
+- **M4d parte 1 — o "fica de olho" num pedido e o lembrete (mig 452, só nuvem — `mister_vigia` e
+  `mister_conversa_config.fica_de_olho`):** o ajuste "“Fica de olho” e lembretes" em Mister › "Jeito e memória" › Avisos,
+  nascendo DESLIGADO. Duas ferramentas novas (não são consulta, uma de cada vez): `ficar_de_olho` (comecar/parar/listar —
+  acha o pedido dos canais como a história do pedido, com a permissão do Delivery; vale até as 06:00 da loja) e `lembrete`
+  (criar/listar/cancelar — o texto numa linha de até 200 letras, sem link nem senha; o "quando" em AAAA-MM-DDTHH:MM da
+  loja, no futuro e até 30 dias). Até 3 "fica de olho" e 10 lembretes ativos por pessoa, conferidos e gravados na mesma
+  transação com a trava da empresa (V98). A volta de cada minuto (`MisterVigiaService`): vence calado o "fica de olho"
+  depois das 06:00; o lembrete da hora é marcado "feito" ANTES de sair (no máximo uma vez); o pedido olhado que mudou de
+  situação sai numa mensagem só por mudança (gravação condicional pelo estado de antes), e a situação final (entregue,
+  concluído, cancelado) encerra. Empresa que desligou o ajuste ou o módulo: o marcado é cancelado sem mandar. A entrega é
+  pelo número do Mister; fora das 24 horas, o modelo aprovado ("Ver o que fazer"), e o toque traz o texto só a quem é. A
+  linha guarda o resultado, nunca o telefone. A avaliação ganhou as perguntas 45 ("me avisa quando o pedido 284 sair") e
+  46 ("me lembra amanhã às 10h de pagar o gás"). Renumerada de 451 para 452 (ERR-526: a 451 do G3b entrou antes; na
+  nuvem ela entrou com o nome `451_mister_vigia`). **No ar (#1153).**
+- **M4d parte 2 — o "fica de olho" no caixa, na impressora e no canal (sem migration — a `mister_vigia` já aceita os
+  alvos):** `ficar_de_olho` ganhou o `alvo` e o `qual`. O CAIXA aberto da loja (delivery ou balcão, com a permissão do
+  relatório de turnos, como `caixas_e_sangrias`), até fechar; a IMPRESSORA parada (o incidente `impressora_parada` que a
+  loja vê, achada pelo nome), até voltar a responder; o CANAL pausado (iFood, 99 ou cardápio, pela MESMA regra do
+  "Pausar" do Delivery, com a permissão do Delivery), até reabrir. Só se olha o que está naquele estado ("não está pausado
+  agora: não há o que olhar"). A volta lê cada alvo à parte; banco sem a tabela do vigia (só nuvem) não para os outros
+  alvos (V37). Avaliação: pergunta 47 ("me avisa quando o iFood voltar"). Fica de fora a senha do balcão (não está na
+  decisão 8 do protótipo).
 
 ## 5. O que depende do dono
 

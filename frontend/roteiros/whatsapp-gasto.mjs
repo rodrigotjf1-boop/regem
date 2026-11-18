@@ -71,6 +71,11 @@ const CENARIOS = {
   qr: () => ({ oficial: false }),
   // G3 (mig 448): a conta cobrada por meio de um parceiro — a Meta não mostra o custo; o valor é estimado.
   estimado: () => ({ ...BASE(), leitura: { ...BASE().leitura, fonteDoCusto: 'tabela' } }),
+  // G3b (mig 451): o gasto por modelo que a Meta não deixou ler — a tela diz "não li", com o motivo.
+  modelos: () => ({
+    ...BASE(),
+    leitura: { ...BASE().leitura, modelosErro: { motivo: 'A Meta respondeu 400: Template analytics is not enabled for this business', conta: { papel: 'principal', final: '2210' } } },
+  }),
   vazio: () => ({ ...BASE(), total: { custo: 0, mensagens: 0, cobradas: 0 }, projecao: 0, tipos: BASE().tipos.map((t) => ({ ...t, mensagens: 0, cobradas: 0, gratis: 0, custo: 0 })), dias: BASE().dias.map((d) => ({ ...d, custo: 0, marketing: 0 })), franquia: [], deOndeVeio: [] }),
   tres: () => ({
     ...BASE(),
@@ -180,6 +185,7 @@ export default async function roteiroWhatsappGasto({ nav, base, ok, foto: arquiv
     }
     for (const [cenario, frase] of [
       ['estimado', 'esta conta é cobrada por meio de um parceiro'],
+      ['modelos', 'Não consegui ler o gasto por modelo na Meta'],
       ['primeira', 'A primeira leitura do gasto chega em até 30 minutos.'],
       ['qr', 'Esta loja usa a conexão por QR Code.'],
       ['vazio', 'Nenhuma mensagem entregue neste período.'],

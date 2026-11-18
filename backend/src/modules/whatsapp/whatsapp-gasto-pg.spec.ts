@@ -24,6 +24,8 @@ jest.setTimeout(120_000);
 const MIG = join(__dirname, '../../../../database/migrations/445_whatsapp_gasto.sql');
 // G3: de onde vem o custo (a conta cobrada por meio de um parceiro — a Meta não mostra o custo).
 const MIG_FONTE = join(__dirname, '../../../../database/migrations/448_whatsapp_gasto_fonte.sql');
+// G3b: o motivo de não ler o gasto por modelo (mig 451).
+const MIG_MODELOS = join(__dirname, '../../../../database/migrations/451_whatsapp_gasto_modelos_erro.sql');
 const s = (iso: string) => Date.parse(iso) / 1000;
 const AGORA = new Date('2026-11-19T00:30:00Z'); // 18/11, 21:30 em São Paulo
 const DEPOIS = new Date('2026-11-19T01:05:00Z'); // 35 minutos depois
@@ -49,12 +51,16 @@ descrever('gasto do WhatsApp oficial (Postgres)', () => {
   const WABA_D = `waba-d-${randomUUID().slice(0, 8)}`;
   const WABA_X = `waba-x-${randomUUID().slice(0, 8)}`;
   const WABA_E = `waba-e-${randomUUID().slice(0, 8)}`;
+  const WABA_F = `waba-f-${randomUUID().slice(0, 8)}`;
 
   // A Meta simulada: os pontos de cada conta; a consulta devolve os do intervalo pedido, na granularidade pedida.
   let pontos: Ponto[] = [];
   const falhas = new Set<string>();
   // As contas cobradas por meio de um parceiro: a Meta recusa o CUSTO (a resposta real de 18/11/2026) e devolve o resto.
   const custoOculto = new Set<string>();
+  // G3b: o gasto por modelo recusado — 'tudo' (a leitura dos modelos falha de vez) ou 'custo' (só o pedido com COST, por
+  // um motivo que não é o do parceiro).
+  const modelosQuebrados = new Map<string, 'tudo' | 'custo'>();
   const RECUSA_DO_CUSTO = {
     error: {
       message: 'O CUSTO não é mostrado para empresas que fazem cobranças por meio de um parceiro. Para entender suas cobranças, fale com o parceiro.',
@@ -89,9 +95,13 @@ descrever('gasto do WhatsApp oficial (Postgres)', () => {
           }));
         return { status: 200, json: { currency: 'BRL', pricing_analytics: { data: [{ data_points }] }, id: waba } };
       }
+      if (caminho.includes('/template_analytics?') && modelosQuebrados.has(waba)) {
+        if (modelosQuebrados.get(waba) === 'tudo') return { status: 400, json: { error: { message: 'Template analytics is not enabled for this business', code: 100, fbtrace_id: 'Xx1' } } };
+        if (pedeCusto) return { status: 400, json: { error: { message: '(#100) Param metric_types[1] must be one of {SENT, DELIVERED, READ, CLICKED}', code: 100, fbtrace_id: 'Xx2' } } };
+      }
       if (caminho.includes('/message_templates?')) {
         const data =
-          waba === WABA_M || waba === WABA_E
+          waba === WABA_M || waba === WABA_E || waba === WABA_F
             ? [{ id: '111', name: 'sexta_do_burger', category: 'MARKETING' }]
             : waba === WABA_P
               ? [{ id: '222', name: 'pedido_saiu_para_entrega', category: 'UTILITY' }]
@@ -136,8 +146,9 @@ descrever('gasto do WhatsApp oficial (Postgres)', () => {
         await c.query('begin');
         await c.query(comTravaDaEmpresa(readFileSync(MIG, 'utf8')));
         const r = await c.query(readFileSync(MIG_FONTE, 'utf8'));
+        const r2 = await c.query(readFileSync(MIG_MODELOS, 'utf8'));
         await c.query('commit');
-        return r;
+        return [r, r2];
       } catch (e) {
         await c.query('rollback').catch(() => {});
         throw e;
@@ -145,7 +156,9 @@ descrever('gasto do WhatsApp oficial (Postgres)', () => {
         c.release();
       }
     });
-    const linhas = (Array.isArray(conf) ? conf[conf.length - 1] : conf).rows as { objeto: string; ok: boolean }[];
+    const conferencia = (x: any) => (Array.isArray(x) ? x[x.length - 1] : x).rows as { objeto: string; ok: boolean }[];
+    const linhas = [...conferencia(conf[0]), ...conferencia(conf[1])];
+    expect(linhas.map((l) => l.objeto)).toEqual(['whatsapp_gasto_leitura.fonte_do_custo', 'whatsapp_gasto_leitura.modelos_erro']);
     expect(linhas.filter((l) => !l.ok)).toEqual([]);
 
     const nova = async (nome: string) => {
@@ -392,5 +405,37 @@ descrever('gasto do WhatsApp oficial (Postgres)', () => {
     expect(await gasto.estimativa({ tenantId: E, categoria: 'presidente' }, { mensagens: 100 }, DEPOIS)).toMatchObject({ preco: 0.3217, fonte: 'tabela' });
     // E a conta da Meta direta segue com o custo dela.
     expect((await q(`select fonte_do_custo from whatsapp_gasto_leitura where tenant_id = $1 and waba_id = $2`, [A, WABA_P]))[0].fonte_do_custo).toBe('meta');
+  });
+
+  it('G3b (mig 451): o gasto por modelo que a Meta recusa fica com o motivo e a tela diz "não li"; a recusa só do custo cai nas entregues', async () => {
+    const F = (await q(`insert into empresa (nome) values ('teste gasto — modelos recusados') returning id`))[0].id as string;
+    empresas.push(F);
+    await q(`insert into whatsapp_numero (tenant_id, papel, provedor, numero, phone_id, waba_id, status) values ($1, 'principal', 'cloud', '+55 21 95555-4040', 'ph-f', $2, 'conectado')`, [F, WABA_F]);
+    pontos.push({ waba: WABA_F, ini: '2026-11-18T15:00:00Z', gran: 'HALF_HOUR', numero: '552195554040', cat: 'SERVICE', tipo: 'FREE_CUSTOMER_SERVICE', n: 50, c: 0 });
+    const leitura = async () => (await q(`select lido_em, erro, modelos_lidos_em, modelos_erro from whatsapp_gasto_leitura where tenant_id = $1`, [F]))[0];
+
+    // 1) A leitura dos modelos falha de vez: o preço é lido, o motivo dos modelos fica gravado e a tela recebe "não li".
+    modelosQuebrados.set(WABA_F, 'tudo');
+    expect(await gasto.lerConta(F, WABA_F, AGORA)).toEqual({ ok: true });
+    const l1 = await leitura();
+    expect(l1.lido_em).not.toBeNull();
+    expect(l1.erro).toBeNull();
+    expect(l1.modelos_lidos_em).toBeNull();
+    expect(l1.modelos_erro).toContain('Template analytics is not enabled');
+    const r1: any = await gasto.resumo(F, {}, DEPOIS);
+    expect(r1.leitura.modelosErro).toEqual({ motivo: expect.stringContaining('Template analytics is not enabled'), conta: { papel: 'principal', final: '4040' } });
+    expect(r1.leitura.erro).toBeNull();
+
+    // 2) Só o pedido com COST é recusado (outro motivo que não o do parceiro): lê as entregues e estima o custo.
+    modelosQuebrados.set(WABA_F, 'custo');
+    expect(await gasto.lerConta(F, WABA_F, DEPOIS)).toEqual({ ok: true });
+    const l2 = await leitura();
+    expect(l2.modelos_erro).toBeNull();
+    expect(l2.modelos_lidos_em).not.toBeNull();
+    expect(await q(`select modelo_nome, mensagens, custo::float8 as custo from whatsapp_gasto_modelo where tenant_id = $1`, [F])).toEqual([
+      { modelo_nome: 'sexta_do_burger', mensagens: 412, custo: 132.5404 },
+    ]);
+    expect(((await gasto.resumo(F, {}, DEPOIS)) as any).leitura.modelosErro).toBeNull();
+    modelosQuebrados.delete(WABA_F);
   });
 });

@@ -15,6 +15,7 @@ import type { ResultadoDaFerramenta } from './mister-ferramentas.service';
 import type { FimDaPergunta } from './mister-laco';
 import { GUIA_DE_USO, buscarNoGuia, quemAbre } from './mister-guia-de-uso';
 import { conferirMemoria } from './mister-memoria';
+import { canalDito, conferirTextoDoLembrete, lerQuando, quandoNaConversa } from './mister-vigia';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -34,6 +35,8 @@ import { conferirMemoria } from './mister-memoria';
 // Mudou uma ferramenta (as chaves da resposta) ou as instruções: ajuste a loja de teste e rode a avaliação no console.
 
 export const AGORA_DA_AVALIACAO = 'sexta-feira, 13/11/2026, 20:15';
+/** O mesmo "agora", como instante (20:15 da loja = 23:15 UTC): o lembrete da avaliação confere a hora contra ele. */
+const AGORA_DA_AVALIACAO_INSTANTE = new Date('2026-11-13T23:15:00Z');
 const EMPRESA = 'Empresa de Teste da Avaliação';
 const LOJA = 'Loja Centro';
 const SEM_VALORES = 'O perfil desta pessoa no Regem não mostra valores em reais: os valores vêm vazios.';
@@ -241,6 +244,30 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
       if (en.acao === 'anotar' && 'erro' in c) return recusa(c.erro);
       if (en.acao === 'anotar') return ok({ anotado: true, texto: (c as { texto: string }).texto, sobre: en.sobre === 'mim' ? 'esta pessoa' : 'a empresa', uso: '42 de 1.375 letras', siga: 'Diga em uma frase o que ficou anotado ("Anotado ✅ …").' });
       return recusa('Não achei isso no que está anotado.');
+    }
+    case 'ficar_de_olho': {
+      // Versão 4, M4d (mig 452): na avaliação nada se marca — devolve como a de verdade devolveria (o pedido 284 da loja).
+      if (en.acao === 'listar') return ok({ marcados: [], observacao: 'Nenhum "fica de olho" ativo.' });
+      if (en.acao !== 'comecar') return recusa('Não achei isso no que está marcado.');
+      // M4d parte 2: o iFood pausado e o caixa da Bruna aberto da loja de teste; nenhuma impressora parada.
+      const combinado = (oQue: string, quando: string) => ok({ combinado: true, oQue, avisaQuando: quando, ate: 'as 06:00', siga: `Diga em uma frase que vai ficar de olho e avisar quando ${quando}.` });
+      if (en.alvo === 'canal') return canalDito(en.qual) === 'ifood' ? combinado('iFood', 'ele reabrir') : recusa(`O canal não está pausado agora em ${LOJA}: não há o que olhar.`);
+      if (en.alvo === 'caixa') return combinado('caixa do balcão (aberto por Bruna)', 'ele fechar');
+      if (en.alvo === 'impressora') return recusa(`Nenhuma impressora parada agora em ${LOJA}: não há o que olhar.`);
+      const n = String(en.numero ?? '').replace(/\D/g, '');
+      if (n !== '284' && n !== '4821') return recusa(`Não achei pedido dos canais com o número ${en.numero ?? ''} nos últimos 3 dias em ${LOJA}.`);
+      return ok({ combinado: true, pedido: '#284 · iFood 4821', situacaoAgora: 'em preparo', ate: 'as 06:00', siga: 'Diga em uma frase que vai ficar de olho no pedido e avisar quando ele mudar.' });
+    }
+    case 'lembrete': {
+      // M4d: a mesma conferência da de verdade, com o "agora" da loja de teste.
+      if (en.acao === 'listar') return ok({ marcados: [], observacao: 'Nenhum lembrete marcado.' });
+      if (en.acao !== 'criar') return recusa('Não achei isso no que está marcado.');
+      const t = conferirTextoDoLembrete(en.texto);
+      if ('erro' in t) return recusa(t.erro);
+      const w = lerQuando(en.quando, AGORA_DA_AVALIACAO_INSTANTE);
+      if ('erro' in w) return recusa(w.erro);
+      const quando = quandoNaConversa(w.quando, AGORA_DA_AVALIACAO_INSTANTE);
+      return ok({ marcado: true, lembrete: t.texto, quando, siga: `Repita em uma frase o dia e a hora ("Combinado: ${quando}").` });
     }
     case 'escrever_recado':
       // M3g parte 2 (mig 444): na avaliação nenhum rascunho é guardado (e nada é publicado) — devolve o texto como ficaria.
@@ -613,6 +640,11 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c43', pergunta: 'Quanto gastei de WhatsApp este mês?', consultas: ['gasto_do_whatsapp'], numeros: ['205,43'] },
   // Versão 4, M4b: a memória (o padrão do Hermes). Quando a pessoa pede para lembrar, ele anota pela ferramenta e diz o que ficou.
   { id: 'c44', pergunta: 'Lembra que aqui a gente chama o X-Burger Smash só de "smash".', consultas: ['lembrar'], contem: ['anot|lembr|guard'] },
+  // Versão 4, M4d: o "fica de olho" num pedido e o lembrete na hora marcada (o padrão "heartbeat" do Hermes).
+  { id: 'c45', pergunta: 'Me avisa quando o pedido 284 sair.', consultas: ['ficar_de_olho'], contem: ['284', 'olho|aviso|avisar'] },
+  { id: 'c46', pergunta: 'Me lembra amanhã às 10h de pagar o gás.', consultas: ['lembrete'], contem: ['10:00|10h|10 h', 'gás|gas'] },
+  // M4d parte 2: o canal pausado (o iFood da loja de teste está pausado até as 20:40).
+  { id: 'c47', pergunta: 'Me avisa quando o iFood voltar.', consultas: ['ficar_de_olho'], contem: ['iFood', 'avis|olho'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

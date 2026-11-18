@@ -12,11 +12,22 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **O prazo da IA da empresa passa a ser TOTAL (18/11, ERR-525; SEM migration; só nuvem).** `IaEmpresaService` manda ao SDK da
+  Anthropic o sinal do prazo total junto do `timeout` de cada tentativa: com `maxRetries: 1`, "15 s" chegava a ~30 s (o
+  robô, a foto, o copiloto e o Mister esperavam o dobro). A IA só roda na nuvem → vai no `.zip` sem efeito na loja.
+
+- **O motivo de não ler o gasto por modelo, na tela (18/11, G3b; mig 451 SÓ NUVEM — `whatsapp_gasto_leitura.modelos_erro`).**
+  O "De onde veio" de WhatsApp › Uso e gasto diz "Não consegui ler o gasto por modelo na Meta" com o motivo, e a recusa
+  só do custo cai para as entregues. Só nuvem → vai no `.zip` sem efeito na loja.
+
 - **Mister com o jeito do atendente — versão 4 (18/11; protótipo `mockups/regem-mister-jeito-memoria.html`).** Entrega 1
   SEM migration (#1134, #1136, #1137: as consultas juntas, o formato e a reação do WhatsApp, as conversas anteriores);
   **M4a** mig 447 SÓ NUVEM (#1145: o perfil e o jeito da empresa em Mister › "Jeito e memória"); **M4b** mig 449 SÓ NUVEM
-  (`mister_memoria`: "O que o Mister sabe", a ferramenta `lembrar` e a lista com Anotar, Mudar e Esquecer). Tudo só na
-  nuvem → vai no `.zip` sem efeito na loja; `mister_memoria` = SO_NUVEM no `sync-daemon.mjs` (o daemon mudou → o `.exe`
+  (#1147, `mister_memoria`: "O que o Mister sabe", a ferramenta `lembrar` e a lista com Anotar, Mudar e Esquecer); **M4c**
+  SEM migration (#1150: os avisos escritos pelo Mister, um ajuste por grupo, nascendo desligado); **M4d parte 1** mig 452
+  SÓ NUVEM (#1153, `mister_vigia`: o "fica de olho" num pedido e o lembrete, nascendo desligado); **M4d parte 2** SEM
+  migration (o "fica de olho" no caixa, na impressora e no canal). Tudo só na nuvem → vai no
+  `.zip` sem efeito na loja; `mister_memoria` e `mister_vigia` = SO_NUVEM no `sync-daemon.mjs` (o daemon mudou → o `.exe`
   do próximo corte leva junto).
 
 - **O DMS Graph lê a foto do cliente, com a IA da empresa de reserva (18/11, G5a — só o servidor; mig 450 SÓ NUVEM —
