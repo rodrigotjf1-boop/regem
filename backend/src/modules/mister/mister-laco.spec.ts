@@ -1,5 +1,5 @@
 import { FalhaDaIa, PedidoDeIa, RespostaDaIa } from '../ia/ia-empresa.service';
-import { TETOS, podeRodarJunto } from './mister-agente.regras';
+import { FERRAMENTAS, FERRAMENTAS_QUE_NAO_SAO_CONSULTA, FERRAMENTA_DO_QUE_FALTA, TETOS, podeRodarJunto } from './mister-agente.regras';
 import { PortasDoLaco, Vagas, responderComFerramentas, rodarNaOrdem } from './mister-laco';
 import type { ResultadoDaFerramenta } from './mister-ferramentas.service';
 
@@ -116,7 +116,14 @@ describe('mister — o laço com as consultas juntas', () => {
     expect(podeRodarJunto('como_usar_o_regem')).toBe(true);
     expect(podeRodarJunto('anotar_o_que_falta')).toBe(true);
     expect(podeRodarJunto('apagar_tudo')).toBe(true);
-    for (const acao of ['propor_procedimento', 'mandar_link', 'corrigir_documento']) expect(podeRodarJunto(acao)).toBe(false);
+  });
+
+  it('toda ferramenta que FAZ algo (a lista das que não são consulta, menos a anotação) roda uma de cada vez', () => {
+    const acoes = FERRAMENTAS_QUE_NAO_SAO_CONSULTA.filter((n) => n !== FERRAMENTA_DO_QUE_FALTA);
+    expect(acoes).toEqual(expect.arrayContaining(['propor_procedimento', 'mandar_link', 'corrigir_documento', 'link_para_encaminhar', 'cancelar_links']));
+    for (const acao of acoes) expect([acao, podeRodarJunto(acao)]).toEqual([acao, false]);
+    // E as outras do catálogo são consultas: rodam juntas.
+    for (const f of FERRAMENTAS.filter((x) => !FERRAMENTAS_QUE_NAO_SAO_CONSULTA.includes(x.name))) expect([f.name, podeRodarJunto(f.name)]).toEqual([f.name, true]);
   });
 
   it('falha da IA continua virando o motivo (não lança)', async () => {

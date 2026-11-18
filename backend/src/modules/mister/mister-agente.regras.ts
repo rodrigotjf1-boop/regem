@@ -486,8 +486,8 @@ export const ehConsulta = (n: unknown): n is NomeDaFerramenta => ehFerramenta(n)
 
 /**
  * Pode rodar junto com as outras da mesma vez? As consultas (só leem), a anotação do que falta (não grava nada ali) e o
- * nome que não existe (volta recusado na hora). O que FAZ algo (propor, mandar o link, corrigir) — e qualquer ferramenta
- * nova tirada de `ehConsulta` — põe a vez inteira em fila, uma de cada vez, na ordem pedida.
+ * nome que não existe (volta recusado na hora). O que FAZ algo (propor, mandar ou criar link, cancelar links, corrigir) —
+ * toda ferramenta de `FERRAMENTAS_QUE_NAO_SAO_CONSULTA`, menos a anotação — põe a vez inteira em fila, uma de cada vez.
  */
 export const podeRodarJunto = (n: unknown): boolean => !ehFerramenta(n) || ehConsulta(n) || n === FERRAMENTA_DO_QUE_FALTA;
 
