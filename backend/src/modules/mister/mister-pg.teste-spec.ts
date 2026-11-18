@@ -21,6 +21,7 @@ import { FalhaDaIa, IaEmpresaService } from '../ia/ia-empresa.service';
 import { RelatoriosService } from '../relatorios/relatorios.service';
 import { ModuloService } from '../modulo/modulo.service';
 import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
+import { WhatsappGastoService } from '../whatsapp/whatsapp-gasto.service';
 import { MisterConsoleService } from './mister-console.service';
 import { FERRAMENTAS, FERRAMENTA_DO_QUE_FALTA, INSTRUCOES_DO_MISTER, TETOS, TEXTOS_DO_AGENTE } from './mister-agente.regras';
 import { MisterAgenteService } from './mister-agente.service';
@@ -439,7 +440,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -3973,9 +3974,12 @@ export function testesDoMisterComPostgres(): void {
     it('a configuração dos avisos: o padrão aprovado, o salvar com a auditoria do antes e do depois, e as recusas', async () => {
       const tela = await avisosConfig.daTela(A);
       // Os nove do protótipo aprovado em 14/11, o do boleto perto de vencer (versão 3, M3a parte 4), o do ponto esquecido (M3e)
-      // e o do arquivo do ponto do mês (M3e parte 2).
-      expect(tela.avisos).toHaveLength(12);
+      // e o do arquivo do ponto do mês (M3e parte 2) e os dois do gasto do WhatsApp oficial (G2, 18/11 — no fim; a tela os
+      // põe em "Documentos e dinheiro").
+      expect(tela.avisos).toHaveLength(14);
       expect(tela.avisos[11]).toMatchObject({ tipo: 'ponto_do_mes', grupo: 'Pessoas e ponto', regra: { ligado: true, destinos: ['presidente'], parametro: null } });
+      expect(tela.avisos[12]).toMatchObject({ tipo: 'gasto_whatsapp', grupo: 'Documentos e dinheiro', padrao: true, regra: { ligado: false, destinos: ['presidente'], valores: [] } });
+      expect(tela.avisos[13]).toMatchObject({ tipo: 'franquia_atendimento', grupo: 'Documentos e dinheiro', regra: { ligado: true, destinos: ['presidente'] } });
       expect(tela.avisos[9]).toMatchObject({ tipo: 'boleto_vencendo', grupo: 'Documentos e dinheiro', regra: { ligado: true, destinos: ['presidente'], parametro: 3 } });
       expect(tela.avisos[10]).toMatchObject({ tipo: 'ponto_esquecido', grupo: 'Pessoas e ponto', regra: { ligado: true, destinos: ['gerente'], parametro: 0 } });
       expect(tela.avisos[0]).toMatchObject({ tipo: 'impressora', padrao: true, jaFunciona: true, regra: { ligado: true, destinos: ['tela'], escalaMin: 5, escalaPara: ['gerente'] } });
@@ -7056,6 +7060,137 @@ export function testesDoMisterComPostgres(): void {
         expect(numero.enviadas.map((m) => m.texto)).toEqual([FRASES_DO_DOCUMENTO.nota]);
         expect(ia.pedidos).toHaveLength(1);
         expect((await docs())[0]).toMatchObject({ tipo: 'nota', situacao: 'recusado', motivo: 'nota' });
+      });
+    });
+
+    // ─────────────── G2 (mig 445/446): os alertas de gasto do WhatsApp oficial pelo Mister ───────────────
+    // O gasto que a nuvem guardou lendo a Meta (`whatsapp_gasto`) contra os valores da empresa: cada valor avisa uma vez por
+    // mês (vários de uma vez: só o maior manda mensagem), a Meta corrigindo para baixo não repete, o mês novo fecha calado e
+    // recomeça; a franquia do atendimento avisa em 900; e o cartão "Alertas de gasto deste mês" da tela de gasto.
+    describe('os alertas de gasto do WhatsApp oficial (G2)', () => {
+      let telAna: string;
+      const WABA_G = `waba-gasto-${MARCA}`;
+      const NUM_P = '552199992210';
+      const gasto = (dia: string, cat: string, tipo: string, n: number, c: number, num = NUM_P) =>
+        q(
+          `insert into whatsapp_gasto (tenant_id, waba_id, numero, dia, categoria, tipo, mensagens, custo) values ($1, $2, $3, $4::date, $5, $6, $7, $8)
+           on conflict (tenant_id, waba_id, numero, dia, categoria, tipo) do update set mensagens = excluded.mensagens, custo = excluded.custo`,
+          [A, WABA_G, num, dia, cat, tipo, n, c],
+        );
+      const doGasto = () =>
+        q(`select tipo, chave, situacao, dados ->> 'fechou' as fechou from mister_aviso where tenant_id = $1 and tipo in ('gasto_whatsapp', 'franquia_atendimento') order by chave`, [A]);
+      const volta = async (iso: string) => {
+        // A janela de 24 horas do WhatsApp aberta perto da hora da volta (o texto vai direto).
+        await q(`update mister_vinculo set ultima_entrada_em = $2::timestamptz - interval '1 hour' where telefone = $1`, [telAna, iso]);
+        numero.pedidos.length = 0;
+        await avisos.volta([A], new Date(iso));
+      };
+      const valores = (v: number[], ligado = true) =>
+        avisosConfig.salvar(usuario('ana'), { regras: [{ tipo: 'gasto_whatsapp', ligado, destinos: ['presidente'], escalaMin: null, escalaPara: [], valores: v }] });
+
+      beforeEach(async () => {
+        for (const t of ['whatsapp_gasto', 'whatsapp_gasto_leitura']) await q(`delete from ${t} where tenant_id = any($1::uuid[])`, [[A, B]]);
+        await q(`delete from mister_aviso where tenant_id = any($1::uuid[]) and tipo in ('gasto_whatsapp', 'franquia_atendimento')`, [[A, B]]);
+        await q(`delete from mister_aviso_regra where tenant_id = any($1::uuid[]) and tipo in ('gasto_whatsapp', 'franquia_atendimento')`, [[A, B]]);
+        telAna = telefone();
+        await ligar('ana', telAna);
+        await q(
+          `insert into whatsapp_gasto_leitura (tenant_id, waba_id, lido_em, tentou_em, moeda) values ($1, $2, '2026-11-18T23:05:00Z', '2026-11-18T23:05:00Z', 'BRL')`,
+          [A, WABA_G],
+        );
+        numero.pedidos.length = 0;
+      });
+
+      it('o padrão: o gasto nasce desligado (nada avisa); a franquia nasce ligada e avisa uma vez em 900', async () => {
+        await gasto('2026-11-14', 'MARKETING', 'REGULAR', 412, 132.54);
+        await gasto('2026-11-18', 'SERVICE', 'FREE_CUSTOMER_SERVICE', 950, 0);
+        await volta('2026-11-18T23:10:00Z');
+        expect(await doGasto()).toEqual([{ tipo: 'franquia_atendimento', chave: 'franquia:2026-11:99992210', situacao: 'aberto', fechou: null }]);
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringContaining('O número final 2210 já usou 950 das 1.000 mensagens de atendimento grátis de novembro')]);
+        expect(numero.enviadas[0].texto).toContain('Veja no Regem, no menu WhatsApp, em "Uso e gasto".');
+        await volta('2026-11-18T23:40:00Z');
+        expect(numero.enviadas).toEqual([]);
+      });
+
+      it('os valores: dois passados de uma vez → uma mensagem (o maior); a Meta corrigindo para baixo não repete; o último avisa que era o último; o mês novo fecha calado e recomeça', async () => {
+        const tela = await valores([400, 100, 200]);
+        expect(tela.avisos.find((a) => a.tipo === 'gasto_whatsapp')).toMatchObject({ padrao: false, regra: { ligado: true, valores: [100, 200, 400] } });
+        await gasto('2026-11-14', 'MARKETING', 'REGULAR', 412, 132.54);
+        await gasto('2026-11-18', 'UTILITY', 'REGULAR', 2000, 70);
+        // 18/11, 20:10 em Brasília: R$ 202,54 — passou de 100 e de 200 de uma vez.
+        await volta('2026-11-18T23:10:00Z');
+        expect((await doGasto()).map((a) => `${a.chave}:${a.situacao}`)).toEqual(['gasto:2026-11:100.00:aberto', 'gasto:2026-11:200.00:aberto']);
+        expect(numero.enviadas).toHaveLength(1);
+        expect(numero.enviadas[0].texto).toContain('O gasto do WhatsApp oficial de novembro passou de R$ 200,00');
+        expect(numero.enviadas[0].texto).toContain('R$ 202,54 até agora (18/11, 20:05).');
+        expect(numero.enviadas[0].texto).toContain('Marketing: R$ 132,54 · avisos do pedido: R$ 70,00 · atendimento: R$ 0,00.');
+        expect(numero.enviadas[0].texto).toContain('Próximo alerta: R$ 400,00.');
+        await volta('2026-11-18T23:40:00Z');
+        expect(numero.enviadas).toEqual([]);
+        // A Meta corrigiu para baixo (R$ 192,54): o 200 fecha calado; voltando a passar, não avisa de novo.
+        await gasto('2026-11-18', 'UTILITY', 'REGULAR', 2000, 60);
+        await volta('2026-11-19T00:10:00Z');
+        expect(numero.enviadas).toEqual([]);
+        await gasto('2026-11-18', 'UTILITY', 'REGULAR', 2000, 70);
+        await volta('2026-11-19T00:40:00Z');
+        expect(numero.enviadas).toEqual([]);
+        expect((await doGasto()).map((a) => `${a.chave}:${a.situacao}`)).toEqual(['gasto:2026-11:100.00:aberto', 'gasto:2026-11:200.00:resolvido']);
+        // 20/11: passou de 400 — o último do mês.
+        await gasto('2026-11-20', 'MARKETING', 'REGULAR', 780, 250);
+        await volta('2026-11-20T23:00:00Z');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringContaining('passou de R$ 400,00')]);
+        expect(numero.enviadas[0].texto).toContain('Este era o último alerta do mês.');
+        // 1º/12, 9h em Brasília: o mês novo — os de novembro fecham calados (sem "resolvido") e nada sai.
+        await volta('2026-12-01T12:00:00Z');
+        expect(numero.enviadas).toEqual([]);
+        expect((await doGasto()).every((a) => a.situacao === 'resolvido')).toBe(true);
+        // Em dezembro o 100 avisa de novo (outro mês, outra chave).
+        await gasto('2026-12-01', 'MARKETING', 'REGULAR', 470, 151.2);
+        await volta('2026-12-01T15:00:00Z');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringContaining('O gasto do WhatsApp oficial de dezembro passou de R$ 100,00')]);
+        // E a outra empresa não viu nada.
+        expect(await q(`select 1 from mister_aviso where tenant_id = $1 and tipo = 'gasto_whatsapp'`, [B])).toEqual([]);
+      });
+
+      it('valor novo abaixo do gasto avisa na volta seguinte, uma vez; desligar fecha calado; as recusas do salvar', async () => {
+        await valores([500]);
+        await gasto('2026-11-14', 'MARKETING', 'REGULAR', 900, 300);
+        await volta('2026-11-18T23:10:00Z');
+        expect(numero.enviadas).toEqual([]);
+        await valores([150, 500]);
+        await volta('2026-11-18T23:40:00Z');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringContaining('passou de R$ 150,00')]);
+        expect(numero.enviadas[0].texto).toContain('Próximo alerta: R$ 500,00.');
+        await valores([150, 500], false);
+        await volta('2026-11-19T00:10:00Z');
+        expect(numero.enviadas).toEqual([]);
+        expect(await doGasto()).toEqual([{ tipo: 'gasto_whatsapp', chave: 'gasto:2026-11:150.00', situacao: 'resolvido', fechou: 'desligado' }]);
+        await expect(valores([])).rejects.toThrow('Ponha pelo menos um valor no alerta de gasto, ou desligue o aviso.');
+        await expect(
+          avisosConfig.salvar(usuario('ana'), { regras: [{ tipo: 'gasto_whatsapp', ligado: true, destinos: ['kds'], escalaMin: null, escalaPara: [], valores: [100] }] }),
+        ).rejects.toThrow('o KDS e o Atendimento não recebem aviso de gasto');
+        // O salvo continua o de antes (desligado, com os dois valores).
+        expect((await avisosConfig.daTela(A)).avisos.find((a) => a.tipo === 'gasto_whatsapp')).toMatchObject({ regra: { ligado: false, valores: [150, 500] } });
+      });
+
+      it('o cartão "Alertas de gasto deste mês" da tela de gasto: a regra, o gasto do mês e quando passou de cada valor', async () => {
+        await valores([100, 200, 400]);
+        await gasto('2026-11-14', 'MARKETING', 'REGULAR', 412, 132.54);
+        await gasto('2026-11-18', 'UTILITY', 'REGULAR', 2000, 70);
+        await gasto('2026-11-18', 'SERVICE', 'FREE_CUSTOMER_SERVICE', 950, 0);
+        await volta('2026-11-18T23:10:00Z');
+        const alertas = await (new WhatsappGastoService(db) as any).alertasDoMes(A, '2026-11-18');
+        expect(alertas).toMatchObject({
+          mes: '2026-11',
+          custoDoMes: 202.54,
+          gasto: { ligado: true, destinos: ['presidente'], valores: [{ valor: 100 }, { valor: 200 }, { valor: 400, passouEm: null }] },
+          franquia: { ligado: true, numeros: [{ final: '2210' }] },
+        });
+        expect(alertas.gasto.valores[0].passouEm).not.toBeNull();
+        expect(alertas.gasto.valores[1].passouEm).not.toBeNull();
+        // Sem nada salvo, a regra é o padrão (o gasto desligado e sem valores).
+        await q(`delete from mister_aviso_regra where tenant_id = $1`, [A]);
+        expect(await (new WhatsappGastoService(db) as any).alertasDoMes(A, '2026-11-18')).toMatchObject({ gasto: { ligado: false, valores: [] }, franquia: { ligado: true } });
       });
     });
   });

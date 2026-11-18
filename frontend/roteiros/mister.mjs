@@ -84,6 +84,9 @@ const AVISOS_PADRAO = () => ({
     { tipo: 'chave_ia', grupo: 'O próprio Mister', titulo: 'A chave de IA parou', descricao: 'Sem crédito, no teto de gasto ou recusada.', jaFunciona: true, padrao: true, regra: regraAv(['presidente']) },
     // M3a parte 4: o boleto lançado por foto perto de vencer (a antecedência no `parametro`: 3, 1 ou 0 dia).
     { tipo: 'boleto_vencendo', grupo: 'Documentos e dinheiro', titulo: 'Boleto perto de vencer', descricao: 'Os boletos lançados por foto no Mister. Vai com a linha digitável; "Já paguei" dá baixa na conta e tira o boleto da lista. Às 9h da loja.', jaFunciona: true, padrao: true, regra: regraAv(['presidente'], { parametro: 3 }) },
+    // G2 do gasto do WhatsApp oficial (18/11/2026): no fim da lista; a tela os põe em "Documentos e dinheiro".
+    { tipo: 'gasto_whatsapp', grupo: 'Documentos e dinheiro', titulo: 'Gasto do WhatsApp oficial', descricao: 'Quando o gasto do mês na Meta passa de cada valor. Cada valor avisa uma vez por mês; no dia 1º tudo recomeça.', jaFunciona: true, padrao: true, regra: regraAv(['presidente'], { ligado: false, valores: [] }) },
+    { tipo: 'franquia_atendimento', grupo: 'Documentos e dinheiro', titulo: 'Atendimento grátis perto do fim', descricao: 'A Meta dá 1.000 mensagens de atendimento grátis por mês em cada número; avisa quando um número passa de 900.', jaFunciona: true, padrao: true, regra: regraAv(['presidente']) },
     // M3e: o ponto esquecido, ao gerente, com o resumo no dia seguinte.
     { tipo: 'ponto_esquecido', grupo: 'Pessoas e ponto', titulo: 'Ponto esquecido', descricao: 'Entrada ou saída que falta depois do horário da escala. O aviso diz quem, qual turno e onde ajustar. Só nas lojas que usam o terminal de ponto.', jaFunciona: true, padrao: true, regra: regraAv(['gerente'], { parametro: 0 }) },
     // M3e parte 2: o arquivo do ponto do mês, ao presidente, sem parâmetro (como o servidor manda).
@@ -373,7 +376,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
         if (S.recusaDosAvisos) return responder(route, { statusCode: 400, message: S.recusaDosAvisos }, 400);
         for (const r of corpo.regras ?? []) {
           const a = S.avisos.avisos.find((x) => x.tipo === r.tipo);
-          if (a) Object.assign(a, { padrao: false, regra: { ligado: r.ligado, destinos: r.destinos, escalaMin: r.escalaMin, escalaPara: r.escalaPara, parametro: r.parametro } });
+          if (a) Object.assign(a, { padrao: false, regra: { ligado: r.ligado, destinos: r.destinos, escalaMin: r.escalaMin, escalaPara: r.escalaPara, parametro: r.parametro, ...(r.valores ? { valores: r.valores } : {}) } });
         }
         return responder(route, S.avisos);
       }
@@ -968,7 +971,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t0 = await page.locator('main').innerText();
-    ok(/16 ajustes em 8 grupos/.test(t0), "avisos: os nove avisos em quatro grupos, o do boleto (M3a), os dois do ponto (M3e), os três relatórios e a conversa (M3a)");
+    ok(/18 ajustes em 8 grupos/.test(t0), "avisos: os nove avisos em quatro grupos, o do boleto (M3a), os dois do ponto (M3e), os dois do gasto do WhatsApp (G2), os três relatórios e a conversa (M3a)");
     ok(/Fichas novas de candidatos[\s\S]*Vai para: o presidente e quem tem a permissão Candidatos, cada um só das lojas que vê\./.test(t0), 'relatórios: o das fichas novas diz para quem vai (F4c)');
     ok(t0.includes('O de fichas novas só conta: não usa a IA.'), 'relatórios: a nota diz que o das fichas novas não usa a IA');
     ok(['Na loja', 'Servidor da loja', 'Fiscal', 'O próprio Mister'].every((g) => t0.includes(g)), 'avisos: os quatro grupos do protótipo');
@@ -1034,6 +1037,44 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     await ctx.close();
   }
   {
+    // G2 (18/11/2026): o alerta de gasto do WhatsApp oficial — ligar sem valor abre a gaveta com a sugestão; o valor repetido
+    // não passa; "Aplicar" e "Salvar" mandam os valores em ordem; o "Para onde vai" do gasto só tem os destinos de dinheiro.
+    const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
+    await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
+    const tg = await page.locator('main').innerText();
+    ok(/Gasto do WhatsApp oficial[\s\S]*Valores:[\s\S]*nenhum valor/.test(tg) && tg.includes('Atendimento grátis perto do fim'), 'gasto: os dois avisos no grupo, o gasto sem valores');
+    await page.click('button[role="switch"][aria-label*="Gasto do WhatsApp oficial"]');
+    await page.waitForSelector('[role="dialog"] >> text=Valores do alerta de gasto');
+    const campos = page.locator('[role="dialog"] input[inputmode="decimal"]');
+    const sugestao = await campos.evaluateAll((l) => l.map((i) => i.value));
+    ok(JSON.stringify(sugestao) === JSON.stringify(['100,00', '200,00', '400,00']), `gasto: ligar sem valor abre a gaveta com a sugestão (${sugestao.join(' · ')})`);
+    await campos.nth(2).fill('200');
+    await page.click('[role="dialog"] button:has-text("Aplicar")');
+    ok(await page.locator('[role="dialog"] [role="alert"]:has-text("está repetido")').isVisible(), 'gasto: o valor repetido não passa');
+    await campos.nth(2).fill('1.500,50');
+    await page.click('[role="dialog"] button:has-text("Novo valor")');
+    await page.click('[role="dialog"] button:has-text("Aplicar")');
+    await page.waitForSelector('[role="dialog"]', { state: 'detached' });
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/avisos') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
+    const salvo = S.salvamentos.at(-1)?.regras?.[0];
+    ok(
+      JSON.stringify(salvo) === JSON.stringify({ tipo: 'gasto_whatsapp', ligado: true, destinos: ['presidente'], escalaMin: null, escalaPara: [], parametro: null, valores: [100, 200, 1500.5, 3001] }),
+      `gasto: salvar manda o aviso ligado com os valores em ordem (${JSON.stringify(salvo)})`,
+    );
+    ok((await page.locator('[data-valores-do-gasto]').innerText()).includes('R$ 1.500,50'), 'gasto: a linha mostra os valores salvos');
+    await page.click('button[aria-label="Mudar para onde vai: Gasto do WhatsApp oficial"]');
+    await page.waitForSelector('[role="dialog"] >> text=Para onde vai: Gasto do WhatsApp oficial');
+    const opcoes = (await page.locator('[role="dialog"] label:has(input[type="checkbox"])').allInnerTexts()).map((s) => s.trim());
+    ok(
+      JSON.stringify(opcoes) === JSON.stringify(['WhatsApp do presidente', 'WhatsApp do gerente da loja', 'Tela do Regem na loja', 'Suporte da DMS']),
+      `gasto: o "Para onde vai" só tem os destinos de dinheiro (${opcoes.join(', ')})`,
+    );
+    ok(!(await page.locator('[role="dialog"] legend:has-text("Se ninguém resolver")').isVisible()), 'gasto: sem "se ninguém resolver"');
+    await page.keyboard.press('Escape');
+    ok(erros.length === 0, `gasto: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  {
     const { ctx, page, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos', avisosFalha: true });
     await page.waitForSelector('text=Não consegui ler os avisos agora', { timeout: 20000 });
     S.avisosFalha = false;
@@ -1073,6 +1114,14 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     m = await medir(page);
     ok(m.length === 0, `${w}px: a gaveta "Para onde vai" inteira na tela (${m.join(' | ')})`);
     if (w === 375) await page.screenshot({ path: foto('375-avisos-gaveta.png') });
+    // G2: a gaveta dos valores do alerta de gasto, inteira na tela.
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[role="dialog"]', { state: 'detached' });
+    await page.click('button[aria-label="Mudar os valores do alerta de gasto"]');
+    await page.waitForSelector('[role="dialog"] >> text=Valores do alerta de gasto');
+    m = await medir(page);
+    ok(m.length === 0, `${w}px: a gaveta dos valores do alerta de gasto inteira na tela (${m.join(' | ')})`);
+    if (w === 375) await page.screenshot({ path: foto('375-avisos-gaveta-valores.png') });
     ok(erros.length === 0, `${w}px: Avisos sem erro (${erros.join(' | ')})`);
     await ctx.close();
   }
@@ -1082,7 +1131,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t = await page.locator('main').innerText();
-    ok(/16 ajustes em 8 grupos/.test(t), "conversa: o grupo Conversa entra com um ajuste, Documentos e dinheiro com o do boleto e Pessoas e ponto com os dois do ponto");
+    ok(/18 ajustes em 8 grupos/.test(t), "conversa: o grupo Conversa entra com um ajuste, Documentos e dinheiro com o do boleto e os dois do gasto (G2), e Pessoas e ponto com os dois do ponto");
     ok(/Documentos e dinheiro[\s\S]*Boleto perto de vencer[\s\S]*Já paguei/.test(t), 'boleto: o aviso novo no grupo "Documentos e dinheiro", com o "Já paguei"');
     ok(/Lançar boletos por foto/.test(t) && /só o presidente manda/.test(t) && /a leitura da nota do fornecedor vem numa próxima entrega/.test(t), 'conversa: o ajuste diz o que faz, quem manda e que a nota vem depois');
     const sel = page.locator('select:has(option:text-is("boleto: pergunta antes"))');

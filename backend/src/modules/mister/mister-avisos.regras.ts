@@ -51,7 +51,10 @@ export type TipoDeAviso =
   | 'chave_ia'
   | 'boleto_vencendo'
   | 'ponto_esquecido'
-  | 'ponto_do_mes';
+  | 'ponto_do_mes'
+  // G2 do protótipo `mockups/regem-whatsapp-gasto.html` (aprovado em 18/11/2026): o gasto do WhatsApp oficial (mig 445/446).
+  | 'gasto_whatsapp'
+  | 'franquia_atendimento';
 
 export interface RegraDoAviso {
   ligado: boolean;
@@ -60,6 +63,8 @@ export interface RegraDoAviso {
   escalaPara: Destino[];
   /** Só no pedido parado: o tempo, em minutos. */
   parametro: number | null;
+  /** Só no gasto do WhatsApp oficial (mig 446): os valores, em reais, em ordem — cada um avisa uma vez por mês. */
+  valores?: number[];
 }
 
 export interface TipoDoAviso {
@@ -184,7 +189,62 @@ export const TIPOS_DE_AVISO: TipoDoAviso[] = [
     padrao: regra(['presidente']),
     jaFunciona: true,
   },
+  // G2 do protótipo `mockups/regem-whatsapp-gasto.html` (aprovado em 18/11/2026, decisão 4): o gasto nasce DESLIGADO e sem
+  // valores (a gaveta sugere R$ 100, R$ 200 e R$ 400); a franquia nasce ligada para o presidente. No fim da lista (a tela
+  // agrupa pelo grupo: os dois entram em "Documentos e dinheiro").
+  {
+    tipo: 'gasto_whatsapp',
+    grupo: 'Documentos e dinheiro',
+    titulo: 'Gasto do WhatsApp oficial',
+    descricao:
+      'Quando o gasto do mês na Meta passa de cada valor. Cada valor avisa uma vez por mês; no dia 1º tudo recomeça. O aviso diz quanto foi, de onde veio e o próximo valor. Só nas empresas com o WhatsApp oficial.',
+    padrao: regra(['presidente'], { ligado: false, valores: [] }),
+    jaFunciona: true,
+  },
+  {
+    tipo: 'franquia_atendimento',
+    grupo: 'Documentos e dinheiro',
+    titulo: 'Atendimento grátis perto do fim',
+    descricao:
+      'A Meta dá 1.000 mensagens de atendimento grátis por mês em cada número; da 1.001ª em diante, cada resposta do robô e da equipe é cobrada. Avisa quando um número passa de 900. Sem forma de pagamento na Meta, as respostas param depois das 1.000. Só nas empresas com o WhatsApp oficial.',
+    padrao: regra(['presidente']),
+    jaFunciona: true,
+  },
 ];
+
+/** Os avisos de dinheiro do WhatsApp oficial: sem KDS nem caso no Atendimento, e sem "se ninguém resolver". */
+export const TIPOS_DO_GASTO: TipoDeAviso[] = ['gasto_whatsapp', 'franquia_atendimento'];
+export const DESTINOS_DO_GASTO: Destino[] = ['presidente', 'gerente', 'tela', 'dms'];
+/** Até quantos valores o alerta de gasto aceita, e de quanto a quanto (em reais). */
+export const VALORES_DO_GASTO_MAX = 10;
+export const VALOR_DO_GASTO_MIN = 1;
+export const VALOR_DO_GASTO_MAX = 100_000;
+/** A franquia avisa quando um número passa disto (de 1.000). */
+export const FRANQUIA_AVISA_EM = 900;
+export const FRANQUIA_DO_ATENDIMENTO_NO_AVISO = 1000;
+
+/** Os valores do alerta de gasto, conferidos: número de R$ 1 a R$ 100.000 (2 casas), sem repetir, até 10, em ordem. */
+export function conferirValoresDoGasto(v: unknown): number[] | { erro: string } {
+  if (v === undefined || v === null) return [];
+  if (!Array.isArray(v)) return { erro: 'Os valores do alerta de gasto vêm numa lista.' };
+  if (v.length > VALORES_DO_GASTO_MAX) return { erro: `O alerta de gasto aceita até ${VALORES_DO_GASTO_MAX} valores.` };
+  const saida: number[] = [];
+  for (const x of v) {
+    const n = typeof x === 'number' ? x : typeof x === 'string' && x.trim() ? Number(x) : NaN;
+    if (!Number.isFinite(n) || n < VALOR_DO_GASTO_MIN || n > VALOR_DO_GASTO_MAX)
+      return { erro: 'Cada valor do alerta de gasto vai de R$ 1,00 a R$ 100.000,00.' };
+    const c = Math.round(n * 100) / 100;
+    if (saida.includes(c)) return { erro: `O valor ${emReais(c)} está repetido no alerta de gasto.` };
+    saida.push(c);
+  }
+  return saida.sort((a, b) => a - b);
+}
+
+/** "R$ 1.284,90" (a moeda da conta da Meta, quando não é o real: "USD 12,50"). */
+export function emReais(n: number, moeda?: string | null): string {
+  const v = (Math.round(n * 100) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return !moeda || moeda === 'BRL' ? `R$ ${v}` : `${moeda} ${v}`;
+}
 
 export const ehTipoDeAviso = (t: unknown): t is TipoDeAviso => TIPOS_DE_AVISO.some((x) => x.tipo === t);
 export const tipoDoAviso = (t: TipoDeAviso): TipoDoAviso => TIPOS_DE_AVISO.find((x) => x.tipo === t)!;
@@ -192,7 +252,13 @@ export const tipoDoAviso = (t: TipoDeAviso): TipoDoAviso => TIPOS_DE_AVISO.find(
 /** A regra que vale: a salva pela empresa, ou o padrão. Destino desconhecido (de uma versão futura) fica de fora. */
 export function regraQueVale(tipo: TipoDeAviso, salva: Partial<RegraDoAviso> | null | undefined): RegraDoAviso {
   const p = tipoDoAviso(tipo).padrao;
-  if (!salva) return { ...p, destinos: [...p.destinos], escalaPara: [...p.escalaPara] };
+  // O gasto do WhatsApp: os valores salvos que ainda valem (um valor estragado no banco não derruba a regra).
+  const valores = (): { valores?: number[] } => {
+    if (tipo !== 'gasto_whatsapp') return {};
+    const v = conferirValoresDoGasto(salva?.valores);
+    return { valores: Array.isArray(v) ? v : [] };
+  };
+  if (!salva) return { ...p, destinos: [...p.destinos], escalaPara: [...p.escalaPara], ...valores() };
   const so = (l: unknown, aceitos: readonly string[]) => (Array.isArray(l) ? l.filter((d) => aceitos.includes(String(d))) : []) as Destino[];
   return {
     ligado: typeof salva.ligado === 'boolean' ? salva.ligado : p.ligado,
@@ -211,6 +277,7 @@ export function regraQueVale(tipo: TipoDeAviso, salva: Partial<RegraDoAviso> | n
               ? Number(salva.parametro)
               : p.parametro
             : null,
+    ...valores(),
   };
 }
 
@@ -254,7 +321,23 @@ export function conferirRegras(dto: unknown): { tipo: TipoDeAviso; regra: RegraD
       if (!(QUANDO_DO_PONTO as readonly number[]).includes(parametro))
         return { erro: 'Escolha quando avisar do ponto esquecido: no dia seguinte às 10h, 30 minutos depois ou 1 hora depois.' };
     }
-    saida.push({ tipo, regra: { ligado: r.ligado, destinos: destinos as Destino[], escalaMin, escalaPara: escalaMin === null ? [] : (escalaPara as Destino[]), parametro } });
+    // O gasto do WhatsApp oficial (G2): só os destinos de dinheiro, sem "se ninguém resolver"; o gasto com os valores.
+    let valores: number[] | undefined;
+    if (TIPOS_DO_GASTO.includes(tipo)) {
+      if (destinos.some((d) => !(DESTINOS_DO_GASTO as string[]).includes(d)))
+        return { erro: `"${tipoDoAviso(tipo).titulo}" vai pelo WhatsApp, para a tela da loja ou para o suporte da DMS: o KDS e o Atendimento não recebem aviso de gasto.` };
+      if (escalaMin !== null) return { erro: `"${tipoDoAviso(tipo).titulo}" não tem "se ninguém resolver": é um aviso de valor, não de um problema a resolver.` };
+      if (tipo === 'gasto_whatsapp') {
+        const v = conferirValoresDoGasto(r.valores);
+        if (!Array.isArray(v)) return { erro: v.erro };
+        if (r.ligado && !v.length) return { erro: 'Ponha pelo menos um valor no alerta de gasto, ou desligue o aviso.' };
+        valores = v;
+      }
+    }
+    saida.push({
+      tipo,
+      regra: { ligado: r.ligado, destinos: destinos as Destino[], escalaMin, escalaPara: escalaMin === null ? [] : (escalaPara as Destino[]), parametro, ...(valores ? { valores } : {}) },
+    });
   }
   return saida;
 }
@@ -780,6 +863,86 @@ export function textoDoDesfecho(s: { titulo: string }, minutos: number): string 
 export function deveEscalar(a: { abertoEm: Date; escaladoEm: Date | null }, r: RegraDoAviso, agoraMs: number): boolean {
   if (a.escaladoEm || r.escalaMin === null || !r.escalaPara.length) return false;
   return agoraMs - a.abertoEm.getTime() >= r.escalaMin * 60_000;
+}
+
+// ───────────────────────────── o gasto do WhatsApp oficial (G2, mig 445/446) ─────────────────────────────
+// A situação sai da tabela que a nuvem preenche lendo a Meta (`whatsapp_gasto`). Cada valor do alerta é um aviso com a chave
+// do MÊS e do valor: abre quando o gasto do mês passa dele e fica aberto até o mês virar — fecha calado, sem "resolvido".
+// "Uma vez por mês": o valor que já avisou no mês (o aviso dele, aberto OU fechado) não abre de novo, nem se a Meta corrigir
+// o gasto para baixo e ele voltar a passar.
+
+/** "novembro" (o mês de "2026-11"). */
+export function nomeDoMesDoGasto(mes: string): string {
+  const [a, m] = mes.split('-').map(Number);
+  return new Date(Date.UTC(a, m - 1, 15)).toLocaleDateString('pt-BR', { month: 'long', timeZone: 'UTC' });
+}
+/** Onde a pessoa vê o gasto (o caminho conferido contra o menu e a tela de WhatsApp — V65). */
+export const ONDE_VER_O_GASTO = 'Veja no Regem, no menu WhatsApp, em "Uso e gasto".';
+export const chaveDoGasto = (mes: string, valor: number): string => `gasto:${mes}:${valor.toFixed(2)}`;
+export const chaveDaFranquia = (mes: string, numero: string): string => `franquia:${mes}:${String(numero ?? '').replace(/\D/g, '').slice(-8)}`;
+
+export interface GastoDoMes {
+  tenantId: string;
+  /** "2026-11" */
+  mes: string;
+  custo: number;
+  marketing: number;
+  utilidade: number;
+  atendimento: number;
+  /** "18/11, 20:05" — a hora da última leitura da Meta. */
+  quando: string;
+  projecao: number | null;
+  moeda: string | null;
+}
+
+/** Os valores que avisam agora: os que o gasto do mês já passou e que ainda não avisaram no mês (ou o aviso segue aberto). */
+export function valoresQueAvisam(g: { mes: string; custo: number }, valores: number[], doMes: Map<string, 'aberto' | 'resolvido'>): number[] {
+  return valores.filter((v) => g.custo >= v && doMes.get(chaveDoGasto(g.mes, v)) !== 'resolvido');
+}
+
+/** O aviso de um valor passado: quanto foi, de onde veio, a projeção e o próximo valor (ou que era o último). */
+export function situacaoDoGasto(g: GastoDoMes, valor: number, valores: number[]): Situacao {
+  const r = (n: number) => emReais(n, g.moeda);
+  const proximo = valores.find((v) => v > valor && v > g.custo) ?? null;
+  const linhas = [
+    `${r(g.custo)} até agora (${g.quando}).`,
+    `Marketing: ${r(g.marketing)} · avisos do pedido: ${r(g.utilidade)} · atendimento: ${r(g.atendimento)}.`,
+    ...(g.projecao !== null && g.projecao > g.custo ? [`Neste ritmo, o mês fecha perto de ${r(Math.round(g.projecao))}.`] : []),
+    proximo !== null
+      ? `Próximo alerta: ${r(proximo)}.`
+      : 'Este era o último alerta do mês. Para avisar acima disso, ponha mais um valor no Regem, no menu Mister, em "Avisos e relatórios".',
+    ONDE_VER_O_GASTO,
+  ];
+  return {
+    tenantId: g.tenantId,
+    unidadeId: null,
+    tipo: 'gasto_whatsapp',
+    chave: chaveDoGasto(g.mes, valor),
+    titulo: `O gasto do WhatsApp oficial de ${nomeDoMesDoGasto(g.mes)} passou de ${r(valor)}`,
+    detalhe: linhas.join('\n'),
+    dados: { mes: g.mes, valor, custo: Math.round(g.custo * 100) / 100, proximo },
+  };
+}
+
+/** O aviso da franquia do atendimento de um número: passou de 900 (ou já das 1.000, na primeira leitura). */
+export function situacaoDaFranquia(f: { tenantId: string; mes: string; numero: string; usadas: number }): Situacao {
+  const final = String(f.numero ?? '').replace(/\D/g, '').slice(-4);
+  const n = f.usadas.toLocaleString('pt-BR');
+  const mes = nomeDoMesDoGasto(f.mes);
+  return {
+    tenantId: f.tenantId,
+    unidadeId: null,
+    tipo: 'franquia_atendimento',
+    chave: chaveDaFranquia(f.mes, f.numero),
+    titulo:
+      f.usadas >= FRANQUIA_DO_ATENDIMENTO_NO_AVISO
+        ? `O número final ${final} já passou das 1.000 mensagens de atendimento grátis de ${mes} (${n} até agora)`
+        : `O número final ${final} já usou ${n} das 1.000 mensagens de atendimento grátis de ${mes}`,
+    detalhe:
+      'Da 1.001ª em diante, cada resposta do robô e da equipe é cobrada pela Meta. Confira se há uma forma de pagamento no Gerenciador de ' +
+      `Negócios da Meta: sem ela, a Meta para de entregar essas respostas até o dia 1º.\n${ONDE_VER_O_GASTO}`,
+    dados: { mes: f.mes, usadas: f.usadas, final },
+  };
 }
 
 /** A janela de 24 horas da Meta: dentro dela o Mister responde com texto livre; fora, só com modelo aprovado. */

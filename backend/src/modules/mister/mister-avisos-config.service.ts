@@ -37,11 +37,21 @@ export class MisterAvisosConfigService {
     try {
       const lidas = linhas(
         await this.db.execute(sql`
-          select tipo, ligado, destinos, escala_min as "escalaMin", escala_para as "escalaPara", parametro
+          select tipo, ligado, destinos, escala_min as "escalaMin", escala_para as "escalaPara", parametro, valores::float8[] as valores
             from mister_aviso_regra where tenant_id = ${tenantId}::uuid`),
       );
       const m = new Map<TipoDeAviso, Partial<RegraDoAviso>>();
-      for (const l of lidas) if (ehTipoDeAviso(l.tipo)) m.set(l.tipo, { ligado: l.ligado, destinos: l.destinos ?? [], escalaMin: l.escalaMin ?? null, escalaPara: l.escalaPara ?? [], parametro: l.parametro ?? null });
+      for (const l of lidas)
+        if (ehTipoDeAviso(l.tipo))
+          m.set(l.tipo, {
+            ligado: l.ligado,
+            destinos: l.destinos ?? [],
+            escalaMin: l.escalaMin ?? null,
+            escalaPara: l.escalaPara ?? [],
+            parametro: l.parametro ?? null,
+            // Os valores do alerta de gasto (mig 446); nos outros tipos, nada.
+            ...(l.valores ? { valores: l.valores.map(Number) } : {}),
+          });
       return m;
     } catch (e: any) {
       if (semTabela(e)) return new Map();
@@ -57,7 +67,8 @@ export class MisterAvisosConfigService {
     try {
       lidas = linhas(
         await this.db.execute(sql`
-          select tenant_id::text as "tenantId", tipo, ligado, destinos, escala_min as "escalaMin", escala_para as "escalaPara", parametro
+          select tenant_id::text as "tenantId", tipo, ligado, destinos, escala_min as "escalaMin", escala_para as "escalaPara", parametro,
+                 valores::float8[] as valores
             from mister_aviso_regra
            where tenant_id in (${sql.join(
              tenantIds.map((t) => sql`${t}::uuid`),
@@ -71,7 +82,13 @@ export class MisterAvisosConfigService {
       const m = new Map<TipoDeAviso, RegraDoAviso>();
       for (const tipo of TIPOS_DE_AVISO) {
         const l = lidas.find((x) => x.tenantId === t && x.tipo === tipo.tipo);
-        m.set(tipo.tipo, regraQueVale(tipo.tipo, l ? { ligado: l.ligado, destinos: l.destinos, escalaMin: l.escalaMin, escalaPara: l.escalaPara, parametro: l.parametro } : null));
+        m.set(
+          tipo.tipo,
+          regraQueVale(
+            tipo.tipo,
+            l ? { ligado: l.ligado, destinos: l.destinos, escalaMin: l.escalaMin, escalaPara: l.escalaPara, parametro: l.parametro, ...(l.valores ? { valores: l.valores.map(Number) } : {}) } : null,
+          ),
+        );
       }
       fora.set(t, m);
     }
@@ -101,13 +118,13 @@ export class MisterAvisosConfigService {
     if ('erro' in r) throw new BadRequestException(r.erro);
     const antes = await this.salvas(user.tenantId);
     await this.db.execute(sql`
-      insert into mister_aviso_regra (tenant_id, tipo, ligado, destinos, escala_min, escala_para, parametro, alterado_por, atualizado_em)
-      select ${user.tenantId}::uuid, x.tipo, x.ligado, x.destinos, x."escalaMin", x."escalaPara", x.parametro, ${user.colaboradorId}::uuid, now()
+      insert into mister_aviso_regra (tenant_id, tipo, ligado, destinos, escala_min, escala_para, parametro, valores, alterado_por, atualizado_em)
+      select ${user.tenantId}::uuid, x.tipo, x.ligado, x.destinos, x."escalaMin", x."escalaPara", x.parametro, x.valores, ${user.colaboradorId}::uuid, now()
         from jsonb_to_recordset(${JSON.stringify(r.map((x) => ({ tipo: x.tipo, ...x.regra })))}::jsonb)
-             as x(tipo text, ligado boolean, destinos text[], "escalaMin" integer, "escalaPara" text[], parametro integer)
+             as x(tipo text, ligado boolean, destinos text[], "escalaMin" integer, "escalaPara" text[], parametro integer, valores numeric[])
       on conflict (tenant_id, tipo) do update
          set ligado = excluded.ligado, destinos = excluded.destinos, escala_min = excluded.escala_min, escala_para = excluded.escala_para,
-             parametro = excluded.parametro, alterado_por = excluded.alterado_por, atualizado_em = now()`);
+             parametro = excluded.parametro, valores = excluded.valores, alterado_por = excluded.alterado_por, atualizado_em = now()`);
     await this.auditoria?.registrar({
       tenantId: user.tenantId,
       atorId: user.colaboradorId,
