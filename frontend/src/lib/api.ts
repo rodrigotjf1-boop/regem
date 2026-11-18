@@ -1720,6 +1720,9 @@ export const api = {
   // WhatsApp › Uso e gasto (mig 444, só o presidente): o gasto que a Meta informa, do que a nuvem guardou.
   whatsappGasto: (q: Record<string, string>) => req(`/whatsapp/gasto${Object.keys(q).length ? `?${new URLSearchParams(q).toString()}` : ''}`),
   // "Tentar de novo": lê a Meta agora (não antes de 2 minutos da última tentativa) e devolve o resumo.
+  // G3: o custo estimado de uma campanha antes de enviar (presidente e gerente; o mês e os alertas só ao presidente).
+  whatsappGastoEstimativa: (mensagens: number, categoria: string) =>
+    req(`/whatsapp/gasto/estimativa?${new URLSearchParams({ mensagens: String(mensagens), categoria }).toString()}`),
   whatsappGastoLer: (q: Record<string, string>) =>
     req(`/whatsapp/gasto/ler${Object.keys(q).length ? `?${new URLSearchParams(q).toString()}` : ''}`, { method: 'POST' }),
   whatsappTemplateSalvar: (body: any) =>

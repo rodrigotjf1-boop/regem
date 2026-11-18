@@ -22,6 +22,8 @@ if (!URL_PG) console.warn('whatsapp-gasto-pg.spec: sem TEST_PG_URL — PULADO');
 jest.setTimeout(120_000);
 
 const MIG = join(__dirname, '../../../../database/migrations/445_whatsapp_gasto.sql');
+// G3: de onde vem o custo (a conta cobrada por meio de um parceiro — a Meta não mostra o custo).
+const MIG_FONTE = join(__dirname, '../../../../database/migrations/448_whatsapp_gasto_fonte.sql');
 const s = (iso: string) => Date.parse(iso) / 1000;
 const AGORA = new Date('2026-11-19T00:30:00Z'); // 18/11, 21:30 em São Paulo
 const DEPOIS = new Date('2026-11-19T01:05:00Z'); // 35 minutos depois
@@ -46,10 +48,22 @@ descrever('gasto do WhatsApp oficial (Postgres)', () => {
   const WABA_C = `waba-c-${randomUUID().slice(0, 8)}`;
   const WABA_D = `waba-d-${randomUUID().slice(0, 8)}`;
   const WABA_X = `waba-x-${randomUUID().slice(0, 8)}`;
+  const WABA_E = `waba-e-${randomUUID().slice(0, 8)}`;
 
   // A Meta simulada: os pontos de cada conta; a consulta devolve os do intervalo pedido, na granularidade pedida.
   let pontos: Ponto[] = [];
   const falhas = new Set<string>();
+  // As contas cobradas por meio de um parceiro: a Meta recusa o CUSTO (a resposta real de 18/11/2026) e devolve o resto.
+  const custoOculto = new Set<string>();
+  const RECUSA_DO_CUSTO = {
+    error: {
+      message: 'O CUSTO não é mostrado para empresas que fazem cobranças por meio de um parceiro. Para entender suas cobranças, fale com o parceiro.',
+      type: 'OAuthException',
+      code: 10,
+      error_subcode: 2388184,
+      fbtrace_id: 'Yy8',
+    },
+  };
   class GastoDeTeste extends WhatsappGastoService {
     chamadas: string[] = [];
     protected async getMeta(caminho: string): Promise<{ status: number; json: any }> {
@@ -57,16 +71,31 @@ descrever('gasto do WhatsApp oficial (Postgres)', () => {
       const waba = caminho.split(/[/?]/)[0];
       if (falhas.has(waba)) return { status: 400, json: { error: { message: 'Unsupported get request', code: 100, fbtrace_id: 'Zz9' } } };
       const dec = decodeURIComponent(caminho);
+      const pedeCusto = dec.includes('metric_types(COST') || dec.includes('"COST"');
+      if (custoOculto.has(waba) && pedeCusto) return { status: 400, json: RECUSA_DO_CUSTO };
       const m = /pricing_analytics\.start\((\d+)\)\.end\((\d+)\)\.granularity\((\w+)\)/.exec(dec);
       if (m) {
         const [ini, fim, gran] = [Number(m[1]), Number(m[2]), m[3]];
         const data_points = pontos
           .filter((p) => p.waba === waba && p.gran === gran && s(p.ini) >= ini && s(p.ini) < fim)
-          .map((p) => ({ start: s(p.ini), end: s(p.ini) + (p.gran === 'DAILY' ? 86400 : 1800), phone_number: p.numero, pricing_category: p.cat, pricing_type: p.tipo, volume: p.n, cost: p.c }));
+          .map((p) => ({
+            start: s(p.ini),
+            end: s(p.ini) + (p.gran === 'DAILY' ? 86400 : 1800),
+            phone_number: p.numero,
+            pricing_category: p.cat,
+            pricing_type: p.tipo,
+            volume: p.n,
+            ...(pedeCusto ? { cost: p.c } : {}),
+          }));
         return { status: 200, json: { currency: 'BRL', pricing_analytics: { data: [{ data_points }] }, id: waba } };
       }
       if (caminho.includes('/message_templates?')) {
-        const data = waba === WABA_M ? [{ id: '111', name: 'sexta_do_burger', category: 'MARKETING' }] : waba === WABA_P ? [{ id: '222', name: 'pedido_saiu_para_entrega', category: 'UTILITY' }] : [];
+        const data =
+          waba === WABA_M || waba === WABA_E
+            ? [{ id: '111', name: 'sexta_do_burger', category: 'MARKETING' }]
+            : waba === WABA_P
+              ? [{ id: '222', name: 'pedido_saiu_para_entrega', category: 'UTILITY' }]
+              : [];
         return { status: 200, json: { data } };
       }
       if (caminho.includes('/template_analytics?')) {
@@ -77,7 +106,8 @@ descrever('gasto do WhatsApp oficial (Postgres)', () => {
           { template_id: '222', start: s('2026-11-17T00:00:00Z'), end: s('2026-11-18T00:00:00Z'), delivered: 10, cost: [{ type: 'amount_spent', value: 0.35 }] },
         ];
         const ini = Number(qs.get('start'));
-        return { status: 200, json: { data: [{ data_points: todos.filter((t) => ids.includes(t.template_id) && t.start >= ini) }] } };
+        const pontosDoModelo = todos.filter((t) => ids.includes(t.template_id) && t.start >= ini).map((t) => (pedeCusto ? t : { ...t, cost: undefined }));
+        return { status: 200, json: { data: [{ data_points: pontosDoModelo }] } };
       }
       return { status: 404, json: { error: { message: 'caminho desconhecido no teste' } } };
     }
@@ -94,12 +124,18 @@ descrever('gasto do WhatsApp oficial (Postgres)', () => {
                status text not null default 'desconectado')`);
     await q(`create table campanha (id uuid primary key default gen_random_uuid(), tenant_id uuid not null, template_nome text,
                criado_em timestamptz not null default now())`);
+    // G3: as duas do Mister que a estimativa e o cartão dos alertas leem (mínimas, só neste schema — LIC-088).
+    await q(`create table mister_aviso_regra (tenant_id uuid not null, tipo text not null, ligado boolean not null, destinos text[] not null default '{}',
+               escala_min integer, escala_para text[] not null default '{}', parametro integer, valores numeric(12,2)[], primary key (tenant_id, tipo))`);
+    await q(`create table mister_aviso (id uuid primary key default gen_random_uuid(), tenant_id uuid not null, tipo text not null, chave text not null,
+               situacao text not null default 'aberto', aberto_em timestamptz not null default now())`);
     // A migration, com a trava da empresa na frente (ERR-377), no schema do teste (o primeiro do caminho).
     const conf: any = await repetirNaCorridaDeCatalogo(async () => {
       const c = await pool.connect();
       try {
         await c.query('begin');
-        const r = await c.query(comTravaDaEmpresa(readFileSync(MIG, 'utf8')));
+        await c.query(comTravaDaEmpresa(readFileSync(MIG, 'utf8')));
+        const r = await c.query(readFileSync(MIG_FONTE, 'utf8'));
         await c.query('commit');
         return r;
       } catch (e) {
@@ -292,5 +328,69 @@ descrever('gasto do WhatsApp oficial (Postgres)', () => {
 
   it('"Tentar de novo" logo depois de uma leitura: espera 2 minutos', async () => {
     await expect(gasto.lerAgora(A, {}, new Date(DEPOIS.getTime() + 60_000))).rejects.toThrow('O Regem acabou de ler o gasto na Meta. Tente de novo em 2 minutos.');
+  });
+
+  it('G3: a estimativa da campanha — o preço que a conta pagou; o gasto do mês e os alertas só ao presidente; as recusas', async () => {
+    const presidente = { tenantId: A, categoria: 'presidente' };
+    const r: any = await gasto.estimativa(presidente, { mensagens: '412', categoria: 'MARKETING' }, DEPOIS);
+    expect(r).toMatchObject({ oficial: true, grupo: 'marketing', mensagens: 412, preco: 0.3217, fonte: 'conta', estimativa: 132.54 });
+    // Sem as tabelas do Mister neste banco, o mês vem sem alertas — mas vem (o presidente vê o gasto do mês).
+    expect(r.mes).toMatchObject({ alertasLigados: false, passaDe: null });
+    const gerente: any = await gasto.estimativa({ tenantId: A, categoria: 'gerente' }, { mensagens: 412, categoria: 'MARKETING' }, DEPOIS);
+    expect(gerente.estimativa).toBe(132.54);
+    expect('mes' in gerente).toBe(false);
+    // A utilidade: 72 cobradas nos 60 dias — o preço da conta; a autenticação, sem histórico: o publicado.
+    expect(await gasto.estimativa(presidente, { mensagens: 100, categoria: 'UTILITY' }, DEPOIS)).toMatchObject({ preco: 0.035, fonte: 'conta', estimativa: 3.5 });
+    expect(await gasto.estimativa(presidente, { mensagens: 100, categoria: 'AUTHENTICATION' }, DEPOIS)).toMatchObject({ preco: 0.035, fonte: 'tabela', estimativa: 3.5 });
+    await expect(gasto.estimativa(presidente, { mensagens: -1 }, DEPOIS)).rejects.toThrow('Quantas mensagens a campanha vai mandar?');
+    await expect(gasto.estimativa(presidente, { mensagens: 10, categoria: 'SERVICE' }, DEPOIS)).rejects.toThrow('A estimativa é das campanhas');
+    expect(await gasto.estimativa({ tenantId: B, categoria: 'presidente' }, { mensagens: 10 }, DEPOIS)).toEqual({ oficial: false });
+  });
+
+  it('G3: a estimativa para o presidente contra os alertas do mês — o maior valor que a campanha faz passar e o próximo', async () => {
+    await q(`insert into mister_aviso_regra (tenant_id, tipo, ligado, destinos, valores) values ($1, 'gasto_whatsapp', true, '{presidente}', '{100,200,400}')`, [A]);
+    try {
+      // O mês de A até 18/11 (no relógio do teste): R$ 138,91. Uma campanha de 1.000 de marketing (R$ 0,3217 pagos pela conta).
+      const r: any = await gasto.estimativa({ tenantId: A, categoria: 'presidente' }, { mensagens: 1000, categoria: 'MARKETING' }, DEPOIS);
+      expect(r).toMatchObject({ preco: 0.3217, fonte: 'conta', estimativa: 321.7, mes: { custoDoMes: 138.91, depois: 460.61, alertasLigados: true, passaDe: 400, proximo: null } });
+      const pequena: any = await gasto.estimativa({ tenantId: A, categoria: 'presidente' }, { mensagens: 100, categoria: 'MARKETING' }, DEPOIS);
+      expect(pequena.mes).toMatchObject({ depois: 171.08, passaDe: null, proximo: 200 });
+      // O cartão da tela também vê a regra.
+      expect((await gasto.resumo(A, {}, DEPOIS) as any).alertas).toMatchObject({ custoDoMes: 138.91, gasto: { ligado: true, valores: [{ valor: 100 }, { valor: 200 }, { valor: 400 }] } });
+    } finally {
+      await q(`delete from mister_aviso_regra where tenant_id = $1`, [A]);
+    }
+  });
+
+  it('a conta cobrada por meio de um parceiro (mig 448): pede só a quantidade, estima o custo pelo preço publicado e diz que é estimativa', async () => {
+    const E = (await q(`insert into empresa (nome) values ('teste gasto — cobrada por parceiro') returning id`))[0].id as string;
+    empresas.push(E);
+    await q(`insert into whatsapp_numero (tenant_id, papel, provedor, numero, phone_id, waba_id, status) values ($1, 'principal', 'cloud', '+55 21 95555-3030', 'ph-e', $2, 'conectado')`, [E, WABA_E]);
+    custoOculto.add(WABA_E);
+    pontos.push(
+      { waba: WABA_E, ini: '2026-11-14T21:00:00Z', gran: 'HALF_HOUR', numero: '552195553030', cat: 'MARKETING', tipo: 'REGULAR', n: 412, c: 999 },
+      { waba: WABA_E, ini: '2026-11-18T14:00:00Z', gran: 'HALF_HOUR', numero: '552195553030', cat: 'SERVICE', tipo: 'FREE_CUSTOMER_SERVICE', n: 900, c: 999 },
+      { waba: WABA_E, ini: '2026-11-18T15:00:00Z', gran: 'HALF_HOUR', numero: '552195553030', cat: 'SERVICE', tipo: 'REGULAR', n: 100, c: 999 },
+    );
+    expect(await gasto.lerConta(E, WABA_E, AGORA)).toEqual({ ok: true });
+    const linhas = await gastoDe(E, WABA_E);
+    expect(linhas.map((l) => [l.categoria, l.tipo, l.mensagens, l.custo])).toEqual([
+      ['MARKETING', 'REGULAR', 412, 132.5404],
+      ['SERVICE', 'FREE_CUSTOMER_SERVICE', 900, 0],
+      ['SERVICE', 'REGULAR', 100, 3.5],
+    ]);
+    const [lei] = await q(`select lido_em, erro, moeda, fonte_do_custo from whatsapp_gasto_leitura where tenant_id = $1`, [E]);
+    expect(lei).toMatchObject({ erro: null, moeda: 'BRL', fonte_do_custo: 'tabela' });
+    // O gasto por modelo também veio, com o custo estimado pela categoria do modelo.
+    expect(await q(`select modelo_nome, mensagens, custo::float8 as custo from whatsapp_gasto_modelo where tenant_id = $1`, [E])).toEqual([
+      { modelo_nome: 'sexta_do_burger', mensagens: 412, custo: 132.5404 },
+    ]);
+    const r: any = await gasto.resumo(E, {}, DEPOIS);
+    expect(r.leitura).toMatchObject({ fonteDoCusto: 'tabela', erro: null });
+    expect(r.total.custo).toBe(136.04);
+    // A estimativa usa o preço publicado (o "pago" desta conta é a própria tabela).
+    expect(await gasto.estimativa({ tenantId: E, categoria: 'presidente' }, { mensagens: 100 }, DEPOIS)).toMatchObject({ preco: 0.3217, fonte: 'tabela' });
+    // E a conta da Meta direta segue com o custo dela.
+    expect((await q(`select fonte_do_custo from whatsapp_gasto_leitura where tenant_id = $1 and waba_id = $2`, [A, WABA_P]))[0].fonte_do_custo).toBe('meta');
   });
 });

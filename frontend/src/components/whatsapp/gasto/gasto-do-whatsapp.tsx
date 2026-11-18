@@ -231,9 +231,19 @@ function Conteudo({ g, relendo, lerAgora, misterLigado }: { g: GastoOficial; rel
           </Button>
         </div>
       ) : (
-        <p className={cn('text-sm', texto2)}>
-          Valores aproximados que a Meta informa · última leitura {horaDaLeitura(g.leitura.lidoEm)} · lê de novo a cada {g.leitura.minutos} minutos. A fatura
-          oficial é a da Meta.
+        <p className={cn('text-sm', texto2)} data-fonte-do-custo={g.leitura.fonteDoCusto ?? ''}>
+          {g.leitura.fonteDoCusto === 'tabela' ? (
+            <>
+              <strong className="text-foreground">Valores estimados:</strong> esta conta é cobrada por meio de um parceiro, e a Meta não mostra o custo dela. A
+              quantidade de mensagens é a que a Meta informa; o valor é estimado pelo preço publicado da Meta (marketing ~R$ 0,32, utilidade e atendimento ~R$ 0,035
+              por mensagem cobrada). A fatura é a do parceiro. Última leitura {horaDaLeitura(g.leitura.lidoEm)} · lê de novo a cada {g.leitura.minutos} minutos.
+            </>
+          ) : (
+            <>
+              Valores aproximados que a Meta informa · última leitura {horaDaLeitura(g.leitura.lidoEm)} · lê de novo a cada {g.leitura.minutos} minutos. A fatura
+              oficial é a da Meta.
+            </>
+          )}
         </p>
       )}
 

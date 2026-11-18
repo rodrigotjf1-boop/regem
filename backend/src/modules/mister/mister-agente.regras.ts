@@ -251,7 +251,9 @@ export type NomeDaFerramenta =
   | 'corrigir_documento'
   | 'link_para_encaminhar'
   | 'cancelar_links'
-  | 'escrever_recado';
+  | 'escrever_recado'
+  // G3 do protótipo `mockups/regem-whatsapp-gasto.html` (aprovado em 18/11/2026): "quanto gastei de WhatsApp?".
+  | 'gasto_do_whatsapp';
 
 // ───────────────────────────── as conversas anteriores (versão 4) ─────────────────────────────
 // O padrão do Hermes de procurar nas conversas antigas, sobre o texto que `mister_pergunta` já guarda por 30 dias.
@@ -624,6 +626,12 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
       required: ['texto'],
       additionalProperties: false,
     },
+  },
+  {
+    name: 'gasto_do_whatsapp',
+    description:
+      'O gasto da empresa com o WhatsApp oficial (a API da Meta), do que o Regem lê da Meta a cada 30 minutos: o mês corrente até agora, por tipo (marketing, avisos do pedido, atendimento, autenticação), as mensagens cobradas, as 1.000 mensagens de atendimento grátis de cada número, a projeção do mês e o gasto até o mesmo dia do mês passado. Só o presidente vê. A loja na conexão por QR Code não tem gasto por mensagem: diga isso. Os valores são os que a Meta informa, aproximados: a fatura oficial é a dela.',
+    input_schema: { type: 'object', properties: {}, additionalProperties: false },
   },
 ];
 

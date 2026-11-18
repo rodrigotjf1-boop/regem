@@ -212,6 +212,28 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
       return recusa('O link para quem não tem usuário ainda não está ligado no Regem. Dá para mandar o relatório em PDF e encaminhar o arquivo.');
     case 'cancelar_links':
       return { ok: true, dados: { cancelados: 0, siga: 'Diga que não havia link para encaminhar valendo nesta empresa.' } };
+    case 'gasto_do_whatsapp':
+      // G3 do gasto do WhatsApp oficial: só o presidente; a loja de teste usa a API oficial, com o gasto de novembro.
+      if (perfil.nivel !== 'presidente') return recusa('O gasto do WhatsApp oficial é do presidente: só ele vê.');
+      return ok({
+        oficial: true,
+        mes: 'novembro de 2026',
+        moeda: 'BRL',
+        ateAgora: 205.43,
+        lidoAs: '13/11 20:00',
+        mensagensEntregues: 2790,
+        mensagensCobradas: 1790,
+        porTipo: [
+          { tipo: 'marketing', gasto: 160.21, mensagens: 498, gratis: 0 },
+          { tipo: 'avisos do pedido (utilidade)', gasto: 38.22, mensagens: 1092, gratis: 0 },
+          { tipo: 'atendimento', gasto: 7, mensagens: 1200, gratis: 1000 },
+        ],
+        atendimentoGratis: [{ numeroFinal: '2210', usadas: 1200, de: 1000, acabou: true }],
+        projecaoDoMes: 474,
+        ateOMesmoDiaDoMesPassado: 61.3,
+        onde: 'Veja no Regem, no menu WhatsApp, em "Uso e gasto".',
+        aviso: 'Valores aproximados que a Meta informa; a fatura oficial é a da Meta.',
+      });
     case 'escrever_recado':
       // M3g parte 2 (mig 444): na avaliação nenhum rascunho é guardado (e nada é publicado) — devolve o texto como ficaria.
       return {
@@ -579,6 +601,8 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c41', pergunta: 'Quantas carnes de 56 g foram vendidas hoje?', consultas: ['insumo_vendido'], numeros: ['212'], contem: ['X-Burger'] },
   // Versão 4: a busca nas conversas anteriores (o padrão do Hermes). Ele procura, diz o dia e não inventa.
   { id: 'c42', pergunta: 'O que você me disse do iFood naquele dia que teve cancelamento?', consultas: ['conversas_anteriores'], numeros: ['23'], contem: ['14/11|15/11|sexta|sábado'] },
+  // G3 do gasto do WhatsApp oficial (18/11/2026): "quanto gastei?" — o presidente vê o gasto do mês que a Meta informa.
+  { id: 'c43', pergunta: 'Quanto gastei de WhatsApp este mês?', consultas: ['gasto_do_whatsapp'], numeros: ['205,43'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

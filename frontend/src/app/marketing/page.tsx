@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ModelosWhatsapp } from '@/components/delivery/modelos-whatsapp';
 import { Automaticas } from '@/components/marketing/automaticas';
+import { CustoDaCampanha } from '@/components/marketing/custo-da-campanha';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Delivery → Marketing: campanhas de WhatsApp (épico 2 provedores). Público segmentado,
@@ -457,28 +458,30 @@ export default function MarketingPage() {
                     <tr className="border-b border-border/60">
                       <td className="py-1 pr-2 font-medium text-foreground">Marketing</td>
                       <td className="py-1 pr-2">Promoções, ofertas, cupom, reativação, carrossel</td>
-                      <td className="py-1 font-mono">~R$ 0,31–0,38</td>
+                      <td className="py-1 font-mono">~R$ 0,32</td>
                     </tr>
                     <tr className="border-b border-border/60">
                       <td className="py-1 pr-2 font-medium text-foreground">Utilidade</td>
                       <td className="py-1 pr-2">Status de pedido, recibo, lembrete (ligado a uma transação)</td>
-                      <td className="py-1 font-mono">~R$ 0,04–0,05</td>
+                      <td className="py-1 font-mono">~R$ 0,035</td>
                     </tr>
                     <tr className="border-b border-border/60">
                       <td className="py-1 pr-2 font-medium text-foreground">Autenticação</td>
                       <td className="py-1 pr-2">Código OTP / login</td>
-                      <td className="py-1 font-mono">~R$ 0,15–0,19</td>
+                      <td className="py-1 font-mono">~R$ 0,035</td>
                     </tr>
                     <tr>
-                      <td className="py-1 pr-2 font-medium text-foreground">Serviço (cliente inicia, em 24h)</td>
+                      <td className="py-1 pr-2 font-medium text-foreground">Atendimento (cliente inicia, em 24h)</td>
                       <td className="py-1 pr-2">Atendimento e dúvidas depois que o cliente te chama</td>
-                      <td className="py-1 font-mono font-semibold text-ok">grátis</td>
+                      <td className="py-1 font-mono">1.000 grátis por mês em cada número; depois ~R$ 0,035</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
               <p className="mt-1.5 text-[11px] text-foreground/60">
-                ⚠️ Valores <strong>estimados</strong> (Brasil, 2026) — a Meta cobra direto da conta da sua loja e os preços podem variar por categoria, país e política da Meta. A <strong>janela de 24h</strong> (quando o cliente inicia a conversa) é gratuita.
+                ⚠️ Valores <strong>estimados</strong> (Brasil, preços da Meta desde 01/10/2026) — a Meta cobra a conta da sua loja (ou o parceiro por onde ela é
+                cobrada) e os preços podem variar por categoria, país e política da Meta. Desde 01/10/2026 o <strong>atendimento</strong> também é cobrado depois
+                de 1.000 mensagens por mês em cada número. O gasto da sua conta fica no menu WhatsApp, em <strong>Uso e gasto</strong> (presidente).
               </p>
             </div>
           </div>
@@ -557,6 +560,8 @@ export default function MarketingPage() {
                   automática nos últimos {previaFora.dias} dias (o intervalo de Marketing › Automáticas).
                 </p>
               )}
+              {/* G3 (gasto do WhatsApp oficial): o custo estimado na Meta antes de enviar — só na API oficial, com o modelo escolhido. */}
+              {ehCloud && templateSel && <CustoDaCampanha mensagens={previa} categoria={templateSel.categoria} />}
             </div>
 
             {/* Conteúdo — no OFICIAL vem do modelo aprovado (texto travado pela Meta); no

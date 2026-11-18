@@ -14,8 +14,15 @@ import {
   LinhaDoGasto,
   LinhaDoModelo,
   LinhaSomada,
+  DIAS_DO_PRECO_DA_CONTA,
+  MENSAGENS_MAX_DA_ESTIMATIVA,
   arredondar2,
+  custoEstimado,
+  custoNaoMostrado,
   erroDaMeta,
+  estimativaDaCampanha,
+  grupoDaCampanha,
+  precoPorMensagem,
   finalDoNumero,
   franquiaPorNumero,
   grupoDaCategoria,
@@ -151,6 +158,8 @@ export class WhatsappGastoService {
       //    1º lê inteiro o mês que acabou de fechar).
       const deDia = lei?.lido_em ? somarDias(hoje, -1) : primeiroDoMes(somarDias(hoje, -1));
       let moeda: string | null = null;
+      // A Meta não mostra o custo desta conta (cobrada por meio de um parceiro)? Então o custo é estimado (mig 448).
+      let estimado = false;
       const linhas: LinhaDoGasto[] = [];
       for (let d = deDia; d <= hoje; d = somarDias(d, DIAS_POR_PEDACO)) {
         const ini = inicioDoDiaEmSegundos(d);
@@ -158,6 +167,7 @@ export class WhatsappGastoService {
         if (ate <= ini) break;
         const r = await this.consultaDePreco(wabaId, ini, ate, 'HALF_HOUR');
         moeda = r.moeda ?? moeda;
+        estimado = estimado || r.estimado;
         linhas.push(...r.linhas);
       }
       await this.gravarDias(tenantId, wabaId, deDia, hoje, linhas.filter((l) => l.dia >= deDia && l.dia <= hoje));
@@ -174,6 +184,7 @@ export class WhatsappGastoService {
           if (deHist <= ateHist) {
             const r = await this.consultaDePreco(wabaId, Date.parse(`${deHist}T00:00:00Z`) / 1000, Date.parse(`${primeiroDoMes(hoje)}T00:00:00Z`) / 1000, 'DAILY');
             moeda = r.moeda ?? moeda;
+            estimado = estimado || r.estimado;
             // O mês de ontem (quando hoje é dia 1º) já veio de meia em meia hora no passo 1: a carga não o reescreve.
             const ateCarga = ateHist < deDia ? ateHist : somarDias(deDia, -1);
             if (deHist <= ateCarga) await this.gravarDias(tenantId, wabaId, deHist, ateCarga, r.linhas.filter((l) => l.dia >= deHist && l.dia <= ateCarga));
@@ -199,11 +210,11 @@ export class WhatsappGastoService {
       }
 
       await this.db.execute(sql`
-        insert into whatsapp_gasto_leitura (tenant_id, waba_id, lido_em, tentou_em, erro, moeda, historico_ate, modelos_lidos_em)
+        insert into whatsapp_gasto_leitura (tenant_id, waba_id, lido_em, tentou_em, erro, moeda, historico_ate, modelos_lidos_em, fonte_do_custo)
         values (${tenantId}::uuid, ${wabaId}, ${agora.toISOString()}::timestamptz, ${agora.toISOString()}::timestamptz, null, ${moeda},
-                ${historicoOk ? hoje : null}::date, ${modelosOk ? agora.toISOString() : null}::timestamptz)
+                ${historicoOk ? hoje : null}::date, ${modelosOk ? agora.toISOString() : null}::timestamptz, ${estimado ? 'tabela' : 'meta'})
         on conflict (tenant_id, waba_id) do update set
-          lido_em = excluded.lido_em, tentou_em = excluded.tentou_em, erro = null,
+          lido_em = excluded.lido_em, tentou_em = excluded.tentou_em, erro = null, fonte_do_custo = excluded.fonte_do_custo,
           moeda = coalesce(excluded.moeda, whatsapp_gasto_leitura.moeda),
           historico_ate = coalesce(whatsapp_gasto_leitura.historico_ate, excluded.historico_ate),
           modelos_lidos_em = coalesce(excluded.modelos_lidos_em, whatsapp_gasto_leitura.modelos_lidos_em)`);
@@ -222,14 +233,27 @@ export class WhatsappGastoService {
   }
 
   /** A consulta de preço de um intervalo. Status diferente de 200: erro com a mensagem da Meta. */
+  /**
+   * A consulta de preço de um intervalo. Status diferente de 200: erro com a mensagem da Meta. A conta cobrada por meio de
+   * um parceiro (a Meta não mostra o custo — código 10/2388184): pede só a QUANTIDADE e estima o custo pelo preço publicado
+   * (mig 448; a tela, o alerta e o Mister dizem que é estimativa).
+   */
   private async consultaDePreco(wabaId: string, inicio: number, fim: number, granularidade: 'HALF_HOUR' | 'DAILY') {
-    const campos =
+    const campos = (metricas: string) =>
       `currency,pricing_analytics.start(${Math.floor(inicio)}).end(${Math.floor(fim)}).granularity(${granularidade})` +
-      `.metric_types(COST,VOLUME).dimensions(PRICING_CATEGORY,PRICING_TYPE,PHONE)`;
-    const r = await this.getMeta(`${wabaId}?fields=${encodeURIComponent(campos)}`);
+      `.metric_types(${metricas}).dimensions(PRICING_CATEGORY,PRICING_TYPE,PHONE)`;
+    let r = await this.getMeta(`${wabaId}?fields=${encodeURIComponent(campos('COST,VOLUME'))}`);
+    let estimado = false;
+    if (r.status !== 200 && custoNaoMostrado(r.status, r.json)) {
+      r = await this.getMeta(`${wabaId}?fields=${encodeURIComponent(campos('VOLUME'))}`);
+      estimado = true;
+    }
     if (r.status !== 200) throw new Error(erroDaMeta(r.status, r.json));
-    const moeda = typeof r.json?.currency === 'string' && r.json.currency ? String(r.json.currency) : null;
-    return { moeda, linhas: linhasPorDia(pontosDoPreco(r.json), FUSO_OPERACAO) };
+    const lidas = linhasPorDia(pontosDoPreco(r.json), FUSO_OPERACAO);
+    // Estimado: só a mensagem cobrada custa, pelo preço publicado (em reais — a tabela é a do Brasil).
+    const linhas = estimado ? lidas.map((l) => ({ ...l, custo: custoEstimado(l.categoria, l.tipo, l.mensagens) })) : lidas;
+    const moeda = estimado ? 'BRL' : typeof r.json?.currency === 'string' && r.json.currency ? String(r.json.currency) : null;
+    return { moeda, linhas, estimado };
   }
 
   /** Reescreve os dias `de`…`ate` da conta: apaga e grava, numa transação (o `on conflict` cobre a outra réplica). */
@@ -270,13 +294,21 @@ export class WhatsappGastoService {
       const ini = inicioDoDiaEmSegundos(de);
       for (let i = 0; i < ids.length; i += 10) {
         const lote = ids.slice(i, i + 10);
-        let pag: string | null =
+        const caminho = (metricas: string[]) =>
           `${wabaId}/template_analytics?start=${ini}&end=${fim}&granularity=DAILY` +
-          `&template_ids=${encodeURIComponent(JSON.stringify(lote))}&metric_types=${encodeURIComponent(JSON.stringify(['DELIVERED', 'COST']))}`;
+          `&template_ids=${encodeURIComponent(JSON.stringify(lote))}&metric_types=${encodeURIComponent(JSON.stringify(metricas))}`;
+        let pag: string | null = caminho(['DELIVERED', 'COST']);
+        let estimado = false;
         for (let pagina = 0; pag && pagina < 20; pagina++) {
-          const r = await this.getMeta(pag);
+          let r = await this.getMeta(pag);
+          // A conta cobrada por meio de um parceiro: só as entregues, e o custo estimado pela categoria do modelo (mig 448).
+          if (pagina === 0 && r.status !== 200 && custoNaoMostrado(r.status, r.json)) {
+            r = await this.getMeta(caminho(['DELIVERED']));
+            estimado = true;
+          }
           if (r.status !== 200) throw new Error(erroDaMeta(r.status, r.json));
-          linhas.push(...linhasDeModeloPorDia(pontosDoModelo(r.json), FUSO_OPERACAO));
+          const doLote = linhasDeModeloPorDia(pontosDoModelo(r.json), FUSO_OPERACAO);
+          linhas.push(...(estimado ? doLote.map((l) => ({ ...l, custo: custoEstimado(modelos.get(l.modeloId)?.categoria ?? 'UTILITY', 'REGULAR', l.mensagens) })) : doLote));
           const prox = r.json?.paging?.next ? String(r.json.paging.next) : '';
           pag = prox.startsWith(`${GRAPH}/`) ? prox.slice(GRAPH.length + 1) : null;
         }
@@ -327,6 +359,39 @@ export class WhatsappGastoService {
     return this.resumo(tenantId, q, agora);
   }
 
+  /**
+   * G3 (decisão 6): o custo estimado de uma campanha ANTES de enviar — mensagens × o preço que a própria conta pagou pelo
+   * tipo nos últimos 60 dias (sem histórico, o publicado da Meta). Para o presidente, também o gasto do mês e o alerta que
+   * a campanha faz passar (o gasto é dele — decisão 2). Não bloqueia nada: só informa.
+   */
+  async estimativa(user: { tenantId: string; categoria?: string | null }, q: { mensagens?: unknown; categoria?: unknown }, agora: Date = new Date()) {
+    const mensagens = Number(q?.mensagens);
+    if (!Number.isInteger(mensagens) || mensagens < 0 || mensagens > MENSAGENS_MAX_DA_ESTIMATIVA) throw new BadRequestException('Quantas mensagens a campanha vai mandar?');
+    const grupo = grupoDaCampanha(q?.categoria);
+    if (!grupo) throw new BadRequestException('A estimativa é das campanhas de marketing, de utilidade ou de autenticação.');
+    const tenantId = user.tenantId;
+    if (!(await this.contasDaEmpresa(tenantId)).length) return { oficial: false as const };
+    const hoje = dataNoFuso(agora);
+    const categoria =
+      grupo === 'marketing' ? sql`categoria like 'MARKETING%'` : grupo === 'utilidade' ? sql`categoria = 'UTILITY'` : sql`categoria like 'AUTHENTICATION%'`;
+    const r: any = await this.db.execute(sql`
+      select coalesce(sum(mensagens), 0)::int as mensagens, coalesce(sum(custo), 0)::float8 as custo,
+             (select max(moeda) from whatsapp_gasto_leitura l where l.tenant_id = ${tenantId}::uuid) as moeda,
+             (select bool_or(l.fonte_do_custo = 'tabela') from whatsapp_gasto_leitura l where l.tenant_id = ${tenantId}::uuid) as estimado
+        from whatsapp_gasto
+       where tenant_id = ${tenantId}::uuid and tipo = 'REGULAR' and ${categoria}
+         and dia >= ${somarDias(hoje, -DIAS_DO_PRECO_DA_CONTA)}::date and dia <= ${hoje}::date`);
+    const l = (r?.rows ?? r ?? [])[0] ?? {};
+    // O custo da conta é estimado (a Meta não o mostra — mig 448)? Então o preço é o publicado, não o "pago" (que é a tabela).
+    const { preco, fonte } = precoPorMensagem(grupo, l.estimado ? null : { mensagens: Number(l.mensagens) || 0, custo: Number(l.custo) || 0 });
+    const base = { oficial: true as const, grupo, mensagens, preco, fonte, moeda: (l.moeda as string | null) ?? null, estimativa: arredondar2(mensagens * preco) };
+    if (user.categoria !== 'presidente') return base;
+    const alertas = await this.alertasDoMes(tenantId, hoje);
+    const valores = alertas?.gasto.ligado ? alertas.gasto.valores.map((v) => v.valor) : [];
+    const e = estimativaDaCampanha({ mensagens, preco, custoDoMes: alertas?.custoDoMes ?? 0, valores });
+    return { ...base, mes: { custoDoMes: alertas?.custoDoMes ?? 0, depois: e.depois, alertasLigados: !!alertas?.gasto.ligado, passaDe: e.passaDe, proximo: e.proximo } };
+  }
+
   private async contasDaEmpresa(tenantId: string): Promise<{ wabaId: string }[]> {
     const r: any = await this.db.execute(sql`select distinct waba_id from (${WhatsappGastoService.sqlContas(tenantId)}) x order by waba_id`);
     return (r?.rows ?? r ?? []).map((x: any) => ({ wabaId: String(x.waba_id) }));
@@ -345,7 +410,7 @@ export class WhatsappGastoService {
 
     const nums = await linhasDe(sql`select papel, numero, waba_id from whatsapp_numero
       where tenant_id = ${tenantId}::uuid and provedor = 'cloud' and unidade_id is null order by papel`);
-    const leituras = await linhasDe(sql`select waba_id, lido_em, tentou_em, erro, moeda from whatsapp_gasto_leitura
+    const leituras = await linhasDe(sql`select waba_id, lido_em, tentou_em, erro, moeda, fonte_do_custo from whatsapp_gasto_leitura
       where tenant_id = ${tenantId}::uuid`);
 
     // O filtro de número: só um número que a empresa tem (pelo final) — senão, todos.
@@ -431,6 +496,8 @@ export class WhatsappGastoService {
         tentouEm: dasContas.some((l) => l.tentou_em) ? new Date(Math.max(...dasContas.map((l) => (l.tentou_em ? new Date(l.tentou_em).getTime() : 0)))).toISOString() : null,
         erro: comErro ? { motivo: String(comErro.erro), conta: numeroDaConta(String(comErro.waba_id)) } : null,
         moeda: dasContas.find((l) => l.moeda)?.moeda ?? null,
+        // 'tabela': o custo é estimado pelo preço publicado (a Meta não mostra o custo de uma das contas — mig 448).
+        fonteDoCusto: dasContas.some((l) => l.fonte_do_custo === 'tabela') ? ('tabela' as const) : dasContas.some((l) => l.fonte_do_custo === 'meta') ? ('meta' as const) : null,
         minutos: MINUTOS_ENTRE_LEITURAS,
       },
       total: resumo.total,
