@@ -481,6 +481,25 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
       if (!achadas.length) return ok({ encontrado: false, assunto, assuntosDoGuia: GUIA_DE_USO.map((s) => s.titulo) });
       return ok({ encontrado: true, assunto, secoes: achadas.map((s) => ({ assunto: s.titulo, ondeFica: s.caminho.join(' › '), quemAbre: quemAbre(s), estaPessoaAbre: true, passos: s.passos })) });
     }
+    case 'conversas_anteriores': {
+      // Versão 4: uma conversa guardada da loja de teste (a do iFood de sexta), com o mesmo formato da de verdade.
+      const resposta = 'Sexta, 14/11, o iFood teve 23 pedidos e R$ 1.874,20; o cancelado foi o #188, por falta de entregador.';
+      return ok({
+        busca: typeof en.busca === 'string' ? en.busca.slice(0, 60) : '',
+        dias: 30,
+        achadas: 1,
+        conversas: [
+          {
+            quando: '15/11 às 10:12',
+            pergunta: 'como foi o iFood ontem?',
+            resposta: perfil.verValores ? resposta : resposta.replace('R$ 1.874,20', 'R$ (oculto)'),
+            consultasNaquelaHora: ['vendas do periodo', 'cancelamentos'],
+            ...(perfil.verValores ? { valoresDitos: [1874.2] } : {}),
+          },
+        ],
+        comoUsar: 'É o que foi dito naquele dia. Diga o dia; para o número de agora, consulte de novo.',
+      });
+    }
     case 'anotar_o_que_falta':
       return ok({ anotado: true, siga: 'Responda agora: diga que você ainda não tem acesso a essa informação e, em uma frase, o que você consegue responder hoje.' });
     case 'propor_procedimento':
@@ -558,6 +577,8 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c40', pergunta: 'Quanto vendi hoje? E tem alguma coisa com o estoque baixo?', consultas: ['estoque_em_alerta'], umaDasConsultas: ['resumo_do_dia', 'vendas_do_periodo'], numeros: ['4.321,45'], contem: ['Pão de hambúrguer'] },
   // M3c: o relatório por insumo pela ficha técnica (conversa 15 do protótipo, versão 3).
   { id: 'c41', pergunta: 'Quantas carnes de 56 g foram vendidas hoje?', consultas: ['insumo_vendido'], numeros: ['212'], contem: ['X-Burger'] },
+  // Versão 4: a busca nas conversas anteriores (o padrão do Hermes). Ele procura, diz o dia e não inventa.
+  { id: 'c42', pergunta: 'O que você me disse do iFood naquele dia que teve cancelamento?', consultas: ['conversas_anteriores'], numeros: ['23'], contem: ['14/11|15/11|sexta|sábado'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

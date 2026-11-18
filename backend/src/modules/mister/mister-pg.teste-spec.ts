@@ -1846,6 +1846,67 @@ export function testesDoMisterComPostgres(): void {
       }
     });
 
+    it('versão 4, as conversas anteriores: só as desta pessoa nesta empresa, dos dias pedidos, as que acertam mais palavras primeiro; quem não vê valores recebe sem eles', async () => {
+      const chave = () => `conversas-${MARCA}-${randomUUID()}`;
+      const guardar = (tenant: string, quem: string, pergunta: string, resposta: string | null, ha: string, situacao = 'respondida', ferramentas: unknown[] = []) =>
+        q(
+          `insert into mister_pergunta (tenant_id, colaborador_id, nivel, telefone, chave, pergunta, resposta, situacao, ferramentas, criado_em)
+           values ($1, $2, 'presidente', '5521900000000', $3, $4, $5, $6, $7::jsonb, now() - $8::interval)`,
+          [tenant, quem, chave(), pergunta, resposta, situacao, JSON.stringify(ferramentas), ha],
+        );
+      try {
+        const vendas = [{ nome: 'vendas_do_periodo', ok: true, ms: 1, entrada: {} }, { nome: 'anotar_o_que_falta', ok: true, ms: 1, entrada: { tema: 'outro' } }];
+        await guardar(A, pessoa.ana, 'como foi o iFood ontem?', 'Ontem o iFood teve 23 pedidos e R$ 1.874,20.', '2 days', 'respondida', vendas);
+        await guardar(A, pessoa.ana, 'e o cancelamento do iFood?', 'O cancelado foi o #188, por falta de entregador.', '1 day');
+        await guardar(A, pessoa.ana, 'quanto vendi no balcão?', 'Foram R$ 500,00 no balcão.', '3 hours');
+        await guardar(A, pessoa.ana, 'o iFood há dez dias', 'Dez dias atrás o iFood estava pausado.', '10 days');
+        // Nada disto aparece: velho demais, ainda em resposta, respondida sem texto (parte de uma junta), outra pessoa, outra empresa.
+        await guardar(A, pessoa.ana, 'o iFood há quarenta dias', 'Quarenta dias atrás.', '40 days');
+        await guardar(A, pessoa.ana, 'iFood agora?', null, '1 minute', 'respondendo');
+        await guardar(A, pessoa.ana, 'iFood (parte de uma junta)', null, '2 days');
+        await guardar(A, pessoa.carlos, 'o iFood do Carlos', 'Conversa do Carlos sobre o iFood: R$ 99,90.', '1 day');
+        await guardar(B, pessoa.anaB, 'o iFood da outra empresa', 'Conversa da Pizzaria do Porto sobre o iFood.', '1 day');
+
+        const tel = telefone();
+        await ligar('ana', tel);
+        const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+        const r = await ferramentas.executar(e, 'conversas_anteriores', { busca: 'O que você me disse do iFood e do cancelamento?' });
+        expect(r.ok).toBe(true);
+        expect(r.dados).toMatchObject({ busca: 'ifood cancelamento', dias: 30, achadas: 3 });
+        const conversas = r.dados.conversas as any[];
+        // As duas palavras primeiro; depois, só "ifood", da mais nova para a mais velha.
+        expect(conversas.map((c) => c.pergunta)).toEqual(['e o cancelamento do iFood?', 'como foi o iFood ontem?', 'o iFood há dez dias']);
+        expect(conversas[1]).toEqual({
+          quando: expect.stringMatching(/^\d{2}\/\d{2} às \d{2}:\d{2}$/),
+          pergunta: 'como foi o iFood ontem?',
+          resposta: 'Ontem o iFood teve 23 pedidos e R$ 1.874,20.',
+          // Só as consultas (a anotação do que falta não é consulta), como se diz numa frase.
+          consultasNaquelaHora: ['vendas do periodo'],
+          valoresDitos: [1874.2],
+        });
+        expect(JSON.stringify(r.dados)).not.toMatch(/Carlos|Pizzaria|quarenta|agora\?|parte de uma junta/);
+        // Os dias pedidos: com 5, a de dez dias fica de fora.
+        const cinco = await ferramentas.executar(e, 'conversas_anteriores', { busca: 'ifood', dias: 5 });
+        expect((cinco.dados.conversas as any[]).map((c) => c.pergunta)).toEqual(['e o cancelamento do iFood?', 'como foi o iFood ontem?']);
+        // Sem palavra de assunto: pede as palavras (não varre tudo).
+        expect(await ferramentas.executar(e, 'conversas_anteriores', { busca: 'o que você me disse ontem?' })).toEqual({ ok: false, dados: { erro: 'Diga as palavras do assunto (por exemplo: iFood, caixa, carne).' } });
+        // Nada achado: diz que não achou e que não se inventa lembrança.
+        const nada = await ferramentas.executar(e, 'conversas_anteriores', { busca: 'sobremesa' });
+        expect(nada.dados).toMatchObject({ achadas: 0, conversas: [] });
+        expect(String(nada.dados.comoUsar)).toContain('não invente lembrança');
+
+        // O gerente (perfil padrão, sem valores em reais) vê só a conversa DELE, sem os valores.
+        const telC = telefone();
+        await ligar('carlos', telC, A, 'gerente');
+        const doCarlos = await ferramentas.executar((await ferramentas.escopo(A, pessoa.carlos, telC))!, 'conversas_anteriores', { busca: 'iFood' });
+        expect(doCarlos.dados.conversas).toEqual([
+          { quando: expect.any(String), pergunta: 'o iFood do Carlos', resposta: 'Conversa do Carlos sobre o iFood: R$ (oculto).' },
+        ]);
+      } finally {
+        await q(`delete from mister_pergunta where chave like $1`, [`conversas-${MARCA}-%`]);
+      }
+    });
+
     it('equipe do dia: a escala, o ponto e quem está escalado sem ponto — só com as permissões das duas telas', async () => {
       const tel = telefone();
       await ligar('ana', tel);
@@ -3632,6 +3693,7 @@ export function testesDoMisterComPostgres(): void {
         c28: { periodo: 'esta_semana' },
         c37: { ordem: 'lucro' },
         c41: { insumo: 'carne 56 g', periodo: 'hoje' },
+        c42: { busca: 'iFood cancelamento' },
       };
       const EXTRAS: Record<string, string[]> = { c37: ['produtos_mais_vendidos'], c38: ['servidor_e_incidentes'] };
       const entradaDe = (c: CasoDaAvaliacao, nome: string): Record<string, unknown> =>
@@ -3684,18 +3746,18 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_avaliacao`);
       });
 
-      it('a rodada inteira com as respostas certas: 41 de 41, o andamento, o custo, a lista e as perguntas na ordem', async () => {
+      it('a rodada inteira com as respostas certas: 42 de 42, o andamento, o custo, a lista e as perguntas na ordem', async () => {
         const ia = iaDeMentira();
         const servico = new MisterAvaliacaoService(db, ia as any);
         const r = await servico.rodar('Rita da DMS');
-        expect(r.total).toBe(41);
+        expect(r.total).toBe(42);
         const fim = await terminar(r.id);
-        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 41, acertos: 41, motivo: null });
+        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 42, acertos: 42, motivo: null });
         // O mesmo laço do agente: as instruções e as ferramentas de verdade, e o recurso da avaliação.
         expect(ia.pedidos.every((p) => p.recurso === 'mister_avaliacao' && p.tools === FERRAMENTAS && p.system[0].text === INSTRUCOES_DO_MISTER)).toBe(true);
         const lista = await servico.lista();
-        expect(lista).toMatchObject({ disponivel: true, total: 41, chaveDaDistribuicao: true });
-        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 41, acertos: 41, falhas: 0, oQueFalhou: [] });
+        expect(lista).toMatchObject({ disponivel: true, total: 42, chaveDaDistribuicao: true });
+        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 42, acertos: 42, falhas: 0, oQueFalhou: [] });
         // O custo pela tabela de preços do modelo, sobre os tokens somados de todas as chamadas.
         expect(lista.rodadas[0].custoUsd).toBeGreaterThan(0);
         const [tok] = await q(`select tokens_entrada, tokens_cache_leitura, tokens_saida from mister_avaliacao where id = $1`, [r.id]);
@@ -3715,7 +3777,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
         expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
         const r = await servico.rodar('Rita');
-        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 40 });
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 41 });
         const [velha] = await q(`select situacao, motivo from mister_avaliacao where id = $1`, [parada]);
         expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
         const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);

@@ -1141,7 +1141,16 @@ conversa"): a memória entra no bloco da conversa, sem quebrar o cache.
   filtro de saída passa pelo mesmo formatador do atendente (título em negrito, tabela em lista; o link do markdown deixa
   só o rótulo). A **reação**: a linha `REACAO:` sai do texto e o número do Mister reage à mensagem da pessoa pela API
   oficial (o corpo da doc da Meta, igual ao das lojas); quando a reação é a resposta inteira e não dá para reagir (conexão
-  por QR, sem o id da mensagem, a Meta recusou), o emoji vai como texto. Na memória fica o emoji.
+  por QR, sem o id da mensagem, a Meta recusou), o emoji vai como texto. Na memória fica o emoji. **No ar (#1136).**
+- **Entrega 1, parte 3 — as conversas anteriores (sem migration):** a consulta nova `conversas_anteriores` (o padrão do
+  Hermes de procurar nas conversas antigas) lê o texto que `mister_pergunta` já guarda por 30 dias: só as conversas
+  DESTA pessoa NESTA empresa (a trava é o escopo do servidor), respondidas, dos dias pedidos (1 a 30), pelas palavras do
+  assunto (sem acento, sem as que não dizem o assunto, até 5, curinga escapado) — as que acertam mais palavras primeiro e,
+  empatadas, as mais novas; até 5, com o dia e a hora, a pergunta, a resposta e as consultas daquela hora. Quem não vê
+  valores hoje recebe o texto sem os valores em reais; os valores ditos voltam à parte, para o filtro de saída não acusar a
+  lembrança de "valor sem origem". Nas instruções: chamar quando a pessoa fala de algo conversado antes, dizer o dia e
+  consultar de novo para o número de agora. A avaliação de regressão ganhou a pergunta 42 ("o que você me disse do iFood
+  naquele dia…"). Com ela, a **entrega 1 está completa**; a 2 (perfil e memória) e a 3 (avisos) pedem protótipo.
 
 ## 5. O que depende do dono
 

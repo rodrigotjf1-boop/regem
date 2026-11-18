@@ -36,7 +36,39 @@ import {
   TEMAS_DO_QUE_FALTA,
   ehConsulta,
   temaDoQueFalta,
+  DIAS_DAS_CONVERSAS,
+  cortarTexto,
+  diasDaBusca,
+  padraoDaPalavra,
+  palavrasDaBusca,
+  semValoresNoTexto,
 } from './mister-agente.regras';
+
+describe('Mister — as conversas anteriores (versão 4, o padrão do Hermes)', () => {
+  it('as palavras da busca: sem acento e caixa, sem as que não dizem o assunto, de 3 letras em diante, até 5, sem repetir', () => {
+    expect(palavrasDaBusca('O que você me disse do iFood semana passada?')).toEqual(['ifood']);
+    expect(palavrasDaBusca('Cancelamento CANCELAMENTO no caixa, carne de 56 g')).toEqual(['cancelamento', 'caixa', 'carne']);
+    expect(palavrasDaBusca('pão hambúrguer açaí')).toEqual(['pao', 'hamburguer', 'acai']);
+    expect(palavrasDaBusca('um dois três quatro cinco seis sete')).toEqual(['dois', 'tres', 'quatro', 'cinco', 'seis']);
+    expect(palavrasDaBusca('')).toEqual([]);
+    expect(palavrasDaBusca(null)).toEqual([]);
+  });
+  it('o curinga da pessoa não vai para o banco: % e _ escapados no padrão', () => {
+    expect(padraoDaPalavra('ifood')).toBe('%ifood%');
+    expect(padraoDaPalavra('50%_off\\x')).toBe('%50\\%\\_off\\\\x%');
+  });
+  it('os dias: entre 1 e 30; fora disso (ou sem pedido), 30', () => {
+    expect(diasDaBusca(7)).toBe(7);
+    expect(diasDaBusca('3')).toBe(3);
+    for (const d of [0, 31, -2, 'abc', undefined, null, 2.9e9]) expect(diasDaBusca(d)).toBe(DIAS_DAS_CONVERSAS);
+    expect(diasDaBusca(2.7)).toBe(2);
+  });
+  it('quem não vê valores hoje recebe o texto antigo sem os valores em reais; o corte põe "…"', () => {
+    expect(semValoresNoTexto('O iFood fez R$ 1.874,20 e o balcão R$87; foram 23 pedidos.')).toBe('O iFood fez R$ (oculto) e o balcão R$ (oculto); foram 23 pedidos.');
+    expect(cortarTexto('abcdef', 4)).toBe('abc…');
+    expect(cortarTexto('  abc  ', 4)).toBe('abc');
+  });
+});
 
 // As regras puras do agente do Mister (mig 418): o período, a loja pedida, o que o modelo recebe e o filtro de saída.
 
@@ -193,6 +225,7 @@ describe('Mister — o que o modelo recebe', () => {
       'conciliacao_do_periodo',
       'vencimentos_e_versoes',
       'como_usar_o_regem',
+      'conversas_anteriores',
       'anotar_o_que_falta',
       'propor_procedimento',
       'mandar_link',
