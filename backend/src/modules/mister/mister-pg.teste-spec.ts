@@ -4031,6 +4031,80 @@ export function testesDoMisterComPostgres(): void {
       expect(JSON.stringify(fechado.entregas)).not.toContain(tel);
     });
 
+    it('versão 4, M4c: o aviso escrito pelo Mister — só com o grupo ligado; o texto conferido no perfil da empresa; o fixo quando a IA inventa número ou falha; fora das 24 h, o modelo sem chamar a IA', async () => {
+      process.env.ANTHROPIC_API_KEY = 'sk-ant-api03-da-distribuicao';
+      const conversaCfg = new MisterConversaConfigService(db, auditoria);
+      const escritor = new AvisosDeTeste(db, avisosConfig, numero, modulos, { guardarEMostrar: async () => ({ aviso: {}, situacao: 'novo' }) } as any, { emit: () => true } as any, entrada, propostas, undefined, ia, conversaCfg);
+      const tel = telefone();
+      await ligar('carlos', tel, A, 'gerente');
+      await janelaAberta('carlos');
+      const FIXO = '⏰ Sem solução há 6 min. ⚠️ Loja Centro · impressora Cozinha parada.\n\nConfira se ela está ligada, com papel e no cabo ou na rede.';
+      /** Abre o aviso da impressora (vai à tela), passa 6 min e escala ao gerente pelo WhatsApp: devolve as entregas da escalada. */
+      const escalar = async (chave: string) => {
+        escritor.incidentes = [incidente('impressora_parada', chave)];
+        await escritor.volta([A]);
+        await q(`update mister_aviso set aberto_em = now() - interval '6 minutes 10 seconds' where tenant_id = $1 and situacao = 'aberto' and chave = $2`, [A, `vigia:impressora_parada:${chave}`]);
+        numero.pedidos.length = 0;
+        expect(await escritor.volta([A])).toMatchObject({ escalados: 1 });
+        const [a] = await q(`select entregas from mister_aviso where tenant_id = $1 and situacao = 'aberto' and chave = $2`, [A, `vigia:impressora_parada:${chave}`]);
+        return a.entregas.filter((e: any) => e.fase === 'escalou');
+      };
+      try {
+        // Nasce desligado: o texto fixo de sempre, sem chamar a IA.
+        let e = await escalar(`m4c-1:${MARCA}`);
+        expect(numero.enviadas).toEqual([{ para: tel, texto: FIXO, botoes: [] }]);
+        expect(e).toEqual([expect.objectContaining({ destino: 'gerente', ok: true, final: tel.slice(-4) })]);
+        expect(e[0].escrito).toBeUndefined();
+        expect(e[0].reserva).toBeUndefined();
+        expect(ia.pedidos).toHaveLength(0);
+
+        // Ligado o grupo "Na loja" (com o perfil Objetivo): a IA escreve com os fatos do aviso e o texto conferido vai.
+        await conversaCfg.salvar(usuario('ana'), { avisosEscritos: ['loja'], perfil: 'objetivo' });
+        const ESCRITO = '⏰ *Loja Centro*: a impressora Cozinha continua parada há 6 min, sem solução. Confira se ela está ligada, com papel e no cabo ou na rede.';
+        ia.roteiro = [falar(ESCRITO)];
+        e = await escalar(`m4c-2:${MARCA}`);
+        expect(numero.enviadas).toEqual([{ para: tel, texto: ESCRITO, botoes: [] }]);
+        expect(e).toEqual([expect.objectContaining({ destino: 'gerente', ok: true, escrito: true })]);
+        expect(ia.pedidos).toHaveLength(1);
+        expect(ia.pedidos[0].system).toContain('Escreva UM aviso');
+        expect(ia.pedidos[0].system).toContain('OBJETIVO');
+        const ctx = JSON.parse(ia.pedidos[0].messages[0].content);
+        expect(ctx).toMatchObject({ tipo: 'impressora', titulo: 'Loja Centro · impressora Cozinha parada', fase: 'escalou', minutosAberto: 6, detalhe: 'Confira se ela está ligada, com papel e no cabo ou na rede.' });
+        // Nada de telefone nem de id no que vai à IA; o gasto fica no medidor com o recurso próprio.
+        expect(JSON.stringify(ia.pedidos[0])).not.toContain(tel);
+        expect(JSON.stringify(ia.pedidos[0])).not.toContain(A);
+        expect((await q(`select recurso from ia_uso_dia where tenant_id = $1`, [A])).map((l) => l.recurso)).toContain('mister_aviso_escrito');
+
+        // A IA pôs um número que o aviso não trouxe: vai o texto fixo, com o motivo na trilha.
+        ia.pedidos.length = 0;
+        ia.roteiro = [falar('⏰ Loja Centro: a impressora Cozinha parou há 6 min e 3 pedidos estão esperando.')];
+        e = await escalar(`m4c-3:${MARCA}`);
+        expect(numero.enviadas).toEqual([{ para: tel, texto: FIXO, botoes: [] }]);
+        expect(e).toEqual([expect.objectContaining({ ok: true, reserva: 'numero' })]);
+
+        // O provedor caiu: o texto fixo, e o aviso não deixa de sair.
+        ia.roteiro = [{ erro: Object.assign(new Error('fora do ar'), { status: 529 }) }];
+        e = await escalar(`m4c-4:${MARCA}`);
+        expect(numero.enviadas).toEqual([{ para: tel, texto: FIXO, botoes: [] }]);
+        expect(e).toEqual([expect.objectContaining({ ok: true, reserva: 'falhou' })]);
+
+        // Fora das 24 horas: o modelo aprovado, como sempre — a IA nem é chamada.
+        await q(`update mister_vinculo set ultima_entrada_em = now() - interval '2 days' where colaborador_id = $1`, [pessoa.carlos]);
+        ia.pedidos.length = 0;
+        ia.roteiro = [falar(ESCRITO)];
+        e = await escalar(`m4c-5:${MARCA}`);
+        expect(numero.enviadas).toHaveLength(1);
+        expect(numero.enviadas[0].texto).toMatch(/^modelo:/);
+        expect(e).toEqual([expect.objectContaining({ ok: true, via: 'modelo' })]);
+        expect(ia.pedidos).toHaveLength(0);
+      } finally {
+        await conversaCfg.salvar(usuario('ana'), { avisosEscritos: [], perfil: 'hoje' });
+        escritor.incidentes = [];
+        await escritor.volta([A]);
+        ia.roteiro = [];
+      }
+    });
+
     it('o histórico (F1.4 parte B): os abertos sempre, os resolvidos pelo período, a trilha com os 4 dígitos; e a lista do suporte só com o destino da DMS, de todas as empresas', async () => {
       const historico = new MisterAvisosHistoricoService(db);
       const aviso = (tenant: string, o: { tipo: string; chave: string; titulo: string; situacao?: string; abertoHa: string; resolvidoHa?: string; entregas: any[]; fechou?: string }) =>

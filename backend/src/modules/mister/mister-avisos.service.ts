@@ -9,7 +9,7 @@ import { ehServidorLocal } from '../../common/modo';
 import { MAX_TENTATIVAS_CONSULTA_DA_NOTA } from '../fiscal/fiscal.service';
 import { AlertaKdsService } from '../kds/alerta-kds.service';
 import { ModuloService } from '../modulo/modulo.service';
-import { PREPARO_DA_ENCOMENDA_MIN } from './mister-agente.regras';
+import { PREPARO_DA_ENCOMENDA_MIN, linhasDoJeito } from './mister-agente.regras';
 import { FUSO_SQL } from '../../common/fuso-sql';
 import { dataNoFuso, somarDias } from '../../common/data';
 import { MisterAvisosConfigService } from './mister-avisos-config.service';
@@ -65,6 +65,23 @@ import { pessoaVale } from './mister-vinculo.service';
 import { PontoService } from '../ponto/ponto.service';
 import { FechamentoDoMes, botoesDoPontoDoMes, competenciaDoAviso, naJanelaDoPontoDoMes, nomeDoMes, nomeDoPdfDoPonto, textoDoPontoDoMes } from './mister-ponto-do-mes';
 import { ChatSemResposta, chatsDoIfoodSemResposta } from '../ponte-chat/chat-sem-resposta';
+import { FalhaDaIa, IaEmpresaService } from '../ia/ia-empresa.service';
+import { MisterConversaConfigService } from './mister-conversa-config.service';
+import { modeloDasPerguntas } from './mister-laco';
+import {
+  MotivoDaReserva,
+  PRAZO_DO_AVISO_ESCRITO_MS,
+  RECURSO_DO_AVISO_ESCRITO,
+  SAIDA_DO_AVISO_ESCRITO,
+  OUTROS_ABERTOS_MAX,
+  conferirAvisoEscrito,
+  contextoDoAviso,
+  deveEscrever,
+  instrucoesDoAvisoEscrito,
+} from './mister-avisos-escritos';
+
+/** O texto que vai pelo WhatsApp: o escrito pelo Mister (M4c) ou o fixo, com o motivo da reserva. */
+type TextoDoWhatsapp = { texto: string; escrito?: true; reserva?: MotivoDaReserva };
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -115,6 +132,10 @@ export interface Entrega {
   casoId?: string;
   /** Saiu pelo modelo aprovado da Meta (fora da janela de 24 h): o texto inteiro vai quando a pessoa toca no botão. */
   via?: 'modelo';
+  /** Versão 4, M4c: o texto saiu escrito pelo Mister (a IA na chave da empresa). */
+  escrito?: true;
+  /** M4c: o grupo estava ligado, mas foi o texto fixo — e por quê (sem IA, falhou, número que o aviso não trouxe…). */
+  reserva?: MotivoDaReserva;
 }
 
 interface AvisoAberto {
@@ -158,6 +179,10 @@ export class MisterAvisosService implements OnModuleInit {
     @Optional() private readonly propostas?: MisterPropostasService,
     // M3e parte 2: o espelho do ponto do mês em PDF (o MESMO da tela de Gerenciamento de ponto).
     @Optional() private readonly ponto?: PontoService,
+    // Versão 4, M4c: os avisos escritos pelo Mister (a IA da empresa) e o ajuste por grupo, o perfil e o jeito (mig 447).
+    // Sem eles, o texto fixo de sempre.
+    @Optional() private readonly ia?: IaEmpresaService,
+    @Optional() private readonly conversa?: MisterConversaConfigService,
   ) {}
 
   /** O toque em "Ver o que fazer" chega pela entrada do WhatsApp, que mora no módulo de baixo: ela chama este serviço. */
@@ -904,8 +929,12 @@ export class MisterAvisosService implements OnModuleInit {
           : textoDoAviso(a);
 
     // O WhatsApp: cada telefone recebe uma vez, mesmo que esteja em "presidente" e em "gerente".
+    // M4c: ao abrir e ao escalar, o texto pode sair escrito pelo Mister — uma vez por aviso e fase, e só quando alguém
+    // está dentro das 24 horas (fora delas vai o modelo aprovado, e a IA nem é chamada).
     const pessoas = destinos.filter((d): d is 'presidente' | 'gerente' => d === 'presidente' || d === 'gerente');
-    if (pessoas.length) feitas.push(...(await this.pelosWhatsapps(a, pessoas, texto, fase, em, agora)));
+    let escrito: Promise<TextoDoWhatsapp> | null = null;
+    const escrever = fase === 'abriu' || fase === 'escalou' ? () => (escrito ??= this.escrever(a, fase, agora, texto)) : null;
+    if (pessoas.length) feitas.push(...(await this.pelosWhatsapps(a, pessoas, texto, fase, em, agora, escrever)));
 
     // O lembrete é só pelo WhatsApp: o KDS, a tela e o Atendimento já mostram o aviso aberto.
     for (const d of fase === 'lembrou' ? [] : destinos) {
@@ -920,8 +949,66 @@ export class MisterAvisosService implements OnModuleInit {
     return feitas.filter((f) => f.ok).length;
   }
 
+  /**
+   * Versão 4, M4c — o aviso escrito pelo Mister. Só com o grupo ligado pela empresa (Mister › "Jeito e memória"). A regra
+   * já descobriu o problema; a IA (na chave da empresa) só escreve, com os fatos do aviso, os outros abertos e o perfil e o
+   * jeito da empresa. Sem IA, passou de 10 s, ou o texto não passa na conferência (número que o aviso não trouxe, link, o
+   * pedido ou a loja diferentes do título): o texto fixo. Nunca lança.
+   */
+  private async escrever(a: AvisoAberto, fase: 'abriu' | 'escalou', agora: Date, fixo: string): Promise<TextoDoWhatsapp> {
+    if (!this.ia || !this.conversa) return { texto: fixo, reserva: 'desligado' };
+    try {
+      const c = await this.conversa.daEmpresa(a.tenantId);
+      if (!deveEscrever(a.tipo, fase, c.avisosEscritos)) return { texto: fixo, reserva: 'desligado' };
+      // Este aviso (primeiro) e os outros abertos da empresa, com o instante em ISO lido no próprio SQL (LIC-378: no
+      // `db.execute` a data chega como texto no formato da sessão).
+      const abertos = linhas(
+        await this.db.execute(sql`
+          select id::text as id, titulo, to_char(aberto_em at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as "abertoEm"
+            from mister_aviso
+           where tenant_id = ${a.tenantId}::uuid and situacao = 'aberto'
+           order by (id = ${a.id}::uuid) desc, aberto_em desc
+           limit ${OUTROS_ABERTOS_MAX + 1}`),
+      );
+      const este = abertos[0]?.id === a.id ? abertos[0] : null;
+      const outros = abertos.filter((o) => o.id !== a.id).map((o) => ({ titulo: String(o.titulo), abertoEm: String(o.abertoEm) }));
+      const parametro = Number((a.dados as any)?.parametro) || null;
+      const ctx = contextoDoAviso({ ...a, abertoEm: este ? String(este.abertoEm) : a.abertoEm }, fase, agora, parametro, outros);
+      const r = await this.ia.pedir(a.tenantId, {
+        recurso: RECURSO_DO_AVISO_ESCRITO,
+        modelo: modeloDasPerguntas(),
+        maxTokens: SAIDA_DO_AVISO_ESCRITO,
+        system: instrucoesDoAvisoEscrito(linhasDoJeito(c.perfil, c.jeito)),
+        messages: [{ role: 'user', content: JSON.stringify(ctx) }],
+        prazoMs: PRAZO_DO_AVISO_ESCRITO_MS,
+      });
+      if (r.recusou) return { texto: fixo, reserva: 'vazio' };
+      const conferido = conferirAvisoEscrito(r.texto, ctx);
+      if ('motivo' in conferido) {
+        this.logger.warn(`aviso ${a.id} (${a.tipo}): o texto escrito não passou na conferência (${conferido.motivo}) — foi o texto fixo`);
+        return { texto: fixo, reserva: conferido.motivo };
+      }
+      return { texto: conferido.texto, escrito: true };
+    } catch (e: any) {
+      if (e instanceof FalhaDaIa) {
+        const semIa = e.motivo === 'sem_chave' || e.motivo === 'sem_credito' || e.motivo === 'teto_atingido' || e.motivo === 'chave_recusada';
+        return { texto: fixo, reserva: semIa ? 'sem_ia' : 'falhou' };
+      }
+      this.logger.warn(`aviso ${a.id} (${a.tipo}): o texto escrito falhou — foi o texto fixo (${String(e?.message ?? e).slice(0, 200)})`);
+      return { texto: fixo, reserva: 'falhou' };
+    }
+  }
+
   /** Quem recebe pelo WhatsApp: os ligados que ainda valem e não pararam os avisos. Sem gerente ligado na loja, vai ao presidente. */
-  private async pelosWhatsapps(a: AvisoAberto, papeis: ('presidente' | 'gerente')[], texto: string, fase: Fase, em: string, agora: Date): Promise<Entrega[]> {
+  private async pelosWhatsapps(
+    a: AvisoAberto,
+    papeis: ('presidente' | 'gerente')[],
+    fixo: string,
+    fase: Fase,
+    em: string,
+    agora: Date,
+    escrever: (() => Promise<TextoDoWhatsapp>) | null = null,
+  ): Promise<Entrega[]> {
     const ligados = linhas(
       await this.db.execute(sql`
         select g.telefone, g.ultima_entrada_em as "ultimaEntrada", coalesce(p.nivel, f.categoria::text) as nivel, c.unidade_id::text as "unidadeId",
@@ -972,6 +1059,9 @@ export class MisterAvisosService implements OnModuleInit {
         continue;
       }
       try {
+        // M4c: o texto escrito pelo Mister (ou o fixo, com o motivo) — o mesmo para todos que recebem nesta fase.
+        const t: TextoDoWhatsapp = escrever ? await escrever() : { texto: fixo };
+        const texto = t.texto;
         const comProposta = proposta && l.nivel === 'presidente';
         // O boleto perto de vencer (M3a parte 4): o presidente recebe o "Já paguei".
         const doBoleto = a.tipo === 'boleto_vencendo' && l.nivel === 'presidente' ? botoesDoAvisoDoBoleto((a.dados as any)?.documentoId) : [];
@@ -986,7 +1076,15 @@ export class MisterAvisosService implements OnModuleInit {
         const pix = (a.dados as any)?.pix;
         if (doBoleto.length && pix) await this.numero.enviar(l.telefone, { texto: String(pix) }).catch((e: any) => this.logger.warn(`o Pix do aviso ${a.id} não saiu — ${e?.message ?? e}`));
         if (doPonto.length) await this.mandarPdfDoPonto(a as any, l.telefone);
-        fora.push({ destino, fase, em, ok: true, final, ...(motivo ? { motivo } : {}) });
+        fora.push({
+          destino,
+          fase,
+          em,
+          ok: true,
+          final,
+          ...(motivo ? { motivo } : {}),
+          ...(t.escrito ? { escrito: true as const } : t.reserva && t.reserva !== 'desligado' ? { reserva: t.reserva } : {}),
+        });
       } catch (e: any) {
         const m = e instanceof FalhaDoEnvioDoMister ? e.motivo : 'erro';
         fora.push({ destino, fase, em, ok: false, final, motivo: m });

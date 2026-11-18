@@ -1198,6 +1198,18 @@ conversa"): a memória entra no bloco da conversa, sem quebrar o cache.
   diálogo. A avaliação de regressão ganhou a pergunta 44 ("lembra que aqui a gente chama o X-Burger Smash só de
   smash" → chama `lembrar` e diz o que anotou; a 43 é a do gasto do WhatsApp, G3). Fica para depois: o filtro de "valor
   sem origem" aceitar o valor arredondado quando a pessoa pediu sem centavos (o protótipo cita; só com o caso real).
+  **No ar (#1147).**
+- **M4c — os avisos escritos pelo Mister (sem migration; a coluna `avisos_escritos` da 447):** um ajuste por grupo em
+  Mister › "Jeito e memória" › Avisos ("Na loja", "Servidor", "Fiscal", "O próprio Mister"), nascendo desligado;
+  "Documentos e dinheiro" e "Pessoas e ponto" ficam no texto fixo (têm botões e PDF). A regra continua descobrindo o
+  problema sem IA; ao ABRIR e ao ESCALAR, com o grupo ligado e alguém dentro das 24 horas, a IA (na chave da empresa,
+  recurso `mister_aviso_escrito`, até 10 s) escreve o texto com os fatos do aviso — o título, o detalhe, há quanto tempo,
+  o tempo da loja, até 5 outros avisos abertos — no perfil e no jeito da empresa (M4a). Uma escrita por aviso e fase,
+  a mesma para todos que recebem. A conferência (`mister-avisos-escritos.ts`): nenhum número que o aviso não trouxe,
+  nenhum link, o pedido ("#284", "nº 1234") e a loja como estão no título; não passou, sem IA, sem crédito ou a IA
+  falhou: vai o texto fixo de sempre, com o motivo na trilha (`reserva`); o escrito fica marcado (`escrito`). Fora das 24
+  horas vai o modelo aprovado e a IA nem é chamada. O lembrete e o desfecho ficam fixos. Nada de telefone nem de id no que
+  vai à IA (ERR-524: o `aberto_em` do `db.execute` chega como texto — lido como ISO no SQL).
 
 ## 5. O que depende do dono
 
