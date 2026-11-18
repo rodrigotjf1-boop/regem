@@ -2510,6 +2510,8 @@ const SO_NUVEM = new Set([
   'mister_conversa_config',
   // O de-para dos produtos da nota do fornecedor para os insumos (mig 441, @cloud-only): a memória da nota por foto.
   'mister_de_para',
+  // Os links para encaminhar um relatório a quem não tem usuário (mig 443, @cloud-only): a foto do relatório, só leitura.
+  'mister_link_publico',
 ]);
 
 // LEGADO SEM USO: tabelas criadas nas migrations de fundação (002/003) para recursos que

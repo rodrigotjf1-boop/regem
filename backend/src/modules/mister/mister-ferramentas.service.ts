@@ -43,6 +43,8 @@ import { PlanoDoPdfDoInsumo, gerarPdfDoInsumo, nomeDoPdfDoInsumo, planoDoPdfDoIn
 import { GraficoDaConversa, valeAImagem } from './grafico/grafico-do-insumo';
 import { MisterNumeroService } from './mister-numero.service';
 import { MisterDocumentosService } from './mister-documentos.service';
+import { MisterLinkPublicoService } from './mister-link-publico.service';
+import { TEXTOS_DO_LINK_PUBLICO, VALIDADE_DO_LINK_DIAS, diaMesDe } from './mister-link-publico';
 import { dentroDaJanelaDoWhatsapp } from './mister-avisos.regras';
 import { ASSUNTOS_DO_LINK, AssuntoDoLink, TELA_DO_ASSUNTO, acharPessoa, enderecoDoApp, mensagemDoLink, resumoDaContagem } from './link-de-conferencia';
 import { MisterPropostasService, PropostaPendente } from './mister-propostas.service';
@@ -140,6 +142,11 @@ export interface ResultadoDaFerramenta {
   botoes?: { id: string; titulo: string }[];
   /** M3d: a imagem da tela do "como faço" (o endereço público do PNG dos roteiros) — NÃO vai ao modelo; vai antes do texto. */
   imagens?: { url: string; legenda: string }[];
+  /**
+   * M3c (mig 443): o link para encaminhar a quem não tem usuário — NÃO vai ao modelo (o endereço leva o código que abre
+   * o relatório sem login): o agente o escreve no fim da resposta.
+   */
+  linkPublico?: { url: string; vence: Date };
 }
 
 const reais = (v: unknown): number | null => {
@@ -269,6 +276,8 @@ export class MisterFerramentasService {
     @Optional() private readonly numero?: MisterNumeroService,
     // M3g: corrigir o que o Mister lançou (o vencimento do boleto) é do serviço dos documentos.
     @Optional() private readonly documentos?: MisterDocumentosService,
+    // M3c (mig 443): o link para encaminhar a quem não tem usuário. Sem ele (ou desligado), o Mister oferece o PDF.
+    @Optional() private readonly linksPublicos?: MisterLinkPublicoService,
   ) {}
 
   // ───────────────────────────── de quem é a conversa ─────────────────────────────
@@ -448,7 +457,45 @@ export class MisterFerramentasService {
         return this.mandarLink(e, en, loja);
       case 'corrigir_documento':
         return this.corrigirDocumento(e, en);
+      case 'link_para_encaminhar':
+        return this.linkParaEncaminhar(e, en, loja);
+      case 'cancelar_links':
+        return this.cancelarLinks(e);
     }
+  }
+
+  /**
+   * M3c (mig 443) — o link para encaminhar a quem NÃO tem usuário (decisão 7 da versão 3 do protótipo): só o presidente,
+   * só quando ele pede. O relatório é lido no escopo dele, pela MESMA leitura da consulta, e vira uma FOTO (o plano do
+   * PDF) que abre sem login por 7 dias. O endereço não volta ao modelo: o agente o escreve no fim da resposta.
+   */
+  private async linkParaEncaminhar(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    if (e.nivel !== 'presidente') return recusa(TEXTOS_DO_LINK_PUBLICO.soPresidente);
+    if (!this.linksPublicos?.ligado()) return recusa(TEXTOS_DO_LINK_PUBLICO.desligado);
+    const lido = await this.relatorioDaConversa(e, en, loja);
+    if ('parou' in lido) return lido.parou;
+    if (lido.r.total <= 0) return recusa(TEXTOS_DO_LINK_PUBLICO.semVenda);
+    const plano = planoDoPdfDoInsumo(lido.r, { empresa: e.empresa, pedidoPor: e.nome, geradoEm: new Date().toISOString() });
+    const criado = await this.linksPublicos.criar(e, { unidadeId: loja.atual, titulo: plano.titulo, nomeDoPdf: nomeDoPdfDoInsumo(lido.r, lido.p.de, lido.p.ate), plano });
+    if ('erro' in criado) return recusa(criado.erro);
+    return {
+      ok: true,
+      dados: {
+        relatorio: plano.titulo,
+        loja: lido.r.loja,
+        valeAte: diaMesDe(criado.vence),
+        siga: `O link vai sozinho no fim da sua resposta, pelo Regem: não escreva link. Diga em poucas linhas de que é o relatório, que o link é só para ler, que vale ${VALIDADE_DO_LINK_DIAS} dias (até a data de "valeAte"), que quem tiver o link vê o relatório como está agora (ele não atualiza) e que dá para cancelar pedindo a você.`,
+      },
+      linkPublico: criado,
+    };
+  }
+
+  /** M3c (mig 443) — o presidente cancela os links para encaminhar que ainda valem na empresa. */
+  private async cancelarLinks(e: EscopoDoMister): Promise<ResultadoDaFerramenta> {
+    if (e.nivel !== 'presidente') return recusa(TEXTOS_DO_LINK_PUBLICO.soPresidente);
+    if (!this.linksPublicos) return recusa('Não consigo cancelar agora.');
+    const cancelados = await this.linksPublicos.cancelarTodos(e);
+    return { ok: true, dados: { cancelados, siga: cancelados ? 'Diga quantos links foram cancelados e que eles já não abrem.' : 'Diga que não havia link para encaminhar valendo nesta empresa.' } };
   }
 
   /** M3g — corrigir o vencimento do boleto que o Mister lançou (conversa 22). O "Desfazer" vai como botão na resposta. */
@@ -1314,29 +1361,9 @@ export class MisterFerramentasService {
    * anteriores até a mesma hora); mais de um → por dia.
    */
   private async insumoVendido(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
-    if (!this.pode(e, 'estoque') && !this.pode(e, 'relatorios_vendas')) return recusa(SEM_PERMISSAO);
-    const hoje = hojeISO();
-    const p = periodoDaFerramenta(en, hoje, 'hoje');
-    if ('erro' in p) return recusa(p.erro);
-    // M3c.2: "compara com outubro" — o outro período, pelas duas datas.
-    let p2: { de: string; ate: string; rotulo: string } | null = null;
-    if (en.compararDe !== undefined || en.compararAte !== undefined) {
-      const c = periodoDaFerramenta({ de: en.compararDe, ate: en.compararAte ?? en.compararDe }, hoje);
-      if ('erro' in c) return recusa(`O período da comparação: ${c.erro}`);
-      p2 = c;
-    }
-    const insumos = linhas(
-      await this.db.execute(sql`
-        select id::text as id, nome, nome_comercial as "nomeComercial", unidade_medida as "unidade" from item_estoque
-         where tenant_id = ${e.tenantId}::uuid and deleted_at is null
-         order by nome limit 2000`),
-    );
-    const achado = acharInsumo(en.insumo, insumos);
-    if (achado.tipo === 'nenhum') return recusa(`Não achei esse insumo no estoque. Pergunte o nome como está em Estoque › Produtos.`);
-    if (achado.tipo === 'escolher')
-      return { ok: true, dados: { precisaEscolher: achado.opcoes, siga: 'Pergunte qual destes insumos a pessoa quis dizer, com os nomes como vieram, e consulte de novo com o escolhido.' } };
-    const insumo = insumos.find((i) => i.id === achado.id)!;
-    const r = await this.lerRelatorioDoInsumo(e, { id: insumo.id, nome: insumo.nome, unidade: insumo.unidade }, p, loja, p2);
+    const lido = await this.relatorioDaConversa(e, en, loja);
+    if ('parou' in lido) return lido.parou;
+    const { r, insumo, p, p2 } = lido;
     const querPdf = en.pdf === true || en.pdf === 'true';
     // M3c.3: a imagem do gráfico vai na conversa junto da resposta (o MESMO plano do PDF), quando há o que mostrar.
     const plano = planoDoPdfDoInsumo(r, { empresa: e.empresa, pedidoPor: e.nome, geradoEm: new Date().toISOString() });
@@ -1355,6 +1382,46 @@ export class MisterFerramentasService {
         ...(comImagem ? { grafico } : {}),
       },
     };
+  }
+
+  /**
+   * O relatório de um insumo como a CONVERSA o pede (o insumo pelo nome que a pessoa disse, o período e a comparação): a
+   * permissão, as datas e o insumo conferidos no escopo de quem pergunta. A consulta (`insumo_vendido`) e o link para
+   * encaminhar leem por aqui — os dois mostram os mesmos números. `parou` = a recusa ou a pergunta de volta ("qual insumo?").
+   */
+  private async relatorioDaConversa(
+    e: EscopoDoMister,
+    en: Record<string, unknown>,
+    loja: { atual: string | null; nome: string },
+  ): Promise<
+    | { r: RelatorioDoInsumo; insumo: { id: string; nome: string; unidade: string }; p: { de: string; ate: string; rotulo: string }; p2: { de: string; ate: string; rotulo: string } | null }
+    | { parou: ResultadoDaFerramenta }
+  > {
+    if (!this.pode(e, 'estoque') && !this.pode(e, 'relatorios_vendas')) return { parou: recusa(SEM_PERMISSAO) };
+    const hoje = hojeISO();
+    const p = periodoDaFerramenta(en, hoje, 'hoje');
+    if ('erro' in p) return { parou: recusa(p.erro) };
+    // M3c.2: "compara com outubro" — o outro período, pelas duas datas.
+    let p2: { de: string; ate: string; rotulo: string } | null = null;
+    if (en.compararDe !== undefined || en.compararAte !== undefined) {
+      const c = periodoDaFerramenta({ de: en.compararDe, ate: en.compararAte ?? en.compararDe }, hoje);
+      if ('erro' in c) return { parou: recusa(`O período da comparação: ${c.erro}`) };
+      p2 = c;
+    }
+    const insumos = linhas(
+      await this.db.execute(sql`
+        select id::text as id, nome, nome_comercial as "nomeComercial", unidade_medida as "unidade" from item_estoque
+         where tenant_id = ${e.tenantId}::uuid and deleted_at is null
+         order by nome limit 2000`),
+    );
+    const achado = acharInsumo(en.insumo, insumos);
+    if (achado.tipo === 'nenhum') return { parou: recusa(`Não achei esse insumo no estoque. Pergunte o nome como está em Estoque › Produtos.`) };
+    if (achado.tipo === 'escolher')
+      return { parou: { ok: true, dados: { precisaEscolher: achado.opcoes, siga: 'Pergunte qual destes insumos a pessoa quis dizer, com os nomes como vieram, e consulte de novo com o escolhido.' } } };
+    const achadoNoEstoque = insumos.find((i) => i.id === achado.id)!;
+    // Como vieram do cadastro (a mesma leitura de antes de a consulta e o link dividirem este caminho).
+    const insumo: { id: string; nome: string; unidade: string } = { id: achadoNoEstoque.id, nome: achadoNoEstoque.nome, unidade: achadoNoEstoque.unidade };
+    return { r: await this.lerRelatorioDoInsumo(e, insumo, p, loja, p2), insumo, p, p2 };
   }
 
   /**

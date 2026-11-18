@@ -78,7 +78,10 @@ export const esmagados = (page, raiz) =>
         if (el.children.length) continue;
         const palavras = (el.textContent ?? '').trim().split(/\s+/).filter(Boolean);
         if (palavras.length < 3 || !el.getClientRects().length) continue;
-        const linhas = el.getClientRects().length > 1 ? el.getClientRects().length : Math.round(el.getBoundingClientRect().height / (parseFloat(getComputedStyle(el).lineHeight) || 18));
+        // A altura do TEXTO: sem o respiro e a borda do próprio elemento (um parágrafo com `p-6` não tem 3 linhas a mais).
+        const cs = getComputedStyle(el);
+        const moldura = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+        const linhas = el.getClientRects().length > 1 ? el.getClientRects().length : Math.round((el.getBoundingClientRect().height - moldura) / (parseFloat(cs.lineHeight) || 18));
         if (linhas >= 3 && palavras.length / linhas <= 2) achados.push(`"${palavras.join(' ').slice(0, 30)}" ${linhas} linhas`);
       }
     }

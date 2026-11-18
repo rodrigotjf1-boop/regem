@@ -15,6 +15,14 @@
 - **Atendimento sem as linhas "Too Many Requests" empilhadas: chave própria por peça do caso, o 429 em português e as
   leituras do caso só com a aba à vista (18/11; ERR-514; só tela, SEM migration) → vai no `.zip`.**
 
+- **Mister: o link para encaminhar um relatório a quem não tem usuário (18/11, M3c; mig 443 SÓ NUVEM —
+  `mister_link_publico`; nasce DESLIGADO).** Com `MISTER_LINK_PUBLICO=1` no `regem-api` (o dono liga), o presidente pede
+  na conversa e o Mister devolve um endereço `/m/r/<código>` que abre sem login: a FOTO do relatório do insumo (só
+  leitura, 7 dias, com "Baixar PDF"), na auditoria ao criar, ao abrir pela primeira vez e ao cancelar ("cancela os
+  links"). Tudo só na nuvem → vai no `.zip` sem efeito na loja: `mister_link_publico` = SO_NUVEM no `sync-daemon.mjs`
+  (o daemon mudou → o `.exe` do próximo corte leva junto). Na tela: os rótulos do gráfico de colunas deixam de se
+  encostar em tela estreita (Relatórios e o relatório do Mister).
+
 - **Atendente virtual: fotos do cliente (17/11; mig 442 SÓ NUVEM — `robo_config.fotos_ler`/`print_ajuda` e
   `robo_foto_lida`; nasce DESLIGADO).** "Ler as fotos que o cliente manda" por loja (Delivery › Configurações ›
   Atendimento › "Fotos do cliente"), até 5 fotos lidas por cliente por dia e "📷 O que a foto mostra" no caso. Antes,

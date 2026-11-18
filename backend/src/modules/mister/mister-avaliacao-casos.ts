@@ -207,6 +207,11 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
     case 'corrigir_documento':
       // M3g: na loja de teste não há boleto lançado pelo Mister — nada é corrigido.
       return recusa('Não achei boleto lançado pelo Mister, ainda em aberto, com esse nome.');
+    case 'link_para_encaminhar':
+      // M3c (mig 443): na avaliação nenhum link nasce (a loja de teste não manda nada para fora).
+      return recusa('O link para quem não tem usuário ainda não está ligado no Regem. Dá para mandar o relatório em PDF e encaminhar o arquivo.');
+    case 'cancelar_links':
+      return { ok: true, dados: { cancelados: 0, siga: 'Diga que não havia link para encaminhar valendo nesta empresa.' } };
     case 'produtos_mais_vendidos': {
       const p = periodoPedido(en);
       const ordem = String(en.ordem ?? 'quantidade').trim().toLowerCase() || 'quantidade';

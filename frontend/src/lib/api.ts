@@ -4,6 +4,7 @@ import type { CanalConferido, FotosDaLoja, RespostaDaConferencia, TipoConferido 
 import type { RespostaDasTaxas } from './calculadora-preco';
 import type { AberturasDaPagina, AvisoDoBanco, ConducaoDosAprovados } from './vagas-ficha';
 import type { VistaDoLinkDoMister } from './mister-link';
+import type { VistaDoRelatorioPublico } from './mister-relatorio';
 
 // Base da API. Nuvem: NEXT_PUBLIC_API_URL (fixado no build). Edge
 // (NEXT_PUBLIC_EDGE=1): cada loja tem IP proprio, entao a API fica no MESMO host
@@ -2607,6 +2608,16 @@ export const api = {
     pub(`/publico/mister/link/${encodeURIComponent(codigo)}/autorizar`, { method: 'POST', body: JSON.stringify({ pin }) }) as Promise<VistaDoLinkDoMister>,
   misterLinkNaoAutorizar: (codigo: string) =>
     pub(`/publico/mister/link/${encodeURIComponent(codigo)}/nao-autorizar`, { method: 'POST', body: '{}' }) as Promise<VistaDoLinkDoMister>,
+  // M3c (mig 443): a página do link para encaminhar do Mister (`/m/r/<código>`), sem login — a foto do relatório e o PDF dela.
+  misterRelatorioPublico: (codigo: string) => pub(`/publico/mister/relatorio/${encodeURIComponent(codigo)}`) as Promise<VistaDoRelatorioPublico>,
+  misterRelatorioPublicoPdf: async (codigo: string): Promise<Blob> => {
+    const res = await fetch(`${apiBase()}/publico/mister/relatorio/${encodeURIComponent(codigo)}/pdf`);
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { message?: unknown };
+      throw new ApiError({ status: res.status, message: typeof j?.message === 'string' ? j.message : `Erro ${res.status} ao gerar o PDF` });
+    }
+    return res.blob();
+  },
   // F5a: "De onde vêm as fichas" — aberturas e fichas por origem no período.
   vagasAberturas: (dias: number) => req(`/vagas/aberturas?dias=${dias}`) as Promise<AberturasDaPagina>,
   // F4b, parte 1: avisar o banco de talentos de uma função aberta (pelo WhatsApp de quem avisa) e "Marquei como avisado".

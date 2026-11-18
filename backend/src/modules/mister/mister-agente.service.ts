@@ -12,9 +12,12 @@ import type { PropostaPendente } from './mister-propostas.service';
 import { PedidoDoRelatorio, botaoDoPdf, linkDoRelatorio } from './insumo-vendido';
 import { enviarPdfDoInsumo } from './mister-anexos.service';
 import { GraficoDaConversa, imagemDoGrafico } from './grafico/grafico-do-insumo';
+import { linhaDoLinkNaConversa } from './mister-link-publico';
 
 /** M3c.2: o balão da resposta leva o botão "PDF" só quando cabe no corpo de uma mensagem com botões (1024 na Meta). */
 const CABE_COM_BOTAO = 1000;
+/** M3c (mig 443): no máximo dois links para encaminhar escritos numa resposta. */
+const LINKS_POR_RESPOSTA = 2;
 /** M3c.4: o endereço do Regem (o mesmo do link "Abrir no Regem" das propostas). */
 const baseDoApp = () => String(process.env.APP_URL || 'https://app.dmsregem.com').replace(/\/+$/, '');
 /** M3c.3: no máximo duas imagens de gráfico por resposta (duas consultas comparadas). */
@@ -153,7 +156,10 @@ export class MisterAgenteService implements OnModuleInit {
       const pdfs = fim.anexos.filter((a) => a.enviarPdf);
       // M3c.4: com um relatório só, o link da página ("Ver no Regem") vai no fim do texto — depois do filtro de saída, que
       // tira link do que a IA escreve: este sai do código, para o próprio Regem, e abre com o usuário de quem toca.
-      const texto = fim.anexos.length === 1 ? `${saida.texto}\n\nVer no Regem: ${linkDoRelatorio(baseDoApp(), fim.anexos[0].pedido)}` : saida.texto;
+      const comVerNoRegem = fim.anexos.length === 1 ? `${saida.texto}\n\nVer no Regem: ${linkDoRelatorio(baseDoApp(), fim.anexos[0].pedido)}` : saida.texto;
+      // M3c (mig 443): o link para encaminhar a quem não tem usuário também sai do código (nunca passa pela IA nem fica
+      // guardado na pergunta): uma linha por link, com a data até quando vale.
+      const texto = fim.links.slice(0, LINKS_POR_RESPOSTA).reduce((t, l) => `${t}\n\n${linhaDoLinkNaConversa(l.url, l.vence)}`, comVerNoRegem);
       // M3g: os botões que as ferramentas trouxeram (o "Desfazer" da correção) vão no mesmo balão, antes do "PDF" (até 3).
       const pedidos = [...fim.botoes, ...(!pdfs.length && fim.anexos.length === 1 ? [{ id: botaoDoPdf(fim.anexos[0].pedido), titulo: 'PDF' }] : [])].slice(0, 3);
       const comBotao = pedidos.length && texto.length <= CABE_COM_BOTAO && (await this.numero.ler()).provedor !== 'evolution' ? pedidos : undefined;
@@ -226,7 +232,15 @@ export class MisterAgenteService implements OnModuleInit {
     memoria: TrocaDaMemoria[],
     pergunta: string,
     opcoes: { recurso?: string } = {},
-  ): Promise<FimDaPergunta & { propostas: PropostaPendente[]; anexos: AnexoDaResposta[]; botoes: { id: string; titulo: string }[]; imagens: { url: string; legenda: string }[] }> {
+  ): Promise<
+    FimDaPergunta & {
+      propostas: PropostaPendente[];
+      anexos: AnexoDaResposta[];
+      botoes: { id: string; titulo: string }[];
+      imagens: { url: string; legenda: string }[];
+      links: { url: string; vence: Date }[];
+    }
+  > {
     // O laço é o de `mister-laco.ts` (o mesmo da avaliação de regressão): aqui as portas são a IA da empresa, com o
     // medidor dela, e as ferramentas no escopo que o servidor resolveu. F4.3: a proposta que uma ferramenta criou fica
     // de lado (não vai ao modelo) — quem chamou manda os botões depois da resposta.
@@ -237,6 +251,8 @@ export class MisterAgenteService implements OnModuleInit {
     const botoes: { id: string; titulo: string }[] = [];
     // M3d: as imagens das telas do "como faço" (sem repetir).
     const imagens: { url: string; legenda: string }[] = [];
+    // M3c (mig 443): os links para encaminhar que a pergunta criou (não vão ao modelo).
+    const links: { url: string; vence: Date }[] = [];
     // M2b: o texto no ar. A leitura que falha não segura a resposta: vai o texto do código (e o log diz por quê).
     const instrucoes = this.instrucoes
       ? await this.instrucoes.noAr().then(
@@ -259,6 +275,7 @@ export class MisterAgenteService implements OnModuleInit {
           if (r.proposta && !propostas.some((p) => p.id === r.proposta!.id)) propostas.push(r.proposta);
           for (const b of r.botoes ?? []) if (!botoes.some((x) => x.id === b.id)) botoes.push(b);
           for (const im of r.imagens ?? []) if (!imagens.some((x) => x.url === im.url)) imagens.push(im);
+          if (r.linkPublico) links.push(r.linkPublico);
           if (r.anexo) {
             const ja = anexos.find((a) => botaoDoPdf(a.pedido) === botaoDoPdf(r.anexo!.pedido));
             if (ja) ja.enviarPdf = ja.enviarPdf || r.anexo.enviarPdf;
@@ -270,6 +287,6 @@ export class MisterAgenteService implements OnModuleInit {
       memoria,
       pergunta,
     );
-    return { ...fim, propostas, anexos, botoes, imagens };
+    return { ...fim, propostas, anexos, botoes, imagens, links };
   }
 }
