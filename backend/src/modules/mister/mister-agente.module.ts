@@ -30,7 +30,9 @@ import { MisterLinkController } from './mister-link.controller';
 import { MisterLinkPublicoController } from './mister-link-publico.controller';
 import { MisterLinkPublicoService } from './mister-link-publico.service';
 import { MisterPropostasService } from './mister-propostas.service';
+import { MisterRecadosService } from './mister-recados.service';
 import { MisterRelatoriosService } from './mister-relatorios.service';
+import { MuralModule } from '../mural/mural.module';
 import { MisterRelatorioController } from './mister-relatorio.controller';
 import { MisterModule } from './mister.module';
 
@@ -73,6 +75,8 @@ import { MisterModule } from './mister.module';
     FinanceiroModule,
     // M3b (a nota do fornecedor por foto): a entrada no estoque sai pelo MESMO recebimento da tela.
     RecebimentoModule,
+    // M3g parte 2 (o recado no mural): o "Publicar" sai pelo MESMO serviço da tela do Mural & clima.
+    MuralModule,
   ],
   // Os relatórios (mig 420) moram aqui: escrevem pelo mesmo agente das perguntas. As propostas (F4.1, mig 428) também:
   // os avisos as criam e elas executam pelos serviços das telas.
@@ -90,6 +94,8 @@ import { MisterModule } from './mister.module';
     MisterAnexosService,
     // M3c (mig 443): o link para encaminhar a quem não tem usuário (a foto do relatório, só leitura, 7 dias).
     MisterLinkPublicoService,
+    // M3g parte 2 (mig 444): o rascunho do recado no mural e o toque em "Publicar" / "Mudar o texto".
+    MisterRecadosService,
   ],
   // F4.2a (mig 433): as rotas públicas da página do link com PIN (`/m/<código>`), que respondem pelo serviço das propostas.
   // M3a parte 3: a parte "Documentos" do Mister na loja (a lista e o "Desfazer o lançamento").

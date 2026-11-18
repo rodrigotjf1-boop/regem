@@ -45,6 +45,8 @@ import { MisterNumeroService } from './mister-numero.service';
 import { MisterDocumentosService } from './mister-documentos.service';
 import { MisterLinkPublicoService } from './mister-link-publico.service';
 import { TEXTOS_DO_LINK_PUBLICO, VALIDADE_DO_LINK_DIAS, diaMesDe } from './mister-link-publico';
+import { MisterRecadosService } from './mister-recados.service';
+import { TEXTOS_DO_RECADO, VALIDADE_DO_RECADO_MIN, botaoDoRecado, ondeVai, textoDoRecado } from './mister-recado';
 import { dentroDaJanelaDoWhatsapp } from './mister-avisos.regras';
 import { ASSUNTOS_DO_LINK, AssuntoDoLink, TELA_DO_ASSUNTO, acharPessoa, enderecoDoApp, mensagemDoLink, resumoDaContagem } from './link-de-conferencia';
 import { MisterPropostasService, PropostaPendente } from './mister-propostas.service';
@@ -278,6 +280,8 @@ export class MisterFerramentasService {
     @Optional() private readonly documentos?: MisterDocumentosService,
     // M3c (mig 443): o link para encaminhar a quem não tem usuário. Sem ele (ou desligado), o Mister oferece o PDF.
     @Optional() private readonly linksPublicos?: MisterLinkPublicoService,
+    // M3g parte 2 (mig 444): o rascunho do recado no mural (o "Publicar" é dele também).
+    @Optional() private readonly recados?: MisterRecadosService,
   ) {}
 
   // ───────────────────────────── de quem é a conversa ─────────────────────────────
@@ -461,7 +465,36 @@ export class MisterFerramentasService {
         return this.linkParaEncaminhar(e, en, loja);
       case 'cancelar_links':
         return this.cancelarLinks(e);
+      case 'escrever_recado':
+        return this.escreverRecado(e, en, loja);
     }
+  }
+
+  /**
+   * M3g parte 2 (mig 444) — o recado no mural (conversa 22): o Mister escreve e PERGUNTA antes; quem publica é a pessoa,
+   * pelo botão "Publicar" da resposta (só a API oficial tem botão). Presidente e gerente, com o Mural & clima no perfil;
+   * o gerente, na loja dele. A loja do mural: a da conversa; na empresa de uma loja, ela; sem loja, todas as lojas.
+   */
+  private async escreverRecado(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    if (e.nivel !== 'presidente' && e.nivel !== 'gerente') return recusa(TEXTOS_DO_RECADO.soGestor);
+    if (!this.pode(e, 'mural')) return recusa(TEXTOS_DO_RECADO.semPermissao);
+    if (!this.recados) return recusa(TEXTOS_DO_RECADO.naoDa);
+    if (this.numero && (await this.numero.ler()).provedor === 'evolution') return recusa(TEXTOS_DO_RECADO.semBotao);
+    const t = textoDoRecado(en.texto);
+    if ('erro' in t) return recusa(t.erro);
+    const unidadeId = e.lojaUnica ? (e.lojas[0]?.id ?? null) : loja.atual;
+    const lojaNome = unidadeId ? loja.nome : 'todas as lojas';
+    const r = await this.recados.criar(e, { unidadeId, lojaNome, texto: t.texto });
+    if ('erro' in r) return recusa(r.erro);
+    return {
+      ok: true,
+      dados: {
+        comoFicou: t.texto,
+        ondeVai: `Mural & clima ${ondeVai(lojaNome)}`,
+        siga: `Mostre o texto de "comoFicou" entre aspas, exatamente como veio, e pergunte se publica no Mural & clima ${ondeVai(lojaNome)}. Os botões "Publicar" e "Mudar o texto" vão junto da sua resposta, pelo Regem, e valem ${VALIDADE_DO_RECADO_MIN} minutos. Não diga que publicou.`,
+      },
+      botoes: [botaoDoRecado('pub', r.id), botaoDoRecado('mudar', r.id)],
+    };
   }
 
   /**

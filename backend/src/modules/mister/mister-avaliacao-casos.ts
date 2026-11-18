@@ -212,6 +212,16 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
       return recusa('O link para quem não tem usuário ainda não está ligado no Regem. Dá para mandar o relatório em PDF e encaminhar o arquivo.');
     case 'cancelar_links':
       return { ok: true, dados: { cancelados: 0, siga: 'Diga que não havia link para encaminhar valendo nesta empresa.' } };
+    case 'escrever_recado':
+      // M3g parte 2 (mig 444): na avaliação nenhum rascunho é guardado (e nada é publicado) — devolve o texto como ficaria.
+      return {
+        ok: true,
+        dados: {
+          comoFicou: typeof en.texto === 'string' ? en.texto.trim() : '',
+          ondeVai: 'Mural & clima da Loja Centro',
+          siga: 'Mostre o texto de "comoFicou" entre aspas e pergunte se publica no Mural & clima da Loja Centro. Não diga que publicou.',
+        },
+      };
     case 'produtos_mais_vendidos': {
       const p = periodoPedido(en);
       const ordem = String(en.ordem ?? 'quantidade').trim().toLowerCase() || 'quantidade';
