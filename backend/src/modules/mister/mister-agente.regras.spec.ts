@@ -110,6 +110,9 @@ describe('Mister — a loja que o modelo nomeou', () => {
   });
 });
 
+/** As ferramentas com verbo de escrita no nome que o guarda dos nomes aceita — cada uma com o porquê, no teste. */
+const ACOES_COM_NOME_DE_ACAO: string[] = ['cancelar_links'];
+
 describe('Mister — o que o modelo recebe', () => {
   it('as instruções fixas não têm nada que mude de uma conversa para outra (é o trecho em cache)', () => {
     expect(INSTRUCOES_DO_MISTER).not.toMatch(/\d{2}\/\d{2}\/\d{4}|\d{2}:\d{2}:\d{2}/);
@@ -125,8 +128,12 @@ describe('Mister — o que o modelo recebe', () => {
       expect(f.input_schema).toMatchObject({ type: 'object', additionalProperties: false });
       // O modelo não tem como dizer de qual empresa é a consulta: nenhum campo com esse papel existe.
       expect(Object.keys(f.input_schema.properties).join(' ')).not.toMatch(/tenant|empresa|unidade|colaborador|telefone/i);
-      expect(f.name).not.toMatch(/criar|alterar|apagar|cancelar|salvar|enviar/);
+      // Nome de ação só na lista abaixo, uma a uma e com o porquê: ferramenta nova com verbo de escrita reprova aqui.
+      if (!ACOES_COM_NOME_DE_ACAO.includes(f.name)) expect(f.name).not.toMatch(/criar|alterar|apagar|cancelar|salvar|enviar/);
     }
+    // M3c (mig 443): `cancelar_links` só FECHA os links para encaminhar que o próprio presidente pediu (eles param de
+    // abrir); não toca em pedido, venda, estoque nem cadastro. Não é consulta, e o serviço recusa quem não é presidente.
+    for (const n of ACOES_COM_NOME_DE_ACAO) expect(ehConsulta(n)).toBe(false);
     expect(ehFerramenta('apagar_tudo')).toBe(false);
   });
   it('o bloco da conversa: uma loja, várias, presa a uma, sem loja e quem não vê valores', () => {
@@ -174,7 +181,13 @@ describe('Mister — o que o modelo recebe', () => {
       'propor_procedimento',
       'mandar_link',
       'corrigir_documento',
+      'link_para_encaminhar',
+      'cancelar_links',
     ]);
+    // M3c (mig 443): criar e cancelar o link para encaminhar não são consulta — não leem dado para responder.
+    expect(ehConsulta('link_para_encaminhar')).toBe(false);
+    expect(ehConsulta('cancelar_links')).toBe(false);
+    expect(INSTRUCOES_DO_MISTER).toContain('chame link_para_encaminhar');
     // F4.3: propor não é consulta (não lê dado, não conta no teto de consultas) e as instruções dizem "PROPOR, nunca fazer".
     expect(ehConsulta('propor_procedimento')).toBe(false);
     expect(INSTRUCOES_DO_MISTER).toContain('A única exceção é PROPOR, nunca fazer');

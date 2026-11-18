@@ -27,6 +27,8 @@ import { MisterDocumentosService } from './mister-documentos.service';
 import { MisterNotasService } from './mister-notas.service';
 import { MisterFerramentasService } from './mister-ferramentas.service';
 import { MisterLinkController } from './mister-link.controller';
+import { MisterLinkPublicoController } from './mister-link-publico.controller';
+import { MisterLinkPublicoService } from './mister-link-publico.service';
 import { MisterPropostasService } from './mister-propostas.service';
 import { MisterRelatoriosService } from './mister-relatorios.service';
 import { MisterRelatorioController } from './mister-relatorio.controller';
@@ -86,11 +88,14 @@ import { MisterModule } from './mister.module';
     MisterNotasService,
     // M3c.2: o PDF do relatório por insumo (o toque em "PDF" e o "manda em PDF").
     MisterAnexosService,
+    // M3c (mig 443): o link para encaminhar a quem não tem usuário (a foto do relatório, só leitura, 7 dias).
+    MisterLinkPublicoService,
   ],
   // F4.2a (mig 433): as rotas públicas da página do link com PIN (`/m/<código>`), que respondem pelo serviço das propostas.
   // M3a parte 3: a parte "Documentos" do Mister na loja (a lista e o "Desfazer o lançamento").
   // M3c.4: a página do relatório por insumo ("Ver no Regem") e o PDF dela.
-  controllers: [MisterLinkController, MisterDocumentosController, MisterRelatorioController],
+  // M3c (mig 443): as rotas públicas da página do link para encaminhar (`/m/r/<código>`).
+  controllers: [MisterLinkController, MisterDocumentosController, MisterRelatorioController, MisterLinkPublicoController],
   exports: [MisterAgenteService, MisterAvisosService],
 })
 export class MisterAgenteModule {}

@@ -72,6 +72,7 @@ COMO VOCÊ TRABALHA
 - A única exceção é PROPOR, nunca fazer: quando a pessoa quer que você resolva uma impressora parada (uma via de teste, ou reiniciar o serviço de impressão do servidor da loja: o Regem escolhe o que serve) ou uma nota fiscal sem resposta da SEFAZ (consultar a nota de novo), chame propor_procedimento. Se a ferramenta disser que a proposta vai em seguida, diga em uma frase o que ela propõe e que chega logo abaixo, com os botões "Autorizar" e "Não agora", e que nada é feito sem a autorização. Se ela disser que não há aviso aberto para isso, ou que só o presidente autoriza, diga isso.
 - Cancelar um pedido também é só PROPOR: quando a pessoa pede para cancelar um pedido, chame propor_procedimento com cancelar_pedido e o número do pedido como ela disse. Cancelamento mexe com dinheiro: a autorização é no Regem, com o PIN, pelo link "Abrir no Regem" que chega logo abaixo — diga isso em uma frase. Se a pessoa escrever que autoriza ("pode cancelar"), responda que por aqui você não consegue, que isso pede o PIN dela, e que é pelo "Abrir no Regem". Nunca peça nem aceite o PIN na conversa. Se a ferramenta disser que não achou o pedido, ou que achou mais de um, diga isso e peça o número como aparece no painel.
 - Mandar o link de conferência que o presidente pede também é permitido: "manda pro Carlos o link da contagem de hoje" — chame mandar_link com a pessoa como ele disse e o assunto. Diga a quem foi, o resumo que a ferramenta devolveu e que abre com o usuário da pessoa. Se ela disser que não mandou, diga o motivo como veio.
+- Criar o link para encaminhar um relatório a quem NÃO tem usuário no Regem (a contabilidade, um sócio) também é permitido, só quando o presidente pede: chame link_para_encaminhar. Diga de que é o relatório, que o link é só para ler, até quando vale e que quem tiver o link vê o relatório como está agora (ele não atualiza). O endereço vai sozinho no fim da sua resposta: não escreva link. Se pedirem para cancelar os links, chame cancelar_links e diga quantos pararam de valer.
 - Corrigir o vencimento de um boleto que VOCÊ lançou também é permitido, quando o presidente diz a data certa: chame corrigir_documento com o nome do boleto e a data nova. Diga o que mudou (de quando para quando) e que o botão "Desfazer" vai junto. O valor de uma conta nunca se corrige pela conversa: diga que é na tela de Contas a pagar.
 - Para "como faço…" e "onde fica…", consulte o guia de uso e passe o caminho (Grupo › Item) e os passos como vieram, numa lista curta. Caminho de menu, nome de botão e nome de aba, só os que o guia trouxe: nunca invente nem complete. Se o guia diz que a tela depende de uma permissão do perfil e a pessoa não a tem, diga que quem libera é o presidente. Se o guia não achou, mas um dos assuntos que ele devolveu é o da pergunta, consulte de novo com as palavras desse assunto. Se o guia não tem o assunto, diga que ainda não sabe explicar esse caminho e cite, em uma frase, alguns assuntos que ele tem.
 - Não afirme que o Regem tem ou não tem uma função (exportar, imprimir, mandar arquivo, integração) quando nenhuma consulta, nem o guia de uso, mostrou isso. Diga que você não sabe dizer e que a pessoa confere no próprio Regem.
@@ -173,7 +174,9 @@ export type NomeDaFerramenta =
   | 'anotar_o_que_falta'
   | 'propor_procedimento'
   | 'mandar_link'
-  | 'corrigir_documento';
+  | 'corrigir_documento'
+  | 'link_para_encaminhar'
+  | 'cancelar_links';
 
 // ───────────────────────────── o que falta (F5.2) ─────────────────────────────
 // Quando a pessoa pede um dado que nenhuma consulta traz, o Mister anota o TEMA (de uma lista fechada) antes de dizer
@@ -192,6 +195,19 @@ export const FERRAMENTA_DE_PROPOR = 'propor_procedimento' as const;
 export const FERRAMENTA_DO_LINK = 'mandar_link' as const;
 // M3g: corrigir o vencimento do boleto que o Mister lançou MUDA a conta a pagar (pelo serviço da tela, com "Desfazer").
 export const FERRAMENTA_DE_CORRIGIR = 'corrigir_documento' as const;
+// M3c (mig 443): o link para encaminhar a quem não tem usuário CRIA um endereço que abre sem login (a foto do relatório,
+// só leitura, 7 dias) e cancelar_links os fecha — nenhuma das duas lê dado para a resposta (não são consulta).
+export const FERRAMENTA_DO_LINK_PUBLICO = 'link_para_encaminhar' as const;
+export const FERRAMENTA_DE_CANCELAR_LINKS = 'cancelar_links' as const;
+/** As ferramentas que NÃO são consulta: anotam, propõem, mandam, corrigem ou criam — não trazem dado da loja para a resposta. */
+export const FERRAMENTAS_QUE_NAO_SAO_CONSULTA: readonly string[] = [
+  FERRAMENTA_DO_QUE_FALTA,
+  FERRAMENTA_DE_PROPOR,
+  FERRAMENTA_DO_LINK,
+  FERRAMENTA_DE_CORRIGIR,
+  FERRAMENTA_DO_LINK_PUBLICO,
+  FERRAMENTA_DE_CANCELAR_LINKS,
+];
 // F4.2b: cancelar_pedido (de PIN) nasce da pergunta, preso ao pedido que a pessoa disse — não a um aviso.
 export const PROCEDIMENTOS_QUE_A_IA_PROPOE = ['imprimir_teste', 'consultar_nota', 'cancelar_pedido'] as const;
 export const TEMAS_DO_QUE_FALTA = ['vendas', 'estoque', 'financeiro', 'equipe', 'cardapio', 'clientes', 'canais', 'fiscal', 'outro'] as const;
@@ -431,12 +447,35 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
       additionalProperties: false,
     },
   },
+  {
+    name: 'link_para_encaminhar',
+    description:
+      'Não é consulta: CRIA um link que abre SEM login, para o presidente encaminhar a quem não tem usuário no Regem (a contabilidade, um sócio), com o relatório de quanto a venda gastou de um insumo — o mesmo de insumo_vendido, como está agora (uma foto: não atualiza). Só leitura, vale 7 dias e fica na auditoria. Só o presidente, e só quando ele pede um link para encaminhar a alguém de fora; para ele mesmo ver, a resposta de insumo_vendido já leva "Ver no Regem". O endereço vai no fim da sua resposta, pelo Regem: você não escreve link. Se vier "precisaEscolher", pergunte qual insumo. Se a ferramenta disser que não criou, diga o motivo como veio.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        insumo: { type: 'string', description: 'O insumo como a pessoa disse, no singular (ex.: "carne 56 g", "bacon").' },
+        ...PERIODO,
+        compararDe: { type: 'string', description: 'Início do período para comparar, AAAA-MM-DD.' },
+        compararAte: { type: 'string', description: 'Fim do período para comparar, AAAA-MM-DD.' },
+        loja: LOJA,
+      },
+      required: ['insumo'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'cancelar_links',
+    description:
+      'Não é consulta: CANCELA todos os links para encaminhar que ainda valem nesta empresa (os que link_para_encaminhar criou): eles param de abrir na hora. Só o presidente. Chame quando ele pedir para cancelar, apagar ou tirar do ar os links que mandou. Diga quantos foram cancelados.',
+    input_schema: { type: 'object', properties: {}, additionalProperties: false },
+  },
 ];
 
 export const ehFerramenta = (n: unknown): n is NomeDaFerramenta => FERRAMENTAS.some((f) => f.name === n);
 
-/** As ferramentas que leem dado (todas, menos a anotação do que falta e a proposta): é o que conta como "consulta". */
-export const ehConsulta = (n: unknown): n is NomeDaFerramenta => ehFerramenta(n) && n !== FERRAMENTA_DO_QUE_FALTA && n !== FERRAMENTA_DE_PROPOR && n !== FERRAMENTA_DO_LINK && n !== FERRAMENTA_DE_CORRIGIR;
+/** As ferramentas que leem dado (todas, menos as de `FERRAMENTAS_QUE_NAO_SAO_CONSULTA`): é o que conta como "consulta". */
+export const ehConsulta = (n: unknown): n is NomeDaFerramenta => ehFerramenta(n) && !FERRAMENTAS_QUE_NAO_SAO_CONSULTA.includes(n);
 
 // ───────────────────────────── a memória da conversa e a trilha ─────────────────────────────
 

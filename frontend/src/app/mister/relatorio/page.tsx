@@ -8,24 +8,15 @@ import { Card } from '@/components/ui/card';
 import { SkeletonList } from '@/components/ui/skeleton';
 import { NO_SERVIDOR_DA_LOJA } from '@/components/ui/so-pela-nuvem';
 import { texto2 } from '@/components/ui/lista';
-import { Colunas } from '@/components/relatorios/graficos';
+import { CorpoDoRelatorio } from '@/components/mister/corpo-do-relatorio';
+import type { PlanoDoRelatorio } from '@/lib/mister-relatorio';
 
 // MISTER › O RELATÓRIO DO LINK (M3c.4; versão 3 do protótipo `mockups/regem-mister.html`, aba "Arquivos e links" › "A
 // página do link"; decisão 7: abre no Regem com o usuário da pessoa). O link vem na resposta do Mister ("Ver no Regem").
 // O servidor refaz o relatório no escopo de quem abre e devolve o MESMO plano do PDF (os textos, os números, as barras):
 // a conversa, o PDF e esta página mostram os mesmos números. Aqui só se troca o período e se baixa o PDF.
 
-type Plano = {
-  cabecalho: string;
-  gerado: string;
-  titulo: string;
-  numeros: { valor: string; rotulo: string }[];
-  grafico: { titulo: string; barras: { rotulo: string; valor: number; texto: string }[]; linha: { valor: number; texto: string } | null; nota: string | null };
-  deOnde: { produto: string; detalhe: string; valor: string }[];
-  outros: string | null;
-  fonte: string;
-};
-type Resposta = { plano: Plano; nomeDoPdf: string; total: number };
+type Resposta = { plano: PlanoDoRelatorio; nomeDoPdf: string; total: number };
 
 const hojeNaLoja = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
 
@@ -142,49 +133,7 @@ export default function RelatorioDoMisterPage() {
           </p>
         )}
 
-        <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {p.numeros.map((n) => (
-            <Card key={n.rotulo} className="p-4">
-              <dt className={`text-xs ${texto2}`}>{n.rotulo}</dt>
-              <dd className="mt-1 break-words font-mono text-2xl font-semibold">{n.valor}</dd>
-            </Card>
-          ))}
-        </dl>
-
-        {vazio ? (
-          <p className="rounded-lg border border-dashed border-border p-6 text-center text-muted-foreground">Nenhuma venda deste insumo no período.</p>
-        ) : (
-          <section aria-labelledby="grafico-do-relatorio" className="space-y-2">
-            <h3 id="grafico-do-relatorio" className="font-display font-semibold">
-              {p.grafico.titulo}
-            </h3>
-            {p.grafico.linha && <p className={`text-sm ${texto2}`}>{p.grafico.linha.texto}</p>}
-            <Colunas legenda={p.grafico.titulo} pontos={p.grafico.barras} cabecalho={['Quando', 'Quanto']} />
-            {p.grafico.nota && <p className={`text-xs ${texto2}`}>{p.grafico.nota}</p>}
-          </section>
-        )}
-
-        {!vazio && (
-          <section aria-labelledby="de-onde-saiu" className="space-y-2">
-            <h3 id="de-onde-saiu" className="font-display font-semibold">
-              De onde saiu
-            </h3>
-            <Card className="p-0">
-              <ul aria-label="Cada produto e quanto usou do insumo">
-                {p.deOnde.map((d) => (
-                  <li key={d.produto} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-border px-4 py-3 text-sm last:border-b-0">
-                    <span className="min-w-0 break-words font-semibold">{d.produto}</span>
-                    <span className={`min-w-0 break-words ${texto2}`}>{d.detalhe}</span>
-                    <span className="font-mono font-semibold">{d.valor}</span>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-            {p.outros && <p className={`text-sm ${texto2}`}>{p.outros}</p>}
-          </section>
-        )}
-
-        <p className="text-xs text-muted-foreground">{p.fonte}</p>
+        <CorpoDoRelatorio plano={p} vazio={vazio} />
       </div>
     );
   }

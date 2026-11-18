@@ -1019,7 +1019,22 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
 - **Parte 5 (sem migration):** `mandar_link` — o link de conferência a quem o presidente pedir (conversa 18), por
   enquanto a contagem de estoque de hoje; fora da janela de 24 horas o Mister diz que a pessoa precisa escrever antes.
 - **Parte 5 — #1111, no ar.**
-- **Falta:** o link para encaminhar a quem não tem usuário (só leitura, 7 dias, na auditoria — migration).
+- **Parte 6 (mig 443, só nuvem; nasce desligada — `MISTER_LINK_PUBLICO=1`):** o link para encaminhar a quem NÃO tem
+  usuário (a contabilidade, um sócio) — decisão 7 da versão 3. Só o presidente, só quando ele pede
+  (`link_para_encaminhar`): o Mister lê o relatório do insumo no escopo dele, guarda a FOTO (o plano do PDF) em
+  `mister_link_publico` e o Regem escreve o endereço `/m/r/<código>` no fim da resposta — o endereço não passa pela IA
+  nem fica guardado na pergunta; no banco fica só o resumo (sha256) do código. A página abre sem login, só para ler (sem
+  "Mudar o período": nunca lê dado vivo da loja), com "Baixar PDF" e "vale até dd/mm". Vale 7 dias; no máximo 20 links
+  valendo por empresa (o teto é reservado com a trava da empresa na mesma transação); "cancela os links"
+  (`cancelar_links`) fecha todos na hora. A cada abertura a régua do acesso é conferida de novo (V75): o link vivo, a
+  empresa viva, quem pediu ainda presidente e ativo, o módulo Mister ligado e a função ligada na instalação — qualquer
+  falha é o mesmo 404, com a mesma frase. Na auditoria: criado (quem pediu), aberto pela primeira vez (sem ator) e
+  cancelado; nunca o código.
+- **Decisões da parte 6 (as recomendadas, 18/11):** (1) o link mostra a foto de quando foi pedido, não o dado de agora —
+  quem não tem usuário não ganha uma janela para a loja; (2) cancelar é pela conversa, sem tela nova; (3) desligar a
+  variável fecha também os links que já saíram; (4) por enquanto só o relatório por insumo (o único que tem página e PDF);
+  (5) o guarda dos nomes das ferramentas aceita `cancelar_links` por lista explícita no teste — ele só fecha os links que
+  o próprio presidente pediu, não toca em pedido, venda, estoque nem cadastro.
 
 **Andamento da M3e (17/11/2026):**
 - **Parte 1 (sem migration):** o aviso "Ponto esquecido" (11º tipo, grupo "Pessoas e ponto"; o resumo do dia seguinte às

@@ -40,6 +40,8 @@ import { crc16Pix } from '../../common/boleto';
 import { custosMediosNaLoja } from '../../common/custo-loja';
 import { VendasService } from '../vendas/vendas.service';
 import { MisterAnexosService } from './mister-anexos.service';
+import { MisterLinkPublicoService } from './mister-link-publico.service';
+import { TETO_DE_LINKS_VIVOS, TEXTOS_DO_LINK_PUBLICO } from './mister-link-publico';
 import { MisterPropostasService } from './mister-propostas.service';
 import { TEXTOS_DA_PROPOSTA, TEXTOS_DO_LINK } from './mister-procedimentos';
 import { MODELO_DO_AVISO } from './mister-modelos';
@@ -413,6 +415,7 @@ export function testesDoMisterComPostgres(): void {
     const limparConversas = async () => {
       await q(`delete from mister_pergunta where tenant_id = any($1::uuid[])`, [[A, B]]);
       await q(`delete from mister_proposta where tenant_id = any($1::uuid[])`, [[A, B]]);
+      await q(`delete from mister_link_publico where tenant_id = any($1::uuid[])`, [[A, B]]);
       await q(`delete from mister_documento where tenant_id = any($1::uuid[])`, [[A, B]]);
       await q(`delete from mister_aviso where tenant_id = any($1::uuid[])`, [[A, B]]);
       await q(`delete from mister_aviso_regra where tenant_id = any($1::uuid[])`, [[A, B]]);
@@ -427,7 +430,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -2994,6 +2997,191 @@ export function testesDoMisterComPostgres(): void {
           expect(numero.enviadas.map((m) => m.texto)).toEqual([comLink('Os mesmos 8.', somarDias(hoje, -6), hoje)]);
         } finally {
           numero.responder = () => undefined;
+        }
+
+        // ── M3c (mig 443): o link para encaminhar a quem NÃO tem usuário (a contabilidade, um sócio) ──
+        const links = new MisterLinkPublicoService(db, auditoria, modulos);
+        const sem = undefined as any;
+        const comLinks = new MisterFerramentasService(db, modulos, null as any, null as any, null as any, null as any, null as any, null as any, vendasDeVerdade, null as any, null as any, sem, sem, sem, sem, sem, sem, sem, sem, sem, sem, links);
+        const chaveAntes = process.env.MISTER_LINK_PUBLICO;
+        const naoAbre = async (codigo: unknown) => {
+          await expect(links.ver(codigo)).rejects.toMatchObject({ status: 404, message: TEXTOS_DO_LINK_PUBLICO.naoVale });
+          await expect(links.pdf(codigo)).rejects.toMatchObject({ status: 404, message: TEXTOS_DO_LINK_PUBLICO.naoVale });
+        };
+        const doBanco = () => q(`select * from mister_link_publico where tenant_id = $1 order by criado_em`, [A]);
+        const pedirLink = (quem: any = e, en: any = { insumo: 'carne 56 g' }) => comLinks.executar(quem, 'link_para_encaminhar', en) as Promise<any>;
+        try {
+          // Nasce DESLIGADO: sem a variável, nenhum link nasce (o Mister oferece o PDF) e nenhum código abre.
+          delete process.env.MISTER_LINK_PUBLICO;
+          expect(await pedirLink()).toEqual({ ok: false, dados: { erro: TEXTOS_DO_LINK_PUBLICO.desligado } });
+          await naoAbre('a'.repeat(32));
+          expect(await doBanco()).toEqual([]);
+
+          process.env.MISTER_LINK_PUBLICO = '1';
+          // Só o presidente: o gerente é recusado antes de qualquer leitura; sem venda, não há o que mandar; "carne" pergunta qual.
+          expect(await pedirLink({ ...e, nivel: 'gerente' })).toEqual({ ok: false, dados: { erro: TEXTOS_DO_LINK_PUBLICO.soPresidente } });
+          expect(await comLinks.executar({ ...e, nivel: 'gerente' }, 'cancelar_links', {})).toEqual({ ok: false, dados: { erro: TEXTOS_DO_LINK_PUBLICO.soPresidente } });
+          expect(await pedirLink(e, { insumo: 'carne 120g' })).toEqual({ ok: false, dados: { erro: TEXTOS_DO_LINK_PUBLICO.semVenda } });
+          expect((await pedirLink(e, { insumo: 'carne' })).dados).toMatchObject({ precisaEscolher: ['Carne 120 g', 'Carne 56 g'] });
+          expect(await pedirLink(e, { insumo: 'detergente' })).toMatchObject({ ok: false });
+          expect(await doBanco()).toEqual([]);
+
+          // O link: o que vai ao modelo NÃO traz o endereço; o endereço volta à parte, uma vez, e só o resumo dele fica no banco.
+          auditados.length = 0;
+          const feito = await pedirLink();
+          expect(feito.ok).toBe(true);
+          expect(feito.dados).toEqual({ relatorio: expect.stringMatching(/^Carne 56 g · hoje \(\d\d\/\d\d\), até \d\d:\d\d$/), loja: 'Loja Centro', valeAte: expect.stringMatching(/^\d\d\/\d\d$/), siga: expect.stringContaining('não escreva link') });
+          expect(JSON.stringify(feito.dados)).not.toContain('/m/r/');
+          expect(feito.linkPublico.url).toMatch(new RegExp(`^${base.replace(/[.]/g, '\\.')}/m/r/[A-Za-z0-9_-]{32}$`));
+          const codigo = feito.linkPublico.url.split('/m/r/')[1] as string;
+          const [guardado] = await doBanco();
+          expect(guardado).toMatchObject({ tenant_id: A, unidade_id: null, criado_por: pessoa.ana, tipo: 'insumo', nome_do_pdf: `carne-56-g-${hoje}.pdf`, link_hash: createHash('sha256').update(codigo).digest('hex'), revogado_em: null, aberto_em: null, acessos: 0 });
+          expect(JSON.stringify(guardado)).not.toContain(codigo);
+          // Vale 7 dias a contar de quando nasceu.
+          expect(Math.round((new Date(guardado.vence_em).getTime() - new Date(guardado.criado_em).getTime()) / 3_600_000)).toBe(7 * 24);
+          expect(feito.linkPublico.vence).toEqual(new Date(guardado.vence_em));
+          // Na auditoria: quem pediu, pela conversa — e nunca o código.
+          expect(auditados).toEqual([expect.objectContaining({ tenantId: A, atorId: pessoa.ana, acao: 'mister_link_publico_criado', entidadeTipo: 'mister_link_publico', entidadeId: guardado.id, origem: 'whatsapp', detalhe: { relatorio: feito.dados.relatorio, valeAte: new Date(guardado.vence_em).toISOString() } })]);
+          expect(JSON.stringify(auditados)).not.toContain(codigo);
+
+          // A página abre SEM login: a foto do relatório, o nome da empresa e até quando vale — nada de id, telefone ou quem pediu fora do plano.
+          auditados.length = 0;
+          const vista = await links.ver(codigo);
+          expect(vista).toEqual({ empresa: NOME_A, plano: guardado.plano, nomeDoPdf: `carne-56-g-${hoje}.pdf`, comVenda: true, valeAte: new Date(guardado.vence_em).toISOString(), valeAteDia: feito.dados.valeAte });
+          expect(vista.plano.numeros[0]).toEqual({ valor: '8 unidades', rotulo: 'Loja Centro' });
+          expect(JSON.stringify(vista)).not.toContain(A);
+          expect(JSON.stringify(vista)).not.toContain(pessoa.ana);
+          // A primeira abertura fica na auditoria (sem ator: quem abre não tem usuário); as seguintes só contam.
+          expect(auditados).toEqual([expect.objectContaining({ tenantId: A, atorId: null, acao: 'mister_link_publico_aberto', entidadeId: guardado.id, origem: 'link', detalhe: { relatorio: feito.dados.relatorio, por: 'pagina' } })]);
+          const oPdf = await links.pdf(codigo);
+          expect(oPdf.pdf.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+          expect(oPdf.nome).toBe(`carne-56-g-${hoje}.pdf`);
+          expect(auditados).toHaveLength(1);
+          expect((await doBanco())[0]).toMatchObject({ acessos: 2, aberto_em: expect.anything(), ultimo_acesso_em: expect.anything() });
+          // É uma FOTO: a venda que entra depois não muda o que o link mostra (quem tem o link nunca lê dado vivo da loja).
+          await venda([{ produto: xBurger, qtd: 4 }]);
+          expect((await comLinks.executar(e, 'insumo_vendido', { insumo: 'carne 56 g' }) as any).dados.total).toBe(12);
+          expect((await links.ver(codigo)).plano.numeros[0]).toEqual({ valor: '8 unidades', rotulo: 'Loja Centro' });
+
+          // O código que não é de link, o que não existe e o plano com outra forma: a mesma frase.
+          await naoAbre('b'.repeat(32));
+          await naoAbre(codigo.slice(0, 31));
+          await naoAbre(`${codigo}x`);
+          await naoAbre(null);
+          await naoAbre({ $ne: '' });
+          // A régua do acesso a cada abertura (V75): quem pediu deixou de ser presidente, foi bloqueado ou apagado; o módulo
+          // desligado; a empresa apagada; a função desligada na instalação. Voltou a valer, volta a abrir.
+          await q(`update colaborador set funcao_id = $2 where id = $1`, [pessoa.ana, funcao['gerente-a']]);
+          await naoAbre(codigo);
+          await q(`update colaborador set funcao_id = $2, status = 'bloqueado' where id = $1`, [pessoa.ana, funcao['presidente-a']]);
+          await naoAbre(codigo);
+          await q(`update colaborador set status = 'ativo', deleted_at = now() where id = $1`, [pessoa.ana]);
+          await naoAbre(codigo);
+          await q(`update colaborador set deleted_at = null where id = $1`, [pessoa.ana]);
+          await modulo(A, false);
+          await naoAbre(codigo);
+          await modulo(A, true);
+          await q(`update empresa set deleted_at = now() where id = $1`, [A]);
+          await naoAbre(codigo);
+          await q(`update empresa set deleted_at = null where id = $1`, [A]);
+          delete process.env.MISTER_LINK_PUBLICO;
+          await naoAbre(codigo);
+          process.env.MISTER_LINK_PUBLICO = '1';
+          expect((await links.ver(codigo)).empresa).toBe(NOME_A);
+          // O plano guardado com outra forma (um formato antigo) não sai pela porta.
+          await q(`update mister_link_publico set plano = '{"titulo":"x"}'::jsonb where id = $1`, [guardado.id]);
+          await naoAbre(codigo);
+          await q(`update mister_link_publico set plano = $2::jsonb where id = $1`, [guardado.id, JSON.stringify(guardado.plano)]);
+          // Vencido: não abre (e não conta mais como link vivo).
+          await q(`update mister_link_publico set criado_em = now() - interval '8 days', vence_em = now() - interval '1 day' where id = $1`, [guardado.id]);
+          await naoAbre(codigo);
+          expect(await comLinks.executar(e, 'cancelar_links', {})).toEqual({ ok: true, dados: { cancelados: 0, siga: expect.stringContaining('não havia link') } });
+          await q(`update mister_link_publico set criado_em = now(), vence_em = now() + interval '7 days' where id = $1`, [guardado.id]);
+          expect((await links.ver(codigo)).empresa).toBe(NOME_A);
+          // Nenhuma dessas recusas contou acesso: só as aberturas de verdade.
+          expect((await doBanco())[0].acessos).toBe(5);
+
+          // Cancelar pela conversa: a presidente da OUTRA empresa não cancela os desta; a desta cancela e o link para de abrir na hora.
+          expect((await comLinks.executar(deB, 'cancelar_links', {}) as any).dados.cancelados).toBe(0);
+          expect((await links.ver(codigo)).empresa).toBe(NOME_A);
+          auditados.length = 0;
+          expect(await comLinks.executar(e, 'cancelar_links', {})).toEqual({ ok: true, dados: { cancelados: 1, siga: expect.stringContaining('já não abrem') } });
+          expect(auditados).toEqual([expect.objectContaining({ tenantId: A, atorId: pessoa.ana, acao: 'mister_link_publico_cancelado', entidadeId: guardado.id, origem: 'whatsapp', detalhe: { quantos: 1 } })]);
+          await naoAbre(codigo);
+          expect((await doBanco())[0].revogado_em).not.toBeNull();
+
+          // O agente: o endereço sai do código, no fim da resposta — não passa pela IA (nem na ida nem na memória) e o que
+          // a IA escrever de link continua sendo tirado pelo filtro de saída.
+          const agenteComLinks = new MisterAgenteService(fila, comLinks, ia, numero);
+          numero.pedidos.length = 0;
+          ia.pedidos.length = 0;
+          await perguntar(tel, 'manda um link da carne de 56g de hoje pra contabilidade');
+          ia.roteiro = [usar('link_para_encaminhar', { insumo: 'carne 56 g' }), falar('Pronto: o relatório da carne de 56 g de hoje. O link é só para ler e vale 7 dias.')];
+          await agenteComLinks.esvaziar();
+          expect(numero.enviadas).toHaveLength(1);
+          expect(numero.enviadas[0].texto).toMatch(
+            new RegExp(`^Pronto: o relatório da carne de 56 g de hoje\\. O link é só para ler e vale 7 dias\\.\\n\\nLink para encaminhar \\(só leitura, vale até \\d\\d/\\d\\d\\): ${base.replace(/[.]/g, '\\.')}/m/r/[A-Za-z0-9_-]{32}$`),
+          );
+          expect(numero.enviadas[0].botoes).toEqual([]);
+          const doAgente = numero.enviadas[0].texto.split('/m/r/')[1];
+          expect(JSON.stringify(ia.pedidos)).not.toContain('/m/r/');
+          expect(JSON.stringify(ia.pedidos)).not.toContain(doAgente);
+          const [aPergunta] = (await perguntasDe('ana')).slice(-1);
+          expect(aPergunta.resposta).toBe('Pronto: o relatório da carne de 56 g de hoje. O link é só para ler e vale 7 dias.');
+          expect(JSON.stringify(aPergunta)).not.toContain(doAgente);
+          // O link do agente abre, com a venda de agora (12): cada link é a foto de quando foi pedido.
+          expect((await links.ver(doAgente)).plano.numeros[0]).toEqual({ valor: '12 unidades', rotulo: 'Loja Centro' });
+
+          // O teto de links vivos por empresa: com 20 valendo, o 21º é recusado com a frase; os da outra empresa não contam.
+          await q(`delete from mister_link_publico where tenant_id = $1`, [A]);
+          const encher = (n: number, tenant = A, quem = pessoa.ana) =>
+            q(
+              `insert into mister_link_publico (tenant_id, criado_por, tipo, titulo, nome_do_pdf, plano, link_hash, vence_em)
+               select $1, $2, 'insumo', 'x', 'x.pdf', '{}'::jsonb, md5(random()::text || g::text) || md5(g::text), now() + interval '7 days' from generate_series(1, $3::int) g`,
+              [tenant, quem, n],
+            );
+          await encher(TETO_DE_LINKS_VIVOS, B, pessoa.anaB);
+          await encher(TETO_DE_LINKS_VIVOS - 2);
+          // O cruzamento (V98): o 19º gravado por uma transação AINDA ABERTA, que segura a trava da empresa; dois pedidos
+          // chegam, esperam a trava e, soltos, só UM cabe.
+          const outra = await pool.connect();
+          let doisPedidos: any[] = [];
+          try {
+            const [{ pid: pidDaAberta }] = (await outra.query('select pg_backend_pid() as pid')).rows;
+            // Só as sessões presas ATRÁS desta transação (V72): o banco do CI é dividido com outros arquivos.
+            const presasAtras = async () => (await q(`select count(*)::int as n from pg_stat_activity where $1::int = any(pg_blocking_pids(pid))`, [pidDaAberta]))[0].n as number;
+            await outra.query('begin');
+            await outra.query(`select pg_advisory_xact_lock(hashtext($1::text), 443)`, [A]);
+            await outra.query(
+              `insert into mister_link_publico (tenant_id, criado_por, tipo, titulo, nome_do_pdf, plano, link_hash, vence_em) values ($1, $2, 'insumo', 'x', 'x.pdf', '{}'::jsonb, $3, now() + interval '7 days')`,
+              [A, pessoa.ana, createHash('sha256').update(randomUUID()).digest('hex')],
+            );
+            const um = pedirLink();
+            const dois = pedirLink();
+            // Os dois chegaram à trava (esperam por ela) antes de a transação aberta fechar.
+            for (let i = 0; i < 200 && (await presasAtras()) < 2; i++) await new Promise((r) => setTimeout(r, 50));
+            expect(await presasAtras()).toBe(2);
+            await outra.query('commit');
+            doisPedidos = await Promise.all([um, dois]);
+          } finally {
+            await outra.query('rollback').catch(() => {});
+            outra.release();
+          }
+          expect(doisPedidos.filter((x) => x.ok)).toHaveLength(1);
+          expect(doisPedidos.filter((x) => !x.ok)).toEqual([{ ok: false, dados: { erro: TEXTOS_DO_LINK_PUBLICO.teto } }]);
+          expect((await q(`select count(*)::int as n from mister_link_publico where tenant_id = $1 and revogado_em is null and vence_em > now()`, [A]))[0].n).toBe(TETO_DE_LINKS_VIVOS);
+          expect(await pedirLink()).toEqual({ ok: false, dados: { erro: TEXTOS_DO_LINK_PUBLICO.teto } });
+          // Cancelar libera: os 20 param de valer (os da outra empresa seguem) e o pedido seguinte cabe.
+          expect((await comLinks.executar(e, 'cancelar_links', {}) as any).dados.cancelados).toBe(TETO_DE_LINKS_VIVOS);
+          expect((await q(`select count(*)::int as n from mister_link_publico where tenant_id = $1 and revogado_em is null`, [B]))[0].n).toBe(TETO_DE_LINKS_VIVOS);
+          expect((await pedirLink()).ok).toBe(true);
+        } finally {
+          if (chaveAntes === undefined) delete process.env.MISTER_LINK_PUBLICO;
+          else process.env.MISTER_LINK_PUBLICO = chaveAntes;
+          await q(`update colaborador set status = 'ativo', deleted_at = null, funcao_id = $2 where id = $1`, [pessoa.ana, funcao['presidente-a']]);
+          await q(`update empresa set deleted_at = null where id = $1`, [A]);
+          await modulo(A, true);
+          await q(`delete from mister_link_publico where tenant_id = any($1::uuid[])`, [[A, B]]);
         }
       } finally {
         if (criados.comandas.length) {
