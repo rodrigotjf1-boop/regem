@@ -50,7 +50,8 @@ export type TipoDeAviso =
   | 'certificado'
   | 'chave_ia'
   | 'boleto_vencendo'
-  | 'ponto_esquecido';
+  | 'ponto_esquecido'
+  | 'ponto_do_mes';
 
 export interface RegraDoAviso {
   ligado: boolean;
@@ -171,6 +172,16 @@ export const TIPOS_DE_AVISO: TipoDoAviso[] = [
     titulo: 'Ponto esquecido',
     descricao: 'Entrada ou saída que falta depois do horário da escala. O aviso diz quem, qual turno e onde ajustar. Só nas lojas que usam o terminal de ponto.',
     padrao: regra(['gerente'], { parametro: 0 }),
+    jaFunciona: true,
+  },
+  // Versão 3 do protótipo (aprovada em 17/11/2026), M3e parte 2: o espelho do mês em PDF no dia 1, às 06:00 da loja (o
+  // fechamento que a rotina do dia 1 grava), e "Enviar ao contador" pelo MESMO envio da tela (`mister-ponto-do-mes.ts`).
+  {
+    tipo: 'ponto_do_mes',
+    grupo: 'Pessoas e ponto',
+    titulo: 'Arquivo do ponto do mês',
+    descricao: 'O espelho de ponto do mês em PDF, depois que o último turno do mês fecha. Com um toque, vai à contabilidade.',
+    padrao: regra(['presidente']),
     jaFunciona: true,
   },
 ];
@@ -745,8 +756,9 @@ export const botoesDoAvisoDoBoleto = (documentoId: unknown) =>
 
 // ───────────────────────────── as mensagens ─────────────────────────────
 
-/** A mensagem do aviso que abriu (WhatsApp e tela). */
-export const textoDoAviso = (s: { titulo: string; detalhe?: string | null }): string => `⚠️ ${s.titulo}.${s.detalhe ? `\n\n${s.detalhe}` : ''}`;
+/** A mensagem do aviso que abriu (WhatsApp e tela). O arquivo do ponto do mês não é alerta: vai com a pasta (protótipo). */
+export const textoDoAviso = (s: { titulo: string; detalhe?: string | null; tipo?: string }): string =>
+  `${s.tipo === 'ponto_do_mes' ? '📁' : '⚠️'} ${s.titulo}.${s.detalhe ? `\n\n${s.detalhe}` : ''}`;
 
 /** A mensagem do lembrete (o aviso continua aberto e chegou a outro marco, como o certificado a 7 dias). */
 export const textoDoLembrete = (s: { titulo: string; detalhe?: string | null }): string => `🔔 Lembrete: ${s.titulo}.${s.detalhe ? `\n\n${s.detalhe}` : ''}`;

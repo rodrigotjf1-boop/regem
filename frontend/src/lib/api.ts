@@ -1717,6 +1717,11 @@ export const api = {
   whatsappTemplatesLocais: () => req('/whatsapp/cloud/templates/locais'),
   whatsappTemplatesAnalytics: (desde?: string, ate?: string) =>
     req(`/whatsapp/cloud/templates/analytics${desde || ate ? `?${new URLSearchParams({ ...(desde ? { desde } : {}), ...(ate ? { ate } : {}) }).toString()}` : ''}`),
+  // WhatsApp › Uso e gasto (mig 444, só o presidente): o gasto que a Meta informa, do que a nuvem guardou.
+  whatsappGasto: (q: Record<string, string>) => req(`/whatsapp/gasto${Object.keys(q).length ? `?${new URLSearchParams(q).toString()}` : ''}`),
+  // "Tentar de novo": lê a Meta agora (não antes de 2 minutos da última tentativa) e devolve o resumo.
+  whatsappGastoLer: (q: Record<string, string>) =>
+    req(`/whatsapp/gasto/ler${Object.keys(q).length ? `?${new URLSearchParams(q).toString()}` : ''}`, { method: 'POST' }),
   whatsappTemplateSalvar: (body: any) =>
     req('/whatsapp/cloud/templates/salvar', { method: 'POST', body: JSON.stringify(body) }),
   whatsappTemplateSubmeter: (id: string) =>

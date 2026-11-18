@@ -16,6 +16,8 @@ import { EvolutionEntradaService } from './evolution-entrada.service';
 import { ConferirEntregaProcessor } from './conferir-entrega.processor';
 import { PedirAvaliacaoProcessor } from './pedir-avaliacao.processor';
 import { AvaliacaoPublicaController } from './avaliacao-publica.controller';
+import { WhatsappGastoController } from './whatsapp-gasto.controller';
+import { WhatsappGastoService } from './whatsapp-gasto.service';
 import { EquipamentoModule } from '../equipamento/equipamento.module';
 import { SyncTokenGuard } from '../sync/sync-token.guard';
 import { InstagramModule } from '../instagram/instagram.module';
@@ -43,6 +45,8 @@ import { MisterModule } from '../mister/mister.module';
     EvolutionEntradaController,
     // O link do pedido de avaliação (mig 365): anota o toque e leva ao Google (só nuvem).
     AvaliacaoPublicaController,
+    // O gasto do WhatsApp oficial (mig 445): WhatsApp › Uso e gasto, só o presidente.
+    WhatsappGastoController,
   ],
   providers: [
     RoboRespostaService,
@@ -61,8 +65,10 @@ import { MisterModule } from '../mister/mister.module';
     PausaNoAtendimentoService,
     // As respostas ao número de marketing que são de outro módulo (F4b parte 2 das vagas): o gancho se registra aqui.
     RespostasDoMarketingService,
+    // O gasto do WhatsApp oficial (mig 445): a leitura da Meta a cada 30 minutos (só na nuvem) e o resumo da tela.
+    WhatsappGastoService,
   ],
   // RoboRespostaService: a porta das respostas do robô, usada pelo comprovante do cliente (cardápio — 16/11/2026).
-  exports: [WhatsappService, WhatsappCloudService, WhatsappProvedorService, WhatsappNumeroService, RespostasDoMarketingService, RoboRespostaService],
+  exports: [WhatsappService, WhatsappCloudService, WhatsappProvedorService, WhatsappNumeroService, RespostasDoMarketingService, RoboRespostaService, WhatsappGastoService],
 })
 export class WhatsappModule {}

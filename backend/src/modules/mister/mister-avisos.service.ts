@@ -55,6 +55,8 @@ import { MODELO_DO_AVISO, parametrosDoAviso } from './mister-modelos';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { MisterPropostasService } from './mister-propostas.service';
 import { pessoaVale } from './mister-vinculo.service';
+import { PontoService } from '../ponto/ponto.service';
+import { FechamentoDoMes, botoesDoPontoDoMes, competenciaDoAviso, naJanelaDoPontoDoMes, nomeDoMes, nomeDoPdfDoPonto, textoDoPontoDoMes } from './mister-ponto-do-mes';
 import { ChatSemResposta, chatsDoIfoodSemResposta } from '../ponte-chat/chat-sem-resposta';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -141,6 +143,8 @@ export class MisterAvisosService implements OnModuleInit {
     @Optional() private readonly entrada?: MisterEntradaService,
     // As propostas (F4.1, mig 428): o aviso que um procedimento do catálogo resolve vai ao presidente com "Autorizar".
     @Optional() private readonly propostas?: MisterPropostasService,
+    // M3e parte 2: o espelho do ponto do mês em PDF (o MESMO da tela de Gerenciamento de ponto).
+    @Optional() private readonly ponto?: PontoService,
   ) {}
 
   /** O toque em "Ver o que fazer" chega pela entrada do WhatsApp, que mora no módulo de baixo: ela chama este serviço. */
@@ -179,13 +183,17 @@ export class MisterAvisosService implements OnModuleInit {
     const proposta = a.situacao === 'aberto' && v!.nivel === 'presidente' && this.propostas ? await this.propostas.propor(a) : null;
     // O boleto ainda aberto (M3a parte 4): o presidente recebe o "Já paguei" no toque também.
     const doBoleto = a.situacao === 'aberto' && a.tipo === 'boleto_vencendo' && v!.nivel === 'presidente' ? botoesDoAvisoDoBoleto(a.dados?.documentoId) : [];
+    // O arquivo do ponto do mês ainda aberto (M3e parte 2): o presidente recebe "Enviar ao contador" e "Ver antes", e o PDF.
+    const doPonto = a.situacao === 'aberto' && a.tipo === 'ponto_do_mes' && v!.nivel === 'presidente' ? botoesDoPontoDoMes(a.id, !!a.dados?.contadorId) : [];
+    const botoes = doBoleto.length ? doBoleto : doPonto;
     try {
       await this.numero.enviar(
         quem.telefone,
-        proposta ? { texto: `${texto}\n\n${proposta.pergunta}`, botoes: proposta.botoes } : doBoleto.length ? { texto, botoes: doBoleto } : { texto },
+        proposta ? { texto: `${texto}\n\n${proposta.pergunta}`, botoes: proposta.botoes } : botoes.length ? { texto, botoes } : { texto },
       );
       // O Pix impresso no boleto (4b): sozinho na mensagem seguinte, para copiar inteiro.
       if (doBoleto.length && a.dados?.pix) await this.numero.enviar(quem.telefone, { texto: String(a.dados.pix) });
+      if (doPonto.length) await this.mandarPdfDoPonto(a, quem.telefone);
     } catch (e: any) {
       // Achou o aviso; o envio é que falhou. Fica no log com o motivo, e a entrada não diz "não achei".
       this.logger.warn(`o aviso ${a.id} não saiu no toque — ${e instanceof FalhaDoEnvioDoMister ? e.motivo : (e?.message ?? e)}`);
@@ -402,7 +410,71 @@ export class MisterAvisosService implements OnModuleInit {
     //    depois do fim (o turno que vira a meia-noite termina no dia seguinte). Só as lojas que USAM o ponto: o módulo do
     //    terminal ligado e alguma marcação nos últimos 14 dias — senão todo turno pareceria "sem a entrada".
     fora.push(...(await this.pontosEsquecidos(so, agora)));
+    // 10) O arquivo do ponto do mês (M3e parte 2): do dia 1 às 06:00 da loja até o dia 5, o fechamento do mês anterior que
+    //     a rotina do dia 1 gravou e ainda não foi mandado à contabilidade, das empresas que usaram o ponto no mês.
+    fora.push(...(await this.pontosDoMes(so, agora)));
     return fora;
+  }
+
+  private async pontosDoMes(so: (col: string) => ReturnType<typeof sql>, agora: Date): Promise<Situacao[]> {
+    if (!naJanelaDoPontoDoMes(agora)) return [];
+    const competencia = competenciaDoAviso(agora);
+    let fechamentos: any[];
+    try {
+      fechamentos = linhas(
+        await this.db.execute(sql`
+          select f.tenant_id::text as "tenantId", emp.nome as empresa, f.competencia::text as competencia,
+                 f.total_colaboradores as "totalColaboradores", coalesce(f.pendencias, '[]'::jsonb) as pendencias,
+                 (select jsonb_build_object('id', c.id::text, 'nome', c.nome, 'whatsapp', c.whatsapp) from contador c
+                   where c.tenant_id = f.tenant_id and c.ativo = true order by c.created_at desc limit 1) as contador
+            from ponto_fechamento f
+            join empresa emp on emp.id = f.tenant_id and emp.deleted_at is null
+           where f.competencia = ${competencia}::date and f.status <> 'enviado' and f.total_colaboradores > 0
+             and exists (select 1 from ponto_marcacao m
+                          where m.tenant_id = f.tenant_id and m.marcado_em >= (f.competencia::timestamp at time zone ${FUSO_SQL})
+                            and m.marcado_em < ((f.competencia + interval '1 month')::timestamp at time zone ${FUSO_SQL}))
+             ${so('f.tenant_id')}`),
+      );
+    } catch (e: any) {
+      if (semTabela(e)) return [];
+      throw e;
+    }
+    return fechamentos.map((f) => {
+      const fechamento: FechamentoDoMes = {
+        tenantId: f.tenantId,
+        empresa: String(f.empresa ?? ''),
+        competencia: String(f.competencia).slice(0, 10),
+        totalColaboradores: Number(f.totalColaboradores) || 0,
+        pendencias: Array.isArray(f.pendencias) ? f.pendencias : [],
+        contador: f.contador ?? null,
+      };
+      const { titulo, detalhe } = textoDoPontoDoMes(fechamento);
+      return {
+        tenantId: f.tenantId,
+        unidadeId: null,
+        tipo: 'ponto_do_mes' as const,
+        chave: `ponto-mes:${fechamento.competencia}`,
+        titulo,
+        detalhe,
+        // Nada de telefone nos dados (vão à tela e ao histórico): o responsável pelo id.
+        dados: { competencia: fechamento.competencia, empresa: fechamento.empresa, contadorId: f.contador?.id ?? null },
+      };
+    });
+  }
+
+  /**
+   * O espelho do ponto do mês em PDF (o MESMO da tela de Gerenciamento de ponto), logo depois da mensagem do aviso, só ao
+   * presidente. Nunca lança: a falha fica no log e o aviso segue (o PDF também se baixa na tela).
+   */
+  private async mandarPdfDoPonto(a: { id: string; tenantId: string; dados?: any }, telefone: string): Promise<void> {
+    const competencia = String(a.dados?.competencia ?? '');
+    if (!this.ponto || !/^\d{4}-\d{2}-01$/.test(competencia)) return;
+    try {
+      const { buffer } = await this.ponto.gerarEspelhoMensalPdf(a.tenantId, competencia);
+      await this.numero.enviarDocumento(telefone, buffer, nomeDoPdfDoPonto(competencia, String(a.dados?.empresa ?? '')), `Espelho de ponto de ${nomeDoMes(competencia)}`);
+    } catch (e: any) {
+      this.logger.warn(`o PDF do ponto do aviso ${a.id} não saiu — ${e instanceof FalhaDoEnvioDoMister ? e.motivo : (e?.message ?? e)}`);
+    }
   }
 
   private async pontosEsquecidos(so: (col: string) => ReturnType<typeof sql>, agora: Date): Promise<Situacao[]> {
@@ -633,6 +705,9 @@ export class MisterAvisosService implements OnModuleInit {
                         dados = excluded.dados || jsonb_build_object('marcoAnterior', mister_aviso.dados -> 'marco')
                                 || case when mister_aviso.dados ? 'cientes' then jsonb_build_object('cientes', mister_aviso.dados -> 'cientes')
                                         else '{}'::jsonb end
+                                -- M3e parte 2: a reserva do "Enviar ao contador" (o toque duplo não manda duas vezes).
+                                || case when mister_aviso.dados ? 'envioEm' then jsonb_build_object('envioEm', mister_aviso.dados -> 'envioEm')
+                                        else '{}'::jsonb end
           returning id::text as id, tenant_id::text as "tenantId", unidade_id::text as "unidadeId", tipo, chave, titulo, detalhe,
                     aberto_em as "abertoEm", escalado_em as "escaladoEm", entregas, dados, (xmax = 0) as novo`),
       ) as (AvisoAberto & { novo: boolean })[];
@@ -688,7 +763,8 @@ export class MisterAvisosService implements OnModuleInit {
           res.resolvidos++;
           // O boleto que saiu da lista (pago — o "Já paguei" já respondeu —, cancelado ou além dos 30 dias): sem "resolvido".
           // O ponto esquecido que saiu (ajustaram, ou o dia passou): também sem — o resumo não fala do que mudou depois.
-          if (a.tipo !== 'boleto_vencendo' && a.tipo !== 'ponto_esquecido') res.entregas += await this.desfecho(a, agora);
+          // O arquivo do ponto do mês que saiu (mandado à contabilidade, ou passou o dia 5): também sem.
+          if (a.tipo !== 'boleto_vencendo' && a.tipo !== 'ponto_esquecido' && a.tipo !== 'ponto_do_mes') res.entregas += await this.desfecho(a, agora);
         }
         await this.fecharCasos(a);
       } catch (e: any) {
@@ -797,13 +873,17 @@ export class MisterAvisosService implements OnModuleInit {
         const comProposta = proposta && l.nivel === 'presidente';
         // O boleto perto de vencer (M3a parte 4): o presidente recebe o "Já paguei".
         const doBoleto = a.tipo === 'boleto_vencendo' && l.nivel === 'presidente' ? botoesDoAvisoDoBoleto((a.dados as any)?.documentoId) : [];
+        // O arquivo do ponto do mês (M3e parte 2): o presidente recebe "Enviar ao contador" e "Ver antes", e o PDF logo depois.
+        const doPonto = a.tipo === 'ponto_do_mes' && l.nivel === 'presidente' ? botoesDoPontoDoMes(a.id, !!(a.dados as any)?.contadorId) : [];
+        const botoes = doBoleto.length ? doBoleto : doPonto;
         await this.numero.enviar(
           l.telefone,
-          comProposta ? { texto: `${texto}\n\n${proposta.pergunta}`, botoes: proposta.botoes } : doBoleto.length ? { texto, botoes: doBoleto } : { texto },
+          comProposta ? { texto: `${texto}\n\n${proposta.pergunta}`, botoes: proposta.botoes } : botoes.length ? { texto, botoes } : { texto },
         );
         // O Pix impresso no boleto (4b): sozinho na mensagem seguinte, para copiar inteiro (a falha dele não desfaz o aviso).
         const pix = (a.dados as any)?.pix;
         if (doBoleto.length && pix) await this.numero.enviar(l.telefone, { texto: String(pix) }).catch((e: any) => this.logger.warn(`o Pix do aviso ${a.id} não saiu — ${e?.message ?? e}`));
+        if (doPonto.length) await this.mandarPdfDoPonto(a as any, l.telefone);
         fora.push({ destino, fase, em, ok: true, final, ...(motivo ? { motivo } : {}) });
       } catch (e: any) {
         const m = e instanceof FalhaDoEnvioDoMister ? e.motivo : 'erro';

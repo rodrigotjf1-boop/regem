@@ -1,12 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { api, getToken } from '@/lib/api';
+import { api, getCategoria, getToken } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ArrowLeft, Send, Bot, Play, FileText, Image as ImageIcon, ImageOff, Settings } from 'lucide-react';
 import { MidiaMsg, mesmoNumero } from '@/components/whatsapp/midia-msg';
@@ -67,6 +68,11 @@ function Avatar({ nome, telefone, foto, tam = 40 }: { nome?: string; telefone?: 
 
 export default function WhatsappPage() {
   const router = useRouter();
+  // O botão "Uso e gasto" é do presidente (lido depois da carga: o token só existe no navegador).
+  const [presidente, setPresidente] = useState(false);
+  useEffect(() => {
+    setPresidente(getCategoria() === 'presidente');
+  }, []);
   const [status, setStatus] = useState<any>(null);
   const [conversas, setConversas] = useState<any[]>([]);
   const [sel, setSel] = useState<any>(null);
@@ -331,7 +337,18 @@ export default function WhatsappPage() {
   const nomeConversa = (c: any) => c?.nome || foneFmt(c?.telefone ?? '');
 
   return (
-    <Shell eyebrow="Delivery" title="WhatsApp">
+    <Shell
+      eyebrow="Delivery"
+      title="WhatsApp"
+      actions={
+        // WhatsApp › Uso e gasto (mig 445): só o presidente e só na nuvem (a rota confere).
+        presidente && !EH_LOJA ? (
+          <Link href="/whatsapp/gasto" className={buttonVariants({ variant: 'outline' })}>
+            Uso e gasto
+          </Link>
+        ) : undefined
+      }
+    >
       {status?.erro ? (
         <Card className="mx-auto max-w-md p-8 text-center" role="alert">
           <p className="text-4xl">⚠️</p>

@@ -43,6 +43,9 @@ import { MisterAnexosService } from './mister-anexos.service';
 import { MisterLinkPublicoService } from './mister-link-publico.service';
 import { MisterRecadosService } from './mister-recados.service';
 import { TEXTOS_DO_RECADO } from './mister-recado';
+import { MisterPontoDoMesService } from './mister-ponto-do-mes.service';
+import { TEXTOS_DO_PONTO_DO_MES } from './mister-ponto-do-mes';
+import { PontoService } from '../ponto/ponto.service';
 import { MuralService } from '../mural/mural.service';
 import { TETO_DE_LINKS_VIVOS, TEXTOS_DO_LINK_PUBLICO } from './mister-link-publico';
 import { MisterPropostasService } from './mister-propostas.service';
@@ -3575,6 +3578,162 @@ export function testesDoMisterComPostgres(): void {
       }
     });
 
+    // ───────────────────────────── o arquivo do ponto do mês (M3e parte 2) ─────────────────────────────
+    // A rotina do dia 1 grava o fechamento; o aviso o lê às 06:00 da loja e vai ao presidente com o PDF e os botões. O
+    // "Enviar ao contador" usa o MESMO envio da tela (o WhatsApp da loja), uma vez só.
+    it('o arquivo do ponto do mês (M3e parte 2): no dia 1 às 6h ao presidente, com o PDF e os botões; "Enviar ao contador" pelo envio da tela, uma vez só', async () => {
+      const telAna = telefone();
+      const telCarlos = telefone();
+      const telB = telefone();
+      await ligar('ana', telAna);
+      await ligar('carlos', telCarlos, A, 'gerente');
+      await ligar('anaB', telB, B);
+      // O ponto de verdade, com o WhatsApp da loja de mentira (o envio ao contador sai por ele, como na tela).
+      const docsDaLoja: any[] = [];
+      const whatsDaLoja = {
+        enviarDocumento: async (tenantId: string, tel: string, base64: string, nome: string, legenda: string) =>
+          void docsDaLoja.push({ tenantId, tel, nome, legenda, inicio: Buffer.from(base64, 'base64').subarray(0, 5).toString('latin1') }),
+      };
+      const ponto = new PontoService(db, auditoria, null as any, { emit: () => true } as any, modulos, whatsDaLoja as any);
+      const comPonto = new AvisosDeTeste(db, avisosConfig, numero, modulos, { guardarEMostrar: async () => ({ aviso: {}, situacao: 'novo' }) } as any, { emit: () => true } as any, entrada, propostas, ponto);
+      comPonto.onModuleInit();
+      const botoesDoPonto = new MisterPontoDoMesService(db, ponto, entrada, numero);
+      botoesDoPonto.onModuleInit();
+      const COMP = '2026-10-01';
+      const ANTES = new Date('2026-11-01T08:59:00Z'); // 05:59 da loja
+      const DIA1 = new Date('2026-11-01T09:30:00Z'); // 06:30 da loja
+      const DIA6 = new Date('2026-11-06T12:00:00Z');
+      const doPonto = (s: any[]) => s.filter((x) => x.tipo === 'ponto_do_mes');
+      const avisoDoPonto = async () => (await q(`select id::text as id, situacao, dados from mister_aviso where tenant_id = $1 and tipo = 'ponto_do_mes' order by aberto_em desc`, [A]))[0];
+      const fechamento = async () => (await q(`select status, enviado_contador_id::text as contador, enviado_por_id::text as por from ponto_fechamento where tenant_id = $1 and competencia = $2::date`, [A, COMP]))[0];
+      const tocar = async (tel: string, botaoId: string) => {
+        numero.pedidos.length = 0;
+        await mandar(tel, 'botão', { botaoId });
+        return numero.enviadas.map((m) => m.texto);
+      };
+      const quemAna = { telefone: telAna, vinculos: [{ tenantId: A, colaboradorId: pessoa.ana, unidadeId: null, nivel: 'presidente' as const, empresa: NOME_A }], wamid: null };
+      const marcacoes: string[] = [];
+      try {
+        await q(`delete from ponto_fechamento where tenant_id = any($1::uuid[])`, [[A, B]]);
+        await q(`delete from contador where tenant_id = any($1::uuid[])`, [[A, B]]);
+        // O fechamento que a rotina do dia 1 gravou (A usou o ponto em outubro; B tem fechamento, mas não marcou ponto).
+        await q(`insert into ponto_fechamento (tenant_id, competencia, status, total_colaboradores, total_pendencias, pendencias) values ($1, $2::date, 'pendente', 14, 1, $3::jsonb)`, [
+          A,
+          COMP,
+          JSON.stringify([{ colaboradorId: pessoa.edu, nome: 'Edu Balcão', dias: [{ data: '2026-10-28', motivo: 'batida incompleta' }] }]),
+        ]);
+        await q(`insert into ponto_fechamento (tenant_id, competencia, status, total_colaboradores, total_pendencias, pendencias) values ($1, $2::date, 'ok', 3, 0, '[]'::jsonb)`, [B, COMP]);
+        const [{ id: m1 }] = await q(`insert into ponto_marcacao (tenant_id, unidade_id, colaborador_id, nsr, tipo, marcado_em) values ($1, $2, $3, $4, 'entrada', '2026-10-15T21:00:00Z') returning id::text as id`, [
+          A,
+          lojaDeA,
+          pessoa.edu,
+          randomInt(1e9, 9e9),
+        ]);
+        marcacoes.push(m1);
+
+        // Antes das 06:00 do dia 1 da loja, e depois do dia 5: nada. B (sem marcação no mês) nunca.
+        expect(doPonto(await comPonto.situacoes([A, B], ANTES))).toEqual([]);
+        expect(doPonto(await comPonto.situacoes([A, B], DIA6))).toEqual([]);
+        // Sem o responsável cadastrado: o aviso diz onde cadastrar.
+        const [semContador, ...outros] = doPonto(await comPonto.situacoes([A, B], DIA1));
+        expect(outros).toEqual([]);
+        expect(semContador).toEqual({
+          tenantId: A,
+          unidadeId: null,
+          tipo: 'ponto_do_mes',
+          chave: 'ponto-mes:2026-10-01',
+          titulo: `Ponto de outubro · ${NOME_A} (1 a 31/10)`,
+          detalhe: '14 colaboradores · 1 pendente (Edu Balcão, 28/10).\n\nPara mandar à contabilidade com um toque, cadastre o responsável em Pessoas › Gerenciamento de ponto.',
+          dados: { competencia: COMP, empresa: NOME_A, contadorId: null },
+        });
+
+        // Com o responsável: abre às 06:30 e vai SÓ ao presidente — a mensagem com a pasta e os botões, e o PDF logo depois.
+        const [{ id: contadorId }] = await q(`insert into contador (tenant_id, nome, whatsapp, cadastrado_por_id) values ($1, 'Juliana Prado', '5521998767788', $2) returning id::text as id`, [
+          A,
+          pessoa.ana,
+        ]);
+        numero.pedidos.length = 0;
+        await comPonto.volta([A, B], DIA1);
+        const aviso = await avisoDoPonto();
+        expect(aviso).toMatchObject({ situacao: 'aberto', dados: { competencia: COMP, contadorId } });
+        expect(JSON.stringify(aviso.dados)).not.toContain('99876');
+        const paraAna = numero.enviadas.filter((m) => m.para === telAna);
+        expect(paraAna.map((m) => m.texto)).toEqual([
+          `📁 Ponto de outubro · ${NOME_A} (1 a 31/10).\n\n14 colaboradores · 1 pendente (Edu Balcão, 28/10).\n\nEnvio à contabilidade? Juliana Prado (WhatsApp final 7788).`,
+          expect.stringMatching(new RegExp(`^documento:Espelho de ponto · outubro 2026 · ${NOME_A}\\.pdf\\|Espelho de ponto de outubro\\|\\d+$`)),
+        ]);
+        expect(paraAna[0].botoes).toEqual([
+          { id: `pmes:enviar:${aviso.id}`, titulo: 'Enviar ao contador' },
+          { id: `pmes:ver:${aviso.id}`, titulo: 'Ver antes' },
+        ]);
+        expect(numero.enviadas.filter((m) => m.para !== telAna)).toEqual([]);
+
+        // "Ver antes": onde conferir, com o link para o Regem. O gerente não manda; o telefone de outra empresa não acha o aviso.
+        numero.pedidos.length = 0;
+        await mandar(telAna, 'Ver antes', { botaoId: `pmes:ver:${aviso.id}` });
+        expect(numero.enviadas).toEqual([
+          expect.objectContaining({ para: telAna, texto: TEXTOS_DO_PONTO_DO_MES.verAntes(COMP), link: expect.objectContaining({ titulo: 'Abrir no Regem', url: expect.stringMatching(/\/pessoas$/) }) }),
+        ]);
+        expect(await tocar(telCarlos, `pmes:enviar:${aviso.id}`)).toEqual([TEXTOS_DO_PONTO_DO_MES.soPresidente]);
+        expect(await tocar(telB, `pmes:enviar:${aviso.id}`)).toEqual([TEXTOS_DA_PROPOSTA.naoAchada]);
+        expect(docsDaLoja).toEqual([]);
+
+        // A renovação do aviso a cada volta preserva a reserva do envio (senão o toque duplo, no meio da volta, mandaria duas vezes).
+        await q(`update mister_aviso set dados = dados || jsonb_build_object('envioEm', now()) where id = $1`, [aviso.id]);
+        await comPonto.volta([A, B], DIA1);
+        expect((await avisoDoPonto()).dados).toHaveProperty('envioEm');
+        // A reserva fresca segura o toque: "já está em andamento", nada sai.
+        expect(await tocar(telAna, `pmes:enviar:${aviso.id}`)).toEqual([TEXTOS_DO_PONTO_DO_MES.enviando]);
+        expect(docsDaLoja).toEqual([]);
+        // A reserva velha (o envio que morreu no meio) não segura; a falha do envio solta a reserva e diz a frase.
+        await q(`update mister_aviso set dados = dados || jsonb_build_object('envioEm', now() - interval '10 minutes') where id = $1`, [aviso.id]);
+        const quebrado = new MisterPontoDoMesService(db, { enviarEspelhoContador: async () => Promise.reject(new Error('o WhatsApp da loja caiu')) } as any, undefined, numero);
+        numero.pedidos.length = 0;
+        expect(await quebrado.tocou(`pmes:enviar:${aviso.id}`, quemAna)).toBe(true);
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_PONTO_DO_MES.falhou]);
+        expect((await avisoDoPonto()).dados).not.toHaveProperty('envioEm');
+        const semResponsavel = new MisterPontoDoMesService(db, { enviarEspelhoContador: async () => ({ precisaResponsavel: true }) } as any, undefined, numero);
+        numero.pedidos.length = 0;
+        expect(await semResponsavel.tocou(`pmes:enviar:${aviso.id}`, quemAna)).toBe(true);
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_PONTO_DO_MES.semContador]);
+        expect((await avisoDoPonto()).dados).not.toHaveProperty('envioEm');
+
+        // "Enviar ao contador": o MESMO envio da tela — o PDF pelo WhatsApp da loja ao responsável, o fechamento marcado e a
+        // auditoria em nome do presidente. Dois toques ao mesmo tempo mandam uma vez só.
+        auditados.length = 0;
+        numero.pedidos.length = 0;
+        expect(await Promise.all([botoesDoPonto.tocou(`pmes:enviar:${aviso.id}`, quemAna), botoesDoPonto.tocou(`pmes:enviar:${aviso.id}`, quemAna)])).toEqual([true, true]);
+        expect(docsDaLoja).toEqual([{ tenantId: A, tel: '5521998767788', nome: 'espelho-ponto-2026-10.pdf', legenda: 'Espelho de ponto 10/2026', inicio: '%PDF-' }]);
+        const respostas = numero.enviadas.map((m) => m.texto);
+        expect(respostas).toHaveLength(2);
+        expect(respostas.filter((t) => /^Enviado às \d\d:\d\d para Juliana Prado\. Fica no fechamento de outubro, em Pessoas › Gerenciamento de ponto\.$/.test(t))).toHaveLength(1);
+        expect(respostas.filter((t) => t === TEXTOS_DO_PONTO_DO_MES.enviando || /^O ponto de outubro já foi enviado/.test(t))).toHaveLength(1);
+        expect(await fechamento()).toEqual({ status: 'enviado', contador: contadorId, por: pessoa.ana });
+        expect(auditados.find((x) => x.acao === 'enviou_espelho_rh')).toMatchObject({ tenantId: A, atorId: pessoa.ana, detalhe: { competencia: COMP, contadorId } });
+        // O toque de novo: já foi, às tantas — nada sai outra vez.
+        await q(`update mister_aviso set dados = dados - 'envioEm' where id = $1`, [aviso.id]);
+        expect(await tocar(telAna, `pmes:enviar:${aviso.id}`)).toEqual([expect.stringMatching(/^O ponto de outubro já foi enviado à contabilidade, às \d\d:\d\d\.$/)]);
+        expect(docsDaLoja).toHaveLength(1);
+        // A volta seguinte fecha o aviso PORQUE o fechamento foi mandado, sem mandar "resolvido". (O envio da tela recalcula o
+        // fechamento, e aqui a empresa de teste não tem escala em outubro: o total volta a 14 para o "enviado" ser o motivo.)
+        await q(`update ponto_fechamento set total_colaboradores = 14 where tenant_id = $1 and competencia = $2::date`, [A, COMP]);
+        expect(doPonto(await comPonto.situacoes([A, B], DIA1))).toEqual([]);
+        numero.pedidos.length = 0;
+        await comPonto.volta([A, B], DIA1);
+        expect((await avisoDoPonto()).situacao).not.toBe('aberto');
+        expect(numero.enviadas).toEqual([]);
+        expect(await tocar(telAna, `pmes:enviar:${aviso.id}`)).toEqual([expect.stringMatching(/^O ponto de outubro já foi enviado/)]);
+        expect(docsDaLoja).toHaveLength(1);
+      } finally {
+        // O serviço dos avisos de sempre volta a ser o que se apresenta à entrada (os testes seguintes usam ele).
+        avisos.onModuleInit();
+        if (marcacoes.length) await q(`delete from ponto_marcacao where id = any($1::uuid[])`, [marcacoes]);
+        await q(`delete from ponto_fechamento where tenant_id = any($1::uuid[])`, [[A, B]]);
+        await q(`delete from contador where tenant_id = any($1::uuid[])`, [[A, B]]);
+        await q(`update colaborador set ponto_enviado_em = null, ponto_enviado_contador_id = null where tenant_id = $1`, [A]).catch(() => {});
+      }
+    });
+
     // ───────────────────────────── o "como faço" com a imagem da tela (M3d) ─────────────────────────────
     it('o "como faço" com a imagem da tela (M3d): a imagem pelo endereço público antes do texto; quem não abre a tela, sem imagem', async () => {
       comIa();
@@ -3811,8 +3970,10 @@ export function testesDoMisterComPostgres(): void {
 
     it('a configuração dos avisos: o padrão aprovado, o salvar com a auditoria do antes e do depois, e as recusas', async () => {
       const tela = await avisosConfig.daTela(A);
-      // Os nove do protótipo aprovado em 14/11, o do boleto perto de vencer (versão 3, M3a parte 4) e o do ponto esquecido (M3e).
-      expect(tela.avisos).toHaveLength(11);
+      // Os nove do protótipo aprovado em 14/11, o do boleto perto de vencer (versão 3, M3a parte 4), o do ponto esquecido (M3e)
+      // e o do arquivo do ponto do mês (M3e parte 2).
+      expect(tela.avisos).toHaveLength(12);
+      expect(tela.avisos[11]).toMatchObject({ tipo: 'ponto_do_mes', grupo: 'Pessoas e ponto', regra: { ligado: true, destinos: ['presidente'], parametro: null } });
       expect(tela.avisos[9]).toMatchObject({ tipo: 'boleto_vencendo', grupo: 'Documentos e dinheiro', regra: { ligado: true, destinos: ['presidente'], parametro: 3 } });
       expect(tela.avisos[10]).toMatchObject({ tipo: 'ponto_esquecido', grupo: 'Pessoas e ponto', regra: { ligado: true, destinos: ['gerente'], parametro: 0 } });
       expect(tela.avisos[0]).toMatchObject({ tipo: 'impressora', padrao: true, jaFunciona: true, regra: { ligado: true, destinos: ['tela'], escalaMin: 5, escalaPara: ['gerente'] } });
