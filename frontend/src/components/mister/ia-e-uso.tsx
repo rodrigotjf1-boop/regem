@@ -51,6 +51,8 @@ const RECURSO: Record<string, string> = {
   mister_resumo_semana: 'Mister · resumo da semana',
   // Os documentos por foto (M3a, mig 439; o nome vem do `RECURSO_DO_DOCUMENTO` do servidor).
   mister_documento: 'Mister · boletos por foto',
+  // Os avisos escritos pelo Mister (versão 4, M4c; o nome vem do `RECURSO_DO_AVISO_ESCRITO` do servidor).
+  mister_aviso_escrito: 'Mister · avisos escritos',
 };
 const MODELO: Record<string, string> = {
   'claude-haiku-5-5': 'Claude Haiku 5.5',

@@ -1520,6 +1520,20 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     await salvar();
     ok(JSON.stringify(S.salvamentosConv.at(-1)) === JSON.stringify({ jeito: null }), `jeito: o jeito em branco vai como null (${JSON.stringify(S.salvamentosConv.at(-1))})`);
     ok((await perfil.inputValue()) === 'descontraido', 'jeito: o perfil salvo segue marcado depois de salvar o jeito');
+    // M4c: os avisos escritos — um por grupo, nascem desmarcados; salvar manda SÓ os grupos, na ordem do servidor.
+    const grupoNaLoja = page.getByLabel('Na loja', { exact: true });
+    const grupoFiscal = page.getByLabel('Fiscal', { exact: true });
+    ok(!(await grupoNaLoja.isChecked()) && !(await grupoFiscal.isChecked()), 'avisos escritos: nascem desmarcados');
+    ok(/Quem descobre o problema continua sendo a regra, sem IA/.test(await page.locator('main').innerText()), 'avisos escritos: a ajuda diz que a regra descobre e a IA só escreve');
+    await grupoFiscal.check();
+    await grupoNaLoja.check();
+    await page.waitForSelector('text=1 alteração ainda não salva');
+    await salvar();
+    ok(JSON.stringify(S.salvamentosConv.at(-1)) === JSON.stringify({ avisosEscritos: ['loja', 'fiscal'] }), `avisos escritos: salvar manda SÓ os grupos, na ordem (${JSON.stringify(S.salvamentosConv.at(-1))})`);
+    ok((await grupoNaLoja.isChecked()) && (await grupoFiscal.isChecked()) && !(await page.getByLabel('Servidor', { exact: true }).isChecked()), 'avisos escritos: os marcados seguem marcados depois de salvar');
+    await grupoFiscal.uncheck();
+    await salvar();
+    ok(JSON.stringify(S.salvamentosConv.at(-1)) === JSON.stringify({ avisosEscritos: ['loja'] }), `avisos escritos: desmarcar manda a lista sem ele (${JSON.stringify(S.salvamentosConv.at(-1))})`);
     ok(erros.length === 0, `jeito: sem erro (${erros.join(' | ')})`);
     await ctx.close();
     // A leitura que falha: a frase e "Tentar de novo".
@@ -1608,7 +1622,9 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     // Com uma alteração (a barra de salvar aparece) e o jeito preenchido: continua sem barra lateral.
     await page.getByLabel('Perfil', { exact: true }).selectOption('objetivo');
     await page.getByLabel('Jeito da empresa', { exact: true }).fill('Fale como sócio, sem formalidade. No fim da noite, comece pelo que deu errado.');
-    await page.waitForSelector('text=2 alterações ainda não salvas');
+    // M4c: os quatro grupos marcados (a linha das marcas quebra no estreito).
+    for (const g of ['Na loja', 'Servidor', 'Fiscal', 'O próprio Mister']) await page.getByLabel(g, { exact: true }).check();
+    await page.waitForSelector('text=3 alterações ainda não salvas');
     m = await medir(page);
     ok(m.length === 0, `${w}px: "Jeito e memória" com a barra de salvar, sem barra lateral (${m.join(' | ')})`);
     const area = await page.getByLabel('Jeito da empresa', { exact: true }).boundingBox();
