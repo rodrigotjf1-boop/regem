@@ -106,7 +106,9 @@ export function ConversaDoCaso({
     if (!jids) return;
     atual.current = jids;
     void ler(jids);
-    const t = setInterval(() => void ler(jids), 5000);
+    const t = setInterval(() => {
+      if (document.visibilityState === 'visible') void ler(jids); // a aba escondida não lê (ERR-514)
+    }, 5000);
     return () => clearInterval(t);
   }, [jids, ler]);
 

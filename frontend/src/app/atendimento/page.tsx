@@ -910,22 +910,26 @@ function Caso({
         )}
 
         {/* O entregador do pedido (mig 391): os avisos que ele recebeu no app, o que fez e "Avisar o entregador". */}
-        {c.pedidoId && <AvisarOEntregador key={c.id} caso={c} aberto={aberto} />}
+        {/* CHAVE ÚNICA por peça (ERR-514, 17/11/2026): as seis peças abaixo usavam a MESMA chave (`c.id`) e são irmãs — o
+            React perdia a cópia antiga sem desmontá-la quando uma aparecia ou sumia: ela ficava na tela, congelada (as
+            linhas "Too Many Requests" empilhadas), e o relógio dela seguia lendo o servidor até o 429. O `check:atendimento`
+            reprova chave repetida aqui. */}
+        {c.pedidoId && <AvisarOEntregador key={`entregador-${c.id}`} caso={c} aberto={aberto} />}
 
         {/* O chat do iFood e da 99 pela ponte (Etapa 2): a conversa do pedido e a resposta, que a ponte digita no chat. */}
-        {comChat && <ChatDaPlataforma key={c.id} caso={c} aberto={aberto} podeResponder={podeResponder} />}
+        {comChat && <ChatDaPlataforma key={`chat-${c.id}`} caso={c} aberto={aberto} podeResponder={podeResponder} />}
 
         {/* O Instagram Direct (mig 377): a conversa e a resposta pela conta da loja, dentro da janela de 24 h. */}
-        {c.tipo === 'instagram' && <ConversaDoInstagram key={c.id} caso={c} aberto={aberto} podeResponder={podeResponder} />}
+        {c.tipo === 'instagram' && <ConversaDoInstagram key={`instagram-${c.id}`} caso={c} aberto={aberto} podeResponder={podeResponder} />}
 
         {/* O comentário no post (F6, mig 384): o post, o comentário e as ações — responder no post, no Direct, esconder. */}
-        {c.tipo === 'instagram_comentario' && <ComentarioDoCaso key={c.id} caso={c} />}
+        {c.tipo === 'instagram_comentario' && <ComentarioDoCaso key={`comentario-${c.id}`} caso={c} />}
 
         {/* O Messenger da página do Facebook (mig 386): a conversa e a resposta pela página, dentro da janela de 24 h. */}
-        {c.tipo === 'messenger' && <ConversaDoMessenger key={c.id} caso={c} aberto={aberto} podeResponder={podeResponder} />}
+        {c.tipo === 'messenger' && <ConversaDoMessenger key={`messenger-${c.id}`} caso={c} aberto={aberto} podeResponder={podeResponder} />}
 
         {/* A conversa dentro do caso (2B): quem responde pelo WhatsApp é a gestão — a caixa de conversas confere. */}
-        {c.telefone && c.canal === 'whatsapp' && aberto && podeResponder && <ConversaDoCaso key={c.id} caso={c} rascunho={rascunho} />}
+        {c.telefone && c.canal === 'whatsapp' && aberto && podeResponder && <ConversaDoCaso key={`whatsapp-${c.id}`} caso={c} rascunho={rascunho} />}
         {c.telefone && c.canal === 'whatsapp' && aberto && !podeResponder && (
           <section className="rounded-lg border border-border p-3 text-sm">
             <h4 className="mb-1 font-display text-sm font-bold">Conversa no WhatsApp</h4>
