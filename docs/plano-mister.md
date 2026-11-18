@@ -1181,7 +1181,23 @@ conversa"): a memória entra no bloco da conversa, sem quebrar o cache.
   instrução; sem as colunas da 447, a leitura usa as da 440 (o ajuste dos documentos não volta ao padrão). O perfil (as
   chaves do atendente, com textos para o dono e o gerente) e o jeito entram no bloco "Esta conversa", depois da marca de
   cache. Tela: Mister › "Jeito e memória" (só o presidente), no modelo de ajustes, com o perfil e o jeito; os avisos
-  escritos e o "fica de olho" aparecem na tela quando as fases deles entrarem (sem controle sem efeito).
+  escritos e o "fica de olho" aparecem na tela quando as fases deles entrarem (sem controle sem efeito). **No ar (#1145).**
+- **M4b — a memória (mig 449, só nuvem):** a tabela `mister_memoria` (uma frase por linha, até 300 letras; `colaborador_id`
+  nulo = da empresa, preenchido = da pessoa; `origem` conversa | presidente; `anotado_por`), em SO_NUVEM no daemon. As
+  regras puras em `mister-memoria.ts`: a conferência que recusa com o motivo (valor em reais, link, dado de pessoa —
+  telefone, e-mail, CPF, CNPJ —, senha, PIN e chave), os limites do Hermes (2.200 letras da empresa, 1.375 de cada pessoa;
+  cheio, o Mister junta ou pede para esquecer — nunca apaga sozinho) e o trecho que acha a anotação (sem acento e sem
+  caixa; nenhuma ou mais de uma = o motivo). O serviço confere o limite e grava na MESMA transação, com a trava da empresa
+  (dois "lembra que…" ao mesmo tempo não passam juntos do limite — V98); a auditoria guarda quem, sobre quem e quantas
+  letras, nunca o texto. Quem pode: o presidente tudo; o gerente só o dele (pela conversa); o que é da empresa, só o
+  presidente troca ou esquece. A memória entra no bloco "Esta conversa" (depois da marca de cache), com o quanto está
+  cheio; a ferramenta `lembrar` (anotar, trocar, esquecer — "mim" é sempre a pessoa da conversa, decidida pelo servidor)
+  não é consulta e não roda junto com outra. Quem perde o WhatsApp ligado ao Mister perde a memória dela junto. Tela:
+  "O que o Mister sabe" em Mister › "Jeito e memória" (só o presidente): "Da empresa" e "De cada pessoa" com a quantidade,
+  o medidor, a busca e a origem, "Anotar" e "Mudar" em gaveta (a recusa do servidor aparece no campo), "Esquecer" em
+  diálogo. A avaliação de regressão ganhou a pergunta 44 ("lembra que aqui a gente chama o X-Burger Smash só de
+  smash" → chama `lembrar` e diz o que anotou; a 43 é a do gasto do WhatsApp, G3). Fica para depois: o filtro de "valor
+  sem origem" aceitar o valor arredondado quando a pessoa pediu sem centavos (o protótipo cita; só com o caso real).
 
 ## 5. O que depende do dono
 
