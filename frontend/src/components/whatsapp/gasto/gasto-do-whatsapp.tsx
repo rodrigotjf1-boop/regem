@@ -15,6 +15,7 @@ import { ListaDados, NomeComApoio, hojeIso, texto2 } from '@/components/ui/lista
 import { Colunas, type Ponto } from '@/components/relatorios/graficos';
 import { NumerosDoGasto } from './numeros-do-gasto';
 import { GastoPorTipo } from './gasto-por-tipo';
+import { AlertasDoGasto } from './alertas-do-gasto';
 import { type GastoOficial, type Grupo, type ResumoDoGasto, type TipoDePeriodo, PAPEL, TIPO, diaCurto, dinheiro, horaDaLeitura, inteiro, nomeDoMes } from './tipos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -43,6 +44,14 @@ export function GastoDoWhatsapp() {
   const [lendo, setLendo] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [relendo, setRelendo] = useState(false);
+  // O Mister ligado? (G2: os alertas de gasto vão por ele.) null = não deu para saber — o cartão não afirma nada.
+  const [misterLigado, setMisterLigado] = useState<boolean | null>(null);
+  useEffect(() => {
+    api
+      .get('/modulos/meus')
+      .then((m) => setMisterLigado((m as Record<string, boolean>)?.mister === true))
+      .catch(() => setMisterLigado(null));
+  }, []);
   // Só a resposta do pedido mais novo vale (V64): trocar o período rápido não deixa a resposta velha por cima.
   const pedido = useRef(0);
   const invertido = periodo === 'outro' && !!de && !!ate && de > ate;
@@ -181,12 +190,12 @@ export function GastoDoWhatsapp() {
           }
         />
       )}
-      {!lendo && !erro && dados?.oficial && <Conteudo g={dados} relendo={relendo} lerAgora={lerAgora} />}
+      {!lendo && !erro && dados?.oficial && <Conteudo g={dados} relendo={relendo} lerAgora={lerAgora} misterLigado={misterLigado} />}
     </div>
   );
 }
 
-function Conteudo({ g, relendo, lerAgora }: { g: GastoOficial; relendo: boolean; lerAgora: () => void }) {
+function Conteudo({ g, relendo, lerAgora, misterLigado }: { g: GastoOficial; relendo: boolean; lerAgora: () => void; misterLigado: boolean | null }) {
   const moeda = g.leitura.moeda;
   if (!g.leitura.algumaLida) {
     return (
@@ -259,6 +268,8 @@ function Conteudo({ g, relendo, lerAgora }: { g: GastoOficial; relendo: boolean;
           </section>
         </>
       )}
+
+      {g.alertas && <AlertasDoGasto a={g.alertas} misterLigado={misterLigado} moeda={moeda} />}
 
       <section className="space-y-2" aria-labelledby="gasto-meses">
         <h2 id="gasto-meses" className="font-display text-lg font-bold">

@@ -40,6 +40,14 @@ import {
   faltaNoTurno,
   pontoNoTempoDoAviso,
   situacoesDoPonto,
+  ONDE_VER_O_GASTO,
+  chaveDaFranquia,
+  chaveDoGasto,
+  conferirValoresDoGasto,
+  emReais,
+  situacaoDaFranquia,
+  situacaoDoGasto,
+  valoresQueAvisam,
 } from './mister-avisos.regras';
 import { REGRAS_DO_VIGIA } from '../vigia/vigia.regras';
 import { diasParaVencer } from '../fiscal/certificado';
@@ -65,6 +73,9 @@ describe('Mister — os avisos: o padrão aprovado em 14/11', () => {
       'boleto_vencendo',
       'ponto_esquecido',
       'ponto_do_mes',
+      // G2 do gasto do WhatsApp oficial (18/11/2026): no fim; a tela os põe no grupo "Documentos e dinheiro".
+      'gasto_whatsapp',
+      'franquia_atendimento',
     ]);
     // M3e parte 2: o arquivo do ponto do mês, ao presidente (o protótipo: "Vai para: WhatsApp do presidente"), sem parâmetro.
     expect(TIPOS_DE_AVISO.find((t) => t.tipo === 'ponto_do_mes')).toMatchObject({
@@ -75,6 +86,14 @@ describe('Mister — os avisos: o padrão aprovado em 14/11', () => {
     // A mensagem do arquivo do ponto vai com a pasta, não com o sinal de alerta.
     expect(textoDoAviso({ tipo: 'ponto_do_mes', titulo: 'Ponto de outubro · Mister Burger (1 a 31/10)', detalhe: 'x' })).toBe('📁 Ponto de outubro · Mister Burger (1 a 31/10).\n\nx');
     expect(textoDoAviso({ tipo: 'impressora', titulo: 'A impressora parou', detalhe: null })).toBe('⚠️ A impressora parou.');
+    expect(TIPOS_DE_AVISO.find((t) => t.tipo === 'gasto_whatsapp')).toMatchObject({
+      grupo: 'Documentos e dinheiro',
+      padrao: { ligado: false, destinos: ['presidente'], escalaMin: null, escalaPara: [], parametro: null, valores: [] },
+    });
+    expect(TIPOS_DE_AVISO.find((t) => t.tipo === 'franquia_atendimento')).toMatchObject({
+      grupo: 'Documentos e dinheiro',
+      padrao: { ligado: true, destinos: ['presidente'], escalaMin: null, escalaPara: [], parametro: null },
+    });
     // M3e: o ponto esquecido, ao gerente, com o resumo no dia seguinte (parâmetro 0).
     expect(TIPOS_DE_AVISO.find((t) => t.tipo === 'ponto_esquecido')).toMatchObject({
       grupo: 'Pessoas e ponto',
@@ -524,5 +543,107 @@ describe('Mister — o ponto esquecido (M3e, conversa 19 da versão 3)', () => {
     });
     expect(regraQueVale('ponto_esquecido', { ligado: true, destinos: ['gerente'], parametro: 99 }).parametro).toBe(0);
     expect(regraQueVale('ponto_esquecido', { ligado: true, destinos: ['gerente'], parametro: 60 }).parametro).toBe(60);
+  });
+});
+
+// G2 do protótipo `mockups/regem-whatsapp-gasto.html` (aprovado em 18/11/2026; mig 445/446): os alertas de gasto do
+// WhatsApp oficial pelo Mister — os valores, a regra, o salvar, os textos e quem avisa.
+describe('Mister — o gasto do WhatsApp oficial (G2)', () => {
+  const ERRO_DO_VALOR = 'Cada valor do alerta de gasto vai de R$ 1,00 a R$ 100.000,00.';
+  it('os valores do alerta: de R$ 1 a R$ 100.000 (duas casas), sem repetir, até 10, em ordem', () => {
+    expect(conferirValoresDoGasto([400, 100, '200'])).toEqual([100, 200, 400]);
+    expect(conferirValoresDoGasto([100.456])).toEqual([100.46]);
+    expect(conferirValoresDoGasto(null)).toEqual([]);
+    expect(conferirValoresDoGasto(undefined)).toEqual([]);
+    expect(conferirValoresDoGasto('100')).toEqual({ erro: 'Os valores do alerta de gasto vêm numa lista.' });
+    expect(conferirValoresDoGasto([0.5])).toEqual({ erro: ERRO_DO_VALOR });
+    expect(conferirValoresDoGasto([100001])).toEqual({ erro: ERRO_DO_VALOR });
+    expect(conferirValoresDoGasto(['abc'])).toEqual({ erro: ERRO_DO_VALOR });
+    expect(conferirValoresDoGasto([''])).toEqual({ erro: ERRO_DO_VALOR });
+    expect(conferirValoresDoGasto([100, 100.001])).toEqual({ erro: 'O valor R$ 100,00 está repetido no alerta de gasto.' });
+    expect(conferirValoresDoGasto(Array.from({ length: 11 }, (_, i) => i + 1))).toEqual({ erro: 'O alerta de gasto aceita até 10 valores.' });
+    expect(emReais(1284.9)).toBe('R$ 1.284,90');
+    expect(emReais(12.5, 'USD')).toBe('USD 12,50');
+  });
+
+  it('a regra que vale: os valores só no gasto, em ordem — o valor estragado no banco não derruba a regra', () => {
+    expect(regraQueVale('gasto_whatsapp', null)).toEqual({ ligado: false, destinos: ['presidente'], escalaMin: null, escalaPara: [], parametro: null, valores: [] });
+    expect(regraQueVale('gasto_whatsapp', { ligado: true, destinos: ['presidente'], valores: [400, 100] }).valores).toEqual([100, 400]);
+    expect(regraQueVale('gasto_whatsapp', { ligado: true, destinos: ['presidente'], valores: [0] }).valores).toEqual([]);
+    expect(regraQueVale('franquia_atendimento', null)).toEqual({ ligado: true, destinos: ['presidente'], escalaMin: null, escalaPara: [], parametro: null });
+    expect('valores' in regraQueVale('impressora', null)).toBe(false);
+  });
+
+  it('salvar: só os destinos de dinheiro, sem "se ninguém resolver"; o gasto ligado pede pelo menos um valor', () => {
+    const r = (x: Record<string, unknown>) =>
+      conferirRegras({ regras: [{ tipo: 'gasto_whatsapp', ligado: true, destinos: ['presidente'], escalaMin: null, escalaPara: [], valores: [200, 100], ...x }] });
+    expect(r({})).toEqual([{ tipo: 'gasto_whatsapp', regra: { ligado: true, destinos: ['presidente'], escalaMin: null, escalaPara: [], parametro: null, valores: [100, 200] } }]);
+    expect(r({ destinos: ['presidente', 'tela', 'dms', 'gerente'] })).toEqual([expect.objectContaining({ tipo: 'gasto_whatsapp' })]);
+    expect(r({ destinos: ['kds'] })).toEqual({ erro: expect.stringContaining('o KDS e o Atendimento não recebem aviso de gasto') });
+    expect(r({ escalaMin: 5, escalaPara: ['gerente'] })).toEqual({ erro: expect.stringContaining('não tem "se ninguém resolver"') });
+    expect(r({ valores: [] })).toEqual({ erro: 'Ponha pelo menos um valor no alerta de gasto, ou desligue o aviso.' });
+    expect(r({ ligado: false, valores: [] })).toEqual([{ tipo: 'gasto_whatsapp', regra: expect.objectContaining({ ligado: false, valores: [] }) }]);
+    expect(r({ valores: [100, 100] })).toEqual({ erro: 'O valor R$ 100,00 está repetido no alerta de gasto.' });
+    expect(conferirRegras({ regras: [{ tipo: 'franquia_atendimento', ligado: true, destinos: ['atendimento'], escalaMin: null, escalaPara: [] }] })).toEqual({
+      erro: expect.stringContaining('não recebem aviso de gasto'),
+    });
+    // Os outros avisos não ganham valores.
+    expect(conferirRegras({ regras: [{ tipo: 'caixa_24h', ligado: true, destinos: ['gerente'], escalaMin: null, escalaPara: [], valores: [1] }] })).toEqual([
+      { tipo: 'caixa_24h', regra: { ligado: true, destinos: ['gerente'], escalaMin: null, escalaPara: [], parametro: null } },
+    ]);
+  });
+
+  const G = { tenantId: 't1', mes: '2026-11', custo: 201.4, marketing: 160.21, utilidade: 36.19, atendimento: 5, quando: '18/11, 20:05', projecao: 339.6, moeda: 'BRL' };
+  it('o aviso de um valor passado: quanto foi, de onde veio, a projeção, o próximo valor e onde ver', () => {
+    const s = situacaoDoGasto(G, 200, [100, 200, 400]);
+    expect(s).toMatchObject({ tipo: 'gasto_whatsapp', chave: 'gasto:2026-11:200.00', unidadeId: null, dados: { mes: '2026-11', valor: 200, custo: 201.4, proximo: 400 } });
+    expect(textoDoAviso(s)).toBe(
+      '⚠️ O gasto do WhatsApp oficial de novembro passou de R$ 200,00.\n\n' +
+        'R$ 201,40 até agora (18/11, 20:05).\n' +
+        'Marketing: R$ 160,21 · avisos do pedido: R$ 36,19 · atendimento: R$ 5,00.\n' +
+        'Neste ritmo, o mês fecha perto de R$ 340,00.\n' +
+        'Próximo alerta: R$ 400,00.\n' +
+        'Veja no Regem, no menu WhatsApp, em "Uso e gasto".',
+    );
+    const ultimo = situacaoDoGasto({ ...G, custo: 402.9, projecao: null }, 400, [100, 200, 400]);
+    expect(ultimo.detalhe).toContain('Este era o último alerta do mês. Para avisar acima disso, ponha mais um valor no Regem, no menu Mister, em "Avisos e relatórios".');
+    expect(ultimo.detalhe).not.toContain('Neste ritmo');
+    // O próximo pula o valor que o gasto também já passou.
+    expect(situacaoDoGasto({ ...G, custo: 250 }, 100, [100, 200, 400]).dados).toMatchObject({ proximo: 400 });
+    expect(situacaoDoGasto({ ...G, moeda: 'USD' }, 200, [200]).titulo).toBe('O gasto do WhatsApp oficial de novembro passou de USD 200,00');
+  });
+
+  it('quem avisa: os valores que o gasto passou e ainda não avisaram no mês — o aberto segue; o fechado não volta; mês novo recomeça', () => {
+    const doMes = new Map<string, 'aberto' | 'resolvido'>([
+      [chaveDoGasto('2026-11', 100), 'resolvido'],
+      [chaveDoGasto('2026-11', 200), 'aberto'],
+    ]);
+    expect(valoresQueAvisam({ mes: '2026-11', custo: 250 }, [100, 200, 400], doMes)).toEqual([200]);
+    expect(valoresQueAvisam({ mes: '2026-11', custo: 450 }, [100, 200, 400], doMes)).toEqual([200, 400]);
+    expect(valoresQueAvisam({ mes: '2026-12', custo: 150 }, [100, 200, 400], doMes)).toEqual([100]);
+    expect(valoresQueAvisam({ mes: '2026-11', custo: 99.99 }, [100], new Map())).toEqual([]);
+  });
+
+  it('a franquia: passou de 900, ou já das 1.000 na primeira leitura; a chave pelos 8 últimos dígitos (com e sem o nono)', () => {
+    const s = situacaoDaFranquia({ tenantId: 't1', mes: '2026-11', numero: '552199992210', usadas: 900 });
+    expect(s).toMatchObject({ tipo: 'franquia_atendimento', chave: 'franquia:2026-11:99992210', unidadeId: null, dados: { usadas: 900, final: '2210' } });
+    expect(s.titulo).toBe('O número final 2210 já usou 900 das 1.000 mensagens de atendimento grátis de novembro');
+    expect(s.detalhe).toContain('sem ela, a Meta para de entregar essas respostas até o dia 1º');
+    expect(situacaoDaFranquia({ tenantId: 't1', mes: '2026-11', numero: '552199992210', usadas: 1010 }).titulo).toBe(
+      'O número final 2210 já passou das 1.000 mensagens de atendimento grátis de novembro (1.010 até agora)',
+    );
+    expect(chaveDaFranquia('2026-11', '5521999992210')).toBe(chaveDaFranquia('2026-11', '552199992210'));
+  });
+
+  it('"no menu WhatsApp, em Uso e gasto" e "no menu Mister, em Avisos e relatórios": o menu e a tela têm o caminho (V65)', () => {
+    const raiz = join(__dirname, '../../../../frontend/src');
+    const shell = readFileSync(join(raiz, 'components/app-shell/shell.tsx'), 'utf8');
+    const tela = readFileSync(join(raiz, 'app/whatsapp/page.tsx'), 'utf8');
+    expect(ONDE_VER_O_GASTO).toBe('Veja no Regem, no menu WhatsApp, em "Uso e gasto".');
+    expect(shell).toMatch(/href: '\/whatsapp', label: 'WhatsApp'/);
+    expect(tela).toContain('href="/whatsapp/gasto"');
+    expect(tela).toMatch(/>\s*Uso e gasto\s*</);
+    expect(shell).toMatch(/href: '\/mister', label: 'Mister'/);
+    expect(readFileSync(join(raiz, 'app/mister/page.tsx'), 'utf8')).toContain("avisos: 'Avisos e relatórios'");
   });
 });

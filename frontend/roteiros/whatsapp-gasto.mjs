@@ -48,6 +48,21 @@ const BASE = () => ({
     { nome: 'Pedido confirmado', apoio: 'aviso do pedido', grupo: 'utilidade', mensagens: 452, custo: 15.82 },
     { nome: 'Respostas do robô e da equipe', apoio: '1000 grátis · 200 cobradas', grupo: 'atendimento', mensagens: 1200, custo: 7 },
   ],
+  // G2: os alertas de gasto do mês pelo Mister (100 e 200 passaram; 400 ainda não) e a franquia.
+  alertas: {
+    mes: '2026-11',
+    custoDoMes: 205.43,
+    gasto: {
+      ligado: true,
+      destinos: ['presidente'],
+      valores: [
+        { valor: 100, passouEm: '2026-11-14T21:12:00.000Z' },
+        { valor: 200, passouEm: '2026-11-18T23:05:00.000Z' },
+        { valor: 400, passouEm: null },
+      ],
+    },
+    franquia: { ligado: true, destinos: ['presidente'], numeros: [{ final: '2210', passouEm: '2026-11-14T00:40:00.000Z' }] },
+  },
 });
 const CENARIOS = {
   tudo: BASE,
@@ -105,6 +120,8 @@ export default async function roteiroWhatsappGasto({ nav, base, ok, foto: arquiv
         const periodo = u.searchParams.get('periodo');
         return responder(route, (periodo === 'tres' ? CENARIOS.tres : CENARIOS[o.cenario ?? 'tudo'])());
       }
+      // O Mister ligado? (G2: o cartão dos alertas avisa quando está desligado.)
+      if (p === '/modulos/meus') return responder(route, { mister: o.semMister ? false : true });
       if (p === '/whatsapp/gasto/ler' && route.request().method() === 'POST') {
         lidas++;
         return responder(route, CENARIOS.tudo());
@@ -126,6 +143,12 @@ export default async function roteiroWhatsappGasto({ nav, base, ok, foto: arquiv
     ok(t.includes('O dia 14/11 teve mais gasto de marketing'), `${w}px: só o dia da campanha é apontado (não os dias comuns)`);
     // O rótulo é em maiúsculas pelo CSS (o innerText devolve assim): a conferência ignora a caixa.
     ok(t.toLowerCase().includes('atendimento grátis · principal final 2210') && t.includes('acabaram'), `${w}px: a franquia de cada número`);
+    // G2: o cartão dos alertas — 100 e 200 passaram, faltam R$ 194,57 para o 400, e o "Mudar os alertas" leva ao Mister.
+    ok(
+      t.includes('Alertas de gasto deste mês') && (t.match(/passou em/g) ?? []).length === 3 && /faltam R\$\s194,57/.test(t),
+      `${w}px: o cartão dos alertas de gasto (os valores passados e o que falta)`,
+    );
+    ok((await page.locator('a:has-text("Mudar os alertas")').getAttribute('href')) === '/mister?parte=avisos', `${w}px: "Mudar os alertas" leva ao Mister › Avisos e relatórios`);
     if (w === 390 || w === 1440) {
       await page.screenshot({ path: arquivoFoto(`whatsapp-gasto-${w}.png`) });
       // A página não rola a casca do app: uma foto de cada seção, depois de rolar até ela (V45).
@@ -181,6 +204,15 @@ export default async function roteiroWhatsappGasto({ nav, base, ok, foto: arquiv
       ok(consultas.some((c) => c.includes('numero=5521999997731')), `${w}px · o número escolhido vai na consulta`);
       await ctx.close();
     }
+  }
+
+  // G2: com o Mister desligado, o cartão dos alertas diz que eles vão por ele e onde ligar.
+  {
+    const { ctx, page } = await abrir(390, 900, { semMister: true });
+    await page.waitForSelector('text=Alertas de gasto deste mês', { timeout: 30000 });
+    await page.waitForSelector('text=Os alertas vão pelo Mister, e ele está desligado.', { timeout: 10000 });
+    ok((await texto(page)).includes('Ligue em Visão C&O › Módulos do produto'), 'Mister desligado: o cartão diz onde ligar');
+    await ctx.close();
   }
 
   // O gerente: a tela é do presidente.

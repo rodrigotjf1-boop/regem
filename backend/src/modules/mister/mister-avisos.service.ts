@@ -49,7 +49,14 @@ import {
   TurnoDoPonto,
   pontoNoTempoDoAviso,
   situacoesDoPonto,
+  FRANQUIA_AVISA_EM,
+  GastoDoMes,
+  chaveDaFranquia,
+  situacaoDaFranquia,
+  situacaoDoGasto,
+  valoresQueAvisam,
 } from './mister-avisos.regras';
+import { projecaoDoMes } from '../whatsapp/whatsapp-gasto';
 import { MisterEntradaService, QuemTocou } from './mister-entrada.service';
 import { MODELO_DO_AVISO, parametrosDoAviso } from './mister-modelos';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
@@ -83,6 +90,12 @@ import { ChatSemResposta, chatsDoIfoodSemResposta } from '../ponte-chat/chat-sem
 const linhas = (r: any) => (r?.rows ?? r ?? []) as any[];
 const semTabela = (e: any) => e?.code === '42P01' || e?.code === '42703';
 const MODULO = 'mister';
+/**
+ * Os tipos que fecham SEM o "resolvido" a quem recebeu: o boleto que saiu da lista (pago ou cancelado), o ponto esquecido
+ * (o resumo não fala do que mudou depois), o arquivo do ponto do mês (mandado à contabilidade, ou passou o dia 5) e os do
+ * gasto do WhatsApp (G2: fecham na virada do mês — não há o que resolver).
+ */
+const SEM_RESOLVIDO: string[] = ['boleto_vencendo', 'ponto_esquecido', 'ponto_do_mes', 'gasto_whatsapp', 'franquia_atendimento'];
 /** Pedido "esperando" para o aviso do servidor sem sinal: aceito ou por aceitar, das últimas 3 horas. */
 const PEDIDO_ESPERANDO_H = 3;
 
@@ -413,6 +426,86 @@ export class MisterAvisosService implements OnModuleInit {
     // 10) O arquivo do ponto do mês (M3e parte 2): do dia 1 às 06:00 da loja até o dia 5, o fechamento do mês anterior que
     //     a rotina do dia 1 gravou e ainda não foi mandado à contabilidade, das empresas que usaram o ponto no mês.
     fora.push(...(await this.pontosDoMes(so, agora)));
+    // 11) O gasto do WhatsApp oficial (G2 do protótipo `mockups/regem-whatsapp-gasto.html`; mig 445/446): o gasto do mês
+    //     que a nuvem guardou lendo a Meta, contra os valores de cada empresa, e a franquia do atendimento de cada número.
+    fora.push(...(await this.gastosDoWhatsapp(so, agora)));
+    return fora;
+  }
+
+  /**
+   * O gasto do WhatsApp oficial no mês (no fuso da loja): um aviso por valor passado (a chave é a do mês e do valor) e um
+   * por número que passou de 900 mensagens de atendimento. O valor (ou o número) que já avisou no mês e fechou não volta —
+   * nem se a Meta corrigir o gasto para baixo e ele passar de novo. Banco sem a 445: nada.
+   */
+  private async gastosDoWhatsapp(so: (col: string) => ReturnType<typeof sql>, agora: Date): Promise<Situacao[]> {
+    const fora: Situacao[] = [];
+    const hoje = dataNoFuso(agora);
+    const mes = hoje.slice(0, 7);
+    try {
+      const gastos = linhas(
+        await this.db.execute(sql`
+          select g.tenant_id::text as "tenantId", sum(g.custo)::float8 as custo,
+                 coalesce(sum(g.custo) filter (where g.categoria like 'MARKETING%'), 0)::float8 as marketing,
+                 coalesce(sum(g.custo) filter (where g.categoria = 'UTILITY'), 0)::float8 as utilidade,
+                 coalesce(sum(g.custo) filter (where g.categoria = 'SERVICE'), 0)::float8 as atendimento,
+                 (select to_char(max(l.lido_em) at time zone ${FUSO_SQL}, 'DD/MM, HH24:MI') from whatsapp_gasto_leitura l where l.tenant_id = g.tenant_id) as quando,
+                 (select max(l.moeda) from whatsapp_gasto_leitura l where l.tenant_id = g.tenant_id) as moeda
+            from whatsapp_gasto g
+            join empresa emp on emp.id = g.tenant_id and emp.deleted_at is null
+           where g.dia >= ${`${mes}-01`}::date and g.dia <= ${hoje}::date ${so('g.tenant_id')}
+           group by g.tenant_id
+          having sum(g.custo) > 0`),
+      );
+      const franquias = linhas(
+        await this.db.execute(sql`
+          select g.tenant_id::text as "tenantId", max(g.numero) as numero, sum(g.mensagens)::int as usadas
+            from whatsapp_gasto g
+            join empresa emp on emp.id = g.tenant_id and emp.deleted_at is null
+           where g.dia >= ${`${mes}-01`}::date and g.dia <= ${hoje}::date and g.categoria = 'SERVICE' and g.numero <> '' ${so('g.tenant_id')}
+           group by g.tenant_id, right(g.numero, 8)
+          having sum(g.mensagens) >= ${FRANQUIA_AVISA_EM}`),
+      );
+      const empresas = [...new Set([...gastos, ...franquias].map((x) => String(x.tenantId)))];
+      if (!empresas.length) return fora;
+      // O que já avisou no mês (aberto ou fechado): empresa|chave → a situação (aberto vence).
+      const doMes = new Map<string, 'aberto' | 'resolvido'>();
+      for (const a of linhas(
+        await this.db.execute(sql`
+          select tenant_id::text as t, chave, bool_or(situacao = 'aberto') as aberto from mister_aviso
+           where tipo in ('gasto_whatsapp', 'franquia_atendimento') and (chave like ${`gasto:${mes}:%`} or chave like ${`franquia:${mes}:%`})
+             and tenant_id in (${sql.join(empresas.map((t) => sql`${t}::uuid`), sql`, `)})
+           group by 1, 2`),
+      ))
+        doMes.set(`${a.t}|${a.chave}`, a.aberto ? 'aberto' : 'resolvido');
+      const regras = gastos.length ? await this.config.regrasDe(gastos.map((g) => String(g.tenantId))) : new Map();
+      for (const g of gastos) {
+        const t = String(g.tenantId);
+        const valores: number[] = regras.get(t)?.get('gasto_whatsapp')?.valores ?? [];
+        if (!valores.length) continue;
+        const custo = Number(g.custo) || 0;
+        const dg: GastoDoMes = {
+          tenantId: t,
+          mes,
+          custo,
+          marketing: Number(g.marketing) || 0,
+          utilidade: Number(g.utilidade) || 0,
+          atendimento: Number(g.atendimento) || 0,
+          quando: String(g.quando ?? ''),
+          projecao: projecaoDoMes(custo, agora),
+          moeda: g.moeda ?? null,
+        };
+        const daEmpresa = new Map<string, 'aberto' | 'resolvido'>();
+        for (const [k, v] of doMes) if (k.startsWith(`${t}|`)) daEmpresa.set(k.slice(t.length + 1), v);
+        for (const v of valoresQueAvisam(dg, valores, daEmpresa)) fora.push(situacaoDoGasto(dg, v, valores));
+      }
+      for (const f of franquias) {
+        const t = String(f.tenantId);
+        if (doMes.get(`${t}|${chaveDaFranquia(mes, String(f.numero))}`) === 'resolvido') continue;
+        fora.push(situacaoDaFranquia({ tenantId: t, mes, numero: String(f.numero), usadas: Number(f.usadas) || 0 }));
+      }
+    } catch (e: any) {
+      if (!semTabela(e)) throw e;
+    }
     return fora;
   }
 
@@ -711,12 +804,18 @@ export class MisterAvisosService implements OnModuleInit {
           returning id::text as id, tenant_id::text as "tenantId", unidade_id::text as "unidadeId", tipo, chave, titulo, detalhe,
                     aberto_em as "abertoEm", escalado_em as "escaladoEm", entregas, dados, (xmax = 0) as novo`),
       ) as (AvisoAberto & { novo: boolean })[];
+      // O gasto do WhatsApp oficial (G2): vários valores passados de uma vez (a primeira leitura, ou um valor novo abaixo do
+      // gasto) abrem todos, mas só o MAIOR avisa — uma mensagem, não uma por valor.
+      const maiorNovoDoGasto = new Map<string, number>();
+      for (const a of gravados)
+        if (a.novo && a.tipo === 'gasto_whatsapp') maiorNovoDoGasto.set(a.tenantId, Math.max(maiorNovoDoGasto.get(a.tenantId) ?? 0, Number((a.dados as any)?.valor) || 0));
       for (const a of gravados) {
         const v = valendoPorChave.get(chaveDe(a));
         if (!v) continue;
         try {
           if (a.novo) {
             res.abertos++;
+            if (a.tipo === 'gasto_whatsapp' && (Number((a.dados as any)?.valor) || 0) < (maiorNovoDoGasto.get(a.tenantId) ?? 0)) continue;
             res.entregas += await this.entregar(a, v.r.destinos, 'abriu', agora);
             continue;
           }
@@ -763,8 +862,9 @@ export class MisterAvisosService implements OnModuleInit {
           res.resolvidos++;
           // O boleto que saiu da lista (pago — o "Já paguei" já respondeu —, cancelado ou além dos 30 dias): sem "resolvido".
           // O ponto esquecido que saiu (ajustaram, ou o dia passou): também sem — o resumo não fala do que mudou depois.
-          // O arquivo do ponto do mês que saiu (mandado à contabilidade, ou passou o dia 5): também sem.
-          if (a.tipo !== 'boleto_vencendo' && a.tipo !== 'ponto_esquecido' && a.tipo !== 'ponto_do_mes') res.entregas += await this.desfecho(a, agora);
+          // O arquivo do ponto do mês que saiu (mandado à contabilidade, ou passou o dia 5), o gasto do WhatsApp e a
+          // franquia (G2: fecham na virada do mês): também sem "resolvido".
+          if (!SEM_RESOLVIDO.includes(a.tipo)) res.entregas += await this.desfecho(a, agora);
         }
         await this.fecharCasos(a);
       } catch (e: any) {

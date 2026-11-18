@@ -1,5 +1,7 @@
 import {
   FRANQUIA_DO_ATENDIMENTO,
+  MINUTOS_DA_VOLTA,
+  MINUTOS_ENTRE_LEITURAS,
   diaDoIntervalo,
   ehCobrada,
   erroDaMeta,
@@ -19,11 +21,22 @@ import {
   ultimoDoMes,
 } from './whatsapp-gasto';
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 // O GASTO DO WHATSAPP OFICIAL (G1, mig 445) — as regras puras: o que a Meta devolve, o dia no fuso da loja, os tipos, o
 // período da tela, a projeção e a franquia.
 const s = (iso: string) => Date.parse(iso) / 1000;
 
 describe('gasto do WhatsApp oficial — regras puras', () => {
+  it('a volta é curta (o relógio do @Interval recomeça a cada deploy — ERR-521) e cada conta é lida de 30 em 30', () => {
+    expect(MINUTOS_DA_VOLTA).toBeLessThanOrEqual(5);
+    expect(MINUTOS_ENTRE_LEITURAS).toBe(30);
+    const servico = readFileSync(join(__dirname, 'whatsapp-gasto.service.ts'), 'utf8');
+    expect(servico).toContain('@Interval(MINUTOS_DA_VOLTA * 60_000)');
+    expect(servico).not.toContain('@Interval(MINUTOS_ENTRE_LEITURAS');
+  });
+
   it('o grupo da tela para cada categoria da Meta', () => {
     expect(grupoDaCategoria('MARKETING')).toBe('marketing');
     expect(grupoDaCategoria('MARKETING_LITE')).toBe('marketing');

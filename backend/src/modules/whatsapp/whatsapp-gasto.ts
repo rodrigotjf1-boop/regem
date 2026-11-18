@@ -16,6 +16,12 @@ import { FUSO_OPERACAO, somarDias } from '../../common/data';
 export const FRANQUIA_DO_ATENDIMENTO = 1000;
 /** De quanto em quanto tempo a nuvem lê o gasto de cada conta. */
 export const MINUTOS_ENTRE_LEITURAS = 30;
+/**
+ * De quanto em quanto tempo a rotina olha quem já passou dos 30 minutos (ERR-521). O relógio do `@Interval` recomeça a cada
+ * vez que a API sobe — e a `main` recebe deploy várias vezes por hora —, então uma volta de 30 minutos podia nunca chegar a
+ * rodar. A volta é curta; quem decide se a conta é lida é a hora da última tentativa dela (`contasParaLer`).
+ */
+export const MINUTOS_DA_VOLTA = 5;
 /** O "De onde veio" (por modelo) muda devagar: lido de 3 em 3 horas. */
 export const HORAS_ENTRE_LEITURAS_DE_MODELO = 3;
 /** Quantos meses para trás a Meta guarda (`pricing_analytics`, desde 01/12/2025) — a carga inicial lê todos. */
