@@ -12,6 +12,7 @@
     "check:eventos": "node scripts/check-eventos.mjs",
     "check:kds": "node scripts/check-kds.mjs",
     "check:balcao": "node scripts/check-balcao.mjs",
+    "check:atendimento": "node scripts/check-atendimento.mjs",
     "check:unidades": "node scripts/check-unidades.mjs",
     "check:marcas": "node scripts/check-marcas.mjs",
     "check:conversao": "node scripts/check-conversao.mjs",
@@ -29,7 +30,7 @@
     "check:csv": "node scripts/check-csv.mjs",
     "check:rotulos": "node scripts/check-rotulos.mjs",
     "roteiros": "node roteiros/rodar.mjs",
-    "test": "npm run check:etapas && npm run check:area && npm run check:eventos && npm run check:kds && npm run check:balcao && npm run check:unidades && npm run check:marcas && npm run check:conversao && npm run check:embalagem && npm run check:senhas && npm run check:tela-senhas && npm run check:painel && npm run check:vagas && npm run check:pausa && npm run check:catalogo && npm run check:rota-cozinha && npm run check:turno && npm run check:sem-nuvem && npm run check:landing && npm run check:csv && npm run check:rotulos"
+    "test": "npm run check:etapas && npm run check:area && npm run check:eventos && npm run check:kds && npm run check:balcao && npm run check:atendimento && npm run check:unidades && npm run check:marcas && npm run check:conversao && npm run check:embalagem && npm run check:senhas && npm run check:tela-senhas && npm run check:painel && npm run check:vagas && npm run check:pausa && npm run check:catalogo && npm run check:rota-cozinha && npm run check:turno && npm run check:sem-nuvem && npm run check:landing && npm run check:csv && npm run check:rotulos"
   },
   "dependencies": {
     "@geoman-io/leaflet-geoman-free": "2.18.3",

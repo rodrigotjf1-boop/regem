@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Atendimento sem as linhas "Too Many Requests" empilhadas: chave própria por peça do caso, o 429 em português e as
+  leituras do caso só com a aba à vista (18/11; ERR-514; só tela, SEM migration) → vai no `.zip`.**
+
 - **Atendente virtual: fotos do cliente (17/11; mig 442 SÓ NUVEM — `robo_config.fotos_ler`/`print_ajuda` e
   `robo_foto_lida`; nasce DESLIGADO).** "Ler as fotos que o cliente manda" por loja (Delivery › Configurações ›
   Atendimento › "Fotos do cliente"), até 5 fotos lidas por cliente por dia e "📷 O que a foto mostra" no caso. Antes,

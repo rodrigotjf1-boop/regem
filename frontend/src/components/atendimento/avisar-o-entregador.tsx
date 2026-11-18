@@ -77,7 +77,9 @@ export function AvisarOEntregador({ caso, aberto }: { caso: CasoDaFila; aberto: 
   // Lê ao abrir o caso e de 20 em 20 s (o que o entregador faz no app aparece sem recarregar a tela).
   useEffect(() => {
     ler();
-    const t = setInterval(ler, 20_000);
+    const t = setInterval(() => {
+      if (document.visibilityState === 'visible') ler(); // a aba escondida não lê (ERR-514)
+    }, 20_000);
     return () => clearInterval(t);
   }, [ler]);
 

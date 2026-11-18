@@ -398,6 +398,13 @@ export type AparelhoDoKds = { nome: string; ip: string | null };
 // O KDS FÍSICO pelo token do aparelho (`/kds?token=…`, TV box da cozinha — 16/11/2026): sem pessoa logada, sem cookie, o
 // token em `X-Device-Token`. Fora do `req` de propósito: o 401 daqui é o aparelho revogado, não "sessão expirada" — não
 // pode mandar a tela da cozinha para o login.
+/**
+ * Chamadas demais (429 — o limite do servidor é por rede): o texto cru do servidor ("ThrottlerException: Too Many
+ * Requests") ia direto para a tela (ERR-514, 17/11/2026). Agora a frase em português; quem lê sozinho tenta na próxima volta.
+ */
+export const MSG_MUITAS_CHAMADAS = 'O servidor recebeu chamadas demais desta rede agora. Tento de novo em instantes.';
+const muitasChamadas = () => new ApiError({ status: 429, code: 'MUITAS_CHAMADAS', message: MSG_MUITAS_CHAMADAS });
+
 async function reqAparelho(path: string, tokenAparelho: string, options: RequestInit = {}) {
   let res: Response;
   try {
@@ -410,6 +417,7 @@ async function reqAparelho(path: string, tokenAparelho: string, options: Request
     throw new ApiError({ status: 0, code: 'NETWORK', message: 'Sem conexão com o servidor. Verifique a internet.' });
   }
   const corpo: any = res.status === 204 ? null : await res.json().catch(() => null);
+  if (res.status === 429) throw muitasChamadas();
   if (!res.ok) {
     const msg = Array.isArray(corpo?.message) ? corpo.message.join(' ') : corpo?.message;
     throw new ApiError({ status: res.status, code: corpo?.code, message: String(msg || 'Não foi possível concluir. Tente de novo.') });
@@ -445,6 +453,7 @@ async function req(path: string, options: RequestInit = {}) {
     sessaoExpirou();
     throw new ApiError({ status: 401, code: 'AUTH_UNAUTHENTICATED', message: 'Sessão expirada. Entre novamente.' });
   }
+  if (res.status === 429) throw muitasChamadas();
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as any);
     // Self-heal do terminal FANTASMA: um pareamento revogado/removido (ex.: após
@@ -495,6 +504,7 @@ async function pub(path: string, options: RequestInit = {}) {
     ...options,
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
   });
+  if (res.status === 429) throw muitasChamadas();
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as any);
     const msg = Array.isArray(body.message) ? body.message.join('; ') : body.message;

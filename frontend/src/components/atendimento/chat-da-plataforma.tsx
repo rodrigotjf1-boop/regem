@@ -102,7 +102,9 @@ export function ChatDaPlataforma({ caso: c, aberto, podeResponder }: { caso: Cas
     setErro('');
     setAviso('');
     void ler(c.id);
-    const t = setInterval(() => void ler(c.id), 5000);
+    const t = setInterval(() => {
+      if (document.visibilityState === 'visible') void ler(c.id); // a aba escondida não lê (ERR-514)
+    }, 5000);
     return () => clearInterval(t);
   }, [c.id, ler]);
 
