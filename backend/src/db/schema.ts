@@ -4074,6 +4074,8 @@ export const whatsappGastoLeitura = pgTable(
     moeda: text('moeda'),
     historicoAte: date('historico_ate'),
     modelosLidosEm: timestamp('modelos_lidos_em', { withTimezone: true }),
+    fonteDoCusto: text('fonte_do_custo'),
+    modelosErro: text('modelos_erro'),
   },
   (t) => ({ pk: primaryKey({ columns: [t.tenantId, t.wabaId] }) }),
 );

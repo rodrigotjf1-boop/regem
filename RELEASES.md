@@ -16,6 +16,10 @@
   Anthropic o sinal do prazo total junto do `timeout` de cada tentativa: com `maxRetries: 1`, "15 s" chegava a ~30 s (o
   robô, a foto, o copiloto e o Mister esperavam o dobro). A IA só roda na nuvem → vai no `.zip` sem efeito na loja.
 
+- **O motivo de não ler o gasto por modelo, na tela (18/11, G3b; mig 451 SÓ NUVEM — `whatsapp_gasto_leitura.modelos_erro`).**
+  O "De onde veio" de WhatsApp › Uso e gasto diz "Não consegui ler o gasto por modelo na Meta" com o motivo, e a recusa
+  só do custo cai para as entregues. Só nuvem → vai no `.zip` sem efeito na loja.
+
 - **Mister com o jeito do atendente — versão 4 (18/11; protótipo `mockups/regem-mister-jeito-memoria.html`).** Entrega 1
   SEM migration (#1134, #1136, #1137: as consultas juntas, o formato e a reação do WhatsApp, as conversas anteriores);
   **M4a** mig 447 SÓ NUVEM (#1145: o perfil e o jeito da empresa em Mister › "Jeito e memória"); **M4b** mig 449 SÓ NUVEM

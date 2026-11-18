@@ -199,22 +199,27 @@ export class WhatsappGastoService {
       const modelosVencidos =
         !lei?.modelos_lidos_em || new Date(lei.modelos_lidos_em).getTime() < agora.getTime() - HORAS_ENTRE_LEITURAS_DE_MODELO * 3_600_000;
       let modelosOk = false;
+      // O motivo de não ler os modelos fica gravado (mig 451): a tela diz "não li", em vez de mostrar a lista vazia (V37).
+      let modelosErro: string | null = null;
       if (modelosVencidos) {
         try {
           const deModelo = lei?.modelos_lidos_em ? primeiroDoMes(somarDias(hoje, -1)) : somarDias(hoje, -(DIAS_DE_HISTORICO_DE_MODELO - 1));
           await this.lerModelos(tenantId, wabaId, deModelo, hoje, fim);
           modelosOk = true;
         } catch (e: any) {
-          this.logger.warn(`gasto por modelo da conta ${wabaId} (empresa ${tenantId}): ${e?.message ?? e}`);
+          modelosErro = String(e?.name === 'TimeoutError' ? 'A Meta não respondeu a tempo.' : (e?.message ?? e)).slice(0, 300);
+          this.logger.warn(`gasto por modelo da conta ${wabaId} (empresa ${tenantId}): ${modelosErro}`);
         }
       }
 
       await this.db.execute(sql`
-        insert into whatsapp_gasto_leitura (tenant_id, waba_id, lido_em, tentou_em, erro, moeda, historico_ate, modelos_lidos_em, fonte_do_custo)
+        insert into whatsapp_gasto_leitura (tenant_id, waba_id, lido_em, tentou_em, erro, moeda, historico_ate, modelos_lidos_em, fonte_do_custo, modelos_erro)
         values (${tenantId}::uuid, ${wabaId}, ${agora.toISOString()}::timestamptz, ${agora.toISOString()}::timestamptz, null, ${moeda},
-                ${historicoOk ? hoje : null}::date, ${modelosOk ? agora.toISOString() : null}::timestamptz, ${estimado ? 'tabela' : 'meta'})
+                ${historicoOk ? hoje : null}::date, ${modelosOk ? agora.toISOString() : null}::timestamptz, ${estimado ? 'tabela' : 'meta'}, ${modelosErro})
         on conflict (tenant_id, waba_id) do update set
           lido_em = excluded.lido_em, tentou_em = excluded.tentou_em, erro = null, fonte_do_custo = excluded.fonte_do_custo,
+          -- Os modelos lidos agora: o erro desta tentativa (ou nenhum); não tentados (dentro das 3 h): fica o de antes.
+          modelos_erro = case when ${modelosVencidos}::boolean then excluded.modelos_erro else whatsapp_gasto_leitura.modelos_erro end,
           moeda = coalesce(excluded.moeda, whatsapp_gasto_leitura.moeda),
           historico_ate = coalesce(whatsapp_gasto_leitura.historico_ate, excluded.historico_ate),
           modelos_lidos_em = coalesce(excluded.modelos_lidos_em, whatsapp_gasto_leitura.modelos_lidos_em)`);
@@ -301,8 +306,10 @@ export class WhatsappGastoService {
         let estimado = false;
         for (let pagina = 0; pag && pagina < 20; pagina++) {
           let r = await this.getMeta(pag);
-          // A conta cobrada por meio de um parceiro: só as entregues, e o custo estimado pela categoria do modelo (mig 448).
-          if (pagina === 0 && r.status !== 200 && custoNaoMostrado(r.status, r.json)) {
+          // O custo é a métrica que pode faltar: a conta cobrada por meio de um parceiro (mig 448) ou outra recusa 4xx do
+          // pedido com COST → só as entregues, e o custo estimado pela categoria do modelo. Recusou as entregues também: é o
+          // erro de verdade (fica em `modelos_erro`).
+          if (pagina === 0 && r.status >= 400 && r.status < 500) {
             r = await this.getMeta(caminho(['DELIVERED']));
             estimado = true;
           }
@@ -410,7 +417,7 @@ export class WhatsappGastoService {
 
     const nums = await linhasDe(sql`select papel, numero, waba_id from whatsapp_numero
       where tenant_id = ${tenantId}::uuid and provedor = 'cloud' and unidade_id is null order by papel`);
-    const leituras = await linhasDe(sql`select waba_id, lido_em, tentou_em, erro, moeda, fonte_do_custo from whatsapp_gasto_leitura
+    const leituras = await linhasDe(sql`select waba_id, lido_em, tentou_em, erro, moeda, fonte_do_custo, modelos_erro from whatsapp_gasto_leitura
       where tenant_id = ${tenantId}::uuid`);
 
     // O filtro de número: só um número que a empresa tem (pelo final) — senão, todos.
@@ -482,6 +489,7 @@ export class WhatsappGastoService {
       return l?.lido_em ? new Date(l.lido_em).getTime() : 0;
     });
     const comErro = dasContas.find((l) => l.erro);
+    const modelosComErro = dasContas.find((l) => l.modelos_erro);
     const numeroDaConta = (waba: string) => {
       const n = nums.find((x) => x.waba_id === waba);
       return n ? { papel: n.papel as string, final: soDigitos(n.numero).slice(-4) } : null;
@@ -495,6 +503,8 @@ export class WhatsappGastoService {
         algumaLida: lidos.some((x) => x > 0),
         tentouEm: dasContas.some((l) => l.tentou_em) ? new Date(Math.max(...dasContas.map((l) => (l.tentou_em ? new Date(l.tentou_em).getTime() : 0)))).toISOString() : null,
         erro: comErro ? { motivo: String(comErro.erro), conta: numeroDaConta(String(comErro.waba_id)) } : null,
+        // O gasto por modelo que não deu para ler (mig 451): a tela diz "não li" no "De onde veio".
+        modelosErro: modelosComErro ? { motivo: String(modelosComErro.modelos_erro), conta: numeroDaConta(String(modelosComErro.waba_id)) } : null,
         moeda: dasContas.find((l) => l.moeda)?.moeda ?? null,
         // 'tabela': o custo é estimado pelo preço publicado (a Meta não mostra o custo de uma das contas — mig 448).
         fonteDoCusto: dasContas.some((l) => l.fonte_do_custo === 'tabela') ? ('tabela' as const) : dasContas.some((l) => l.fonte_do_custo === 'meta') ? ('meta' as const) : null,
