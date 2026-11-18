@@ -129,6 +129,12 @@ O QUE A PESSOA JÁ DISSE
 - Quando a pessoa falar de algo conversado antes e que não está nesta conversa ("o que você me disse do iFood semana passada?", "como ficou aquele caixa?"), chame conversas_anteriores com as palavras do assunto. O que vier de lá é o que foi dito naquele dia: diga o dia e, para o número de agora, consulte de novo.
 - Nunca invente lembrança: não diga que a pessoa pediu ou falou algo que não está na conversa nem nas conversas anteriores.
 
+O QUE VOCÊ LEMBRA
+- O bloco "Esta conversa" pode trazer o que foi anotado desta empresa e desta pessoa. Use como contexto (o jeito de falar com ela, os apelidos, o que priorizar), nunca como número: número vem sempre da consulta desta pergunta.
+- Quando a pessoa pedir para lembrar ("lembra que…") ou corrigir o seu jeito ("prefiro sem centavos"), chame lembrar com acao anotar — sobre "mim" se é dela, "empresa" se vale para todos — e diga em uma frase o que anotou ("Anotado ✅ …"). Não anote o que ela não pediu.
+- "O que você sabe de mim?": responda com o que está anotado dela, numa lista curta, e pergunte se quer esquecer alguma. "Esquece …": chame lembrar com acao esquecer e um pedaço do que está anotado. O que é da empresa, só o presidente pede para trocar ou esquecer.
+- Se a ferramenta disser que a memória está cheia, diga o que está anotado e peça para esquecer uma — ou junte duas parecidas com acao trocar. Se ela recusar (valor em reais, dado de cliente, senha), diga o motivo em uma frase.
+
 SE PERGUNTAREM SE VOCÊ É ROBÔ
 - Você é o Mister, o administrador virtual do Regem. Se perguntarem se você é robô, inteligência artificial ou uma pessoa, diga a verdade em uma frase e siga ajudando. Nunca diga que é uma pessoa.
 
@@ -156,6 +162,8 @@ export interface ConversaDoMister {
   perfil?: string | null;
   /** Versão 4, M4a (mig 447): o "Jeito da empresa", uma frase do presidente. */
   jeito?: string | null;
+  /** Versão 4, M4b (mig 449): as linhas da memória, já prontas (`mister-memoria.ts` › `linhasDaMemoria`). */
+  memoria?: string[];
 }
 
 // ───────────────────────────── o jeito do Mister (versão 4, M4a) ─────────────────────────────
@@ -204,6 +212,7 @@ export function blocoDaConversa(c: ConversaDoMister): string {
       ? [`- Passou da meia-noite: a noite de trabalho começou em ${c.noiteDe}. Quando a pessoa disser "hoje" ou "a noite", ou continuar um assunto de antes da meia-noite, consulte ontem e hoje e diga os dois, cada um com a sua data.`]
       : []),
     ...linhasDoJeito(c.perfil, c.jeito),
+    ...(c.memoria ?? []),
   ].join('\n');
 }
 
@@ -253,7 +262,8 @@ export type NomeDaFerramenta =
   | 'cancelar_links'
   | 'escrever_recado'
   // G3 do protótipo `mockups/regem-whatsapp-gasto.html` (aprovado em 18/11/2026): "quanto gastei de WhatsApp?".
-  | 'gasto_do_whatsapp';
+  | 'gasto_do_whatsapp'
+  | 'lembrar';
 
 // ───────────────────────────── as conversas anteriores (versão 4) ─────────────────────────────
 // O padrão do Hermes de procurar nas conversas antigas, sobre o texto que `mister_pergunta` já guarda por 30 dias.
@@ -325,6 +335,8 @@ export const FERRAMENTA_DO_LINK_PUBLICO = 'link_para_encaminhar' as const;
 export const FERRAMENTA_DE_CANCELAR_LINKS = 'cancelar_links' as const;
 // M3g parte 2 (mig 444): o recado no mural — guarda o RASCUNHO; quem publica é a pessoa, pelo botão "Publicar".
 export const FERRAMENTA_DO_RECADO = 'escrever_recado' as const;
+// Versão 4, M4b (mig 449): a memória — anotar, trocar ou esquecer o que o Mister sabe da empresa e da pessoa.
+export const FERRAMENTA_DE_LEMBRAR = 'lembrar' as const;
 /** As ferramentas que NÃO são consulta: anotam, propõem, mandam, corrigem ou criam — não trazem dado da loja para a resposta. */
 export const FERRAMENTAS_QUE_NAO_SAO_CONSULTA: readonly string[] = [
   FERRAMENTA_DO_QUE_FALTA,
@@ -334,6 +346,7 @@ export const FERRAMENTAS_QUE_NAO_SAO_CONSULTA: readonly string[] = [
   FERRAMENTA_DO_LINK_PUBLICO,
   FERRAMENTA_DE_CANCELAR_LINKS,
   FERRAMENTA_DO_RECADO,
+  FERRAMENTA_DE_LEMBRAR,
 ];
 // F4.2b: cancelar_pedido (de PIN) nasce da pergunta, preso ao pedido que a pessoa disse — não a um aviso.
 export const PROCEDIMENTOS_QUE_A_IA_PROPOE = ['imprimir_teste', 'consultar_nota', 'cancelar_pedido'] as const;
@@ -632,6 +645,23 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
     description:
       'O gasto da empresa com o WhatsApp oficial (a API da Meta), do que o Regem lê da Meta a cada 30 minutos: o mês corrente até agora, por tipo (marketing, avisos do pedido, atendimento, autenticação), as mensagens cobradas, as 1.000 mensagens de atendimento grátis de cada número, a projeção do mês e o gasto até o mesmo dia do mês passado. Só o presidente vê. A loja na conexão por QR Code não tem gasto por mensagem: diga isso. Os valores são os que a Meta informa, aproximados: a fatura oficial é a dela.',
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    // Versão 4, M4b (mig 449; o padrão do Hermes: a ferramenta de memória com adicionar, trocar e tirar).
+    name: 'lembrar',
+    description:
+      'Não é consulta: ANOTA, TROCA ou ESQUECE o que você deve lembrar nas próximas conversas. Use quando a pessoa pedir ("lembra que…", "esquece…") ou corrigir o seu jeito ("prefiro sem centavos"). "sobre": "mim" (a pessoa desta conversa — só na conversa dela) ou "empresa" (vale para todos da empresa). Uma frase curta (até 300 letras), de contexto ou preferência: nunca valor em reais, dado de cliente, senha, código ou PIN — o Regem recusa e diz o motivo. Para trocar ou esquecer, passe um pedaço do que está anotado ("trecho"). O que é da empresa, só o presidente troca ou esquece.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        acao: { type: 'string', enum: ['anotar', 'trocar', 'esquecer'] },
+        sobre: { type: 'string', enum: ['mim', 'empresa'] },
+        texto: { type: 'string', description: 'Para anotar ou trocar: a frase como deve ficar (ex.: "Ana prefere os valores sem centavos").' },
+        trecho: { type: 'string', description: 'Para trocar ou esquecer: um pedaço do que está anotado.' },
+      },
+      required: ['acao', 'sobre'],
+      additionalProperties: false,
+    },
   },
 ];
 
@@ -942,6 +972,8 @@ export function lojaPedida(pedida: unknown, lojas: string[]): number | null {
 export type NotaDaSaida = 'vazia' | 'segredo' | 'link_tirado' | 'cortada' | 'valor_sem_origem';
 
 const SEGREDO = /(sk-ant-[A-Za-z0-9_-]{8,}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|Bearer\s+[A-Za-z0-9._-]{20,}|EAA[A-Za-z0-9]{30,})/;
+/** O texto parece trazer um segredo (chave, token)? A MESMA régua do filtro de saída (a memória também usa). */
+export const pareceSegredo = (t: string): boolean => SEGREDO.test(String(t ?? ''));
 // Duas formas do mesmo padrão: a de "tem?" não pode ser global (o `test` de uma global guarda a posição entre chamadas).
 const TEM_LINK = /\b(?:https?:\/\/|www\.)[^\s)>\]]+/i;
 const LINK = /\b(?:https?:\/\/|www\.)[^\s)>\]]+/gi;

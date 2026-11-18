@@ -14,6 +14,7 @@ import {
 import type { ResultadoDaFerramenta } from './mister-ferramentas.service';
 import type { FimDaPergunta } from './mister-laco';
 import { GUIA_DE_USO, buscarNoGuia, quemAbre } from './mister-guia-de-uso';
+import { conferirMemoria } from './mister-memoria';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -234,6 +235,13 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
         onde: 'Veja no Regem, no menu WhatsApp, em "Uso e gasto".',
         aviso: 'Valores aproximados que a Meta informa; a fatura oficial é a da Meta.',
       });
+    case 'lembrar': {
+      // Versão 4, M4b (mig 449): na avaliação nada se grava — devolve como a de verdade devolveria (a mesma conferência).
+      const c = conferirMemoria(en.texto);
+      if (en.acao === 'anotar' && 'erro' in c) return recusa(c.erro);
+      if (en.acao === 'anotar') return ok({ anotado: true, texto: (c as { texto: string }).texto, sobre: en.sobre === 'mim' ? 'esta pessoa' : 'a empresa', uso: '42 de 1.375 letras', siga: 'Diga em uma frase o que ficou anotado ("Anotado ✅ …").' });
+      return recusa('Não achei isso no que está anotado.');
+    }
     case 'escrever_recado':
       // M3g parte 2 (mig 444): na avaliação nenhum rascunho é guardado (e nada é publicado) — devolve o texto como ficaria.
       return {
