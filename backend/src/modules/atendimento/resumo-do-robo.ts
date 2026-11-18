@@ -21,6 +21,16 @@ const texto = (v: unknown): string | null => {
   return s ? s.slice(0, LIMITE) : null;
 };
 
+/**
+ * A mensagem do chamado como o robô mandou, com as QUEBRAS DE LINHA de verdade (18/11/2026 — o 1º chamado pelo fluxo 2.3:
+ * a IA escreveu o resumo com `\n` como TEXTO — a barra e o "n" — e o caso mostrava "…atendente\nQuer: …" numa linha só,
+ * tudo no "Motivo"). As sequências escritas `\r\n`, `\n` e `\r` viram a quebra; `\t`, espaço. O resto fica como veio.
+ */
+export function mensagemDoRobo(m: unknown): string | undefined {
+  if (typeof m !== 'string') return m == null ? undefined : String(m);
+  return m.replace(/\\r\\n|\\n|\\r/g, '\n').replace(/\\t/g, ' ');
+}
+
 /** O rótulo como o robô escreve → a chave do resumo. */
 function chaveDo(rotulo: string): keyof Omit<ResumoDoRobo, 'humor'> {
   const r = rotulo.toLowerCase();
@@ -34,7 +44,7 @@ function chaveDo(rotulo: string): keyof Omit<ResumoDoRobo, 'humor'> {
  * Quer: Y. Já fiz: Z."). O valor vai até o próximo rótulo; repetido, vale o primeiro.
  */
 export function lerResumoDaMensagem(mensagem: unknown): Partial<Record<keyof Omit<ResumoDoRobo, 'humor'>, string>> {
-  const s = String(mensagem ?? '');
+  const s = mensagemDoRobo(mensagem) ?? '';
   const re = /(^|[\s;.|/•*-])(motivo|o cliente quer|quer|o rob[oô] j[aá] fez|j[aá] fiz|j[aá] fez)\s*:/gi;
   const achados: Array<{ chave: keyof Omit<ResumoDoRobo, 'humor'>; inicio: number; valor: number }> = [];
   let m: RegExpExecArray | null;

@@ -1,4 +1,4 @@
-import { lerResumoDaMensagem, resumoDoRobo } from './resumo-do-robo';
+import { lerResumoDaMensagem, mensagemDoRobo, resumoDoRobo } from './resumo-do-robo';
 
 // O RESUMO QUE O ROBÔ FAZ DO CASO (Onda 1, PR 4): das linhas da mensagem (como as instruções pedem) ou dos campos
 // próprios (quando o fluxo do n8n os manda).
@@ -7,6 +7,16 @@ describe('as linhas "Motivo / Quer / Já fiz" da mensagem', () => {
   it('uma por linha, como as instruções pedem', () => {
     const m = 'Motivo: atraso, pedido 1180 saiu às 19:31\nQuer: saber quando chega\nJá fiz: mandei o rastreio às 19:46';
     expect(lerResumoDaMensagem(m)).toEqual({ motivo: 'atraso, pedido 1180 saiu às 19:31', quer: 'saber quando chega', jaFez: 'mandei o rastreio às 19:46' });
+  });
+
+  // 18/11/2026: a IA escreveu o `\n` como TEXTO (a barra e o "n") e tudo caía no "Motivo", com o "\n" à mostra.
+  it('o "\\n" escrito como texto conta como quebra de linha (e o "\\r\\n" e o "\\t" também)', () => {
+    const escrito = 'Motivo: cliente quer falar com atendente\\nQuer: atendimento humano\\r\\nJá fiz: mostrei os pedidos\\tde hoje';
+    expect(lerResumoDaMensagem(escrito)).toEqual({ motivo: 'cliente quer falar com atendente', quer: 'atendimento humano', jaFez: 'mostrei os pedidos de hoje' });
+    expect(mensagemDoRobo(escrito)).toBe('Motivo: cliente quer falar com atendente\nQuer: atendimento humano\nJá fiz: mostrei os pedidos de hoje');
+    expect(mensagemDoRobo('sem barra nenhuma')).toBe('sem barra nenhuma');
+    expect(mensagemDoRobo(undefined)).toBeUndefined();
+    expect(mensagemDoRobo(null)).toBeUndefined();
   });
 
   it('todas numa linha só, com ponto, ponto e vírgula ou barra; "o cliente quer" e "o robô já fez" também valem', () => {

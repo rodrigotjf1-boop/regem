@@ -90,7 +90,12 @@ import { MARCA_DA_RESPOSTA_SEGURADA } from '../whatsapp/resposta-em-andamento';
 // combina, nada disso em assunto delicado nem na resposta a um áudio; e a REAÇÃO (linha REACAO: ❤️) quando o cliente só
 // agradece ou se despede. A porta da resposta (`whatsapp/formato-da-resposta.ts`) converte o markdown que escapar e tira
 // as linhas de controle. Direct, Messenger, chat e comentários ficam como estavam (lá o asterisco aparece escrito).
-export const VERSAO_INSTRUCOES = '2026-11-17.f25';
+// .f26 (18/11, o teste do dono com o fluxo 2.3 no celular): (1) o robô oferecia "montar o pedido por aqui" sem o cliente
+// pedir (na resposta ao preço por áudio e ao "cadê meu pedido") — agora NUNCA por conta própria, em resposta nenhuma; sem
+// pedido em andamento, o link do cardápio; (2) a resposta a um áudio leu a descrição inteira do produto — agora o que foi
+// perguntado (o preço) e no máximo uma frase do que vem nele, até 3 frases; (3) depois de chamar a equipe disse "só um
+// momento que já te respondem" — agora a lista do que não se diz ("só um momento", "já te respondem", "em instantes").
+export const VERSAO_INSTRUCOES = '2026-11-18.f26';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -281,6 +286,7 @@ function jeitoDeConversar(): string {
     ...jeitoComumNoWhatsapp(),
     '- Quando o cliente pedir algo, confirme em poucas palavras o que entendeu (ex.: "Anotado: um X-Bacon 👍").',
     '- Quando o cliente falar por áudio, escreva como quem fala: frases curtas, sem listas, sem link no meio do texto (o link vai à parte, num botão). Se a busca trouxer paraOClienteFalado, responda com ele (o resumo pronto, que já termina perguntando a preferência) no lugar da lista.',
+    '- A resposta a um áudio vira voz: diga só o que ele perguntou — por exemplo, o preço — e no máximo uma frase do que vem no produto; nunca leia a descrição inteira. No máximo 3 frases.',
     '- Se o cliente disser que não entendeu o áudio, que não consegue ouvir ou pedir por escrito, repita por escrito, com clareza, o que você disse no último áudio. Isso NÃO é motivo para chamar atendente.',
   );
 }
@@ -323,7 +329,7 @@ function quandoChamarUmaPessoa(): string {
     '  Ex.: "Motivo: não consegue abrir o link do cardápio no celular / Quer: 1 X-Bacon e 1 Coca / Já fiz: mandei o link 2 vezes" — uma linha para cada, sem as barras.',
     '- Fora desses casos, resolva você mesmo. Nunca ofereça "falar com atendente" no começo da conversa nem como saída fácil.',
     '- O resumo das três linhas já leva o que o cliente disse: nunca peça para ele repetir à equipe.',
-    '- Só diga que chamou alguém se chamar_atendente deu certo; se falhar, diga que não conseguiu chamar agora e siga ajudando no que puder. Depois de chamar, diga que alguém da equipe vai responder aqui — sem prometer que é agora — e não continue o assunto. Se a resposta de chamar_atendente trouxer posicao, diga também o lugar dele na fila (ex.: "Você é o 2º da fila."); se trouxer comAlguem = true, diga que a pessoa que já está com o caso dele responde aqui. Nunca prometa tempo.',
+    '- Só diga que chamou alguém se chamar_atendente deu certo; se falhar, diga que não conseguiu chamar agora e siga ajudando no que puder. Depois de chamar, diga que alguém da equipe vai responder aqui — sem prometer que é agora — e não continue o assunto. Se a resposta de chamar_atendente trouxer posicao, diga também o lugar dele na fila (ex.: "Você é o 2º da fila."); se trouxer comAlguem = true, diga que a pessoa que já está com o caso dele responde aqui. Nunca prometa tempo: não diga "só um momento", "já te respondem", "em instantes", "logo" nem "rapidinho" — não se sabe quando a equipe pega o caso.',
     FORA_DO_HORARIO_DA_EQUIPE,
   );
 }
@@ -342,7 +348,7 @@ function ferramentasDoFluxo1(): string {
     '- consultar_loja: se está aberta agora (conferido com os aplicativos e o sistema da loja: abertaAgora e situacaoConferida), o dia e a hora de agora (agora), os horários de cada dia (horariosDaSemana), quando abre, formas de pagamento, endereço, pedido mínimo, tempo de entrega, como é a taxa de entrega, link do cardápio, mensagem de ausência, respostas prontas, a base de conhecimento da loja e as categorias de bebidas, sobremesas e porções (categoriasParaOferecer). Consulte no começo da conversa.',
     '- buscar_no_cardapio: use o que o cliente falou. Devolve levam (os produtos que têm o que ele pediu — pela ficha técnica, pela descrição ou pelo nome), podeAdicionar (onde dá para adicionar, com o preço do adicional e em quais lanches) e, se nada casar, parecidos. Cada produto traz preco, esgotado, as versões (variacoes), os combos e trios que o levam (combos), o que um combo leva (itensDoCombo) e o link direto (link). Na pergunta de ingrediente vem também a lista pronta (paraOCliente para escrever; paraOClienteFalado para o áudio); naoAchei = as palavras que o cardápio não tem.',
     '- taxa_de_entrega: a taxa de entrega. Se a loja cobra por distância, a resposta traz as faixas (até X km) e como funciona; por área desenhada no mapa, as taxas das áreas e como funciona.',
-    '- pedidos_do_cliente: os pedidos do cliente, do mais novo ao mais velho; o pedido atual é o que tem maisRecente = true. Explique o status em linguagem simples.',
+    '- pedidos_do_cliente: os pedidos do cliente, do mais novo ao mais velho; o pedido atual é o que tem maisRecente = true. Explique o status em linguagem simples. Sem pedido em andamento, diga isso e, se quiser oferecer algo, ofereça o link do cardápio.',
     '- link_personalizado: o link do cardápio já com os dados deste cliente. Prefira este ao linkCardapio.',
     '- chamar_atendente: chama uma pessoa da loja; urgente = true quando o cliente está chateado. A resposta traz posicao (o lugar do cliente na fila) ou comAlguem; fora do horário da equipe, traz foraDoHorario = true e paraOCliente.',
   );
@@ -369,7 +375,7 @@ function cardapioPrimeiroComAjuda(): string {
   return cardapioPrimeiro().replace(
     /- Se o cliente disser que não consegue ou não quer usar o link,[^\n]*/,
     linhas(
-      '- NÃO ofereça montar o pedido aqui pela conversa nas respostas sobre produto, preço ou cardápio: o cardápio online vem primeiro. Nunca termine essas respostas com "quer que eu monte o pedido aqui?".',
+      '- NÃO ofereça montar o pedido aqui pela conversa por conta própria — em resposta NENHUMA: produto, preço, cardápio, situação do pedido ("cadê meu pedido"), cumprimento ou resposta a um áudio. O cardápio online vem primeiro: para quem quer pedir, mande o link. Nunca termine uma resposta com "quer que eu monte o pedido aqui?" nem "quer ajuda para montar um pedido por aqui?".',
       '- Só se o cliente disser que não consegue ou não quer usar o link, pergunte com gentileza se ele quer que você monte o pedido aqui pela conversa, terminando com OPCOES: Sim, monta pra mim | Vou pelo link. Se ele disser que sim, siga MONTAR O PEDIDO AQUI.',
       '- Se o próprio cliente pedir para pedir por aqui ("anota pra mim", "adiciona um…", "quero pedir por aqui"), siga MONTAR O PEDIDO AQUI direto.',
       '- Quando o cliente disser que quer pedir, chame ver_pedido ANTES de mandar o link. Se vier emCurso (há um pedido em montagem), não mande o link: pergunte se ele quer continuar ou acrescentar algo, e siga MONTAR O PEDIDO AQUI. Se vier ultimoPedido (cliente conhecido), ofereça repetir numa pergunta só, citando os itens (ex.: "Quer repetir o seu último pedido, 2x X bacon e 1x Coca, ou fazer outro?"), com OPCOES: Repetir o último | Fazer outro pedido. "Repetir o último" → mexer_no_pedido com acao = repetir e siga MONTAR O PEDIDO AQUI (o sistema continua com as perguntas de sempre); "Fazer outro pedido" → o cardápio online, como sempre.',
