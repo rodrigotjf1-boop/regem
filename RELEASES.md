@@ -19,9 +19,10 @@
 - **Mister com o jeito do atendente — versão 4 (18/11; protótipo `mockups/regem-mister-jeito-memoria.html`).** Entrega 1
   SEM migration (#1134, #1136, #1137: as consultas juntas, o formato e a reação do WhatsApp, as conversas anteriores);
   **M4a** mig 447 SÓ NUVEM (#1145: o perfil e o jeito da empresa em Mister › "Jeito e memória"); **M4b** mig 449 SÓ NUVEM
-  (`mister_memoria`: "O que o Mister sabe", a ferramenta `lembrar` e a lista com Anotar, Mudar e Esquecer). Tudo só na
-  nuvem → vai no `.zip` sem efeito na loja; `mister_memoria` = SO_NUVEM no `sync-daemon.mjs` (o daemon mudou → o `.exe`
-  do próximo corte leva junto).
+  (#1147, `mister_memoria`: "O que o Mister sabe", a ferramenta `lembrar` e a lista com Anotar, Mudar e Esquecer); **M4c**
+  SEM migration (os avisos escritos pelo Mister, um ajuste por grupo, nascendo desligado). Tudo só na nuvem → vai no
+  `.zip` sem efeito na loja; `mister_memoria` = SO_NUVEM no `sync-daemon.mjs` (o daemon mudou → o `.exe` do próximo corte
+  leva junto).
 
 - **Poller do iFood: o tempo de cada parte no log (18/11; SEM migration).** "polling X ms, gravação Y ms, confirmação Z
   ms" na linha de cada volta com eventos. Só medida; o poller roda só na nuvem → vai no `.zip` sem efeito na loja.
