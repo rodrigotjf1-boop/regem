@@ -164,6 +164,9 @@ describe('Mister — o que o modelo recebe', () => {
     const oferecidos = linhaDaReacao.slice(linhaDaReacao.indexOf('REACAO:'), linhaDaReacao.indexOf(')')).match(/\p{Extended_Pictographic}️?/gu)!;
     expect(oferecidos.length).toBeGreaterThanOrEqual(4);
     for (const e of oferecidos) expect(REACOES as readonly string[]).toContain(e);
+    // A frase do "que chama atenção" não pede conta: valor em reais calculado só quando a pessoa pedir (avaliação de 18/11,
+    // c08 e c28: "valor que nenhuma consulta trouxe" — uma conta que ninguém pediu).
+    expect(INSTRUCOES_DO_MISTER).toContain('valor em reais calculado por você (soma, média, preço por unidade) só quando a pessoa pedir a conta');
     // O exemplo da lista não traz valor de verdade: o número vem sempre das consultas.
     const exemplo = INSTRUCOES_DO_MISTER.slice(INSTRUCOES_DO_MISTER.indexOf('- Exemplo de lista'), INSTRUCOES_DO_MISTER.indexOf('- Conversa (cumprimentar'));
     expect(exemplo).not.toMatch(/R\$\s?\d/);
