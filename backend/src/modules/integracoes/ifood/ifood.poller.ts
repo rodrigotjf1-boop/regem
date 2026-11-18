@@ -56,8 +56,12 @@ export class IfoodPoller {
   // guarda por 8 h). Reprocessar é seguro: o ingest é idempotente (índice único por pedido).
   // Antes TODOS eram reconhecidos no fim e o pedido se perdia numa falha passageira (ERR-061).
   private async processar(ig: IntegIfood) {
+    // O tempo de cada parte vai na linha do log (pendência "monitoramento proativo" da análise da homologação): quanto o
+    // iFood levou para entregar os eventos, quanto o Regem levou para gravar e quanto a confirmação de leitura levou.
+    const inicio = Date.now();
     const eventos = await this.ifood.polling(ig);
     if (!eventos.length) return;
+    const lidos = Date.now();
     const processados: any[] = [];
     for (const ev of eventos) {
       const code = String(ev.code ?? ev.fullCode ?? '').toUpperCase();
@@ -114,8 +118,13 @@ export class IfoodPoller {
         this.logger.warn(`evento ${code} ${ev.orderId}: ${e?.message ?? e} — sem ACK, volta no próximo polling`);
       }
     }
+    const gravados = Date.now();
     await this.ifood.acknowledge(ig, processados);
+    const confirmados = Date.now();
     const pendentes = eventos.length - processados.length;
-    this.logger.log(`loja ${ig.tenantId}: ${processados.length} evento(s)${pendentes ? `, ${pendentes} para repetir` : ''}`);
+    this.logger.log(
+      `loja ${ig.tenantId}: ${processados.length} evento(s)${pendentes ? `, ${pendentes} para repetir` : ''}` +
+        ` (polling ${lidos - inicio} ms, gravação ${gravados - lidos} ms, confirmação ${confirmados - gravados} ms)`,
+    );
   }
 }

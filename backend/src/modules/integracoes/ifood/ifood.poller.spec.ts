@@ -191,3 +191,40 @@ describe('IfoodPoller — o que o Regem ainda não trata vai à telemetria', () 
     expect(reconhecidos.map((e) => e.id)).toEqual(['e1', 'e2', 'e3', 'e4', 'e5', 'e6', 'e7']);
   });
 });
+
+// O "monitoramento proativo" (pendência da análise da homologação do iFood): a linha do log de cada volta com eventos diz
+// quanto tempo levou cada parte — o polling, a gravação e a confirmação de leitura. Só medida: nada muda no que se faz.
+describe('IfoodPoller — o tempo de cada parte na linha do log', () => {
+  const ig = { id: 'ig-1', tenantId: 'loja-1', unidadeId: null, merchantId: 'm-1' };
+  const edge = process.env.EDGE_MODE;
+  afterEach(() => {
+    jest.restoreAllMocks();
+    jest.useRealTimers();
+    if (edge === undefined) delete process.env.EDGE_MODE;
+    else process.env.EDGE_MODE = edge;
+  });
+
+  it('o polling, a gravação e a confirmação, em milissegundos; a volta sem evento não escreve nada', async () => {
+    delete process.env.EDGE_MODE;
+    const linha = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    let agora = 1_000_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => agora);
+    let vez = 0;
+    const poller = new IfoodPoller(
+      {
+        integracoesAtivas: async () => [ig],
+        // 1ª volta: dois eventos (o iFood leva 120 ms); 2ª: nenhum.
+        polling: async () => ((agora += 120), vez++ === 0 ? [{ id: 'e1', code: 'ADR', orderId: 'o-1' }, { id: 'e2', code: 'XYZ', orderId: 'o-2' }] : []),
+        anotarEventoNaoTratado: async () => void (agora += 35),
+        acknowledge: async () => void (agora += 80),
+        reconciliarCancels: async () => 0,
+      } as any,
+      {} as any,
+    );
+    await poller.tick();
+    expect(linha.mock.calls.map((c) => c[0])).toContainEqual('loja loja-1: 2 evento(s) (polling 120 ms, gravação 35 ms, confirmação 80 ms)');
+    linha.mockClear();
+    await poller.tick();
+    expect(linha.mock.calls.map((c) => c[0]).filter((t) => String(t).startsWith('loja loja-1:'))).toEqual([]);
+  });
+});

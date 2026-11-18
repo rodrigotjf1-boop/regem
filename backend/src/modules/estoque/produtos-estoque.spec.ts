@@ -4,6 +4,7 @@ import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { escreverXlsx } from '../../common/escrever-planilha';
+import { repetirNoImpasse } from '../../common/repetir-no-impasse';
 import { lerXlsx } from '../cliente/ler-xlsx';
 import { EstoqueService } from './estoque.service';
 import { ProdutosPlanilhaService } from './produtos-planilha.service';
@@ -23,7 +24,13 @@ descrever('produtos do estoque (Postgres real)', () => {
   let pool: Pool;
   let db: any;
   const auditoria = { registrar: jest.fn().mockResolvedValue(undefined) };
-  const q = async (s: string, p: any[] = []) => (await pool.query(s, p)).rows;
+  // Cada chamada é UMA instrução solta: se o Postgres a derruba num impasse (40P01), nada ficou gravado e repetir é seguro.
+  // No banco dividido do CI, o preparo e a limpeza desta spec cruzaram com a migration reaplicada por outra spec (ERR-377,
+  // reincidências de 17/11 e 18/11/2026); o aviso traz o detalhe do Postgres, para achar a outra ponta quando voltar.
+  const q = (s: string, p: any[] = []) =>
+    repetirNoImpasse(async () => (await pool.query(s, p)).rows, {
+      aoRepetir: (n, e: any) => console.warn(`produtos-estoque: impasse no banco (tentativa ${n}): ${e?.detail ?? e?.message}`),
+    });
   const estoque = () => new (EstoqueService as any)(db, auditoria) as EstoqueService;
   const planilha = () => new (ProdutosPlanilhaService as any)(db, estoque(), auditoria) as ProdutosPlanilhaService;
   const ator = { colaboradorId: undefined, categoria: 'gerente' };
