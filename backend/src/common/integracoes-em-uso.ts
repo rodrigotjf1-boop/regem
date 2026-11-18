@@ -34,9 +34,9 @@ export const INTEGRACOES_EM_USO: IntegracaoEmUso[] = [
     id: 'meta-whatsapp',
     nome: 'WhatsApp · API oficial da Meta',
     tipo: 'mensagens',
-    usamos: 'mensagens, modelos de mensagem, webhooks e o número do Mister',
+    usamos: 'mensagens, modelos de mensagem, webhooks, o número do Mister e o gasto da conta (pricing_analytics e template_analytics)',
     versao: 'v25.0',
-    arquivosDaVersao: ['modules/whatsapp/whatsapp-cloud.service.ts', 'modules/mister/mister-numero.service.ts'],
+    arquivosDaVersao: ['modules/whatsapp/whatsapp-cloud.service.ts', 'modules/mister/mister-numero.service.ts', 'modules/whatsapp/whatsapp-gasto.service.ts'],
   },
   {
     id: 'meta-instagram',
