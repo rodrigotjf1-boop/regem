@@ -16,8 +16,10 @@ import {
   analiseDoGraph,
   chaveDaFoto,
   codigoValido,
+  empresasDoPiloto,
   franquiaDe,
   fraseDaVolta,
+  graphLigadoParaEmpresa,
   lerConfigGraph,
   mimeDoGraph,
   motivoDaFalha,
@@ -73,6 +75,20 @@ describe('o DMS Graph — a configuração (GRAPH_LIGADO nasce desligado)', () =
     expect(voltaDoGraph({})).toBe('https://app.dmsregem.com/integracoes/graph/volta');
     expect(voltaDoGraph({ APP_URL: '' })).toBe('https://app.dmsregem.com/integracoes/graph/volta');
     expect(voltaDoGraph({ APP_URL: 'https://teste.exemplo/' })).toBe('https://teste.exemplo/integracoes/graph/volta');
+  });
+
+  it('o piloto (GRAPH_EMPRESAS): vazia = todas; com ids, só elas (sem diferença de maiúscula); torta fecha; sem GRAPH_LIGADO, ninguém', () => {
+    const a = '0b9c3a52-1111-4a2b-9c3d-000000000001';
+    const b = '0b9c3a52-2222-4a2b-9c3d-000000000002';
+    expect(empresasDoPiloto({})).toBeNull();
+    expect(empresasDoPiloto({ GRAPH_EMPRESAS: '  ' })).toBeNull();
+    expect([...(empresasDoPiloto({ GRAPH_EMPRESAS: `${a.toUpperCase()}, ${b};` }) ?? [])]).toEqual([a, b]);
+    expect(graphLigadoParaEmpresa(a, { GRAPH_LIGADO: 'true' })).toBe(true);
+    expect(graphLigadoParaEmpresa(a, { GRAPH_LIGADO: 'true', GRAPH_EMPRESAS: a.toUpperCase() })).toBe(true);
+    expect(graphLigadoParaEmpresa(b, { GRAPH_LIGADO: 'true', GRAPH_EMPRESAS: a })).toBe(false);
+    expect(graphLigadoParaEmpresa(a, { GRAPH_LIGADO: 'true', GRAPH_EMPRESAS: 'empresa-de-teste' })).toBe(false);
+    expect(graphLigadoParaEmpresa(a, { GRAPH_LIGADO: 'false', GRAPH_EMPRESAS: a })).toBe(false);
+    expect(graphLigadoParaEmpresa('', { GRAPH_LIGADO: 'true', GRAPH_EMPRESAS: a })).toBe(false);
   });
 });
 

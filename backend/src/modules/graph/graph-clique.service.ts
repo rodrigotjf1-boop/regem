@@ -2,6 +2,7 @@ import { BadGatewayException, BadRequestException, ConflictException, Inject, In
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { IaEmpresaService } from '../ia/ia-empresa.service';
 import { AuthUser } from '../../auth/auth-user';
 import { ClienteDmsId } from '../../dms/integracao-dms';
 import { chaveSegredosDisponivel, cifrar, decifrar } from '../../common/cifra-segredo';
@@ -25,6 +26,7 @@ import {
   codigoValido,
   fraseDaVolta,
   graphLigadoNoAmbiente,
+  graphLigadoParaEmpresa,
   lerConfigGraph,
   numeroValido,
   paginaPadraoDoGraph,
@@ -36,10 +38,14 @@ import {
 
 const NAO_LIGADO = 'O DMS Graph não está ligado no Regem agora.';
 
-/** O que o cartão "DMS Graph" mostra (as telas esperam a aprovação do protótipo; este é o contrato delas). */
+/** O que o cartão "DMS Graph" mostra (protótipo aprovado em 18/11; `mockups/regem-graph-clique.html`). */
 export type SituacaoDoGraph = {
-  /** A distribuição ligou o DMS Graph neste Regem (`GRAPH_LIGADO`). Falso: o cartão diz que não está disponível. */
+  /** A distribuição ligou o DMS Graph para esta empresa (`GRAPH_LIGADO` e o piloto, `GRAPH_EMPRESAS`). Falso: sem cartão. */
   ligado: boolean;
+  /** O nome da empresa ("Vale para", G-3: a ligação é da empresa inteira). */
+  empresaNome: string | null;
+  /** Há IA da empresa de reserva (a chave dela ou a da distribuição)? Sem ela, a foto que o Graph não ler fica sem leitura. */
+  reservaIa: boolean;
   /** A credencial do Regem no DMS ID e a chave dos segredos estão prontas (sem isso, "avise o suporte"). */
   pronto: boolean;
   /** No servidor da loja a ligação não se faz (V37): a tela manda abrir o Regem na nuvem. */
@@ -80,6 +86,7 @@ export class GraphCliqueService {
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly auditoria: AuditoriaService,
+    private readonly ia: IaEmpresaService,
   ) {}
 
   private async rows(q: any, executor: any = this.db): Promise<any[]> {
@@ -87,9 +94,10 @@ export class GraphCliqueService {
     return (r.rows ?? r) as any[];
   }
 
-  private config(): ConfigGraph {
+  /** A configuração pronta. Com a empresa: ela também tem de estar no piloto (`GRAPH_EMPRESAS`); sem: só a chave geral. */
+  private config(tenantId?: string): ConfigGraph {
     const cfg = lerConfigGraph();
-    if (!graphLigadoNoAmbiente()) throw new ConflictException(NAO_LIGADO);
+    if (!(tenantId ? graphLigadoParaEmpresa(tenantId) : graphLigadoNoAmbiente())) throw new ConflictException(NAO_LIGADO);
     if (!cfg.credencialOk) {
       this.log.warn(`clique: a configuração do DMS Graph não está pronta: ${cfg.motivo}`);
       throw new ConflictException('A ligação do Regem com o DMS Graph não está pronta nesta nuvem. Avise o suporte.');
@@ -146,7 +154,9 @@ export class GraphCliqueService {
   async situacao(user: AuthUser): Promise<SituacaoDoGraph> {
     const cfg = lerConfigGraph();
     const base: SituacaoDoGraph = {
-      ligado: graphLigadoNoAmbiente(),
+      ligado: graphLigadoParaEmpresa(user.tenantId),
+      empresaNome: null,
+      reservaIa: false,
       pronto: cfg.credencialOk && chaveSegredosDisponivel(),
       naNuvem: !ehServidorLocal(),
       podeLigar: user.categoria === 'presidente',
@@ -155,19 +165,25 @@ export class GraphCliqueService {
       permissoes: [{ id: PERMISSAO_DO_GRAPH, frase: FRASE_DA_PERMISSAO, necessaria: true }],
     };
     if (!base.ligado || ehServidorLocal()) return base;
-    const l = await this.ligacaoViva(user.tenantId);
+    const [[emp], reservaIa, l] = await Promise.all([
+      this.rows(sql`select nome from empresa where id = ${user.tenantId}::uuid and deleted_at is null`),
+      this.ia.temAcesso(user.tenantId).catch(() => false),
+      this.ligacaoViva(user.tenantId),
+    ]);
+    const daEmpresa = { empresaNome: emp?.nome ? String(emp.nome) : null, reservaIa };
     if (!l) {
       // A última ligação desta empresa, se foi o Graph que a desfez: o cartão avisa e oferece ligar de novo.
       const [u] = await this.rows(sql`
         select revogada_em, revogada_origem from graph_ligacao
          where tenant_id = ${user.tenantId}::uuid order by revogada_em desc nulls last limit 1`);
       const desligadaPeloGraphEm = u?.revogada_em && u.revogada_origem === 'graph' ? new Date(u.revogada_em).toISOString() : null;
-      return { ...base, desligadaPeloGraphEm };
+      return { ...base, ...daEmpresa, desligadaPeloGraphEm };
     }
     const iso = (v: any) => (v ? new Date(v).toISOString() : null);
     const temFranquia = l.franquia_mes && l.franquia_usados !== null && l.franquia_total !== null;
     return {
       ...base,
+      ...daEmpresa,
       ligacao: {
         contaNome: l.conta_graph_nome ?? null,
         desde: new Date(l.criada_em).toISOString(),
@@ -194,7 +210,7 @@ export class GraphCliqueService {
    */
   async iniciar(user: AuthUser): Promise<{ url: string }> {
     if (ehServidorLocal()) throw new BadRequestException('A ligação com o DMS Graph se faz no Regem na nuvem (app.dmsregem.com), não no servidor da loja.');
-    const cfg = this.config();
+    const cfg = this.config(user.tenantId);
     const [emp] = await this.rows(sql`select nome, cnpj from empresa where id = ${user.tenantId}::uuid and deleted_at is null`);
     if (!emp) throw new BadRequestException('Empresa não encontrada.');
     const cnpj = String(emp.cnpj ?? '').replace(/\D/g, '');
@@ -251,7 +267,7 @@ export class GraphCliqueService {
    */
   async concluir(user: AuthUser, q: unknown): Promise<{ ligada: true; contaNome: string | null; permissoes: string[] } | { ligada: false; mensagem: string }> {
     if (ehServidorLocal()) return { ligada: false, mensagem: fraseDaVolta('erro') };
-    if (!graphLigadoNoAmbiente()) return { ligada: false, mensagem: fraseDaVolta('desligado') };
+    if (!graphLigadoParaEmpresa(user.tenantId)) return { ligada: false, mensagem: fraseDaVolta('desligado') };
     const v = lerVolta(q);
     if (!estadoValido(v.state)) return { ligada: false, mensagem: fraseDaVolta('outra_sessao') };
     const [p] = await this.rows(sql`
@@ -272,7 +288,7 @@ export class GraphCliqueService {
     }
     let cfg: ConfigGraph;
     try {
-      cfg = this.config();
+      cfg = this.config(user.tenantId);
     } catch {
       await fim('erro');
       return { ligada: false, mensagem: fraseDaVolta('erro') };
@@ -346,7 +362,7 @@ export class GraphCliqueService {
   /**
    * `POST /graph/clique/desligar`: o presidente desliga a empresa do Graph. Sai aqui na hora (a próxima foto já vai à IA
    * da empresa), e o Regem avisa o Graph (`DELETE /v1/dms-id/ligacao`) — falha lá não segura o desligar daqui. Repetir
-   * não dá erro.
+   * não dá erro. Só a chave geral (`GRAPH_LIGADO`), nunca o piloto: a empresa que saiu da lista ainda desliga o que ligou.
    */
   async desligar(user: AuthUser): Promise<{ desligada: boolean }> {
     if (ehServidorLocal()) throw new BadRequestException('A ligação com o DMS Graph se faz no Regem na nuvem (app.dmsregem.com), não no servidor da loja.');

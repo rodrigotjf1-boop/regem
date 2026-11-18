@@ -11,6 +11,7 @@ import { InputMoeda } from '@/components/ui/input-moeda';
 import { MapaAreaEntrega } from '@/components/delivery/mapa-area';
 import { AreasDesenhadas } from '@/components/delivery/area-entrega/areas-desenhadas';
 import { OrzuniIntegracao } from '@/components/integracoes/orzuni-clique';
+import { GraphIntegracao } from '@/components/integracoes/graph-clique';
 import { Label } from '@/components/ui/label';
 import { Chave } from '@/components/ui/chave';
 import { ImageUpload } from '@/components/ui/image-upload';
@@ -1690,6 +1691,8 @@ function Integracoes({ lista, onSalvar, pode, cardapioAtivo }: { lista: any[]; o
         ))}
         {/* O Orzuni (mig 416): o presidente liga a loja pelo clique; só aparece com o iFood pelo Orzuni liberado. */}
         <OrzuniIntegracao />
+        {/* O DMS Graph (mig 450, G5b): o presidente liga a EMPRESA pelo clique; só aparece com o Graph liberado para ela. */}
+        <GraphIntegracao />
       </div>
       {itemAberto && (
         <ModalIntegracao it={itemAberto} onClose={() => setAberto(null)}>

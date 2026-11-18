@@ -15,6 +15,7 @@ import {
   analiseDoGraph,
   chaveDaFoto,
   franquiaDe,
+  graphLigadoParaEmpresa,
   lerConfigGraph,
   mimeDoGraph,
   motivoDaFalha,
@@ -61,10 +62,11 @@ export class GraphFotoService {
 
   /**
    * A ligação viva da empresa para ler a foto — ou null (desligado, sem ligação, empresa excluída, segredo que não abre).
-   * A régua de "acesso vale" (V75): `GRAPH_LIGADO`, a empresa viva e a ligação não revogada, lidas NA HORA. Nunca lança.
+   * A régua de "acesso vale" (V75): `GRAPH_LIGADO` com a empresa no piloto (`GRAPH_EMPRESAS`), a empresa viva e a
+   * ligação não revogada, lidas NA HORA. Nunca lança.
    */
   async ligacaoParaFoto(tenantId: string): Promise<LigacaoDoGraph | null> {
-    if (ehServidorLocal() || !lerConfigGraph().ligado) return null;
+    if (ehServidorLocal() || !lerConfigGraph().ligado || !graphLigadoParaEmpresa(tenantId)) return null;
     try {
       const [l] = await this.rows(sql`
         select l.id, l.segredo_cifrado
@@ -109,7 +111,7 @@ export class GraphFotoService {
    */
   async ler(tenantId: string, lig: LigacaoDoGraph, foto: FotoParaOGraph, prazoMs: number): Promise<AnaliseDaFoto | null> {
     const cfg = lerConfigGraph();
-    if (ehServidorLocal() || !cfg.ligado) return null;
+    if (ehServidorLocal() || !cfg.ligado || !graphLigadoParaEmpresa(tenantId)) return null;
     const mime = mimeDoGraph(foto.mime);
     if (!mime) {
       await this.registrarLeitura(lig.id, 'tipo-nao-aceito', null);

@@ -12,7 +12,8 @@ import { ipPrivadoOuLocal } from '../../common/ssrf-guard';
 // (`common/foto-do-cliente.ts`); a IA da empresa fica de reserva (G-4).
 //
 // Tudo DESLIGADO por padrão, em duas chaves: `GRAPH_LIGADO` (a distribuição liga no `regem-api` — só o valor exato `true`)
-// e a ligação viva da empresa (o presidente liga pelo clique, GR-2). Sem as duas, a foto segue como hoje.
+// e a ligação viva da empresa (o presidente liga pelo clique, GR-2). Sem as duas, a foto segue como hoje. No piloto,
+// `GRAPH_EMPRESAS` limita a quem o cartão aparece (vazia = todas).
 
 /** A porta MCP do Graph em produção (o recurso no DMS ID é o mesmo endereço — `GRAPH_RECURSO` lá). */
 export const ENDERECO_PADRAO = 'https://graph.dmstecnologias.com/mcp';
@@ -105,6 +106,29 @@ export function lerConfigGraph(env: Record<string, string | undefined> = process
 
 /** A chave de liga/desliga da distribuição, sozinha (a tela e as rotas dizem "não está ligado" sem ela). */
 export const graphLigadoNoAmbiente = (env: Record<string, string | undefined> = process.env): boolean => env.GRAPH_LIGADO === 'true';
+
+/**
+ * O PILOTO (G6): `GRAPH_EMPRESAS` = os ids das empresas que veem o DMS Graph, separados por vírgula (ou espaço). Vazia =
+ * todas. Um item que não é id não libera ninguém a mais: a lista torta FECHA (só quem está escrito certo entra), nunca
+ * abre para todas. Lida na hora (V75), como o `GRAPH_LIGADO`.
+ */
+export function empresasDoPiloto(env: Record<string, string | undefined> = process.env): Set<string> | null {
+  const bruto = String(env.GRAPH_EMPRESAS ?? '').trim();
+  if (!bruto) return null;
+  return new Set(
+    bruto
+      .split(/[\s,;]+/)
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+/** A distribuição ligou o DMS Graph (`GRAPH_LIGADO`) E esta empresa está no piloto (`GRAPH_EMPRESAS`, vazia = todas). */
+export function graphLigadoParaEmpresa(tenantId: string, env: Record<string, string | undefined> = process.env): boolean {
+  if (!graphLigadoNoAmbiente(env)) return false;
+  const lista = empresasDoPiloto(env);
+  return lista === null || lista.has(String(tenantId ?? '').toLowerCase());
+}
 
 /** O endereço de volta do Regem — o padrão que o Graph aceita (`DMS_ID_VOLTAS` lá). V58: `||`. */
 export function voltaDoGraph(env: Record<string, string | undefined> = process.env): string {

@@ -24,7 +24,9 @@
   pelo clique do presidente, a foto que o cliente manda no WhatsApp vai primeiro ao DMS Graph (porta MCP) e a IA da
   empresa fica de reserva, nos mesmos 15 s; o pacote comum sobe para a 0.11.0. Tudo só na nuvem (a leitura da foto e o
   clique não sobem na loja) → vai no `.zip` sem efeito na loja: as duas tabelas = SO_NUVEM no `sync-daemon.mjs` (o
-  daemon mudou → o `.exe` do próximo corte leva junto).
+  daemon mudou → o `.exe` do próximo corte leva junto). **G5b (as telas, protótipo aprovado 18/11):** o cartão "DMS
+  Graph" em Delivery › Configurações › Integrações, a página `/integracoes/graph/volta` e a linha "Quem lê as fotos
+  agora" em Fotos do cliente; `GRAPH_EMPRESAS` (opcional) limita o piloto às empresas da lista. Só nuvem, sem efeito na loja.
 
 - **Poller do iFood: o tempo de cada parte no log (18/11; SEM migration).** "polling X ms, gravação Y ms, confirmação Z
   ms" na linha de cada volta com eventos. Só medida; o poller roda só na nuvem → vai no `.zip` sem efeito na loja.

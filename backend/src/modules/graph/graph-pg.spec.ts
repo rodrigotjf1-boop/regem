@@ -64,7 +64,10 @@ descrever('o DMS Graph no Regem (Postgres real, Graph e DMS ID de mentira)', () 
   const q = (s: string, p: any[] = []) => pool.query(s, p).then((r) => r.rows);
   const auditados: any[] = [];
   const auditoria = { registrar: async (e: any) => void auditados.push(e) } as any;
-  const clique = new GraphCliqueService(db, auditoria);
+  /** A IA da empresa de reserva (o cartão diz se há): só o "tem acesso", de mentira. */
+  let iaDeReserva = true;
+  const iaFalsa = { temAcesso: async () => iaDeReserva } as any;
+  const clique = new GraphCliqueService(db, auditoria, iaFalsa);
   const graphFoto = new GraphFotoService(db, auditoria);
   const empresas: string[] = [];
   const envAntes: Record<string, string | undefined> = {};
@@ -131,7 +134,7 @@ descrever('o DMS Graph no Regem (Postgres real, Graph e DMS ID de mentira)', () 
   graphFoto.buscar = buscar;
 
   beforeAll(async () => {
-    for (const k of [...Object.keys(ENV), 'SEGREDOS_CHAVE', 'EDGE_MODE', 'APP_URL']) envAntes[k] = process.env[k];
+    for (const k of [...Object.keys(ENV), 'SEGREDOS_CHAVE', 'EDGE_MODE', 'APP_URL', 'GRAPH_EMPRESAS']) envAntes[k] = process.env[k];
     Object.assign(process.env, ENV);
     delete process.env.EDGE_MODE;
     delete process.env.APP_URL;
@@ -159,6 +162,8 @@ descrever('o DMS Graph no Regem (Postgres real, Graph e DMS ID de mentira)', () 
 
   beforeEach(() => {
     process.env.GRAPH_LIGADO = 'true';
+    delete process.env.GRAPH_EMPRESAS;
+    iaDeReserva = true;
     tokensPedidos = [];
     pedidos = [];
     trocas = [];
@@ -202,7 +207,10 @@ descrever('o DMS Graph no Regem (Postgres real, Graph e DMS ID de mentira)', () 
     it('o caminho inteiro: o pedido leva a empresa (conta_empresa_id) e o CNPJ; a volta troca; o segredo fica CIFRADO; repetir gira', async () => {
       const { t, ana } = await empresa();
       const antes = await clique.situacao(ana);
-      expect(antes).toMatchObject({ ligado: true, pronto: true, naNuvem: true, podeLigar: true, ligacao: null });
+      expect(antes).toMatchObject({ ligado: true, empresaNome: 'Casa do Hambúrguer', reservaIa: true, pronto: true, naNuvem: true, podeLigar: true, ligacao: null });
+      iaDeReserva = false;
+      expect((await clique.situacao(ana)).reservaIa).toBe(false);
+      iaDeReserva = true;
       expect(antes.permissoes).toEqual([{ id: 'arquivos.analisar', frase: expect.stringMatching(/sem guardar o arquivo/), necessaria: true }]);
 
       const { url } = await clique.iniciar(ana);
@@ -301,6 +309,32 @@ descrever('o DMS Graph no Regem (Postgres real, Graph e DMS ID de mentira)', () 
       expect(await clique.desligar(ana)).toEqual({ desligada: false });
       expect(desligados).toHaveLength(1);
       expect(await clique.situacao(ana)).toMatchObject({ ligacao: null, desligadaPeloGraphEm: null });
+    });
+
+    it('o piloto (GRAPH_EMPRESAS): fora da lista não há cartão, clique nem foto pelo Graph; a lista torta fecha; quem saiu ainda desliga', async () => {
+      const dentro = await empresa();
+      const fora = await empresa();
+      await ligar(fora.ana); // ligou antes de a lista existir
+      // Só a empresa de dentro (escrita em maiúsculas e com espaço: vale igual).
+      process.env.GRAPH_EMPRESAS = ` ${dentro.t.toUpperCase()} ,`;
+      expect(await clique.situacao(dentro.ana)).toMatchObject({ ligado: true, empresaNome: 'Casa do Hambúrguer' });
+      expect(await clique.situacao(fora.ana)).toMatchObject({ ligado: false, ligacao: null, empresaNome: null });
+      const pedidosAntes = pedidos.length;
+      await expect(clique.iniciar(fora.ana)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/não está ligado/) });
+      expect(await clique.concluir(fora.ana, { code: codigo(), state: 'x'.repeat(43), iss: ORIGEM })).toEqual({ ligada: false, mensagem: expect.stringMatching(/não está ligado/) });
+      expect(pedidos.length).toBe(pedidosAntes);
+      // A foto da empresa de fora não vai ao Graph, mesmo com a ligação viva.
+      expect(await graphFoto.ligacaoParaFoto(fora.t)).toBeNull();
+      // A de dentro liga normalmente.
+      expect(await ligar(dentro.ana)).toMatchObject({ ligada: true });
+      expect(await graphFoto.ligacaoParaFoto(dentro.t)).toMatchObject({ segredo: segredosEntregues.at(-1) });
+      // Lista torta (nenhum id que sirva): ninguém, nunca todas.
+      process.env.GRAPH_EMPRESAS = 'empresa-de-teste';
+      expect((await clique.situacao(dentro.ana)).ligado).toBe(false);
+      expect(await graphFoto.ligacaoParaFoto(dentro.t)).toBeNull();
+      // Quem ficou fora ainda desliga o que ligou (o Graph é avisado).
+      expect(await clique.desligar(fora.ana)).toEqual({ desligada: true });
+      expect(desligados).toContain(segredosEntregues[0]);
     });
   });
 
