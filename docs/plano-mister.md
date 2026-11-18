@@ -1152,13 +1152,14 @@ conversa"): a memória entra no bloco da conversa, sem quebrar o cache.
   consultar de novo para o número de agora. A avaliação de regressão ganhou a pergunta 42 ("o que você me disse do iFood
   naquele dia…"). Com ela, a **entrega 1 está completa** (#1134, #1136, #1137); a 2 (perfil e memória) e a 3 (avisos)
   pedem protótipo.
-- **Protótipo das entregas 2 e 3 — A APROVAR:** `mockups/regem-mister-jeito-memoria.html` (versão 1, 18/11/2026): a parte
+- **Protótipo das entregas 2 e 3 — APROVADO pelo dono em 18/11/2026 ("prototipo aprovado"), com as oito decisões
+  recomendadas:** `mockups/regem-mister-jeito-memoria.html` (versão 1): a parte
   nova "Jeito e memória" (o perfil, o jeito da empresa, os avisos escritos por grupo, o "fica de olho"; "O que o Mister
   sabe" da empresa e de cada pessoa, com Anotar, Mudar e Esquecer), seis conversas no celular e oito decisões com a
   recomendada primeiro. Fases propostas: **M4a** perfil e jeito (1 migration em `mister_conversa_config`), **M4b** memória
   (1 migration, `mister_memoria` só na nuvem; recusa número, dado de cliente e segredo; limites do Hermes: 2.200 letras da
   empresa e 1.375 de cada pessoa), **M4c** avisos escritos (sem migration; o texto fixo de reserva) e **M4d** "fica de
-  olho" e lembrete (1 migration, `mister_vigia`). Nada destas fases começa antes da aprovação.
+  olho" e lembrete (1 migration, `mister_vigia`), uma por PR, nessa ordem.
 
 ## 5. O que depende do dono
 
