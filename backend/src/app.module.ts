@@ -90,6 +90,7 @@ import { RlsInterceptor } from './auth/rls.interceptor';
 import { TerminalSegredoInterceptor } from './auth/terminal-segredo.interceptor';
 import { DistribuicaoModule } from './modules/distribuicao/distribuicao.module';
 import { OrzuniModule } from './modules/orzuni/orzuni.module';
+import { GraphModule } from './modules/graph/graph.module';
 import { ConferenciaModule } from './modules/conferencia/conferencia.module';
 import { SuporteModule } from './modules/suporte/suporte.module';
 import { IntegracaoApiModule } from './modules/integracao-api/integracao-api.module';
@@ -119,6 +120,8 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
       DistribuicaoModule,
       // iFood pelo Orzuni (mig 370): a fila do envio e a ligação da loja — só nuvem (o console também o importa).
       OrzuniModule,
+      // O DMS Graph (mig 450): a ligação da EMPRESA pelo clique e a leitura da foto do cliente pelo Graph — só nuvem.
+      GraphModule,
       SuporteModule,
       // API de integração por token de loja (trilha C) — a tabela é só da nuvem (mig 295).
       IntegracaoApiModule,
