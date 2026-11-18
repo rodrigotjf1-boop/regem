@@ -136,7 +136,7 @@ O QUE VOCÊ LEMBRA
 - Se a ferramenta disser que a memória está cheia, diga o que está anotado e peça para esquecer uma — ou junte duas parecidas com acao trocar. Se ela recusar (valor em reais, dado de cliente, senha), diga o motivo em uma frase.
 
 FICA DE OLHO E LEMBRETE
-- "Me avisa quando o #284 sair", "fica de olho no pedido 4821": chame ficar_de_olho com acao comecar e o número como a pessoa disse. Você avisa sozinho quando o pedido mudar, até as 06:00. Diga em uma frase que vai ficar de olho no pedido (como a ferramenta devolveu) e avisar quando mudar.
+- "Me avisa quando o #284 sair", "fica de olho no pedido 4821": chame ficar_de_olho com acao comecar, alvo pedido e o número como a pessoa disse. "Me avisa quando o caixa do delivery fechar": alvo caixa. "Quando a impressora da cozinha voltar": alvo impressora. "Quando o iFood voltar": alvo canal. Você avisa sozinho quando mudar, até as 06:00. Diga em uma frase o que vai olhar (como a ferramenta devolveu) e que avisa quando mudar.
 - "Me lembra amanhã às 10h de pagar o gás": chame lembrete com acao criar, o texto ("pagar o gás") e o quando em AAAA-MM-DDTHH:MM na hora da loja (use "Agora na loja" para saber hoje, amanhã e o dia da semana). Repita o dia e a hora como a ferramenta devolveu.
 - "O que você está olhando?", "quais lembretes eu tenho?": acao listar. "Para de olhar o 284", "cancela o lembrete do gás": acao parar (ficar_de_olho) ou cancelar (lembrete), com um pedaço do que está marcado.
 - Se a ferramenta disser que o ajuste está desligado, diga que o presidente liga em Mister › Jeito e memória. Nunca prometa avisar sem a ferramenta ter confirmado.
@@ -680,13 +680,15 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
     // Versão 4, M4d (mig 452; o padrão "heartbeat" do Hermes: só fala quando muda).
     name: 'ficar_de_olho',
     description:
-      'Não é consulta: FICA DE OLHO num pedido dos canais (iFood, 99, cardápio) e avisa a pessoa quando ele mudar de situação (aceito, pronto, saiu, entregue, cancelado), até as 06:00. "comecar" com o número como a pessoa disse; "parar" com um pedaço do que está marcado; "listar" o que está marcado. Até 3 por pessoa. Precisa do ajuste ligado pelo presidente.',
+      'Não é consulta: FICA DE OLHO e avisa a pessoa quando muda, até as 06:00. "alvo": pedido (um pedido dos canais — iFood, 99, cardápio: avisa a cada mudança de situação até entregue ou cancelado; passe o "numero"), caixa (um caixa aberto: avisa quando fechar; "qual" = delivery ou balcão), impressora (uma impressora parada: avisa quando voltar; "qual" = o nome dela) ou canal (um canal pausado: avisa quando reabrir; "qual" = iFood, 99 ou cardápio). "comecar" com o alvo; "parar" com um pedaço do que está marcado; "listar" o que está marcado. Até 3 por pessoa. Precisa do ajuste ligado pelo presidente.',
     input_schema: {
       type: 'object',
       properties: {
         acao: { type: 'string', enum: ['comecar', 'parar', 'listar'] },
-        numero: { type: 'string', description: 'Para comecar: o número do pedido como a pessoa disse ("284", "#4821").' },
-        trecho: { type: 'string', description: 'Para parar: um pedaço do que está marcado ("284").' },
+        alvo: { type: 'string', enum: ['pedido', 'caixa', 'impressora', 'canal'], description: 'Para comecar: o que olhar (pedido, se não disser).' },
+        numero: { type: 'string', description: 'Para comecar um pedido: o número como a pessoa disse ("284", "#4821").' },
+        qual: { type: 'string', description: 'Para caixa, impressora ou canal: "delivery"/"balcão", o nome da impressora, "iFood"/"99"/"cardápio".' },
+        trecho: { type: 'string', description: 'Para parar: um pedaço do que está marcado ("284", "iFood").' },
       },
       required: ['acao'],
       additionalProperties: false,

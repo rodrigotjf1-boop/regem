@@ -15,7 +15,7 @@ import type { ResultadoDaFerramenta } from './mister-ferramentas.service';
 import type { FimDaPergunta } from './mister-laco';
 import { GUIA_DE_USO, buscarNoGuia, quemAbre } from './mister-guia-de-uso';
 import { conferirMemoria } from './mister-memoria';
-import { conferirTextoDoLembrete, lerQuando, quandoNaConversa } from './mister-vigia';
+import { canalDito, conferirTextoDoLembrete, lerQuando, quandoNaConversa } from './mister-vigia';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -249,6 +249,11 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
       // Versão 4, M4d (mig 452): na avaliação nada se marca — devolve como a de verdade devolveria (o pedido 284 da loja).
       if (en.acao === 'listar') return ok({ marcados: [], observacao: 'Nenhum "fica de olho" ativo.' });
       if (en.acao !== 'comecar') return recusa('Não achei isso no que está marcado.');
+      // M4d parte 2: o iFood pausado e o caixa da Bruna aberto da loja de teste; nenhuma impressora parada.
+      const combinado = (oQue: string, quando: string) => ok({ combinado: true, oQue, avisaQuando: quando, ate: 'as 06:00', siga: `Diga em uma frase que vai ficar de olho e avisar quando ${quando}.` });
+      if (en.alvo === 'canal') return canalDito(en.qual) === 'ifood' ? combinado('iFood', 'ele reabrir') : recusa(`O canal não está pausado agora em ${LOJA}: não há o que olhar.`);
+      if (en.alvo === 'caixa') return combinado('caixa do balcão (aberto por Bruna)', 'ele fechar');
+      if (en.alvo === 'impressora') return recusa(`Nenhuma impressora parada agora em ${LOJA}: não há o que olhar.`);
       const n = String(en.numero ?? '').replace(/\D/g, '');
       if (n !== '284' && n !== '4821') return recusa(`Não achei pedido dos canais com o número ${en.numero ?? ''} nos últimos 3 dias em ${LOJA}.`);
       return ok({ combinado: true, pedido: '#284 · iFood 4821', situacaoAgora: 'em preparo', ate: 'as 06:00', siga: 'Diga em uma frase que vai ficar de olho no pedido e avisar quando ele mudar.' });
@@ -638,6 +643,8 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   // Versão 4, M4d: o "fica de olho" num pedido e o lembrete na hora marcada (o padrão "heartbeat" do Hermes).
   { id: 'c45', pergunta: 'Me avisa quando o pedido 284 sair.', consultas: ['ficar_de_olho'], contem: ['284', 'olho|aviso|avisar'] },
   { id: 'c46', pergunta: 'Me lembra amanhã às 10h de pagar o gás.', consultas: ['lembrete'], contem: ['10:00|10h|10 h', 'gás|gas'] },
+  // M4d parte 2: o canal pausado (o iFood da loja de teste está pausado até as 20:40).
+  { id: 'c47', pergunta: 'Me avisa quando o iFood voltar.', consultas: ['ficar_de_olho'], contem: ['iFood', 'avis|olho'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

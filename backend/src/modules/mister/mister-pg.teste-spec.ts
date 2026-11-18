@@ -3863,6 +3863,7 @@ export function testesDoMisterComPostgres(): void {
         c44: { acao: 'anotar', sobre: 'empresa', texto: '"Smash" é o X-Burger Smash.' },
         c45: { acao: 'comecar', numero: '284' },
         c46: { acao: 'criar', texto: 'pagar o gás', quando: '2026-11-14T10:00' },
+        c47: { acao: 'comecar', alvo: 'canal', qual: 'iFood' },
       };
       const EXTRAS: Record<string, string[]> = { c37: ['produtos_mais_vendidos'], c38: ['servidor_e_incidentes'] };
       const entradaDe = (c: CasoDaAvaliacao, nome: string): Record<string, unknown> =>
@@ -3915,18 +3916,18 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_avaliacao`);
       });
 
-      it('a rodada inteira com as respostas certas: 46 de 46, o andamento, o custo, a lista e as perguntas na ordem', async () => {
+      it('a rodada inteira com as respostas certas: 47 de 47, o andamento, o custo, a lista e as perguntas na ordem', async () => {
         const ia = iaDeMentira();
         const servico = new MisterAvaliacaoService(db, ia as any);
         const r = await servico.rodar('Rita da DMS');
-        expect(r.total).toBe(46);
+        expect(r.total).toBe(47);
         const fim = await terminar(r.id);
-        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 46, acertos: 46, motivo: null });
+        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 47, acertos: 47, motivo: null });
         // O mesmo laço do agente: as instruções e as ferramentas de verdade, e o recurso da avaliação.
         expect(ia.pedidos.every((p) => p.recurso === 'mister_avaliacao' && p.tools === FERRAMENTAS && p.system[0].text === INSTRUCOES_DO_MISTER)).toBe(true);
         const lista = await servico.lista();
-        expect(lista).toMatchObject({ disponivel: true, total: 46, chaveDaDistribuicao: true });
-        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 46, acertos: 46, falhas: 0, oQueFalhou: [] });
+        expect(lista).toMatchObject({ disponivel: true, total: 47, chaveDaDistribuicao: true });
+        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 47, acertos: 47, falhas: 0, oQueFalhou: [] });
         // O custo pela tabela de preços do modelo, sobre os tokens somados de todas as chamadas.
         expect(lista.rodadas[0].custoUsd).toBeGreaterThan(0);
         const [tok] = await q(`select tokens_entrada, tokens_cache_leitura, tokens_saida from mister_avaliacao where id = $1`, [r.id]);
@@ -3946,7 +3947,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
         expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
         const r = await servico.rodar('Rita');
-        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 45 });
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 46 });
         const [velha] = await q(`select situacao, motivo from mister_avaliacao where id = $1`, [parada]);
         expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
         const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);
@@ -4226,6 +4227,85 @@ export function testesDoMisterComPostgres(): void {
         await conversaCfg.salvar(usuario('ana'), { ficaDeOlho: false });
         await q(`delete from mister_vigia where tenant_id = any($1::uuid[])`, [[A, B]]);
         await q(`delete from pedido_externo where id = any($1::uuid[])`, [pedidos]);
+      }
+    });
+
+    it('versão 4, M4d parte 2: o "fica de olho" no caixa (até fechar), no canal pausado (até reabrir) e na impressora parada (até voltar) — só o que está naquele estado, uma mensagem por mudança', async () => {
+      const conversaCfg = new MisterConversaConfigService(db, auditoria);
+      const pausa = new PausaDoCanalService(db, auditoria);
+      const vigia = new MisterVigiaService(db, numero, modulos, conversaCfg, entrada, pausa);
+      const ferr = new (MisterFerramentasService as any)(db, modulos, ...Array(9).fill(null), pausa, ...Array(11).fill(undefined), undefined, vigia) as MisterFerramentasService;
+      const tel = telefone();
+      await ligar('ana', tel);
+      await janelaAberta('ana');
+      const e = (await ferr.escopo(A, pessoa.ana, tel))!;
+      const olhar = (alvo: string, qual: string) => ferr.executar(e, 'ficar_de_olho', { acao: 'comecar', alvo, qual });
+      const vigiasDe = () => q(`select * from mister_vigia where tenant_id = $1 order by criado_em`, [A]);
+      const textos = () => numero.enviadas.map((m) => m.texto);
+      await q(`delete from mister_vigia where tenant_id = $1`, [A]);
+      // Nenhum caixa do delivery aberto de outro teste (este teste abre o dele).
+      await q(`update caixa_sessao set status = 'fechada', fechada_em = now() where tenant_id = $1 and origem = 'delivery' and status = 'aberta'`, [A]);
+      const caixas: string[] = [];
+      let incidente: string | null = null;
+      try {
+        await conversaCfg.salvar(usuario('ana'), { ficaDeOlho: true });
+
+        // O caixa: sem caixa aberto, nada a olhar; aberto, olha até fechar.
+        expect((await olhar('caixa', 'delivery')).dados.erro).toContain('Nenhum caixa do delivery aberto');
+        const [cx] = await q(
+          `insert into caixa_sessao (tenant_id, unidade_id, origem, status, valor_abertura, aberta_em, aberta_por_id) values ($1, $2, 'delivery', 'aberta', 50, now() - interval '3 hours', $3) returning id::text as id`,
+          [A, lojaDeA, pessoa.carlos],
+        );
+        caixas.push(cx.id);
+        expect(await olhar('caixa', 'do delivery')).toMatchObject({ ok: true, dados: { combinado: true, oQue: 'caixa do delivery (aberto por Carlos)', avisaQuando: 'ele fechar' } });
+        expect((await vigiasDe())[0]).toMatchObject({ alvo: 'caixa', referencia: `cx:${cx.id}`, estado: 'aberta' });
+        numero.pedidos.length = 0;
+        expect(await vigia.volta(new Date(), [A])).toMatchObject({ mudancas: 0 });
+        await q(`update caixa_sessao set status = 'fechada', fechada_em = now() where id = $1`, [cx.id]);
+        const [ca, cb] = await Promise.all([vigia.volta(new Date(), [A]), vigia.volta(new Date(), [A])]);
+        expect(ca.mudancas + cb.mudancas).toBe(1);
+        expect(textos()).toEqual([expect.stringMatching(/^✅ O caixa do delivery \(aberto por Carlos\) fechou às \d\d:\d\d\.$/)]);
+
+        // O canal: aberto, nada a olhar; pausado (a MESMA regra do "Pausar"), olha até reabrir.
+        expect((await olhar('canal', 'iFood')).dados.erro).toContain('não está pausado');
+        expect((await olhar('canal', 'Rappi')).dados.erro).toBe('Diga qual canal: iFood, 99 ou cardápio.');
+        await q(
+          `insert into pausa_canal (id, tenant_id, unidade_id, canal, ate, motivo, pausado_em, pausado_por_nome)
+           values (gen_random_uuid(), $1, null, 'ifood', now() + interval '40 minutes', 'movimento', now(), 'Ana')`,
+          [A],
+        );
+        expect(await olhar('canal', 'o ifood')).toMatchObject({ ok: true, dados: { combinado: true, oQue: 'iFood', avisaQuando: 'ele reabrir' } });
+        numero.pedidos.length = 0;
+        expect(await vigia.volta(new Date(), [A])).toMatchObject({ mudancas: 0 });
+        await q(`update pausa_canal set ate = now() - interval '1 minute' where tenant_id = $1 and canal = 'ifood'`, [A]);
+        expect(await vigia.volta(new Date(), [A])).toMatchObject({ mudancas: 1 });
+        expect(textos()).toEqual([expect.stringMatching(/^✅ O iFood voltou: a pausa acabou às \d\d:\d\d\.$/)]);
+        expect((await vigiasDe()).find((v: any) => v.alvo === 'canal')).toMatchObject({ situacao: 'feito', estado: 'aberto' });
+
+        // A impressora (só onde a tabela do vigia existe — o banco de loja do CI não a tem): parada, olha até voltar.
+        const [{ tem }] = await q(`select to_regclass('vigia_incidente') is not null as tem`);
+        if (tem) {
+          const [inc] = await q(
+            `insert into vigia_incidente (tenant_id, unidade_id, regra, chave, gravidade, publico, evidencia)
+             values ($1, $2, 'impressora_parada', $3, 'atencao', 'loja', '{"impressora": "Cozinha"}'::jsonb) returning id::text as id`,
+            [A, lojaDeA, `srv:${MARCA}:impressora:m4d`],
+          );
+          incidente = inc.id;
+          expect((await olhar('impressora', 'bar')).dados.erro).toContain('Nenhuma impressora "bar" parada');
+          expect(await olhar('impressora', 'a impressora da cozinha')).toMatchObject({ ok: true, dados: { oQue: 'impressora Cozinha', avisaQuando: 'ela voltar a responder' } });
+          numero.pedidos.length = 0;
+          await q(`update vigia_incidente set situacao = 'recuperado', fechado_em = now() where id = $1`, [inc.id]);
+          expect(await vigia.volta(new Date(), [A])).toMatchObject({ mudancas: 1 });
+          expect(textos()).toEqual([expect.stringMatching(/^✅ A impressora Cozinha voltou a responder às \d\d:\d\d\.$/)]);
+        }
+        // A trilha nunca guarda o telefone.
+        expect(JSON.stringify(await vigiasDe())).not.toContain(tel);
+      } finally {
+        await conversaCfg.salvar(usuario('ana'), { ficaDeOlho: false });
+        await q(`delete from mister_vigia where tenant_id = $1`, [A]);
+        await q(`delete from caixa_sessao where id = any($1::uuid[])`, [caixas]);
+        await q(`delete from pausa_canal where tenant_id = $1 and canal = 'ifood'`, [A]);
+        if (incidente) await q(`delete from vigia_incidente where id = $1`, [incidente]);
       }
     });
 
