@@ -73,7 +73,16 @@ export interface PedidoDeIa {
   messages: Array<{ role: 'user' | 'assistant'; content: any }>;
   /** As ferramentas que o modelo pode pedir. Quem chama as executa e volta com o resultado (o laço é de quem chama). */
   tools?: any[];
+  /**
+   * O prazo TOTAL da pergunta, com a nova tentativa do cliente dentro dele (ERR-525, LIC-035): o `timeout` do SDK vale
+   * por tentativa, e o cliente tem `maxRetries: 1` — sem o sinal abaixo, "15 s" chegava a ~30 s.
+   */
   prazoMs?: number;
+}
+
+/** As opções do pedido ao SDK: o prazo de cada tentativa E o sinal que encerra tudo (tentativas e espera) no prazo. */
+export function opcoesComPrazoTotal(prazoMs: number): { timeout: number; signal: AbortSignal } {
+  return { timeout: prazoMs, signal: AbortSignal.timeout(prazoMs) };
 }
 
 export interface RespostaDaIa {
@@ -211,7 +220,7 @@ export class IaEmpresaService {
         ...(p.tools?.length ? { tools: p.tools } : {}),
         messages: p.messages,
       },
-      { timeout: p.prazoMs ?? PRAZO_PADRAO_MS },
+      opcoesComPrazoTotal(p.prazoMs ?? PRAZO_PADRAO_MS),
     );
   }
 
@@ -275,7 +284,7 @@ export class IaEmpresaService {
     try {
       const r = await this.criarCliente(acesso.chave).messages.create(
         { model: MODELO_DA_PROVA, max_tokens: 16, messages: [{ role: 'user', content: 'ok' }] },
-        { timeout: 15_000 },
+        opcoesComPrazoTotal(15_000),
       );
       await this.registrarUso(tenantId, 'prova', acesso, MODELO_DA_PROVA, lerUso(r?.usage), false);
       return 'ok';
