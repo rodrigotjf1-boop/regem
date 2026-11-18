@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Poller do iFood: o tempo de cada parte no log (18/11; SEM migration).** "polling X ms, gravação Y ms, confirmação Z
+  ms" na linha de cada volta com eventos. Só medida; o poller roda só na nuvem → vai no `.zip` sem efeito na loja.
+
 - **Mister › Resumo: "Boletos e notas por foto" (18/11; SEM migration).** A linha do protótipo, com o estado que o
   servidor diz (em breve, desligado, precisa da chave de IA ou ligado). Só nuvem → vai no `.zip` sem efeito na loja.
 
