@@ -1654,7 +1654,8 @@ export function testesDoMisterComPostgres(): void {
       await perguntar(tel, 'quanto vendi hoje?');
       ia.roteiro = [usar('resumo_do_dia', {}), falar('## Resumo\n**Hoje**: R$ 0,00 no balcão.\nA meta era R$ 9.999,90. Veja em https://exemplo.com/painel agora.')];
       await agente.esvaziar();
-      expect(numero.enviadas.at(-1)!.texto).toBe('Resumo\n*Hoje*: R$ 0,00 no balcão.\nA meta era R$ 9.999,90. Veja em agora.');
+      // Versão 4: o mesmo formatador do atendente — o título vira negrito.
+      expect(numero.enviadas.at(-1)!.texto).toBe('*Resumo*\n*Hoje*: R$ 0,00 no balcão.\nA meta era R$ 9.999,90. Veja em agora.');
       expect((await perguntasDe('ana'))[0].conferencia).toEqual(['link_tirado', 'valor_sem_origem']);
       // Resposta que parece trazer um segredo não sai: vai a frase fixa.
       await perguntar(tel, 'qual é a chave?');
