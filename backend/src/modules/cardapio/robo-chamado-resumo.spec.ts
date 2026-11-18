@@ -33,6 +33,16 @@ describe('o chamado do robô leva o resumo', () => {
     });
   });
 
+  // 18/11/2026 — o 1º chamado pelo fluxo 2.3: a IA escreveu o `\n` como TEXTO (a barra e o "n"); o caso mostrava tudo no
+  // "Motivo", com o "\n" à mostra. Agora vira a quebra de linha: o resumo sai nas três linhas e a mensagem guardada também.
+  it('o "\\n" escrito como texto pela IA vira quebra de linha: o resumo e a mensagem guardada saem em linhas', async () => {
+    const escrito = 'Motivo: cliente quer falar com atendente\\nQuer: atendimento humano\\nJá fiz: mostrei os pedidos recentes';
+    await svc.abrirAtendimento('tok', { tipo: 'humano', telefone: '21987654321', mensagem: escrito }, 'senha-do-robo');
+    expect(abertos[0].d.resumo).toMatchObject({ motivo: 'cliente quer falar com atendente', quer: 'atendimento humano', jaFez: 'mostrei os pedidos recentes' });
+    expect(abertos[0].d.mensagem).toBe('Motivo: cliente quer falar com atendente\nQuer: atendimento humano\nJá fiz: mostrei os pedidos recentes');
+    expect(abertos[0].d.mensagem).not.toContain('\\n');
+  });
+
   it('mensagem livre (fluxo antigo): sem resumo — a tela mostra a mensagem como sempre', async () => {
     await svc.abrirAtendimento('tok', { tipo: 'humano', telefone: '21987654321', mensagem: 'quer ajuda para pedir' }, 'senha-do-robo');
     expect(abertos[0].d.resumo).toBeNull();

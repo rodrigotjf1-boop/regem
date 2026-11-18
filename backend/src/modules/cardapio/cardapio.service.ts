@@ -108,7 +108,7 @@ import { VendasService } from '../vendas/vendas.service';
 import { DeliveryService } from '../delivery/delivery.service';
 import { EdgeFlashSyncService } from '../sync/edge-flash-sync.service';
 import { AtendimentoService, prioridadeDe } from '../atendimento/atendimento.service';
-import { resumoDoRobo } from '../atendimento/resumo-do-robo';
+import { mensagemDoRobo, resumoDoRobo } from '../atendimento/resumo-do-robo';
 import { FidelidadeService } from '../fidelidade/fidelidade.service';
 import { CashbackService } from '../cashback/cashback.service';
 
@@ -397,8 +397,11 @@ export class CardapioService {
   // robô no número (robo-pausa.ts) — por isso só com a senha (ERR-320). O chamado vem LIGADO ao pedido do cliente
   // (o número citado, ou o pedido em andamento do mesmo telefone): sem o pedido, o cancelamento pedido pelo robô não
   // podia ser aceito na tela (o aceite cancela pelo id).
-  async abrirAtendimento(token: string, dto: any, segredo: string, ficha?: unknown) {
+  async abrirAtendimento(token: string, dtoDoRobo: any, segredo: string, ficha?: unknown) {
     if (!segredoDoRoboOk(segredo)) throw new UnauthorizedException('Não autorizado.');
+    // O `\n` que a IA escreve como TEXTO vira a quebra de linha (18/11/2026, `mensagemDoRobo`), antes de qualquer canal: o
+    // resumo "Motivo / Quer / Já fiz" e a mensagem guardada saem em linhas, em todo caminho (WhatsApp, Direct, chat…).
+    const dto = dtoDoRobo && typeof dtoDoRobo === 'object' ? { ...dtoDoRobo, mensagem: mensagemDoRobo(dtoDoRobo.mensagem) } : dtoDoRobo;
     const cfg = await this.resolver(token);
     // A conversa de TESTE do atendente (mig 382): o "telefone" é `teste:<id>` — NÃO abre caso, não pausa, não avisa
     // ninguém: calcula o que aconteceria (a mesma regra do caminho de verdade) e grava a linha 'sistema' no teste. NUNCA
