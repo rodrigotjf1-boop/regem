@@ -149,18 +149,23 @@ function Aviso({ tipo, titulo, children }: { tipo: 'info' | 'erro' | 'atencao'; 
   );
 }
 
-/** O medidor da franquia do mês (GR-5): os números escritos, a barra só de apoio. */
-function Franquia({ f }: { f: NonNullable<NonNullable<SituacaoDoGraph['ligacao']>['franquia']> | null }) {
+/**
+ * O medidor da franquia do mês (GR-5): os números escritos, a barra só de apoio. `nome` = o que se conta ("Fotos lidas"
+ * no cartão; "Fotos e áudios lidos" no Mister › IA e uso, versão 5 — a franquia é uma só).
+ */
+export function Franquia({ f, nome = 'Fotos lidas' }: { f: NonNullable<NonNullable<SituacaoDoGraph['ligacao']>['franquia']> | null; nome?: string }) {
   if (!f || !f.doMesAtual) {
     return <p className="m-0 text-sm text-muted-foreground">Neste mês, o DMS Graph ainda não leu nenhuma foto. A franquia volta a zero no dia 1º de cada mês.</p>;
   }
   const cheia = f.total > 0 && f.usados >= f.total;
   const pct = f.total > 0 ? Math.min(100, Math.round((f.usados / f.total) * 1000) / 10) : 0;
-  const rotulo = `${f.usados} de ${f.total} fotos lidas em ${nomeDoMes(f.mes)}`;
+  const rotulo = `${f.usados} de ${f.total} ${nome.toLowerCase()} em ${nomeDoMes(f.mes)}`;
   return (
     <div className="grid gap-1.5">
       <div className="flex flex-wrap justify-between gap-x-3 gap-y-1 text-sm text-muted-foreground">
-        <span>Fotos lidas em {nomeDoMes(f.mes)}</span>
+        <span>
+          {nome} em {nomeDoMes(f.mes)}
+        </span>
         <span>
           <b className="font-mono tabular-nums text-foreground">{f.usados}</b> de <b className="font-mono tabular-nums text-foreground">{f.total}</b>
         </span>

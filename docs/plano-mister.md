@@ -1326,6 +1326,16 @@ voz para um teste. O dono decidiu usar a mesma do atendente (Google).
 - **Ainda não:** o quadro "Fotos e áudios · DMS Graph" em IA e uso fica para a M5b.2, logo depois, porque mexe em tela e
   passa pelos roteiros; a conexão por QR Code segue sem mídia.
 
+**M5b.2 implementada (19/11/2026; só tela):**
+- **O quadro "Fotos e áudios · DMS Graph"** em Mister › IA e uso (`components/mister/fotos-e-audios.tsx`) mostra a
+  franquia do mês, que é uma só e vale para o atendente e para o Mister.
+  - Com a franquia acabada, avisa que o Mister não ouve áudios até o dia 1º.
+  - Sem a ligação, diz que o Mister só lê texto e dá o caminho para ligar.
+  - Lê a mesma situação do cartão do Graph. Sem ela, o quadro não aparece.
+- **Diferença do protótipo:** o uso separado por recurso não entrou, porque o Graph conta o total.
+- **O medidor `Franquia`** do cartão foi exportado, com o nome do que se conta; o cartão não mudou.
+- **Conferência:** roteiro `mister` (1.102 conferências, os três estados em 16 larguras) e `graph-clique` (272), sem falha.
+
 **Fica para depois (pedido do dono em 19/11):** quando a base de eventos do plano do perfil do cliente estiver pronta, o
 Mister usa o clima e os eventos para avisar de chuva e programar entregadores e funcionários em feriados e eventos
 grandes. A fonte do clima precisa de licença comercial.
