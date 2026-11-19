@@ -62,6 +62,14 @@ export class CardapioPublicoController {
     return this.service.registrarEvento(token, dto?.sessao, dto?.tipo, dto?.meta);
   }
 
+  // Pedido agendado (mig 455, D4): as janelas de 15 min de um dia para o "Para quando?" (o dia, os dias que dá para
+  // escolher, a esgotada marcada). Só leitura; o pedido confere tudo de novo ao chegar.
+  @Get(':token/agendado/janelas')
+  @Throttle({ default: { ttl: 60000, limit: 60 } })
+  janelasDoAgendado(@Param('token') token: string, @Query('dia') dia?: string, @Query('tipo') tipo?: string) {
+    return this.service.janelasDoAgendadoPublico(token, String(dia ?? '').slice(0, 10), tipo);
+  }
+
   // Rate limit apertado no envio de pedido (endpoint público).
   @Post(':token/pedido')
   @Throttle({ default: { ttl: 60000, limit: 20 } })

@@ -591,9 +591,15 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
   // Encomenda (mig 186): food/varejo só oferecem data futura se a loja liga o modo.
   const enc = loja?.encomenda;
   const encAtiva = !isServico && !isIndustria && enc?.ativa === true;
-  // Loja fechada com encomenda: o pedido só pode ser agendado.
-  const soAgendado = fechada && encAtiva;
-  const agendar = isServico || (encAtiva && (chk.quando === 'agendar' || soAgendado));
+  // Pedido agendado (mig 455, D4): o pedido comum com hora marcada numa janela de 15 min — o dia e a janela vêm de
+  // `agendado/janelas`. Com os dois ligados, "Agendar" é o agendado e a encomenda vira a opção "Encomenda" (G1).
+  const agendado = loja?.agendado ?? null;
+  const agAtivo = !isServico && !isIndustria && agendado?.ativo === true;
+  // `modo` do agendamento: 'agendado' (janelas) ou 'encomenda' (data e hora livres, como antes).
+  const modoAgenda: 'agendado' | 'encomenda' = agAtivo && chk.modoAgenda !== 'encomenda' ? 'agendado' : 'encomenda';
+  // Loja fechada com encomenda ou agendado: o pedido só pode ser agendado.
+  const soAgendado = fechada && (encAtiva || agAtivo);
+  const agendar = isServico || ((encAtiva || agAtivo) && (chk.quando === 'agendar' || soAgendado));
   const fechadaSemAgenda = fechada && !agendar;
   const situacao: SituacaoLoja = fechada
     ? 'fechada'
@@ -621,6 +627,13 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
       return hab ? s : { ...s, tipo: habEntrega ? 'entrega' : 'retirada' };
     });
   }, [menu, isServico, dispEntrega, dispRetirada, habEntrega, habRetirada]);
+  // G5 (mig 455): o pedido agendado vai no Pix na hora quando a loja tem o Pix online — as outras formas saem da lista
+  // (a escolhida que não serve é desfeita; o servidor recusa de novo).
+  const soPix = agendar && agAtivo && modoAgenda === 'agendado' && agendado?.pixObrigatorio === true;
+  const pagamentosDoPedido: string[] = soPix ? (loja?.pagamentos ?? []).filter((p: string) => p === 'pix') : loja?.pagamentos ?? [];
+  useEffect(() => {
+    if (soPix) setChk((s: any) => (s.forma && s.forma !== 'pix' ? { ...s, forma: '', bandeira: '' } : s));
+  }, [soPix]);
   // Loja fechada com encomenda: "o quanto antes" não existe.
   useEffect(() => {
     if (soAgendado) setChk((s: any) => (s.quando === 'agendar' ? s : { ...s, quando: 'agendar' }));
@@ -862,7 +875,7 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
     pausada: !!menu?.pausa,
     precisaAgendar: agendar,
     tipoDisponivel,
-    pagamentos: loja?.pagamentos ?? [],
+    pagamentos: pagamentosDoPedido,
     formasCartao: loja?.formasCartao ?? [],
   };
   // Pedido expresso (Regem Fluxo): cliente reconhecido, com o último pedido, e nada faltando.
@@ -970,10 +983,12 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
         cupom: cupomOk?.valido ? chk.cupom.trim() : undefined,
         resgateId: premioDesc > 0 ? premioSel || undefined : undefined,
         usarCashback,
-        agendamento: chk.agendamento || undefined,
+        agendamento: agendar && chk.agendamento ? chk.agendamento : undefined,
+        // Pedido agendado (mig 455): a janela escolhida vai como "agendado" (o servidor confere a janela de novo).
+        modoAgendamento: agendar && agAtivo && modoAgenda === 'agendado' && chk.agendamento ? 'agendado' : undefined,
         // Recorrência leve da encomenda (mig 190): dias da semana + hora do agendamento.
         recorrencia:
-          chk.recorrente && (chk.recorrenciaDias ?? []).length && chk.agendamento
+          modoAgenda === 'encomenda' && chk.recorrente && (chk.recorrenciaDias ?? []).length && chk.agendamento
             ? { dias: chk.recorrenciaDias, hora: String(chk.agendamento).slice(11, 16) }
             : undefined,
         profissional: chk.profissional || undefined,
@@ -1190,6 +1205,8 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
     // checkout
     chk, setChk, etapas, falta, avancar, abrirSacola, fecharCheckout, podeExpresso, trocarNoExpresso, ultimoDoPerfil,
     encAtiva, enc, agendar, km, bairroSel,
+    // Pedido agendado (mig 455): ligado, os dados do menu e o modo escolhido.
+    agAtivo, agendado, modoAgenda, pagamentosDoPedido, soPix,
     taxa, taxaPendente, foraDaArea, areaDaEntrega, minimoDaArea, desc, cupomOk, aplicarCupom, tirarCupom, cuponsSugeridos,
     premios, premioSel, setPremioSel, premioDesc, premioNome,
     cashbackSaldo, cashbackDesc, usarCashback, setUsarCashback,

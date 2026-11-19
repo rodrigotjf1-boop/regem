@@ -141,6 +141,11 @@ body.tema-escuro .p-root.tpl-fluxo{--p-bg:#0B1620;--p-surf:#12212E;--p-card:#0F1
 .p-root .c-f{display:grid;gap:5px}
 .p-root .c-f label{font-size:13px;font-weight:600}
 .p-root .c-f label em{font-style:normal;font-weight:400;color:var(--p-mut)}
+/* Pedido agendado (mig 455): o rótulo do grupo das janelas (não é campo, é grupo de botões) e a janela esgotada. */
+.p-root .c-f .c-lab{font-size:13px;font-weight:600}
+.p-root .c-f .c-lab em{font-style:normal;font-weight:400;color:var(--p-mut)}
+.p-root .m-chips button:disabled{opacity:.5;text-decoration:line-through;cursor:not-allowed}
+.p-root .m-chips button small{font-weight:400}
 .p-root .c-in{width:100%;min-height:48px;border-radius:var(--p-rs);border:1px solid var(--p-line);padding:0 12px;font:16px var(--p-font);background:var(--p-card);color:var(--p-ink)}
 .p-root select.c-in{appearance:auto}
 .p-root .c-2{display:grid;grid-template-columns:1fr 96px;gap:10px}

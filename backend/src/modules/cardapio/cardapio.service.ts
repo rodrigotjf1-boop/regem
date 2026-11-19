@@ -18,6 +18,21 @@ import {
   situacaoParaOCliente,
 } from '../pedido-repetido/pedido-repetido';
 import { exigirBooleano } from '../../common/exigir';
+import {
+  ANTECEDENCIAS_MIN,
+  DIAS_A_FRENTE,
+  LIMITES_POR_JANELA,
+  ajustesDoAgendado,
+  conferirHorario,
+  diasPermitidos,
+  emSaoPaulo,
+  inicioDoPreparo,
+  instanteDeSaoPaulo,
+  janelasDoDia,
+  preparoDoTipo,
+  somarDiasAoDia,
+  type Janela,
+} from '../../common/pedido-agendado';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ChegadaService } from '../chegada/chegada.service';
 import { AniversarioService } from '../aniversario/aniversario.service';
@@ -157,6 +172,13 @@ function fraseDeCautelaDoDto(v: unknown): string {
 }
 
 // Distância entre duas coordenadas (km) — frete por raio.
+/** Um número da lista que a tela oferece (os ajustes do pedido agendado, mig 455); fora dela = 400 com o nome do ajuste. */
+function daLista(v: unknown, lista: readonly number[], rotulo: string): number {
+  const n = Number(v);
+  if (!lista.includes(n)) throw new BadRequestException(`${rotulo}: escolha uma das opções da lista.`);
+  return n;
+}
+
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371;
   const rad = (d: number) => (d * Math.PI) / 180;
@@ -927,6 +949,19 @@ export class CardapioService {
               ? null
               : Math.floor(Number(dto.encomendaCapacidadeDia)))
           : row?.encomendaCapacidadeDia ?? null,
+      // Pedido agendado (mig 455, G10): ausente mantém; fora da lista = recusa (a tela só oferece a lista).
+      agendadoAtivo: dto.agendadoAtivo !== undefined ? exigirBooleano(dto.agendadoAtivo, 'Aceitar pedido agendado') : row?.agendadoAtivo ?? false,
+      agendadoAntecedenciaMin:
+        'agendadoAntecedenciaMin' in dto ? daLista(dto.agendadoAntecedenciaMin, ANTECEDENCIAS_MIN, 'Antecedência mínima') : row?.agendadoAntecedenciaMin ?? 45,
+      agendadoDias: 'agendadoDias' in dto ? daLista(dto.agendadoDias, DIAS_A_FRENTE, 'Até quantos dias à frente') : row?.agendadoDias ?? 1,
+      agendadoLimiteJanela:
+        'agendadoLimiteJanela' in dto
+          ? dto.agendadoLimiteJanela == null || dto.agendadoLimiteJanela === ''
+            ? null
+            : daLista(dto.agendadoLimiteJanela, (LIMITES_POR_JANELA as readonly (number | null)[]).filter((x): x is number => x != null), 'Limite de pedidos por janela')
+          : row?.agendadoLimiteJanela === undefined
+            ? 4
+            : row.agendadoLimiteJanela,
       // Sinal da encomenda — regra base (mig 187).
       encomendaExigeSinal:
         dto.encomendaExigeSinal != null ? !!dto.encomendaExigeSinal : row?.encomendaExigeSinal ?? false,
@@ -1892,8 +1927,93 @@ export class CardapioService {
         and agendamento is not null
         and (agendamento at time zone 'America/Sao_Paulo')::date = ${data}::date
         and status <> 'cancelado'
+        -- O pedido agendado (mig 455) tem limite próprio por janela (G9): não ocupa a capacidade da encomenda.
+        and retirada_tipo is distinct from 'agendado'
     `);
     return Number((r?.rows ?? r)?.[0]?.n ?? 0);
+  }
+
+  /**
+   * Quantos pedidos AGENDADOS (mig 455, G9) há em cada janela do dia (fuso SP), pelo "AAAA-MM-DDTHH:MM". Só os vivos
+   * (cancelado não ocupa). Sem filtro de loja: o cardápio é da empresa (a mesma conta da encomenda sem `unidade_id`).
+   */
+  async ocupacaoDasJanelas(tenantId: string, unidadeId: string | null, dia: string, exceto?: string | null): Promise<Map<string, number>> {
+    const r: any = await this.db.execute(sql`
+      select to_char(agendamento at time zone 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI') as janela, count(*)::int as n
+        from pedido_externo
+       where tenant_id = ${tenantId}::uuid
+         ${unidadeId ? sql`and unidade_id = ${unidadeId}::uuid` : sql``}
+         and retirada_tipo = 'agendado' and status <> 'cancelado' and deleted_at is null
+         and agendamento >= ${instanteDeSaoPaulo(`${dia}T00:00`)!.toISOString()}::timestamptz
+         and agendamento < ${instanteDeSaoPaulo(`${somarDiasAoDia(dia, 1)}T00:00`)!.toISOString()}::timestamptz
+         ${exceto ? sql`and id <> ${exceto}::uuid` : sql``}
+       group by 1`);
+    return new Map((r?.rows ?? r ?? []).map((x: any) => [String(x.janela), Number(x.n)] as [string, number]));
+  }
+
+  /**
+   * As janelas do pedido agendado de um dia (D4, G2/G3/G7/G9) — o "Para quando?" do cardápio e o atendente: o dia escolhido
+   * (ou o primeiro permitido), os dias que dá para escolher e as janelas de 15 min com a esgotada marcada. Desligado = vazio.
+   */
+  async janelasDoAgendado(cfg: any, dia: unknown, tipo: unknown, agora = new Date()) {
+    const ajustes = ajustesDoAgendado(cfg);
+    const dias = ajustes.ativo ? diasPermitidos(agora, ajustes.dias) : [];
+    if (!ajustes.ativo) return { ativo: false, dias, dia: null, janelas: [] as Janela[] };
+    const pedido = String(dia ?? '').trim();
+    const escolhido = dias.includes(pedido) ? pedido : dias[0];
+    const tipoDoPedido = tipo === 'retirada' || tipo === 'local' ? String(tipo) : 'entrega';
+    const [ocupacao, pausa] = await Promise.all([
+      this.ocupacaoDasJanelas(cfg.tenantId, null, escolhido),
+      pausaVigenteDoCanal(this.db, cfg.tenantId, cfg.unidadeId ?? null, 'cardapio').catch(() => null),
+    ]);
+    const janelas = janelasDoDia({
+      horarios: this.horariosDoTipo(cfg, tipoDoPedido),
+      dia: escolhido,
+      agora,
+      antecedenciaMin: ajustes.antecedenciaMin,
+      preparoMin: preparoDoTipo(cfg, tipoDoPedido),
+      limite: ajustes.limite,
+      ocupacao,
+      pausaAte: pausa?.ate ? new Date(pausa.ate) : null,
+    });
+    return { ativo: true, dias, dia: escolhido, janelas, limite: ajustes.limite, preparoMin: preparoDoTipo(cfg, tipoDoPedido) };
+  }
+
+  /**
+   * A loja tem o Pix ONLINE no cardápio (a chave 'pix' na lista de formas — a mesma lista que o menu manda e o checkout
+   * mostra como "Pix · aprovação na hora")? G5: com ele, o pedido agendado só vai por Pix; sem ele, vale o "na entrega".
+   */
+  private async temPixOnlineNoCardapio(cfg: any): Promise<boolean> {
+    const formas = await this.db
+      .select({ nome: formaPagamento.nome })
+      .from(formaPagamento)
+      .where(and(eq(formaPagamento.tenantId, cfg.tenantId), eq(formaPagamento.ativo, true), eq(formaPagamento.cardapio, true)));
+    const lista = formas.length ? formas.map((f) => f.nome) : Array.isArray(cfg.pagamentos) ? cfg.pagamentos : [];
+    return lista.includes('pix');
+  }
+
+  /**
+   * O pedido agendado `pedidoId`, entre os vivos da MESMA janela (mesmo `agendamento`), está além do limite pela ordem de
+   * chegada (criado_em, id)? A conta da conferência depois de gravar (G9, V98).
+   */
+  private async passouDoLimiteDaJanela(tenantId: string, pedidoId: string, limite: number): Promise<boolean> {
+    const r: any = await this.db.execute(sql`
+      with alvo as (select agendamento from pedido_externo where id = ${pedidoId}::uuid and tenant_id = ${tenantId}::uuid),
+      fila as (
+        select p.id, row_number() over (order by p.criado_em, p.id) as posicao
+          from pedido_externo p, alvo
+         where p.tenant_id = ${tenantId}::uuid and p.retirada_tipo = 'agendado' and p.status <> 'cancelado'
+           and p.deleted_at is null and p.agendamento = alvo.agendamento
+      )
+      select posicao from fila where id = ${pedidoId}::uuid`);
+    const pos = Number((r?.rows ?? r)?.[0]?.posicao ?? 0);
+    return pos > limite;
+  }
+
+  /** As janelas pela porta pública do cardápio (token). */
+  async janelasDoAgendadoPublico(token: string, dia: unknown, tipo: unknown) {
+    const cfg = await this.resolver(token);
+    return this.janelasDoAgendado(cfg, dia, tipo);
   }
 
   // Registra um evento ANÔNIMO do funil do cardápio (F4). Sessão gerada no cliente,
@@ -2157,6 +2277,17 @@ export class CardapioService {
         tempoEntregaMin: cfg.tempoEntregaMin,
         tempoRetiradaMin: cfg.tempoRetiradaMin,
         pedidoMinimo: cfg.pedidoMinimo != null ? Number(cfg.pedidoMinimo) : null,
+        // Pedido agendado (mig 455, D4): o "Para quando?" com o dia e as janelas de 15 min (lidas em
+        // `GET publico/cardapio/:token/agendado/janelas`). Só ligado e fora dos serviços; `pixObrigatorio` = G5.
+        agendado:
+          cfg.agendadoAtivo === true && cfg.ramo !== 'servicos'
+            ? {
+                ativo: true,
+                dias: diasPermitidos(new Date(), ajustesDoAgendado(cfg).dias),
+                janelaMin: 15,
+                pixObrigatorio: pagamentosCardapio.length ? pagamentosCardapio.includes('pix') : ((cfg.pagamentos as string[] | null) ?? []).includes('pix'),
+              }
+            : null,
         // Modo Encomenda (mig 186): regras p/ o checkout oferecer data futura.
         encomenda: {
           ...this.regrasEncomenda(cfg),
@@ -4045,6 +4176,9 @@ export class CardapioService {
       resgateId?: string; // prêmio de fidelidade a abater no pedido
       usarCashback?: boolean; // false = não usar o saldo de cashback
       agendamento?: string; // serviços: data/hora
+      // Pedido agendado (mig 455, D4): 'agendado' = o pedido comum com hora marcada numa janela de 15 min (o agendamento
+      // vem "AAAA-MM-DDTHH:MM" da hora de São Paulo); ausente = encomenda (como antes).
+      modoAgendamento?: string;
       profissional?: string; // serviços
       cnpj?: string; // indústria: faturamento
       // CPF/CNPJ **para o cupom fiscal**. Opcional: quem não quer nota não informa nada. Quem
@@ -4097,6 +4231,35 @@ export class CardapioService {
     const documentoNota = String(dto.cpf ?? '').replace(/\D/g, '') || undefined;
     if (documentoNota && !documentoUtilizavel(documentoNota))
       throw new BadRequestException('CPF ou CNPJ inválido. Confira os números ou deixe em branco.');
+    // PEDIDO AGENDADO (mig 455, D4 — G1–G9): o horário passa pelas MESMAS regras das janelas que o cardápio mostra (o
+    // servidor confere tudo de novo — a tela só ajuda): ligado, dia permitido, janela oferecida (horário da loja,
+    // antecedência, fora da pausa) e não esgotada. O texto "AAAA-MM-DDTHH:MM" de São Paulo vira o instante certo (a nuvem
+    // roda em UTC) antes de chegar à gravação.
+    const ehAgendado = dto.modoAgendamento === 'agendado' && !!dto.agendamento && cfg.ramo !== 'servicos';
+    let janelaDoAgendado: string | null = null;
+    if (ehAgendado) {
+      const tipoAg = dto.tipo === 'entrega' ? 'entrega' : 'retirada';
+      const dia = String(dto.agendamento).slice(0, 10);
+      const [ocupacao, pausaAg] = await Promise.all([
+        this.ocupacaoDasJanelas(cfg.tenantId, null, dia),
+        pausaVigenteDoCanal(this.db, cfg.tenantId, cfg.unidadeId ?? null, 'cardapio').catch(() => null),
+      ]);
+      const conf = conferirHorario({
+        ajustes: ajustesDoAgendado(cfg),
+        valor: dto.agendamento,
+        horarios: this.horariosDoTipo(cfg, tipoAg),
+        agora: new Date(),
+        preparoMin: preparoDoTipo(cfg, tipoAg),
+        ocupacao,
+        pausaAte: pausaAg?.ate ? new Date(pausaAg.ate) : null,
+      });
+      if (!conf.ok) {
+        const sug = conf.sugestoes.map((j) => j.hora);
+        throw new BadRequestException(sug.length ? `${conf.mensagem} Os mais perto que ainda têm vaga: ${sug.join(' e ')}.` : conf.mensagem);
+      }
+      janelaDoAgendado = conf.janela.valor;
+      dto.agendamento = conf.instante.toISOString();
+    }
     // Loja fechada (para o TIPO do pedido): bloqueia (pedidos agendados passam).
     if (!dto.agendamento && !this.estaAberta(cfg, dto.tipo))
       throw new BadRequestException('A loja está fechada no momento. Volte no horário de funcionamento.');
@@ -4110,7 +4273,7 @@ export class CardapioService {
     // Encomenda (mig 186): para food/varejo, `agendamento` = pedido para data
     // FUTURA e só vale se a loja liga o modo Encomenda, dentro das regras. Serviços
     // mantém o agendamento de HORÁRIO (consulta/atendimento), sem essas regras.
-    const ehEncomenda = !!dto.agendamento && cfg.ramo !== 'servicos';
+    const ehEncomenda = !!dto.agendamento && cfg.ramo !== 'servicos' && !ehAgendado;
     // Sinal aplicável (mig 187/188): resolvido pela quantidade de itens. Preenchido
     // dentro do bloco de encomenda; usado depois para forçar cobrança e gravar prazo.
     let sinalRule: { exigeSinal: boolean; sinalPct: number; cancelHoras: number | null } | null = null;
@@ -4282,6 +4445,10 @@ export class CardapioService {
     const forma = orcamento ? 'faturamento' : dto.formaPagamento ?? 'a_combinar';
     // Encomenda com sinal (mig 188): força pagamento online do sinal (aguardando).
     const exigeSinal = !!(sinalRule && sinalRule.exigeSinal && (Number(sinalRule.sinalPct) || 0) > 0);
+    // G5 (mig 455): o pedido agendado vai pelo Pix na hora quando a loja tem o Pix online no cardápio — a cozinha produz
+    // sem o cliente estar esperando; sem Pix online, vale o "na entrega".
+    if (ehAgendado && forma !== 'pix' && (await this.temPixOnlineNoCardapio(cfg)))
+      throw new BadRequestException('O pedido agendado é pago no Pix, na hora do agendamento.');
     const online = !orcamento && (forma === 'pix' || forma === 'cartao' || exigeSinal);
     const grande = paraReais(Math.max(0, somarCentavos(totalCent, -descontoCent, paraCentavos(taxa))));
 
@@ -4372,7 +4539,8 @@ export class CardapioService {
             ? 'aguardando'
             : 'na_entrega',
         agendamento: dto.agendamento,
-        retiradaTipo: ehEncomenda ? 'encomenda' : undefined,
+        // O pedido agendado (mig 455) se distingue da encomenda pela `retirada_tipo` — os dois usam `agendamento`.
+        retiradaTipo: ehAgendado ? 'agendado' : ehEncomenda ? 'encomenda' : undefined,
         profissional: dto.profissional,
         cnpj: dto.cnpj,
         clienteTelefone2: tipo === 'entrega' ? dto.telefone2 : undefined,
@@ -4387,6 +4555,21 @@ export class CardapioService {
         repetidoConferido: true,
       },
     );
+
+    // O LIMITE DA JANELA DEPOIS DE GRAVAR (mig 455, G9 — V98): dois clientes pegando a última vaga ao mesmo tempo passariam
+    // os dois pela contagem de antes. Aqui o pedido já está gravado: entre os vivos da janela, quem passou do limite pela
+    // ordem de chegada (criado_em, id) é desfeito na hora — antes do aceite e do Pix, sem aviso ao cliente — e a recusa
+    // diz que a janela acabou de encher. Cada gravação vem antes da própria conferência: das duas, pelo menos uma vê a outra.
+    if (ehAgendado && janelaDoAgendado && ped?.id) {
+      const limite = ajustesDoAgendado(cfg).limite;
+      if (limite != null && (await this.passouDoLimiteDaJanela(cfg.tenantId, String(ped.id), limite))) {
+        await this.db.execute(sql`
+          update pedido_externo set status = 'cancelado', motivo_cancelamento = 'A janela do pedido agendado encheu no mesmo instante',
+                 updated_at = now()
+           where id = ${String(ped.id)}::uuid and tenant_id = ${cfg.tenantId}::uuid and status = 'novo'`);
+        throw new BadRequestException(`O horário das ${janelaDoAgendado.slice(11)} acabou de encher. Escolha outro.`);
+      }
+    }
 
     // De onde o cliente veio (mig 299) — logo depois do pedido; nunca o derruba.
     if (ped?.id)

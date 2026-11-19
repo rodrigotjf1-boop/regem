@@ -2662,6 +2662,8 @@ export const pedidoExterno = pgTable('pedido_externo', {
   sinalStatus: text('sinal_status'), // null/'nao' | pendente | pago | reembolsado | perdido
   cancelavelAte: timestamp('cancelavel_ate', { withTimezone: true }), // limite p/ cancelar com reembolso
   avisadoCancelamentoEm: timestamp('avisado_cancelamento_em', { withTimezone: true }), // lembrete de prazo enviado (mig 189)
+  // Pedido agendado (mig 455): quando o cliente foi avisado de que entrou em preparo (uma vez só; gravação condicional).
+  agendadoPreparoAvisadoEm: timestamp('agendado_preparo_avisado_em', { withTimezone: true }),
   recorrenciaId: uuid('recorrencia_id'), // ocorrência gerada por uma recorrência (mig 190)
   caixaSessaoId: uuid('caixa_sessao_id'), // caixa (turno) onde o a-pagar entrou
   atendenteId: uuid('atendente_id'), // quem cobrou/entregou no balcão
@@ -3398,6 +3400,12 @@ export const cardapioConfig = pgTable('cardapio_config', {
   encomendaExigeSinal: boolean('encomenda_exige_sinal').notNull().default(false),
   encomendaSinalPct: numeric('encomenda_sinal_pct'), // % do sinal (base)
   encomendaCancelHoras: integer('encomenda_cancel_horas'), // horas p/ cancelar com reembolso (base)
+  // Pedido agendado (mig 455, D4 — `common/pedido-agendado.ts`): ligado (nasce desligado), antecedência mínima com a loja
+  // aberta, até quantos dias à frente e o limite por janela de 15 min (null = sem limite).
+  agendadoAtivo: boolean('agendado_ativo').notNull().default(false),
+  agendadoAntecedenciaMin: integer('agendado_antecedencia_min').notNull().default(45),
+  agendadoDias: integer('agendado_dias').notNull().default(1),
+  agendadoLimiteJanela: integer('agendado_limite_janela').default(4),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

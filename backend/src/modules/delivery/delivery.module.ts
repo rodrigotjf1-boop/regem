@@ -24,6 +24,7 @@ import { EntregadoresAoVivoController } from './entregadores-ao-vivo.controller'
 import { EntregadoresAoVivoService } from './entregadores-ao-vivo.service';
 import { AvisoDeAtrasoProcessor } from './aviso-de-atraso.processor';
 import { AvisoDa99Processor } from './aviso-da-99.processor';
+import { AvisoAgendadoProcessor } from './aviso-agendado.processor';
 import { PausaDoCanalService } from './pausa-do-canal.service';
 import { PausaNosCanaisService } from './pausa-nos-canais.service';
 import { OrzuniModule } from '../orzuni/orzuni.module';
@@ -48,6 +49,7 @@ import { OrzuniModule } from '../orzuni/orzuni.module';
     TotemExpiracaoProcessor, CloudFallbackProcessor, PedidoEnvioProcessor, EntregadoresAoVivoService,
     AvisoDeAtrasoProcessor, // o aviso automático de atraso (mig 347), só na nuvem
     AvisoDa99Processor, // o "saiu" com o rastreio ao cliente da 99 pelo WhatsApp da loja (mig 388), só na nuvem
+    AvisoAgendadoProcessor, // o "em produção" do pedido agendado na hora do preparo (mig 455), só na nuvem
     EdgeAlteracoesProcessor, // a alteração pedida na nuvem, aplicada no servidor da loja (mig 362)
     PausaDoCanalService, // a pausa dos pedidos por canal e por loja (mig 392)
     PausaNosCanaisService], // F5: a pausa levada ao iFood (pelo Orzuni) e à 99, só na nuvem

@@ -56,8 +56,11 @@ export function inicioDoTempo(p: any): number {
   const criado = new Date(p?.criadoEm).getTime();
   const para = p?.encomendaPara ? new Date(p.encomendaPara).getTime() : NaN;
   if (!Number.isFinite(para)) return criado;
+  // Pedido AGENDADO (mig 455, G3): o servidor manda o começo do preparo — o tempo de entrega (ou de retirada) da loja
+  // antes do horário. A encomenda segue com os 30 min fixos.
+  const comeca = p?.encomendaComeca ? new Date(p.encomendaComeca).getTime() : NaN;
   // O pedido feito em cima da hora (às 20:10 para as 20:30) conta da entrada, não de antes dela.
-  return Math.max(criado, para - PREPARO_DA_ENCOMENDA_MIN * 60000);
+  return Math.max(criado, Number.isFinite(comeca) ? comeca : para - PREPARO_DA_ENCOMENDA_MIN * 60000);
 }
 
 /** A encomenda ainda não chegou na hora de começar: cartão neutro, fora de "Atrasados" e do que falta produzir. */
