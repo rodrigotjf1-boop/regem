@@ -1,0 +1,947 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mister ouve, vê e mostra</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* REGEM · PROTÓTIPO DO MISTER — VERSÃO 5, "O MISTER OUVE, VÊ E MOSTRA" (19/11/2026), A APROVAR.
+   Pedido do dono em 19/11: responder a áudio (como o atendente do cardápio já faz), entender imagem pelo DMS Graph que já
+   existe, e gráficos melhores ("o link com gráfico básico mal feito"); o resumo vai por escrito, com as opções de ver em
+   arquivo (PDF) ou pelo link. Continua a versão 3 (aprovada em 17/11), que já previa "ouvir e responder em áudio, com o
+   texto junto" e deixava a escolha da empresa de voz para um teste: o dono decidiu usar o mesmo do atendente (Google).
+   Nada aqui muda o que as versões 1 a 4 aprovaram. Dados inventados; o número e a loja são de mentira.
+   Onde a tela real difere, de propósito: os botões "Situação do protótipo" trocam estados para a aprovação; as fotos são
+   ilustrações; o gráfico na conversa aqui é desenhado na página — no WhatsApp é uma imagem (PNG) com o mesmo desenho. */
+:root{
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --gold-ink:#7A5209; --gold-bg:#FFF9EC; --navy:#0F2230;
+  --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9; --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8;
+  --neutro:#43586C; --neutro-bg:#EAEFF4; --foco:#3A7FB8;
+  --c-wa:#0B6E3A; --wa-fundo:#EDE6DB; --wa-dele:#FFFFFF; --wa-meu:#D9F5CF;
+  --proto:#0B1822; --proto-txt:#C9D5DF; --proto-txt2:#8FA3B4; --proto-linha:#2A3B4A; --d-azul:#7CC0F5;
+  /* o gráfico (claro) */
+  --g-fundo:#FFFFFF; --g-ink:#132536; --g-ink2:#55697B; --g-grade:#E6ECF1; --g-eixo:#C8D2DC; --g-barra:#2F4A60; --g-ant:#D3DCE4;
+  --g-dest:#D4952F; --g-area:rgba(212,149,47,.16); --g-bom:#0F6647; --g-ruim:#B93232;
+  --g-c1:#2F4A60; --g-c2:#D4952F; --g-c3:#5B8DB8; --g-c4:#3E8E7E; --g-c5:#A9B7C4;
+  --radius:12px; --display:"Archivo","Segoe UI",system-ui,sans-serif; --body:"Figtree","Segoe UI",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.5 var(--body);background:var(--bg);color:var(--ink);overflow-x:hidden}
+[hidden]{display:none!important}
+h1,h2,h3,h4{font-family:var(--display);margin:0;text-wrap:balance}
+h1{font-size:26px;line-height:1.15} h2{font-size:18px} h3{font-size:16px}
+p{margin:0 0 10px;overflow-wrap:anywhere} p:last-child{margin-bottom:0}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--foco);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.pular{position:absolute;left:8px;top:-60px;background:var(--gold);color:var(--on-gold);padding:8px 12px;border-radius:8px;font-weight:700;z-index:99}
+.pular:focus{top:8px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.sub{color:var(--ink-2)} .peq{font-size:13.5px}
+
+/* faixa do protótipo */
+.proto{background:var(--proto);color:var(--proto-txt);padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.proto .titulo{font-family:var(--display);font-weight:700;color:#fff}
+.abas{display:flex;flex-wrap:wrap;gap:6px}
+.aba{background:transparent;border:1px solid var(--proto-linha);color:var(--proto-txt);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:36px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.proto .nota{font-size:12.5px;color:var(--proto-txt2);flex:1 1 220px;min-width:0}
+.proto :focus-visible{outline-color:var(--d-azul)}
+.vista{display:none} .vista.ativa{display:block}
+.pagina{padding:20px;max-width:1240px;margin-inline:auto;container-type:inline-size;container-name:principal}
+.cab{margin-bottom:16px} .cab .sub{max-width:76ch;margin-top:4px}
+
+/* peças */
+.cartao{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;min-width:0}
+.cartao > h2,.cartao > h3{margin-bottom:6px}
+.selo{display:inline-block;font-size:12.5px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.selo.ok{background:var(--ok-bg);color:var(--ok)} .selo.crit{background:var(--crit-bg);color:var(--crit)}
+.selo.warn{background:var(--warn-bg);color:var(--warn)} .selo.info{background:var(--info-bg);color:var(--info)} .selo.neutro{background:var(--neutro-bg);color:var(--neutro)}
+.btn{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:10px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink)}
+.btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.faixa{border-radius:10px;padding:10px 14px;margin-bottom:14px;border:1px solid}
+.faixa.warn{background:var(--warn-bg);border-color:#EBC7B0;color:#6F3410} .faixa.info{background:var(--info-bg);border-color:#BFD6EA;color:#1D4C77}
+.faixa.ok{background:var(--ok-bg);border-color:#B5DCC8;color:#0B4A33}
+a{color:var(--info);text-underline-offset:2px}
+.ctls{border:1px dashed var(--line-2);background:#FFFBF0;border-radius:10px;padding:8px 12px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px;color:var(--gold-ink)}
+.ctl{background:#fff;border:1px solid var(--line-2);padding:4px 10px;border-radius:999px;cursor:pointer;min-height:32px;color:var(--ink)}
+.ctl[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.v5{font:700 10.5px var(--display);background:var(--gold-bg);color:var(--gold-ink);border:1px solid #F0D8A8;padding:1px 6px;border-radius:4px;letter-spacing:.05em;vertical-align:2px;white-space:nowrap}
+.fase{font:700 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--gold-ink)}
+
+/* celular */
+.celulares{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:24px 18px;align-items:start}
+.caso h3{margin-bottom:2px} .caso > .sub{font-size:13.5px;margin-bottom:8px}
+.cel{border:8px solid #1B2A36;border-radius:28px;background:var(--wa-fundo);overflow:hidden;max-width:370px}
+.cel-topo{background:var(--c-wa);color:#fff;padding:10px 14px;display:flex;gap:10px;align-items:center}
+.cel-topo .foto{width:34px;height:34px;border-radius:50%;background:#fff;color:var(--c-wa);display:grid;place-items:center;font:800 15px var(--display);flex:none}
+.cel-topo b{display:block;line-height:1.2} .cel-topo span{font-size:12.5px;opacity:.9}
+.conv{padding:12px 10px;display:grid;gap:8px;min-height:150px;align-content:start}
+.bolha{max-width:90%;padding:7px 10px;border-radius:10px;font-size:14px;line-height:1.42;box-shadow:0 1px 1px rgba(0,0,0,.12);overflow-wrap:anywhere;min-width:0}
+.bolha.dele{background:var(--wa-dele);justify-self:start;border-top-left-radius:2px}
+.bolha.meu{background:var(--wa-meu);justify-self:end;border-top-right-radius:2px}
+.bolha.larga{max-width:96%;width:96%}
+.bolha .hora{display:block;text-align:right;font-size:11px;color:#5E6E7A;margin-top:2px}
+.bolha ul{margin:4px 0;padding-left:18px} .bolha li{margin-bottom:2px}
+.entendi{display:block;font-size:13px;color:#43586C;background:#F3F6F8;border-left:3px solid var(--c-wa);border-radius:4px;padding:4px 8px;margin:-1px -3px 6px}
+.botoes-wa{display:grid;gap:4px;margin-top:6px}
+.botoes-wa span{background:#fff;border:1px solid #D5DDE3;border-radius:8px;padding:6px 8px;text-align:center;color:#0B5CAD;font-weight:600;font-size:13.5px}
+.botoes-wa.dois{grid-template-columns:repeat(auto-fit,minmax(min(100%,110px),1fr))}
+.toque{justify-self:end;font-size:12px;color:#5E6E7A;background:rgba(255,255,255,.7);border-radius:999px;padding:2px 10px}
+.audio{display:flex;gap:8px;align-items:center;min-width:0;padding:2px 0}
+.audio .play{width:30px;height:30px;border-radius:50%;background:var(--c-wa);color:#fff;display:grid;place-items:center;font-size:11px;flex:none}
+.audio .onda{flex:1;min-width:40px;height:20px;background:repeating-linear-gradient(90deg,#7C8B96 0 2px,transparent 2px 5px);border-radius:2px;opacity:.8}
+.audio small{font:600 11px var(--mono);color:#5E6E7A;flex:none}
+.midia{display:block;border-radius:8px;overflow:hidden;margin:-3px -6px 6px;background:#fff;border:1px solid #D5DDE3}
+.doc-msg{display:flex;gap:10px;align-items:center;background:#F3F6F8;border-radius:8px;padding:8px 10px;margin:-2px -4px 6px;min-width:0}
+.doc-msg .ico{width:32px;height:38px;border-radius:4px;background:var(--crit);color:#fff;display:grid;place-items:center;font:800 10px var(--display);flex:none}
+.doc-msg > span:not(.ico){min-width:0}
+.doc-msg b{display:block;font-size:13px;line-height:1.25;overflow-wrap:anywhere} .doc-msg small{font-size:11.5px;color:#5E6E7A}
+/* fotos ilustradas */
+.f-tela{display:grid;grid-template-columns:70px minmax(0,1fr);font-size:10px;background:#F4F5F7;min-height:116px}
+.f-tela .l{background:#3A3A3A;color:#ddd;padding:8px 6px;display:grid;gap:4px;align-content:start}
+.f-tela .c{padding:10px;display:grid;gap:6px;align-content:start;min-width:0}
+.f-tela .alerta{background:#FDECEC;color:#8A1F1F;border:1px solid #F2B8B8;border-radius:4px;padding:5px 7px;font-weight:700}
+.f-tela .cinza{height:7px;border-radius:3px;background:#D8DDE2} .f-tela .cinza.c2{width:60%}
+.f-freezer{position:relative;height:128px;background:linear-gradient(180deg,#DCE8EF,#C3D3DD);padding:12px;display:flex;gap:8px;align-items:flex-end}
+.f-freezer .cx{flex:1;height:70px;background:linear-gradient(160deg,#D9C29A,#BFA374);border-radius:3px;display:grid;place-items:center;font:700 9.5px var(--mono);color:#4B3A1E;text-align:center;padding:4px}
+.f-freezer .cx:nth-child(2){height:84px} .f-freezer .gelo{position:absolute;inset:0;background:repeating-linear-gradient(115deg,rgba(255,255,255,.18) 0 6px,transparent 6px 18px);pointer-events:none}
+.f-papel{height:128px;background:#FBF7EC;padding:12px 16px;display:grid;gap:7px;align-content:start;font:italic 600 12px "Segoe Print","Comic Sans MS",cursive;color:#2B3A67;transform:rotate(-1deg)}
+.f-papel span{border-bottom:1px solid #E3DCC8}
+
+/* gráfico */
+.grafico{background:var(--g-fundo);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.g-svg{display:block;width:100%;height:auto}
+.g-svg text{font-family:var(--body)}
+.g-fundo{fill:var(--g-fundo)} .g-faixa{fill:var(--g-dest)}
+.g-tit{font-family:var(--display)!important;font-weight:700;font-size:15.5px;fill:var(--g-ink)}
+.g-sub{font-size:11.5px;fill:var(--g-ink2)}
+.g-kpi{font-family:var(--mono)!important;font-weight:700;font-size:22px;fill:var(--g-ink)}
+.g-delta{font-size:11.5px;font-weight:700} .g-delta.bom{fill:var(--g-bom)} .g-delta.ruim{fill:var(--g-ruim)}
+.g-grade{stroke:var(--g-grade);stroke-width:1} .g-eixo{stroke:var(--g-eixo);stroke-width:1}
+.g-barra{fill:var(--g-barra)} .g-ant{fill:var(--g-ant)} .g-dest{fill:var(--g-dest)}
+.g-val{font-family:var(--mono)!important;font-size:10.5px;font-weight:700;fill:var(--g-ink)}
+.g-rot{font-size:11px;font-weight:600;fill:var(--g-ink)} .g-rot2{font-size:10px;fill:var(--g-ink2)}
+.g-leg{font-size:10.5px;fill:var(--g-ink2)} .g-rod{font-size:10px;fill:var(--g-ink2)}
+.g-area{fill:var(--g-area)} .g-linha{fill:none;stroke:var(--g-dest);stroke-width:2.5;stroke-linejoin:round}
+.g-ponto{fill:var(--g-fundo);stroke:var(--g-dest);stroke-width:2} .g-pico{fill:var(--g-dest)}
+.g-media{stroke:var(--g-ink);stroke-width:1.5;stroke-dasharray:6 4} .g-media-t{font-size:10.5px;font-weight:700;fill:var(--g-ink)}
+.g-c1{fill:var(--g-c1)} .g-c2{fill:var(--g-c2)} .g-c3{fill:var(--g-c3)} .g-c4{fill:var(--g-c4)} .g-c5{fill:var(--g-c5)}
+.g-nome{font-size:11.5px;font-weight:600;fill:var(--g-ink)} .g-num{font-family:var(--mono)!important;font-size:11px;font-weight:700;fill:var(--g-ink)}
+.g-num2{font-family:var(--mono)!important;font-size:10.5px;fill:var(--g-ink2)} .g-trilho{fill:var(--g-grade)}
+/* o desenho antigo, para comparar */
+.antigo .g-svg text{font-family:Arial,sans-serif}
+.escuro{--g-fundo:#0E1A24; --g-ink:#EEF3F7; --g-ink2:#A7B6C3; --g-grade:#22323F; --g-eixo:#3A4C5B; --g-barra:#9FB7CC; --g-ant:#34495A; --g-dest:#F0B252; --g-area:rgba(240,178,82,.18); --g-bom:#4ED19B; --g-ruim:#F58A8A;
+  --g-c1:#9FB7CC; --g-c2:#F0B252; --g-c3:#6FA8DC; --g-c4:#5CC2AE; --g-c5:#5D6F7E; color-scheme:dark}
+
+/* vista dos gráficos */
+.graficos{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,380px),1fr));gap:18px;align-items:start}
+.g-caso h3{margin-bottom:2px} .g-caso > .sub{font-size:13.5px;margin-bottom:8px}
+.onde{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.comparar{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:18px;align-items:start}
+.lista-melhor{margin:6px 0 0;padding-left:20px} .lista-melhor li{margin-bottom:4px}
+
+/* arquivo e link */
+.arquivos{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,440px),1fr));gap:22px;align-items:start}
+.folha{background:#fff;border:1px solid var(--line-2);border-radius:4px;box-shadow:0 6px 20px rgba(19,37,54,.12);padding:22px;display:flex;flex-direction:column;gap:14px;min-width:0;container-type:inline-size;container-name:folha}
+.folha-cab{display:flex;justify-content:space-between;gap:8px 12px;align-items:flex-start;border-bottom:2px solid var(--navy);padding-bottom:10px;flex-wrap:wrap}
+.folha-cab .marca-f{font:800 15px var(--display);letter-spacing:.04em}
+.folha-cab .marca-f small{display:block;font:500 11px var(--body);color:var(--ink-2);letter-spacing:0}
+.folha-cab .quando{font-size:12px;color:var(--ink-2)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,124px),1fr));gap:8px}
+.kpi{border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:0}
+.kpi b{display:block;font:700 18px var(--mono);font-variant-numeric:tabular-nums}
+.kpi span{font-size:12px;color:var(--ink-2)} .kpi .d{font-size:12px;font-weight:700;color:var(--ok)}
+.folha-grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px}
+.folha h4{font:700 13px var(--display);margin:0 0 4px}
+.folha-rod{font-size:11px;color:var(--ink-2);border-top:1px solid var(--line);padding-top:8px}
+.tab{width:100%;border-collapse:collapse;font-size:13px}
+.tab th{font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:6px 8px;border-bottom:2px solid var(--line-2)}
+.tab td{padding:7px 8px;border-bottom:1px solid var(--line);overflow-wrap:anywhere} .tab .num{text-align:right}
+@container folha (max-width: 420px){
+  .tab thead{display:none} .tab,.tab tbody,.tab tr,.tab td{display:block;width:100%}
+  .tab tr{border:1px solid var(--line);border-radius:8px;padding:6px 10px;margin-bottom:8px}
+  .tab td{border:0;padding:2px 0;text-align:left!important}
+  .tab td[data-rot]::before{content:attr(data-rot) " · ";font-weight:600;color:var(--ink-2)}
+}
+.tela-link{border:8px solid #1B2A36;border-radius:28px;overflow:hidden;max-width:380px;background:var(--bg)}
+.tela-link .barra-end{background:#fff;border-bottom:1px solid var(--line);padding:7px 12px;font:600 11.5px var(--mono);color:var(--ink-2);overflow-wrap:anywhere}
+.lk{padding:14px;display:grid;gap:12px;background:var(--lk-bg,#F1F4F8);color:var(--lk-ink,#132536)}
+.lk .lk-cab{display:grid;gap:2px}
+.lk .lk-sobre{font:700 11px var(--display);letter-spacing:.1em;text-transform:uppercase;color:var(--lk-ouro,#7A5209)}
+.lk .lk-card{background:var(--lk-card,#fff);border:1px solid var(--lk-linha,#DEE5EC);border-radius:12px;padding:12px;min-width:0}
+.lk .lk-card h4{font:700 13.5px var(--display);margin:0 0 6px}
+.lk .lk-abas{display:flex;flex-wrap:wrap;gap:6px}
+.lk .lk-aba{border:1px solid var(--lk-linha,#C8D2DC);background:var(--lk-card,#fff);color:inherit;border-radius:999px;padding:4px 12px;min-height:36px;font-weight:600;cursor:pointer}
+.lk .lk-aba[aria-pressed="true"]{background:var(--lk-ink,#132536);color:var(--lk-card,#fff);border-color:var(--lk-ink,#132536)}
+.lk .lk-kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.lk .lk-kpi{background:var(--lk-card,#fff);border:1px solid var(--lk-linha,#DEE5EC);border-radius:10px;padding:8px 10px;min-width:0}
+.lk .lk-kpi b{display:block;font:700 17px var(--mono)} .lk .lk-kpi span{font-size:12px;opacity:.8}
+.lk .lk-rod{font-size:12px;opacity:.85}
+.lk .lk-btn{border:1px solid var(--lk-linha,#C8D2DC);background:var(--lk-card,#fff);color:inherit;border-radius:10px;padding:8px 12px;min-height:40px;font-weight:600;cursor:pointer;flex:1 1 140px}
+.lk.escuro{--lk-bg:#07111A; --lk-ink:#EEF3F7; --lk-card:#0E1A24; --lk-linha:#22323F; --lk-ouro:#F0B252}
+.lk.escuro .grafico{border-color:#22323F}
+
+/* app da loja */
+.app{display:grid;grid-template-columns:230px minmax(0,1fr);min-height:70vh;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#EDF0F4}
+.lado{background:var(--navy);color:#C9D5DF;padding:16px 12px}
+.marca{font-family:var(--display);font-weight:800;color:#fff;font-size:18px;padding:4px 8px 14px;letter-spacing:.02em}
+.lado ul{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.lado li{padding:8px 10px;border-radius:8px}
+.lado li.atual{background:rgba(232,168,69,.18);color:#fff;box-shadow:inset 3px 0 0 var(--gold);font-weight:600}
+.principal{min-width:0;container-type:inline-size;container-name:loja}
+.topo{background:#fff;border-bottom:1px solid var(--line);padding:10px 20px;display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;justify-content:space-between}
+.onde-app{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--gold-ink)}
+.corpo-app{padding:18px}
+.partes{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px;padding:0 0 12px;border-bottom:1px solid var(--line)}
+.parte{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:999px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink-2)}
+.parte[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.grupo-aj{font:700 12.5px var(--display);text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);margin:4px 0 2px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline}
+.grupo-aj span{font:500 12.5px var(--body);text-transform:none;letter-spacing:0}
+.aj{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 16px;align-items:center;padding:12px 10px;border-top:1px solid var(--line)}
+.aj.mudou{background:var(--gold-bg);box-shadow:inset 3px 0 0 var(--gold)}
+.aj .t{font-weight:600} .aj .d{font-size:13.5px;color:var(--ink-2)}
+.aj .ctrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end;min-width:0}
+.aj .ctrl select{border:1px solid var(--line-2);border-radius:8px;padding:6px 8px;min-height:40px;background:#fff;max-width:100%;min-width:0}
+.liga{position:relative;width:52px;height:30px;border-radius:999px;border:1px solid var(--line-2);background:var(--neutro-bg);cursor:pointer;flex:none;padding:0}
+.liga::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:left .15s}
+.liga[aria-checked="true"]{background:var(--ok);border-color:var(--ok)} .liga[aria-checked="true"]::after{left:25px}
+.liga[disabled]{opacity:.5;cursor:not-allowed}
+.estado-liga{font-size:13px;color:var(--ink-2);min-width:64px}
+@container loja (max-width: 620px){ .aj{grid-template-columns:minmax(0,1fr)} .aj .ctrl{justify-content:flex-start} }
+.barra-salvar{position:sticky;bottom:0;background:var(--navy);color:#fff;border-radius:12px 12px 0 0;padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;z-index:5;margin-top:12px}
+.barra-salvar .btn{border-color:#3C5568;background:transparent;color:#fff} .barra-salvar .btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.barra-salvar :focus-visible{outline-color:var(--d-azul)}
+.medidor{height:12px;border-radius:999px;background:var(--neutro-bg);overflow:hidden;margin:8px 0}
+.medidor span{display:block;height:100%;background:var(--navy);border-radius:999px}
+.usos{list-style:none;margin:8px 0 0;padding:0}
+.usos li{display:flex;flex-wrap:wrap;gap:4px 12px;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line)}
+.usos li:first-child{border-top:0}
+
+/* notas */
+.notas{max-width:1000px}
+.notas .cartao ul,.notas .cartao ol{margin:6px 0 0;padding-left:20px} .notas .cartao li{margin-bottom:6px}
+.decisao{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:10px 0 0}
+.decisao h3{font-size:15px;margin-bottom:6px}
+.decisao ol{margin:0;padding-left:20px} .decisao li{margin-bottom:4px}
+.rec{font:700 11px var(--display);background:var(--ok-bg);color:var(--ok);padding:1px 7px;border-radius:999px;letter-spacing:.03em;white-space:nowrap}
+.fases{width:100%;border-collapse:collapse;font-size:14px}
+.fases th{font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:8px;border-bottom:2px solid var(--line-2)}
+.fases td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+@container principal (max-width: 700px){
+  .fases thead{display:none} .fases,.fases tbody,.fases tr,.fases td{display:block;width:100%}
+  .fases tr{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px;background:#fff}
+  .fases td{border:0;padding:3px 0}
+  .fases td[data-rot]::before{content:attr(data-rot);display:block;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+}
+
+@media (max-width: 900px){
+  .app{grid-template-columns:minmax(0,1fr)} .lado{display:none}
+  .pagina{padding:14px} .topo{padding:10px 14px} .corpo-app{padding:14px}
+  .btn,.parte{min-height:44px}
+}
+@media (prefers-reduced-motion: reduce){ *{transition:none!important} }
+</style>
+</head>
+<body>
+<a class="pular" href="#conteudo">Pular para o conteúdo</a>
+<header class="proto">
+  <span class="titulo">Protótipo · Mister v5</span>
+  <nav class="abas" aria-label="Partes do protótipo">
+    <button class="aba" data-aba="celular" aria-pressed="true">No celular</button>
+    <button class="aba" data-aba="graficos" aria-pressed="false">Gráficos</button>
+    <button class="aba" data-aba="arquivo" aria-pressed="false">Arquivo e link</button>
+    <button class="aba" data-aba="loja" aria-pressed="false">Na loja</button>
+    <button class="aba" data-aba="notas" aria-pressed="false">Notas e decisões</button>
+  </nav>
+  <span class="nota">Dados inventados. Nada aqui fala com o Regem.</span>
+</header>
+
+<div id="conteudo">
+
+<!-- ═════════════════════ NO CELULAR ═════════════════════ -->
+<section class="vista ativa" id="v-celular" aria-label="No celular">
+  <div class="pagina">
+    <div class="cab">
+      <h1>O Mister ouve, vê e mostra <span class="v5">v5</span></h1>
+      <p class="sub">Você pode falar com o Mister por áudio e mandar foto. Os gráficos vêm com um desenho novo. O resumo chega por escrito e você escolhe como ver o resto: em PDF ou pelo link. Os áudios e as fotos passam pelo DMS Graph, que a loja já usa para as fotos do atendente.</p>
+    </div>
+
+    <div class="celulares">
+
+      <article class="caso">
+        <h3>1. Pergunta por áudio</h3>
+        <p class="sub">O Mister ouve, escreve o que entendeu e responde em texto e em áudio. O áudio fala o principal; os números ficam no texto. <span class="fase">M5b · M5c</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu"><span class="audio" role="img" aria-label="Áudio de 9 segundos"><span class="play" aria-hidden="true">▶</span><span class="onda"></span><small>0:09</small></span><span class="hora">10:02</span></div>
+            <div class="bolha dele"><span class="entendi">🎧 <i>Entendi:</i> "quanto vendeu ontem no iFood e quanto deu de taxa?"</span>
+              Ontem, quarta 18/11, no <b>iFood</b>:
+              <ul><li><b>38 pedidos</b>, <b>R$ 1.712,00</b></li><li>Taxas do iFood: <b>R$ 393,76</b> (23%)</li><li>Fica para a loja: <b>R$ 1.318,24</b></li></ul>
+              Foi 41% de tudo o que a loja vendeu ontem.<span class="hora">10:02</span></div>
+            <div class="bolha dele"><span class="audio" role="img" aria-label="Resposta em áudio de 12 segundos"><span class="play" aria-hidden="true">▶</span><span class="onda"></span><small>0:12</small></span><span class="hora">10:02</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>2. Áudio que não deu para entender</h3>
+        <p class="sub">Barulho demais ou áudio cortado: ele não arrisca. Também recusa áudio acima de 3 minutos. <span class="fase">M5b</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu"><span class="audio" role="img" aria-label="Áudio de 4 segundos"><span class="play" aria-hidden="true">▶</span><span class="onda"></span><small>0:04</small></span><span class="hora">21:14</span></div>
+            <div class="bolha dele">🎧 Não consegui entender o áudio, tinha muito barulho. Pode mandar de novo ou escrever?<span class="hora">21:14</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>3. Foto de uma tela</h3>
+        <p class="sub">Ele diz o que viu, confere no Regem e mostra o caminho com a imagem do "como faço" (que já existe). <span class="fase">M5a</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu"><span class="midia" role="img" aria-label="Foto da tela do gestor de pedidos de uma plataforma com o aviso de loja fechada"><span class="f-tela"><span class="l"><span>Pedidos</span><span>Cardápio</span><span>Loja</span></span><span class="c"><span class="alerta">⚠ Loja fechada · pausa manual</span><span class="cinza"></span><span class="cinza c2"></span><span class="cinza"></span></span></span></span>por que tá fechado?<span class="hora">19:21</span></div>
+            <div class="bolha dele"><span class="entendi">📷 <i>Vi:</i> o gestor do iFood com "Loja fechada · pausa manual".</span>
+              Conferi no Regem: o <b>iFood está pausado desde 18:40</b>, pausado por Ana, motivo "falta de entregador". O cardápio digital e a 99 seguem abertos.
+              <br><br>Para reabrir: <b>Delivery › Painel › ⏸ Pausar</b>, na linha do iFood, "Reabrir agora".<span class="hora">19:21</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>4. Foto do freezer e uma pergunta</h3>
+        <p class="sub">A foto ajuda; os números vêm do Regem. O que veio só da foto, ele diz que veio da foto. <span class="fase">M5a</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu"><span class="midia" role="img" aria-label="Foto de um freezer com três caixas de hambúrguer"><span class="f-freezer"><span class="cx">BLEND 56 g<br>30 un</span><span class="cx">BLEND 56 g<br>30 un</span><span class="cx">BLEND 56 g<br>30 un</span><span class="gelo"></span></span></span>dá até sábado?<span class="hora">15:40</span></div>
+            <div class="bolha dele"><span class="entendi">📷 <i>Vi:</i> 3 caixas de "blend 56 g", 30 unidades cada (pela foto, ≈ 90).</span>
+              No Regem o estoque está em <b>96 unidades</b>. De quinta a sábado a loja usa, em média, <b>245 por dia</b> (últimas 4 semanas).
+              <br><br><b>Não dá até sábado:</b> faltam ≈ 640 unidades. Quer que eu veja o pedido ao fornecedor?<span class="hora">15:41</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>5. Foto sem legenda</h3>
+        <p class="sub">Ele diz o que viu e pergunta o que fazer com ela, sem adivinhar. <span class="fase">M5a</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu"><span class="midia" role="img" aria-label="Foto de uma lista escrita à mão"><span class="f-papel"><span>pão brioche 10 pct</span><span>cheddar 4 kg</span><span>bacon 3 kg</span><span>batata 6 cx</span></span></span><span class="hora">11:05</span></div>
+            <div class="bolha dele"><span class="entendi">📷 <i>Vi:</i> uma lista escrita à mão com 4 itens: pão brioche, cheddar, bacon e batata.</span>
+              O que você quer que eu faça com ela?
+              <span class="botoes-wa"><span>Conferir no estoque</span><span>Nada, obrigado</span></span><span class="hora">11:05</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>6. "Me mostra em gráfico"</h3>
+        <p class="sub">A imagem com o desenho novo, o que importa por escrito e as duas opções para ver mais. <span class="fase">M5d</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu">me mostra as vendas da semana em gráfico<span class="hora">08:30</span></div>
+            <div class="bolha dele larga"><span class="midia" data-grafico="semana-img"></span>📊 Vendas de 12 a 18/11: <b>R$ 38.420,00</b>, <b>12% a mais</b> que a semana anterior. O melhor dia foi o <b>sábado (R$ 8.640)</b>; a quarta subiu 53%.
+              <span class="botoes-wa dois"><span>📄 PDF</span><span>🔗 Ver no link</span></span><span class="hora">08:30</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>7. O resumo do dia</h3>
+        <p class="sub">Por escrito, como hoje, com os botões para o arquivo ou o link. No toque em "PDF", o arquivo vem na conversa. <span class="fase">M5e</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha dele larga">☀️ <b>Resumo de ontem</b>, quarta 18/11 · Hamburgueria do Centro
+              <ul><li><b>86 vendas</b> · <b>R$ 4.130,00</b> (53% a mais que a quarta passada)</li><li>Ticket médio: R$ 48,02</li><li>Pico às 21h: R$ 1.040,00</li><li>Canais: iFood 41%, cardápio 22%, 99 16%</li><li>2 cancelamentos (R$ 96,00)</li><li>⚠️ Batata rústica abaixo do mínimo</li></ul>
+              <span class="botoes-wa dois"><span>📄 PDF</span><span>📊 Ver gráficos</span></span><span class="hora">09:00</span></div>
+            <span class="toque">você tocou em "📄 PDF"</span>
+            <div class="bolha dele"><span class="doc-msg"><span class="ico">PDF</span><span><b>Resumo 18-11 Hamburgueria do Centro.pdf</b><small>2 páginas · 180 kB</small></span></span><span class="hora">09:01</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>8. O link de visualização</h3>
+        <p class="sub">Abre no celular com um toque, sem login, por 7 dias. Os gráficos se mexem com o dedo e seguem o tema do aparelho. <span class="fase">M5e</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <span class="toque">você tocou em "📊 Ver gráficos"</span>
+            <div class="bolha dele">📊 Os gráficos do resumo de quarta, 18/11:<br><span class="mono" style="font-size:12.5px">app.dmsregem.com/m/r/K7Q2-PX9M</span><br><br>O link vale 7 dias e só mostra este resumo. Se alguém mais precisar ver, me peça um link para encaminhar.
+              <span class="botoes-wa"><span>🔗 Abrir</span></span><span class="hora">09:02</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>9. Gerente pede gráfico</h3>
+        <p class="sub">O mesmo desenho, sem valores em reais (como as consultas de hoje): só quantidades, a não ser que o perfil dele libere ver valores. <span class="fase">M5d</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu">gráfico dos pedidos por hora ontem<span class="hora">10:10</span></div>
+            <div class="bolha dele larga"><span class="midia" data-grafico="hora-qtd-img"></span>📊 Ontem a loja teve <b>86 pedidos</b>. O pico foi às <b>21h, com 22</b>. Depois das 23h caiu para menos de 6 por hora.
+              <span class="botoes-wa dois"><span>📄 PDF</span><span>🔗 Ver no link</span></span><span class="hora">10:10</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>10. Acabou a cota do mês</h3>
+        <p class="sub">Áudios e fotos contam na franquia mensal do DMS Graph da empresa. Quando acaba, a foto segue pela IA da empresa; o áudio não tem reserva. <span class="fase">M5a · M5b</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu"><span class="audio" role="img" aria-label="Áudio de 6 segundos"><span class="play" aria-hidden="true">▶</span><span class="onda"></span><small>0:06</small></span><span class="hora">22:40</span></div>
+            <div class="bolha dele">🎧 Este mês a empresa já usou as <b>500 leituras</b> de foto e áudio do DMS Graph, então não consigo ouvir áudios até <b>01/12</b>. Pode escrever? As fotos eu continuo lendo pela IA da empresa.<span class="hora">22:40</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>11. Empresa sem o DMS Graph</h3>
+        <p class="sub">Sem a ligação com o Graph, nada muda: ele diz como ligar, no máximo uma vez a cada meia hora. Só o presidente liga. <span class="fase">M5a · M5b</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu"><span class="audio" role="img" aria-label="Áudio de 5 segundos"><span class="play" aria-hidden="true">▶</span><span class="onda"></span><small>0:05</small></span><span class="hora">14:03</span></div>
+            <div class="bolha dele">Por enquanto eu só leio texto nesta empresa. Para eu ouvir áudios e ver fotos, ligue o DMS Graph em <b>Delivery › Configurações › Integrações</b>. Leva um minuto.<span class="hora">14:03</span></div>
+          </div></div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ GRÁFICOS ═════════════════════ -->
+<section class="vista" id="v-graficos" aria-label="Gráficos">
+  <div class="pagina">
+    <div class="cab">
+      <h1>Os gráficos com o desenho novo <span class="v5">v5</span></h1>
+      <p class="sub">É um desenho só, usado na imagem da conversa, no PDF e no link. Cada gráfico tem título, o período, o número principal com a comparação, os valores escritos nas barras e a fonte com a hora da leitura. Usa as cores do Regem, e o dourado marca o que importa.</p>
+    </div>
+
+    <div class="cartao">
+      <h2>Antes × depois</h2>
+      <p class="sub peq">O mesmo dado (consumo do blend 56 g na semana) no desenho de hoje e no novo.</p>
+      <div class="comparar">
+        <div><p class="peq"><span class="selo neutro">Hoje</span></p><div class="grafico antigo" data-grafico="antes"></div></div>
+        <div><p class="peq"><span class="selo ok">Novo</span></p><div class="grafico" data-grafico="insumo-img"></div></div>
+      </div>
+      <ul class="lista-melhor peq">
+        <li>Título e período no próprio gráfico: a imagem encaminhada se explica sozinha.</li>
+        <li>O número principal grande e a comparação com o período anterior ("12% a mais").</li>
+        <li>O valor de cada barra escrito, a média com o nome, os dias por extenso.</li>
+        <li>Texto que se lê no celular, cantos arredondados, sem linha de grade carregada.</li>
+      </ul>
+    </div>
+
+    <div class="graficos">
+      <article class="g-caso"><h3>Vendas por dia</h3><p class="sub">Esta semana ao lado da anterior; o melhor dia em dourado.</p>
+        <div class="grafico" data-grafico="semana-img"></div>
+        <div class="onde"><span class="selo info">imagem</span><span class="selo info">PDF</span><span class="selo info">link</span></div></article>
+      <article class="g-caso"><h3>Vendas por hora</h3><p class="sub">Onde está o pico da noite; serve para escala e entregador.</p>
+        <div class="grafico" data-grafico="hora-img"></div>
+        <div class="onde"><span class="selo info">imagem</span><span class="selo info">PDF</span><span class="selo info">link</span></div></article>
+      <article class="g-caso"><h3>Por canal</h3><p class="sub">Quanto veio de cada canal, em reais e em porcentagem.</p>
+        <div class="grafico" data-grafico="canais-img"></div>
+        <div class="onde"><span class="selo info">imagem</span><span class="selo info">PDF</span><span class="selo info">link</span></div></article>
+      <article class="g-caso"><h3>Mais vendidos</h3><p class="sub">Os 6 primeiros por quantidade, com o faturamento ao lado (quem vê valores).</p>
+        <div class="grafico" data-grafico="produtos-img"></div>
+        <div class="onde"><span class="selo info">imagem</span><span class="selo info">PDF</span><span class="selo info">link</span></div></article>
+      <article class="g-caso"><h3>Insumo pela ficha</h3><p class="sub">O relatório por insumo que já existe, com o desenho novo.</p>
+        <div class="grafico" data-grafico="insumo-img"></div>
+        <div class="onde"><span class="selo info">imagem</span><span class="selo info">PDF</span><span class="selo info">link</span></div></article>
+      <article class="g-caso"><h3>Sem valores (gerente)</h3><p class="sub">Para quem não vê reais: as quantidades, sem nenhum valor.</p>
+        <div class="grafico" data-grafico="hora-qtd-img"></div>
+        <div class="onde"><span class="selo info">imagem</span><span class="selo info">PDF</span><span class="selo info">link</span></div></article>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ ARQUIVO E LINK ═════════════════════ -->
+<section class="vista" id="v-arquivo" aria-label="Arquivo e link">
+  <div class="pagina">
+    <div class="cab">
+      <h1>O resumo em arquivo e no link <span class="v5">v5</span></h1>
+      <p class="sub">O botão "📄 PDF" manda o arquivo na conversa. O "📊 Ver gráficos" manda o link de visualização. Os dois mostram o mesmo conteúdo e os mesmos gráficos.</p>
+    </div>
+    <div class="arquivos">
+      <div>
+        <h2>PDF do resumo</h2>
+        <p class="sub peq" style="margin-bottom:10px">Uma página A4, para guardar ou mandar ao sócio ou ao contador.</p>
+        <div class="folha">
+          <div class="folha-cab"><span class="marca-f">REGEM · MISTER<small>Hamburgueria do Centro</small></span><span class="quando">Resumo de quarta, 18/11/2026<br>gerado em 19/11 às 09:01</span></div>
+          <div class="kpis">
+            <div class="kpi"><b>R$ 4.130</b><span>faturamento</span> <span class="d">53% a mais</span></div>
+            <div class="kpi"><b>86</b><span>vendas</span></div>
+            <div class="kpi"><b>R$ 48,02</b><span>ticket médio</span></div>
+            <div class="kpi"><b>2</b><span>cancelamentos · R$ 96</span></div>
+          </div>
+          <div class="folha-grade">
+            <div><h4>Por hora</h4><div class="grafico" data-grafico="hora-solto"></div></div>
+            <div><h4>Por canal</h4><div class="grafico" data-grafico="canais-solto"></div></div>
+          </div>
+          <div><h4>Os 7 dias até ontem</h4><div class="grafico" data-grafico="semana-solto"></div></div>
+          <div>
+            <h4>Atenção</h4>
+            <table class="tab"><caption class="sr">Pontos de atenção do dia</caption>
+              <thead><tr><th>O quê</th><th>Detalhe</th><th class="num">Valor</th></tr></thead>
+              <tbody>
+                <tr><td data-rot="O quê">Cancelamento</td><td data-rot="Detalhe">#284 · iFood 4821 · cliente desistiu</td><td class="num mono" data-rot="Valor">R$ 58,00</td></tr>
+                <tr><td data-rot="O quê">Cancelamento</td><td data-rot="Detalhe">#301 · cardápio · fora da área</td><td class="num mono" data-rot="Valor">R$ 38,00</td></tr>
+                <tr><td data-rot="O quê">Estoque</td><td data-rot="Detalhe">Batata rústica: 2 cx (mínimo 4)</td><td class="num mono" data-rot="Valor">—</td></tr>
+              </tbody></table>
+          </div>
+          <div class="folha-rod">Dados do Regem lidos em 19/11 às 09:00 · vendas concluídas · a gorjeta não entra no faturamento.</div>
+        </div>
+      </div>
+      <div>
+        <h2>Link de visualização</h2>
+        <p class="sub peq" style="margin-bottom:10px">Uma página feita para o celular: abas, gráficos que respondem ao toque e o tema do aparelho.</p>
+        <div class="ctls" role="group" aria-label="Tema da página do link"><span>Situação do protótipo:</span>
+          <button class="ctl" data-ctl="tema" data-valor="claro" aria-pressed="true">Claro</button>
+          <button class="ctl" data-ctl="tema" data-valor="escuro" aria-pressed="false">Escuro</button>
+          <button class="ctl" data-ctl="tema" data-valor="vencido" aria-pressed="false">Link vencido</button>
+        </div>
+        <div class="tela-link">
+          <div class="barra-end">app.dmsregem.com/m/r/K7Q2-PX9M</div>
+          <div class="lk" id="lk">
+            <div id="lk-vivo">
+              <div class="lk-cab"><span class="lk-sobre">Regem · Mister</span><h3>Resumo de quarta, 18/11</h3><span class="lk-rod">Hamburgueria do Centro · lido em 19/11 às 09:00</span></div>
+              <div class="lk-kpis" style="margin-top:12px">
+                <div class="lk-kpi"><b>R$ 4.130</b><span>faturamento · 53% a mais</span></div>
+                <div class="lk-kpi"><b>86</b><span>vendas</span></div>
+                <div class="lk-kpi"><b>R$ 48,02</b><span>ticket médio</span></div>
+                <div class="lk-kpi"><b>21h</b><span>pico · R$ 1.040</span></div>
+              </div>
+              <div class="lk-abas" role="group" aria-label="Qual gráfico ver" style="margin-top:12px">
+                <button class="lk-aba" data-lk="hora" aria-pressed="true">Por hora</button>
+                <button class="lk-aba" data-lk="canais" aria-pressed="false">Canais</button>
+                <button class="lk-aba" data-lk="semana" aria-pressed="false">7 dias</button>
+                <button class="lk-aba" data-lk="produtos" aria-pressed="false">Produtos</button>
+              </div>
+              <div class="lk-card" style="margin-top:12px">
+                <div data-lk-g="hora"><h4>Vendas por hora</h4><div class="grafico" data-grafico="hora-solto"></div></div>
+                <div data-lk-g="canais" hidden><h4>Por canal</h4><div class="grafico" data-grafico="canais-solto"></div></div>
+                <div data-lk-g="semana" hidden><h4>Os 7 dias até ontem</h4><div class="grafico" data-grafico="semana-solto"></div></div>
+                <div data-lk-g="produtos" hidden><h4>Mais vendidos</h4><div class="grafico" data-grafico="produtos-solto"></div></div>
+              </div>
+              <div class="acoes" style="margin-top:12px"><button class="lk-btn">📄 Baixar o PDF</button><button class="lk-btn">Abrir no Regem</button></div>
+              <p class="lk-rod" style="margin-top:10px">Este link vale até 26/11 e só mostra este resumo. "Abrir no Regem" pede o login.</p>
+            </div>
+            <div id="lk-vencido" hidden>
+              <div class="lk-card"><h4>Este link venceu</h4><p class="lk-rod">Os links do Mister valem 7 dias. Peça de novo ao Mister ("manda o resumo de ontem") ou veja no Regem, em Mister › Histórico.</p></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ NA LOJA ═════════════════════ -->
+<section class="vista" id="v-loja" aria-label="Na loja">
+  <div class="pagina">
+    <div class="cab">
+      <h1>Os ajustes na loja <span class="v5">v5</span></h1>
+      <p class="sub">Em Mister › Avisos e relatórios, o grupo "Conversa" ganha as linhas de áudio e foto, e o grupo "Relatórios" ganha a forma de mandar o resumo. Em IA e uso entra a contagem de fotos e áudios do mês.</p>
+    </div>
+    <div class="ctls" role="group" aria-label="Situação do DMS Graph"><span>Situação do protótipo:</span>
+      <button class="ctl" data-ctl="graph" data-valor="ligado" aria-pressed="true">DMS Graph ligado</button>
+      <button class="ctl" data-ctl="graph" data-valor="sem" aria-pressed="false">Sem o DMS Graph</button>
+      <button class="ctl" data-ctl="graph" data-valor="cota" aria-pressed="false">Cota do mês acabou</button>
+    </div>
+    <div class="app">
+      <nav class="lado" aria-label="Menu do aplicativo">
+        <div class="marca">Regem</div>
+        <ul><li>Painel</li><li>Delivery</li><li>Balcão</li><li>Estoque</li><li>Financeiro</li><li>Pessoas</li><li class="atual">Mister</li><li>Configurações</li></ul>
+      </nav>
+      <div class="principal">
+        <div class="topo"><span class="onde-app">Mister</span><span class="peq sub">Ana · presidente</span></div>
+        <div class="corpo-app">
+          <div class="partes" role="group" aria-label="Partes do Mister">
+            <button class="parte" data-parte="resumo" aria-pressed="false">Resumo</button>
+            <button class="parte" data-parte="pessoas" aria-pressed="false">Pessoas</button>
+            <button class="parte" data-parte="ia" aria-pressed="false">IA e uso</button>
+            <button class="parte" data-parte="avisos" aria-pressed="true">Avisos e relatórios</button>
+            <button class="parte" data-parte="docs" aria-pressed="false">Documentos</button>
+            <button class="parte" data-parte="hist" aria-pressed="false">Histórico</button>
+          </div>
+
+          <div data-p="avisos">
+            <div class="faixa info" data-g="sem" hidden>A empresa ainda não está ligada ao DMS Graph, então o Mister só lê texto. Quem liga é o presidente, em <b>Delivery › Configurações › Integrações</b>, no cartão "DMS Graph".</div>
+            <div class="faixa warn" data-g="cota" hidden>Este mês a empresa usou as 500 leituras de foto e áudio do DMS Graph. Até 01/12 as fotos seguem pela IA da empresa e os áudios não são ouvidos.</div>
+            <div class="cartao">
+              <p class="grupo-aj">Conversa <span>· 3 linhas novas</span></p>
+              <div class="aj" data-aj="ouvir">
+                <div><div class="t" id="t-ouvir">Ouvir áudios <span class="v5">v5</span></div><div class="d">Pelo DMS Graph. Até 3 minutos por áudio. O Mister escreve o que entendeu antes de responder. O áudio não fica guardado: só o texto, por 30 dias, como as perguntas escritas.</div></div>
+                <div class="ctrl"><span class="estado-liga" id="e-ouvir">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="t-ouvir" data-liga="ouvir"></button></div>
+              </div>
+              <div class="aj" data-aj="responder">
+                <div><div class="t"><label for="s-responder">Responder em áudio</label> <span class="v5">v5</span></div><div class="d">O texto vai junto, sempre. O áudio fala o principal, em até uns 40 segundos; listas e números ficam no texto.</div></div>
+                <div class="ctrl"><select id="s-responder" data-sel="responder"><option selected>quando eu mandar áudio</option><option>sempre</option><option>nunca</option></select></div>
+              </div>
+              <div class="aj" data-aj="fotos">
+                <div><div class="t" id="t-fotos">Ler fotos <span class="v5">v5</span></div><div class="d">Pelo DMS Graph; se ele não responder, pela IA da empresa. A foto não fica guardada, só o que ela mostra. Boleto e nota seguem em "Lançar boletos e notas por foto".</div></div>
+                <div class="ctrl"><span class="estado-liga" id="e-fotos">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-labelledby="t-fotos" data-liga="fotos"></button></div>
+              </div>
+              <p class="grupo-aj" style="margin-top:16px">Relatórios <span>· 1 linha nova</span></p>
+              <div class="aj" data-aj="resumo">
+                <div><div class="t"><label for="s-resumo">Como mandar o resumo</label> <span class="v5">v5</span></div><div class="d">O texto vai sempre. Os botões trazem o PDF ou o link de visualização, que vale 7 dias.</div></div>
+                <div class="ctrl"><select id="s-resumo" data-sel="resumo"><option selected>texto com os botões PDF e link</option><option>texto e o PDF junto</option><option>texto e o link junto</option><option>só o texto</option></select></div>
+              </div>
+            </div>
+            <div class="barra-salvar" id="barra" hidden><span id="barra-n">1 alteração ainda não salva</span><span class="acoes"><button class="btn" id="desfazer">Desfazer</button><button class="btn pri" id="salvar">Salvar</button></span></div>
+          </div>
+
+          <div data-p="ia" hidden>
+            <div class="cartao">
+              <h2>Fotos e áudios · DMS Graph <span class="v5">v5</span></h2>
+              <p class="sub peq">A franquia do mês é da empresa e vale para o atendente e para o Mister. Ela é contada no DMS Graph; aqui você vê quanto foi usado.</p>
+              <p style="margin:10px 0 0"><b class="mono" id="cota-usada">137</b> de <b class="mono">500</b> em novembro <span class="selo ok" id="cota-selo">ok</span></p>
+              <div class="medidor" role="img" aria-label="137 de 500 leituras usadas em novembro" id="cota-medidor"><span style="width:27.4%"></span></div>
+              <ul class="usos">
+                <li><span>Atendente · fotos dos clientes</span><span class="mono">61</span></li>
+                <li><span>Mister · fotos</span><span class="mono">29</span></li>
+                <li><span>Mister · áudios ouvidos</span><span class="mono">41</span></li>
+                <li><span>Mister · respostas em áudio</span><span class="mono">6</span></li>
+              </ul>
+              <p class="sub peq" style="margin-top:10px">O custo por áudio e por foto será medido no piloto e aparecerá aqui, como o gasto da IA da empresa.</p>
+            </div>
+          </div>
+          <div data-p="outra" hidden><div class="cartao"><p class="sub">As outras partes do Mister não mudam nesta versão.</p></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ NOTAS ═════════════════════ -->
+<section class="vista" id="v-notas" aria-label="Notas e decisões">
+  <div class="pagina notas">
+    <div class="cab"><h1>Notas e decisões</h1><p class="sub">Em cada decisão, a primeira opção é a que eu recomendo. Se você aprovar sem comentário, valem as recomendadas.</p></div>
+
+    <div class="cartao">
+      <h2>Como está hoje (conferido no código em 19/11)</h2>
+      <ul>
+        <li>A <b>áudio</b>, a <b>foto qualquer</b> e a <b>figurinha</b>, o Mister responde "por enquanto só leio texto". Hoje ele só lê foto de <b>boleto e nota</b>, pela IA, e isso depende da chave "Lançar boletos e notas por foto".</li>
+        <li>O <b>DMS Graph</b> lê imagem, PDF e vídeo, mas <b>não lê áudio</b>. Já está ligado na Steakhouse para as fotos do atendente (franquia de 500 por mês).</li>
+        <li>O <b>atendente</b> do cardápio ouve pelo Gemini e responde com a voz do Google em português, com o texto junto. Faz isso pelo fluxo do n8n, não pelo Regem.</li>
+        <li>O único <b>gráfico</b> é o do insumo: uma imagem desenhada à mão no servidor, e a página do link usa barras simples. O <b>resumo</b> do dia vai só em texto.</li>
+      </ul>
+    </div>
+
+    <div class="cartao">
+      <h2>Decisões</h2>
+      <div class="decisao"><h3>1. Quem ouve o áudio</h3><ol>
+        <li><span class="rec">recomendado</span> <b>O DMS Graph ganha "ouvir áudio"</b>, pelo Gemini, o mesmo que o atendente usa. Fica num lugar só, com a franquia, a idempotência e o registro no hub que a foto já tem. O Regem guarda só o texto.</li>
+        <li>O Regem chama o Gemini direto: mais uma chave para guardar e sem franquia.</li>
+        <li>Outra empresa (OpenAI): outro contrato e outra chave.</li></ol></div>
+      <div class="decisao"><h3>2. Quando responder em áudio</h3><ol>
+        <li><span class="rec">recomendado</span> <b>Quando a pessoa mandar áudio</b>, sempre com o texto junto. O áudio fala o principal (até ~40 s); listas e números ficam no texto. A empresa muda em "Responder em áudio".</li>
+        <li>Sempre.</li><li>Nunca (só texto).</li></ol></div>
+      <div class="decisao"><h3>3. A voz</h3><ol>
+        <li><span class="rec">recomendado</span> <b>A voz em português do Google</b>, a mesma tecnologia do atendente, gerada pelo DMS Graph ("falar"). Uma voz só, a do Mister, igual em todas as lojas.</li>
+        <li>Cada loja escolhe a voz (mais um ajuste, sem ganho claro agora).</li></ol></div>
+      <div class="decisao"><h3>4. Mostrar o que entendeu</h3><ol>
+        <li><span class="rec">recomendado</span> <b>Sim:</b> a resposta começa com "🎧 Entendi: …" no áudio e "📷 Vi: …" na foto. Se ele entendeu errado, você vê na hora.</li>
+        <li>Não mostrar (a resposta fica mais curta, mas o erro de entendimento passa calado).</li></ol></div>
+      <div class="decisao"><h3>5. Fotos</h3><ol>
+        <li><span class="rec">recomendado</span> <b>O DMS Graph lê primeiro e a IA da empresa fica de reserva</b>, como no atendente. A foto não fica guardada, só o que ela mostra (30 dias). Os números da resposta vêm sempre das consultas do Regem; o que veio só da foto, ele diz que veio da foto. Boleto e nota seguem no caminho dos documentos.</li>
+        <li>Só a IA da empresa (sem o Graph): gasta a chave da empresa em toda foto.</li></ol></div>
+      <div class="decisao"><h3>6. A franquia do mês</h3><ol>
+        <li><span class="rec">recomendado</span> <b>A mesma franquia do Graph da empresa</b> (500 por mês, junto com o atendente), com a conta separada por uso em IA e uso. Cada áudio ouvido e cada resposta em áudio contam uma leitura. Quando acaba, a foto segue pela IA da empresa e o áudio pede texto.</li>
+        <li>Uma franquia à parte para o Mister.</li></ol></div>
+      <div class="decisao"><h3>7. O desenho dos gráficos</h3><ol>
+        <li><span class="rec">recomendado</span> <b>Um desenho só para a imagem, o PDF e o link</b>, com uma biblioteca de desenho nova no servidor que transforma o gráfico em imagem. O resultado é nítido no celular e sai igual nos três lugares.</li>
+        <li>Melhorar o desenho feito à mão de hoje (sem biblioteca): mais trabalho e fica aquém.</li></ol></div>
+      <div class="decisao"><h3>8. O resumo e o link</h3><ol>
+        <li><span class="rec">recomendado</span> <b>Texto com os botões "📄 PDF" e "📊 Ver gráficos"</b>. O link abre sem login, vale 7 dias e só mostra aquele resumo. Usa o mesmo mecanismo do "link para encaminhar" (o código guardado embaralhado e o limite por empresa). "Abrir no Regem" pede o login.</li>
+        <li>O link só no Regem, com login: mais seguro, mas no celular são mais passos.</li></ol></div>
+      <div class="decisao"><h3>9. Gráfico nas perguntas</h3><ol>
+        <li><span class="rec">recomendado</span> <b>Quando a pessoa pede, ou quando a resposta é uma série</b> (4 pontos ou mais, como dias e horas). Aí vai a imagem com os botões "PDF" e "Ver no link". Gerente sem permissão de valores recebe só as quantidades.</li>
+        <li>Só quando a pessoa pede.</li></ol></div>
+    </div>
+
+    <div class="cartao">
+      <h2>Fases (uma entrega por PR)</h2>
+      <table class="fases"><caption class="sr">Fases da versão 5</caption>
+        <thead><tr><th>Fase</th><th>O que entra</th><th>Migration</th></tr></thead>
+        <tbody>
+          <tr><td data-rot="Fase"><b>M5a · Fotos</b></td><td data-rot="O que entra">A foto que não é documento vai ao DMS Graph (com a IA da empresa de reserva), e o que ela mostra entra na pergunta. Entram "📷 Vi" e a contagem em IA e uso.</td><td data-rot="Migration">não</td></tr>
+          <tr><td data-rot="Fase"><b>M5b · Ouvir</b></td><td data-rot="O que entra">No DMS Graph: "ouvir áudio" (versão nova, você clica em "Implantar"). No Regem: o áudio vira texto, aparece "🎧 Entendi" e a pergunta segue como sempre. Áudio de até 3 minutos.</td><td data-rot="Migration">não</td></tr>
+          <tr><td data-rot="Fase"><b>M5c · Falar</b></td><td data-rot="O que entra">No DMS Graph: "falar" (voz do Google). No Regem: o ajuste "Responder em áudio" e o envio do áudio pelo número do Mister (oficial e QR Code).</td><td data-rot="Migration">1 (o ajuste)</td></tr>
+          <tr><td data-rot="Fase"><b>M5d · Gráficos</b></td><td data-rot="O que entra">O desenho novo para a imagem, o PDF e a página. O insumo é refeito e entram 4 gráficos novos (dia, hora, canal, mais vendidos), sem valores para quem não vê reais.</td><td data-rot="Migration">não</td></tr>
+          <tr><td data-rot="Fase"><b>M5e · Resumo</b></td><td data-rot="O que entra">O resumo com "📄 PDF" e "📊 Ver gráficos", o PDF do resumo, a página do link e o ajuste "Como mandar o resumo".</td><td data-rot="Migration">1 (o link do resumo e o ajuste)</td></tr>
+        </tbody></table>
+      <p class="sub peq" style="margin-top:10px">Ordem: M5a → M5b → M5c → M5d → M5e. As fases M5d e M5e não dependem das outras e podem vir antes, se você preferir os gráficos primeiro.</p>
+    </div>
+
+    <div class="cartao">
+      <h2>Fica pendente (pedido de 19/11)</h2>
+      <ul>
+        <li><b>Clima e eventos no Mister</b>, depois que a base de eventos (plano do perfil do cliente) estiver pronta: aviso de chuva e a programação de entregadores e funcionários para feriados e eventos grandes. A fonte do clima precisa de licença comercial (a versão grátis da Open-Meteo não serve).</li>
+      </ul>
+    </div>
+
+    <div class="cartao">
+      <h2>Da sua parte</h2>
+      <ul>
+        <li>Aprovar este protótipo (ou mudar alguma decisão).</li>
+        <li>Na fase M5b: clicar em "Implantar" no serviço do DMS Graph no EasyPanel, como nas entregas do Graph.</li>
+        <li>Na fase M5c: ligar a API de voz do Google na conta que o Graph usa. Eu passo o passo a passo quando chegar lá.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<script>
+(function(){
+  // ── formatos ──
+  const esc = (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const mil = (v) => v >= 1000 ? (Math.round(v / 100) / 10).toLocaleString('pt-BR') + ' mil' : v.toLocaleString('pt-BR');
+  const reais = (v) => 'R$ ' + v.toLocaleString('pt-BR');
+
+  // ── dados inventados ──
+  const DIAS = ['Qui 12','Sex 13','Sáb 14','Dom 15','Seg 16','Ter 17','Qua 18'];
+  const SEMANA = [5420, 7980, 8640, 6210, 2890, 3150, 4130];
+  const ANTERIOR = [4880, 7120, 8050, 5900, 2610, 3020, 2700];
+  const HORAS = ['18h','19h','20h','21h','22h','23h','0h','1h'];
+  const POR_HORA = [210, 520, 880, 1040, 760, 420, 210, 90];
+  const PEDIDOS_HORA = [5, 11, 18, 22, 15, 9, 4, 2];
+  const CANAIS = [['iFood', 16130], ['Cardápio digital', 7680], ['99Food', 6150], ['Balcão', 5000], ['WhatsApp', 3460]];
+  const PRODUTOS = [['Batata rústica', 410, 9840], ['Smash duplo', 312, 11232], ['X-Bacon', 268, 8844], ['Refrigerante lata', 255, 1785], ['Combo Kids', 190, 6270], ['Onion rings', 142, 2982]];
+  const INSUMO = [182, 260, 288, 205, 96, 104, 140];
+
+  // ── peças do desenho ──
+  function grade(x0, x1, y0, y1) {
+    let s = '';
+    for (const f of [1/3, 2/3]) { const y = y1 - (y1 - y0) * f; s += `<line x1="${x0}" x2="${x1}" y1="${y}" y2="${y}" class="g-grade"/>`; }
+    return s + `<line x1="${x0}" x2="${x1}" y1="${y1}" y2="${y1}" class="g-eixo"/>`;
+  }
+  function colunas({ atual, anterior, rotulos, fmt, x0 = 16, x1 = 344, y0, y1, media }) {
+    const n = atual.length, slot = (x1 - x0) / n;
+    const max = Math.max(...atual, ...(anterior || []), media || 0) * 1.14;
+    const y = (v) => y1 - (v / max) * (y1 - y0);
+    const iMax = atual.indexOf(Math.max(...atual));
+    let s = grade(x0, x1, y0, y1);
+    atual.forEach((v, i) => {
+      const cx = x0 + slot * i + slot / 2;
+      const bw = anterior ? Math.min(15, slot * 0.32) : Math.min(28, slot * 0.6);
+      if (anterior) s += `<rect x="${(cx - bw - 1).toFixed(1)}" y="${y(anterior[i]).toFixed(1)}" width="${bw.toFixed(1)}" height="${(y1 - y(anterior[i])).toFixed(1)}" rx="2.5" class="g-ant"/>`;
+      const bx = anterior ? cx + 1 : cx - bw / 2;
+      s += `<rect x="${bx.toFixed(1)}" y="${y(v).toFixed(1)}" width="${bw.toFixed(1)}" height="${(y1 - y(v)).toFixed(1)}" rx="2.5" class="${i === iMax ? 'g-dest' : 'g-barra'}"/>`;
+      const topo = Math.min(y(v), anterior ? y(anterior[i]) : y(v));
+      s += `<text x="${cx.toFixed(1)}" y="${(topo - 5).toFixed(1)}" text-anchor="middle" class="g-val">${esc(fmt(v))}</text>`;
+      const [a, b] = rotulos[i].split(' ');
+      s += `<text x="${cx.toFixed(1)}" y="${y1 + 15}" text-anchor="middle" class="g-rot">${esc(a)}</text>`;
+      if (b) s += `<text x="${cx.toFixed(1)}" y="${y1 + 27}" text-anchor="middle" class="g-rot2">${esc(b)}</text>`;
+    });
+    if (media) {
+      const ym = y(media);
+      s += `<line x1="${x0}" x2="${x1}" y1="${ym.toFixed(1)}" y2="${ym.toFixed(1)}" class="g-media"/>`;
+      s += `<text x="${x1}" y="${(ym - 5).toFixed(1)}" text-anchor="end" class="g-media-t">média ${esc(fmt(media))}/dia</text>`;
+    }
+    return s;
+  }
+  function linha({ valores, rotulos, fmt, x0 = 20, x1 = 340, y0, y1 }) {
+    const n = valores.length, passo = (x1 - x0) / (n - 1);
+    const max = Math.max(...valores) * 1.2;
+    const pts = valores.map((v, i) => [x0 + passo * i, y1 - (v / max) * (y1 - y0)]);
+    const iMax = valores.indexOf(Math.max(...valores));
+    let s = grade(x0 - 4, x1 + 4, y0, y1);
+    s += `<path d="M${pts[0][0]},${y1} ${pts.map((p) => `L${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')} L${pts[n - 1][0]},${y1} Z" class="g-area"/>`;
+    s += `<polyline points="${pts.map((p) => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ')}" class="g-linha"/>`;
+    pts.forEach((p, i) => {
+      s += `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${i === iMax ? 5 : 3.2}" class="${i === iMax ? 'g-pico' : 'g-ponto'}"/>`;
+      s += `<text x="${p[0].toFixed(1)}" y="${y1 + 15}" text-anchor="middle" class="g-rot">${esc(rotulos[i])}</text>`;
+      if (i !== iMax) s += `<text x="${p[0].toFixed(1)}" y="${(p[1] - 8).toFixed(1)}" text-anchor="middle" class="g-num2">${esc(fmt(valores[i], true))}</text>`;
+    });
+    const pk = pts[iMax];
+    s += `<text x="${pk[0].toFixed(1)}" y="${(pk[1] - 11).toFixed(1)}" text-anchor="middle" class="g-val">${esc(fmt(valores[iMax]))}</text>`;
+    return s;
+  }
+  function participacao({ itens, x0 = 16, x1 = 344, y }) {
+    const total = itens.reduce((a, b) => a + b[1], 0);
+    let s = '', x = x0;
+    itens.forEach(([nome, v], i) => {
+      const w = ((x1 - x0) * v) / total;
+      s += `<rect x="${x.toFixed(1)}" y="${y}" width="${Math.max(0, w - 2).toFixed(1)}" height="20" rx="3" class="g-c${i + 1}"/>`;
+      x += w;
+    });
+    itens.forEach(([nome, v], i) => {
+      const yy = y + 46 + i * 27;
+      s += `<circle cx="${x0 + 6}" cy="${yy - 4}" r="6" class="g-c${i + 1}"/>`;
+      s += `<text x="${x0 + 18}" y="${yy}" class="g-nome">${esc(nome)}</text>`;
+      s += `<text x="${x1 - 86}" y="${yy}" text-anchor="end" class="g-num">${Math.round((v / total) * 100)}%</text>`;
+      s += `<text x="${x1}" y="${yy}" text-anchor="end" class="g-num2">${esc(reais(v))}</text>`;
+    });
+    return s;
+  }
+  function horizontais({ itens, x0 = 16, x1 = 344, y }) {
+    const max = Math.max(...itens.map((i) => i[1]));
+    let s = '';
+    itens.forEach(([nome, q, r], i) => {
+      const yy = y + i * 31;
+      const w = ((x1 - x0 - 2) * q) / max;
+      s += `<text x="${x0}" y="${yy}" class="g-nome">${esc(nome)}</text>`;
+      s += `<text x="${x1}" y="${yy}" text-anchor="end" class="g-num">${q} un${r ? ' · ' + esc(reais(r)) : ''}</text>`;
+      s += `<rect x="${x0}" y="${yy + 6}" width="${(x1 - x0).toFixed(1)}" height="8" rx="4" class="g-trilho"/>`;
+      s += `<rect x="${x0}" y="${yy + 6}" width="${w.toFixed(1)}" height="8" rx="4" class="${i === 0 ? 'g-dest' : 'g-barra'}"/>`;
+    });
+    return s;
+  }
+  function legenda(itens, y) {
+    let x = 16, s = '';
+    for (const [cls, txt] of itens) {
+      s += `<rect x="${x}" y="${y - 9}" width="10" height="10" rx="2" class="${cls}"/><text x="${x + 14}" y="${y}" class="g-leg">${esc(txt)}</text>`;
+      x += 24 + txt.length * 5.6;
+    }
+    return s;
+  }
+  function imagem({ titulo, sub, kpi, delta, deltaBom = true, corpo, leg, rodape, alt, h }) {
+    return `<svg class="g-svg" viewBox="0 0 360 ${h}" role="img" aria-label="${esc(alt)}">
+      <rect width="360" height="${h}" class="g-fundo"/><rect width="360" height="4" class="g-faixa"/>
+      <text x="16" y="29" class="g-tit">${esc(titulo)}</text>
+      <text x="16" y="46" class="g-sub">${esc(sub)}</text>
+      ${kpi ? `<text x="16" y="78" class="g-kpi">${esc(kpi)}</text>` : ''}
+      ${delta ? `<text x="16" y="98" class="g-delta ${deltaBom ? 'bom' : 'ruim'}">${esc(delta)}</text>` : ''}
+      ${corpo}${leg || ''}
+      <text x="16" y="${h - 11}" class="g-rod">${esc(rodape)}</text>
+      <text x="344" y="${h - 11}" text-anchor="end" class="g-rod">Regem · Mister</text>
+    </svg>`;
+  }
+  const solto = (corpo, h, alt) => `<svg class="g-svg" viewBox="0 0 360 ${h}" role="img" aria-label="${esc(alt)}"><rect width="360" height="${h}" class="g-fundo"/>${corpo}</svg>`;
+  const somaSemana = SEMANA.reduce((a, b) => a + b, 0);
+  const altSemana = 'Vendas por dia de 12 a 18/11: ' + DIAS.map((d, i) => `${d}: ${reais(SEMANA[i])} (semana anterior ${reais(ANTERIOR[i])})`).join('; ');
+  const altHora = 'Vendas por hora em 18/11: ' + HORAS.map((h, i) => `${h}: ${reais(POR_HORA[i])}`).join('; ');
+  const altCanais = 'Vendas por canal de 12 a 18/11: ' + CANAIS.map(([n, v]) => `${n}: ${reais(v)}`).join('; ');
+  const altProdutos = 'Mais vendidos de 12 a 18/11: ' + PRODUTOS.map(([n, q]) => `${n}: ${q} unidades`).join('; ');
+  const altInsumo = 'Consumo do blend 56 g de 12 a 18/11: ' + DIAS.map((d, i) => `${d}: ${INSUMO[i]} unidades`).join('; ');
+  const fmtHoraValor = (v, curto) => (curto ? (v >= 1000 ? mil(v) : String(v)) : reais(v));
+
+  const G = {
+    'semana-img': () => imagem({ titulo: 'Vendas por dia', sub: 'Hamburgueria do Centro · 12 a 18/11', kpi: reais(somaSemana), delta: '▲ 12% sobre a semana anterior',
+      corpo: colunas({ atual: SEMANA, anterior: ANTERIOR, rotulos: DIAS, fmt: mil, y0: 124, y1: 266 }),
+      leg: legenda([['g-barra', 'esta semana'], ['g-ant', 'semana anterior'], ['g-dest', 'melhor dia']], 318), rodape: 'Lido em 19/11 às 08:30 · vendas concluídas', alt: altSemana, h: 344 }),
+    'hora-img': () => imagem({ titulo: 'Vendas por hora', sub: 'Hamburgueria do Centro · quarta, 18/11', kpi: reais(4130), delta: 'pico às 21h',
+      corpo: linha({ valores: POR_HORA, rotulos: HORAS, fmt: fmtHoraValor, y0: 124, y1: 278 }), rodape: 'Lido em 19/11 às 09:00 · vendas concluídas', alt: altHora, h: 326 }),
+    'hora-qtd-img': () => imagem({ titulo: 'Pedidos por hora', sub: 'Hamburgueria do Centro · quarta, 18/11', kpi: '86 pedidos', delta: 'pico às 21h',
+      corpo: linha({ valores: PEDIDOS_HORA, rotulos: HORAS, fmt: (v) => String(v), y0: 124, y1: 278 }), rodape: 'Lido em 19/11 às 10:10 · sem valores', alt: 'Pedidos por hora em 18/11: ' + HORAS.map((h, i) => `${h}: ${PEDIDOS_HORA[i]}`).join('; '), h: 326 }),
+    'canais-img': () => imagem({ titulo: 'Vendas por canal', sub: 'Hamburgueria do Centro · 12 a 18/11', kpi: reais(somaSemana),
+      corpo: participacao({ itens: CANAIS, y: 98 }), rodape: 'Lido em 19/11 às 08:30 · vendas concluídas', alt: altCanais, h: 314 }),
+    'produtos-img': () => imagem({ titulo: 'Mais vendidos', sub: 'Hamburgueria do Centro · 12 a 18/11 · por quantidade', kpi: '1.577 unidades',
+      corpo: horizontais({ itens: PRODUTOS, y: 112 }), rodape: 'Lido em 19/11 às 08:30', alt: altProdutos, h: 330 }),
+    'insumo-img': () => imagem({ titulo: 'Blend 56 g · consumo', sub: 'Pela ficha técnica · 12 a 18/11', kpi: '1.275 unidades', delta: '▲ 9% sobre a semana anterior',
+      corpo: colunas({ atual: INSUMO, rotulos: DIAS, fmt: (v) => String(v), y0: 124, y1: 266, media: 182 }), rodape: 'Lido em 19/11 às 08:30 · baixa pelas vendas', alt: altInsumo, h: 318 }),
+    // o desenho de hoje, para comparar
+    'antes': () => {
+      const max = Math.max(...INSUMO), y0 = 30, y1 = 200, slot = 328 / 7;
+      let s = `<rect width="360" height="236" fill="#fff"/><text x="16" y="20" font-size="11" font-weight="700" fill="#132536">Blend 56 g — consumo por dia</text>`;
+      s += `<line x1="16" x2="344" y1="${y1}" y2="${y1}" stroke="#C8D2DC"/>`;
+      INSUMO.forEach((v, i) => {
+        const h = (v / max) * (y1 - y0), x = 16 + slot * i + 6;
+        s += `<rect x="${x}" y="${y1 - h}" width="${slot - 12}" height="${h}" fill="${v === max ? '#C98B26' : '#2F4A60'}"/>`;
+        s += `<text x="${x + (slot - 12) / 2}" y="${y1 + 12}" text-anchor="middle" font-size="8" fill="#43586C">${DIAS[i].split(' ')[1]}/11</text>`;
+      });
+      const ym = y1 - (182 / max) * (y1 - y0);
+      s += `<line x1="16" x2="344" y1="${ym}" y2="${ym}" stroke="#B93232" stroke-width="1.5" stroke-dasharray="5 4"/><text x="344" y="${ym - 4}" text-anchor="end" font-size="8" fill="#B93232">média</text>`;
+      return `<svg class="g-svg" viewBox="0 0 360 236" role="img" aria-label="O gráfico de hoje: barras sem valores escritos, sem período nem comparação">${s}</svg>`;
+    },
+    // sem a moldura (o título vai na página)
+    'semana-solto': () => solto(colunas({ atual: SEMANA, anterior: ANTERIOR, rotulos: DIAS, fmt: mil, y0: 22, y1: 168 }) + legenda([['g-barra', 'esta semana'], ['g-ant', 'anterior'], ['g-dest', 'melhor dia']], 222), 232, altSemana),
+    'hora-solto': () => solto(linha({ valores: POR_HORA, rotulos: HORAS, fmt: fmtHoraValor, y0: 26, y1: 182 }), 206, altHora),
+    'canais-solto': () => solto(participacao({ itens: CANAIS, y: 10 }), 196, altCanais),
+    'produtos-solto': () => solto(horizontais({ itens: PRODUTOS, y: 20 }), 202, altProdutos),
+  };
+  document.querySelectorAll('[data-grafico]').forEach((el) => {
+    const f = G[el.dataset.grafico];
+    if (f) el.innerHTML = f();
+  });
+
+  // ── abas do protótipo ──
+  const abas = document.querySelectorAll('.aba');
+  abas.forEach((b) => b.addEventListener('click', () => {
+    abas.forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    document.querySelectorAll('.vista').forEach((v) => v.classList.toggle('ativa', v.id === 'v-' + b.dataset.aba));
+    window.scrollTo(0, 0);
+  }));
+
+  // ── partes do Mister ──
+  const partes = document.querySelectorAll('.parte');
+  partes.forEach((b) => b.addEventListener('click', () => {
+    partes.forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    const p = b.dataset.parte;
+    document.querySelector('[data-p="avisos"]').hidden = p !== 'avisos';
+    document.querySelector('[data-p="ia"]').hidden = p !== 'ia';
+    document.querySelector('[data-p="outra"]').hidden = p === 'avisos' || p === 'ia';
+  }));
+
+  // ── controles da situação ──
+  function aplicarGraph(v) {
+    document.querySelectorAll('[data-g]').forEach((el) => { el.hidden = el.dataset.g !== v; });
+    const sem = v === 'sem';
+    document.querySelectorAll('[data-liga]').forEach((b) => { b.disabled = sem; });
+    document.getElementById('s-responder').disabled = sem;
+    const usado = v === 'cota' ? 500 : 137;
+    document.getElementById('cota-usada').textContent = String(usado);
+    const med = document.getElementById('cota-medidor');
+    med.firstElementChild.style.width = (usado / 5) + '%';
+    med.setAttribute('aria-label', `${usado} de 500 leituras usadas em novembro`);
+    const selo = document.getElementById('cota-selo');
+    selo.className = 'selo ' + (v === 'cota' ? 'warn' : 'ok');
+    selo.textContent = v === 'cota' ? 'acabou' : 'ok';
+  }
+  function aplicarTema(v) {
+    const lk = document.getElementById('lk');
+    lk.classList.toggle('escuro', v === 'escuro');
+    lk.querySelectorAll('.grafico').forEach((g) => g.classList.toggle('escuro', v === 'escuro'));
+    document.getElementById('lk-vivo').hidden = v === 'vencido';
+    document.getElementById('lk-vencido').hidden = v !== 'vencido';
+  }
+  document.querySelectorAll('.ctl').forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll(`.ctl[data-ctl="${b.dataset.ctl}"]`).forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    if (b.dataset.ctl === 'graph') aplicarGraph(b.dataset.valor);
+    if (b.dataset.ctl === 'tema') aplicarTema(b.dataset.valor);
+  }));
+
+  // ── abas do link ──
+  const lkAbas = document.querySelectorAll('.lk-aba');
+  lkAbas.forEach((b) => b.addEventListener('click', () => {
+    lkAbas.forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    document.querySelectorAll('[data-lk-g]').forEach((g) => { g.hidden = g.dataset.lkG !== b.dataset.lk; });
+  }));
+
+  // ── ajustes: o que mudou e a barra de salvar ──
+  const original = {};
+  const mudadas = new Set();
+  function marcar(chave, mudou) {
+    const linha = document.querySelector(`[data-aj="${chave}"]`);
+    linha.classList.toggle('mudou', mudou);
+    mudou ? mudadas.add(chave) : mudadas.delete(chave);
+    const barra = document.getElementById('barra');
+    barra.hidden = mudadas.size === 0;
+    document.getElementById('barra-n').textContent = mudadas.size === 1 ? '1 alteração ainda não salva' : `${mudadas.size} alterações ainda não salvas`;
+  }
+  document.querySelectorAll('[data-liga]').forEach((b) => {
+    original[b.dataset.liga] = b.getAttribute('aria-checked');
+    b.addEventListener('click', () => {
+      const novo = b.getAttribute('aria-checked') !== 'true';
+      b.setAttribute('aria-checked', String(novo));
+      document.getElementById('e-' + b.dataset.liga).textContent = novo ? 'Ligado' : 'Desligado';
+      marcar(b.dataset.liga, String(novo) !== original[b.dataset.liga]);
+    });
+  });
+  document.querySelectorAll('[data-sel]').forEach((s) => {
+    original[s.dataset.sel] = s.selectedIndex;
+    s.addEventListener('change', () => marcar(s.dataset.sel, s.selectedIndex !== original[s.dataset.sel]));
+  });
+  document.getElementById('desfazer').addEventListener('click', () => {
+    document.querySelectorAll('[data-liga]').forEach((b) => { b.setAttribute('aria-checked', original[b.dataset.liga]); document.getElementById('e-' + b.dataset.liga).textContent = original[b.dataset.liga] === 'true' ? 'Ligado' : 'Desligado'; });
+    document.querySelectorAll('[data-sel]').forEach((s) => { s.selectedIndex = original[s.dataset.sel]; });
+    [...mudadas].forEach((c) => marcar(c, false));
+  });
+  document.getElementById('salvar').addEventListener('click', () => {
+    document.querySelectorAll('[data-liga]').forEach((b) => { original[b.dataset.liga] = b.getAttribute('aria-checked'); });
+    document.querySelectorAll('[data-sel]').forEach((s) => { original[s.dataset.sel] = s.selectedIndex; });
+    [...mudadas].forEach((c) => marcar(c, false));
+  });
+})();
+</script>
+</body>
+</html>
