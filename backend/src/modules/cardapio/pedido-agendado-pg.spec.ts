@@ -39,6 +39,7 @@ descrever('pedido agendado (Postgres)', () => {
   const empresas: string[] = [];
   const q = (s: string, p: any[] = []) => pool.query(s, p).then((r) => r.rows);
   const aceitos: string[] = [];
+  const horariosAvisados: string[] = [];
   // A gravação do pedido como a do Delivery grava o que o agendado usa (agendamento e retirada_tipo).
   const delivery = {
     ingest: async (tenantId: string, unidadeId: string | null, canal: string, n: any, x: any) =>
@@ -51,6 +52,9 @@ descrever('pedido agendado (Postgres)', () => {
             n.formaPagamento, x.statusPagamento ?? null, x.agendamento ? new Date(x.agendamento) : null, x.retiradaTipo ?? null],
         )
       ).map((r: any) => ({ ...r, id: r.id, status: r.status, unidadeId: r.unidade_id }))[0],
+    // D4b: o cancelamento do cliente e o aviso do "horário mudou".
+    cancelarSistema: async (_t: string, id: string) => q(`update pedido_externo set status = 'cancelado' where id = $1`, [id]),
+    avisarHorarioDoAgendado: async (_t: string, id: string) => void horariosAvisados.push(id),
     aceitar: async (_t: string, _u: any, id: string) => {
       aceitos.push(id);
       await q(`update pedido_externo set status = 'confirmado' where id = $1`, [id]);
@@ -230,5 +234,76 @@ descrever('pedido agendado (Postgres)', () => {
     );
     const m: Map<string, any> = await (producao as any).encomendaDasComandas(l.t, [comanda]);
     expect(m.get(comanda)).toEqual({ para: '2026-11-18T22:30:00.000Z', comeca: '2026-11-18T22:10:00.000Z', agendado: true });
+  });
+
+  // ── D4b: mudar o horário e cancelar (G6) ──
+  const cfgDe = async (l: Loja) => ({ ...(await q(`select * from cardapio_config where tenant_id = $1`, [l.t]))[0] });
+  const daLoja = async (l: Loja) => {
+    const c = await cfgDe(l);
+    return {
+      ...c,
+      tenantId: l.t,
+      agendadoAtivo: c.agendado_ativo,
+      agendadoAntecedenciaMin: c.agendado_antecedencia_min,
+      agendadoDias: c.agendado_dias,
+      agendadoLimiteJanela: c.agendado_limite_janela,
+      tempoEntregaMin: c.tempo_entrega_min,
+      tempoRetiradaMin: c.tempo_retirada_min,
+      horarios: c.horarios,
+      horarioUnico: c.horario_unico,
+    };
+  };
+
+  it('o cliente muda o horário pela página (com o ref), o status diz se ainda pode, o aviso sai e a auditoria guarda', async () => {
+    const l = await loja();
+    const j = janelaDaqui(120);
+    const r: any = await pedir(l, j, 'pix', { clientRef: `ref-${randomUUID()}` });
+    const id = r.pedidoId ?? r.id;
+    const ref = (await q(`select client_ref from pedido_externo where id = $1`, [id]))[0].client_ref;
+    const st: any = await cardapio.statusPedido(l.token, id, ref);
+    expect(st.agendado).toMatchObject({ podeMudar: true, preparoMin: 20 });
+    // Sem a prova de dono, o pedido "não existe".
+    await expect(cardapio.mudarHorarioPublico(l.token, id, janelaDaqui(180), undefined, 'outro-ref')).rejects.toThrow('Pedido não encontrado.');
+    const novo = janelaDaqui(180);
+    const m: any = await cardapio.mudarHorarioPublico(l.token, id, novo, undefined, ref);
+    expect(m).toMatchObject({ ok: true, mudou: true });
+    expect(emSaoPaulo(new Date((await q(`select agendamento from pedido_externo where id = $1`, [id]))[0].agendamento)).diaHora).toBe(novo);
+    expect(horariosAvisados).toContain(id);
+    // A janela fora da grade é recusada com a mensagem.
+    await expect(cardapio.mudarHorarioPublico(l.token, id, `${novo.slice(0, 14)}05`, undefined, ref)).rejects.toThrow('não está disponível');
+  });
+
+  it('depois que o preparo começou: o cliente não muda nem cancela; a loja ainda muda', async () => {
+    const l = await loja();
+    const ref = `ref-${randomUUID()}`;
+    // Agendado para daqui a 10 min (retirada: preparo de 20 min) — já começou. Gravado direto (a janela já não aceitaria).
+    const id = (
+      await q(
+        `insert into pedido_externo (tenant_id, canal, client_ref, display_id, cliente_nome, tipo, itens, total, status, agendamento, retirada_tipo)
+         values ($1,'cardapio',$2,'5','Ana','retirada','[]'::jsonb,10,'confirmado', date_trunc('minute', now()) + interval '10 minutes','agendado') returning id`,
+        [l.t, ref],
+      )
+    )[0].id as string;
+    const st: any = await cardapio.statusPedido(l.token, id, ref);
+    expect(st.agendado.podeMudar).toBe(false);
+    await expect(cardapio.mudarHorarioPublico(l.token, id, janelaDaqui(120), undefined, ref)).rejects.toThrow('já está sendo preparado');
+    await expect(cardapio.cancelarEncomendaPublico(l.token, id, undefined, ref)).rejects.toThrow('já está sendo preparado');
+    const m: any = await cardapio.mudarHorarioDoAgendado(await daLoja(l), id, janelaDaqui(120), { origem: 'loja', atorId: null, atorPerfil: 'gerente' });
+    expect(m.mudou).toBe(true);
+  });
+
+  it('antes do preparo o cliente cancela pela página; a janela cheia não aceita a mudança', async () => {
+    const l = await loja(2);
+    const j = janelaDaqui(120);
+    const outra = janelaDaqui(150);
+    const a: any = await pedir(l, j, 'pix', { clientRef: `ref-${randomUUID()}` });
+    await pedir(l, outra);
+    await pedir(l, outra); // a outra janela encheu (2 de 2)
+    const idA = a.pedidoId ?? a.id;
+    const refA = (await q(`select client_ref from pedido_externo where id = $1`, [idA]))[0].client_ref;
+    await expect(cardapio.mudarHorarioPublico(l.token, idA, outra, undefined, refA)).rejects.toThrow('já encheu');
+    const c: any = await cardapio.cancelarEncomendaPublico(l.token, idA, undefined, refA);
+    expect(c.ok).toBe(true);
+    expect((await q(`select status from pedido_externo where id = $1`, [idA]))[0].status).toBe('cancelado');
   });
 });

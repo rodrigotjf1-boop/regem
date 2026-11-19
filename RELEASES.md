@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Pedido agendado — D4b (19/11; SEM migration).** Mudar o horário (cliente pela página do pedido até o preparo; loja pela
+  gaveta do painel), o cancelamento do cliente só antes do preparo, o aviso "horário mudou" e a pergunta dos agendados para
+  depois ao fechar o turno do delivery (G8). O painel e o fechar turno também rodam no servidor da loja → vão no `.zip`.
+
 - **Pedido agendado — D4a (19/11; protótipo `mockups/regem-atendente-alergenos-agendado.html`, parte 2; mig 455 NAS DUAS
   PONTAS — `cardapio_config.agendado_*` e `pedido_externo.agendado_preparo_avisado_em`).** Os ajustes em Cardápio digital ›
   Encomenda (nasce desligado), o "Para quando?" com o dia e as janelas de 15 min no cardápio online, o recebimento só Pix

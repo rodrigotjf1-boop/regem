@@ -18,6 +18,7 @@ import { ItensDoPedido } from './itens-do-pedido';
 import { horaCurta, textoDoOutroPedido } from '@/lib/pedido-repetido';
 import { ItensDaPerda, type MarcaDaPerda } from './itens-da-perda';
 import { AlteracaoDoPedido } from './alteracao-do-pedido';
+import { MudarHorarioGaveta } from './mudar-horario-gaveta';
 
 // Os canais em que quem manda no pedido é a plataforma: o Regem não altera (a mesma lista do servidor,
 // `CANAIS_SEM_ALTERACAO` em `backend/src/modules/pedido-alterado/pedido-alterado.ts`).
@@ -65,6 +66,8 @@ export function PedidoDetalhe({
     modoInicial === 'alterar' && editavel ? 'alterar' : 'view',
   );
   const [busy, setBusy] = useState(false);
+  // "Mudar o horário" do pedido agendado (mig 455): a gaveta.
+  const [mudarHorario, setMudarHorario] = useState(false);
   // cancelar
   const [motivo, setMotivo] = useState('');
   const [senha, setSenha] = useState('');
@@ -354,6 +357,22 @@ export function PedidoDetalhe({
                 codigoColeta={p.canal === '99food' && p.logistica?.modo === 'logistica_canal' ? p.raw?.handover_code ?? null : null}
               />
               {p.agendamento && <p className="text-xs text-info">🗓 agendado p/ {dataHora(p.agendamento)}</p>}
+              {/* Pedido agendado (mig 455, G6): a loja muda o horário a qualquer momento antes de sair. */}
+              {p.retiradaTipo === 'agendado' && ['novo', 'confirmado'].includes(p.status) && (
+                <button type="button" className="text-xs font-semibold text-primary underline underline-offset-2" onClick={() => setMudarHorario(true)}>
+                  Mudar o horário
+                </button>
+              )}
+              {mudarHorario && (
+                <MudarHorarioGaveta
+                  pedido={p}
+                  aoFechar={() => setMudarHorario(false)}
+                  aoMudar={() => {
+                    setMudarHorario(false);
+                    onChanged();
+                  }}
+                />
+              )}
               {p.cupom && <p className="text-xs text-muted-foreground">🎟 cupom {p.cupom}</p>}
             </div>
 

@@ -5,6 +5,7 @@ import { useParams, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { ChegueiDoPedido } from '@/components/loja/cardapio/cheguei-do-pedido';
 import { TEXTO_DO_ESTORNO } from '@/components/loja/cardapio/texto-do-estorno';
+import { AgendadoNoPedido } from '@/components/loja/cardapio/agendado-no-pedido';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -122,6 +123,8 @@ export default function StatusPedidoPage() {
           <>
             <div className="mt-5">
               <ChegueiDoPedido token={token} pedidoId={id} refDoLink={ref} ped={ped} abrirAoCarregar={abrirCheguei} onMudou={carregar} />
+              {/* Pedido agendado (mig 455, G6): o horário e, até o preparo começar, mudar o horário ou cancelar. */}
+              <AgendadoNoPedido token={token} pedidoId={id} refDoLink={ref} ped={ped} onMudou={carregar} />
             </div>
             <ol className="mt-6" aria-label="Andamento do pedido">
               {passos.map((s, i) => (

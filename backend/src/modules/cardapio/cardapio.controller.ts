@@ -5,6 +5,8 @@ import {
   Get,
   Headers,
   Param,
+  ParseUUIDPipe,
+  Patch,
   Post,
   Put,
   Optional,
@@ -19,6 +21,7 @@ import { Roles } from '../../auth/roles.decorator';
 import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
+import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { CardapioService } from './cardapio.service';
 import { menuParaOPublico } from './menu-publico';
@@ -121,6 +124,14 @@ export class CardapioPublicoController {
 
   // Público: o cliente cancela a própria encomenda (com estorno do sinal dentro do
   // prazo). `ref` = client_ref do pedido (prova de dono). mig 188/S3.
+  // Pedido agendado (mig 455, G6): o cliente muda o horário pela página do pedido (até o preparo começar), com a prova de
+  // dono (o `ref` do link ou o token de Sua conta). O servidor confere a janela nova e o limite de novo.
+  @Post(':token/pedido/:id/horario')
+  @Throttle({ default: { ttl: 60000, limit: 20 } })
+  mudarHorario(@Param('token') token: string, @Param('id', ParseUUIDPipe) id: string, @Body() body: any) {
+    return this.service.mudarHorarioPublico(token, id, body?.agendamento, body?.clienteToken, body?.ref);
+  }
+
   @Post(':token/pedido/:id/cancelar')
   @Throttle({ default: { ttl: 60000, limit: 20 } })
   cancelarEncomenda(
@@ -256,6 +267,32 @@ export class CardapioController {
   @RequirePerm('loja')
   config(@CurrentUser() user: AuthUser) {
     return this.service.getConfig(user.tenantId, null);
+  }
+
+  // Pedido agendado (mig 455, G6): as janelas de um dia para "Mudar o horário" no painel do Delivery (sem contar o próprio
+  // pedido na ocupação) e a mudança pela loja — a qualquer momento antes de sair, com quem mudou na auditoria.
+  @Get('agendado/janelas')
+  @RequirePerm('delivery')
+  janelasDoAgendado(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
+    @Query('dia') dia?: string,
+    @Query('tipo') tipo?: string,
+    @Query('pedidoId') pedidoId?: string,
+  ) {
+    const id = /^[0-9a-f-]{36}$/i.test(String(pedidoId ?? '')) ? String(pedidoId) : undefined;
+    return this.service.janelasDoAgendadoDaLoja(user.tenantId, atual, String(dia ?? '').slice(0, 10), tipo, id);
+  }
+
+  @Patch('agendado/:id/horario')
+  @RequirePerm('delivery')
+  mudarHorarioDoAgendado(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: any,
+  ) {
+    return this.service.mudarHorarioDaLoja(user.tenantId, atual, id, dto?.agendamento, { id: user.colaboradorId ?? null, perfil: user.categoria ?? null });
   }
 
   @Put('config')
