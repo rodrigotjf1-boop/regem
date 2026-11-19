@@ -1993,21 +1993,25 @@ export class CardapioService {
   }
 
   /**
-   * O pedido agendado `pedidoId`, entre os vivos da MESMA janela (mesmo `agendamento`), está além do limite pela ordem de
-   * chegada (criado_em, id)? A conta da conferência depois de gravar (G9, V98).
+   * O LIMITE DA JANELA DEPOIS DE GRAVAR (G9, V98): numa transação, trava as linhas VIVAS da janela do pedido (FOR UPDATE —
+   * quem confere junto espera a vez) e, se elas passam do limite, o PRÓPRIO pedido sai da janela por `desfazer` (o pedido
+   * novo é cancelado; a mudança de horário volta ao de antes). Quem vê a janela estourada é quem desfaz: a decisão NÃO
+   * depende da ordem de chegada — o `criado_em` é a hora em que a gravação COMEÇOU, não a em que ficou visível, e a ordem
+   * por ele deixava os dois pedidos se acharem dentro do limite (CI de 19/11). Devolve true quando desfez.
    */
-  private async passouDoLimiteDaJanela(tenantId: string, pedidoId: string, limite: number): Promise<boolean> {
-    const r: any = await this.db.execute(sql`
-      with alvo as (select agendamento from pedido_externo where id = ${pedidoId}::uuid and tenant_id = ${tenantId}::uuid),
-      fila as (
-        select p.id, row_number() over (order by p.criado_em, p.id) as posicao
-          from pedido_externo p, alvo
-         where p.tenant_id = ${tenantId}::uuid and p.retirada_tipo = 'agendado' and p.status <> 'cancelado'
-           and p.deleted_at is null and p.agendamento = alvo.agendamento
-      )
-      select posicao from fila where id = ${pedidoId}::uuid`);
-    const pos = Number((r?.rows ?? r)?.[0]?.posicao ?? 0);
-    return pos > limite;
+  private async desfazSePassouDoLimite(tenantId: string, pedidoId: string, limite: number, desfazer: (tx: any) => Promise<unknown>): Promise<boolean> {
+    return this.db.transaction(async (tx) => {
+      const r: any = await tx.execute(sql`
+        select p.id from pedido_externo p
+         where p.tenant_id = ${tenantId}::uuid and p.retirada_tipo = 'agendado' and p.status <> 'cancelado' and p.deleted_at is null
+           and p.agendamento = (select a.agendamento from pedido_externo a where a.id = ${pedidoId}::uuid and a.tenant_id = ${tenantId}::uuid)
+         order by p.id
+         for update`);
+      const ids = ((r?.rows ?? r ?? []) as any[]).map((x) => String(x.id));
+      if (!ids.includes(pedidoId) || ids.length <= limite) return false;
+      await desfazer(tx);
+      return true;
+    });
   }
 
   /** As janelas pela porta pública do cardápio (token). */
@@ -4557,18 +4561,20 @@ export class CardapioService {
     );
 
     // O LIMITE DA JANELA DEPOIS DE GRAVAR (mig 455, G9 — V98): dois clientes pegando a última vaga ao mesmo tempo passariam
-    // os dois pela contagem de antes. Aqui o pedido já está gravado: entre os vivos da janela, quem passou do limite pela
-    // ordem de chegada (criado_em, id) é desfeito na hora — antes do aceite e do Pix, sem aviso ao cliente — e a recusa
-    // diz que a janela acabou de encher. Cada gravação vem antes da própria conferência: das duas, pelo menos uma vê a outra.
+    // os dois pela contagem de antes. Aqui o pedido já está gravado: com as linhas da janela travadas, se ela estourou, ESTE
+    // pedido é desfeito na hora — antes do aceite e do Pix, sem aviso ao cliente — e a recusa diz que a janela acabou de
+    // encher (`desfazSePassouDoLimite`: quem confere depois espera e já vê o desfeito).
     if (ehAgendado && janelaDoAgendado && ped?.id) {
       const limite = ajustesDoAgendado(cfg).limite;
-      if (limite != null && (await this.passouDoLimiteDaJanela(cfg.tenantId, String(ped.id), limite))) {
-        await this.db.execute(sql`
-          update pedido_externo set status = 'cancelado', motivo_cancelamento = 'A janela do pedido agendado encheu no mesmo instante',
-                 updated_at = now()
-           where id = ${String(ped.id)}::uuid and tenant_id = ${cfg.tenantId}::uuid and status = 'novo'`);
-        throw new BadRequestException(`O horário das ${janelaDoAgendado.slice(11)} acabou de encher. Escolha outro.`);
-      }
+      const desfez =
+        limite != null &&
+        (await this.desfazSePassouDoLimite(cfg.tenantId, String(ped.id), limite, (tx) =>
+          tx.execute(sql`
+            update pedido_externo set status = 'cancelado', motivo_cancelamento = 'A janela do pedido agendado encheu no mesmo instante',
+                   updated_at = now()
+             where id = ${String(ped.id)}::uuid and tenant_id = ${cfg.tenantId}::uuid and status = 'novo'`),
+        ));
+      if (desfez) throw new BadRequestException(`O horário das ${janelaDoAgendado.slice(11)} acabou de encher. Escolha outro.`);
     }
 
     // De onde o cliente veio (mig 299) — logo depois do pedido; nunca o derruba.

@@ -843,11 +843,14 @@ export interface LimitesDoKds {
 }
 
 /** Quando o tempo do cartão começa a contar (ms): o começo do preparo da encomenda, ou a entrada do cartão. */
-export function inicioDoTempoNaCozinha(criadoEm: unknown, encomendaPara: unknown): number {
+export function inicioDoTempoNaCozinha(criadoEm: unknown, encomendaPara: unknown, encomendaComeca?: unknown): number {
   const criado = new Date(String(criadoEm ?? '')).getTime();
   const para = encomendaPara ? new Date(String(encomendaPara)).getTime() : NaN;
   if (!Number.isFinite(para)) return criado;
-  return Math.max(criado, para - PREPARO_DA_ENCOMENDA_MIN * 60_000);
+  // Pedido AGENDADO (mig 455, G3): o começo do preparo vem pronto do servidor (o tempo de entrega/retirada antes do
+  // horário) — a MESMA regra da tela do KDS (`frontend/src/lib/kds-fila.ts` › `inicioDoTempo`, V74).
+  const comeca = encomendaComeca ? new Date(String(encomendaComeca)).getTime() : NaN;
+  return Math.max(criado, Number.isFinite(comeca) ? comeca : para - PREPARO_DA_ENCOMENDA_MIN * 60_000);
 }
 
 /**
@@ -855,12 +858,12 @@ export function inicioDoTempoNaCozinha(criadoEm: unknown, encomendaPara: unknown
  * entrou no vermelho do KDS (`amareloAteMin`). Cancelado e encomenda que ainda não chegou na hora nunca estão.
  */
 export function atrasoNaCozinha(
-  c: { status?: unknown; criadoEm?: unknown; encomendaPara?: unknown; tempoPreparoMin?: unknown },
+  c: { status?: unknown; criadoEm?: unknown; encomendaPara?: unknown; encomendaComeca?: unknown; tempoPreparoMin?: unknown },
   agoraMs: number,
   limites: LimitesDoKds,
 ): { minutos: number; motivo: 'passou_do_preparo' | 'passou_do_vermelho'; limiteMin: number } | null {
   if (c.status === 'cancelado') return null;
-  const inicio = inicioDoTempoNaCozinha(c.criadoEm, c.encomendaPara);
+  const inicio = inicioDoTempoNaCozinha(c.criadoEm, c.encomendaPara, c.encomendaComeca);
   if (!Number.isFinite(inicio) || agoraMs < inicio) return null;
   const minutos = Math.max(0, Math.floor((agoraMs - inicio) / 60_000));
   const preparo = Number(c.tempoPreparoMin);
