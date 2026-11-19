@@ -1,7 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { api, getCategoria, getPermissoes } from '@/lib/api';
+import { NO_SERVIDOR_DA_LOJA } from '@/components/ui/so-pela-nuvem';
 import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
@@ -514,6 +516,15 @@ export default function ClientesPage() {
           <Button variant="outline" onClick={abrirCampanhas}>
             Campanhas
           </Button>
+          {/* O calendário de eventos (F2 do perfil do cliente): só com o módulo ligado — o servidor confere de novo. */}
+          {perfilLigado && !NO_SERVIDOR_DA_LOJA && (
+            <Link
+              href="/clientes/calendario"
+              className="inline-flex h-11 items-center rounded-md border border-input bg-card px-4 text-sm font-semibold hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              Calendário de eventos
+            </Link>
+          )}
           {podeImportar && (
             <>
               <input

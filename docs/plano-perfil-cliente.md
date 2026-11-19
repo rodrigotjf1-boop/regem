@@ -11,12 +11,12 @@
 | F0 · Protótipo | aprovado pelo dono (19/11), `mockups/regem-perfil-cliente.html` | #1172 | — |
 | F1-0 · Correções | **no ar** — campanha só para cliente direto (ERR-535) e totais do cliente sempre certos (ERR-536) | #1172 | 458 (nos dois lados, aplicada) |
 | F1a · Base do perfil | **no ar** — cálculo e ficha pela API; módulo "Perfil do cliente" nasce desligado; o gatilho dos totais sem esperar (ERR-539) | #1174 | 459 (só nuvem) e 460 (nos dois lados), aplicadas |
-| F1b · Ficha na tela | "Ver perfil do cliente" no detalhe de Delivery › Clientes (gaveta) | este PR | — |
-| F1c · Privacidade (API + Perfil do cardápio) | escolhas do cliente e o que ele conta; a seção "Privacidade" no Perfil do cardápio | este PR | — |
-| F6 · Cartão no atendente | `cartao` no `ver_pedido` (instruções .f33) e a trava na saída do robô | este PR | — |
-| F1c · Privacidade (o resto) | as três caixas na entrada com o telefone, a palavra PRIVACIDADE no WhatsApp | a fazer | — |
-| F6b · Cartão para a equipe | no caso do Atendimento e no copiloto | a fazer | — |
-| F2 em diante | eventos (Hub), sensibilidade, marketing, cliques, cardápio personalizado, Liame | a fazer | — |
+| F1b · Ficha na tela | "Ver perfil do cliente" no detalhe de Delivery › Clientes (gaveta) | #1177 | — |
+| F1c · Privacidade | escolhas do cliente e o que ele conta; a seção "Privacidade" no Perfil do cardápio; as escolhas desmarcadas na entrada (depois do código do WhatsApp, uma vez só); a palavra PRIVACIDADE no WhatsApp | #1177 | — |
+| F6 · Cartão no atendente | `cartao` no `ver_pedido` (instruções .f33) e a trava na saída do robô | #1177 | — |
+| F6b · Cartão para a equipe | no caso da Central de atendimento (o copiloto fica para depois) | #1177 | — |
+| F2 · Eventos no Regem | Delivery › Clientes › Calendário de eventos: a regra fixa (feriados por lei, pontos facultativos, comemorativas, dinheiro no bolso), os eventos da loja (`evento_loja`) e os feriados de Escalas › Feriado / evento; a cópia por loja e dia (`calendario_loja_dia`) na rotina noturna. Jogos, clima e séries esperam o produto de eventos do Hub (D12) | este PR | 461 (só nuvem) |
+| F3 em diante | sensibilidade a eventos, jeito de conversar, marketing, cliques, cardápio personalizado, Liame | a fazer | — |
 
 **Para ver funcionando:** o presidente liga o módulo "Perfil do cliente" em Visão C&O › Módulos do produto. A rotina da manhã (4h–11h)
 calcula a empresa; "Recalcular agora" (POST `/perfil-cliente/recalcular`) faz na hora.

@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Perfil do cliente F2 — o calendário de eventos da loja (19/11; mig 461 SÓ NUVEM — `evento_loja`,
+  `calendario_loja_dia`).** Delivery › Clientes › Calendário de eventos (rotas `/calendario-da-loja`), a regra fixa de
+  feriados e datas, os eventos da loja e a cópia por loja e dia na rotina noturna do perfil. Tudo só na nuvem e só com o
+  módulo "Perfil do cliente" ligado; as duas tabelas entram como SO_NUVEM no `sync-daemon.mjs` (o daemon mudou: o
+  `.exe` do próximo corte leva junto, como já leva o da F1a).
+
 - **Perfil do cliente — o gatilho dos totais não espera a trava do cadastro (19/11; mig 460 NOS DOIS LADOS; ERR-539).** A
   função da 458 pega o cadastro com skip locked (feita por um diagnóstico errado do deadlock do CI — ERR-539; inofensiva). No servidor da loja
   entra com o `.zip`, junto da 458.

@@ -1,4 +1,5 @@
-import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { CalendarioDaLojaService } from './calendario-da-loja.service';
 import { Cron } from '@nestjs/schedule';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -23,7 +24,11 @@ export class PerfilClienteService {
   private rodando = false;
   private avaliacaoExiste: boolean | null = null;
 
-  constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
+  constructor(
+    @Inject(DRIZZLE) private readonly db: DrizzleDB,
+    // A cópia do calendário por loja (F2) vai na mesma volta da rotina noturna.
+    @Optional() private readonly calendario?: CalendarioDaLojaService,
+  ) {}
 
   private rows(r: any): any[] {
     return r?.rows ?? r ?? [];
@@ -96,6 +101,13 @@ export class PerfilClienteService {
         try {
           const r = await this.calcularEmpresa(tenantId);
           this.log.log(`perfil do cliente: empresa ${tenantId.slice(0, 8)} — ${r.clientes} perfis, ${r.removidos} removidos, ${r.ms} ms`);
+          // A cópia do calendário por loja e dia (F2, mig 461) — à parte: se falhar, o perfil já foi gravado.
+          if (this.calendario) {
+            await this.calendario
+              .materializar(tenantId)
+              .then((c) => this.log.log(`calendário da loja: empresa ${tenantId.slice(0, 8)} — ${c.lojas} loja(s), ${c.dias} dias`))
+              .catch((e: any) => this.log.error(`calendário da loja: empresa ${tenantId.slice(0, 8)} falhou: ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e}`, e?.stack));
+          }
         } catch (e: any) {
           this.log.error(`perfil do cliente: empresa ${tenantId.slice(0, 8)} falhou: ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e}`, e?.stack);
           await this.db.execute(sql`update perfil_cliente_execucao set erro = ${String(e?.message ?? e).slice(0, 300)}
