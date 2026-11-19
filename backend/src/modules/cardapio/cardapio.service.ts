@@ -30,6 +30,7 @@ import {
   instanteDeSaoPaulo,
   janelasDoDia,
   preparoDoTipo,
+  quandoDoAgendado,
   somarDiasAoDia,
   type Janela,
 } from '../../common/pedido-agendado';
@@ -2598,6 +2599,124 @@ export class CardapioService {
   }
 
   // Público: status do pedido (timeline) por id.
+  /**
+   * A situação do pedido AGENDADO (mig 455): quando o preparo começa e se ainda dá para o CLIENTE mudar o horário ou
+   * cancelar (G6: até entrar em preparo; depois, só a equipe). Outro pedido = null.
+   */
+  private situacaoDoAgendado(cfg: any, p: any): { comeca: string; podeMudar: boolean; preparoMin: number } | null {
+    if (p?.retiradaTipo !== 'agendado' || !p.agendamento) return null;
+    const preparoMin = preparoDoTipo(cfg, p.tipo);
+    const comeca = inicioDoPreparo(new Date(p.agendamento), preparoMin);
+    return { comeca: comeca.toISOString(), podeMudar: ['novo', 'confirmado'].includes(p.status) && Date.now() < comeca.getTime(), preparoMin };
+  }
+
+  /**
+   * MUDAR O HORÁRIO do pedido agendado (mig 455, G6) — pelo cliente (só até o preparo começar) ou pela loja (a qualquer
+   * momento antes de sair). O novo horário passa pelas MESMAS regras (janela livre, antecedência, loja atendendo, fora da
+   * pausa), sem contar o próprio pedido na ocupação; a troca é condicional ao horário de antes (duas mudanças ao mesmo
+   * tempo: uma só vale) e, gravada, passa pela mesma conferência do limite (V98) — passou, volta ao de antes. O cliente é
+   * avisado ("horário mudou"); a marca do "entrou em preparo" volta a valer para o novo horário.
+   */
+  async mudarHorarioDoAgendado(cfg: any, pedidoId: string, valor: unknown, quem: { origem: 'cliente' | 'loja' | 'robo'; atorId?: string | null; atorPerfil?: string | null }) {
+    const [p] = await this.db
+      .select()
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.id, pedidoId), eq(pedidoExterno.tenantId, cfg.tenantId)));
+    if (!p) throw new NotFoundException('Pedido não encontrado.');
+    if (p.retiradaTipo !== 'agendado' || !p.agendamento) throw new BadRequestException('Só o pedido agendado muda de horário por aqui.');
+    if (!['novo', 'confirmado'].includes(p.status)) throw new BadRequestException('Este pedido já saiu ou foi encerrado: o horário não muda mais.');
+    const situacao = this.situacaoDoAgendado(cfg, p)!;
+    if (quem.origem !== 'loja' && !situacao.podeMudar)
+      throw new BadRequestException('O pedido já está sendo preparado: o horário não muda mais por aqui. Fale com a loja.');
+    const velho = new Date(p.agendamento);
+    const dia = String(valor ?? '').slice(0, 10);
+    const [ocupacao, pausa] = await Promise.all([
+      this.ocupacaoDasJanelas(cfg.tenantId, null, dia, p.id),
+      pausaVigenteDoCanal(this.db, cfg.tenantId, cfg.unidadeId ?? null, 'cardapio').catch(() => null),
+    ]);
+    const conf = conferirHorario({
+      ajustes: { ...ajustesDoAgendado(cfg), ativo: true }, // o pedido já é agendado: desligar o ajuste não prende quem já marcou
+      valor,
+      horarios: this.horariosDoTipo(cfg, p.tipo),
+      agora: new Date(),
+      preparoMin: preparoDoTipo(cfg, p.tipo),
+      ocupacao,
+      pausaAte: pausa?.ate ? new Date(pausa.ate) : null,
+    });
+    if (!conf.ok) {
+      const sug = conf.sugestoes.map((j) => j.hora);
+      throw new BadRequestException(sug.length ? `${conf.mensagem} Os mais perto que ainda têm vaga: ${sug.join(' e ')}.` : conf.mensagem);
+    }
+    if (conf.instante.getTime() === velho.getTime()) return { ok: true, mudou: false, agendamento: velho.toISOString() };
+    const r: any = await this.db.execute(sql`
+      update pedido_externo set agendamento = ${conf.instante.toISOString()}::timestamptz, agendado_preparo_avisado_em = null, updated_at = now()
+       where id = ${p.id}::uuid and tenant_id = ${cfg.tenantId}::uuid and agendamento = ${velho.toISOString()}::timestamptz
+         and status in ('novo', 'confirmado')
+      returning id`);
+    if (!(r?.rows ?? r ?? []).length) throw new ConflictException('O pedido mudou enquanto você escolhia. Abra de novo e confira.');
+    const limite = ajustesDoAgendado(cfg).limite;
+    // O limite da janela nova depois de gravar (ERR-529): estourou, o pedido volta ao horário de antes.
+    const voltou =
+      limite != null &&
+      (await this.desfazSePassouDoLimite(cfg.tenantId, p.id, limite, (tx) =>
+        tx.execute(sql`
+          update pedido_externo set agendamento = ${velho.toISOString()}::timestamptz, updated_at = now()
+           where id = ${p.id}::uuid and agendamento = ${conf.instante.toISOString()}::timestamptz`),
+      ));
+    if (voltou) throw new BadRequestException(`O horário das ${conf.janela.hora} acabou de encher. Escolha outro.`);
+    await this.auditoria?.registrar({
+      tenantId: cfg.tenantId,
+      atorId: quem.atorId ?? null,
+      atorPerfil: quem.atorPerfil ?? quem.origem,
+      tipo: 'delivery',
+      acao: 'pedido_agendado_horario',
+      entidadeTipo: 'pedido_externo',
+      entidadeId: p.id,
+      detalhe: { de: velho.toISOString(), para: conf.instante.toISOString(), por: quem.origem },
+      origem: quem.origem === 'loja' ? 'web' : quem.origem,
+    } as any);
+    await this.delivery.avisarHorarioDoAgendado(cfg.tenantId, p.id).catch(() => undefined);
+    return { ok: true, mudou: true, agendamento: conf.instante.toISOString(), quando: quandoDoAgendado(conf.instante) };
+  }
+
+  /** O cliente muda o horário pela página do pedido (só com a prova de dono: o `ref` do link ou o token de Sua conta). */
+  async mudarHorarioPublico(token: string, pedidoId: string, valor: unknown, clienteToken?: string, ref?: string) {
+    const cfg = await this.resolver(token);
+    await this.exigirDonoDoPedido(cfg, pedidoId, clienteToken, ref);
+    return this.mudarHorarioDoAgendado(cfg, pedidoId, valor, { origem: 'cliente' });
+  }
+
+  /** A prova de dono do pedido pela porta pública (a mesma do cancelamento da encomenda). */
+  private async exigirDonoDoPedido(cfg: any, pedidoId: string, clienteToken?: string, ref?: string) {
+    const [p] = await this.db
+      .select({ clienteId: pedidoExterno.clienteId, clientRef: pedidoExterno.clientRef })
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.id, pedidoId), eq(pedidoExterno.tenantId, cfg.tenantId)));
+    if (!p) throw new NotFoundException('Pedido não encontrado.');
+    const cli = verificarCliente(clienteToken);
+    const donoPorToken = !!(cli && cli.tenant === cfg.tenantId && p.clienteId && cli.cli === p.clienteId);
+    const donoPorRef = !!(ref && p.clientRef && ref === p.clientRef);
+    if (!donoPorToken && !donoPorRef) throw new NotFoundException('Pedido não encontrado.');
+  }
+
+  /** As janelas para a LOJA (painel): as do dia do tipo do pedido, sem contar o próprio pedido na ocupação. */
+  async janelasDoAgendadoDaLoja(tenantId: string, unidadeId: string | null, dia: unknown, tipo: unknown, pedidoId?: string) {
+    const cfg = await this.configRaw(tenantId, unidadeId);
+    if (!cfg) throw new NotFoundException('Cardápio não configurado.');
+    const r = await this.janelasDoAgendado({ ...cfg, agendadoAtivo: true }, dia, tipo);
+    if (!pedidoId) return r;
+    const ocupacao = await this.ocupacaoDasJanelas(tenantId, null, String(r.dia), pedidoId);
+    const limite = ajustesDoAgendado(cfg).limite;
+    return { ...r, janelas: r.janelas.map((j) => ({ ...j, ocupados: ocupacao.get(j.valor) ?? 0, esgotada: limite != null && (ocupacao.get(j.valor) ?? 0) >= limite })) };
+  }
+
+  /** A loja muda o horário (painel — G6: a qualquer momento antes de sair), com quem mudou na auditoria. */
+  async mudarHorarioDaLoja(tenantId: string, unidadeId: string | null, pedidoId: string, valor: unknown, ator: { id: string | null; perfil: string | null }) {
+    const cfg = await this.configRaw(tenantId, unidadeId);
+    if (!cfg) throw new NotFoundException('Cardápio não configurado.');
+    return this.mudarHorarioDoAgendado(cfg, pedidoId, valor, { origem: 'loja', atorId: ator.id, atorPerfil: ator.perfil });
+  }
+
   async statusPedido(token: string, pedidoId: string, ref?: string) {
     const cfg = await this.resolver(token);
     const [p] = await this.db
@@ -2625,6 +2744,9 @@ export class CardapioService {
       desconto: Number(p.desconto),
       itens: p.itens,
       agendamento: p.agendamento ? new Date(p.agendamento).toISOString() : null,
+      // Pedido agendado (mig 455, G6): o começo do preparo e se o cliente ainda muda o horário ou cancela sozinho (até o
+      // preparo começar; o link só com o `ref` dá esse poder — a página manda o `ref` junto).
+      agendado: this.situacaoDoAgendado(cfg, p),
       // Sinal da encomenda (mig 188).
       sinal:
         p.sinalStatus && p.sinalStatus !== 'nao'
@@ -3112,6 +3234,11 @@ export class CardapioService {
       throw new BadRequestException('Pedido já concluído não pode ser cancelado.');
     if (!p.agendamento)
       throw new BadRequestException('Só encomendas podem ser canceladas por aqui.');
+    // O pedido AGENDADO (mig 455, G6): o cliente cancela sozinho só até o preparo começar; depois, só a equipe. O Pix pago
+    // volta sozinho no cancelamento (o estorno automático do pedido pago inteiro).
+    const ag = this.situacaoDoAgendado(cfg, p);
+    if (ag && !ag.podeMudar)
+      throw new BadRequestException('O pedido já está sendo preparado: o cancelamento é com a loja. Fale com a gente pelo WhatsApp.');
     const temSinalPago = p.sinalStatus === 'pago';
     if (temSinalPago && p.cancelavelAte && Date.now() > new Date(p.cancelavelAte).getTime())
       throw new BadRequestException(

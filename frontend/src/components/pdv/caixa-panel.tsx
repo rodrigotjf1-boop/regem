@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PendenciasTurno, type PendenciasDoTurno } from '@/components/pdv/pendencias-turno';
+import { AgendadosDoTurno } from '@/components/pdv/agendados-do-turno';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -52,6 +53,10 @@ export function CaixaPanel({
   const router = useRouter();
   const [conferindo, setConferindo] = useState(false);
   const [pend, setPend] = useState<PendenciasDoTurno | null>(null);
+  // G8 (mig 455): os pedidos agendados para depois — a pergunta de cada um antes da contagem.
+  const [agendados, setAgendados] = useState<any[] | null>(null);
+  const [mantidos, setMantidos] = useState<Set<string>>(new Set());
+  const [agendadosOk, setAgendadosOk] = useState(false);
   const [justificativa, setJustificativa] = useState('');
   // Turno aberto há mais de 24 horas (pedido do dono, 12/11/2026): ao abrir a tela, pede o fechamento UMA vez por turno
   // nesta tela ("Depois" fecha o pedido; a faixa continua em alerta). Não trava a venda. Quem decide é o servidor.
@@ -73,6 +78,9 @@ export function CaixaPanel({
     try {
       const p = (await api.caixaPendencias(origem)) as PendenciasDoTurno;
       setPend(p?.total > 0 ? p : null);
+      const ags = Array.isArray((p as any)?.agendados) ? (p as any).agendados : [];
+      setAgendados(ags.length ? ags : null);
+      setAgendadosOk(!ags.length);
     } catch {
       // Sem a lista (servidor antigo ou falha de rede) o fechamento segue como sempre; no
       // delivery o servidor confere as pendências de novo na hora de fechar.
@@ -146,6 +154,7 @@ export function CaixaPanel({
         obs: obs.trim() || undefined,
         origem,
         ...(justificativa ? { justificativaPendencias: justificativa } : {}),
+        agendadosMantidos: [...mantidos],
       });
       setResultado(r);
     } catch (e) {
@@ -301,6 +310,22 @@ export function CaixaPanel({
                   setJustificativa(motivo ?? '');
                   setPend(null);
                 }}
+              />
+            ) : agendados && !agendadosOk && !resultado ? (
+              <AgendadosDoTurno
+                agendados={agendados}
+                mantidos={mantidos}
+                aoMudar={(id, manter) =>
+                  setMantidos((s) => {
+                    const n = new Set(s);
+                    if (manter) n.add(id);
+                    else n.delete(id);
+                    return n;
+                  })
+                }
+                onResolver={sairParaResolver}
+                onSeguir={() => setAgendadosOk(true)}
+                onCancelar={() => setFechar(false)}
               />
             ) : !resultado ? (
               <>

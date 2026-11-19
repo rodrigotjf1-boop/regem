@@ -3745,6 +3745,17 @@ export class DeliveryService {
    * O "em produção" do pedido agendado, na hora do preparo (mig 455 — `AvisoAgendadoProcessor`, que já gravou a marca
    * de "já avisei"): o mesmo aviso de status de sempre, pelo mesmo caminho (só o cardápio próprio; a nuvem manda).
    */
+  /**
+   * "Horário mudou" do pedido agendado (mig 455, G6): na hora, por quem mudou (o cliente, o atendente virtual ou a loja).
+   * O texto traz o horário novo e o começo do preparo.
+   */
+  async avisarHorarioDoAgendado(tenantId: string, id: string): Promise<void> {
+    const ped: any = await this.carregar(tenantId, id).catch(() => null);
+    if (!ped || !['novo', 'confirmado'].includes(ped.status)) return;
+    const comeca = await this.comecaDoAgendado(tenantId, ped);
+    await this.dispararWebhook(tenantId, { ...ped, agendadoComeca: comeca.toISOString() }, 'agendado_horario');
+  }
+
   async avisarAgendadoEmPreparo(tenantId: string, id: string): Promise<void> {
     const ped = await this.carregar(tenantId, id).catch(() => null);
     if (!ped || ped.status !== 'confirmado') return;
@@ -4470,6 +4481,8 @@ export class DeliveryService {
     if (evento === 'atrasado') return 'atrasado';
     // A confirmação do pedido agendado (mig 455): no aceite, antes do preparo.
     if (evento === 'agendado') return 'agendado';
+    // O horário do pedido agendado mudou (mig 455, G6).
+    if (evento === 'agendado_horario') return 'agendado_horario';
     switch (status) {
       case 'confirmado': return 'confirmado';
       case 'pronto': return tipo === 'retirada' ? 'pronto_retirada' : null;
@@ -4559,6 +4572,15 @@ export class DeliveryService {
           texto:
             `Seu pedido${ref} está agendado${quando ? ` para ${quando.texto} (chega entre ${quando.hora} e ${quando.ate})` : ''}.` +
             `${comeca ? ` A cozinha começa às ${comeca} e avisamos quando entrar em preparo.` : ''} Para mudar o horário ou cancelar, fale com a gente por aqui.`,
+        };
+      }
+      // O horário do pedido agendado mudou (mig 455, G6).
+      case 'agendado_horario': {
+        const quando = ped.agendamento ? quandoDoAgendado(new Date(ped.agendamento)) : null;
+        const comeca = ped.agendadoComeca ? emSaoPaulo(new Date(ped.agendadoComeca)).hora : null;
+        return {
+          titulo: 'Horário do pedido mudou 🗓️',
+          texto: `Pronto! Seu pedido${ref} agora está agendado${quando ? ` para ${quando.texto} (chega entre ${quando.hora} e ${quando.ate})` : ''}.${comeca ? ` A cozinha começa às ${comeca}.` : ''}`,
         };
       }
       case 'pronto_retirada': return { titulo: 'Pedido pronto', texto: `Seu pedido${ref} está pronto para retirada! 🎉` };

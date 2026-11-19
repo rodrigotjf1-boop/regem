@@ -36,7 +36,7 @@ import { PagarTituloDto } from './dto/pagar-titulo.dto';
 import { hojeISO } from '../../common/data';
 import { idadeDoTurno, TURNO_LIMITE_HORAS } from '../../common/turno';
 import { gravarEntitlement } from '../../common/gravar-entitlement';
-import { baixarPendenciasAntigas, escopoDoTurno, EVENTO_CANCELADOS_NA_BAIXA, pendenciasDoTurno } from '../delivery/pendencias-turno';
+import { agendadosParaDepois, baixarPendenciasAntigas, escopoDoTurno, EVENTO_CANCELADOS_NA_BAIXA, pendenciasDoTurno } from '../delivery/pendencias-turno';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -790,9 +790,14 @@ export class FinanceiroService {
   // retiradas (turno do balcão) que ainda não foram concluídas nem canceladas.
   async pendenciasDoTurno(tenantId: string, unidadeAtual: string | null, origem: string | undefined, atorPerfil: string) {
     const escopo = escopoDoTurno(origem);
-    const p = await pendenciasDoTurno(this.db, tenantId, unidadeAtual, escopo);
+    const [p, agendados] = await Promise.all([
+      pendenciasDoTurno(this.db, tenantId, unidadeAtual, escopo),
+      // G8 (mig 455): no turno do delivery, os pedidos agendados para depois — a tela pergunta um por um.
+      escopo === 'delivery' ? agendadosParaDepois(this.db, tenantId, unidadeAtual) : Promise.resolve([]),
+    ]);
     return {
       ...p,
+      agendados,
       // delivery: pendência barra o fechamento; balcão: só avisa.
       bloqueia: escopo === 'delivery' && p.total > 0,
       // quem pode fechar o delivery justificando e quem pode baixar as antigas.
@@ -850,6 +855,8 @@ export class FinanceiroService {
       unidadeAtual?: string | null;
       /** Só gerente/presidente: o motivo de fechar o turno do delivery com entrega pendente. */
       justificativaPendencias?: string;
+      /** G8 (mig 455): os pedidos agendados para depois que a pessoa decidiu manter (os ids). */
+      agendadosMantidos?: string[];
     },
   ) {
     const s = await this.sessaoAberta(
@@ -889,6 +896,21 @@ export class FinanceiroService {
           });
         fechouComPendencias = { total: pend.total, justificativa: justificativa.slice(0, 300), pedidos: pend.itens.slice(0, 50).map((p) => p.id) };
       }
+      // G8 (mig 455): os pedidos AGENDADOS para depois — o turno não fecha sem a resposta de cada um. "Manter" vem na lista
+      // `agendadosMantidos`; mudar o horário ou cancelar tira o pedido da lista antes. Vale para todos (é uma pergunta,
+      // não uma pendência a justificar).
+      const agendados = await agendadosParaDepois(this.db, tenantId, dto.unidadeAtual ?? null);
+      const mantidos = new Set(Array.isArray(dto.agendadosMantidos) ? dto.agendadosMantidos.map(String) : []);
+      const faltam = agendados.filter((a) => !mantidos.has(a.id));
+      if (faltam.length)
+        throw new ConflictException({
+          message:
+            faltam.length === 1
+              ? 'Há 1 pedido agendado para depois. Diga se ele fica (manter), muda de horário ou é cancelado antes de fechar o turno.'
+              : `Há ${faltam.length} pedidos agendados para depois. Diga se cada um fica (manter), muda de horário ou é cancelado antes de fechar o turno.`,
+          codigo: 'AGENDADOS_DO_TURNO',
+          agendados: faltam,
+        });
     }
 
     // Esperado por forma = movimentos (entrada − saída) da sessão agrupados por
