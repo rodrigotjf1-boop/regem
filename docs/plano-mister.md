@@ -1233,6 +1233,52 @@ conversa"): a memória entra no bloco da conversa, sem quebrar o cache.
   alvos (V37). Avaliação: pergunta 47 ("me avisa quando o iFood voltar"). Fica de fora a senha do balcão (não está na
   decisão 8 do protótipo).
 
+### Versão 5 — o Mister ouve, vê e mostra (aprovada pelo dono em 19/11/2026)
+
+Pedido do dono (19/11): responder a áudio, como o atendente do cardápio já faz; entender imagem pelo DMS Graph que a
+loja já usa; e gráficos melhores ("o link com gráfico básico mal feito"). O resumo vai por escrito, com as opções de ver
+em arquivo (PDF) ou pelo link. Protótipo: `mockups/regem-mister-ouve-ve-mostra.html`, aprovado com as nove decisões
+recomendadas. Continua a versão 3, que já previa "ouvir e responder em áudio, com o texto junto" e deixava a empresa da
+voz para um teste. O dono decidiu usar a mesma do atendente (Google).
+
+**Como estava (conferido no código em 19/11):**
+- A áudio, foto e figurinha, o Mister respondia "por enquanto só leio texto". A foto só era lida quando era boleto ou
+  nota (`MISTER_DOCUMENTOS`), pela IA.
+- O DMS Graph lê PDF, JPG, PNG, WebP, MP4, MOV e WebM. Não lê áudio.
+- O atendente ouve pelo Gemini e responde com a voz do Google pelo fluxo do n8n, não pelo Regem.
+- O único gráfico era o do insumo: um PNG desenhado à mão (`grafico/tela.ts`), e a página usava as barras de
+  `relatorios/graficos.tsx`. O resumo do dia saía só em texto.
+
+**As nove decisões (todas as recomendadas):**
+1. O DMS Graph ganha "ouvir áudio" pelo Gemini. O Regem guarda só o texto.
+2. Responder em áudio quando a pessoa manda áudio, sempre com o texto junto. O áudio fala o principal (~40 s).
+3. A voz em português do Google, gerada pelo DMS Graph ("falar"). Uma voz só, a do Mister.
+4. A resposta começa com "🎧 Entendi: …" (áudio) ou "📷 Vi: …" (foto).
+5. A foto vai primeiro ao DMS Graph, com a IA da empresa de reserva; não fica guardada, só o que ela mostra (30 dias).
+   Os números vêm das consultas do Regem; o que veio só da foto é dito como "pela foto". Boleto e nota seguem nos
+   documentos.
+6. A mesma franquia do Graph da empresa (a do atendente), com a conta por uso em IA e uso. Quando acaba, a foto vai
+   pela IA da empresa e o áudio pede texto.
+7. Um desenho só para a imagem, o PDF e o link, com uma biblioteca de desenho nova no servidor.
+8. O resumo é texto com os botões "📄 PDF" e "📊 Ver gráficos". O link abre sem login por 7 dias e só mostra aquele
+   resumo, pelo mecanismo do link para encaminhar (mig 443).
+9. Gráfico nas perguntas quando a pessoa pede ou a resposta é uma série (4 pontos ou mais). Sem valor em reais para
+   quem não vê valores.
+
+**Fases (uma entrega por PR):**
+
+| Fase | O que entra | Migration |
+|---|---|---|
+| **M5a · Fotos** | A foto que não é documento vai ao DMS Graph (IA da empresa de reserva); o que ela mostra entra na pergunta; "📷 Vi". | não |
+| **M5b · Ouvir** | Graph: "ouvir áudio" (versão nova; o dono clica "Implantar"). Regem: o áudio vira texto, "🎧 Entendi", até 3 min. | não |
+| **M5c · Falar** | Graph: "falar" (voz do Google). Regem: o ajuste "Responder em áudio" e o envio do áudio pelo número do Mister. | 1 |
+| **M5d · Gráficos** | O desenho novo na imagem, no PDF e na página; o insumo refeito e 4 gráficos novos (dia, hora, canal, mais vendidos). | não |
+| **M5e · Resumo** | O resumo com "📄 PDF" e "📊 Ver gráficos", o PDF do resumo, a página do link e "Como mandar o resumo". | 1 |
+
+**Fica para depois (pedido do dono em 19/11):** quando a base de eventos do plano do perfil do cliente estiver pronta, o
+Mister usa o clima e os eventos para avisar de chuva e programar entregadores e funcionários em feriados e eventos
+grandes. A fonte do clima precisa de licença comercial.
+
 ## 5. O que depende do dono
 
 1. ~~Onde a IA roda~~ — decidido: nuvem.
