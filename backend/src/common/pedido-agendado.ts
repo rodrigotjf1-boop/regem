@@ -207,6 +207,55 @@ export function quandoDoAgendado(agendamento: Date, agora: Date = new Date()): {
   return { texto: `${dia}, ${sp.hora}`, hora: sp.hora, ate };
 }
 
+/**
+ * O horário como opção para o cliente tocar no WhatsApp (D4c) — "Hoje 19:30", "Amanhã 12:00" ou "22/11 12:00" —, que o
+ * `horarioDoTexto` lê de volta. `valor` = "AAAA-MM-DDTHH:MM" de São Paulo.
+ */
+export function rotuloDaJanela(valor: string, agora: Date = new Date()): string {
+  const dia = String(valor).slice(0, 10);
+  const hora = String(valor).slice(11, 16);
+  const hoje = emSaoPaulo(agora).dia;
+  if (dia === hoje) return `Hoje ${hora}`;
+  if (dia === somarDiasAoDia(hoje, 1)) return `Amanhã ${hora}`;
+  return `${dia.slice(8, 10)}/${dia.slice(5, 7)} ${hora}`;
+}
+
+const sem = (s: unknown) =>
+  String(s ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .trim();
+
+/**
+ * O horário que o cliente disse ao atendente (D4c) → "AAAA-MM-DDTHH:MM" de São Paulo, ou `{ tirar: true }` ("o quanto
+ * antes", "sem agendar"), ou null quando não dá para entender. Aceita "19:30", "19h30", "19h", "hoje 19:30", "amanhã às
+ * 20h", "depois de amanhã 19:00" e "dd/mm 19:30". Sem dia: hoje (o servidor confere se a janela ainda serve).
+ */
+export function horarioDoTexto(texto: unknown, agora: Date = new Date()): { valor: string } | { tirar: true } | null {
+  const t = sem(texto);
+  if (!t) return null;
+  if (/^(tirar|sem agendar|nao agendar|o quanto antes|quanto antes|agora|cancelar agendamento|desmarcar)$/.test(t)) return { tirar: true };
+  const h = /(\d{1,2})\s*(?::|h)\s*(\d{2})?|(\d{1,2})\s*horas?/.exec(t);
+  if (!h) return null;
+  const hh = Number(h[1] ?? h[3]);
+  const mm = Number(h[2] ?? 0);
+  if (!(hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59)) return null;
+  const hoje = emSaoPaulo(agora).dia;
+  let dia = hoje;
+  if (/depois de amanha/.test(t)) dia = somarDiasAoDia(hoje, 2);
+  else if (/amanha/.test(t)) dia = somarDiasAoDia(hoje, 1);
+  else {
+    const d = /(\d{1,2})\/(\d{1,2})/.exec(t);
+    if (d) {
+      const ano = Number(hoje.slice(0, 4));
+      const cand = `${ano}-${p2(Number(d[2]))}-${p2(Number(d[1]))}`;
+      dia = cand < hoje ? `${ano + 1}${cand.slice(4)}` : cand;
+    }
+  }
+  return { valor: `${dia}T${p2(hh)}:${p2(mm)}` };
+}
+
 /** Quando o preparo começa (G3): o horário menos o tempo de entrega (ou de retirada) da loja. */
 export function inicioDoPreparo(agendamento: Date, preparoMin: number): Date {
   return new Date(agendamento.getTime() - Math.max(0, Number(preparoMin) || 0) * MIN);

@@ -133,6 +133,36 @@ describe('instruções do robô', () => {
     });
   });
 
+  describe('pedido agendado pelo atendente, só com o ajuste da loja ligado (.f31, D4c)', () => {
+    it('a versão subiu; desligado (padrão) a seção não entra — as instruções ficam como na .f30', () => {
+      expect(VERSAO_INSTRUCOES >= '2026-11-19.f31').toBe(true);
+      for (const f of ['1', '2']) {
+        expect(instrucoesDoRobo({ loja: 'Mister Burguer' }, f).texto).not.toContain('PEDIDO AGENDADO');
+        expect(instrucoesDoRobo({ loja: 'Mister Burguer', pedidoAgendado: false }, f).texto).not.toContain('PEDIDO AGENDADO');
+      }
+    });
+
+    it('ligado: o fluxo 2 marca o horário no pedido (agendar), o Pix sai sozinho; o fluxo 1 aponta o "Para quando?" do link', () => {
+      const f2 = instrucoesDoRobo({ loja: 'Mister Burguer', pedidoAgendado: true }, '2').texto;
+      expect(f2).toContain('PEDIDO AGENDADO (a loja aceita pedido para mais tarde)');
+      expect(f2).toContain('mexer_no_pedido com acao = agendar e observacao = o dia e a hora');
+      expect(f2).toContain('proximo.campo = horario');
+      expect(f2).toContain('o SISTEMA MANDA SOZINHO o código Pix copia e cola (pixEnviado = true)');
+      expect(f2).toContain('Não ofereça agendar quando pedidoAgendado vier vazio');
+      // O agendado já registrado: mudar o horário e cancelar com a confirmação do cliente; o "chamar uma pessoa" abre a exceção.
+      expect(f2).toContain('acao = pedido_horario');
+      expect(f2).toContain('só depois que o CLIENTE tocar em "Sim, cancelar"');
+      expect(f2).toContain('quer cancelar um pedido (menos o agendado antes da cozinha começar: veja PEDIDO AGENDADO)');
+      expect(instrucoesDoRobo({ loja: 'Mister Burguer' }, '2').texto).not.toContain('menos o agendado');
+      const f1 = instrucoesDoRobo({ loja: 'Mister Burguer', pedidoAgendado: true }, '1').texto;
+      expect(f1).toContain('PEDIDO AGENDADO');
+      expect(f1).toContain('"Para quando?"');
+      expect(f1).not.toContain('acao = agendar');
+      // O Direct não monta pedido agendado (só o WhatsApp).
+      expect(instrucoesDoDirect({ loja: 'Mister Burguer', pedidoAgendado: true } as any).texto).not.toContain('PEDIDO AGENDADO');
+    });
+  });
+
   describe('print de ajuda, só com o ajuste da loja ligado (.f29, D3)', () => {
     it('a versão subiu', () => {
       expect(VERSAO_INSTRUCOES >= '2026-11-18.f29').toBe(true);

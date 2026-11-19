@@ -502,7 +502,9 @@ export const referenciaParaOPedido = (r: string | null | undefined) => (r && r !
 const ONLINE = new Set(['pix', 'cartao']);
 
 /** As formas do cardápio que o robô oferece (as de pagar na entrega/retirada), com o nome para o cliente. */
-export function formasDoRobo(menu: any, tipo: 'entrega' | 'retirada' | null): { forma: string; nome: string; pedeTroco: boolean }[] {
+export function formasDoRobo(menu: any, tipo: 'entrega' | 'retirada' | null, soPix = false): { forma: string; nome: string; pedeTroco: boolean }[] {
+  // O pedido AGENDADO com o Pix online na loja (D4c, G5): só o Pix, pago na hora pelo código que o Regem manda.
+  if (soPix) return [{ forma: 'pix', nome: 'Pix', pedeTroco: false }];
   const lista: string[] = Array.isArray(menu?.loja?.pagamentos) ? menu.loja.pagamentos : [];
   const onde = tipo === 'retirada' ? 'na retirada' : 'na entrega';
   return lista
@@ -533,13 +535,17 @@ export type OpcaoDePagamento = { titulo: string; detalhe: string | null; forma: 
  * "Pagar na entrega (dinheiro ou maquininha)" chegava como "Pagar na entrega (d…". O "pagar na entrega" do cardápio vira
  * DUAS opções, "Dinheiro" e "Cartão na entrega" (é a mesma forma no pedido; o dinheiro pede o troco).
  */
-export function opcoesDePagamento(menu: any, tipo: 'entrega' | 'retirada' | null): OpcaoDePagamento[] {
+export function opcoesDePagamento(menu: any, tipo: 'entrega' | 'retirada' | null, soPix = false): OpcaoDePagamento[] {
   const onde = tipo === 'retirada' ? 'na retirada' : 'na entrega';
   const r: OpcaoDePagamento[] = [];
   const poe = (o: OpcaoDePagamento) => {
     if (!r.some((x) => compacto(x.titulo) === compacto(o.titulo))) r.push(o);
   };
-  for (const f of formasDoRobo(menu, tipo)) {
+  for (const f of formasDoRobo(menu, tipo, soPix)) {
+    if (f.forma === 'pix') {
+      poe({ titulo: 'Pix', detalhe: 'pague agora, pelo código que mandamos', forma: 'pix', meio: null });
+      continue;
+    }
     if (f.forma === 'entrega') {
       poe({ titulo: 'Dinheiro', detalhe: `pago ${onde}`, forma: f.forma, meio: 'dinheiro' });
       poe({ titulo: tipo === 'retirada' ? 'Cartão na retirada' : 'Cartão na entrega', detalhe: 'débito ou crédito na maquininha', forma: f.forma, meio: 'cartao' });
@@ -554,9 +560,10 @@ export function acharForma(
   menu: any,
   tipo: 'entrega' | 'retirada' | null,
   pedido: unknown,
+  soPix = false,
 ): { ok: true; forma: string; porCartao: boolean; meio: Meio | null } | { ok: false; motivo: 'so_pelo_link' | 'nenhuma'; opcoes: string[] } {
-  const formasRobo = formasDoRobo(menu, tipo);
-  const opcoes = opcoesDePagamento(menu, tipo).map((o) => o.titulo);
+  const formasRobo = formasDoRobo(menu, tipo, soPix);
+  const opcoes = opcoesDePagamento(menu, tipo, soPix).map((o) => o.titulo);
   // O botão tocado chega como "Dinheiro" ou "Dinheiro — pago na entrega": o detalhe não conta.
   const t = texto(pedido, 80).split(' — ')[0].trim();
   const q = compacto(t);
@@ -570,7 +577,7 @@ export function acharForma(
   const meioDe = (forma: string): Meio | null =>
     forma === 'vr' ? 'cartao' : forma === 'entrega' ? (cartao ? 'cartao' : dinheiro ? 'dinheiro' : null) : normalizar(forma).includes('dinheiro') ? 'dinheiro' : null;
   // O título do botão ("Dinheiro", "Cartão na entrega", "Vale-refeição").
-  const doBotao = opcoesDePagamento(menu, tipo).find((o) => compacto(o.titulo) === q);
+  const doBotao = opcoesDePagamento(menu, tipo, soPix).find((o) => compacto(o.titulo) === q);
   if (doBotao) return { ok: true, forma: doBotao.forma, porCartao: doBotao.forma === 'entrega' && doBotao.meio === 'cartao', meio: doBotao.meio };
   const igual = formasRobo.find((f) => compacto(f.forma) === q || compacto(f.nome) === q);
   if (igual) return { ok: true, forma: igual.forma, porCartao: false, meio: meioDe(igual.forma) };
@@ -665,6 +672,11 @@ export type EstadoDaConducao = {
    * que dá para usar neste pedido (com o total que fica). Só os que existem viram pergunta; nenhum = nada a perguntar.
    */
   beneficios?: { premios: { nome: string }[]; cashbackParaUsar: number; totalComCashback: number } | null;
+  /**
+   * Pedido agendado (D4c, G4): com a loja FECHADA agora, aceitando agendamento e o pedido ainda sem horário — os horários
+   * livres mais perto ("Hoje 19:30", "Amanhã 12:00") para o robô oferecer. Nada = a loja fechada não oferece agendar.
+   */
+  horariosParaAgendar?: string[] | null;
 };
 
 const OFERTA = { bebida: 'uma bebida', sobremesa: 'uma sobremesa', porcao: 'uma porção' } as const;
@@ -725,7 +737,15 @@ export function conducaoDoPedido(e: EstadoDaConducao): Falta[] {
   const entregaAberta = e.tiposAbertos.includes('entrega');
   const retiradaAberta = e.tiposAbertos.includes('retirada');
   const en = e.entrega && e.entrega.tipo === 'entrega' ? e.entrega : null;
-  if (!e.tipo && !e.tiposAbertos.length) f.push({ campo: 'tipo', pergunta: 'A loja não está recebendo pedidos agora.' });
+  // Sem tipo aberto (inclusive a loja de um tipo só, que já vem com ele): a loja que aceita agendamento pergunta o horário.
+  if (!e.tiposAbertos.length && e.horariosParaAgendar?.length)
+    f.push({
+      campo: 'horario',
+      pergunta: 'A loja está fechada agora, mas aceita pedido agendado: ofereça agendar para um dos horários livres.',
+      opcoes: e.horariosParaAgendar.slice(0, 9),
+      comoResponder: 'mexer_no_pedido com acao = agendar e observacao = o dia e a hora escolhidos (ex.: "Hoje 19:30", "Amanhã 12:00")',
+    });
+  else if (!e.tipo && !e.tiposAbertos.length) f.push({ campo: 'tipo', pergunta: 'A loja não está recebendo pedidos agora.' });
   else if (!e.tipo && !entregaAberta)
     f.push({ campo: 'tipo', pergunta: 'A entrega está fechada agora: confirme a retirada na loja.', opcoes: ['Retirar na loja'], comoResponder: 'definir_entrega com tipo = retirada' });
   else if (e.tipo !== 'retirada') {

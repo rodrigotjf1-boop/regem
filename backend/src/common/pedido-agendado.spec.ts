@@ -1,6 +1,8 @@
 import {
   ajustesDoAgendado,
   conferirHorario,
+  horarioDoTexto,
+  rotuloDaJanela,
   diasPermitidos,
   emSaoPaulo,
   inicioDoPreparo,
@@ -134,5 +136,37 @@ describe('pedido agendado: preparo e o texto ao cliente', () => {
     expect(quandoDoAgendado(sp('2026-11-18T19:30'), agora)).toEqual({ texto: 'hoje, 19:30', hora: '19:30', ate: '19:45' });
     expect(quandoDoAgendado(sp('2026-11-19T20:00'), agora).texto).toBe('amanhã, 20:00');
     expect(quandoDoAgendado(sp('2026-11-21T19:00'), agora).texto).toBe('sáb 21/11, 19:00');
+  });
+});
+
+describe('pedido agendado pelo atendente (D4c): o horário que o cliente disse', () => {
+  const agora = sp('2026-11-18T16:10'); // quarta
+
+  it('lê "19:30", "19h30", "19h", "20 horas", "hoje", "amanhã", "depois de amanhã" e "dd/mm"', () => {
+    expect(horarioDoTexto('19:30', agora)).toEqual({ valor: '2026-11-18T19:30' });
+    expect(horarioDoTexto('às 19h30', agora)).toEqual({ valor: '2026-11-18T19:30' });
+    expect(horarioDoTexto('19h', agora)).toEqual({ valor: '2026-11-18T19:00' });
+    expect(horarioDoTexto('lá pelas 20 horas', agora)).toEqual({ valor: '2026-11-18T20:00' });
+    expect(horarioDoTexto('Hoje 19:30', agora)).toEqual({ valor: '2026-11-18T19:30' });
+    expect(horarioDoTexto('Amanhã às 20h', agora)).toEqual({ valor: '2026-11-19T20:00' });
+    expect(horarioDoTexto('depois de amanhã 19:00', agora)).toEqual({ valor: '2026-11-20T19:00' });
+    expect(horarioDoTexto('22/11 12:00', agora)).toEqual({ valor: '2026-11-22T12:00' });
+    // dd/mm que já passou é do ano que vem.
+    expect(horarioDoTexto('05/01 12:00', agora)).toEqual({ valor: '2027-01-05T12:00' });
+  });
+
+  it('"o quanto antes" tira o agendamento; sem hora (ou hora impossível) não se entende', () => {
+    for (const t of ['o quanto antes', 'Sem agendar', 'desmarcar']) expect(horarioDoTexto(t, agora)).toEqual({ tirar: true });
+    for (const t of ['no almoço', 'à noite', '', '25:00', '19:75']) expect(horarioDoTexto(t, agora)).toBeNull();
+  });
+
+  it('as opções "Hoje 19:30", "Amanhã 12:00" e "22/11 12:00" voltam ao mesmo horário quando o cliente toca', () => {
+    for (const valor of ['2026-11-18T19:30', '2026-11-19T12:00', '2026-11-22T12:00']) {
+      const rotulo = rotuloDaJanela(valor, agora);
+      expect(horarioDoTexto(rotulo, agora)).toEqual({ valor });
+    }
+    expect(rotuloDaJanela('2026-11-18T19:30', agora)).toBe('Hoje 19:30');
+    expect(rotuloDaJanela('2026-11-19T12:00', agora)).toBe('Amanhã 12:00');
+    expect(rotuloDaJanela('2026-11-22T12:00', agora)).toBe('22/11 12:00');
   });
 });

@@ -27,6 +27,8 @@ import {
   diasPermitidos,
   emSaoPaulo,
   inicioDoPreparo,
+  horarioDoTexto,
+  rotuloDaJanela,
   instanteDeSaoPaulo,
   janelasDoDia,
   preparoDoTipo,
@@ -747,6 +749,17 @@ export class CardapioService {
       return (r?.rows ?? r)?.[0]?.ligado === true;
     } catch (e: any) {
       this.logger.warn(`print de ajuda não lido (valem as instruções sem ele): ${e?.message ?? e}`);
+      return false;
+    }
+  }
+
+  /** "Aceitar pedido agendado" ligado na loja (mig 455, D4c): entra a seção PEDIDO AGENDADO nas instruções do robô. */
+  async agendadoDoRobo(token: string): Promise<boolean> {
+    try {
+      const cfg = await this.resolver(token);
+      return ajustesDoAgendado(cfg).ativo && cfg.ramo !== 'servicos';
+    } catch (e: any) {
+      this.logger.warn(`pedido agendado não lido (valem as instruções sem ele): ${e?.message ?? e}`);
       return false;
     }
   }
@@ -2015,6 +2028,58 @@ export class CardapioService {
     });
   }
 
+  /**
+   * O horário que o cliente disse ao ATENDENTE (D4c): entendido (`horarioDoTexto`) e conferido pelas MESMAS regras das
+   * janelas (ligado, dia, janela oferecida e não esgotada) para o tipo do pedido. O pedido confere tudo de novo ao chegar.
+   */
+  async horarioParaORobo(token: string, texto: unknown, tipo: unknown) {
+    const cfg = await this.resolver(token);
+    const ajustes = ajustesDoAgendado(cfg);
+    if (!ajustes.ativo || cfg.ramo === 'servicos') return { ok: false as const, motivo: 'desligado', mensagem: 'A loja não aceita pedido agendado.', sugestoes: [] as string[] };
+    const lido = horarioDoTexto(texto);
+    if (!lido) return { ok: false as const, motivo: 'formato', mensagem: 'Não entendi o horário: peça o dia e a hora (ex.: hoje 19:30).', sugestoes: [] as string[] };
+    if ('tirar' in lido) return { ok: true as const, tirar: true as const };
+    const tipoAg = tipo === 'retirada' || tipo === 'local' ? String(tipo) : 'entrega';
+    const dia = lido.valor.slice(0, 10);
+    const [ocupacao, pausa] = await Promise.all([
+      this.ocupacaoDasJanelas(cfg.tenantId, null, dia),
+      pausaVigenteDoCanal(this.db, cfg.tenantId, cfg.unidadeId ?? null, 'cardapio').catch(() => null),
+    ]);
+    const preparoMin = preparoDoTipo(cfg, tipoAg);
+    const conf = conferirHorario({
+      ajustes,
+      valor: lido.valor,
+      horarios: this.horariosDoTipo(cfg, tipoAg),
+      agora: new Date(),
+      preparoMin,
+      ocupacao,
+      pausaAte: pausa?.ate ? new Date(pausa.ate) : null,
+    });
+    if (!conf.ok) return { ok: false as const, motivo: conf.motivo, mensagem: conf.mensagem, sugestoes: conf.sugestoes.map((j) => rotuloDaJanela(j.valor)) };
+    return {
+      ok: true as const,
+      valor: conf.janela.valor,
+      quando: quandoDoAgendado(conf.instante),
+      comeca: emSaoPaulo(inicioDoPreparo(conf.instante, preparoMin)).hora,
+      pixObrigatorio: await this.temPixOnlineNoCardapio(cfg),
+    };
+  }
+
+  /** As janelas livres de hoje e dos próximos dias para o atendente oferecer (as horas, sem as esgotadas). */
+  async janelasLivresParaORobo(token: string, tipo: unknown = 'entrega', porDia = 16) {
+    const cfg = await this.resolver(token);
+    const ajustes = ajustesDoAgendado(cfg);
+    if (!ajustes.ativo || cfg.ramo === 'servicos') return null;
+    const dias = diasPermitidos(new Date(), ajustes.dias);
+    const porDiaR = await Promise.all(
+      dias.map(async (d) => {
+        const r = await this.janelasDoAgendado(cfg, d, tipo);
+        return { dia: d, horas: r.janelas.filter((j) => !j.esgotada).map((j) => j.hora).slice(0, porDia) };
+      }),
+    );
+    return { dias: porDiaR, pixObrigatorio: await this.temPixOnlineNoCardapio(cfg) };
+  }
+
   /** As janelas pela porta pública do cardápio (token). */
   async janelasDoAgendadoPublico(token: string, dia: unknown, tipo: unknown) {
     const cfg = await this.resolver(token);
@@ -2644,7 +2709,7 @@ export class CardapioService {
       pausaAte: pausa?.ate ? new Date(pausa.ate) : null,
     });
     if (!conf.ok) {
-      const sug = conf.sugestoes.map((j) => j.hora);
+      const sug = conf.sugestoes.map((j) => rotuloDaJanela(j.valor)); // com o dia: o atendente do WhatsApp manda de volta
       throw new BadRequestException(sug.length ? `${conf.mensagem} Os mais perto que ainda têm vaga: ${sug.join(' e ')}.` : conf.mensagem);
     }
     if (conf.instante.getTime() === velho.getTime()) return { ok: true, mudou: false, agendamento: velho.toISOString() };
@@ -4385,7 +4450,7 @@ export class CardapioService {
         pausaAte: pausaAg?.ate ? new Date(pausaAg.ate) : null,
       });
       if (!conf.ok) {
-        const sug = conf.sugestoes.map((j) => j.hora);
+        const sug = conf.sugestoes.map((j) => rotuloDaJanela(j.valor)); // com o dia: o atendente do WhatsApp manda de volta
         throw new BadRequestException(sug.length ? `${conf.mensagem} Os mais perto que ainda têm vaga: ${sug.join(' e ')}.` : conf.mensagem);
       }
       janelaDoAgendado = conf.janela.valor;
