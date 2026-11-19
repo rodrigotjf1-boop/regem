@@ -133,6 +133,17 @@ describe('instruções do robô', () => {
     });
   });
 
+  describe('o último pedido para repetir vai com a data (.f32)', () => {
+    it('a versão subiu; o fluxo 2 manda falar a data e "o último que chegou a sair" com cancelados depois', () => {
+      expect(VERSAO_INSTRUCOES >= '2026-11-19.f32').toBe(true);
+      const f2 = instrucoesDoRobo({ loja: 'Mister Burguer' }, '2').texto;
+      expect(f2).toContain('SEMPRE com a data e os itens, como ultimoPedido.comoFalar diz');
+      expect(f2).toContain('"O seu último pedido, de 02/09, foi 2x X bacon e 1x Coca. Quer repetir ou fazer outro?"');
+      expect(f2).toContain('com canceladosDepois, "o último pedido seu que chegou a sair"');
+      expect(f2).not.toContain('citando os itens (ex.: "Quer repetir o seu último pedido, 2x X bacon e 1x Coca, ou fazer outro?")');
+    });
+  });
+
   describe('pedido agendado pelo atendente, só com o ajuste da loja ligado (.f31, D4c)', () => {
     it('a versão subiu; desligado (padrão) a seção não entra — as instruções ficam como na .f30', () => {
       expect(VERSAO_INSTRUCOES >= '2026-11-19.f31').toBe(true);

@@ -27,7 +27,7 @@ import {
   textoDoEndereco,
   valorDoTroco,
 } from './robo-pedido';
-import { estavel, formasDaChave, respostaNegativa } from './robo-pedido.service';
+import { comoFalarDoUltimo, estavel, formasDaChave, respostaNegativa } from './robo-pedido.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -488,6 +488,22 @@ describe('F5: mudança que não muda nada não sobe a versão (o jsonb devolve a
     expect(estavel({ a: 1, b: undefined })).toBe(estavel({ a: 1 }));
     expect(estavel({ a: null })).not.toBe(estavel({ a: 1 }));
     expect(estavel([1, 2])).not.toBe(estavel([2, 1]));
+  });
+});
+
+describe('o último pedido para repetir: sempre com a data (teste do dono, 19/11)', () => {
+  it('sem cancelado depois: "o seu último pedido, de 02/09, foi…"', () => {
+    const t = comoFalarDoUltimo({ quando: '02/09', itens: ['1x COMBO KIDS'] });
+    expect(t).toContain('"O seu último pedido, de 02/09, foi 1x COMBO KIDS. Quer repetir ou fazer outro?"');
+    expect(t).not.toContain('chegou a sair');
+  });
+  it('com os mais novos cancelados: "o último pedido seu que chegou a sair"', () => {
+    const t = comoFalarDoUltimo({ quando: '02/09', itens: ['1x COMBO KIDS', '2x Coca lata'], canceladosDepois: 58 });
+    expect(t).toContain('"O último pedido seu que chegou a sair, de 02/09, foi 1x COMBO KIDS, 2x Coca lata. Quer repetir ou fazer outro?"');
+    expect(t).toContain('os mais novos foram cancelados');
+  });
+  it('sem a data (pedido sem criado_em): a frase não fica com a vírgula sobrando', () => {
+    expect(comoFalarDoUltimo({ quando: '', itens: ['1x X-Bacon'] })).toContain('"O seu último pedido foi 1x X-Bacon.');
   });
 });
 

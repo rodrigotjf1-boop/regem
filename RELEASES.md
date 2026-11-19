@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Atendente: o último pedido para repetir com a data (19/11; SEM migration; instruções .f32).** `ultimoPedido.comoFalar`
+  e `canceladosDepois` no `ver_pedido` ("o último que chegou a sair"). O robô roda na nuvem — no `.zip` só por
+  acompanhar o código.
 - **Pedido agendado — os 2 achados do vigia de código (19/11; SEM migration; ERR-531, ERR-532).** (1) O aceite automático do
   Delivery saiu de dentro do `ingest` para `aceitarSeAutomatico` (mesma regra; todos os canais passam por ele como antes): o
   agendado com limite grava sem o aceite, confere o limite da janela e só então é aceito — antes, o pedido que estourava a

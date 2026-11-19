@@ -117,7 +117,10 @@ import { MARCA_DA_RESPOSTA_SEGURADA } from '../whatsapp/resposta-em-andamento';
 // (mig 455, nasce desligado), entra a seção PEDIDO AGENDADO — no fluxo 2, `mexer_no_pedido` › `agendar` marca o horário
 // (a loja fechada pergunta o horário pelo proximo, com os livres), o Pix na hora sai sozinho ao registrar; no fluxo 1, o
 // "Para quando?" do cardápio. Desligado, as instruções ficam como na .f30.
-export const VERSAO_INSTRUCOES = '2026-11-19.f31';
+// .f32 (19/11, teste do dono no celular): o último pedido para repetir vai SEMPRE com a data (`ultimoPedido.comoFalar`) e,
+// com os pedidos mais novos cancelados (`canceladosDepois`), como "o último que chegou a sair" — o de 2 meses atrás pareceu
+// outro pedido.
+export const VERSAO_INSTRUCOES = '2026-11-19.f32';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -476,7 +479,7 @@ function cardapioPrimeiroComAjuda(): string {
       '- NÃO ofereça montar o pedido aqui pela conversa por conta própria — em resposta NENHUMA: produto, preço, cardápio, situação do pedido ("cadê meu pedido"), cumprimento ou resposta a um áudio. O cardápio online vem primeiro: para quem quer pedir, mande o link. Nunca termine uma resposta com "quer que eu monte o pedido aqui?" nem "quer ajuda para montar um pedido por aqui?".',
       '- Só se o cliente disser que não consegue ou não quer usar o link, pergunte com gentileza se ele quer que você monte o pedido aqui pela conversa, terminando com OPCOES: Sim, monta pra mim | Vou pelo link. Se ele disser que sim, siga MONTAR O PEDIDO AQUI.',
       '- Se o próprio cliente pedir para pedir por aqui ("anota pra mim", "adiciona um…", "quero pedir por aqui"), siga MONTAR O PEDIDO AQUI direto.',
-      '- Quando o cliente disser que quer pedir, chame ver_pedido ANTES de mandar o link. Se vier emCurso (há um pedido em montagem), não mande o link: pergunte se ele quer continuar ou acrescentar algo, e siga MONTAR O PEDIDO AQUI. Se vier ultimoPedido (cliente conhecido), ofereça repetir numa pergunta só, citando os itens (ex.: "Quer repetir o seu último pedido, 2x X bacon e 1x Coca, ou fazer outro?"), com OPCOES: Repetir o último | Fazer outro pedido. "Repetir o último" → mexer_no_pedido com acao = repetir e siga MONTAR O PEDIDO AQUI (o sistema continua com as perguntas de sempre); "Fazer outro pedido" → o cardápio online, como sempre.',
+      '- Quando o cliente disser que quer pedir, chame ver_pedido ANTES de mandar o link. Se vier emCurso (há um pedido em montagem), não mande o link: pergunte se ele quer continuar ou acrescentar algo, e siga MONTAR O PEDIDO AQUI. Se vier ultimoPedido (cliente conhecido), ofereça repetir numa pergunta só, SEMPRE com a data e os itens, como ultimoPedido.comoFalar diz (ex.: "O seu último pedido, de 02/09, foi 2x X bacon e 1x Coca. Quer repetir ou fazer outro?"; com canceladosDepois, "o último pedido seu que chegou a sair"), com OPCOES: Repetir o último | Fazer outro pedido. "Repetir o último" → mexer_no_pedido com acao = repetir e siga MONTAR O PEDIDO AQUI (o sistema continua com as perguntas de sempre); "Fazer outro pedido" → o cardápio online, como sempre.',
     ),
   );
 }
