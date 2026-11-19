@@ -16,6 +16,12 @@
   credencial de "Sua conta" só volta a quem provou quem é (a credencial do mesmo cliente ou o WhatsApp do robô), no
   fechamento do pedido e no reenvio; a quantidade de cada item só inteira de 1 a 9.999 (a negativa virava desconto). O
   cardápio online roda na nuvem — no `.zip` só por acompanhar o código.
+
+- **A nota do pedido pelo formulário do WhatsApp oficial (19/11, fase A2; mig 456 SÓ NUVEM — `whatsapp_flow`).** A DMS
+  cria e publica o formulário "Avaliar pedido" na conta da loja; o "Tudo certo 👍" do "Chegou tudo certo?" vira o convite
+  com o botão; a resposta grava a nota pelo caminho da página. Tudo só na nuvem; `whatsapp_flow` = SO_NUVEM no
+  `sync-daemon.mjs` (o daemon mudou → o `.exe` do próximo corte leva junto); o cartão do ajuste vai no `.zip`.
+
 - **Atendente: o último pedido para repetir com a data (19/11; SEM migration; instruções .f32).** `ultimoPedido.comoFalar`
   e `canceladosDepois` no `ver_pedido` ("o último que chegou a sair"). O robô roda na nuvem — no `.zip` só por
   acompanhar o código.

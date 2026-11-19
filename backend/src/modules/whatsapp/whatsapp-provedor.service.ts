@@ -17,6 +17,7 @@ import { WhatsappCloudService } from './whatsapp-cloud.service';
 import { comMarcaDoRobo } from './mensagens-do-robo';
 import { OPCOES_A_PARTIR_DO, OPCOES_DEPOIS_MIN, OPCOES_DE_NOVO_DIAS, TEXTO_PADRAO, ajustesNovos, lerAvaliacao } from './pedir-avaliacao';
 import { OPCOES_CASO_ATE, OPCOES_PRAZO_DIAS, ajustesDaNotaNovos, lerNota } from '../avaliacao-pedido/nota-do-pedido';
+import { situacaoDoFormulario } from '../avaliacao-pedido/nota-pelo-whatsapp';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Escolha do PROVEDOR de WhatsApp pela loja (F2c).
@@ -202,6 +203,8 @@ export class WhatsappProvedorService {
       nota: {
         ...(await lerNota(this.db, tenantId)),
         opcoes: { casoAte: OPCOES_CASO_ATE, prazoDias: OPCOES_PRAZO_DIAS },
+        // O formulário do WhatsApp oficial (fase A2, mig 456): só a situação — o motivo de uma recusa é da distribuição.
+        formulario: await situacaoDoFormulario(this.db, tenantId),
       },
     };
   }

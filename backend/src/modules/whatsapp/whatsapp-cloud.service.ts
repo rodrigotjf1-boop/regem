@@ -11,6 +11,14 @@ import { entregarJuntando } from './juntar-mensagens';
 import { conversaRecenteOficial, portaoDoRoboDoOutroLado } from './robo-do-outro-lado';
 import { portaoDaRespostaAoSemContato, registrarConfirmacao } from './resposta-ao-sem-contato';
 import { portaoDaConferencia } from './conferir-entrega';
+import { conviteDaNota, portaoDaNotaPeloWhatsapp, registrarConvite } from '../avaliacao-pedido/nota-pelo-whatsapp';
+import {
+  BOTAO_DO_FORMULARIO,
+  TELA_DO_FORMULARIO,
+  TEXTO_DO_CONVITE,
+  lerRespostaDoFormulario,
+  textoDaResposta,
+} from '../avaliacao-pedido/formulario-da-nota';
 import { limparMarcasDoRobo } from './mensagens-do-robo';
 import { ChegadaService } from '../chegada/chegada.service';
 import { clienteRespondeu } from '../atendimento/abrir-chamado';
@@ -502,6 +510,8 @@ export class WhatsappCloudService {
     // A localização que o cliente mandou (o endereço de entrega por distância — F3): o mesmo texto da Evolution.
     if (m?.location && Number.isFinite(Number(m.location.latitude)) && Number.isFinite(Number(m.location.longitude)))
       return `[localização] ${Number(m.location.latitude)},${Number(m.location.longitude)}`;
+    // A resposta do formulário da nota (mig 456): "📋 Avaliação: nota 5 · Sabor · "…"" na caixa de conversas.
+    if (m?.interactive?.type === 'nfm_reply') return textoDaResposta(lerRespostaDoFormulario(m));
     return '';
   }
 
@@ -662,6 +672,9 @@ export class WhatsappCloudService {
       });
       if (!r.tratou) return false;
       this.logger.log(`resposta ao "chegou tudo certo?" (pedido ${r.pedidoId}): ${r.resposta} — de=${mascarar(de)}`);
+      // "Tudo certo 👍": com o formulário da nota publicado e o pedido ainda sem nota, o obrigado vira o convite com o
+      // botão "Avaliar pedido" (fase A2, mig 456). Não deu: o obrigado de sempre.
+      if (r.resposta === 'ok' && r.pedidoId && (await this.convidarParaANota(cfg.tenantId, de, r.pedidoId))) return true;
       if (r.responder) {
         await this.enviarTexto(cfg.tenantId, de, r.responder).catch((e: any) =>
           this.logger.warn(`a resposta ao "chegou tudo certo?" não saiu para ${mascarar(de)}: ${e?.message ?? e}`),
@@ -671,6 +684,62 @@ export class WhatsappCloudService {
     } catch (e: any) {
       this.logger.warn(`resposta ao "chegou tudo certo?" não conferida para ${mascarar(de)} (segue ao robô): ${e?.message ?? e}`);
       return false;
+    }
+  }
+
+  /**
+   * O CONVITE PARA A NOTA (fase A2, mig 456): a mensagem do formulário no lugar do obrigado. true = saiu (fica no registro
+   * dos envios do pedido); false = não convida ou não saiu (quem chama manda o obrigado de sempre). Nunca lança.
+   */
+  private async convidarParaANota(tenantId: string, de: string, pedidoId: string): Promise<boolean> {
+    let convite: Awaited<ReturnType<typeof conviteDaNota>> = null;
+    try {
+      convite = await conviteDaNota(this.db, tenantId, pedidoId);
+    } catch (e: any) {
+      this.logger.warn(`convite para a nota do pedido ${pedidoId} não conferido (sai o obrigado): ${e?.message ?? e}`);
+      return false;
+    }
+    if (!convite) return false;
+    try {
+      await this.enviarFormulario(tenantId, de, {
+        corpo: TEXTO_DO_CONVITE,
+        flowId: convite.flowId,
+        token: convite.token,
+        botao: BOTAO_DO_FORMULARIO,
+        tela: TELA_DO_FORMULARIO,
+        dados: { titulo: convite.titulo },
+      });
+      await registrarConvite(this.db, { tenantId, unidadeId: convite.unidadeId, pedidoId, resultado: 'enviado' });
+      this.logger.log(`convite para a nota do pedido ${pedidoId} enviado — de=${mascarar(de)}`);
+      return true;
+    } catch (e: any) {
+      const motivo = String(e?.message ?? e);
+      await registrarConvite(this.db, { tenantId, unidadeId: convite.unidadeId, pedidoId, resultado: 'falhou', motivo });
+      this.logger.warn(`convite para a nota do pedido ${pedidoId} não saiu (sai o obrigado): ${motivo}`);
+      return false;
+    }
+  }
+
+  /**
+   * A RESPOSTA DO FORMULÁRIO DA NOTA (`interactive.nfm_reply`, mig 456): grava a nota pelo caminho da página e responde
+   * (o Google só na nota 5). Não é o nosso formulário: false (segue o caminho de sempre). Falhou: o robô não recebe a
+   * resposta de formulário (não teria o que fazer com ela) — o motivo vai para o log.
+   */
+  private async respostaDoFormulario(cfg: any, de: string, nome: string | null, m: any): Promise<boolean> {
+    if (m?.interactive?.type !== 'nfm_reply') return false;
+    try {
+      const r = await portaoDaNotaPeloWhatsapp(this.db, (ev, p) => this.events?.emit(ev, p), { tenantId: cfg.tenantId, telefone: de, nome, m });
+      if (!r.tratou) return false;
+      this.logger.log(`resposta do formulário da nota (pedido ${r.pedidoId ?? '?'})${r.motivo ? `: ${r.motivo}` : ''} — de=${mascarar(de)}`);
+      if (r.responder) {
+        await this.enviarTexto(cfg.tenantId, de, r.responder).catch((e: any) =>
+          this.logger.warn(`a resposta à nota não saiu para ${mascarar(de)}: ${e?.message ?? e}`),
+        );
+      }
+      return true;
+    } catch (e: any) {
+      this.logger.warn(`resposta do formulário da nota não gravada para ${mascarar(de)}: ${e?.message ?? e}`);
+      return true;
     }
   }
 
@@ -939,6 +1008,9 @@ export class WhatsappCloudService {
           // responde, com o robô ligado ou não. Antes do B1 (cuja resposta "chegou" é de entrega, não de retirada).
           if (await this.chegueiPeloWhatsapp(cfg, de, this.textoDe(m))) continue;
 
+          // A resposta do formulário da nota (fase A2, mig 456): grava a nota e responde — antes do robô, ligado ou não.
+          if (await this.respostaDoFormulario(cfg, de, nome, m)) continue;
+
           // A resposta ao "Chegou tudo certo?" (B1): agradece ou abre o caso — com o robô ligado ou desligado.
           const opcaoDaResposta = String(m?.interactive?.button_reply?.id ?? m?.interactive?.list_reply?.id ?? '') || null;
           if (await this.respostaAConferencia(cfg, de, nome, this.textoDe(m), opcaoDaResposta)) continue;
@@ -1165,6 +1237,116 @@ export class WhatsappCloudService {
     const r = await this.postarMensagem(cfg.waCloudPhoneId!, { to: para, type: 'location', location });
     await this.gravar({ tenantId, telefone: para, direcao: 'saida', tipo: 'location', texto: `[localização] ${l.nome ?? ''}${l.endereco ? ` · ${l.endereco}` : ''}`.trim(), wamid: r.wamid, status: r.status });
     return { ok: true, id: r.wamid };
+  }
+
+  /**
+   * O FORMULÁRIO (WhatsApp Flow, mensagem interativa `flow` — doc da Meta "Send a Flow message"): o texto, o botão (até 30,
+   * sem emoji) e o formulário publicado, com o `flow_token` (quem é o pedido) e os dados da primeira tela. Só na API
+   * oficial, dentro da janela de 24 h. Entra na caixa de conversas. Lança na recusa, como o envio de texto.
+   */
+  async enviarFormulario(
+    tenantId: string,
+    numero: string,
+    f: { corpo: string; flowId: string; token: string; botao: string; tela: string; dados: Record<string, unknown> },
+  ) {
+    const para = soDigitos(numero);
+    if (!para) throw new BadRequestException('Número inválido.');
+    const cfg = await this.cfgDoEnvio(tenantId);
+    const texto = cortar(String(f.corpo ?? '').trim(), 1024);
+    // A doc da Meta se contradiz sobre `flow_action_payload.data` (19/11/2026): uma tabela diz "objeto"; a outra e o
+    // exemplo principal, "objeto JSON em texto". Vai como no exemplo; a Meta recusando ESSE campo, vai uma vez como objeto.
+    const corpo = (data: unknown) => ({
+      recipient_type: 'individual',
+      to: para,
+      type: 'interactive',
+      interactive: {
+        type: 'flow',
+        body: { text: texto },
+        action: {
+          name: 'flow',
+          parameters: {
+            flow_message_version: '3',
+            flow_token: f.token,
+            flow_id: f.flowId,
+            flow_cta: cortar(f.botao, 30),
+            flow_action: 'navigate',
+            flow_action_payload: { screen: f.tela, data },
+          },
+        },
+      },
+    });
+    let r: { wamid: string | null; status: string };
+    try {
+      r = await this.postarMensagem(cfg.waCloudPhoneId!, corpo(JSON.stringify(f.dados)));
+    } catch (e: any) {
+      if (!/flow_action_payload|\bdata\b/i.test(String(e?.message ?? ''))) throw e;
+      r = await this.postarMensagem(cfg.waCloudPhoneId!, corpo(f.dados));
+    }
+    await this.gravar({ tenantId, telefone: para, direcao: 'saida', tipo: 'interactive', texto: `${texto}\n[${f.botao}]`, wamid: r.wamid, status: r.status });
+    return { ok: true, id: r.wamid };
+  }
+
+  /** Os formulários (Flows) da conta: id, nome e situação na Meta (para a rotina reconhecer o que ela mesma criou). */
+  async formulariosDaConta(waba: string): Promise<{ id: string; nome: string; status: string }[]> {
+    const res = await fetch(`${GRAPH}/${waba}/flows?fields=id,name,status&limit=100`, {
+      headers: { Authorization: `Bearer ${this.token()}` },
+      signal: AbortSignal.timeout(20_000),
+    }).catch(() => null);
+    const json: any = res ? await res.json().catch(() => ({})) : {};
+    if (!res || !res.ok) throw new BadRequestException(this.motivoDaMeta('listar os formulários', res, json));
+    return (Array.isArray(json?.data) ? json.data : []).map((f: any) => ({ id: String(f?.id ?? ''), nome: String(f?.name ?? ''), status: String(f?.status ?? '') }));
+  }
+
+  /**
+   * Cria o formulário como RASCUNHO com o Flow JSON (doc da Meta, Flows API: `POST /{WABA}/flows`) e devolve o id e os
+   * erros de validação (vazio = pode publicar). Publicar é outro passo: publicado não se edita.
+   */
+  async criarFormulario(waba: string, nome: string, flowJson: Record<string, unknown>): Promise<{ id: string; erros: string[] }> {
+    const res = await fetch(`${GRAPH}/${waba}/flows`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.token()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: nome, categories: ['SURVEY'], flow_json: JSON.stringify(flowJson) }),
+      signal: AbortSignal.timeout(20_000),
+    }).catch(() => null);
+    const json: any = res ? await res.json().catch(() => ({})) : {};
+    if (!res || !res.ok || !json?.id) throw new BadRequestException(this.motivoDaMeta('criar o formulário', res, json));
+    const erros = (Array.isArray(json?.validation_errors) ? json.validation_errors : []).map((e: any) =>
+      [e?.error, e?.message, e?.line_start != null ? `linha ${e.line_start}` : null].filter(Boolean).join(' — '),
+    );
+    return { id: String(json.id), erros };
+  }
+
+  /** Os erros de validação de um formulário (`GET /{FLOW_ID}`), para conferir um rascunho antes de publicar. */
+  async errosDoFormulario(flowId: string): Promise<string[]> {
+    const res = await fetch(`${GRAPH}/${flowId}?fields=status,validation_errors`, {
+      headers: { Authorization: `Bearer ${this.token()}` },
+      signal: AbortSignal.timeout(20_000),
+    }).catch(() => null);
+    const json: any = res ? await res.json().catch(() => ({})) : {};
+    if (!res || !res.ok) throw new BadRequestException(this.motivoDaMeta('ler o formulário', res, json));
+    return (Array.isArray(json?.validation_errors) ? json.validation_errors : []).map((e: any) =>
+      [e?.error, e?.message].filter(Boolean).join(' — '),
+    );
+  }
+
+  /** Publica o formulário (`POST /{FLOW_ID}/publish`). Lança na recusa, com o motivo da Meta. */
+  async publicarFormulario(flowId: string): Promise<void> {
+    const res = await fetch(`${GRAPH}/${flowId}/publish`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.token()}` },
+      signal: AbortSignal.timeout(20_000),
+    }).catch(() => null);
+    const json: any = res ? await res.json().catch(() => ({})) : {};
+    if (!res || !res.ok || json?.success === false) throw new BadRequestException(this.motivoDaMeta('publicar o formulário', res, json));
+  }
+
+  /** "A Meta respondeu 400 ao publicar o formulário: <mensagem> (código 139001/4016012)" — o motivo para o registro. */
+  private motivoDaMeta(oQue: string, res: Response | null, json: any): string {
+    if (!res) return `A Meta não respondeu ao ${oQue}.`;
+    const e = json?.error ?? {};
+    const msg = String(e?.error_user_msg || e?.message || 'sem mensagem').slice(0, 220);
+    const codigo = e?.code != null ? ` (código ${e.code}${e?.error_subcode != null ? `/${e.error_subcode}` : ''})` : '';
+    return `A Meta respondeu ${res.status} ao ${oQue}: ${msg}${codigo}`;
   }
 
   private async postarMensagem(phoneId: string, corpo: Record<string, unknown>): Promise<{ wamid: string | null; status: string }> {

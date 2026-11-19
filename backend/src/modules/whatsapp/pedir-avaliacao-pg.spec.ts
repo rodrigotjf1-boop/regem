@@ -12,6 +12,9 @@ import { ConflictException, ForbiddenException, NotFoundException } from '@nestj
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { NotaDoPedidoService } from '../avaliacao-pedido/nota-do-pedido.service';
 import { OPCOES_DO_PESO } from '../avaliacao-pedido/nota-do-pedido';
+import { conviteDaNota, portaoDaNotaPeloWhatsapp, registrarConvite, situacaoDoFormulario } from '../avaliacao-pedido/nota-pelo-whatsapp';
+import { NOME_DO_FORMULARIO, TEXTO_JA_AVALIOU, VERSAO_DO_FORMULARIO, montarFormulario, tokenDaNota } from '../avaliacao-pedido/formulario-da-nota';
+import { FormularioDaNotaProcessor, type MetaDosFormularios } from './formulario-da-nota.processor';
 import { hojeISO } from '../../common/data';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -89,6 +92,10 @@ descrever('"pedir avaliação" depois da entrega (Postgres)', () => {
     const r453 = await aplicar('453_pedido_avaliacao.sql', true);
     const conf453 = (Array.isArray(r453) ? r453[r453.length - 1] : r453).rows as { objeto: string; ok: boolean }[];
     if (conf453.length !== 4 || conf453.some((l) => !l.ok)) throw new Error(`conferência da 453: ${JSON.stringify(conf453)}`);
+    // O formulário da nota no WhatsApp oficial (mig 456): a tabela nova (chave para `empresa` — trava primeiro, ERR-377).
+    const r456 = await aplicar('456_whatsapp_flow.sql', true);
+    const conf456 = (Array.isArray(r456) ? r456[r456.length - 1] : r456).rows as { objeto: string; ok: boolean }[];
+    if (conf456.length !== 3 || conf456.some((l) => !l.ok)) throw new Error(`conferência da 456: ${JSON.stringify(conf456)}`);
     await admin.query(`create schema ${SCHEMA}`);
     await admin.query(`
       create table ${SCHEMA}.marketing_optout (
@@ -106,7 +113,7 @@ descrever('"pedir avaliação" depois da entrega (Postgres)', () => {
     else process.env.PUBLIC_API_BASE = pubAntes;
     await pool.end();
     if (empresas.length) {
-      for (const t of ['pedido_avaliacao', 'avaliacao_pedida', 'pedido_aviso_atraso', 'pedido_envio', 'atendimento_chamado', 'robo_pausa', 'robo_config', 'whatsapp_mensagem', 'pedido_externo', 'cliente', 'cardapio_config'])
+      for (const t of ['whatsapp_flow', 'pedido_avaliacao', 'avaliacao_pedida', 'pedido_aviso_atraso', 'pedido_envio', 'atendimento_chamado', 'robo_pausa', 'robo_config', 'whatsapp_mensagem', 'pedido_externo', 'cliente', 'cardapio_config'])
         await admin.query(`delete from ${t} where tenant_id = any($1::uuid[])`, [empresas]).catch(() => {});
       await admin.query('delete from empresa where id = any($1::uuid[])', [empresas]).catch(() => {});
     }
@@ -685,7 +692,14 @@ descrever('"pedir avaliação" depois da entrega (Postgres)', () => {
     const t = (await q(`insert into empresa (nome) values ('teste ajuste nota') returning id`))[0].id as string;
     empresas.push(t);
     const ator: any = { tenantId: t, colaboradorId: null, categoria: 'gerente' };
-    expect((await ajustes.roboConfig(t)).nota).toEqual({ ativa: false, casoAte: 2, prazoDias: 7, opcoes: { casoAte: [1, 2, 3], prazoDias: [2, 7, 30] } });
+    // Sem o número da API oficial: o formulário do WhatsApp não existe para ela (só a página do pedido).
+    expect((await ajustes.roboConfig(t)).nota).toEqual({
+      ativa: false,
+      casoAte: 2,
+      prazoDias: 7,
+      opcoes: { casoAte: [1, 2, 3], prazoDias: [2, 7, 30] },
+      formulario: 'sem_oficial',
+    });
     await ajustes.salvarAvaliacao(ator, { ativa: true, link: LINK });
     const r = await ajustes.salvarNota(ator, { ativa: true });
     expect(r.nota).toMatchObject({ ativa: true, casoAte: 2, prazoDias: 7 });
@@ -697,5 +711,180 @@ descrever('"pedir avaliação" depois da entrega (Postgres)', () => {
     expect(auditados[2].detalhe).toEqual({ casoAte: { de: 2, para: 3 }, prazoDias: { de: 7, para: 30 } });
     await expect(ajustes.salvarNota(ator, { casoAte: 5 })).rejects.toThrow(/Nota que abre caso/);
     await expect(ajustes.salvarNota(ator, { ativa: 'sim' })).rejects.toThrow();
+  });
+
+  // ───────────────────────── O FORMULÁRIO DA NOTA NO WHATSAPP OFICIAL (mig 456, fase A2) ─────────────────────────
+  const emitir = (e: string) => void eventos.push(e);
+  const wabaNova = () => `waba-${randomUUID().replace(/-/g, '').slice(0, 12)}`;
+  /** O número da API oficial da empresa (a conta — WABA — onde o formulário mora). */
+  async function contaOficial(t: string, waba = wabaNova()) {
+    await q(
+      `insert into cardapio_config (tenant_id, token, ativo, robo_ativo, provedor, wa_cloud_phone_id, wa_cloud_waba_id) values ($1, $2, true, true, 'cloud', $3, $4)`,
+      [t, `tk-${randomUUID()}`, `pn-${randomUUID().slice(0, 8)}`, waba],
+    );
+    return waba;
+  }
+  const publicado = (t: string, waba: string, flowId: string) =>
+    q(`insert into whatsapp_flow (tenant_id, waba_id, tipo, versao, flow_id, situacao, publicado_em) values ($1, $2, 'nota_do_pedido', $3, $4, 'publicado', now())`, [
+      t,
+      waba,
+      VERSAO_DO_FORMULARIO,
+      flowId,
+    ]);
+  /** A resposta do formulário como a Meta manda no webhook (`interactive.nfm_reply`). */
+  const doFormulario = (pedidoId: string, campos: Record<string, unknown>) => ({
+    type: 'interactive',
+    interactive: { type: 'nfm_reply', nfm_reply: { name: 'flow', body: 'Sent', response_json: JSON.stringify({ flow_token: tokenDaNota(pedidoId), ...campos }) } },
+  });
+
+  it('A2 · a situação do formulário (para a tela) e o convite: só com o formulário publicado e o pedido ainda sem nota', async () => {
+    const qr = await lojaDaNota();
+    expect(await situacaoDoFormulario(db, qr)).toBe('sem_oficial');
+    const t = await lojaDaNota();
+    const waba = await contaOficial(t);
+    expect(await situacaoDoFormulario(db, t)).toBe('preparando');
+    const p = await pedido(t);
+    expect(await conviteDaNota(db, t, p)).toBeNull(); // sem formulário publicado: sai o obrigado de sempre
+    await publicado(t, waba, 'flow-123');
+    expect(await situacaoDoFormulario(db, t)).toBe('publicado');
+    expect(await conviteDaNota(db, t, p)).toEqual({ flowId: 'flow-123', token: tokenDaNota(p), titulo: expect.stringMatching(/^Como foi o pedido #\d+\?$/), unidadeId: null });
+    // Pedido de fora, ainda não entregue, já avaliado ou de outra empresa: sem convite.
+    expect(await conviteDaNota(db, t, await pedido(t, { canal: 'anotaai' }))).toBeNull();
+    expect(await conviteDaNota(db, t, await pedido(t, { status: 'despachado' }))).toBeNull();
+    const avaliado = await pedido(t);
+    await q(`insert into pedido_avaliacao (tenant_id, pedido_id, nota, origem) values ($1, $2, 5, 'pagina')`, [t, avaliado]);
+    expect(await conviteDaNota(db, t, avaliado)).toBeNull();
+    expect(await conviteDaNota(db, await lojaDaNota(), p)).toBeNull();
+    // O convite fica no registro dos envios do pedido.
+    await registrarConvite(db, { tenantId: t, unidadeId: null, pedidoId: p, resultado: 'enviado' });
+    expect(await q(`select acao, resultado, destino from pedido_envio where pedido_id = $1`, [p])).toEqual([
+      { acao: 'pedir_nota', resultado: 'enviado', destino: 'cliente_whatsapp' },
+    ]);
+  });
+
+  it('A2 · a resposta do formulário grava pelo caminho da página (origem whatsapp): o Google só na 5, o caso na baixa; outro telefone ou outra loja não gravam', async () => {
+    eventos.length = 0;
+    const t = await lojaDaNota();
+    await contaOficial(t);
+    const responder = (pedidoId: string, campos: Record<string, unknown>, o: { tenantId?: string; telefone?: string } = {}) =>
+      portaoDaNotaPeloWhatsapp(db, emitir, { tenantId: o.tenantId ?? t, telefone: o.telefone ?? NA_CONVERSA, nome: 'Renata', m: doFormulario(pedidoId, campos) });
+
+    const p5 = await pedido(t);
+    const r5 = await responder(p5, { nota: '5', pesou: ['Tempo de entrega', 'Sabor'], comentario: ' Top! ' });
+    expect(r5).toMatchObject({ tratou: true, pedidoId: p5 });
+    expect(r5.responder).toBe(`Obrigado pela nota, Renata! 💛 Ela vai direto para a equipe.\n\nSe puder, conte também no Google — ajuda muito a gente:\n${LINK}`);
+    expect(await notaDe(p5)).toEqual([{ nota: 5, pesou: ['Sabor', 'Tempo de entrega'], comentario: 'Top!', origem: 'whatsapp', chamado_id: null }]);
+    // O cliente abriu o formulário de novo e mandou outra nota: "já avaliou" e nada muda.
+    expect(await responder(p5, { nota: '1' })).toMatchObject({ tratou: true, responder: TEXTO_JA_AVALIOU });
+    expect(await notaDe(p5)).toHaveLength(1);
+    // A página depois mostra a nota dada pelo WhatsApp, com o Google (nota 5).
+    expect(await notas.estadoPublico(await tokenDe(p5))).toMatchObject({ situacao: 'avaliado', feita: { nota: 5, origem: 'whatsapp' }, google: LINK });
+    // Nota 4: só o obrigado.
+    const p4 = await pedido(t);
+    expect((await responder(p4, { nota: '4' })).responder).toBe('Obrigado pela nota, Renata! 💛 Ela vai direto para a equipe — é assim que a gente melhora.');
+    // Nota 2: o caso "Avaliação" e o "sinto muito".
+    const p2 = await pedido(t);
+    const r2 = await responder(p2, { nota: '2', comentario: 'Frio.' });
+    expect(r2.responder).toMatch(/^Poxa, Renata, sinto muito\. 😔 Já passei a sua avaliação do pedido #\d+ para a equipe\./);
+    const [n2] = await notaDe(p2);
+    expect((await q(`select tipo, canal from atendimento_chamado where id = $1`, [n2.chamado_id]))[0]).toEqual({ tipo: 'avaliacao', canal: 'cardapio' });
+    expect((await q(`select mensagem from atendimento_chamado where id = $1`, [n2.chamado_id]))[0].mensagem).toContain('pelo WhatsApp');
+    // Outro telefone (não é a conversa do cliente do pedido) e outra loja (o pedido não é dela): nada grava, nada responde.
+    const p6 = await pedido(t);
+    expect(await responder(p6, { nota: '5' }, { telefone: '5521900001111' })).toMatchObject({ tratou: true, responder: null, motivo: 'outro telefone' });
+    const outra = await lojaDaNota();
+    expect(await responder(p6, { nota: '5' }, { tenantId: outra })).toMatchObject({ tratou: true, responder: null });
+    expect(await notaDe(p6)).toEqual([]);
+    // Campos fora da regra: nada grava.
+    expect(await responder(p6, { nota: '9' })).toMatchObject({ tratou: true, responder: null });
+    expect(await notaDe(p6)).toEqual([]);
+    // Não é o nosso formulário (outro Flow da conta): segue o caminho de sempre.
+    const deOutro = { type: 'interactive', interactive: { type: 'nfm_reply', nfm_reply: { response_json: JSON.stringify({ flow_token: 'unused', nota: '5' }) } } };
+    expect(await portaoDaNotaPeloWhatsapp(db, emitir, { tenantId: t, telefone: NA_CONVERSA, m: deOutro })).toEqual({ tratou: false, responder: null });
+    expect(await portaoDaNotaPeloWhatsapp(db, emitir, { tenantId: t, telefone: NA_CONVERSA, m: { type: 'text', text: { body: '5' } } })).toEqual({ tratou: false, responder: null });
+  });
+
+  it('A2 · a rotina prepara o formulário: rascunho → publica → anota; com erro de validação não publica; falha tenta de novo em 30 min; a vez é de um só', async () => {
+    const chamadas: string[] = [];
+    const falsa = (o: { existentes?: { id: string; nome: string; status: string }[]; erros?: string[]; falhaPublicar?: boolean } = {}) =>
+      ({
+        formulariosDaConta: async (waba: string) => {
+          chamadas.push(`listar ${waba}`);
+          return o.existentes ?? [];
+        },
+        criarFormulario: async (waba: string, nome: string, json: Record<string, unknown>) => {
+          chamadas.push(`criar ${waba} ${nome}`);
+          expect(json).toEqual(montarFormulario());
+          await new Promise((r) => setTimeout(r, 30)); // a outra rotina chega no meio
+          return { id: `fl-${waba}`, erros: o.erros ?? [] };
+        },
+        errosDoFormulario: async (id: string) => {
+          chamadas.push(`erros ${id}`);
+          return o.erros ?? [];
+        },
+        publicarFormulario: async (id: string) => {
+          chamadas.push(`publicar ${id}`);
+          if (o.falhaPublicar) throw new Error('A Meta respondeu 400 ao publicar o formulário: indisponível');
+        },
+      }) as unknown as MetaDosFormularios;
+    const rotina = new FormularioDaNotaProcessor(db, {} as any);
+    const linha = async (waba: string) => (await q(`select situacao, flow_id, erro from whatsapp_flow where waba_id = $1`, [waba]))[0] ?? null;
+    const de = (waba: string) => chamadas.filter((c) => c.includes(waba));
+
+    // Ligada: cria e publica. Desligada: nem olha.
+    const t = await lojaDaNota();
+    const waba = await contaOficial(t);
+    const desligada = await lojaDaNota({ ativa: false });
+    const wabaDesligada = await contaOficial(desligada);
+    await rotina.preparar(falsa());
+    expect(await linha(waba)).toEqual({ situacao: 'publicado', flow_id: `fl-${waba}`, erro: null });
+    expect(de(waba)).toEqual([`listar ${waba}`, `criar ${waba} ${NOME_DO_FORMULARIO}`, `publicar fl-${waba}`]);
+    expect(de(wabaDesligada)).toEqual([]);
+    expect(await linha(wabaDesligada)).toBeNull();
+    expect(await situacaoDoFormulario(db, t)).toBe('publicado');
+    // Publicado: a rotina não volta a ele.
+    chamadas.length = 0;
+    await rotina.preparar(falsa());
+    expect(de(waba)).toEqual([]);
+
+    // Erro de validação: "recusado", nada publicado.
+    const t2 = await lojaDaNota();
+    const waba2 = await contaOficial(t2);
+    await rotina.preparar(falsa({ erros: ['INVALID_PROPERTY_VALUE — max-length'] }));
+    expect(await linha(waba2)).toMatchObject({ situacao: 'recusado', flow_id: `fl-${waba2}` });
+    expect((await linha(waba2)).erro).toContain('INVALID_PROPERTY_VALUE');
+    expect(de(waba2)).not.toContain(`publicar fl-${waba2}`);
+    expect(await situacaoDoFormulario(db, t2)).toBe('recusado');
+
+    // A Meta recusou publicar: "erro"; a volta seguinte NÃO tenta (30 min); passados os 30 min, reconhece o rascunho que
+    // ela mesma criou (pelo nome), confere os erros e publica — sem criar outro.
+    const t3 = await lojaDaNota();
+    const waba3 = await contaOficial(t3);
+    await rotina.preparar(falsa({ falhaPublicar: true }));
+    expect(await linha(waba3)).toMatchObject({ situacao: 'erro', flow_id: `fl-${waba3}` });
+    expect((await linha(waba3)).erro).toContain('indisponível');
+    chamadas.length = 0;
+    await rotina.preparar(falsa());
+    expect(de(waba3)).toEqual([]);
+    await q(`update whatsapp_flow set tentou_em = now() - interval '31 minutes' where waba_id = $1`, [waba3]);
+    await rotina.preparar(falsa({ existentes: [{ id: `fl-${waba3}`, nome: NOME_DO_FORMULARIO, status: 'DRAFT' }] }));
+    expect(de(waba3)).toEqual([`listar ${waba3}`, `erros fl-${waba3}`, `publicar fl-${waba3}`]);
+    expect(await linha(waba3)).toEqual({ situacao: 'publicado', flow_id: `fl-${waba3}`, erro: null });
+
+    // Publicado na Meta e não anotado (a volta caiu no meio): só anota.
+    const t4 = await lojaDaNota();
+    const waba4 = await contaOficial(t4);
+    chamadas.length = 0;
+    await rotina.preparar(falsa({ existentes: [{ id: 'fl-velho', nome: NOME_DO_FORMULARIO, status: 'PUBLISHED' }] }));
+    expect(de(waba4)).toEqual([`listar ${waba4}`]);
+    expect(await linha(waba4)).toEqual({ situacao: 'publicado', flow_id: 'fl-velho', erro: null });
+
+    // Duas rotinas ao mesmo tempo (duas réplicas da API): a conta é tomada por uma só — um formulário criado.
+    const t5 = await lojaDaNota();
+    const waba5 = await contaOficial(t5);
+    chamadas.length = 0;
+    await Promise.all([rotina.preparar(falsa()), new FormularioDaNotaProcessor(db, {} as any).preparar(falsa())]);
+    expect(de(waba5).filter((c) => c.startsWith('criar'))).toHaveLength(1);
+    expect(await linha(waba5)).toMatchObject({ situacao: 'publicado' });
   });
 });

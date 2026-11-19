@@ -15,6 +15,7 @@ import { EvolutionEntradaController } from './evolution-entrada.controller';
 import { EvolutionEntradaService } from './evolution-entrada.service';
 import { ConferirEntregaProcessor } from './conferir-entrega.processor';
 import { PedirAvaliacaoProcessor } from './pedir-avaliacao.processor';
+import { FormularioDaNotaProcessor } from './formulario-da-nota.processor';
 import { AvaliacaoPublicaController } from './avaliacao-publica.controller';
 import { WhatsappGastoController } from './whatsapp-gasto.controller';
 import { WhatsappGastoService } from './whatsapp-gasto.service';
@@ -59,6 +60,8 @@ import { MisterModule } from '../mister/mister.module';
     ConferirEntregaProcessor,
     // A rotina do "Pedir avaliação" depois da entrega (mig 365; só nuvem, só API oficial).
     PedirAvaliacaoProcessor,
+    // A rotina que prepara o formulário da nota na conta de cada loja (fase A2, mig 456; só nuvem, só API oficial).
+    FormularioDaNotaProcessor,
     SyncTokenGuard,
     EmpresaDaLojaGuard,
     // A pausa dos pedidos no atendimento (F3, migs 394/395): a 1ª mensagem do cliente na pausa recebe a mensagem pronta.
