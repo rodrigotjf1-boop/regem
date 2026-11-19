@@ -16,6 +16,7 @@ import { EquipamentoService } from '../equipamento/equipamento.service';
 import { PresencaService, enderecoDoHost, ipDoPc, versaoInformada } from '../equipamento/presenca.service';
 import { lerCookieSessao } from '../../auth/cookie-sessao';
 import { tokenAbreOTempoReal } from '../../auth/sessao-do-ponto';
+import { jtiDoToken, sessaoEncerrada } from '../../auth/sessao-encerrada';
 import { ehServidorLocal } from '../../common/modo';
 import { ehTipoDeAviso, prioridadeDoKds } from '../../common/avisos-do-kds';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -150,6 +151,11 @@ export class RealtimeGateway
         if (!tokenAbreOTempoReal(p)) return this.recusar(socket, 'esta sessão não abre o tempo real');
         // E só enquanto a pessoa segue com acesso: o guarda das rotas recusa o excluído e o bloqueado a cada pedido.
         if (!(await this.pessoaSegueComAcesso(p))) return this.recusar(socket, 'acesso encerrado ou bloqueado');
+        // Nem a sessão que "Sair" encerrou (R3-01, mig 457) — a mesma conferência do `JwtAuthGuard` (V97).
+        if (await sessaoEncerrada(this.db, p)) return this.recusar(socket, 'sessão encerrada');
+        // A sala da sessão: "Sair" derruba de uma vez os sockets dela (`onSessaoEncerrada`).
+        const jti = jtiDoToken(p);
+        if (jti) socket.join(`sessao:${jti}`);
         const lojas = await this.lojasDoLogin(p.tenant, p, auth.unidade);
         const ctx: SockCtx = {
           tenantId: p.tenant,
@@ -234,6 +240,17 @@ export class RealtimeGateway
     if (agora - (mapa[acao] ?? 0) < intervaloMs) return false;
     mapa[acao] = agora;
     return true;
+  }
+
+  // "Sair" encerrou a sessão (R3-01, mig 457): os sockets abertos com ela caem na hora — a conferência da entrada não
+  // alcança quem já estava conectado (uma cópia do token conectada antes seguiria recebendo a sala da empresa).
+  @OnEvent('sessao.encerrada')
+  onSessaoEncerrada(p: { jti?: unknown }) {
+    if (!this.server) return;
+    const jti = jtiDoToken(p);
+    if (!jti) return;
+    this.server.to(`sessao:${jti}`).emit('erro', { motivo: 'sessão encerrada' });
+    this.server.in(`sessao:${jti}`).disconnectSockets(true);
   }
 
   // Marcação de ponto gravada em qualquer origem (web/terminal/gestor) → o sinal ao vivo.

@@ -8,11 +8,15 @@ import {
   HttpStatus,
   Inject,
   Injectable,
+  Logger,
+  Optional,
   UnauthorizedException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { encerrarSessao } from './sessao-encerrada';
 import { JwtService } from '@nestjs/jwt';
 import { and, eq, isNotNull, isNull, or, sql } from 'drizzle-orm';
-import { randomBytes, randomInt } from 'node:crypto';
+import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { JanelaPorChave } from '../common/janela-por-chave';
 import { FilaCheia, UmPorVez } from '../common/um-por-vez';
 import * as bcrypt from 'bcryptjs';
@@ -74,8 +78,11 @@ export class AuthService {
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly jwt: JwtService,
     private readonly auditoria: AuditoriaService,
+    // Avisa o tempo real que uma sessão saiu (derruba os sockets dela). Opcional: os testes montam o serviço sem ele.
+    @Optional() private readonly eventos?: EventEmitter2,
   ) {}
 
+  private readonly log = new Logger('Auth');
   private readonly pinUmPorVez = new UmPorVez(PIN_FILA);
   private readonly codigosPorEmail = new JanelaPorChave(CODIGOS_POR_EMAIL_POR_HORA, 60 * 60 * 1000);
 
@@ -715,9 +722,12 @@ export class AuthService {
   }
 
   // `extra`: marcas a mais no token — `ap`, o celular do app de atendimento (mig 353), e `so`, a sessão do terminal de ponto.
+  // `jti`: o número desta sessão — é o que "Sair" encerra no servidor (R3-01, mig 457); vem depois do `extra` para nada o
+  // sobrescrever.
   private assinar(user: AuthUser, extra: Record<string, unknown> = {}) {
     const access_token = this.jwt.sign({
       ...extra,
+      jti: randomUUID(),
       sub: user.colaboradorId,
       tenant: user.tenantId,
       cat: user.categoria,
@@ -728,6 +738,47 @@ export class AuthService {
       func: user.funcaoNome ?? null, // e o rótulo da função (ex.: "Gerente")
     });
     return { access_token, user };
+  }
+
+  /**
+   * SAIR (R3-01, 3ª rodada de segurança; ERR-534; mig 457): encerra no SERVIDOR a sessão do token que veio (o cookie da
+   * nuvem ou o Bearer do servidor da loja) — antes, sair só apagava a cópia do navegador, e uma cópia feita antes seguia
+   * valendo até vencer (12 h). Só encerra token com a assinatura certa e dentro da validade (o vencido não abre nada); o
+   * de suporte tem o encerramento dele. Idempotente e nunca falha para quem chama: a saída do navegador acontece de
+   * qualquer jeito (o controlador apaga o cookie antes). Derruba também os sockets do tempo real desta sessão.
+   */
+  async sair(raw: string | undefined): Promise<{ encerrada: boolean }> {
+    if (!raw) return { encerrada: false };
+    let payload: any;
+    try {
+      payload = this.jwt.verify(raw);
+    } catch {
+      return { encerrada: false };
+    }
+    if (payload?.cat === 'suporte') return { encerrada: false };
+    let encerrada = false;
+    try {
+      encerrada = await encerrarSessao(this.db, payload);
+    } catch (e: any) {
+      // A memória deste processo já recusa a sessão; só a gravação no banco falhou (os outros processos não saberão).
+      this.log.warn(`sair: a sessão não foi gravada como encerrada (${e?.code ?? e?.message ?? e})`);
+      encerrada = true;
+    }
+    if (!encerrada) return { encerrada };
+    this.eventos?.emit('sessao.encerrada', { jti: payload.jti });
+    await this.auditoria
+      .registrar({
+        tenantId: payload.tenant,
+        atorId: payload.sub,
+        atorPerfil: payload.cat,
+        tipo: 'auth',
+        acao: 'sessao_encerrada',
+        entidadeTipo: 'colaborador',
+        entidadeId: payload.sub,
+        origem: ehServidorLocal() ? 'edge' : 'web',
+      })
+      .catch(() => undefined);
+    return { encerrada };
   }
 
   // Escopo do colaborador (setor via função; unidade via setor). Presidente/sem função = sem escopo.
