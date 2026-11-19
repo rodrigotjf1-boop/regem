@@ -4,7 +4,8 @@
 // Integrações só com o Graph liberado; a janela antes de ligar (vale para a empresa inteira, a única permissão, só o
 // presidente conecta) e ligada (quem ligou, a última leitura, a reserva, a franquia com os números, desligar com
 // confirmação), a franquia acabou, desligada no Graph; a linha "Quem lê as fotos agora" em Atendimento; a página de volta
-// (ligou → integrações; não ligou → a frase do servidor e "Voltar às integrações"); e as 16 larguras com a janela aberta.
+// (ligou → integrações; não ligou → a frase do servidor e "Voltar às integrações"); a empresa sem CNPJ (GR-8, 19/11: o
+// presidente informa na janela, a recusa do servidor no bloco, o gerente sem o campo); e as 16 larguras com a janela aberta.
 import { responder, tokenFalso, umaLinha } from './comum.mjs';
 
 const PERM = { loja: { ver: true, editar: true }, delivery: { ver: true, editar: true } };
@@ -18,6 +19,7 @@ const PERMISSOES = [{ id: 'arquivos.analisar', frase: 'Analisar as fotos e os do
 const base = (o = {}) => ({
   ligado: true,
   empresaNome: 'Casa do Hambúrguer Ltda.',
+  empresaTemCnpj: true,
   reservaIa: true,
   pronto: true,
   naNuvem: true,
@@ -44,7 +46,25 @@ const SITUACOES = {
   desligadoNoGraph: () => base({ desligadaPeloGraphEm: new Date(AGORA - 86400000).toISOString() }),
   semReserva: () => base({ reservaIa: false, ligacao: ligacao() }),
   foraDoPiloto: () => base({ ligado: false, empresaNome: null }),
+  semCnpj: () => base({ empresaTemCnpj: false }),
 };
+
+/** Um CNPJ com os dígitos certos, montado na hora (nunca escrito no arquivo). */
+function cnpjDeTeste() {
+  const base12 = Array.from({ length: 12 }, () => String(Math.floor(Math.random() * 10))).join('');
+  const dv = (b) => {
+    let soma = 0;
+    let peso = b.length - 7;
+    for (const c of b) {
+      soma += Number(c) * peso--;
+      if (peso < 2) peso = 9;
+    }
+    const r = soma % 11;
+    return r < 2 ? 0 : 11 - r;
+  };
+  const d1 = dv(base12);
+  return `${base12}${d1}${dv(base12 + d1)}`;
+}
 
 const AJUSTES = {
   conectado99: false,
@@ -75,8 +95,8 @@ const medir = (page) =>
   });
 
 export default async function roteiroGraphClique({ nav, base: endereco, ok, foto, larguras }) {
-  async function abrir(w, h, { token = PRESIDENTE, situacao = 'naoLigado', caminho = '/delivery/configuracoes?aba=integracoes', concluir = { ligada: true, contaNome: 'Casa do Hambúrguer Ltda.', permissoes: ['arquivos.analisar'] } } = {}) {
-    const S = { situacao, iniciar: 0, desligar: 0, concluir: [], leiturasSituacao: 0 };
+  async function abrir(w, h, { token = PRESIDENTE, situacao = 'naoLigado', caminho = '/delivery/configuracoes?aba=integracoes', concluir = { ligada: true, contaNome: 'Casa do Hambúrguer Ltda.', permissoes: ['arquivos.analisar'] }, recusarCnpj = null } = {}) {
+    const S = { situacao, iniciar: 0, desligar: 0, concluir: [], leiturasSituacao: 0, cnpjs: [] };
     const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: false });
     await ctx.addInitScript((jwt) => localStorage.setItem('regen_token', jwt), token);
     const page = await ctx.newPage();
@@ -106,6 +126,13 @@ export default async function roteiroGraphClique({ nav, base: endereco, ok, foto
       if (p === '/graph/clique/concluir' && req.method() === 'POST') {
         S.concluir.push(corpo);
         return responder(route, concluir);
+      }
+      // GR-8: como o servidor (`PATCH /empresas/cnpj`): recusa com a mensagem dele, ou grava e a situação passa a ter CNPJ.
+      if (p === '/empresas/cnpj' && req.method() === 'PATCH') {
+        S.cnpjs.push(corpo);
+        if (recusarCnpj) return responder(route, { statusCode: 409, message: recusarCnpj }, 409);
+        S.situacao = 'naoLigado';
+        return responder(route, { cnpj: String(corpo?.cnpj ?? '') });
       }
       if (p === '/atendimento/ajustes') return responder(route, AJUSTES);
       if (/banners|cupons|regras-sinal|formas|impressoras|integrac|numeros|robo|eventos|fidelidade|cashback|bairros|areas-entrega/.test(p)) return responder(route, []);
@@ -219,6 +246,53 @@ export default async function roteiroGraphClique({ nav, base: endereco, ok, foto
     await ctx.close();
   }
 
+  // ── GR-8: a empresa sem CNPJ — o presidente informa na janela, uma vez ──
+  {
+    const { ctx, page, erros, S } = await abrir(1280, 900, { situacao: 'semCnpj' });
+    await abrirJanela(page);
+    const bloco = page.locator('[role="dialog"] :text("Falta o CNPJ da empresa")');
+    ok(await bloco.isVisible(), 'sem CNPJ: o bloco "Falta o CNPJ da empresa" aparece');
+    const conectar = page.locator('[role="dialog"] button:has-text("Conectar ao DMS Graph")');
+    ok(await conectar.isDisabled(), 'sem CNPJ: "Conectar ao DMS Graph" fica desligado');
+    ok(await page.locator('[role="dialog"] :text("Salve o CNPJ para conectar.")').isVisible(), 'sem CNPJ: a nota "Salve o CNPJ para conectar."');
+    const campo = page.getByLabel('CNPJ da empresa');
+    ok((await campo.count()) === 1, 'o campo tem o rótulo ligado ("CNPJ da empresa")');
+    const salvar = page.locator('[role="dialog"] button:has-text("Salvar CNPJ")');
+    await campo.fill('1234');
+    ok(await salvar.isDisabled(), 'com menos de 14 números, "Salvar CNPJ" fica desligado');
+    const c = cnpjDeTeste();
+    await campo.fill(`${c.slice(0, 2)}.${c.slice(2, 5)}.${c.slice(5, 8)}/${c.slice(8, 12)}-${c.slice(12)}`);
+    ok(await salvar.isEnabled(), 'com 14 números (com a máscara), "Salvar CNPJ" liga');
+    await page.screenshot({ path: foto('graph-sem-cnpj.png') });
+    await salvar.click();
+    await page.waitForTimeout(700);
+    ok(S.cnpjs.length === 1 && S.cnpjs[0].cnpj === c, `vai ao servidor só com os números (${JSON.stringify(S.cnpjs)})`);
+    ok(!(await bloco.isVisible().catch(() => false)), 'gravado: a situação é lida de novo e o bloco some');
+    ok(await conectar.isEnabled(), 'gravado: "Conectar ao DMS Graph" liga');
+    ok(erros.length === 0, `sem erro na página (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  {
+    const frase = 'Outra empresa do Regem já usa este CNPJ. Confira o número; se ele é mesmo desta empresa, fale com o suporte da DMS.';
+    const { ctx, page, S } = await abrir(1280, 900, { situacao: 'semCnpj', recusarCnpj: frase });
+    await abrirJanela(page);
+    await page.getByLabel('CNPJ da empresa').fill(cnpjDeTeste());
+    await page.locator('[role="dialog"] button:has-text("Salvar CNPJ")').click();
+    const alerta = page.locator('[role="dialog"] [role="alert"]');
+    await alerta.waitFor({ timeout: 5000 }).catch(() => {});
+    ok((await alerta.innerText().catch(() => '')).includes(frase), 'CNPJ recusado: a frase do servidor no próprio bloco');
+    ok(S.cnpjs.length === 1 && (await page.locator('[role="dialog"] button:has-text("Conectar ao DMS Graph")').isDisabled()), 'CNPJ recusado: nada muda e "Conectar" segue desligado');
+    await ctx.close();
+  }
+  {
+    const { ctx, page, S } = await abrir(1280, 900, { token: GERENTE, situacao: 'semCnpj' });
+    await abrirJanela(page);
+    ok((await page.getByLabel('CNPJ da empresa').count()) === 0, 'gerente sem CNPJ: sem o campo');
+    ok(await page.locator('[role="dialog"] :text("é o presidente quem informa")').isVisible(), 'gerente sem CNPJ: "é o presidente quem informa"');
+    ok(S.cnpjs.length === 0, 'gerente: nada vai ao servidor');
+    await ctx.close();
+  }
+
   // ── Atendimento › Fotos do cliente: "Quem lê as fotos agora" ──
   {
     const { ctx, page } = await abrir(1280, 900, { situacao: 'ligado', caminho: '/delivery/configuracoes?aba=atendimento' });
@@ -274,7 +348,7 @@ export default async function roteiroGraphClique({ nav, base: endereco, ok, foto
   // ── as larguras: a janela aberta (antes de ligar, ligada e na confirmação) e a volta que falhou ──
   for (const w of larguras) {
     const h = w < 700 ? 760 : 900;
-    for (const situacao of ['naoLigado', 'ligado']) {
+    for (const situacao of ['naoLigado', 'ligado', 'semCnpj']) {
       const { ctx, page, erros } = await abrir(w, h, { situacao });
       try {
         await abrirJanela(page);
@@ -286,7 +360,13 @@ export default async function roteiroGraphClique({ nav, base: endereco, ok, foto
         ok(achados.length === 0, `${w}px · ${situacao}: sem barra para o lado e nada fora da tela${achados.length ? ` (${achados.slice(0, 3).join('; ')})` : ''}`);
         const caixa = await page.locator('[role="dialog"] > div.relative').boundingBox();
         ok(!!caixa && caixa.x >= -1 && caixa.x + caixa.width <= w + 1, `${w}px · ${situacao}: a janela inteira na largura`);
-        const botao = page.locator(situacao === 'ligado' ? '[role="alertdialog"] button:text-is("Desligar")' : '[role="dialog"] button:has-text("Conectar ao DMS Graph")');
+        const botao = page.locator(
+          situacao === 'ligado'
+            ? '[role="alertdialog"] button:text-is("Desligar")'
+            : situacao === 'semCnpj'
+              ? '[role="dialog"] button:has-text("Salvar CNPJ")'
+              : '[role="dialog"] button:has-text("Conectar ao DMS Graph")',
+        );
         const b = await botao.boundingBox();
         ok(!!b && b.height >= 36, `${w}px · ${situacao}: o botão principal tem altura de toque (${b ? Math.round(b.height) : '—'} px)`);
         if (w === 320 || w === 375 || w === 1440) await page.screenshot({ path: foto(`graph-${situacao}-${w}.png`) });

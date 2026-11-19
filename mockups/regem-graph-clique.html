@@ -86,6 +86,10 @@ main{max-width:1180px;margin:0 auto;padding-block:16px 96px;padding-left:max(16p
 .btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
 .btn.perigo{border-color:#E7B4B4;color:var(--crit)}
 .btn.largo{width:100%}
+.btn[disabled]{opacity:.55;cursor:not-allowed}
+.campo{display:grid;gap:6px;font-size:13.5px;font-weight:600}
+.campo input{min-height:44px;border:1px solid var(--line-2);border-radius:10px;padding:0 12px;background:var(--card);font-family:var(--mono);font-weight:500;width:100%;max-width:260px}
+.cnpj-linha{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end}
 .acoes{display:flex;flex-wrap:wrap;gap:8px}
 .nota{font-size:13px;color:var(--ink-2);margin:0}
 .aviso{border-radius:10px;padding:10px 12px;font-size:13.5px;display:flex;gap:10px;align-items:flex-start}
@@ -250,6 +254,11 @@ th{background:#F6F8FB;font-size:12.5px;text-transform:uppercase;letter-spacing:.
       <button type="button" data-g="perfil" data-val="pres" aria-pressed="true">Presidente</button>
       <button type="button" data-g="perfil" data-val="ger" aria-pressed="false">Gerente</button>
     </div>
+    <div class="ctl"><span>O CNPJ da empresa (novo, 19/11)</span>
+      <button type="button" data-g="cnpj" data-val="tem" aria-pressed="true">Já cadastrado</button>
+      <button type="button" data-g="cnpj" data-val="sem" aria-pressed="false">Sem CNPJ</button>
+      <button type="button" data-g="cnpj" data-val="recusa" aria-pressed="false">CNPJ recusado</button>
+    </div>
   </div>
   <div class="janela-fundo">
     <div class="janela" role="dialog" aria-label="DMS Graph">
@@ -263,13 +272,29 @@ th{background:#F6F8FB;font-size:12.5px;text-transform:uppercase;letter-spacing:.
             <li><span class="ic sim" aria-hidden="true">✓</span><span>Analisar as fotos e os documentos que os seus clientes mandam, sem guardar o arquivo<small>O Graph devolve só o que leu na foto; a foto continua na conversa do WhatsApp da loja.</small></span></li>
           </ul>
         </div>
+        <div class="bloco" data-cnpj="sem recusa" hidden>
+          <h3>Falta o CNPJ da empresa</h3>
+          <p class="nota">A conta da empresa no DMS Graph nasce pelo CNPJ. Informe uma vez; para trocar depois, só pelo suporte da DMS.</p>
+          <div class="cnpj-linha" data-perfil="pres" style="margin-top:10px">
+            <label class="campo" for="cnpj-prot">CNPJ da empresa<input id="cnpj-prot" inputmode="numeric" autocomplete="off" placeholder="00.000.000/0000-00"></label>
+            <button class="btn" type="button">Salvar CNPJ</button>
+          </div>
+          <p class="nota" data-perfil="pres" style="margin-top:8px">O Regem confere os dígitos, se o CNPJ existe na Receita e se outra empresa do Regem já usa esse número. Fica na auditoria.</p>
+          <div class="aviso erro" data-cnpj="recusa" hidden style="margin-top:10px" role="alert">
+            <span aria-hidden="true">!</span>
+            <span><b>Outra empresa do Regem já usa este CNPJ</b>Confira o número. Se ele é mesmo desta empresa, fale com o suporte da DMS.</span>
+          </div>
+          <p class="nota" data-cnpj="recusa" hidden style="margin-top:6px">As outras recusas, no mesmo lugar: "Confira o CNPJ: os dígitos não batem", "Este CNPJ não existe na Receita" e "Este CNPJ está baixado na Receita".</p>
+        </div>
         <div data-perfil="pres">
-          <button class="btn pri largo" type="button">Conectar ao DMS Graph</button>
+          <div data-cnpj="tem"><button class="btn pri largo" type="button">Conectar ao DMS Graph</button></div>
+          <div data-cnpj="sem recusa" hidden><button class="btn pri largo" type="button" disabled>Conectar ao DMS Graph</button>
+            <p class="nota" style="margin-top:6px">Salve o CNPJ para conectar.</p></div>
           <p class="nota" style="margin-top:8px">Você vai para a página do DMS Graph, entra com o DMS ID, confere o pedido e autoriza. Ninguém copia chave.</p>
         </div>
         <div class="aviso info" data-perfil="ger" hidden>
           <span aria-hidden="true">ℹ</span>
-          <span><b>Só quem é presidente liga o DMS Graph</b>Você vê aqui quando a empresa estiver ligada.</span>
+          <span><b>Só quem é presidente liga o DMS Graph</b>Você vê aqui quando a empresa estiver ligada. Sem o CNPJ da empresa, é o presidente quem informa.</span>
         </div>
       </div>
     </div>
@@ -522,6 +547,7 @@ th{background:#F6F8FB;font-size:12.5px;text-transform:uppercase;letter-spacing:.
         <tr><td>GR-5</td><td>A franquia na tela</td><td>O cartão mostra as fotos do mês (usadas de total) e avisa quando acabar; a leitura segue pela IA da empresa até o dia 1º</td><td>Só um aviso quando acabar</td></tr>
         <tr><td>GR-6</td><td>Desligado do lado do Graph</td><td>O cartão marca "desligado" com a data, e a leitura volta sozinha à IA da empresa</td><td>Avisar no sino também</td></tr>
         <tr><td>GR-7</td><td>"Aplicativos conectados" no Graph</td><td>Uma tela só, depois de entrar com o DMS ID: a lista, o que cada um pode, o uso do mês e "Desligar" com confirmação</td><td>—</td></tr>
+        <tr><td>GR-8 (novo, 19/11)</td><td>Empresa sem CNPJ (hoje 2 de 4; o Regem não tem onde cadastrar depois do "Criar conta")</td><td>Na própria janela, só o presidente informa, uma vez: o Regem confere os dígitos, a Receita (como no cadastro da landing) e se outra empresa já usa o número, grava na empresa com auditoria; trocar depois, só pelo suporte da DMS</td><td>Só a DMS cadastra, pelo console da distribuição</td></tr>
       </tbody>
     </table>
   </div>

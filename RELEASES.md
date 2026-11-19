@@ -12,6 +12,41 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Pedido agendado — D4c (19/11; SEM migration).** O atendente virtual agenda pelo WhatsApp: com a loja fechada pergunta o
+  horário com os livres, marca o horário no pedido (`mexer_no_pedido` › `agendar`), só o Pix quando a loja tem o Pix online
+  (o código sai sozinho ao registrar), o horário no resumo, mudar o horário e cancelar o agendado já registrado pela
+  conversa (com a confirmação do cliente); instruções .f31 (a seção só com "Aceitar pedido agendado"
+  ligado). O robô roda na nuvem — no `.zip` só por acompanhar o código; nada muda no servidor da loja.
+
+- **Pedido agendado — D4b (19/11; SEM migration).** Mudar o horário (cliente pela página do pedido até o preparo; loja pela
+  gaveta do painel), o cancelamento do cliente só antes do preparo, o aviso "horário mudou" e a pergunta dos agendados para
+  depois ao fechar o turno do delivery (G8). O painel e o fechar turno também rodam no servidor da loja → vão no `.zip`.
+
+- **Pedido agendado — D4a (19/11; protótipo `mockups/regem-atendente-alergenos-agendado.html`, parte 2; mig 455 NAS DUAS
+  PONTAS — `cardapio_config.agendado_*` e `pedido_externo.agendado_preparo_avisado_em`).** Os ajustes em Cardápio digital ›
+  Encomenda (nasce desligado), o "Para quando?" com o dia e as janelas de 15 min no cardápio online, o recebimento só Pix
+  com o limite por janela, o cartão "Agendado" no KDS com o começo no tempo de entrega/retirada, a situação "Agendados" no
+  painel e os avisos (confirmação no aceite; o "em produção" pela rotina da nuvem). Colunas novas em tabelas que já
+  sincronizam (sem tabela nova; o daemon não muda) → a migration, o KDS e o painel vão no `.zip`.
+
+- **Localização da loja pelo atendente virtual (18/11, D5; SEM migration; só nuvem).** A linha `LOCAL: loja` do robô vira o
+  alfinete do mapa no WhatsApp, depois do endereço escrito (instruções .f30). O robô só roda na nuvem → vai no `.zip` sem
+  efeito na loja.
+
+- **Print de ajuda do atendente virtual (18/11, D3; SEM migration — usa `robo_config.print_ajuda` da 442; só nuvem).**
+  "Mandar print de ajuda" em Atendimento › Fotos do cliente (nasce desligado), as seis imagens em `public/ajuda/` e a
+  linha `PRINT:` do robô virando a imagem do passo no WhatsApp (instruções .f29). O robô só roda na nuvem → vai no `.zip`
+  sem efeito na loja.
+
+- **Alérgenos do cardápio (18/11, D2 do atendente; protótipo `mockups/regem-atendente-alergenos-agendado.html`, A1–A9;
+  mig 454 NAS DUAS PONTAS — `item_estoque.alergenos`, `produto.alergenos_ajuste`, `cardapio_config.alergenos_cautela`).**
+  O grupo "Alérgenos e restrições" na gaveta do insumo (Estoque › Produtos), a aba "Alérgenos" em Cadastros › Cardápio
+  (conferência e gaveta do produto, com a herança pela ficha técnica e o ajuste à mão), o cartão no produto, o selo
+  "S/ glúten"/"S/ lactose" que contradiz recusado (A6), a frase de cautela em Delivery › Configurações › Cardápio, o bloco na
+  página do produto do cardápio online e o campo `alergenos` na busca do robô (instruções .f28). Colunas novas em tabelas
+  que já sincronizam (sem tabela nova; o daemon não muda) → a migration e as telas vão no `.zip`; o servidor da loja sem o
+  `.zip` segue sem as colunas (o cardápio online é da nuvem).
+
 - **A nota do pedido pelo cliente (18/11, fase A1 do protótipo `mockups/regem-avaliacao-pedido.html`; mig 453 SÓ NUVEM —
   `pedido_avaliacao` e `robo_config.nota_*`).** "Como foi o pedido?" na página do pedido (`/r/…`) depois da entrega, a
   nota baixa vira caso "Avaliação" no Atendimento, Delivery › Avaliações (no servidor da loja, a tela pede à nuvem) e o
@@ -45,6 +80,8 @@
   daemon mudou → o `.exe` do próximo corte leva junto). **G5b (as telas, protótipo aprovado 18/11):** o cartão "DMS
   Graph" em Delivery › Configurações › Integrações, a página `/integracoes/graph/volta` e a linha "Quem lê as fotos
   agora" em Fotos do cliente; `GRAPH_EMPRESAS` (opcional) limita o piloto às empresas da lista. Só nuvem, sem efeito na loja.
+  **GR-8 (19/11, sem migration):** `PATCH /empresas/cnpj` (só o presidente, só na nuvem) — a empresa sem CNPJ informa uma
+  vez, na janela do DMS Graph. Só nuvem, sem efeito na loja.
 
 - **Poller do iFood: o tempo de cada parte no log (18/11; SEM migration).** "polling X ms, gravação Y ms, confirmação Z
   ms" na linha de cada volta com eventos. Só medida; o poller roda só na nuvem → vai no `.zip` sem efeito na loja.

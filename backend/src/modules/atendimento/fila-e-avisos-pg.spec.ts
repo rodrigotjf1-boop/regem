@@ -322,12 +322,12 @@ descrever('fila e avisos (Postgres)', () => {
       const antes = process.env.ROBO_FOTOS_IA;
       try {
         delete process.env.ROBO_FOTOS_IA;
-        expect(await svc.fotosDoCliente(F)).toEqual({ ler: false, liberadaNaDistribuicao: false, limitePorDia: 5 });
+        expect(await svc.fotosDoCliente(F)).toEqual({ ler: false, printAjuda: false, liberadaNaDistribuicao: false, limitePorDia: 5 });
         await svc.salvar(user(F), { avisarGerenteMin: 10 });
         await expect(svc.salvarFotosDoCliente(user(F), 'sim')).rejects.toThrow('Ler as fotos que o cliente manda');
         auditados.length = 0;
         process.env.ROBO_FOTOS_IA = '1';
-        expect(await svc.salvarFotosDoCliente(user(F), true)).toEqual({ ler: true, liberadaNaDistribuicao: true, limitePorDia: 5 });
+        expect(await svc.salvarFotosDoCliente(user(F), true)).toEqual({ ler: true, printAjuda: false, liberadaNaDistribuicao: true, limitePorDia: 5 });
         expect((await svc.ajustes(F)).avisarGerenteMin).toBe(10); // a fila salva antes continua
         await svc.salvarFotosDoCliente(user(F), true); // de novo: nada muda, nada na auditoria
         expect(auditados.map((a) => a.acao)).toEqual(['robo_fotos_ler_ligado']);
@@ -348,7 +348,13 @@ descrever('fila e avisos (Postgres)', () => {
         await expect(rota.salvarAjustes(user(F), null, { fila: { avisarGerenteMin: 2 }, fotos: { ler: 'não' } })).rejects.toThrow('Ler as fotos');
         expect((await svc.ajustes(F)).avisarGerenteMin).toBe(10);
         const r: any = await rota.salvarAjustes(user(F), null, { fotos: { ler: false } });
-        expect(r.fotos).toEqual({ ler: false, liberadaNaDistribuicao: true, limitePorDia: 5 });
+        expect(r.fotos).toEqual({ ler: false, printAjuda: false, liberadaNaDistribuicao: true, limitePorDia: 5 });
+        // D3: "Mandar print de ajuda" — próprio (F4), só booleano, grava só a dele; a leitura fica como estava.
+        await expect(rota.salvarAjustes(user(F), null, { fotos: { printAjuda: 'sim' } })).rejects.toThrow('Mandar print de ajuda');
+        auditados.length = 0;
+        const p: any = await rota.salvarAjustes(user(F), null, { fotos: { printAjuda: true } });
+        expect(p.fotos).toEqual({ ler: false, printAjuda: true, liberadaNaDistribuicao: true, limitePorDia: 5 });
+        expect(auditados.map((a) => a.acao)).toEqual(['robo_print_ajuda_ligado']);
       } finally {
         if (antes === undefined) delete process.env.ROBO_FOTOS_IA;
         else process.env.ROBO_FOTOS_IA = antes;

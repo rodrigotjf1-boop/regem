@@ -105,6 +105,7 @@ import { validarTokenPagBank } from '../../common/pagbank';
 import { perfilEfetivo, listarPerfis, CAMPOS_CATALOGO, type PerfilCupom } from './cupom-perfis';
 import { dadosDaViaDoDelivery } from './via-do-delivery';
 import { pedidoNoCanal, tipoDoPedido } from '../../common/via-do-pedido';
+import { emSaoPaulo, inicioDoPreparo, preparoDoTipo, quandoDoAgendado } from '../../common/pedido-agendado';
 import {
   ajusteRepetidoDaLoja,
   gravarConfirmacao,
@@ -1333,8 +1334,21 @@ export class DeliveryService {
       return [] as MarcaDoRepetido[];
     });
     const repetidos = new Map(marcas.map((m) => [m.pedidoId, m] as const));
+    // Pedido AGENDADO (mig 455, G3): quando o preparo começa — o painel mostra "Agendados" até lá e conta o atraso a partir
+    // dele. Os tempos da loja só são lidos quando há agendado na lista.
+    const temAgendado = base.some((r) => r.retiradaTipo === 'agendado' && r.agendamento);
+    const tempos: any = temAgendado
+      ? ((await this.db
+          .execute(sql`select tempo_entrega_min as "tempoEntregaMin", tempo_retirada_min as "tempoRetiradaMin" from cardapio_config
+                        where tenant_id = ${tenantId}::uuid order by (unidade_id is null) desc limit 1`)
+          .then((x: any) => (x?.rows ?? x)?.[0])
+          .catch(() => null)) ?? {})
+      : {};
+    const comecaDo = (r: any) =>
+      r.retiradaTipo === 'agendado' && r.agendamento ? inicioDoPreparo(new Date(r.agendamento), preparoDoTipo(tempos, r.tipo)).toISOString() : null;
     return base.map((r) => ({
       ...r,
+      agendadoComeca: comecaDo(r),
       logistica: logistica.get(r.id) ?? null,
       repetido: repetidos.get(r.id) ?? null,
       clientePedidosCount: r.clienteTelefone ? counts.get(r.clienteTelefone) ?? 1 : 1,
@@ -3716,6 +3730,38 @@ export class DeliveryService {
   //  • SERVIDOR LOCAL: pede à NUVEM que envie (encaminharAvisoParaNuvem). A loja não tem o que o
   //    aviso precisa: a tabela `integracao` (URL + segredo do n8n da loja) não sincroniza, e o
   //    WhatsApp oficial depende do histórico de conversas e dos modelos, que só existem na nuvem.
+  /** Quando o preparo do pedido agendado começa (mig 455, G3): o horário menos o tempo de entrega/retirada da loja. */
+  private async comecaDoAgendado(tenantId: string, ped: any): Promise<Date> {
+    const tempos: any = await this.db
+      .execute(sql`select tempo_entrega_min as "tempoEntregaMin", tempo_retirada_min as "tempoRetiradaMin" from cardapio_config
+                    where tenant_id = ${tenantId}::uuid
+                    order by (unidade_id is not distinct from ${ped.unidadeId ?? null}::uuid) desc, (unidade_id is null) desc limit 1`)
+      .then((x: any) => (x?.rows ?? x)?.[0] ?? {})
+      .catch(() => ({}));
+    return inicioDoPreparo(new Date(ped.agendamento), preparoDoTipo(tempos, ped.tipo));
+  }
+
+  /**
+   * O "em produção" do pedido agendado, na hora do preparo (mig 455 — `AvisoAgendadoProcessor`, que já gravou a marca
+   * de "já avisei"): o mesmo aviso de status de sempre, pelo mesmo caminho (só o cardápio próprio; a nuvem manda).
+   */
+  /**
+   * "Horário mudou" do pedido agendado (mig 455, G6): na hora, por quem mudou (o cliente, o atendente virtual ou a loja).
+   * O texto traz o horário novo e o começo do preparo.
+   */
+  async avisarHorarioDoAgendado(tenantId: string, id: string): Promise<void> {
+    const ped: any = await this.carregar(tenantId, id).catch(() => null);
+    if (!ped || !['novo', 'confirmado'].includes(ped.status)) return;
+    const comeca = await this.comecaDoAgendado(tenantId, ped);
+    await this.dispararWebhook(tenantId, { ...ped, agendadoComeca: comeca.toISOString() }, 'agendado_horario');
+  }
+
+  async avisarAgendadoEmPreparo(tenantId: string, id: string): Promise<void> {
+    const ped = await this.carregar(tenantId, id).catch(() => null);
+    if (!ped || ped.status !== 'confirmado') return;
+    await this.dispararWebhook(tenantId, ped);
+  }
+
   private async dispararWebhook(tenantId: string, ped: any, evento = 'status') {
     try {
       // O AVISO DE STATUS ao cliente (WhatsApp pelo bot Regem) é SÓ para o Cardápio Regem.
@@ -3958,7 +4004,19 @@ export class DeliveryService {
     // Cancelamento vira evento dedicado 'cancelado' e leva o MOTIVO — o cliente
     // precisa saber por que o pedido foi cancelado (o fluxo n8n trata esse ramo).
     const cancelado = ped.status === 'cancelado';
-    const eventoFinal = evento === 'status' && cancelado ? 'cancelado' : evento;
+    let eventoFinal = evento === 'status' && cancelado ? 'cancelado' : evento;
+    // PEDIDO AGENDADO (mig 455, D4): no aceite, antes de o preparo começar, o aviso é a CONFIRMAÇÃO do agendamento — o
+    // "em produção" sai na hora do preparo (`AvisoAgendadoProcessor`). Aceito já depois do começo (o Pix caiu tarde): vai o
+    // "em produção" agora e a marca de "já avisei" fica gravada, para a rotina não repetir.
+    if (eventoFinal === 'status' && ped.status === 'confirmado' && ped.retiradaTipo === 'agendado' && ped.agendamento && !ped.agendadoPreparoAvisadoEm) {
+      const comeca = await this.comecaDoAgendado(tenantId, ped);
+      if (comeca.getTime() > Date.now()) {
+        eventoFinal = 'agendado';
+        ped = { ...ped, agendadoComeca: comeca.toISOString() };
+      } else {
+        await this.db.execute(sql`update pedido_externo set agendado_preparo_avisado_em = now() where id = ${ped.id}::uuid and agendado_preparo_avisado_em is null`);
+      }
+    }
     const eventoStatus = DeliveryService.eventoDeStatus(ped.status, ped.tipo, eventoFinal);
     // O "saiu para entrega" diz quando chega (Onda 0, 01/11/2026): a mesma conta do rastreio, na hora do aviso.
     if (eventoStatus === 'saiu_entrega') ped = { ...ped, previsaoChegada: await this.horaPrevistaDeChegada(tenantId, ped) };
@@ -4421,6 +4479,10 @@ export class DeliveryService {
   // ENTREGA — aí o cliente é avisado no 'despachado'/saiu para entrega).
   private static eventoDeStatus(status: string, tipo: string, evento: string): string | null {
     if (evento === 'atrasado') return 'atrasado';
+    // A confirmação do pedido agendado (mig 455): no aceite, antes do preparo.
+    if (evento === 'agendado') return 'agendado';
+    // O horário do pedido agendado mudou (mig 455, G6).
+    if (evento === 'agendado_horario') return 'agendado_horario';
     switch (status) {
       case 'confirmado': return 'confirmado';
       case 'pronto': return tipo === 'retirada' ? 'pronto_retirada' : null;
@@ -4501,6 +4563,26 @@ export class DeliveryService {
     const abaixo = ped.semBotao ? 'pelo link abaixo' : 'pelo botão abaixo';
     switch (evento) {
       case 'confirmado': return { titulo: 'Pedido em produção', texto: `Recebemos seu pedido${ref} e ele já está em produção. 👨‍🍳` };
+      // O pedido agendado (mig 455): a confirmação no aceite — o horário, o começo do preparo e como mudar.
+      case 'agendado': {
+        const quando = ped.agendamento ? quandoDoAgendado(new Date(ped.agendamento)) : null;
+        const comeca = ped.agendadoComeca ? emSaoPaulo(new Date(ped.agendadoComeca)).hora : null;
+        return {
+          titulo: 'Pedido agendado 🗓️',
+          texto:
+            `Seu pedido${ref} está agendado${quando ? ` para ${quando.texto} (chega entre ${quando.hora} e ${quando.ate})` : ''}.` +
+            `${comeca ? ` A cozinha começa às ${comeca} e avisamos quando entrar em preparo.` : ''} Para mudar o horário ou cancelar, fale com a gente por aqui.`,
+        };
+      }
+      // O horário do pedido agendado mudou (mig 455, G6).
+      case 'agendado_horario': {
+        const quando = ped.agendamento ? quandoDoAgendado(new Date(ped.agendamento)) : null;
+        const comeca = ped.agendadoComeca ? emSaoPaulo(new Date(ped.agendadoComeca)).hora : null;
+        return {
+          titulo: 'Horário do pedido mudou 🗓️',
+          texto: `Pronto! Seu pedido${ref} agora está agendado${quando ? ` para ${quando.texto} (chega entre ${quando.hora} e ${quando.ate})` : ''}.${comeca ? ` A cozinha começa às ${comeca}.` : ''}`,
+        };
+      }
       case 'pronto_retirada': return { titulo: 'Pedido pronto', texto: `Seu pedido${ref} está pronto para retirada! 🎉` };
       case 'saiu_entrega': {
         const lembrete = codigo ? `\n🔑 Código de entrega: ${codigo}. Informe ao entregador para liberar o pedido.` : lembrete99;

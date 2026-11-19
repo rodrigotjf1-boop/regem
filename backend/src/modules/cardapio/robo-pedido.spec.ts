@@ -344,6 +344,16 @@ describe('o pagamento', () => {
     expect(sugestoesDeTroco(101)).toEqual(['R$ 150', 'R$ 200']);
     expect(sugestoesDeTroco(600)).toEqual([]);
   });
+  it('D4c (G5): o pedido agendado com o Pix online na loja oferece só o Pix — "dinheiro" não serve; sem a marca, como sempre', () => {
+    const m: any = { loja: { pagamentos: ['pix', 'cartao', 'entrega', 'vr'] } };
+    expect(formasDoRobo(m, 'entrega', true)).toEqual([{ forma: 'pix', nome: 'Pix', pedeTroco: false }]);
+    expect(opcoesDePagamento(m, 'entrega', true)).toEqual([{ titulo: 'Pix', detalhe: 'pague agora, pelo código que mandamos', forma: 'pix', meio: null }]);
+    expect(acharForma(m, 'entrega', 'Pix — pague agora, pelo código que mandamos', true)).toEqual({ ok: true, forma: 'pix', porCartao: false, meio: null });
+    expect(acharForma(m, 'entrega', 'pix', true)).toMatchObject({ ok: true, forma: 'pix' });
+    expect(acharForma(m, 'entrega', 'dinheiro', true)).toMatchObject({ ok: false, motivo: 'nenhuma', opcoes: ['Pix'] });
+    // Sem o agendado, o Pix segue pelo link.
+    expect(acharForma(m, 'entrega', 'pix')).toMatchObject({ ok: false, motivo: 'so_pelo_link' });
+  });
   it('o valor do troco: "100", "R$ 100,00", "1.000"', () => {
     expect(valorDoTroco('100')).toBe(100);
     expect(valorDoTroco('R$ 100,00')).toBe(100);
@@ -440,6 +450,20 @@ describe('F5: a condução — o que falta, na ordem em que o robô pergunta', (
     expect(conducaoDoPedido({ ...base, entrega: { ...(base.entrega as any), referencia: null } })[0].pergunta).toMatch(/complemento \(apto, bloco, casa, fundos\)/);
     expect(campos({ tipo: 'retirada', entrega: { tipo: 'retirada' }, subtotal: 5 })).toEqual([]);
     expect(conducaoDoPedido({ ...base, subtotal: 15 })[0].pergunta).toBe('O pedido mínimo para entrega é R$ 20,00 em itens (faltam R$ 5,00).');
+  });
+  it('D4c (G4): a loja fechada que aceita agendamento pergunta o horário com os livres — também na loja de um tipo só', () => {
+    const horarios = ['Hoje 19:00', 'Hoje 19:15', 'Amanhã 12:00'];
+    const [h] = conducaoDoPedido({ ...base, tipo: null, entrega: null, tiposAbertos: [], horariosParaAgendar: horarios });
+    expect(h).toMatchObject({ campo: 'horario', opcoes: horarios });
+    expect(h.comoResponder).toContain('acao = agendar');
+    // A loja que só entrega já vem com o tipo: sem tipo aberto, o horário vem antes do endereço.
+    expect(conducaoDoPedido({ ...base, tipo: 'entrega', entrega: null, tiposAbertos: [], horariosParaAgendar: horarios })[0].campo).toBe('horario');
+    // No máximo 9 opções (cabem na lista do WhatsApp).
+    const muitos = Array.from({ length: 14 }, (_, i) => `Hoje 1${i % 10}:00`);
+    expect(conducaoDoPedido({ ...base, tipo: null, entrega: null, tiposAbertos: [], horariosParaAgendar: muitos })[0].opcoes).toHaveLength(9);
+    // Sem horário livre (ou sem o agendado), a loja fechada diz que não recebe agora; aberta, nada muda.
+    expect(conducaoDoPedido({ ...base, tipo: null, entrega: null, tiposAbertos: [], horariosParaAgendar: [] })[0].pergunta).toBe('A loja não está recebendo pedidos agora.');
+    expect(conducaoDoPedido({ ...base, horariosParaAgendar: horarios })).toEqual([]);
   });
   it('dinheiro ou cartão; o troco com as notas que cobrem o total e o "não preciso"', () => {
     const [meio] = conducaoDoPedido({ ...base, pagamento: { forma: 'entrega', meio: null, trocoPara: null, semTroco: false } });

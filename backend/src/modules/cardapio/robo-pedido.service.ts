@@ -147,6 +147,7 @@ import {
 import { textoDoPix } from './adicional-pix';
 import { AdicionalPixService } from './adicional-pix.service';
 import { pagoNoPixOnline } from '../../common/prazo-estorno-pix';
+import { horarioDoTexto, instanteDeSaoPaulo, quandoDoAgendado, rotuloDaJanela } from '../../common/pedido-agendado';
 import {
   type EnderecoDoCaso,
   enderecoEmUmaLinha,
@@ -236,6 +237,33 @@ const ACOES = {
   tirarCupom: ['tirar_cupom', 'remover_cupom', 'sem_cupom'],
   usarPremio: ['usar_premio', 'usar_o_premio', 'resgatar_premio'],
   guardarPremio: ['guardar_premio', 'deixar_para_depois', 'nao_usar_premio'],
+  // D4c (mig 455): o pedido AGENDADO — o horário que o cliente disse (observacao = "hoje 19:30"), ou "o quanto antes".
+  agendar: ['agendar', 'agendar_pedido', 'marcar_horario', 'agendar_horario', 'horario'],
+  // D4c (G6): o pedido agendado JÁ REGISTRADO — mudar o horário (até o preparo começar) e cancelar (com o "Sim, cancelar").
+  horarioDoAgendado: ['pedido_horario', 'mudar_horario', 'mudar_horario_do_pedido', 'horario_do_pedido'],
+  cancelarAgendado: ['cancelar_agendado', 'pedido_cancelar_agendado', 'cancelar_pedido_agendado'],
+};
+
+/** G5 (D4c): o pedido em montagem está AGENDADO e a loja tem o Pix online no cardápio — só o Pix, pago na hora. */
+const soPixNoPedido = (menu: any, c: { entrega?: unknown } | null | undefined): boolean =>
+  !!agendamentoDoCarrinho(c) && menu?.loja?.agendado?.pixObrigatorio === true;
+
+/** O pedaço da entrega que guarda o horário agendado (para não perdê-lo quando a entrega é trocada). */
+const comAgendamento = (c: { entrega?: unknown } | null | undefined): { agendamento?: string } => {
+  const v = agendamentoDoCarrinho(c);
+  return v ? { agendamento: v } : {};
+};
+
+/** O horário agendado do pedido em montagem (guardado em `entrega.agendamento`, "AAAA-MM-DDTHH:MM" de São Paulo). */
+export const agendamentoDoCarrinho = (c: { entrega?: unknown } | null | undefined): string | null => {
+  const v = (c?.entrega as any)?.agendamento;
+  return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v) ? v : null;
+};
+
+/** "amanhã, 19:30" — o horário agendado do pedido em montagem como o cliente lê (ou nada, sem agendamento). */
+export const agendadoParaTexto = (c: { entrega?: unknown } | null | undefined, agora: Date = new Date()): string | null => {
+  const v = instanteDeSaoPaulo(agendamentoDoCarrinho(c));
+  return v ? quandoDoAgendado(v, agora).texto : null;
 };
 
 /** O trio (ou combo) do lanche — "TRIO 08" do "Numero 08", "Trio X-Bacon" do "X-Bacon" —, à venda; da cópia com mais etapas. */
@@ -567,6 +595,140 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
     return `Avise o cliente: no ${produto?.nome ?? 'item'}, ${nomes} ${naoRepete.length > 1 ? 'vão' : 'vai'} uma vez só (a loja não deixa repetir ${naoRepete.length > 1 ? 'esses adicionais' : 'esse adicional'}). Entrou uma vez.`;
   }
 
+  /**
+   * O PEDIDO AGENDADO pelo atendente (D4c, mig 455 — protótipo, parte 2, "WhatsApp da loja"): o horário que o cliente
+   * disse, conferido pelas mesmas regras das janelas do cardápio (`horarioParaORobo`), fica no pedido em montagem
+   * (`entrega.agendamento`); "o quanto antes" tira. A janela cheia volta com as duas livres mais perto para oferecer. O
+   * registro confere tudo de novo.
+   */
+  private async agendarPedido(ctx: Contexto, menu: any, texto: unknown) {
+    const atual = await this.carrinhoAberto(ctx);
+    const tipo = (atual?.entrega as any)?.tipo ?? null;
+    const conf: any = await this.cardapio.horarioParaORobo(ctx.token, texto, tipo);
+    if (!conf.ok)
+      return this.semMudar(
+        ctx,
+        menu,
+        recusa('horario', conf.mensagem, conf.sugestoes?.length ? { sugestoes: conf.sugestoes, comoResponder: 'ofereça as duas mais perto como opções e, escolhida, mexer_no_pedido com acao = agendar e observacao = o dia e a hora' } : {}),
+      );
+    if (conf.tirar) {
+      const r = await this.mudar(ctx, (c) => {
+        const e: any = { ...((c.entrega as any) ?? {}) };
+        delete e.agendamento;
+        return { entrega: Object.keys(e).length ? e : null } as any;
+      });
+      return this.responder(ctx, menu, r, 'agendamento tirado: o pedido é para o quanto antes');
+    }
+    const r = await this.mudar(ctx, (c) => ({ entrega: { ...((c.entrega as any) ?? {}), agendamento: conf.valor } }) as any);
+    return this.responder(
+      ctx,
+      menu,
+      r,
+      `agendado para ${conf.quando.texto} (chega entre ${conf.quando.hora} e ${conf.quando.ate}); a cozinha começa às ${conf.comeca}` +
+        (conf.pixObrigatorio ? '. O pedido agendado é pago no Pix, na hora: o Regem manda o código depois de registrar' : ''),
+    );
+  }
+
+  /**
+   * Os pedidos AGENDADOS ainda por acontecer desta conversa (D4c, G6): novo ou aceito, do telefone da FICHA da conversa ou
+   * do cadastro achado por ele (V79 — nunca um número que a IA mande). O agendado pode ter sido feito dias antes: não
+   * entra na janela de 12 h do pedido feito.
+   */
+  private async agendadosDaConversa(ctx: Contexto): Promise<any[]> {
+    const cli = await this.clienteDaConversa(ctx);
+    const peloTelefone = sql`${sqlChaveTelefone(sql`${pedidoExterno.clienteTelefone}`)} = ${ctx.conversa.chave}`;
+    const doCliente = cli?.id ? or(peloTelefone, eq(pedidoExterno.clienteId, cli.id)) : peloTelefone;
+    return this.db
+      .select()
+      .from(pedidoExterno)
+      .where(
+        and(
+          eq(pedidoExterno.tenantId, ctx.cfg.tenantId),
+          eq(pedidoExterno.canal, 'cardapio'),
+          eq(pedidoExterno.retiradaTipo, 'agendado'),
+          inArray(pedidoExterno.status, ['novo', 'confirmado']),
+          isNull(pedidoExterno.deletedAt),
+          gte(pedidoExterno.agendamento, sql`now() - interval '1 hour'`),
+          doCliente,
+        ),
+      )
+      .orderBy(pedidoExterno.agendamento)
+      .limit(5);
+  }
+
+  /** O agendado de que se fala: o único, ou o do número em `linha` (o número do pedido); vários sem número, a lista. */
+  private async agendadoEscolhido(ctx: Contexto, dto: any): Promise<{ ok: true; p: any; numero: string } | Recusa> {
+    const lista = await this.agendadosDaConversa(ctx);
+    const numeroDe = (x: any) => String(x.displayId ?? x.numero ?? '');
+    if (!lista.length) return recusa('sem_agendado', 'Não achei pedido agendado deste número para mudar ou cancelar.');
+    const n = String(dto?.linha ?? '').replace(/\D/g, '');
+    const p = n ? lista.find((x) => numeroDe(x).replace(/\D/g, '') === n) : lista.length === 1 ? lista[0] : null;
+    if (!p)
+      return recusa('qual_pedido', 'O cliente tem mais de um pedido agendado: pergunte qual e mande o número dele em linha.', {
+        pedidos: lista.map((x) => `nº ${numeroDe(x)} — ${quandoDoAgendado(new Date(x.agendamento)).texto}`),
+      });
+    return { ok: true, p, numero: numeroDe(p) };
+  }
+
+  /**
+   * MUDAR O HORÁRIO do agendado já registrado pela conversa (D4c, G6): pelo MESMO serviço da página do pedido e do painel
+   * (`mudarHorarioDoAgendado`, origem `robo`) — só até o preparo começar, as mesmas regras e o limite da janela; o
+   * aviso "horário mudou" sai de lá. O robô confirma com o cliente ANTES de chamar (as instruções).
+   */
+  private async mudarHorarioDoRegistrado(ctx: Contexto, dto: any) {
+    const e = await this.agendadoEscolhido(ctx, dto);
+    if (e.ok === false) return e;
+    const lido = horarioDoTexto(dto?.observacao);
+    if (!lido || 'tirar' in lido) return recusa('horario', 'Pergunte o novo dia e a hora (ex.: hoje 20:00, amanhã 12:30).');
+    try {
+      const r: any = await this.cardapio.mudarHorarioDoAgendado(ctx.cfg, e.p.id, lido.valor, { origem: 'robo' });
+      if (!r.mudou) return { ok: true, numero: e.numero, mudou: false, agendadoPara: quandoDoAgendado(new Date(e.p.agendamento)).texto };
+      return {
+        ok: true,
+        numero: e.numero,
+        mudou: true,
+        agendadoPara: r.quando.texto,
+        chegaEntre: `${r.quando.hora} e ${r.quando.ate}`,
+        orientacao: 'O Regem já mandou ao cliente o aviso do horário novo: confirme em uma frase curta, sem repetir o pedido.',
+      };
+    } catch (err: any) {
+      if (err instanceof BadRequestException || err instanceof ConflictException || err instanceof NotFoundException)
+        return recusa('nao_mudou', err.message);
+      throw err;
+    }
+  }
+
+  /**
+   * CANCELAR o agendado já registrado pela conversa (D4c, G6): só com a confirmação do cliente ("Sim, cancelar" em
+   * observacao — sem ela, a pergunta com os botões) e pelo MESMO serviço da página do pedido (`cancelarEncomendaPublico`,
+   * com a prova de dono do pedido achado pelo telefone da ficha): só até o preparo começar; o Pix pago volta sozinho.
+   */
+  private async cancelarAgendadoRegistrado(ctx: Contexto, dto: any) {
+    const e = await this.agendadoEscolhido(ctx, dto);
+    if (e.ok === false) return e;
+    const quando = quandoDoAgendado(new Date(e.p.agendamento)).texto;
+    if (!/^sim\b.*cancel/i.test(normalizar(dto?.observacao)))
+      return recusa('confirmar_cancelamento', `Pergunte se o cliente quer mesmo cancelar o pedido nº ${e.numero} (agendado para ${quando}).`, {
+        opcoes: ['Sim, cancelar', 'Não, manter'],
+        comoResponder: `"Sim, cancelar": mexer_no_pedido com acao = cancelar_agendado, linha = ${e.numero} e observacao = "Sim, cancelar"; "Não, manter": nada a fazer`,
+      });
+    try {
+      const r: any = await this.cardapio.cancelarEncomendaPublico(ctx.token, e.p.id, undefined, e.p.clientRef ?? undefined);
+      return {
+        ok: true,
+        numero: e.numero,
+        cancelado: true,
+        pixDevolvido: r?.reembolso ?? (e.p.pago ? 'estorno automático' : null),
+        orientacao: e.p.pago
+          ? 'Diga que o pedido foi cancelado e que o Pix volta para a conta dele automaticamente.'
+          : 'Diga que o pedido foi cancelado.',
+      };
+    } catch (err: any) {
+      if (err instanceof BadRequestException || err instanceof NotFoundException) return recusa('nao_cancelou', err.message);
+      throw err;
+    }
+  }
+
   private async semMudar(ctx: Contexto, menu: any, r: Recusa) {
     return { ...r, pedido: (await this.calcular(ctx, menu, await this.carrinhoAberto(ctx), await this.clienteDaConversa(ctx))).visao };
   }
@@ -592,6 +754,9 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
     if (ACOES_DA_MUDANCA.confirmar.includes(acao)) return this.confirmarMudanca(ctx);
     if (ACOES_DA_MUDANCA.desistir.includes(acao)) return this.desistirDaMudanca(ctx);
 
+    if (ACOES.horarioDoAgendado.includes(acao)) return this.mudarHorarioDoRegistrado(ctx, dto);
+    if (ACOES.cancelarAgendado.includes(acao)) return this.cancelarAgendadoRegistrado(ctx, dto);
+    if (ACOES.agendar.includes(acao)) return this.agendarPedido(ctx, menu, dto?.observacao ?? dto?.produto);
     if (ACOES.adicionar.includes(acao)) return this.adicionar(ctx, menu, dto, obs, produtos);
     if (ACOES.escolher.includes(acao)) return this.escolher(ctx, menu, dto, produtos);
     if (ACOES.repetir.includes(acao)) return this.repetirUltimo(ctx, menu, produtos);
@@ -2093,7 +2258,9 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
     if (!tipo) return this.semMudar(ctx, menu, recusa('tipo', 'Diga se é entrega ou retirada.', { tipos: oferecidos }));
     if (!oferecidos.includes(tipo))
       return this.semMudar(ctx, menu, recusa('tipo', tipo === 'retirada' ? 'A loja não faz retirada pelo cardápio.' : 'A loja não faz entrega pelo cardápio.'));
-    if (!abertos.includes(tipo)) {
+    // O pedido AGENDADO (D4c, mig 455): com o horário marcado, a loja fechada (ou pausada) não barra — ele é para depois.
+    const agendadoAqui = agendamentoDoCarrinho(await this.carrinhoAberto(ctx));
+    if (!abertos.includes(tipo) && !agendadoAqui) {
       const volta = menu?.proximaAbertura?.[tipo];
       // Pausa do painel (mig 392): o motivo e a volta, o mesmo texto que o cardápio recusa.
       const texto = menu?.pausa
@@ -2102,7 +2269,7 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
       return this.semMudar(ctx, menu, recusa('fechado', texto));
     }
     if (tipo === 'retirada') {
-      const r = await this.mudar(ctx, (c) => ({ entrega: { tipo: 'retirada' }, ...this.fechaSeSoFaltaOMaisAlgo(c, menu) }));
+      const r = await this.mudar(ctx, (c) => ({ entrega: { tipo: 'retirada', ...comAgendamento(c) }, ...this.fechaSeSoFaltaOMaisAlgo(c, menu) }));
       return this.responder(ctx, menu, r, 'retirada na loja');
     }
 
@@ -2113,7 +2280,7 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
     const conferido = await this.enderecoConferido(ctx, menu, dto, antes, cli, oferecidos, abertos);
     if (conferido.ok === false) return this.semMudar(ctx, menu, conferido);
     const e = conferido.e;
-    const r = await this.mudar(ctx, (c) => ({ entrega: e, ...this.fechaSeSoFaltaOMaisAlgo(c, menu) }));
+    const r = await this.mudar(ctx, (c) => ({ entrega: { ...e, ...comAgendamento(c) }, ...this.fechaSeSoFaltaOMaisAlgo(c, menu) }));
     return this.responder(ctx, menu, r, `entrega: ${textoDoEndereco(e)}`);
   }
 
@@ -2247,7 +2414,8 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
       forma = antes.forma;
       meio = antes.meio ?? null;
     } else {
-      const f = acharForma(menu, tipo, dto?.forma);
+      // O pedido AGENDADO com o Pix online (D4c, G5): só o Pix.
+      const f = acharForma(menu, tipo, dto?.forma, soPixNoPedido(menu, atual));
       if (!f.ok) {
         const link = this.cardapio.linkDoCardapio(ctx.token);
         return this.semMudar(
@@ -2300,10 +2468,10 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
 
   /** O nome da forma para o cliente e para a loja: "Dinheiro (pago na entrega)", "Cartão na entrega (maquininha)". */
   private nomeDaForma(menu: any, tipo: 'entrega' | 'retirada' | null, pg: PagamentoDoCarrinho): string {
-    const op = opcoesDePagamento(menu, tipo).find((o) => o.forma === pg.forma && (o.meio ?? null) === (pg.meio ?? null));
+    const op = opcoesDePagamento(menu, tipo, pg.forma === 'pix').find((o) => o.forma === pg.forma && (o.meio ?? null) === (pg.meio ?? null));
     if (op && pg.forma === 'entrega') return op.meio === 'dinheiro' ? `Dinheiro (${op.detalhe})` : `${op.titulo} (maquininha)`;
     if (op) return op.detalhe ? `${op.titulo} (${op.detalhe})` : op.titulo;
-    return formasDoRobo(menu, tipo).find((f) => f.forma === pg.forma)?.nome ?? pg.forma;
+    return formasDoRobo(menu, tipo, pg.forma === 'pix').find((f) => f.forma === pg.forma)?.nome ?? pg.forma;
   }
 
   // ───────────────────────── cancelar ─────────────────────────
@@ -2461,7 +2629,11 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
     const subtotal = paraReais(subtotalCent);
 
     // Entrega e taxa (a mesma conta do cardápio); fora da área de novo (a loja mudou a lista ou as faixas) → falta.
-    const { oferecidos, abertos } = this.tipos(menu);
+    const { oferecidos, abertos: abertosAgora } = this.tipos(menu);
+    // O pedido AGENDADO (D4c): os tipos que a loja oferece valem — ele é para depois, não importa se fecha agora.
+    const abertos = agendamentoDoCarrinho(c) ? oferecidos : abertosAgora;
+    const soPix = soPixNoPedido(menu, c);
+    const agendadoPara = agendadoParaTexto(c);
     const en: any = c?.entrega ?? null;
     let tipo: 'entrega' | 'retirada' | null = en?.tipo === 'entrega' || en?.tipo === 'retirada' ? en.tipo : null;
     if (!tipo && oferecidos.length === 1) tipo = oferecidos[0];
@@ -2566,7 +2738,7 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
 
     // Pagamento: a forma ainda é do cardápio? O troco ainda cobre o total?
     const pg = (c?.pagamento as PagamentoDoCarrinho | null) ?? null;
-    const formas = formasDoRobo(menu, tipo);
+    const formas = formasDoRobo(menu, tipo, soPix);
     const formaServe = !!pg && formas.some((f) => f.forma === pg.forma);
     let trocoRuim = false;
     if (pg && formaServe && pg.trocoPara != null && pg.trocoPara < total) {
@@ -2594,6 +2766,17 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
       trocaPorTrio = { linha: Number(l.linha), opcao: opcaoComDetalhe(`Trocar pelo ${trio.nome}`, `+${reais(dif)}`) };
       break;
     }
+    // A loja FECHADA agora que aceita agendamento (D4c, G4): os horários livres mais perto viram a pergunta "para quando?".
+    // Só lê as janelas quando a pergunta pode sair (itens no pedido, sem horário, nenhum tipo aberto).
+    let horariosParaAgendar: string[] | null = null;
+    if (linhas.length && !abertosAgora.length && !agendamentoDoCarrinho(c) && menu?.loja?.agendado?.ativo) {
+      const j = await this.cardapio.janelasLivresParaORobo(ctx.token, tipo ?? oferecidos[0] ?? 'entrega', 9).catch((e: any) => {
+        this.logger.warn(`horários do agendado não lidos (o robô diz que a loja está fechada): ${e?.message ?? e}`);
+        return null;
+      });
+      const rotulos = (j?.dias ?? []).flatMap((d) => d.horas.map((h) => rotuloDaJanela(`${d.dia}T${h}`))).slice(0, 9);
+      horariosParaAgendar = rotulos.length ? rotulos : null;
+    }
     const falta: Falta[] = conducaoDoPedido({
       linhas: conducao,
       itensFechados: !!c?.itensFechados,
@@ -2610,9 +2793,10 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
       nome,
       pagamento: pg && !trocoRuim ? pg : pg ? { ...pg, trocoPara: null, semTroco: false } : null,
       pagamentoServe: formaServe,
-      opcoesDePagamento: opcoesDePagamento(menu, tipo).map((o) => opcaoComDetalhe(o.titulo, o.detalhe)),
+      opcoesDePagamento: opcoesDePagamento(menu, tipo, soPix).map((o) => opcaoComDetalhe(o.titulo, o.detalhe)),
       total,
       beneficios: beneficiosPendentes,
+      horariosParaAgendar,
     });
     const podeRegistrar = !falta.length && !bloqueado && linhas.length > 0;
     const formaNome = pg && formaServe ? this.nomeDaForma(menu, tipo, pg) : null;
@@ -2646,6 +2830,7 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
       trocoPara: pg?.trocoPara ?? null,
       semTroco: !!pg?.semTroco,
       observacao: c?.observacao ?? null,
+      agendadoPara,
     });
 
     const visao = {
@@ -2685,6 +2870,7 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
           }
         : null,
       observacao: c?.observacao ?? null,
+      ...(agendadoPara ? { agendadoPara } : {}),
       ...(descontos.length ? { descontos: descontos.map((d) => ({ rotulo: d.rotulo, valor: `−${reais(d.valor)}` })) } : {}),
       ...(ben.cupom ? { cupom: String(ben.cupom).toUpperCase() } : {}),
       ...(ganho.valor > 0 ? { cashbackGanho: reais(ganho.valor) } : {}),
@@ -2864,6 +3050,9 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
         resgateId: beneficiosDe(pg).resgateId ?? undefined,
         // A observação GERAL do pedido ("Pôr observação" no resumo) vai para o pedido (mig 346): painel, via, entregador.
         observacao: c.observacao ?? undefined,
+        // O pedido AGENDADO (D4c, mig 455): o mesmo "Para quando?" do cardápio — o `receberPedido` confere a janela de novo
+        // (antecedência, dia, horário da loja, limite) e grava `agendamento` + `retirada_tipo = 'agendado'`.
+        ...(en.agendamento ? { agendamento: String(en.agendamento), modoAgendamento: 'agendado' } : {}),
         itens: itensDoPedido(c.itens as Linha[]),
         // O número é o da conversa: o WhatsApp prova (o cupom pessoal e o "só aniversariantes" — mig 357).
       }, { telefoneVerificado: true }).catch((e: any) => {
@@ -2920,6 +3109,7 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
     if (paraCentavos(Number(ped?.total ?? 0)) !== paraCentavos(calc.total))
       this.logger.warn(`pedido do robô ${ped?.id}: total gravado ${ped?.total} diferente do resumo ${calc.total}`);
     const enviado = await this.enviarResumo(ctx, resumo.texto);
+    const pix = (c.pagamento as PagamentoDoCarrinho)?.forma === 'pix' ? await this.mandarPixDoPedido(ctx, ped) : null;
     return {
       ok: true,
       numero: ped?.displayId ?? resultado.displayId ?? null,
@@ -2928,10 +3118,45 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
       resumoEnviado: enviado,
       // Se o resumo não saiu, o robô manda este texto como está.
       resumo: enviado ? null : resumo.texto,
-      orientacao: enviado
-        ? 'O resumo JÁ FOI ENVIADO ao cliente por escrito. Não repita o resumo: responda curto, agradecendo.'
-        : 'Envie o resumo exatamente como veio.',
+      ...(pix ?? {}),
+      orientacao:
+        (enviado
+          ? 'O resumo JÁ FOI ENVIADO ao cliente por escrito. Não repita o resumo: responda curto, agradecendo.'
+          : 'Envie o resumo exatamente como veio.') + (pix?.orientacaoDoPix ? ` ${pix.orientacaoDoPix}` : ''),
     };
+  }
+
+  /**
+   * O PIX DO PEDIDO AGENDADO (D4c, G5): o pedido foi registrado no Pix, aguardando o pagamento — gera a cobrança pelo
+   * MESMO caminho da página do pedido (`pagarPedidoPublico`: o gateway da loja, 10 minutos, o cancelamento do não pago) e
+   * manda ao cliente o texto e, numa mensagem só, o código copia e cola (como o Pix do adicional). Não saiu? O robô recebe
+   * o código para mandar; sem código, a orientação de chamar a equipe.
+   */
+  private async mandarPixDoPedido(
+    ctx: Contexto,
+    ped: any,
+  ): Promise<{ pixEnviado: boolean; pixCopiaECola?: string; orientacaoDoPix: string } | null> {
+    if (!ped?.id || ped.pago === true) return null;
+    try {
+      const r: any = await this.cardapio.pagarPedidoPublico(ctx.token, ped.id);
+      if (r?.jaPago || r?.statusPagamento === 'aprovado') return { pixEnviado: false, orientacaoDoPix: 'O pagamento já está aprovado.' };
+      const codigo = String(r?.pix?.qrCode ?? '').trim();
+      if (!codigo) throw new Error('a cobrança voltou sem o código');
+      const texto = [
+        `Aqui está o Pix de ${reais(Number(ped.total ?? 0))} do pedido nº ${ped.displayId ?? ped.numero ?? ''} 👇`,
+        'Vale por 10 minutos. Assim que o pagamento cair, o pedido fica garantido no horário marcado e eu te aviso aqui.',
+      ].join('\n');
+      const ok = (await this.enviarResumo(ctx, texto)) && (await this.enviarResumo(ctx, codigo));
+      return ok
+        ? { pixEnviado: true, orientacaoDoPix: 'O código Pix JÁ FOI ENVIADO: diga só que o pedido fica garantido quando o Pix entrar, em até 10 minutos.' }
+        : { pixEnviado: false, pixCopiaECola: codigo, orientacaoDoPix: 'Mande o pixCopiaECola numa mensagem só com ele e diga que vale por 10 minutos.' };
+    } catch (e: any) {
+      this.logger.warn(`Pix do pedido agendado ${ped.id} não gerado: ${e?.message ?? e}`);
+      return {
+        pixEnviado: false,
+        orientacaoDoPix: 'O código Pix não saiu agora: diga que o pedido está registrado e que a equipe manda o Pix em instantes, e chame a equipe.',
+      };
+    }
   }
 
   /** O endereço novo da entrega vai para o cadastro do cliente (sem repetir rua e número que ele já tem). */

@@ -369,13 +369,17 @@ describe('Mister — o atraso na cozinha (a mesma regra do KDS) e a história do
     const passou = new Date(T0 - 20 * 60_000).toISOString();
     expect(atrasoNaCozinha({ status: 'recebido', criadoEm: min(120), encomendaPara: passou }, T0, limites)).toEqual({ minutos: 50, motivo: 'passou_do_vermelho', limiteMin: 10 });
     expect(inicioDoTempoNaCozinha(min(5), new Date(T0 + 10 * 60_000).toISOString())).toBe(T0 - 5 * 60_000);
+    // Pedido AGENDADO (mig 455): o começo vem pronto do servidor (o tempo de entrega/retirada antes), não os 30 min.
+    const agendado = { status: 'recebido', criadoEm: min(120), encomendaPara: new Date(T0 + 30 * 60_000).toISOString() };
+    expect(atrasoNaCozinha({ ...agendado, encomendaComeca: new Date(T0 - 15 * 60_000).toISOString() }, T0, limites)).toEqual({ minutos: 15, motivo: 'passou_do_vermelho', limiteMin: 10 });
+    expect(atrasoNaCozinha({ ...agendado, encomendaComeca: new Date(T0 + 5 * 60_000).toISOString() }, T0, limites)).toBeNull();
   });
   it('a regra do Mister é a MESMA da tela do KDS: o arquivo da tela continua com as três regras (V74)', () => {
     const tela = readFileSync(join(__dirname, '../../../../frontend/src/lib/kds-fila.ts'), 'utf8');
     expect(tela).toContain('export const PREPARO_DA_ENCOMENDA_MIN = 30;');
     expect(tela).toContain('if (preparo > 0 && min > preparo) return true;');
     expect(tela).toContain('if (min <= limites.amareloAteMin) return \'atencao\';');
-    expect(tela).toContain('return Math.max(criado, para - PREPARO_DA_ENCOMENDA_MIN * 60000);');
+    expect(tela).toContain('return Math.max(criado, Number.isFinite(comeca) ? comeca : para - PREPARO_DA_ENCOMENDA_MIN * 60000);');
     expect(PREPARO_DA_ENCOMENDA_MIN).toBe(30);
   });
   it('onde demorou: o maior trecho entre etapas que aconteceram (as que não aconteceram ficam de fora)', () => {

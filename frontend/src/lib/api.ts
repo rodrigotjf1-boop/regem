@@ -1625,6 +1625,8 @@ export const api = {
   graphCliqueConcluir: (volta: { code: string | null; state: string | null; iss: string | null; error: string | null }) =>
     req('/graph/clique/concluir', { method: 'POST', body: JSON.stringify(volta) }),
   graphCliqueDesligar: () => req('/graph/clique/desligar', { method: 'POST' }) as Promise<{ desligada: boolean }>,
+  // O CNPJ da empresa que está sem (GR-8 do DMS Graph): só o presidente, uma vez; trocar é do suporte da DMS.
+  empresaInformarCnpj: (cnpj: string) => req('/empresas/cnpj', { method: 'PATCH', body: JSON.stringify({ cnpj }) }) as Promise<{ cnpj: string }>,
   salvarIntegracao: (body: Record<string, unknown>) =>
     req('/delivery/integracoes', { method: 'PUT', body: JSON.stringify(body) }),
   // Testa a conexão do gateway de PIX (Mercado Pago, PagBank, Rede). Vazio = o servidor usa o salvo.
@@ -2000,6 +2002,17 @@ export const api = {
     pub(`/publico/cardapio/${token}${previaEvento ? `?evento=${encodeURIComponent(previaEvento)}` : ''}`),
   cardapioPedido: (token: string, body: Record<string, unknown>) =>
     pub(`/publico/cardapio/${token}/pedido`, { method: 'POST', body: JSON.stringify(body) }),
+  // Pedido agendado (mig 455): as janelas de 15 min do dia (o dia, os dias que dá para escolher e a esgotada marcada).
+  cardapioJanelasAgendado: (token: string, dia: string, tipo: string) =>
+    pub(`/publico/cardapio/${token}/agendado/janelas?dia=${encodeURIComponent(dia)}&tipo=${encodeURIComponent(tipo)}`),
+  // O cliente muda o horário do pedido agendado (G6): a prova de dono é o `ref` do link (ou o token de Sua conta).
+  cardapioMudarHorario: (token: string, id: string, agendamento: string, ref?: string, clienteToken?: string) =>
+    pub(`/publico/cardapio/${token}/pedido/${id}/horario`, { method: 'POST', body: JSON.stringify({ agendamento, ref, clienteToken }) }),
+  // A loja (painel do Delivery): as janelas sem contar o próprio pedido, e mudar o horário.
+  agendadoJanelasDaLoja: (dia: string, tipo: string, pedidoId?: string) =>
+    req(`/cardapio/agendado/janelas?dia=${encodeURIComponent(dia)}&tipo=${encodeURIComponent(tipo)}${pedidoId ? `&pedidoId=${pedidoId}` : ''}`),
+  agendadoMudarHorario: (id: string, agendamento: string) =>
+    req(`/cardapio/agendado/${id}/horario`, { method: 'PATCH', body: JSON.stringify({ agendamento }) }),
   // `clienteToken` (Sua conta) prova quem usa: o cupom pessoal e o "só aniversariantes" (Onda 3, mig 357) pedem.
   cardapioCupomValidar: (token: string, codigo: string, subtotal: number, telefone?: string, clienteToken?: string) =>
     pub(`/publico/cardapio/${token}/cupom`, { method: 'POST', body: JSON.stringify({ codigo, subtotal, telefone, clienteToken }) }),

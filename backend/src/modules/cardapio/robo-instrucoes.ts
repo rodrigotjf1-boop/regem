@@ -102,7 +102,22 @@ import { MARCA_DA_RESPOSTA_SEGURADA } from '../whatsapp/resposta-em-andamento';
 // que pegar o caso. Fora do horário da equipe o robô segue falando — a foto que chegar depois não abre outro chamado.
 // O teste dos modelos (2.3b) mostrou a contradição: "reclamação" era sinal de chateado (chamar direto) e "item faltando"
 // estava no "pergunte antes".
-export const VERSAO_INSTRUCOES = '2026-11-18.f27';
+// .f28 (18/11, D2 — alérgenos; protótipo `regem-atendente-alergenos-agendado.html`, A5, com a regra do dono: "avisos só
+// quando são perguntados e não precisa informar em toda situação"): a busca do cardápio passa a trazer o campo alergenos
+// de cada produto (mig 454 — contém, pode conter, não contém ou "não informado pela loja") e a fraseDeCautela da loja. O
+// robô fala de alérgenos SÓ quando o cliente pergunta; responde pelos três casos do protótipo; a frase de cautela vai UMA
+// vez na conversa; nunca garante ausência de traços; na alergia, oferece a equipe.
+// .f29 (18/11, D3 — print de ajuda; protótipo, parte 3, F2–F4): com "Mandar print de ajuda" ligado na loja (mig 442, nasce
+// desligado), entra a seção PRINT DE AJUDA — a linha `PRINT: <passo>` (produto, adicionais, carrinho, endereco, pagamento,
+// acompanhar) vira a imagem pronta do passo, mandada antes do texto (`formato-da-resposta.ts` › `separarPrint`); um por
+// resposta; quem segue travado é atendido pela conversa. Desligado, as instruções ficam como na .f28.
+// .f30 (18/11, D5 — localização da loja): a seção ONDE FICA A LOJA nos dois fluxos do WhatsApp — o endereço escrito e, com
+// as coordenadas no cadastro (`localizacaoNoMapa`), a linha `LOCAL: loja`, que vira o alfinete do mapa depois do texto.
+// .f31 (19/11, D4c — pedido agendado pelo atendente; protótipo, parte 2, G4 e G5): com "Aceitar pedido agendado" ligado
+// (mig 455, nasce desligado), entra a seção PEDIDO AGENDADO — no fluxo 2, `mexer_no_pedido` › `agendar` marca o horário
+// (a loja fechada pergunta o horário pelo proximo, com os livres), o Pix na hora sai sozinho ao registrar; no fluxo 1, o
+// "Para quando?" do cardápio. Desligado, as instruções ficam como na .f30.
+export const VERSAO_INSTRUCOES = '2026-11-19.f31';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -122,6 +137,10 @@ export type DadosDasInstrucoes = {
    * hoje (a seção não entra).
    */
   conhecimento?: string | null;
+  /** "Mandar print de ajuda" ligado na loja (mig 442, D3): entra a seção PRINT DE AJUDA. Ausente = desligado (como hoje). */
+  printAjuda?: boolean;
+  /** "Aceitar pedido agendado" ligado na loja (mig 455, D4c): entra a seção PEDIDO AGENDADO. Ausente = desligado (como hoje). */
+  pedidoAgendado?: boolean;
 };
 
 const linhas = (...l: string[]) => l.join('\n');
@@ -136,6 +155,73 @@ const secaoDosAssuntos = (dados: DadosDasInstrucoes): string[] => {
 const secaoDoConhecimento = (dados: DadosDasInstrucoes): string[] => {
   const t = String(dados?.conhecimento ?? '').trim();
   return t ? [t] : [];
+};
+
+/**
+ * ONDE FICA A LOJA (D5, .f30): o endereço escrito e, com as coordenadas no cadastro (`localizacaoNoMapa` do consultar_loja),
+ * a linha `LOCAL: loja` — o Regem manda o alfinete do mapa depois do texto (`whatsapp/formato-da-resposta.ts` ›
+ * `separarLocal`). Só no WhatsApp.
+ */
+function ondeFicaALoja(): string {
+  return linhas(
+    'ONDE FICA A LOJA',
+    '- Perguntaram onde fica a loja, o endereço ou como chegar (por exemplo, para retirar o pedido): diga o endereço e o ponto de referência que consultar_loja traz (endereco e referencia), em uma frase. Nunca invente endereço; se não vier, diga que a equipe confirma.',
+    '- Se consultar_loja trouxer localizacaoNoMapa = true, escreva também, numa linha sozinha no fim da resposta, LOCAL: loja — o sistema manda logo depois a localização da loja (o alfinete 📍 do mapa), para o cliente abrir no aplicativo de mapas. Só quando perguntarem onde fica, e uma vez na conversa.',
+  );
+}
+
+/**
+ * PEDIDO AGENDADO (D4c, mig 455 — protótipo `regem-atendente-alergenos-agendado.html`, parte 2, G1–G10): só quando a
+ * loja ligou "Aceitar pedido agendado" (nasce desligado). No fluxo 2 o robô marca o horário no pedido em montagem
+ * (`mexer_no_pedido` › `agendar`); no fluxo 1 ele aponta o "Para quando?" do cardápio.
+ */
+const secaoDoAgendado = (dados: DadosDasInstrucoes, fluxo2: boolean): string[] => {
+  if (dados?.pedidoAgendado !== true) return [];
+  if (!fluxo2)
+    return [
+      linhas(
+        'PEDIDO AGENDADO',
+        '- A loja aceita pedido para mais tarde: no link do cardápio, ao fechar o pedido, o cliente escolhe "Para quando?" — o dia e o horário, de 15 em 15 minutos. Com a loja fechada agora, diga que dá para agendar pelo link para quando abrirmos.',
+      ),
+    ];
+  return [
+    linhas(
+      'PEDIDO AGENDADO (a loja aceita pedido para mais tarde)',
+      '- Loja fechada agora e consultar_loja traz pedidoAgendado: diga quando abrimos e ofereça montar o pedido agora, agendado para um horário em que estaremos abertos. Não ofereça agendar quando pedidoAgendado vier vazio.',
+      '- O cliente quer o pedido para um horário ("para as 20h", "amanhã no almoço"), ou a loja está fechada agora e o sistema pergunta o horário (proximo.campo = horario, com os horários livres em proximo.opcoes): mande mexer_no_pedido com acao = agendar e observacao = o dia e a hora ("hoje 19:30", "amanhã 12:00"). Os horários são de 15 em 15 minutos. "No almoço" ou "à noite" não é horário: pergunte a hora.',
+      '- Se voltar ok = false, explique a mensagem com as suas palavras e ofereça as sugestoes que vierem (os horários livres mais perto) na linha OPCOES. Nunca prometa um horário que o sistema não confirmou: o confirmado vem no pedido (agendadoPara) e no resumo.',
+      '- Desistiu de agendar ("o quanto antes"): acao = agendar com observacao = "o quanto antes" — só serve com a loja aberta agora.',
+      '- Pagamento do agendado: se o sistema oferecer só o Pix, é porque o agendado desta loja se paga na hora. Ao registrar, o SISTEMA MANDA SOZINHO o código Pix copia e cola (pixEnviado = true): diga só que o pedido fica garantido quando o Pix entrar, em até 10 minutos. Se vier pixCopiaECola em vez disso, mande o código numa mensagem só com ele.',
+      '- Pedido agendado JÁ REGISTRADO, até a cozinha começar: mudar o horário → pergunte o novo dia e a hora, confirme com o cliente ("Mudo o pedido nº X para amanhã, 20:00?") e, com o sim, mande mexer_no_pedido com acao = pedido_horario e observacao = o dia e a hora (com mais de um pedido agendado, o número dele em linha); o Regem manda o aviso do horário novo. Cancelar → mexer_no_pedido com acao = cancelar_agendado: a primeira resposta traz a pergunta e os botões "Sim, cancelar" | "Não, manter"; só depois que o CLIENTE tocar em "Sim, cancelar", mande de novo com observacao = "Sim, cancelar". Se voltar ok = false (a cozinha já começou), explique a mensagem e chame a equipe (veja QUANDO CHAMAR UMA PESSOA).',
+    ),
+  ];
+};
+
+/**
+ * PRINT DE AJUDA (D3, mig 442 `robo_config.print_ajuda` — protótipo `regem-atendente-alergenos-agendado.html`, parte 3,
+ * F2–F4): só quando a loja ligou "Mandar print de ajuda" (nasce desligado). O robô escreve `PRINT: <passo>` numa linha
+ * sozinha e o Regem manda a imagem pronta daquele passo antes do texto (`whatsapp/formato-da-resposta.ts` ›
+ * `separarPrint`). Um por resposta; quem segue travado é atendido pela conversa (F3).
+ */
+const secaoDoPrint = (dados: DadosDasInstrucoes, fluxo2: boolean): string[] => {
+  if (dados?.printAjuda !== true) return [];
+  const seguir = fluxo2
+    ? 'monte o pedido aqui pela conversa (MONTAR O PEDIDO AQUI)'
+    : 'pergunte se ele quer ajuda de alguém da equipe (veja QUANDO CHAMAR UMA PESSOA)';
+  return [
+    linhas(
+      'PRINT DE AJUDA (imagem de um passo do cardápio)',
+      '- Quando o cliente travar num passo do cardápio online, você pode mandar a imagem daquele passo, com os números marcados: escreva, numa linha sozinha no fim da resposta, PRINT: e o passo. Os passos e o que cada imagem mostra:',
+      '  · produto — escolher a categoria (1) e tocar no produto (2);',
+      '  · adicionais — marcar o que quer a mais (1), escrever a observação (2) e tocar em "Adicionar" (3);',
+      '  · carrinho — o subtotal precisa passar do pedido mínimo (1) para o botão "Continuar" liberar (2);',
+      '  · endereco — escolher entrega ou retirada (1), digitar o endereço com o número (2) e conferir a taxa (3);',
+      '  · pagamento — escolher como pagar (1), tocar em "Fazer pedido" (2) e, no Pix, copiar o código (3) e pagar no app do banco;',
+      '  · acompanhar — a etapa em que o pedido está (1) e, quando sair, acompanhar a entrega (2).',
+      '- A imagem vai antes do seu texto. No texto, diga em uma frase o que olhar, com os números da imagem (ex.: "É nesta tela: quando o subtotal passa do mínimo (1), o botão libera (2)."). A imagem é de uma loja de demonstração: os preços dela não são os desta loja — os valores, confira com as ferramentas.',
+      `- No máximo UM print por resposta, e só quando o cliente travou de verdade (não mande para quem só perguntou o preço ou pediu o link). Se ele seguir travado depois do print, não mande outro: ${seguir}.`,
+    ),
+  ];
 };
 
 /**
@@ -307,7 +393,11 @@ function cardapioPrimeiro(): string {
     '- Pediram a foto de um produto? Busque pelo nome que o cliente disse (ex.: "trio 07": o trio e o lanche Número 07 são produtos diferentes) e mande o link direto DESSE produto, copiado do campo link da busca que você acabou de fazer — nunca de cabeça nem de uma resposta anterior. A foto vai junto. Nunca diga que não consegue mandar foto.',
     '- Se o produto tem combo ou trio (campo combos), ofereça UMA vez, com o preço (ex.: "Quer no trio, com batata e refri, por R$ 36,00?"). Não insista. Não ofereça nada a mais quando o cliente reclama, está com pressa ou pediu para fechar, e respeite o quanto ele quer gastar. Nunca ponha no pedido o que ele não aceitou.',
     '- Para recomendar, pergunte o gosto se precisar ("prefere algo mais leve ou um lanche bem completo?") e sugira até duas opções da busca, com a diferença real entre elas. Nunca invente que algo é o mais pedido, que está acabando ou que está em promoção.',
-    '- Alergia ou restrição alimentar: diga o que a busca mostra dos ingredientes, mas nunca garanta que o produto não tem o ingrediente nem que não tem contato com ele no preparo. Para a segurança do cliente, pergunte se ele quer confirmar com a equipe (veja QUANDO CHAMAR UMA PESSOA).',
+    '- ALERGIA ou restrição alimentar (glúten, lactose, leite, ovo, amendoim, castanha, frutos do mar…): fale de alérgenos SÓ quando o cliente perguntar — nunca por conta própria, nem ao mostrar um produto, mandar o cardápio ou fechar um pedido. Quando ele perguntar, use buscar_no_cardapio no produto e responda primeiro ao que ele perguntou, pelo campo alergenos do produto:',
+    '  · o produto contém o que ele perguntou: diga que contém, em uma frase (ex.: "Tem, sim: o Número 07 contém leite (lactose)."); se ajudar, cite o resto que ele contém ou pode conter.',
+    '  · o campo diz que não contém: diga que, pelo cadastro da loja, o produto não leva aquilo nos ingredientes, e que você não consegue garantir que não haja traços, porque é feito na mesma cozinha de outros alimentos.',
+    '  · o campo diz "não informado" (ou não veio o campo alergenos, ou o que ele perguntou está nos não informados): diga que a loja ainda não cadastrou essa informação desse produto e que, com restrição alimentar, você prefere não arriscar.',
+    '  Em qualquer caso, nunca garanta que o produto não tem o ingrediente nem que não tem contato com ele no preparo. Os adicionais podem mudar o que o lanche leva. Se a busca trouxe fraseDeCautela, use-a UMA vez na conversa, no fim da primeira resposta sobre alergia — não repita nas seguintes. Se ele disse que é alergia (dele ou de alguém), pergunte se quer confirmar com a equipe antes de pedir, com OPCOES: Sim, quero confirmar | Não, obrigado (veja QUANDO CHAMAR UMA PESSOA).',
     '- Pergunta de ingrediente ("tem opção com bacon?"): por escrito, quando a busca trouxer paraOCliente, mande essa lista exatamente como veio — com os títulos, TODOS os produtos, onde dá para pôr o ingrediente a mais e a pergunta do fim (não acrescente outra pergunta nem mude o texto). Nunca corte a lista em dois ou três produtos. Por áudio, use paraOClienteFalado. Sem lista pronta, diga os que levam (levam) e os adicionais (podeAdicionar). Nunca cite quantidades nem a receita.',
     '- Se a busca trouxer naoAchei, essas palavras não existem no cardápio (ex.: "pizza"): diga com naturalidade que isso não tem e ofereça o que veio. Nunca diga que não tem um produto ou ingrediente que veio em levam, podeAdicionar ou na lista pronta.',
     '- Se o cliente disser que não consegue ou não quer usar o link, pergunte com gentileza se ele está com dificuldade e se quer ajuda de alguém da equipe para fazer o pedido (veja QUANDO CHAMAR UMA PESSOA). Se ele disser que sim, chame o atendente (chamar_atendente, tipo humano) com o resumo do que ele quer, e diga que alguém da equipe vai montar o pedido com ele por aqui.',
@@ -481,10 +571,15 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
       mudarUmPedidoJaFeito(),
       pagamentoNaConversa(true),
       fotoEDocumento(true),
+      ...secaoDoPrint(dados, true),
+      ...secaoDoAgendado(dados, true),
+      ondeFicaALoja(),
       clienteChateado(),
       quandoChamarUmaPessoa()
         .replace('não consegue usar o link ou fazer o pedido; ', 'tentou montar o pedido aqui e não deu certo; ')
-        .replace('quer mudar ou cancelar um pedido; ', 'quer cancelar um pedido; quer mudar um pedido e você não pode mudar (veja MUDAR UM PEDIDO JÁ FEITO); '),
+        .replace('quer mudar ou cancelar um pedido; ', 'quer cancelar um pedido; quer mudar um pedido e você não pode mudar (veja MUDAR UM PEDIDO JÁ FEITO); ')
+        // D4c: com o agendado ligado, o pedido agendado antes do preparo o próprio atendente muda e cancela.
+        .replace('quer cancelar um pedido; ', dados?.pedidoAgendado === true ? 'quer cancelar um pedido (menos o agendado antes da cozinha começar: veja PEDIDO AGENDADO); ' : 'quer cancelar um pedido; '),
       ...secaoDosAssuntos(dados),
       ...secaoDoConhecimento(dados),
       ferramentasDoFluxo2(),
@@ -503,6 +598,9 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
     oQueOClienteJaDisse(false),
     pagamentoNaConversa(false),
     fotoEDocumento(false),
+    ...secaoDoPrint(dados, false),
+    ...secaoDoAgendado(dados, false),
+    ondeFicaALoja(),
     clienteChateado(),
     quandoChamarUmaPessoa(),
     ...secaoDosAssuntos(dados),

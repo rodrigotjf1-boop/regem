@@ -212,6 +212,27 @@ descrever('pendências do turno (Postgres real)', () => {
       expect(auditoria.registrar).toHaveBeenCalledTimes(1); // só o "fechou_caixa" de sempre
     });
 
+    it('G8 (mig 455): agendado para depois — o turno não fecha sem "manter" em cada um; cancelado e encomenda não perguntam', async () => {
+      const t = await empresa();
+      const operador = await pessoa(t);
+      const caixa = await abrirCaixa(t, 'delivery', operador);
+      const depois = new Date(Date.now() + 3 * 3_600_000);
+      const ag1 = await pedido(t, { tipo: 'entrega', status: 'confirmado', agendamento: depois, canal: 'cardapio' });
+      const ag2 = await pedido(t, { tipo: 'retirada', status: 'novo', agendamento: depois, canal: 'cardapio' });
+      const cancelado = await pedido(t, { tipo: 'entrega', status: 'cancelado', agendamento: depois, canal: 'cardapio' });
+      const encomenda = await pedido(t, { tipo: 'entrega', status: 'confirmado', agendamento: depois, canal: 'cardapio' });
+      await q(`update pedido_externo set retirada_tipo = 'agendado' where id = any($1::uuid[])`, [[ag1, ag2, cancelado]]);
+      await q(`update pedido_externo set retirada_tipo = 'encomenda' where id = $1`, [encomenda]);
+      // o que a tela recebe: os dois agendados vivos, na ordem do horário
+      const tela: any = await servico().pendenciasDoTurno(t, null, 'delivery', 'execucao');
+      expect(tela.agendados.map((a: any) => a.id).sort()).toEqual([ag1, ag2].sort());
+      await expect(fechar(t, operador, 'execucao')).rejects.toMatchObject({ response: { codigo: 'AGENDADOS_DO_TURNO' } });
+      await expect(fechar(t, operador, 'execucao', { agendadosMantidos: [ag1] })).rejects.toThrow(/Há 1 pedido agendado para depois/);
+      expect(await statusCaixa(caixa)).toBe('aberta');
+      const r = await fechar(t, operador, 'execucao', { agendadosMantidos: [ag1, ag2] });
+      expect(r.sessao.status).toBe('fechada');
+    });
+
     it('balcão com retirada pendente NÃO é barrado no servidor (a tela é que avisa antes)', async () => {
       const t = await empresa();
       const operador = await pessoa(t);

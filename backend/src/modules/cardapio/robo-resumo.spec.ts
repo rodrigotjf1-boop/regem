@@ -176,4 +176,11 @@ describe('F5: o resumo PARA CONFERIR (antes de registrar), com os botões', () =
     expect(ret).not.toContain('Observação do pedido');
     expect(textoParaConferir({ ...base, taxa: 0 })).toContain('Entrega: *grátis* 🎉');
   });
+  it('D4c: o pedido agendado mostra "🕒 Agendado para" logo depois da entrega; sem agendamento, nada', () => {
+    const t = textoParaConferir({ ...base, agendadoPara: 'amanhã, 19:30' });
+    expect(t).toContain('🕒 *Agendado para amanhã, 19:30*');
+    expect(t.indexOf('🕒')).toBeGreaterThan(t.indexOf('🛵 *Entrega*'));
+    expect(t.indexOf('🕒')).toBeLessThan(t.indexOf('💳 *Pagamento*'));
+    expect(textoParaConferir(base)).not.toContain('Agendado');
+  });
 });

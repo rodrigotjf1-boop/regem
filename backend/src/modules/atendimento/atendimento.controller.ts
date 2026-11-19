@@ -368,7 +368,8 @@ export class AtendimentoController {
     if (dto?.copiloto !== undefined && typeof dto.copiloto?.ligado !== 'boolean')
       throw new BadRequestException('Copiloto: escolha ligado ou desligado.');
     // "Fotos do cliente" (mig 442): só verdadeiro ou falso (V15), conferido antes de gravar qualquer grupo (V86).
-    if (dto?.fotos !== undefined) exigirBooleano(dto.fotos?.ler, 'Ler as fotos que o cliente manda');
+    if (dto?.fotos?.ler !== undefined) exigirBooleano(dto.fotos.ler, 'Ler as fotos que o cliente manda');
+    if (dto?.fotos?.printAjuda !== undefined) exigirBooleano(dto.fotos.printAjuda, 'Mandar print de ajuda');
     // "Instagram Direct" (migs 377/378): a fila, o robô e o cardápio do robô — conferidos (com o banco) antes de gravar
     // qualquer grupo (V86); só booleano nos liga/desliga (V15); o que não veio fica (V16).
     const instagram = dto?.instagram !== undefined && this.instagram ? await this.instagram.conferirAjuste(user.tenantId, dto.instagram) : null;
@@ -394,7 +395,7 @@ export class AtendimentoController {
     if (alterado?.roboCobraPix !== undefined) await this.filaEAvisos.salvarRoboCobraAdicionalPix(user, alterado.roboCobraPix);
     if (gestorWa) await this.gestorWa?.salvar(user, gestorWa);
     if (dto?.copiloto !== undefined) await this.copiloto?.salvar(user, dto.copiloto.ligado);
-    if (dto?.fotos !== undefined) await this.filaEAvisos.salvarFotosDoCliente(user, dto.fotos.ler);
+    if (dto?.fotos !== undefined) await this.filaEAvisos.salvarFotosDoCliente(user, dto.fotos);
     if (instagram) await this.instagram?.salvarAjuste(user, instagram);
     if (messenger) await this.messenger?.salvarAjuste(user, messenger);
     if (pausa) await this.pausa?.salvarAjustes(user, unidade, pausa);

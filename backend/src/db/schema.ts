@@ -605,6 +605,9 @@ export const itemEstoque = pgTable('item_estoque', {
   // FEITO NA LOJA (mig 314): a ficha técnica que produz este produto. O custo dele dentro das outras
   // fichas vem dela. Sem FK (sincroniza nos dois sentidos); ficha excluída = sem ligação.
   fichaId: uuid('ficha_id'),
+  // Alérgenos pelo rótulo (mig 454): { conferido, contem[], podeConter[], gluten, lactose }; null = ninguém conferiu.
+  // A regra (o produto herda pela ficha): `common/alergenos.ts`.
+  alergenos: jsonb('alergenos'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -1394,6 +1397,8 @@ export const produto = pgTable('produto', {
   // Loja / cardápio (Fase L1)
   precoPromocional: numeric('preco_promocional'),
   selos: jsonb('selos').notNull().default('[]'),
+  // Ajuste à mão dos alérgenos (mig 454, A3): só soma ao que vem da ficha; no produto sem ficha é a marcação. null = sem ajuste.
+  alergenosAjuste: jsonb('alergenos_ajuste'),
   // Canais de integração (delivery) em que o produto está pausado/oculto (mig 150).
   // Ex.: ['ifood','99food']. Vazio = disponível em todos os canais ativos.
   canaisPausados: jsonb('canais_pausados').notNull().default('[]'),
@@ -2657,6 +2662,8 @@ export const pedidoExterno = pgTable('pedido_externo', {
   sinalStatus: text('sinal_status'), // null/'nao' | pendente | pago | reembolsado | perdido
   cancelavelAte: timestamp('cancelavel_ate', { withTimezone: true }), // limite p/ cancelar com reembolso
   avisadoCancelamentoEm: timestamp('avisado_cancelamento_em', { withTimezone: true }), // lembrete de prazo enviado (mig 189)
+  // Pedido agendado (mig 455): quando o cliente foi avisado de que entrou em preparo (uma vez só; gravação condicional).
+  agendadoPreparoAvisadoEm: timestamp('agendado_preparo_avisado_em', { withTimezone: true }),
   recorrenciaId: uuid('recorrencia_id'), // ocorrência gerada por uma recorrência (mig 190)
   caixaSessaoId: uuid('caixa_sessao_id'), // caixa (turno) onde o a-pagar entrou
   atendenteId: uuid('atendente_id'), // quem cobrou/entregou no balcão
@@ -3335,6 +3342,8 @@ export const cardapioConfig = pgTable('cardapio_config', {
   horarios: jsonb('horarios').notNull().default('[]'),
   horariosRetirada: jsonb('horarios_retirada').notNull().default('[]'),
   horarioUnico: boolean('horario_unico').notNull().default(true),
+  // A frase de cautela dos alérgenos (mig 454, A9): null = a padrão de `common/alergenos.ts`.
+  alergenosCautela: text('alergenos_cautela'),
   // Robô de auto atendimento (mensagens; IA depois)
   roboAtivo: boolean('robo_ativo').notNull().default(false),
   roboSaudacao: text('robo_saudacao'),
@@ -3391,6 +3400,12 @@ export const cardapioConfig = pgTable('cardapio_config', {
   encomendaExigeSinal: boolean('encomenda_exige_sinal').notNull().default(false),
   encomendaSinalPct: numeric('encomenda_sinal_pct'), // % do sinal (base)
   encomendaCancelHoras: integer('encomenda_cancel_horas'), // horas p/ cancelar com reembolso (base)
+  // Pedido agendado (mig 455, D4 — `common/pedido-agendado.ts`): ligado (nasce desligado), antecedência mínima com a loja
+  // aberta, até quantos dias à frente e o limite por janela de 15 min (null = sem limite).
+  agendadoAtivo: boolean('agendado_ativo').notNull().default(false),
+  agendadoAntecedenciaMin: integer('agendado_antecedencia_min').notNull().default(45),
+  agendadoDias: integer('agendado_dias').notNull().default(1),
+  agendadoLimiteJanela: integer('agendado_limite_janela').default(4),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

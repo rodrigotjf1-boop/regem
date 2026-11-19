@@ -116,15 +116,19 @@ export class RoboConsultasController {
             : ehChaveDoDirect(instancia)
               ? 'direct'
               : 'whatsapp';
-    const [jeito, assuntos, conhecimento] = await Promise.all([
+    const [jeito, assuntos, conhecimento, printAjuda, pedidoAgendado] = await Promise.all([
       this.service.jeitoDoAtendenteDoRobo(token, canal, { foraDoHorario: teste?.foraDoHorario === true }),
       canal === 'chat' || canal === 'comentarios' ? Promise.resolve('') : this.service.assuntosDoAtendenteDoRobo(token, canal),
       this.service.conhecimentoDoRobo(token),
+      // O print de ajuda (mig 442, D3): só no WhatsApp (as instruções do Direct, do Messenger, do chat e dos comentários não o usam).
+      canal === 'whatsapp' ? this.service.printDeAjudaDoRobo(token) : Promise.resolve(false),
+      // O pedido agendado (mig 455, D4c): só no WhatsApp, onde o robô monta e registra o pedido.
+      canal === 'whatsapp' ? this.service.agendadoDoRobo(token) : Promise.resolve(false),
     ]);
     if (canal === 'comentarios') return instrucoesDosComentarios({ loja, jeito, conhecimento }, fluxo);
     if (canal === 'chat') return instrucoesDoChat({ loja, jeito, conhecimento, plataforma: chat?.plataforma ?? 'ifood', teste: !!teste }, fluxo);
     if (canal === 'messenger') return instrucoesDoMessenger({ loja, jeito, assuntos, conhecimento }, fluxo);
     if (canal === 'direct') return instrucoesDoDirect({ loja, jeito, assuntos, conhecimento }, fluxo);
-    return instrucoesDoRobo({ loja, jeito, assuntos, conhecimento }, fluxo);
+    return instrucoesDoRobo({ loja, jeito, assuntos, conhecimento, printAjuda, pedidoAgendado }, fluxo);
   }
 }

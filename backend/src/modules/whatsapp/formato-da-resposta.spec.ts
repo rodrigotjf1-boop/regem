@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   BALAO_MINIMO,
   baloesLigados,
@@ -6,7 +8,12 @@ import {
   pausaAntesDoBalao,
   semFormatacao,
   separarOpcoesSoltas,
+  localizacaoDaLoja,
+  separarLocal,
+  separarPrint,
   separarReacao,
+  urlDoPrint,
+  PASSOS_DO_PRINT,
 } from './formato-da-resposta';
 
 describe('formato da resposta do robô (17/11/2026)', () => {
@@ -142,6 +149,40 @@ describe('formato da resposta do robô (17/11/2026)', () => {
       expect(pausaAntesDoBalao('')).toBe(800);
       expect(pausaAntesDoBalao(longo(50))).toBe(1200);
       expect(pausaAntesDoBalao(longo(1000))).toBe(2200);
+    });
+  });
+
+  describe('a localização da loja (D5 — a linha LOCAL)', () => {
+    it('sai do texto (LOCAL ou LOCALIZAÇÃO) e só "loja" pede o alfinete', () => {
+      expect(separarLocal('Ficamos na Rua A, 10.\nLOCAL: loja')).toEqual({ texto: 'Ficamos na Rua A, 10.', local: true });
+      expect(separarLocal('Ficamos aqui.\n  Localização:  *Loja* ')).toEqual({ texto: 'Ficamos aqui.', local: true });
+      expect(separarLocal('Veja.\nLOCAL: outra coisa')).toEqual({ texto: 'Veja.', local: false });
+      expect(separarLocal('Sem linha.')).toEqual({ texto: 'Sem linha.', local: false });
+    });
+
+    it('as coordenadas do cadastro: com nome e endereço; vazias, fora do mapa ou 0,0 = nada', () => {
+      const cfg = { endLat: '-22.84', endLng: '-43.27', nomePublico: 'Mister Burguer', endRua: 'Rua A', endNumero: '10', endBairro: 'Penha', endCidade: 'Rio', endEstado: 'RJ' };
+      expect(localizacaoDaLoja(cfg)).toEqual({ latitude: -22.84, longitude: -43.27, nome: 'Mister Burguer', endereco: 'Rua A, 10 · Penha · Rio - RJ' });
+      expect(localizacaoDaLoja({ ...cfg, endLat: null })).toBeNull();
+      expect(localizacaoDaLoja({ ...cfg, endLat: '0', endLng: '0' })).toBeNull();
+      expect(localizacaoDaLoja({ ...cfg, endLat: '-122' })).toBeNull();
+      expect(localizacaoDaLoja({ endLat: '-22.84', endLng: '-43.27' })).toMatchObject({ nome: 'Nossa loja', endereco: '' });
+    });
+  });
+
+  describe('o print de ajuda (D3 — a linha PRINT)', () => {
+    it('sai do texto e vira o passo (sem acento, sem formatação, maiúsculas); um por resposta: vale o primeiro que serve', () => {
+      expect(separarPrint('É nesta tela (1).\nPRINT: carrinho')).toEqual({ texto: 'É nesta tela (1).', print: 'carrinho' });
+      expect(separarPrint('Olha só.\n  print:  *Endereço*  ')).toEqual({ texto: 'Olha só.', print: 'endereco' });
+      expect(separarPrint('A.\nPRINT: nada\nPRINT: pagamento\nPRINT: produto')).toEqual({ texto: 'A.', print: 'pagamento' });
+      expect(separarPrint('Sem print aqui.')).toEqual({ texto: 'Sem print aqui.', print: null });
+    });
+
+    it('os seis passos têm imagem no endereço público do app (frontend/public/ajuda)', () => {
+      expect(PASSOS_DO_PRINT).toEqual(['produto', 'adicionais', 'carrinho', 'endereco', 'pagamento', 'acompanhar']);
+      expect(urlDoPrint('carrinho', { APP_URL: 'https://app.exemplo.com/' } as any)).toBe('https://app.exemplo.com/ajuda/print-carrinho.png');
+      expect(urlDoPrint('produto', { CARDAPIO_PUBLIC_URL: '', APP_URL: '' } as any)).toBe('https://app.dmsregem.com/ajuda/print-produto.png');
+      for (const p of PASSOS_DO_PRINT) expect(existsSync(resolve(__dirname, `../../../../frontend/public/ajuda/print-${p}.png`))).toBe(true);
     });
   });
 });

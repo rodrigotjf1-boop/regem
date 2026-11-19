@@ -55,6 +55,57 @@ function condPendentes(tenantId: string, unidadeId: string | null, escopo: Escop
 const paradoDesde = sql`coalesce(${pedidoExterno.agendamento}, ${pedidoExterno.criadoEm})`;
 const corteAntiga = (agora: Date) => new Date(agora.getTime() - HORAS_PENDENCIA_ANTIGA * 3_600_000);
 
+/** Um pedido AGENDADO para depois do fechamento (mig 455, G8). */
+export interface AgendadoParaDepois {
+  id: string;
+  numero: string | null;
+  tipo: string;
+  status: string;
+  clienteNome: string | null;
+  total: number;
+  agendamento: Date;
+}
+
+/**
+ * Os pedidos AGENDADOS (mig 455) ainda não feitos para depois de agora, da empresa (e da loja, ou sem loja). G8: o Regem
+ * não cancela pedido pago sozinho e ninguém descobre o agendado só quando o cliente reclama — ao fechar o turno do
+ * delivery, a pessoa responde por cada um (manter, mudar o horário ou cancelar).
+ */
+export async function agendadosParaDepois(db: DrizzleDB, tenantId: string, unidadeId: string | null, agora = new Date()): Promise<AgendadoParaDepois[]> {
+  const linhas = await db
+    .select({
+      id: pedidoExterno.id,
+      displayId: pedidoExterno.displayId,
+      numero: pedidoExterno.numero,
+      tipo: pedidoExterno.tipo,
+      status: pedidoExterno.status,
+      clienteNome: pedidoExterno.clienteNome,
+      total: pedidoExterno.total,
+      agendamento: pedidoExterno.agendamento,
+    })
+    .from(pedidoExterno)
+    .where(
+      and(
+        eq(pedidoExterno.tenantId, tenantId),
+        condUnidadeOuRede(pedidoExterno.unidadeId, unidadeId),
+        eq(pedidoExterno.retiradaTipo, 'agendado'),
+        inArray(pedidoExterno.status, ['novo', 'confirmado']),
+        sql`${pedidoExterno.agendamento} > ${agora}`,
+      ),
+    )
+    .orderBy(asc(pedidoExterno.agendamento), asc(pedidoExterno.id))
+    .limit(LIMITE_LISTA);
+  return linhas.map((p) => ({
+    id: p.id,
+    numero: p.displayId ?? (p.numero != null ? String(p.numero) : null),
+    tipo: p.tipo,
+    status: p.status,
+    clienteNome: p.clienteNome,
+    total: Number(p.total) || 0,
+    agendamento: p.agendamento as Date,
+  }));
+}
+
 export async function pendenciasDoTurno(db: DrizzleDB, tenantId: string, unidadeId: string | null, escopo: EscopoTurno, agora = new Date()) {
   const cond = condPendentes(tenantId, unidadeId, escopo, agora);
   const corte = corteAntiga(agora);

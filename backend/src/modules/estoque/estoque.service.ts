@@ -23,6 +23,7 @@ import {
 } from '../../db/schema';
 import { arredondarEstoque, CASAS_INFORMADO, chaveUnidade, fatorParaEstoque, type Conversao } from '../../common/conversao-unidade';
 import { chaveNome, limparMarcas, limparNome } from './produto-nome';
+import { lerMarcacaoDeAlergenos } from '../../common/alergenos';
 import { apelidosDeUnidade, conferirConversoes, exigirUnidade, normalizarUnidade, UNIDADES_ESTOQUE } from './unidades';
 import { CreateItemDto } from './dto/create-item.dto';
 import { CreateMovimentoDto } from './dto/create-movimento.dto';
@@ -43,6 +44,16 @@ import { conferirFichaDoProduto, custoDosProdutosFeitos, fichaExiste } from '../
 
 // Ator da operação (para auditoria) — vem do @CurrentUser do controller.
 type Ator = { colaboradorId?: string; categoria?: string };
+
+/** Os alérgenos que a tela manda (mig 454): null limpa; a marcação passa pela regra comum (fora da lista = 400). */
+function alergenosDoDto(v: Record<string, unknown> | null | undefined) {
+  if (v == null) return null;
+  try {
+    return lerMarcacaoDeAlergenos(v);
+  } catch (e) {
+    throw new BadRequestException((e as Error)?.message ?? 'Alérgenos inválidos.');
+  }
+}
 
 @Injectable()
 export class EstoqueService {
@@ -84,6 +95,7 @@ export class EstoqueService {
           nome,
           nomeComercial: limparNome(dto.nomeComercial) || null,
           marcas: limparMarcas(dto.marcas),
+          alergenos: alergenosDoDto(dto.alergenos) ?? null,
           fichaId,
           unidadeMedida,
           estoqueMinimo:
@@ -254,6 +266,8 @@ export class EstoqueService {
     // Nome comercial e marcas (mig 311): ausente mantém; vazio limpa.
     if (dto.nomeComercial !== undefined) patch.nomeComercial = limparNome(dto.nomeComercial) || null;
     if (dto.marcas !== undefined) patch.marcas = limparMarcas(dto.marcas);
+    // Alérgenos (mig 454): ausente mantém; null limpa (ninguém conferiu); a marcação conferida pela regra comum.
+    if (dto.alergenos !== undefined) patch.alergenos = alergenosDoDto(dto.alergenos);
     if (dto.unidadeMedida !== undefined)
       patch.unidadeMedida = exigirUnidade(dto.unidadeMedida, 'Unidade principal');
     const conversoes = this.validarConversoes(dto.conversoes);
@@ -664,6 +678,8 @@ export class EstoqueService {
       select i.id, i.nome, i.unidade_medida as "unidadeMedida", i.unidade_id as "unidadeId",
              -- Como o produto é comprado e as marcas dele (mig 311); o nome continua o da ficha.
              i.nome_comercial as "nomeComercial", i.marcas,
+             -- Alérgenos pelo rótulo (mig 454): a gaveta mostra e edita; null = ninguém conferiu.
+             i.alergenos,
              -- Feito na loja (mig 314): a ficha que o produz — só a que ainda existe.
              ft.id as "fichaId", ft.nome as "fichaNome",
              sum(${sqlMinimoDaLoja}) as "estoqueMinimo",

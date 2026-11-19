@@ -18,10 +18,28 @@ import {
   situacaoParaOCliente,
 } from '../pedido-repetido/pedido-repetido';
 import { exigirBooleano } from '../../common/exigir';
+import {
+  ANTECEDENCIAS_MIN,
+  DIAS_A_FRENTE,
+  LIMITES_POR_JANELA,
+  ajustesDoAgendado,
+  conferirHorario,
+  diasPermitidos,
+  emSaoPaulo,
+  inicioDoPreparo,
+  horarioDoTexto,
+  rotuloDaJanela,
+  instanteDeSaoPaulo,
+  janelasDoDia,
+  preparoDoTipo,
+  quandoDoAgendado,
+  somarDiasAoDia,
+  type Janela,
+} from '../../common/pedido-agendado';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ChegadaService } from '../chegada/chegada.service';
 import { AniversarioService } from '../aniversario/aniversario.service';
-import { palavrasDe } from './robo-busca';
+import { palavrasDe, type DadosDaBusca } from './robo-busca';
 import { type CanalDoPerfil, jeitoDoAtendente, perfisDaEmpresa } from './perfis-do-atendente';
 import { type CanalDosAssuntos, assuntoNaoEPorAqui, assuntosDaEmpresa, blocoDasInstrucoes } from './assuntos-do-atendente';
 import { blocoDoConhecimento, itensParaAsInstrucoes } from './conhecimento-do-atendente';
@@ -31,6 +49,8 @@ import { opcaoForaDeVenda } from './opcao-fora-de-venda';
 import { and, desc, eq, gte, ilike, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { randomBytes } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { FRASE_DE_CAUTELA_MAX, alergenosParaOCardapio, fraseDeCautela, selosSemContradicao } from '../../common/alergenos';
+import { lerAlergenosDoCardapio } from './alergenos-do-cardapio';
 import { documentoUtilizavel } from '../fiscal/destinatario';
 import { verificarCliente, assinarCliente } from '../cliente/cliente-token';
 import { paraCentavos, paraReais, somarCentavos } from '../../util/dinheiro';
@@ -146,7 +166,22 @@ function semEventos(temaConfig: Record<string, unknown>): Record<string, unknown
   return resto;
 }
 
+/** A frase de cautela dos alérgenos que a tela manda (mig 454, A9): espaços juntados; vazia ou longa = 400. */
+function fraseDeCautelaDoDto(v: unknown): string {
+  const t = String(v ?? '').replace(/\s+/g, ' ').trim();
+  if (!t) throw new BadRequestException('A frase de cautela não pode ficar vazia: sem ela, o cliente poderia ler "não contém" como garantia.');
+  if (t.length > FRASE_DE_CAUTELA_MAX) throw new BadRequestException(`A frase de cautela vai até ${FRASE_DE_CAUTELA_MAX} letras.`);
+  return t;
+}
+
 // Distância entre duas coordenadas (km) — frete por raio.
+/** Um número da lista que a tela oferece (os ajustes do pedido agendado, mig 455); fora dela = 400 com o nome do ajuste. */
+function daLista(v: unknown, lista: readonly number[], rotulo: string): number {
+  const n = Number(v);
+  if (!lista.includes(n)) throw new BadRequestException(`${rotulo}: escolha uma das opções da lista.`);
+  return n;
+}
+
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371;
   const rad = (d: number) => (d * Math.PI) / 180;
@@ -702,6 +737,34 @@ export class CardapioService {
   }
 
   /**
+   * "Mandar print de ajuda" (mig 442, D3) da loja do robô, para as instruções: ligado entra a seção PRINT DE AJUDA. Nunca
+   * rejeita: sem conseguir ler (ou sem a coluna), desligado — as instruções de hoje.
+   */
+  async printDeAjudaDoRobo(token: string): Promise<boolean> {
+    try {
+      const cfg = await this.resolver(token);
+      const r: any = await this.db.execute(
+        sql`select coalesce((to_jsonb(rc) ->> 'print_ajuda')::boolean, false) as ligado from robo_config rc where rc.tenant_id = ${cfg.tenantId}::uuid`,
+      );
+      return (r?.rows ?? r)?.[0]?.ligado === true;
+    } catch (e: any) {
+      this.logger.warn(`print de ajuda não lido (valem as instruções sem ele): ${e?.message ?? e}`);
+      return false;
+    }
+  }
+
+  /** "Aceitar pedido agendado" ligado na loja (mig 455, D4c): entra a seção PEDIDO AGENDADO nas instruções do robô. */
+  async agendadoDoRobo(token: string): Promise<boolean> {
+    try {
+      const cfg = await this.resolver(token);
+      return ajustesDoAgendado(cfg).ativo && cfg.ramo !== 'servicos';
+    } catch (e: any) {
+      this.logger.warn(`pedido agendado não lido (valem as instruções sem ele): ${e?.message ?? e}`);
+      return false;
+    }
+  }
+
+  /**
    * A conversa de TESTE do atendente da chave `teste:<id>` (mig 382), para as instruções: o canal que ela imita e o
    * "simular fora do horário". Chave inválida ou teste que não existe = null (as consultas já recusaram pela chave).
    */
@@ -738,10 +801,15 @@ export class CardapioService {
    * embalagem (`somente_delivery`/`somente_balcao`) e sem as apagadas — e o que cada combo leva. Só para a rota do robô
    * (com a senha): os nomes da ficha viram palavras para casar a pergunta e nunca saem.
    */
-  async dadosDaBuscaDoRobo(token: string): Promise<{ ingredientes: Map<string, Set<string>>; componentes: Map<string, string[]> }> {
+  async dadosDaBuscaDoRobo(token: string): Promise<DadosDaBusca> {
     const cfg = await this.resolver(token);
     const tenantId = cfg.tenantId;
     const linhasDe = (r: any): any[] => (Array.isArray(r) ? r : (r?.rows ?? []));
+    // Os alérgenos (mig 454): o atendente só usa quando o cliente PERGUNTA; sem conseguir ler, a busca segue sem eles.
+    const alergenos = lerAlergenosDoCardapio(this.db, tenantId).catch((e) => {
+      this.logger.warn(`busca do robô: os alérgenos não foram lidos (${e?.message ?? e}); segue sem eles`);
+      return new Map() as Awaited<ReturnType<typeof lerAlergenosDoCardapio>>;
+    });
     const [ings, combos] = await Promise.all([
       this.db.execute(sql`
         with recursive arvore as (
@@ -777,7 +845,7 @@ export class CardapioService {
       const id = String(r.combo_produto_id);
       componentes.set(id, [...(componentes.get(id) ?? []), String(r.componente_produto_id)]);
     }
-    return { ingredientes, componentes };
+    return { ingredientes, componentes, alergenos: await alergenos, fraseDeCautela: fraseDeCautela(cfg.alergenosCautela) };
   }
 
   async getConfig(tenantId: string, unidadeId?: string | null) {
@@ -895,6 +963,19 @@ export class CardapioService {
               ? null
               : Math.floor(Number(dto.encomendaCapacidadeDia)))
           : row?.encomendaCapacidadeDia ?? null,
+      // Pedido agendado (mig 455, G10): ausente mantém; fora da lista = recusa (a tela só oferece a lista).
+      agendadoAtivo: dto.agendadoAtivo !== undefined ? exigirBooleano(dto.agendadoAtivo, 'Aceitar pedido agendado') : row?.agendadoAtivo ?? false,
+      agendadoAntecedenciaMin:
+        'agendadoAntecedenciaMin' in dto ? daLista(dto.agendadoAntecedenciaMin, ANTECEDENCIAS_MIN, 'Antecedência mínima') : row?.agendadoAntecedenciaMin ?? 45,
+      agendadoDias: 'agendadoDias' in dto ? daLista(dto.agendadoDias, DIAS_A_FRENTE, 'Até quantos dias à frente') : row?.agendadoDias ?? 1,
+      agendadoLimiteJanela:
+        'agendadoLimiteJanela' in dto
+          ? dto.agendadoLimiteJanela == null || dto.agendadoLimiteJanela === ''
+            ? null
+            : daLista(dto.agendadoLimiteJanela, (LIMITES_POR_JANELA as readonly (number | null)[]).filter((x): x is number => x != null), 'Limite de pedidos por janela')
+          : row?.agendadoLimiteJanela === undefined
+            ? 4
+            : row.agendadoLimiteJanela,
       // Sinal da encomenda — regra base (mig 187).
       encomendaExigeSinal:
         dto.encomendaExigeSinal != null ? !!dto.encomendaExigeSinal : row?.encomendaExigeSinal ?? false,
@@ -952,6 +1033,9 @@ export class CardapioService {
       horarios: Array.isArray(dto.horarios) ? dto.horarios : row?.horarios ?? [],
       horariosRetirada: Array.isArray(dto.horariosRetirada) ? dto.horariosRetirada : row?.horariosRetirada ?? [],
       horarioUnico: dto.horarioUnico != null ? !!dto.horarioUnico : row?.horarioUnico ?? true,
+      // A frase de cautela dos alérgenos (mig 454, A9): ausente mantém; vazia é recusada (sem ela o cliente leria "não
+      // contém" como garantia); até 240 letras.
+      alergenosCautela: 'alergenosCautela' in dto ? fraseDeCautelaDoDto(dto.alergenosCautela) : row?.alergenosCautela ?? null,
       // Robô de auto atendimento
       roboAtivo: dto.roboAtivo != null ? !!dto.roboAtivo : row?.roboAtivo ?? false,
       roboSaudacao: dto.roboSaudacao ?? row?.roboSaudacao ?? null,
@@ -1857,8 +1941,149 @@ export class CardapioService {
         and agendamento is not null
         and (agendamento at time zone 'America/Sao_Paulo')::date = ${data}::date
         and status <> 'cancelado'
+        -- O pedido agendado (mig 455) tem limite próprio por janela (G9): não ocupa a capacidade da encomenda.
+        and retirada_tipo is distinct from 'agendado'
     `);
     return Number((r?.rows ?? r)?.[0]?.n ?? 0);
+  }
+
+  /**
+   * Quantos pedidos AGENDADOS (mig 455, G9) há em cada janela do dia (fuso SP), pelo "AAAA-MM-DDTHH:MM". Só os vivos
+   * (cancelado não ocupa). Sem filtro de loja: o cardápio é da empresa (a mesma conta da encomenda sem `unidade_id`).
+   */
+  async ocupacaoDasJanelas(tenantId: string, unidadeId: string | null, dia: string, exceto?: string | null): Promise<Map<string, number>> {
+    const r: any = await this.db.execute(sql`
+      select to_char(agendamento at time zone 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI') as janela, count(*)::int as n
+        from pedido_externo
+       where tenant_id = ${tenantId}::uuid
+         ${unidadeId ? sql`and unidade_id = ${unidadeId}::uuid` : sql``}
+         and retirada_tipo = 'agendado' and status <> 'cancelado' and deleted_at is null
+         and agendamento >= ${instanteDeSaoPaulo(`${dia}T00:00`)!.toISOString()}::timestamptz
+         and agendamento < ${instanteDeSaoPaulo(`${somarDiasAoDia(dia, 1)}T00:00`)!.toISOString()}::timestamptz
+         ${exceto ? sql`and id <> ${exceto}::uuid` : sql``}
+       group by 1`);
+    return new Map((r?.rows ?? r ?? []).map((x: any) => [String(x.janela), Number(x.n)] as [string, number]));
+  }
+
+  /**
+   * As janelas do pedido agendado de um dia (D4, G2/G3/G7/G9) — o "Para quando?" do cardápio e o atendente: o dia escolhido
+   * (ou o primeiro permitido), os dias que dá para escolher e as janelas de 15 min com a esgotada marcada. Desligado = vazio.
+   */
+  async janelasDoAgendado(cfg: any, dia: unknown, tipo: unknown, agora = new Date()) {
+    const ajustes = ajustesDoAgendado(cfg);
+    const dias = ajustes.ativo ? diasPermitidos(agora, ajustes.dias) : [];
+    if (!ajustes.ativo) return { ativo: false, dias, dia: null, janelas: [] as Janela[] };
+    const pedido = String(dia ?? '').trim();
+    const escolhido = dias.includes(pedido) ? pedido : dias[0];
+    const tipoDoPedido = tipo === 'retirada' || tipo === 'local' ? String(tipo) : 'entrega';
+    const [ocupacao, pausa] = await Promise.all([
+      this.ocupacaoDasJanelas(cfg.tenantId, null, escolhido),
+      pausaVigenteDoCanal(this.db, cfg.tenantId, cfg.unidadeId ?? null, 'cardapio').catch(() => null),
+    ]);
+    const janelas = janelasDoDia({
+      horarios: this.horariosDoTipo(cfg, tipoDoPedido),
+      dia: escolhido,
+      agora,
+      antecedenciaMin: ajustes.antecedenciaMin,
+      preparoMin: preparoDoTipo(cfg, tipoDoPedido),
+      limite: ajustes.limite,
+      ocupacao,
+      pausaAte: pausa?.ate ? new Date(pausa.ate) : null,
+    });
+    return { ativo: true, dias, dia: escolhido, janelas, limite: ajustes.limite, preparoMin: preparoDoTipo(cfg, tipoDoPedido) };
+  }
+
+  /**
+   * A loja tem o Pix ONLINE no cardápio (a chave 'pix' na lista de formas — a mesma lista que o menu manda e o checkout
+   * mostra como "Pix · aprovação na hora")? G5: com ele, o pedido agendado só vai por Pix; sem ele, vale o "na entrega".
+   */
+  private async temPixOnlineNoCardapio(cfg: any): Promise<boolean> {
+    const formas = await this.db
+      .select({ nome: formaPagamento.nome })
+      .from(formaPagamento)
+      .where(and(eq(formaPagamento.tenantId, cfg.tenantId), eq(formaPagamento.ativo, true), eq(formaPagamento.cardapio, true)));
+    const lista = formas.length ? formas.map((f) => f.nome) : Array.isArray(cfg.pagamentos) ? cfg.pagamentos : [];
+    return lista.includes('pix');
+  }
+
+  /**
+   * O LIMITE DA JANELA DEPOIS DE GRAVAR (G9, V98): numa transação, trava as linhas VIVAS da janela do pedido (FOR UPDATE —
+   * quem confere junto espera a vez) e, se elas passam do limite, o PRÓPRIO pedido sai da janela por `desfazer` (o pedido
+   * novo é cancelado; a mudança de horário volta ao de antes). Quem vê a janela estourada é quem desfaz: a decisão NÃO
+   * depende da ordem de chegada — o `criado_em` é a hora em que a gravação COMEÇOU, não a em que ficou visível, e a ordem
+   * por ele deixava os dois pedidos se acharem dentro do limite (CI de 19/11). Devolve true quando desfez.
+   */
+  private async desfazSePassouDoLimite(tenantId: string, pedidoId: string, limite: number, desfazer: (tx: any) => Promise<unknown>): Promise<boolean> {
+    return this.db.transaction(async (tx) => {
+      const r: any = await tx.execute(sql`
+        select p.id from pedido_externo p
+         where p.tenant_id = ${tenantId}::uuid and p.retirada_tipo = 'agendado' and p.status <> 'cancelado' and p.deleted_at is null
+           and p.agendamento = (select a.agendamento from pedido_externo a where a.id = ${pedidoId}::uuid and a.tenant_id = ${tenantId}::uuid)
+         order by p.id
+         for update`);
+      const ids = ((r?.rows ?? r ?? []) as any[]).map((x) => String(x.id));
+      if (!ids.includes(pedidoId) || ids.length <= limite) return false;
+      await desfazer(tx);
+      return true;
+    });
+  }
+
+  /**
+   * O horário que o cliente disse ao ATENDENTE (D4c): entendido (`horarioDoTexto`) e conferido pelas MESMAS regras das
+   * janelas (ligado, dia, janela oferecida e não esgotada) para o tipo do pedido. O pedido confere tudo de novo ao chegar.
+   */
+  async horarioParaORobo(token: string, texto: unknown, tipo: unknown) {
+    const cfg = await this.resolver(token);
+    const ajustes = ajustesDoAgendado(cfg);
+    if (!ajustes.ativo || cfg.ramo === 'servicos') return { ok: false as const, motivo: 'desligado', mensagem: 'A loja não aceita pedido agendado.', sugestoes: [] as string[] };
+    const lido = horarioDoTexto(texto);
+    if (!lido) return { ok: false as const, motivo: 'formato', mensagem: 'Não entendi o horário: peça o dia e a hora (ex.: hoje 19:30).', sugestoes: [] as string[] };
+    if ('tirar' in lido) return { ok: true as const, tirar: true as const };
+    const tipoAg = tipo === 'retirada' || tipo === 'local' ? String(tipo) : 'entrega';
+    const dia = lido.valor.slice(0, 10);
+    const [ocupacao, pausa] = await Promise.all([
+      this.ocupacaoDasJanelas(cfg.tenantId, null, dia),
+      pausaVigenteDoCanal(this.db, cfg.tenantId, cfg.unidadeId ?? null, 'cardapio').catch(() => null),
+    ]);
+    const preparoMin = preparoDoTipo(cfg, tipoAg);
+    const conf = conferirHorario({
+      ajustes,
+      valor: lido.valor,
+      horarios: this.horariosDoTipo(cfg, tipoAg),
+      agora: new Date(),
+      preparoMin,
+      ocupacao,
+      pausaAte: pausa?.ate ? new Date(pausa.ate) : null,
+    });
+    if (!conf.ok) return { ok: false as const, motivo: conf.motivo, mensagem: conf.mensagem, sugestoes: conf.sugestoes.map((j) => rotuloDaJanela(j.valor)) };
+    return {
+      ok: true as const,
+      valor: conf.janela.valor,
+      quando: quandoDoAgendado(conf.instante),
+      comeca: emSaoPaulo(inicioDoPreparo(conf.instante, preparoMin)).hora,
+      pixObrigatorio: await this.temPixOnlineNoCardapio(cfg),
+    };
+  }
+
+  /** As janelas livres de hoje e dos próximos dias para o atendente oferecer (as horas, sem as esgotadas). */
+  async janelasLivresParaORobo(token: string, tipo: unknown = 'entrega', porDia = 16) {
+    const cfg = await this.resolver(token);
+    const ajustes = ajustesDoAgendado(cfg);
+    if (!ajustes.ativo || cfg.ramo === 'servicos') return null;
+    const dias = diasPermitidos(new Date(), ajustes.dias);
+    const porDiaR = await Promise.all(
+      dias.map(async (d) => {
+        const r = await this.janelasDoAgendado(cfg, d, tipo);
+        return { dia: d, horas: r.janelas.filter((j) => !j.esgotada).map((j) => j.hora).slice(0, porDia) };
+      }),
+    );
+    return { dias: porDiaR, pixObrigatorio: await this.temPixOnlineNoCardapio(cfg) };
+  }
+
+  /** As janelas pela porta pública do cardápio (token). */
+  async janelasDoAgendadoPublico(token: string, dia: unknown, tipo: unknown) {
+    const cfg = await this.resolver(token);
+    return this.janelasDoAgendado(cfg, dia, tipo);
   }
 
   // Registra um evento ANÔNIMO do funil do cardápio (F4). Sessão gerada no cliente,
@@ -1918,6 +2143,12 @@ export class CardapioService {
     const pausaDoCardapio = pausaVigenteDoCanal(this.db, cfg.tenantId, cfg.unidadeId ?? null, 'cardapio').catch((e) => {
       this.logger.warn(`menu: a pausa do cardápio não foi lida (${e?.message ?? e}); segue sem pausa`);
       return null;
+    });
+    // Os alérgenos (mig 454, A4): só o produto "informado" ganha o bloco na página; a empresa que nunca marcou não paga a
+    // leitura. Sem conseguir ler, o cardápio segue como é hoje (sem o bloco) — nunca cai por causa disso.
+    const alergenosDoMenu = lerAlergenosDoCardapio(this.db, cfg.tenantId).catch((e) => {
+      this.logger.warn(`menu: os alérgenos não foram lidos (${e?.message ?? e}); segue sem eles`);
+      return new Map() as Awaited<ReturnType<typeof lerAlergenosDoCardapio>>;
     });
     // ===== Consultas agrupadas por NIVEL DE DEPENDENCIA =====
     // Este e o cardapio que o cliente abre para pedir, e fazia ~14 idas e voltas ao
@@ -2078,10 +2309,14 @@ export class CardapioService {
     const opcaoEmVenda = (o: any) => !(o.origemOpcaoId && origemForaDeVenda.has(o.origemOpcaoId));
     // Fallback: se nenhuma foi marcada ainda, usa o `pagamentos` legado (sem regressão).
     const pagamentosCardapio = formasCardapio.map((f) => f.nome);
+    const alergs = await alergenosDoMenu;
+    const comAlergenos = [...alergs.values()].some((a) => a.situacao === 'informado');
 
     return {
       loja: {
         nome: cfg.nomePublico ?? 'Cardápio',
+        // A frase de cautela dos alérgenos (mig 454, A9) — só quando algum produto mostra o bloco.
+        fraseDeCautela: comAlergenos ? fraseDeCautela(cfg.alergenosCautela) : null,
         ramo: cfg.ramo,
         tema: cfg.tema ?? 'claro',
         // Loja com layout antigo gravado (`classic`, `fastfood`, `grid`) abre no template padrão.
@@ -2112,6 +2347,17 @@ export class CardapioService {
         tempoEntregaMin: cfg.tempoEntregaMin,
         tempoRetiradaMin: cfg.tempoRetiradaMin,
         pedidoMinimo: cfg.pedidoMinimo != null ? Number(cfg.pedidoMinimo) : null,
+        // Pedido agendado (mig 455, D4): o "Para quando?" com o dia e as janelas de 15 min (lidas em
+        // `GET publico/cardapio/:token/agendado/janelas`). Só ligado e fora dos serviços; `pixObrigatorio` = G5.
+        agendado:
+          cfg.agendadoAtivo === true && cfg.ramo !== 'servicos'
+            ? {
+                ativo: true,
+                dias: diasPermitidos(new Date(), ajustesDoAgendado(cfg).dias),
+                janelaMin: 15,
+                pixObrigatorio: pagamentosCardapio.length ? pagamentosCardapio.includes('pix') : ((cfg.pagamentos as string[] | null) ?? []).includes('pix'),
+              }
+            : null,
         // Modo Encomenda (mig 186): regras p/ o checkout oferecer data futura.
         encomenda: {
           ...this.regrasEncomenda(cfg),
@@ -2230,7 +2476,9 @@ export class CardapioService {
           precoDe: promo != null ? Number(p.precoVenda) : null,
           categoriaId: p.categoriaId,
           imagemRef: p.imagemRef,
-          selos: p.selos ?? [],
+          selos: selosSemContradicao(p.selos, alergs.get(String(p.id))),
+          // Alérgenos (mig 454, A4): só o produto "informado"; null = a página fica como é hoje.
+          alergenos: alergenosParaOCardapio(alergs.get(String(p.id))),
           duracaoMin: p.duracaoMin,
           destaque: p.destaque === true,
           // Atacado por volume (mig 184): faixas "a partir de N un → -X%" (só se ligado).
@@ -2416,6 +2664,124 @@ export class CardapioService {
   }
 
   // Público: status do pedido (timeline) por id.
+  /**
+   * A situação do pedido AGENDADO (mig 455): quando o preparo começa e se ainda dá para o CLIENTE mudar o horário ou
+   * cancelar (G6: até entrar em preparo; depois, só a equipe). Outro pedido = null.
+   */
+  private situacaoDoAgendado(cfg: any, p: any): { comeca: string; podeMudar: boolean; preparoMin: number } | null {
+    if (p?.retiradaTipo !== 'agendado' || !p.agendamento) return null;
+    const preparoMin = preparoDoTipo(cfg, p.tipo);
+    const comeca = inicioDoPreparo(new Date(p.agendamento), preparoMin);
+    return { comeca: comeca.toISOString(), podeMudar: ['novo', 'confirmado'].includes(p.status) && Date.now() < comeca.getTime(), preparoMin };
+  }
+
+  /**
+   * MUDAR O HORÁRIO do pedido agendado (mig 455, G6) — pelo cliente (só até o preparo começar) ou pela loja (a qualquer
+   * momento antes de sair). O novo horário passa pelas MESMAS regras (janela livre, antecedência, loja atendendo, fora da
+   * pausa), sem contar o próprio pedido na ocupação; a troca é condicional ao horário de antes (duas mudanças ao mesmo
+   * tempo: uma só vale) e, gravada, passa pela mesma conferência do limite (V98) — passou, volta ao de antes. O cliente é
+   * avisado ("horário mudou"); a marca do "entrou em preparo" volta a valer para o novo horário.
+   */
+  async mudarHorarioDoAgendado(cfg: any, pedidoId: string, valor: unknown, quem: { origem: 'cliente' | 'loja' | 'robo'; atorId?: string | null; atorPerfil?: string | null }) {
+    const [p] = await this.db
+      .select()
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.id, pedidoId), eq(pedidoExterno.tenantId, cfg.tenantId)));
+    if (!p) throw new NotFoundException('Pedido não encontrado.');
+    if (p.retiradaTipo !== 'agendado' || !p.agendamento) throw new BadRequestException('Só o pedido agendado muda de horário por aqui.');
+    if (!['novo', 'confirmado'].includes(p.status)) throw new BadRequestException('Este pedido já saiu ou foi encerrado: o horário não muda mais.');
+    const situacao = this.situacaoDoAgendado(cfg, p)!;
+    if (quem.origem !== 'loja' && !situacao.podeMudar)
+      throw new BadRequestException('O pedido já está sendo preparado: o horário não muda mais por aqui. Fale com a loja.');
+    const velho = new Date(p.agendamento);
+    const dia = String(valor ?? '').slice(0, 10);
+    const [ocupacao, pausa] = await Promise.all([
+      this.ocupacaoDasJanelas(cfg.tenantId, null, dia, p.id),
+      pausaVigenteDoCanal(this.db, cfg.tenantId, cfg.unidadeId ?? null, 'cardapio').catch(() => null),
+    ]);
+    const conf = conferirHorario({
+      ajustes: { ...ajustesDoAgendado(cfg), ativo: true }, // o pedido já é agendado: desligar o ajuste não prende quem já marcou
+      valor,
+      horarios: this.horariosDoTipo(cfg, p.tipo),
+      agora: new Date(),
+      preparoMin: preparoDoTipo(cfg, p.tipo),
+      ocupacao,
+      pausaAte: pausa?.ate ? new Date(pausa.ate) : null,
+    });
+    if (!conf.ok) {
+      const sug = conf.sugestoes.map((j) => rotuloDaJanela(j.valor)); // com o dia: o atendente do WhatsApp manda de volta
+      throw new BadRequestException(sug.length ? `${conf.mensagem} Os mais perto que ainda têm vaga: ${sug.join(' e ')}.` : conf.mensagem);
+    }
+    if (conf.instante.getTime() === velho.getTime()) return { ok: true, mudou: false, agendamento: velho.toISOString() };
+    const r: any = await this.db.execute(sql`
+      update pedido_externo set agendamento = ${conf.instante.toISOString()}::timestamptz, agendado_preparo_avisado_em = null, updated_at = now()
+       where id = ${p.id}::uuid and tenant_id = ${cfg.tenantId}::uuid and agendamento = ${velho.toISOString()}::timestamptz
+         and status in ('novo', 'confirmado')
+      returning id`);
+    if (!(r?.rows ?? r ?? []).length) throw new ConflictException('O pedido mudou enquanto você escolhia. Abra de novo e confira.');
+    const limite = ajustesDoAgendado(cfg).limite;
+    // O limite da janela nova depois de gravar (ERR-529): estourou, o pedido volta ao horário de antes.
+    const voltou =
+      limite != null &&
+      (await this.desfazSePassouDoLimite(cfg.tenantId, p.id, limite, (tx) =>
+        tx.execute(sql`
+          update pedido_externo set agendamento = ${velho.toISOString()}::timestamptz, updated_at = now()
+           where id = ${p.id}::uuid and agendamento = ${conf.instante.toISOString()}::timestamptz`),
+      ));
+    if (voltou) throw new BadRequestException(`O horário das ${conf.janela.hora} acabou de encher. Escolha outro.`);
+    await this.auditoria?.registrar({
+      tenantId: cfg.tenantId,
+      atorId: quem.atorId ?? null,
+      atorPerfil: quem.atorPerfil ?? quem.origem,
+      tipo: 'delivery',
+      acao: 'pedido_agendado_horario',
+      entidadeTipo: 'pedido_externo',
+      entidadeId: p.id,
+      detalhe: { de: velho.toISOString(), para: conf.instante.toISOString(), por: quem.origem },
+      origem: quem.origem === 'loja' ? 'web' : quem.origem,
+    } as any);
+    await this.delivery.avisarHorarioDoAgendado(cfg.tenantId, p.id).catch(() => undefined);
+    return { ok: true, mudou: true, agendamento: conf.instante.toISOString(), quando: quandoDoAgendado(conf.instante) };
+  }
+
+  /** O cliente muda o horário pela página do pedido (só com a prova de dono: o `ref` do link ou o token de Sua conta). */
+  async mudarHorarioPublico(token: string, pedidoId: string, valor: unknown, clienteToken?: string, ref?: string) {
+    const cfg = await this.resolver(token);
+    await this.exigirDonoDoPedido(cfg, pedidoId, clienteToken, ref);
+    return this.mudarHorarioDoAgendado(cfg, pedidoId, valor, { origem: 'cliente' });
+  }
+
+  /** A prova de dono do pedido pela porta pública (a mesma do cancelamento da encomenda). */
+  private async exigirDonoDoPedido(cfg: any, pedidoId: string, clienteToken?: string, ref?: string) {
+    const [p] = await this.db
+      .select({ clienteId: pedidoExterno.clienteId, clientRef: pedidoExterno.clientRef })
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.id, pedidoId), eq(pedidoExterno.tenantId, cfg.tenantId)));
+    if (!p) throw new NotFoundException('Pedido não encontrado.');
+    const cli = verificarCliente(clienteToken);
+    const donoPorToken = !!(cli && cli.tenant === cfg.tenantId && p.clienteId && cli.cli === p.clienteId);
+    const donoPorRef = !!(ref && p.clientRef && ref === p.clientRef);
+    if (!donoPorToken && !donoPorRef) throw new NotFoundException('Pedido não encontrado.');
+  }
+
+  /** As janelas para a LOJA (painel): as do dia do tipo do pedido, sem contar o próprio pedido na ocupação. */
+  async janelasDoAgendadoDaLoja(tenantId: string, unidadeId: string | null, dia: unknown, tipo: unknown, pedidoId?: string) {
+    const cfg = await this.configRaw(tenantId, unidadeId);
+    if (!cfg) throw new NotFoundException('Cardápio não configurado.');
+    const r = await this.janelasDoAgendado({ ...cfg, agendadoAtivo: true }, dia, tipo);
+    if (!pedidoId) return r;
+    const ocupacao = await this.ocupacaoDasJanelas(tenantId, null, String(r.dia), pedidoId);
+    const limite = ajustesDoAgendado(cfg).limite;
+    return { ...r, janelas: r.janelas.map((j) => ({ ...j, ocupados: ocupacao.get(j.valor) ?? 0, esgotada: limite != null && (ocupacao.get(j.valor) ?? 0) >= limite })) };
+  }
+
+  /** A loja muda o horário (painel — G6: a qualquer momento antes de sair), com quem mudou na auditoria. */
+  async mudarHorarioDaLoja(tenantId: string, unidadeId: string | null, pedidoId: string, valor: unknown, ator: { id: string | null; perfil: string | null }) {
+    const cfg = await this.configRaw(tenantId, unidadeId);
+    if (!cfg) throw new NotFoundException('Cardápio não configurado.');
+    return this.mudarHorarioDoAgendado(cfg, pedidoId, valor, { origem: 'loja', atorId: ator.id, atorPerfil: ator.perfil });
+  }
+
   async statusPedido(token: string, pedidoId: string, ref?: string) {
     const cfg = await this.resolver(token);
     const [p] = await this.db
@@ -2443,6 +2809,9 @@ export class CardapioService {
       desconto: Number(p.desconto),
       itens: p.itens,
       agendamento: p.agendamento ? new Date(p.agendamento).toISOString() : null,
+      // Pedido agendado (mig 455, G6): o começo do preparo e se o cliente ainda muda o horário ou cancela sozinho (até o
+      // preparo começar; o link só com o `ref` dá esse poder — a página manda o `ref` junto).
+      agendado: this.situacaoDoAgendado(cfg, p),
       // Sinal da encomenda (mig 188).
       sinal:
         p.sinalStatus && p.sinalStatus !== 'nao'
@@ -2930,6 +3299,11 @@ export class CardapioService {
       throw new BadRequestException('Pedido já concluído não pode ser cancelado.');
     if (!p.agendamento)
       throw new BadRequestException('Só encomendas podem ser canceladas por aqui.');
+    // O pedido AGENDADO (mig 455, G6): o cliente cancela sozinho só até o preparo começar; depois, só a equipe. O Pix pago
+    // volta sozinho no cancelamento (o estorno automático do pedido pago inteiro).
+    const ag = this.situacaoDoAgendado(cfg, p);
+    if (ag && !ag.podeMudar)
+      throw new BadRequestException('O pedido já está sendo preparado: o cancelamento é com a loja. Fale com a gente pelo WhatsApp.');
     const temSinalPago = p.sinalStatus === 'pago';
     if (temSinalPago && p.cancelavelAte && Date.now() > new Date(p.cancelavelAte).getTime())
       throw new BadRequestException(
@@ -3998,6 +4372,9 @@ export class CardapioService {
       resgateId?: string; // prêmio de fidelidade a abater no pedido
       usarCashback?: boolean; // false = não usar o saldo de cashback
       agendamento?: string; // serviços: data/hora
+      // Pedido agendado (mig 455, D4): 'agendado' = o pedido comum com hora marcada numa janela de 15 min (o agendamento
+      // vem "AAAA-MM-DDTHH:MM" da hora de São Paulo); ausente = encomenda (como antes).
+      modoAgendamento?: string;
       profissional?: string; // serviços
       cnpj?: string; // indústria: faturamento
       // CPF/CNPJ **para o cupom fiscal**. Opcional: quem não quer nota não informa nada. Quem
@@ -4050,6 +4427,35 @@ export class CardapioService {
     const documentoNota = String(dto.cpf ?? '').replace(/\D/g, '') || undefined;
     if (documentoNota && !documentoUtilizavel(documentoNota))
       throw new BadRequestException('CPF ou CNPJ inválido. Confira os números ou deixe em branco.');
+    // PEDIDO AGENDADO (mig 455, D4 — G1–G9): o horário passa pelas MESMAS regras das janelas que o cardápio mostra (o
+    // servidor confere tudo de novo — a tela só ajuda): ligado, dia permitido, janela oferecida (horário da loja,
+    // antecedência, fora da pausa) e não esgotada. O texto "AAAA-MM-DDTHH:MM" de São Paulo vira o instante certo (a nuvem
+    // roda em UTC) antes de chegar à gravação.
+    const ehAgendado = dto.modoAgendamento === 'agendado' && !!dto.agendamento && cfg.ramo !== 'servicos';
+    let janelaDoAgendado: string | null = null;
+    if (ehAgendado) {
+      const tipoAg = dto.tipo === 'entrega' ? 'entrega' : 'retirada';
+      const dia = String(dto.agendamento).slice(0, 10);
+      const [ocupacao, pausaAg] = await Promise.all([
+        this.ocupacaoDasJanelas(cfg.tenantId, null, dia),
+        pausaVigenteDoCanal(this.db, cfg.tenantId, cfg.unidadeId ?? null, 'cardapio').catch(() => null),
+      ]);
+      const conf = conferirHorario({
+        ajustes: ajustesDoAgendado(cfg),
+        valor: dto.agendamento,
+        horarios: this.horariosDoTipo(cfg, tipoAg),
+        agora: new Date(),
+        preparoMin: preparoDoTipo(cfg, tipoAg),
+        ocupacao,
+        pausaAte: pausaAg?.ate ? new Date(pausaAg.ate) : null,
+      });
+      if (!conf.ok) {
+        const sug = conf.sugestoes.map((j) => rotuloDaJanela(j.valor)); // com o dia: o atendente do WhatsApp manda de volta
+        throw new BadRequestException(sug.length ? `${conf.mensagem} Os mais perto que ainda têm vaga: ${sug.join(' e ')}.` : conf.mensagem);
+      }
+      janelaDoAgendado = conf.janela.valor;
+      dto.agendamento = conf.instante.toISOString();
+    }
     // Loja fechada (para o TIPO do pedido): bloqueia (pedidos agendados passam).
     if (!dto.agendamento && !this.estaAberta(cfg, dto.tipo))
       throw new BadRequestException('A loja está fechada no momento. Volte no horário de funcionamento.');
@@ -4063,7 +4469,7 @@ export class CardapioService {
     // Encomenda (mig 186): para food/varejo, `agendamento` = pedido para data
     // FUTURA e só vale se a loja liga o modo Encomenda, dentro das regras. Serviços
     // mantém o agendamento de HORÁRIO (consulta/atendimento), sem essas regras.
-    const ehEncomenda = !!dto.agendamento && cfg.ramo !== 'servicos';
+    const ehEncomenda = !!dto.agendamento && cfg.ramo !== 'servicos' && !ehAgendado;
     // Sinal aplicável (mig 187/188): resolvido pela quantidade de itens. Preenchido
     // dentro do bloco de encomenda; usado depois para forçar cobrança e gravar prazo.
     let sinalRule: { exigeSinal: boolean; sinalPct: number; cancelHoras: number | null } | null = null;
@@ -4235,6 +4641,10 @@ export class CardapioService {
     const forma = orcamento ? 'faturamento' : dto.formaPagamento ?? 'a_combinar';
     // Encomenda com sinal (mig 188): força pagamento online do sinal (aguardando).
     const exigeSinal = !!(sinalRule && sinalRule.exigeSinal && (Number(sinalRule.sinalPct) || 0) > 0);
+    // G5 (mig 455): o pedido agendado vai pelo Pix na hora quando a loja tem o Pix online no cardápio — a cozinha produz
+    // sem o cliente estar esperando; sem Pix online, vale o "na entrega".
+    if (ehAgendado && forma !== 'pix' && (await this.temPixOnlineNoCardapio(cfg)))
+      throw new BadRequestException('O pedido agendado é pago no Pix, na hora do agendamento.');
     const online = !orcamento && (forma === 'pix' || forma === 'cartao' || exigeSinal);
     const grande = paraReais(Math.max(0, somarCentavos(totalCent, -descontoCent, paraCentavos(taxa))));
 
@@ -4325,7 +4735,8 @@ export class CardapioService {
             ? 'aguardando'
             : 'na_entrega',
         agendamento: dto.agendamento,
-        retiradaTipo: ehEncomenda ? 'encomenda' : undefined,
+        // O pedido agendado (mig 455) se distingue da encomenda pela `retirada_tipo` — os dois usam `agendamento`.
+        retiradaTipo: ehAgendado ? 'agendado' : ehEncomenda ? 'encomenda' : undefined,
         profissional: dto.profissional,
         cnpj: dto.cnpj,
         clienteTelefone2: tipo === 'entrega' ? dto.telefone2 : undefined,
@@ -4340,6 +4751,23 @@ export class CardapioService {
         repetidoConferido: true,
       },
     );
+
+    // O LIMITE DA JANELA DEPOIS DE GRAVAR (mig 455, G9 — V98): dois clientes pegando a última vaga ao mesmo tempo passariam
+    // os dois pela contagem de antes. Aqui o pedido já está gravado: com as linhas da janela travadas, se ela estourou, ESTE
+    // pedido é desfeito na hora — antes do aceite e do Pix, sem aviso ao cliente — e a recusa diz que a janela acabou de
+    // encher (`desfazSePassouDoLimite`: quem confere depois espera e já vê o desfeito).
+    if (ehAgendado && janelaDoAgendado && ped?.id) {
+      const limite = ajustesDoAgendado(cfg).limite;
+      const desfez =
+        limite != null &&
+        (await this.desfazSePassouDoLimite(cfg.tenantId, String(ped.id), limite, (tx) =>
+          tx.execute(sql`
+            update pedido_externo set status = 'cancelado', motivo_cancelamento = 'A janela do pedido agendado encheu no mesmo instante',
+                   updated_at = now()
+             where id = ${String(ped.id)}::uuid and tenant_id = ${cfg.tenantId}::uuid and status = 'novo'`),
+        ));
+      if (desfez) throw new BadRequestException(`O horário das ${janelaDoAgendado.slice(11)} acabou de encher. Escolha outro.`);
+    }
 
     // De onde o cliente veio (mig 299) — logo depois do pedido; nunca o derruba.
     if (ped?.id)

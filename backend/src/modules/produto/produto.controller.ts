@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   Get,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Put,
@@ -276,6 +277,17 @@ export class ProdutoController {
   @Roles(...GESTOR)
   setProdutoComplementos(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { ids?: string[] }) {
     return this.service.setProdutoComplementos(user.tenantId, id, dto?.ids ?? []);
+  }
+
+  // Alérgenos do cardápio (mig 454, A8): a conferência de Cadastros › Cardápio › Alérgenos e a gaveta de um produto.
+  @Get('alergenos')
+  alergenos(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
+    return this.service.alergenosDoCardapio(user.tenantId, atual);
+  }
+
+  @Get(':id/alergenos')
+  alergenosDoProduto(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.alergenosDoCardapio(user.tenantId, atual, id);
   }
 
   @Get()

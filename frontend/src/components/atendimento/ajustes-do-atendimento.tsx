@@ -226,7 +226,7 @@ type Resposta = {
   // O copiloto (mig 376): ligado na empresa; disponível = a distribuição ligou o modelo.
   copiloto?: { ligado: boolean; disponivel: boolean } | null;
   // "Fotos do cliente" (mig 442): ler as fotos (da empresa, nasce desligado), se a distribuição liberou e o limite por dia.
-  fotos?: { ler: boolean; liberadaNaDistribuicao: boolean; limitePorDia: number } | null;
+  fotos?: { ler: boolean; printAjuda?: boolean; liberadaNaDistribuicao: boolean; limitePorDia: number } | null;
   // O Instagram Direct (mig 377): se a distribuição liberou e a conta conectada (nunca o acesso).
   instagram?: EstadoDoInstagram | null;
   messenger?: EstadoDoMessenger | null;
@@ -247,7 +247,7 @@ type Resposta = {
 
 const paraValores = (r: Resposta): Valores => ({
   ...(r.copiloto ? { copilotoLigado: r.copiloto.ligado } : {}),
-  ...(r.fotos ? { fotosLer: r.fotos.ler } : {}),
+  ...(r.fotos ? { fotosLer: r.fotos.ler, fotosPrint: r.fotos.printAjuda === true } : {}),
   ...(r.instagram?.conta
     ? {
         instagramFila: r.instagram.conta.filaLigada,
@@ -1017,7 +1017,7 @@ export function AjustesDoAtendimento() {
       }
     : null;
   // "Fotos do cliente" (mig 442; protótipo `mockups/regem-atendente-alergenos-agendado.html`, parte 3 — decisões F1, F6 e F7):
-  // a leitura da foto que chega no WhatsApp. Nasce desligado. O "Mandar print de ajuda" entra com a entrega do print.
+  // a leitura da foto que chega no WhatsApp e o "Mandar print de ajuda" (D3, F4) — os dois nascem desligados.
   const grupoDasFotos: GrupoDeAjustes | null = resp?.fotos
     ? {
         titulo: 'Fotos do cliente',
@@ -1036,6 +1036,15 @@ export function AjustesDoAtendimento() {
             ajuda:
               'O atendente virtual passa a entender a foto ou o print que chega no WhatsApp — um erro do cardápio, um pedido com problema — e responde de acordo. Na foto de pedido com problema, ele chama a equipe e o caso mostra "O que a foto mostra". Desligado, ele diz que não consegue ver e pede para o cliente escrever, como hoje.',
             palavras: 'foto fotos imagem print leitura ler ia inteligência artificial cliente atendente virtual',
+          },
+          // D3 — decisão F4: liga/desliga próprio, separado de "Ler as fotos", nascendo desligado; não usa IA nem gasta.
+          {
+            id: 'fotosPrint',
+            rotulo: 'Mandar print de ajuda',
+            tipo: 'chave',
+            ajuda:
+              'Quando o cliente trava num passo do cardápio, o atendente manda a imagem daquele passo com as marcações. No máximo um print por resposta, sempre com uma frase e a oferta de montar o pedido pela conversa. As imagens são de uma loja de demonstração, iguais para todas as lojas.',
+            palavras: 'print ajuda imagem passo cardápio tela travou não consigo finalizar atendente virtual',
           },
           // O DMS Graph (G5b; protótipo `mockups/regem-graph-clique.html`, vista 1): quem lê a foto agora e o caminho do cartão.
           ...(graph?.ligado
@@ -1255,7 +1264,7 @@ export function AjustesDoAtendimento() {
     let alterado: { som?: string; roboMuda?: boolean; roboCobraPix?: boolean } | null = null;
     const gestorWa: Record<string, boolean | number | null> = {};
     let copiloto: { ligado: boolean } | null = null;
-    let fotos: { ler: boolean } | null = null;
+    let fotos: { ler?: boolean; printAjuda?: boolean } | null = null;
     let instagram: {
       filaLigada?: boolean;
       roboResponde?: boolean;
@@ -1314,7 +1323,11 @@ export function AjustesDoAtendimento() {
         continue;
       }
       if (k === 'fotosLer') {
-        fotos = { ler: valores[k] === true };
+        fotos = { ...(fotos ?? {}), ler: valores[k] === true };
+        continue;
+      }
+      if (k === 'fotosPrint') {
+        fotos = { ...(fotos ?? {}), printAjuda: valores[k] === true };
         continue;
       }
       if (k === 'instagramFila') {

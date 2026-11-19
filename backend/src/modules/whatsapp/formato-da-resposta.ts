@@ -187,6 +187,69 @@ export function separarOpcoesSoltas(texto: unknown): { texto: string; opcoes: Ar
   return { texto: t, opcoes };
 }
 
+/**
+ * Os passos do PRINT DE AJUDA (D3 — protótipo `regem-atendente-alergenos-agendado.html`, parte 3, F2 opção A): uma imagem
+ * pronta por passo do cardápio, com uma loja de demonstração, em `frontend/public/ajuda/print-<passo>.png`.
+ */
+export const PASSOS_DO_PRINT = ['produto', 'adicionais', 'carrinho', 'endereco', 'pagamento', 'acompanhar'] as const;
+export type PassoDoPrint = (typeof PASSOS_DO_PRINT)[number];
+const LINHA_DO_PRINT = /^[ \t]*PRINT[ \t]*:[ \t]*(.*?)[ \t]*$/i;
+const semAcentoMinusculo = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+/**
+ * A linha `PRINT: carrinho` que o robô escreve: sai do texto em todo canal (o cliente nunca a vê) e, se o passo é um dos
+ * seis, vira o print daquele passo (só no WhatsApp, só com a loja com o ajuste ligado — quem decide é a porta da
+ * resposta). Mais de uma linha: vale a primeira que serve (F3: um print por resposta).
+ */
+export function separarPrint(texto: unknown): { texto: string; print: PassoDoPrint | null } {
+  let print: PassoDoPrint | null = null;
+  const t = tirarLinhas(texto, LINHA_DO_PRINT, (m) => {
+    const p = semAcentoMinusculo(semFormatacao(m[1] ?? '').trim()).replace(/[^a-z]/g, '');
+    if (!print && (PASSOS_DO_PRINT as readonly string[]).includes(p)) print = p as PassoDoPrint;
+  });
+  return { texto: t, print };
+}
+
+const LINHA_DO_LOCAL = /^[ \t]*LOCAL(?:IZA[CÇ][AÃ]O)?[ \t]*:[ \t]*(.*?)[ \t]*$/i;
+
+/**
+ * A linha `LOCAL: loja` que o robô escreve quando perguntam onde fica a loja (D5): sai do texto em todo canal e, no
+ * WhatsApp, vira a localização da loja (o alfinete 📍 do mapa) — só com as coordenadas cadastradas.
+ */
+export function separarLocal(texto: unknown): { texto: string; local: boolean } {
+  let local = false;
+  const t = tirarLinhas(texto, LINHA_DO_LOCAL, (m) => {
+    if (semAcentoMinusculo(semFormatacao(m[1] ?? '').trim()).replace(/[^a-z]/g, '') === 'loja') local = true;
+  });
+  return { texto: t, local };
+}
+
+/**
+ * A localização da loja para mandar (D5): as coordenadas do cadastro (Delivery › Configurações › Dados da loja), o nome e o
+ * endereço em texto. Sem coordenadas que sirvam (vazias, fora do mapa ou 0,0): null — não manda nada.
+ */
+export function localizacaoDaLoja(cfg: any): { latitude: number; longitude: number; nome: string; endereco: string } | null {
+  const lat = Number(cfg?.endLat);
+  const lng = Number(cfg?.endLng);
+  if (cfg?.endLat == null || cfg?.endLng == null || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180 || (lat === 0 && lng === 0)) return null;
+  const endereco = [
+    [cfg?.endRua, cfg?.endNumero].filter(Boolean).join(', '),
+    cfg?.endBairro,
+    [cfg?.endCidade, cfg?.endEstado].filter(Boolean).join(' - '),
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  return { latitude: lat, longitude: lng, nome: String(cfg?.nomePublico ?? '').trim() || 'Nossa loja', endereco };
+}
+
+/** O endereço público da imagem do passo (o app da nuvem serve `public/ajuda/`). */
+export function urlDoPrint(passo: PassoDoPrint, env: NodeJS.ProcessEnv = process.env): string {
+  // O app que serve `public/` (o mesmo endereço das imagens do "como faço" do Mister — `enderecoDoApp`).
+  const base = (env.APP_URL || env.CARDAPIO_PUBLIC_URL || 'https://app.dmsregem.com').replace(/\/+$/, '');
+  return `${base}/ajuda/print-${passo}.png`;
+}
+
 /** Os balões da resposta estão ligados nesta instalação (`ROBO_BALOES=1` — nasce desligado; o dono liga). */
 export function baloesLigados(env: NodeJS.ProcessEnv = process.env): boolean {
   return /^(1|true|sim|ligado)$/i.test(String(env.ROBO_BALOES ?? '').trim());

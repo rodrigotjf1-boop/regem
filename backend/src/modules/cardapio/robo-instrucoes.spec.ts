@@ -120,6 +120,91 @@ describe('instruções do robô', () => {
 
   // .f27 (18/11/2026) — o jeito da loja: "quando vem algo faltando ou errado já pedimos uma foto para análise e iniciamos
   // o atendimento".
+  describe('onde fica a loja: o endereço e o alfinete do mapa (.f30, D5)', () => {
+    it('a versão subiu; a seção nos dois fluxos do WhatsApp, com a linha LOCAL só com localizacaoNoMapa', () => {
+      expect(VERSAO_INSTRUCOES >= '2026-11-18.f30').toBe(true);
+      for (const f of ['1', '2']) {
+        const t = instrucoesDoRobo({ loja: 'Mister Burguer' }, f).texto;
+        expect(t).toContain('ONDE FICA A LOJA');
+        expect(t).toContain('Se consultar_loja trouxer localizacaoNoMapa = true, escreva também, numa linha sozinha no fim da resposta, LOCAL: loja');
+        expect(t).toContain('Nunca invente endereço');
+      }
+      expect(instrucoesDoDirect({ loja: 'Mister Burguer' }).texto).not.toContain('LOCAL: loja');
+    });
+  });
+
+  describe('pedido agendado pelo atendente, só com o ajuste da loja ligado (.f31, D4c)', () => {
+    it('a versão subiu; desligado (padrão) a seção não entra — as instruções ficam como na .f30', () => {
+      expect(VERSAO_INSTRUCOES >= '2026-11-19.f31').toBe(true);
+      for (const f of ['1', '2']) {
+        expect(instrucoesDoRobo({ loja: 'Mister Burguer' }, f).texto).not.toContain('PEDIDO AGENDADO');
+        expect(instrucoesDoRobo({ loja: 'Mister Burguer', pedidoAgendado: false }, f).texto).not.toContain('PEDIDO AGENDADO');
+      }
+    });
+
+    it('ligado: o fluxo 2 marca o horário no pedido (agendar), o Pix sai sozinho; o fluxo 1 aponta o "Para quando?" do link', () => {
+      const f2 = instrucoesDoRobo({ loja: 'Mister Burguer', pedidoAgendado: true }, '2').texto;
+      expect(f2).toContain('PEDIDO AGENDADO (a loja aceita pedido para mais tarde)');
+      expect(f2).toContain('mexer_no_pedido com acao = agendar e observacao = o dia e a hora');
+      expect(f2).toContain('proximo.campo = horario');
+      expect(f2).toContain('o SISTEMA MANDA SOZINHO o código Pix copia e cola (pixEnviado = true)');
+      expect(f2).toContain('Não ofereça agendar quando pedidoAgendado vier vazio');
+      // O agendado já registrado: mudar o horário e cancelar com a confirmação do cliente; o "chamar uma pessoa" abre a exceção.
+      expect(f2).toContain('acao = pedido_horario');
+      expect(f2).toContain('só depois que o CLIENTE tocar em "Sim, cancelar"');
+      expect(f2).toContain('quer cancelar um pedido (menos o agendado antes da cozinha começar: veja PEDIDO AGENDADO)');
+      expect(instrucoesDoRobo({ loja: 'Mister Burguer' }, '2').texto).not.toContain('menos o agendado');
+      const f1 = instrucoesDoRobo({ loja: 'Mister Burguer', pedidoAgendado: true }, '1').texto;
+      expect(f1).toContain('PEDIDO AGENDADO');
+      expect(f1).toContain('"Para quando?"');
+      expect(f1).not.toContain('acao = agendar');
+      // O Direct não monta pedido agendado (só o WhatsApp).
+      expect(instrucoesDoDirect({ loja: 'Mister Burguer', pedidoAgendado: true } as any).texto).not.toContain('PEDIDO AGENDADO');
+    });
+  });
+
+  describe('print de ajuda, só com o ajuste da loja ligado (.f29, D3)', () => {
+    it('a versão subiu', () => {
+      expect(VERSAO_INSTRUCOES >= '2026-11-18.f29').toBe(true);
+    });
+
+    it('desligado (padrão): a seção não entra; ligado: entra nos dois fluxos, com os seis passos e um por resposta', () => {
+      for (const f of ['1', '2']) {
+        expect(instrucoesDoRobo({ loja: 'Mister Burguer' }, f).texto).not.toContain('PRINT DE AJUDA');
+        expect(instrucoesDoRobo({ loja: 'Mister Burguer', printAjuda: false }, f).texto).not.toContain('PRINT DE AJUDA');
+        const t = instrucoesDoRobo({ loja: 'Mister Burguer', printAjuda: true }, f).texto;
+        expect(t).toContain('PRINT DE AJUDA (imagem de um passo do cardápio)');
+        for (const p of ['produto —', 'adicionais —', 'carrinho —', 'endereco —', 'pagamento —', 'acompanhar —']) expect(t).toContain(`· ${p}`);
+        expect(t).toContain('No máximo UM print por resposta');
+        expect(t).toContain('os preços dela não são os desta loja');
+        expect(t).toContain(f === '2' ? 'monte o pedido aqui pela conversa (MONTAR O PEDIDO AQUI)' : 'pergunte se ele quer ajuda de alguém da equipe');
+      }
+      // O Direct não manda print (só o WhatsApp).
+      expect(instrucoesDoDirect({ loja: 'Mister Burguer', printAjuda: true } as any).texto).not.toContain('PRINT DE AJUDA');
+    });
+  });
+
+  describe('alérgenos pelo cadastro, só quando perguntam (.f28, D2)', () => {
+    const f2 = instrucoesDoRobo({ loja: 'Mister Burguer' }, '2').texto;
+
+    it('a versão subiu', () => {
+      expect(VERSAO_INSTRUCOES >= '2026-11-18.f28').toBe(true);
+    });
+
+    it('só quando o cliente pergunta; os três casos; a frase de cautela uma vez; nunca garante; oferece a equipe', () => {
+      for (const t of [texto, f2]) {
+        expect(t).toContain('fale de alérgenos SÓ quando o cliente perguntar — nunca por conta própria, nem ao mostrar um produto, mandar o cardápio ou fechar um pedido');
+        expect(t).toContain('pelo campo alergenos do produto');
+        expect(t).toContain('o produto contém o que ele perguntou: diga que contém, em uma frase');
+        expect(t).toContain('pelo cadastro da loja, o produto não leva aquilo nos ingredientes, e que você não consegue garantir que não haja traços');
+        expect(t).toContain('diga que a loja ainda não cadastrou essa informação desse produto');
+        expect(t).toContain('Se a busca trouxe fraseDeCautela, use-a UMA vez na conversa');
+        expect(t).toContain('Em qualquer caso, nunca garanta que o produto não tem o ingrediente nem que não tem contato com ele no preparo');
+        expect(t).toContain('OPCOES: Sim, quero confirmar | Não, obrigado');
+      }
+    });
+  });
+
   describe('item faltando ou errado: chama a equipe direto e pede a foto (.f27)', () => {
     const f1 = texto;
     const f2 = instrucoesDoRobo({ loja: 'Mister Burguer' }, '2').texto;

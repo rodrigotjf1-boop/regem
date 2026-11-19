@@ -15,6 +15,7 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { PREFIXO_BALCAO, rotuloSenha, senhaNaVia } from '../../common/senha-origem';
 import { linhasDasEscolhas, separarEscolhas, textoDasEscolhas, type Escolha } from '../../common/adicionais';
 import { linhaDoPedido, pedidoNoCanal, perfilDeProducao, tipoNaProducao } from '../../common/via-do-pedido';
+import { inicioDoPreparo, preparoDoTipo } from '../../common/pedido-agendado';
 import { textoDaObservacao } from '../../common/observacao-do-pedido';
 import { caixaAltaNaVia, textoNaVia } from '../../common/texto-na-via';
 import {
@@ -2853,7 +2854,7 @@ export class ProducaoPedidoService {
       pedidos.map((p) => p.comandaId).filter((c): c is string => !!c),
     ).catch((e: any) => {
       new Logger('KDS').warn(`horário da encomenda no KDS: ${e?.message ?? e}`);
-      return new Map<string, string>();
+      return new Map<string, { para: string; comeca: string | null; agendado: boolean }>();
     });
     const comRepetido = (comLogistica as any[]).map((p) => {
       const m = p.comandaId ? abertas.get(p.comandaId) : undefined;
@@ -2862,7 +2863,10 @@ export class ProducaoPedidoService {
         repetido: m ? { deNumero: m.deNumero, deEm: m.deEm, texto: textoDoKds(m) } : null,
         alteracaoNaoVista: alteracaoNaoVista(p),
         enderecoMudouEm: (p.comandaId && enderecos.get(p.comandaId)) || null,
-        encomendaPara: (p.comandaId && encomendas.get(p.comandaId)) || null,
+        encomendaPara: (p.comandaId && encomendas.get(p.comandaId)?.para) || null,
+        // Pedido agendado (mig 455, G3/G4): o começo do preparo (tempo de entrega/retirada antes do horário) e a etiqueta.
+        encomendaComeca: (p.comandaId && encomendas.get(p.comandaId)?.comeca) || null,
+        encomendaAgendado: !!(p.comandaId && encomendas.get(p.comandaId)?.agendado),
       };
     });
     const alteradoSom = await this.somDoAlterado(tenantId, opts.unidadeId ?? null).catch(() => SOM_DO_ALTERADO_PADRAO);
@@ -2878,15 +2882,39 @@ export class ProducaoPedidoService {
    * antes dele e não fica "atrasado" antes disso (auditoria do KDS, 11/11/2026, O10) — a regra mora na tela
    * (`lib/kds-fila.ts`); o servidor só manda o horário.
    */
-  private async encomendaDasComandas(tenantId: string, comandaIds: string[]): Promise<Map<string, string>> {
+  /**
+   * O horário marcado de cada comanda (encomenda ou pedido agendado). Pedido AGENDADO (mig 455, G3/G4): o começo do preparo
+   * é o tempo de entrega (ou de retirada) da loja antes do horário — `comeca` — e o cartão diz "Agendado"; a encomenda
+   * segue com os 30 min da tela (`comeca` nulo).
+   */
+  private async encomendaDasComandas(
+    tenantId: string,
+    comandaIds: string[],
+  ): Promise<Map<string, { para: string; comeca: string | null; agendado: boolean }>> {
     if (!comandaIds.length) return new Map();
     const r: any = await this.db.execute(sql`
-      select comanda_id::text as comanda, max(agendamento) as para
-        from pedido_externo
-       where tenant_id = ${tenantId} and agendamento is not null
-         and comanda_id in (${sql.join([...new Set(comandaIds)].map((c) => sql`${c}::uuid`), sql`, `)})
-       group by comanda_id`);
-    return new Map(((r.rows ?? r) as any[]).map((x) => [String(x.comanda), new Date(x.para).toISOString()]));
+      select distinct on (pe.comanda_id) pe.comanda_id::text as comanda, pe.agendamento as para, pe.tipo,
+             (pe.retirada_tipo = 'agendado') as agendado, cc.tempo_entrega_min, cc.tempo_retirada_min
+        from pedido_externo pe
+        left join lateral (
+          select c.tempo_entrega_min, c.tempo_retirada_min from cardapio_config c
+           where c.tenant_id = pe.tenant_id
+           order by (c.unidade_id is not distinct from pe.unidade_id) desc, (c.unidade_id is null) desc
+           limit 1
+        ) cc on true
+       where pe.tenant_id = ${tenantId} and pe.agendamento is not null
+         and pe.comanda_id in (${sql.join([...new Set(comandaIds)].map((c) => sql`${c}::uuid`), sql`, `)})
+       order by pe.comanda_id, pe.agendamento desc`);
+    return new Map(
+      ((r.rows ?? r) as any[]).map((x) => {
+        const para = new Date(x.para);
+        const agendado = x.agendado === true;
+        const comeca = agendado
+          ? inicioDoPreparo(para, preparoDoTipo({ tempoEntregaMin: x.tempo_entrega_min, tempoRetiradaMin: x.tempo_retirada_min }, x.tipo)).toISOString()
+          : null;
+        return [String(x.comanda), { para: para.toISOString(), comeca, agendado }];
+      }),
+    );
   }
 
   /**

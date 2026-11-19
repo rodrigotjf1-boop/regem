@@ -96,6 +96,14 @@ const STATUS_VIVO: Record<string, { label: string; cls: string }> = {
 
 // Pedidos "pendentes" (pré-despacho) e "em andamento" (em rota).
 const ST_PENDENTES = ['novo', 'confirmado', 'pronto'];
+
+/**
+ * Pedido AGENDADO (mig 455, D4) que ainda não entrou em preparo: o servidor manda `agendadoComeca` (o horário menos o tempo
+ * de entrega/retirada). Até lá ele é "Agendado" (situação que filtra) e não conta atraso; na hora, vira "Em produção".
+ */
+const aguardaAgendado = (p: any, agoraMs = Date.now()) =>
+  !!p?.agendadoComeca && ['novo', 'confirmado'].includes(p?.status) && agoraMs < new Date(p.agendadoComeca).getTime();
+const horaDe = (iso: string) => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
 const ORDEM_PENDENTE: Record<string, number> = { novo: 0, confirmado: 1, pronto: 2 };
 
 export default function DeliveryPage() {
@@ -123,6 +131,8 @@ export default function DeliveryPage() {
   const [marcadosAnd, setMarcadosAnd] = useState<Set<string>>(new Set()); // seleção múltipla (em andamento)
   const [entregadores, setEntregadores] = useState<any[]>([]);
   const [tipoFiltro, setTipoFiltro] = useState<'todos' | 'entrega' | 'retirada'>('todos');
+  // "Agendados" (mig 455): a situação que mostra só os pedidos agendados que ainda não entraram em preparo.
+  const [soAgendados, setSoAgendados] = useState(false);
   const [novoPedido, setNovoPedido] = useState(false);
   // A pausa dos pedidos por canal (mig 392): as faixas e o "⏸ Pausar" leem daqui.
   const pausas = usePausas(true);
@@ -536,14 +546,21 @@ export default function DeliveryPage() {
       (pedidos ?? [])
         .filter((p) => ST_PENDENTES.includes(p.status))
         .filter((p) => tipoFiltro === 'todos' || p.tipo === tipoFiltro)
+        .filter((p) => !soAgendados || aguardaAgendado(p))
         .sort((a, b) => {
+          // O agendado que aguarda vai para o fim (pela hora de começar): a fila de agora vem primeiro.
+          const ga = aguardaAgendado(a) ? 1 : 0;
+          const gb = aguardaAgendado(b) ? 1 : 0;
+          if (ga !== gb) return ga - gb;
+          if (ga) return new Date(a.agendadoComeca).getTime() - new Date(b.agendadoComeca).getTime();
           const oa = ORDEM_PENDENTE[a.status] ?? 9;
           const ob = ORDEM_PENDENTE[b.status] ?? 9;
           if (oa !== ob) return oa - ob;
           return new Date(a.criadoEm).getTime() - new Date(b.criadoEm).getTime();
         }),
-    [pedidos, tipoFiltro],
+    [pedidos, tipoFiltro, soAgendados],
   );
+  const nAgendados = useMemo(() => (pedidos ?? []).filter((p) => aguardaAgendado(p)).length, [pedidos]);
   const andamento = useMemo(
     () =>
       (pedidos ?? [])
@@ -663,6 +680,17 @@ export default function DeliveryPage() {
                 );
               })}
             </div>
+            {(nAgendados > 0 || soAgendados) && (
+              <button
+                type="button"
+                aria-pressed={soAgendados}
+                onClick={() => setSoAgendados((v) => !v)}
+                className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-sm font-semibold ${soAgendados ? 'border-foreground bg-foreground text-background' : 'border-border bg-card text-muted-foreground'}`}
+                title="Pedidos agendados que ainda não entraram em preparo"
+              >
+                🗓️ Agendados <span className="rounded-full bg-secondary px-1.5 font-mono text-xs text-foreground">{nAgendados}</span>
+              </button>
+            )}
             {novosPendentes > 0 && (
               <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${piscar ? 'animate-pulse bg-primary/20 text-primary' : 'bg-info/15 text-info'}`}>
                 {novosPendentes} em análise
@@ -1017,12 +1045,17 @@ function ListaPedidos({
 
   // O que cada pedido mostra — o mesmo na tabela e no cartão.
   const linha = (p: any) => {
-    const sv = STATUS_VIVO[p.status] ?? { label: p.status, cls: 'bg-muted text-foreground' };
-    // Atraso (só nos pendentes): prazo de preparo estourado.
+    // Pedido agendado que ainda aguarda (mig 455): "Agendado · começa HH:MM", neutro, sem contar atraso.
+    const aguarda = aguardaAgendado(p, agora);
+    const sv = aguarda
+      ? { label: `Agendado · começa ${horaDe(p.agendadoComeca)}`, cls: 'bg-secondary text-foreground' }
+      : STATUS_VIVO[p.status] ?? { label: p.status, cls: 'bg-muted text-foreground' };
+    // Atraso (só nos pendentes): prazo de preparo estourado — no agendado, contado do começo do preparo.
     const prepMax = p.tipo === 'retirada' ? cfg?.prepBalcaoMax ?? 25 : cfg?.prepDeliveryMax ?? 55;
-    const restanteMs = new Date(p.criadoEm).getTime() + prepMax * 60000 - agora;
-    const atrasado = variante === 'pendentes' && restanteMs <= 0;
-    const cd = variante === 'pendentes' ? countdown(restanteMs) : null;
+    const base = p.agendadoComeca ? new Date(p.agendadoComeca).getTime() : new Date(p.criadoEm).getTime();
+    const restanteMs = base + prepMax * 60000 - agora;
+    const atrasado = variante === 'pendentes' && !aguarda && restanteMs <= 0;
+    const cd = variante === 'pendentes' && !aguarda ? countdown(restanteMs) : null;
     const enderecoTexto =
       p.tipo === 'retirada'
         ? 'Retirada no balcão'
