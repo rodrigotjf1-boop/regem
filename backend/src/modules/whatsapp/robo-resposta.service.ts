@@ -46,6 +46,8 @@ import {
   pausaAntesDoBalao,
   semFormatacao,
   separarOpcoesSoltas,
+  localizacaoDaLoja,
+  separarLocal,
   separarPrint,
   separarReacao,
   urlDoPrint,
@@ -95,16 +97,18 @@ const idDeMensagem = (v: unknown): string | null => {
 export function lerResposta(
   p: PedidoDeResposta | undefined,
   formatar: (t: unknown) => string,
-): { texto: string; opcoes: Opcao[]; reacao: Reacao | null; print: PassoDoPrint | null } {
+): { texto: string; opcoes: Opcao[]; reacao: Reacao | null; print: PassoDoPrint | null; local: boolean } {
   const { texto: semReacao, reacao } = separarReacao(p?.texto);
   // A linha `PRINT: <passo>` (D3) sai do texto em TODO canal; só o WhatsApp a usa (com o ajuste da loja ligado).
   const { texto: semPrint, print } = separarPrint(semReacao);
-  const soltas = separarOpcoesSoltas(semPrint);
+  // A linha `LOCAL: loja` (D5) também sai do texto em TODO canal; só o WhatsApp manda a localização.
+  const { texto: semLocal, local } = separarLocal(semPrint);
+  const soltas = separarOpcoesSoltas(semLocal);
   const pedidas = Array.isArray(p?.opcoes) ? (p?.opcoes as Opcao[]) : [];
   const opcoes = (pedidas.length ? pedidas : soltas.opcoes).map((o: any) =>
     o && typeof o === 'object' ? { ...o, titulo: semFormatacao(o.titulo), ...(o.descricao ? { descricao: semFormatacao(o.descricao) } : {}) } : o,
   );
-  return { texto: formatar(soltas.texto).trim(), opcoes: opcoesValidas(opcoes), reacao, print };
+  return { texto: formatar(soltas.texto).trim(), opcoes: opcoesValidas(opcoes), reacao, print, local };
 }
 
 /**
@@ -306,6 +310,18 @@ export class RoboRespostaService {
         const ultimo = await this.baloesAntesDoUltimo(via, loja.tenantId, para, p, partes, ids, enviados);
         ids.push(idDoEnvio(await this.enviarTexto(via, loja.tenantId, para, ultimo)));
         enviados.push('texto');
+      }
+      // A LOCALIZAÇÃO DA LOJA (D5, a linha `LOCAL: loja`): o alfinete do mapa vai DEPOIS do texto que diz o endereço, só com
+      // as coordenadas cadastradas. Não saiu: o endereço escrito já respondeu.
+      const ondeFica = lida.local ? localizacaoDaLoja(cfg) : null;
+      if (ondeFica) {
+        try {
+          const r = via === 'cloud' ? await this.cloud.enviarLocalizacao(loja.tenantId, para, ondeFica) : await this.evolution.enviarLocalizacao(loja.tenantId, para, ondeFica);
+          ids.push(idDoEnvio(r));
+          enviados.push('localizacao');
+        } catch (e: any) {
+          this.logger.warn(`localização da loja não saiu (${via}) de=***${para.slice(-4)}: ${e?.message ?? e}`);
+        }
       }
     } finally {
       await marcarDoRobo(this.db, loja.tenantId, para, ids, this.logger);

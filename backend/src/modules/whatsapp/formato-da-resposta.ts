@@ -210,6 +210,39 @@ export function separarPrint(texto: unknown): { texto: string; print: PassoDoPri
   return { texto: t, print };
 }
 
+const LINHA_DO_LOCAL = /^[ \t]*LOCAL(?:IZA[CÇ][AÃ]O)?[ \t]*:[ \t]*(.*?)[ \t]*$/i;
+
+/**
+ * A linha `LOCAL: loja` que o robô escreve quando perguntam onde fica a loja (D5): sai do texto em todo canal e, no
+ * WhatsApp, vira a localização da loja (o alfinete 📍 do mapa) — só com as coordenadas cadastradas.
+ */
+export function separarLocal(texto: unknown): { texto: string; local: boolean } {
+  let local = false;
+  const t = tirarLinhas(texto, LINHA_DO_LOCAL, (m) => {
+    if (semAcentoMinusculo(semFormatacao(m[1] ?? '').trim()).replace(/[^a-z]/g, '') === 'loja') local = true;
+  });
+  return { texto: t, local };
+}
+
+/**
+ * A localização da loja para mandar (D5): as coordenadas do cadastro (Delivery › Configurações › Dados da loja), o nome e o
+ * endereço em texto. Sem coordenadas que sirvam (vazias, fora do mapa ou 0,0): null — não manda nada.
+ */
+export function localizacaoDaLoja(cfg: any): { latitude: number; longitude: number; nome: string; endereco: string } | null {
+  const lat = Number(cfg?.endLat);
+  const lng = Number(cfg?.endLng);
+  if (cfg?.endLat == null || cfg?.endLng == null || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180 || (lat === 0 && lng === 0)) return null;
+  const endereco = [
+    [cfg?.endRua, cfg?.endNumero].filter(Boolean).join(', '),
+    cfg?.endBairro,
+    [cfg?.endCidade, cfg?.endEstado].filter(Boolean).join(' - '),
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  return { latitude: lat, longitude: lng, nome: String(cfg?.nomePublico ?? '').trim() || 'Nossa loja', endereco };
+}
+
 /** O endereço público da imagem do passo (o app da nuvem serve `public/ajuda/`). */
 export function urlDoPrint(passo: PassoDoPrint, env: NodeJS.ProcessEnv = process.env): string {
   // O app que serve `public/` (o mesmo endereço das imagens do "como faço" do Mister — `enderecoDoApp`).

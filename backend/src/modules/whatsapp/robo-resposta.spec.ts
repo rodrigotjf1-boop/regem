@@ -44,6 +44,7 @@ function montar(cfg: any, linhaPausa?: any, dados: { produtos?: any[]; conversa?
     enviarEnquete: async (...a: any[]) => chamadas.push(['evo.enquete', ...a.slice(1)]),
     enviarAudio: async (...a: any[]) => chamadas.push(['evo.voz', a[1]]),
     enviarImagem: async (...a: any[]) => chamadas.push(['evo.imagem', a[1], a[2]]),
+    enviarLocalizacao: async (...a: any[]) => chamadas.push(['evo.local', a[1], a[2]]),
     enviarReacao: async (...a: any[]) => chamadas.push(['evo.reacao', a[1], a[2], a[3], a[4]]),
     mostrarDigitando: (...a: any[]) => chamadas.push(['evo.digitando', a[0], a[1]]),
   };
@@ -52,6 +53,7 @@ function montar(cfg: any, linhaPausa?: any, dados: { produtos?: any[]; conversa?
     enviarOpcoes: async (...a: any[]) => chamadas.push(['cloud.opcoes', a[1], a[2], a[3].length]),
     enviarVoz: async (...a: any[]) => chamadas.push(['cloud.voz', a[1], a[3]]),
     enviarImagem: async (...a: any[]) => chamadas.push(['cloud.imagem', a[1], a[2]]),
+    enviarLocalizacao: async (...a: any[]) => chamadas.push(['cloud.local', a[1], a[2]]),
     enviarLink: async (...a: any[]) => {
       fotos.push(a[5] ?? null);
       chamadas.push(['cloud.link', a[1], a[2], a[3], a[4]]);
@@ -493,7 +495,33 @@ describe('resposta do robô — formato, reação e balões (17/11/2026)', () =>
       opcoes: [],
       reacao: '👍',
       print: null,
+      local: false,
     });
+  });
+
+  it('D5: a linha LOCAL manda a localização da loja DEPOIS do texto (nas duas vias); sem coordenadas, só o texto', async () => {
+    const antes = process.env.BOT_RESOLVER_SECRET;
+    process.env.BOT_RESOLVER_SECRET = SENHA;
+    try {
+      const texto = 'Ficamos na Rua A, 10, na Penha.\nLOCAL: loja';
+      const comMapa = { endLat: '-22.84', endLng: '-43.27', nomePublico: 'Mister Burguer', endRua: 'Rua A', endNumero: '10', endBairro: 'Penha' };
+      const cloud = montar({ ...LOJA_CLOUD, ...comMapa });
+      const r: any = await cloud.svc.responder(SENHA, { phoneNumberId: 'p1', para: TEL, texto });
+      expect(cloud.chamadas.map((c) => c[0])).toEqual(['cloud.texto', 'cloud.local']);
+      expect(cloud.chamadas[0][2]).toBe('Ficamos na Rua A, 10, na Penha.');
+      expect(cloud.chamadas[1]).toEqual(['cloud.local', TEL, { latitude: -22.84, longitude: -43.27, nome: 'Mister Burguer', endereco: 'Rua A, 10 · Penha' }]);
+      expect(r.enviados).toEqual(['texto', 'localizacao']);
+      const evo = montar({ ...LOJA_EVO, ...comMapa });
+      await evo.svc.responder(SENHA, { instancia: 'i', para: TEL, texto });
+      expect(evo.chamadas.map((c) => c[0])).toEqual(['evo.texto', 'evo.local']);
+      const semMapa = montar(LOJA_CLOUD);
+      await semMapa.svc.responder(SENHA, { phoneNumberId: 'p1', para: TEL, texto });
+      expect(semMapa.chamadas.map((c) => c[0])).toEqual(['cloud.texto']);
+      expect(semMapa.chamadas[0][2]).not.toContain('LOCAL');
+    } finally {
+      if (antes === undefined) delete process.env.BOT_RESOLVER_SECRET;
+      else process.env.BOT_RESOLVER_SECRET = antes;
+    }
   });
 
   it('D3: com "Mandar print de ajuda" ligado, a imagem do passo vai ANTES do texto (nas duas vias); desligado, só o texto', async () => {
@@ -530,6 +558,7 @@ describe('resposta do robô — formato, reação e balões (17/11/2026)', () =>
       opcoes: [expect.objectContaining({ titulo: 'Monta pra mim' }), expect.objectContaining({ titulo: 'Vou tentar' })],
       reacao: null,
       print: 'carrinho',
+      local: false,
     });
     expect(lerResposta({ texto: 'Veja.\nPRINT: tela inventada' }, semFormatacao)).toMatchObject({ texto: 'Veja.', print: null });
   });

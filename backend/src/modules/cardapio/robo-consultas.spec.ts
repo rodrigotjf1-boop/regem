@@ -73,6 +73,14 @@ describe('consultas do robô — cardápio', () => {
     expect(r.robo.respostasProntas).toHaveLength(1);
   });
 
+  it('D5: localizacaoNoMapa só com coordenadas que servem', () => {
+    const com = (lat: unknown, lng: unknown) => resumoDaLoja({ ...MENU, loja: { ...(MENU as any).loja, lojaLat: lat, lojaLng: lng } }, 'x').localizacaoNoMapa;
+    expect(com(-22.84, -43.27)).toBe(true);
+    expect(com(null, -43.27)).toBe(false);
+    expect(com(0, 0)).toBe(false);
+    expect(com(-122, 10)).toBe(false);
+  });
+
   it('busca sem acento, o nome casando primeiro; esgotado e adicionais com preço', () => {
     const r: any = buscarNoCardapio(MENU, 'hamburguer');
     expect(r.itens[0].nome).toBe('Hambúrguer da Casa');
