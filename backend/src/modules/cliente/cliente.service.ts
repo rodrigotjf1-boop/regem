@@ -53,6 +53,8 @@ import { ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario, ehChaveDoDirect, eh
 import { LINHA_DO_LINK, gravarUmaVezPorFala, testeDaChave } from '../atendimento/teste-do-atendente';
 import { AuthUser } from '../../auth/auth-user';
 import PDFDocument from 'pdfkit';
+import { lerPedidoDePrivacidade } from '../perfil-cliente/escolhas-do-cliente';
+import { gravarPrivacidade, lerPrivacidade } from '../perfil-cliente/privacidade-do-cliente';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const soDigitos = (s?: string) => (s ?? '').replace(/\D/g, '');
@@ -1329,6 +1331,21 @@ export class ClienteService {
     const lojaNome = await this.nomeDaLoja(cardapioToken);
     await definirNoPerfil(this.db, { tenantId: c.tenantId, clienteId: c.id, telefone: c.telefone, lojaNome, ativo: liga });
     return { promocoes: await promocoesDoPerfil(this.db, c, lojaNome) };
+  }
+
+  // PRIVACIDADE E O QUE O CLIENTE CONTA (F1c do docs/plano-perfil-cliente.md, §3.6, D11, D14, D15): as escolhas do cliente
+  // sobre os próprios dados — sempre um "sim" clicado, com o texto mostrado no histórico — e o que ele conta (time, apelido,
+  // "gostaria de encontrar", a alergia só com o "guardar"). Só com a prova de posse do `clienteToken` (V79).
+  async privacidade(cardapioToken: string, clienteToken: string | undefined) {
+    const c = await this.clienteDoToken(cardapioToken, clienteToken);
+    return lerPrivacidade(this.db, c.tenantId, c.id);
+  }
+
+  async definirPrivacidade(cardapioToken: string, clienteToken: string | undefined, dto: any) {
+    const p = lerPedidoDePrivacidade(dto);
+    const c = await this.clienteDoToken(cardapioToken, clienteToken);
+    await this.db.transaction((tx: any) => gravarPrivacidade(tx, c, p));
+    return lerPrivacidade(this.db, c.tenantId, c.id);
   }
 
   // Backfill progressivo: geocodifica endereços salvos SEM coords (o form antigo não mandava e o

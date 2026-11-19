@@ -2116,6 +2116,10 @@ export const api = {
   crmImportarContatos: (contatos: any[], consentimento: boolean, origem?: { fonte: string; segmento: string | null }) =>
     req('/clientes/importar', { method: 'POST', body: JSON.stringify({ contatos, consentimento, origem }) }),
   crmHistorico: (id: string) => req(`/clientes/crm/${encodeURIComponent(id)}/historico`),
+  // Perfil do cliente (F1a/F1b do docs/plano-perfil-cliente.md): presidente e gerente com o módulo ligado (o servidor confere).
+  perfilClienteFicha: (id: string) => req(`/perfil-cliente/${encodeURIComponent(id)}`),
+  perfilClienteResumo: () => req('/perfil-cliente/resumo'),
+  perfilClienteRecalcular: () => req('/perfil-cliente/recalcular', { method: 'POST' }),
   // Campanhas de WhatsApp por segmento (F5 + épico marketing) — só nuvem, só gestão.
   crmCampanhaPrevia: (segmento: string, recuperacaoDias?: number) =>
     req(
@@ -2227,6 +2231,11 @@ export const api = {
   // A chave "Promoções pelo WhatsApp" do Perfil (desligar = sair das campanhas da loja).
   clientePromocoes: (token: string, clienteToken: string, ativo: boolean) =>
     pub(`/publico/cardapio/${token}/cliente/promocoes`, { method: 'POST', body: JSON.stringify({ clienteToken, ativo }) }),
+  // Privacidade e o que o cliente conta (F1c do plano do perfil do cliente): prova de posse pelo clienteToken.
+  clientePrivacidade: (token: string, clienteToken: string) =>
+    pub(`/publico/cardapio/${token}/cliente/privacidade?clienteToken=${encodeURIComponent(clienteToken)}`),
+  clienteDefinirPrivacidade: (token: string, body: any) =>
+    pub(`/publico/cardapio/${token}/cliente/privacidade`, { method: 'POST', body: JSON.stringify(body) }),
   // O aniversário (Onda 3, mig 357): o cliente informa (Perfil ou a pergunta da confirmação) e corrige uma vez.
   clienteAniversario: (token: string, clienteToken: string, dia: number, mes: number, origem: 'perfil' | 'confirmacao') =>
     pub(`/publico/cardapio/${token}/cliente/aniversario`, { method: 'POST', body: JSON.stringify({ clienteToken, dia, mes, origem }) }),
