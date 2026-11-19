@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **3ª rodada de segurança — o pedido público do cardápio (19/11; SEM migration; R3-H01 e R3-H02, ERR-316 e ERR-533).** A
+  credencial de "Sua conta" só volta a quem provou quem é (a credencial do mesmo cliente ou o WhatsApp do robô), no
+  fechamento do pedido e no reenvio; a quantidade de cada item só inteira de 1 a 9.999 (a negativa virava desconto). O
+  cardápio online roda na nuvem — no `.zip` só por acompanhar o código.
 - **Atendente: o último pedido para repetir com a data (19/11; SEM migration; instruções .f32).** `ultimoPedido.comoFalar`
   e `canceladosDepois` no `ver_pedido` ("o último que chegou a sair"). O robô roda na nuvem — no `.zip` só por
   acompanhar o código.
