@@ -279,6 +279,22 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
           siga: 'Mostre o texto de "comoFicou" entre aspas e pergunte se publica no Mural & clima da Loja Centro. Não diga que publicou.',
         },
       };
+    // Versão 5, M5d.2: o gráfico na conversa. Na loja de teste, os mesmos números das vendas por hora; a imagem não
+    // existe aqui (a avaliação confere só o texto) — o resultado diz o mesmo que o de verdade diz ao modelo.
+    case 'mostrar_grafico': {
+      const p = periodoPedido(en);
+      const porHora = (POR_HORA[p] ?? []).map(([h, n, t]) => ({ hora: `${h}h`, vendas: n, faturamento: v(t) }));
+      return ok({
+        loja: LOJA,
+        periodo: ROTULO[p],
+        grafico: 'A imagem do gráfico vai antes da sua resposta, pelo Regem: diga em 2 ou 3 frases o que importa (o total, a comparação, o destaque), sem descrever as barras uma a uma.',
+        titulo: String(en.tipo ?? '') === 'vendas_por_hora' ? 'Vendas por hora' : 'Vendas por dia',
+        numeroPrincipal: perfil.verValores ? `R$ ${VENDAS[p].faturado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : `${VENDAS[p].vendas} vendas`,
+        comparacao: null,
+        pontos: porHora,
+        ...(perfil.verValores ? {} : { aviso: SEM_VALORES }),
+      });
+    }
     case 'produtos_mais_vendidos': {
       const p = periodoPedido(en);
       const ordem = String(en.ordem ?? 'quantidade').trim().toLowerCase() || 'quantidade';
@@ -645,6 +661,8 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c46', pergunta: 'Me lembra amanhã às 10h de pagar o gás.', consultas: ['lembrete'], contem: ['10:00|10h|10 h', 'gás|gas'] },
   // M4d parte 2: o canal pausado (o iFood da loja de teste está pausado até as 20:40).
   { id: 'c47', pergunta: 'Me avisa quando o iFood voltar.', consultas: ['ficar_de_olho'], contem: ['iFood', 'avis|olho'] },
+  // Versão 5, M5d.2: o gráfico na conversa (o pico de ontem é às 20h na loja de teste).
+  { id: 'c48', pergunta: 'Me mostra em gráfico as vendas por hora de ontem.', consultas: ['mostrar_grafico'], numeros: ['20h|20:00|20 h|20 horas'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

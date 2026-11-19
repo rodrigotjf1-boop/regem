@@ -41,6 +41,8 @@ import {
 } from './insumo-vendido';
 import { PlanoDoPdfDoInsumo, gerarPdfDoInsumo, nomeDoPdfDoInsumo, planoDoPdfDoInsumo } from './relatorio-insumo-pdf';
 import { GraficoDaConversa, valeAImagem } from './grafico/grafico-do-insumo';
+import { PlanoDoGrafico, planoCanais, planoMaisVendidos, planoVendasPorDia, planoVendasPorHora, valeOPlano } from './grafico/plano-do-grafico';
+import { midiaNaInstalacao } from './mister-midia.regras';
 import { MisterNumeroService } from './mister-numero.service';
 import { MisterDocumentosService } from './mister-documentos.service';
 import { MisterLinkPublicoService } from './mister-link-publico.service';
@@ -161,6 +163,8 @@ export interface ResultadoDaFerramenta {
    * manda o PDF depois da resposta; senão, o botão "PDF" no balão da resposta (só pela API oficial, que tem botão).
    */
   anexo?: { pedido: PedidoDoRelatorio; enviarPdf: boolean; grafico?: GraficoDaConversa };
+  /** Versão 5, M5d.2: o gráfico que a consulta montou (`mostrar_grafico`) — NÃO vai ao modelo; a imagem vai antes do texto. */
+  graficos?: PlanoDoGrafico[];
   /** M3g: os botões que a resposta leva (o "Desfazer" da correção) — NÃO vão ao modelo; só pela API oficial. */
   botoes?: { id: string; titulo: string }[];
   /** M3d: a imagem da tela do "como faço" (o endereço público do PNG dos roteiros) — NÃO vai ao modelo; vai antes do texto. */
@@ -212,6 +216,26 @@ const diaDaLinha = (v: unknown): string => {
   return /^\d{4}-\d{2}-\d{2}$/.test(t) ? diaMes(t) : t;
 };
 const recusa = (erro: string): ResultadoDaFerramenta => ({ ok: false, dados: { erro } });
+
+// ─── versão 5, M5d.2: o gráfico na conversa ───
+const TIPOS_DE_GRAFICO = ['vendas_por_dia', 'vendas_por_hora', 'canais', 'mais_vendidos'];
+/** Os dias de `de` a `ate` (AAAA-MM-DD), inclusive. */
+const diasEntre = (de: string, ate: string): string[] => {
+  const dias: string[] = [];
+  for (let d = de; d <= ate && dias.length <= 400; d = somarDias(d, 1)) dias.push(d);
+  return dias;
+};
+/** Uma coluna `date` (Date à meia-noite do servidor, ou texto) → AAAA-MM-DD, como `diaDaLinha` lê. */
+const isoDoDia = (v: unknown): string => {
+  if (v instanceof Date) return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+  return String(v ?? '').slice(0, 10);
+};
+/** "19/11 às 08:30" na hora da loja. */
+const lidoAgora = (): string => {
+  const p = new Intl.DateTimeFormat('pt-BR', { timeZone: FUSO_OPERACAO, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date());
+  const v = (t: string) => p.find((x) => x.type === t)?.value ?? '';
+  return `${v('day')}/${v('month')} às ${v('hour')}:${v('minute')}`;
+};
 
 /** Os canais da pausa e o nome do canal no pedido (a 99 é `food99` na pausa e `99food` no pedido). */
 const CANAL_DO_PEDIDO: Record<(typeof CANAIS_DA_PAUSA)[number], string> = { cardapio: 'cardapio', ifood: 'ifood', food99: '99food' };
@@ -450,6 +474,8 @@ export class MisterFerramentasService {
     switch (nome) {
       case 'resumo_do_dia':
         return this.resumoDoDia(e, en, loja);
+      case 'mostrar_grafico':
+        return this.mostrarGrafico(e, en, loja);
       case 'vendas_do_periodo':
         return this.vendasDoPeriodo(e, en, loja);
       case 'produtos_mais_vendidos':
@@ -1696,6 +1722,84 @@ export class MisterFerramentasService {
             }
           : { aviso: SEM_VALORES },
       },
+    };
+  }
+
+  /**
+   * Versão 5, M5d.2 — o GRÁFICO na conversa (`mostrar_grafico`; protótipo v5, conversas 6 e 9). Os números vêm dos MESMOS
+   * relatórios das outras consultas (vendas, delivery, ranking), com as mesmas permissões; o plano da imagem sai do código
+   * (`grafico/plano-do-grafico.ts`) e NÃO vai ao modelo — ao modelo vão os números, para ele escrever 2 ou 3 frases. Sem
+   * valores em reais (gerente sem `ver_financeiro`): as quantidades; o gráfico por canal é de faturamento e recusa.
+   */
+  private async mostrarGrafico(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    const tipo = String(en.tipo ?? '').trim();
+    if (!TIPOS_DE_GRAFICO.includes(tipo)) return recusa('Diga qual gráfico: "vendas_por_dia", "vendas_por_hora", "canais" ou "mais_vendidos".');
+    if (!this.pode(e, 'relatorios_vendas')) return recusa(SEM_PERMISSAO);
+    const p = periodoDaFerramenta(en, hojeISO(), tipo === 'vendas_por_hora' ? 'hoje' : undefined);
+    if ('erro' in p) return recusa(p.erro);
+    const lidoEm = lidoAgora();
+    let plano: PlanoDoGrafico;
+    let pontos: Array<Record<string, unknown>>;
+    if (tipo === 'vendas_por_dia') {
+      const dias = diasEntre(p.de, p.ate);
+      if (dias.length > 31) return recusa('Para o gráfico por dia, escolha até 31 dias.');
+      const ant = periodoAnterior(p);
+      const [r, ra]: any[] = await Promise.all([
+        this.relatorios.vendas(e.tenantId, p.de, p.ate, e.verValores, loja.atual),
+        this.relatorios.vendas(e.tenantId, ant.de, ant.ate, e.verValores, loja.atual),
+      ]);
+      const conv = (rows: any[]) => (rows ?? []).map((d) => ({ dia: isoDoDia(d.dia), total: reais(d.total), vendas: inteiro(d.qtd) }));
+      plano = planoVendasPorDia({
+        loja: loja.nome,
+        rotuloDoPeriodo: p.rotulo,
+        dias,
+        porDia: conv(r?.porDia),
+        anteriores: conv(ra?.porDia),
+        diasAnteriores: diasEntre(ant.de, ant.ate),
+        verValores: e.verValores,
+        lidoEm,
+        contra: dias.length === 7 ? 'a semana anterior' : 'o período anterior',
+      });
+      pontos = (plano.barras ?? []).map((b, i) => ({ dia: `${b.rotulo} ${b.rotulo2 ?? ''}`.trim(), [e.verValores ? 'faturamento' : 'vendas']: b.valor, [e.verValores ? 'faturamentoNoPeriodoAnterior' : 'vendasNoPeriodoAnterior']: b.anterior ?? 0, posicao: i + 1 }));
+    } else if (tipo === 'vendas_por_hora') {
+      const r: any = await this.relatorios.vendas(e.tenantId, p.de, p.ate, e.verValores, loja.atual);
+      const porHora = ((r?.porHora ?? []) as any[]).map((h) => ({ hora: `${String(inteiro(h.hora)).padStart(2, '0')}h`, total: reais(h.total), vendas: inteiro(h.qtd) }));
+      plano = planoVendasPorHora({ loja: loja.nome, rotuloDoPeriodo: p.rotulo, porHora, verValores: e.verValores, lidoEm });
+      pontos = (plano.barras ?? []).map((b) => ({ hora: b.rotulo, [e.verValores ? 'faturamento' : 'vendas']: b.valor }));
+    } else if (tipo === 'canais') {
+      if (!e.verValores) return recusa('O gráfico por canal é do faturamento, e o perfil desta pessoa no Regem não mostra valores em reais.');
+      const dl: any = await this.relatorios.faturamentoDelivery(e.tenantId, p.de, p.ate, loja.atual);
+      const porPlataforma = ((dl?.porPlataforma ?? []) as any[]).map((x) => ({ plataforma: String(x.plataforma ?? ''), total: reais(x.total), pedidos: inteiro(x.pedidos) }));
+      plano = planoCanais({ loja: loja.nome, rotuloDoPeriodo: p.rotulo, porPlataforma, lidoEm });
+      const soma = (plano.partes ?? []).reduce((s, x) => s + x.valor, 0) || 1;
+      pontos = (plano.partes ?? []).map((x) => ({ canal: x.nome, faturamento: x.valor, participacaoPct: Math.round((x.valor / soma) * 100) }));
+    } else {
+      const r: any = await this.relatorios.rankingProdutos(e.tenantId, p.de, p.ate, e.verValores, loja.atual);
+      const itens = ((r?.itens ?? []) as any[]).map((i) => ({ nome: String(i.descricao ?? ''), quantidade: quantidade(i.qtd) ?? 0, total: e.verValores ? reais(i.faturamento) : null }));
+      plano = planoMaisVendidos({ loja: loja.nome, rotuloDoPeriodo: p.rotulo, itens, verValores: e.verValores, lidoEm });
+      pontos = itens.slice(0, 6).map((i, n) => ({ posicao: n + 1, produto: i.nome, quantidade: i.quantidade, ...(e.verValores ? { faturamento: i.total } : {}) }));
+    }
+    // A imagem nasce DESLIGADA, na mesma chave da foto e do áudio (`MISTER_MIDIA`, o dono liga): desligada, os números
+    // seguem para o texto e nenhuma imagem sai.
+    const temOQueMostrar = valeOPlano(plano);
+    const vale = temOQueMostrar && midiaNaInstalacao();
+    return {
+      ok: true,
+      dados: {
+        loja: loja.nome,
+        periodo: p.rotulo,
+        grafico: vale
+          ? 'A imagem do gráfico vai antes da sua resposta, pelo Regem: diga em 2 ou 3 frases o que importa (o total, a comparação, o destaque), sem descrever as barras uma a uma.'
+          : temOQueMostrar
+            ? 'O gráfico na conversa ainda não está ligado nesta instalação: responda sem gráfico, com os números.'
+            : 'Não há o que mostrar em gráfico neste período (sem venda, ou um ponto só): responda sem gráfico, com os números.',
+        titulo: plano.titulo,
+        numeroPrincipal: plano.kpi,
+        comparacao: plano.delta?.texto ?? null,
+        pontos,
+        ...(e.verValores ? {} : { aviso: SEM_VALORES }),
+      },
+      ...(vale ? { graficos: [plano] } : {}),
     };
   }
 

@@ -1355,6 +1355,35 @@ voz para um teste. O dono decidiu usar a mesma do atendente (Google).
   do agente, e o link e o PDF deles. Os tipos novos do link pedem migration (`ck_mister_link_publico_tipo` só aceita
   `insumo`), que vai junto com a da M5e.
 
+**M5d.2 implementada (19/11/2026; sem migration): "me mostra em gráfico" na conversa.**
+- **A consulta nova `mostrar_grafico`**: tipo (`vendas_por_dia`, `vendas_por_hora`, `canais`, `mais_vendidos`), período e
+  loja.
+  - A permissão é a dos relatórios de vendas, como a `vendas_do_periodo`.
+  - Os números saem dos MESMOS relatórios que a tela usa (`vendas`, `faturamentoDelivery`, `rankingProdutos`).
+  - Ao modelo vão só os números, para o texto: o título, o número principal, a comparação e os pontos. O desenho da
+    imagem fica com o Regem.
+- **O plano do gráfico** (`grafico/plano-do-grafico.ts`) e a **imagem** (`grafico/imagem-do-plano.ts`, 1000×640). A
+  imagem usa o mesmo desenhista PNG e as mesmas cores do insumo:
+  - **Por dia:** colunas com o período anterior em cinza claro ao lado e a maior em dourado. A comparação é "+12% sobre
+    a semana anterior" (7 dias) ou "sobre o período anterior". São até 31 dias.
+  - **Por hora:** colunas, com o pico em dourado. O período padrão é "hoje".
+  - **Canais:** a participação de cada canal no faturamento. Só o perfil que vê valores.
+  - **Mais vendidos:** barras deitadas, até 6.
+  - Gerente sem valores: as vendas em quantidade e o aviso.
+- **A imagem sai ANTES do texto**, até 3 por resposta, junto com as do insumo.
+- **Sem venda, ou um ponto só:** sem imagem, e o resultado diz ao modelo para responder com os números.
+- **Nasce DESLIGADA**, na chave `MISTER_MIDIA` (a mesma da foto e do áudio). Desligada, os números seguem e nenhuma
+  imagem sai.
+- **O resumo do dia e da semana NÃO usa a consulta.** Ele vai só por escrito, decisão 6; os gráficos dele são o "📊 Ver
+  gráficos" da M5e.
+- **Pergunta nova na avaliação:** a c48, "Me mostra em gráfico as vendas por hora de ontem.", com o pico às 20h. As
+  perguntas passam a 48.
+- **Diferenças do protótipo:**
+  - O gráfico por hora sai em colunas, não em linha, porque o desenhista é um só.
+  - O de canais mostra só o delivery por canal (`porPlataforma`), sem o balcão e o salão: o relatório de vendas não
+    separa o balcão por canal.
+  - O link e o PDF destes gráficos ficam com a M5e, que traz a migration do tipo do link.
+
 **Fica para depois (pedido do dono em 19/11):** quando a base de eventos do plano do perfil do cliente estiver pronta, o
 Mister usa o clima e os eventos para avisar de chuva e programar entregadores e funcionários em feriados e eventos
 grandes. A fonte do clima precisa de licença comercial.

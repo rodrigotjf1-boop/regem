@@ -15,6 +15,8 @@ import type { PropostaPendente } from './mister-propostas.service';
 import { PedidoDoRelatorio, botaoDoPdf, linkDoRelatorio } from './insumo-vendido';
 import { enviarPdfDoInsumo } from './mister-anexos.service';
 import { GraficoDaConversa, imagemDoGrafico } from './grafico/grafico-do-insumo';
+import { imagemDoPlano } from './grafico/imagem-do-plano';
+import type { PlanoDoGrafico } from './grafico/plano-do-grafico';
 import { linhaDoLinkNaConversa } from './mister-link-publico';
 import { linhaDaMidia } from './mister-midia.regras';
 
@@ -190,7 +192,7 @@ export class MisterAgenteService implements OnModuleInit {
       // recusou), o emoji vai como texto — nunca silêncio. Na memória fica o emoji (o modelo não aceita resposta vazia).
       const reagiu = saida.reacao && ultima.wamid ? await this.numero.reagir(ultima.telefone, ultima.wamid, saida.reacao) : false;
       const resposta = saida.texto || saida.reacao || '';
-      const extras = fim.anexos.length + fim.imagens.length + fim.links.length + fim.botoes.length + fim.propostas.length;
+      const extras = fim.anexos.length + fim.imagens.length + fim.links.length + fim.botoes.length + fim.propostas.length + fim.graficos.length;
       if (!saida.texto && saida.reacao && !extras) {
         if (!reagiu && !(await this.dizer(ultima.telefone, saida.reacao))) return await fechar('envio', trilha);
         return await this.fila.concluir(ids, { resposta, trilha, perguntaJunta: pergunta });
@@ -214,6 +216,8 @@ export class MisterAgenteService implements OnModuleInit {
       const comBotao = pedidos.length && texto.length <= CABE_COM_BOTAO && (await this.numero.ler()).provedor !== 'evolution' ? pedidos : undefined;
       // M3c.3: a imagem do gráfico vai antes do texto (como no protótipo). A que falha não segura a resposta.
       for (const a of fim.anexos.filter((x) => x.grafico).slice(0, IMAGENS_POR_RESPOSTA)) await this.mandarGrafico(ultima.telefone, a.grafico!);
+      // Versão 5, M5d.2: os gráficos de `mostrar_grafico` (vendas por dia, por hora, por canal, mais vendidos), também antes.
+      for (const g of fim.graficos.slice(0, IMAGENS_POR_RESPOSTA)) await this.mandarPlano(ultima.telefone, g);
       // M3d: a imagem da tela do "como faço" (pelo endereço público), também antes do texto; uma por resposta.
       for (const im of fim.imagens.slice(0, 1)) await this.mandarTela(ultima.telefone, im);
       const enviada = await this.dizer(ultima.telefone, texto, comBotao);
@@ -246,6 +250,16 @@ export class MisterAgenteService implements OnModuleInit {
     } catch (e: any) {
       const motivo = e instanceof FalhaDoEnvioDoMister ? `${e.motivo}${e.status ? ` ${e.status}` : ''}` : String(e?.message ?? e);
       this.logger.warn(`mister: a imagem da tela não saiu para ${mascarar(telefone)} (${motivo})`);
+    }
+  }
+
+  /** Versão 5, M5d.2: a imagem de um plano de gráfico. Nunca lança: a falha fica no log e a resposta segue sem ela. */
+  private async mandarPlano(telefone: string, p: PlanoDoGrafico): Promise<void> {
+    try {
+      await this.numero.enviarImagem(telefone, imagemDoPlano(p));
+    } catch (e: any) {
+      const motivo = e instanceof FalhaDoEnvioDoMister ? `${e.motivo}${e.status ? ` ${e.status}` : ''}` : String(e?.message ?? e);
+      this.logger.warn(`mister: a imagem do gráfico "${p.titulo}" não saiu para ${mascarar(telefone)} (${motivo})`);
     }
   }
 
@@ -288,6 +302,7 @@ export class MisterAgenteService implements OnModuleInit {
       botoes: { id: string; titulo: string }[];
       imagens: { url: string; legenda: string }[];
       links: { url: string; vence: Date }[];
+      graficos: PlanoDoGrafico[];
     }
   > {
     // O laço é o de `mister-laco.ts` (o mesmo da avaliação de regressão): aqui as portas são a IA da empresa, com o
@@ -302,6 +317,8 @@ export class MisterAgenteService implements OnModuleInit {
     const imagens: { url: string; legenda: string }[] = [];
     // M3c (mig 443): os links para encaminhar que a pergunta criou (não vão ao modelo).
     const links: { url: string; vence: Date }[] = [];
+    // Versão 5, M5d.2: os gráficos que `mostrar_grafico` montou (não vão ao modelo; a imagem vai antes do texto).
+    const graficos: PlanoDoGrafico[] = [];
     // M2b: o texto no ar. A leitura que falha não segura a resposta: vai o texto do código (e o log diz por quê).
     const instrucoes = this.instrucoes
       ? await this.instrucoes.noAr().then(
@@ -326,6 +343,7 @@ export class MisterAgenteService implements OnModuleInit {
           for (const b of r.botoes ?? []) if (!botoes.some((x) => x.id === b.id)) botoes.push(b);
           for (const im of r.imagens ?? []) if (!imagens.some((x) => x.url === im.url)) imagens.push(im);
           if (r.linkPublico) links.push(r.linkPublico);
+          for (const g of r.graficos ?? []) if (graficos.length < IMAGENS_POR_RESPOSTA) graficos.push(g);
           if (r.anexo) {
             const ja = anexos.find((a) => botaoDoPdf(a.pedido) === botaoDoPdf(r.anexo!.pedido));
             if (ja) ja.enviarPdf = ja.enviarPdf || r.anexo.enviarPdf;
@@ -336,6 +354,6 @@ export class MisterAgenteService implements OnModuleInit {
       memoria,
       pergunta,
     );
-    return { ...fim, propostas, anexos, botoes, imagens, links };
+    return { ...fim, propostas, anexos, botoes, imagens, links, graficos };
   }
 }
