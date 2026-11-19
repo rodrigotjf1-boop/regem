@@ -22,11 +22,13 @@ export const ENDERECO_PADRAO = 'https://graph.dmstecnologias.com/mcp';
 export const PERMISSAO_DO_GRAPH = 'arquivos.analisar';
 export const PERMISSOES_DO_GRAPH: readonly string[] = [PERMISSAO_DO_GRAPH];
 
-/** A frase que o dono lê (a mesma do catálogo do Graph). */
-export const FRASE_DA_PERMISSAO = 'Analisar as fotos e os documentos que os seus clientes mandam, sem guardar o arquivo.';
+/** A frase que o dono lê (a mesma do catálogo do Graph; com os áudios e a equipe desde o contrato 1.1.0, M5b do Mister). */
+export const FRASE_DA_PERMISSAO = 'Analisar as fotos, os documentos e os áudios que os seus clientes e a sua equipe mandam, sem guardar o arquivo.';
 
 /** A ferramenta da porta (contrato do Graph, G3). */
 export const FERRAMENTA = 'analisar_arquivo';
+/** A ferramenta que transcreve o áudio (contrato 1.1.0 do Graph; o Mister, versão 5, M5b). */
+export const FERRAMENTA_OUVIR = 'ouvir_audio';
 
 /** O que a porta do Graph aceita de imagem (o GIF que a IA da empresa lê não vai ao Graph: segue pela IA). */
 export const MIMES_DO_GRAPH = ['image/jpeg', 'image/png', 'image/webp'] as const;

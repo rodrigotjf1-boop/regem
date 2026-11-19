@@ -4,7 +4,18 @@ import { FalhaDaIa, IaEmpresaService } from '../ia/ia-empresa.service';
 import { GraphFotoService } from '../graph/graph-foto.service';
 import { MidiaDoMister, MisterEntradaService, QuemMandou, ResultadoDaMidia } from './mister-entrada.service';
 import { MisterNumeroService } from './mister-numero.service';
+import { hojeISO } from '../../common/data';
+import { FERRAMENTA_OUVIR } from '../graph/graph.regras';
 import {
+  AUDIO_MAX_SEGUNDOS,
+  MIMES_DO_AUDIO,
+  PREFIXO_DA_CHAVE_DO_AUDIO,
+  PRAZO_DO_AUDIO_MS,
+  duracaoDoOggOpus,
+  oQueOGraphOuviu,
+  perguntaComAudio,
+  primeiroDoMesQueVem,
+  tipoDoAudio,
   MAX_BYTES_DA_MIDIA,
   MIMES_DO_MISTER_NA_IA,
   MIMES_DO_MISTER_NO_GRAPH,
@@ -80,7 +91,9 @@ export class MisterMidiaService implements OnModuleInit {
 
   async olhar(quem: QuemMandou, midia: MidiaDoMister, wamid: string | null): Promise<ResultadoDaMidia> {
     if (!this.ligado() || !this.graph) return null;
-    // Figurinha, planilha, áudio: não é desta fase.
+    // M5b: o áudio vai à `ouvir_audio` do Graph.
+    if (midia.tipo === 'audio') return this.ouvir(quem, midia, wamid);
+    // Figurinha, planilha: não é com a mídia.
     if (!tipoAceito(midia.mime, MIMES_DO_MISTER_NA_IA) && midia.tipo !== 'imagem') return null;
     try {
       const lig = await this.graph.ligacaoParaFoto(quem.tenantId);
@@ -120,6 +133,61 @@ export class MisterMidiaService implements OnModuleInit {
       return 'tratada';
     }
   }
+
+  /**
+   * O ÁUDIO (M5b): a nota de voz vai à `ouvir_audio` do Graph, que transcreve pelo Gemini (o mesmo do atendente). Sem
+   * reserva — a IA da empresa não ouve —, então cada falha diz o que fazer: o tipo que não dá, acima de 3 minutos (a
+   * duração do OGG/Opus conferida ANTES de gastar a franquia), a franquia que acabou (volta no dia 1º) e o resto
+   * ("não consegui entender"). Inaudível também. A transcrição vira a pergunta; o áudio não fica guardado.
+   */
+  private async ouvir(quem: QuemMandou, midia: MidiaDoMister, wamid: string | null): Promise<ResultadoDaMidia> {
+    try {
+      const lig = await this.graph!.ligacaoParaFoto(quem.tenantId);
+      if (!lig) return 'sem_graph';
+      const arquivo = await this.numero.baixarMidia(midia.id);
+      if (!arquivo?.buffer?.length || arquivo.buffer.length > MAX_BYTES_DA_MIDIA) {
+        await this.falar(quem.telefone, arquivo?.buffer?.length ? TEXTOS_DA_MIDIA.audioLongo : TEXTOS_DA_MIDIA.naoOuviu);
+        return 'tratada';
+      }
+      const mime = tipoDoAudio(arquivo.mime ?? midia.mime);
+      if (!mime) {
+        this.logger.log(`áudio do Mister não ouvido (tipo ${String(arquivo.mime ?? midia.mime).slice(0, 40)})`);
+        await this.falar(quem.telefone, TEXTOS_DA_MIDIA.audioTipo);
+        return 'tratada';
+      }
+      const duracao = mime === 'audio/ogg' ? duracaoDoOggOpus(arquivo.buffer) : null;
+      if (duracao != null && duracao > AUDIO_MAX_SEGUNDOS) {
+        await this.falar(quem.telefone, TEXTOS_DA_MIDIA.audioLongo);
+        return 'tratada';
+      }
+      let motivo = '';
+      const ouvido = await this.graph!.analisar(
+        quem.tenantId,
+        lig,
+        { buffer: arquivo.buffer, mime, mensagemId: wamid ?? undefined },
+        this.prazoDoAudioMs,
+        oQueOGraphOuviu,
+        { ferramenta: FERRAMENTA_OUVIR, mimes: MIMES_DO_AUDIO, prefixoDaChave: PREFIXO_DA_CHAVE_DO_AUDIO, aoFalhar: (m) => (motivo = m) },
+      );
+      if (!ouvido) {
+        this.logger.warn(`áudio do Mister não ouvido pelo DMS Graph (${motivo || 'sem motivo'})`);
+        await this.falar(quem.telefone, motivo === 'franquia-esgotada' ? TEXTOS_DA_MIDIA.audioFranquia(primeiroDoMesQueVem(hojeISO())) : TEXTOS_DA_MIDIA.naoOuviu);
+        return 'tratada';
+      }
+      if (ouvido.inaudivel) {
+        await this.falar(quem.telefone, TEXTOS_DA_MIDIA.naoOuviu);
+        return 'tratada';
+      }
+      return { pergunta: perguntaComAudio(ouvido.transcricao), documento: false };
+    } catch (e: any) {
+      this.logger.warn(`áudio do Mister não ouvido (${String(e?.code ?? e?.name ?? e?.message ?? e).slice(0, 120)})`);
+      await this.falar(quem.telefone, TEXTOS_DA_MIDIA.naoOuviu);
+      return 'tratada';
+    }
+  }
+
+  /** O prazo do Graph para transcrever (os testes encurtam). */
+  prazoDoAudioMs = PRAZO_DO_AUDIO_MS;
 
   /** A reserva: a IA da empresa lê a foto no que sobrou do prazo. Null = não leu (sem acesso, prazo, recusa, formato). */
   private async lerPelaIa(tenantId: string, buffer: Buffer, mime: string, resta: number): Promise<OQueViu | null> {

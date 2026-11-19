@@ -1300,6 +1300,32 @@ voz para um teste. O dono decidiu usar a mesma do atendente (Google).
   - o quadro "Fotos e áudios · DMS Graph" em IA e uso também fica para a M5b. Nesta fase, a reserva aparece no gasto por
     recurso como "Mister · fotos (reserva do DMS Graph)".
 
+**M5b implementada (19/11/2026; sem migration; a mesma chave `MISTER_MIDIA=1`):**
+- **O Graph (dms-graph #6, versão 0.5.0, contrato 1.1.0, aditiva pelo comparador do hub):** a ferramenta `ouvir_audio`.
+  - Usa a mesma permissão, a mesma franquia e a mesma idempotência da `analisar_arquivo`.
+  - Aceita OGG, MP3, AAC, WAV e FLAC, até 5 MB; o OGG/Opus até 3 minutos, pela duração lida do arquivo.
+  - Devolve `{ tipoArquivo: 'audio', transcricao, inaudivel, idioma, duracaoSegundos, franquia }`.
+  - A migração 003 do Graph põe `tipo_arquivo = 'audio'` no consumo.
+  - A frase da permissão passa a ser "…as fotos, os documentos e os áudios que os seus clientes e a sua equipe
+    mandam…", nos dois lados. O protótipo `regem-graph-clique.html` ficou com a frase antiga.
+  - Nota no hub: `docs/mudancas-nos-produtos.md`.
+- **No Regem:**
+  - a entrada reconhece `type: audio`;
+  - o `GraphFotoService.analisar` ganhou `ferramenta` e `aoFalhar`, que entrega o motivo curto;
+  - o `MisterMidiaService.ouvir` manda o áudio à `ouvir_audio` com a chave `regem-graph-ouvir`, num prazo de 25 s;
+  - a transcrição vira a pergunta `⟦áudio⟧ …`, e a resposta abre com `🎧 _Entendi:_ "…"` (`linhaDaMidia`, pelo código).
+- **Sem reserva** (a IA da empresa não ouve). Cada caso tem a sua frase:
+  - inaudível, ou outra falha: "não consegui entender";
+  - a franquia esgotada: "até 01/12", o dia 1º do mês seguinte;
+  - acima de 3 minutos, conferido ANTES de gastar a franquia: "em partes menores";
+  - AMR ou M4A: "mande como mensagem de voz".
+- **Instruções:** o bloco passa a ser "QUANDO A PESSOA MANDA FOTO OU ÁUDIO". A transcrição pode errar um nome; se algo
+  não fizer sentido, o Mister pergunta antes.
+- **O dono implanta o Graph:** clicar em "Implantar" no EasyPanel. Sem isso, a `ouvir_audio` não existe na porta, e o
+  áudio responde "não consegui entender".
+- **Ainda não:** o quadro "Fotos e áudios · DMS Graph" em IA e uso fica para a M5b.2, logo depois, porque mexe em tela e
+  passa pelos roteiros; a conexão por QR Code segue sem mídia.
+
 **Fica para depois (pedido do dono em 19/11):** quando a base de eventos do plano do perfil do cliente estiver pronta, o
 Mister usa o clima e os eventos para avisar de chuva e programar entregadores e funcionários em feriados e eventos
 grandes. A fonte do clima precisa de licença comercial.

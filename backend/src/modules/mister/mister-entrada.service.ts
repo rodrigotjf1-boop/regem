@@ -70,21 +70,25 @@ export interface MensagemDoMister {
 
 /** M3a (versão 3 do protótipo): a foto ou o documento que chegou na conversa. O arquivo se baixa pelo `id` da Meta. */
 export interface MidiaDoMister {
-  tipo: 'imagem' | 'documento';
+  /** M5b: o áudio (a nota de voz, `type: audio`) também — os documentos não tratam; o serviço da mídia ouve. */
+  tipo: 'imagem' | 'documento' | 'audio';
   id: string;
   mime: string | null;
   /** M5a: o que a pessoa escreveu junto da foto (a legenda da Meta, `caption`). */
   legenda?: string | null;
 }
 
-/** A mídia de uma mensagem da Meta: a foto (`type: image`) ou o arquivo (`type: document`), pelo id. Outra coisa → null. */
+/**
+ * A mídia de uma mensagem da Meta: a foto (`type: image`), o arquivo (`type: document`) ou o áudio (`type: audio`, M5b),
+ * pelo id. Outra coisa → null.
+ */
 export function midiaDaMeta(m: any): MidiaDoMister | null {
   const tipo = String(m?.type ?? '');
-  const corpo = tipo === 'image' ? m?.image : tipo === 'document' ? m?.document : null;
+  const corpo = tipo === 'image' ? m?.image : tipo === 'document' ? m?.document : tipo === 'audio' ? m?.audio : null;
   const id = String(corpo?.id ?? '').trim();
   if (!corpo || !id) return null;
   const legenda = typeof corpo?.caption === 'string' && corpo.caption.trim() ? corpo.caption.trim() : null;
-  return { tipo: tipo === 'image' ? 'imagem' : 'documento', id, mime: corpo?.mime_type ? String(corpo.mime_type) : null, legenda };
+  return { tipo: tipo === 'image' ? 'imagem' : tipo === 'audio' ? 'audio' : 'documento', id, mime: corpo?.mime_type ? String(corpo.mime_type) : null, legenda };
 }
 
 /** Quem mandou a mídia: o vínculo que vale para esta conversa (a empresa já escolhida). */

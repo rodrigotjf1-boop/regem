@@ -16,7 +16,7 @@ import { PedidoDoRelatorio, botaoDoPdf, linkDoRelatorio } from './insumo-vendido
 import { enviarPdfDoInsumo } from './mister-anexos.service';
 import { GraficoDaConversa, imagemDoGrafico } from './grafico/grafico-do-insumo';
 import { linhaDoLinkNaConversa } from './mister-link-publico';
-import { linhaDoQueViu } from './mister-midia.regras';
+import { linhaDaMidia } from './mister-midia.regras';
 
 /** M3c.2: o balão da resposta leva o botão "PDF" só quando cabe no corpo de uma mensagem com botões (1024 na Meta). */
 const CABE_COM_BOTAO = 1000;
@@ -206,7 +206,8 @@ export class MisterAgenteService implements OnModuleInit {
       const comLinks = fim.links.slice(0, LINKS_POR_RESPOSTA).reduce((t, l) => `${t}\n\n${linhaDoLinkNaConversa(l.url, l.vence)}`, comVerNoRegem);
       // Versão 5 (M5a): a pergunta que veio de uma foto abre com "📷 Vi: …" — escrito pelo código (o resumo do que a foto
       // mostrou), depois do filtro de saída, para a pessoa ver na hora se o Mister entendeu a foto.
-      const vi = linhaDoQueViu(pergunta);
+      // M5b: o áudio abre com "🎧 Entendi: "…"" (o que foi transcrito), pela mesma regra.
+      const vi = linhaDaMidia(pergunta);
       const texto = vi ? `${vi}\n\n${comLinks}` : comLinks;
       // M3g: os botões que as ferramentas trouxeram (o "Desfazer" da correção) vão no mesmo balão, antes do "PDF" (até 3).
       const pedidos = [...fim.botoes, ...(!pdfs.length && fim.anexos.length === 1 ? [{ id: botaoDoPdf(fim.anexos[0].pedido), titulo: 'PDF' }] : [])].slice(0, 3);
