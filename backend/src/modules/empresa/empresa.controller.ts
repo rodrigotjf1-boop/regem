@@ -8,6 +8,7 @@ import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { EmpresaService } from './empresa.service';
 import { AtualizarConfigEmpresaDto } from './dto/atualizar-config-empresa.dto';
+import { InformarCnpjDto } from './dto/informar-cnpj.dto';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 
 // Empresa é criada só via /auth/register. Aqui leitura da PRÓPRIA empresa + config.
@@ -33,5 +34,14 @@ export class EmpresaController {
     @Body() dto: AtualizarConfigEmpresaDto,
   ) {
     return this.service.atualizarConfig(user.tenantId, dto);
+  }
+
+  // O CNPJ da empresa que está sem (GR-8 do DMS Graph): só o presidente, uma vez, só na NUVEM (a empresa só desce).
+  // Trocar um CNPJ que já existe é do suporte da DMS.
+  @Patch('cnpj')
+  @CloudOnly()
+  @Roles('presidente')
+  informarCnpj(@CurrentUser() user: AuthUser, @Body() dto: InformarCnpjDto) {
+    return this.service.informarCnpj(user, dto.cnpj);
   }
 }

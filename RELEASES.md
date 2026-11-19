@@ -80,6 +80,8 @@
   daemon mudou → o `.exe` do próximo corte leva junto). **G5b (as telas, protótipo aprovado 18/11):** o cartão "DMS
   Graph" em Delivery › Configurações › Integrações, a página `/integracoes/graph/volta` e a linha "Quem lê as fotos
   agora" em Fotos do cliente; `GRAPH_EMPRESAS` (opcional) limita o piloto às empresas da lista. Só nuvem, sem efeito na loja.
+  **GR-8 (19/11, sem migration):** `PATCH /empresas/cnpj` (só o presidente, só na nuvem) — a empresa sem CNPJ informa uma
+  vez, na janela do DMS Graph. Só nuvem, sem efeito na loja.
 
 - **Poller do iFood: o tempo de cada parte no log (18/11; SEM migration).** "polling X ms, gravação Y ms, confirmação Z
   ms" na linha de cada volta com eventos. Só medida; o poller roda só na nuvem → vai no `.zip` sem efeito na loja.
