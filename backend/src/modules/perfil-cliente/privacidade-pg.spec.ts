@@ -1,10 +1,14 @@
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { TRAVA_DA_EMPRESA } from '../../common/corrida-de-catalogo';
 import { lerPedidoDePrivacidade } from './escolhas-do-cliente';
 import { gravarPrivacidade, lerPrivacidade } from './privacidade-do-cliente';
+
+const MIG_459 = join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '459_perfil_do_cliente.sql');
+const semFkCompartilhada = (s: string) =>
+  s.replace(/\s+references\s+(empresa|unidade|cliente|cupom)\s*\(\s*id\s*\)(\s+on\s+delete\s+cascade)?/gi, '');
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -44,18 +48,26 @@ if (!URL_PG) console.warn('privacidade-pg.spec: sem TEST_PG_URL — PULADO');
 
 descrever('gravar e ler a privacidade (Postgres)', () => {
   jest.setTimeout(120_000);
-  const pool = new Pool({ connectionString: URL_PG });
+  // As tabelas só da nuvem (459) num schema SÓ DESTE TESTE, sem chave estrangeira para as compartilhadas (LIC-088): a
+  // transação do teste só tem DML — DDL com a trava da empresa dentro dela é o risco do ERR-539 (deadlock com as outras suítes no banco dividido).
+  const SCHEMA = `teste_perfil_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
+  const admin = new Pool({ connectionString: URL_PG });
+  const pool = new Pool({ connectionString: URL_PG, options: `-c search_path=${SCHEMA},public` });
+  beforeAll(async () => {
+    await admin.query(`create schema ${SCHEMA}`);
+    await pool.query(semFkCompartilhada(readFileSync(MIG_459, 'utf8')));
+  }, 60_000);
   afterAll(async () => {
     await pool.end();
+    await admin.query(`drop schema if exists ${SCHEMA} cascade`).catch(() => {});
+    await admin.end();
   }, 60_000);
 
   it('grava a escolha só quando muda, apaga o perfil no "não analisar" e atualiza/apaga o que o cliente contou', async () => {
     const c = await pool.connect();
     try {
       await c.query('begin');
-      await c.query(TRAVA_DA_EMPRESA);
       const q = (s: string, p: any[] = []) => c.query(s, p).then((r) => r.rows);
-      await c.query(readFileSync(join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '459_perfil_do_cliente.sql'), 'utf8'));
       const t = (await q(`insert into empresa (nome) values ('teste privacidade') returning id`))[0].id as string;
       const id = (await q(`insert into cliente (tenant_id, nome, telefone) values ($1,'Ana','21966660001') returning id`, [t]))[0].id as string;
       await q(`insert into cliente_perfil (cliente_id, tenant_id) values ($1,$2)`, [id, t]);
