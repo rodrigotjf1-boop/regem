@@ -1,4 +1,7 @@
-import { Controller, Get, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
+import { Controller, Get, Inject, NotFoundException, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
+import { sql } from 'drizzle-orm';
+import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { cartaoDaEquipe, clienteDoCaso } from './cartao-da-equipe';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
@@ -40,5 +43,27 @@ export class PerfilClienteController {
   @Throttle({ default: { limit: 1, ttl: 60_000 } })
   recalcular(@CurrentUser() user: AuthUser) {
     return this.service.calcularEmpresa(user.tenantId);
+  }
+}
+
+// O CARTÃO DO CLIENTE NO CASO DA CENTRAL (F6b do plano do perfil): quem atende — os mesmos papéis e a permissão da Central
+// (`pedidos`) — vê o cartão curto do cliente do caso. Só NUVEM: no servidor da loja a tela diz que o cartão aparece pelo
+// app na nuvem (as tabelas do perfil só existem lá). Módulo desligado ou "não analisar": `cartao: null`.
+@Controller('perfil-cliente/caso')
+@CloudOnly()
+@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+@RequirePerm('pedidos')
+@Roles('presidente', 'gerente', 'supervisao', 'execucao')
+export class CartaoDoCasoController {
+  constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
+
+  @Get(':casoId')
+  async cartao(@CurrentUser() user: AuthUser, @Param('casoId', new ParseUUIDPipe()) casoId: string) {
+    const r: any = await this.db.execute(sql`
+      select pedido_id, telefone, canal from atendimento_chamado where id = ${casoId}::uuid and tenant_id = ${user.tenantId}::uuid`);
+    const caso = (r?.rows ?? r)[0];
+    if (!caso) throw new NotFoundException('Caso não encontrado.');
+    const clienteId = await clienteDoCaso(this.db, user.tenantId, { pedidoId: caso.pedido_id, telefone: caso.telefone, canal: caso.canal });
+    return { cartao: clienteId ? await cartaoDaEquipe(this.db, user.tenantId, clienteId) : null };
   }
 }

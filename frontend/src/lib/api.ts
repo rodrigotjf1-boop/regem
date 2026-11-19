@@ -2120,6 +2120,7 @@ export const api = {
   perfilClienteFicha: (id: string) => req(`/perfil-cliente/${encodeURIComponent(id)}`),
   perfilClienteResumo: () => req('/perfil-cliente/resumo'),
   perfilClienteRecalcular: () => req('/perfil-cliente/recalcular', { method: 'POST' }),
+  perfilClienteCartaoDoCaso: (casoId: string) => req(`/perfil-cliente/caso/${encodeURIComponent(casoId)}`),
   // Campanhas de WhatsApp por segmento (F5 + épico marketing) — só nuvem, só gestão.
   crmCampanhaPrevia: (segmento: string, recuperacaoDias?: number) =>
     req(
