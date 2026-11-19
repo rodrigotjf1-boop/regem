@@ -11,6 +11,7 @@ import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.servi
 import { pessoaVale } from './mister-vinculo.service';
 import { ToqueNoModelo, toqueNoModelo } from './mister-modelos';
 import { TEXTOS_DA_PROPOSTA } from './mister-procedimentos';
+import { TEXTOS_DA_MIDIA } from './mister-midia.regras';
 import {
   CODIGOS_ERRADOS_JANELA_MIN,
   CODIGOS_ERRADOS_MAX,
@@ -72,6 +73,8 @@ export interface MidiaDoMister {
   tipo: 'imagem' | 'documento';
   id: string;
   mime: string | null;
+  /** M5a: o que a pessoa escreveu junto da foto (a legenda da Meta, `caption`). */
+  legenda?: string | null;
 }
 
 /** A mídia de uma mensagem da Meta: a foto (`type: image`) ou o arquivo (`type: document`), pelo id. Outra coisa → null. */
@@ -80,7 +83,8 @@ export function midiaDaMeta(m: any): MidiaDoMister | null {
   const corpo = tipo === 'image' ? m?.image : tipo === 'document' ? m?.document : null;
   const id = String(corpo?.id ?? '').trim();
   if (!corpo || !id) return null;
-  return { tipo: tipo === 'image' ? 'imagem' : 'documento', id, mime: corpo?.mime_type ? String(corpo.mime_type) : null };
+  const legenda = typeof corpo?.caption === 'string' && corpo.caption.trim() ? corpo.caption.trim() : null;
+  return { tipo: tipo === 'image' ? 'imagem' : 'documento', id, mime: corpo?.mime_type ? String(corpo.mime_type) : null, legenda };
 }
 
 /** Quem mandou a mídia: o vínculo que vale para esta conversa (a empresa já escolhida). */
@@ -94,6 +98,14 @@ export interface QuemMandou {
 }
 /** Quem trata a foto (o serviço dos documentos, M3a). Devolve se tratou; `false` segue o caminho de antes ("só leio texto"). */
 export type TratarDocumento = (quem: QuemMandou, midia: MidiaDoMister, wamid: string | null) => Promise<boolean>;
+/**
+ * O que a leitura da foto (versão 5, M5a) fez: `null` = não é com ela (desligada, outro tipo: segue como antes);
+ * `'sem_graph'` = a empresa não tem o DMS Graph (segue como antes, e o "só leio texto" diz como ligar); `'tratada'` = já
+ * respondeu (não conseguiu ver); a pergunta = o que a foto mostra, para a fila — `documento` = é boleto ou nota (os
+ * documentos tentam primeiro; não tratando, vira a pergunta).
+ */
+export type ResultadoDaMidia = null | 'sem_graph' | 'tratada' | { pergunta: string; documento: boolean };
+export type TratarMidia = (quem: QuemMandou, midia: MidiaDoMister, wamid: string | null) => Promise<ResultadoDaMidia>;
 /** Quem trata o TEXTO que completa um documento (M3a parte 3: o valor ou o vencimento que a foto não trouxe). `false` = é pergunta. */
 export type TratarTextoDoDocumento = (quem: QuemMandou, texto: string) => Promise<boolean>;
 
@@ -132,6 +144,7 @@ export type Desfecho =
   | 'respondeu_proposta'
   | 'proposta_nao_achada'
   | 'documento'
+  | 'midia_nao_lida'
   | 'calado';
 
 interface Vinculo {
@@ -170,6 +183,11 @@ export class MisterEntradaService {
   private textoDoDocumento: TratarTextoDoDocumento | null = null;
   registrarTextoDoDocumento(tratar: TratarTextoDoDocumento): void {
     this.textoDoDocumento = tratar;
+  }
+  /** Versão 5, M5a: quem lê a foto pelo DMS Graph (o serviço da mídia, no módulo do agente). */
+  private midia: TratarMidia | null = null;
+  registrarMidia(tratar: TratarMidia): void {
+    this.midia = tratar;
   }
 
   constructor(
@@ -587,14 +605,33 @@ export class MisterEntradaService {
   ): Promise<{ desfecho: Desfecho; tenantId: string }> {
     await this.db.execute(sql`update mister_vinculo set ultima_entrada_em = now() where id = ${v.id}::uuid`);
     const nome = primeiroNome(v.nome);
-    // M3a: a foto de um documento vai a quem lê documentos (quando ele está ligado); senão, segue como antes.
-    if (midia && this.documento) {
-      const quem: QuemMandou = { telefone: tel, tenantId: v.tenantId, colaboradorId: v.colaboradorId, unidadeId: v.unidadeId ?? null, nivel: v.nivel, nome: v.nome };
+    const quem: QuemMandou = { telefone: tel, tenantId: v.tenantId, colaboradorId: v.colaboradorId, unidadeId: v.unidadeId ?? null, nivel: v.nivel, nome: v.nome };
+    // Versão 5, M5a: com a leitura de mídia ligada, a foto passa primeiro pelo DMS Graph (a IA da empresa de reserva). O
+    // que ela mostra vira a pergunta; boleto ou nota tenta os documentos antes. Desligada ou outro tipo: como antes.
+    let daFoto: { pergunta: string; documento: boolean } | null = null;
+    let semGraph = false;
+    if (midia && this.midia) {
+      const r = await this.midia(quem, midia, wamid).catch((err: any) => {
+        this.logger.error(`mister: a foto de ${mascarar(tel)} não foi lida — ${err?.message ?? err}`, err?.stack);
+        return null;
+      });
+      if (r === 'tratada') return { desfecho: 'midia_nao_lida', tenantId: v.tenantId };
+      if (r === 'sem_graph') semGraph = true;
+      else if (r) daFoto = r;
+    }
+    // M3a: a foto de um documento vai a quem lê documentos (quando ele está ligado); senão, segue como antes. A foto que
+    // o Graph já leu e não é boleto nem nota não passa por aqui (não lê duas vezes).
+    if (midia && this.documento && (!daFoto || daFoto.documento)) {
       const tratou = await this.documento(quem, midia, wamid).catch((err: any) => {
         this.logger.error(`mister: o documento de ${mascarar(tel)} não foi lido — ${err?.message ?? err}`, err?.stack);
         return false;
       });
       if (tratou) return { desfecho: 'documento', tenantId: v.tenantId };
+    }
+    // A foto lida vira a pergunta: não é comando (PARAR/VOLTAR) nem o texto que completa um documento.
+    if (daFoto) {
+      const nova = await this.fila.enfileirar({ tenantId: v.tenantId, colaboradorId: v.colaboradorId, unidadeId: v.unidadeId ?? null, nivel: v.nivel, telefone: tel }, daFoto.pergunta, chave, wamid);
+      return { desfecho: nova ? 'pergunta' : 'repetida', tenantId: v.tenantId };
     }
     if (ehPararAvisos(texto)) {
       await this.db.execute(sql`update mister_vinculo set pausado_em = coalesce(pausado_em, now()), atualizado_em = now() where id = ${v.id}::uuid`);
@@ -619,13 +656,13 @@ export class MisterEntradaService {
           returning telefone`),
       );
       if (!vez.length) return { desfecho: 'calado', tenantId: v.tenantId };
-      await this.responder(tel, { texto: TEXTOS_DO_AGENTE.soTexto });
+      // M5a: com a leitura de mídia ligada e a empresa sem o DMS Graph, a frase diz onde ligar.
+      await this.responder(tel, { texto: semGraph ? TEXTOS_DA_MIDIA.semGraph : TEXTOS_DO_AGENTE.soTexto });
       return { desfecho: 'so_texto', tenantId: v.tenantId };
     }
     // M3a parte 3: o texto que completa um documento que esperava o valor ou o vencimento (conversa 13). Só quando há um
     // documento esperando desta pessoa e o texto traz o que faltou; senão, é pergunta como sempre.
     if (this.textoDoDocumento) {
-      const quem: QuemMandou = { telefone: tel, tenantId: v.tenantId, colaboradorId: v.colaboradorId, unidadeId: v.unidadeId ?? null, nivel: v.nivel, nome: v.nome };
       const completou = await this.textoDoDocumento(quem, texto).catch((err: any) => {
         this.logger.error(`mister: o texto do documento de ${mascarar(tel)} não foi tratado — ${err?.message ?? err}`, err?.stack);
         return false;

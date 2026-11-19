@@ -16,6 +16,7 @@ import { PedidoDoRelatorio, botaoDoPdf, linkDoRelatorio } from './insumo-vendido
 import { enviarPdfDoInsumo } from './mister-anexos.service';
 import { GraficoDaConversa, imagemDoGrafico } from './grafico/grafico-do-insumo';
 import { linhaDoLinkNaConversa } from './mister-link-publico';
+import { linhaDoQueViu } from './mister-midia.regras';
 
 /** M3c.2: o balão da resposta leva o botão "PDF" só quando cabe no corpo de uma mensagem com botões (1024 na Meta). */
 const CABE_COM_BOTAO = 1000;
@@ -202,7 +203,11 @@ export class MisterAgenteService implements OnModuleInit {
       const comVerNoRegem = fim.anexos.length === 1 ? `${resposta}\n\nVer no Regem: ${linkDoRelatorio(baseDoApp(), fim.anexos[0].pedido)}` : resposta;
       // M3c (mig 443): o link para encaminhar a quem não tem usuário também sai do código (nunca passa pela IA nem fica
       // guardado na pergunta): uma linha por link, com a data até quando vale.
-      const texto = fim.links.slice(0, LINKS_POR_RESPOSTA).reduce((t, l) => `${t}\n\n${linhaDoLinkNaConversa(l.url, l.vence)}`, comVerNoRegem);
+      const comLinks = fim.links.slice(0, LINKS_POR_RESPOSTA).reduce((t, l) => `${t}\n\n${linhaDoLinkNaConversa(l.url, l.vence)}`, comVerNoRegem);
+      // Versão 5 (M5a): a pergunta que veio de uma foto abre com "📷 Vi: …" — escrito pelo código (o resumo do que a foto
+      // mostrou), depois do filtro de saída, para a pessoa ver na hora se o Mister entendeu a foto.
+      const vi = linhaDoQueViu(pergunta);
+      const texto = vi ? `${vi}\n\n${comLinks}` : comLinks;
       // M3g: os botões que as ferramentas trouxeram (o "Desfazer" da correção) vão no mesmo balão, antes do "PDF" (até 3).
       const pedidos = [...fim.botoes, ...(!pdfs.length && fim.anexos.length === 1 ? [{ id: botaoDoPdf(fim.anexos[0].pedido), titulo: 'PDF' }] : [])].slice(0, 3);
       const comBotao = pedidos.length && texto.length <= CABE_COM_BOTAO && (await this.numero.ler()).provedor !== 'evolution' ? pedidos : undefined;

@@ -35,6 +35,8 @@ import { MisterPropostasService } from './mister-propostas.service';
 import { MisterRecadosService } from './mister-recados.service';
 import { MisterRelatoriosService } from './mister-relatorios.service';
 import { MuralModule } from '../mural/mural.module';
+import { GraphModule } from '../graph/graph.module';
+import { MisterMidiaService } from './mister-midia.service';
 import { MisterRelatorioController } from './mister-relatorio.controller';
 import { MisterModule } from './mister.module';
 
@@ -79,6 +81,8 @@ import { MisterModule } from './mister.module';
     RecebimentoModule,
     // M3g parte 2 (o recado no mural): o "Publicar" sai pelo MESMO serviço da tela do Mural & clima.
     MuralModule,
+    // Versão 5, M5a: a foto que a equipe manda é lida pelo DMS Graph (a ligação da empresa), como a do cliente.
+    GraphModule,
   ],
   // Os relatórios (mig 420) moram aqui: escrevem pelo mesmo agente das perguntas. As propostas (F4.1, mig 428) também:
   // os avisos as criam e elas executam pelos serviços das telas.
@@ -102,6 +106,8 @@ import { MisterModule } from './mister.module';
     MisterPontoDoMesService,
     // Versão 4, M4d (mig 452): o "fica de olho" e o lembrete — a volta de cada minuto e o toque fora das 24 horas.
     MisterVigiaService,
+    // Versão 5, M5a: a foto (e o PDF) que a equipe manda — o DMS Graph lê, a IA da empresa de reserva; vira a pergunta.
+    MisterMidiaService,
   ],
   // F4.2a (mig 433): as rotas públicas da página do link com PIN (`/m/<código>`), que respondem pelo serviço das propostas.
   // M3a parte 3: a parte "Documentos" do Mister na loja (a lista e o "Desfazer o lançamento").

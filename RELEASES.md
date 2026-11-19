@@ -95,6 +95,12 @@
   `.zip` sem efeito na loja; `mister_memoria` e `mister_vigia` = SO_NUVEM no `sync-daemon.mjs` (o daemon mudou → o `.exe`
   do próximo corte leva junto).
 
+- **Mister versão 5, M5a: a foto (e o PDF) que a equipe manda ao Mister, lida pelo DMS Graph (19/11; SEM migration;
+  nasce DESLIGADO).** Com `MISTER_MIDIA=1` no `regem-api` (o dono liga) e a empresa ligada ao DMS Graph, a foto vai ao
+  Graph (a IA da empresa de reserva, recurso `mister_foto`), o que ela mostra vira a pergunta e a resposta abre com
+  "📷 Vi: …"; boleto e nota seguem pelos documentos. A legenda da foto passa a ser lida. Tudo só na nuvem (o Mister e o
+  Graph não sobem na loja) → vai no `.zip` sem efeito na loja.
+
 - **O DMS Graph lê a foto do cliente, com a IA da empresa de reserva (18/11, G5a — só o servidor; mig 450 SÓ NUVEM —
   `graph_ligacao`, `graph_clique_pedido`; nasce DESLIGADO).** Com `GRAPH_LIGADO=true` no `regem-api` e a empresa ligada
   pelo clique do presidente, a foto que o cliente manda no WhatsApp vai primeiro ao DMS Graph (porta MCP) e a IA da

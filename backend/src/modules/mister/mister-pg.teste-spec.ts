@@ -58,6 +58,9 @@ import { TEXTOS_DA_PROPOSTA, TEXTOS_DO_LINK } from './mister-procedimentos';
 import { MODELO_DO_AVISO } from './mister-modelos';
 import { EvolutionEntradaService } from '../whatsapp/evolution-entrada.service';
 import { MisterFerramentasService } from './mister-ferramentas.service';
+import { GraphFotoService } from '../graph/graph-foto.service';
+import { MisterMidiaService } from './mister-midia.service';
+import { TEXTOS_DA_MIDIA } from './mister-midia.regras';
 import { MisterFilaService } from './mister-fila.service';
 import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
 import { MisterRelatoriosService } from './mister-relatorios.service';
@@ -7466,6 +7469,195 @@ export function testesDoMisterComPostgres(): void {
         expect(numero.enviadas.map((m) => m.texto)).toEqual([FRASES_DO_DOCUMENTO.nota]);
         expect(ia.pedidos).toHaveLength(1);
         expect((await docs())[0]).toMatchObject({ tipo: 'nota', situacao: 'recusado', motivo: 'nota' });
+      });
+    });
+
+    // ─────────────── Versão 5, M5a: a foto que a equipe manda, lida pelo DMS Graph ───────────────
+    // O Graph é um dublê que devolve o resultado da porta (o `structuredContent`) e passa pela tradução DE VERDADE de quem
+    // chama (V108: o falso reproduz o efeito do real — o `analisar` real devolve `traduzir(dados)`); a porta de verdade do
+    // lado do Regem tem o teste dela em `graph-pg.spec.ts`. A IA da empresa, a Meta e a fila são as de sempre desta spec.
+    describe('a foto pelo DMS Graph (M5a)', () => {
+      class GraphDeMentira extends GraphFotoService {
+        ligacao: { id: string; segredo: string } | null = null;
+        /** O que a porta devolve; null = o Graph não leu (demora, franquia, fora do ar). */
+        resposta: unknown = null;
+        chamadas: Array<{ tenantId: string; mime: string; bytes: number; mensagemId: unknown; opcoes: any }> = [];
+        async ligacaoParaFoto(): Promise<{ id: string; segredo: string } | null> {
+          return this.ligacao;
+        }
+        async analisar<T>(tenantId: string, _lig: any, foto: any, _prazoMs: number, traduzir: (d: unknown) => T | null, opcoes: any = {}): Promise<T | null> {
+          this.chamadas.push({ tenantId, mime: foto.mime, bytes: foto.buffer.length, mensagemId: foto.mensagemId, opcoes });
+          return this.resposta == null ? null : traduzir(this.resposta);
+        }
+      }
+      const graph = new GraphDeMentira(db);
+      const midiaDoMister = new MisterMidiaService(numero, ia, entrada, graph);
+      midiaDoMister.prazos = { totalMs: 5_000, graphMs: 2_000, minimoDaIaMs: 500 };
+      // Os documentos (M3a) de verdade, apresentados à entrada aqui também: este bloco roda sozinho com `-t`.
+      const documentosAqui = new DocumentosDeTeste(db, numero, ia, new FinanceiroService(db, auditoria, {} as any), new MisterConversaConfigService(db, auditoria), entrada, auditoria);
+      const DO_FREEZER = {
+        tipoArquivo: 'imagem',
+        resultados: [
+          {
+            tipo: 'Fotografia',
+            titulo: 'Caixas no freezer',
+            contexto: 'Três caixas de blend 56 g num freezer. A etiqueta diz 30 unidades.',
+            secoes: [],
+            transcricao: 'BLEND 56 g\n30 un\nFornecedor (21) 99876-5432',
+          },
+        ],
+      };
+      const DO_BOLETO = { tipoArquivo: 'imagem', resultados: [{ tipo: 'Boleto bancário', titulo: 'Distribuidora Carne Boa', contexto: 'Boleto de R$ 1.284,90.' }] };
+      let telAna: string;
+      let telCarlos: string;
+      const novaMidia = (mime = 'image/jpeg') => {
+        const id = String(randomInt(1e9, 1e10));
+        numero.midias.set(id, { mime, bytes: Buffer.from(`midia-${id}`) });
+        return id;
+      };
+      const foto = (tel: string, id: string, legenda: string | null = null, mime = 'image/jpeg') =>
+        entrada.receber({ telefone: tel, texto: '', wamid: wamid(), midia: { tipo: mime.startsWith('image/') ? 'imagem' : 'documento', id, mime, legenda } });
+      const baixou = () => numero.pedidos.filter((p) => p.metodo === 'GET').length;
+
+      beforeAll(() => {
+        documentosAqui.onModuleInit();
+        midiaDoMister.onModuleInit();
+      });
+      afterAll(() => {
+        // A entrada é de todos os blocos: sem o serviço da mídia, os outros seguem como antes.
+        (entrada as any).midia = null;
+      });
+      beforeEach(async () => {
+        process.env.MISTER_MIDIA = '1';
+        comIa();
+        graph.ligacao = { id: randomUUID(), segredo: 'segredo-de-teste' };
+        graph.resposta = DO_FREEZER;
+        graph.chamadas.length = 0;
+        ia.roteiro = [];
+        ia.pedidos.length = 0;
+        telAna = telefone();
+        await ligar('ana', telAna);
+        telCarlos = telefone();
+        await ligar('carlos', telCarlos, A, 'gerente');
+        numero.pedidos.length = 0;
+      });
+      afterEach(() => {
+        delete process.env.MISTER_MIDIA;
+        delete process.env.MISTER_DOCUMENTOS;
+      });
+
+      it('desligado (`MISTER_MIDIA`): a foto segue como antes — "só leio texto", sem baixar e sem o Graph', async () => {
+        delete process.env.MISTER_MIDIA;
+        expect(await foto(telAna, novaMidia(), 'dá até sábado?')).toBe('so_texto');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_AGENTE.soTexto]);
+        expect(graph.chamadas).toEqual([]);
+        expect(baixou()).toBe(0);
+      });
+
+      it('o Graph lê: a foto vira a pergunta (o que ela mostra + a legenda, sem o telefone); a resposta abre com "📷 Vi"', async () => {
+        const id = novaMidia();
+        const antes = (await perguntasDe('ana')).length;
+        expect(await foto(telAna, id, 'dá até sábado?')).toBe('pergunta');
+        // Ao Graph: a mídia baixada pela credencial da distribuição, com a chave e os tipos do Mister.
+        expect(graph.chamadas).toHaveLength(1);
+        expect(graph.chamadas[0]).toMatchObject({ tenantId: A, mime: 'image/jpeg', bytes: `midia-${id}`.length, opcoes: { prefixoDaChave: 'regem-graph-mister' } });
+        expect(graph.chamadas[0].opcoes.mimes).toContain('application/pdf');
+        expect(ia.pedidos).toEqual([]); // a reserva não foi chamada
+        const p = (await perguntasDe('ana')).slice(antes);
+        expect(p).toHaveLength(1);
+        expect(p[0].pergunta.split('\n')[0]).toBe('⟦foto⟧ Três caixas de blend 56 g num freezer');
+        expect(p[0].pergunta).toContain('lido pelo DMS Graph');
+        expect(p[0].pergunta).toContain('Texto na imagem: "BLEND 56 g" / "30 un"');
+        expect(p[0].pergunta).toContain('A pessoa escreveu junto: dá até sábado?');
+        expect(p[0].pergunta).not.toContain('99876');
+        // O agente responde pela fila de sempre; a linha do "📷 Vi" sai do código, antes da resposta.
+        ia.roteiro = [falar('*Não dá até sábado:* pela foto são ≈ 90 unidades.')];
+        expect(await agente.esvaziar()).toBe(1);
+        expect(ia.pedidos[0].messages.at(-1).content).toContain('⟦foto⟧ Três caixas');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual(['📷 _Vi:_ Três caixas de blend 56 g num freezer\n\n*Não dá até sábado:* pela foto são ≈ 90 unidades.']);
+        // A trilha guarda a resposta da IA (sem a linha do código) — a memória da conversa é o que o modelo disse.
+        expect((await perguntasDe('ana')).at(-1).resposta).toBe('*Não dá até sábado:* pela foto são ≈ 90 unidades.');
+      });
+
+      it('o Graph não lê: a IA da empresa lê no lugar (recurso `mister_foto`, a imagem na chamada), e a pergunta segue', async () => {
+        graph.resposta = null;
+        ia.roteiro = [falar('RESUMO: Uma lista escrita à mão com 4 itens.\nTIPO: outro\nDESCRICAO: pão brioche 10 pct\ncheddar 4 kg')];
+        const id = novaMidia('image/png');
+        const antes = (await perguntasDe('ana')).length;
+        expect(await foto(telAna, id)).toBe('pergunta');
+        expect(ia.pedidos).toHaveLength(1);
+        expect(ia.pedidos[0].model).toBe('claude-haiku-5-5');
+        expect(ia.pedidos[0].messages[0].content[0]).toEqual({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: Buffer.from(`midia-${id}`).toString('base64') } });
+        expect(await q(`select recurso from ia_uso_dia where tenant_id = $1 and recurso = 'mister_foto'`, [A])).toHaveLength(1);
+        const [p] = (await perguntasDe('ana')).slice(antes);
+        expect(p.pergunta.split('\n')[0]).toBe('⟦foto⟧ Uma lista escrita à mão com 4 itens');
+        expect(p.pergunta).toContain('lido pela IA da empresa');
+        expect(p.pergunta).toContain('pão brioche 10 pct / cheddar 4 kg');
+        expect(p.pergunta).toContain('A pessoa mandou a foto sem escrever nada.');
+      });
+
+      it('nem o Graph nem a IA: "não consegui ver a foto" e nada na fila; a foto grande demais também', async () => {
+        graph.resposta = null;
+        ia.roteiro = [{ erro: new Error('o provedor caiu') }];
+        const antes = (await perguntasDe('ana')).length;
+        expect(await foto(telAna, novaMidia())).toBe('midia_nao_lida');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DA_MIDIA.naoViu]);
+        expect(await perguntasDe('ana')).toHaveLength(antes);
+        // Grande demais (mais de 5 MB): nem vai ao Graph.
+        numero.pedidos.length = 0;
+        const grande = String(randomInt(1e9, 1e10));
+        numero.midias.set(grande, { mime: 'image/jpeg', bytes: Buffer.alloc(5 * 1024 * 1024 + 1) });
+        graph.chamadas.length = 0;
+        expect(await foto(telAna, grande)).toBe('midia_nao_lida');
+        expect(graph.chamadas).toEqual([]);
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DA_MIDIA.naoViu]);
+      });
+
+      it('a empresa sem o DMS Graph: "só leio texto" com o caminho para ligar, uma vez a cada meia hora, sem baixar a foto', async () => {
+        graph.ligacao = null;
+        expect(await foto(telAna, novaMidia())).toBe('so_texto');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DA_MIDIA.semGraph]);
+        expect(await foto(telAna, novaMidia())).toBe('calado');
+        expect(baixou()).toBe(0);
+        expect(graph.chamadas).toEqual([]);
+      });
+
+      it('boleto ou nota: com os documentos ligados, vão a eles (a leitura dos documentos); desligados, viram pergunta', async () => {
+        graph.resposta = DO_BOLETO;
+        // Desligados: a foto vira pergunta (o Mister conversa sobre o boleto).
+        expect(await foto(telAna, novaMidia())).toBe('pergunta');
+        expect(ia.pedidos).toEqual([]);
+        // Ligados: os documentos leem e decidem, como sempre (aqui a leitura deles diz "não é documento").
+        process.env.MISTER_DOCUMENTOS = '1';
+        ia.roteiro = [falar(JSON.stringify({ tipo: 'outro', linhaDigitavel: null, beneficiario: null, cnpj: null, valor: null, vencimento: null, legivel: true }))];
+        numero.pedidos.length = 0;
+        expect(await foto(telAna, novaMidia())).toBe('documento');
+        expect(ia.pedidos).toHaveLength(1);
+        expect(ia.pedidos[0].model).toBe('claude-sonnet-5-5');
+        // A foto que NÃO é boleto nem nota não passa pelos documentos (não lê duas vezes), mesmo com eles ligados.
+        graph.resposta = DO_FREEZER;
+        ia.pedidos.length = 0;
+        expect(await foto(telAna, novaMidia())).toBe('pergunta');
+        expect(ia.pedidos).toEqual([]);
+      });
+
+      it('o gerente também manda foto: vira pergunta (os documentos seguem só do presidente)', async () => {
+        process.env.MISTER_DOCUMENTOS = '1';
+        const antes = (await perguntasDe('carlos')).length;
+        expect(await foto(telCarlos, novaMidia(), 'o que é isso?')).toBe('pergunta');
+        const [p] = (await perguntasDe('carlos')).slice(antes);
+        expect(p).toMatchObject({ nivel: 'gerente', tenant_id: A });
+        expect(p.pergunta).toContain('⟦foto⟧');
+      });
+
+      it('o PDF vai ao Graph com o tipo dele; a planilha não é desta fase (segue como antes)', async () => {
+        expect(await foto(telAna, novaMidia('application/pdf'), null, 'application/pdf')).toBe('pergunta');
+        expect(graph.chamadas.at(-1)!.mime).toBe('application/pdf');
+        graph.chamadas.length = 0;
+        numero.pedidos.length = 0;
+        expect(await foto(telAna, novaMidia('application/vnd.ms-excel'), null, 'application/vnd.ms-excel')).toBe('so_texto');
+        expect(graph.chamadas).toEqual([]);
+        expect(baixou()).toBe(0);
       });
     });
 
