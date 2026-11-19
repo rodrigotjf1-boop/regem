@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Pedido agendado — D4c (19/11; SEM migration).** O atendente virtual agenda pelo WhatsApp: com a loja fechada pergunta o
+  horário com os livres, marca o horário no pedido (`mexer_no_pedido` › `agendar`), só o Pix quando a loja tem o Pix online
+  (o código sai sozinho ao registrar), o horário no resumo, mudar o horário e cancelar o agendado já registrado pela
+  conversa (com a confirmação do cliente); instruções .f31 (a seção só com "Aceitar pedido agendado"
+  ligado). O robô roda na nuvem — no `.zip` só por acompanhar o código; nada muda no servidor da loja.
+
 - **Pedido agendado — D4b (19/11; SEM migration).** Mudar o horário (cliente pela página do pedido até o preparo; loja pela
   gaveta do painel), o cancelamento do cliente só antes do preparo, o aviso "horário mudou" e a pergunta dos agendados para
   depois ao fechar o turno do delivery (G8). O painel e o fechar turno também rodam no servidor da loja → vão no `.zip`.

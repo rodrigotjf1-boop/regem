@@ -42,6 +42,8 @@ export type ParaConferir = {
   trocoPara: number | null;
   semTroco: boolean;
   observacao: string | null;
+  /** Pedido agendado (D4c): "amanhã, 19:30" — a linha "🕒 Agendado para" no resumo. */
+  agendadoPara?: string | null;
 };
 
 /** As opções do resumo para conferir (os três botões). */
@@ -158,6 +160,7 @@ export function textoParaConferir(c: ParaConferir): string {
     if (c.endereco.bairro) l.push(String(c.endereco.bairro));
     if (c.endereco.referencia) l.push(`Ref.: ${c.endereco.referencia}`);
   } else if (c.tipo === 'retirada') l.push('🏪 *Retirada na loja*');
+  if (c.agendadoPara) l.push(`🕒 *Agendado para ${c.agendadoPara}*`);
   l.push('');
   l.push('💳 *Pagamento*');
   l.push(c.formaNome || 'a combinar');

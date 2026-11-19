@@ -113,7 +113,11 @@ import { MARCA_DA_RESPOSTA_SEGURADA } from '../whatsapp/resposta-em-andamento';
 // resposta; quem segue travado é atendido pela conversa. Desligado, as instruções ficam como na .f28.
 // .f30 (18/11, D5 — localização da loja): a seção ONDE FICA A LOJA nos dois fluxos do WhatsApp — o endereço escrito e, com
 // as coordenadas no cadastro (`localizacaoNoMapa`), a linha `LOCAL: loja`, que vira o alfinete do mapa depois do texto.
-export const VERSAO_INSTRUCOES = '2026-11-18.f30';
+// .f31 (19/11, D4c — pedido agendado pelo atendente; protótipo, parte 2, G4 e G5): com "Aceitar pedido agendado" ligado
+// (mig 455, nasce desligado), entra a seção PEDIDO AGENDADO — no fluxo 2, `mexer_no_pedido` › `agendar` marca o horário
+// (a loja fechada pergunta o horário pelo proximo, com os livres), o Pix na hora sai sozinho ao registrar; no fluxo 1, o
+// "Para quando?" do cardápio. Desligado, as instruções ficam como na .f30.
+export const VERSAO_INSTRUCOES = '2026-11-19.f31';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -135,6 +139,8 @@ export type DadosDasInstrucoes = {
   conhecimento?: string | null;
   /** "Mandar print de ajuda" ligado na loja (mig 442, D3): entra a seção PRINT DE AJUDA. Ausente = desligado (como hoje). */
   printAjuda?: boolean;
+  /** "Aceitar pedido agendado" ligado na loja (mig 455, D4c): entra a seção PEDIDO AGENDADO. Ausente = desligado (como hoje). */
+  pedidoAgendado?: boolean;
 };
 
 const linhas = (...l: string[]) => l.join('\n');
@@ -163,6 +169,33 @@ function ondeFicaALoja(): string {
     '- Se consultar_loja trouxer localizacaoNoMapa = true, escreva também, numa linha sozinha no fim da resposta, LOCAL: loja — o sistema manda logo depois a localização da loja (o alfinete 📍 do mapa), para o cliente abrir no aplicativo de mapas. Só quando perguntarem onde fica, e uma vez na conversa.',
   );
 }
+
+/**
+ * PEDIDO AGENDADO (D4c, mig 455 — protótipo `regem-atendente-alergenos-agendado.html`, parte 2, G1–G10): só quando a
+ * loja ligou "Aceitar pedido agendado" (nasce desligado). No fluxo 2 o robô marca o horário no pedido em montagem
+ * (`mexer_no_pedido` › `agendar`); no fluxo 1 ele aponta o "Para quando?" do cardápio.
+ */
+const secaoDoAgendado = (dados: DadosDasInstrucoes, fluxo2: boolean): string[] => {
+  if (dados?.pedidoAgendado !== true) return [];
+  if (!fluxo2)
+    return [
+      linhas(
+        'PEDIDO AGENDADO',
+        '- A loja aceita pedido para mais tarde: no link do cardápio, ao fechar o pedido, o cliente escolhe "Para quando?" — o dia e o horário, de 15 em 15 minutos. Com a loja fechada agora, diga que dá para agendar pelo link para quando abrirmos.',
+      ),
+    ];
+  return [
+    linhas(
+      'PEDIDO AGENDADO (a loja aceita pedido para mais tarde)',
+      '- Loja fechada agora e consultar_loja traz pedidoAgendado: diga quando abrimos e ofereça montar o pedido agora, agendado para um horário em que estaremos abertos. Não ofereça agendar quando pedidoAgendado vier vazio.',
+      '- O cliente quer o pedido para um horário ("para as 20h", "amanhã no almoço"), ou a loja está fechada agora e o sistema pergunta o horário (proximo.campo = horario, com os horários livres em proximo.opcoes): mande mexer_no_pedido com acao = agendar e observacao = o dia e a hora ("hoje 19:30", "amanhã 12:00"). Os horários são de 15 em 15 minutos. "No almoço" ou "à noite" não é horário: pergunte a hora.',
+      '- Se voltar ok = false, explique a mensagem com as suas palavras e ofereça as sugestoes que vierem (os horários livres mais perto) na linha OPCOES. Nunca prometa um horário que o sistema não confirmou: o confirmado vem no pedido (agendadoPara) e no resumo.',
+      '- Desistiu de agendar ("o quanto antes"): acao = agendar com observacao = "o quanto antes" — só serve com a loja aberta agora.',
+      '- Pagamento do agendado: se o sistema oferecer só o Pix, é porque o agendado desta loja se paga na hora. Ao registrar, o SISTEMA MANDA SOZINHO o código Pix copia e cola (pixEnviado = true): diga só que o pedido fica garantido quando o Pix entrar, em até 10 minutos. Se vier pixCopiaECola em vez disso, mande o código numa mensagem só com ele.',
+      '- Pedido agendado JÁ REGISTRADO, até a cozinha começar: mudar o horário → pergunte o novo dia e a hora, confirme com o cliente ("Mudo o pedido nº X para amanhã, 20:00?") e, com o sim, mande mexer_no_pedido com acao = pedido_horario e observacao = o dia e a hora (com mais de um pedido agendado, o número dele em linha); o Regem manda o aviso do horário novo. Cancelar → mexer_no_pedido com acao = cancelar_agendado: a primeira resposta traz a pergunta e os botões "Sim, cancelar" | "Não, manter"; só depois que o CLIENTE tocar em "Sim, cancelar", mande de novo com observacao = "Sim, cancelar". Se voltar ok = false (a cozinha já começou), explique a mensagem e chame a equipe (veja QUANDO CHAMAR UMA PESSOA).',
+    ),
+  ];
+};
 
 /**
  * PRINT DE AJUDA (D3, mig 442 `robo_config.print_ajuda` — protótipo `regem-atendente-alergenos-agendado.html`, parte 3,
@@ -539,11 +572,14 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
       pagamentoNaConversa(true),
       fotoEDocumento(true),
       ...secaoDoPrint(dados, true),
+      ...secaoDoAgendado(dados, true),
       ondeFicaALoja(),
       clienteChateado(),
       quandoChamarUmaPessoa()
         .replace('não consegue usar o link ou fazer o pedido; ', 'tentou montar o pedido aqui e não deu certo; ')
-        .replace('quer mudar ou cancelar um pedido; ', 'quer cancelar um pedido; quer mudar um pedido e você não pode mudar (veja MUDAR UM PEDIDO JÁ FEITO); '),
+        .replace('quer mudar ou cancelar um pedido; ', 'quer cancelar um pedido; quer mudar um pedido e você não pode mudar (veja MUDAR UM PEDIDO JÁ FEITO); ')
+        // D4c: com o agendado ligado, o pedido agendado antes do preparo o próprio atendente muda e cancela.
+        .replace('quer cancelar um pedido; ', dados?.pedidoAgendado === true ? 'quer cancelar um pedido (menos o agendado antes da cozinha começar: veja PEDIDO AGENDADO); ' : 'quer cancelar um pedido; '),
       ...secaoDosAssuntos(dados),
       ...secaoDoConhecimento(dados),
       ferramentasDoFluxo2(),
@@ -563,6 +599,7 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
     pagamentoNaConversa(false),
     fotoEDocumento(false),
     ...secaoDoPrint(dados, false),
+    ...secaoDoAgendado(dados, false),
     ondeFicaALoja(),
     clienteChateado(),
     quandoChamarUmaPessoa(),

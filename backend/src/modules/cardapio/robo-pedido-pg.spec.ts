@@ -16,6 +16,7 @@ import { VendasService } from '../vendas/vendas.service';
 import { CardapioService } from './cardapio.service';
 import { RoboPedidoService } from './robo-pedido.service';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
+import { emSaoPaulo } from '../../common/pedido-agendado';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -65,14 +66,19 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
         await q(
           `insert into pedido_externo (tenant_id, unidade_id, canal, client_ref, display_id, cliente_nome, cliente_telefone, tipo, endereco,
              endereco_rua, endereco_numero, endereco_referencia, endereco_bairro, itens, total, forma_pagamento, taxa_entrega, desconto,
-             troco_para, valor_bruto, observacao, status)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15,$16,$17,$18,$19,$20,$21,'novo') returning *`,
+             troco_para, valor_bruto, observacao, status, agendamento, retirada_tipo)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15,$16,$17,$18,$19,$20,$21,'novo',$22,$23) returning *`,
           [tenantId, unidadeId, canal, x.clientRef, n.displayId, n.cliente, n.clienteTelefone, n.tipo, n.endereco ?? null, x.enderecoRua ?? null,
             x.enderecoNumero ?? null, x.enderecoReferencia ?? null, x.enderecoBairro ?? null, JSON.stringify(n.itens), n.total, n.formaPagamento,
-            x.taxaEntrega ?? 0, x.desconto ?? 0, x.trocoPara ?? null, n.valorBruto ?? null, x.observacao ?? null],
+            x.taxaEntrega ?? 0, x.desconto ?? 0, x.trocoPara ?? null, n.valorBruto ?? null, x.observacao ?? null,
+            // O pedido agendado (mig 455, D4c): o horário e a marca, como o Delivery grava.
+            x.agendamento ? new Date(x.agendamento) : null, x.retiradaTipo ?? null],
         )
       ).map((r: any) => ({ ...r, id: r.id, displayId: r.display_id, status: r.status, unidadeId: r.unidade_id }))[0],
     aceitar: async (_t: string, _u: any, id: string) => q(`update pedido_externo set status = 'confirmado' where id = $1`, [id]),
+    // D4c: o agendado registrado — o cancelamento e o aviso do "horário mudou" (o teste lê só a situação e o horário).
+    cancelarSistema: async (_t: string, id: string) => q(`update pedido_externo set status = 'cancelado' where id = $1`, [id]),
+    avisarHorarioDoAgendado: async () => undefined,
   } as any;
   // A fidelidade e o cashback de verdade: o robô pergunta, desconta e registra pelas contas deles (Bloco 1b).
   const cardapio = new CardapioService(db, vendas, delivery, {} as any, new FidelidadeService(db), new CashbackService(db), eventos, {} as any);
@@ -802,5 +808,81 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     expect(await robo.cancelar(c)).toEqual({ ok: true, feito: 'pedido em montagem cancelado' });
     expect((await robo.ver(c)).pedido.itens).toEqual([]);
     expect(await q(`select count(*)::int as n from pedido_externo where tenant_id = $1`, [l.t])).toEqual([{ n: 0 }]);
+  });
+
+  // D4c (mig 455 — protótipo, parte 2, G4 e G5): a loja FECHADA hoje (só abre amanhã), com "Aceitar pedido agendado"
+  // ligado e o Pix online no cardápio. O Regem pergunta o horário com os livres, o atendente marca, a retirada passa,
+  // só o Pix serve, o resumo mostra o horário e o registro grava o agendamento e manda o código Pix sozinho.
+  it('pedido agendado pelo atendente: a loja fechada pergunta o horário, só o Pix, o resumo com o horário e o Pix ao registrar', async () => {
+    const l = await loja();
+    const amanha = (emSaoPaulo(new Date()).semana + 1) % 7;
+    await q(
+      `update cardapio_config set horarios = $2::jsonb, agendado_ativo = true, agendado_antecedencia_min = 45, agendado_dias = 1,
+         agendado_limite_janela = 4 where tenant_id = $1`,
+      [l.t, JSON.stringify([{ dia: amanha, ativo: true, abre: '00:00', fecha: '23:59' }])],
+    );
+    const c = await l.ctx();
+    await robo.mexerNosItens(c, { acao: 'adicionar', produto: 'coca lata', quantidade: 4 });
+    let r: any = await robo.mexerNosItens(c, { acao: 'fechar' });
+    // Fechada agora: a pergunta é o horário, com os livres de amanhã (no máximo 9).
+    expect(r.pedido.proximo).toMatchObject({ campo: 'horario' });
+    const opcoes: string[] = r.pedido.proximo.opcoes;
+    expect(opcoes.length).toBeGreaterThan(0);
+    expect(opcoes.length).toBeLessThanOrEqual(9);
+    expect(opcoes.every((o) => /^Amanhã \d{2}:\d{2}$/.test(o))).toBe(true);
+    // Sem horário, a retirada fechada não passa; hoje não tem horário (a loja não abre).
+    expect(await robo.definirEntrega(c, { tipo: 'retirada' })).toMatchObject({ ok: false, motivo: 'fechado' });
+    expect(await robo.mexerNosItens(c, { acao: 'agendar', observacao: 'hoje 20:00' })).toMatchObject({ ok: false, motivo: 'horario' });
+    expect(await robo.mexerNosItens(c, { acao: 'agendar', observacao: 'no almoço' })).toMatchObject({ ok: false, motivo: 'horario' });
+    // O toque na primeira opção marca; a retirada passa.
+    r = await robo.mexerNosItens(c, { acao: 'agendar', observacao: opcoes[0] });
+    expect(r.ok).toBe(true);
+    expect(r.pedido.agendadoPara).toBe(`amanhã, ${opcoes[0].slice(-5)}`);
+    r = await robo.definirEntrega(c, { tipo: 'retirada' });
+    expect(r.ok).toBe(true);
+    await robo.definirNome(c, { nome: 'Bia' });
+    // G5: só o Pix — o dinheiro não serve.
+    r = await robo.definirPagamento(c, { forma: 'dinheiro' });
+    expect(r).toMatchObject({ ok: false });
+    expect(r.pedido.proximo).toMatchObject({ campo: 'pagamento', opcoes: ['Pix — pague agora, pelo código que mandamos'] });
+    r = await robo.definirPagamento(c, { forma: 'Pix — pague agora, pelo código que mandamos' });
+    expect(r.pedido).toMatchObject({ podeRegistrar: true, resumoEnviado: true });
+    expect(enviados[enviados.length - 1].texto).toContain(`🕒 *Agendado para amanhã, ${opcoes[0].slice(-5)}*`);
+
+    // "Pode registrar": grava o agendamento e a marca; o Pix sai sozinho (texto e, numa mensagem só, o código).
+    expect(await l.responder('Pode registrar')).toBe(true);
+    const espiao = jest
+      .spyOn(cardapio, 'pagarPedidoPublico')
+      .mockResolvedValueOnce({ ok: true, statusPagamento: 'aguardando', pix: { qrCode: '00020126PIX-DE-TESTE', qrCodeBase64: null, ticketUrl: null } } as any);
+    const antesDoRegistro = enviados.length;
+    const reg: any = await robo.registrar(c, {});
+    espiao.mockRestore();
+    expect(reg).toMatchObject({ ok: true, pixEnviado: true });
+    expect(reg.orientacao).toContain('O código Pix JÁ FOI ENVIADO');
+    const [ped] = await q(`select * from pedido_externo where tenant_id = $1`, [l.t]);
+    expect(ped).toMatchObject({ tipo: 'retirada', forma_pagamento: 'pix', retirada_tipo: 'agendado' });
+    expect(emSaoPaulo(new Date(ped.agendamento)).hora).toBe(opcoes[0].slice(-5));
+    const depois = enviados.slice(antesDoRegistro).map((e) => e.texto);
+    expect(depois).toHaveLength(3); // o resumo final, o texto do Pix e o código
+    expect(depois[1]).toContain('Aqui está o Pix de R$ 24,00');
+    expect(depois[2]).toBe('00020126PIX-DE-TESTE');
+
+    // G6 pela conversa: o horário do pedido registrado muda pelo serviço da página (o aviso "horário mudou" sai de lá).
+    const outro = opcoes.find((o) => o !== opcoes[0]) ?? opcoes[0];
+    r = await robo.mexerNosItens(c, { acao: 'pedido_horario', observacao: 'no almoço' });
+    expect(r).toMatchObject({ ok: false, motivo: 'horario' });
+    r = await robo.mexerNosItens(c, { acao: 'pedido_horario', observacao: outro });
+    expect(r).toMatchObject({ ok: true, numero: String(ped.display_id), agendadoPara: `amanhã, ${outro.slice(-5)}` });
+    const [mudou] = await q(`select agendamento from pedido_externo where id = $1`, [ped.id]);
+    expect(emSaoPaulo(new Date(mudou.agendamento)).hora).toBe(outro.slice(-5));
+    // Cancelar: sem o "Sim, cancelar" do cliente, só a pergunta com os botões; com ele, cancela pelo serviço da página.
+    r = await robo.mexerNosItens(c, { acao: 'cancelar_agendado' });
+    expect(r).toMatchObject({ ok: false, motivo: 'confirmar_cancelamento', opcoes: ['Sim, cancelar', 'Não, manter'] });
+    expect((await q(`select status from pedido_externo where id = $1`, [ped.id]))[0].status).not.toBe('cancelado');
+    r = await robo.mexerNosItens(c, { acao: 'cancelar_agendado', observacao: 'Sim, cancelar' });
+    expect(r).toMatchObject({ ok: true, cancelado: true });
+    expect((await q(`select status from pedido_externo where id = $1`, [ped.id]))[0].status).toBe('cancelado');
+    // Nada mais agendado deste número.
+    expect(await robo.mexerNosItens(c, { acao: 'pedido_horario', observacao: outro })).toMatchObject({ ok: false, motivo: 'sem_agendado' });
   });
 });

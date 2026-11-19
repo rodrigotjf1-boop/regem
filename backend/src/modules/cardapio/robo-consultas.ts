@@ -123,6 +123,11 @@ export function resumoDaLoja(menu: any, linkCardapio: string, agora: Date = new 
     referencia: loja.endereco?.referencia ?? null,
     // D5: a loja tem as coordenadas no cadastro — o atendente pode mandar o alfinete do mapa (a linha `LOCAL: loja`).
     localizacaoNoMapa: temCoordenadas(loja.lojaLat, loja.lojaLng),
+    // D4c: a loja aceita pedido agendado (mig 455) — fechada agora, o atendente oferece agendar para quando abrir; o Pix
+    // na hora (G5) quando a loja tem o Pix online no cardápio.
+    pedidoAgendado: loja.agendado?.ativo
+      ? { aceita: true, janelaMin: Number(loja.agendado.janelaMin) || 15, pixNaHora: loja.agendado.pixObrigatorio === true }
+      : null,
     contatos: { instagram: loja.instagram ?? null, site: loja.site ?? null },
     taxaPor: porDistancia ? 'distancia' : porArea ? 'mapa' : 'bairro',
     bairros: porArea ? [] : (Array.isArray(menu?.bairros) ? menu.bairros : []).map((b: any) => ({ nome: b.nome, taxa: reais(b.taxa) })),
