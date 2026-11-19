@@ -109,7 +109,8 @@ export function KdsCartaoPedido({
               {e.texto}
             </EtiquetaKds>
           ))}
-          {Number.isFinite(para) && !cancelado && <EtiquetaKds>Encomenda · para {hm(para)}</EtiquetaKds>}
+          {/* Pedido agendado (mig 455, G4): o mesmo cartão da encomenda, com a etiqueta "Agendado". */}
+          {Number.isFinite(para) && !cancelado && <EtiquetaKds>{p.encomendaAgendado ? "Agendado" : "Encomenda"} · para {hm(para)}</EtiquetaKds>}
           {cancelado && <EtiquetaKds tipo="cheia">Cancelado</EtiquetaKds>}
           {atrasado && <EtiquetaKds tipo="atraso">Atrasado</EtiquetaKds>}
           {alterado && <EtiquetaKds>Alterado</EtiquetaKds>}

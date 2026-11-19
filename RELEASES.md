@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Pedido agendado — D4a (19/11; protótipo `mockups/regem-atendente-alergenos-agendado.html`, parte 2; mig 455 NAS DUAS
+  PONTAS — `cardapio_config.agendado_*` e `pedido_externo.agendado_preparo_avisado_em`).** Os ajustes em Cardápio digital ›
+  Encomenda (nasce desligado), o "Para quando?" com o dia e as janelas de 15 min no cardápio online, o recebimento só Pix
+  com o limite por janela, o cartão "Agendado" no KDS com o começo no tempo de entrega/retirada, a situação "Agendados" no
+  painel e os avisos (confirmação no aceite; o "em produção" pela rotina da nuvem). Colunas novas em tabelas que já
+  sincronizam (sem tabela nova; o daemon não muda) → a migration, o KDS e o painel vão no `.zip`.
+
 - **Localização da loja pelo atendente virtual (18/11, D5; SEM migration; só nuvem).** A linha `LOCAL: loja` do robô vira o
   alfinete do mapa no WhatsApp, depois do endereço escrito (instruções .f30). O robô só roda na nuvem → vai no `.zip` sem
   efeito na loja.

@@ -2000,6 +2000,9 @@ export const api = {
     pub(`/publico/cardapio/${token}${previaEvento ? `?evento=${encodeURIComponent(previaEvento)}` : ''}`),
   cardapioPedido: (token: string, body: Record<string, unknown>) =>
     pub(`/publico/cardapio/${token}/pedido`, { method: 'POST', body: JSON.stringify(body) }),
+  // Pedido agendado (mig 455): as janelas de 15 min do dia (o dia, os dias que dá para escolher e a esgotada marcada).
+  cardapioJanelasAgendado: (token: string, dia: string, tipo: string) =>
+    pub(`/publico/cardapio/${token}/agendado/janelas?dia=${encodeURIComponent(dia)}&tipo=${encodeURIComponent(tipo)}`),
   // `clienteToken` (Sua conta) prova quem usa: o cupom pessoal e o "só aniversariantes" (Onda 3, mig 357) pedem.
   cardapioCupomValidar: (token: string, codigo: string, subtotal: number, telefone?: string, clienteToken?: string) =>
     pub(`/publico/cardapio/${token}/cupom`, { method: 'POST', body: JSON.stringify({ codigo, subtotal, telefone, clienteToken }) }),

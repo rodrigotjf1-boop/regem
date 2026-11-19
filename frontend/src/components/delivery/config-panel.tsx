@@ -29,6 +29,7 @@ import { AjustesDoAtendimento } from '@/components/atendimento/ajustes-do-atendi
 import { localizacaoAtual, geocodificar, mapaEmbedUrl } from '@/lib/geo';
 import { INDICADO_PARA, ROTULO_TEMPLATE, TEMPLATES, templateDe } from '@/components/loja/cardapio/tipos-template';
 import { FraseDeCautela } from '@/components/delivery/frase-de-cautela';
+import { PedidoAgendadoAjustes } from '@/components/delivery/pedido-agendado-ajustes';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -767,6 +768,8 @@ export function ConfigPanel({
                 {/* ENCOMENDA (mig 186) — opt-in por loja */}
                 {sec === 'encomenda' && (
                   <Secao dica="Encomenda = pedido no cardápio para dia e hora à frente — pode ser outro dia OU o mesmo dia mais tarde (marmitaria, bolos, kits). Fica DESLIGADO por padrão; ligue só se a loja trabalha assim.">
+                    {/* Pedido agendado (mig 455, D4): o pedido comum com hora marcada, em janelas de 15 min. */}
+                    <PedidoAgendadoAjustes loja={loja} up={up} pode={isGestor} />
                     <label className="mb-3 flex items-center gap-2 text-sm">
                       <input type="checkbox" className="h-4 w-4 accent-primary" disabled={!isGestor}
                         checked={!!loja.encomendaAtiva}

@@ -10,6 +10,7 @@ import { rotuloAvancar, tituloEtapa, type Etapa } from './etapas';
 import { OPCOES_TEMPLATE } from './tipos-template';
 import { brl, Caixa, Foto, Ic, irAoCampo, Qtd, type NomeIcone } from './partes';
 import { PedidoIgualDialogo } from './pedido-igual-dialogo';
+import { AgendadoJanelas } from './agendado-janelas';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -826,8 +827,11 @@ function NotaFrete({ c }: { c: Cardapio }) {
 function Quando({ c }: { c: Cardapio }) {
   const set = (patch: any) => c.setChk((s: any) => ({ ...s, ...patch }));
   const enc = c.enc;
-  // Sem o modo encomenda, o pedido é sempre para agora (e a loja fechada não aceita pedido).
-  if (!c.encAtiva) return null;
+  // Sem encomenda nem pedido agendado, o pedido é sempre para agora (e a loja fechada não aceita pedido).
+  if (!c.encAtiva && !c.agAtivo) return null;
+  // Pedido agendado (mig 455, D4): "Agendar" mostra o dia e as janelas de 15 min; com a encomenda também ligada, ela vira
+  // a opção "Encomenda" (data e hora livres, como antes — G1).
+  const comJanelas = c.agAtivo && c.modoAgenda === 'agendado';
   const tempo = c.chk.tipo === 'entrega' ? c.loja?.tempoEntregaMin : c.loja?.tempoRetiradaMin;
   // Antecedência em HORAS (permite o mesmo dia, mais tarde); o servidor revalida.
   const min = toLocalDT(new Date(Date.now() + (Number(enc?.antecedenciaHoras) || 0) * 3600000));
@@ -840,7 +844,7 @@ function Quando({ c }: { c: Cardapio }) {
   const sinal = sinalDe(c);
   return (
     <div className="c-sec">
-      <h3 className="c-h">Quando?</h3>
+      <h3 className="c-h">{c.agAtivo ? 'Para quando?' : 'Quando?'}</h3>
       <div className="c-seg">
         <button type="button" aria-pressed={!c.agendar} disabled={c.soAgendado} onClick={() => set({ quando: 'agora', agendamento: '' })}>
           <span>
@@ -852,10 +856,23 @@ function Quando({ c }: { c: Cardapio }) {
           <span>
             <Ic n="clock" s={16} /> Agendar
           </span>
-          <small>escolha o horário</small>
+          <small>{c.agAtivo ? 'escolha o dia e o horário' : 'escolha o horário'}</small>
         </button>
       </div>
-      {c.agendar && (
+      {c.agendar && c.agAtivo && c.encAtiva && (
+        <div className="c-seg">
+          <button type="button" aria-pressed={comJanelas} onClick={() => set({ modoAgenda: 'agendado', agendamento: '' })}>
+            <span>Horário marcado</span>
+            <small>janelas de 15 min</small>
+          </button>
+          <button type="button" aria-pressed={!comJanelas} onClick={() => set({ modoAgenda: 'encomenda', agendamento: '' })}>
+            <span>Encomenda</span>
+            <small>outra data</small>
+          </button>
+        </div>
+      )}
+      {c.agendar && comJanelas && <AgendadoJanelas c={c} />}
+      {c.agendar && !comJanelas && (
         <>
           <div className="c-f">
             <label htmlFor="lp-agenda">
@@ -1001,7 +1018,8 @@ function EtapaDados({ c }: { c: Cardapio }) {
 function FormasPagamento({ c }: { c: Cardapio }) {
   const op = OPCOES_TEMPLATE[c.template];
   const set = (patch: any) => c.setChk((s: any) => ({ ...s, ...patch }));
-  const formas: string[] = c.loja?.pagamentos ?? [];
+  // G5 (mig 455): no pedido agendado com Pix online, só o Pix aparece (`pagamentosDoPedido`).
+  const formas: string[] = c.pagamentosDoPedido ?? c.loja?.pagamentos ?? [];
   if (!formas.length) return null;
   const onde = ondePaga(c);
   const agora = formas.filter((pg) => formaInfo(pg, onde).agora);
@@ -1315,7 +1333,9 @@ function EtapaRevisar({ c }: { c: Cardapio }) {
             </button>
           )}
         </div>
-        {c.soAgendado && (
+        {/* Pedido agendado (mig 455): no expresso com a loja fechada, o dia e as janelas de 15 min. */}
+        {c.soAgendado && c.agAtivo && c.modoAgenda === 'agendado' && <AgendadoJanelas c={c} />}
+        {c.soAgendado && !(c.agAtivo && c.modoAgenda === 'agendado') && (
           <>
             <div className="c-f">
               <label htmlFor="lp-agenda">Agendar para</label>
