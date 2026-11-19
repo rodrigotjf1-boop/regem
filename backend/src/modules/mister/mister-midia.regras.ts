@@ -26,12 +26,95 @@ export const MIMES_DO_MISTER_NA_IA = ['image/jpeg', 'image/png', 'image/webp', '
 /** Até 5 MB (o mesmo teto da foto do cliente e dos documentos). */
 export const MAX_BYTES_DA_MIDIA = 5 * 1024 * 1024;
 
-/** Os textos fixos desta fase (sem IA). O caminho do menu foi conferido no `shell.tsx` e na aba do Delivery (V65). */
+/** Os textos fixos (sem IA). O caminho do menu foi conferido no `shell.tsx` e na aba do Delivery (V65). */
 export const TEXTOS_DA_MIDIA = {
   naoViu: '📷 Não consegui ver a foto agora. Pode mandar de novo ou escrever o que precisa?',
   semGraph:
-    'Por enquanto eu só leio texto nesta empresa. Para eu ver fotos, o presidente liga o DMS Graph em Delivery › Configurações › Integrações. Leva um minuto.',
+    'Por enquanto eu só leio texto nesta empresa. Para eu ouvir áudios e ver fotos, o presidente liga o DMS Graph em Delivery › Configurações › Integrações. Leva um minuto.',
+  // M5b: o áudio não tem reserva (a IA da empresa não ouve) — cada caso diz o que fazer.
+  naoOuviu: '🎧 Não consegui entender o áudio. Pode mandar de novo ou escrever?',
+  audioLongo: '🎧 O áudio passou de 3 minutos. Pode mandar em partes menores ou escrever?',
+  audioTipo: '🎧 Não consigo ouvir esse tipo de áudio. Pode mandar como mensagem de voz ou escrever?',
+  audioFranquia: (volta: string) =>
+    `🎧 Este mês a empresa já usou as leituras de foto e áudio do DMS Graph, então não consigo ouvir áudios até ${volta}. Pode escrever? As fotos eu continuo lendo pela IA da empresa.`,
 } as const;
+
+// ───────────────────────────── o áudio (M5b) ─────────────────────────────
+// O áudio vai à ferramenta `ouvir_audio` do DMS Graph (contrato 1.1.0), que transcreve pelo Gemini — o mesmo do atendente
+// (decisão 1). Sem reserva: a IA da empresa não ouve. A transcrição vira a pergunta, e a resposta abre com "🎧 Entendi".
+
+/** O que a `ouvir_audio` aceita (a nota de voz do WhatsApp é OGG/Opus; o AMR e o M4A não: o Gemini não lê). */
+export const MIMES_DO_AUDIO = ['audio/ogg', 'audio/mpeg', 'audio/aac', 'audio/wav', 'audio/flac'] as const;
+/** O começo da chave de idempotência do áudio no Graph (nunca divide com a foto). */
+export const PREFIXO_DA_CHAVE_DO_AUDIO = 'regem-graph-ouvir';
+/** Até 3 minutos (o que a conversa promete; o Graph confere de novo). */
+export const AUDIO_MAX_SEGUNDOS = 180;
+/** O prazo do Graph para transcrever (sem reserva, o prazo é todo dele). */
+export const PRAZO_DO_AUDIO_MS = 25_000;
+
+/** O tipo do áudio como a `ouvir_audio` aceita (sem "; codecs=…"; "audio/mp3" vira "audio/mpeg"), ou null. */
+export function tipoDoAudio(mime: unknown): string | null {
+  const m = String(mime ?? '').split(';')[0].trim().toLowerCase();
+  const normal = m === 'audio/mp3' ? 'audio/mpeg' : m === 'audio/x-wav' || m === 'audio/wave' ? 'audio/wav' : m;
+  return (MIMES_DO_AUDIO as readonly string[]).includes(normal) ? normal : null;
+}
+
+/**
+ * A duração de um OGG/Opus em segundos, lida do próprio arquivo (a mesma conta do Graph): a posição da última página, em
+ * amostras de 48 kHz, menos o "pre-skip" do cabeçalho. Null quando não é Opus ou não dá para ler.
+ */
+export function duracaoDoOggOpus(bytes: Buffer): number | null {
+  if (bytes.length < 47 || bytes.toString('ascii', 0, 4) !== 'OggS') return null;
+  const cab = bytes.indexOf('OpusHead');
+  if (cab < 0 || cab + 12 > bytes.length) return null;
+  const preSkip = bytes.readUInt16LE(cab + 10);
+  const ultima = bytes.lastIndexOf('OggS');
+  if (ultima < 0 || ultima + 14 > bytes.length) return null;
+  const posicao = bytes.readBigUInt64LE(ultima + 6);
+  if (posicao === 0xffffffffffffffffn) return null;
+  const amostras = Number(posicao) - preSkip;
+  if (!Number.isFinite(amostras) || amostras < 0) return null;
+  return Math.round((amostras / 48_000) * 10) / 10;
+}
+
+/** O que o áudio disse. */
+export type OQueOuviu = { transcricao: string; inaudivel: boolean };
+
+/** O resultado da `ouvir_audio` (`{ tipoArquivo: 'audio', transcricao, inaudivel, … }`) → o que o áudio disse, ou null. */
+export function oQueOGraphOuviu(dados: unknown): OQueOuviu | null {
+  if (!dados || typeof dados !== 'object' || Array.isArray(dados)) return null;
+  const d = dados as Record<string, unknown>;
+  if (d.tipoArquivo !== 'audio' || typeof d.transcricao !== 'string' || typeof d.inaudivel !== 'boolean') return null;
+  const transcricao = d.transcricao.replace(/\s+/g, ' ').trim();
+  return { transcricao, inaudivel: d.inaudivel || !transcricao };
+}
+
+/** A marca do começo da pergunta que veio de um áudio. */
+const MARCA_DO_AUDIO = '⟦áudio⟧';
+
+/** A pergunta que entra na fila: a marca e o que foi dito (é a pergunta da pessoa, nas palavras dela). */
+export function perguntaComAudio(transcricao: string): string {
+  return `${MARCA_DO_AUDIO} ${cortar(transcricao.replace(/\s+/g, ' ').trim(), 950)}`;
+}
+
+/**
+ * A linha que abre a resposta a uma pergunta que veio de mídia: "📷 Vi: …" (foto) ou "🎧 Entendi: "…"" (áudio), já no
+ * formato do WhatsApp — ou null. Com várias no mesmo lote, a primeira.
+ */
+export function linhaDaMidia(pergunta: unknown): string | null {
+  const texto = String(pergunta ?? '');
+  const audio = new RegExp(`(?:^|\\n)${MARCA_DO_AUDIO} ([^\\n]+)`).exec(texto);
+  const foto = new RegExp(`(?:^|\\n)${'⟦foto⟧'} ([^\\n]+)`).exec(texto);
+  if (audio && (!foto || audio.index < foto.index)) return `🎧 _Entendi:_ "${cortar(audio[1].trim(), 160)}"`;
+  return linhaDoQueViu(texto);
+}
+
+/** O primeiro dia do mês seguinte a `dia` (AAAA-MM-DD), em "dd/mm" (a franquia do Graph volta nele). */
+export function primeiroDoMesQueVem(dia: string): string {
+  const [a, m] = dia.split('-').map(Number);
+  const mes = m === 12 ? 1 : m + 1;
+  return `01/${String(mes).padStart(2, '0')}${m === 12 ? `/${a + 1}` : ''}`;
+}
 
 /** O tipo do arquivo, normalizado (sem parâmetros; "image/jpg" vira "image/jpeg"), se for um dos `aceitos`. */
 export function tipoAceito(mime: unknown, aceitos: readonly string[]): string | null {
@@ -154,4 +237,9 @@ export function linhaDoQueViu(pergunta: unknown): string | null {
 /** A pergunta veio de uma foto? (Não passa pelos comandos PARAR/VOLTAR nem completa documento.) */
 export function veioDeFoto(pergunta: unknown): boolean {
   return String(pergunta ?? '').startsWith(MARCA_DA_FOTO);
+}
+
+/** A pergunta veio de um áudio? */
+export function veioDeAudio(pergunta: unknown): boolean {
+  return String(pergunta ?? '').startsWith(MARCA_DO_AUDIO);
 }

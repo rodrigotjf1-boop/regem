@@ -2,15 +2,23 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { midiaDaMeta } from './mister-entrada.service';
 import {
+  AUDIO_MAX_SEGUNDOS,
   MIMES_DO_MISTER_NA_IA,
   TEXTOS_DA_MIDIA,
+  duracaoDoOggOpus,
   instrucoesDaFotoDoMister,
   lerOQueAIaViu,
+  linhaDaMidia,
   linhaDoQueViu,
   midiaNaInstalacao,
+  oQueOGraphOuviu,
   oQueOGraphViu,
+  perguntaComAudio,
   perguntaComFoto,
+  primeiroDoMesQueVem,
   tipoAceito,
+  tipoDoAudio,
+  veioDeAudio,
   veioDeFoto,
 } from './mister-midia.regras';
 import { INSTRUCOES_DO_MISTER, TETOS } from './mister-agente.regras';
@@ -127,6 +135,78 @@ describe('a foto no Mister (M5a): as regras', () => {
       legenda: 'dá até sábado?',
     });
     expect(midiaDaMeta({ type: 'document', document: { id: '987654', mime_type: 'application/pdf' } })!.legenda).toBeNull();
+  });
+
+  // ─────────── M5b: o áudio ───────────
+  /** Um OGG/Opus mínimo de `segundos` (o mesmo desenho do teste do Graph). */
+  const oggOpus = (segundos: number, preSkip = 312) => {
+    const pagina = (posicao: number, corpo: Buffer) => {
+      const h = Buffer.alloc(27);
+      h.write('OggS', 0, 'ascii');
+      h.writeBigUInt64LE(BigInt(posicao), 6);
+      return Buffer.concat([h, corpo]);
+    };
+    const cab = Buffer.alloc(19);
+    cab.write('OpusHead', 0, 'ascii');
+    cab[8] = 1;
+    cab[9] = 1;
+    cab.writeUInt16LE(preSkip, 10);
+    cab.writeUInt32LE(48_000, 12);
+    return Buffer.concat([pagina(0, cab), pagina(0, Buffer.from('OpusTags')), pagina(preSkip + Math.round(segundos * 48_000), Buffer.alloc(30, 9))]);
+  };
+
+  it('o áudio: o tipo como a `ouvir_audio` aceita (sem "; codecs"); a duração do OGG/Opus; o AMR e o M4A não', () => {
+    expect(tipoDoAudio('audio/ogg; codecs=opus')).toBe('audio/ogg');
+    expect(tipoDoAudio('audio/MP3')).toBe('audio/mpeg');
+    expect(tipoDoAudio('audio/x-wav')).toBe('audio/wav');
+    expect(tipoDoAudio('audio/amr')).toBeNull();
+    expect(tipoDoAudio('audio/mp4')).toBeNull();
+    expect(tipoDoAudio(null)).toBeNull();
+    expect(duracaoDoOggOpus(oggOpus(9))).toBe(9);
+    expect(duracaoDoOggOpus(oggOpus(181, 0))).toBe(181);
+    expect(duracaoDoOggOpus(Buffer.from('não é ogg, mas é comprido o bastante para a conta de bytes'))).toBeNull();
+    expect(AUDIO_MAX_SEGUNDOS).toBe(180);
+  });
+
+  it('o que o Graph ouviu: a transcrição; o inaudível e o texto vazio; fora do formato → null', () => {
+    expect(oQueOGraphOuviu({ tipoArquivo: 'audio', transcricao: '  Quanto vendeu\nontem?  ', inaudivel: false, idioma: 'pt-BR', franquia: {} })).toEqual({ transcricao: 'Quanto vendeu ontem?', inaudivel: false });
+    expect(oQueOGraphOuviu({ tipoArquivo: 'audio', transcricao: '', inaudivel: false })).toEqual({ transcricao: '', inaudivel: true });
+    expect(oQueOGraphOuviu({ tipoArquivo: 'audio', transcricao: 'algo', inaudivel: true })!.inaudivel).toBe(true);
+    expect(oQueOGraphOuviu({ tipoArquivo: 'imagem', resultados: [] })).toBeNull();
+    expect(oQueOGraphOuviu({ tipoArquivo: 'audio', transcricao: 3, inaudivel: false })).toBeNull();
+    expect(oQueOGraphOuviu(null)).toBeNull();
+  });
+
+  it('a pergunta do áudio e a linha do "🎧 Entendi"; com foto e áudio no mesmo lote, vale a primeira', () => {
+    const p = perguntaComAudio('Quanto vendeu ontem no iFood e quanto deu de taxa?');
+    expect(p).toBe('⟦áudio⟧ Quanto vendeu ontem no iFood e quanto deu de taxa?');
+    expect(veioDeAudio(p)).toBe(true);
+    expect(veioDeFoto(p)).toBe(false);
+    expect(linhaDaMidia(p)).toBe('🎧 _Entendi:_ "Quanto vendeu ontem no iFood e quanto deu de taxa?"');
+    expect(perguntaComAudio('a '.repeat(800)).length).toBeLessThanOrEqual(TETOS.pergunta);
+    expect(linhaDaMidia(perguntaComAudio('palavra '.repeat(60)))!.length).toBeLessThan(200);
+    const foto = perguntaComFoto({ resumo: 'Três caixas no freezer', descricao: 'x', financeiro: false }, null, 'graph');
+    expect(linhaDaMidia(foto)).toBe('📷 _Vi:_ Três caixas no freezer');
+    expect(linhaDaMidia(`${p}\n${foto}`)).toMatch(/^🎧/);
+    expect(linhaDaMidia(`${foto}\n${p}`)).toMatch(/^📷/);
+    expect(linhaDaMidia('quanto vendi hoje?')).toBeNull();
+    expect(INSTRUCOES_DO_MISTER).toContain('⟦áudio⟧');
+  });
+
+  it('a franquia volta no dia 1º do mês seguinte (dezembro vira janeiro do ano seguinte)', () => {
+    expect(primeiroDoMesQueVem('2026-11-19')).toBe('01/12');
+    expect(primeiroDoMesQueVem('2026-12-05')).toBe('01/01/2027');
+    expect(TEXTOS_DA_MIDIA.audioFranquia('01/12')).toContain('até 01/12');
+    expect(TEXTOS_DA_MIDIA.semGraph).toContain('ouvir áudios e ver fotos');
+  });
+
+  it('o áudio da Meta (`type: audio`) vira mídia de áudio', () => {
+    expect(midiaDaMeta({ type: 'audio', audio: { id: '555666', mime_type: 'audio/ogg; codecs=opus', voice: true } })).toEqual({
+      tipo: 'audio',
+      id: '555666',
+      mime: 'audio/ogg; codecs=opus',
+      legenda: null,
+    });
   });
 
   // V65: o texto que manda a pessoa a uma tela — o caminho conferido no menu e na aba de verdade.

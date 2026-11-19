@@ -118,6 +118,8 @@ export class GraphFotoService {
    * foto do cliente, por `ler`); o Mister usa a dele (M5a, a foto e o PDF que a equipe manda — `mimes` com o PDF e o
    * `prefixoDaChave` próprio, para os dois usos nunca dividirem o resultado guardado no Graph). As mesmas regras de `ler`:
    * prazo, franquia, ligação desfeita e nunca lança. A tradução que devolve null = "fora do formato" (segue pela reserva).
+   * M5b: `ferramenta` escolhe a da porta (a `ouvir_audio` para o áudio) e `aoFalhar` recebe o motivo curto de não ter lido
+   * (`franquia-esgotada`, `demora`, `tipo-nao-aceito`, `ligacao-desfeita`…) — o áudio não tem reserva e diz por quê.
    */
   async analisar<T>(
     tenantId: string,
@@ -125,27 +127,30 @@ export class GraphFotoService {
     foto: FotoParaOGraph,
     prazoMs: number,
     traduzir: (dados: unknown) => T | null,
-    opcoes: { mimes?: readonly string[]; prefixoDaChave?: string } = {},
+    opcoes: { mimes?: readonly string[]; prefixoDaChave?: string; ferramenta?: string; aoFalhar?: (motivo: string) => void } = {},
   ): Promise<T | null> {
+    const falhou = (motivo: string): null => {
+      opcoes.aoFalhar?.(motivo);
+      return null;
+    };
     const cfg = lerConfigGraph();
-    if (ehServidorLocal() || !cfg.ligado || !graphLigadoParaEmpresa(tenantId)) return null;
+    if (ehServidorLocal() || !cfg.ligado || !graphLigadoParaEmpresa(tenantId)) return falhou('desligado');
     const mime = mimeDoGraph(foto.mime, opcoes.mimes);
     if (!mime) {
       await this.registrarLeitura(lig.id, 'tipo-nao-aceito', null);
-      return null;
+      return falhou('tipo-nao-aceito');
     }
-    if (prazoMs < PRAZO_MINIMO_MS) return null;
+    if (prazoMs < PRAZO_MINIMO_MS) return falhou('sem-prazo');
 
     let chamada: Promise<unknown>;
     try {
-      chamada = this.cliente(cfg, lig.segredo, prazoMs).chamar(FERRAMENTA, {
+      chamada = this.cliente(cfg, lig.segredo, prazoMs).chamar(opcoes.ferramenta ?? FERRAMENTA, {
         mimeType: mime,
         arquivoBase64: foto.buffer.toString('base64'),
         chaveIdempotencia: chaveDaFoto(tenantId, foto.mensagemId, foto.buffer, opcoes.prefixoDaChave),
       });
     } catch (e: any) {
-      await this.depoisDaFalha(tenantId, lig, e);
-      return null;
+      return falhou(await this.depoisDaFalha(tenantId, lig, e));
     }
     let relogio: ReturnType<typeof setTimeout> | undefined;
     const prazo = new Promise<'prazo'>((resolver) => {
@@ -161,36 +166,43 @@ export class GraphFotoService {
           (dados) => this.registrarLeitura(lig.id, null, franquiaDe((dados as any)?.franquia)),
           (e) => this.depoisDaFalha(tenantId, lig, e, true),
         ).catch(() => undefined);
-        return null;
+        return falhou('demora');
       }
       const analise = traduzir(r);
       const tipo = (analise as { tipo?: unknown } | null)?.tipo;
       if (!analise) this.log.warn('o DMS Graph respondeu fora do formato: a foto segue pela IA da empresa');
       else this.log.log(`foto lida pelo DMS Graph${typeof tipo === 'string' ? ` (${tipo})` : ''}`);
       await this.registrarLeitura(lig.id, analise ? 'lida' : 'fora-do-formato', franquiaDe((r as any)?.franquia), !!analise);
-      return analise;
+      return analise ?? falhou('fora-do-formato');
     } catch (e: any) {
-      await this.depoisDaFalha(tenantId, lig, e);
-      return null;
+      return falhou(await this.depoisDaFalha(tenantId, lig, e));
     } finally {
       if (relogio) clearTimeout(relogio);
     }
   }
 
-  /** A recusa ou a falha: o motivo no registro e na ligação; a ligação desfeita no Graph sai daqui (GR-6). Nunca lança. */
-  private async depoisDaFalha(tenantId: string, lig: LigacaoDoGraph, e: any, tarde = false): Promise<void> {
-    try {
-      if (e instanceof ErroMcp && e.tipo === 'ligacao') {
+  /**
+   * A recusa ou a falha: o motivo no registro e na ligação; a ligação desfeita no Graph sai daqui (GR-6). Nunca lança.
+   * Devolve o motivo curto (M5b: quem chama diz à pessoa por que não leu).
+   */
+  private async depoisDaFalha(tenantId: string, lig: LigacaoDoGraph, e: any, tarde = false): Promise<string> {
+    if (e instanceof ErroMcp && e.tipo === 'ligacao') {
+      try {
         await this.marcarDesligadaPeloGraph(tenantId, lig.id);
-        return;
+      } catch (falha: any) {
+        this.log.warn(`registro da falha do DMS Graph não gravado: ${String(falha?.code ?? falha?.message ?? falha).slice(0, 80)}`);
       }
-      const motivo = motivoDaFalha(e);
+      return 'ligacao-desfeita';
+    }
+    const motivo = motivoDaFalha(e);
+    try {
       this.log.warn(`foto não lida pelo DMS Graph${tarde ? ' (depois do prazo)' : ''} (${motivo}): ${tarde ? 'já tinha seguido' : 'segue'} pela IA da empresa`);
       const franquia = e instanceof ErroMcp ? franquiaDe((e.dados as any)?.franquia) : null;
       await this.registrarLeitura(lig.id, tarde ? null : motivo, franquia);
     } catch (falha: any) {
       this.log.warn(`registro da falha do DMS Graph não gravado: ${String(falha?.code ?? falha?.message ?? falha).slice(0, 80)}`);
     }
+    return motivo;
   }
 
   /**
