@@ -44,6 +44,8 @@ export type SituacaoDoGraph = {
   ligado: boolean;
   /** O nome da empresa ("Vale para", G-3: a ligação é da empresa inteira). */
   empresaNome: string | null;
+  /** A empresa tem CNPJ válido? Sem ele, a janela pede ao presidente (GR-8, `PATCH /empresas/cnpj`) antes de ligar. */
+  empresaTemCnpj: boolean;
   /** Há IA da empresa de reserva (a chave dela ou a da distribuição)? Sem ela, a foto que o Graph não ler fica sem leitura. */
   reservaIa: boolean;
   /** A credencial do Regem no DMS ID e a chave dos segredos estão prontas (sem isso, "avise o suporte"). */
@@ -156,6 +158,7 @@ export class GraphCliqueService {
     const base: SituacaoDoGraph = {
       ligado: graphLigadoParaEmpresa(user.tenantId),
       empresaNome: null,
+      empresaTemCnpj: false,
       reservaIa: false,
       pronto: cfg.credencialOk && chaveSegredosDisponivel(),
       naNuvem: !ehServidorLocal(),
@@ -166,11 +169,11 @@ export class GraphCliqueService {
     };
     if (!base.ligado || ehServidorLocal()) return base;
     const [[emp], reservaIa, l] = await Promise.all([
-      this.rows(sql`select nome from empresa where id = ${user.tenantId}::uuid and deleted_at is null`),
+      this.rows(sql`select nome, cnpj from empresa where id = ${user.tenantId}::uuid and deleted_at is null`),
       this.ia.temAcesso(user.tenantId).catch(() => false),
       this.ligacaoViva(user.tenantId),
     ]);
-    const daEmpresa = { empresaNome: emp?.nome ? String(emp.nome) : null, reservaIa };
+    const daEmpresa = { empresaNome: emp?.nome ? String(emp.nome) : null, empresaTemCnpj: cnpjValido(emp?.cnpj), reservaIa };
     if (!l) {
       // A última ligação desta empresa, se foi o Graph que a desfez: o cartão avisa e oferece ligar de novo.
       const [u] = await this.rows(sql`
@@ -215,7 +218,7 @@ export class GraphCliqueService {
     if (!emp) throw new BadRequestException('Empresa não encontrada.');
     const cnpj = String(emp.cnpj ?? '').replace(/\D/g, '');
     if (!cnpjValido(cnpj)) {
-      throw new BadRequestException('Cadastre o CNPJ da empresa antes de ligar: a conta da empresa no DMS Graph nasce e é achada por ele.');
+      throw new BadRequestException('Informe o CNPJ da empresa nesta janela antes de ligar: a conta da empresa no DMS Graph nasce e é achada por ele.');
     }
     const [quem] = await this.rows(sql`select nome, email from colaborador where id = ${user.colaboradorId}::uuid and tenant_id = ${user.tenantId}::uuid`);
     const email = String(quem?.email ?? '').trim().toLowerCase();

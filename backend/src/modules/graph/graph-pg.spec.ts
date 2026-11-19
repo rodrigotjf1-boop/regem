@@ -207,7 +207,7 @@ descrever('o DMS Graph no Regem (Postgres real, Graph e DMS ID de mentira)', () 
     it('o caminho inteiro: o pedido leva a empresa (conta_empresa_id) e o CNPJ; a volta troca; o segredo fica CIFRADO; repetir gira', async () => {
       const { t, ana } = await empresa();
       const antes = await clique.situacao(ana);
-      expect(antes).toMatchObject({ ligado: true, empresaNome: 'Casa do Hambúrguer', reservaIa: true, pronto: true, naNuvem: true, podeLigar: true, ligacao: null });
+      expect(antes).toMatchObject({ ligado: true, empresaNome: 'Casa do Hambúrguer', empresaTemCnpj: true, reservaIa: true, pronto: true, naNuvem: true, podeLigar: true, ligacao: null });
       iaDeReserva = false;
       expect((await clique.situacao(ana)).reservaIa).toBe(false);
       iaDeReserva = true;
@@ -283,7 +283,9 @@ descrever('o DMS Graph no Regem (Postgres real, Graph e DMS ID de mentira)', () 
 
     it('sem CNPJ válido ou sem o e-mail de quem pede: recusa ANTES de chamar o Graph; o Graph recusando o pedido não grava nada', async () => {
       const semCnpj = await empresa({ cnpj: null });
-      await expect(clique.iniciar(semCnpj.ana)).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/CNPJ/) });
+      // A janela sabe que falta o CNPJ (GR-8: o presidente informa ali) e o iniciar recusa apontando a janela.
+      expect((await clique.situacao(semCnpj.ana)).empresaTemCnpj).toBe(false);
+      await expect(clique.iniciar(semCnpj.ana)).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/Informe o CNPJ da empresa nesta janela/) });
       const cnpjTorto = await empresa({ cnpj: `9${Array.from(randomBytes(13), (b) => String(b % 10)).join('')}`.slice(0, 13) + 'X' });
       await expect(clique.iniciar(cnpjTorto.ana)).rejects.toMatchObject({ status: 400 });
       const semEmail = await empresa({ email: null });

@@ -15,6 +15,8 @@ import { haQuanto } from '@/components/integracoes/textos';
 export type SituacaoDoGraph = {
   ligado: boolean;
   empresaNome: string | null;
+  /** Sem CNPJ, o presidente informa na janela antes de ligar (GR-8). */
+  empresaTemCnpj: boolean;
   reservaIa: boolean;
   pronto: boolean;
   naNuvem: boolean;
@@ -171,6 +173,73 @@ function Franquia({ f }: { f: NonNullable<NonNullable<SituacaoDoGraph['ligacao']
   );
 }
 
+/**
+ * A empresa sem CNPJ (GR-8, protótipo aprovado em 19/11/2026): o presidente informa uma vez, aqui. O servidor confere os
+ * dígitos, a Receita e se outra empresa já usa o número (`PATCH /empresas/cnpj`); a recusa aparece no próprio bloco.
+ */
+function CnpjDaEmpresa({ pode, aoSalvar }: { pode: boolean; aoSalvar: () => void }) {
+  const [valor, setValor] = useState('');
+  const [indo, setIndo] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const numeros = valor.replace(/\D/g, '');
+
+  async function salvar() {
+    setIndo(true);
+    setErro(null);
+    try {
+      await api.empresaInformarCnpj(numeros);
+      toast.success('CNPJ da empresa salvo.');
+      aoSalvar();
+    } catch (e: any) {
+      setErro(e?.message || 'Não foi possível salvar o CNPJ agora. Tente de novo em instantes.');
+    } finally {
+      setIndo(false);
+    }
+  }
+
+  return (
+    <div className="grid gap-2 rounded-lg border border-border p-3">
+      <h3 className="m-0 font-display text-sm font-semibold">Falta o CNPJ da empresa</h3>
+      <p className="m-0 text-xs text-muted-foreground">A conta da empresa no DMS Graph nasce pelo CNPJ. Informe uma vez; para trocar depois, só pelo suporte da DMS.</p>
+      {pode ? (
+        <>
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="grid min-w-0 gap-1">
+              <label htmlFor="graph-cnpj-da-empresa" className="text-sm font-semibold">
+                CNPJ da empresa
+              </label>
+              <input
+                id="graph-cnpj-da-empresa"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={18}
+                placeholder="00.000.000/0000-00"
+                value={valor}
+                onChange={(e) => {
+                  setValor(e.target.value.replace(/[^\d./-]/g, ''));
+                  setErro(null);
+                }}
+                className="h-11 w-full max-w-[16rem] rounded-lg border border-input bg-card px-3 font-mono text-sm"
+              />
+            </div>
+            <Button variant="outline" onClick={salvar} disabled={indo || numeros.length !== 14}>
+              {indo ? 'Salvando…' : 'Salvar CNPJ'}
+            </Button>
+          </div>
+          <p className="m-0 text-xs text-muted-foreground">O Regem confere os dígitos, se o CNPJ existe na Receita e se outra empresa do Regem já usa esse número. Fica na auditoria.</p>
+          {erro && (
+            <div role="alert" className="rounded-lg border-l-4 border-destructive bg-destructive/10 px-3 py-2 text-sm text-foreground">
+              {erro}
+            </div>
+          )}
+        </>
+      ) : (
+        <p className="m-0 text-sm">Sem o CNPJ da empresa, é o presidente quem informa.</p>
+      )}
+    </div>
+  );
+}
+
 /** A janela do DMS Graph: antes de ligar (GR-3) e ligado (GR-5, GR-6). Esc e o fundo fecham. */
 function Janela({ s, onClose, onMudou }: { s: SituacaoDoGraph; onClose: () => void; onMudou: () => void }) {
   const [indo, setIndo] = useState(false);
@@ -309,6 +378,7 @@ function Janela({ s, onClose, onMudou }: { s: SituacaoDoGraph; onClose: () => vo
               <div className="text-sm text-muted-foreground">
                 Vale para: <b className="text-foreground">{empresa}</b> (a empresa inteira, todas as lojas)
               </div>
+              {!s.empresaTemCnpj && <CnpjDaEmpresa pode={s.podeLigar} aoSalvar={onMudou} />}
               <div className="rounded-lg border border-border p-3">
                 <h3 className="mb-2 font-display text-sm font-semibold">O que o Regem vai pedir ao DMS Graph</h3>
                 <ul className="m-0 grid list-none gap-2 p-0 text-sm">
@@ -335,9 +405,10 @@ function Janela({ s, onClose, onMudou }: { s: SituacaoDoGraph; onClose: () => vo
                 </Aviso>
               ) : (
                 <div className="grid gap-2">
-                  <Button onClick={conectar} disabled={indo} className="w-full">
+                  <Button onClick={conectar} disabled={indo || !s.empresaTemCnpj} className="w-full">
                     {indo ? 'Abrindo o DMS Graph…' : s.desligadaPeloGraphEm ? 'Conectar ao DMS Graph de novo' : 'Conectar ao DMS Graph'}
                   </Button>
+                  {!s.empresaTemCnpj && <p className="m-0 text-xs text-muted-foreground">Salve o CNPJ para conectar.</p>}
                   <p className="m-0 text-xs text-muted-foreground">
                     Você vai para a página do DMS Graph, entra com o DMS ID, confere o pedido e autoriza. Ninguém copia chave.
                   </p>
