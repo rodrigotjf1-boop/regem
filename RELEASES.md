@@ -104,7 +104,9 @@
   nasce DESLIGADO).** Com `MISTER_MIDIA=1` no `regem-api` (o dono liga) e a empresa ligada ao DMS Graph, a foto vai ao
   Graph (a IA da empresa de reserva, recurso `mister_foto`), o que ela mostra vira a pergunta e a resposta abre com
   "📷 Vi: …"; boleto e nota seguem pelos documentos. A legenda da foto passa a ser lida. Tudo só na nuvem (o Mister e o
-  Graph não sobem na loja) → vai no `.zip` sem efeito na loja.
+  Graph não sobem na loja) → vai no `.zip` sem efeito na loja. **M5b (19/11, SEM migration):** a nota de voz vai à
+  `ouvir_audio` do DMS Graph (contrato 1.1.0; o dono clica "Implantar" no Graph); a transcrição vira a pergunta e a
+  resposta abre com "🎧 Entendi"; inaudível, franquia, acima de 3 min e AMR têm frase própria. Só nuvem → sem efeito na loja.
 
 - **O DMS Graph lê a foto do cliente, com a IA da empresa de reserva (18/11, G5a — só o servidor; mig 450 SÓ NUVEM —
   `graph_ligacao`, `graph_clique_pedido`; nasce DESLIGADO).** Com `GRAPH_LIGADO=true` no `regem-api` e a empresa ligada

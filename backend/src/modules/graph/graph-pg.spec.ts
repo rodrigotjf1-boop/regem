@@ -10,7 +10,14 @@ import { gerarChave, montarChaveIdempotencia } from '../../dms/integracao-dms';
 import { FotoDoClienteService } from '../cardapio/foto-do-cliente.service';
 import { GraphCliqueService } from './graph-clique.service';
 import { GraphFotoService } from './graph-foto.service';
-import { MIMES_DO_MISTER_NO_GRAPH, PREFIXO_DA_CHAVE_DO_MISTER, oQueOGraphViu } from '../mister/mister-midia.regras';
+import {
+  MIMES_DO_AUDIO,
+  MIMES_DO_MISTER_NO_GRAPH,
+  PREFIXO_DA_CHAVE_DO_AUDIO,
+  PREFIXO_DA_CHAVE_DO_MISTER,
+  oQueOGraphOuviu,
+  oQueOGraphViu,
+} from '../mister/mister-midia.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -564,6 +571,34 @@ descrever('o DMS Graph no Regem (Postgres real, Graph e DMS ID de mentira)', () 
       expect(chamadasMcp).toHaveLength(n);
       await graphFoto.ler(t, lig, { buffer: PNG, mime: 'image/png', mensagemId: 'wamid.FOTO9' }, 1_500);
       expect(chamadasMcp.at(-1)!.args.chaveIdempotencia).toBe(montarChaveIdempotencia('regem-graph-foto', t, 'wamid.FOTO9'));
+    });
+
+    // M5b: o áudio vai à `ouvir_audio` (contrato 1.1.0 do Graph) e o motivo de não ter ouvido chega a quem chama.
+    it('o Mister (M5b): `analisar` chama a `ouvir_audio` com o áudio e a chave dele; a franquia esgotada chega em `aoFalhar`', async () => {
+      const { t, ana } = await empresa();
+      await ligar(ana);
+      const lig = (await graphFoto.ligacaoParaFoto(t))!;
+      const OGG = Buffer.concat([Buffer.from('OggS'), randomBytes(60)]);
+      const ouvido = { tipoArquivo: 'audio', transcricao: 'Quanto vendeu ontem?', inaudivel: false, idioma: 'pt-BR', duracaoSegundos: 3, franquia: { mes: MES, usados: 88, total: 500 } };
+      porta = () => ({ content: [{ type: 'text', text: JSON.stringify(ouvido) }], structuredContent: ouvido });
+      const motivos: string[] = [];
+      const opcoes = { ferramenta: 'ouvir_audio', mimes: MIMES_DO_AUDIO, prefixoDaChave: PREFIXO_DA_CHAVE_DO_AUDIO, aoFalhar: (m: string) => motivos.push(m) };
+      const r = await graphFoto.analisar(t, lig, { buffer: OGG, mime: 'audio/ogg', mensagemId: 'wamid.AUDIO1' }, 1_500, oQueOGraphOuviu, opcoes);
+      expect(r).toEqual({ transcricao: 'Quanto vendeu ontem?', inaudivel: false });
+      const c = chamadasMcp.at(-1)!;
+      expect(c.nome).toBe('ouvir_audio');
+      expect(c.args).toEqual({ mimeType: 'audio/ogg', arquivoBase64: OGG.toString('base64'), chaveIdempotencia: montarChaveIdempotencia('regem-graph-ouvir', t, 'wamid.AUDIO1') });
+      expect(motivos).toEqual([]);
+      expect((await ligacaoDe(t)).franquia_usados).toBe(88);
+      // A franquia esgotada: o motivo chega a quem chama (o áudio diz "até o dia 1º").
+      porta = () => recusa('limite-de-chamadas', { limite: 'franquia_mensal', franquia: { mes: MES, usados: 500, total: 500 }, volta_em: '2026-12-01' });
+      expect(await graphFoto.analisar(t, lig, { buffer: OGG, mime: 'audio/ogg', mensagemId: 'wamid.AUDIO2' }, 1_500, oQueOGraphOuviu, opcoes)).toBeNull();
+      expect(motivos).toEqual(['franquia-esgotada']);
+      // O tipo que não é da lista nem chama o Graph, e diz por quê.
+      const n = chamadasMcp.length;
+      expect(await graphFoto.analisar(t, lig, { buffer: OGG, mime: 'audio/amr', mensagemId: 'wamid.AUDIO3' }, 1_500, oQueOGraphOuviu, opcoes)).toBeNull();
+      expect(chamadasMcp).toHaveLength(n);
+      expect(motivos.at(-1)).toBe('tipo-nao-aceito');
     });
   });
 });

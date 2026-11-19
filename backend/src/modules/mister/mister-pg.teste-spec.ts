@@ -60,7 +60,7 @@ import { EvolutionEntradaService } from '../whatsapp/evolution-entrada.service';
 import { MisterFerramentasService } from './mister-ferramentas.service';
 import { GraphFotoService } from '../graph/graph-foto.service';
 import { MisterMidiaService } from './mister-midia.service';
-import { TEXTOS_DA_MIDIA } from './mister-midia.regras';
+import { TEXTOS_DA_MIDIA, primeiroDoMesQueVem } from './mister-midia.regras';
 import { MisterFilaService } from './mister-fila.service';
 import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
 import { MisterRelatoriosService } from './mister-relatorios.service';
@@ -7476,18 +7476,23 @@ export function testesDoMisterComPostgres(): void {
     // O Graph é um dublê que devolve o resultado da porta (o `structuredContent`) e passa pela tradução DE VERDADE de quem
     // chama (V108: o falso reproduz o efeito do real — o `analisar` real devolve `traduzir(dados)`); a porta de verdade do
     // lado do Regem tem o teste dela em `graph-pg.spec.ts`. A IA da empresa, a Meta e a fila são as de sempre desta spec.
-    describe('a foto pelo DMS Graph (M5a)', () => {
+    describe('a foto e o áudio pelo DMS Graph (M5a, M5b)', () => {
       class GraphDeMentira extends GraphFotoService {
         ligacao: { id: string; segredo: string } | null = null;
         /** O que a porta devolve; null = o Graph não leu (demora, franquia, fora do ar). */
         resposta: unknown = null;
+        /** M5b: o motivo de não ter lido, que o real entrega em `aoFalhar` (o áudio diz à pessoa por quê). */
+        motivo = 'demora';
         chamadas: Array<{ tenantId: string; mime: string; bytes: number; mensagemId: unknown; opcoes: any }> = [];
         async ligacaoParaFoto(): Promise<{ id: string; segredo: string } | null> {
           return this.ligacao;
         }
         async analisar<T>(tenantId: string, _lig: any, foto: any, _prazoMs: number, traduzir: (d: unknown) => T | null, opcoes: any = {}): Promise<T | null> {
           this.chamadas.push({ tenantId, mime: foto.mime, bytes: foto.buffer.length, mensagemId: foto.mensagemId, opcoes });
-          return this.resposta == null ? null : traduzir(this.resposta);
+          // Como o real: sem resposta, o motivo vai a `aoFalhar`; a tradução que devolve null também é falha.
+          const r = this.resposta == null ? null : traduzir(this.resposta);
+          if (r == null) opcoes.aoFalhar?.(this.resposta == null ? this.motivo : 'fora-do-formato');
+          return r;
         }
       }
       const graph = new GraphDeMentira(db);
@@ -7657,6 +7662,88 @@ export function testesDoMisterComPostgres(): void {
         numero.pedidos.length = 0;
         expect(await foto(telAna, novaMidia('application/vnd.ms-excel'), null, 'application/vnd.ms-excel')).toBe('so_texto');
         expect(graph.chamadas).toEqual([]);
+        expect(baixou()).toBe(0);
+      });
+
+      // ─────────── M5b: o áudio ───────────
+      /** Um OGG/Opus mínimo de `segundos` (o cabeçalho OpusHead e a última página com a posição). */
+      const oggOpus = (segundos: number) => {
+        const pagina = (posicao: number, corpo: Buffer) => {
+          const h = Buffer.alloc(27);
+          h.write('OggS', 0, 'ascii');
+          h.writeBigUInt64LE(BigInt(posicao), 6);
+          return Buffer.concat([h, corpo]);
+        };
+        const cab = Buffer.alloc(19);
+        cab.write('OpusHead', 0, 'ascii');
+        cab[8] = 1;
+        cab[9] = 1;
+        cab.writeUInt16LE(312, 10);
+        cab.writeUInt32LE(48_000, 12);
+        return Buffer.concat([pagina(0, cab), pagina(0, Buffer.from('OpusTags')), pagina(312 + segundos * 48_000, Buffer.alloc(30, 9))]);
+      };
+      const novoAudio = (segundos = 9, mime = 'audio/ogg; codecs=opus') => {
+        const id = String(randomInt(1e9, 1e10));
+        numero.midias.set(id, { mime, bytes: oggOpus(segundos) });
+        return id;
+      };
+      const audio = (tel: string, id: string, mime = 'audio/ogg; codecs=opus') => entrada.receber({ telefone: tel, texto: '', wamid: wamid(), midia: { tipo: 'audio', id, mime } });
+      const OUVIDO = { tipoArquivo: 'audio', transcricao: 'Quanto vendeu ontem no iFood?', inaudivel: false, idioma: 'pt-BR', duracaoSegundos: 9, franquia: { mes: '2026-11', usados: 12, total: 500 } };
+
+      it('o áudio (M5b): a `ouvir_audio` transcreve; a pergunta é o que foi dito; a resposta abre com "🎧 Entendi"', async () => {
+        graph.resposta = OUVIDO;
+        const antes = (await perguntasDe('ana')).length;
+        expect(await audio(telAna, novoAudio())).toBe('pergunta');
+        expect(graph.chamadas).toHaveLength(1);
+        expect(graph.chamadas[0]).toMatchObject({ tenantId: A, mime: 'audio/ogg', opcoes: { ferramenta: 'ouvir_audio', prefixoDaChave: 'regem-graph-ouvir' } });
+        expect(graph.chamadas[0].opcoes.mimes).toEqual(['audio/ogg', 'audio/mpeg', 'audio/aac', 'audio/wav', 'audio/flac']);
+        expect(ia.pedidos).toEqual([]); // sem reserva: a IA da empresa não ouve
+        const [p] = (await perguntasDe('ana')).slice(antes);
+        expect(p.pergunta).toBe('⟦áudio⟧ Quanto vendeu ontem no iFood?');
+        ia.roteiro = [falar('Ontem, no *iFood*: 38 pedidos.')];
+        expect(await agente.esvaziar()).toBe(1);
+        expect(numero.enviadas.map((m) => m.texto)).toEqual(['🎧 _Entendi:_ "Quanto vendeu ontem no iFood?"\n\nOntem, no *iFood*: 38 pedidos.']);
+      });
+
+      it('o áudio (M5b) que não dá: inaudível, a franquia acabou (volta no dia 1º), acima de 3 min e o tipo que o Gemini não lê', async () => {
+        const antes = (await perguntasDe('ana')).length;
+        // Inaudível: "não consegui entender".
+        graph.resposta = { ...OUVIDO, transcricao: '', inaudivel: true };
+        expect(await audio(telAna, novoAudio())).toBe('midia_nao_lida');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DA_MIDIA.naoOuviu]);
+        // A franquia acabou: a frase diz até quando (o áudio não tem reserva).
+        numero.pedidos.length = 0;
+        graph.resposta = null;
+        graph.motivo = 'franquia-esgotada';
+        expect(await audio(telAna, novoAudio())).toBe('midia_nao_lida');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DA_MIDIA.audioFranquia(primeiroDoMesQueVem(hojeISO()))]);
+        // Outra falha do Graph: "não consegui entender".
+        numero.pedidos.length = 0;
+        graph.motivo = 'demora';
+        expect(await audio(telAna, novoAudio())).toBe('midia_nao_lida');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DA_MIDIA.naoOuviu]);
+        // Acima de 3 minutos (pela duração do próprio OGG) e o AMR: nem chamam o Graph.
+        graph.chamadas.length = 0;
+        numero.pedidos.length = 0;
+        expect(await audio(telAna, novoAudio(200))).toBe('midia_nao_lida');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DA_MIDIA.audioLongo]);
+        numero.pedidos.length = 0;
+        expect(await audio(telAna, novoAudio(5, 'audio/amr'), 'audio/amr')).toBe('midia_nao_lida');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DA_MIDIA.audioTipo]);
+        expect(graph.chamadas).toEqual([]);
+        expect(await perguntasDe('ana')).toHaveLength(antes);
+        graph.motivo = 'demora';
+      });
+
+      it('o áudio (M5b) desligado ou sem o DMS Graph: "só leio texto" como antes (sem o Graph, com o caminho para ligar)', async () => {
+        delete process.env.MISTER_MIDIA;
+        expect(await audio(telAna, novoAudio())).toBe('so_texto');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_AGENTE.soTexto]);
+        expect(graph.chamadas).toEqual([]);
+        process.env.MISTER_MIDIA = '1';
+        graph.ligacao = null;
+        expect(await audio(telCarlos, novoAudio())).toBe('so_texto');
+        expect(numero.enviadas.at(-1)!.texto).toBe(TEXTOS_DA_MIDIA.semGraph);
         expect(baixou()).toBe(0);
       });
     });
