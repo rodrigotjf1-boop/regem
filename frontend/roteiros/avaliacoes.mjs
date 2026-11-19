@@ -249,7 +249,7 @@ export default async function roteiroAvaliacoes({ nav, base, ok, foto: arquivoFo
   // ───────────────────────── o ajuste (Delivery › Configurações › Robô de atendimento) ─────────────────────────
   for (const w of [390, 1366]) {
     const posts = [];
-    let ajuste = { ativa: true, casoAte: 2, prazoDias: 7, opcoes: { casoAte: [1, 2, 3], prazoDias: [2, 7, 30] } };
+    let ajuste = { ativa: true, casoAte: 2, prazoDias: 7, opcoes: { casoAte: [1, 2, 3], prazoDias: [2, 7, 30] }, formulario: 'publicado' };
     const ctx = await nav.newContext({ viewport: { width: w, height: 900 }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
     await ctx.addInitScript((jwt) => localStorage.setItem('regen_token', jwt), PRESIDENTE);
     const page = await ctx.newPage();
@@ -295,6 +295,8 @@ export default async function roteiroAvaliacoes({ nav, base, ok, foto: arquivoFo
     const achados = await medir(page);
     ok(achados.length === 0, `${w}px · ajuste: sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
     ok((await cartao.innerText()).includes('Link do Google: colado ✓'), `${w}px · ajuste: diz que o link do Google está colado (vai só na nota 5)`);
+    // A2 (mig 456): a situação do formulário do WhatsApp oficial, numa faixa que quebra a linha.
+    ok((await cartao.innerText()).includes('Formulário do WhatsApp: publicado.'), `${w}px · ajuste: o formulário do WhatsApp aparece publicado`);
     await cartao.getByLabel('Prazo para avaliar').selectOption('30');
     await cartao.getByRole('button', { name: 'Salvar nota' }).click();
     await page.waitForTimeout(400);

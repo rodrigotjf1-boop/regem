@@ -81,7 +81,7 @@ export function Avaliacoes() {
         extra="as notas dos pedidos do Regem"
       />
       <p className="text-sm text-secondary-foreground">
-        As notas que os clientes deram aos pedidos do Regem pela página do pedido. A nota {casoAte === 1 ? '1' : casoAte === 2 ? '1 ou 2' : '1, 2 ou 3'} também
+        As notas que os clientes deram aos pedidos do Regem, pelo WhatsApp oficial ou pela página do pedido. A nota {casoAte === 1 ? '1' : casoAte === 2 ? '1 ou 2' : '1, 2 ou 3'} também
         vira caso no Atendimento.
       </p>
 
@@ -123,7 +123,7 @@ export function Avaliacoes() {
           <span className="block font-semibold text-foreground">Nenhuma avaliação {frase}</span>
           <span className="block">
             {dados.ajustes.ativa
-              ? 'As notas chegam pela página do pedido, depois da entrega.'
+              ? 'As notas chegam depois do “Tudo certo 👍” no WhatsApp oficial e pela página do pedido.'
               : 'O “Pedir uma nota depois da entrega” está desligado: ligue em Delivery › Configurações › Robô de atendimento.'}
           </span>
           <span className="mt-2 flex flex-wrap justify-center gap-2">

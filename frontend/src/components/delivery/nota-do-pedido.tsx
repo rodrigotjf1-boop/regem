@@ -6,6 +6,7 @@ import { toast } from '@/lib/toast';
 import { Chave } from '@/components/ui/chave';
 import { Button } from '@/components/ui/button';
 
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // "PEDIR UMA NOTA DEPOIS DA ENTREGA" (mig 453, fase A1 do protótipo `mockups/regem-avaliacao-pedido.html`, aba "Ajustes").
@@ -13,7 +14,37 @@ import { Button } from '@/components/ui/button';
 // Atendimento e o prazo para avaliar ("Salvar nota"). Cada frase tem a regra que a sustenta em
 // `backend/src/modules/avaliacao-pedido/nota-do-pedido.ts` e `nota-do-pedido.service.ts`.
 
-type Ajustes = { ativa: boolean; casoAte: number; prazoDias: number; opcoes: { casoAte: number[]; prazoDias: number[] } };
+type Formulario = 'publicado' | 'preparando' | 'recusado' | 'sem_oficial';
+type Ajustes = {
+  ativa: boolean;
+  casoAte: number;
+  prazoDias: number;
+  opcoes: { casoAte: number[]; prazoDias: number[] };
+  /** O formulário do WhatsApp oficial (fase A2, mig 456). Servidor antigo não manda. */
+  formulario?: Formulario;
+};
+
+/**
+ * A situação do formulário do WhatsApp, com os textos do protótipo (aba "Ajustes"). Faixa que quebra a linha (o `Selo`
+ * da lista não quebra — texto longo daria barra para o lado no celular); o fundo dá a cor, o texto fica em tinta.
+ */
+function SituacaoDoFormulario({ formulario, ativa }: { formulario: Formulario | undefined; ativa: boolean }) {
+  const [fundo, texto] =
+    formulario === 'publicado'
+      ? ['bg-ok/15', 'Formulário do WhatsApp: publicado.']
+      : formulario === 'sem_oficial'
+        ? ['bg-secondary', 'Conexão por QR Code: só a página do pedido (o formulário é do WhatsApp oficial).']
+        : formulario === 'recusado'
+          ? ['bg-destructive/15', 'Formulário do WhatsApp: a Meta recusou e a DMS está vendo. Enquanto isso, só a página do pedido.']
+          : !ativa
+            ? ['bg-secondary', 'Ligado o ajuste, a DMS prepara o formulário do WhatsApp na conta da loja.']
+            : ['bg-info/15', 'Formulário do WhatsApp: a DMS está preparando. Enquanto isso, só a página do pedido.'];
+  return (
+    <p className={`rounded-md px-3 py-1.5 text-xs font-semibold text-foreground ${fundo}`} role="status" data-nota-formulario={formulario ?? ''}>
+      {texto}
+    </p>
+  );
+}
 type Form = { casoAte: number; prazoDias: number };
 
 const ROTULO_CASO: Record<number, string> = { 1: 'Só a nota 1', 2: '1 ou 2', 3: '1, 2 ou 3' };
@@ -77,14 +108,11 @@ export function NotaDoPedido({ pode }: { pode: boolean }) {
       {a && f && (
         <>
           <p className="text-xs text-muted-foreground">
-            Na página do pedido (o link do rastreio), o “Como foi o pedido?” aparece depois da entrega: nota de 1 a 5, o que
-            mais pesou e um comentário — também na conexão por QR Code. Só pedidos do Regem: iFood, 99 e Anota Aí têm a
-            avaliação deles. As notas ficam em Delivery › Avaliações.
+            No WhatsApp oficial, quem responde “Tudo certo 👍” recebe o botão “Avaliar pedido”. Na página do pedido (o link do
+            rastreio), o “Como foi o pedido?” aparece depois da entrega — também na conexão por QR Code. Só pedidos do Regem:
+            iFood, 99 e Anota Aí têm a avaliação deles. As notas ficam em Delivery › Avaliações.
           </p>
-          <p className="rounded-md border border-border bg-secondary/60 px-3 py-2 text-[11px]" role="note">
-            Formulário do WhatsApp oficial (o botão “Avaliar pedido” depois do “Tudo certo 👍”): em preparo pela DMS. Enquanto
-            isso, a nota vem pela página do pedido.
-          </p>
+          <SituacaoDoFormulario formulario={a.formulario} ativa={a.ativa} />
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1 text-xs">
