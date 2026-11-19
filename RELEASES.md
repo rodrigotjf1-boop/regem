@@ -19,7 +19,9 @@
 - **Perfil do cliente F1b + F1c (API) + F6 — a ficha na tela, as escolhas do cliente e o cartão do atendente (19/11; SEM
   migration).** A ficha em gaveta em Delivery › Clientes; `/publico/cardapio/:token/cliente/privacidade`; o `cartao` no
   `ver_pedido` (instruções .f33) e a trava na saída do robô. Tudo só na nuvem (cardápio, robô e Clientes moram lá) e só
-  com o módulo "Perfil do cliente" ligado; no `.zip` só por acompanhar o código.
+  com o módulo "Perfil do cliente" ligado; no `.zip` só por acompanhar o código. Junto: o cartão do cliente no caso da
+  Central (F6b), as três escolhas desmarcadas logo depois do código do WhatsApp na entrada do cardápio e a palavra
+  PRIVACIDADE no WhatsApp (API oficial e Evolution, antes do robô; só com o módulo ligado) — também só na nuvem.
 
 - **Perfil do cliente F1a — a base: o cálculo e a ficha pela API (19/11; mig 459 SÓ NUVEM — `cliente_perfil`,
   `cliente_escolha`, `cliente_declarado`, `perfil_cliente_execucao`).** Módulo ativável "Perfil do cliente" (nasce
