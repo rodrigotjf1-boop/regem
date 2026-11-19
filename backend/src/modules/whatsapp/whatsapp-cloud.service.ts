@@ -1147,6 +1147,26 @@ export class WhatsappCloudService {
     return { ok: true, id: r.wamid };
   }
 
+  /**
+   * LOCALIZAÇÃO (D5 — a loja no mapa, quando o cliente pergunta onde fica): o corpo da doc da Meta ("Location messages":
+   * `type: location`, `location: { latitude, longitude, name, address }`; nome e endereço opcionais). Lança na recusa.
+   */
+  async enviarLocalizacao(tenantId: string, numero: string, l: { latitude: number; longitude: number; nome?: string; endereco?: string }) {
+    const para = soDigitos(numero);
+    if (!para) throw new BadRequestException('Número inválido.');
+    if (!Number.isFinite(l?.latitude) || !Number.isFinite(l?.longitude)) throw new BadRequestException('Localização inválida.');
+    const cfg = await this.cfgDoEnvio(tenantId);
+    const location = {
+      latitude: l.latitude,
+      longitude: l.longitude,
+      ...(l.nome ? { name: cortar(l.nome, 100) } : {}),
+      ...(l.endereco ? { address: cortar(l.endereco, 300) } : {}),
+    };
+    const r = await this.postarMensagem(cfg.waCloudPhoneId!, { to: para, type: 'location', location });
+    await this.gravar({ tenantId, telefone: para, direcao: 'saida', tipo: 'location', texto: `[localização] ${l.nome ?? ''}${l.endereco ? ` · ${l.endereco}` : ''}`.trim(), wamid: r.wamid, status: r.status });
+    return { ok: true, id: r.wamid };
+  }
+
   private async postarMensagem(phoneId: string, corpo: Record<string, unknown>): Promise<{ wamid: string | null; status: string }> {
     const res = await fetch(`${GRAPH}/${phoneId}/messages`, {
       method: 'POST',

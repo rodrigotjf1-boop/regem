@@ -674,6 +674,32 @@ export class WhatsappService {
     return { ok: true, id: await idDaMensagemEnviada(res) };
   }
 
+  /**
+   * LOCALIZAÇÃO pela instância da loja (D5): `POST /message/sendLocation/<inst>` com o `SendLocationDto` da Evolution
+   * (`number`, `latitude`, `longitude`, `name?`, `address?` — `src/api/dto/sendMessage.dto.ts`). Lança na recusa.
+   */
+  async enviarLocalizacao(tenantId: string, numero: string, l: { latitude: number; longitude: number; nome?: string; endereco?: string }) {
+    const { instancia } = await this.instanciaDe(tenantId);
+    const number = this.soNumero(numero);
+    if (!number) throw new BadRequestException('Número inválido.');
+    if (!Number.isFinite(l?.latitude) || !Number.isFinite(l?.longitude)) throw new BadRequestException('Localização inválida.');
+    const res = await this.req(`/message/sendLocation/${instancia}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        number,
+        latitude: l.latitude,
+        longitude: l.longitude,
+        ...(l.nome ? { name: l.nome } : {}),
+        ...(l.endereco ? { address: l.endereco } : {}),
+      }),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const body = res ? await res.text().catch(() => '') : '';
+      throw new BadRequestException(`Falha ao enviar a localização (${res?.status ?? 'sem resposta'}): ${body.slice(0, 150)}`);
+    }
+    return { ok: true, id: await idDaMensagemEnviada(res) };
+  }
+
   async enviar(tenantId: string, numero: string, texto: string) {
     const t = String(texto ?? '').trim();
     if (!t) throw new BadRequestException('Mensagem vazia.');

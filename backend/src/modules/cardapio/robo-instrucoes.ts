@@ -111,7 +111,9 @@ import { MARCA_DA_RESPOSTA_SEGURADA } from '../whatsapp/resposta-em-andamento';
 // desligado), entra a seção PRINT DE AJUDA — a linha `PRINT: <passo>` (produto, adicionais, carrinho, endereco, pagamento,
 // acompanhar) vira a imagem pronta do passo, mandada antes do texto (`formato-da-resposta.ts` › `separarPrint`); um por
 // resposta; quem segue travado é atendido pela conversa. Desligado, as instruções ficam como na .f28.
-export const VERSAO_INSTRUCOES = '2026-11-18.f29';
+// .f30 (18/11, D5 — localização da loja): a seção ONDE FICA A LOJA nos dois fluxos do WhatsApp — o endereço escrito e, com
+// as coordenadas no cadastro (`localizacaoNoMapa`), a linha `LOCAL: loja`, que vira o alfinete do mapa depois do texto.
+export const VERSAO_INSTRUCOES = '2026-11-18.f30';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -148,6 +150,19 @@ const secaoDoConhecimento = (dados: DadosDasInstrucoes): string[] => {
   const t = String(dados?.conhecimento ?? '').trim();
   return t ? [t] : [];
 };
+
+/**
+ * ONDE FICA A LOJA (D5, .f30): o endereço escrito e, com as coordenadas no cadastro (`localizacaoNoMapa` do consultar_loja),
+ * a linha `LOCAL: loja` — o Regem manda o alfinete do mapa depois do texto (`whatsapp/formato-da-resposta.ts` ›
+ * `separarLocal`). Só no WhatsApp.
+ */
+function ondeFicaALoja(): string {
+  return linhas(
+    'ONDE FICA A LOJA',
+    '- Perguntaram onde fica a loja, o endereço ou como chegar (por exemplo, para retirar o pedido): diga o endereço e o ponto de referência que consultar_loja traz (endereco e referencia), em uma frase. Nunca invente endereço; se não vier, diga que a equipe confirma.',
+    '- Se consultar_loja trouxer localizacaoNoMapa = true, escreva também, numa linha sozinha no fim da resposta, LOCAL: loja — o sistema manda logo depois a localização da loja (o alfinete 📍 do mapa), para o cliente abrir no aplicativo de mapas. Só quando perguntarem onde fica, e uma vez na conversa.',
+  );
+}
 
 /**
  * PRINT DE AJUDA (D3, mig 442 `robo_config.print_ajuda` — protótipo `regem-atendente-alergenos-agendado.html`, parte 3,
@@ -524,6 +539,7 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
       pagamentoNaConversa(true),
       fotoEDocumento(true),
       ...secaoDoPrint(dados, true),
+      ondeFicaALoja(),
       clienteChateado(),
       quandoChamarUmaPessoa()
         .replace('não consegue usar o link ou fazer o pedido; ', 'tentou montar o pedido aqui e não deu certo; ')
@@ -547,6 +563,7 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
     pagamentoNaConversa(false),
     fotoEDocumento(false),
     ...secaoDoPrint(dados, false),
+    ondeFicaALoja(),
     clienteChateado(),
     quandoChamarUmaPessoa(),
     ...secaoDosAssuntos(dados),

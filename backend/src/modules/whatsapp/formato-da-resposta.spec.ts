@@ -8,6 +8,8 @@ import {
   pausaAntesDoBalao,
   semFormatacao,
   separarOpcoesSoltas,
+  localizacaoDaLoja,
+  separarLocal,
   separarPrint,
   separarReacao,
   urlDoPrint,
@@ -147,6 +149,24 @@ describe('formato da resposta do robô (17/11/2026)', () => {
       expect(pausaAntesDoBalao('')).toBe(800);
       expect(pausaAntesDoBalao(longo(50))).toBe(1200);
       expect(pausaAntesDoBalao(longo(1000))).toBe(2200);
+    });
+  });
+
+  describe('a localização da loja (D5 — a linha LOCAL)', () => {
+    it('sai do texto (LOCAL ou LOCALIZAÇÃO) e só "loja" pede o alfinete', () => {
+      expect(separarLocal('Ficamos na Rua A, 10.\nLOCAL: loja')).toEqual({ texto: 'Ficamos na Rua A, 10.', local: true });
+      expect(separarLocal('Ficamos aqui.\n  Localização:  *Loja* ')).toEqual({ texto: 'Ficamos aqui.', local: true });
+      expect(separarLocal('Veja.\nLOCAL: outra coisa')).toEqual({ texto: 'Veja.', local: false });
+      expect(separarLocal('Sem linha.')).toEqual({ texto: 'Sem linha.', local: false });
+    });
+
+    it('as coordenadas do cadastro: com nome e endereço; vazias, fora do mapa ou 0,0 = nada', () => {
+      const cfg = { endLat: '-22.84', endLng: '-43.27', nomePublico: 'Mister Burguer', endRua: 'Rua A', endNumero: '10', endBairro: 'Penha', endCidade: 'Rio', endEstado: 'RJ' };
+      expect(localizacaoDaLoja(cfg)).toEqual({ latitude: -22.84, longitude: -43.27, nome: 'Mister Burguer', endereco: 'Rua A, 10 · Penha · Rio - RJ' });
+      expect(localizacaoDaLoja({ ...cfg, endLat: null })).toBeNull();
+      expect(localizacaoDaLoja({ ...cfg, endLat: '0', endLng: '0' })).toBeNull();
+      expect(localizacaoDaLoja({ ...cfg, endLat: '-122' })).toBeNull();
+      expect(localizacaoDaLoja({ endLat: '-22.84', endLng: '-43.27' })).toMatchObject({ nome: 'Nossa loja', endereco: '' });
     });
   });
 

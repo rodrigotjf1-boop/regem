@@ -120,6 +120,19 @@ describe('instruções do robô', () => {
 
   // .f27 (18/11/2026) — o jeito da loja: "quando vem algo faltando ou errado já pedimos uma foto para análise e iniciamos
   // o atendimento".
+  describe('onde fica a loja: o endereço e o alfinete do mapa (.f30, D5)', () => {
+    it('a versão subiu; a seção nos dois fluxos do WhatsApp, com a linha LOCAL só com localizacaoNoMapa', () => {
+      expect(VERSAO_INSTRUCOES >= '2026-11-18.f30').toBe(true);
+      for (const f of ['1', '2']) {
+        const t = instrucoesDoRobo({ loja: 'Mister Burguer' }, f).texto;
+        expect(t).toContain('ONDE FICA A LOJA');
+        expect(t).toContain('Se consultar_loja trouxer localizacaoNoMapa = true, escreva também, numa linha sozinha no fim da resposta, LOCAL: loja');
+        expect(t).toContain('Nunca invente endereço');
+      }
+      expect(instrucoesDoDirect({ loja: 'Mister Burguer' }).texto).not.toContain('LOCAL: loja');
+    });
+  });
+
   describe('print de ajuda, só com o ajuste da loja ligado (.f29, D3)', () => {
     it('a versão subiu', () => {
       expect(VERSAO_INSTRUCOES >= '2026-11-18.f29').toBe(true);

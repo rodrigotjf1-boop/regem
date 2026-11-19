@@ -73,6 +73,14 @@ const curto = (s: unknown, max: number) => {
 };
 
 /** O que o robô precisa saber da loja AGORA: aberta, até quando, como atende, taxas, pagamento e o link. */
+/** Coordenadas que servem para o mapa (as mesmas regras de `whatsapp/formato-da-resposta.ts` › `localizacaoDaLoja`). */
+function temCoordenadas(lat: unknown, lng: unknown): boolean {
+  if (lat == null || lng == null || lat === '' || lng === '') return false;
+  const a = Number(lat);
+  const b = Number(lng);
+  return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a) <= 90 && Math.abs(b) <= 180 && !(a === 0 && b === 0);
+}
+
 export function resumoDaLoja(menu: any, linkCardapio: string, agora: Date = new Date()) {
   const loja = menu?.loja ?? {};
   const tipos = menu?.tipos ?? {};
@@ -113,6 +121,8 @@ export function resumoDaLoja(menu: any, linkCardapio: string, agora: Date = new 
     pagamentos: Array.isArray(loja.pagamentos) ? loja.pagamentos : [],
     endereco: loja.endereco?.texto ?? null,
     referencia: loja.endereco?.referencia ?? null,
+    // D5: a loja tem as coordenadas no cadastro — o atendente pode mandar o alfinete do mapa (a linha `LOCAL: loja`).
+    localizacaoNoMapa: temCoordenadas(loja.lojaLat, loja.lojaLng),
     contatos: { instagram: loja.instagram ?? null, site: loja.site ?? null },
     taxaPor: porDistancia ? 'distancia' : porArea ? 'mapa' : 'bairro',
     bairros: porArea ? [] : (Array.isArray(menu?.bairros) ? menu.bairros : []).map((b: any) => ({ nome: b.nome, taxa: reais(b.taxa) })),
