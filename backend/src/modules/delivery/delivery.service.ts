@@ -990,30 +990,34 @@ export class DeliveryService {
     // recalcula os agregados. Todos os canais passam por aqui. Best-effort.
     await this.vincularCliente(tenantId, row);
 
+    if (extra?.naoAutoAceitar) return row;
+    return this.aceitarSeAutomatico(tenantId, unidadeId, row);
+  }
+
+  /**
+   * O ACEITE AUTOMÁTICO da entrada do pedido (a loja com "aceitar automaticamente"), o mesmo para todos os canais.
+   * P1: se a loja tem servidor edge ativo (modo local), a nuvem NÃO materializa — o pedido desce pelo sync e o edge o
+   * processa localmente (KDS/estoque). Pedido que espera o pagamento online não é aceito na entrada: vai à cozinha quando
+   * pagar (aoConfirmarPagamento). Público para quem grava com `naoAutoAceitar` e só depois decide: o pedido agendado do
+   * cardápio (mig 455) confere o limite da janela ANTES do aceite — com o aceite dentro do `ingest`, o pedido que estourou
+   * a janela já estava `confirmado`, o "desfazer" (só `status = 'novo'`) não o achava e o cliente recebia "encheu" com o
+   * pedido indo à cozinha (achado do vigia de código, 19/11/2026).
+   */
+  async aceitarSeAutomatico(tenantId: string, unidadeId: string | null, row: any): Promise<any> {
     const cfg = await this.configRaw(tenantId, unidadeId);
-    // P1: se a loja tem servidor edge ativo (modo local), a nuvem NÃO materializa —
-    // o pedido desce pelo sync e o edge o processa localmente (KDS/estoque).
-    // Pedido que espera o pagamento online não é aceito na entrada: vai à cozinha quando pagar (aoConfirmarPagamento).
-    if (
-      cfg?.autoAceitar &&
-      !extra?.naoAutoAceitar &&
-      !DeliveryService.aguardandoPagamentoOnline(row) &&
-      !(await this.deferirParaEdge(tenantId, unidadeId))
-    ) {
-      try {
-        return await this.aceitar(tenantId, null, row.id);
-      } catch {
-        // Aceite automático falhou (ex.: produto sem cadastro): mantém 'novo',
-        // mas sinaliza para aparecer em destaque na coluna Chegada.
-        const [flag] = await this.db
-          .update(pedidoExterno)
-          .set({ autoAceiteFalhou: true })
-          .where(eq(pedidoExterno.id, row.id))
-          .returning();
-        return flag ?? row;
-      }
+    if (!cfg?.autoAceitar || DeliveryService.aguardandoPagamentoOnline(row) || (await this.deferirParaEdge(tenantId, unidadeId))) return row;
+    try {
+      return await this.aceitar(tenantId, null, row.id);
+    } catch {
+      // Aceite automático falhou (ex.: produto sem cadastro): mantém 'novo',
+      // mas sinaliza para aparecer em destaque na coluna Chegada.
+      const [flag] = await this.db
+        .update(pedidoExterno)
+        .set({ autoAceiteFalhou: true })
+        .where(eq(pedidoExterno.id, row.id))
+        .returning();
+      return flag ?? row;
     }
-    return row;
   }
 
   // Normaliza telefone BR p/ chave do cliente: só dígitos, sem DDI 55 (fica DDD+numero).

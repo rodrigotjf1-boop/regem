@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Pedido agendado — os 2 achados do vigia de código (19/11; SEM migration; ERR-531, ERR-532).** (1) O aceite automático do
+  Delivery saiu de dentro do `ingest` para `aceitarSeAutomatico` (mesma regra; todos os canais passam por ele como antes): o
+  agendado com limite grava sem o aceite, confere o limite da janela e só então é aceito — antes, o pedido que estourava a
+  janela recebia "encheu" e seguia na cozinha. (2) O horário que não existe volta 400, não 500. O `ingest` também roda no
+  servidor da loja → vai no `.zip`.
+
 - **Pedido agendado — D4c (19/11; SEM migration).** O atendente virtual agenda pelo WhatsApp: com a loja fechada pergunta o
   horário com os livres, marca o horário no pedido (`mexer_no_pedido` › `agendar`), só o Pix quando a loja tem o Pix online
   (o código sai sozinho ao registrar), o horário no resumo, mudar o horário e cancelar o agendado já registrado pela

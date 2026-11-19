@@ -1952,14 +1952,20 @@ export class CardapioService {
    * (cancelado não ocupa). Sem filtro de loja: o cardápio é da empresa (a mesma conta da encomenda sem `unidade_id`).
    */
   async ocupacaoDasJanelas(tenantId: string, unidadeId: string | null, dia: string, exceto?: string | null): Promise<Map<string, number>> {
+    // O `dia` vem do texto que o cliente mandou (`agendamento.slice(0, 10)`), conferido DEPOIS por `conferirHorario`: dia
+    // que não existe não ocupa nada — a recusa (400, "Escolha o dia e o horário") é de quem chama. Antes, o `!` dava um
+    // TypeError e o pedido com o horário errado voltava 500 (achado do vigia de código, 19/11/2026).
+    const inicio = instanteDeSaoPaulo(`${dia}T00:00`);
+    const fim = inicio ? instanteDeSaoPaulo(`${somarDiasAoDia(dia, 1)}T00:00`) : null;
+    if (!inicio || !fim) return new Map();
     const r: any = await this.db.execute(sql`
       select to_char(agendamento at time zone 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI') as janela, count(*)::int as n
         from pedido_externo
        where tenant_id = ${tenantId}::uuid
          ${unidadeId ? sql`and unidade_id = ${unidadeId}::uuid` : sql``}
          and retirada_tipo = 'agendado' and status <> 'cancelado' and deleted_at is null
-         and agendamento >= ${instanteDeSaoPaulo(`${dia}T00:00`)!.toISOString()}::timestamptz
-         and agendamento < ${instanteDeSaoPaulo(`${somarDiasAoDia(dia, 1)}T00:00`)!.toISOString()}::timestamptz
+         and agendamento >= ${inicio.toISOString()}::timestamptz
+         and agendamento < ${fim.toISOString()}::timestamptz
          ${exceto ? sql`and id <> ${exceto}::uuid` : sql``}
        group by 1`);
     return new Map((r?.rows ?? r ?? []).map((x: any) => [String(x.janela), Number(x.n)] as [string, number]));
@@ -4702,7 +4708,11 @@ export class CardapioService {
         quemBanca: 'loja',
       });
 
-    const ped = await this.delivery.ingest(
+    // O agendado com limite por janela grava SEM o aceite automático do Delivery: o limite é conferido logo abaixo e só
+    // então o pedido é aceito, pela mesma regra (`aceitarSeAutomatico`). Aceito antes, o pedido que estourou a janela já
+    // estava `confirmado` e o "desfazer" não o achava (achado do vigia de código, 19/11/2026).
+    const limiteAntesDoAceite = ehAgendado && !!janelaDoAgendado && ajustesDoAgendado(cfg).limite != null;
+    let ped = await this.delivery.ingest(
       cfg.tenantId,
       cfg.unidadeId,
       'cardapio',
@@ -4749,6 +4759,7 @@ export class CardapioService {
         observacao: textoDaObservacao(dto.observacao) ?? undefined,
         // O cliente já respondeu à pergunta do pedido igual (ou não havia o que perguntar): aqui não se marca.
         repetidoConferido: true,
+        naoAutoAceitar: limiteAntesDoAceite,
       },
     );
 
@@ -4768,6 +4779,8 @@ export class CardapioService {
         ));
       if (desfez) throw new BadRequestException(`O horário das ${janelaDoAgendado.slice(11)} acabou de encher. Escolha outro.`);
     }
+    // Coube na janela: agora, sim, o aceite automático do Delivery (o que o `ingest` faria na entrada).
+    if (limiteAntesDoAceite && ped?.id) ped = await this.delivery.aceitarSeAutomatico(cfg.tenantId, cfg.unidadeId, ped);
 
     // De onde o cliente veio (mig 299) — logo depois do pedido; nunca o derruba.
     if (ped?.id)
