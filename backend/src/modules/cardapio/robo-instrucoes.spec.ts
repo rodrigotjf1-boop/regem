@@ -120,6 +120,27 @@ describe('instruções do robô', () => {
 
   // .f27 (18/11/2026) — o jeito da loja: "quando vem algo faltando ou errado já pedimos uma foto para análise e iniciamos
   // o atendimento".
+  describe('print de ajuda, só com o ajuste da loja ligado (.f29, D3)', () => {
+    it('a versão subiu', () => {
+      expect(VERSAO_INSTRUCOES >= '2026-11-18.f29').toBe(true);
+    });
+
+    it('desligado (padrão): a seção não entra; ligado: entra nos dois fluxos, com os seis passos e um por resposta', () => {
+      for (const f of ['1', '2']) {
+        expect(instrucoesDoRobo({ loja: 'Mister Burguer' }, f).texto).not.toContain('PRINT DE AJUDA');
+        expect(instrucoesDoRobo({ loja: 'Mister Burguer', printAjuda: false }, f).texto).not.toContain('PRINT DE AJUDA');
+        const t = instrucoesDoRobo({ loja: 'Mister Burguer', printAjuda: true }, f).texto;
+        expect(t).toContain('PRINT DE AJUDA (imagem de um passo do cardápio)');
+        for (const p of ['produto —', 'adicionais —', 'carrinho —', 'endereco —', 'pagamento —', 'acompanhar —']) expect(t).toContain(`· ${p}`);
+        expect(t).toContain('No máximo UM print por resposta');
+        expect(t).toContain('os preços dela não são os desta loja');
+        expect(t).toContain(f === '2' ? 'monte o pedido aqui pela conversa (MONTAR O PEDIDO AQUI)' : 'pergunte se ele quer ajuda de alguém da equipe');
+      }
+      // O Direct não manda print (só o WhatsApp).
+      expect(instrucoesDoDirect({ loja: 'Mister Burguer', printAjuda: true } as any).texto).not.toContain('PRINT DE AJUDA');
+    });
+  });
+
   describe('alérgenos pelo cadastro, só quando perguntam (.f28, D2)', () => {
     const f2 = instrucoesDoRobo({ loja: 'Mister Burguer' }, '2').texto;
 

@@ -1,6 +1,6 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional, UnauthorizedException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig } from '../../db/schema';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
@@ -46,7 +46,10 @@ import {
   pausaAntesDoBalao,
   semFormatacao,
   separarOpcoesSoltas,
+  separarPrint,
   separarReacao,
+  urlDoPrint,
+  type PassoDoPrint,
 } from './formato-da-resposta';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -89,14 +92,19 @@ const idDeMensagem = (v: unknown): string | null => {
  * vira a reação; `OPCOES:` fora da última linha vira as opções, quando o n8n não mandou nenhuma), o texto ganha o formato
  * do canal e o título das opções fica sem formatação (botão e lista não mostram negrito).
  */
-export function lerResposta(p: PedidoDeResposta | undefined, formatar: (t: unknown) => string): { texto: string; opcoes: Opcao[]; reacao: Reacao | null } {
+export function lerResposta(
+  p: PedidoDeResposta | undefined,
+  formatar: (t: unknown) => string,
+): { texto: string; opcoes: Opcao[]; reacao: Reacao | null; print: PassoDoPrint | null } {
   const { texto: semReacao, reacao } = separarReacao(p?.texto);
-  const soltas = separarOpcoesSoltas(semReacao);
+  // A linha `PRINT: <passo>` (D3) sai do texto em TODO canal; só o WhatsApp a usa (com o ajuste da loja ligado).
+  const { texto: semPrint, print } = separarPrint(semReacao);
+  const soltas = separarOpcoesSoltas(semPrint);
   const pedidas = Array.isArray(p?.opcoes) ? (p?.opcoes as Opcao[]) : [];
   const opcoes = (pedidas.length ? pedidas : soltas.opcoes).map((o: any) =>
     o && typeof o === 'object' ? { ...o, titulo: semFormatacao(o.titulo), ...(o.descricao ? { descricao: semFormatacao(o.descricao) } : {}) } : o,
   );
-  return { texto: formatar(soltas.texto).trim(), opcoes: opcoesValidas(opcoes), reacao };
+  return { texto: formatar(soltas.texto).trim(), opcoes: opcoesValidas(opcoes), reacao, print };
 }
 
 /**
@@ -247,6 +255,11 @@ export class RoboRespostaService {
           ids.push(idDoEnvio(await this.enviarTexto(via, loja.tenantId, para, reacao)));
           enviados.push('texto');
         }
+      }
+      // O PRINT DE AJUDA (D3, a linha `PRINT: <passo>`): a imagem pronta do passo vai ANTES do texto, só com "Mandar print
+      // de ajuda" ligado na loja (`robo_config.print_ajuda`, nasce desligado). Não saiu: o texto vai mesmo assim.
+      if (lida.print && (await this.printLigado(loja.tenantId))) {
+        if (await this.mandarPrint(via, loja.tenantId, para, lida.print, ids)) enviados.push('print');
       }
       if (audio) {
         const r =
@@ -554,6 +567,31 @@ export class RoboRespostaService {
       return true;
     } catch (e: any) {
       this.logger.warn(`reação do robô não saiu (${via}) de=***${para.slice(-4)}: ${e?.message ?? e}`);
+      return false;
+    }
+  }
+
+  /** "Mandar print de ajuda" ligado na loja (mig 442; sem linha, sem a coluna ou consulta que falha = desligado). */
+  private async printLigado(tenantId: string): Promise<boolean> {
+    try {
+      const r: any = await this.db.execute(
+        sql`select coalesce((to_jsonb(rc) ->> 'print_ajuda')::boolean, false) as ligado from robo_config rc where rc.tenant_id = ${tenantId}::uuid`,
+      );
+      return (r?.rows ?? r)?.[0]?.ligado === true;
+    } catch (e: any) {
+      this.logger.warn(`print de ajuda: o ajuste não foi lido (segue sem o print): ${e?.message ?? e}`);
+      return false;
+    }
+  }
+
+  /** Manda a imagem do passo; a recusa vai para o log e a resposta segue (o texto já diz o que olhar). */
+  private async mandarPrint(via: 'cloud' | 'evolution', tenantId: string, para: string, passo: PassoDoPrint, ids: (string | null)[]): Promise<boolean> {
+    try {
+      const r = via === 'cloud' ? await this.cloud.enviarImagem(tenantId, para, urlDoPrint(passo)) : await this.evolution.enviarImagem(tenantId, para, urlDoPrint(passo));
+      ids.push(idDoEnvio(r));
+      return true;
+    } catch (e: any) {
+      this.logger.warn(`print de ajuda não saiu (${via}, ${passo}) de=***${para.slice(-4)}: ${e?.message ?? e}`);
       return false;
     }
   }

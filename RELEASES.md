@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Print de ajuda do atendente virtual (18/11, D3; SEM migration — usa `robo_config.print_ajuda` da 442; só nuvem).**
+  "Mandar print de ajuda" em Atendimento › Fotos do cliente (nasce desligado), as seis imagens em `public/ajuda/` e a
+  linha `PRINT:` do robô virando a imagem do passo no WhatsApp (instruções .f29). O robô só roda na nuvem → vai no `.zip`
+  sem efeito na loja.
+
 - **Alérgenos do cardápio (18/11, D2 do atendente; protótipo `mockups/regem-atendente-alergenos-agendado.html`, A1–A9;
   mig 454 NAS DUAS PONTAS — `item_estoque.alergenos`, `produto.alergenos_ajuste`, `cardapio_config.alergenos_cautela`).**
   O grupo "Alérgenos e restrições" na gaveta do insumo (Estoque › Produtos), a aba "Alérgenos" em Cadastros › Cardápio

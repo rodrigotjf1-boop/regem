@@ -264,37 +264,59 @@ export class FilaEAvisosService {
    * (`ROBO_FOTOS_IA` — sem ela, a tela mostra o ajuste travado) e o limite por cliente por dia (F7). Sem linha (ou banco
    * sem a 442), desligado.
    */
-  async fotosDoCliente(tenantId: string): Promise<{ ler: boolean; liberadaNaDistribuicao: boolean; limitePorDia: number }> {
+  async fotosDoCliente(tenantId: string): Promise<{ ler: boolean; printAjuda: boolean; liberadaNaDistribuicao: boolean; limitePorDia: number }> {
     const r: any = await this.db.execute(
-      sql`select coalesce((to_jsonb(rc) ->> 'fotos_ler')::boolean, false) as ler from robo_config rc where rc.tenant_id = ${tenantId}::uuid`,
+      sql`select coalesce((to_jsonb(rc) ->> 'fotos_ler')::boolean, false) as ler,
+                 coalesce((to_jsonb(rc) ->> 'print_ajuda')::boolean, false) as print
+            from robo_config rc where rc.tenant_id = ${tenantId}::uuid`,
     );
+    const l = (r.rows ?? r)[0];
     return {
-      ler: (r.rows ?? r)[0]?.ler === true,
+      ler: l?.ler === true,
+      // "Mandar print de ajuda" (D3, decisão F4: liga/desliga próprio, nasce desligado; não depende da leitura liberada).
+      printAjuda: l?.print === true,
       liberadaNaDistribuicao: leituraLiberadaNaDistribuicao(),
       limitePorDia: LIMITE_DE_FOTOS_POR_DIA,
     };
   }
 
-  /** Grava SÓ a coluna dele (`fotos_ler`, V82); só verdadeiro ou falso (V15); a mudança vai à auditoria. */
-  async salvarFotosDoCliente(user: AuthUser, ler: unknown) {
-    const ligado = exigirBooleano(ler, 'Ler as fotos que o cliente manda');
+  /**
+   * Grava SÓ as colunas que vieram (`fotos_ler`, `print_ajuda`; V82, V16); só verdadeiro ou falso (V15); cada mudança vai
+   * à auditoria. Aceita o booleano antigo (`ler`) da tela de antes.
+   */
+  async salvarFotosDoCliente(user: AuthUser, dto: unknown) {
+    const d = dto !== null && typeof dto === 'object' ? (dto as Record<string, unknown>) : { ler: dto };
+    const ler = d.ler !== undefined ? exigirBooleano(d.ler, 'Ler as fotos que o cliente manda') : undefined;
+    const print = d.printAjuda !== undefined ? exigirBooleano(d.printAjuda, 'Mandar print de ajuda') : undefined;
     const antes = await this.fotosDoCliente(user.tenantId);
-    if (antes.ler === ligado) return antes;
-    await this.db.execute(sql`
-      insert into robo_config (tenant_id, fotos_ler, atualizado_por)
-      values (${user.tenantId}::uuid, ${ligado}, ${user.colaboradorId}::uuid)
-      on conflict (tenant_id) do update
-         set fotos_ler = excluded.fotos_ler, atualizado_por = excluded.atualizado_por, atualizado_em = now()`);
-    await this.auditoria?.registrar({
-      tenantId: user.tenantId,
-      atorId: user.colaboradorId,
-      atorPerfil: user.categoria,
-      tipo: 'config',
-      acao: ligado ? 'robo_fotos_ler_ligado' : 'robo_fotos_ler_desligado',
-      entidadeTipo: 'robo_config',
-      entidadeId: user.tenantId,
-      detalhe: {},
-    });
+    const mudaLer = ler !== undefined && antes.ler !== ler;
+    const mudaPrint = print !== undefined && antes.printAjuda !== print;
+    if (!mudaLer && !mudaPrint) return antes;
+    if (mudaLer)
+      await this.db.execute(sql`
+        insert into robo_config (tenant_id, fotos_ler, atualizado_por)
+        values (${user.tenantId}::uuid, ${ler}, ${user.colaboradorId}::uuid)
+        on conflict (tenant_id) do update
+           set fotos_ler = excluded.fotos_ler, atualizado_por = excluded.atualizado_por, atualizado_em = now()`);
+    if (mudaPrint)
+      await this.db.execute(sql`
+        insert into robo_config (tenant_id, print_ajuda, atualizado_por)
+        values (${user.tenantId}::uuid, ${print}, ${user.colaboradorId}::uuid)
+        on conflict (tenant_id) do update
+           set print_ajuda = excluded.print_ajuda, atualizado_por = excluded.atualizado_por, atualizado_em = now()`);
+    const registrar = (acao: string) =>
+      this.auditoria?.registrar({
+        tenantId: user.tenantId,
+        atorId: user.colaboradorId,
+        atorPerfil: user.categoria,
+        tipo: 'config',
+        acao,
+        entidadeTipo: 'robo_config',
+        entidadeId: user.tenantId,
+        detalhe: {},
+      });
+    if (mudaLer) await registrar(ler ? 'robo_fotos_ler_ligado' : 'robo_fotos_ler_desligado');
+    if (mudaPrint) await registrar(print ? 'robo_print_ajuda_ligado' : 'robo_print_ajuda_desligado');
     return this.fotosDoCliente(user.tenantId);
   }
 
