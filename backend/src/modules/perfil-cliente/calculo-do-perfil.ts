@@ -103,7 +103,12 @@ const nomeDoMotivoSql = (m: SQL) =>
  * O `insert … on conflict do update` do perfil da empresa (ou de um cliente). Devolve `cliente_id` de cada linha gravada.
  * `temAvaliacao`: a tabela `pedido_avaliacao` existe (mig 453, só nuvem) — sem ela, as camadas de avaliação vêm vazias.
  */
-export function sqlCalcularPerfis(tenantId: string, clienteId: string | null, temAvaliacao: boolean): SQL {
+export function sqlCalcularPerfis(
+  tenantId: string,
+  clienteId: string | null,
+  temAvaliacao: boolean,
+  modo: 'gravar' | 'conferir' = 'gravar',
+): SQL {
   const soCliente = clienteId ? sql`and r.cliente_id = ${clienteId}::uuid` : sql``;
   const local = sql`(p.criado_em at time zone ${FUSO_SQL})`;
   const avaliacoes = temAvaliacao
@@ -327,6 +332,23 @@ etq as (
          )) as porque
     from fim f
 )
+${modo === 'conferir' ? sqlConferir() : sqlGravar(tenantId)}`;
+}
+
+/** Só conta (sem gravar): a prévia do que a rotina faria — para conferir contra o banco real só lendo (V6). */
+function sqlConferir(): SQL {
+  return sql`
+select sum(s.n)::int as clientes,
+       jsonb_object_agg(coalesce(s.segmento, '-'), s.n) as segmentos,
+       (select jsonb_object_agg(x, n) from (select x, count(*)::int as n from etq, unnest(etiquetas) x group by x) z) as etiquetas,
+       (select count(*)::int from fim where de_sempre is not null) as com_de_sempre,
+       (select count(*)::int from fim where recl_total > 0) as com_reclamacao,
+       (select count(*)::int from fim where hora_habitual is not null) as com_hora
+  from (select segmento, count(*)::int as n from fim group by segmento) s`;
+}
+
+function sqlGravar(tenantId: string): SQL {
+  return sql`
 insert into cliente_perfil as cp (
   cliente_id, tenant_id, unidade_id, pedidos_diretos, primeiro_pedido_em, ultimo_pedido_em, segmento, rfm,
   ticket_medio, ticket_ajustado, intervalo_dias, proximo_previsto, atraso, faixa_habitual, dia_habitual, confianca,
