@@ -21,6 +21,10 @@ export const MODULOS: { chave: string; label: string; emoji: string; padrao?: bo
   // menu do presidente, com a chave de IA da empresa e o uso dela (mig 415). É o único módulo que NASCE DESLIGADO: o
   // presidente liga em Visão C&O quando quiser; antes disso o menu não aparece para ninguém.
   { chave: 'mister', label: 'Mister', emoji: '✨', padrao: false },
+  // Perfil do cliente (docs/plano-perfil-cliente.md, D10, mig 459): o cálculo do perfil dos clientes diretos (gosto,
+  // ritmo, valor, reclamações) e a ficha em Delivery › Clientes. NASCE DESLIGADO: é tratamento de dado pessoal por
+  // legítimo interesse — quem decide ligar é a loja (a controladora), pelo presidente.
+  { chave: 'perfil_cliente', label: 'Perfil do cliente', emoji: '🧭', padrao: false },
 ];
 const CHAVES = new Set(MODULOS.map((m) => m.chave));
 // O estado do módulo quando ninguém escolheu nada (nem a rede, nem a loja). Chave fora da lista = ligado, como sempre foi.
@@ -40,6 +44,7 @@ const NO_PLANO: Record<string, string | null> = {
   mesas: null,
   vagas: null,
   mister: null,
+  perfil_cliente: null,
 };
 // O plano contratado deixa este módulo de fora?
 function foraDoPlano(plano: Set<string> | null, modulo: string): boolean {
