@@ -4,6 +4,23 @@
 > Pesquisa feita em 19/11/2026 com fonte em cada afirmação (lista na §14). "(forn.)" = número publicado pelo
 > próprio fornecedor; "n/v" = não verificado.
 
+## Andamento (atualizado em 19/11/2026)
+
+| Fase | Situação | PR | Migration |
+| --- | --- | --- | --- |
+| F0 · Protótipo | aprovado pelo dono (19/11), `mockups/regem-perfil-cliente.html` | #1172 | — |
+| F1-0 · Correções | **no ar** — campanha só para cliente direto (ERR-535) e totais do cliente sempre certos (ERR-536) | #1172 | 458 (nos dois lados, aplicada) |
+| F1a · Base do perfil | **no ar** — cálculo e ficha pela API; módulo "Perfil do cliente" nasce desligado; o gatilho dos totais sem esperar (ERR-539) | #1174 | 459 (só nuvem) e 460 (nos dois lados), aplicadas |
+| F1b · Ficha na tela | "Ver perfil do cliente" no detalhe de Delivery › Clientes (gaveta) | este PR | — |
+| F1c · Privacidade (API + Perfil do cardápio) | escolhas do cliente e o que ele conta; a seção "Privacidade" no Perfil do cardápio | este PR | — |
+| F6 · Cartão no atendente | `cartao` no `ver_pedido` (instruções .f33) e a trava na saída do robô | este PR | — |
+| F1c · Privacidade (o resto) | as três caixas na entrada com o telefone, a palavra PRIVACIDADE no WhatsApp | a fazer | — |
+| F6b · Cartão para a equipe | no caso do Atendimento e no copiloto | a fazer | — |
+| F2 em diante | eventos (Hub), sensibilidade, marketing, cliques, cardápio personalizado, Liame | a fazer | — |
+
+**Para ver funcionando:** o presidente liga o módulo "Perfil do cliente" em Visão C&O › Módulos do produto. A rotina da manhã (4h–11h)
+calcula a empresa; "Recalcular agora" (POST `/perfil-cliente/recalcular`) faz na hora.
+
 ## Resumo (1 página)
 
 **O que é.** Um módulo "Perfil do cliente" dentro do Regem que junta, para cada cliente **direto** da loja, sete camadas:

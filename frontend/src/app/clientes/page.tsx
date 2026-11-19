@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
 import { useModoDaLista } from '@/components/ui/lista';
 import { AniversarioNaGaveta } from '@/components/clientes/aniversario-na-gaveta';
+import { FichaDoPerfil } from '@/components/clientes/ficha-do-perfil';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: any) =>
@@ -90,9 +91,14 @@ export default function ClientesPage() {
   const [podeExportar, setPodeExportar] = useState(false);
   // Bloco — importação de contatos (.vcf).
   const [podeImportar, setPodeImportar] = useState(false);
+  // Perfil do cliente (F1b): só presidente e gerente, com o módulo ligado na loja (o servidor confere de novo).
+  const [perfilLigado, setPerfilLigado] = useState(false);
+  const [perfilDe, setPerfilDe] = useState<any | null>(null);
   useEffect(() => {
     setPodeExportar(getCategoria() === 'presidente' || !!getPermissoes()?.clientes_exportar);
     setPodeImportar(getCategoria() === 'presidente' || !!getPermissoes()?.clientes_importar);
+    if (['presidente', 'gerente'].includes(String(getCategoria())))
+      api.modulosMeus().then((m: any) => setPerfilLigado(m?.perfil_cliente === true)).catch(() => setPerfilLigado(false));
   }, []);
   const vcfRef = useRef<HTMLInputElement>(null);
   const [impPrevia, setImpPrevia] = useState<any>(null);
@@ -904,6 +910,17 @@ export default function ClientesPage() {
                     : 'Não enviar campanhas a este cliente'}
                 </button>
               </div>
+              {perfilLigado && (
+                <div className="border-b border-border px-4 py-2">
+                  <button
+                    type="button"
+                    onClick={() => setPerfilDe(detalhe)}
+                    className="text-xs font-semibold text-primary hover:underline"
+                  >
+                    Ver perfil do cliente
+                  </button>
+                </div>
+              )}
               {/* O aniversário (Onda 3): de onde veio a data, desde quando vale, e o "corrigir" com o motivo. */}
               <AniversarioNaGaveta clienteId={detalhe.id} nome={detalhe.nome} />
               <div className="scroll-fino max-h-[50vh] overflow-y-auto px-4 py-3">
@@ -1328,6 +1345,7 @@ export default function ClientesPage() {
           </div>
         </div>
       )}
+      {perfilDe && <FichaDoPerfil clienteId={perfilDe.id} nome={perfilDe.nome ?? 'Cliente'} aoFechar={() => setPerfilDe(null)} />}
     </Shell>
   );
 }

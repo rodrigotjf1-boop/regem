@@ -7,6 +7,7 @@ import { getClienteToken, limparCliente, setClienteToken } from '@/components/lo
 import type { Cardapio } from './use-cardapio';
 import { brl, Ic } from './partes';
 import { AniversarioNoPerfil } from './aniversario-do-cliente';
+import { PrivacidadeNaConta } from './privacidade';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -1128,6 +1129,9 @@ function AbaPerfil({
           </div>
         ))}
       </div>
+
+      {/* Privacidade (F1c do plano do perfil do cliente): só na loja com o módulo "Perfil do cliente" ligado. */}
+      <PrivacidadeNaConta token={token} clienteToken={clienteToken} setErro={setErro} />
 
       {/* Promoções pelo WhatsApp — só na loja que manda promoção */}
       {perfil.promocoes && (

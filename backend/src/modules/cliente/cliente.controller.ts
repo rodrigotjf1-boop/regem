@@ -97,6 +97,20 @@ export class ClientePublicoController {
     return this.service.definirPromocoes(token, dto?.clienteToken, dto?.ativo);
   }
 
+  // Privacidade e o que o cliente conta (F1c do plano do perfil do cliente): as escolhas sobre os próprios dados (sempre um
+  // "sim" clicado) e o que ele conta. Prova de posse pelo `clienteToken` (V79).
+  @Get(':token/cliente/privacidade')
+  @Throttle({ default: { ttl: 60000, limit: 30 } })
+  privacidade(@Param('token') token: string, @Query('clienteToken') clienteToken?: string) {
+    return this.service.privacidade(token, clienteToken);
+  }
+
+  @Post(':token/cliente/privacidade')
+  @Throttle({ default: { ttl: 60000, limit: 20 } })
+  definirPrivacidade(@Param('token') token: string, @Body() dto: any) {
+    return this.service.definirPrivacidade(token, dto?.clienteToken, dto);
+  }
+
   // O aniversário (Onda 3, mig 357): o cliente informa (Perfil ou a pergunta da confirmação) e corrige UMA vez.
   @Post(':token/cliente/aniversario')
   @Throttle({ default: { ttl: 60000, limit: 10 } })

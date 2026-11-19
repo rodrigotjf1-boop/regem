@@ -6,7 +6,8 @@ import { comTravaDaEmpresa } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// ERR-539 / mig 460: o recálculo dos totais do cliente (gatilho da 458) NÃO ESPERA a trava do cadastro. Depois da 458 o CI
+// mig 460: o recálculo dos totais do cliente (gatilho da 458) NÃO ESPERA a trava do cadastro. (A 460 nasceu de um diagnóstico
+// errado do deadlock do CI — a causa real era outra suíte reaplicando a 344; ver ERR-539 —, mas é inofensiva e fica.) O CI
 // acusou `deadlock detected` no teste do pedido agendado pelo robô (o gatilho esperava a linha do `cliente` dentro da
 // transação que cancela o pedido). Aqui: com OUTRA conexão segurando o cadastro, cancelar o pedido passa na hora (com um
 // `lock_timeout` curto, esperar daria erro) e o recálculo desta vez é pulado; sem a trava, recalcula.
@@ -35,7 +36,7 @@ descrever('o gatilho dos totais não espera a trava do cadastro (Postgres)', () 
   }, 60_000);
 
   it('com o cadastro travado por outra transação, cancelar passa sem esperar; sem a trava, recalcula', async () => {
-    await pool.query(comTravaDaEmpresa(readFileSync(ARQUIVO, 'utf8')));
+    // A 460 já está no banco (a montagem do CI aplica as migrations): nada de DDL aqui (LIC-088; ERR-539).
     t = (await pool.query(`insert into empresa (nome) values ('teste mig 460') returning id`)).rows[0].id;
     const u = (await pool.query(`insert into unidade (tenant_id, nome) values ($1,'Loja') returning id`, [t])).rows[0].id;
     const cli = (await pool.query(`insert into cliente (tenant_id, nome, telefone) values ($1,'Ana','21955550001') returning id`, [t])).rows[0].id;
