@@ -1336,6 +1336,25 @@ voz para um teste. O dono decidiu usar a mesma do atendente (Google).
 - **O medidor `Franquia`** do cartão foi exportado, com o nome do que se conta; o cartão não mudou.
 - **Conferência:** roteiro `mister` (1.102 conferências, os três estados em 16 larguras) e `graph-clique` (272), sem falha.
 
+**M5d.1 implementada (19/11/2026; sem migration): o desenho novo no gráfico que já existia, o do insumo.**
+- **Os três lugares**, com o mesmo plano (`PlanoDoPdfDoInsumo.grafico`): barras em azul-marinho, a MAIOR em dourado,
+  grade leve, o valor escrito e a média tracejada.
+  - **Página** (`/mister/relatorio` e `/m/r/<código>`): `components/mister/grafico-do-mister.tsx`, em SVG na largura
+    medida.
+    - O valor fica em cima de cada barra quando cabe, ou só o da maior, e por cima da média, com borda.
+    - Os rótulos pulam quando não cabem, e os das pontas ficam dentro.
+    - Segue as cores do tema e traz a tabela.
+  - **Imagem da conversa** (`grafico-do-insumo.ts`) e **PDF** (`relatorio-insumo-pdf.ts`), com os cantos arredondados
+    no PDF.
+- As barras dos Relatórios de vendas (`Colunas`) não mudam.
+- **Diferença da decisão 7, avisada ao dono antes:** sem a biblioteca de desenho nova. Ela levaria um binário nativo ao
+  pacote da loja (o `npm ci` do backend vai ao servidor da loja) e não lê as fontes da marca guardadas em `woff2`
+  variável. O mesmo desenho é garantido pelo mesmo plano e pelas mesmas cores em três desenhistas: o PNG próprio
+  (`grafico/tela.ts`), o `pdfkit` e o SVG.
+- **Falta (M5d.2):** os 4 gráficos novos (dia com a semana anterior, hora, canal, mais vendidos) por uma consulta nova
+  do agente, e o link e o PDF deles. Os tipos novos do link pedem migration (`ck_mister_link_publico_tipo` só aceita
+  `insumo`), que vai junto com a da M5e.
+
 **Fica para depois (pedido do dono em 19/11):** quando a base de eventos do plano do perfil do cliente estiver pronta, o
 Mister usa o clima e os eventos para avisar de chuva e programar entregadores e funcionários em feriados e eventos
 grandes. A fonte do clima precisa de licença comercial.
