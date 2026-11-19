@@ -260,6 +260,19 @@ export const agendamentoDoCarrinho = (c: { entrega?: unknown } | null | undefine
   return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v) ? v : null;
 };
 
+/**
+ * Como o robô fala do último pedido (teste do dono, 19/11/2026): SEMPRE com a data — "o seu último pedido, de 02/09, foi
+ * 1x COMBO KIDS" —, e "o último que chegou a sair" quando os pedidos mais novos do cliente foram cancelados (sem isso, o
+ * pedido de 2 meses atrás pareceu outro pedido).
+ */
+export function comoFalarDoUltimo(u: { quando: string; itens: string[]; canceladosDepois?: number }): string {
+  const itens = u.itens.join(', ');
+  const de = u.quando ? `, de ${u.quando},` : '';
+  return u.canceladosDepois
+    ? `Diga a data e que é o último que chegou a sair (os mais novos foram cancelados): "O último pedido seu que chegou a sair${de} foi ${itens}. Quer repetir ou fazer outro?"`
+    : `Diga a data: "O seu último pedido${de} foi ${itens}. Quer repetir ou fazer outro?"`;
+}
+
 /** "amanhã, 19:30" — o horário agendado do pedido em montagem como o cliente lê (ou nada, sem agendamento). */
 export const agendadoParaTexto = (c: { entrega?: unknown } | null | undefined, agora: Date = new Date()): string | null => {
   const v = instanteDeSaoPaulo(agendamentoDoCarrinho(c));
@@ -475,6 +488,8 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
               quando: ultimo.quando,
               itens: ultimo.itens,
               ...(ultimo.foraDoCardapio.length ? { foraDoCardapio: ultimo.foraDoCardapio } : {}),
+              ...(ultimo.canceladosDepois ? { canceladosDepois: ultimo.canceladosDepois } : {}),
+              comoFalar: comoFalarDoUltimo(ultimo),
               comoRepetir: 'mexer_no_pedido com acao = repetir',
             },
           }
@@ -2117,7 +2132,14 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
     ctx: Contexto,
     cli: ClienteDaConversa,
     produtos: Map<string, any>,
-  ): Promise<{ numero: string; quando: string; itens: string[]; foraDoCardapio: string[]; linhas: Omit<Linha, 'linha'>[] } | null> {
+  ): Promise<{
+    numero: string;
+    quando: string;
+    itens: string[];
+    foraDoCardapio: string[];
+    linhas: Omit<Linha, 'linha'>[];
+    canceladosDepois: number;
+  } | null> {
     if (!cli?.id) return null;
     const [p] = await this.db
       .select({ displayId: pedidoExterno.displayId, numero: pedidoExterno.numero, itens: pedidoExterno.itens, criadoEm: pedidoExterno.criadoEm })
@@ -2125,6 +2147,22 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
       .where(and(eq(pedidoExterno.tenantId, ctx.cfg.tenantId), eq(pedidoExterno.clienteId, cli.id), ne(pedidoExterno.status, 'cancelado')))
       .orderBy(desc(pedidoExterno.criadoEm))
       .limit(1);
+    // Teste do dono (19/11/2026): o último que chegou a sair era de 02/09 e os 58 depois dele, cancelados — o robô disse
+    // "o seu último pedido foi COMBO KIDS" e pareceu outro pedido. Os cancelados mais novos que ele entram na conta para o
+    // robô dizer "o último que chegou a sair" (com a data).
+    const [depois] = p?.criadoEm
+      ? await this.db
+          .select({ n: sql<number>`count(*)::int` })
+          .from(pedidoExterno)
+          .where(
+            and(
+              eq(pedidoExterno.tenantId, ctx.cfg.tenantId),
+              eq(pedidoExterno.clienteId, cli.id),
+              eq(pedidoExterno.status, 'cancelado'),
+              sql`${pedidoExterno.criadoEm} > ${p.criadoEm}`,
+            ),
+          )
+      : [{ n: 0 }];
     const itens: any[] = Array.isArray(p?.itens) ? (p!.itens as any[]) : [];
     if (!itens.length) return null;
     const linhas: Omit<Linha, 'linha'>[] = [];
@@ -2155,7 +2193,14 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
     if (!linhas.length) return null;
     const d = p!.criadoEm ? new Date(p!.criadoEm as any) : null;
     const quando = d ? d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' }) : '';
-    return { numero: String(p!.displayId ?? p!.numero ?? ''), quando, itens: textos, foraDoCardapio: fora, linhas };
+    return {
+      numero: String(p!.displayId ?? p!.numero ?? ''),
+      quando,
+      itens: textos,
+      foraDoCardapio: fora,
+      linhas,
+      canceladosDepois: Number(depois?.n) || 0,
+    };
   }
 
   /** "Repetir o último pedido": os itens dele entram no pedido em montagem (depois do que já houver). */
@@ -2169,7 +2214,12 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
       return { itens: [...linhas, ...ultimo.linhas.map((l) => ({ ...l, linha: ++n }))], itensFechados: false };
     });
     const fora = ultimo.foraDoCardapio.length ? ` (fora do cardápio agora: ${ultimo.foraDoCardapio.join(', ')})` : '';
-    return this.responder(ctx, menu, r, r.recusa ? undefined : `último pedido repetido: ${ultimo.itens.join(', ')}${fora}`);
+    return this.responder(
+      ctx,
+      menu,
+      r,
+      r.recusa ? undefined : `último pedido repetido (o nº ${ultimo.numero}, de ${ultimo.quando}): ${ultimo.itens.join(', ')}${fora}`,
+    );
   }
 
   /**

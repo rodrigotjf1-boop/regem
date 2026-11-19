@@ -544,6 +544,22 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     let v: any = await robo.ver(c);
     expect(v.emCurso).toBe(false);
     expect(v.ultimoPedido).toMatchObject({ numero: '7', itens: ['2x X-Bacon', '1x Guaraná lata'], comoRepetir: 'mexer_no_pedido com acao = repetir' });
+    // Teste do dono (19/11): a data vai junto, sempre; sem cancelado depois, não fala de "chegou a sair".
+    const quando = v.ultimoPedido.quando as string;
+    expect(quando).toMatch(/^\d{2}\/\d{2}$/);
+    expect(v.ultimoPedido.comoFalar).toContain(`O seu último pedido, de ${quando}, foi 2x X-Bacon, 1x Guaraná lata.`);
+    expect(v.ultimoPedido.canceladosDepois).toBeUndefined();
+    // Dois pedidos MAIS NOVOS cancelados (e um cancelado mais velho, que não conta): o último que saiu continua o nº 7, agora
+    // como "o último que chegou a sair".
+    for (const [n, quandoSql] of [['8', '1 day'], ['9', '2 hours'], ['6', '5 days']])
+      await q(
+        `insert into pedido_externo (tenant_id, canal, display_id, cliente_id, cliente_nome, tipo, itens, total, status, criado_em)
+         values ($1,'cardapio',$2,$3,'Carla','retirada','[]'::jsonb,10,'cancelado', now() - $4::interval)`,
+        [l.t, n, cli.id, quandoSql],
+      );
+    v = await robo.ver(c);
+    expect(v.ultimoPedido).toMatchObject({ numero: '7', canceladosDepois: 2 });
+    expect(v.ultimoPedido.comoFalar).toContain(`O último pedido seu que chegou a sair, de ${quando}, foi 2x X-Bacon, 1x Guaraná lata.`);
 
     // Repetir é pedir igual: os itens com o adicional, sem a pergunta dos extras; o "mais alguma coisa?" vem com o trio.
     let r: any = await robo.mexerNosItens(c, { acao: 'repetir' });
