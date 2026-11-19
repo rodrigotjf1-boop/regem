@@ -53,6 +53,8 @@ const RECURSO: Record<string, string> = {
   mister_documento: 'Mister · boletos por foto',
   // Os avisos escritos pelo Mister (versão 4, M4c; o nome vem do `RECURSO_DO_AVISO_ESCRITO` do servidor).
   mister_aviso_escrito: 'Mister · avisos escritos',
+  // A foto que a equipe manda, lida pela IA da empresa quando o DMS Graph não lê (versão 5, M5a; `RECURSO_DA_FOTO_DO_MISTER`).
+  mister_foto: 'Mister · fotos (reserva do DMS Graph)',
 };
 const MODELO: Record<string, string> = {
   'claude-haiku-5-5': 'Claude Haiku 5.5',

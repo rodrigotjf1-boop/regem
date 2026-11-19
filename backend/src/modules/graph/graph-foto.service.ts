@@ -110,9 +110,26 @@ export class GraphFotoService {
    * chega DEPOIS do prazo ainda guarda a franquia (o Graph já contou) e ainda marca a ligação desfeita.
    */
   async ler(tenantId: string, lig: LigacaoDoGraph, foto: FotoParaOGraph, prazoMs: number): Promise<AnaliseDaFoto | null> {
+    return this.analisar(tenantId, lig, foto, prazoMs, analiseDoGraph);
+  }
+
+  /**
+   * A leitura de um arquivo pelo Graph, com a tradução do resultado de quem chama: o atendente usa `analiseDoGraph` (a
+   * foto do cliente, por `ler`); o Mister usa a dele (M5a, a foto e o PDF que a equipe manda — `mimes` com o PDF e o
+   * `prefixoDaChave` próprio, para os dois usos nunca dividirem o resultado guardado no Graph). As mesmas regras de `ler`:
+   * prazo, franquia, ligação desfeita e nunca lança. A tradução que devolve null = "fora do formato" (segue pela reserva).
+   */
+  async analisar<T>(
+    tenantId: string,
+    lig: LigacaoDoGraph,
+    foto: FotoParaOGraph,
+    prazoMs: number,
+    traduzir: (dados: unknown) => T | null,
+    opcoes: { mimes?: readonly string[]; prefixoDaChave?: string } = {},
+  ): Promise<T | null> {
     const cfg = lerConfigGraph();
     if (ehServidorLocal() || !cfg.ligado || !graphLigadoParaEmpresa(tenantId)) return null;
-    const mime = mimeDoGraph(foto.mime);
+    const mime = mimeDoGraph(foto.mime, opcoes.mimes);
     if (!mime) {
       await this.registrarLeitura(lig.id, 'tipo-nao-aceito', null);
       return null;
@@ -124,7 +141,7 @@ export class GraphFotoService {
       chamada = this.cliente(cfg, lig.segredo, prazoMs).chamar(FERRAMENTA, {
         mimeType: mime,
         arquivoBase64: foto.buffer.toString('base64'),
-        chaveIdempotencia: chaveDaFoto(tenantId, foto.mensagemId, foto.buffer),
+        chaveIdempotencia: chaveDaFoto(tenantId, foto.mensagemId, foto.buffer, opcoes.prefixoDaChave),
       });
     } catch (e: any) {
       await this.depoisDaFalha(tenantId, lig, e);
@@ -146,9 +163,10 @@ export class GraphFotoService {
         ).catch(() => undefined);
         return null;
       }
-      const analise = analiseDoGraph(r);
+      const analise = traduzir(r);
+      const tipo = (analise as { tipo?: unknown } | null)?.tipo;
       if (!analise) this.log.warn('o DMS Graph respondeu fora do formato: a foto segue pela IA da empresa');
-      else this.log.log(`foto lida pelo DMS Graph (${analise.tipo})`);
+      else this.log.log(`foto lida pelo DMS Graph${typeof tipo === 'string' ? ` (${tipo})` : ''}`);
       await this.registrarLeitura(lig.id, analise ? 'lida' : 'fora-do-formato', franquiaDe((r as any)?.franquia), !!analise);
       return analise;
     } catch (e: any) {

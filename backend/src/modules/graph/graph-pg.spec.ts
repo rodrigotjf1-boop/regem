@@ -10,6 +10,7 @@ import { gerarChave, montarChaveIdempotencia } from '../../dms/integracao-dms';
 import { FotoDoClienteService } from '../cardapio/foto-do-cliente.service';
 import { GraphCliqueService } from './graph-clique.service';
 import { GraphFotoService } from './graph-foto.service';
+import { MIMES_DO_MISTER_NO_GRAPH, PREFIXO_DA_CHAVE_DO_MISTER, oQueOGraphViu } from '../mister/mister-midia.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -535,6 +536,34 @@ descrever('o DMS Graph no Regem (Postgres real, Graph e DMS ID de mentira)', () 
       const l = leitor();
       expect(await l.svc.olhar(foto(t, { mensagemId: 'wamid.excluida' }))).toEqual({ tipo: 'outro', descricao: 'lida pela IA da empresa' });
       expect(chamadasMcp).toEqual([]);
+    });
+
+    // Versão 5 do Mister (M5a): a foto e o PDF que a EQUIPE manda ao Mister passam pela mesma porta, com a tradução e a
+    // chave do Mister — a foto do cliente (o atendente) não muda: segue só imagem e com a chave dela.
+    it('o Mister (M5a): `analisar` leva o PDF e a chave própria, com a tradução de quem chama; a foto do cliente segue só imagem', async () => {
+      const { t, ana } = await empresa();
+      await ligar(ana);
+      const lig = (await graphFoto.ligacaoParaFoto(t))!;
+      const PDF = Buffer.concat([Buffer.from('%PDF-1.7\n'), randomBytes(32)]);
+      porta = () => sucesso({ tipo: 'Cardápio', titulo: 'Cardápio impresso', contexto: 'Um cardápio com 12 lanches. Preços de R$ 20 a R$ 45.', secoes: [] });
+      const r = await graphFoto.analisar(t, lig, { buffer: PDF, mime: 'application/pdf', mensagemId: 'wamid.PDF1' }, 1_500, oQueOGraphViu, {
+        mimes: MIMES_DO_MISTER_NO_GRAPH,
+        prefixoDaChave: PREFIXO_DA_CHAVE_DO_MISTER,
+      });
+      expect(r).toMatchObject({ resumo: 'Um cardápio com 12 lanches', financeiro: false });
+      const c = chamadasMcp.at(-1)!;
+      expect(c.args).toEqual({ mimeType: 'application/pdf', arquivoBase64: PDF.toString('base64'), chaveIdempotencia: montarChaveIdempotencia('regem-graph-mister', t, 'wamid.PDF1') });
+      expect((await ligacaoDe(t)).ultima_leitura_resultado).toBe('lida');
+      // A tradução que devolve null = "fora do formato" (a reserva lê): nada quebra e a ligação anota.
+      porta = () => sucesso();
+      expect(await graphFoto.analisar(t, lig, { buffer: PNG, mime: 'image/png', mensagemId: 'wamid.FF' }, 1_500, () => null)).toBeNull();
+      expect((await ligacaoDe(t)).ultima_leitura_resultado).toBe('fora-do-formato');
+      // A foto do cliente (o atendente) segue só imagem: o PDF nem chama o Graph, e a chave da imagem é a de sempre.
+      const n = chamadasMcp.length;
+      expect(await graphFoto.ler(t, lig, { buffer: PDF, mime: 'application/pdf', mensagemId: 'wamid.PDF2' }, 1_500)).toBeNull();
+      expect(chamadasMcp).toHaveLength(n);
+      await graphFoto.ler(t, lig, { buffer: PNG, mime: 'image/png', mensagemId: 'wamid.FOTO9' }, 1_500);
+      expect(chamadasMcp.at(-1)!.args.chaveIdempotencia).toBe(montarChaveIdempotencia('regem-graph-foto', t, 'wamid.FOTO9'));
     });
   });
 });

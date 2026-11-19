@@ -1275,6 +1275,31 @@ voz para um teste. O dono decidiu usar a mesma do atendente (Google).
 | **M5d · Gráficos** | O desenho novo na imagem, no PDF e na página; o insumo refeito e 4 gráficos novos (dia, hora, canal, mais vendidos). | não |
 | **M5e · Resumo** | O resumo com "📄 PDF" e "📊 Ver gráficos", o PDF do resumo, a página do link e "Como mandar o resumo". | 1 |
 
+**M5a implementada (19/11/2026; sem migration; nasce desligada por `MISTER_MIDIA=1` no `regem-api`):**
+- **Onde mora:** `mister-midia.regras.ts`, puro: a tradução do Graph e da reserva, a pergunta com a marca `⟦foto⟧` e a
+  linha do "📷 Vi". `MisterMidiaService` fica no `MisterAgenteModule`, que passou a importar o `GraphModule`, e se
+  apresenta à entrada por `registrarMidia`.
+- **A porta do Graph:** o `GraphFotoService` ganhou `analisar`, com a tradução de quem chama, os tipos aceitos e o
+  prefixo da chave. O `ler` do atendente passa por ele e não mudou: só imagem e a chave `regem-graph-foto`. O Mister
+  manda imagem e PDF com a chave `regem-graph-mister`, para os dois usos nunca dividirem o resultado guardado.
+- **A ordem na entrada:**
+  1. A mídia vai ao serviço da foto.
+  2. Boleto ou nota vai aos documentos (M3a) quando eles estão ligados.
+  3. O resto vira a pergunta na fila, sem passar por PARAR/VOLTAR nem pelo texto que completa documento.
+  4. Empresa sem o Graph: o "só leio texto" diz onde ligar ("Delivery › Configurações › Integrações", conferido no
+     menu pelo teste).
+  5. Nenhuma leitura: "📷 Não consegui ver a foto agora…" (desfecho `midia_nao_lida`).
+- **A reserva:** a IA da empresa (`claude-haiku-5-5`, recurso `mister_foto`) com o formato RESUMO/TIPO/DESCRICAO. O
+  prazo é total (30 s, V106).
+- **A legenda da foto** (`caption` da Meta) passa a ser lida.
+- **Instruções:** um bloco novo, "QUANDO A PESSOA MANDA FOTO". A versão das instruções muda, então a avaliação de
+  regressão é rodada de novo.
+- **Ainda não:**
+  - a conexão por QR Code (Evolution) não traz mídia ao Mister; segue "só leio texto";
+  - a frase da permissão do Graph ("…que os seus clientes mandam") será revista junto com o áudio (M5b);
+  - o quadro "Fotos e áudios · DMS Graph" em IA e uso também fica para a M5b. Nesta fase, a reserva aparece no gasto por
+    recurso como "Mister · fotos (reserva do DMS Graph)".
+
 **Fica para depois (pedido do dono em 19/11):** quando a base de eventos do plano do perfil do cliente estiver pronta, o
 Mister usa o clima e os eventos para avisar de chuva e programar entregadores e funcionários em feriados e eventos
 grandes. A fonte do clima precisa de licença comercial.

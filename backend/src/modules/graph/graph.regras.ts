@@ -159,22 +159,27 @@ export function fraseDaVolta(motivo: 'access_denied' | 'invalid_request_uri' | '
 
 // ───────────────────────────── a foto ─────────────────────────────
 
-/** O tipo da imagem que vai ao Graph, ou null (o Graph não aceita: a foto segue pela IA da empresa). */
-export function mimeDoGraph(mime: unknown): (typeof MIMES_DO_GRAPH)[number] | null {
+/** O tipo do arquivo que vai ao Graph, ou null (o Graph não aceita: a foto segue pela IA da empresa). `aceitos` = os tipos
+ *  daquele uso: o atendente manda só imagem (o padrão); o Mister (M5a) também o PDF que a pessoa manda. */
+export function mimeDoGraph(mime: unknown, aceitos: readonly string[] = MIMES_DO_GRAPH): string | null {
   const m = String(mime ?? '').split(';')[0].trim().toLowerCase();
   const normal = m === 'image/jpg' ? 'image/jpeg' : m;
-  return (MIMES_DO_GRAPH as readonly string[]).includes(normal) ? (normal as (typeof MIMES_DO_GRAPH)[number]) : null;
+  return aceitos.includes(normal) ? normal : null;
 }
+
+/** O começo da chave de idempotência da foto do cliente (o atendente). O Mister usa o dele (M5a). */
+export const PREFIXO_DA_CHAVE_DA_FOTO = 'regem-graph-foto';
 
 /**
  * A chave de idempotência da foto (G-5): a MESMA mensagem do WhatsApp dá sempre a mesma chave — a repetição (o mesmo
  * aviso entregue duas vezes, o processo que caiu no meio) recebe do Graph o resultado guardado, sem gastar a franquia de
  * novo. Sem o id da mensagem (não deveria acontecer), a chave sai do resumo dos bytes: a mesma foto do mesmo cliente.
+ * `prefixo` separa os usos (a foto do cliente × a foto que a equipe manda ao Mister): nunca dividem o resultado guardado.
  */
-export function chaveDaFoto(tenantId: string, mensagemId: unknown, bytes: Buffer): string {
+export function chaveDaFoto(tenantId: string, mensagemId: unknown, bytes: Buffer, prefixo: string = PREFIXO_DA_CHAVE_DA_FOTO): string {
   const id = typeof mensagemId === 'string' ? mensagemId.trim() : '';
-  if (id && id.length <= 200) return montarChaveIdempotencia('regem-graph-foto', tenantId, id);
-  return montarChaveIdempotencia('regem-graph-foto', tenantId, 'bytes', createHash('sha256').update(bytes).digest('hex'));
+  if (id && id.length <= 200) return montarChaveIdempotencia(prefixo, tenantId, id);
+  return montarChaveIdempotencia(prefixo, tenantId, 'bytes', createHash('sha256').update(bytes).digest('hex'));
 }
 
 export type Franquia = { mes: string; usados: number; total: number };
