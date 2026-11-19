@@ -33,6 +33,7 @@ import { escolherNumeroDaWaba, pedirCopiaDoApp, type ResultadoDaCopia } from './
 import { tierParaNumero } from './limite-meta';
 import { MisterEntradaService } from '../mister/mister-entrada.service';
 import { RespostasDoMarketingService } from './respostas-do-marketing.service';
+import { respostaDePrivacidade } from '../perfil-cliente/privacidade-pelo-whatsapp';
 import { decidirSincronizacao, papelDoModelo, STATUS_DA_META, type PapelDoNumero } from './modelos-por-conta';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -988,6 +989,17 @@ export class WhatsappCloudService {
               await this.enviarTexto(cfg.tenantId, de, TEXTO_VOLTOU);
             } catch (e: any) {
               this.logger.warn(`volta (VOLTAR) de ${mascarar(de)} não gravada: ${e?.message ?? e}`);
+            }
+            continue;
+          }
+          // PRIVACIDADE (perfil do cliente, F1c): o link das escolhas no cardápio, como o SAIR — só com o módulo ligado; senão
+          // (ou se a leitura falhar) a mensagem segue o caminho de sempre. Não consulta nada se não for a palavra.
+          const privacidade = await respostaDePrivacidade(this.db, { tenantId: cfg.tenantId, cardapioToken: cfg.token, texto: txt });
+          if (privacidade) {
+            try {
+              await this.enviarTexto(cfg.tenantId, de, privacidade);
+            } catch (e: any) {
+              this.logger.warn(`resposta do PRIVACIDADE a ${mascarar(de)} não enviada: ${e?.message ?? e}`);
             }
             continue;
           }

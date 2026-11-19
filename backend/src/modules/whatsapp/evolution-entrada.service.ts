@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig } from '../../db/schema';
 import { PEDE_SAIDA, PEDE_VOLTA, TEXTO_SAIU, TEXTO_VOLTOU, registrarSaida, registrarVolta } from '../../common/consentimento-marketing';
+import { respostaDePrivacidade } from '../perfil-cliente/privacidade-pelo-whatsapp';
 import { WhatsappService } from './whatsapp.service';
 import { MsgNormalizada } from './whatsapp-cloud.service';
 import { estadoDaPausa, pausarPeloAtendente } from './robo-pausa';
@@ -248,6 +249,15 @@ export class EvolutionEntradaService {
       await registrarVolta(this.db, { tenantId: cfg.tenantId, telefone: de, origem: 'whatsapp' })
         .then(() => this.evolution.enviar(cfg.tenantId, de, TEXTO_VOLTOU))
         .catch((e: any) => this.logger.warn(`volta (VOLTAR) de ${mascarar(de)} não gravada: ${e?.message ?? e}`));
+      return;
+    }
+    // PRIVACIDADE (perfil do cliente, F1c): o link das escolhas no cardápio, como na API oficial — só com o módulo ligado;
+    // senão (ou se a leitura falhar) segue o caminho de sempre. Não consulta nada se não for a palavra.
+    const privacidade = await respostaDePrivacidade(this.db, { tenantId: cfg.tenantId, cardapioToken: cfg.token, texto: txt });
+    if (privacidade) {
+      await this.evolution
+        .enviar(cfg.tenantId, de, privacidade)
+        .catch((e: any) => this.logger.warn(`resposta do PRIVACIDADE a ${mascarar(de)} não enviada: ${e?.message ?? e}`));
       return;
     }
 
