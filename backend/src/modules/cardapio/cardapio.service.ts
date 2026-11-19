@@ -712,6 +712,23 @@ export class CardapioService {
   }
 
   /**
+   * "Mandar print de ajuda" (mig 442, D3) da loja do robô, para as instruções: ligado entra a seção PRINT DE AJUDA. Nunca
+   * rejeita: sem conseguir ler (ou sem a coluna), desligado — as instruções de hoje.
+   */
+  async printDeAjudaDoRobo(token: string): Promise<boolean> {
+    try {
+      const cfg = await this.resolver(token);
+      const r: any = await this.db.execute(
+        sql`select coalesce((to_jsonb(rc) ->> 'print_ajuda')::boolean, false) as ligado from robo_config rc where rc.tenant_id = ${cfg.tenantId}::uuid`,
+      );
+      return (r?.rows ?? r)?.[0]?.ligado === true;
+    } catch (e: any) {
+      this.logger.warn(`print de ajuda não lido (valem as instruções sem ele): ${e?.message ?? e}`);
+      return false;
+    }
+  }
+
+  /**
    * A conversa de TESTE do atendente da chave `teste:<id>` (mig 382), para as instruções: o canal que ela imita e o
    * "simular fora do horário". Chave inválida ou teste que não existe = null (as consultas já recusaram pela chave).
    */

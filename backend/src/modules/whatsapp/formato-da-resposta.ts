@@ -187,6 +187,36 @@ export function separarOpcoesSoltas(texto: unknown): { texto: string; opcoes: Ar
   return { texto: t, opcoes };
 }
 
+/**
+ * Os passos do PRINT DE AJUDA (D3 — protótipo `regem-atendente-alergenos-agendado.html`, parte 3, F2 opção A): uma imagem
+ * pronta por passo do cardápio, com uma loja de demonstração, em `frontend/public/ajuda/print-<passo>.png`.
+ */
+export const PASSOS_DO_PRINT = ['produto', 'adicionais', 'carrinho', 'endereco', 'pagamento', 'acompanhar'] as const;
+export type PassoDoPrint = (typeof PASSOS_DO_PRINT)[number];
+const LINHA_DO_PRINT = /^[ \t]*PRINT[ \t]*:[ \t]*(.*?)[ \t]*$/i;
+const semAcentoMinusculo = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+/**
+ * A linha `PRINT: carrinho` que o robô escreve: sai do texto em todo canal (o cliente nunca a vê) e, se o passo é um dos
+ * seis, vira o print daquele passo (só no WhatsApp, só com a loja com o ajuste ligado — quem decide é a porta da
+ * resposta). Mais de uma linha: vale a primeira que serve (F3: um print por resposta).
+ */
+export function separarPrint(texto: unknown): { texto: string; print: PassoDoPrint | null } {
+  let print: PassoDoPrint | null = null;
+  const t = tirarLinhas(texto, LINHA_DO_PRINT, (m) => {
+    const p = semAcentoMinusculo(semFormatacao(m[1] ?? '').trim()).replace(/[^a-z]/g, '');
+    if (!print && (PASSOS_DO_PRINT as readonly string[]).includes(p)) print = p as PassoDoPrint;
+  });
+  return { texto: t, print };
+}
+
+/** O endereço público da imagem do passo (o app da nuvem serve `public/ajuda/`). */
+export function urlDoPrint(passo: PassoDoPrint, env: NodeJS.ProcessEnv = process.env): string {
+  // O app que serve `public/` (o mesmo endereço das imagens do "como faço" do Mister — `enderecoDoApp`).
+  const base = (env.APP_URL || env.CARDAPIO_PUBLIC_URL || 'https://app.dmsregem.com').replace(/\/+$/, '');
+  return `${base}/ajuda/print-${passo}.png`;
+}
+
 /** Os balões da resposta estão ligados nesta instalação (`ROBO_BALOES=1` — nasce desligado; o dono liga). */
 export function baloesLigados(env: NodeJS.ProcessEnv = process.env): boolean {
   return /^(1|true|sim|ligado)$/i.test(String(env.ROBO_BALOES ?? '').trim());

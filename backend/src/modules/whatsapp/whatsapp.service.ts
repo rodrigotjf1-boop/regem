@@ -654,6 +654,26 @@ export class WhatsappService {
   }
 
   // Envia uma mensagem de texto (o humano assume a conversa do robô).
+  /**
+   * IMAGEM por endereço público pela instância da loja (D3 — o print de ajuda do robô): `POST /message/sendMedia/<inst>`
+   * com o corpo que a loja já usa nas campanhas (`enviarMidiaPorInstancia`). Lança na recusa.
+   */
+  async enviarImagem(tenantId: string, numero: string, link: string, legenda = '') {
+    const { instancia } = await this.instanciaDe(tenantId);
+    const number = this.soNumero(numero);
+    if (!number) throw new BadRequestException('Número inválido.');
+    if (!/^https:\/\//i.test(String(link ?? ''))) throw new BadRequestException('Imagem inválida.');
+    const res = await this.req(`/message/sendMedia/${instancia}`, {
+      method: 'POST',
+      body: JSON.stringify({ number, mediatype: 'image', mimetype: 'image/png', media: link, caption: String(legenda ?? '').trim() }),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const body = res ? await res.text().catch(() => '') : '';
+      throw new BadRequestException(`Falha ao enviar a imagem (${res?.status ?? 'sem resposta'}): ${body.slice(0, 150)}`);
+    }
+    return { ok: true, id: await idDaMensagemEnviada(res) };
+  }
+
   async enviar(tenantId: string, numero: string, texto: string) {
     const t = String(texto ?? '').trim();
     if (!t) throw new BadRequestException('Mensagem vazia.');

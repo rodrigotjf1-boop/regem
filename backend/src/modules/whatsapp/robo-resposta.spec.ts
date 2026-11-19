@@ -7,7 +7,7 @@ import {
   lerResposta,
   menuNumerado,
 } from './robo-resposta.service';
-import { semFormatacao } from './formato-da-resposta';
+import { semFormatacao, urlDoPrint } from './formato-da-resposta';
 import { corpoDaReacao } from './whatsapp-cloud.service';
 import { corpoDaReacaoEvolution } from './whatsapp.service';
 import { MARCA_DA_RESPOSTA_SEGURADA, entregarSegurando, esquecerAndamentos } from './resposta-em-andamento';
@@ -22,7 +22,7 @@ const TEL = '5521999998888';
 // O texto de uma consulta `sql` do drizzle (só os pedaços fixos), para o banco de mentira saber o que responder.
 const textoDaConsulta = (q: any) => (q?.queryChunks ?? []).flatMap((c: any) => (Array.isArray(c?.value) ? c.value : [])).join(' ');
 
-function montar(cfg: any, linhaPausa?: any, dados: { produtos?: any[]; conversa?: any[] } = {}) {
+function montar(cfg: any, linhaPausa?: any, dados: { produtos?: any[]; conversa?: any[]; print?: boolean } = {}) {
   const chamadas: any[] = [];
   const fotos: (string | null)[] = [];
   const db: any = {
@@ -32,6 +32,8 @@ function montar(cfg: any, linhaPausa?: any, dados: { produtos?: any[]; conversa?
       // foto-do-produto.ts: os produtos da loja e a conversa (vazios = nada a conferir, como antes)
       if (/from produto\b/.test(t)) return { rows: dados.produtos ?? [] };
       if (/from whatsapp_mensagem\b/.test(t)) return { rows: dados.conversa ?? [] };
+      // D3: "Mandar print de ajuda" da loja (robo_config.print_ajuda)
+      if (/print_ajuda/.test(t)) return { rows: dados.print === undefined ? [] : [{ ligado: dados.print }] };
       // robo-pausa: sem pausa nem chamado (ou a linha que o teste mandar)
       return { rows: linhaPausa ? [linhaPausa] : [] };
     },
@@ -41,6 +43,7 @@ function montar(cfg: any, linhaPausa?: any, dados: { produtos?: any[]; conversa?
     enviar: async (...a: any[]) => chamadas.push(['evo.texto', ...a.slice(1)]),
     enviarEnquete: async (...a: any[]) => chamadas.push(['evo.enquete', ...a.slice(1)]),
     enviarAudio: async (...a: any[]) => chamadas.push(['evo.voz', a[1]]),
+    enviarImagem: async (...a: any[]) => chamadas.push(['evo.imagem', a[1], a[2]]),
     enviarReacao: async (...a: any[]) => chamadas.push(['evo.reacao', a[1], a[2], a[3], a[4]]),
     mostrarDigitando: (...a: any[]) => chamadas.push(['evo.digitando', a[0], a[1]]),
   };
@@ -48,6 +51,7 @@ function montar(cfg: any, linhaPausa?: any, dados: { produtos?: any[]; conversa?
     enviarTexto: async (...a: any[]) => chamadas.push(['cloud.texto', ...a.slice(1)]),
     enviarOpcoes: async (...a: any[]) => chamadas.push(['cloud.opcoes', a[1], a[2], a[3].length]),
     enviarVoz: async (...a: any[]) => chamadas.push(['cloud.voz', a[1], a[3]]),
+    enviarImagem: async (...a: any[]) => chamadas.push(['cloud.imagem', a[1], a[2]]),
     enviarLink: async (...a: any[]) => {
       fotos.push(a[5] ?? null);
       chamadas.push(['cloud.link', a[1], a[2], a[3], a[4]]);
@@ -488,6 +492,45 @@ describe('resposta do robô — formato, reação e balões (17/11/2026)', () =>
       texto: 'O X-Bacon sai por R$ 32,90',
       opcoes: [],
       reacao: '👍',
+      print: null,
     });
+  });
+
+  it('D3: com "Mandar print de ajuda" ligado, a imagem do passo vai ANTES do texto (nas duas vias); desligado, só o texto', async () => {
+    const antes = process.env.BOT_RESOLVER_SECRET;
+    process.env.BOT_RESOLVER_SECRET = SENHA;
+    try {
+      const texto = 'É nesta tela: quando o subtotal passa do mínimo (1), o botão libera (2).\nPRINT: carrinho';
+      const url = urlDoPrint('carrinho'); // o endereço público do app (APP_URL), como a porta monta
+      const cloud = montar(LOJA_CLOUD, undefined, { print: true });
+      const r: any = await cloud.svc.responder(SENHA, { phoneNumberId: 'p1', para: TEL, texto });
+      expect(cloud.chamadas.map((c) => c[0])).toEqual(['cloud.imagem', 'cloud.texto']);
+      expect(cloud.chamadas[0]).toEqual(['cloud.imagem', TEL, url]);
+      expect(cloud.chamadas[1][2]).toBe('É nesta tela: quando o subtotal passa do mínimo (1), o botão libera (2).');
+      expect(r.enviados).toEqual(['print', 'texto']);
+      const evo = montar(LOJA_EVO, undefined, { print: true });
+      await evo.svc.responder(SENHA, { instancia: 'i', para: TEL, texto });
+      expect(evo.chamadas.map((c) => c[0])).toEqual(['evo.imagem', 'evo.texto']);
+      for (const print of [false, undefined]) {
+        const off = montar(LOJA_CLOUD, undefined, { print });
+        await off.svc.responder(SENHA, { phoneNumberId: 'p1', para: TEL, texto });
+        expect(off.chamadas.map((c) => c[0])).toEqual(['cloud.texto']);
+        expect(off.chamadas[0][2]).not.toContain('PRINT');
+      }
+    } finally {
+      if (antes === undefined) delete process.env.BOT_RESOLVER_SECRET;
+      else process.env.BOT_RESOLVER_SECRET = antes;
+    }
+  });
+
+  it('D3: a linha PRINT sai do texto em todo canal e diz o passo (com OPCOES no meio, as opções seguem)', () => {
+    const lida = lerResposta({ texto: 'É nesta tela: quando o subtotal passa do mínimo (1), o botão libera (2).\nOPCOES: Monta pra mim | Vou tentar\nPRINT: carrinho' }, semFormatacao);
+    expect(lida).toEqual({
+      texto: 'É nesta tela: quando o subtotal passa do mínimo (1), o botão libera (2).',
+      opcoes: [expect.objectContaining({ titulo: 'Monta pra mim' }), expect.objectContaining({ titulo: 'Vou tentar' })],
+      reacao: null,
+      print: 'carrinho',
+    });
+    expect(lerResposta({ texto: 'Veja.\nPRINT: tela inventada' }, semFormatacao)).toMatchObject({ texto: 'Veja.', print: null });
   });
 });

@@ -107,7 +107,11 @@ import { MARCA_DA_RESPOSTA_SEGURADA } from '../whatsapp/resposta-em-andamento';
 // de cada produto (mig 454 — contém, pode conter, não contém ou "não informado pela loja") e a fraseDeCautela da loja. O
 // robô fala de alérgenos SÓ quando o cliente pergunta; responde pelos três casos do protótipo; a frase de cautela vai UMA
 // vez na conversa; nunca garante ausência de traços; na alergia, oferece a equipe.
-export const VERSAO_INSTRUCOES = '2026-11-18.f28';
+// .f29 (18/11, D3 — print de ajuda; protótipo, parte 3, F2–F4): com "Mandar print de ajuda" ligado na loja (mig 442, nasce
+// desligado), entra a seção PRINT DE AJUDA — a linha `PRINT: <passo>` (produto, adicionais, carrinho, endereco, pagamento,
+// acompanhar) vira a imagem pronta do passo, mandada antes do texto (`formato-da-resposta.ts` › `separarPrint`); um por
+// resposta; quem segue travado é atendido pela conversa. Desligado, as instruções ficam como na .f28.
+export const VERSAO_INSTRUCOES = '2026-11-18.f29';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -127,6 +131,8 @@ export type DadosDasInstrucoes = {
    * hoje (a seção não entra).
    */
   conhecimento?: string | null;
+  /** "Mandar print de ajuda" ligado na loja (mig 442, D3): entra a seção PRINT DE AJUDA. Ausente = desligado (como hoje). */
+  printAjuda?: boolean;
 };
 
 const linhas = (...l: string[]) => l.join('\n');
@@ -141,6 +147,33 @@ const secaoDosAssuntos = (dados: DadosDasInstrucoes): string[] => {
 const secaoDoConhecimento = (dados: DadosDasInstrucoes): string[] => {
   const t = String(dados?.conhecimento ?? '').trim();
   return t ? [t] : [];
+};
+
+/**
+ * PRINT DE AJUDA (D3, mig 442 `robo_config.print_ajuda` — protótipo `regem-atendente-alergenos-agendado.html`, parte 3,
+ * F2–F4): só quando a loja ligou "Mandar print de ajuda" (nasce desligado). O robô escreve `PRINT: <passo>` numa linha
+ * sozinha e o Regem manda a imagem pronta daquele passo antes do texto (`whatsapp/formato-da-resposta.ts` ›
+ * `separarPrint`). Um por resposta; quem segue travado é atendido pela conversa (F3).
+ */
+const secaoDoPrint = (dados: DadosDasInstrucoes, fluxo2: boolean): string[] => {
+  if (dados?.printAjuda !== true) return [];
+  const seguir = fluxo2
+    ? 'monte o pedido aqui pela conversa (MONTAR O PEDIDO AQUI)'
+    : 'pergunte se ele quer ajuda de alguém da equipe (veja QUANDO CHAMAR UMA PESSOA)';
+  return [
+    linhas(
+      'PRINT DE AJUDA (imagem de um passo do cardápio)',
+      '- Quando o cliente travar num passo do cardápio online, você pode mandar a imagem daquele passo, com os números marcados: escreva, numa linha sozinha no fim da resposta, PRINT: e o passo. Os passos e o que cada imagem mostra:',
+      '  · produto — escolher a categoria (1) e tocar no produto (2);',
+      '  · adicionais — marcar o que quer a mais (1), escrever a observação (2) e tocar em "Adicionar" (3);',
+      '  · carrinho — o subtotal precisa passar do pedido mínimo (1) para o botão "Continuar" liberar (2);',
+      '  · endereco — escolher entrega ou retirada (1), digitar o endereço com o número (2) e conferir a taxa (3);',
+      '  · pagamento — escolher como pagar (1), tocar em "Fazer pedido" (2) e, no Pix, copiar o código (3) e pagar no app do banco;',
+      '  · acompanhar — a etapa em que o pedido está (1) e, quando sair, acompanhar a entrega (2).',
+      '- A imagem vai antes do seu texto. No texto, diga em uma frase o que olhar, com os números da imagem (ex.: "É nesta tela: quando o subtotal passa do mínimo (1), o botão libera (2)."). A imagem é de uma loja de demonstração: os preços dela não são os desta loja — os valores, confira com as ferramentas.',
+      `- No máximo UM print por resposta, e só quando o cliente travou de verdade (não mande para quem só perguntou o preço ou pediu o link). Se ele seguir travado depois do print, não mande outro: ${seguir}.`,
+    ),
+  ];
 };
 
 /**
@@ -490,6 +523,7 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
       mudarUmPedidoJaFeito(),
       pagamentoNaConversa(true),
       fotoEDocumento(true),
+      ...secaoDoPrint(dados, true),
       clienteChateado(),
       quandoChamarUmaPessoa()
         .replace('não consegue usar o link ou fazer o pedido; ', 'tentou montar o pedido aqui e não deu certo; ')
@@ -512,6 +546,7 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
     oQueOClienteJaDisse(false),
     pagamentoNaConversa(false),
     fotoEDocumento(false),
+    ...secaoDoPrint(dados, false),
     clienteChateado(),
     quandoChamarUmaPessoa(),
     ...secaoDosAssuntos(dados),
