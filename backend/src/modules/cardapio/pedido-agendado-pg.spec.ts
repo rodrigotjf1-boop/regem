@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { BadRequestException } from '@nestjs/common';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
@@ -40,10 +41,19 @@ descrever('pedido agendado (Postgres)', () => {
   const q = (s: string, p: any[] = []) => pool.query(s, p).then((r) => r.rows);
   const aceitos: string[] = [];
   const horariosAvisados: string[] = [];
+  // O "aceitar automaticamente" do Delivery (`cfg.autoAceitar`) com a MESMA regra de `DeliveryService.aceitarSeAutomatico`
+  // (o `aceite-automatico.spec` prova a de verdade): ligado, aceita na entrada quem não espera o pagamento online — a não
+  // ser que quem grava peça `naoAutoAceitar`. Sem ele, o falso nunca aceitava e a corrida com o aceite passou (vigia, 19/11).
+  let autoAceitarDoDelivery = false;
+  const aceitarComoODelivery = async (row: any) => {
+    if (!autoAceitarDoDelivery || row.status_pagamento === 'aguardando') return row;
+    await delivery.aceitar(row.tenant_id, null, row.id);
+    return { ...row, status: 'confirmado' };
+  };
   // A gravação do pedido como a do Delivery grava o que o agendado usa (agendamento e retirada_tipo).
   const delivery = {
-    ingest: async (tenantId: string, unidadeId: string | null, canal: string, n: any, x: any) =>
-      (
+    ingest: async (tenantId: string, unidadeId: string | null, canal: string, n: any, x: any) => {
+      const row = (
         await q(
           `insert into pedido_externo (tenant_id, unidade_id, canal, client_ref, display_id, cliente_nome, cliente_telefone, tipo, itens, total,
              forma_pagamento, status, status_pagamento, agendamento, retirada_tipo)
@@ -51,7 +61,10 @@ descrever('pedido agendado (Postgres)', () => {
           [tenantId, unidadeId, canal, x.clientRef ?? randomUUID(), n.displayId, n.cliente, n.clienteTelefone, n.tipo, JSON.stringify(n.itens), n.total,
             n.formaPagamento, x.statusPagamento ?? null, x.agendamento ? new Date(x.agendamento) : null, x.retiradaTipo ?? null],
         )
-      ).map((r: any) => ({ ...r, id: r.id, status: r.status, unidadeId: r.unidade_id }))[0],
+      ).map((r: any) => ({ ...r, id: r.id, status: r.status, unidadeId: r.unidade_id }))[0];
+      return x?.naoAutoAceitar ? row : aceitarComoODelivery(row);
+    },
+    aceitarSeAutomatico: async (_t: string, _u: any, row: any) => aceitarComoODelivery(row),
     // D4b: o cancelamento do cliente e o aviso do "horário mudou".
     cancelarSistema: async (_t: string, id: string) => q(`update pedido_externo set status = 'cancelado' where id = $1`, [id]),
     avisarHorarioDoAgendado: async (_t: string, id: string) => void horariosAvisados.push(id),
@@ -87,7 +100,7 @@ descrever('pedido agendado (Postgres)', () => {
   }, 120_000);
 
   /** Uma loja sem horário cadastrado (sempre aberta), retirada ligada, Pix online no cardápio, agendado ligado com o limite. */
-  async function loja(limite: number | null = 4) {
+  async function loja(limite: number | null = 4, pixOnline = true) {
     const t = (await q(`insert into empresa (nome) values ('teste pedido agendado') returning id`))[0].id as string;
     empresas.push(t);
     const categoria = (await q(`insert into categoria_produto (tenant_id, nome) values ($1,'Lanches') returning id`, [t]))[0].id as string;
@@ -98,8 +111,8 @@ descrever('pedido agendado (Postgres)', () => {
     const token = `tk-${randomUUID()}`;
     await q(
       `insert into cardapio_config (tenant_id, token, ativo, modo, tipo_delivery, tipo_retirada, pagamentos, tempo_entrega_min, tempo_retirada_min)
-       values ($1,$2,true,'retirada',true,true,'["pix","entrega"]'::jsonb,40,20)`,
-      [t, token],
+       values ($1,$2,true,'retirada',true,true,$3::jsonb,40,20)`,
+      [t, token, JSON.stringify(pixOnline ? ['pix', 'entrega'] : ['dinheiro', 'entrega'])],
     );
     await cardapio.setConfig(t, null, { agendadoAtivo: true, agendadoAntecedenciaMin: 45, agendadoDias: 1, agendadoLimiteJanela: limite });
     return { t, token, lanche };
@@ -202,6 +215,59 @@ descrever('pedido agendado (Postgres)', () => {
     expect(vivos[0].n).toBe(2);
   });
 
+  it('V98 com o aceite automático do Delivery e sem Pix online: o desfeito fica cancelado e fora da cozinha (achado do vigia)', async () => {
+    // A loja sem Pix online aceita o agendado "na entrega" (G5) e, com o "aceitar automaticamente" do Delivery, o pedido
+    // era aceito DENTRO do `ingest` — antes do limite. O que estourava a janela já estava `confirmado`, o "desfazer" (só
+    // `status = 'novo'`) não o achava, o cliente recebia "encheu" e o pedido ia à cozinha, com a janela acima do limite.
+    const l = await loja(2, false);
+    const j = janelaDaqui(165);
+    autoAceitarDoDelivery = true;
+    const original = pool.query;
+    try {
+      const primeiro: any = await pedir(l, j, 'entrega'); // a primeira vaga: coube e foi aceito na hora
+      expect(aceitos).toContain(primeiro.pedidoId ?? primeiro.id);
+      let chegaram = 0;
+      let soltar!: () => void;
+      const solta = new Promise<void>((r) => (soltar = r));
+      const prazo = setTimeout(() => soltar(), 3000);
+      (pool as any).query = async function (this: any, ...args: any[]) {
+        const t = typeof args[0] === 'string' ? args[0] : String(args[0]?.text ?? '');
+        if (/insert into pedido_externo/.test(t) && /retirada_tipo/.test(t)) {
+          if (++chegaram >= 2) soltar();
+          await solta;
+        }
+        return (original as any).apply(pool, args);
+      };
+      let r: PromiseSettledResult<any>[] = [];
+      try {
+        r = await Promise.allSettled([pedir(l, j, 'entrega'), pedir(l, j, 'entrega')]);
+      } finally {
+        clearTimeout(prazo);
+        (pool as any).query = original;
+      }
+      expect(chegaram).toBe(2);
+      expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+      expect(String((r.find((x) => x.status === 'rejected') as PromiseRejectedResult).reason?.message)).toContain('acabou de encher');
+      const linhas = await q(`select id, status from pedido_externo where tenant_id = $1 and retirada_tipo = 'agendado'`, [l.t]);
+      const desfeito = linhas.filter((x: any) => x.status === 'cancelado');
+      expect(desfeito).toHaveLength(1);
+      expect(aceitos).not.toContain(desfeito[0].id);
+      expect(linhas.filter((x: any) => x.status === 'confirmado')).toHaveLength(2);
+    } finally {
+      autoAceitarDoDelivery = false;
+      (pool as any).query = original;
+    }
+  });
+
+  it('o horário que não existe é recusado com 400 — a conta da janela não estoura 500 (achado do vigia)', async () => {
+    const l = await loja();
+    const e = await pedir(l, 'lixo').catch((x) => x);
+    expect(e).toBeInstanceOf(BadRequestException);
+    expect(String(e.message)).toContain('Escolha o dia e o horário');
+    expect(await cardapio.ocupacaoDasJanelas(l.t, null, 'lixo')).toEqual(new Map());
+    expect(await cardapio.ocupacaoDasJanelas(l.t, null, '2026-02-30')).toEqual(new Map());
+  });
+
   it('a rotina do "entrou em preparo": escolhe quem já começou, marca uma vez só e chama o aviso', async () => {
     const l = await loja();
     const ins = (agendamentoSql: string, status = 'confirmado', tipo = 'retirada') =>
@@ -271,6 +337,10 @@ descrever('pedido agendado (Postgres)', () => {
     expect(horariosAvisados).toContain(id);
     // A janela fora da grade é recusada com a mensagem.
     await expect(cardapio.mudarHorarioPublico(l.token, id, `${novo.slice(0, 14)}05`, undefined, ref)).rejects.toThrow('não está disponível');
+    // O horário que não existe: 400 com a mensagem, não o 500 da conta da janela (achado do vigia, 19/11).
+    const e = await cardapio.mudarHorarioPublico(l.token, id, 'lixo', undefined, ref).catch((x: any) => x);
+    expect(e).toBeInstanceOf(BadRequestException);
+    expect(String(e.message)).toContain('Escolha o dia e o horário');
   });
 
   it('depois que o preparo começou: o cliente não muda nem cancela; a loja ainda muda', async () => {

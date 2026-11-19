@@ -76,6 +76,9 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
         )
       ).map((r: any) => ({ ...r, id: r.id, displayId: r.display_id, status: r.status, unidadeId: r.unidade_id }))[0],
     aceitar: async (_t: string, _u: any, id: string) => q(`update pedido_externo set status = 'confirmado' where id = $1`, [id]),
+    // O aceite automático do Delivery depois do limite da janela do agendado (este falso, como o `ingest` acima, não aceita
+    // na entrada: o aceite que o teste lê é o do cardápio).
+    aceitarSeAutomatico: async (_t: string, _u: any, row: any) => row,
     // D4c: o agendado registrado — o cancelamento e o aviso do "horário mudou" (o teste lê só a situação e o horário).
     cancelarSistema: async (_t: string, id: string) => q(`update pedido_externo set status = 'cancelado' where id = $1`, [id]),
     avisarHorarioDoAgendado: async () => undefined,
