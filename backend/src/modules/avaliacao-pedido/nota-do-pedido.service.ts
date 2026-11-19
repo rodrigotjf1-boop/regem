@@ -14,7 +14,7 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { ehServidorLocal } from '../../common/modo';
 import { hojeISO, somarDias } from '../../common/data';
 import { instanteDe } from '../../common/fuso-sql';
-import { abrirChamadoPeloRobo } from '../atendimento/abrir-chamado';
+import { abrirChamadoPeloRobo, type Emitir } from '../atendimento/abrir-chamado';
 import {
   NotaConferida,
   OPCOES_DO_PESO,
@@ -51,6 +51,98 @@ export type EstadoDaNota = {
   google: string | null;
 };
 
+const logger = new Logger('NotaDoPedido');
+
+/**
+ * O pedido com o que decide a nota (os ajustes da loja, o link do Google, a nota já dada): pelo token do rastreio (a
+ * página do pedido) ou pelo id na empresa (o formulário do WhatsApp — fase A2). null = não achou.
+ */
+export async function lerPedidoParaNota(db: any, onde: { token: string } | { tenantId: string; pedidoId: string }): Promise<any | null> {
+  const filtro =
+    'token' in onde ? sql`p.rastreio_token = ${onde.token}` : sql`p.id = ${onde.pedidoId}::uuid and p.tenant_id = ${onde.tenantId}::uuid`;
+  const r: any = await db.execute(sql`
+    select p.id, p.tenant_id, p.unidade_id, p.canal, p.status, p.numero, p.display_id, p.cliente_nome, p.cliente_telefone,
+           coalesce(p.entregue_em, p.concluido_em) as entregue_em,
+           e.nome as loja,
+           rc.nota_ativa, rc.nota_caso_ate, rc.nota_prazo_dias, rc.avaliacao_link,
+           a.nota as feita_nota, a.origem as feita_origem, a.criado_em as feita_em
+      from pedido_externo p
+      join empresa e on e.id = p.tenant_id
+      left join robo_config rc on rc.tenant_id = p.tenant_id
+      left join pedido_avaliacao a on a.pedido_id = p.id
+     where ${filtro}
+     order by p.criado_em desc
+     limit 1`);
+  return rows(r)[0] ?? null;
+}
+
+/** A situação do pedido para a nota (a regra que a página, o formulário do WhatsApp e a gravação seguem). */
+export function situacaoDaNota(l: any, agora: Date = new Date()): SituacaoDaNota {
+  const ajustes = ajustesDaNotaDaLinha(l);
+  if (!ajustes.ativa) return 'desligado';
+  if (!ehPedidoDoRegem(l.canal)) return 'fora';
+  if (l.feita_nota != null) return 'avaliado';
+  if (!['entregue', 'concluido'].includes(String(l.status)) || !l.entregue_em) return 'nao_entregue';
+  if (agora.getTime() > prazoAte(new Date(l.entregue_em), ajustes.prazoDias).getTime()) return 'encerrada';
+  return 'aberta';
+}
+
+export type NotaGravada = {
+  avaliacaoId: string;
+  criadoEm: Date;
+  /** O caso que a nota baixa abriu (ou somou); `paraOCliente` = a frase da loja quando a equipe está fora do horário. */
+  caso: { id: string; paraOCliente: string | null } | null;
+};
+
+/**
+ * Grava a nota — UMA por pedido (`on conflict do nothing` no índice único: duas abas, dois toques ou a página e o
+ * WhatsApp ao mesmo tempo não gravam duas). A nota baixa abre (ou soma a) o caso "Avaliação"; se o caso falhar, a nota
+ * fica gravada e o motivo vai para o log (V11). null = já havia nota. Quem chama confere a situação antes.
+ */
+export async function gravarNota(db: any, emitir: Emitir, l: any, n: NotaConferida, origem: 'pagina' | 'whatsapp'): Promise<NotaGravada | null> {
+  // O array pelo `sql.join` (V31): um array solto no `sql` do Drizzle vira a lista "(a, b)", não um `text[]`.
+  const pesou = n.pesou.length ? sql`array[${sql.join(n.pesou.map((p) => sql`${p}`), sql`, `)}]::text[]` : sql`'{}'::text[]`;
+  const r: any = await db.execute(sql`
+    insert into pedido_avaliacao (tenant_id, unidade_id, pedido_id, nota, pesou, comentario, origem)
+    values (${l.tenant_id}::uuid, ${l.unidade_id ?? null}, ${l.id}::uuid, ${n.nota}, ${pesou}, ${n.comentario}, ${origem})
+    on conflict (pedido_id) do nothing
+    returning id, criado_em`);
+  const nova = rows(r)[0];
+  if (!nova) return null;
+  const avaliacaoId = String(nova.id);
+  const caso = abreCaso(n.nota, ajustesDaNotaDaLinha(l).casoAte) ? await abrirCasoDaNota(db, emitir, l, n, origem, avaliacaoId) : null;
+  return { avaliacaoId, criadoEm: new Date(nova.criado_em), caso };
+}
+
+/** O caso "Avaliação" no Atendimento (ou a soma ao caso aberto do mesmo telefone), ligado à nota. Nunca lança. */
+async function abrirCasoDaNota(
+  db: any,
+  emitir: Emitir,
+  l: any,
+  n: NotaConferida,
+  origem: 'pagina' | 'whatsapp',
+  avaliacaoId: string,
+): Promise<{ id: string; paraOCliente: string | null } | null> {
+  const numero = l.display_id ?? (l.numero != null ? String(l.numero) : null);
+  try {
+    const caso: any = await abrirChamadoPeloRobo(db, emitir, String(l.tenant_id), l.unidade_id ?? null, {
+      tipo: 'avaliacao',
+      canal: 'cardapio',
+      cliente: l.cliente_nome ?? undefined,
+      telefone: l.cliente_telefone ?? undefined,
+      pedidoId: String(l.id),
+      pedidoNumero: numero ?? undefined,
+      mensagem: mensagemDoCaso(n, { origem, pedidoNumero: numero }),
+    });
+    if (!caso?.id) return null;
+    await db.execute(sql`update pedido_avaliacao set chamado_id = ${caso.id}::uuid where id = ${avaliacaoId}::uuid`);
+    return { id: String(caso.id), paraOCliente: caso.foraDoHorario && caso.paraOCliente ? String(caso.paraOCliente) : null };
+  } catch (e: any) {
+    logger.warn(`nota ${n.nota} do pedido ${l.id}: o caso no Atendimento não abriu — ${e?.message ?? e}`);
+    return null;
+  }
+}
+
 export const PERIODOS_DA_LISTA = ['hoje', '7', '30'] as const;
 export type PeriodoDaLista = (typeof PERIODOS_DA_LISTA)[number];
 /** Quantas avaliações a lista traz no máximo (os números de cima contam o período inteiro). */
@@ -66,7 +158,7 @@ export const LIMITE_DA_LISTA = 1000;
  */
 @Injectable()
 export class NotaDoPedidoService {
-  private readonly logger = new Logger('NotaDoPedido');
+  private readonly logger = logger;
 
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
@@ -79,33 +171,14 @@ export class NotaDoPedidoService {
   private async pedidoDoToken(token: unknown): Promise<any> {
     const tk = String(token ?? '').replace(/[^a-z0-9]/gi, '');
     if (!tk) throw new NotFoundException('Pedido não encontrado.');
-    const r: any = await this.db.execute(sql`
-      select p.id, p.tenant_id, p.unidade_id, p.canal, p.status, p.numero, p.display_id, p.cliente_nome, p.cliente_telefone,
-             coalesce(p.entregue_em, p.concluido_em) as entregue_em,
-             e.nome as loja,
-             rc.nota_ativa, rc.nota_caso_ate, rc.nota_prazo_dias, rc.avaliacao_link,
-             a.nota as feita_nota, a.origem as feita_origem, a.criado_em as feita_em
-        from pedido_externo p
-        join empresa e on e.id = p.tenant_id
-        left join robo_config rc on rc.tenant_id = p.tenant_id
-        left join pedido_avaliacao a on a.pedido_id = p.id
-       where p.rastreio_token = ${tk}
-       order by p.criado_em desc
-       limit 1`);
-    const l = rows(r)[0];
+    const l = await lerPedidoParaNota(this.db, { token: tk });
     if (!l) throw new NotFoundException('Pedido não encontrado.');
     return l;
   }
 
   /** A situação do pedido para a nota (a regra que a página e a gravação seguem). */
   static situacao(l: any, agora: Date = new Date()): SituacaoDaNota {
-    const ajustes = ajustesDaNotaDaLinha(l);
-    if (!ajustes.ativa) return 'desligado';
-    if (!ehPedidoDoRegem(l.canal)) return 'fora';
-    if (l.feita_nota != null) return 'avaliado';
-    if (!['entregue', 'concluido'].includes(String(l.status)) || !l.entregue_em) return 'nao_entregue';
-    if (agora.getTime() > prazoAte(new Date(l.entregue_em), ajustes.prazoDias).getTime()) return 'encerrada';
-    return 'aberta';
+    return situacaoDaNota(l, agora);
   }
 
   private static estado(l: any, situacao: SituacaoDaNota): EstadoDaNota {
@@ -144,39 +217,10 @@ export class NotaDoPedidoService {
     if (situacao === 'nao_entregue') throw new BadRequestException('Dá para avaliar depois que o pedido for entregue.');
     if (situacao === 'encerrada') throw new BadRequestException('A avaliação deste pedido encerrou.');
     if (situacao === 'avaliado') throw new ConflictException('Você já avaliou este pedido.');
-    // O array pelo `sql.join` (V31): um array solto no `sql` do Drizzle vira a lista "(a, b)", não um `text[]`.
-    const pesou = n.pesou.length ? sql`array[${sql.join(n.pesou.map((p) => sql`${p}`), sql`, `)}]::text[]` : sql`'{}'::text[]`;
-    const r: any = await this.db.execute(sql`
-      insert into pedido_avaliacao (tenant_id, unidade_id, pedido_id, nota, pesou, comentario, origem)
-      values (${l.tenant_id}::uuid, ${l.unidade_id ?? null}, ${l.id}::uuid, ${n.nota}, ${pesou}, ${n.comentario}, 'pagina')
-      on conflict (pedido_id) do nothing
-      returning id, criado_em`);
-    const nova = rows(r)[0];
-    if (!nova) throw new ConflictException('Você já avaliou este pedido.');
-    const caso = abreCaso(n.nota, ajustesDaNotaDaLinha(l).casoAte) ? await this.abrirCaso(l, n, String(nova.id)) : false;
-    const depois = { ...l, feita_nota: n.nota, feita_origem: 'pagina', feita_em: nova.criado_em };
-    return { ...NotaDoPedidoService.estado(depois, 'avaliado'), caso };
-  }
-
-  /** O caso "Avaliação" no Atendimento (ou a soma ao caso aberto do mesmo telefone), ligado à nota. Nunca lança. */
-  private async abrirCaso(l: any, n: NotaConferida, avaliacaoId: string): Promise<boolean> {
-    const numero = l.display_id ?? (l.numero != null ? String(l.numero) : null);
-    try {
-      const caso: any = await abrirChamadoPeloRobo(this.db, (ev, p) => this.events.emit(ev, p), String(l.tenant_id), l.unidade_id ?? null, {
-        tipo: 'avaliacao',
-        canal: 'cardapio',
-        cliente: l.cliente_nome ?? undefined,
-        telefone: l.cliente_telefone ?? undefined,
-        pedidoId: String(l.id),
-        pedidoNumero: numero ?? undefined,
-        mensagem: mensagemDoCaso(n, { origem: 'pagina', pedidoNumero: numero }),
-      });
-      if (caso?.id) await this.db.execute(sql`update pedido_avaliacao set chamado_id = ${caso.id}::uuid where id = ${avaliacaoId}::uuid`);
-      return !!caso?.id;
-    } catch (e: any) {
-      this.logger.warn(`nota ${n.nota} do pedido ${l.id}: o caso no Atendimento não abriu — ${e?.message ?? e}`);
-      return false;
-    }
+    const g = await gravarNota(this.db, (ev, p) => this.events.emit(ev, p), l, n, 'pagina');
+    if (!g) throw new ConflictException('Você já avaliou este pedido.');
+    const depois = { ...l, feita_nota: n.nota, feita_origem: 'pagina', feita_em: g.criadoEm };
+    return { ...NotaDoPedidoService.estado(depois, 'avaliado'), caso: !!g.caso };
   }
 
   // ───────────────────────── Delivery › Avaliações ─────────────────────────

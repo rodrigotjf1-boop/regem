@@ -2450,6 +2450,9 @@ const SO_NUVEM = new Set([
   // A nota do pedido pelo cliente (mig 453, @cloud-only): a página do pedido (`/r/…`) só roda na nuvem; Delivery ›
   // Avaliações, no servidor da loja, pede à nuvem. A loja não tem esta tabela.
   'pedido_avaliacao',
+  // O formulário da nota no WhatsApp oficial (mig 456, @cloud-only): a DMS cria e publica na conta da loja pela nuvem —
+  // só ela fala com a Meta. A loja não tem esta tabela.
+  'whatsapp_flow',
   // iFood pelo Orzuni (mig 370, @cloud-only): a ligação de cada loja com o Orzuni (segredo cifrado com a chave da nuvem) e
   // a fila do envio — só a nuvem fala com o Orzuni; a edição feita na loja chega lá pelo sincronismo e enfileira lá.
   'orzuni_ligacao', 'orzuni_envio',
