@@ -13,6 +13,7 @@ import { DRIZZLE, DrizzleDB } from '../db/drizzle.module';
 import { colaborador, funcao, perfilAcesso, suporteSessao, empresa } from '../db/schema';
 import { perfilPadrao, PACOTE_SUPORTE, PACOTE_SUPORTE_TOTAL, type Permissoes } from './permissoes';
 import { lerCookieSessao } from './cookie-sessao';
+import { sessaoEncerrada } from './sessao-encerrada';
 
 // TTL do cache de revalidação: janela máxima entre uma mudança no banco
 // (bloqueio/rebaixamento/permissão) e ela valer nas requisições.
@@ -52,6 +53,11 @@ export class JwtAuthGuard implements CanActivate {
       payload = this.jwt.verify(raw);
     } catch {
       throw new UnauthorizedException('Token inválido');
+    }
+    // "Sair" encerrou esta sessão (R3-01, mig 457): a cópia do cookie ou do token feita antes não vale mais — a mesma
+    // conferência no tempo real (`RealtimeGateway`, V97).
+    if (await sessaoEncerrada(this.db, payload)) {
+      throw new UnauthorizedException('Sessão encerrada. Entre de novo.');
     }
 
     // ===== F9 — token de SUPORTE (técnico da distribuição) =====

@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Post, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -8,7 +8,7 @@ import { PinLoginDto } from './dto/pin-login.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { CurrentUser } from './current-user.decorator';
 import { AuthUser } from './auth-user';
-import { setCookieSessao, limparCookieSessao } from './cookie-sessao';
+import { setCookieSessao, limparCookieSessao, lerCookieSessao } from './cookie-sessao';
 import { CloudOnly } from '../common/cloud-only.decorator';
 
 // Rotas públicas de autenticação — com rate limit agressivo (anti brute-force/spam).
@@ -69,12 +69,16 @@ export class AuthController {
     return this.service.pinLogin(dto);
   }
 
-  // Encerra a sessão da nuvem: apaga o cookie httpOnly no servidor (o JS não
-  // consegue apagá-lo sozinho). Idempotente — não exige estar autenticado.
+  // Sair: apaga o cookie httpOnly (o JS não consegue apagá-lo sozinho) E encerra a sessão no SERVIDOR (R3-01, mig 457) —
+  // a do cookie (nuvem) ou a do Bearer (servidor da loja e apps). Antes só o cookie ia embora, e uma cópia dele feita
+  // antes seguia valendo até vencer. Idempotente — não exige estar autenticado (token vencido ou ausente: só limpa).
   @Post('logout')
-  logout(@Res({ passthrough: true }) res: Response) {
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     limparCookieSessao(res);
-    return { ok: true };
+    const header = req.headers['authorization'];
+    const bearer = typeof header === 'string' && header.startsWith('Bearer ') ? header.slice(7) : undefined;
+    const { encerrada } = await this.service.sair(bearer || lerCookieSessao(req));
+    return { ok: true, encerrada };
   }
 
   // Identidade do usuário logado — para os gates de UI no modo cookie, onde o front
