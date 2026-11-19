@@ -12,6 +12,16 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Perfil do cliente — o gatilho dos totais não espera a trava do cadastro (19/11; mig 460 NOS DOIS LADOS; ERR-539).** A
+  função da 458 pega o cadastro com skip locked (o deadlock do teste do pedido agendado no CI). No servidor da loja
+  entra com o `.zip`, junto da 458.
+
+- **Perfil do cliente F1a — a base: o cálculo e a ficha pela API (19/11; mig 459 SÓ NUVEM — `cliente_perfil`,
+  `cliente_escolha`, `cliente_declarado`, `perfil_cliente_execucao`).** Módulo ativável "Perfil do cliente" (nasce
+  desligado); a rotina da manhã calcula o perfil dos clientes diretos de cada empresa com o módulo ligado. As quatro
+  tabelas = SO_NUVEM no `sync-daemon.mjs` (o daemon mudou → o `.exe` do próximo corte leva junto); o servidor da loja não
+  tem o módulo (CLOUD_ONLY).
+
 - **Perfil do cliente F1-0 — campanha só para cliente direto e totais do cliente sempre certos (19/11; mig 458 NOS DOIS
   LADOS; ERR-535 e ERR-536).** A regra de quem recebe campanha passa a excluir quem pediu só pelo iFood/99 (só nuvem). A
   mig 458 põe em `pedido_externo` os gatilhos que recalculam os totais do cliente ao cancelar, trocar o cliente do pedido
