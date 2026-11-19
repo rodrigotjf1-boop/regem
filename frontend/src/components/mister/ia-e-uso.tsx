@@ -13,6 +13,7 @@ import { ResponsiveTable, type Column } from '@/components/ui/responsive-table';
 import { Select } from '@/components/ui/select';
 import { SkeletonList } from '@/components/ui/skeleton';
 import { Dialogo, Gaveta } from '@/components/ui/sobreposto';
+import { FotosEAudiosDoGraph } from '@/components/mister/fotos-e-audios';
 
 // MISTER › IA E USO (protótipo `mockups/regem-mister.html`, aprovado em 13/11/2026; rotas da mig 415).
 // A chave de IA da EMPRESA (o presidente cola, o servidor prova no provedor antes de guardar; ela nunca volta — só o
@@ -114,6 +115,8 @@ export function IaEUso() {
     <div className="space-y-5">
       <ChaveDeIa />
       <UsoDaIa />
+      {/* Versão 5 (M5b.2): a franquia de fotos e áudios do DMS Graph (some sem a situação do Graph). */}
+      <FotosEAudiosDoGraph />
     </div>
   );
 }

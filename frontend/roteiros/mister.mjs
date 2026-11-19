@@ -21,6 +21,23 @@ const GERENTE = tokenFalso({ cat: 'gerente', perfil: 'gerente', perm: { delivery
 const CHAVE = `sk-ant-api03-${'k'.repeat(60)}ZZ99`;
 
 const SEM_CHAVE = { provedoresAceitos: ['anthropic'], origem: 'incluida', chave: null };
+/** Versão 5 (M5b.2): a situação do DMS Graph (`GET /graph/clique/situacao`) — ligado (137 de 500), franquia acabou, sem a ligação. */
+const SITUACAO_DO_GRAPH = (g) => {
+  const mes = new Date().toLocaleString('sv-SE', { timeZone: 'America/Sao_Paulo' }).slice(0, 7);
+  const ligacao =
+    g === 'sem'
+      ? null
+      : {
+          contaNome: 'Mister teste',
+          desde: '2026-11-19T07:06:00Z',
+          por: 'Ana',
+          permissoes: ['arquivos.analisar'],
+          ultimoUso: '2026-11-19T09:00:00Z',
+          ultimaLeitura: { em: '2026-11-19T09:00:00Z', resultado: g === 'acabou' ? 'franquia-esgotada' : 'lida' },
+          franquia: { mes, usados: g === 'acabou' ? 500 : 137, total: 500, em: '2026-11-19T09:00:00Z', doMesAtual: true },
+        };
+  return { ligado: true, empresaNome: 'Mister teste', empresaTemCnpj: true, reservaIa: true, pronto: true, naNuvem: true, podeLigar: true, ligacao, desligadaPeloGraphEm: null, permissoes: [] };
+};
 const comChave = (situacao = 'ok') => ({
   provedoresAceitos: ['anthropic'],
   origem: 'propria',
@@ -500,6 +517,8 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
         return responder(route, S.estado);
       }
       if (p === '/ia/uso') return S.usoFalha ? responder(route, { statusCode: 500, message: 'Erro interno' }, 500) : responder(route, S.uso);
+      // Versão 5 (M5b.2): a situação do DMS Graph para o quadro "Fotos e áudios" (sem `o.graph`, o `{}` de sempre: some).
+      if (p === '/graph/clique/situacao' && o.graph) return responder(route, SITUACAO_DO_GRAPH(o.graph));
       return responder(route, {});
     });
     await page.goto(base + (o.caminho ?? '/mister?parte=ia'));
@@ -1689,5 +1708,34 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     if (w === 320 || w === 375 || w === 1440) await page.locator('main').screenshot({ path: foto(`${w}-resumo.png`) });
     ok(erros.length === 0, `${w}px: o Resumo sem erro (${erros.join(' | ')})`);
     await ctx.close();
+  }
+
+  // ── Versão 5 (M5b.2): Mister › IA e uso › "Fotos e áudios · DMS Graph" — a franquia do mês (uma só, da empresa), o aviso
+  //    de que acabou e a empresa sem o Graph (com o caminho para ligar); sem a situação, o quadro não aparece ──
+  {
+    const { ctx, page } = await abrir(1280, 900, { estado: comChave(), caminho: '/mister?parte=ia' });
+    await page.locator('text=Uso da IA >> visible=true').first().waitFor({ timeout: 20000 }).catch(() => undefined);
+    await page.waitForTimeout(800);
+    ok((await page.locator('#fotos-e-audios-titulo').count()) === 0, 'sem a situação do Graph: o quadro "Fotos e áudios" não aparece (o resto da tela segue)');
+    await ctx.close();
+  }
+  for (const w of larguras) {
+    for (const g of ['ligado', 'acabou', 'sem']) {
+      const { ctx, page, erros } = await abrir(w, w < 700 ? 820 : 900, { estado: comChave(), caminho: '/mister?parte=ia', graph: g });
+      const quadro = page.locator('section[aria-labelledby="fotos-e-audios-titulo"]');
+      await quadro.waitFor({ timeout: 20000 });
+      await quadro.scrollIntoViewIfNeeded();
+      const texto = await quadro.innerText();
+      if (g === 'ligado') ok(/Fotos e áudios lidos em [a-zç]+/.test(texto) && /137/.test(texto) && /500/.test(texto), `${w}px: ligado — "Fotos e áudios lidos em <mês>", 137 de 500`);
+      if (g === 'acabou') ok((await quadro.locator('[role="alert"]').innerText()).includes('acabou') && /não ouve áudios/.test(texto), `${w}px: a franquia acabou — o aviso diz que o Mister não ouve áudios até o dia 1º`);
+      if (g === 'sem') ok((await quadro.locator('a[href="/delivery/configuracoes?aba=integracoes"]').innerText()).includes('Delivery › Configurações › Integrações'), `${w}px: sem o Graph — o caminho para ligar, com o link`);
+      const m = await medir(page);
+      ok(m.length === 0, `${w}px (${g}): o quadro inteiro na tela, sem barra lateral (${m.join(' | ')})`);
+      const espremido = await quadro.evaluate((el) => (el.getBoundingClientRect().width < 200 ? Math.round(el.getBoundingClientRect().width) : 0));
+      ok(espremido === 0, `${w}px (${g}): o quadro não fica espremido (${espremido} px)`);
+      if ((w === 320 || w === 375 || w === 1440) && g !== 'sem') await quadro.screenshot({ path: foto(`${w}-fotos-e-audios-${g}.png`) });
+      ok(erros.length === 0, `${w}px (${g}): o quadro sem erro (${erros.join(' | ')})`);
+      await ctx.close();
+    }
   }
 }
