@@ -2453,6 +2453,10 @@ const SO_NUVEM = new Set([
   // O formulário da nota no WhatsApp oficial (mig 456, @cloud-only): a DMS cria e publica na conta da loja pela nuvem —
   // só ela fala com a Meta. A loja não tem esta tabela.
   'whatsapp_flow',
+  // O perfil do cliente (mig 459, @cloud-only; F1a do docs/plano-perfil-cliente.md): o perfil calculado, as escolhas do
+  // cliente sobre os próprios dados, o que ele contou e a última volta da rotina — o perfil é calculado e servido pela
+  // nuvem (o robô, as campanhas e o cardápio moram lá). A loja não tem estas tabelas.
+  'cliente_perfil', 'cliente_escolha', 'cliente_declarado', 'perfil_cliente_execucao',
   // iFood pelo Orzuni (mig 370, @cloud-only): a ligação de cada loja com o Orzuni (segredo cifrado com a chave da nuvem) e
   // a fila do envio — só a nuvem fala com o Orzuni; a edição feita na loja chega lá pelo sincronismo e enfileira lá.
   'orzuni_ligacao', 'orzuni_envio',
