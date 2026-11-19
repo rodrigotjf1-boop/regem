@@ -605,6 +605,9 @@ export const itemEstoque = pgTable('item_estoque', {
   // FEITO NA LOJA (mig 314): a ficha técnica que produz este produto. O custo dele dentro das outras
   // fichas vem dela. Sem FK (sincroniza nos dois sentidos); ficha excluída = sem ligação.
   fichaId: uuid('ficha_id'),
+  // Alérgenos pelo rótulo (mig 454): { conferido, contem[], podeConter[], gluten, lactose }; null = ninguém conferiu.
+  // A regra (o produto herda pela ficha): `common/alergenos.ts`.
+  alergenos: jsonb('alergenos'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -1394,6 +1397,8 @@ export const produto = pgTable('produto', {
   // Loja / cardápio (Fase L1)
   precoPromocional: numeric('preco_promocional'),
   selos: jsonb('selos').notNull().default('[]'),
+  // Ajuste à mão dos alérgenos (mig 454, A3): só soma ao que vem da ficha; no produto sem ficha é a marcação. null = sem ajuste.
+  alergenosAjuste: jsonb('alergenos_ajuste'),
   // Canais de integração (delivery) em que o produto está pausado/oculto (mig 150).
   // Ex.: ['ifood','99food']. Vazio = disponível em todos os canais ativos.
   canaisPausados: jsonb('canais_pausados').notNull().default('[]'),
@@ -3335,6 +3340,8 @@ export const cardapioConfig = pgTable('cardapio_config', {
   horarios: jsonb('horarios').notNull().default('[]'),
   horariosRetirada: jsonb('horarios_retirada').notNull().default('[]'),
   horarioUnico: boolean('horario_unico').notNull().default(true),
+  // A frase de cautela dos alérgenos (mig 454, A9): null = a padrão de `common/alergenos.ts`.
+  alergenosCautela: text('alergenos_cautela'),
   // Robô de auto atendimento (mensagens; IA depois)
   roboAtivo: boolean('robo_ativo').notNull().default(false),
   roboSaudacao: text('robo_saudacao'),

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CartItem } from '@/components/loja/tipos';
 import { OPCOES_TEMPLATE, type TemplateChave } from './tipos-template';
 import { brl, extrasDe, Foto, Ic, irAoCampo, pctDesconto, Preco, Qtd, selosDe } from './partes';
+import { AlergenosDoProduto } from './alergenos-do-produto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -280,13 +281,21 @@ export function ProdutoTela({
 
   const selos = selosDe(sel);
   const extras = extrasDe(sel, loja);
-  const linhaSelos = (selos.length > 0 || extras) && (
+  const soSelos = (selos.length > 0 || extras) && (
     <div className="p-selos">
       {selos.map((s) => (
         <span key={s}>{s}</span>
       ))}
       {extras && <em>{extras}</em>}
     </div>
+  );
+  // Alérgenos (mig 454, A4): só o produto "informado" traz o campo; os outros ficam como sempre. Os quatro modelos mostram
+  // o bloco logo depois dos selos.
+  const linhaSelos = (
+    <>
+      {soSelos}
+      <AlergenosDoProduto a={sel.alergenos} frase={loja?.fraseDeCautela} />
+    </>
   );
   const off = pctDesconto(sel);
 

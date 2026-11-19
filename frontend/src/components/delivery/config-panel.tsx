@@ -28,6 +28,7 @@ import { NotaDoPedido } from '@/components/delivery/nota-do-pedido';
 import { AjustesDoAtendimento } from '@/components/atendimento/ajustes-do-atendimento';
 import { localizacaoAtual, geocodificar, mapaEmbedUrl } from '@/lib/geo';
 import { INDICADO_PARA, ROTULO_TEMPLATE, TEMPLATES, templateDe } from '@/components/loja/cardapio/tipos-template';
+import { FraseDeCautela } from '@/components/delivery/frase-de-cautela';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -513,6 +514,8 @@ export function ConfigPanel({
                         Fidelidade ativa
                       </label>
                     </div>
+                    {/* Alérgenos (mig 454, A9): a frase de cautela da loja. */}
+                    <FraseDeCautela valor={loja.alergenosCautela} aoMudar={(v) => up({ alergenosCautela: v })} pode={isGestor} />
                     <SalvarBar onSalvar={salvarLoja} salvando={salvando} pode={isGestor} />
 
                     {loja.token && (

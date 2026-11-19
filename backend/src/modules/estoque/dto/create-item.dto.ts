@@ -3,6 +3,7 @@ import {
   ArrayMaxSize,
   IsArray,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -39,6 +40,12 @@ export class CreateItemDto {
   @IsString({ each: true })
   @MaxLength(60, { each: true })
   marcas?: string[];
+
+  // Alérgenos pelo rótulo (mig 454): { conferido, contem[], podeConter[], gluten, lactose }. `null` limpa (ninguém
+  // conferiu); ausente mantém. Conferido no serviço por `lerMarcacaoDeAlergenos` (common/alergenos.ts).
+  @IsOptional()
+  @IsObject()
+  alergenos?: Record<string, unknown> | null;
 
   // FEITO NA LOJA (mig 314): a ficha técnica que produz este produto. `null` desfaz a ligação;
   // ausente mantém. A ficha tem de render na unidade principal do produto.
