@@ -42,7 +42,7 @@ descrever('perfil do cliente — o cálculo (Postgres)', () => {
     if (!(await q(`select to_regclass('pedido_avaliacao') as t`))[0].t) {
       await q(`create table pedido_avaliacao (id uuid primary key default gen_random_uuid(), tenant_id uuid not null,
         unidade_id uuid, pedido_id uuid not null, nota smallint not null, pesou text[] not null default '{}',
-        comentario text, origem text not null default 'pagina', chamado_id uuid, criado_em timestamptz not null default clock_timestamp())`);
+        comentario text, origem text not null, chamado_id uuid, criado_em timestamptz not null default clock_timestamp())`);
     }
     const t = (await q(`insert into empresa (nome) values ('teste perfil 459') returning id`))[0].id as string;
     const u = (await q(`insert into unidade (tenant_id, nome) values ($1,'Loja') returning id`, [t]))[0].id as string;
@@ -67,9 +67,9 @@ descrever('perfil do cliente — o cálculo (Postgres)', () => {
     const pedAna: string[] = [];
     for (let i = 0; i < 10; i++) pedAna.push(await pedido(ana, 'cardapio_web', 11 + 6 * i, i < 8 ? [xbacon, coca] : [xbacon, batata]));
     // Duas notas baixas por atraso (o mesmo motivo duas vezes) e um caso de pedido errado.
-    await q(`insert into pedido_avaliacao (tenant_id, pedido_id, nota, pesou, criado_em) values
-             ($1,$2,3,'{"Tempo de entrega"}', now() - interval '12 days'), ($1,$3,2,'{"Tempo de entrega","Temperatura"}', now() - interval '18 days'),
-             ($1,$4,5,'{}', now() - interval '24 days')`, [t, pedAna[0], pedAna[1], pedAna[2]]);
+    await q(`insert into pedido_avaliacao (tenant_id, pedido_id, nota, pesou, origem, criado_em) values
+             ($1,$2,3,'{"Tempo de entrega"}','pagina', now() - interval '12 days'), ($1,$3,2,'{"Tempo de entrega","Temperatura"}','pagina', now() - interval '18 days'),
+             ($1,$4,5,'{}','pagina', now() - interval '24 days')`, [t, pedAna[0], pedAna[1], pedAna[2]]);
     await q(`insert into atendimento_chamado (tenant_id, unidade_id, tipo, pedido_id, prioridade, status, canal, criado_em)
              values ($1,$2,'erro',$3,'normal','resolvido','whatsapp', now() - interval '30 days')`, [t, u, pedAna[3]]);
 
