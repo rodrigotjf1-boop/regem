@@ -138,15 +138,21 @@ export async function estabelecerSessao(token: string, persist = true): Promise<
   setToken(token, persist);
 }
 
-// Logout: na nuvem, pede ao servidor para apagar o cookie httpOnly (o JS não
-// consegue). Sempre limpa o estado local. Idempotente.
+// Logout: pede ao servidor para ENCERRAR a sessão (R3-01, mig 457) — na nuvem, a do
+// cookie httpOnly (que ele também apaga: o JS não consegue); no servidor da loja (e no
+// fallback Bearer), a do token guardado, que vai no cabeçalho. Sem isso, uma cópia do
+// cookie ou do token feita antes seguia valendo até vencer (12 h). Sempre limpa o estado
+// local. Idempotente.
 export async function sair(): Promise<void> {
-  if (!ehEdge()) {
-    try {
-      await fetch(`${apiBase()}/auth/logout`, { method: 'POST', credentials: 'include' });
-    } catch {
-      /* sem rede: limpa local mesmo assim */
-    }
+  const jwt = getJwt();
+  try {
+    await fetch(`${apiBase()}/auth/logout`, {
+      method: 'POST',
+      credentials: ehEdge() ? 'omit' : 'include',
+      headers: jwt ? { Authorization: `Bearer ${jwt}` } : undefined,
+    });
+  } catch {
+    /* sem rede: limpa local mesmo assim */
   }
   clearToken();
 }
