@@ -53,6 +53,7 @@ import { FRASE_DE_CAUTELA_MAX, alergenosParaOCardapio, fraseDeCautela, selosSemC
 import { lerAlergenosDoCardapio } from './alergenos-do-cardapio';
 import { documentoUtilizavel } from '../fiscal/destinatario';
 import { verificarCliente, assinarCliente } from '../cliente/cliente-token';
+import { RECUSA_DA_QUANTIDADE, quantidadeDoCardapio } from './quantidade-do-cardapio';
 import { paraCentavos, paraReais, somarCentavos } from '../../util/dinheiro';
 import { ratearCentavos } from '../../common/rateio';
 import { REGRA_COM_REPETICAO, rotuloDaEscolha, vezesPorOpcao } from '../../common/adicionais';
@@ -4008,8 +4009,14 @@ export class CardapioService {
   }
 
   // Resposta de um pedido já existente (replay idempotente por client_ref):
-  // reconstrói o mesmo formato do fluxo normal a partir da linha gravada.
-  private respostaPedido(cfg: { tenantId: string }, row: typeof pedidoExterno.$inferSelect) {
+  // reconstrói o mesmo formato do fluxo normal a partir da linha gravada. A credencial de "Sua conta" só volta a quem
+  // provou quem é — a credencial do MESMO cliente do pedido, ou o WhatsApp do robô (R3-H01, ERR-316/V79).
+  private respostaPedido(
+    cfg: { tenantId: string },
+    row: typeof pedidoExterno.$inferSelect,
+    quem: { clienteProvado?: string | null; telefoneVerificado?: boolean } = {},
+  ) {
+    const provado = !!row.clienteId && (quem.telefoneVerificado === true || (!!quem.clienteProvado && quem.clienteProvado === row.clienteId));
     return {
       ok: true,
       modo: row.tipo,
@@ -4031,7 +4038,7 @@ export class CardapioService {
               cancelavelAte: row.cancelavelAte ? new Date(row.cancelavelAte).toISOString() : null,
             }
           : null,
-      clienteToken: row.clienteId ? assinarCliente(row.clienteId, cfg.tenantId) : undefined,
+      clienteToken: provado && row.clienteId ? assinarCliente(row.clienteId, cfg.tenantId) : undefined,
       reenvio: true, // sinaliza ao front que é o mesmo pedido (não duplicou)
     };
   }
@@ -4424,10 +4431,22 @@ export class CardapioService {
       if (ja) {
         // O primeiro envio pode ter criado o pedido e caído antes de gravar a origem.
         await gravarOrigemPedido(this.db, { tenantId: cfg.tenantId, unidadeId: cfg.unidadeId ?? null, pedidoId: ja.id, bruto: dto.origem });
-        return this.respostaPedido(cfg, ja);
+        // A resposta reconstruída só devolve a credencial de "Sua conta" a quem provou quem é (R3-H01, ERR-316 — V79).
+        const doToken = verificarCliente(dto.clienteToken);
+        return this.respostaPedido(cfg, ja, {
+          clienteProvado: doToken && doToken.tenant === cfg.tenantId ? doToken.cli : null,
+          telefoneVerificado: interno.telefoneVerificado === true,
+        });
       }
     }
-    if (!dto.itens?.length) throw new BadRequestException('Pedido vazio.');
+    if (!Array.isArray(dto.itens) || !dto.itens.length) throw new BadRequestException('Pedido vazio.');
+    // A quantidade de cada item, conferida ANTES de calcular e de gravar (R3-H02, ERR-533): só inteiro de 1 a 9.999 (o
+    // corpo da rota pública não tem DTO; uma quantidade negativa entrava no subtotal como desconto). Ausente = 1.
+    dto.itens = dto.itens.map((it) => {
+      const quantidade = quantidadeDoCardapio((it as any)?.quantidade);
+      if (quantidade == null) throw new BadRequestException(RECUSA_DA_QUANTIDADE);
+      return { ...it, quantidade };
+    });
     // CPF/CNPJ do cupom fiscal. Informar é opção do cliente; informar ERRADO não é — a SEFAZ
     // confere os dígitos (rejeição 237) e ele ficaria sem a nota que pediu, depois de pago.
     const documentoNota = String(dto.cpf ?? '').replace(/\D/g, '') || undefined;
@@ -4791,6 +4810,10 @@ export class CardapioService {
     // Não há pedido anônimo — sempre acha/cria o cliente pelo telefone.
     const cli = verificarCliente(dto.clienteToken);
     let clienteId = cli && cli.tenant === cfg.tenantId ? cli.cli : null;
+    // O pedido SEMPRE se liga ao cadastro do telefone (é comércio), mas a credencial de "Sua conta" só volta a quem
+    // PROVOU quem é: a credencial dele ou o WhatsApp do robô. Digitar um telefone não prova posse — sem isto, qualquer
+    // um recebia a conta de outro cliente (histórico, endereços, cashback, "esquecer meus dados"): R3-H01, ERR-316/V79.
+    const identidadeProvada = !!clienteId || interno.telefoneVerificado === true;
     if (!clienteId && ped?.id) {
       // O telefone como o cadastro guarda (sem o 55) — a entrada de pedidos já ligou o pedido ao
       // cadastro assim. Antes a busca usava o número como digitado: "+55 21 9…" não achava o
@@ -4897,9 +4920,7 @@ export class CardapioService {
           .where(eq(pedidoExterno.id, ped.id));
     }
 
-    const clienteTokenOut = clienteId
-      ? assinarCliente(clienteId, cfg.tenantId)
-      : dto.clienteToken;
+    const clienteTokenOut = clienteId && identidadeProvada ? assinarCliente(clienteId, cfg.tenantId) : undefined;
 
     // Envio automático ao KDS: aceita o pedido na hora (cria comanda + produção
     // com senha local + selo da plataforma). Orçamento (indústria) não produz.
