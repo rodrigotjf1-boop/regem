@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { anotarEncerrada } from '../../auth/sessao-encerrada';
 import { RealtimeGateway } from './realtime.gateway';
 
 // W1 (Bloco 7) — o kds:alerta broadcasta para TODO o tenant: precisa de RBAC (só gestor),
@@ -294,5 +296,34 @@ describe('RealtimeGateway — só a sessão geral abre o tempo real (B-01)', () 
   it('o banco fora do ar na conferência: a conexão é recusada (fecha, não abre)', async () => {
     const r = await conectar(base, { execute: async () => { throw new Error('banco fora'); } });
     expect([r.salas, r.derrubado()]).toEqual([[], true]);
+  });
+
+  // R3-01 (mig 457, V97): a sessão que "Sair" encerrou não abre o tempo real, e as abertas com ela caem na hora.
+  it('a sessão encerrada por "Sair" é recusada na entrada; outra sessão entra e fica na sala dela', async () => {
+    const encerrada = randomUUID();
+    anotarEncerrada(encerrada, Date.now() + 60_000);
+    const r = await conectar({ ...base, jti: encerrada });
+    expect([r.salas, r.derrubado()]).toEqual([[], true]);
+    expect(r.erros).toEqual([['erro', { motivo: 'sessão encerrada' }]]);
+    const outra = randomUUID();
+    const ok = await conectar({ ...base, jti: outra });
+    expect(ok.derrubado()).toBe(false);
+    expect(ok.salas).toEqual(expect.arrayContaining(['tenant:t1', `sessao:${outra}`]));
+  });
+
+  it('o aviso "sessao.encerrada" derruba os sockets da sala daquela sessão (e só ela)', () => {
+    const g = new RealtimeGateway({} as any, {} as any);
+    const emits: any[] = [];
+    const derrubadas: string[] = [];
+    (g as any).server = {
+      to: (room: string) => ({ emit: (ev: string, p: any) => emits.push({ room, ev, p }) }),
+      in: (room: string) => ({ disconnectSockets: () => derrubadas.push(room) }),
+    };
+    const jti = randomUUID();
+    g.onSessaoEncerrada({ jti });
+    expect(derrubadas).toEqual([`sessao:${jti}`]);
+    expect(emits).toEqual([{ room: `sessao:${jti}`, ev: 'erro', p: { motivo: 'sessão encerrada' } }]);
+    g.onSessaoEncerrada({ jti: 'nao-e-uuid' }); // lixo: não derruba nada
+    expect(derrubadas).toHaveLength(1);
   });
 });

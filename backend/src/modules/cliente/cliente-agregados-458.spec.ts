@@ -13,16 +13,16 @@ import { sqlRecebeMarketing } from '../../common/marketing-quem-recebe';
 //  • ERR-535 — a campanha alcançava quem a loja só conheceu pelo iFood ou pela 99 (a 99 manda o telefone real e o pedido
 //    entra no `cliente`). `sqlRecebeMarketing` passa a exigir cliente DIRETO: base importada, OU pedido fora do iFood/99,
 //    OU nenhum pedido por eles.
-//  • mig 457 (ERR-536) — os totais do cliente acompanham o cancelamento (e a volta), a troca de cliente do pedido e a exclusão; e,
+//  • mig 458 (ERR-536) — os totais do cliente acompanham o cancelamento (e a volta), a troca de cliente do pedido e a exclusão; e,
 //    uma vez e só na nuvem, os totais guardados que diferem dos pedidos são recalculados.
 // Tudo numa transação DESFEITA no fim (o critério da parte única é do banco inteiro e não pode mexer nas specs paralelas).
 const URL_PG = process.env.TEST_PG_URL;
 const descrever = URL_PG ? describe : describe.skip;
-if (!URL_PG) console.warn('cliente-agregados-457.spec: sem TEST_PG_URL — PULADO');
+if (!URL_PG) console.warn('cliente-agregados-458.spec: sem TEST_PG_URL — PULADO');
 
-const ARQUIVO = join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '457_cliente_agregados_sempre_certos.sql');
+const ARQUIVO = join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '458_cliente_agregados_sempre_certos.sql');
 
-describe('migration 457 (arquivo)', () => {
+describe('migration 458 (arquivo)', () => {
   const texto = readFileSync(ARQUIVO, 'utf8');
   it('roda nos dois lados (o gatilho vale na loja), sem drop, com a parte única só na nuvem', () => {
     expect(texto).not.toMatch(/^\s*--\s*@cloud-only\b/im);
@@ -36,7 +36,7 @@ describe('migration 457 (arquivo)', () => {
 descrever('totais do cliente e quem recebe marketing (Postgres)', () => {
   jest.setTimeout(120_000);
   const pool = new Pool({ connectionString: URL_PG });
-  const sql457 = readFileSync(ARQUIVO, 'utf8');
+  const sql458 = readFileSync(ARQUIVO, 'utf8');
   afterAll(async () => {
     await pool.end();
   }, 60_000);
@@ -51,7 +51,7 @@ descrever('totais do cliente e quem recebe marketing (Postgres)', () => {
     await q(`create table if not exists marketing_optout (
       id uuid primary key default gen_random_uuid(), tenant_id uuid not null, telefone text not null,
       cliente_id uuid, motivo text, criado_em timestamptz not null default now())`);
-    const t = (await q(`insert into empresa (nome) values ('teste mig 457') returning id`))[0].id as string;
+    const t = (await q(`insert into empresa (nome) values ('teste mig 458') returning id`))[0].id as string;
     const u = (await q(`insert into unidade (tenant_id, nome) values ($1,'Loja') returning id`, [t]))[0].id as string;
     const cliente = async (nome: string, telefone: string, importado = false) =>
       (await q(
@@ -80,11 +80,11 @@ descrever('totais do cliente e quem recebe marketing (Postgres)', () => {
       const bia = await cliente('Bia', '21999990002');
       const p1 = await pedido(ana, 'cardapio', 50);
       const p2 = await pedido(ana, 'cardapio', 30);
-      // O defeito de antes da 457: o pedido cancelado continuava contando nos totais guardados.
+      // O defeito de antes da 458: o pedido cancelado continuava contando nos totais guardados.
       await q(`update pedido_externo set status = 'cancelado' where id = $1`, [p2]);
       await q(`update cliente set total_pedidos = 2, total_gasto = 80 where id = $1`, [ana]);
 
-      await c.query(sql457); // a parte única (como nuvem) recalcula
+      await c.query(sql458); // a parte única (como nuvem) recalcula
       expect(await totais(ana)).toEqual({ n: 1, gasto: 50 });
 
       await q(`update pedido_externo set status = 'cancelado' where id = $1`, [p1]); // cancelar

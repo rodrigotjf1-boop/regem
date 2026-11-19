@@ -1,4 +1,4 @@
--- 457 — Os totais do cliente (pedidos, gasto, primeiro e último pedido) acompanham o cancelamento, a troca de cliente
+-- 458 — Os totais do cliente (pedidos, gasto, primeiro e último pedido) acompanham o cancelamento, a troca de cliente
 -- do pedido e a exclusão do pedido (ERR-536; F1-0 do docs/plano-perfil-cliente.md, plano aprovado pelo dono em 19/11/2026).
 --
 -- Os agregados da mig 194 (`cliente.total_pedidos`, `total_gasto`, `primeiro_pedido_em`, `ultimo_pedido_em`) só eram

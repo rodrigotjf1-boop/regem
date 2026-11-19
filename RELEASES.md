@@ -12,11 +12,15 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
-- **Perfil do cliente F1-0 — campanha só para cliente direto e totais do cliente sempre certos (19/11; mig 457 NOS DOIS
+- **Perfil do cliente F1-0 — campanha só para cliente direto e totais do cliente sempre certos (19/11; mig 458 NOS DOIS
   LADOS; ERR-535 e ERR-536).** A regra de quem recebe campanha passa a excluir quem pediu só pelo iFood/99 (só nuvem). A
-  mig 457 põe em `pedido_externo` os gatilhos que recalculam os totais do cliente ao cancelar, trocar o cliente do pedido
+  mig 458 põe em `pedido_externo` os gatilhos que recalculam os totais do cliente ao cancelar, trocar o cliente do pedido
   ou apagar — no servidor da loja ela entra com o `.zip` (a parte única de correção roda só na nuvem). Sem tabela nova.
 
+- **3ª rodada de segurança — "Sair" encerra a sessão no servidor (19/11; mig 457 NAS DUAS PONTAS — `sessao_encerrada`, sem
+  `tenant_id`, fora do sincronismo; R3-01, ERR-534).** O servidor da loja também emite e confere os tokens dele: a migration,
+  o guarda, o tempo real e a tela (que no servidor da loja passa a chamar `/auth/logout` com o Bearer ao sair) vão no
+  `.zip`. O daemon não muda → sem `.exe`.
 - **3ª rodada de segurança — o pedido público do cardápio (19/11; SEM migration; R3-H01 e R3-H02, ERR-316 e ERR-533).** A
   credencial de "Sua conta" só volta a quem provou quem é (a credencial do mesmo cliente ou o WhatsApp do robô), no
   fechamento do pedido e no reenvio; a quantidade de cada item só inteira de 1 a 9.999 (a negativa virava desconto). O
