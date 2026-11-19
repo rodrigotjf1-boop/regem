@@ -1,0 +1,1143 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Perfil do cliente Regem</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* REGEM · PERFIL DO CLIENTE E BASE DE EVENTOS — protótipo F0, versão 1 (19/11/2026), para aprovação do dono.
+   Plano: docs/plano-perfil-cliente.md. Telas:
+   1. Delivery › Clientes com os segmentos novos e a FICHA do cliente em gaveta (as 7 camadas, cada uma com a confiança).
+   2. Atendimento: o CARTÃO do cliente ao lado da conversa e o que o robô recebe (instruções, não rótulos).
+   3. Delivery › Marketing: público pelo perfil, quem fica de fora, envio na hora habitual, grupo de controle, automáticas.
+   4. Calendário da loja: os próximos eventos e se mexem NA loja; evento da loja em gaveta.
+   5. Saúde da base (presidente).
+   6. O cardápio para o cliente: "Seu de sempre", "Você viu" e a privacidade no Perfil.
+   7. Console da distribuição › Eventos: fontes com a licença e a curadoria.
+   8. Notas e decisões.
+   Visual único CLARO como o app (o console é escuro como o de verdade). Nomes, números e a loja são inventados. */
+:root{
+  color-scheme: light;
+  --bg:#EDF0F4; --card:#FFFFFF; --ink:#0F2230; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --gold-ink:#7A5209; --gold-bg:#FFF8EA; --navy:#0F2230; --navy-2:#1B3346;
+  --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9; --warn:#9A4B1C; --warn-bg:#FCEDE4;
+  --info:#2C6699; --info-bg:#E6F0F8; --neutro:#43586C; --neutro-bg:#EAEFF4; --foco:#3A7FB8;
+  --proto:#0B1822; --proto-txt:#C9D5DF; --proto-txt2:#8FA3B4; --proto-linha:#2A3B4A;
+  --wa:#E7F7DE; --wa-ink:#173B12; --wa-bg:#F4EFE7;
+  --d-bg:#020617; --d-card:#0B1324; --d-linha:#1E293B; --d-txt:#F1F5F9; --d-txt2:#94A3B8; --d-ambar:#F59E0B; --d-ok:#34D399; --d-crit:#F87171; --d-azul:#7CC0F5;
+  --q0:#F3F6F9; --q1:#FCEFD3; --q2:#F6D691; --q3:#EDB653; --q4:#C98A1F;
+  --radius:12px; --display:"Archivo","Segoe UI",system-ui,sans-serif; --body:"Figtree","Segoe UI",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{font:15px/1.5 var(--body);background:var(--bg);color:var(--ink);overflow-x:hidden;margin:0;
+  padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));padding-block:12px 40px}
+h1,h2,h3,h4{font-family:var(--display);margin:0;text-wrap:balance;color:var(--ink)}
+h1{font-size:23px;line-height:1.15} h2{font-size:18px} h3{font-size:15.5px} h4{font-size:14px}
+p{margin:0 0 10px;overflow-wrap:anywhere} p:last-child{margin-bottom:0}
+ul,ol{margin:0;padding-left:20px} li{margin:2px 0}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--foco);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.sub{color:var(--ink-2)} .peq{font-size:13.5px} .mini{font-size:12.5px}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+
+/* faixa do protótipo */
+.proto{background:var(--proto);color:var(--proto-txt);padding:10px 14px;border-radius:12px;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-bottom:12px}
+.proto .titulo{font-family:var(--display);font-weight:800;color:#FFFFFF;font-size:15px}
+.abas{display:flex;flex-wrap:wrap;gap:6px}
+.aba{background:transparent;border:1px solid var(--proto-linha);color:var(--proto-txt);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:36px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.proto .nota{font-size:12.5px;color:var(--proto-txt2);flex:1 1 240px;min-width:0}
+.proto :focus-visible{outline-color:var(--d-azul)}
+.vista{display:none} .vista.ativa{display:block}
+.ctls{border:1px dashed var(--line-2);background:#FFFBF0;border-radius:10px;padding:8px 12px;margin:0 0 14px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px;color:var(--gold-ink)}
+.ctl{background:#FFFFFF;border:1px solid var(--line-2);padding:4px 10px;border-radius:999px;cursor:pointer;min-height:32px;color:var(--ink)}
+.ctl[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#FFFFFF}
+
+/* casca do app */
+.app{display:grid;grid-template-columns:210px minmax(0,1fr);background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;container-type:inline-size;container-name:app}
+.lado{background:var(--navy);color:#C9D5DF;padding:14px 10px}
+.marca{font-family:var(--display);font-weight:800;color:#FFFFFF;font-size:17px;padding:4px 8px 4px;display:flex;align-items:center;gap:8px}
+.marca i{width:26px;height:26px;border-radius:50%;border:2px solid var(--gold);display:inline-grid;place-items:center;font:800 10px var(--display);color:var(--gold);font-style:normal}
+.loja{font-size:12px;color:#8FA3B4;padding:0 8px 12px}
+.lado .grupo{font:600 10.5px var(--display);letter-spacing:.1em;text-transform:uppercase;color:#8FA3B4;padding:10px 10px 4px}
+.lado ul{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.lado li{padding:7px 10px;border-radius:8px;font-size:14px;margin:0}
+.lado li.atual{background:rgba(232,168,69,.18);color:#FFFFFF;box-shadow:inset 3px 0 0 var(--gold);font-weight:600}
+.principal{min-width:0;container-type:inline-size;container-name:principal;background:var(--bg)}
+.topo{background:#FFFFFF;border-bottom:1px solid var(--line);padding:10px 18px;display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;justify-content:space-between}
+.onde{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--gold-ink)}
+.quem{font-size:13.5px;color:var(--ink-2)}
+.pagina{padding:18px;max-width:1180px}
+.cab{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:flex-end;justify-content:space-between;margin-bottom:14px}
+.cab .sub{max-width:70ch;margin-top:4px}
+.partes{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px;padding:0 0 12px;border-bottom:1px solid var(--line)}
+.parte{background:#FFFFFF;border:1px solid var(--line-2);padding:7px 13px;border-radius:999px;min-height:38px;font-weight:600;color:var(--ink-2)}
+.parte.atual{background:var(--navy);border-color:var(--navy);color:#FFFFFF}
+.novo{font:700 10px var(--display);background:var(--gold);color:var(--on-gold);padding:1px 6px;border-radius:4px;letter-spacing:.05em;margin-left:4px;vertical-align:1px}
+@container app (max-width: 780px){
+  .app{grid-template-columns:1fr}
+  .lado{padding:10px}
+  .lado ul{display:flex;flex-wrap:wrap;gap:4px}
+  .lado .grupo,.loja{display:none}
+  .lado li{padding:6px 10px}
+}
+
+/* peças */
+.cartao{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:14px;min-width:0}
+.cartao > h2,.cartao > h3{margin-bottom:6px}
+.grade{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr))}
+.grade > *{min-width:0}
+.selo{display:inline-block;font-size:12.5px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.selo.ok{background:var(--ok-bg);color:var(--ok)} .selo.crit{background:var(--crit-bg);color:var(--crit)}
+.selo.warn{background:var(--warn-bg);color:var(--warn)} .selo.info{background:var(--info-bg);color:var(--info)}
+.selo.neutro{background:var(--neutro-bg);color:var(--neutro)} .selo.ouro{background:var(--gold-bg);color:var(--gold-ink);border:1px solid #F1D49B}
+.btn{background:#FFFFFF;border:1px solid var(--line-2);padding:8px 14px;border-radius:10px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink);white-space:nowrap}
+.btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.btn.sm{min-height:34px;padding:5px 10px;font-size:13.5px}
+.btn.link{border-color:transparent;background:transparent;color:var(--info);padding-inline:6px}
+.acoes{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.vazio{text-align:center;color:var(--ink-2);padding:22px 12px;border:1px dashed var(--line-2);border-radius:10px;background:#FFFFFF}
+.vazio .grande{font-size:26px;display:block;margin-bottom:4px}
+.aviso{border-radius:10px;padding:10px 12px;border:1px solid;display:flex;gap:10px;align-items:flex-start}
+.aviso.info{background:var(--info-bg);border-color:#BCD5EA;color:#1C4A70}
+.aviso.warn{background:var(--warn-bg);border-color:#EBC7B0;color:#6F3410}
+.aviso.crit{background:var(--crit-bg);border-color:#E3B5B5;color:#7A1E1E}
+.aviso.ok{background:var(--ok-bg);border-color:#B5DCC8;color:#0B4A33}
+.aviso b{color:inherit}
+.rot{font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+.chave{display:inline-flex;align-items:center;gap:8px;background:transparent;border:0;cursor:pointer;padding:4px 0;min-height:36px;text-align:left}
+.chave .t{width:40px;height:22px;border-radius:999px;background:var(--line-2);position:relative;flex:none;transition:background .15s}
+.chave .t::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#FFFFFF;transition:left .15s}
+.chave[aria-pressed="true"] .t{background:var(--ok)}
+.chave[aria-pressed="true"] .t::after{left:21px}
+.linha-aj{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line)}
+.linha-aj:last-child{border-bottom:0}
+.linha-aj .txt{flex:1 1 280px;min-width:0}
+
+/* lista no modelo do Estoque */
+.situacoes{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.situacao{background:#FFFFFF;border:1px solid var(--line-2);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:38px;font-weight:600;color:var(--ink-2)}
+.situacao b{font-family:var(--mono);margin-left:4px}
+.situacao[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#FFFFFF}
+.filtros{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;margin-bottom:12px}
+.filtros input,.filtros select,.campo input,.campo select,.campo textarea{border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;min-height:42px;background:#FFFFFF;min-width:0;max-width:100%}
+.filtros input{flex:1 1 220px;max-width:340px}
+.tab{width:100%;border-collapse:collapse;background:#FFFFFF}
+.tab th{font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:8px 10px;border-bottom:2px solid var(--line-2)}
+.tab td{padding:11px 10px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+.tab tr.clic{cursor:pointer} .tab tr.clic:hover td{background:#F8FAFC}
+.tab td:last-child{white-space:nowrap}
+.tab .nome{font-weight:700}
+.moldura-tab{border:1px solid var(--line);border-radius:12px;overflow:hidden}
+@container principal (max-width: 760px){
+  .tab thead{display:none}
+  .tab,.tab tbody,.tab tr,.tab td{display:block;width:100%}
+  .tab tr{border-bottom:1px solid var(--line);padding:10px 12px}
+  .tab td{border:0;padding:3px 0}
+  .tab td[data-r]::before{content:attr(data-r) " · ";font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
+  .tab td:last-child{white-space:normal}
+}
+
+/* gaveta */
+.fundo{position:fixed;inset:0;background:rgba(11,24,34,.45);z-index:40}
+.gaveta{position:fixed;top:0;right:0;bottom:0;width:min(620px,100vw);background:var(--bg);z-index:41;display:flex;flex-direction:column;box-shadow:-12px 0 32px rgba(11,24,34,.25);
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);padding-right:env(safe-area-inset-right,0px)}
+.gaveta.estreita{width:min(480px,100vw)}
+.g-cab{background:#FFFFFF;border-bottom:1px solid var(--line);padding:14px 16px;display:flex;gap:10px;align-items:flex-start;justify-content:space-between}
+.g-corpo{overflow-y:auto;padding:14px 16px;flex:1;min-height:0}
+.g-pe{background:#FFFFFF;border-top:1px solid var(--line);padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.fechar{background:transparent;border:1px solid var(--line-2);border-radius:10px;min-width:40px;min-height:40px;cursor:pointer;font-size:18px;line-height:1}
+.camada{background:#FFFFFF;border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+.camada-cab{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;justify-content:space-between;margin-bottom:8px}
+.camada-cab h3{display:flex;gap:8px;align-items:baseline}
+.camada-cab h3 .n{font:700 12px var(--mono);color:var(--gold-ink);background:var(--gold-bg);border-radius:6px;padding:1px 6px}
+.conf{font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.conf.alta{background:var(--ok-bg);color:var(--ok)} .conf.media{background:var(--info-bg);color:var(--info)} .conf.baixa{background:var(--neutro-bg);color:var(--neutro)}
+.pares{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));gap:8px 14px}
+.par .v{font-weight:700} .par .v.mono{font-weight:700}
+.barra{display:grid;grid-template-columns:minmax(0,1fr) 90px 48px;gap:8px;align-items:center;font-size:14px;padding:3px 0}
+.barra .b{height:10px;border-radius:999px;background:var(--neutro-bg);overflow:hidden}
+.barra .b span{display:block;height:100%;background:var(--gold)}
+.barra .num{text-align:right;font-family:var(--mono);font-size:13px;color:var(--ink-2)}
+.etqs{display:flex;flex-wrap:wrap;gap:6px}
+.porque{font-size:12.5px;color:var(--ink-2);margin-top:2px}
+.mapa{width:100%;border-collapse:separate;border-spacing:3px;font-size:12px}
+.mapa th{font:600 10.5px var(--display);color:var(--ink-2);text-transform:uppercase;letter-spacing:.05em;padding:2px;text-align:center}
+.mapa th[scope="row"]{text-align:left;white-space:nowrap}
+.mapa td{text-align:center;border-radius:6px;padding:6px 0;font-family:var(--mono);color:var(--ink);min-width:28px}
+.q0{background:var(--q0);color:#7D8E9E!important} .q1{background:var(--q1)} .q2{background:var(--q2)} .q3{background:var(--q3)} .q4{background:var(--q4);color:#FFFFFF!important;font-weight:700}
+.rolagem{overflow-x:auto}
+
+/* atendimento */
+.atend{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:14px}
+@container principal (max-width: 860px){ .atend{grid-template-columns:1fr} }
+.conversa{background:var(--wa-bg);border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.conv-cab{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;justify-content:space-between;background:#FFFFFF;border-radius:10px;padding:8px 10px}
+.bal{max-width:85%;padding:8px 10px;border-radius:10px;font-size:14.5px;box-shadow:0 1px 0 rgba(0,0,0,.06);overflow-wrap:anywhere}
+.bal.cli{background:#FFFFFF;align-self:flex-start}
+.bal.robo{background:var(--wa);color:var(--wa-ink);align-self:flex-end}
+.bal .h{display:block;font-size:11px;color:#6B7B6A;text-align:right;margin-top:2px}
+.bal .quem{display:block;font:700 11px var(--display);letter-spacing:.04em;text-transform:uppercase;color:#4E6A48;margin-bottom:2px}
+.cartao-cli{background:#FFFFFF;border:1px solid var(--line);border-radius:12px;padding:14px;min-width:0}
+.cartao-cli .linha{display:grid;grid-template-columns:110px minmax(0,1fr);gap:8px;padding:7px 0;border-bottom:1px solid var(--line);font-size:14px}
+.cartao-cli .linha:last-of-type{border-bottom:0}
+.prompt{background:#0E1B26;color:#D7E3EC;border-radius:10px;padding:12px;font:13px/1.55 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;margin:0}
+.prompt .k{color:#F6C46B}
+
+/* marketing */
+.opcoes{display:grid;gap:8px}
+.opcao{display:flex;gap:10px;align-items:flex-start;background:#FFFFFF;border:1px solid var(--line-2);border-radius:10px;padding:10px 12px;cursor:pointer;text-align:left;width:100%}
+.opcao[aria-pressed="true"]{border-color:var(--gold);box-shadow:0 0 0 2px var(--gold) inset;background:var(--gold-bg)}
+.opcao .marc{width:18px;height:18px;border-radius:50%;border:2px solid var(--line-2);flex:none;margin-top:2px}
+.opcao[aria-pressed="true"] .marc{border-color:var(--gold-ink);background:radial-gradient(circle,var(--gold-ink) 45%,transparent 50%)}
+.fora{display:grid;gap:6px}
+.fora .l{display:flex;justify-content:space-between;gap:10px;font-size:14px;padding:6px 0;border-bottom:1px dashed var(--line)}
+.fora .l:last-child{border-bottom:0}
+.horas{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px;align-items:end;height:120px;padding-top:8px}
+.horas .c{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11.5px;color:var(--ink-2);height:100%;justify-content:flex-end}
+.horas .c span.b{width:100%;max-width:34px;background:var(--gold);border-radius:6px 6px 2px 2px}
+.horas .c b{font-family:var(--mono);color:var(--ink);font-size:12px}
+.resultado{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:10px}
+.res{background:#FFFFFF;border:1px solid var(--line);border-radius:10px;padding:12px}
+.res .v{font:700 22px var(--mono);font-variant-numeric:tabular-nums}
+.res.destaque{border-color:#B5DCC8;background:var(--ok-bg)}
+
+/* calendário */
+.dia-ev{display:grid;grid-template-columns:76px minmax(0,1fr) auto;gap:12px;align-items:center;background:#FFFFFF;border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:8px}
+.dia-ev .data{text-align:center;border-right:1px solid var(--line);padding-right:10px}
+.dia-ev .data b{display:block;font:800 22px var(--display)}
+.dia-ev .data span{font-size:12px;color:var(--ink-2);text-transform:uppercase;letter-spacing:.06em}
+@container principal (max-width: 620px){ .dia-ev{grid-template-columns:62px minmax(0,1fr)} .dia-ev .efeito{grid-column:1/-1} }
+.efeito{text-align:right}
+@container principal (max-width: 620px){ .efeito{text-align:left} }
+
+/* celular (cardápio) */
+.celulares{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-start}
+.cel{width:min(340px,100%);background:#FFFFFF;border:8px solid #18232D;border-radius:28px;overflow:hidden}
+.cel-topo{background:#1E120A;color:#FFF3E2;padding:14px 14px 12px}
+.cel-topo b{font-family:var(--display);font-size:17px}
+.cel-corpo{padding:12px;display:grid;gap:10px;background:#FBF8F4}
+.prod{display:grid;grid-template-columns:58px minmax(0,1fr) auto;gap:10px;align-items:center;background:#FFFFFF;border:1px solid #EFE6DA;border-radius:12px;padding:8px}
+.prod .foto{width:58px;height:58px;border-radius:10px;background:linear-gradient(135deg,#C4782F,#7A3E12)}
+.prod .foto.b{background:linear-gradient(135deg,#E2B44C,#A86A12)} .prod .foto.c{background:linear-gradient(135deg,#8E4A2A,#3E1A0C)}
+.prod .p{font-family:var(--mono);font-weight:700;font-size:14px}
+.mais{width:34px;height:34px;border-radius:50%;background:#C8501E;color:#FFFFFF;border:0;font-size:20px;line-height:1;cursor:pointer}
+.sec-cel{font:700 13px var(--display);color:#5C3A1E;text-transform:uppercase;letter-spacing:.06em}
+.chips-cel{display:flex;flex-wrap:wrap;gap:6px}
+.chips-cel span{background:#FFFFFF;border:1px solid #EFE6DA;border-radius:999px;padding:4px 10px;font-size:13px}
+.chips-cel span.on{background:#C8501E;border-color:#C8501E;color:#FFFFFF}
+.saber{background:#FFFFFF;border:1px solid #EFE6DA;border-radius:12px;padding:10px 12px;font-size:14px}
+.saber .l{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid #F3ECE2}
+.saber .l:last-child{border-bottom:0}
+.pergunta{background:#FFF4E5;border:1px solid #F4D2A8;border-radius:12px;padding:12px;font-size:14px}
+.aceite{display:flex;gap:10px;align-items:flex-start;background:#FFFFFF;border:1px solid #EFE6DA;border-radius:12px;padding:10px;font-size:14px;cursor:pointer}
+.aceite input{width:20px;height:20px;flex:none;margin-top:1px;accent-color:#C8501E}
+.btn.igual{background:#FFFFFF;border:2px solid #1E120A;color:#1E120A;width:100%;white-space:normal}
+.chip-int{background:#FFFFFF;border:1px solid #E2D6C6;border-radius:999px;padding:5px 11px;font-size:13px;cursor:pointer;min-height:32px}
+.chip-int[aria-pressed="true"]{background:#C8501E;border-color:#C8501E;color:#FFFFFF}
+.recl{display:grid;gap:6px;margin-top:6px}
+.recl .item{display:grid;grid-template-columns:68px minmax(0,1fr) auto;gap:8px;align-items:start;font-size:13.5px;padding:6px 0;border-bottom:1px dashed var(--line)}
+.recl .item:last-child{border-bottom:0}
+.resumo-recl{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 2px}
+.cel-input{width:100%;min-height:44px;border-radius:10px;border:1px solid #E2D6C6;padding:8px 12px;background:#FFFFFF;font-family:var(--mono)}
+
+/* console escuro */
+.console{background:var(--d-bg);color:var(--d-txt);border-radius:14px;padding:16px;container-type:inline-size;container-name:console}
+.console h1,.console h2,.console h3{color:var(--d-txt)}
+.console .sub{color:var(--d-txt2)}
+.c-menu{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 14px;padding-bottom:12px;border-bottom:1px solid var(--d-linha)}
+.c-menu span{padding:6px 12px;border-radius:999px;border:1px solid var(--d-linha);color:var(--d-txt2);font-size:14px}
+.c-menu span.atual{background:#1E293B;color:var(--d-txt);border-color:#334155;font-weight:700}
+.c-card{background:var(--d-card);border:1px solid var(--d-linha);border-radius:12px;padding:14px;margin-bottom:12px;min-width:0}
+.c-tab{width:100%;border-collapse:collapse}
+.c-tab th{font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--d-txt2);text-align:left;padding:8px;border-bottom:1px solid #334155}
+.c-tab td{padding:10px 8px;border-bottom:1px solid var(--d-linha);vertical-align:top;overflow-wrap:anywhere;font-size:14px}
+.d-selo{display:inline-block;font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.d-selo.ok{background:rgba(52,211,153,.14);color:var(--d-ok)} .d-selo.crit{background:rgba(248,113,113,.14);color:var(--d-crit)}
+.d-selo.amb{background:rgba(245,158,11,.14);color:var(--d-ambar)} .d-selo.azul{background:rgba(124,192,245,.14);color:var(--d-azul)}
+.d-btn{background:#1E293B;border:1px solid #334155;color:var(--d-txt);padding:7px 12px;border-radius:10px;min-height:38px;cursor:pointer;font-weight:600}
+.d-btn.pri{background:var(--d-ambar);border-color:var(--d-ambar);color:#1F1400}
+.console :focus-visible{outline-color:var(--d-azul)}
+@container console (max-width: 760px){
+  .c-tab thead{display:none}
+  .c-tab,.c-tab tbody,.c-tab tr,.c-tab td{display:block;width:100%}
+  .c-tab tr{border-bottom:1px solid var(--d-linha);padding:8px 0}
+  .c-tab td{border:0;padding:3px 0}
+  .c-tab td[data-r]::before{content:attr(data-r) " · ";font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--d-txt2)}
+}
+
+/* notas */
+.notas{max-width:980px}
+.notas h2{margin:18px 0 8px}
+.notas .cartao p,.notas .cartao li{max-width:78ch}
+.dec{width:100%;border-collapse:collapse;background:#FFFFFF}
+.dec th,.dec td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top;font-size:14px;overflow-wrap:anywhere}
+.dec th{font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);border-bottom:2px solid var(--line-2)}
+.notas-tab{container-type:inline-size;container-name:notas}
+@container notas (max-width: 700px){
+  .dec thead{display:none}
+  .dec,.dec tbody,.dec tr,.dec td{display:block;width:100%}
+  .dec tr{border-bottom:1px solid var(--line);padding:8px 10px}
+  .dec td{border:0;padding:2px 0}
+  .dec td[data-r]::before{content:attr(data-r) " · ";font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
+}
+.fases{display:grid;gap:8px;counter-reset:f}
+.fase{display:grid;grid-template-columns:86px minmax(0,1fr);gap:10px;background:#FFFFFF;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.fase b.cod{font:700 13px var(--mono);color:var(--gold-ink)}
+</style>
+</head>
+<body>
+<div class="proto" role="navigation" aria-label="Telas do protótipo">
+  <span class="titulo">Protótipo · Perfil do cliente</span>
+  <div class="abas" id="abas">
+    <button class="aba" type="button" data-v="ficha" aria-pressed="true">1 · Clientes e ficha</button>
+    <button class="aba" type="button" data-v="atendimento" aria-pressed="false">2 · Atendimento</button>
+    <button class="aba" type="button" data-v="marketing" aria-pressed="false">3 · Marketing</button>
+    <button class="aba" type="button" data-v="calendario" aria-pressed="false">4 · Calendário</button>
+    <button class="aba" type="button" data-v="saude" aria-pressed="false">5 · Saúde da base</button>
+    <button class="aba" type="button" data-v="cardapio" aria-pressed="false">6 · No cardápio</button>
+    <button class="aba" type="button" data-v="console" aria-pressed="false">7 · Console › Eventos</button>
+    <button class="aba" type="button" data-v="notas" aria-pressed="false">8 · Notas e decisões</button>
+  </div>
+  <span class="nota">Versão 1 · 19/11/2026 · loja, nomes e números de exemplo. Os botões amarelos tracejados trocam a situação para a aprovação.</span>
+</div>
+
+<!-- ============ 1. CLIENTES E FICHA ============ -->
+<section class="vista ativa" id="v-ficha" aria-labelledby="t-ficha">
+  <div class="app">
+    <nav class="lado" aria-label="Menu do app">
+      <div class="marca"><i>R.O</i>Regem</div>
+      <div class="loja">Brasa Burger · demonstração</div>
+      <div class="grupo">Delivery</div>
+      <ul><li>Painel</li><li class="atual">Clientes</li><li>Marketing</li><li>Avaliações</li><li>Configurações</li></ul>
+      <div class="grupo">Operação</div>
+      <ul><li>Atendimento</li><li>Cadastros</li></ul>
+    </nav>
+    <div class="principal">
+      <div class="topo"><span class="onde">Delivery › Clientes</span><span class="quem">Rodrigo · presidente</span></div>
+      <div class="pagina">
+        <div class="cab">
+          <div>
+            <h1 id="t-ficha">Clientes <span class="mono sub">2.239</span></h1>
+            <p class="sub">Clientes diretos da loja (cardápio, WhatsApp, Anota Aí, Cardápio Web, balcão). Quem pediu só pelo iFood ou pela 99 não entra no perfil.</p>
+          </div>
+          <div class="acoes"><button class="btn" type="button">Exportar</button><button class="btn pri" type="button" data-abre="g-calendario-atalho">Calendário de eventos</button></div>
+        </div>
+        <div class="partes" aria-label="Partes da tela">
+          <span class="parte atual">Lista</span><span class="parte">Funil do cardápio</span><span class="parte">Saúde da base <span class="novo">NOVO</span></span>
+        </div>
+        <div class="situacoes" role="group" aria-label="Segmento">
+          <button class="situacao" type="button" aria-pressed="true">Todos<b>2.239</b></button>
+          <button class="situacao" type="button" aria-pressed="false">Campeões<b>204</b></button>
+          <button class="situacao" type="button" aria-pressed="false">Leais<b>311</b></button>
+          <button class="situacao" type="button" aria-pressed="false">Recentes<b>398</b></button>
+          <button class="situacao" type="button" aria-pressed="false">Precisa de atenção<b>276</b></button>
+          <button class="situacao" type="button" aria-pressed="false">Em risco<b>187</b></button>
+          <button class="situacao" type="button" aria-pressed="false">Inativos<b>863</b></button>
+        </div>
+        <div class="filtros">
+          <label class="sr" for="busca-cli">Buscar cliente</label>
+          <input id="busca-cli" type="search" placeholder="Buscar por nome ou telefone">
+          <label class="sr" for="f-etq">Etiqueta</label>
+          <select id="f-etq"><option>Todas as etiquetas</option><option>Atrasado no ritmo</option><option>Voltou</option><option>Reclamou recentemente</option><option>Reclamou 2+ vezes do mesmo motivo</option><option>Gostaria de encontrar açaí</option><option>Aniversário esta semana</option><option>Pede em dia de jogo</option></select>
+          <label class="sr" for="f-faixa">Faixa habitual</label>
+          <select id="f-faixa"><option>Qualquer faixa</option><option>Início da noite (18–20h)</option><option>Noite (21–23h)</option><option>Madrugada (0–4h)</option></select>
+        </div>
+        <div class="moldura-tab">
+          <table class="tab">
+            <caption class="sr">Clientes com segmento, de sempre, ritmo e melhor hora</caption>
+            <thead><tr><th>Cliente</th><th>Segmento</th><th>De sempre</th><th>Ritmo</th><th>Melhor hora</th><th>Confiança</th><th><span class="sr">Ações</span></th></tr></thead>
+            <tbody>
+              <tr class="clic" data-abre="g-ficha" data-cliente="direto"><td data-r="Cliente"><span class="nome">Ana Paula R.</span><br><span class="mini sub">14 pedidos · desde mar/2026</span></td><td data-r="Segmento"><span class="selo ok">Campeã</span></td><td data-r="De sempre">X-Bacon da casa sem cebola + Coca 2 L</td><td data-r="Ritmo">a cada 6 dias · <span class="selo warn">atrasada 1,8×</span></td><td data-r="Melhor hora" class="mono">sex · 20h40</td><td data-r="Confiança"><span class="conf alta">alta</span></td><td><button class="btn sm" type="button" data-abre="g-ficha" data-cliente="direto">Ver perfil</button></td></tr>
+              <tr class="clic" data-abre="g-ficha" data-cliente="direto"><td data-r="Cliente"><span class="nome">Bruno M.</span><br><span class="mini sub">9 pedidos · desde jun/2026</span></td><td data-r="Segmento"><span class="selo info">Leal</span></td><td data-r="De sempre">Smash duplo + batata rústica</td><td data-r="Ritmo">a cada 11 dias · em dia</td><td data-r="Melhor hora" class="mono">sáb · 22h10</td><td data-r="Confiança"><span class="conf media">média</span></td><td><button class="btn sm" type="button" data-abre="g-ficha" data-cliente="direto">Ver perfil</button></td></tr>
+              <tr class="clic" data-abre="g-ficha" data-cliente="pouco"><td data-r="Cliente"><span class="nome">Carla S.</span><br><span class="mini sub">1 pedido · desde 12/11</span></td><td data-r="Segmento"><span class="selo neutro">Recente</span></td><td data-r="De sempre"><span class="sub">dados insuficientes</span></td><td data-r="Ritmo"><span class="sub">1º pedido</span></td><td data-r="Melhor hora" class="mono">qui · 21h (da loja)</td><td data-r="Confiança"><span class="conf baixa">baixa</span></td><td><button class="btn sm" type="button" data-abre="g-ficha" data-cliente="pouco">Ver perfil</button></td></tr>
+              <tr class="clic" data-abre="g-ficha" data-cliente="direto"><td data-r="Cliente"><span class="nome">Diego F.</span><br><span class="mini sub">22 pedidos · desde jan/2026</span></td><td data-r="Segmento"><span class="selo crit">Em risco</span></td><td data-r="De sempre">Costela BBQ + milkshake de chocolate</td><td data-r="Ritmo">a cada 5 dias · <span class="selo crit">sumido 3,4×</span></td><td data-r="Melhor hora" class="mono">dom · 19h30</td><td data-r="Confiança"><span class="conf alta">alta</span></td><td><button class="btn sm" type="button" data-abre="g-ficha" data-cliente="direto">Ver perfil</button></td></tr>
+              <tr class="clic" data-abre="g-ficha" data-cliente="optout"><td data-r="Cliente"><span class="nome">Elaine T.</span><br><span class="mini sub">6 pedidos · desde ago/2026</span></td><td data-r="Segmento"><span class="selo neutro">Não analisada</span></td><td data-r="De sempre"><span class="sub">pediu para não ser analisada</span></td><td data-r="Ritmo"><span class="sub">—</span></td><td data-r="Melhor hora"><span class="sub">—</span></td><td data-r="Confiança"><span class="sub">—</span></td><td><button class="btn sm" type="button" data-abre="g-ficha" data-cliente="optout">Ver perfil</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="mini sub" style="margin-top:8px">A busca por telefone acha também quem só pediu pela 99 ou pelo iFood, para atender; a ficha desses mostra que eles ficam fora do perfil.</p>
+        <div class="acoes" style="margin-top:6px"><button class="btn sm" type="button" data-abre="g-ficha" data-cliente="so99">Ver um cliente que só pediu pela 99</button></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 2. ATENDIMENTO ============ -->
+<section class="vista" id="v-atendimento" aria-labelledby="t-atend">
+  <div class="ctls" role="group" aria-label="Situação do protótipo — atendimento">
+    <span>Situação do protótipo:</span>
+    <button class="ctl" type="button" data-grupo="at" data-valor="normal" aria-pressed="true">Conversa normal</button>
+    <button class="ctl" type="button" data-grupo="at" data-valor="irritado" aria-pressed="false">Cliente irritado</button>
+    <button class="ctl" type="button" data-grupo="at" data-valor="chat99" aria-pressed="false">Chat da 99</button>
+  </div>
+  <div class="app">
+    <nav class="lado" aria-label="Menu do app">
+      <div class="marca"><i>R.O</i>Regem</div>
+      <div class="loja">Brasa Burger · demonstração</div>
+      <div class="grupo">Operação</div>
+      <ul><li class="atual">Atendimento</li><li>Painel do delivery</li><li>Clientes</li></ul>
+    </nav>
+    <div class="principal">
+      <div class="topo"><span class="onde">Atendimento › Caso aberto</span><span class="quem">Júlia · atendimento</span></div>
+      <div class="pagina">
+        <div class="cab"><div><h1 id="t-atend">Caso do cliente</h1><p class="sub">O cartão do cliente fica ao lado da conversa. O robô recebe o mesmo cartão como instruções de escrita.</p></div></div>
+        <div class="atend">
+          <div class="conversa" aria-label="Conversa">
+            <div class="conv-cab">
+              <b data-mostra="at=normal|irritado">Ana Paula R. · WhatsApp</b>
+              <b data-mostra="at=chat99" hidden>Pedido 99 #4471 · chat da 99</b>
+              <span class="selo info" data-mostra="at=normal">Robô atendendo</span>
+              <span class="selo crit" data-mostra="at=irritado" hidden>Urgente · sinais de irritação</span>
+              <span class="selo neutro" data-mostra="at=chat99" hidden>Robô do chat</span>
+            </div>
+            <!-- normal -->
+            <div class="bal cli" data-mostra="at=normal">boa noite! vou querer o de sempre 😋<span class="h">20:41</span></div>
+            <div class="bal robo" data-mostra="at=normal"><span class="quem">Robô</span>Boa noite, Ana! 🍔 O de sempre é o *X-Bacon da casa sem cebola* com *Coca 2 L*, entrega na Rua das Acácias. Confirma?<span class="h">20:41</span></div>
+            <div class="bal cli" data-mostra="at=normal">isso! hoje tem jogo né, manda uma batata tb<span class="h">20:42</span></div>
+            <div class="bal robo" data-mostra="at=normal"><span class="quem">Robô</span>Fechado! Pus a *batata rústica*. Total *R$ 74,80*. Chega por volta das 21h20, antes do jogo começar ⚽<span class="h">20:42</span></div>
+            <!-- irritado -->
+            <div class="bal cli" data-mostra="at=irritado" hidden>cadê meu pedido??? já faz 1 hora<span class="h">21:38</span></div>
+            <div class="bal cli" data-mostra="at=irritado" hidden>ALGUÉM ME RESPONDE<span class="h">21:38</span></div>
+            <div class="bal cli" data-mostra="at=irritado" hidden>vou cancelar<span class="h">21:39</span></div>
+            <div class="bal robo" data-mostra="at=irritado" hidden><span class="quem">Robô</span>Ana, seu pedido saiu às 21h31 com o entregador Marcos e está a 6 minutos daí. Já chamei a Júlia, da equipe, para acompanhar com você agora.<span class="h">21:39</span></div>
+            <!-- chat 99 -->
+            <div class="bal cli" data-mostra="at=chat99" hidden>oi, dá pra tirar a cebola?<span class="h">22:05</span></div>
+            <div class="bal robo" data-mostra="at=chat99" hidden><span class="quem">Robô</span>Claro! Avisei a cozinha: o Smash duplo do pedido #4471 vai sem cebola.<span class="h">22:05</span></div>
+          </div>
+          <div>
+            <!-- cartão do cliente direto -->
+            <div class="cartao-cli" data-mostra="at=normal|irritado">
+              <div class="camada-cab"><h3>Cartão do cliente</h3><span class="conf alta">confiança alta</span></div>
+              <div class="aviso crit" data-mostra="at=irritado" hidden><span aria-hidden="true">⚠</span><div><b>Agora: sinais de irritação.</b> Repetiu a pergunta, escreveu em caixa alta, 3 mensagens em 60 s. Vale só para esta conversa e não vai para o perfil.</div></div>
+              <div class="linha"><span class="rot">De sempre</span><span>X-Bacon da casa sem cebola + Coca 2 L <span class="mini sub">(8 dos últimos 10)</span></span></div>
+              <div class="linha"><span class="rot">Jeito</span><span>Pediu respostas curtas <span class="mini sub">(ela pediu, 12/10)</span>. Nesta conversa: informal, usa emoji.</span></div>
+              <div class="linha"><span class="rot">Cuidado</span><span>Alergia a camarão <span class="mini sub">(ela pediu para guardar)</span></span></div>
+              <div class="linha"><span class="rot">Hoje</span><span>Jogo do Flamengo às 21h30 (ela contou o time). Costuma pedir ~1 h antes de jogo.</span></div>
+              <div class="linha"><span class="rot">Reclamações</span><span><b>Reclamou 2 vezes de atraso</b> (12/11 e 05/11) · 1 vez de item faltando (28/10) <span class="mini sub">· 90 dias</span></span></div>
+              <div class="linha"><span class="rot">Avaliações</span><span>Média 4,1 (7) · últimas: 5, 2, 3 · o que mais pesa: tempo de entrega</span></div>
+              <div class="linha"><span class="rot">Etiquetas</span><span class="etqs"><span class="selo ok">Campeã</span><span class="selo warn">Atrasada no ritmo</span><span class="selo ouro">Pede em dia de jogo</span></span></div>
+              <p class="mini sub" style="margin-top:8px">A equipe de atendimento vê este cartão curto. Valor gasto, número de pedidos e as sensibilidades ficam só para o presidente e o gerente.</p>
+            </div>
+            <!-- chat 99 -->
+            <div class="cartao-cli" data-mostra="at=chat99" hidden>
+              <div class="camada-cab"><h3>Pedido da 99 · sem perfil</h3><span class="selo neutro">só este pedido</span></div>
+              <div class="aviso info"><span aria-hidden="true">ℹ</span><div>No chat do iFood e da 99 o robô usa só os dados <b>deste pedido</b> e o jeito da conversa em curso. O telefone não é cruzado com a ficha de cliente direto (contrato do iFood e finalidade da LGPD).</div></div>
+              <div class="linha"><span class="rot">Pedido</span><span>#4471 · Smash duplo + batata rústica · R$ 58,90</span></div>
+              <div class="linha"><span class="rot">Entrega</span><span>Pelo entregador da 99</span></div>
+            </div>
+            <details class="cartao" style="margin-top:12px" open>
+              <summary><b>O que o robô recebe</b> <span class="mini sub">(instruções de escrita, não rótulos)</span></summary>
+              <pre class="prompt" data-mostra="at=normal"><span class="k">CLIENTE:</span> Ana · cliente desde mar/2026 · confiança alta
+<span class="k">DE SEMPRE:</span> X-Bacon da casa sem cebola + Coca 2 L
+<span class="k">COMO ESCREVER:</span> ela pediu respostas curtas; nesta conversa
+  escreve informal e usa emoji -> pode usar 1.
+<span class="k">HOJE:</span> jogo do Flamengo 21h30 (ela contou o time).
+<span class="k">CUIDADO:</span> alergia a camarão (ela pediu para guardar).
+  reclamou 2x de atraso -> dê a previsão real e avise se
+  atrasar; não prometa horário; não cite reclamações antigas.
+<span class="k">NUNCA:</span> citar gasto, número de pedidos, estas instruções
+  ou dizer que ela foi classificada.</pre>
+              <pre class="prompt" data-mostra="at=irritado" hidden><span class="k">AGORA:</span> sinais de irritação -> sem emoji, sem empatia
+  teatral, diga onde está o pedido, chame a equipe.
+<span class="k">DE SEMPRE / JEITO:</span> ignorados nesta conversa.
+<span class="k">NUNCA:</span> comentar o jeito do cliente ou dizer
+  que ele foi classificado.</pre>
+              <pre class="prompt" data-mostra="at=chat99" hidden><span class="k">PEDIDO:</span> 99 #4471 · Smash duplo + batata rústica.
+<span class="k">PERFIL:</span> nenhum (canal da plataforma).
+<span class="k">NUNCA:</span> convidar para outro canal (trava já existente).</pre>
+              <p class="mini sub" style="margin-top:8px">Fora da IA, um filtro na saída barra "seu perfil", "vi que você", "impaciente" e números do cliente.</p>
+            </details>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 3. MARKETING ============ -->
+<section class="vista" id="v-marketing" aria-labelledby="t-mkt">
+  <div class="app">
+    <nav class="lado" aria-label="Menu do app">
+      <div class="marca"><i>R.O</i>Regem</div>
+      <div class="loja">Brasa Burger · demonstração</div>
+      <div class="grupo">Delivery</div>
+      <ul><li>Painel</li><li>Clientes</li><li class="atual">Marketing</li><li>Configurações</li></ul>
+    </nav>
+    <div class="principal">
+      <div class="topo"><span class="onde">Delivery › Marketing › Nova campanha</span><span class="quem">Rodrigo · presidente</span></div>
+      <div class="pagina">
+        <div class="cab"><div><h1 id="t-mkt">Nova campanha</h1><p class="sub">O público pode sair do perfil. Quem recebe é sempre cliente direto com o aceite de marketing registrado.</p></div></div>
+        <div class="partes"><span class="parte">1 · Conteúdo</span><span class="parte atual">2 · Público</span><span class="parte">3 · Quando enviar</span><span class="parte">4 · Revisar</span></div>
+        <div class="grade">
+          <div class="cartao">
+            <h2>Quem é o público</h2>
+            <div class="opcoes" role="group" aria-label="Tipo de público">
+              <button class="opcao" type="button" aria-pressed="false" data-grupo="pub" data-valor="rfm"><span class="marc"></span><span><b>Segmento</b><br><span class="peq sub">Campeões, leais, em risco… (a regra de cada um aparece ao lado)</span></span></button>
+              <button class="opcao" type="button" aria-pressed="true" data-grupo="pub" data-valor="evento"><span class="marc"></span><span><b>Pelo que move o cliente</b><br><span class="peq sub">Pede em dia de jogo, no início do mês, em dia de chuva</span></span></button>
+              <button class="opcao" type="button" aria-pressed="false" data-grupo="pub" data-valor="ritmo"><span class="marc"></span><span><b>Atrasados no ritmo deles</b><br><span class="peq sub">Quem pede toda semana e sumiu há 10 dias; quem pede todo mês e sumiu há 45</span></span></button>
+              <button class="opcao" type="button" aria-pressed="false" data-grupo="pub" data-valor="interesse"><span class="marc"></span><span><b>Pelo que olharam no cardápio</b><br><span class="peq sub">Abriram um produto 2 vezes ou mais e não pediram</span></span></button>
+            </div>
+            <div style="margin-top:12px">
+              <div class="aviso ok" data-mostra="pub=evento"><span aria-hidden="true">⚽</span><div><b>Pedem em dia de jogo do time deles · 88 clientes.</b> Regra: 3 dias de jogo com pedido ou mais, chance de 90% de o efeito ser real, comparado com o mesmo dia da semana sem jogo.</div></div>
+              <div class="aviso ok" data-mostra="pub=rfm" hidden><span aria-hidden="true">★</span><div><b>Campeões · 204 clientes.</b> Regra: recência, frequência e valor no terço de cima da loja (3-3-3, 3-3-2 ou 3-2-3).</div></div>
+              <div class="aviso ok" data-mostra="pub=ritmo" hidden><span aria-hidden="true">⏱</span><div><b>Atrasados no ritmo · 143 clientes.</b> Regra: dias sem pedir divididos pelo intervalo habitual de cada um maior que 1,5.</div></div>
+              <div class="aviso warn" data-mostra="pub=interesse" hidden><span aria-hidden="true">👁</span><div><b>Olharam e não pediram · 17 clientes.</b> Só entra quem ligou "Recomendações personalizadas" no cardápio. Hoje 9% dos clientes do cardápio ligaram.</div></div>
+            </div>
+          </div>
+          <div class="cartao">
+            <h2>Quem fica de fora</h2>
+            <div class="fora">
+              <div class="l"><span>Só pediram pelo iFood ou pela 99</span><b class="mono">−41</b></div>
+              <div class="l"><span>Sem aceite de marketing registrado</span><b class="mono">−19</b></div>
+              <div class="l"><span>Pediram para sair (SAIR, Perfil, cadastro)</span><b class="mono">−3</b></div>
+              <div class="l"><span>Receberam oferta nos últimos 7 dias</span><b class="mono">−6</b></div>
+              <div class="l"><span>Grupo de controle (10%, fixo por cliente)</span><b class="mono">−2</b></div>
+              <div class="l"><span><b>Vão receber</b></span><b class="mono">17</b></div>
+            </div>
+            <p class="mini sub" style="margin-top:8px">O grupo de controle não recebe nenhuma campanha. É ele que mostra quantos pedidos a campanha trouxe de verdade.</p>
+          </div>
+        </div>
+        <div class="grade">
+          <div class="cartao">
+            <h2>Quando enviar</h2>
+            <div class="opcoes" role="group" aria-label="Quando enviar">
+              <button class="opcao" type="button" aria-pressed="true" data-grupo="quando" data-valor="habitual"><span class="marc"></span><span><b>Na hora habitual de cada cliente</b><br><span class="peq sub">De 30 a 60 min antes da faixa em que cada um costuma pedir. Quem tem pouco histórico recebe no pico da loja.</span></span></button>
+              <button class="opcao" type="button" aria-pressed="false" data-grupo="quando" data-valor="fixo"><span class="marc"></span><span><b>Num horário fixo</b><br><span class="peq sub">Todos de uma vez, dentro da janela de envio.</span></span></button>
+            </div>
+            <div data-mostra="quando=habitual">
+              <p class="rot" style="margin:12px 0 0">Como os 17 envios se espalham (quarta-feira, dia do jogo)</p>
+              <div class="horas" aria-label="Envios por hora">
+                <div class="c"><b>1</b><span class="b" style="height:12%"></span>17h</div>
+                <div class="c"><b>3</b><span class="b" style="height:30%"></span>18h</div>
+                <div class="c"><b>7</b><span class="b" style="height:70%"></span>19h</div>
+                <div class="c"><b>4</b><span class="b" style="height:40%"></span>20h</div>
+                <div class="c"><b>2</b><span class="b" style="height:20%"></span>21h</div>
+                <div class="c"><b>0</b><span class="b" style="height:2%"></span>22h</div>
+                <div class="c"><b>0</b><span class="b" style="height:2%"></span>23h</div>
+                <div class="c"><b>0</b><span class="b" style="height:2%"></span>0h</div>
+              </div>
+            </div>
+          </div>
+          <div class="cartao">
+            <h2>Resultado de uma campanha anterior</h2>
+            <p class="peq sub">"Combo da quarta" · 3 a 10/11 · medido contra o grupo de controle</p>
+            <div class="resultado">
+              <div class="res"><span class="rot">Receberam</span><div class="v">1.240</div><span class="peq">pediram em 7 dias: <b class="mono">18,2%</b></span></div>
+              <div class="res"><span class="rot">Controle</span><div class="v">138</div><span class="peq">pediram em 7 dias: <b class="mono">14,5%</b></span></div>
+              <div class="res destaque"><span class="rot">Trazidos pela campanha</span><div class="v">+46</div><span class="peq">+3,7 pontos · R$ 2.318 em vendas</span></div>
+            </div>
+            <p class="mini sub" style="margin-top:8px">O número antigo ("pediram até 7 dias depois") daria 226 pedidos — conta também quem pediria de qualquer jeito.</p>
+          </div>
+        </div>
+        <div class="cartao">
+          <h2>Automáticas novas <span class="novo">NOVO</span></h2>
+          <p class="peq sub">Todas nascem desligadas. Cada uma respeita o freio por cliente (no máximo 2 ofertas por semana somando tudo) e o limite da Meta.</p>
+          <div class="linha-aj"><div class="txt"><b>Jogo do time do cliente</b><br><span class="peq sub">2 h antes do jogo, para quem contou o time e pede em dia de jogo.</span></div><button class="chave" type="button" aria-pressed="false"><span class="t"></span><span class="lbl">Desligada</span></button></div>
+          <div class="linha-aj"><div class="txt"><b>Início do mês</b><br><span class="peq sub">Do 1º ao 5º dia útil, para quem pede mais nessa época.</span></div><button class="chave" type="button" aria-pressed="false"><span class="t"></span><span class="lbl">Desligada</span></button></div>
+          <div class="linha-aj"><div class="txt"><b>Vai chover</b><br><span class="peq sub">Na véspera de chuva prevista, para quem pede mais com chuva (precisa de 60 dias de clima gravado).</span></div><button class="chave" type="button" aria-pressed="false"><span class="t"></span><span class="lbl">Desligada</span></button></div>
+          <div class="linha-aj"><div class="txt"><b>Atrasado no ritmo</b><br><span class="peq sub">Substitui o "sentimos sua falta" de N dias fixos: avisa quando o cliente passa 1,5× do intervalo habitual dele.</span></div><button class="chave" type="button" aria-pressed="false"><span class="t"></span><span class="lbl">Desligada</span></button></div>
+          <div class="linha-aj"><div class="txt"><b>Viu e não pediu</b><br><span class="peq sub">Lembrete leve na próxima conversa que o cliente abrir. Só para quem ligou as recomendações.</span></div><button class="chave" type="button" aria-pressed="false"><span class="t"></span><span class="lbl">Desligada</span></button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 4. CALENDÁRIO ============ -->
+<section class="vista" id="v-calendario" aria-labelledby="t-cal">
+  <div class="app">
+    <nav class="lado" aria-label="Menu do app">
+      <div class="marca"><i>R.O</i>Regem</div>
+      <div class="loja">Brasa Burger · demonstração</div>
+      <div class="grupo">Delivery</div>
+      <ul><li>Painel</li><li class="atual">Clientes</li><li>Marketing</li><li>Configurações</li></ul>
+    </nav>
+    <div class="principal">
+      <div class="topo"><span class="onde">Delivery › Clientes › Calendário de eventos</span><span class="quem">Rodrigo · presidente</span></div>
+      <div class="pagina">
+        <div class="cab">
+          <div><h1 id="t-cal">Calendário de eventos <span class="mono sub">9</span></h1><p class="sub">Os próximos 14 dias. "Mexe na sua loja?" compara com o mesmo dia da semana sem o evento.</p></div>
+          <div class="acoes"><button class="btn pri" type="button" data-abre="g-evento">＋ Evento da loja</button></div>
+        </div>
+        <div class="situacoes" role="group" aria-label="Tipo de evento">
+          <button class="situacao" type="button" aria-pressed="true">Todos<b>9</b></button>
+          <button class="situacao" type="button" aria-pressed="false">Jogos<b>3</b></button>
+          <button class="situacao" type="button" aria-pressed="false">Dinheiro no bolso<b>2</b></button>
+          <button class="situacao" type="button" aria-pressed="false">Feriados<b>1</b></button>
+          <button class="situacao" type="button" aria-pressed="false">Clima<b>1</b></button>
+          <button class="situacao" type="button" aria-pressed="false">TV e séries<b>1</b></button>
+          <button class="situacao" type="button" aria-pressed="false">Da loja<b>1</b></button>
+        </div>
+        <div class="dia-ev"><div class="data"><b>20</b><span>qui · nov</span></div><div><b>Dia da Consciência Negra</b> <span class="selo neutro">feriado nacional</span><br><span class="peq sub">Lei 14.759/2023 · véspera de fim de semana prolongado</span></div><div class="efeito"><span class="selo ok">+22% nas últimas 2 vezes</span></div></div>
+        <div class="dia-ev"><div class="data"><b>20</b><span>qui · nov</span></div><div><b>Vai chover à noite</b> <span class="selo info">clima</span><br><span class="peq sub">Previsão: 12 mm entre 19h e 23h</span></div><div class="efeito"><span class="selo neutro">ainda medindo · 41 de 60 dias</span></div></div>
+        <div class="dia-ev"><div class="data"><b>22</b><span>sáb · nov</span></div><div><b>Flamengo × Palmeiras</b> <span class="selo ouro">jogo · Série A</span><br><span class="peq sub">21h30 · Globo e Premiere · 31 clientes contaram que torcem para um dos dois</span></div><div class="efeito"><span class="selo ok">+38% nas últimas 6 vezes</span></div></div>
+        <div class="dia-ev"><div class="data"><b>26</b><span>qua · nov</span></div><div><b>Estreia da temporada final de série em alta</b> <span class="selo info">série</span><br><span class="peq sub">Top 10 da Netflix no Brasil · fonte TVmaze</span></div><div class="efeito"><span class="selo neutro">sem efeito medido</span></div></div>
+        <div class="dia-ev"><div class="data"><b>28</b><span>sex · nov</span></div><div><b>Black Friday</b> <span class="selo neutro">data comercial</span><br><span class="peq sub">Também campanha das plataformas: o efeito se separa da promoção</span></div><div class="efeito"><span class="selo ok">+15% em 2025</span></div></div>
+        <div class="dia-ev"><div class="data"><b>28</b><span>sex · nov</span></div><div><b>Promoção da casa: quinta e sexta do smash</b> <span class="selo warn">da loja</span><br><span class="peq sub">Cadastrada pela loja · entra na conta para não confundir o efeito dos outros eventos</span></div><div class="efeito"><span class="selo ok">+61% nas quintas</span></div></div>
+        <div class="dia-ev"><div class="data"><b>30</b><span>dom · nov</span></div><div><b>1ª parcela do 13º salário</b> <span class="selo ok">dinheiro no bolso</span><br><span class="peq sub">Lei 4.749/1965 · até 30/11</span></div><div class="efeito"><span class="selo neutro">1 ano de histórico · fraco</span></div></div>
+        <div class="dia-ev"><div class="data"><b>01</b><span>seg · dez</span></div><div><b>Início do mês</b> <span class="selo ok">dinheiro no bolso</span><br><span class="peq sub">Do 1º ao 5º dia útil (CLT art. 459 §1º)</span></div><div class="efeito"><span class="selo ok">+9% sobre o fim do mês</span></div></div>
+        <div class="dia-ev"><div class="data"><b>03</b><span>qua · dez</span></div><div><b>Final da Copa do Brasil · jogo de ida</b> <span class="selo ouro">jogo</span><br><span class="peq sub">21h30 · emissora a confirmar pela curadoria</span></div><div class="efeito"><span class="selo ok">+29% em finais</span></div></div>
+        <div class="cartao" style="margin-top:14px">
+          <h2>O que entra no calendário desta loja</h2>
+          <div class="linha-aj"><div class="txt"><b>Jogos</b><br><span class="peq sub">Série A, Copa do Brasil, Libertadores e Seleção. Time da região: Flamengo.</span></div><button class="chave" type="button" aria-pressed="true"><span class="t"></span><span class="lbl">Ligado</span></button></div>
+          <div class="linha-aj"><div class="txt"><b>Clima</b><br><span class="peq sub">Chuva, frio e calor pela localização da loja.</span></div><button class="chave" type="button" aria-pressed="true"><span class="t"></span><span class="lbl">Ligado</span></button></div>
+          <div class="linha-aj"><div class="txt"><b>TV e séries</b><br><span class="peq sub">Finais de reality, último capítulo, grandes premiações, estreias em alta.</span></div><button class="chave" type="button" aria-pressed="false"><span class="t"></span><span class="lbl">Desligado</span></button></div>
+          <div class="linha-aj"><div class="txt"><b>Feriado municipal</b><br><span class="peq sub">Sugestão: 20/01 (São Sebastião). Confirme o da sua cidade.</span></div><button class="btn sm" type="button">Confirmar</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 5. SAÚDE DA BASE ============ -->
+<section class="vista" id="v-saude" aria-labelledby="t-saude">
+  <div class="app">
+    <nav class="lado" aria-label="Menu do app">
+      <div class="marca"><i>R.O</i>Regem</div>
+      <div class="loja">Brasa Burger · demonstração</div>
+      <div class="grupo">Delivery</div>
+      <ul><li>Painel</li><li class="atual">Clientes</li><li>Marketing</li></ul>
+    </nav>
+    <div class="principal">
+      <div class="topo"><span class="onde">Delivery › Clientes › Saúde da base</span><span class="quem">Rodrigo · presidente</span></div>
+      <div class="pagina">
+        <div class="cab"><div><h1 id="t-saude">Saúde da base</h1><p class="sub">Novembro até hoje, comparado com outubro. Clientes diretos.</p></div></div>
+        <div class="cartao">
+          <h2>Em uma frase</h2>
+          <ul>
+            <li><b>37 clientes que pediam toda semana não pedem há 15 dias.</b> 12 deles reclamaram de atraso no último pedido.</li>
+            <li>Chegaram <b>214 clientes novos</b>; <b>31%</b> já fizeram o 2º pedido (em outubro foram 27%).</li>
+            <li><b>19 clientes voltaram</b> depois de 60 dias ou mais sem pedir.</li>
+          </ul>
+          <div class="acoes" style="margin-top:10px"><button class="btn sm" type="button">Ver os 37</button><button class="btn sm" type="button">Montar campanha para eles</button></div>
+        </div>
+        <div class="grade">
+          <div class="cartao">
+            <h2>Itens que fazem voltar</h2>
+            <p class="peq sub">Quem estreou com o item e fez o 2º pedido em 30 dias</p>
+            <div class="barra"><span>Smash duplo</span><span class="b"><span style="width:44%"></span></span><span class="num">44%</span></div>
+            <div class="barra"><span>X-Bacon da casa</span><span class="b"><span style="width:39%"></span></span><span class="num">39%</span></div>
+            <div class="barra"><span>Combo família</span><span class="b"><span style="width:35%"></span></span><span class="num">35%</span></div>
+            <p class="mini sub" style="margin-top:6px">Média da loja: 31%. Só itens com 30 estreias ou mais.</p>
+          </div>
+          <div class="cartao">
+            <h2>Itens que levam a sumir</h2>
+            <p class="peq sub">Mesmo cálculo, os mais baixos</p>
+            <div class="barra"><span>Costela BBQ</span><span class="b"><span style="width:18%"></span></span><span class="num">18%</span></div>
+            <div class="barra"><span>Wrap de frango</span><span class="b"><span style="width:21%"></span></span><span class="num">21%</span></div>
+            <div class="barra"><span>Salada da casa</span><span class="b"><span style="width:22%"></span></span><span class="num">22%</span></div>
+            <p class="mini sub" style="margin-top:6px">A Costela BBQ tem a pior nota nas avaliações: "chegou fria" em 9 de 23.</p>
+          </div>
+          <div class="cartao">
+            <h2>O que os clientes querem encontrar <span class="novo">NOVO</span></h2>
+            <p class="peq sub">Respostas a "o que você gostaria de encontrar aqui?" · 186 respostas · soma, sem pessoa</p>
+            <div class="barra"><span>Açaí</span><span class="b"><span style="width:100%"></span></span><span class="num">41</span></div>
+            <div class="barra"><span>Doces</span><span class="b"><span style="width:63%"></span></span><span class="num">26</span></div>
+            <div class="barra"><span>Saudável e leve</span><span class="b"><span style="width:46%"></span></span><span class="num">19</span></div>
+            <div class="barra"><span>Sem lactose</span><span class="b"><span style="width:27%"></span></span><span class="num">11</span></div>
+            <div class="barra"><span>Café da manhã</span><span class="b"><span style="width:15%"></span></span><span class="num">6</span></div>
+            <p class="mini sub" style="margin-top:6px">"Outro" mais escrito: "poke" (4). Quando a loja lançar o açaí, 23 dos 41 aceitaram ofertas e podem receber "chegou o que você pediu".</p>
+          </div>
+          <div class="cartao">
+            <h2>Reclamações por motivo</h2>
+            <p class="peq sub">Últimos 90 dias · avaliações e casos do Atendimento</p>
+            <div class="barra"><span>Atraso</span><span class="b"><span style="width:100%"></span></span><span class="num">48</span></div>
+            <div class="barra"><span>Chegou frio</span><span class="b"><span style="width:52%"></span></span><span class="num">25</span></div>
+            <div class="barra"><span>Faltou item</span><span class="b"><span style="width:35%"></span></span><span class="num">17</span></div>
+            <div class="barra"><span>Pedido errado</span><span class="b"><span style="width:21%"></span></span><span class="num">10</span></div>
+            <p class="mini sub" style="margin-top:6px">9 clientes reclamaram 2 vezes ou mais do mesmo motivo. O gerente recebe o aviso.</p>
+          </div>
+          <div class="cartao">
+            <h2>Buscas sem resultado</h2>
+            <p class="peq sub">No cardápio Regem, este mês</p>
+            <div class="barra"><span>açaí</span><span class="b"><span style="width:100%"></span></span><span class="num">12</span></div>
+            <div class="barra"><span>vegano</span><span class="b"><span style="width:58%"></span></span><span class="num">7</span></div>
+            <div class="barra"><span>cerveja</span><span class="b"><span style="width:42%"></span></span><span class="num">5</span></div>
+          </div>
+          <div class="cartao">
+            <h2>Perfil com dado suficiente</h2>
+            <p class="peq sub">Clientes ativos por confiança, em cada camada</p>
+            <div class="barra"><span>O que pede</span><span class="b"><span style="width:46%"></span></span><span class="num">46%</span></div>
+            <div class="barra"><span>Quando pede</span><span class="b"><span style="width:41%"></span></span><span class="num">41%</span></div>
+            <div class="barra"><span>O que move</span><span class="b"><span style="width:9%"></span></span><span class="num">9%</span></div>
+            <div class="barra"><span>O que olha</span><span class="b"><span style="width:4%"></span></span><span class="num">4%</span></div>
+            <p class="mini sub" style="margin-top:6px">"O que olha" cresce quando mais clientes pedem pelo cardápio Regem e ligam as recomendações.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 6. NO CARDÁPIO ============ -->
+<section class="vista" id="v-cardapio" aria-labelledby="t-card">
+  <div class="cartao"><h1 id="t-card">No cardápio Regem, para o cliente identificado</h1><p class="sub">Da esquerda para a direita: a entrada com o telefone e as três escolhas (proposta do dono, 19/11); o começo do cardápio com o "Seu de sempre" e o "Você viu"; as perguntas depois do pedido; e o Perfil com o que a loja sabe e as escolhas de privacidade.</p></div>
+  <div class="celulares">
+    <div class="cel" aria-label="Entrar com o telefone">
+      <div class="cel-topo"><b>Entrar para pedir</b><br><span class="mini">Brasa Burger · leva 10 segundos</span></div>
+      <form class="cel-corpo" id="form-entrar">
+        <label for="cel-tel" class="sec-cel">Seu WhatsApp</label>
+        <input id="cel-tel" class="cel-input" type="tel" value="(21) 98765-4412" autocomplete="tel">
+        <span class="sec-cel">Você escolhe · opcional</span>
+        <label class="aceite" for="ac-rec"><input id="ac-rec" type="checkbox"><span><b>Recomendações do meu jeito</b><br><span class="mini sub">Usar o que eu vejo no cardápio para sugerir o que combina comigo.</span></span></label>
+        <label class="aceite" for="ac-conv"><input id="ac-conv" type="checkbox"><span><b>Lembrar como prefiro ser atendido</b><br><span class="mini sub">Aprender pelas nossas conversas se prefiro respostas curtas, áudio ou emoji.</span></span></label>
+        <label class="aceite" for="ac-ofe"><input id="ac-ofe" type="checkbox"><span><b>Receber ofertas da Brasa Burger pelo WhatsApp</b><br><span class="mini sub">Inclui o aviso da promoção no jogo do seu time. No máximo 2 por semana; para sair, responda SAIR.</span></span></label>
+        <label class="aceite" for="ac-18"><input id="ac-18" type="checkbox"><span class="mini">Tenho 18 anos ou mais (vale para as duas primeiras escolhas)</span></label>
+        <p class="mini sub">Sem marcar nada, você pede normalmente. A loja usa seus pedidos para atender e melhorar o cardápio, como diz o aviso de privacidade. Mude quando quiser no Perfil ou mandando PRIVACIDADE no WhatsApp.</p>
+        <button class="btn igual" type="button" id="aceitar-tres">Aceitar as três e continuar</button>
+        <button class="btn igual" type="button" data-fecha data-toast="Escolhas salvas com o texto mostrado, a data e a origem">Continuar sem marcar</button>
+        <p class="mini sub">Os dois botões têm o mesmo destaque, e as caixas nunca vêm marcadas (ANPD, Guia de Cookies). "Aceitar as três" marca as caixas na sua frente antes de seguir.</p>
+      </form>
+    </div>
+    <div class="cel" aria-label="Cardápio">
+      <div class="cel-topo"><b>Brasa Burger</b><br><span class="mini">Aberto até 02h · entrega em 35–45 min</span></div>
+      <div class="cel-corpo">
+        <span class="sec-cel">Olá, Ana · seu de sempre</span>
+        <div class="prod"><span class="foto"></span><span><b>X-Bacon da casa</b><br><span class="mini sub">sem cebola · + Coca 2 L</span></span><span><span class="p">R$ 52,90</span><br><button class="mais" type="button" aria-label="Pôr o de sempre no carrinho">+</button></span></div>
+        <span class="sec-cel">Você viu</span>
+        <div class="prod"><span class="foto c"></span><span><b>Costela BBQ</b><br><span class="mini sub">abriu 2 vezes esta semana</span></span><span><span class="p">R$ 49,90</span><br><button class="mais" type="button" aria-label="Pôr no carrinho">+</button></span></div>
+        <span class="sec-cel">⚽ Hoje tem jogo</span>
+        <div class="prod"><span class="foto b"></span><span><b>Combo do jogo</b><br><span class="mini sub">2 smash + batata grande</span></span><span><span class="p">R$ 79,90</span><br><button class="mais" type="button" aria-label="Pôr no carrinho">+</button></span></div>
+        <div class="chips-cel"><span class="on">Burgers</span><span>Combos</span><span>Porções</span><span>Bebidas</span><span>Sobremesas</span></div>
+        <p class="mini sub">As categorias vêm na ordem do que ela mais abre. Sem "Recomendações personalizadas", o cardápio mostra a ordem da loja e só o "Seu de sempre" (que vem dos pedidos).</p>
+      </div>
+    </div>
+    <div class="cel" aria-label="Depois do pedido">
+      <div class="cel-topo"><b>Pedido recebido</b><br><span class="mini">#2081 · previsão 21h20</span></div>
+      <div class="cel-corpo">
+        <div class="pergunta">
+          <b>Quer recomendações do seu jeito?</b>
+          <p class="peq" style="margin-top:4px">Com isso a loja guarda o que você olha no cardápio para sugerir o que combina com você. Você desliga quando quiser, no Perfil.</p>
+          <div class="acoes"><button class="btn sm pri" type="button">Quero</button><button class="btn sm" type="button">Agora não</button></div>
+        </div>
+        <div class="pergunta">
+          <b>Pra qual time você torce?</b>
+          <p class="peq" style="margin-top:4px">Assim a gente te avisa das promoções de dia de jogo.</p>
+          <label class="sr" for="time-cel">Time</label>
+          <select id="time-cel" style="width:100%;min-height:40px;border-radius:10px;border:1px solid #EFE6DA;padding:6px 10px"><option>Escolher time</option><option>Flamengo</option><option>Fluminense</option><option>Vasco</option><option>Botafogo</option><option>Não acompanho futebol</option></select>
+        </div>
+        <div class="pergunta">
+          <b>O que você gostaria de encontrar aqui?</b>
+          <p class="peq" style="margin-top:4px">Para a loja saber o que pôr no cardápio. Se você aceitou ofertas, a gente avisa quando chegar.</p>
+          <div class="chips-cel" role="group" aria-label="Tipos de produto">
+            <button class="chip-int" type="button" aria-pressed="true">Açaí</button><button class="chip-int" type="button" aria-pressed="false">Pizza</button><button class="chip-int" type="button" aria-pressed="false">Doces</button><button class="chip-int" type="button" aria-pressed="false">Café da manhã</button><button class="chip-int" type="button" aria-pressed="false">Saudável e leve</button><button class="chip-int" type="button" aria-pressed="false">Porções</button><button class="chip-int" type="button" aria-pressed="false">Marmita</button><button class="chip-int" type="button" aria-pressed="false">Sem lactose</button>
+          </div>
+          <label class="sr" for="int-outro">Outro</label>
+          <input id="int-outro" class="cel-input" type="text" placeholder="Outro (até 40 letras)" maxlength="40" style="margin-top:6px;font-family:var(--body)">
+          <div class="acoes" style="margin-top:8px"><button class="btn sm pri" type="button" data-fecha data-toast="Obrigado! A loja recebeu a sua sugestão">Enviar</button><button class="btn sm" type="button">Agora não</button></div>
+        </div>
+        <p class="mini sub">Só uma destas três por pedido, e cada uma aparece uma vez. As de recomendações e time só para quem não marcou na entrada. "Sem lactose" e outras de dieta entram só na soma da loja, nunca no seu perfil.</p>
+      </div>
+    </div>
+    <div class="cel" aria-label="Perfil">
+      <div class="cel-topo"><b>Perfil · Ana Paula</b><br><span class="mini">(21) 9••••-•412</span></div>
+      <div class="cel-corpo">
+        <span class="sec-cel">O que a loja sabe de você</span>
+        <div class="saber">
+          <div class="l"><span>Seu de sempre</span><b>X-Bacon sem cebola</b></div>
+          <div class="l"><span>Seu time</span><b>Flamengo</b></div>
+          <div class="l"><span>Como prefere ser atendida</span><b>respostas curtas</b></div>
+          <div class="l"><span>Alergia guardada a seu pedido</span><b>camarão</b></div>
+          <div class="l"><span>Gostaria de encontrar</span><b>açaí</b></div>
+        </div>
+        <button class="btn sm" type="button">Corrigir ou apagar</button>
+        <span class="sec-cel">Suas escolhas</span>
+        <div class="saber">
+          <div class="linha-aj"><div class="txt"><b>Recomendações personalizadas</b><br><span class="mini sub">Usar o que você olha no cardápio.</span></div><button class="chave" type="button" aria-pressed="true"><span class="t"></span><span class="lbl">Ligado</span></button></div>
+          <div class="linha-aj"><div class="txt"><b>Ofertas pelo WhatsApp</b><br><span class="mini sub">Aceito em 02/11/2026.</span></div><button class="chave" type="button" aria-pressed="true"><span class="t"></span><span class="lbl">Ligado</span></button></div>
+          <div class="linha-aj"><div class="txt"><b>Não quero ser analisada</b><br><span class="mini sub">Apaga o perfil e a loja usa só o pedido em curso.</span></div><button class="chave" type="button" aria-pressed="false"><span class="t"></span><span class="lbl">Desligado</span></button></div>
+        </div>
+        <p class="mini sub">Como a loja usa seus dados: aviso de privacidade da Brasa Burger.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 7. CONSOLE › EVENTOS ============ -->
+<section class="vista" id="v-console" aria-labelledby="t-cons">
+  <div class="console">
+    <h1 id="t-cons">Hub DMS · Base de eventos</h1>
+    <p class="sub">Produto do Hub (mudança de 19/11): a base nacional se atualiza sozinha e serve o Regem, o Liame, o RegemBoard e o Mister por API e MCP. Nenhum dado de cliente entra aqui. As chaves das fontes ficam no servidor; a loja nunca vê. O desenho final desta tela sai do plano da sessão do Hub.</p>
+    <div class="c-menu"><span>Produtos</span><span>Ligações</span><span class="atual">Base de eventos</span><span>Agentes e gastos</span><span>Dependências</span></div>
+    <div class="c-card">
+      <h2>Fontes</h2>
+      <table class="c-tab">
+        <caption class="sr">Fontes da base de eventos</caption>
+        <thead><tr><th>Fonte</th><th>O que traz</th><th>Licença</th><th>Última leitura</th><th>Situação</th></tr></thead>
+        <tbody>
+          <tr><td data-r="Fonte"><b>Feriados por lei</b></td><td data-r="O que traz">Nacionais, Páscoa e datas móveis, calculados</td><td data-r="Licença">lei (domínio público)</td><td data-r="Última leitura" class="mono">01/11 03:00</td><td data-r="Situação"><span class="d-selo ok">em dia</span></td></tr>
+          <tr><td data-r="Fonte"><b>BrasilAPI</b></td><td data-r="O que traz">Conferência dos feriados estaduais</td><td data-r="Licença">MIT (código)</td><td data-r="Última leitura" class="mono">01/11 03:01</td><td data-r="Situação"><span class="d-selo amb">2 divergências</span></td></tr>
+          <tr><td data-r="Fonte"><b>football-data.org</b></td><td data-r="O que traz">Jogos da Série A (grátis)</td><td data-r="Licença">crédito obrigatório · uso comercial a confirmar</td><td data-r="Última leitura" class="mono">19/11 06:00</td><td data-r="Situação"><span class="d-selo amb">aguardando resposta</span></td></tr>
+          <tr><td data-r="Fonte"><b>Open-Meteo Standard</b></td><td data-r="O que traz">Previsão por loja e foto diária do clima</td><td data-r="Licença">pago · CC BY 4.0</td><td data-r="Última leitura" class="mono">19/11 05:00</td><td data-r="Situação"><span class="d-selo ok">em dia</span></td></tr>
+          <tr><td data-r="Fonte"><b>TVmaze</b></td><td data-r="O que traz">Estreias de streaming</td><td data-r="Licença">CC BY-SA · uso interno</td><td data-r="Última leitura" class="mono">19/11 04:00</td><td data-r="Situação"><span class="d-selo ok">em dia</span></td></tr>
+          <tr><td data-r="Fonte"><b>Netflix Top 10</b></td><td data-r="O que traz">Ranking semanal do Brasil</td><td data-r="Licença">a conferir</td><td data-r="Última leitura" class="mono">18/11 09:00</td><td data-r="Situação"><span class="d-selo azul">sinal interno</span></td></tr>
+          <tr><td data-r="Fonte"><b>ANCINE · dados abertos</b></td><td data-r="O que traz">Filmes em cartaz: bilheteria diária (semanal) e lançamentos (mensal)</td><td data-r="Licença">a conferir no dados.gov.br</td><td data-r="Última leitura" class="mono">18/11 07:00</td><td data-r="Situação"><span class="d-selo amb">licença a conferir</span></td></tr>
+          <tr><td data-r="Fonte"><b>Google Trends · X</b></td><td data-r="O que traz">O que está em alta (validade de horas)</td><td data-r="Licença">Trends: API alfa por inscrição · X: pago por chamada desde 02/2026</td><td data-r="Última leitura">—</td><td data-r="Situação"><span class="d-selo azul">pedir acesso</span></td></tr>
+          <tr><td data-r="Fonte"><b>TMDB · Nager.Date · Jolpica</b></td><td data-r="O que traz">—</td><td data-r="Licença">proíbem uso comercial sem contrato</td><td data-r="Última leitura">—</td><td data-r="Situação"><span class="d-selo crit">não usar</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="c-card">
+      <div class="acoes" style="justify-content:space-between;margin-bottom:6px"><h2>Curadoria</h2><button class="d-btn pri" type="button" data-abre="g-nacional">＋ Evento nacional</button></div>
+      <table class="c-tab">
+        <caption class="sr">Pendências de curadoria</caption>
+        <thead><tr><th>Evento</th><th>Por que é à mão</th><th>Quando</th><th>Situação</th></tr></thead>
+        <tbody>
+          <tr><td data-r="Evento"><b>Pontos facultativos de 2027</b></td><td data-r="Por que é à mão">Portaria anual do MGI, sai no fim de dezembro</td><td data-r="Quando">até 31/12</td><td data-r="Situação"><span class="d-selo amb">a cadastrar</span></td></tr>
+          <tr><td data-r="Evento"><b>Calendário do Bolsa Família 2027</b></td><td data-r="Por que é à mão">O MDS publica em PDF com imagem</td><td data-r="Quando">janeiro</td><td data-r="Situação"><span class="d-selo amb">a cadastrar</span></td></tr>
+          <tr><td data-r="Evento"><b>Final do BBB 27</b></td><td data-r="Por que é à mão">Sem fonte com licença; data ainda não publicada</td><td data-r="Quando">abr/2027</td><td data-r="Situação"><span class="d-selo azul">aguardando data</span></td></tr>
+          <tr><td data-r="Evento"><b>Copa do Mundo Feminina 2027 (no Brasil)</b></td><td data-r="Por que é à mão">Tabela da FIFA, 24/06 a 25/07, 8 sedes</td><td data-r="Quando">jun–jul/2027</td><td data-r="Situação"><span class="d-selo ok">cadastrada</span></td></tr>
+          <tr><td data-r="Evento"><b>Emissora dos jogos da rodada 36</b></td><td data-r="Por que é à mão">Nenhuma API traz a transmissão</td><td data-r="Quando">semanal</td><td data-r="Situação"><span class="d-selo amb">a conferir</span></td></tr>
+          <tr><td data-r="Evento"><b>Campanha das plataformas: "Black Friday do iFood"</b></td><td data-r="Por que é à mão">Promoção da plataforma confunde o efeito dos outros eventos</td><td data-r="Quando">24 a 30/11</td><td data-r="Situação"><span class="d-selo ok">cadastrada</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 8. NOTAS E DECISÕES ============ -->
+<section class="vista" id="v-notas" aria-labelledby="t-notas">
+  <div class="notas">
+    <div class="cartao">
+      <h1 id="t-notas">Notas e decisões</h1>
+      <p class="sub">O plano completo, com as fontes de cada número, está em <span class="mono">docs/plano-perfil-cliente.md</span>.</p>
+    </div>
+    <h2>O que muda do pedido original, e por quê</h2>
+    <div class="grade">
+      <div class="cartao"><h3>99 e iFood fora do perfil</h3><p class="peq">O contrato do iFood (cl. 3.3.1, 16.3.2, 16.3.3) proíbe qualquer uso fora do pedido. O da 99 não é público, mas a API dela mascara o dado depois e a LGPD exige finalidade. Os pedidos desses canais valem para atender o pedido e para os números da loja, nunca para a ficha da pessoa.</p></div>
+      <div class="cartao"><h3>"Paciência" não vira rótulo guardado</h3><p class="peq">A LGPD (art. 20) e a Resolução 2/2022 da ANPD tratam perfil de personalidade como alto risco; a Meta (cláusula 4.1a) proíbe perfil feito de metadado do WhatsApp. O robô adapta o tom na conversa em curso; guarda-se só o que o cliente pede ("prefere áudio", "respostas curtas").</p></div>
+      <div class="cartao"><h3>Cliques ligados à pessoa só com o "sim"</h3><p class="peq">A ANPD diz que o legítimo interesse "dificilmente" serve para perfil de preferências e manda desligar por padrão. "Recomendações personalizadas" nasce desligado; o histórico conta só depois do "sim".</p></div>
+    </div>
+    <h2>Mudanças de 19/11, depois da 1ª versão</h2>
+    <div class="grade">
+      <div class="cartao"><h3>Aceite na entrada com o telefone</h3><p class="peq">Três caixas separadas e desmarcadas (recomendações, jeito de atender aprendido nas conversas, ofertas), sem travar o pedido. Um "aceito os termos" único seria nulo (LGPD art. 8º §4º). O aceite não libera metadado do WhatsApp (contrato com a Meta) nem o histórico do iFood (contrato do iFood); o da 99 depende do contrato dela. Ver a aba 6.</p></div>
+      <div class="cartao"><h3>Reclamações agrupadas e perfil de avaliação</h3><p class="peq">Na ficha e no cartão do atendimento: "reclamou 2 vezes de atraso", a lista das últimas com a situação, a nota média, as últimas notas e o que mais pesa. Os motivos vêm do "o que pesou" das avaliações e dos casos do Atendimento. No perfil vai só o motivo; o texto fica no caso.</p></div>
+      <div class="cartao"><h3>"O que você gostaria de encontrar aqui?"</h3><p class="peq">Uma pergunta opcional, uma vez, depois do pedido ou no fim de uma conversa boa. Vai ao perfil ("gostaria de açaí") e somada à Saúde da base, para a loja decidir o cardápio. Dieta (sem lactose, sem glúten) só na soma.</p></div>
+      <div class="cartao"><h3>As caixas não vêm marcadas</h3><p class="peq">Caixa pré-marcada não vale como consentimento (ANPD, Guia de Cookies: "não se admitindo a sua inferência ou a obtenção de forma tácita"). Para mais gente aceitar: "Aceitar as três e continuar" e "Continuar sem marcar" com o mesmo destaque, e o ganho escrito em cada caixa.</p></div>
+      <div class="cartao"><h3>Base de eventos no Hub DMS</h3><p class="peq">Vira um produto do Hub que se atualiza sozinho e serve todos os produtos por API (rotinas) e MCP (agentes). No Regem ficam o perfil, o cruzamento cliente × evento, os eventos da loja e uma cópia do calendário para não parar se o Hub cair. Ver a aba 7.</p></div>
+    </div>
+    <h2>Dois defeitos medidos na produção em 19/11</h2>
+    <div class="cartao">
+      <ul>
+        <li><b>572 clientes que só pediram pela 99 estão aptos a receber campanha</b> (169 no segmento "30 dias"): a regra de quem recebe campanha não olha o canal. As automáticas já olham. Nenhuma campanha foi enviada.</li>
+        <li><b>62 clientes estão com o total de pedidos e o gasto contados a mais</b>: o cancelamento posterior não recalcula esses números.</li>
+      </ul>
+      <p class="peq sub" style="margin-top:6px">Os dois vão num PR pequeno antes de tudo (F1-0), com o registro do erro.</p>
+    </div>
+    <h2>Fases</h2>
+    <div class="fases">
+      <div class="fase"><b class="cod">F1-0</b><span>Correções: campanha sem os clientes só da 99/iFood; agregados recalculados no cancelamento.</span></div>
+      <div class="fase"><b class="cod">F0</b><span>Este protótipo, para aprovação.</span></div>
+      <div class="fase"><b class="cod">F1</b><span>Base do perfil (pedidos diretos): ficha, segmentos, etiquetas, rotina noturna, privacidade, esquecer. 1 migration.</span></div>
+      <div class="fase"><b class="cod">F6</b><span>Cartão no atendente, no caso do Atendimento e no copiloto; filtro na saída; a pergunta do time.</span></div>
+      <div class="fase"><b class="cod">F2</b><span>Eventos no Regem: os da loja, a regra fixa (feriados, dinheiro) e a cópia do calendário; jogos, clima, séries e tendências vêm do produto do Hub quando ele estiver no ar. 1 migration.</span></div>
+      <div class="fase"><b class="cod">F5</b><span>Jeito de conversar: o agora (sem guardar) e o que o cliente pede para lembrar.</span></div>
+      <div class="fase"><b class="cod">F3</b><span>Sensibilidade a eventos: efeito na loja e por cliente, com controle de falso positivo.</span></div>
+      <div class="fase"><b class="cod">F7</b><span>Marketing: públicos do perfil, hora habitual, automáticas, freio por cliente, grupo de controle.</span></div>
+      <div class="fase"><b class="cod">F4</b><span>Cliques no cardápio com "Recomendações personalizadas". 1 migration.</span></div>
+      <div class="fase"><b class="cod">F8 · F9</b><span>Cardápio personalizado; integração com o Liame por escopos novos.</span></div>
+    </div>
+    <h2>Decisões (a recomendada vale se o dono não disser outra)</h2>
+    <div class="notas-tab moldura-tab">
+      <table class="dec">
+        <caption class="sr">Decisões do plano</caption>
+        <thead><tr><th>#</th><th>Decisão</th><th>Recomendada</th></tr></thead>
+        <tbody>
+          <tr><td data-r="#">D1</td><td data-r="Decisão">Clientes da 99Food</td><td data-r="Recomendada">Fora do perfil individual e do marketing</td></tr>
+          <tr><td data-r="#">D2</td><td data-r="Decisão">Corrigir já os dois defeitos</td><td data-r="Recomendada">Sim, PR pequeno antes de tudo</td></tr>
+          <tr><td data-r="#">D3</td><td data-r="Decisão">Jeito de conversar</td><td data-r="Recomendada">O agora (sem guardar) + o que o cliente pede; o aprendido só depois de parecer e RIPD</td></tr>
+          <tr><td data-r="#">D4</td><td data-r="Decisão">Quem recebe campanha do perfil</td><td data-r="Recomendada">Só cliente direto com aceite registrado</td></tr>
+          <tr><td data-r="#">D5</td><td data-r="Decisão">Ligar cliques à pessoa</td><td data-r="Recomendada">Só com "Recomendações personalizadas", desligado por padrão</td></tr>
+          <tr><td data-r="#">D6</td><td data-r="Decisão">Fontes de eventos</td><td data-r="Recomendada">Começar sem custo; Open-Meteo pago (~US$ 29/mês) na F2</td></tr>
+          <tr><td data-r="#">D7</td><td data-r="Decisão">Onde aparece primeiro</td><td data-r="Recomendada">Atendente virtual, logo depois da base</td></tr>
+          <tr><td data-r="#">D8</td><td data-r="Decisão">Lugar no menu</td><td data-r="Recomendada">Dentro de Delivery › Clientes, sem item novo</td></tr>
+          <tr><td data-r="#">D9</td><td data-r="Decisão">Pergunta do time</td><td data-r="Recomendada">Uma vez, com motivo, pelo robô e no cardápio</td></tr>
+          <tr><td data-r="#">D10</td><td data-r="Decisão">Módulo ativável</td><td data-r="Recomendada">Sim, por loja, cada uso com chave própria, tudo desligado ao nascer</td></tr>
+          <tr><td data-r="#">D11</td><td data-r="Decisão">Aceite no cadastro (proposta do dono)</td><td data-r="Recomendada">Três caixas separadas e desmarcadas na entrada, sem travar o pedido</td></tr>
+          <tr><td data-r="#">D12</td><td data-r="Decisão">Onde mora a base de eventos (proposta do dono)</td><td data-r="Recomendada">Produto do Hub DMS (API + MCP); o Regem com cópia por loja e os eventos da loja</td></tr>
+          <tr><td data-r="#">D13</td><td data-r="Decisão">Reclamações e avaliações no perfil (pedido do dono)</td><td data-r="Recomendada">Agrupadas pelo motivo com a quantidade, lista das últimas, perfil de avaliação; só o motivo no perfil</td></tr>
+          <tr><td data-r="#">D14</td><td data-r="Decisão">"O que gostaria de encontrar aqui?" (pedido do dono)</td><td data-r="Recomendada">Uma vez, opcional, com o motivo dito; perfil + soma na Saúde da base; dieta só na soma</td></tr>
+          <tr><td data-r="#">D15</td><td data-r="Decisão">Caixas do aceite marcadas por padrão (pergunta do dono)</td><td data-r="Recomendada">Não: desmarcadas, com "Aceitar as três" e "Continuar sem marcar" no mesmo destaque</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h2>Onde o protótipo difere da tela real, de propósito</h2>
+    <div class="cartao">
+      <ul class="peq">
+        <li>Os botões amarelos tracejados existem só para mostrar as situações.</li>
+        <li>Nomes, telefones, números e a loja são inventados.</li>
+        <li>O console é escuro como o de verdade; o app é claro.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============ GAVETAS ============ -->
+<div class="fundo" id="fundo" hidden></div>
+
+<aside class="gaveta" id="g-ficha" role="dialog" aria-modal="true" aria-labelledby="g-ficha-t" hidden>
+  <div class="g-cab">
+    <div>
+      <span class="onde">Perfil do cliente</span>
+      <h2 id="g-ficha-t"><span data-mostra="cli=direto">Ana Paula R.</span><span data-mostra="cli=pouco" hidden>Carla S.</span><span data-mostra="cli=optout" hidden>Elaine T.</span><span data-mostra="cli=so99" hidden>Cliente da 99 · (21) 9••••-•088</span></h2>
+      <span class="peq sub" data-mostra="cli=direto">14 pedidos · cliente desde mar/2026 · WhatsApp e cardápio Regem</span>
+      <span class="peq sub" data-mostra="cli=pouco" hidden>1 pedido · 12/11/2026 · Anota Aí</span>
+      <span class="peq sub" data-mostra="cli=optout" hidden>6 pedidos · desde ago/2026</span>
+      <span class="peq sub" data-mostra="cli=so99" hidden>3 pedidos, todos pela 99Food</span>
+    </div>
+    <button class="fechar" type="button" data-fecha aria-label="Fechar">×</button>
+  </div>
+  <div class="g-corpo">
+    <div class="ctls" role="group" aria-label="Situação do protótipo — ficha">
+      <span>Situação:</span>
+      <button class="ctl" type="button" data-grupo="cli" data-valor="direto" aria-pressed="true">Cliente direto</button>
+      <button class="ctl" type="button" data-grupo="cli" data-valor="pouco" aria-pressed="false">Pouco histórico</button>
+      <button class="ctl" type="button" data-grupo="cli" data-valor="optout" aria-pressed="false">Não quer ser analisada</button>
+      <button class="ctl" type="button" data-grupo="cli" data-valor="so99" aria-pressed="false">Só pela 99</button>
+    </div>
+
+    <!-- só 99 -->
+    <div class="vazio" data-mostra="cli=so99" hidden><span class="grande" aria-hidden="true">🛵</span><b>Este cliente fica fora do perfil.</b><p class="peq" style="margin-top:6px">Pediu só pela 99Food. Os pedidos dele aparecem para atender e contam nos números da loja, mas não formam ficha nem entram em campanha. Se ele pedir direto (cardápio, WhatsApp, balcão), o perfil começa a partir desse pedido.</p></div>
+    <!-- opt-out -->
+    <div class="vazio" data-mostra="cli=optout" hidden><span class="grande" aria-hidden="true">🔒</span><b>Pediu para não ser analisada em 04/11/2026.</b><p class="peq" style="margin-top:6px">O perfil foi apagado e não se recalcula. O robô e a equipe usam só o pedido em curso. Origem: Perfil do cardápio.</p></div>
+
+    <div data-mostra="cli=direto|pouco">
+      <div class="camada">
+        <div class="camada-cab"><h3><span class="n">1</span>Quem é</h3><span class="conf alta">alta</span></div>
+        <div class="pares">
+          <div class="par"><span class="rot">Canais diretos</span><div class="v" data-mostra="cli=direto">WhatsApp · cardápio Regem</div><div class="v" data-mostra="cli=pouco" hidden>Anota Aí</div></div>
+          <div class="par"><span class="rot">Contou</span><div class="v" data-mostra="cli=direto">Flamengo · respostas curtas · gostaria de açaí</div><div class="v sub" data-mostra="cli=pouco" hidden>nada ainda</div></div>
+          <div class="par"><span class="rot">Recomendações</span><div class="v" data-mostra="cli=direto"><span class="selo ok">ligadas em 02/11</span></div><div class="v" data-mostra="cli=pouco" hidden><span class="selo neutro">desligadas</span></div></div>
+          <div class="par"><span class="rot">Ofertas</span><div class="v" data-mostra="cli=direto"><span class="selo ok">aceite em 02/11</span></div><div class="v" data-mostra="cli=pouco" hidden><span class="selo neutro">sem aceite</span></div></div>
+        </div>
+      </div>
+
+      <div class="camada">
+        <div class="camada-cab"><h3><span class="n">2</span>O que pede</h3><span class="conf alta" data-mostra="cli=direto">alta · 14 pedidos</span><span class="conf baixa" data-mostra="cli=pouco" hidden>baixa · 1 pedido</span></div>
+        <div data-mostra="cli=direto">
+          <p class="peq"><b>De sempre:</b> X-Bacon da casa sem cebola + Coca 2 L <span class="sub">(8 dos últimos 10)</span></p>
+          <div class="barra"><span>X-Bacon da casa</span><span class="b"><span style="width:86%"></span></span><span class="num">12×</span></div>
+          <div class="barra"><span>Batata rústica</span><span class="b"><span style="width:43%"></span></span><span class="num">6×</span></div>
+          <div class="barra"><span>Smash duplo</span><span class="b"><span style="width:21%"></span></span><span class="num">3×</span></div>
+          <div class="pares" style="margin-top:8px">
+            <div class="par"><span class="rot">Jeito de montar</span><div class="v">sem cebola (11 de 12)</div></div>
+            <div class="par"><span class="rot">Pede para</span><div class="v">2 pessoas</div></div>
+            <div class="par"><span class="rot">Ticket</span><div class="v mono">R$ 71,40</div></div>
+            <div class="par"><span class="rot">Pagamento</span><div class="v">Pix · entrega</div></div>
+          </div>
+        </div>
+        <p class="peq sub" data-mostra="cli=pouco" hidden>Dados insuficientes. Com 1 pedido, a ficha mostra o pedido e usa a média da loja nas sugestões.</p>
+      </div>
+
+      <div class="camada">
+        <div class="camada-cab"><h3><span class="n">3</span>O que olha no cardápio</h3><span class="conf media" data-mostra="cli=direto">média · desde 02/11</span><span class="conf baixa" data-mostra="cli=pouco" hidden>desligado</span></div>
+        <div data-mostra="cli=direto">
+          <div class="barra"><span>Costela BBQ <span class="mini sub">(viu e não pediu)</span></span><span class="b"><span style="width:70%"></span></span><span class="num">7,2</span></div>
+          <div class="barra"><span>Combos</span><span class="b"><span style="width:48%"></span></span><span class="num">4,9</span></div>
+          <div class="barra"><span>Sobremesas</span><span class="b"><span style="width:22%"></span></span><span class="num">2,3</span></div>
+          <p class="mini sub">Pontos de interesse com meia-vida de 14 dias: abrir vale 1, ficar 10 s vale 2, pôr no carrinho vale 4.</p>
+        </div>
+        <p class="peq sub" data-mostra="cli=pouco" hidden>A cliente não ligou "Recomendações personalizadas". Os cliques dela contam só nos números anônimos da loja.</p>
+      </div>
+
+      <div class="camada">
+        <div class="camada-cab"><h3><span class="n">4</span>Quando pede</h3><span class="conf alta" data-mostra="cli=direto">alta</span><span class="conf baixa" data-mostra="cli=pouco" hidden>baixa · usa a loja</span></div>
+        <p class="peq sub" data-mostra="cli=pouco" hidden>1 pedido, numa quinta às 21h. Até haver 3 pedidos, a melhor hora de contato é o pico da loja naquele dia.</p>
+        <div class="rolagem" data-mostra="cli=direto">
+          <table class="mapa">
+            <caption class="sr">Pedidos por dia de operação e faixa de horário</caption>
+            <thead><tr><th scope="col"><span class="sr">Faixa</span></th><th scope="col">seg</th><th scope="col">ter</th><th scope="col">qua</th><th scope="col">qui</th><th scope="col">sex</th><th scope="col">sáb</th><th scope="col">dom</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">18–20h</th><td class="q0">0</td><td class="q0">0</td><td class="q1">1</td><td class="q0">0</td><td class="q2">2</td><td class="q1">1</td><td class="q1">1</td></tr>
+              <tr><th scope="row">21–23h</th><td class="q0">0</td><td class="q0">0</td><td class="q2">2</td><td class="q1">1</td><td class="q4">4</td><td class="q2">2</td><td class="q0">0</td></tr>
+              <tr><th scope="row">0–4h</th><td class="q0">0</td><td class="q0">0</td><td class="q0">0</td><td class="q0">0</td><td class="q0">0</td><td class="q0">0</td><td class="q0">0</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="pares" style="margin-top:8px" data-mostra="cli=direto">
+          <div class="par"><span class="rot">Hora habitual</span><div class="v mono">sex · 20h40</div></div>
+          <div class="par"><span class="rot">Intervalo</span><div class="v">a cada 6 dias</div></div>
+          <div class="par"><span class="rot">Próximo previsto</span><div class="v mono">08/11 (passou)</div></div>
+          <div class="par"><span class="rot">Atraso</span><div class="v"><span class="selo warn">1,8× o ritmo dela</span></div></div>
+        </div>
+        <p class="mini sub">O dia é o dia de operação: pedido até as 04h conta no dia anterior.</p>
+      </div>
+
+      <div class="camada" data-mostra="cli=direto">
+        <div class="camada-cab"><h3><span class="n">5</span>Quanto vale, como avalia e se está indo embora</h3><span class="conf alta">alta</span></div>
+        <span class="rot">Reclamações · últimos 90 dias</span>
+        <div class="resumo-recl"><span class="selo crit">Reclamou 2 vezes de atraso</span><span class="selo warn">1 vez de item faltando</span></div>
+        <div class="recl">
+          <div class="item"><span class="mono">12/11</span><span>Atraso · avaliação nota 3, "demorou" · WhatsApp</span><span class="selo ok">resolvida</span></div>
+          <div class="item"><span class="mono">05/11</span><span>Atraso · caso no Atendimento (urgente) · WhatsApp</span><span class="selo ouro">cupom de R$ 10</span></div>
+          <div class="item"><span class="mono">28/10</span><span>Item faltando (batata) · avaliação nota 2 · cardápio</span><span class="selo ok">resolvida</span></div>
+        </div>
+        <p class="mini sub" style="margin:4px 0 10px">Desde sempre: 3 reclamações em 14 pedidos. O texto que a cliente escreveu fica no caso; aqui vai só o motivo.</p>
+        <span class="rot">Avaliações</span>
+        <div class="pares" style="margin:4px 0 10px">
+          <div class="par"><span class="rot">Nota média</span><div class="v"><span class="mono">4,1</span> <span class="mini sub">(7 avaliações)</span></div></div>
+          <div class="par"><span class="rot">Últimas 3</span><div class="v mono">5 · 2 · 3</div></div>
+          <div class="par"><span class="rot">O que mais pesa</span><div class="v">tempo de entrega</div></div>
+          <div class="par"><span class="rot">Tendência</span><div class="v"><span class="selo warn">piorando</span></div></div>
+        </div>
+        <div class="pares">
+          <div class="par"><span class="rot">Segmento</span><div class="v">Campeã <span class="mono sub">3-3-3</span></div></div>
+          <div class="par"><span class="rot">Ticket ajustado</span><div class="v mono">R$ 70,90</div></div>
+        </div>
+        <div style="margin-top:8px">
+          <div class="etqs"><span class="selo ok">Campeã</span><span class="selo warn">Atrasada no ritmo</span><span class="selo ouro">Pede em dia de jogo</span><span class="selo crit">Reclamou 2+ vezes do mesmo motivo</span></div>
+          <p class="porque">Por que "Atrasada no ritmo": 11 dias sem pedir; o intervalo habitual dela é 6 dias (11 ÷ 6 = 1,8; o limite é 1,5).</p>
+        </div>
+      </div>
+
+      <div class="camada" data-mostra="cli=direto">
+        <div class="camada-cab"><h3><span class="n">6</span>Jeito de conversar</h3><span class="selo neutro">o que ela pediu</span></div>
+        <div class="pares">
+          <div class="par"><span class="rot">Pediu</span><div class="v">respostas curtas <span class="mini sub">(12/10, pelo WhatsApp)</span></div></div>
+          <div class="par"><span class="rot">Atendimento</span><div class="v">pediu atendente em 1 de 5 conversas</div></div>
+        </div>
+        <p class="mini sub" style="margin-top:6px">O jeito de cada conversa (pressa, irritação) vale só para aquela conversa e não fica guardado. O jeito aprendido só existe se a loja ligar "Atendimento personalizado", depois do parecer jurídico.</p>
+      </div>
+
+      <div class="camada" data-mostra="cli=direto">
+        <div class="camada-cab"><h3><span class="n">7</span>O que move a cliente</h3><span class="conf media">média</span></div>
+        <div class="linha-aj"><div class="txt"><b>Jogo do Flamengo</b><br><span class="porque">Pede 2,1× mais que no mesmo dia da semana sem jogo · 5 jogos com pedido · chance de efeito real 96%</span></div><span class="selo ouro">Pede em dia de jogo</span></div>
+        <div class="linha-aj"><div class="txt"><b>Início do mês</b><br><span class="porque">1,1× · sem diferença clara</span></div><span class="selo neutro">sem efeito</span></div>
+        <div class="linha-aj"><div class="txt"><b>Chuva</b><br><span class="porque">Faltam dias de chuva com histórico (2 de 3)</span></div><span class="selo neutro">dados insuficientes</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="g-pe">
+    <button class="btn" type="button" data-mostra="cli=direto|pouco">Ver pedidos</button>
+    <button class="btn" type="button" data-mostra="cli=direto|pouco">Corrigir o perfil</button>
+    <button class="btn" type="button" data-fecha>Fechar</button>
+  </div>
+</aside>
+
+<aside class="gaveta estreita" id="g-evento" role="dialog" aria-modal="true" aria-labelledby="g-evento-t" hidden>
+  <div class="g-cab"><div><span class="onde">Calendário de eventos</span><h2 id="g-evento-t">Evento da loja</h2></div><button class="fechar" type="button" data-fecha aria-label="Fechar">×</button></div>
+  <form class="g-corpo" id="form-evento">
+    <div class="campo" style="display:grid;gap:12px">
+      <label for="ev-nome"><span class="rot">Nome</span><br><input id="ev-nome" type="text" value="Show no estádio municipal" style="width:100%"></label>
+      <label for="ev-tipo"><span class="rot">Tipo</span><br><select id="ev-tipo" style="width:100%"><option>Show ou festa na cidade</option><option>Promoção da casa</option><option>Feriado municipal</option><option>Jogo do time da região</option><option>Outro</option></select></label>
+      <div class="pares">
+        <label for="ev-data"><span class="rot">Dia</span><br><input id="ev-data" type="date" value="2026-12-06" style="width:100%"></label>
+        <label for="ev-hora"><span class="rot">Começa</span><br><input id="ev-hora" type="time" value="20:00" style="width:100%"></label>
+      </div>
+      <label for="ev-rep"><span class="rot">Repete</span><br><select id="ev-rep" style="width:100%"><option>Não repete</option><option>Toda semana</option><option>Todo ano</option></select></label>
+      <div class="aviso info"><span aria-hidden="true">ℹ</span><div class="peq">O evento entra no cálculo de "mexe na sua loja?" e no perfil dos clientes desta loja. Ninguém de fora vê.</div></div>
+    </div>
+  </form>
+  <div class="g-pe"><button class="btn" type="button" data-fecha>Cancelar</button><button class="btn pri" type="button" data-fecha data-toast="Evento salvo no calendário">Salvar evento</button></div>
+</aside>
+
+<aside class="gaveta estreita" id="g-nacional" role="dialog" aria-modal="true" aria-labelledby="g-nacional-t" hidden>
+  <div class="g-cab"><div><span class="onde">Console · Eventos</span><h2 id="g-nacional-t">Evento nacional</h2></div><button class="fechar" type="button" data-fecha aria-label="Fechar">×</button></div>
+  <form class="g-corpo">
+    <div class="campo" style="display:grid;gap:12px">
+      <label for="en-nome"><span class="rot">Nome</span><br><input id="en-nome" type="text" value="Final do BBB 27" style="width:100%"></label>
+      <label for="en-tipo"><span class="rot">Tipo</span><br><select id="en-tipo" style="width:100%"><option>TV</option><option>Dinheiro no bolso</option><option>Ponto facultativo</option><option>Campanha de plataforma</option><option>Dia de comida</option></select></label>
+      <div class="pares">
+        <label for="en-data"><span class="rot">Dia</span><br><input id="en-data" type="date" style="width:100%"></label>
+        <label for="en-hora"><span class="rot">Hora</span><br><input id="en-hora" type="time" value="22:30" style="width:100%"></label>
+      </div>
+      <label for="en-fonte"><span class="rot">Fonte (link ou documento)</span><br><input id="en-fonte" type="text" placeholder="De onde veio a data" style="width:100%"></label>
+      <div class="aviso warn"><span aria-hidden="true">⚠</span><div class="peq">Sem a data publicada pela emissora, o evento fica "aguardando data" e não vale para nenhuma loja.</div></div>
+    </div>
+  </form>
+  <div class="g-pe"><button class="btn" type="button" data-fecha>Cancelar</button><button class="btn pri" type="button" data-fecha data-toast="Evento nacional salvo">Salvar</button></div>
+</aside>
+
+<aside class="gaveta estreita" id="g-calendario-atalho" role="dialog" aria-modal="true" aria-labelledby="g-cal-t" hidden>
+  <div class="g-cab"><div><span class="onde">Atalho</span><h2 id="g-cal-t">Calendário de eventos</h2></div><button class="fechar" type="button" data-fecha aria-label="Fechar">×</button></div>
+  <div class="g-corpo"><p>O calendário completo está na aba <b>4 · Calendário</b> deste protótipo.</p><button class="btn pri" type="button" data-ir="calendario">Abrir o calendário</button></div>
+</aside>
+
+<div id="toast" role="status" aria-live="polite" style="position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--navy);color:#FFFFFF;padding:10px 16px;border-radius:10px;font-weight:600;z-index:60" hidden></div>
+
+<script>
+(function(){
+  var VISTAS=['ficha','atendimento','marketing','calendario','saude','cardapio','console','notas'];
+  var estado={at:'normal',pub:'evento',quando:'habitual',cli:'direto'};
+  function aplicarEstado(){
+    document.querySelectorAll('[data-mostra]').forEach(function(el){
+      var p=el.getAttribute('data-mostra').split('='); var vals=p[1].split('|');
+      el.hidden = vals.indexOf(estado[p[0]])<0;
+    });
+    document.querySelectorAll('[data-grupo]').forEach(function(b){
+      b.setAttribute('aria-pressed', String(estado[b.getAttribute('data-grupo')]===b.getAttribute('data-valor')));
+    });
+  }
+  function mostrar(v){
+    if(VISTAS.indexOf(v)<0) v='ficha';
+    VISTAS.forEach(function(n){ document.getElementById('v-'+n).classList.toggle('ativa', n===v); });
+    document.querySelectorAll('.aba').forEach(function(a){ a.setAttribute('aria-pressed', String(a.getAttribute('data-v')===v)); });
+  }
+  document.getElementById('abas').addEventListener('click',function(e){
+    var b=e.target.closest('.aba'); if(!b) return;
+    var v=b.getAttribute('data-v'); mostrar(v);
+    try{ history.replaceState(null,'','#'+v); }catch(_){ location.hash=v; }
+  });
+  window.addEventListener('hashchange',function(){ mostrar(location.hash.slice(1)); });
+
+  var pilha=[]; var fundo=document.getElementById('fundo');
+  function abrir(id,origem){
+    var g=document.getElementById(id); if(!g) return;
+    g.hidden=false; fundo.hidden=false; pilha.push({g:g,origem:origem});
+    var f=g.querySelector('.fechar'); if(f) f.focus();
+  }
+  function fechar(){
+    var t=pilha.pop(); if(!t) return;
+    t.g.hidden=true; if(!pilha.length) fundo.hidden=true;
+    if(t.origem && t.origem.focus) t.origem.focus();
+  }
+  var toast=document.getElementById('toast'); var tt;
+  function avisar(msg){ toast.textContent=msg; toast.hidden=false; clearTimeout(tt); tt=setTimeout(function(){ toast.hidden=true; },2600); }
+
+  document.addEventListener('click',function(e){
+    var grp=e.target.closest('[data-grupo]');
+    if(grp){ estado[grp.getAttribute('data-grupo')]=grp.getAttribute('data-valor'); aplicarEstado(); return; }
+    var ab=e.target.closest('[data-abre]');
+    if(ab){
+      var c=ab.getAttribute('data-cliente'); if(c){ estado.cli=c; aplicarEstado(); }
+      abrir(ab.getAttribute('data-abre'),ab); e.stopPropagation(); return;
+    }
+    var ir=e.target.closest('[data-ir]');
+    if(ir){ fechar(); mostrar(ir.getAttribute('data-ir')); return; }
+    var fe=e.target.closest('[data-fecha]');
+    if(fe){ var m=fe.getAttribute('data-toast'); fechar(); if(m) avisar(m); return; }
+    if(e.target===fundo){ fechar(); return; }
+    var ch=e.target.closest('.chave');
+    if(ch){
+      var on=ch.getAttribute('aria-pressed')!=='true'; ch.setAttribute('aria-pressed',String(on));
+      var l=ch.querySelector('.lbl'); if(l){ var fem=/Desligada|Ligada/.test(l.textContent); l.textContent = on ? (fem?'Ligada':'Ligado') : (fem?'Desligada':'Desligado'); }
+      return;
+    }
+    var ci=e.target.closest('.chip-int');
+    if(ci){ ci.setAttribute('aria-pressed', String(ci.getAttribute('aria-pressed')!=='true')); return; }
+    if(e.target.id==='aceitar-tres'){
+      ['ac-rec','ac-conv','ac-ofe','ac-18'].forEach(function(id){ var c=document.getElementById(id); if(c) c.checked=true; });
+      avisar('As três escolhas foram marcadas na tela. Confira e continue.'); return;
+    }
+    var sit=e.target.closest('.situacao');
+    if(sit){ sit.parentElement.querySelectorAll('.situacao').forEach(function(s){ s.setAttribute('aria-pressed',String(s===sit)); }); }
+  });
+  document.addEventListener('keydown',function(e){
+    if(e.key==='Escape' && pilha.length){ fechar(); }
+    if((e.key==='Enter'||e.key===' ') && e.target.matches && e.target.matches('tr.clic')){ e.preventDefault(); e.target.click(); }
+  });
+  document.querySelectorAll('tr.clic').forEach(function(tr){ tr.tabIndex=0; });
+  document.querySelectorAll('form').forEach(function(f){ f.addEventListener('submit',function(e){ e.preventDefault(); }); });
+
+  aplicarEstado();
+  mostrar(location.hash.slice(1)||'ficha');
+})();
+</script>
+</body>
+</html>
