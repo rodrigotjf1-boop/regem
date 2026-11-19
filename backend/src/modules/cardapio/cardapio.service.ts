@@ -21,7 +21,7 @@ import { exigirBooleano } from '../../common/exigir';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ChegadaService } from '../chegada/chegada.service';
 import { AniversarioService } from '../aniversario/aniversario.service';
-import { palavrasDe } from './robo-busca';
+import { palavrasDe, type DadosDaBusca } from './robo-busca';
 import { type CanalDoPerfil, jeitoDoAtendente, perfisDaEmpresa } from './perfis-do-atendente';
 import { type CanalDosAssuntos, assuntoNaoEPorAqui, assuntosDaEmpresa, blocoDasInstrucoes } from './assuntos-do-atendente';
 import { blocoDoConhecimento, itensParaAsInstrucoes } from './conhecimento-do-atendente';
@@ -31,6 +31,8 @@ import { opcaoForaDeVenda } from './opcao-fora-de-venda';
 import { and, desc, eq, gte, ilike, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { randomBytes } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { FRASE_DE_CAUTELA_MAX, alergenosParaOCardapio, fraseDeCautela, selosSemContradicao } from '../../common/alergenos';
+import { lerAlergenosDoCardapio } from './alergenos-do-cardapio';
 import { documentoUtilizavel } from '../fiscal/destinatario';
 import { verificarCliente, assinarCliente } from '../cliente/cliente-token';
 import { paraCentavos, paraReais, somarCentavos } from '../../util/dinheiro';
@@ -144,6 +146,14 @@ function semEventos(temaConfig: Record<string, unknown>): Record<string, unknown
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { eventos, ...resto } = temaConfig;
   return resto;
+}
+
+/** A frase de cautela dos alérgenos que a tela manda (mig 454, A9): espaços juntados; vazia ou longa = 400. */
+function fraseDeCautelaDoDto(v: unknown): string {
+  const t = String(v ?? '').replace(/\s+/g, ' ').trim();
+  if (!t) throw new BadRequestException('A frase de cautela não pode ficar vazia: sem ela, o cliente poderia ler "não contém" como garantia.');
+  if (t.length > FRASE_DE_CAUTELA_MAX) throw new BadRequestException(`A frase de cautela vai até ${FRASE_DE_CAUTELA_MAX} letras.`);
+  return t;
 }
 
 // Distância entre duas coordenadas (km) — frete por raio.
@@ -738,10 +748,15 @@ export class CardapioService {
    * embalagem (`somente_delivery`/`somente_balcao`) e sem as apagadas — e o que cada combo leva. Só para a rota do robô
    * (com a senha): os nomes da ficha viram palavras para casar a pergunta e nunca saem.
    */
-  async dadosDaBuscaDoRobo(token: string): Promise<{ ingredientes: Map<string, Set<string>>; componentes: Map<string, string[]> }> {
+  async dadosDaBuscaDoRobo(token: string): Promise<DadosDaBusca> {
     const cfg = await this.resolver(token);
     const tenantId = cfg.tenantId;
     const linhasDe = (r: any): any[] => (Array.isArray(r) ? r : (r?.rows ?? []));
+    // Os alérgenos (mig 454): o atendente só usa quando o cliente PERGUNTA; sem conseguir ler, a busca segue sem eles.
+    const alergenos = lerAlergenosDoCardapio(this.db, tenantId).catch((e) => {
+      this.logger.warn(`busca do robô: os alérgenos não foram lidos (${e?.message ?? e}); segue sem eles`);
+      return new Map() as Awaited<ReturnType<typeof lerAlergenosDoCardapio>>;
+    });
     const [ings, combos] = await Promise.all([
       this.db.execute(sql`
         with recursive arvore as (
@@ -777,7 +792,7 @@ export class CardapioService {
       const id = String(r.combo_produto_id);
       componentes.set(id, [...(componentes.get(id) ?? []), String(r.componente_produto_id)]);
     }
-    return { ingredientes, componentes };
+    return { ingredientes, componentes, alergenos: await alergenos, fraseDeCautela: fraseDeCautela(cfg.alergenosCautela) };
   }
 
   async getConfig(tenantId: string, unidadeId?: string | null) {
@@ -952,6 +967,9 @@ export class CardapioService {
       horarios: Array.isArray(dto.horarios) ? dto.horarios : row?.horarios ?? [],
       horariosRetirada: Array.isArray(dto.horariosRetirada) ? dto.horariosRetirada : row?.horariosRetirada ?? [],
       horarioUnico: dto.horarioUnico != null ? !!dto.horarioUnico : row?.horarioUnico ?? true,
+      // A frase de cautela dos alérgenos (mig 454, A9): ausente mantém; vazia é recusada (sem ela o cliente leria "não
+      // contém" como garantia); até 240 letras.
+      alergenosCautela: 'alergenosCautela' in dto ? fraseDeCautelaDoDto(dto.alergenosCautela) : row?.alergenosCautela ?? null,
       // Robô de auto atendimento
       roboAtivo: dto.roboAtivo != null ? !!dto.roboAtivo : row?.roboAtivo ?? false,
       roboSaudacao: dto.roboSaudacao ?? row?.roboSaudacao ?? null,
@@ -1919,6 +1937,12 @@ export class CardapioService {
       this.logger.warn(`menu: a pausa do cardápio não foi lida (${e?.message ?? e}); segue sem pausa`);
       return null;
     });
+    // Os alérgenos (mig 454, A4): só o produto "informado" ganha o bloco na página; a empresa que nunca marcou não paga a
+    // leitura. Sem conseguir ler, o cardápio segue como é hoje (sem o bloco) — nunca cai por causa disso.
+    const alergenosDoMenu = lerAlergenosDoCardapio(this.db, cfg.tenantId).catch((e) => {
+      this.logger.warn(`menu: os alérgenos não foram lidos (${e?.message ?? e}); segue sem eles`);
+      return new Map() as Awaited<ReturnType<typeof lerAlergenosDoCardapio>>;
+    });
     // ===== Consultas agrupadas por NIVEL DE DEPENDENCIA =====
     // Este e o cardapio que o cliente abre para pedir, e fazia ~14 idas e voltas ao
     // Postgres, uma de cada vez. Nenhuma delas e lenta: o custo e a viagem, que se
@@ -2078,10 +2102,14 @@ export class CardapioService {
     const opcaoEmVenda = (o: any) => !(o.origemOpcaoId && origemForaDeVenda.has(o.origemOpcaoId));
     // Fallback: se nenhuma foi marcada ainda, usa o `pagamentos` legado (sem regressão).
     const pagamentosCardapio = formasCardapio.map((f) => f.nome);
+    const alergs = await alergenosDoMenu;
+    const comAlergenos = [...alergs.values()].some((a) => a.situacao === 'informado');
 
     return {
       loja: {
         nome: cfg.nomePublico ?? 'Cardápio',
+        // A frase de cautela dos alérgenos (mig 454, A9) — só quando algum produto mostra o bloco.
+        fraseDeCautela: comAlergenos ? fraseDeCautela(cfg.alergenosCautela) : null,
         ramo: cfg.ramo,
         tema: cfg.tema ?? 'claro',
         // Loja com layout antigo gravado (`classic`, `fastfood`, `grid`) abre no template padrão.
@@ -2230,7 +2258,9 @@ export class CardapioService {
           precoDe: promo != null ? Number(p.precoVenda) : null,
           categoriaId: p.categoriaId,
           imagemRef: p.imagemRef,
-          selos: p.selos ?? [],
+          selos: selosSemContradicao(p.selos, alergs.get(String(p.id))),
+          // Alérgenos (mig 454, A4): só o produto "informado"; null = a página fica como é hoje.
+          alergenos: alergenosParaOCardapio(alergs.get(String(p.id))),
           duracaoMin: p.duracaoMin,
           destaque: p.destaque === true,
           // Atacado por volume (mig 184): faixas "a partir de N un → -X%" (só se ligado).

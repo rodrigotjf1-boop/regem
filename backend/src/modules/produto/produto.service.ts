@@ -27,6 +27,8 @@ import { FichasService } from '../fichas/fichas.service';
 import { exigirUnidade, unidadeOuPadrao } from '../estoque/unidades';
 import { arredondarEstoque, fatorParaEstoque, unidadesDoProduto } from '../../common/conversao-unidade';
 import { exigirBooleano } from '../../common/exigir';
+import { alergenosDoProduto, lerMarcacaoDeAlergenos, seloQueContradiz, type MarcacaoDeAlergenos } from '../../common/alergenos';
+import { lerAlergenosDoCardapio } from '../cardapio/alergenos-do-cardapio';
 import { ifoodPeloOrzuniLigado, precoIfoodDoPedido } from '../../common/ifood-pelo-orzuni';
 import { VERSAO_MINIMA_PRECOS_NA_99, preco99DoPedido, precosNa99Ligado } from '../../common/precos-na-99';
 import { ehServidorLocal } from '../../common/modo';
@@ -55,6 +57,16 @@ const duasCasas = (v: unknown): string | null => (v === null || v === undefined 
 
 // Linhas por INSERT na materialização (o Postgres aceita até 65.535 parâmetros por comando).
 const LOTE_MATERIALIZAR = 1000;
+
+/** O ajuste dos alérgenos que a tela manda (mig 454): null limpa; a marcação passa pela regra comum (fora da lista = 400). */
+function ajusteDeAlergenos(v: Record<string, unknown> | null | undefined): MarcacaoDeAlergenos | null {
+  if (v == null) return null;
+  try {
+    return lerMarcacaoDeAlergenos(v);
+  } catch (e) {
+    throw new BadRequestException((e as Error)?.message ?? 'Alérgenos inválidos.');
+  }
+}
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 @Injectable()
@@ -2159,6 +2171,7 @@ export class ProdutoService {
           precoPromocional:
             dto.precoPromocional != null ? String(dto.precoPromocional) : undefined,
           selos: dto.selos ?? [],
+          alergenosAjuste: ajusteDeAlergenos(dto.alergenosAjuste) ?? null,
           canaisPausados: dto.canaisPausados ?? [],
           disponivelCardapio: dto.disponivelCardapio ?? true,
           disponivelBalcao: dto.disponivelBalcao ?? true,
@@ -2218,6 +2231,71 @@ export class ProdutoService {
   }
 
   // Edição PARCIAL: cada campo só muda quando veio (o `set` pula o ausente).
+  /**
+   * A6 (mig 454): o selo "S/ glúten" ou "S/ lactose" que contradiz os alérgenos do produto é recusado. `selos` ausente =
+   * os gravados; `ajuste` ausente = o gravado. A conta é a mesma do cardápio (`lerAlergenosDoCardapio`).
+   */
+  private async conferirSelosComAlergenos(tenantId: string, id: string, selos?: string[], ajuste?: MarcacaoDeAlergenos | null) {
+    const [lidos, atual] = await Promise.all([
+      lerAlergenosDoCardapio(this.db, tenantId, { produtoIds: [id], sempre: true }),
+      selos === undefined
+        ? this.db.select({ selos: produto.selos }).from(produto).where(and(eq(produto.id, id), eq(produto.tenantId, tenantId)))
+        : Promise.resolve([{ selos }]),
+    ]);
+    const deste = lidos.get(id);
+    if (!deste) return;
+    const conta = alergenosDoProduto(deste.folhas, ajuste !== undefined ? ajuste : deste.ajuste);
+    const recusa = seloQueContradiz(atual[0]?.selos, conta);
+    if (recusa) throw new BadRequestException(recusa);
+  }
+
+  /**
+   * A conferência dos alérgenos (Cadastros › Cardápio › Alérgenos, A8) e a gaveta do produto: cada produto ativo com a
+   * situação, de onde vem, o que contém, pode conter e não se sabe, glúten e lactose, o que falta conferir e as folhas
+   * (o insumo e a marcação dele) — set-based, uma leitura por empresa. Mais a frase de cautela da loja.
+   */
+  async alergenosDoCardapio(tenantId: string, unidadeAtual: string | null, produtoId?: string) {
+    const [lidos, prods, cautela] = await Promise.all([
+      lerAlergenosDoCardapio(this.db, tenantId, { sempre: true, ...(produtoId ? { produtoIds: [produtoId] } : {}) }),
+      this.db.execute(sql`
+        select p.id, p.nome, p.selos, p.ficha_id as "fichaId", p.item_id as "itemId", p.tipo, c.nome as categoria,
+               p.preco_venda as "precoVenda"
+          from produto p left join categoria_produto c on c.id = p.categoria_id
+         where p.tenant_id = ${tenantId}::uuid and p.deleted_at is null and p.ativo = true
+           ${produtoId ? sql`and p.id = ${produtoId}::uuid` : sql``}
+         order by c.nome nulls last, p.nome`),
+      this.db.execute(sql`
+        select alergenos_cautela from cardapio_config
+         where tenant_id = ${tenantId}::uuid ${unidadeAtual ? sql`and (unidade_id = ${unidadeAtual}::uuid or unidade_id is null)` : sql``}
+         order by (unidade_id is null) limit 1`),
+    ]);
+    const linhas = (r: any): any[] => (Array.isArray(r) ? r : (r?.rows ?? []));
+    const produtos = linhas(prods).map((p: any) => {
+      const a = lidos.get(String(p.id));
+      return {
+        id: p.id,
+        nome: p.nome,
+        categoria: p.categoria ?? null,
+        precoVenda: Number(p.precoVenda ?? 0),
+        tipo: p.tipo,
+        temFicha: !!p.fichaId,
+        revenda: !p.fichaId && !!p.itemId,
+        situacao: a?.situacao ?? 'nao_informado',
+        origem: a?.origem ?? 'nenhuma',
+        contem: a?.contem ?? [],
+        podeConter: a?.podeConter ?? [],
+        naoInformados: a?.naoInformados ?? [],
+        gluten: a?.gluten ?? null,
+        lactose: a?.lactose ?? null,
+        faltaConferir: a?.faltaConferir ?? [],
+        folhas: (a?.folhas ?? []).map((f) => ({ nome: f.nome, itemId: f.itemId, marcacao: f.marcacao })),
+        ajuste: a?.ajuste ?? null,
+        seloContradiz: a ? seloQueContradiz(p.selos, a) : null,
+      };
+    });
+    return { produtos, fraseDeCautela: linhas(cautela)[0]?.alergenos_cautela ?? null };
+  }
+
   async atualizar(tenantId: string, id: string, dto: Partial<CreateProdutoDto>) {
     // Se o campo veio no payload, não pode vir vazio (limpar categoria é proibido).
     if (dto.categoriaId !== undefined) this.exigirCategoria(dto.categoriaId);
@@ -2271,6 +2349,11 @@ export class ProdutoService {
     if (dto.precoPromocional !== undefined)
       patch.precoPromocional = dto.precoPromocional != null ? String(dto.precoPromocional) : null;
     set('selos', dto.selos);
+    // Alérgenos (mig 454): o ajuste à mão (A3 — ausente mantém, null limpa) e a recusa do selo "S/ glúten" ou "S/ lactose" que
+    // contradiz o cadastro (A6), conferida ANTES de gravar (V86).
+    if (dto.alergenosAjuste !== undefined) patch.alergenosAjuste = ajusteDeAlergenos(dto.alergenosAjuste);
+    if (dto.selos !== undefined || dto.alergenosAjuste !== undefined)
+      await this.conferirSelosComAlergenos(tenantId, id, dto.selos, dto.alergenosAjuste !== undefined ? (patch.alergenosAjuste as MarcacaoDeAlergenos | null) : undefined);
     set('canaisPausados', dto.canaisPausados);
     set('disponivelCardapio', dto.disponivelCardapio);
     set('disponivelBalcao', dto.disponivelBalcao);

@@ -5,6 +5,7 @@ import {
   IsIn,
   IsInt,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -126,6 +127,8 @@ export class CreateProdutoDto {
   // Loja / cardápio (Fase L1)
   @IsOptional() @IsNumber() precoPromocional?: number;
   @IsOptional() @IsArray() @IsString({ each: true }) selos?: string[];
+  // Ajuste à mão dos alérgenos (mig 454, A3): só soma ao que vem da ficha; null limpa, ausente mantém.
+  @IsOptional() @IsObject() alergenosAjuste?: Record<string, unknown> | null;
   // Canais de integração (delivery) em que o produto está pausado (mig 150).
   @IsOptional() @IsArray() @IsString({ each: true }) canaisPausados?: string[];
   // iFood pelo Orzuni (mig 369). Conferidos no serviço, com o motivo em pt-BR (`precoIfoodDoPedido`,

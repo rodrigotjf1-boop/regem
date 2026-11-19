@@ -9,6 +9,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Gaveta } from '@/components/ui/sobreposto';
+import { MarcarAlergenos } from '@/components/alergenos/marcar-alergenos';
+import { marcacaoDe, marcacaoVazia, type MarcacaoDeAlergenos } from '@/lib/alergenos';
 import { arredondarInformado, unidadesDoProduto } from '@/lib/conversao-unidade';
 import { avisosDasConversoes, TOM_DO_AVISO } from '@/lib/aviso-conversao';
 import { MARCAS_MAX, MARCA_MAX, chaveDaMarca, juntarMarca, marcasDe } from '@/lib/produto-compra';
@@ -108,6 +110,8 @@ export function ProdutoForm({
   // Como o produto é COMPRADO (mig 311). O nome acima continua o da ficha técnica.
   const [nomeComercial, setNomeComercial] = useState<string>(item?.nomeComercial ?? '');
   const [marcas, setMarcas] = useState<string[]>(() => marcasDe(item));
+  // Alérgenos pelo rótulo (mig 454): a marcação vazia vai como null ("ninguém conferiu").
+  const [alergenos, setAlergenos] = useState<MarcacaoDeAlergenos>(() => marcacaoDe(item?.alergenos));
   const [novaMarca, setNovaMarca] = useState('');
   // FEITO NA LOJA (mig 314): a ficha técnica que produz este produto ('' = produto comprado).
   const [fichaId, setFichaId] = useState<string>(item?.fichaId ?? '');
@@ -197,6 +201,7 @@ export function ProdutoForm({
       nome: nome.trim(),
       nomeComercial: nomeComercial.trim(), // vazio limpa: a compra volta a usar o nome do produto
       marcas: juntarMarca(marcas, novaMarca), // a marca digitada e ainda não adicionada entra junto
+      alergenos: marcacaoVazia(alergenos) ? null : alergenos, // mig 454: null = ninguém conferiu
       fichaId: fichaId || null, // null desfaz a ligação
       unidadeMedida: unidade || undefined,
       estoqueMinimo: estoqueMinimo ? Number(estoqueMinimo) : undefined,
@@ -526,6 +531,19 @@ export function ProdutoForm({
             </p>
           )}
         </div>
+
+        {/* Alérgenos pelo rótulo (mig 454, A1): marca-se aqui uma vez e todos os produtos do cardápio que usam este insumo
+            na ficha técnica herdam. */}
+        <section className="space-y-3 border-t border-border pt-4" aria-labelledby="item-estoque-alergenos-titulo">
+          <div>
+            <h3 id="item-estoque-alergenos-titulo" className="font-display text-sm font-bold">Alérgenos e restrições</h3>
+            <p className={ajuda}>
+              Pelo rótulo. Os produtos do cardápio que usam este insumo na ficha técnica herdam o que você marcar aqui — e o
+              atendente virtual responde por isso quando o cliente pergunta.
+            </p>
+          </div>
+          <MarcarAlergenos modo="insumo" valor={alergenos} aoMudar={setAlergenos} />
+        </section>
 
         {erro && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">{erro}</p>}
       </form>

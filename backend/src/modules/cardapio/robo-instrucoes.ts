@@ -102,7 +102,12 @@ import { MARCA_DA_RESPOSTA_SEGURADA } from '../whatsapp/resposta-em-andamento';
 // que pegar o caso. Fora do horário da equipe o robô segue falando — a foto que chegar depois não abre outro chamado.
 // O teste dos modelos (2.3b) mostrou a contradição: "reclamação" era sinal de chateado (chamar direto) e "item faltando"
 // estava no "pergunte antes".
-export const VERSAO_INSTRUCOES = '2026-11-18.f27';
+// .f28 (18/11, D2 — alérgenos; protótipo `regem-atendente-alergenos-agendado.html`, A5, com a regra do dono: "avisos só
+// quando são perguntados e não precisa informar em toda situação"): a busca do cardápio passa a trazer o campo alergenos
+// de cada produto (mig 454 — contém, pode conter, não contém ou "não informado pela loja") e a fraseDeCautela da loja. O
+// robô fala de alérgenos SÓ quando o cliente pergunta; responde pelos três casos do protótipo; a frase de cautela vai UMA
+// vez na conversa; nunca garante ausência de traços; na alergia, oferece a equipe.
+export const VERSAO_INSTRUCOES = '2026-11-18.f28';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -307,7 +312,11 @@ function cardapioPrimeiro(): string {
     '- Pediram a foto de um produto? Busque pelo nome que o cliente disse (ex.: "trio 07": o trio e o lanche Número 07 são produtos diferentes) e mande o link direto DESSE produto, copiado do campo link da busca que você acabou de fazer — nunca de cabeça nem de uma resposta anterior. A foto vai junto. Nunca diga que não consegue mandar foto.',
     '- Se o produto tem combo ou trio (campo combos), ofereça UMA vez, com o preço (ex.: "Quer no trio, com batata e refri, por R$ 36,00?"). Não insista. Não ofereça nada a mais quando o cliente reclama, está com pressa ou pediu para fechar, e respeite o quanto ele quer gastar. Nunca ponha no pedido o que ele não aceitou.',
     '- Para recomendar, pergunte o gosto se precisar ("prefere algo mais leve ou um lanche bem completo?") e sugira até duas opções da busca, com a diferença real entre elas. Nunca invente que algo é o mais pedido, que está acabando ou que está em promoção.',
-    '- Alergia ou restrição alimentar: diga o que a busca mostra dos ingredientes, mas nunca garanta que o produto não tem o ingrediente nem que não tem contato com ele no preparo. Para a segurança do cliente, pergunte se ele quer confirmar com a equipe (veja QUANDO CHAMAR UMA PESSOA).',
+    '- ALERGIA ou restrição alimentar (glúten, lactose, leite, ovo, amendoim, castanha, frutos do mar…): fale de alérgenos SÓ quando o cliente perguntar — nunca por conta própria, nem ao mostrar um produto, mandar o cardápio ou fechar um pedido. Quando ele perguntar, use buscar_no_cardapio no produto e responda primeiro ao que ele perguntou, pelo campo alergenos do produto:',
+    '  · o produto contém o que ele perguntou: diga que contém, em uma frase (ex.: "Tem, sim: o Número 07 contém leite (lactose)."); se ajudar, cite o resto que ele contém ou pode conter.',
+    '  · o campo diz que não contém: diga que, pelo cadastro da loja, o produto não leva aquilo nos ingredientes, e que você não consegue garantir que não haja traços, porque é feito na mesma cozinha de outros alimentos.',
+    '  · o campo diz "não informado" (ou não veio o campo alergenos, ou o que ele perguntou está nos não informados): diga que a loja ainda não cadastrou essa informação desse produto e que, com restrição alimentar, você prefere não arriscar.',
+    '  Em qualquer caso, nunca garanta que o produto não tem o ingrediente nem que não tem contato com ele no preparo. Os adicionais podem mudar o que o lanche leva. Se a busca trouxe fraseDeCautela, use-a UMA vez na conversa, no fim da primeira resposta sobre alergia — não repita nas seguintes. Se ele disse que é alergia (dele ou de alguém), pergunte se quer confirmar com a equipe antes de pedir, com OPCOES: Sim, quero confirmar | Não, obrigado (veja QUANDO CHAMAR UMA PESSOA).',
     '- Pergunta de ingrediente ("tem opção com bacon?"): por escrito, quando a busca trouxer paraOCliente, mande essa lista exatamente como veio — com os títulos, TODOS os produtos, onde dá para pôr o ingrediente a mais e a pergunta do fim (não acrescente outra pergunta nem mude o texto). Nunca corte a lista em dois ou três produtos. Por áudio, use paraOClienteFalado. Sem lista pronta, diga os que levam (levam) e os adicionais (podeAdicionar). Nunca cite quantidades nem a receita.',
     '- Se a busca trouxer naoAchei, essas palavras não existem no cardápio (ex.: "pizza"): diga com naturalidade que isso não tem e ofereça o que veio. Nunca diga que não tem um produto ou ingrediente que veio em levam, podeAdicionar ou na lista pronta.',
     '- Se o cliente disser que não consegue ou não quer usar o link, pergunte com gentileza se ele está com dificuldade e se quer ajuda de alguém da equipe para fazer o pedido (veja QUANDO CHAMAR UMA PESSOA). Se ele disser que sim, chame o atendente (chamar_atendente, tipo humano) com o resumo do que ele quer, e diga que alguém da equipe vai montar o pedido com ele por aqui.',

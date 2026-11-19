@@ -12,6 +12,15 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Alérgenos do cardápio (18/11, D2 do atendente; protótipo `mockups/regem-atendente-alergenos-agendado.html`, A1–A9;
+  mig 454 NAS DUAS PONTAS — `item_estoque.alergenos`, `produto.alergenos_ajuste`, `cardapio_config.alergenos_cautela`).**
+  O grupo "Alérgenos e restrições" na gaveta do insumo (Estoque › Produtos), a aba "Alérgenos" em Cadastros › Cardápio
+  (conferência e gaveta do produto, com a herança pela ficha técnica e o ajuste à mão), o cartão no produto, o selo
+  "S/ glúten"/"S/ lactose" que contradiz recusado (A6), a frase de cautela em Delivery › Configurações › Cardápio, o bloco na
+  página do produto do cardápio online e o campo `alergenos` na busca do robô (instruções .f28). Colunas novas em tabelas
+  que já sincronizam (sem tabela nova; o daemon não muda) → a migration e as telas vão no `.zip`; o servidor da loja sem o
+  `.zip` segue sem as colunas (o cardápio online é da nuvem).
+
 - **A nota do pedido pelo cliente (18/11, fase A1 do protótipo `mockups/regem-avaliacao-pedido.html`; mig 453 SÓ NUVEM —
   `pedido_avaliacao` e `robo_config.nota_*`).** "Como foi o pedido?" na página do pedido (`/r/…`) depois da entrega, a
   nota baixa vira caso "Avaliação" no Atendimento, Delivery › Avaliações (no servidor da loja, a tela pede à nuvem) e o

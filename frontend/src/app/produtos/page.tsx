@@ -21,6 +21,8 @@ import { FaixasCard } from '@/components/produtos/faixas-card';
 import { ComplementosCard } from '@/components/produtos/complementos-card';
 import { ProdutosLista } from '@/components/produtos/produtos-lista';
 import { PublicarIntegracoes } from '@/components/produtos/publicar-integracoes';
+import { AlergenosConferencia } from '@/components/produtos/alergenos-conferencia';
+import { AlergenosProdutoCard } from '@/components/produtos/alergenos-produto-card';
 import Link from 'next/link';
 import {
   ONDE_VENDE_NOVO,
@@ -53,7 +55,7 @@ export default function ProdutosPage() {
 
   const [f, setF] = useState<any>(vazio());
   const [editId, setEditId] = useState<string | null>(null);
-  const [aba, setAba] = useState<'produtos' | 'complementos' | 'opcoes'>('produtos');
+  const [aba, setAba] = useState<'produtos' | 'complementos' | 'opcoes' | 'alergenos'>('produtos');
   const [formAberto, setFormAberto] = useState(false); // cadastro/edição em modal
   const [modalAba, setModalAba] = useState<'info' | 'complementos' | 'disponibilidade'>('info');
   const [catSel, setCatSel] = useState<string>(''); // categoria selecionada (filtra a grade)
@@ -609,6 +611,10 @@ export default function ProdutosPage() {
                   onCancel={fecharForm}
                 />
               )}
+              {/* Alérgenos do produto (mig 454): a situação e a gaveta de marcar — só no produto já salvo. */}
+              {modalAba === 'info' && editId && (
+                <AlergenosProdutoCard produtoId={editId} />
+              )}
 
               {modalAba === 'complementos' && editId && (
                 <div className="space-y-4">
@@ -673,7 +679,7 @@ export default function ProdutosPage() {
           /* ---------- Lista / abas do catálogo ---------- */
           <>
             <div className="flex flex-wrap items-center gap-1 border-b border-border">
-              {([['produtos', 'Produtos'], ['complementos', 'Complementos'], ['opcoes', 'Opções']] as const).map(([k, label]) => (
+              {([['produtos', 'Produtos'], ['complementos', 'Complementos'], ['opcoes', 'Opções'], ['alergenos', 'Alérgenos']] as const).map(([k, label]) => (
                 <button
                   key={k}
                   type="button"
@@ -700,6 +706,8 @@ export default function ProdutosPage() {
 
             {aba === 'opcoes' && <div className="scroll-fino min-h-0 flex-1 overflow-y-auto pr-1"><OpcoesCard ifoodLigado={ifoodLigado} /></div>}
             {aba === 'complementos' && <div className="scroll-fino min-h-0 flex-1 overflow-y-auto pr-1"><ComplementosCatalogoCard /></div>}
+            {/* Alérgenos (mig 454, A8): a conferência do que o cardápio diz ao cliente. */}
+            {aba === 'alergenos' && <div className="scroll-fino min-h-0 flex-1 overflow-y-auto pr-1"><AlergenosConferencia /></div>}
 
             {aba === 'produtos' && (
               <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(240px,320px)_1fr]">

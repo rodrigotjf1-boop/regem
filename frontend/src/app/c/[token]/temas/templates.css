@@ -525,6 +525,12 @@ body.tema-escuro .p-root.tpl-fluxo{--p-bg:#0B1620;--p-surf:#12212E;--p-card:#0F1
 .p-root .p-selos{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:4px}
 .p-root .p-selos span{font-size:11px;font-weight:600;padding:3px 8px;border-radius:999px;background:var(--p-surf);color:var(--p-mut)}
 .p-root .p-selos em{font-style:normal;font-size:12px;color:var(--p-mut)}
+/* Alérgenos do produto (mig 454, A4): só o produto "informado"; contém, pode conter, glúten e lactose, a nota dos adicionais
+   (A7) e a frase de cautela da loja por último. Neutro: a mesma tinta e superfície dos selos, sem cor de alerta. */
+.p-root .p-alerg{margin-top:10px;padding:10px 12px;border-radius:var(--p-rs);background:var(--p-surf);font-size:13px;line-height:1.45}
+.p-root .p-alerg h3{font-size:13px;font-weight:700;margin:0 0 4px}
+.p-root .p-alerg p{margin:0}
+.p-root .p-alerg .p-alerg-n{margin-top:6px;font-size:12px;color:var(--p-mut)}
 .p-root .p-ext{font-size:11.5px;color:var(--p-mut);font-weight:500}
 .p-root .p-sec-d{margin:-6px 16px 10px;font-size:12.5px;color:var(--p-mut)}
 .p-root.tpl-fluxo .p-sec-d{margin:0 20px 4px}

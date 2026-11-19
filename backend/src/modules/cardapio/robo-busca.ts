@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { normalizar, reais } from './robo-consultas';
+import { alergenosParaORobo, type AlergenosDoProduto } from '../../common/alergenos';
 
 // A BUSCA DO ROBÔ (Fase 5, F2 — pedido do dono de 30/10/2026). "Tem hambúrguer com bacon?":
 //  • levam — os produtos que levam bacon: pela FICHA TÉCNICA quando o produto tem ficha (os ingredientes, descendo nas
@@ -15,6 +16,10 @@ export type DadosDaBusca = {
   ingredientes: Map<string, Set<string>>;
   /** produtoId do combo → ids dos produtos que ele leva. */
   componentes: Map<string, string[]>;
+  /** Os alérgenos de cada produto (mig 454) — vazio quando a loja nunca marcou: a busca não diz nada deles. */
+  alergenos?: Map<string, AlergenosDoProduto>;
+  /** A frase de cautela da loja (A9), que o atendente usa no fim da resposta sobre alergia. */
+  fraseDeCautela?: string;
   /** Link direto do produto no cardápio (abre o produto). */
   linkDoProduto?: (produtoId: string) => string;
 };
@@ -342,6 +347,8 @@ export function procurarNoCardapio(menu: any, busca: string, dados: DadosDaBusca
     combos: combosQueLevam(p.id).slice(0, 4),
     itensDoCombo: (dados.componentes.get(p.id) ?? []).map((id) => porId.get(id)?.nome).filter(Boolean),
     link: dados.linkDoProduto ? dados.linkDoProduto(p.id) : null,
+    // Alérgenos (mig 454): só quando a loja marcou algum; o atendente usa SÓ quando o cliente pergunta (instrução ALERGIA).
+    ...(dados.alergenos?.size ? { alergenos: alergenosParaORobo(dados.alergenos.get(p.id)) } : {}),
   });
 
   if (!termos.length && !qCompacta) return { busca, levam: [], podeAdicionar: [], parecidos: [], ...(naoAchei.length ? { naoAchei } : {}) };
@@ -410,6 +417,7 @@ export function procurarNoCardapio(menu: any, busca: string, dados: DadosDaBusca
     parecidos,
     paraOCliente: lista?.texto ?? null,
     paraOClienteFalado: lista?.falado ?? null,
+    ...(dados.alergenos?.size && dados.fraseDeCautela ? { fraseDeCautela: dados.fraseDeCautela } : {}),
     ...(naoAchei.length ? { naoAchei } : {}),
   };
 }
