@@ -15,6 +15,8 @@ import { ClubeService, PREMIOS_MAX } from './clube.service';
 import { ClubeSurpresaService } from './clube-surpresa.service';
 import { ClubeDesculpasService } from './clube-desculpas.service';
 import { ClubeAlbumService } from './clube-album.service';
+import { ClubeMetaService } from './clube-meta.service';
+import { mesAnterior } from './clube.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -99,7 +101,7 @@ descrever('clube de recompra — a base (Postgres)', () => {
     const T = await empresa('teste clube padrão');
     const p = await svc.painel(T);
     expect(p.config).toMatchObject({ surpresaAtivo: false, albumAtivo: false, metaAtivo: false, surpresaForma: 'raspadinha', albumSelos: 4, minimo: 30 });
-    expect(p.prontas).toEqual({ surpresa: true, album: true, meta: false });
+    expect(p.prontas).toEqual({ surpresa: true, album: true, meta: true });
     expect(p.gatilhos).toEqual({ entregue: { ativo: false, premioId: null, desde: null }, reclamacao: { ativo: false, premios: [], limite: 'mes1', quem: 'gerencia' }, classificacao: { ativo: false, segmentos: [], premioId: null, periodoDias: 60 }, campanha: { ativo: false } });
     expect(p.premios).toEqual([]);
     expect(p.regras[0]).toContain('Não há sorteio');
@@ -146,9 +148,9 @@ descrever('clube de recompra — a base (Postgres)', () => {
     auditados.length = 0;
     await svc.salvarConfig(presidente(T), { albumSelos: 6, minimo: 40 });
     expect(auditados).toEqual([]);
-    // recusas antes de gravar (V86): prêmio de outra empresa, ferramenta que ainda não existe
+    // recusas antes de gravar (V86): prêmio de outra empresa, a meta ligada com um nível sem prêmio
     await expect(svc.salvarConfig(presidente(T), { minimo: 10, albumPremios: [deOutra.id] })).rejects.toThrow('Um dos prêmios escolhidos não existe mais');
-    await expect(svc.salvarConfig(presidente(T), { minimo: 10, metaAtivo: true })).rejects.toThrow('A meta do mês ainda não pode ser ligado');
+    await expect(svc.salvarConfig(presidente(T), { minimo: 10, metaAtivo: true, metaNiveis: [{ pedidos: 3, premios: [p1.id] }, { pedidos: 6, premios: [] }] })).rejects.toThrow('Escolha ao menos um prêmio em cada nível da meta');
     expect((await svc.config(T)).minimo).toBe(40);
     // desligar sempre pode (sem mudança, não grava)
     expect((await svc.salvarConfig(presidente(T), { metaAtivo: false })).metaAtivo).toBe(false);
@@ -203,6 +205,7 @@ descrever('clube — o prêmio surpresa pelo pedido entregue (Postgres)', () => 
   let surpresa: ClubeSurpresaService;
   let aniversario: AniversarioService;
   let album: ClubeAlbumService;
+  let meta: ClubeMetaService;
   const auditados: any[] = [];
   const empresas: string[] = [];
   const q = async (s: string, p: any[] = []) => (await pool.query(s, p)).rows;
@@ -233,6 +236,7 @@ descrever('clube — o prêmio surpresa pelo pedido entregue (Postgres)', () => 
     surpresa = new ClubeSurpresaService(db, clube);
     aniversario = new AniversarioService(db);
     album = new ClubeAlbumService(db, clube, surpresa);
+    meta = new ClubeMetaService(db, clube, surpresa);
   });
   beforeEach(() => {
     auditados.length = 0;
@@ -757,5 +761,80 @@ descrever('clube — o prêmio surpresa pelo pedido entregue (Postgres)', () => 
     expect((await q(`select album_desde from clube_config where tenant_id = $1`, [T]))[0].album_desde).toBeNull();
     expect(await album.doCliente(T, ana)).toEqual({ ativo: false });
     expect(await album.doPedido(tokenDeAgora)).toEqual({ tem: false });
+  });
+
+  // ───────────── A3: a meta do mês (a 479 trouxe `meta_desde`) ─────────────
+  it('a meta: cada nível batido no mês dá um prêmio para escolher, uma vez; o mês anterior até o dia 7; desligar zera', async () => {
+    const { T, quinze } = await lojaComClube('teste meta');
+    const lista = await clube.premios(T);
+    const [frete, cinco] = [lista.find((p) => p.nome === 'Frete grátis')!, lista.find((p) => p.nome === 'R$ 5 off')!];
+    // ligar: cada nível com um prêmio que o cliente possa escolher
+    await expect(
+      clube.salvarConfig(presidente(T), { metaAtivo: true, metaNiveis: [{ pedidos: 2, premios: [frete.id] }, { pedidos: 4, premios: [] }] }),
+    ).rejects.toThrow('Escolha ao menos um prêmio em cada nível da meta');
+    await clube.salvarConfig(presidente(T), {
+      metaAtivo: true,
+      metaNiveis: [{ pedidos: 2, premios: [frete.id, cinco.id] }, { pedidos: 4, premios: [quinze.id] }],
+      metaValidadeDias: 30,
+    });
+    expect((await q(`select meta_desde from clube_config where tenant_id = $1`, [T]))[0].meta_desde).not.toBeNull();
+    // ligada há 2 meses (para o mês anterior contar)
+    await q(`update clube_config set meta_desde = now() - interval '2 months' where tenant_id = $1`, [T]);
+    const ana = await cliente(T, 'Ana', '21987667101');
+    const mes = hojeISO().slice(0, 7);
+    await pedidoHa(T, ana, 0);
+    await pedidoHa(T, ana, 0, { total: 10 }); // abaixo do mínimo do clube (40): não conta
+    await pedidoHa(T, ana, 0, { canal: 'ifood' }); // fora do Regem: não conta
+    let m = await meta.doCliente(T, ana, `${mes}-20`);
+    expect(m).toMatchObject({ ativo: true, validadeDias: 30, anterior: null, atual: { mes, pedidos: 1, proximo: { nivel: 1, falta: 1 }, pendente: false } });
+    await expect(meta.escolher(T, ana, { mes, nivel: 1, premioId: frete.id }, `${mes}-20`)).rejects.toThrow('Faltam 1 pedido(s) para este nível.');
+    const tokenDeAgora = await pedidoHa(T, ana, 0);
+    m = await meta.doCliente(T, ana, `${mes}-20`);
+    if (!m.ativo) throw new Error('desligada');
+    expect(m.atual).toMatchObject({ pedidos: 2, pendente: true, proximo: { nivel: 2, pedidos: 4, falta: 2 } });
+    expect(m.atual.niveis[0].premios.map((p) => p.nome).sort()).toEqual(['Frete grátis', 'R$ 5 off']);
+    expect(m.atual.niveis[1].premios.map((p) => p.nome)).toEqual(['15% off']);
+    // a página do pedido mostra a meta do mês
+    expect(await meta.doPedido(tokenDeAgora)).toMatchObject({ tem: true, pedidos: 2, pendente: true, proximo: { nivel: 2, pedidos: 4, falta: 2 }, niveis: [2, 4] });
+    // escolher: só da lista do nível, só o nível batido, só no prazo; dois toques escolhem UMA vez
+    await expect(meta.escolher(T, ana, { mes, nivel: 1, premioId: quinze.id }, `${mes}-20`)).rejects.toThrow('Escolha um dos prêmios deste nível.');
+    await expect(meta.escolher(T, ana, { mes, nivel: 2, premioId: quinze.id }, `${mes}-20`)).rejects.toThrow('Faltam 2 pedido(s) para este nível.');
+    await expect(meta.escolher(T, ana, { mes, nivel: 3, premioId: frete.id }, `${mes}-20`)).rejects.toThrow('Escolha um nível da meta.');
+    await expect(meta.escolher(T, ana, { mes: '2020-01', nivel: 1, premioId: frete.id }, `${mes}-20`)).rejects.toThrow('O prazo para escolher');
+    const r = await Promise.allSettled([
+      meta.escolher(T, ana, { mes, nivel: 1, premioId: cinco.id }, `${mes}-20`),
+      meta.escolher(T, ana, { mes, nivel: 1, premioId: frete.id }, `${mes}-20`),
+    ]);
+    expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+    expect((r.find((x) => x.status === 'rejected') as PromiseRejectedResult).reason.message).toBe('O prêmio deste nível já foi escolhido.');
+    const ok = (r.find((x) => x.status === 'fulfilled') as PromiseFulfilledResult<any>).value;
+    expect(ok.codigo).toMatch(/^CLUBE/);
+    // a validade é a da meta (30 dias a partir de hoje), não a do prêmio (7 dias)
+    const dias = Math.round((Date.parse(`${ok.validoAte}T12:00:00Z`) - Date.parse(`${hojeISO()}T12:00:00Z`)) / 86_400_000);
+    expect(dias).toBe(30);
+    const ds = await q(`select ferramenta, gatilho, forma, ref, revelado_em from clube_direito where tenant_id = $1 and gatilho = 'meta'`, [T]);
+    expect(ds).toHaveLength(1);
+    expect(ds[0]).toMatchObject({ ferramenta: 'meta', gatilho: 'meta', forma: 'escolha', ref: `${ana}:${mes}:1` });
+    expect(ds[0].revelado_em).not.toBeNull();
+    expect((await aniversario.presentesDoCliente(T, ana)).map((p) => p.origem)).toEqual(['clube']);
+    m = await meta.doCliente(T, ana, `${mes}-20`);
+    if (!m.ativo) throw new Error('desligada');
+    expect(m.atual).toMatchObject({ pendente: false });
+    expect(m.atual.niveis[0]).toMatchObject({ atingido: true, escolhido: true });
+    // o mês anterior: bateu o nível 1 lá; até o dia 7 ainda escolhe (e só aparece com prêmio para escolher)
+    await pedidoHa(T, ana, 1);
+    await pedidoHa(T, ana, 1);
+    const anterior = mesAnterior(mes);
+    m = await meta.doCliente(T, ana, `${mes}-05`);
+    expect(m).toMatchObject({ ativo: true, anterior: { mes: anterior, pedidos: 2, pendente: true } });
+    expect(await meta.doCliente(T, ana, `${mes}-20`)).toMatchObject({ anterior: null });
+    await expect(meta.escolher(T, ana, { mes: anterior, nivel: 1, premioId: frete.id }, `${mes}-20`)).rejects.toThrow('O prazo para escolher');
+    await expect(meta.escolher(T, ana, { mes: anterior, nivel: 1, premioId: frete.id }, `${mes}-05`)).resolves.toMatchObject({ premio: 'Frete grátis' });
+    expect(await meta.doCliente(T, ana, `${mes}-05`)).toMatchObject({ anterior: null });
+    // desligar zera o "desde"
+    await clube.salvarConfig(presidente(T), { metaAtivo: false });
+    expect((await q(`select meta_desde from clube_config where tenant_id = $1`, [T]))[0].meta_desde).toBeNull();
+    expect(await meta.doCliente(T, ana)).toEqual({ ativo: false });
+    expect(await meta.doPedido(tokenDeAgora)).toEqual({ tem: false });
   });
 });

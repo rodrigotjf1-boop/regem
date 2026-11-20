@@ -23,7 +23,7 @@ export const PREMIOS_POR_ESCOLHA_MAX = 6;
  * As ferramentas que já existem para ligar. Cada fase acende a sua (A1: o prêmio surpresa; A2: o álbum; A3: a meta). O
  * servidor recusa ligar a que ainda não existe — a tela nem mostra o liga/desliga dela (nada de botão que não faz nada).
  */
-export const FERRAMENTAS_PRONTAS: Readonly<Record<Ferramenta, boolean>> = { surpresa: true, album: true, meta: false };
+export const FERRAMENTAS_PRONTAS: Readonly<Record<Ferramenta, boolean>> = { surpresa: true, album: true, meta: true };
 export type Ferramenta = 'surpresa' | 'album' | 'meta';
 
 /**
@@ -397,10 +397,6 @@ export function descricaoDoPremio(p: Pick<DadosDoPremio, 'tipo' | 'valor' | 'tet
   return `${base}${minimo} · vale ${p.validadeDias} dias`;
 }
 
-/**
- * As regras do clube que o cliente lê (o link "Regras do clube" de cada tela do jogo; "Ver as regras" na loja): só as
- * ferramentas ligadas, e sempre as travas que mantêm o clube fora da regra de sorteio (Lei 5.768/1971 — o plano, seção 1).
- */
 // ───────────────────────── O álbum de selos (fase A2, mig 479) ─────────────────────────
 
 const MESES_CURTOS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
@@ -428,6 +424,64 @@ export function estadoDoAlbum(meses: string[], total: number): EstadoDoAlbum {
   return { selos: unicos.map(seloDoMes), tem: unicos.length, total, completo: unicos.length >= total };
 }
 
+// ───────────────────────── A meta do mês (fase A3, mig 479 `meta_desde`) ─────────────────────────
+
+/** Até que dia do mês seguinte o cliente ainda escolhe o prêmio da meta que bateu no mês anterior. */
+export const DIA_LIMITE_DO_MES_ANTERIOR = 7;
+
+export type NivelNoMes = { nivel: number; pedidos: number; falta: number; atingido: boolean; escolhido: boolean };
+export type EstadoDaMeta = {
+  /** AAAA-MM (relógio da operação). */
+  mes: string;
+  /** "novembro". */
+  mesNome: string;
+  /** Pedidos do mês que contam. */
+  pedidos: number;
+  niveis: NivelNoMes[];
+  /** O próximo nível a bater (nulo = bateu todos). */
+  proximo: { nivel: number; pedidos: number; falta: number } | null;
+  /** Bateu um nível e ainda não escolheu o prêmio dele. */
+  pendente: boolean;
+};
+
+/** "2026-01" → "2025-12". */
+export function mesAnterior(mes: string): string {
+  const a = Number(mes.slice(0, 4));
+  const m = Number(mes.slice(5, 7));
+  return m === 1 ? `${a - 1}-12` : `${a}-${String(m - 1).padStart(2, '0')}`;
+}
+
+/**
+ * A meta de um mês a partir dos pedidos que contam (já filtrados: do Regem, a partir do mínimo, entregues, depois de
+ * ligar) e dos níveis cujo prêmio o cliente já escolheu. Cada nível dá UM prêmio por mês; bater o 2º não tira o do 1º.
+ */
+export function estadoDaMeta(mes: string, pedidos: number, niveis: NivelDaMeta[], escolhidos: number[]): EstadoDaMeta {
+  const lista = niveis.map((n, i) => {
+    const nivel = i + 1;
+    const atingido = pedidos >= n.pedidos;
+    return { nivel, pedidos: n.pedidos, falta: Math.max(0, n.pedidos - pedidos), atingido, escolhido: atingido && escolhidos.includes(nivel) };
+  });
+  const prox = lista.find((n) => !n.atingido);
+  return {
+    mes,
+    mesNome: mesPorExtenso(mes),
+    pedidos,
+    niveis: lista,
+    proximo: prox ? { nivel: prox.nivel, pedidos: prox.pedidos, falta: prox.falta } : null,
+    pendente: lista.some((n) => n.atingido && !n.escolhido),
+  };
+}
+
+/** Os meses em que o cliente ainda escolhe: o atual e, até o dia 7, o anterior. `hoje` = AAAA-MM-DD da operação. */
+export function mesesQueEscolhem(hoje: string): string[] {
+  const mes = hoje.slice(0, 7);
+  return Number(hoje.slice(8, 10)) <= DIA_LIMITE_DO_MES_ANTERIOR ? [mes, mesAnterior(mes)] : [mes];
+}
+
+/**
+ * As regras do clube que o cliente lê (o link "Regras do clube" de cada tela do jogo; "Ver as regras" na loja): só as
+ * ferramentas ligadas, e sempre as travas que mantêm o clube fora da regra de sorteio (Lei 5.768/1971 — o plano, seção 1).
+ */
 export function regrasDoClube(c: ConfigDoClube, nomeDoPremio: (id: string) => string | null, gatilhos?: GatilhosDoSurpresa): string[] {
   const linhas: string[] = [];
   const lista = (ids: string[]) => ids.map(nomeDoPremio).filter((x): x is string => !!x).join(', ');

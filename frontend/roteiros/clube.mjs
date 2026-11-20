@@ -2,8 +2,8 @@
 // protótipo `mockups/regem-clube-banner.html`, aprovado pelo dono em 20/11/2026; migs 471 e 474). A API simulada.
 // Confere, em cada largura (V45: nenhuma barra de rolagem para o lado — a página e qualquer peça —, com cada gaveta e
 // diálogo ABERTO e medido na frente):
-//  • Delivery › Marketing › aba Clube › Visão geral: o prêmio surpresa com a chave; o álbum e a meta dizem "Chega numa
-//    próxima entrega" (nenhuma chave para ligar o que ainda não existe), as regras que valem para as três, mudar o pedido
+//  • Delivery › Marketing › aba Clube › Visão geral: as três ferramentas com a chave (o prêmio surpresa, o álbum e a meta),
+//    as regras que valem para as três, mudar o pedido
 //    mínimo mostra a barra de alterações e "Salvar alterações" manda SÓ o que mudou; "Ver as regras" abre o diálogo;
 //  • Prêmio surpresa: a forma (raspadinha × roleta) manda só a forma; a chave do "Pedido entregue" sem prêmio abre a gaveta,
 //    que não oferece o produto grátis; "Ligar com este prêmio" manda o gatilho; os gatilhos das próximas fases e os travados;
@@ -14,6 +14,9 @@
 //  • o álbum de selos (A2, mig 479): Marketing › Clube › Álbum (selos, validade, os prêmios em gaveta sem o produto grátis,
 //    salvar manda só o que mudou), o selo na página do pedido e Sua conta › Benefícios (os selos, "Peça em …", completo →
 //    escolher o prêmio, que manda o prêmio e o álbum recomeça);
+//  • a meta do mês (A3): Marketing › Clube › Meta (os níveis com os prêmios em gaveta, pôr e tirar o nível 3, a validade),
+//    a barra na página do pedido e Sua conta › Benefícios (a barra, o que falta, os prêmios; batida, escolher manda o mês,
+//    o nível e o prêmio; o mês anterior até o dia 7);
 //  • Prêmios: a lista com a contagem, a situação "Em uso" que filtra, "＋ Novo prêmio" abre a gaveta, "Produto grátis" lê
 //    os produtos, o diálogo de excluir (o prêmio em uso diz onde está);
 //  • o gerente vê e não muda (sem "＋ Novo prêmio", sem campo do mínimo); a nuvem não respondeu → "Tentar de novo".
@@ -36,7 +39,7 @@ const PAINEL = (minimo = 30, forma = 'raspadinha', entregue = { ativo: false, pr
     surpresaAtivo: true, surpresaForma: forma, albumAtivo: false, albumSelos: 4, albumValidadeMeses: 12, albumPremios: [P2],
     metaAtivo: false, metaNiveis: [{ pedidos: 3, premios: [] }, { pedidos: 6, premios: [] }], metaValidadeDias: 15, minimo,
   },
-  prontas: { surpresa: true, album: true, meta: false },
+  prontas: { surpresa: true, album: true, meta: true },
   gatilhos: { entregue, reclamacao, classificacao, campanha: campanhaG },
   classificacao: { perfilLigado: true, contagens: { campeoes: 112, leais: 240, atencao: 96, em_risco: 151, inativos: 388, atrasado: 74 } },
   premios: [
@@ -50,7 +53,7 @@ const PAINEL = (minimo = 30, forma = 'raspadinha', entregue = { ativo: false, pr
     'Os prêmios valem só no cardápio online e no WhatsApp da loja, não no iFood nem na 99.',
   ],
   opcoes: {
-    validadesDoPremio: [3, 7, 15, 30], minimoMax: 1000, nomeMax: 60, premiosMax: 50, premiosPorEscolhaMax: 6, validadesDoSelo: [6, 12],
+    validadesDoPremio: [3, 7, 15, 30], minimoMax: 1000, nomeMax: 60, premiosMax: 50, premiosPorEscolhaMax: 6, validadesDoSelo: [6, 12], validadesDaMeta: [15, 30], niveisMax: 3,
     limitesDaReclamacao: [{ valor: 'mes1', rotulo: '1 por mês' }, { valor: 'mes2', rotulo: '2 por mês' }, { valor: 'tri1', rotulo: '1 a cada 3 meses' }],
     quemMandaDesculpas: [{ valor: 'gerencia', rotulo: 'Gerente e supervisão' }, { valor: 'gerente', rotulo: 'Só o gerente' }, { valor: 'atendimento', rotulo: 'Qualquer pessoa do atendimento' }],
     segmentosDaClassificacao: [{ valor: 'campeoes', rotulo: 'Campeões' }, { valor: 'leais', rotulo: 'Leais' }, { valor: 'atencao', rotulo: 'Precisam de atenção' }, { valor: 'em_risco', rotulo: 'Em risco' }, { valor: 'inativos', rotulo: 'Inativos' }, { valor: 'atrasado', rotulo: 'Atrasados no próprio ritmo' }],
@@ -92,9 +95,11 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
     let classificacao = C_PADRAO;
     let campanhaG = { ativo: false };
     let album = null;
+    let meta = null;
     const painel = () => {
       const p = PAINEL(minimo, forma, entregue, reclamacao, classificacao, campanhaG);
       if (album) p.config = { ...p.config, albumSelos: album.selos, albumPremios: album.premios };
+      if (meta) p.config = { ...p.config, ...meta };
       return p;
     };
     const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
@@ -122,6 +127,10 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
         if (typeof corpo.albumSelos === 'number' || Array.isArray(corpo.albumPremios)) {
           const p = painel();
           album = { selos: corpo.albumSelos ?? album?.selos ?? p.config.albumSelos, premios: corpo.albumPremios ?? album?.premios ?? p.config.albumPremios };
+        }
+        if (Array.isArray(corpo.metaNiveis) || typeof corpo.metaValidadeDias === 'number') {
+          const p = painel();
+          meta = { metaNiveis: corpo.metaNiveis ?? p.config.metaNiveis, metaValidadeDias: corpo.metaValidadeDias ?? p.config.metaValidadeDias };
         }
         return responder(route, painel());
       }
@@ -183,9 +192,10 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
     let achados = await medir(page);
     ok(achados.length === 0, `${w}px · Clube › Visão geral: sem barra para o lado nem texto esmagado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
     ok(
-      (t.match(/Chega numa próxima entrega/g) ?? []).length === 1 && (await page.locator('main [role="switch"]').count()) === 2 &&
-        (await page.getByRole('switch', { name: 'Prêmio surpresa' }).count()) === 1 && (await page.getByRole('switch', { name: 'Álbum de selos' }).count()) === 1,
-      `${w}px · o prêmio surpresa e o álbum com a chave; a meta: "Chega numa próxima entrega"`,
+      (t.match(/Chega numa próxima entrega/g) ?? []).length === 0 && (await page.locator('main [role="switch"]').count()) === 3 &&
+        (await page.getByRole('switch', { name: 'Prêmio surpresa' }).count()) === 1 && (await page.getByRole('switch', { name: 'Álbum de selos' }).count()) === 1 &&
+        (await page.getByRole('switch', { name: 'Meta do mês' }).count()) === 1,
+      `${w}px · as três ferramentas com a chave (o prêmio surpresa, o álbum e a meta)`,
     );
     ok(t.includes('Cardápio e WhatsApp') && t.includes('Um benefício por pedido'), `${w}px · as regras que valem para as três`);
     // Mudar o mínimo: a barra de alterações e o salvar manda só o mínimo.
@@ -320,6 +330,55 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
     ok(JSON.stringify(enviados[0]) === JSON.stringify({ albumSelos: 6, albumPremios: [P1] }), `${w}px · salvar o álbum manda só o que mudou (${umaLinha(JSON.stringify(enviados[0]))})`);
     if (w === 390 || w === 1440) await page.screenshot({ path: arquivoFoto(`clube-album-${w}.png`), fullPage: true });
 
+    // ── Meta do mês (A3): os níveis (pedidos e prêmios em gaveta), pôr e tirar o nível 3, a validade ──
+    enviados.length = 0;
+    await page.getByRole('button', { name: 'Meta do mês', exact: true }).click();
+    await page.waitForSelector('text=Nível 1 · pedidos no mês', { timeout: 10000 });
+    t = await texto(page);
+    achados = await medir(page);
+    ok(achados.length === 0, `${w}px · Meta do mês: sem barra para o lado nem texto esmagado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+    ok(t.includes('Nível 2 · pedidos no mês') && t.includes('Validade do prêmio') && t.includes('Desligada: liga em Visão geral'), `${w}px · a meta: os dois níveis, a validade e onde ligar`);
+    // Nível 1: os prêmios em gaveta (sem o produto grátis)
+    await page.getByRole('button', { name: 'Escolher os prêmios' }).first().click();
+    await dialogo(page);
+    achados = await medir(page);
+    const tm = await texto(page, '[role="dialog"]');
+    ok(achados.length === 0 && (await page.locator('[role="dialog"] input[type="checkbox"]').count()) === 2 && !tm.includes('Batata') && tm.includes('Prêmios do nível 1 da meta'), `${w}px · gaveta do nível 1: 2 prêmios, sem o produto grátis, sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+    if (w === 390 || w === 1440) await page.locator('[role="dialog"]').screenshot({ path: arquivoFoto(`clube-meta-premios-${w}.png`) });
+    await page.getByLabel(/^15% off até R\$ 20/).check();
+    await page.getByRole('button', { name: 'Usar estes prêmios' }).click();
+    await fechou(page);
+    // Nível 2: frete grátis
+    await page.getByRole('button', { name: 'Escolher os prêmios' }).first().click();
+    await dialogo(page);
+    await page.getByLabel(/^Frete grátis/).check();
+    await page.getByRole('button', { name: 'Usar estes prêmios' }).click();
+    await fechou(page);
+    // Pôr o nível 3 (começa 3 pedidos acima do 2º), mudar o 1º para 4 pedidos e a validade para 30 dias
+    await page.getByRole('button', { name: '＋ Pôr o nível 3' }).click();
+    await page.waitForSelector('text=Nível 3 · pedidos no mês', { timeout: 5000 });
+    await page.getByLabel('Nível 1 · pedidos no mês').fill('4');
+    await page.getByLabel('Validade do prêmio').selectOption('30');
+    achados = await medir(page);
+    ok(achados.length === 0, `${w}px · meta com o nível 3 e a barra de alterações: sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+    if (w === 390 || w === 1440) await page.screenshot({ path: arquivoFoto(`clube-meta-${w}.png`), fullPage: true });
+    await page.getByRole('button', { name: 'Salvar alterações' }).click();
+    await page.waitForFunction(() => !document.body.innerText.includes('ainda não salva'), null, { timeout: 5000 });
+    ok(
+      JSON.stringify(enviados[0]) ===
+        JSON.stringify({ metaNiveis: [{ pedidos: 4, premios: [P1] }, { pedidos: 6, premios: [P3] }, { pedidos: 9, premios: [] }], metaValidadeDias: 30 }),
+      `${w}px · salvar a meta manda os níveis e a validade (${umaLinha(JSON.stringify(enviados[0]))})`,
+    );
+    // Tirar o nível 3: manda os dois que ficam
+    await page.getByRole('button', { name: 'Tirar o nível 3' }).click();
+    await page.getByRole('button', { name: 'Salvar alterações' }).click();
+    await page.waitForFunction(() => !document.body.innerText.includes('ainda não salva'), null, { timeout: 5000 });
+    ok(
+      JSON.stringify(enviados[1]) === JSON.stringify({ metaNiveis: [{ pedidos: 4, premios: [P1] }, { pedidos: 6, premios: [P3] }] }),
+      `${w}px · tirar o nível 3 manda os dois níveis que ficam (${umaLinha(JSON.stringify(enviados[1]))})`,
+    );
+    ok(await page.getByRole('button', { name: '＋ Pôr o nível 3' }).isVisible(), `${w}px · sem o nível 3, volta o "＋ Pôr o nível 3"`);
+
     // ── Prêmios ──
     await page.getByRole('button', { name: /^Prêmios/ }).click();
     await page.waitForSelector('text=3 prêmios', { timeout: 10000 });
@@ -410,6 +469,7 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
       }
       if (p === '/rastreio/tk9/premio') return responder(route, { tem: true, forma, revelado: false, fatias, premio: null, fatia: null, regras: REGRAS });
       if (p === '/rastreio/tk9/selo') return responder(route, { tem: true, mes: 'novembro', arte: '🍔', selos: 3, total: 4, completo: false });
+      if (p === '/rastreio/tk9/meta') return responder(route, { tem: true, mesNome: 'novembro', pedidos: 2, proximo: { nivel: 1, pedidos: 3, falta: 1 }, pendente: false, niveis: [3, 6] });
       if (p === '/rastreio/tk9/avaliacao') return responder(route, { statusCode: 404, message: 'x' }, 404);
       return responder(route, {});
     });
@@ -427,6 +487,8 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
       const t0 = await texto(page, 'body');
       ok(achados.length === 0 && t0.includes('Seu prêmio já está garantido') && !t0.includes('CLUBE7K2QX'), `${w}px · raspadinha: o prêmio garantido, o código ainda escondido, sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
       ok(t0.includes('3 de 4 selos no álbum'), `${w}px · o selo do álbum na página do pedido: "Você ganhou o selo de novembro", 3 de 4`);
+      await page.waitForSelector('text=Meta de novembro', { timeout: 10000 });
+      ok((await texto(page, 'body')).includes('2 pedidos de 3 para o primeiro prêmio.') && (await medir(page)).length === 0, `${w}px · a meta na página do pedido: "2 pedidos de 3 para o primeiro prêmio", sem barra para o lado`);
       await page.getByRole('button', { name: 'Revelar sem raspar' }).click();
       await page.waitForSelector('text=CLUBE7K2QX', { timeout: 10000 });
       achados = await medir(page);
@@ -546,9 +608,31 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
     ],
   };
   const ALBUM_RECOMECOU = { ativo: true, selos: [], tem: 0, total: 4, completo: false, validadeMeses: 12, premios: [] };
-  async function abrirConta(w, album) {
+  // A meta do mês (A3): os prêmios de cada nível, o mês em andamento e o que bateu (o atual e o anterior, até o dia 7).
+  const PREMIOS_N1 = [
+    { id: P1, nome: '15% off até R$ 20', descricao: '15% de desconto, até R$ 20 · em pedido a partir de R$ 30' },
+    { id: P3, nome: 'Frete grátis', descricao: 'entrega grátis' },
+  ];
+  const PREMIOS_N2 = [{ id: P2, nome: '30% off até R$ 30', descricao: '30% de desconto, até R$ 30' }];
+  const nivel = (n, pedidos, feitos, escolhido = false) => ({
+    nivel: n, pedidos, falta: Math.max(0, pedidos - feitos), atingido: feitos >= pedidos, escolhido, premios: n === 1 ? PREMIOS_N1 : PREMIOS_N2,
+  });
+  const mesDaMeta = (mes, mesNome, feitos, escolhidos = []) => {
+    const niveis = [nivel(1, 3, feitos, escolhidos.includes(1)), nivel(2, 6, feitos, escolhidos.includes(2))];
+    const prox = niveis.find((n) => !n.atingido);
+    return { mes, mesNome, pedidos: feitos, niveis, proximo: prox ? { nivel: prox.nivel, pedidos: prox.pedidos, falta: prox.falta } : null, pendente: niveis.some((n) => n.atingido && !n.escolhido) };
+  };
+  const META_ANDANDO = { ativo: true, validadeDias: 15, atual: mesDaMeta('2026-11', 'novembro', 2), anterior: null };
+  const META_BATEU = { ativo: true, validadeDias: 15, atual: mesDaMeta('2026-11', 'novembro', 3), anterior: mesDaMeta('2026-10', 'outubro', 4) };
+  const escolheuNaMeta = (m, mes, n) => {
+    const marca = (x) => (x && x.mes === mes ? mesDaMeta(x.mes, x.mesNome, x.pedidos, [...x.niveis.filter((y) => y.escolhido).map((y) => y.nivel), n]) : x);
+    const anterior = marca(m.anterior);
+    return { ...m, atual: marca(m.atual), anterior: anterior?.pendente ? anterior : null };
+  };
+  async function abrirConta(w, album, meta = { ativo: false }) {
     const escolhas = [];
     let atual = album;
+    let metaAtual = meta;
     const ctx = await nav.newContext({ viewport: { width: w, height: 900 }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
     await ctx.addInitScript((t) => localStorage.setItem(`regem_loja_clientetoken_${t}`, 'ct-falso-do-roteiro'), TOKEN_CARDAPIO);
     const page = await ctx.newPage();
@@ -562,7 +646,13 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
       if (p === raiz) return responder(route, MENU);
       if (p === `${raiz}/cliente`)
         return responder(route, { nome: 'Ana Souza', telefone: '21900000000', cliente: { nome: 'Ana Souza', telefone: '21900000000' }, enderecos: [], historico: [] });
-      if (p === `${raiz}/cliente/presentes`) return responder(route, { presentes: [], paraRevelar: [], album: atual });
+      if (p === `${raiz}/cliente/presentes`) return responder(route, { presentes: [], paraRevelar: [], album: atual, meta: metaAtual });
+      if (p === `${raiz}/cliente/clube/meta` && req.method() === 'POST') {
+        const corpo = JSON.parse(req.postData() || '{}');
+        escolhas.push(corpo);
+        metaAtual = escolheuNaMeta(metaAtual, corpo.mes, corpo.nivel);
+        return responder(route, { premio: 'Frete grátis', codigo: 'CLUBEMT34K', validoAte: '2026-12-05' });
+      }
       if (p === `${raiz}/cliente/clube/album` && req.method() === 'POST') {
         escolhas.push(JSON.parse(req.postData() || '{}'));
         atual = ALBUM_RECOMECOU;
@@ -617,6 +707,56 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
       } catch (e) {
         ok(false, `${w}px · Sua conta › álbum completo (${umaLinha(String(e?.message ?? e))})`);
         await page.screenshot({ path: arquivoFoto(`clube-conta-completo-${w}-erro.png`) }).catch(() => {});
+      } finally {
+        await ctx.close();
+      }
+    }
+    {
+      // A meta andando: a barra, quantos faltam para cada nível e os prêmios da meta (A3).
+      const { ctx, page, erros } = await abrirConta(w, { ativo: false }, META_ANDANDO);
+      try {
+        await page.waitForSelector('text=Meta de novembro', { timeout: 30000 });
+        const achados = await medir(page);
+        const t = await texto(page, '[role="dialog"][aria-label="Sua conta"]');
+        const barra = await page.getByRole('img', { name: '2 de 6 pedidos' }).count();
+        ok(achados.length === 0, `${w}px · Sua conta › meta: sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+        ok(
+          barra === 1 && t.includes('2 pedidos de 3 para o primeiro prêmio') && t.includes('falta 1') && t.includes('faltam 4') && !(await page.getByRole('button', { name: 'Quero este' }).count()),
+          `${w}px · a meta: a barra, "2 pedidos de 3 para o primeiro prêmio", o que falta em cada nível e nada para escolher ainda`,
+        );
+        await page.getByText('Ver os prêmios da meta').click();
+        ok((await texto(page, '.c-meta-premios')).includes('6 pedidos: 30% off até R$ 30'), `${w}px · "Ver os prêmios da meta" mostra a lista de cada nível`);
+        if (w === 390 || w === 1440) await page.screenshot({ path: arquivoFoto(`clube-conta-meta-${w}.png`), fullPage: true });
+        ok(erros.length === 0, `${w}px · Sua conta › meta: nenhum erro de script${erros.length ? ` (${umaLinha(erros.join(' | '))})` : ''}`);
+      } catch (e) {
+        ok(false, `${w}px · Sua conta › meta abriu (${umaLinha(String(e?.message ?? e))})`);
+        await page.screenshot({ path: arquivoFoto(`clube-conta-meta-${w}-erro.png`) }).catch(() => {});
+      } finally {
+        await ctx.close();
+      }
+    }
+    {
+      // Bateu: o mês anterior (até o dia 7) e o atual com o prêmio para escolher; escolher manda o mês, o nível e o prêmio.
+      const { ctx, page, erros, escolhas } = await abrirConta(w, { ativo: false }, META_BATEU);
+      try {
+        await page.waitForSelector('text=Meta de outubro · você conseguiu!', { timeout: 30000 });
+        let achados = await medir(page);
+        ok(achados.length === 0 && (await page.getByRole('button', { name: 'Quero este' }).count()) === 2, `${w}px · bateu: o prêmio de outubro e o de novembro para escolher, sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+        if (w === 390 || w === 1440) await page.screenshot({ path: arquivoFoto(`clube-conta-meta-bateu-${w}.png`), fullPage: true });
+        const novembro = page.locator('.c-sec', { hasText: 'Meta de novembro' });
+        await novembro.getByRole('button', { name: /^Frete grátis/ }).click();
+        await novembro.getByRole('button', { name: 'Quero este' }).click();
+        await page.waitForSelector('text=✓ escolhido', { timeout: 10000 });
+        achados = await medir(page);
+        ok(
+          JSON.stringify(escolhas[0]) === JSON.stringify({ clienteToken: 'ct-falso-do-roteiro', mes: '2026-11', nivel: 1, premioId: P3 }) && achados.length === 0,
+          `${w}px · "Quero este" na meta manda o mês, o nível e o prêmio (${umaLinha(JSON.stringify(escolhas[0] ?? null))})`,
+        );
+        ok((await page.getByRole('button', { name: 'Quero este' }).count()) === 1, `${w}px · escolhido o de novembro, fica só o de outubro para escolher`);
+        ok(erros.length === 0, `${w}px · meta batida: nenhum erro de script${erros.length ? ` (${umaLinha(erros.join(' | '))})` : ''}`);
+      } catch (e) {
+        ok(false, `${w}px · Sua conta › meta batida (${umaLinha(String(e?.message ?? e))})`);
+        await page.screenshot({ path: arquivoFoto(`clube-conta-meta-bateu-${w}-erro.png`) }).catch(() => {});
       } finally {
         await ctx.close();
       }

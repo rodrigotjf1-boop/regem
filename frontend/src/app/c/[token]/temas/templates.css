@@ -707,3 +707,16 @@ body.tema-escuro .p-root .c-origem button{color:var(--p-ink)}
 .p-root .c-album-premio[aria-pressed="true"]{box-shadow:inset 0 0 0 2px var(--p-acc);background:var(--p-acc-soft)}
 .p-root .c-album-escolha .lk{justify-self:start;min-height:44px;padding:0 18px;border-radius:999px;background:var(--p-acc);color:var(--p-on);font-weight:700}
 .p-root .c-album-escolha .lk:disabled{opacity:.5;cursor:not-allowed}
+
+/* Meta do mês do Clube (A3) em Sua conta › Benefícios: a barra dos pedidos do mês e os níveis (escolher reusa o do álbum). */
+.p-root .c-barra{height:10px;border-radius:999px;background:var(--p-surf);overflow:hidden}
+.p-root .c-barra span{display:block;height:100%;border-radius:999px;background:var(--p-acc)}
+.p-root .c-niveis{display:grid;gap:6px}
+.p-root .c-nivel{display:flex;flex-wrap:wrap;gap:4px 10px;justify-content:space-between;align-items:center;font-size:13px;padding:8px 10px;border-radius:var(--p-rs);box-shadow:inset 0 0 0 1px var(--p-line);min-width:0}
+.p-root .c-nivel > span:first-child{min-width:0}
+.p-root .c-nivel-s{font:600 11px var(--p-font);padding:3px 8px;border-radius:999px;background:var(--p-surf);color:var(--p-mut);white-space:nowrap}
+.p-root .c-nivel-s.ok{background:var(--p-ok-bg);color:var(--p-ok)}
+.p-root .c-meta-nivel-escolha{display:grid;gap:8px}
+.p-root .c-meta-sub{font-size:14px}
+.p-root .c-meta-premios summary{cursor:pointer;color:var(--p-ink);font-weight:600;font-size:13px;min-height:44px;display:flex;align-items:center;text-decoration:underline;text-underline-offset:2px}
+.p-root .c-meta-premios ul{margin:0;padding-left:18px;display:grid;gap:4px;font-size:13px;color:var(--p-ink)}

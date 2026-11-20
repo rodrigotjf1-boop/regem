@@ -12,6 +12,7 @@ import { CABECALHO_USUARIO_DA_LOJA, EmpresaDaLojaGuard } from '../whatsapp/whats
 import { lerConfigDoClube, lerGatilhoCampanha, lerGatilhoClassificacao, lerGatilhoEntregue, lerGatilhoReclamacao, lerPremio } from './clube.regras';
 import { ClubeService } from './clube.service';
 import { ClubeAlbumService } from './clube-album.service';
+import { ClubeMetaService } from './clube-meta.service';
 import { ClubeDesculpasService } from './clube-desculpas.service';
 import { ClubeSurpresaService } from './clube-surpresa.service';
 
@@ -159,6 +160,7 @@ export class ClubePublicoController {
   constructor(
     private readonly surpresa: ClubeSurpresaService,
     private readonly album: ClubeAlbumService,
+    private readonly meta: ClubeMetaService,
   ) {}
 
   @Get(':token/premio')
@@ -172,6 +174,13 @@ export class ClubePublicoController {
   @CloudOnly()
   selo(@Param('token') token: string) {
     return this.album.doPedido(token);
+  }
+
+  /** A meta do mês na página do pedido (A3): quantos pedidos, o próximo nível e se há prêmio para escolher. */
+  @Get(':token/meta')
+  @CloudOnly()
+  metaDoPedido(@Param('token') token: string) {
+    return this.meta.doPedido(token);
   }
 
   @Post(':token/premio/revelar')
