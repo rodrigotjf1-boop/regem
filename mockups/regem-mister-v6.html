@@ -1,0 +1,906 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mister no comando</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* REGEM · PROTÓTIPO DO MISTER — VERSÃO 6, "O MISTER NO COMANDO" (20/11/2026).
+   Plano aprovado pelo dono em 20/11 com as 12 decisões recomendadas (docs/plano-mister.md § "Versão 6"): o telefone e a
+   troca de celular (S1–S4, "Perdi o celular"), as regras dinâmicas de cada pessoa (a instrução é livre; o Mister monta a
+   regra com os dados que lê), os padrões, as ações com confirmação pelo risco (lista de compras, cupom fiscal, gráfico
+   refeito, "quer que eu faça?") e a imagem criada pelo DMS Graph. Os estilos são os da v5, aprovados; os novos vêm depois.
+   Dados inventados; o CNPJ do cupom tem o dígito errado de propósito (não é de ninguém). */
+:root{
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --gold-ink:#7A5209; --gold-bg:#FFF9EC; --navy:#0F2230;
+  --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9; --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8;
+  --neutro:#43586C; --neutro-bg:#EAEFF4; --foco:#3A7FB8;
+  --c-wa:#0B6E3A; --wa-fundo:#EDE6DB; --wa-dele:#FFFFFF; --wa-meu:#D9F5CF;
+  --proto:#0B1822; --proto-txt:#C9D5DF; --proto-txt2:#8FA3B4; --proto-linha:#2A3B4A; --d-azul:#7CC0F5;
+  /* o gráfico (claro) */
+  --g-fundo:#FFFFFF; --g-ink:#132536; --g-ink2:#55697B; --g-grade:#E6ECF1; --g-eixo:#C8D2DC; --g-barra:#2F4A60; --g-ant:#D3DCE4;
+  --g-dest:#D4952F; --g-area:rgba(212,149,47,.16); --g-bom:#0F6647; --g-ruim:#B93232;
+  --g-c1:#2F4A60; --g-c2:#D4952F; --g-c3:#5B8DB8; --g-c4:#3E8E7E; --g-c5:#A9B7C4;
+  --radius:12px; --display:"Archivo","Segoe UI",system-ui,sans-serif; --body:"Figtree","Segoe UI",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.5 var(--body);background:var(--bg);color:var(--ink);overflow-x:hidden}
+[hidden]{display:none!important}
+h1,h2,h3,h4{font-family:var(--display);margin:0;text-wrap:balance}
+h1{font-size:26px;line-height:1.15} h2{font-size:18px} h3{font-size:16px}
+p{margin:0 0 10px;overflow-wrap:anywhere} p:last-child{margin-bottom:0}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--foco);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.pular{position:absolute;left:8px;top:-60px;background:var(--gold);color:var(--on-gold);padding:8px 12px;border-radius:8px;font-weight:700;z-index:99}
+.pular:focus{top:8px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.sub{color:var(--ink-2)} .peq{font-size:13.5px}
+
+/* faixa do protótipo */
+.proto{background:var(--proto);color:var(--proto-txt);padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.proto .titulo{font-family:var(--display);font-weight:700;color:#fff}
+.abas{display:flex;flex-wrap:wrap;gap:6px}
+.aba{background:transparent;border:1px solid var(--proto-linha);color:var(--proto-txt);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:36px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.proto .nota{font-size:12.5px;color:var(--proto-txt2);flex:1 1 220px;min-width:0}
+.proto :focus-visible{outline-color:var(--d-azul)}
+.vista{display:none} .vista.ativa{display:block}
+.pagina{padding:20px;max-width:1240px;margin-inline:auto;container-type:inline-size;container-name:principal}
+.cab{margin-bottom:16px} .cab .sub{max-width:76ch;margin-top:4px}
+
+/* peças */
+.cartao{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;min-width:0}
+.cartao > h2,.cartao > h3{margin-bottom:6px}
+.selo{display:inline-block;font-size:12.5px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.selo.ok{background:var(--ok-bg);color:var(--ok)} .selo.crit{background:var(--crit-bg);color:var(--crit)}
+.selo.warn{background:var(--warn-bg);color:var(--warn)} .selo.info{background:var(--info-bg);color:var(--info)} .selo.neutro{background:var(--neutro-bg);color:var(--neutro)}
+.btn{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:10px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink)}
+.btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.faixa{border-radius:10px;padding:10px 14px;margin-bottom:14px;border:1px solid}
+.faixa.warn{background:var(--warn-bg);border-color:#EBC7B0;color:#6F3410} .faixa.info{background:var(--info-bg);border-color:#BFD6EA;color:#1D4C77}
+.faixa.ok{background:var(--ok-bg);border-color:#B5DCC8;color:#0B4A33}
+a{color:var(--info);text-underline-offset:2px}
+.ctls{border:1px dashed var(--line-2);background:#FFFBF0;border-radius:10px;padding:8px 12px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px;color:var(--gold-ink)}
+.ctl{background:#fff;border:1px solid var(--line-2);padding:4px 10px;border-radius:999px;cursor:pointer;min-height:32px;color:var(--ink)}
+.ctl[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.v5{font:700 10.5px var(--display);background:var(--gold-bg);color:var(--gold-ink);border:1px solid #F0D8A8;padding:1px 6px;border-radius:4px;letter-spacing:.05em;vertical-align:2px;white-space:nowrap}
+.fase{font:700 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--gold-ink)}
+
+/* celular */
+.celulares{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:24px 18px;align-items:start}
+.caso h3{margin-bottom:2px} .caso > .sub{font-size:13.5px;margin-bottom:8px}
+.cel{border:8px solid #1B2A36;border-radius:28px;background:var(--wa-fundo);overflow:hidden;max-width:370px}
+.cel-topo{background:var(--c-wa);color:#fff;padding:10px 14px;display:flex;gap:10px;align-items:center}
+.cel-topo .foto{width:34px;height:34px;border-radius:50%;background:#fff;color:var(--c-wa);display:grid;place-items:center;font:800 15px var(--display);flex:none}
+.cel-topo b{display:block;line-height:1.2} .cel-topo span{font-size:12.5px;opacity:.9}
+.conv{padding:12px 10px;display:grid;gap:8px;min-height:150px;align-content:start}
+.bolha{max-width:90%;padding:7px 10px;border-radius:10px;font-size:14px;line-height:1.42;box-shadow:0 1px 1px rgba(0,0,0,.12);overflow-wrap:anywhere;min-width:0}
+.bolha.dele{background:var(--wa-dele);justify-self:start;border-top-left-radius:2px}
+.bolha.meu{background:var(--wa-meu);justify-self:end;border-top-right-radius:2px}
+.bolha.larga{max-width:96%;width:96%}
+.bolha .hora{display:block;text-align:right;font-size:11px;color:#5E6E7A;margin-top:2px}
+.bolha ul{margin:4px 0;padding-left:18px} .bolha li{margin-bottom:2px}
+.entendi{display:block;font-size:13px;color:#43586C;background:#F3F6F8;border-left:3px solid var(--c-wa);border-radius:4px;padding:4px 8px;margin:-1px -3px 6px}
+.botoes-wa{display:grid;gap:4px;margin-top:6px}
+.botoes-wa span{background:#fff;border:1px solid #D5DDE3;border-radius:8px;padding:6px 8px;text-align:center;color:#0B5CAD;font-weight:600;font-size:13.5px}
+.botoes-wa.dois{grid-template-columns:repeat(auto-fit,minmax(min(100%,110px),1fr))}
+.toque{justify-self:end;font-size:12px;color:#5E6E7A;background:rgba(255,255,255,.7);border-radius:999px;padding:2px 10px}
+.audio{display:flex;gap:8px;align-items:center;min-width:0;padding:2px 0}
+.audio .play{width:30px;height:30px;border-radius:50%;background:var(--c-wa);color:#fff;display:grid;place-items:center;font-size:11px;flex:none}
+.audio .onda{flex:1;min-width:40px;height:20px;background:repeating-linear-gradient(90deg,#7C8B96 0 2px,transparent 2px 5px);border-radius:2px;opacity:.8}
+.audio small{font:600 11px var(--mono);color:#5E6E7A;flex:none}
+.midia{display:block;border-radius:8px;overflow:hidden;margin:-3px -6px 6px;background:#fff;border:1px solid #D5DDE3}
+.doc-msg{display:flex;gap:10px;align-items:center;background:#F3F6F8;border-radius:8px;padding:8px 10px;margin:-2px -4px 6px;min-width:0}
+.doc-msg .ico{width:32px;height:38px;border-radius:4px;background:var(--crit);color:#fff;display:grid;place-items:center;font:800 10px var(--display);flex:none}
+.doc-msg > span:not(.ico){min-width:0}
+.doc-msg b{display:block;font-size:13px;line-height:1.25;overflow-wrap:anywhere} .doc-msg small{font-size:11.5px;color:#5E6E7A}
+/* fotos ilustradas */
+.f-tela{display:grid;grid-template-columns:70px minmax(0,1fr);font-size:10px;background:#F4F5F7;min-height:116px}
+.f-tela .l{background:#3A3A3A;color:#ddd;padding:8px 6px;display:grid;gap:4px;align-content:start}
+.f-tela .c{padding:10px;display:grid;gap:6px;align-content:start;min-width:0}
+.f-tela .alerta{background:#FDECEC;color:#8A1F1F;border:1px solid #F2B8B8;border-radius:4px;padding:5px 7px;font-weight:700}
+.f-tela .cinza{height:7px;border-radius:3px;background:#D8DDE2} .f-tela .cinza.c2{width:60%}
+.f-freezer{position:relative;height:128px;background:linear-gradient(180deg,#DCE8EF,#C3D3DD);padding:12px;display:flex;gap:8px;align-items:flex-end}
+.f-freezer .cx{flex:1;height:70px;background:linear-gradient(160deg,#D9C29A,#BFA374);border-radius:3px;display:grid;place-items:center;font:700 9.5px var(--mono);color:#4B3A1E;text-align:center;padding:4px}
+.f-freezer .cx:nth-child(2){height:84px} .f-freezer .gelo{position:absolute;inset:0;background:repeating-linear-gradient(115deg,rgba(255,255,255,.18) 0 6px,transparent 6px 18px);pointer-events:none}
+.f-papel{height:128px;background:#FBF7EC;padding:12px 16px;display:grid;gap:7px;align-content:start;font:italic 600 12px "Segoe Print","Comic Sans MS",cursive;color:#2B3A67;transform:rotate(-1deg)}
+.f-papel span{border-bottom:1px solid #E3DCC8}
+
+/* gráfico */
+.grafico{background:var(--g-fundo);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.g-svg{display:block;width:100%;height:auto}
+.g-svg text{font-family:var(--body)}
+.g-fundo{fill:var(--g-fundo)} .g-faixa{fill:var(--g-dest)}
+.g-tit{font-family:var(--display)!important;font-weight:700;font-size:15.5px;fill:var(--g-ink)}
+.g-sub{font-size:11.5px;fill:var(--g-ink2)}
+.g-kpi{font-family:var(--mono)!important;font-weight:700;font-size:22px;fill:var(--g-ink)}
+.g-delta{font-size:11.5px;font-weight:700} .g-delta.bom{fill:var(--g-bom)} .g-delta.ruim{fill:var(--g-ruim)}
+.g-grade{stroke:var(--g-grade);stroke-width:1} .g-eixo{stroke:var(--g-eixo);stroke-width:1}
+.g-barra{fill:var(--g-barra)} .g-ant{fill:var(--g-ant)} .g-dest{fill:var(--g-dest)}
+.g-val{font-family:var(--mono)!important;font-size:10.5px;font-weight:700;fill:var(--g-ink)}
+.g-rot{font-size:11px;font-weight:600;fill:var(--g-ink)} .g-rot2{font-size:10px;fill:var(--g-ink2)}
+.g-leg{font-size:10.5px;fill:var(--g-ink2)} .g-rod{font-size:10px;fill:var(--g-ink2)}
+.g-area{fill:var(--g-area)} .g-linha{fill:none;stroke:var(--g-dest);stroke-width:2.5;stroke-linejoin:round}
+.g-ponto{fill:var(--g-fundo);stroke:var(--g-dest);stroke-width:2} .g-pico{fill:var(--g-dest)}
+.g-media{stroke:var(--g-ink);stroke-width:1.5;stroke-dasharray:6 4} .g-media-t{font-size:10.5px;font-weight:700;fill:var(--g-ink)}
+.g-c1{fill:var(--g-c1)} .g-c2{fill:var(--g-c2)} .g-c3{fill:var(--g-c3)} .g-c4{fill:var(--g-c4)} .g-c5{fill:var(--g-c5)}
+.g-nome{font-size:11.5px;font-weight:600;fill:var(--g-ink)} .g-num{font-family:var(--mono)!important;font-size:11px;font-weight:700;fill:var(--g-ink)}
+.g-num2{font-family:var(--mono)!important;font-size:10.5px;fill:var(--g-ink2)} .g-trilho{fill:var(--g-grade)}
+/* o desenho antigo, para comparar */
+.antigo .g-svg text{font-family:Arial,sans-serif}
+.escuro{--g-fundo:#0E1A24; --g-ink:#EEF3F7; --g-ink2:#A7B6C3; --g-grade:#22323F; --g-eixo:#3A4C5B; --g-barra:#9FB7CC; --g-ant:#34495A; --g-dest:#F0B252; --g-area:rgba(240,178,82,.18); --g-bom:#4ED19B; --g-ruim:#F58A8A;
+  --g-c1:#9FB7CC; --g-c2:#F0B252; --g-c3:#6FA8DC; --g-c4:#5CC2AE; --g-c5:#5D6F7E; color-scheme:dark}
+
+/* vista dos gráficos */
+.graficos{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,380px),1fr));gap:18px;align-items:start}
+.g-caso h3{margin-bottom:2px} .g-caso > .sub{font-size:13.5px;margin-bottom:8px}
+.onde{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.comparar{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:18px;align-items:start}
+.lista-melhor{margin:6px 0 0;padding-left:20px} .lista-melhor li{margin-bottom:4px}
+
+/* arquivo e link */
+.arquivos{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,440px),1fr));gap:22px;align-items:start}
+.folha{background:#fff;border:1px solid var(--line-2);border-radius:4px;box-shadow:0 6px 20px rgba(19,37,54,.12);padding:22px;display:flex;flex-direction:column;gap:14px;min-width:0;container-type:inline-size;container-name:folha}
+.folha-cab{display:flex;justify-content:space-between;gap:8px 12px;align-items:flex-start;border-bottom:2px solid var(--navy);padding-bottom:10px;flex-wrap:wrap}
+.folha-cab .marca-f{font:800 15px var(--display);letter-spacing:.04em}
+.folha-cab .marca-f small{display:block;font:500 11px var(--body);color:var(--ink-2);letter-spacing:0}
+.folha-cab .quando{font-size:12px;color:var(--ink-2)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,124px),1fr));gap:8px}
+.kpi{border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:0}
+.kpi b{display:block;font:700 18px var(--mono);font-variant-numeric:tabular-nums}
+.kpi span{font-size:12px;color:var(--ink-2)} .kpi .d{font-size:12px;font-weight:700;color:var(--ok)}
+.folha-grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px}
+.folha h4{font:700 13px var(--display);margin:0 0 4px}
+.folha-rod{font-size:11px;color:var(--ink-2);border-top:1px solid var(--line);padding-top:8px}
+.tab{width:100%;border-collapse:collapse;font-size:13px}
+.tab th{font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:6px 8px;border-bottom:2px solid var(--line-2)}
+.tab td{padding:7px 8px;border-bottom:1px solid var(--line);overflow-wrap:anywhere} .tab .num{text-align:right}
+@container folha (max-width: 420px){
+  .tab thead{display:none} .tab,.tab tbody,.tab tr,.tab td{display:block;width:100%}
+  .tab tr{border:1px solid var(--line);border-radius:8px;padding:6px 10px;margin-bottom:8px}
+  .tab td{border:0;padding:2px 0;text-align:left!important}
+  .tab td[data-rot]::before{content:attr(data-rot) " · ";font-weight:600;color:var(--ink-2)}
+}
+.tela-link{border:8px solid #1B2A36;border-radius:28px;overflow:hidden;max-width:380px;background:var(--bg)}
+.tela-link .barra-end{background:#fff;border-bottom:1px solid var(--line);padding:7px 12px;font:600 11.5px var(--mono);color:var(--ink-2);overflow-wrap:anywhere}
+.lk{padding:14px;display:grid;gap:12px;background:var(--lk-bg,#F1F4F8);color:var(--lk-ink,#132536)}
+.lk .lk-cab{display:grid;gap:2px}
+.lk .lk-sobre{font:700 11px var(--display);letter-spacing:.1em;text-transform:uppercase;color:var(--lk-ouro,#7A5209)}
+.lk .lk-card{background:var(--lk-card,#fff);border:1px solid var(--lk-linha,#DEE5EC);border-radius:12px;padding:12px;min-width:0}
+.lk .lk-card h4{font:700 13.5px var(--display);margin:0 0 6px}
+.lk .lk-abas{display:flex;flex-wrap:wrap;gap:6px}
+.lk .lk-aba{border:1px solid var(--lk-linha,#C8D2DC);background:var(--lk-card,#fff);color:inherit;border-radius:999px;padding:4px 12px;min-height:36px;font-weight:600;cursor:pointer}
+.lk .lk-aba[aria-pressed="true"]{background:var(--lk-ink,#132536);color:var(--lk-card,#fff);border-color:var(--lk-ink,#132536)}
+.lk .lk-kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.lk .lk-kpi{background:var(--lk-card,#fff);border:1px solid var(--lk-linha,#DEE5EC);border-radius:10px;padding:8px 10px;min-width:0}
+.lk .lk-kpi b{display:block;font:700 17px var(--mono)} .lk .lk-kpi span{font-size:12px;opacity:.8}
+.lk .lk-rod{font-size:12px;opacity:.85}
+.lk .lk-btn{border:1px solid var(--lk-linha,#C8D2DC);background:var(--lk-card,#fff);color:inherit;border-radius:10px;padding:8px 12px;min-height:40px;font-weight:600;cursor:pointer;flex:1 1 140px}
+.lk.escuro{--lk-bg:#07111A; --lk-ink:#EEF3F7; --lk-card:#0E1A24; --lk-linha:#22323F; --lk-ouro:#F0B252}
+.lk.escuro .grafico{border-color:#22323F}
+
+/* app da loja */
+.app{display:grid;grid-template-columns:230px minmax(0,1fr);min-height:70vh;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#EDF0F4}
+.lado{background:var(--navy);color:#C9D5DF;padding:16px 12px}
+.marca{font-family:var(--display);font-weight:800;color:#fff;font-size:18px;padding:4px 8px 14px;letter-spacing:.02em}
+.lado ul{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.lado li{padding:8px 10px;border-radius:8px}
+.lado li.atual{background:rgba(232,168,69,.18);color:#fff;box-shadow:inset 3px 0 0 var(--gold);font-weight:600}
+.principal{min-width:0;container-type:inline-size;container-name:loja}
+.topo{background:#fff;border-bottom:1px solid var(--line);padding:10px 20px;display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;justify-content:space-between}
+.onde-app{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--gold-ink)}
+.corpo-app{padding:18px}
+.partes{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px;padding:0 0 12px;border-bottom:1px solid var(--line)}
+.parte{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:999px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink-2)}
+.parte[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.grupo-aj{font:700 12.5px var(--display);text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);margin:4px 0 2px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline}
+.grupo-aj span{font:500 12.5px var(--body);text-transform:none;letter-spacing:0}
+.aj{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 16px;align-items:center;padding:12px 10px;border-top:1px solid var(--line)}
+.aj.mudou{background:var(--gold-bg);box-shadow:inset 3px 0 0 var(--gold)}
+.aj .t{font-weight:600} .aj .d{font-size:13.5px;color:var(--ink-2)}
+.aj .ctrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end;min-width:0}
+.aj .ctrl select{border:1px solid var(--line-2);border-radius:8px;padding:6px 8px;min-height:40px;background:#fff;max-width:100%;min-width:0}
+.liga{position:relative;width:52px;height:30px;border-radius:999px;border:1px solid var(--line-2);background:var(--neutro-bg);cursor:pointer;flex:none;padding:0}
+.liga::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:left .15s}
+.liga[aria-checked="true"]{background:var(--ok);border-color:var(--ok)} .liga[aria-checked="true"]::after{left:25px}
+.liga[disabled]{opacity:.5;cursor:not-allowed}
+.estado-liga{font-size:13px;color:var(--ink-2);min-width:64px}
+@container loja (max-width: 620px){ .aj{grid-template-columns:minmax(0,1fr)} .aj .ctrl{justify-content:flex-start} }
+.barra-salvar{position:sticky;bottom:0;background:var(--navy);color:#fff;border-radius:12px 12px 0 0;padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;z-index:5;margin-top:12px}
+.barra-salvar .btn{border-color:#3C5568;background:transparent;color:#fff} .barra-salvar .btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.barra-salvar :focus-visible{outline-color:var(--d-azul)}
+.medidor{height:12px;border-radius:999px;background:var(--neutro-bg);overflow:hidden;margin:8px 0}
+.medidor span{display:block;height:100%;background:var(--navy);border-radius:999px}
+.usos{list-style:none;margin:8px 0 0;padding:0}
+.usos li{display:flex;flex-wrap:wrap;gap:4px 12px;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line)}
+.usos li:first-child{border-top:0}
+
+/* notas */
+.notas{max-width:1000px}
+.notas .cartao ul,.notas .cartao ol{margin:6px 0 0;padding-left:20px} .notas .cartao li{margin-bottom:6px}
+.decisao{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:10px 0 0}
+.decisao h3{font-size:15px;margin-bottom:6px}
+.decisao ol{margin:0;padding-left:20px} .decisao li{margin-bottom:4px}
+.rec{font:700 11px var(--display);background:var(--ok-bg);color:var(--ok);padding:1px 7px;border-radius:999px;letter-spacing:.03em;white-space:nowrap}
+.fases{width:100%;border-collapse:collapse;font-size:14px}
+.fases th{font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:8px;border-bottom:2px solid var(--line-2)}
+.fases td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+@container principal (max-width: 700px){
+  .fases thead{display:none} .fases,.fases tbody,.fases tr,.fases td{display:block;width:100%}
+  .fases tr{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px;background:#fff}
+  .fases td{border:0;padding:3px 0}
+  .fases td[data-rot]::before{content:attr(data-rot);display:block;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+}
+
+@media (max-width: 900px){
+  .app{grid-template-columns:minmax(0,1fr)} .lado{display:none}
+  .pagina{padding:14px} .topo{padding:10px 14px} .corpo-app{padding:14px}
+  .btn,.parte{min-height:44px}
+}
+@media (prefers-reduced-motion: reduce){ *{transition:none!important} }
+
+
+/* ── peças novas da v6 ── */
+.v6{font:700 10.5px var(--display);background:var(--gold-bg);color:var(--gold-ink);border:1px solid #F0D8A8;padding:1px 6px;border-radius:4px;letter-spacing:.05em;vertical-align:2px;white-space:nowrap}
+.trava{display:block;font-size:13px;color:#6F3410;background:var(--warn-bg);border-left:3px solid var(--warn);border-radius:4px;padding:4px 8px;margin:-1px -3px 6px}
+.regra-pt{display:block;background:#F3F6F8;border-radius:8px;padding:8px 10px;margin:6px -4px 4px;font-size:13.5px}
+.regra-pt b{font-family:var(--display);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#43586C;display:block;margin-bottom:2px}
+.link-wa{display:block;margin-top:6px;background:#fff;border:1px solid #D5DDE3;border-radius:8px;padding:6px 8px;text-align:center;color:#0B5CAD;font-weight:600;font-size:13.5px}
+.lista-num{margin:4px 0;padding-left:20px} .lista-num li{margin-bottom:2px}
+.f-cupom{background:#FFFEF8;padding:10px 12px;font:600 10px var(--mono);color:#3A3A3A;display:grid;gap:3px;min-height:128px}
+.f-cupom .lin{display:flex;justify-content:space-between;gap:8px} .f-cupom .tr{border-top:1px dashed #9AA;margin:2px 0}
+.f-planilha{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));font:600 10px var(--mono);background:#fff;min-height:110px}
+.f-planilha span{border:1px solid #DDE3E8;padding:3px 5px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.f-planilha span.h{background:#E8F1E8;font-weight:800}
+.bolha.com-foto{width:min(270px,84%)}
+.g-mini{display:block;width:100%;height:auto;background:#fff;border-radius:8px;margin:-3px -6px 6px;border:1px solid #D5DDE3}
+
+/* lista no modelo do Estoque */
+.lista-cab{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline;justify-content:space-between;margin-bottom:10px}
+.lista-cab h2{font-size:18px} .lista-cab h2 .mono{font-size:15px;color:var(--ink-2)}
+.situacoes{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.sit{background:#fff;border:1px solid var(--line-2);border-radius:999px;padding:5px 12px;min-height:36px;cursor:pointer;font-weight:600;color:var(--ink-2)}
+.sit[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.sit .mono{margin-left:4px}
+.busca{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.busca input,.busca select{border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;min-height:40px;background:#fff;min-width:0;flex:1 1 200px}
+.busca select{flex:0 1 200px}
+.linhas{display:grid;gap:8px}
+.linha{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 14px;align-items:start}
+.linha .t{font-weight:600} .linha .d{font-size:13.5px;color:var(--ink-2)}
+.linha .meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.linha .ac{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+.btn.peq{min-height:36px;padding:5px 10px;font-size:13.5px}
+.btn.perigo{color:var(--crit);border-color:#E9B8B8}
+@container loja (max-width: 560px){ .linha{grid-template-columns:minmax(0,1fr)} .linha .ac{justify-content:flex-start} }
+.vazio{border:1px dashed var(--line-2);border-radius:10px;padding:18px;text-align:center;color:var(--ink-2)}
+
+/* gaveta e diálogo */
+.fundo{position:fixed;inset:0;background:rgba(11,24,34,.45);z-index:40}
+.gaveta{position:fixed;top:0;right:0;bottom:0;width:min(460px,100%);background:#fff;z-index:41;display:flex;flex-direction:column;box-shadow:-8px 0 30px rgba(0,0,0,.18)}
+.gaveta-cab{display:flex;gap:10px;align-items:flex-start;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--line)}
+.gaveta-corpo{padding:16px 18px;overflow-y:auto;display:grid;gap:12px;align-content:start;min-height:0;flex:1}
+.gaveta-rod{padding:12px 18px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.campo{display:grid;gap:4px} .campo label,.campo .rot{font-weight:600;font-size:14px}
+.campo input,.campo select,.campo textarea{border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;min-height:40px;background:#fff;width:100%;min-width:0}
+.campo .ajuda{font-size:12.5px;color:var(--ink-2)}
+.fechar{background:transparent;border:1px solid var(--line-2);border-radius:10px;min-width:40px;min-height:40px;cursor:pointer;font-size:18px;line-height:1}
+.dialogo{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(460px,calc(100% - 32px));max-height:calc(100% - 32px);overflow-y:auto;background:#fff;border-radius:14px;z-index:43;padding:18px;box-shadow:0 20px 50px rgba(0,0,0,.25)}
+.fundo.alto{z-index:42}
+.dialogo h2{margin-bottom:8px}
+.dialogo .acoes{justify-content:flex-end;margin-top:14px}
+.lista-ok{margin:6px 0 0;padding-left:20px} .lista-ok li{margin-bottom:4px}
+
+/* console */
+.console .app{background:#0F1B25} .console .lado{background:#07111A}
+.console .principal{background:#EDF0F4}
+.tab-c{width:100%;border-collapse:collapse;font-size:14px;background:#fff;border-radius:10px;overflow:hidden}
+.tab-c th{font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:8px 10px;border-bottom:2px solid var(--line-2)}
+.tab-c td{padding:9px 10px;border-bottom:1px solid var(--line);overflow-wrap:anywhere;vertical-align:top}
+@container loja (max-width: 640px){
+  .tab-c thead{display:none} .tab-c,.tab-c tbody,.tab-c tr,.tab-c td{display:block;width:100%}
+  .tab-c tr{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:8px;background:#fff}
+  .tab-c td{border:0;padding:3px 0}
+  .tab-c td[data-rot]::before{content:attr(data-rot) " · ";font-weight:600;color:var(--ink-2)}
+}
+</style>
+</head>
+<body>
+<a class="pular" href="#conteudo">Pular para o conteúdo</a>
+<header class="proto">
+  <span class="titulo">Protótipo · Mister v6</span>
+  <nav class="abas" aria-label="Partes do protótipo">
+    <button class="aba" data-aba="seguranca" aria-pressed="true">Segurança</button>
+    <button class="aba" data-aba="regras" aria-pressed="false">Regras</button>
+    <button class="aba" data-aba="acoes" aria-pressed="false">Ações e apresentação</button>
+    <button class="aba" data-aba="loja" aria-pressed="false">Na loja</button>
+    <button class="aba" data-aba="console" aria-pressed="false">Console da DMS</button>
+    <button class="aba" data-aba="notas" aria-pressed="false">Notas e decisões</button>
+  </nav>
+  <span class="nota">Dados inventados. Nada aqui fala com o Regem.</span>
+</header>
+
+<div id="conteudo">
+
+<!-- ═════════════════════ SEGURANÇA ═════════════════════ -->
+<section class="vista ativa" id="v-seguranca" aria-label="Segurança">
+  <div class="pagina">
+    <div class="cab">
+      <h1>O telefone e a troca de celular <span class="v6">v6</span></h1>
+      <p class="sub">O Mister passa a reconhecer o APARELHO, não só o número. Se o WhatsApp mudar de aparelho, ele para de mostrar dados até a pessoa confirmar com o PIN. Para quem perdeu o celular, um botão desliga tudo de uma vez. Nada disso muda a conversa de quem está com o próprio celular.</p>
+    </div>
+    <div class="celulares">
+
+      <article class="caso">
+        <h3>1. O WhatsApp mudou de aparelho</h3>
+        <p class="sub">A Meta avisa que a identidade do aparelho mudou (celular novo, WhatsApp reinstalado, conta clonada). O Mister não responde dados até o PIN. <span class="fase">M6b · S1</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu">quanto vendeu hoje?<span class="hora">20:12</span></div>
+            <div class="bolha dele"><span class="trava">🔒 Este WhatsApp mudou de aparelho.</span>
+              Por segurança, antes de mostrar os dados da loja preciso que você confirme com o seu PIN do Regem. O link vale 15 minutos.
+              <span class="link-wa">Abrir no Regem</span><span class="hora">20:12</span></div>
+            <div class="toque">PIN confirmado na página do Regem</div>
+            <div class="bolha dele">Pronto, Ana. Este aparelho está confirmado. Hoje, até 20:12, a loja vendeu <b>R$ 3.418,50</b> em 71 pedidos.<span class="hora">20:13</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>2. Quem não sabe o PIN</h3>
+        <p class="sub">Depois de 5 PIN errados, o telefone é desligado do Mister e os presidentes são avisados. Ligar de novo é pelo código, dentro do Regem. <span class="fase">M6b</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="toque">5 PIN errados na página do link</div>
+            <div class="bolha dele">🔒 Este WhatsApp foi desligado do Mister: o PIN foi errado 5 vezes. Se for você, ligue de novo dentro do Regem, no menu Mister, em "Pessoas".<span class="hora">20:31</span></div>
+            <div class="bolha meu">me fala o faturamento<span class="hora">20:32</span></div>
+            <div class="bolha dele">Olá! Este é o Mister, o assistente de gestão do Regem. Ainda não sei quem você é. Para falar comigo, ligue o seu WhatsApp dentro do Regem, no menu Mister, em "Pessoas".<span class="hora">20:32</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>3. Celular novo com outro número</h3>
+        <p class="sub">A pessoa gera o código no Regem e manda do celular novo. O número antigo sai sozinho. <span class="fase">já existe · texto novo</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu">MISTER 482913<span class="hora">09:05</span></div>
+            <div class="bolha dele">Pronto, Ana! Este WhatsApp está ligado a você no Regem da Loja Centro. O número antigo (final <b class="mono">4321</b>) foi desligado do Mister.<br><br>Para parar os avisos, responda PARAR AVISOS.<span class="hora">09:05</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>4. Aviso aos presidentes</h3>
+        <p class="sub">Todo telefone ligado, religado ou com o aparelho trocado avisa os presidentes, no Mister e na tela da loja. <span class="fase">M6a · S4</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha dele">🔐 <b>Telefone ligado ao Mister</b><br>O WhatsApp final <b class="mono">7788</b> foi ligado agora, 14:22, ao <b>Carlos</b> (gerente · Loja Centro).<br><br>Se você não reconhece, toque em "Não reconheço": ele é desligado na hora.
+              <div class="botoes-wa"><span>Não reconheço</span></div><span class="hora">14:22</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>5. 60 dias sem conversa</h3>
+        <p class="sub">O vínculo vence sozinho. Quem escrever depois recebe o caminho para ligar de novo. <span class="fase">M6a · S3</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu">oi, como foi ontem?<span class="hora">10:40</span></div>
+            <div class="bolha dele">Este WhatsApp foi desligado do Mister por ficar 60 dias sem conversa, por segurança. Para voltar, gere um código dentro do Regem, no menu Mister, em "Pessoas", e mande aqui.<span class="hora">10:40</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>6. Sessão com PIN ligada</h3>
+        <p class="sub">Ajuste do presidente, que nasce desligado: valores e dados de pessoas pedem o PIN a cada 12 horas. <span class="fase">M6d · S2</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu">quanto deu o caixa do balcão?<span class="hora">18:02</span></div>
+            <div class="bolha dele"><span class="trava">🔒 Valores pedem o PIN a cada 12 horas nesta empresa.</span>Confirme pelo link e eu respondo em seguida.<span class="link-wa">Abrir no Regem</span><span class="hora">18:02</span></div>
+            <div class="toque">PIN confirmado</div>
+            <div class="bolha dele">O caixa do balcão está aberto desde 11:02 com <b>R$ 1.240,00</b> em vendas e uma sangria de R$ 300,00. Valores liberados até 06:02 de amanhã.<span class="hora">18:03</span></div>
+          </div></div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ REGRAS ═════════════════════ -->
+<section class="vista" id="v-regras" aria-label="Regras">
+  <div class="pagina">
+    <div class="cab">
+      <h1>As regras de cada pessoa <span class="v6">v6</span></h1>
+      <p class="sub">A instrução é livre: o Mister monta a regra com qualquer dado que ele lê (pedidos, cozinha, contas, tarefas, equipamentos, caixas, canais, vendas, estoque, equipe, cancelamentos, atendimento). Ele repete o que entendeu e só grava depois do "Confirmar". Os exemplos abaixo mostram o jeito, não são uma lista fechada.</p>
+    </div>
+    <div class="celulares">
+
+      <article class="caso">
+        <h3>1. Juntar os avisos de pedido parado</h3>
+        <p class="sub">A regra substitui, só para ela, o aviso um a um. O KDS e a tela continuam iguais. <span class="fase">M6e</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu">tô recebendo aviso demais de pedido parado. só me avisa quando tiver 3 pedidos com mais de 20 min sem ficar pronto, numa mensagem só. se for 1 não precisa<span class="hora">21:05</span></div>
+            <div class="bolha dele larga">Entendi assim:
+              <span class="regra-pt"><b>Vou te avisar quando</b>3 ou mais pedidos dos canais estiverem aceitos há mais de 20 min sem ficar prontos, numa mensagem só, com os números. Com 1 ou 2, não aviso.</span>
+              Os avisos de pedido parado um a um param de chegar para você. Confirma?
+              <div class="botoes-wa dois"><span>Confirmar</span><span>Mudar</span></div><span class="hora">21:05</span></div>
+            <div class="toque">Confirmar</div>
+            <div class="bolha dele">Pronto, regra ligada. Para ver ou apagar: "minhas regras".<span class="hora">21:05</span></div>
+            <div class="bolha dele">⏱ Pedidos <b>#22</b> (iFood 4821), <b>#24</b> (cardápio) e <b>#28</b> (99 3310) estão há mais de 20 min em produção.<span class="hora">21:41</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>2. Trocar o que observa</h3>
+        <p class="sub">Uma frase muda duas regras: apaga a de produção e cria a de despacho (do aceite até sair). <span class="fase">M6e</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu"><span class="audio" role="img" aria-label="Áudio de 11 segundos"><span class="play" aria-hidden="true">▶</span><span class="onda"></span><small>0:11</small></span><span class="hora">22:10</span></div>
+            <div class="bolha dele larga"><span class="entendi">🎧 <i>Entendi:</i> "não quero mais o tempo de produção, quero o de despacho, do aceite até sair; me avisa se algum passar de 30 minutos"</span>
+              Fica assim:
+              <span class="regra-pt"><b>Sai</b>Avisar com 3 ou mais pedidos há mais de 20 min em produção.</span>
+              <span class="regra-pt"><b>Entra</b>Avisar quando um pedido de entrega passar de 30 min entre o aceite e a saída. Cada pedido, uma vez.</span>
+              Confirma?
+              <div class="botoes-wa dois"><span>Confirmar</span><span>Mudar</span></div><span class="hora">22:10</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>3. Lembrar de um boleto</h3>
+        <p class="sub">A conta vence num dia, sem hora. O Mister pergunta a hora em vez de chutar. <span class="fase">M6e</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu">me lembra do boleto da Distribuidora Sul uma hora antes do vencimento<span class="hora">11:20</span></div>
+            <div class="bolha dele">Achei a conta <b>Distribuidora Sul · R$ 1.480,00</b>, que vence na <b>quarta, 25/11</b>. O vencimento é o dia todo: uma hora antes de que horário?<span class="hora">11:20</span></div>
+            <div class="bolha meu">17h<span class="hora">11:21</span></div>
+            <div class="bolha dele larga"><span class="regra-pt"><b>Vou te lembrar</b>Na quarta, 25/11, às 16:00, da conta Distribuidora Sul (R$ 1.480,00). Se ela for paga antes, não aviso.</span>Confirma?
+              <div class="botoes-wa dois"><span>Confirmar</span><span>Mudar</span></div><span class="hora">11:21</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>4. Uma tarefa que não pode faltar</h3>
+        <p class="sub">A tarefa não tem número no Regem: o Mister mostra as de hoje pela hora e pergunta qual. <span class="fase">M6e</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu">me avisa se a tarefa 5 não for feita<span class="hora">08:30</span></div>
+            <div class="bolha dele">As tarefas de hoje na Loja Centro, pela hora:
+              <ol class="lista-num"><li>08:00 Abrir o caixa</li><li>09:00 Conferir validades</li><li>10:30 Limpar a coifa</li><li>15:00 Contagem do freezer</li><li>17:30 Limpar a chapa</li><li>23:30 Fechar o caixa</li></ol>
+              É a 5, "Limpar a chapa"? Aviso se ela for marcada como não feita ou se passar 30 min do horário sem ser feita.
+              <div class="botoes-wa dois"><span>Confirmar</span><span>É outra</span></div><span class="hora">08:30</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>5. Com outro dado: as vendas</h3>
+        <p class="sub">A mesma máquina monta qualquer regra com o que o Mister lê. Aqui, a venda do dia. <span class="fase">M6e</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu">de terça a quinta, se às 20h a venda não tiver passado de 2 mil, me avisa<span class="hora">13:00</span></div>
+            <div class="bolha dele larga"><span class="regra-pt"><b>Vou te avisar</b>De terça a quinta, às 20:00, se a venda do dia (todas as lojas e canais) estiver abaixo de R$ 2.000,00, com o valor e a comparação com a mesma hora das 4 semanas anteriores.</span>Confirma?
+              <div class="botoes-wa dois"><span>Confirmar</span><span>Mudar</span></div><span class="hora">13:00</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>6. Apagar uma regra</h3>
+        <p class="sub">"Não quero mais…" apaga. Com dúvida, ele mostra a lista curta. <span class="fase">M6e</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu">não precisa mais avisar sobre tarefa não feita<span class="hora">16:10</span></div>
+            <div class="bolha dele">Você tem uma regra de tarefa: <b>"Limpar a chapa" não feita</b>. Apago?
+              <div class="botoes-wa dois"><span>Apagar</span><span>Deixar</span></div><span class="hora">16:10</span></div>
+            <div class="toque">Apagar</div>
+            <div class="bolha dele">Apagada. Você segue com 2 regras: pedidos no despacho acima de 30 min e o boleto da Distribuidora Sul.<span class="hora">16:10</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>7. Quando o dado não existe</h3>
+        <p class="sub">Ele não inventa: diz o que ainda não lê e anota para a DMS. <span class="fase">M6e · F5.2</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu">me avisa quando for chover<span class="hora">12:15</span></div>
+            <div class="bolha dele">Ainda não tenho a previsão do tempo, então não consigo montar essa regra. Anotei o pedido. Hoje eu monto regras com pedidos, cozinha, contas, tarefas, equipamentos, caixas, canais, vendas, estoque e equipe.<span class="hora">12:15</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>8. Um padrão que o Mister percebeu</h3>
+        <p class="sub">Toda noite o código cruza as paradas da impressora com o horário da loja. Avisa uma vez, com a causa provável e o que dá para fazer. <span class="fase">M6f</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha dele larga">🔎 <b>Percebi um padrão</b><br>A <b>impressora da cozinha</b> foi desligada antes do fechamento em <b>4 dos últimos 7 dias</b>, sempre entre 22:30 e 23:10. A loja fecha às 23:30. Parece que alguém desliga ao limpar a cozinha.<br><br>Posso:
+              <ul><li>escrever um recado para o mural;</li><li>te avisar na hora, se ela for desligada antes das 23:30.</li></ul>
+              <div class="botoes-wa"><span>Escrever o recado</span><span>Avisar na hora</span><span>Não, deixa assim</span></div><span class="hora">09:00</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>9. Avisos que ninguém olha</h3>
+        <p class="sub">Quando a pessoa não toca nem responde, o Mister sugere ajustar. Ele nunca muda uma regra sozinho. <span class="fase">M6f</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha dele">Ontem você recebeu <b>14 avisos</b> de pedido parado e não abriu nenhum. Quer que eu só avise quando forem 3 ou mais ao mesmo tempo, numa mensagem só?
+              <div class="botoes-wa dois"><span>Quero</span><span>Não, deixa assim</span></div><span class="hora">10:00</span></div>
+          </div></div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ AÇÕES E APRESENTAÇÃO ═════════════════════ -->
+<section class="vista" id="v-acoes" aria-label="Ações e apresentação">
+  <div class="pagina">
+    <div class="cab">
+      <h1>Fazer pelo WhatsApp, com segurança <span class="v6">v6</span></h1>
+      <p class="sub">O Mister faz pelo mesmo caminho da tela, com a confirmação do tamanho do risco: livre (o que é só da pessoa), botão (lista de compras, cupom, pausar) ou PIN (dinheiro, preço, horário, pessoas). Algumas coisas nunca saem pelo WhatsApp.</p>
+    </div>
+    <div class="celulares">
+
+      <article class="caso">
+        <h3>1. Lista de compras pela foto</h3>
+        <p class="sub">Cada linha acha o insumo do estoque; a dúvida vira botão; o que não existe pergunta. <span class="fase">M6g</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu com-foto"><span class="midia" role="img" aria-label="Foto de uma lista de compras escrita à mão"><span class="f-papel"><span>10 kg bacon</span><span>6 cx tomate</span><span>4 pct pão brioche</span><span>2 gal maionese</span><span>1 cx alho poró</span></span></span>faz o pedido disso<span class="hora">10:12</span></div>
+            <div class="bolha dele larga"><span class="entendi">📷 <i>Vi:</i> uma lista com 5 itens.</span>
+              <ul><li>✅ Bacon fatiado · <b>10 kg</b></li><li>✅ Tomate · <b>6 caixas</b> (18 kg)</li><li>✅ Pão brioche · <b>4 pacotes</b></li><li>❓ Maionese: a <b>da casa</b> ou a <b>Hellmann's 3 kg</b>?</li><li>⚠️ Alho-poró não está no estoque.</li></ul>
+              <div class="botoes-wa"><span>Maionese da casa</span><span>Hellmann's 3 kg</span><span>Deixar o alho-poró de fora</span></div><span class="hora">10:12</span></div>
+            <div class="toque">Hellmann's 3 kg · Deixar o alho-poró de fora</div>
+            <div class="bolha dele larga">Pedido para a <b>Distribuidora Sul</b> (fornecedor do bacon e do tomate), 4 itens, R$ 742,80 pelo último custo. Crio em Estoque › Pedidos?
+              <div class="botoes-wa dois"><span>Criar o pedido</span><span>Mudar</span></div><span class="hora">10:13</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>2. Lista de compras pela planilha</h3>
+        <p class="sub">A planilha é lida pelo leitor que o Regem já tem, sem IA. <span class="fase">M6g</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu"><span class="doc-msg"><span class="ico" style="background:var(--ok)">XLSX</span><span><b>compras-semana.xlsx</b><small>14 linhas · 9 KB</small></span></span><span class="hora">08:44</span></div>
+            <div class="bolha dele larga">Li 14 linhas: <b>12</b> achei no estoque, <b>1</b> tem duas marcas (escolha abaixo) e <b>1</b> não existe ("guardanapo kraft"). Pela regra do mínimo, faltariam também <b>Cebola roxa</b> e <b>Cheddar</b>: entram?
+              <div class="botoes-wa"><span>Incluir os 2 do mínimo</span><span>Só a planilha</span><span>Ver a lista</span></div><span class="hora">08:45</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>3. Cupom fiscal: como deseja lançar?</h3>
+        <p class="sub">O código confere a chave (modelo 65) e a soma dos itens antes de perguntar. <span class="fase">M6h</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu com-foto"><span class="midia" role="img" aria-label="Foto de um cupom fiscal de atacadista"><span class="f-cupom"><span>ATACADÃO EXEMPLO LTDA</span><span>CNPJ 98.765.432/0001-10</span><span class="tr"></span><span class="lin"><span>QUEIJO MUCARELA KG</span><span>4,2 x 38,90</span></span><span class="lin"><span>OLEO SOJA 900ML</span><span>12 x 7,49</span></span><span class="lin"><span>SACO LIXO 100L</span><span>2 x 21,90</span></span><span class="tr"></span><span class="lin"><span>TOTAL</span><span>R$ 297,06</span></span><span>PIX · NFC-e 001.234</span></span></span><span class="hora">16:02</span></div>
+            <div class="bolha dele larga"><span class="entendi">🧾 <i>Li:</i> cupom fiscal do Atacadão Exemplo, hoje 15:48, 3 itens, <b>R$ 297,06</b> no Pix. A chave confere e a soma bate.</span>
+              Como deseja lançar?
+              <div class="botoes-wa"><span>Só despesa</span><span>Estoque e despesa</span><span>Não lançar</span></div><span class="hora">16:02</span></div>
+            <div class="toque">Estoque e despesa</div>
+            <div class="bolha dele larga">Lançado:
+              <ul><li>Entrada no estoque: Muçarela <b>4,2 kg</b>, Óleo de soja <b>12 un</b>. O saco de lixo ficou fora do estoque (como da outra vez).</li><li>Conta paga: <b>Compra · Atacadão Exemplo</b>, R$ 297,06, Pix, hoje.</li></ul>
+              <div class="botoes-wa"><span>Desfazer a conta</span></div><span class="hora">16:03</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>4. "Não entendi, não gostei"</h3>
+        <p class="sub">O gráfico é refeito com os MESMOS dados, mais simples: uma mensagem no título e o destaque no que importa. <span class="fase">M6i</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha dele"><svg class="g-mini" viewBox="0 0 320 170" role="img" aria-label="Gráfico de colunas das vendas de cada dia da semana, com a semana anterior ao lado"><text x="12" y="20" class="g-tit" style="font-size:12px">Vendas por dia · 12 a 18/11 × semana anterior</text>
+              <g><rect x="22" y="70" width="10" height="80" class="g-ant"/><rect x="33" y="62" width="10" height="88" class="g-barra"/><rect x="62" y="40" width="10" height="110" class="g-ant"/><rect x="73" y="30" width="10" height="120" class="g-barra"/><rect x="102" y="32" width="10" height="118" class="g-ant"/><rect x="113" y="24" width="10" height="126" class="g-dest"/><rect x="142" y="60" width="10" height="90" class="g-ant"/><rect x="153" y="56" width="10" height="94" class="g-barra"/><rect x="182" y="110" width="10" height="40" class="g-ant"/><rect x="193" y="106" width="10" height="44" class="g-barra"/><rect x="222" y="108" width="10" height="42" class="g-ant"/><rect x="233" y="104" width="10" height="46" class="g-barra"/><rect x="262" y="112" width="10" height="38" class="g-ant"/><rect x="273" y="90" width="10" height="60" class="g-barra"/></g>
+              <line x1="14" x2="306" y1="150" y2="150" class="g-eixo"/><text x="32" y="164" class="g-rot2" text-anchor="middle">Qui</text><text x="72" y="164" class="g-rot2" text-anchor="middle">Sex</text><text x="112" y="164" class="g-rot2" text-anchor="middle">Sáb</text><text x="152" y="164" class="g-rot2" text-anchor="middle">Dom</text><text x="192" y="164" class="g-rot2" text-anchor="middle">Seg</text><text x="232" y="164" class="g-rot2" text-anchor="middle">Ter</text><text x="272" y="164" class="g-rot2" text-anchor="middle">Qua</text></svg>
+              Na semana a loja vendeu <b>R$ 38.420</b>, 12% a mais que na anterior.<span class="hora">09:10</span></div>
+            <div class="bolha meu">não entendi esse gráfico, não gostei<span class="hora">09:11</span></div>
+            <div class="bolha dele"><svg class="g-mini" viewBox="0 0 320 196" role="img" aria-label="Barras dos dias da semana em ordem, com o sábado em destaque como o melhor dia"><text x="12" y="20" class="g-tit" style="font-size:12.5px">Sábado foi o melhor dia: R$ 8.640</text><text x="12" y="36" class="g-sub" style="font-size:10.5px">Vendas de 12 a 18/11 · do maior para o menor</text>
+              <text x="12" y="58" class="g-nome">Sábado</text><rect x="70" y="48" width="200" height="14" rx="3" class="g-dest"/><text x="276" y="59" class="g-num">8.640</text>
+              <text x="12" y="80" class="g-nome">Sexta</text><rect x="70" y="70" width="185" height="14" rx="3" class="g-barra"/><text x="261" y="81" class="g-num">7.980</text>
+              <text x="12" y="102" class="g-nome">Domingo</text><rect x="70" y="92" width="144" height="14" rx="3" class="g-barra"/><text x="220" y="103" class="g-num">6.210</text>
+              <text x="12" y="124" class="g-nome">Quinta</text><rect x="70" y="114" width="125" height="14" rx="3" class="g-barra"/><text x="201" y="125" class="g-num">5.420</text>
+              <text x="12" y="146" class="g-nome">Quarta</text><rect x="70" y="136" width="96" height="14" rx="3" class="g-barra"/><text x="172" y="147" class="g-num">4.130</text>
+              <text x="12" y="168" class="g-nome">Terça</text><rect x="70" y="158" width="73" height="14" rx="3" class="g-barra"/><text x="149" y="169" class="g-num">3.150</text>
+              <text x="12" y="190" class="g-nome">Segunda</text><rect x="70" y="180" width="67" height="14" rx="3" class="g-barra"/><text x="143" y="191" class="g-num">2.890</text></svg>
+              Refiz mais simples: os dias do maior para o menor. Sexta e sábado fazem 43% da semana.<span class="hora">09:11</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>5. "Como faço" e "quer que eu faça?"</h3>
+        <p class="sub">O caminho com a imagem da tela (já existe) e, quando a ação existe, a oferta de fazer, com o PIN. <span class="fase">M6k · M6j</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu">como mudo o horário do domingo?<span class="hora">15:30</span></div>
+            <div class="bolha dele"><span class="midia" role="img" aria-label="Imagem da tela de horário da loja com o domingo marcado"><span class="f-tela"><span class="l"><span>Painel</span><span>Delivery</span><span>Config.</span></span><span class="c"><span class="alerta" style="background:#FFF4DE;color:#7A5209;border-color:#F0D8A8">① Domingo · 18:00 às 23:30</span><span class="cinza"></span><span class="cinza c2"></span></span></span></span>
+              Em <b>Delivery › Configurações › Horário</b>, na linha do domingo (①), mude o horário e toque em "Salvar".<br><br>Quer que eu mude por aqui? Diga o horário novo; peço o seu PIN antes.<span class="hora">15:30</span></div>
+            <div class="bolha meu">abre às 17h<span class="hora">15:31</span></div>
+            <div class="bolha dele">Domingo passa a <b>17:00 às 23:30</b> no cardápio digital (o iFood e a 99 seguem o horário de lá). Confirme com o PIN:<span class="link-wa">Abrir no Regem</span><span class="hora">15:31</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>6. O que nunca sai pelo WhatsApp</h3>
+        <p class="sub">Dados de cliente, permissões, senhas e chaves: ele explica o caminho da tela. <span class="fase">M6a</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu">me manda a lista dos clientes com telefone<span class="hora">17:02</span></div>
+            <div class="bolha dele">A lista de clientes com telefone não sai pelo WhatsApp: é dado pessoal deles. No Regem ela fica em <b>Delivery › Clientes</b>, e exportar pede a permissão "Exportar clientes". Posso te dizer números: quantos clientes novos, quantos voltaram, quem sumiu há 30 dias.<span class="hora">17:02</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>7. Uma imagem criada pela IA</h3>
+        <p class="sub">Só para o que não é número (cartaz, post). O Mister mostra o pedido completo antes de gerar. Nasce desligado, com o preço ao lado. <span class="fase">M6l</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu">faz um cartaz da promoção de terça: smash duplo + batata por 29,90<span class="hora">11:00</span></div>
+            <div class="bolha dele larga">Vou pedir assim:
+              <span class="regra-pt"><b>O pedido</b>Cartaz vertical (9:16) para o Instagram da Loja Centro. Foto apetitosa de um smash duplo com batata rústica, fundo escuro, luz quente. Texto exato, grande: "TERÇA DO SMASH" e "Smash duplo + batata · R$ 29,90". Cores da marca: dourado e azul-marinho. Sem outras palavras.</span>
+              Gero assim? Usa 1 da franquia de imagens do mês.
+              <div class="botoes-wa dois"><span>Gerar</span><span>Mudar</span></div><span class="hora">11:00</span></div>
+          </div></div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ NA LOJA ═════════════════════ -->
+<section class="vista" id="v-loja" aria-label="Na loja">
+  <div class="pagina">
+    <div class="cab">
+      <h1>Mister na loja: pessoas, regras e segurança <span class="v6">v6</span></h1>
+      <p class="sub">Em Mister › Pessoas entra "Perdi o celular" e a situação do aparelho. A parte nova "Regras" mostra o que cada um pediu, no modelo de lista do Estoque. Em "Segurança" ficam a sessão com PIN e o vencimento do vínculo.</p>
+    </div>
+    <div class="app">
+      <nav class="lado" aria-label="Menu do aplicativo">
+        <div class="marca">Regem</div>
+        <ul><li>Painel</li><li>Delivery</li><li>Balcão</li><li>Estoque</li><li>Financeiro</li><li>Pessoas</li><li class="atual">Mister</li><li>Configurações</li></ul>
+      </nav>
+      <div class="principal">
+        <div class="topo"><span class="onde-app">Mister</span><span class="peq sub">Ana · presidente</span></div>
+        <div class="corpo-app">
+          <div class="partes" role="group" aria-label="Partes do Mister">
+            <button class="parte" data-parte="pessoas" aria-pressed="true">Pessoas</button>
+            <button class="parte" data-parte="regras" aria-pressed="false">Regras</button>
+            <button class="parte" data-parte="seg" aria-pressed="false">Segurança</button>
+          </div>
+
+          <div data-p="pessoas">
+            <div class="lista-cab"><h2>Pessoas <span class="mono">· 4</span></h2><span class="peq sub">Quem fala com o Mister nesta empresa</span></div>
+            <div class="linhas">
+              <div class="linha"><div><div class="t">Ana Souza <span class="selo info">você</span></div><div class="d">Presidente · todas as lojas · WhatsApp final <span class="mono">4410</span>, ligado em 12/11</div><div class="meta"><span class="selo ok">aparelho confirmado</span></div></div>
+                <div class="ac"><button class="btn peq perigo" data-abrir="perdi" data-quem="Ana Souza">Perdi o celular</button><button class="btn peq">Desligar</button></div></div>
+              <div class="linha"><div><div class="t">Carlos Lima</div><div class="d">Gerente · Loja Centro · WhatsApp final <span class="mono">7788</span>, ligado hoje 14:22</div><div class="meta"><span class="selo warn">aparelho trocado · espera o PIN</span></div></div>
+                <div class="ac"><button class="btn peq perigo" data-abrir="perdi" data-quem="Carlos Lima">Perdi o celular</button><button class="btn peq">Desligar</button></div></div>
+              <div class="linha"><div><div class="t">Bruna Reis</div><div class="d">Gerente · Loja Norte · desligado em 02/11</div><div class="meta"><span class="selo neutro">60 dias sem conversa</span></div></div>
+                <div class="ac"><span class="peq sub">Ela liga de novo pelo código</span></div></div>
+              <div class="linha"><div><div class="t">Diego Alves</div><div class="d">Gerente · Loja Norte · ainda não ligou</div></div>
+                <div class="ac"><span class="peq sub">—</span></div></div>
+            </div>
+            <p class="peq sub" style="margin-top:10px">"Perdi o celular" desliga o WhatsApp do Mister e encerra todas as sessões do Regem da pessoa, em todos os aparelhos. Cada um pode no próprio; o presidente, em qualquer um.</p>
+          </div>
+
+          <div data-p="regras" hidden>
+            <div class="lista-cab"><h2>Regras <span class="mono" id="r-conta">· 5</span></h2><span class="peq sub">Cada pessoa cria as dela pela conversa</span></div>
+            <div class="situacoes" role="group" aria-label="Situação das regras">
+              <button class="sit" data-sit="todas" aria-pressed="true">Todas <span class="mono">5</span></button>
+              <button class="sit" data-sit="ativa" aria-pressed="false">Ativas <span class="mono">4</span></button>
+              <button class="sit" data-sit="pausada" aria-pressed="false">Pausadas <span class="mono">1</span></button>
+            </div>
+            <div class="busca">
+              <label class="sr" for="r-busca">Buscar regra</label><input id="r-busca" type="search" placeholder="Buscar regra" autocomplete="off">
+              <label class="sr" for="r-pessoa">Pessoa</label><select id="r-pessoa"><option value="">Todas as pessoas</option><option>Ana Souza</option><option>Carlos Lima</option></select>
+            </div>
+            <div class="linhas" id="r-linhas"></div>
+            <div class="vazio" id="r-vazio" hidden>Nenhuma regra com esse filtro.</div>
+          </div>
+
+          <div data-p="seg" hidden>
+            <div class="cartao">
+              <p class="grupo-aj">Segurança <span>· só o presidente muda</span></p>
+              <div class="aj">
+                <div><div class="t" id="t-sessao">Pedir o PIN para valores e dados de pessoas <span class="v6">v6</span></div><div class="d">Valores em reais, dados de pessoas e ações de botão pedem o PIN pelo link. Depois do PIN, vale pelo tempo escolhido. Recomendado se o WhatsApp fica aberto em algum computador da loja.</div></div>
+                <div class="ctrl"><label class="sr" for="s-tempo">De quanto em quanto tempo</label><select id="s-tempo"><option>a cada 6 horas</option><option selected>a cada 12 horas</option><option>a cada 24 horas</option></select><span class="estado-liga" id="e-sessao">Desligado</span><button class="liga" role="switch" aria-checked="false" aria-labelledby="t-sessao" data-liga="sessao"></button></div>
+              </div>
+              <div class="aj">
+                <div><div class="t">Aparelho trocado pede o PIN <span class="v6">v6</span></div><div class="d">Sempre ligado. Se o WhatsApp de alguém mudar de aparelho, o Mister para de mostrar dados até o PIN. Na conexão por QR Code (sem a identificação do aparelho), os valores pedem sempre o PIN.</div></div>
+                <div class="ctrl"><span class="selo ok">sempre ligado</span></div>
+              </div>
+              <div class="aj">
+                <div><div class="t">Desligar quem fica 60 dias sem conversa <span class="v6">v6</span></div><div class="d">O WhatsApp de quem não fala com o Mister há 60 dias é desligado, com aviso na tela. Para voltar, a pessoa gera o código de novo.</div></div>
+                <div class="ctrl"><span class="selo ok">sempre ligado</span></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ CONSOLE DA DMS ═════════════════════ -->
+<section class="vista console" id="v-console" aria-label="Console da DMS">
+  <div class="pagina">
+    <div class="cab">
+      <h1>Console da DMS › Mister › Pessoas <span class="v6">v6</span></h1>
+      <p class="sub">Para quando ninguém da empresa consegue entrar no Regem (não existe "esqueci a senha"): a Diretoria desliga o WhatsApp do Mister de uma pessoa, com o motivo na auditoria. O console vê só o final do número.</p>
+    </div>
+    <div class="app">
+      <nav class="lado" aria-label="Menu do console"><div class="marca">DMS</div><ul><li>Empresas</li><li>Avisos</li><li>Dependências</li><li class="atual">Mister</li></ul></nav>
+      <div class="principal">
+        <div class="topo"><span class="onde-app">Mister · Pessoas</span><span class="peq sub">Diretoria</span></div>
+        <div class="corpo-app">
+          <div class="busca"><label class="sr" for="c-empresa">Empresa</label><input id="c-empresa" type="search" value="Loja Centro Ltda" autocomplete="off"></div>
+          <table class="tab-c"><caption class="sr">Telefones ligados ao Mister na empresa</caption>
+            <thead><tr><th>Pessoa</th><th>Nível</th><th>WhatsApp</th><th>Situação</th><th>Ação</th></tr></thead>
+            <tbody>
+              <tr><td data-rot="Pessoa">Ana Souza</td><td data-rot="Nível">presidente</td><td data-rot="WhatsApp" class="mono">final 4410</td><td data-rot="Situação"><span class="selo ok">ligado</span></td><td data-rot="Ação"><button class="btn peq perigo" data-abrir="console" data-quem="Ana Souza">Desligar</button></td></tr>
+              <tr><td data-rot="Pessoa">Carlos Lima</td><td data-rot="Nível">gerente</td><td data-rot="WhatsApp" class="mono">final 7788</td><td data-rot="Situação"><span class="selo warn">espera o PIN</span></td><td data-rot="Ação"><button class="btn peq perigo" data-abrir="console" data-quem="Carlos Lima">Desligar</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ NOTAS ═════════════════════ -->
+<section class="vista" id="v-notas" aria-label="Notas e decisões">
+  <div class="pagina notas">
+    <div class="cab"><h1>Notas e decisões</h1><p class="sub">O plano foi aprovado em 20/11 com as recomendadas; elas estão marcadas. O protótipo mostra como cada uma fica na tela e na conversa.</p></div>
+    <div class="cartao">
+      <h2>As 12 decisões</h2>
+      <div class="decisao"><h3>V6-1 · Aparelho trocado</h3><ol><li>Bloquear os dados até o PIN <span class="rec">aprovada</span></li><li>Só avisar o presidente</li></ol></div>
+      <div class="decisao"><h3>V6-2 · Conexão por QR Code (sem a identificação do aparelho)</h3><ol><li>Os valores pedem sempre o PIN <span class="rec">aprovada</span></li><li>Aceitar o risco como hoje</li></ol></div>
+      <div class="decisao"><h3>V6-3 · Vencimento do vínculo</h3><ol><li>60 dias sem conversa <span class="rec">aprovada</span></li><li>30 dias</li><li>90 dias</li></ol></div>
+      <div class="decisao"><h3>V6-4 · Sessão com PIN</h3><ol><li>Nasce desligada, a cada 12 horas <span class="rec">aprovada</span></li><li>Nasce ligada</li></ol></div>
+      <div class="decisao"><h3>V6-5 · Quem vê as regras</h3><ol><li>O presidente vê e apaga as de todos; o gerente, só as dele <span class="rec">aprovada</span></li><li>Cada um só as suas</li></ol></div>
+      <div class="decisao"><h3>V6-6 · Calar o aviso da empresa</h3><ol><li>A regra tira da própria pessoa o aviso pelo WhatsApp, menos os críticos (servidor sem sinal com pedido esperando, certificado, chave de IA parada), que podem ser agrupados mas não calados <span class="rec">aprovada</span></li><li>Tudo pode ser calado</li></ol></div>
+      <div class="decisao"><h3>V6-7 · Teto</h3><ol><li>30 regras por pessoa <span class="rec">aprovada</span></li></ol></div>
+      <div class="decisao"><h3>V6-8 · Cupom fiscal</h3><ol><li>"Só despesa", "Estoque e despesa" e "Não lançar"; a entrada no estoque não se desfaz pela conversa, como na nota <span class="rec">aprovada</span></li></ol></div>
+      <div class="decisao"><h3>V6-9 · Ações</h3><ol><li>Livre, botão ou PIN, e a lista do "nunca pelo Mister" <span class="rec">aprovada</span></li></ol></div>
+      <div class="decisao"><h3>V6-10 · Gráficos</h3><ol><li>O código desenha; a IA escolhe a apresentação <span class="rec">aprovada</span></li><li>A IA desenha pelo ambiente de código do provedor</li></ol></div>
+      <div class="decisao"><h3>V6-11 · Imagem e vídeo</h3><ol><li>Pelo DMS Graph, nascendo desligados (o dono deu o "pode" em 20/11) <span class="rec">aprovada</span></li></ol></div>
+      <div class="decisao"><h3>V6-12 · Padrões</h3><ol><li>Avisar uma vez por padrão; "Não, deixa assim" cala por 30 dias <span class="rec">aprovada</span></li></ol></div>
+    </div>
+    <div class="cartao">
+      <h2>Fases</h2>
+      <table class="fases"><caption class="sr">Fases da versão 6</caption>
+        <thead><tr><th>Fase</th><th>O que entra</th><th>Migration</th></tr></thead>
+        <tbody>
+          <tr><td data-rot="Fase">M6.0</td><td data-rot="O que entra">Este protótipo</td><td data-rot="Migration">não</td></tr>
+          <tr><td data-rot="Fase">M6a</td><td data-rot="O que entra">Vínculo que vence, aviso de ligação, desligar pelo console, o "nunca pelo Mister"</td><td data-rot="Migration">não</td></tr>
+          <tr><td data-rot="Fase">M6e</td><td data-rot="O que entra">Regras: a linguagem, o motor, as fontes, criar, mudar e apagar pela conversa</td><td data-rot="Migration">469</td></tr>
+          <tr><td data-rot="Fase">M6b</td><td data-rot="O que entra">Identidade do aparelho, depois da conferência com o celular do dono</td><td data-rot="Migration">467</td></tr>
+          <tr><td data-rot="Fase">M6c</td><td data-rot="O que entra">"Perdi o celular" e as sessões por pessoa (vai no pacote da loja)</td><td data-rot="Migration">468</td></tr>
+          <tr><td data-rot="Fase">M6h</td><td data-rot="O que entra">Cupom fiscal</td><td data-rot="Migration">471 (o dono aplica)</td></tr>
+          <tr><td data-rot="Fase">M6g · M6i</td><td data-rot="O que entra">Lista de compras; gráficos refeitos</td><td data-rot="Migration">não</td></tr>
+          <tr><td data-rot="Fase">M6f · M6d</td><td data-rot="O que entra">Tela Regras com padrões e sugestões; sessão com PIN</td><td data-rot="Migration">470 · na 467</td></tr>
+          <tr><td data-rot="Fase">M6j · M6k · M6l</td><td data-rot="O que entra">Ações por módulo; guia completo; imagem e vídeo</td><td data-rot="Migration">por lote</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<!-- gaveta e diálogos -->
+<div class="fundo" id="fundo-g" hidden></div>
+<aside class="gaveta" id="gaveta" role="dialog" aria-modal="true" aria-labelledby="g-titulo" hidden>
+  <div class="gaveta-cab"><div><h2 id="g-titulo">Mudar a regra</h2><p class="peq sub" id="g-de">de Ana Souza</p></div><button class="fechar" data-fechar="gaveta" aria-label="Fechar">×</button></div>
+  <div class="gaveta-corpo">
+    <div class="campo"><span class="rot">O que a pessoa pediu</span><p class="sub" id="g-frase">—</p></div>
+    <div class="campo"><label for="g-fonte">Fonte</label><select id="g-fonte"><option>Pedidos dos canais</option><option>Cozinha (KDS)</option><option>Contas a pagar</option><option>Tarefas do dia</option><option>Equipamentos</option><option>Caixas</option><option>Canais</option><option>Vendas</option><option>Estoque</option><option>Equipe</option></select></div>
+    <div class="campo"><label for="g-filtro">Filtro</label><input id="g-filtro" autocomplete="off"><span class="ajuda">Quais itens: campo, comparação e valor.</span></div>
+    <div class="campo"><label for="g-condicao">Condição</label><input id="g-condicao" autocomplete="off"><span class="ajuda">Quando dispara.</span></div>
+    <div class="campo"><label for="g-quando">Quando olhar</label><input id="g-quando" autocomplete="off"></div>
+    <div class="campo"><label for="g-aviso">Como avisar</label><input id="g-aviso" autocomplete="off"></div>
+  </div>
+  <div class="gaveta-rod"><button class="btn" data-fechar="gaveta">Cancelar</button><button class="btn pri" data-fechar="gaveta">Salvar a regra</button></div>
+</aside>
+
+<div class="fundo alto" id="fundo-d" hidden></div>
+<div class="dialogo" id="d-perdi" role="dialog" aria-modal="true" aria-labelledby="d-perdi-t" hidden>
+  <h2 id="d-perdi-t">Perdi o celular</h2>
+  <p>Para <b class="d-quem">Ana Souza</b>, isto faz agora:</p>
+  <ul class="lista-ok"><li>desliga o WhatsApp dela do Mister (os avisos param);</li><li>encerra todas as sessões do Regem dela, em todos os aparelhos;</li><li>avisa os presidentes e fica na auditoria.</li></ul>
+  <p class="peq sub" style="margin-top:8px">Para voltar: entrar no Regem com a senha e ligar o WhatsApp de novo pelo código.</p>
+  <div class="acoes"><button class="btn" data-fechar="dialogo">Cancelar</button><button class="btn pri" data-fechar="dialogo">Desligar tudo</button></div>
+</div>
+<div class="dialogo" id="d-console" role="dialog" aria-modal="true" aria-labelledby="d-console-t" hidden>
+  <h2 id="d-console-t">Desligar do Mister</h2>
+  <p>O WhatsApp de <b class="d-quem">Ana Souza</b> deixa de falar com o Mister. Os presidentes da empresa são avisados na tela.</p>
+  <div class="campo"><label for="d-motivo">Motivo (vai para a auditoria)</label><textarea id="d-motivo" rows="3" placeholder="Ex.: presidente sem acesso ao Regem informou a perda do celular por telefone"></textarea></div>
+  <div class="acoes"><button class="btn" data-fechar="dialogo">Cancelar</button><button class="btn pri" data-fechar="dialogo">Desligar</button></div>
+</div>
+
+<script>
+(function(){
+  // abas do protótipo
+  const abas = document.querySelectorAll('.aba');
+  abas.forEach((b) => b.addEventListener('click', () => {
+    abas.forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    document.querySelectorAll('.vista').forEach((v) => v.classList.toggle('ativa', v.id === 'v-' + b.dataset.aba));
+    window.scrollTo(0, 0);
+  }));
+  // partes do Mister na loja
+  const partes = document.querySelectorAll('.parte');
+  partes.forEach((b) => b.addEventListener('click', () => {
+    partes.forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    document.querySelectorAll('[data-p]').forEach((p) => { p.hidden = p.dataset.p !== b.dataset.parte; });
+  }));
+  // a chave da sessão com PIN
+  document.querySelectorAll('[data-liga]').forEach((b) => b.addEventListener('click', () => {
+    const v = b.getAttribute('aria-checked') !== 'true';
+    b.setAttribute('aria-checked', String(v));
+    const e = document.getElementById('e-' + b.dataset.liga); if (e) e.textContent = v ? 'Ligado' : 'Desligado';
+  }));
+
+  // regras (dados inventados)
+  const REGRAS = [
+    { de: 'Ana Souza', sit: 'ativa', t: 'Despacho acima de 30 min', d: 'Pedidos de entrega com mais de 30 min entre o aceite e a saída. Cada pedido, uma vez.', fonte: 'Pedidos dos canais', filtro: 'tipo = entrega e do aceite à saída > 30 min', cond: 'qualquer pedido', quando: 'sempre', aviso: 'um aviso por pedido', frase: 'não quero mais o tempo de produção, quero o de despacho… se algum passar de 30 minutos', ult: 'avisou hoje 21:52' },
+    { de: 'Ana Souza', sit: 'ativa', t: 'Boleto Distribuidora Sul', d: 'Quarta, 25/11, às 16:00, se ainda não estiver pago.', fonte: 'Contas a pagar', filtro: 'a conta Distribuidora Sul (R$ 1.480,00)', cond: 'vencimento às 17:00 menos 1 hora', quando: 'uma vez', aviso: 'lembrete com o valor e a linha digitável', frase: 'me lembra do boleto da Distribuidora Sul uma hora antes do vencimento', ult: 'ainda não avisou' },
+    { de: 'Ana Souza', sit: 'ativa', t: 'Venda abaixo de R$ 2.000 às 20h', d: 'De terça a quinta, às 20:00, com a comparação das 4 semanas.', fonte: 'Vendas', filtro: 'todas as lojas e canais', cond: 'total do dia < R$ 2.000,00', quando: 'ter a qui, às 20:00', aviso: 'o valor e a comparação', frase: 'de terça a quinta, se às 20h a venda não tiver passado de 2 mil, me avisa', ult: 'avisou quinta 20:00' },
+    { de: 'Carlos Lima', sit: 'ativa', t: 'Impressora da cozinha antes do fechamento', d: 'Avisa na hora se ela parar antes das 23:30.', fonte: 'Equipamentos', filtro: 'impressora da cozinha parada', cond: 'dentro do horário da loja', quando: 'no expediente', aviso: 'na hora, uma vez por dia', frase: 'avisar na hora (sugestão do padrão)', ult: 'avisou terça 22:41' },
+    { de: 'Carlos Lima', sit: 'pausada', t: '3 pedidos há mais de 20 min em produção', d: 'Uma mensagem com os números quando forem 3 ou mais.', fonte: 'Pedidos dos canais', filtro: 'situação = em preparo e desde o aceite > 20 min', cond: 'quantidade ≥ 3', quando: 'sempre', aviso: 'uma mensagem com a lista', frase: 'só me avisa quando tiver 3 pedidos com mais de 20 min…', ult: 'pausada por Carlos em 18/11' },
+  ];
+  let sit = 'todas';
+  const linhas = document.getElementById('r-linhas');
+  const esc = (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  function desenhar() {
+    const busca = document.getElementById('r-busca').value.trim().toLowerCase();
+    const pessoa = document.getElementById('r-pessoa').value;
+    const vis = REGRAS.map((r, i) => ({ r, i })).filter(({ r }) => (sit === 'todas' || r.sit === sit) && (!pessoa || r.de === pessoa) && (!busca || (r.t + ' ' + r.d).toLowerCase().includes(busca)));
+    linhas.innerHTML = vis.map(({ r, i }) => `<div class="linha"><div><div class="t">${esc(r.t)}</div><div class="d">${esc(r.d)}</div><div class="meta"><span class="selo ${r.sit === 'ativa' ? 'ok' : 'neutro'}">${r.sit}</span><span class="selo info">${esc(r.fonte)}</span><span class="selo neutro">${esc(r.de)}</span><span class="peq sub">${esc(r.ult)}</span></div></div><div class="ac"><button class="btn peq" data-mudar="${i}">Mudar</button><button class="btn peq">${r.sit === 'ativa' ? 'Pausar' : 'Retomar'}</button><button class="btn peq perigo">Apagar</button></div></div>`).join('');
+    document.getElementById('r-vazio').hidden = vis.length > 0;
+    linhas.querySelectorAll('[data-mudar]').forEach((b) => b.addEventListener('click', () => abrirGaveta(REGRAS[Number(b.dataset.mudar)], b)));
+  }
+  document.querySelectorAll('.sit').forEach((b) => b.addEventListener('click', () => {
+    sit = b.dataset.sit; document.querySelectorAll('.sit').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); desenhar();
+  }));
+  document.getElementById('r-busca').addEventListener('input', desenhar);
+  document.getElementById('r-pessoa').addEventListener('change', desenhar);
+
+  // gaveta e diálogos, com a pilha (Esc fecha só o de cima)
+  const pilha = [];
+  let voltarPara = null;
+  function abrirGaveta(r, origem) {
+    voltarPara = origem;
+    document.getElementById('g-de').textContent = 'de ' + r.de;
+    document.getElementById('g-frase').textContent = '"' + r.frase + '"';
+    document.getElementById('g-fonte').value = r.fonte;
+    document.getElementById('g-filtro').value = r.filtro;
+    document.getElementById('g-condicao').value = r.cond;
+    document.getElementById('g-quando').value = r.quando;
+    document.getElementById('g-aviso').value = r.aviso;
+    document.getElementById('fundo-g').hidden = false; document.getElementById('gaveta').hidden = false;
+    pilha.push('gaveta'); document.getElementById('g-fonte').focus();
+  }
+  function abrirDialogo(id, quem, origem) {
+    voltarPara = origem;
+    const d = document.getElementById(id); d.querySelectorAll('.d-quem').forEach((x) => { x.textContent = quem; });
+    document.getElementById('fundo-d').hidden = false; d.hidden = false; pilha.push(id);
+    d.querySelector('button').focus();
+  }
+  function fecharTopo() {
+    const topo = pilha.pop(); if (!topo) return;
+    if (topo === 'gaveta') { document.getElementById('gaveta').hidden = true; document.getElementById('fundo-g').hidden = true; }
+    else { document.getElementById(topo).hidden = true; document.getElementById('fundo-d').hidden = true; }
+    if (voltarPara && document.contains(voltarPara)) voltarPara.focus();
+  }
+  document.querySelectorAll('[data-abrir]').forEach((b) => b.addEventListener('click', () => abrirDialogo(b.dataset.abrir === 'perdi' ? 'd-perdi' : 'd-console', b.dataset.quem, b)));
+  document.querySelectorAll('[data-fechar]').forEach((b) => b.addEventListener('click', fecharTopo));
+  document.getElementById('fundo-g').addEventListener('click', fecharTopo);
+  document.getElementById('fundo-d').addEventListener('click', fecharTopo);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') fecharTopo(); });
+  desenhar();
+})();
+</script>
+</body>
+</html>
