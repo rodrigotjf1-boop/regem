@@ -34,18 +34,88 @@ export type Ferramenta = 'surpresa' | 'album' | 'meta';
  */
 export type GatilhoEntregue = { ativo: boolean; premioId: string | null; desde: string | null };
 export const GATILHO_ENTREGUE_PADRAO: GatilhoEntregue = { ativo: false, premioId: null, desde: null };
-export type GatilhosDoSurpresa = { entregue: GatilhoEntregue };
+
+/**
+ * O gatilho "Depois de uma reclamação" (fase A1b, sem migration — a chave `reclamacao` do mesmo jsonb): a equipe manda um
+ * prêmio de desculpas pelo caso do Atendimento, escolhendo entre os prêmios que o presidente liberou. É cortesia de
+ * atendimento (não depende de compra nova): um por caso, com um limite por cliente, e só quem o presidente escolheu manda.
+ */
+export const LIMITES_DA_RECLAMACAO = {
+  mes1: { rotulo: '1 por mês', dias: 30, maximo: 1 },
+  mes2: { rotulo: '2 por mês', dias: 30, maximo: 2 },
+  tri1: { rotulo: '1 a cada 3 meses', dias: 90, maximo: 1 },
+} as const;
+export type LimiteDaReclamacao = keyof typeof LIMITES_DA_RECLAMACAO;
+export const QUEM_MANDA_DESCULPAS = {
+  gerencia: { rotulo: 'Gerente e supervisão', perfis: ['presidente', 'gerente', 'supervisao'] },
+  gerente: { rotulo: 'Só o gerente', perfis: ['presidente', 'gerente'] },
+  atendimento: { rotulo: 'Qualquer pessoa do atendimento', perfis: ['presidente', 'gerente', 'supervisao', 'execucao'] },
+} as const;
+export type QuemMandaDesculpas = keyof typeof QUEM_MANDA_DESCULPAS;
+export type GatilhoReclamacao = { ativo: boolean; premios: string[]; limite: LimiteDaReclamacao; quem: QuemMandaDesculpas };
+export const GATILHO_RECLAMACAO_PADRAO: GatilhoReclamacao = { ativo: false, premios: [], limite: 'mes1', quem: 'gerencia' };
+
+export type GatilhosDoSurpresa = { entregue: GatilhoEntregue; reclamacao: GatilhoReclamacao };
 
 /** Os gatilhos como estão gravados (o jsonb da linha), com os padrões no que faltar. */
 export function gatilhosDaLinha(j: unknown): GatilhosDoSurpresa {
-  const e = (j && typeof j === 'object' ? (j as Record<string, unknown>).entregue : null) as Record<string, unknown> | null;
+  const doJson = (k: string) => (j && typeof j === 'object' ? (j as Record<string, unknown>)[k] : null) as Record<string, unknown> | null;
+  const e = doJson('entregue');
+  const r = doJson('reclamacao');
+  const ids = Array.isArray(r?.premios) ? (r!.premios as unknown[]).filter((x): x is string => typeof x === 'string' && UUID_DO_PREMIO.test(x)) : [];
   return {
     entregue: {
       ativo: e?.ativo === true,
       premioId: typeof e?.premioId === 'string' && UUID_DO_PREMIO.test(e.premioId) ? e.premioId.toLowerCase() : null,
       desde: typeof e?.desde === 'string' && !Number.isNaN(Date.parse(e.desde)) ? e.desde : null,
     },
+    reclamacao: {
+      ativo: r?.ativo === true,
+      premios: [...new Set(ids.map((x) => x.toLowerCase()))].slice(0, PREMIOS_POR_ESCOLHA_MAX),
+      limite: typeof r?.limite === 'string' && r.limite in LIMITES_DA_RECLAMACAO ? (r.limite as LimiteDaReclamacao) : 'mes1',
+      quem: typeof r?.quem === 'string' && r.quem in QUEM_MANDA_DESCULPAS ? (r.quem as QuemMandaDesculpas) : 'gerencia',
+    },
   };
+}
+
+/** O que a tela mandou para o gatilho "Depois de uma reclamação" (V15/V16: ausente mantém; cada escolha só entre as opções). */
+export function lerGatilhoReclamacao(dto: unknown): Partial<GatilhoReclamacao> {
+  const d = (dto !== null && typeof dto === 'object' ? dto : {}) as Record<string, unknown>;
+  const p: Partial<GatilhoReclamacao> = {};
+  if (d.ativo !== undefined) p.ativo = exigirBooleano(d.ativo, 'Depois de uma reclamação');
+  if (d.premios !== undefined) {
+    if (!Array.isArray(d.premios) || d.premios.some((x) => typeof x !== 'string' || !UUID_DO_PREMIO.test(x)))
+      throw new BadRequestException('Depois de uma reclamação: escolha os prêmios da lista.');
+    const unicos = [...new Set((d.premios as string[]).map((x) => x.toLowerCase()))];
+    if (unicos.length > PREMIOS_POR_ESCOLHA_MAX)
+      throw new BadRequestException(`Depois de uma reclamação: no máximo ${PREMIOS_POR_ESCOLHA_MAX} prêmios para a equipe escolher.`);
+    p.premios = unicos;
+  }
+  if (d.limite !== undefined) {
+    if (typeof d.limite !== 'string' || !(d.limite in LIMITES_DA_RECLAMACAO))
+      throw new BadRequestException('Depois de uma reclamação: escolha o limite por cliente da lista.');
+    p.limite = d.limite as LimiteDaReclamacao;
+  }
+  if (d.quem !== undefined) {
+    if (typeof d.quem !== 'string' || !(d.quem in QUEM_MANDA_DESCULPAS))
+      throw new BadRequestException('Depois de uma reclamação: escolha quem pode mandar da lista.');
+    p.quem = d.quem as QuemMandaDesculpas;
+  }
+  return p;
+}
+
+/** Quem pode mandar o prêmio de desculpas: o perfil está entre os que o presidente escolheu. */
+export function podeMandarDesculpas(quem: QuemMandaDesculpas, perfil: unknown): boolean {
+  return (QUEM_MANDA_DESCULPAS[quem].perfis as readonly string[]).includes(String(perfil ?? ''));
+}
+
+/** A mensagem do prêmio de desculpas, com o link para revelar (o texto da equipe, ou o padrão). */
+export const MENSAGEM_DESCULPAS_PADRAO = 'Pedimos desculpas pelo transtorno. Para compensar, um prêmio surpresa no seu próximo pedido.';
+export const MENSAGEM_DESCULPAS_MAX = 300;
+export function mensagemDasDesculpas(texto: unknown, link: string): string {
+  const t = typeof texto === 'string' ? texto.trim() : '';
+  if (t.length > MENSAGEM_DESCULPAS_MAX) throw new BadRequestException(`A mensagem tem no máximo ${MENSAGEM_DESCULPAS_MAX} letras.`);
+  return `${t || MENSAGEM_DESCULPAS_PADRAO}\n\n🎁 Toque para revelar o seu prêmio: ${link}`;
 }
 
 /** O que a tela mandou para o gatilho "Pedido entregue": liga/desliga só com booleano (V15), o prêmio da lista (V16). */
@@ -179,6 +249,7 @@ export function premiosCitados(c: Pick<ConfigDoClube, 'albumPremios' | 'metaNive
 export function ondeEstaEmUso(c: Pick<ConfigDoClube, 'albumPremios' | 'metaNiveis'>, premioId: string, gatilhos?: GatilhosDoSurpresa): string[] {
   const onde: string[] = [];
   if (gatilhos?.entregue.premioId === premioId) onde.push('Prêmio surpresa · pedido entregue');
+  if (gatilhos?.reclamacao.premios.includes(premioId)) onde.push('Prêmio surpresa · reclamação');
   if (c.albumPremios.includes(premioId)) onde.push('Álbum de selos');
   c.metaNiveis.forEach((n, i) => {
     if (n.premios.includes(premioId)) onde.push(`Meta do mês, nível ${i + 1}`);
@@ -265,6 +336,10 @@ export function regrasDoClube(c: ConfigDoClube, nomeDoPremio: (id: string) => st
     if (gatilhos?.entregue.ativo && gatilhos.entregue.premioId) {
       const premio = nomeDoPremio(gatilhos.entregue.premioId);
       linhas.push(`Prêmio surpresa: todo pedido entregue pelo cardápio online ou pelo WhatsApp${minimo} dá ${como}${premio ? ` com o prêmio "${premio}"` : ''}.`);
+    }
+    if (gatilhos?.reclamacao.ativo && gatilhos.reclamacao.premios.length) {
+      const limite = LIMITES_DA_RECLAMACAO[gatilhos.reclamacao.limite].rotulo;
+      linhas.push(`Prêmio de desculpas: depois de uma reclamação, a equipe pode mandar ${como} com um prêmio da lista da loja (no máximo ${limite} por cliente).`);
     }
     linhas.push(
       `O prêmio já vem definido pela regra quando o cliente ganha: a ${c.surpresaForma === 'roleta' ? 'roleta' : 'raspadinha'} só mostra.`,

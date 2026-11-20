@@ -35,6 +35,7 @@ import { ConversaDoMessenger } from '@/components/atendimento/conversa-do-messen
 import type { ListaDeComentarios } from '@/lib/comentarios-do-instagram';
 import { enderecoDoCaso } from '@/lib/endereco-do-caso';
 import { CartaoDoCliente } from '@/components/atendimento/cartao-do-cliente';
+import { PremioDeDesculpas } from '@/components/atendimento/premio-de-desculpas';
 import {
   CASO_DA_PLATAFORMA,
   ROTULO_DO_CANAL,
@@ -851,6 +852,9 @@ function Caso({
 
             {/* O cartão do cliente (F6b do plano do perfil): só com o módulo "Perfil do cliente" ligado. */}
             <CartaoDoCliente casoId={c.id} />
+
+            {/* O prêmio de desculpas do Clube (A1b): só com o gatilho "Depois de uma reclamação" ligado. */}
+            <PremioDeDesculpas casoId={c.id} />
 
             {/* O resumo do robô (PR 4) no lugar do texto corrido; o texto inteiro (com o que foi somado depois) fica a um clique. */}
             {c.detalhe?.robo && resumoCurto(c.detalhe.robo) ? (

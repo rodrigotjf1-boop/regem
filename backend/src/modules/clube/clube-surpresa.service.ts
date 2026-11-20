@@ -36,6 +36,9 @@ export type PremioDoPedido =
       premio: PremioRevelado | null;
       fatia: number | null;
       regras: string[];
+      /** Só no link pessoal (`/p/…`): o nome da loja e o cardápio dela. */
+      loja?: string | null;
+      cardapio?: string | null;
     };
 
 /** As fatias da roleta: os nomes da lista (sem repetir, até 8), com o do cliente garantido no lugar do último. */
@@ -53,6 +56,20 @@ export function fatiasDaRoleta(nomesDaLista: string[], doCliente: string, max = 
 export function codigoDoDireito(): string {
   return randomBytes(16).toString('base64url');
 }
+
+/** O endereço público do app (o mesmo dos links do relacionamento e do rastreio). */
+const APP = () => (process.env.CARDAPIO_PUBLIC_URL || process.env.APP_URL || 'https://app.dmsregem.com').replace(/\/+$/, '');
+
+/** O que entra num direito novo (a rotina do pedido entregue, o prêmio de desculpas). */
+export type NovoDireito = {
+  tenantId: string;
+  clienteId: string;
+  chave: string;
+  gatilho: 'entregue' | 'reclamacao';
+  ref: string;
+  forma: FormaDoSurpresa;
+  premio: { id: string; nome: string; tipo: TipoDePremio; valor: number; teto: number | null; minimo: number; validadeDias: number };
+};
 
 // CLUBE — O PRÊMIO SURPRESA (fase A1, mig 474). Só NUVEM (CLOUD_ONLY em app.module; a rotina ainda confere o modo).
 //  • A rotina do gatilho "Pedido entregue" (G1): a cada minuto, os pedidos do Cardápio Regem e do robô entregues depois de
@@ -137,49 +154,120 @@ export class ClubeSurpresaService {
    * existir na empresa (`on conflict do nothing` no índice único do código — sem abortar a transação).
    */
   private async darDireito(c: any): Promise<boolean> {
-    const tipo = c.tipo as Exclude<TipoDePremio, 'produto'>;
-    const p = {
-      tipo,
-      valor: Number(c.valor),
-      teto: c.teto == null ? null : Number(c.teto),
-      minimo: Number(c.minimo),
-      validadeDias: Number(c.validade_dias),
-    };
+    const novo = await this.db.transaction((tx: any) =>
+      this.criarDireito(tx, {
+        tenantId: String(c.tenant_id),
+        clienteId: String(c.cliente_id),
+        chave: String(c.chave),
+        gatilho: 'entregue',
+        ref: String(c.id),
+        forma: c.forma === 'roleta' ? 'roleta' : 'raspadinha',
+        premio: {
+          id: String(c.premio_id),
+          nome: String(c.premio_nome),
+          tipo: c.tipo,
+          valor: Number(c.valor),
+          teto: c.teto == null ? null : Number(c.teto),
+          minimo: Number(c.minimo),
+          validadeDias: Number(c.validade_dias),
+        },
+      }),
+    );
+    return !!novo;
+  }
+
+  /**
+   * Cria o direito e o cupom pessoal DENTRO da transação de quem chama (a rotina do pedido entregue; o prêmio de desculpas,
+   * que também trava o cliente e confere o limite na mesma transação). `null` = a referência já tinha direito (`on conflict`
+   * no índice único — a outra réplica, ou o mesmo caso de novo). O código do cupom é sorteado de novo se já existir na
+   * empresa (`on conflict do nothing` no índice único do código — sem abortar a transação).
+   */
+  async criarDireito(tx: any, n: NovoDireito): Promise<{ id: string; codigo: string; validoAte: string } | null> {
+    const p = { ...n.premio, tipo: n.premio.tipo as Exclude<TipoDePremio, 'produto'> };
     const validoAte = validadeDoPresente(p.validadeDias);
-    const descricao = descricaoDoPremio(p);
-    return this.db.transaction(async (tx: any) => {
-      const [d] = this.rows(
+    const codigo = codigoDoDireito();
+    const [d] = this.rows(
+      await tx.execute(sql`
+        insert into clube_direito (tenant_id, cliente_id, chave_telefone, ferramenta, gatilho, ref, premio_id, premio_nome,
+                                   premio_descricao, forma, codigo, valido_ate)
+        values (${n.tenantId}::uuid, ${n.clienteId}::uuid, ${n.chave}, 'surpresa', ${n.gatilho}, ${n.ref},
+                ${p.id}::uuid, ${p.nome}, ${descricaoDoPremio(p)}, ${n.forma}, ${codigo}, ${validoAte}::date)
+        on conflict (tenant_id, gatilho, ref) do nothing
+        returning id`),
+    );
+    if (!d) return null;
+    let cupomId: string | null = null;
+    for (let tentativa = 0; tentativa < 8 && !cupomId; tentativa += 1) {
+      const [cp] = this.rows(
         await tx.execute(sql`
-          insert into clube_direito (tenant_id, cliente_id, chave_telefone, ferramenta, gatilho, ref, premio_id, premio_nome,
-                                     premio_descricao, forma, codigo, valido_ate)
-          values (${c.tenant_id}::uuid, ${c.cliente_id}::uuid, ${c.chave}, 'surpresa', 'entregue', ${String(c.id)},
-                  ${c.premio_id}::uuid, ${c.premio_nome}, ${descricao}, ${c.forma === 'roleta' ? 'roleta' : 'raspadinha'},
-                  ${codigoDoDireito()}, ${validoAte}::date)
-          on conflict (tenant_id, gatilho, ref) do nothing
+          insert into cupom (tenant_id, codigo, tipo, valor, teto_desconto, minimo, ativo, validade, valido_de, max_usos,
+                             max_por_cliente, nome)
+          values (${n.tenantId}::uuid, ${codigoDoCupom(PREFIXO_DO_CUPOM)}, ${p.tipo}, ${String(p.valor)},
+                  ${p.tipo === 'percentual' && p.teto ? String(p.teto) : null}, ${p.minimo > 0 ? String(p.minimo) : null}, true,
+                  ${validoAte}::date, ${dataNoFuso(new Date())}::date, 1, 1, ${`Clube · ${p.nome.slice(0, 60)}`})
+          on conflict do nothing
           returning id`),
       );
-      if (!d) return false;
-      let cupomId: string | null = null;
-      for (let tentativa = 0; tentativa < 8 && !cupomId; tentativa += 1) {
-        const [cp] = this.rows(
-          await tx.execute(sql`
-            insert into cupom (tenant_id, codigo, tipo, valor, teto_desconto, minimo, ativo, validade, valido_de, max_usos,
-                               max_por_cliente, nome)
-            values (${c.tenant_id}::uuid, ${codigoDoCupom(PREFIXO_DO_CUPOM)}, ${p.tipo}, ${String(p.valor)},
-                    ${p.tipo === 'percentual' && p.teto ? String(p.teto) : null}, ${p.minimo > 0 ? String(p.minimo) : null}, true,
-                    ${validoAte}::date, ${dataNoFuso(new Date())}::date, 1, 1, ${`Clube · ${String(c.premio_nome).slice(0, 60)}`})
-            on conflict do nothing
-            returning id`),
-        );
-        cupomId = cp?.id ?? null;
-      }
-      if (!cupomId) throw new Error('não consegui sortear um código de cupom livre');
-      await tx.execute(sql`
-        insert into cupom_regra (cupom_id, tenant_id, cliente_id, chave_telefone)
-        values (${cupomId}::uuid, ${c.tenant_id}::uuid, ${c.cliente_id}::uuid, ${c.chave})`);
-      await tx.execute(sql`update clube_direito set cupom_id = ${cupomId}::uuid where id = ${d.id}::uuid`);
-      return true;
-    });
+      cupomId = cp?.id ?? null;
+    }
+    if (!cupomId) throw new Error('não consegui sortear um código de cupom livre');
+    await tx.execute(sql`
+      insert into cupom_regra (cupom_id, tenant_id, cliente_id, chave_telefone)
+      values (${cupomId}::uuid, ${n.tenantId}::uuid, ${n.clienteId}::uuid, ${n.chave})`);
+    await tx.execute(sql`update clube_direito set cupom_id = ${cupomId}::uuid where id = ${d.id}::uuid`);
+    return { id: String(d.id), codigo, validoAte };
+  }
+
+  // ───────────────────────── O link pessoal (`/p/…`) ─────────────────────────
+
+  /** O link pessoal do prêmio (o gatilho que não tem pedido: a reclamação; depois a classificação e a campanha). */
+  static linkDoDireito(codigo: string): string {
+    return `${APP()}/p/${codigo}`;
+  }
+
+  private async direitoDoLink(codigo: unknown) {
+    const c = String(codigo ?? '');
+    if (!/^[A-Za-z0-9_-]{16,64}$/.test(c)) throw new NotFoundException('Prêmio não encontrado.');
+    const [d] = this.rows(
+      await this.db.execute(sql`
+        select d.id, d.tenant_id, d.forma, d.premio_nome, d.premio_descricao, d.valido_ate, d.revelado_em, cp.codigo,
+               exists (select 1 from cupom_uso u where u.cupom_id = d.cupom_id) as usado
+          from clube_direito d
+          left join cupom cp on cp.id = d.cupom_id
+         where d.codigo = ${c}`),
+    );
+    if (!d) throw new NotFoundException('Prêmio não encontrado.');
+    return d;
+  }
+
+  /** O nome da loja e o endereço do cardápio (a página do link não tem o pedido para mostrar de onde é). */
+  private async daLoja(tenantId: string): Promise<{ loja: string | null; cardapio: string | null }> {
+    const [l] = this.rows(
+      await this.db.execute(sql`
+        select coalesce(nullif(trim(cc.nome_publico), ''), e.nome) as nome, cc.token
+          from empresa e
+          left join cardapio_config cc on cc.tenant_id = e.id and cc.token is not null
+         where e.id = ${tenantId}::uuid
+         order by (cc.unidade_id is null) desc nulls last
+         limit 1`),
+    );
+    return { loja: l?.nome ?? null, cardapio: l?.token ? `${APP()}/c/${l.token}` : null };
+  }
+
+  /** `GET /clube/premio/:codigo` — o prêmio do link pessoal. Antes de revelar, sem dizer qual. */
+  async doLink(codigo: unknown): Promise<PremioDoPedido> {
+    const d = await this.direitoDoLink(codigo);
+    const base = await this.montar({ tenantId: String(d.tenant_id) }, d, d.revelado_em != null);
+    return { ...base, ...(await this.daLoja(String(d.tenant_id))) } as PremioDoPedido;
+  }
+
+  /** `POST /clube/premio/:codigo/revelar` — como o da página do pedido. */
+  async revelarPeloLink(codigo: unknown): Promise<PremioDoPedido> {
+    const d = await this.direitoDoLink(codigo);
+    if (d.revelado_em == null)
+      await this.db.execute(sql`update clube_direito set revelado_em = clock_timestamp() where id = ${d.id}::uuid and revelado_em is null`);
+    const base = await this.montar({ tenantId: String(d.tenant_id) }, d, true);
+    return { ...base, ...(await this.daLoja(String(d.tenant_id))) } as PremioDoPedido;
   }
 
   // ───────────────────────── A página do pedido (`/r/…`) ─────────────────────────
@@ -207,7 +295,7 @@ export class ClubeSurpresaService {
     return d ?? null;
   }
 
-  private async montar(ped: { id: string; tenantId: string }, d: any, revelado: boolean): Promise<PremioDoPedido> {
+  private async montar(ped: { tenantId: string }, d: any, revelado: boolean): Promise<PremioDoPedido> {
     const forma: FormaDoSurpresa = d.forma === 'roleta' ? 'roleta' : 'raspadinha';
     const config = await this.clube.config(ped.tenantId);
     const gatilhos = await this.clube.gatilhos(ped.tenantId);

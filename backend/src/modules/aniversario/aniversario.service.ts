@@ -335,21 +335,23 @@ export class AniversarioService {
    */
   async premiosParaRevelar(tenantId: string, clienteId: string): Promise<Array<{ forma: string; validoAte: string; link: string }>> {
     if (!(await this.existe('clube_direito'))) return [];
+    // O do pedido entregue revela na página do pedido (`/r/…`); o que não vem de um pedido (o de desculpas — A1b), pelo link
+    // pessoal (`/p/…`). O do pedido sem o token do rastreio também cai no link pessoal.
     const r = this.rows(
       await this.db.execute(sql`
-        select d.forma, d.valido_ate, p.rastreio_token
+        select d.forma, d.valido_ate, d.codigo, p.rastreio_token
           from clube_direito d
-          join pedido_externo p on p.tenant_id = d.tenant_id
-                               and p.id = case when d.gatilho = 'entregue' then d.ref::uuid end
+          left join pedido_externo p on p.tenant_id = d.tenant_id
+                                    and p.id = case when d.gatilho = 'entregue' then d.ref::uuid end
          where d.tenant_id = ${tenantId}::uuid and d.cliente_id = ${clienteId}::uuid and d.revelado_em is null
-           and d.valido_ate >= ${hojeISO()}::date and p.rastreio_token is not null
+           and d.valido_ate >= ${hojeISO()}::date
          order by d.criado_em desc
          limit 10`),
     );
     return r.map((x) => ({
       forma: x.forma === 'roleta' ? 'roleta' : 'raspadinha',
       validoAte: x.valido_ate instanceof Date ? dataNoFuso(x.valido_ate) : String(x.valido_ate).slice(0, 10),
-      link: `/r/${String(x.rastreio_token)}`,
+      link: x.rastreio_token ? `/r/${String(x.rastreio_token)}` : `/p/${String(x.codigo)}`,
     }));
   }
 }

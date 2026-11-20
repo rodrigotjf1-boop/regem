@@ -46,6 +46,22 @@ describe('caixa de conversas no servidor da loja — repasse para a nuvem', () =
     expect(chamadas[0].init.body).toBeUndefined();
   });
 
+  it('outra base (o prêmio de desculpas do Clube): o endereço e a mensagem sem a nuvem dizem o que é', async () => {
+    const { f, chamadas } = fetchFalso(201, { premio: 'Frete grátis' });
+    await repassarParaNuvem(
+      { metodo: 'POST', base: 'clube/da-loja', caminho: 'desculpas/abc', corpo: { premioId: 'p1', perfil: 'gerente' }, usuario: USUARIO, oQue: 'o prêmio de desculpas' },
+      f,
+    );
+    expect(chamadas[0].url).toBe('https://nuvem.exemplo/api/v1/clube/da-loja/desculpas/abc');
+    expect(JSON.parse(chamadas[0].init.body)).toEqual({ premioId: 'p1', perfil: 'gerente' });
+    const semRede: any = async () => {
+      throw new Error('ECONNREFUSED');
+    };
+    const e: any = await repassarParaNuvem({ metodo: 'GET', base: 'clube/da-loja', caminho: 'desculpas/abc', usuario: USUARIO, oQue: 'o prêmio de desculpas' }, semRede).catch((x) => x);
+    expect(e).toBeInstanceOf(ServiceUnavailableException);
+    expect(e.message).toBe('Sem conexão com a nuvem agora — o prêmio de desculpas volta quando a internet voltar.');
+  });
+
   it('POST leva o corpo em JSON', async () => {
     const { f, chamadas } = fetchFalso(201, { ok: true });
     await repassarParaNuvem({ metodo: 'POST', caminho: 'enviar', corpo: { numero: '21999998888', texto: 'oi' }, usuario: USUARIO }, f);

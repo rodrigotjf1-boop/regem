@@ -2,12 +2,16 @@ import {
   CONFIG_PADRAO,
   descricaoDoPremio,
   FERRAMENTAS_PRONTAS,
+  GATILHO_RECLAMACAO_PADRAO,
   gatilhosDaLinha,
   lerConfigDoClube,
   lerGatilhoEntregue,
+  lerGatilhoReclamacao,
   lerPremio,
   ligandoAntesDaHora,
+  mensagemDasDesculpas,
   ondeEstaEmUso,
+  podeMandarDesculpas,
   premiosCitados,
   regrasDoClube,
 } from './clube.regras';
@@ -130,24 +134,67 @@ describe('as regras do clube que o cliente lê', () => {
   });
   it('o gatilho "Pedido entregue" ligado entra com o prêmio pelo nome; desligado, não', () => {
     const c = { ...CONFIG_PADRAO, surpresaAtivo: true };
-    const ligado = { entregue: { ativo: true, premioId: B, desde: '2026-11-20T12:00:00.000Z' } };
+    const ligado = { entregue: { ativo: true, premioId: B, desde: '2026-11-20T12:00:00.000Z' }, reclamacao: GATILHO_RECLAMACAO_PADRAO };
     expect(regrasDoClube(c, nome, ligado).slice(0, 2)).toEqual([
       'Prêmio surpresa: todo pedido entregue pelo cardápio online ou pelo WhatsApp a partir de R$ 30 dá uma raspadinha com o prêmio "Frete grátis".',
       'O prêmio já vem definido pela regra quando o cliente ganha: a raspadinha só mostra.',
     ]);
-    expect(regrasDoClube(c, nome, { entregue: { ...ligado.entregue, ativo: false } })[0]).toContain('só mostra');
+    expect(regrasDoClube(c, nome, { ...ligado, entregue: { ...ligado.entregue, ativo: false } })[0]).toContain('só mostra');
     // A surpresa desligada não fala do gatilho, mesmo ligado.
     expect(regrasDoClube(CONFIG_PADRAO, nome, ligado)[0]).toContain('Não há sorteio');
+  });
+  it('o prêmio de desculpas ligado entra com o limite; sem prêmio liberado, não', () => {
+    const c = { ...CONFIG_PADRAO, surpresaAtivo: true, surpresaForma: 'roleta' as const };
+    const entregue = { ativo: false, premioId: null, desde: null };
+    const r = regrasDoClube(c, nome, { entregue, reclamacao: { ativo: true, premios: [A], limite: 'tri1', quem: 'gerente' } });
+    expect(r[0]).toBe('Prêmio de desculpas: depois de uma reclamação, a equipe pode mandar uma roleta com um prêmio da lista da loja (no máximo 1 a cada 3 meses por cliente).');
+    expect(regrasDoClube(c, nome, { entregue, reclamacao: { ...GATILHO_RECLAMACAO_PADRAO, ativo: true } })[0]).toContain('só mostra');
   });
 });
 
 describe('os gatilhos do prêmio surpresa (mig 474)', () => {
+  const PADRAO_R = { ativo: false, premios: [], limite: 'mes1', quem: 'gerencia' };
   it('a linha do banco vira o gatilho com os padrões no que falta', () => {
-    expect(gatilhosDaLinha(null)).toEqual({ entregue: { ativo: false, premioId: null, desde: null } });
-    expect(gatilhosDaLinha({})).toEqual({ entregue: { ativo: false, premioId: null, desde: null } });
+    expect(gatilhosDaLinha(null)).toEqual({ entregue: { ativo: false, premioId: null, desde: null }, reclamacao: PADRAO_R });
+    expect(gatilhosDaLinha({})).toEqual({ entregue: { ativo: false, premioId: null, desde: null }, reclamacao: PADRAO_R });
     expect(gatilhosDaLinha({ entregue: { ativo: true, premioId: A, desde: '2026-11-20T12:00:00.000Z' } })).toEqual({
       entregue: { ativo: true, premioId: A, desde: '2026-11-20T12:00:00.000Z' },
+      reclamacao: PADRAO_R,
     });
+    // A reclamação gravada: os ids da lista (sem repetir, sem lixo), o limite e quem manda só entre as opções.
+    expect(gatilhosDaLinha({ reclamacao: { ativo: true, premios: [A, A.toUpperCase(), 'x', B], limite: 'tri1', quem: 'nada' } }).reclamacao).toEqual({
+      ativo: true,
+      premios: [A, B],
+      limite: 'tri1',
+      quem: 'gerencia',
+    });
+  });
+  it('o que a tela manda para a reclamação: só as opções; ausente mantém', () => {
+    expect(lerGatilhoReclamacao({})).toEqual({});
+    expect(lerGatilhoReclamacao({ ativo: true, premios: [A, B, A], limite: 'mes2', quem: 'atendimento' })).toEqual({
+      ativo: true,
+      premios: [A, B],
+      limite: 'mes2',
+      quem: 'atendimento',
+    });
+    expect(() => lerGatilhoReclamacao({ ativo: 1 })).toThrow();
+    expect(() => lerGatilhoReclamacao({ premios: ['x'] })).toThrow('escolha os prêmios da lista');
+    expect(() => lerGatilhoReclamacao({ premios: Array.from({ length: 7 }, (_, i) => `${i}${A.slice(1)}`) })).toThrow('no máximo 6');
+    expect(() => lerGatilhoReclamacao({ limite: 'sempre' })).toThrow('limite');
+    expect(() => lerGatilhoReclamacao({ quem: 'todos' })).toThrow('quem pode mandar');
+  });
+  it('quem pode mandar e a mensagem com o link', () => {
+    expect(podeMandarDesculpas('gerencia', 'supervisao')).toBe(true);
+    expect(podeMandarDesculpas('gerencia', 'execucao')).toBe(false);
+    expect(podeMandarDesculpas('gerente', 'supervisao')).toBe(false);
+    expect(podeMandarDesculpas('gerente', 'presidente')).toBe(true);
+    expect(podeMandarDesculpas('atendimento', 'execucao')).toBe(true);
+    expect(podeMandarDesculpas('atendimento', 'suporte')).toBe(false); // o controller troca "suporte" por gerente antes
+    expect(mensagemDasDesculpas('', 'https://app/p/abc')).toBe(
+      'Pedimos desculpas pelo transtorno. Para compensar, um prêmio surpresa no seu próximo pedido.\n\n🎁 Toque para revelar o seu prêmio: https://app/p/abc',
+    );
+    expect(mensagemDasDesculpas('  Desculpe a demora!  ', 'L')).toBe('Desculpe a demora!\n\n🎁 Toque para revelar o seu prêmio: L');
+    expect(() => mensagemDasDesculpas('x'.repeat(301), 'L')).toThrow('no máximo 300');
   });
   it('o que a tela manda: liga/desliga só com booleano (V15), ausente mantém (V16), o prêmio é um id', () => {
     expect(lerGatilhoEntregue({})).toEqual({});
@@ -156,10 +203,11 @@ describe('os gatilhos do prêmio surpresa (mig 474)', () => {
     expect(() => lerGatilhoEntregue({ ativo: 'sim' })).toThrow();
     expect(() => lerGatilhoEntregue({ premioId: 'x' })).toThrow();
   });
-  it('onde o prêmio está em uso conta o gatilho ligado', () => {
-    const g = { entregue: { ativo: true, premioId: A, desde: null } };
-    expect(ondeEstaEmUso(CONFIG_PADRAO, A, g)).toEqual(['Prêmio surpresa · pedido entregue']);
-    expect(ondeEstaEmUso(CONFIG_PADRAO, B, g)).toEqual([]);
+  it('onde o prêmio está em uso conta os dois gatilhos', () => {
+    const g = { entregue: { ativo: true, premioId: A, desde: null }, reclamacao: { ...GATILHO_RECLAMACAO_PADRAO, premios: [A, B] } };
+    expect(ondeEstaEmUso(CONFIG_PADRAO, A, g)).toEqual(['Prêmio surpresa · pedido entregue', 'Prêmio surpresa · reclamação']);
+    expect(ondeEstaEmUso(CONFIG_PADRAO, B, g)).toEqual(['Prêmio surpresa · reclamação']);
+    expect(ondeEstaEmUso(CONFIG_PADRAO, B, { ...g, reclamacao: GATILHO_RECLAMACAO_PADRAO })).toEqual([]);
   });
 });
 
