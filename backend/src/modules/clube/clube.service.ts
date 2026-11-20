@@ -10,13 +10,17 @@ import {
   descricaoDoPremio,
   FERRAMENTAS_PRONTAS,
   FORMAS_DO_SURPRESA,
+  type GatilhoClassificacao,
   type GatilhoEntregue,
   type GatilhoReclamacao,
   type GatilhosDoSurpresa,
   gatilhosDaLinha,
   lerConfigDoClube,
+  lerGatilhoClassificacao,
   lerGatilhoEntregue,
   lerGatilhoReclamacao,
+  PERIODOS_DA_CLASSIFICACAO,
+  SEGMENTOS_DA_CLASSIFICACAO,
   lerPremio,
   LIMITES_DA_RECLAMACAO,
   ligandoAntesDaHora,
@@ -154,8 +158,45 @@ export class ClubeService {
         premiosMax: PREMIOS_MAX,
         limitesDaReclamacao: Object.entries(LIMITES_DA_RECLAMACAO).map(([valor, l]) => ({ valor, rotulo: l.rotulo })),
         quemMandaDesculpas: Object.entries(QUEM_MANDA_DESCULPAS).map(([valor, q]) => ({ valor, rotulo: q.rotulo })),
+        segmentosDaClassificacao: Object.entries(SEGMENTOS_DA_CLASSIFICACAO).map(([valor, rotulo]) => ({ valor, rotulo })),
+        periodosDaClassificacao: PERIODOS_DA_CLASSIFICACAO,
       },
+      classificacao: await this.situacaoDaClassificacao(tenantId),
     };
+  }
+
+  /** O módulo "Perfil do cliente" ligado (os segmentos vêm dele). Sem a tabela do módulo (banco de loja), desligado. */
+  private async perfilLigado(tenantId: string): Promise<boolean> {
+    const [l] = this.rows(
+      await this.db.execute(sql`
+        select exists (select 1 from modulo_ativacao where tenant_id = ${tenantId}::uuid and modulo = 'perfil_cliente' and ativo) as ok`),
+    );
+    return l?.ok === true;
+  }
+
+  /**
+   * O gatilho "Pela classificação" na tela: o perfil ligado e quantos clientes há hoje em cada segmento (quem pediu "não
+   * quero ser analisado" fica fora). Com o perfil desligado, sem contagem — a tela pede para ligar.
+   */
+  async situacaoDaClassificacao(tenantId: string): Promise<{ perfilLigado: boolean; contagens: Record<string, number> }> {
+    if (!(await this.perfilLigado(tenantId))) return { perfilLigado: false, contagens: {} };
+    const [l] = this.rows(
+      await this.db.execute(sql`
+        select count(*) filter (where cp.segmento = 'campeoes')::int as campeoes,
+               count(*) filter (where cp.segmento = 'leais')::int as leais,
+               count(*) filter (where cp.segmento = 'atencao')::int as atencao,
+               count(*) filter (where cp.segmento = 'em_risco')::int as em_risco,
+               count(*) filter (where cp.segmento = 'inativos')::int as inativos,
+               count(*) filter (where 'atrasado' = any(cp.etiquetas))::int as atrasado
+          from cliente_perfil cp
+         where cp.tenant_id = ${tenantId}::uuid
+           and not coalesce((select e.valor from cliente_escolha e
+                              where e.cliente_id = cp.cliente_id and e.tenant_id = cp.tenant_id and e.escolha = 'nao_analisar'
+                              order by e.em desc limit 1), false)`),
+    );
+    const contagens: Record<string, number> = {};
+    for (const k of Object.keys(SEGMENTOS_DA_CLASSIFICACAO)) contagens[k] = Number(l?.[k] ?? 0);
+    return { perfilLigado: true, contagens };
   }
 
   /** Os produtos ativos da empresa, para escolher o "produto grátis" na gaveta do prêmio. */
@@ -360,6 +401,42 @@ export class ClubeService {
          set surpresa_gatilhos = coalesce(clube_config.surpresa_gatilhos, '{}'::jsonb) || ${json}::jsonb,
              atualizado_por = excluded.atualizado_por, atualizado_em = now()`);
     await this.auditar(user, 'clube_gatilho_alterado', user.tenantId, { gatilho: 'reclamacao', de: antes, para: depois });
+    return this.gatilhos(user.tenantId);
+  }
+
+  /**
+   * Salva o gatilho "Pela classificação do marketing" (A1c, sem migration). TODA recusa antes de gravar (V86): ligado precisa
+   * de segmento, de prêmio e do módulo "Perfil do cliente" ligado; o prêmio existe nesta empresa e não é "produto grátis".
+   * Grava SÓ a chave `classificacao` do jsonb, mesclando no banco (V82). Auditado.
+   */
+  async salvarGatilhoClassificacao(user: AuthUser, dto: unknown): Promise<GatilhosDoSurpresa> {
+    const parcial = lerGatilhoClassificacao(dto);
+    const antes = (await this.gatilhos(user.tenantId)).classificacao;
+    const depois: GatilhoClassificacao = { ...antes, ...parcial };
+    if (depois.ativo) {
+      if (!depois.segmentos.length) throw new BadRequestException('Escolha ao menos um segmento.');
+      if (!depois.premioId) throw new BadRequestException('Escolha o prêmio de quem está nos segmentos.');
+      if (!(await this.perfilLigado(user.tenantId)))
+        throw new BadRequestException('Os segmentos vêm do perfil do cliente: ligue o módulo "Perfil do cliente" em Visão C&O › Módulos do produto.');
+    }
+    if (depois.premioId) {
+      const [p] = this.rows(
+        await this.db.execute(sql`
+          select tipo from clube_premio where id = ${depois.premioId}::uuid and tenant_id = ${user.tenantId}::uuid and excluido_em is null`),
+      );
+      if (!p) throw new BadRequestException('O prêmio escolhido não existe mais. Recarregue a página e escolha de novo.');
+      if (p.tipo === 'produto')
+        throw new BadRequestException('O produto grátis no prêmio surpresa chega numa próxima entrega: escolha um desconto ou o frete grátis.');
+    }
+    if (JSON.stringify(antes) === JSON.stringify(depois)) return this.gatilhos(user.tenantId);
+    const json = JSON.stringify({ classificacao: depois });
+    await this.db.execute(sql`
+      insert into clube_config (tenant_id, surpresa_gatilhos, atualizado_por)
+      values (${user.tenantId}::uuid, ${json}::jsonb, ${user.colaboradorId}::uuid)
+      on conflict (tenant_id) do update
+         set surpresa_gatilhos = coalesce(clube_config.surpresa_gatilhos, '{}'::jsonb) || ${json}::jsonb,
+             atualizado_por = excluded.atualizado_por, atualizado_em = now()`);
+    await this.auditar(user, 'clube_gatilho_alterado', user.tenantId, { gatilho: 'classificacao', de: antes, para: depois });
     return this.gatilhos(user.tenantId);
   }
 }

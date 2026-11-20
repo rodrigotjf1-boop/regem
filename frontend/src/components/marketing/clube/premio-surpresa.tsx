@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Chave } from '@/components/ui/chave';
 import { brl, Selo } from '@/components/ui/lista';
 import { cn } from '@/lib/utils';
+import { GavetaDaClassificacao } from './gaveta-da-classificacao';
 import { GavetaDaReclamacao } from './gaveta-da-reclamacao';
 import { GavetaDoGatilho } from './gaveta-do-gatilho';
 import type { Opcao, PainelDoClube } from './tipos';
@@ -55,6 +56,22 @@ export function PremioSurpresa({
   const [ocupado, setOcupado] = useState(false);
   const [gaveta, setGaveta] = useState<null | { ligar: boolean }>(null);
   const [gavetaR, setGavetaR] = useState<null | { ligar: boolean }>(null);
+  const [gavetaC, setGavetaC] = useState<null | { ligar: boolean }>(null);
+  const cl = painel.gatilhos.classificacao;
+  const premioCl = painel.premios.find((p) => p.id === cl.premioId) ?? null;
+
+  async function ligarClassificacao(ligado: boolean) {
+    if (ligado && (!cl.segmentos.length || !premioCl)) return setGavetaC({ ligar: true }); // ligar pede os segmentos e o prêmio
+    setOcupado(true);
+    try {
+      aoMudar((await api.clubeSalvarGatilhoClassificacao({ ativo: ligado })) as PainelDoClube);
+      toast.success(ligado ? 'Prêmio pela classificação ligado.' : 'Prêmio pela classificação desligado.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Não foi possível mudar o gatilho.');
+    } finally {
+      setOcupado(false);
+    }
+  }
   const g = painel.gatilhos.entregue;
   const r = painel.gatilhos.reclamacao;
   const premio = painel.premios.find((p) => p.id === g.premioId) ?? null;
@@ -207,8 +224,41 @@ export function PremioSurpresa({
             </Button>
           )}
         </Gatilho>
-        <Gatilho titulo="Pela classificação do marketing" selo={<Selo>Chega numa próxima entrega</Selo>}>
-          <p>Todos de um segmento (Em risco, Inativos, Campeões…) ganham, uma vez por período; o prêmio espera na conta do cliente.</p>
+        <Gatilho
+          titulo="Pela classificação do marketing"
+          chave={
+            podeMudar ? (
+              <Chave ligada={cl.ativo} aoMudar={(v) => void ligarClassificacao(v)} rotulo="Pela classificação do marketing" ocupada={ocupado} />
+            ) : (
+              <Selo tom={cl.ativo ? 'ok' : 'neutro'}>{cl.ativo ? 'Ligado' : 'Desligado'}</Selo>
+            )
+          }
+        >
+          {!painel.classificacao.perfilLigado && (
+            <p className="text-secondary-foreground">Os segmentos vêm do perfil do cliente: ligue o módulo &quot;Perfil do cliente&quot; em Visão C&amp;O › Módulos do produto.</p>
+          )}
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <span>
+              Segmentos:{' '}
+              <b>
+                {cl.segmentos.length
+                  ? cl.segmentos.map((s) => painel.opcoes.segmentosDaClassificacao.find((o) => o.valor === s)?.rotulo ?? s).join(', ')
+                  : 'nenhum escolhido'}
+              </b>
+            </span>
+            <span>
+              Todos do segmento ganham, <b>1 vez a cada {cl.periodoDias} dias</b>
+            </span>
+            <span>
+              Prêmio: <b>{premioCl ? premioCl.nome : 'nenhum escolhido'}</b>
+            </span>
+          </div>
+          <p className="text-xs text-secondary-foreground">O prêmio espera na conta do cliente; o aviso pelo WhatsApp sai pela campanha (próxima entrega).</p>
+          {podeMudar && (
+            <Button type="button" variant="outline" size="sm" onClick={() => setGavetaC({ ligar: false })}>
+              Mudar
+            </Button>
+          )}
         </Gatilho>
         <Gatilho titulo="Em disparo (campanha)" selo={<Selo>Chega numa próxima entrega</Selo>}>
           <p>Na hora de criar a campanha, a opção &quot;Mandar um prêmio surpresa&quot;: todos os destinatários ganham.</p>
@@ -228,6 +278,21 @@ export function PremioSurpresa({
         </Gatilho>
       </section>
 
+      {gavetaC && (
+        <GavetaDaClassificacao
+          painel={painel}
+          ligar={gavetaC.ligar}
+          aoFechar={() => setGavetaC(null)}
+          aoSalvar={(p) => {
+            aoMudar(p);
+            setGavetaC(null);
+          }}
+          aoIrParaPremios={() => {
+            setGavetaC(null);
+            aoIrParaPremios();
+          }}
+        />
+      )}
       {gavetaR && (
         <GavetaDaReclamacao
           painel={painel}
