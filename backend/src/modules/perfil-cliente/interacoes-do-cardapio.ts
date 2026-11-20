@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { verificarCliente } from '../cliente/cliente-token';
 import { perfilLigado } from '../../common/segmentos-do-perfil';
-import { INTERESSE, sqlNaoPediuDesde } from '../../common/interesse-do-cliente';
+import { INTERESSE, sqlNaoPediuDesde, sqlPontosDoClique } from '../../common/interesse-do-cliente';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -133,10 +133,7 @@ export async function oQueOlha(db: any, tenantId: string, clienteId: string) {
   const itens = rows(await db.execute(sql`
     with por as (
       select i.produto_id,
-             sum(power(2, -extract(epoch from (now() - i.em)) / 86400.0 / ${I.meiaVidaDias}::numeric)
-                 * case when i.tipo = 'produto_adicionado' then ${I.carrinho}::int
-                        when coalesce(i.ms, 0) >= ${I.longoMs}::int then ${I.abrirLongo}::int
-                        else ${I.abrir}::int end) as pontos,
+             sum(${sqlPontosDoClique('i')}) as pontos,
              count(*) filter (where i.tipo = 'produto_aberto' and i.em > now() - make_interval(days => ${I.viuJanelaDias}::int)) as abriu,
              min(i.em) filter (where i.tipo = 'produto_aberto' and i.em > now() - make_interval(days => ${I.viuJanelaDias}::int)) as desde
         from cardapio_interacao i

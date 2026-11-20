@@ -12,7 +12,8 @@ import { ComDestaque, ContadorDaPausa, MensagemComDestaque } from '@/components/
 // AS QUATRO VITRINES (docs/templates-cardapio/01 a 04). Cada uma desenha o topo, as seções e a
 // barra da sacola do seu jeito; os dados e as ações vêm todos do `useCardapio`.
 
-type Secao = { id: string; nome: string; descricao: string | null; imagemRef: string | null; itens: any[] };
+/** `aba`: o rótulo curto na linha de abas, quando o título da seção é longo ("Olá, Ana · seu de sempre"). */
+type Secao = { id: string; nome: string; aba?: string; descricao: string | null; imagemRef: string | null; itens: any[] };
 
 /** Texto do status da loja (base §5.5): aberta, só um dos tipos, ou fechada. */
 function statusLoja(c: Cardapio): string {
@@ -93,13 +94,30 @@ function AvisoLoja({ c }: { c: Cardapio }) {
   );
 }
 
-/** Seções com a de "Mais pedidos" na frente (quando a loja mostra destaques). */
+/** As seções especiais do topo (mostradas como a de "Mais pedidos"): o de sempre e o "você viu" (F8) e os mais pedidos. */
+const SECOES_DO_TOPO = new Set(['_sempre', '_viu', '_mais']);
+
+/**
+ * Seções com as do topo na frente: para o cliente identificado (F8 do perfil), "seu de sempre" e "Você viu", e as
+ * categorias na ordem do que ele mais abre (empate e categoria sem clique: a ordem da loja); depois "Mais pedidos"
+ * (quando a loja mostra destaques).
+ */
 function useSecoes(c: Cardapio, comMais: boolean): Secao[] {
   return useMemo(() => {
-    const base = c.secoes as Secao[];
-    if (!comMais || !c.showDestaques || c.destaques.length === 0) return base;
-    return [{ id: '_mais', nome: 'Mais pedidos', descricao: null, imagemRef: null, itens: c.destaques }, ...base];
-  }, [c.secoes, c.destaques, c.showDestaques, comMais]);
+    const pv = c.paraVoce;
+    let base = c.secoes as Secao[];
+    if (pv?.ordemCategorias?.length) {
+      const pos = new Map(pv.ordemCategorias.map((id: string, i: number) => [id, i]));
+      base = [...base].sort((a, b) => (pos.get(a.id) ?? Infinity) - (pos.get(b.id) ?? Infinity));
+    }
+    const topo: Secao[] = [];
+    if (pv?.sempre)
+      topo.push({ id: '_sempre', nome: pv.nome ? `Olá, ${pv.nome} · seu de sempre` : 'Seu de sempre', aba: 'Seu de sempre', descricao: null, imagemRef: null, itens: [pv.sempre] });
+    if (pv?.viu?.length) topo.push({ id: '_viu', nome: 'Você viu', descricao: null, imagemRef: null, itens: pv.viu });
+    if (comMais && c.showDestaques && c.destaques.length > 0)
+      topo.push({ id: '_mais', nome: 'Mais pedidos', descricao: null, imagemRef: null, itens: c.destaques });
+    return [...topo, ...base];
+  }, [c.secoes, c.destaques, c.showDestaques, comMais, c.paraVoce]);
 }
 
 /** Abas que acompanham a rolagem: devolve a seção à vista e a função de ir até uma seção. */
@@ -402,14 +420,14 @@ export function VitrineGaleria({ c }: { c: Cardapio }) {
         <div className="hs g-cats" ref={abas}>
           {secoes.map((s) => (
             <button key={s.id} type="button" className="g-cat" onClick={() => ir(s.id)}>
-              <span>{fotoCat(s) ? <img src={fotoCat(s) as string} alt="" loading="lazy" /> : <em>{s.nome.slice(0, 1).toUpperCase()}</em>}</span>
-              {s.nome}
+              <span>{fotoCat(s) ? <img src={fotoCat(s) as string} alt="" loading="lazy" /> : <em>{(s.aba ?? s.nome).slice(0, 1).toUpperCase()}</em>}</span>
+              {s.aba ?? s.nome}
             </button>
           ))}
         </div>
       )}
       {secoes.map((s) =>
-        s.id === '_mais' ? (
+        SECOES_DO_TOPO.has(s.id) ? (
           <section key={s.id} className="g-sec" data-sec={s.id}>
             <h2>
               <EvIcone />
@@ -574,7 +592,7 @@ export function VitrineBalcao({ c }: { c: Cardapio }) {
             <nav className="hs b-tabs" ref={abas} aria-label="Categorias">
               {secoes.map((s) => (
                 <button key={s.id} type="button" data-tab={s.id} className={ativa === s.id ? 'on' : ''} onClick={() => ir(s.id)}>
-                  {s.nome}
+                  {s.aba ?? s.nome}
                 </button>
               ))}
             </nav>
@@ -718,7 +736,7 @@ export function VitrineOferta({ c }: { c: Cardapio }) {
         <nav className="hs o-pills" ref={abas} aria-label="Categorias">
           {secoes.map((s) => (
             <button key={s.id} type="button" data-tab={s.id} className={ativa === s.id ? 'on' : ''} onClick={() => ir(s.id)}>
-              {s.nome}
+              {s.aba ?? s.nome}
             </button>
           ))}
         </nav>
@@ -888,7 +906,7 @@ export function VitrineFluxo({ c }: { c: Cardapio }) {
         <nav className="hs f-tabs" ref={abas} aria-label="Categorias">
           {secoes.map((s) => (
             <button key={s.id} type="button" data-tab={s.id} className={ativa === s.id ? 'on' : ''} onClick={() => ir(s.id)}>
-              {s.nome}
+              {s.aba ?? s.nome}
             </button>
           ))}
         </nav>

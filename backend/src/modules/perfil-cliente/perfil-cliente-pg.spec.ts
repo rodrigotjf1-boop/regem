@@ -120,7 +120,7 @@ descrever('perfil do cliente — o cálculo (Postgres)', () => {
       expect(Number(a.atraso)).toBeGreaterThan(1.5);
       expect(a.faixa_habitual).toBe('inicio_noite');
       expect(a.camadas.ritmo.hora_habitual).toBe('20:40');
-      expect(a.camadas.gosto.de_sempre).toEqual({ nome: 'X-Bacon da casa', pedidos: 10 });
+      expect(a.camadas.gosto.de_sempre).toEqual({ nome: 'X-Bacon da casa', pedidos: 10, chave: '10' }); // a chave = o código PDV (F8)
       expect(a.camadas.gosto.favoritos[0].nome).toBe('X-Bacon da casa');
       expect(a.etiquetas).toEqual(expect.arrayContaining(['atrasado', 'reclamou_repetido']));
       expect(a.camadas.porque.atrasado).toMatch(/dias sem pedir; o intervalo habitual é de \d+ dias \(\d+,\d+×; o limite é 1,5\)/);
