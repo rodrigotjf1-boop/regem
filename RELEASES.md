@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister versão 6, M6c — "Perdi o celular" (20/11; mig 473 NUVEM E LOJA — `sessao_corte`).** Corta todas as sessões do
+  Regem de uma pessoa, em todos os aparelhos: a guarda e o tempo real recusam o token emitido antes do corte. Só a nuvem
+  escreve a tabela; ela DESCE à loja (`direcao: 'desce'`), e a guarda do servidor da loja passa a recusar ali também. **Vai
+  no `.zip`** (a guarda nova e a migration na loja); o `sync-daemon.mjs` ganhou `sessao_corte` em VOLTA_DA_NUVEM (o daemon
+  mudou → o `.exe` da próxima release leva). Antes da atualização, a loja sem a tabela segue normal (a conferência não
+  derruba a sessão).
+
 - **Mister versão 6, M6e — as regras de aviso de cada pessoa (20/11; mig 472 SÓ NUVEM — `mister_regra` e
   `mister_regra_envio`).** A pessoa diz como quer ser avisada e o Mister monta a regra com os dados que lê (pedidos, contas,
   tarefas, impressoras e servidor, caixas, canais, vendas); o código confere, descreve e só liga no "Confirmar"; um motor

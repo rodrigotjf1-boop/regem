@@ -2365,6 +2365,8 @@ const VOLTA_DA_NUVEM = new Set([
   'pedido_logistica',
   // O "Cheguei" do cliente da retirada (mig 354): só a nuvem escreve, só desce.
   'pedido_chegada',
+  // O "Perdi o celular" (Mister v6, M6c, mig 473): o corte das sessões de uma pessoa — só a nuvem escreve, só desce.
+  'sessao_corte',
 ]);
 
 // DONA É A NUVEM (regra de distribuição): licença, telemetria, campanhas, credenciais de

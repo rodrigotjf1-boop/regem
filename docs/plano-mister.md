@@ -1781,6 +1781,28 @@ regressão de novo quando as instruções mudam; a Meta pela doc oficial (V20); 
 - Fica para a M6f: a tela Mister › Regras, os formatos da pessoa, os padrões e as sugestões; e as fontes seguintes (estoque,
   equipe, cancelamentos, atendimento).
 
+**M6c implementada (20/11/2026; mig 473 NUVEM E LOJA — `sessao_corte`; vai no `.zip`):**
+- **O corte por pessoa** (`auth/sessao-corte.ts`): uma linha por pessoa com o `desde`; todo token dela com `iat` antes do
+  corte é recusado pela guarda (`JwtAuthGuard`) e pelo tempo real (V97), segundo a segundo (o token do mesmo segundo vale).
+  Memória por processo com a janela de 30 s da guarda, o corte feito no processo vale na hora, o banco atrás nunca desce o
+  corte, e a conferência é À PARTE da leitura da pessoa (sem a tabela no servidor da loja, o bloqueio e a exclusão seguem).
+- **Só a nuvem escreve, a tabela DESCE** (o molde da `pedido_chegada`, mig 354): à parte de `colaborador` para a última
+  escrita da linha da pessoa não apagar o corte; sem CHECK e sem chave estrangeira; `direcao: 'desce'` no `sync-config` e
+  VOLTA_DA_NUVEM no `sync-daemon` (o daemon mudou → `.exe`). No servidor da loja vale nas rotas assim que desce; os
+  sockets de lá caem na próxima conexão.
+- **Mister › Pessoas › "Perdi o celular"** (`POST /mister/pessoas/:id/perdi-o-celular`): cada um no próprio, o presidente
+  em qualquer pessoa da empresa dele; corta PRIMEIRO, depois desliga o WhatsApp (motivo `pessoa`/`presidente`), auditoria
+  `sessoes_encerradas`, e o evento `sessao.cortada` derruba na hora os sockets da sala `pessoa:<id>`. Quem corta o próprio
+  sai também do computador (a tela chama `sair()` e volta ao `/entrar`).
+- **Console da DMS:** a caixa "Encerrar também todas as sessões do Regem desta pessoa" no diálogo de desligar (nasce
+  desmarcada; só `true` vale — V15). **Divergência do protótipo:** o diálogo do console não tinha a caixa; entrou porque a
+  peça A5 do plano pede o "Perdi o celular" pelo suporte para quem não consegue entrar no Regem.
+- **O aviso aos presidentes** (`acesso_encerrado`, regra fixa, sem botão, texto nunca escrito pela IA, evento de 24 h): o
+  corte (quem informou e a hora) e, preenchendo a lacuna da M6a, o WhatsApp desligado pelo suporte da DMS sem corte junto
+  ("Os presidentes da empresa são avisados na tela", do protótipo). O mesmo pedido do console com o corte vira um aviso só.
+- Limite conhecido: o relógio é o de quem emitiu o token — num servidor da loja com o relógio adiantado, um token anterior
+  ao corte pode passar; o bloqueio da pessoa continua valendo para os dois lados.
+
 #### 8. Custos
 
 | Parte | Como começa | Se ligar ou usar |

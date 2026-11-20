@@ -397,8 +397,14 @@ export const SEGREDO_ABERTO_H = 24;
 // A regra é FIXA: a empresa não desliga nem muda (é a proteção contra quem liga um telefone com o login de outra pessoa).
 // É um EVENTO: aberto por 24 h e fecha calado (sem "resolvido"). O texto é sempre o fixo — nunca escrito pela IA.
 
-export type TipoDeSeguranca = 'telefone_ligado';
-export const AVISOS_DE_SEGURANCA: Record<TipoDeSeguranca, RegraDoAviso> = { telefone_ligado: regra(['presidente']) };
+// Versão 6, M6c (mig 473): `acesso_encerrado` — o "Perdi o celular" (as sessões do Regem de uma pessoa encerradas em todos
+// os aparelhos, pela própria pessoa, por um presidente ou pelo suporte da DMS) e o WhatsApp desligado pelo suporte da DMS
+// (o "Os presidentes da empresa são avisados na tela" do console, `mockups/regem-mister-v6.html`). Também um EVENTO de 24 h.
+export type TipoDeSeguranca = 'telefone_ligado' | 'acesso_encerrado';
+export const AVISOS_DE_SEGURANCA: Record<TipoDeSeguranca, RegraDoAviso> = {
+  telefone_ligado: regra(['presidente']),
+  acesso_encerrado: regra(['presidente']),
+};
 export const TIPOS_DE_SEGURANCA = Object.keys(AVISOS_DE_SEGURANCA) as TipoDeSeguranca[];
 export const ehAvisoDeSeguranca = (t: unknown): t is TipoDeSeguranca => typeof t === 'string' && t in AVISOS_DE_SEGURANCA;
 /** O grupo do aviso de segurança no Histórico. */
@@ -440,6 +446,58 @@ export function botoesDoTelefoneLigado(dados: unknown): { id: string; titulo: st
   const d = (dados ?? {}) as { colaboradorId?: unknown; ligadoEm?: unknown };
   if (typeof d.colaboradorId !== 'string' || typeof d.ligadoEm !== 'string') return [];
   return [{ id: `${PREFIXO_NAO_RECONHECO}${d.colaboradorId}:${d.ligadoEm}`, titulo: 'Não reconheço' }];
+}
+
+export const ACESSO_ENCERRADO_ABERTO_H = 24;
+
+/**
+ * O aviso do acesso encerrado (versão 6, M6c): um por corte das sessões (`corte`) ou por WhatsApp desligado pelo suporte
+ * da DMS sem corte (`dms`). Só o primeiro nome, o nível, a loja e o final do número — nunca o número.
+ */
+export function situacaoDoAcessoEncerrado(v: {
+  tenantId: string;
+  origem: 'corte' | 'dms';
+  colaboradorId: string;
+  nome: string;
+  nivel: string;
+  loja: string | null;
+  /** Quem cortou as sessões: a própria pessoa, um presidente ou o suporte (só na origem `corte`). */
+  por: string | null;
+  /** O final do WhatsApp desligado (só na origem `dms`). */
+  final: string | null;
+  /** O instante (o corte ou o desligamento), em ISO UTC com milissegundos — é a chave do aviso. */
+  em: string;
+  /** "14:22", no relógio da loja. */
+  hora: string;
+}): Situacao {
+  const nome = String(v.nome ?? '').trim().split(/\s+/)[0] || 'alguém';
+  const quem = `${nome} (${v.nivel === 'presidente' ? 'presidente' : 'gerente'}${v.loja ? ` · ${v.loja}` : ''})`;
+  if (v.origem === 'dms') {
+    return {
+      tenantId: v.tenantId,
+      unidadeId: null,
+      tipo: 'acesso_encerrado',
+      chave: `dms:${v.colaboradorId}:${v.em}`,
+      titulo: `WhatsApp${v.final ? ` final ${v.final}` : ''} de ${nome} desligado pelo suporte da DMS`,
+      detalhe: `Às ${v.hora}, o suporte da DMS desligou do Mister o WhatsApp de ${quem}. Para voltar, a pessoa liga de novo dentro do Regem, no menu Mister, em "Pessoas".`,
+      dados: { colaboradorId: v.colaboradorId, em: v.em },
+    };
+  }
+  const feito =
+    v.por === 'pessoa'
+      ? `${quem} informou às ${v.hora} que perdeu o celular`
+      : v.por === 'dms'
+        ? `Às ${v.hora}, o suporte da DMS informou a perda do celular de ${quem}`
+        : `Às ${v.hora}, um presidente informou a perda do celular de ${quem}`;
+  return {
+    tenantId: v.tenantId,
+    unidadeId: null,
+    tipo: 'acesso_encerrado',
+    chave: `corte:${v.colaboradorId}:${v.em}`,
+    titulo: `Sessões de ${nome} encerradas em todos os aparelhos`,
+    detalhe: `${feito}: as sessões do Regem foram encerradas em todos os aparelhos e o WhatsApp saiu do Mister. Para voltar, a pessoa entra com a senha e liga o WhatsApp de novo pelo código.`,
+    dados: { colaboradorId: v.colaboradorId, em: v.em },
+  };
 }
 
 /** Lê o botão "Não reconheço": o colaborador e o instante da ligação, ou null se o id não é desse botão. */

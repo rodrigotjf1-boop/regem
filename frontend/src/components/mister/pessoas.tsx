@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import QRCode from 'qrcode';
-import { api } from '@/lib/api';
+import { api, sair } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -60,7 +61,9 @@ export function PessoasDoMister() {
   const [erro, setErro] = useState('');
   const [ligando, setLigando] = useState(false);
   const [desligando, setDesligando] = useState<Pessoa | null>(null);
+  const [perdeu, setPerdeu] = useState<Pessoa | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  const router = useRouter();
 
   const ler = useCallback(async () => {
     setErro('');
@@ -85,6 +88,28 @@ export function PessoasDoMister() {
       await ler();
     } catch (e) {
       toast.error(mensagem(e, 'Não deu para desligar agora.'));
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  // Versão 6, M6c (mig 473): o corte das sessões. Quem cortou o próprio sai também deste computador (a sessão daqui caiu
+  // junto) e entra de novo com a senha.
+  async function perdiOCelular(p: Pessoa) {
+    setOcupado(true);
+    try {
+      const r = (await api.post(`/mister/pessoas/${p.colaboradorId}/perdi-o-celular`, {})) as { voce: boolean };
+      setPerdeu(null);
+      if (r?.voce) {
+        toast.success('Pronto: as suas sessões foram encerradas em todos os aparelhos. Entre de novo com a sua senha.');
+        await sair();
+        router.replace('/entrar');
+        return;
+      }
+      toast.success(`Pronto: as sessões de ${p.nome} foram encerradas em todos os aparelhos e o WhatsApp saiu do Mister.`);
+      await ler();
+    } catch (e) {
+      toast.error(mensagem(e, 'Não deu para encerrar agora. Tente de novo.'));
     } finally {
       setOcupado(false);
     }
@@ -197,14 +222,22 @@ export function PessoasDoMister() {
                     </span>
                   )}
                   actions={(p) =>
-                    p.voce && !p.ligado ? (
-                      <Button type="button" onClick={() => setLigando(true)} disabled={!lista.disponivel}>
-                        Ligar o meu WhatsApp
-                      </Button>
-                    ) : p.ligado && (p.voce || lista.souPresidente) ? (
-                      <Button type="button" variant="outline" onClick={() => setDesligando(p)}>
-                        Desligar
-                      </Button>
+                    p.voce || lista.souPresidente ? (
+                      <div className="flex flex-wrap gap-2">
+                        {p.voce && !p.ligado ? (
+                          <Button type="button" onClick={() => setLigando(true)} disabled={!lista.disponivel}>
+                            Ligar o meu WhatsApp
+                          </Button>
+                        ) : p.ligado ? (
+                          <Button type="button" variant="outline" onClick={() => setDesligando(p)}>
+                            Desligar
+                          </Button>
+                        ) : null}
+                        {/* Versão 6, M6c (mig 473): cada um no próprio; o presidente, em qualquer pessoa. */}
+                        <Button type="button" variant="destructive" onClick={() => setPerdeu(p)}>
+                          Perdi o celular
+                        </Button>
+                      </div>
                     ) : null
                   }
                 />
@@ -222,6 +255,38 @@ export function PessoasDoMister() {
         Sempre vale: o Mister só reconhece o número ligado, de quem ainda é gerente ou presidente · quem sai da empresa deixa de ser reconhecido na hora · um número liga uma pessoa só · PARAR
         AVISOS no WhatsApp para os avisos, VOLTAR AVISOS religa.
       </p>
+      <p className={`max-w-3xl text-xs ${texto2}`}>
+        &quot;Perdi o celular&quot; desliga o WhatsApp do Mister e encerra todas as sessões do Regem da pessoa, em todos os aparelhos. Cada um pode no próprio; o presidente, em qualquer um.
+      </p>
+
+      {perdeu && (
+        <Dialogo
+          titulo="Perdi o celular"
+          aoFechar={() => setPerdeu(null)}
+          alerta
+          fecharNoFundo={false}
+          rodape={
+            <>
+              <Button type="button" variant="outline" onClick={() => setPerdeu(null)} disabled={ocupado}>
+                Cancelar
+              </Button>
+              <Button type="button" variant="destructive" onClick={() => void perdiOCelular(perdeu)} disabled={ocupado}>
+                {ocupado ? 'Desligando…' : 'Desligar tudo'}
+              </Button>
+            </>
+          }
+        >
+          <p className="text-sm">
+            Para <strong>{perdeu.voce ? 'você' : perdeu.nome}</strong>, isto faz agora:
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+            <li>desliga o WhatsApp {perdeu.voce ? 'seu' : 'dela'} do Mister (os avisos param);</li>
+            <li>encerra todas as sessões do Regem {perdeu.voce ? 'suas' : 'dela'}, em todos os aparelhos{perdeu.voce ? ', inclusive neste computador' : ''};</li>
+            <li>avisa os presidentes e fica na auditoria.</li>
+          </ul>
+          <p className={`mt-3 text-xs ${texto2}`}>Para voltar: entrar no Regem com a senha e ligar o WhatsApp de novo pelo código.</p>
+        </Dialogo>
+      )}
 
       {ligando && (
         <DialogoDeLigar

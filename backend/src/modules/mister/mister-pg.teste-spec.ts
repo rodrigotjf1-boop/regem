@@ -6,6 +6,9 @@ import { join } from 'node:path';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
+import { JwtService } from '@nestjs/jwt';
+import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
+import { esquecerMemoriaDosCortes, sessaoCortada } from '../../auth/sessao-corte';
 import { perfilPadrao } from '../../auth/permissoes';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { dataNoFuso, hojeISO, horaNoFuso, somarDias } from '../../common/data';
@@ -258,6 +261,11 @@ class AvisosDeTeste extends MisterAvisosService {
   protected async telefonesLigados(so?: string[]) {
     return this.ligados ?? super.telefonesLigados(so);
   }
+  /** Versão 6, M6c: os acessos encerrados (o aviso de segurança); [] = nenhum (as suítes antigas), null = o banco de verdade. */
+  encerrados: any[] | null = [];
+  protected async acessosEncerrados(so?: string[]) {
+    return this.encerrados ?? super.acessosEncerrados(so);
+  }
   /** A leitura do chat do iFood sem resposta, trocável: a lista de mentira; null = o banco de verdade. */
   chats: any[] | null = [];
   protected async chatsSemResposta(so?: string[]) {
@@ -459,7 +467,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -8320,15 +8328,168 @@ export function testesDoMisterComPostgres(): void {
         await expect(seguranca.pessoasDaEmpresa('nao-e-uuid')).rejects.toThrow('Empresa inválida');
         await expect(seguranca.desligarPelaDms(A, pessoa.carlos, 'curto')).rejects.toThrow('Escreva o motivo');
         auditados.length = 0;
-        expect(await seguranca.desligarPelaDms(A, pessoa.carlos, 'o presidente perdeu o celular e ligou para o suporte')).toEqual({ desligado: true, final: tel.slice(-4) });
+        expect(await seguranca.desligarPelaDms(A, pessoa.carlos, 'o presidente perdeu o celular e ligou para o suporte')).toEqual({
+          desligado: true,
+          final: tel.slice(-4),
+          sessoesEncerradas: false,
+        });
         expect(await linha('carlos')).toMatchObject({ telefone: null, desligado_motivo: 'dms' });
         expect(auditados).toEqual([expect.objectContaining({ tenantId: A, acao: 'mister_whatsapp_desligado', origem: 'distribuicao' })]);
         expect(JSON.stringify(auditados)).not.toContain('perdeu o celular');
-        expect(await seguranca.desligarPelaDms(A, pessoa.carlos, 'de novo, sem nada ligado')).toEqual({ desligado: false, final: null });
+        expect(await seguranca.desligarPelaDms(A, pessoa.carlos, 'de novo, sem nada ligado')).toEqual({ desligado: false, final: null, sessoesEncerradas: false });
         expect((await seguranca.pessoasDaEmpresa(A)).pessoas.find((p) => p.colaboradorId === pessoa.carlos)).toMatchObject({
           situacao: 'desligado',
           desligado: { motivo: 'desligado pelo suporte da DMS' },
         });
+      });
+    });
+
+    // ───────────── versão 6, M6c (mig 473): "Perdi o celular" ─────────────
+    describe('"Perdi o celular" (versão 6, M6c)', () => {
+      const cortados: any[] = [];
+      const eventos = { emit: (nome: string, p: any) => void cortados.push([nome, p]) } as any;
+      const comEventos = new MisterVinculoService(db, numero, auditoria, eventos);
+      const segurancaDoConsole = new MisterVinculoSegurancaService(db, entrada, numero, auditoria, eventos);
+      const jwt = new JwtService({ secret: `segredo-do-teste-m6c-${MARCA}` });
+      const guarda = new JwtAuthGuard(jwt, db);
+      const agoraSeg = () => Math.floor(Date.now() / 1000);
+      const tokenDe = (nome: string, iat: number, tenant = A) => jwt.sign({ sub: pessoa[nome], tenant, cat: 'gerente', jti: randomUUID(), iat });
+      /** A guarda de verdade, com o Bearer: `true` ou a mensagem da recusa. */
+      const abre = async (token: string) => {
+        const req: any = { headers: { authorization: `Bearer ${token}` } };
+        try {
+          return await guarda.canActivate({ switchToHttp: () => ({ getRequest: () => req }) } as any);
+        } catch (e: any) {
+          return String(e?.message ?? e);
+        }
+      };
+      const corte = async (nome: string) =>
+        (await q(`select tenant_id::text as tenant, por, por_colaborador_id::text as "porQuem", motivo from sessao_corte where id = $1`, [pessoa[nome]]))[0];
+      const limparCortes = () => q(`delete from sessao_corte where tenant_id = any($1::uuid[])`, [[A, B]]);
+      beforeEach(async () => {
+        await limparCortes();
+        esquecerMemoriaDosCortes();
+        cortados.length = 0;
+      });
+      afterAll(() => limparCortes());
+
+      it('a própria pessoa: todos os tokens dela de antes caem na guarda (aqui e pelo banco), o novo entra; o WhatsApp sai; auditoria e tempo real', async () => {
+        const tel = telefone();
+        await ligar('carlos', tel, A, 'gerente');
+        const velho = tokenDe('carlos', agoraSeg() - 120);
+        const daAna = tokenDe('ana', agoraSeg() - 120);
+        expect(await abre(velho)).toBe(true);
+        auditados.length = 0;
+        const r = await comEventos.perdiOCelular(usuario('carlos', A, 'gerente'), pessoa.carlos);
+        expect(r).toMatchObject({ encerradas: true, whatsappDesligado: true, voce: true });
+        expect(await corte('carlos')).toEqual({ tenant: A, por: 'pessoa', porQuem: null, motivo: 'perdi_celular' });
+        expect(await linha('carlos')).toMatchObject({ telefone: null, desligado_motivo: 'pessoa' });
+        expect(cortados).toEqual([['sessao.cortada', { colaboradorId: pessoa.carlos }]]);
+        expect(auditados).toEqual([
+          expect.objectContaining({
+            tenantId: A,
+            atorId: pessoa.carlos,
+            tipo: 'auth',
+            acao: 'sessoes_encerradas',
+            entidadeId: pessoa.carlos,
+            detalhe: { motivo: 'perdi_celular', por: 'a própria pessoa', whatsapp: `final ${tel.slice(-4)}` },
+          }),
+        ]);
+        // na hora, neste processo; e pelo banco (outro processo, sem a memória deste)
+        expect(await abre(velho)).toMatch(/Sessão encerrada em todos os aparelhos/);
+        esquecerMemoriaDosCortes();
+        expect(await abre(velho)).toMatch(/Sessão encerrada em todos os aparelhos/);
+        esquecerMemoriaDosCortes();
+        expect(await sessaoCortada(db, jwt.decode(velho))).toBe(true);
+        // entrar de novo (o token emitido depois do corte) vale; a sessão de outra pessoa segue
+        expect(await abre(tokenDe('carlos', agoraSeg() + 2))).toBe(true);
+        expect(await abre(daAna)).toBe(true);
+      });
+
+      it('o presidente corta o de outra pessoa; o gerente não; outra empresa não; o corte só sobe', async () => {
+        await expect(comEventos.perdiOCelular(usuario('carlos', A, 'gerente'), pessoa.ana)).rejects.toThrow('Só o presidente');
+        expect(await corte('ana')).toBeUndefined();
+        await expect(comEventos.perdiOCelular(usuario('ana'), pessoa.anaB)).rejects.toThrow('não encontrada');
+        expect(await corte('anaB')).toBeUndefined();
+        await expect(comEventos.perdiOCelular(usuario('ana'), 'nao-e-uuid')).rejects.toThrow('Pessoa inválida');
+        expect(cortados).toEqual([]);
+        // o presidente: o corte com quem cortou; o gerente sem WhatsApp ligado também cai
+        const r = await comEventos.perdiOCelular(usuario('ana'), pessoa.carlos);
+        expect(r).toMatchObject({ encerradas: true, whatsappDesligado: false, voce: false });
+        expect(await corte('carlos')).toMatchObject({ tenant: A, por: 'presidente', porQuem: pessoa.ana });
+        // o corte só sobe: um corte mais novo que já existe fica
+        await q(`update sessao_corte set desde = now() + interval '1 hour' where id = $1`, [pessoa.carlos]);
+        await comEventos.perdiOCelular(usuario('ana'), pessoa.carlos);
+        expect(await q(`select desde > now() + interval '50 minutes' as ok from sessao_corte where id = $1`, [pessoa.carlos])).toEqual([{ ok: true }]);
+        // a linha de uma pessoa nunca troca de empresa (a gravação confere a empresa)
+        await q(`update sessao_corte set tenant_id = $2 where id = $1`, [pessoa.carlos, B]);
+        await expect(comEventos.perdiOCelular(usuario('ana'), pessoa.carlos)).rejects.toThrow('outra empresa');
+        expect(await corte('carlos')).toMatchObject({ tenant: B });
+      });
+
+      it('o console: "encerrar as sessões" só com true; os presidentes recebem o aviso do acesso encerrado, sem botão, e o do WhatsApp desligado pela DMS', async () => {
+        avisos.encerrados = null;
+        try {
+          const telAna = telefone();
+          await ligar('ana', telAna);
+          const telCarlos = telefone();
+          await ligar('carlos', telCarlos, A, 'gerente');
+          await comEventos.perdiOCelular(usuario('carlos', A, 'gerente'), pessoa.carlos);
+          numero.pedidos.length = 0;
+          await avisos.volta([A]);
+          const deAcesso = (m: { texto: string }) => m.texto.includes('encerradas em todos os aparelhos');
+          const paraAna = numero.enviadas.filter((m) => m.para === telAna && deAcesso(m));
+          expect(paraAna).toHaveLength(1);
+          expect(paraAna[0].texto).toContain('Carlos (gerente · Loja Centro) informou');
+          expect(paraAna[0].botoes ?? []).toEqual([]);
+          // a volta seguinte não manda de novo
+          numero.pedidos.length = 0;
+          await avisos.volta([A]);
+          expect(numero.enviadas.filter(deAcesso)).toHaveLength(0);
+
+          // o console com "encerrar as sessões": o corte pelo suporte, o evento do tempo real e as duas auditorias
+          const telCarlos2 = telefone();
+          await ligar('carlos', telCarlos2, A, 'gerente');
+          auditados.length = 0;
+          cortados.length = 0;
+          expect(await segurancaDoConsole.desligarPelaDms(A, pessoa.carlos, 'o gerente perdeu o celular e ligou para o suporte', true)).toEqual({
+            desligado: true,
+            final: telCarlos2.slice(-4),
+            sessoesEncerradas: true,
+          });
+          expect(await corte('carlos')).toMatchObject({ por: 'dms', porQuem: null });
+          expect(cortados).toEqual([['sessao.cortada', { colaboradorId: pessoa.carlos }]]);
+          expect(auditados.map((a) => [a.acao, a.origem])).toEqual([
+            ['sessoes_encerradas', 'distribuicao'],
+            ['mister_whatsapp_desligado', 'distribuicao'],
+          ]);
+          // o aviso do corte pelo suporte; o desligamento do MESMO pedido do console não vira outro aviso
+          numero.pedidos.length = 0;
+          await avisos.volta([A]);
+          const doSuporte = numero.enviadas.filter((m) => m.para === telAna && m.texto.includes('suporte da DMS'));
+          expect(doSuporte).toHaveLength(1);
+          expect(doSuporte[0].texto).toContain('o suporte da DMS informou a perda do celular de Carlos (gerente · Loja Centro)');
+          // "encerrar" só com true de verdade (V15): a palavra não corta
+          const telCarlos3 = telefone();
+          await ligar('carlos', telCarlos3, A, 'gerente');
+          await limparCortes();
+          expect((await segurancaDoConsole.desligarPelaDms(A, pessoa.carlos, 'só o whatsapp, a pedido do presidente', 'true')).sessoesEncerradas).toBe(false);
+          expect(await corte('carlos')).toBeUndefined();
+          // pessoa de outra empresa: o corte recusa e nada muda
+          await expect(segurancaDoConsole.desligarPelaDms(A, pessoa.anaB, 'pessoa de outra empresa no pedido', true)).rejects.toThrow('não encontrada');
+          expect(await corte('anaB')).toBeUndefined();
+
+          // o WhatsApp do Carlos desligado pela DMS SEM corte (a chamada com 'true' em texto) também vai à presidente
+          numero.pedidos.length = 0;
+          await avisos.volta([A]);
+          const daDms = numero.enviadas.filter((m) => m.para === telAna && m.texto.includes('desligado pelo suporte da DMS'));
+          expect(daDms).toHaveLength(1);
+          expect(daDms[0].texto).toContain('Carlos (gerente · Loja Centro)');
+          const abertos = await q(`select titulo from mister_aviso where tenant_id = $1 and tipo = 'acesso_encerrado' and situacao = 'aberto'`, [A]);
+          expect(abertos.map((a: any) => a.titulo)).toEqual(['WhatsApp de Carlos desligado pelo suporte da DMS']);
+        } finally {
+          avisos.encerrados = [];
+        }
       });
     });
 

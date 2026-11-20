@@ -17,6 +17,7 @@ import { PresencaService, enderecoDoHost, ipDoPc, versaoInformada } from '../equ
 import { lerCookieSessao } from '../../auth/cookie-sessao';
 import { tokenAbreOTempoReal } from '../../auth/sessao-do-ponto';
 import { jtiDoToken, sessaoEncerrada } from '../../auth/sessao-encerrada';
+import { sessaoCortada } from '../../auth/sessao-corte';
 import { ehServidorLocal } from '../../common/modo';
 import { ehTipoDeAviso, prioridadeDoKds } from '../../common/avisos-do-kds';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -153,9 +154,13 @@ export class RealtimeGateway
         if (!(await this.pessoaSegueComAcesso(p))) return this.recusar(socket, 'acesso encerrado ou bloqueado');
         // Nem a sessão que "Sair" encerrou (R3-01, mig 457) — a mesma conferência do `JwtAuthGuard` (V97).
         if (await sessaoEncerrada(this.db, p)) return this.recusar(socket, 'sessão encerrada');
+        // Nem o token emitido antes do "Perdi o celular" da pessoa (Mister v6, M6c, mig 473) — a mesma do guarda (V97).
+        if (await sessaoCortada(this.db, p)) return this.recusar(socket, 'sessão encerrada');
         // A sala da sessão: "Sair" derruba de uma vez os sockets dela (`onSessaoEncerrada`).
         const jti = jtiDoToken(p);
         if (jti) socket.join(`sessao:${jti}`);
+        // A sala da pessoa: o "Perdi o celular" derruba de uma vez os sockets dela (`onSessaoCortada`).
+        if (typeof p.sub === 'string' && UUID_RE.test(p.sub)) socket.join(`pessoa:${p.sub.toLowerCase()}`);
         const lojas = await this.lojasDoLogin(p.tenant, p, auth.unidade);
         const ctx: SockCtx = {
           tenantId: p.tenant,
@@ -251,6 +256,18 @@ export class RealtimeGateway
     if (!jti) return;
     this.server.to(`sessao:${jti}`).emit('erro', { motivo: 'sessão encerrada' });
     this.server.in(`sessao:${jti}`).disconnectSockets(true);
+  }
+
+  // "Perdi o celular" (Mister v6, M6c, mig 473): todos os sockets da pessoa caem na hora — inclusive o do computador de quem
+  // cortou (ele entra de novo com a senha, e o socket novo, com o token novo, passa pela conferência da entrada). O corte
+  // que chega ao servidor da loja pelo sync não passa por aqui: lá vale na próxima conexão (e nas rotas, pela guarda).
+  @OnEvent('sessao.cortada')
+  onSessaoCortada(p: { colaboradorId?: unknown }) {
+    if (!this.server) return;
+    const id = typeof p?.colaboradorId === 'string' && UUID_RE.test(p.colaboradorId) ? p.colaboradorId.toLowerCase() : null;
+    if (!id) return;
+    this.server.to(`pessoa:${id}`).emit('erro', { motivo: 'sessão encerrada' });
+    this.server.in(`pessoa:${id}`).disconnectSockets(true);
   }
 
   // Marcação de ponto gravada em qualquer origem (web/terminal/gestor) → o sinal ao vivo.

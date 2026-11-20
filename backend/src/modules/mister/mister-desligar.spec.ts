@@ -8,6 +8,7 @@ import {
   botoesDoTelefoneLigado,
   ehAvisoDeSeguranca,
   lerNaoReconheco,
+  situacaoDoAcessoEncerrado,
   situacaoDoTelefoneLigado,
 } from './mister-avisos.regras';
 import { grupoEscritoDoTipo } from './mister-avisos-escritos';
@@ -69,7 +70,7 @@ describe('o aviso de segurança: telefone ligado', () => {
   });
 
   it('a regra é fixa, para os presidentes, fora da lista de ajustes da loja e sempre com o texto fixo', () => {
-    expect(TIPOS_DE_SEGURANCA).toEqual(['telefone_ligado']);
+    expect(TIPOS_DE_SEGURANCA).toEqual(['telefone_ligado', 'acesso_encerrado']);
     expect(AVISOS_DE_SEGURANCA.telefone_ligado).toMatchObject({ ligado: true, destinos: ['presidente'] });
     expect(TIPOS_DE_AVISO.some((t) => (t.tipo as string) === 'telefone_ligado')).toBe(false);
     expect(ehAvisoDeSeguranca('telefone_ligado')).toBe(true);
@@ -92,5 +93,36 @@ describe('o aviso de segurança: telefone ligado', () => {
     expect(lerNaoReconheco(`vinc:nao:${COLAB}`)).toBeNull();
     expect(lerNaoReconheco(`doc:pago:${COLAB}`)).toBeNull();
     expect(lerNaoReconheco(null)).toBeNull();
+  });
+});
+
+// Versão 6, M6c (mig 473): o aviso do acesso encerrado aos presidentes — o "Perdi o celular" e o WhatsApp desligado pela DMS.
+describe('o aviso de segurança: acesso encerrado', () => {
+  const base = { tenantId: 'T', colaboradorId: COLAB, nome: 'Carlos Lima', nivel: 'gerente', loja: 'Loja Centro', em: LIGADO_EM, hora: '14:22' };
+
+  it('o corte das sessões: quem informou, a hora, o que aconteceu e como voltar; sem botão e sem número', () => {
+    const pelaPessoa = situacaoDoAcessoEncerrado({ ...base, origem: 'corte', por: 'pessoa', final: null });
+    expect(pelaPessoa.tipo).toBe('acesso_encerrado');
+    expect(pelaPessoa.chave).toBe(`corte:${COLAB}:${LIGADO_EM}`);
+    expect(pelaPessoa.titulo).toBe('Sessões de Carlos encerradas em todos os aparelhos');
+    expect(pelaPessoa.detalhe).toContain('Carlos (gerente · Loja Centro) informou às 14:22 que perdeu o celular');
+    expect(pelaPessoa.detalhe).toContain('entra com a senha e liga o WhatsApp de novo pelo código');
+    expect(botoesDoTelefoneLigado(pelaPessoa.dados)).toEqual([]);
+    expect(situacaoDoAcessoEncerrado({ ...base, origem: 'corte', por: 'presidente', final: null }).detalhe).toContain('um presidente informou a perda do celular de Carlos');
+    expect(situacaoDoAcessoEncerrado({ ...base, origem: 'corte', por: 'dms', final: null }).detalhe).toContain('o suporte da DMS informou a perda do celular de Carlos');
+  });
+
+  it('o WhatsApp desligado pela DMS: o final quando houver, outra chave', () => {
+    const s = situacaoDoAcessoEncerrado({ ...base, origem: 'dms', por: null, final: '7788' });
+    expect(s.chave).toBe(`dms:${COLAB}:${LIGADO_EM}`);
+    expect(s.titulo).toBe('WhatsApp final 7788 de Carlos desligado pelo suporte da DMS');
+    expect(situacaoDoAcessoEncerrado({ ...base, origem: 'dms', por: null, final: null }).titulo).toBe('WhatsApp de Carlos desligado pelo suporte da DMS');
+  });
+
+  it('regra fixa para os presidentes, fora dos ajustes e nunca escrito pela IA', () => {
+    expect(AVISOS_DE_SEGURANCA.acesso_encerrado).toMatchObject({ ligado: true, destinos: ['presidente'] });
+    expect(ehAvisoDeSeguranca('acesso_encerrado')).toBe(true);
+    expect(TIPOS_DE_AVISO.some((t) => (t.tipo as string) === 'acesso_encerrado')).toBe(false);
+    expect(grupoEscritoDoTipo('acesso_encerrado')).toBeNull();
   });
 });

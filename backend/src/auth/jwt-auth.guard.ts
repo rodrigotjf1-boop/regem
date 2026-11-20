@@ -14,6 +14,7 @@ import { colaborador, funcao, perfilAcesso, suporteSessao, empresa } from '../db
 import { perfilPadrao, PACOTE_SUPORTE, PACOTE_SUPORTE_TOTAL, type Permissoes } from './permissoes';
 import { lerCookieSessao } from './cookie-sessao';
 import { sessaoEncerrada } from './sessao-encerrada';
+import { sessaoCortada } from './sessao-corte';
 
 // TTL do cache de revalidação: janela máxima entre uma mudança no banco
 // (bloqueio/rebaixamento/permissão) e ela valer nas requisições.
@@ -58,6 +59,12 @@ export class JwtAuthGuard implements CanActivate {
     // conferência no tempo real (`RealtimeGateway`, V97).
     if (await sessaoEncerrada(this.db, payload)) {
       throw new UnauthorizedException('Sessão encerrada. Entre de novo.');
+    }
+    // "Perdi o celular" (Mister v6, M6c, mig 473): todo token da pessoa emitido antes do corte deixa de valer, em todos os
+    // aparelhos — a mesma conferência no tempo real (V97). À parte da leitura da pessoa abaixo: sem a tabela (o servidor da
+    // loja antes da atualização), o bloqueio e a exclusão seguem conferidos.
+    if (await sessaoCortada(this.db, payload)) {
+      throw new UnauthorizedException('Sessão encerrada em todos os aparelhos. Entre de novo com a sua senha.');
     }
 
     // ===== F9 — token de SUPORTE (técnico da distribuição) =====

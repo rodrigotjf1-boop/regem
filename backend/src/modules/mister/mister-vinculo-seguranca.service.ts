@@ -1,6 +1,8 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Cron } from '@nestjs/schedule';
 import { sql } from 'drizzle-orm';
+import { cortarSessoes } from '../../auth/sessao-corte';
 import { ehServidorLocal } from '../../common/modo';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -55,6 +57,7 @@ export class MisterVinculoSegurancaService implements OnModuleInit {
     @Optional() private readonly entrada?: MisterEntradaService,
     @Optional() private readonly numero?: MisterNumeroService,
     @Optional() private readonly auditoria?: AuditoriaService,
+    @Optional() private readonly eventos?: EventEmitter2,
   ) {}
 
   onModuleInit(): void {
@@ -200,13 +203,39 @@ export class MisterVinculoSegurancaService implements OnModuleInit {
    * A Diretoria desliga o WhatsApp de uma pessoa (motivo `dms`). O motivo escrito vai para a auditoria do CONSOLE (quem
    * chama grava) e, na empresa, fica só "desligado pelo suporte da DMS". Devolve o final do número desligado.
    */
-  async desligarPelaDms(tenantId: unknown, colaboradorId: unknown, motivo: unknown): Promise<{ desligado: boolean; final: string | null }> {
-    const t = String(tenantId ?? '').trim();
-    const c = String(colaboradorId ?? '').trim();
+  async desligarPelaDms(
+    tenantId: unknown,
+    colaboradorId: unknown,
+    motivo: unknown,
+    encerrarSessoes: unknown = false,
+  ): Promise<{ desligado: boolean; final: string | null; sessoesEncerradas: boolean }> {
+    const t = String(tenantId ?? '').trim().toLowerCase();
+    const c = String(colaboradorId ?? '').trim().toLowerCase();
     if (!UUID.test(t) || !UUID.test(c)) throw new BadRequestException('Empresa ou pessoa inválida.');
     const m = String(motivo ?? '').replace(/\s+/g, ' ').trim();
     if (m.length < MOTIVO_DO_CONSOLE_MIN) throw new BadRequestException(`Escreva o motivo (pelo menos ${MOTIVO_DO_CONSOLE_MIN} letras): ele vai para a auditoria.`);
     if (m.length > MOTIVO_DO_CONSOLE_MAX) throw new BadRequestException(`O motivo passa de ${MOTIVO_DO_CONSOLE_MAX} letras.`);
+    // Versão 6, M6c (mig 473): "Encerrar também as sessões do Regem" — o "Perdi o celular" de quem não consegue entrar no
+    // Regem. Só com `true` de verdade (V15). A pessoa tem de ser desta empresa; o corte vem antes do desligamento.
+    let sessoesEncerradas = false;
+    if (encerrarSessoes === true) {
+      const [p] = linhas(await this.db.execute(sql`select 1 from colaborador where id = ${c}::uuid and tenant_id = ${t}::uuid and deleted_at is null`));
+      if (!p) throw new NotFoundException('Pessoa não encontrada nesta empresa.');
+      await cortarSessoes(this.db, { tenantId: t, colaboradorId: c, motivo: 'perdi_celular', por: 'dms' });
+      this.eventos?.emit('sessao.cortada', { colaboradorId: c });
+      sessoesEncerradas = true;
+      await this.auditoria?.registrar({
+        tenantId: t,
+        atorId: null,
+        atorPerfil: 'distribuicao',
+        tipo: 'auth',
+        acao: 'sessoes_encerradas',
+        entidadeTipo: 'colaborador',
+        entidadeId: c,
+        origem: 'distribuicao',
+        detalhe: { motivo: 'perdi_celular', por: 'suporte da DMS' },
+      });
+    }
     const d = await desligarVinculo(this.db, { tenantId: t, colaboradorId: c, motivo: 'dms' });
     if (d) {
       await this.auditoria?.registrar({
@@ -221,7 +250,7 @@ export class MisterVinculoSegurancaService implements OnModuleInit {
         detalhe: { por: 'suporte da DMS', final: d.telefone ? d.telefone.slice(-4) : null },
       });
     }
-    return { desligado: !!d, final: d?.telefone ? d.telefone.slice(-4) : null };
+    return { desligado: !!d, final: d?.telefone ? d.telefone.slice(-4) : null, sessoesEncerradas };
   }
 
   private async dizer(telefone: string, texto: string): Promise<void> {
