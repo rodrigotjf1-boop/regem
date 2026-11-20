@@ -15,6 +15,12 @@
 - **Mister versão 6, M6d — a sessão com PIN (20/11; mig 476 SÓ NUVEM — duas colunas em tabelas só da nuvem; nasce
   desligada).** Só na nuvem: vai no `.zip` sem efeito na loja.
 
+- **Clube — o prêmio pela classificação do marketing (20/11; sem migration; fase A1c do `docs/plano-clube-e-banner.md`).**
+  Marketing › Clube › Prêmio surpresa: o gatilho "Pela classificação do marketing" (os segmentos do perfil do cliente com
+  a contagem, o prêmio, 1 vez a cada 30/60/90 dias). A rotina da nuvem dá o prêmio a todos do segmento (fora quem pediu
+  "não quero ser analisado" e quem não tem telefone); ele espera em Sua conta (link `/p/…`). Só na nuvem: no `.zip` só
+  por acompanhar o código. Nasce desligado.
+
 - **Mister versão 6, M6f parte 1 — a tela Mister › Regras (20/11; SEM migration).** Só na nuvem (as rotas do Mister são
   `@CloudOnly`): vai no `.zip` sem efeito na loja.
 

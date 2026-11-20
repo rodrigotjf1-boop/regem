@@ -55,13 +55,58 @@ export type QuemMandaDesculpas = keyof typeof QUEM_MANDA_DESCULPAS;
 export type GatilhoReclamacao = { ativo: boolean; premios: string[]; limite: LimiteDaReclamacao; quem: QuemMandaDesculpas };
 export const GATILHO_RECLAMACAO_PADRAO: GatilhoReclamacao = { ativo: false, premios: [], limite: 'mes1', quem: 'gerencia' };
 
-export type GatilhosDoSurpresa = { entregue: GatilhoEntregue; reclamacao: GatilhoReclamacao };
+/**
+ * O gatilho "Pela classificação do marketing" (fase A1c, sem migration — a chave `classificacao` do mesmo jsonb): TODOS os
+ * clientes dos segmentos escolhidos (o perfil do cliente, pelas compras de cada um) ganham o prêmio, no máximo uma vez a
+ * cada N dias. Ninguém é escolhido por sorte. O prêmio espera na conta do cliente (o aviso pelo WhatsApp sai pela campanha).
+ * Só com o módulo "Perfil do cliente" ligado; quem pediu "não quero ser analisado" fica fora.
+ */
+export const SEGMENTOS_DA_CLASSIFICACAO = {
+  campeoes: 'Campeões',
+  leais: 'Leais',
+  atencao: 'Precisam de atenção',
+  em_risco: 'Em risco',
+  inativos: 'Inativos',
+  atrasado: 'Atrasados no próprio ritmo',
+} as const;
+export type SegmentoDaClassificacao = keyof typeof SEGMENTOS_DA_CLASSIFICACAO;
+export const PERIODOS_DA_CLASSIFICACAO = [30, 60, 90] as const;
+export type GatilhoClassificacao = { ativo: boolean; segmentos: SegmentoDaClassificacao[]; premioId: string | null; periodoDias: number };
+export const GATILHO_CLASSIFICACAO_PADRAO: GatilhoClassificacao = { ativo: false, segmentos: [], premioId: null, periodoDias: 60 };
+
+export type GatilhosDoSurpresa = { entregue: GatilhoEntregue; reclamacao: GatilhoReclamacao; classificacao: GatilhoClassificacao };
+
+const ehSegmento = (x: unknown): x is SegmentoDaClassificacao => typeof x === 'string' && x in SEGMENTOS_DA_CLASSIFICACAO;
+
+/** O que a tela mandou para o gatilho "Pela classificação do marketing" (V15/V16; cada escolha só entre as opções). */
+export function lerGatilhoClassificacao(dto: unknown): Partial<GatilhoClassificacao> {
+  const d = (dto !== null && typeof dto === 'object' ? dto : {}) as Record<string, unknown>;
+  const p: Partial<GatilhoClassificacao> = {};
+  if (d.ativo !== undefined) p.ativo = exigirBooleano(d.ativo, 'Pela classificação do marketing');
+  if (d.segmentos !== undefined) {
+    if (!Array.isArray(d.segmentos) || !d.segmentos.every(ehSegmento))
+      throw new BadRequestException('Pela classificação do marketing: escolha os segmentos da lista.');
+    p.segmentos = [...new Set(d.segmentos as SegmentoDaClassificacao[])];
+  }
+  if (d.premioId !== undefined) {
+    if (d.premioId === null || d.premioId === '') p.premioId = null;
+    else if (typeof d.premioId === 'string' && UUID_DO_PREMIO.test(d.premioId.trim())) p.premioId = d.premioId.trim().toLowerCase();
+    else throw new BadRequestException('Pela classificação do marketing: escolha o prêmio da lista.');
+  }
+  if (d.periodoDias !== undefined) {
+    if (!(PERIODOS_DA_CLASSIFICACAO as readonly number[]).includes(d.periodoDias as number))
+      throw new BadRequestException('Pela classificação do marketing: escolha de quanto em quanto tempo da lista.');
+    p.periodoDias = d.periodoDias as number;
+  }
+  return p;
+}
 
 /** Os gatilhos como estão gravados (o jsonb da linha), com os padrões no que faltar. */
 export function gatilhosDaLinha(j: unknown): GatilhosDoSurpresa {
   const doJson = (k: string) => (j && typeof j === 'object' ? (j as Record<string, unknown>)[k] : null) as Record<string, unknown> | null;
   const e = doJson('entregue');
   const r = doJson('reclamacao');
+  const cl = doJson('classificacao');
   const ids = Array.isArray(r?.premios) ? (r!.premios as unknown[]).filter((x): x is string => typeof x === 'string' && UUID_DO_PREMIO.test(x)) : [];
   return {
     entregue: {
@@ -74,6 +119,12 @@ export function gatilhosDaLinha(j: unknown): GatilhosDoSurpresa {
       premios: [...new Set(ids.map((x) => x.toLowerCase()))].slice(0, PREMIOS_POR_ESCOLHA_MAX),
       limite: typeof r?.limite === 'string' && r.limite in LIMITES_DA_RECLAMACAO ? (r.limite as LimiteDaReclamacao) : 'mes1',
       quem: typeof r?.quem === 'string' && r.quem in QUEM_MANDA_DESCULPAS ? (r.quem as QuemMandaDesculpas) : 'gerencia',
+    },
+    classificacao: {
+      ativo: cl?.ativo === true,
+      segmentos: Array.isArray(cl?.segmentos) ? [...new Set((cl!.segmentos as unknown[]).filter(ehSegmento))] : [],
+      premioId: typeof cl?.premioId === 'string' && UUID_DO_PREMIO.test(cl.premioId) ? cl.premioId.toLowerCase() : null,
+      periodoDias: (PERIODOS_DA_CLASSIFICACAO as readonly number[]).includes(cl?.periodoDias as number) ? Number(cl!.periodoDias) : 60,
     },
   };
 }
@@ -250,6 +301,7 @@ export function ondeEstaEmUso(c: Pick<ConfigDoClube, 'albumPremios' | 'metaNivei
   const onde: string[] = [];
   if (gatilhos?.entregue.premioId === premioId) onde.push('Prêmio surpresa · pedido entregue');
   if (gatilhos?.reclamacao.premios.includes(premioId)) onde.push('Prêmio surpresa · reclamação');
+  if (gatilhos?.classificacao.premioId === premioId) onde.push('Prêmio surpresa · classificação');
   if (c.albumPremios.includes(premioId)) onde.push('Álbum de selos');
   c.metaNiveis.forEach((n, i) => {
     if (n.premios.includes(premioId)) onde.push(`Meta do mês, nível ${i + 1}`);
@@ -340,6 +392,14 @@ export function regrasDoClube(c: ConfigDoClube, nomeDoPremio: (id: string) => st
     if (gatilhos?.reclamacao.ativo && gatilhos.reclamacao.premios.length) {
       const limite = LIMITES_DA_RECLAMACAO[gatilhos.reclamacao.limite].rotulo;
       linhas.push(`Prêmio de desculpas: depois de uma reclamação, a equipe pode mandar ${como} com um prêmio da lista da loja (no máximo ${limite} por cliente).`);
+    }
+    const cl = gatilhos?.classificacao;
+    if (cl?.ativo && cl.premioId && cl.segmentos.length) {
+      const grupos = cl.segmentos.map((s) => SEGMENTOS_DA_CLASSIFICACAO[s]).join(', ');
+      const premio = nomeDoPremio(cl.premioId);
+      linhas.push(
+        `Prêmio pela classificação: todos os clientes dos grupos ${grupos} (pelas compras de cada um) ganham ${como}${premio ? ` com o prêmio "${premio}"` : ''}, no máximo 1 vez a cada ${cl.periodoDias} dias.`,
+      );
     }
     linhas.push(
       `O prêmio já vem definido pela regra quando o cliente ganha: a ${c.surpresaForma === 'roleta' ? 'roleta' : 'raspadinha'} só mostra.`,

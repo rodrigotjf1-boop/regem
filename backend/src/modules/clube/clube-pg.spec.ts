@@ -98,7 +98,7 @@ descrever('clube de recompra — a base (Postgres)', () => {
     const p = await svc.painel(T);
     expect(p.config).toMatchObject({ surpresaAtivo: false, albumAtivo: false, metaAtivo: false, surpresaForma: 'raspadinha', albumSelos: 4, minimo: 30 });
     expect(p.prontas).toEqual({ surpresa: true, album: false, meta: false });
-    expect(p.gatilhos).toEqual({ entregue: { ativo: false, premioId: null, desde: null }, reclamacao: { ativo: false, premios: [], limite: 'mes1', quem: 'gerencia' } });
+    expect(p.gatilhos).toEqual({ entregue: { ativo: false, premioId: null, desde: null }, reclamacao: { ativo: false, premios: [], limite: 'mes1', quem: 'gerencia' }, classificacao: { ativo: false, segmentos: [], premioId: null, periodoDias: 60 } });
     expect(p.premios).toEqual([]);
     expect(p.regras[0]).toContain('Não há sorteio');
   });
@@ -216,6 +216,7 @@ descrever('clube — o prêmio surpresa pelo pedido entregue (Postgres)', () => 
     for (const [arq, linhas] of [
       ['356_relacionamento_automaticas.sql', 5],
       ['357_aniversario_do_cliente.sql', 5],
+      ['459_perfil_do_cliente.sql', 4],
       ['474_clube_premio_surpresa.sql', 4],
     ] as [string, number][]) {
       if (arq.startsWith('474')) await pool.query(semFkCompartilhada(readFileSync(join(MIGS, '471_clube_de_recompra_base.sql'), 'utf8')));
@@ -236,6 +237,7 @@ descrever('clube — o prêmio surpresa pelo pedido entregue (Postgres)', () => 
     if (!admin) return;
     for (const t of empresas) {
       await admin.query(`delete from cupom_uso where tenant_id = $1`, [t]).catch(() => {});
+      await admin.query(`delete from modulo_ativacao where tenant_id = $1`, [t]).catch(() => {});
       await admin.query(`delete from cupom where tenant_id = $1`, [t]).catch(() => {});
       await admin.query(`delete from cliente where tenant_id = $1`, [t]).catch(() => {});
     }
@@ -560,5 +562,79 @@ descrever('clube — o prêmio surpresa pelo pedido entregue (Postgres)', () => 
     // o gatilho desligado esconde o botão
     await clube.salvarGatilhoReclamacao(presidente(T2), { ativo: false });
     expect(await d2.estado(quem(T2), await caso(T2))).toMatchObject({ mostrar: false, disponivel: false });
+  });
+
+  // ───────────── A1c: o prêmio pela classificação do marketing (os segmentos do perfil do cliente) ─────────────
+  const ligarPerfil = (t: string) => q(`insert into modulo_ativacao (tenant_id, modulo, ativo) values ($1, 'perfil_cliente', true)`, [t]);
+  const comPerfil = async (t: string, cli: string, segmento: string | null, etiquetas: string[] = []) =>
+    q(`insert into cliente_perfil (cliente_id, tenant_id, segmento, etiquetas) values ($1, $2, $3, $4::text[])`, [cli, t, segmento, etiquetas]);
+
+  it('o gatilho da classificação: precisa de segmento, de prêmio e do perfil ligado; a tela recebe as contagens', async () => {
+    const { T, quinze } = await lojaComClube('teste classificacao gatilho');
+    await expect(clube.salvarGatilhoClassificacao(presidente(T), { ativo: true, premioId: quinze.id })).rejects.toThrow('Escolha ao menos um segmento');
+    await expect(clube.salvarGatilhoClassificacao(presidente(T), { ativo: true, segmentos: ['inativos'] })).rejects.toThrow('Escolha o prêmio');
+    await expect(clube.salvarGatilhoClassificacao(presidente(T), { ativo: true, segmentos: ['inativos'], premioId: quinze.id })).rejects.toThrow(
+      'ligue o módulo "Perfil do cliente"',
+    );
+    expect((await clube.painel(T)).classificacao).toEqual({ perfilLigado: false, contagens: {} });
+    await ligarPerfil(T);
+    const [ana, bia] = [await cliente(T, 'Ana', '21987664001'), await cliente(T, 'Bia', '21987664002')];
+    await comPerfil(T, ana, 'inativos', ['atrasado']);
+    await comPerfil(T, bia, 'inativos');
+    await q(`insert into cliente_escolha (tenant_id, cliente_id, escolha, valor, origem) values ($1, $2, 'nao_analisar', true, 'cardapio_perfil')`, [T, bia]);
+    const g = await clube.salvarGatilhoClassificacao(presidente(T), { ativo: true, segmentos: ['inativos'], premioId: quinze.id, periodoDias: 30 });
+    expect(g.classificacao).toEqual({ ativo: true, segmentos: ['inativos'], premioId: quinze.id, periodoDias: 30 });
+    expect(g.entregue.ativo).toBe(false); // o outro gatilho do jsonb fica como estava (V82)
+    const p = await clube.painel(T);
+    expect(p.classificacao).toEqual({ perfilLigado: true, contagens: { campeoes: 0, leais: 0, atencao: 0, em_risco: 0, inativos: 1, atrasado: 1 } });
+    expect(p.regras.some((r) => r.startsWith('Prêmio pela classificação: todos os clientes dos grupos Inativos'))).toBe(true);
+    expect((await clube.premios(T)).find((x) => x.id === quinze.id)?.emUso).toContain('Prêmio surpresa · classificação');
+  });
+
+  it('a rotina da classificação: todos do segmento ganham, uma vez no período; fora quem não quer ser analisado e sem telefone', async () => {
+    const { T } = await lojaComClube('teste classificacao rotina');
+    const lista = await clube.premios(T);
+    await ligarPerfil(T);
+    const frete = lista.find((p) => p.nome === 'Frete grátis')!;
+    const ana = await cliente(T, 'Ana', '21987665001'); // em risco: ganha
+    const bia = await cliente(T, 'Bia', '21987665002'); // inativa, mas pediu para não ser analisada: fica fora
+    const caio = await cliente(T, 'Caio', '21987665003'); // campeão: segmento não escolhido
+    const duda = await cliente(T, 'Duda', '21987665004'); // leal, atrasada no ritmo: ganha pelo "atrasado"
+    const eva = await cliente(T, 'Eva', null); // em risco sem telefone: fica fora
+    await comPerfil(T, ana, 'em_risco');
+    await comPerfil(T, bia, 'inativos');
+    await comPerfil(T, caio, 'campeoes');
+    await comPerfil(T, duda, 'leais', ['atrasado']);
+    await comPerfil(T, eva, 'em_risco');
+    await q(`insert into cliente_escolha (tenant_id, cliente_id, escolha, valor, origem) values ($1, $2, 'nao_analisar', true, 'cardapio_perfil')`, [T, bia]);
+    await clube.salvarGatilhoClassificacao(presidente(T), { ativo: true, segmentos: ['em_risco', 'inativos', 'atrasado'], premioId: frete.id, periodoDias: 60 });
+
+    // duas réplicas ao mesmo tempo: um prêmio por cliente
+    const outra = new ClubeSurpresaService(db, clube);
+    const [a, b] = await Promise.all([surpresa.darPelaClassificacao(), outra.darPelaClassificacao()]);
+    // (a rotina passa por todas as empresas: a loja do teste anterior também ganha — a conta é a desta empresa, abaixo)
+    expect(a + b).toBeGreaterThanOrEqual(2);
+    expect(await surpresa.darPelaClassificacao()).toBe(0); // no período, não ganha de novo
+    const ds = await q(`select cliente_id, ref, premio_nome, revelado_em, cupom_id from clube_direito where tenant_id = $1 and gatilho = 'classificacao' order by cliente_id`, [T]);
+    expect(ds.map((d: any) => d.cliente_id).sort()).toEqual([ana, duda].sort());
+    expect(ds.every((d: any) => d.premio_nome === 'Frete grátis' && d.revelado_em === null && d.cupom_id)).toBe(true);
+    expect(ds.find((d: any) => d.cliente_id === ana).ref).toBe(`${ana}:${hojeISO()}`);
+    // espera na conta: "para revelar" pelo link pessoal
+    expect((await aniversario.premiosParaRevelar(T, ana))[0].link).toMatch(/^\/p\/[A-Za-z0-9_-]{22}$/);
+
+    // passado o período (o prêmio de 61 dias atrás), a Ana ganha de novo
+    await q(`update clube_direito set criado_em = now() - interval '61 days', ref = $2 where tenant_id = $1 and cliente_id = $3 and gatilho = 'classificacao'`, [
+      T,
+      `${ana}:2000-01-01`,
+      ana,
+    ]);
+    expect(await surpresa.darPelaClassificacao()).toBe(1);
+    // o perfil desligado para de dar
+    await q(`update modulo_ativacao set ativo = false where tenant_id = $1 and modulo = 'perfil_cliente'`, [T]);
+    // (todos "antigos" e com outra referência: com o perfil ligado, os dois ganhariam de novo — o 0 é só do módulo desligado)
+    await q(`update clube_direito set criado_em = now() - interval '61 days', ref = ref || ':v' where tenant_id = $1 and gatilho = 'classificacao'`, [T]);
+    expect(await surpresa.darPelaClassificacao()).toBe(0);
+    await q(`update modulo_ativacao set ativo = true where tenant_id = $1 and modulo = 'perfil_cliente'`, [T]);
+    expect(await surpresa.darPelaClassificacao()).toBe(2);
   });
 });

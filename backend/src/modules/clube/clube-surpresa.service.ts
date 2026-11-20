@@ -65,7 +65,7 @@ export type NovoDireito = {
   tenantId: string;
   clienteId: string;
   chave: string;
-  gatilho: 'entregue' | 'reclamacao';
+  gatilho: 'entregue' | 'reclamacao' | 'classificacao';
   ref: string;
   forma: FormaDoSurpresa;
   premio: { id: string; nome: string; tipo: TipoDePremio; valor: number; teto: number | null; minimo: number; validadeDias: number };
@@ -101,6 +101,12 @@ export class ClubeSurpresaService {
       if (n) this.logger.log(`prêmio surpresa: ${n} direito(s) pelo pedido entregue`);
     } catch (err: any) {
       this.logger.warn(`rotina do prêmio surpresa: ${err?.message ?? err}`);
+    }
+    try {
+      const n = await this.darPelaClassificacao();
+      if (n) this.logger.log(`prêmio surpresa: ${n} direito(s) pela classificação do marketing`);
+    } catch (err: any) {
+      this.logger.warn(`rotina do prêmio pela classificação: ${err?.message ?? err}`);
     } finally {
       this.rodando = false;
     }
@@ -149,18 +155,63 @@ export class ClubeSurpresaService {
   }
 
   /**
+   * Uma passada do gatilho "Pela classificação do marketing" (A1c): os clientes dos segmentos escolhidos (o perfil do
+   * cliente, com o módulo ligado), com telefone, fora de quem pediu "não quero ser analisado" e sem prêmio deste gatilho nos
+   * últimos N dias da regra, ganham o prêmio — TODA condição no `where` (V84). A referência é o cliente e o DIA da operação:
+   * duas réplicas no mesmo dia não dão dois (o índice único), e o "N dias" vale pela última vez que ganhou. Lote por passada.
+   */
+  async darPelaClassificacao(): Promise<number> {
+    const chave = sqlChaveTelefone(sql`c.telefone`);
+    const segs = sql`cc.surpresa_gatilhos #> '{classificacao,segmentos}'`;
+    const candidatos = this.rows(
+      await this.db.execute(sql`
+        select cp.cliente_id, cp.tenant_id, ${chave} as chave, cc.surpresa_forma as forma,
+               pr.id as premio_id, pr.nome as premio_nome, pr.tipo, pr.valor::float8 as valor, pr.teto::float8 as teto,
+               pr.minimo::float8 as minimo, pr.validade_dias
+          from clube_config cc
+          join clube_premio pr on pr.tenant_id = cc.tenant_id and pr.excluido_em is null and pr.tipo <> 'produto'
+                              and pr.id::text = cc.surpresa_gatilhos #>> '{classificacao,premioId}'
+          join cliente_perfil cp on cp.tenant_id = cc.tenant_id
+          join cliente c on c.id = cp.cliente_id and c.tenant_id = cp.tenant_id
+         where cc.surpresa_ativo
+           and cc.surpresa_gatilhos #>> '{classificacao,ativo}' = 'true'
+           and exists (select 1 from modulo_ativacao m where m.tenant_id = cc.tenant_id and m.modulo = 'perfil_cliente' and m.ativo)
+           and (${segs} ? cp.segmento or (${segs} ? 'atrasado' and 'atrasado' = any(cp.etiquetas)))
+           and ${chave} is not null
+           and not coalesce((select e.valor from cliente_escolha e
+                              where e.cliente_id = cp.cliente_id and e.tenant_id = cp.tenant_id and e.escolha = 'nao_analisar'
+                              order by e.em desc limit 1), false)
+           and not exists (select 1 from clube_direito d
+                            where d.tenant_id = cc.tenant_id and d.gatilho = 'classificacao' and d.chave_telefone = ${chave}
+                              and d.criado_em > now() - make_interval(days => coalesce((cc.surpresa_gatilhos #>> '{classificacao,periodoDias}')::int, 60)))
+         order by cp.tenant_id, cp.cliente_id
+         limit ${LOTE_DO_ENTREGUE}`),
+    );
+    const hoje = hojeISO();
+    let novos = 0;
+    for (const c of candidatos) {
+      try {
+        if (await this.darDireito(c, 'classificacao', `${c.cliente_id}:${hoje}`)) novos += 1;
+      } catch (err: any) {
+        this.logger.warn(`prêmio pela classificação do cliente ${c.cliente_id}: ${err?.message ?? err}`);
+      }
+    }
+    return novos;
+  }
+
+  /**
    * O direito e o cupom pessoal, na MESMA transação. O direito entra primeiro com `on conflict do nothing` no índice da
    * referência: a outra réplica que chegou junto espera e não grava nada. O código do cupom é sorteado de novo se já
    * existir na empresa (`on conflict do nothing` no índice único do código — sem abortar a transação).
    */
-  private async darDireito(c: any): Promise<boolean> {
+  private async darDireito(c: any, gatilho: 'entregue' | 'classificacao' = 'entregue', ref: string = String(c.id)): Promise<boolean> {
     const novo = await this.db.transaction((tx: any) =>
       this.criarDireito(tx, {
         tenantId: String(c.tenant_id),
         clienteId: String(c.cliente_id),
         chave: String(c.chave),
-        gatilho: 'entregue',
-        ref: String(c.id),
+        gatilho,
+        ref,
         forma: c.forma === 'roleta' ? 'roleta' : 'raspadinha',
         premio: {
           id: String(c.premio_id),

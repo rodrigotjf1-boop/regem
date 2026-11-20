@@ -2,9 +2,11 @@ import {
   CONFIG_PADRAO,
   descricaoDoPremio,
   FERRAMENTAS_PRONTAS,
+  GATILHO_CLASSIFICACAO_PADRAO,
   GATILHO_RECLAMACAO_PADRAO,
   gatilhosDaLinha,
   lerConfigDoClube,
+  lerGatilhoClassificacao,
   lerGatilhoEntregue,
   lerGatilhoReclamacao,
   lerPremio,
@@ -134,7 +136,7 @@ describe('as regras do clube que o cliente lê', () => {
   });
   it('o gatilho "Pedido entregue" ligado entra com o prêmio pelo nome; desligado, não', () => {
     const c = { ...CONFIG_PADRAO, surpresaAtivo: true };
-    const ligado = { entregue: { ativo: true, premioId: B, desde: '2026-11-20T12:00:00.000Z' }, reclamacao: GATILHO_RECLAMACAO_PADRAO };
+    const ligado = { entregue: { ativo: true, premioId: B, desde: '2026-11-20T12:00:00.000Z' }, reclamacao: GATILHO_RECLAMACAO_PADRAO, classificacao: GATILHO_CLASSIFICACAO_PADRAO };
     expect(regrasDoClube(c, nome, ligado).slice(0, 2)).toEqual([
       'Prêmio surpresa: todo pedido entregue pelo cardápio online ou pelo WhatsApp a partir de R$ 30 dá uma raspadinha com o prêmio "Frete grátis".',
       'O prêmio já vem definido pela regra quando o cliente ganha: a raspadinha só mostra.',
@@ -146,20 +148,22 @@ describe('as regras do clube que o cliente lê', () => {
   it('o prêmio de desculpas ligado entra com o limite; sem prêmio liberado, não', () => {
     const c = { ...CONFIG_PADRAO, surpresaAtivo: true, surpresaForma: 'roleta' as const };
     const entregue = { ativo: false, premioId: null, desde: null };
-    const r = regrasDoClube(c, nome, { entregue, reclamacao: { ativo: true, premios: [A], limite: 'tri1', quem: 'gerente' } });
+    const r = regrasDoClube(c, nome, { entregue, reclamacao: { ativo: true, premios: [A], limite: 'tri1', quem: 'gerente' }, classificacao: GATILHO_CLASSIFICACAO_PADRAO });
     expect(r[0]).toBe('Prêmio de desculpas: depois de uma reclamação, a equipe pode mandar uma roleta com um prêmio da lista da loja (no máximo 1 a cada 3 meses por cliente).');
-    expect(regrasDoClube(c, nome, { entregue, reclamacao: { ...GATILHO_RECLAMACAO_PADRAO, ativo: true } })[0]).toContain('só mostra');
+    expect(regrasDoClube(c, nome, { entregue, reclamacao: { ...GATILHO_RECLAMACAO_PADRAO, ativo: true }, classificacao: GATILHO_CLASSIFICACAO_PADRAO })[0]).toContain('só mostra');
   });
 });
 
 describe('os gatilhos do prêmio surpresa (mig 474)', () => {
   const PADRAO_R = { ativo: false, premios: [], limite: 'mes1', quem: 'gerencia' };
+  const PADRAO_C = { ativo: false, segmentos: [], premioId: null, periodoDias: 60 };
   it('a linha do banco vira o gatilho com os padrões no que falta', () => {
-    expect(gatilhosDaLinha(null)).toEqual({ entregue: { ativo: false, premioId: null, desde: null }, reclamacao: PADRAO_R });
-    expect(gatilhosDaLinha({})).toEqual({ entregue: { ativo: false, premioId: null, desde: null }, reclamacao: PADRAO_R });
+    expect(gatilhosDaLinha(null)).toEqual({ entregue: { ativo: false, premioId: null, desde: null }, reclamacao: PADRAO_R, classificacao: PADRAO_C });
+    expect(gatilhosDaLinha({})).toEqual({ entregue: { ativo: false, premioId: null, desde: null }, reclamacao: PADRAO_R, classificacao: PADRAO_C });
     expect(gatilhosDaLinha({ entregue: { ativo: true, premioId: A, desde: '2026-11-20T12:00:00.000Z' } })).toEqual({
       entregue: { ativo: true, premioId: A, desde: '2026-11-20T12:00:00.000Z' },
       reclamacao: PADRAO_R,
+      classificacao: PADRAO_C,
     });
     // A reclamação gravada: os ids da lista (sem repetir, sem lixo), o limite e quem manda só entre as opções.
     expect(gatilhosDaLinha({ reclamacao: { ativo: true, premios: [A, A.toUpperCase(), 'x', B], limite: 'tri1', quem: 'nada' } }).reclamacao).toEqual({
@@ -203,11 +207,49 @@ describe('os gatilhos do prêmio surpresa (mig 474)', () => {
     expect(() => lerGatilhoEntregue({ ativo: 'sim' })).toThrow();
     expect(() => lerGatilhoEntregue({ premioId: 'x' })).toThrow();
   });
-  it('onde o prêmio está em uso conta os dois gatilhos', () => {
-    const g = { entregue: { ativo: true, premioId: A, desde: null }, reclamacao: { ...GATILHO_RECLAMACAO_PADRAO, premios: [A, B] } };
+  it('onde o prêmio está em uso conta os três gatilhos', () => {
+    const g = { entregue: { ativo: true, premioId: A, desde: null }, reclamacao: { ...GATILHO_RECLAMACAO_PADRAO, premios: [A, B] }, classificacao: { ...GATILHO_CLASSIFICACAO_PADRAO, premioId: B } };
     expect(ondeEstaEmUso(CONFIG_PADRAO, A, g)).toEqual(['Prêmio surpresa · pedido entregue', 'Prêmio surpresa · reclamação']);
-    expect(ondeEstaEmUso(CONFIG_PADRAO, B, g)).toEqual(['Prêmio surpresa · reclamação']);
-    expect(ondeEstaEmUso(CONFIG_PADRAO, B, { ...g, reclamacao: GATILHO_RECLAMACAO_PADRAO })).toEqual([]);
+    expect(ondeEstaEmUso(CONFIG_PADRAO, B, g)).toEqual(['Prêmio surpresa · reclamação', 'Prêmio surpresa · classificação']);
+    expect(ondeEstaEmUso(CONFIG_PADRAO, B, { ...g, reclamacao: GATILHO_RECLAMACAO_PADRAO, classificacao: GATILHO_CLASSIFICACAO_PADRAO })).toEqual([]);
+  });
+});
+
+describe('o gatilho pela classificação do marketing (A1c)', () => {
+  const nome = (id: string) => ({ [A]: 'Batata média grátis', [B]: 'Frete grátis' })[id] ?? null;
+  it('a linha do banco: só os segmentos da lista, sem repetir; o período só entre as opções', () => {
+    expect(gatilhosDaLinha({ classificacao: { ativo: true, segmentos: ['inativos', 'x', 'inativos', 'atrasado'], premioId: B, periodoDias: 45 } }).classificacao).toEqual({
+      ativo: true,
+      segmentos: ['inativos', 'atrasado'],
+      premioId: B,
+      periodoDias: 60,
+    });
+  });
+  it('o que a tela manda: os segmentos e o período só da lista; ausente mantém', () => {
+    expect(lerGatilhoClassificacao({})).toEqual({});
+    expect(lerGatilhoClassificacao({ ativo: true, segmentos: ['em_risco', 'inativos', 'em_risco'], premioId: B, periodoDias: 90 })).toEqual({
+      ativo: true,
+      segmentos: ['em_risco', 'inativos'],
+      premioId: B,
+      periodoDias: 90,
+    });
+    expect(() => lerGatilhoClassificacao({ ativo: 'sim' })).toThrow();
+    expect(() => lerGatilhoClassificacao({ segmentos: ['recentes'] })).toThrow('escolha os segmentos da lista');
+    expect(() => lerGatilhoClassificacao({ premioId: 'x' })).toThrow('escolha o prêmio da lista');
+    expect(() => lerGatilhoClassificacao({ periodoDias: 45 })).toThrow('de quanto em quanto tempo');
+  });
+  it('as regras do clube dizem os grupos, o prêmio e o período; desligado ou sem segmento, nada', () => {
+    const c = { ...CONFIG_PADRAO, surpresaAtivo: true };
+    const g = {
+      entregue: { ativo: false, premioId: null, desde: null },
+      reclamacao: GATILHO_RECLAMACAO_PADRAO,
+      classificacao: { ativo: true, segmentos: ['em_risco', 'inativos'] as Array<'em_risco' | 'inativos'>, premioId: B, periodoDias: 60 },
+    };
+    expect(regrasDoClube(c, nome, g)[0]).toBe(
+      'Prêmio pela classificação: todos os clientes dos grupos Em risco, Inativos (pelas compras de cada um) ganham uma raspadinha com o prêmio "Frete grátis", no máximo 1 vez a cada 60 dias.',
+    );
+    expect(regrasDoClube(c, nome, { ...g, classificacao: { ...g.classificacao, segmentos: [] } })[0]).toContain('só mostra');
+    expect(regrasDoClube(c, nome, { ...g, classificacao: { ...g.classificacao, ativo: false } })[0]).toContain('só mostra');
   });
 });
 
