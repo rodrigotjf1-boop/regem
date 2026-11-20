@@ -4,7 +4,10 @@ import { join } from 'node:path';
 import { Pool, type PoolClient } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { assinarCliente } from '../cliente/cliente-token';
-import { expurgarFunil, expurgarInteracoes, lerInteracoes, metaDoFunil, normalizarTermo, registrarInteracoes } from './interacoes-do-cardapio';
+import { expurgarFunil, expurgarInteracoes, lerInteracoes, metaDoFunil, normalizarTermo, oQueOlha, registrarInteracoes } from './interacoes-do-cardapio';
+import { sql } from 'drizzle-orm';
+import { SEGMENTOS_DO_PERFIL } from '../../common/segmentos-do-perfil';
+import { gravarPrivacidade } from './privacidade-do-cliente';
 import { PerfilClienteService } from './perfil-cliente.service';
 
 const MIG = (n: string) => join(__dirname, '..', '..', '..', '..', 'database', 'migrations', n);
@@ -144,6 +147,60 @@ descrever('os cliques do cardápio (Postgres)', () => {
       await q(`insert into cliente_escolha (tenant_id, cliente_id, escolha, valor, origem) values ($1,$2,'recomendacoes',false,'cardapio_perfil')`, [on.t, ana]);
       await registrarInteracoes(db, on.token, ev(3000));
       expect(await q(`select cliente_id from cardapio_interacao where tenant_id = $1 and ms = 3000`, [on.t])).toEqual([{ cliente_id: null }]);
+    }));
+
+  it('F4b · o que olha (pontos com meia-vida) e o "viu e não pediu" — a mesma régua na ficha, na aba e na contagem', () =>
+    naTransacao(async (c, q) => {
+      const db = drizzle(c as any);
+      const on = await loja(q, true);
+      const u = (await q(`insert into unidade (tenant_id, nome) values ($1,'Loja') returning id`, [on.t]))[0].id as string;
+      const prod = async (nome: string) => (await q(`insert into produto (tenant_id, nome) values ($1,$2) returning id`, [on.t, nome]))[0].id as string;
+      const [costela, combo, pudim] = [on.produto, await prod('Combo família'), await prod('Pudim')];
+      const ana = (await q(`insert into cliente (tenant_id, nome, telefone) values ($1,'Ana','21977770001') returning id`, [on.t]))[0].id as string;
+      const bia = (await q(`insert into cliente (tenant_id, nome, telefone) values ($1,'Bia','21977770002') returning id`, [on.t]))[0].id as string;
+      for (const id of [ana, bia])
+        await q(`insert into cliente_escolha (tenant_id, cliente_id, escolha, valor, origem) values ($1,$2,'recomendacoes',true,'cardapio_perfil')`, [on.t, id]);
+      const ev = (cliente: string, sessao: string, eventos: any[]) =>
+        registrarInteracoes(db, on.token, { sessao, clienteToken: assinarCliente(cliente, on.t), eventos });
+      // Ana: a Costela aberta 2 vezes (uma com 12 s) e não pedida; o Combo no carrinho; o Pudim aberto 2 vezes e PEDIDO depois.
+      await ev(ana, 'visita01', [
+        { tipo: 'produto_aberto', produtoId: costela, ms: 12000 },
+        { tipo: 'produto_adicionado', produtoId: combo },
+        { tipo: 'produto_aberto', produtoId: pudim, ms: 2000 },
+      ]);
+      await ev(ana, 'visita02', [
+        { tipo: 'produto_aberto', produtoId: costela, ms: 3000 },
+        { tipo: 'produto_aberto', produtoId: pudim, ms: 2000 },
+      ]);
+      await q(
+        `insert into pedido_externo (tenant_id, unidade_id, canal, external_id, display_id, cliente_nome, tipo, status, itens, total, cliente_id, criado_em)
+         values ($1,$2,'cardapio_web',$3,'1','Ana','entrega','concluido',$4::jsonb,20,$5, clock_timestamp())`,
+        [on.t, u, randomUUID(), JSON.stringify([{ produtoId: pudim, descricao: 'Pudim', quantidade: 1 }]), ana],
+      );
+      // Bia: a Costela aberta 1 vez só (não chega a "viu e não pediu").
+      await ev(bia, 'visita03', [{ tipo: 'produto_aberto', produtoId: costela, ms: 4000 }]);
+
+      const olha = await oQueOlha(db, on.t, ana);
+      expect(olha.desde).not.toBeNull();
+      expect(olha.itens).toEqual([
+        { produtoId: combo, nome: 'Combo família', pontos: 4, viuNaoPediu: false },
+        { produtoId: costela, nome: 'Costela BBQ', pontos: 3, viuNaoPediu: true },
+        { produtoId: pudim, nome: 'Pudim', pontos: 2, viuNaoPediu: false },
+      ]);
+      // A aba e a contagem: só a Ana.
+      const naAba: any = await db.execute(sql`select c.id from cliente c where c.tenant_id = ${on.t}::uuid ${SEGMENTOS_DO_PERFIL.perfil_olhou.cond}`);
+      expect(naAba.rows.map((r: any) => r.id)).toEqual([ana]);
+      expect((await new PerfilClienteService(db as any).resumo(on.t)).olharam).toBe(1);
+
+      // Desligou as recomendações: os cliques dela voltam a ser anônimos na hora (a soma da loja continua).
+      await gravarPrivacidade(db, { tenantId: on.t, id: ana }, { origem: 'cardapio_perfil', escolhas: [{ escolha: 'recomendacoes', valor: false }], declarado: [] });
+      expect(await q(`select count(*)::int as n from cardapio_interacao where cliente_id = $1`, [ana])).toEqual([{ n: 0 }]);
+      expect(await q(`select count(*)::int as n from cardapio_interacao where tenant_id = $1`, [on.t])).toEqual([{ n: 6 }]);
+      expect((await oQueOlha(db, on.t, ana)).itens).toEqual([]);
+      // "Não quero ser analisado" com as recomendações ligadas: o clique novo também não se liga a ela.
+      await q(`insert into cliente_escolha (tenant_id, cliente_id, escolha, valor, origem) values ($1,$2,'nao_analisar',true,'cardapio_perfil')`, [on.t, bia]);
+      await ev(bia, 'visita04', [{ tipo: 'produto_aberto', produtoId: costela, ms: 4000 }]);
+      expect(await q(`select count(*)::int as n from cardapio_interacao where cliente_id = $1`, [bia])).toEqual([{ n: 1 }]);
     }));
 
   it('Saúde da base · o resumo em frases e o dado de cada camada (pedidos diretos; iFood fora)', () =>

@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { verificarCliente } from '../cliente/cliente-token';
 import { perfilLigado } from '../../common/segmentos-do-perfil';
+import { INTERESSE, sqlNaoPediuDesde } from '../../common/interesse-do-cliente';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -78,11 +79,15 @@ export async function registrarInteracoes(db: any, token: string, dto: any): Pro
     let clienteId: string | null = null;
     const v = verificarCliente(lido.clienteToken);
     if (v && v.tenant === tenantId) {
+      // A última de cada escolha: "recomendações" ligada E sem "não quero ser analisado".
       const [e] = rows(await db.execute(sql`
-        select valor from cliente_escolha
-         where cliente_id = ${v.cli}::uuid and tenant_id = ${tenantId}::uuid and escolha = 'recomendacoes'
-         order by em desc limit 1`));
-      if (e?.valor === true) clienteId = v.cli;
+        select (select x.valor from cliente_escolha x
+                 where x.cliente_id = ${v.cli}::uuid and x.tenant_id = ${tenantId}::uuid and x.escolha = 'recomendacoes'
+                 order by x.em desc limit 1) as rec,
+               (select x.valor from cliente_escolha x
+                 where x.cliente_id = ${v.cli}::uuid and x.tenant_id = ${tenantId}::uuid and x.escolha = 'nao_analisar'
+                 order by x.em desc limit 1) as nao`));
+      if (e?.rec === true && e?.nao !== true) clienteId = v.cli;
     }
     const r: any = await db.execute(sql`
       insert into cardapio_interacao (tenant_id, sessao, cliente_id, tipo, produto_id, ms, termo, resultados)
@@ -116,6 +121,41 @@ export function metaDoFunil(meta: unknown): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * "O QUE OLHA NO CARDÁPIO" (F4b; protótipo, camada 3 da ficha): os produtos com mais pontos de interesse do cliente (os
+ * cliques ligados a ele — só depois do "sim" das recomendações), com o "viu e não pediu" pela régua de
+ * `common/interesse-do-cliente.ts`. `desde` = o primeiro clique ligado (os de mais de 90 dias já saíram).
+ */
+export async function oQueOlha(db: any, tenantId: string, clienteId: string) {
+  const I = INTERESSE;
+  const itens = rows(await db.execute(sql`
+    with por as (
+      select i.produto_id,
+             sum(power(2, -extract(epoch from (now() - i.em)) / 86400.0 / ${I.meiaVidaDias}::numeric)
+                 * case when i.tipo = 'produto_adicionado' then ${I.carrinho}::int
+                        when coalesce(i.ms, 0) >= ${I.longoMs}::int then ${I.abrirLongo}::int
+                        else ${I.abrir}::int end) as pontos,
+             count(*) filter (where i.tipo = 'produto_aberto' and i.em > now() - make_interval(days => ${I.viuJanelaDias}::int)) as abriu,
+             min(i.em) filter (where i.tipo = 'produto_aberto' and i.em > now() - make_interval(days => ${I.viuJanelaDias}::int)) as desde
+        from cardapio_interacao i
+       where i.cliente_id = ${clienteId}::uuid and i.tenant_id = ${tenantId}::uuid and i.produto_id is not null
+       group by i.produto_id
+    )
+    select por.produto_id, coalesce(pr.nome, 'Produto que saiu do cardápio') as nome,
+           round(por.pontos::numeric, 1)::float8 as pontos,
+           (por.abriu >= ${I.viuVezes}::int
+             and ${sqlNaoPediuDesde(sql`${tenantId}::uuid`, sql`${clienteId}::uuid`, sql`por.produto_id`, sql`por.desde`)}) as viu_nao_pediu
+      from por left join produto pr on pr.id = por.produto_id and pr.tenant_id = ${tenantId}::uuid
+     order by por.pontos desc, 2
+     limit 5`));
+  const [d] = rows(await db.execute(sql`
+    select min(em) as desde from cardapio_interacao where cliente_id = ${clienteId}::uuid and tenant_id = ${tenantId}::uuid`));
+  return {
+    desde: d?.desde ?? null,
+    itens: itens.map((x: any) => ({ produtoId: x.produto_id, nome: x.nome, pontos: Number(x.pontos), viuNaoPediu: x.viu_nao_pediu === true })),
+  };
 }
 
 /** Os cliques com mais de 90 dias saem (o que fica para a loja é a soma — Saúde da base). */

@@ -2,6 +2,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { sql, type SQL } from 'drizzle-orm';
 import { sqlChaveTelefone } from './telefone-chave';
 import { ehServidorLocal } from './modo';
+import { sqlOlhouENaoPediu } from './interesse-do-cliente';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -17,7 +18,7 @@ import { ehServidorLocal } from './modo';
 //  • o cliente que só pediu pela 99 (ou pelo iFood) não tem perfil — fica fora de todo segmento daqui (D1).
 // Alias da tabela do cliente = `c`.
 
-type Def = { rotulo: string; grupo: 'segmento' | 'ritmo' | 'evento'; cond: SQL };
+type Def = { rotulo: string; grupo: 'segmento' | 'ritmo' | 'evento' | 'interesse'; cond: SQL };
 const perfil = (cond: SQL): SQL =>
   sql`and exists (select 1 from cliente_perfil cp where cp.cliente_id = c.id and cp.tenant_id = c.tenant_id and ${cond})`;
 const selo = (tipo: string): SQL =>
@@ -36,6 +37,8 @@ export const SEGMENTOS_DO_PERFIL: Record<string, Def> = {
   perfil_feriado: { rotulo: 'Pedem em feriado', grupo: 'evento', cond: selo('feriado') },
   perfil_comemorativa: { rotulo: 'Pedem em data comemorativa', grupo: 'evento', cond: selo('comemorativa') },
   perfil_loja: { rotulo: 'Pedem nos eventos da loja', grupo: 'evento', cond: selo('loja') },
+  // F4b: viu e não pediu — só quem ligou as recomendações tem cliques ligados a si (`common/interesse-do-cliente.ts`).
+  perfil_olhou: { rotulo: 'Olharam e não pediram', grupo: 'interesse', cond: sql`and ${sqlOlhouENaoPediu()}` },
 };
 
 export const ehSegmentoDoPerfil = (chave: unknown): boolean => typeof chave === 'string' && chave in SEGMENTOS_DO_PERFIL;

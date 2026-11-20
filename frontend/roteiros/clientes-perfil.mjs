@@ -3,6 +3,8 @@
 //  • em cada largura: as abas "Pelo perfil" (com as contas do resumo), escolher "Pedem no dinheiro no bolso" pede a lista
 //    com `segmento=perfil_dinheiro` e mostra a nota do aceite clicado; a ficha do cliente ABERTA (gaveta) com a camada
 //    "O que move o cliente" (o selo, "dados insuficientes") — nenhuma barra para o lado nem texto esmagado (V45);
+//  • a camada "O que olha no cardápio" (F4b) com o "viu e não pediu" e os pontos; a aba "Olharam e não pediram" pede
+//    `segmento=perfil_olhou` e mostra a regra;
 //  • a supervisão (vê a lista, não o perfil): sem as abas e sem ler o resumo do perfil.
 import { responder, tokenFalso, umaLinha } from './comum.mjs';
 
@@ -24,7 +26,14 @@ const FICHA = {
     camadas: { gosto: { favoritos: [{ nome: 'Smash duplo', pedidos: 9 }], pagamento: 'Pix', retirada_pct: 10 }, ritmo: { grade: {}, hora_habitual: '21:10' }, reclamacoes: {}, avaliacoes: {}, porque: {} },
   },
   declarado: [],
-  escolhas: [],
+  escolhas: [{ escolha: 'recomendacoes', valor: true, origem: 'cardapio_perfil', em: ha(20) }],
+  olha: {
+    desde: ha(18),
+    itens: [
+      { produtoId: 'p1', nome: 'Costela BBQ', pontos: 7.2, viuNaoPediu: true },
+      { produtoId: 'p2', nome: 'Combo família com batata rústica, dois refrigerantes e sobremesa da casa', pontos: 4.9, viuNaoPediu: false },
+    ],
+  },
   sensibilidade: [
     { tipo: 'dinheiro', rr: 2.1, prob: 0.97, pedidos: 8, esperado: 3.8, dias_com_pedido: 6, selo: true },
     { tipo: 'feriado', rr: 1.3, prob: 0.71, pedidos: 2, esperado: 1.5, dias_com_pedido: 2, selo: false },
@@ -68,7 +77,7 @@ export default async function roteiroClientesPerfil({ nav, base, ok, foto: arqui
       if (p === '/clientes/crm/resumo') return responder(route, { total: 2, mes: 1, d30: 1, sem30: 1, sem60: 0, campeoes: 1, importados: 0 });
       if (p === '/clientes/crm') return responder(route, CLIENTES);
       if (p === '/perfil-cliente/resumo')
-        return responder(route, { segmentos: { campeoes: 12, leais: 30, recentes: 8, atencao: 15, em_risco: 9, inativos: 40 }, etiquetas: { atrasado: 6 }, selos: { dinheiro: 7 }, total: 114 });
+        return responder(route, { segmentos: { campeoes: 12, leais: 30, recentes: 8, atencao: 15, em_risco: 9, inativos: 40 }, etiquetas: { atrasado: 6 }, selos: { dinheiro: 7 }, olharam: 4, total: 114 });
       if (p === '/perfil-cliente/c1') return responder(route, FICHA);
       if (p.startsWith('/clientes/crm/') || p.startsWith('/campanhas')) return responder(route, []);
       return responder(route, {});
@@ -90,6 +99,13 @@ export default async function roteiroClientesPerfil({ nav, base, ok, foto: arqui
     t = await texto(page);
     ok(consultas.some((c) => c.startsWith('/clientes/crm?') && c.includes('segmento=perfil_dinheiro')), `${w}px · a aba pede a lista com segmento=perfil_dinheiro`);
     ok(t.includes('só alcançam quem aceitou receber ofertas com um clique'), `${w}px · a nota do aceite clicado aparece`);
+    await page.getByRole('button', { name: /^Olharam e não pediram/ }).click();
+    await page.waitForTimeout(400);
+    t = await texto(page);
+    ok(
+      consultas.some((c) => c.startsWith('/clientes/crm?') && c.includes('segmento=perfil_olhou')) && t.includes('Abriram o mesmo produto 2 vezes ou mais nos últimos 30 dias'),
+      `${w}px · a aba "Olharam e não pediram" pede segmento=perfil_olhou e diz a regra`,
+    );
     // A ficha ABERTA: o detalhe do cliente e "Ver perfil do cliente".
     await page.getByText('Ana Souza').first().click();
     await page.getByRole('button', { name: 'Ver perfil do cliente' }).click();
@@ -97,6 +113,10 @@ export default async function roteiroClientesPerfil({ nav, base, ok, foto: arqui
     achados = await medir(page);
     ok(achados.length === 0, `${w}px · ficha aberta: sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
     const ficha = await page.evaluate(() => [...document.querySelectorAll('[role="dialog"]')].map((d) => d.innerText.replace(/\s+/g, ' ')).join(' '));
+    ok(
+      ficha.includes('O que olha no cardápio') && ficha.includes('Costela BBQ (viu e não pediu)') && ficha.includes('7,2') && ficha.includes('meia-vida de 14 dias'),
+      `${w}px · "O que olha no cardápio": o viu e não pediu e os pontos`,
+    );
     ok(ficha.includes('Pede 2,1× o normal nesses dias') && ficha.includes('Pede no dinheiro no bolso') && ficha.includes('dados insuficientes (2 de 3 dias com pedido)'), `${w}px · "O que move o cliente": o selo e o "dados insuficientes"`);
     if (w === 390 || w === 1440) {
       const gav = page.locator('[role="dialog"]').last();

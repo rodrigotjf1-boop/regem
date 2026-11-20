@@ -28,6 +28,11 @@ export async function gravarPrivacidade(tx: any, c: { tenantId: string; id: stri
         on conflict (cliente_id, chave) do update set valor = excluded.valor, origem = excluded.origem, atualizado_em = clock_timestamp()`);
     }
   }
+  // Desligou "Recomendações personalizadas" ou pediu "não analisar": os cliques ligados a ele voltam a ser anônimos na
+  // hora (contam só nos números da loja — F4b, mig 466).
+  if (p.escolhas.some((e) => (e.escolha === 'recomendacoes' && !e.valor) || (e.escolha === 'nao_analisar' && e.valor))) {
+    await tx.execute(sql`update cardapio_interacao set cliente_id = null where cliente_id = ${c.id}::uuid and tenant_id = ${c.tenantId}::uuid`);
+  }
   // "Não quero ser analisado": o perfil calculado sai na hora (a rotina também não o recalcula mais).
   if (p.escolhas.some((e) => e.escolha === 'nao_analisar' && e.valor)) {
     await tx.execute(sql`delete from cliente_perfil where cliente_id = ${c.id}::uuid and tenant_id = ${c.tenantId}::uuid`);

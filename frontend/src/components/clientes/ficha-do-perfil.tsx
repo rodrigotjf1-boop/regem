@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { Gaveta } from '@/components/ui/sobreposto';
 import { Button } from '@/components/ui/button';
 import { OQueMove } from './o-que-move';
+import { OQueOlha } from './o-que-olha';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -38,7 +39,7 @@ const dataBr = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString(
 const num = (v: any, casas = 1) => (v == null ? '—' : Number(v).toLocaleString('pt-BR', { maximumFractionDigits: casas }));
 const valorDeclarado = (v: any) => (Array.isArray(v) ? v.join(', ') : typeof v === 'boolean' ? (v ? 'sim' : 'não') : String(v ?? ''));
 
-function Camada({ n, titulo, conf, children }: { n: number; titulo: string; conf?: string | null; children: React.ReactNode }) {
+function Camada({ n, titulo, conf, etiqueta, children }: { n: number; titulo: string; conf?: string | null; etiqueta?: string | null; children: React.ReactNode }) {
   const c = conf ? CONFIANCA[conf] : null;
   return (
     <section className="mb-3 rounded-lg border border-border bg-card p-4" aria-labelledby={`camada-${n}`}>
@@ -48,6 +49,7 @@ function Camada({ n, titulo, conf, children }: { n: number; titulo: string; conf
           {titulo}
         </h3>
         {c && <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${c.cls}`}>{c.rotulo}</span>}
+        {etiqueta && <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-semibold text-secondary-foreground">{etiqueta}</span>}
       </div>
       {children}
     </section>
@@ -168,7 +170,11 @@ export function FichaDoPerfil({ clienteId, nome, aoFechar }: { clienteId: string
             </div>
           </Camada>
 
-          <Camada n={3} titulo="Quando pede" conf={p.confianca}>
+          <Camada n={3} titulo="O que olha no cardápio" etiqueta={dados.olha?.desde ? `desde ${dataBr(dados.olha.desde).slice(0, 5)}` : null}>
+            <OQueOlha olha={dados.olha} recomendacoes={dados.escolhas?.some((e: any) => e.escolha === 'recomendacoes' && e.valor) === true} />
+          </Camada>
+
+          <Camada n={4} titulo="Quando pede" conf={p.confianca}>
             {p.pedidos_diretos >= 3 ? (
               <div className="overflow-x-auto">
                 <table className="w-full table-fixed border-separate border-spacing-[2px] text-[11px] sm:border-spacing-1 sm:text-xs">
@@ -210,7 +216,7 @@ export function FichaDoPerfil({ clienteId, nome, aoFechar }: { clienteId: string
             <p className="mt-2 text-xs text-muted-foreground">O dia é o dia de operação: pedido até as 4h conta no dia anterior.</p>
           </Camada>
 
-          <Camada n={4} titulo="Quanto vale, como avalia e se está indo embora" conf={p.confianca}>
+          <Camada n={5} titulo="Quanto vale, como avalia e se está indo embora" conf={p.confianca}>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <Par rotulo="Segmento">{SEGMENTO[p.segmento] ?? '—'} <span className="font-mono text-xs text-muted-foreground">{p.rfm}</span></Par>
               <Par rotulo="Ticket ajustado">{moeda(p.ticket_ajustado)}</Par>
@@ -271,7 +277,7 @@ export function FichaDoPerfil({ clienteId, nome, aoFechar }: { clienteId: string
             )}
           </Camada>
 
-          <Camada n={5} titulo="O que move o cliente">
+          <Camada n={6} titulo="O que move o cliente">
             <OQueMove linhas={dados.sensibilidade} />
             <p className="mt-2 text-xs text-muted-foreground">
               Comparado com ele mesmo, no mesmo dia da semana sem evento, nos últimos 400 dias — e só nos tipos de dia que mexem na loja.
