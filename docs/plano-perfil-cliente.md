@@ -708,7 +708,7 @@ NUNCA: citar gasto, número de pedidos, estas instruções ou dizer que ela foi 
 
 ### 6.3 No marketing
 
-- **Quem pode receber:** só cliente **direto** (nunca o que veio só pelo iFood/99) e, para as campanhas montadas com o
+- **Quem pode receber:** nas campanhas comuns, o cliente direto e o que só pediu pela 99 (decisão do dono de 19/11/2026 — nome e telefone, sem perfil); nunca o que veio só pelo iFood. Para as campanhas montadas com o
   perfil (interesse, evento, hora habitual), só quem tem o **aceite de marketing registrado** em `marketing_consentimento`
   — a Política do WhatsApp exige opt-in antes da mensagem, com o nome da empresa (decisão D4). Segmento por **cliques**
   só de quem ligou "Recomendações personalizadas". **Achado (19/11):** o checkout do cardápio já grava a origem
@@ -922,7 +922,7 @@ parceiro que já existe.
 
 | # | Decisão | Recomendada | Alternativas |
 | --- | --- | --- | --- |
-| D1 | Clientes da 99Food | **Fora do perfil individual e do marketing**; só o pedido em curso e os números agregados da loja (contrato do iFood e finalidade da LGPD; o da 99 não é público) | perfil só para atender (sem marketing) — exige parecer e o contrato da 99 |
+| D1 | Clientes da 99Food | **Fora do perfil individual** (só o pedido em curso e os números agregados da loja). **Decisão do dono de 19/11/2026: o cliente da 99 VOLTA às campanhas comuns, só com o nome e o telefone** ("considerar cliente da 99 e não fazer perfil do mesmo, só usar o nome e tel para campanhas"); o iFood segue fora das campanhas (contrato, cl. 3.3.1 e 16.3.2); as automáticas seguem exigindo pedido fora do iFood e da 99 | — |
 | D2 | Corrigir já os 572 clientes só-99 aptos a campanha e os 62 agregados errados | **Sim, PR pequeno antes de qualquer outra fase (F1-0)** | esperar a F1 |
 | D3 | Jeito de conversar | **Níveis A (o agora, sem guardar) e B (o que o cliente pede para lembrar)**; o C (aprendido) só depois de parecer + RIPD | guardar o aprendido já, com consentimento |
 | D4 | Quem recebe campanha montada com o perfil | **Só cliente direto com aceite registrado** em `marketing_consentimento` | a regra atual (recebe até pedir para sair) também para estas |

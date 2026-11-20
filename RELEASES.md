@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Campanhas: o cliente que só pediu pela 99 volta a receber (19/11; SEM migration; decisão do dono).** Só o iFood fica
+  de fora (`CANAIS_FORA_DAS_CAMPANHAS`); sem perfil para a 99; as automáticas não mudam. Campanha roda só na nuvem — no
+  `.zip` só por acompanhar o código.
+
 - **Perfil do cliente F7 parte 3 — o grupo de controle das campanhas (19/11; mig 465 SÓ NUVEM, aplicada —
   `relacionamento_config.grupo_controle`).** Nasce desligado. Só na nuvem.
 
