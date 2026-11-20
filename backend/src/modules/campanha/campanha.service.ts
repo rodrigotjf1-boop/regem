@@ -8,7 +8,20 @@ import { registrarEvento, registrarSaida } from '../../common/consentimento-mark
 import { chaveTelefone, sqlChaveTelefone, sqlDigitosTelefone, sqlPodeTerAChave } from '../../common/telefone-chave';
 import { AJUSTES_PADRAO } from '../relacionamento/relacionamento';
 import { saiuDoMarketing, sqlRecebeMarketing } from '../../common/marketing-quem-recebe';
-import { conferirSegmentoDoPerfil, sqlAceiteClicado, sqlSegmentoDoPerfil } from '../../common/segmentos-do-perfil';
+import {
+  conferirEnvioHabitual,
+  conferirSegmentoDoPerfil,
+  sqlAceiteClicado,
+  sqlSegmentoDoPerfil,
+  sqlTemAceiteClicado,
+} from '../../common/segmentos-do-perfil';
+import {
+  agoraDaOperacao,
+  limitesDoEnvio,
+  sqlJuntasDoAlvo,
+  sqlPicoDaLoja,
+  sqlProximoNaHoraHabitual,
+} from '../perfil-cliente/hora-habitual';
 import { sqlNoGrupoDeControle } from '../../common/grupo-de-controle';
 import { semanaDe, sqlAniversarioEntre } from '../../common/aniversario';
 import { hojeISO, somarDias } from '../../common/data';
@@ -35,6 +48,8 @@ export class CampanhaService {
   loteDoWorker = 20;
   /** O rodízio do `worker`: a última campanha vista — a volta seguinte continua dali; a página curta recomeça. */
   private workerDepoisDe = '00000000-0000-0000-0000-000000000000';
+  /** O relógio da hora habitual (o teste fixa o "agora"). */
+  relogio: () => Date = () => new Date();
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly whatsapp: WhatsappService,
@@ -48,6 +63,11 @@ export class CampanhaService {
   /** O segmento "pelo perfil" (F7 parte 1): recusa fora das regras (nuvem, papel, módulo) antes de qualquer consulta. */
   conferirSegmentoDoPerfil(user: { tenantId: string; categoria?: string | null }, segmento: unknown) {
     return conferirSegmentoDoPerfil(this.db, user, segmento);
+  }
+
+  /** "Na hora habitual de cada cliente" (F7 parte 4b): as mesmas regras do perfil. Devolve se a campanha vai na hora habitual. */
+  conferirEnvioHabitual(user: { tenantId: string; categoria?: string | null }, valor: unknown): Promise<boolean> {
+    return conferirEnvioHabitual(this.db, user, valor);
   }
 
   // Fragmento SQL do segmento (mesma lógica do CRM; alias da tabela = `c`).
@@ -159,7 +179,13 @@ export class CampanhaService {
   // Público estimado (quem receberia): do segmento, com telefone, exceto excluídos e quem recebeu oferta automática no
   // intervalo — esses voltam à parte (`foraPorOferta`), para a tela dizer quantos ficaram de fora e por quê. Com o grupo de
   // controle ligado, os do controle também (`foraPorControle` — só aparece com ele ligado).
-  async previa(tenantId: string, segmento: string, recuperacaoDias?: number) {
+  async previa(
+    tenantId: string,
+    segmento: string,
+    recuperacaoDias?: number,
+    habitual?: { horaInicio?: string | null; horaFim?: string | null } | null,
+  ) {
+    if (habitual) return this.previaNaHoraHabitual(tenantId, segmento, recuperacaoDias, habitual);
     const oferta = await this.ofertaAutomaticaRecente(tenantId);
     const controle = await this.controleLigado(tenantId);
     const r: any = await this.db.execute(sql`
@@ -178,11 +204,51 @@ export class CampanhaService {
     };
   }
 
+  /**
+   * A prévia "na hora habitual de cada cliente" (F7 parte 4b): o mesmo público com o aceite de marketing CLICADO (a campanha
+   * usa o perfil — D4/D15; quem não tem esse aceite volta à parte, `foraPorAceite`) e como os envios se espalham pelas horas
+   * num dia como hoje (`porHora`: hora do relógio → quantos), já dentro da janela da campanha (ou 8h–23h).
+   */
+  private async previaNaHoraHabitual(
+    tenantId: string,
+    segmento: string,
+    recuperacaoDias: number | undefined,
+    janela: { horaInicio?: string | null; horaFim?: string | null },
+  ) {
+    const oferta = await this.ofertaAutomaticaRecente(tenantId);
+    const controle = await this.controleLigado(tenantId);
+    const { dia } = agoraDaOperacao(this.relogio());
+    const r: any = await this.db.execute(sql`${sqlPicoDaLoja(tenantId)},
+      x as (
+        select ${oferta ? oferta.expr : sql`false`} as recente, ${controle ? sqlNoGrupoDeControle() : sql`false`} as controle,
+               ${sqlTemAceiteClicado()} as aceite, alvo.minutos[${dia}::int] as hoje
+          from cliente c ${sqlJuntasDoAlvo(limitesDoEnvio(janela.horaInicio, janela.horaFim))}
+         where c.tenant_id = ${tenantId} ${this.excluidos()} ${this.segFrag(segmento, recuperacaoDias)}
+      )
+      select count(*) filter (where aceite and not recente and not controle)::int as total,
+             count(*) filter (where aceite and recente and not controle)::int as fora,
+             count(*) filter (where aceite and controle)::int as fora_controle,
+             count(*) filter (where not aceite)::int as fora_aceite,
+             (select coalesce(jsonb_object_agg(z.h, z.n), '{}'::jsonb)
+                from (select (hoje / 60) % 24 as h, count(*)::int as n from x
+                       where aceite and not recente and not controle group by 1) z) as por_hora
+        from x`);
+    const l = (r.rows ?? r)[0] ?? {};
+    return {
+      total: l.total ?? 0,
+      foraPorOferta: l.fora ?? 0,
+      intervaloOfertasDias: oferta?.dias ?? null,
+      ...(controle ? { foraPorControle: l.fora_controle ?? 0 } : {}),
+      habitual: { foraPorAceite: l.fora_aceite ?? 0, porHora: (l.por_hora ?? {}) as Record<string, number>, dia },
+    };
+  }
+
   async listar(tenantId: string) {
     const r: any = await this.db.execute(sql`
       select id, segmento, tipo, mensagem, link, imagem_ref, intervalo_seg, teto_dia, teto_semana,
              teto_mes, agendada, dias_semana, hora_inicio, hora_fim, inicia_em, termina_em, cupom_codigo,
-             total, enviados, falhas, status, criado_em, clube_premio_id
+             total, enviados, falhas, status, criado_em, clube_premio_id,
+             (to_jsonb(campanha) ->> 'envio_habitual') = 'true' as envio_habitual
       from campanha where tenant_id = ${tenantId} order by criado_em desc limit 50`);
     const rows = (r.rows ?? r) as any[];
     // `estado` = status amigável para a lista. 'aguardando' = agendada e fora da janela
@@ -397,8 +463,11 @@ export class CampanhaService {
       templateNome?: string | null;
       templateIdioma?: string | null;
       templateVars?: Record<string, string> | null;
+      /** Na hora habitual de cada cliente (F7 parte 4b, mig 480) — quem chama já conferiu (`conferirEnvioHabitual`). */
+      envioHabitual?: boolean;
     },
   ) {
+    const habitual = dto.envioHabitual === true;
     const mensagem = String(dto.mensagem ?? '').trim();
     if (mensagem.length < 3) throw new BadRequestException('Mensagem muito curta.');
     if (mensagem.length > 900) throw new BadRequestException('Mensagem muito longa (máx. 900 caracteres).');
@@ -482,6 +551,8 @@ export class CampanhaService {
         templateVars: dto.templateVars ?? null,
       })
       .returning();
+    // Na hora habitual: a marca ANTES dos destinatários (a fila nunca vê um destinatário desta campanha sem ela).
+    if (habitual) await this.db.execute(sql`update campanha set envio_habitual = true where id = ${camp.id}`);
 
     // A/B: se tem mensagem B, sorteia a variante de cada destinatário (~50/50); senão, 'A'.
     const temAB = !!(dto.mensagemB && dto.mensagemB.trim());
@@ -491,15 +562,23 @@ export class CampanhaService {
     // O grupo de controle (F7 parte 3): fora do envio; guardado com status 'controle' (nunca enviado, sem variante) para o
     // resultado comparar quem recebeu × quem ficou de fora — do MESMO público, na mesma hora.
     const controle = await this.controleLigado(tenantId);
-    const publico = sql`from cliente c
+    // Na hora habitual (F7 parte 4b): os 7 momentos de envio de cada destinatário saem na MESMA consulta (o pico da loja
+    // no começo `with`, o perfil de cada um nas junções), dentro da janela de horário da campanha — ou 8h–23h; e, por usar
+    // o perfil, só o aceite de marketing CLICADO (D4/D15).
+    const com = habitual ? sqlPicoDaLoja(tenantId) : sql``;
+    const juntas = habitual
+      ? sqlJuntasDoAlvo(limitesDoEnvio(dto.agendada ? dto.horaInicio : null, dto.agendada ? dto.horaFim : null))
+      : sql``;
+    const publico = sql`from cliente c ${juntas}
       where c.tenant_id = ${tenantId} ${this.excluidos()} ${this.segFrag(segmento, dto.recuperacaoDias)}
+        ${habitual ? sqlAceiteClicado() : sql``}
         ${oferta ? sql`and not ${oferta.expr}` : sql``}`;
-    const ins: any = await this.db.execute(sql`
-      insert into campanha_envio (campanha_id, tenant_id, cliente_id, telefone, variante)
-      select ${camp.id}, c.tenant_id, c.id, c.telefone, ${varFrag}
+    const ins: any = await this.db.execute(sql`${com}
+      insert into campanha_envio (campanha_id, tenant_id, cliente_id, telefone, variante${habitual ? sql`, minutos_alvo` : sql``})
+      select ${camp.id}, c.tenant_id, c.id, c.telefone, ${varFrag}${habitual ? sql`, alvo.minutos` : sql``}
       ${publico} ${controle ? sql`and not ${sqlNoGrupoDeControle()}` : sql``}`);
     if (controle)
-      await this.db.execute(sql`
+      await this.db.execute(sql`${com}
         insert into campanha_envio (campanha_id, tenant_id, cliente_id, telefone, variante, status)
         select ${camp.id}, c.tenant_id, c.id, c.telefone, null, 'controle'
         ${publico} and ${sqlNoGrupoDeControle()}`);
@@ -629,6 +708,13 @@ export class CampanhaService {
     return true;
   }
 
+  /** A campanha ainda tem destinatário esperando? (na hora habitual, a fila sem ninguém na hora não conclui a campanha) */
+  private async temPendente(campId: string): Promise<boolean> {
+    const r: any = await this.db.execute(sql`
+      select exists (select 1 from campanha_envio where campanha_id = ${campId}::uuid and status = 'pendente') as ok`);
+    return !!(r.rows ?? r)[0]?.ok;
+  }
+
   // Conta enviados de uma campanha num período (dia/semana/mês, fuso SP) p/ os tetos.
   private async enviadosNoPeriodo(campId: string, trunc: 'day' | 'week' | 'month'): Promise<number> {
     const r: any = await this.db.execute(sql`
@@ -732,7 +818,8 @@ export class CampanhaService {
       const prontas: any = await this.db.execute(sql`
         select id, tenant_id, mensagem, mensagem_b, link, imagem_ref, intervalo_seg, teto_dia,
                teto_semana, teto_mes, instancia_tipo, agendada, dias_semana, hora_inicio, hora_fim,
-               inicia_em, termina_em, template_nome, template_idioma, template_vars, cupom_codigo, clube_premio_id
+               inicia_em, termina_em, template_nome, template_idioma, template_vars, cupom_codigo, clube_premio_id,
+               (to_jsonb(campanha) ->> 'envio_habitual') = 'true' as envio_habitual
         from campanha
         where status = 'enviando'
           and (select coalesce(max(enviado_em), to_timestamp(0)) from campanha_envio e
@@ -751,11 +838,19 @@ export class CampanhaService {
         if (camp.teto_semana && (await this.enviadosNoPeriodo(camp.id, 'week')) >= camp.teto_semana) continue;
         if (camp.teto_mes && (await this.enviadosNoPeriodo(camp.id, 'month')) >= camp.teto_mes) continue;
 
-        const prox: any = await this.db.execute(sql`
+        // Na hora habitual (F7 parte 4b): só quem chegou no momento dele hoje (e não passou da janela).
+        const habitual = camp.envio_habitual === true;
+        const prox: any = await this.db.execute(
+          habitual
+            ? sqlProximoNaHoraHabitual(String(camp.id), agoraDaOperacao(this.relogio()))
+            : sql`
           select id, telefone, cliente_id, variante from campanha_envio
-          where campanha_id = ${camp.id} and status = 'pendente' order by id limit 1`);
+          where campanha_id = ${camp.id} and status = 'pendente' order by id limit 1`,
+        );
         const envio = (prox.rows ?? prox)[0];
         if (!envio) {
+          // Ninguém na hora agora não é o fim: os pendentes esperam o momento de cada um.
+          if (habitual && (await this.temPendente(String(camp.id)))) continue;
           await this.db
             .update(campanha)
             .set({ status: 'concluida', atualizadoEm: new Date() })

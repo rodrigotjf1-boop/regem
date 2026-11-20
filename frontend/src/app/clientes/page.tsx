@@ -14,6 +14,7 @@ import { useModoDaLista } from '@/components/ui/lista';
 import { AniversarioNaGaveta } from '@/components/clientes/aniversario-na-gaveta';
 import { FichaDoPerfil } from '@/components/clientes/ficha-do-perfil';
 import { SegmentosDoPerfil, nomeDoSegmentoDoPerfil } from '@/components/clientes/segmentos-do-perfil';
+import { QuandoEnviar, type PreviaHabitual } from '@/components/marketing/quando-enviar';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: any) =>
@@ -73,6 +74,10 @@ export default function ClientesPage() {
   const [campIntervalo, setCampIntervalo] = useState(7);
   const [campTeto, setCampTeto] = useState('');
   const [campEnviando, setCampEnviando] = useState(false);
+  // "Quando enviar" (F7 parte 4b): na hora habitual de cada cliente — com o perfil ligado (o servidor confere de novo).
+  const [campHabitual, setCampHabitual] = useState(false);
+  const [campPreviaHab, setCampPreviaHab] = useState<PreviaHabitual | null>(null);
+  const campLeitura = useRef(0);
   const [campanhas, setCampanhas] = useState<any[] | null>(null);
   const [funil, setFunil] = useState<any>(null);
   const [campInstancia, setCampInstancia] = useState<'loja' | 'marketing'>('loja');
@@ -345,15 +350,30 @@ export default function ClientesPage() {
 
   async function abrirCampanha() {
     setCampModal(true);
-    setCampPrevia(null);
     setCampInstancia('loja');
+    setCampHabitual(false);
     api.whatsappMarketingStatus().then(setMktStatus).catch(() => setMktStatus(null));
+    await previaDaCampanha(false);
+  }
+
+  /** A prévia do diálogo — "num horário fixo" ou "na hora habitual"; só a leitura mais nova vale (V64). */
+  async function previaDaCampanha(habitual: boolean) {
+    const minha = ++campLeitura.current;
+    setCampPrevia(null);
+    setCampPreviaHab(null);
     try {
-      const r: any = await api.crmCampanhaPrevia(seg);
+      const r: any = await api.crmCampanhaPrevia(seg, undefined, habitual ? {} : null);
+      if (minha !== campLeitura.current) return;
       setCampPrevia(r?.total ?? 0);
+      setCampPreviaHab(r?.habitual ?? null);
     } catch {
-      setCampPrevia(0);
+      if (minha === campLeitura.current) setCampPrevia(0);
     }
+  }
+
+  function mudarQuandoEnviar(habitual: boolean) {
+    setCampHabitual(habitual);
+    void previaDaCampanha(habitual);
   }
 
   async function enviarCampanha() {
@@ -366,8 +386,12 @@ export default function ClientesPage() {
         intervaloSeg: campIntervalo,
         tetoDia: campTeto ? Number(campTeto) : null,
         instanciaTipo: campInstancia,
+        ...(perfilLigado && campHabitual ? { envioHabitual: true } : {}),
       });
-      toast.success(`Campanha criada — ${r?.total ?? 0} destinatários. O envio começa pausado.`);
+      toast.success(
+        `Campanha criada — ${r?.total ?? 0} destinatários. ` +
+          (perfilLigado && campHabitual ? 'Cada um recebe perto da hora em que costuma pedir.' : 'O envio começa pausado.'),
+      );
       setCampModal(false);
       setCampMsg('');
     } catch (e) {
@@ -1061,6 +1085,9 @@ export default function ClientesPage() {
                     </p>
                   )}
                 </div>
+                {perfilLigado && (
+                  <QuandoEnviar habitual={campHabitual} aoMudar={mudarQuandoEnviar} previa={campPreviaHab} total={campPrevia} />
+                )}
                 <div className="flex flex-wrap gap-3">
                   <label className="text-xs">
                     <span className="mb-1 block text-muted-foreground">Pausa entre envios (s)</span>

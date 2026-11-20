@@ -91,6 +91,13 @@
   revela na página do pedido (`/r/…`) e vê "Prêmios para revelar" em Sua conta. Nasce desligado. A tabela entra como
   SO_NUVEM no `sync-daemon.mjs` (o `.exe` do próximo corte leva o daemon junto). Só na nuvem.
 
+- **Campanha na hora habitual de cada cliente (20/11; mig 480 SÓ NUVEM — `campanha.envio_habitual`,
+  `campanha_envio.minutos_alvo`; F7.4b do `docs/plano-perfil-cliente.md`).** Marketing e o "Nova campanha" de
+  Delivery › Clientes ganham "Quando enviar": num horário fixo (a de sempre) ou na hora habitual de cada cliente (de 30 a
+  60 min antes da faixa em que cada um costuma pedir; sem histórico, o pico da loja; dentro da janela da campanha ou de
+  8h–23h). Só com o perfil do cliente ligado e só o aceite clicado. As tabelas já são SO_NUVEM; nada muda no servidor da
+  loja (a fila das campanhas só roda na nuvem).
+
 - **O Regem lê o Pulso, a base nacional de eventos (20/11; mig 470 SÓ NUVEM, aplicada — `pulso_evento`, `pulso_estado`,
   `clima_municipio_dia`).** Módulo `pulso`: os eventos (leitura incremental), os municípios das lojas com o perfil ligado e
   o clima diário. Nasce desligado (`PULSO_LIGACAO` no regem-api). As tabelas entram como SO_NUVEM no `sync-daemon.mjs`
