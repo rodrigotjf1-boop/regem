@@ -35,7 +35,10 @@ export default function FinanceiroPage() {
   const router = useRouter();
   // Títulos/resumo/fluxo/DRE exigem a permissão "financeiro". Sem ela, o usuário
   // só gerencia as formas de pagamento (operacional). Trava real é no servidor.
-  const isPresidente = podePerm('financeiro');
+  // V35 (ERR-513, ERR-547): a permissão vem do token do navegador — o servidor desenha sem token. Em estado, lida depois
+  // do primeiro desenho (`null` = ainda não leu: nem o aviso do gerente nem os quadros aparecem até lá).
+  const [isPresidente, setIsPresidente] = useState<boolean | null>(null);
+  useEffect(() => setIsPresidente(podePerm('financeiro')), []);
   const [resumo, setResumo] = useState<any>(null);
   const [fluxo, setFluxo] = useState<any>(null);
   const [dre, setDre] = useState<any>(null);
@@ -205,7 +208,7 @@ export default function FinanceiroPage() {
       <div className="space-y-5">
         <FormasPagamentoCard />
 
-        {!isPresidente && (
+        {isPresidente === false && (
           <Card className="p-5 text-sm text-muted-foreground">
             Contas a pagar/receber, fluxo de caixa e resultado são da alçada do
             presidente/C&O. Como gerente, você gerencia as formas de pagamento acima e

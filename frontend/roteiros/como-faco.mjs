@@ -9,7 +9,8 @@
 import { fotoDoComoFaco, responder, tokenFalso, umaLinha } from './comum.mjs';
 
 const TUDO = { ver: true, criar: true, editar: true, excluir: true };
-const PERMISSOES = ['cadastros', 'escalas', 'impressoras', 'acessos', 'relatorios_vendas', 'cancelamentos', 'auditoria', 'turnos', 'fiscal_config', 'cupons', 'delivery', 'pedidos', 'fiscal', 'producao_kds', 'loja'];
+// `financeiro`: a tela das contas a pagar lê a permissão do token (`podePerm`); sem ela, mostra só as formas de pagamento
+const PERMISSOES = ['cadastros', 'escalas', 'impressoras', 'acessos', 'relatorios_vendas', 'cancelamentos', 'auditoria', 'turnos', 'fiscal_config', 'cupons', 'delivery', 'pedidos', 'fiscal', 'producao_kds', 'loja', 'financeiro'];
 // `ver_financeiro`: o presidente vê os valores em R$ (sem ela, os relatórios mostram só as quantidades e um aviso)
 const TOKEN = tokenFalso({ cat: 'presidente', perfil: 'presidente', perm: { ...Object.fromEntries(PERMISSOES.map((p) => [p, TUDO])), ver_financeiro: true } });
 
@@ -80,6 +81,96 @@ const CATALOGO_COM_CANAIS = {
   ],
   '/produtos/categorias': [{ id: 'c1', nome: 'Lanches' }, { id: 'c2', nome: 'Bebidas' }],
 };
+
+// ── M6k, lote 1: as telas do dia a dia (Dashboard, Tarefas, Mural, Clientes, Marketing, Contas a pagar, Loja, Equipamentos)
+// Data e hora relativas a agora (`haMin` na hora da chamada: dentro de uma função, vale a hora da resposta).
+const haMin = (min) => new Date(Date.now() - min * 60000).toISOString();
+const diaDaqui = (dias) => new Date(Date.now() + dias * 86400000).toISOString().slice(0, 10);
+// As tarefas de hoje (`/tarefas-instancias`): o Dashboard mostra as pendentes e as não feitas; Tarefas, todas.
+const TAREFAS_DO_DIA = [
+  { id: 't1', titulo: 'Conferir a validade da câmara fria', setorNome: 'Cozinha', colaboradorNome: 'Ana Exemplo', estado: 'pendente', horario: '18:00', horarioFim: '18:30', prioridade: 'alta', criadoEm: haMin(240), criadoPorNivel: 'gerente' },
+  { id: 't2', titulo: 'Limpar a coifa', setorNome: 'Cozinha', colaboradorNome: null, estado: 'nao_feita', horario: '16:00', horarioFim: '16:30', prioridade: 'media', criadoEm: haMin(300), criadoPorNivel: 'gerente' },
+  { id: 't3', titulo: 'Abrir o salão', setorNome: 'Salão', colaboradorNome: 'Bruno Exemplo', estado: 'feita', horario: '17:30', horarioFim: null, prioridade: null, criadoEm: haMin(360), criadoPorNivel: 'presidente' },
+];
+const POLITICA_DE_FOTO = { conclusao: false, parcial: false };
+// O resumo do Dashboard no formato de `dashboard.service.ts › resumo` (com a lista vazia, `d.tarefas.pctConclusao` caía);
+// `comercial` = o bloco dos valores em reais, que o servidor manda a quem vê valores.
+const RESUMO_DO_DIA = {
+  tarefas: { total: 12, feitas: 9, pendentes: 3, naoFeitas: 1, emMassa: 0, pctConclusao: 75 },
+  escala: { vagas: 7, preenchidas: 6 },
+  desperdicio: { total: 1, quantidade: 3 },
+  vistorias: 0,
+  estoqueAbaixoMinimo: 2,
+  vendas: { total: 86 },
+  producaoHoje: { producoes: 5, unidades: 140 },
+  deliveryPendentes: 4,
+  comercial: { faturado: 3420.5, balcaoFaturado: 1840.5, deliveryFaturado: 1580, gorjeta: 0, ticketMedio: 39.77, producaoCusto: 610.2 },
+};
+// A linha do tempo (`/dashboard/timeline`): quem está escalado por setor, as tarefas com horário e o pico (horas em número).
+const LINHA_DO_TEMPO = {
+  setores: [
+    { setor: 'Cozinha', alocacoes: [{ colaborador: 'Ana Exemplo', funcao: 'Cozinheira', etiqueta: null, turno: 'Noite', inicio: 16, fim: 23 }], tarefas: [{ titulo: 'Conferir validades', horario: 18, estado: 'pendente' }] },
+    { setor: 'Salão', alocacoes: [{ colaborador: 'Bruno Exemplo', funcao: 'Atendente', etiqueta: null, turno: 'Noite', inicio: 17.5, fim: 23.5 }], tarefas: [{ titulo: 'Abrir o salão', horario: 17.5, estado: 'feita' }] },
+  ],
+  picos: [{ nome: 'Jantar', inicio: 19.5, fim: 22 }],
+  agora: 20,
+};
+const PONTO_DE_HOJE = [
+  { colaboradorId: 'c1', nome: 'Ana Exemplo', status: 'trabalhando', ultimaMarcacao: { tipo: 'entrada', hora: haMin(240) }, trabalhadoMin: 240 },
+  { colaboradorId: 'c2', nome: 'Bruno Exemplo', status: 'trabalhando', ultimaMarcacao: { tipo: 'entrada', hora: haMin(150) }, trabalhadoMin: 150 },
+];
+// O mural (`/mural`: `{ comunicados, total }`) com um comunicado fixado e um lido por poucos; a pesquisa de clima fechada.
+const MURAL = {
+  total: 8,
+  comunicados: [
+    { id: 'm1', titulo: 'Inventário geral no sábado', corpo: 'Chegar 1 hora antes.', fixado: true, audiencia: 'loja', autorNome: 'Gerência', createdAt: haMin(1440), leram: 5, alvo: 8, euLi: true },
+    { id: 'm2', titulo: 'Sobremesas novas no cardápio', corpo: null, fixado: false, audiencia: 'setor', autorNome: 'Gerência', createdAt: haMin(300), leram: 2, alvo: 3, euLi: false },
+  ],
+};
+// Os clientes no formato de `/clientes/crm` (as colunas do banco, em snake_case) e o resumo dos grupos.
+const CLIENTES = [
+  { id: 'c1', nome: 'Ana Exemplo', telefone: '5521988880001', total_pedidos: 14, total_gasto: 532.6, ultimo_pedido_em: haMin(2 * 1440), pedidos_30d: 4, canais: ['cardapio', 'ifood'], opt_out_marketing: false },
+  { id: 'c2', nome: 'Bruno Exemplo', telefone: '5521988880002', total_pedidos: 6, total_gasto: 221.4, ultimo_pedido_em: haMin(9 * 1440), pedidos_30d: 1, canais: ['99food'], opt_out_marketing: false },
+  { id: 'c3', nome: 'Carla Exemplo', telefone: '5521988880003', total_pedidos: 3, total_gasto: 98.7, ultimo_pedido_em: haMin(41 * 1440), pedidos_30d: 0, canais: ['cardapio'], opt_out_marketing: true },
+];
+// As campanhas de marketing (`/campanhas`): uma enviando e uma concluída.
+const CAMPANHAS = [
+  { id: 'k1', tipo: 'cupom', mensagem: 'Presente pra você 🎁 PROMO10 de desconto na Loja Exemplo. Peça: [link]', enviados: 120, total: 180, falhas: 0, estado: 'ativa' },
+  { id: 'k2', tipo: 'recuperacao', mensagem: 'Sentimos sua falta 😊 Que tal um pedido hoje? Veja as novidades: [link]', enviados: 64, total: 64, falhas: 0, estado: 'concluida' },
+];
+// As contas a pagar (`/financeiro/titulos`) e o resto que a tela lê junto; sem o fluxo e o resultado do mês (com a lista
+// vazia apareciam blocos zerados), o formulário "Nova conta" sobe na tela.
+const CONTAS = {
+  '/financeiro/resumo': { aPagar: 2350.9, aReceber: 480, saldoCaixa: 5120.4 },
+  '/financeiro/titulos': [
+    { id: 'f1', tipo: 'pagar', descricao: 'Aluguel', categoria: 'aluguel', valor: 1800, vencimento: diaDaqui(12), recorrencia: 'mensal', status: 'aberto' },
+    { id: 'f2', tipo: 'pagar', descricao: 'Boleto do fornecedor', categoria: 'fornecedor', valor: 550.9, vencimento: diaDaqui(5), recorrencia: 'nenhuma', status: 'aberto', fornecedorNome: 'Fornecedor Exemplo', origem: 'recebimento' },
+  ],
+  '/financeiro/fluxo': { horizonteDias: 30, saldoFinal: 0, projecao: [] },
+  '/financeiro/dre': null,
+  '/empresas': { mirrorDias: 60, snapshotHora: '06:00' },
+  '/fornecedores': [{ id: 'fo1', nome: 'Fornecedor Exemplo' }],
+  '/financeiro/formas-pagamento': [
+    { id: 'fp1', nome: 'Dinheiro', tipo: 'dinheiro', ativo: true },
+    { id: 'fp2', nome: 'Pix', tipo: 'pix', ativo: true },
+    { id: 'fp3', nome: 'Crédito', tipo: 'credito', ativo: true },
+  ],
+};
+// Os dados da loja (`/cardapio/config`, só os campos que a tela de Loja edita).
+const DADOS_DA_LOJA = {
+  id: 'loja-exemplo', nomePublico: 'Loja Exemplo', contatoLoja: '(21) 3000-0000', documento: '00.000.000/0001-00', whatsapp: '+55 21 90000-0000',
+  instagram: '@lojaexemplo', subtitulo: 'Hambúrguer artesanal.', endCep: '20000-000', endCidade: 'Cidade Exemplo', endRua: 'Rua Exemplo', endNumero: '100',
+  endBairro: 'Centro', endEstado: 'RJ', pedidoMinimo: '30,00',
+};
+// Os equipamentos (`/equipamento`) montados na hora da resposta: a "conectado agora" do caixa vale por 3 min (CONECTADO_MIN).
+// Um caixa conectado, um KDS, a impressora do caixa, uma estação de impressão sem sinal há 2 h e o terminal de ponto.
+const equipamentosDaLoja = () => [
+  { id: 'e1', nome: 'Caixa 1', tipo: 'pdv', ativo: true, unidadeId: 'u1', impressoraPadraoId: 'e3', presenca: { vistoEm: haMin(0.5), ip: '192.168.0.21', endereco: 'regem.local' } },
+  { id: 'e2', nome: 'KDS da chapa', tipo: 'kds', ativo: true, unidadeId: 'u1', escopo: 'producao', ultimoPing: haMin(1) },
+  { id: 'e3', nome: 'Impressora do caixa', tipo: 'impressora', ativo: true, unidadeId: 'u1', conexao: 'rede', host: '192.168.0.50', porta: 9100, largura: 80, fazCupom: true },
+  { id: 'e4', nome: 'Estação do balcão', tipo: 'estacao_impressao', ativo: true, unidadeId: 'u1', pareado: true, estacao: { vistoEm: haMin(120), maquina: 'PC-BALCAO', versao: '1.30.14' } },
+  { id: 'e5', nome: 'Ponto da entrada', tipo: 'terminal_ponto', ativo: true, unidadeId: 'u1', padrao: true, ultimoPing: haMin(5) },
+];
 
 // Cada tela: o assunto do guia, o endereço, o passo (opcional) e as marcas, na ordem dos números.
 const TELAS = [
@@ -223,6 +314,71 @@ const TELAS = [
       },
     },
     marcas: (p) => [menu(p, '/delivery/configuracoes'), em(p, 'button:text-is("Atendimento")'), em(p, 'h3:text-is("Pausa dos pedidos")')],
+  },
+  // ── M6k, lote 1 ──
+  {
+    id: 'painel-do-dia', caminho: '/painel',
+    respostas: { '/dashboard': RESUMO_DO_DIA, '/dashboard/timeline': LINHA_DO_TEMPO, '/tarefas-instancias': TAREFAS_DO_DIA, '/tarefas-instancias/politica-foto': POLITICA_DE_FOTO, '/ponto/pessoas': PONTO_DE_HOJE },
+    // o cartão inteiro do "Faturamento hoje" (o pai do rótulo, que é um <p> filho direto do cartão); "Nova tarefa" é o botão de mais
+    marcas: (p) => [menu(p, '/painel'), em(p, 'p:text-is("Faturamento hoje")').locator('..'), em(p, 'p:text-is("Linha do tempo operacional")'), em(p, 'button[aria-label="Nova tarefa"]')],
+  },
+  {
+    id: 'criar-tarefa', caminho: '/meu-dia',
+    respostas: { '/tarefas-instancias': TAREFAS_DO_DIA, '/tarefas-instancias/politica-foto': POLITICA_DE_FOTO },
+    // "Nova tarefa" fica no topo da página (fora do <main>), como o "Gerar escala"
+    marcas: (p) => [menu(p, '/meu-dia'), p.locator('button:has-text("Nova tarefa") >> visible=true').first(), em(p, 'tr:has-text("Conferir a validade da câmara fria")')],
+  },
+  {
+    id: 'mural', caminho: '/mural',
+    respostas: { '/mural': MURAL, '/mural/clima': { pesquisa: null } },
+    // com o título preenchido o "Publicar" liga (desligado, sai apagado na imagem)
+    passo: async (p) => { await rotulado(p, 'Título').fill('Reunião da equipe na segunda'); await p.waitForTimeout(300); },
+    marcas: (p) => [menu(p, '/mural'), rotulado(p, 'Título'), rotulado(p, 'Público'), botao(p, 'Publicar')],
+  },
+  {
+    id: 'clientes', caminho: '/clientes',
+    respostas: {
+      '/clientes/crm/resumo': { total: 248, mes: 96, d30: 112, sem30: 64, sem60: 41, campeoes: 18 },
+      '/clientes/crm': CLIENTES,
+      '/clientes/funil': { visitas: 1240, carrinho: 410, checkout: 260, pedidos: 198 },
+      '/clientes/crm/bairros': ['Centro', 'Jardim Exemplo'],
+    },
+    // a lista vira cartões quando a tabela não cabe (`useModoDaLista`): a linha OU o cartão do cliente
+    marcas: (p) => [menu(p, '/clientes'), em(p, 'button:has-text("+30d sem pedir")'), rotulado(p, 'Buscar cliente'), em(p, ':is(tr, li):has-text("Ana Exemplo")')],
+  },
+  {
+    // "＋ Nova campanha" só liga com um número de WhatsApp conectado (`numeros.principal.vinculado`)
+    id: 'campanha-whatsapp', caminho: '/marketing',
+    respostas: { '/whatsapp/numeros': NUMEROS_DO_WHATSAPP, '/campanhas': CAMPANHAS },
+    marcas: (p) => [menu(p, '/marketing'), botao(p, 'Campanhas'), em(p, 'button:has-text("Nova campanha")'), botao(p, 'métricas')],
+  },
+  {
+    id: 'conta-a-pagar', caminho: '/financeiro', respostas: CONTAS,
+    // "Cadastrar conta" fica no fim do formulário "Nova conta": a página rola até ele ficar no pé da tela, com a "Descrição"
+    // e o valor ainda à vista (rolar só até ele, centralizado, tiraria os campos de cima da imagem)
+    passo: async (p) => {
+      await botao(p, 'Cadastrar conta').evaluate((el) => el.scrollIntoView({ block: 'end' }));
+      await p.waitForTimeout(300);
+    },
+    marcas: (p) => [menu(p, '/financeiro'), rotulado(p, 'Descrição'), rotulado(p, 'Valor (R$)'), botao(p, 'Cadastrar conta')],
+  },
+  {
+    id: 'dados-da-loja', caminho: '/loja', respostas: { '/cardapio/config': DADOS_DA_LOJA },
+    // uma mudança no nome faz aparecer a barra de baixo, com o "Salvar alterações"
+    passo: async (p) => { await rotulado(p, 'Nome do estabelecimento').fill('Loja Exemplo Centro'); await p.waitForTimeout(300); },
+    marcas: (p) => [menu(p, '/loja'), rotulado(p, 'Nome do estabelecimento'), botao(p, 'Salvar alterações')],
+  },
+  {
+    id: 'equipamentos', caminho: '/equipamentos',
+    respostas: { '/unidades': [{ id: 'u1', nome: 'Loja Exemplo' }] },
+    respostasDinamicas: { '/equipamento': equipamentosDaLoja },
+    // as ações da linha têm o nome do equipamento no rótulo ("Gerar código: Caixa 1"); a estação sem sinal conta em "Sem responder"
+    marcas: (p) => [
+      menu(p, '/equipamentos'),
+      em(p, 'button:has-text("Novo equipamento")'),
+      em(p, 'button[aria-label="Gerar código: Caixa 1"]'),
+      em(p, 'button[aria-pressed]:has-text("Sem responder")'),
+    ],
   },
   // Só conferência, sem foto: as telas que leem a categoria do token não podem quebrar a hidratação (V35; os
   // entregadores davam React #418 — o aviso de cima só existia no navegador)

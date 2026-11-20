@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister versão 6, M6k lote 1 — o guia "como faço" em mais 8 telas, com imagem (20/11; SEM migration).** O guia é da
+  nuvem; vai no `.zip` a correção do React #418 (hidratação) do Mural & clima e das Contas a pagar (ERR-547), que a loja
+  também serve.
+
 - **Mister versão 6, M6j lote 1 — a porta `propor_acao` e as ações do Delivery (20/11; SEM migration).** Só na nuvem (o
   Mister): vai no `.zip` sem efeito na loja.
 
