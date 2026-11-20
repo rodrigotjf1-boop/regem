@@ -21,6 +21,7 @@ export const SEGS_DO_PERFIL: { k: string; t: string; conta: (r: any) => number |
   { k: 'perfil_feriado', t: 'Pedem em feriado', conta: (r) => r?.selos?.feriado },
   { k: 'perfil_comemorativa', t: 'Pedem em data comemorativa', conta: (r) => r?.selos?.comemorativa },
   { k: 'perfil_loja', t: 'Pedem nos eventos da loja', conta: (r) => r?.selos?.loja },
+  { k: 'perfil_olhou', t: 'Olharam e não pediram', conta: (r) => r?.olharam },
 ];
 
 const RFM = /^perfil_(campeoes|leais|recentes|atencao|em_risco|inativos)$/;
@@ -71,6 +72,12 @@ export function SegmentosDoPerfil({ seg, aoEscolher }: { seg: string; aoEscolher
         <p className="text-xs text-muted-foreground">
           Na campanha, os segmentos pelo perfil só alcançam quem aceitou receber ofertas com um clique (a caixa que já vem
           marcada no checkout não conta). Quem pediu só pelo iFood ou pela 99 não tem perfil.
+        </p>
+      )}
+      {seg === 'perfil_olhou' && (
+        <p className="text-xs text-muted-foreground">
+          Abriram o mesmo produto 2 vezes ou mais nos últimos 30 dias e não pediram. Só entra quem ligou “Recomendações
+          personalizadas” no cardápio.
         </p>
       )}
     </div>
