@@ -26,13 +26,15 @@ const premio = (id, nome, tipo, descricao, emUso, extra = {}) => ({
   id, nome, tipo, valor: 0, teto: null, produtoId: null, produtoNome: null, minimo: 0, validadeDias: 7, descricao, emUso, ...extra,
 });
 const R_PADRAO = { ativo: false, premios: [], limite: 'mes1', quem: 'gerencia' };
-const PAINEL = (minimo = 30, forma = 'raspadinha', entregue = { ativo: false, premioId: null, desde: null }, reclamacao = R_PADRAO) => ({
+const C_PADRAO = { ativo: false, segmentos: [], premioId: null, periodoDias: 60 };
+const PAINEL = (minimo = 30, forma = 'raspadinha', entregue = { ativo: false, premioId: null, desde: null }, reclamacao = R_PADRAO, classificacao = C_PADRAO) => ({
   config: {
     surpresaAtivo: true, surpresaForma: forma, albumAtivo: false, albumSelos: 4, albumValidadeMeses: 12, albumPremios: [P2],
     metaAtivo: false, metaNiveis: [{ pedidos: 3, premios: [] }, { pedidos: 6, premios: [] }], metaValidadeDias: 15, minimo,
   },
   prontas: { surpresa: true, album: false, meta: false },
-  gatilhos: { entregue, reclamacao },
+  gatilhos: { entregue, reclamacao, classificacao },
+  classificacao: { perfilLigado: true, contagens: { campeoes: 112, leais: 240, atencao: 96, em_risco: 151, inativos: 388, atrasado: 74 } },
   premios: [
     premio(P1, '15% off até R$ 20', 'percentual', '15% de desconto, até R$ 20 · em pedido a partir de R$ 30 · vale 7 dias', [], { valor: 15, teto: 20, minimo: 30 }),
     premio(P2, 'Batata média grátis com um nome bem comprido para ver a quebra', 'produto', 'Batata média grátis · vale 7 dias', ['Álbum de selos'], { produtoId: 'pr-1', produtoNome: 'Batata média' }),
@@ -47,6 +49,8 @@ const PAINEL = (minimo = 30, forma = 'raspadinha', entregue = { ativo: false, pr
     validadesDoPremio: [3, 7, 15, 30], minimoMax: 1000, nomeMax: 60, premiosMax: 50, premiosPorEscolhaMax: 6,
     limitesDaReclamacao: [{ valor: 'mes1', rotulo: '1 por mês' }, { valor: 'mes2', rotulo: '2 por mês' }, { valor: 'tri1', rotulo: '1 a cada 3 meses' }],
     quemMandaDesculpas: [{ valor: 'gerencia', rotulo: 'Gerente e supervisão' }, { valor: 'gerente', rotulo: 'Só o gerente' }, { valor: 'atendimento', rotulo: 'Qualquer pessoa do atendimento' }],
+    segmentosDaClassificacao: [{ valor: 'campeoes', rotulo: 'Campeões' }, { valor: 'leais', rotulo: 'Leais' }, { valor: 'atencao', rotulo: 'Precisam de atenção' }, { valor: 'em_risco', rotulo: 'Em risco' }, { valor: 'inativos', rotulo: 'Inativos' }, { valor: 'atrasado', rotulo: 'Atrasados no próprio ritmo' }],
+    periodosDaClassificacao: [30, 60, 90],
   },
 });
 
@@ -80,7 +84,8 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
     let forma = 'raspadinha';
     let entregue = { ativo: false, premioId: null, desde: null };
     let reclamacao = R_PADRAO;
-    const painel = () => PAINEL(minimo, forma, entregue, reclamacao);
+    let classificacao = C_PADRAO;
+    const painel = () => PAINEL(minimo, forma, entregue, reclamacao, classificacao);
     const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
     await ctx.addInitScript((jwt) => localStorage.setItem('regen_token', jwt), o.token ?? PRESIDENTE);
     const page = await ctx.newPage();
@@ -103,6 +108,12 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
         enviados.push(corpo);
         if (typeof corpo.minimo === 'number') minimo = corpo.minimo;
         if (corpo.surpresaForma) forma = corpo.surpresaForma;
+        return responder(route, painel());
+      }
+      if (p === '/marketing/clube/gatilhos/classificacao' && metodo === 'PUT') {
+        const corpo = JSON.parse(route.request().postData() || '{}');
+        enviados.push({ classificacao: corpo });
+        classificacao = { ...classificacao, ...corpo };
         return responder(route, painel());
       }
       if (p === '/marketing/clube/gatilhos/reclamacao' && metodo === 'PUT') {
@@ -181,8 +192,8 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
     achados = await medir(page);
     ok(achados.length === 0, `${w}px · Prêmio surpresa: sem barra para o lado nem texto esmagado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
     ok(
-      (t.match(/Chega numa próxima entrega/g) ?? []).length === 2 && t.includes('não recomendado') && t.includes('sorteio · precisa de autorização'),
-      `${w}px · classificação e campanha nas próximas entregas; avaliação não recomendada; aleatório travado`,
+      (t.match(/Chega numa próxima entrega/g) ?? []).length === 1 && t.includes('não recomendado') && t.includes('sorteio · precisa de autorização'),
+      `${w}px · a campanha na próxima entrega; avaliação não recomendada; aleatório travado`,
     );
     await page.getByRole('button', { name: /Roleta de prêmios/ }).click();
     await page.waitForSelector('button[aria-pressed="true"]:has-text("Roleta de prêmios")', { timeout: 5000 });
@@ -228,6 +239,30 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
     );
     t = await texto(page);
     ok(t.includes('No máximo 1 a cada 3 meses por cliente') && (await page.getByRole('switch', { name: 'Depois de uma reclamação' }).getAttribute('aria-checked')) === 'true', `${w}px · reclamação ligada, com o limite na linha`);
+    // A classificação: a chave sem segmento abre a gaveta; os 6 segmentos com a contagem, o período e o prêmio (A1c).
+    await page.getByRole('switch', { name: 'Pela classificação do marketing' }).click();
+    await dialogo(page);
+    achados = await medir(page);
+    const tc = await texto(page, '[role="dialog"]');
+    ok(achados.length === 0, `${w}px · gaveta da classificação aberta: sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+    ok(
+      (await page.locator('[role="dialog"] input[type="checkbox"]').count()) === 6 && tc.includes('Inativos · 388 clientes') && tc.includes('1 vez a cada 60 dias'),
+      `${w}px · a gaveta da classificação: os 6 segmentos com a contagem e o período`,
+    );
+    if (w === 390 || w === 1440) await page.locator('[role="dialog"]').screenshot({ path: arquivoFoto(`clube-classificacao-${w}.png`) });
+    await page.getByRole('button', { name: 'Ligar', exact: true }).click();
+    ok(await page.getByText('Escolha ao menos um segmento.').isVisible(), `${w}px · ligar sem segmento avisa`);
+    await page.getByLabel(/^Inativos/).check();
+    await page.getByLabel('Prêmio', { exact: true }).selectOption(P3);
+    await page.getByRole('button', { name: 'Ligar', exact: true }).click();
+    await fechou(page);
+    const ultimoC = enviados[enviados.length - 1];
+    ok(
+      JSON.stringify(ultimoC) === JSON.stringify({ classificacao: { ativo: true, segmentos: ['inativos'], premioId: P3, periodoDias: 60 } }),
+      `${w}px · ligar a classificação manda os segmentos, o prêmio e o período (${umaLinha(JSON.stringify(ultimoC))})`,
+    );
+    t = await texto(page);
+    ok(t.includes('Segmentos: Inativos') && (await page.getByRole('switch', { name: 'Pela classificação do marketing' }).getAttribute('aria-checked')) === 'true', `${w}px · classificação ligada, com o segmento na linha`);
     if (w === 390 || w === 1440) await page.screenshot({ path: arquivoFoto(`clube-surpresa-${w}.png`), fullPage: true });
 
     // ── Prêmios ──

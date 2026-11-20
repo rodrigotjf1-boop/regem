@@ -9,7 +9,7 @@ import { AuthUser } from '../../auth/auth-user';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
 import { CABECALHO_USUARIO_DA_LOJA, EmpresaDaLojaGuard } from '../whatsapp/whatsapp-da-loja.controller';
-import { lerConfigDoClube, lerGatilhoEntregue, lerGatilhoReclamacao, lerPremio } from './clube.regras';
+import { lerConfigDoClube, lerGatilhoClassificacao, lerGatilhoEntregue, lerGatilhoReclamacao, lerPremio } from './clube.regras';
 import { ClubeService } from './clube.service';
 import { ClubeDesculpasService } from './clube-desculpas.service';
 import { ClubeSurpresaService } from './clube-surpresa.service';
@@ -85,6 +85,15 @@ export class ClubeController {
   async salvarGatilhoReclamacao(@CurrentUser() user: AuthUser, @Body() dto: any) {
     lerGatilhoReclamacao(dto);
     await this.service.salvarGatilhoReclamacao(user, dto);
+    return this.service.painel(user.tenantId);
+  }
+
+  /** O gatilho "Pela classificação do marketing" (A1c): liga, os segmentos, o prêmio e de quanto em quanto tempo. */
+  @Put('gatilhos/classificacao')
+  @Roles('presidente')
+  async salvarGatilhoClassificacao(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    lerGatilhoClassificacao(dto);
+    await this.service.salvarGatilhoClassificacao(user, dto);
     return this.service.painel(user.tenantId);
   }
 }
