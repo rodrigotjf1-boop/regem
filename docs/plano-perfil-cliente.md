@@ -19,7 +19,8 @@
 | F3 · parte 1 (a loja) | "Mexe na loja?" no calendário: cada evento contra o mesmo dia da semana nas 8 semanas antes, sem evento (pedidos de delivery, todos os canais, dia de operação); "pouco histórico" abaixo de 3 vezes | #1180 | — |
 | F3 · parte 2 (o cliente) | "O que move o cliente" na ficha: por tipo (feriado, comemorativa, dinheiro no bolso, evento da loja), o RR contra ele mesmo no mesmo dia da semana sem evento, encolhido para o da loja (Gama-Poisson), a chance de efeito real e o selo (≥ 3 dias, P ≥ 0,9, Benjamini-Hochberg q = 0,10); só nos tipos que mexem na loja; na rotina noturna, depois da cópia do calendário | este PR | 463 (só nuvem) |
 | F5 · Jeito de conversar | nível A já coberto pelas instruções do atendente (cliente chateado, sem emoji na reclamação, áudio vira voz); o nível B (o robô oferece lembrar "curto"/"áudio") pede uma ferramenta nova no fluxo do n8n — decisão do dono | a decidir | — |
-| F7 em diante | marketing, cliques, cardápio personalizado, Liame | a fazer | — |
+| F7 · parte 1 (público pelo perfil) | Delivery › Clientes ganha as abas "Pelo perfil" (os 6 segmentos RFM, atrasados no próprio ritmo e os selos do que move o cliente); a campanha usa a aba escolhida e, pelo perfil, só alcança o aceite CLICADO (D4/D15 — a caixa que já vem marcada no checkout não conta); só presidente e gerente, módulo ligado, na nuvem (a lista, a exportação, a prévia e o criar conferem) | este PR | — |
+| F7 · parte 2 em diante | envio na hora habitual, "sentimos sua falta" pelo ritmo próprio, gatilhos de evento, freio por cliente, grupo de controle e relatório incremental; depois F4 (cliques), F8, F9 | a fazer (aprovado) | — |
 
 **Para ver funcionando:** o presidente liga o módulo "Perfil do cliente" em Visão C&O › Módulos do produto. A rotina da manhã (4h–11h)
 calcula a empresa; "Recalcular agora" (POST `/perfil-cliente/recalcular`) faz na hora.

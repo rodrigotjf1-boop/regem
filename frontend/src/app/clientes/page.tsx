@@ -13,6 +13,7 @@ import { Select } from '@/components/ui/select';
 import { useModoDaLista } from '@/components/ui/lista';
 import { AniversarioNaGaveta } from '@/components/clientes/aniversario-na-gaveta';
 import { FichaDoPerfil } from '@/components/clientes/ficha-do-perfil';
+import { SegmentosDoPerfil, nomeDoSegmentoDoPerfil } from '@/components/clientes/segmentos-do-perfil';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: any) =>
@@ -500,6 +501,8 @@ export default function ClientesPage() {
             );
           })}
         </div>
+        {/* Os segmentos pelo perfil (F7 parte 1): presidente e gerente, módulo ligado, na nuvem — o servidor confere de novo. */}
+        {perfilLigado && !NO_SERVIDOR_DA_LOJA && <SegmentosDoPerfil seg={seg} aoEscolher={setSeg} />}
 
         {/* Busca + ações */}
         <div className="flex flex-wrap items-center gap-2">
@@ -989,7 +992,7 @@ export default function ClientesPage() {
               <div className="space-y-3 px-4 py-3">
                 <p className="text-sm text-muted-foreground">
                   Segmento{' '}
-                  <strong className="text-foreground">{[...SEGS, ...SEGS_IMPORT].find((s) => s.k === seg)?.t}</strong> ·{' '}
+                  <strong className="text-foreground">{[...SEGS, ...SEGS_IMPORT].find((s) => s.k === seg)?.t ?? nomeDoSegmentoDoPerfil(seg)}</strong> ·{' '}
                   {campPrevia == null ? (
                     'calculando público…'
                   ) : (
@@ -1117,7 +1120,7 @@ export default function ClientesPage() {
                     <li key={k.id} className="rounded-md border border-border p-3 text-sm">
                       <div className="flex items-center gap-2">
                         <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase">
-                          {[...SEGS, ...SEGS_IMPORT].find((s) => s.k === k.segmento)?.t ?? k.segmento}
+                          {[...SEGS, ...SEGS_IMPORT].find((s) => s.k === k.segmento)?.t ?? nomeDoSegmentoDoPerfil(k.segmento) ?? k.segmento}
                         </span>
                         <span
                           className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold ${

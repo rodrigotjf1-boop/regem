@@ -8,6 +8,7 @@ import { registrarEvento, registrarSaida } from '../../common/consentimento-mark
 import { chaveTelefone, sqlChaveTelefone, sqlDigitosTelefone, sqlPodeTerAChave } from '../../common/telefone-chave';
 import { AJUSTES_PADRAO } from '../relacionamento/relacionamento';
 import { saiuDoMarketing, sqlRecebeMarketing } from '../../common/marketing-quem-recebe';
+import { conferirSegmentoDoPerfil, sqlAceiteClicado, sqlSegmentoDoPerfil } from '../../common/segmentos-do-perfil';
 import { semanaDe, sqlAniversarioEntre } from '../../common/aniversario';
 import { hojeISO, somarDias } from '../../common/data';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
@@ -37,9 +38,18 @@ export class CampanhaService {
     private readonly cloud: WhatsappCloudService,
   ) {}
 
+  /** O segmento "pelo perfil" (F7 parte 1): recusa fora das regras (nuvem, papel, módulo) antes de qualquer consulta. */
+  conferirSegmentoDoPerfil(user: { tenantId: string; categoria?: string | null }, segmento: unknown) {
+    return conferirSegmentoDoPerfil(this.db, user, segmento);
+  }
+
   // Fragmento SQL do segmento (mesma lógica do CRM; alias da tabela = `c`).
   // `recuperacaoDias` permite recência customizada ("não pede há N dias").
   private segFrag(segmento?: string, recuperacaoDias?: number) {
+    // "Pelo perfil" (F7 parte 1, D4/D15): o segmento do perfil E o aceite de marketing CLICADO pelo cliente (a caixa que já
+    // vinha marcada no checkout não conta). Papel, módulo e nuvem já conferidos na prévia e no criar.
+    const doPerfil = sqlSegmentoDoPerfil(segmento);
+    if (doPerfil) return sql`${doPerfil} ${sqlAceiteClicado()}`;
     if (segmento === 'recuperacao' && recuperacaoDias && recuperacaoDias > 0)
       return sql`and c.ultimo_pedido_em < now() - (${recuperacaoDias} || ' days')::interval`;
     // Aniversariantes (Onda 3, mig 357): a MESMA regra do presente automático e do cupom "só aniversariantes" — a data

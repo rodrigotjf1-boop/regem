@@ -195,9 +195,13 @@ export class PerfilClienteService {
        where tenant_id = ${tenantId}::uuid group by e`));
     const exec = this.rows(await this.db.execute(sql`
       select rodou_em, clientes, duracao_ms, erro from perfil_cliente_execucao where tenant_id = ${tenantId}::uuid`))[0] ?? null;
+    // Os selos do que move o cliente (F3 parte 2): as abas "pelo perfil" de Delivery › Clientes (F7 parte 1) mostram a conta.
+    const selos = this.rows(await this.db.execute(sql`
+      select tipo, count(*)::int as n from cliente_evento_sensibilidade where tenant_id = ${tenantId}::uuid and selo group by tipo`));
     return {
       segmentos: Object.fromEntries(seg.map((s: any) => [s.segmento, s.n])),
       etiquetas: Object.fromEntries(etq.map((s: any) => [s.etiqueta, s.n])),
+      selos: Object.fromEntries(selos.map((s: any) => [s.tipo, s.n])),
       total: seg.reduce((a: number, s: any) => a + s.n, 0),
       ultimaVolta: exec,
     };
