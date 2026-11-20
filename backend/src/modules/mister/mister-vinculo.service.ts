@@ -8,6 +8,7 @@ import { MisterNumeroService, NumeroDoMister, numeroDisponivel, numeroEmUso } fr
 /** O número que a pessoa vê para salvar: o da forma em uso, só com ela conectada (Q1). */
 const numeroParaMostrar = (n: NumeroDoMister) => (n.provedor === 'evolution' || n.situacao !== 'sem' ? numeroEmUso(n) : null);
 import { CODIGO_VALE_MIN, NIVEIS_DO_MISTER, linkDoCodigo, mensagemDoCodigo, novoCodigo } from './mister.regras';
+import { MOTIVO_NA_TELA, desligarVinculo, ehMotivoDoDesligamento } from './mister-desligar';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -55,6 +56,8 @@ export interface PessoaDoMister {
   ligadoEm: string | null;
   pausado: boolean;
   pode: Array<'avisos' | 'consulta' | 'autorizacao'>;
+  /** Versão 6, M6a (mig 468): quem foi desligado, quando e por quê (o texto da tela). Null = nunca desligado ou ligado de novo. */
+  desligado: { em: string; motivo: string } | null;
 }
 
 export interface ListaDePessoas {
@@ -173,6 +176,7 @@ export class MisterVinculoService {
         select c.id as "colaboradorId", c.nome, coalesce(p.nivel, f.categoria::text) as nivel, u.nome as loja,
                g.telefone, (g.pausado_em is not null) as pausado,
                to_char(g.ligado_em at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as "ligadoEm",
+               to_char(g.desligado_em at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as "desligadoEm", g.desligado_motivo as "desligadoMotivo",
                count(*) over ()::int as total
           from colaborador c
           left join funcao f on f.id = c.funcao_id
@@ -204,6 +208,8 @@ export class MisterVinculoService {
           pausado: ligado && l.pausado === true,
           // O que cada um pode é pela hierarquia até existir o perfil de permissões (decisão do dono de 13/11/2026).
           pode: presidente ? ['avisos', 'consulta', 'autorizacao'] : ['avisos', 'consulta'],
+          desligado:
+            !ligado && l.desligadoEm && ehMotivoDoDesligamento(l.desligadoMotivo) ? { em: String(l.desligadoEm), motivo: MOTIVO_NA_TELA[l.desligadoMotivo] } : null,
         };
       }),
     };
@@ -218,24 +224,11 @@ export class MisterVinculoService {
     if (!UUID.test(alvo)) throw new BadRequestException('Pessoa inválida.');
     const proprio = alvo === user.colaboradorId;
     if (!proprio && (await this.nivelDe(user)) !== 'presidente') throw new ForbiddenException('Só o presidente desliga o WhatsApp de outra pessoa.');
-    const r = linhas(
-      await this.db.execute(sql`
-        update mister_vinculo
-           set telefone = null, ligado_em = null, pausado_em = null, codigo = null, codigo_expira_em = null, atualizado_em = now()
-         where tenant_id = ${user.tenantId}::uuid and colaborador_id = ${alvo}::uuid and (telefone is not null or codigo is not null)
-        returning id`),
-    );
-    if (r.length) {
-      // Versão 4, M4b (mig 449): quem desliga o WhatsApp do Mister perde a memória dele junto (decisão 5 do protótipo
-      // `regem-mister-jeito-memoria.html`). Sem a 449 (ou no servidor da loja), não há memória a apagar.
-      await this.db
-        .execute(sql`delete from mister_memoria where tenant_id = ${user.tenantId}::uuid and colaborador_id = ${alvo}::uuid`)
-        .catch((e: any) => {
-          if (e?.code !== '42P01' && e?.cause?.code !== '42P01') throw e;
-        });
-      await this.auditar(user, 'mister_whatsapp_desligado', proprio ? { por: 'a própria pessoa' } : { por: 'presidente', colaboradorId: alvo }, alvo);
-    }
-    return { desligado: r.length > 0 };
+    // Versão 6, M6a (mig 468): o caminho único do desligamento — o motivo fica na pessoa e no telefone; a memória sai junto
+    // (decisão 5 da versão 4).
+    const r = await desligarVinculo(this.db, { tenantId: user.tenantId, colaboradorId: alvo, motivo: proprio ? 'pessoa' : 'presidente' });
+    if (r) await this.auditar(user, 'mister_whatsapp_desligado', proprio ? { por: 'a própria pessoa' } : { por: 'presidente', colaboradorId: alvo }, alvo);
+    return { desligado: !!r };
   }
 
   private async auditar(user: AuthUser, acao: string, detalhe: Record<string, unknown>, deQuem: string = user.colaboradorId): Promise<void> {

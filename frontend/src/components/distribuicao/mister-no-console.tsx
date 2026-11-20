@@ -8,6 +8,7 @@ import { SegurancaDoMister } from '@/components/distribuicao/seguranca-do-mister
 import { InstrucoesDoMister } from '@/components/distribuicao/instrucoes-do-mister';
 import { Confirmar } from '@/components/distribuicao/confirmar-no-console';
 import { FormaDoMister, type QrNoPainel } from '@/components/distribuicao/forma-do-mister';
+import { PessoasDoMisterNoConsole } from '@/components/distribuicao/pessoas-do-mister-no-console';
 
 // Console da distribuição → aba "Mister" (mig 417; só Diretoria). Protótipo aprovado: `mockups/regem-mister.html`, aba
 // "Console da distribuição". Três blocos: o NÚMERO do Mister (um só, da distribuição, para todas as empresas), a CHAVE
@@ -561,6 +562,9 @@ export function MisterNoConsole() {
           </>
         )}
       </section>
+
+      {/* Versão 6, M6a (mig 468): quem fala com o Mister numa empresa e o desligamento pela Diretoria, com o motivo. */}
+      <PessoasDoMisterNoConsole empresas={lista?.empresas ?? []} />
 
       <QualidadeDoMister />
 

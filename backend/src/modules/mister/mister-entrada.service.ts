@@ -30,6 +30,7 @@ import {
   perguntaDaEmpresa,
   primeiroNome,
   soDigitos,
+  textoDoTelefoneDesligado,
 } from './mister.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -318,10 +319,12 @@ export class MisterEntradaService {
           insert into mister_conversa (telefone, fixa_em, ultima_entrada_em) values (${tel}, now(), now())
           on conflict (telefone) do update set fixa_em = now(), ultima_entrada_em = now(), atualizado_em = now()
             where mister_conversa.fixa_em is null or mister_conversa.fixa_em < now() - make_interval(hours => ${RESPOSTA_FIXA_A_CADA_H})
-          returning telefone`),
+          returning telefone, desligado_motivo as motivo`),
       );
       if (!vez.length) return { desfecho: 'fixa_calada' };
-      await this.responder(tel, { texto: TEXTOS.desconhecido });
+      // Versão 6, M6a (mig 468): o telefone que JÁ foi ligado e saiu recebe a frase do motivo (60 dias sem conversa ou
+      // desligado), e não a de quem nunca ligou.
+      await this.responder(tel, { texto: textoDoTelefoneDesligado(vez[0]?.motivo) });
       return { desfecho: 'fixa' };
     }
 
@@ -423,18 +426,22 @@ export class MisterEntradaService {
     let ligado: any[];
     try {
       // A gravação que liga confere TUDO de novo no mesmo comando: o código ainda vale e a pessoa ainda pode.
+      // Versão 6, M6a (mig 468): ligar limpa o motivo do último desligamento e devolve o telefone ANTERIOR da pessoa (o
+      // celular trocado) — ele sai do Mister nesta mesma gravação e a resposta diz o final dele.
       ligado = linhas(
         await this.db.execute(sql`
+          with antes as (
+            select id, telefone as anterior from mister_vinculo where codigo = ${codigo} and codigo_expira_em > now() for update)
           update mister_vinculo g
              set telefone = ${tel}, ligado_em = now(), pausado_em = null, codigo = null, codigo_expira_em = null,
-                 ultima_entrada_em = now(), atualizado_em = now()
-            from colaborador c
+                 ultima_entrada_em = now(), desligado_em = null, desligado_motivo = null, atualizado_em = now()
+            from antes, colaborador c
             left join funcao f on f.id = c.funcao_id
             left join perfil_acesso p on p.id = c.perfil_acesso_id
             join empresa emp on emp.id = c.tenant_id
-           where g.codigo = ${codigo} and g.codigo_expira_em > now()
+           where g.id = antes.id and g.codigo = ${codigo} and g.codigo_expira_em > now()
              and c.id = g.colaborador_id and c.tenant_id = g.tenant_id and ${pessoaVale()}
-          returning g.id, g.tenant_id as "tenantId", g.colaborador_id as "colaboradorId", c.nome, emp.nome as empresa`),
+          returning g.id, g.tenant_id as "tenantId", g.colaborador_id as "colaboradorId", c.nome, emp.nome as empresa, antes.anterior`),
       );
     } catch (err: any) {
       if (err?.code !== '23505') throw err;
@@ -459,7 +466,16 @@ export class MisterEntradaService {
       insert into mister_conversa (telefone, tenant_id, escolhida_em, ultima_entrada_em) values (${tel}, ${g.tenantId}::uuid, now(), now())
       on conflict (telefone) do update
         set tenant_id = excluded.tenant_id, escolhida_em = now(), perguntada_em = null, pendente = null, pendente_em = null,
-            codigos_errados = 0, codigos_desde = null, ultima_entrada_em = now(), atualizado_em = now()`);
+            codigos_errados = 0, codigos_desde = null, ultima_entrada_em = now(), desligado_em = null, desligado_motivo = null,
+            atualizado_em = now()`);
+    // O celular trocado: o telefone antigo fica marcado como desligado pela própria pessoa (quem escrever dele recebe a frase
+    // de desligado). Só se ele não estiver ligado a outra pessoa ou empresa.
+    const anterior = g.anterior && String(g.anterior) !== tel ? String(g.anterior) : null;
+    if (anterior) {
+      await this.db.execute(sql`
+        update mister_conversa set desligado_em = clock_timestamp(), desligado_motivo = 'pessoa', atualizado_em = now()
+         where telefone = ${anterior} and not exists (select 1 from mister_vinculo v where v.telefone = ${anterior} and v.ligado_em is not null)`);
+    }
     await this.auditoria?.registrar({
       tenantId: g.tenantId,
       atorId: g.colaboradorId,
@@ -468,9 +484,9 @@ export class MisterEntradaService {
       entidadeTipo: 'mister_vinculo',
       entidadeId: g.id,
       origem: 'whatsapp',
-      detalhe: { final: tel.slice(-4) },
+      detalhe: { final: tel.slice(-4), ...(anterior ? { trocou: anterior.slice(-4) } : {}) },
     });
-    await this.responder(tel, { texto: TEXTOS.ligado(primeiroNome(g.nome), g.empresa) });
+    await this.responder(tel, { texto: TEXTOS.ligado(primeiroNome(g.nome), g.empresa, anterior ? anterior.slice(-4) : null) });
     return { desfecho: 'ligou', tenantId: g.tenantId };
   }
 

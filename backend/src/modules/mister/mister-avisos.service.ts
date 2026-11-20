@@ -15,6 +15,11 @@ import { dataNoFuso, somarDias } from '../../common/data';
 import { MisterAvisosConfigService } from './mister-avisos-config.service';
 import {
   AVISOS_DA_DISTRIBUICAO,
+  AVISOS_DE_SEGURANCA,
+  TELEFONE_LIGADO_ABERTO_H,
+  botoesDoTelefoneLigado,
+  ehAvisoDeSeguranca,
+  situacaoDoTelefoneLigado,
   Destino,
   MARCOS_DO_CERTIFICADO,
   PEDIDO_PARADO_JANELA_H,
@@ -112,7 +117,7 @@ const MODULO = 'mister';
  * (o resumo não fala do que mudou depois), o arquivo do ponto do mês (mandado à contabilidade, ou passou o dia 5) e os do
  * gasto do WhatsApp (G2: fecham na virada do mês — não há o que resolver).
  */
-const SEM_RESOLVIDO: string[] = ['boleto_vencendo', 'ponto_esquecido', 'ponto_do_mes', 'gasto_whatsapp', 'franquia_atendimento'];
+const SEM_RESOLVIDO: string[] = ['boleto_vencendo', 'ponto_esquecido', 'ponto_do_mes', 'gasto_whatsapp', 'franquia_atendimento', 'telefone_ligado'];
 /** Pedido "esperando" para o aviso do servidor sem sinal: aceito ou por aceitar, das últimas 3 horas. */
 const PEDIDO_ESPERANDO_H = 3;
 
@@ -223,7 +228,9 @@ export class MisterAvisosService implements OnModuleInit {
     const doBoleto = a.situacao === 'aberto' && a.tipo === 'boleto_vencendo' && v!.nivel === 'presidente' ? botoesDoAvisoDoBoleto(a.dados?.documentoId) : [];
     // O arquivo do ponto do mês ainda aberto (M3e parte 2): o presidente recebe "Enviar ao contador" e "Ver antes", e o PDF.
     const doPonto = a.situacao === 'aberto' && a.tipo === 'ponto_do_mes' && v!.nivel === 'presidente' ? botoesDoPontoDoMes(a.id, !!a.dados?.contadorId) : [];
-    const botoes = doBoleto.length ? doBoleto : doPonto;
+    // Versão 6, M6a: o telefone ligado ainda aberto — o presidente recebe "Não reconheço" no toque também.
+    const doLigado = a.situacao === 'aberto' && a.tipo === 'telefone_ligado' && v!.nivel === 'presidente' ? botoesDoTelefoneLigado(a.dados) : [];
+    const botoes = doBoleto.length ? doBoleto : doPonto.length ? doPonto : doLigado;
     try {
       await this.numero.enviar(
         quem.telefone,
@@ -319,6 +326,10 @@ export class MisterAvisosService implements OnModuleInit {
     } catch (e: any) {
       if (!semTabela(e)) throw e;
     }
+
+    // 3c) Versão 6, M6a: os telefones ligados ao Mister nas últimas 24 horas (o aviso de SEGURANÇA aos presidentes, com
+    //     "Não reconheço"). Um por ligação; fecha calado quando passa das 24 horas.
+    for (const l of await this.telefonesLigados(soEmpresas)) fora.push(situacaoDoTelefoneLigado({ ...l, loja: l.loja ?? null }));
 
     // 4) O certificado digital da nota perto de vencer, só onde a emissão está LIGADA. A mesma régua do fiscal: a
     //    configuração da loja (senão a da empresa — `configRaw`) e o certificado da loja (senão o da empresa —
@@ -746,6 +757,30 @@ export class MisterAvisosService implements OnModuleInit {
   }
 
   /**
+   * Versão 6, M6a: os telefones ligados ao Mister nas últimas 24 horas, com quem, o nível, a loja e a hora da ligação (o
+   * aviso de segurança aos presidentes). Trocável nos testes, como o vigia e o chat.
+   */
+  protected async telefonesLigados(soEmpresas?: string[]): Promise<any[]> {
+    const so = soEmpresas?.length ? sql`and g.tenant_id in (${sql.join(soEmpresas.map((t) => sql`${t}::uuid`), sql`, `)})` : sql``;
+    return linhas(
+      await this.db.execute(sql`
+        select g.id::text as "vinculoId", g.tenant_id::text as "tenantId", g.colaborador_id::text as "colaboradorId", c.nome,
+               coalesce(p.nivel, f.categoria::text) as nivel, u.nome as loja, g.telefone,
+               to_char(g.ligado_em at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as "ligadoEm",
+               to_char(g.ligado_em at time zone ${FUSO_SQL}, 'HH24:MI') as hora
+          from mister_vinculo g
+          join colaborador c on c.id = g.colaborador_id and c.tenant_id = g.tenant_id
+          left join funcao f on f.id = c.funcao_id
+          left join perfil_acesso p on p.id = c.perfil_acesso_id
+          left join unidade u on u.id = c.unidade_id and u.tenant_id = c.tenant_id
+         where g.ligado_em is not null and g.telefone is not null
+           and g.ligado_em > clock_timestamp() - make_interval(hours => ${TELEFONE_LIGADO_ABERTO_H}::int) ${so}
+         order by g.ligado_em desc
+         limit 500`),
+    );
+  }
+
+  /**
    * Os incidentes ABERTOS do vigia (mig 414), com o nome da loja, os pedidos esperando (para o servidor sem sinal) e se o
    * aviso já está aberto. Banco sem a tabela do vigia = nenhum incidente.
    */
@@ -791,6 +826,9 @@ export class MisterAvisosService implements OnModuleInit {
       if (ehAvisoDaDistribuicao(s.tipo)) return AVISOS_DA_DISTRIBUICAO[s.tipo];
       const k = `${s.tenantId}|${s.unidadeId ?? ''}`;
       if (!moduloLigado.has(k)) moduloLigado.set(k, await this.modulos.ativo(s.tenantId, s.unidadeId, MODULO).catch(() => false));
+      // Versão 6, M6a: o aviso de segurança (telefone ligado) tem a regra fixa — a empresa não desliga nem muda; só o
+      // módulo desligado o cala (sem o módulo, ninguém fala com o Mister).
+      if (ehAvisoDeSeguranca(s.tipo)) return moduloLigado.get(k) ? AVISOS_DE_SEGURANCA[s.tipo] : null;
       const r = regras.get(s.tenantId)?.get(s.tipo);
       if (!moduloLigado.get(k) || !r?.ligado) return null;
       // O boleto: só dentro da antecedência que a empresa escolheu (3 dias, 1 dia ou só no dia).
@@ -1067,7 +1105,9 @@ export class MisterAvisosService implements OnModuleInit {
         const doBoleto = a.tipo === 'boleto_vencendo' && l.nivel === 'presidente' ? botoesDoAvisoDoBoleto((a.dados as any)?.documentoId) : [];
         // O arquivo do ponto do mês (M3e parte 2): o presidente recebe "Enviar ao contador" e "Ver antes", e o PDF logo depois.
         const doPonto = a.tipo === 'ponto_do_mes' && l.nivel === 'presidente' ? botoesDoPontoDoMes(a.id, !!(a.dados as any)?.contadorId) : [];
-        const botoes = doBoleto.length ? doBoleto : doPonto;
+        // Versão 6, M6a: o telefone ligado — o presidente recebe "Não reconheço" (desliga na hora).
+        const doLigado = ehAvisoDeSeguranca(a.tipo) && l.nivel === 'presidente' ? botoesDoTelefoneLigado(a.dados) : [];
+        const botoes = doBoleto.length ? doBoleto : doPonto.length ? doPonto : doLigado;
         await this.numero.enviar(
           l.telefone,
           comProposta ? { texto: `${texto}\n\n${proposta.pergunta}`, botoes: proposta.botoes } : botoes.length ? { texto, botoes } : { texto },

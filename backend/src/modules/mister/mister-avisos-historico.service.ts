@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { hojeISO, somarDias } from '../../common/data';
 import { noPeriodo } from '../../common/fuso-sql';
-import { Destino, NOME_DO_DESTINO, TIPOS_DA_DISTRIBUICAO, TIPOS_DE_AVISO } from './mister-avisos.regras';
+import { Destino, GRUPO_DA_SEGURANCA, NOME_DO_DESTINO, TIPOS_DA_DISTRIBUICAO, TIPOS_DE_AVISO, TIPOS_DE_SEGURANCA } from './mister-avisos.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -84,7 +84,10 @@ export class MisterAvisosHistoricoService {
     if (!(PERIODOS_DO_HISTORICO as readonly number[]).includes(dias)) throw new BadRequestException('O período é hoje, 7 ou 30 dias.');
     const grupo = filtros.grupo ? String(filtros.grupo) : '';
     if (grupo && !GRUPOS.includes(grupo as any)) throw new BadRequestException('Grupo de aviso desconhecido.');
-    const tipos = grupo ? TIPOS_DE_AVISO.filter((t) => t.grupo === grupo).map((t) => t.tipo) : [];
+    // Versão 6, M6a: o aviso de segurança (telefone ligado) entra no grupo "O próprio Mister".
+    const tipos: string[] = grupo
+      ? [...TIPOS_DE_AVISO.filter((t) => t.grupo === grupo).map((t) => t.tipo as string), ...(grupo === GRUPO_DA_SEGURANCA ? TIPOS_DE_SEGURANCA : [])]
+      : [];
     const hoje = hojeISO();
     const t = termo(filtros.busca);
     // Os abertos aparecem sempre; os resolvidos, pela abertura no período (no horário da loja).
@@ -110,7 +113,10 @@ export class MisterAvisosHistoricoService {
          order by (a.situacao = 'aberto') desc, a.aberto_em desc
          limit ${AVISOS_NO_HISTORICO_MAX}`),
     );
-    const grupoDe = new Map(TIPOS_DE_AVISO.map((x) => [x.tipo as string, x.grupo as string]));
+    const grupoDe = new Map<string, string>([
+      ...TIPOS_DE_AVISO.map((x) => [x.tipo as string, x.grupo as string] as [string, string]),
+      ...TIPOS_DE_SEGURANCA.map((x) => [x, GRUPO_DA_SEGURANCA] as [string, string]),
+    ]);
     return {
       contagens: { todos: Number(c?.todos) || 0, aberto: Number(c?.aberto) || 0, resolvido: Number(c?.resolvido) || 0 },
       limite: AVISOS_NO_HISTORICO_MAX,

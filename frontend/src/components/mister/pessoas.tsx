@@ -29,8 +29,10 @@ type Pessoa = {
   ligadoEm: string | null;
   pausado: boolean;
   pode: Array<'avisos' | 'consulta' | 'autorizacao'>;
+  /** Versão 6, M6a: quando e por quê foi desligado (ausente num servidor ainda sem a 468). */
+  desligado?: { em: string; motivo: string } | null;
 };
-type Lista = { disponivel: boolean; numeroDoMister: string | null; souPresidente: boolean; total: number; pessoas: Pessoa[] };
+type Lista ={ disponivel: boolean; numeroDoMister: string | null; souPresidente: boolean; total: number; pessoas: Pessoa[] };
 type Meu = {
   disponivel: boolean;
   ligado: boolean;
@@ -110,7 +112,17 @@ export function PessoasDoMister() {
       render: (p) =>
         !p.ligado ? (
           <div>
-            <Selo tom="neutro">não ligado</Selo>
+            {/* Versão 6, M6a (mig 468): quem foi desligado mostra quando e por quê (60 dias sem conversa, o presidente, a DMS…). */}
+            {p.desligado ? (
+              <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+                <Selo tom="neutro">desligado</Selo>
+                <span>
+                  em {diaMes(p.desligado.em)} · {p.desligado.motivo}
+                </span>
+              </span>
+            ) : (
+              <Selo tom="neutro">não ligado</Selo>
+            )}
             {!p.voce && <p className={`mt-1 text-xs ${texto2}`}>Só a própria pessoa liga, entrando com o usuário dela.</p>}
           </div>
         ) : (

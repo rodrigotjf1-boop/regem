@@ -1574,11 +1574,11 @@ virar regra fixa.
 | Peça | O que faz | Onde encaixa | Migration |
 |---|---|---|---|
 | **A1.0 · Conferir antes (V20)** | Com o número do Mister e um celular de teste do dono: ligar o recurso, ver o hash chegar, reinstalar o WhatsApp do celular de teste e anotar o que acontece (hash novo? envio bloqueado até reconhecer? como reconhecer?). O código só começa depois. | — | não |
-| **A1 · Identidade do aparelho (S1)** | Guarda o hash do aparelho ao ligar o telefone. Mensagem com hash diferente → o Mister para de responder dados e manda "Este WhatsApp mudou de aparelho. Confirme com o seu PIN" (link `/m/<código>`, o da F4.2a). Com o PIN certo, grava o hash novo e segue; 5 PIN errados → o telefone é desligado e o presidente avisado. | `mister-entrada.service.ts` (lê `contacts[].identity_key_hash`), `mister_vinculo` | 1 (467) |
-| **A2 · Sessão com PIN (S2)** | Ajuste do presidente: valores em reais, dados de pessoas e ações de botão pedem o PIN pelo link a cada 12 h (6, 12 ou 24). Nasce desligado. | escopo + o link da F4.2a | na 467 |
+| **A1 · Identidade do aparelho (S1)** | Guarda o hash do aparelho ao ligar o telefone. Mensagem com hash diferente → o Mister para de responder dados e manda "Este WhatsApp mudou de aparelho. Confirme com o seu PIN" (link `/m/<código>`, o da F4.2a). Com o PIN certo, grava o hash novo e segue; 5 PIN errados → o telefone é desligado e o presidente avisado. | `mister-entrada.service.ts` (lê `contacts[].identity_key_hash`), `mister_vinculo` | 1 (469) |
+| **A2 · Sessão com PIN (S2)** | Ajuste do presidente: valores em reais, dados de pessoas e ações de botão pedem o PIN pelo link a cada 12 h (6, 12 ou 24). Nasce desligado. | escopo + o link da F4.2a | na 469 |
 | **A3 · O vínculo vence (S3)** | Sem mensagem da pessoa há 60 dias → desliga o WhatsApp do Mister dela, com aviso na tela e auditoria; ligar de novo é pelo código. | rotina diária; `mister_vinculo.ultima_entrada_em` (já existe) | não |
 | **A4 · Aviso de ligação (S4)** | Telefone novo ligado, religado ou com o aparelho trocado (A1) → aviso aos presidentes no Mister e na tela: quem, o final do número e quando. "Não reconheço" → desliga na hora. | tipo novo de aviso (sem trava no banco) | não |
-| **A5 · "Perdi o celular"** | Em Mister › Pessoas, para a própria pessoa (e o presidente para qualquer um): desliga o WhatsApp do Mister E encerra todas as sessões do Regem dela (o app logado no celular perdido), com auditoria e aviso aos presidentes. Se ninguém consegue entrar no Regem (não há "esqueci a senha"), o suporte da DMS desliga pelo Console › Mister, com auditoria. | Pessoas; Console › Mister; `JwtAuthGuard` e `RealtimeGateway` (V97) | 1 (468); toca o servidor da loja → `.zip` |
+| **A5 · "Perdi o celular"** | Em Mister › Pessoas, para a própria pessoa (e o presidente para qualquer um): desliga o WhatsApp do Mister E encerra todas as sessões do Regem dela (o app logado no celular perdido), com auditoria e aviso aos presidentes. Se ninguém consegue entrar no Regem (não há "esqueci a senha"), o suporte da DMS desliga pelo Console › Mister, com auditoria. | Pessoas; Console › Mister; `JwtAuthGuard` e `RealtimeGateway` (V97) | 1 (470); toca o servidor da loja → `.zip` |
 | **A6 · Trocar de celular** | Mesmo número (chip novo, celular consertado): A1 pede o PIN e segue. Número novo: o código gerado no Regem e mandado do celular novo (já existe; o antigo sai sozinho). PIN esquecido: troca no cadastro. | guia de uso + Pessoas | não |
 
 #### 4. Frente B — as regras de cada pessoa (dinâmicas)
@@ -1718,14 +1718,14 @@ todos (decisão V6-5). Pede o protótipo.
 | Fase | O que entra | Migration |
 |---|---|---|
 | **M6.0 · Protótipo** | `mockups/regem-mister-v6.html`: as conversas (aparelho trocado com o PIN, perdi o celular, regra criada, mudada e apagada, aviso agrupado, despacho, boleto uma hora antes, tarefa, o padrão da impressora, lista de compras por foto e por planilha, cupom "como deseja lançar", gráfico refeito, "como faço" com a tela e "quer que eu faça?"), as telas (Pessoas com "Perdi o celular", Regras, Console › desligar a pessoa) e as decisões. Medido em 16 larguras. | não |
-| **M6a · Segurança 1** | A3, A4, o desligar pelo console e a lista do "nunca pelo Mister" nas instruções e no código | não |
-| **M6b · Identidade** | A1.0, A1 e A6 no guia | 467 |
-| **M6c · Perdi o celular** | A5: as sessões por pessoa (a guarda e o tempo real); vai no `.zip` | 468 |
-| **M6d · Sessão com PIN** | A2, nascendo desligada | na 467 |
-| **M6e · Regras 1** | a linguagem da regra, o motor, as fontes v1, criar, mudar e apagar pela conversa e o encaixe nos avisos da empresa | 469 (`mister_regra`, `mister_regra_envio`) |
-| **M6f · Regras 2** | a tela Regras, os formatos da pessoa, os padrões e as sugestões | 470 (as decisões das sugestões) |
+| **M6a · Segurança 1** | A3, A4, o desligar pelo console e a lista do "nunca pelo Mister" nas instruções e no código | 468 (o motivo do desligamento — divergência: o plano previa sem migration) |
+| **M6b · Identidade** | A1.0, A1 e A6 no guia | 469 |
+| **M6c · Perdi o celular** | A5: as sessões por pessoa (a guarda e o tempo real); vai no `.zip` | 470 |
+| **M6d · Sessão com PIN** | A2, nascendo desligada | na 469 |
+| **M6e · Regras 1** | a linguagem da regra, o motor, as fontes v1, criar, mudar e apagar pela conversa e o encaixe nos avisos da empresa | 471 (`mister_regra`, `mister_regra_envio`) |
+| **M6f · Regras 2** | a tela Regras, os formatos da pessoa, os padrões e as sugestões | 472 (as decisões das sugestões) |
 | **M6g · Lista de compras** | foto, planilha, texto e mínimo → `createLista` | não |
-| **M6h · Cupom fiscal** | a leitura, a conferência da chave 65 e os três jeitos de lançar | 471 (o tipo `cupom` na trava de `mister_documento`: tem `drop constraint`, então o dono aplica pelo SQL Editor — LIC-171) |
+| **M6h · Cupom fiscal** | a leitura, a conferência da chave 65 e os três jeitos de lançar | 473 (o tipo `cupom` na trava de `mister_documento`: tem `drop constraint`, então o dono aplica pelo SQL Editor — LIC-171) |
 | **M6i · Gráficos** | as formas novas e o refazer | não |
 | **M6j · Ações em lotes** | a porta `propor_acao` e os lotes por módulo | conferir por lote |
 | **M6k · Guia completo** | os 31 assuntos com imagem | não |
@@ -1737,6 +1737,26 @@ A1.0 com o celular de teste) → M6c → M6h → M6g → M6i → M6f → M6d →
 **Em todas:** tabela nova `@cloud-only`, classificada em SO_NUVEM no `sync-daemon` (V21) e com a migration testada no
 local antes (V9); módulo novo importado no agente → `app-sobe.spec.ts` (V81; o `ComprasModule` na M6g); avaliação de
 regressão de novo quando as instruções mudam; a Meta pela doc oficial (V20); a M6c mexe na autenticação (V97).
+
+**M6a implementada (20/11/2026; mig 468 SÓ NUVEM — a 467 foi de outra sessão, o catálogo):**
+- **O desligamento tem um caminho só** (`mister-desligar.ts`): a pessoa, o presidente, o vencimento, o console e o "Não
+  reconheço" passam por ele. O motivo fica na pessoa (`mister_vinculo.desligado_*`, a parte "Pessoas" mostra "desligado em
+  02/11 · 60 dias sem conversa") e no telefone (`mister_conversa.desligado_*`, quem escreve depois ouve "foi desligado por
+  60 dias sem conversa" ou "foi desligado", e não a frase de quem nunca ligou). A memória sai junto, como antes.
+- **A3, o vencimento:** `MisterVinculoSegurancaService.rotina` às 04:20 (só nuvem), set-based, até 500 por volta; a conta
+  é pela última conversa (pergunta ou toque) ou, sem nenhuma, pela ligação. Auditoria `mister_whatsapp_vencido`.
+- **A4, o aviso de ligação:** tipo novo de SEGURANÇA `telefone_ligado` (regra fixa: só os presidentes, a empresa não
+  desliga, texto sempre fixo, fecha calado em 24 h; no Histórico em "O próprio Mister"), com o botão "Não reconheço"
+  (`vinc:nao:<colaborador>:<instante da ligação>`): só o presidente da empresa desliga, e só aquela ligação (quem religou
+  depois do aviso não cai pelo toque antigo).
+- **O console da DMS:** `GET distribuicao/mister/pessoas?empresa=` (só o final do número) e `POST
+  distribuicao/mister/pessoas/desligar` com o motivo (pelo menos 10 letras), na auditoria do console; na empresa fica
+  "desligado pelo suporte da DMS". Tela: "Pessoas de uma empresa" na aba Mister.
+- **A6 em parte:** ligar de outro número diz "O número antigo (final 4321) foi desligado do Mister." e marca o telefone
+  antigo como desligado pela própria pessoa.
+- **O "nunca pelo Mister"** entrou nas instruções (DE QUEM VOCÊ FALA) — a versão das instruções mudou: rodar a avaliação.
+- **Divergência do plano:** a M6a previa "sem migration"; o motivo do desligamento pediu a 468 (a 467 saiu antes, de outra sessão), e as migrations seguintes
+  andaram dois números (M6b 469, M6c 470, M6e 471, M6f 472, M6h 473).
 
 #### 8. Custos
 
