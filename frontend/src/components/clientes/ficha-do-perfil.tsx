@@ -171,11 +171,11 @@ export function FichaDoPerfil({ clienteId, nome, aoFechar }: { clienteId: string
           <Camada n={3} titulo="Quando pede" conf={p.confianca}>
             {p.pedidos_diretos >= 3 ? (
               <div className="overflow-x-auto">
-                <table className="w-full border-separate border-spacing-1 text-xs">
+                <table className="w-full table-fixed border-separate border-spacing-[2px] text-[11px] sm:border-spacing-1 sm:text-xs">
                   <caption className="sr-only">Pedidos por dia de operação e faixa do dia</caption>
                   <thead>
                     <tr>
-                      <th scope="col"><span className="sr-only">Faixa</span></th>
+                      <th scope="col" className="w-16 sm:w-24"><span className="sr-only">Faixa</span></th>
                       {DIAS.map((d) => (
                         <th key={d} scope="col" className="font-semibold text-muted-foreground">{d}</th>
                       ))}
@@ -184,7 +184,7 @@ export function FichaDoPerfil({ clienteId, nome, aoFechar }: { clienteId: string
                   <tbody>
                     {FAIXAS_DA_GRADE.map((fx) => (
                       <tr key={fx}>
-                        <th scope="row" className="whitespace-nowrap pr-1 text-left font-semibold text-muted-foreground">{FAIXA[fx].split(' (')[0]}</th>
+                        <th scope="row" className="w-16 pr-1 text-left font-semibold leading-tight text-muted-foreground sm:w-24">{FAIXA[fx].split(' (')[0]}</th>
                         {DIAS.map((_, i) => {
                           const v = Number(grade?.[String(i + 1)]?.[fx] ?? 0);
                           return (
