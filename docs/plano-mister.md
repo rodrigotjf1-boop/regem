@@ -1899,6 +1899,24 @@ regressão de novo quando as instruções mudam; a Meta pela doc oficial (V20); 
   - **os formatos de cada pessoa** ("sempre em lista", "sem centavos", "responda em áudio") seguem na memória de cada pessoa
     (M4b, `mister_memoria`), que o Mister já lê em toda conversa — não viraram outra tabela.
 
+**M6j, lote 1 implementado (20/11/2026; SEM migration) — a porta `propor_acao` e as ações do Delivery:**
+- **Uma porta só para as ações** (`mister-acoes.ts`, o catálogo e as conferências; `MisterAcoesService`, a ferramenta e a
+  execução): `pausar_canal` e `reabrir_canal` (cardápio digital, iFood, 99 — o motivo e os tempos da tela: 15/30/60 min ou
+  "até HH:MM" no cardápio e no iFood; 10/20/30 min ou o fim do dia na 99), `aceitar_pedido`, `pedido_pronto` e
+  `despachar_pedido` (o pedido pelo número do painel, nas lojas da pessoa, nas últimas 24 horas, na situação que serve).
+- **O tamanho do risco: botão de QUEM pediu** — o presidente ou o gerente com o Delivery no perfil (a mesma permissão da
+  rota da tela). A proposta é a das F4.x (`mister_proposta`, o procedimento = a ação, com quem pediu nos parâmetros); só o
+  "Autorizar" dessa pessoa executa (o de outra recebe "não está mais disponível"; o id montado à mão não passa). A sessão
+  com PIN (M6d) vale também aqui.
+- **Pelo MESMO serviço da tela**: `PausaDoCanalService.pausar`/`reabrir` (a auditoria `pausou_canal` com a pessoa),
+  `DeliveryService.aceitar`/`avancar`/`despachar`. A permissão é conferida DE NOVO na hora de executar (o perfil pode ter
+  mudado). O "feito" só sai com o efeito conferido no banco (a pausa que vale agora, a situação do pedido); senão, "não
+  deu" dizendo como ficou.
+- A auditoria das propostas passou a gravar o perfil de quem autorizou (era sempre "presidente").
+- **Fora deste lote** (os lotes seguintes, um PR cada): pausar produto; tarefas; preço por canal e horário da loja (de PIN);
+  pagar conta (de PIN); estoque; as consultas de escala e ponto; os números dos clientes.
+- As instruções mudaram (a frase "você só consulta" e a regra nova "Fazer pelo WhatsApp"): rodar a avaliação.
+
 **M6d implementada (20/11/2026; mig 476 SÓ NUVEM — `mister_conversa_config.pin_a_cada_h` e `mister_vinculo.pin_ate`;
 nasce desligada):**
 - **O ajuste** (Mister › Regras › "Segurança · só o presidente muda", pelo `PATCH /mister/conversa`): pedir o PIN a cada

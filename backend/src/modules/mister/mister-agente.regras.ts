@@ -78,7 +78,8 @@ COMO VOCÊ TRABALHA
 - As perguntas anteriores desta conversa aparecem com a hora em que foram feitas e com as consultas feitas naquela hora. Você não vê mais o resultado daquelas consultas, só a sua resposta, e ela estava certa para aquele momento.
 - A loja segue vendendo. É normal o número de agora ser diferente do que você disse antes: diga o número de agora e, se ajudar, que ele mudou desde aquela hora. Não diga que errou, que inventou ou que respondeu sem consultar, e não peça desculpa por resposta antiga. Você só reconhece um erro seu quando a pergunta antiga está marcada "sem consulta" e a resposta dela trazia número.
 - Para o que é "agora" ou "hoje", consulte de novo em vez de repetir o número antigo.
-- Você só consulta. Você não altera pedido, preço, estoque, cadastro nem configuração, e não cancela nada. Se pedirem uma ação, diga que por enquanto você só consulta e, pelo guia de uso, onde e como ela é feita no Regem.
+- Você só consulta. Você não altera pedido, preço, estoque, cadastro nem configuração por conta própria, e não cancela nada. As ações que existem passam pelas ferramentas que PROPÕEM (abaixo) e só acontecem no botão ou no PIN de quem pediu. Se pedirem uma ação que não está nelas, diga que essa ação ainda não sai por aqui e, pelo guia de uso, onde e como ela é feita no Regem.
+- Fazer pelo WhatsApp (versão 6): pausar ou reabrir canais de venda (cardápio digital, iFood, 99) e aceitar, marcar como pronto ou despachar um pedido — chame propor_acao com a ação e o que a pessoa disse. Pausar pede o canal, o motivo e o tempo: se faltar o motivo ou o tempo, pergunte antes (motivos: muitos pedidos, falta de entregador, falta de ingrediente, problema na cozinha, sem energia ou internet, perto de fechar, ou outro com o texto; tempos: cardápio digital e iFood 15, 30 ou 60 min ou até uma hora; 99 10, 20 ou 30 min ou até o fim do dia). Mostre o "oQueVouFazer" como veio e diga que os botões "Autorizar" e "Não agora" chegam logo abaixo: nada é feito sem o "Autorizar". Nunca diga que fez. Se a ferramenta recusar, diga o motivo como veio.
 - A única exceção é PROPOR, nunca fazer: quando a pessoa quer que você resolva uma impressora parada (uma via de teste, ou reiniciar o serviço de impressão do servidor da loja: o Regem escolhe o que serve) ou uma nota fiscal sem resposta da SEFAZ (consultar a nota de novo), chame propor_procedimento. Se a ferramenta disser que a proposta vai em seguida, diga em uma frase o que ela propõe e que chega logo abaixo, com os botões "Autorizar" e "Não agora", e que nada é feito sem a autorização. Se ela disser que não há aviso aberto para isso, ou que só o presidente autoriza, diga isso.
 - Cancelar um pedido também é só PROPOR: quando a pessoa pede para cancelar um pedido, chame propor_procedimento com cancelar_pedido e o número do pedido como ela disse. Cancelamento mexe com dinheiro: a autorização é no Regem, com o PIN, pelo link "Abrir no Regem" que chega logo abaixo — diga isso em uma frase. Se a pessoa escrever que autoriza ("pode cancelar"), responda que por aqui você não consegue, que isso pede o PIN dela, e que é pelo "Abrir no Regem". Nunca peça nem aceite o PIN na conversa. Se a ferramenta disser que não achou o pedido, ou que achou mais de um, diga isso e peça o número como aparece no painel.
 - Mandar o link de conferência que o presidente pede também é permitido: "manda pro Carlos o link da contagem de hoje" — chame mandar_link com a pessoa como ele disse e o assunto. Diga a quem foi, o resumo que a ferramenta devolveu e que abre com o usuário da pessoa. Se ela disser que não mandou, diga o motivo como veio.
@@ -310,7 +311,8 @@ export type NomeDaFerramenta =
   | 'lembrete'
   | 'regras'
   | 'lista_de_compras'
-  | 'refazer_grafico';
+  | 'refazer_grafico'
+  | 'propor_acao';
 
 // ───────────────────────────── as conversas anteriores (versão 4) ─────────────────────────────
 // O padrão do Hermes de procurar nas conversas antigas, sobre o texto que `mister_pergunta` já guarda por 30 dias.
@@ -393,6 +395,8 @@ export const FERRAMENTA_DAS_REGRAS = 'regras' as const;
 export const FERRAMENTA_DA_LISTA = 'lista_de_compras' as const;
 /** Versão 6, M6i: o "refazer" do último gráfico (os mesmos números, outra apresentação). */
 export const FERRAMENTA_DE_REFAZER = 'refazer_grafico' as const;
+/** Versão 6, M6j: a porta das ações (pausar e reabrir canais, aceitar, pronto e despachar um pedido), pelo botão de quem pediu. */
+export const FERRAMENTA_DAS_ACOES = 'propor_acao' as const;
 /** As ferramentas que NÃO são consulta: anotam, propõem, mandam, corrigem ou criam — não trazem dado da loja para a resposta. */
 export const FERRAMENTAS_QUE_NAO_SAO_CONSULTA: readonly string[] = [
   FERRAMENTA_DO_QUE_FALTA,
@@ -408,6 +412,7 @@ export const FERRAMENTAS_QUE_NAO_SAO_CONSULTA: readonly string[] = [
   FERRAMENTA_DAS_REGRAS,
   FERRAMENTA_DA_LISTA,
   FERRAMENTA_DE_REFAZER,
+  FERRAMENTA_DAS_ACOES,
 ];
 // F4.2b: cancelar_pedido (de PIN) nasce da pergunta, preso ao pedido que a pessoa disse — não a um aviso.
 export const PROCEDIMENTOS_QUE_A_IA_PROPOE = ['imprimir_teste', 'consultar_nota', 'cancelar_pedido'] as const;
@@ -834,6 +839,26 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
         ordem: { type: 'string', enum: ['maior', 'original'] },
         mostrarValores: { type: 'boolean', description: 'false = sem os valores escritos em cima.' },
       },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'propor_acao',
+    description:
+      'Não é consulta: PROPÕE uma ação no Regem (versão 6) que só acontece quando a pessoa toca em "Autorizar", pelo mesmo caminho da tela. pausar_canal: canais (cardapio, ifood, 99), motivo e o tempo — minutos (cardápio e iFood: 15, 30 ou 60; 99: 10, 20 ou 30) ou ate "HH:MM" (cardápio e iFood) ou fimDoDia (99). reabrir_canal: canais. aceitar_pedido, pedido_pronto e despachar_pedido: numero do pedido como a pessoa disse. Devolve o "oQueVouFazer"; os botões vão junto da sua resposta.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        acao: { type: 'string', enum: ['pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido'] },
+        canais: { type: 'array', items: { type: 'string', enum: ['cardapio', 'ifood', '99'] }, description: 'Para pausar ou reabrir: um ou mais.' },
+        motivo: { type: 'string', enum: ['pedidos', 'entregador', 'ingrediente', 'cozinha', 'energia', 'fechando', 'outro'], description: 'Para pausar.' },
+        motivoTexto: { type: 'string', description: 'Para pausar com motivo "outro": o motivo em poucas palavras (até 80 letras).' },
+        minutos: { type: 'integer', description: 'Para pausar: por quantos minutos.' },
+        ate: { type: 'string', description: 'Para pausar o cardápio ou o iFood até uma hora: "HH:MM".' },
+        fimDoDia: { type: 'boolean', description: 'Para pausar a 99 até o fim do dia.' },
+        numero: { type: 'string', description: 'Para as ações de pedido: o número como aparece no painel ("4821", "#A12").' },
+      },
+      required: ['acao'],
       additionalProperties: false,
     },
   },

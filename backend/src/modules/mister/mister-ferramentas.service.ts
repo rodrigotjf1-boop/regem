@@ -575,6 +575,8 @@ export class MisterFerramentasService {
         return this.lista ? this.lista(e, en) : Promise.resolve(recusa('A lista de compras ainda não está disponível neste servidor.'));
       case 'refazer_grafico':
         return Promise.resolve(this.refazerGrafico(e, en));
+      case 'propor_acao':
+        return this.acoes ? this.acoes(e, en, loja) : Promise.resolve(recusa('As ações do Mister ainda não estão disponíveis neste servidor.'));
     }
   }
 
@@ -619,6 +621,12 @@ export class MisterFerramentasService {
   private lista: ((e: EscopoDoMister, en: Record<string, unknown>) => Promise<ResultadoDaFerramenta>) | null = null;
   registrarLista(f: (e: EscopoDoMister, en: Record<string, unknown>) => Promise<ResultadoDaFerramenta>): void {
     this.lista = f;
+  }
+
+  // Versão 6, M6j: as ações (a porta `propor_acao`) moram no `MisterAcoesService` (o mesmo jeito das regras e da lista).
+  private acoes: ((e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }) => Promise<ResultadoDaFerramenta>) | null = null;
+  registrarAcoes(f: (e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }) => Promise<ResultadoDaFerramenta>): void {
+    this.acoes = f;
   }
 
   /**

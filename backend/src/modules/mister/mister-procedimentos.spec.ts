@@ -25,6 +25,7 @@ import {
   tentativasQueRestam,
   textoDoDesfecho,
 } from './mister-procedimentos';
+import { ACOES_DO_MISTER, ehAcaoDoMister } from './mister-acoes';
 
 // O catálogo das propostas do Mister (F4.1): puro. O banco, o toque e a execução pelos serviços das telas estão em
 // `mister-pg.teste-spec.ts` (rodado pela `ia/ia-empresa-pg.spec.ts`).
@@ -37,9 +38,17 @@ describe('o catálogo das propostas do Mister', () => {
       // M6d: a sessão com PIN também é de PIN, vale 15 minutos e nasce da conversa.
       if (p.id === 'cancelar_pedido' || p.id === 'abrir_sessao') expect(p).toMatchObject({ nivel: 'pin', prazoMin: 15, tipoDoAviso: null });
       else expect(p).toMatchObject({ nivel: 'botao', prazoMin: 10 });
-      if (p.nivel === 'botao') expect(p.tipoDoAviso).not.toBeNull();
+      // M6j: as ações da porta `propor_acao` são de botão e nascem da conversa (de quem pediu), não de um aviso.
+      if (p.nivel === 'botao') expect(p.tipoDoAviso === null).toBe(ehAcaoDoMister(p.id));
       expect(p.conferirMin).toBeGreaterThan(0);
     }
+  });
+
+  it('M6j: as ações entram no catálogo das propostas, com a frase do autorizado e a da recusa sem aviso por trás', () => {
+    for (const a of ACOES_DO_MISTER) expect(PROCEDIMENTOS[a]).toMatchObject({ id: a, nivel: 'botao', tipoDoAviso: null, prazoMin: 10 });
+    expect(TEXTOS_DA_PROPOSTA.autorizada('pausar_canal')).toBe('Autorizado. Fazendo agora…');
+    expect(TEXTOS_DA_PROPOSTA.autorizada('consultar_nota')).toBe('Autorizado. Consultando a SEFAZ…');
+    expect(TEXTOS_DA_PROPOSTA.recusadaAcao).toBe('Certo, não faço nada.');
   });
 
   it('o aviso da nota sem resposta pede a consulta da nota da chave; outra chave ou outro tipo, nada', () => {

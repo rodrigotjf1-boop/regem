@@ -8,8 +8,10 @@
 
 import type { TipoDeAviso } from './mister-avisos.regras';
 import { compararVersao } from '../edge/release-selecao';
+import { ACOES, type AcaoDoMister } from './mister-acoes';
 
-export type ProcedimentoDoMister = 'consultar_nota' | 'imprimir_teste' | 'cancelar_pedido' | 'reiniciar_impressao' | 'abrir_sessao';
+// Versão 6, M6j: as AÇÕES da porta `propor_acao` (`mister-acoes.ts`) também são propostas — de botão, de quem pediu.
+export type ProcedimentoDoMister = 'consultar_nota' | 'imprimir_teste' | 'cancelar_pedido' | 'reiniciar_impressao' | 'abrir_sessao' | AcaoDoMister;
 export type NivelDaAutorizacao = 'botao' | 'pin';
 export type SituacaoDaProposta = 'proposta' | 'autorizada' | 'recusada' | 'vencida' | 'executando' | 'feita' | 'nao_deu';
 
@@ -48,6 +50,11 @@ export const PROCEDIMENTOS: Record<ProcedimentoDoMister, Procedimento> = {
   // botão pedem o PIN pelo link; o PIN certo libera por 6, 12 ou 24 horas (`mister_vinculo.pin_ate`). Da própria pessoa
   // (presidente ou gerente), nasce da conversa, vale 15 minutos. O efeito é imediato (não há o que conferir depois).
   abrir_sessao: { id: 'abrir_sessao', tipoDoAviso: null, nivel: 'pin', prazoMin: 15, conferirMin: 1, nome: 'liberar os valores e os dados de pessoas no Mister' },
+  // Versão 6, M6j: as ações da porta `propor_acao` (lote 1, o Delivery) — de botão, de QUEM pediu (presidente ou gerente com
+  // o Delivery no perfil), nascem da conversa; o efeito se confere na hora, pelo estado que o serviço da tela deixou.
+  ...(Object.fromEntries(
+    Object.values(ACOES).map((a) => [a.id, { id: a.id, tipoDoAviso: null, nivel: a.nivel, prazoMin: a.prazoMin, conferirMin: 1, nome: a.nome }]),
+  ) as Record<AcaoDoMister, Procedimento>),
 };
 
 /** Versão 6, M6d: o texto da conversa que leva o link do PIN da sessão (a mensagem vai com o link, nunca com botões). */
@@ -127,12 +134,16 @@ export const botoesDaProposta = (propostaId: string) => [
 /** As respostas ao toque. */
 export const TEXTOS_DA_PROPOSTA = {
   autorizada: (p: ProcedimentoDoMister) =>
-    p === 'consultar_nota'
-      ? 'Autorizado. Consultando a SEFAZ…'
-      : p === 'reiniciar_impressao'
-        ? 'Autorizado. Pedi ao servidor da loja para reiniciar o serviço de impressão; confiro em alguns minutos.'
-        : 'Autorizado. Mandei a via de teste; confiro em alguns minutos.',
+    p in ACOES
+      ? 'Autorizado. Fazendo agora…'
+      : p === 'consultar_nota'
+        ? 'Autorizado. Consultando a SEFAZ…'
+        : p === 'reiniciar_impressao'
+          ? 'Autorizado. Pedi ao servidor da loja para reiniciar o serviço de impressão; confiro em alguns minutos.'
+          : 'Autorizado. Mandei a via de teste; confiro em alguns minutos.',
   recusada: 'Certo, não faço nada. O aviso continua aberto no Regem.',
+  /** M6j: a ação que a pessoa pediu e depois não autorizou (não há aviso aberto por trás). */
+  recusadaAcao: 'Certo, não faço nada.',
   vencida: (hora: string) => `Essa pergunta valeu até as ${hora}. Se o aviso continuar, a próxima vez traz outra.`,
   jaRespondida: 'Essa pergunta já foi respondida.',
   soPresidente: 'Por enquanto, só o presidente da empresa autoriza por aqui. O aviso continua aberto no Regem.',
