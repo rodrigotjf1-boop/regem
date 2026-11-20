@@ -49,7 +49,7 @@ descrever('a campanha pula quem recebeu oferta automática (3B)', () => {
         instancia_tipo text not null default 'loja', tipo text not null default 'avulsa', link text, imagem_ref text,
         dias_semana jsonb, hora_inicio time, hora_fim time, teto_semana integer, teto_mes integer, cupom_codigo text,
         agendada boolean not null default false, inicia_em timestamptz, termina_em timestamptz, template_nome text,
-        template_idioma text, template_vars jsonb, mensagem_b text, cliques integer not null default 0,
+        template_idioma text, template_vars jsonb, mensagem_b text, cliques integer not null default 0, clube_premio_id uuid,
         criado_em timestamptz not null default now(), atualizado_em timestamptz not null default now());
       create table ${SCHEMA}.campanha_envio (
         id uuid primary key default gen_random_uuid(), campanha_id uuid not null, tenant_id uuid not null, cliente_id uuid,
@@ -205,6 +205,52 @@ descrever('a campanha pula quem recebeu oferta automática (3B)', () => {
     const [empresaDoEnvio, numero, modelo, , , opcoes] = chamadas[0];
     expect([empresaDoEnvio, numero, modelo, opcoes.cupom, opcoes.phoneId]).toEqual([t, '5521987674001', 'promo_com_cupom', 'VOLTA10', 'numero-de-marketing']);
     expect(await q(`select status from campanha_envio where campanha_id = $1`, [id])).toEqual([{ status: 'enviado' }]);
+    await q(`update campanha set status = 'concluida' where tenant_id = $1`, [t]);
+  });
+
+  it('a campanha com prêmio surpresa (Clube, mig 477): o prêmio nasce antes da mensagem, o link vai sempre e o clique leva ao prêmio', async () => {
+    const t = await empresa();
+    const premio = randomUUID();
+    const [okId, falhaId] = [randomUUID(), randomUUID()];
+    await campanhaCom(okId, t, '21987675001', { clube_premio_id: premio });
+    const premios: any[] = [];
+    const surpresa = {
+      darPelaCampanha: async (e: any) => {
+        if (e.telefone === '21987675002') throw new Error('o prêmio da campanha não existe mais');
+        premios.push(e);
+        return 'https://app.exemplo/p/codigo-do-premio-123';
+      },
+      linkDaCampanha: async (envioId: string) => (premios.some((p) => p.envioId === envioId) ? 'https://app.exemplo/p/codigo-do-premio-123' : null),
+    };
+    const comClube = new CampanhaService(db, (svc as any).whatsapp, (svc as any).numeros, {} as any, {} as any, surpresa as any);
+    saidas.length = 0;
+    await comClube.worker();
+    const [envio] = await q(`select id, status from campanha_envio where campanha_id = $1`, [okId]);
+    expect(envio.status).toBe('enviado');
+    expect(premios).toEqual([{ tenantId: t, envioId: envio.id, clienteId: null, telefone: '21987675001', premioId: premio }]);
+    // a campanha sem link próprio leva o link rastreado mesmo assim (é por ele que o destinatário revela o prêmio)
+    expect(saidas).toHaveLength(1);
+    expect(saidas[0].texto).toContain(`/publico/campanha/r/${envio.id}`);
+    // o clique leva ao link pessoal do prêmio (e conta o clique como sempre)
+    expect(await comClube.registrarClique(envio.id)).toBe('https://app.exemplo/p/codigo-do-premio-123');
+    expect((await q(`select clicou from campanha_envio where id = $1`, [envio.id]))[0].clicou).toBe(true);
+    // sem o prêmio, nada sai: o envio fica em falha com o motivo
+    await q(`update campanha set status = 'concluida' where id = $1`, [okId]);
+    await campanhaCom(falhaId, t, '21987675002', { clube_premio_id: premio });
+    saidas.length = 0;
+    await comClube.worker();
+    expect(saidas).toEqual([]);
+    expect(await q(`select status, erro from campanha_envio where campanha_id = $1`, [falhaId])).toEqual([
+      { status: 'falha', erro: 'o prêmio da campanha não existe mais' },
+    ]);
+    // sem o Clube (o módulo não subiu), a campanha com prêmio não sai
+    const semClube = new CampanhaService(db, (svc as any).whatsapp, (svc as any).numeros, {} as any);
+    await q(`update campanha_envio set status = 'pendente', erro = null where campanha_id = $1`, [falhaId]);
+    await semClube.worker();
+    expect((await q(`select erro from campanha_envio where campanha_id = $1`, [falhaId]))[0].erro).toBe('o Clube não está disponível para criar o prêmio');
+    await expect(semClube.criar(t, null, null, { segmento: 'todos', mensagem: 'Com prêmio', clubePremioId: premio })).rejects.toThrow(
+      'O Clube não está disponível agora',
+    );
     await q(`update campanha set status = 'concluida' where tenant_id = $1`, [t]);
   });
 

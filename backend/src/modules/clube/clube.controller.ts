@@ -9,7 +9,7 @@ import { AuthUser } from '../../auth/auth-user';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
 import { CABECALHO_USUARIO_DA_LOJA, EmpresaDaLojaGuard } from '../whatsapp/whatsapp-da-loja.controller';
-import { lerConfigDoClube, lerGatilhoClassificacao, lerGatilhoEntregue, lerGatilhoReclamacao, lerPremio } from './clube.regras';
+import { lerConfigDoClube, lerGatilhoCampanha, lerGatilhoClassificacao, lerGatilhoEntregue, lerGatilhoReclamacao, lerPremio } from './clube.regras';
 import { ClubeService } from './clube.service';
 import { ClubeDesculpasService } from './clube-desculpas.service';
 import { ClubeSurpresaService } from './clube-surpresa.service';
@@ -94,6 +94,15 @@ export class ClubeController {
   async salvarGatilhoClassificacao(@CurrentUser() user: AuthUser, @Body() dto: any) {
     lerGatilhoClassificacao(dto);
     await this.service.salvarGatilhoClassificacao(user, dto);
+    return this.service.painel(user.tenantId);
+  }
+
+  /** O gatilho "Em disparo (campanha)" (A1d, mig 477): liga a opção do prêmio surpresa na criação da campanha. */
+  @Put('gatilhos/campanha')
+  @Roles('presidente')
+  async salvarGatilhoCampanha(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    lerGatilhoCampanha(dto);
+    await this.service.salvarGatilhoCampanha(user, dto);
     return this.service.painel(user.tenantId);
   }
 }

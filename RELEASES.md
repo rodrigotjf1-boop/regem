@@ -19,6 +19,12 @@
   `mister_padrao`; nasce desligada, `MISTER_PADROES=1`).** Só na nuvem → vai no `.zip` sem efeito na loja; a tabela =
   SO_NUVEM no `sync-daemon.mjs` (o daemon mudou → o `.exe` da próxima release leva).
 
+- **Clube — a campanha com prêmio surpresa (20/11; mig 477 SÓ NUVEM, aplicada — `campanha.clube_premio_id`; fase A1d do
+  `docs/plano-clube-e-banner.md`).** Marketing › Clube › Prêmio surpresa: o gatilho "Em disparo (campanha)"; ligado, a
+  criação da campanha oferece "🎁 Prêmio surpresa". No disparo, cada destinatário ganha o prêmio ANTES de a mensagem sair
+  (sem o prêmio, nada sai) e o link rastreado leva ao link pessoal `/p/…`. Só na nuvem (campanhas não saem da loja): no
+  `.zip` só por acompanhar o código. Nasce desligado.
+
 - **Mister versão 6, M6d — a sessão com PIN (20/11; mig 476 SÓ NUVEM — duas colunas em tabelas só da nuvem; nasce
   desligada).** Só na nuvem: vai no `.zip` sem efeito na loja.
 

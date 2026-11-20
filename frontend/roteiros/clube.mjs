@@ -27,13 +27,13 @@ const premio = (id, nome, tipo, descricao, emUso, extra = {}) => ({
 });
 const R_PADRAO = { ativo: false, premios: [], limite: 'mes1', quem: 'gerencia' };
 const C_PADRAO = { ativo: false, segmentos: [], premioId: null, periodoDias: 60 };
-const PAINEL = (minimo = 30, forma = 'raspadinha', entregue = { ativo: false, premioId: null, desde: null }, reclamacao = R_PADRAO, classificacao = C_PADRAO) => ({
+const PAINEL = (minimo = 30, forma = 'raspadinha', entregue = { ativo: false, premioId: null, desde: null }, reclamacao = R_PADRAO, classificacao = C_PADRAO, campanhaG = { ativo: false }) => ({
   config: {
     surpresaAtivo: true, surpresaForma: forma, albumAtivo: false, albumSelos: 4, albumValidadeMeses: 12, albumPremios: [P2],
     metaAtivo: false, metaNiveis: [{ pedidos: 3, premios: [] }, { pedidos: 6, premios: [] }], metaValidadeDias: 15, minimo,
   },
   prontas: { surpresa: true, album: false, meta: false },
-  gatilhos: { entregue, reclamacao, classificacao },
+  gatilhos: { entregue, reclamacao, classificacao, campanha: campanhaG },
   classificacao: { perfilLigado: true, contagens: { campeoes: 112, leais: 240, atencao: 96, em_risco: 151, inativos: 388, atrasado: 74 } },
   premios: [
     premio(P1, '15% off até R$ 20', 'percentual', '15% de desconto, até R$ 20 · em pedido a partir de R$ 30 · vale 7 dias', [], { valor: 15, teto: 20, minimo: 30 }),
@@ -85,7 +85,8 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
     let entregue = { ativo: false, premioId: null, desde: null };
     let reclamacao = R_PADRAO;
     let classificacao = C_PADRAO;
-    const painel = () => PAINEL(minimo, forma, entregue, reclamacao, classificacao);
+    let campanhaG = { ativo: false };
+    const painel = () => PAINEL(minimo, forma, entregue, reclamacao, classificacao, campanhaG);
     const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
     await ctx.addInitScript((jwt) => localStorage.setItem('regen_token', jwt), o.token ?? PRESIDENTE);
     const page = await ctx.newPage();
@@ -108,6 +109,12 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
         enviados.push(corpo);
         if (typeof corpo.minimo === 'number') minimo = corpo.minimo;
         if (corpo.surpresaForma) forma = corpo.surpresaForma;
+        return responder(route, painel());
+      }
+      if (p === '/marketing/clube/gatilhos/campanha' && metodo === 'PUT') {
+        const corpo = JSON.parse(route.request().postData() || '{}');
+        enviados.push({ campanha: corpo });
+        campanhaG = { ...campanhaG, ...corpo };
         return responder(route, painel());
       }
       if (p === '/marketing/clube/gatilhos/classificacao' && metodo === 'PUT') {
@@ -192,8 +199,8 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
     achados = await medir(page);
     ok(achados.length === 0, `${w}px · Prêmio surpresa: sem barra para o lado nem texto esmagado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
     ok(
-      (t.match(/Chega numa próxima entrega/g) ?? []).length === 1 && t.includes('não recomendado') && t.includes('sorteio · precisa de autorização'),
-      `${w}px · a campanha na próxima entrega; avaliação não recomendada; aleatório travado`,
+      (t.match(/Chega numa próxima entrega/g) ?? []).length === 0 && t.includes('não recomendado') && t.includes('sorteio · precisa de autorização'),
+      `${w}px · os quatro gatilhos com chave; avaliação não recomendada; aleatório travado`,
     );
     await page.getByRole('button', { name: /Roleta de prêmios/ }).click();
     await page.waitForSelector('button[aria-pressed="true"]:has-text("Roleta de prêmios")', { timeout: 5000 });
@@ -263,6 +270,13 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
     );
     t = await texto(page);
     ok(t.includes('Segmentos: Inativos') && (await page.getByRole('switch', { name: 'Pela classificação do marketing' }).getAttribute('aria-checked')) === 'true', `${w}px · classificação ligada, com o segmento na linha`);
+    // A campanha (A1d): a chave liga direto e manda só o liga/desliga.
+    await page.getByRole('switch', { name: 'Em disparo (campanha)' }).click();
+    await page.waitForFunction(() => document.querySelector('[role="switch"][aria-label="Em disparo (campanha)"]')?.getAttribute('aria-checked') === 'true', null, { timeout: 5000 });
+    const ultimoCa = enviados[enviados.length - 1];
+    ok(JSON.stringify(ultimoCa) === JSON.stringify({ campanha: { ativo: true } }), `${w}px · ligar a campanha manda só o liga/desliga (${umaLinha(JSON.stringify(ultimoCa))})`);
+    achados = await medir(page);
+    ok(achados.length === 0, `${w}px · os quatro gatilhos ligados: sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
     if (w === 390 || w === 1440) await page.screenshot({ path: arquivoFoto(`clube-surpresa-${w}.png`), fullPage: true });
 
     // ── Prêmios ──

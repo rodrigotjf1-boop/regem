@@ -43,7 +43,7 @@ export type PainelDoClube = {
   /** As ferramentas que já existem para ligar — a que não existe não mostra o liga/desliga. */
   prontas: Record<Ferramenta, boolean>;
   /** Os gatilhos do prêmio surpresa (fase A1: só o "Pedido entregue"). */
-  gatilhos: { entregue: GatilhoEntregue; reclamacao: GatilhoReclamacao; classificacao: GatilhoClassificacao };
+  gatilhos: { entregue: GatilhoEntregue; reclamacao: GatilhoReclamacao; classificacao: GatilhoClassificacao; campanha: { ativo: boolean } };
   /** Os segmentos vêm do perfil do cliente: ligado e quantos há em cada um (desligado, sem contagem). */
   classificacao: { perfilLigado: boolean; contagens: Record<string, number> };
   premios: PremioDoClube[];
