@@ -290,6 +290,9 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
         siga: 'Mostre o "oQueVouFazer" como veio e diga que os botões Confirmar e Mudar vão junto. Nada liga sem o Confirmar.',
       });
     }
+    case 'refazer_grafico':
+      // Versão 6, M6i: na avaliação não há gráfico guardado — a resposta é a de quem não tem o que refazer.
+      return recusa('Não tenho um gráfico desta conversa nos últimos 30 minutos: peça o gráfico de novo (mostrar_grafico).');
     case 'lista_de_compras': {
       // Versão 6, M6g: a mesma leitura das linhas da de verdade; na avaliação nenhuma lista é guardada nem pedida.
       if (en.acao === 'do_minimo') return ok({ vazia: true, mensagem: 'Nada está abaixo do mínimo no estoque agora: não há o que pôr na lista.' });
