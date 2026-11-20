@@ -1,5 +1,5 @@
 -- @cloud-only
--- 468 · TEMPO MÉDIO PARA RESOLVER UM CASO (fase C1 do `docs/plano-clube-e-banner.md`; protótipo
+-- 469 · TEMPO MÉDIO PARA RESOLVER UM CASO (fase C1 do `docs/plano-clube-e-banner.md`; protótipo
 -- `mockups/regem-clube-banner.html`, parte "Tempo da fila", aprovado pelo dono em 20/11/2026 com as recomendadas — D10:
 -- "definido pela loja, com o medido ao lado"). Só NUVEM, como a 342 (robo_config) e a 442: o robô e a fila moram na nuvem;
 -- a loja não tem esta tabela.
