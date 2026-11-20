@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Campanhas e Clientes: o "hoje" e o "No mês" no fuso de Brasília (20/11; SEM migration; ERR-542).** O teto do dia,
+  da semana e do mês da campanha e o "No mês" de Delivery › Clientes começavam às 21h da véspera na nuvem (sessão UTC);
+  agora pelo `inicioDoPeriodo()`. No servidor da loja (banco no fuso da máquina) já dava certo — no `.zip` só por
+  acompanhar o código.
+
 - **Campanhas: o cliente que só pediu pela 99 volta a receber (19/11; SEM migration; decisão do dono).** Só o iFood fica
   de fora (`CANAIS_FORA_DAS_CAMPANHAS`); sem perfil para a 99; as automáticas não mudam. Campanha roda só na nuvem — no
   `.zip` só por acompanhar o código.

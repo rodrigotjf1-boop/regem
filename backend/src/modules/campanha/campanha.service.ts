@@ -12,6 +12,7 @@ import { conferirSegmentoDoPerfil, sqlAceiteClicado, sqlSegmentoDoPerfil } from 
 import { sqlNoGrupoDeControle } from '../../common/grupo-de-controle';
 import { semanaDe, sqlAniversarioEntre } from '../../common/aniversario';
 import { hojeISO, somarDias } from '../../common/data';
+import { inicioDoPeriodo } from '../../common/fuso-sql';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { WhatsappNumeroService } from '../whatsapp/whatsapp-numero.service';
 import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
@@ -65,7 +66,7 @@ export class CampanhaService {
       return sqlAniversarioEntre(inicio, somarDias(somarDias(inicio, 31).slice(0, 8) + '01', -1));
     }
     const m: Record<string, any> = {
-      mes: sql`and c.ultimo_pedido_em >= date_trunc('month', now() at time zone 'America/Sao_Paulo')`,
+      mes: sql`and c.ultimo_pedido_em >= ${inicioDoPeriodo('month')}`,
       '30d': sql`and c.ultimo_pedido_em >= now() - interval '30 days'`,
       sem_30: sql`and c.ultimo_pedido_em < now() - interval '30 days'`,
       sem_60: sql`and c.ultimo_pedido_em < now() - interval '60 days'`,
@@ -614,7 +615,7 @@ export class CampanhaService {
     const r: any = await this.db.execute(sql`
       select count(*)::int as n from campanha_envio
       where campanha_id = ${campId} and status = 'enviado'
-        and enviado_em >= date_trunc(${trunc}, now() at time zone 'America/Sao_Paulo')`);
+        and enviado_em >= ${inicioDoPeriodo(trunc)}`);
     return (r.rows ?? r)[0]?.n ?? 0;
   }
 
