@@ -32,6 +32,7 @@ import { MisterLinkPublicoService } from './mister-link-publico.service';
 import { MisterPontoDoMesService } from './mister-ponto-do-mes.service';
 import { MisterVigiaService } from './mister-vigia.service';
 import { MisterRegrasService } from './mister-regras.service';
+import { MisterRegrasController } from './mister-regras.controller';
 import { MisterListaService } from './mister-lista.service';
 import { ComprasModule } from '../compras/compras.module';
 import { MisterPropostasService } from './mister-propostas.service';
@@ -125,7 +126,8 @@ import { MisterModule } from './mister.module';
   // M3a parte 3: a parte "Documentos" do Mister na loja (a lista e o "Desfazer o lançamento").
   // M3c.4: a página do relatório por insumo ("Ver no Regem") e o PDF dela.
   // M3c (mig 443): as rotas públicas da página do link para encaminhar (`/m/r/<código>`).
-  controllers: [MisterLinkController, MisterDocumentosController, MisterRelatorioController, MisterLinkPublicoController],
+  // Versão 6, M6f: a parte "Regras" do Mister na loja (a lista, pausar, retomar e apagar).
+  controllers: [MisterLinkController, MisterDocumentosController, MisterRelatorioController, MisterLinkPublicoController, MisterRegrasController],
   exports: [MisterAgenteService, MisterAvisosService],
 })
 export class MisterAgenteModule {}

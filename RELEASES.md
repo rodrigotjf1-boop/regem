@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister versão 6, M6f parte 1 — a tela Mister › Regras (20/11; SEM migration).** Só na nuvem (as rotas do Mister são
+  `@CloudOnly`): vai no `.zip` sem efeito na loja.
+
 - **Mister versão 6, M6i — o gráfico refeito com os mesmos números e as formas tabela e linha (20/11; SEM migration).** Só
   na nuvem (o Mister): vai no `.zip` sem efeito na loja.
 

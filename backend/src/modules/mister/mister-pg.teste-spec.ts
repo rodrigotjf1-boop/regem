@@ -8813,6 +8813,43 @@ export function testesDoMisterComPostgres(): void {
           [A, loja, `R6E${numero}`, numero, min],
         );
 
+      it('a tela (M6f): o presidente vê as de todos, o gerente só as dele; pausar, retomar e apagar com a mesma régua e a auditoria da tela', async () => {
+        const nova = async (nome: string, titulo: string) =>
+          (
+            await q(
+              `insert into mister_regra (tenant_id, colaborador_id, situacao, titulo, resumo, fonte, regra, substitui)
+               values ($1, $2, 'ativa', $3, 'o que faz', 'pedidos', '{}'::jsonb, '{pedido_parado}') returning id::text as id`,
+              [A, pessoa[nome], titulo],
+            )
+          )[0].id as string;
+        const daAna = await nova('ana', 'Da Ana');
+        const doCarlos = await nova('carlos', 'Do Carlos');
+        const ana = await regras.daTela(await escopo('ana'));
+        expect(ana.souPresidente).toBe(true);
+        expect(ana.regras.map((r) => [r.titulo, r.voce, r.fonte, r.deixaDeReceber, r.situacao])).toEqual([
+          ['Da Ana', true, 'Pedidos dos canais', ['pedido_parado'], 'ativa'],
+          ['Do Carlos', false, 'Pedidos dos canais', ['pedido_parado'], 'ativa'],
+        ]);
+        expect(JSON.stringify(ana)).not.toContain('"regra"');
+        const carlos = await regras.daTela(await escopo('carlos'));
+        expect(carlos.souPresidente).toBe(false);
+        expect(carlos.regras.map((r) => r.titulo)).toEqual(['Do Carlos']);
+        // o gerente não mexe na da presidente; a presidente mexe na dele
+        await expect(regras.mudarPelaTela(await escopo('carlos'), daAna, 'pausar')).rejects.toThrow('Não achei');
+        auditados.length = 0;
+        expect(await regras.mudarPelaTela(await escopo('ana'), doCarlos, 'pausar')).toEqual({ titulo: 'Do Carlos', situacao: 'pausada' });
+        expect(await regras.mudarPelaTela(await escopo('carlos'), doCarlos, 'retomar')).toEqual({ titulo: 'Do Carlos', situacao: 'ativa' });
+        expect(await regras.mudarPelaTela(await escopo('carlos'), doCarlos, 'apagar')).toEqual({ titulo: 'Do Carlos', situacao: 'apagada' });
+        expect((await regras.daTela(await escopo('carlos'))).regras).toEqual([]);
+        await expect(regras.mudarPelaTela(await escopo('carlos'), doCarlos, 'retomar')).rejects.toThrow('Não achei');
+        await expect(regras.mudarPelaTela(await escopo('ana'), 'nao-e-uuid', 'pausar')).rejects.toThrow('Não achei');
+        expect(auditados.map((a) => [a.acao, a.origem, a.atorId])).toEqual([
+          ['mister_regra_pausada', 'web', pessoa.ana],
+          ['mister_regra_retomada', 'web', pessoa.carlos],
+          ['mister_regra_apagada', 'web', pessoa.carlos],
+        ]);
+      });
+
       it('propõe pela conversa, liga no Confirmar, avisa os 3 pedidos numa mensagem só e tira o aviso um a um de quem tem a regra', async () => {
         const tel = telefone();
         await ligar('ana', tel);

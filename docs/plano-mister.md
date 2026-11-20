@@ -1856,6 +1856,20 @@ regressão de novo quando as instruções mudam; a Meta pela doc oficial (V20); 
 - Divergência do plano: a rosca e os cartões de números ficaram de fora (a participação e o número grande do cabeçalho já
   cobrem o mesmo); a IA escolhe a apresentação pela ferramenta, sem um "plano" livre.
 
+**M6f, parte 1 implementada (20/11/2026; SEM migration) — a tela Mister › Regras:**
+- A parte "Regras" no modelo de lista do Estoque (`components/mister/regras.tsx`): a contagem, as situações (ativas,
+  pausadas), a busca, a pessoa (só o presidente), cada regra com o que faz, o que olha, de quem é e o último aviso; "Ver"
+  em gaveta, "Pausar"/"Retomar" e "Apagar" (com a confirmação que diz que os avisos substituídos voltam). O gerente passa a
+  ter as partes "Pessoas" e "Regras".
+- As rotas `GET /mister/regras`, `POST /mister/regras/:id/pausar|retomar` e `DELETE /mister/regras/:id`
+  (`MisterRegrasController`, só nuvem, módulo ligado): a régua da conversa (V6-5 — o presidente vê e mexe nas de todos, o
+  gerente só nas dele), a auditoria com a origem "web"; a regra crua (o JSON) nunca vai à tela.
+- **Divergência do protótipo:** a gaveta não edita os campos (fonte, filtro, condição) em texto livre — a regra é montada
+  pelo Mister com os dados que lê e conferida pelo código; a gaveta mostra o que ela faz e diz para pedir a mudança na
+  conversa ("muda para 25 minutos"), que propõe a nova e só troca com o "Confirmar".
+- Fica para a parte 2: os formatos de cada pessoa, os padrões da noite (a impressora desligada antes do fechamento, os
+  avisos que ninguém responde, os atrasos na mesma faixa) e as sugestões com "Não, deixa assim" (1 migration).
+
 #### 8. Custos
 
 | Parte | Como começa | Se ligar ou usar |
