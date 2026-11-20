@@ -2464,6 +2464,9 @@ const SO_NUVEM = new Set([
   'cliente_evento_sensibilidade',
   // Os cliques do cardápio (mig 466, @cloud-only; F4): anônimos por sessão, apagados aos 90 dias — o cardápio mora na nuvem.
   'cardapio_interacao',
+  // O Pulso (mig 470, @cloud-only; F7 parte 4): a cópia dos eventos da base nacional, o estado da leitura e o clima por
+  // município — dado da distribuição, sem empresa; quem lê o Pulso é a nuvem.
+  'pulso_evento', 'pulso_estado', 'clima_municipio_dia',
   // iFood pelo Orzuni (mig 370, @cloud-only): a ligação de cada loja com o Orzuni (segredo cifrado com a chave da nuvem) e
   // a fila do envio — só a nuvem fala com o Orzuni; a edição feita na loja chega lá pelo sincronismo e enfileira lá.
   'orzuni_ligacao', 'orzuni_envio',

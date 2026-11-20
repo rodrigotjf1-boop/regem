@@ -68,6 +68,7 @@ import { CampanhaModule } from './modules/campanha/campanha.module';
 import { RelacionamentoModule } from './modules/relacionamento/relacionamento.module';
 import { VagasModule } from './modules/vagas/vagas.module';
 import { PerfilClienteModule } from './modules/perfil-cliente/perfil-cliente.module';
+import { PulsoModule } from './modules/pulso/pulso.module';
 import { EntregadorModule } from './modules/entregador/entregador.module';
 import { AtendimentoModule } from './modules/atendimento/atendimento.module';
 import { PonteChatModule } from './modules/ponte-chat/ponte-chat.module';
@@ -136,6 +137,7 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
       VagasModule,
       // O perfil do cliente (mig 459): o cálculo e a ficha — tabelas só da nuvem; nasce desligado (módulo ativável).
       PerfilClienteModule,
+      PulsoModule,
       // O vigia do servidor da loja (mig 414): a nuvem recebe o sinal de todos os servidores; nasce desligado.
       VigiaModule,
       // O agente de IA do Mister (mig 418): responde às perguntas que chegam pelo número da distribuição. Só na nuvem.
