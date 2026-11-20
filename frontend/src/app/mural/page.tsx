@@ -53,7 +53,10 @@ export default function MuralPage() {
   const [setorId, setSetorId] = useState('');
   const [comentario, setComentario] = useState('');
 
-  const cat = getCategoria();
+  // V35 (ERR-513, ERR-547): a categoria vem do token do navegador — o servidor desenha sem token. Em estado, lida depois
+  // do primeiro desenho (`undefined` = ainda não leu; a carga espera, para não buscar duas vezes).
+  const [cat, setCat] = useState<string | null | undefined>(undefined);
+  useEffect(() => setCat(getCategoria()), []);
   const presidente = cat === 'presidente';
   const gestor =
     cat === 'presidente' || cat === 'gerente' || cat === 'supervisao';
@@ -81,8 +84,9 @@ export default function MuralPage() {
       router.replace('/entrar');
       return;
     }
+    if (cat === undefined) return;
     carregar();
-  }, [carregar, router]);
+  }, [carregar, router, cat]);
 
   async function publicar() {
     if (titulo.trim().length < 2) return;

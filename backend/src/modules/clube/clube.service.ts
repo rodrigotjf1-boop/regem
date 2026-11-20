@@ -242,22 +242,39 @@ export class ClubeService {
     const mudou = (Object.keys(parcial) as Array<keyof ConfigDoClube>).filter((k) => JSON.stringify(antes[k]) !== JSON.stringify(depois[k]));
     if (!mudou.length) return antes;
     const citados = premiosCitados(depois);
+    const tipos = new Map<string, string>();
     if (citados.length) {
-      const [{ n }] = this.rows(
+      const achados = this.rows(
         await this.db.execute(sql`
-          select count(*)::int as n from clube_premio
+          select id, tipo from clube_premio
            where tenant_id = ${user.tenantId}::uuid and excluido_em is null
              and id in (${sql.join(citados.map((id) => sql`${id}::uuid`), sql`, `)})`),
       );
-      if (Number(n) !== citados.length) throw new BadRequestException('Um dos prêmios escolhidos não existe mais. Recarregue a página e escolha de novo.');
+      if (achados.length !== citados.length) throw new BadRequestException('Um dos prêmios escolhidos não existe mais. Recarregue a página e escolha de novo.');
+      for (const p of achados) tipos.set(String(p.id), String(p.tipo));
+      // O cliente ESCOLHE o prêmio do álbum e da meta e ele vira cupom de desconto: o produto grátis chega depois (A2/A3).
+      // Só a lista que MUDOU agora (a que já estava gravada não trava o salvar de outro ajuste, como o pedido mínimo).
+      const novos = [
+        ...(mudou.includes('albumPremios') ? depois.albumPremios : []),
+        ...(mudou.includes('metaNiveis') ? depois.metaNiveis.flatMap((n) => n.premios) : []),
+      ];
+      if (novos.some((id) => tipos.get(id) === 'produto'))
+        throw new BadRequestException('O produto grátis no álbum e na meta chega numa próxima entrega: escolha descontos ou o frete grátis.');
     }
-    if (depois.albumAtivo && !depois.albumPremios.length) throw new BadRequestException('Escolha ao menos um prêmio para quem completa o álbum.');
+    // Ligado, o álbum precisa de um prêmio que o cliente possa escolher (o produto grátis não entra na escolha ainda).
+    if (depois.albumAtivo && !depois.albumPremios.some((id) => tipos.has(id) && tipos.get(id) !== 'produto'))
+      throw new BadRequestException('Escolha ao menos um prêmio para quem completa o álbum (desconto ou frete grátis).');
     if (depois.metaAtivo && depois.metaNiveis.some((n) => !n.premios.length))
       throw new BadRequestException('Escolha ao menos um prêmio em cada nível da meta.');
     const valor = (k: keyof ConfigDoClube) => (JSONB.has(k) ? sql`${JSON.stringify(depois[k])}::jsonb` : sql`${depois[k] as any}`);
-    const colunas = sql.join(mudou.map((k) => sql.raw(COLUNA[k])), sql`, `);
-    const valores = sql.join(mudou.map(valor), sql`, `);
-    const atualizar = sql.join(mudou.map((k) => sql.raw(`${COLUNA[k]} = excluded.${COLUNA[k]}`)), sql`, `);
+    // Ligar o álbum (ou a meta) grava DESDE QUANDO (mig 479): só os pedidos depois contam; desligar zera.
+    const extras: Array<{ coluna: string; valor: any }> = [];
+    if (mudou.includes('albumAtivo')) extras.push({ coluna: 'album_desde', valor: depois.albumAtivo ? sql`clock_timestamp()` : sql`null` });
+    if (mudou.includes('metaAtivo')) extras.push({ coluna: 'meta_desde', valor: depois.metaAtivo ? sql`clock_timestamp()` : sql`null` });
+    const nomes = [...mudou.map((k) => COLUNA[k]), ...extras.map((e) => e.coluna)];
+    const colunas = sql.join(nomes.map((c) => sql.raw(c)), sql`, `);
+    const valores = sql.join([...mudou.map(valor), ...extras.map((e) => e.valor)], sql`, `);
+    const atualizar = sql.join(nomes.map((c) => sql.raw(`${c} = excluded.${c}`)), sql`, `);
     await this.db.execute(sql`
       insert into clube_config (tenant_id, ${colunas}, atualizado_por)
       values (${user.tenantId}::uuid, ${valores}, ${user.colaboradorId}::uuid)

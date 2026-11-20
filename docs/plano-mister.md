@@ -1917,6 +1917,16 @@ regressão de novo quando as instruções mudam; a Meta pela doc oficial (V20); 
   pagar conta (de PIN); estoque; as consultas de escala e ponto; os números dos clientes.
 - As instruções mudaram (a frase "você só consulta" e a regra nova "Fazer pelo WhatsApp"): rodar a avaliação.
 
+**M6k, lote 1 (20/11/2026; SEM migration) — o guia "como faço" em mais 8 itens do menu, com imagem:**
+- Eram 31 itens do menu sem assunto no guia (a conta sai do `shell.tsx` × os caminhos do `mister-guia-de-uso.ts`). O lote 1
+  cobre 8: Dashboard (`painel-do-dia`), Tarefas › Tarefas (`criar-tarefa`), Mural & clima (`mural`), Delivery › Clientes
+  (`clientes`), Delivery › Marketing (`campanha-whatsapp`), Financeiro › Contas a pagar (`conta-a-pagar`), Configurações ›
+  Loja (`dados-da-loja`) e Configurações › Equipamentos (`equipamentos`). Faltam 23, nos lotes seguintes.
+- Cada um com os passos e os nomes de botão copiados da tela (a spec do guia confere), e a imagem numerada feita pelo
+  roteiro `roteiros/como-faco.mjs` com dados de exemplo (`GERAR_COMO_FACO=1`).
+- Junto: o roteiro achou o React #418 (hidratação) no Mural e nas Contas a pagar — a categoria/permissão lida do token no
+  primeiro desenho (ERR-547, reincidência do ERR-513); as duas leem agora num `useEffect`.
+
 **M6d implementada (20/11/2026; mig 476 SÓ NUVEM — `mister_conversa_config.pin_a_cada_h` e `mister_vinculo.pin_ate`;
 nasce desligada):**
 - **O ajuste** (Mister › Regras › "Segurança · só o presidente muda", pelo `PATCH /mister/conversa`): pedir o PIN a cada

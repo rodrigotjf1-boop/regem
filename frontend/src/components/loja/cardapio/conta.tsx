@@ -9,6 +9,7 @@ import { brl, Ic } from './partes';
 import { AniversarioNoPerfil } from './aniversario-do-cliente';
 import { PrivacidadeNaConta } from './privacidade';
 import { EscolhasDaEntrada, type Promocoes } from './escolhas-da-entrada';
+import { AlbumDaConta, type AlbumDoCliente } from './album-da-conta';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -664,6 +665,8 @@ function AbaBeneficios({ c, perfil }: { c: Cardapio; perfil: any }) {
   const [presentes, setPresentes] = useState<any[]>([]);
   // Os prêmios do Clube ainda fechados (mig 474): o link da página do pedido, onde o cliente raspa ou gira.
   const [paraRevelar, setParaRevelar] = useState<any[]>([]);
+  // O álbum de selos do Clube (A2, mig 479): os selos do cliente e, completo, os prêmios para escolher.
+  const [album, setAlbum] = useState<AlbumDoCliente>({ ativo: false });
 
   useEffect(() => {
     api.cardapioPromos(token).then(setData).catch(() => setData({ cupons: [], fidelidadeAtiva: false }));
@@ -685,10 +688,12 @@ function AbaBeneficios({ c, perfil }: { c: Cardapio; perfil: any }) {
         .then((r: any) => {
           setPresentes(r?.presentes ?? []);
           setParaRevelar(Array.isArray(r?.paraRevelar) ? r.paraRevelar : []);
+          setAlbum(r?.album?.ativo ? r.album : { ativo: false });
         })
         .catch(() => {
           setPresentes([]);
           setParaRevelar([]);
+          setAlbum({ ativo: false });
         });
   }, [token, perfil]);
   useEffect(() => {
@@ -726,7 +731,15 @@ function AbaBeneficios({ c, perfil }: { c: Cardapio; perfil: any }) {
   const ofertas: any[] = c.produtosPromo;
   const rotuloCupom = (x: any) => (x.tipo === 'fretegratis' ? 'Frete grátis' : x.tipo === 'percentual' ? `${x.valor}% off` : `${brl(x.valor)} off`);
   const nada =
-    data && !data.fidelidadeAtiva && cupons.length === 0 && ofertas.length === 0 && !temCashback && presentes.length === 0 && paraRevelar.length === 0;
+    data &&
+    !data.fidelidadeAtiva &&
+    cupons.length === 0 &&
+    ofertas.length === 0 &&
+    !temCashback &&
+    presentes.length === 0 &&
+    paraRevelar.length === 0 &&
+    !album.ativo;
+  const ct = getClienteToken(token);
 
   return (
     <>
@@ -750,6 +763,7 @@ function AbaBeneficios({ c, perfil }: { c: Cardapio; perfil: any }) {
           ))}
         </div>
       )}
+      {album.ativo && ct && <AlbumDaConta album={album} token={token} clienteToken={ct} aoEscolher={carregarStatus} avisar={c.avisar} />}
       {presentes.length > 0 && (
         <div className="c-sec">
           {presentes.map((p: any) => (
