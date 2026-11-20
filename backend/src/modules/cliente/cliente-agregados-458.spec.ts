@@ -9,9 +9,9 @@ import { sqlRecebeMarketing } from '../../common/marketing-quem-recebe';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // F1-0 do plano do perfil do cliente (docs/plano-perfil-cliente.md), contra o Postgres real:
-//  • ERR-535 — a campanha alcançava quem a loja só conheceu pelo iFood ou pela 99 (a 99 manda o telefone real e o pedido
-//    entra no `cliente`). `sqlRecebeMarketing` passa a exigir cliente DIRETO: base importada, OU pedido fora do iFood/99,
-//    OU nenhum pedido por eles.
+//  • ERR-535 — a campanha alcançava quem a loja só conheceu pelo iFood. `sqlRecebeMarketing` exige: base importada, OU
+//    pedido fora do iFood, OU nenhum pedido por ele. A 99 voltou às campanhas por decisão do dono (19/11): "só usar o nome
+//    e o tel para campanhas", sem perfil.
 //  • mig 458 (ERR-536) — os totais do cliente acompanham o cancelamento (e a volta), a troca de cliente do pedido e a exclusão; e,
 //    uma vez e só na nuvem, os totais guardados que diferem dos pedidos são recalculados.
 // Tudo numa transação DESFEITA no fim (o critério da parte única é do banco inteiro e não pode mexer nas specs paralelas).
@@ -96,7 +96,7 @@ descrever('totais do cliente e quem recebe marketing (Postgres)', () => {
     }
   });
 
-  it('marketing só para cliente direto: quem pediu só pelo iFood/99 fica de fora; importado, misto e sem pedido ficam', async () => {
+  it('campanha: quem pediu só pelo iFood fica de fora; só pela 99 entra (decisão do dono, 19/11); importado, misto e sem pedido ficam', async () => {
     const c = await pool.connect();
     try {
       await c.query('begin');
@@ -117,8 +117,7 @@ descrever('totais do cliente e quem recebe marketing (Postgres)', () => {
       const db = drizzle(c as any);
       const r: any = await db.execute(sql`select c.nome from cliente c where c.tenant_id = ${t}::uuid ${sqlRecebeMarketing()} order by c.nome`);
       const nomes = (r.rows ?? r).map((x: any) => x.nome);
-      expect(nomes).toEqual(['Cadastrado sem pedido', 'Direto', 'Importado que pediu na 99', 'Misto'].sort());
-      expect(nomes).not.toContain('Só 99');
+      expect(nomes).toEqual(['Cadastrado sem pedido', 'Direto', 'Importado que pediu na 99', 'Misto', 'Só 99'].sort());
       expect(nomes).not.toContain('Só iFood');
       void semPedido;
     } finally {

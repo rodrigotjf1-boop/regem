@@ -8,22 +8,30 @@ import { chaveTelefone, sqlChaveTelefone } from './telefone-chave';
 // cadastro). Um lugar só, para as duas não divergirem.
 
 /** Os canais em que o telefone e o cliente são da PLATAFORMA (decisão do dono de 09/09/2026, confirmada pelo contrato do
- * iFood, cl. 3.3.1 e 16.3.2, e pela finalidade da LGPD — plano do perfil do cliente, §3). */
+ * iFood, cl. 3.3.1 e 16.3.2, e pela finalidade da LGPD — plano do perfil do cliente, §3). O PERFIL do cliente não usa
+ * nenhum dos dois (D1). */
 export const CANAIS_DA_PLATAFORMA = ['ifood', '99food'] as const;
 
 /**
- * Cliente DIRETO da loja (alias `c`): tem a base importada da loja, OU já pediu fora do iFood e da 99, OU nunca pediu por
- * eles. Fica de fora só quem pediu SOMENTE pelo iFood/99 — a 99 manda o telefone real e o pedido entra no `cliente` pelo
- * telefone, então sem esta regra a campanha alcançava quem a loja conheceu só pela plataforma (ERR-535, medido em
- * 19/11/2026: 572 clientes). As automáticas já exigiam um pedido na loja (`relacionamento.service` `pediuNaLoja`).
+ * Os canais cujo cliente fica FORA DAS CAMPANHAS quando só pediu por eles: só o iFood (contrato, cl. 3.3.1 e 16.3.2).
+ * A 99 VOLTA às campanhas — decisão do dono de 19/11/2026: "considerar cliente da 99 e não fazer perfil do mesmo, só usar
+ * o nome e o tel para campanhas" (a 99 manda o telefone real e não tem contrato público). Desfaz, só para a 99, a F1-0
+ * (ERR-535). As automáticas seguem exigindo um pedido fora do iFood e da 99 (`relacionamento.service` `pediuNaLoja`).
+ */
+export const CANAIS_FORA_DAS_CAMPANHAS = ['ifood'] as const;
+
+/**
+ * Cliente que a campanha alcança pelo canal de origem (alias `c`): tem a base importada da loja, OU já pediu fora do
+ * iFood, OU nunca pediu pelo iFood. Fica de fora só quem pediu SOMENTE pelo iFood.
  */
 export function sqlClienteDireto(): SQL {
+  const fora = sql.join(CANAIS_FORA_DAS_CAMPANHAS.map((c) => sql`${c}`), sql`, `);
   // A importação vai pelo id (e não `c.importacao`): as automáticas montam `c` como uma lista com só algumas colunas.
   return sql`and (exists (select 1 from cliente ci where ci.id = c.id and ci.importacao is not null)
       or exists (select 1 from pedido_externo pd where pd.tenant_id = c.tenant_id and pd.cliente_id = c.id
-                   and coalesce(pd.canal, '') not in ('ifood', '99food'))
+                   and coalesce(pd.canal, '') not in (${fora}))
       or not exists (select 1 from pedido_externo pp where pp.tenant_id = c.tenant_id and pp.cliente_id = c.id
-                   and pp.canal in ('ifood', '99food')))`;
+                   and pp.canal in (${fora})))`;
 }
 
 /**
