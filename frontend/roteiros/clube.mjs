@@ -1,10 +1,14 @@
-// Roteiro de tela do CLUBE DE RECOMPRA — a base (fase A0 do `docs/plano-clube-e-banner.md`; protótipo
-// `mockups/regem-clube-banner.html`, parte "Marketing › Clube", aprovado pelo dono em 20/11/2026; mig 471). A API simulada.
+// Roteiro de tela do CLUBE DE RECOMPRA — a base e o prêmio surpresa (fases A0 e A1 do `docs/plano-clube-e-banner.md`;
+// protótipo `mockups/regem-clube-banner.html`, aprovado pelo dono em 20/11/2026; migs 471 e 474). A API simulada.
 // Confere, em cada largura (V45: nenhuma barra de rolagem para o lado — a página e qualquer peça —, com cada gaveta e
 // diálogo ABERTO e medido na frente):
-//  • Delivery › Marketing › aba Clube › Visão geral: as três ferramentas dizem "Chega numa próxima entrega" (nenhuma chave
-//    para ligar o que ainda não existe), as regras que valem para as três, mudar o pedido mínimo mostra a barra de
-//    alterações e "Salvar alterações" manda SÓ o que mudou; "Ver as regras" abre o diálogo com as regras do clube;
+//  • Delivery › Marketing › aba Clube › Visão geral: o prêmio surpresa com a chave; o álbum e a meta dizem "Chega numa
+//    próxima entrega" (nenhuma chave para ligar o que ainda não existe), as regras que valem para as três, mudar o pedido
+//    mínimo mostra a barra de alterações e "Salvar alterações" manda SÓ o que mudou; "Ver as regras" abre o diálogo;
+//  • Prêmio surpresa: a forma (raspadinha × roleta) manda só a forma; a chave do "Pedido entregue" sem prêmio abre a gaveta,
+//    que não oferece o produto grátis; "Ligar com este prêmio" manda o gatilho; os gatilhos das próximas fases e os travados;
+//  • a página do pedido (`/r/…`): a raspadinha ("Revelar sem raspar" e raspando com o mouse) e a roleta (gira e para no
+//    prêmio; sem animação com "reduzir movimento"), o cupom revelado e as regras do clube;
 //  • Prêmios: a lista com a contagem, a situação "Em uso" que filtra, "＋ Novo prêmio" abre a gaveta, "Produto grátis" lê
 //    os produtos, o diálogo de excluir (o prêmio em uso diz onde está);
 //  • o gerente vê e não muda (sem "＋ Novo prêmio", sem campo do mínimo); a nuvem não respondeu → "Tentar de novo".
@@ -19,12 +23,13 @@ const P3 = '33333333-3333-4333-8333-333333333333';
 const premio = (id, nome, tipo, descricao, emUso, extra = {}) => ({
   id, nome, tipo, valor: 0, teto: null, produtoId: null, produtoNome: null, minimo: 0, validadeDias: 7, descricao, emUso, ...extra,
 });
-const PAINEL = (minimo = 30) => ({
+const PAINEL = (minimo = 30, forma = 'raspadinha', entregue = { ativo: false, premioId: null, desde: null }) => ({
   config: {
-    surpresaAtivo: false, surpresaForma: 'raspadinha', albumAtivo: false, albumSelos: 4, albumValidadeMeses: 12, albumPremios: [P2],
+    surpresaAtivo: true, surpresaForma: forma, albumAtivo: false, albumSelos: 4, albumValidadeMeses: 12, albumPremios: [P2],
     metaAtivo: false, metaNiveis: [{ pedidos: 3, premios: [] }, { pedidos: 6, premios: [] }], metaValidadeDias: 15, minimo,
   },
-  prontas: { surpresa: false, album: false, meta: false },
+  prontas: { surpresa: true, album: false, meta: false },
+  gatilhos: { entregue },
   premios: [
     premio(P1, '15% off até R$ 20', 'percentual', '15% de desconto, até R$ 20 · em pedido a partir de R$ 30 · vale 7 dias', [], { valor: 15, teto: 20, minimo: 30 }),
     premio(P2, 'Batata média grátis com um nome bem comprido para ver a quebra', 'produto', 'Batata média grátis · vale 7 dias', ['Álbum de selos'], { produtoId: 'pr-1', produtoNome: 'Batata média' }),
@@ -65,6 +70,9 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
     const enviados = [];
     let falhas = o.falhas ?? 0;
     let minimo = 30;
+    let forma = 'raspadinha';
+    let entregue = { ativo: false, premioId: null, desde: null };
+    const painel = () => PAINEL(minimo, forma, entregue);
     const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
     await ctx.addInitScript((jwt) => localStorage.setItem('regen_token', jwt), o.token ?? PRESIDENTE);
     const page = await ctx.newPage();
@@ -80,18 +88,26 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
           falhas--;
           return responder(route, { statusCode: 502, message: 'A nuvem não respondeu agora.' }, 502);
         }
-        return responder(route, PAINEL(minimo));
+        return responder(route, painel());
       }
       if (p === '/marketing/clube/config' && metodo === 'PUT') {
         const corpo = JSON.parse(route.request().postData() || '{}');
         enviados.push(corpo);
         if (typeof corpo.minimo === 'number') minimo = corpo.minimo;
-        return responder(route, PAINEL(minimo));
+        if (corpo.surpresaForma) forma = corpo.surpresaForma;
+        return responder(route, painel());
+      }
+      if (p === '/marketing/clube/gatilhos/entregue' && metodo === 'PUT') {
+        const corpo = JSON.parse(route.request().postData() || '{}');
+        enviados.push({ gatilho: corpo });
+        entregue = { ...entregue, ...corpo };
+        entregue.desde = entregue.ativo ? '2026-11-20T18:30:00.000Z' : null;
+        return responder(route, painel());
       }
       if (p === '/marketing/clube/produtos') return responder(route, [{ id: 'pr-1', nome: 'Batata média' }, { id: 'pr-2', nome: 'Refrigerante lata' }]);
       if (p.startsWith('/marketing/clube/premios')) {
         enviados.push({ metodo, p });
-        return responder(route, PAINEL(minimo));
+        return responder(route, painel());
       }
       // O resto da página de Marketing (as campanhas, os números, os modelos): o mínimo para ela desenhar.
       if (p === '/campanhas' || p === '/campanhas/optout' || p === '/whatsapp/cloud/templates/locais') return responder(route, []);
@@ -120,7 +136,11 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
     let t = await texto(page);
     let achados = await medir(page);
     ok(achados.length === 0, `${w}px · Clube › Visão geral: sem barra para o lado nem texto esmagado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
-    ok((t.match(/Chega numa próxima entrega/g) ?? []).length === 3 && !(await page.locator('main [role="switch"]').count()), `${w}px · as três ferramentas sem chave: "Chega numa próxima entrega"`);
+    ok(
+      (t.match(/Chega numa próxima entrega/g) ?? []).length === 2 && (await page.locator('main [role="switch"]').count()) === 1 &&
+        (await page.getByRole('switch', { name: 'Prêmio surpresa' }).count()) === 1,
+      `${w}px · o prêmio surpresa com a chave; o álbum e a meta: "Chega numa próxima entrega"`,
+    );
     ok(t.includes('Cardápio e WhatsApp') && t.includes('Um benefício por pedido'), `${w}px · as regras que valem para as três`);
     // Mudar o mínimo: a barra de alterações e o salvar manda só o mínimo.
     await page.getByLabel('Pedido mínimo para contar').fill('40');
@@ -138,6 +158,41 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
     await page.keyboard.press('Escape');
     await fechou(page);
     if (w === 390 || w === 1440) await page.screenshot({ path: arquivoFoto(`clube-visao-${w}.png`), fullPage: true });
+
+    // ── Prêmio surpresa ──
+    enviados.length = 0;
+    await page.getByRole('button', { name: 'Prêmio surpresa', exact: true }).click();
+    await page.waitForSelector('text=Quando o cliente ganha', { timeout: 10000 });
+    t = await texto(page);
+    achados = await medir(page);
+    ok(achados.length === 0, `${w}px · Prêmio surpresa: sem barra para o lado nem texto esmagado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+    ok(
+      (t.match(/Chega numa próxima entrega/g) ?? []).length === 3 && t.includes('não recomendado') && t.includes('sorteio · precisa de autorização'),
+      `${w}px · reclamação, classificação e campanha nas próximas entregas; avaliação não recomendada; aleatório travado`,
+    );
+    await page.getByRole('button', { name: /Roleta de prêmios/ }).click();
+    await page.waitForSelector('button[aria-pressed="true"]:has-text("Roleta de prêmios")', { timeout: 5000 });
+    ok(JSON.stringify(enviados[0]) === JSON.stringify({ surpresaForma: 'roleta' }), `${w}px · a forma manda só a forma (${umaLinha(JSON.stringify(enviados[0]))})`);
+    // A chave sem prêmio abre a gaveta (sem o produto grátis na lista).
+    await page.getByRole('switch', { name: 'Pedido entregue' }).click();
+    await dialogo(page);
+    achados = await medir(page);
+    const opcoes = await page.locator('[role="dialog"] option').allTextContents();
+    ok(achados.length === 0, `${w}px · gaveta do Pedido entregue aberta: sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+    ok(opcoes.includes('15% off até R$ 20') && opcoes.includes('Frete grátis') && !opcoes.some((x) => x.includes('Batata')), `${w}px · a gaveta não oferece o produto grátis (${umaLinha(opcoes.join(', '))})`);
+    if (w === 390 || w === 1440) await page.locator('[role="dialog"]').screenshot({ path: arquivoFoto(`clube-gatilho-${w}.png`) });
+    await page.getByRole('button', { name: 'Ligar com este prêmio' }).click();
+    ok(await page.getByText('Escolha o prêmio de quem tem o pedido entregue.').isVisible(), `${w}px · ligar sem escolher o prêmio avisa`);
+    await page.locator('[role="dialog"] select').selectOption(P1);
+    await page.getByRole('button', { name: 'Ligar com este prêmio' }).click();
+    await fechou(page);
+    await page.waitForSelector('text=Valem os pedidos concluídos desde', { timeout: 5000 });
+    ok(JSON.stringify(enviados[1]) === JSON.stringify({ gatilho: { ativo: true, premioId: P1 } }), `${w}px · ligar manda o gatilho com o prêmio (${umaLinha(JSON.stringify(enviados[1]))})`);
+    t = await texto(page);
+    ok(t.includes('Prêmio: 15% off até R$ 20') && (await page.getByRole('switch', { name: 'Pedido entregue' }).getAttribute('aria-checked')) === 'true', `${w}px · ligado, com o prêmio na linha`);
+    achados = await medir(page);
+    ok(achados.length === 0, `${w}px · Prêmio surpresa ligado: sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+    if (w === 390 || w === 1440) await page.screenshot({ path: arquivoFoto(`clube-surpresa-${w}.png`), fullPage: true });
 
     // ── Prêmios ──
     await page.getByRole('button', { name: /^Prêmios/ }).click();
@@ -182,6 +237,13 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
       const campos = await page.locator('[data-tela="clube"] input:not([type="search"])').count();
       const tg = await texto(page, '[data-tela="clube"]');
       ok(campos === 0 && tg.includes('R$ 30,00'), `${w}px · gerente: o mínimo só para ver (campos: ${campos}; ${umaLinha(tg.match(/Pedido mínimo para contar.{0,120}/)?.[0] ?? tg.slice(0, 120))})`);
+      await page.getByRole('button', { name: 'Prêmio surpresa', exact: true }).click();
+      await page.waitForSelector('text=Quando o cliente ganha', { timeout: 10000 });
+      ok(
+        !(await page.locator('[data-tela="clube"] [role="switch"]').count()) && !(await page.getByRole('button', { name: 'Mudar' }).count()) &&
+          (await page.getByRole('button', { name: /Roleta de prêmios/ }).isDisabled()),
+        `${w}px · gerente: o prêmio surpresa só para ver (sem chave, sem "Mudar", a forma travada)`,
+      );
       await page.getByRole('button', { name: /^Prêmios/ }).click();
       await page.waitForSelector('text=3 prêmios', { timeout: 10000 });
       ok(!(await page.getByRole('button', { name: '＋ Novo prêmio' }).count()) && !(await page.getByRole('button', { name: /^Excluir/ }).count()), `${w}px · gerente: sem criar nem excluir prêmio`);
@@ -197,6 +259,99 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
       await page.getByRole('button', { name: 'Tentar de novo' }).click();
       await page.waitForSelector('text=Pedido mínimo para contar', { timeout: 10000 });
       ok(true, `${w}px · "Tentar de novo" leu o Clube`);
+      await ctx.close();
+    }
+  }
+
+  // ───────────────────────── a página do pedido (/r/…): a raspadinha e a roleta ─────────────────────────
+  const FATIAS = ['Frete grátis', 'R$ 5 off', '15% off até R$ 20', 'Batata grátis'];
+  const REVELADO = { nome: '15% off até R$ 20', descricao: '15% de desconto, até R$ 20 · em pedido a partir de R$ 30 · vale 7 dias', codigo: 'CLUBE7K2QX', validoAte: '2026-11-27', usado: false, vencido: false };
+  const REGRAS = ['Prêmio surpresa: todo pedido entregue pelo cardápio online ou pelo WhatsApp a partir de R$ 30 dá uma raspadinha com o prêmio "15% off até R$ 20".', 'Não há sorteio: todo mundo que cumpre a regra recebe, e não há limite de prêmios.'];
+  async function abrirPagina(w, h, forma, o = {}) {
+    const revelacoes = [];
+    const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900, reducedMotion: o.semMovimento ? 'reduce' : 'no-preference' });
+    const page = await ctx.newPage();
+    const erros = [];
+    page.on('pageerror', (e) => erros.push(String(e?.message ?? e)));
+    await page.route('**/api/v1/**', async (route) => {
+      const req = route.request();
+      const p = new URL(req.url()).pathname.replace(/^.*\/api\/v1/, '');
+      if (p === '/rastreio/tk9') return responder(route, { numero: 1482, status: 'concluido', statusLabel: 'entregue', entregador: null, destino: null, parada: null, etaMin: null, codigoEntrega: null, rota: null });
+      const fatias = forma === 'roleta' ? FATIAS : [];
+      if (p === '/rastreio/tk9/premio/revelar' && req.method() === 'POST') {
+        revelacoes.push(1);
+        return responder(route, { tem: true, forma, revelado: true, fatias, premio: REVELADO, fatia: forma === 'roleta' ? 2 : null, regras: REGRAS });
+      }
+      if (p === '/rastreio/tk9/premio') return responder(route, { tem: true, forma, revelado: false, fatias, premio: null, fatia: null, regras: REGRAS });
+      if (p === '/rastreio/tk9/avaliacao') return responder(route, { statusCode: 404, message: 'x' }, 404);
+      return responder(route, {});
+    });
+    await page.goto(base + '/r/tk9');
+    return { ctx, page, erros, revelacoes };
+  }
+
+  for (const w of larguras) {
+    {
+      // A raspadinha: "Revelar sem raspar" (o caminho do leitor de tela e do teclado).
+      const { ctx, page, erros, revelacoes } = await abrirPagina(w, 900, 'raspadinha');
+      await page.waitForSelector('text=Você ganhou uma raspadinha', { timeout: 30000 });
+      let achados = await medir(page);
+      const t0 = await texto(page, 'body');
+      ok(achados.length === 0 && t0.includes('Seu prêmio já está garantido') && !t0.includes('CLUBE7K2QX'), `${w}px · raspadinha: o prêmio garantido, o código ainda escondido, sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+      await page.getByRole('button', { name: 'Revelar sem raspar' }).click();
+      await page.waitForSelector('text=CLUBE7K2QX', { timeout: 10000 });
+      achados = await medir(page);
+      const t1 = await texto(page, 'body');
+      ok(revelacoes.length === 1 && t1.includes('Vale até 27/11') && t1.includes('Só você usa'), `${w}px · revelado: o cupom, a validade e "Só você usa" (revelações: ${revelacoes.length})`);
+      ok(achados.length === 0, `${w}px · cupom revelado: sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+      await page.getByText('Regras do clube').click();
+      ok(await page.getByText('Não há sorteio', { exact: false }).isVisible(), `${w}px · as regras do clube abrem na página`);
+      if (w === 390 || w === 1440) await page.screenshot({ path: arquivoFoto(`clube-raspadinha-${w}.png`), fullPage: true });
+      ok(erros.length === 0, `${w}px · raspadinha: nenhum erro de script${erros.length ? ` (${umaLinha(erros.join(' | '))})` : ''}`);
+      await ctx.close();
+    }
+    {
+      // A roleta: gira e para na fatia do prêmio.
+      const { ctx, page, erros, revelacoes } = await abrirPagina(w, 900, 'roleta');
+      await page.waitForSelector('text=Gire para descobrir o seu prêmio', { timeout: 30000 });
+      let achados = await medir(page);
+      const rotulo = await page.getByRole('img', { name: /Roleta com 4 prêmios/ }).getAttribute('aria-label');
+      ok(achados.length === 0 && !!rotulo, `${w}px · roleta: a roda com os prêmios da loja (${umaLinha(rotulo ?? '?')}), sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+      await page.getByRole('button', { name: 'Girar' }).click();
+      await page.waitForSelector('text=CLUBE7K2QX', { timeout: 15000 });
+      const giro = await page.evaluate(() => getComputedStyle(document.querySelector('svg[role="img"]')).transform);
+      achados = await medir(page);
+      ok(revelacoes.length === 1 && giro !== 'none', `${w}px · girou e parou no prêmio (revelações: ${revelacoes.length})`);
+      ok(achados.length === 0, `${w}px · roleta revelada: sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+      if (w === 390 || w === 1440) await page.screenshot({ path: arquivoFoto(`clube-roleta-${w}.png`), fullPage: true });
+      ok(erros.length === 0, `${w}px · roleta: nenhum erro de script${erros.length ? ` (${umaLinha(erros.join(' | '))})` : ''}`);
+      await ctx.close();
+    }
+  }
+
+  for (const w of [390, 1366]) {
+    {
+      // Raspando com o mouse: metade raspada revela.
+      const { ctx, page, revelacoes } = await abrirPagina(w, 900, 'raspadinha');
+      await page.waitForSelector('text=Você ganhou uma raspadinha', { timeout: 30000 });
+      const caixa = await page.locator('canvas').boundingBox();
+      await page.mouse.move(caixa.x + 4, caixa.y + 4);
+      await page.mouse.down();
+      for (let y = 6; y < caixa.height; y += 22)
+        for (let x = 4; x < caixa.width; x += 14) await page.mouse.move(caixa.x + (Math.floor(y / 22) % 2 ? caixa.width - x : x), caixa.y + y);
+      await page.mouse.up();
+      await page.waitForSelector('text=CLUBE7K2QX', { timeout: 10000 });
+      ok(revelacoes.length === 1 && !(await page.locator('canvas').count()), `${w}px · raspar com o mouse revela (revelações: ${revelacoes.length})`);
+      await ctx.close();
+    }
+    {
+      // "Reduzir movimento": a roleta para no prêmio sem animar.
+      const { ctx, page } = await abrirPagina(w, 900, 'roleta', { semMovimento: true });
+      await page.waitForSelector('text=Gire para descobrir o seu prêmio', { timeout: 30000 });
+      await page.getByRole('button', { name: 'Girar' }).click();
+      await page.waitForSelector('text=CLUBE7K2QX', { timeout: 5000 });
+      const transicao = await page.evaluate(() => getComputedStyle(document.querySelector('svg[role="img"]')).transitionDuration);
+      ok(transicao === '0s', `${w}px · reduzir movimento: a roleta para sem animar (${transicao})`);
       await ctx.close();
     }
   }

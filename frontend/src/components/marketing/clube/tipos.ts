@@ -30,10 +30,15 @@ export type ConfigDoClube = {
   minimo: number;
 };
 
+/** O gatilho "Pedido entregue" do prêmio surpresa (mig 474): `desde` = quando foi ligado (só os pedidos depois ganham). */
+export type GatilhoEntregue = { ativo: boolean; premioId: string | null; desde: string | null };
+
 export type PainelDoClube = {
   config: ConfigDoClube;
   /** As ferramentas que já existem para ligar — a que não existe não mostra o liga/desliga. */
   prontas: Record<Ferramenta, boolean>;
+  /** Os gatilhos do prêmio surpresa (fase A1: só o "Pedido entregue"). */
+  gatilhos: { entregue: GatilhoEntregue };
   premios: PremioDoClube[];
   /** As regras do clube que o cliente lê (o link "Regras do clube"). */
   regras: string[];

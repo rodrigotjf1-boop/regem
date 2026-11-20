@@ -10,7 +10,11 @@ import {
   descricaoDoPremio,
   FERRAMENTAS_PRONTAS,
   FORMAS_DO_SURPRESA,
+  type GatilhoEntregue,
+  type GatilhosDoSurpresa,
+  gatilhosDaLinha,
   lerConfigDoClube,
+  lerGatilhoEntregue,
   lerPremio,
   ligandoAntesDaHora,
   MINIMO_MAX,
@@ -84,9 +88,16 @@ export class ClubeService {
     };
   }
 
+  /** Os gatilhos do prêmio surpresa (mig 474; o jsonb `surpresa_gatilhos`), com os padrões no que faltar. */
+  async gatilhos(tenantId: string): Promise<GatilhosDoSurpresa> {
+    const [l] = this.rows(await this.db.execute(sql`select surpresa_gatilhos as g from clube_config where tenant_id = ${tenantId}::uuid`));
+    return gatilhosDaLinha(l?.g);
+  }
+
   /** Os prêmios da empresa (sem os excluídos), com o produto, a descrição e onde estão em uso. */
-  async premios(tenantId: string, config?: ConfigDoClube): Promise<PremioNaLista[]> {
+  async premios(tenantId: string, config?: ConfigDoClube, gatilhosJa?: GatilhosDoSurpresa): Promise<PremioNaLista[]> {
     const c = config ?? (await this.config(tenantId));
+    const g = gatilhosJa ?? (await this.gatilhos(tenantId));
     const linhas = this.rows(
       await this.db.execute(sql`
         select p.id, p.nome, p.tipo, p.valor::float8 as valor, p.teto::float8 as teto, p.produto_id as "produtoId",
@@ -109,20 +120,22 @@ export class ClubeService {
         minimo: Number(l.minimo),
         validadeDias: Number(l.validadeDias),
       };
-      return { ...p, descricao: descricaoDoPremio(p), emUso: ondeEstaEmUso(c, p.id) };
+      return { ...p, descricao: descricaoDoPremio(p), emUso: ondeEstaEmUso(c, p.id, g) };
     });
   }
 
-  /** Delivery › Marketing › Clube: a configuração, o que já pode ligar, os prêmios, as regras e as opções da tela. */
+  /** Delivery › Marketing › Clube: a configuração, o que já pode ligar, os gatilhos, os prêmios, as regras e as opções. */
   async painel(tenantId: string) {
     const config = await this.config(tenantId);
-    const premios = await this.premios(tenantId, config);
+    const gatilhos = await this.gatilhos(tenantId);
+    const premios = await this.premios(tenantId, config, gatilhos);
     const nomes = new Map(premios.map((p) => [p.id, p.nome]));
     return {
       config,
       prontas: FERRAMENTAS_PRONTAS,
+      gatilhos,
       premios,
-      regras: regrasDoClube(config, (id) => nomes.get(id) ?? null),
+      regras: regrasDoClube(config, (id) => nomes.get(id) ?? null, gatilhos),
       opcoes: {
         formas: FORMAS_DO_SURPRESA,
         tipos: TIPOS_DE_PREMIO,
@@ -245,6 +258,10 @@ export class ClubeService {
     const p = lerPremio(dto);
     const antes = await this.premioDaEmpresa(user.tenantId, id);
     await this.conferirProduto(user.tenantId, p);
+    if (p.tipo === 'produto' && (await this.gatilhos(user.tenantId)).entregue.premioId === String(antes.id))
+      throw new BadRequestException(
+        'Este prêmio está no prêmio surpresa (pedido entregue), que ainda não dá produto grátis: troque o prêmio lá antes, ou escolha um desconto ou o frete grátis.',
+      );
     await this.db.execute(sql`
       update clube_premio
          set nome = ${p.nome}, tipo = ${p.tipo}, valor = ${p.valor}, teto = ${p.teto}, produto_id = ${p.produtoId}::uuid,
@@ -260,12 +277,47 @@ export class ClubeService {
    */
   async excluirPremio(user: AuthUser, id: string): Promise<PremioNaLista[]> {
     const antes = await this.premioDaEmpresa(user.tenantId, id);
-    const onde = ondeEstaEmUso(await this.config(user.tenantId), String(antes.id));
+    const onde = ondeEstaEmUso(await this.config(user.tenantId), String(antes.id), await this.gatilhos(user.tenantId));
     if (onde.length) throw new BadRequestException(`Este prêmio está em uso em: ${onde.join(', ')}. Troque o prêmio lá antes de excluir.`);
     await this.db.execute(sql`
       update clube_premio set excluido_em = now(), atualizado_por = ${user.colaboradorId}::uuid, atualizado_em = now()
        where id = ${id}::uuid and tenant_id = ${user.tenantId}::uuid and excluido_em is null`);
     await this.auditar(user, 'clube_premio_excluido', id, { nome: antes.nome });
     return this.premios(user.tenantId);
+  }
+
+  /**
+   * Salva o gatilho "Pedido entregue" (mig 474). TODA recusa antes de gravar (V86): ligado precisa de prêmio; o prêmio
+   * existe nesta empresa e não é "produto grátis" (o produto grátis no prêmio surpresa chega numa fase seguinte — ele
+   * pede o produto no carrinho, e a conta do cupom ainda não sabe disso). Ao LIGAR, grava `desde` = agora: só os pedidos
+   * concluídos depois dão prêmio. Grava SÓ a chave `entregue` do jsonb, mesclando no banco (V82). Auditado.
+   */
+  async salvarGatilhoEntregue(user: AuthUser, dto: unknown): Promise<GatilhosDoSurpresa> {
+    const parcial = lerGatilhoEntregue(dto);
+    const antes = (await this.gatilhos(user.tenantId)).entregue;
+    const depois: GatilhoEntregue = { ...antes, ...parcial };
+    if (depois.ativo && !depois.premioId) throw new BadRequestException('Escolha o prêmio de quem tem o pedido entregue.');
+    // Sempre confere o prêmio escolhido (também o que já estava): ligar de novo com um prêmio que foi trocado para
+    // "produto grátis" não pode passar calado — a rotina não daria nada.
+    if (depois.premioId) {
+      const [p] = this.rows(
+        await this.db.execute(sql`
+          select tipo from clube_premio where id = ${depois.premioId}::uuid and tenant_id = ${user.tenantId}::uuid and excluido_em is null`),
+      );
+      if (!p) throw new BadRequestException('O prêmio escolhido não existe mais. Recarregue a página e escolha de novo.');
+      if (p.tipo === 'produto')
+        throw new BadRequestException('O produto grátis no prêmio surpresa chega numa próxima entrega: escolha um desconto ou o frete grátis.');
+    }
+    depois.desde = depois.ativo ? (antes.ativo && antes.desde ? antes.desde : new Date().toISOString()) : null;
+    if (JSON.stringify(antes) === JSON.stringify(depois)) return this.gatilhos(user.tenantId);
+    const json = JSON.stringify({ entregue: depois });
+    await this.db.execute(sql`
+      insert into clube_config (tenant_id, surpresa_gatilhos, atualizado_por)
+      values (${user.tenantId}::uuid, ${json}::jsonb, ${user.colaboradorId}::uuid)
+      on conflict (tenant_id) do update
+         set surpresa_gatilhos = coalesce(clube_config.surpresa_gatilhos, '{}'::jsonb) || ${json}::jsonb,
+             atualizado_por = excluded.atualizado_por, atualizado_em = now()`);
+    await this.auditar(user, 'clube_gatilho_alterado', user.tenantId, { gatilho: 'entregue', de: antes, para: depois });
+    return this.gatilhos(user.tenantId);
   }
 }

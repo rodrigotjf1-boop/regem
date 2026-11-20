@@ -26,6 +26,13 @@
   Tudo só na nuvem → vai no `.zip` sem efeito na loja; as duas tabelas = SO_NUVEM no `sync-daemon.mjs` (o daemon mudou →
   o `.exe` da próxima release leva).
 
+- **Clube — o prêmio surpresa pelo pedido entregue (20/11; mig 474 SÓ NUVEM — `clube_direito`; fase A1 do
+  `docs/plano-clube-e-banner.md`).** Marketing › Clube › "Prêmio surpresa": a forma (raspadinha ou roleta) e o gatilho
+  "Pedido entregue" (liga com o prêmio; o produto grátis chega numa próxima entrega). Uma rotina da nuvem dá UM prêmio por
+  pedido do cardápio online ou do robô entregue depois de ligar, a partir do mínimo do clube, como cupom pessoal; o cliente
+  revela na página do pedido (`/r/…`) e vê "Prêmios para revelar" em Sua conta. Nasce desligado. A tabela entra como
+  SO_NUVEM no `sync-daemon.mjs` (o `.exe` do próximo corte leva o daemon junto). Só na nuvem.
+
 - **O Regem lê o Pulso, a base nacional de eventos (20/11; mig 470 SÓ NUVEM, aplicada — `pulso_evento`, `pulso_estado`,
   `clima_municipio_dia`).** Módulo `pulso`: os eventos (leitura incremental), os municípios das lojas com o perfil ligado e
   o clima diário. Nasce desligado (`PULSO_LIGACAO` no regem-api). As tabelas entram como SO_NUVEM no `sync-daemon.mjs`
