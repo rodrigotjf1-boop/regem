@@ -224,7 +224,7 @@ fav as (
    group by cliente_id
 ),
 sempre as (
-  select distinct on (it.cliente_id) it.cliente_id, it.nome, it.pedidos
+  select distinct on (it.cliente_id) it.cliente_id, it.nome, it.pedidos, it.chave
     from it join base b on b.cliente_id = it.cliente_id
    where b.n >= 3 and it.pedidos * 2 >= b.n
    order by it.cliente_id, it.pedidos desc, it.nome
@@ -290,7 +290,7 @@ fim as (
          case when r.n >= 3 then dx.dia end as dia,
          case when hora.k >= 3 then lpad((hora.minuto / 60)::text, 2, '0') || ':' || lpad((hora.minuto % 60)::text, 2, '0') end as hora_habitual,
          case when r.n >= 10 then 'alta' when r.n >= 3 then 'media' else 'baixa' end as confianca,
-         gj.grade, fav.favoritos, sempre.nome as de_sempre, sempre.pedidos as de_sempre_pedidos,
+         gj.grade, fav.favoritos, sempre.nome as de_sempre, sempre.pedidos as de_sempre_pedidos, sempre.chave as de_sempre_chave,
          rg.grupos as recl_grupos, coalesce(rg.max_vezes, 0) as recl_max, ru.total as recl_total, ru.ultima as recl_ultima,
          ru.ultimas as recl_ultimas, ar.quantas as aval_quantas, ar.media as aval_media, ar.ultimas as aval_ultimas,
          case when ar.media_ant is null then null when ar.media_rec < ar.media_ant - 0.5 then 'piorando'
@@ -359,7 +359,7 @@ select f.cliente_id, ${tenantId}::uuid, f.unidade_id, f.n, f.primeiro, f.ultimo,
        jsonb_build_object(
          'gosto', jsonb_strip_nulls(jsonb_build_object(
            'favoritos', coalesce(f.favoritos, '[]'::jsonb),
-           'de_sempre', case when f.de_sempre is not null then jsonb_build_object('nome', f.de_sempre, 'pedidos', f.de_sempre_pedidos) end,
+           'de_sempre', case when f.de_sempre is not null then jsonb_build_object('nome', f.de_sempre, 'pedidos', f.de_sempre_pedidos, 'chave', f.de_sempre_chave) end,
            'pagamento', f.pagamento,
            'retirada_pct', round(100.0 * f.retiradas / f.n))),
          'ritmo', jsonb_strip_nulls(jsonb_build_object(

@@ -337,6 +337,40 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
     });
   }, [menu, token, ident, recarregarPerfil]);
 
+  // O cardápio para o cliente identificado (F8 do perfil do cliente): só com o módulo ligado (`loja.interesse`) e com a
+  // prova (o `clienteToken` do código). O servidor manda ids; aqui viram os produtos do cardápio (o que saiu ou esgotou
+  // não aparece). Sem as recomendações, só o "seu de sempre" (vem dos pedidos).
+  const [paraVoceIds, setParaVoceIds] = useState<{ deSempre: string | null; voceViu: string[]; ordemCategorias: string[] } | null>(null);
+  useEffect(() => {
+    const ct = getClienteToken(token);
+    if (!menu || (menu as any)?.loja?.interesse !== true || !ct) {
+      setParaVoceIds(null);
+      return;
+    }
+    let vivo = true;
+    api
+      .cardapioParaVoce(token, ct)
+      .then((r: any) => vivo && setParaVoceIds(r ?? null))
+      .catch(() => vivo && setParaVoceIds(null));
+    return () => {
+      vivo = false;
+    };
+  }, [menu, token, ident]);
+  const paraVoce = useMemo(() => {
+    if (!paraVoceIds) return null;
+    const porId = new Map(produtos.map((p: any) => [String(p.id), p]));
+    const vale = (id: string | null) => {
+      const p: any = id ? porId.get(String(id)) : null;
+      return p && !p.esgotado ? p : null;
+    };
+    const sempre = vale(paraVoceIds.deSempre);
+    const viu = (paraVoceIds.voceViu ?? []).map(vale).filter(Boolean);
+    const ordemCategorias = (paraVoceIds.ordemCategorias ?? []).map(String);
+    if (!sempre && !viu.length && !ordemCategorias.length) return null;
+    const nome = String(perfil?.nome ?? '').trim().split(/\s+/)[0] || null;
+    return { sempre, viu, ordemCategorias, nome };
+  }, [paraVoceIds, produtos, perfil]);
+
   // Último pedido do cliente ("Peça de novo").
   useEffect(() => {
     if (!menu) return;
@@ -1195,6 +1229,7 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
       setPerfil(null);
       setEnderecosSalvos([]);
       setUltimoPedido(null);
+      setParaVoceIds(null);
     }
   }
 
@@ -1213,7 +1248,7 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
     pilha, topo, abrir, voltar, fecharTudo, etapaAtual, checkoutAberto, toast, avisar, pulo, abaInicialConta,
     // produto e carrinho
     sel, abrirProduto, adicionarRapido, adicionarDoProduto, onAdd,
-    cart, qtdItens, total, mudarQtd, removeItem, upsell: upsellFinal, reordenar, reordenarUltimo, ultimoPedido,
+    cart, qtdItens, total, mudarQtd, removeItem, upsell: upsellFinal, reordenar, reordenarUltimo, ultimoPedido, paraVoce,
     // checkout
     chk, setChk, etapas, falta, avancar, abrirSacola, fecharCheckout, podeExpresso, trocarNoExpresso, ultimoDoPerfil,
     encAtiva, enc, agendar, km, bairroSel,

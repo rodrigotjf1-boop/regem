@@ -8,6 +8,7 @@ import { expurgarFunil, expurgarInteracoes, lerInteracoes, metaDoFunil, normaliz
 import { sql } from 'drizzle-orm';
 import { SEGMENTOS_DO_PERFIL } from '../../common/segmentos-do-perfil';
 import { gravarPrivacidade } from './privacidade-do-cliente';
+import { paraOCliente } from './para-o-cliente';
 import { PerfilClienteService } from './perfil-cliente.service';
 
 const MIG = (n: string) => join(__dirname, '..', '..', '..', '..', 'database', 'migrations', n);
@@ -65,7 +66,9 @@ descrever('os cliques do cardápio (Postgres)', () => {
   const admin = new Pool({ connectionString: URL_PG });
   const pool = new Pool({ connectionString: URL_PG, options: `-c search_path=${SCHEMA},public` });
   const segredoAntes = process.env.JWT_SECRET;
+  const paraVoceAntes = process.env.PERFIL_CARDAPIO_PARA_VOCE;
   beforeAll(async () => {
+    process.env.PERFIL_CARDAPIO_PARA_VOCE = '1'; // a F8 ligada nesta suíte (nasce desligada — o teste dela prova)
     if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 16) process.env.JWT_SECRET = 'segredo-de-teste-dos-cliques-1';
     await admin.query(`create schema ${SCHEMA}`);
     for (const m of ['196_cardapio_evento.sql', '459_perfil_do_cliente.sql', '463_cliente_evento_sensibilidade.sql', '466_cardapio_interacao.sql']) await pool.query(semFkCompartilhada(readFileSync(MIG(m), 'utf8')));
@@ -73,6 +76,8 @@ descrever('os cliques do cardápio (Postgres)', () => {
   afterAll(async () => {
     if (segredoAntes === undefined) delete process.env.JWT_SECRET;
     else process.env.JWT_SECRET = segredoAntes;
+    if (paraVoceAntes === undefined) delete process.env.PERFIL_CARDAPIO_PARA_VOCE;
+    else process.env.PERFIL_CARDAPIO_PARA_VOCE = paraVoceAntes;
     await pool.end();
     await admin.query(`drop schema if exists ${SCHEMA} cascade`).catch(() => {});
     await admin.end();
@@ -201,6 +206,62 @@ descrever('os cliques do cardápio (Postgres)', () => {
       await q(`insert into cliente_escolha (tenant_id, cliente_id, escolha, valor, origem) values ($1,$2,'nao_analisar',true,'cardapio_perfil')`, [on.t, bia]);
       await ev(bia, 'visita04', [{ tipo: 'produto_aberto', produtoId: costela, ms: 4000 }]);
       expect(await q(`select count(*)::int as n from cardapio_interacao where cliente_id = $1`, [bia])).toEqual([{ n: 1 }]);
+    }));
+
+  it('F8 · o cardápio para o cliente: o de sempre (dos pedidos), "você viu" e a ordem das categorias (só com o "sim")', () =>
+    naTransacao(async (c, q) => {
+      const db = drizzle(c as any);
+      const on = await loja(q, true);
+      const cat = async (nome: string) => (await q(`insert into categoria_produto (tenant_id, nome) values ($1,$2) returning id`, [on.t, nome]))[0].id as string;
+      const [burgers, doces] = [await cat('Burgers'), await cat('Sobremesas')];
+      const prod = async (nome: string, categoria: string, codigo: string | null = null) =>
+        (await q(`insert into produto (tenant_id, nome, categoria_id, codigo) values ($1,$2,$3,$4) returning id`, [on.t, nome, categoria, codigo]))[0].id as string;
+      const xbacon = await prod('X-Bacon da casa', burgers, '10');
+      const costela = await prod('Costela da casa', burgers);
+      const pudim = await prod('Pudim', doces);
+      const ana = (await q(`insert into cliente (tenant_id, nome, telefone) values ($1,'Ana','21966660011') returning id`, [on.t]))[0].id as string;
+      const ct = assinarCliente(ana, on.t);
+      await q(`insert into cliente_perfil (cliente_id, tenant_id, confianca, camadas) values ($1,$2,'media',$3::jsonb)`, [
+        ana, on.t, JSON.stringify({ gosto: { de_sempre: { nome: 'X-Bacon da casa', pedidos: 5, chave: '10' } } }),
+      ]);
+      const VAZIO = { deSempre: null, voceViu: [], ordemCategorias: [] };
+
+      // Nasce desligado: sem PERFIL_CARDAPIO_PARA_VOCE=1, nada (o cardápio fica como era).
+      delete process.env.PERFIL_CARDAPIO_PARA_VOCE;
+      expect(await paraOCliente(db, on.token, ct)).toEqual(VAZIO);
+      process.env.PERFIL_CARDAPIO_PARA_VOCE = '1';
+
+      // Sem as recomendações: só o de sempre (vem dos pedidos), achado pelo código PDV.
+      expect(await paraOCliente(db, on.token, ct)).toEqual({ deSempre: xbacon, voceViu: [], ordemCategorias: [] });
+      // Sem prova, com token de outra empresa ou cardápio desconhecido: nada.
+      expect(await paraOCliente(db, on.token, undefined)).toEqual(VAZIO);
+      expect(await paraOCliente(db, on.token, `${ct}x`)).toEqual(VAZIO);
+      const outra = await loja(q, true);
+      expect(await paraOCliente(db, outra.token, ct)).toEqual(VAZIO);
+      expect(await paraOCliente(db, `tok-${randomUUID()}`, ct)).toEqual(VAZIO);
+
+      // Com o "sim": a Costela aberta 2 vezes e não pedida → "você viu"; o Pudim no carrinho pesa mais → Sobremesas primeiro.
+      await q(`insert into cliente_escolha (tenant_id, cliente_id, escolha, valor, origem) values ($1,$2,'recomendacoes',true,'cardapio_perfil')`, [on.t, ana]);
+      await registrarInteracoes(db, on.token, {
+        sessao: 'visita21', clienteToken: ct,
+        eventos: [
+          { tipo: 'produto_aberto', produtoId: costela, ms: 3000 },
+          { tipo: 'produto_aberto', produtoId: costela, ms: 3000 },
+          { tipo: 'produto_adicionado', produtoId: pudim },
+        ],
+      });
+      expect(await paraOCliente(db, on.token, ct)).toEqual({ deSempre: xbacon, voceViu: [costela], ordemCategorias: [doces, burgers] });
+
+      // O de sempre sem chave (perfil antigo): pelo nome igual.
+      await q(`update cliente_perfil set camadas = $2::jsonb where cliente_id = $1`, [ana, JSON.stringify({ gosto: { de_sempre: { nome: 'x-bacon da casa ', pedidos: 5 } } })]);
+      expect((await paraOCliente(db, on.token, ct)).deSempre).toBe(xbacon);
+
+      // "Não quero ser analisado": nada (nem o de sempre). Módulo desligado: nada.
+      await q(`insert into cliente_escolha (tenant_id, cliente_id, escolha, valor, origem) values ($1,$2,'nao_analisar',true,'cardapio_perfil')`, [on.t, ana]);
+      expect(await paraOCliente(db, on.token, ct)).toEqual(VAZIO);
+      await q(`insert into cliente_escolha (tenant_id, cliente_id, escolha, valor, origem) values ($1,$2,'nao_analisar',false,'cardapio_perfil')`, [on.t, ana]);
+      await q(`update modulo_ativacao set ativo = false where tenant_id = $1 and modulo = 'perfil_cliente'`, [on.t]);
+      expect(await paraOCliente(db, on.token, ct)).toEqual(VAZIO);
     }));
 
   it('Saúde da base · o resumo em frases e o dado de cada camada (pedidos diretos; iFood fora)', () =>

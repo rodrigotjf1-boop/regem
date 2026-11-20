@@ -2029,6 +2029,9 @@ export const api = {
     pub(`/publico/cardapio/${token}/fidelidade/resgatar`, { method: 'POST', body: JSON.stringify({ resgateId, clienteToken }) }),
   cardapioFidelidadePremios: (token: string, clienteToken?: string) =>
     pub(`/publico/cardapio/${token}/fidelidade/premios${clienteToken ? `?ct=${encodeURIComponent(clienteToken)}` : ''}`),
+  /** O cardápio para o cliente identificado (F8 do perfil): ids do "seu de sempre", do "você viu" e das categorias. */
+  cardapioParaVoce: (token: string, clienteToken: string) =>
+    pub(`/publico/cardapio/${token}/para-voce?ct=${encodeURIComponent(clienteToken)}`),
   cardapioUltimoPedido: (token: string, clienteToken?: string) =>
     pub(`/publico/cardapio/${token}/ultimo-pedido${clienteToken ? `?ct=${encodeURIComponent(clienteToken)}` : ''}`),
   cardapioStatus: (token: string, id: string, ref?: string) =>

@@ -9,6 +9,15 @@ import { sql, type SQL } from 'drizzle-orm';
  *  pediu": abriu o MESMO produto 2 vezes ou mais nos últimos 30 dias e não pediu direto esse produto desde a primeira. */
 export const INTERESSE = { meiaVidaDias: 14, abrir: 1, abrirLongo: 2, longoMs: 10_000, carrinho: 4, viuVezes: 2, viuJanelaDias: 30 } as const;
 
+/** Os pontos de UM clique (alias da `cardapio_interacao` dado), já com a meia-vida — some com `sum(...)`. */
+export function sqlPontosDoClique(i: string): SQL {
+  const a = sql.raw(i);
+  return sql`(power(2, -extract(epoch from (now() - ${a}.em)) / 86400.0 / ${INTERESSE.meiaVidaDias}::numeric)
+    * case when ${a}.tipo = 'produto_adicionado' then ${INTERESSE.carrinho}::int
+           when coalesce(${a}.ms, 0) >= ${INTERESSE.longoMs}::int then ${INTERESSE.abrirLongo}::int
+           else ${INTERESSE.abrir}::int end)`;
+}
+
 /** Não fez pedido direto (sem iFood e 99, sem cancelado) com o produto desde o instante dado. */
 export function sqlNaoPediuDesde(tenant: SQL, cliente: SQL, produto: SQL, desde: SQL): SQL {
   return sql`not exists (
