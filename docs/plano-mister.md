@@ -1927,6 +1927,13 @@ regressão de novo quando as instruções mudam; a Meta pela doc oficial (V20); 
 - Junto: o roteiro achou o React #418 (hidratação) no Mural e nas Contas a pagar — a categoria/permissão lida do token no
   primeiro desenho (ERR-547, reincidência do ERR-513); as duas leem agora num `useEffect`.
 
+**M6k, lote 2 (20/11/2026; SEM migration) — mais 8:** PDV · Balcão › Retirada / Encomendas (`retirada-no-balcao`), PDV ·
+Balcão › Mesas e comandas (`mesa-e-comanda`), Delivery › Avaliações (`avaliacoes`), Delivery › Encomendas · agenda
+(`encomendas-agenda`), Tarefas › Meu ponto (`meu-ponto`), Checklist & registros (`checklist-pop`), Financeiro › Formas de
+pagamento (`formas-de-pagamento`) e Configurações › Unidades (`unidades`). 16 dos 31; faltam 15. As leituras do token no
+corpo do componente achadas nessas telas (o painel do caixa, os cartões de checklist e de documento, Unidades) não mudam o
+primeiro desenho hoje (aparecem só depois da leitura dos dados) — o roteiro confere o #418 nelas a cada rodada.
+
 **M6d implementada (20/11/2026; mig 476 SÓ NUVEM — `mister_conversa_config.pin_a_cada_h` e `mister_vinculo.pin_ate`;
 nasce desligada):**
 - **O ajuste** (Mister › Regras › "Segurança · só o presidente muda", pelo `PATCH /mister/conversa`): pedir o PIN a cada
