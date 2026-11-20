@@ -39,7 +39,7 @@ export class ClienteAdminController {
 
   @Get('crm')
   @Roles('presidente', 'gerente', 'supervisao')
-  crm(
+  async crm(
     @CurrentUser() user: AuthUser,
     @Query('segmento') segmento?: string,
     @Query('busca') busca?: string,
@@ -50,6 +50,9 @@ export class ClienteAdminController {
     @Query('limite') limite?: string,
     @Query('offset') offset?: string,
   ) {
+    // Segmento "pelo perfil" (F7 parte 1): só presidente e gerente, com o módulo ligado, na nuvem — a supervisão vê a lista,
+    // mas não a classificação do perfil (como a ficha).
+    await this.service.conferirSegmentoDoPerfil(user, segmento);
     return this.service.crmClientes(user.tenantId, {
       segmento: segmento ?? 'todos',
       busca: busca ?? '',

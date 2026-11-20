@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Perfil do cliente F7 parte 1 — o público pelo perfil nas campanhas (19/11; SEM migration).** As abas "Pelo perfil" em
+  Delivery › Clientes e a campanha por elas (só o aceite clicado). Só na nuvem; no `.zip` só por acompanhar o código.
+
 - **Perfil do cliente F3 parte 2 — o que move cada cliente (19/11; mig 463 SÓ NUVEM — `cliente_evento_sensibilidade`).**
   A sensibilidade a eventos medida na rotina noturna do perfil e mostrada na ficha. Só na nuvem e só com o módulo ligado;
   a tabela entra como SO_NUVEM no `sync-daemon.mjs` (o `.exe` do próximo corte leva junto).
