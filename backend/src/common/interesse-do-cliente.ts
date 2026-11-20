@@ -2,7 +2,7 @@ import { sql, type SQL } from 'drizzle-orm';
 
 // O INTERESSE DO CLIENTE NO CARDÁPIO (F4b do docs/plano-perfil-cliente.md, §4.3; protótipo, camada 3 "O que olha no
 // cardápio" e o público "Pelo que olharam no cardápio"). Lê os cliques LIGADOS ao cliente (`cardapio_interacao.cliente_id`,
-// mig 466) — que só existem para quem ligou "Recomendações personalizadas" e entrou com o código do WhatsApp. Uma régua
+// mig 466) — que só existem para quem entrou com o código do WhatsApp e não desligou as "Recomendações" (ligadas por padrão — D16). Uma régua
 // só para a ficha, a aba de Clientes, a campanha e a contagem (V74).
 
 /** Os pontos: abrir vale 1, ficar 10 s ou mais vale 2, pôr no carrinho vale 4, com meia-vida de 14 dias. "Viu e não

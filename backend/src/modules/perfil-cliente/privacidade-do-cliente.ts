@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { ESCOLHAS, Pedido, TEXTO_DA_ESCOLHA, VERSAO_DOS_TEXTOS } from './escolhas-do-cliente';
+import { AVISO_DAS_RECOMENDACOES, ESCOLHAS, PADRAO_DA_ESCOLHA, Pedido, TEXTO_DA_ESCOLHA, VERSAO_DOS_TEXTOS } from './escolhas-do-cliente';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -28,7 +28,7 @@ export async function gravarPrivacidade(tx: any, c: { tenantId: string; id: stri
         on conflict (cliente_id, chave) do update set valor = excluded.valor, origem = excluded.origem, atualizado_em = clock_timestamp()`);
     }
   }
-  // Desligou "Recomendações personalizadas" ou pediu "não analisar": os cliques ligados a ele voltam a ser anônimos na
+  // Desligou as "Recomendações" ou pediu "não analisar": os cliques ligados a ele voltam a ser anônimos na
   // hora (contam só nos números da loja — F4b, mig 466).
   if (p.escolhas.some((e) => (e.escolha === 'recomendacoes' && !e.valor) || (e.escolha === 'nao_analisar' && e.valor))) {
     await tx.execute(sql`update cardapio_interacao set cliente_id = null where cliente_id = ${c.id}::uuid and tenant_id = ${c.tenantId}::uuid`);
@@ -41,7 +41,8 @@ export async function gravarPrivacidade(tx: any, c: { tenantId: string; id: stri
   }
 }
 
-/** O estado atual: a última de cada escolha (o que nunca foi clicado = `false`) e o que o cliente contou. */
+/** O estado atual: a última de cada escolha (o que nunca foi clicado = o padrão — `recomendacoes` ligada, D16; o resto
+ *  `false`) e o que o cliente contou. */
 export async function lerPrivacidade(db: any, tenantId: string, clienteId: string) {
   const r: any = await db.execute(sql`
     select distinct on (escolha) escolha, valor from cliente_escolha
@@ -50,7 +51,7 @@ export async function lerPrivacidade(db: any, tenantId: string, clienteId: strin
     select chave, valor from cliente_declarado where cliente_id = ${clienteId}::uuid and tenant_id = ${tenantId}::uuid`);
   const m: any = await db.execute(sql`
     select exists (select 1 from modulo_ativacao where tenant_id = ${tenantId}::uuid and modulo = 'perfil_cliente' and ativo) as ativo`);
-  const escolhas: Record<string, boolean> = Object.fromEntries(ESCOLHAS.map((k) => [k, false]));
+  const escolhas: Record<string, boolean> = Object.fromEntries(ESCOLHAS.map((k) => [k, PADRAO_DA_ESCOLHA[k] ?? false]));
   const linhas: any[] = r.rows ?? r;
   for (const e of linhas) escolhas[e.escolha] = !!e.valor;
   return {
@@ -61,6 +62,7 @@ export async function lerPrivacidade(db: any, tenantId: string, clienteId: strin
     escolhas,
     declarado: Object.fromEntries((d.rows ?? d).map((x: any) => [x.chave, x.valor])),
     textos: TEXTO_DA_ESCOLHA,
+    avisoRecomendacoes: AVISO_DAS_RECOMENDACOES,
     versaoDosTextos: VERSAO_DOS_TEXTOS,
   };
 }

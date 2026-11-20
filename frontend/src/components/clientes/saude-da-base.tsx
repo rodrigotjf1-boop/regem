@@ -292,7 +292,7 @@ export function SaudeDaBase() {
             <p className="text-xs text-muted-foreground">
               {!dado?.ativos
                 ? 'Ainda sem clientes ativos com perfil. A rotina calcula toda manhã.'
-                : `“O que olha” cresce quando mais clientes pedem pelo cardápio Regem e ligam as recomendações. ${n(dado.visitasComCliques30d)} ${dado.visitasComCliques30d === 1 ? 'visita' : 'visitas'} com cliques nos últimos 30 dias.`}
+                : `“O que olha” cresce quando mais clientes entram no cardápio Regem com o código do WhatsApp. ${n(dado.visitasComCliques30d)} ${dado.visitasComCliques30d === 1 ? 'visita' : 'visitas'} com cliques nos últimos 30 dias.`}
             </p>
           }
         >

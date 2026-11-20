@@ -76,8 +76,8 @@ export function SegmentosDoPerfil({ seg, aoEscolher }: { seg: string; aoEscolher
       )}
       {seg === 'perfil_olhou' && (
         <p className="text-xs text-muted-foreground">
-          Abriram o mesmo produto 2 vezes ou mais nos últimos 30 dias e não pediram. Só entra quem ligou “Recomendações
-          personalizadas” no cardápio.
+          Abriram o mesmo produto 2 vezes ou mais nos últimos 30 dias e não pediram. Só entra quem entrou no cardápio com o
+          código do WhatsApp e não desligou as “Recomendações”.
         </p>
       )}
     </div>

@@ -3,8 +3,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // "O QUE OLHA NO CARDÁPIO" na ficha (F4b do docs/plano-perfil-cliente.md, §4.3; protótipo, camada 3 da ficha). Os
-// produtos com mais pontos de interesse do cliente — só os cliques ligados a ele, que só existem depois do "sim" das
-// "Recomendações personalizadas" — e o "viu e não pediu" (abriu o mesmo produto 2 vezes ou mais em 30 dias e não pediu).
+// produtos com mais pontos de interesse do cliente — só os cliques ligados a ele (quem entrou com o código e não desligou
+// as "Recomendações", ligadas por padrão — D16) — e o "viu e não pediu" (abriu o mesmo produto 2 vezes ou mais em 30 dias e não pediu).
 // O servidor decide tudo (`common/interesse-do-cliente.ts`); aqui só se mostra.
 
 const pontos = (v: number) => Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -13,7 +13,7 @@ export function OQueOlha({ olha, recomendacoes }: { olha: any | null | undefined
   if (!recomendacoes)
     return (
       <p className="text-sm text-muted-foreground">
-        O cliente não ligou “Recomendações personalizadas”. Os cliques dele contam só nos números anônimos da loja.
+        O cliente desligou “Recomendações do meu jeito”. Os cliques dele contam só nos números anônimos da loja.
       </p>
     );
   if (olha === null) return <p className="text-sm text-muted-foreground">Não consegui ler esta camada agora. Feche e abra a ficha de novo.</p>;

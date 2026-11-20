@@ -10,7 +10,7 @@ import { INTERESSE, sqlNaoPediuDesde, sqlPontosDoClique } from '../../common/int
 // o cardápio Regem mostra no topo para quem entrou com o código do WhatsApp (o `clienteToken` — V79):
 //  • "Seu de sempre": o item do perfil (o mesmo do cálculo — 3 pedidos ou mais e o item em metade deles), achado no cadastro
 //    pelo produto, pelo código PDV ou pelo nome; vem dos PEDIDOS, então aparece mesmo sem as recomendações;
-//  • "Você viu" e a ordem das categorias: só com "Recomendações personalizadas" ligado (os cliques ligados a ele —
+//  • "Você viu" e a ordem das categorias: só com "Recomendações" ligada — o padrão (D16) — (os cliques ligados a ele —
 //    `common/interesse-do-cliente.ts`): os produtos do "viu e não pediu" e as categorias pelo que ele mais abre.
 // Nada com o módulo desligado, com "não quero ser analisado", com token de outra empresa ou sem prova. Nunca devolve
 // dado pessoal: só ids de produto e de categoria (o nome do cliente o cardápio já tem). Nunca rejeita.
@@ -58,7 +58,8 @@ export async function paraOCliente(db: any, token: string, clienteToken: unknown
        order by (p.id::text = ds.d ->> 'chave') desc, (p.codigo = ds.d ->> 'chave') desc nulls last
        limit 1`));
     const deSempre = s?.id ? String(s.id) : null;
-    if (e?.rec !== true) return { deSempre, voceViu: [], ordemCategorias: [] };
+    // "Recomendações" ligada por padrão (legítimo interesse — D16): só o "não" gravado tira o "você viu" e a ordem.
+    if (e?.rec === false) return { deSempre, voceViu: [], ordemCategorias: [] };
 
     const I = INTERESSE;
     const viu = rows(await db.execute(sql`

@@ -7,7 +7,8 @@ import { api } from '@/lib/api';
 
 // PRIVACIDADE NO PERFIL DO CARDÁPIO (F1c do docs/plano-perfil-cliente.md, §3.6, D11, D14, D15; protótipo, aba "No
 // cardápio", o celular "Perfil"). O que a loja sabe do cliente e as escolhas dele sobre os próprios dados — cada escolha é um
-// "sim" CLICADO (as chaves nascem desligadas) e o servidor guarda o texto mostrado. Só aparece na loja com o módulo
+// "sim" CLICADO (as chaves nascem desligadas), menos "Recomendações", que vem ligada por legítimo interesse (D16) e se
+// desliga aqui; o servidor guarda o texto mostrado. Só aparece na loja com o módulo
 // "Perfil do cliente" ligado (`ativo` na resposta).
 
 type Estado = {
@@ -33,9 +34,7 @@ function Chave({ rotulo, ligado, ocupado, aoMudar, descricao }: { rotulo: string
 export function PrivacidadeNaConta({ token, clienteToken, setErro }: { token: string; clienteToken: string | null | undefined; setErro: (m: string) => void }) {
   const [estado, setEstado] = useState<Estado | null>(null);
   const [ocupado, setOcupado] = useState(false);
-  const [maior, setMaior] = useState(false);
   const [time, setTime] = useState('');
-  const idMaior = useId();
   const idTime = useId();
 
   useEffect(() => {
@@ -46,7 +45,6 @@ export function PrivacidadeNaConta({ token, clienteToken, setErro }: { token: st
       .then((r: any) => {
         if (!vivo) return;
         setEstado(r);
-        setMaior(!!r?.escolhas?.maior_de_18);
         setTime(typeof r?.declarado?.time === 'string' ? r.declarado.time : '');
       })
       .catch(() => vivo && setEstado(null));
@@ -83,15 +81,10 @@ export function PrivacidadeNaConta({ token, clienteToken, setErro }: { token: st
       <Chave
         rotulo="Recomendações do meu jeito"
         ligado={!!esc.recomendacoes}
-        ocupado={ocupado || naoAnalisar || (!esc.recomendacoes && !maior)}
-        aoMudar={() => salvar({ escolhas: { recomendacoes: !esc.recomendacoes, ...(maior && !esc.maior_de_18 ? { maior_de_18: true } : {}) } })}
+        ocupado={ocupado || naoAnalisar}
+        aoMudar={() => salvar({ escolhas: { recomendacoes: !esc.recomendacoes } })}
         descricao={estado.textos?.recomendacoes}
       />
-      {!esc.recomendacoes && !naoAnalisar && (
-        <label className="c-note" htmlFor={idMaior}>
-          <input id={idMaior} type="checkbox" checked={maior} onChange={(e) => setMaior(e.target.checked)} /> Tenho 18 anos ou mais
-        </label>
-      )}
 
       <Chave
         rotulo="Prefiro respostas curtas"
