@@ -9,7 +9,7 @@ import { PedirAvaliacaoProcessor } from './pedir-avaliacao.processor';
 import { TEXTO_PADRAO, lerAvaliacao, textoDaAvaliacao } from './pedir-avaliacao';
 import { WhatsappProvedorService } from './whatsapp-provedor.service';
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
+import { comTravaDaEmpresa, migrationJaCriada, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { NotaDoPedidoService } from '../avaliacao-pedido/nota-do-pedido.service';
 import { OPCOES_DO_PESO } from '../avaliacao-pedido/nota-do-pedido';
 import { conviteDaNota, portaoDaNotaPeloWhatsapp, registrarConvite, situacaoDoFormulario } from '../avaliacao-pedido/nota-pelo-whatsapp';
@@ -59,14 +59,21 @@ descrever('"pedir avaliação" depois da entrega (Postgres)', () => {
   const empresas: string[] = [];
   const pubAntes = process.env.PUBLIC_API_BASE;
 
-  const aplicar = (arq: string, travarEmpresa = false) =>
+  // Toda migration desta spec roda no schema COMUM do banco dividido: `empresa` travada PRIMEIRO (ERR-377, V9). Antes só
+  // a 453 e a 456 travavam, e a cadeia do robô rodava sem a trava.
+  const aplicar = (arq: string) =>
     repetirNaCorridaDeCatalogo(async () => {
       const c = await admin.connect();
       try {
         await c.query('begin');
+        // A 344 com a `robo_carrinho` pronta não roda: o índice e o `alter` travariam a tabela duas vezes, e o `registrar`
+        // da `robo-pedido-pg`, rodando ao mesmo tempo, caía no impasse (ERR-539).
+        if (await migrationJaCriada(c, arq)) {
+          await c.query('commit');
+          return null;
+        }
         const texto = readFileSync(MIG(arq), 'utf8');
-        // A migration que cria tabela com chave para `empresa` E altera outra: `empresa` travada PRIMEIRO (ERR-377).
-        const r: any = await c.query(travarEmpresa ? comTravaDaEmpresa(texto) : texto);
+        const r: any = await c.query(comTravaDaEmpresa(texto));
         await c.query('commit');
         return r;
       } catch (e) {
@@ -80,7 +87,7 @@ descrever('"pedir avaliação" depois da entrega (Postgres)', () => {
   beforeAll(async () => {
     delete process.env.EDGE_MODE; // como NUVEM
     process.env.PUBLIC_API_BASE = PUB;
-    await repetirNaCorridaDeCatalogo(() => admin.query(readFileSync(MIG('215_whatsapp_mensagem.sql'), 'utf8')));
+    await repetirNaCorridaDeCatalogo(() => admin.query(comTravaDaEmpresa(readFileSync(MIG('215_whatsapp_mensagem.sql'), 'utf8'))));
     // A 344 e a 349 também: o `roboConfig()` lê `lembrete_carrinho` (349, que altera a `robo_carrinho` da 344) — sem elas a
     // spec só passava quando outra spec do banco dividido criava as colunas antes (ERR-410, família do ERR-273/407).
     for (const m of ['342_robo_pausa_e_config.sql', '344_robo_carrinho.sql', '347_aviso_de_atraso.sql', '349_lembrete_do_carrinho.sql', '352_conferir_entrega.sql', '431_robo_carrinho_confirmacao.sql']) await aplicar(m);
@@ -89,11 +96,11 @@ descrever('"pedir avaliação" depois da entrega (Postgres)', () => {
     if (conf.length !== 6 || conf.some((l) => !l.ok)) throw new Error(`conferência da 365: ${JSON.stringify(conf)}`);
     // A nota do pedido (mig 453): a tabela nova e os ajustes no `robo_config`. Aqui, e não numa spec própria: esta já aplica
     // a cadeia do robô (ERR-451).
-    const r453 = await aplicar('453_pedido_avaliacao.sql', true);
+    const r453 = await aplicar('453_pedido_avaliacao.sql');
     const conf453 = (Array.isArray(r453) ? r453[r453.length - 1] : r453).rows as { objeto: string; ok: boolean }[];
     if (conf453.length !== 4 || conf453.some((l) => !l.ok)) throw new Error(`conferência da 453: ${JSON.stringify(conf453)}`);
     // O formulário da nota no WhatsApp oficial (mig 456): a tabela nova (chave para `empresa` — trava primeiro, ERR-377).
-    const r456 = await aplicar('456_whatsapp_flow.sql', true);
+    const r456 = await aplicar('456_whatsapp_flow.sql');
     const conf456 = (Array.isArray(r456) ? r456[r456.length - 1] : r456).rows as { objeto: string; ok: boolean }[];
     if (conf456.length !== 3 || conf456.some((l) => !l.ok)) throw new Error(`conferência da 456: ${JSON.stringify(conf456)}`);
     await admin.query(`create schema ${SCHEMA}`);
