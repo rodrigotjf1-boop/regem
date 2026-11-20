@@ -1,9 +1,12 @@
 # Plano — Clube de recompra, banner criado com IA e tempo da fila
 
-> **Estado (20/11/2026): plano para aprovação.** Pedido do dono em 20/11, depois do fim da versão 5 do Mister: planejar
-> as três ferramentas do clube ("algo que é ativado ou desativado"), o banner criado com a ajuda da IA pelo DMS Graph e o
-> tempo da fila do atendimento. O Hermes interno fica guardado e a mudança da VPS para São Paulo será a última.
-> Protótipo: `mockups/regem-clube-banner.html`. Nada aqui está implementado.
+> **Estado: APROVADO em 20/11/2026, com as dez decisões recomendadas (D1–D10).** Pedido do dono em 20/11, depois do fim
+> da versão 5 do Mister: planejar as três ferramentas do clube ("algo que é ativado ou desativado"), o banner criado com a
+> ajuda da IA pelo DMS Graph e o tempo da fila do atendimento. O Hermes interno fica guardado e a mudança da VPS para São
+> Paulo será a última. Protótipo: `mockups/regem-clube-banner.html`. Implementação pelas fases da seção 5.
+>
+> **Decisão do dono sobre a observação do fim (20/11):** o link do Google continua só para quem avaliou bem o pedido do
+> Cardápio Regem (como aprovado em 18/11). Fica registrado que o risco com a política do Google foi apresentado.
 
 ## 0. O que já existe (conferido na `origin/main` e no banco de produção, só lendo, em 20/11)
 
