@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister versão 6, M6e — as regras de aviso de cada pessoa (20/11; mig 472 SÓ NUVEM — `mister_regra` e
+  `mister_regra_envio`).** A pessoa diz como quer ser avisada e o Mister monta a regra com os dados que lê (pedidos, contas,
+  tarefas, impressoras e servidor, caixas, canais, vendas); o código confere, descreve e só liga no "Confirmar"; um motor
+  avalia a cada minuto e manda pelo número do Mister; a regra pode tirar da pessoa um aviso da empresa (menos os críticos).
+  Tudo só na nuvem → vai no `.zip` sem efeito na loja; as duas tabelas = SO_NUVEM no `sync-daemon.mjs` (o daemon mudou →
+  o `.exe` da próxima release leva).
+
 - **O Regem lê o Pulso, a base nacional de eventos (20/11; mig 470 SÓ NUVEM, aplicada — `pulso_evento`, `pulso_estado`,
   `clima_municipio_dia`).** Módulo `pulso`: os eventos (leitura incremental), os municípios das lojas com o perfil ligado e
   o clima diário. Nasce desligado (`PULSO_LIGACAO` no regem-api). As tabelas entram como SO_NUVEM no `sync-daemon.mjs`

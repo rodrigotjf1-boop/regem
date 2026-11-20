@@ -269,10 +269,12 @@ describe('Mister — o que o modelo recebe', () => {
       'lembrar',
       'ficar_de_olho',
       'lembrete',
+      // Versão 6, M6e (mig 472): as regras de aviso de cada pessoa.
+      'regras',
     ]);
     expect(ehConsulta('gasto_do_whatsapp')).toBe(true);
     // Versão 4, M4d (mig 452): o "fica de olho" e o lembrete marcam — não leem dado para responder — e vão um de cada vez.
-    for (const n of ['ficar_de_olho', 'lembrete']) expect([n, ehConsulta(n), podeRodarJunto(n)]).toEqual([n, false, false]);
+    for (const n of ['ficar_de_olho', 'lembrete', 'regras']) expect([n, ehConsulta(n), podeRodarJunto(n)]).toEqual([n, false, false]);
     // Versão 4, M4b (mig 449): anotar na memória não é consulta — não lê dado para responder — e não roda junto com outra.
     expect(ehConsulta('lembrar')).toBe(false);
     expect(podeRodarJunto('lembrar')).toBe(false);

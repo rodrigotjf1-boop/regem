@@ -545,7 +545,16 @@ export class MisterFerramentasService {
         return this.ficarDeOlho(e, en, loja);
       case 'lembrete':
         return this.lembrete(e, en);
+      case 'regras':
+        return this.regras ? this.regras(e, en) : Promise.resolve(recusa('As regras de aviso ainda não estão disponíveis neste servidor.'));
     }
+  }
+
+  // Versão 6, M6e: as regras de cada pessoa moram no `MisterRegrasService`, que precisa do escopo daqui — ele se apresenta
+  // (como os botões na entrada), e nenhum dos dois injeta o outro nos dois sentidos.
+  private regras: ((e: EscopoDoMister, en: Record<string, unknown>) => Promise<ResultadoDaFerramenta>) | null = null;
+  registrarRegras(f: (e: EscopoDoMister, en: Record<string, unknown>) => Promise<ResultadoDaFerramenta>): void {
+    this.regras = f;
   }
 
   /**

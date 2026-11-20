@@ -1755,8 +1755,31 @@ regressão de novo quando as instruções mudam; a Meta pela doc oficial (V20); 
 - **A6 em parte:** ligar de outro número diz "O número antigo (final 4321) foi desligado do Mister." e marca o telefone
   antigo como desligado pela própria pessoa.
 - **O "nunca pelo Mister"** entrou nas instruções (DE QUEM VOCÊ FALA) — a versão das instruções mudou: rodar a avaliação.
-- **Divergência do plano:** a M6a previa "sem migration"; o motivo do desligamento pediu a 468 (a 467 saiu antes, de outra sessão), e as migrations seguintes
-  andaram dois números (M6b 469, M6c 470, M6e 471, M6f 472, M6h 473).
+- **Divergência do plano:** a M6a previa "sem migration"; o motivo do desligamento pediu a 468 (a 467 saiu antes, de outra sessão).
+  **A numeração real fica por ordem de chegada**, combinada com as outras sessões (469 a fila do robô, 470 o Pulso, 471 o
+  Clube, 474 o Clube A1): a M6e pegou a 472 e a M6b fica com a 473; as seguintes conferem a `origin/main` e os PRs abertos.
+
+**M6e implementada (20/11/2026; mig 472 SÓ NUVEM — `mister_regra` e `mister_regra_envio`):**
+- **A linguagem e as fontes** (`mister-regra.ts`, puro): sete fontes v1 com os campos (pedidos dos canais — com o trecho novo
+  "minutos do aceite até sair para entrega" —, contas a pagar, tarefas de hoje, impressoras e servidor parados — com "dentro
+  do horário da loja" pelo `cardapio_config.horarios` —, caixas abertos, canais pausados e as vendas de hoje, as mesmas do
+  Painel); a regra em seis partes (fonte, filtros + "algum", alvo, medida + condição, quando — dias, janela, "em HH:MM" uma vez
+  por dia, data, expediente —, vezes, agrupar, intervalo, substitui); a conferência (fonte, permissão do perfil, campo, tipo,
+  valores, reais só para quem vê, os avisos críticos não se calam — V6-6 —, 30 por pessoa — V6-7); a DESCRIÇÃO que o código
+  escreve e a pessoa confirma; a avaliação (cada item uma vez; a condição avisa na subida e só repete depois do intervalo se
+  a lista mudar) e o texto do aviso (título, a lista de até 10 com o número que a regra mede).
+- **A ferramenta `regras`** (propor, confirmar, buscar, listar, apagar, pausar, retomar), com a descrição das fontes gerada
+  do catálogo e um bloco novo nas instruções ("AS REGRAS DE AVISO DE CADA PESSOA"); o alvo (a conta, a tarefa) sai da busca
+  e o nome vem do banco, no escopo da pessoa. Botões `regra:sim|mudar|apagar|deixar:<id>`; a proposta vale 30 min.
+- **O motor** (`MisterRegrasService.volta`, a cada minuto, só nuvem; trava `MISTER_REGRAS_DESLIGADAS=1`): cada fonte lida
+  UMA vez por volta para as empresas que precisam dela (as vendas, por dono, pelo `DashboardService`), cada regra no escopo
+  do dono conferido na volta (V75), o envio reservado pela chave antes de sair; fora das 24 h vai o modelo `mister_aviso`
+  com o toque `mister:regra:<envio>`. A de uma vez só se encerra ao olhar; a do dia que passou também.
+- **O encaixe nos avisos da empresa:** quem tem regra ATIVA que substitui o tipo não recebe aquele aviso pelo WhatsApp
+  (`semRegraQueSubstitui` em `pelosWhatsapps`); o KDS, a tela e os outros seguem iguais.
+- `mister_regra` e `mister_regra_envio` = SO_NUVEM no `sync-daemon.mjs` (o daemon mudou → vai no próximo `.exe`).
+- Fica para a M6f: a tela Mister › Regras, os formatos da pessoa, os padrões e as sugestões; e as fontes seguintes (estoque,
+  equipe, cancelamentos, atendimento).
 
 #### 8. Custos
 

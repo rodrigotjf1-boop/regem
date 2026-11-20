@@ -2543,6 +2543,10 @@ const SO_NUVEM = new Set([
   // O "fica de olho" e o lembrete do Mister (versão 4, M4d, mig 452, @cloud-only): quem olha a cada minuto e manda pelo
   // número do Mister é a nuvem — a loja não tem esta tabela.
   'mister_vigia',
+  // As regras de aviso de cada pessoa e os envios delas (versão 6, M6e, mig 472, @cloud-only): quem avalia a cada minuto e
+  // manda pelo número do Mister é a nuvem — a loja não tem estas tabelas.
+  'mister_regra',
+  'mister_regra_envio',
   // O gasto do WhatsApp oficial (mig 445, @cloud-only): o que a Meta informa por dia e por modelo, e a situação da
   // leitura de cada conta. Quem lê a Meta é a nuvem — a loja não tem estas tabelas.
   'whatsapp_gasto',
