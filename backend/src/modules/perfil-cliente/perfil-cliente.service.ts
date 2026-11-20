@@ -1,7 +1,8 @@
 import { Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { CalendarioDaLojaService } from './calendario-da-loja.service';
 import { calcularSensibilidadeDaEmpresa } from './sensibilidade-da-empresa';
-import { expurgarFunil, expurgarInteracoes } from './interacoes-do-cardapio';
+import { expurgarFunil, expurgarInteracoes, oQueOlha } from './interacoes-do-cardapio';
+import { sqlOlhouENaoPediu } from '../../common/interesse-do-cliente';
 import { Cron } from '@nestjs/schedule';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -200,6 +201,14 @@ export class PerfilClienteService {
           select tipo, rr, prob, pedidos, esperado, dias_com_pedido, selo, calculado_em from cliente_evento_sensibilidade
            where cliente_id = ${clienteId}::uuid and tenant_id = ${tenantId}::uuid order by selo desc, prob desc`))
       : [];
+    // O que olha no cardápio (F4b, mig 466): só os cliques ligados a ele (depois do "sim" das recomendações); nada com
+    // "não analisar". Lido sozinho: se falhar, a ficha abre sem a camada (null, com o motivo no log).
+    const olha = naoAnalisar
+      ? null
+      : await oQueOlha(this.db, tenantId, clienteId).catch((e: any) => {
+          this.log.warn(`o que olha (ficha) não lido — empresa ${tenantId.slice(0, 8)}: ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e}`);
+          return null;
+        });
     // Quem pediu só pelo iFood/99 tem pedidos, mas não tem perfil (D1): a ficha diz por quê.
     const soPlataforma = !perfil && !naoAnalisar && Number(c.total_pedidos ?? 0) > 0;
     return {
@@ -209,6 +218,7 @@ export class PerfilClienteService {
       declarado,
       escolhas,
       sensibilidade,
+      olha,
     };
   }
 
@@ -393,7 +403,16 @@ export class PerfilClienteService {
     // Os selos do que move o cliente (F3 parte 2): as abas "pelo perfil" de Delivery › Clientes (F7 parte 1) mostram a conta.
     const selos = this.rows(await this.db.execute(sql`
       select tipo, count(*)::int as n from cliente_evento_sensibilidade where tenant_id = ${tenantId}::uuid and selo group by tipo`));
+    // Viu e não pediu (F4b): a aba "Olharam e não pediram" — começa só de quem tem clique ligado nos últimos 30 dias.
+    const [olharam] = this.rows(await this.db.execute(sql`
+      select count(*)::int as n from cliente c
+       where c.tenant_id = ${tenantId}::uuid
+         and c.id in (select i.cliente_id from cardapio_interacao i
+                       where i.tenant_id = ${tenantId}::uuid and i.cliente_id is not null and i.tipo = 'produto_aberto'
+                         and i.em > now() - interval '30 days')
+         and ${sqlOlhouENaoPediu()}`));
     return {
+      olharam: Number(olharam?.n ?? 0),
       segmentos: Object.fromEntries(seg.map((s: any) => [s.segmento, s.n])),
       etiquetas: Object.fromEntries(etq.map((s: any) => [s.etiqueta, s.n])),
       selos: Object.fromEntries(selos.map((s: any) => [s.tipo, s.n])),
