@@ -1,0 +1,1105 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clube e banner com IA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* REGEM · PROTÓTIPO — CLUBE DE RECOMPRA, BANNER CRIADO COM IA E TEMPO DA FILA (20/11/2026), A APROVAR.
+   Pedido do dono em 20/11: planejar a raspadinha (ou roleta de prêmios), o álbum de selos e a meta do mês, cada um ligado
+   ou desligado; quando o cliente ganha o direito (pedido, reclamação, classificação do marketing, disparo, avaliação,
+   aleatório por dia); o banner do topo criado com a IA pelo DMS Graph (tamanho certo, pedido melhorado, foto junto, GIF,
+   o link depois de aplicado); e o tempo médio da fila. Plano: docs/plano-clube-e-banner.md.
+   Dados inventados; a loja e os clientes são de mentira. Onde a tela real difere, de propósito: os botões "Situação do
+   protótipo" trocam estados para a aprovação; a imagem do banner é uma ilustração feita na página. */
+:root{
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --gold-ink:#7A5209; --gold-bg:#FFF9EC; --navy:#0F2230;
+  --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9; --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8;
+  --neutro:#43586C; --neutro-bg:#EAEFF4; --foco:#3A7FB8;
+  --c-wa:#0B6E3A; --wa-fundo:#EDE6DB; --wa-dele:#FFFFFF; --wa-meu:#D9F5CF;
+  --proto:#0B1822; --proto-txt:#C9D5DF; --proto-txt2:#8FA3B4; --proto-linha:#2A3B4A; --d-azul:#7CC0F5;
+  /* o cardápio de exemplo (cores da loja) */
+  --l-cor:#B8321F; --l-cor-ink:#FFFFFF; --l-fundo:#FBF6F1; --l-card:#FFFFFF; --l-ink:#2A1A12; --l-ink2:#6B5548; --l-linha:#EADFD5;
+  --radius:12px; --display:"Archivo","Segoe UI",system-ui,sans-serif; --body:"Figtree","Segoe UI",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.5 var(--body);background:var(--bg);color:var(--ink);overflow-x:hidden}
+[hidden]{display:none!important}
+h1,h2,h3,h4{font-family:var(--display);margin:0;text-wrap:balance}
+h1{font-size:26px;line-height:1.15} h2{font-size:18px} h3{font-size:16px}
+p{margin:0 0 10px;overflow-wrap:anywhere} p:last-child{margin-bottom:0}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--foco);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.pular{position:absolute;left:8px;top:-60px;background:var(--gold);color:var(--on-gold);padding:8px 12px;border-radius:8px;font-weight:700;z-index:99}
+.pular:focus{top:8px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.sub{color:var(--ink-2)} .peq{font-size:13.5px}
+a{color:var(--info);text-underline-offset:2px}
+
+/* faixa do protótipo */
+.proto{background:var(--proto);color:var(--proto-txt);padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.proto .titulo{font-family:var(--display);font-weight:700;color:#fff}
+.abas{display:flex;flex-wrap:wrap;gap:6px}
+.aba{background:transparent;border:1px solid var(--proto-linha);color:var(--proto-txt);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:36px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.proto .nota{font-size:12.5px;color:var(--proto-txt2);flex:1 1 220px;min-width:0}
+.proto :focus-visible{outline-color:var(--d-azul)}
+.vista{display:none} .vista.ativa{display:block}
+.pagina{padding:20px;max-width:1240px;margin-inline:auto;container-type:inline-size;container-name:principal}
+.cab{margin-bottom:16px} .cab .sub{max-width:76ch;margin-top:4px}
+
+/* peças comuns */
+.cartao{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;min-width:0}
+.cartao > h2,.cartao > h3{margin-bottom:6px}
+.selo{display:inline-block;font-size:12.5px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.selo.ok{background:var(--ok-bg);color:var(--ok)} .selo.crit{background:var(--crit-bg);color:var(--crit)}
+.selo.warn{background:var(--warn-bg);color:var(--warn)} .selo.info{background:var(--info-bg);color:var(--info)} .selo.neutro{background:var(--neutro-bg);color:var(--neutro)}
+.selo.ouro{background:var(--gold-bg);color:var(--gold-ink);border:1px solid #F0D8A8}
+.btn{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:10px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink)}
+.btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.btn.perigo{color:var(--crit);border-color:#E6B8B8}
+.btn[disabled]{opacity:.55;cursor:not-allowed}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.faixa{border-radius:10px;padding:10px 14px;margin-bottom:14px;border:1px solid}
+.faixa.warn{background:var(--warn-bg);border-color:#EBC7B0;color:#6F3410} .faixa.info{background:var(--info-bg);border-color:#BFD6EA;color:#1D4C77}
+.faixa.ok{background:var(--ok-bg);border-color:#B5DCC8;color:#0B4A33} .faixa.crit{background:var(--crit-bg);border-color:#EDBDBD;color:#7E1F1F}
+.ctls{border:1px dashed var(--line-2);background:#FFFBF0;border-radius:10px;padding:8px 12px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px;color:var(--gold-ink)}
+.ctl{background:#fff;border:1px solid var(--line-2);padding:4px 10px;border-radius:999px;cursor:pointer;min-height:32px;color:var(--ink)}
+.ctl[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.fase{font:700 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--gold-ink)}
+.grade-2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:18px;align-items:start}
+.grade-3{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:22px 18px;align-items:start}
+.caso h3{margin-bottom:2px} .caso > .sub{font-size:13.5px;margin-bottom:8px}
+
+/* celular do cardápio */
+.cel{border:8px solid #1B2A36;border-radius:28px;background:var(--l-fundo);overflow:hidden;max-width:370px;color:var(--l-ink)}
+.cel .end{background:#fff;border-bottom:1px solid var(--l-linha);padding:6px 12px;font:600 11px var(--mono);color:#6B5548;overflow-wrap:anywhere}
+.cel .cab-l{background:var(--l-cor);color:var(--l-cor-ink);padding:10px 14px;display:flex;gap:10px;align-items:center}
+.cel .cab-l .logo{width:32px;height:32px;border-radius:50%;background:#fff;color:var(--l-cor);display:grid;place-items:center;font:800 14px var(--display);flex:none}
+.cel .cab-l b{display:block;line-height:1.2} .cel .cab-l span{font-size:12px;opacity:.92}
+.tela{padding:12px;display:grid;gap:10px}
+.l-card{background:var(--l-card);border:1px solid var(--l-linha);border-radius:12px;padding:12px;min-width:0}
+.l-card h4{font:700 14px var(--display);margin:0 0 4px}
+.l-sub{font-size:12.5px;color:var(--l-ink2)}
+.l-btn{display:block;width:100%;border:0;border-radius:10px;padding:10px 12px;min-height:44px;background:var(--l-cor);color:var(--l-cor-ink);font-weight:700;cursor:pointer;text-align:center}
+.l-btn.sec{background:#fff;color:var(--l-ink);border:1px solid var(--l-linha)}
+.l-link{background:none;border:0;padding:0;color:#8A3A12;text-decoration:underline;cursor:pointer;font-size:12.5px}
+.passo-ped{display:flex;gap:8px;align-items:center;font-size:13px}
+.passo-ped .ok{width:20px;height:20px;border-radius:50%;background:#2E7D4F;color:#fff;display:grid;place-items:center;font-size:11px;flex:none}
+
+/* raspadinha */
+.raspa{position:relative;border-radius:12px;overflow:hidden;aspect-ratio:2/1;max-width:100%;background:linear-gradient(135deg,#FFF4D6,#FFE2A8);border:2px dashed #D9A441;display:grid;place-items:center;text-align:center;padding:10px;touch-action:none}
+.raspa .premio{display:grid;gap:2px}
+.raspa .premio b{font:800 22px var(--display);color:#7A3B07}
+.raspa .premio span{font-size:12.5px;color:#6B4A1E}
+.raspa canvas{position:absolute;inset:0;width:100%;height:100%;cursor:pointer;border-radius:10px}
+.cupom{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;justify-content:space-between;border:1px dashed #C9A36A;background:#FFFBF2;border-radius:10px;padding:8px 10px}
+.cupom code{font:700 14px var(--mono);letter-spacing:.06em;color:#5B3A10;overflow-wrap:anywhere}
+
+/* roleta */
+.roleta{display:grid;justify-items:center;gap:10px}
+.roda{position:relative;width:min(100%,230px);aspect-ratio:1}
+.roda svg{width:100%;height:100%;display:block;transition:transform 3.2s cubic-bezier(.17,.67,.21,1)}
+.roda .ponteiro{position:absolute;left:50%;top:-6px;transform:translateX(-50%);width:0;height:0;border-left:12px solid transparent;border-right:12px solid transparent;border-top:20px solid #2A1A12;filter:drop-shadow(0 1px 1px rgba(0,0,0,.3))}
+.roda text{font:700 9.5px var(--body);fill:#2A1A12}
+
+/* álbum e meta */
+.album{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.selo-m{aspect-ratio:1;border-radius:50%;display:grid;place-items:center;text-align:center;font:700 10.5px var(--display);line-height:1.15;padding:4px;min-width:0}
+.selo-m.tem{background:radial-gradient(circle at 35% 30%,#FFE7B0,#E8A845);color:#5B3A10;border:2px solid #C8862A}
+.selo-m.falta{background:#fff;border:2px dashed #D8C8B8;color:#A8968A}
+.selo-m span{display:block;font-size:16px}
+.barra{height:12px;border-radius:999px;background:#F0E6DC;overflow:hidden}
+.barra span{display:block;height:100%;background:var(--l-cor);border-radius:999px}
+.niveis{display:grid;gap:6px;margin-top:8px}
+.nivel{display:flex;flex-wrap:wrap;gap:4px 10px;justify-content:space-between;align-items:center;font-size:13px;border:1px solid var(--l-linha);border-radius:8px;padding:6px 8px}
+.premios-lista{display:grid;gap:6px}
+.premio-op{display:flex;gap:8px;align-items:center;border:1px solid var(--l-linha);border-radius:10px;padding:8px 10px;cursor:pointer;background:#fff;text-align:left;width:100%;min-height:44px}
+.premio-op[aria-pressed="true"]{border-color:var(--l-cor);box-shadow:inset 0 0 0 1px var(--l-cor);background:#FFF5F2}
+
+/* banner no cardápio */
+.ban{position:relative;border-radius:12px;overflow:hidden;aspect-ratio:12/5;background:#1E140F;color:#fff;max-width:100%}
+.ban .arte{position:absolute;inset:0;background:
+  radial-gradient(circle at 70% 55%,rgba(255,180,80,.55),transparent 42%),
+  radial-gradient(circle at 78% 62%,#7A3B12 0 18%,transparent 19%),
+  radial-gradient(circle at 78% 52%,#F2B544 0 16%,transparent 17%),
+  radial-gradient(circle at 78% 57%,#5A2A10 0 20%,transparent 21%),
+  linear-gradient(120deg,#160E0A,#3A1D10 60%,#160E0A)}
+.ban.anim .arte{animation:aprox 6s ease-in-out infinite alternate}
+@keyframes aprox{from{transform:scale(1)}to{transform:scale(1.08)}}
+.ban .txt{position:absolute;left:6%;top:50%;transform:translateY(-50%);max-width:56%;display:grid;gap:4px}
+.ban .txt b{font:800 clamp(14px,5.2cqi,26px)/1.05 var(--display)}
+.ban .txt span{font-size:clamp(10px,3cqi,13px);opacity:.92}
+.ban .txt em{font-style:normal;display:inline-block;background:var(--gold);color:var(--on-gold);font-weight:700;border-radius:999px;padding:2px 10px;font-size:clamp(10px,2.8cqi,12.5px);justify-self:start}
+.ban-moldura{container-type:inline-size;min-width:0}
+.ban .marca-ia{position:absolute;right:8px;bottom:8px;font:600 10px var(--body);background:rgba(0,0,0,.45);padding:1px 6px;border-radius:999px}
+.ban .pontos{position:absolute;left:0;right:0;bottom:8px;display:flex;justify-content:center;gap:5px}
+.ban .pontos i{width:6px;height:6px;border-radius:3px;background:rgba(255,255,255,.7)} .ban .pontos i.on{width:18px;background:#fff}
+
+/* WhatsApp */
+.wa{border:8px solid #1B2A36;border-radius:28px;background:var(--wa-fundo);overflow:hidden;max-width:370px}
+.wa-topo{background:var(--c-wa);color:#fff;padding:10px 14px;display:flex;gap:10px;align-items:center}
+.wa-topo .foto{width:34px;height:34px;border-radius:50%;background:#fff;color:var(--c-wa);display:grid;place-items:center;font:800 15px var(--display);flex:none}
+.wa-topo b{display:block;line-height:1.2} .wa-topo span{font-size:12.5px;opacity:.9}
+.conv{padding:12px 10px;display:grid;gap:8px;min-height:120px;align-content:start}
+.bolha{max-width:90%;padding:7px 10px;border-radius:10px;font-size:14px;line-height:1.42;box-shadow:0 1px 1px rgba(0,0,0,.12);overflow-wrap:anywhere;min-width:0}
+.bolha.dele{background:var(--wa-dele);justify-self:start;border-top-left-radius:2px}
+.bolha.meu{background:var(--wa-meu);justify-self:end;border-top-right-radius:2px}
+.bolha .hora{display:block;text-align:right;font-size:11px;color:#5E6E7A;margin-top:2px}
+.botoes-wa{display:grid;gap:4px;margin-top:6px}
+.botoes-wa span{background:#fff;border:1px solid #D5DDE3;border-radius:8px;padding:6px 8px;text-align:center;color:#0B5CAD;font-weight:600;font-size:13.5px}
+.cat-meta{display:inline-block;font:600 10.5px var(--body);color:#5E6E7A;background:#F3F6F8;border-radius:4px;padding:0 6px;margin-bottom:4px}
+
+/* app da loja */
+.app{display:grid;grid-template-columns:230px minmax(0,1fr);min-height:70vh;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#EDF0F4}
+.lado{background:var(--navy);color:#C9D5DF;padding:16px 12px}
+.marca{font-family:var(--display);font-weight:800;color:#fff;font-size:18px;padding:4px 8px 14px;letter-spacing:.02em}
+.lado ul{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.lado li{padding:8px 10px;border-radius:8px}
+.lado li.atual{background:rgba(232,168,69,.18);color:#fff;box-shadow:inset 3px 0 0 var(--gold);font-weight:600}
+.principal{min-width:0;container-type:inline-size;container-name:loja}
+.topo{background:#fff;border-bottom:1px solid var(--line);padding:10px 20px;display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;justify-content:space-between}
+.onde-app{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--gold-ink)}
+.corpo-app{padding:18px}
+.partes{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px;padding:0 0 12px;border-bottom:1px solid var(--line)}
+.parte{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:999px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink-2)}
+.parte[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.bloco{display:none} .bloco.ativo{display:block}
+.grupo-aj{font:700 12.5px var(--display);text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);margin:14px 0 2px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline}
+.grupo-aj span{font:500 12.5px var(--body);text-transform:none;letter-spacing:0}
+.aj{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 16px;align-items:center;padding:12px 10px;border-top:1px solid var(--line);background:#fff}
+.aj.mudou{background:var(--gold-bg);box-shadow:inset 3px 0 0 var(--gold)}
+.aj.travado{background:#F6F8FA}
+.aj .t{font-weight:600} .aj .d{font-size:13.5px;color:var(--ink-2)}
+.aj .ctrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end;min-width:0}
+.aj .ctrl select,.aj .ctrl input{border:1px solid var(--line-2);border-radius:8px;padding:6px 8px;min-height:40px;background:#fff;max-width:100%;min-width:0}
+.aj .ctrl input[type=number]{width:96px}
+.lista-aj{border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.liga{position:relative;width:52px;height:30px;border-radius:999px;border:1px solid var(--line-2);background:var(--neutro-bg);cursor:pointer;flex:none;padding:0}
+.liga::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:left .15s}
+.liga[aria-checked="true"]{background:var(--ok);border-color:var(--ok)} .liga[aria-checked="true"]::after{left:25px}
+.liga[disabled]{opacity:.5;cursor:not-allowed}
+.estado-liga{font-size:13px;color:var(--ink-2);min-width:64px}
+@container loja (max-width: 620px){ .aj{grid-template-columns:minmax(0,1fr)} .aj .ctrl{justify-content:flex-start} }
+.barra-salvar{position:sticky;bottom:0;background:var(--navy);color:#fff;border-radius:12px 12px 0 0;padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;z-index:5;margin-top:12px}
+.barra-salvar .btn{border-color:#3C5568;background:transparent;color:#fff} .barra-salvar .btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.barra-salvar :focus-visible{outline-color:var(--d-azul)}
+.ferramentas{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:14px}
+.ferr{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px;display:grid;gap:8px;align-content:start;min-width:0}
+.ferr .linha{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.ferr .ico{font-size:24px}
+.nums{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,120px),1fr));gap:8px}
+.num{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:#fff;min-width:0}
+.num b{display:block;font:700 18px var(--mono)} .num span{font-size:12.5px;color:var(--ink-2)}
+/* lista no modelo do Estoque */
+.lista-cab{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between;margin-bottom:10px}
+.situacoes{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.sit{background:#fff;border:1px solid var(--line-2);border-radius:999px;padding:4px 12px;min-height:36px;cursor:pointer;font-size:13.5px}
+.sit[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.sit b{font-family:var(--mono);margin-left:4px}
+.busca{border:1px solid var(--line-2);border-radius:10px;padding:8px 10px;min-height:40px;width:min(100%,280px);background:#fff}
+.linhas{display:grid;gap:8px}
+.linha-l{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;align-items:center}
+.linha-l .n{font-weight:700} .linha-l .d{font-size:13px;color:var(--ink-2)}
+@container loja (max-width: 560px){ .linha-l{grid-template-columns:minmax(0,1fr)} }
+.gatilho{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:grid;gap:8px;min-width:0}
+.gatilho + .gatilho{margin-top:10px}
+.gatilho .topo-g{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between}
+.gatilho .topo-g h4{font:700 15px var(--display);margin:0}
+.gatilho .regra{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13.5px;color:var(--ink-2)}
+.gatilho.travado{background:#F6F8FA;border-style:dashed}
+.gatilho.mudou,.ferr.mudou{background:var(--gold-bg);box-shadow:inset 3px 0 0 var(--gold)}
+.forma{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:10px}
+.forma-op{border:1px solid var(--line-2);border-radius:12px;padding:12px;background:#fff;cursor:pointer;text-align:left;display:grid;gap:4px;min-height:44px}
+.forma-op[aria-pressed="true"]{border-color:var(--gold);box-shadow:inset 0 0 0 2px var(--gold);background:var(--gold-bg)}
+.forma-op b{font-family:var(--display)}
+/* caso do atendimento */
+.caso-at{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:14px}
+@container loja (max-width: 720px){ .caso-at{grid-template-columns:minmax(0,1fr)} }
+.fila-l{display:grid;gap:8px}
+.fila-i{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;gap:2px}
+.fila-i.atual{border-color:var(--gold);box-shadow:inset 3px 0 0 var(--gold)}
+.resumo-robo{background:#F6F8FA;border-left:3px solid var(--info);border-radius:6px;padding:8px 10px;font-size:13.5px}
+/* banners */
+.ban-lista{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:12px;align-items:start}
+.ban-item{background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px;display:grid;gap:8px;min-width:0}
+.ban-item .ban{aspect-ratio:12/5}
+.ban-item .vazio{aspect-ratio:12/5;width:100%;border:2px dashed var(--line-2);border-radius:10px;display:grid;place-items:center;color:var(--ink-2);font-size:13.5px;text-align:center;padding:8px}
+.campo{display:grid;gap:4px;margin-bottom:12px}
+.campo label,.campo .rot{font-weight:600;font-size:14px}
+.campo textarea,.campo input,.campo select{border:1px solid var(--line-2);border-radius:10px;padding:8px 10px;min-height:40px;background:#fff;width:100%;min-width:0}
+.campo textarea{min-height:84px;resize:vertical}
+.campo .aj-d{font-size:12.5px;color:var(--ink-2)}
+.antes-depois{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:8px}
+.antes-depois div{border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13.5px;background:#fff;min-width:0}
+.antes-depois small{display:block;font:700 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);margin-bottom:2px}
+.anexo{display:flex;flex-wrap:wrap;gap:8px;align-items:center;border:1px dashed var(--line-2);border-radius:10px;padding:8px 10px;background:#FAFBFC}
+.anexo .mini{width:44px;height:44px;border-radius:8px;background:radial-gradient(circle at 50% 60%,#F2B544 0 30%,#7A3B12 31% 45%,#E9DCCF 46%);flex:none}
+.opcoes{display:flex;flex-wrap:wrap;gap:6px}
+.op{background:#fff;border:1px solid var(--line-2);border-radius:999px;padding:4px 12px;min-height:36px;cursor:pointer;font-size:13.5px}
+.op[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.previas{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:10px;align-items:start}
+.previa-cel{border:6px solid #1B2A36;border-radius:20px;overflow:hidden;background:var(--l-fundo);max-width:240px}
+.previa-pc{border:6px solid #1B2A36;border-radius:10px;overflow:hidden;background:var(--l-fundo)}
+.previa-cel .ban,.previa-pc .ban{border-radius:0}
+.custo{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;font-size:13px;color:var(--ink-2)}
+.carregando{display:grid;place-items:center;aspect-ratio:12/5;border-radius:10px;background:repeating-linear-gradient(110deg,#EEF2F6 0 20px,#E3E9EF 20px 40px);color:var(--ink-2);font-weight:600;text-align:center;padding:8px}
+
+/* gaveta e diálogo */
+.fundo{position:fixed;inset:0;background:rgba(11,24,34,.45);z-index:40;display:none}
+.fundo.aberto{display:block}
+.gaveta{position:fixed;top:0;right:0;bottom:0;width:min(100%,560px);background:#fff;z-index:50;display:none;flex-direction:column;box-shadow:-8px 0 24px rgba(0,0,0,.18)}
+.gaveta.aberto{display:flex}
+.gaveta .g-cab{display:flex;gap:10px;align-items:flex-start;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--line)}
+.gaveta .g-cab h2{font-size:18px}
+.gaveta .g-corpo{padding:16px 18px;overflow-y:auto;flex:1;min-height:0;container-type:inline-size}
+.gaveta .g-rod{padding:12px 18px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;background:#fff}
+.fechar{background:#fff;border:1px solid var(--line-2);border-radius:10px;min-width:40px;min-height:40px;cursor:pointer;font-size:18px;line-height:1}
+.dialogo{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(calc(100% - 24px),460px);background:#fff;border-radius:14px;z-index:60;display:none;padding:18px;box-shadow:0 12px 32px rgba(0,0,0,.25);max-height:calc(100vh - 24px);overflow-y:auto}
+.dialogo.aberto{display:block}
+.dialogo h2{margin-bottom:8px}
+
+/* notas */
+.notas{max-width:1000px}
+.notas .cartao ul,.notas .cartao ol{margin:6px 0 0;padding-left:20px} .notas .cartao li{margin-bottom:6px}
+.decisao{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:10px 0 0}
+.decisao h3{font-size:15px;margin-bottom:6px}
+.decisao ol{margin:0;padding-left:20px} .decisao li{margin-bottom:4px}
+.rec{font:700 11px var(--display);background:var(--ok-bg);color:var(--ok);padding:1px 7px;border-radius:999px;letter-spacing:.03em;white-space:nowrap}
+.fases{width:100%;border-collapse:collapse;font-size:14px}
+.fases th{font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:8px;border-bottom:2px solid var(--line-2)}
+.fases td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+@container principal (max-width: 700px){
+  .fases thead{display:none} .fases,.fases tbody,.fases tr,.fases td{display:block;width:100%}
+  .fases tr{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px;background:#fff}
+  .fases td{border:0;padding:3px 0}
+  .fases td[data-rot]::before{content:attr(data-rot);display:block;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+}
+
+@media (max-width: 900px){
+  .app{grid-template-columns:minmax(0,1fr)} .lado{display:none}
+  .pagina{padding:14px} .topo{padding:10px 14px} .corpo-app{padding:14px}
+  .btn,.parte{min-height:44px}
+}
+@media (prefers-reduced-motion: reduce){ *{transition:none!important;animation:none!important} }
+</style>
+</head>
+<body>
+<a class="pular" href="#conteudo">Pular para o conteúdo</a>
+<header class="proto">
+  <span class="titulo">Protótipo · Clube e banner</span>
+  <nav class="abas" aria-label="Partes do protótipo">
+    <button class="aba" data-aba="cardapio" aria-pressed="true">No cardápio</button>
+    <button class="aba" data-aba="clube" aria-pressed="false">Marketing › Clube</button>
+    <button class="aba" data-aba="atendimento" aria-pressed="false">Atendimento</button>
+    <button class="aba" data-aba="banners" aria-pressed="false">Banners com IA</button>
+    <button class="aba" data-aba="fila" aria-pressed="false">Tempo da fila</button>
+    <button class="aba" data-aba="notas" aria-pressed="false">Notas e decisões</button>
+  </nav>
+  <span class="nota">Dados inventados. Nada aqui fala com o Regem.</span>
+</header>
+
+<div id="conteudo">
+
+<!-- ═════════════════════ NO CARDÁPIO ═════════════════════ -->
+<section class="vista ativa" id="v-cardapio" aria-label="No cardápio">
+  <div class="pagina">
+    <div class="cab">
+      <h1>O que o cliente vê</h1>
+      <p class="sub">O prêmio surpresa (raspadinha ou roleta), o álbum de selos e a meta do mês aparecem na página do pedido e na "Minha conta" do cardápio. O prêmio já está definido quando o cliente ganha o direito: a raspadinha e a roleta só revelam. Toque para experimentar.</p>
+    </div>
+
+    <div class="grade-3">
+
+      <article class="caso">
+        <h3>1. Raspadinha depois da entrega</h3>
+        <p class="sub">Gatilho "Pedido entregue". Raspe com o dedo ou o mouse; "Revelar sem raspar" faz o mesmo para quem usa leitor de tela. <span class="fase">A1</span></p>
+        <div class="cel">
+          <div class="end">lanchonetedapraca.regem.app/r/8K2P</div>
+          <div class="cab-l"><span class="logo" aria-hidden="true">LP</span><div><b>Lanchonete da Praça</b><span>Pedido nº 1.482</span></div></div>
+          <div class="tela">
+            <div class="l-card">
+              <div class="passo-ped"><span class="ok" aria-hidden="true">✓</span><b>Entregue às 20:41</b></div>
+              <p class="l-sub" style="margin-top:4px">Bom apetite, Ana!</p>
+            </div>
+            <div class="l-card">
+              <h4>🎁 Você ganhou uma raspadinha</h4>
+              <p class="l-sub">Seu prêmio já está garantido. Raspe para ver.</p>
+              <div class="raspa" id="raspa">
+                <div class="premio" id="raspa-premio" aria-live="polite"><b>15% OFF</b><span>no próximo pedido · até R$ 20</span></div>
+                <canvas id="raspa-tela" aria-hidden="true"></canvas>
+              </div>
+              <div class="acoes" style="margin-top:8px">
+                <button class="l-link" type="button" id="raspa-revelar">Revelar sem raspar</button>
+              </div>
+              <div id="raspa-depois" hidden style="margin-top:8px;display:grid;gap:8px">
+                <div class="cupom"><code>ANA-15-R7Q</code><span class="l-sub">vale até 27/11 · pedido a partir de R$ 30</span></div>
+                <p class="l-sub">Já está guardado na sua conta: aparece sozinho no próximo pedido.</p>
+              </div>
+              <p style="margin-top:8px"><button class="l-link" type="button" data-abre="d-regras">Regras do clube</button></p>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="caso">
+        <h3>2. Roleta de prêmios</h3>
+        <p class="sub">A mesma finalidade, outra forma. A roda mostra os prêmios da lista da loja, mas sempre para no prêmio que o cliente já ganhou, e a tela diz isso. <span class="fase">A1</span></p>
+        <div class="cel">
+          <div class="end">lanchonetedapraca.regem.app/p/T4WM</div>
+          <div class="cab-l"><span class="logo" aria-hidden="true">LP</span><div><b>Lanchonete da Praça</b><span>Seu prêmio</span></div></div>
+          <div class="tela">
+            <div class="l-card roleta">
+              <h4 style="text-align:center">Gire para descobrir o seu prêmio</h4>
+              <p class="l-sub" style="text-align:center">Ele já foi escolhido para você.</p>
+              <div class="roda">
+                <span class="ponteiro" aria-hidden="true"></span>
+                <svg id="roda-svg" viewBox="-100 -100 200 200" role="img" aria-label="Roleta com seis prêmios: frete grátis, 10% off, batata grátis, 15% off, refri grátis e R$ 10 off">
+                  <g>
+                    <path d="M0 0 L0 -96 A96 96 0 0 1 83.1 -48 Z" fill="#F7D488"/>
+                    <path d="M0 0 L83.1 -48 A96 96 0 0 1 83.1 48 Z" fill="#F3B3A6"/>
+                    <path d="M0 0 L83.1 48 A96 96 0 0 1 0 96 Z" fill="#F7D488"/>
+                    <path d="M0 0 L0 96 A96 96 0 0 1 -83.1 48 Z" fill="#F3B3A6"/>
+                    <path d="M0 0 L-83.1 48 A96 96 0 0 1 -83.1 -48 Z" fill="#F7D488"/>
+                    <path d="M0 0 L-83.1 -48 A96 96 0 0 1 0 -96 Z" fill="#F3B3A6"/>
+                    <circle r="96" fill="none" stroke="#2A1A12" stroke-width="3"/>
+                    <text transform="rotate(30) translate(0 -62)" text-anchor="middle">Frete grátis</text>
+                    <text transform="rotate(90) translate(0 -62)" text-anchor="middle">10% off</text>
+                    <text transform="rotate(150) translate(0 -62)" text-anchor="middle">Batata grátis</text>
+                    <text transform="rotate(210) translate(0 -62)" text-anchor="middle">15% off</text>
+                    <text transform="rotate(270) translate(0 -62)" text-anchor="middle">Refri grátis</text>
+                    <text transform="rotate(330) translate(0 -62)" text-anchor="middle">R$ 10 off</text>
+                    <circle r="14" fill="#2A1A12"/>
+                  </g>
+                </svg>
+              </div>
+              <button class="l-btn" type="button" id="girar">Girar</button>
+              <div id="roleta-depois" hidden style="display:grid;gap:8px;width:100%" aria-live="polite">
+                <p style="text-align:center;margin:0"><b>Batata frita grátis</b> no próximo pedido</p>
+                <div class="cupom"><code>ANA-BATATA-4T</code><span class="l-sub">vale até 27/11</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="caso">
+        <h3>3. Minha conta: álbum e meta</h3>
+        <p class="sub">O álbum ganha um selo por mês com pedido (a arte do evento do mês). A meta conta os pedidos do mês em níveis. <span class="fase">A2 · A3</span></p>
+        <div class="cel">
+          <div class="end">lanchonetedapraca.regem.app/conta</div>
+          <div class="cab-l"><span class="logo" aria-hidden="true">LP</span><div><b>Minha conta</b><span>Ana · (21) 9••••-1180</span></div></div>
+          <div class="tela">
+            <div class="l-card">
+              <h4>🎁 Prêmios para revelar <span class="selo ouro">1</span></h4>
+              <p class="l-sub">Raspadinha de desculpas pelo pedido de terça.</p>
+              <button class="l-btn" type="button" style="margin-top:6px">Raspar agora</button>
+            </div>
+            <div class="l-card">
+              <h4>Álbum de selos · 3 de 4</h4>
+              <div class="album" role="list" aria-label="Selos do álbum">
+                <div class="selo-m tem" role="listitem"><span aria-hidden="true">🎃</span>Out</div>
+                <div class="selo-m tem" role="listitem"><span aria-hidden="true">🍁</span>Set</div>
+                <div class="selo-m tem" role="listitem"><span aria-hidden="true">🍔</span>Nov</div>
+                <div class="selo-m falta" role="listitem"><span aria-hidden="true">?</span>Dez</div>
+              </div>
+              <p class="l-sub" style="margin-top:6px">Peça em dezembro e escolha um prêmio. Seus selos valem 12 meses.</p>
+            </div>
+            <div class="l-card">
+              <h4>Meta de novembro</h4>
+              <p class="l-sub">2 pedidos de 3 para o primeiro prêmio</p>
+              <div class="barra" role="img" aria-label="2 de 6 pedidos"><span style="width:33%"></span></div>
+              <div class="niveis">
+                <div class="nivel"><span><b>3 pedidos</b> · escolha 1 prêmio</span><span class="selo neutro">falta 1</span></div>
+                <div class="nivel"><span><b>6 pedidos</b> · prêmio maior</span><span class="selo neutro">faltam 4</span></div>
+              </div>
+              <button class="l-link" type="button" data-abre="d-escolher" style="margin-top:8px">Ver os prêmios da meta</button>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="caso">
+        <h3>4. Pela campanha (disparo)</h3>
+        <p class="sub">Gatilho "Em disparo" ou "Pela classificação": só para quem aceitou receber mensagens, pelo número de marketing. É mensagem de marketing da Meta. <span class="fase">A1</span></p>
+        <div class="wa"><div class="wa-topo"><span class="foto" aria-hidden="true">LP</span><div><b>Lanchonete da Praça</b><span>conta comercial</span></div></div>
+          <div class="conv">
+            <div class="bolha dele"><span class="cat-meta">marketing</span><br>Oi, Ana! Faz um tempinho que você não aparece 🙂 Separamos um presente: <b>raspe e veja o seu prêmio</b>, ele já está garantido. Vale até 27/11.
+              <div class="botoes-wa"><span>🎁 Raspar o meu prêmio</span><span>Não quero mais receber</span></div><span class="hora">18:02</span></div>
+          </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>5. Banner no topo do cardápio</h3>
+        <p class="sub">Criado com a IA pelo DMS Graph, com o texto escrito pelo Regem por cima. Animado (GIF) quando a loja escolhe; parado para quem pediu menos movimento no aparelho. <span class="fase">B2 · B3</span></p>
+        <div class="cel">
+          <div class="end">lanchonetedapraca.regem.app</div>
+          <div class="cab-l"><span class="logo" aria-hidden="true">LP</span><div><b>Lanchonete da Praça</b><span>Aberto · entrega em 35–45 min</span></div></div>
+          <div class="tela">
+            <div class="ban-moldura"><div class="ban anim" role="img" aria-label="Banner: Sextou com bacon. Duplo bacon por R$ 32,90. Peça agora.">
+              <div class="arte"></div>
+              <div class="txt"><b>Sextou com bacon</b><span>Duplo bacon por R$ 32,90</span><em>Peça agora</em></div>
+              <span class="pontos" aria-hidden="true"><i class="on"></i><i></i><i></i></span>
+            </div></div>
+            <div class="l-card"><h4>Mais pedidos</h4><p class="l-sub">X-Bacon duplo · Batata grande · Milk-shake</p></div>
+          </div>
+        </div>
+      </article>
+
+      <article class="caso">
+        <h3>6. Escolher o prêmio da meta</h3>
+        <p class="sub">Bateu a meta: escolhe um prêmio da lista daquele nível; vira cupom para o próximo pedido. <span class="fase">A3</span></p>
+        <div class="cel">
+          <div class="end">lanchonetedapraca.regem.app/conta/meta</div>
+          <div class="cab-l"><span class="logo" aria-hidden="true">LP</span><div><b>Meta de outubro</b><span>3 de 3 · você conseguiu!</span></div></div>
+          <div class="tela">
+            <div class="l-card">
+              <h4>Escolha 1 prêmio</h4>
+              <div class="premios-lista" role="group" aria-label="Prêmios do nível 1">
+                <button class="premio-op" type="button" aria-pressed="true">🍟 Batata média grátis</button>
+                <button class="premio-op" type="button" aria-pressed="false">🥤 Refrigerante lata grátis</button>
+                <button class="premio-op" type="button" aria-pressed="false">🛵 Frete grátis</button>
+              </div>
+              <button class="l-btn" type="button" style="margin-top:8px">Quero este</button>
+              <p class="l-sub" style="margin-top:6px">Vale por 15 dias, no próximo pedido pelo cardápio ou pelo WhatsApp.</p>
+            </div>
+          </div>
+        </div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ MARKETING › CLUBE ═════════════════════ -->
+<section class="vista" id="v-clube" aria-label="Marketing › Clube">
+  <div class="pagina">
+    <div class="app">
+      <aside class="lado" aria-label="Menu do app (ilustração)"><div class="marca">Regem</div>
+        <ul><li>Delivery</li><li>Clientes</li><li class="atual">Marketing</li><li>Cupons</li><li>Atendimento</li><li>Configurações</li></ul></aside>
+      <div class="principal">
+        <div class="topo"><div><span class="onde-app">Delivery › Marketing</span><h1 style="font-size:22px">Clube</h1></div><span class="selo info">só o presidente muda</span></div>
+        <div class="corpo-app">
+          <nav class="partes" aria-label="Partes do Clube">
+            <button class="parte" data-parte="visao" aria-pressed="true">Visão geral</button>
+            <button class="parte" data-parte="surpresa" aria-pressed="false">Prêmio surpresa</button>
+            <button class="parte" data-parte="album" aria-pressed="false">Álbum de selos</button>
+            <button class="parte" data-parte="meta" aria-pressed="false">Meta do mês</button>
+            <button class="parte" data-parte="premios" aria-pressed="false">Prêmios</button>
+            <button class="parte" data-parte="resultados" aria-pressed="false">Resultados</button>
+          </nav>
+
+          <!-- visão geral -->
+          <div class="bloco ativo" data-bloco="visao">
+            <div class="faixa info">Cada ferramenta liga e desliga sozinha. Desligar para de dar direitos novos na hora; o que o cliente já ganhou vale até a validade. Nenhuma usa sorteio: todo mundo que cumpre a regra recebe.</div>
+            <div class="ferramentas">
+              <div class="ferr"><div class="linha"><span class="ico" aria-hidden="true">🎁</span><span class="linha" style="gap:8px"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-label="Prêmio surpresa"></button></span></div>
+                <h3>Prêmio surpresa</h3><p class="sub peq">Raspadinha ou roleta. 3 de 6 gatilhos ligados.</p>
+                <div class="nums"><div class="num"><b>214</b><span>ganharam no mês</span></div><div class="num"><b>61%</b><span>usaram</span></div></div></div>
+              <div class="ferr"><div class="linha"><span class="ico" aria-hidden="true">📒</span><span class="linha" style="gap:8px"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-label="Álbum de selos"></button></span></div>
+                <h3>Álbum de selos</h3><p class="sub peq">4 selos, um por mês com pedido.</p>
+                <div class="nums"><div class="num"><b>388</b><span>com selo</span></div><div class="num"><b>27</b><span>completaram</span></div></div></div>
+              <div class="ferr"><div class="linha"><span class="ico" aria-hidden="true">🎯</span><span class="linha" style="gap:8px"><span class="estado-liga">Desligado</span><button class="liga" role="switch" aria-checked="false" aria-label="Meta do mês"></button></span></div>
+                <h3>Meta do mês</h3><p class="sub peq">2 níveis: 3 e 6 pedidos.</p>
+                <div class="nums"><div class="num"><b>—</b><span>desligada</span></div></div></div>
+            </div>
+            <div class="grupo-aj">Regras que valem para as três <span>convivem com o Plano de fidelidade e o cashback</span></div>
+            <div class="lista-aj">
+              <div class="aj"><div><div class="t">Que pedidos contam</div><div class="d">Só os do cardápio online e do atendente no WhatsApp. iFood e 99 não aceitam o cupom do Regem.</div></div>
+                <div class="ctrl"><select aria-label="Que pedidos contam"><option>Cardápio Regem e WhatsApp</option></select></div></div>
+              <div class="aj"><div><div class="t">Pedido mínimo para contar</div><div class="d">Pedidos abaixo disso não dão selo, não contam na meta e não dão raspadinha.</div></div>
+                <div class="ctrl"><input type="number" value="30" aria-label="Pedido mínimo em reais"> <span class="sub">reais</span></div></div>
+              <div class="aj"><div><div class="t">Um benefício por pedido</div><div class="d">O cupom do prêmio não junta com outro cupom. O cashback continua.</div></div>
+                <div class="ctrl"><span class="selo neutro">sempre</span></div></div>
+              <div class="aj"><div><div class="t">Regras do clube</div><div class="d">Página com as regras de cada ferramenta ligada, montada sozinha. O link aparece em cada tela do jogo.</div></div>
+                <div class="ctrl"><button class="btn" type="button" data-abre="d-regras">Ver as regras</button></div></div>
+            </div>
+          </div>
+
+          <!-- prêmio surpresa -->
+          <div class="bloco" data-bloco="surpresa">
+            <div class="ctls"><b>Situação do protótipo:</b>
+              <button class="ctl" data-ctl="g6" data-valor="travado" aria-pressed="true">Aleatório: sem autorização</button>
+              <button class="ctl" data-ctl="g6" data-valor="liberado" aria-pressed="false">Aleatório: com o certificado</button>
+            </div>
+            <h2 style="margin-bottom:8px">Como o cliente revela</h2>
+            <div class="forma" role="group" aria-label="Forma de revelar">
+              <button class="forma-op" type="button" aria-pressed="true"><b>🪙 Raspadinha</b><span class="sub peq">Raspa com o dedo e vê o prêmio.</span></button>
+              <button class="forma-op" type="button" aria-pressed="false"><b>🎡 Roleta de prêmios</b><span class="sub peq">Toca, a roda gira e para no prêmio.</span></button>
+            </div>
+            <p class="sub peq" style="margin-top:6px">As duas mostram o mesmo prêmio, que já foi definido quando o cliente ganhou o direito.</p>
+
+            <h2 style="margin:18px 0 8px">Quando o cliente ganha</h2>
+            <div class="gatilho"><div class="topo-g"><h4>Pedido entregue <span class="rec">recomendado</span></h4><span class="linha" style="display:flex;gap:8px;align-items:center"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-label="Pedido entregue"></button></span></div>
+              <div class="regra"><span>A cada <b>1</b> pedido a partir de <b>R$ 30</b></span><span>Prêmio: <b>15% off até R$ 20</b></span><span>Validade: <b>7 dias</b></span></div>
+              <div class="acoes"><button class="btn" type="button" data-abre="g-gat-entregue">Mudar</button></div></div>
+
+            <div class="gatilho"><div class="topo-g"><h4>Depois de uma reclamação</h4><span class="linha" style="display:flex;gap:8px;align-items:center"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-label="Depois de uma reclamação"></button></span></div>
+              <div class="regra"><span>A equipe manda pelo caso, em Atendimento</span><span>Prêmios que ela pode escolher: <b>3</b></span><span>No máximo <b>1 por cliente por mês</b></span></div>
+              <div class="acoes"><button class="btn" type="button" data-abre="g-gat-reclamacao">Mudar</button></div></div>
+
+            <div class="gatilho"><div class="topo-g"><h4>Pela classificação do marketing</h4><span class="linha" style="display:flex;gap:8px;align-items:center"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-label="Pela classificação do marketing"></button></span></div>
+              <div class="regra"><span>Segmentos: <b>Em risco</b>, <b>Inativos</b></span><span>Todos do segmento ganham, <b>1 vez a cada 60 dias</b></span><span>Prêmio: <b>frete grátis</b></span></div>
+              <p class="sub peq">O prêmio espera na conta do cliente; sai pelo WhatsApp se a campanha "Sentimos sua falta" estiver ligada.</p>
+              <div class="acoes"><button class="btn" type="button" data-abre="g-gat-classificacao">Mudar</button></div></div>
+
+            <div class="gatilho"><div class="topo-g"><h4>Em disparo (campanha)</h4><span class="linha" style="display:flex;gap:8px;align-items:center"><span class="estado-liga">Desligado</span><button class="liga" role="switch" aria-checked="false" aria-label="Em disparo"></button></span></div>
+              <div class="regra"><span>Na hora de criar a campanha, a opção "🎁 Mandar um prêmio surpresa"</span><span>Todos os destinatários ganham</span></div></div>
+
+            <div class="gatilho travado"><div class="topo-g"><h4>Depois da avaliação</h4><span class="selo warn">não recomendado</span></div>
+              <p class="sub peq" style="margin:0">O Google proíbe dar benefício em troca de avaliação, boa ou ruim, e pode tirar as avaliações do ar e bloquear o perfil. A lei de promoções trata a avaliação como "outro critério além da compra". No lugar dele, use "Pedido entregue": o prêmio sai na entrega, antes de qualquer pedido de nota.</p></div>
+
+            <div class="gatilho travado" data-quando-g6="travado"><div class="topo-g"><h4>Aleatório, alguns por dia</h4><span class="selo crit">sorteio · precisa de autorização</span></div>
+              <p class="sub peq" style="margin:0">Escolher clientes por sorte, em quantidade limitada, é sorteio: a lei exige autorização da Secretaria de Prêmios e Apostas (Ministério da Fazenda), pedida com 40 a 120 dias de antecedência e com regulamento. Liga só com o número do certificado.</p>
+              <div class="acoes"><button class="btn" type="button" data-abre="g-certificado">Informar o certificado de autorização</button></div></div>
+
+            <div class="gatilho" data-quando-g6="liberado" hidden><div class="topo-g"><h4>Aleatório, alguns por dia</h4><span class="linha" style="display:flex;gap:8px;align-items:center"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-label="Aleatório"></button></span></div>
+              <div class="regra"><span>Certificado <b class="mono">04.012345/2027</b> · de 01/02 a 30/04/2027</span><span><b>10 por dia</b>, entre quem pediu no dia</span><span>Regulamento publicado nas regras do clube</span></div></div>
+          </div>
+
+          <!-- álbum -->
+          <div class="bloco" data-bloco="album">
+            <div class="lista-aj">
+              <div class="aj"><div><div class="t">Selos para completar o álbum</div><div class="d">De 3 a 12. Os selos não precisam ser seguidos.</div></div><div class="ctrl"><input type="number" value="4" min="3" max="12" aria-label="Selos para completar"></div></div>
+              <div class="aj"><div><div class="t">Validade de cada selo</div><div class="d">Depois disso o selo sai do álbum.</div></div><div class="ctrl"><select aria-label="Validade do selo"><option>12 meses</option><option>6 meses</option></select></div></div>
+              <div class="aj"><div><div class="t">Prêmio de quem completa</div><div class="d">O cliente escolhe um da lista; vira cupom para o próximo pedido.</div></div><div class="ctrl"><button class="btn" type="button" data-abre="g-premio">3 prêmios</button></div></div>
+              <div class="aj"><div><div class="t">Arte do selo</div><div class="d">A do evento do mês, quando a loja ligou o evento em Configurações › Eventos; senão, a arte padrão do mês.</div></div><div class="ctrl"><span class="selo neutro">automática</span></div></div>
+            </div>
+          </div>
+
+          <!-- meta -->
+          <div class="bloco" data-bloco="meta">
+            <div class="faixa warn">A Meta do mês está desligada. Ligue em Visão geral.</div>
+            <div class="lista-aj">
+              <div class="aj"><div><div class="t">Nível 1</div><div class="d">Pedidos no mês para escolher um prêmio da lista 1.</div></div><div class="ctrl"><input type="number" value="3" aria-label="Pedidos do nível 1"> <button class="btn" type="button" data-abre="g-premio">3 prêmios</button></div></div>
+              <div class="aj"><div><div class="t">Nível 2</div><div class="d">Pedidos no mês para um prêmio maior.</div></div><div class="ctrl"><input type="number" value="6" aria-label="Pedidos do nível 2"> <button class="btn" type="button" data-abre="g-premio">2 prêmios</button></div></div>
+              <div class="aj"><div><div class="t">Nível 3</div><div class="d">Opcional.</div></div><div class="ctrl"><button class="btn" type="button">＋ Pôr o nível 3</button></div></div>
+              <div class="aj"><div><div class="t">Validade do prêmio</div><div class="d">Conta a partir do dia em que o cliente escolhe.</div></div><div class="ctrl"><select aria-label="Validade do prêmio da meta"><option>15 dias</option><option>30 dias</option></select></div></div>
+            </div>
+          </div>
+
+          <!-- prêmios -->
+          <div class="bloco" data-bloco="premios">
+            <div class="lista-cab"><h2>Prêmios <span class="sub mono">(7)</span></h2><div class="acoes"><input class="busca" type="search" placeholder="Buscar prêmio" aria-label="Buscar prêmio"><button class="btn pri" type="button" data-abre="g-premio">＋ Novo prêmio</button></div></div>
+            <div class="situacoes" role="group" aria-label="Situações">
+              <button class="sit" aria-pressed="true">Todos <b>7</b></button><button class="sit" aria-pressed="false">Em uso <b>6</b></button><button class="sit" aria-pressed="false">Sem uso <b>1</b></button>
+            </div>
+            <div class="linhas">
+              <div class="linha-l"><div><div class="n">15% off até R$ 20</div><div class="d">Desconto em % · pedido a partir de R$ 30 · 7 dias · Pedido entregue</div></div><div class="acoes"><button class="btn" type="button" data-abre="g-premio">Editar</button></div></div>
+              <div class="linha-l"><div><div class="n">Batata média grátis</div><div class="d">Produto grátis (100% de desconto nele) · Meta nível 1, Álbum, Reclamação</div></div><div class="acoes"><button class="btn" type="button" data-abre="g-premio">Editar</button></div></div>
+              <div class="linha-l"><div><div class="n">Frete grátis</div><div class="d">Frete grátis · Classificação (Em risco, Inativos), Meta nível 1</div></div><div class="acoes"><button class="btn" type="button" data-abre="g-premio">Editar</button></div></div>
+              <div class="linha-l"><div><div class="n">R$ 10 off</div><div class="d">Desconto em R$ · pedido a partir de R$ 40 · Reclamação</div></div><div class="acoes"><button class="btn" type="button" data-abre="g-premio">Editar</button></div></div>
+              <div class="linha-l"><div><div class="n">Combo X-Bacon com 50%</div><div class="d">Produto com desconto · sem uso</div></div><div class="acoes"><button class="btn" type="button" data-abre="g-premio">Editar</button><button class="btn perigo" type="button" data-abre="d-excluir">Excluir</button></div></div>
+            </div>
+          </div>
+
+          <!-- resultados -->
+          <div class="bloco" data-bloco="resultados">
+            <div class="ctls"><b>Situação do protótipo:</b>
+              <button class="ctl" data-ctl="res" data-valor="com" aria-pressed="true">Com dados</button>
+              <button class="ctl" data-ctl="res" data-valor="vazio" aria-pressed="false">Primeiro mês</button>
+              <button class="ctl" data-ctl="res" data-valor="erro" aria-pressed="false">Erro</button>
+            </div>
+            <div data-quando-res="com">
+              <div class="lista-cab"><h2>Novembro</h2><select class="busca" aria-label="Período"><option>Este mês</option><option>Mês passado</option><option>Últimos 90 dias</option></select></div>
+              <div class="nums" style="margin-bottom:14px">
+                <div class="num"><b>214</b><span>ganharam um prêmio</span></div><div class="num"><b>176</b><span>revelaram</span></div>
+                <div class="num"><b>131</b><span>usaram</span></div><div class="num"><b>R$ 1.902</b><span>em desconto</span></div>
+                <div class="num"><b>R$ 7.448</b><span>vendido nos pedidos com prêmio</span></div></div>
+              <div class="cartao"><h3>Contra quem não recebeu</h3><p class="sub peq">Na campanha "Sentimos sua falta" com prêmio: 18% dos que receberam voltaram em 15 dias; do grupo de controle, 9%.</p></div>
+            </div>
+            <div data-quando-res="vazio" hidden><div class="cartao"><h3>Ainda sem números</h3><p class="sub">Os resultados aparecem quando o primeiro cliente ganhar um prêmio.</p></div></div>
+            <div data-quando-res="erro" hidden><div class="faixa crit">Não deu para ler os resultados agora. <button class="btn" type="button">Tentar de novo</button></div></div>
+          </div>
+
+          <div class="barra-salvar" id="barra-clube" hidden><span><b id="n-mud">1</b> alteração ainda não salva</span><span class="acoes"><button class="btn" type="button" id="desfazer-clube">Desfazer</button><button class="btn pri" type="button" id="salvar-clube">Salvar</button></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ ATENDIMENTO ═════════════════════ -->
+<section class="vista" id="v-atendimento" aria-label="Atendimento">
+  <div class="pagina">
+    <div class="app">
+      <aside class="lado" aria-label="Menu do app (ilustração)"><div class="marca">Regem</div>
+        <ul><li>Delivery</li><li>Clientes</li><li>Marketing</li><li class="atual">Atendimento</li><li>Configurações</li></ul></aside>
+      <div class="principal">
+        <div class="topo"><div><span class="onde-app">Atendimento</span><h1 style="font-size:22px">Fila <span class="sub mono">(4)</span></h1></div></div>
+        <div class="corpo-app">
+          <div class="caso-at">
+            <div class="fila-l">
+              <div class="fila-i atual"><b>Ana · pedido 1.479</b><span class="sub peq">Item faltando · urgente · há 6 min</span></div>
+              <div class="fila-i"><b>(21) 9••••-4410</b><span class="sub peq">Endereço · há 9 min</span></div>
+              <div class="fila-i"><b>Bruno · iFood 7.231</b><span class="sub peq">Atraso · há 12 min</span></div>
+            </div>
+            <div class="cartao" style="margin:0">
+              <div class="acoes" style="justify-content:space-between;align-items:center"><h2>Ana · pedido 1.479</h2><span class="selo crit">urgente</span></div>
+              <div class="resumo-robo" style="margin:10px 0"><b>Motivo:</b> veio sem a batata do combo.<br><b>Quer:</b> a batata ou o valor de volta.<br><b>Já fiz:</b> pedi desculpas e chamei a equipe.</div>
+              <p class="sub peq">Resolvido o problema, a equipe pode mandar um prêmio de desculpas. Ele aparece na conta da cliente e vai pelo WhatsApp da conversa (é a mesma conversa, então não conta como marketing).</p>
+              <div class="acoes"><button class="btn" type="button">Pegar</button><button class="btn" type="button" data-abre="g-desculpas">🎁 Mandar um prêmio de desculpas</button><button class="btn pri" type="button">Resolver</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="grade-3" style="margin-top:18px">
+      <article class="caso"><h3>O que a cliente recebe</h3><p class="sub">Na mesma conversa do atendimento, logo depois da mensagem da equipe.</p>
+        <div class="wa"><div class="wa-topo"><span class="foto" aria-hidden="true">LP</span><div><b>Lanchonete da Praça</b><span>conta comercial</span></div></div>
+          <div class="conv">
+            <div class="bolha dele">Ana, já estornamos os R$ 9,90 da batata. Desculpe pelo erro!<span class="hora">20:58</span></div>
+            <div class="bolha dele">🎁 E para compensar, um prêmio surpresa no seu próximo pedido. Ele já está garantido:<div class="botoes-wa"><span>🎁 Raspar o meu prêmio</span></div><span class="hora">20:58</span></div>
+          </div></div></article>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ BANNERS COM IA ═════════════════════ -->
+<section class="vista" id="v-banners" aria-label="Banners com IA">
+  <div class="pagina">
+    <div class="app">
+      <aside class="lado" aria-label="Menu do app (ilustração)"><div class="marca">Regem</div>
+        <ul><li>Delivery</li><li>Marketing</li><li class="atual">Configurações</li></ul></aside>
+      <div class="principal">
+        <div class="topo"><div><span class="onde-app">Delivery › Configurações</span><h1 style="font-size:22px">Banners <span class="sub mono">(2 de 3)</span></h1></div>
+          <div class="acoes"><button class="btn" type="button">＋ Enviar imagem</button><button class="btn pri" type="button" data-abre="g-ia">✨ Criar com IA</button></div></div>
+        <div class="corpo-app">
+          <p class="sub" style="max-width:72ch">Aparecem no topo do cardápio e passam sozinhos. O tamanho certo para o modelo do seu cardápio (Oferta: faixa de 1200 × 500) já vai junto quando você cria com a IA.</p>
+          <div class="ban-lista">
+            <div class="ban-item"><div class="ban-moldura"><div class="ban" role="img" aria-label="Banner: Sextou com bacon"><div class="arte"></div><div class="txt"><b>Sextou com bacon</b><span>Duplo bacon por R$ 32,90</span><em>Peça agora</em></div><span class="marca-ia">feito com IA · GIF</span></div></div>
+              <div class="d peq sub">Ao tocar, abre: <b>X-Bacon duplo</b> · até 30/11</div>
+              <div class="acoes"><button class="btn" type="button" data-abre="g-link">Ao tocar, abre…</button><button class="btn" type="button" data-abre="g-ia">Editar</button><button class="btn perigo" type="button" data-abre="d-excluir">Excluir</button></div></div>
+            <div class="ban-item"><div class="ban-moldura"><div class="ban" role="img" aria-label="Banner: Estamos contratando" style="background:linear-gradient(120deg,#0F2230,#2C6699)"><div class="txt"><b>Estamos contratando</b><span>Atendente e chapeiro</span><em>Ver vagas</em></div></div></div>
+              <div class="d peq sub">Ao tocar, abre: <b>Vagas da loja</b></div>
+              <div class="acoes"><button class="btn" type="button" data-abre="g-link">Ao tocar, abre…</button><button class="btn perigo" type="button" data-abre="d-excluir">Excluir</button></div></div>
+            <div class="ban-item"><div class="vazio">Espaço livre para mais 1 banner</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ TEMPO DA FILA ═════════════════════ -->
+<section class="vista" id="v-fila" aria-label="Tempo da fila">
+  <div class="pagina">
+    <div class="app">
+      <aside class="lado" aria-label="Menu do app (ilustração)"><div class="marca">Regem</div>
+        <ul><li>Delivery</li><li class="atual">Atendimento</li><li>Configurações</li></ul></aside>
+      <div class="principal">
+        <div class="topo"><div><span class="onde-app">Atendimento › Ajustes</span><h1 style="font-size:22px">Fila e avisos</h1></div></div>
+        <div class="corpo-app">
+          <div class="lista-aj">
+            <div class="aj"><div><div class="t">Avisar o gerente se ninguém pegar o caso em</div><div class="d">Como hoje.</div></div><div class="ctrl"><select aria-label="Avisar o gerente em"><option>3 min</option></select></div></div>
+            <div class="aj"><div><div class="t">Dizer a posição na fila</div><div class="d">Como hoje: o robô diz o lugar do cliente.</div></div><div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" role="switch" aria-checked="true" aria-label="Dizer a posição na fila"></button></div></div>
+            <div class="aj"><div><div class="t">Tempo médio para resolver um caso <span class="fase">novo · C1</span></div>
+                <div class="d">O robô usa este tempo para dizer quanto falta. Vazio: ele não fala de tempo.</div>
+                <div class="d" style="margin-top:4px">Medido nos últimos 30 dias (só os casos resolvidos pelo Regem): <b class="mono">60 casos · metade em até 1 h 35</b>. Enquanto parte do atendimento estiver na Eclética, esse número não representa a loja.</div></div>
+              <div class="ctrl"><input type="number" value="15" min="1" max="120" aria-label="Tempo médio em minutos"> <span class="sub">min</span></div></div>
+          </div>
+          <div class="grade-3" style="margin-top:18px">
+            <article class="caso"><h3>O que o robô diz</h3><p class="sub">Posição × tempo médio, arredondado em faixas (até 10 min, cerca de 15, 20, 30, mais de 40).</p>
+              <div class="wa"><div class="wa-topo"><span class="foto" aria-hidden="true">LP</span><div><b>Lanchonete da Praça</b><span>conta comercial</span></div></div>
+                <div class="conv">
+                  <div class="bolha meu">quero falar com alguém sobre meu pedido<span class="hora">21:03</span></div>
+                  <div class="bolha dele">Chamei a equipe 👍 Você é o <b>2º da fila</b>, e eles costumam resolver em <b>cerca de 30 minutos</b>. Pode deixar que te respondo por aqui.<span class="hora">21:03</span></div>
+                </div></div></article>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ NOTAS ═════════════════════ -->
+<section class="vista" id="v-notas" aria-label="Notas e decisões">
+  <div class="pagina notas">
+    <div class="cab"><h1>Notas e decisões</h1><p class="sub">Plano completo em <span class="mono">docs/plano-clube-e-banner.md</span>. Tudo nasce desligado; o presidente liga.</p></div>
+
+    <div class="cartao"><h2>O que mudou o desenho: a lei e as regras do Google e da Meta</h2>
+      <ul>
+        <li><b>Sorteio precisa de autorização.</b> Dar prêmio por sorte, ou em quantidade limitada, para promover a loja é promoção comercial: a Secretaria de Prêmios e Apostas (Ministério da Fazenda) autoriza antes, com regulamento e 40 a 120 dias de antecedência (Lei 5.768/1971). Leituras recentes dizem que limitar a quantidade ou pedir outra coisa além da compra (como avaliar) também exigem. Não é parecer de advogado: antes de oferecer aos clientes, vale uma consulta.</li>
+        <li><b>Por isso, cinco travas:</b> todo mundo que cumpre a regra recebe; o prêmio sai da regra, não da sorte (a raspadinha e a roleta só revelam); sem limite de quantidade; o critério é comprar, um motivo de atendimento ou a classificação pelas compras; nada a pagar para receber.</li>
+        <li><b>O Google proíbe benefício em troca de avaliação</b>, boa ou ruim, e também pedir avaliação só a quem gostou. Pena: avaliações tiradas e o perfil bloqueado para avaliações novas.</li>
+        <li><b>A Meta:</b> a mensagem que oferece prêmio é de marketing (paga, só para quem aceitou). O prêmio de desculpas vai na conversa do atendimento que já está aberta.</li>
+      </ul></div>
+
+    <div class="cartao"><h2>Decisões</h2>
+      <div class="decisao"><h3>D1. O gatilho "depois da avaliação"</h3><ol><li><span class="rec">recomendado</span> Não usar; o prêmio sai na entrega (gatilho "Pedido entregue").</li><li>Usar só na avaliação interna, para qualquer nota, sem o link do Google na mesma conversa (risco com o Google e com a lei).</li></ol></div>
+      <div class="decisao"><h3>D2. O gatilho "aleatório, alguns por dia"</h3><ol><li><span class="rec">recomendado</span> Fase futura, travada até a loja ter o certificado de autorização (o Regem pede o número, o período e publica o regulamento).</li><li>Não oferecer.</li></ol></div>
+      <div class="decisao"><h3>D3. Como o prêmio entra</h3><ol><li><span class="rec">recomendado</span> Cupom pessoal de desconto (produto grátis = 100% de desconto nele).</li><li>Item a R$ 0,00 no pedido (mexe em nota fiscal, estoque e faturamento).</li></ol></div>
+      <div class="decisao"><h3>D4. Com o Plano de fidelidade e outros cupons</h3><ol><li><span class="rec">recomendado</span> Somam; um benefício por pedido; o cashback continua.</li><li>O clube substitui a fidelidade.</li></ol></div>
+      <div class="decisao"><h3>D5. Que pedidos contam</h3><ol><li><span class="rec">recomendado</span> Só os do cardápio online e do atendente no WhatsApp.</li><li>Também o balcão, quando o cliente diz o telefone.</li></ol></div>
+      <div class="decisao"><h3>D6. Onde roda</h3><ol><li><span class="rec">recomendado</span> Só na nuvem (a rotina olha os pedidos entregues que sobem da loja), sem <span class="mono">.zip</span>.</li><li>Também no servidor da loja.</li></ol></div>
+      <div class="decisao"><h3>D7. O texto do banner</h3><ol><li><span class="rec">recomendado</span> Por cima da imagem, escrito pelo Regem com as fontes da loja: sem erro de português e muda sem gerar de novo.</li><li>A IA escreve o texto na imagem.</li></ol></div>
+      <div class="decisao"><h3>D8. O banner animado</h3><ol><li><span class="rec">recomendado</span> GIF feito pelo DMS Graph a partir da imagem (aproximação, brilho, texto entrando), sem custo de IA, até 1 MB.</li><li>Vídeo da IA convertido em GIF (bem mais caro).</li></ol></div>
+      <div class="decisao"><h3>D9. O custo da IA de imagem</h3><ol><li><span class="rec">recomendado</span> Nasce desligado, preço ao lado do botão (cerca de R$ 0,22 por imagem no modelo rápido do Google — conferir antes de ligar), franquia de 20 imagens por mês por empresa, pago pela DMS.</li><li>Sem franquia.</li></ol></div>
+      <div class="decisao"><h3>D10. O tempo da fila</h3><ol><li><span class="rec">recomendado</span> Definido pela loja, com o medido ao lado; "usar o medido" quando houver casos suficientes resolvidos pelo Regem.</li><li>Só o medido (hoje daria 1 h 35).</li></ol></div>
+    </div>
+
+    <div class="cartao"><h2>Fases</h2>
+      <table class="fases"><caption class="sr">Fases do plano</caption>
+        <thead><tr><th>Fase</th><th>O que entra</th><th>Migration</th></tr></thead>
+        <tbody>
+          <tr><td data-rot="Fase"><b>C1</b></td><td data-rot="O que entra">Tempo da fila: o ajuste, o que o robô diz, o medido ao lado</td><td data-rot="Migration">1</td></tr>
+          <tr><td data-rot="Fase"><b>A0</b></td><td data-rot="O que entra">Base do clube: tabelas, prêmios, cupom pessoal, Marketing › Clube, regras do clube</td><td data-rot="Migration">1</td></tr>
+          <tr><td data-rot="Fase"><b>A1</b></td><td data-rot="O que entra">Raspadinha e roleta; gatilhos pedido entregue, reclamação, classificação e campanha</td><td data-rot="Migration">—</td></tr>
+          <tr><td data-rot="Fase"><b>B1</b></td><td data-rot="O que entra">DMS Graph: criar imagem e animar (GIF); manifesto e nota no hub</td><td data-rot="Migration">no Graph</td></tr>
+          <tr><td data-rot="Fase"><b>B2</b></td><td data-rot="O que entra">"Criar com IA" na tela de Banners</td><td data-rot="Migration">1</td></tr>
+          <tr><td data-rot="Fase"><b>A2 · A3</b></td><td data-rot="O que entra">Álbum de selos e meta do mês</td><td data-rot="Migration">— ou 1</td></tr>
+          <tr><td data-rot="Fase"><b>B3 · A4</b></td><td data-rot="O que entra">GIF e os destinos novos do banner; resultados do clube</td><td data-rot="Migration">—</td></tr>
+        </tbody></table></div>
+
+    <div class="cartao"><h2>Fora do plano, para você decidir</h2>
+      <p>A avaliação aprovada em 18/11 manda o link do Google só para a nota 5. O Google trata pedir avaliação só a quem gostou como proibido. Vale decidir se o link vai para todas as notas ou se sai.</p></div>
+  </div>
+</section>
+
+</div>
+
+<!-- ═════════════════════ GAVETAS E DIÁLOGOS ═════════════════════ -->
+<div class="fundo" id="fundo"></div>
+
+<aside class="gaveta" id="g-gat-entregue" role="dialog" aria-modal="true" aria-labelledby="t-gatilho">
+  <div class="g-cab"><div><span class="onde-app">Prêmio surpresa</span><h2 id="t-gatilho">Pedido entregue</h2></div><button class="fechar" type="button" data-fecha aria-label="Fechar">×</button></div>
+  <div class="g-corpo">
+    <div class="campo"><label for="gg-cada">Dar o prêmio a cada</label><select id="gg-cada"><option>1 pedido</option><option>2 pedidos</option><option>3 pedidos</option></select></div>
+    <div class="campo"><label for="gg-min">Pedido a partir de</label><input id="gg-min" type="number" value="30"><span class="aj-d">Em reais. Pedido cancelado não conta.</span></div>
+    <div class="campo"><label for="gg-premio">Prêmio</label><select id="gg-premio"><option>15% off até R$ 20</option><option>Frete grátis</option><option>Batata média grátis</option><option>＋ cadastrar novo prêmio</option></select><span class="aj-d">Todo cliente que cumprir a regra ganha este prêmio. A raspadinha e a roleta só o revelam.</span></div>
+    <div class="campo"><label for="gg-onde">Onde o cliente revela</label><select id="gg-onde"><option>Na página do pedido e na conta</option><option>Também pelo WhatsApp (só quem aceitou mensagens)</option></select></div>
+  </div>
+  <div class="g-rod"><button class="btn" type="button" data-fecha>Cancelar</button><button class="btn pri" type="button" data-fecha>Salvar</button></div>
+</aside>
+
+<aside class="gaveta" id="g-gat-reclamacao" role="dialog" aria-modal="true" aria-labelledby="t-gat-rec">
+  <div class="g-cab"><div><span class="onde-app">Prêmio surpresa</span><h2 id="t-gat-rec">Depois de uma reclamação</h2></div><button class="fechar" type="button" data-fecha aria-label="Fechar">×</button></div>
+  <div class="g-corpo">
+    <p class="sub peq">A equipe escolhe o prêmio no caso do Atendimento, depois de resolver. É cortesia de atendimento: não depende de compra nova.</p>
+    <div class="campo"><span class="rot" id="gr-r">Prêmios que a equipe pode escolher</span>
+      <div class="premios-lista" role="group" aria-labelledby="gr-r">
+        <label class="premio-op"><input type="checkbox" checked> Batata média grátis</label>
+        <label class="premio-op"><input type="checkbox" checked> R$ 10 off (pedido a partir de R$ 40)</label>
+        <label class="premio-op"><input type="checkbox" checked> Frete grátis</label>
+        <label class="premio-op"><input type="checkbox"> 15% off até R$ 20</label>
+      </div></div>
+    <div class="campo"><label for="gr-lim">No máximo, por cliente</label><select id="gr-lim"><option>1 por mês</option><option>2 por mês</option><option>1 a cada 3 meses</option></select></div>
+    <div class="campo"><label for="gr-quem">Quem pode mandar</label><select id="gr-quem"><option>Gerente e supervisão</option><option>Só o gerente</option><option>Qualquer pessoa do atendimento</option></select></div>
+  </div>
+  <div class="g-rod"><button class="btn" type="button" data-fecha>Cancelar</button><button class="btn pri" type="button" data-fecha>Salvar</button></div>
+</aside>
+
+<aside class="gaveta" id="g-gat-classificacao" role="dialog" aria-modal="true" aria-labelledby="t-gat-cla">
+  <div class="g-cab"><div><span class="onde-app">Prêmio surpresa</span><h2 id="t-gat-cla">Pela classificação do marketing</h2></div><button class="fechar" type="button" data-fecha aria-label="Fechar">×</button></div>
+  <div class="g-corpo">
+    <p class="sub peq">Os segmentos vêm do perfil do cliente (Delivery › Clientes), pelas compras de cada um. Todos do segmento ganham; ninguém é escolhido por sorte.</p>
+    <div class="campo"><span class="rot" id="gcl-r">Segmentos</span>
+      <div class="premios-lista" role="group" aria-labelledby="gcl-r">
+        <label class="premio-op"><input type="checkbox"> Campeões <span class="sub peq">· 112 clientes</span></label>
+        <label class="premio-op"><input type="checkbox"> Leais <span class="sub peq">· 240</span></label>
+        <label class="premio-op"><input type="checkbox"> Precisam de atenção <span class="sub peq">· 96</span></label>
+        <label class="premio-op"><input type="checkbox" checked> Em risco <span class="sub peq">· 151</span></label>
+        <label class="premio-op"><input type="checkbox" checked> Inativos <span class="sub peq">· 388</span></label>
+        <label class="premio-op"><input type="checkbox"> Atrasados no próprio ritmo <span class="sub peq">· 74</span></label>
+      </div></div>
+    <div class="campo"><label for="gcl-cada">Cada cliente ganha no máximo</label><select id="gcl-cada"><option>1 vez a cada 60 dias</option><option>1 vez a cada 30 dias</option><option>1 vez a cada 90 dias</option></select></div>
+    <div class="campo"><label for="gcl-prem">Prêmio</label><select id="gcl-prem"><option>Frete grátis</option><option>15% off até R$ 20</option><option>＋ cadastrar novo prêmio</option></select></div>
+    <div class="campo"><label for="gcl-wa">Avisar pelo WhatsApp</label><select id="gcl-wa"><option>Sim, só quem aceitou mensagens (número de marketing)</option><option>Não, só aparece na conta do cliente</option></select><span class="aj-d">Mensagem de marketing da Meta: paga por envio. Quem recebe entra na conta das campanhas e no grupo de controle.</span></div>
+  </div>
+  <div class="g-rod"><button class="btn" type="button" data-fecha>Cancelar</button><button class="btn pri" type="button" data-fecha>Salvar</button></div>
+</aside>
+
+<aside class="gaveta" id="g-premio" role="dialog" aria-modal="true" aria-labelledby="t-premio">
+  <div class="g-cab"><div><span class="onde-app">Prêmios</span><h2 id="t-premio">Batata média grátis</h2></div><button class="fechar" type="button" data-fecha aria-label="Fechar">×</button></div>
+  <div class="g-corpo">
+    <div class="campo"><label for="gp-nome">Nome que o cliente vê</label><input id="gp-nome" value="Batata média grátis"></div>
+    <div class="campo"><span class="rot" id="gp-tipo-r">Tipo</span><div class="opcoes" role="group" aria-labelledby="gp-tipo-r">
+      <button class="op" type="button" aria-pressed="false">Desconto em %</button><button class="op" type="button" aria-pressed="false">Desconto em R$</button><button class="op" type="button" aria-pressed="false">Frete grátis</button><button class="op" type="button" aria-pressed="true">Produto grátis</button></div>
+      <span class="aj-d">Produto grátis entra como 100% de desconto nele: a nota, o estoque e o faturamento seguem certos.</span></div>
+    <div class="campo"><label for="gp-prod">Produto</label><select id="gp-prod"><option>Batata frita média</option><option>Refrigerante lata</option></select></div>
+    <div class="campo"><label for="gp-val">Validade</label><select id="gp-val"><option>7 dias</option><option>15 dias</option><option>30 dias</option></select></div>
+    <div class="campo"><label for="gp-min">Pedido mínimo para usar</label><input id="gp-min" type="number" value="30"></div>
+    <div class="faixa info" style="margin:0">Sem limite de quantidade: escolha só prêmios que a loja consegue dar a todos.</div>
+  </div>
+  <div class="g-rod"><button class="btn" type="button" data-fecha>Cancelar</button><button class="btn pri" type="button" data-fecha>Salvar prêmio</button></div>
+</aside>
+
+<aside class="gaveta" id="g-certificado" role="dialog" aria-modal="true" aria-labelledby="t-cert">
+  <div class="g-cab"><div><span class="onde-app">Prêmio surpresa</span><h2 id="t-cert">Aleatório: o certificado de autorização</h2></div><button class="fechar" type="button" data-fecha aria-label="Fechar">×</button></div>
+  <div class="g-corpo">
+    <p class="sub">A autorização é pedida pela loja à Secretaria de Prêmios e Apostas, no sistema de promoções comerciais, com o regulamento, de 40 a 120 dias antes. O Regem só liga este gatilho com os dados do certificado.</p>
+    <div class="campo"><label for="gc-num">Número do certificado</label><input id="gc-num" class="mono" placeholder="00.000000/0000"></div>
+    <div class="campo"><label for="gc-de">Válido de</label><input id="gc-de" type="date"></div>
+    <div class="campo"><label for="gc-ate">até</label><input id="gc-ate" type="date"></div>
+    <div class="campo"><label for="gc-reg">Regulamento aprovado (PDF)</label><input id="gc-reg" type="file" accept="application/pdf"></div>
+    <div class="campo"><label for="gc-qtd">Prêmios por dia</label><input id="gc-qtd" type="number" value="10"><span class="aj-d">Fica igual ao que o regulamento diz.</span></div>
+  </div>
+  <div class="g-rod"><button class="btn" type="button" data-fecha>Cancelar</button><button class="btn pri" type="button" data-fecha>Salvar e ligar</button></div>
+</aside>
+
+<aside class="gaveta" id="g-desculpas" role="dialog" aria-modal="true" aria-labelledby="t-desc">
+  <div class="g-cab"><div><span class="onde-app">Atendimento · Ana</span><h2 id="t-desc">Mandar um prêmio de desculpas</h2></div><button class="fechar" type="button" data-fecha aria-label="Fechar">×</button></div>
+  <div class="g-corpo">
+    <div class="campo"><span class="rot" id="gd-r">Prêmio</span><div class="premios-lista" role="group" aria-labelledby="gd-r">
+      <button class="premio-op" type="button" aria-pressed="true">🍟 Batata média grátis</button>
+      <button class="premio-op" type="button" aria-pressed="false">💵 R$ 10 off (pedido a partir de R$ 40)</button>
+      <button class="premio-op" type="button" aria-pressed="false">🛵 Frete grátis</button></div></div>
+    <div class="faixa info" style="margin:0 0 12px">A Ana ainda não recebeu prêmio de desculpas este mês (limite: 1 por mês).</div>
+    <div class="campo"><label for="gd-msg">Mensagem junto (opcional)</label><textarea id="gd-msg">E para compensar, um prêmio surpresa no seu próximo pedido.</textarea></div>
+  </div>
+  <div class="g-rod"><button class="btn" type="button" data-fecha>Cancelar</button><button class="btn pri" type="button" data-fecha>Mandar o prêmio</button></div>
+</aside>
+
+<aside class="gaveta" id="g-ia" role="dialog" aria-modal="true" aria-labelledby="t-ia">
+  <div class="g-cab"><div><span class="onde-app">Banners · DMS Graph</span><h2 id="t-ia">✨ Criar banner com IA</h2></div><button class="fechar" type="button" data-fecha aria-label="Fechar">×</button></div>
+  <div class="g-corpo">
+    <div class="ctls"><b>Situação:</b>
+      <button class="ctl" data-ctl="ia" data-valor="pedido" aria-pressed="true">Escrevendo</button>
+      <button class="ctl" data-ctl="ia" data-valor="criando" aria-pressed="false">Criando</button>
+      <button class="ctl" data-ctl="ia" data-valor="pronto" aria-pressed="false">Pronto</button>
+      <button class="ctl" data-ctl="ia" data-valor="acabou" aria-pressed="false">Franquia acabou</button>
+      <button class="ctl" data-ctl="ia" data-valor="desligado" aria-pressed="false">Desligado</button>
+    </div>
+
+    <div data-quando-ia="desligado" hidden><div class="faixa warn">A criação com IA está desligada. Só o presidente liga, em Configurações › IA e uso. Custa cerca de R$ 0,22 por imagem, pago pela DMS dentro da franquia de 20 por mês.</div></div>
+    <div data-quando-ia="acabou" hidden><div class="faixa warn">As 20 imagens deste mês acabaram. Volta no dia 1º. Você ainda pode enviar uma imagem pronta.</div></div>
+
+    <div data-quando-ia="pedido criando pronto">
+      <div class="campo"><span class="rot">Tamanho</span><span class="aj-d">1200 × 500 px — a faixa do modelo "Oferta" do seu cardápio. O centro fica livre, porque o recorte muda entre celular e computador.</span></div>
+      <div class="campo"><label for="ia-ped">O que você quer no banner</label><textarea id="ia-ped">hamburguer duplo com bacon, fundo escuro, clima de sexta a noite</textarea></div>
+      <div class="acoes" style="margin:-4px 0 12px"><button class="btn" type="button" id="melhorar">Melhorar o pedido</button></div>
+      <div class="antes-depois" id="melhorado" hidden style="margin-bottom:12px">
+        <div><small>Você escreveu</small>hamburguer duplo com bacon, fundo escuro, clima de sexta a noite</div>
+        <div><small>Melhorado (pode editar)</small>Foto de um hambúrguer duplo com bacon crocante e queijo derretendo, à direita, sobre fundo escuro com luz quente de fim de tarde; espaço livre à esquerda para o texto; estilo de foto de cardápio, sem letras na imagem.</div>
+      </div>
+      <div class="campo"><span class="rot">Foto ou arquivo junto (opcional)</span>
+        <div class="anexo"><span class="mini" aria-hidden="true"></span><span class="peq">foto-xbacon.jpg · 1,2 MB</span><button class="btn" type="button">Trocar</button><button class="btn" type="button">Tirar</button></div>
+        <span class="aj-d">A IA usa como referência (a foto do seu produto, o logo). JPG, PNG ou PDF até 10 MB.</span></div>
+      <div class="campo"><span class="rot" id="ia-txt-r">Texto do banner</span><div class="opcoes" role="group" aria-labelledby="ia-txt-r"><button class="op" type="button" aria-pressed="true">Por cima, escrito pelo Regem</button><button class="op" type="button" aria-pressed="false">A IA escreve na imagem</button></div></div>
+      <div class="grade-2" style="gap:10px;margin-bottom:12px">
+        <div class="campo" style="margin:0"><label for="ia-t1">Título</label><input id="ia-t1" value="Sextou com bacon"></div>
+        <div class="campo" style="margin:0"><label for="ia-t2">Chamada</label><input id="ia-t2" value="Duplo bacon por R$ 32,90"></div>
+      </div>
+      <div class="campo"><span class="rot" id="ia-an-r">Animado</span><div class="opcoes" role="group" aria-labelledby="ia-an-r"><button class="op" type="button" aria-pressed="false">Parado</button><button class="op" type="button" aria-pressed="true">GIF (aproximação e brilho)</button></div><span class="aj-d">O GIF é feito a partir da imagem, sem custo de IA, até 1 MB. Quem pediu menos movimento no aparelho vê parado.</span></div>
+    </div>
+
+    <div data-quando-ia="criando" hidden><div class="carregando" role="status">Criando o banner no DMS Graph… leva uns 20 segundos</div></div>
+    <div data-quando-ia="pronto" hidden>
+      <h3 style="margin-bottom:8px">Prévia</h3>
+      <div class="previas">
+        <div><span class="sub peq">No celular</span><div class="previa-cel"><div class="ban-moldura"><div class="ban anim" role="img" aria-label="Prévia no celular"><div class="arte"></div><div class="txt"><b>Sextou com bacon</b><span>Duplo bacon por R$ 32,90</span><em>Peça agora</em></div></div></div></div></div>
+        <div><span class="sub peq">No computador</span><div class="previa-pc"><div class="ban-moldura"><div class="ban anim" role="img" aria-label="Prévia no computador"><div class="arte"></div><div class="txt"><b>Sextou com bacon</b><span>Duplo bacon por R$ 32,90</span><em>Peça agora</em></div></div></div></div></div>
+      </div>
+      <div class="campo" style="margin-top:12px"><label for="ia-alt">Texto para leitor de tela</label><input id="ia-alt" value="Hambúrguer duplo com bacon. Sextou com bacon: duplo bacon por R$ 32,90."></div>
+    </div>
+    <p class="custo"><span>Franquia de imagens: <b class="mono">7 de 20</b> usadas em novembro</span><span>· cada imagem ≈ R$ 0,22, paga pela DMS</span></p>
+  </div>
+  <div class="g-rod">
+    <button class="btn" type="button" data-fecha>Cancelar</button>
+    <button class="btn" type="button" data-quando-ia="pronto" hidden>Criar outra</button>
+    <button class="btn pri" type="button" data-quando-ia="pedido" id="criar">Criar banner</button>
+    <button class="btn pri" type="button" data-quando-ia="pronto" hidden data-abre="g-link">Usar este banner</button>
+  </div>
+</aside>
+
+<aside class="gaveta" id="g-link" role="dialog" aria-modal="true" aria-labelledby="t-link">
+  <div class="g-cab"><div><span class="onde-app">Banners</span><h2 id="t-link">Ao tocar no banner, abre</h2></div><button class="fechar" type="button" data-fecha aria-label="Fechar">×</button></div>
+  <div class="g-corpo">
+    <div class="campo"><span class="rot" id="gl-r">Destino</span><div class="opcoes" role="group" aria-labelledby="gl-r" id="destinos">
+      <button class="op" type="button" data-dest="produto" aria-pressed="true">Um produto</button>
+      <button class="op" type="button" data-dest="categoria" aria-pressed="false">Uma categoria</button>
+      <button class="op" type="button" data-dest="cupom" aria-pressed="false">Um cupom</button>
+      <button class="op" type="button" data-dest="vagas" aria-pressed="false">Vagas da loja</button>
+      <button class="op" type="button" data-dest="clube" aria-pressed="false">O Clube</button>
+      <button class="op" type="button" data-dest="regem" aria-pressed="false">Página do Regem</button>
+      <button class="op" type="button" data-dest="externo" aria-pressed="false">Link externo</button>
+      <button class="op" type="button" data-dest="nada" aria-pressed="false">Nada</button></div></div>
+    <div class="campo" data-dest-campo="produto"><label for="gl-prod">Produto</label><select id="gl-prod"><option>X-Bacon duplo</option><option>Batata grande</option></select></div>
+    <div class="campo" data-dest-campo="categoria" hidden><label for="gl-cat">Categoria</label><select id="gl-cat"><option>Hambúrgueres</option><option>Combos</option></select></div>
+    <div class="campo" data-dest-campo="cupom" hidden><label for="gl-cup">Cupom</label><select id="gl-cup"><option>SEXTOU10</option><option>＋ cadastrar novo cupom</option></select></div>
+    <div class="campo" data-dest-campo="vagas" hidden><span class="aj-d">Abre a página de vagas da loja (a mesma do QR), com as vagas abertas.</span></div>
+    <div class="campo" data-dest-campo="clube" hidden><label for="gl-clu">Parte do Clube</label><select id="gl-clu"><option>Meus prêmios e o álbum</option><option>Regras do clube</option></select></div>
+    <div class="campo" data-dest-campo="regem" hidden><label for="gl-reg">Página</label><select id="gl-reg"><option>Encomendas</option><option>Regras do clube</option><option>Avaliar o último pedido</option></select></div>
+    <div class="campo" data-dest-campo="externo" hidden><label for="gl-url">Endereço</label><input id="gl-url" placeholder="https://"><span class="aj-d">Só endereços com https. Abre em outra aba.</span></div>
+    <div class="grade-2" style="gap:10px">
+      <div class="campo"><label for="gl-de">Aparece de</label><input id="gl-de" type="date"></div>
+      <div class="campo"><label for="gl-ate">até</label><input id="gl-ate" type="date"><span class="aj-d">Vazio: fica até alguém tirar.</span></div>
+    </div>
+  </div>
+  <div class="g-rod"><button class="btn" type="button" data-fecha>Cancelar</button><button class="btn pri" type="button" data-fecha>Salvar</button></div>
+</aside>
+
+<div class="dialogo" id="d-regras" role="dialog" aria-modal="true" aria-labelledby="t-regras">
+  <h2 id="t-regras">Regras do clube · Lanchonete da Praça</h2>
+  <ul class="peq" style="padding-left:18px;margin:0 0 12px">
+    <li><b>Prêmio surpresa:</b> todo pedido entregue pelo cardápio ou pelo WhatsApp, a partir de R$ 30, dá uma raspadinha. O prêmio já vem definido; a raspadinha só mostra. Vale 7 dias.</li>
+    <li><b>Álbum de selos:</b> um selo por mês com pedido; com 4 selos, escolha um prêmio. Os selos valem 12 meses.</li>
+    <li>Não há sorteio: todo mundo que cumpre a regra recebe. Não há limite de prêmios. Um benefício por pedido.</li>
+    <li>Os prêmios valem só no cardápio online e no WhatsApp da loja, não no iFood nem na 99.</li>
+  </ul>
+  <div class="acoes" style="justify-content:flex-end"><button class="btn pri" type="button" data-fecha>Entendi</button></div>
+</div>
+
+<div class="dialogo" id="d-escolher" role="dialog" aria-modal="true" aria-labelledby="t-esc">
+  <h2 id="t-esc">Prêmios da meta de novembro</h2>
+  <p class="peq"><b>3 pedidos:</b> batata média, refrigerante lata ou frete grátis.<br><b>6 pedidos:</b> um X-Bacon ou 30% off até R$ 30.</p>
+  <div class="acoes" style="justify-content:flex-end"><button class="btn pri" type="button" data-fecha>Fechar</button></div>
+</div>
+
+<div class="dialogo" id="d-excluir" role="dialog" aria-modal="true" aria-labelledby="t-exc">
+  <h2 id="t-exc">Excluir?</h2>
+  <p class="peq">Sai da lista agora. Quem já ganhou continua podendo usar até a validade.</p>
+  <div class="acoes" style="justify-content:flex-end"><button class="btn" type="button" data-fecha>Cancelar</button><button class="btn perigo" type="button" data-fecha>Excluir</button></div>
+</div>
+
+<script>
+(function () {
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+  const menosMovimento = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // abas do protótipo
+  $$('.aba').forEach((b) => b.addEventListener('click', () => {
+    $$('.aba').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    $$('.vista').forEach((v) => v.classList.toggle('ativa', v.id === 'v-' + b.dataset.aba));
+    fecharTudo();
+    window.scrollTo(0, 0);
+  }));
+
+  // partes do Clube
+  $$('.parte').forEach((b) => b.addEventListener('click', () => {
+    const raiz = b.closest('.corpo-app');
+    $$('.parte', raiz).forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    $$('.bloco', raiz).forEach((x) => x.classList.toggle('ativo', x.dataset.bloco === b.dataset.parte));
+  }));
+
+  // situações do protótipo: mostra o que tem data-quando-<grupo> com o valor
+  $$('.ctl').forEach((b) => b.addEventListener('click', () => {
+    const g = b.dataset.ctl, v = b.dataset.valor;
+    $$(`.ctl[data-ctl="${g}"]`).forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    $$(`[data-quando-${g}]`).forEach((el) => { el.hidden = !el.getAttribute(`data-quando-${g}`).split(' ').includes(v); });
+  }));
+
+  // botões de escolha única dentro de um grupo
+  $$('.opcoes, .forma, .premios-lista, .situacoes').forEach((grupo) => {
+    $$('button', grupo).forEach((b) => b.addEventListener('click', () => {
+      $$('button', grupo).forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+      if (b.dataset.dest) $$('[data-dest-campo]').forEach((c) => { c.hidden = c.dataset.destCampo !== b.dataset.dest; });
+    }));
+  });
+
+  // liga/desliga com a barra de alterações (no Clube)
+  let mudancas = 0;
+  $$('.liga').forEach((b) => b.addEventListener('click', () => {
+    if (b.disabled) return;
+    const liga = b.getAttribute('aria-checked') !== 'true';
+    b.setAttribute('aria-checked', String(liga));
+    const est = b.parentElement.querySelector('.estado-liga');
+    if (est) est.textContent = liga ? 'Ligado' : 'Desligado';
+    if (b.closest('#v-clube')) {
+      mudancas++;
+      $('#n-mud').textContent = mudancas;
+      $('#barra-clube').hidden = false;
+      const linha = b.closest('.aj, .gatilho, .ferr');
+      if (linha) linha.classList.add('mudou');
+    }
+  }));
+  const limparBarra = () => { mudancas = 0; $('#barra-clube').hidden = true; $$('#v-clube .mudou').forEach((x) => x.classList.remove('mudou')); };
+  $('#salvar-clube').addEventListener('click', limparBarra);
+  $('#desfazer-clube').addEventListener('click', limparBarra);
+
+  // gavetas e diálogos (pilha: Esc fecha só o de cima)
+  const pilha = [];
+  const fundo = $('#fundo');
+  function abrir(id, origem) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.add('aberto');
+    pilha.push({ el, origem });
+    fundo.classList.add('aberto');
+    const foco = el.querySelector('.fechar, button, input, select, textarea');
+    if (foco) foco.focus();
+  }
+  function fecharTopo() {
+    const t = pilha.pop();
+    if (!t) return;
+    t.el.classList.remove('aberto');
+    if (!pilha.length) fundo.classList.remove('aberto');
+    if (t.origem) t.origem.focus();
+  }
+  function fecharTudo() { while (pilha.length) fecharTopo(); }
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('[data-abre]');
+    if (a) { abrir(a.dataset.abre, a); return; }
+    const f = e.target.closest('[data-fecha]');
+    if (f) fecharTopo();
+  });
+  fundo.addEventListener('click', fecharTopo);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') fecharTopo(); });
+
+  // criar banner com IA
+  $('#melhorar').addEventListener('click', () => { $('#melhorado').hidden = false; });
+  $('#criar').addEventListener('click', () => {
+    $('.ctl[data-ctl="ia"][data-valor="criando"]').click();
+    setTimeout(() => $('.ctl[data-ctl="ia"][data-valor="pronto"]').click(), menosMovimento ? 0 : 1200);
+  });
+
+  // raspadinha
+  const raspa = $('#raspa'), tela = $('#raspa-tela');
+  let raspado = false;
+  function pintar() {
+    const r = raspa.getBoundingClientRect();
+    if (!r.width) return;
+    tela.width = Math.round(r.width); tela.height = Math.round(r.height);
+    const c = tela.getContext('2d');
+    c.globalCompositeOperation = 'source-over';
+    const g = c.createLinearGradient(0, 0, tela.width, tela.height);
+    g.addColorStop(0, '#B9BEC4'); g.addColorStop(.5, '#DADDE1'); g.addColorStop(1, '#A9AEB5');
+    c.fillStyle = g; c.fillRect(0, 0, tela.width, tela.height);
+    c.fillStyle = '#4A525A'; c.font = '700 15px Figtree, sans-serif'; c.textAlign = 'center';
+    c.fillText('Raspe aqui', tela.width / 2, tela.height / 2 + 5);
+  }
+  function revelar() {
+    if (raspado) return;
+    raspado = true;
+    tela.style.display = 'none';
+    $('#raspa-depois').hidden = false;
+    $('#raspa-revelar').hidden = true;
+  }
+  function raspar(e) {
+    if (raspado || !(e.buttons & 1) && e.pointerType === 'mouse') return;
+    const r = tela.getBoundingClientRect();
+    const c = tela.getContext('2d');
+    c.globalCompositeOperation = 'destination-out';
+    c.beginPath(); c.arc(e.clientX - r.left, e.clientY - r.top, 18, 0, Math.PI * 2); c.fill();
+    // conta quanto já saiu (a cada passo, numa amostra)
+    const d = c.getImageData(0, 0, tela.width, tela.height).data;
+    let vazio = 0, total = 0;
+    for (let i = 3; i < d.length; i += 4 * 40) { total++; if (d[i] === 0) vazio++; }
+    if (vazio / total > 0.5) revelar();
+  }
+  tela.addEventListener('pointerdown', (e) => { tela.setPointerCapture(e.pointerId); raspar(Object.assign({}, e, { buttons: 1, clientX: e.clientX, clientY: e.clientY, pointerType: e.pointerType })); });
+  tela.addEventListener('pointermove', raspar);
+  $('#raspa-revelar').addEventListener('click', revelar);
+  if ('ResizeObserver' in window) new ResizeObserver(() => { if (!raspado) pintar(); }).observe(raspa);
+  pintar();
+
+  // roleta: sempre para no prêmio já definido (Batata grátis, a fatia de 150°)
+  $('#girar').addEventListener('click', () => {
+    const svg = $('#roda-svg');
+    const fim = 360 * 5 + (360 - 150);
+    const mostrar = () => { $('#roleta-depois').hidden = false; $('#girar').hidden = true; };
+    if (menosMovimento) { svg.style.transform = `rotate(${360 - 150}deg)`; mostrar(); return; }
+    svg.style.transform = `rotate(${fim}deg)`;
+    svg.addEventListener('transitionend', mostrar, { once: true });
+  });
+})();
+</script>
+</body>
+</html>
