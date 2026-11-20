@@ -662,6 +662,8 @@ function AbaBeneficios({ c, perfil }: { c: Cardapio; perfil: any }) {
   const [status, setStatus] = useState<any>(null);
   const [cashback, setCashback] = useState<any>(null);
   const [presentes, setPresentes] = useState<any[]>([]);
+  // Os prêmios do Clube ainda fechados (mig 474): o link da página do pedido, onde o cliente raspa ou gira.
+  const [paraRevelar, setParaRevelar] = useState<any[]>([]);
 
   useEffect(() => {
     api.cardapioPromos(token).then(setData).catch(() => setData({ cupons: [], fidelidadeAtiva: false }));
@@ -677,7 +679,17 @@ function AbaBeneficios({ c, perfil }: { c: Cardapio; perfil: any }) {
     api.cardapioPontos(token, ct).then(setStatus).catch(() => setStatus(null));
     api.cardapioCashback(token, ct).then(setCashback).catch(() => setCashback(null));
     // Os presentes pessoais (o cupom do aniversário — Onda 3): só do próprio cliente.
-    if (ct) api.clientePresentes(token, ct).then((r: any) => setPresentes(r?.presentes ?? [])).catch(() => setPresentes([]));
+    if (ct)
+      api
+        .clientePresentes(token, ct)
+        .then((r: any) => {
+          setPresentes(r?.presentes ?? []);
+          setParaRevelar(Array.isArray(r?.paraRevelar) ? r.paraRevelar : []);
+        })
+        .catch(() => {
+          setPresentes([]);
+          setParaRevelar([]);
+        });
   }, [token, perfil]);
   useEffect(() => {
     carregarStatus();
@@ -713,17 +725,38 @@ function AbaBeneficios({ c, perfil }: { c: Cardapio; perfil: any }) {
   const cupons: any[] = data?.cupons ?? [];
   const ofertas: any[] = c.produtosPromo;
   const rotuloCupom = (x: any) => (x.tipo === 'fretegratis' ? 'Frete grátis' : x.tipo === 'percentual' ? `${x.valor}% off` : `${brl(x.valor)} off`);
-  const nada = data && !data.fidelidadeAtiva && cupons.length === 0 && ofertas.length === 0 && !temCashback && presentes.length === 0;
+  const nada =
+    data && !data.fidelidadeAtiva && cupons.length === 0 && ofertas.length === 0 && !temCashback && presentes.length === 0 && paraRevelar.length === 0;
 
   return (
     <>
+      {paraRevelar.length > 0 && (
+        <div className="c-sec">
+          <h3 className="c-h">🎁 Prêmios para revelar</h3>
+          {paraRevelar.map((p: any) => (
+            <div key={p.link} className="c-card">
+              <Ic n="gift" />
+              <div>
+                <b>{p.forma === 'roleta' ? 'Uma roleta de prêmios' : 'Uma raspadinha'}</b>
+                <small>
+                  O prêmio já é seu: {p.forma === 'roleta' ? 'gire' : 'raspe'} para ver.
+                  {p.validoAte ? ` Até ${p.validoAte.slice(8, 10)}/${p.validoAte.slice(5, 7)}.` : ''}
+                </small>
+              </div>
+              <a className="lk" href={p.link}>
+                Revelar
+              </a>
+            </div>
+          ))}
+        </div>
+      )}
       {presentes.length > 0 && (
         <div className="c-sec">
           {presentes.map((p: any) => (
             <div key={p.codigo} className="c-card">
               <Ic n="gift" />
               <div>
-                <small>{p.origem === 'aniversario' ? '🎂 Presente de aniversário' : '🎁 Presente para você'}</small>
+                <small>{p.origem === 'aniversario' ? '🎂 Presente de aniversário' : p.origem === 'clube' ? '🎉 Prêmio do clube' : '🎁 Presente para você'}</small>
                 <b>{p.descricao.charAt(0).toUpperCase() + p.descricao.slice(1)}</b>
                 <small>
                   {p.validade ? `Até ${p.validade.slice(8, 10)}/${p.validade.slice(5, 7)}. ` : ''}Uso único, só seu · <span className="c-cupom">{p.codigo}</span>

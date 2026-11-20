@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { AuthUser } from '../../auth/auth-user';
 import { AuditoriaService } from '../auditoria/auditoria.service';
-import { hojeISO, somarDias } from '../../common/data';
+import { dataNoFuso, hojeISO, somarDias } from '../../common/data';
 import { chaveTelefone, sqlChaveTelefone } from '../../common/telefone-chave';
 import { lerData, naSemanaDoAniversario, textoData, valeDesde } from '../../common/aniversario';
 
@@ -56,7 +56,7 @@ export class AniversarioService {
    * e o cardápio e o perfil, que as leem, também rodam nas specs de lá: sem elas, nenhuma regra nova (como antes).
    */
   private readonly tabelas = new Map<string, Promise<boolean>>();
-  existe(tabela: 'cupom_regra' | 'cliente_aniversario' | 'relacionamento_config'): Promise<boolean> {
+  existe(tabela: 'cupom_regra' | 'cliente_aniversario' | 'relacionamento_config' | 'clube_direito'): Promise<boolean> {
     let p = this.tabelas.get(tabela);
     if (!p) {
       p = this.db
@@ -296,20 +296,60 @@ export class AniversarioService {
   /** Os presentes (cupons pessoais) que o cliente ainda pode usar — o bloco de Sua conta › Benefícios. */
   async presentesDoCliente(tenantId: string, clienteId: string) {
     if (!(await this.existe('cupom_regra'))) return [];
+    // O prêmio do Clube (mig 474, só na nuvem): o cupom só aparece DEPOIS de revelado (não estraga a surpresa) e vem
+    // marcado como "clube". Sem a tabela (banco de loja), como antes.
+    const clube = await this.existe('clube_direito');
+    const origem = clube
+      ? sql`case when exists (select 1 from clube_direito d where d.cupom_id = c.id) then 'clube' else r.origem end`
+      : sql`r.origem`;
+    const semSurpresaFechada = clube
+      ? sql`and not exists (select 1 from clube_direito d where d.cupom_id = c.id and d.revelado_em is null)`
+      : sql``;
     const r = this.rows(
       await this.db.execute(sql`
-        select c.codigo, c.tipo, c.valor::float8 as valor, c.minimo::float8 as minimo, c.validade, r.origem
+        select c.codigo, c.tipo, c.valor::float8 as valor, c.minimo::float8 as minimo, c.teto_desconto::float8 as teto,
+               c.validade, ${origem} as origem
           from cupom_regra r join cupom c on c.id = r.cupom_id
          where r.tenant_id = ${tenantId}::uuid and r.cliente_id = ${clienteId}::uuid and c.ativo
            and (c.validade is null or c.validade >= ${hojeISO()}::date)
            and not exists (select 1 from cupom_uso u where u.cupom_id = c.id)
+           ${semSurpresaFechada}
          order by c.validade nulls last`),
     );
+    return r.map((x) => {
+      const teto = x.tipo === 'percentual' && x.teto ? `, até ${reais(Number(x.teto))}` : '';
+      const descricao = descricaoDoCupom(x.tipo, Number(x.valor), Number(x.minimo ?? 0));
+      return {
+        codigo: String(x.codigo),
+        origem: x.origem ?? null,
+        // O teto do desconto em % (o prêmio do clube "15% de desconto, até R$ 20") entra logo depois do desconto.
+        descricao: teto ? descricao.replace('% de desconto', `% de desconto${teto}`) : descricao,
+        validade: x.validade ? String(x.validade).slice(0, 10) : null,
+      };
+    });
+  }
+
+  /**
+   * Os prêmios do Clube ainda FECHADOS do cliente (mig 474): "Sua conta › Benefícios" mostra "prêmio para revelar" com o
+   * link da página do pedido onde ele revela. Só os que ainda valem; os 10 mais novos. Sem a tabela (loja), nenhum.
+   */
+  async premiosParaRevelar(tenantId: string, clienteId: string): Promise<Array<{ forma: string; validoAte: string; link: string }>> {
+    if (!(await this.existe('clube_direito'))) return [];
+    const r = this.rows(
+      await this.db.execute(sql`
+        select d.forma, d.valido_ate, p.rastreio_token
+          from clube_direito d
+          join pedido_externo p on p.tenant_id = d.tenant_id
+                               and p.id = case when d.gatilho = 'entregue' then d.ref::uuid end
+         where d.tenant_id = ${tenantId}::uuid and d.cliente_id = ${clienteId}::uuid and d.revelado_em is null
+           and d.valido_ate >= ${hojeISO()}::date and p.rastreio_token is not null
+         order by d.criado_em desc
+         limit 10`),
+    );
     return r.map((x) => ({
-      codigo: String(x.codigo),
-      origem: x.origem ?? null,
-      descricao: descricaoDoCupom(x.tipo, Number(x.valor), Number(x.minimo ?? 0)),
-      validade: x.validade ? String(x.validade).slice(0, 10) : null,
+      forma: x.forma === 'roleta' ? 'roleta' : 'raspadinha',
+      validoAte: x.valido_ate instanceof Date ? dataNoFuso(x.valido_ate) : String(x.valido_ate).slice(0, 10),
+      link: `/r/${String(x.rastreio_token)}`,
     }));
   }
 }

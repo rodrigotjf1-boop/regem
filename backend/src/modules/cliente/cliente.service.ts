@@ -1319,10 +1319,13 @@ export class ClienteService {
     return { aniversario: await this.aniversario.agoraNao(c.tenantId, c.id) };
   }
 
-  /** Os presentes (cupons pessoais) do cliente — Sua conta › Benefícios. */
+  /** Os presentes (cupons pessoais) do cliente e os prêmios do Clube ainda fechados (mig 474) — Sua conta › Benefícios. */
   async presentes(cardapioToken: string, clienteToken: string | undefined) {
     const c = await this.clienteDoToken(cardapioToken, clienteToken);
-    return { presentes: await this.aniversario.presentesDoCliente(c.tenantId, c.id) };
+    return {
+      presentes: await this.aniversario.presentesDoCliente(c.tenantId, c.id),
+      paraRevelar: await this.aniversario.premiosParaRevelar(c.tenantId, c.id),
+    };
   }
 
   /** Delivery › Clientes: o aniversário na gaveta do cliente. */

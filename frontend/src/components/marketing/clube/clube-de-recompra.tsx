@@ -6,15 +6,16 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Partes } from '@/components/ui/partes';
 import { Skeleton } from '@/components/ui/skeleton';
+import { PremioSurpresa } from './premio-surpresa';
 import { PremiosDoClube } from './premios-do-clube';
 import type { PainelDoClube } from './tipos';
 import { VisaoDoClube } from './visao-do-clube';
 
-// Delivery › Marketing › Clube (fase A0 do `docs/plano-clube-e-banner.md`; protótipo `mockups/regem-clube-banner.html`,
-// parte "Marketing › Clube"; mig 471). A base: a Visão geral (as ferramentas e as regras que valem para as três) e os
-// Prêmios. O Prêmio surpresa, o Álbum, a Meta e os Resultados entram cada um na sua fase. Presidente e gerente veem; só o
-// presidente muda (o servidor confere — a tela só esconde os botões).
-type Parte = 'visao' | 'premios';
+// Delivery › Marketing › Clube (fases A0 e A1 do `docs/plano-clube-e-banner.md`; protótipo `mockups/regem-clube-banner.html`,
+// parte "Marketing › Clube"; migs 471 e 474). A Visão geral (as ferramentas e as regras que valem para as três), o Prêmio
+// surpresa (a forma e os gatilhos) e os Prêmios. O Álbum, a Meta e os Resultados entram cada um na sua fase. Presidente e
+// gerente veem; só o presidente muda (o servidor confere — a tela só esconde os botões).
+type Parte = 'visao' | 'surpresa' | 'premios';
 
 export function ClubeDeRecompra() {
   const [painel, setPainel] = useState<PainelDoClube | null>(null);
@@ -55,10 +56,14 @@ export function ClubeDeRecompra() {
         aoEscolher={setParte}
         partes={[
           { key: 'visao', label: 'Visão geral' },
+          { key: 'surpresa', label: 'Prêmio surpresa' },
           { key: 'premios', label: 'Prêmios', conta: painel.premios.length },
         ]}
       />
       {parte === 'visao' && <VisaoDoClube painel={painel} podeMudar={podeMudar} aoMudar={setPainel} />}
+      {parte === 'surpresa' && (
+        <PremioSurpresa painel={painel} podeMudar={podeMudar} aoMudar={setPainel} aoIrParaPremios={() => setParte('premios')} />
+      )}
       {parte === 'premios' && <PremiosDoClube painel={painel} podeMudar={podeMudar} aoMudar={setPainel} />}
     </div>
   );

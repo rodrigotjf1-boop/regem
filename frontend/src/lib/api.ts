@@ -2166,6 +2166,9 @@ export const api = {
   clubeEditarPremio: (id: string, body: Record<string, unknown>) =>
     req(`/marketing/clube/premios/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
   clubeExcluirPremio: (id: string) => req(`/marketing/clube/premios/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  /** O gatilho "Pedido entregue" do prêmio surpresa (mig 474): `{ ativo?, premioId? }` — o ausente fica como está. */
+  clubeSalvarGatilhoEntregue: (body: { ativo?: boolean; premioId?: string | null }) =>
+    req('/marketing/clube/gatilhos/entregue', { method: 'PUT', body: JSON.stringify(body) }),
   // O aniversário na gaveta do cliente (Delivery › Clientes): ver e corrigir (gerente e presidente, com o motivo).
   crmAniversario: (id: string) => req(`/clientes/crm/${encodeURIComponent(id)}/aniversario`),
   crmCorrigirAniversario: (id: string, body: { dia: number; mes: number; motivo?: string }) =>
