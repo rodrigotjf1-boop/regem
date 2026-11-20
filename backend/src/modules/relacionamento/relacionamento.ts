@@ -69,6 +69,8 @@ export type AjustesRelacionamento = {
   voltaTentativas: number;
   /** Com o módulo "Perfil do cliente": chamar pelo ritmo de cada cliente (atraso > 1,5), mig 464 — nasce desligado. */
   voltaPeloRitmo: boolean;
+  /** O grupo de controle das CAMPANHAS (~10% fixos não recebem; mig 465) — nasce desligado. */
+  grupoControle: boolean;
 };
 /**
  * Nasce DESLIGADO; o resto, como as decisões do dono de 03/11/2026 (aniversário: R$ 10 acima de R$ 40 por 7 dias;
@@ -96,6 +98,7 @@ export const AJUSTES_PADRAO: AjustesRelacionamento = {
   voltaValidadeDias: 7,
   voltaTentativas: 2,
   voltaPeloRitmo: false,
+  grupoControle: false,
 };
 
 /** O cupom de um desconto da lista: tipo e valor como o cadastro de cupons guarda. */
@@ -161,6 +164,7 @@ export function lerAjustes(dto: unknown): Partial<AjustesRelacionamento> {
   if (d.voltaValidadeDias !== undefined) p.voltaValidadeDias = umDe(VOLTA_VALIDADE, d.voltaValidadeDias, 'O cupom vale por 3, 7 ou 15 dias.');
   if (d.voltaTentativas !== undefined) p.voltaTentativas = umDe(VOLTA_TENTATIVAS, d.voltaTentativas, 'Tentativas: 1 ou 2.');
   if (d.voltaPeloRitmo !== undefined) p.voltaPeloRitmo = exigirBooleano(d.voltaPeloRitmo, 'voltaPeloRitmo');
+  if (d.grupoControle !== undefined) p.grupoControle = exigirBooleano(d.grupoControle, 'grupoControle');
   return p;
 }
 
@@ -192,6 +196,7 @@ export function ajustesDaLinha(row: any): AjustesRelacionamento {
     voltaValidadeDias: de(VOLTA_VALIDADE, row.volta_validade_dias, 7),
     voltaTentativas: de(VOLTA_TENTATIVAS, row.volta_tentativas, 2),
     voltaPeloRitmo: row.volta_pelo_ritmo === true,
+    grupoControle: row.grupo_controle === true,
   };
 }
 
