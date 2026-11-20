@@ -4,7 +4,9 @@
 // ao lado, ou por hora), PARTICIPAÇÃO (quanto cada canal do delivery fez do total) e HORIZONTAIS (os mais vendidos).
 // Puro: sem banco e sem desenho — o desenho é `imagem-do-plano.ts`.
 
-export type FormaDoGrafico = 'colunas' | 'participacao' | 'horizontais';
+// Versão 6, M6i: mais duas formas para o "refazer" (`refazer-do-grafico.ts`) — a TABELA (uma linha por item, o valor à
+// direita) e a LINHA (a série por dia ou por hora ligada ponto a ponto).
+export type FormaDoGrafico = 'colunas' | 'participacao' | 'horizontais' | 'tabela' | 'linha';
 
 export interface BarraDoPlano {
   /** O rótulo embaixo (uma ou duas linhas: "Qui" e "12"). */
@@ -35,6 +37,10 @@ export interface PlanoDoGrafico {
   /** A legenda das colunas comparadas. */
   legenda?: string[];
   rodape: string;
+  /** Versão 6, M6i: a posição (1 = o primeiro) do item em dourado — sem ela, o maior (ou o primeiro). */
+  destaque?: number;
+  /** Versão 6, M6i: sem os valores escritos em cima das barras (a pessoa pediu "mais limpo"). */
+  semValores?: boolean;
 }
 
 const DIA_DA_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];

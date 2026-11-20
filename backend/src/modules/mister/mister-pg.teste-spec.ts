@@ -2289,6 +2289,15 @@ export function testesDoMisterComPostgres(): void {
         expect(r.dados).toMatchObject({ numeroPrincipal: 'R$ 100,00', comparacao: '+100% sobre o período anterior' });
         expect(r.dados).not.toHaveProperty('barras');
         expect(JSON.stringify(r.dados)).not.toContain('"rotulo2"');
+        // Versão 6, M6i: o "refazer" — o MESMO plano em outra forma, sem consultar de novo (os números não mudam).
+        const refeito = await ferramentas.executar(e, 'refazer_grafico', { forma: 'tabela', titulo: 'As vendas dobraram', destaque: 2 });
+        expect(refeito).toMatchObject({ ok: true, dados: { refeito: true, forma: 'tabela', titulo: 'As vendas dobraram' } });
+        expect(refeito.graficos![0].partes!.map((x) => x.valor)).toEqual(plano.barras!.map((b) => b.valor));
+        expect(refeito.graficos![0]).toMatchObject({ forma: 'tabela', destaque: 2, kpi: 'R$ 100,00', delta: plano.delta });
+        // o título com número que o gráfico não mostra é recusado; outra pessoa não tem o gráfico desta
+        expect((await ferramentas.executar(e, 'refazer_grafico', { titulo: 'Vendemos 999 hoje' })).dados).toMatchObject({ erro: expect.stringContaining('999') });
+        const deOutra = await ferramentas.executar((await ferramentas.escopoDaTela(A, pessoa.carlos))!, 'refazer_grafico', { forma: 'linha' });
+        expect(deOutra.dados).toMatchObject({ erro: expect.stringContaining('Não tenho um gráfico desta conversa') });
         // Por hora (hoje): o pico.
         const h = await ferramentas.executar(e, 'mostrar_grafico', { tipo: 'vendas_por_hora', de, ate: hojeISO() });
         expect(h.dados.titulo).toBe('Vendas por hora');

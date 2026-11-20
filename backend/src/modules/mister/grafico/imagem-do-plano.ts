@@ -44,6 +44,8 @@ export function imagemDoPlano(p: PlanoDoGrafico): Buffer {
 
   if (p.forma === 'colunas') colunas(t, p, M, y, W, H);
   else if (p.forma === 'participacao') participacao(t, p, M, y + 6, W);
+  else if (p.forma === 'tabela') tabela(t, p, M, y + 4, W, H);
+  else if (p.forma === 'linha') linha(t, p, M, y, W, H);
   else horizontais(t, p, M, y + 4, W);
 
   t.texto(t.caber(p.rodape, 'pequeno', W * 0.66), M, H - 34, { tamanho: 'pequeno', cor: CINZA });
@@ -64,8 +66,9 @@ function colunas(t: Tela, p: PlanoDoGrafico, M: number, y: number, W: number, H:
   const passo = (W - 2 * M) / n;
   const larg = comparadas ? Math.max(3, Math.min(34, passo * 0.32)) : Math.max(3, Math.min(64, passo * 0.6));
   const tam = n <= 10 ? 'texto' : 'pequeno';
-  const cabem = barras.every((b) => t.medir(b.texto, tam) <= passo - 4);
-  const iMaior = barras.reduce((m, b, i) => (b.valor > barras[m].valor ? i : m), 0);
+  const cabem = !p.semValores && barras.every((b) => t.medir(b.texto, tam) <= passo - 4);
+  // M6i: o destaque escolhido no "refazer"; sem ele, o maior.
+  const iMaior = p.destaque ? p.destaque - 1 : barras.reduce((m, b, i) => (b.valor > barras[m].valor ? i : m), 0);
   const pulo = Math.max(1, Math.ceil((Math.max(1, ...barras.map((b) => t.medir(b.rotulo, 'pequeno'))) + 10) / passo));
   for (const f of [1 / 3, 2 / 3]) t.linhaH(M, W - M, base - (base - topo) * f, GRADE, 1);
   t.linhaH(M, W - M, base, LINHA, 2);
@@ -79,7 +82,7 @@ function colunas(t: Tela, p: PlanoDoGrafico, M: number, y: number, W: number, H:
       if (h > 0) t.retangulo(cx + 1, base - h, larg, Math.max(1, h), i === iMaior ? OURO : MARINHO);
       topoDaBarra = Math.min(base - h, base - ha);
     } else if (h > 0) t.retangulo(cx - larg / 2, base - h, larg, Math.max(1, h), i === iMaior ? OURO : MARINHO);
-    if (cabem || i === iMaior) t.texto(b.texto, cx, topoDaBarra - t.alturaDaLinha(tam) - 2, { tamanho: tam, cor: TINTA, alinhar: 'centro' });
+    if (cabem || (!p.semValores && i === iMaior)) t.texto(b.texto, cx, topoDaBarra - t.alturaDaLinha(tam) - 2, { tamanho: tam, cor: TINTA, alinhar: 'centro' });
     if (i % pulo === 0) {
       t.texto(b.rotulo, cx, base + 8, { tamanho: 'pequeno', cor: TINTA, alinhar: 'centro' });
       if (b.rotulo2) t.texto(b.rotulo2, cx, base + 8 + t.alturaDaLinha('pequeno') + 2, { tamanho: 'pequeno', cor: CINZA, alinhar: 'centro' });
@@ -120,15 +123,80 @@ function participacao(t: Tela, p: PlanoDoGrafico, M: number, y: number, W: numbe
 function horizontais(t: Tela, p: PlanoDoGrafico, M: number, y: number, W: number): void {
   const partes = p.partes ?? [];
   const maior = Math.max(1, ...partes.map((x) => x.valor));
+  // M6i: o destaque escolhido no "refazer"; sem ele, o primeiro.
+  const iDestaque = p.destaque ? p.destaque - 1 : 0;
   let yy = y;
   partes.forEach((parte, i) => {
-    const valor = parte.texto;
-    const wValor = t.medir(valor, 'texto');
+    const valor = p.semValores ? '' : parte.texto;
+    const wValor = valor ? t.medir(valor, 'texto') : 0;
     t.texto(t.caber(parte.nome, 'texto', W - 2 * M - wValor - 24), M, yy, { tamanho: 'texto', cor: TINTA });
-    t.texto(valor, W - M, yy, { tamanho: 'texto', cor: TINTA, alinhar: 'dir' });
+    if (valor) t.texto(valor, W - M, yy, { tamanho: 'texto', cor: TINTA, alinhar: 'dir' });
     const yb = yy + t.alturaDaLinha('texto') + 6;
     t.retangulo(M, yb, W - 2 * M, 14, TRILHO);
-    t.retangulo(M, yb, Math.max(4, ((W - 2 * M) * parte.valor) / maior), 14, i === 0 ? OURO : MARINHO);
+    t.retangulo(M, yb, Math.max(4, ((W - 2 * M) * parte.valor) / maior), 14, i === iDestaque ? OURO : MARINHO);
     yy = yb + 14 + 22;
   });
+}
+
+/** M6i — a tabela: uma linha por item (o nome à esquerda, o valor à direita), a linha do destaque com o fundo claro. */
+function tabela(t: Tela, p: PlanoDoGrafico, M: number, y: number, W: number, H: number): void {
+  const itens = p.partes ?? [];
+  const alto = t.alturaDaLinha('texto') + 18;
+  const cabem = Math.max(1, Math.floor((H - 70 - y) / alto));
+  const mostrar = itens.length > cabem ? itens.slice(0, cabem - 1) : itens;
+  const d = p.destaque ? p.destaque - 1 : -1;
+  let yy = y;
+  t.linhaH(M, W - M, yy, LINHA, 2);
+  mostrar.forEach((x, i) => {
+    if (i === d) t.retangulo(M, yy + 1, W - 2 * M, alto - 1, TRILHO);
+    const wValor = t.medir(x.texto, 'texto');
+    t.texto(t.caber(x.nome, 'texto', W - 2 * M - wValor - 40), M + 12, yy + 9, { tamanho: 'texto', cor: i === d ? OURO : TINTA });
+    t.texto(x.texto, W - M - 12, yy + 9, { tamanho: 'texto', cor: TINTA, alinhar: 'dir' });
+    yy += alto;
+    t.linhaH(M, W - M, yy, GRADE, 1);
+  });
+  if (mostrar.length < itens.length) t.texto(`e mais ${itens.length - mostrar.length}`, M + 12, yy + 9, { tamanho: 'pequeno', cor: CINZA });
+}
+
+/** M6i — a linha: cada ponto da série ligado ao seguinte (o período anterior em cinza claro), o maior (ou o destaque) em dourado. */
+function linha(t: Tela, p: PlanoDoGrafico, M: number, y: number, W: number, H: number): void {
+  const barras = p.barras ?? [];
+  const n = Math.max(1, barras.length);
+  const duasLinhas = barras.some((b) => b.rotulo2);
+  const base = H - 60 - (duasLinhas ? 50 : 28) - ((p.legenda ?? []).length ? 40 : 0);
+  const topo = y + t.alturaDaLinha('texto') + 4;
+  const maior = Math.max(1, ...barras.map((b) => Math.max(b.valor, b.anterior ?? 0)));
+  const passo = (W - 2 * M) / n;
+  const yDe = (v: number) => base - (v / maior) * (base - topo);
+  const iDestaque = p.destaque ? p.destaque - 1 : barras.reduce((m, b, i) => (b.valor > barras[m].valor ? i : m), 0);
+  const tam = n <= 10 ? 'texto' : 'pequeno';
+  const cabem = !p.semValores && barras.every((b) => t.medir(b.texto, tam) <= passo - 4);
+  const pulo = Math.max(1, Math.ceil((Math.max(1, ...barras.map((b) => t.medir(b.rotulo, 'pequeno'))) + 10) / passo));
+  for (const f of [1 / 3, 2 / 3]) t.linhaH(M, W - M, base - (base - topo) * f, GRADE, 1);
+  t.linhaH(M, W - M, base, LINHA, 2);
+  const cx = (i: number) => M + i * passo + passo / 2;
+  if (barras.some((b) => b.anterior !== undefined))
+    for (let i = 1; i < barras.length; i++) segmento(t, cx(i - 1), yDe(barras[i - 1].anterior ?? 0), cx(i), yDe(barras[i].anterior ?? 0), ANTERIOR, 3);
+  for (let i = 1; i < barras.length; i++) segmento(t, cx(i - 1), yDe(barras[i - 1].valor), cx(i), yDe(barras[i].valor), MARINHO, 4);
+  barras.forEach((b, i) => {
+    const x = cx(i);
+    const yv = yDe(b.valor);
+    const r = i === iDestaque ? 8 : 5;
+    t.retangulo(x - r, yv - r, 2 * r, 2 * r, i === iDestaque ? OURO : MARINHO);
+    if (cabem || (!p.semValores && i === iDestaque)) t.texto(b.texto, x, yv - r - t.alturaDaLinha(tam) - 4, { tamanho: tam, cor: TINTA, alinhar: 'centro' });
+    if (i % pulo === 0) {
+      t.texto(b.rotulo, x, base + 8, { tamanho: 'pequeno', cor: TINTA, alinhar: 'centro' });
+      if (b.rotulo2) t.texto(b.rotulo2, x, base + 8 + t.alturaDaLinha('pequeno') + 2, { tamanho: 'pequeno', cor: CINZA, alinhar: 'centro' });
+    }
+  });
+}
+
+/** Um segmento grosso de (x0,y0) a (x1,y1), por quadradinhos ao longo dele (a `Tela` só tem retângulos). */
+function segmento(t: Tela, x0: number, y0: number, x1: number, y1: number, cor: string, espessura: number): void {
+  const passos = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0)));
+  for (let k = 0; k <= passos; k++) {
+    const x = x0 + ((x1 - x0) * k) / passos;
+    const y = y0 + ((y1 - y0) * k) / passos;
+    t.retangulo(x - espessura / 2, y - espessura / 2, espessura, espessura, cor);
+  }
 }
