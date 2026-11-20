@@ -35,7 +35,31 @@ export function valoresCabem(pontos: Ponto[], passo: number): boolean {
   return pontos.every((p) => p.texto.length * LARGURA_DO_DIGITO <= passo - 2);
 }
 
-export function GraficoDoMister({ legenda, pontos, linha, cabecalho }: { legenda: string; pontos: Ponto[]; linha: { valor: number; texto: string } | null; cabecalho: [string, string] }) {
+/** O caminho da barra com o topo arredondado (x = a borda esquerda). */
+const caminhoDaBarra = (x: number, largura: number, chao: number, h: number) => {
+  const r = Math.min(3, h, largura / 2);
+  return `M${x},${chao} V${chao - h + r} Q${x},${chao - h} ${x + r},${chao - h} H${x + largura - r} Q${x + largura},${chao - h} ${x + largura},${chao - h + r} V${chao} Z`;
+};
+
+/**
+ * `anteriores` (versão 5, M5e — o "Por dia" do resumo): o mesmo ponto no período anterior, numa barra clara à esquerda
+ * de cada uma (como a imagem da conversa e o PDF), com a legenda e a coluna a mais na tabela.
+ */
+export function GraficoDoMister({
+  legenda,
+  pontos,
+  linha,
+  cabecalho,
+  anteriores,
+  nomeDoAnterior = 'o período anterior',
+}: {
+  legenda: string;
+  pontos: Ponto[];
+  linha: { valor: number; texto: string } | null;
+  cabecalho: [string, string];
+  anteriores?: number[];
+  nomeDoAnterior?: string;
+}) {
   const caixa = useRef<HTMLDivElement>(null);
   const [largura, setLargura] = useState(0);
   useEffect(() => {
@@ -54,8 +78,11 @@ export function GraficoDoMister({ legenda, pontos, linha, cabecalho }: { legenda
   const pico = pontos[iMaior];
   const W = Math.max(0, largura);
   const passo = W / n;
-  const barra = Math.max(3, Math.min(BARRA_MAXIMA, passo * 0.62));
-  const maior = Math.max(1, ...pontos.map((p) => p.valor), linha?.valor ?? 0) * 1.08;
+  const comAnterior = !!anteriores && anteriores.length === pontos.length && anteriores.some((v) => v > 0);
+  const barra = comAnterior ? Math.max(3, Math.min(BARRA_MAXIMA * 0.6, passo * 0.36)) : Math.max(3, Math.min(BARRA_MAXIMA, passo * 0.62));
+  /** O centro da barra deste período (com o anterior ao lado, ela fica à direita do meio). */
+  const centroDaBarra = (cx: number) => (comAnterior ? cx + 1 + barra / 2 : cx);
+  const maior = Math.max(1, ...pontos.map((p) => p.valor), ...(comAnterior ? anteriores! : []), linha?.valor ?? 0) * 1.08;
   const chao = ALTURA - BASE;
   const y = (v: number) => chao - (v / maior) * (chao - TOPO);
   const todos = valoresCabem(pontos, passo);
@@ -82,14 +109,17 @@ export function GraficoDoMister({ legenda, pontos, linha, cabecalho }: { legenda
               const topo = y(p.valor);
               const h = Math.max(p.valor > 0 ? 2 : 0, chao - topo);
               const destaque = i === iMaior;
+              const ant = comAnterior ? anteriores![i] : 0;
+              const hAnt = ant > 0 ? Math.max(2, chao - y(ant)) : 0;
               return (
                 <g key={`${p.rotulo}-${i}`}>
+                  {hAnt > 0 && (
+                    <path d={caminhoDaBarra(cx - 1 - barra, barra, chao, hAnt)} fill="hsl(var(--muted-foreground))" fillOpacity={0.35}>
+                      <title>{`${p.rotulo} · ${nomeDoAnterior}`}</title>
+                    </path>
+                  )}
                   {h > 0 && (
-                    <path
-                      d={`M${cx - barra / 2},${chao} V${chao - h + Math.min(3, h)} Q${cx - barra / 2},${chao - h} ${cx - barra / 2 + Math.min(3, h)},${chao - h} H${cx + barra / 2 - Math.min(3, h)} Q${cx + barra / 2},${chao - h} ${cx + barra / 2},${chao - h + Math.min(3, h)} V${chao} Z`}
-                      fill={destaque ? 'hsl(var(--primary))' : 'hsl(var(--foreground))'}
-                      fillOpacity={destaque ? 1 : 0.78}
-                    >
+                    <path d={caminhoDaBarra(centroDaBarra(cx) - barra / 2, barra, chao, h)} fill={destaque ? 'hsl(var(--primary))' : 'hsl(var(--foreground))'} fillOpacity={destaque ? 1 : 0.78}>
                       <title>{`${p.rotulo} · ${p.texto}`}</title>
                     </path>
                   )}
@@ -105,7 +135,7 @@ export function GraficoDoMister({ legenda, pontos, linha, cabecalho }: { legenda
             {/* Os valores por último, por cima da linha da média, com a borda da cor do fundo (a linha não risca o número). */}
             {pontos.map((p, i) => {
               if (!todos && i !== iMaior) return null;
-              const cx = passo * i + passo / 2;
+              const cx = centroDaBarra(passo * i + passo / 2);
               const h = Math.max(p.valor > 0 ? 2 : 0, chao - y(p.valor));
               return (
                 <text
@@ -128,6 +158,16 @@ export function GraficoDoMister({ legenda, pontos, linha, cabecalho }: { legenda
           </svg>
         )}
       </div>
+      {comAnterior && (
+        <p className={`flex flex-wrap items-center gap-x-4 gap-y-1 text-sm ${texto2}`}>
+          <span className="inline-flex items-center gap-1.5">
+            <span aria-hidden="true" className="inline-block h-2.5 w-2.5 rounded-sm bg-foreground/80" /> este período
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span aria-hidden="true" className="inline-block h-2.5 w-2.5 rounded-sm bg-muted-foreground/40" /> {nomeDoAnterior}
+          </span>
+        </p>
+      )}
       <p className={`text-sm ${texto2}`}>
         Maior: <b className="text-foreground">{pico.rotulo}</b> — {pico.texto}.
       </p>
@@ -143,6 +183,11 @@ export function GraficoDoMister({ legenda, pontos, linha, cabecalho }: { legenda
               <th scope="col" className="py-1.5 text-right font-bold">
                 {cabecalho[1]}
               </th>
+              {comAnterior && (
+                <th scope="col" className="py-1.5 pl-3 text-right font-bold">
+                  {nomeDoAnterior}
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -152,6 +197,7 @@ export function GraficoDoMister({ legenda, pontos, linha, cabecalho }: { legenda
                   {p.rotulo}
                 </th>
                 <td className="break-words py-1.5 text-right font-mono">{p.texto}</td>
+                {comAnterior && <td className="break-words py-1.5 pl-3 text-right font-mono">{(anteriores![i] ?? 0).toLocaleString('pt-BR')}</td>}
               </tr>
             ))}
           </tbody>

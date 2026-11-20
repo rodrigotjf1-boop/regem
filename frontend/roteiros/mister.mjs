@@ -343,6 +343,8 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
       memoria: o.memoria ?? MEMORIA(), memoriaFalha: !!o.memoriaFalha, memoriaRecusa: o.memoriaRecusa ?? null, memoriaPedidos: [],
       // Os documentos por foto ligados nesta instalação (a variável que o dono liga), como o servidor manda.
       disponivelDocs: o.disponivelDocs ?? true,
+      // Versão 5, M5e: a versão 5 ligada nesta instalação (`MISTER_MIDIA`) — o "Como mandar o resumo" diz quando não está.
+      resumoEmArquivo: o.resumoEmArquivo ?? true,
       documentos: o.documentos ?? DOCUMENTOS(), documentosFalha: !!o.documentosFalha, diasDosDocumentos: [], desfeitos: [], pdfs: [],
       // M3c.4: a página do relatório do link
       relatorio: o.relatorio ?? RELATORIO_INSUMO(), relatorioRecusa: o.relatorioRecusa ?? null, relatorioPedidos: [], relatorioPdfs: [],
@@ -377,7 +379,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
         S.daLoja = S.daLoja.map((a) => (a.id === ciente[1] ? { ...a, ciente: true } : a));
         return responder(route, { ok: true }, 201);
       }
-      const disponivel = () => ({ documentos: S.disponivelDocs, notas: S.disponivelDocs });
+      const disponivel = () => ({ documentos: S.disponivelDocs, notas: S.disponivelDocs, resumoEmArquivo: S.resumoEmArquivo });
       if (p === '/mister/conversa' && metodo === 'GET') {
         if (S.conversaFalha) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
         return responder(route, { conversa: S.conversa, disponivel: disponivel() });
@@ -1052,7 +1054,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t0 = await page.locator('main').innerText();
-    ok(/18 ajustes em 8 grupos/.test(t0), "avisos: os nove avisos em quatro grupos, o do boleto (M3a), os dois do ponto (M3e), os dois do gasto do WhatsApp (G2), os três relatórios e a conversa (M3a)");
+    ok(/19 ajustes em 8 grupos/.test(t0), "avisos: os nove avisos em quatro grupos, o do boleto (M3a), os dois do ponto (M3e), os dois do gasto do WhatsApp (G2), os três relatórios e o 'Como mandar o resumo' (M5e) e a conversa (M3a)");
     ok(/Fichas novas de candidatos[\s\S]*Vai para: o presidente e quem tem a permissão Candidatos, cada um só das lojas que vê\./.test(t0), 'relatórios: o das fichas novas diz para quem vai (F4c)');
     ok(t0.includes('O de fichas novas só conta: não usa a IA.'), 'relatórios: a nota diz que o das fichas novas não usa a IA');
     ok(['Na loja', 'Servidor da loja', 'Fiscal', 'O próprio Mister'].every((g) => t0.includes(g)), 'avisos: os quatro grupos do protótipo');
@@ -1212,7 +1214,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t = await page.locator('main').innerText();
-    ok(/18 ajustes em 8 grupos/.test(t), "conversa: o grupo Conversa entra com um ajuste, Documentos e dinheiro com o do boleto e os dois do gasto (G2), e Pessoas e ponto com os dois do ponto");
+    ok(/19 ajustes em 8 grupos/.test(t), "conversa: o grupo Conversa entra com um ajuste, Documentos e dinheiro com o do boleto e os dois do gasto (G2), Pessoas e ponto com os dois do ponto, e Relatórios com o 'Como mandar o resumo' (M5e)");
     ok(/Documentos e dinheiro[\s\S]*Boleto perto de vencer[\s\S]*Já paguei/.test(t), 'boleto: o aviso novo no grupo "Documentos e dinheiro", com o "Já paguei"');
     ok(/Lançar boletos por foto/.test(t) && /só o presidente manda/.test(t) && /a leitura da nota do fornecedor vem numa próxima entrega/.test(t), 'conversa: o ajuste diz o que faz, quem manda e que a nota vem depois');
     const sel = page.locator('select:has(option:text-is("boleto: pergunta antes"))');

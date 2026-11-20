@@ -16,6 +16,8 @@ import { MisterFerramentasService } from './mister-ferramentas.service';
 import { MODELO_DO_RESUMO, parametrosDoResumo } from './mister-modelos';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
+import { MisterResumoArquivoService } from './mister-resumo-arquivo.service';
+import type { TipoDoResumo } from './grafico/plano-do-resumo';
 import {
   AgoraNaOperacao,
   FICHAS_NO_RESUMO_MAX,
@@ -94,6 +96,8 @@ export class MisterRelatoriosService implements OnModuleInit {
     @Optional() private readonly entrada?: MisterEntradaService,
     // F4c: o módulo de vagas de cada loja. Sem ele (os testes antigos não o montam), as fichas novas não saem.
     @Optional() private readonly modulos?: ModuloService,
+    // Versão 5, M5e: o resumo com os botões "📄 PDF" e "📊 Ver gráficos" (ou o PDF/link junto). Sem ele, só o texto.
+    @Optional() private readonly arquivo?: MisterResumoArquivoService,
   ) {}
 
   /** O toque em "Ver resumo" chega pela entrada do WhatsApp, que mora no módulo de baixo: ela chama este serviço. */
@@ -219,9 +223,12 @@ export class MisterRelatoriosService implements OnModuleInit {
       const fim = await this.agente.responder(escopo, [], perguntaDoRelatorio(tipo, devido), { recurso: RECURSO_DO_RELATORIO[tipo] });
       if (fim.motivo) return await naoSaiu(fim.motivo, { trilha: fim.trilha });
       const saida = filtrarSaida(fim.texto, fim.resultados);
-      const trilha = { ...fim.trilha, conferencia: saida.notas };
+      const trilha: Record<string, unknown> = { ...fim.trilha, conferencia: saida.notas };
       try {
-        await this.numero.enviar(pessoa.telefone, { texto: saida.texto });
+        // Versão 5, M5e: o texto e o que vai junto ("Como mandar o resumo"); sem o serviço, só o texto, como antes.
+        if (this.arquivo)
+          trilha.entrega = await this.arquivo.entregar({ tenantId, colaboradorId: pessoa.colaboradorId, telefone: pessoa.telefone }, escopo, String(vez.id), tipo as TipoDoResumo, devido.referencia, saida.texto);
+        else await this.numero.enviar(pessoa.telefone, { texto: saida.texto });
       } catch (e: any) {
         return await naoSaiu(e instanceof FalhaDoEnvioDoMister ? `envio: ${e.motivo}` : 'envio', { texto: saida.texto, trilha });
       }
@@ -315,8 +322,17 @@ export class MisterRelatoriosService implements OnModuleInit {
         return true;
       }
       const saida = filtrarSaida(fim.texto, fim.resultados);
-      const trilha = { ...(vez.trilha ?? {}), ...fim.trilha, conferencia: saida.notas };
-      const saiu = await this.dizer(quem.telefone, saida.texto);
+      const trilha: Record<string, unknown> = { ...(vez.trilha ?? {}), ...fim.trilha, conferencia: saida.notas };
+      // Versão 5, M5e: o texto e o que vai junto, como na rotina.
+      let saiu: boolean;
+      if (this.arquivo) {
+        saiu = await this.arquivo
+          .entregar({ tenantId: vez.tenantId, colaboradorId: vez.colaboradorId, telefone: quem.telefone }, escopo, String(vez.id), tipo as TipoDoResumo, devido.referencia, saida.texto)
+          .then(
+            (entrega) => ((trilha.entrega = entrega), true),
+            () => false,
+          );
+      } else saiu = await this.dizer(quem.telefone, saida.texto);
       await this.db.execute(sql`
         update mister_relatorio
            set situacao = ${saiu ? 'enviado' : 'nao_enviado'}, motivo = ${saiu ? null : 'envio'}, texto = ${saida.texto},

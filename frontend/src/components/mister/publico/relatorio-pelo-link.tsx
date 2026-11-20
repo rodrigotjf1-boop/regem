@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RegemMark } from '@/components/brand/regem-mark';
 import { CorpoDoRelatorio } from '@/components/mister/corpo-do-relatorio';
+import { ResumoDoMister } from '@/components/mister/publico/resumo-do-mister';
 import { api } from '@/lib/api';
 import { baixarBlob, type VistaDoRelatorioPublico } from '@/lib/mister-relatorio';
 
@@ -109,7 +110,7 @@ export function RelatorioPeloLink({ codigo }: { codigo: string }) {
                 {v.plano.titulo}
               </h1>
               <p className="break-words text-sm text-foreground/75">
-                {v.plano.cabecalho} · {v.plano.gerado}
+                {v.tipo === 'resumo' ? `${v.plano.loja} · lido em ${v.plano.lidoEm}` : `${v.plano.cabecalho} · ${v.plano.gerado}`}
               </p>
             </section>
 
@@ -132,7 +133,8 @@ export function RelatorioPeloLink({ codigo }: { codigo: string }) {
               </p>
             )}
 
-            <CorpoDoRelatorio plano={v.plano} vazio={!v.comVenda} nivel={2} />
+            {/* Versão 5, M5e: o resumo do dia ou da semana (os números, as abas dos gráficos e a atenção). */}
+            {v.tipo === 'resumo' ? <ResumoDoMister plano={v.plano} /> : <CorpoDoRelatorio plano={v.plano} vazio={!v.comVenda} nivel={2} />}
           </>
         )}
 

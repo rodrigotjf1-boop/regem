@@ -6,6 +6,8 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ModuloService } from '../modulo/modulo.service';
 import { pessoaVale } from './mister-vinculo.service';
 import { gerarPdfDoInsumo, PlanoDoPdfDoInsumo } from './relatorio-insumo-pdf';
+import { gerarPdfDoResumo } from './relatorio-resumo-pdf';
+import { PlanoDoResumo, ehPlanoDoResumo } from './grafico/plano-do-resumo';
 import {
   TETO_DE_LINKS_VIVOS,
   TEXTOS_DO_LINK_PUBLICO,
@@ -37,13 +39,20 @@ const baseDoApp = () => String(process.env.APP_URL || 'https://app.dmsregem.com'
 /** A chave da trava de transação do teto (o par com o resumo da empresa; a auditoria usa o 0). */
 const TRAVA_DO_TETO = 443;
 
-export interface NovoLinkPublico {
-  /** A loja do relatório; null = todas as lojas (ou a loja única). */
-  unidadeId: string | null;
-  titulo: string;
-  nomeDoPdf: string;
-  plano: PlanoDoPdfDoInsumo;
-}
+/** O link de um relatório por insumo (M3c, o presidente pede) ou de um resumo (versão 5, M5e, o "📊 Ver gráficos"). */
+export type NovoLinkPublico =
+  | {
+      tipo?: 'insumo';
+      /** A loja do relatório; null = todas as lojas (ou a loja única). */
+      unidadeId: string | null;
+      titulo: string;
+      nomeDoPdf: string;
+      plano: PlanoDoPdfDoInsumo;
+    }
+  | { tipo: 'resumo'; unidadeId: string | null; titulo: string; nomeDoPdf: string; plano: PlanoDoResumo };
+
+/** O plano guardado tem a forma do tipo dele? (Outra forma não abre e não nasce.) */
+const planoVale = (tipo: unknown, plano: unknown): boolean => (tipo === 'resumo' ? ehPlanoDoResumo(plano) : tipo === 'insumo' && ehPlanoDoRelatorio(plano));
 
 @Injectable()
 export class MisterLinkPublicoService {
@@ -67,7 +76,8 @@ export class MisterLinkPublicoService {
    */
   async criar(quem: { tenantId: string; colaboradorId: string }, novo: NovoLinkPublico): Promise<{ url: string; vence: Date } | { erro: string }> {
     if (!this.ligado()) return { erro: TEXTOS_DO_LINK_PUBLICO.desligado };
-    if (!ehPlanoDoRelatorio(novo.plano)) {
+    const tipo = novo.tipo ?? 'insumo';
+    if (!planoVale(tipo, novo.plano)) {
       this.logger.error(`o plano do relatório "${novo.titulo}" não tem a forma esperada: o link não foi criado`);
       return { erro: TEXTOS_DO_LINK_PUBLICO.falhou };
     }
@@ -85,7 +95,7 @@ export class MisterLinkPublicoService {
         const [l] = linhas(
           await tx.execute(sql`
             insert into mister_link_publico (tenant_id, unidade_id, criado_por, tipo, titulo, nome_do_pdf, plano, link_hash, vence_em)
-            values (${quem.tenantId}::uuid, ${novo.unidadeId}::uuid, ${quem.colaboradorId}::uuid, 'insumo', ${novo.titulo.slice(0, 300)},
+            values (${quem.tenantId}::uuid, ${novo.unidadeId}::uuid, ${quem.colaboradorId}::uuid, ${tipo}, ${novo.titulo.slice(0, 300)},
                     ${novo.nomeDoPdf.slice(0, 120)}, ${JSON.stringify(novo.plano)}::jsonb, ${resumoDoCodigo(codigo)},
                     clock_timestamp() + ${VALIDADE_DO_LINK_DIAS}::int * interval '1 day')
             returning id::text as id, vence_em as "venceEm"`),
@@ -127,14 +137,18 @@ export class MisterLinkPublicoService {
     const l = await this.linha(codigo);
     await this.contarAcesso(l, 'pagina');
     const vence = new Date(l.venceEm);
-    return { empresa: String(l.empresa ?? ''), plano: l.plano, nomeDoPdf: String(l.nomeDoPdf), comVenda: planoTemVenda(l.plano), valeAte: vence.toISOString(), valeAteDia: diaMesDe(vence) };
+    const comum = { empresa: String(l.empresa ?? ''), nomeDoPdf: String(l.nomeDoPdf), valeAte: vence.toISOString(), valeAteDia: diaMesDe(vence) };
+    // Versão 5, M5e: o resumo (os números, os gráficos e a atenção) tem a página dele.
+    if (l.tipo === 'resumo') return { ...comum, tipo: 'resumo', plano: l.plano };
+    return { ...comum, tipo: 'insumo', plano: l.plano, comVenda: planoTemVenda(l.plano) };
   }
 
   /** O PDF do relatório guardado (o MESMO plano da página). */
   async pdf(codigo: unknown): Promise<{ pdf: Buffer; nome: string }> {
     const l = await this.linha(codigo);
     await this.contarAcesso(l, 'pdf');
-    return { pdf: await gerarPdfDoInsumo(l.plano, String(l.nomeDoPdf)), nome: String(l.nomeDoPdf) };
+    const pdf = l.tipo === 'resumo' ? await gerarPdfDoResumo(l.plano, String(l.nomeDoPdf)) : await gerarPdfDoInsumo(l.plano, String(l.nomeDoPdf));
+    return { pdf, nome: String(l.nomeDoPdf) };
   }
 
   /**
@@ -148,7 +162,7 @@ export class MisterLinkPublicoService {
     try {
       [l] = linhas(
         await this.db.execute(sql`
-          select k.id::text as id, k.tenant_id::text as "tenantId", k.unidade_id::text as "unidadeId", k.titulo, k.nome_do_pdf as "nomeDoPdf",
+          select k.id::text as id, k.tenant_id::text as "tenantId", k.unidade_id::text as "unidadeId", k.tipo, k.titulo, k.nome_do_pdf as "nomeDoPdf",
                  k.plano, k.vence_em as "venceEm", emp.nome as empresa
             from mister_link_publico k
             join empresa emp on emp.id = k.tenant_id
@@ -156,13 +170,16 @@ export class MisterLinkPublicoService {
             left join funcao f on f.id = c.funcao_id
             left join perfil_acesso p on p.id = c.perfil_acesso_id
            where k.link_hash = ${resumoDoCodigo(codigo)} and k.revogado_em is null and k.vence_em > now()
-             and ${pessoaVale()} and coalesce(p.nivel, f.categoria::text) = 'presidente'`),
+             and ${pessoaVale()}
+             -- O link para encaminhar (insumo) é do presidente; o do resumo (M5e), de quem o recebeu: presidente ou gerente.
+             and (case when k.tipo = 'resumo' then coalesce(p.nivel, f.categoria::text) in ('presidente', 'gerente')
+                       else coalesce(p.nivel, f.categoria::text) = 'presidente' end)`),
       );
     } catch (e: any) {
       if (semTabela(e)) throw fora();
       throw e;
     }
-    if (!l || !ehPlanoDoRelatorio(l.plano)) throw fora();
+    if (!l || !planoVale(l.tipo, l.plano)) throw fora();
     if (this.modulos && !(await this.modulos.ativo(l.tenantId, l.unidadeId ?? null, 'mister'))) throw fora();
     return l;
   }
