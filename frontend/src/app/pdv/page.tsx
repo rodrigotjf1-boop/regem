@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ListX, PauseCircle, Search, Users } from 'lucide-react';
 import { api, getToken } from '@/lib/api';
+import { hojeNaLoja } from '@/lib/hoje-na-loja';
 import { rotuloSenha } from '@/lib/senha';
 import { textosDasEscolhas } from '@/lib/adicionais';
 import { SEM_CATEGORIA, buscarProdutos, categoriasDoBalcao, centavos, chaveDoItem, notasSugeridas, valorDigitado } from '@/lib/balcao';
@@ -741,7 +742,7 @@ export default function PdvPage() {
                     <input
                       type="date"
                       value={encomendaData}
-                      min={new Date().toISOString().slice(0, 10)}
+                      min={hojeNaLoja()}
                       onChange={(e) => setEncomendaData(e.target.value)}
                       className="mt-1 h-9 w-full rounded-md border border-input bg-card px-2 text-sm"
                     />

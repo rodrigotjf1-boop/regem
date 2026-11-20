@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, X } from 'lucide-react';
 import { api, getToken, getCategoria } from '@/lib/api';
+import { hojeNaLoja } from '@/lib/hoje-na-loja';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { SkeletonList } from '@/components/ui/skeleton';
@@ -38,8 +39,10 @@ const STATUS: Record<string, { label: string; cls: string }> = {
   impossibilitada: { label: 'Impossibilitada', cls: 'bg-violet-100 text-violet-700' },
 };
 
+// V46 (ERR-551): o dia da loja, não o de UTC — depois das 21h o UTC já é amanhã, e a tela mostrava as tarefas do dia
+// seguinte no meio do expediente da noite.
 function hoje() {
-  return new Date().toISOString().slice(0, 10);
+  return hojeNaLoja();
 }
 
 function fmtData(v?: string | null) {

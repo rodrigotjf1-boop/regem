@@ -3,6 +3,7 @@
 import { useId, useState } from 'react';
 import { Plus, Trash2, X } from 'lucide-react';
 import { api } from '@/lib/api';
+import { hojeNaLoja } from '@/lib/hoje-na-loja';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -237,7 +238,7 @@ export function ProdutoForm({
           const r: any = await api.criarEtiqueta({
             itemId: produtoId,
             quantidade: Number(qtdEtiq) || 1,
-            fabricacao: new Date().toISOString().slice(0, 10),
+            fabricacao: hojeNaLoja(),
           });
           toast.success(`${r?.criadas ?? 1} etiqueta(s) enviada(s) à impressão.`);
         } catch (err) {

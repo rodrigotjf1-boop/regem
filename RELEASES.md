@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **O "hoje" das telas no fuso da loja (20/11; SEM migration; ERR-551).** Tarefas, Auditoria, Estoque, o mínimo da data de
+  entrega no PDV e a fabricação da etiqueta usavam o dia em UTC (depois das 21h, o dia seguinte). Vai no `.zip`: a loja
+  serve essas telas.
+
 - **Mister versão 6, M6k lote 4 — os 7 últimos assuntos do "como faço", com imagem; M6k completa (20/11; SEM
   migration).** O guia é da nuvem; vai no `.zip` a correção da Visão C&O (ERR-550: "carregando" × "não li" × "nenhuma"),
   que a loja também serve.
