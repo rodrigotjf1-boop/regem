@@ -99,6 +99,12 @@ export default async function roteiroCardapioParaVoce({ nav, base, ok, foto: arq
         const abas = await page.evaluate(() => [...document.querySelectorAll('.hs button')].map((b) => b.textContent.replace(/\s+/g, ' ').trim()));
         ok(abas.some((a) => a.endsWith('Seu de sempre')) && !abas.some((a) => a.includes('Olá, Ana')), `${tema} ${w}px · a aba curta "Seu de sempre"`);
         ok(consultas.some((c) => c.startsWith(`/publico/cardapio/${TOKEN}/para-voce?ct=ct-falso-do-roteiro`)), `${tema} ${w}px · o pedido leva a prova (ct)`);
+        if (tema !== 'galeria') {
+          // No topo, a aba ativa é a primeira seção — mesmo com o "para você" chegando depois do cardápio.
+          await page.waitForTimeout(300);
+          const ativa = await page.evaluate(() => document.querySelector('[data-tab].on')?.textContent?.trim() ?? '');
+          ok(ativa === 'Seu de sempre', `${tema} ${w}px · no topo, a aba ativa é "Seu de sempre" (está "${ativa}")`);
+        }
         const achados = await medir(page);
         ok(achados.length === 0, `${tema} ${w}px · sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
         if (w === 390) await page.screenshot({ path: arquivoFoto(`cardapio-para-voce-${tema}-${w}.png`) });

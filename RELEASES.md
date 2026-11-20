@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Perfil do cliente F8 — o cardápio para o cliente identificado (20/11; SEM migration).** No cardápio Regem, para quem
+  entrou com o código do WhatsApp: "seu de sempre" no topo e, com as recomendações ligadas, "Você viu" e as categorias na
+  ordem do que ele mais abre (rota pública `/publico/cardapio/:token/para-voce`); o cálculo do perfil guarda a chave do
+  "de sempre". Só na nuvem e só com o módulo ligado; no `.zip` só por acompanhar o código.
+
 - **Perfil do cliente F4b — o que o cliente olha no cardápio (20/11; SEM migration).** A ficha ganha a camada "O que
   olha no cardápio" (pontos de interesse e o "viu e não pediu") e Delivery › Clientes a aba "Olharam e não pediram"
   (também na campanha, só o aceite clicado). Desligar as recomendações ou pedir "não analisar" devolve os cliques do

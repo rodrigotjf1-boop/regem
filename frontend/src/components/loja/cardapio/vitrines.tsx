@@ -142,6 +142,10 @@ function useAbas(rolagem: RefObject<HTMLDivElement | null>, abas: RefObject<HTML
       if (t && on) t.scrollTo({ left: on.offsetLeft - 20, behavior: 'smooth' });
     }
   }, [rolagem, abas, ids]);
+  // As seções mudaram (o "para você" chega depois do cardápio — F8): a aba ativa se recalcula sem esperar a rolagem.
+  useEffect(() => {
+    aoRolar();
+  }, [aoRolar]);
   const ir = useCallback(
     (id: string) => {
       const sc = rolagem.current;
