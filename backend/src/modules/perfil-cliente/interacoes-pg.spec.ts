@@ -10,6 +10,8 @@ import { SEGMENTOS_DO_PERFIL } from '../../common/segmentos-do-perfil';
 import { gravarPrivacidade } from './privacidade-do-cliente';
 import { paraOCliente } from './para-o-cliente';
 import { PerfilClienteService } from './perfil-cliente.service';
+import { cartaoDoCliente, lembreteViu, montarCartao } from './cartao-do-cliente';
+import { chaveTelefone } from '../../common/telefone-chave';
 
 const MIG = (n: string) => join(__dirname, '..', '..', '..', '..', 'database', 'migrations', n);
 const semFkCompartilhada = (s: string) =>
@@ -71,7 +73,8 @@ descrever('os cliques do cardápio (Postgres)', () => {
     process.env.PERFIL_CARDAPIO_PARA_VOCE = '1'; // a F8 ligada nesta suíte (nasce desligada — o teste dela prova)
     if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 16) process.env.JWT_SECRET = 'segredo-de-teste-dos-cliques-1';
     await admin.query(`create schema ${SCHEMA}`);
-    for (const m of ['196_cardapio_evento.sql', '459_perfil_do_cliente.sql', '463_cliente_evento_sensibilidade.sql', '466_cardapio_interacao.sql']) await pool.query(semFkCompartilhada(readFileSync(MIG(m), 'utf8')));
+    // 356 e 481: as Automáticas e o freio do "viu e não pediu" (F7 parte 4d).
+    for (const m of ['196_cardapio_evento.sql', '356_relacionamento_automaticas.sql', '459_perfil_do_cliente.sql', '463_cliente_evento_sensibilidade.sql', '466_cardapio_interacao.sql', '481_lembrete_viu_na_conversa.sql']) await pool.query(semFkCompartilhada(readFileSync(MIG(m), 'utf8')));
   }, 60_000);
   afterAll(async () => {
     if (segredoAntes === undefined) delete process.env.JWT_SECRET;
@@ -426,4 +429,70 @@ descrever('os cliques do cardápio (Postgres)', () => {
       expect(await expurgarFunil(db)).toBe(1);
       expect(await q(`select sessao from cardapio_evento where tenant_id = $1 order by sessao`, [on.t])).toEqual([{ sessao: 's2' }, { sessao: 's3' }]);
     }));
+
+  // F7 parte 4d (mig 481): o "viu e não pediu" na conversa do atendente virtual — só com a automática ligada; o produto
+  // ainda no ar; uma vez por intervalo de ofertas (a mesma conversa mantém o produto); nunca a quem recebeu oferta no
+  // intervalo nem depois de pedir o produto.
+  it('"viu e não pediu" no cartão do atendente: ligado, freio por intervalo, oferta recente e pedido seguram', () =>
+    naTransacao(async (c, q) => {
+      const db = drizzle(c as any);
+      const on = await loja(q, true);
+      const pausado = (await q(`insert into produto (tenant_id, nome, disponivel_cardapio) values ($1,'Wrap de frango', false) returning id`, [on.t]))[0].id as string;
+      const ana = (await q(`insert into cliente (tenant_id, nome, telefone) values ($1,'Ana','21966660001') returning id`, [on.t]))[0].id as string;
+      const abrir = (produto: string, dias: number) =>
+        q(`insert into cardapio_interacao (tenant_id, sessao, cliente_id, tipo, produto_id, em) values ($1,'sessaoviu',$2,'produto_aberto',$3, now() - make_interval(days => $4::int))`, [on.t, ana, produto, dias]);
+      await abrir(on.produto, 3);
+      await abrir(on.produto, 1);
+      for (const d of [5, 4, 2]) await abrir(pausado, d); // mais aberto, mas pausado no cardápio: não entra
+      const lembretes = () => q(`select produto_id from cliente_lembrete_viu where tenant_id = $1 and cliente_id = $2`, [on.t, ana]);
+
+      // A automática desligada (sem a linha e com a linha): nada.
+      expect(await lembreteViu(db, on.t, ana)).toBeNull();
+      await q(`insert into relacionamento_config (tenant_id, intervalo_ofertas_dias) values ($1, 7)`, [on.t]);
+      expect(await lembreteViu(db, on.t, ana)).toBeNull();
+
+      // Ligada: o produto no ar, gravado uma vez; a mesma conversa mantém o produto sem gravar de novo.
+      await q(`update relacionamento_config set viu_ativo = true where tenant_id = $1`, [on.t]);
+      expect(await lembreteViu(db, on.t, ana)).toBe('Costela BBQ');
+      expect(await lembreteViu(db, on.t, ana)).toBe('Costela BBQ');
+      expect(await lembretes()).toEqual([{ produto_id: on.produto }]);
+      const cartao = await cartaoDoCliente(db, on.t, ana);
+      expect(cartao?.sugestao).toMatch(/^Costela BBQ: se o cliente estiver escolhendo o que pedir, pode sugerir UMA vez/);
+      expect(cartao?.sugestao).toMatch(/Nunca diga que ele olhou esse produto/);
+
+      // Outra conversa no mesmo intervalo (7 h depois): nada; passado o intervalo (8 dias): de novo.
+      await q(`update cliente_lembrete_viu set em = now() - interval '7 hours' where tenant_id = $1`, [on.t]);
+      expect(await lembreteViu(db, on.t, ana)).toBeNull();
+      await q(`update cliente_lembrete_viu set em = now() - interval '8 days' where tenant_id = $1`, [on.t]);
+      expect(await lembreteViu(db, on.t, ana)).toBe('Costela BBQ');
+      expect(await lembretes()).toHaveLength(2);
+
+      // Uma oferta automática no intervalo segura o lembrete (o freio das Automáticas).
+      await q(`delete from cliente_lembrete_viu where tenant_id = $1`, [on.t]);
+      await q(
+        `insert into relacionamento_envio (tenant_id, tipo, chave_telefone, referencia, telefone, cliente_id, dia, oferta, status, enviado_em)
+         values ($1, 'volta', $2, '2026-11', '21966660001', $3, current_date, true, 'enviado', now() - interval '2 days')`,
+        [on.t, chaveTelefone('21966660001'), ana],
+      );
+      expect(await lembreteViu(db, on.t, ana)).toBeNull();
+      await q(`delete from relacionamento_envio where tenant_id = $1`, [on.t]);
+      expect(await lembreteViu(db, on.t, ana)).toBe('Costela BBQ');
+
+      // Pediu o produto depois de abrir: não é mais "viu e não pediu".
+      await q(`delete from cliente_lembrete_viu where tenant_id = $1`, [on.t]);
+      await q(
+        `insert into pedido_externo (tenant_id, canal, tipo, itens, total, status, cliente_nome, client_ref, cliente_id)
+         values ($1, 'cardapio', 'entrega', $2::jsonb, 40, 'concluido', 'Ana', $3, $4)`,
+        [on.t, JSON.stringify([{ produtoId: on.produto, descricao: 'Costela BBQ', quantidade: 1 }]), randomUUID(), ana],
+      );
+      expect(await lembreteViu(db, on.t, ana)).toBeNull();
+    }));
+
+  it('o cartão sem banco: a sugestão só com o produto, e o cartão só com ela já é útil', () => {
+    expect(montarCartao(null, [])).toBeNull();
+    expect(montarCartao(null, [], null)).toBeNull();
+    const c = montarCartao(null, [], 'Smash duplo');
+    expect(c?.sugestao).toMatch(/^Smash duplo: /);
+    expect(c?.comoUsar).toMatch(/NUNCA cite estas informações/);
+  });
 });

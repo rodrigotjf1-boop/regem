@@ -51,6 +51,8 @@ type Painel = {
     voltaTentativas: number;
     voltaPeloRitmo?: boolean;
     grupoControle?: boolean;
+    /** "Viu e não pediu" na conversa (F7 parte 4d, mig 481). */
+    viuAtivo?: boolean;
   };
   /** O módulo "Perfil do cliente" ligado (mostra "pelo ritmo de cada cliente" — F7 parte 2, mig 464). */
   perfilLigado?: boolean;
@@ -143,6 +145,7 @@ const paraValores = (p: Painel): Valores => ({
   voltaTentativas: String(p.ajustes.voltaTentativas),
   voltaPeloRitmo: p.ajustes.voltaPeloRitmo === true,
   grupoControle: p.ajustes.grupoControle === true,
+  viuAtivo: p.ajustes.viuAtivo === true,
 });
 
 /** "hoje às 17:00", "amanhã às 17:00", "sexta às 17:00". */
@@ -747,8 +750,29 @@ export function Automaticas() {
     ],
   };
 
-  const grupos = [grupoGeral, grupoCashback, grupoAniversario, grupoProtecao, grupoVolta];
-  const ligadas = Number(!!valores.cashbackAtivo) + Number(!!valores.aniversarioAtivo) + Number(!!valores.voltaAtivo);
+  // "Viu e não pediu" na conversa (F7 parte 4d, mig 481): só com o Perfil do cliente ligado; nasce desligada.
+  const intervalo = Number(valores.intervaloOfertasDias) || p.ajustes.intervaloOfertasDias;
+  const grupoViu: GrupoDeAjustes = {
+    titulo: '👀 Viu e não pediu',
+    itens: [
+      {
+        id: 'viuAtivo',
+        rotulo: 'Lembrar na conversa o que o cliente viu e não pediu',
+        tipo: 'chave',
+        ajuda:
+          `Do Perfil do cliente: quando o cliente fala com a loja no WhatsApp, o atendente virtual pode sugerir UMA vez o produto que ele abriu 2 vezes ou mais no cardápio e ainda não pediu — sem dizer que viu. Não sai mensagem nova (é a conversa que o cliente abriu). Só para quem não desligou as recomendações; no máximo uma vez a cada ${intervalo} dias e nunca para quem recebeu uma oferta nesse intervalo.`,
+        palavras: 'viu não pediu lembrete conversa atendente recomendação produto aberto',
+      },
+    ],
+  };
+
+  const grupos = [grupoGeral, grupoCashback, grupoAniversario, grupoProtecao, grupoVolta, ...(p.perfilLigado ? [grupoViu] : [])];
+  const ligadas =
+    Number(!!valores.cashbackAtivo) +
+    Number(!!valores.aniversarioAtivo) +
+    Number(!!valores.voltaAtivo) +
+    Number(!!(p.perfilLigado && valores.viuAtivo));
+  const quantas = p.perfilLigado ? 4 : 3;
 
   async function salvar() {
     const chaves = alterados(grupos, valores, salvos).filter((k) => k in paraValores(p));
@@ -793,7 +817,7 @@ export function Automaticas() {
         erro={erro}
         antes={
           <p className={`text-sm ${texto2}`}>
-            Mensagens que saem sozinhas, todo dia, no horário da loja · 3 automáticas · {ligadas} {ligadas === 1 ? 'ligada' : 'ligadas'}.
+            Mensagens que saem sozinhas, todo dia, no horário da loja · {quantas} automáticas · {ligadas} {ligadas === 1 ? 'ligada' : 'ligadas'}.
           </p>
         }
       />

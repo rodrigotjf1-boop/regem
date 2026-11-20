@@ -71,6 +71,8 @@ export type AjustesRelacionamento = {
   voltaPeloRitmo: boolean;
   /** O grupo de controle das CAMPANHAS (~10% fixos não recebem; mig 465) — nasce desligado. */
   grupoControle: boolean;
+  /** "Viu e não pediu" na conversa (F7 parte 4d, mig 481): o atendente sugere uma vez o que o cliente abriu e não pediu. */
+  viuAtivo: boolean;
 };
 /**
  * Nasce DESLIGADO; o resto, como as decisões do dono de 03/11/2026 (aniversário: R$ 10 acima de R$ 40 por 7 dias;
@@ -99,6 +101,7 @@ export const AJUSTES_PADRAO: AjustesRelacionamento = {
   voltaTentativas: 2,
   voltaPeloRitmo: false,
   grupoControle: false,
+  viuAtivo: false,
 };
 
 /** O cupom de um desconto da lista: tipo e valor como o cadastro de cupons guarda. */
@@ -165,6 +168,7 @@ export function lerAjustes(dto: unknown): Partial<AjustesRelacionamento> {
   if (d.voltaTentativas !== undefined) p.voltaTentativas = umDe(VOLTA_TENTATIVAS, d.voltaTentativas, 'Tentativas: 1 ou 2.');
   if (d.voltaPeloRitmo !== undefined) p.voltaPeloRitmo = exigirBooleano(d.voltaPeloRitmo, 'voltaPeloRitmo');
   if (d.grupoControle !== undefined) p.grupoControle = exigirBooleano(d.grupoControle, 'grupoControle');
+  if (d.viuAtivo !== undefined) p.viuAtivo = exigirBooleano(d.viuAtivo, 'viuAtivo');
   return p;
 }
 
@@ -197,6 +201,7 @@ export function ajustesDaLinha(row: any): AjustesRelacionamento {
     voltaTentativas: de(VOLTA_TENTATIVAS, row.volta_tentativas, 2),
     voltaPeloRitmo: row.volta_pelo_ritmo === true,
     grupoControle: row.grupo_controle === true,
+    viuAtivo: row.viu_ativo === true,
   };
 }
 

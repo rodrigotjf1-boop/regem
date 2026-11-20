@@ -100,6 +100,12 @@
   revela na página do pedido (`/r/…`) e vê "Prêmios para revelar" em Sua conta. Nasce desligado. A tabela entra como
   SO_NUVEM no `sync-daemon.mjs` (o `.exe` do próximo corte leva o daemon junto). Só na nuvem.
 
+- **"Viu e não pediu" na conversa do atendente (20/11; mig 481 SÓ NUVEM — `relacionamento_config.viu_ativo`,
+  `cliente_lembrete_viu`; F7.4d do `docs/plano-perfil-cliente.md`).** Delivery › Marketing › Automáticas ganha "Viu e
+  não pediu" (com o perfil do cliente ligado; nasce desligada): o atendente virtual sugere uma vez o produto que o cliente
+  abriu e não pediu, sem dizer de onde veio, com o freio das ofertas. A tabela nova entra como SO_NUVEM no
+  `sync-daemon.mjs` (o `.exe` do próximo corte leva o daemon junto). Só na nuvem.
+
 - **Campanha na hora habitual de cada cliente (20/11; mig 480 SÓ NUVEM — `campanha.envio_habitual`,
   `campanha_envio.minutos_alvo`; F7.4b do `docs/plano-perfil-cliente.md`).** Marketing e o "Nova campanha" de
   Delivery › Clientes ganham "Quando enviar": num horário fixo (a de sempre) ou na hora habitual de cada cliente (de 30 a

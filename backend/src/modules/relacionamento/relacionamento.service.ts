@@ -154,6 +154,7 @@ export class RelacionamentoService {
       voltaTentativas: 'volta_tentativas',
       voltaPeloRitmo: 'volta_pelo_ritmo',
       grupoControle: 'grupo_controle',
+      viuAtivo: 'viu_ativo',
     };
     const nomes = mudou.map((k) => sql.raw(colunas[k]));
     const valores = mudou.map((k) => sql`${parcial[k] as any}`);

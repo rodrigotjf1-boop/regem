@@ -2469,6 +2469,9 @@ const SO_NUVEM = new Set([
   // O Pulso (mig 470, @cloud-only; F7 parte 4): a cópia dos eventos da base nacional, o estado da leitura e o clima por
   // município — dado da distribuição, sem empresa; quem lê o Pulso é a nuvem.
   'pulso_evento', 'pulso_estado', 'clima_municipio_dia',
+  // O freio do "viu e não pediu" na conversa (mig 481, @cloud-only; F7 parte 4d): quando o lembrete foi entregue ao
+  // atendente virtual — quem monta o cartão do cliente é a nuvem.
+  'cliente_lembrete_viu',
   // O Clube de recompra (mig 471, @cloud-only; A0 do docs/plano-clube-e-banner.md): a configuração da empresa e o catálogo
   // de prêmios — o clube roda na nuvem (a rotina olha os pedidos entregues que sobem da loja). A loja não tem estas tabelas.
   // O direito de cada cliente (mig 474, A1): o prêmio que ganhou, com o cupom pessoal — dado por uma rotina da nuvem.
