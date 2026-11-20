@@ -16,6 +16,8 @@ import type { FimDaPergunta } from './mister-laco';
 import { GUIA_DE_USO, buscarNoGuia, quemAbre } from './mister-guia-de-uso';
 import { conferirMemoria } from './mister-memoria';
 import { canalDito, conferirTextoDoLembrete, lerQuando, quandoNaConversa } from './mister-vigia';
+import { AVISOS_QUE_NAO_SE_CALAM, conferirRegra, descreverRegra } from './mister-regra';
+import { ehTipoDeAviso } from './mister-avisos.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -268,6 +270,24 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
       if ('erro' in w) return recusa(w.erro);
       const quando = quandoNaConversa(w.quando, AGORA_DA_AVALIACAO_INSTANTE);
       return ok({ marcado: true, lembrete: t.texto, quando, siga: `Repita em uma frase o dia e a hora ("Combinado: ${quando}").` });
+    }
+    case 'regras': {
+      // Versão 6, M6e: a mesma conferência e a mesma descrição da de verdade; na avaliação nada é guardado.
+      if (en.acao === 'listar') return ok({ regras: [], aviso: 'Nenhuma regra ainda.' });
+      if (en.acao === 'buscar') return ok({ itens: [], aviso: 'Nenhum item com esse nome na loja de teste.' });
+      if (en.acao !== 'propor') return recusa('Não achei essa regra.');
+      const r = conferirRegra(
+        en.regra,
+        { presidente: perfil.nivel === 'presidente', pode: () => perfil.nivel === 'presidente', verValores: perfil.verValores },
+        (t) => ehTipoDeAviso(t) && !(AVISOS_QUE_NAO_SE_CALAM as readonly string[]).includes(t),
+      );
+      if ('erro' in r) return recusa(r.erro);
+      return ok({
+        id: '00000000-0000-4000-8000-000000000001',
+        titulo: r.regra.titulo,
+        oQueVouFazer: descreverRegra(r.regra),
+        siga: 'Mostre o "oQueVouFazer" como veio e diga que os botões Confirmar e Mudar vão junto. Nada liga sem o Confirmar.',
+      });
     }
     case 'escrever_recado':
       // M3g parte 2 (mig 444): na avaliação nenhum rascunho é guardado (e nada é publicado) — devolve o texto como ficaria.

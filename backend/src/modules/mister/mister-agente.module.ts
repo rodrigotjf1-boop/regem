@@ -31,6 +31,7 @@ import { MisterLinkPublicoController } from './mister-link-publico.controller';
 import { MisterLinkPublicoService } from './mister-link-publico.service';
 import { MisterPontoDoMesService } from './mister-ponto-do-mes.service';
 import { MisterVigiaService } from './mister-vigia.service';
+import { MisterRegrasService } from './mister-regras.service';
 import { MisterPropostasService } from './mister-propostas.service';
 import { MisterRecadosService } from './mister-recados.service';
 import { MisterRelatoriosService } from './mister-relatorios.service';
@@ -107,6 +108,8 @@ import { MisterModule } from './mister.module';
     MisterPontoDoMesService,
     // Versão 4, M4d (mig 452): o "fica de olho" e o lembrete — a volta de cada minuto e o toque fora das 24 horas.
     MisterVigiaService,
+    // Versão 6, M6e (mig 472): as regras de aviso de cada pessoa — a ferramenta, os botões e o motor de cada minuto.
+    MisterRegrasService,
     // Versão 5, M5a: a foto (e o PDF) que a equipe manda — o DMS Graph lê, a IA da empresa de reserva; vira a pergunta.
     MisterMidiaService,
     // Versão 5, M5e (mig 461): o resumo com "📄 PDF" e "📊 Ver gráficos" e o toque nesses botões.

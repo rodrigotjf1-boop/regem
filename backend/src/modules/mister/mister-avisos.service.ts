@@ -757,6 +757,15 @@ export class MisterAvisosService implements OnModuleInit {
   }
 
   /**
+   * Versão 6, M6e (mig 472): quem tem uma regra ATIVA que fica no lugar deste tipo de aviso não o recebe pelo WhatsApp (o
+   * KDS, a tela e os outros seguem a regra da empresa). Os críticos nunca entram em `substitui` (a conferência da regra).
+   */
+  protected semRegraQueSubstitui(tipo: string) {
+    return sql`and not exists (select 1 from mister_regra r where r.tenant_id = g.tenant_id and r.colaborador_id = g.colaborador_id
+                                  and r.situacao = 'ativa' and ${tipo} = any(r.substitui))`;
+  }
+
+  /**
    * Versão 6, M6a: os telefones ligados ao Mister nas últimas 24 horas, com quem, o nível, a loja e a hora da ligação (o
    * aviso de segurança aos presidentes). Trocável nos testes, como o vigia e o chat.
    */
@@ -1056,7 +1065,8 @@ export class MisterAvisosService implements OnModuleInit {
           left join funcao f on f.id = c.funcao_id
           left join perfil_acesso p on p.id = c.perfil_acesso_id
           join empresa emp on emp.id = g.tenant_id
-         where g.tenant_id = ${a.tenantId}::uuid and g.ligado_em is not null and g.telefone is not null and g.pausado_em is null and ${pessoaVale()}`),
+         where g.tenant_id = ${a.tenantId}::uuid and g.ligado_em is not null and g.telefone is not null and g.pausado_em is null and ${pessoaVale()}
+           ${this.semRegraQueSubstitui(a.tipo)}`),
     );
     // O gerente da loja do aviso (sem loja no aviso: os gerentes da empresa; gerente sem loja vale para todas).
     const daLoja = (l: any) => !a.unidadeId || !l.unidadeId || l.unidadeId === a.unidadeId;
