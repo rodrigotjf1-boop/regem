@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Dependências: avisos de segurança do `qs` (backend) e do `postcss` (tela) corrigidos (20/11; SEM migration).** O
+  `express` passa a usar o `qs` 6.16.2 e o `body-parser` 1.20.9 (pelo `overrides` do `backend/package.json`); o Next usa
+  o `postcss` 8.5.33 do projeto, não a cópia 8.4.31 que vinha dentro dele. O `.zip` leva o `node_modules` novo do backend;
+  o `.exe` não muda.
+
 - **Campanhas e Clientes: o "hoje" e o "No mês" no fuso de Brasília (20/11; SEM migration; ERR-542).** O teto do dia,
   da semana e do mês da campanha e o "No mês" de Delivery › Clientes começavam às 21h da véspera na nuvem (sessão UTC);
   agora pelo `inicioDoPeriodo()`. No servidor da loja (banco no fuso da máquina) já dava certo — no `.zip` só por
