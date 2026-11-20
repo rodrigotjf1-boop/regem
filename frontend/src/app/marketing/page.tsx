@@ -11,6 +11,7 @@ import { ModelosWhatsapp } from '@/components/delivery/modelos-whatsapp';
 import { Automaticas } from '@/components/marketing/automaticas';
 import { CustoDaCampanha } from '@/components/marketing/custo-da-campanha';
 import { ResultadoDoControle } from '@/components/marketing/resultado-do-controle';
+import { ClubeDeRecompra } from '@/components/marketing/clube/clube-de-recompra';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Delivery → Marketing: campanhas de WhatsApp (épico 2 provedores). Público segmentado,
@@ -118,7 +119,7 @@ export default function MarketingPage() {
   const [limite, setLimite] = useState<{ limite: number | null; usadoHoje: number; tier: string | null } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   // Abas + provedor + templates (para campanha na API oficial)
-  const [aba, setAba] = useState<'campanhas' | 'modelos' | 'automaticas'>('campanhas');
+  const [aba, setAba] = useState<'campanhas' | 'modelos' | 'automaticas' | 'clube'>('campanhas');
   const [numeros, setNumeros] = useState<any>(null);
   const [templates, setTemplates] = useState<any[]>([]);
   const [templateNome, setTemplateNome] = useState('');
@@ -161,7 +162,7 @@ export default function MarketingPage() {
   const numeroConectado = !!(numeros?.principal?.vinculado || numeros?.marketing?.vinculado);
   // Na API oficial o modelo é PRÉ-REQUISITO → aba "Modelos" vem primeiro.
   // "Automáticas" (Onda 3): as mensagens que saem sozinhas, todo dia — depois das campanhas.
-  const abas = temCloud ? (['modelos', 'campanhas', 'automaticas'] as const) : (['campanhas', 'automaticas'] as const);
+  const abas = temCloud ? (['modelos', 'campanhas', 'automaticas', 'clube'] as const) : (['campanhas', 'automaticas', 'clube'] as const);
   const semModeloAprovado = temCloud && templates.length === 0;
 
   const carregar = useCallback(async () => {
@@ -421,7 +422,7 @@ export default function MarketingPage() {
                   : 'border-transparent text-foreground/60 hover:text-foreground'
               }`}
             >
-              {k === 'campanhas' ? 'Campanhas' : k === 'automaticas' ? (
+              {k === 'campanhas' ? 'Campanhas' : k === 'clube' ? 'Clube' : k === 'automaticas' ? (
                 <>
                   Automáticas <span className="ml-1 rounded bg-primary/20 px-1.5 py-0.5 text-[10px] font-bold uppercase text-foreground">novo</span>
                 </>
@@ -501,6 +502,8 @@ export default function MarketingPage() {
 
         {aba === 'modelos' && temCloud && <ModelosWhatsapp pode={pode} />}
         {aba === 'automaticas' && <Automaticas />}
+        {/* O Clube de recompra (mig 471, fase A0 do docs/plano-clube-e-banner.md). */}
+        {aba === 'clube' && <ClubeDeRecompra />}
 
         {/* Assistente */}
         {aba === 'campanhas' && novo && pode && (

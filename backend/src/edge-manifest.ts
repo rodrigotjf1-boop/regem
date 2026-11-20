@@ -25,6 +25,7 @@ export const CLOUD_ONLY_MODULES = [
   'OrzuniModule', // iFood pelo Orzuni: a ligação da loja (segredo cifrado) e a fila do envio (tabelas só-nuvem, mig 370)
   'VagasModule', // página pública de vagas + Pessoas › Candidatos (tabelas só-nuvem, mig 389)
   'PerfilClienteModule', // o perfil do cliente: cálculo, ficha e o calendário da loja (tabelas só-nuvem, mig 459 e 461)
+  'ClubeModule', // o Clube de recompra: a configuração e o catálogo de prêmios (tabelas só-nuvem, mig 471)
   'VigiaModule', // vigia do servidor da loja: episódios de incidente a partir do sinal dos servidores (tabela só-nuvem, mig 414)
   'MisterAgenteModule', // o agente de IA do Mister: responde às perguntas da fila (tabela só-nuvem, mig 418)
   'GraphModule', // o DMS Graph: a ligação da empresa (segredo cifrado) e a leitura da foto do cliente (tabelas só-nuvem, mig 450)

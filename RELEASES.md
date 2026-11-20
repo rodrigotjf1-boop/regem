@@ -17,6 +17,12 @@
   o clima diário. Nasce desligado (`PULSO_LIGACAO` no regem-api). As tabelas entram como SO_NUVEM no `sync-daemon.mjs`
   (o `.exe` do próximo corte leva junto). Só na nuvem.
 
+- **Clube de recompra — a base (20/11; mig 471 SÓ NUVEM — `clube_config`, `clube_premio`; fase A0 do
+  `docs/plano-clube-e-banner.md`).** Delivery › Marketing › aba "Clube": a Visão geral (as três ferramentas — nenhuma liga
+  ainda, cada uma chega na sua fase —, o pedido mínimo e as regras do clube) e o catálogo de Prêmios (desconto em %, em
+  R$, frete grátis, produto grátis; lista, gaveta, excluir). Presidente muda, gerente vê. Só na nuvem; as duas tabelas
+  entram como SO_NUVEM no `sync-daemon.mjs` (o `.exe` do próximo corte leva o daemon junto).
+
 - **Catálogo: as cópias duplicadas dos trios inativas (20/11; mig 467 SÓ NUVEM, aplicada — decisão do dono).** As três
   cópias "cw…" que a importação do Cardápio Web criou ficam inativas e fora do balcão e do cardápio digital (o original com
   o código PDV fica); a mudança desce à loja pela sincronização do cadastro. Junto: o "seu de sempre" do cardápio não

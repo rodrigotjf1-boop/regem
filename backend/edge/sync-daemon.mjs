@@ -2467,6 +2467,9 @@ const SO_NUVEM = new Set([
   // O Pulso (mig 470, @cloud-only; F7 parte 4): a cópia dos eventos da base nacional, o estado da leitura e o clima por
   // município — dado da distribuição, sem empresa; quem lê o Pulso é a nuvem.
   'pulso_evento', 'pulso_estado', 'clima_municipio_dia',
+  // O Clube de recompra (mig 471, @cloud-only; A0 do docs/plano-clube-e-banner.md): a configuração da empresa e o catálogo
+  // de prêmios — o clube roda na nuvem (a rotina olha os pedidos entregues que sobem da loja). A loja não tem estas tabelas.
+  'clube_config', 'clube_premio',
   // iFood pelo Orzuni (mig 370, @cloud-only): a ligação de cada loja com o Orzuni (segredo cifrado com a chave da nuvem) e
   // a fila do envio — só a nuvem fala com o Orzuni; a edição feita na loja chega lá pelo sincronismo e enfileira lá.
   'orzuni_ligacao', 'orzuni_envio',
