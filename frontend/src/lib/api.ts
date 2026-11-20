@@ -2169,6 +2169,13 @@ export const api = {
   /** O gatilho "Pedido entregue" do prêmio surpresa (mig 474): `{ ativo?, premioId? }` — o ausente fica como está. */
   clubeSalvarGatilhoEntregue: (body: { ativo?: boolean; premioId?: string | null }) =>
     req('/marketing/clube/gatilhos/entregue', { method: 'PUT', body: JSON.stringify(body) }),
+  /** O gatilho "Depois de uma reclamação" (A1b): `{ ativo?, premios?, limite?, quem? }` — o ausente fica como está. */
+  clubeSalvarGatilhoReclamacao: (body: { ativo?: boolean; premios?: string[]; limite?: string; quem?: string }) =>
+    req('/marketing/clube/gatilhos/reclamacao', { method: 'PUT', body: JSON.stringify(body) }),
+  /** O prêmio de desculpas do caso (A1b): a gaveta (se aparece, se pode, os prêmios) e mandar. */
+  atendimentoPremioDesculpas: (id: string) => req(`/atendimento/${encodeURIComponent(id)}/premio-desculpas`),
+  atendimentoMandarPremioDesculpas: (id: string, body: { premioId: string; mensagem?: string }) =>
+    req(`/atendimento/${encodeURIComponent(id)}/premio-desculpas`, { method: 'POST', body: JSON.stringify(body) }),
   // O aniversário na gaveta do cliente (Delivery › Clientes): ver e corrigir (gerente e presidente, com o motivo).
   crmAniversario: (id: string) => req(`/clientes/crm/${encodeURIComponent(id)}/aniversario`),
   crmCorrigirAniversario: (id: string, body: { dia: number; mes: number; motivo?: string }) =>

@@ -26,6 +26,13 @@
   `MISTER_CUPOM=1`).** Só na nuvem (os documentos do Mister): vai no `.zip` sem efeito na loja. Junto, o ERR-544 (a unidade
   impressa "UN" na nota por foto).
 
+- **Clube — o prêmio de desculpas pelo caso do Atendimento (20/11; sem migration; fase A1b do
+  `docs/plano-clube-e-banner.md`).** Marketing › Clube › Prêmio surpresa: o gatilho "Depois de uma reclamação" (os prêmios
+  que a equipe pode escolher, o limite por cliente, quem manda). No caso do Atendimento, "🎁 Mandar um prêmio de desculpas":
+  um por caso, o limite conferido sob trava, o cupom pessoal e a mensagem com o link `/p/…` pela conversa do WhatsApp.
+  **Vai no `.zip`:** no servidor da loja, as duas rotas novas do Atendimento repassam à nuvem (`clube/da-loja`) — sem o
+  `.zip`, a loja não mostra o quadro (a rota não existe lá e a tela esconde). Nasce desligado.
+
 - **Mister versão 6, M6c — "Perdi o celular" (20/11; mig 473 NUVEM E LOJA — `sessao_corte`).** Corta todas as sessões do
   Regem de uma pessoa, em todos os aparelhos: a guarda e o tempo real recusam o token emitido antes do corte. Só a nuvem
   escreve a tabela; ela DESCE à loja (`direcao: 'desce'`), e a guarda do servidor da loja passa a recusar ali também. **Vai

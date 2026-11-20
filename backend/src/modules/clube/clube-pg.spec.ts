@@ -13,6 +13,7 @@ import { AniversarioService } from '../aniversario/aniversario.service';
 import { ClubeController, ClubePublicoController } from './clube.controller';
 import { ClubeService, PREMIOS_MAX } from './clube.service';
 import { ClubeSurpresaService } from './clube-surpresa.service';
+import { ClubeDesculpasService } from './clube-desculpas.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -32,7 +33,7 @@ describe('as rotas do clube: quem lê e quem muda (RBAC no servidor)', () => {
   it('a classe: presidente e gerente leem; cada rota que muda é só do presidente', () => {
     expect(Reflect.getMetadata(ROLES_KEY, ClubeController)).toEqual(['presidente', 'gerente']);
     expect(papeis('painel')).toBeUndefined(); // vale o da classe
-    for (const m of ['produtos', 'salvarConfig', 'criarPremio', 'editarPremio', 'excluirPremio', 'salvarGatilhoEntregue'] as const)
+    for (const m of ['produtos', 'salvarConfig', 'criarPremio', 'editarPremio', 'excluirPremio', 'salvarGatilhoEntregue', 'salvarGatilhoReclamacao'] as const)
       expect(papeis(m)).toEqual(['presidente']);
   });
   it('a página do pedido (`/r/…`): as duas rotas do prêmio são públicas pelo token e só da nuvem', () => {
@@ -97,7 +98,7 @@ descrever('clube de recompra — a base (Postgres)', () => {
     const p = await svc.painel(T);
     expect(p.config).toMatchObject({ surpresaAtivo: false, albumAtivo: false, metaAtivo: false, surpresaForma: 'raspadinha', albumSelos: 4, minimo: 30 });
     expect(p.prontas).toEqual({ surpresa: true, album: false, meta: false });
-    expect(p.gatilhos).toEqual({ entregue: { ativo: false, premioId: null, desde: null } });
+    expect(p.gatilhos).toEqual({ entregue: { ativo: false, premioId: null, desde: null }, reclamacao: { ativo: false, premios: [], limite: 'mes1', quem: 'gerencia' } });
     expect(p.premios).toEqual([]);
     expect(p.regras[0]).toContain('Não há sorteio');
   });
@@ -432,5 +433,132 @@ descrever('clube — o prêmio surpresa pelo pedido entregue (Postgres)', () => 
     await expect(surpresa.revelar(semPremio.token)).rejects.toThrow('Este pedido não tem prêmio para revelar.');
     await expect(surpresa.doPedido('nao-existe')).rejects.toThrow('Pedido não encontrado.');
     await expect(surpresa.doPedido('../;drop')).rejects.toThrow('Pedido não encontrado.');
+  });
+
+  // ───────────── A1b: o prêmio de desculpas pelo caso do Atendimento ─────────────
+  const caso = async (t: string, o: { telefone?: string | null; canal?: string; cliente?: string } = {}) =>
+    String(
+      (
+        await q(`insert into atendimento_chamado (tenant_id, tipo, cliente, telefone, canal, mensagem) values ($1, 'humano', $2, $3, $4, 'veio sem a batata') returning id`, [
+          t,
+          o.cliente ?? 'Ana',
+          o.telefone === undefined ? '5521987663101' : o.telefone,
+          o.canal ?? 'whatsapp',
+        ])
+      )[0].id,
+    );
+  const quem = (t: string, perfil = 'gerente') => ({ tenantId: t, perfil, colaboradorId: null });
+  /** A loja com o clube e o gatilho da reclamação ligado (os dois prêmios de desconto liberados, 1 por mês, gerência). */
+  const lojaComDesculpas = async (nome: string, envios: any[], falhar = false) => {
+    const { T } = await lojaComClube(nome);
+    const lista = await clube.premios(T);
+    const liberados = lista.filter((p) => p.tipo !== 'produto').map((p) => p.id);
+    await clube.salvarGatilhoReclamacao(presidente(T), { ativo: true, premios: liberados });
+    const provedores = {
+      enviar: async (t: string, numero: string, texto: string, por: string | null) => {
+        if (falhar) throw new Error('fora da janela de 24 h');
+        envios.push({ t, numero, texto, por });
+      },
+    };
+    const desculpas = new ClubeDesculpasService(db, clube, surpresa, provedores as any, { registrar: async (e: any) => void auditados.push(e) } as any);
+    return { T, lista, desculpas };
+  };
+
+  it('o gatilho da reclamação: recusa sem prêmio, com produto grátis e o de outra empresa; não apaga o do pedido entregue', async () => {
+    const { T, quinze } = await lojaComClube('teste desculpas gatilho');
+    const O = await empresa('teste desculpas outra');
+    const [deOutra] = await clube.criarPremio(presidente(O), { nome: 'Da outra', tipo: 'valor', valor: 5, validadeDias: 7 });
+    const [{ id: produtoId }] = await q(`insert into produto (tenant_id, nome, ativo) values ($1, 'Refri', true) returning id`, [T]);
+    const refri = (await clube.criarPremio(presidente(T), { nome: 'Refri grátis', tipo: 'produto', produtoId, validadeDias: 7 })).find((p) => p.nome === 'Refri grátis')!;
+    await ligarEntregue(T, quinze.id);
+    auditados.length = 0;
+    await expect(clube.salvarGatilhoReclamacao(presidente(T), { ativo: true })).rejects.toThrow('Escolha ao menos um prêmio');
+    await expect(clube.salvarGatilhoReclamacao(presidente(T), { ativo: true, premios: [refri.id] })).rejects.toThrow('O produto grátis no prêmio surpresa');
+    await expect(clube.salvarGatilhoReclamacao(presidente(T), { ativo: true, premios: [deOutra.id] })).rejects.toThrow('não existe mais');
+    expect(auditados).toEqual([]);
+    const g = await clube.salvarGatilhoReclamacao(presidente(T), { ativo: true, premios: [quinze.id], limite: 'mes2', quem: 'atendimento' });
+    expect(g.reclamacao).toEqual({ ativo: true, premios: [quinze.id], limite: 'mes2', quem: 'atendimento' });
+    expect(g.entregue).toMatchObject({ ativo: true, premioId: quinze.id }); // o outro gatilho do mesmo jsonb fica (V82)
+    expect(auditados.map((a) => a.acao)).toEqual(['clube_gatilho_alterado']);
+    expect((await clube.premios(T)).find((p) => p.id === quinze.id)?.emUso).toEqual(['Prêmio surpresa · pedido entregue', 'Prêmio surpresa · reclamação']);
+  });
+
+  it('o prêmio de desculpas: quem pode, o caso do iFood, o cupom e a mensagem com o link; um por caso e o limite por cliente', async () => {
+    const envios: any[] = [];
+    const { T, desculpas } = await lojaComDesculpas('teste desculpas mandar', envios);
+    const c1 = await caso(T, { cliente: 'Ana Reis' });
+    let e = await desculpas.estado(quem(T), c1);
+    expect(e).toMatchObject({ mostrar: true, disponivel: true, motivo: null, cliente: 'Ana Reis', limite: '1 por mês', recebidos: 0, dado: null });
+    expect(e.premios.map((p) => p.nome).sort()).toEqual(['15% off', 'Frete grátis', 'R$ 5 off']);
+    // a execução não manda (o presidente escolheu gerente e supervisão); o caso do iFood não ganha
+    expect((await desculpas.estado(quem(T, 'execucao'), c1)).motivo).toContain('gerente e supervisão');
+    await expect(desculpas.mandar(quem(T, 'execucao'), c1, { premioId: e.premios[0].id })).rejects.toThrow('gerente e supervisão');
+    const doIfood = await caso(T, { canal: 'ifood', telefone: '08007070000' });
+    expect((await desculpas.estado(quem(T), doIfood)).motivo).toContain('o iFood e a 99 não aceitam');
+    // recusas antes de gravar: prêmio fora da lista, mensagem longa
+    await expect(desculpas.mandar(quem(T), c1, { premioId: randomUUID() })).rejects.toThrow('Escolha um dos prêmios da lista.');
+    await expect(desculpas.mandar(quem(T), c1, { premioId: e.premios[0].id, mensagem: 'x'.repeat(301) })).rejects.toThrow('no máximo 300');
+    expect(await q(`select 1 from clube_direito where tenant_id = $1`, [T])).toHaveLength(0);
+
+    // manda: a Ana não tinha cadastro — nasce; o cupom é dela; a mensagem leva o link pessoal
+    const frete = e.premios.find((p) => p.nome === 'Frete grátis')!;
+    auditados.length = 0;
+    const r = await desculpas.mandar(quem(T), c1, { premioId: frete.id, mensagem: 'Desculpe pela batata!' });
+    expect(r).toMatchObject({ premio: 'Frete grátis', enviado: true, motivoEnvio: null });
+    expect(r.link).toMatch(/\/p\/[A-Za-z0-9_-]{22}$/);
+    expect(envios).toEqual([{ t: T, numero: '5521987663101', texto: `Desculpe pela batata!\n\n🎁 Toque para revelar o seu prêmio: ${r.link}`, por: null }]);
+    const [d] = await q(`select * from clube_direito where tenant_id = $1 and gatilho = 'reclamacao'`, [T]);
+    expect(d).toMatchObject({ ref: c1, chave_telefone: '21987663101', premio_nome: 'Frete grátis', forma: 'roleta', revelado_em: null });
+    const [cli] = await q(`select id, nome, telefone from cliente where id = $1`, [d.cliente_id]);
+    expect(cli).toMatchObject({ nome: 'Ana Reis', telefone: '21987663101' });
+    const [cp] = await q(`select c.tipo, r.cliente_id from cupom c join cupom_regra r on r.cupom_id = c.id where c.id = $1`, [d.cupom_id]);
+    expect(cp).toMatchObject({ tipo: 'fretegratis', cliente_id: d.cliente_id });
+    expect(auditados.map((a) => [a.acao, a.entidadeId])).toEqual([['clube_premio_desculpas', c1]]);
+    // o mesmo caso não ganha de novo; a gaveta mostra o que foi dado
+    e = await desculpas.estado(quem(T), c1);
+    expect(e).toMatchObject({ disponivel: false, dado: { premio: 'Frete grátis', link: r.link } });
+    await expect(desculpas.mandar(quem(T), c1, { premioId: frete.id })).rejects.toThrow('Este caso já recebeu');
+    // outro caso da mesma Ana (o número com outro formato): o limite de 1 por mês
+    const c2 = await caso(T, { telefone: '(21) 98766-3101' });
+    expect((await desculpas.estado(quem(T), c2)).motivo).toContain('já recebeu o limite');
+    await expect(desculpas.mandar(quem(T), c2, { premioId: frete.id })).rejects.toThrow('já recebeu o limite');
+    expect(await q(`select 1 from clube_direito where tenant_id = $1`, [T])).toHaveLength(1);
+
+    // Sua conta: "para revelar" pelo link pessoal; o link revela e o cupom aparece
+    const codigo = String(d.codigo);
+    expect(await aniversario.premiosParaRevelar(T, d.cliente_id)).toEqual([{ forma: 'roleta', validoAte: expect.any(String), link: `/p/${codigo}` }]);
+    const antes = await surpresa.doLink(codigo);
+    expect(antes).toMatchObject({ tem: true, forma: 'roleta', revelado: false, premio: null, loja: 'teste desculpas mandar' });
+    const depois = await surpresa.revelarPeloLink(codigo);
+    expect(depois).toMatchObject({ revelado: true, premio: { nome: 'Frete grátis', usado: false } });
+    expect(await aniversario.premiosParaRevelar(T, d.cliente_id)).toEqual([]);
+    expect((await aniversario.presentesDoCliente(T, d.cliente_id)).map((p) => p.origem)).toEqual(['clube']);
+    await expect(surpresa.doLink('curto')).rejects.toThrow('Prêmio não encontrado.');
+    await expect(surpresa.doLink('A'.repeat(22))).rejects.toThrow('Prêmio não encontrado.');
+  });
+
+  it('dois casos do mesmo cliente ao mesmo tempo: o limite vale (só um ganha); a mensagem que não sai deixa o prêmio', async () => {
+    const envios: any[] = [];
+    const { T, desculpas, lista } = await lojaComDesculpas('teste desculpas corrida', envios);
+    await cliente(T, 'Bia', '21987663201');
+    const [c1, c2] = [await caso(T, { telefone: '5521987663201' }), await caso(T, { telefone: '21987663201' })];
+    const premioId = lista.find((p) => p.nome === 'R$ 5 off')!.id;
+    const r = await Promise.allSettled([desculpas.mandar(quem(T), c1, { premioId }), desculpas.mandar(quem(T), c2, { premioId })]);
+    expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+    expect(String((r.find((x) => x.status === 'rejected') as PromiseRejectedResult).reason?.message)).toContain('já recebeu o limite');
+    expect(await q(`select 1 from clube_direito where tenant_id = $1`, [T])).toHaveLength(1);
+    // a Bia já tinha cadastro: o prêmio é desse cadastro (nenhum novo)
+    expect(await q(`select 1 from cliente where tenant_id = $1`, [T])).toHaveLength(1);
+
+    // o WhatsApp não mandou (fora das 24 h): o prêmio fica e a tela recebe o link para mandar de outro jeito
+    const outros: any[] = [];
+    const { T: T2, desculpas: d2, lista: l2 } = await lojaComDesculpas('teste desculpas sem envio', outros, true);
+    const c3 = await caso(T2, { telefone: '5521987663301' });
+    const s = await d2.mandar(quem(T2), c3, { premioId: l2.find((p) => p.nome === 'R$ 5 off')!.id });
+    expect(s).toMatchObject({ enviado: false, motivoEnvio: expect.stringContaining('mande o link de outro jeito') });
+    expect(await q(`select 1 from clube_direito where tenant_id = $1`, [T2])).toHaveLength(1);
+    // o gatilho desligado esconde o botão
+    await clube.salvarGatilhoReclamacao(presidente(T2), { ativo: false });
+    expect(await d2.estado(quem(T2), await caso(T2))).toMatchObject({ mostrar: false, disponivel: false });
   });
 });

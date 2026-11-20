@@ -7,8 +7,11 @@ import { Button } from '@/components/ui/button';
 import { Chave } from '@/components/ui/chave';
 import { brl, Selo } from '@/components/ui/lista';
 import { cn } from '@/lib/utils';
+import { GavetaDaReclamacao } from './gaveta-da-reclamacao';
 import { GavetaDoGatilho } from './gaveta-do-gatilho';
-import type { PainelDoClube } from './tipos';
+import type { Opcao, PainelDoClube } from './tipos';
+
+const rotuloDe = (opcoes: Opcao[], valor: string) => opcoes.find((o) => o.valor === valor)?.rotulo.toLowerCase() ?? valor;
 
 // Marketing › Clube › Prêmio surpresa (fase A1; protótipo `mockups/regem-clube-banner.html`, "Marketing › Clube" › Prêmio
 // surpresa): como o cliente revela (raspadinha × roleta — as duas mostram o mesmo prêmio, já definido) e quando ele ganha.
@@ -51,8 +54,25 @@ export function PremioSurpresa({
 }) {
   const [ocupado, setOcupado] = useState(false);
   const [gaveta, setGaveta] = useState<null | { ligar: boolean }>(null);
+  const [gavetaR, setGavetaR] = useState<null | { ligar: boolean }>(null);
   const g = painel.gatilhos.entregue;
+  const r = painel.gatilhos.reclamacao;
   const premio = painel.premios.find((p) => p.id === g.premioId) ?? null;
+  const liberados = painel.premios.filter((p) => r.premios.includes(p.id));
+
+  async function ligarReclamacao(ligado: boolean) {
+    if (ligado && !liberados.length) return setGavetaR({ ligar: true }); // ligar pede os prêmios antes
+    setOcupado(true);
+    try {
+      aoMudar((await api.clubeSalvarGatilhoReclamacao({ ativo: ligado })) as PainelDoClube);
+      toast.success(ligado ? 'Prêmio de desculpas ligado.' : 'Prêmio de desculpas desligado.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Não foi possível mudar o gatilho.');
+      if (ligado) setGavetaR({ ligar: true });
+    } finally {
+      setOcupado(false);
+    }
+  }
 
   async function mudarForma(forma: 'raspadinha' | 'roleta') {
     if (forma === painel.config.surpresaForma || ocupado) return;
@@ -159,8 +179,33 @@ export function PremioSurpresa({
           )}
         </Gatilho>
 
-        <Gatilho titulo="Depois de uma reclamação" selo={<Selo>Chega numa próxima entrega</Selo>}>
-          <p>A equipe manda pelo caso, em Atendimento, escolhendo o prêmio da lista; no máximo um por cliente por mês.</p>
+        <Gatilho
+          titulo="Depois de uma reclamação"
+          chave={
+            podeMudar ? (
+              <Chave ligada={r.ativo} aoMudar={(v) => void ligarReclamacao(v)} rotulo="Depois de uma reclamação" ocupada={ocupado} />
+            ) : (
+              <Selo tom={r.ativo ? 'ok' : 'neutro'}>{r.ativo ? 'Ligado' : 'Desligado'}</Selo>
+            )
+          }
+        >
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <span>A equipe manda pelo caso, em Atendimento</span>
+            <span>
+              Prêmios que ela pode escolher: <b>{liberados.length}</b>
+            </span>
+            <span>
+              No máximo <b>{rotuloDe(painel.opcoes.limitesDaReclamacao, r.limite)}</b> por cliente
+            </span>
+            <span>
+              Quem manda: <b>{rotuloDe(painel.opcoes.quemMandaDesculpas, r.quem)}</b>
+            </span>
+          </div>
+          {podeMudar && (
+            <Button type="button" variant="outline" size="sm" onClick={() => setGavetaR({ ligar: false })}>
+              Mudar
+            </Button>
+          )}
         </Gatilho>
         <Gatilho titulo="Pela classificação do marketing" selo={<Selo>Chega numa próxima entrega</Selo>}>
           <p>Todos de um segmento (Em risco, Inativos, Campeões…) ganham, uma vez por período; o prêmio espera na conta do cliente.</p>
@@ -183,6 +228,21 @@ export function PremioSurpresa({
         </Gatilho>
       </section>
 
+      {gavetaR && (
+        <GavetaDaReclamacao
+          painel={painel}
+          ligar={gavetaR.ligar}
+          aoFechar={() => setGavetaR(null)}
+          aoSalvar={(p) => {
+            aoMudar(p);
+            setGavetaR(null);
+          }}
+          aoIrParaPremios={() => {
+            setGavetaR(null);
+            aoIrParaPremios();
+          }}
+        />
+      )}
       {gaveta && (
         <GavetaDoGatilho
           painel={painel}

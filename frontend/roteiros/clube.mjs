@@ -7,8 +7,10 @@
 //    mínimo mostra a barra de alterações e "Salvar alterações" manda SÓ o que mudou; "Ver as regras" abre o diálogo;
 //  • Prêmio surpresa: a forma (raspadinha × roleta) manda só a forma; a chave do "Pedido entregue" sem prêmio abre a gaveta,
 //    que não oferece o produto grátis; "Ligar com este prêmio" manda o gatilho; os gatilhos das próximas fases e os travados;
+//    a chave da reclamação sem prêmios abre a gaveta dela (caixas sem o produto grátis, o limite, quem manda — A1b);
 //  • a página do pedido (`/r/…`): a raspadinha ("Revelar sem raspar" e raspando com o mouse) e a roleta (gira e para no
 //    prêmio; sem animação com "reduzir movimento"), o cupom revelado e as regras do clube;
+//  • o link pessoal (`/p/…`, o prêmio de desculpas — A1b): revelar, o cupom e "Abrir o cardápio"; o link que não existe;
 //  • Prêmios: a lista com a contagem, a situação "Em uso" que filtra, "＋ Novo prêmio" abre a gaveta, "Produto grátis" lê
 //    os produtos, o diálogo de excluir (o prêmio em uso diz onde está);
 //  • o gerente vê e não muda (sem "＋ Novo prêmio", sem campo do mínimo); a nuvem não respondeu → "Tentar de novo".
@@ -23,13 +25,14 @@ const P3 = '33333333-3333-4333-8333-333333333333';
 const premio = (id, nome, tipo, descricao, emUso, extra = {}) => ({
   id, nome, tipo, valor: 0, teto: null, produtoId: null, produtoNome: null, minimo: 0, validadeDias: 7, descricao, emUso, ...extra,
 });
-const PAINEL = (minimo = 30, forma = 'raspadinha', entregue = { ativo: false, premioId: null, desde: null }) => ({
+const R_PADRAO = { ativo: false, premios: [], limite: 'mes1', quem: 'gerencia' };
+const PAINEL = (minimo = 30, forma = 'raspadinha', entregue = { ativo: false, premioId: null, desde: null }, reclamacao = R_PADRAO) => ({
   config: {
     surpresaAtivo: true, surpresaForma: forma, albumAtivo: false, albumSelos: 4, albumValidadeMeses: 12, albumPremios: [P2],
     metaAtivo: false, metaNiveis: [{ pedidos: 3, premios: [] }, { pedidos: 6, premios: [] }], metaValidadeDias: 15, minimo,
   },
   prontas: { surpresa: true, album: false, meta: false },
-  gatilhos: { entregue },
+  gatilhos: { entregue, reclamacao },
   premios: [
     premio(P1, '15% off até R$ 20', 'percentual', '15% de desconto, até R$ 20 · em pedido a partir de R$ 30 · vale 7 dias', [], { valor: 15, teto: 20, minimo: 30 }),
     premio(P2, 'Batata média grátis com um nome bem comprido para ver a quebra', 'produto', 'Batata média grátis · vale 7 dias', ['Álbum de selos'], { produtoId: 'pr-1', produtoNome: 'Batata média' }),
@@ -40,7 +43,11 @@ const PAINEL = (minimo = 30, forma = 'raspadinha', entregue = { ativo: false, pr
     'Um benefício por pedido: o prêmio não junta com outro cupom.',
     'Os prêmios valem só no cardápio online e no WhatsApp da loja, não no iFood nem na 99.',
   ],
-  opcoes: { validadesDoPremio: [3, 7, 15, 30], minimoMax: 1000, nomeMax: 60, premiosMax: 50 },
+  opcoes: {
+    validadesDoPremio: [3, 7, 15, 30], minimoMax: 1000, nomeMax: 60, premiosMax: 50, premiosPorEscolhaMax: 6,
+    limitesDaReclamacao: [{ valor: 'mes1', rotulo: '1 por mês' }, { valor: 'mes2', rotulo: '2 por mês' }, { valor: 'tri1', rotulo: '1 a cada 3 meses' }],
+    quemMandaDesculpas: [{ valor: 'gerencia', rotulo: 'Gerente e supervisão' }, { valor: 'gerente', rotulo: 'Só o gerente' }, { valor: 'atendimento', rotulo: 'Qualquer pessoa do atendimento' }],
+  },
 });
 
 const medir = (page) =>
@@ -51,7 +58,7 @@ const medir = (page) =>
     for (const el of document.querySelectorAll('body *')) {
       const cs = getComputedStyle(el);
       if ((cs.overflowX === 'auto' || cs.overflowX === 'scroll') && el.scrollWidth > el.clientWidth + 1 && !el.classList.contains('faixa-abas'))
-        achados.push(`rola ${el.tagName.toLowerCase()}.${String(el.className).slice(0, 40)} ${el.scrollWidth}>${el.clientWidth}`);
+        achados.push(`rola ${el.tagName.toLowerCase()}.${String(el.className).slice(0, 40)} ${el.scrollWidth}>${el.clientWidth} "${(el.innerText || '').replace(/\s+/g, ' ').slice(0, 40) || el.outerHTML.slice(0, 220)}"`);
     }
     // O texto esmagado só na aba do Clube e nos diálogos dela (o "Como funciona" da página é de outra aba e já existia).
     const ALVO = '[data-tela="clube"]';
@@ -72,7 +79,8 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
     let minimo = 30;
     let forma = 'raspadinha';
     let entregue = { ativo: false, premioId: null, desde: null };
-    const painel = () => PAINEL(minimo, forma, entregue);
+    let reclamacao = R_PADRAO;
+    const painel = () => PAINEL(minimo, forma, entregue, reclamacao);
     const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
     await ctx.addInitScript((jwt) => localStorage.setItem('regen_token', jwt), o.token ?? PRESIDENTE);
     const page = await ctx.newPage();
@@ -95,6 +103,12 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
         enviados.push(corpo);
         if (typeof corpo.minimo === 'number') minimo = corpo.minimo;
         if (corpo.surpresaForma) forma = corpo.surpresaForma;
+        return responder(route, painel());
+      }
+      if (p === '/marketing/clube/gatilhos/reclamacao' && metodo === 'PUT') {
+        const corpo = JSON.parse(route.request().postData() || '{}');
+        enviados.push({ reclamacao: corpo });
+        reclamacao = { ...reclamacao, ...corpo };
         return responder(route, painel());
       }
       if (p === '/marketing/clube/gatilhos/entregue' && metodo === 'PUT') {
@@ -167,8 +181,8 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
     achados = await medir(page);
     ok(achados.length === 0, `${w}px · Prêmio surpresa: sem barra para o lado nem texto esmagado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
     ok(
-      (t.match(/Chega numa próxima entrega/g) ?? []).length === 3 && t.includes('não recomendado') && t.includes('sorteio · precisa de autorização'),
-      `${w}px · reclamação, classificação e campanha nas próximas entregas; avaliação não recomendada; aleatório travado`,
+      (t.match(/Chega numa próxima entrega/g) ?? []).length === 2 && t.includes('não recomendado') && t.includes('sorteio · precisa de autorização'),
+      `${w}px · classificação e campanha nas próximas entregas; avaliação não recomendada; aleatório travado`,
     );
     await page.getByRole('button', { name: /Roleta de prêmios/ }).click();
     await page.waitForSelector('button[aria-pressed="true"]:has-text("Roleta de prêmios")', { timeout: 5000 });
@@ -192,6 +206,28 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
     ok(t.includes('Prêmio: 15% off até R$ 20') && (await page.getByRole('switch', { name: 'Pedido entregue' }).getAttribute('aria-checked')) === 'true', `${w}px · ligado, com o prêmio na linha`);
     achados = await medir(page);
     ok(achados.length === 0, `${w}px · Prêmio surpresa ligado: sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+    // A reclamação: a chave sem prêmios abre a gaveta; os prêmios em caixas (sem o produto grátis), o limite e quem manda.
+    await page.getByRole('switch', { name: 'Depois de uma reclamação' }).click();
+    await dialogo(page);
+    achados = await medir(page);
+    const caixas = await page.locator('[role="dialog"] input[type="checkbox"]').count();
+    const tg = await texto(page, '[role="dialog"]');
+    ok(achados.length === 0, `${w}px · gaveta da reclamação aberta: sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+    ok(caixas === 2 && !tg.includes('Batata') && tg.includes('Quem pode mandar'), `${w}px · a gaveta da reclamação: 2 prêmios (sem o produto grátis), o limite e quem manda`);
+    if (w === 390 || w === 1440) await page.locator('[role="dialog"]').screenshot({ path: arquivoFoto(`clube-reclamacao-${w}.png`) });
+    await page.getByRole('button', { name: 'Ligar', exact: true }).click();
+    ok(await page.getByText('Escolha ao menos um prêmio que a equipe pode mandar.').isVisible(), `${w}px · ligar sem prêmio avisa`);
+    await page.getByLabel('Frete grátis').check();
+    await page.getByLabel('No máximo, por cliente').selectOption('tri1');
+    await page.getByRole('button', { name: 'Ligar', exact: true }).click();
+    await fechou(page);
+    const ultimo = enviados[enviados.length - 1];
+    ok(
+      JSON.stringify(ultimo) === JSON.stringify({ reclamacao: { ativo: true, premios: [P3], limite: 'tri1', quem: 'gerencia' } }),
+      `${w}px · ligar a reclamação manda os prêmios, o limite e quem manda (${umaLinha(JSON.stringify(ultimo))})`,
+    );
+    t = await texto(page);
+    ok(t.includes('No máximo 1 a cada 3 meses por cliente') && (await page.getByRole('switch', { name: 'Depois de uma reclamação' }).getAttribute('aria-checked')) === 'true', `${w}px · reclamação ligada, com o limite na linha`);
     if (w === 390 || w === 1440) await page.screenshot({ path: arquivoFoto(`clube-surpresa-${w}.png`), fullPage: true });
 
     // ── Prêmios ──
@@ -354,5 +390,48 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
       ok(transicao === '0s', `${w}px · reduzir movimento: a roleta para sem animar (${transicao})`);
       await ctx.close();
     }
+  }
+
+  // ───────────────────────── o link pessoal (/p/…): o prêmio de desculpas ─────────────────────────
+  const CODIGO = 'Kq3xT9wLmN2pR7sV4yZ8bA';
+  async function abrirLink(w, h, o = {}) {
+    const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
+    const page = await ctx.newPage();
+    const erros = [];
+    page.on('pageerror', (e) => erros.push(String(e?.message ?? e)));
+    await page.route('**/api/v1/**', async (route) => {
+      const req = route.request();
+      const p = new URL(req.url()).pathname.replace(/^.*\/api\/v1/, '');
+      const extra = { loja: 'Lanchonete da Praça', cardapio: 'https://app.exemplo/c/tk-cardapio' };
+      if (o.naoAcha) return responder(route, { statusCode: 404, message: 'Prêmio não encontrado.' }, 404);
+      if (p === `/clube/premio/${CODIGO}/revelar` && req.method() === 'POST')
+        return responder(route, { tem: true, forma: 'raspadinha', revelado: true, fatias: [], premio: REVELADO, fatia: null, regras: REGRAS, ...extra });
+      if (p === `/clube/premio/${CODIGO}`) return responder(route, { tem: true, forma: 'raspadinha', revelado: false, fatias: [], premio: null, fatia: null, regras: REGRAS, ...extra });
+      return responder(route, {});
+    });
+    await page.goto(base + `/p/${o.naoAcha ? 'outro-codigo-qualquer' : CODIGO}`);
+    return { ctx, page, erros };
+  }
+
+  for (const w of larguras) {
+    const { ctx, page, erros } = await abrirLink(w, 900);
+    await page.waitForSelector('text=Você ganhou uma raspadinha', { timeout: 30000 });
+    let achados = await medir(page);
+    ok(achados.length === 0 && (await texto(page, 'body')).includes('Um prêmio para você'), `${w}px · link pessoal: a raspadinha, sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+    await page.getByRole('button', { name: 'Revelar sem raspar' }).click();
+    await page.waitForSelector('text=CLUBE7K2QX', { timeout: 10000 });
+    const cardapio = await page.locator('a:has-text("Abrir o cardápio")').getAttribute('href');
+    achados = await medir(page);
+    ok(cardapio === 'https://app.exemplo/c/tk-cardapio' && achados.length === 0, `${w}px · link pessoal revelado: o cupom e "Abrir o cardápio" da loja, sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+    if (w === 390 || w === 1440) await page.screenshot({ path: arquivoFoto(`clube-link-${w}.png`), fullPage: true });
+    ok(erros.length === 0, `${w}px · link pessoal: nenhum erro de script${erros.length ? ` (${umaLinha(erros.join(' | '))})` : ''}`);
+    await ctx.close();
+  }
+  for (const w of [390, 1366]) {
+    const { ctx, page } = await abrirLink(w, 900, { naoAcha: true });
+    await page.waitForSelector('text=Não achamos este prêmio.', { timeout: 30000 });
+    const achados = await medir(page);
+    ok(achados.length === 0, `${w}px · link que não existe: "Não achamos este prêmio.", sem barra para o lado`);
+    await ctx.close();
   }
 }

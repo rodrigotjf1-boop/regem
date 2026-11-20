@@ -19,7 +19,18 @@ const FATIAS_CORES = ['#F7D488', '#F3B3A6'];
 type Premio = { nome: string; descricao: string; codigo: string | null; validoAte: string; usado: boolean; vencido: boolean };
 type Dados =
   | { tem: false }
-  | { tem: true; forma: 'raspadinha' | 'roleta'; revelado: boolean; fatias: string[]; premio: Premio | null; fatia: number | null; regras: string[] };
+  | {
+      tem: true;
+      forma: 'raspadinha' | 'roleta';
+      revelado: boolean;
+      fatias: string[];
+      premio: Premio | null;
+      fatia: number | null;
+      regras: string[];
+      /** Só no link pessoal (`/p/…`). */
+      loja?: string | null;
+      cardapio?: string | null;
+    };
 
 const cartao: React.CSSProperties = {
   background: '#fff',
@@ -292,21 +303,27 @@ function Roleta({ fatias, fatia, girando, aoGirar, aoParar }: { fatias: string[]
   );
 }
 
-export function PremioDoPedido({ token }: { token: string }) {
+/**
+ * `caminho`: a rota do prêmio na API — `/rastreio/<token>/premio` (a página do pedido) ou `/clube/premio/<código>` (o link
+ * pessoal, `/p/…`). `seNaoAchar`: o que mostrar quando não há prêmio (a página do pedido não mostra nada).
+ */
+export function PremioDoPedido({ caminho, seNaoAchar = null }: { caminho: string; seNaoAchar?: React.ReactNode }) {
   const [dados, setDados] = useState<Dados | null>(null);
   const [premio, setPremio] = useState<Premio | null>(null);
   const [fatia, setFatia] = useState<number | null>(null);
   const [mostrar, setMostrar] = useState(false);
   const [girando, setGirando] = useState(false);
   const [falhou, setFalhou] = useState(false);
+  const [naoAchou, setNaoAchou] = useState(false);
   const pedindo = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     let vivo = true;
-    fetch(`${apiBase()}/rastreio/${encodeURIComponent(token)}/premio`, { cache: 'no-store' })
+    fetch(`${apiBase()}${caminho}`, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((d: Dados | null) => {
-        if (!vivo || !d) return;
+        if (!vivo) return;
+        if (!d) return setNaoAchou(true);
         setDados(d);
         if (d.tem && d.revelado && d.premio) {
           setPremio(d.premio);
@@ -320,13 +337,13 @@ export function PremioDoPedido({ token }: { token: string }) {
     return () => {
       vivo = false;
     };
-  }, [token]);
+  }, [caminho]);
 
   /** Pede ao servidor o prêmio (uma vez; tocar de novo reaproveita o pedido em curso). */
   const revelar = useCallback((): Promise<void> => {
     if (pedindo.current) return pedindo.current;
     setFalhou(false);
-    pedindo.current = fetch(`${apiBase()}/rastreio/${encodeURIComponent(token)}/premio/revelar`, { method: 'POST' })
+    pedindo.current = fetch(`${apiBase()}${caminho}/revelar`, { method: 'POST' })
       .then(async (r) => {
         if (!r.ok) throw new Error(String(r.status));
         const d = (await r.json()) as Dados;
@@ -340,8 +357,9 @@ export function PremioDoPedido({ token }: { token: string }) {
         setGirando(false);
       });
     return pedindo.current;
-  }, [token]);
+  }, [caminho]);
 
+  if (naoAchou || (dados && !dados.tem)) return <>{seNaoAchar}</>;
   if (!dados || !dados.tem) return null;
   const roleta = dados.forma === 'roleta';
 
@@ -401,6 +419,12 @@ export function PremioDoPedido({ token }: { token: string }) {
         </p>
       )}
       {mostrar && premio && <OCupom p={premio} comNome={roleta} />}
+      {/* No link pessoal (`/p/…`): o cardápio da loja para usar o prêmio. */}
+      {mostrar && premio && !premio.usado && !premio.vencido && dados.cardapio && (
+        <a href={dados.cardapio} style={{ ...botaoPrincipal, display: 'grid', placeItems: 'center', textDecoration: 'none' }}>
+          Abrir o cardápio{dados.loja ? ` · ${dados.loja}` : ''}
+        </a>
+      )}
       <Regras regras={dados.regras} />
     </section>
   );

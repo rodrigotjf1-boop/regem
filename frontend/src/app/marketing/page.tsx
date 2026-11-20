@@ -451,7 +451,8 @@ export default function MarketingPage() {
             <div className="pt-1">
               <p className="mb-1 font-semibold text-foreground">Custos por mensagem (API Oficial)</p>
               <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-[12px]">
+                {/* As palavras quebram (com hífen quando dá): a 320 px a tabela cabia 7 px a mais e rolava para o lado (V45). */}
+                <table className="w-full border-collapse text-[12px] hyphens-auto [overflow-wrap:anywhere]">
                   <caption className="sr-only">Custos estimados por categoria de mensagem no WhatsApp oficial da Meta</caption>
                   <thead>
                     <tr className="border-b border-border text-left text-foreground">

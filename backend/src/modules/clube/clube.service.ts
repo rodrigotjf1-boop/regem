@@ -11,12 +11,16 @@ import {
   FERRAMENTAS_PRONTAS,
   FORMAS_DO_SURPRESA,
   type GatilhoEntregue,
+  type GatilhoReclamacao,
   type GatilhosDoSurpresa,
   gatilhosDaLinha,
   lerConfigDoClube,
   lerGatilhoEntregue,
+  lerGatilhoReclamacao,
   lerPremio,
+  LIMITES_DA_RECLAMACAO,
   ligandoAntesDaHora,
+  QUEM_MANDA_DESCULPAS,
   MINIMO_MAX,
   NIVEIS_MAX,
   NOME_MAX,
@@ -148,6 +152,8 @@ export class ClubeService {
         niveisMax: NIVEIS_MAX,
         premiosPorEscolhaMax: PREMIOS_POR_ESCOLHA_MAX,
         premiosMax: PREMIOS_MAX,
+        limitesDaReclamacao: Object.entries(LIMITES_DA_RECLAMACAO).map(([valor, l]) => ({ valor, rotulo: l.rotulo })),
+        quemMandaDesculpas: Object.entries(QUEM_MANDA_DESCULPAS).map(([valor, q]) => ({ valor, rotulo: q.rotulo })),
       },
     };
   }
@@ -258,10 +264,13 @@ export class ClubeService {
     const p = lerPremio(dto);
     const antes = await this.premioDaEmpresa(user.tenantId, id);
     await this.conferirProduto(user.tenantId, p);
-    if (p.tipo === 'produto' && (await this.gatilhos(user.tenantId)).entregue.premioId === String(antes.id))
-      throw new BadRequestException(
-        'Este prêmio está no prêmio surpresa (pedido entregue), que ainda não dá produto grátis: troque o prêmio lá antes, ou escolha um desconto ou o frete grátis.',
-      );
+    if (p.tipo === 'produto') {
+      const g = await this.gatilhos(user.tenantId);
+      if (g.entregue.premioId === String(antes.id) || g.reclamacao.premios.includes(String(antes.id)))
+        throw new BadRequestException(
+          'Este prêmio está no prêmio surpresa, que ainda não dá produto grátis: troque o prêmio lá antes, ou escolha um desconto ou o frete grátis.',
+        );
+    }
     await this.db.execute(sql`
       update clube_premio
          set nome = ${p.nome}, tipo = ${p.tipo}, valor = ${p.valor}, teto = ${p.teto}, produto_id = ${p.produtoId}::uuid,
@@ -318,6 +327,39 @@ export class ClubeService {
          set surpresa_gatilhos = coalesce(clube_config.surpresa_gatilhos, '{}'::jsonb) || ${json}::jsonb,
              atualizado_por = excluded.atualizado_por, atualizado_em = now()`);
     await this.auditar(user, 'clube_gatilho_alterado', user.tenantId, { gatilho: 'entregue', de: antes, para: depois });
+    return this.gatilhos(user.tenantId);
+  }
+
+  /**
+   * Salva o gatilho "Depois de uma reclamação" (A1b, sem migration). TODA recusa antes de gravar (V86): ligado precisa de
+   * ao menos um prêmio; os prêmios existem nesta empresa e nenhum é "produto grátis" (o produto grátis no prêmio surpresa
+   * chega depois). Grava SÓ a chave `reclamacao` do jsonb, mesclando no banco (V82). Auditado.
+   */
+  async salvarGatilhoReclamacao(user: AuthUser, dto: unknown): Promise<GatilhosDoSurpresa> {
+    const parcial = lerGatilhoReclamacao(dto);
+    const antes = (await this.gatilhos(user.tenantId)).reclamacao;
+    const depois: GatilhoReclamacao = { ...antes, ...parcial };
+    if (depois.ativo && !depois.premios.length) throw new BadRequestException('Escolha ao menos um prêmio que a equipe pode mandar.');
+    if (depois.premios.length) {
+      const linhas = this.rows(
+        await this.db.execute(sql`
+          select id, tipo from clube_premio
+           where tenant_id = ${user.tenantId}::uuid and excluido_em is null
+             and id in (${sql.join(depois.premios.map((id) => sql`${id}::uuid`), sql`, `)})`),
+      );
+      if (linhas.length !== depois.premios.length) throw new BadRequestException('Um dos prêmios escolhidos não existe mais. Recarregue a página e escolha de novo.');
+      if (linhas.some((l) => l.tipo === 'produto'))
+        throw new BadRequestException('O produto grátis no prêmio surpresa chega numa próxima entrega: escolha descontos ou o frete grátis.');
+    }
+    if (JSON.stringify(antes) === JSON.stringify(depois)) return this.gatilhos(user.tenantId);
+    const json = JSON.stringify({ reclamacao: depois });
+    await this.db.execute(sql`
+      insert into clube_config (tenant_id, surpresa_gatilhos, atualizado_por)
+      values (${user.tenantId}::uuid, ${json}::jsonb, ${user.colaboradorId}::uuid)
+      on conflict (tenant_id) do update
+         set surpresa_gatilhos = coalesce(clube_config.surpresa_gatilhos, '{}'::jsonb) || ${json}::jsonb,
+             atualizado_por = excluded.atualizado_por, atualizado_em = now()`);
+    await this.auditar(user, 'clube_gatilho_alterado', user.tenantId, { gatilho: 'reclamacao', de: antes, para: depois });
     return this.gatilhos(user.tenantId);
   }
 }

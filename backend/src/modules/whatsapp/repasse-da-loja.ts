@@ -13,6 +13,10 @@ export type PedidoDeRepasse = {
   corpo?: unknown;
   /** O colaborador logado AQUI: a nuvem confere a empresa e registra quem pausou/respondeu. */
   usuario: { tenantId: string; colaboradorId: string };
+  /** A rota da nuvem antes do `caminho` (padrão: `whatsapp/da-loja`; o prêmio de desculpas do Clube usa `clube/da-loja`). */
+  base?: string;
+  /** O que a tela perde sem a nuvem, nas mensagens de erro (padrão: "a caixa de conversas"). */
+  oQue?: string;
 };
 
 /**
@@ -24,12 +28,12 @@ export async function repassarParaNuvem(p: PedidoDeRepasse, buscar: typeof fetch
   const nuvem = String(process.env.CLOUD_API ?? '').replace(/\/$/, '');
   const token = process.env.SYNC_TOKEN ?? '';
   if (!nuvem || !token) {
-    log.warn('caixa de conversas sem a nuvem: este servidor não tem CLOUD_API/SYNC_TOKEN');
-    throw new ServiceUnavailableException('Este servidor da loja não está ligado à nuvem — a caixa de conversas não abre.');
+    log.warn(`${p.oQue ?? 'a caixa de conversas'} sem a nuvem: este servidor não tem CLOUD_API/SYNC_TOKEN`);
+    throw new ServiceUnavailableException(`Este servidor da loja não está ligado à nuvem — ${p.oQue ?? 'a caixa de conversas'} não abre.`);
   }
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(p.query ?? {})) if (v !== undefined && v !== null) qs.set(k, String(v));
-  const url = `${nuvem}/whatsapp/da-loja/${p.caminho}${qs.toString() ? `?${qs}` : ''}`;
+  const url = `${nuvem}/${p.base ?? 'whatsapp/da-loja'}/${p.caminho}${qs.toString() ? `?${qs}` : ''}`;
   const headers: Record<string, string> = {
     'x-sync-token': token,
     'x-regem-empresa': p.usuario.tenantId,
@@ -48,7 +52,7 @@ export async function repassarParaNuvem(p: PedidoDeRepasse, buscar: typeof fetch
   } catch (e: any) {
     const causa = causaDeRede(e);
     log.warn(`caixa de conversas: ${p.metodo} ${p.caminho} sem resposta da nuvem: ${e?.message ?? e}${causa ? ` — ${causa}` : ''}`);
-    throw new ServiceUnavailableException('Sem conexão com a nuvem agora — a caixa de conversas volta quando a internet voltar.');
+    throw new ServiceUnavailableException(`Sem conexão com a nuvem agora — ${p.oQue ?? 'a caixa de conversas'} volta quando a internet voltar.`);
   }
 
   const texto = await res.text().catch(() => '');

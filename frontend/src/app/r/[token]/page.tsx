@@ -300,7 +300,7 @@ export default function RastreioPage() {
                   <p style={{ fontSize: 13, color: '#48586a' }}>Bom apetite! 🍽️ O acompanhamento ao vivo foi encerrado.</p>
                 </div>
                 {/* O prêmio surpresa do Clube (mig 474): antes da nota — o prêmio sai na entrega, nunca em troca da nota. */}
-                <PremioDoPedido token={token} />
+                <PremioDoPedido caminho={`/rastreio/${encodeURIComponent(token)}/premio`} />
                 <ComoFoiOPedido token={token} />
               </>
             ) : (

@@ -32,13 +32,16 @@ export type ConfigDoClube = {
 
 /** O gatilho "Pedido entregue" do prêmio surpresa (mig 474): `desde` = quando foi ligado (só os pedidos depois ganham). */
 export type GatilhoEntregue = { ativo: boolean; premioId: string | null; desde: string | null };
+/** O gatilho "Depois de uma reclamação" (A1b): os prêmios que a equipe pode mandar, o limite por cliente e quem manda. */
+export type GatilhoReclamacao = { ativo: boolean; premios: string[]; limite: string; quem: string };
+export type Opcao = { valor: string; rotulo: string };
 
 export type PainelDoClube = {
   config: ConfigDoClube;
   /** As ferramentas que já existem para ligar — a que não existe não mostra o liga/desliga. */
   prontas: Record<Ferramenta, boolean>;
   /** Os gatilhos do prêmio surpresa (fase A1: só o "Pedido entregue"). */
-  gatilhos: { entregue: GatilhoEntregue };
+  gatilhos: { entregue: GatilhoEntregue; reclamacao: GatilhoReclamacao };
   premios: PremioDoClube[];
   /** As regras do clube que o cliente lê (o link "Regras do clube"). */
   regras: string[];
@@ -47,6 +50,9 @@ export type PainelDoClube = {
     minimoMax: number;
     nomeMax: number;
     premiosMax: number;
+    premiosPorEscolhaMax: number;
+    limitesDaReclamacao: Opcao[];
+    quemMandaDesculpas: Opcao[];
   };
 };
 

@@ -13,9 +13,12 @@ import {
   Put,
   Query,
   Res,
+  ServiceUnavailableException,
   StreamableFile,
   UseGuards,
 } from '@nestjs/common';
+import { ClubeDesculpasService } from '../clube/clube-desculpas.service';
+import { repassarParaNuvem } from '../whatsapp/repasse-da-loja';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { exigirBooleano } from '../../common/exigir';
 import { Pedido99Service, RespostaAo99 } from './pedido-99.service';
@@ -99,7 +102,48 @@ export class AtendimentoController {
     @Optional() private readonly avisarEntregador?: AvisarOEntregadorService,
     // A pausa dos pedidos (F2, mig 393): o grupo "Pausa dos pedidos" dos ajustes (o aviso antes de reabrir e o som).
     @Optional() private readonly pausa?: PausaDoCanalService,
+    // O prêmio de desculpas do Clube (A1b): o módulo do Clube é só da nuvem (e global lá); no servidor da loja não existe
+    // e as duas rotas repassam à nuvem.
+    @Optional() private readonly desculpas?: ClubeDesculpasService,
   ) {}
+
+  // O PRÊMIO DE DESCULPAS DO CLUBE no caso (A1b; protótipo `mockups/regem-clube-banner.html`, "Atendimento"). Quem atende a
+  // fila vê o botão; quem pode MANDAR é o perfil que o presidente escolheu no Clube (o serviço confere — "suporte" vale como
+  // gerente, como na guarda dos papéis). No servidor da loja, a nuvem decide e grava (o Clube mora lá — V37).
+  @Get(':id/premio-desculpas')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
+  premioDesculpas(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const perfil = user.categoria === 'suporte' ? 'gerente' : String(user.categoria);
+    if (ehServidorLocal())
+      return repassarParaNuvem({
+        metodo: 'GET',
+        base: 'clube/da-loja',
+        caminho: `desculpas/${encodeURIComponent(id)}`,
+        query: { perfil },
+        usuario: { tenantId: user.tenantId, colaboradorId: user.colaboradorId },
+        oQue: 'o prêmio de desculpas',
+      });
+    if (!this.desculpas) throw new ServiceUnavailableException('O Clube não está disponível agora.');
+    return this.desculpas.estado({ tenantId: user.tenantId, perfil, colaboradorId: user.colaboradorId }, id);
+  }
+
+  @Post(':id/premio-desculpas')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
+  mandarPremioDesculpas(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { premioId?: unknown; mensagem?: unknown }) {
+    const perfil = user.categoria === 'suporte' ? 'gerente' : String(user.categoria);
+    const corpo = { premioId: dto?.premioId, mensagem: dto?.mensagem };
+    if (ehServidorLocal())
+      return repassarParaNuvem({
+        metodo: 'POST',
+        base: 'clube/da-loja',
+        caminho: `desculpas/${encodeURIComponent(id)}`,
+        corpo: { ...corpo, perfil },
+        usuario: { tenantId: user.tenantId, colaboradorId: user.colaboradorId },
+        oQue: 'o prêmio de desculpas',
+      });
+    if (!this.desculpas) throw new ServiceUnavailableException('O Clube não está disponível agora.');
+    return this.desculpas.mandar({ tenantId: user.tenantId, perfil, colaboradorId: user.colaboradorId }, id, corpo);
+  }
 
   // AVISAR O ENTREGADOR (mig 391): quem está com o pedido do caso, os avisos que ele recebeu (do robô e da equipe) e o que
   // respondeu no app; e o aviso da equipe (motivo + recado). Quem atende a fila (os quatro níveis). No servidor da loja,
