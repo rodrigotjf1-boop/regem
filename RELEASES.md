@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **O Regem lê o Pulso, a base nacional de eventos (20/11; mig 470 SÓ NUVEM, aplicada — `pulso_evento`, `pulso_estado`,
+  `clima_municipio_dia`).** Módulo `pulso`: os eventos (leitura incremental), os municípios das lojas com o perfil ligado e
+  o clima diário. Nasce desligado (`PULSO_LIGACAO` no regem-api). As tabelas entram como SO_NUVEM no `sync-daemon.mjs`
+  (o `.exe` do próximo corte leva junto). Só na nuvem.
+
 - **Catálogo: as cópias duplicadas dos trios inativas (20/11; mig 467 SÓ NUVEM, aplicada — decisão do dono).** As três
   cópias "cw…" que a importação do Cardápio Web criou ficam inativas e fora do balcão e do cardápio digital (o original com
   o código PDV fica); a mudança desce à loja pela sincronização do cadastro. Junto: o "seu de sempre" do cardápio não
