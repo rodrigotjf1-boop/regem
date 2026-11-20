@@ -129,10 +129,12 @@ PC" ainda mostra só o iFood (pede `.exe`).
 
 ## O que a versão 0.7 soma (Etapa 4b — a ponte ENVIA pela 99)
 
-- **"Responder pela 99 neste PC"** (menu do ícone, caixinha, e a janela do estado; nasce DESLIGADO, só com a 99 lida
-  neste PC; ligar pergunta antes): o sinal passa a dizer `99food: { logado: true }` e a nuvem põe este PC para enviar
-  pela 99 os avisos ("saiu", "chegando"), o robô (se ligado) e as respostas da equipe pelo Atendimento — como no iFood.
-  Desligar ("Só ler a 99") volta a "lendo". "Parar de ler a 99 neste PC" desliga os dois.
+- **"Responder pela 99 neste PC"** (menu do ícone, caixinha, e a janela do estado; só com a 99 lida neste PC): o sinal
+  passa a dizer `99food: { logado: true }` e a nuvem põe este PC para enviar pela 99 os avisos ("saiu", "chegando"), o
+  robô (se ligado) e as respostas da equipe pelo Atendimento — como no iFood. **Desde a 0.7.8 vem LIGADO** com a 99
+  aberta neste PC (até a 0.7.7 nascia desligado e o servidor da loja ficou 4 dias só lendo — ERR-543). Desmarcar ("Só ler
+  a 99") volta a "lendo" e a escolha fica guardada (`responder99: false`); ligar de novo pergunta antes. "Parar de ler a
+  99 neste PC" esquece os dois.
 - **O envio** (`src/envio-99.js`, mapeado em 06/11 no portal de verdade, só leitura): busca o pedido pelo número
   (`Nº pedido/índice do pedido` + Enter — a 99 mostra só ele, com o resumo aberto, de qualquer aba; "nada encontrado" =
   falha DEFINITIVA, não gasta as 3 tentativas); confere o número no resumo; clica no balão do chat com clique de MOUSE de
@@ -279,7 +281,7 @@ percebe e se reabre sem ela.
 | `REGEM_PONTE_99_IM`, `REGEM_PONTE_99_BROKER` | o padrão do endereço do polling e do broker do IM (padrão: `lion.didiglobal.com/im/…`) |
 | `REGEM_PONTE_ABRIR_99=1` | abre a 99 sem a pergunta (a prova não pilota o diálogo do Windows) |
 | `REGEM_PONTE_99_LOGADA_MS` | quanto tempo sem polling conta como "sem login na 99" (padrão: 5 min) |
-| `REGEM_PONTE_RESPONDER_99=1` | liga "Responder pela 99 neste PC" sem a pergunta (a prova) |
+| `REGEM_PONTE_RESPONDER_99=1` | religa "Responder pela 99 neste PC" (depois de "Só ler") sem a pergunta (a prova) |
 
 ## Onde guarda (neste PC)
 

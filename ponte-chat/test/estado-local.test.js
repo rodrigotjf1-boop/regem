@@ -86,7 +86,7 @@ test('a 99 (4a): não lida, sem login (faixa com a CONTA PRINCIPAL — 0.7.3) e 
   assert.deepEqual(botoes(semLogin), ['Abrir o iFood', 'Abrir a 99', 'Responder pela 99 neste PC', 'Parar de ler a 99 neste PC', 'Pausar a ponte neste PC', 'Abrir o Atendimento']);
   const lendo = local.paraAJanela(base({ logadoNa99: true }, { usar99: true }));
   assert.equal(lendo.faixa, null);
-  assert.match(par(lendo, '99Food'), /só LÊ o chat .*responda pelo portal da 99/);
+  assert.match(par(lendo, '99Food'), /só LÊ o chat .*ligue "Responder pela 99 neste PC".*responda pelo portal da 99/);
   // o iFood sem login vem antes (é o que a ponte faz sozinha); um resumo antigo (sem `n99`) não quebra a janela
   assert.equal(local.paraAJanela(base({ logadoNoIfood: false }, { usar99: true })).faixa.acao, 'abrir-ifood');
   const antigo = base();
@@ -104,9 +104,11 @@ test('a 99 respondendo (4b): a linha diz que lê e responde (com o papel), a fil
   // pausada: sem o papel; não pareada: sem o botão de responder
   assert.equal(par(local.paraAJanela(base({ logadoNa99: true, papel99: 'responde' }, { usar99: true, responder99: true, pausadaEm: new Date().toISOString() })), '99Food'), 'logada · lê e RESPONDE o chat');
   assert.ok(!botoes(local.paraAJanela(base({}, { usar99: true, pareada: false }))).includes('Responder pela 99 neste PC'));
-  // os nomes que a janela mostra são os do menu do ícone
+  // os nomes que a janela mostra são os do menu do ícone — e o que as telas do Regem citam (a 99 só lendo — V65, ERR-543)
   const main = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
   assert.ok(main.includes("label: 'Responder pela 99 neste PC'"));
+  const tela = fs.readFileSync(path.join(__dirname, '..', '..', 'frontend', 'src', 'lib', 'ponte-do-chat.ts'), 'utf8');
+  assert.ok(tela.includes('ícone da ponte perto do relógio › Responder pela 99 neste PC'));
 });
 
 test('o arquivo do ícone do Regem: gravado de uma vez, no nome combinado; o endereço do Atendimento', () => {

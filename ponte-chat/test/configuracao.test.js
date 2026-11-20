@@ -94,19 +94,33 @@ test('a 99 lida neste PC (4a): fica guardada (reabre ao reiniciar) e "parar" esq
   assert.equal(c.usar99(), false); // só o verdadeiro conta
 });
 
-test('"Responder pela 99" (4b): nasce desligado, só liga com a 99 lida neste PC, fica guardado; parar de ler a 99 desliga', () => {
+test('"Responder pela 99" (4b, 0.7.8): vem LIGADO com a 99 lida neste PC; "Só ler" fica guardado; parar de ler esquece', () => {
   const dir = pasta();
   const c = new Configuracao(dir, cofre());
-  assert.equal(c.responder99(), false);
-  assert.equal(c.marcarResponder99(true), false); // sem a 99 lida neste PC, não liga
-  c.marcarUsar99(true);
-  assert.equal(c.marcarResponder99(true), true);
+  const arquivo = () => JSON.parse(fs.readFileSync(path.join(dir, 'ponte.json'), 'utf8'));
+  assert.equal(c.responder99(), false); // sem a 99 lida neste PC, não responde
+  assert.equal(c.marcarResponder99(true), false); // e não liga
+  c.marcarUsar99(true); // "Abrir a 99": já responde, sem passo a mais (ERR-543)
   assert.equal(new Configuracao(dir, cofre()).responder99(), true);
+  assert.deepEqual(arquivo(), { usar99: true });
+  // "Só ler a 99": a escolha fica guardada (reiniciar não volta a responder)
   assert.equal(c.marcarResponder99(false), false);
-  c.marcarResponder99(true);
-  c.marcarUsar99(false); // "Parar de ler a 99 neste PC"
+  assert.deepEqual(arquivo(), { usar99: true, responder99: false });
   assert.equal(new Configuracao(dir, cofre()).responder99(), false);
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'ponte.json'), 'utf8')), {});
+  // ligar de novo volta ao padrão
+  assert.equal(c.marcarResponder99(true), true);
+  assert.deepEqual(arquivo(), { usar99: true });
+  // o PC que ficou só lendo com a 0.7.7 (ajuste que nunca foi marcado): passa a responder
+  fs.writeFileSync(path.join(dir, 'ponte.json'), JSON.stringify({ usar99: true }));
+  assert.equal(c.responder99(), true);
+  // o que veio ligado da 0.7.7 continua ligado
+  fs.writeFileSync(path.join(dir, 'ponte.json'), JSON.stringify({ usar99: true, responder99: true }));
+  assert.equal(c.responder99(), true);
+  // "Parar de ler a 99 neste PC" esquece os dois — reabrir volta ao padrão (responde)
+  c.marcarResponder99(false);
+  c.marcarUsar99(false);
+  assert.deepEqual(arquivo(), {});
+  assert.equal(new Configuracao(dir, cofre()).responder99(), false);
   // responder sem usar (arquivo editado à mão): não vale
   fs.writeFileSync(path.join(dir, 'ponte.json'), JSON.stringify({ responder99: true }));
   assert.equal(c.responder99(), false);
