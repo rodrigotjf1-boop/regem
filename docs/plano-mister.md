@@ -1447,6 +1447,315 @@ em áudio.**
 Mister usa o clima e os eventos para avisar de chuva e programar entregadores e funcionários em feriados e eventos
 grandes. A fonte do clima precisa de licença comercial.
 
+### Versão 6 — o Mister no comando, com segurança e as regras de cada pessoa (PLANO, espera a aprovação do dono)
+
+Pedido do dono (20/11/2026), resumido nas palavras dele. Os exemplos que ele deu servem para tirar o padrão, não para
+virar regra fixa.
+
+1. **Identificador do telefone** e um jeito seguro de trocar de celular em caso de perda ou dano.
+2. **Os reforços recomendados** S1–S4, aprovados ("vamos aplicar os reforços recomendados").
+3. **Acesso completo ao Regem**, com segurança para intrusos não chegarem ao Mister: o presidente resolve tudo pelo
+   WhatsApp, com a ajuda da IA. Exemplos: a foto ou a planilha de uma tabela vira a lista de compras; a foto de um cupom
+   fiscal é transcrita e o Mister pergunta como lançar.
+4. **Regras de cada pessoa**: cada um decide, por texto ou áudio, o que quer receber e como. A regra nasce, se ajusta e
+   se apaga pela conversa. Exemplos: só avisar com 3 pedidos há mais de 20 min sem ficar prontos, numa mensagem só
+   ("Pedidos 22, 24 e 28 estão há mais de 20 min em produção"; com 1 só, não avisar); trocar o tempo de produção pelo de
+   despacho (do aceite ao despacho, avisar acima de 30 min); lembrar do boleto "X" uma hora antes; avisar se alguma
+   tarefa, ou a tarefa 5, não for feita; e apagar cada uma ("não quero mais ser avisado do boleto X").
+5. **Perceber padrões**: "a impressora tem de ficar ligada no expediente; se desligam antes, e acontece várias vezes, é
+   porque aquele equipamento é desligado antes do horário de fechamento".
+6. **Suporte de configuração**: a descrição do caminho e, melhor, a foto da tela com o caminho.
+7. **Texto e imagem dinâmicos com a IA**: a imagem sai de um pedido completo; quando a pessoa não gosta ("não entendi,
+   não gostei"), sai de novo, mais didática, simples e sofisticada, com os dados já pedidos; IA para criar imagem e vídeo.
+8. **O ciclo**: recebe a ordem → entende o contexto → separa os dados → confere as regras → pede foto ou vídeo se
+   precisar → arruma e apresenta → e, conforme a ocasião, sugere o que fazer com os dados.
+
+#### 1. Como está (conferido no código em 20/11/2026, `origin/main` `82909eb5`)
+
+**Segurança**
+- O telefone é o identificador. A mensagem só entra com a assinatura da Meta conferida (`whatsapp-cloud.controller.ts`,
+  HMAC; sem o segredo, nada passa) e só representa alguém se o número estiver ligado à pessoa (`mister_vinculo`), o que
+  é conferido a cada mensagem e de novo na hora de responder (`MisterFerramentasService.escopo`). Não há identificador do
+  APARELHO: quem estiver com aquele WhatsApp aberto (WhatsApp Web no PC da loja, conta clonada, número que a operadora
+  repassou) fala como a pessoa.
+- O vínculo não vence: só sai quando a pessoa ou o presidente desliga, ou quando ela perde o cargo. Ligar com outro
+  número troca o anterior sozinho (um vínculo por pessoa e empresa; `MisterVinculoService.gerarCodigo`).
+- Não existem "esqueci a senha" nem "sair de todos os aparelhos": `POST auth/logout` encerra só a sessão do próprio
+  token (mig 457). O PIN só muda pelo cadastro do colaborador.
+- Ler valores não pede PIN. O PIN só existe para cancelar pedido com estorno (link `/m/<código>`, F4.2a).
+- A Meta tem o recurso oficial "Identity change check". Ligado no número (`POST /<phone-number-id>/settings` com
+  `{"user_identity_change": {"enable_identity_key_check": true}}`), a mensagem que chega traz
+  `contacts[].identity_key_hash`; a enviada com `recipient_identity_key_hash` diferente falha com o código 137000. A doc
+  NÃO diz quais ações mudam o hash (reinstalar, celular novo, WhatsApp Web) e diz que as mensagens ao usuário ficam
+  bloqueadas até a empresa reconhecer a mudança, sem mostrar como se reconhece pela Cloud API. Não existe na conexão
+  por QR Code.
+
+**Acesso**
+- 31 ferramentas (19 consultas da loja, o guia, as conversas anteriores e 10 ações), 4 procedimentos (3 por botão,
+  cancelar por PIN) e os documentos por foto (boleto, conta, nota). Dos 72 módulos de negócio, cerca de 40 não têm
+  cobertura nenhuma: cardápio e cupons, clientes e marketing, entregadores, checklist, POP, vistoria, desperdício,
+  compras, cadastros, configuração da loja, entre outros. O guia "como faço" cobre 23 dos 54 itens do menu.
+- Quem fala: o presidente (tudo) e o gerente (a loja dele e o que o perfil libera). O perfil de permissões próprio do
+  Mister fica para o fim do projeto (item 8 da §5).
+
+**Avisos e regras**
+- `pedido_parado`: UM aviso por pedido e por etapa (chave `pedido:<id>:<status>`), com o mesmo limiar (15, 20 ou 30 min)
+  para o aceite, o preparo e a espera do entregador; sem agrupar e sem mínimo de pedidos; só pedidos dos canais
+  (`pedido_externo`); regra por EMPRESA (`mister_aviso_regra`, chave `tenant_id, tipo`). É a enxurrada que o dono recebe.
+- Não há tempo "aceite → despacho" calculado em lugar nenhum, embora as colunas existam (`confirmado_em`,
+  `despachado_em`). A comanda de balcão ou mesa não tem aceite, pronto nem despacho.
+- Tarefas: não têm número visível (o id é uuid); só ficam "não feita" quando alguém marca (`estado = nao_feita`); nada
+  compara o horário com o relógio; a recorrência não vira tarefa do dia sozinha (não há rotina); não existe nenhum alerta
+  de tarefa.
+- Boleto: `titulo_financeiro.vencimento` é DATA, sem hora. O aviso `boleto_vencendo` só cobre os boletos lançados por
+  foto no Mister (3, 1 ou 0 dias antes, às 9h).
+- Por pessoa, hoje: o `lembrete` (uma vez, numa hora fixa, texto livre), o "fica de olho" (um alvo até as 06:00), a
+  memória (texto que só entra na conversa) e o PARAR AVISOS (tudo ou nada). `mister_conversa_config` é por empresa.
+- `mister_aviso.tipo` é texto sem trava no banco: aviso de tipo novo não pede migration.
+- Padrões: a vigia guarda cada parada de impressora com o começo e o fim (`vigia_incidente`, chave
+  `srv:<id>:impressora:<id>`), e o horário de atendimento da loja está em `cardapio_config.horarios` (por loja ou da
+  empresa). Nada cruza os dois.
+
+**Documentos, compras e cupom**
+- O cupom fiscal de compra (NFC-e, modelo 65) não é tratado. A chave só é aceita no modelo 55 (`lerChaveDaNfe`). Pelo
+  Graph, o texto perde o CNPJ e a chave (`semDadoPessoal` apaga sequências de 9 dígitos ou mais), e "nfc-e" não casa com
+  o filtro de documento (`mister-midia.regras.ts`). `mister_documento.tipo` tem trava no banco (`boleto|conta|nota|outro`).
+- A conta a pagar nasce em aberto (`FinanceiroService.criar`). Conta já paga = `criar` + `pagar` (dinheiro, pix, cartão
+  ou transferência). A categoria é texto livre: não há plano de contas.
+- O recebimento aceita entrada sem fornecedor e sem nota, mas todo item precisa estar cadastrado no estoque.
+- Lista de compras (`compra_lista` e `compra_item`, tela Estoque › Pedidos): os itens entram só por id; existe a
+  sugestão pelo estoque mínimo (`ComprasService.sugerir`); o Mister não cria lista (o `ComprasModule` não está no
+  agente). Achar o insumo pelo nome já existe (`acharInsumo`, `sugerirInsumos` com sinônimos fixos). O Regem tem leitor
+  próprio de XLSX e CSV, sem biblioteca (`estoque/produtos-planilha.ts`, `cliente/ler-xlsx.ts`), mas a planilha mandada
+  ao Mister recebe "só leio texto".
+
+**Gráficos e geração**
+- A IA escolhe só entre 4 tipos e passa o tipo, o período e a loja; o título, as cores e o desenho são do código (PNG
+  próprio, `pdfkit`, SVG). Não há "refazer": os botões PDF e link repetem a mesma consulta.
+- O DMS Graph JÁ gera imagem (`gemini-3.1-flash-image`) e vídeo (`gemini-omni-1.2-flash`) na tela "Criar" dele e no MCP
+  local, mas a porta que o Regem usa (`/mcp`) só tem `analisar_arquivo`, `ouvir_audio` e `falar`. O plano do Graph de
+  20/11 ("recursos por produto e edição de foto", espera o "pode" do dono) prevê `criar_imagem` e `criar_video`.
+
+**IA**
+- Perguntas: `claude-haiku-5-5` (US$ 0,10 de entrada e US$ 0,50 de saída por milhão de tokens; medido ~US$ 0,001 por
+  pergunta em 13/11), pela chave da empresa e, sem ela, pela da distribuição. Documentos: `claude-sonnet-5-5` (US$ 2 e
+  US$ 10). A porta é `IaEmpresaService.pedir`.
+
+#### 2. Princípios (valem para todas as fases)
+
+1. **A IA entende e propõe; o código confere e executa.** Número só de consulta; regra só do catálogo; ação só pelo
+   MESMO serviço da tela (V43), com auditoria `origem: 'mister'`, chave idempotente (V42) e "Desfazer" onde a tela
+   permite. A IA nunca escreve código que roda.
+2. **"Acesso completo" = completo dentro do perfil de quem fala**, decidido no servidor. O presidente vê e faz tudo o que
+   a tela dele faz; o gerente, a loja dele e o que o perfil libera.
+3. **Confirmação proporcional ao risco:**
+   - **Livre** (só da própria pessoa): consultas, regras, lembretes, memória, "fica de olho".
+   - **Botão "Confirmar"**, com o rascunho mostrado antes: lista de compras, lançar cupom, criar tarefa, pausar ou
+     retomar canal ou produto, recado.
+   - **PIN pelo link** (o mecanismo da F4.2a): dinheiro (pagar, estornar, cancelar com estorno), configuração que muda a
+     operação (preço, horário, área de entrega, módulos) e pessoas (cadastrar, desligar).
+   - **Nunca pelo Mister**: perfis e permissões, senha ou PIN de outra pessoa, chaves e credenciais de integração, dados
+     de cliente (listar, exportar), apagar em massa, certificado e configuração fiscal, planos e assinatura. O Mister
+     explica o caminho da tela.
+4. **Nasce desligado** o que é pago ou muda o que a loja vê; o preço fica ao lado (regra do custo mínimo).
+5. **Escala:** as regras se avaliam em lote (uma leitura por sinal para todas as regras ativas, nunca uma por regra); o
+   envio é idempotente; nada de estado em memória entre réplicas.
+6. **Por cima do que existe:** camadas novas e encaixes pequenos. O aviso da empresa continua igual para quem não tem
+   regra própria.
+
+#### 3. Frente A — segurança e troca de celular
+
+| Peça | O que faz | Onde encaixa | Migration |
+|---|---|---|---|
+| **A1.0 · Conferir antes (V20)** | Com o número do Mister e um celular de teste do dono: ligar o recurso, ver o hash chegar, reinstalar o WhatsApp do celular de teste e anotar o que acontece (hash novo? envio bloqueado até reconhecer? como reconhecer?). O código só começa depois. | — | não |
+| **A1 · Identidade do aparelho (S1)** | Guarda o hash do aparelho ao ligar o telefone. Mensagem com hash diferente → o Mister para de responder dados e manda "Este WhatsApp mudou de aparelho. Confirme com o seu PIN" (link `/m/<código>`, o da F4.2a). Com o PIN certo, grava o hash novo e segue; 5 PIN errados → o telefone é desligado e o presidente avisado. | `mister-entrada.service.ts` (lê `contacts[].identity_key_hash`), `mister_vinculo` | 1 (467) |
+| **A2 · Sessão com PIN (S2)** | Ajuste do presidente: valores em reais, dados de pessoas e ações de botão pedem o PIN pelo link a cada 12 h (6, 12 ou 24). Nasce desligado. | escopo + o link da F4.2a | na 467 |
+| **A3 · O vínculo vence (S3)** | Sem mensagem da pessoa há 60 dias → desliga o WhatsApp do Mister dela, com aviso na tela e auditoria; ligar de novo é pelo código. | rotina diária; `mister_vinculo.ultima_entrada_em` (já existe) | não |
+| **A4 · Aviso de ligação (S4)** | Telefone novo ligado, religado ou com o aparelho trocado (A1) → aviso aos presidentes no Mister e na tela: quem, o final do número e quando. "Não reconheço" → desliga na hora. | tipo novo de aviso (sem trava no banco) | não |
+| **A5 · "Perdi o celular"** | Em Mister › Pessoas, para a própria pessoa (e o presidente para qualquer um): desliga o WhatsApp do Mister E encerra todas as sessões do Regem dela (o app logado no celular perdido), com auditoria e aviso aos presidentes. Se ninguém consegue entrar no Regem (não há "esqueci a senha"), o suporte da DMS desliga pelo Console › Mister, com auditoria. | Pessoas; Console › Mister; `JwtAuthGuard` e `RealtimeGateway` (V97) | 1 (468); toca o servidor da loja → `.zip` |
+| **A6 · Trocar de celular** | Mesmo número (chip novo, celular consertado): A1 pede o PIN e segue. Número novo: o código gerado no Regem e mandado do celular novo (já existe; o antigo sai sozinho). PIN esquecido: troca no cadastro. | guia de uso + Pessoas | não |
+
+#### 4. Frente B — as regras de cada pessoa (a parte adaptativa)
+
+**Como funciona**
+1. A pessoa fala, por texto ou áudio (o áudio já vira texto pela M5b).
+2. A IA traduz para UMA regra do catálogo, por uma ferramenta com o formato de cada sinal (uso estrito do schema,
+   `strict: true`). Nunca código.
+3. O código confere: o sinal existe, os números estão nos limites, a pessoa pode ver aquele dado e o alvo existe (o
+   boleto "X", a tarefa, a impressora). Se faltar algo, o Mister pergunta. Ex.: o boleto vence num DIA, então "uma hora
+   antes de que horário?".
+4. O Mister repete o que entendeu e o que muda no que ela já recebe, e pede "Confirmar". Ex.: "Vou te avisar quando 3 ou
+   mais pedidos passarem de 20 min aceitos sem ficar prontos, numa mensagem só. Os avisos de pedido parado um a um param
+   de chegar para você (o KDS e a tela continuam). Confirma?"
+5. Grava. Uma rotina a cada minuto avalia as regras ativas, em lote por sinal; cada envio leva a chave idempotente da
+   regra, dos itens e da janela.
+6. "Não quero mais…": a IA acha a regra entre as da pessoa (com dúvida, mostra a lista curta), o Mister confirma e
+   apaga. O histórico fica.
+7. "Muda para 25 min", "só de noite": altera a regra que existe.
+
+**O que uma regra guarda:** de quem é; o sinal; o alvo (todos ou um item); a condição (minutos, quantidade mínima,
+antecedência); o agrupamento (uma mensagem com a lista, a janela); o silêncio (horário, não repetir o mesmo item); o
+formato (curto ou em lista); a validade (até apagar, até uma data ou uma vez); e o aviso da empresa que ela substitui
+para a pessoa.
+
+**Catálogo de sinais, versão 1 (só com dado que existe):**
+
+| Sinal | O que mede | Dados | Observação |
+|---|---|---|---|
+| `pedidos_em_producao` | pedidos dos canais aceitos e não prontos há mais de N min, com mínimo de M pedidos | `pedido_externo` (`confirmado_em`, situação `confirmado`) | o exemplo dos "Pedidos 22, 24 e 28" |
+| `pedido_para_despachar` | do aceite ao despacho acima de N min | `confirmado_em` → `despachado_em` (ou agora) | trecho novo; vale para entrega |
+| `pedido_sem_aceite` | pedido novo há mais de N min | `criado_em` | |
+| `conta_vence` | conta a pagar (qualquer uma, não só a do Mister), N dias ou horas antes de uma hora | `titulo_financeiro` | a data não tem hora: a hora vem da pessoa ("às 17h") e fica na regra |
+| `tarefa_nao_feita` | a tarefa (uma ou todas) marcada "não feita", OU ainda pendente N min depois do horário de fim | `tarefa_instancia` + `tarefa_def.horario_fim` | a tarefa não tem número: o Mister acha pelo nome ou lista as de hoje pela hora e pergunta qual; só enxerga as tarefas que existem no dia |
+| `impressora_no_expediente` | impressora parada dentro do horário da loja | `vigia_incidente` + `cardapio_config.horarios` | |
+| `caixa_aberto` | caixa aberto há mais de N h | `caixa_sessao` | |
+| `canal_pausado` | canal pausado há mais de N min | a pausa do canal | |
+
+Nas versões seguintes, pelo que as pessoas pedirem (a F5.2 já anota o que falta): estoque de um item abaixo de X,
+venda do dia abaixo da meta, cancelamentos acima de N, avaliação ruim.
+
+**Junto com o aviso da empresa:** a regra pessoal só muda o que chega à PRÓPRIA pessoa pelo WhatsApp; o KDS, a tela e os
+outros seguem a regra da empresa. O encaixe é pequeno, em `pelosWhatsapps`: pula quem tem regra que substitui aquele tipo.
+
+**Padrões (a parte que aprende), pelo código e sem IA, uma vez por noite:**
+- **Impressora desligada antes do fechamento:** a parada que começou dentro do horário da loja e não voltou até fechar,
+  em 3 ou mais dos últimos 14 dias, na mesma faixa de horário. O Mister diz: "Percebi um padrão: a impressora da cozinha
+  foi desligada antes do fechamento em 4 dos últimos 7 dias, sempre entre 22:30 e 23:10. Parece que alguém desliga ao
+  limpar a cozinha." E sugere: um recado no mural (já existe), uma tarefa de fechamento ou a regra "me avise na hora se
+  desligar antes das 23:30".
+- **Avisos que a pessoa nunca responde nem toca** (ex.: 14 de pedido parado ontem): "quer que eu só avise com 3 ou mais?".
+- **Pedidos que atrasam sempre na mesma faixa** (o pico): sugere a regra naquele horário.
+- Cada sugestão vai uma vez; "Não, deixa assim" cala aquele padrão por 30 dias. O Mister NUNCA muda uma regra sozinho.
+
+**Tela:** Mister › Regras. Cada pessoa vê as dela (ativas e pausadas), muda e apaga em gaveta; o presidente vê as de
+todos (decisão V6-5). Pede o protótipo.
+
+#### 5. Frente C — acesso completo, com segurança (as ações)
+
+- **Uma porta só para as ações.** As consultas continuam como ferramentas; as AÇÕES passam por uma ferramenta só,
+  `propor_acao`, com o catálogo e o formato de cada ação conferidos pelo código (como o `propor_procedimento` de hoje). A
+  lista de ferramentas fica estável (o cache do provedor continua valendo) e não depende de recurso novo do modelo. Se as
+  consultas passarem de ~40, avaliar a busca de ferramentas do provedor (`tool_search` com `defer_loading`), conferindo
+  antes, na doc, se vale para o modelo em uso.
+- **Lista de compras** (botão). Entra por foto (Graph), planilha (o leitor que existe), texto ou áudio ("pede 10 kg de
+  bacon e 5 caixas de tomate") ou "faz a lista do que está abaixo do mínimo" (`ComprasService.sugerir`). Cada linha acha
+  o insumo (`acharInsumo`/`sugerirInsumos` + a memória por fornecedor); a dúvida vira botão ("Bacon fatiado ou em
+  cubos?"); o item que não existe pede "Cadastrar" ou "Deixar de fora"; a marca, quando o insumo tem duas ou mais (a lista
+  exige); e o fornecedor. Resumo + "Criar o pedido" → `ComprasService.createLista` (Estoque › Pedidos). Depois, "Mandar
+  ao fornecedor" com o texto que a tela já monta.
+- **Cupom fiscal de compra** (botão). A foto vai aos documentos, não ao texto do Graph, que apaga o CNPJ e a chave. A
+  leitura traz o emitente, o CNPJ, a data e a hora, os itens, o desconto, o total, a forma de pagamento e a chave de 44
+  dígitos. O código confere a chave (modelo 65, dígito verificador, CNPJ igual ao do emitente) e a soma dos itens. Depois,
+  "Como deseja lançar?":
+  - **Só despesa**: a conta paga (`criar` + `pagar`, com a forma do cupom e a categoria sugerida pela memória do emitente);
+  - **Estoque e despesa**: cada item pelo fluxo da nota (M3b), com a memória pelo CNPJ do emitente; o recebimento sem
+    fornecedor e `semConta`, mais a conta paga;
+  - **Não lançar**.
+  O "Desfazer" vale para a conta; a entrada no estoque, como na nota, não se desfaz pela conversa (decisão V6-8).
+- **Lotes de ações** (um PR cada, pelo mapa do levantamento): Delivery (pausar e retomar canal, avançar e despachar
+  pedido, pausar produto); Tarefas (criar, concluir, marcar "não feita"); Cardápio (preço por canal, com PIN); Loja
+  (horário, com PIN); Financeiro (pagar conta, com PIN; consultar as contas a pagar e a receber); Estoque (movimento,
+  contagem); Escala e ponto (consultas); Clientes (só números juntos, nunca dado pessoal).
+
+#### 6. Frente D — conversa, apresentação e suporte
+
+- **O ciclo**, nas instruções e no código: entende (a mensagem, a memória e as regras de FORMATO da pessoa) → separa os
+  dados (consultas em paralelo, até 3 por rodada, já existe) → confere as regras (a permissão e os valores no servidor;
+  o formato preferido) → pede a mídia quando ajuda (gráfico, imagem da tela, imagem gerada) → apresenta → sugere,
+  separado dos números, quando a ocasião pede.
+- **O formato de cada pessoa**: "sempre em lista", "sem centavos", "resumo às 8h em PDF", "responda em áudio" viram
+  regras de formato dela. Hoje o jeito, o perfil e o "Responder em áudio" são da empresa.
+- **Gráficos**: mais formas (linha, colunas, barras, rosca, comparação lado a lado, tabela em imagem, cartões de números)
+  e o que a IA pode escolher (a forma, o título com a mensagem principal, o destaque, a ordem, mostrar os valores, uma
+  anotação). Os números vêm sempre da consulta. **Refazer:** o último gráfico (o plano e os dados) fica guardado na
+  conversa por 30 min. "Não entendi, não gostei" → a IA revê a apresentação com a crítica e a regra "didático, simples e
+  sofisticado" (uma mensagem por gráfico, até 7 barras, destaque no que importa, rótulos diretos), e o código desenha de
+  novo com os mesmos dados, sem consultar de novo.
+- **Imagem e vídeo gerados**: só para o que não é número (cartaz de promoção, post, ilustração). Número de relatório
+  nunca vai à IA de imagem, que erra texto e número. O Mister monta o pedido completo (objetivo, texto exato, estilo da
+  marca, formato 1:1, 16:9 ou 9:16) e o mostra antes de gerar. Depende do plano do Graph (`criar_imagem`,
+  `criar_video`); nasce desligado, com o preço ao lado. Junta-se ao item "Banner por IA", guardado para o fim do Mister.
+- **Suporte**: completar o guia "como faço" nos 31 itens do menu sem assunto, em lotes como a M3d (imagem obrigatória por
+  assunto). Quando existir a ação, o Mister oferece "quer que eu faça?", com o nível de confirmação dela.
+- **Texto dinâmico**: os avisos das regras saem montados pelo código; o ajuste "avisos escritos pelo Mister" (M4c) passa
+  a valer para eles, com a mesma conferência (nenhum número que o aviso não trouxe).
+- **Modelo**: o Haiku 5.5 segue nas conversas. Trocar só onde a avaliação de regressão mostrar ganho, com casos novos
+  para regras, cupom, lista e gráfico refeito.
+
+#### 7. Fases (uma entrega por PR; migrations a partir da 467)
+
+| Fase | O que entra | Migration |
+|---|---|---|
+| **M6.0 · Protótipo** | `mockups/regem-mister-v6.html`: as conversas (aparelho trocado com o PIN, perdi o celular, regra criada, mudada e apagada, aviso agrupado, despacho, boleto uma hora antes, tarefa, o padrão da impressora, lista de compras por foto e por planilha, cupom "como deseja lançar", gráfico refeito, "como faço" com a tela e "quer que eu faça?"), as telas (Pessoas com "Perdi o celular", Regras, Console › desligar a pessoa) e as decisões. Medido em 16 larguras. | não |
+| **M6a · Segurança 1** | A3, A4, o desligar pelo console e a lista do "nunca pelo Mister" nas instruções e no código | não |
+| **M6b · Identidade** | A1.0, A1 e A6 no guia | 467 |
+| **M6c · Perdi o celular** | A5: as sessões por pessoa (a guarda e o tempo real); vai no `.zip` | 468 |
+| **M6d · Sessão com PIN** | A2, nascendo desligada | na 467 |
+| **M6e · Regras 1** | o catálogo v1, criar, mudar e apagar pela conversa, a rotina e o encaixe nos avisos da empresa | 469 (`mister_regra`, `mister_regra_envio`) |
+| **M6f · Regras 2** | a tela Regras, os formatos da pessoa, os padrões e as sugestões | 470 (as decisões das sugestões) |
+| **M6g · Lista de compras** | foto, planilha, texto e mínimo → `createLista` | não |
+| **M6h · Cupom fiscal** | a leitura, a conferência da chave 65 e os três jeitos de lançar | 471 (o tipo `cupom` na trava de `mister_documento`: tem `drop constraint`, então o dono aplica pelo SQL Editor — LIC-171) |
+| **M6i · Gráficos** | as formas novas e o refazer | não |
+| **M6j · Ações em lotes** | a porta `propor_acao` e os lotes por módulo | conferir por lote |
+| **M6k · Guia completo** | os 31 assuntos com imagem | não |
+| **M6l · Imagem e vídeo** | depois do plano do Graph | não (no Regem) |
+
+**Ordem recomendada:** M6.0 → M6a → M6e (a enxurrada de avisos é a dor de agora) → M6b (assim que o dono puder fazer a
+A1.0 com o celular de teste) → M6c → M6h → M6g → M6i → M6f → M6d → M6j → M6k → M6l.
+
+**Em todas:** tabela nova `@cloud-only`, classificada em SO_NUVEM no `sync-daemon` (V21) e com a migration testada no
+local antes (V9); módulo novo importado no agente → `app-sobe.spec.ts` (V81; o `ComprasModule` na M6g); avaliação de
+regressão de novo quando as instruções mudam; a Meta pela doc oficial (V20); a M6c mexe na autenticação (V97).
+
+#### 8. Custos
+
+| Parte | Como começa | Se ligar ou usar |
+|---|---|---|
+| Regras, padrões e a avaliação deles | código, sem IA | — |
+| Entender a regra ou a ordem | a IA da empresa (Haiku), 1 a 2 chamadas por regra criada | ~US$ 0,001 a 0,002 por regra (pela medida de 13/11) |
+| Cupom e lista por foto | a IA dos documentos (Sonnet 5.5, chave da empresa); a lista por foto também pelo Graph (franquia de 500 por mês, a mesma do atendente) | centavos por cupom, como os boletos de hoje |
+| Planilha | leitor próprio, sem IA para ler; IA só para casar nomes difíceis | — |
+| Identidade do aparelho | recurso do número, sem custo na Meta | — |
+| Avisos das regras fora das 24 h | o modelo da Meta já aprovado (`mister_aviso`) | o preço da mensagem de utilidade da Meta (em WhatsApp › Uso e gasto). Agrupar reduz o número de mensagens de hoje |
+| Imagem e vídeo gerados | desligado | depende do plano do Graph (chave Google da DMS); preço medido antes de ligar |
+
+**Começo: nada a mais que hoje.** As IAs são as que a empresa já usa.
+
+#### 9. Decisões do dono (a recomendada primeiro)
+
+1. **V6-1 · Aparelho trocado:** bloquear os dados até o PIN (recomendado) × só avisar o presidente.
+2. **V6-2 · Conexão por QR Code (sem o hash):** a sessão com PIN fica obrigatória para valores (recomendado) × aceitar o
+   risco como hoje.
+3. **V6-3 · Vencimento do vínculo:** 60 dias (recomendado) × 30 × 90.
+4. **V6-4 · Sessão com PIN:** nasce desligada, a cada 12 h (recomendado, como aprovado) × nasce ligada.
+5. **V6-5 · Quem vê as regras:** o presidente vê e apaga as de todos, o gerente só as dele (recomendado) × cada um só as
+   suas.
+6. **V6-6 · Calar o aviso da empresa:** a regra pessoal tira da própria pessoa o aviso pelo WhatsApp, menos os críticos
+   (servidor sem sinal com pedido esperando, certificado, chave de IA parada), que podem ser agrupados mas não calados
+   (recomendado) × tudo pode ser calado.
+7. **V6-7 · Teto:** 30 regras por pessoa (recomendado).
+8. **V6-8 · Cupom:** "Só despesa", "Estoque e despesa" e "Não lançar"; a entrada no estoque não se desfaz pela conversa,
+   como na nota (recomendado).
+9. **V6-9 · Ações:** os três níveis de confirmação e a lista do "nunca pelo Mister" (recomendado).
+10. **V6-10 · Gráficos:** o código desenha e a IA escolhe a apresentação (recomendado) × a IA desenha pelo ambiente de
+    código do provedor (cobrado por uso, sem a garantia do número exato).
+11. **V6-11 · Imagem e vídeo:** pelo Graph quando o plano dele for aprovado, nascendo desligados (recomendado).
+12. **V6-12 · Padrões:** avisar uma vez por padrão; "Não, deixa assim" cala por 30 dias (recomendado).
+
+#### 10. Riscos e o que se confere antes
+
+- **A identidade da Meta** tem comportamento que a doc não fecha: a A1.0 confere antes de qualquer código.
+- **Tarefas** não têm número nem recorrência automática: a regra só enxerga as tarefas que existem no dia. Criar sozinho
+  as tarefas recorrentes é outra entrega, fora deste plano (levar ao dono).
+- **Balcão e mesa** não têm aceite nem pronto: as regras de tempo valem para os pedidos dos canais e para o KDS.
+- **Conta a pagar sem hora:** a hora da regra vem da pessoa.
+- **A Meta aceita 3 botões por mensagem:** escolha maior vira lista numerada.
+- **A M6c** mexe na autenticação (a guarda, o tempo real e o servidor da loja): V97 e `.zip`.
+
+**Como foi levantado (20/11):** quatro varreduras de leitura na `origin/main` (módulos × Mister; avisos, tempos, tarefas
+e boletos; documentos, compras e cupom; DMS Graph, gráficos e modelos), conferência manual dos pontos que sustentam o
+plano e a doc oficial da Meta ("User identity changes" e "Phone Numbers"). Nada foi executado.
+
 ## 5. O que depende do dono
 
 1. ~~Onde a IA roda~~ — decidido: nuvem.
