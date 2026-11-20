@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { sql, type SQL } from 'drizzle-orm';
 import { sqlChaveTelefone } from './telefone-chave';
 import { ehServidorLocal } from './modo';
@@ -51,13 +51,18 @@ export function sqlSegmentoDoPerfil(chave: unknown): SQL | null {
 /** As origens de um aceite que veio do próprio cliente (um "sim" clicado — D15). */
 export const ORIGENS_DO_ACEITE_CLICADO = ['cardapio_checkout', 'cardapio_perfil', 'whatsapp'] as const;
 
-/** Na campanha "pelo perfil": o último evento de consentimento do número é um aceite (ou a volta) clicado pelo cliente. */
-export function sqlAceiteClicado(): SQL {
+/** O último evento de consentimento do número é um aceite (ou a volta) clicado pelo cliente — a expressão (sem o `and`). */
+export function sqlTemAceiteClicado(): SQL {
   const origens = sql.join(ORIGENS_DO_ACEITE_CLICADO.map((o) => sql`${o}`), sql`, `);
-  return sql`and exists (select 1 from (select mc.acao, mc.origem from marketing_consentimento mc
+  return sql`exists (select 1 from (select mc.acao, mc.origem from marketing_consentimento mc
                  where mc.tenant_id = c.tenant_id and mc.telefone_chave = ${sqlChaveTelefone(sql`c.telefone`)}
                  order by mc.em desc limit 1) u
                where u.acao in ('aceite', 'volta') and u.origem in (${origens}))`;
+}
+
+/** Na campanha "pelo perfil": o `and …` do aceite clicado. */
+export function sqlAceiteClicado(): SQL {
+  return sql`and ${sqlTemAceiteClicado()}`;
 }
 
 /** O módulo "Perfil do cliente" está ligado na empresa? */
@@ -73,7 +78,23 @@ export async function perfilLigado(db: any, tenantId: string): Promise<boolean> 
  */
 export async function conferirSegmentoDoPerfil(db: any, user: { tenantId: string; categoria?: string | null }, chave: unknown): Promise<void> {
   if (!ehSegmentoDoPerfil(chave)) return;
-  if (ehServidorLocal()) throw new ForbiddenException('Os segmentos pelo perfil ficam no Regem na nuvem.');
-  if (!['presidente', 'gerente'].includes(String(user.categoria ?? ''))) throw new ForbiddenException('Só o presidente e o gerente usam os segmentos pelo perfil.');
+  await conferirRegrasDoPerfil(db, user, 'Os segmentos pelo perfil ficam', 'os segmentos pelo perfil');
+}
+
+/**
+ * "Na hora habitual de cada cliente" (F7 parte 4b, mig 480) também usa o perfil (a camada 4): as mesmas regras do segmento
+ * pelo perfil — nuvem, presidente e gerente, módulo ligado. Devolve se a campanha vai na hora habitual. Ausente, falso ou
+ * vazio = não (o padrão seguro: a campanha de sempre, "num horário fixo"); valor que não é sim nem não → 400.
+ */
+export async function conferirEnvioHabitual(db: any, user: { tenantId: string; categoria?: string | null }, valor: unknown): Promise<boolean> {
+  if (valor === undefined || valor === null || valor === false || valor === 'false' || valor === '0' || valor === '') return false;
+  if (valor !== true && valor !== 'true' && valor !== '1') throw new BadRequestException('Informe "envioHabitual" (true ou false).');
+  await conferirRegrasDoPerfil(db, user, 'O envio na hora habitual fica', 'o envio na hora habitual');
+  return true;
+}
+
+async function conferirRegrasDoPerfil(db: any, user: { tenantId: string; categoria?: string | null }, ondeFica: string, oQue: string): Promise<void> {
+  if (ehServidorLocal()) throw new ForbiddenException(`${ondeFica} no Regem na nuvem.`);
+  if (!['presidente', 'gerente'].includes(String(user.categoria ?? ''))) throw new ForbiddenException(`Só o presidente e o gerente usam ${oQue}.`);
   if (!(await perfilLigado(db, user.tenantId))) throw new ForbiddenException('Ligue o módulo "Perfil do cliente" em Visão C&O › Módulos do produto.');
 }

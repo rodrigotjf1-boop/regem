@@ -36,16 +36,27 @@ export class CampanhaController {
     @CurrentUser() user: AuthUser,
     @Query('segmento') segmento?: string,
     @Query('recuperacaoDias') recuperacaoDias?: string,
+    @Query('habitual') habitual?: string,
+    @Query('horaInicio') horaInicio?: string,
+    @Query('horaFim') horaFim?: string,
   ) {
     // Segmento "pelo perfil" (F7 parte 1): módulo ligado e na nuvem (o papel a rota inteira já confere).
     await this.service.conferirSegmentoDoPerfil(user, segmento);
-    return this.service.previa(user.tenantId, segmento ?? 'todos', Number(recuperacaoDias) || undefined);
+    // "Na hora habitual de cada cliente" (F7 parte 4b): as mesmas regras do perfil.
+    const naHora = await this.service.conferirEnvioHabitual(user, habitual);
+    return this.service.previa(
+      user.tenantId,
+      segmento ?? 'todos',
+      Number(recuperacaoDias) || undefined,
+      naHora ? { horaInicio: horaInicio || null, horaFim: horaFim || null } : null,
+    );
   }
 
   @Post()
   async criar(@CurrentUser() user: AuthUser, @Body() dto: any) {
     await this.service.conferirSegmentoDoPerfil(user, dto?.segmento);
-    return this.service.criar(user.tenantId, user.colaboradorId ?? null, user.unidadeId ?? null, dto);
+    const envioHabitual = await this.service.conferirEnvioHabitual(user, dto?.envioHabitual);
+    return this.service.criar(user.tenantId, user.colaboradorId ?? null, user.unidadeId ?? null, { ...dto, envioHabitual });
   }
 
   // Envia a campanha (a mesma mensagem/modelo) para UM número, só para o gestor conferir

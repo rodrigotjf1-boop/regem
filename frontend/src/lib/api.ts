@@ -2142,10 +2142,21 @@ export const api = {
     req(`/calendario-da-loja/eventos/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   calendarioExcluirEvento: (id: string) => req(`/calendario-da-loja/eventos/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   // Campanhas de WhatsApp por segmento (F5 + épico marketing) — só nuvem, só gestão.
-  crmCampanhaPrevia: (segmento: string, recuperacaoDias?: number) =>
+  // `habitual` (F7 parte 4b): a prévia "na hora habitual de cada cliente" — só o aceite clicado, quem fica de fora e as horas
+  // num dia como hoje, dentro da janela de horário da campanha (quando tem).
+  crmCampanhaPrevia: (
+    segmento: string,
+    recuperacaoDias?: number,
+    habitual?: { horaInicio?: string | null; horaFim?: string | null } | null,
+  ) =>
     req(
       `/campanhas/previa?segmento=${encodeURIComponent(segmento)}` +
-        (recuperacaoDias ? `&recuperacaoDias=${recuperacaoDias}` : ''),
+        (recuperacaoDias ? `&recuperacaoDias=${recuperacaoDias}` : '') +
+        (habitual
+          ? '&habitual=1' +
+            (habitual.horaInicio ? `&horaInicio=${encodeURIComponent(habitual.horaInicio)}` : '') +
+            (habitual.horaFim ? `&horaFim=${encodeURIComponent(habitual.horaFim)}` : '')
+          : ''),
     ),
   crmCampanhas: () => req('/campanhas'),
   // Delivery › Marketing › Automáticas (Onda 3, mig 356): o painel (ajustes, prévia, modelo, resultado), salvar só o que

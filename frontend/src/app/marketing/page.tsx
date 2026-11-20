@@ -13,6 +13,7 @@ import { CustoDaCampanha } from '@/components/marketing/custo-da-campanha';
 import { ResultadoDoControle } from '@/components/marketing/resultado-do-controle';
 import { ClubeDeRecompra } from '@/components/marketing/clube/clube-de-recompra';
 import { PremioDaCampanha } from '@/components/marketing/premio-da-campanha';
+import { QuandoEnviar, type PreviaHabitual } from '@/components/marketing/quando-enviar';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Delivery → Marketing: campanhas de WhatsApp (épico 2 provedores). Público segmentado,
@@ -116,6 +117,12 @@ export default function MarketingPage() {
   const [previaFora, setPreviaFora] = useState<{ n: number; dias: number } | null>(null);
   // O grupo de controle (F7 parte 3, mig 465): quantos ficam de fora da campanha (só com ele ligado).
   const [previaControle, setPreviaControle] = useState<number | null>(null);
+  // "Quando enviar" (F7 parte 4b, mig 480): na hora habitual de cada cliente — só presidente e gerente com o módulo
+  // "Perfil do cliente" ligado (o servidor confere de novo). Nasce "num horário fixo".
+  const [perfilOk, setPerfilOk] = useState(false);
+  const [habitual, setHabitual] = useState(false);
+  const [previaHabitual, setPreviaHabitual] = useState<PreviaHabitual | null>(null);
+  const naHora = perfilOk && habitual;
   const [enviando, setEnviando] = useState(false);
   const [testeNumero, setTesteNumero] = useState('');
   const [testando, setTestando] = useState(false);
@@ -224,6 +231,8 @@ export default function MarketingPage() {
     const perms = getPermissoes(); // objeto { chave: true }, não array
     setPode(cat === 'presidente' || cat === 'gerente' || !!perms?.delivery);
     setPodeExcluir(cat === 'presidente' || !!perms?.campanha_excluir);
+    if (cat === 'presidente' || cat === 'gerente')
+      api.modulosMeus().then((m: any) => setPerfilOk(m?.perfil_cliente === true)).catch(() => setPerfilOk(false));
     carregar();
     api.whatsappNumeros().then(setNumeros).catch(() => {});
     api
@@ -253,21 +262,30 @@ export default function MarketingPage() {
     api.whatsappTemplatesAnalytics().then((r: any) => setTplAnalytics(r?.porTemplate ?? {})).catch(() => {});
   }, [pode, temCloud]);
 
-  // Recalcula o público quando o segmento muda.
+  // Recalcula o público quando o segmento muda (e, na hora habitual, quando muda a janela de horário).
+  const janelaHabitual = naHora ? `${agendada ? horaInicio : ''}|${agendada ? horaFim : ''}` : '';
   useEffect(() => {
     if (!novo) return;
+    let vivo = true;
     setPrevia(null);
     setPreviaFora(null);
     setPreviaControle(null);
+    setPreviaHabitual(null);
+    const [ini, fim] = janelaHabitual.split('|');
     api
-      .crmCampanhaPrevia(seg, seg === 'recuperacao' ? recDias : undefined)
+      .crmCampanhaPrevia(seg, seg === 'recuperacao' ? recDias : undefined, naHora ? { horaInicio: ini || null, horaFim: fim || null } : null)
       .then((r: any) => {
+        if (!vivo) return; // só a leitura mais nova vale (V64)
         setPrevia(r?.total ?? 0);
         setPreviaFora(r?.foraPorOferta > 0 ? { n: Number(r.foraPorOferta), dias: Number(r.intervaloOfertasDias) || 7 } : null);
         setPreviaControle(r?.foraPorControle > 0 ? Number(r.foraPorControle) : null);
+        setPreviaHabitual(r?.habitual ?? null);
       })
-      .catch(() => setPrevia(0));
-  }, [novo, seg, recDias]);
+      .catch(() => vivo && setPrevia(0));
+    return () => {
+      vivo = false;
+    };
+  }, [novo, seg, recDias, naHora, janelaHabitual]);
 
   function aplicarTipo(k: string) {
     const t = TIPOS.find((x) => x.k === k);
@@ -334,8 +352,11 @@ export default function MarketingPage() {
         templateNome: ehCloud ? templateNome : null,
         templateIdioma: ehCloud ? templateSel?.idioma || 'pt_BR' : null,
         templateVars: ehCloud ? templateVars : null,
+        ...(naHora ? { envioHabitual: true } : {}),
       });
-      toast.success(`Campanha criada para ${r?.total ?? 0} contato(s).`);
+      toast.success(
+        `Campanha criada para ${r?.total ?? 0} contato(s)${naHora ? ' — cada um recebe perto da hora em que costuma pedir' : ''}.`,
+      );
       setNovo(false);
       setClubePremioId('');
       resetar();
@@ -397,6 +418,7 @@ export default function MarketingPage() {
     setDias([]);
     setHoraInicio('');
     setHoraFim('');
+    setHabitual(false);
   }
 
   const captionPreview = [msg.replace('{CUPOM}', cupomCodigo || 'CUPOM'), link].filter(Boolean).join('\n');
@@ -780,6 +802,9 @@ export default function MarketingPage() {
               </div>
             )}
 
+            {/* Quando enviar (F7 parte 4b): só com o perfil do cliente ligado. */}
+            {perfilOk && <QuandoEnviar habitual={habitual} aoMudar={setHabitual} previa={previaHabitual} total={previa} />}
+
             {/* Agendamento */}
             <div className="rounded-lg border border-dashed border-border p-3">
               <label className="flex items-center gap-2 text-xs font-semibold">
@@ -950,6 +975,9 @@ export default function MarketingPage() {
                         : 'ativa';
                       return <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${cls}`}>{rot}</span>;
                     })()}
+                    {c.envio_habitual && (
+                      <span className="rounded-full border border-border px-2 py-0.5 text-[10px] text-foreground/70">na hora de cada cliente</span>
+                    )}
                     <button type="button" className="text-[11px] font-semibold text-primary underline" onClick={() => verMetricas(c.id)}>
                       {metricas[c.id] ? 'ocultar' : 'métricas'}
                     </button>

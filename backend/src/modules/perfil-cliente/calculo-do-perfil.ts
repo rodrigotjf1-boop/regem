@@ -72,8 +72,8 @@ export const CANAIS_FORA_DO_PERFIL = ['ifood', '99food'] as const;
 
 const R = REGRAS_DO_PERFIL;
 
-/** A faixa do dia pela hora local (a madrugada é do dia de operação anterior). */
-const faixa = (hora: SQL) => sql`case when ${hora} < 4 then 'madrugada' when ${hora} < 11 then 'manha'
+/** A faixa do dia pela hora local (a madrugada é do dia de operação anterior). Também da hora habitual da campanha. */
+export const faixa = (hora: SQL) => sql`case when ${hora} < 4 then 'madrugada' when ${hora} < 11 then 'manha'
   when ${hora} < 15 then 'almoco' when ${hora} < 18 then 'tarde' when ${hora} < 21 then 'inicio_noite' else 'noite' end`;
 
 /** O código RFM ('333') → o segmento, pela tabela acima (um `case` só, gerado). */
