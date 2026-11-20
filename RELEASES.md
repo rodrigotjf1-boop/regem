@@ -19,6 +19,14 @@
 - **Mister versão 6, M6j lote 1 — a porta `propor_acao` e as ações do Delivery (20/11; SEM migration).** Só na nuvem (o
   Mister): vai no `.zip` sem efeito na loja.
 
+- **Clube — o álbum de selos (20/11; mig 479 SÓ NUVEM — `clube_config.album_desde` e `meta_desde`; fase A2 do
+  `docs/plano-clube-e-banner.md`).** Marketing › Clube › "Álbum de selos" (selos para completar, validade de cada selo,
+  os prêmios de quem completa em gaveta — sem o produto grátis —, arte automática) e a chave em Visão geral. Um selo por
+  mês com pedido do cardápio online ou do robô, a partir do mínimo do clube, só depois de ligar; completo, o cliente
+  escolhe o prêmio em Sua conta › Benefícios (vira cupom pessoal na hora) e o álbum recomeça; a página do pedido mostra
+  "Você ganhou o selo de <mês>". Só na nuvem (os selos saem dos pedidos da nuvem): no `.zip` só por acompanhar o código.
+  Nasce desligado.
+
 - **Mister versão 6, M6f parte 2 — os padrões que o Mister percebe e as sugestões (20/11; mig 478 SÓ NUVEM —
   `mister_padrao`; nasce desligada, `MISTER_PADROES=1`).** Só na nuvem → vai no `.zip` sem efeito na loja; a tabela =
   SO_NUVEM no `sync-daemon.mjs` (o daemon mudou → o `.exe` da próxima release leva).

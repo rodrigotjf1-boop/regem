@@ -7,13 +7,13 @@
 //  • sem o cliente: nada disso, a ordem da loja e nenhuma chamada ao "para você".
 import { responder, umaLinha } from './comum.mjs';
 
-const TOKEN = 'loja-demo-f8';
+export const TOKEN = 'loja-demo-f8';
 const foto = null;
 const prod = (id, nome, categoriaId, preco) => ({
   id, nome, descricao: `${nome} da casa, feito na hora.`, precoVenda: preco, precoDe: null, categoriaId, imagemRef: foto,
   selos: [], alergenos: null, duracaoMin: null, destaque: false, atacado: [], esgotado: false, variacoes: [], grupos: [],
 });
-const MENU = {
+export const MENU = {
   loja: {
     nome: 'Loja de demonstração', fraseDeCautela: null, ramo: 'food', tema: 'claro', menuTheme: 'fluxo', temaConfig: {},
     logoEmoji: '🍔', subtitulo: 'Hambúrgueres', aberto: true, emiteNota: false, medeAnuncios: {}, promocoes: {},

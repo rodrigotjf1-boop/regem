@@ -11,10 +11,14 @@
 //  • a página do pedido (`/r/…`): a raspadinha ("Revelar sem raspar" e raspando com o mouse) e a roleta (gira e para no
 //    prêmio; sem animação com "reduzir movimento"), o cupom revelado e as regras do clube;
 //  • o link pessoal (`/p/…`, o prêmio de desculpas — A1b): revelar, o cupom e "Abrir o cardápio"; o link que não existe;
+//  • o álbum de selos (A2, mig 479): Marketing › Clube › Álbum (selos, validade, os prêmios em gaveta sem o produto grátis,
+//    salvar manda só o que mudou), o selo na página do pedido e Sua conta › Benefícios (os selos, "Peça em …", completo →
+//    escolher o prêmio, que manda o prêmio e o álbum recomeça);
 //  • Prêmios: a lista com a contagem, a situação "Em uso" que filtra, "＋ Novo prêmio" abre a gaveta, "Produto grátis" lê
 //    os produtos, o diálogo de excluir (o prêmio em uso diz onde está);
 //  • o gerente vê e não muda (sem "＋ Novo prêmio", sem campo do mínimo); a nuvem não respondeu → "Tentar de novo".
 import { responder, tokenFalso, umaLinha } from './comum.mjs';
+import { MENU, TOKEN as TOKEN_CARDAPIO } from './cardapio-para-voce.mjs';
 
 const PRESIDENTE = tokenFalso({ cat: 'presidente', perfil: 'presidente', nome: 'Ana' });
 const GERENTE = tokenFalso({ cat: 'gerente', perfil: 'gerente', nome: 'Bruno' });
@@ -32,7 +36,7 @@ const PAINEL = (minimo = 30, forma = 'raspadinha', entregue = { ativo: false, pr
     surpresaAtivo: true, surpresaForma: forma, albumAtivo: false, albumSelos: 4, albumValidadeMeses: 12, albumPremios: [P2],
     metaAtivo: false, metaNiveis: [{ pedidos: 3, premios: [] }, { pedidos: 6, premios: [] }], metaValidadeDias: 15, minimo,
   },
-  prontas: { surpresa: true, album: false, meta: false },
+  prontas: { surpresa: true, album: true, meta: false },
   gatilhos: { entregue, reclamacao, classificacao, campanha: campanhaG },
   classificacao: { perfilLigado: true, contagens: { campeoes: 112, leais: 240, atencao: 96, em_risco: 151, inativos: 388, atrasado: 74 } },
   premios: [
@@ -46,7 +50,7 @@ const PAINEL = (minimo = 30, forma = 'raspadinha', entregue = { ativo: false, pr
     'Os prêmios valem só no cardápio online e no WhatsApp da loja, não no iFood nem na 99.',
   ],
   opcoes: {
-    validadesDoPremio: [3, 7, 15, 30], minimoMax: 1000, nomeMax: 60, premiosMax: 50, premiosPorEscolhaMax: 6,
+    validadesDoPremio: [3, 7, 15, 30], minimoMax: 1000, nomeMax: 60, premiosMax: 50, premiosPorEscolhaMax: 6, validadesDoSelo: [6, 12],
     limitesDaReclamacao: [{ valor: 'mes1', rotulo: '1 por mês' }, { valor: 'mes2', rotulo: '2 por mês' }, { valor: 'tri1', rotulo: '1 a cada 3 meses' }],
     quemMandaDesculpas: [{ valor: 'gerencia', rotulo: 'Gerente e supervisão' }, { valor: 'gerente', rotulo: 'Só o gerente' }, { valor: 'atendimento', rotulo: 'Qualquer pessoa do atendimento' }],
     segmentosDaClassificacao: [{ valor: 'campeoes', rotulo: 'Campeões' }, { valor: 'leais', rotulo: 'Leais' }, { valor: 'atencao', rotulo: 'Precisam de atenção' }, { valor: 'em_risco', rotulo: 'Em risco' }, { valor: 'inativos', rotulo: 'Inativos' }, { valor: 'atrasado', rotulo: 'Atrasados no próprio ritmo' }],
@@ -60,6 +64,7 @@ const medir = (page) =>
     const doc = document.documentElement;
     if (doc.scrollWidth > doc.clientWidth + 1) achados.push(`página ${doc.scrollWidth}>${doc.clientWidth}`);
     for (const el of document.querySelectorAll('body *')) {
+      if (el.closest('.hs')) continue; // no cardápio, as fileiras que deslizam de propósito (abas, carrosséis)
       const cs = getComputedStyle(el);
       if ((cs.overflowX === 'auto' || cs.overflowX === 'scroll') && el.scrollWidth > el.clientWidth + 1 && !el.classList.contains('faixa-abas'))
         achados.push(`rola ${el.tagName.toLowerCase()}.${String(el.className).slice(0, 40)} ${el.scrollWidth}>${el.clientWidth} "${(el.innerText || '').replace(/\s+/g, ' ').slice(0, 40) || el.outerHTML.slice(0, 220)}"`);
@@ -86,7 +91,12 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
     let reclamacao = R_PADRAO;
     let classificacao = C_PADRAO;
     let campanhaG = { ativo: false };
-    const painel = () => PAINEL(minimo, forma, entregue, reclamacao, classificacao, campanhaG);
+    let album = null;
+    const painel = () => {
+      const p = PAINEL(minimo, forma, entregue, reclamacao, classificacao, campanhaG);
+      if (album) p.config = { ...p.config, albumSelos: album.selos, albumPremios: album.premios };
+      return p;
+    };
     const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
     await ctx.addInitScript((jwt) => localStorage.setItem('regen_token', jwt), o.token ?? PRESIDENTE);
     const page = await ctx.newPage();
@@ -109,6 +119,10 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
         enviados.push(corpo);
         if (typeof corpo.minimo === 'number') minimo = corpo.minimo;
         if (corpo.surpresaForma) forma = corpo.surpresaForma;
+        if (typeof corpo.albumSelos === 'number' || Array.isArray(corpo.albumPremios)) {
+          const p = painel();
+          album = { selos: corpo.albumSelos ?? album?.selos ?? p.config.albumSelos, premios: corpo.albumPremios ?? album?.premios ?? p.config.albumPremios };
+        }
         return responder(route, painel());
       }
       if (p === '/marketing/clube/gatilhos/campanha' && metodo === 'PUT') {
@@ -169,9 +183,9 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
     let achados = await medir(page);
     ok(achados.length === 0, `${w}px · Clube › Visão geral: sem barra para o lado nem texto esmagado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
     ok(
-      (t.match(/Chega numa próxima entrega/g) ?? []).length === 2 && (await page.locator('main [role="switch"]').count()) === 1 &&
-        (await page.getByRole('switch', { name: 'Prêmio surpresa' }).count()) === 1,
-      `${w}px · o prêmio surpresa com a chave; o álbum e a meta: "Chega numa próxima entrega"`,
+      (t.match(/Chega numa próxima entrega/g) ?? []).length === 1 && (await page.locator('main [role="switch"]').count()) === 2 &&
+        (await page.getByRole('switch', { name: 'Prêmio surpresa' }).count()) === 1 && (await page.getByRole('switch', { name: 'Álbum de selos' }).count()) === 1,
+      `${w}px · o prêmio surpresa e o álbum com a chave; a meta: "Chega numa próxima entrega"`,
     );
     ok(t.includes('Cardápio e WhatsApp') && t.includes('Um benefício por pedido'), `${w}px · as regras que valem para as três`);
     // Mudar o mínimo: a barra de alterações e o salvar manda só o mínimo.
@@ -279,6 +293,33 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
     ok(achados.length === 0, `${w}px · os quatro gatilhos ligados: sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
     if (w === 390 || w === 1440) await page.screenshot({ path: arquivoFoto(`clube-surpresa-${w}.png`), fullPage: true });
 
+    // ── Álbum de selos (A2): quantos selos, a validade, os prêmios em gaveta (sem o produto grátis), a arte automática ──
+    enviados.length = 0;
+    await page.getByRole('button', { name: 'Álbum de selos', exact: true }).click();
+    await page.waitForSelector('text=Selos para completar o álbum', { timeout: 10000 });
+    t = await texto(page);
+    achados = await medir(page);
+    ok(achados.length === 0, `${w}px · Álbum de selos: sem barra para o lado nem texto esmagado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+    ok(t.includes('Validade de cada selo') && t.includes('automática') && t.includes('Desligado: liga em Visão geral'), `${w}px · o álbum: selos, validade, a arte automática e onde ligar`);
+    await page.getByRole('button', { name: 'Escolher os prêmios' }).click();
+    await dialogo(page);
+    achados = await medir(page);
+    const ta = await texto(page, '[role="dialog"]');
+    ok(achados.length === 0, `${w}px · gaveta dos prêmios do álbum aberta: sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+    ok((await page.locator('[role="dialog"] input[type="checkbox"]').count()) === 2 && !ta.includes('Batata'), `${w}px · a gaveta do álbum: 2 prêmios, sem o produto grátis`);
+    if (w === 390 || w === 1440) await page.locator('[role="dialog"]').screenshot({ path: arquivoFoto(`clube-album-premios-${w}.png`) });
+    await page.getByLabel(/^15% off até R\$ 20/).check();
+    await page.getByRole('button', { name: 'Usar estes prêmios' }).click();
+    await fechou(page);
+    await page.getByLabel('Selos para completar o álbum').selectOption('6');
+    await page.waitForSelector('text=2 alterações ainda não salvas', { timeout: 5000 });
+    achados = await medir(page);
+    ok(achados.length === 0, `${w}px · álbum com a barra de alterações: sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+    await page.getByRole('button', { name: 'Salvar alterações' }).click();
+    await page.waitForSelector('text=2 alterações ainda não salvas', { state: 'detached', timeout: 5000 });
+    ok(JSON.stringify(enviados[0]) === JSON.stringify({ albumSelos: 6, albumPremios: [P1] }), `${w}px · salvar o álbum manda só o que mudou (${umaLinha(JSON.stringify(enviados[0]))})`);
+    if (w === 390 || w === 1440) await page.screenshot({ path: arquivoFoto(`clube-album-${w}.png`), fullPage: true });
+
     // ── Prêmios ──
     await page.getByRole('button', { name: /^Prêmios/ }).click();
     await page.waitForSelector('text=3 prêmios', { timeout: 10000 });
@@ -368,6 +409,7 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
         return responder(route, { tem: true, forma, revelado: true, fatias, premio: REVELADO, fatia: forma === 'roleta' ? 2 : null, regras: REGRAS });
       }
       if (p === '/rastreio/tk9/premio') return responder(route, { tem: true, forma, revelado: false, fatias, premio: null, fatia: null, regras: REGRAS });
+      if (p === '/rastreio/tk9/selo') return responder(route, { tem: true, mes: 'novembro', arte: '🍔', selos: 3, total: 4, completo: false });
       if (p === '/rastreio/tk9/avaliacao') return responder(route, { statusCode: 404, message: 'x' }, 404);
       return responder(route, {});
     });
@@ -380,9 +422,11 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
       // A raspadinha: "Revelar sem raspar" (o caminho do leitor de tela e do teclado).
       const { ctx, page, erros, revelacoes } = await abrirPagina(w, 900, 'raspadinha');
       await page.waitForSelector('text=Você ganhou uma raspadinha', { timeout: 30000 });
+      await page.waitForSelector('text=Você ganhou o selo de novembro', { timeout: 10000 });
       let achados = await medir(page);
       const t0 = await texto(page, 'body');
       ok(achados.length === 0 && t0.includes('Seu prêmio já está garantido') && !t0.includes('CLUBE7K2QX'), `${w}px · raspadinha: o prêmio garantido, o código ainda escondido, sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+      ok(t0.includes('3 de 4 selos no álbum'), `${w}px · o selo do álbum na página do pedido: "Você ganhou o selo de novembro", 3 de 4`);
       await page.getByRole('button', { name: 'Revelar sem raspar' }).click();
       await page.waitForSelector('text=CLUBE7K2QX', { timeout: 10000 });
       achados = await medir(page);
@@ -482,5 +526,100 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
     const achados = await medir(page);
     ok(achados.length === 0, `${w}px · link que não existe: "Não achamos este prêmio.", sem barra para o lado`);
     await ctx.close();
+  }
+
+  // ───────────────────────── Sua conta › Benefícios: o álbum de selos (A2) ─────────────────────────
+  const SELOS = [
+    { mes: '2026-09', rotulo: 'Set', arte: '🍁' },
+    { mes: '2026-10', rotulo: 'Out', arte: '🎃' },
+    { mes: '2026-11', rotulo: 'Nov', arte: '🍔' },
+  ];
+  const ALBUM_FALTA_UM = { ativo: true, selos: SELOS, tem: 3, total: 4, completo: false, validadeMeses: 12, premios: [] };
+  const ALBUM_COMPLETO = {
+    ...ALBUM_FALTA_UM,
+    selos: [{ mes: '2026-08', rotulo: 'Ago', arte: '🌻' }, ...SELOS],
+    tem: 4,
+    completo: true,
+    premios: [
+      { id: P1, nome: '15% off até R$ 20', descricao: '15% de desconto, até R$ 20 · em pedido a partir de R$ 30 · vale 7 dias' },
+      { id: P3, nome: 'Frete grátis', descricao: 'entrega grátis · vale 15 dias' },
+    ],
+  };
+  const ALBUM_RECOMECOU = { ativo: true, selos: [], tem: 0, total: 4, completo: false, validadeMeses: 12, premios: [] };
+  async function abrirConta(w, album) {
+    const escolhas = [];
+    let atual = album;
+    const ctx = await nav.newContext({ viewport: { width: w, height: 900 }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
+    await ctx.addInitScript((t) => localStorage.setItem(`regem_loja_clientetoken_${t}`, 'ct-falso-do-roteiro'), TOKEN_CARDAPIO);
+    const page = await ctx.newPage();
+    const erros = [];
+    page.on('pageerror', (e) => erros.push(String(e?.message ?? e)));
+    await page.route('**/socket.io/**', (r) => r.abort());
+    await page.route('**/api/v1/**', async (route) => {
+      const req = route.request();
+      const p = new URL(req.url()).pathname.replace(/^.*\/api\/v1/, '');
+      const raiz = `/publico/cardapio/${TOKEN_CARDAPIO}`;
+      if (p === raiz) return responder(route, MENU);
+      if (p === `${raiz}/cliente`)
+        return responder(route, { nome: 'Ana Souza', telefone: '21900000000', cliente: { nome: 'Ana Souza', telefone: '21900000000' }, enderecos: [], historico: [] });
+      if (p === `${raiz}/cliente/presentes`) return responder(route, { presentes: [], paraRevelar: [], album: atual });
+      if (p === `${raiz}/cliente/clube/album` && req.method() === 'POST') {
+        escolhas.push(JSON.parse(req.postData() || '{}'));
+        atual = ALBUM_RECOMECOU;
+        return responder(route, { premio: '15% off até R$ 20', codigo: 'CLUBEAB12C', validoAte: '2026-12-05' });
+      }
+      if (p === `${raiz}/promos`) return responder(route, { cupons: [], fidelidadeAtiva: false });
+      if (req.method() === 'POST') return responder(route, { ok: true });
+      return responder(route, {});
+    });
+    await page.goto(`${base}/c/${TOKEN_CARDAPIO}?tema=fluxo&conta=beneficios`);
+    return { ctx, page, erros, escolhas };
+  }
+
+  for (const w of larguras) {
+    {
+      // Falta um selo: os selos do álbum, o que falta e "Peça em <mês> e escolha um prêmio".
+      const { ctx, page, erros } = await abrirConta(w, ALBUM_FALTA_UM);
+      try {
+        await page.waitForSelector('text=Álbum de selos · 3 de 4', { timeout: 30000 });
+        const achados = await medir(page);
+        const t = await texto(page, '[role="dialog"][aria-label="Sua conta"]');
+        const selos = await page.locator('.c-album [role="listitem"]').count();
+        ok(achados.length === 0, `${w}px · Sua conta › álbum: sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+        ok(selos === 4 && /Peça em \S+ e escolha um prêmio\. Seus selos valem 12 meses\./.test(t), `${w}px · o álbum: 4 selos (3 + o que falta) e "Peça em … e escolha um prêmio" (${umaLinha(t.match(/Peça em.{0,60}|Faltam.{0,60}/)?.[0] ?? '?')})`);
+        if (w === 390 || w === 1440) await page.screenshot({ path: arquivoFoto(`clube-conta-album-${w}.png`), fullPage: true });
+        ok(erros.length === 0, `${w}px · Sua conta › álbum: nenhum erro de script${erros.length ? ` (${umaLinha(erros.join(' | '))})` : ''}`);
+      } catch (e) {
+        ok(false, `${w}px · Sua conta › álbum abriu (${umaLinha(String(e?.message ?? e))})`);
+        await page.screenshot({ path: arquivoFoto(`clube-conta-album-${w}-erro.png`) }).catch(() => {});
+      } finally {
+        await ctx.close();
+      }
+    }
+    {
+      // Completo: escolher o prêmio manda o prêmio e o token do cliente; o álbum recomeça.
+      const { ctx, page, erros, escolhas } = await abrirConta(w, ALBUM_COMPLETO);
+      try {
+        await page.waitForSelector('text=Você completou o álbum!', { timeout: 30000 });
+        let achados = await medir(page);
+        ok(achados.length === 0 && (await page.getByRole('button', { name: 'Quero este' }).isDisabled()), `${w}px · álbum completo: os prêmios, "Quero este" só depois de escolher, sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+        await page.getByRole('button', { name: /^15% off até R\$ 20/ }).click();
+        ok((await page.getByRole('button', { name: /^15% off até R\$ 20/ }).getAttribute('aria-pressed')) === 'true', `${w}px · o prêmio escolhido fica marcado`);
+        if (w === 390 || w === 1440) await page.screenshot({ path: arquivoFoto(`clube-conta-album-completo-${w}.png`), fullPage: true });
+        await page.getByRole('button', { name: 'Quero este' }).click();
+        await page.waitForSelector('text=Álbum de selos · 0 de 4', { timeout: 10000 });
+        achados = await medir(page);
+        ok(
+          JSON.stringify(escolhas[0]) === JSON.stringify({ clienteToken: 'ct-falso-do-roteiro', premioId: P1 }) && achados.length === 0,
+          `${w}px · "Quero este" manda o prêmio e o álbum recomeça (${umaLinha(JSON.stringify(escolhas[0] ?? null))})`,
+        );
+        ok(erros.length === 0, `${w}px · álbum completo: nenhum erro de script${erros.length ? ` (${umaLinha(erros.join(' | '))})` : ''}`);
+      } catch (e) {
+        ok(false, `${w}px · Sua conta › álbum completo (${umaLinha(String(e?.message ?? e))})`);
+        await page.screenshot({ path: arquivoFoto(`clube-conta-completo-${w}-erro.png`) }).catch(() => {});
+      } finally {
+        await ctx.close();
+      }
+    }
   }
 }

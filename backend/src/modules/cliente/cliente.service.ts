@@ -13,6 +13,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { AniversarioService } from '../aniversario/aniversario.service';
+import { ClubeAlbumService } from '../clube/clube-album.service';
 import { createHmac, createHash, randomBytes, randomInt } from 'crypto';
 
 // SHA-256 do código OTP (o banco só guarda o hash; comparação hash-com-hash).
@@ -179,6 +180,8 @@ export class ClienteService {
     private readonly auditoria: AuditoriaService,
     // Aniversário (Onda 3, mig 357). Opcional: os testes montam sem ele (uma instância só com o banco).
     @Optional() private readonly aniversarioInj?: AniversarioService,
+    // O álbum de selos do Clube (A2, mig 479): o módulo do Clube é global e só da nuvem — opcional aqui.
+    @Optional() private readonly album?: ClubeAlbumService,
   ) {}
 
   /** O teto de códigos novos por telefone (por loja): quem chama de vários IPs não passa dele. */
@@ -1325,7 +1328,16 @@ export class ClienteService {
     return {
       presentes: await this.aniversario.presentesDoCliente(c.tenantId, c.id),
       paraRevelar: await this.aniversario.premiosParaRevelar(c.tenantId, c.id),
+      // O álbum de selos (A2): sem o Clube ou com erro, desligado (a conta abre do mesmo jeito).
+      album: this.album ? await this.album.doCliente(c.tenantId, c.id).catch(() => ({ ativo: false as const })) : { ativo: false as const },
     };
+  }
+
+  /** O cliente escolhe o prêmio do álbum completo (A2) — só ele, pelo token de Sua conta. */
+  async escolherDoAlbum(cardapioToken: string, clienteToken: string | undefined, premioId: unknown) {
+    const c = await this.clienteDoToken(cardapioToken, clienteToken);
+    if (!this.album) throw new BadRequestException('O álbum de selos não está disponível agora.');
+    return this.album.escolher(c.tenantId, c.id, premioId);
   }
 
   /** Delivery › Clientes: o aniversário na gaveta do cliente. */

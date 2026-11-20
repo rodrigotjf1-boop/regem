@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import 'leaflet/dist/leaflet.css';
 import { ComoFoiOPedido } from '@/components/rastreio/como-foi-o-pedido';
 import { PremioDoPedido } from '@/components/rastreio/premio-do-pedido';
+import { SeloDoPedido } from '@/components/rastreio/selo-do-pedido';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Rastreio PÚBLICO do cliente (sem login) — consome GET /rastreio/:token.
@@ -301,6 +302,8 @@ export default function RastreioPage() {
                 </div>
                 {/* O prêmio surpresa do Clube (mig 474): antes da nota — o prêmio sai na entrega, nunca em troca da nota. */}
                 <PremioDoPedido caminho={`/rastreio/${encodeURIComponent(token)}/premio`} />
+                {/* O selo do álbum do Clube (mig 479): "Você ganhou o selo de novembro — 3 de 4". */}
+                <SeloDoPedido token={token} />
                 <ComoFoiOPedido token={token} />
               </>
             ) : (

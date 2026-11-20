@@ -2290,6 +2290,9 @@ export const api = {
   // Os presentes (cupons pessoais das automáticas) — Sua conta › Benefícios.
   clientePresentes: (token: string, clienteToken: string) =>
     pub(`/publico/cardapio/${token}/cliente/presentes?clienteToken=${encodeURIComponent(clienteToken)}`),
+  /** O álbum de selos completo (A2): o cliente escolhe o prêmio — vira cupom na hora. */
+  clienteEscolherDoAlbum: (token: string, clienteToken: string, premioId: string) =>
+    pub(`/publico/cardapio/${token}/cliente/clube/album`, { method: 'POST', body: JSON.stringify({ clienteToken, premioId }) }),
   clienteEsquecer: (token: string, clienteToken: string) =>
     pub(`/publico/cardapio/${token}/cliente/esquecer`, { method: 'POST', body: JSON.stringify({ clienteToken }) }),
   clientePedirDeNovo: (token: string, pedidoId: string, clienteToken: string) =>

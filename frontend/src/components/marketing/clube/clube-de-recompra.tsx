@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Partes } from '@/components/ui/partes';
 import { Skeleton } from '@/components/ui/skeleton';
+import { AlbumDeSelos } from './album-de-selos';
 import { PremioSurpresa } from './premio-surpresa';
 import { PremiosDoClube } from './premios-do-clube';
 import type { PainelDoClube } from './tipos';
@@ -15,7 +16,7 @@ import { VisaoDoClube } from './visao-do-clube';
 // parte "Marketing › Clube"; migs 471 e 474). A Visão geral (as ferramentas e as regras que valem para as três), o Prêmio
 // surpresa (a forma e os gatilhos) e os Prêmios. O Álbum, a Meta e os Resultados entram cada um na sua fase. Presidente e
 // gerente veem; só o presidente muda (o servidor confere — a tela só esconde os botões).
-type Parte = 'visao' | 'surpresa' | 'premios';
+type Parte = 'visao' | 'surpresa' | 'album' | 'premios';
 
 export function ClubeDeRecompra() {
   const [painel, setPainel] = useState<PainelDoClube | null>(null);
@@ -57,10 +58,14 @@ export function ClubeDeRecompra() {
         partes={[
           { key: 'visao', label: 'Visão geral' },
           { key: 'surpresa', label: 'Prêmio surpresa' },
+          { key: 'album', label: 'Álbum de selos' },
           { key: 'premios', label: 'Prêmios', conta: painel.premios.length },
         ]}
       />
       {parte === 'visao' && <VisaoDoClube painel={painel} podeMudar={podeMudar} aoMudar={setPainel} />}
+      {parte === 'album' && (
+        <AlbumDeSelos painel={painel} podeMudar={podeMudar} aoMudar={setPainel} aoIrParaPremios={() => setParte('premios')} />
+      )}
       {parte === 'surpresa' && (
         <PremioSurpresa painel={painel} podeMudar={podeMudar} aoMudar={setPainel} aoIrParaPremios={() => setParte('premios')} />
       )}

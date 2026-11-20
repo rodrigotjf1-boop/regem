@@ -23,7 +23,7 @@ export const PREMIOS_POR_ESCOLHA_MAX = 6;
  * As ferramentas que já existem para ligar. Cada fase acende a sua (A1: o prêmio surpresa; A2: o álbum; A3: a meta). O
  * servidor recusa ligar a que ainda não existe — a tela nem mostra o liga/desliga dela (nada de botão que não faz nada).
  */
-export const FERRAMENTAS_PRONTAS: Readonly<Record<Ferramenta, boolean>> = { surpresa: true, album: false, meta: false };
+export const FERRAMENTAS_PRONTAS: Readonly<Record<Ferramenta, boolean>> = { surpresa: true, album: true, meta: false };
 export type Ferramenta = 'surpresa' | 'album' | 'meta';
 
 /**
@@ -401,6 +401,33 @@ export function descricaoDoPremio(p: Pick<DadosDoPremio, 'tipo' | 'valor' | 'tet
  * As regras do clube que o cliente lê (o link "Regras do clube" de cada tela do jogo; "Ver as regras" na loja): só as
  * ferramentas ligadas, e sempre as travas que mantêm o clube fora da regra de sorteio (Lei 5.768/1971 — o plano, seção 1).
  */
+// ───────────────────────── O álbum de selos (fase A2, mig 479) ─────────────────────────
+
+const MESES_CURTOS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+const MESES_LONGOS = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+/** A arte padrão do selo de cada mês (a do evento do mês, quando a loja liga o evento, chega depois). */
+const ARTE_DO_MES = ['🎆', '🎭', '🍃', '🐰', '💐', '🌽', '❄️', '👔', '🌸', '🎃', '🍔', '🎄'];
+
+export type SeloDoAlbum = { mes: string; rotulo: string; arte: string };
+export type EstadoDoAlbum = { selos: SeloDoAlbum[]; tem: number; total: number; completo: boolean };
+
+/** "2026-11" → { mes, rotulo: "Nov", arte: "🍔" }. */
+export function seloDoMes(mes: string): SeloDoAlbum {
+  const i = Number(mes.slice(5, 7)) - 1;
+  return { mes, rotulo: MESES_CURTOS[i] ?? mes, arte: ARTE_DO_MES[i] ?? '⭐' };
+}
+/** "2026-11" → "novembro". */
+export const mesPorExtenso = (mes: string) => MESES_LONGOS[Number(mes.slice(5, 7)) - 1] ?? mes;
+
+/**
+ * O álbum do cliente a partir dos meses com pedido que contam (já filtrados: depois de ligar, dentro da validade e depois
+ * da última troca): um selo por mês, sem repetir, até o total; completo quando junta o total.
+ */
+export function estadoDoAlbum(meses: string[], total: number): EstadoDoAlbum {
+  const unicos = [...new Set(meses)].sort().slice(0, total);
+  return { selos: unicos.map(seloDoMes), tem: unicos.length, total, completo: unicos.length >= total };
+}
+
 export function regrasDoClube(c: ConfigDoClube, nomeDoPremio: (id: string) => string | null, gatilhos?: GatilhosDoSurpresa): string[] {
   const linhas: string[] = [];
   const lista = (ids: string[]) => ids.map(nomeDoPremio).filter((x): x is string => !!x).join(', ');
