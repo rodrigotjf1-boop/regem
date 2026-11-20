@@ -172,6 +172,83 @@ const equipamentosDaLoja = () => [
   { id: 'e5', nome: 'Ponto da entrada', tipo: 'terminal_ponto', ativo: true, unidadeId: 'u1', padrao: true, ultimoPing: haMin(5) },
 ];
 
+// ── M6k, lote 2: Retirada, Mesas, Avaliações, Encomendas, Meu ponto, Checklist, Formas de pagamento e Unidades
+// A retirada (`/delivery/retirada`, formato de `delivery.service.ts › listarRetirada`): um pedido novo do cardápio, uma
+// encomenda pronta a pagar e um do iFood já pago; com o turno do caixa aberto (com a lista vazia, o painel do caixa achava
+// um turno sem número).
+const RETIRADA = {
+  '/delivery/retirada': {
+    pedidos: [
+      { id: 'r1', numero: 1041, canal: 'cardapio', grupoCanal: 'regem', retiradaTipo: 'retirada', clienteNome: 'Ana Exemplo', clienteTelefone: '(21) 98888-0001', status: 'novo', pago: false, total: 42.8, formaPagamentoLabel: 'Pix', criadoEm: haMin(3), itens: [{ quantidade: 1, nome: 'X-Burger' }, { quantidade: 1, nome: 'Batata média' }] },
+      { id: 'r2', numero: 1042, canal: 'cardapio', grupoCanal: 'regem', retiradaTipo: 'encomenda', clienteNome: 'Bruno Exemplo', clienteTelefone: '(21) 98888-0002', status: 'pronto', pago: false, total: 96, formaPagamentoLabel: 'Dinheiro', agendamento: haMin(-20), criadoEm: haMin(1440), itens: [{ quantidade: 1, nome: 'Bolo de chocolate (1 kg)' }] },
+      { id: 'r3', numero: 1043, canal: 'ifood', grupoCanal: 'marketplace', retiradaTipo: 'retirada', clienteNome: 'Carla Exemplo', status: 'confirmado', pago: true, total: 35.9, criadoEm: haMin(12), itens: [{ quantidade: 1, nome: 'X-Salada' }] },
+    ],
+    origensEmUso: { regem: true, marketplace: true },
+    totemAposPagamento: true, totemConcluiAoFicarPronto: false, totemAlertaMinutos: 8, cheguei: { ativo: true, deNovoMin: 5 },
+  },
+  '/financeiro/caixa': { id: 'cx1', turnoNumero: 3, operadorNome: 'Ana Exemplo', abertaEm: haMin(180), horasAberto: 3, passouDoLimite: false },
+};
+// As mesas abertas (`/vendas/mesas`), o cardápio digital ligado (o cartão do QR por mesa pede o `token`) e o módulo ligado.
+const MESAS = {
+  '/vendas/mesas': [
+    { id: 'ms1', numero: '12', comandas: 1, total: 86.5 },
+    { id: 'ms2', numero: '7', comandas: 3, total: 152.3 },
+    { id: 'ms3', numero: 'Varanda 2', comandas: 1, total: 41.9 },
+  ],
+  '/cardapio/config': { token: 'loja-exemplo', cardapioBaseUrl: '' },
+  '/modulos/meus': { mesas: true },
+};
+// As avaliações (`/delivery/avaliacoes`, formato de `components/delivery/avaliacoes/tipos.ts`): com a lista vazia, a tela
+// caía em `dados.ajustes`. Duas notas 5 e uma nota 2 com caso aberto (média 4,0).
+const avaliacao = (id, nota, numero, cliente, origem, min, pesou, comentario, caso = null) => ({
+  id, nota, pesou, comentario, origem, em: haMin(min), caso,
+  pedido: { id: `d${id}`, numero, cliente, itens: '1× X-Burger, 1× Coca-Cola lata', total: 40.9, minutos: 35 },
+});
+const AVALIACOES = {
+  periodo: '7', ajustes: { ativa: true, casoAte: 2, prazoDias: 7 },
+  kpis: { avaliacoes: 3, media: 4, entregues: 12, notas: { 1: 0, 2: 1, 3: 0, 4: 0, 5: 2 } },
+  lista: [
+    avaliacao('a1', 5, '1042', 'Ana Exemplo', 'whatsapp', 90, ['Sabor', 'Entrega rápida'], 'Chegou quentinho!'),
+    avaliacao('a2', 2, '1038', 'Bruno Exemplo', 'pagina', 300, ['Demora'], 'Atrasou bastante.', { id: 'k1', status: 'aberto' }),
+    avaliacao('a3', 5, '1031', 'Carla Exemplo', 'pagina', 1500, [], null),
+  ],
+  mais: false,
+};
+// As encomendas por dia (`/delivery/encomendas`): amanhã e daqui a 3 dias (a hora no fuso da loja).
+const encomenda = (id, numero, cliente, dia, hora, tipo, status, total) => ({
+  id, numero, cliente, agendamento: `${dia}T${hora}:00-03:00`, tipo, clienteTelefone: '(21) 98888-0000', status, total,
+});
+const encomendasDaAgenda = () => [
+  { data: diaDaqui(1), total: 2, pedidos: [encomenda('n1', 1050, 'Ana Exemplo', diaDaqui(1), '14:00', 'retirada', 'confirmado', 120), encomenda('n2', 1051, 'Bruno Exemplo', diaDaqui(1), '18:30', 'entrega', 'novo', 89.9)] },
+  { data: diaDaqui(3), total: 1, pedidos: [encomenda('n3', 1052, 'Carla Exemplo', diaDaqui(3), '11:00', 'retirada', 'novo', 210)] },
+];
+// As marcações de hoje (`/ponto/dia`): entrada, saída e volta do intervalo.
+const marcacoesDeHoje = () => [
+  { id: 'pm1', nsr: 1201, marcadoEm: haMin(240), tipo: 'entrada' },
+  { id: 'pm2', nsr: 1202, marcadoEm: haMin(75), tipo: 'intervalo_inicio' },
+  { id: 'pm3', nsr: 1203, marcadoEm: haMin(15), tipo: 'intervalo_fim' },
+];
+// O checklist em rascunho (com o botão de publicar, para quem é gestor) e a unidade do formulário.
+const CHECKLISTS = {
+  '/unidades': [{ id: 'u1', nome: 'Loja Exemplo' }],
+  '/checklists': [{ id: 'cl1', nome: 'Abertura da cozinha', estado: 'rascunho', itens: [{ id: 'ci1', descricao: 'Higienizar as bancadas', procedimento: 'Álcool 70% em toda a superfície.' }] }],
+};
+// As formas de pagamento (`/financeiro/formas-pagamento`): três ligadas e o vale desligado.
+const forma = (id, nome, tipo, ativo, cardapio, bandeiras = []) => ({
+  id, nome, tipo, ativo, cardapio, tiposPedido: ['delivery', 'retirada', 'balcao'], taxaExtra: null, obs: null, bandeiras,
+});
+const FORMAS_DE_PAGAMENTO = [
+  forma('fp1', 'Dinheiro', 'dinheiro', true, true),
+  forma('fp2', 'Pix', 'pix', true, true),
+  forma('fp3', 'Cartão de crédito', 'credito', true, true, ['Visa', 'Mastercard', 'Elo']),
+  forma('fp4', 'Vale refeição', 'vr', false, false),
+];
+// As unidades da rede (`/unidades`): a matriz com endereço e uma filial sem.
+const UNIDADES = [
+  { id: 'u1', nome: 'Loja Exemplo Centro', tipo: 'matriz', endereco: 'Rua Exemplo, 100 — Centro' },
+  { id: 'u2', nome: 'Loja Exemplo Norte', tipo: 'filial', endereco: null },
+];
+
 // Cada tela: o assunto do guia, o endereço, o passo (opcional) e as marcas, na ordem dos números.
 const TELAS = [
   { id: 'cadastrar-colaborador', caminho: '/cadastros', marcas: (p) => [menu(p, '/cadastros'), cartao(p, 'Colaboradores')] },
@@ -378,6 +455,72 @@ const TELAS = [
       em(p, 'button:has-text("Novo equipamento")'),
       em(p, 'button[aria-label="Gerar código: Caixa 1"]'),
       em(p, 'button[aria-pressed]:has-text("Sem responder")'),
+    ],
+  },
+  // ── M6k, lote 2 ──
+  {
+    id: 'retirada-no-balcao', caminho: '/pdv/retirada', respostas: RETIRADA,
+    // dois pedidos têm "Avisar pronto": a marca é a do pedido pronto (#1042), o mesmo do "Cobrar e entregar"
+    marcas: (p) => [
+      menu(p, '/pdv/retirada'),
+      botao(p, 'Aceitar'),
+      em(p, '[role="button"]:has-text("#1042") button:text-is("Avisar pronto")'),
+      botao(p, 'Cobrar e entregar'),
+    ],
+  },
+  {
+    id: 'mesa-e-comanda', caminho: '/mesas', respostas: MESAS,
+    marcas: (p) => [menu(p, '/mesas'), rotulado(p, 'Número / nome'), botao(p, 'Abrir'), em(p, 'button:has-text("Mesa 12")')],
+  },
+  {
+    id: 'avaliacoes', caminho: '/delivery/avaliacoes', respostas: { '/delivery/avaliacoes': AVALIACOES },
+    // a ação da linha tem o pedido no rótulo ("Ver: pedido 1042"); na tabela larga ela mostra só o ícone
+    marcas: (p) => [
+      menu(p, '/delivery/avaliacoes'),
+      em(p, 'button[aria-pressed]:text-is("7 dias")'),
+      em(p, 'button[aria-pressed]:has-text("Nota 1 ou 2")'),
+      em(p, 'button[aria-label="Ver: pedido 1042"]'),
+    ],
+  },
+  {
+    id: 'encomendas-agenda', caminho: '/encomendas', respostasDinamicas: { '/delivery/encomendas': encomendasDaAgenda },
+    // o <label> envolve o texto e o campo de data; o dia é o título da seção (como "sáb, 21/11")
+    marcas: (p) => [menu(p, '/encomendas'), rotulado(p, 'Filtrar por data'), em(p, 'h2.capitalize'), botao(p, 'Ver / atender')],
+  },
+  {
+    id: 'meu-ponto', caminho: '/meu-ponto', respostasDinamicas: { '/ponto/dia': marcacoesDeHoje },
+    // os quatro botões juntos (a grade que tem o "Saída p/ intervalo" — o texto do botão fica num span ao lado do ícone, e o
+    // `text-is` do botão não o achava) e o bloco das marcações (o pai do rótulo); nada é clicado: o comprovante da marcação
+    // simulada sairia vazio
+    marcas: (p) => [menu(p, '/meu-ponto'), em(p, 'div:has(> button:has-text("Saída p/ intervalo"))'), em(p, 'p:text-is("Marcações de hoje")').locator('..')],
+  },
+  {
+    id: 'checklist-pop', caminho: '/docs', respostas: CHECKLISTS,
+    // "Publicar (gera POP)" fica no pé do cartão do checklist: a página rola até ele ficar no pé da tela, com o "Nome" do
+    // formulário de cima ainda à vista
+    passo: async (p) => {
+      await botao(p, 'Publicar (gera POP)').evaluate((el) => el.scrollIntoView({ block: 'end' }));
+      await p.waitForTimeout(300);
+    },
+    marcas: (p) => [menu(p, '/docs'), rotulado(p, 'Nome'), botao(p, 'Criar checklist'), botao(p, 'Publicar (gera POP)')],
+  },
+  {
+    id: 'formas-de-pagamento', caminho: '/formas-pagamento', respostas: { '/financeiro/formas-pagamento': FORMAS_DE_PAGAMENTO },
+    // o liga/desliga tem o nome da forma no rótulo ("ativar Pix"); a lista vira cartões quando a tabela não cabe
+    marcas: (p) => [
+      menu(p, '/formas-pagamento'),
+      botao(p, '＋ Nova forma'),
+      em(p, 'button[role="switch"][aria-label="ativar Pix"]'),
+      em(p, ':is(tr, li):has(button[aria-label="ativar Pix"]) button:text-is("Editar")'),
+    ],
+  },
+  {
+    id: 'unidades', caminho: '/unidades', respostas: { '/unidades': UNIDADES },
+    marcas: (p) => [
+      menu(p, '/unidades'),
+      em(p, 'button:has-text("Nova unidade")'),
+      em(p, 'button[aria-pressed]:has-text("Sem endereço")'),
+      em(p, 'button[aria-label="Editar: Loja Exemplo Norte"]'),
     ],
   },
   // Só conferência, sem foto: as telas que leem a categoria do token não podem quebrar a hidratação (V35; os
