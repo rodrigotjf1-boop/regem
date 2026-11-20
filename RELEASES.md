@@ -159,6 +159,10 @@
   desenho novo na página, na imagem e no PDF (azul-marinho, a maior em dourado) — nuvem; vai no `.zip` sem efeito na loja.
   **M5d.2 (19/11, sem migration):** "me mostra em gráfico" — a consulta `mostrar_grafico` (dia, hora, canal, mais
   vendidos), a imagem antes do texto, nascendo desligada em `MISTER_MIDIA`; só nuvem → vai no `.zip` sem efeito na loja.
+  **M5e (19/11, mig 462 SÓ NUVEM — o servidor da loja pula):** o resumo com "📄 PDF" e "📊 Ver gráficos", o PDF do resumo,
+  a página do link com abas, o "📄 PDF" e o "🔗 Ver no link" do gráfico da conversa e o ajuste "Como mandar o resumo"; nasce
+  desligado em `MISTER_MIDIA`; só nuvem → vai no `.zip`
+  sem efeito na loja.
 
 - **O DMS Graph lê a foto do cliente, com a IA da empresa de reserva (18/11, G5a — só o servidor; mig 450 SÓ NUVEM —
   `graph_ligacao`, `graph_clique_pedido`; nasce DESLIGADO).** Com `GRAPH_LIGADO=true` no `regem-api` e a empresa ligada

@@ -42,7 +42,17 @@ import {
 import { PlanoDoPdfDoInsumo, gerarPdfDoInsumo, nomeDoPdfDoInsumo, planoDoPdfDoInsumo } from './relatorio-insumo-pdf';
 import { GraficoDaConversa, valeAImagem } from './grafico/grafico-do-insumo';
 import { PlanoDoGrafico, nomeDoCanal, planoCanais, planoMaisVendidos, planoVendasPorDia, planoVendasPorHora, reaisCurtos, valeOPlano } from './grafico/plano-do-grafico';
-import { AtencaoDoResumo, DadosDoResumo, PlanoDoResumo, TipoDoResumo, contraDoResumo, montarPlanoDoResumo, resumoTemConteudo } from './grafico/plano-do-resumo';
+import {
+  AtencaoDoResumo,
+  DadosDoResumo,
+  PlanoDoResumo,
+  TipoDoGrafico,
+  TipoDoResumo,
+  botaoDoGrafico,
+  contraDoResumo,
+  montarPlanoDoResumo,
+  resumoTemConteudo,
+} from './grafico/plano-do-resumo';
 import { midiaNaInstalacao } from './mister-midia.regras';
 import { MisterNumeroService } from './mister-numero.service';
 import { MisterDocumentosService } from './mister-documentos.service';
@@ -1800,7 +1810,19 @@ export class MisterFerramentasService {
         pontos,
         ...(e.verValores ? {} : { aviso: SEM_VALORES }),
       },
-      ...(vale ? { graficos: [plano] } : {}),
+      ...(vale
+        ? {
+            graficos: [plano],
+            // M5e: o "📄 PDF" e o "🔗 Ver no link" do gráfico (conversa 6 do protótipo) no balão da resposta. O botão leva só o
+            // que refaz o gráfico; o toque refaz tudo no escopo de quem tocou. O link só com a chave dele ligada.
+            botoes: [
+              { id: botaoDoGrafico('pdf', { tenantId: e.tenantId, tipo: tipo as TipoDoGrafico, de: p.de, ate: p.ate, loja: loja.atual }), titulo: '📄 PDF' },
+              ...(process.env.MISTER_LINK_PUBLICO === '1'
+                ? [{ id: botaoDoGrafico('link', { tenantId: e.tenantId, tipo: tipo as TipoDoGrafico, de: p.de, ate: p.ate, loja: loja.atual }), titulo: '🔗 Ver no link' }]
+                : []),
+            ],
+          }
+        : {}),
     };
   }
 

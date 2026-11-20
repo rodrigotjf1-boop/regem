@@ -161,6 +161,24 @@ const vistaDoResumo = () => ({
   },
 });
 
+// O "🔗 Ver no link" de UM gráfico da conversa (M5e): o mesmo plano, com uma aba só e sem a atenção.
+const vistaDoGrafico = () => {
+  const r = vistaDoResumo();
+  const dias = r.plano.abas.find((a) => a.id === 'dias');
+  return {
+    ...r,
+    nomeDoPdf: 'grafico-vendas-por-dia-2026-11-12-a-2026-11-18.pdf',
+    plano: {
+      ...r.plano,
+      tipo: 'grafico',
+      titulo: 'Vendas por dia · de 12/11 a 18/11',
+      numeros: [{ valor: 'R$ 31.070', rotulo: 'total', nota: '+13% sobre a semana anterior', tom: 'bom' }],
+      abas: [{ ...dias, nome: 'Vendas por dia' }],
+      atencao: [],
+    },
+  };
+};
+
 const medir = (page) =>
   page.evaluate(() => {
     const achados = [];
@@ -227,7 +245,7 @@ export default async function roteiroMisterRelatorioLink({ nav, base, ok, foto, 
           falhar--;
           return responder(route, { message: 'O servidor demorou para responder.' }, 503);
         }
-        return responder(route, como === 'resumo' ? vistaDoResumo() : vista(como));
+        return responder(route, como === 'resumo' ? vistaDoResumo() : como === 'grafico' ? vistaDoGrafico() : vista(como));
       }
       if (p === `${raiz}/pdf`) {
         chamadas.pdf++;
@@ -314,6 +332,25 @@ export default async function roteiroMisterRelatorioLink({ nav, base, ok, foto, 
     }
     ok(outros.length === 0 && [...chamadas.metodos].join(',') === 'GET', `resumo ${w}: a página só LÊ, e só as rotas do link (${outros.join(', ')})`);
     ok(erros.length === 0, `resumo ${w}: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+
+  // ── M5e: o link de UM gráfico da conversa — sem as abas, sem a atenção ──
+  for (const w of larguras.filter((x) => [320, 375, 768, 1280].includes(x))) {
+    const { ctx, page, erros } = await abrir(w, { como: 'grafico' });
+    const v = vistaDoGrafico();
+    const t = await textoDe(page);
+    ok(t.includes(v.plano.titulo) && t.includes('R$ 31.070') && t.includes('+13% sobre a semana anterior'), `gráfico ${w}: o título com o período e o número com a comparação`);
+    ok((await page.locator('[role="group"][aria-label="Escolha o gráfico"]').count()) === 0, `gráfico ${w}: um gráfico só, sem as abas`);
+    ok((await page.locator('[data-grafico-do-resumo="dias"] [role="img"]').count()) === 1 && t.includes('semana anterior'), `gráfico ${w}: o gráfico com o período anterior`);
+    ok(!t.includes('Pontos de atenção'), `gráfico ${w}: sem a atenção`);
+    ok((await page.locator('main button').allInnerTexts()).join('|') === 'Baixar PDF', `gráfico ${w}: o único botão é "Baixar PDF"`);
+    const m = await medir(page);
+    ok(m.length === 0, `gráfico ${w}: nenhuma barra lateral, nada fora da janela ${m.slice(0, 3).join(' | ')}`);
+    const e = await esmagados(page, '[data-relatorio-do-mister]');
+    ok(e.length === 0, `gráfico ${w}: nenhum texto esmagado ${e.slice(0, 3).join(' | ')}`);
+    if ([320, 1280].includes(w)) await page.locator('[data-relatorio-do-mister]').screenshot({ path: foto(`grafico-${w}.png`) });
+    ok(erros.length === 0, `gráfico ${w}: sem erro (${erros.join(' | ')})`);
     await ctx.close();
   }
 

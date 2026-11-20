@@ -64,6 +64,7 @@ import { TEXTOS_DA_MIDIA, primeiroDoMesQueVem } from './mister-midia.regras';
 import { MisterFilaService } from './mister-fila.service';
 import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
 import { MisterResumoArquivoService, TEXTOS_DO_RESUMO_EM_ARQUIVO } from './mister-resumo-arquivo.service';
+import { lerBotaoDoGrafico } from './grafico/plano-do-resumo';
 import { MisterRelatoriosService } from './mister-relatorios.service';
 import { MisterQualidadeService } from './mister-qualidade.service';
 import { MisterAvaliacaoService } from './mister-avaliacao.service';
@@ -2281,8 +2282,41 @@ export function testesDoMisterComPostgres(): void {
         expect(saidas[1]).toBe('As vendas *dobraram*: R$ 100,00 contra R$ 50,00.');
         // A imagem subiu à Meta como PNG.
         expect(numero.pedidos.some((p) => p.url.endsWith('/media') && p.corpo?.type === 'image/png')).toBe(true);
+        // M5e: o texto leva o "📄 PDF" (o "🔗 Ver no link" só com a chave do link) — o botão leva só o que refaz o gráfico.
+        const idPdf = `grf:pdf:${A}:vendas_por_dia:${de}:${hojeISO()}`;
+        expect(numero.enviadas[1].botoes).toEqual([{ id: idPdf, titulo: '📄 PDF' }]);
+        const arquivo = new MisterResumoArquivoService(db, ferramentas, numero, new MisterLinkPublicoService(db, auditoria, modulos), undefined, entrada);
+        arquivo.onModuleInit();
+        // O toque em "📄 PDF": o gráfico refeito no escopo dela, em arquivo.
+        numero.pedidos.length = 0;
+        expect(await mandar(tel, '📄 PDF', { botaoId: idPdf })).toBe('respondeu_proposta');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringMatching(new RegExp(`^documento:grafico-vendas-por-dia-${de}-a-${hojeISO()}\\.pdf\\|Vendas por dia · `))]);
+        // Com a chave do link: o "🔗 Ver no link" vem junto, e o toque devolve o link que abre o MESMO gráfico (tipo grafico).
+        process.env.MISTER_LINK_PUBLICO = '1';
+        const comLink = await ferramentas.executar(e, 'mostrar_grafico', { tipo: 'vendas_por_dia', de, ate: hojeISO() });
+        const idLink = `grf:link:${A}:vendas_por_dia:${de}:${hojeISO()}`;
+        expect(comLink.botoes?.map((b) => [b.id, b.titulo])).toEqual([
+          [idPdf, '📄 PDF'],
+          [idLink, '🔗 Ver no link'],
+        ]);
+        expect(comLink.dados).not.toHaveProperty('botoes');
+        numero.pedidos.length = 0;
+        expect(await mandar(tel, '🔗 Ver no link', { botaoId: idLink })).toBe('respondeu_proposta');
+        const [msg] = numero.enviadas;
+        expect(msg.texto).toMatch(/^📊 Vendas por dia · .+: https:\/\/\S+\/m\/r\/[A-Za-z0-9_-]{32}\nO link vale até \d\d\/\d\d e só mostra este gráfico\.$/);
+        const vista = await new MisterLinkPublicoService(db, auditoria, modulos).ver(String(msg.link?.url).split('/').pop());
+        expect(vista).toMatchObject({ tipo: 'resumo', plano: { tipo: 'grafico', numeros: [{ valor: 'R$ 100,00', rotulo: 'total', nota: '+100% sobre o período anterior' }] } });
+        expect((await q(`select tipo from mister_link_publico where tenant_id = $1 order by criado_em desc limit 1`, [A]))[0].tipo).toBe('grafico');
+        // O botão de OUTRA empresa (que não é vínculo deste telefone), ou torto: não é dela.
+        numero.pedidos.length = 0;
+        expect(await mandar(tel, '📄 PDF', { botaoId: `grf:pdf:${B}:vendas_por_dia:${de}:${hojeISO()}` })).toBe('respondeu_proposta');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_RESUMO_EM_ARQUIVO.graficoNaoDisponivel]);
+        expect(lerBotaoDoGrafico(`grf:pdf:${A}:pizza:${de}:${hojeISO()}`)).toBeNull();
+        expect(lerBotaoDoGrafico(`grf:pdf:${A}:vendas_por_dia:${hojeISO()}:${de}`)).toBeNull();
       } finally {
         delete process.env.MISTER_MIDIA;
+        delete process.env.MISTER_LINK_PUBLICO;
+        await q(`delete from mister_link_publico where tenant_id = $1`, [A]);
         await q(`delete from comanda where tenant_id = $1`, [A]);
       }
     });

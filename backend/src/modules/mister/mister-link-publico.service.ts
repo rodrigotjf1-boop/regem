@@ -49,10 +49,14 @@ export type NovoLinkPublico =
       nomeDoPdf: string;
       plano: PlanoDoPdfDoInsumo;
     }
-  | { tipo: 'resumo'; unidadeId: string | null; titulo: string; nomeDoPdf: string; plano: PlanoDoResumo };
+  | { tipo: 'resumo' | 'grafico'; unidadeId: string | null; titulo: string; nomeDoPdf: string; plano: PlanoDoResumo };
 
 /** O plano guardado tem a forma do tipo dele? (Outra forma não abre e não nasce.) */
-const planoVale = (tipo: unknown, plano: unknown): boolean => (tipo === 'resumo' ? ehPlanoDoResumo(plano) : tipo === 'insumo' && ehPlanoDoRelatorio(plano));
+// O resumo e o gráfico da conversa usam o plano do resumo; o tipo da linha e o do plano têm de casar.
+const planoVale = (tipo: unknown, plano: unknown): boolean =>
+  tipo === 'resumo' || tipo === 'grafico'
+    ? ehPlanoDoResumo(plano) && (plano.tipo === 'grafico') === (tipo === 'grafico')
+    : tipo === 'insumo' && ehPlanoDoRelatorio(plano);
 
 @Injectable()
 export class MisterLinkPublicoService {
@@ -139,7 +143,7 @@ export class MisterLinkPublicoService {
     const vence = new Date(l.venceEm);
     const comum = { empresa: String(l.empresa ?? ''), nomeDoPdf: String(l.nomeDoPdf), valeAte: vence.toISOString(), valeAteDia: diaMesDe(vence) };
     // Versão 5, M5e: o resumo (os números, os gráficos e a atenção) tem a página dele.
-    if (l.tipo === 'resumo') return { ...comum, tipo: 'resumo', plano: l.plano };
+    if (l.tipo === 'resumo' || l.tipo === 'grafico') return { ...comum, tipo: 'resumo', plano: l.plano };
     return { ...comum, tipo: 'insumo', plano: l.plano, comVenda: planoTemVenda(l.plano) };
   }
 
@@ -147,7 +151,7 @@ export class MisterLinkPublicoService {
   async pdf(codigo: unknown): Promise<{ pdf: Buffer; nome: string }> {
     const l = await this.linha(codigo);
     await this.contarAcesso(l, 'pdf');
-    const pdf = l.tipo === 'resumo' ? await gerarPdfDoResumo(l.plano, String(l.nomeDoPdf)) : await gerarPdfDoInsumo(l.plano, String(l.nomeDoPdf));
+    const pdf = l.tipo === 'resumo' || l.tipo === 'grafico' ? await gerarPdfDoResumo(l.plano, String(l.nomeDoPdf)) : await gerarPdfDoInsumo(l.plano, String(l.nomeDoPdf));
     return { pdf, nome: String(l.nomeDoPdf) };
   }
 
@@ -171,8 +175,8 @@ export class MisterLinkPublicoService {
             left join perfil_acesso p on p.id = c.perfil_acesso_id
            where k.link_hash = ${resumoDoCodigo(codigo)} and k.revogado_em is null and k.vence_em > now()
              and ${pessoaVale()}
-             -- O link para encaminhar (insumo) é do presidente; o do resumo (M5e), de quem o recebeu: presidente ou gerente.
-             and (case when k.tipo = 'resumo' then coalesce(p.nivel, f.categoria::text) in ('presidente', 'gerente')
+             -- O link para encaminhar (insumo) é do presidente; o do resumo e o do gráfico (M5e), de quem pediu: presidente ou gerente.
+             and (case when k.tipo in ('resumo', 'grafico') then coalesce(p.nivel, f.categoria::text) in ('presidente', 'gerente')
                        else coalesce(p.nivel, f.categoria::text) = 'presidente' end)`),
       );
     } catch (e: any) {

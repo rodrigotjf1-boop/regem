@@ -30,7 +30,8 @@ export type PlanoDoGrafico = {
 };
 export type PlanoDoResumo = {
   versao: 1;
-  tipo: 'resumo_dia' | 'resumo_semana';
+  // 'grafico': UM gráfico da conversa (o "🔗 Ver no link" do `mostrar_grafico`), com uma aba só.
+  tipo: 'resumo_dia' | 'resumo_semana' | 'grafico';
   empresa: string;
   loja: string;
   titulo: string;

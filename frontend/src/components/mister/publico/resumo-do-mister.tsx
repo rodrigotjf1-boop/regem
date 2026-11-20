@@ -37,21 +37,24 @@ export function ResumoDoMister({ plano: p }: { plano: PlanoDoResumo }) {
           <h2 id="graficos-do-resumo" className="sr-only">
             Gráficos do resumo
           </h2>
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Escolha o gráfico">
-            {p.abas.map((a) => (
-              <button
-                key={a.id}
-                type="button"
-                aria-pressed={a.id === atual?.id}
-                onClick={() => setAba(a.id)}
-                className={`min-h-11 rounded-full border px-4 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
-                  a.id === atual?.id ? 'border-foreground bg-foreground text-card' : 'border-border bg-card'
-                }`}
-              >
-                {a.nome}
-              </button>
-            ))}
-          </div>
+          {/* Um gráfico só (o "🔗 Ver no link" de um gráfico da conversa): sem as abas. */}
+          {p.abas.length > 1 && (
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Escolha o gráfico">
+              {p.abas.map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  aria-pressed={a.id === atual?.id}
+                  onClick={() => setAba(a.id)}
+                  className={`min-h-11 rounded-full border px-4 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
+                    a.id === atual?.id ? 'border-foreground bg-foreground text-card' : 'border-border bg-card'
+                  }`}
+                >
+                  {a.nome}
+                </button>
+              ))}
+            </div>
+          )}
           <Card className="min-w-0 space-y-3 p-4" data-grafico-do-resumo={atual?.id}>
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
               <h3 className="min-w-0 break-words font-display font-semibold">{g.titulo}</h3>

@@ -5,7 +5,7 @@
 -- encaminhar (mig 443)").
 --
 -- mister_link_publico.tipo — passa a aceitar 'resumo' (o "📊 Ver gráficos" do resumo do dia e da semana) e 'grafico' (o
---   "🔗 Ver no link" do gráfico da conversa, a próxima entrega). O link do resumo vale enquanto quem o recebeu (presidente
+--   "🔗 Ver no link" do gráfico da conversa). O link do resumo e o do gráfico valem enquanto quem os pediu (presidente
 --   ou gerente) seguir ativo; o do insumo continua só do presidente (a régua fica no código).
 -- mister_conversa_config.resumo_entrega — "Como mandar o resumo" (Mister › Avisos e relatórios › Relatórios): os botões
 --   (o padrão do protótipo), o PDF junto, o link junto ou só o texto. O texto vai sempre. Só vale com a versão 5 ligada na

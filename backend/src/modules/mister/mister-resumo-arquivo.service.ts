@@ -2,7 +2,15 @@ import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/comm
 import { sql } from 'drizzle-orm';
 import { somarDias } from '../../common/data';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { PlanoDoResumo, TipoDoResumo, nomeDoPdfDoResumo } from './grafico/plano-do-resumo';
+import {
+  PREFIXO_DO_GRAFICO,
+  PlanoDoResumo,
+  TipoDoResumo,
+  lerBotaoDoGrafico,
+  nomeDoPdfDoGrafico,
+  nomeDoPdfDoResumo,
+  planoDeUmGrafico,
+} from './grafico/plano-do-resumo';
 import { FORMAS_DE_ENTREGA_DO_RESUMO, FormaDeEntregaDoResumo, MisterConversaConfigService } from './mister-conversa-config.service';
 import { MisterEntradaService, QuemTocou } from './mister-entrada.service';
 import { EscopoDoMister, MisterFerramentasService } from './mister-ferramentas.service';
@@ -54,7 +62,17 @@ export const TEXTOS_DO_RESUMO_EM_ARQUIVO = {
   semPlano: 'Este resumo não tem gráficos para mostrar: não houve venda no período, ou o seu perfil no Regem não vê os relatórios de vendas.',
   falhou: 'Não consegui gerar o PDF agora. Toque de novo em instantes.',
   linkFalhou: 'Não consegui criar o link agora. Toque de novo em instantes.',
+  graficoNaoDisponivel: 'Este gráfico não está mais disponível para você.',
+  graficoSemConteudo: 'Este gráfico não tem mais o que mostrar (o período não teve venda), ou o gráfico na conversa foi desligado no Regem.',
 } as const;
+
+/** "📊 Vendas por dia · 12/11 a 18/11: <link>" e até quando vale. */
+export function textoDoLinkDoGrafico(titulo: string, url: string, vence: Date): string {
+  return `📊 ${titulo}: ${url}\nO link vale até ${diaMesDe(vence)} e só mostra este gráfico.`;
+}
+
+/** O "19/11 às 09:00" do rodapé do gráfico ("Lido em 19/11 às 09:00 · vendas concluídas"). */
+const lidoEmDoRodape = (rodape: string): string => /Lido em (.+?)(?: ·|$)/.exec(rodape)?.[1] ?? '';
 
 /** "📊 Os gráficos do resumo de quarta, 18/11/2026: <link>" e até quando vale. */
 export function textoDoLinkDoResumo(titulo: string, url: string, vence: Date): string {
@@ -83,6 +101,69 @@ export class MisterResumoArquivoService implements OnModuleInit {
 
   onModuleInit(): void {
     this.entrada?.registrarBotao(PREFIXO_DO_RESUMO, (botaoId, quem) => this.tocou(botaoId, quem));
+    this.entrada?.registrarBotao(PREFIXO_DO_GRAFICO, (botaoId, quem) => this.tocouNoGrafico(botaoId, quem));
+  }
+
+  /**
+   * O toque em "📄 PDF" ou "🔗 Ver no link" de um gráfico da conversa (`mostrar_grafico`): a empresa do botão tem de ser um
+   * vínculo deste telefone, a loja (se o botão traz uma) tem de estar no escopo da pessoa AGORA, e o gráfico é refeito pela
+   * MESMA consulta (a permissão, o período e a chave da versão 5 conferidos de novo). Devolve false quando o botão não é
+   * de gráfico.
+   */
+  async tocouNoGrafico(botaoId: string, quem: QuemTocou): Promise<boolean> {
+    const b = lerBotaoDoGrafico(botaoId);
+    if (!b) return false;
+    const dizer = (texto: string) => this.numero.enviar(quem.telefone, { texto }).then(() => undefined, () => undefined);
+    const vinculo = quem.vinculos.find((v) => v.tenantId === b.tenantId);
+    const escopo = vinculo ? await this.ferramentas.escopo(vinculo.tenantId, vinculo.colaboradorId, quem.telefone) : null;
+    const loja = b.loja ? escopo?.lojas.find((l) => l.id === b.loja) : null;
+    if (!vinculo || !escopo || escopo.semLoja || (b.loja && !loja)) {
+      await dizer(TEXTOS_DO_RESUMO_EM_ARQUIVO.graficoNaoDisponivel);
+      return true;
+    }
+    if (quem.wamid) this.numero.mostrarDigitando(quem.wamid);
+    const r = await this.ferramentas.executar(escopo, 'mostrar_grafico', { tipo: b.tipo, de: b.de, ate: b.ate, ...(loja ? { loja: loja.nome } : {}) });
+    const g = r.ok ? r.graficos?.[0] : undefined;
+    if (!g) {
+      await dizer(r.ok ? TEXTOS_DO_RESUMO_EM_ARQUIVO.graficoSemConteudo : TEXTOS_DO_RESUMO_EM_ARQUIVO.graficoNaoDisponivel);
+      return true;
+    }
+    const plano = planoDeUmGrafico({
+      tipo: b.tipo,
+      grafico: g,
+      empresa: escopo.empresa,
+      loja: String(r.dados.loja ?? ''),
+      periodo: String(r.dados.periodo ?? ''),
+      lidoEm: lidoEmDoRodape(g.rodape),
+      verValores: escopo.verValores,
+    });
+    const nome = nomeDoPdfDoGrafico(b.tipo, b.de, b.ate);
+    const pessoa = { tenantId: vinculo.tenantId, colaboradorId: vinculo.colaboradorId, telefone: quem.telefone };
+    if (b.acao === 'pdf') {
+      try {
+        await this.numero.enviarDocumento(quem.telefone, await gerarPdfDoResumo(plano, nome), nome, `${plano.titulo} · ${plano.empresa}`);
+      } catch (e: any) {
+        this.falhaDoJunto(pessoa, 'o PDF do gráfico', e);
+        await dizer(TEXTOS_DO_RESUMO_EM_ARQUIVO.falhou);
+      }
+      return true;
+    }
+    if (!this.links.ligado()) {
+      await dizer(TEXTOS_DO_LINK_PUBLICO.desligado);
+      return true;
+    }
+    const link = await this.links.criar(
+      { tenantId: vinculo.tenantId, colaboradorId: vinculo.colaboradorId },
+      { tipo: 'grafico', unidadeId: escopo.presa ?? loja?.id ?? null, titulo: plano.titulo, nomeDoPdf: nome, plano },
+    );
+    if ('erro' in link) {
+      await dizer(link.erro);
+      return true;
+    }
+    await this.numero
+      .enviar(quem.telefone, { texto: textoDoLinkDoGrafico(plano.titulo, link.url, link.vence), link: { titulo: 'Abrir', url: link.url } })
+      .catch((e) => this.falhaDoJunto(pessoa, 'o link do gráfico', e));
+    return true;
   }
 
   /** A forma que vale agora para a empresa: desligada a versão 5 nesta instalação, só o texto. */

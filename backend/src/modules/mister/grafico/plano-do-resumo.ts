@@ -7,6 +7,8 @@ import { PlanoDoGrafico, reaisCurtos, valeOPlano, variacao } from './plano-do-gr
 // da imagem da conversa) e os pontos de atenção. Puro: sem banco e sem desenho.
 
 export type TipoDoResumo = 'resumo_dia' | 'resumo_semana';
+/** O plano em arquivo e no link: o de um resumo, ou o de UM gráfico da conversa (o "📄 PDF" e o "🔗 Ver no link" da M5d). */
+export type TipoDoPlano = TipoDoResumo | 'grafico';
 export type AbaDoResumoId = 'hora' | 'dias' | 'canais' | 'produtos';
 
 export interface NumeroDoResumo {
@@ -29,7 +31,7 @@ export interface AbaDoResumo {
 
 export interface PlanoDoResumo {
   versao: 1;
-  tipo: TipoDoResumo;
+  tipo: TipoDoPlano;
   empresa: string;
   loja: string;
   titulo: string;
@@ -147,6 +149,53 @@ export function montarPlanoDoResumo(d: DadosDoResumo): PlanoDoResumo {
 /** O plano tem o que mostrar? (Um dia sem venda não vira PDF nem link: o texto já diz.) */
 export const resumoTemConteudo = (p: PlanoDoResumo): boolean => p.abas.length > 0 || p.atencao.length > 0;
 
+// ── Um gráfico da conversa em arquivo e no link (o "📄 PDF" e o "🔗 Ver no link" da conversa 6 do protótipo) ────────
+
+/** Os gráficos do `mostrar_grafico` e a aba de cada um. */
+export const TIPOS_DO_GRAFICO = ['vendas_por_dia', 'vendas_por_hora', 'canais', 'mais_vendidos'] as const;
+export type TipoDoGrafico = (typeof TIPOS_DO_GRAFICO)[number];
+const ABA_DO_GRAFICO: Record<TipoDoGrafico, AbaDoResumoId> = { vendas_por_dia: 'dias', vendas_por_hora: 'hora', canais: 'canais', mais_vendidos: 'produtos' };
+
+/** O plano de UM gráfico: o título com o período, o número principal com a comparação e a aba dele. */
+export function planoDeUmGrafico(o: { tipo: TipoDoGrafico; grafico: PlanoDoGrafico; empresa: string; loja: string; periodo: string; lidoEm: string; verValores: boolean }): PlanoDoResumo {
+  const g = o.grafico;
+  return {
+    versao: 1,
+    tipo: 'grafico',
+    empresa: o.empresa,
+    loja: o.loja,
+    titulo: `${g.titulo} · ${o.periodo}`.slice(0, 300),
+    lidoEm: o.lidoEm,
+    numeros: g.kpi ? [{ valor: g.kpi, rotulo: 'total', nota: g.delta?.texto ?? null, tom: g.delta?.tom ?? null }] : [],
+    abas: [{ id: ABA_DO_GRAFICO[o.tipo], nome: g.titulo.slice(0, 40), grafico: g }],
+    atencao: [],
+    fonte: `Dados do Regem lidos em ${o.lidoEm} · vendas concluídas${o.verValores ? '' : ' · sem valores em reais (o perfil de quem pediu não mostra)'}.`,
+    semValores: !o.verValores,
+  };
+}
+
+/** "grafico-vendas-por-dia-2026-11-12-a-2026-11-18.pdf" (sem acento: o cabeçalho do download não aceita). */
+export const nomeDoPdfDoGrafico = (tipo: TipoDoGrafico, de: string, ate: string): string =>
+  `grafico-${tipo.replace(/_/g, '-')}-${de === ate ? de : `${de}-a-${ate}`}.pdf`;
+
+/**
+ * O botão do gráfico leva o que refaz o gráfico no escopo de quem toca: a empresa (conferida contra os vínculos do
+ * telefone), o gráfico, o período e a loja escolhida (ou nenhuma). Nada vale por si: o toque refaz tudo de novo.
+ */
+export const PREFIXO_DO_GRAFICO = 'grf:';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DIA = /^\d{4}-\d{2}-\d{2}$/;
+export const botaoDoGrafico = (acao: 'pdf' | 'link', b: { tenantId: string; tipo: TipoDoGrafico; de: string; ate: string; loja: string | null }): string =>
+  `${PREFIXO_DO_GRAFICO}${acao}:${b.tenantId}:${b.tipo}:${b.de}:${b.ate}${b.loja ? `:${b.loja}` : ''}`;
+export function lerBotaoDoGrafico(id: string): { acao: 'pdf' | 'link'; tenantId: string; tipo: TipoDoGrafico; de: string; ate: string; loja: string | null } | null {
+  const p = String(id ?? '').split(':');
+  if (p[0] !== 'grf' || (p[1] !== 'pdf' && p[1] !== 'link') || (p.length !== 6 && p.length !== 7)) return null;
+  const [, acao, tenantId, tipo, de, ate, loja] = p;
+  if (!UUID.test(tenantId) || !(TIPOS_DO_GRAFICO as readonly string[]).includes(tipo) || !DIA.test(de) || !DIA.test(ate) || de > ate) return null;
+  if (loja !== undefined && !UUID.test(loja)) return null;
+  return { acao: acao as 'pdf' | 'link', tenantId, tipo: tipo as TipoDoGrafico, de, ate, loja: loja ?? null };
+}
+
 // ── A conferência do plano guardado (o link público só abre o que a página sabe desenhar) ──────────────────────────
 
 const texto = (v: unknown, max: number): v is string => typeof v === 'string' && v.length <= max;
@@ -175,7 +224,7 @@ function ehGrafico(g: any): g is PlanoDoGrafico {
 export function ehPlanoDoResumo(p: unknown): p is PlanoDoResumo {
   if (!p || typeof p !== 'object' || Array.isArray(p)) return false;
   const x = p as Record<string, any>;
-  if (x.versao !== 1 || (x.tipo !== 'resumo_dia' && x.tipo !== 'resumo_semana') || typeof x.semValores !== 'boolean') return false;
+  if (x.versao !== 1 || !['resumo_dia', 'resumo_semana', 'grafico'].includes(x.tipo) || typeof x.semValores !== 'boolean') return false;
   if (!texto(x.empresa, 300) || !texto(x.loja, 300) || !texto(x.titulo, 300) || !texto(x.lidoEm, 80) || !texto(x.fonte, 600)) return false;
   if (!Array.isArray(x.numeros) || x.numeros.length > 6) return false;
   if (!x.numeros.every((n: any) => n && texto(n.valor, 80) && texto(n.rotulo, 120) && (n.nota === null || texto(n.nota, 200)) && (n.tom === null || TOMS.includes(n.tom)))) return false;
