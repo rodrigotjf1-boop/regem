@@ -52,11 +52,14 @@ descrever('sentimos sua falta (Postgres)', () => {
       ['356_relacionamento_automaticas.sql', 5],
       ['357_aniversario_do_cliente.sql', 5],
       ['358_sentimos_sua_falta.sql', 2],
+      ['459_perfil_do_cliente.sql', 4],
     ] as [string, number][]) {
       const r: any = await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(readFileSync(join(MIGS, arq), 'utf8'))));
       const conf = (Array.isArray(r) ? r[r.length - 1] : r).rows as { objeto: string; ok: boolean }[];
       if (conf.length !== linhas || conf.some((l) => !l.ok)) throw new Error(`conferência da ${arq}: ${JSON.stringify(conf)}`);
     }
+    // A coluna "pelo ritmo" (mig 464, F7 parte 2 do perfil do cliente).
+    await pool.query(readFileSync(join(MIGS, '464_relacionamento_volta_pelo_ritmo.sql'), 'utf8'));
     db = drizzle(pool, { schema });
   });
 
@@ -64,6 +67,7 @@ descrever('sentimos sua falta (Postgres)', () => {
     await pool?.end();
     if (!admin) return;
     for (const t of empresas) {
+      await admin.query(`delete from modulo_ativacao where tenant_id = $1`, [t]).catch(() => {});
       await admin.query(`delete from cupom_uso where tenant_id = $1`, [t]).catch(() => {});
       await admin.query(`delete from cupom where tenant_id = $1`, [t]).catch(() => {});
       await admin.query(`delete from atendimento_chamado where tenant_id = $1`, [t]).catch(() => {});
@@ -327,5 +331,29 @@ descrever('sentimos sua falta (Postgres)', () => {
     expect(saidas).toHaveLength(0);
     expect((await envios(t)).map((e: any) => [e.status, e.motivo])).toEqual([['fora', 'recebeu outra oferta nos últimos 7 dias']]);
     expect(await q(`select 1 from cupom where tenant_id = $1`, [t])).toHaveLength(0);
+  });
+
+  it('pelo ritmo (F7 parte 2, mig 464): o semanal com 12 dias, o mensal ainda não, quem não tem ritmo pelos dias fixos; módulo desligado = como antes', async () => {
+    const perfil = (t: string, id: string, intervalo: number | null, pedidos: number) =>
+      q(`insert into cliente_perfil (cliente_id, tenant_id, intervalo_dias, pedidos_diretos) values ($1,$2,$3,$4)`, [id, t, intervalo, pedidos]);
+    const montar = async (moduloLigado: boolean) => {
+      const { t } = await empresa({ volta_pelo_ritmo: true });
+      if (moduloLigado) await admin.query(`insert into modulo_ativacao (tenant_id, modulo, ativo) values ($1,'perfil_cliente',true)`, [t]);
+      await perfil(t, await cliente(t, 'Ana Semanal', '21987669001', 12), 7, 6); // 12 > 1,5 × 7 → chamada
+      await perfil(t, await cliente(t, 'Bruno Mensal', '21987669002', 20), 30, 5); // 20 < 45 → ainda não
+      await perfil(t, await cliente(t, 'Carla Nova', '21987669003', 31, { pedidos: 1 }), null, 1); // sem ritmo: 31 > 30 → chamada
+      await cliente(t, 'Davi Recente', '21987669004', 10, { pedidos: 1 }); // sem ritmo e sem perfil: 10 < 30
+      await perfil(t, await cliente(t, 'Eli Sumido', '21987669005', 80), 7, 6); // passou da janela (11 + 30): campanhas
+      return t;
+    };
+    const { svc } = automaticas('evolution');
+    const ligado: any = await svc.painel(await montar(true), naJanela());
+    expect(ligado.perfilLigado).toBe(true);
+    expect(ligado.ajustes.voltaPeloRitmo).toBe(true);
+    expect(ligado.volta.previa.lista.map((x: any) => x.nome)).toEqual(['Ana S.', 'Carla N.']);
+    // Módulo desligado: a opção não vale — os 30 dias fixos de sempre (a Ana, com 12, fica fora; o Bruno, com 20, também).
+    const desligado: any = await svc.painel(await montar(false), naJanela());
+    expect(desligado.perfilLigado).toBe(false);
+    expect(desligado.volta.previa.lista.map((x: any) => x.nome)).toEqual(['Carla N.']);
   });
 });

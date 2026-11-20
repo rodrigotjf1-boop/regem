@@ -49,7 +49,10 @@ type Painel = {
     voltaMinimo: number;
     voltaValidadeDias: number;
     voltaTentativas: number;
+    voltaPeloRitmo?: boolean;
   };
+  /** O módulo "Perfil do cliente" ligado (mostra "pelo ritmo de cada cliente" — F7 parte 2, mig 464). */
+  perfilLigado?: boolean;
   opcoes: {
     intervalos: number[];
     maxPorDia: number[];
@@ -137,6 +140,7 @@ const paraValores = (p: Painel): Valores => ({
   voltaMinimo: String(p.ajustes.voltaMinimo),
   voltaValidadeDias: String(p.ajustes.voltaValidadeDias),
   voltaTentativas: String(p.ajustes.voltaTentativas),
+  voltaPeloRitmo: p.ajustes.voltaPeloRitmo === true,
 });
 
 /** "hoje às 17:00", "amanhã às 17:00", "sexta às 17:00". */
@@ -615,9 +619,21 @@ export function Automaticas() {
         ajuda: 'Voltou = pediu em até 7 dias depois da mensagem (a mesma conta das campanhas).',
         palavras: 'sentimos sua falta volta sumiu',
       },
+      ...(p.perfilLigado
+        ? ([
+            {
+              id: 'voltaPeloRitmo',
+              rotulo: 'Pelo ritmo de cada cliente',
+              tipo: 'chave',
+              ajuda:
+                'Do Perfil do cliente: chama quem passou de 1,5 vez o próprio intervalo sem pedir (nunca antes de 7 dias) — quem pede toda semana recebe com uns 10 dias, quem pede todo mês, com uns 45. Quem ainda não tem ritmo (menos de 2 pedidos) segue o "Quem não pede há".',
+              palavras: 'volta ritmo perfil intervalo atrasado',
+            },
+          ] as GrupoDeAjustes['itens'])
+        : []),
       {
         id: 'voltaDias',
-        rotulo: 'Quem não pede há',
+        rotulo: valores.voltaPeloRitmo === true && p.perfilLigado ? 'Quem não pede há (sem ritmo ainda)' : 'Quem não pede há',
         tipo: 'selecao',
         opcoes: p.opcoes.voltaDias.map((d) => ({ v: String(d), rotulo: `${d} dias` })),
         ajuda: `Até 30 dias depois disso (com ${diasVolta}: de ${diasVolta} a ${diasVolta + 30} dias sem pedir). Quem sumiu há mais tempo fica para as campanhas.`,

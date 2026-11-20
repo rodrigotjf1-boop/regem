@@ -69,6 +69,8 @@ describe('automáticas — regras puras', () => {
       voltaMinimo: 30,
       voltaValidadeDias: 7,
       voltaTentativas: 2,
+      // "pelo ritmo de cada cliente" (F7 parte 2 do perfil, mig 464): sem a coluna, desligado
+      voltaPeloRitmo: false,
     });
   });
 
