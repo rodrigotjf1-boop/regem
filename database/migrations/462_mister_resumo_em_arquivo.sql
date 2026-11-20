@@ -10,6 +10,9 @@
 -- mister_conversa_config.resumo_entrega — "Como mandar o resumo" (Mister › Avisos e relatórios › Relatórios): os botões
 --   (o padrão do protótipo), o PDF junto, o link junto ou só o texto. O texto vai sempre. Só vale com a versão 5 ligada na
 --   instalação (`MISTER_MIDIA`): desligada, o resumo segue só por escrito, como hoje.
+-- mister_conversa_config.responder_audio — "Responder em áudio" (Avisos e relatórios › Conversa; fase M5c, decisões 2 e
+--   3): quando a pessoa manda áudio, o Mister responde em texto e também numa nota de voz (a voz do Google, pela ferramenta
+--   `falar` do DMS Graph). NASCE DESLIGADO (o presidente liga). Junto aqui para o dono aplicar a versão 5 de uma vez.
 --
 -- ⚠️ SÓ NUVEM: o servidor da loja pula o arquivo inteiro (as duas tabelas são só da nuvem).
 -- ⚠️ TEM `drop constraint` (a restrição do tipo só se alarga trocando-a): vai pelo SQL Editor do Supabase, pelo dono —
@@ -29,6 +32,8 @@ begin
   end if;
 end $$;
 
+alter table mister_conversa_config add column if not exists responder_audio boolean not null default false;
+
 -- A conferência no MESMO arquivo: tudo tem de vir com `ok = true`.
 select 'o tipo resumo cabe em mister_link_publico' as objeto,
        coalesce((select pg_get_constraintdef(c.oid) like '%resumo%' and pg_get_constraintdef(c.oid) like '%grafico%'
@@ -42,4 +47,9 @@ select 'a coluna resumo_entrega em mister_conversa_config',
 union all
 select 'a restrição das formas de mandar o resumo',
        exists (select 1 from pg_constraint where conrelid = to_regclass(current_schema() || '.mister_conversa_config')
-                  and conname = 'ck_mister_conversa_config_resumo_entrega');
+                  and conname = 'ck_mister_conversa_config_resumo_entrega')
+union all
+select 'a coluna responder_audio em mister_conversa_config (nasce desligada)',
+       exists (select 1 from information_schema.columns
+                where table_schema = current_schema() and table_name = 'mister_conversa_config' and column_name = 'responder_audio'
+                  and column_default = 'false' and is_nullable = 'NO');
