@@ -146,6 +146,7 @@ import {
 } from './robo-mudanca';
 import { textoDoPix } from './adicional-pix';
 import { AdicionalPixService } from './adicional-pix.service';
+import { cartaoDoCliente } from '../perfil-cliente/cartao-do-cliente';
 import { pagoNoPixOnline } from '../../common/prazo-estorno-pix';
 import { horarioDoTexto, instanteDeSaoPaulo, quandoDoAgendado, rotuloDaJanela } from '../../common/pedido-agendado';
 import {
@@ -473,6 +474,14 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(`pedido feito da conversa não lido: ${e?.message ?? e}`);
       return null;
     });
+    // O cartão do cliente (F6 do plano do perfil): só com o módulo "Perfil do cliente" ligado e sem o "não analisar".
+    // Falhou a leitura: a conversa segue sem ele.
+    const cartao = cli?.id
+      ? await cartaoDoCliente(this.db, ctx.cfg.tenantId, cli.id).catch((e: any) => {
+          this.logger.warn(`cartão do cliente não lido: ${e?.message ?? e}`);
+          return null;
+        })
+      : null;
     return {
       cliente: cli
         ? { conhecido: true, nome: cli.nome ?? null }
@@ -495,6 +504,7 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
           }
         : {}),
       ...(beneficios ? { beneficios } : {}),
+      ...(cartao ? { cartao } : {}),
       ...(feito ? { pedidoFeito: visaoDoPedidoFeito(feito.p, situacaoParaOCliente(feito.p.status), lerMudanca(c?.mudanca)) } : {}),
       pedido: visao,
     };

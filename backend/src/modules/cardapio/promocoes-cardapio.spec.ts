@@ -255,6 +255,7 @@ descrever('promoções pelo WhatsApp no cardápio (Postgres real)', () => {
         ativo: true,
         desde: null,
         respondeu: false,
+        frase: 'Receber promoções de Cantina da Praça pelo WhatsApp',
         ligado: 'Você recebe as promoções de Cantina da Praça neste número. Para sair, desligue aqui ou responda SAIR.',
         desligado: 'Pronto: você não recebe mais promoções desta loja. Já avisamos quem envia as mensagens.',
         fora: 'Você não recebe promoções desta loja. Ligue aqui para voltar a receber.',

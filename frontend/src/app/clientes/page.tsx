@@ -1,7 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { api, getCategoria, getPermissoes } from '@/lib/api';
+import { NO_SERVIDOR_DA_LOJA } from '@/components/ui/so-pela-nuvem';
 import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
@@ -10,6 +12,8 @@ import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
 import { useModoDaLista } from '@/components/ui/lista';
 import { AniversarioNaGaveta } from '@/components/clientes/aniversario-na-gaveta';
+import { FichaDoPerfil } from '@/components/clientes/ficha-do-perfil';
+import { SegmentosDoPerfil, nomeDoSegmentoDoPerfil } from '@/components/clientes/segmentos-do-perfil';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: any) =>
@@ -90,9 +94,14 @@ export default function ClientesPage() {
   const [podeExportar, setPodeExportar] = useState(false);
   // Bloco — importação de contatos (.vcf).
   const [podeImportar, setPodeImportar] = useState(false);
+  // Perfil do cliente (F1b): só presidente e gerente, com o módulo ligado na loja (o servidor confere de novo).
+  const [perfilLigado, setPerfilLigado] = useState(false);
+  const [perfilDe, setPerfilDe] = useState<any | null>(null);
   useEffect(() => {
     setPodeExportar(getCategoria() === 'presidente' || !!getPermissoes()?.clientes_exportar);
     setPodeImportar(getCategoria() === 'presidente' || !!getPermissoes()?.clientes_importar);
+    if (['presidente', 'gerente'].includes(String(getCategoria())))
+      api.modulosMeus().then((m: any) => setPerfilLigado(m?.perfil_cliente === true)).catch(() => setPerfilLigado(false));
   }, []);
   const vcfRef = useRef<HTMLInputElement>(null);
   const [impPrevia, setImpPrevia] = useState<any>(null);
@@ -492,6 +501,8 @@ export default function ClientesPage() {
             );
           })}
         </div>
+        {/* Os segmentos pelo perfil (F7 parte 1): presidente e gerente, módulo ligado, na nuvem — o servidor confere de novo. */}
+        {perfilLigado && !NO_SERVIDOR_DA_LOJA && <SegmentosDoPerfil seg={seg} aoEscolher={setSeg} />}
 
         {/* Busca + ações */}
         <div className="flex flex-wrap items-center gap-2">
@@ -508,6 +519,15 @@ export default function ClientesPage() {
           <Button variant="outline" onClick={abrirCampanhas}>
             Campanhas
           </Button>
+          {/* O calendário de eventos (F2 do perfil do cliente): só com o módulo ligado — o servidor confere de novo. */}
+          {perfilLigado && !NO_SERVIDOR_DA_LOJA && (
+            <Link
+              href="/clientes/calendario"
+              className="inline-flex h-11 items-center rounded-md border border-input bg-card px-4 text-sm font-semibold hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              Calendário de eventos
+            </Link>
+          )}
           {podeImportar && (
             <>
               <input
@@ -904,6 +924,17 @@ export default function ClientesPage() {
                     : 'Não enviar campanhas a este cliente'}
                 </button>
               </div>
+              {perfilLigado && (
+                <div className="border-b border-border px-4 py-2">
+                  <button
+                    type="button"
+                    onClick={() => setPerfilDe(detalhe)}
+                    className="text-xs font-semibold text-primary hover:underline"
+                  >
+                    Ver perfil do cliente
+                  </button>
+                </div>
+              )}
               {/* O aniversário (Onda 3): de onde veio a data, desde quando vale, e o "corrigir" com o motivo. */}
               <AniversarioNaGaveta clienteId={detalhe.id} nome={detalhe.nome} />
               <div className="scroll-fino max-h-[50vh] overflow-y-auto px-4 py-3">
@@ -961,7 +992,7 @@ export default function ClientesPage() {
               <div className="space-y-3 px-4 py-3">
                 <p className="text-sm text-muted-foreground">
                   Segmento{' '}
-                  <strong className="text-foreground">{[...SEGS, ...SEGS_IMPORT].find((s) => s.k === seg)?.t}</strong> ·{' '}
+                  <strong className="text-foreground">{[...SEGS, ...SEGS_IMPORT].find((s) => s.k === seg)?.t ?? nomeDoSegmentoDoPerfil(seg)}</strong> ·{' '}
                   {campPrevia == null ? (
                     'calculando público…'
                   ) : (
@@ -1089,7 +1120,7 @@ export default function ClientesPage() {
                     <li key={k.id} className="rounded-md border border-border p-3 text-sm">
                       <div className="flex items-center gap-2">
                         <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase">
-                          {[...SEGS, ...SEGS_IMPORT].find((s) => s.k === k.segmento)?.t ?? k.segmento}
+                          {[...SEGS, ...SEGS_IMPORT].find((s) => s.k === k.segmento)?.t ?? nomeDoSegmentoDoPerfil(k.segmento) ?? k.segmento}
                         </span>
                         <span
                           className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold ${
@@ -1328,6 +1359,7 @@ export default function ClientesPage() {
           </div>
         </div>
       )}
+      {perfilDe && <FichaDoPerfil clienteId={perfilDe.id} nome={perfilDe.nome ?? 'Cliente'} aoFechar={() => setPerfilDe(null)} />}
     </Shell>
   );
 }

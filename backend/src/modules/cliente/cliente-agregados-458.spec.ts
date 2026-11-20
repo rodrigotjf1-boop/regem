@@ -4,15 +4,14 @@ import { join } from 'node:path';
 import { Pool, PoolClient } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { sql } from 'drizzle-orm';
-import { TRAVA_DA_EMPRESA } from '../../common/corrida-de-catalogo';
 import { sqlRecebeMarketing } from '../../common/marketing-quem-recebe';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // F1-0 do plano do perfil do cliente (docs/plano-perfil-cliente.md), contra o Postgres real:
-//  • ERR-535 — a campanha alcançava quem a loja só conheceu pelo iFood ou pela 99 (a 99 manda o telefone real e o pedido
-//    entra no `cliente`). `sqlRecebeMarketing` passa a exigir cliente DIRETO: base importada, OU pedido fora do iFood/99,
-//    OU nenhum pedido por eles.
+//  • ERR-535 — a campanha alcançava quem a loja só conheceu pelo iFood. `sqlRecebeMarketing` exige: base importada, OU
+//    pedido fora do iFood, OU nenhum pedido por ele. A 99 voltou às campanhas por decisão do dono (19/11): "só usar o nome
+//    e o tel para campanhas", sem perfil.
 //  • mig 458 (ERR-536) — os totais do cliente acompanham o cancelamento (e a volta), a troca de cliente do pedido e a exclusão; e,
 //    uma vez e só na nuvem, os totais guardados que diferem dos pedidos são recalculados.
 // Tudo numa transação DESFEITA no fim (o critério da parte única é do banco inteiro e não pode mexer nas specs paralelas).
@@ -36,17 +35,12 @@ describe('migration 458 (arquivo)', () => {
 descrever('totais do cliente e quem recebe marketing (Postgres)', () => {
   jest.setTimeout(120_000);
   const pool = new Pool({ connectionString: URL_PG });
-  const sql458 = readFileSync(ARQUIVO, 'utf8');
   afterAll(async () => {
     await pool.end();
   }, 60_000);
 
   async function preparar(c: PoolClient) {
     const q = (s: string, p: any[] = []) => c.query(s, p).then((r) => r.rows);
-    // "Como nuvem": a parte única só roda onde existe `edge_status` (o banco do CI é de loja).
-    if (!(await q(`select to_regclass(current_schema() || '.edge_status') as t`))[0].t) {
-      await q(`create table edge_status (equipamento_id uuid primary key, tenant_id uuid, unidade_id uuid, versao text, recebido_em timestamptz)`);
-    }
     // A lista de exclusão é só da nuvem; no banco de loja do CI ela não existe.
     await q(`create table if not exists marketing_optout (
       id uuid primary key default gen_random_uuid(), tenant_id uuid not null, telefone text not null,
@@ -69,12 +63,13 @@ descrever('totais do cliente e quem recebe marketing (Postgres)', () => {
     return { q, t, cliente, pedido, totais };
   }
 
-  it('recalcula uma vez os totais errados e, daí em diante, acompanha cancelar, voltar, trocar de cliente e apagar', async () => {
+  // O gatilho já está no banco (a montagem do CI aplica a 458 e a 460): nada de DDL nem trava de tabela aqui dentro — a
+  // transação longa com DDL travava tabelas compartilhadas e é o risco do ERR-539 (deadlock com as outras suítes no banco dividido). A correção única
+  // (a parte "só na nuvem") foi conferida na produção: 79 → 0.
+  it('acompanha cancelar, voltar, trocar de cliente e apagar', async () => {
     const c = await pool.connect();
     try {
       await c.query('begin');
-      // Trava `empresa` ANTES dos inserts: esta transação insere empresa e depois roda a migration (ERR-377).
-      await c.query(TRAVA_DA_EMPRESA);
       const { q, cliente, pedido, totais } = await preparar(c);
       const ana = await cliente('Ana', '21999990001');
       const bia = await cliente('Bia', '21999990002');
@@ -82,9 +77,6 @@ descrever('totais do cliente e quem recebe marketing (Postgres)', () => {
       const p2 = await pedido(ana, 'cardapio', 30);
       // O defeito de antes da 458: o pedido cancelado continuava contando nos totais guardados.
       await q(`update pedido_externo set status = 'cancelado' where id = $1`, [p2]);
-      await q(`update cliente set total_pedidos = 2, total_gasto = 80 where id = $1`, [ana]);
-
-      await c.query(sql458); // a parte única (como nuvem) recalcula
       expect(await totais(ana)).toEqual({ n: 1, gasto: 50 });
 
       await q(`update pedido_externo set status = 'cancelado' where id = $1`, [p1]); // cancelar
@@ -104,11 +96,10 @@ descrever('totais do cliente e quem recebe marketing (Postgres)', () => {
     }
   });
 
-  it('marketing só para cliente direto: quem pediu só pelo iFood/99 fica de fora; importado, misto e sem pedido ficam', async () => {
+  it('campanha: quem pediu só pelo iFood fica de fora; só pela 99 entra (decisão do dono, 19/11); importado, misto e sem pedido ficam', async () => {
     const c = await pool.connect();
     try {
       await c.query('begin');
-      await c.query(TRAVA_DA_EMPRESA);
       const { t, cliente, pedido } = await preparar(c);
       const so99 = await cliente('Só 99', '21988880001');
       const soIfood = await cliente('Só iFood', '21988880002');
@@ -126,8 +117,7 @@ descrever('totais do cliente e quem recebe marketing (Postgres)', () => {
       const db = drizzle(c as any);
       const r: any = await db.execute(sql`select c.nome from cliente c where c.tenant_id = ${t}::uuid ${sqlRecebeMarketing()} order by c.nome`);
       const nomes = (r.rows ?? r).map((x: any) => x.nome);
-      expect(nomes).toEqual(['Cadastrado sem pedido', 'Direto', 'Importado que pediu na 99', 'Misto'].sort());
-      expect(nomes).not.toContain('Só 99');
+      expect(nomes).toEqual(['Cadastrado sem pedido', 'Direto', 'Importado que pediu na 99', 'Misto', 'Só 99'].sort());
       expect(nomes).not.toContain('Só iFood');
       void semPedido;
     } finally {

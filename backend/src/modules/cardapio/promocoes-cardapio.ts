@@ -159,13 +159,15 @@ export async function promocoesDoPerfil(
   db: any,
   c: { tenantId: string; id: string; telefone: string | null },
   lojaNome: string | null | undefined,
-): Promise<{ ativo: boolean; desde: string | null; respondeu: boolean; ligado: string; desligado: string; fora: string } | null> {
+): Promise<{ ativo: boolean; desde: string | null; respondeu: boolean; frase: string; ligado: string; desligado: string; fora: string } | null> {
   if (!(await lojaFazCampanha(db, c.tenantId))) return null;
   const chave = chaveTelefone(c.telefone);
   if (!chave) return null;
   const s = await situacao(db, c.tenantId, chave, c.id);
   const f = frasesPromocoes(lojaNome);
-  return { ativo: !s.fora, desde: s.desde, respondeu: s.respondeu, ligado: f.ligado, desligado: f.desligado, fora: f.fora };
+  // `frase` = o texto que `definirNoPerfil` grava no aceite: a caixa da entrada do cardápio (perfil do cliente, F1c) mostra
+  // exatamente ele (o histórico prova o que foi mostrado).
+  return { ativo: !s.fora, desde: s.desde, respondeu: s.respondeu, frase: f.frase, ligado: f.ligado, desligado: f.desligado, fora: f.fora };
 }
 
 /**

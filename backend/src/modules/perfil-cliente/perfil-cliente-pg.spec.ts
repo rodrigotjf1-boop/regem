@@ -3,8 +3,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Pool, PoolClient } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { TRAVA_DA_EMPRESA } from '../../common/corrida-de-catalogo';
 import { sqlCalcularPerfis } from './calculo-do-perfil';
+
+const MIG_459 = join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '459_perfil_do_cliente.sql');
+const semFkCompartilhada = (s: string) =>
+  s.replace(/\s+references\s+(empresa|unidade|cliente|cupom)\s*\(\s*id\s*\)(\s+on\s+delete\s+cascade)?/gi, '');
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -31,14 +34,23 @@ describe('migration 459 (arquivo)', () => {
 
 descrever('perfil do cliente — o cálculo (Postgres)', () => {
   jest.setTimeout(120_000);
-  const pool = new Pool({ connectionString: URL_PG });
+  // As tabelas só da nuvem (459) num schema SÓ DESTE TESTE, sem chave estrangeira para as compartilhadas (LIC-088): a
+  // transação do teste só tem DML — DDL com a trava da empresa dentro dela é o risco do ERR-539 (deadlock com as outras suítes no banco dividido).
+  const SCHEMA = `teste_perfil_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
+  const admin = new Pool({ connectionString: URL_PG });
+  const pool = new Pool({ connectionString: URL_PG, options: `-c search_path=${SCHEMA},public` });
+  beforeAll(async () => {
+    await admin.query(`create schema ${SCHEMA}`);
+    await pool.query(semFkCompartilhada(readFileSync(MIG_459, 'utf8')));
+  }, 60_000);
   afterAll(async () => {
     await pool.end();
+    await admin.query(`drop schema if exists ${SCHEMA} cascade`).catch(() => {});
+    await admin.end();
   }, 60_000);
 
   async function cenario(c: PoolClient) {
     const q = (s: string, p: any[] = []) => c.query(s, p).then((r) => r.rows);
-    await c.query(readFileSync(join(MIGS, '459_perfil_do_cliente.sql'), 'utf8'));
     if (!(await q(`select to_regclass('pedido_avaliacao') as t`))[0].t) {
       await q(`create table pedido_avaliacao (id uuid primary key default gen_random_uuid(), tenant_id uuid not null,
         unidade_id uuid, pedido_id uuid not null, nota smallint not null, pesou text[] not null default '{}',
@@ -91,7 +103,6 @@ descrever('perfil do cliente — o cálculo (Postgres)', () => {
     const c = await pool.connect();
     try {
       await c.query('begin');
-      await c.query(TRAVA_DA_EMPRESA); // a transação insere empresa e aplica a migration (ERR-377)
       const { q, t, ana, bia, caio, duda } = await cenario(c);
       const db = drizzle(c as any);
       const gravados: any = await db.execute(sqlCalcularPerfis(t, null, true));
@@ -134,7 +145,6 @@ descrever('perfil do cliente — o cálculo (Postgres)', () => {
     const c = await pool.connect();
     try {
       await c.query('begin');
-      await c.query(TRAVA_DA_EMPRESA);
       const { q, t, ana, caio } = await cenario(c);
       const db = drizzle(c as any);
       await db.execute(sqlCalcularPerfis(t, null, true));

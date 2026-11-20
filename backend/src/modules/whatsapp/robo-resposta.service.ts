@@ -53,6 +53,7 @@ import {
   urlDoPrint,
   type PassoDoPrint,
 } from './formato-da-resposta';
+import { semRevelarPerfil } from '../perfil-cliente/protecao-da-resposta';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -108,7 +109,8 @@ export function lerResposta(
   const opcoes = (pedidas.length ? pedidas : soltas.opcoes).map((o: any) =>
     o && typeof o === 'object' ? { ...o, titulo: semFormatacao(o.titulo), ...(o.descricao ? { descricao: semFormatacao(o.descricao) } : {}) } : o,
   );
-  return { texto: formatar(soltas.texto).trim(), opcoes: opcoesValidas(opcoes), reacao, print, local };
+  // A trava do perfil do cliente (F6): a frase que revela o perfil ou rotula o cliente não sai, em canal nenhum.
+  return { texto: formatar(semRevelarPerfil(soltas.texto).texto).trim(), opcoes: opcoesValidas(opcoes), reacao, print, local };
 }
 
 /**

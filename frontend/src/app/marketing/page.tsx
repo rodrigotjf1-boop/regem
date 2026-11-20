@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { ModelosWhatsapp } from '@/components/delivery/modelos-whatsapp';
 import { Automaticas } from '@/components/marketing/automaticas';
 import { CustoDaCampanha } from '@/components/marketing/custo-da-campanha';
+import { ResultadoDoControle } from '@/components/marketing/resultado-do-controle';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Delivery → Marketing: campanhas de WhatsApp (épico 2 provedores). Público segmentado,
@@ -109,6 +110,8 @@ export default function MarketingPage() {
   const [previa, setPrevia] = useState<number | null>(null);
   // Quem ficou de fora por ter recebido uma oferta automática no intervalo das Automáticas (decisão do dono 3B).
   const [previaFora, setPreviaFora] = useState<{ n: number; dias: number } | null>(null);
+  // O grupo de controle (F7 parte 3, mig 465): quantos ficam de fora da campanha (só com ele ligado).
+  const [previaControle, setPreviaControle] = useState<number | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [testeNumero, setTesteNumero] = useState('');
   const [testando, setTestando] = useState(false);
@@ -251,11 +254,13 @@ export default function MarketingPage() {
     if (!novo) return;
     setPrevia(null);
     setPreviaFora(null);
+    setPreviaControle(null);
     api
       .crmCampanhaPrevia(seg, seg === 'recuperacao' ? recDias : undefined)
       .then((r: any) => {
         setPrevia(r?.total ?? 0);
         setPreviaFora(r?.foraPorOferta > 0 ? { n: Number(r.foraPorOferta), dias: Number(r.intervaloOfertasDias) || 7 } : null);
+        setPreviaControle(r?.foraPorControle > 0 ? Number(r.foraPorControle) : null);
       })
       .catch(() => setPrevia(0));
   }, [novo, seg, recDias]);
@@ -554,6 +559,12 @@ export default function MarketingPage() {
               <p className="mt-1 text-xs">
                 {previa == null ? 'calculando público…' : <><strong>{previa}</strong> destinatário(s) (exclui opt-out e lista de exclusão)</>}
               </p>
+              {previa != null && previaControle != null && (
+                <p className="text-xs text-muted-foreground">
+                  <strong>{previaControle}</strong> {previaControle === 1 ? 'fica de fora: está' : 'ficam de fora: estão'} no grupo de controle (10% fixos que não
+                  recebem campanhas — o resultado compara com eles; Marketing › Automáticas).
+                </p>
+              )}
               {previa != null && previaFora && (
                 <p className="mt-1 text-xs" data-previa-fora>
                   <strong>{previaFora.n}</strong> {previaFora.n === 1 ? 'fica de fora: recebeu' : 'ficam de fora: receberam'} uma oferta
@@ -964,6 +975,7 @@ export default function MarketingPage() {
                           </div>
                         </div>
                       )}
+                      <ResultadoDoControle controle={metricas[c.id].controle} />
                       {Array.isArray(metricas[c.id].ab) && metricas[c.id].ab.length > 0 && (
                         <div className="rounded-lg border border-border p-2 text-xs">
                           <p className="mb-1 font-semibold text-foreground">Teste A/B</p>

@@ -120,7 +120,10 @@ import { MARCA_DA_RESPOSTA_SEGURADA } from '../whatsapp/resposta-em-andamento';
 // .f32 (19/11, teste do dono no celular): o último pedido para repetir vai SEMPRE com a data (`ultimoPedido.comoFalar`) e,
 // com os pedidos mais novos cancelados (`canceladosDepois`), como "o último que chegou a sair" — o de 2 meses atrás pareceu
 // outro pedido.
-export const VERSAO_INSTRUCOES = '2026-11-19.f32';
+// .f33 (19/11, F6 do plano do perfil do cliente): o `ver_pedido` pode trazer `cartao` (só com o módulo "Perfil do cliente"
+// ligado — nasce desligado): o robô usa para a forma e a sugestão, nunca cita o cartão nem números do cliente. Sem o
+// cartão, as instruções valem como na .f32.
+export const VERSAO_INSTRUCOES = '2026-11-19.f33';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -535,7 +538,7 @@ function mudarUmPedidoJaFeito(): string {
 function ferramentasDoFluxo2(): string {
   return linhas(
     ferramentasDoFluxo1(),
-    '- ver_pedido: o cliente (conhecido? nome), os endereços salvos numerados, o último endereço usado, o pedido em montagem com o proximo, emCurso (há pedido em montagem), do cliente conhecido ultimoPedido (os itens que dá para repetir), beneficios (o saldo de cashback, os vales, os pontos da fidelidade e os prêmios para usar) e pedidoFeito (o pedido já registrado em andamento, com os itens numerados e se dá para mudar).',
+    '- ver_pedido: o cliente (conhecido? nome), os endereços salvos numerados, o último endereço usado, o pedido em montagem com o proximo, emCurso (há pedido em montagem), do cliente conhecido ultimoPedido (os itens que dá para repetir), beneficios (o saldo de cashback, os vales, os pontos da fidelidade e os prêmios para usar) e pedidoFeito (o pedido já registrado em andamento, com os itens numerados e se dá para mudar). Às vezes vem cartao: como atender ESTE cliente (o de sempre, quando costuma pedir, o jeito que ELE pediu, os cuidados). Use só para a forma da resposta e a sugestão; nunca cite o cartão, números do cliente ou que ele foi classificado; com o cliente irritado agora, ignore o jeito e vá direto à solução, sem emoji.',
     '- mexer_no_pedido: acao = adicionar, escolher (a resposta de uma escolha ou um adicional), concluir (sem mais adicional nem observação no item), fechar ("só isso"), alterar, remover, observacao_do_pedido, repetir (o último pedido do cliente), trocar_pelo_trio (com a linha), usar_cashback ou guardar_cashback, usar_premio ou guardar_premio, usar_cupom (o código em observacao) ou tirar_cupom, ou limpar. No pedido JÁ FEITO: pedido_por, pedido_tirar, pedido_trocar, pedido_endereco, troco_da_mudanca, confirmar_mudanca ou desistir_da_mudanca.',
     '- definir_entrega: entrega (endereço salvo pelo número, ou rua, número e bairro; referência; localização) ou retirada. Depois de pedido_endereco, é o endereço novo do pedido já feito.',
     '- definir_nome: o nome do cliente para o pedido.',

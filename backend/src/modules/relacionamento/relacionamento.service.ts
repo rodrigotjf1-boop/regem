@@ -9,6 +9,8 @@ import { dataNoFuso, hojeISO, somarDias } from '../../common/data';
 import { FUSO_SQL } from '../../common/fuso-sql';
 import { sqlChaveTelefone, sqlPodeTerAChave } from '../../common/telefone-chave';
 import { saiuDoMarketing, sqlRecebeMarketing } from '../../common/marketing-quem-recebe';
+import { perfilLigado } from '../../common/segmentos-do-perfil';
+import { REGRAS_DO_PERFIL } from '../perfil-cliente/calculo-do-perfil';
 import { aniversarioValendoEntre, sqlOcorrenciaEntre, valePara } from '../../common/aniversario';
 import { descricaoDoCupom, validadeDoPresente } from '../aniversario/aniversario.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
@@ -24,6 +26,7 @@ import {
   VOLTA_DIAS,
   VOLTA_ENTRE_TENTATIVAS_DIAS,
   VOLTA_JANELA_DIAS,
+  PISO_DO_RITMO_DIAS,
   VOLTA_MINIMO,
   VOLTA_PEDIDOS,
   VOLTA_TENTATIVAS,
@@ -149,6 +152,8 @@ export class RelacionamentoService {
       voltaMinimo: 'volta_minimo',
       voltaValidadeDias: 'volta_validade_dias',
       voltaTentativas: 'volta_tentativas',
+      voltaPeloRitmo: 'volta_pelo_ritmo',
+      grupoControle: 'grupo_controle',
     };
     const nomes = mudou.map((k) => sql.raw(colunas[k]));
     const valores = mudou.map((k) => sql`${parcial[k] as any}`);
@@ -417,8 +422,28 @@ export class RelacionamentoService {
    * Atendimento e respeitando "uma oferta a cada N dias". A 2ª chamada (com 2 tentativas) sai 60 dias depois da 1ª, se o
    * cliente não pediu no meio; pedido novo zera as tentativas (a referência é o dia do último pedido + "#tentativa").
    */
-  private candidatosVolta(tenantId: string, a: AjustesRelacionamento) {
+  /** "Pelo ritmo" vale: a opção ligada E o módulo "Perfil do cliente" ligado (sem ele, os dias fixos de sempre). */
+  private async ritmoValendo(tenantId: string, a: AjustesRelacionamento): Promise<boolean> {
+    return a.voltaPeloRitmo === true && (await perfilLigado(this.db, tenantId));
+  }
+
+  private candidatosVolta(tenantId: string, a: AjustesRelacionamento, peloRitmo = false) {
     const chave = sqlChaveTelefone(sql`c.telefone`);
+    // PELO RITMO (F7 parte 2, mig 464; só com o módulo "Perfil do cliente" ligado — `ritmoValendo`): quem tem ritmo (2+ pedidos
+    // diretos e o intervalo habitual do perfil) é chamado quando os dias sem pedir passam de 1,5 × o intervalo DELE (o corte
+    // da etiqueta "atrasado"), com o piso de ${PISO_DO_RITMO_DIAS} dias; a conta usa o último pedido de AGORA (não o atraso da
+    // madrugada — quem pediu hoje não recebe). Quem não tem ritmo segue o "Quem não pede há". A 1ª chamada vale até 30 dias
+    // depois do limite de cada um.
+    const limiteDoRitmo = sql`greatest(ceil(cp.intervalo_dias * ${REGRAS_DO_PERFIL.atrasado}), ${PISO_DO_RITMO_DIAS})`;
+    const temRitmo = sql`(cp.intervalo_dias is not null and cp.intervalo_dias > 0 and cp.pedidos_diretos >= 2)`;
+    const juntaPerfil = peloRitmo ? sql`left join cliente_perfil cp on cp.cliente_id = c.id and cp.tenant_id = c.tenant_id` : sql``;
+    const sumiu = peloRitmo
+      ? sql`((${temRitmo} and c.ultimo_pedido_em <= now() - make_interval(days => ${limiteDoRitmo}::int))
+              or (not coalesce(${temRitmo}, false) and c.ultimo_pedido_em <= now() - make_interval(days => ${a.voltaDias}::int)))`
+      : sql`c.ultimo_pedido_em <= now() - make_interval(days => ${a.voltaDias}::int)`;
+    const janela = peloRitmo
+      ? sql`(case when ${temRitmo} then ${limiteDoRitmo} else ${a.voltaDias} end + ${VOLTA_JANELA_DIAS})::int`
+      : sql`${a.voltaDias + VOLTA_JANELA_DIAS}::int`;
     return sql`
       select x.*, x.dia_pedido || '#' || (x.tentativas + 1) as referencia from (
         select distinct on (${chave})
@@ -429,10 +454,11 @@ export class RelacionamentoService {
                (select max(e.enviado_em) from relacionamento_envio e where e.tenant_id = c.tenant_id and e.tipo = 'volta'
                   and e.status = 'enviado' and e.chave_telefone = ${chave} and e.enviado_em > c.ultimo_pedido_em) as ultima_tentativa,
                (select p.unidade_id from pedido_externo p where p.tenant_id = c.tenant_id and p.cliente_id = c.id
-                 order by p.criado_em desc limit 1) as unidade_id
-          from cliente c
+                 order by p.criado_em desc limit 1) as unidade_id,
+               ${janela} as janela_dias
+          from cliente c ${juntaPerfil}
          where c.tenant_id = ${tenantId}::uuid and c.ultimo_pedido_em is not null
-           and c.ultimo_pedido_em <= now() - make_interval(days => ${a.voltaDias}::int)
+           and ${sumiu}
            and coalesce(c.total_pedidos, 0) >= ${a.voltaMinPedidos}::int
            ${sqlRecebeMarketing()}
            ${this.pediuNaLoja()}
@@ -441,7 +467,7 @@ export class RelacionamentoService {
          order by ${chave}, c.ultimo_pedido_em desc
       ) x
       where x.tentativas < ${a.voltaTentativas}::int
-        and ((x.tentativas = 0 and x.ultimo_pedido_em > now() - make_interval(days => ${a.voltaDias + VOLTA_JANELA_DIAS}::int))
+        and ((x.tentativas = 0 and x.ultimo_pedido_em > now() - make_interval(days => x.janela_dias))
              or (x.tentativas > 0 and x.ultima_tentativa <= now() - make_interval(days => ${VOLTA_ENTRE_TENTATIVAS_DIAS}::int)))
         and not exists (select 1 from relacionamento_envio e where e.tenant_id = ${tenantId}::uuid and e.tipo = 'volta'
                           and e.chave_telefone = x.chave and e.referencia = x.dia_pedido || '#' || (x.tentativas + 1))
@@ -500,6 +526,8 @@ export class RelacionamentoService {
     }
     return {
       ajustes: a,
+      // O módulo "Perfil do cliente" ligado: a tela mostra "pelo ritmo de cada cliente" (F7 parte 2, mig 464).
+      perfilLigado: await perfilLigado(this.db, tenantId),
       opcoes: {
         intervalos: [...INTERVALOS_OFERTA],
         maxPorDia: [...MAX_POR_DIA],
@@ -551,13 +579,14 @@ export class RelacionamentoService {
    */
   private async painelVolta(tenantId: string, a: AjustesRelacionamento, prox: { dia: string; hora: string; emDias: number } | null, antes = 0) {
     const pronto = await this.prontidao(tenantId, 'volta', a, true);
+    const ritmo = await this.ritmoValendo(tenantId, a);
     let previa: any = null;
     if (prox) {
-      const total = Number(this.rows(await this.db.execute(sql`select count(*)::int as n from (${this.candidatosVolta(tenantId, a)}) q`))[0]?.n ?? 0);
+      const total = Number(this.rows(await this.db.execute(sql`select count(*)::int as n from (${this.candidatosVolta(tenantId, a, ritmo)}) q`))[0]?.n ?? 0);
       const vagas = Math.max(0, a.maxPorDia - (await this.usadasNoDia(tenantId, prox.dia)) - antes);
       const lista = this.rows(
         await this.db.execute(sql`
-          select q.nome, q.ultimo_pedido_em, q.total_pedidos, q.tentativas from (${this.candidatosVolta(tenantId, a)}) q
+          select q.nome, q.ultimo_pedido_em, q.total_pedidos, q.tentativas from (${this.candidatosVolta(tenantId, a, ritmo)}) q
            order by q.ultimo_pedido_em desc limit ${NA_PREVIA}`),
       ).map((x) => {
         const dias = Math.max(0, Math.floor((Date.now() - new Date(x.ultimo_pedido_em).getTime()) / 86_400_000));
@@ -798,11 +827,12 @@ export class RelacionamentoService {
    */
   async separarVolta(tenantId: string, dia: string, a: AjustesRelacionamento): Promise<number> {
     await this.soltarPendentesAntigos(tenantId, dia, 'volta');
+    const ritmo = await this.ritmoValendo(tenantId, a);
     const r = this.rows(
       await this.db.execute(sql`
         insert into relacionamento_envio (tenant_id, tipo, chave_telefone, referencia, telefone, cliente_id, unidade_id, dia, oferta, vence_em)
         select ${tenantId}::uuid, 'volta', q.chave, q.referencia, q.telefone, q.cliente_id, q.unidade_id, ${dia}::date, true, q.ultimo_pedido_em
-          from (${this.candidatosVolta(tenantId, a)}) q
+          from (${this.candidatosVolta(tenantId, a, ritmo)}) q
          order by q.ultimo_pedido_em desc
          limit ${this.vagasSql(tenantId, dia, a)}
         on conflict (tenant_id, tipo, chave_telefone, referencia) do nothing

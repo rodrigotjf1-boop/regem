@@ -7,6 +7,8 @@ import { getClienteToken, limparCliente, setClienteToken } from '@/components/lo
 import type { Cardapio } from './use-cardapio';
 import { brl, Ic } from './partes';
 import { AniversarioNoPerfil } from './aniversario-do-cliente';
+import { PrivacidadeNaConta } from './privacidade';
+import { EscolhasDaEntrada, type Promocoes } from './escolhas-da-entrada';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -149,12 +151,26 @@ export function Conta({ c }: { c: Cardapio }) {
 // ───────────────────────── Entrar (código pelo WhatsApp) ─────────────────────────
 
 function Entrar({ token, onEntrou }: { token: string; onEntrou: () => void | Promise<void> }) {
-  const [etapa, setEtapa] = useState<'telefone' | 'codigo'>('telefone');
+  const [etapa, setEtapa] = useState<'telefone' | 'codigo' | 'escolhas'>('telefone');
   const [telefone, setTelefone] = useState('');
   const [codigo, setCodigo] = useState('');
   const [nome, setNome] = useState('');
   const [busy, setBusy] = useState(false);
   const [erro, setErro] = useState('');
+  // As escolhas da entrada (perfil do cliente, F1c): o token novo, os textos que o servidor grava e as promoções do Perfil.
+  const [escolhas, setEscolhas] = useState<{ clienteToken: string; textos?: Record<string, string>; promocoes: Promocoes } | null>(null);
+
+  /** Pergunta as escolhas uma vez só: módulo "Perfil do cliente" ligado e o cliente nunca respondeu. Falhou, entra direto. */
+  async function precisaDasEscolhas(ct: string) {
+    try {
+      const p: any = await api.clientePrivacidade(token, ct);
+      if (!p?.ativo || p?.jaRespondeu) return null;
+      const perfil: any = await api.clientePerfil(token, ct).catch(() => null);
+      return { clienteToken: ct, textos: p.textos, promocoes: perfil?.promocoes ?? null };
+    } catch {
+      return null;
+    }
+  }
 
   async function enviarCodigo() {
     if (telefone.replace(/\D/g, '').length < 10) return setErro('Informe um telefone válido (com DDD).');
@@ -177,13 +193,32 @@ function Entrar({ token, onEntrou }: { token: string; onEntrou: () => void | Pro
     setErro('');
     try {
       const r: any = await api.clienteOtpConfirmar(token, { telefone, codigo, nome });
+      // Guardado já (só no aparelho; nada mais na tela reage): quem fechar no meio das escolhas continua entrado.
       setClienteToken(token, r.clienteToken);
+      const pergunta = await precisaDasEscolhas(r.clienteToken);
+      if (pergunta) {
+        setEscolhas(pergunta);
+        setEtapa('escolhas');
+        return;
+      }
       await onEntrou();
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Código inválido');
     } finally {
       setBusy(false);
     }
+  }
+
+  if (etapa === 'escolhas' && escolhas) {
+    return (
+      <EscolhasDaEntrada
+        token={token}
+        clienteToken={escolhas.clienteToken}
+        textos={escolhas.textos}
+        promocoes={escolhas.promocoes}
+        onPronto={onEntrou}
+      />
+    );
   }
 
   return (
@@ -1128,6 +1163,9 @@ function AbaPerfil({
           </div>
         ))}
       </div>
+
+      {/* Privacidade (F1c do plano do perfil do cliente): só na loja com o módulo "Perfil do cliente" ligado. */}
+      <PrivacidadeNaConta token={token} clienteToken={clienteToken} setErro={setErro} />
 
       {/* Promoções pelo WhatsApp — só na loja que manda promoção */}
       {perfil.promocoes && (
