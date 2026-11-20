@@ -264,8 +264,9 @@ export class ClubeService {
     // Ligado, o álbum precisa de um prêmio que o cliente possa escolher (o produto grátis não entra na escolha ainda).
     if (depois.albumAtivo && !depois.albumPremios.some((id) => tipos.has(id) && tipos.get(id) !== 'produto'))
       throw new BadRequestException('Escolha ao menos um prêmio para quem completa o álbum (desconto ou frete grátis).');
-    if (depois.metaAtivo && depois.metaNiveis.some((n) => !n.premios.length))
-      throw new BadRequestException('Escolha ao menos um prêmio em cada nível da meta.');
+    // Ligada, a meta precisa, em CADA nível, de um prêmio que o cliente possa escolher (o produto grátis não entra ainda).
+    if (depois.metaAtivo && depois.metaNiveis.some((n) => !n.premios.some((id) => tipos.has(id) && tipos.get(id) !== 'produto')))
+      throw new BadRequestException('Escolha ao menos um prêmio em cada nível da meta (desconto ou frete grátis).');
     const valor = (k: keyof ConfigDoClube) => (JSONB.has(k) ? sql`${JSON.stringify(depois[k])}::jsonb` : sql`${depois[k] as any}`);
     // Ligar o álbum (ou a meta) grava DESDE QUANDO (mig 479): só os pedidos depois contam; desligar zera.
     const extras: Array<{ coluna: string; valor: any }> = [];

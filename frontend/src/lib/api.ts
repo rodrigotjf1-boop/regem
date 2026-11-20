@@ -2304,6 +2304,9 @@ export const api = {
   /** O álbum de selos completo (A2): o cliente escolhe o prêmio — vira cupom na hora. */
   clienteEscolherDoAlbum: (token: string, clienteToken: string, premioId: string) =>
     pub(`/publico/cardapio/${token}/cliente/clube/album`, { method: 'POST', body: JSON.stringify({ clienteToken, premioId }) }),
+  /** A meta do mês (A3): o cliente escolhe o prêmio de um nível que bateu — vira cupom na hora. */
+  clienteEscolherDaMeta: (token: string, clienteToken: string, mes: string, nivel: number, premioId: string) =>
+    pub(`/publico/cardapio/${token}/cliente/clube/meta`, { method: 'POST', body: JSON.stringify({ clienteToken, mes, nivel, premioId }) }),
   clienteEsquecer: (token: string, clienteToken: string) =>
     pub(`/publico/cardapio/${token}/cliente/esquecer`, { method: 'POST', body: JSON.stringify({ clienteToken }) }),
   clientePedirDeNovo: (token: string, pedidoId: string, clienteToken: string) =>

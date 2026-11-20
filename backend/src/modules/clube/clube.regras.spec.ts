@@ -18,6 +18,9 @@ import {
   premiosCitados,
   regrasDoClube,
   estadoDoAlbum,
+  estadoDaMeta,
+  mesAnterior,
+  mesesQueEscolhem,
   mesPorExtenso,
   seloDoMes,
 } from './clube.regras';
@@ -65,10 +68,10 @@ describe('a configuração do clube', () => {
     expect(() => lerConfigDoClube({ metaNiveis: [{ pedidos: 0 }] })).toThrow('de 1 a 30 pedidos');
   });
 
-  it('nenhuma ferramenta liga antes da sua fase (a tela nem mostra o liga/desliga dela) — a surpresa chegou na A1 e o álbum na A2', () => {
-    expect(FERRAMENTAS_PRONTAS).toEqual({ surpresa: true, album: true, meta: false });
-    expect(ligandoAntesDaHora({ surpresaAtivo: true, albumAtivo: true, metaAtivo: false })).toEqual([]);
-    expect(ligandoAntesDaHora({ metaAtivo: true })).toEqual(['meta']);
+  it('nenhuma ferramenta liga antes da sua fase (a tela nem mostra o liga/desliga dela) — surpresa na A1, álbum na A2, meta na A3', () => {
+    expect(FERRAMENTAS_PRONTAS).toEqual({ surpresa: true, album: true, meta: true });
+    expect(ligandoAntesDaHora({ surpresaAtivo: true, albumAtivo: true, metaAtivo: true })).toEqual([]);
+    expect(ligandoAntesDaHora({ metaAtivo: true }, { surpresa: true, album: true, meta: false })).toEqual(['meta']);
     expect(ligandoAntesDaHora({ surpresaAtivo: true, albumAtivo: true }, { surpresa: false, album: false, meta: false })).toEqual(['surpresa', 'album']);
     expect(ligandoAntesDaHora({ surpresaAtivo: false })).toEqual([]); // desligar sempre pode
     expect(ligandoAntesDaHora({ surpresaAtivo: true }, { surpresa: true, album: false, meta: false })).toEqual([]);
@@ -293,5 +296,45 @@ describe('o álbum de selos (A2)', () => {
     expect(seloDoMes('2026-11')).toEqual({ mes: '2026-11', rotulo: 'Nov', arte: '🍔' });
     expect(seloDoMes('2026-10').arte).toBe('🎃');
     expect(mesPorExtenso('2026-03')).toBe('março');
+  });
+});
+
+describe('a meta do mês (A3)', () => {
+  const niveis = [
+    { pedidos: 3, premios: [A] },
+    { pedidos: 6, premios: [B] },
+  ];
+  it('cada nível dá um prêmio por mês; o próximo a bater e o que falta', () => {
+    expect(estadoDaMeta('2026-11', 2, niveis, [])).toEqual({
+      mes: '2026-11',
+      mesNome: 'novembro',
+      pedidos: 2,
+      niveis: [
+        { nivel: 1, pedidos: 3, falta: 1, atingido: false, escolhido: false },
+        { nivel: 2, pedidos: 6, falta: 4, atingido: false, escolhido: false },
+      ],
+      proximo: { nivel: 1, pedidos: 3, falta: 1 },
+      pendente: false,
+    });
+    // bateu o 1º: pendente até escolher; o 2º segue como o próximo
+    const bateu = estadoDaMeta('2026-11', 4, niveis, []);
+    expect(bateu.niveis[0]).toMatchObject({ atingido: true, escolhido: false, falta: 0 });
+    expect(bateu.proximo).toEqual({ nivel: 2, pedidos: 6, falta: 2 });
+    expect(bateu.pendente).toBe(true);
+    expect(estadoDaMeta('2026-11', 4, niveis, [1]).pendente).toBe(false);
+    // bater o 2º não tira o do 1º; bateu todos: sem próximo
+    const todos = estadoDaMeta('2026-11', 9, niveis, [1]);
+    expect(todos.niveis.map((n) => [n.atingido, n.escolhido])).toEqual([[true, true], [true, false]]);
+    expect(todos.proximo).toBeNull();
+    expect(todos.pendente).toBe(true);
+    // "escolhido" só vale para o nível batido (um resto de outro mês não conta)
+    expect(estadoDaMeta('2026-11', 0, niveis, [1]).niveis[0].escolhido).toBe(false);
+  });
+  it('o mês anterior: escolhe até o dia 7; a virada do ano', () => {
+    expect(mesAnterior('2026-11')).toBe('2026-10');
+    expect(mesAnterior('2027-01')).toBe('2026-12');
+    expect(mesesQueEscolhem('2026-12-07')).toEqual(['2026-12', '2026-11']);
+    expect(mesesQueEscolhem('2026-12-08')).toEqual(['2026-12']);
+    expect(mesesQueEscolhem('2027-01-01')).toEqual(['2027-01', '2026-12']);
   });
 });

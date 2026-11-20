@@ -1934,6 +1934,15 @@ pagamento (`formas-de-pagamento`) e Configurações › Unidades (`unidades`). 1
 corpo do componente achadas nessas telas (o painel do caixa, os cartões de checklist e de documento, Unidades) não mudam o
 primeiro desenho hoje (aparecem só depois da leitura dos dados) — o roteiro confere o #418 nelas a cada rodada.
 
+**M6k, lote 3 (20/11/2026; SEM migration) — mais 8:** Delivery › Mapa ao vivo (`mapa-ao-vivo`), Delivery › Pedidos ·
+produção (`pedidos-producao`), Tarefas › Pedidos de produção (`ordem-de-producao`), Tarefas › Pedidos de manutenção
+(`pedido-de-manutencao`), Ponto de baixa (QR) (`ponto-de-baixa`), Financeiro › TEF / maquininha (`tef-maquininha`), Pessoas
+› Gerenciamento de ponto (`espelho-de-ponto`) e Pessoas › Candidatos (`candidatos`). 24 dos 31; faltam 7 (Alertas do KDS,
+Direcionamento do catálogo, Config. por ramo, Planos & assinatura, Servidor local, Relatórios › Atendimento e Visão C&O). O
+roteiro passou a simular os azulejos do mapa (sem depender do OpenStreetMap) e a dar o endereço às respostas montadas na
+hora (as ordens de produção leem a lista duas vezes, abertas e encerradas). A tela de manutenção lê a categoria no corpo do
+componente, mas a lista começa em "Carregando…" (o primeiro desenho é igual): o roteiro confere o #418 a cada rodada.
+
 **M6d implementada (20/11/2026; mig 476 SÓ NUVEM — `mister_conversa_config.pin_a_cada_h` e `mister_vinculo.pin_ate`;
 nasce desligada):**
 - **O ajuste** (Mister › Regras › "Segurança · só o presidente muda", pelo `PATCH /mister/conversa`): pedir o PIN a cada

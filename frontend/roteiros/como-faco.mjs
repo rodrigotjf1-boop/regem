@@ -9,6 +9,8 @@
 import { fotoDoComoFaco, responder, tokenFalso, umaLinha } from './comum.mjs';
 
 const TUDO = { ver: true, criar: true, editar: true, excluir: true };
+// O azulejo do mapa simulado (1×1 transparente), o mesmo do roteiro da área de entrega.
+const PNG_VAZIO = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
 // `financeiro`: a tela das contas a pagar lê a permissão do token (`podePerm`); sem ela, mostra só as formas de pagamento
 const PERMISSOES = ['cadastros', 'escalas', 'impressoras', 'acessos', 'relatorios_vendas', 'cancelamentos', 'auditoria', 'turnos', 'fiscal_config', 'cupons', 'delivery', 'pedidos', 'fiscal', 'producao_kds', 'loja', 'financeiro'];
 // `ver_financeiro`: o presidente vê os valores em R$ (sem ela, os relatórios mostram só as quantidades e um aviso)
@@ -248,6 +250,123 @@ const UNIDADES = [
   { id: 'u1', nome: 'Loja Exemplo Centro', tipo: 'matriz', endereco: 'Rua Exemplo, 100 — Centro' },
   { id: 'u2', nome: 'Loja Exemplo Norte', tipo: 'filial', endereco: null },
 ];
+
+// ── M6k, lote 3: Mapa ao vivo, Pedidos · produção, Pedidos de produção e de manutenção, Ponto de baixa, TEF, Gerenciamento de
+// ponto e Candidatos
+// O mapa ao vivo (`/delivery/entregadores-ao-vivo`): a loja e dois entregadores em rota, na posição de agora; as telas de KDS
+// da loja sem o mapa (o botão do alto diz "Mostrar num KDS"; com uma tela no mapa, ele vira "Escolher os KDS").
+const entregadoresAoVivo = () => ({
+  centro: { lat: -22.9068, lng: -43.1729 },
+  entregadores: [
+    { colaborador_id: 'en1', nome: 'Carlos Exemplo', lat: -22.9012, lng: -43.1795, criado_em: haMin(0.5), em_rota: 2, pedidos: ['1061', '1063'] },
+    { colaborador_id: 'en2', nome: 'Diego Exemplo', lat: -22.9131, lng: -43.1662, criado_em: haMin(3), em_rota: 1, pedidos: ['1062'] },
+  ],
+});
+const TELAS_KDS_DO_MAPA = {
+  ligado: true,
+  telas: [
+    { id: 'k1', nome: 'Expedição', escopo: 'despacho', setor: null, mapa: false },
+    { id: 'k2', nome: 'Chapa', escopo: 'producao', setor: 'Cozinha', mapa: false },
+  ],
+};
+// O painel de produção (`/producao/pedidos`), montado na hora: um pedido na chapa passou do tempo de preparo (22 de 15 min),
+// um acabou de chegar, um do iFood está pronto e um já foi entregue (vai para "Recentes").
+const pedidosNaProducao = () => [
+  { id: 'pp1', senha: '27', status: 'preparo', setorNome: 'Chapa', criadoEm: haMin(22), tempoPreparoMin: 15, comanda: { cliente: 'Ana Exemplo', total: 67.8 }, itens: [{ id: 'i1', quantidade: 2, descricao: 'X-Burger', complementosTexto: 'sem cebola' }] },
+  { id: 'pp2', mesa: '12', status: 'recebido', setorNome: 'Chapa', criadoEm: haMin(4), tempoPreparoMin: 15, itens: [{ id: 'i2', quantidade: 1, descricao: 'X-Salada' }] },
+  { id: 'pp3', plataforma: 'iFood', senhaPlataforma: '4821', status: 'pronto', setorNome: 'Fritadeira', criadoEm: haMin(12), tempoPreparoMin: 10, itens: [{ id: 'i3', quantidade: 2, descricao: 'Batata média' }] },
+  { id: 'pp4', senha: '25', status: 'entregue', setorNome: 'Chapa', criadoEm: haMin(45), tempoPreparoMin: 15, itens: [{ id: 'i4', quantidade: 1, descricao: 'X-Bacon' }] },
+];
+// As ordens de produção: a tela lê `/ordens-producao` DUAS vezes (`situacao=abertas` e `situacao=encerradas`) e junta as
+// duas listas — a mesma resposta nas duas repetia cada ordem. Abertas: uma em produção, uma liberada e uma esperando o
+// lançamento (vira "Pendências"); encerrada: uma concluída ontem.
+const ordem = (id, fichaNome, status, quantidadePlanejada, unidade, dias, horaInicio, setorNome, colaboradorNome) => ({
+  id, fichaNome, status, quantidadePlanejada, quantidadeProduzida: status === 'concluida_total' ? quantidadePlanejada : null, unidade,
+  dataProducao: diaDaqui(dias), horaInicio, setorNome, colaboradorNome, motivo: null,
+});
+const ordensDaProducao = (u) =>
+  u.searchParams.get('situacao') === 'encerradas'
+    ? [ordem('o4', 'Maionese verde', 'concluida_total', 3, 'kg', -1, '10:00:00', 'Cozinha', 'Ana Exemplo')]
+    : [
+        ordem('o1', 'Pão de hambúrguer', 'em_producao', 40, 'un', 0, '09:00:00', 'Padaria', 'Bruno Exemplo'),
+        ordem('o2', 'Molho da casa', 'liberada', 5, 'L', 0, '14:00:00', 'Cozinha', 'Ana Exemplo'),
+        ordem('o3', 'Batata pré-frita', 'aguardando_lancamento', 10, 'kg', -1, '16:00:00', 'Cozinha', 'Carla Exemplo'),
+      ];
+// Os pedidos de manutenção (`/manutencao`): um aberto de prioridade alta, um delegado que passou dos 15 dias e um concluído;
+// e as pessoas do "Delegar ao gerente…".
+const MANUTENCAO = {
+  '/manutencao': [
+    { id: 'mn1', titulo: 'Geladeira 2 não está gelando', equipamentoRef: 'Geladeira 2 — cozinha', descricao: 'A temperatura passou de 8 °C.', prioridade: 'alta', status: 'aberto', fotos: [], prazo15d: haMin(-12 * 1440) },
+    { id: 'mn2', titulo: 'Lâmpada do salão queimada', equipamentoRef: 'Salão', descricao: null, prioridade: 'normal', status: 'em_andamento', responsavelId: 'c1', responsavelNome: 'Gerente Exemplo', fotos: [], prazo15d: haMin(2 * 1440) },
+    { id: 'mn3', titulo: 'Torneira pingando', equipamentoRef: 'Banheiro', descricao: null, prioridade: 'baixa', status: 'concluido', fotos: [], prazo15d: null },
+  ],
+  '/colaboradores': [{ id: 'c1', nome: 'Gerente Exemplo' }, { id: 'c2', nome: 'Ana Exemplo' }],
+};
+// A etiqueta que o passo lê no ponto de baixa (`POST /etiquetas-validade/buscar`): fechada, então o modo "Perguntar" mostra
+// "Baixar (usei)" e "Abrir (em uso)".
+const ETIQUETA_LIDA = { id: 'et1', codigo: 'ETQ-1042', descricao: 'Molho da casa', validade: diaDaqui(2), status: 'fechado', unidadeMedida: 'pote 500 g' };
+// O TEF ligado e as cobranças (`/tef/pagamentos`): uma pendente (com "Simular aprovado"), duas aprovadas e uma negada.
+const TEF = {
+  '/tef/config': { ativo: true, provedor: 'mock' },
+  '/tef/pagamentos': [
+    { id: 'tf1', valor: 42.8, forma: 'credito', status: 'pendente', criadoEm: haMin(1) },
+    { id: 'tf2', valor: 89.9, forma: 'debito', status: 'aprovado', nsu: '000122', bandeira: 'Mastercard', criadoEm: haMin(25) },
+    { id: 'tf3', valor: 35.9, forma: 'pix', status: 'aprovado', nsu: '000121', criadoEm: haMin(40) },
+    { id: 'tf4', valor: 27.5, forma: 'credito', status: 'negado', criadoEm: haMin(70) },
+  ],
+};
+// O gerenciamento de ponto: quem bateu hoje (o `PONTO_DE_HOJE` do lote 1), o fechamento do mês passado já encaminhado (uma
+// linha só no alto) e o espelho que o passo abre — três dias com as quatro marcações e o saldo de cada um.
+const competenciaPassada = () => {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+const diaDoEspelho = (dias, efetivoMin, saldoMin, horas) => {
+  const data = diaDaqui(dias);
+  const tipos = ['entrada', 'intervalo_inicio', 'intervalo_fim', 'saida'];
+  return {
+    data, efetivoMin, esperadoMin: 480, saldoMin, ajustes: [],
+    marcacoes: horas.map((h, i) => ({ id: `${data}-${i}`, nsr: 1200 + i, tipo: tipos[i], origem: 'terminal', desconsiderada: false, hora: `${data}T${h}:00-03:00` })),
+  };
+};
+const espelhoDoPonto = () => ({
+  totalTrabalhadoMin: 1455, totalEsperadoMin: 1440, saldoMin: 15,
+  dias: [
+    diaDoEspelho(-3, 480, 0, ['11:00', '15:00', '16:00', '20:00']),
+    diaDoEspelho(-2, 510, 30, ['11:00', '15:00', '16:00', '20:30']),
+    diaDoEspelho(-1, 465, -15, ['11:15', '15:00', '16:00', '20:00']),
+  ],
+});
+const PONTO_DA_EQUIPE = {
+  '/ponto/pessoas': PONTO_DE_HOJE,
+  '/colaboradores': [{ id: 'c1', nome: 'Ana Exemplo' }, { id: 'c2', nome: 'Bruno Exemplo' }, { id: 'c3', nome: 'Carla Exemplo' }],
+};
+// Os candidatos (`/vagas/candidatos`, o formato de `components/vagas/loja/lista-candidatos.tsx`): uma ficha nova, uma com
+// entrevista amanhã e uma aprovada; e a condução dos aprovados (com a lista vazia, o indicador lia o valor de uma lista).
+const candidato = (id, nome, situacao, extra = {}) => ({
+  id, protocolo: `48${id.slice(-1)}215`, situacao, nome, idade: 24, telefone: '21988880000', bairro: 'Centro', cidade: 'Cidade Exemplo',
+  funcoes: ['chapeiro'], setores: ['cozinha'], tipoVaga: 'fixa', escala: '5x2', dias: [], meios: ['publico'], conducoes: 1, valorIda: 5.5, valorVolta: 5.5,
+  experiencia: 'sim', estuda: false, turnoEstudo: null, trabalhando: false, comeca: 'imediato', origem: 'qr_loja', origemNome: 'QR do balcão',
+  entrevistaEm: null, recebidoEm: haMin(300), loja: 'Loja Exemplo', comunicacao: true, experiencias: 2, temCarteira: true, jaLiderou: false,
+  distanciaKm: 3.2, minutosCarro: 9, distanciaFalha: null, distanciaMedindo: false, ...extra,
+});
+const CANDIDATOS = {
+  '/vagas/candidatos': [
+    candidato('ca1', 'Ana Exemplo', 'novo'),
+    candidato('ca2', 'Bruno Exemplo', 'entrevista', { funcoes: ['atendimento'], idade: 31, experiencias: 4, entrevistaEm: haMin(-1440), conducoes: 2, valorIda: 9.1, valorVolta: 9.1, distanciaKm: 6.8, minutosCarro: 17 }),
+    candidato('ca3', 'Carla Exemplo', 'aprovado', { funcoes: ['auxiliar'], tipoVaga: 'horista', escala: null, dias: ['sex', 'sab', 'dom'], experiencia: 'primeiro', experiencias: 0, temCarteira: false, distanciaKm: 2.4, minutosCarro: 7 }),
+  ],
+  // a aprovada é horista de sexta a domingo: 13 dias no mês, de ida e volta
+  '/vagas/candidatos/conducao': {
+    porMes: 143, porDia: 11, somadas: 1, foraDaSoma: 0,
+    pessoas: [{
+      id: 'ca3', nome: 'Carla Exemplo', situacao: 'aprovado', loja: 'Loja Exemplo', funcoes: ['auxiliar'], tipoVaga: 'horista', dias: ['sex', 'sab', 'dom'], meios: ['publico'],
+      conducoes: 1, uberMotivo: null, valorIda: 5.5, valorVolta: 5.5, contratadoEm: null, porDia: 11, diasNoMes: 13, porMes: 143, escala: null, motivo: null,
+    }],
+  },
+};
 
 // Cada tela: o assunto do guia, o endereço, o passo (opcional) e as marcas, na ordem dos números.
 const TELAS = [
@@ -523,6 +642,91 @@ const TELAS = [
       em(p, 'button[aria-label="Editar: Loja Exemplo Norte"]'),
     ],
   },
+  // ── M6k, lote 3 ──
+  {
+    // as marcas ficam fora do mapa (o Leaflet tem camadas com z-index próprio — ERR-277)
+    id: 'mapa-ao-vivo', caminho: '/delivery/mapa',
+    respostas: { '/delivery/entregadores-ao-vivo/telas-kds': TELAS_KDS_DO_MAPA },
+    respostasDinamicas: { '/delivery/entregadores-ao-vivo': entregadoresAoVivo },
+    marcas: (p) => [menu(p, '/delivery/mapa'), em(p, 'li:has-text("Carlos Exemplo")'), em(p, '#mostrar-num-kds')],
+  },
+  {
+    // o selo "ATRASADO" é procurado pela letra maiúscula (o `has-text` não diferencia e pegaria o contador "Atrasados")
+    id: 'pedidos-producao', caminho: '/pedidos', respostasDinamicas: { '/producao/pedidos': pedidosNaProducao },
+    marcas: (p) => [
+      menu(p, '/pedidos'),
+      em(p, 'p:text-is("Atrasados")').locator('..'),
+      em(p, 'span:text-matches("ATRASADO")'),
+      em(p, 'div:has(> div > span:text-matches("ATRASADO")) > button:has-text("Cancelar pedido")'),
+    ],
+  },
+  {
+    // a ação da linha tem a ficha e a data no rótulo ("Concluir: Pão de hambúrguer (20/11/2026, 09:00)")
+    id: 'ordem-de-producao', caminho: '/ordens-producao', respostasDinamicas: { '/ordens-producao': ordensDaProducao },
+    marcas: (p) => [
+      menu(p, '/ordens-producao'),
+      em(p, 'button:has-text("Nova ordem")'),
+      em(p, 'button[aria-pressed]:has-text("Pendências")'),
+      em(p, 'button[aria-label^="Concluir: Pão de hambúrguer"]'),
+    ],
+  },
+  {
+    // "Novo pedido" fica no topo da página (fora do <main>); o "Concluir" e o "Delegar ao gerente…" são os do 1º pedido
+    id: 'pedido-de-manutencao', caminho: '/manutencao', respostas: MANUTENCAO,
+    marcas: (p) => [
+      menu(p, '/manutencao'),
+      p.locator('button:has-text("Novo pedido") >> visible=true').first(),
+      botao(p, 'Concluir'),
+      em(p, 'select:has(option:text-is("Delegar ao gerente…"))'),
+    ],
+  },
+  {
+    // o passo lê uma etiqueta fechada no modo "Perguntar": aparecem "Baixar (usei)" e "Abrir (em uso)"
+    id: 'ponto-de-baixa', caminho: '/ponto-baixa', respostas: { '/etiquetas-validade/buscar': ETIQUETA_LIDA },
+    passo: async (p) => {
+      await em(p, '#ponto-baixa-codigo').fill('ETQ-1042');
+      await em(p, '#ponto-baixa-codigo').press('Enter');
+      await em(p, 'button:has-text("Baixar (usei)")').waitFor({ timeout: 8000 }).catch(() => {});
+    },
+    marcas: (p) => [
+      menu(p, '/ponto-baixa'),
+      em(p, 'div:has(> button:text-is("Baixar direto"))'),
+      em(p, '#ponto-baixa-codigo'),
+      em(p, 'div:has(> button:has-text("Baixar (usei)"))'),
+    ],
+  },
+  {
+    // a linha da cobrança aprovada achada pelo NSU (o selo da linha é um <span> filho direto)
+    id: 'tef-maquininha', caminho: '/tef', respostas: TEF,
+    marcas: (p) => [menu(p, '/tef'), em(p, 'label:has-text("TEF ativo")'), botao(p, 'Simular aprovado'), em(p, 'div:has(> span:text-is("NSU 000122"))')],
+  },
+  {
+    // o passo abre o espelho da Ana (o botão dela em "Ponto de hoje"); o fechamento do mês passado já foi encaminhado (uma
+    // linha só no alto, sem outro "Gerar PDF")
+    id: 'espelho-de-ponto', caminho: '/pessoas',
+    respostas: { ...PONTO_DA_EQUIPE, '/ponto/fechamentos': [{ id: 'pf1', competencia: competenciaPassada(), status: 'enviado', totalPendencias: 0, totalColaboradores: 6, pendencias: [] }] },
+    respostasDinamicas: { '/ponto/espelho': espelhoDoPonto },
+    passo: async (p) => {
+      await em(p, 'button:has-text("Ana Exemplo")').click();
+      await p.locator('main').getByText('Trabalhado', { exact: true }).first().waitFor({ timeout: 8000 }).catch(() => {});
+    },
+    marcas: (p) => [menu(p, '/pessoas'), em(p, 'button:has-text("Ana Exemplo")'), em(p, 'button:text-is("Este mês")'), em(p, 'button:has-text("Gerar PDF")')],
+  },
+  {
+    // a página rola até o título "Fichas recebidas" (os indicadores ficam em cima): as situações, os filtros e a 1ª linha
+    // cabem juntos; a ação da linha tem o nome no rótulo ("Abrir ficha: Ana Exemplo")
+    id: 'candidatos', caminho: '/candidatos', respostas: CANDIDATOS,
+    passo: async (p) => {
+      await em(p, '#candidatos-titulo').evaluate((el) => el.scrollIntoView({ block: 'start' }));
+      await p.waitForTimeout(300);
+    },
+    marcas: (p) => [
+      menu(p, '/candidatos'),
+      em(p, '[role="group"][aria-label="Situação"] button:has-text("Entrevista")'),
+      rotulado(p, 'Distância até a loja'),
+      em(p, 'button[aria-label="Abrir ficha: Ana Exemplo"]'),
+    ],
+  },
   // Só conferência, sem foto: as telas que leem a categoria do token não podem quebrar a hidratação (V35; os
   // entregadores davam React #418 — o aviso de cima só existia no navegador)
   { id: 'hidratacao-fichas', caminho: '/fichas', semFoto: true },
@@ -564,12 +768,16 @@ export default async function roteiroComoFaco({ nav, base, ok, foto }) {
     const doConsole = [];
     page.on('console', (m) => { if (m.type() === 'error') doConsole.push(m.text()); });
     await page.route('**/socket.io/**', (r) => r.abort());
+    // Os azulejos do mapa (o mapa ao vivo) não vêm da rede: uma imagem vazia, como no roteiro da área de entrega — o
+    // roteiro não depende do OpenStreetMap, e as marcas ficam fora do mapa (ERR-277).
+    await page.route(/tile\.openstreetmap\.org/, (r) => r.fulfill({ status: 200, contentType: 'image/png', body: PNG_VAZIO }));
     await page.route('**/api/v1/**', async (route) => {
       const req = route.request();
       const p = new URL(req.url()).pathname.replace(/^.*\/api\/v1/, '');
       if (t.respostas && p in t.respostas) return responder(route, t.respostas[p]);
-      // resposta montada na hora (o horário das mensagens relativo a agora)
-      if (t.respostasDinamicas && p in t.respostasDinamicas) return responder(route, t.respostasDinamicas[p]());
+      // resposta montada na hora (o horário das mensagens relativo a agora); recebe o endereço, para a tela que lê a mesma
+      // rota com consultas diferentes (as ordens abertas e as encerradas)
+      if (t.respostasDinamicas && p in t.respostasDinamicas) return responder(route, t.respostasDinamicas[p](new URL(req.url())));
       return responder(route, req.method() === 'GET' ? [] : {});
     });
     await page.goto(base + t.caminho);

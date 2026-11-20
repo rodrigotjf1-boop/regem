@@ -10,6 +10,7 @@ import { AniversarioNoPerfil } from './aniversario-do-cliente';
 import { PrivacidadeNaConta } from './privacidade';
 import { EscolhasDaEntrada, type Promocoes } from './escolhas-da-entrada';
 import { AlbumDaConta, type AlbumDoCliente } from './album-da-conta';
+import { MetaDaConta, type MetaDoCliente } from './meta-da-conta';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -667,6 +668,8 @@ function AbaBeneficios({ c, perfil }: { c: Cardapio; perfil: any }) {
   const [paraRevelar, setParaRevelar] = useState<any[]>([]);
   // O álbum de selos do Clube (A2, mig 479): os selos do cliente e, completo, os prêmios para escolher.
   const [album, setAlbum] = useState<AlbumDoCliente>({ ativo: false });
+  // A meta do mês do Clube (A3): a barra do mês, os níveis e, no nível batido, os prêmios para escolher.
+  const [meta, setMeta] = useState<MetaDoCliente>({ ativo: false });
 
   useEffect(() => {
     api.cardapioPromos(token).then(setData).catch(() => setData({ cupons: [], fidelidadeAtiva: false }));
@@ -689,11 +692,13 @@ function AbaBeneficios({ c, perfil }: { c: Cardapio; perfil: any }) {
           setPresentes(r?.presentes ?? []);
           setParaRevelar(Array.isArray(r?.paraRevelar) ? r.paraRevelar : []);
           setAlbum(r?.album?.ativo ? r.album : { ativo: false });
+          setMeta(r?.meta?.ativo ? r.meta : { ativo: false });
         })
         .catch(() => {
           setPresentes([]);
           setParaRevelar([]);
           setAlbum({ ativo: false });
+          setMeta({ ativo: false });
         });
   }, [token, perfil]);
   useEffect(() => {
@@ -738,7 +743,8 @@ function AbaBeneficios({ c, perfil }: { c: Cardapio; perfil: any }) {
     !temCashback &&
     presentes.length === 0 &&
     paraRevelar.length === 0 &&
-    !album.ativo;
+    !album.ativo &&
+    !meta.ativo;
   const ct = getClienteToken(token);
 
   return (
@@ -764,6 +770,7 @@ function AbaBeneficios({ c, perfil }: { c: Cardapio; perfil: any }) {
         </div>
       )}
       {album.ativo && ct && <AlbumDaConta album={album} token={token} clienteToken={ct} aoEscolher={carregarStatus} avisar={c.avisar} />}
+      {meta.ativo && ct && <MetaDaConta meta={meta} token={token} clienteToken={ct} aoEscolher={carregarStatus} avisar={c.avisar} />}
       {presentes.length > 0 && (
         <div className="c-sec">
           {presentes.map((p: any) => (

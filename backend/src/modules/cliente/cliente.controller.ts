@@ -139,6 +139,13 @@ export class ClientePublicoController {
     return this.service.escolherDoAlbum(token, dto?.clienteToken, dto?.premioId);
   }
 
+  // A meta do mês do Clube (A3): o cliente escolhe o prêmio de um nível que bateu — Sua conta › Benefícios.
+  @Post(':token/cliente/clube/meta')
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
+  escolherDaMeta(@Param('token') token: string, @Body() dto: any) {
+    return this.service.escolherDaMeta(token, dto?.clienteToken, { mes: dto?.mes, nivel: dto?.nivel, premioId: dto?.premioId });
+  }
+
   @Post(':token/cliente/esquecer')
   esquecer(@Param('token') token: string, @Body() dto: any) {
     return this.service.esquecer(token, dto?.clienteToken);
