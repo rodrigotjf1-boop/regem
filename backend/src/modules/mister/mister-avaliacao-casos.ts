@@ -17,6 +17,7 @@ import { GUIA_DE_USO, buscarNoGuia, quemAbre } from './mister-guia-de-uso';
 import { conferirMemoria } from './mister-memoria';
 import { canalDito, conferirTextoDoLembrete, lerQuando, quandoNaConversa } from './mister-vigia';
 import { AVISOS_QUE_NAO_SE_CALAM, conferirRegra, descreverRegra } from './mister-regra';
+import { lerPedidos } from './mister-lista';
 import { ehTipoDeAviso } from './mister-avisos.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -287,6 +288,20 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
         titulo: r.regra.titulo,
         oQueVouFazer: descreverRegra(r.regra),
         siga: 'Mostre o "oQueVouFazer" como veio e diga que os botões Confirmar e Mudar vão junto. Nada liga sem o Confirmar.',
+      });
+    }
+    case 'lista_de_compras': {
+      // Versão 6, M6g: a mesma leitura das linhas da de verdade; na avaliação nenhuma lista é guardada nem pedida.
+      if (en.acao === 'do_minimo') return ok({ vazia: true, mensagem: 'Nada está abaixo do mínimo no estoque agora: não há o que pôr na lista.' });
+      if (en.acao !== 'montar') return recusa('acao precisa ser montar ou do_minimo.');
+      const pedidos = lerPedidos(en.itens);
+      if (!pedidos.length) return recusa('Não entendi as linhas da lista: mande cada produto com a quantidade (ex.: "10 kg de bacon, 5 caixas de tomate").');
+      return ok({
+        montada: true,
+        linhas: pedidos.length,
+        ligadas: 0,
+        perguntas: pedidos.length,
+        orientacao: 'Diga em uma frase quantas linhas entraram e que as dúvidas vêm a seguir, com botões. Não repita a lista.',
       });
     }
     case 'escrever_recado':

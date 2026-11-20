@@ -17,6 +17,8 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { PausaDoCanalService } from '../delivery/pausa-do-canal.service';
 import { DashboardService } from '../dashboard/dashboard.service';
 import { EstoqueService } from '../estoque/estoque.service';
+import { ComprasService } from '../compras/compras.service';
+import { MisterListaService } from './mister-lista.service';
 import { RecebimentoService } from '../recebimento/recebimento.service';
 import { montarChave } from '../fiscal/chave';
 import { MisterNotasService } from './mister-notas.service';
@@ -468,7 +470,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -8644,6 +8646,130 @@ export function testesDoMisterComPostgres(): void {
         } finally {
           avisos.encerrados = [];
         }
+      });
+    });
+
+    // ───────────── versão 6, M6g (mig 475): a lista de compras ─────────────
+    describe('a lista de compras (versão 6, M6g)', () => {
+      const compras = new ComprasService(db, { emit: () => true } as any, auditoria);
+      const lista = new MisterListaService(db, ferramentas, numero, compras, new EstoqueService(db, auditoria), entrada, auditoria);
+      beforeAll(() => lista.onModuleInit());
+      const escopo = async (nome: string) => (await ferramentas.escopoDaTela(A, pessoa[nome]))!;
+      const tocar = (tel: string, botaoId: string) => mandar(tel, 'botão', { botaoId });
+      const ultima = async () => (await q(`select * from mister_lista_compra where tenant_id = $1 order by criada_em desc limit 1`, [A]))[0];
+      const textos = () => numero.enviadas.map((m) => m.texto);
+      const ids: Record<string, string> = {};
+      beforeAll(async () => {
+        [{ id: ids.bacon }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida, marcas) values ($1, 'Bacon em tiras', 'kg', '["Sadia","Seara"]'::jsonb) returning id`, [A]);
+        [{ id: ids.tomate }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, 'Tomate', 'kg') returning id`, [A]);
+        [{ id: ids.sul }] = await q(`insert into fornecedor (tenant_id, nome) values ($1, 'Distribuidora Sul') returning id`, [A]);
+        [{ id: ids.horti }] = await q(`insert into fornecedor (tenant_id, nome) values ($1, 'Hortifruti Bom') returning id`, [A]);
+        await q(`insert into item_fornecedor (tenant_id, item_id, fornecedor_id) values ($1, $2, $3), ($1, $4, $5)`, [A, ids.bacon, ids.sul, ids.tomate, ids.horti]);
+      });
+      afterAll(async () => {
+        await q(`delete from mister_lista_compra where tenant_id = any($1::uuid[])`, [[A, B]]);
+        for (const t of ['compra_item', 'compra_lista', 'item_fornecedor']) await q(`delete from ${t} where tenant_id = $1`, [A]).catch(() => undefined);
+        await q(`delete from item_estoque where tenant_id = $1 and nome in ('Bacon em tiras', 'Tomate', 'guardanapo')`, [A]).catch(() => undefined);
+        await q(`delete from fornecedor where tenant_id = $1 and nome in ('Distribuidora Sul', 'Hortifruti Bom')`, [A]).catch(() => undefined);
+      });
+
+      it('pela conversa: liga cada linha, pergunta a marca, o fator (por texto), o que não existe e o fornecedor; "Criar o pedido" cria pela tela de Pedidos, uma vez', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const r = await ferramentas.executar(await escopo('ana'), 'lista_de_compras', {
+          acao: 'montar',
+          itens: [
+            { texto: 'bacon em tiras', quantidade: 10, unidade: 'kg' },
+            { texto: 'tomate', quantidade: 2, unidade: 'caixas' },
+            { texto: 'guardanapo', quantidade: 5 },
+          ],
+        });
+        expect(r).toMatchObject({ ok: true, dados: { montada: true, linhas: 3, ligadas: 0, perguntas: 3 } });
+        const l = await ultima();
+        expect(l).toMatchObject({ situacao: 'montando', origem: 'conversa', colaborador_id: pessoa.ana });
+        // a primeira pergunta vai DEPOIS da resposta (o agente manda): a marca do bacon
+        expect(r.mensagens).toEqual([
+          {
+            texto: 'O "Bacon em tiras" tem 2 marcas. Qual vai no pedido?',
+            botoes: [
+              { id: `lc:${l.id}:0:m0`, titulo: 'Sadia' },
+              { id: `lc:${l.id}:0:m1`, titulo: 'Seara' },
+            ],
+          },
+        ]);
+        // o gerente não responde a lista da presidente
+        const telCarlos = telefone();
+        await ligar('carlos', telCarlos, A, 'gerente');
+        numero.pedidos.length = 0;
+        expect(await tocar(telCarlos, `lc:${l.id}:0:m0`)).toBe('proposta_nao_achada');
+        // a marca
+        numero.pedidos.length = 0;
+        expect(await tocar(tel, `lc:${l.id}:0:m0`)).toBe('respondeu_proposta');
+        expect(textos()).toEqual(['Você pediu 2 caixas de "tomate", e o "Tomate" é contado em kg. 1 caixas tem quantos kg? Responda só o número.']);
+        // o fator por texto
+        numero.pedidos.length = 0;
+        expect(await mandar(tel, '20')).toBe('documento');
+        expect(textos()).toEqual(['Não achei "guardanapo" (5) no seu estoque. Cadastro um novo, ou deixo de fora da lista?']);
+        expect(numero.enviadas[0].botoes.map((b: any) => b.titulo)).toEqual(['Cadastrar novo', 'Deixar de fora']);
+        // de fora; o toque repetido no item já respondido não muda nada
+        numero.pedidos.length = 0;
+        expect(await tocar(tel, `lc:${l.id}:2:f`)).toBe('respondeu_proposta');
+        // os dois insumos têm fornecedores diferentes: a pergunta
+        expect(textos()).toEqual(['Para qual fornecedor é o pedido?']);
+        expect(numero.enviadas[0].botoes.map((b: any) => b.titulo)).toEqual(['Distribuidora Sul', 'Hortifruti Bom', 'Sem fornecedor']);
+        numero.pedidos.length = 0;
+        expect(await tocar(tel, `lc:${l.id}:2:f`)).toBe('respondeu_proposta');
+        expect(textos()).toEqual(['Esta lista já foi respondida.']);
+        numero.pedidos.length = 0;
+        expect(await tocar(tel, `lc:${l.id}:fo:0`)).toBe('respondeu_proposta');
+        expect(textos()).toEqual(['🛒 Lista de compras · Distribuidora Sul\n• Bacon em tiras, 10 kg (Sadia)\n• Tomate, 40 kg\nFica de fora: guardanapo.\n\nCrio o pedido em Estoque › Pedidos?']);
+        expect(await q(`select count(*)::int as n from compra_lista where tenant_id = $1`, [A])).toEqual([{ n: 0 }]);
+        // "Criar o pedido": pelo serviço da tela (a marca conferida por ele), uma vez
+        numero.pedidos.length = 0;
+        expect(await Promise.all([tocar(tel, `lc:${l.id}:criar`), tocar(tel, `lc:${l.id}:criar`)])).toEqual(['respondeu_proposta', 'respondeu_proposta']);
+        expect(textos()).toHaveLength(2);
+        expect(textos()).toEqual(
+          expect.arrayContaining([expect.stringMatching(/^Criei o pedido "Lista do Mister · \d\d\/\d\d" com 2 itens em Estoque › Pedidos\./), 'Esta lista já foi respondida.']),
+        );
+        const [pedido] = await q(`select id, fornecedor_id, unidade_id from compra_lista where tenant_id = $1`, [A]);
+        expect(pedido).toMatchObject({ fornecedor_id: ids.sul, unidade_id: lojaDeA });
+        expect(await q(`select item_id, quantidade::float as q, marca from compra_item where lista_id = $1 order by quantidade`, [pedido.id])).toEqual([
+          { item_id: ids.bacon, q: 10, marca: 'Sadia' },
+          { item_id: ids.tomate, q: 40, marca: null },
+        ]);
+        expect(await ultima()).toMatchObject({ situacao: 'criada', compra_lista_id: pedido.id });
+        expect(auditados.at(-1)).toMatchObject({ tenantId: A, acao: 'mister_lista_criada', entidadeId: pedido.id });
+      });
+
+      it('a planilha (sem IA): lê as linhas e já pergunta; uma lista aberta por pessoa; "Cancelar" descarta; quem não pode criar no Estoque, não monta', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const id = `9${randomInt(1e13, 1e14)}`;
+        numero.midias.set(id, { mime: 'text/csv', bytes: Buffer.from('Produto;Quantidade;Unidade\nTomate;3;kg\nBacon em tiras;2;kg\n', 'utf8') });
+        numero.pedidos.length = 0;
+        expect(await entrada.receber({ telefone: tel, texto: '', botaoId: null, wamid: wamid(), codigoDoModelo: null, midia: { tipo: 'documento', id, mime: 'text/csv', legenda: null } } as any)).toBe('documento');
+        const l = await ultima();
+        expect(l).toMatchObject({ situacao: 'montando', origem: 'planilha' });
+        expect(textos()).toEqual(['Li 2 linhas da planilha.', 'O "Bacon em tiras" tem 2 marcas. Qual vai no pedido?']);
+        // a lista nova descarta a aberta
+        await ferramentas.executar(await escopo('ana'), 'lista_de_compras', { acao: 'montar', itens: [{ texto: 'tomate', quantidade: 1 }] });
+        expect((await q(`select situacao from mister_lista_compra where id = $1`, [l.id]))[0]).toEqual({ situacao: 'descartada' });
+        const nova = await ultima();
+        // a linha ligada e um fornecedor só: direto ao resumo; "Cancelar" descarta
+        numero.pedidos.length = 0;
+        expect(await tocar(tel, `lc:${nova.id}:cancelar`)).toBe('respondeu_proposta');
+        expect(textos()).toEqual(['Certo: descartei a lista. Nada foi pedido.']);
+        expect(await ultima()).toMatchObject({ situacao: 'descartada' });
+        // nada abaixo do mínimo; a linha sem quantidade não entra
+        expect((await ferramentas.executar(await escopo('ana'), 'lista_de_compras', { acao: 'do_minimo' })).dados).toMatchObject({ vazia: true });
+        expect((await ferramentas.executar(await escopo('ana'), 'lista_de_compras', { acao: 'montar', itens: [{ texto: 'tomate' }] })).dados).toMatchObject({
+          erro: expect.stringContaining('Não entendi as linhas'),
+        });
+        // quem não pode criar no Estoque não monta
+        const semPermissao = { ...(await escopo('carlos')), permissoes: {} as any };
+        expect((await ferramentas.executar(semPermissao, 'lista_de_compras', { acao: 'montar', itens: [{ texto: 'tomate', quantidade: 1 }] })).dados).toEqual({
+          erro: 'Montar a lista de compras pelo Mister é para quem pode criar pedidos no Estoque.',
+        });
       });
     });
 

@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister versão 6, M6g — a lista de compras pela conversa e pela planilha (20/11; mig 475 SÓ NUVEM —
+  `mister_lista_compra`).** Só na nuvem → vai no `.zip` sem efeito na loja (a lista criada entra em `compra_lista`, que
+  sincroniza como sempre); a tabela = SO_NUVEM no `sync-daemon.mjs` (o daemon mudou → o `.exe` da próxima release leva).
+
 - **Mister versão 6, M6h — o cupom fiscal de compra com "Como deseja lançar?" (20/11; SEM migration; nasce desligado,
   `MISTER_CUPOM=1`).** Só na nuvem (os documentos do Mister): vai no `.zip` sem efeito na loja. Junto, o ERR-544 (a unidade
   impressa "UN" na nota por foto).

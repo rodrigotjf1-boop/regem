@@ -32,6 +32,8 @@ import { MisterLinkPublicoService } from './mister-link-publico.service';
 import { MisterPontoDoMesService } from './mister-ponto-do-mes.service';
 import { MisterVigiaService } from './mister-vigia.service';
 import { MisterRegrasService } from './mister-regras.service';
+import { MisterListaService } from './mister-lista.service';
+import { ComprasModule } from '../compras/compras.module';
 import { MisterPropostasService } from './mister-propostas.service';
 import { MisterRecadosService } from './mister-recados.service';
 import { MisterRelatoriosService } from './mister-relatorios.service';
@@ -85,6 +87,8 @@ import { MisterModule } from './mister.module';
     MuralModule,
     // Versão 5, M5a: a foto que a equipe manda é lida pelo DMS Graph (a ligação da empresa), como a do cliente.
     GraphModule,
+    // Versão 6, M6g: a lista de compras cria o pedido pelo MESMO serviço da tela de Pedidos.
+    ComprasModule,
   ],
   // Os relatórios (mig 420) moram aqui: escrevem pelo mesmo agente das perguntas. As propostas (F4.1, mig 428) também:
   // os avisos as criam e elas executam pelos serviços das telas.
@@ -110,6 +114,8 @@ import { MisterModule } from './mister.module';
     MisterVigiaService,
     // Versão 6, M6e (mig 472): as regras de aviso de cada pessoa — a ferramenta, os botões e o motor de cada minuto.
     MisterRegrasService,
+    // Versão 6, M6g (mig 475): a lista de compras pela conversa e pela planilha, até o pedido em Estoque › Pedidos.
+    MisterListaService,
     // Versão 5, M5a: a foto (e o PDF) que a equipe manda — o DMS Graph lê, a IA da empresa de reserva; vira a pergunta.
     MisterMidiaService,
     // Versão 5, M5e (mig 461): o resumo com "📄 PDF" e "📊 Ver gráficos" e o toque nesses botões.

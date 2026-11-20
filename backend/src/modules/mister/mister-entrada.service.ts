@@ -114,6 +114,10 @@ export type TratarMidia = (quem: QuemMandou, midia: MidiaDoMister, wamid: string
 /** Quem trata o TEXTO que completa um documento (M3a parte 3: o valor ou o vencimento que a foto não trouxe). `false` = é pergunta. */
 export type TratarTextoDoDocumento = (quem: QuemMandou, texto: string) => Promise<boolean>;
 
+/** Versão 6, M6g: o arquivo é uma planilha (Excel ou CSV)? Pelo tipo que a Meta informou. */
+export const ehPlanilha = (mime: string | null | undefined): boolean =>
+  /spreadsheetml|ms-excel|text\/csv|application\/csv/i.test(String(mime ?? ''));
+
 /** Quem tocou no botão do modelo: o telefone e os vínculos dele que valem agora (empresa, pessoa, loja e nível). */
 export interface QuemTocou {
   telefone: string;
@@ -188,6 +192,15 @@ export class MisterEntradaService {
   private textoDoDocumento: TratarTextoDoDocumento | null = null;
   registrarTextoDoDocumento(tratar: TratarTextoDoDocumento): void {
     this.textoDoDocumento = tratar;
+  }
+  /** Versão 6, M6g: quem lê a planilha (a lista de compras) e quem trata a resposta por texto à lista que espera. */
+  private planilha: TratarDocumento | null = null;
+  registrarPlanilha(tratar: TratarDocumento): void {
+    this.planilha = tratar;
+  }
+  private textoDaLista: TratarTextoDoDocumento | null = null;
+  registrarTextoDaLista(tratar: TratarTextoDoDocumento): void {
+    this.textoDaLista = tratar;
   }
   /** Versão 5, M5a: quem lê a foto pelo DMS Graph (o serviço da mídia, no módulo do agente). */
   private midia: TratarMidia | null = null;
@@ -639,6 +652,14 @@ export class MisterEntradaService {
       if (r === 'sem_graph') semGraph = true;
       else if (r) daFoto = r;
     }
+    // Versão 6, M6g: a PLANILHA (xlsx ou csv) vai à lista de compras, que a lê sem IA. Não tratou: segue como antes.
+    if (midia && midia.tipo === 'documento' && this.planilha && ehPlanilha(midia.mime)) {
+      const tratou = await this.planilha(quem, midia, wamid).catch((err: any) => {
+        this.logger.error(`mister: a planilha de ${mascarar(tel)} não foi lida — ${err?.message ?? err}`, err?.stack);
+        return false;
+      });
+      if (tratou) return { desfecho: 'documento', tenantId: v.tenantId };
+    }
     // M3a: a foto de um documento vai a quem lê documentos (quando ele está ligado); senão, segue como antes. A foto que
     // o Graph já leu e não é boleto nem nota não passa por aqui (não lê duas vezes).
     if (midia && this.documento && (!daFoto || daFoto.documento)) {
@@ -688,6 +709,14 @@ export class MisterEntradaService {
         return false;
       });
       if (completou) return { desfecho: 'documento', tenantId: v.tenantId };
+    }
+    // Versão 6, M6g: a resposta por texto à lista de compras que espera ("1 caixa tem quantos kg?", o nome da marca).
+    if (this.textoDaLista) {
+      const respondeu = await this.textoDaLista(quem, texto).catch((err: any) => {
+        this.logger.error(`mister: o texto da lista de compras de ${mascarar(tel)} não foi tratado — ${err?.message ?? err}`, err?.stack);
+        return false;
+      });
+      if (respondeu) return { desfecho: 'documento', tenantId: v.tenantId };
     }
     // Uma pergunta: entra na fila com a empresa, a pessoa, a loja e o nível DESTE vínculo, e o agente é acordado.
     const nova = await this.fila.enfileirar({ tenantId: v.tenantId, colaboradorId: v.colaboradorId, unidadeId: v.unidadeId ?? null, nivel: v.nivel, telefone: tel }, texto, chave, wamid);

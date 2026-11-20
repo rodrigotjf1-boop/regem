@@ -178,6 +178,11 @@ export interface ResultadoDaFerramenta {
   graficos?: PlanoDoGrafico[];
   /** M3g: os botões que a resposta leva (o "Desfazer" da correção) — NÃO vão ao modelo; só pela API oficial. */
   botoes?: { id: string; titulo: string }[];
+  /**
+   * Versão 6, M6g: as mensagens que a ação manda DEPOIS da resposta (a primeira pergunta da lista de compras, com os
+   * botões) — NÃO vão ao modelo; o agente as manda na ordem, como a proposta.
+   */
+  mensagens?: { texto: string; botoes?: { id: string; titulo: string }[] }[];
   /** M3d: a imagem da tela do "como faço" (o endereço público do PNG dos roteiros) — NÃO vai ao modelo; vai antes do texto. */
   imagens?: { url: string; legenda: string }[];
   /**
@@ -547,6 +552,8 @@ export class MisterFerramentasService {
         return this.lembrete(e, en);
       case 'regras':
         return this.regras ? this.regras(e, en) : Promise.resolve(recusa('As regras de aviso ainda não estão disponíveis neste servidor.'));
+      case 'lista_de_compras':
+        return this.lista ? this.lista(e, en) : Promise.resolve(recusa('A lista de compras ainda não está disponível neste servidor.'));
     }
   }
 
@@ -555,6 +562,11 @@ export class MisterFerramentasService {
   private regras: ((e: EscopoDoMister, en: Record<string, unknown>) => Promise<ResultadoDaFerramenta>) | null = null;
   registrarRegras(f: (e: EscopoDoMister, en: Record<string, unknown>) => Promise<ResultadoDaFerramenta>): void {
     this.regras = f;
+  }
+  // Versão 6, M6g: a lista de compras mora no `MisterListaService` (o mesmo jeito das regras).
+  private lista: ((e: EscopoDoMister, en: Record<string, unknown>) => Promise<ResultadoDaFerramenta>) | null = null;
+  registrarLista(f: (e: EscopoDoMister, en: Record<string, unknown>) => Promise<ResultadoDaFerramenta>): void {
+    this.lista = f;
   }
 
   /**
