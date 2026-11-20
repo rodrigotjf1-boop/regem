@@ -35,7 +35,7 @@
   ouve o motivo; a instrução do que nunca sai pelo WhatsApp. Tudo só na nuvem → vai no `.zip` sem efeito na loja (as
   tabelas já são SO_NUVEM; só colunas novas).
 
-- **Atendimento: "Tempo médio para resolver um caso" (20/11; mig 468 SÓ NUVEM — `robo_config.tempo_medio_min`; fase C1
+- **Atendimento: "Tempo médio para resolver um caso" (20/11; mig 469 SÓ NUVEM — `robo_config.tempo_medio_min`; fase C1
   do `docs/plano-clube-e-banner.md`).** Em Atendimento › Ajustes › Fila e avisos, com o tempo medido dos últimos 30 dias
   ao lado. Vazio (o padrão) = o robô não fala de tempo, como hoje; definido, o "chamar atendente" traz o `tempoEstimado`
   em faixas e as instruções (.f34, .d9, .fb5) dizem como falar, sem prometer. O robô e a `robo_config` só existem na

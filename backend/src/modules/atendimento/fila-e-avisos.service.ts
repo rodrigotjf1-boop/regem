@@ -18,12 +18,12 @@ import { type AssuntosDoAtendente, assuntosDaEmpresa, paraOResponsavelSql, salva
 export const MINUTOS_DO_AVISO = [0, 2, 3, 5, 10] as const;
 /**
  * O padrão (protótipo da central, grupo "Fila e avisos"): 3 min; a posição na fila, dita (como o robô já fazia); o tempo
- * médio para resolver um caso VAZIO (mig 468 — o robô não fala de tempo, como sempre foi).
+ * médio para resolver um caso VAZIO (mig 469 — o robô não fala de tempo, como sempre foi).
  */
 export const AJUSTE_DA_FILA_PADRAO = { avisarGerenteMin: 3, dizerPosicao: true, tempoMedioMin: null as number | null };
 /** Quantos casos a rotina marca por volta (os que sobram ficam para a volta seguinte, um minuto depois). */
 export const ESCALAR_POR_VOLTA = 500;
-/** "Tempo médio para resolver um caso" (mig 468): de 1 a 240 minutos — o mesmo `check` do banco. */
+/** "Tempo médio para resolver um caso" (mig 469): de 1 a 240 minutos — o mesmo `check` do banco. */
 export const TEMPO_MEDIO_MIN = 1;
 export const TEMPO_MEDIO_MAX = 240;
 /** O tempo medido que a tela mostra ao lado do ajuste: os casos resolvidos nestes últimos dias. */
@@ -35,7 +35,7 @@ export type AjusteDaFila = { avisarGerenteMin: number; dizerPosicao: boolean; te
 export type TempoMedido = { dias: number; casos: number; medianaMin: number | null; p80Min: number | null };
 
 /**
- * O tempo que o robô diz ao cliente (mig 468; protótipo "Tempo da fila"): a posição × o tempo médio que a loja definiu,
+ * O tempo que o robô diz ao cliente (mig 469; protótipo "Tempo da fila"): a posição × o tempo médio que a loja definiu,
  * arredondado em faixas — "até 10 minutos", "cerca de 15/20/30/40 minutos", "mais de 40 minutos". É a média da loja, não
  * uma promessa: sem posição (já tem alguém com o caso, fora do horário) ou sem o tempo definido, nada (o robô não fala de
  * tempo). Pura — o teste do atendente simula com a mesma regra.
@@ -52,7 +52,7 @@ export function tempoEstimadoDaFila(posicao: number | null | undefined, tempoMed
 /**
  * O que a tela mandou para "Fila e avisos", conferido (V16: ausente fica de fora; V15: liga/desliga só com booleano).
  * Pura — a rota confere ANTES de gravar qualquer grupo, para não gravar a 99 e recusar a fila no mesmo salvar.
- * `tempoMedioMin` (mig 468): inteiro de 1 a 240, ou `null`/vazio para apagar (o robô volta a não falar de tempo).
+ * `tempoMedioMin` (mig 469): inteiro de 1 a 240, ou `null`/vazio para apagar (o robô volta a não falar de tempo).
  */
 export function lerAjusteDaFila(dto: unknown): Partial<AjusteDaFila> {
   const d = (dto ?? {}) as { avisarGerenteMin?: unknown; dizerPosicao?: unknown; tempoMedioMin?: unknown };
@@ -152,8 +152,8 @@ export class FilaEAvisosService {
   }
 
   /**
-   * Os ajustes "Fila e avisos" da empresa (sem linha, os padrões). O tempo médio (mig 468) é lido pelo `to_jsonb` da
-   * linha: num banco sem a 468, vazio — os outros dois ajustes não caem por causa dele.
+   * Os ajustes "Fila e avisos" da empresa (sem linha, os padrões). O tempo médio (mig 469) é lido pelo `to_jsonb` da
+   * linha: num banco sem a 469, vazio — os outros dois ajustes não caem por causa dele.
    */
   async ajustes(tenantId: string): Promise<AjusteDaFila> {
     const r: any = await this.db.execute(sql`
@@ -196,7 +196,7 @@ export class FilaEAvisosService {
   /**
    * Salva o que veio (V16: ausente mantém; V15: liga/desliga só com booleano). Grava SÓ as próprias colunas da
    * `robo_config` — o ajuste do robô (pausa, avisos) é de outro escritor (V82). Cada mudança fica na auditoria.
-   * O tempo médio (mig 468) vai numa gravação só dele, e só quando mudou: os outros dois nunca regravam a coluna.
+   * O tempo médio (mig 469) vai numa gravação só dele, e só quando mudou: os outros dois nunca regravam a coluna.
    */
   async salvar(user: AuthUser, dto: unknown): Promise<AjusteDaFila> {
     const parcial = lerAjusteDaFila(dto);
@@ -477,7 +477,7 @@ export class FilaEAvisosService {
   }
 
   /**
-   * O que o robô diz da fila: a posição (o ajuste "Dizer a posição") e o tempo médio que a loja definiu (mig 468). Na
+   * O que o robô diz da fila: a posição (o ajuste "Dizer a posição") e o tempo médio que a loja definiu (mig 469). Na
    * dúvida (leitura falhou) e no servidor da loja (não há robô nem a tabela): diz a posição e não fala de tempo — como
    * sempre foi.
    */

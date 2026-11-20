@@ -307,7 +307,7 @@ export class AtendimentoController {
       this.pausa ? this.pausa.ajustes(user.tenantId, unidade) : Promise.resolve(null),
       // "Fotos do cliente" (mig 442): ler as fotos (da empresa), se a distribuição liberou e o limite por dia.
       this.filaEAvisos.fotosDoCliente(user.tenantId),
-      // "Tempo médio para resolver um caso" (mig 468): o tempo MEDIDO nos últimos 30 dias, que a tela mostra ao lado. Só
+      // "Tempo médio para resolver um caso" (mig 469): o tempo MEDIDO nos últimos 30 dias, que a tela mostra ao lado. Só
       // para comparar — não lido, a tela diz que não leu (V37), o resto dos ajustes não cai por causa dele.
       this.filaEAvisos.tempoMedido(user.tenantId).catch(() => null),
     ]);

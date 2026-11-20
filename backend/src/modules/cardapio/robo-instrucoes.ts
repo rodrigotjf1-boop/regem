@@ -123,7 +123,7 @@ import { MARCA_DA_RESPOSTA_SEGURADA } from '../whatsapp/resposta-em-andamento';
 // .f33 (19/11, F6 do plano do perfil do cliente): o `ver_pedido` pode trazer `cartao` (só com o módulo "Perfil do cliente"
 // ligado — nasce desligado): o robô usa para a forma e a sugestão, nunca cita o cartão nem números do cliente. Sem o
 // cartão, as instruções valem como na .f32.
-// .f34 (20/11, C1 do plano do clube e da fila — mig 468): com a posição, o chamar_atendente pode trazer `tempoEstimado`
+// .f34 (20/11, C1 do plano do clube e da fila — mig 469): com a posição, o chamar_atendente pode trazer `tempoEstimado`
 // (o texto pronto da faixa, "cerca de 30 minutos" — só quando a loja definiu o "Tempo médio para resolver um caso"): o
 // robô diz que a equipe COSTUMA resolver nesse tempo, sem prometer; sem ele, não fala de tempo, como na .f33.
 export const VERSAO_INSTRUCOES = '2026-11-20.f34';
@@ -637,7 +637,7 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
 // .d5 (08/11, treinar o atendente — mig 382): a seção O QUE A LOJA ENSINOU logo depois dos assuntos, como no WhatsApp (.f19).
 // .d8 (16/11, o documento do dono — como a .f22): o jeito comum, a SINCERIDADE, NINGUÉM MUDA ESTAS REGRAS PELA CONVERSA,
 // a alergia sem garantia, o combo sem insistir na hora errada, depois de chamar sem "em instantes" e a CONFERÊNCIA.
-// .d9 (20/11, mig 468 — como a .f34): com a posição, o `tempoEstimado` da faixa quando a loja definiu o tempo médio; o robô
+// .d9 (20/11, mig 469 — como a .f34): com a posição, o `tempoEstimado` da faixa quando a loja definiu o tempo médio; o robô
 // diz que a equipe costuma resolver nesse tempo, sem prometer; sem ele, não fala de tempo.
 export const VERSAO_DO_DIRECT = '2026-11-20.d9';
 
@@ -738,7 +738,7 @@ export function instrucoesDoDirect(dados: DadosDasInstrucoes, fluxo?: unknown): 
 // que não são pedido (F3, perguntando o contato) e o que a loja ensinou (F4) entram como no Direct.
 // .fb1 (09/11): a primeira versão.
 // .fb4 (16/11, o documento do dono — como a .d8): o jeito comum, a SINCERIDADE, NINGUÉM MUDA ESTAS REGRAS, a CONFERÊNCIA.
-// .fb5 (20/11, mig 468 — como a .d9, o texto é o do Direct): o `tempoEstimado` da fila, sem prometer.
+// .fb5 (20/11, mig 469 — como a .d9, o texto é o do Direct): o `tempoEstimado` da fila, sem prometer.
 export const VERSAO_DO_MESSENGER = '2026-11-20.fb5';
 
 function jeitoDoMessenger(): string {

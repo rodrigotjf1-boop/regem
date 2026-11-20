@@ -189,7 +189,7 @@ export class AtendimentoService {
 
   // "Dizer ao cliente a posição na fila" desligado (Configurações › Atendimento, mig 353): o robô não recebe o lugar do
   // cliente — e não o diz. "Já tem alguém com o seu caso" (comAlguem) não é posição: segue.
-  // "Tempo médio para resolver um caso" (mig 468; plano do clube e da fila, C1): com a posição dita e o tempo definido pela
+  // "Tempo médio para resolver um caso" (mig 469; plano do clube e da fila, C1): com a posição dita e o tempo definido pela
   // loja, vai junto o `tempoEstimado` — o texto pronto da faixa ("cerca de 30 minutos"); sem um ou outro, nada de tempo.
   private async comAPosicaoDoAjuste<T extends { posicao: number | null }>(tenantId: string, r: T): Promise<T & { tempoEstimado?: string }> {
     if (r.posicao == null || !this.filaEAvisos) return r;

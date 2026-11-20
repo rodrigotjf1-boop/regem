@@ -35,7 +35,7 @@ describe('o que a tela manda em "Fila e avisos"', () => {
     expect(() => lerAjusteDaFila({ dizerPosicao: 'sim' })).toThrow('dizerPosicao');
   });
 
-  it('o tempo médio (mig 468): inteiro de 1 a 240, ou vazio/null para apagar; o resto recusa', () => {
+  it('o tempo médio (mig 469): inteiro de 1 a 240, ou vazio/null para apagar; o resto recusa', () => {
     expect(lerAjusteDaFila({ tempoMedioMin: 15 })).toEqual({ tempoMedioMin: 15 });
     expect(lerAjusteDaFila({ tempoMedioMin: 1 })).toEqual({ tempoMedioMin: 1 });
     expect(lerAjusteDaFila({ tempoMedioMin: 240 })).toEqual({ tempoMedioMin: 240 });
@@ -129,7 +129,7 @@ descrever('fila e avisos (Postgres)', () => {
       '380_perfis_do_atendente.sql',
       '381_assuntos_do_atendente.sql',
       '442_fotos_do_cliente.sql', // "Fotos do cliente" (`robo_config.fotos_ler`, `robo_foto_lida`) — o GET dos ajustes lê
-      '468_tempo_medio_da_fila.sql', // "Tempo médio para resolver um caso" (`robo_config.tempo_medio_min`) — ERR-273
+      '469_tempo_medio_da_fila.sql', // "Tempo médio para resolver um caso" (`robo_config.tempo_medio_min`) — ERR-273
     ])
       await aplicar(m);
     A = await empresa('teste aviso ao gerente A');
@@ -489,7 +489,7 @@ descrever('fila e avisos (Postgres)', () => {
     }
   });
 
-  describe('tempo médio para resolver um caso (mig 468)', () => {
+  describe('tempo médio para resolver um caso (mig 469)', () => {
     it('salva só a coluna dele, quando muda; os outros ajustes não regravam; vazio apaga; fica na auditoria', async () => {
       const T = await empresa('teste tempo médio da fila');
       const user = { tenantId: T, colaboradorId: null, categoria: 'gerente' } as any;
@@ -504,7 +504,7 @@ descrever('fila e avisos (Postgres)', () => {
         { de: null, para: 15 },
         { de: 15, para: null },
       ]);
-      // o banco também recusa fora da faixa (o `check` da 468), mesmo sem passar pela conferência
+      // o banco também recusa fora da faixa (o `check` da 469), mesmo sem passar pela conferência
       await expect(q(`update robo_config set tempo_medio_min = 0 where tenant_id = $1`, [T])).rejects.toThrow(/robo_config_tempo_medio_min_faixa/);
       await expect(svc.salvar(user, { tempoMedioMin: 300 })).rejects.toThrow('Tempo médio para resolver um caso');
     });

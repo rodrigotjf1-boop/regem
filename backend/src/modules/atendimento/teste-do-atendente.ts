@@ -437,7 +437,7 @@ export function linhaDaSimulacao(sim: Simulacao, nao: AssuntoDoAtendente | null,
     base = `fora do horário da equipe, ${sim.somou ? 'o recado que o atendente já deixou continuaria' : 'ficaria um recado'} para quando a equipe voltar${volta} — ninguém seria chamado agora.${sempre}`;
   } else {
     const urgente = sim.caso.prioridade === 'urgente' ? ' com urgência' : '';
-    // "Tempo médio para resolver um caso" (mig 468): o atendente ouviria também o tempo da faixa, se a loja definiu.
+    // "Tempo médio para resolver um caso" (mig 469): o atendente ouviria também o tempo da faixa, se a loja definiu.
     const tempo = typeof r?.tempoEstimado === 'string' ? `, e ouviria que a equipe costuma resolver em ${r.tempoEstimado}` : '';
     const fila = typeof r?.posicao === 'number' ? ` — o cliente seria o ${ordinal(r.posicao)} da fila${tempo}` : '';
     // "Simular fora do horário" sem horário cadastrado (`situacaoForaDoHorario` sem janela: não atende e sem volta): a regra da

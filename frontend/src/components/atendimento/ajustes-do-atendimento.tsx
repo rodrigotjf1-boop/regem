@@ -53,7 +53,7 @@ const DE_NOVO_PADRAO = [1, 2, 3];
 const DE_NOVO_CHEGUEI_PADRAO = [3, 5, 10];
 /** As chaves do grupo "Fila e avisos", as do iFood e as do "Cheguei" (o resto é da 99). */
 const DA_FILA = ['avisarGerenteMin', 'dizerPosicao', 'tempoMedioMin'];
-/** "Tempo médio para resolver um caso" (mig 468): a faixa que o servidor aceita, quando a resposta não trouxer. */
+/** "Tempo médio para resolver um caso" (mig 469): a faixa que o servidor aceita, quando a resposta não trouxer. */
 const TEMPO_MEDIO_PADRAO = { min: 1, max: 240 };
 /** Minutos como a pessoa lê: "35 min", "1 h 35", "2 h". */
 function minutosLegiveis(min: number): string {
@@ -223,7 +223,7 @@ type Resposta = {
   conectado99: boolean;
   ajuste99: { decidirCancelamento: boolean; reembolsoRecusarEmHoras: number; reembolsoMotivo: string; reembolsoExplicacao: string } | null;
   horasPermitidas?: number[];
-  // `tempoMedioMin` e `medido` (mig 468): o tempo médio definido pela loja (vazio = o robô não fala de tempo) e o medido.
+  // `tempoMedioMin` e `medido` (mig 469): o tempo médio definido pela loja (vazio = o robô não fala de tempo) e o medido.
   fila?: { avisarGerenteMin: number; dizerPosicao: boolean; tempoMedioMin?: number | null; medido?: TempoMedido | null };
   tempoMedioOpcoes?: { min: number; max: number };
   // O horário da equipe (mig 379): "sempre" (como era) ou "no horário da loja", com a folga antes e depois.
