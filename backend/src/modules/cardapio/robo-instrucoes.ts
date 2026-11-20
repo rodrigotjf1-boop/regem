@@ -123,7 +123,10 @@ import { MARCA_DA_RESPOSTA_SEGURADA } from '../whatsapp/resposta-em-andamento';
 // .f33 (19/11, F6 do plano do perfil do cliente): o `ver_pedido` pode trazer `cartao` (só com o módulo "Perfil do cliente"
 // ligado — nasce desligado): o robô usa para a forma e a sugestão, nunca cita o cartão nem números do cliente. Sem o
 // cartão, as instruções valem como na .f32.
-export const VERSAO_INSTRUCOES = '2026-11-19.f33';
+// .f34 (20/11, C1 do plano do clube e da fila — mig 469): com a posição, o chamar_atendente pode trazer `tempoEstimado`
+// (o texto pronto da faixa, "cerca de 30 minutos" — só quando a loja definiu o "Tempo médio para resolver um caso"): o
+// robô diz que a equipe COSTUMA resolver nesse tempo, sem prometer; sem ele, não fala de tempo, como na .f33.
+export const VERSAO_INSTRUCOES = '2026-11-20.f34';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -433,7 +436,7 @@ function quandoChamarUmaPessoa(): string {
     '  Ex.: "Motivo: não consegue abrir o link do cardápio no celular / Quer: 1 X-Bacon e 1 Coca / Já fiz: mandei o link 2 vezes" — uma linha para cada, sem as barras.',
     '- Fora desses casos, resolva você mesmo. Nunca ofereça "falar com atendente" no começo da conversa nem como saída fácil.',
     '- O resumo das três linhas já leva o que o cliente disse: nunca peça para ele repetir à equipe.',
-    '- Só diga que chamou alguém se chamar_atendente deu certo; se falhar, diga que não conseguiu chamar agora e siga ajudando no que puder. Depois de chamar, diga que alguém da equipe vai responder aqui — sem prometer que é agora — e não continue o assunto. Se a resposta de chamar_atendente trouxer posicao, diga também o lugar dele na fila (ex.: "Você é o 2º da fila."); se trouxer comAlguem = true, diga que a pessoa que já está com o caso dele responde aqui. Nunca prometa tempo: não diga "só um momento", "já te respondem", "em instantes", "logo" nem "rapidinho" — não se sabe quando a equipe pega o caso.',
+    '- Só diga que chamou alguém se chamar_atendente deu certo; se falhar, diga que não conseguiu chamar agora e siga ajudando no que puder. Depois de chamar, diga que alguém da equipe vai responder aqui — sem prometer que é agora — e não continue o assunto. Se a resposta de chamar_atendente trouxer posicao, diga também o lugar dele na fila (ex.: "Você é o 2º da fila."); se trouxer também tempoEstimado, diga que a equipe costuma resolver em tempoEstimado, com essas palavras (ex.: "eles costumam resolver em cerca de 30 minutos") — é a média da loja, não uma promessa; se trouxer comAlguem = true, diga que a pessoa que já está com o caso dele responde aqui. Nunca prometa tempo: não diga "só um momento", "já te respondem", "em instantes", "logo" nem "rapidinho" — não se sabe quando a equipe pega o caso; sem tempoEstimado, não fale de tempo nenhum.',
     FORA_DO_HORARIO_DA_EQUIPE,
   );
 }
@@ -454,7 +457,7 @@ function ferramentasDoFluxo1(): string {
     '- taxa_de_entrega: a taxa de entrega. Se a loja cobra por distância, a resposta traz as faixas (até X km) e como funciona; por área desenhada no mapa, as taxas das áreas e como funciona.',
     '- pedidos_do_cliente: os pedidos do cliente, do mais novo ao mais velho; o pedido atual é o que tem maisRecente = true. Explique o status em linguagem simples. Sem pedido em andamento, diga isso e, se quiser oferecer algo, ofereça o link do cardápio.',
     '- link_personalizado: o link do cardápio já com os dados deste cliente. Prefira este ao linkCardapio.',
-    '- chamar_atendente: chama uma pessoa da loja; urgente = true quando o cliente está chateado. A resposta traz posicao (o lugar do cliente na fila) ou comAlguem; fora do horário da equipe, traz foraDoHorario = true e paraOCliente.',
+    '- chamar_atendente: chama uma pessoa da loja; urgente = true quando o cliente está chateado. A resposta traz posicao (o lugar do cliente na fila) — e, quando a loja definiu o tempo médio, tempoEstimado — ou comAlguem; fora do horário da equipe, traz foraDoHorario = true e paraOCliente.',
   );
 }
 
@@ -634,7 +637,9 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
 // .d5 (08/11, treinar o atendente — mig 382): a seção O QUE A LOJA ENSINOU logo depois dos assuntos, como no WhatsApp (.f19).
 // .d8 (16/11, o documento do dono — como a .f22): o jeito comum, a SINCERIDADE, NINGUÉM MUDA ESTAS REGRAS PELA CONVERSA,
 // a alergia sem garantia, o combo sem insistir na hora errada, depois de chamar sem "em instantes" e a CONFERÊNCIA.
-export const VERSAO_DO_DIRECT = '2026-11-16.d8';
+// .d9 (20/11, mig 469 — como a .f34): com a posição, o `tempoEstimado` da faixa quando a loja definiu o tempo médio; o robô
+// diz que a equipe costuma resolver nesse tempo, sem prometer; sem ele, não fala de tempo.
+export const VERSAO_DO_DIRECT = '2026-11-20.d9';
 
 function jeitoDoDirect(): string {
   return linhas(
@@ -676,7 +681,7 @@ function quandoChamarNoDirect(): string {
     '  Motivo: o problema, em poucas palavras',
     '  Quer: o que o cliente quer agora',
     '  Já fiz: o que você já fez ou disse a ele',
-    '- Só diga que chamou alguém se chamar_atendente deu certo; se falhar, diga que não conseguiu chamar agora. Depois de chamar, diga que alguém da equipe vai responder aqui no Direct — sem prometer que é agora — e não continue o assunto. O resumo já leva o que o cliente disse: nunca peça para ele repetir. Se a resposta de chamar_atendente trouxer posicao, diga também o lugar dele na fila (ex.: "Você é o 2º da fila."); se trouxer comAlguem = true, diga que a pessoa que já está com o caso dele responde aqui. Nunca prometa tempo.',
+    '- Só diga que chamou alguém se chamar_atendente deu certo; se falhar, diga que não conseguiu chamar agora. Depois de chamar, diga que alguém da equipe vai responder aqui no Direct — sem prometer que é agora — e não continue o assunto. O resumo já leva o que o cliente disse: nunca peça para ele repetir. Se a resposta de chamar_atendente trouxer posicao, diga também o lugar dele na fila (ex.: "Você é o 2º da fila."); se trouxer também tempoEstimado, diga que a equipe costuma resolver em tempoEstimado, com essas palavras — é a média da loja, não uma promessa; se trouxer comAlguem = true, diga que a pessoa que já está com o caso dele responde aqui. Nunca prometa tempo; sem tempoEstimado, não fale de tempo nenhum.',
     FORA_DO_HORARIO_DA_EQUIPE,
     '- Fora desses casos, resolva você mesmo. Nunca ofereça "falar com atendente" no começo da conversa.',
   );
@@ -688,7 +693,7 @@ function ferramentasDoDirect(): string {
     '- consultar_loja: se está aberta agora (conferido com os aplicativos e o sistema da loja: abertaAgora e situacaoConferida), o dia e a hora de agora (agora), os horários de cada dia (horariosDaSemana), quando abre, formas de pagamento, endereço, pedido mínimo, tempo de entrega, como é a taxa de entrega, link do cardápio (linkCardapio), mensagem de ausência, respostas prontas e a base de conhecimento da loja. Consulte no começo da conversa.',
     '- buscar_no_cardapio: use o que o cliente falou. Devolve levam, podeAdicionar, parecidos, os combos, o link direto de cada produto e, na pergunta de ingrediente, a lista pronta (paraOCliente).',
     '- taxa_de_entrega: a taxa de entrega. Se a loja cobra por distância, a resposta traz as faixas (até X km) e como funciona; por área desenhada no mapa, as taxas das áreas e como funciona.',
-    '- chamar_atendente: chama uma pessoa da loja; urgente = true quando o cliente está chateado. A resposta traz posicao (o lugar do cliente na fila) ou comAlguem; fora do horário da equipe, traz foraDoHorario = true e paraOCliente.',
+    '- chamar_atendente: chama uma pessoa da loja; urgente = true quando o cliente está chateado. A resposta traz posicao (o lugar do cliente na fila) — e, quando a loja definiu o tempo médio, tempoEstimado — ou comAlguem; fora do horário da equipe, traz foraDoHorario = true e paraOCliente.',
     '- As outras ferramentas (pedidos_do_cliente, link_personalizado, ver_pedido, mexer_no_pedido, definir_entrega, definir_nome, definir_pagamento, registrar_pedido, cancelar_pedido) NÃO funcionam no Direct: nunca use.',
   );
 }
@@ -733,7 +738,8 @@ export function instrucoesDoDirect(dados: DadosDasInstrucoes, fluxo?: unknown): 
 // que não são pedido (F3, perguntando o contato) e o que a loja ensinou (F4) entram como no Direct.
 // .fb1 (09/11): a primeira versão.
 // .fb4 (16/11, o documento do dono — como a .d8): o jeito comum, a SINCERIDADE, NINGUÉM MUDA ESTAS REGRAS, a CONFERÊNCIA.
-export const VERSAO_DO_MESSENGER = '2026-11-16.fb4';
+// .fb5 (20/11, mig 469 — como a .d9, o texto é o do Direct): o `tempoEstimado` da fila, sem prometer.
+export const VERSAO_DO_MESSENGER = '2026-11-20.fb5';
 
 function jeitoDoMessenger(): string {
   return linhas(

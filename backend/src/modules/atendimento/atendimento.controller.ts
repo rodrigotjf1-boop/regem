@@ -32,7 +32,7 @@ import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AtendimentoService } from './atendimento.service';
 import { DisputaIfoodService, RespostaDaDisputa } from './disputa-ifood.service';
 import { ChatIfoodService, lerAjusteIfood } from './chat-ifood.service';
-import { FilaEAvisosService, lerAjusteDaFila, MINUTOS_DO_AVISO } from './fila-e-avisos.service';
+import { FilaEAvisosService, lerAjusteDaFila, MINUTOS_DO_AVISO, TEMPO_MEDIO_MAX, TEMPO_MEDIO_MIN } from './fila-e-avisos.service';
 import { ChegadaService } from '../chegada/chegada.service';
 import { lerAjusteCheguei, MINUTOS_DE_NOVO } from '../chegada/chegada';
 import { PedidoRepetidoService } from '../pedido-repetido/pedido-repetido.service';
@@ -276,7 +276,7 @@ export class AtendimentoController {
   @CloudOnly()
   @Roles('presidente', 'gerente')
   async ajustes(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
-    const [da99, fila, doIfood, cheguei, repetido, som, roboMuda, ponte, roboCobraPix, gestorWa, copiloto, instagram, equipe, perfis, assuntos, messenger, pausa, fotos] = await Promise.all([
+    const [da99, fila, doIfood, cheguei, repetido, som, roboMuda, ponte, roboCobraPix, gestorWa, copiloto, instagram, equipe, perfis, assuntos, messenger, pausa, fotos, filaMedida] = await Promise.all([
       this.pedido99.ajustes(user.tenantId),
       this.filaEAvisos.ajustes(user.tenantId),
       this.chatIfood.ajustes(user.tenantId),
@@ -307,6 +307,9 @@ export class AtendimentoController {
       this.pausa ? this.pausa.ajustes(user.tenantId, unidade) : Promise.resolve(null),
       // "Fotos do cliente" (mig 442): ler as fotos (da empresa), se a distribuição liberou e o limite por dia.
       this.filaEAvisos.fotosDoCliente(user.tenantId),
+      // "Tempo médio para resolver um caso" (mig 469): o tempo MEDIDO nos últimos 30 dias, que a tela mostra ao lado. Só
+      // para comparar — não lido, a tela diz que não leu (V37), o resto dos ajustes não cai por causa dele.
+      this.filaEAvisos.tempoMedido(user.tenantId).catch(() => null),
     ]);
     const alterado = { som, sons: SONS_DO_ALTERADO, roboMuda, roboCobraPix };
     return {
@@ -326,8 +329,9 @@ export class AtendimentoController {
         textoPadrao: TEXTO_PADRAO_DO_RECADO,
         textoPadraoNao: TEXTO_PADRAO_NAO,
       },
-      fila,
+      fila: { ...fila, medido: filaMedida },
       minutosDoAviso: MINUTOS_DO_AVISO,
+      tempoMedioOpcoes: { min: TEMPO_MEDIO_MIN, max: TEMPO_MEDIO_MAX },
       ...doIfood,
       cheguei,
       minutosDeNovoCheguei: MINUTOS_DE_NOVO,

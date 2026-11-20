@@ -52,7 +52,24 @@ const MINUTOS_PADRAO = [0, 2, 3, 5, 10];
 const DE_NOVO_PADRAO = [1, 2, 3];
 const DE_NOVO_CHEGUEI_PADRAO = [3, 5, 10];
 /** As chaves do grupo "Fila e avisos", as do iFood e as do "Cheguei" (o resto é da 99). */
-const DA_FILA = ['avisarGerenteMin', 'dizerPosicao'];
+const DA_FILA = ['avisarGerenteMin', 'dizerPosicao', 'tempoMedioMin'];
+/** "Tempo médio para resolver um caso" (mig 469): a faixa que o servidor aceita, quando a resposta não trouxer. */
+const TEMPO_MEDIO_PADRAO = { min: 1, max: 240 };
+/** Minutos como a pessoa lê: "35 min", "1 h 35", "2 h". */
+function minutosLegiveis(min: number): string {
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m ? `${h} h ${String(m).padStart(2, '0')}` : `${h} h`;
+}
+/** O tempo medido ao lado do ajuste (D10 do plano): "não li" é diferente de "não há casos" (V37). */
+function textoDoTempoMedido(medido: TempoMedido | null | undefined): string {
+  if (!medido) return 'Não deu para ler o tempo medido agora.';
+  if (!medido.casos || medido.medianaMin == null) return `Ainda não há casos resolvidos pelo Regem nos últimos ${medido.dias} dias para comparar.`;
+  const p80 = medido.p80Min != null ? `; 8 em cada 10 em até ${minutosLegiveis(medido.p80Min)}` : '';
+  return `Medido nos últimos ${medido.dias} dias (casos resolvidos pelo Regem): ${medido.casos} ${medido.casos === 1 ? 'caso' : 'casos'}, metade em até ${minutosLegiveis(medido.medianaMin)}${p80}. Enquanto parte do atendimento estiver em outro sistema, esse número não representa a loja.`;
+}
+type TempoMedido = { dias: number; casos: number; medianaMin: number | null; p80Min: number | null };
 // O horário da equipe (mig 379, F1 do atendente virtual; protótipo `mockups/regem-central-atendimento.html` v10, grupo
 // "Horário da equipe"): o robô atende 24 h; a equipe só no horário. Na `robo_config` da empresa; nasce em "Sempre".
 const DA_EQUIPE: Record<string, string> = {
@@ -206,7 +223,9 @@ type Resposta = {
   conectado99: boolean;
   ajuste99: { decidirCancelamento: boolean; reembolsoRecusarEmHoras: number; reembolsoMotivo: string; reembolsoExplicacao: string } | null;
   horasPermitidas?: number[];
-  fila?: { avisarGerenteMin: number; dizerPosicao: boolean };
+  // `tempoMedioMin` e `medido` (mig 469): o tempo médio definido pela loja (vazio = o robô não fala de tempo) e o medido.
+  fila?: { avisarGerenteMin: number; dizerPosicao: boolean; tempoMedioMin?: number | null; medido?: TempoMedido | null };
+  tempoMedioOpcoes?: { min: number; max: number };
   // O horário da equipe (mig 379): "sempre" (como era) ou "no horário da loja", com a folga antes e depois.
   equipe?: { atende: 'sempre' | 'loja'; antesMin: number; depoisMin: number; textoFora: string | null } | null;
   // O perfil do atendente por canal (mig 380): o servidor manda os dois canais, com os padrões.
@@ -316,7 +335,13 @@ const paraValores = (r: Resposta): Valores => ({
         chegueiDeNovoMin: String(r.cheguei.deNovoMin),
       }
     : {}),
-  ...(r.fila ? { avisarGerenteMin: String(r.fila.avisarGerenteMin), dizerPosicao: r.fila.dizerPosicao } : {}),
+  ...(r.fila
+    ? {
+        avisarGerenteMin: String(r.fila.avisarGerenteMin),
+        dizerPosicao: r.fila.dizerPosicao,
+        tempoMedioMin: typeof r.fila.tempoMedioMin === 'number' ? String(r.fila.tempoMedioMin) : '',
+      }
+    : {}),
   ...Object.fromEntries(
     ASSUNTOS.flatMap(({ assunto, chave }) => {
       const a = r.assuntos?.[assunto];
@@ -428,8 +453,25 @@ export function AjustesDoAtendimento() {
         id: 'dizerPosicao',
         rotulo: 'Dizer ao cliente a posição na fila',
         tipo: 'chave',
-        ajuda: 'No WhatsApp, o robô responde "Você é o 2º da fila". Nunca promete tempo. Só onde a loja pode escrever ao cliente.',
+        ajuda: 'No WhatsApp, o robô responde "Você é o 2º da fila". Nunca promete tempo; só fala de tempo se a loja definir o tempo médio abaixo. Só onde a loja pode escrever ao cliente.',
         palavras: 'posição fila robô whatsapp cliente',
+      },
+      {
+        id: 'tempoMedioMin',
+        rotulo: 'Tempo médio para resolver um caso',
+        tipo: 'numero',
+        sufixo: 'min',
+        opcional: true,
+        placeholder: 'vazio',
+        ajuda: (
+          <>
+            O robô usa este tempo para dizer quanto a equipe costuma levar (posição × tempo, em faixas: "cerca de 30 minutos"),
+            sem prometer. Vazio: ele não fala de tempo. De {(resp?.tempoMedioOpcoes ?? TEMPO_MEDIO_PADRAO).min} a{' '}
+            {(resp?.tempoMedioOpcoes ?? TEMPO_MEDIO_PADRAO).max} minutos.
+            <span className="mt-1 block">{textoDoTempoMedido(resp?.fila?.medido)}</span>
+          </>
+        ),
+        palavras: 'tempo médio resolver caso fila espera minutos robô estimativa',
       },
     ],
   };
@@ -1397,7 +1439,13 @@ export function AjustesDoAtendimento() {
         alterado = { ...(alterado ?? {}), roboCobraPix: valores[k] === true };
         continue;
       }
-      if (DA_FILA.includes(k)) fila[k] = k === 'avisarGerenteMin' ? Number(valores[k]) : valores[k];
+      if (DA_FILA.includes(k))
+        fila[k] =
+          k === 'avisarGerenteMin'
+            ? Number(valores[k])
+            : k === 'tempoMedioMin'
+              ? String(valores[k] ?? '').trim() === '' ? null : Number(valores[k])
+              : valores[k];
       else if (DO_IFOOD[k]) ifood[DO_IFOOD[k]] = k === 'ifoodAvisarDeNovoMin' ? Number(valores[k]) : valores[k];
       else if (DO_CHEGUEI[k])
         cheguei[DO_CHEGUEI[k]] =
