@@ -102,6 +102,20 @@ descrever('o Regem lê o Pulso (Postgres)', () => {
   }
   const q = async (s: string, p: any[] = []) => (await pool.query(s, p)).rows;
 
+  it('a configuração: sem a ligação, calado; com a ligação torta, o motivo anotado (nunca o valor)', async () => {
+    const svc = new PulsoService(drizzle(pool as any) as any);
+    await q(`update pulso_estado set erro = null, erro_em = null`);
+    const base = { DMS_ID_EMISSOR: 'https://id.teste', HUB_APLICATIVO: 'aplicativoregem01', HUB_SEGREDO: 'um-segredo-de-teste-comprido' };
+    expect(await svc.configDaRotina('eventos', base)).toBeNull();
+    expect(await q(`select erro from pulso_estado`)).toEqual([{ erro: null }]); // sem a variável: desligado e calado
+    const torta = 'dms_lg_pulso_colado-pela-metade';
+    expect(await svc.configDaRotina('eventos', { ...base, PULSO_LIGACAO: torta })).toBeNull();
+    const [e] = await q(`select erro from pulso_estado`);
+    expect(e.erro).toMatch(/configuração \(eventos\).*não é uma ligação do Pulso/);
+    expect(e.erro).not.toContain(torta);
+    expect(await svc.configDaRotina('eventos', { ...base, PULSO_LIGACAO: ligacaoDeTeste() })).not.toBeNull();
+  });
+
   it('eventos: a leitura incremental grava, anda o cursor junto, o retirado entra como retirado e a versão velha não sobrescreve', async () => {
     const svc = new PulsoService(drizzle(pool as any) as any);
     const a = evento(1);
