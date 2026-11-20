@@ -12,6 +12,14 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Perfil do cliente F4 — os cliques no cardápio e a Saúde da base (20/11; mig 466 SÓ NUVEM — `cardapio_interacao`).**
+  O cardápio Regem manda em lotes o produto aberto (com o tempo), o produto no carrinho e a busca (rota pública
+  `POST /publico/cardapio/:token/interacoes`, só com o módulo ligado; anônimo, e o cliente só com o código do WhatsApp e
+  "Recomendações personalizadas" ligado); apagados aos 90 dias pela rotina do perfil. Delivery › Clientes › Saúde da base
+  (`/clientes/saude`, só o presidente): o resumo em frases, os itens que fazem voltar e os que levam a sumir, o que os
+  clientes querem encontrar, as reclamações, as buscas sem resultado, os mais abertos e o dado de cada camada. O funil do
+  cardápio (`cardapio_evento`) ganha o limite do `meta` e a limpeza aos 400 dias. Tudo só na nuvem; a tabela entra como SO_NUVEM no `sync-daemon.mjs` (o `.exe` do próximo corte leva junto).
+
 - **Dependências: avisos de segurança do `qs` (backend) e do `postcss` (tela) corrigidos (20/11; SEM migration).** O
   `express` passa a usar o `qs` 6.16.2 e o `body-parser` 1.20.9 (pelo `overrides` do `backend/package.json`); o Next usa
   o `postcss` 8.5.33 do projeto, não a cópia 8.4.31 que vinha dentro dele. O `.zip` leva o `node_modules` novo do backend;

@@ -32,6 +32,14 @@ export class PerfilClienteController {
     return this.service.resumo(user.tenantId);
   }
 
+  /** Saúde da base (F4): os números da loja, somados e sem pessoa — do presidente (protótipo, aba 5). Antes de `:clienteId`
+   *  (a rota leria "saude" como id). */
+  @Get('saude')
+  @Roles('presidente')
+  saude(@CurrentUser() user: AuthUser) {
+    return this.service.saude(user.tenantId);
+  }
+
   @Get(':clienteId')
   ficha(@CurrentUser() user: AuthUser, @Param('clienteId', new ParseUUIDPipe()) clienteId: string) {
     return this.service.ficha(user.tenantId, clienteId);

@@ -19,6 +19,7 @@ import { capturarOrigem, desfazerRecusa, origemParaPedido, origemRecusada, recus
 import type { OrigemClique } from '@/components/loja/origem-clique-regras';
 import { etapasAtivas, falta as faltaDaEtapa, foraDaAreaDoRaio, type Etapa, type EstadoFalta, type Falta } from './etapas';
 import { templateDe, type TemplateChave } from './tipos-template';
+import { useInteresseDoCardapio } from './interesse-do-cardapio';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -432,6 +433,16 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
     if (!q) return [];
     return produtos.filter((p) => `${p.nome} ${p.descricao ?? ''}`.toLowerCase().includes(q));
   }, [produtos, busca]);
+  // Os cliques (F4 do perfil do cliente): produto aberto, carrinho e busca — só com o módulo ligado (`loja.interesse`).
+  const interesse = useInteresseDoCardapio({
+    token,
+    sessao: sessRef.current,
+    ativo: (menu as any)?.loja?.interesse === true,
+    topo,
+    produtoAbertoId: sel?.id ? String(sel.id) : null,
+    busca,
+    resultados: resultadosBusca.length,
+  });
 
   // ───────────────────────── carrinho ─────────────────────────
   const total = useMemo(() => cart.reduce((s, i) => s + i.preco * i.qtd, 0), [cart]);
@@ -444,6 +455,7 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
   );
 
   function onAdd(item: CartItem) {
+    interesse.adicionado(item.produtoId);
     setCart((c) => {
       const ex = c.find((i) => i.key === item.key);
       if (ex) return c.map((i) => (i.key === item.key ? { ...i, qtd: i.qtd + item.qtd } : i));

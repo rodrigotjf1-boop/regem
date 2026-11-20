@@ -8,6 +8,8 @@ import {
   Optional,
   UnauthorizedException,
 } from '@nestjs/common';
+import { perfilLigado } from '../../common/segmentos-do-perfil';
+import { metaDoFunil } from '../perfil-cliente/interacoes-do-cardapio';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
 import { areaDaLinha, areaDoPonto, conferirAreas, recusaDaArea, type AreaDesenhada } from './area-de-entrega';
 import {
@@ -2106,7 +2108,7 @@ export class CardapioService {
       await this.db.execute(sql`
         insert into cardapio_evento (tenant_id, token, sessao, tipo, meta)
         values (${cfg.tenantId}, ${token}, ${String(sessao).slice(0, 64)}, ${String(tipo)},
-                ${meta ? JSON.stringify(meta) : null}::jsonb)`);
+                ${metaDoFunil(meta)}::jsonb)`);
       return { ok: true };
     } catch {
       return { ok: false };
@@ -2214,6 +2216,8 @@ export class CardapioService {
     // Esta loja manda promoção (RegemCast ligado ou WhatsApp conectado)? Decide se o checkout
     // mostra a caixinha de promoções — com as frases daqui, que são as que ficam gravadas. Nunca rejeita.
     const promocoes = promocoesDaLoja(this.db, cfg.tenantId, cfg.nomePublico);
+    // Os cliques do cardápio (F4 do perfil do cliente): só com o módulo ligado a tela os manda. Falhou, não manda.
+    const interesse = perfilLigado(this.db, cfg.tenantId).catch(() => false);
 
     // Esta loja emite cupom fiscal? É isso que decide se o checkout pode oferecer a nota com
     // CPF — oferecer sem emitir seria prometer ao cliente um documento que nunca chega.
@@ -2351,6 +2355,8 @@ export class CardapioService {
         medeAnuncios: await medicao,
         // `{ frase, apoio }` quando a loja manda promoção; `null` = o checkout não pergunta.
         promocoes: await promocoes,
+        // `true` = o cardápio manda os cliques (produto aberto, carrinho, busca) — módulo "Perfil do cliente" ligado.
+        interesse: await interesse,
         tempoEntregaMin: cfg.tempoEntregaMin,
         tempoRetiradaMin: cfg.tempoRetiradaMin,
         pedidoMinimo: cfg.pedidoMinimo != null ? Number(cfg.pedidoMinimo) : null,

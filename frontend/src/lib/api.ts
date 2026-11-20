@@ -2057,6 +2057,9 @@ export const api = {
   cardapioPecaTambem: (token: string, produtos: string[]) =>
     pub(`/publico/cardapio/${token}/peca-tambem?produtos=${encodeURIComponent(produtos.join(','))}`),
   // Beacon anônimo do funil do cardápio (F4) — best-effort.
+  // Os cliques do cardápio (F4 do perfil do cliente, mig 466): em lotes; `keepalive` para o lote de quem está saindo.
+  cardapioInteracoes: (token: string, body: Record<string, unknown>) =>
+    pub(`/publico/cardapio/${token}/interacoes`, { method: 'POST', keepalive: true, body: JSON.stringify(body) }),
   cardapioEvento: (token: string, sessao: string, tipo: string, meta?: unknown) =>
     pub(`/publico/cardapio/${token}/evento`, {
       method: 'POST',
@@ -2119,6 +2122,8 @@ export const api = {
   // Perfil do cliente (F1a/F1b do docs/plano-perfil-cliente.md): presidente e gerente com o módulo ligado (o servidor confere).
   perfilClienteFicha: (id: string) => req(`/perfil-cliente/${encodeURIComponent(id)}`),
   perfilClienteResumo: () => req('/perfil-cliente/resumo'),
+  /** Saúde da base (F4): os números da loja, somados e sem pessoa — só o presidente. */
+  perfilClienteSaude: () => req('/perfil-cliente/saude'),
   perfilClienteRecalcular: () => req('/perfil-cliente/recalcular', { method: 'POST' }),
   perfilClienteCartaoDoCaso: (casoId: string) => req(`/perfil-cliente/caso/${encodeURIComponent(casoId)}`),
   // Delivery › Clientes › Calendário de eventos (F2 do perfil do cliente, mig 461) — só nuvem, presidente e gerente.
