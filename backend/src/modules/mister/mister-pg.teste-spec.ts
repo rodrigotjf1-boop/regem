@@ -82,6 +82,8 @@ import { MisterVinculoService } from './mister-vinculo.service';
 import * as regras from './mister.regras';
 import { TEXTOS, idDoBotaoDaEmpresa } from './mister.regras';
 import { MisterVinculoSegurancaService, TEXTOS_DA_SEGURANCA } from './mister-vinculo-seguranca.service';
+import { MisterRegrasService } from './mister-regras.service';
+import { TEXTOS_DAS_REGRAS } from './mister-regra';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -457,7 +459,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -1774,7 +1776,7 @@ export function testesDoMisterComPostgres(): void {
 
         lidos.length = 0;
         const r = await ferramentas.executar(e, 'cancelamentos', {});
-        expect(r.ok).toBe(true);
+        expect({ ok: r.ok, erro: (r.dados as any).erro ?? null }).toEqual({ ok: true, erro: null });
         expect(String(r.dados.periodo)).toMatch(/^hoje \(/);
         expect(r.dados.pedidosDosCanais).toMatchObject({
           cancelados: 2,
@@ -1840,7 +1842,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`insert into caixa_sessao (tenant_id, origem, status, valor_abertura, aberta_em) values ($1, 'pdv', 'aberta', 999, now())`, [B]);
 
         const r = await ferramentas.executar(e, 'caixas_e_sangrias', {});
-        expect(r.ok).toBe(true);
+        expect({ ok: r.ok, erro: (r.dados as any).erro ?? null }).toEqual({ ok: true, erro: null });
         const abertos = r.dados.abertosAgora as any[];
         expect(abertos).toHaveLength(1);
         expect(abertos[0]).toMatchObject({ caixa: 'balcão', abertoPor: 'Carlos Lima', abertura: 100, vendas: 0, sangrias: 0, suprimentos: 0 });
@@ -1892,7 +1894,7 @@ export function testesDoMisterComPostgres(): void {
         await ligar('ana', tel);
         const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
         const r = await ferramentas.executar(e, 'conversas_anteriores', { busca: 'O que você me disse do iFood e do cancelamento?' });
-        expect(r.ok).toBe(true);
+        expect({ ok: r.ok, erro: (r.dados as any).erro ?? null }).toEqual({ ok: true, erro: null });
         expect(r.dados).toMatchObject({ busca: 'ifood cancelamento', dias: 30, achadas: 3 });
         const conversas = r.dados.conversas as any[];
         // As duas palavras primeiro; depois, só "ifood", da mais nova para a mais velha.
@@ -2010,7 +2012,7 @@ export function testesDoMisterComPostgres(): void {
           [A, loja, comanda, montagem, String(chapa)],
         );
         const r = await ferramentas.executar(e, 'historia_do_pedido', { numero: '#4821' });
-        expect(r.ok).toBe(true);
+        expect({ ok: r.ok, erro: (r.dados as any).erro ?? null }).toEqual({ ok: true, erro: null });
         expect(r.dados.pedido).toEqual({ comoAparece: '#284 · iFood 4821', senhaNaCozinha: 'D12', canal: 'ifood', numero: '4821', tipo: 'entrega', situacao: 'em preparo' });
         const horarios = r.dados.horarios as any[];
         expect(horarios.map((h) => h.etapa)).toEqual(['chegou', 'aceito', 'entrou na cozinha', 'começou a ser feito', 'ficou pronto', 'saiu para entrega', 'entregue']);
@@ -2074,7 +2076,7 @@ export function testesDoMisterComPostgres(): void {
           [A, loja],
         );
         const r = await ferramentas.executar(e, 'historia_do_pedido', { numero: 'b7' });
-        expect(r.ok).toBe(true);
+        expect({ ok: r.ok, erro: (r.dados as any).erro ?? null }).toEqual({ ok: true, erro: null });
         expect(r.dados.pedido).toEqual({ comoAparece: 'venda do balcão, senha B7', origem: 'balcao', senha: 'B7' });
         expect((r.dados.horarios as any[]).map((h) => h.etapa)).toEqual(['chegou', 'entrou na cozinha', 'começou a ser feito', 'ficou pronto']);
         expect(r.dados.ondeDemorouMais).toEqual({ de: 'começou a ser feito', ate: 'ficou pronto', minutos: 14 });
@@ -2160,7 +2162,7 @@ export function testesDoMisterComPostgres(): void {
         await cartao('balcao', 'entregue', [20, 15, 5]);
         await cartao('balcao', 'cancelado', [20, 19, 1]); // cancelado: fora
         const r = await ferramentas.executar(e, 'tempos_dos_pedidos', { de: somarDias(hojeISO(), -1), ate: hojeISO() });
-        expect(r.ok).toBe(true);
+        expect({ ok: r.ok, erro: (r.dados as any).erro ?? null }).toEqual({ ok: true, erro: null });
         expect(r.dados.pedidosDosCanais).toEqual({
           pedidos: 3,
           doAceite: { mediaMin: 1.3, osMaisLentosMin: 1.8, pedidos: 3 },
@@ -2521,7 +2523,7 @@ export function testesDoMisterComPostgres(): void {
         await nota(7, 'rejeitada', "now() - interval '2 days'"); // antes das 24 h: fora
 
         const r = await comCanais.executar(e, 'canais_e_integracoes', {});
-        expect(r.ok).toBe(true);
+        expect({ ok: r.ok, erro: (r.dados as any).erro ?? null }).toEqual({ ok: true, erro: null });
         const canais = r.dados.canais as any[];
         expect(canais.map((c) => c.canal)).toEqual(['Cardápio digital', 'iFood', '99']);
         // A pausa vai até daqui a 40 min: depois das 23:20 a volta é "amanhã às 00:xx" (ERR-467) — as duas formas valem.
@@ -2629,7 +2631,7 @@ export function testesDoMisterComPostgres(): void {
           [A, chave],
         );
         const r = await comVencimentos.executar(e, 'vencimentos_e_versoes', {});
-        expect(r.ok).toBe(true);
+        expect({ ok: r.ok, erro: (r.dados as any).erro ?? null }).toEqual({ ok: true, erro: null });
         expect(r.dados.certificadoDigital).toEqual([
           expect.objectContaining({ loja: 'a empresa toda', diasParaVencer: 4, situacao: 'vence em breve', notaFiscal: 'desligada', observacao: expect.stringContaining('desligada') }),
         ]);
@@ -3099,7 +3101,7 @@ export function testesDoMisterComPostgres(): void {
 
         const e = (await comInsumo.escopo(A, pessoa.ana, tel))!;
         const r: any = await comInsumo.executar(e, 'insumo_vendido', { insumo: 'carnes de 56g' });
-        expect(r.ok).toBe(true);
+        expect({ ok: r.ok, erro: (r.dados as any).erro ?? null }).toEqual({ ok: true, erro: null });
         expect(r.dados).toMatchObject({
           loja: 'Loja Centro',
           insumo: 'Carne 56 g',
@@ -5414,7 +5416,7 @@ export function testesDoMisterComPostgres(): void {
         const hoje = hojeISO();
         const periodo = { de: somarDias(hoje, -1), ate: hoje };
         const r = await ferramentas.executar(daAna, 'conciliacao_do_periodo', periodo);
-        expect(r.ok).toBe(true);
+        expect({ ok: r.ok, erro: (r.dados as any).erro ?? null }).toEqual({ ok: true, erro: null });
         expect(r.dados).toMatchObject({
           periodo: expect.any(String),
           pedidoCanceladoComAVendaDePe: { quantos: 1, valor: 40, casos: [{ comoAparece: '#201 · Anota Aí 7201', valor: 40 }] },
@@ -8146,7 +8148,7 @@ export function testesDoMisterComPostgres(): void {
         await ligar('carlos', tel, A, 'gerente');
         const doPresidente = (await ferramentas.escopo(A, pessoa.ana, telAna))!;
         const r: any = await ferramentas.executar(doPresidente, 'gasto_do_whatsapp', {});
-        expect(r.ok).toBe(true);
+        expect({ ok: r.ok, erro: (r.dados as any).erro ?? null }).toEqual({ ok: true, erro: null });
         expect(r.dados).toMatchObject({
           oficial: true,
           ateAgora: 132.54,
@@ -8327,6 +8329,175 @@ export function testesDoMisterComPostgres(): void {
           situacao: 'desligado',
           desligado: { motivo: 'desligado pelo suporte da DMS' },
         });
+      });
+    });
+
+    // ───────────── versão 6, M6e (mig 472): as regras de cada pessoa ─────────────
+    describe('as regras de cada pessoa (versão 6, M6e)', () => {
+      const regras = new MisterRegrasService(db, ferramentas, new DashboardService(db), numero, entrada, auditoria);
+      beforeAll(() => regras.onModuleInit());
+      afterEach(async () => {
+        await q(`delete from mister_regra where tenant_id = any($1::uuid[])`, [[A, B]]);
+        await q(`delete from pedido_externo where tenant_id = $1 and display_id like 'R6E%'`, [A]);
+        await q(`delete from titulo_financeiro where tenant_id = $1 and descricao like 'R6E %'`, [A]);
+      });
+      const escopo = async (nome: string) => (await ferramentas.escopoDaTela(A, pessoa[nome]))!;
+      const TRES = {
+        fonte: 'pedidos',
+        titulo: '3 pedidos há mais de 20 min em preparo',
+        filtros: [
+          { campo: 'situacao', op: '=', valor: 'em_preparo' },
+          { campo: 'min_desde_aceite', op: '>', valor: 20 },
+        ],
+        medida: 'quantidade',
+        condicao: { op: '>=', valor: 3 },
+        quando: {},
+        vezes: 'sempre',
+        agrupar: true,
+        substitui: ['pedido_parado'],
+      };
+      const pedidoAceito = (numero: number, min: number, loja: string | null = lojaDeA) =>
+        q(
+          `insert into pedido_externo (tenant_id, unidade_id, canal, status, display_id, numero, criado_em, confirmado_em)
+           values ($1, $2, 'ifood', 'confirmado', $3, $4, now() - make_interval(mins => $5 + 2), now() - make_interval(mins => $5))`,
+          [A, loja, `R6E${numero}`, numero, min],
+        );
+
+      it('propõe pela conversa, liga no Confirmar, avisa os 3 pedidos numa mensagem só e tira o aviso um a um de quem tem a regra', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const r = await ferramentas.executar(await escopo('ana'), 'regras', { acao: 'propor', regra: TRES });
+        expect({ ok: r.ok, erro: (r.dados as any).erro ?? null }).toEqual({ ok: true, erro: null });
+        expect(r.dados).toMatchObject({ titulo: TRES.titulo, deixaDeReceber: ['pedido_parado'] });
+        expect(String(r.dados.oQueVouFazer)).toContain('a partir de 3');
+        expect(r.botoes?.map((b) => b.titulo)).toEqual(['Confirmar', 'Mudar']);
+        // antes do Confirmar, a regra não avisa
+        for (const [n, min] of [[22, 24], [24, 31], [28, 22], [30, 5]]) await pedidoAceito(n, min);
+        expect(await regras.volta([A])).toMatchObject({ avisos: 0 });
+        numero.pedidos.length = 0;
+        expect(await mandar(tel, 'Confirmar', { botaoId: r.botoes![0].id })).toBe('respondeu_proposta');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DAS_REGRAS.ligada(TRES.titulo)]);
+        // a volta: uma mensagem com os três; a seguinte, nada
+        numero.pedidos.length = 0;
+        expect(await regras.volta([A])).toMatchObject({ avaliadas: 1, avisos: 1 });
+        const aviso = numero.enviadas.filter((m) => m.para === tel).map((m) => m.texto);
+        expect(aviso).toHaveLength(1);
+        expect(aviso[0]).toContain('⏱ 3 pedidos há mais de 20 min em preparo (3)');
+        for (const n of [22, 24, 28]) expect(aviso[0]).toContain(`#${n}`);
+        expect(aviso[0]).not.toContain('#30');
+        numero.pedidos.length = 0;
+        expect(await regras.volta([A])).toMatchObject({ avisos: 0 });
+        // o aviso de pedido parado da empresa (um por pedido) não chega mais a ela pelo WhatsApp
+        await q(`insert into mister_aviso_regra (tenant_id, tipo, ligado, destinos, parametro) values ($1, 'pedido_parado', true, '{presidente}', 20)`, [A]);
+        numero.pedidos.length = 0;
+        await avisos.volta([A]);
+        expect(numero.enviadas.filter((m) => m.para === tel && /aceito há mais de 20 min/.test(m.texto))).toHaveLength(0);
+        // apagada a regra, os avisos um a um voltam para ela
+        await q(`update mister_regra set situacao = 'apagada' where tenant_id = $1`, [A]);
+        await pedidoAceito(33, 25);
+        numero.pedidos.length = 0;
+        await avisos.volta([A]);
+        expect(numero.enviadas.filter((m) => m.para === tel && /aceito há mais de 20 min/.test(m.texto)).length).toBeGreaterThan(0);
+      });
+
+      it('a conta uma hora antes: busca, alvo, olha uma vez às 16:00, avisa fora da janela pelo modelo e se encerra', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const hoje = hojeISO();
+        await q(`insert into titulo_financeiro (tenant_id, tipo, descricao, valor, vencimento, status) values ($1, 'pagar', 'R6E Boleto Distribuidora Sul', 1480, $2, 'aberto')`, [A, hoje]);
+        const e = await escopo('ana');
+        const b = await ferramentas.executar(e, 'regras', { acao: 'buscar', fonte: 'contas', texto: 'distribuidora' });
+        const conta = (b.dados.itens as any[])[0];
+        expect(conta).toMatchObject({ rotulo: 'R6E Boleto Distribuidora Sul', valor: 1480 });
+        const r = await ferramentas.executar(e, 'regras', {
+          acao: 'propor',
+          regra: { fonte: 'contas', titulo: 'Boleto da Distribuidora', filtros: [], alvo: { id: conta.id, rotulo: 'o que a IA achar' }, medida: 'cada_item', quando: { data: hoje, em: '16:00' }, vezes: 'uma_vez', agrupar: true },
+        });
+        // o nome do alvo é o do banco, não o da IA
+        expect(String(r.dados.oQueVouFazer)).toContain('R6E Boleto Distribuidora Sul');
+        // a pessoa confirma por escrito (sem o botão)
+        expect(await ferramentas.executar(e, 'regras', { acao: 'confirmar', regraId: r.dados.id })).toMatchObject({ ok: true, dados: { ligada: true } });
+        // às 15:59, nada; às 16:05, fora da janela das 24 h: vai o modelo com "Ver o que fazer"
+        await q(`update mister_vinculo set ultima_entrada_em = now() - interval '2 days' where colaborador_id = $1`, [pessoa.ana]);
+        expect(await regras.volta([A], new Date(`${hoje}T15:59:00-03:00`))).toMatchObject({ avisos: 0, concluidas: 0 });
+        numero.pedidos.length = 0;
+        expect(await regras.volta([A], new Date(`${hoje}T16:05:00-03:00`))).toMatchObject({ avisos: 1, concluidas: 1 });
+        const modelo = numero.enviadas.find((m) => m.para === tel)!;
+        expect(modelo.texto).toMatch(/^modelo:mister_aviso:/);
+        expect(modelo.botoes[0].id).toMatch(/^mister:regra:/);
+        expect((await q(`select situacao from mister_regra where id = $1`, [r.dados.id]))[0]).toEqual({ situacao: 'concluida' });
+        // o toque no modelo mostra o texto inteiro
+        numero.pedidos.length = 0;
+        expect(await mandar(tel, 'Ver o que fazer', { codigoDoModelo: modelo.botoes[0].id })).toBe('tocou_modelo');
+        expect(numero.enviadas[0].texto).toContain('⏱ Boleto da Distribuidora');
+        expect(numero.enviadas[0].texto).toContain('R6E Boleto Distribuidora Sul');
+      });
+
+      it('a lista: o presidente vê as de todos, o gerente só as dele; só o dono ou o presidente apaga, pelo botão', async () => {
+        const telAna = telefone();
+        const telCarlos = telefone();
+        await ligar('ana', telAna);
+        await ligar('carlos', telCarlos, A, 'gerente');
+        const despacho = { fonte: 'pedidos', titulo: 'Despacho acima de 30 min', filtros: [{ campo: 'min_aceite_ate_saida', op: '>', valor: 30 }], medida: 'cada_item', quando: {}, vezes: 'sempre', agrupar: true };
+        const doCarlos = await ferramentas.executar(await escopo('carlos'), 'regras', { acao: 'propor', regra: despacho });
+        await regras.ativar(String(doCarlos.dados.id), A, pessoa.carlos, false);
+        const daAna = await ferramentas.executar(await escopo('ana'), 'regras', { acao: 'propor', regra: TRES });
+        await regras.ativar(String(daAna.dados.id), A, pessoa.ana, true);
+        const listaAna = await ferramentas.executar(await escopo('ana'), 'regras', { acao: 'listar' });
+        expect((listaAna.dados.regras as any[]).map((x) => [x.titulo, x.de ?? null])).toEqual([
+          [TRES.titulo, null],
+          ['Despacho acima de 30 min', 'Carlos Lima'],
+        ]);
+        const listaCarlos = await ferramentas.executar(await escopo('carlos'), 'regras', { acao: 'listar' });
+        expect((listaCarlos.dados.regras as any[]).map((x) => x.titulo)).toEqual(['Despacho acima de 30 min']);
+        // o gerente não mexe na regra da presidente
+        expect(await ferramentas.executar(await escopo('carlos'), 'regras', { acao: 'apagar', regraId: daAna.dados.id })).toMatchObject({ ok: false });
+        // a presidente apaga a do gerente pelo botão
+        const apagar = await ferramentas.executar(await escopo('ana'), 'regras', { acao: 'apagar', regraId: doCarlos.dados.id });
+        expect(apagar.botoes?.map((b) => b.titulo)).toEqual(['Apagar', 'Deixar']);
+        numero.pedidos.length = 0;
+        expect(await mandar(telAna, 'Apagar', { botaoId: apagar.botoes![0].id })).toBe('respondeu_proposta');
+        expect(numero.enviadas[0].texto).toBe(TEXTOS_DAS_REGRAS.apagada('Despacho acima de 30 min'));
+        expect((await q(`select situacao from mister_regra where id = $1`, [doCarlos.dados.id]))[0]).toEqual({ situacao: 'apagada' });
+        // a do gerente só vê os pedidos da loja dele
+        const deOutraLoja = (await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja Norte') returning id`, [A]))[0].id;
+        try {
+          const outra = await ferramentas.executar(await escopo('carlos'), 'regras', { acao: 'propor', regra: { ...TRES, titulo: 'Parados na minha loja', substitui: [] } });
+          await regras.ativar(String(outra.dados.id), A, pessoa.carlos, false);
+          for (const n of [41, 42, 43]) await pedidoAceito(n, 30, deOutraLoja);
+          numero.pedidos.length = 0;
+          await regras.volta([A]);
+          expect(numero.enviadas.filter((m) => m.para === telCarlos)).toHaveLength(0);
+          await pedidoAceito(44, 30);
+          await pedidoAceito(45, 30);
+          await pedidoAceito(46, 30);
+          await regras.volta([A]);
+          const paraCarlos = numero.enviadas.filter((m) => m.para === telCarlos).map((m) => m.texto);
+          expect(paraCarlos).toHaveLength(1);
+          expect(paraCarlos[0]).toContain('#44');
+          expect(paraCarlos[0]).not.toContain('#41');
+        } finally {
+          await q(`delete from pedido_externo where unidade_id = $1`, [deOutraLoja]);
+          await q(`delete from unidade where id = $1`, [deOutraLoja]);
+        }
+      });
+
+      it('a proposta que ninguém confirma some em 30 min; o Mudar descarta', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const e = await escopo('ana');
+        const p1 = await ferramentas.executar(e, 'regras', { acao: 'propor', regra: TRES });
+        await q(`update mister_regra set vence_em = now() - interval '1 minute' where id = $1`, [p1.dados.id]);
+        await regras.volta([A]);
+        expect((await q(`select situacao from mister_regra where id = $1`, [p1.dados.id]))[0]).toEqual({ situacao: 'descartada' });
+        numero.pedidos.length = 0;
+        expect(await mandar(tel, 'Confirmar', { botaoId: p1.botoes![0].id })).toBe('respondeu_proposta');
+        expect(numero.enviadas[0].texto).toBe(TEXTOS_DAS_REGRAS.venceu);
+        const p2 = await ferramentas.executar(e, 'regras', { acao: 'propor', regra: TRES });
+        numero.pedidos.length = 0;
+        await mandar(tel, 'Mudar', { botaoId: p2.botoes![1].id });
+        expect(numero.enviadas[0].texto).toBe(TEXTOS_DAS_REGRAS.mudar);
+        expect((await q(`select situacao from mister_regra where id = $1`, [p2.dados.id]))[0]).toEqual({ situacao: 'descartada' });
       });
     });
   });
