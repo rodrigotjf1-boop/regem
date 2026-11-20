@@ -178,8 +178,13 @@ export default function DiretoriaPage() {
                 </tr>
               </thead>
               <tbody>
+                {/* V37: "vazio" só com a resposta lida — antes dela, carregando; com erro, "não li" (nunca "nenhuma"). */}
                 {unidades.length === 0 && (
-                  <tr><td colSpan={7} className="px-4 py-6 text-center text-muted-foreground">Nenhuma unidade cadastrada.</td></tr>
+                  <tr>
+                    <td colSpan={7} className="px-4 py-6 text-center text-muted-foreground">
+                      {data ? 'Nenhuma unidade cadastrada.' : erro ? 'Não consegui ler as unidades.' : 'Carregando as unidades…'}
+                    </td>
+                  </tr>
                 )}
                 {unidades.map((r) => {
                   const st = statusConclusao(r.tarefas.pct);

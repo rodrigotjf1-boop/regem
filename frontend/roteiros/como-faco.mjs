@@ -11,8 +11,9 @@ import { fotoDoComoFaco, responder, tokenFalso, umaLinha } from './comum.mjs';
 const TUDO = { ver: true, criar: true, editar: true, excluir: true };
 // O azulejo do mapa simulado (1×1 transparente), o mesmo do roteiro da área de entrega.
 const PNG_VAZIO = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
-// `financeiro`: a tela das contas a pagar lê a permissão do token (`podePerm`); sem ela, mostra só as formas de pagamento
-const PERMISSOES = ['cadastros', 'escalas', 'impressoras', 'acessos', 'relatorios_vendas', 'cancelamentos', 'auditoria', 'turnos', 'fiscal_config', 'cupons', 'delivery', 'pedidos', 'fiscal', 'producao_kds', 'loja', 'financeiro'];
+// `financeiro`: a tela das contas a pagar lê a permissão do token (`podePerm`); sem ela, mostra só as formas de pagamento.
+// `direcionamento_impressao`: o Direcionamento do catálogo também (sem ela, a lista não tem a caixa de marcar nem as ações).
+const PERMISSOES = ['cadastros', 'escalas', 'impressoras', 'acessos', 'relatorios_vendas', 'cancelamentos', 'auditoria', 'turnos', 'fiscal_config', 'cupons', 'delivery', 'pedidos', 'fiscal', 'producao_kds', 'loja', 'financeiro', 'direcionamento_impressao'];
 // `ver_financeiro`: o presidente vê os valores em R$ (sem ela, os relatórios mostram só as quantidades e um aviso)
 const TOKEN = tokenFalso({ cat: 'presidente', perfil: 'presidente', perm: { ...Object.fromEntries(PERMISSOES.map((p) => [p, TUDO])), ver_financeiro: true } });
 
@@ -365,6 +366,125 @@ const CANDIDATOS = {
       id: 'ca3', nome: 'Carla Exemplo', situacao: 'aprovado', loja: 'Loja Exemplo', funcoes: ['auxiliar'], tipoVaga: 'horista', dias: ['sex', 'sab', 'dom'], meios: ['publico'],
       conducoes: 1, uberMotivo: null, valorIda: 5.5, valorVolta: 5.5, contratadoEm: null, porDia: 11, diasNoMes: 13, porMes: 143, escala: null, motivo: null,
     }],
+  },
+};
+
+// ── M6k, lote 4: Alertas do KDS, Direcionamento do catálogo, Config. por ramo, Planos & assinatura, Servidor local,
+// Números do atendimento e Visão C&O
+// Os alertas do rodapé do KDS (`/kds/alertas`, o formato de `app/kds/alertas/alertas-tela.tsx`): um agendado, um condicional
+// até o "Ciente" e um desligado; os KDS da loja (`/producao/kds/telas`).
+const alertaDoKds = (id, titulo, detalhe, prioridade, tipo, extra = {}) => ({
+  id, titulo, detalhe, prioridade, tipo, horarios: [], diasSemana: [0, 1, 2, 3, 4, 5, 6], condicao: null, duracaoSeg: 60,
+  unidadeId: null, kdsIds: null, ateCiente: false, ativo: true, ...extra,
+});
+const ALERTAS_DO_KDS = {
+  '/kds/alertas': [
+    alertaDoKds('al1', 'Horário de lavar as mãos', 'Lave as mãos antes de voltar à bancada.', 'alta', 'agendado', { horarios: ['11:00', '15:00', '19:00'] }),
+    alertaDoKds('al2', 'Muitos pedidos de delivery', 'Chame reforço na montagem.', 'danger', 'condicional', { condicao: { fonte: 'pedidos_delivery', operador: '>=', limiar: 8 }, ateCiente: true }),
+    alertaDoKds('al3', 'Conferir a temperatura da câmara fria', null, 'info', 'agendado', { horarios: ['16:00'], diasSemana: [1, 2, 3, 4, 5], kdsIds: ['k1'], ativo: false }),
+  ],
+  '/producao/kds/telas': [{ id: 'k1', nome: 'Chapa', unidadeId: null }, { id: 'k2', nome: 'Expedição', unidadeId: null }],
+  '/unidades': [{ id: 'u1', nome: 'Loja Exemplo' }],
+};
+// O direcionamento (`/produtos/direcionamento`): um produto com destino próprio, um herdando o setor, um com dois destinos e
+// uma bebida sem setor; os KDS e as impressoras em uso (`/equipamento`) — a do caixa imprime o cupom do cliente.
+const DIRECIONAMENTO = {
+  '/produtos/direcionamento': [
+    { id: 'p1', nome: 'X-Burger', categoriaNome: 'Lanches', setorNome: 'Chapa', preparado: true, destinos: ['e1'] },
+    { id: 'p2', nome: 'X-Salada', categoriaNome: 'Lanches', setorNome: 'Chapa', preparado: true, destinos: [] },
+    { id: 'p3', nome: 'Batata média', categoriaNome: 'Porções', setorNome: 'Fritadeira', preparado: true, destinos: ['e2', 'e3'] },
+    { id: 'p4', nome: 'Coca-Cola lata', categoriaNome: 'Bebidas', setorNome: null, preparado: false, destinos: [] },
+  ],
+  '/equipamento': [
+    { id: 'e1', nome: 'KDS da chapa', tipo: 'kds', ativo: true },
+    { id: 'e2', nome: 'KDS da fritadeira', tipo: 'kds', ativo: true },
+    { id: 'e3', nome: 'Impressora da cozinha', tipo: 'impressora', ativo: true, conexao: 'rede', host: '192.168.0.50', fazCupom: false },
+    { id: 'e4', nome: 'Impressora do caixa', tipo: 'impressora', ativo: true, conexao: 'rede', host: '192.168.0.51', fazCupom: true },
+  ],
+};
+// O assistente por ramo: os cartões do passo 1 (`/onboarding/ramos-detalhes`, os rótulos dos modelos de
+// `onboarding/templates.ts`), o cadastro abaixo dos 35% (acima, a tela trava) e as sugestões do ramo (`/onboarding/blueprint`).
+const CONFIG_POR_RAMO = {
+  '/onboarding/ramos-detalhes': [
+    { ramo: 'food_service', label: 'Restaurante / Food Service', emoji: '🍽️' },
+    { ramo: 'varejo', label: 'Varejo', emoji: '🛍️' },
+    { ramo: 'industria_leve', label: 'Indústria leve', emoji: '🏭' },
+    { ramo: 'servicos', label: 'Serviços', emoji: '🧰' },
+  ],
+  '/unidades': [{ id: 'u1', nome: 'Loja Exemplo' }],
+  '/onboarding/progresso': { pct: 14, feitos: 1, total: 7, milestones: [] },
+  '/onboarding/blueprint': {
+    ramo: 'food_service', label: 'Restaurante / Food Service', emoji: '🍽️',
+    setores: [
+      { nome: 'Cozinha', funcoes: [{ nome: 'Cozinheiro' }, { nome: 'Auxiliar de cozinha' }] },
+      { nome: 'Salão', funcoes: [{ nome: 'Garçom' }, { nome: 'Recepcionista' }] },
+      { nome: 'Caixa', funcoes: [{ nome: 'Operador de caixa' }] },
+    ],
+    escalas: ['6x1', '5x2', '12x36'], itens: [{ nome: 'Óleo' }, { nome: 'Sal' }], tipos: [],
+  },
+};
+// Os planos (`/planos`): nomes e preços DE EXEMPLO (não são os do catálogo — a imagem não pode passar por tabela de preço) e
+// a conta em teste grátis (`/licenca/status`; o Shell mostra a faixa do teste no alto).
+const PLANOS_DE_EXEMPLO = {
+  '/planos': [
+    { chave: 'ex1', nome: 'Plano Exemplo 1', desc: 'Para começar pelo balcão', modulos: ['Pedidos', 'Estoque', 'Fichas técnicas'], mensal: 99, semestral: 89, anual: 79 },
+    { chave: 'ex2', nome: 'Plano Exemplo 2', desc: 'Cozinha e equipe', modulos: ['Tudo do Exemplo 1', 'KDS', 'Ponto'], mensal: 149, semestral: 134, anual: 119, destaque: true },
+    { chave: 'ex3', nome: 'Plano Exemplo 3', desc: 'Delivery e marketing', modulos: ['Tudo do Exemplo 2', 'Integrações', 'Robô do WhatsApp'], mensal: 199, semestral: 179, anual: 159 },
+  ],
+  '/licenca/status': { tipo: 'trial', dias: 9 },
+};
+// O servidor da loja instalado e em dia (`/minha-loja/servidor`, lido pela saúde, pelo endereço na rede, pelo app
+// autenticador e pelo resumo do alto): backup de hoje, espaço sobrando, o endereço na rede (MAC da faixa de documentação).
+const SERVIDOR_DA_LOJA = {
+  '/minha-loja/servidor': {
+    instalado: true, online: true, versao: '1.30.14', travaAtiva: false, temTotp: false, metodo: null,
+    backup: { ok: true, em: haMin(180), horas: 3, mb: 420 }, discoLivreMb: 61440, bancoMb: 380, precisaManutencao: false, pcsConectados: 3,
+    rede: {
+      nome: 'regem.local', ip: '192.168.0.10', gateway: '192.168.0.1', maquina: 'PC-SERVIDOR', mac: '00-00-5E-00-53-01',
+      portas: { app: 3001, api: 3000 }, outros: [], desde: null, anterior: null, medidoEm: haMin(2),
+    },
+  },
+};
+// Os números do atendimento (`/atendimento/numeros`, o formato de `atendimento/numeros.ts › montarNumeros`): três linhas do
+// placar, três motivos e dois produtos.
+const NUMEROS_DO_ATENDIMENTO = {
+  canais: [
+    { k: 'chat-ifood', canal: 'ifood', nome: 'Chat do iFood', o: 'mensagens do cliente', chegaram: 42, respondidas: 40, segMedio: 95, semResposta: 2 },
+    { k: 'casos', canal: 'whatsapp', nome: 'WhatsApp', o: 'casos que o robô passou à equipe · tempo até alguém pegar', chegaram: 18, respondidas: 17, segMedio: 240, semResposta: 1 },
+    { k: 'disputa', canal: 'ifood', nome: 'Disputas do iFood', o: 'disputas · sem resposta, o iFood decide sozinho', chegaram: 3, respondidas: 3, segMedio: 900, semResposta: 0 },
+  ],
+  motivos: [
+    { k: 'atraso', nome: 'Atraso', casos: 6, centavos: 18990, estimado: false, daPlataforma: 2 },
+    { k: 'faltou', nome: 'Faltou item', casos: 3, centavos: 4570, estimado: false, daPlataforma: 1 },
+    { k: 'frio', nome: 'Chegou frio', casos: 2, centavos: 0, estimado: false, daPlataforma: 0 },
+  ],
+  produtos: [
+    { nome: 'Batata média', casos: 3, centavos: 3270, motivos: [{ k: 'frio', nome: 'Chegou frio', casos: 2 }, { k: 'faltou', nome: 'Faltou item', casos: 1 }] },
+    { nome: 'X-Burger', casos: 2, centavos: 1300, motivos: [{ k: 'faltou', nome: 'Faltou item', casos: 2 }] },
+  ],
+  custou: { centavos: 23560, casos: 7, estimado: false, semValor: 0 },
+  reclamacoes: 11,
+  parcial: false,
+};
+// A Visão C&O (`/diretoria/multiunidade` e `/modulos`): duas lojas de exemplo e quatro módulos (o Mister desligado, como nasce).
+const VISAO_CO = {
+  '/diretoria/multiunidade': {
+    rede: { faturamento: 48250.9, gorjeta: 0, vendas: 1320, desperdicios: 14, conclusaoMedia: 82, estoqueCritico: 5, lojas: 2 },
+    unidades: [
+      { id: 'u1', nome: 'Loja Exemplo Centro', faturamento: 30120.5, vendas: 820, tarefas: { pct: 88 }, escala: { preenchidas: 7, vagas: 7 }, desperdicio: { total: 6 }, estoqueAbaixoMinimo: 1 },
+      { id: 'u2', nome: 'Loja Exemplo Norte', faturamento: 18130.4, vendas: 500, tarefas: { pct: 74 }, escala: { preenchidas: 5, vagas: 6 }, desperdicio: { total: 8 }, estoqueAbaixoMinimo: 4 },
+    ],
+  },
+  '/modulos': {
+    modulos: [
+      { chave: 'app_colaborador', label: 'App do Colaborador', emoji: '📱' },
+      { chave: 'kds', label: 'KDS de Alertas', emoji: '🖥️' },
+      { chave: 'terminal_ponto', label: 'Terminal de Ponto', emoji: '🕐' },
+      { chave: 'mister', label: 'Mister', emoji: '✨' },
+    ],
+    rede: { app_colaborador: true, kds: true, terminal_ponto: true, mister: false },
+    porUnidade: {},
+    unidades: [{ id: 'u1', nome: 'Loja Exemplo Centro' }, { id: 'u2', nome: 'Loja Exemplo Norte' }],
   },
 };
 
@@ -725,6 +845,99 @@ const TELAS = [
       em(p, '[role="group"][aria-label="Situação"] button:has-text("Entrevista")'),
       rotulado(p, 'Distância até a loja'),
       em(p, 'button[aria-label="Abrir ficha: Ana Exemplo"]'),
+    ],
+  },
+  // ── M6k, lote 4 ──
+  {
+    // a chave e as ações da linha têm o título do alerta no rótulo ("Alerta Horário de lavar as mãos ativo", "Testar: …")
+    id: 'alertas-do-kds', caminho: '/kds/alertas', respostas: ALERTAS_DO_KDS,
+    marcas: (p) => [
+      menu(p, '/kds/alertas'),
+      em(p, 'button:has-text("Novo alerta")'),
+      em(p, 'button[role="switch"][aria-label="Alerta Horário de lavar as mãos ativo"]'),
+      em(p, 'button[aria-label="Testar: Horário de lavar as mãos"]'),
+    ],
+  },
+  {
+    // o passo marca o X-Burger: o "Direcionar marcados" liga (desligado, sairia apagado na imagem)
+    id: 'direcionamento-do-catalogo', caminho: '/direcionamento', respostas: DIRECIONAMENTO,
+    passo: async (p) => {
+      await em(p, 'input[aria-label="Marcar X-Burger"]').check();
+      await em(p, 'button:has-text("Direcionar marcados"):not([disabled])').waitFor({ timeout: 8000 }).catch(() => {});
+    },
+    marcas: (p) => [
+      menu(p, '/direcionamento'),
+      em(p, 'label:has(> input[aria-label="Marcar X-Burger"])'),
+      em(p, 'button:has-text("Direcionar marcados")'),
+      em(p, 'button[aria-label="Destinos: X-Salada"]'),
+    ],
+  },
+  {
+    // o passo escolhe o restaurante: as sugestões chegam e o "Avançar ▸" liga
+    id: 'config-por-ramo', caminho: '/wizard', respostas: CONFIG_POR_RAMO,
+    passo: async (p) => {
+      await em(p, 'button:has-text("Restaurante / Food Service")').click();
+      await em(p, 'button:has-text("Avançar"):not([disabled])').waitFor({ timeout: 8000 }).catch(() => {});
+    },
+    marcas: (p) => [
+      menu(p, '/wizard'),
+      em(p, 'button[aria-pressed="true"]:has-text("Restaurante")'),
+      em(p, 'ol:has(> li:has-text("Setores"))'),
+      em(p, 'button:has-text("Avançar")'),
+    ],
+  },
+  {
+    // o aviso da conta é o <p> dentro do <main> (a faixa do teste, do Shell, fica fora dele)
+    id: 'planos-e-assinatura', caminho: '/planos', respostas: PLANOS_DE_EXEMPLO,
+    // A imagem vai a clientes de verdade: o preço e os módulos de exemplo saem BORRADOS (um preço inventado na imagem
+    // engana; o de verdade está na tela e muda com o tempo).
+    passo: async (p) => {
+      // só o preço e a lista de módulos de DENTRO de cada cartão (a grade dos planos também é uma lista)
+      await p.addStyleTag({ content: 'main span.font-mono.text-3xl, main li ul { filter: blur(8px); }' });
+      await p.waitForTimeout(200);
+    },
+    marcas: (p) => [
+      menu(p, '/planos'),
+      em(p, 'p:has-text("Seu teste grátis termina")'),
+      em(p, '[role="group"][aria-labelledby="planos-ciclo"]'),
+      em(p, 'button:has-text("Assinar Plano Exemplo 2")'),
+    ],
+  },
+  {
+    // os rótulos do backup e do espaço são <dt> em maiúsculas pelo CSS: achados pelo `has-text` (não diferencia)
+    id: 'servidor-local', caminho: '/servidor', respostas: SERVIDOR_DA_LOJA,
+    marcas: (p) => [
+      menu(p, '/servidor'),
+      em(p, 'button[aria-pressed]:has-text("Pede atenção")'),
+      em(p, 'div:has(> dt:has-text("Último backup"))'),
+      em(p, 'div:has(> dt:has-text("Espaço livre no computador"))'),
+    ],
+  },
+  {
+    // a página rola até o período (o conteúdo rola dentro do <main>, o cabeçalho do Shell fica fora): o período, os números
+    // do alto, o placar e o 1º motivo cabem juntos
+    id: 'numeros-do-atendimento', caminho: '/atendimento/numeros', respostas: { '/atendimento/numeros': NUMEROS_DO_ATENDIMENTO },
+    passo: async (p) => {
+      await em(p, 'section[aria-labelledby="t-motivos"]').waitFor({ timeout: 8000 }).catch(() => {});
+      await em(p, '[role="group"][aria-label="Período"]').evaluate((el) => el.scrollIntoView({ block: 'start' }));
+      await p.waitForTimeout(300);
+    },
+    marcas: (p) => [
+      menu(p, '/atendimento/numeros'),
+      em(p, 'button[aria-pressed]:text-is("Últimos 30 dias")'),
+      em(p, 'p:text-is("1ª resposta no chat do iFood")').locator('..'),
+      em(p, 'section[aria-labelledby="t-motivos"] button:has-text("Atraso")'),
+    ],
+  },
+  {
+    // o rótulo do número é um <p> em maiúsculas pelo CSS (o pai é o cartão); a 1ª linha com a loja é a do comparativo (as
+    // exceções por loja ficam abaixo); a chave do módulo tem o nome no rótulo ("KDS de Alertas na rede")
+    id: 'visao-co', caminho: '/diretoria', respostas: VISAO_CO,
+    marcas: (p) => [
+      menu(p, '/diretoria'),
+      em(p, 'p:has-text("Faturamento rede (mês)")').locator('..'),
+      em(p, 'tr:has-text("Loja Exemplo Centro")'),
+      em(p, 'button[role="switch"][aria-label="KDS de Alertas na rede"]'),
     ],
   },
   // Só conferência, sem foto: as telas que leem a categoria do token não podem quebrar a hidratação (V35; os
