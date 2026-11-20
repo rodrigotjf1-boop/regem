@@ -12,6 +12,14 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Perfil do cliente F2 — o calendário de eventos da loja (19/11; mig 461 SÓ NUVEM — `evento_loja`,
+  `calendario_loja_dia`).** Delivery › Clientes › Calendário de eventos (rotas `/calendario-da-loja`), a regra fixa de
+  feriados e datas, os eventos da loja e a cópia por loja e dia na rotina noturna do perfil. Tudo só na nuvem e só com o
+  módulo "Perfil do cliente" ligado; as duas tabelas entram como SO_NUVEM no `sync-daemon.mjs` (o daemon mudou: o
+  `.exe` do próximo corte leva junto, como já leva o da F1a). Junto, a F3 parte 1 ("mexe na loja?" no calendário, só
+  leitura) e o resto da F1c (as escolhas na entrada do cardápio e a palavra PRIVACIDADE no WhatsApp), que não entraram
+  no #1177.
+
 - **Perfil do cliente — o gatilho dos totais não espera a trava do cadastro (19/11; mig 460 NOS DOIS LADOS; ERR-539).** A
   função da 458 pega o cadastro com skip locked (feita por um diagnóstico errado do deadlock do CI — ERR-539; inofensiva). No servidor da loja
   entra com o `.zip`, junto da 458.
@@ -19,7 +27,9 @@
 - **Perfil do cliente F1b + F1c (API) + F6 — a ficha na tela, as escolhas do cliente e o cartão do atendente (19/11; SEM
   migration).** A ficha em gaveta em Delivery › Clientes; `/publico/cardapio/:token/cliente/privacidade`; o `cartao` no
   `ver_pedido` (instruções .f33) e a trava na saída do robô. Tudo só na nuvem (cardápio, robô e Clientes moram lá) e só
-  com o módulo "Perfil do cliente" ligado; no `.zip` só por acompanhar o código.
+  com o módulo "Perfil do cliente" ligado; no `.zip` só por acompanhar o código. Junto: o cartão do cliente no caso da
+  Central (F6b), as três escolhas desmarcadas logo depois do código do WhatsApp na entrada do cardápio e a palavra
+  PRIVACIDADE no WhatsApp (API oficial e Evolution, antes do robô; só com o módulo ligado) — também só na nuvem.
 
 - **Perfil do cliente F1a — a base: o cálculo e a ficha pela API (19/11; mig 459 SÓ NUVEM — `cliente_perfil`,
   `cliente_escolha`, `cliente_declarado`, `perfil_cliente_execucao`).** Módulo ativável "Perfil do cliente" (nasce

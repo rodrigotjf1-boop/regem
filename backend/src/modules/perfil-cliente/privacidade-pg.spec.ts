@@ -73,6 +73,20 @@ descrever('gravar e ler a privacidade (Postgres)', () => {
       await q(`insert into cliente_perfil (cliente_id, tenant_id) values ($1,$2)`, [id, t]);
       const db = drizzle(c as any);
       const cli = { tenantId: t, id };
+      // Nunca respondeu: a entrada do cardápio pergunta.
+      expect((await lerPrivacidade(db, t, id)).jaRespondeu).toBe(false);
+
+      // "Continuar sem marcar" na entrada grava o "não" com a origem — e a entrada não pergunta de novo.
+      const outro = (await q(`insert into cliente (tenant_id, nome, telefone) values ($1,'Bia','21966660002') returning id`, [t]))[0].id as string;
+      await gravarPrivacidade(db, { tenantId: t, id: outro }, lerPedidoDePrivacidade({
+        origem: 'cardapio_entrada', escolhas: { recomendacoes: false, atendimento_personalizado: false, maior_de_18: false },
+      }));
+      expect(await q(`select escolha, valor, origem from cliente_escolha where cliente_id = $1 order by escolha`, [outro])).toEqual([
+        { escolha: 'atendimento_personalizado', valor: false, origem: 'cardapio_entrada' },
+        { escolha: 'maior_de_18', valor: false, origem: 'cardapio_entrada' },
+        { escolha: 'recomendacoes', valor: false, origem: 'cardapio_entrada' },
+      ]);
+      expect(await lerPrivacidade(db, t, outro)).toMatchObject({ jaRespondeu: true, escolhas: { recomendacoes: false } });
 
       await gravarPrivacidade(db, cli, lerPedidoDePrivacidade({ escolhas: { recomendacoes: true }, declarado: { time: 'Flamengo' } }));
       await gravarPrivacidade(db, cli, lerPedidoDePrivacidade({ escolhas: { recomendacoes: true }, declarado: { time: 'Vasco' } }));

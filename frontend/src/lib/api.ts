@@ -2121,6 +2121,14 @@ export const api = {
   perfilClienteResumo: () => req('/perfil-cliente/resumo'),
   perfilClienteRecalcular: () => req('/perfil-cliente/recalcular', { method: 'POST' }),
   perfilClienteCartaoDoCaso: (casoId: string) => req(`/perfil-cliente/caso/${encodeURIComponent(casoId)}`),
+  // Delivery › Clientes › Calendário de eventos (F2 do perfil do cliente, mig 461) — só nuvem, presidente e gerente.
+  calendarioDaLoja: (de: string, ate: string) =>
+    req(`/calendario-da-loja?de=${encodeURIComponent(de)}&ate=${encodeURIComponent(ate)}`),
+  calendarioCriarEvento: (body: Record<string, unknown>) =>
+    req('/calendario-da-loja/eventos', { method: 'POST', body: JSON.stringify(body) }),
+  calendarioEditarEvento: (id: string, body: Record<string, unknown>) =>
+    req(`/calendario-da-loja/eventos/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  calendarioExcluirEvento: (id: string) => req(`/calendario-da-loja/eventos/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   // Campanhas de WhatsApp por segmento (F5 + épico marketing) — só nuvem, só gestão.
   crmCampanhaPrevia: (segmento: string, recuperacaoDias?: number) =>
     req(
