@@ -132,6 +132,13 @@ export class ClientePublicoController {
     return this.service.presentes(token, clienteToken);
   }
 
+  // O álbum de selos do Clube (A2, mig 479): o cliente escolhe o prêmio do álbum completo — Sua conta › Benefícios.
+  @Post(':token/cliente/clube/album')
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
+  escolherDoAlbum(@Param('token') token: string, @Body() dto: any) {
+    return this.service.escolherDoAlbum(token, dto?.clienteToken, dto?.premioId);
+  }
+
   @Post(':token/cliente/esquecer')
   esquecer(@Param('token') token: string, @Body() dto: any) {
     return this.service.esquecer(token, dto?.clienteToken);

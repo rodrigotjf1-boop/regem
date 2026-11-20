@@ -11,6 +11,7 @@ import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
 import { CABECALHO_USUARIO_DA_LOJA, EmpresaDaLojaGuard } from '../whatsapp/whatsapp-da-loja.controller';
 import { lerConfigDoClube, lerGatilhoCampanha, lerGatilhoClassificacao, lerGatilhoEntregue, lerGatilhoReclamacao, lerPremio } from './clube.regras';
 import { ClubeService } from './clube.service';
+import { ClubeAlbumService } from './clube-album.service';
 import { ClubeDesculpasService } from './clube-desculpas.service';
 import { ClubeSurpresaService } from './clube-surpresa.service';
 
@@ -155,12 +156,22 @@ const usuarioDaLoja = (v: unknown) => (UUID_DA_LOJA.test(String(v ?? '')) ? Stri
 // página roda na nuvem. Sem `JwtAuthGuard`, como o rastreio e a nota do pedido; o limite de chamadas é o global da API.
 @Controller('rastreio')
 export class ClubePublicoController {
-  constructor(private readonly surpresa: ClubeSurpresaService) {}
+  constructor(
+    private readonly surpresa: ClubeSurpresaService,
+    private readonly album: ClubeAlbumService,
+  ) {}
 
   @Get(':token/premio')
   @CloudOnly()
   premio(@Param('token') token: string) {
     return this.surpresa.doPedido(token);
+  }
+
+  /** O selo do álbum que este pedido deu (A2): "Você ganhou o selo de novembro — 3 de 4". */
+  @Get(':token/selo')
+  @CloudOnly()
+  selo(@Param('token') token: string) {
+    return this.album.doPedido(token);
   }
 
   @Post(':token/premio/revelar')

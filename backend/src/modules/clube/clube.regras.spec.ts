@@ -17,6 +17,9 @@ import {
   podeMandarDesculpas,
   premiosCitados,
   regrasDoClube,
+  estadoDoAlbum,
+  mesPorExtenso,
+  seloDoMes,
 } from './clube.regras';
 import { codigoDoDireito, fatiasDaRoleta } from './clube-surpresa.service';
 
@@ -62,9 +65,10 @@ describe('a configuração do clube', () => {
     expect(() => lerConfigDoClube({ metaNiveis: [{ pedidos: 0 }] })).toThrow('de 1 a 30 pedidos');
   });
 
-  it('nenhuma ferramenta liga antes da sua fase (a tela nem mostra o liga/desliga dela) — a surpresa chegou na A1', () => {
-    expect(FERRAMENTAS_PRONTAS).toEqual({ surpresa: true, album: false, meta: false });
-    expect(ligandoAntesDaHora({ surpresaAtivo: true, albumAtivo: true, metaAtivo: false })).toEqual(['album']);
+  it('nenhuma ferramenta liga antes da sua fase (a tela nem mostra o liga/desliga dela) — a surpresa chegou na A1 e o álbum na A2', () => {
+    expect(FERRAMENTAS_PRONTAS).toEqual({ surpresa: true, album: true, meta: false });
+    expect(ligandoAntesDaHora({ surpresaAtivo: true, albumAtivo: true, metaAtivo: false })).toEqual([]);
+    expect(ligandoAntesDaHora({ metaAtivo: true })).toEqual(['meta']);
     expect(ligandoAntesDaHora({ surpresaAtivo: true, albumAtivo: true }, { surpresa: false, album: false, meta: false })).toEqual(['surpresa', 'album']);
     expect(ligandoAntesDaHora({ surpresaAtivo: false })).toEqual([]); // desligar sempre pode
     expect(ligandoAntesDaHora({ surpresaAtivo: true }, { surpresa: true, album: false, meta: false })).toEqual([]);
@@ -270,5 +274,24 @@ describe('as fatias da roleta', () => {
     const a = codigoDoDireito();
     expect(a).toMatch(/^[A-Za-z0-9_-]{22}$/);
     expect(codigoDoDireito()).not.toBe(a);
+  });
+});
+
+describe('o álbum de selos (A2)', () => {
+  it('um selo por mês, sem repetir, em ordem, até o total; completo quando junta o total', () => {
+    expect(estadoDoAlbum(['2026-11', '2026-09', '2026-11'], 4)).toEqual({
+      selos: [seloDoMes('2026-09'), seloDoMes('2026-11')],
+      tem: 2,
+      total: 4,
+      completo: false,
+    });
+    const cheio = estadoDoAlbum(['2026-08', '2026-09', '2026-10', '2026-11', '2026-12'], 4);
+    expect([cheio.tem, cheio.completo, cheio.selos.map((s) => s.rotulo)]).toEqual([4, true, ['Ago', 'Set', 'Out', 'Nov']]);
+    expect(estadoDoAlbum([], 3)).toEqual({ selos: [], tem: 0, total: 3, completo: false });
+  });
+  it('o selo do mês: o rótulo curto, a arte padrão e o mês por extenso', () => {
+    expect(seloDoMes('2026-11')).toEqual({ mes: '2026-11', rotulo: 'Nov', arte: '🍔' });
+    expect(seloDoMes('2026-10').arte).toBe('🎃');
+    expect(mesPorExtenso('2026-03')).toBe('março');
   });
 });

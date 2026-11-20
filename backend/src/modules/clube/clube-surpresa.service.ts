@@ -65,9 +65,11 @@ export type NovoDireito = {
   tenantId: string;
   clienteId: string;
   chave: string;
-  gatilho: 'entregue' | 'reclamacao' | 'classificacao' | 'campanha';
+  gatilho: 'entregue' | 'reclamacao' | 'classificacao' | 'campanha' | 'album' | 'meta';
+  /** A ferramenta do Clube (padrão: o prêmio surpresa). O álbum e a meta: o cliente ESCOLHE o prêmio (forma "escolha"). */
+  ferramenta?: 'surpresa' | 'album' | 'meta';
   ref: string;
-  forma: FormaDoSurpresa;
+  forma: FormaDoSurpresa | 'escolha';
   premio: { id: string; nome: string; tipo: TipoDePremio; valor: number; teto: number | null; minimo: number; validadeDias: number };
 };
 
@@ -241,7 +243,7 @@ export class ClubeSurpresaService {
       await tx.execute(sql`
         insert into clube_direito (tenant_id, cliente_id, chave_telefone, ferramenta, gatilho, ref, premio_id, premio_nome,
                                    premio_descricao, forma, codigo, valido_ate)
-        values (${n.tenantId}::uuid, ${n.clienteId}::uuid, ${n.chave}, 'surpresa', ${n.gatilho}, ${n.ref},
+        values (${n.tenantId}::uuid, ${n.clienteId}::uuid, ${n.chave}, ${n.ferramenta ?? 'surpresa'}, ${n.gatilho}, ${n.ref},
                 ${p.id}::uuid, ${p.nome}, ${descricaoDoPremio(p)}, ${n.forma}, ${codigo}, ${validoAte}::date)
         on conflict (tenant_id, gatilho, ref) do nothing
         returning id`),

@@ -14,6 +14,7 @@ import { ClubeController, ClubePublicoController } from './clube.controller';
 import { ClubeService, PREMIOS_MAX } from './clube.service';
 import { ClubeSurpresaService } from './clube-surpresa.service';
 import { ClubeDesculpasService } from './clube-desculpas.service';
+import { ClubeAlbumService } from './clube-album.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -82,6 +83,7 @@ descrever('clube de recompra — a base (Postgres)', () => {
   beforeAll(async () => {
     delete process.env.EDGE_MODE; // como NUVEM
     await aplicar('471_clube_de_recompra_base.sql');
+    await aplicar('479_clube_album_meta_desde.sql');
   });
   beforeEach(() => {
     auditados.length = 0;
@@ -97,7 +99,7 @@ descrever('clube de recompra — a base (Postgres)', () => {
     const T = await empresa('teste clube padrão');
     const p = await svc.painel(T);
     expect(p.config).toMatchObject({ surpresaAtivo: false, albumAtivo: false, metaAtivo: false, surpresaForma: 'raspadinha', albumSelos: 4, minimo: 30 });
-    expect(p.prontas).toEqual({ surpresa: true, album: false, meta: false });
+    expect(p.prontas).toEqual({ surpresa: true, album: true, meta: false });
     expect(p.gatilhos).toEqual({ entregue: { ativo: false, premioId: null, desde: null }, reclamacao: { ativo: false, premios: [], limite: 'mes1', quem: 'gerencia' }, classificacao: { ativo: false, segmentos: [], premioId: null, periodoDias: 60 }, campanha: { ativo: false } });
     expect(p.premios).toEqual([]);
     expect(p.regras[0]).toContain('Não há sorteio');
@@ -146,7 +148,7 @@ descrever('clube de recompra — a base (Postgres)', () => {
     expect(auditados).toEqual([]);
     // recusas antes de gravar (V86): prêmio de outra empresa, ferramenta que ainda não existe
     await expect(svc.salvarConfig(presidente(T), { minimo: 10, albumPremios: [deOutra.id] })).rejects.toThrow('Um dos prêmios escolhidos não existe mais');
-    await expect(svc.salvarConfig(presidente(T), { minimo: 10, albumAtivo: true })).rejects.toThrow('O álbum de selos ainda não pode ser ligado');
+    await expect(svc.salvarConfig(presidente(T), { minimo: 10, metaAtivo: true })).rejects.toThrow('A meta do mês ainda não pode ser ligado');
     expect((await svc.config(T)).minimo).toBe(40);
     // desligar sempre pode (sem mudança, não grava)
     expect((await svc.salvarConfig(presidente(T), { metaAtivo: false })).metaAtivo).toBe(false);
@@ -200,6 +202,7 @@ descrever('clube — o prêmio surpresa pelo pedido entregue (Postgres)', () => 
   let clube: ClubeService;
   let surpresa: ClubeSurpresaService;
   let aniversario: AniversarioService;
+  let album: ClubeAlbumService;
   const auditados: any[] = [];
   const empresas: string[] = [];
   const q = async (s: string, p: any[] = []) => (await pool.query(s, p)).rows;
@@ -218,6 +221,7 @@ descrever('clube — o prêmio surpresa pelo pedido entregue (Postgres)', () => 
       ['357_aniversario_do_cliente.sql', 5],
       ['459_perfil_do_cliente.sql', 4],
       ['474_clube_premio_surpresa.sql', 4],
+      ['479_clube_album_meta_desde.sql', 2],
     ] as [string, number][]) {
       if (arq.startsWith('474')) await pool.query(semFkCompartilhada(readFileSync(join(MIGS, '471_clube_de_recompra_base.sql'), 'utf8')));
       const r: any = await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(readFileSync(join(MIGS, arq), 'utf8'))));
@@ -228,6 +232,7 @@ descrever('clube — o prêmio surpresa pelo pedido entregue (Postgres)', () => 
     clube = new ClubeService(db, { registrar: async (e: any) => void auditados.push(e) } as any);
     surpresa = new ClubeSurpresaService(db, clube);
     aniversario = new AniversarioService(db);
+    album = new ClubeAlbumService(db, clube, surpresa);
   });
   beforeEach(() => {
     auditados.length = 0;
@@ -681,5 +686,76 @@ descrever('clube — o prêmio surpresa pelo pedido entregue (Postgres)', () => 
     await expect(surpresa.darPelaCampanha({ tenantId: T, envioId: randomUUID(), clienteId: null, telefone: '', premioId: frete.id })).rejects.toThrow('telefone');
     // o prêmio em uso por uma campanha que ainda está mandando não se exclui (sem a tabela da campanha no teste, nenhum uso)
     expect((await clube.premios(T)).find((p) => p.id === frete.id)?.emUso).toEqual([]);
+  });
+
+  // ───────────── A2: o álbum de selos (mig 479) ─────────────
+  /** Um pedido concluído há N meses (0 = agora), do canal dado. */
+  const pedidoHa = async (t: string, cli: string, meses: number, o: { total?: number; canal?: string } = {}) => {
+    const token = randomUUID().replace(/-/g, '');
+    await q(
+      `insert into pedido_externo (tenant_id, canal, tipo, itens, total, status, cliente_nome, cliente_telefone, client_ref, cliente_id,
+                                   concluido_em, rastreio_token)
+       values ($1, $2, 'entrega', '[]'::jsonb, $3, 'concluido', 'Cliente', '21987667000', $4, $5,
+               now() - make_interval(months => $6::int) - interval '1 minute', $7)`,
+      [t, o.canal ?? 'cardapio', o.total ?? 50, randomUUID(), cli, meses, token],
+    );
+    return token;
+  };
+
+  it('o álbum: ligar grava o "desde"; selo por mês com pedido do Regem; completo, o cliente escolhe e o álbum recomeça', async () => {
+    const { T } = await lojaComClube('teste album');
+    const lista = await clube.premios(T);
+    const [frete, cinco] = [lista.find((p) => p.nome === 'Frete grátis')!, lista.find((p) => p.nome === 'R$ 5 off')!];
+    // o produto grátis não entra nos prêmios do álbum (o cliente escolhe e vira cupom de desconto)
+    const [{ id: produtoId }] = await q(`insert into produto (tenant_id, nome, ativo) values ($1, 'Batata', true) returning id`, [T]);
+    const batata = (await clube.criarPremio(presidente(T), { nome: 'Batata grátis', tipo: 'produto', produtoId, validadeDias: 7 })).find((p) => p.nome === 'Batata grátis')!;
+    await expect(clube.salvarConfig(presidente(T), { albumAtivo: true, albumPremios: [batata.id] })).rejects.toThrow('O produto grátis no álbum e na meta');
+    // o produto já gravado antes do A2 não trava o salvar de outro ajuste; ligar o álbum só com ele, sim
+    await q(`update clube_config set album_premios = $2::jsonb where tenant_id = $1`, [T, JSON.stringify([batata.id])]);
+    await expect(clube.salvarConfig(presidente(T), { surpresaForma: 'raspadinha' })).resolves.toMatchObject({ surpresaForma: 'raspadinha' });
+    await expect(clube.salvarConfig(presidente(T), { albumAtivo: true })).rejects.toThrow('Escolha ao menos um prêmio para quem completa o álbum');
+    await clube.salvarConfig(presidente(T), { albumAtivo: true, albumPremios: [frete.id, cinco.id], albumSelos: 4 });
+    const [{ album_desde: desde }] = await q(`select album_desde from clube_config where tenant_id = $1`, [T]);
+    expect(desde).not.toBeNull();
+    // o álbum ligado há 5 meses (para os pedidos de meses diferentes contarem)
+    await q(`update clube_config set album_desde = now() - interval '5 months' where tenant_id = $1`, [T]);
+    const ana = await cliente(T, 'Ana', '21987667001');
+    await pedidoHa(T, ana, 7); // antes de ligar: não conta
+    await pedidoHa(T, ana, 3);
+    await pedidoHa(T, ana, 3); // o mesmo mês: um selo só
+    await pedidoHa(T, ana, 2, { total: 10 }); // abaixo do mínimo do clube (40): não conta
+    await pedidoHa(T, ana, 2, { canal: 'ifood' }); // fora do Regem: não conta
+    await pedidoHa(T, ana, 1);
+    let a = await album.doCliente(T, ana);
+    expect(a).toMatchObject({ ativo: true, tem: 2, total: 4, completo: false, premios: [] });
+    await expect(album.escolher(T, ana, frete.id)).rejects.toThrow('O álbum ainda não está completo.');
+    await pedidoHa(T, ana, 2);
+    const tokenDeAgora = await pedidoHa(T, ana, 0);
+    a = await album.doCliente(T, ana);
+    expect(a).toMatchObject({ tem: 4, completo: true });
+    if (!a.ativo) throw new Error('desligado');
+    expect(a.premios.map((p) => p.nome).sort()).toEqual(['Frete grátis', 'R$ 5 off']);
+    // a página do pedido diz o selo que o pedido deu
+    const selo = await album.doPedido(tokenDeAgora);
+    expect(selo).toMatchObject({ tem: true, selos: 4, total: 4, completo: true });
+    // escolher: só da lista; dois toques ao mesmo tempo trocam UMA vez
+    await expect(album.escolher(T, ana, batata.id)).rejects.toThrow('Escolha um dos prêmios do álbum.');
+    const r = await Promise.allSettled([album.escolher(T, ana, frete.id), album.escolher(T, ana, frete.id)]);
+    expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+    const ok = (r.find((x) => x.status === 'fulfilled') as PromiseFulfilledResult<any>).value;
+    expect(ok).toMatchObject({ premio: 'Frete grátis' });
+    expect(ok.codigo).toMatch(/^CLUBE/);
+    const ds = await q(`select ferramenta, gatilho, forma, ref, revelado_em from clube_direito where tenant_id = $1 and gatilho = 'album'`, [T]);
+    expect(ds).toHaveLength(1);
+    expect(ds[0]).toMatchObject({ ferramenta: 'album', gatilho: 'album', forma: 'escolha', ref: `${ana}:1` });
+    expect(ds[0].revelado_em).not.toBeNull();
+    // o cupom aparece em Sua conta na hora (já revelado) e o álbum recomeça
+    expect((await aniversario.presentesDoCliente(T, ana)).map((p) => p.origem)).toEqual(['clube']);
+    expect(await album.doCliente(T, ana)).toMatchObject({ tem: 0, completo: false });
+    // desligar zera o "desde"
+    await clube.salvarConfig(presidente(T), { albumAtivo: false });
+    expect((await q(`select album_desde from clube_config where tenant_id = $1`, [T]))[0].album_desde).toBeNull();
+    expect(await album.doCliente(T, ana)).toEqual({ ativo: false });
+    expect(await album.doPedido(tokenDeAgora)).toEqual({ tem: false });
   });
 });

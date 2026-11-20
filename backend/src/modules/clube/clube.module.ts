@@ -4,6 +4,7 @@ import { SyncTokenGuard } from '../sync/sync-token.guard';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { ClubeController, ClubeDaLojaController, ClubeLinkController, ClubePublicoController } from './clube.controller';
 import { ClubeService } from './clube.service';
+import { ClubeAlbumService } from './clube-album.service';
 import { ClubeDesculpasService } from './clube-desculpas.service';
 import { ClubeSurpresaService } from './clube-surpresa.service';
 
@@ -19,7 +20,7 @@ import { ClubeSurpresaService } from './clube-surpresa.service';
 @Module({
   imports: [EquipamentoModule, WhatsappModule],
   controllers: [ClubeController, ClubePublicoController, ClubeLinkController, ClubeDaLojaController],
-  providers: [ClubeService, ClubeSurpresaService, ClubeDesculpasService, SyncTokenGuard],
-  exports: [ClubeService, ClubeSurpresaService, ClubeDesculpasService],
+  providers: [ClubeService, ClubeSurpresaService, ClubeDesculpasService, ClubeAlbumService, SyncTokenGuard],
+  exports: [ClubeService, ClubeSurpresaService, ClubeDesculpasService, ClubeAlbumService],
 })
 export class ClubeModule {}
