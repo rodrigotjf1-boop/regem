@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, getToken, podeVerFinanceiro } from '@/lib/api';
+import { diasAtrasNaLoja, hojeNaLoja } from '@/lib/hoje-na-loja';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -16,11 +17,12 @@ import { toast } from '@/lib/toast';
 const brl = (n: number) =>
   Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
+// V46 (ERR-551): o dia da loja, não o de UTC (depois das 21h, o UTC já é amanhã).
 function hojeISO() {
-  return new Date().toISOString().slice(0, 10);
+  return hojeNaLoja();
 }
 function diasAtras(n: number) {
-  return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+  return diasAtrasNaLoja(n);
 }
 
 const ABC_COR: Record<string, string> = {

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { api, getCategoria, getToken } from '@/lib/api';
+import { diasAtrasNaLoja, hojeNaLoja } from '@/lib/hoje-na-loja';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -97,9 +98,9 @@ function resumoDetalhe(d: any): string {
   return partes.length ? partes.join(' · ') : '—';
 }
 
-const hoje = () => new Date().toISOString().slice(0, 10);
-const diasAtras = (d: number) =>
-  new Date(Date.now() - d * 86400000).toISOString().slice(0, 10);
+// V46 (ERR-551): o dia da loja, não o de UTC (depois das 21h, o UTC já é amanhã).
+const hoje = () => hojeNaLoja();
+const diasAtras = (d: number) => diasAtrasNaLoja(d);
 
 export default function AuditoriaPage() {
   const [rows, setRows] = useState<Registro[] | null>(null);
