@@ -1,5 +1,5 @@
 import type { Tom } from '@/components/ui/lista';
-import { COMO_RETOMAR_A_PONTE } from '@/lib/ponte-do-chat';
+import { COMO_RESPONDER_PELA_99, COMO_RETOMAR_A_PONTE } from '@/lib/ponte-do-chat';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -265,7 +265,11 @@ export function detalheDaPonte(p: any): string {
   const lendo = canaisCom(p, 'lendo');
   if (responde.length) partes.push(`Lê e responde ${juntar(responde.map((c) => COM_ARTIGO[c]))}`);
   if (reserva.length) partes.push(`Reserva ${juntar(reserva.map((c) => DE[c]))}: assume sozinha se a que responde ficar 2 min sem sinal`);
-  if (lendo.length) partes.push(`Lê ${juntar(lendo.map((c) => COM_ARTIGO[c]))}, ainda sem enviar: responda pelo portal ${juntar(lendo.map((c) => DE[c]))}`);
+  if (lendo.length)
+    partes.push(
+      `Lê ${juntar(lendo.map((c) => COM_ARTIGO[c]))}, ainda sem enviar: ` +
+        (lendo.includes('99food') ? `${COMO_RESPONDER_PELA_99} (ou responda pelo portal ${juntar(lendo.map((c) => DE[c]))})` : `responda pelo portal ${juntar(lendo.map((c) => DE[c]))}`),
+    );
   if (fora.length) partes.push(`Sem login ${juntar(fora.map((c) => EM[c]))}: entre dentro da janela da ponte`);
   if (!responde.length && !reserva.length && !fora.length && !lendo.length) partes.push('No ar (nem o iFood nem a 99 estão conectados)');
   const h = p.hoje ?? {};

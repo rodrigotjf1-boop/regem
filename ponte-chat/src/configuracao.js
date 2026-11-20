@@ -104,20 +104,22 @@ class Configuracao {
   }
 
   /**
-   * Este PC RESPONDE pela 99? (4b: envia pela 99 os avisos, o robô e a equipe, como no iFood.) Nasce desligado — quem liga
-   * é a pessoa da loja ("Responder pela 99 neste PC"); só vale com a 99 lida neste PC.
+   * Este PC RESPONDE pela 99? (4b: envia pela 99 os avisos, o robô e a equipe, como no iFood.) Desde a 0.7.8 vem LIGADO com
+   * a 99 aberta neste PC — a ponte onde a 99 está aberta é de onde a resposta sai, como no iFood (o dono, 20/11/2026; até a
+   * 0.7.7 nascia desligado e o servidor da loja ficou 4 dias só lendo — ERR-543). Só a escolha da pessoa de "Só ler a 99"
+   * desliga, guardada como `responder99: false`; sem a 99 lida neste PC, não responde.
    */
   responder99() {
     const cfg = this.ler();
-    return cfg.usar99 === true && cfg.responder99 === true;
+    return cfg.usar99 === true && cfg.responder99 !== false;
   }
 
   marcarResponder99(sim) {
     const cfg = this.ler();
-    if (sim && cfg.usar99 === true) cfg.responder99 = true;
-    else delete cfg.responder99;
+    if (cfg.usar99 === true && !sim) cfg.responder99 = false; // "Só ler a 99": a escolha fica guardada
+    else delete cfg.responder99; // ligado (o padrão) — ou sem a 99 lida neste PC, nada a guardar
     this.gravar(cfg);
-    return cfg.responder99 === true;
+    return cfg.usar99 === true && cfg.responder99 !== false;
   }
 
   /** Pausa (guarda a hora, só se ainda não estava) ou retoma. Devolve a hora da pausa (ou null). */

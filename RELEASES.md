@@ -354,6 +354,11 @@
     chamada sem resposta e a recusa do iFood.
   - **Antes de gerar o `.exe`:** a prova de tela da ponte (a janela aparece sem virar a janela ativa; o aviso do Windows
     sai) — `REGEM_PONTE_LOGIN_CONFIRMAR_MS` e `REGEM_PONTE_LOGIN_REPETIR_MS` encurtam os prazos.
+  - **Também na 0.7.8 (20/11, ERR-543; sem migration):** "Responder pela 99 neste PC" passa a vir LIGADO com a 99 aberta
+    no PC da ponte — de onde a 99 está aberta sai a resposta, como no iFood. O servidor da loja, que estava só lendo a 99,
+    passa a responder ao atualizar (os avisos com mais de 30 min são cancelados antes: nada velho sai). Até o `.exe`, na
+    loja: menu do ícone da ponte › marcar "Responder pela 99 neste PC". A faixa do Atendimento e Equipamentos já dizem
+    onde ligar (vale com o deploy da tela).
 
 - **Cardápio Web: o pedido despachado ou finalizado no painel de lá anda no Regem (16/11, ERR-496; sem migration).** Das
   12 situações da API do Cardápio Web, três não eram traduzidas: `released` (liberado para a saída) passa a virar

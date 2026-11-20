@@ -3,7 +3,7 @@
 import { useId, useState } from 'react';
 import Link from 'next/link';
 import type { SituacaoDaPonte } from '@/lib/atendimento';
-import { COMO_RETOMAR_A_PONTE } from '@/lib/ponte-do-chat';
+import { COMO_RESPONDER_PELA_99, COMO_RETOMAR_A_PONTE } from '@/lib/ponte-do-chat';
 
 // A FAIXA DA PONTE DO CHAT no topo da tela Atendimento (ponte do chat do iFood e da 99, parte A2 — protótipo
 // `mockups/regem-central-atendimento.html` v3). Desligada (ou sem leitura, como no servidor da loja): nada.
@@ -22,11 +22,18 @@ const DO: Record<Canal, string> = { ifood: 'do iFood', '99food': 'da 99' };
 /** O canal sem PC respondendo, mas que alguma ponte LÊ: as mensagens entram no Atendimento — não é "sem sinal". */
 export const soLendo = (c: DoCanal) => !c.responde && !!c.lendo?.length;
 
-/** "99 só lendo pela ponte do PC do delivery: responda pelo portal da 99" (os canais que a ponte lê, mas não envia). */
+/**
+ * "99 só lendo pela ponte do PC do delivery: para a resposta sair por ela, … › Responder pela 99 neste PC (ou responda pelo
+ * portal da 99)" — os canais que a ponte lê, mas não envia (na 99, o item do menu da ponte que liga o envio — ERR-543).
+ */
 export function porOndeLe(canais: [Canal, DoCanal][]): string {
   return canais
     .filter(([, c]) => soLendo(c))
-    .map(([k, c]) => `${NOME[k]} só lendo pela ponte do ${c.lendo!.join(' e ')}: responda pelo portal ${DO[k]}`)
+    .map(([k, c]) =>
+      k === '99food'
+        ? `${NOME[k]} só lendo pela ponte do ${c.lendo!.join(' e ')}: ${COMO_RESPONDER_PELA_99} (ou responda pelo portal ${DO[k]})`
+        : `${NOME[k]} só lendo pela ponte do ${c.lendo!.join(' e ')}: responda pelo portal ${DO[k]}`,
+    )
     .join(' · ');
 }
 

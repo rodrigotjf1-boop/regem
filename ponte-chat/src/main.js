@@ -18,7 +18,8 @@
 //    também conversas próprias: não recebe o chat dos clientes, medido em 07/11). A 99 aceita um login por conta (ERR-365):
 //    a 99 fica aberta SÓ na ponte. A escuta é do IM da 99 (`leitor-99.js`); a nuvem liga cada mensagem ao
 //    pedido pelo cliente. Sozinha, a 99 só é LIDA (o sinal diz "lendo"): responder é pelo portal da 99;
-//  • (v0.7, Etapa 4b) com "Responder pela 99 neste PC" ligado (nasce desligado), ENVIA pela 99 o que a nuvem enfileira
+//  • (v0.7, Etapa 4b) com "Responder pela 99 neste PC" ligado (desde a 0.7.8 vem ligado com a 99 aberta — ERR-543;
+//    desmarcar = só ler), ENVIA pela 99 o que a nuvem enfileira
 //    (avisos, robô, equipe): busca o pedido, abre a conversa com clique de mouse pelo depurador, confere o número duas
 //    vezes, escreve, aperta o "Enviar" da conversa e confirma pela resposta da 99 — `envio-99.js`; a mesma fila de saída.
 
@@ -443,7 +444,8 @@ if (!app.requestSingleInstanceLock()) {
             'É com ela que o cliente conversa: o usuário extra da 99 tem conversas próprias e não recebe o chat dos clientes.\n\n' +
             'A 99 aceita um login por conta: entrar aqui derruba a 99 aberta com a mesma conta em outro aparelho (o PC da loja, ' +
             'um tablet), e entrar lá derruba esta. Combine com a loja: a 99 fica aberta só aqui.\n\nAs mensagens dos clientes ' +
-            'entram no Atendimento do Regem; com "Responder pela 99 neste PC" ligado, a resposta sai por aqui.',
+            'entram no Atendimento do Regem e o que o Regem manda no chat da 99 sai por aqui (os avisos, o robô e a equipe), ' +
+            'como no iFood. Para só ler, desmarque "Responder pela 99 neste PC" no menu do ícone.',
           buttons: ['Abrir a 99', 'Cancelar'],
           defaultId: 0,
           cancelId: 1,
@@ -451,8 +453,7 @@ if (!app.requestSingleInstanceLock()) {
         });
         if (r.response !== 0) return { ok: false, mensagem: 'A 99 não foi aberta.' };
       }
-      cfg.marcarUsar99(true);
-      if (process.env.REGEM_PONTE_RESPONDER_99 === '1') cfg.marcarResponder99(true); // a prova (sem o diálogo)
+      cfg.marcarUsar99(true); // já responde pela 99 (o padrão desde a 0.7.8 — ERR-543)
     }
     janela99 = new BrowserWindow({
       width: 1280,
@@ -536,7 +537,8 @@ if (!app.requestSingleInstanceLock()) {
 
   /**
    * "Responder pela 99 neste PC" (4b): ligado, o sinal diz "logado" na 99 e a nuvem põe este PC para enviar pela 99 os
-   * avisos, o robô e a equipe (como no iFood). Nasce desligado; ligar pergunta antes (a prova liga pela variável).
+   * avisos, o robô e a equipe (como no iFood). Desde a 0.7.8 vem ligado com a 99 aberta neste PC (ERR-543); desmarcar =
+   * "só ler", e a escolha fica guardada. Ligar de novo pergunta antes (a prova pula a pergunta pela variável).
    */
   async function responder99(sim) {
     if (SO_OBSERVAR || !cfg.credencial()) return { ok: false, mensagem: 'Pareie este PC antes.' };

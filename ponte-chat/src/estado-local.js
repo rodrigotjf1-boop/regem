@@ -131,7 +131,7 @@ function paraAJanela(r) {
       ? 'sem login — entre com a conta principal da loja'
       : n99(r).responder
         ? `logada · lê e RESPONDE o chat${r.ligada && !r.pausadaEm ? papel99 : ''}`
-        : 'logada · só LÊ o chat (as mensagens entram no Atendimento; responda pelo portal da 99 — ou ligue "Responder pela 99 neste PC")';
+        : 'logada · só LÊ o chat (as mensagens entram no Atendimento; para a resposta sair por aqui, ligue "Responder pela 99 neste PC" — ou responda pelo portal da 99)';
   const pares = [
     ['Regem', r.soObservar ? 'não fala com a nuvem (só observando)' : !r.pareada ? 'falta parear' : `${NUVEM[r.nuvem] || r.nuvem}${r.nuvem === 'ok' && r.nome ? ` · ${r.nome}` : ''}`],
     ['iFood', ifood],
