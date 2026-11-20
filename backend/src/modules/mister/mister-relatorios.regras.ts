@@ -152,6 +152,8 @@ export function perguntaDoRelatorio(tipo: RelatorioDaIa, d: RelatorioDevido): st
       `Escreva o meu resumo do dia ${diaMesDoRelatorio(d.referencia)} (${d.referencia}), como no fim do expediente.`,
       'Traga os pedidos e as vendas, o faturamento e o ticket médio (se eu vejo valores), o tempo médio dos pedidos, os cancelamentos (quantos e o valor) e o que saiu do lugar: problema no servidor ou na impressora, estoque abaixo do mínimo, atraso fora do comum.',
       `Comece com "${titulo}". Sem pergunta no fim. Se não houve vendas no dia, diga isso em uma linha.`,
+      // Versão 5, M5d.2: o resumo vai por escrito (o gráfico dele, o PDF e o link vêm com a M5e).
+      'Não use mostrar_grafico: este resumo vai só por escrito.',
     ].join('\n');
   }
   const titulo = `*Resumo da semana, ${diaMesDoRelatorio(d.referencia)} a ${diaMesDoRelatorio(d.ate)}*`;
@@ -159,6 +161,7 @@ export function perguntaDoRelatorio(tipo: RelatorioDaIa, d: RelatorioDevido): st
     `Escreva o meu resumo da semana de ${diaMesDoRelatorio(d.referencia)} a ${diaMesDoRelatorio(d.ate)} (de ${d.referencia} até ${d.ate}).`,
     'Traga as vendas e o faturamento comparados com os 7 dias anteriores, os dias mais fortes e os mais fracos, os produtos que mais venderam, os cancelamentos e o que saiu do lugar.',
     `Comece com "${titulo}". Sem pergunta no fim.`,
+    'Não use mostrar_grafico: este resumo vai só por escrito.',
   ].join('\n');
 }
 

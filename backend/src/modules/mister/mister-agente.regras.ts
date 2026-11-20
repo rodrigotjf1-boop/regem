@@ -250,6 +250,7 @@ const PERIODO = {
 export type NomeDaFerramenta =
   | 'resumo_do_dia'
   | 'vendas_do_periodo'
+  | 'mostrar_grafico'
   | 'produtos_mais_vendidos'
   | 'insumo_vendido'
   | 'pedidos_em_andamento'
@@ -411,6 +412,22 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
     input_schema: {
       type: 'object',
       properties: { ...PERIODO, comparar: { type: 'boolean', description: 'Traz também o período anterior de mesmo tamanho (a semana até hoje contra a semana passada até o mesmo dia) e a variação.' }, loja: LOJA },
+      additionalProperties: false,
+    },
+  },
+  // Versão 5, M5d.2: o gráfico na conversa (a imagem desenhada pelo código; o plano não vai ao modelo).
+  {
+    name: 'mostrar_grafico',
+    description:
+      'Manda um GRÁFICO (uma imagem) na conversa, desenhado pelo Regem com os números da loja: "vendas_por_dia" (cada dia do período, com o período anterior ao lado), "vendas_por_hora" (o pico do dia), "canais" (o delivery por canal: iFood, 99, cardápio) ou "mais_vendidos" (os 6 primeiros por quantidade). Use quando a pessoa pedir gráfico, ou quando a resposta for uma série de 4 pontos ou mais (dias, horas). A imagem vai antes da sua resposta: não descreva as barras uma a uma; diga em 2 ou 3 frases o que importa (o total, a comparação, o destaque), com os números que vierem aqui. Sem período, os últimos 7 dias (por hora: hoje).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        tipo: { type: 'string', enum: ['vendas_por_dia', 'vendas_por_hora', 'canais', 'mais_vendidos'], description: 'Qual gráfico.' },
+        ...PERIODO,
+        loja: LOJA,
+      },
+      required: ['tipo'],
       additionalProperties: false,
     },
   },

@@ -2221,6 +2221,71 @@ export function testesDoMisterComPostgres(): void {
       }
     });
 
+    // Versão 5, M5d.2: o gráfico na conversa — os números dos MESMOS relatórios, o plano fora do modelo e a imagem antes do texto.
+    it('o gráfico na conversa (M5d.2): mostrar_grafico com os números dos relatórios; sem venda, sem imagem; o gerente sem a permissão; a imagem antes do texto', async () => {
+      comIa();
+      const tel = telefone();
+      await ligar('ana', tel);
+      const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+      // Sem venda: responde sem gráfico (não vale a imagem), e o resultado diz isso ao modelo.
+      const vazio = await ferramentas.executar(e, 'mostrar_grafico', { tipo: 'vendas_por_dia', periodo: 'esta_semana' });
+      expect(vazio.ok).toBe(true);
+      expect(vazio.graficos).toBeUndefined();
+      expect(String(vazio.dados.grafico)).toContain('Não há o que mostrar');
+      expect(await ferramentas.executar(e, 'mostrar_grafico', { tipo: 'pizza' })).toMatchObject({ ok: false });
+      expect(((await ferramentas.executar(e, 'mostrar_grafico', { tipo: 'vendas_por_dia', de: '2026-01-01', ate: '2026-03-01' })).dados as any).erro).toContain('até 31 dias');
+      // O gerente (perfil padrão, sem os relatórios de vendas): recusa, como a consulta de vendas.
+      const telCarlos = telefone();
+      await ligar('carlos', telCarlos, A, 'gerente');
+      const doCarlos = (await ferramentas.escopo(A, pessoa.carlos, telCarlos))!;
+      expect((await ferramentas.executar(doCarlos, 'mostrar_grafico', { tipo: 'vendas_por_dia' })).ok).toBe(false);
+      const [{ id: loja }] = await q(`select id from unidade where tenant_id = $1`, [A]);
+      const venda = (horas: number, total: number) =>
+        q(`insert into comanda (tenant_id, unidade_id, status, total, forma, aberta_em, fechada_em) values ($1, $2, 'fechada', $3, 'dinheiro', now() - make_interval(hours => $4) - interval '10 minutes', now() - make_interval(hours => $4))`, [A, loja, total, horas]);
+      try {
+        await venda(1, 40);
+        await venda(1, 60);
+        await venda(49, 50);
+        const de = somarDias(hojeISO(), -1);
+        // Desligado (`MISTER_MIDIA`, nasce assim): os números seguem para o texto, nenhuma imagem.
+        delete process.env.MISTER_MIDIA;
+        const desligado = await ferramentas.executar(e, 'mostrar_grafico', { tipo: 'vendas_por_dia', de, ate: hojeISO() });
+        expect(desligado.graficos).toBeUndefined();
+        expect(desligado.dados).toMatchObject({ numeroPrincipal: 'R$ 100,00', grafico: expect.stringContaining('ainda não está ligado') });
+        process.env.MISTER_MIDIA = '1';
+        const r = await ferramentas.executar(e, 'mostrar_grafico', { tipo: 'vendas_por_dia', de, ate: hojeISO() });
+        expect(r.graficos).toHaveLength(1);
+        const plano = r.graficos![0];
+        expect(plano.forma).toBe('colunas');
+        expect(plano.barras).toHaveLength(2);
+        expect(plano.barras!.reduce((s, b) => s + b.valor, 0)).toBe(100);
+        expect(plano.barras!.reduce((s, b) => s + (b.anterior ?? 0), 0)).toBe(50);
+        expect(plano.kpi).toBe('R$ 100,00');
+        expect(plano.delta).toEqual({ texto: '+100% sobre o período anterior', tom: 'bom' });
+        // Ao modelo vão os números (para o texto), nunca o plano da imagem.
+        expect(r.dados).toMatchObject({ numeroPrincipal: 'R$ 100,00', comparacao: '+100% sobre o período anterior' });
+        expect(r.dados).not.toHaveProperty('barras');
+        expect(JSON.stringify(r.dados)).not.toContain('"rotulo2"');
+        // Por hora (hoje): o pico.
+        const h = await ferramentas.executar(e, 'mostrar_grafico', { tipo: 'vendas_por_hora', de, ate: hojeISO() });
+        expect(h.dados.titulo).toBe('Vendas por hora');
+        // A conversa: a IA chama o gráfico; a imagem sai ANTES do texto.
+        numero.pedidos.length = 0;
+        expect(await mandar(tel, 'me mostra as vendas de ontem e hoje em gráfico', { wamid: wamid() })).toBe('pergunta');
+        ia.roteiro = [usar('mostrar_grafico', { tipo: 'vendas_por_dia', de, ate: hojeISO() }), falar('As vendas *dobraram*: R$ 100,00 contra R$ 50,00.')];
+        expect(await agente.esvaziar()).toBe(1);
+        const saidas = numero.enviadas.map((m) => m.texto);
+        expect(saidas).toHaveLength(2);
+        expect(saidas[0]).toMatch(/^imagem:\d+$/);
+        expect(saidas[1]).toBe('As vendas *dobraram*: R$ 100,00 contra R$ 50,00.');
+        // A imagem subiu à Meta como PNG.
+        expect(numero.pedidos.some((p) => p.url.endsWith('/media') && p.corpo?.type === 'image/png')).toBe(true);
+      } finally {
+        delete process.env.MISTER_MIDIA;
+        await q(`delete from comanda where tenant_id = $1`, [A]);
+      }
+    });
+
     it('produtos por lucro: o que dá mais lucro primeiro, o sem custo no fim, com a margem e a classe da curva', async () => {
       const tel = telefone();
       await ligar('ana', tel);
@@ -3867,6 +3932,7 @@ export function testesDoMisterComPostgres(): void {
         c45: { acao: 'comecar', numero: '284' },
         c46: { acao: 'criar', texto: 'pagar o gás', quando: '2026-11-14T10:00' },
         c47: { acao: 'comecar', alvo: 'canal', qual: 'iFood' },
+        c48: { tipo: 'vendas_por_hora', periodo: 'ontem' },
       };
       const EXTRAS: Record<string, string[]> = { c37: ['produtos_mais_vendidos'], c38: ['servidor_e_incidentes'] };
       const entradaDe = (c: CasoDaAvaliacao, nome: string): Record<string, unknown> =>
@@ -3919,18 +3985,18 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_avaliacao`);
       });
 
-      it('a rodada inteira com as respostas certas: 47 de 47, o andamento, o custo, a lista e as perguntas na ordem', async () => {
+      it('a rodada inteira com as respostas certas: 48 de 48, o andamento, o custo, a lista e as perguntas na ordem', async () => {
         const ia = iaDeMentira();
         const servico = new MisterAvaliacaoService(db, ia as any);
         const r = await servico.rodar('Rita da DMS');
-        expect(r.total).toBe(47);
+        expect(r.total).toBe(48);
         const fim = await terminar(r.id);
-        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 47, acertos: 47, motivo: null });
+        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 48, acertos: 48, motivo: null });
         // O mesmo laço do agente: as instruções e as ferramentas de verdade, e o recurso da avaliação.
         expect(ia.pedidos.every((p) => p.recurso === 'mister_avaliacao' && p.tools === FERRAMENTAS && p.system[0].text === INSTRUCOES_DO_MISTER)).toBe(true);
         const lista = await servico.lista();
-        expect(lista).toMatchObject({ disponivel: true, total: 47, chaveDaDistribuicao: true });
-        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 47, acertos: 47, falhas: 0, oQueFalhou: [] });
+        expect(lista).toMatchObject({ disponivel: true, total: 48, chaveDaDistribuicao: true });
+        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 48, acertos: 48, falhas: 0, oQueFalhou: [] });
         // O custo pela tabela de preços do modelo, sobre os tokens somados de todas as chamadas.
         expect(lista.rodadas[0].custoUsd).toBeGreaterThan(0);
         const [tok] = await q(`select tokens_entrada, tokens_cache_leitura, tokens_saida from mister_avaliacao where id = $1`, [r.id]);
@@ -3950,7 +4016,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
         expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
         const r = await servico.rodar('Rita');
-        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 46 });
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 47 });
         const [velha] = await q(`select situacao, motivo from mister_avaliacao where id = $1`, [parada]);
         expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
         const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);
