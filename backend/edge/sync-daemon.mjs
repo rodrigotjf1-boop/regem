@@ -2462,6 +2462,8 @@ const SO_NUVEM = new Set([
   'evento_loja', 'calendario_loja_dia',
   // O que move cada cliente (mig 463, @cloud-only; F3 parte 2): a sensibilidade a eventos, medida na rotina da nuvem.
   'cliente_evento_sensibilidade',
+  // Os cliques do cardápio (mig 466, @cloud-only; F4): anônimos por sessão, apagados aos 90 dias — o cardápio mora na nuvem.
+  'cardapio_interacao',
   // iFood pelo Orzuni (mig 370, @cloud-only): a ligação de cada loja com o Orzuni (segredo cifrado com a chave da nuvem) e
   // a fila do envio — só a nuvem fala com o Orzuni; a edição feita na loja chega lá pelo sincronismo e enfileira lá.
   'orzuni_ligacao', 'orzuni_envio',

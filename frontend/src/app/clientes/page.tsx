@@ -96,12 +96,17 @@ export default function ClientesPage() {
   const [podeImportar, setPodeImportar] = useState(false);
   // Perfil do cliente (F1b): só presidente e gerente, com o módulo ligado na loja (o servidor confere de novo).
   const [perfilLigado, setPerfilLigado] = useState(false);
+  const [ehPresidente, setEhPresidente] = useState(false);
   const [perfilDe, setPerfilDe] = useState<any | null>(null);
   useEffect(() => {
     setPodeExportar(getCategoria() === 'presidente' || !!getPermissoes()?.clientes_exportar);
     setPodeImportar(getCategoria() === 'presidente' || !!getPermissoes()?.clientes_importar);
+    setEhPresidente(getCategoria() === 'presidente');
     if (['presidente', 'gerente'].includes(String(getCategoria())))
       api.modulosMeus().then((m: any) => setPerfilLigado(m?.perfil_cliente === true)).catch(() => setPerfilLigado(false));
+    // A Saúde da base aponta para uma aba "pelo perfil" (?seg=perfil_atrasado): só as abas conhecidas.
+    const doEndereco = new URLSearchParams(window.location.search).get('seg');
+    if (doEndereco && nomeDoSegmentoDoPerfil(doEndereco)) setSeg(doEndereco);
   }, []);
   const vcfRef = useRef<HTMLInputElement>(null);
   const [impPrevia, setImpPrevia] = useState<any>(null);
@@ -526,6 +531,15 @@ export default function ClientesPage() {
               className="inline-flex h-11 items-center rounded-md border border-input bg-card px-4 text-sm font-semibold hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               Calendário de eventos
+            </Link>
+          )}
+          {/* A Saúde da base (F4 do perfil do cliente): do presidente, com o módulo ligado — o servidor confere de novo. */}
+          {perfilLigado && ehPresidente && !NO_SERVIDOR_DA_LOJA && (
+            <Link
+              href="/clientes/saude"
+              className="inline-flex h-11 items-center rounded-md border border-input bg-card px-4 text-sm font-semibold hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              Saúde da base
             </Link>
           )}
           {podeImportar && (
