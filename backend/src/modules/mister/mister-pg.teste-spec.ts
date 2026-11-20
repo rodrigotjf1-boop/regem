@@ -63,6 +63,8 @@ import { MisterMidiaService } from './mister-midia.service';
 import { TEXTOS_DA_MIDIA, primeiroDoMesQueVem } from './mister-midia.regras';
 import { MisterFilaService } from './mister-fila.service';
 import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
+import { MisterResumoArquivoService, TEXTOS_DO_RESUMO_EM_ARQUIVO } from './mister-resumo-arquivo.service';
+import { lerBotaoDoGrafico } from './grafico/plano-do-resumo';
 import { MisterRelatoriosService } from './mister-relatorios.service';
 import { MisterQualidadeService } from './mister-qualidade.service';
 import { MisterAvaliacaoService } from './mister-avaliacao.service';
@@ -447,7 +449,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -2280,8 +2282,41 @@ export function testesDoMisterComPostgres(): void {
         expect(saidas[1]).toBe('As vendas *dobraram*: R$ 100,00 contra R$ 50,00.');
         // A imagem subiu à Meta como PNG.
         expect(numero.pedidos.some((p) => p.url.endsWith('/media') && p.corpo?.type === 'image/png')).toBe(true);
+        // M5e: o texto leva o "📄 PDF" (o "🔗 Ver no link" só com a chave do link) — o botão leva só o que refaz o gráfico.
+        const idPdf = `grf:pdf:${A}:vendas_por_dia:${de}:${hojeISO()}`;
+        expect(numero.enviadas[1].botoes).toEqual([{ id: idPdf, titulo: '📄 PDF' }]);
+        const arquivo = new MisterResumoArquivoService(db, ferramentas, numero, new MisterLinkPublicoService(db, auditoria, modulos), undefined, entrada);
+        arquivo.onModuleInit();
+        // O toque em "📄 PDF": o gráfico refeito no escopo dela, em arquivo.
+        numero.pedidos.length = 0;
+        expect(await mandar(tel, '📄 PDF', { botaoId: idPdf })).toBe('respondeu_proposta');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringMatching(new RegExp(`^documento:grafico-vendas-por-dia-${de}-a-${hojeISO()}\\.pdf\\|Vendas por dia · `))]);
+        // Com a chave do link: o "🔗 Ver no link" vem junto, e o toque devolve o link que abre o MESMO gráfico (tipo grafico).
+        process.env.MISTER_LINK_PUBLICO = '1';
+        const comLink = await ferramentas.executar(e, 'mostrar_grafico', { tipo: 'vendas_por_dia', de, ate: hojeISO() });
+        const idLink = `grf:link:${A}:vendas_por_dia:${de}:${hojeISO()}`;
+        expect(comLink.botoes?.map((b) => [b.id, b.titulo])).toEqual([
+          [idPdf, '📄 PDF'],
+          [idLink, '🔗 Ver no link'],
+        ]);
+        expect(comLink.dados).not.toHaveProperty('botoes');
+        numero.pedidos.length = 0;
+        expect(await mandar(tel, '🔗 Ver no link', { botaoId: idLink })).toBe('respondeu_proposta');
+        const [msg] = numero.enviadas;
+        expect(msg.texto).toMatch(/^📊 Vendas por dia · .+: https:\/\/\S+\/m\/r\/[A-Za-z0-9_-]{32}\nO link vale até \d\d\/\d\d e só mostra este gráfico\.$/);
+        const vista = await new MisterLinkPublicoService(db, auditoria, modulos).ver(String(msg.link?.url).split('/').pop());
+        expect(vista).toMatchObject({ tipo: 'resumo', plano: { tipo: 'grafico', numeros: [{ valor: 'R$ 100,00', rotulo: 'total', nota: '+100% sobre o período anterior' }] } });
+        expect((await q(`select tipo from mister_link_publico where tenant_id = $1 order by criado_em desc limit 1`, [A]))[0].tipo).toBe('grafico');
+        // O botão de OUTRA empresa (que não é vínculo deste telefone), ou torto: não é dela.
+        numero.pedidos.length = 0;
+        expect(await mandar(tel, '📄 PDF', { botaoId: `grf:pdf:${B}:vendas_por_dia:${de}:${hojeISO()}` })).toBe('respondeu_proposta');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_RESUMO_EM_ARQUIVO.graficoNaoDisponivel]);
+        expect(lerBotaoDoGrafico(`grf:pdf:${A}:pizza:${de}:${hojeISO()}`)).toBeNull();
+        expect(lerBotaoDoGrafico(`grf:pdf:${A}:vendas_por_dia:${hojeISO()}:${de}`)).toBeNull();
       } finally {
         delete process.env.MISTER_MIDIA;
+        delete process.env.MISTER_LINK_PUBLICO;
+        await q(`delete from mister_link_publico where tenant_id = $1`, [A]);
         await q(`delete from comanda where tenant_id = $1`, [A]);
       }
     });
@@ -3238,7 +3273,7 @@ export function testesDoMisterComPostgres(): void {
           // A página abre SEM login: a foto do relatório, o nome da empresa e até quando vale — nada de id, telefone ou quem pediu fora do plano.
           auditados.length = 0;
           const vista = await links.ver(codigo);
-          expect(vista).toEqual({ empresa: NOME_A, plano: guardado.plano, nomeDoPdf: `carne-56-g-${hoje}.pdf`, comVenda: true, valeAte: new Date(guardado.vence_em).toISOString(), valeAteDia: feito.dados.valeAte });
+          expect(vista).toEqual({ tipo: 'insumo', empresa: NOME_A, plano: guardado.plano, nomeDoPdf: `carne-56-g-${hoje}.pdf`, comVenda: true, valeAte: new Date(guardado.vence_em).toISOString(), valeAteDia: feito.dados.valeAte });
           expect(vista.plano.numeros[0]).toEqual({ valor: '8 unidades', rotulo: 'Loja Centro' });
           expect(JSON.stringify(vista)).not.toContain(A);
           expect(JSON.stringify(vista)).not.toContain(pessoa.ana);
@@ -6609,6 +6644,120 @@ export function testesDoMisterComPostgres(): void {
       expect(await mandar(telAna, 'Ver resumo', { codigoDoModelo: `mister:resumo:${convite.id}` })).toBe('modelo_nao_achado');
     });
 
+    // ─────────────── Versão 5, M5e (mig 462): o resumo em arquivo e no link ───────────────
+    it('o resumo em arquivo e no link (M5e): desligado só o texto; os botões; no toque o PDF e o link (que abre o resumo); outro não pega; as formas; o gerente sem relatórios', async () => {
+      const relatoriosConfig = new MisterRelatoriosConfigService(db, auditoria);
+      const conversaCfg = new MisterConversaConfigService(db, auditoria);
+      const links = new MisterLinkPublicoService(db, auditoria, modulos);
+      const arquivo = new MisterResumoArquivoService(db, ferramentas, numero, links, conversaCfg, entrada);
+      arquivo.onModuleInit();
+      const trilha = { modelo: 'claude-haiku-5-5', chamadas: 1, tokensEntrada: 10, tokensSaida: 5, ferramentas: [] };
+      const TEXTO = '*Resumo do dia*\n3 vendas';
+      const agenteDeTeste = { responder: async () => ({ texto: TEXTO, motivo: null, trilha, resultados: [] }) } as any;
+      const relatorios = new MisterRelatoriosService(db, relatoriosConfig, agenteDeTeste, ferramentas, numero, entrada, undefined, arquivo);
+      await modulo(A, true);
+      await numeroConectado(true);
+      const telAna = telefone();
+      const telCarlos = telefone();
+      await ligar('ana', telAna);
+      await ligar('carlos', telCarlos, A, 'gerente');
+      const agora = new Date();
+      await relatoriosConfig.salvar(usuario('ana'), { relatorios: [{ tipo: 'resumo_dia', ligado: true, hora: horaNoFuso(new Date(agora.getTime() - 10 * 60_000)) }] });
+      // Vendas em volta de agora e de ontem: o dia do resumo (hoje, ou ontem perto da meia-noite e antes das 6 h) tem venda.
+      const [{ id: loja }] = await q(`select id from unidade where tenant_id = $1`, [A]);
+      for (const [horas, total] of [[0.08, 40], [2, 60], [26, 50]] as const)
+        await q(
+          `insert into comanda (tenant_id, unidade_id, status, total, forma, aberta_em, fechada_em)
+           values ($1, $2, 'fechada', $3, 'dinheiro', now() - $4::float8 * interval '1 hour' - interval '5 minutes', now() - $4::float8 * interval '1 hour')`,
+          [A, loja, total, horas],
+        );
+      const deNovo = async () => {
+        await q(`delete from mister_relatorio where tenant_id = $1`, [A]);
+        numero.pedidos.length = 0;
+        return relatorios.volta(agora, [A]);
+      };
+      const daAna = () => numero.enviadas.filter((m) => m.para === telAna);
+      try {
+        // 1. A versão 5 desligada (`MISTER_MIDIA`): só o texto, como antes (o Carlos também).
+        delete process.env.MISTER_MIDIA;
+        process.env.MISTER_LINK_PUBLICO = '1';
+        expect(await deNovo()).toMatchObject({ feitos: 2, enviados: 2 });
+        expect(daAna()).toEqual([{ para: telAna, texto: TEXTO, botoes: [] }]);
+
+        // 2. Ligada, no padrão ("texto com os botões"): o texto com "📄 PDF" e "📊 Ver gráficos", pelo id da linha. O
+        //    gerente (perfil padrão, sem os relatórios de vendas) recebe só o texto: sem plano, sem botão.
+        process.env.MISTER_MIDIA = '1';
+        expect(await deNovo()).toMatchObject({ feitos: 2, enviados: 2 });
+        const [vez] = await q(`select id::text as id, trilha from mister_relatorio where colaborador_id = $1`, [pessoa.ana]);
+        expect(daAna()).toEqual([
+          {
+            para: telAna,
+            texto: TEXTO,
+            botoes: [
+              { id: `rsm:pdf:${vez.id}`, titulo: '📄 PDF' },
+              { id: `rsm:graf:${vez.id}`, titulo: '📊 Ver gráficos' },
+            ],
+          },
+        ]);
+        expect(vez.trilha.entrega).toEqual({ forma: 'botoes', junto: 'botoes' });
+        expect(numero.enviadas.filter((m) => m.para === telCarlos)).toEqual([{ para: telCarlos, texto: TEXTO, botoes: [] }]);
+
+        // 3. O toque em "📄 PDF": o arquivo do resumo, refeito no escopo dela.
+        numero.pedidos.length = 0;
+        expect(await mandar(telAna, '📄 PDF', { botaoId: `rsm:pdf:${vez.id}` })).toBe('respondeu_proposta');
+        const [doc] = daAna();
+        expect(doc.texto).toMatch(/^documento:resumo-\d{4}-\d{2}-\d{2}\.pdf\|Resumo de [a-zçá]+, \d\d\/\d\d\/\d{4} · /);
+        expect(numero.pedidos.some((p) => p.url.endsWith('/media') && p.corpo?.type === 'application/pdf')).toBe(true);
+
+        // 4. O toque em "📊 Ver gráficos": o link (o botão "Abrir"), que abre o MESMO resumo sem login, com o PDF.
+        numero.pedidos.length = 0;
+        expect(await mandar(telAna, '📊 Ver gráficos', { botaoId: `rsm:graf:${vez.id}` })).toBe('respondeu_proposta');
+        const [comLink] = daAna();
+        expect(comLink.texto).toMatch(/^📊 Os gráficos do resumo de [a-zçá]+, \d\d\/\d\d\/\d{4}: https:\/\/\S+\/m\/r\/[A-Za-z0-9_-]{32}\nO link vale até \d\d\/\d\d e só mostra este resumo\.$/);
+        expect(comLink.link?.titulo).toBe('Abrir');
+        const codigo = String(comLink.link?.url).split('/').pop()!;
+        const vista = await links.ver(codigo);
+        expect(vista).toMatchObject({ tipo: 'resumo', empresa: NOME_A, plano: { versao: 1, tipo: 'resumo_dia', semValores: false } });
+        if (vista.tipo !== 'resumo') throw new Error('o link não é de resumo');
+        expect(vista.plano.abas.map((a) => a.id)).toContain('dias');
+        expect(vista.plano.numeros[0].rotulo).toBe('faturamento');
+        const [linha] = await q(`select tipo, criado_por::text as quem from mister_link_publico where tenant_id = $1 order by criado_em desc limit 1`, [A]);
+        expect(linha).toEqual({ tipo: 'resumo', quem: pessoa.ana });
+        expect((await links.pdf(codigo)).pdf.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+
+        // 5. Outra pessoa (o Carlos, da mesma empresa) tocando no botão da Ana: não é dele.
+        numero.pedidos.length = 0;
+        expect(await mandar(telCarlos, '📄 PDF', { botaoId: `rsm:pdf:${vez.id}` })).toBe('respondeu_proposta');
+        expect(numero.enviadas).toEqual([{ para: telCarlos, texto: TEXTOS_DO_RESUMO_EM_ARQUIVO.naoDisponivel, botoes: [] }]);
+
+        // 6. "Texto e o PDF junto": o texto e, logo depois, o arquivo.
+        await conversaCfg.salvar(usuario('ana'), { resumoEntrega: 'pdf' });
+        expect((await conversaCfg.daTela(A)).conversa.resumoEntrega).toBe('pdf');
+        await deNovo();
+        expect(daAna().map((m) => m.texto.split('|')[0])).toEqual([TEXTO, expect.stringMatching(/^documento:resumo-\d{4}-\d{2}-\d{2}\.pdf$/)]);
+
+        // 7. "Texto e o link junto": o link no fim do texto (o link do resumo nasce aqui).
+        await conversaCfg.salvar(usuario('ana'), { resumoEntrega: 'link' });
+        await deNovo();
+        expect(daAna()).toHaveLength(1);
+        expect(daAna()[0].texto).toMatch(new RegExp(`^${TEXTO.replace(/\*/g, '\\*')}\\n\\n📊 Os gráficos do resumo de .+/m/r/[A-Za-z0-9_-]{32}\\n`));
+
+        // 8. "Só o texto".
+        await conversaCfg.salvar(usuario('ana'), { resumoEntrega: 'texto' });
+        await deNovo();
+        expect(daAna()).toEqual([{ para: telAna, texto: TEXTO, botoes: [] }]);
+        // A forma fora da lista é recusada antes de gravar.
+        await expect(conversaCfg.salvar(usuario('ana'), { resumoEntrega: 'email' })).rejects.toThrow('Escolha como mandar o resumo.');
+        expect((await conversaCfg.daTela(A)).conversa.resumoEntrega).toBe('texto');
+      } finally {
+        delete process.env.MISTER_MIDIA;
+        delete process.env.MISTER_LINK_PUBLICO;
+        await q(`delete from mister_link_publico where tenant_id = $1`, [A]);
+        await q(`delete from mister_conversa_config where tenant_id = $1`, [A]);
+        await q(`delete from comanda where tenant_id = $1`, [A]);
+      }
+    });
+
     // ─────────────── M3a (mig 439): o boleto e a conta por foto ───────────────
     // A IA de mentira devolve a LEITURA (o JSON das instruções); quem decide é o código (os dígitos da linha conferem ou
     // não) e o cadastro (o fornecedor existe ou não). A conta a pagar sai pelo serviço DE VERDADE do Financeiro.
@@ -6929,7 +7078,7 @@ export function testesDoMisterComPostgres(): void {
 
       it('o ajuste da empresa: "pergunta antes" segura o boleto que lançaria sozinho; desligado, a foto segue como antes; o salvar confere', async () => {
         // Versão 4 (mig 447): o jeito vem junto, no padrão (nada muda). M4d (mig 452): o "fica de olho" nasce desligado.
-        const SEM_JEITO = { perfil: 'hoje', jeito: null, avisosEscritos: [], ficaDeOlho: false };
+        const SEM_JEITO = { perfil: 'hoje', jeito: null, avisosEscritos: [], ficaDeOlho: false, resumoEntrega: 'botoes' };
         expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: true, documentosModo: 'sozinho', ...SEM_JEITO });
         await expect(conversa.salvar(usuario('ana'), { documentosModo: 'sempre' })).rejects.toBeInstanceOf(BadRequestException);
         await expect(conversa.salvar(usuario('ana'), { documentosLigado: 'sim' })).rejects.toBeInstanceOf(BadRequestException);
@@ -6937,18 +7086,18 @@ export function testesDoMisterComPostgres(): void {
         // Salvar só o modo mantém o "ligado" (o ausente mantém o salvo).
         expect(await conversa.salvar(usuario('ana'), { documentosModo: 'perguntar' })).toEqual({
           conversa: { documentosLigado: true, documentosModo: 'perguntar', ...SEM_JEITO },
-          disponivel: { documentos: true, notas: process.env.MISTER_NOTAS === '1' },
+          disponivel: { documentos: true, notas: process.env.MISTER_NOTAS === '1', resumoEmArquivo: process.env.MISTER_MIDIA === '1' },
         });
         // A tela sabe se a função está ligada NESTA instalação (a mesma regra dos serviços): sem a variável, "em breve".
         const notasAntes = process.env.MISTER_NOTAS;
         try {
           process.env.MISTER_NOTAS = '1';
-          expect((await conversa.daTela(A)).disponivel).toEqual({ documentos: true, notas: true });
+          expect((await conversa.daTela(A)).disponivel).toEqual({ documentos: true, notas: true, resumoEmArquivo: process.env.MISTER_MIDIA === '1' });
           delete process.env.MISTER_DOCUMENTOS;
-          expect((await conversa.daTela(A)).disponivel).toEqual({ documentos: false, notas: false });
+          expect((await conversa.daTela(A)).disponivel).toEqual({ documentos: false, notas: false, resumoEmArquivo: process.env.MISTER_MIDIA === '1' });
           process.env.EDGE_MODE = 'true';
           process.env.MISTER_DOCUMENTOS = '1';
-          expect((await conversa.daTela(A)).disponivel).toEqual({ documentos: false, notas: false });
+          expect((await conversa.daTela(A)).disponivel).toEqual({ documentos: false, notas: false, resumoEmArquivo: process.env.MISTER_MIDIA === '1' });
         } finally {
           delete process.env.EDGE_MODE;
           process.env.MISTER_DOCUMENTOS = '1';
@@ -6983,12 +7132,12 @@ export function testesDoMisterComPostgres(): void {
         await expect(conversa.salvar(usuario('ana'), { avisosEscritos: 'loja' })).rejects.toBeInstanceOf(BadRequestException);
         // O jeito vira uma linha só, com os espaços apertados; os grupos saem na ordem da tela, sem repetir.
         const r = await conversa.salvar(usuario('ana'), { perfil: 'descontraido', jeito: '  Fale como sócio,\n sem formalidade.  ', avisosEscritos: ['fiscal', 'loja', 'loja'] });
-        expect(r.conversa).toEqual({ documentosLigado: true, documentosModo: 'sozinho', perfil: 'descontraido', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false });
+        expect(r.conversa).toEqual({ documentosLigado: true, documentosModo: 'sozinho', perfil: 'descontraido', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes' });
         expect(auditados.filter((a) => a.acao === 'mister_conversa_alterada').at(-1)).toMatchObject({ detalhe: { antes: { perfil: 'hoje', jeito: null }, depois: { perfil: 'descontraido' } } });
         // Salvar só o perfil não apaga o jeito, os grupos nem o ajuste dos documentos.
         await conversa.salvar(usuario('ana'), { documentosModo: 'perguntar' });
         await conversa.salvar(usuario('ana'), { perfil: 'objetivo' });
-        expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: true, documentosModo: 'perguntar', perfil: 'objetivo', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false });
+        expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: true, documentosModo: 'perguntar', perfil: 'objetivo', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes' });
         // M4d (mig 452): o "fica de olho" liga e desliga só com booleano (V15), sem mexer no resto.
         await expect(conversa.salvar(usuario('ana'), { ficaDeOlho: 'sim' })).rejects.toBeInstanceOf(BadRequestException);
         expect((await conversa.salvar(usuario('ana'), { ficaDeOlho: true })).conversa).toMatchObject({ ficaDeOlho: true, perfil: 'objetivo', avisosEscritos: ['loja', 'fiscal'] });

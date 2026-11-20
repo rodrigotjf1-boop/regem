@@ -1384,6 +1384,43 @@ voz para um teste. O dono decidiu usar a mesma do atendente (Google).
     separa o balcão por canal.
   - O link e o PDF destes gráficos ficam com a M5e, que traz a migration do tipo do link.
 
+**M5e implementada (19/11/2026; mig 462, só nuvem, com `drop constraint`: o dono aplica pelo SQL Editor — LIC-171):
+o resumo em arquivo e no link.**
+- **O texto do resumo vai sempre** (o da IA, como antes). O ajuste novo é "Como mandar o resumo", em Mister › Avisos e
+  relatórios › Relatórios. Ele fica guardado em `mister_conversa_config.resumo_entrega` e tem 4 formas:
+  - **texto com os botões "📄 PDF" e "📊 Ver gráficos"** (o padrão do protótipo);
+  - texto e o PDF junto;
+  - texto e o link junto;
+  - só o texto.
+- **O PLANO do resumo** (`grafico/plano-do-resumo.ts`) sai só dos números do Regem, no escopo de quem recebe:
+  - os números grandes: faturamento com a comparação, vendas, ticket, pico e cancelamentos;
+  - as abas, com os mesmos planos da M5d.2: por hora, canais, 7 dias (ou por dia, na semana) e produtos;
+  - a atenção: os cancelamentos e o estoque abaixo do mínimo (o estoque é o de AGORA: ele não guarda o saldo de cada
+    dia), sem nome de cliente nem de quem cancelou.
+- **O plano só existe com a permissão dos relatórios de vendas.** O gerente do perfil padrão não tem essa permissão:
+  recebe só o texto, sem botão.
+- **O PDF** (`relatorio-resumo-pdf.ts`) segue o desenho da imagem. Ocupa 1 ou 2 páginas A4.
+- **A página do link** (`/m/r/<código>`, o mesmo mecanismo da mig 443, `tipo = 'resumo'`) mostra os números, as abas
+  dos gráficos e a atenção. O gráfico de colunas ganhou a barra do período anterior.
+- **O botão leva só o id da linha** do `mister_relatorio` (`rsm:pdf:<id>`, `rsm:graf:<id>`). O toque confere que a
+  linha é de uma empresa e de uma pessoa daquele telefone e refaz o plano no escopo dela. O link nasce no toque, não a
+  cada resumo, por causa do teto de 20 links vivos.
+- **O link do resumo vale enquanto quem o recebeu** (presidente ou gerente) seguir ativo. O do insumo continua só do
+  presidente.
+- **Nasce DESLIGADO** na chave `MISTER_MIDIA`: desligada, só o texto, como antes. O "Ver gráficos" também depende de
+  `MISTER_LINK_PUBLICO`.
+- **O gráfico da conversa (`mostrar_grafico`) também ganha "📄 PDF" e "🔗 Ver no link"** (conversa 6 do protótipo), no
+  balão da resposta.
+  - O botão leva a empresa, o gráfico, o período e a loja: `grf:<pdf|link>:<empresa>:<tipo>:<de>:<ate>[:<loja>]`.
+  - O toque confere que a empresa é um vínculo do telefone e que a loja está no escopo da pessoa agora. Depois refaz o
+    gráfico pela MESMA consulta.
+  - O PDF e o link usam o plano do resumo com uma aba só (`tipo = 'grafico'`, o tipo que a 462 aceita). A página não
+    mostra as abas nem a atenção.
+- **Diferenças do protótipo:**
+  - pela conexão por QR Code (Evolution) não há botão, então a forma dos botões vira só o texto;
+  - a página do link segue o tema claro do app, não o do aparelho;
+  - o texto acima de 1.000 letras manda os botões numa mensagem curta logo depois.
+
 **Fica para depois (pedido do dono em 19/11):** quando a base de eventos do plano do perfil do cliente estiver pronta, o
 Mister usa o clima e os eventos para avisar de chuva e programar entregadores e funcionários em feriados e eventos
 grandes. A fonte do clima precisa de licença comercial.

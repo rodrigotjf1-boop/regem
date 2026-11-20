@@ -1,5 +1,6 @@
 import { dataNoFuso } from '../../common/data';
 import type { PlanoDoPdfDoInsumo } from './relatorio-insumo-pdf';
+import type { PlanoDoResumo } from './grafico/plano-do-resumo';
 
 // M3c — O LINK PARA ENCAMINHAR um relatório a quem NÃO tem usuário no Regem (a contabilidade, um sócio). Versão 3 do
 // protótipo `mockups/regem-mister.html`, decisão 7: "só quando o presidente pede: link só de leitura, que vale 7 dias e
@@ -41,16 +42,21 @@ export const TEXTOS_DO_LINK_PUBLICO = {
   falhou: 'Não consegui criar o link agora.',
 } as const;
 
-/** O que a página pública recebe. */
-export interface VistaDoLinkPublico {
+/** O que a página pública recebe: o relatório por insumo (M3c) ou o resumo do dia/da semana (versão 5, M5e). */
+export type VistaDoLinkPublico = {
   empresa: string;
-  plano: PlanoDoPdfDoInsumo;
   nomeDoPdf: string;
-  /** O relatório tem venda (as barras e o "de onde saiu" aparecem). */
-  comVenda: boolean;
   valeAte: string;
   valeAteDia: string;
-}
+} & (
+  | {
+      tipo: 'insumo';
+      plano: PlanoDoPdfDoInsumo;
+      /** O relatório tem venda (as barras e o "de onde saiu" aparecem). */
+      comVenda: boolean;
+    }
+  | { tipo: 'resumo'; plano: PlanoDoResumo }
+);
 
 const texto = (v: unknown, max: number): v is string => typeof v === 'string' && v.length <= max;
 

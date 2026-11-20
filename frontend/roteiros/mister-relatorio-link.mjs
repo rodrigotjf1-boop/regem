@@ -57,6 +57,128 @@ const vista = (como = 'hora') => ({
   },
 });
 
+// ── Versão 5, M5e: o RESUMO do dia pelo "📊 Ver gráficos" (o mesmo link, `tipo: 'resumo'`) ──
+const LIDO = '19/11 às 09:00';
+const diasDoResumo = ['12', '13', '14', '15', '16', '17', '18'];
+const SEMANA = ['Qui', 'Sex', 'Sáb', 'Dom', 'Seg', 'Ter', 'Qua'];
+const vistaDoResumo = () => ({
+  tipo: 'resumo',
+  empresa: EMPRESA,
+  nomeDoPdf: 'resumo-2026-11-18.pdf',
+  valeAte: '2026-11-26T12:00:00.000Z',
+  valeAteDia: '26/11',
+  plano: {
+    versao: 1,
+    tipo: 'resumo_dia',
+    empresa: EMPRESA,
+    loja: 'Loja Centro',
+    titulo: 'Resumo de quarta, 18/11/2026',
+    lidoEm: LIDO,
+    numeros: [
+      { valor: 'R$ 4.130', rotulo: 'faturamento', nota: '53% a mais que a quarta passada', tom: 'bom' },
+      { valor: '86', rotulo: 'vendas', nota: null, tom: null },
+      { valor: 'R$ 48,02', rotulo: 'ticket médio', nota: null, tom: null },
+      { valor: '21h', rotulo: 'pico', nota: 'R$ 1.040', tom: null },
+      { valor: '2', rotulo: 'cancelamentos', nota: 'R$ 96,00', tom: null },
+    ],
+    abas: [
+      {
+        id: 'hora',
+        nome: 'Por hora',
+        grafico: {
+          forma: 'colunas',
+          titulo: 'Vendas por hora',
+          sub: 'Loja Centro · 18/11',
+          kpi: 'R$ 4.130',
+          delta: { texto: 'pico às 21h', tom: 'neutro' },
+          barras: ['11h', '12h', '13h', '14h', '18h', '19h', '20h', '21h', '22h', '23h'].map((h, i) => {
+            const v = [180, 420, 380, 120, 260, 610, 880, 1040, 160, 80][i];
+            return { rotulo: h, valor: v, texto: v >= 1000 ? '1 mil' : String(v) };
+          }),
+          rodape: `Lido em ${LIDO} · vendas concluídas`,
+        },
+      },
+      {
+        id: 'canais',
+        nome: 'Canais',
+        grafico: {
+          forma: 'participacao',
+          titulo: 'Delivery por canal',
+          sub: 'Loja Centro · 18/11',
+          kpi: 'R$ 3.261',
+          delta: null,
+          partes: [
+            { nome: 'iFood', valor: 1693, texto: 'R$ 1.693' },
+            { nome: 'Cardápio digital', valor: 908, texto: 'R$ 908,00' },
+            { nome: '99Food', valor: 660, texto: 'R$ 660,00' },
+          ],
+          rodape: `Lido em ${LIDO} · pedidos aceitos, sem os cancelados`,
+        },
+      },
+      {
+        id: 'dias',
+        nome: '7 dias',
+        grafico: {
+          forma: 'colunas',
+          titulo: 'Vendas por dia',
+          sub: 'Loja Centro · 12/11 a 18/11',
+          kpi: 'R$ 31.070',
+          delta: { texto: '+13% sobre a semana anterior', tom: 'bom' },
+          barras: diasDoResumo.map((d, i) => {
+            const v = [3100, 3900, 8640, 6200, 2400, 2700, 4130][i];
+            return { rotulo: SEMANA[i], rotulo2: d, valor: v, texto: `${(Math.round(v / 100) / 10).toLocaleString('pt-BR')} mil`, anterior: [2900, 3500, 7600, 5800, 2600, 2500, 2700][i] };
+          }),
+          legenda: ['este período', 'semana anterior', 'o melhor dia'],
+          rodape: `Lido em ${LIDO} · vendas concluídas`,
+        },
+      },
+      {
+        id: 'produtos',
+        nome: 'Produtos',
+        grafico: {
+          forma: 'horizontais',
+          titulo: 'Mais vendidos',
+          sub: 'Loja Centro · 18/11 · por quantidade',
+          kpi: '126 unidades',
+          delta: null,
+          partes: [
+            { nome: 'Combo Duplo Especial com Batata Rústica e Refrigerante 600 ml', valor: 41, texto: '41 un · R$ 1.394' },
+            { nome: 'Batata rústica', valor: 33, texto: '33 un · R$ 495,00' },
+            { nome: 'Refrigerante lata', valor: 30, texto: '30 un · R$ 180,00' },
+            { nome: 'X-Bacon', valor: 22, texto: '22 un · R$ 836,00' },
+          ],
+          rodape: `Lido em ${LIDO}`,
+        },
+      },
+    ],
+    atencao: [
+      { oque: 'Cancelamento', detalhe: '#284 · iFood · cliente desistiu', valor: 'R$ 58,00' },
+      { oque: 'Venda cancelada', detalhe: '18/11 20:41 · lançada em duplicidade pelo atendente do balcão, conferida no fechamento', valor: 'R$ 38,00' },
+      { oque: 'Estoque (agora)', detalhe: 'Batata rústica congelada pré-frita 2,5 kg: 2 cx (mínimo 4)', valor: '—' },
+    ],
+    fonte: `Dados do Regem lidos em ${LIDO} · vendas concluídas · a gorjeta não entra no faturamento.`,
+    semValores: false,
+  },
+});
+
+// O "🔗 Ver no link" de UM gráfico da conversa (M5e): o mesmo plano, com uma aba só e sem a atenção.
+const vistaDoGrafico = () => {
+  const r = vistaDoResumo();
+  const dias = r.plano.abas.find((a) => a.id === 'dias');
+  return {
+    ...r,
+    nomeDoPdf: 'grafico-vendas-por-dia-2026-11-12-a-2026-11-18.pdf',
+    plano: {
+      ...r.plano,
+      tipo: 'grafico',
+      titulo: 'Vendas por dia · de 12/11 a 18/11',
+      numeros: [{ valor: 'R$ 31.070', rotulo: 'total', nota: '+13% sobre a semana anterior', tom: 'bom' }],
+      abas: [{ ...dias, nome: 'Vendas por dia' }],
+      atencao: [],
+    },
+  };
+};
+
 const medir = (page) =>
   page.evaluate(() => {
     const achados = [];
@@ -123,7 +245,7 @@ export default async function roteiroMisterRelatorioLink({ nav, base, ok, foto, 
           falhar--;
           return responder(route, { message: 'O servidor demorou para responder.' }, 503);
         }
-        return responder(route, vista(como));
+        return responder(route, como === 'resumo' ? vistaDoResumo() : como === 'grafico' ? vistaDoGrafico() : vista(como));
       }
       if (p === `${raiz}/pdf`) {
         chamadas.pdf++;
@@ -174,6 +296,62 @@ export default async function roteiroMisterRelatorioLink({ nav, base, ok, foto, 
       ok(erros.length === 0, `${como} ${w}: sem erro (${erros.join(' | ')})`);
       await ctx.close();
     }
+  }
+
+  // ── Versão 5, M5e: o resumo em cada largura, cada aba aberta (os gráficos, a atenção, os números) ──
+  for (const w of larguras) {
+    const { ctx, page, erros, outros, chamadas } = await abrir(w, { como: 'resumo' });
+    const v = vistaDoResumo();
+    let t = await textoDe(page);
+    ok(t.includes(v.plano.titulo) && t.includes(`Loja Centro · lido em ${LIDO}`), `resumo ${w}: o título e quando foi lido (${t.slice(0, 120)})`);
+    ok(/Só leitura · vale até 26\/11\./.test(t), `resumo ${w}: o aviso de só leitura com a data`);
+    ok(v.plano.numeros.every((n) => t.includes(n.valor) && t.includes(n.rotulo) && (!n.nota || t.includes(n.nota))), `resumo ${w}: os números com a comparação`);
+    ok(v.plano.atencao.every((a) => t.includes(a.oque) && t.includes(a.detalhe) && t.includes(a.valor)) && t.includes('Pontos de atenção'), `resumo ${w}: os pontos de atenção`);
+    ok(t.includes(v.plano.fonte) && t.includes(RODAPE), `resumo ${w}: a fonte e o rodapé`);
+    ok((await page.locator('main input, main select, main textarea, main form').count()) === 0, `resumo ${w}: só leitura (nenhum campo)`);
+    const abas = page.locator('[role="group"][aria-label="Escolha o gráfico"] button');
+    ok((await abas.allInnerTexts()).join('|') === v.plano.abas.map((a) => a.nome).join('|'), `resumo ${w}: as abas na ordem (${(await abas.allInnerTexts()).join('|')})`);
+    for (const [i, a] of v.plano.abas.entries()) {
+      if (i > 0) await abas.nth(i).click();
+      await page.waitForSelector(`[data-grafico-do-resumo="${a.id}"]`, { timeout: 5000 });
+      ok((await abas.nth(i).getAttribute('aria-pressed')) === 'true' && (await page.locator('[aria-pressed="true"]').count()) === 1, `resumo ${w} ${a.id}: só a aba escolhida está marcada`);
+      t = await textoDe(page);
+      ok(t.includes(a.grafico.titulo) && t.includes(a.grafico.sub) && t.includes(a.grafico.rodape) && (!a.grafico.kpi || t.includes(a.grafico.kpi)), `resumo ${w} ${a.id}: o título, o número e o rodapé do gráfico`);
+      if (a.grafico.forma === 'colunas') {
+        ok((await page.locator('[data-grafico-do-resumo] [role="img"]').count()) === 1, `resumo ${w} ${a.id}: o gráfico de colunas`);
+        if (a.id === 'dias') ok(t.includes('este período') && t.includes('semana anterior') && t.includes(a.grafico.delta.texto), `resumo ${w} dias: a legenda do período anterior e a comparação`);
+      } else {
+        ok(a.grafico.partes.every((p) => t.includes(p.nome) && t.includes(p.texto)), `resumo ${w} ${a.id}: cada parte com o valor`);
+        if (a.grafico.forma === 'participacao') ok(/52%/.test(t) && /28%/.test(t) && /20%/.test(t), `resumo ${w} canais: a participação em %`);
+      }
+      const m = await medir(page);
+      ok(m.length === 0, `resumo ${w} ${a.id}: nenhuma barra lateral, nada fora da janela, botão de toque ${m.slice(0, 3).join(' | ')}`);
+      const e = await esmagados(page, '[data-relatorio-do-mister]');
+      ok(e.length === 0, `resumo ${w} ${a.id}: nenhum texto esmagado ${e.slice(0, 3).join(' | ')}`);
+      if ([320, 375, 768, 1920].includes(w)) await page.locator('[data-relatorio-do-mister]').screenshot({ path: foto(`resumo-${a.id}-${w}.png`) });
+    }
+    ok(outros.length === 0 && [...chamadas.metodos].join(',') === 'GET', `resumo ${w}: a página só LÊ, e só as rotas do link (${outros.join(', ')})`);
+    ok(erros.length === 0, `resumo ${w}: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+
+  // ── M5e: o link de UM gráfico da conversa — sem as abas, sem a atenção ──
+  for (const w of larguras.filter((x) => [320, 375, 768, 1280].includes(x))) {
+    const { ctx, page, erros } = await abrir(w, { como: 'grafico' });
+    const v = vistaDoGrafico();
+    const t = await textoDe(page);
+    ok(t.includes(v.plano.titulo) && t.includes('R$ 31.070') && t.includes('+13% sobre a semana anterior'), `gráfico ${w}: o título com o período e o número com a comparação`);
+    ok((await page.locator('[role="group"][aria-label="Escolha o gráfico"]').count()) === 0, `gráfico ${w}: um gráfico só, sem as abas`);
+    ok((await page.locator('[data-grafico-do-resumo="dias"] [role="img"]').count()) === 1 && t.includes('semana anterior'), `gráfico ${w}: o gráfico com o período anterior`);
+    ok(!t.includes('Pontos de atenção'), `gráfico ${w}: sem a atenção`);
+    ok((await page.locator('main button').allInnerTexts()).join('|') === 'Baixar PDF', `gráfico ${w}: o único botão é "Baixar PDF"`);
+    const m = await medir(page);
+    ok(m.length === 0, `gráfico ${w}: nenhuma barra lateral, nada fora da janela ${m.slice(0, 3).join(' | ')}`);
+    const e = await esmagados(page, '[data-relatorio-do-mister]');
+    ok(e.length === 0, `gráfico ${w}: nenhum texto esmagado ${e.slice(0, 3).join(' | ')}`);
+    if ([320, 1280].includes(w)) await page.locator('[data-relatorio-do-mister]').screenshot({ path: foto(`grafico-${w}.png`) });
+    ok(erros.length === 0, `gráfico ${w}: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
   }
 
   // ── "Baixar PDF": o arquivo com o nome do servidor; nada guardado; fora da busca; o endereço não vai a outro site ──
