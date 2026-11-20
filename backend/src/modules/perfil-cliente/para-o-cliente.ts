@@ -14,6 +14,11 @@ import { INTERESSE, sqlNaoPediuDesde, sqlPontosDoClique } from '../../common/int
 //    `common/interesse-do-cliente.ts`): os produtos do "viu e não pediu" e as categorias pelo que ele mais abre.
 // Nada com o módulo desligado, com "não quero ser analisado", com token de outra empresa ou sem prova. Nunca devolve
 // dado pessoal: só ids de produto e de categoria (o nome do cliente o cardápio já tem). Nunca rejeita.
+// NASCE DESLIGADO (muda o que o cliente vê no cardápio — regra "nada muda para ninguém no deploy"): só com a variável
+// `PERFIL_CARDAPIO_PARA_VOCE=1` na API (o dono liga no EasyPanel, como as `MISTER_*`). Desligado = tudo vazio.
+
+/** A F8 ligada na instalação (o dono liga; lida a cada chamada — vale sem reiniciar o código). */
+export const paraVoceLigado = (): boolean => String(process.env.PERFIL_CARDAPIO_PARA_VOCE ?? '').trim() === '1';
 
 export type ParaVoce = { deSempre: string | null; voceViu: string[]; ordemCategorias: string[] };
 const VAZIO: ParaVoce = { deSempre: null, voceViu: [], ordemCategorias: [] };
@@ -21,6 +26,7 @@ const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
 export async function paraOCliente(db: any, token: string, clienteToken: unknown): Promise<ParaVoce> {
   try {
+    if (!paraVoceLigado()) return VAZIO;
     if (typeof token !== 'string' || !token || typeof clienteToken !== 'string' || clienteToken.length > 2000) return VAZIO;
     const [cfg] = rows(await db.execute(sql`select tenant_id from cardapio_config where token = ${token} limit 1`));
     if (!cfg) return VAZIO;

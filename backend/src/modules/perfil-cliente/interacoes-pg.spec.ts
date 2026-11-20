@@ -66,7 +66,9 @@ descrever('os cliques do cardápio (Postgres)', () => {
   const admin = new Pool({ connectionString: URL_PG });
   const pool = new Pool({ connectionString: URL_PG, options: `-c search_path=${SCHEMA},public` });
   const segredoAntes = process.env.JWT_SECRET;
+  const paraVoceAntes = process.env.PERFIL_CARDAPIO_PARA_VOCE;
   beforeAll(async () => {
+    process.env.PERFIL_CARDAPIO_PARA_VOCE = '1'; // a F8 ligada nesta suíte (nasce desligada — o teste dela prova)
     if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 16) process.env.JWT_SECRET = 'segredo-de-teste-dos-cliques-1';
     await admin.query(`create schema ${SCHEMA}`);
     for (const m of ['196_cardapio_evento.sql', '459_perfil_do_cliente.sql', '463_cliente_evento_sensibilidade.sql', '466_cardapio_interacao.sql']) await pool.query(semFkCompartilhada(readFileSync(MIG(m), 'utf8')));
@@ -74,6 +76,8 @@ descrever('os cliques do cardápio (Postgres)', () => {
   afterAll(async () => {
     if (segredoAntes === undefined) delete process.env.JWT_SECRET;
     else process.env.JWT_SECRET = segredoAntes;
+    if (paraVoceAntes === undefined) delete process.env.PERFIL_CARDAPIO_PARA_VOCE;
+    else process.env.PERFIL_CARDAPIO_PARA_VOCE = paraVoceAntes;
     await pool.end();
     await admin.query(`drop schema if exists ${SCHEMA} cascade`).catch(() => {});
     await admin.end();
@@ -221,6 +225,11 @@ descrever('os cliques do cardápio (Postgres)', () => {
         ana, on.t, JSON.stringify({ gosto: { de_sempre: { nome: 'X-Bacon da casa', pedidos: 5, chave: '10' } } }),
       ]);
       const VAZIO = { deSempre: null, voceViu: [], ordemCategorias: [] };
+
+      // Nasce desligado: sem PERFIL_CARDAPIO_PARA_VOCE=1, nada (o cardápio fica como era).
+      delete process.env.PERFIL_CARDAPIO_PARA_VOCE;
+      expect(await paraOCliente(db, on.token, ct)).toEqual(VAZIO);
+      process.env.PERFIL_CARDAPIO_PARA_VOCE = '1';
 
       // Sem as recomendações: só o de sempre (vem dos pedidos), achado pelo código PDV.
       expect(await paraOCliente(db, on.token, ct)).toEqual({ deSempre: xbacon, voceViu: [], ordemCategorias: [] });
