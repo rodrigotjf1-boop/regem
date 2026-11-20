@@ -1,7 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { api, getCategoria, getPermissoes } from '@/lib/api';
+import { NO_SERVIDOR_DA_LOJA } from '@/components/ui/so-pela-nuvem';
 import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
@@ -11,6 +13,7 @@ import { Select } from '@/components/ui/select';
 import { useModoDaLista } from '@/components/ui/lista';
 import { AniversarioNaGaveta } from '@/components/clientes/aniversario-na-gaveta';
 import { FichaDoPerfil } from '@/components/clientes/ficha-do-perfil';
+import { SegmentosDoPerfil, nomeDoSegmentoDoPerfil } from '@/components/clientes/segmentos-do-perfil';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: any) =>
@@ -498,6 +501,8 @@ export default function ClientesPage() {
             );
           })}
         </div>
+        {/* Os segmentos pelo perfil (F7 parte 1): presidente e gerente, módulo ligado, na nuvem — o servidor confere de novo. */}
+        {perfilLigado && !NO_SERVIDOR_DA_LOJA && <SegmentosDoPerfil seg={seg} aoEscolher={setSeg} />}
 
         {/* Busca + ações */}
         <div className="flex flex-wrap items-center gap-2">
@@ -514,6 +519,15 @@ export default function ClientesPage() {
           <Button variant="outline" onClick={abrirCampanhas}>
             Campanhas
           </Button>
+          {/* O calendário de eventos (F2 do perfil do cliente): só com o módulo ligado — o servidor confere de novo. */}
+          {perfilLigado && !NO_SERVIDOR_DA_LOJA && (
+            <Link
+              href="/clientes/calendario"
+              className="inline-flex h-11 items-center rounded-md border border-input bg-card px-4 text-sm font-semibold hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              Calendário de eventos
+            </Link>
+          )}
           {podeImportar && (
             <>
               <input
@@ -978,7 +992,7 @@ export default function ClientesPage() {
               <div className="space-y-3 px-4 py-3">
                 <p className="text-sm text-muted-foreground">
                   Segmento{' '}
-                  <strong className="text-foreground">{[...SEGS, ...SEGS_IMPORT].find((s) => s.k === seg)?.t}</strong> ·{' '}
+                  <strong className="text-foreground">{[...SEGS, ...SEGS_IMPORT].find((s) => s.k === seg)?.t ?? nomeDoSegmentoDoPerfil(seg)}</strong> ·{' '}
                   {campPrevia == null ? (
                     'calculando público…'
                   ) : (
@@ -1106,7 +1120,7 @@ export default function ClientesPage() {
                     <li key={k.id} className="rounded-md border border-border p-3 text-sm">
                       <div className="flex items-center gap-2">
                         <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase">
-                          {[...SEGS, ...SEGS_IMPORT].find((s) => s.k === k.segmento)?.t ?? k.segmento}
+                          {[...SEGS, ...SEGS_IMPORT].find((s) => s.k === k.segmento)?.t ?? nomeDoSegmentoDoPerfil(k.segmento) ?? k.segmento}
                         </span>
                         <span
                           className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold ${

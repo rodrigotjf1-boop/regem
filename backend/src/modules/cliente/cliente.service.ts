@@ -1,4 +1,5 @@
 import { ehServidorLocal } from '../../common/modo';
+import { inicioDoPeriodo } from '../../common/fuso-sql';
 import {
   BadRequestException,
   ConflictException,
@@ -54,6 +55,7 @@ import { LINHA_DO_LINK, gravarUmaVezPorFala, testeDaChave } from '../atendimento
 import { AuthUser } from '../../auth/auth-user';
 import PDFDocument from 'pdfkit';
 import { lerPedidoDePrivacidade } from '../perfil-cliente/escolhas-do-cliente';
+import { conferirSegmentoDoPerfil, sqlSegmentoDoPerfil } from '../../common/segmentos-do-perfil';
 import { gravarPrivacidade, lerPrivacidade } from '../perfil-cliente/privacidade-do-cliente';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -696,7 +698,7 @@ export class ClienteService {
       )
       select
         count(*)::int as total,
-        count(*) filter (where c.ultimo_pedido_em >= date_trunc('month', now() at time zone 'America/Sao_Paulo'))::int as mes,
+        count(*) filter (where c.ultimo_pedido_em >= ${inicioDoPeriodo('month')})::int as mes,
         count(*) filter (where c.ultimo_pedido_em >= now() - interval '30 days')::int as d30,
         count(*) filter (where c.ultimo_pedido_em < now() - interval '30 days')::int as sem30,
         count(*) filter (where c.ultimo_pedido_em < now() - interval '60 days')::int as sem60,
@@ -712,6 +714,11 @@ export class ClienteService {
   // Lista de clientes por segmento + busca (nome/telefone). Escopo por tenant.
   // Fragmentos de filtro compartilhados (lista + exportação): segmento, busca,
   // canal e bairro. Retorna um único SQL para o WHERE.
+  /** O segmento "pelo perfil" na lista (F7 parte 1): recusa fora das regras antes de qualquer consulta. */
+  conferirSegmentoDoPerfil(user: { tenantId: string; categoria?: string | null }, segmento: unknown) {
+    return conferirSegmentoDoPerfil(this.db, user, segmento);
+  }
+
   private filtrosCrm(opts: {
     segmento?: string;
     busca?: string;
@@ -720,7 +727,7 @@ export class ClienteService {
     ids?: string[];
   }) {
     const seg: Record<string, any> = {
-      mes: sql`and c.ultimo_pedido_em >= date_trunc('month', now() at time zone 'America/Sao_Paulo')`,
+      mes: sql`and c.ultimo_pedido_em >= ${inicioDoPeriodo('month')}`,
       '30d': sql`and c.ultimo_pedido_em >= now() - interval '30 days'`,
       sem_30: sql`and c.ultimo_pedido_em < now() - interval '30 days'`,
       sem_60: sql`and c.ultimo_pedido_em < now() - interval '60 days'`,
@@ -731,7 +738,8 @@ export class ClienteService {
       anotaai_inativo: sql`and c.importacao->>'fonte' = 'anotaai' and c.importacao->>'segmento' = 'inativo'`,
       anotaai_potencial: sql`and c.importacao->>'fonte' = 'anotaai' and c.importacao->>'segmento' = 'potencial'`,
     };
-    const segFrag = seg[String(opts.segmento ?? '')] ?? sql``;
+    // Os segmentos "pelo perfil" (F7 parte 1; a rota já conferiu papel, módulo e nuvem — `conferirSegmentoDoPerfil`).
+    const segFrag = seg[String(opts.segmento ?? '')] ?? sqlSegmentoDoPerfil(opts.segmento) ?? sql``;
     const busca = (opts.busca ?? '').trim();
     const buscaFrag = busca
       ? sql`and (c.nome ilike ${'%' + busca + '%'} or c.telefone ilike ${'%' + busca.replace(/\D/g, '') + '%'})`
@@ -890,6 +898,8 @@ export class ClienteService {
     },
   ) {
     const formato = ['csv', 'excel', 'pdf'].includes(String(opts.formato)) ? String(opts.formato) : 'csv';
+    // O segmento "pelo perfil" exportado segue as regras da lista (F7 parte 1) — a exportação não vira porta do perfil.
+    await this.conferirSegmentoDoPerfil(user, opts.segmento);
     const rows = await this.crmClientes(user.tenantId, { ...opts, limite: 5000, offset: 0 });
     await this.auditoria.registrar({
       tenantId: user.tenantId,

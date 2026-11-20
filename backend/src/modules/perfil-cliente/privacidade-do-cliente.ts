@@ -31,6 +31,8 @@ export async function gravarPrivacidade(tx: any, c: { tenantId: string; id: stri
   // "Não quero ser analisado": o perfil calculado sai na hora (a rotina também não o recalcula mais).
   if (p.escolhas.some((e) => e.escolha === 'nao_analisar' && e.valor)) {
     await tx.execute(sql`delete from cliente_perfil where cliente_id = ${c.id}::uuid and tenant_id = ${c.tenantId}::uuid`);
+    // O que move o cliente (mig 463) sai junto, na hora.
+    await tx.execute(sql`delete from cliente_evento_sensibilidade where cliente_id = ${c.id}::uuid and tenant_id = ${c.tenantId}::uuid`);
   }
 }
 
@@ -44,10 +46,13 @@ export async function lerPrivacidade(db: any, tenantId: string, clienteId: strin
   const m: any = await db.execute(sql`
     select exists (select 1 from modulo_ativacao where tenant_id = ${tenantId}::uuid and modulo = 'perfil_cliente' and ativo) as ativo`);
   const escolhas: Record<string, boolean> = Object.fromEntries(ESCOLHAS.map((k) => [k, false]));
-  for (const e of r.rows ?? r) escolhas[e.escolha] = !!e.valor;
+  const linhas: any[] = r.rows ?? r;
+  for (const e of linhas) escolhas[e.escolha] = !!e.valor;
   return {
     // O módulo "Perfil do cliente" ligado na empresa: sem ele, o cardápio não mostra a seção (as escolhas valem igual).
     ativo: !!(m.rows ?? m)[0]?.ativo,
+    // Já respondeu alguma vez (marcando ou não — "Continuar sem marcar" grava o "não"): a entrada não pergunta de novo.
+    jaRespondeu: linhas.length > 0,
     escolhas,
     declarado: Object.fromEntries((d.rows ?? d).map((x: any) => [x.chave, x.valor])),
     textos: TEXTO_DA_ESCOLHA,

@@ -7,10 +7,14 @@ import { Tela } from './tela';
 /** O que a imagem mostra: o título, os números grandes, as barras e quem é (a empresa e a loja). */
 export type GraficoDaConversa = Pick<PlanoDoPdfDoInsumo, 'titulo' | 'numeros' | 'grafico' | 'cabecalho'>;
 
+// Versão 5 (M5d.1, protótipo "Gráficos"): o mesmo desenho da página e do PDF — as barras em azul-marinho, a MAIOR em
+// dourado, a grade leve atrás.
 const OURO = '#E2A340';
+const MARINHO = '#2F4A60';
 const TINTA = '#0F2230';
 const CINZA = '#5B6B78';
 const LINHA = '#D5DCE3';
+const GRADE = '#E6ECF1';
 export const TAMANHO_DA_IMAGEM = { largura: 1000, altura: 620 } as const;
 
 /** Vale mandar a imagem: pelo menos duas barras e alguma coisa vendida (uma barra só não é gráfico). */
@@ -51,11 +55,12 @@ export function imagemDoGrafico(g: GraficoDaConversa): Buffer {
   const iMaior = barras.reduce((m, b, i) => (b.valor > barras[m].valor ? i : m), 0);
   const maiorRotulo = Math.max(1, ...barras.map((b) => t.medir(b.rotulo, 'pequeno')));
   const pulo = Math.max(1, Math.ceil((maiorRotulo + 10) / passo));
+  for (const f of [1 / 3, 2 / 3]) t.linhaH(M, W - M, base - (base - topo) * f, GRADE, 1);
   t.linhaH(M, W - M, base, LINHA, 2);
   barras.forEach((b, i) => {
     const h = (b.valor / maior) * (base - topo);
     const x = M + i * passo + (passo - larg) / 2;
-    if (h > 0) t.retangulo(x, base - h, larg, Math.max(1, h), OURO);
+    if (h > 0) t.retangulo(x, base - h, larg, Math.max(1, h), i === iMaior ? OURO : MARINHO);
     if (todosCabem || i === iMaior) t.texto(b.texto, x + larg / 2, base - h - t.alturaDaLinha(tamValor) - 2, { tamanho: tamValor, cor: TINTA, alinhar: 'centro' });
     if (i % pulo === 0) t.texto(b.rotulo, x + larg / 2, base + 8, { tamanho: 'pequeno', cor: CINZA, alinhar: 'centro' });
   });

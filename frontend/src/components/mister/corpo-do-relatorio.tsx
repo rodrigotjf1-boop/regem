@@ -1,6 +1,6 @@
 import { Card } from '@/components/ui/card';
 import { texto2 } from '@/components/ui/lista';
-import { Colunas } from '@/components/relatorios/graficos';
+import { GraficoDoMister } from '@/components/mister/grafico-do-mister';
 import type { PlanoDoRelatorio } from '@/lib/mister-relatorio';
 
 // O CORPO DO RELATÓRIO POR INSUMO DO MISTER (M3c): os números, o gráfico, "De onde saiu" e a fonte — o mesmo desenho na
@@ -26,8 +26,10 @@ export function CorpoDoRelatorio({ plano: p, vazio, nivel = 3 }: { plano: PlanoD
           <Titulo id="grafico-do-relatorio" className="font-display font-semibold">
             {p.grafico.titulo}
           </Titulo>
-          {p.grafico.linha && <p className={`text-sm ${texto2}`}>{p.grafico.linha.texto}</p>}
-          <Colunas legenda={p.grafico.titulo} pontos={p.grafico.barras} cabecalho={['Quando', 'Quanto']} />
+          {/* Versão 5 (M5d.1): o desenho novo, o mesmo da imagem da conversa e do PDF (a legenda da média vai dentro dele). */}
+          <Card className="p-4">
+            <GraficoDoMister legenda={p.grafico.titulo} pontos={p.grafico.barras} linha={p.grafico.linha} cabecalho={['Quando', 'Quanto']} />
+          </Card>
           {p.grafico.nota && <p className={`text-xs ${texto2}`}>{p.grafico.nota}</p>}
         </section>
       )}

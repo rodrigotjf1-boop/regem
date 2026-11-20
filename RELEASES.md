@@ -12,6 +12,36 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Campanhas e Clientes: o "hoje" e o "No mês" no fuso de Brasília (20/11; SEM migration; ERR-542).** O teto do dia,
+  da semana e do mês da campanha e o "No mês" de Delivery › Clientes começavam às 21h da véspera na nuvem (sessão UTC);
+  agora pelo `inicioDoPeriodo()`. No servidor da loja (banco no fuso da máquina) já dava certo — no `.zip` só por
+  acompanhar o código.
+
+- **Campanhas: o cliente que só pediu pela 99 volta a receber (19/11; SEM migration; decisão do dono).** Só o iFood fica
+  de fora (`CANAIS_FORA_DAS_CAMPANHAS`); sem perfil para a 99; as automáticas não mudam. Campanha roda só na nuvem — no
+  `.zip` só por acompanhar o código.
+
+- **Perfil do cliente F7 parte 3 — o grupo de controle das campanhas (19/11; mig 465 SÓ NUVEM, aplicada —
+  `relacionamento_config.grupo_controle`).** Nasce desligado. Só na nuvem.
+
+- **Perfil do cliente F7 parte 2 — "sentimos sua falta" pelo ritmo de cada cliente (19/11; mig 464 SÓ NUVEM, aplicada —
+  `relacionamento_config.volta_pelo_ritmo`).** Nasce desligado; só com o módulo "Perfil do cliente". Só na nuvem.
+
+- **Perfil do cliente F7 parte 1 — o público pelo perfil nas campanhas (19/11; SEM migration).** As abas "Pelo perfil" em
+  Delivery › Clientes e a campanha por elas (só o aceite clicado). Só na nuvem; no `.zip` só por acompanhar o código.
+
+- **Perfil do cliente F3 parte 2 — o que move cada cliente (19/11; mig 463 SÓ NUVEM — `cliente_evento_sensibilidade`).**
+  A sensibilidade a eventos medida na rotina noturna do perfil e mostrada na ficha. Só na nuvem e só com o módulo ligado;
+  a tabela entra como SO_NUVEM no `sync-daemon.mjs` (o `.exe` do próximo corte leva junto).
+
+- **Perfil do cliente F2 — o calendário de eventos da loja (19/11; mig 461 SÓ NUVEM — `evento_loja`,
+  `calendario_loja_dia`).** Delivery › Clientes › Calendário de eventos (rotas `/calendario-da-loja`), a regra fixa de
+  feriados e datas, os eventos da loja e a cópia por loja e dia na rotina noturna do perfil. Tudo só na nuvem e só com o
+  módulo "Perfil do cliente" ligado; as duas tabelas entram como SO_NUVEM no `sync-daemon.mjs` (o daemon mudou: o
+  `.exe` do próximo corte leva junto, como já leva o da F1a). Junto, a F3 parte 1 ("mexe na loja?" no calendário, só
+  leitura) e o resto da F1c (as escolhas na entrada do cardápio e a palavra PRIVACIDADE no WhatsApp), que não entraram
+  no #1177.
+
 - **Perfil do cliente — o gatilho dos totais não espera a trava do cadastro (19/11; mig 460 NOS DOIS LADOS; ERR-539).** A
   função da 458 pega o cadastro com skip locked (feita por um diagnóstico errado do deadlock do CI — ERR-539; inofensiva). No servidor da loja
   entra com o `.zip`, junto da 458.
@@ -19,7 +49,9 @@
 - **Perfil do cliente F1b + F1c (API) + F6 — a ficha na tela, as escolhas do cliente e o cartão do atendente (19/11; SEM
   migration).** A ficha em gaveta em Delivery › Clientes; `/publico/cardapio/:token/cliente/privacidade`; o `cartao` no
   `ver_pedido` (instruções .f33) e a trava na saída do robô. Tudo só na nuvem (cardápio, robô e Clientes moram lá) e só
-  com o módulo "Perfil do cliente" ligado; no `.zip` só por acompanhar o código.
+  com o módulo "Perfil do cliente" ligado; no `.zip` só por acompanhar o código. Junto: o cartão do cliente no caso da
+  Central (F6b), as três escolhas desmarcadas logo depois do código do WhatsApp na entrada do cardápio e a palavra
+  PRIVACIDADE no WhatsApp (API oficial e Evolution, antes do robô; só com o módulo ligado) — também só na nuvem.
 
 - **Perfil do cliente F1a — a base: o cálculo e a ficha pela API (19/11; mig 459 SÓ NUVEM — `cliente_perfil`,
   `cliente_escolha`, `cliente_declarado`, `perfil_cliente_execucao`).** Módulo ativável "Perfil do cliente" (nasce
@@ -123,7 +155,8 @@
   `ouvir_audio` do DMS Graph (contrato 1.1.0; o dono clica "Implantar" no Graph); a transcrição vira a pergunta e a
   resposta abre com "🎧 Entendi"; inaudível, franquia, acima de 3 min e AMR têm frase própria. Só nuvem → sem efeito na loja.
   **M5b.2 (19/11, só tela):** o quadro "Fotos e áudios · DMS Graph" em Mister › IA e uso (a franquia do mês); vai no
-  `.zip` sem efeito na loja (a tela do Mister é da nuvem).
+  `.zip` sem efeito na loja (a tela do Mister é da nuvem). **M5d.1 (19/11, sem migration):** o gráfico do insumo com o
+  desenho novo na página, na imagem e no PDF (azul-marinho, a maior em dourado) — nuvem; vai no `.zip` sem efeito na loja.
 
 - **O DMS Graph lê a foto do cliente, com a IA da empresa de reserva (18/11, G5a — só o servidor; mig 450 SÓ NUVEM —
   `graph_ligacao`, `graph_clique_pedido`; nasce DESLIGADO).** Com `GRAPH_LIGADO=true` no `regem-api` e a empresa ligada

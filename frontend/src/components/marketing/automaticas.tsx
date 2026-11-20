@@ -49,7 +49,11 @@ type Painel = {
     voltaMinimo: number;
     voltaValidadeDias: number;
     voltaTentativas: number;
+    voltaPeloRitmo?: boolean;
+    grupoControle?: boolean;
   };
+  /** O módulo "Perfil do cliente" ligado (mostra "pelo ritmo de cada cliente" — F7 parte 2, mig 464). */
+  perfilLigado?: boolean;
   opcoes: {
     intervalos: number[];
     maxPorDia: number[];
@@ -137,6 +141,8 @@ const paraValores = (p: Painel): Valores => ({
   voltaMinimo: String(p.ajustes.voltaMinimo),
   voltaValidadeDias: String(p.ajustes.voltaValidadeDias),
   voltaTentativas: String(p.ajustes.voltaTentativas),
+  voltaPeloRitmo: p.ajustes.voltaPeloRitmo === true,
+  grupoControle: p.ajustes.grupoControle === true,
 });
 
 /** "hoje às 17:00", "amanhã às 17:00", "sexta às 17:00". */
@@ -357,6 +363,14 @@ export function Automaticas() {
         opcoes: p.opcoes.intervalos.map((d) => ({ v: String(d), rotulo: `${d} dias` })),
         ajuda: 'Soma o aniversário, o "sentimos sua falta" e as campanhas. O aviso do cashback não conta (se a Meta não o classificar como marketing).',
         palavras: 'frequência intervalo oferta dias',
+      },
+      {
+        id: 'grupoControle',
+        rotulo: 'Grupo de controle das campanhas (10%)',
+        tipo: 'chave',
+        ajuda:
+          '10% dos clientes, sempre os mesmos, não recebem as campanhas. O resultado de cada campanha compara quem recebeu com quem ficou de fora — o efeito de verdade, não só "pediu depois da mensagem". As automáticas não mudam.',
+        palavras: 'grupo de controle medir efeito campanha resultado',
       },
       {
         id: 'maxPorDia',
@@ -615,9 +629,21 @@ export function Automaticas() {
         ajuda: 'Voltou = pediu em até 7 dias depois da mensagem (a mesma conta das campanhas).',
         palavras: 'sentimos sua falta volta sumiu',
       },
+      ...(p.perfilLigado
+        ? ([
+            {
+              id: 'voltaPeloRitmo',
+              rotulo: 'Pelo ritmo de cada cliente',
+              tipo: 'chave',
+              ajuda:
+                'Do Perfil do cliente: chama quem passou de 1,5 vez o próprio intervalo sem pedir (nunca antes de 7 dias) — quem pede toda semana recebe com uns 10 dias, quem pede todo mês, com uns 45. Quem ainda não tem ritmo (menos de 2 pedidos) segue o "Quem não pede há".',
+              palavras: 'volta ritmo perfil intervalo atrasado',
+            },
+          ] as GrupoDeAjustes['itens'])
+        : []),
       {
         id: 'voltaDias',
-        rotulo: 'Quem não pede há',
+        rotulo: valores.voltaPeloRitmo === true && p.perfilLigado ? 'Quem não pede há (sem ritmo ainda)' : 'Quem não pede há',
         tipo: 'selecao',
         opcoes: p.opcoes.voltaDias.map((d) => ({ v: String(d), rotulo: `${d} dias` })),
         ajuda: `Até 30 dias depois disso (com ${diasVolta}: de ${diasVolta} a ${diasVolta + 30} dias sem pedir). Quem sumiu há mais tempo fica para as campanhas.`,

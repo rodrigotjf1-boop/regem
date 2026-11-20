@@ -32,16 +32,19 @@ export class CampanhaController {
   }
 
   @Get('previa')
-  previa(
+  async previa(
     @CurrentUser() user: AuthUser,
     @Query('segmento') segmento?: string,
     @Query('recuperacaoDias') recuperacaoDias?: string,
   ) {
+    // Segmento "pelo perfil" (F7 parte 1): módulo ligado e na nuvem (o papel a rota inteira já confere).
+    await this.service.conferirSegmentoDoPerfil(user, segmento);
     return this.service.previa(user.tenantId, segmento ?? 'todos', Number(recuperacaoDias) || undefined);
   }
 
   @Post()
-  criar(@CurrentUser() user: AuthUser, @Body() dto: any) {
+  async criar(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    await this.service.conferirSegmentoDoPerfil(user, dto?.segmento);
     return this.service.criar(user.tenantId, user.colaboradorId ?? null, user.unidadeId ?? null, dto);
   }
 

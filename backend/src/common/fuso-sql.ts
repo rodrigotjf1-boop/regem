@@ -23,6 +23,17 @@ export function instanteDe(relogio: string): SQL {
   return sql`(${relogio}::timestamp at time zone ${FUSO_SQL})`;
 }
 
+/**
+ * O INSTANTE em que começou o dia, a semana ou o mês de HOJE no relógio da operação. `date_trunc(…, now() at time zone
+ * FUSO)` sozinho é um horário SEM fuso — comparado com uma coluna de instante, o banco o lê no fuso da SESSÃO (na nuvem,
+ * UTC): o "hoje" começava às 21h da véspera em Brasília (o teto do dia da campanha e o "No mês" dos clientes — ERR-542).
+ * Aqui ele volta a ser instante pelo fuso da operação.
+ */
+export function inicioDoPeriodo(unidade: 'day' | 'week' | 'month'): SQL {
+  if (!['day', 'week', 'month'].includes(unidade)) throw new Error(`período inválido: ${unidade}`);
+  return sql`(date_trunc(${sql.raw(`'${unidade}'`)}, now() at time zone ${FUSO_SQL}) at time zone ${FUSO_SQL})`;
+}
+
 /** `col` (instante) dentro do período escolhido na tela, que é hora de Brasília. */
 export function noPeriodo(col: string, inicio: string, fim: string): SQL {
   return sql`${sql.raw(col)} between ${instanteDe(inicio)} and ${instanteDe(fim)}`;

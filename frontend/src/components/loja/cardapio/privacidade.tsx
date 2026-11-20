@@ -99,12 +99,8 @@ export function PrivacidadeNaConta({ token, clienteToken, setErro }: { token: st
         ocupado={ocupado}
         aoMudar={() => salvar({ declarado: { respostas_curtas: dec.respostas_curtas === true ? null : true } })}
       />
-      <Chave
-        rotulo="Prefiro que respondam em áudio"
-        ligado={dec.prefere_audio === true}
-        ocupado={ocupado}
-        aoMudar={() => salvar({ declarado: { prefere_audio: dec.prefere_audio === true ? null : true } })}
-      />
+      {/* Sem a chave "prefiro áudio" (decisão do dono, 19/11/2026): o atendente responde em áudio SÓ quando o cliente manda
+          áudio — já é assim; uma chave aqui prometeria áudio para quem escreve. */}
 
       <div>
         <label htmlFor={idTime}>

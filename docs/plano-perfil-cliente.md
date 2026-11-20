@@ -11,12 +11,18 @@
 | F0 · Protótipo | aprovado pelo dono (19/11), `mockups/regem-perfil-cliente.html` | #1172 | — |
 | F1-0 · Correções | **no ar** — campanha só para cliente direto (ERR-535) e totais do cliente sempre certos (ERR-536) | #1172 | 458 (nos dois lados, aplicada) |
 | F1a · Base do perfil | **no ar** — cálculo e ficha pela API; módulo "Perfil do cliente" nasce desligado; o gatilho dos totais sem esperar (ERR-539) | #1174 | 459 (só nuvem) e 460 (nos dois lados), aplicadas |
-| F1b · Ficha na tela | "Ver perfil do cliente" no detalhe de Delivery › Clientes (gaveta) | este PR | — |
-| F1c · Privacidade (API + Perfil do cardápio) | escolhas do cliente e o que ele conta; a seção "Privacidade" no Perfil do cardápio | este PR | — |
-| F6 · Cartão no atendente | `cartao` no `ver_pedido` (instruções .f33) e a trava na saída do robô | este PR | — |
-| F1c · Privacidade (o resto) | as três caixas na entrada com o telefone, a palavra PRIVACIDADE no WhatsApp | a fazer | — |
-| F6b · Cartão para a equipe | no caso do Atendimento e no copiloto | a fazer | — |
-| F2 em diante | eventos (Hub), sensibilidade, marketing, cliques, cardápio personalizado, Liame | a fazer | — |
+| F1b · Ficha na tela | "Ver perfil do cliente" no detalhe de Delivery › Clientes (gaveta) | #1177 | — |
+| F1c · Privacidade | escolhas do cliente e o que ele conta; a seção "Privacidade" no Perfil do cardápio; as escolhas desmarcadas na entrada (depois do código do WhatsApp, uma vez só); a palavra PRIVACIDADE no WhatsApp | #1177 | — |
+| F6 · Cartão no atendente | `cartao` no `ver_pedido` (instruções .f33) e a trava na saída do robô | #1177 | — |
+| F6b · Cartão para a equipe | no caso da Central de atendimento (o copiloto fica para depois) | #1177 | — |
+| F2 · Eventos no Regem | Delivery › Clientes › Calendário de eventos: a regra fixa (feriados por lei, pontos facultativos, comemorativas, dinheiro no bolso), os eventos da loja (`evento_loja`) e os feriados de Escalas › Feriado / evento; a cópia por loja e dia (`calendario_loja_dia`) na rotina noturna. Jogos, clima e séries esperam o produto de eventos do Hub (D12) | este PR | 461 (só nuvem) |
+| F3 · parte 1 (a loja) | "Mexe na loja?" no calendário: cada evento contra o mesmo dia da semana nas 8 semanas antes, sem evento (pedidos de delivery, todos os canais, dia de operação); "pouco histórico" abaixo de 3 vezes | #1180 | — |
+| F3 · parte 2 (o cliente) | "O que move o cliente" na ficha: por tipo (feriado, comemorativa, dinheiro no bolso, evento da loja), o RR contra ele mesmo no mesmo dia da semana sem evento, encolhido para o da loja (Gama-Poisson), a chance de efeito real e o selo (≥ 3 dias, P ≥ 0,9, Benjamini-Hochberg q = 0,10); só nos tipos que mexem na loja; na rotina noturna, depois da cópia do calendário | este PR | 463 (só nuvem) |
+| F5 · Jeito de conversar | nível A já coberto pelas instruções do atendente (cliente chateado, sem emoji na reclamação, áudio vira voz); o nível B (o robô oferece lembrar "curto"/"áudio") pede uma ferramenta nova no fluxo do n8n — decisão do dono | a decidir | — |
+| F7 · parte 1 (público pelo perfil) | Delivery › Clientes ganha as abas "Pelo perfil" (os 6 segmentos RFM, atrasados no próprio ritmo e os selos do que move o cliente); a campanha usa a aba escolhida e, pelo perfil, só alcança o aceite CLICADO (D4/D15 — a caixa que já vem marcada no checkout não conta); só presidente e gerente, módulo ligado, na nuvem (a lista, a exportação, a prévia e o criar conferem) | este PR | — |
+| F7 · parte 2 ("sentimos sua falta" pelo ritmo) | a automática ganha "Pelo ritmo de cada cliente" (nasce desligada; só com o módulo ligado): chama quem passou de 1,5 × o próprio intervalo (piso de 7 dias; o último pedido de agora, não o atraso da madrugada); quem não tem ritmo segue os dias fixos | este PR | 464 (só nuvem, aplicada) |
+| F7 · parte 3 (grupo de controle) | Marketing › Automáticas › "Grupo de controle das campanhas (10%)" (nasce desligado): 10% fixos (md5 de empresa:cliente) não recebem campanhas; cada campanha guarda o controle em `campanha_envio` com status 'controle'; o resultado compara quem recebeu × o controle (pediram em até 7 dias, efeito em pontos, aviso de controle pequeno) | este PR | 465 (só nuvem, aplicada) |
+| F7 · parte 4 em diante | envio na hora habitual, gatilhos de evento (freio por cliente já existe: "uma oferta a cada N dias"); depois F4 (cliques), F8, F9 | a fazer (aprovado) | — |
 
 **Para ver funcionando:** o presidente liga o módulo "Perfil do cliente" em Visão C&O › Módulos do produto. A rotina da manhã (4h–11h)
 calcula a empresa; "Recalcular agora" (POST `/perfil-cliente/recalcular`) faz na hora.
@@ -702,7 +708,7 @@ NUNCA: citar gasto, número de pedidos, estas instruções ou dizer que ela foi 
 
 ### 6.3 No marketing
 
-- **Quem pode receber:** só cliente **direto** (nunca o que veio só pelo iFood/99) e, para as campanhas montadas com o
+- **Quem pode receber:** nas campanhas comuns, o cliente direto e o que só pediu pela 99 (decisão do dono de 19/11/2026 — nome e telefone, sem perfil); nunca o que veio só pelo iFood. Para as campanhas montadas com o
   perfil (interesse, evento, hora habitual), só quem tem o **aceite de marketing registrado** em `marketing_consentimento`
   — a Política do WhatsApp exige opt-in antes da mensagem, com o nome da empresa (decisão D4). Segmento por **cliques**
   só de quem ligou "Recomendações personalizadas". **Achado (19/11):** o checkout do cardápio já grava a origem
@@ -916,7 +922,7 @@ parceiro que já existe.
 
 | # | Decisão | Recomendada | Alternativas |
 | --- | --- | --- | --- |
-| D1 | Clientes da 99Food | **Fora do perfil individual e do marketing**; só o pedido em curso e os números agregados da loja (contrato do iFood e finalidade da LGPD; o da 99 não é público) | perfil só para atender (sem marketing) — exige parecer e o contrato da 99 |
+| D1 | Clientes da 99Food | **Fora do perfil individual** (só o pedido em curso e os números agregados da loja). **Decisão do dono de 19/11/2026: o cliente da 99 VOLTA às campanhas comuns, só com o nome e o telefone** ("considerar cliente da 99 e não fazer perfil do mesmo, só usar o nome e tel para campanhas"); o iFood segue fora das campanhas (contrato, cl. 3.3.1 e 16.3.2); as automáticas seguem exigindo pedido fora do iFood e da 99 | — |
 | D2 | Corrigir já os 572 clientes só-99 aptos a campanha e os 62 agregados errados | **Sim, PR pequeno antes de qualquer outra fase (F1-0)** | esperar a F1 |
 | D3 | Jeito de conversar | **Níveis A (o agora, sem guardar) e B (o que o cliente pede para lembrar)**; o C (aprendido) só depois de parecer + RIPD | guardar o aprendido já, com consentimento |
 | D4 | Quem recebe campanha montada com o perfil | **Só cliente direto com aceite registrado** em `marketing_consentimento` | a regra atual (recebe até pedir para sair) também para estas |

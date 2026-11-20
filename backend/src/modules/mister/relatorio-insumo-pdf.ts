@@ -21,9 +21,11 @@ export interface PlanoDoPdfDoInsumo {
 }
 
 const OURO = '#E2A340';
+const MARINHO = '#2F4A60';
 const TINTA = '#0F2230';
 const CINZA = '#5B6B78';
 const LINHA = '#D5DCE3';
+const GRADE = '#E6ECF1';
 
 /** 1234.5 → "1.234,5" (até 3 casas, sem zeros à direita). */
 export const numero = (n: number) => (Number(n) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
@@ -163,11 +165,14 @@ export function gerarPdfDoInsumo(p: PlanoDoPdfDoInsumo, titulo = 'relatorio.pdf'
   const n = Math.max(1, p.grafico.barras.length);
   const passo = W / n;
   const larg = Math.max(2, Math.min(36, passo * 0.68));
+  // Versão 5 (M5d.1): o mesmo desenho da imagem e da página — a grade leve, as barras em azul-marinho e a MAIOR em dourado.
+  for (const f of [1 / 3, 2 / 3]) doc.moveTo(L, base - (altura - 16) * f).lineTo(R, base - (altura - 16) * f).lineWidth(0.5).strokeColor(GRADE).stroke();
   doc.moveTo(L, base).lineTo(R, base).lineWidth(0.8).strokeColor(LINHA).stroke();
+  const iMaior = p.grafico.barras.reduce((m, b, i, todas) => (b.valor > todas[m].valor ? i : m), 0);
   p.grafico.barras.forEach((b, i) => {
     const h = (b.valor / maior) * (altura - 16);
     const x = L + i * passo + (passo - larg) / 2;
-    if (h > 0) doc.rect(x, base - h, larg, h).fillColor(OURO).fill();
+    if (h > 0) doc.roundedRect(x, base - h, larg, h, Math.min(2, h / 2)).fillColor(i === iMaior ? OURO : MARINHO).fill();
     if (n <= 31) doc.fillColor(TINTA).font('Helvetica').fontSize(n > 20 ? 6 : 8).text(b.texto, x - 8, base - h - 10, { width: larg + 16, align: 'center' });
     if (n <= 31 || i % Math.ceil(n / 31) === 0) doc.fillColor(CINZA).font('Helvetica').fontSize(n > 20 ? 6 : 8).text(b.rotulo, x - 8, base + 4, { width: larg + 16, align: 'center' });
   });
