@@ -2923,6 +2923,8 @@ export const campanha = pgTable('campanha', {
   tetoSemana: integer('teto_semana'),
   tetoMes: integer('teto_mes'),
   cupomCodigo: text('cupom_codigo'),
+  // O prêmio do Clube que cada destinatário ganha (mig 477, A1d): o disparo cria o direito e o clique leva ao link pessoal.
+  clubePremioId: uuid('clube_premio_id'),
   agendada: boolean('agendada').notNull().default(false),
   iniciaEm: timestamp('inicia_em', { withTimezone: true }),
   terminaEm: timestamp('termina_em', { withTimezone: true }),

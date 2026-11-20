@@ -74,7 +74,27 @@ export const PERIODOS_DA_CLASSIFICACAO = [30, 60, 90] as const;
 export type GatilhoClassificacao = { ativo: boolean; segmentos: SegmentoDaClassificacao[]; premioId: string | null; periodoDias: number };
 export const GATILHO_CLASSIFICACAO_PADRAO: GatilhoClassificacao = { ativo: false, segmentos: [], premioId: null, periodoDias: 60 };
 
-export type GatilhosDoSurpresa = { entregue: GatilhoEntregue; reclamacao: GatilhoReclamacao; classificacao: GatilhoClassificacao };
+/**
+ * O gatilho "Em disparo (campanha)" (fase A1d, mig 477 — a chave `campanha` do mesmo jsonb): ligado, a criação da campanha
+ * oferece "🎁 Mandar um prêmio surpresa" com um prêmio da lista; TODOS os destinatários ganham (o direito nasce na hora de
+ * mandar a cada um) e o link da campanha leva ao link pessoal do prêmio. Só para quem aceitou mensagens (a regra da
+ * campanha de sempre).
+ */
+export type GatilhoCampanha = { ativo: boolean };
+export const GATILHO_CAMPANHA_PADRAO: GatilhoCampanha = { ativo: false };
+
+export type GatilhosDoSurpresa = {
+  entregue: GatilhoEntregue;
+  reclamacao: GatilhoReclamacao;
+  classificacao: GatilhoClassificacao;
+  campanha: GatilhoCampanha;
+};
+
+/** O que a tela mandou para o gatilho "Em disparo (campanha)" (V15/V16). */
+export function lerGatilhoCampanha(dto: unknown): Partial<GatilhoCampanha> {
+  const d = (dto !== null && typeof dto === 'object' ? dto : {}) as Record<string, unknown>;
+  return d.ativo !== undefined ? { ativo: exigirBooleano(d.ativo, 'Em disparo (campanha)') } : {};
+}
 
 const ehSegmento = (x: unknown): x is SegmentoDaClassificacao => typeof x === 'string' && x in SEGMENTOS_DA_CLASSIFICACAO;
 
@@ -107,6 +127,7 @@ export function gatilhosDaLinha(j: unknown): GatilhosDoSurpresa {
   const e = doJson('entregue');
   const r = doJson('reclamacao');
   const cl = doJson('classificacao');
+  const ca = doJson('campanha');
   const ids = Array.isArray(r?.premios) ? (r!.premios as unknown[]).filter((x): x is string => typeof x === 'string' && UUID_DO_PREMIO.test(x)) : [];
   return {
     entregue: {
@@ -126,6 +147,7 @@ export function gatilhosDaLinha(j: unknown): GatilhosDoSurpresa {
       premioId: typeof cl?.premioId === 'string' && UUID_DO_PREMIO.test(cl.premioId) ? cl.premioId.toLowerCase() : null,
       periodoDias: (PERIODOS_DA_CLASSIFICACAO as readonly number[]).includes(cl?.periodoDias as number) ? Number(cl!.periodoDias) : 60,
     },
+    campanha: { ativo: ca?.ativo === true },
   };
 }
 
@@ -401,6 +423,8 @@ export function regrasDoClube(c: ConfigDoClube, nomeDoPremio: (id: string) => st
         `Prêmio pela classificação: todos os clientes dos grupos ${grupos} (pelas compras de cada um) ganham ${como}${premio ? ` com o prêmio "${premio}"` : ''}, no máximo 1 vez a cada ${cl.periodoDias} dias.`,
       );
     }
+    if (gatilhos?.campanha.ativo)
+      linhas.push(`Prêmio na campanha: a campanha da loja com prêmio surpresa dá ${como} a todos os que a recebem (só quem aceitou mensagens da loja).`);
     linhas.push(
       `O prêmio já vem definido pela regra quando o cliente ganha: a ${c.surpresaForma === 'roleta' ? 'roleta' : 'raspadinha'} só mostra.`,
     );

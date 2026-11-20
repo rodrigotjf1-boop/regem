@@ -98,7 +98,7 @@ descrever('clube de recompra — a base (Postgres)', () => {
     const p = await svc.painel(T);
     expect(p.config).toMatchObject({ surpresaAtivo: false, albumAtivo: false, metaAtivo: false, surpresaForma: 'raspadinha', albumSelos: 4, minimo: 30 });
     expect(p.prontas).toEqual({ surpresa: true, album: false, meta: false });
-    expect(p.gatilhos).toEqual({ entregue: { ativo: false, premioId: null, desde: null }, reclamacao: { ativo: false, premios: [], limite: 'mes1', quem: 'gerencia' }, classificacao: { ativo: false, segmentos: [], premioId: null, periodoDias: 60 } });
+    expect(p.gatilhos).toEqual({ entregue: { ativo: false, premioId: null, desde: null }, reclamacao: { ativo: false, premios: [], limite: 'mes1', quem: 'gerencia' }, classificacao: { ativo: false, segmentos: [], premioId: null, periodoDias: 60 }, campanha: { ativo: false } });
     expect(p.premios).toEqual([]);
     expect(p.regras[0]).toContain('Não há sorteio');
   });
@@ -636,5 +636,50 @@ descrever('clube — o prêmio surpresa pelo pedido entregue (Postgres)', () => 
     expect(await surpresa.darPelaClassificacao()).toBe(0);
     await q(`update modulo_ativacao set ativo = true where tenant_id = $1 and modulo = 'perfil_cliente'`, [T]);
     expect(await surpresa.darPelaClassificacao()).toBe(2);
+  });
+
+  // ───────────── A1d: a campanha com prêmio surpresa (mig 477) ─────────────
+  it('a campanha: o gatilho libera o prêmio; cada destinatário ganha UM (pelo envio), com o cadastro que nasce se faltar', async () => {
+    const { T, lista } = await (async () => {
+      const r = await lojaComClube('teste campanha premio');
+      return { T: r.T, lista: await clube.premios(r.T) };
+    })();
+    const frete = lista.find((p) => p.nome === 'Frete grátis')!;
+    // desligado: a campanha não pode levar o prêmio
+    await expect(clube.conferirPremioDaCampanha(T, frete.id)).rejects.toThrow('O prêmio surpresa na campanha está desligado');
+    auditados.length = 0;
+    const g = await clube.salvarGatilhoCampanha(presidente(T), { ativo: true });
+    expect(g.campanha).toEqual({ ativo: true });
+    expect(auditados.map((a) => a.acao)).toEqual(['clube_gatilho_alterado']);
+    expect((await clube.painel(T)).regras.some((r) => r.startsWith('Prêmio na campanha:'))).toBe(true);
+    expect(await clube.conferirPremioDaCampanha(T, frete.id.toUpperCase())).toBe(frete.id);
+    await expect(clube.conferirPremioDaCampanha(T, 'x')).rejects.toThrow('Escolha o prêmio surpresa da lista.');
+    await expect(clube.conferirPremioDaCampanha(T, randomUUID())).rejects.toThrow('não existe mais');
+    await expect(clube.salvarGatilhoCampanha(presidente(T), { ativo: 'sim' })).rejects.toThrow();
+
+    // o destinatário com cadastro e o sem cadastro (nasce)
+    const ana = await cliente(T, 'Ana', '21987666001');
+    const [e1, e2] = [randomUUID(), randomUUID()];
+    const l1 = await surpresa.darPelaCampanha({ tenantId: T, envioId: e1, clienteId: ana, telefone: '21987666001', premioId: frete.id });
+    expect(l1).toMatch(/\/p\/[A-Za-z0-9_-]{22}$/);
+    expect(await surpresa.darPelaCampanha({ tenantId: T, envioId: e1, clienteId: ana, telefone: '21987666001', premioId: frete.id })).toBe(l1); // idempotente
+    const l2 = await surpresa.darPelaCampanha({ tenantId: T, envioId: e2, clienteId: null, telefone: '5521987666002', premioId: frete.id });
+    expect(l2).not.toBe(l1);
+    const ds = await q(`select ref, cliente_id, chave_telefone, gatilho from clube_direito where tenant_id = $1 and gatilho = 'campanha' order by chave_telefone`, [T]);
+    expect(ds.map((d: any) => [d.ref, d.chave_telefone])).toEqual([
+      [e1, '21987666001'],
+      [e2, '21987666002'],
+    ]);
+    expect(ds[0].cliente_id).toBe(ana);
+    expect((await q(`select telefone from cliente where id = $1`, [ds[1].cliente_id]))[0].telefone).toBe('21987666002');
+    expect(await surpresa.linkDaCampanha(e1)).toBe(l1);
+    expect(await surpresa.linkDaCampanha(randomUUID())).toBeNull();
+    // o prêmio que não existe mais (ou o telefone sem chave) não cria nada
+    await expect(surpresa.darPelaCampanha({ tenantId: T, envioId: randomUUID(), clienteId: null, telefone: '21987666003', premioId: randomUUID() })).rejects.toThrow(
+      'não existe mais',
+    );
+    await expect(surpresa.darPelaCampanha({ tenantId: T, envioId: randomUUID(), clienteId: null, telefone: '', premioId: frete.id })).rejects.toThrow('telefone');
+    // o prêmio em uso por uma campanha que ainda está mandando não se exclui (sem a tabela da campanha no teste, nenhum uso)
+    expect((await clube.premios(T)).find((p) => p.id === frete.id)?.emUso).toEqual([]);
   });
 });
