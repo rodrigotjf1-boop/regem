@@ -151,6 +151,11 @@ AS REGRAS DE AVISO DE CADA PESSOA
 - Depois de propor, mostre o "oQueVouFazer" como a ferramenta devolveu e diga que os botões Confirmar e Mudar vão junto: nada fica ligado sem o Confirmar. Se a pessoa confirmar por escrito ("sim", "pode", "confirma"), chame regras com acao confirmar e o id.
 - "Minhas regras": acao listar. Para mudar uma regra, proponha a nova com substituiRegraId. Para apagar, pausar ou retomar, use o id da lista; apagar vai com o botão Apagar.
 
+REFAZER O GRÁFICO
+- "Não entendi", "não gostei", "faz de outro jeito", "em barras deitadas", "em tabela", "destaca o sábado", "só os principais": chame refazer_grafico com o que muda (a forma, o título com a mensagem principal, o destaque, a ordem, sem os valores). Nunca chame mostrar_grafico de novo para isso: os números são os mesmos.
+- Pense na crítica: "não entendi" pede menos coisa e um título que diga a conclusão; "muitas barras" pede ordem maior (até 7); "não vejo o melhor dia" pede o destaque nele.
+- Depois, diga em uma frase o que mudou e o que o gráfico mostra de principal, com os números que já tinha.
+
 A LISTA DE COMPRAS
 - "Pede 10 kg de bacon e 5 caixas de tomate", a foto de uma lista escrita, "faz a lista do que está abaixo do mínimo": chame lista_de_compras (montar com as linhas, na ordem, cada uma com o texto do produto como a pessoa disse, a quantidade e a unidade; ou do_minimo). Não invente quantidade: a linha sem quantidade, pergunte antes.
 - Depois de montar, diga em uma frase quantas linhas entraram e que as dúvidas (o insumo, a unidade, a marca, o fornecedor) vêm a seguir, com botões. Não repita a lista nem prometa o pedido: ele só sai com o "Criar o pedido".
@@ -296,7 +301,8 @@ export type NomeDaFerramenta =
   | 'ficar_de_olho'
   | 'lembrete'
   | 'regras'
-  | 'lista_de_compras';
+  | 'lista_de_compras'
+  | 'refazer_grafico';
 
 // ───────────────────────────── as conversas anteriores (versão 4) ─────────────────────────────
 // O padrão do Hermes de procurar nas conversas antigas, sobre o texto que `mister_pergunta` já guarda por 30 dias.
@@ -377,6 +383,8 @@ export const FERRAMENTA_DO_LEMBRETE = 'lembrete' as const;
 export const FERRAMENTA_DAS_REGRAS = 'regras' as const;
 /** Versão 6, M6g (mig 475): a lista de compras montada pela conversa. */
 export const FERRAMENTA_DA_LISTA = 'lista_de_compras' as const;
+/** Versão 6, M6i: o "refazer" do último gráfico (os mesmos números, outra apresentação). */
+export const FERRAMENTA_DE_REFAZER = 'refazer_grafico' as const;
 /** As ferramentas que NÃO são consulta: anotam, propõem, mandam, corrigem ou criam — não trazem dado da loja para a resposta. */
 export const FERRAMENTAS_QUE_NAO_SAO_CONSULTA: readonly string[] = [
   FERRAMENTA_DO_QUE_FALTA,
@@ -391,6 +399,7 @@ export const FERRAMENTAS_QUE_NAO_SAO_CONSULTA: readonly string[] = [
   FERRAMENTA_DO_LEMBRETE,
   FERRAMENTA_DAS_REGRAS,
   FERRAMENTA_DA_LISTA,
+  FERRAMENTA_DE_REFAZER,
 ];
 // F4.2b: cancelar_pedido (de PIN) nasce da pergunta, preso ao pedido que a pessoa disse — não a um aviso.
 export const PROCEDIMENTOS_QUE_A_IA_PROPOE = ['imprimir_teste', 'consultar_nota', 'cancelar_pedido'] as const;
@@ -801,6 +810,22 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
         },
       },
       required: ['acao'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'refazer_grafico',
+    description:
+      'Não é consulta: REFAZ o último gráfico desta conversa (dos últimos 30 minutos) com os MESMOS números e outra apresentação, quando a pessoa disser "não entendi", "não gostei", "faz em barras deitadas", "em tabela", "em linha", "destaca o sábado", "só os principais", "sem os números em cima". A consulta não roda de novo. Escolha só o que muda: forma (colunas, linha, horizontais = barras deitadas, tabela), titulo (a mensagem principal em poucas palavras; só números que o gráfico já mostra), destaque (a posição, 1 = o primeiro, na ordem que fica), ordem (maior = do maior para o menor, até 7; original) e mostrarValores. A regra: didático, simples e sofisticado — uma mensagem por gráfico, até 7 barras, o destaque no que importa, os rótulos diretos.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        forma: { type: 'string', enum: ['colunas', 'linha', 'horizontais', 'tabela'] },
+        titulo: { type: 'string', description: 'O título novo, com a mensagem principal (até 70 letras).' },
+        destaque: { type: 'integer', description: 'A posição do item em destaque (1 = o primeiro).' },
+        ordem: { type: 'string', enum: ['maior', 'original'] },
+        mostrarValores: { type: 'boolean', description: 'false = sem os valores escritos em cima.' },
+      },
       additionalProperties: false,
     },
   },

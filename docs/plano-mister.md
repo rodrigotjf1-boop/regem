@@ -1842,6 +1842,20 @@ regressão de novo quando as instruções mudam; a Meta pela doc oficial (V20); 
 - Instruções: o bloco "A LISTA DE COMPRAS" — rodar a avaliação.
 - Fica para depois: "Mandar ao fornecedor" pela conversa (hoje a frase manda abrir o pedido em Estoque › Pedidos).
 
+**M6i implementada (20/11/2026; SEM migration):**
+- **O "refazer"** (`grafico/refazer-do-grafico.ts`, puro, e a ferramenta `refazer_grafico`): o último gráfico de cada pessoa
+  fica guardado 30 minutos (na memória do processo — a API roda num processo só; num reinício, o Mister pede para pedir o
+  gráfico de novo) e a IA muda SÓ a apresentação: a forma (colunas, linha, barras deitadas, tabela — a série aceita as
+  quatro; o ranking e a participação, não a linha), o título com a mensagem principal (número que o gráfico não mostra é
+  recusado), o destaque (a posição na ordem que fica), a ordem (pelo maior, até 7 — "didático, simples e sofisticado") e
+  os valores escritos. A consulta não roda de novo; os números são os mesmos.
+- **As formas novas no desenho** (`imagem-do-plano.ts`): a TABELA (a linha do destaque com o fundo claro, "e mais N" quando
+  não cabe) e a LINHA (os pontos ligados por segmentos, o período anterior em cinza, o destaque em dourado); o destaque
+  escolhido vale também nas colunas e nas barras deitadas; "sem valores" tira os números de cima.
+- Instruções: o bloco "REFAZER O GRÁFICO" — rodar a avaliação.
+- Divergência do plano: a rosca e os cartões de números ficaram de fora (a participação e o número grande do cabeçalho já
+  cobrem o mesmo); a IA escolhe a apresentação pela ferramenta, sem um "plano" livre.
+
 #### 8. Custos
 
 | Parte | Como começa | Se ligar ou usar |

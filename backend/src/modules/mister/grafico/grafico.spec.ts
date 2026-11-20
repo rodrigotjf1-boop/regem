@@ -198,4 +198,35 @@ describe('o plano dos gráficos novos (M5d.2)', () => {
     const m = planoMaisVendidos({ loja: 'L', rotuloDoPeriodo: 'x', itens: [{ nome: 'A', quantidade: 9, total: 90 }, { nome: 'B', quantidade: 3, total: 30 }], verValores: true, lidoEm: 'x' });
     expect(lerPng(imagemDoPlano(m)).altura).toBe(TAMANHO_DA_IMAGEM_DO_PLANO.altura);
   });
+
+  // Versão 6, M6i: as formas novas do "refazer" — a tabela (a linha do destaque com o fundo claro) e a linha (o ponto do
+  // destaque em dourado), e o destaque escolhido nas barras deitadas.
+  it('as formas novas: a tabela, a linha e o destaque escolhido', () => {
+    const W = TAMANHO_DA_IMAGEM_DO_PLANO.largura;
+    const H = TAMANHO_DA_IMAGEM_DO_PLANO.altura;
+    const base = { titulo: 'T', sub: 's', kpi: null, delta: null, rodape: 'r' };
+    const tabela = lerPng(
+      imagemDoPlano({ ...base, forma: 'tabela', destaque: 2, partes: [{ nome: 'A', valor: 3, texto: '3' }, { nome: 'B', valor: 2, texto: '2' }, { nome: 'C', valor: 1, texto: '1' }] }),
+    );
+    expect([tabela.largura, tabela.altura]).toEqual([W, H]);
+    // o fundo claro da linha 2 (o destaque) aparece na lateral direita dela, onde não há texto
+    const achou = (png: ReturnType<typeof lerPng>, cor: string, x: number, y0: number, y1: number) => {
+      for (let y = y0; y < y1; y++) if (pixel(png, x, y).join() === rgb(cor).join()) return true;
+      return false;
+    };
+    expect(achou(tabela, '#EEF2F5', W - 60, 60, H - 60)).toBe(true);
+    const linha = lerPng(
+      imagemDoPlano({ ...base, forma: 'linha', barras: [1, 5, 2].map((v, i) => ({ rotulo: `${i}`, valor: v, texto: `${v}` })) }),
+    );
+    // o maior ponto (o do meio) em dourado, no centro da coluna dele
+    const M = 40;
+    const passo = (W - 2 * M) / 3;
+    expect(achou(linha, '#D4952F', Math.round(M + passo * 1.5), 60, H - 60)).toBe(true);
+    // a linha marinho passa entre os pontos
+    expect(achou(linha, '#2F4A60', Math.round(M + passo), 60, H - 60)).toBe(true);
+    // as barras deitadas com o destaque no 2º: a barra dele em dourado, a 1ª em marinho
+    const h = lerPng(imagemDoPlano({ ...base, forma: 'horizontais', destaque: 2, partes: [{ nome: 'A', valor: 3, texto: '3' }, { nome: 'B', valor: 2, texto: '2' }] }));
+    expect(achou(h, '#D4952F', M + 10, 60, H - 60)).toBe(true);
+    expect(achou(h, '#2F4A60', M + 10, 60, H - 60)).toBe(true);
+  });
 });

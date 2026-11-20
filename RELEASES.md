@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister versão 6, M6i — o gráfico refeito com os mesmos números e as formas tabela e linha (20/11; SEM migration).** Só
+  na nuvem (o Mister): vai no `.zip` sem efeito na loja.
+
 - **Mister versão 6, M6g — a lista de compras pela conversa e pela planilha (20/11; mig 475 SÓ NUVEM —
   `mister_lista_compra`).** Só na nuvem → vai no `.zip` sem efeito na loja (a lista criada entra em `compra_lista`, que
   sincroniza como sempre); a tabela = SO_NUVEM no `sync-daemon.mjs` (o daemon mudou → o `.exe` da próxima release leva).

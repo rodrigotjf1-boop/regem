@@ -42,6 +42,7 @@ import {
 import { PlanoDoPdfDoInsumo, gerarPdfDoInsumo, nomeDoPdfDoInsumo, planoDoPdfDoInsumo } from './relatorio-insumo-pdf';
 import { GraficoDaConversa, valeAImagem } from './grafico/grafico-do-insumo';
 import { PlanoDoGrafico, nomeDoCanal, planoCanais, planoMaisVendidos, planoVendasPorDia, planoVendasPorHora, reaisCurtos, valeOPlano } from './grafico/plano-do-grafico';
+import { GRAFICO_GUARDADO_MIN, refazerPlano } from './grafico/refazer-do-grafico';
 import {
   AtencaoDoResumo,
   DadosDoResumo,
@@ -554,6 +555,8 @@ export class MisterFerramentasService {
         return this.regras ? this.regras(e, en) : Promise.resolve(recusa('As regras de aviso ainda não estão disponíveis neste servidor.'));
       case 'lista_de_compras':
         return this.lista ? this.lista(e, en) : Promise.resolve(recusa('A lista de compras ainda não está disponível neste servidor.'));
+      case 'refazer_grafico':
+        return Promise.resolve(this.refazerGrafico(e, en));
     }
   }
 
@@ -563,6 +566,37 @@ export class MisterFerramentasService {
   registrarRegras(f: (e: EscopoDoMister, en: Record<string, unknown>) => Promise<ResultadoDaFerramenta>): void {
     this.regras = f;
   }
+  // ───────────────────────────── versão 6, M6i: o "refazer" do gráfico ─────────────────────────────
+  // O último gráfico de cada pessoa (o plano, já com os números) fica na memória deste processo por 30 minutos — o Regem
+  // roda a API num processo só; num reinício, o "refazer" pede para pedir o gráfico de novo. Nada de dado vai à IA além do
+  // que o gráfico já mostra.
+  private readonly graficos = new Map<string, { plano: PlanoDoGrafico; ate: number }>();
+  private guardarGrafico(e: EscopoDoMister, plano: PlanoDoGrafico): void {
+    const agora = Date.now();
+    if (this.graficos.size > 2000) for (const [k, v] of this.graficos) if (v.ate <= agora) this.graficos.delete(k);
+    this.graficos.set(`${e.tenantId}:${e.colaboradorId}`, { plano, ate: agora + GRAFICO_GUARDADO_MIN * 60_000 });
+  }
+
+  /** "Não entendi", "não gostei", "em barras deitadas", "destaca o sábado": o último gráfico com outra apresentação. */
+  private refazerGrafico(e: EscopoDoMister, en: Record<string, unknown>): ResultadoDaFerramenta {
+    const g = this.graficos.get(`${e.tenantId}:${e.colaboradorId}`);
+    if (!g || g.ate <= Date.now()) return recusa(`Não tenho um gráfico desta conversa nos últimos ${GRAFICO_GUARDADO_MIN} minutos: peça o gráfico de novo (mostrar_grafico).`);
+    const r = refazerPlano(g.plano, { forma: en.forma, titulo: en.titulo, destaque: en.destaque, ordem: en.ordem, mostrarValores: en.mostrarValores });
+    if ('erro' in r) return recusa(r.erro);
+    if (!midiaNaInstalacao()) return recusa('O gráfico na conversa ainda não está ligado nesta instalação.');
+    this.guardarGrafico(e, r.plano);
+    return {
+      ok: true,
+      dados: {
+        refeito: true,
+        forma: r.plano.forma,
+        titulo: r.plano.titulo,
+        siga: 'A imagem refeita vai antes da sua resposta, com os MESMOS números: diga em uma frase o que mudou na apresentação e o que ela mostra de principal. Não consulte de novo.',
+      },
+      graficos: [r.plano],
+    };
+  }
+
   // Versão 6, M6g: a lista de compras mora no `MisterListaService` (o mesmo jeito das regras).
   private lista: ((e: EscopoDoMister, en: Record<string, unknown>) => Promise<ResultadoDaFerramenta>) | null = null;
   registrarLista(f: (e: EscopoDoMister, en: Record<string, unknown>) => Promise<ResultadoDaFerramenta>): void {
@@ -1815,6 +1849,8 @@ export class MisterFerramentasService {
     // seguem para o texto e nenhuma imagem sai.
     const temOQueMostrar = valeOPlano(plano);
     const vale = temOQueMostrar && midiaNaInstalacao();
+    // Versão 6, M6i: o plano que saiu fica guardado 30 minutos para o "refazer" (os mesmos números, outra apresentação).
+    if (vale) this.guardarGrafico(e, plano);
     return {
       ok: true,
       dados: {
