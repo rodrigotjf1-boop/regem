@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Perfil do cliente F3 parte 2 — o que move cada cliente (19/11; mig 463 SÓ NUVEM — `cliente_evento_sensibilidade`).**
+  A sensibilidade a eventos medida na rotina noturna do perfil e mostrada na ficha. Só na nuvem e só com o módulo ligado;
+  a tabela entra como SO_NUVEM no `sync-daemon.mjs` (o `.exe` do próximo corte leva junto).
+
 - **Perfil do cliente F2 — o calendário de eventos da loja (19/11; mig 461 SÓ NUVEM — `evento_loja`,
   `calendario_loja_dia`).** Delivery › Clientes › Calendário de eventos (rotas `/calendario-da-loja`), a regra fixa de
   feriados e datas, os eventos da loja e a cópia por loja e dia na rotina noturna do perfil. Tudo só na nuvem e só com o

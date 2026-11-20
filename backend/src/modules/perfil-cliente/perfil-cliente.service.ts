@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { CalendarioDaLojaService } from './calendario-da-loja.service';
+import { calcularSensibilidadeDaEmpresa } from './sensibilidade-da-empresa';
 import { Cron } from '@nestjs/schedule';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -108,6 +109,10 @@ export class PerfilClienteService {
               .then((c) => this.log.log(`calendário da loja: empresa ${tenantId.slice(0, 8)} — ${c.lojas} loja(s), ${c.dias} dias`))
               .catch((e: any) => this.log.error(`calendário da loja: empresa ${tenantId.slice(0, 8)} falhou: ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e}`, e?.stack));
           }
+          // O que move cada cliente (F3 parte 2, mig 463) — depois da cópia do calendário, que ela lê. À parte também.
+          await calcularSensibilidadeDaEmpresa(this.db, tenantId)
+            .then((s) => s && this.log.log(`sensibilidade a eventos: empresa ${tenantId.slice(0, 8)} — ${s.linhas} medidas, ${s.selos} selos`))
+            .catch((e: any) => this.log.error(`sensibilidade a eventos: empresa ${tenantId.slice(0, 8)} falhou: ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e}`, e?.stack));
         } catch (e: any) {
           this.log.error(`perfil do cliente: empresa ${tenantId.slice(0, 8)} falhou: ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e}`, e?.stack);
           await this.db.execute(sql`update perfil_cliente_execucao set erro = ${String(e?.message ?? e).slice(0, 300)}
@@ -163,6 +168,12 @@ export class PerfilClienteService {
        where cliente_id = ${clienteId}::uuid and tenant_id = ${tenantId}::uuid
        order by escolha, em desc`));
     const naoAnalisar = escolhas.some((e: any) => e.escolha === 'nao_analisar' && e.valor);
+    // O que move o cliente (F3 parte 2, mig 463): só com perfil; o selo primeiro.
+    const sensibilidade = perfil
+      ? this.rows(await this.db.execute(sql`
+          select tipo, rr, prob, pedidos, esperado, dias_com_pedido, selo, calculado_em from cliente_evento_sensibilidade
+           where cliente_id = ${clienteId}::uuid and tenant_id = ${tenantId}::uuid order by selo desc, prob desc`))
+      : [];
     // Quem pediu só pelo iFood/99 tem pedidos, mas não tem perfil (D1): a ficha diz por quê.
     const soPlataforma = !perfil && !naoAnalisar && Number(c.total_pedidos ?? 0) > 0;
     return {
@@ -171,6 +182,7 @@ export class PerfilClienteService {
       perfil,
       declarado,
       escolhas,
+      sensibilidade,
     };
   }
 

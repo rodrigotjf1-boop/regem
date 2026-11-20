@@ -31,6 +31,8 @@ export async function gravarPrivacidade(tx: any, c: { tenantId: string; id: stri
   // "Não quero ser analisado": o perfil calculado sai na hora (a rotina também não o recalcula mais).
   if (p.escolhas.some((e) => e.escolha === 'nao_analisar' && e.valor)) {
     await tx.execute(sql`delete from cliente_perfil where cliente_id = ${c.id}::uuid and tenant_id = ${c.tenantId}::uuid`);
+    // O que move o cliente (mig 463) sai junto, na hora.
+    await tx.execute(sql`delete from cliente_evento_sensibilidade where cliente_id = ${c.id}::uuid and tenant_id = ${c.tenantId}::uuid`);
   }
 }
 

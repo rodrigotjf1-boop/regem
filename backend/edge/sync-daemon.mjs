@@ -2460,6 +2460,8 @@ const SO_NUVEM = new Set([
   // O calendário da loja (mig 461, @cloud-only; F2 do mesmo plano): os eventos que a loja cadastra em Delivery › Clientes
   // › Calendário de eventos e a cópia por loja e dia que a rotina noturna da nuvem grava. A loja não tem estas tabelas.
   'evento_loja', 'calendario_loja_dia',
+  // O que move cada cliente (mig 463, @cloud-only; F3 parte 2): a sensibilidade a eventos, medida na rotina da nuvem.
+  'cliente_evento_sensibilidade',
   // iFood pelo Orzuni (mig 370, @cloud-only): a ligação de cada loja com o Orzuni (segredo cifrado com a chave da nuvem) e
   // a fila do envio — só a nuvem fala com o Orzuni; a edição feita na loja chega lá pelo sincronismo e enfileira lá.
   'orzuni_ligacao', 'orzuni_envio',
