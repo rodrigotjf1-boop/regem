@@ -9,7 +9,7 @@
 import type { TipoDeAviso } from './mister-avisos.regras';
 import { compararVersao } from '../edge/release-selecao';
 
-export type ProcedimentoDoMister = 'consultar_nota' | 'imprimir_teste' | 'cancelar_pedido' | 'reiniciar_impressao';
+export type ProcedimentoDoMister = 'consultar_nota' | 'imprimir_teste' | 'cancelar_pedido' | 'reiniciar_impressao' | 'abrir_sessao';
 export type NivelDaAutorizacao = 'botao' | 'pin';
 export type SituacaoDaProposta = 'proposta' | 'autorizada' | 'recusada' | 'vencida' | 'executando' | 'feita' | 'nao_deu';
 
@@ -44,7 +44,19 @@ export const PROCEDIMENTOS: Record<ProcedimentoDoMister, Procedimento> = {
   // reiniciar o serviço de impressão (`edge_comando` `reiniciar_impressao`, no `.exe`). Conferido como a via de teste:
   // o servidor reiniciou (o retorno do comando) e a impressora voltou a responder (o aviso fecha).
   reiniciar_impressao: { id: 'reiniciar_impressao', tipoDoAviso: 'impressora', nivel: 'botao', prazoMin: 10, conferirMin: 5, nome: 'reiniciar o serviço de impressão do servidor da loja' },
+  // Versão 6, M6d (mig 476): a SESSÃO COM PIN — com o ajuste ligado, os valores em reais, os dados de pessoas e as ações de
+  // botão pedem o PIN pelo link; o PIN certo libera por 6, 12 ou 24 horas (`mister_vinculo.pin_ate`). Da própria pessoa
+  // (presidente ou gerente), nasce da conversa, vale 15 minutos. O efeito é imediato (não há o que conferir depois).
+  abrir_sessao: { id: 'abrir_sessao', tipoDoAviso: null, nivel: 'pin', prazoMin: 15, conferirMin: 1, nome: 'liberar os valores e os dados de pessoas no Mister' },
 };
+
+/** Versão 6, M6d: o texto da conversa que leva o link do PIN da sessão (a mensagem vai com o link, nunca com botões). */
+export const TEXTOS_DA_SESSAO = {
+  link: (horas: number, ate: string) =>
+    `Para ver valores em reais e dados de pessoas (e autorizar pelos botões), confirme com o seu PIN no Regem — vale por ${horas} horas. O link vale até ${ate}.`,
+  liberada: (ate: string) => `liberado até ${ate}: os valores e os dados de pessoas voltam a aparecer`,
+  botaoPedePin: 'Para autorizar pelo botão, confirme antes o seu PIN pelo link que mandei agora.',
+} as const;
 
 /** A versão do servidor da loja que traz o comando `reiniciar_impressao` (o `sync-daemon` do `.exe` seguinte à 1.30.13). */
 export const VERSAO_QUE_REINICIA_A_IMPRESSAO = '1.30.14';

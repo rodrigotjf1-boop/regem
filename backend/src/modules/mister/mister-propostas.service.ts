@@ -46,7 +46,9 @@ import {
   servidorDoAviso,
   tentativasQueRestam,
   textoDoDesfecho,
+  TEXTOS_DA_SESSAO,
 } from './mister-procedimentos';
+import { estadoDaSessao } from './mister-sessao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -224,6 +226,43 @@ export class MisterPropostasService implements OnModuleInit {
     }
   }
 
+  /**
+   * Versão 6, M6d (mig 476): a proposta da SESSÃO COM PIN de uma pessoa (presidente ou gerente) — uma por pessoa (o id fixo
+   * pela chave), renovada quando acabou (vencida, não autorizada, bloqueada, não deu ou já feita — a sessão anterior passou).
+   * `nova` = criada ou renovada agora (quem chama manda o link só então: a pergunta seguinte, com o link ainda valendo, não
+   * manda outro). A mensagem vai com o link (`enviarLink`), nunca com botões.
+   */
+  async proporSessao(tenantId: string, colaboradorId: string, horas: number): Promise<{ p: PropostaPendente; nova: boolean } | null> {
+    const proc = PROCEDIMENTOS.abrir_sessao;
+    const avisoId = uuidDeChave('mister:abrir_sessao:', tenantId, ':', colaboradorId);
+    try {
+      const mudou = linhas(
+        await this.db.execute(sql`
+          insert into mister_proposta (tenant_id, unidade_id, aviso_id, procedimento, parametros, nivel, vence_em)
+          values (${tenantId}::uuid, null, ${avisoId}::uuid, 'abrir_sessao', ${JSON.stringify({ colaboradorId, horas })}::jsonb, ${proc.nivel},
+                  clock_timestamp() + make_interval(mins => ${proc.prazoMin}::int))
+          on conflict (aviso_id, procedimento) do update
+            set situacao = 'proposta', criada_em = clock_timestamp(), vence_em = excluded.vence_em, parametros = excluded.parametros,
+                respondida_em = null, autorizada_por = null, telefone_final = null, executada_em = null, conferir_ate = null,
+                concluida_em = null, resultado = null, link_hash = null, link_para = null, link_criado_em = null, link_aberto_em = null,
+                pin_erros = 0, bloqueada_em = null
+            where mister_proposta.situacao in ('vencida', 'recusada', 'nao_deu', 'feita')
+               or (mister_proposta.situacao = 'proposta' and mister_proposta.vence_em <= now())
+          returning id`),
+      );
+      const [p] = linhas(
+        await this.db.execute(sql`
+          select id::text as id, vence_em as "venceEm" from mister_proposta
+           where aviso_id = ${avisoId}::uuid and procedimento = 'abrir_sessao' and situacao = 'proposta' and vence_em > now()`),
+      );
+      if (!p) return null;
+      return { p: { id: p.id, procedimento: 'abrir_sessao', nivel: 'pin', pergunta: TEXTOS_DA_SESSAO.link(horas, horaNoFuso(new Date(p.venceEm))), botoes: [] }, nova: mudou.length > 0 };
+    } catch (e: any) {
+      if (!semTabela(e)) this.logger.warn(`a proposta da sessão com PIN não foi criada — ${e?.message ?? e}`);
+      return null;
+    }
+  }
+
   /** O pedido como o banco o tem agora, com o estorno do Pix quando já existe (a tabela é só da nuvem). */
   async lerPedido(tenantId: string, pedidoId: unknown): Promise<PedidoLido | null> {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(pedidoId ?? ''))) return null;
@@ -286,6 +325,17 @@ export class MisterPropostasService implements OnModuleInit {
       await this.falar(quem.telefone, TEXTOS_DA_PROPOSTA.soPresidente);
       return true;
     }
+    // Versão 6, M6d: com a sessão com PIN ligada e o PIN desta pessoa vencido, a ação de botão espera o PIN — a proposta
+    // continua pendente (no prazo dela) e o link da sessão vai agora.
+    if (b.autorizar) {
+      const s = await estadoDaSessao(this.db, p.tenantId, v.colaboradorId);
+      if (s.exigida && !s.valida) {
+        const sessao = await this.proporSessao(p.tenantId, v.colaboradorId, s.horas!);
+        await this.falar(quem.telefone, TEXTOS_DA_SESSAO.botaoPedePin);
+        if (sessao) await this.enviarLink(sessao.p.id, v.colaboradorId, quem.telefone, sessao.p.pergunta);
+        return true;
+      }
+    }
     const final = quem.telefone.slice(-4);
     // A gravação condicional: só a proposta ainda pendente e no prazo muda (o segundo toque e o de outro aparelho não).
     const [mudou] = linhas(
@@ -325,6 +375,7 @@ export class MisterPropostasService implements OnModuleInit {
                  when 'imprimir_teste' then ${PROCEDIMENTOS.imprimir_teste.conferirMin}::int
                  when 'reiniciar_impressao' then ${PROCEDIMENTOS.reiniciar_impressao.conferirMin}::int
                  when 'cancelar_pedido' then ${PROCEDIMENTOS.cancelar_pedido.conferirMin}::int
+                 when 'abrir_sessao' then ${PROCEDIMENTOS.abrir_sessao.conferirMin}::int
                  else ${PROCEDIMENTOS.consultar_nota.conferirMin}::int end)
          where id = ${id}::uuid and situacao = 'autorizada'
         returning id::text as id, tenant_id::text as "tenantId", unidade_id::text as "unidadeId", procedimento, parametros,
@@ -388,6 +439,19 @@ export class MisterPropostasService implements OnModuleInit {
         this.logger.warn(`o cancelamento do pedido ${ped.id} pela proposta ${p.id} reclamou, mas o pedido ficou cancelado — ${e?.message ?? e}`);
       }
       return (await this.conferirCancelamento(p, false)) ?? 'executando';
+    }
+    if (p.procedimento === 'abrir_sessao') {
+      // M6d: o PIN de QUEM pediu (a própria pessoa — o link vai só a ela) libera a sessão pelas horas da empresa.
+      const horas = [6, 12, 24].includes(Number(p.parametros?.horas)) ? Number(p.parametros.horas) : 12;
+      if (!p.autorizadaPor || p.autorizadaPor !== String(p.parametros?.colaboradorId ?? '')) return this.concluir(p, false, 'o PIN não é de quem pediu. Nada foi liberado.');
+      const [v] = linhas(
+        await this.db.execute(sql`
+          update mister_vinculo set pin_ate = clock_timestamp() + make_interval(hours => ${horas}::int), atualizado_em = now()
+           where tenant_id = ${p.tenantId}::uuid and colaborador_id = ${p.autorizadaPor}::uuid
+          returning pin_ate as "pinAte"`),
+      );
+      if (!v) return this.concluir(p, false, 'o WhatsApp desta pessoa não está mais ligado ao Mister. Nada foi liberado.');
+      return this.concluir(p, true, TEXTOS_DA_SESSAO.liberada(horaNoFuso(new Date(v.pinAte))));
     }
     return this.concluir(p, false, 'esse procedimento não existe mais.');
   }
@@ -606,7 +670,9 @@ export class MisterPropostasService implements OnModuleInit {
             left join perfil_acesso p on p.id = c.perfil_acesso_id
             join mister_vinculo v on v.tenant_id = mp.tenant_id and v.colaborador_id = mp.link_para and v.ligado_em is not null and v.telefone is not null
            where mp.link_hash = ${resumoDoCodigo(codigo)} and mp.nivel = 'pin'
-             and ${pessoaVale()} and coalesce(p.nivel, f.categoria::text) = 'presidente'`),
+             and ${pessoaVale()}
+             -- M6d: a sessão com PIN é da própria pessoa (o gerente também abre a dele); o resto, só o presidente.
+             and (coalesce(p.nivel, f.categoria::text) = 'presidente' or (mp.procedimento = 'abrir_sessao' and coalesce(p.nivel, f.categoria::text) = 'gerente'))`),
       );
     } catch (e: any) {
       if (semTabela(e) || e?.code === '42703' || e?.cause?.code === '42703') throw new NotFoundException(TEXTOS_DO_LINK.naoVale);
@@ -629,7 +695,7 @@ export class MisterPropostasService implements OnModuleInit {
       estado: estadoDoLink(p),
       empresa: String(p.empresa ?? ''),
       ...apresentacao,
-      pedidoPor: `Pedido pelo Mister às ${horaNoFuso(new Date(p.criadaEm))}, para ${nome} (presidente).`,
+      pedidoPor: `Pedido pelo Mister às ${horaNoFuso(new Date(p.criadaEm))}, para ${nome}${p.procedimento === 'abrir_sessao' ? '' : ' (presidente)'}.`,
       valeAte: new Date(p.venceEm).toISOString(),
       valeAteHora: horaNoFuso(new Date(p.venceEm)),
       restam: tentativasQueRestam(p.pinErros),
@@ -670,7 +736,8 @@ export class MisterPropostasService implements OnModuleInit {
     // Vencida, já respondida ou bloqueada: a página mostra o estado.
     if (!reservada) return this.vistaDoLink(await this.linhaDoLink(codigo));
     try {
-      await autorizarPorPinDoUsuario(this.db, p.tenantId, p.linkPara, pin, ['presidente']);
+      // M6d: a sessão com PIN é da própria pessoa — o gerente também confirma a dele.
+      await autorizarPorPinDoUsuario(this.db, p.tenantId, p.linkPara, pin, p.procedimento === 'abrir_sessao' ? ['presidente', 'gerente'] : ['presidente']);
     } catch (e: any) {
       if (e?.message !== PIN_INVALIDO) {
         // Não foi o PIN (o acesso mudou entre a leitura e a conferência): a tentativa volta e o link não vale.

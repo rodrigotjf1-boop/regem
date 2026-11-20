@@ -28,6 +28,7 @@ import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.servic
 import { RelatoriosService } from '../relatorios/relatorios.service';
 import { VendasService } from '../vendas/vendas.service';
 import { pessoaVale } from './mister-vinculo.service';
+import { estadoDaSessao } from './mister-sessao';
 import {
   PedidoDoRelatorio,
   RelatorioDoInsumo,
@@ -162,7 +163,15 @@ export interface EscopoDoMister {
   semLoja: boolean;
   permissoes: Permissoes;
   verValores: boolean;
+  /** Versão 6, M6d: a sessão com PIN está ligada e o PIN desta pessoa venceu (valores e dados de pessoas esperam o PIN). */
+  pinPendente?: boolean;
+  /** As horas que o PIN vale nesta empresa (para o link da sessão). */
+  horasDoPin?: number | null;
 }
+
+/** Versão 6, M6d: as consultas que trazem dados de pessoas — esperam o PIN quando a sessão está pendente. */
+export const FERRAMENTAS_DE_PESSOAS: readonly string[] = ['equipe_do_dia'];
+export const SESSAO_PEDE_PIN = 'Os dados das pessoas esperam o PIN: o link para confirmar vai logo depois desta resposta. Diga isso em uma frase.';
 
 export interface ResultadoDaFerramenta {
   ok: boolean;
@@ -369,7 +378,12 @@ export class MisterFerramentasService {
          where g.tenant_id = ${tenantId}::uuid and g.colaborador_id = ${colaboradorId}::uuid
            and g.telefone = ${telefone} and g.ligado_em is not null and ${pessoaVale()}`),
     );
-    return this.escopoDaPessoa(tenantId, colaboradorId, p);
+    const e = await this.escopoDaPessoa(tenantId, colaboradorId, p);
+    // Versão 6, M6d (mig 476): a sessão com PIN — com o ajuste ligado e o PIN desta pessoa vencido, os valores em reais e os
+    // dados de pessoas ficam escondidos até o PIN (só na conversa: a tela já entrou com a senha).
+    if (!e) return e;
+    const s = await estadoDaSessao(this.db, tenantId, colaboradorId);
+    return s.exigida && !s.valida ? { ...e, verValores: false, pinPendente: true, horasDoPin: s.horas } : e;
   }
 
   /**
@@ -432,6 +446,7 @@ export class MisterFerramentasService {
       presaAUmaLoja: !!e.presa,
       semLoja: e.semLoja,
       verValores: e.verValores,
+      ...(e.pinPendente ? { pinPendente: true } : {}),
       agora: `${dia}, ${horaAgora()}`,
       noiteDe: Number(horaAgora().slice(0, 2)) < 6 ? diaMes(somarDias(hojeISO(), -1)) : null,
     };
@@ -475,6 +490,9 @@ export class MisterFerramentasService {
     // Versão 4, M4d: o lembrete é da pessoa, não de uma loja.
     if (nome === 'lembrete') return this.lembrete(e, entrada);
     if (e.semLoja) return recusa(SEM_LOJA);
+    // Versão 6, M6d: com a sessão com PIN pendente, os dados de pessoas esperam o PIN (os valores já saem escondidos pelo
+    // `verValores` do escopo). O link vai depois da resposta (o agente).
+    if (e.pinPendente && FERRAMENTAS_DE_PESSOAS.includes(nome)) return recusa(SESSAO_PEDE_PIN);
     const en = (entrada && typeof entrada === 'object' && !Array.isArray(entrada) ? entrada : {}) as Record<string, unknown>;
     const loja = this.loja(e, en.loja);
     if ('erro' in loja) return recusa(loja.erro);
@@ -1158,6 +1176,17 @@ export class MisterFerramentasService {
   async enviarLinkDaProposta(e: EscopoDoMister, p: PropostaPendente, telefone: string): Promise<boolean> {
     if (!this.propostas || p.nivel !== 'pin') return false;
     return !!(await this.propostas.enviarLink(p.id, e.colaboradorId, telefone, p.pergunta));
+  }
+
+  /**
+   * Versão 6, M6d: com a sessão com PIN pendente, o link para confirmar (depois da resposta). Só quando a proposta da sessão
+   * nasce ou renova agora — a pergunta seguinte, com o link ainda valendo, não manda outro. Devolve se mandou.
+   */
+  async linkDaSessao(e: EscopoDoMister, telefone: string): Promise<boolean> {
+    if (!e.pinPendente || !e.horasDoPin || !this.propostas) return false;
+    const s = await this.propostas.proporSessao(e.tenantId, e.colaboradorId, e.horasDoPin);
+    if (!s?.nova) return false;
+    return !!(await this.propostas.enviarLink(s.p.id, e.colaboradorId, telefone, s.p.pergunta));
   }
 
   /**

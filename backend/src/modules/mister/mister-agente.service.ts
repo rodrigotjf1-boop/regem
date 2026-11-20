@@ -250,6 +250,9 @@ export class MisterAgenteService implements OnModuleInit {
           this.logger.warn(`mister: a mensagem da ação não saiu para ${mascarar(ultima.telefone)} (${e instanceof FalhaDoEnvioDoMister ? e.motivo : (e?.message ?? e)})`);
         }
       }
+      // Versão 6, M6d: a sessão com PIN pendente — o link para confirmar, depois da resposta (uma vez por link que vale).
+      if (escopo.pinPendente)
+        await this.ferramentas.linkDaSessao(escopo, ultima.telefone).catch((e: any) => this.logger.warn(`mister: o link da sessão com PIN não saiu — ${e?.message ?? e}`));
       await this.fila.concluir(ids, { resposta, trilha, perguntaJunta: pergunta });
     } catch (e: any) {
       this.logger.error(`mister: a pergunta ${ultima.id} de ${mascarar(ultima.telefone)} não foi respondida — ${e?.message ?? e}`, e?.stack);

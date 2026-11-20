@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister versão 6, M6d — a sessão com PIN (20/11; mig 476 SÓ NUVEM — duas colunas em tabelas só da nuvem; nasce
+  desligada).** Só na nuvem: vai no `.zip` sem efeito na loja.
+
 - **Mister versão 6, M6f parte 1 — a tela Mister › Regras (20/11; SEM migration).** Só na nuvem (as rotas do Mister são
   `@CloudOnly`): vai no `.zip` sem efeito na loja.
 
