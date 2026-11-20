@@ -61,16 +61,18 @@ function apiBase(): string {
 const menosMovimento = () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 const diaMes = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 
-/** O cupom revelado: o código, a validade e se já foi usado ou venceu. */
-function OCupom({ p }: { p: Premio }) {
+/** O cupom revelado: o código, a validade e se já foi usado ou venceu. `comNome`: a roleta (a raspadinha já mostra o nome). */
+function OCupom({ p, comNome }: { p: Premio; comNome: boolean }) {
   const situacao = p.usado ? 'Já usado' : p.vencido ? `Venceu em ${diaMes(p.validoAte)}` : `Vale até ${diaMes(p.validoAte)}`;
   return (
     <div style={{ display: 'grid', gap: 8 }} aria-live="polite">
-      <p style={{ margin: 0, textAlign: 'center', color: NAVY }}>
-        <b>{p.nome}</b>
-        <br />
-        <span style={{ fontSize: 13, color: CINZA }}>{p.descricao}</span>
-      </p>
+      {comNome && (
+        <p style={{ margin: 0, textAlign: 'center', color: NAVY }}>
+          <b>{p.nome}</b>
+          <br />
+          <span style={{ fontSize: 13, color: CINZA }}>{p.descricao}</span>
+        </p>
+      )}
       {p.codigo && (
         <div
           style={{
@@ -196,7 +198,7 @@ function Raspadinha({ premio, aoComecar, revelado, aoTerminar }: { premio: Premi
         touchAction: 'none',
       }}
     >
-      <div style={{ display: 'grid', gap: 2 }}>
+      <div style={{ display: 'grid', gap: 2 }} aria-live="polite">
         <b style={{ fontSize: 22, fontWeight: 800, color: '#7A3B07' }}>{premio ? premio.nome : '🎁'}</b>
         {premio && <span style={{ fontSize: 12.5, color: '#6B4A1E' }}>{premio.descricao}</span>}
       </div>
@@ -248,35 +250,38 @@ function Roleta({ fatias, fatia, girando, aoGirar, aoParar }: { fatias: string[]
             zIndex: 1,
           }}
         />
-        <svg
-          viewBox="-100 -100 200 200"
-          role="img"
-          aria-label={`Roleta com ${fatias.length} prêmios: ${[...new Set(fatias)].join(', ')}`}
-          style={{
-            width: '100%',
-            height: '100%',
-            display: 'block',
-            transform: `rotate(${angulo}deg)`,
-            transition: girando && !menosMovimento() ? 'transform 3.2s cubic-bezier(.17,.67,.21,1)' : 'none',
-          }}
-          onTransitionEnd={() => girando && aoParar()}
-        >
-          {fatias.map((nome, i) => (
-            <path key={`f${i}`} d={caminhoDaFatia(i * seg, (i + 1) * seg)} fill={FATIAS_CORES[i % 2]} />
-          ))}
-          <circle r="96" fill="none" stroke="#2A1A12" strokeWidth="3" />
-          {fatias.map((nome, i) => (
-            <text
-              key={`t${i}`}
-              transform={`rotate(${i * seg + seg / 2}) translate(0 -60)`}
-              textAnchor="middle"
-              style={{ fontSize: 10, fontWeight: 700, fill: '#2A1A12', fontFamily: 'Figtree, system-ui, sans-serif' }}
-            >
-              {curto(nome)}
-            </text>
-          ))}
-          <circle r="14" fill="#2A1A12" />
-        </svg>
+        {/* O recorte redondo: girada, a roda (um quadrado) ocuparia a diagonal e empurraria a página para o lado (V45). */}
+        <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', borderRadius: '50%' }}>
+          <svg
+            viewBox="-100 -100 200 200"
+            role="img"
+            aria-label={`Roleta com ${fatias.length} prêmios: ${[...new Set(fatias)].join(', ')}`}
+            style={{
+              width: '100%',
+              height: '100%',
+              display: 'block',
+              transform: `rotate(${angulo}deg)`,
+              transition: girando && !menosMovimento() ? 'transform 3.2s cubic-bezier(.17,.67,.21,1)' : 'none',
+            }}
+            onTransitionEnd={() => girando && aoParar()}
+          >
+            {fatias.map((nome, i) => (
+              <path key={`f${i}`} d={caminhoDaFatia(i * seg, (i + 1) * seg)} fill={FATIAS_CORES[i % 2]} />
+            ))}
+            <circle r="96" fill="none" stroke="#2A1A12" strokeWidth="3" />
+            {fatias.map((nome, i) => (
+              <text
+                key={`t${i}`}
+                transform={`rotate(${i * seg + seg / 2}) translate(0 -60)`}
+                textAnchor="middle"
+                style={{ fontSize: 10, fontWeight: 700, fill: '#2A1A12', fontFamily: 'Figtree, system-ui, sans-serif' }}
+              >
+                {curto(nome)}
+              </text>
+            ))}
+            <circle r="14" fill="#2A1A12" />
+          </svg>
+        </div>
       </div>
       {!parou && (
         <button type="button" style={{ ...botaoPrincipal, maxWidth: 320 }} onClick={aoGirar} disabled={girando || fatia != null}>
@@ -395,7 +400,7 @@ export function PremioDoPedido({ token }: { token: string }) {
           Não deu para revelar agora. Tente de novo em instantes: o prêmio continua garantido.
         </p>
       )}
-      {mostrar && premio && <OCupom p={premio} />}
+      {mostrar && premio && <OCupom p={premio} comNome={roleta} />}
       <Regras regras={dados.regras} />
     </section>
   );
