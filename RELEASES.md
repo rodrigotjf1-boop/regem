@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister versão 6, M6f parte 2 — os padrões que o Mister percebe e as sugestões (20/11; mig 478 SÓ NUVEM —
+  `mister_padrao`; nasce desligada, `MISTER_PADROES=1`).** Só na nuvem → vai no `.zip` sem efeito na loja; a tabela =
+  SO_NUVEM no `sync-daemon.mjs` (o daemon mudou → o `.exe` da próxima release leva).
+
 - **Mister versão 6, M6d — a sessão com PIN (20/11; mig 476 SÓ NUVEM — duas colunas em tabelas só da nuvem; nasce
   desligada).** Só na nuvem: vai no `.zip` sem efeito na loja.
 

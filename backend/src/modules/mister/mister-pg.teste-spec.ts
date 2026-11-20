@@ -90,6 +90,8 @@ import { TEXTOS, idDoBotaoDaEmpresa } from './mister.regras';
 import { MisterVinculoSegurancaService, TEXTOS_DA_SEGURANCA } from './mister-vinculo-seguranca.service';
 import { MisterRegrasService } from './mister-regras.service';
 import { TEXTOS_DAS_REGRAS } from './mister-regra';
+import { MisterPadroesService, padroesNaInstalacao } from './mister-padroes.service';
+import { TEXTOS_DOS_PADROES } from './mister-padroes';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -470,7 +472,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -9069,6 +9071,180 @@ export function testesDoMisterComPostgres(): void {
         await mandar(tel, 'Mudar', { botaoId: p2.botoes![1].id });
         expect(numero.enviadas[0].texto).toBe(TEXTOS_DAS_REGRAS.mudar);
         expect((await q(`select situacao from mister_regra where id = $1`, [p2.dados.id]))[0]).toEqual({ situacao: 'descartada' });
+      });
+    });
+
+    // ───────────── versão 6, M6f parte 2 (mig 478): os padrões que o Mister percebe e as sugestões ─────────────
+    describe('os padrões e as sugestões (versão 6, M6f parte 2)', () => {
+      const regrasDoPadrao = new MisterRegrasService(db, ferramentas, new DashboardService(db), numero, entrada, auditoria);
+      const recadosDoPadrao = new MisterRecadosService(db, new MuralService(db), entrada, numero, auditoria);
+      const padroes = new MisterPadroesService(db, ferramentas, regrasDoPadrao, numero, recadosDoPadrao, entrada, auditoria);
+      beforeAll(() => {
+        regrasDoPadrao.onModuleInit();
+        recadosDoPadrao.onModuleInit();
+        padroes.onModuleInit();
+      });
+      const hoje = dataNoFuso(new Date());
+      const SP = (dia: string, hhmm: string) => `${dia} ${hhmm}`;
+      const quem = (tel: string, nome: string, nivel: 'presidente' | 'gerente') => ({
+        telefone: tel,
+        vinculos: [{ tenantId: A, colaboradorId: pessoa[nome], unidadeId: nivel === 'gerente' ? lojaDeA : null, nivel, empresa: NOME_A }],
+        wamid: null,
+      });
+      const padraoDe = async (nome: string, tipo: string) =>
+        (await q(`select id::text as id, situacao, chave, dados, proxima_em from mister_padrao where tenant_id = $1 and colaborador_id = $2 and tipo = $3`, [A, pessoa[nome], tipo]))[0];
+      const ontemNoBanco = (nome: string) =>
+        q(`update mister_padrao set enviado_em = enviado_em - interval '1 day' where tenant_id = $1 and colaborador_id = $2`, [A, pessoa[nome]]);
+      const paraEle = (tel: string) => numero.enviadas.filter((m) => m.para === tel);
+
+      it('nasce desligada: sem MISTER_PADROES a volta da hora não roda', () => {
+        expect(process.env.MISTER_PADROES).toBeUndefined();
+        expect(padroesNaInstalacao()).toBe(false);
+      });
+
+      it('a impressora, os atrasos e os avisos sem resposta: uma sugestão por pessoa por dia, os botões, a regra proposta, o recado e o "Não, deixa assim"', async () => {
+        const tel = telefone();
+        const telCarlos = telefone();
+        await ligar('ana', tel);
+        await ligar('carlos', telCarlos, A, 'gerente');
+        await modulo(A, true);
+        // O horário da loja (18:00 às 23:30, todo dia), guardado e devolvido no fim.
+        const [antes] = await q(`select id, horarios from cardapio_config where tenant_id = $1 and unidade_id is null`, [A]);
+        const HORARIO = JSON.stringify([0, 1, 2, 3, 4, 5, 6].map((d) => ({ dia: d, ativo: true, abre: '18:00', fecha: '23:30' })));
+        if (antes) await q(`update cardapio_config set horarios = $2::jsonb where id = $1`, [antes.id, HORARIO]);
+        else await q(`insert into cardapio_config (tenant_id, token, ativo, horarios) values ($1, $2, true, $3::jsonb)`, [A, `tok-${randomUUID()}`, HORARIO]);
+        try {
+          // 1) A impressora da cozinha parou às 22:30 em 4 dos últimos dias e só voltou na manhã seguinte.
+          for (const k of [1, 2, 3, 4]) {
+            const dia = somarDias(hoje, -k);
+            await q(
+              `insert into vigia_incidente (tenant_id, unidade_id, regra, chave, gravidade, publico, situacao, evidencia, primeira_em, ultima_em, fechado_em)
+               values ($1, $2, 'impressora_parada', $3, 'atencao', 'loja', 'recuperado', '{"impressora":"Cozinha"}'::jsonb,
+                       ($4::timestamp at time zone 'America/Sao_Paulo'), ($5::timestamp at time zone 'America/Sao_Paulo'), ($5::timestamp at time zone 'America/Sao_Paulo'))`,
+              [A, lojaDeA, `srv:${MARCA}:impressora:coz`, SP(dia, '22:30'), SP(somarDias(dia, 1), '09:00')],
+            );
+          }
+          // 2) Os pedidos: em 3 dias, dois pedidos aceitos às 20h levaram 30 min para ficar prontos (o tempo é 20).
+          for (const k of [1, 2, 3])
+            for (const [i, aceite] of ['20:10', '20:20'].entries()) {
+              const dia = somarDias(hoje, -k);
+              await q(
+                `insert into pedido_externo (tenant_id, unidade_id, canal, status, total, valor_bruto, taxa_entrega, taxa_entrega_dono, display_id, criado_em, confirmado_em, pronto_em)
+                 values ($1, $2, 'ifood', 'entregue', 50, 50, 0, 'marketplace', $3, ($4::timestamp at time zone 'America/Sao_Paulo') - interval '5 minutes',
+                         ($4::timestamp at time zone 'America/Sao_Paulo'), ($4::timestamp at time zone 'America/Sao_Paulo') + interval '30 minutes')`,
+                [A, lojaDeA, `P6F-${k}-${i}`, SP(dia, aceite)],
+              );
+            }
+          // 3) Ontem, 12 avisos de pedido parado chegaram ao WhatsApp da Ana (o final do telefone na trilha).
+          await q(
+            `insert into mister_aviso (tenant_id, tipo, chave, situacao, titulo, aberto_em, resolvido_em, entregas)
+             select $1, 'pedido_parado', 'pedido:' || gen_random_uuid() || ':novo', 'resolvido', 'Pedido parado',
+                    ($2::timestamp at time zone 'America/Sao_Paulo') + make_interval(mins => g), ($2::timestamp at time zone 'America/Sao_Paulo') + make_interval(mins => g + 5),
+                    jsonb_build_array(jsonb_build_object('destino', 'presidente', 'fase', 'abriu', 'ok', true, 'final', $3::text,
+                                                         'em', to_jsonb(($2::timestamp at time zone 'America/Sao_Paulo') + make_interval(mins => g))))
+               from generate_series(1, 12) g`,
+            [A, SP(somarDias(hoje, -1), '19:00'), tel.slice(-4)],
+          );
+
+          // A volta: a Ana (presidente) e o Carlos (gerente da Loja Centro) recebem a da impressora — a primeira da lista.
+          numero.pedidos.length = 0;
+          const r1 = await padroes.volta([A]);
+          expect(r1.enviados).toBeGreaterThanOrEqual(2);
+          const [msgAna] = paraEle(tel);
+          expect(msgAna.texto).toContain('A impressora Cozinha foi desligada antes do fechamento em 4 dos últimos 14 dias, sempre por volta das 22:30.');
+          expect(msgAna.botoes.map((b) => b.titulo)).toEqual(['Escrever o recado', 'Avisar na hora', 'Não, deixa assim']);
+          const impAna = await padraoDe('ana', 'impressora_antes_do_fechamento');
+          expect(impAna).toMatchObject({ situacao: 'enviado', chave: `impressora:srv:${MARCA}:impressora:coz`, dados: { nome: 'Cozinha', dias: 4, de: '22:30', ate: '22:30' } });
+          const impCarlos = await padraoDe('carlos', 'impressora_antes_do_fechamento');
+          expect(impCarlos.situacao).toBe('enviado');
+          // A mesma volta de novo, no mesmo dia, não manda nada a eles (uma por dia).
+          numero.pedidos.length = 0;
+          await padroes.volta([A]);
+          expect([...paraEle(tel), ...paraEle(telCarlos)]).toEqual([]);
+
+          // "Avisar na hora" (pela entrada do WhatsApp): a regra proposta, que só liga no "Confirmar".
+          numero.pedidos.length = 0;
+          expect(await mandar(tel, 'Avisar na hora', { botaoId: `pad:regra:${impAna.id}` })).toBe('respondeu_proposta');
+          const [conf] = paraEle(tel);
+          expect(conf.texto).toContain('Para ligar, confirme:');
+          expect(conf.botoes.map((b) => b.titulo)).toEqual(['Confirmar', 'Mudar']);
+          const [proposta] = await q(`select situacao, fonte, regra from mister_regra where tenant_id = $1 and colaborador_id = $2`, [A, pessoa.ana]);
+          expect(proposta).toMatchObject({ situacao: 'proposta', fonte: 'equipamentos', regra: { filtros: expect.arrayContaining([{ campo: 'nome', op: '=', valor: 'Cozinha' }]) } });
+          expect((await padraoDe('ana', 'impressora_antes_do_fechamento')).situacao).toBe('regra');
+          // O segundo toque encontra a sugestão respondida; o Carlos não responde pela da Ana.
+          numero.pedidos.length = 0;
+          await padroes.tocou(`pad:nao:${impAna.id}`, quem(tel, 'ana', 'presidente'));
+          expect(paraEle(tel).map((m) => m.texto)).toEqual([TEXTOS_DOS_PADROES.jaRespondido]);
+          await padroes.tocou(`pad:nao:${impAna.id}`, quem(telCarlos, 'carlos', 'gerente'));
+          expect(paraEle(telCarlos).map((m) => m.texto)).toEqual([TEXTOS_DOS_PADROES.naoDisponivel]);
+          // "Não, deixa assim" do Carlos: calado por 30 dias, na auditoria.
+          numero.pedidos.length = 0;
+          auditados.length = 0;
+          expect(await padroes.tocou(`pad:nao:${impCarlos.id}`, quem(telCarlos, 'carlos', 'gerente'))).toBe(true);
+          expect(paraEle(telCarlos).map((m) => m.texto)).toEqual([TEXTOS_DOS_PADROES.calado]);
+          const calado = await padraoDe('carlos', 'impressora_antes_do_fechamento');
+          expect(calado.situacao).toBe('calado');
+          expect((new Date(calado.proxima_em).getTime() - Date.now()) / 86_400_000).toBeGreaterThan(29.9);
+          expect(auditados).toEqual([expect.objectContaining({ acao: 'mister_padrao_calado', entidadeTipo: 'mister_padrao', entidadeId: impCarlos.id })]);
+
+          // No dia seguinte (a sugestão de ontem), a Ana recebe a dos atrasos — a impressora não volta (30 dias).
+          await ontemNoBanco('ana');
+          numero.pedidos.length = 0;
+          await padroes.volta([A]);
+          const [msgAtrasos] = paraEle(tel);
+          expect(msgAtrasos.texto).toContain('entre 20:00 e 21:00. Em 3 dos últimos 14 dias, 2 ou mais pedidos levaram mais de 20 min');
+          expect(msgAtrasos.botoes.map((b) => b.titulo)).toEqual(['Quero', 'Não, deixa assim']);
+          const atr = await padraoDe('ana', 'atrasos_na_faixa');
+          await padroes.tocou(`pad:regra:${atr.id}`, quem(tel, 'ana', 'presidente'));
+          const propostas = await q(`select fonte, regra from mister_regra where tenant_id = $1 and colaborador_id = $2 and fonte = 'pedidos'`, [A, pessoa.ana]);
+          expect(propostas).toEqual([expect.objectContaining({ regra: expect.objectContaining({ quando: { de: '20:00', ate: '21:00' } }) })]);
+
+          // Mais um dia: a dos avisos sem resposta. Quem respondeu ao Mister ontem, depois do primeiro aviso, não recebe.
+          await ontemNoBanco('ana');
+          await q(`insert into mister_mensagem (wamid, telefone, tenant_id, desfecho, recebida_em) values ($1, $2, $3, 'pergunta', ($4::timestamp at time zone 'America/Sao_Paulo'))`, [
+            wamid(),
+            tel,
+            A,
+            SP(somarDias(hoje, -1), '21:00'),
+          ]);
+          numero.pedidos.length = 0;
+          await padroes.volta([A]);
+          expect(paraEle(tel)).toEqual([]);
+          await q(`delete from mister_mensagem where telefone = $1 and recebida_em < ($2::timestamp at time zone 'America/Sao_Paulo')`, [tel, SP(hoje, '00:00')]);
+          numero.pedidos.length = 0;
+          await padroes.volta([A]);
+          expect(paraEle(tel).map((m) => m.texto)).toEqual([
+            'Ontem você recebeu 12 avisos de pedido parado e não respondeu a nenhum. Quer que eu só avise quando forem 3 ou mais ao mesmo tempo, numa mensagem só?',
+          ]);
+          const av = await padraoDe('ana', 'avisos_sem_resposta');
+          await padroes.tocou(`pad:regra:${av.id}`, quem(tel, 'ana', 'presidente'));
+          const [junta] = await q(`select regra, substitui from mister_regra where tenant_id = $1 and colaborador_id = $2 and 'pedido_parado' = any(substitui)`, [A, pessoa.ana]);
+          expect(junta.regra).toMatchObject({ medida: 'quantidade', condicao: { op: '>=', valor: 3 }, agrupar: true });
+
+          // "Escrever o recado": o rascunho no mural da loja da impressora, com "Publicar" e "Mudar o texto".
+          const [{ id: outro }] = await q(
+            `insert into mister_padrao (tenant_id, colaborador_id, unidade_id, tipo, chave, dados, proxima_em)
+             values ($1, $2, $3, 'impressora_antes_do_fechamento', 'impressora:outra', $4::jsonb, now() + interval '30 days') returning id::text as id`,
+            [A, pessoa.ana, lojaDeA, JSON.stringify({ tipo: 'impressora_antes_do_fechamento', nome: 'Cozinha', dias: 3, de: '22:30', ate: '23:00' })],
+          );
+          numero.pedidos.length = 0;
+          await padroes.tocou(`pad:rec:${outro}`, quem(tel, 'ana', 'presidente'));
+          const [rec] = paraEle(tel);
+          expect(rec.texto).toContain('"Impressora Cozinha ligada até fechar');
+          expect(rec.texto).toContain('Publico no Mural & clima da Loja Centro?');
+          expect(rec.botoes.map((b) => b.titulo)).toEqual(['Publicar', 'Mudar o texto']);
+          expect((await q(`select situacao, unidade_id::text as u from mister_recado where tenant_id = $1 and colaborador_id = $2`, [A, pessoa.ana]))[0]).toEqual({ situacao: 'rascunho', u: lojaDeA });
+          expect((await q(`select situacao from mister_padrao where id = $1`, [outro]))[0]).toEqual({ situacao: 'recado' });
+        } finally {
+          await q(`delete from mister_padrao where tenant_id = $1`, [A]);
+          await q(`delete from mister_regra where tenant_id = $1`, [A]);
+          await q(`delete from mister_recado where tenant_id = $1`, [A]);
+          await q(`delete from vigia_incidente where tenant_id = $1`, [A]);
+          await q(`delete from mister_aviso where tenant_id = $1 and tipo = 'pedido_parado'`, [A]);
+          await q(`delete from pedido_externo where tenant_id = $1 and display_id like 'P6F-%'`, [A]);
+          if (antes) await q(`update cardapio_config set horarios = $2 where id = $1`, [antes.id, antes.horarios === null ? null : JSON.stringify(antes.horarios)]);
+          else await q(`delete from cardapio_config where tenant_id = $1 and unidade_id is null`, [A]);
+        }
       });
     });
   });
