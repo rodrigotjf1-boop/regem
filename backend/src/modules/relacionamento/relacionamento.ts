@@ -34,6 +34,8 @@ export const VOLTA_TENTATIVAS = [1, 2] as const;
 export type VoltaDesconto = (typeof VOLTA_DESCONTO)[number];
 /** A 1ª chamada vale só até 30 dias depois do prazo (quem sumiu há mais tempo fica para as campanhas). */
 export const VOLTA_JANELA_DIAS = 30;
+/** Pelo ritmo (mig 464): ninguém é chamado de volta com menos de 7 dias sem pedir, por mais frequente que seja. */
+export const PISO_DO_RITMO_DIAS = 7;
 /** Entre uma tentativa e outra. */
 export const VOLTA_ENTRE_TENTATIVAS_DIAS = 60;
 /** Quantos dias antes do aniversário a mensagem sai. */
@@ -65,6 +67,8 @@ export type AjustesRelacionamento = {
   voltaMinimo: number;
   voltaValidadeDias: number;
   voltaTentativas: number;
+  /** Com o módulo "Perfil do cliente": chamar pelo ritmo de cada cliente (atraso > 1,5), mig 464 — nasce desligado. */
+  voltaPeloRitmo: boolean;
 };
 /**
  * Nasce DESLIGADO; o resto, como as decisões do dono de 03/11/2026 (aniversário: R$ 10 acima de R$ 40 por 7 dias;
@@ -91,6 +95,7 @@ export const AJUSTES_PADRAO: AjustesRelacionamento = {
   voltaMinimo: 30,
   voltaValidadeDias: 7,
   voltaTentativas: 2,
+  voltaPeloRitmo: false,
 };
 
 /** O cupom de um desconto da lista: tipo e valor como o cadastro de cupons guarda. */
@@ -155,6 +160,7 @@ export function lerAjustes(dto: unknown): Partial<AjustesRelacionamento> {
   if (d.voltaMinimo !== undefined) p.voltaMinimo = umDe(VOLTA_MINIMO, d.voltaMinimo, 'Pedido mínimo: sem mínimo, R$ 30 ou R$ 40.');
   if (d.voltaValidadeDias !== undefined) p.voltaValidadeDias = umDe(VOLTA_VALIDADE, d.voltaValidadeDias, 'O cupom vale por 3, 7 ou 15 dias.');
   if (d.voltaTentativas !== undefined) p.voltaTentativas = umDe(VOLTA_TENTATIVAS, d.voltaTentativas, 'Tentativas: 1 ou 2.');
+  if (d.voltaPeloRitmo !== undefined) p.voltaPeloRitmo = exigirBooleano(d.voltaPeloRitmo, 'voltaPeloRitmo');
   return p;
 }
 
@@ -185,6 +191,7 @@ export function ajustesDaLinha(row: any): AjustesRelacionamento {
     voltaMinimo: de(VOLTA_MINIMO, row.volta_minimo, 30),
     voltaValidadeDias: de(VOLTA_VALIDADE, row.volta_validade_dias, 7),
     voltaTentativas: de(VOLTA_TENTATIVAS, row.volta_tentativas, 2),
+    voltaPeloRitmo: row.volta_pelo_ritmo === true,
   };
 }
 
