@@ -1823,6 +1823,25 @@ regressão de novo quando as instruções mudam; a Meta pela doc oficial (V20); 
 - **Tela de Documentos:** "Cupom" no nome, o que foi feito ("a despesa já paga…"), os motivos novos e o texto do desfazer
   do cupom.
 
+**M6g implementada (20/11/2026; mig 475 SÓ NUVEM — `mister_lista_compra`):**
+- **Quem pode:** presidente ou gerente com "criar" no Estoque (a MESMA permissão da tela de Pedidos), na loja dele; a
+  lista do presidente numa empresa de várias lojas sai da rede (como a tela em "todas").
+- **Por onde entra:** a ferramenta `lista_de_compras` — "montar" (as linhas que a pessoa disse, por texto, áudio ou a foto
+  de uma lista que o Graph leu) e "do_minimo" (`ComprasService.sugerir`) —, e a PLANILHA (xlsx/csv) que a entrada passa
+  direto à lista (`registrarPlanilha`; o `lerTabela` do estoque, sem IA; cabeçalho nas 5 primeiras linhas, ou produto e
+  quantidade nas duas primeiras colunas).
+- **Cada linha** vai a um insumo pelo achador do relatório por insumo (`acharInsumo`); a dúvida vira botão — "É o X?",
+  "Cadastrar novo" (pelo `EstoqueService.createItem`), "Deixar de fora"; a unidade que não chega à do estoque pergunta o
+  fator (por texto, `registrarTextoDaLista`); a marca quando o insumo tem duas ou mais (botões, ou o nome escrito); o
+  fornecedor quando os insumos têm fornecedores diferentes (um só: ele; nenhum: sem). Uma coisa por vez, na ordem.
+- **"Criar o pedido"** pela passagem condicional "confirmar" → "criada" (dois toques juntos criam um só) e o MESMO
+  `ComprasService.createLista` da tela (a marca e a loja conferidas por ele); falhou, volta a "confirmar" com o motivo.
+  Uma lista aberta por pessoa (a nova descarta a anterior); a pela metade vence em 24 h.
+- **O agente** ganhou o campo `mensagens` no resultado das ferramentas: a primeira pergunta da lista sai DEPOIS da resposta
+  (como a proposta). `ComprasModule` exporta o serviço; o módulo do agente o importa (V81).
+- Instruções: o bloco "A LISTA DE COMPRAS" — rodar a avaliação.
+- Fica para depois: "Mandar ao fornecedor" pela conversa (hoje a frase manda abrir o pedido em Estoque › Pedidos).
+
 #### 8. Custos
 
 | Parte | Como começa | Se ligar ou usar |
