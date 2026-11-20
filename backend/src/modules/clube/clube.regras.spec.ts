@@ -2,13 +2,16 @@ import {
   CONFIG_PADRAO,
   descricaoDoPremio,
   FERRAMENTAS_PRONTAS,
+  gatilhosDaLinha,
   lerConfigDoClube,
+  lerGatilhoEntregue,
   lerPremio,
   ligandoAntesDaHora,
   ondeEstaEmUso,
   premiosCitados,
   regrasDoClube,
 } from './clube.regras';
+import { codigoDoDireito, fatiasDaRoleta } from './clube-surpresa.service';
 
 // As regras puras do Clube de recompra (fase A0, mig 471): o que a tela manda (V15/V16, só as opções), o prêmio com os
 // limites do `check` da 471, a descrição e as regras que o cliente lê (sem sorteio, um benefício por pedido).
@@ -52,9 +55,10 @@ describe('a configuração do clube', () => {
     expect(() => lerConfigDoClube({ metaNiveis: [{ pedidos: 0 }] })).toThrow('de 1 a 30 pedidos');
   });
 
-  it('nenhuma ferramenta liga antes da sua fase (a tela nem mostra o liga/desliga dela)', () => {
-    expect(FERRAMENTAS_PRONTAS).toEqual({ surpresa: false, album: false, meta: false });
-    expect(ligandoAntesDaHora({ surpresaAtivo: true, albumAtivo: true, metaAtivo: false })).toEqual(['surpresa', 'album']);
+  it('nenhuma ferramenta liga antes da sua fase (a tela nem mostra o liga/desliga dela) — a surpresa chegou na A1', () => {
+    expect(FERRAMENTAS_PRONTAS).toEqual({ surpresa: true, album: false, meta: false });
+    expect(ligandoAntesDaHora({ surpresaAtivo: true, albumAtivo: true, metaAtivo: false })).toEqual(['album']);
+    expect(ligandoAntesDaHora({ surpresaAtivo: true, albumAtivo: true }, { surpresa: false, album: false, meta: false })).toEqual(['surpresa', 'album']);
     expect(ligandoAntesDaHora({ surpresaAtivo: false })).toEqual([]); // desligar sempre pode
     expect(ligandoAntesDaHora({ surpresaAtivo: true }, { surpresa: true, album: false, meta: false })).toEqual([]);
   });
@@ -119,9 +123,59 @@ describe('as regras do clube que o cliente lê', () => {
       { ...CONFIG_PADRAO, surpresaAtivo: true, surpresaForma: 'roleta', albumAtivo: true, albumPremios: [A, B], metaAtivo: true, metaNiveis: [{ pedidos: 3, premios: [B] }] },
       nome,
     );
-    expect(r[0]).toContain('gira a roleta');
+    expect(r[0]).toBe('O prêmio já vem definido pela regra quando o cliente ganha: a roleta só mostra.');
     expect(r[1]).toBe('Álbum de selos: um selo por mês com pedido a partir de R$ 30; com 4 selos, escolha um prêmio (Batata média grátis, Frete grátis). Os selos valem 12 meses e não precisam ser seguidos.');
     expect(r[2]).toBe('Meta do mês: 3 pedidos no mês a partir de R$ 30 dão direito a escolher um prêmio (Frete grátis); vale 15 dias.');
     expect(r).toHaveLength(6);
+  });
+  it('o gatilho "Pedido entregue" ligado entra com o prêmio pelo nome; desligado, não', () => {
+    const c = { ...CONFIG_PADRAO, surpresaAtivo: true };
+    const ligado = { entregue: { ativo: true, premioId: B, desde: '2026-11-20T12:00:00.000Z' } };
+    expect(regrasDoClube(c, nome, ligado).slice(0, 2)).toEqual([
+      'Prêmio surpresa: todo pedido entregue pelo cardápio online ou pelo WhatsApp a partir de R$ 30 dá uma raspadinha com o prêmio "Frete grátis".',
+      'O prêmio já vem definido pela regra quando o cliente ganha: a raspadinha só mostra.',
+    ]);
+    expect(regrasDoClube(c, nome, { entregue: { ...ligado.entregue, ativo: false } })[0]).toContain('só mostra');
+    // A surpresa desligada não fala do gatilho, mesmo ligado.
+    expect(regrasDoClube(CONFIG_PADRAO, nome, ligado)[0]).toContain('Não há sorteio');
+  });
+});
+
+describe('os gatilhos do prêmio surpresa (mig 474)', () => {
+  it('a linha do banco vira o gatilho com os padrões no que falta', () => {
+    expect(gatilhosDaLinha(null)).toEqual({ entregue: { ativo: false, premioId: null, desde: null } });
+    expect(gatilhosDaLinha({})).toEqual({ entregue: { ativo: false, premioId: null, desde: null } });
+    expect(gatilhosDaLinha({ entregue: { ativo: true, premioId: A, desde: '2026-11-20T12:00:00.000Z' } })).toEqual({
+      entregue: { ativo: true, premioId: A, desde: '2026-11-20T12:00:00.000Z' },
+    });
+  });
+  it('o que a tela manda: liga/desliga só com booleano (V15), ausente mantém (V16), o prêmio é um id', () => {
+    expect(lerGatilhoEntregue({})).toEqual({});
+    expect(lerGatilhoEntregue({ ativo: true, premioId: A })).toEqual({ ativo: true, premioId: A });
+    expect(lerGatilhoEntregue({ premioId: null })).toEqual({ premioId: null });
+    expect(() => lerGatilhoEntregue({ ativo: 'sim' })).toThrow();
+    expect(() => lerGatilhoEntregue({ premioId: 'x' })).toThrow();
+  });
+  it('onde o prêmio está em uso conta o gatilho ligado', () => {
+    const g = { entregue: { ativo: true, premioId: A, desde: null } };
+    expect(ondeEstaEmUso(CONFIG_PADRAO, A, g)).toEqual(['Prêmio surpresa · pedido entregue']);
+    expect(ondeEstaEmUso(CONFIG_PADRAO, B, g)).toEqual([]);
+  });
+});
+
+describe('as fatias da roleta', () => {
+  it('os nomes da lista, sem repetir, até 8, sempre com o do cliente', () => {
+    expect(fatiasDaRoleta(['A', 'B', 'A', ' ', 'C'], 'B')).toEqual(['A', 'B', 'C']);
+    expect(fatiasDaRoleta(['A', 'B'], 'Z')).toEqual(['A', 'B', 'Z']);
+    const nove = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+    expect(fatiasDaRoleta(nove, '9')).toEqual(['1', '2', '3', '4', '5', '6', '7', '9']);
+    expect(fatiasDaRoleta(nove, '3')).toHaveLength(8);
+    // Um prêmio só: duas metades iguais (a roleta com uma fatia não gira de verdade).
+    expect(fatiasDaRoleta([], 'Frete grátis')).toEqual(['Frete grátis', 'Frete grátis']);
+  });
+  it('o código do link do direito: 22 letras de base64url, sem repetir', () => {
+    const a = codigoDoDireito();
+    expect(a).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    expect(codigoDoDireito()).not.toBe(a);
   });
 });

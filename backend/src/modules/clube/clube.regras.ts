@@ -23,8 +23,44 @@ export const PREMIOS_POR_ESCOLHA_MAX = 6;
  * As ferramentas que já existem para ligar. Cada fase acende a sua (A1: o prêmio surpresa; A2: o álbum; A3: a meta). O
  * servidor recusa ligar a que ainda não existe — a tela nem mostra o liga/desliga dela (nada de botão que não faz nada).
  */
-export const FERRAMENTAS_PRONTAS: Readonly<Record<Ferramenta, boolean>> = { surpresa: false, album: false, meta: false };
+export const FERRAMENTAS_PRONTAS: Readonly<Record<Ferramenta, boolean>> = { surpresa: true, album: false, meta: false };
 export type Ferramenta = 'surpresa' | 'album' | 'meta';
+
+/**
+ * O gatilho "Pedido entregue" do prêmio surpresa (fase A1, mig 474): todo pedido do cardápio online ou do robô, concluído,
+ * a partir do pedido mínimo do clube, dá ao cliente o prêmio escolhido. `desde` = quando foi ligado: só vale para os
+ * pedidos concluídos DEPOIS (ligar não dá prêmio pelos pedidos de antes). Guardado em `clube_config.surpresa_gatilhos`
+ * (a chave `entregue`; as outras fases gravam as suas — V82).
+ */
+export type GatilhoEntregue = { ativo: boolean; premioId: string | null; desde: string | null };
+export const GATILHO_ENTREGUE_PADRAO: GatilhoEntregue = { ativo: false, premioId: null, desde: null };
+export type GatilhosDoSurpresa = { entregue: GatilhoEntregue };
+
+/** Os gatilhos como estão gravados (o jsonb da linha), com os padrões no que faltar. */
+export function gatilhosDaLinha(j: unknown): GatilhosDoSurpresa {
+  const e = (j && typeof j === 'object' ? (j as Record<string, unknown>).entregue : null) as Record<string, unknown> | null;
+  return {
+    entregue: {
+      ativo: e?.ativo === true,
+      premioId: typeof e?.premioId === 'string' && UUID_DO_PREMIO.test(e.premioId) ? e.premioId.toLowerCase() : null,
+      desde: typeof e?.desde === 'string' && !Number.isNaN(Date.parse(e.desde)) ? e.desde : null,
+    },
+  };
+}
+
+/** O que a tela mandou para o gatilho "Pedido entregue": liga/desliga só com booleano (V15), o prêmio da lista (V16). */
+export function lerGatilhoEntregue(dto: unknown): { ativo?: boolean; premioId?: string | null } {
+  const d = (dto !== null && typeof dto === 'object' ? dto : {}) as Record<string, unknown>;
+  const p: { ativo?: boolean; premioId?: string | null } = {};
+  if (d.ativo !== undefined) p.ativo = exigirBooleano(d.ativo, 'Pedido entregue');
+  if (d.premioId !== undefined) {
+    if (d.premioId === null || d.premioId === '') p.premioId = null;
+    else if (typeof d.premioId === 'string' && UUID_DO_PREMIO.test(d.premioId.trim())) p.premioId = d.premioId.trim().toLowerCase();
+    else throw new BadRequestException('Pedido entregue: escolha o prêmio da lista.');
+  }
+  return p;
+}
+const UUID_DO_PREMIO = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type NivelDaMeta = { pedidos: number; premios: string[] };
 export type ConfigDoClube = {
@@ -139,9 +175,10 @@ export function premiosCitados(c: Pick<ConfigDoClube, 'albumPremios' | 'metaNive
   return Array.from(new Set([...c.albumPremios, ...c.metaNiveis.flatMap((n) => n.premios)]));
 }
 
-/** Onde cada prêmio está em uso (o selo "Em uso" da lista e a recusa ao excluir). */
-export function ondeEstaEmUso(c: Pick<ConfigDoClube, 'albumPremios' | 'metaNiveis'>, premioId: string): string[] {
+/** Onde cada prêmio está em uso (o selo "Em uso" da lista e a recusa ao excluir). `gatilhos`: os do prêmio surpresa. */
+export function ondeEstaEmUso(c: Pick<ConfigDoClube, 'albumPremios' | 'metaNiveis'>, premioId: string, gatilhos?: GatilhosDoSurpresa): string[] {
   const onde: string[] = [];
+  if (gatilhos?.entregue.premioId === premioId) onde.push('Prêmio surpresa · pedido entregue');
   if (c.albumPremios.includes(premioId)) onde.push('Álbum de selos');
   c.metaNiveis.forEach((n, i) => {
     if (n.premios.includes(premioId)) onde.push(`Meta do mês, nível ${i + 1}`);
@@ -219,14 +256,20 @@ export function descricaoDoPremio(p: Pick<DadosDoPremio, 'tipo' | 'valor' | 'tet
  * As regras do clube que o cliente lê (o link "Regras do clube" de cada tela do jogo; "Ver as regras" na loja): só as
  * ferramentas ligadas, e sempre as travas que mantêm o clube fora da regra de sorteio (Lei 5.768/1971 — o plano, seção 1).
  */
-export function regrasDoClube(c: ConfigDoClube, nomeDoPremio: (id: string) => string | null): string[] {
+export function regrasDoClube(c: ConfigDoClube, nomeDoPremio: (id: string) => string | null, gatilhos?: GatilhosDoSurpresa): string[] {
   const linhas: string[] = [];
   const lista = (ids: string[]) => ids.map(nomeDoPremio).filter((x): x is string => !!x).join(', ');
   const minimo = c.minimo > 0 ? ` a partir de ${reais(c.minimo)}` : '';
-  if (c.surpresaAtivo)
+  if (c.surpresaAtivo) {
+    const como = c.surpresaForma === 'roleta' ? 'uma roleta' : 'uma raspadinha';
+    if (gatilhos?.entregue.ativo && gatilhos.entregue.premioId) {
+      const premio = nomeDoPremio(gatilhos.entregue.premioId);
+      linhas.push(`Prêmio surpresa: todo pedido entregue pelo cardápio online ou pelo WhatsApp${minimo} dá ${como}${premio ? ` com o prêmio "${premio}"` : ''}.`);
+    }
     linhas.push(
-      `Prêmio surpresa: quem ganha o direito ${c.surpresaForma === 'roleta' ? 'gira a roleta' : 'raspa a raspadinha'} e vê o prêmio, que já vem definido pela regra — a ${c.surpresaForma === 'roleta' ? 'roleta' : 'raspadinha'} só mostra.`,
+      `O prêmio já vem definido pela regra quando o cliente ganha: a ${c.surpresaForma === 'roleta' ? 'roleta' : 'raspadinha'} só mostra.`,
     );
+  }
   if (c.albumAtivo) {
     const premios = lista(c.albumPremios);
     linhas.push(

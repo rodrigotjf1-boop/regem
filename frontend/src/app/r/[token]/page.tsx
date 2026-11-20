@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import 'leaflet/dist/leaflet.css';
 import { ComoFoiOPedido } from '@/components/rastreio/como-foi-o-pedido';
+import { PremioDoPedido } from '@/components/rastreio/premio-do-pedido';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Rastreio PÚBLICO do cliente (sem login) — consome GET /rastreio/:token.
@@ -298,6 +299,8 @@ export default function RastreioPage() {
                   <p style={{ fontSize: 15, fontWeight: 700, color: NAVY, margin: '8px 0 4px' }}>Pedido entregue</p>
                   <p style={{ fontSize: 13, color: '#48586a' }}>Bom apetite! 🍽️ O acompanhamento ao vivo foi encerrado.</p>
                 </div>
+                {/* O prêmio surpresa do Clube (mig 474): antes da nota — o prêmio sai na entrega, nunca em troca da nota. */}
+                <PremioDoPedido token={token} />
                 <ComoFoiOPedido token={token} />
               </>
             ) : (
