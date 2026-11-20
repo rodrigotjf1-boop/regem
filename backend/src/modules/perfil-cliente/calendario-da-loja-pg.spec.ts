@@ -98,6 +98,52 @@ descrever('o calendário da loja (Postgres)', () => {
     }
   });
 
+  it('"mexe na sua loja?": a vez do ano passado contra o mesmo dia da semana nas semanas antes, só desta loja', async () => {
+    const c = await pool.connect();
+    try {
+      await c.query('begin');
+      const q = (s: string, p: any[] = []) => c.query(s, p).then((r) => r.rows);
+      const t = (await q(`insert into empresa (nome) values ('teste efeito') returning id`))[0].id as string;
+      const loja = (await q(`insert into unidade (tenant_id, nome) values ($1,'Loja A') returning id`, [t]))[0].id as string;
+      const outra = (await q(`insert into unidade (tenant_id, nome) values ($1,'Loja B') returning id`, [t]))[0].id as string;
+      const svc = new CalendarioDaLojaService(drizzle(c as any) as any);
+      const presidente = { tenantId: t, colaboradorId: null, categoria: 'presidente' } as any;
+      // Um evento da loja que repete todo ano: a vez de amanhã e a do ano passado.
+      const amanha = somarDias(hojeISO(), 1);
+      const anoPassado = `${Number(amanha.slice(0, 4)) - 1}${amanha.slice(4)}`;
+      if (amanha.slice(5) === '02-29') return; // 29/02 não tem a vez do ano passado
+      await svc.criar(presidente, loja, { nome: 'Festa da cidade', tipo: 'show', dia: anoPassado, repete: 'ano' });
+      const pedidos = async (u: string, dia: string, n: number, status = 'concluido') =>
+        q(
+          `insert into pedido_externo (tenant_id, unidade_id, canal, external_id, display_id, cliente_nome, tipo, status, itens, total, criado_em)
+           select $1, $2, 'cardapio_web', gen_random_uuid()::text, '1', 'X', 'entrega', $5, '[]'::jsonb, 50,
+                  ($3::date + time '20:00') at time zone 'America/Sao_Paulo'
+             from generate_series(1, $4)`,
+          [t, u, dia, n, status],
+        );
+      await pedidos(loja, anoPassado, 30);
+      for (let k = 1; k <= 8; k++) await pedidos(loja, somarDias(anoPassado, -7 * k), 10);
+      // Cancelado e pedido de OUTRA loja não contam.
+      await pedidos(loja, anoPassado, 20, 'cancelado');
+      await pedidos(outra, anoPassado, 50);
+
+      const itens = await svc.listarComEfeito(t, loja, amanha, somarDias(amanha, 3));
+      const festa = itens.find((e) => e.nome === 'Festa da cidade');
+      // Algumas semanas de referência podem cair em dia de outro evento (feriado, 5º dia útil, dia 20) e ficam fora:
+      // a média continua 10 nos dias comuns.
+      expect(festa?.efeito).toMatchObject({ vezes: 1, forca: 'fraco' });
+      expect(festa?.efeito?.variacao).toBeCloseTo(2, 5);
+      expect(festa?.efeito?.texto).toBe('+200% na última vez · pouco histórico');
+      // A regra fixa também leva a medida (sem pedido nos anos antes, ou "sem histórico" se a data não aconteceu).
+      expect(itens.every((e) => !!e.efeito)).toBe(true);
+      // A loja B: o evento não é dela — não aparece.
+      expect((await svc.listarComEfeito(t, outra, amanha, somarDias(amanha, 3))).some((e) => e.nome === 'Festa da cidade')).toBe(false);
+    } finally {
+      await c.query('rollback');
+      c.release();
+    }
+  });
+
   it('o período: padrão de 60 dias, no máximo 120, nada invertido', () => {
     const svc = new CalendarioDaLojaService({} as any);
     const p = svc.periodo();

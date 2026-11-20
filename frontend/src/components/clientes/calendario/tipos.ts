@@ -16,6 +16,13 @@ export type ItemDoCalendario = {
   unidadeId?: string | null;
   unidadeNome?: string | null;
   podeEditar?: boolean;
+  /** "Mexe na sua loja?" — o efeito medido nas vezes anteriores (servidor: `efeito-do-evento.ts`). */
+  efeito?: {
+    vezes: number;
+    variacao: number | null;
+    forca: 'sem_historico' | 'sem_comparacao' | 'sem_efeito' | 'fraco' | 'medio' | 'forte';
+    texto: string;
+  };
 };
 
 export type RespostaDoCalendario = { de: string; ate: string; eventos: ItemDoCalendario[] };

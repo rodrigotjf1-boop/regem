@@ -34,6 +34,15 @@ const SITUACOES: Situacao<ItemDoCalendario>[] = [
 
 const TOM_DO_GRUPO = { feriado: 'ok', comemorativa: 'info', dinheiro: 'aviso', loja: 'neutro' } as const;
 
+/** "+22% nas últimas 2 vezes": o número em destaque só quando há medida; o resto (sem histórico, pouco) em tom de apoio. */
+function EfeitoNaLoja({ efeito }: { efeito?: ItemDoCalendario['efeito'] }) {
+  if (!efeito) return <span className="text-secondary-foreground">—</span>;
+  const medido = efeito.variacao != null && efeito.forca !== 'sem_efeito';
+  return (
+    <span className={`text-sm ${medido && efeito.forca !== 'fraco' ? 'font-semibold' : 'text-secondary-foreground'}`}>{efeito.texto}</span>
+  );
+}
+
 export function CalendarioDaLoja() {
   const [dias, setDias] = useState<number>(14);
   const [dados, setDados] = useState<RespostaDoCalendario | null>(null);
@@ -101,8 +110,9 @@ export function CalendarioDaLoja() {
         </Button>
       </TituloLista>
       <p className="text-sm text-secondary-foreground">
-        Feriados, datas comemorativas, dinheiro no bolso e os eventos da sua loja. Jogos, clima e séries entram quando a base
-        de eventos do Hub DMS estiver no ar; o efeito de cada evento nas suas vendas vem na próxima etapa.
+        Feriados, datas comemorativas, dinheiro no bolso e os eventos da sua loja. “Mexe na loja?” compara os pedidos de
+        delivery das vezes anteriores do evento com o mesmo dia da semana sem evento. Jogos, clima e séries entram quando a
+        base de eventos do Hub DMS estiver no ar.
       </p>
 
       <div className="flex flex-wrap gap-2" role="group" aria-label="Período">
@@ -167,6 +177,7 @@ export function CalendarioDaLoja() {
                 },
                 { titulo: 'Dia', celula: (e) => <span className="whitespace-nowrap font-mono">{diaCurto(e.dia)}{e.hora ? ` · ${e.hora}` : ''}</span> },
                 { titulo: 'Tipo', celula: (e) => <Selo tom={TOM_DO_GRUPO[e.grupo]}>{NOME_DO_GRUPO[e.grupo]}</Selo> },
+                { titulo: 'Mexe na loja?', celula: (e) => <EfeitoNaLoja efeito={e.efeito} /> },
               ]}
               acoes={(e) =>
                 e.origem === 'loja' && e.podeEditar

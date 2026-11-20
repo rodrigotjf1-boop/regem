@@ -16,7 +16,10 @@
 | F6 · Cartão no atendente | `cartao` no `ver_pedido` (instruções .f33) e a trava na saída do robô | #1177 | — |
 | F6b · Cartão para a equipe | no caso da Central de atendimento (o copiloto fica para depois) | #1177 | — |
 | F2 · Eventos no Regem | Delivery › Clientes › Calendário de eventos: a regra fixa (feriados por lei, pontos facultativos, comemorativas, dinheiro no bolso), os eventos da loja (`evento_loja`) e os feriados de Escalas › Feriado / evento; a cópia por loja e dia (`calendario_loja_dia`) na rotina noturna. Jogos, clima e séries esperam o produto de eventos do Hub (D12) | este PR | 461 (só nuvem) |
-| F3 em diante | sensibilidade a eventos, jeito de conversar, marketing, cliques, cardápio personalizado, Liame | a fazer | — |
+| F3 · parte 1 (a loja) | "Mexe na loja?" no calendário: cada evento contra o mesmo dia da semana nas 8 semanas antes, sem evento (pedidos de delivery, todos os canais, dia de operação); "pouco histórico" abaixo de 3 vezes | este PR | — |
+| F3 · parte 2 (o cliente) | RR encolhido por cliente, selo só com ≥ 3 dias e P(RR > 1) ≥ 0,9, Benjamini-Hochberg no lote | a fazer | talvez (colunas) |
+| F5 · Jeito de conversar | nível A já coberto pelas instruções do atendente (cliente chateado, sem emoji na reclamação, áudio vira voz); o nível B (o robô oferece lembrar "curto"/"áudio") pede uma ferramenta nova no fluxo do n8n — decisão do dono | a decidir | — |
+| F7 em diante | marketing, cliques, cardápio personalizado, Liame | a fazer | — |
 
 **Para ver funcionando:** o presidente liga o módulo "Perfil do cliente" em Visão C&O › Módulos do produto. A rotina da manhã (4h–11h)
 calcula a empresa; "Recalcular agora" (POST `/perfil-cliente/recalcular`) faz na hora.

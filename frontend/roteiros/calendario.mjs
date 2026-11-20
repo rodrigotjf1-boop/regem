@@ -17,13 +17,13 @@ const mais = (n) => {
 };
 
 const EVENTOS = () => [
-  { chave: 'regra:feriado:x', dia: mais(1), grupo: 'feriado', tipo: 'feriado', nome: 'Dia Nacional de Zumbi e da Consciência Negra', detalhe: 'Lei 14.759/2023', origem: 'regra', confianca: 'lei' },
+  { chave: 'regra:feriado:x', dia: mais(1), grupo: 'feriado', tipo: 'feriado', nome: 'Dia Nacional de Zumbi e da Consciência Negra', detalhe: 'Lei 14.759/2023', origem: 'regra', confianca: 'lei', efeito: { vezes: 2, variacao: 0.22, forca: 'fraco', texto: '+22% nas últimas 2 vezes · pouco histórico' } },
   { chave: 'regra:dinheiro:vale', dia: mais(1), grupo: 'dinheiro', tipo: 'dinheiro', nome: 'Vale (adiantamento) do dia 20', detalhe: 'costume de muitas empresas, não é lei', origem: 'regra', confianca: 'costume' },
   { chave: 'escala:e1:x', dia: mais(3), grupo: 'feriado', tipo: 'feriado_escala', nome: 'Aniversário da cidade', detalhe: 'Feriado cadastrado em Escalas › Feriado / evento', origem: 'escala', unidadeId: 'u1', unidadeNome: 'Loja Centro' },
-  { chave: 'loja:ev1:x', dia: mais(4), grupo: 'loja', tipo: 'promocao', nome: 'Smash em dobro na quinta', detalhe: 'Promoção da casa · 19:00 · toda semana · cadastrado pela loja', origem: 'loja', id: 'ev1', hora: '19:00', repete: 'semana', diaDoCadastro: mais(4), unidadeId: 'u1', unidadeNome: 'Loja Centro', podeEditar: true },
-  { chave: 'regra:comemorativa:bf', dia: mais(8), grupo: 'comemorativa', tipo: 'comemorativa', nome: 'Black Friday', detalhe: 'costume do comércio (a sexta depois da 4ª quinta de novembro)', origem: 'regra', confianca: 'costume' },
+  { chave: 'loja:ev1:x', dia: mais(4), grupo: 'loja', tipo: 'promocao', nome: 'Smash em dobro na quinta', detalhe: 'Promoção da casa · 19:00 · toda semana · cadastrado pela loja', origem: 'loja', id: 'ev1', hora: '19:00', repete: 'semana', diaDoCadastro: mais(4), unidadeId: 'u1', unidadeNome: 'Loja Centro', podeEditar: true, efeito: { vezes: 0, variacao: null, forca: 'sem_comparacao', texto: 'sem dias comuns para comparar' } },
+  { chave: 'regra:comemorativa:bf', dia: mais(8), grupo: 'comemorativa', tipo: 'comemorativa', nome: 'Black Friday', detalhe: 'costume do comércio (a sexta depois da 4ª quinta de novembro)', origem: 'regra', confianca: 'costume', efeito: { vezes: 1, variacao: 0.15, forca: 'fraco', texto: '+15% na última vez · pouco histórico' } },
   { chave: 'loja:ev2:x', dia: mais(10), grupo: 'loja', tipo: 'show', nome: 'Show no estádio com um nome bem comprido para ver a quebra de linha no celular', detalhe: 'Show ou festa na cidade · todas as lojas · cadastrado pela loja', origem: 'loja', id: 'ev2', hora: null, repete: 'nao', diaDoCadastro: mais(10), unidadeId: null, podeEditar: false },
-  { chave: 'regra:dinheiro:13', dia: mais(11), grupo: 'dinheiro', tipo: 'dinheiro', nome: '13º salário — prazo da 1ª parcela', detalhe: 'Lei 4.749/1965, art. 2º (até 30/11)', origem: 'regra', confianca: 'lei' },
+  { chave: 'regra:dinheiro:13', dia: mais(11), grupo: 'dinheiro', tipo: 'dinheiro', nome: '13º salário — prazo da 1ª parcela', detalhe: 'Lei 4.749/1965, art. 2º (até 30/11)', origem: 'regra', confianca: 'lei', efeito: { vezes: 6, variacao: -0.08, forca: 'forte', texto: '−8% nas últimas 6 vezes' } },
 ];
 
 const medir = (page) =>
@@ -87,6 +87,7 @@ export default async function roteiroCalendario({ nav, base, ok, foto: arquivoFo
     let achados = await medir(page);
     ok(achados.length === 0, `${w}px · calendário: sem barra para o lado nem texto esmagado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
     ok(t.includes('7 eventos') && t.includes('Consciência Negra') && t.includes('Black Friday') && t.includes('Escalas › Feriado / evento'), `${w}px · a lista, a contagem e o feriado da Escala`);
+    ok(t.includes('+22% nas últimas 2 vezes') && t.includes('−8% nas últimas 6 vezes') && t.includes('sem dias comuns para comparar') && t.includes('Mexe na loja?'), `${w}px · "Mexe na loja?" com o efeito de cada evento`);
     // A gaveta "Evento da loja" ABERTA (V45).
     await page.getByRole('button', { name: /Evento da loja/ }).first().click();
     await page.waitForSelector('[role="dialog"]', { timeout: 10000 });

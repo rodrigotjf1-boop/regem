@@ -37,7 +37,7 @@ export class CalendarioDaLojaController {
     @Query('ate') ate?: string,
   ) {
     const p = this.calendario.periodo(de || undefined, ate || undefined);
-    return { ...p, eventos: await this.calendario.listar(user.tenantId, unidadeId, p.de, p.ate) };
+    return { ...p, eventos: await this.calendario.listarComEfeito(user.tenantId, unidadeId, p.de, p.ate) };
   }
 
   @Post('eventos')

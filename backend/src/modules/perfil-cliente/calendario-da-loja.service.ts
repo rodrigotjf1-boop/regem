@@ -2,6 +2,10 @@ import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Opt
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { hojeISO } from '../../common/data';
+import { FUSO_SQL, instanteDe } from '../../common/fuso-sql';
+import { sqlUnidade } from '../../common/filtro-unidade';
+import { REGRAS_DO_PERFIL } from './calculo-do-perfil';
+import { Efeito, REFERENCIA, familiaDe, medirEfeito } from './efeito-do-evento';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { AuthUser } from '../../auth/auth-user';
 import {
@@ -44,7 +48,12 @@ export type ItemDoCalendario = {
   unidadeNome?: string | null;
   /** Quem lê pode editar/excluir (o evento da loja dele; o de "todas as lojas" só quem vê todas). */
   podeEditar?: boolean;
+  /** "Mexe na sua loja?" (F3, parte 1): o efeito medido nas vezes anteriores do mesmo evento. */
+  efeito?: Efeito;
 };
+
+/** Quantos dias para trás o "mexe na sua loja?" procura as vezes anteriores de cada evento. */
+const HISTORICO_DIAS = 400;
 
 /** No máximo 120 dias por leitura da tela (a rotina noturna lê mais, em partes). */
 const MAX_DIAS_TELA = 120;
@@ -93,6 +102,59 @@ export class CalendarioDaLojaService {
            and x.tipo in ('feriado', 'evento') and x.data <= ${ate}::date and coalesce(x.data_fim, x.data) >= ${de}::date ${daLoja}`),
     ]);
     return this.montar(eventosDaRegra(de, ate), this.rows(loja), this.rows(escala), de, ate, unidadeId);
+  }
+
+  /**
+   * O calendário com o "mexe na sua loja?" de cada evento (F3, parte 1 — §4.7: primeiro a loja). As vezes anteriores do
+   * mesmo evento nos últimos 400 dias, contra o mesmo dia da semana sem evento nas 8 semanas antes de cada uma
+   * (`efeito-do-evento.ts`). Pedidos de delivery de todos os canais, sem os cancelados, por dia de operação (corte das
+   * 4h, como o perfil). Se a medida falhar, o calendário sai sem ela (com o motivo no log), nunca vazio.
+   */
+  async listarComEfeito(tenantId: string, unidadeId: string | null, de: string, ate: string): Promise<ItemDoCalendario[]> {
+    const itens = await this.listar(tenantId, unidadeId, de, ate);
+    try {
+      const ontem = somarDias(hojeISO(), -1);
+      const inicioHist = somarDias(ontem, -(HISTORICO_DIAS - 1));
+      const inicioDados = somarDias(inicioHist, -7 * REFERENCIA.semanas);
+      const [passado, pedidos] = await Promise.all([
+        this.listar(tenantId, unidadeId, inicioDados, ontem),
+        this.pedidosPorDia(tenantId, unidadeId, inicioDados, ontem),
+      ]);
+      const comEvento = new Set(passado.map((e) => e.dia));
+      const porFamilia = new Map<string, Set<string>>();
+      for (const e of passado) {
+        if (e.dia < inicioHist) continue;
+        const f = familiaDe(e.chave);
+        if (!porFamilia.has(f)) porFamilia.set(f, new Set());
+        porFamilia.get(f)!.add(e.dia);
+      }
+      let primeiroDia: string | null = null;
+      for (const d of pedidos.keys()) if (!primeiroDia || d < primeiroDia) primeiroDia = d;
+      const medidos = new Map<string, Efeito>();
+      return itens.map((i) => {
+        const f = familiaDe(i.chave);
+        if (!medidos.has(f)) medidos.set(f, medirEfeito([...(porFamilia.get(f) ?? [])].sort(), pedidos, comEvento, primeiroDia));
+        return { ...i, efeito: medidos.get(f) };
+      });
+    } catch (e: any) {
+      this.log.warn(`"mexe na sua loja?" não medido (empresa ${tenantId.slice(0, 8)}): ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e}`);
+      return itens;
+    }
+  }
+
+  /** Pedidos de delivery (todos os canais, sem os cancelados) por dia de operação, entre `de` e `ate`. */
+  private async pedidosPorDia(tenantId: string, unidadeId: string | null, de: string, ate: string): Promise<Map<string, number>> {
+    const corte = REGRAS_DO_PERFIL.corteDiaOperacaoHoras;
+    const hh = `${String(corte).padStart(2, '0')}:00:00`;
+    const r = this.rows(await this.db.execute(sql`
+      select to_char(((p.criado_em at time zone ${FUSO_SQL}) - make_interval(hours => ${corte}::int))::date, 'YYYY-MM-DD') as dia,
+             count(*)::int as n
+        from pedido_externo p
+       where p.tenant_id = ${tenantId}::uuid and p.status <> 'cancelado'
+         and p.criado_em >= ${instanteDe(`${de} ${hh}`)} and p.criado_em < ${instanteDe(`${somarDias(ate, 1)} ${hh}`)}
+         ${sqlUnidade('p.unidade_id', unidadeId)}
+       group by 1`));
+    return new Map(r.map((x: any) => [String(x.dia), Number(x.n)]));
   }
 
   /** Junta as três fontes (puro, a partir das linhas já lidas). */

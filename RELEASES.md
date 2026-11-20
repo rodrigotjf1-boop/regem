@@ -16,7 +16,9 @@
   `calendario_loja_dia`).** Delivery › Clientes › Calendário de eventos (rotas `/calendario-da-loja`), a regra fixa de
   feriados e datas, os eventos da loja e a cópia por loja e dia na rotina noturna do perfil. Tudo só na nuvem e só com o
   módulo "Perfil do cliente" ligado; as duas tabelas entram como SO_NUVEM no `sync-daemon.mjs` (o daemon mudou: o
-  `.exe` do próximo corte leva junto, como já leva o da F1a).
+  `.exe` do próximo corte leva junto, como já leva o da F1a). Junto, a F3 parte 1 ("mexe na loja?" no calendário, só
+  leitura) e o resto da F1c (as escolhas na entrada do cardápio e a palavra PRIVACIDADE no WhatsApp), que não entraram
+  no #1177.
 
 - **Perfil do cliente — o gatilho dos totais não espera a trava do cadastro (19/11; mig 460 NOS DOIS LADOS; ERR-539).** A
   função da 458 pega o cadastro com skip locked (feita por um diagnóstico errado do deadlock do CI — ERR-539; inofensiva). No servidor da loja
