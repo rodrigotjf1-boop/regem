@@ -16,19 +16,46 @@ import { type AssuntosDoAtendente, assuntosDaEmpresa, paraOResponsavelSql, salva
 
 /** "Avisar o gerente se ninguém pegar o caso em": as opções do protótipo (2, 3, 5, 10 min) e 0 = não avisa. */
 export const MINUTOS_DO_AVISO = [0, 2, 3, 5, 10] as const;
-/** O padrão (protótipo da central, grupo "Fila e avisos"): 3 min; a posição na fila, dita (como o robô já fazia). */
-export const AJUSTE_DA_FILA_PADRAO = { avisarGerenteMin: 3, dizerPosicao: true };
+/**
+ * O padrão (protótipo da central, grupo "Fila e avisos"): 3 min; a posição na fila, dita (como o robô já fazia); o tempo
+ * médio para resolver um caso VAZIO (mig 468 — o robô não fala de tempo, como sempre foi).
+ */
+export const AJUSTE_DA_FILA_PADRAO = { avisarGerenteMin: 3, dizerPosicao: true, tempoMedioMin: null as number | null };
 /** Quantos casos a rotina marca por volta (os que sobram ficam para a volta seguinte, um minuto depois). */
 export const ESCALAR_POR_VOLTA = 500;
+/** "Tempo médio para resolver um caso" (mig 468): de 1 a 240 minutos — o mesmo `check` do banco. */
+export const TEMPO_MEDIO_MIN = 1;
+export const TEMPO_MEDIO_MAX = 240;
+/** O tempo medido que a tela mostra ao lado do ajuste: os casos resolvidos nestes últimos dias. */
+export const DIAS_DO_TEMPO_MEDIDO = 30;
 
-export type AjusteDaFila = { avisarGerenteMin: number; dizerPosicao: boolean };
+export type AjusteDaFila = { avisarGerenteMin: number; dizerPosicao: boolean; tempoMedioMin: number | null };
+
+/** O que a fila mostra de tempo, medido nos casos resolvidos pelo Regem (sem casos, `casos` = 0 e os tempos nulos). */
+export type TempoMedido = { dias: number; casos: number; medianaMin: number | null; p80Min: number | null };
+
+/**
+ * O tempo que o robô diz ao cliente (mig 468; protótipo "Tempo da fila"): a posição × o tempo médio que a loja definiu,
+ * arredondado em faixas — "até 10 minutos", "cerca de 15/20/30/40 minutos", "mais de 40 minutos". É a média da loja, não
+ * uma promessa: sem posição (já tem alguém com o caso, fora do horário) ou sem o tempo definido, nada (o robô não fala de
+ * tempo). Pura — o teste do atendente simula com a mesma regra.
+ */
+export function tempoEstimadoDaFila(posicao: number | null | undefined, tempoMedioMin: number | null | undefined): string | null {
+  if (typeof posicao !== 'number' || !Number.isInteger(posicao) || posicao < 1) return null;
+  if (typeof tempoMedioMin !== 'number' || !Number.isInteger(tempoMedioMin) || tempoMedioMin < TEMPO_MEDIO_MIN) return null;
+  const minutos = posicao * tempoMedioMin;
+  if (minutos <= 10) return 'até 10 minutos';
+  for (const faixa of [15, 20, 30, 40]) if (minutos <= faixa) return `cerca de ${faixa} minutos`;
+  return 'mais de 40 minutos';
+}
 
 /**
  * O que a tela mandou para "Fila e avisos", conferido (V16: ausente fica de fora; V15: liga/desliga só com booleano).
  * Pura — a rota confere ANTES de gravar qualquer grupo, para não gravar a 99 e recusar a fila no mesmo salvar.
+ * `tempoMedioMin` (mig 468): inteiro de 1 a 240, ou `null`/vazio para apagar (o robô volta a não falar de tempo).
  */
 export function lerAjusteDaFila(dto: unknown): Partial<AjusteDaFila> {
-  const d = (dto ?? {}) as { avisarGerenteMin?: unknown; dizerPosicao?: unknown };
+  const d = (dto ?? {}) as { avisarGerenteMin?: unknown; dizerPosicao?: unknown; tempoMedioMin?: unknown };
   const parcial: Partial<AjusteDaFila> = {};
   if (d.avisarGerenteMin !== undefined) {
     const minutos = typeof d.avisarGerenteMin === 'number' ? d.avisarGerenteMin : NaN;
@@ -37,6 +64,15 @@ export function lerAjusteDaFila(dto: unknown): Partial<AjusteDaFila> {
     parcial.avisarGerenteMin = minutos;
   }
   if (d.dizerPosicao !== undefined) parcial.dizerPosicao = exigirBooleano(d.dizerPosicao, 'dizerPosicao');
+  if (d.tempoMedioMin !== undefined) {
+    if (d.tempoMedioMin === null || d.tempoMedioMin === '') parcial.tempoMedioMin = null;
+    else {
+      const minutos = typeof d.tempoMedioMin === 'number' ? d.tempoMedioMin : NaN;
+      if (!Number.isInteger(minutos) || minutos < TEMPO_MEDIO_MIN || minutos > TEMPO_MEDIO_MAX)
+        throw new BadRequestException(`Tempo médio para resolver um caso: de ${TEMPO_MEDIO_MIN} a ${TEMPO_MEDIO_MAX} minutos, ou vazio.`);
+      parcial.tempoMedioMin = minutos;
+    }
+  }
   return parcial;
 }
 
@@ -115,20 +151,52 @@ export class FilaEAvisosService {
     return linhas.length;
   }
 
-  /** Os ajustes "Fila e avisos" da empresa (sem linha, os padrões). */
+  /**
+   * Os ajustes "Fila e avisos" da empresa (sem linha, os padrões). O tempo médio (mig 468) é lido pelo `to_jsonb` da
+   * linha: num banco sem a 468, vazio — os outros dois ajustes não caem por causa dele.
+   */
   async ajustes(tenantId: string): Promise<AjusteDaFila> {
     const r: any = await this.db.execute(sql`
-      select avisar_gerente_min as "avisarGerenteMin", dizer_posicao as "dizerPosicao" from robo_config where tenant_id = ${tenantId}::uuid`);
+      select rc.avisar_gerente_min as "avisarGerenteMin", rc.dizer_posicao as "dizerPosicao",
+             (to_jsonb(rc) ->> 'tempo_medio_min')::int as "tempoMedioMin"
+        from robo_config rc where rc.tenant_id = ${tenantId}::uuid`);
     const row = (r.rows ?? r)[0];
     return {
       avisarGerenteMin: row?.avisarGerenteMin ?? AJUSTE_DA_FILA_PADRAO.avisarGerenteMin,
       dizerPosicao: row?.dizerPosicao ?? AJUSTE_DA_FILA_PADRAO.dizerPosicao,
+      tempoMedioMin: typeof row?.tempoMedioMin === 'number' ? row.tempoMedioMin : AJUSTE_DA_FILA_PADRAO.tempoMedioMin,
+    };
+  }
+
+  /**
+   * O tempo MEDIDO que a tela mostra ao lado do "Tempo médio para resolver um caso" (D10 do plano): dos casos da empresa
+   * criados nos últimos 30 dias e já resolvidos, a mediana e o 80º percentil de criado → resolvido, em minutos. Fora o
+   * recado para o responsável (não passa pela fila da equipe — mig 381). Só leitura; a tela compara, nada muda sozinho.
+   */
+  async tempoMedido(tenantId: string): Promise<TempoMedido> {
+    const r: any = await this.db.execute(sql`
+      select count(*)::int as casos,
+             round((percentile_cont(0.5) within group (order by extract(epoch from (c.resolvido_em - c.criado_em)) / 60))::numeric)::int as "medianaMin",
+             round((percentile_cont(0.8) within group (order by extract(epoch from (c.resolvido_em - c.criado_em)) / 60))::numeric)::int as "p80Min"
+        from atendimento_chamado c
+       where c.tenant_id = ${tenantId}::uuid
+         and c.criado_em > now() - make_interval(days => ${DIAS_DO_TEMPO_MEDIDO})
+         and c.resolvido_em is not null and c.resolvido_em >= c.criado_em
+         and not ${paraOResponsavelSql('c')}`);
+    const l = (r.rows ?? r)[0] ?? {};
+    const casos = Number(l.casos) || 0;
+    return {
+      dias: DIAS_DO_TEMPO_MEDIDO,
+      casos,
+      medianaMin: casos ? Number(l.medianaMin) : null,
+      p80Min: casos ? Number(l.p80Min) : null,
     };
   }
 
   /**
    * Salva o que veio (V16: ausente mantém; V15: liga/desliga só com booleano). Grava SÓ as próprias colunas da
    * `robo_config` — o ajuste do robô (pausa, avisos) é de outro escritor (V82). Cada mudança fica na auditoria.
+   * O tempo médio (mig 468) vai numa gravação só dele, e só quando mudou: os outros dois nunca regravam a coluna.
    */
   async salvar(user: AuthUser, dto: unknown): Promise<AjusteDaFila> {
     const parcial = lerAjusteDaFila(dto);
@@ -141,6 +209,11 @@ export class FilaEAvisosService {
       on conflict (tenant_id) do update
          set avisar_gerente_min = excluded.avisar_gerente_min, dizer_posicao = excluded.dizer_posicao,
              atualizado_por = excluded.atualizado_por, atualizado_em = now()`);
+    if (antes.tempoMedioMin !== depois.tempoMedioMin)
+      await this.db.execute(sql`
+        update robo_config set tempo_medio_min = ${depois.tempoMedioMin}::smallint, atualizado_por = ${user.colaboradorId}::uuid,
+               atualizado_em = now()
+         where tenant_id = ${user.tenantId}::uuid`);
     const registrar = (acao: string, detalhe: Record<string, unknown>) =>
       this.auditoria?.registrar({
         tenantId: user.tenantId,
@@ -155,6 +228,8 @@ export class FilaEAvisosService {
     if (antes.avisarGerenteMin !== depois.avisarGerenteMin)
       await registrar('aviso_ao_gerente_alterado', { de: antes.avisarGerenteMin, para: depois.avisarGerenteMin });
     if (antes.dizerPosicao !== depois.dizerPosicao) await registrar(depois.dizerPosicao ? 'dizer_posicao_ligado' : 'dizer_posicao_desligado', {});
+    if (antes.tempoMedioMin !== depois.tempoMedioMin)
+      await registrar('tempo_medio_da_fila_alterado', { de: antes.tempoMedioMin, para: depois.tempoMedioMin });
     return this.ajustes(user.tenantId);
   }
 
@@ -398,11 +473,21 @@ export class FilaEAvisosService {
    * No servidor da loja não há robô nem a tabela: diz.
    */
   async dizPosicao(tenantId: string): Promise<boolean> {
-    if (ehServidorLocal()) return true;
+    return (await this.comoDizerAFila(tenantId)).dizerPosicao;
+  }
+
+  /**
+   * O que o robô diz da fila: a posição (o ajuste "Dizer a posição") e o tempo médio que a loja definiu (mig 468). Na
+   * dúvida (leitura falhou) e no servidor da loja (não há robô nem a tabela): diz a posição e não fala de tempo — como
+   * sempre foi.
+   */
+  async comoDizerAFila(tenantId: string): Promise<{ dizerPosicao: boolean; tempoMedioMin: number | null }> {
+    if (ehServidorLocal()) return { dizerPosicao: true, tempoMedioMin: null };
     try {
-      return (await this.ajustes(tenantId)).dizerPosicao;
+      const a = await this.ajustes(tenantId);
+      return { dizerPosicao: a.dizerPosicao, tempoMedioMin: a.tempoMedioMin };
     } catch {
-      return true;
+      return { dizerPosicao: true, tempoMedioMin: null };
     }
   }
 }
