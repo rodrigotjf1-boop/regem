@@ -34,7 +34,8 @@ const NOTA = '0e1b9a54-7f3a-4c2d-9b8e-1a2b3c4d5e6f';
 describe('o catálogo das propostas do Mister', () => {
   it('os de botão valem 10 minutos e nascem de um aviso; o cancelamento é de PIN, vale 15 minutos e nasce da pergunta', () => {
     for (const p of Object.values(PROCEDIMENTOS)) {
-      if (p.id === 'cancelar_pedido') expect(p).toMatchObject({ nivel: 'pin', prazoMin: 15, tipoDoAviso: null });
+      // M6d: a sessão com PIN também é de PIN, vale 15 minutos e nasce da conversa.
+      if (p.id === 'cancelar_pedido' || p.id === 'abrir_sessao') expect(p).toMatchObject({ nivel: 'pin', prazoMin: 15, tipoDoAviso: null });
       else expect(p).toMatchObject({ nivel: 'botao', prazoMin: 10 });
       if (p.nivel === 'botao') expect(p.tipoDoAviso).not.toBeNull();
       expect(p.conferirMin).toBeGreaterThan(0);

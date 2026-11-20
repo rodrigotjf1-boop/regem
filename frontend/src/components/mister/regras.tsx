@@ -169,6 +169,7 @@ export function RegrasDoMister() {
             Para criar ou mudar uma regra, fale com o Mister no WhatsApp: ele monta a regra com os dados que lê e só liga depois do seu &quot;Confirmar&quot;. Os avisos
             críticos (servidor sem sinal, certificado, chave de IA) continuam chegando, com ou sem regra.
           </p>
+          {dados.souPresidente && <SegurancaDoMister />}
         </>
       )}
 
@@ -223,6 +224,83 @@ export function RegrasDoMister() {
             {apagando.deixaDeReceber.length ? ' Os avisos da empresa que ela substituía voltam a chegar pelo WhatsApp.' : ''}
           </p>
         </Dialogo>
+      )}
+    </section>
+  );
+}
+
+/**
+ * "Segurança · só o presidente muda" (versão 6, M6d, mig 476; o protótipo, abaixo da lista): a sessão com PIN — com ela
+ * ligada, os valores em reais, os dados de pessoas e as ações de botão pedem o PIN pelo link, que vale pelo tempo escolhido.
+ * Nasce desligada. Lê e salva pelos ajustes da conversa (`GET`/`PATCH /mister/conversa`, só o presidente).
+ */
+function SegurancaDoMister() {
+  const OPCOES = [
+    { v: '', rotulo: 'Desligado' },
+    { v: '6', rotulo: 'a cada 6 horas' },
+    { v: '12', rotulo: 'a cada 12 horas' },
+    { v: '24', rotulo: 'a cada 24 horas' },
+  ];
+  const [salvo, setSalvo] = useState<string | null>(null);
+  const [valor, setValor] = useState('');
+  const [erro, setErro] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+  const ler = useCallback(async () => {
+    setErro(false);
+    try {
+      const r = (await api.get('/mister/conversa')) as { conversa?: { pinACadaH?: number | null } };
+      const v = r?.conversa?.pinACadaH ? String(r.conversa.pinACadaH) : '';
+      setSalvo(v);
+      setValor(v);
+    } catch {
+      setErro(true);
+    }
+  }, []);
+  useEffect(() => void ler(), [ler]);
+  async function salvar() {
+    setSalvando(true);
+    try {
+      await api.patch('/mister/conversa', { pinACadaH: valor ? Number(valor) : null });
+      setSalvo(valor);
+      toast.success(valor ? `Pronto: o Mister pede o PIN a cada ${valor} horas para valores, dados de pessoas e botões.` : 'Pronto: o Mister não pede mais o PIN da sessão.');
+    } catch (e) {
+      toast.error(mensagem(e, 'Não deu para salvar agora.'));
+    } finally {
+      setSalvando(false);
+    }
+  }
+  return (
+    <section className="space-y-3 rounded-lg border border-border bg-card p-4" aria-labelledby="seguranca-mister">
+      <h3 id="seguranca-mister" className="font-display text-base font-bold">
+        Segurança · só o presidente muda
+      </h3>
+      {erro ? (
+        <p role="alert" className="text-sm">
+          Não consegui ler o ajuste agora.{' '}
+          <Button variant="outline" className="ml-2" onClick={() => void ler()}>
+            Tentar de novo
+          </Button>
+        </p>
+      ) : salvo === null ? (
+        <SkeletonList rows={1} />
+      ) : (
+        <div className="space-y-2">
+          <p className="text-sm font-semibold">Pedir o PIN para valores e dados de pessoas</p>
+          <p className={`text-sm ${texto2}`}>
+            Valores em reais, dados de pessoas e ações de botão pedem o PIN pelo link. Depois do PIN, vale pelo tempo escolhido. Recomendado se o WhatsApp fica aberto
+            em algum computador da loja.
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <FiltroSelect id="seguranca-pin" rotulo="De quanto em quanto tempo" opcoes={OPCOES} valor={valor} aoMudar={setValor} />
+            <Button type="button" onClick={() => void salvar()} disabled={salvando || valor === salvo}>
+              {salvando ? 'Salvando…' : 'Salvar'}
+            </Button>
+          </div>
+          <p className={`border-t border-border pt-2 text-sm ${texto2}`}>
+            <span className="font-semibold text-foreground">Desligar quem fica 60 dias sem conversa</span> · sempre ligado. O WhatsApp de quem não fala com o Mister
+            há 60 dias é desligado, com aviso na tela; para voltar, a pessoa gera o código de novo.
+          </p>
+        </div>
       )}
     </section>
   );

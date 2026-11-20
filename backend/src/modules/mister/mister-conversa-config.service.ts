@@ -48,7 +48,15 @@ export interface ConversaDoMister {
    * de voz (a voz do Google, pelo DMS Graph). Nasce desligado; só vale com a versão 5 ligada (`MISTER_MIDIA`).
    */
   responderAudio: boolean;
+  /**
+   * Versão 6, M6d (mig 476): a sessão com PIN — com ela ligada, os valores em reais, os dados de pessoas e as ações de botão
+   * pedem o PIN pelo link, que vale por estas horas. null = desligado (o padrão).
+   */
+  pinACadaH: HorasDoPin | null;
 }
+/** As horas que o PIN da sessão vale (a escolha do presidente). */
+export const HORAS_DO_PIN = [6, 12, 24] as const;
+export type HorasDoPin = (typeof HORAS_DO_PIN)[number];
 /** As formas de mandar o resumo (a mesma lista da restrição da mig 462). */
 export const FORMAS_DE_ENTREGA_DO_RESUMO = ['botoes', 'pdf', 'link', 'texto'] as const;
 export type FormaDeEntregaDoResumo = (typeof FORMAS_DE_ENTREGA_DO_RESUMO)[number];
@@ -61,6 +69,7 @@ export const CONVERSA_PADRAO: ConversaDoMister = {
   ficaDeOlho: false,
   resumoEntrega: 'botoes',
   responderAudio: false,
+  pinACadaH: null,
 };
 
 /** O jeito como vai ao banco e às instruções: uma linha, espaços apertados; vazio vira null. */
@@ -110,6 +119,11 @@ export function conferirConversa(dto: unknown): Partial<ConversaDoMister> | { er
     if (typeof d.responderAudio !== 'boolean') return { erro: 'Responder em áudio: diga se fica ligado ou desligado.' };
     fora.responderAudio = d.responderAudio;
   }
+  if (d.pinACadaH !== undefined) {
+    // M6d: 6, 12 ou 24 horas, ou null (desligado) — nada além disso.
+    if (d.pinACadaH !== null && !(HORAS_DO_PIN as readonly unknown[]).includes(d.pinACadaH)) return { erro: 'Pedir o PIN: escolha 6, 12 ou 24 horas, ou desligado.' };
+    fora.pinACadaH = d.pinACadaH;
+  }
   if (!Object.keys(fora).length) return { erro: 'Nada para salvar.' };
   return fora;
 }
@@ -126,6 +140,7 @@ const COLUNA: Record<keyof ConversaDoMister, { coluna: string; valor: (v: any) =
   ficaDeOlho: { coluna: 'fica_de_olho', valor: (v) => sql`${v}` },
   resumoEntrega: { coluna: 'resumo_entrega', valor: (v) => sql`${v}` },
   responderAudio: { coluna: 'responder_audio', valor: (v) => sql`${v}` },
+  pinACadaH: { coluna: 'pin_a_cada_h', valor: (v) => sql`${v}::int` },
 };
 
 /**
@@ -133,6 +148,7 @@ const COLUNA: Record<keyof ConversaDoMister, { coluna: string; valor: (v: any) =
  * lê as da anterior. Nunca devolver o padrão de um campo que está salvo (o "perguntar" dos documentos, o perfil).
  */
 const LEITURAS = [
+  sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio", pin_a_cada_h as "pinACadaH"`,
   sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio"`,
   sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho"`,
   sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos"`,
@@ -171,6 +187,7 @@ export class MisterConversaConfigService {
         ficaDeOlho: l.ficaDeOlho === true,
         resumoEntrega: (FORMAS_DE_ENTREGA_DO_RESUMO as readonly unknown[]).includes(l.resumoEntrega) ? l.resumoEntrega : CONVERSA_PADRAO.resumoEntrega,
         responderAudio: l.responderAudio === true,
+        pinACadaH: (HORAS_DO_PIN as readonly unknown[]).includes(Number(l.pinACadaH)) ? (Number(l.pinACadaH) as HorasDoPin) : null,
       };
     } catch (e: any) {
       // Sem a 440 (a migration ainda não entrou, ou o servidor da loja): o padrão, que não muda nada.

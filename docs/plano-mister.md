@@ -1870,6 +1870,23 @@ regressão de novo quando as instruções mudam; a Meta pela doc oficial (V20); 
 - Fica para a parte 2: os formatos de cada pessoa, os padrões da noite (a impressora desligada antes do fechamento, os
   avisos que ninguém responde, os atrasos na mesma faixa) e as sugestões com "Não, deixa assim" (1 migration).
 
+**M6d implementada (20/11/2026; mig 476 SÓ NUVEM — `mister_conversa_config.pin_a_cada_h` e `mister_vinculo.pin_ate`;
+nasce desligada):**
+- **O ajuste** (Mister › Regras › "Segurança · só o presidente muda", pelo `PATCH /mister/conversa`): pedir o PIN a cada
+  6, 12 ou 24 horas, ou desligado (o padrão). A linha "Desligar quem fica 60 dias sem conversa · sempre ligado" (M6a) vai
+  junto; a do "Aparelho trocado pede o PIN" entra com a M6b.
+- **A guarda** (`mister-sessao.ts`, uma leitura das duas tabelas; sem a migration, não exige): no escopo da CONVERSA (a tela
+  entrou com a senha e não pede), com o ajuste ligado e o PIN vencido, os valores em reais saem escondidos (`verValores`
+  falso), os dados de pessoas (`equipe_do_dia`) são recusados e a IA é avisada no bloco da conversa; o link para confirmar
+  sai DEPOIS da resposta, uma vez por link que vale.
+- **O PIN pelo mesmo link da F4.2a** (o procedimento `abrir_sessao`, de PIN, 15 minutos, uma proposta por pessoa renovada
+  quando acaba): o PIN certo de QUEM pediu grava `pin_ate` pelas horas da empresa — o gerente também abre a dele (a
+  leitura do link e a conferência do PIN aceitam o gerente só neste procedimento).
+- **As ações de botão** esperam o PIN: com a sessão vencida, o "Autorizar" de uma proposta de botão responde que falta o
+  PIN, manda o link da sessão e deixa a proposta pendente (no prazo dela).
+- Junto: o teste do PIN na auditoria da F4.2a deixou de cair ao acaso (ERR-545 — o UUID aleatório continha "0000").
+- O bloco da conversa (as instruções) mudou: rodar a avaliação.
+
 #### 8. Custos
 
 | Parte | Como começa | Se ligar ou usar |

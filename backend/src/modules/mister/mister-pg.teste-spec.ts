@@ -63,7 +63,7 @@ import { MisterPropostasService } from './mister-propostas.service';
 import { TEXTOS_DA_PROPOSTA, TEXTOS_DO_LINK } from './mister-procedimentos';
 import { MODELO_DO_AVISO } from './mister-modelos';
 import { EvolutionEntradaService } from '../whatsapp/evolution-entrada.service';
-import { MisterFerramentasService } from './mister-ferramentas.service';
+import { MisterFerramentasService, SESSAO_PEDE_PIN } from './mister-ferramentas.service';
 import { GraphFotoService } from '../graph/graph-foto.service';
 import { MisterMidiaService } from './mister-midia.service';
 import { TEXTOS_DA_MIDIA, chaveDaFala, primeiroDoMesQueVem } from './mister-midia.regras';
@@ -470,7 +470,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -5665,6 +5665,88 @@ export function testesDoMisterComPostgres(): void {
 
     // ───────────────────────────── o link com PIN (F4.2a, mig 433) ─────────────────────────────
 
+    it('M6d: a sessão com PIN — desligada, nada muda; ligada, valores e dados de pessoas esperam o PIN; o link sai uma vez; o PIN (o do gerente também) libera pelas horas da empresa; o botão espera o PIN', async () => {
+      const tel = telefone();
+      const telCarlos = telefone();
+      await ligar('ana', tel);
+      await ligar('carlos', telCarlos, A, 'gerente');
+      await modulo(A, true);
+      await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.ana, bcrypt.hashSync('2580', 4)]);
+      await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.carlos, bcrypt.hashSync('1357', 4)]);
+      const links = new MisterPropostasService(db, numero, entrada, fiscalDeMentira as any, auditoria, modulos);
+      const comPropostas = new MisterFerramentasService(
+        db, modulos, new DashboardService(db), new RelatoriosService(db, { custoEfetivoMapa: async () => ({}) } as any), new EstoqueService(db, auditoria as AuditoriaService),
+        deliveryDeMentira as any, cozinhaDeMentira as any, servidorDeMentira as any, vendasDeMentira as any, escalaDeMentira as any, pontoDeMentira as any,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, links,
+      );
+      const ajuste = (h: number | null) =>
+        q(
+          `insert into mister_conversa_config (tenant_id, pin_a_cada_h) values ($1, $2)
+           on conflict (tenant_id) do update set pin_a_cada_h = excluded.pin_a_cada_h`,
+          [A, h],
+        );
+      const codigoDe = (url: string | null) => /\/m\/([A-Za-z0-9_-]{32})$/.exec(String(url))?.[1] ?? '';
+      const esperarPinAte = async (quem: string) => {
+        for (let i = 0; i < 40; i++) {
+          const [v] = await q(`select pin_ate from mister_vinculo where tenant_id = $1 and colaborador_id = $2`, [A, pessoa[quem]]);
+          if (v?.pin_ate) return v.pin_ate as Date;
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        return null;
+      };
+      try {
+        // desligada (o padrão): o escopo de sempre
+        await ajuste(null);
+        const antes = (await comPropostas.escopo(A, pessoa.ana, tel))!;
+        expect({ pendente: antes.pinPendente ?? false, valores: antes.verValores }).toEqual({ pendente: false, valores: true });
+        // ligada (12 h), sem PIN ainda: valores escondidos, dados de pessoas recusados, a conversa diz à IA
+        await ajuste(12);
+        const e = (await comPropostas.escopo(A, pessoa.ana, tel))!;
+        expect({ pendente: e.pinPendente, valores: e.verValores, horas: e.horasDoPin }).toEqual({ pendente: true, valores: false, horas: 12 });
+        expect(await comPropostas.executar(e, 'equipe_do_dia', {})).toEqual({ ok: false, dados: { erro: SESSAO_PEDE_PIN } });
+        expect(comPropostas.conversa(e)).toMatchObject({ pinPendente: true, verValores: false });
+        // a tela (entrou com a senha) não pede o PIN
+        expect((await comPropostas.escopoDaTela(A, pessoa.ana))!.pinPendente ?? false).toBe(false);
+        // o link sai uma vez (a pergunta seguinte, com o link valendo, não manda outro)
+        numero.pedidos.length = 0;
+        expect(await comPropostas.linkDaSessao(e, tel)).toBe(true);
+        expect(await comPropostas.linkDaSessao(e, tel)).toBe(false);
+        expect(numero.pedidos.filter((p) => p.url.endsWith('/messages'))).toHaveLength(1);
+        // o PIN certo (pelo link, como a página) libera por 12 horas
+        const s = (await links.proporSessao(A, pessoa.ana, 12))!;
+        expect(s.nova).toBe(false);
+        const c = codigoDe(await links.enviarLink(s.p.id, pessoa.ana, tel, s.p.pergunta));
+        expect((await links.verPeloLink(c)).titulo).toBe('Autorizar: liberar os valores e os dados de pessoas no Mister?');
+        await links.autorizarPeloLink(c, '2580');
+        const ate = await esperarPinAte('ana');
+        expect(ate).not.toBeNull();
+        const horas = (new Date(ate!).getTime() - Date.now()) / 3_600_000;
+        expect(horas).toBeGreaterThan(11.9);
+        expect(horas).toBeLessThan(12.1);
+        const depois = (await comPropostas.escopo(A, pessoa.ana, tel))!;
+        expect({ pendente: depois.pinPendente ?? false, valores: depois.verValores }).toEqual({ pendente: false, valores: true });
+        // o gerente confirma a dele com o PIN dele (a sessão é de cada um)
+        const sc = (await links.proporSessao(A, pessoa.carlos, 12))!;
+        const cc = codigoDe(await links.enviarLink(sc.p.id, pessoa.carlos, telCarlos, sc.p.pergunta));
+        await links.autorizarPeloLink(cc, '1357');
+        expect(await esperarPinAte('carlos')).not.toBeNull();
+        // vencida: o botão de uma proposta espera o PIN (a proposta continua pendente) e o link da sessão vai junto
+        await q(`update mister_vinculo set pin_ate = now() - interval '1 minute' where tenant_id = $1 and colaborador_id = $2`, [A, pessoa.ana]);
+        const [{ id: pb }] = await q(
+          `insert into mister_proposta (tenant_id, unidade_id, aviso_id, procedimento, parametros, nivel, vence_em)
+           values ($1, null, $2, 'consultar_nota', '{}'::jsonb, 'botao', now() + interval '10 minutes') returning id`,
+          [A, randomUUID()],
+        );
+        numero.pedidos.length = 0;
+        expect(await links.responder(`prop:${pb}:sim`, { telefone: tel, vinculos: [{ tenantId: A, colaboradorId: pessoa.ana, unidadeId: null, nivel: 'presidente', empresa: NOME_A }], wamid: null })).toBe(true);
+        expect(numero.enviadas.map((m) => m.texto)).toContain('Para autorizar pelo botão, confirme antes o seu PIN pelo link que mandei agora.');
+        expect((await q(`select situacao from mister_proposta where id = $1`, [pb]))[0]).toEqual({ situacao: 'proposta' });
+      } finally {
+        await ajuste(null);
+        await q(`update mister_vinculo set pin_ate = null where tenant_id = $1`, [A]);
+      }
+    });
+
     it('F4.2a: o link com PIN — vale uma vez, só o resumo fica no banco, 5 PIN errados bloqueiam (nem em paralelo passa de 5), o novo envio derruba o anterior, a régua de acesso da conversa e o botão não autoriza', async () => {
       const tel = telefone();
       await ligar('ana', tel);
@@ -5733,7 +5815,9 @@ export function testesDoMisterComPostgres(): void {
       expect((await links.autorizarPeloLink(c1, '0000')).erro).toBe('O PIN não confere. Restam 4 tentativas.');
       const errado2 = await links.autorizarPeloLink(c1, '9999');
       expect(errado2).toMatchObject({ estado: 'proposta', restam: 3, erro: 'O PIN não confere. Restam 3 tentativas.' });
-      expect(JSON.stringify(auditados)).not.toMatch(/0000|9999|2580/);
+      // O PIN não vai à trilha. Procura com bordas e sem os ids (um UUID aleatório pode conter "0000" — o teste caía ao
+      // acaso no CI, achado de outra sessão em 20/11).
+      expect(JSON.stringify(auditados).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '<id>')).not.toMatch(/\b(0000|9999|2580)\b/);
 
       // ── O PIN certo: autoriza UMA vez (a tentativa reservada volta), avisa na conversa e executa sozinho.
       numero.pedidos.length = 0;
@@ -7108,7 +7192,7 @@ export function testesDoMisterComPostgres(): void {
 
       it('o ajuste da empresa: "pergunta antes" segura o boleto que lançaria sozinho; desligado, a foto segue como antes; o salvar confere', async () => {
         // Versão 4 (mig 447): o jeito vem junto, no padrão (nada muda). M4d (mig 452): o "fica de olho" nasce desligado.
-        const SEM_JEITO = { perfil: 'hoje', jeito: null, avisosEscritos: [], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false };
+        const SEM_JEITO = { perfil: 'hoje', jeito: null, avisosEscritos: [], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null };
         expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: true, documentosModo: 'sozinho', ...SEM_JEITO });
         await expect(conversa.salvar(usuario('ana'), { documentosModo: 'sempre' })).rejects.toBeInstanceOf(BadRequestException);
         await expect(conversa.salvar(usuario('ana'), { documentosLigado: 'sim' })).rejects.toBeInstanceOf(BadRequestException);
@@ -7162,12 +7246,12 @@ export function testesDoMisterComPostgres(): void {
         await expect(conversa.salvar(usuario('ana'), { avisosEscritos: 'loja' })).rejects.toBeInstanceOf(BadRequestException);
         // O jeito vira uma linha só, com os espaços apertados; os grupos saem na ordem da tela, sem repetir.
         const r = await conversa.salvar(usuario('ana'), { perfil: 'descontraido', jeito: '  Fale como sócio,\n sem formalidade.  ', avisosEscritos: ['fiscal', 'loja', 'loja'] });
-        expect(r.conversa).toEqual({ documentosLigado: true, documentosModo: 'sozinho', perfil: 'descontraido', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false });
+        expect(r.conversa).toEqual({ documentosLigado: true, documentosModo: 'sozinho', perfil: 'descontraido', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
         expect(auditados.filter((a) => a.acao === 'mister_conversa_alterada').at(-1)).toMatchObject({ detalhe: { antes: { perfil: 'hoje', jeito: null }, depois: { perfil: 'descontraido' } } });
         // Salvar só o perfil não apaga o jeito, os grupos nem o ajuste dos documentos.
         await conversa.salvar(usuario('ana'), { documentosModo: 'perguntar' });
         await conversa.salvar(usuario('ana'), { perfil: 'objetivo' });
-        expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: true, documentosModo: 'perguntar', perfil: 'objetivo', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false });
+        expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: true, documentosModo: 'perguntar', perfil: 'objetivo', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
         // M4d (mig 452): o "fica de olho" liga e desliga só com booleano (V15), sem mexer no resto.
         await expect(conversa.salvar(usuario('ana'), { ficaDeOlho: 'sim' })).rejects.toBeInstanceOf(BadRequestException);
         expect((await conversa.salvar(usuario('ana'), { ficaDeOlho: true })).conversa).toMatchObject({ ficaDeOlho: true, perfil: 'objetivo', avisosEscritos: ['loja', 'fiscal'] });

@@ -187,6 +187,8 @@ export interface ConversaDoMister {
   /** Gerente sem loja numa empresa de várias: nenhuma ferramenta responde. */
   semLoja: boolean;
   verValores: boolean;
+  /** Versão 6, M6d: a sessão com PIN está pendente (valores e dados de pessoas esperam o PIN; o link vai depois). */
+  pinPendente?: boolean;
   /** "quinta-feira, 13/11/2026, 20:15" — o relógio da loja, dito por quem chama. */
   agora: string;
   /** Passou da meia-noite e ainda é madrugada: o dia (dd/mm) em que a noite de trabalho começou. */
@@ -238,7 +240,13 @@ export function blocoDaConversa(c: ConversaDoMister): string {
     `- Empresa: ${limpar(c.empresa)}`,
     `- Você fala com: ${limpar(c.nome)} (${c.nivel})`,
     `- Lojas que esta pessoa consulta: ${lojas}`,
-    `- Valores em reais: ${c.verValores ? 'esta pessoa vê' : 'o perfil desta pessoa NÃO vê valores em reais'}`,
+    `- Valores em reais: ${
+      c.pinPendente
+        ? 'esperam o PIN desta pessoa (a sessão com PIN da empresa venceu): não diga valores nem dados de pessoas; diga em uma frase que o link para confirmar com o PIN vai a seguir'
+        : c.verValores
+          ? 'esta pessoa vê'
+          : 'o perfil desta pessoa NÃO vê valores em reais'
+    }`,
     `- Agora na loja: ${c.agora}`,
     // Bar e restaurante viram a meia-noite trabalhando: para quem pergunta à 1h, "hoje" ainda é a noite que começou ontem.
     ...(c.noiteDe
