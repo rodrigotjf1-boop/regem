@@ -195,7 +195,7 @@ export class MisterAgenteService implements OnModuleInit {
       // recusou), o emoji vai como texto — nunca silêncio. Na memória fica o emoji (o modelo não aceita resposta vazia).
       const reagiu = saida.reacao && ultima.wamid ? await this.numero.reagir(ultima.telefone, ultima.wamid, saida.reacao) : false;
       const resposta = saida.texto || saida.reacao || '';
-      const extras = fim.anexos.length + fim.imagens.length + fim.links.length + fim.botoes.length + fim.propostas.length + fim.graficos.length;
+      const extras = fim.anexos.length + fim.imagens.length + fim.links.length + fim.botoes.length + fim.propostas.length + fim.graficos.length + fim.mensagens.length;
       if (!saida.texto && saida.reacao && !extras) {
         if (!reagiu && !(await this.dizer(ultima.telefone, saida.reacao))) return await fechar('envio', trilha);
         return await this.fila.concluir(ids, { resposta, trilha, perguntaJunta: pergunta });
@@ -239,6 +239,15 @@ export class MisterAgenteService implements OnModuleInit {
           else await this.numero.enviar(ultima.telefone, { texto: p.pergunta, botoes: p.botoes });
         } catch (e: any) {
           this.logger.warn(`mister: a proposta ${p.id} não saiu para ${mascarar(ultima.telefone)} (${e instanceof FalhaDoEnvioDoMister ? e.motivo : (e?.message ?? e)})`);
+        }
+      }
+      // Versão 6, M6g: as mensagens que uma ação montou (a primeira pergunta da lista de compras, com os botões) saem depois
+      // da resposta, como a proposta. Falhou o envio: fica no log (a lista espera e vence sozinha).
+      for (const m of fim.mensagens) {
+        try {
+          await this.numero.enviar(ultima.telefone, m.botoes?.length ? { texto: m.texto, botoes: m.botoes } : { texto: m.texto });
+        } catch (e: any) {
+          this.logger.warn(`mister: a mensagem da ação não saiu para ${mascarar(ultima.telefone)} (${e instanceof FalhaDoEnvioDoMister ? e.motivo : (e?.message ?? e)})`);
         }
       }
       await this.fila.concluir(ids, { resposta, trilha, perguntaJunta: pergunta });
@@ -310,6 +319,7 @@ export class MisterAgenteService implements OnModuleInit {
       imagens: { url: string; legenda: string }[];
       links: { url: string; vence: Date }[];
       graficos: PlanoDoGrafico[];
+      mensagens: { texto: string; botoes?: { id: string; titulo: string }[] }[];
     }
   > {
     // O laço é o de `mister-laco.ts` (o mesmo da avaliação de regressão): aqui as portas são a IA da empresa, com o
@@ -326,6 +336,8 @@ export class MisterAgenteService implements OnModuleInit {
     const links: { url: string; vence: Date }[] = [];
     // Versão 5, M5d.2: os gráficos que `mostrar_grafico` montou (não vão ao modelo; a imagem vai antes do texto).
     const graficos: PlanoDoGrafico[] = [];
+    // Versão 6, M6g: as mensagens que uma ação manda depois da resposta (não vão ao modelo).
+    const mensagens: { texto: string; botoes?: { id: string; titulo: string }[] }[] = [];
     // M2b: o texto no ar. A leitura que falha não segura a resposta: vai o texto do código (e o log diz por quê).
     const instrucoes = this.instrucoes
       ? await this.instrucoes.noAr().then(
@@ -351,6 +363,7 @@ export class MisterAgenteService implements OnModuleInit {
           for (const im of r.imagens ?? []) if (!imagens.some((x) => x.url === im.url)) imagens.push(im);
           if (r.linkPublico) links.push(r.linkPublico);
           for (const g of r.graficos ?? []) if (graficos.length < IMAGENS_POR_RESPOSTA) graficos.push(g);
+          for (const m of r.mensagens ?? []) mensagens.push(m);
           if (r.anexo) {
             const ja = anexos.find((a) => botaoDoPdf(a.pedido) === botaoDoPdf(r.anexo!.pedido));
             if (ja) ja.enviarPdf = ja.enviarPdf || r.anexo.enviarPdf;
@@ -361,6 +374,6 @@ export class MisterAgenteService implements OnModuleInit {
       memoria,
       pergunta,
     );
-    return { ...fim, propostas, anexos, botoes, imagens, links, graficos };
+    return { ...fim, propostas, anexos, botoes, imagens, links, graficos, mensagens };
   }
 }

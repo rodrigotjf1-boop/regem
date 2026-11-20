@@ -2550,6 +2550,9 @@ const SO_NUVEM = new Set([
   // manda pelo número do Mister é a nuvem — a loja não tem estas tabelas.
   'mister_regra',
   'mister_regra_envio',
+  // A lista de compras montada pela conversa (versão 6, M6g, mig 475, @cloud-only): o Mister roda na nuvem — a loja não tem
+  // esta tabela (a lista criada vai para `compra_lista`, que sincroniza como sempre).
+  'mister_lista_compra',
   // O gasto do WhatsApp oficial (mig 445, @cloud-only): o que a Meta informa por dia e por modelo, e a situação da
   // leitura de cada conta. Quem lê a Meta é a nuvem — a loja não tem estas tabelas.
   'whatsapp_gasto',
