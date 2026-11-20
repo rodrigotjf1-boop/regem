@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister versão 6, M6h — o cupom fiscal de compra com "Como deseja lançar?" (20/11; SEM migration; nasce desligado,
+  `MISTER_CUPOM=1`).** Só na nuvem (os documentos do Mister): vai no `.zip` sem efeito na loja. Junto, o ERR-544 (a unidade
+  impressa "UN" na nota por foto).
+
 - **Mister versão 6, M6c — "Perdi o celular" (20/11; mig 473 NUVEM E LOJA — `sessao_corte`).** Corta todas as sessões do
   Regem de uma pessoa, em todos os aparelhos: a guarda e o tempo real recusam o token emitido antes do corte. Só a nuvem
   escreve a tabela; ela DESCE à loja (`direcao: 'desce'`), e a guarda do servidor da loja passa a recusar ali também. **Vai
