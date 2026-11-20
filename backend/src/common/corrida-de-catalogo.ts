@@ -66,3 +66,28 @@ const semInstrucao = (sql: string): boolean =>
  *  Postgres roda o texto inteiro numa transação) ou logo depois do `begin`, antes de qualquer outra instrução. Texto sem
  *  instrução volta como veio: a trava sozinha ficaria fora de transação, e o Postgres a recusa. */
 export const comTravaDaEmpresa = (sql: string): string => (semInstrucao(sql) ? sql : `${TRAVA_DA_EMPRESA};\n${sql}`);
+
+// ── A migration que trava a MESMA tabela duas vezes, reaplicada com a tabela pronta (ERR-539) ──────────────────────
+// A 344 reaplicada pula o `create table if not exists`, mas o `create index if not exists` trava a `robo_carrinho` em
+// ShareLock até o fim da transação, e o `enable row level security` pede AccessExclusiveLock por cima. Outra spec que,
+// numa transação, LEU o carrinho (AccessShareLock) e depois GRAVA nele (RowExclusiveLock — o `registrar` do robô) fecha
+// um impasse que o Postgres não consegue reordenar: cada um já segura o que o outro pede. Ele derruba quem esperou
+// primeiro, quase sempre a gravação da OUTRA spec, que não repete (CI de 19/11: o pedido agendado da `robo-pedido-pg`
+// com a 344 reaplicada pela `pedir-avaliacao-pg`). A migration que pede a trava forte UMA vez só (`alter table … add
+// column if not exists`) não fecha esse ciclo: a fila se reordena, ou o `lock_timeout` desiste e o
+// `repetirNaCorridaDeCatalogo` repete. A saída: o arquivo desta lista só roda se a tabela dele ainda não existe —
+// conferido DENTRO da transação da migration, depois da trava de `empresa` (quem cria e quem confere não correm juntos).
+export const SO_QUANDO_FALTA_A_TABELA: Readonly<Record<string, string>> = { '344_robo_carrinho.sql': 'robo_carrinho' };
+
+type Consulta = { query: (sql: string, valores?: unknown[]) => Promise<{ rows: any[] }> };
+
+/** Logo depois do `begin` da transação da migration: `true` = o arquivo cria uma tabela que JÁ existe no schema em uso e
+ *  deve ser pulado (ERR-539). Para o arquivo da lista, trava `empresa` antes de olhar (ERR-377). Arquivo fora da lista
+ *  (o nome ou o caminho): `false`, sem consulta nenhuma. */
+export async function migrationJaCriada(c: Consulta, arquivo: string): Promise<boolean> {
+  const tabela = SO_QUANDO_FALTA_A_TABELA[arquivo.split(/[\\/]/).pop() ?? ''];
+  if (!tabela) return false;
+  await c.query(TRAVA_DA_EMPRESA);
+  const { rows } = await c.query(`select to_regclass(current_schema() || '.' || $1) is not null as existe`, [tabela]);
+  return rows[0]?.existe === true;
+}

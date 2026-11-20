@@ -15,7 +15,7 @@ import { ProdutoService } from '../produto/produto.service';
 import { VendasService } from '../vendas/vendas.service';
 import { CardapioService } from './cardapio.service';
 import { RoboPedidoService } from './robo-pedido.service';
-import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
+import { comTravaDaEmpresa, migrationJaCriada, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { emSaoPaulo } from '../../common/pedido-agendado';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -104,7 +104,8 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
         const c = await pool.connect();
         try {
           await c.query('begin');
-          await c.query(comTravaDaEmpresa(readFileSync(m, 'utf8')));
+          // A 344 com a `robo_carrinho` pronta não roda: o índice e o `alter` travariam a tabela duas vezes (ERR-539).
+          if (!(await migrationJaCriada(c, m))) await c.query(comTravaDaEmpresa(readFileSync(m, 'utf8')));
           await c.query('commit');
         } catch (e) {
           await c.query('rollback').catch(() => {});

@@ -7,7 +7,7 @@ import * as schema from '../../db/schema';
 import { DeliveryService } from './delivery.service';
 import { AvisoDeAtrasoProcessor } from './aviso-de-atraso.processor';
 import { WhatsappProvedorService } from '../whatsapp/whatsapp-provedor.service';
-import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
+import { comTravaDaEmpresa, migrationJaCriada, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -51,7 +51,8 @@ descrever('aviso automático de atraso (Postgres)', () => {
       const c = await pool.connect();
       try {
         await c.query('begin');
-        await c.query(comTravaDaEmpresa(readFileSync(MIG(arq), 'utf8')));
+        // A 344 com a `robo_carrinho` pronta não roda: o índice e o `alter` travariam a tabela duas vezes (ERR-539).
+        if (!(await migrationJaCriada(c, arq))) await c.query(comTravaDaEmpresa(readFileSync(MIG(arq), 'utf8')));
         await c.query('commit');
       } catch (e) {
         await c.query('rollback').catch(() => {});
