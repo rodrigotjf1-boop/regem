@@ -238,6 +238,8 @@ describe('Mister — o que o modelo recebe', () => {
     expect(FERRAMENTAS.map((f) => f.name)).toEqual([
       'resumo_do_dia',
       'vendas_do_periodo',
+      // Versão 5, M5d.2: o gráfico na conversa.
+      'mostrar_grafico',
       'produtos_mais_vendidos',
       'insumo_vendido',
       'pedidos_em_andamento',

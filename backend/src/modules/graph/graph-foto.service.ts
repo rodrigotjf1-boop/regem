@@ -9,6 +9,7 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { versaoNoAr } from '../integracao-api/hub.regras';
 import {
   FERRAMENTA,
+  FERRAMENTA_FALAR,
   type ConfigGraph,
   type Franquia,
   PERMISSOES_DO_GRAPH,
@@ -175,6 +176,57 @@ export class GraphFotoService {
       await this.registrarLeitura(lig.id, analise ? 'lida' : 'fora-do-formato', franquiaDe((r as any)?.franquia), !!analise);
       return analise ?? falhou('fora-do-formato');
     } catch (e: any) {
+      return falhou(await this.depoisDaFalha(tenantId, lig, e));
+    } finally {
+      if (relogio) clearTimeout(relogio);
+    }
+  }
+
+  /**
+   * Versão 5, M5c: o texto vira a nota de voz (OGG/Opus) pela ferramenta `falar` do Graph (contrato 1.2.0), em até
+   * `prazoMs`. Os bytes, ou null (a resposta segue só em texto). As mesmas regras do `analisar`: a chave da instalação e
+   * da empresa, o prazo, a franquia do mês (a mesma) e a ligação desfeita; nunca lança. `aoFalhar` recebe o motivo curto
+   * (`franquia-esgotada`, `demora`, `voz-desligada`, `fora-do-formato`…). A chave de idempotência é a de quem chama (a mesma
+   * resposta repetida não gasta de novo).
+   */
+  async falar(tenantId: string, lig: LigacaoDoGraph, texto: string, chave: string, prazoMs: number, aoFalhar?: (motivo: string) => void): Promise<Buffer | null> {
+    const falhou = (motivo: string): null => {
+      aoFalhar?.(motivo);
+      return null;
+    };
+    const cfg = lerConfigGraph();
+    if (ehServidorLocal() || !cfg.ligado || !graphLigadoParaEmpresa(tenantId)) return falhou('desligado');
+    if (prazoMs < PRAZO_MINIMO_MS) return falhou('sem-prazo');
+    let chamada: Promise<unknown>;
+    try {
+      chamada = this.cliente(cfg, lig.segredo, prazoMs).chamar(FERRAMENTA_FALAR, { texto, chaveIdempotencia: chave });
+    } catch (e: any) {
+      return falhou(await this.depoisDaFalha(tenantId, lig, e));
+    }
+    let relogio: ReturnType<typeof setTimeout> | undefined;
+    const prazo = new Promise<'prazo'>((resolver) => {
+      relogio = setTimeout(() => resolver('prazo'), prazoMs);
+    });
+    try {
+      const r: any = await Promise.race([chamada, prazo]);
+      if (r === 'prazo') {
+        this.log.warn(`o DMS Graph não falou em ${prazoMs} ms: a resposta segue só em texto`);
+        chamada.then(
+          (dados) => this.registrarLeitura(lig.id, null, franquiaDe((dados as any)?.franquia)),
+          (e) => this.depoisDaFalha(tenantId, lig, e, true),
+        ).catch(() => undefined);
+        return falhou('demora');
+      }
+      const bytes = r?.mimeType === 'audio/ogg' && typeof r?.audioBase64 === 'string' ? Buffer.from(r.audioBase64, 'base64') : null;
+      if (!bytes || bytes.length < 5 || bytes.toString('ascii', 0, 4) !== 'OggS') {
+        this.log.warn('o DMS Graph falou fora do formato: a resposta segue só em texto');
+        return falhou('fora-do-formato');
+      }
+      await this.registrarLeitura(lig.id, null, franquiaDe(r?.franquia));
+      return bytes;
+    } catch (e: any) {
+      // A voz ainda não ligada no Graph (o Google recusou): `integracao-parada` — diz qual, e a ligação segue valendo.
+      if (e instanceof ErroMcp && e.tipo === 'ferramenta' && (e.dados as any)?.codigo === 'integracao-parada') return falhou('voz-desligada');
       return falhou(await this.depoisDaFalha(tenantId, lig, e));
     } finally {
       if (relogio) clearTimeout(relogio);

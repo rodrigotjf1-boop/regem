@@ -8,7 +8,7 @@ import * as schema from '../../db/schema';
 import { ConferirEntregaProcessor } from './conferir-entrega.processor';
 import { OPCOES_DA_CONFERENCIA, TEXTO_DEPOIS_DA_RESPOSTA, portaoDaConferencia, textoDaPergunta } from './conferir-entrega';
 import { WhatsappProvedorService } from './whatsapp-provedor.service';
-import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
+import { comTravaDaEmpresa, migrationJaCriada, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { ConfirmacaoDaFichaService } from '../vagas/confirmacao-da-ficha.service';
 import { pausarPeloAtendente } from './robo-pausa';
 
@@ -50,7 +50,8 @@ descrever('"chegou tudo certo?" (Postgres)', () => {
       const c = await pool.connect();
       try {
         await c.query('begin');
-        await c.query(comTravaDaEmpresa(readFileSync(MIG(arq), 'utf8')));
+        // A 344 com a `robo_carrinho` pronta não roda: o índice e o `alter` travariam a tabela duas vezes (ERR-539).
+        if (!(await migrationJaCriada(c, arq))) await c.query(comTravaDaEmpresa(readFileSync(MIG(arq), 'utf8')));
         await c.query('commit');
       } catch (e) {
         await c.query('rollback').catch(() => {});

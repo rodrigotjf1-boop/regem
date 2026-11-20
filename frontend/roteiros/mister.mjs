@@ -343,6 +343,8 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
       memoria: o.memoria ?? MEMORIA(), memoriaFalha: !!o.memoriaFalha, memoriaRecusa: o.memoriaRecusa ?? null, memoriaPedidos: [],
       // Os documentos por foto ligados nesta instalação (a variável que o dono liga), como o servidor manda.
       disponivelDocs: o.disponivelDocs ?? true,
+      // Versão 5, M5e: a versão 5 ligada nesta instalação (`MISTER_MIDIA`) — o "Como mandar o resumo" diz quando não está.
+      resumoEmArquivo: o.resumoEmArquivo ?? true,
       documentos: o.documentos ?? DOCUMENTOS(), documentosFalha: !!o.documentosFalha, diasDosDocumentos: [], desfeitos: [], pdfs: [],
       // M3c.4: a página do relatório do link
       relatorio: o.relatorio ?? RELATORIO_INSUMO(), relatorioRecusa: o.relatorioRecusa ?? null, relatorioPedidos: [], relatorioPdfs: [],
@@ -377,7 +379,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
         S.daLoja = S.daLoja.map((a) => (a.id === ciente[1] ? { ...a, ciente: true } : a));
         return responder(route, { ok: true }, 201);
       }
-      const disponivel = () => ({ documentos: S.disponivelDocs, notas: S.disponivelDocs });
+      const disponivel = () => ({ documentos: S.disponivelDocs, notas: S.disponivelDocs, resumoEmArquivo: S.resumoEmArquivo });
       if (p === '/mister/conversa' && metodo === 'GET') {
         if (S.conversaFalha) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
         return responder(route, { conversa: S.conversa, disponivel: disponivel() });
@@ -1052,7 +1054,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t0 = await page.locator('main').innerText();
-    ok(/18 ajustes em 8 grupos/.test(t0), "avisos: os nove avisos em quatro grupos, o do boleto (M3a), os dois do ponto (M3e), os dois do gasto do WhatsApp (G2), os três relatórios e a conversa (M3a)");
+    ok(/20 ajustes em 8 grupos/.test(t0), "avisos: os nove avisos em quatro grupos, o do boleto (M3a), os dois do ponto (M3e), os dois do gasto do WhatsApp (G2), os três relatórios e o 'Como mandar o resumo' (M5e) e a conversa (M3a e o 'Responder em áudio', M5c)");
     ok(/Fichas novas de candidatos[\s\S]*Vai para: o presidente e quem tem a permissão Candidatos, cada um só das lojas que vê\./.test(t0), 'relatórios: o das fichas novas diz para quem vai (F4c)');
     ok(t0.includes('O de fichas novas só conta: não usa a IA.'), 'relatórios: a nota diz que o das fichas novas não usa a IA');
     ok(['Na loja', 'Servidor da loja', 'Fiscal', 'O próprio Mister'].every((g) => t0.includes(g)), 'avisos: os quatro grupos do protótipo');
@@ -1212,7 +1214,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t = await page.locator('main').innerText();
-    ok(/18 ajustes em 8 grupos/.test(t), "conversa: o grupo Conversa entra com um ajuste, Documentos e dinheiro com o do boleto e os dois do gasto (G2), e Pessoas e ponto com os dois do ponto");
+    ok(/20 ajustes em 8 grupos/.test(t), "conversa: o grupo Conversa entra com dois ajustes (o do boleto e o 'Responder em áudio', M5c), Documentos e dinheiro com o do boleto e os dois do gasto (G2), Pessoas e ponto com os dois do ponto, e Relatórios com o 'Como mandar o resumo' (M5e)");
     ok(/Documentos e dinheiro[\s\S]*Boleto perto de vencer[\s\S]*Já paguei/.test(t), 'boleto: o aviso novo no grupo "Documentos e dinheiro", com o "Já paguei"');
     ok(/Lançar boletos por foto/.test(t) && /só o presidente manda/.test(t) && /a leitura da nota do fornecedor vem numa próxima entrega/.test(t), 'conversa: o ajuste diz o que faz, quem manda e que a nota vem depois');
     const sel = page.locator('select:has(option:text-is("boleto: pergunta antes"))');
@@ -1226,6 +1228,24 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     await page.click('button[role="switch"][aria-label*="Lançar boletos por foto"]');
     await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/conversa') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
     ok(JSON.stringify(S.salvamentosConv[1]) === JSON.stringify({ documentosLigado: false, documentosModo: 'perguntar' }), `conversa: desligar manda desligado e mantém o modo (${JSON.stringify(S.salvamentosConv[1])})`);
+    // Versão 5, M5e: "Como mandar o resumo" no grupo Relatórios — o padrão (os botões), e o salvar manda SÓ a forma.
+    ok(/Como mandar o resumo[\s\S]*O texto vai sempre/.test(t) && !/ainda não ligado no Regem/.test(t), 'resumo: o ajuste "Como mandar o resumo" diz que o texto vai sempre (ligado nesta instalação, sem o aviso)');
+    const comoMandar = page.locator('select:has(option:text-is("texto e o PDF junto"))');
+    ok((await comoMandar.inputValue()) === 'botoes', 'resumo: o padrão é "texto com os botões PDF e link"');
+    ok((await comoMandar.locator('option').allInnerTexts()).join('|') === 'texto com os botões PDF e link|texto e o PDF junto|texto e o link junto|só o texto', 'resumo: as quatro formas do protótipo');
+    await comoMandar.selectOption('pdf');
+    await page.waitForSelector('text=1 alteração ainda não salva');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/conversa') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
+    ok(JSON.stringify(S.salvamentosConv.at(-1)) === JSON.stringify({ resumoEntrega: 'pdf' }), `resumo: salvar manda só a forma (${JSON.stringify(S.salvamentosConv.at(-1))})`);
+    ok((await comoMandar.inputValue()) === 'pdf', 'resumo: a forma salva fica marcada');
+    // Versão 5, M5c: "Responder em áudio" no grupo Conversa — nasce desligado; ligar manda SÓ ele.
+    ok(/Responder em áudio[\s\S]*responde em texto e também numa nota de voz/.test(t), 'voz: o ajuste "Responder em áudio" diz que o texto vai junto');
+    const voz = page.locator('button[role="switch"][aria-label*="Responder em áudio"]');
+    ok((await voz.getAttribute('aria-checked')) === 'false', 'voz: nasce desligado');
+    await voz.click();
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/conversa') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
+    ok(JSON.stringify(S.salvamentosConv.at(-1)) === JSON.stringify({ responderAudio: true }), `voz: ligar manda só ele (${JSON.stringify(S.salvamentosConv.at(-1))})`);
+    ok((await voz.getAttribute('aria-checked')) === 'true', 'voz: fica ligado depois de salvar');
     // M3a parte 4: "Quando avisar do boleto" — o padrão (3 dias antes e no dia) e "só no dia", salvo pela mesma barra.
     const quando = page.locator('select:has(option:text-is("só no dia"))');
     ok((await quando.inputValue()) === '3', 'boleto: o padrão é "3 dias antes e no dia"');
@@ -1488,6 +1508,16 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const t = await page.locator('main').innerText();
     ok(new RegExp(`Boletos e notas por foto\\s*Mande a foto: ele lê, lança e avisa do vencimento\\.\\s*${rotulo}`).test(t), `resumo: os boletos e as notas por foto, ${rotulo}`);
     ok(erros.length === 0, `resumo (${rotulo}): sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  {
+    // Versão 5, M5e: com a versão 5 desligada nesta instalação, o "Como mandar o resumo" diz que o resumo segue por escrito.
+    const { ctx, page, erros } = await abrir(1280, 900, { caminho: '/mister?parte=avisos', resumoEmArquivo: false });
+    await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
+    await page.waitForSelector('[data-resumo-em-arquivo-desligado]', { timeout: 10000 });
+    const t = await page.locator('main').innerText();
+    ok(/Como mandar o resumo[\s\S]*ainda não ligado no Regem: o resumo segue só por escrito/.test(t), 'resumo desligado na instalação: o ajuste diz que o resumo segue só por escrito');
+    ok(erros.length === 0, `resumo desligado na instalação: sem erro (${erros.join(' | ')})`);
     await ctx.close();
   }
   {

@@ -3,11 +3,14 @@ import { ehServidorLocal } from '../../common/modo';
 import { FalhaDaIa, IaEmpresaService } from '../ia/ia-empresa.service';
 import { GraphFotoService } from '../graph/graph-foto.service';
 import { MidiaDoMister, MisterEntradaService, QuemMandou, ResultadoDaMidia } from './mister-entrada.service';
-import { MisterNumeroService } from './mister-numero.service';
+import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { hojeISO } from '../../common/data';
 import { FERRAMENTA_OUVIR } from '../graph/graph.regras';
 import {
   AUDIO_MAX_SEGUNDOS,
+  PRAZO_DA_VOZ_MS,
+  chaveDaFala,
+  principalParaFalar,
   MIMES_DO_AUDIO,
   PREFIXO_DA_CHAVE_DO_AUDIO,
   PRAZO_DO_AUDIO_MS,
@@ -34,6 +37,8 @@ import {
 } from './mister-midia.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+const mascarar = (t: string) => (t.length > 4 ? `***${t.slice(-4)}` : '***');
 
 /** A promessa dentro do prazo, ou null quando ele passa. A que chegar depois é descartada sem rejeição solta (V3). */
 async function dentroDoPrazo<T>(promessa: Promise<T>, ms: number): Promise<T | null> {
@@ -87,6 +92,34 @@ export class MisterMidiaService implements OnModuleInit {
 
   modelo(): string {
     return String(process.env.MISTER_FOTO_MODELO ?? '').trim() || MODELO_DA_FOTO_DO_MISTER;
+  }
+
+  /**
+   * Versão 5, M5c: a resposta em áudio. Quem chama (o agente) já mandou o texto e conferiu que a pergunta veio por áudio
+   * e que a empresa ligou "Responder em áudio". O principal da resposta (~40 s) vira a nota de voz pela ferramenta `falar`
+   * do DMS Graph e vai DEPOIS do texto. Devolve o desfecho curto (`enviado`, `desligado`, `sem-graph`, `sem-texto` ou o
+   * motivo do Graph). Nunca lança: o que não deu fica no log, sem o texto (a pessoa já leu a resposta).
+   */
+  async responderEmAudio(tenantId: string, telefone: string, resposta: string): Promise<string> {
+    if (!this.ligado() || !this.graph) return 'desligado';
+    const texto = principalParaFalar(resposta);
+    if (!texto) return 'sem-texto';
+    let motivo = 'nao-falou';
+    try {
+      const lig = await this.graph.ligacaoParaFoto(tenantId);
+      if (!lig) return 'sem-graph';
+      const ogg = await this.graph.falar(tenantId, lig, texto, chaveDaFala(tenantId, texto), PRAZO_DA_VOZ_MS, (m) => (motivo = m));
+      if (!ogg) {
+        this.logger.warn(`mister: a resposta em áudio não saiu para ${mascarar(telefone)} (empresa ${tenantId}) — ${motivo}`);
+        return motivo;
+      }
+      await this.numero.enviarAudio(telefone, ogg);
+      return 'enviado';
+    } catch (e: any) {
+      const m = e instanceof FalhaDoEnvioDoMister ? `envio: ${e.motivo}` : String(e?.message ?? e).slice(0, 120);
+      this.logger.warn(`mister: a nota de voz não saiu para ${mascarar(telefone)} (empresa ${tenantId}) — ${m}`);
+      return 'erro';
+    }
   }
 
   async olhar(quem: QuemMandou, midia: MidiaDoMister, wamid: string | null): Promise<ResultadoDaMidia> {

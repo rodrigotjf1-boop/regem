@@ -1336,6 +1336,113 @@ voz para um teste. O dono decidiu usar a mesma do atendente (Google).
 - **O medidor `Franquia`** do cartão foi exportado, com o nome do que se conta; o cartão não mudou.
 - **Conferência:** roteiro `mister` (1.102 conferências, os três estados em 16 larguras) e `graph-clique` (272), sem falha.
 
+**M5d.1 implementada (19/11/2026; sem migration): o desenho novo no gráfico que já existia, o do insumo.**
+- **Os três lugares**, com o mesmo plano (`PlanoDoPdfDoInsumo.grafico`): barras em azul-marinho, a MAIOR em dourado,
+  grade leve, o valor escrito e a média tracejada.
+  - **Página** (`/mister/relatorio` e `/m/r/<código>`): `components/mister/grafico-do-mister.tsx`, em SVG na largura
+    medida.
+    - O valor fica em cima de cada barra quando cabe, ou só o da maior, e por cima da média, com borda.
+    - Os rótulos pulam quando não cabem, e os das pontas ficam dentro.
+    - Segue as cores do tema e traz a tabela.
+  - **Imagem da conversa** (`grafico-do-insumo.ts`) e **PDF** (`relatorio-insumo-pdf.ts`), com os cantos arredondados
+    no PDF.
+- As barras dos Relatórios de vendas (`Colunas`) não mudam.
+- **Diferença da decisão 7, avisada ao dono antes:** sem a biblioteca de desenho nova. Ela levaria um binário nativo ao
+  pacote da loja (o `npm ci` do backend vai ao servidor da loja) e não lê as fontes da marca guardadas em `woff2`
+  variável. O mesmo desenho é garantido pelo mesmo plano e pelas mesmas cores em três desenhistas: o PNG próprio
+  (`grafico/tela.ts`), o `pdfkit` e o SVG.
+- **Falta (M5d.2):** os 4 gráficos novos (dia com a semana anterior, hora, canal, mais vendidos) por uma consulta nova
+  do agente, e o link e o PDF deles. Os tipos novos do link pedem migration (`ck_mister_link_publico_tipo` só aceita
+  `insumo`), que vai junto com a da M5e.
+
+**M5d.2 implementada (19/11/2026; sem migration): "me mostra em gráfico" na conversa.**
+- **A consulta nova `mostrar_grafico`**: tipo (`vendas_por_dia`, `vendas_por_hora`, `canais`, `mais_vendidos`), período e
+  loja.
+  - A permissão é a dos relatórios de vendas, como a `vendas_do_periodo`.
+  - Os números saem dos MESMOS relatórios que a tela usa (`vendas`, `faturamentoDelivery`, `rankingProdutos`).
+  - Ao modelo vão só os números, para o texto: o título, o número principal, a comparação e os pontos. O desenho da
+    imagem fica com o Regem.
+- **O plano do gráfico** (`grafico/plano-do-grafico.ts`) e a **imagem** (`grafico/imagem-do-plano.ts`, 1000×640). A
+  imagem usa o mesmo desenhista PNG e as mesmas cores do insumo:
+  - **Por dia:** colunas com o período anterior em cinza claro ao lado e a maior em dourado. A comparação é "+12% sobre
+    a semana anterior" (7 dias) ou "sobre o período anterior". São até 31 dias.
+  - **Por hora:** colunas, com o pico em dourado. O período padrão é "hoje".
+  - **Canais:** a participação de cada canal no faturamento. Só o perfil que vê valores.
+  - **Mais vendidos:** barras deitadas, até 6.
+  - Gerente sem valores: as vendas em quantidade e o aviso.
+- **A imagem sai ANTES do texto**, até 3 por resposta, junto com as do insumo.
+- **Sem venda, ou um ponto só:** sem imagem, e o resultado diz ao modelo para responder com os números.
+- **Nasce DESLIGADA**, na chave `MISTER_MIDIA` (a mesma da foto e do áudio). Desligada, os números seguem e nenhuma
+  imagem sai.
+- **O resumo do dia e da semana NÃO usa a consulta.** Ele vai só por escrito, decisão 6; os gráficos dele são o "📊 Ver
+  gráficos" da M5e.
+- **Pergunta nova na avaliação:** a c48, "Me mostra em gráfico as vendas por hora de ontem.", com o pico às 20h. As
+  perguntas passam a 48.
+- **Diferenças do protótipo:**
+  - O gráfico por hora sai em colunas, não em linha, porque o desenhista é um só.
+  - O de canais mostra só o delivery por canal (`porPlataforma`), sem o balcão e o salão: o relatório de vendas não
+    separa o balcão por canal.
+  - O link e o PDF destes gráficos ficam com a M5e, que traz a migration do tipo do link.
+
+**M5e implementada (19/11/2026; mig 462, só nuvem, com `drop constraint`: o dono aplica pelo SQL Editor — LIC-171):
+o resumo em arquivo e no link.**
+- **O texto do resumo vai sempre** (o da IA, como antes). O ajuste novo é "Como mandar o resumo", em Mister › Avisos e
+  relatórios › Relatórios. Ele fica guardado em `mister_conversa_config.resumo_entrega` e tem 4 formas:
+  - **texto com os botões "📄 PDF" e "📊 Ver gráficos"** (o padrão do protótipo);
+  - texto e o PDF junto;
+  - texto e o link junto;
+  - só o texto.
+- **O PLANO do resumo** (`grafico/plano-do-resumo.ts`) sai só dos números do Regem, no escopo de quem recebe:
+  - os números grandes: faturamento com a comparação, vendas, ticket, pico e cancelamentos;
+  - as abas, com os mesmos planos da M5d.2: por hora, canais, 7 dias (ou por dia, na semana) e produtos;
+  - a atenção: os cancelamentos e o estoque abaixo do mínimo (o estoque é o de AGORA: ele não guarda o saldo de cada
+    dia), sem nome de cliente nem de quem cancelou.
+- **O plano só existe com a permissão dos relatórios de vendas.** O gerente do perfil padrão não tem essa permissão:
+  recebe só o texto, sem botão.
+- **O PDF** (`relatorio-resumo-pdf.ts`) segue o desenho da imagem. Ocupa 1 ou 2 páginas A4.
+- **A página do link** (`/m/r/<código>`, o mesmo mecanismo da mig 443, `tipo = 'resumo'`) mostra os números, as abas
+  dos gráficos e a atenção. O gráfico de colunas ganhou a barra do período anterior.
+- **O botão leva só o id da linha** do `mister_relatorio` (`rsm:pdf:<id>`, `rsm:graf:<id>`). O toque confere que a
+  linha é de uma empresa e de uma pessoa daquele telefone e refaz o plano no escopo dela. O link nasce no toque, não a
+  cada resumo, por causa do teto de 20 links vivos.
+- **O link do resumo vale enquanto quem o recebeu** (presidente ou gerente) seguir ativo. O do insumo continua só do
+  presidente.
+- **Nasce DESLIGADO** na chave `MISTER_MIDIA`: desligada, só o texto, como antes. O "Ver gráficos" também depende de
+  `MISTER_LINK_PUBLICO`.
+- **O gráfico da conversa (`mostrar_grafico`) também ganha "📄 PDF" e "🔗 Ver no link"** (conversa 6 do protótipo), no
+  balão da resposta.
+  - O botão leva a empresa, o gráfico, o período e a loja: `grf:<pdf|link>:<empresa>:<tipo>:<de>:<ate>[:<loja>]`.
+  - O toque confere que a empresa é um vínculo do telefone e que a loja está no escopo da pessoa agora. Depois refaz o
+    gráfico pela MESMA consulta.
+  - O PDF e o link usam o plano do resumo com uma aba só (`tipo = 'grafico'`, o tipo que a 462 aceita). A página não
+    mostra as abas nem a atenção.
+- **Diferenças do protótipo:**
+  - pela conexão por QR Code (Evolution) não há botão, então a forma dos botões vira só o texto;
+  - a página do link segue o tema claro do app, não o do aparelho;
+  - o texto acima de 1.000 letras manda os botões numa mensagem curta logo depois.
+
+**M5c implementada (19/11/2026; a coluna `responder_audio` vai na mesma mig 462; Graph #7, contrato 1.2.0): a resposta
+em áudio.**
+- **No DMS Graph:** a ferramenta nova `falar`. O texto vira a nota de voz OGG/Opus pelo Cloud Text-to-Speech do Google,
+  na voz `pt-BR-Neural2-B`.
+  - A franquia é a mesma (cada fala conta uma), e a idempotência e o caminho são os da `ouvir_audio`.
+  - A voz desligada no Google responde `integracao-parada`.
+  - **Para funcionar, o dono liga a API "Cloud Text-to-Speech"** no projeto da chave do Gemini (ou põe uma chave própria
+    em `GRAPH_VOZ_CHAVE`) e clica "Implantar" no Graph.
+- **No Regem:**
+  - O ajuste "Responder em áudio" fica em Avisos e relatórios › Conversa e nasce desligado.
+  - Quando a pergunta veio por áudio e o ajuste está ligado, o agente manda o texto (como sempre) e DEPOIS a nota de voz.
+    Ela leva o principal da resposta, uns 40 s: sem o "🎧 Entendi", sem link, sem emoji e sem marcadores, cortado no fim
+    de uma frase.
+  - A pergunta escrita recebe só o texto.
+  - A voz que não deu (desligada, franquia, demora) não muda nada para a pessoa: ela já leu o texto, e o motivo vai ao
+    log.
+  - A chave da fala é a empresa mais o texto: a mesma resposta repetida não gasta a franquia de novo.
+  - Pela API oficial, a nota sai com `voice: true` (até 512 KB). Pelo Evolution, sai pelo `sendWhatsAppAudio`.
+- **Nasce desligado em duas chaves:** a da instalação (`MISTER_MIDIA`) e a da empresa ("Responder em áudio").
+- **Diferença do protótipo:** só o "Responder em áudio" virou ajuste. O "Ouvir áudios" e o "Ler fotos" seguem pela chave
+  da instalação (`MISTER_MIDIA`), como na M5a e na M5b.
+
 **Fica para depois (pedido do dono em 19/11):** quando a base de eventos do plano do perfil do cliente estiver pronta, o
 Mister usa o clima e os eventos para avisar de chuva e programar entregadores e funcionários em feriados e eventos
 grandes. A fonte do clima precisa de licença comercial.

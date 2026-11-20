@@ -160,7 +160,15 @@
   `ouvir_audio` do DMS Graph (contrato 1.1.0; o dono clica "Implantar" no Graph); a transcrição vira a pergunta e a
   resposta abre com "🎧 Entendi"; inaudível, franquia, acima de 3 min e AMR têm frase própria. Só nuvem → sem efeito na loja.
   **M5b.2 (19/11, só tela):** o quadro "Fotos e áudios · DMS Graph" em Mister › IA e uso (a franquia do mês); vai no
-  `.zip` sem efeito na loja (a tela do Mister é da nuvem).
+  `.zip` sem efeito na loja (a tela do Mister é da nuvem). **M5d.1 (19/11, sem migration):** o gráfico do insumo com o
+  desenho novo na página, na imagem e no PDF (azul-marinho, a maior em dourado) — nuvem; vai no `.zip` sem efeito na loja.
+  **M5d.2 (19/11, sem migration):** "me mostra em gráfico" — a consulta `mostrar_grafico` (dia, hora, canal, mais
+  vendidos), a imagem antes do texto, nascendo desligada em `MISTER_MIDIA`; só nuvem → vai no `.zip` sem efeito na loja.
+  **M5e (19/11, mig 462 SÓ NUVEM — o servidor da loja pula):** o resumo com "📄 PDF" e "📊 Ver gráficos", o PDF do resumo,
+  a página do link com abas, o "📄 PDF" e o "🔗 Ver no link" do gráfico da conversa e o ajuste "Como mandar o resumo"; nasce
+  desligado em `MISTER_MIDIA`; só nuvem → vai no `.zip`
+  sem efeito na loja. **M5c (19/11, a coluna na mesma mig 462; Graph #7):** a resposta em áudio (a nota de voz depois do
+  texto, quando a pergunta veio por áudio e "Responder em áudio" está ligado); só nuvem → vai no `.zip` sem efeito na loja.
 
 - **O DMS Graph lê a foto do cliente, com a IA da empresa de reserva (18/11, G5a — só o servidor; mig 450 SÓ NUVEM —
   `graph_ligacao`, `graph_clique_pedido`; nasce DESLIGADO).** Com `GRAPH_LIGADO=true` no `regem-api` e a empresa ligada

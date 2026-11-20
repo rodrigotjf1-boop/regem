@@ -3,6 +3,9 @@ import { join } from 'node:path';
 import { midiaDaMeta } from './mister-entrada.service';
 import {
   AUDIO_MAX_SEGUNDOS,
+  FALA_MAX_LETRAS,
+  chaveDaFala,
+  principalParaFalar,
   MIMES_DO_MISTER_NA_IA,
   TEXTOS_DA_MIDIA,
   duracaoDoOggOpus,
@@ -220,5 +223,43 @@ describe('a foto no Mister (M5a): as regras', () => {
     expect(painel).toContain("{ k: 'integracoes', label: 'Integrações' }");
     expect(painel).toMatch(/GraphClique|graph-clique/);
     expect(cartao).toContain('DMS Graph');
+  });
+});
+
+// Versão 5, M5c: a resposta em áudio — o principal da resposta para a voz e a chave da fala no Graph.
+describe('a resposta em áudio (M5c)', () => {
+  it('o principal: sem as linhas do código, sem link, sem emoji e sem marcadores', () => {
+    const resposta = [
+      '🎧 _Entendi:_ "quanto vendeu ontem?"',
+      '',
+      'Ontem a loja vendeu *R$ 4.130* 🎉, _53% a mais_ que a quarta passada.',
+      'Ver no Regem: https://app.dmsregem.com/mister/relatorio?x=1',
+      'Link para encaminhar (só leitura, vale até 26/11): https://app.dmsregem.com/m/r/abc',
+      'O pico foi às 21h.',
+    ].join('\n');
+    expect(principalParaFalar(resposta)).toBe('Ontem a loja vendeu R$ 4.130, 53% a mais que a quarta passada.\nO pico foi às 21h.');
+    expect(principalParaFalar('📷 _Vi:_ uma tela')).toBe('');
+    expect(principalParaFalar(null)).toBe('');
+  });
+
+  it('até ~40 s: corta no fim de uma frase; sem frase, na palavra, com reticências', () => {
+    const frase = 'O movimento de ontem foi bom. ';
+    const longa = frase.repeat(40);
+    const p = principalParaFalar(longa);
+    expect(p.length).toBeLessThanOrEqual(FALA_MAX_LETRAS);
+    expect(p.endsWith('bom.')).toBe(true);
+    const semPonto = 'palavra '.repeat(100);
+    const q = principalParaFalar(semPonto);
+    expect(q.length).toBeLessThanOrEqual(FALA_MAX_LETRAS + 1);
+    expect(q.endsWith('palavra…')).toBe(true);
+  });
+
+  it('a chave da fala: a mesma empresa e o mesmo texto, a mesma chave; outra empresa ou outro texto, outra; só visíveis e até 100', () => {
+    const a = chaveDaFala('11111111-1111-1111-1111-111111111111', 'Ontem a loja vendeu bem.');
+    expect(a).toBe(chaveDaFala('11111111-1111-1111-1111-111111111111', 'Ontem a loja vendeu bem.'));
+    expect(a).not.toBe(chaveDaFala('22222222-2222-2222-2222-222222222222', 'Ontem a loja vendeu bem.'));
+    expect(a).not.toBe(chaveDaFala('11111111-1111-1111-1111-111111111111', 'Outra resposta.'));
+    expect(a).toMatch(/^regem-falar-[0-9a-f]{48}$/);
+    expect(a.length).toBeLessThanOrEqual(100);
   });
 });

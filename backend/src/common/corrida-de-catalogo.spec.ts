@@ -2,7 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { Client } from 'pg';
-import { TRAVA_DA_EMPRESA, comTravaDaEmpresa, ehCorridaDeCatalogo, repetirNaCorridaDeCatalogo } from './corrida-de-catalogo';
+import {
+  SO_QUANDO_FALTA_A_TABELA,
+  TRAVA_DA_EMPRESA,
+  comTravaDaEmpresa,
+  ehCorridaDeCatalogo,
+  migrationJaCriada,
+  repetirNaCorridaDeCatalogo,
+} from './corrida-de-catalogo';
 
 describe('corrida de catálogo nas specs (ERR-194)', () => {
   const corrida = () => new Error('could not open relation with OID 21779');
@@ -185,6 +192,131 @@ descreverPg('a trava da empresa contra a limpeza em cascata (ERR-377, Postgres)'
       await m.query('delete from empresa where id = $1', [t]).catch(() => {});
       await m.end();
       await d.end();
+    }
+  }, 60_000);
+});
+
+// ── A migration que trava a mesma tabela duas vezes, reaplicada com a tabela pronta (ERR-539) ──────────────────────
+describe('a migration que só roda quando falta a tabela (ERR-539)', () => {
+  /** Uma conexão de mentira: guarda as consultas e responde se a tabela existe. */
+  const conexao = (existe: boolean) => {
+    const consultas: { sql: string; valores?: unknown[] }[] = [];
+    return {
+      consultas,
+      query: async (sql: string, valores?: unknown[]) => {
+        consultas.push({ sql, valores });
+        return { rows: sql.includes('to_regclass') ? [{ existe }] : [] };
+      },
+    };
+  };
+
+  it('a 344 está na lista, ligada à robo_carrinho', () => {
+    expect(SO_QUANDO_FALTA_A_TABELA).toEqual({ '344_robo_carrinho.sql': 'robo_carrinho' });
+  });
+
+  it('arquivo fora da lista: roda sempre, sem consulta nenhuma', async () => {
+    const c = conexao(true);
+    expect(await migrationJaCriada(c, '345_robo_carrinho_conducao.sql')).toBe(false);
+    expect(await migrationJaCriada(c, '/repo/database/migrations/349_lembrete_do_carrinho.sql')).toBe(false);
+    expect(c.consultas).toEqual([]);
+  });
+
+  it('a 344, pelo nome ou pelo caminho (barra de Windows ou não): trava `empresa` ANTES de olhar, e pula se a tabela existe', async () => {
+    for (const arq of ['344_robo_carrinho.sql', 'C:\\Regen\\database\\migrations\\344_robo_carrinho.sql', '/repo/database/migrations/344_robo_carrinho.sql']) {
+      const pronta = conexao(true);
+      expect(await migrationJaCriada(pronta, arq)).toBe(true);
+      expect(pronta.consultas.map((q) => q.sql)).toEqual([TRAVA_DA_EMPRESA, expect.stringContaining('to_regclass(current_schema()')]);
+      expect(pronta.consultas[1].valores).toEqual(['robo_carrinho']);
+      const falta = conexao(false);
+      expect(await migrationJaCriada(falta, arq)).toBe(false);
+    }
+  });
+
+  // Vistoria: toda spec que aplica um arquivo da lista passa pela pergunta. A spec nova que copiar a lista de migrations
+  // de outra sem a pergunta volta a fechar o impasse com quem lê e grava a tabela ao mesmo tempo.
+  it('toda spec que aplica um arquivo da lista pergunta antes se a tabela já existe', () => {
+    const raiz = join(__dirname, '..');
+    const specs = (readdirSync(raiz, { recursive: true }) as string[])
+      .filter((f) => f.endsWith('.spec.ts') && basename(f) !== basename(__filename))
+      .map((f) => join(raiz, f));
+    const semPergunta: string[] = [];
+    let comArquivo = 0;
+    for (const arq of specs) {
+      const texto = readFileSync(arq, 'utf8');
+      if (!Object.keys(SO_QUANDO_FALTA_A_TABELA).some((m) => texto.includes(`'${m}'`))) continue;
+      comArquivo++;
+      if (!texto.includes('migrationJaCriada(')) semPergunta.push(arq.slice(raiz.length + 1).replace(/\\/g, '/'));
+    }
+    expect(comArquivo).toBeGreaterThanOrEqual(8); // as specs que aplicam a 344 foram achadas
+    expect(semPergunta).toEqual([]);
+  });
+});
+
+// O mecanismo no Postgres, num schema SÓ DESTE TESTE (com uma `empresa` própria — nada de chave para tabela comum,
+// LIC-088): com outra transação lendo o carrinho, a 344 reaplicada SEGURA o ShareLock do índice e ESPERA o
+// AccessExclusiveLock do `enable row level security`. É metade do impasse: se a leitora agora gravasse (RowExclusiveLock,
+// que o ShareLock barra), cada uma esperaria a outra. O teste para ANTES da gravação — provocar o impasse derrubaria
+// quem estivesse na fila — e confere que, com a tabela pronta, a pergunta da lista não trava a tabela.
+descreverPg('a 344 reaplicada trava a robo_carrinho duas vezes (ERR-539, Postgres)', () => {
+  const MIG_344 = join(__dirname, '../../../database/migrations/344_robo_carrinho.sql');
+
+  it('reaplicada com a tabela pronta, segura o ShareLock e espera o AccessExclusiveLock; a pergunta pula sem travar', async () => {
+    const schema = `teste_err539_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
+    const admin = new Client({ connectionString: URL_PG });
+    await admin.connect();
+    await admin.query(`create schema ${schema}`);
+    await admin.query(`create table ${schema}.empresa (id uuid primary key)`);
+    const conectar = async () => {
+      const c = new Client({ connectionString: URL_PG, options: `-c search_path=${schema}` });
+      await c.connect();
+      return c;
+    };
+    const m = await conectar(); // a spec que reaplica a migration
+    const l = await conectar(); // a outra spec, lendo o carrinho numa transação
+    const sql344 = readFileSync(MIG_344, 'utf8');
+    try {
+      await m.query(sql344); // a primeira vez: cria a tabela no schema do teste
+      const [{ pid }] = (await m.query('select pg_backend_pid() as pid')).rows;
+      const travasNaTabela = async () =>
+        (
+          await admin.query(
+            `select mode, granted from pg_locks where pid = $1 and locktype = 'relation' and relation = to_regclass($2)`,
+            [pid, `${schema}.robo_carrinho`],
+          )
+        ).rows as { mode: string; granted: boolean }[];
+
+      await l.query('begin');
+      await l.query('select count(*) from robo_carrinho');
+      await m.query('begin');
+      const reaplicar = m.query(sql344);
+      let travas: { mode: string; granted: boolean }[] = [];
+      for (let i = 0; i < 80 && !travas.some((t) => !t.granted); i++) {
+        await new Promise((r) => setTimeout(r, 50));
+        travas = await travasNaTabela();
+      }
+      expect(travas.filter((t) => t.granted).map((t) => t.mode)).toContain('ShareLock');
+      expect(travas.filter((t) => !t.granted).map((t) => t.mode)).toEqual(['AccessExclusiveLock']);
+      await l.query('rollback'); // a leitora sai: a migration termina
+      await reaplicar;
+      await m.query('commit');
+
+      // Com a pergunta: a tabela existe, o arquivo é pulado, e nenhuma trava na tabela.
+      await m.query('begin');
+      expect(await migrationJaCriada(m, MIG_344)).toBe(true);
+      expect(await travasNaTabela()).toEqual([]);
+      await m.query('commit');
+      // Sem a tabela, roda.
+      await admin.query(`drop table ${schema}.robo_carrinho`);
+      await m.query('begin');
+      expect(await migrationJaCriada(m, MIG_344)).toBe(false);
+      await m.query('commit');
+    } finally {
+      await l.query('rollback').catch(() => {});
+      await m.query('rollback').catch(() => {});
+      await l.end();
+      await m.end();
+      await admin.query(`drop schema ${schema} cascade`).catch(() => {});
+      await admin.end();
     }
   }, 60_000);
 });

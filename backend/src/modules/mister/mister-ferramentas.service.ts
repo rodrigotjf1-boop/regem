@@ -41,6 +41,19 @@ import {
 } from './insumo-vendido';
 import { PlanoDoPdfDoInsumo, gerarPdfDoInsumo, nomeDoPdfDoInsumo, planoDoPdfDoInsumo } from './relatorio-insumo-pdf';
 import { GraficoDaConversa, valeAImagem } from './grafico/grafico-do-insumo';
+import { PlanoDoGrafico, nomeDoCanal, planoCanais, planoMaisVendidos, planoVendasPorDia, planoVendasPorHora, reaisCurtos, valeOPlano } from './grafico/plano-do-grafico';
+import {
+  AtencaoDoResumo,
+  DadosDoResumo,
+  PlanoDoResumo,
+  TipoDoGrafico,
+  TipoDoResumo,
+  botaoDoGrafico,
+  contraDoResumo,
+  montarPlanoDoResumo,
+  resumoTemConteudo,
+} from './grafico/plano-do-resumo';
+import { midiaNaInstalacao } from './mister-midia.regras';
 import { MisterNumeroService } from './mister-numero.service';
 import { MisterDocumentosService } from './mister-documentos.service';
 import { MisterLinkPublicoService } from './mister-link-publico.service';
@@ -161,6 +174,8 @@ export interface ResultadoDaFerramenta {
    * manda o PDF depois da resposta; senão, o botão "PDF" no balão da resposta (só pela API oficial, que tem botão).
    */
   anexo?: { pedido: PedidoDoRelatorio; enviarPdf: boolean; grafico?: GraficoDaConversa };
+  /** Versão 5, M5d.2: o gráfico que a consulta montou (`mostrar_grafico`) — NÃO vai ao modelo; a imagem vai antes do texto. */
+  graficos?: PlanoDoGrafico[];
   /** M3g: os botões que a resposta leva (o "Desfazer" da correção) — NÃO vão ao modelo; só pela API oficial. */
   botoes?: { id: string; titulo: string }[];
   /** M3d: a imagem da tela do "como faço" (o endereço público do PNG dos roteiros) — NÃO vai ao modelo; vai antes do texto. */
@@ -212,6 +227,26 @@ const diaDaLinha = (v: unknown): string => {
   return /^\d{4}-\d{2}-\d{2}$/.test(t) ? diaMes(t) : t;
 };
 const recusa = (erro: string): ResultadoDaFerramenta => ({ ok: false, dados: { erro } });
+
+// ─── versão 5, M5d.2: o gráfico na conversa ───
+const TIPOS_DE_GRAFICO = ['vendas_por_dia', 'vendas_por_hora', 'canais', 'mais_vendidos'];
+/** Os dias de `de` a `ate` (AAAA-MM-DD), inclusive. */
+const diasEntre = (de: string, ate: string): string[] => {
+  const dias: string[] = [];
+  for (let d = de; d <= ate && dias.length <= 400; d = somarDias(d, 1)) dias.push(d);
+  return dias;
+};
+/** Uma coluna `date` (Date à meia-noite do servidor, ou texto) → AAAA-MM-DD, como `diaDaLinha` lê. */
+const isoDoDia = (v: unknown): string => {
+  if (v instanceof Date) return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+  return String(v ?? '').slice(0, 10);
+};
+/** "19/11 às 08:30" na hora da loja. */
+const lidoAgora = (): string => {
+  const p = new Intl.DateTimeFormat('pt-BR', { timeZone: FUSO_OPERACAO, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date());
+  const v = (t: string) => p.find((x) => x.type === t)?.value ?? '';
+  return `${v('day')}/${v('month')} às ${v('hour')}:${v('minute')}`;
+};
 
 /** Os canais da pausa e o nome do canal no pedido (a 99 é `food99` na pausa e `99food` no pedido). */
 const CANAL_DO_PEDIDO: Record<(typeof CANAIS_DA_PAUSA)[number], string> = { cardapio: 'cardapio', ifood: 'ifood', food99: '99food' };
@@ -450,6 +485,8 @@ export class MisterFerramentasService {
     switch (nome) {
       case 'resumo_do_dia':
         return this.resumoDoDia(e, en, loja);
+      case 'mostrar_grafico':
+        return this.mostrarGrafico(e, en, loja);
       case 'vendas_do_periodo':
         return this.vendasDoPeriodo(e, en, loja);
       case 'produtos_mais_vendidos':
@@ -1697,6 +1734,215 @@ export class MisterFerramentasService {
           : { aviso: SEM_VALORES },
       },
     };
+  }
+
+  /**
+   * Versão 5, M5d.2 — o GRÁFICO na conversa (`mostrar_grafico`; protótipo v5, conversas 6 e 9). Os números vêm dos MESMOS
+   * relatórios das outras consultas (vendas, delivery, ranking), com as mesmas permissões; o plano da imagem sai do código
+   * (`grafico/plano-do-grafico.ts`) e NÃO vai ao modelo — ao modelo vão os números, para ele escrever 2 ou 3 frases. Sem
+   * valores em reais (gerente sem `ver_financeiro`): as quantidades; o gráfico por canal é de faturamento e recusa.
+   */
+  private async mostrarGrafico(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    const tipo = String(en.tipo ?? '').trim();
+    if (!TIPOS_DE_GRAFICO.includes(tipo)) return recusa('Diga qual gráfico: "vendas_por_dia", "vendas_por_hora", "canais" ou "mais_vendidos".');
+    if (!this.pode(e, 'relatorios_vendas')) return recusa(SEM_PERMISSAO);
+    const p = periodoDaFerramenta(en, hojeISO(), tipo === 'vendas_por_hora' ? 'hoje' : undefined);
+    if ('erro' in p) return recusa(p.erro);
+    const lidoEm = lidoAgora();
+    let plano: PlanoDoGrafico;
+    let pontos: Array<Record<string, unknown>>;
+    if (tipo === 'vendas_por_dia') {
+      const dias = diasEntre(p.de, p.ate);
+      if (dias.length > 31) return recusa('Para o gráfico por dia, escolha até 31 dias.');
+      const ant = periodoAnterior(p);
+      const [r, ra]: any[] = await Promise.all([
+        this.relatorios.vendas(e.tenantId, p.de, p.ate, e.verValores, loja.atual),
+        this.relatorios.vendas(e.tenantId, ant.de, ant.ate, e.verValores, loja.atual),
+      ]);
+      const conv = (rows: any[]) => (rows ?? []).map((d) => ({ dia: isoDoDia(d.dia), total: reais(d.total), vendas: inteiro(d.qtd) }));
+      plano = planoVendasPorDia({
+        loja: loja.nome,
+        rotuloDoPeriodo: p.rotulo,
+        dias,
+        porDia: conv(r?.porDia),
+        anteriores: conv(ra?.porDia),
+        diasAnteriores: diasEntre(ant.de, ant.ate),
+        verValores: e.verValores,
+        lidoEm,
+        contra: dias.length === 7 ? 'a semana anterior' : 'o período anterior',
+      });
+      pontos = (plano.barras ?? []).map((b, i) => ({ dia: `${b.rotulo} ${b.rotulo2 ?? ''}`.trim(), [e.verValores ? 'faturamento' : 'vendas']: b.valor, [e.verValores ? 'faturamentoNoPeriodoAnterior' : 'vendasNoPeriodoAnterior']: b.anterior ?? 0, posicao: i + 1 }));
+    } else if (tipo === 'vendas_por_hora') {
+      const r: any = await this.relatorios.vendas(e.tenantId, p.de, p.ate, e.verValores, loja.atual);
+      const porHora = ((r?.porHora ?? []) as any[]).map((h) => ({ hora: `${String(inteiro(h.hora)).padStart(2, '0')}h`, total: reais(h.total), vendas: inteiro(h.qtd) }));
+      plano = planoVendasPorHora({ loja: loja.nome, rotuloDoPeriodo: p.rotulo, porHora, verValores: e.verValores, lidoEm });
+      pontos = (plano.barras ?? []).map((b) => ({ hora: b.rotulo, [e.verValores ? 'faturamento' : 'vendas']: b.valor }));
+    } else if (tipo === 'canais') {
+      if (!e.verValores) return recusa('O gráfico por canal é do faturamento, e o perfil desta pessoa no Regem não mostra valores em reais.');
+      const dl: any = await this.relatorios.faturamentoDelivery(e.tenantId, p.de, p.ate, loja.atual);
+      const porPlataforma = ((dl?.porPlataforma ?? []) as any[]).map((x) => ({ plataforma: String(x.plataforma ?? ''), total: reais(x.total), pedidos: inteiro(x.pedidos) }));
+      plano = planoCanais({ loja: loja.nome, rotuloDoPeriodo: p.rotulo, porPlataforma, lidoEm });
+      const soma = (plano.partes ?? []).reduce((s, x) => s + x.valor, 0) || 1;
+      pontos = (plano.partes ?? []).map((x) => ({ canal: x.nome, faturamento: x.valor, participacaoPct: Math.round((x.valor / soma) * 100) }));
+    } else {
+      const r: any = await this.relatorios.rankingProdutos(e.tenantId, p.de, p.ate, e.verValores, loja.atual);
+      const itens = ((r?.itens ?? []) as any[]).map((i) => ({ nome: String(i.descricao ?? ''), quantidade: quantidade(i.qtd) ?? 0, total: e.verValores ? reais(i.faturamento) : null }));
+      plano = planoMaisVendidos({ loja: loja.nome, rotuloDoPeriodo: p.rotulo, itens, verValores: e.verValores, lidoEm });
+      pontos = itens.slice(0, 6).map((i, n) => ({ posicao: n + 1, produto: i.nome, quantidade: i.quantidade, ...(e.verValores ? { faturamento: i.total } : {}) }));
+    }
+    // A imagem nasce DESLIGADA, na mesma chave da foto e do áudio (`MISTER_MIDIA`, o dono liga): desligada, os números
+    // seguem para o texto e nenhuma imagem sai.
+    const temOQueMostrar = valeOPlano(plano);
+    const vale = temOQueMostrar && midiaNaInstalacao();
+    return {
+      ok: true,
+      dados: {
+        loja: loja.nome,
+        periodo: p.rotulo,
+        grafico: vale
+          ? 'A imagem do gráfico vai antes da sua resposta, pelo Regem: diga em 2 ou 3 frases o que importa (o total, a comparação, o destaque), sem descrever as barras uma a uma.'
+          : temOQueMostrar
+            ? 'O gráfico na conversa ainda não está ligado nesta instalação: responda sem gráfico, com os números.'
+            : 'Não há o que mostrar em gráfico neste período (sem venda, ou um ponto só): responda sem gráfico, com os números.',
+        titulo: plano.titulo,
+        numeroPrincipal: plano.kpi,
+        comparacao: plano.delta?.texto ?? null,
+        pontos,
+        ...(e.verValores ? {} : { aviso: SEM_VALORES }),
+      },
+      ...(vale
+        ? {
+            graficos: [plano],
+            // M5e: o "📄 PDF" e o "🔗 Ver no link" do gráfico (conversa 6 do protótipo) no balão da resposta. O botão leva só o
+            // que refaz o gráfico; o toque refaz tudo no escopo de quem tocou. O link só com a chave dele ligada.
+            botoes: [
+              { id: botaoDoGrafico('pdf', { tenantId: e.tenantId, tipo: tipo as TipoDoGrafico, de: p.de, ate: p.ate, loja: loja.atual }), titulo: '📄 PDF' },
+              ...(process.env.MISTER_LINK_PUBLICO === '1'
+                ? [{ id: botaoDoGrafico('link', { tenantId: e.tenantId, tipo: tipo as TipoDoGrafico, de: p.de, ate: p.ate, loja: loja.atual }), titulo: '🔗 Ver no link' }]
+                : []),
+            ],
+          }
+        : {}),
+    };
+  }
+
+  /**
+   * Versão 5, M5e: o plano do resumo do dia ou da semana em ARQUIVO e no LINK (decisão 8), no escopo de quem recebe — a
+   * loja dela, os valores só se o perfil mostra. Os números saem dos MESMOS relatórios das consultas, e os gráficos dos
+   * mesmos planos do `mostrar_grafico` (o mesmo desenho). Só com a permissão dos relatórios de vendas (a do gráfico):
+   * sem ela, ou num dia sem nada a mostrar, null — o resumo vai só por escrito. Cada parte que não lê fica de fora sem
+   * derrubar as outras (o motivo vai ao log).
+   */
+  async planoDoResumo(e: EscopoDoMister, tipo: TipoDoResumo, referencia: string, ate: string): Promise<PlanoDoResumo | null> {
+    if (e.semLoja || !this.pode(e, 'relatorios_vendas')) return null;
+    const loja = this.loja(e, undefined);
+    if ('erro' in loja) return null;
+    const lidoEm = lidoAgora();
+    const deAte = tipo === 'resumo_dia' ? { de: referencia, ate: referencia } : { de: referencia, ate };
+    const rotulo = tipo === 'resumo_dia' ? `${referencia.slice(8, 10)}/${referencia.slice(5, 7)}` : `${referencia.slice(8, 10)}/${referencia.slice(5, 7)} a ${ate.slice(8, 10)}/${ate.slice(5, 7)}`;
+    const parte = async <T>(nome: string, ler: () => Promise<T>): Promise<T | null> => {
+      try {
+        return await ler();
+      } catch (err: any) {
+        this.logger.warn(`o resumo em arquivo ficou sem "${nome}" (empresa ${e.tenantId}) — ${String(err?.message ?? err).slice(0, 200)}`);
+        return null;
+      }
+    };
+    const conv = (rows: any[]) => (rows ?? []).map((d) => ({ dia: isoDoDia(d.dia), total: reais(d.total), vendas: inteiro(d.qtd) }));
+    const r: any = await this.relatorios.vendas(e.tenantId, deAte.de, deAte.ate, e.verValores, loja.atual);
+    const ra: any = await parte('a comparação', () => this.relatorios.vendas(e.tenantId, somarDias(deAte.de, -7), somarDias(deAte.ate, -7), e.verValores, loja.atual));
+    const porHora = ((r?.porHora ?? []) as any[]).map((h) => ({ hora: `${String(inteiro(h.hora)).padStart(2, '0')}h`, total: reais(h.total), vendas: inteiro(h.qtd) }));
+    const pico = tipo === 'resumo_dia' ? porHora.reduce<(typeof porHora)[number] | null>((m, h) => (!m || h.vendas > m.vendas ? h : m), null) : null;
+
+    const graficos: DadosDoResumo['graficos'] = {};
+    graficos.hora = planoVendasPorHora({ loja: loja.nome, rotuloDoPeriodo: rotulo, porHora, verValores: e.verValores, lidoEm });
+    // Por dia: o resumo do dia mostra os 7 dias até ele; o da semana, a própria semana. Os dois contra os 7 anteriores.
+    const sete = tipo === 'resumo_dia' ? { de: somarDias(referencia, -6), ate: referencia } : deAte;
+    const [rs, rsa]: any[] = await Promise.all([
+      tipo === 'resumo_dia' ? parte('os 7 dias', () => this.relatorios.vendas(e.tenantId, sete.de, sete.ate, e.verValores, loja.atual)) : Promise.resolve(r),
+      tipo === 'resumo_dia' ? parte('os 7 dias anteriores', () => this.relatorios.vendas(e.tenantId, somarDias(sete.de, -7), somarDias(sete.ate, -7), e.verValores, loja.atual)) : Promise.resolve(ra),
+    ]);
+    if (rs)
+      graficos.dias = planoVendasPorDia({
+        loja: loja.nome,
+        rotuloDoPeriodo: `${sete.de.slice(8, 10)}/${sete.de.slice(5, 7)} a ${sete.ate.slice(8, 10)}/${sete.ate.slice(5, 7)}`,
+        dias: diasEntre(sete.de, sete.ate),
+        porDia: conv(rs?.porDia),
+        anteriores: rsa ? conv(rsa?.porDia) : null,
+        diasAnteriores: diasEntre(somarDias(sete.de, -7), somarDias(sete.ate, -7)),
+        verValores: e.verValores,
+        lidoEm,
+        contra: 'a semana anterior',
+      });
+    if (e.verValores) {
+      const dl: any = await parte('os canais', () => this.relatorios.faturamentoDelivery(e.tenantId, deAte.de, deAte.ate, loja.atual));
+      if (dl)
+        graficos.canais = planoCanais({
+          loja: loja.nome,
+          rotuloDoPeriodo: rotulo,
+          porPlataforma: ((dl?.porPlataforma ?? []) as any[]).map((x) => ({ plataforma: String(x.plataforma ?? ''), total: reais(x.total), pedidos: inteiro(x.pedidos) })),
+          lidoEm,
+        });
+    }
+    const rk: any = await parte('os mais vendidos', () => this.relatorios.rankingProdutos(e.tenantId, deAte.de, deAte.ate, e.verValores, loja.atual));
+    if (rk)
+      graficos.produtos = planoMaisVendidos({
+        loja: loja.nome,
+        rotuloDoPeriodo: rotulo,
+        itens: ((rk?.itens ?? []) as any[]).map((i) => ({ nome: String(i.descricao ?? ''), quantidade: quantidade(i.qtd) ?? 0, total: e.verValores ? reais(i.faturamento) : null })),
+        verValores: e.verValores,
+        lidoEm,
+      });
+
+    // Os cancelamentos do período (pela consulta, com as permissões dela). Sem nome de cliente nem de quem cancelou: o
+    // link do resumo pode ser aberto por quem tem o endereço.
+    const dinheiro = (v: unknown) => (e.verValores && v != null ? reaisCurtos(Number(v) || 0) : '—');
+    let cancelamentos: DadosDoResumo['cancelamentos'] = null;
+    const cc = await parte('os cancelamentos', () => this.cancelamentos(e, deAte, loja));
+    if (cc?.ok) {
+      const pc: any = cc.dados.pedidosDosCanais;
+      const vc: any = cc.dados.vendasCanceladasNaLoja;
+      const linhasDoPedido: AtencaoDoResumo[] = (Array.isArray(pc?.ultimos) ? pc.ultimos : []).map((u: any) => ({
+        oque: 'Cancelamento',
+        detalhe: [u.numero ? `#${u.numero}` : null, nomeDoCanal(u.canal), String(u.motivo ?? '').slice(0, 80)].filter(Boolean).join(' · '),
+        valor: dinheiro(u.valor),
+      }));
+      const linhasDaLoja: AtencaoDoResumo[] = (Array.isArray(vc?.ultimas) ? vc.ultimas : []).map((u: any) => ({
+        oque: 'Venda cancelada',
+        detalhe: [String(u.quando ?? ''), String(u.motivo ?? '').slice(0, 80)].filter(Boolean).join(' · '),
+        valor: dinheiro(u.valor),
+      }));
+      const quantos = (typeof pc?.cancelados === 'number' ? pc.cancelados : 0) + (typeof vc?.canceladas === 'number' ? vc.canceladas : 0);
+      const valor = e.verValores ? (Number(pc?.valor) || 0) + (Number(vc?.valor) || 0) : null;
+      cancelamentos = { quantos, valor, linhas: [...linhasDoPedido, ...linhasDaLoja].slice(0, 8) };
+    }
+    // O estoque abaixo do mínimo (AGORA: o estoque não guarda o saldo de cada dia).
+    const est = await parte('o estoque', () => this.estoqueEmAlerta(e, {}, loja));
+    const estoque: AtencaoDoResumo[] = est?.ok
+      ? (((est.dados.abaixoDoMinimo as any)?.itens ?? []) as any[]).slice(0, 6).map((i) => ({
+          oque: 'Estoque (agora)',
+          detalhe: `${i.item}: ${i.saldo ?? 0}${i.unidade ? ` ${i.unidade}` : ''} (mínimo ${i.minimo ?? 0})`,
+          valor: '—',
+        }))
+      : [];
+
+    const plano = montarPlanoDoResumo({
+      tipo,
+      empresa: e.empresa,
+      loja: loja.nome,
+      referencia,
+      ate: tipo === 'resumo_dia' ? referencia : ate,
+      lidoEm,
+      verValores: e.verValores,
+      atual: { vendas: inteiro(r?.resumo?.vendas), faturado: e.verValores ? reais(r?.resumo?.faturado) : null, ticket: e.verValores ? reais(r?.resumo?.ticketMedio) : null },
+      anterior: ra ? { vendas: inteiro(ra?.resumo?.vendas), faturado: e.verValores ? reais(ra?.resumo?.faturado) : null } : null,
+      contra: contraDoResumo(tipo, referencia),
+      pico: pico && pico.vendas > 0 ? pico : null,
+      cancelamentos,
+      estoque,
+      graficos,
+    });
+    return resumoTemConteudo(plano) ? plano : null;
   }
 
   /** O ranking de produtos (`GET /relatorios/ranking-produtos`). */

@@ -46,8 +46,19 @@ type RelatorioNaTela = {
 };
 /** Os ajustes da conversa (mig 440; versão 3 do protótipo, grupo "Conversa"): por enquanto, os documentos por foto. */
 type ModoDoBoleto = 'sozinho' | 'perguntar';
-type Conversa = { documentosLigado: boolean; documentosModo: ModoDoBoleto };
+/** Versão 5, M5e (mig 462): "Como mandar o resumo" — a mesma lista do servidor (`FORMAS_DE_ENTREGA_DO_RESUMO`). */
+type FormaDoResumo = 'botoes' | 'pdf' | 'link' | 'texto';
+type Conversa = { documentosLigado: boolean; documentosModo: ModoDoBoleto; resumoEntrega?: FormaDoResumo; responderAudio?: boolean };
 const CONV = 'conversa:documentos';
+const CONV_RESUMO = 'conversa:resumo';
+const CONV_VOZ = 'conversa:voz';
+const FORMAS_DO_RESUMO: { v: FormaDoResumo; rotulo: string }[] = [
+  { v: 'botoes', rotulo: 'texto com os botões PDF e link' },
+  { v: 'pdf', rotulo: 'texto e o PDF junto' },
+  { v: 'link', rotulo: 'texto e o link junto' },
+  { v: 'texto', rotulo: 'só o texto' },
+];
+const formaDoResumo = (v: unknown): FormaDoResumo => (FORMAS_DO_RESUMO.some((f) => f.v === v) ? (v as FormaDoResumo) : 'botoes');
 /** M3a parte 4: quando avisar do boleto perto de vencer (o `parametro` da regra; o servidor confere a mesma lista). */
 const ANTECEDENCIAS_DO_BOLETO = [
   { v: 3, rotulo: '3 dias antes e no dia' },
@@ -249,6 +260,8 @@ export function AvisosDoMister() {
   const [editandoValores, setEditandoValores] = useState<AvisoNaTela | null>(null);
   const [relatorios, setRelatorios] = useState<RelatorioNaTela[] | null>(null);
   const [conversa, setConversa] = useState<Conversa | null>(null);
+  // M5e: a versão 5 está ligada nesta instalação? (Desligada, o resumo segue só por escrito; o ajuste diz isso.)
+  const [resumoLigado, setResumoLigado] = useState<boolean | null>(null);
 
   // Cada parte (avisos e relatórios) troca só os SEUS valores: salvar uma e falhar a outra mantém a pendência da que falhou.
   const aplicar = useCallback((d: DaTela) => {
@@ -265,11 +278,14 @@ export function AvisosDoMister() {
     setSalvos((s) => ({ ...s, ...v }));
     setValores((x) => ({ ...x, ...v }));
   }, []);
-  const aplicarConversa = useCallback((c: Conversa) => {
+  const aplicarConversa = useCallback((c: Conversa, disponivel?: { resumoEmArquivo?: boolean }) => {
     const v = paraValorDaConversa(c);
+    const r = formaDoResumo(c.resumoEntrega);
     setConversa(c);
-    setSalvos((s) => ({ ...s, [CONV]: v }));
-    setValores((x) => ({ ...x, [CONV]: v }));
+    if (disponivel) setResumoLigado(disponivel.resumoEmArquivo === true);
+    const voz = c.responderAudio === true ? '1' : '0';
+    setSalvos((s) => ({ ...s, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz }));
+    setValores((x) => ({ ...x, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz }));
   }, []);
 
   const ler = useCallback(async () => {
@@ -283,8 +299,8 @@ export function AvisosDoMister() {
       ]);
       aplicar(d as DaTela);
       aplicarRelatorios(((r as { relatorios?: RelatorioNaTela[] })?.relatorios ?? []) as RelatorioNaTela[]);
-      const lida = (c as { conversa?: Conversa } | null)?.conversa;
-      if (lida) aplicarConversa(lida);
+      const lida = c as { conversa?: Conversa; disponivel?: { resumoEmArquivo?: boolean } } | null;
+      if (lida?.conversa) aplicarConversa(lida.conversa, lida.disponivel);
     } catch {
       setErroLeitura(true);
     }
@@ -488,7 +504,44 @@ export function AvisosDoMister() {
             </span>
           );
         },
-      })),
+      })).concat(
+        // Versão 5, M5e (mig 462): "Como mandar o resumo" — guardado nos ajustes da conversa; só com eles lidos.
+        conversa
+          ? [
+              {
+                id: CONV_RESUMO,
+                rotulo: 'Como mandar o resumo',
+                tipo: 'livre' as const,
+                palavras: 'resumo pdf link gráficos arquivo botões como mandar',
+                ajuda: (
+                  <>
+                    <span className="block">
+                      O texto vai sempre. Os botões trazem o PDF ou o link de visualização, que vale 7 dias e só mostra aquele resumo. O PDF e os gráficos só
+                      saem para quem vê os relatórios de vendas; para os outros, só o texto.
+                    </span>
+                    {resumoLigado === false && (
+                      <span className="mt-1 block" data-resumo-em-arquivo-desligado>
+                        <Selo tom="info">ainda não ligado no Regem: o resumo segue só por escrito</Selo>
+                      </span>
+                    )}
+                  </>
+                ),
+                desenhar: (v: Valor, mudar: (x: Valor) => void) => (
+                  <label className="flex w-full items-center justify-start gap-1 text-sm md:justify-end">
+                    <span className="sr-only">Como mandar o resumo</span>
+                    <select className="min-h-10 max-w-full rounded-md border border-input bg-background px-2" value={formaDoResumo(v)} onChange={(e) => mudar(formaDoResumo(e.target.value))}>
+                      {FORMAS_DO_RESUMO.map((f) => (
+                        <option key={f.v} value={f.v}>
+                          {f.rotulo}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ),
+              },
+            ]
+          : [],
+      ),
     };
     // A conversa (versão 3, M3a parte 3): o primeiro ajuste é o dos documentos por foto.
     const daConversa: GrupoDeAjustes | null = !conversa
@@ -537,10 +590,35 @@ export function AvisosDoMister() {
                 );
               },
             },
+            // Versão 5, M5c (mig 462): "Responder em áudio" — nasce desligado; a voz do Google pelo DMS Graph.
+            {
+              id: CONV_VOZ,
+              rotulo: 'Responder em áudio',
+              tipo: 'livre' as const,
+              palavras: 'áudio voz nota de voz falar responder ouvir',
+              ajuda: (
+                <>
+                  <span className="block">
+                    Quando a pessoa manda áudio, o Mister responde em texto e também numa nota de voz com o principal (uns 40 segundos). A voz é a do Google,
+                    pelo DMS Graph. Cada resposta em áudio conta uma na franquia de fotos e áudios do Graph.
+                  </span>
+                  {resumoLigado === false && (
+                    <span className="mt-1 block" data-resposta-em-audio-desligada>
+                      <Selo tom="info">ainda não ligado no Regem: a resposta segue só em texto</Selo>
+                    </span>
+                  )}
+                </>
+              ),
+              desenhar: (v: Valor, mudar: (x: Valor) => void) => (
+                <span className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
+                  <Chave ligada={v === '1'} rotulo="Responder em áudio" aoMudar={(l) => mudar(l ? '1' : '0')} />
+                </span>
+              ),
+            },
           ],
         };
     return [...dosAvisos, ...(doGrupo ? [doGrupo] : []), ...(daConversa ? [daConversa] : [])];
-  }, [dados, valores, nomes, relatorios, conversa]);
+  }, [dados, valores, nomes, relatorios, conversa, resumoLigado]);
 
   const salvar = async () => {
     if (!dados) return;
@@ -551,10 +629,19 @@ export function AvisosDoMister() {
       const rels = (relatorios ?? [])
         .filter((r) => valores[REL + r.tipo] !== salvos[REL + r.tipo])
         .map((r) => ({ tipo: r.tipo, ...deValorDoRelatorio(valores[REL + r.tipo]) }));
-      const conv = conversa && valores[CONV] !== salvos[CONV] ? deValorDaConversa(valores[CONV]) : null;
+      // A conversa grava só o que mudou (o ausente mantém o salvo): os documentos por foto e/ou "Como mandar o resumo".
+      const partesDaConversa = {
+        ...(conversa && valores[CONV] !== salvos[CONV] ? deValorDaConversa(valores[CONV]) : {}),
+        ...(conversa && valores[CONV_RESUMO] !== salvos[CONV_RESUMO] ? { resumoEntrega: formaDoResumo(valores[CONV_RESUMO]) } : {}),
+        ...(conversa && valores[CONV_VOZ] !== salvos[CONV_VOZ] ? { responderAudio: valores[CONV_VOZ] === '1' } : {}),
+      };
+      const conv = Object.keys(partesDaConversa).length ? partesDaConversa : null;
       if (regras.length) aplicar((await api.patch('/mister/avisos', { regras })) as DaTela);
       if (rels.length) aplicarRelatorios(((await api.patch('/mister/relatorios', { relatorios: rels })) as { relatorios: RelatorioNaTela[] }).relatorios);
-      if (conv) aplicarConversa(((await api.patch('/mister/conversa', conv)) as { conversa: Conversa }).conversa);
+      if (conv) {
+        const r = (await api.patch('/mister/conversa', conv)) as { conversa: Conversa; disponivel?: { resumoEmArquivo?: boolean } };
+        aplicarConversa(r.conversa, r.disponivel);
+      }
       toast.success(
         regras.length ? 'Avisos do Mister salvos.' : rels.length ? 'Relatórios do Mister salvos.' : conv ? 'Ajustes da conversa salvos.' : 'Nada para salvar.',
       );

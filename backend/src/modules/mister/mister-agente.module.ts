@@ -37,6 +37,7 @@ import { MisterRelatoriosService } from './mister-relatorios.service';
 import { MuralModule } from '../mural/mural.module';
 import { GraphModule } from '../graph/graph.module';
 import { MisterMidiaService } from './mister-midia.service';
+import { MisterResumoArquivoService } from './mister-resumo-arquivo.service';
 import { MisterRelatorioController } from './mister-relatorio.controller';
 import { MisterModule } from './mister.module';
 
@@ -108,6 +109,8 @@ import { MisterModule } from './mister.module';
     MisterVigiaService,
     // Versão 5, M5a: a foto (e o PDF) que a equipe manda — o DMS Graph lê, a IA da empresa de reserva; vira a pergunta.
     MisterMidiaService,
+    // Versão 5, M5e (mig 461): o resumo com "📄 PDF" e "📊 Ver gráficos" e o toque nesses botões.
+    MisterResumoArquivoService,
   ],
   // F4.2a (mig 433): as rotas públicas da página do link com PIN (`/m/<código>`), que respondem pelo serviço das propostas.
   // M3a parte 3: a parte "Documentos" do Mister na loja (a lista e o "Desfazer o lançamento").

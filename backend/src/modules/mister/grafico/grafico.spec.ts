@@ -1,6 +1,8 @@
 import { inflateSync } from 'node:zlib';
 import { ASSINATURA_PNG, Tela, crc32, rgb } from './tela';
 import { TAMANHO_DA_IMAGEM, imagemDoGrafico, valeAImagem } from './grafico-do-insumo';
+import { TAMANHO_DA_IMAGEM_DO_PLANO, imagemDoPlano } from './imagem-do-plano';
+import { deltaDe, planoCanais, planoMaisVendidos, planoVendasPorDia, planoVendasPorHora, valeOPlano } from './plano-do-grafico';
 
 // A IMAGEM DO GRÁFICO DO MISTER (M3c parte 3): a tela de pixels, as letras do atlas e o PNG feitos aqui, sem biblioteca de
 // imagem. Os testes LEEM o PNG de volta (os pedaços, o CRC de cada um e os pixels) — o que vale é o arquivo que sai.
@@ -95,10 +97,105 @@ describe('a imagem do gráfico do insumo', () => {
     // A segunda barra (a de 71) fica na metade direita, logo acima da base.
     const base = TAMANHO_DA_IMAGEM.altura - 74;
     expect(pixel(p, Math.round(40 + 1.5 * ((TAMANHO_DA_IMAGEM.largura - 80) / 2)), base - 20)).toEqual(rgb('#E2A340'));
+    // Versão 5 (M5d.1): as outras barras em azul-marinho (a de 12, na metade esquerda) — o mesmo desenho da página e do PDF.
+    expect(pixel(p, Math.round(40 + 0.5 * ((TAMANHO_DA_IMAGEM.largura - 80) / 2)), base - 10)).toEqual(rgb('#2F4A60'));
   });
   it('com a linha da média e muitas barras, também sai (a legenda numa linha própria)', () => {
     const muitas = Array.from({ length: 31 }, (_, i) => ({ rotulo: String(i + 1).padStart(2, '0'), valor: 50 + i, texto: String(50 + i) }));
     const p = lerPng(imagemDoGrafico({ ...g, grafico: { ...g.grafico, barras: muitas, linha: { valor: 60, texto: 'média de 01/10 a 31/10: 60 por dia' } } }));
     expect(p.largura).toBe(TAMANHO_DA_IMAGEM.largura);
+  });
+});
+
+// ─────────── versão 5, M5d.2: os gráficos novos (o plano e a imagem) ───────────
+describe('o plano dos gráficos novos (M5d.2)', () => {
+  const dias = ['2026-11-12', '2026-11-13', '2026-11-14', '2026-11-15'];
+  const antes = ['2026-11-08', '2026-11-09', '2026-11-10', '2026-11-11'];
+
+  it('por dia: os dias sem venda entram com zero, o anterior ponto a ponto, a comparação e o dia da semana', () => {
+    const p = planoVendasPorDia({
+      loja: 'Loja Centro',
+      rotuloDoPeriodo: 'de 12/11 a 15/11',
+      dias,
+      porDia: [
+        { dia: '2026-11-12', total: 1200, vendas: 25 },
+        { dia: '2026-11-14', total: 2500, vendas: 50 },
+      ],
+      anteriores: [{ dia: '2026-11-09', total: 1000, vendas: 20 }],
+      diasAnteriores: antes,
+      verValores: true,
+      lidoEm: '19/11 às 08:30',
+      contra: 'o período anterior',
+    });
+    expect(p.forma).toBe('colunas');
+    expect(p.barras!.map((b) => [b.rotulo, b.rotulo2, b.valor, b.anterior])).toEqual([
+      ['Qui', '12', 1200, 0],
+      ['Sex', '13', 0, 1000],
+      ['Sáb', '14', 2500, 0],
+      ['Dom', '15', 0, 0],
+    ]);
+    expect(p.barras![2].texto).toBe('2,5 mil');
+    expect(p.kpi).toBe('R$ 3.700');
+    expect(p.delta).toEqual({ texto: '+270% sobre o período anterior', tom: 'bom' });
+    expect(valeOPlano(p)).toBe(true);
+  });
+
+  it('sem valores em reais: as quantidades, nunca reais; a queda em vermelho; igual e sem base', () => {
+    const p = planoVendasPorDia({ loja: 'L', rotuloDoPeriodo: 'x', dias: dias.slice(0, 2), porDia: [{ dia: '2026-11-12', total: 999, vendas: 3 }], anteriores: [{ dia: '2026-11-08', total: 5, vendas: 6 }], diasAnteriores: antes, verValores: false, lidoEm: 'x', contra: 'a semana anterior' });
+    expect(p.kpi).toBe('3 vendas');
+    expect(p.titulo).toContain('quantidade');
+    expect(p.barras!.map((b) => b.texto)).toEqual(['3', '0']);
+    expect(JSON.stringify(p)).not.toContain('R$');
+    expect(p.delta).toEqual({ texto: '-50% sobre a semana anterior', tom: 'ruim' });
+    expect(deltaDe(10, 10, 'a semana anterior')).toEqual({ texto: 'igual à semana anterior', tom: 'neutro' });
+    expect(deltaDe(10, 0, 'a semana anterior')).toBeNull();
+  });
+
+  it('por hora: só as horas com venda e o pico; canais: o maior primeiro, o nome como a loja fala; mais vendidos: até 6', () => {
+    const h = planoVendasPorHora({ loja: 'L', rotuloDoPeriodo: 'hoje', porHora: [{ hora: '18h', total: 0, vendas: 0 }, { hora: '19h', total: 300, vendas: 6 }, { hora: '21h', total: 900, vendas: 18 }], verValores: true, lidoEm: 'x' });
+    expect(h.barras!.map((b) => b.rotulo)).toEqual(['19h', '21h']);
+    expect(h.delta).toEqual({ texto: 'pico às 21h', tom: 'neutro' });
+    const c = planoCanais({ loja: 'L', rotuloDoPeriodo: 'x', porPlataforma: [{ plataforma: '99food', total: 100, pedidos: 2 }, { plataforma: 'ifood', total: 300, pedidos: 6 }, { plataforma: 'cardapio', total: 0, pedidos: 0 }], lidoEm: 'x' });
+    expect(c.partes!.map((x) => x.nome)).toEqual(['iFood', '99Food']);
+    expect(c.kpi).toBe('R$ 400,00');
+    const m = planoMaisVendidos({ loja: 'L', rotuloDoPeriodo: 'x', itens: Array.from({ length: 9 }, (_, i) => ({ nome: `P${i}`, quantidade: 20 - i, total: 100 })), verValores: false, lidoEm: 'x' });
+    expect(m.partes).toHaveLength(6);
+    expect(m.partes![0].texto).toBe('20 un');
+    expect(valeOPlano({ ...m, partes: m.partes!.slice(0, 1) })).toBe(false);
+  });
+
+  it('a imagem: o tamanho, a faixa dourada, o melhor dia em dourado, os outros em azul-marinho e o anterior claro', () => {
+    const p = planoVendasPorDia({
+      loja: 'Loja Centro',
+      rotuloDoPeriodo: 'x',
+      dias: dias.slice(0, 2),
+      porDia: [
+        { dia: '2026-11-12', total: 1000, vendas: 1 },
+        { dia: '2026-11-13', total: 2000, vendas: 2 },
+      ],
+      anteriores: [
+        { dia: '2026-11-08', total: 1500, vendas: 1 },
+        { dia: '2026-11-09', total: 1500, vendas: 1 },
+      ],
+      diasAnteriores: antes,
+      verValores: true,
+      lidoEm: 'x',
+      contra: 'o período anterior',
+    });
+    const png = lerPng(imagemDoPlano(p));
+    expect([png.largura, png.altura]).toEqual([TAMANHO_DA_IMAGEM_DO_PLANO.largura, TAMANHO_DA_IMAGEM_DO_PLANO.altura]);
+    expect(pixel(png, 500, 2)).toEqual(rgb('#E2A340'));
+    // As colunas: a de hoje à DIREITA do centro de cada dia (a anterior à esquerda); o maior dia em dourado.
+    const M = 40;
+    const passo = (TAMANHO_DA_IMAGEM_DO_PLANO.largura - 2 * M) / 2;
+    const base = TAMANHO_DA_IMAGEM_DO_PLANO.altura - 60 - 50 - 40;
+    expect(pixel(png, Math.round(M + passo * 0.5 + 8), base - 10)).toEqual(rgb('#2F4A60'));
+    expect(pixel(png, Math.round(M + passo * 1.5 + 8), base - 10)).toEqual(rgb('#D4952F'));
+    expect(pixel(png, Math.round(M + passo * 0.5 - 8), base - 10)).toEqual(rgb('#C9D3DC'));
+    // As outras formas também saem no mesmo tamanho.
+    const c = planoCanais({ loja: 'L', rotuloDoPeriodo: 'x', porPlataforma: [{ plataforma: 'ifood', total: 300, pedidos: 6 }, { plataforma: '99food', total: 100, pedidos: 2 }], lidoEm: 'x' });
+    expect(lerPng(imagemDoPlano(c)).largura).toBe(TAMANHO_DA_IMAGEM_DO_PLANO.largura);
+    const m = planoMaisVendidos({ loja: 'L', rotuloDoPeriodo: 'x', itens: [{ nome: 'A', quantidade: 9, total: 90 }, { nome: 'B', quantidade: 3, total: 30 }], verValores: true, lidoEm: 'x' });
+    expect(lerPng(imagemDoPlano(m)).altura).toBe(TAMANHO_DA_IMAGEM_DO_PLANO.altura);
   });
 });

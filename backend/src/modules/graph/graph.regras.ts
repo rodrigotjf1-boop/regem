@@ -29,6 +29,8 @@ export const FRASE_DA_PERMISSAO = 'Analisar as fotos, os documentos e os áudios
 export const FERRAMENTA = 'analisar_arquivo';
 /** A ferramenta que transcreve o áudio (contrato 1.1.0 do Graph; o Mister, versão 5, M5b). */
 export const FERRAMENTA_OUVIR = 'ouvir_audio';
+/** A ferramenta que transforma o texto em nota de voz (contrato 1.2.0 do Graph; o Mister, versão 5, M5c). */
+export const FERRAMENTA_FALAR = 'falar';
 
 /** O que a porta do Graph aceita de imagem (o GIF que a IA da empresa lê não vai ao Graph: segue pela IA). */
 export const MIMES_DO_GRAPH = ['image/jpeg', 'image/png', 'image/webp'] as const;
