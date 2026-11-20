@@ -1943,6 +1943,17 @@ roteiro passou a simular os azulejos do mapa (sem depender do OpenStreetMap) e a
 hora (as ordens de produção leem a lista duas vezes, abertas e encerradas). A tela de manutenção lê a categoria no corpo do
 componente, mas a lista começa em "Carregando…" (o primeiro desenho é igual): o roteiro confere o #418 a cada rodada.
 
+**M6k, lote 4 (20/11/2026; SEM migration) — os 7 últimos; M6k COMPLETA:** Configurações › Alertas do KDS
+(`alertas-do-kds`), Direcionamento do catálogo (`direcionamento-do-catalogo`), Config. por ramo (`config-por-ramo`), Planos &
+assinatura (`planos-e-assinatura`), Servidor local (`servidor-local`), Relatórios › Atendimento (`numeros-do-atendimento`)
+e Visão C&O (`visao-co`). **Os 54 itens do menu têm assunto no guia, todos com imagem.**
+- Na imagem dos planos, o preço e os módulos de exemplo saem BORRADOS: a imagem vai a clientes de verdade, e um preço
+  inventado engana (o de verdade está na tela e muda com o tempo).
+- Junto: a Visão C&O dizia "Nenhuma unidade cadastrada." enquanto ainda carregava (ERR-550, V37) — agora "Carregando as
+  unidades…", "Não consegui ler as unidades." com erro, e "Nenhuma" só com a resposta lida e vazia.
+- Fica para depois: o "quer que eu faça?" do plano (o Mister oferecer a ação depois do "como faço") — entra com os lotes
+  seguintes da M6j, assunto por assunto, quando a ação existir pela porta `propor_acao`.
+
 **M6d implementada (20/11/2026; mig 476 SÓ NUVEM — `mister_conversa_config.pin_a_cada_h` e `mister_vinculo.pin_ate`;
 nasce desligada):**
 - **O ajuste** (Mister › Regras › "Segurança · só o presidente muda", pelo `PATCH /mister/conversa`): pedir o PIN a cada
