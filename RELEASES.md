@@ -24,6 +24,12 @@
   migration).** O guia é da nuvem; vai no `.zip` a correção da Visão C&O (ERR-550: "carregando" × "não li" × "nenhuma"),
   que a loja também serve.
 
+- **Banners — "Ao tocar, abre" e o período (20/11; mig 482 — `banner.aparece_de` e `aparece_ate`, NUVEM E LOJA; fase B3
+  do `docs/plano-clube-e-banner.md`).** Delivery › Configurações › Banners: o resumo de cada banner e a gaveta "Ao tocar,
+  abre…" com os destinos novos (vagas da loja, o Clube, as páginas do Regem, nada) e o período. O cardápio público só
+  mostra o banner no período. A `banner` desce para a loja: a migration vai no `.zip` (o sync da loja ignora as colunas
+  que ela ainda não tem, então a loja sem a migration segue igual). O GIF fica para quando o DMS Graph animar imagens (B2).
+
 - **Mister versão 6, M6k lote 3 — o guia "como faço" em mais 8 telas, com imagem (20/11; SEM migration).** O guia e as
   imagens são da nuvem: vai no `.zip` sem efeito na loja.
 
