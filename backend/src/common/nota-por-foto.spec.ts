@@ -1,5 +1,19 @@
 import { montarChave } from '../modules/fiscal/chave';
-import { ItemNoMister, conferirNota, custosQueMudaram, destinosDosItens, lerChaveDaNfe, lerLeituraDaNota, numeroDoTexto, palavrasDaDescricao, sugerirInsumos } from './nota-por-foto';
+import {
+  FRASES_DA_NOTA,
+  ItemNoMister,
+  botoesDoComoLancar,
+  conferirNota,
+  custosQueMudaram,
+  destinosDosItens,
+  formaDoPagamento,
+  lerChaveDaNfe,
+  lerComoLancar,
+  lerLeituraDaNota,
+  numeroDoTexto,
+  palavrasDaDescricao,
+  sugerirInsumos,
+} from './nota-por-foto';
 
 // A NOTA DO FORNECEDOR POR FOTO (M3b, parte 1 — só o que é puro): a chave conferida pelo dígito, a leitura do que a IA
 // devolve, a conferência dos totais e a sugestão do insumo de cada item (a medida "56 g" separa a carne de 120 g).
@@ -155,5 +169,104 @@ describe('o custo que mudou com a nota (M3b.3)', () => {
       { insumo: 'F', unidade: 'kg', antes: 10, depois: 10.2 }, // 2%
     ];
     expect(custosQueMudaram(m).map((x) => x.split(' ')[3])).toEqual(['D', 'E', 'C']);
+  });
+});
+
+// Versão 6, M6h: o cupom fiscal de compra (NFC-e, modelo 65) — a chave, a leitura, a conferência com o desconto, os botões
+// do "Como deseja lançar?", a forma do pagamento e as frases.
+describe('o cupom fiscal de compra (M6h)', () => {
+  const NFCE = montarChave({ codigoUf: 33, ano2: '26', mes2: '11', cnpj: CNPJ, modelo: '65', serie: 1, numero: 98765, tpEmis: 1, cNF: '87654321' });
+  const DOC = '3f2a9c1e-5b7d-4e8a-9c21-7d4e5f6a8b90';
+  const cupom = (o: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      especie: 'cupom',
+      chave: NFCE,
+      emitenteNome: 'Atacadão Centro',
+      emitenteCnpj: CNPJ,
+      numero: '98765',
+      dataEmissao: '2026-11-19',
+      valorTotal: '95,00',
+      desconto: '5,00',
+      formaPagamento: 'debito',
+      duplicatas: [{ vencimento: '2026-12-01', valor: '95,00' }],
+      itens: [
+        { descricao: 'OLEO SOJA 900ML', quantidade: '10', unidade: 'UN', valorUnitario: '7,00', valorTotal: '70,00' },
+        { descricao: 'SAL REFINADO 1KG', quantidade: '10', unidade: 'UN', valorUnitario: '3,00', valorTotal: '30,00' },
+      ],
+      legivel: true,
+      ...o,
+    });
+
+  it('a chave do modelo 65 entra pela leitura da nota (o padrão segue só NF-e)', () => {
+    expect(lerChaveDaNfe(NFCE)).toEqual({ ok: false, motivo: 'modelo' });
+    expect(lerChaveDaNfe(NFCE, ['55', '65'])).toMatchObject({ ok: true, modelo: '65', numero: 98765 });
+  });
+
+  it('lê o cupom: espécie pela chave, dia, forma e desconto; o cupom não tem parcelas', () => {
+    const l = lerLeituraDaNota(cupom())!;
+    expect(l).toMatchObject({ especie: 'cupom', chave: NFCE, dataEmissao: '2026-11-19', formaPagamento: 'debito', descontoCentavos: 500, valorTotalCentavos: 9500 });
+    expect(l.duplicatas).toEqual([]);
+    // os itens (100,00) menos o desconto (5,00) somam o total (95,00)
+    expect(conferirNota(l)).toEqual([]);
+    expect(conferirNota({ ...l, descontoCentavos: null })).toEqual(['itens_nao_somam']);
+  });
+
+  it('a chave decide a espécie: modelo 55 é nota mesmo que a IA diga cupom; sem chave, vale a IA', () => {
+    expect(lerLeituraDaNota(cupom({ chave: CHAVE }))!.especie).toBe('nota');
+    expect(lerLeituraDaNota(cupom({ chave: null }))!.especie).toBe('cupom');
+    expect(lerLeituraDaNota(cupom({ chave: null, especie: 'nota' }))!.especie).toBe('nota');
+    // a forma fora da lista e a data torta caem
+    expect(lerLeituraDaNota(cupom({ formaPagamento: 'boleto', dataEmissao: '2026-02-31' }))).toMatchObject({ formaPagamento: null, dataEmissao: null });
+  });
+
+  it('os botões do "Como deseja lançar?" cabem no limite da Meta e se leem de volta; o id torto não', () => {
+    const b = botoesDoComoLancar(DOC);
+    expect(b.map((x) => x.titulo)).toEqual(['Só despesa', 'Estoque e despesa', 'Não lançar']);
+    for (const x of b) expect(x.titulo.length).toBeLessThanOrEqual(20);
+    expect(b.map((x) => lerComoLancar(x.id))).toEqual([
+      { documentoId: DOC, escolha: 'd' },
+      { documentoId: DOC, escolha: 'e' },
+      { documentoId: DOC, escolha: 'n' },
+    ]);
+    expect(lerComoLancar(`doc:cl:${DOC}:x`)).toBeNull();
+    expect(lerComoLancar('doc:cl:nao-e-uuid:d')).toBeNull();
+    expect(lerComoLancar(`doc:ni:${DOC}:1:0`)).toBeNull();
+  });
+
+  it('a forma do cupom vira a forma do pagamento da conta (débito e crédito = cartão)', () => {
+    expect([formaDoPagamento('dinheiro'), formaDoPagamento('pix'), formaDoPagamento('debito'), formaDoPagamento('credito'), formaDoPagamento('outro'), formaDoPagamento(null)]).toEqual([
+      'dinheiro',
+      'pix',
+      'cartao',
+      'cartao',
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it('as frases: a pergunta com os itens e as opções, o resumo de cada jeito e o lançado (com o caminho do menu)', () => {
+    const l = lerLeituraDaNota(cupom())!;
+    const nota = {
+      chave: l.chave,
+      numero: l.numero,
+      emitenteNome: l.emitenteNome,
+      emitenteCnpj: l.emitenteCnpj,
+      valorTotalCentavos: l.valorTotalCentavos!,
+      duplicatas: [],
+      itens: l.itens.map((it) => ({ ...it, insumoId: null, insumoNome: null, unidadeDoEstoque: null, fator: null, estado: 'item' as const, sugestoes: [] })),
+      especie: 'cupom' as const,
+      dataEmissao: l.dataEmissao,
+      formaPagamento: l.formaPagamento,
+      descontoCentavos: l.descontoCentavos,
+      comoLancar: null,
+    };
+    const pergunta = FRASES_DA_NOTA.comoLancar(nota);
+    expect(pergunta).toContain('🧾 Cupom · Atacadão Centro · 19/11 · R$ 95,00, pago no débito');
+    expect(pergunta).toContain('• OLEO SOJA 900ML, 10 UN · R$ 70,00');
+    expect(pergunta).toContain('Desconto: R$ 5,00.');
+    expect(pergunta).toContain('Como deseja lançar?');
+    expect(FRASES_DA_NOTA.resumoDoCupom({ ...nota, comoLancar: 'despesa' })).toContain('Lanço a despesa de R$ 95,00 como já paga no débito em 19/11? O estoque não muda.');
+    expect(FRASES_DA_NOTA.resumoDoCupom({ ...nota, comoLancar: 'estoque' })).toContain('Lanço a entrada no estoque e a despesa de R$ 95,00 como já paga no débito?');
+    expect(FRASES_DA_NOTA.cupomLancado({ ...nota, comoLancar: 'despesa' })).toBe('Lancei a despesa de R$ 95,00 já paga, em Financeiro › Contas a pagar. O estoque não mudou.');
   });
 });

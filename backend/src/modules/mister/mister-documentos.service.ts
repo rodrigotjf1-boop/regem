@@ -9,6 +9,7 @@ import {
   RECURSO_DO_DOCUMENTO,
   OrigemDoCampo,
   decidirDocumento,
+  cupomNaInstalacao,
   documentosNaInstalacao,
   instrucoesDoDocumento,
   lerLeituraDaFoto,
@@ -63,6 +64,9 @@ export interface DocumentoNaTela {
     noEstoque: number;
     itens: ReturnType<typeof destinosDosItens>;
     recebimentoId: string | null;
+    /** Versão 6, M6h: o cupom fiscal de compra e a resposta ao "Como deseja lançar?". */
+    especie: 'nota' | 'cupom';
+    comoLancar: 'despesa' | 'estoque' | null;
   } | null;
 }
 
@@ -81,6 +85,8 @@ function resumoDaNota(n: NotaNoMister, recebimentoId: string | null): NonNullabl
     noEstoque: n.itens.filter((x) => x.estado === 'ligado').length,
     itens: destinosDosItens(n),
     recebimentoId: recebimentoId ?? null,
+    especie: n.especie === 'cupom' ? 'cupom' : 'nota',
+    comoLancar: n.comoLancar ?? null,
   };
 }
 
@@ -181,7 +187,7 @@ export class MisterDocumentosService implements OnModuleInit {
         recurso: RECURSO_DO_DOCUMENTO,
         modelo: this.modelo(),
         maxTokens: 400,
-        system: instrucoesDoDocumento(),
+        system: instrucoesDoDocumento(cupomNaInstalacao()),
         messages: [{ role: 'user', content: [bloco, { type: 'text', text: 'Leia este documento.' }] }],
         prazoMs: PRAZO_DA_IA_MS,
       });
@@ -255,6 +261,8 @@ export class MisterDocumentosService implements OnModuleInit {
   async responderBotao(botaoId: string, quem: QuemTocou): Promise<boolean> {
     // M3b: a escolha do insumo de um item da nota ("doc:ni:…") é do serviço das notas.
     if (String(botaoId ?? '').startsWith('doc:ni:')) return this.notas ? this.notas.escolher(botaoId, quem) : false;
+    // Versão 6, M6h: o "Como deseja lançar?" do cupom fiscal ("doc:cl:…") também é do serviço das notas.
+    if (String(botaoId ?? '').startsWith('doc:cl:')) return this.notas ? this.notas.comoLancar(botaoId, quem) : false;
     // M3g: o "Desfazer" da correção do vencimento.
     if (String(botaoId ?? '').startsWith('doc:volta:')) return this.desfazerCorrecao(String(botaoId), quem);
     const b = lerBotaoDoDocumento(botaoId);
@@ -270,6 +278,14 @@ export class MisterDocumentosService implements OnModuleInit {
 
     // M3b: a nota do fornecedor só tem "Lançar" e "Cancelar"; o resto (desfazer, pagar, PDF) é do boleto.
     if (d.tipo === 'nota') {
+      // M6h: o "Desfazer" do cupom lançado como só despesa (o pagamento estornado e a conta cancelada).
+      if (b.acao === 'desfazer' && this.notas && d.especie === 'cupom' && d.comoLancar === 'despesa') {
+        const r = await this.notas.desfazerCupom(d, v.colaboradorId);
+        await this.falar(quem.telefone, {
+          texto: r === 'feito' ? 'Desfeito: a despesa do cupom saiu das contas.' : r === 'nao_da' ? FRASES_DO_DOCUMENTO.naoDaParaDesfazer : FRASES_DO_DOCUMENTO.jaRespondido,
+        });
+        return true;
+      }
       if (b.acao === 'lancar' && this.notas) {
         await this.falar(quem.telefone, await this.notas.lancar(d.id, d.tenantId, v.colaboradorId, d.unidadeId ?? null));
         return true;
@@ -471,7 +487,12 @@ export class MisterDocumentosService implements OnModuleInit {
           respondidoEm: l.respondidoEm ? new Date(l.respondidoEm).toISOString() : null,
           tituloId: l.tituloId ?? null,
           // A nota (M3b) entrou pelo recebimento: o "Desfazer" do boleto não vale para ela.
-          podeDesfazer: l.tipo !== 'nota' && l.situacao === 'lancado' && l.tituloStatus === 'aberto',
+          podeDesfazer:
+            l.situacao === 'lancado' &&
+            (l.tipo !== 'nota'
+              ? l.tituloStatus === 'aberto'
+              : // M6h: o cupom do "Só despesa" (a conta já paga, sem entrada no estoque)
+                l.dados?.nota?.especie === 'cupom' && l.dados?.nota?.comoLancar === 'despesa' && (l.tituloStatus === 'pago' || l.tituloStatus === 'aberto')),
           nota: l.tipo === 'nota' && Array.isArray(l.dados?.nota?.itens) ? resumoDaNota(l.dados.nota, l.recebimentoId) : null,
         };
       }),
@@ -607,8 +628,10 @@ export class MisterDocumentosService implements OnModuleInit {
     if (!UUID.test(String(documentoId ?? ''))) throw new NotFoundException('Documento não encontrado.');
     const d = await this.documentoDoBotao(documentoId, [tenantId]);
     if (!d) throw new NotFoundException('Documento não encontrado.');
-    if (d.tipo === 'nota') throw new BadRequestException('A nota entrou pelo Estoque › Recebimento: o que mudar nela é por lá.');
-    const r = await this.desfazer(d, atorId, atorPerfil);
+    // M6h: o cupom lançado como só despesa se desfaz pela tela também (a conta paga: o estorno e o cancelamento).
+    const cupomDespesa = d.tipo === 'nota' && d.especie === 'cupom' && d.comoLancar === 'despesa';
+    if (d.tipo === 'nota' && !cupomDespesa) throw new BadRequestException('A nota entrou pelo Estoque › Recebimento: o que mudar nela é por lá.');
+    const r = cupomDespesa && this.notas ? await this.notas.desfazerCupom(d, atorId, atorPerfil) : await this.desfazer(d, atorId, atorPerfil);
     if (r === 'nao_da') throw new BadRequestException(FRASES_DO_DOCUMENTO.naoDaParaDesfazer);
     if (r === 'ja_respondido') throw new BadRequestException(d.situacao === 'desfeito' ? 'Este lançamento já foi desfeito.' : 'Este documento não foi lançado.');
     return { resultado: r };
@@ -713,7 +736,8 @@ export class MisterDocumentosService implements OnModuleInit {
   protected async documentoDoBotao(documentoId: string, empresas: string[]): Promise<any | null> {
     const [d] = linhas(
       await this.db.execute(sql`
-        select id::text as id, tenant_id::text as "tenantId", unidade_id::text as "unidadeId", situacao, tipo, titulo_id::text as "tituloId"
+        select id::text as id, tenant_id::text as "tenantId", unidade_id::text as "unidadeId", situacao, tipo, titulo_id::text as "tituloId",
+               dados->'nota'->>'especie' as especie, dados->'nota'->>'comoLancar' as "comoLancar"
           from mister_documento
          where id = ${documentoId}::uuid and tenant_id in (${sql.join(empresas.map((t) => sql`${t}::uuid`), sql`, `)})`),
     );
