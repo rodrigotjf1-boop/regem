@@ -9287,6 +9287,11 @@ export function testesDoMisterComPostgres(): void {
         return (await q(`select situacao, resultado from mister_proposta where id = $1`, [id]))[0];
       };
       const idDaProposta = (r: any) => /^prop:([0-9a-f-]{36}):sim$/.exec(r.mensagens?.[0]?.botoes?.[0]?.id ?? '')?.[1] ?? '';
+      // ERR-548: a proposta vira "feita" no banco ANTES de a mensagem "✅ Feito" sair (o `concluir` grava, audita e só
+      // então fala) — quem confere a mensagem espera por ela, nunca só pela situação.
+      const esperarMensagens = async (n: number) => {
+        for (let i = 0; i < 100 && numero.enviadas.length < n; i++) await new Promise((r) => setTimeout(r, 50));
+      };
 
       it('pausar e reabrir o cardápio, aceitar, despachar e marcar pronto — só no "Autorizar" de quem pediu, pelo serviço da tela, com o efeito conferido', async () => {
         const tel = telefone();
@@ -9315,6 +9320,7 @@ export function testesDoMisterComPostgres(): void {
           auditados.length = 0;
           await propostasDasAcoes.responder(`prop:${id}:sim`, quem(tel, 'ana', 'presidente'));
           expect(await esperarFim(id)).toMatchObject({ situacao: 'feita' });
+          await esperarMensagens(2);
           expect(await q(`select motivo from pausa_canal where tenant_id = $1 and canal = 'cardapio' and ate > now()`, [A])).toEqual([{ motivo: 'pedidos' }]);
           const textos = numero.enviadas.map((m) => m.texto);
           expect(textos[0]).toBe('Autorizado. Fazendo agora…');
