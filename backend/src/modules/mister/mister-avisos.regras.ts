@@ -370,7 +370,7 @@ const PROBLEMA_TECNICO: Record<string, string> = {
 export interface Situacao {
   tenantId: string;
   unidadeId: string | null;
-  tipo: TipoDeAviso | TipoDaDistribuicao;
+  tipo: TipoDeAviso | TipoDaDistribuicao | TipoDeSeguranca;
   chave: string;
   titulo: string;
   detalhe: string;
@@ -390,6 +390,63 @@ export const ehAvisoDaDistribuicao = (t: unknown): t is TipoDaDistribuicao => ty
 
 /** O segredo tirado é um EVENTO: o aviso fica aberto por este tempo e depois fecha sozinho (a volta não o vê mais). */
 export const SEGREDO_ABERTO_H = 24;
+
+// ───────────────────────────── os avisos de SEGURANÇA (versão 6, M6a) ─────────────────────────────
+// Plano v6, S4 (aprovado em 20/11/2026; `mockups/regem-mister-v6.html`, "Segurança", conversa 4): todo telefone ligado (ou
+// religado) ao Mister avisa os presidentes pelo Mister, com o botão "Não reconheço" (desliga na hora), e fica no Histórico.
+// A regra é FIXA: a empresa não desliga nem muda (é a proteção contra quem liga um telefone com o login de outra pessoa).
+// É um EVENTO: aberto por 24 h e fecha calado (sem "resolvido"). O texto é sempre o fixo — nunca escrito pela IA.
+
+export type TipoDeSeguranca = 'telefone_ligado';
+export const AVISOS_DE_SEGURANCA: Record<TipoDeSeguranca, RegraDoAviso> = { telefone_ligado: regra(['presidente']) };
+export const TIPOS_DE_SEGURANCA = Object.keys(AVISOS_DE_SEGURANCA) as TipoDeSeguranca[];
+export const ehAvisoDeSeguranca = (t: unknown): t is TipoDeSeguranca => typeof t === 'string' && t in AVISOS_DE_SEGURANCA;
+/** O grupo do aviso de segurança no Histórico. */
+export const GRUPO_DA_SEGURANCA = 'O próprio Mister' as const;
+export const TELEFONE_LIGADO_ABERTO_H = 24;
+/** O botão "Não reconheço": `vinc:nao:<colaborador>:<ligado_em ISO>` — o instante prende o toque àquela ligação. */
+export const PREFIXO_NAO_RECONHECO = 'vinc:nao:';
+
+/** O aviso de um telefone ligado ao Mister (um por ligação: a mesma pessoa religando abre outro). */
+export function situacaoDoTelefoneLigado(v: {
+  tenantId: string;
+  vinculoId: string;
+  colaboradorId: string;
+  nome: string;
+  nivel: string;
+  loja: string | null;
+  telefone: string;
+  /** O instante da ligação, em ISO UTC com milissegundos (é o mesmo que o botão leva). */
+  ligadoEm: string;
+  /** "14:22", no relógio da loja. */
+  hora: string;
+}): Situacao {
+  const final = String(v.telefone).slice(-4);
+  const nome = String(v.nome ?? '').trim().split(/\s+/)[0] || 'alguém';
+  const quem = `${nome} (${v.nivel === 'presidente' ? 'presidente' : 'gerente'}${v.loja ? ` · ${v.loja}` : ''})`;
+  return {
+    tenantId: v.tenantId,
+    unidadeId: null,
+    tipo: 'telefone_ligado',
+    chave: `vinculo:${v.vinculoId}:${v.ligadoEm}`,
+    titulo: `WhatsApp final ${final} ligado ao Mister`,
+    detalhe: `Foi ligado às ${v.hora} a ${quem}. Se você não reconhece, toque em "Não reconheço": ele é desligado na hora.`,
+    dados: { colaboradorId: v.colaboradorId, ligadoEm: v.ligadoEm, final },
+  };
+}
+
+/** O botão do aviso de telefone ligado, só para o presidente (o mesmo que tocar "Desligar" em Mister › Pessoas). */
+export function botoesDoTelefoneLigado(dados: unknown): { id: string; titulo: string }[] {
+  const d = (dados ?? {}) as { colaboradorId?: unknown; ligadoEm?: unknown };
+  if (typeof d.colaboradorId !== 'string' || typeof d.ligadoEm !== 'string') return [];
+  return [{ id: `${PREFIXO_NAO_RECONHECO}${d.colaboradorId}:${d.ligadoEm}`, titulo: 'Não reconheço' }];
+}
+
+/** Lê o botão "Não reconheço": o colaborador e o instante da ligação, ou null se o id não é desse botão. */
+export function lerNaoReconheco(botaoId: unknown): { colaboradorId: string; ligadoEm: string } | null {
+  const m = /^vinc:nao:([0-9a-f-]{36}):(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)$/i.exec(String(botaoId ?? ''));
+  return m ? { colaboradorId: m[1].toLowerCase(), ligadoEm: m[2] } : null;
+}
 
 /** O aviso de um segredo tirado da resposta de uma pergunta (uma por pergunta). */
 export function situacaoDoSegredo(p: { tenantId: string; perguntaId: string; quando: string; consultas: string[] }): Situacao {

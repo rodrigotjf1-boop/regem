@@ -1,5 +1,8 @@
 import { randomInt } from 'node:crypto';
 
+/** Versão 6, decisão V6-3 (aprovada em 20/11/2026): sem conversa por este tempo, o WhatsApp sai do Mister sozinho. */
+export const DIAS_SEM_CONVERSA = 60;
+
 // MISTER — o que a entrada do WhatsApp decide SEM tocar no banco (mig 417).
 //
 // O número do Mister é um só, da distribuição, para todas as empresas. Quem diz de qual empresa é a conversa é o
@@ -198,8 +201,13 @@ export function situacaoDaEmpresa(e: { modulo: boolean; temIa: boolean; chaveSit
 export const TEXTOS = {
   desconhecido:
     'Olá! Este é o Mister, o assistente de gestão do Regem.\n\nAinda não sei quem você é. Para falar comigo, ligue o seu WhatsApp dentro do Regem, no menu Mister, em "Pessoas".',
-  ligado: (nome: string, empresa: string) =>
-    `Pronto, ${nome}! Este WhatsApp está ligado a você no Regem da ${empresa}.\n\nPode me perguntar sobre a loja: as vendas, os pedidos, o estoque. É por aqui também que os avisos da empresa vão chegar.\n\nPara parar os avisos, responda PARAR AVISOS.`,
+  ligado: (nome: string, empresa: string, finalAntigo: string | null = null) =>
+    `Pronto, ${nome}! Este WhatsApp está ligado a você no Regem da ${empresa}.` +
+    (finalAntigo ? ` O número antigo (final ${finalAntigo}) foi desligado do Mister.` : '') +
+    `\n\nPode me perguntar sobre a loja: as vendas, os pedidos, o estoque. É por aqui também que os avisos da empresa vão chegar.\n\nPara parar os avisos, responda PARAR AVISOS.`,
+  // Versão 6, M6a (mig 468): a frase a quem escreve de um telefone que JÁ foi ligado e saiu.
+  vencido: `Este WhatsApp foi desligado do Mister por ficar ${DIAS_SEM_CONVERSA} dias sem conversa, por segurança. Para voltar, gere um código dentro do Regem, no menu Mister, em "Pessoas", e mande aqui.`,
+  desligado: 'Este WhatsApp foi desligado do Mister. Se for você, ligue de novo dentro do Regem, no menu Mister, em "Pessoas": gere o código e mande aqui.',
   codigoNaoVale: 'Esse código não vale mais. Gere outro dentro do Regem, no menu Mister, em "Pessoas", e mande de novo. O código vale 10 minutos e uma vez só.',
   codigosDemais: 'Foram muitos códigos errados deste WhatsApp. Espere uma hora, gere um código novo dentro do Regem e mande de novo.',
   numeroDeOutraPessoa: (empresa: string) =>
@@ -212,3 +220,14 @@ export const TEXTOS = {
   naoEntendiAEmpresa: 'Não entendi de qual empresa.',
   modeloNaoAchado: 'Não achei esse aviso para este WhatsApp. Se precisar de alguma coisa da loja, é só me perguntar.',
 } as const;
+
+/**
+ * Versão 6, M6a (mig 468): a resposta fixa a quem escreve de um telefone que não está ligado, pelo motivo do último
+ * desligamento DESTE telefone: 60 dias sem conversa, desligado (pela pessoa, pelo presidente, pela DMS, "Não reconheço")
+ * ou nunca ligado.
+ */
+export function textoDoTelefoneDesligado(motivo: unknown): string {
+  if (motivo === 'vencido') return TEXTOS.vencido;
+  if (typeof motivo === 'string' && motivo) return TEXTOS.desligado;
+  return TEXTOS.desconhecido;
+}

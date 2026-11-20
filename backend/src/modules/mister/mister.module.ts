@@ -18,6 +18,7 @@ import { MisterMemoriaService } from './mister-memoria.service';
 import { MisterNumeroService } from './mister-numero.service';
 import { MisterQrService } from './mister-qr.service';
 import { MisterVinculoService } from './mister-vinculo.service';
+import { MisterVinculoSegurancaService } from './mister-vinculo-seguranca.service';
 
 // MISTER (mig 417; `docs/plano-mister.md`): o número de WhatsApp da distribuição e a entrada das mensagens.
 //  • Não importa o módulo do WhatsApp das lojas: o Mister fala com a Meta por conta própria (o mesmo acesso da
@@ -57,8 +58,11 @@ import { MisterVinculoService } from './mister-vinculo.service';
     MisterConversaConfigService,
     // A memória do Mister (versão 4, M4b, mig 449): o que ele sabe da empresa e de cada pessoa.
     MisterMemoriaService,
+    // A segurança do vínculo (versão 6, M6a, mig 468): o vencimento de 60 dias, o "Não reconheço" e o console da DMS.
+    MisterVinculoSegurancaService,
   ],
   exports: [
+    MisterVinculoSegurancaService,
     MisterEntradaService,
     MisterConsoleService,
     MisterNumeroService,

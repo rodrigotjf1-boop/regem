@@ -31,6 +31,7 @@ import { MisterSegurancaService } from '../mister/mister-seguranca.service';
 import { MisterSentinelaService } from '../mister/mister-sentinela.service';
 import { MisterInstrucoesService } from '../mister/mister-instrucoes.service';
 import { MisterQrService } from '../mister/mister-qr.service';
+import { MisterVinculoSegurancaService } from '../mister/mister-vinculo-seguranca.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -54,6 +55,7 @@ export class DistribuicaoController {
     private readonly sentinela: MisterSentinelaService,
     private readonly instrucoesDoMister: MisterInstrucoesService,
     private readonly qrDoMister: MisterQrService,
+    private readonly segurancaDoVinculo: MisterVinculoSegurancaService,
   ) {}
 
   // iFood pelo Orzuni (R2a; mig 370) — só Diretoria. A chave `orz_live_` da loja entra aqui UMA vez e é trocada
@@ -148,6 +150,31 @@ export class DistribuicaoController {
   @PerfilDist('diretoria')
   empresasDoMister(@Query('busca') busca?: string) {
     return this.mister.empresas(busca);
+  }
+
+  // Versão 6, M6a (mig 468; `mockups/regem-mister-v6.html`, "Console da DMS"): quem fala com o Mister numa empresa (só o
+  // final do número) e o desligamento pela Diretoria, com o motivo na auditoria do console — para quem não consegue
+  // entrar no Regem. Na empresa fica só "desligado pelo suporte da DMS".
+  @Get('mister/pessoas')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  pessoasDoMister(@Query('empresa') empresa?: string) {
+    return this.segurancaDoVinculo.pessoasDaEmpresa(empresa);
+  }
+
+  @Post('mister/pessoas/desligar')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  async desligarPessoaDoMister(@DistUser() u: DistCtx, @Body() dto: any) {
+    const r = await this.segurancaDoVinculo.desligarPelaDms(dto?.empresa, dto?.colaborador, dto?.motivo);
+    if (r.desligado) {
+      await this.service.auditar(u, 'desligou_whatsapp_mister', String(dto.empresa), {
+        colaborador: String(dto.colaborador),
+        final: r.final,
+        motivo: String(dto.motivo).replace(/\s+/g, ' ').trim().slice(0, 300),
+      });
+    }
+    return r;
   }
 
   @Post('mister/numero/conectar')

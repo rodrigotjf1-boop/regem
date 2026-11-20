@@ -81,6 +81,7 @@ import { assinaturaDaInstancia } from '../../common/segredo-robo';
 import { MisterVinculoService } from './mister-vinculo.service';
 import * as regras from './mister.regras';
 import { TEXTOS, idDoBotaoDaEmpresa } from './mister.regras';
+import { MisterVinculoSegurancaService, TEXTOS_DA_SEGURANCA } from './mister-vinculo-seguranca.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -249,6 +250,11 @@ class AvisosDeTeste extends MisterAvisosService {
   incidentes: any[] | null = [];
   protected async incidentesDoVigia(so?: string[]) {
     return this.incidentes ?? super.incidentesDoVigia(so);
+  }
+  /** Versão 6, M6a: os telefones ligados (o aviso de segurança); [] = nenhum (as suítes antigas), null = o banco de verdade. */
+  ligados: any[] | null = [];
+  protected async telefonesLigados(so?: string[]) {
+    return this.ligados ?? super.telefonesLigados(so);
   }
   /** A leitura do chat do iFood sem resposta, trocável: a lista de mentira; null = o banco de verdade. */
   chats: any[] | null = [];
@@ -451,7 +457,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -840,8 +846,8 @@ export function testesDoMisterComPostgres(): void {
       const doPresidente = await vinculo.pessoas(usuario('ana'));
       expect(doPresidente).toMatchObject({ disponivel: true, numeroDoMister: NUMERO_DO_MISTER, souPresidente: true, total: 2 });
       expect(doPresidente.pessoas).toEqual([
-        { colaboradorId: pessoa.ana, nome: 'Ana Souza', nivel: 'presidente', loja: null, voce: true, ligado: true, final: tel.slice(-4), ligadoEm: expect.stringMatching(ISO), pausado: false, pode: ['avisos', 'consulta', 'autorizacao'] },
-        { colaboradorId: pessoa.carlos, nome: 'Carlos Lima', nivel: 'gerente', loja: 'Loja Centro', voce: false, ligado: true, final: telCarlos.slice(-4), ligadoEm: expect.stringMatching(ISO), pausado: true, pode: ['avisos', 'consulta'] },
+        { colaboradorId: pessoa.ana, nome: 'Ana Souza', nivel: 'presidente', loja: null, voce: true, ligado: true, final: tel.slice(-4), ligadoEm: expect.stringMatching(ISO), pausado: false, pode: ['avisos', 'consulta', 'autorizacao'], desligado: null },
+        { colaboradorId: pessoa.carlos, nome: 'Carlos Lima', nivel: 'gerente', loja: 'Loja Centro', voce: false, ligado: true, final: telCarlos.slice(-4), ligadoEm: expect.stringMatching(ISO), pausado: true, pode: ['avisos', 'consulta'], desligado: null },
       ]);
       // Nem o telefone inteiro, nem quem não fala com o Mister (execução), nem gente de outra empresa.
       const cru = JSON.stringify(doPresidente);
@@ -8188,6 +8194,139 @@ export function testesDoMisterComPostgres(): void {
         // Sem nada salvo, a regra é o padrão (o gasto desligado e sem valores).
         await q(`delete from mister_aviso_regra where tenant_id = $1`, [A]);
         expect(await (new WhatsappGastoService(db) as any).alertasDoMes(A, '2026-11-18')).toMatchObject({ gasto: { ligado: false, valores: [] }, franquia: { ligado: true } });
+      });
+    });
+
+    // ───────────── versão 6, M6a (mig 468): a segurança do vínculo ─────────────
+    describe('a segurança do vínculo (versão 6, M6a)', () => {
+      const seguranca = new MisterVinculoSegurancaService(db, entrada, numero, auditoria);
+      const historicoDaSeguranca = new MisterAvisosHistoricoService(db);
+      beforeAll(() => seguranca.onModuleInit());
+      const textos = () => numero.enviadas.map((m) => m.texto);
+      const conversa = async (tel: string) => (await q(`select desligado_motivo from mister_conversa where telefone = $1`, [tel]))[0];
+
+      it('desligar guarda o motivo na pessoa e no telefone; quem escreve depois recebe a frase de desligado', async () => {
+        const tel = telefone();
+        await ligar('carlos', tel, A, 'gerente');
+        expect(await vinculo.desligarPessoa(usuario('ana'), pessoa.carlos)).toEqual({ desligado: true });
+        expect(await linha('carlos')).toMatchObject({ telefone: null, desligado_motivo: 'presidente' });
+        expect(await conversa(tel)).toEqual({ desligado_motivo: 'presidente' });
+        const lista = await vinculo.pessoas(usuario('ana'));
+        expect(lista.pessoas.find((p) => p.colaboradorId === pessoa.carlos)?.desligado).toMatchObject({ motivo: 'desligado pelo presidente' });
+        numero.pedidos.length = 0;
+        expect(await mandar(tel, 'oi')).toBe('fixa');
+        expect(textos()).toEqual([TEXTOS.desligado]);
+      });
+
+      it('ligar de outro número troca o celular: o antigo sai, a resposta diz o final e o antigo recebe a frase de desligado', async () => {
+        const velho = telefone();
+        const novo = telefone();
+        await ligar('ana', velho);
+        numero.pedidos.length = 0;
+        await ligar('ana', novo);
+        expect(textos()[0]).toContain(`O número antigo (final ${velho.slice(-4)}) foi desligado do Mister.`);
+        expect(await linha('ana')).toMatchObject({ telefone: novo, desligado_motivo: null, desligado_em: null });
+        expect(await conversa(velho)).toEqual({ desligado_motivo: 'pessoa' });
+        expect(await conversa(novo)).toEqual({ desligado_motivo: null });
+        numero.pedidos.length = 0;
+        expect(await mandar(velho, 'oi')).toBe('fixa');
+        expect(textos()).toEqual([TEXTOS.desligado]);
+      });
+
+      it('60 dias sem conversa: a volta desliga só quem passou, com a auditoria, e quem escreve depois ouve o motivo', async () => {
+        const telAna = telefone();
+        const telCarlos = telefone();
+        await ligar('ana', telAna);
+        await ligar('carlos', telCarlos, A, 'gerente');
+        await q(`update mister_vinculo set ligado_em = now() - interval '90 days', ultima_entrada_em = now() - interval '61 days' where colaborador_id = $1`, [pessoa.ana]);
+        await q(`update mister_vinculo set ligado_em = now() - interval '90 days', ultima_entrada_em = now() - interval '59 days' where colaborador_id = $1`, [pessoa.carlos]);
+        auditados.length = 0;
+        expect(await seguranca.vencer([A, B])).toBe(1);
+        expect(await linha('ana')).toMatchObject({ telefone: null, ligado_em: null, desligado_motivo: 'vencido' });
+        expect((await linha('carlos')).telefone).toBe(telCarlos);
+        expect(auditados).toEqual([
+          expect.objectContaining({ tenantId: A, acao: 'mister_whatsapp_vencido', origem: 'sistema', detalhe: { dias: 60, final: telAna.slice(-4) } }),
+        ]);
+        // a segunda volta não faz nada
+        expect(await seguranca.vencer([A, B])).toBe(0);
+        numero.pedidos.length = 0;
+        expect(await mandar(telAna, 'como foi ontem?')).toBe('fixa');
+        expect(textos()).toEqual([TEXTOS.vencido]);
+        // quem ligou e nunca escreveu conta do ligado_em
+        await q(`update mister_vinculo set ligado_em = now() - interval '61 days', ultima_entrada_em = null where colaborador_id = $1`, [pessoa.carlos]);
+        expect(await seguranca.vencer([A])).toBe(1);
+        expect(await linha('carlos')).toMatchObject({ telefone: null, desligado_motivo: 'vencido' });
+      });
+
+      it('o telefone ligado avisa os presidentes com "Não reconheço"; só o presidente desliga, e só aquela ligação', async () => {
+        avisos.ligados = null;
+        try {
+          const telAna = telefone();
+          const telCarlos = telefone();
+          await ligar('ana', telAna);
+          await ligar('carlos', telCarlos, A, 'gerente');
+          numero.pedidos.length = 0;
+          // Só os avisos de segurança contam aqui (a empresa de teste pode ter situações de outras suítes, como o gasto).
+          const ehDeLigacao = (m: { texto: string }) => m.texto.includes('ligado ao Mister');
+          await avisos.volta([A]);
+          expect(await q(`select count(*)::int as n from mister_aviso where tenant_id = $1 and tipo = 'telefone_ligado' and situacao = 'aberto'`, [A])).toEqual([{ n: 2 }]);
+          // os dois avisos vão à presidente; o gerente não recebe aviso de segurança
+          const paraAna = numero.enviadas.filter((m) => m.para === telAna && ehDeLigacao(m));
+          expect(paraAna).toHaveLength(2);
+          expect(numero.enviadas.filter((m) => m.para === telCarlos && ehDeLigacao(m))).toHaveLength(0);
+          const doCarlos = paraAna.find((m) => m.texto.includes(`final ${telCarlos.slice(-4)}`))!;
+          expect(doCarlos.texto).toContain('Carlos (gerente · Loja Centro)');
+          expect(doCarlos.texto).not.toContain(telCarlos);
+          expect(doCarlos.botoes).toEqual([{ id: expect.stringMatching(/^vinc:nao:/), titulo: 'Não reconheço' }]);
+          // a volta seguinte não manda de novo
+          numero.pedidos.length = 0;
+          await avisos.volta([A]);
+          expect(numero.enviadas.filter(ehDeLigacao)).toHaveLength(0);
+          // o gerente com o id do botão montado à mão não desliga ninguém
+          expect(await mandar(telCarlos, 'Não reconheço', { botaoId: doCarlos.botoes[0].id })).toBe('respondeu_proposta');
+          expect(textos()).toEqual([TEXTOS_DA_SEGURANCA.soPresidente]);
+          expect((await linha('carlos')).telefone).toBe(telCarlos);
+          // a presidente toca: o telefone sai na hora, com o motivo e a auditoria
+          numero.pedidos.length = 0;
+          auditados.length = 0;
+          expect(await mandar(telAna, 'Não reconheço', { botaoId: doCarlos.botoes[0].id })).toBe('respondeu_proposta');
+          expect(await linha('carlos')).toMatchObject({ telefone: null, desligado_motivo: 'nao_reconheco' });
+          expect(textos()[0]).toContain(`desliguei o WhatsApp final ${telCarlos.slice(-4)} de Carlos`);
+          expect(auditados).toEqual([expect.objectContaining({ acao: 'mister_whatsapp_desligado', atorId: pessoa.ana, detalhe: expect.objectContaining({ motivo: 'nao_reconheco' }) })]);
+          // o toque antigo não derruba quem ligou de novo depois do aviso
+          const telCarlos2 = telefone();
+          await ligar('carlos', telCarlos2, A, 'gerente');
+          numero.pedidos.length = 0;
+          expect(await mandar(telAna, 'Não reconheço', { botaoId: doCarlos.botoes[0].id })).toBe('respondeu_proposta');
+          expect(textos()).toEqual([TEXTOS_DA_SEGURANCA.jaSaiu]);
+          expect((await linha('carlos')).telefone).toBe(telCarlos2);
+          // o Histórico mostra o aviso no grupo "O próprio Mister"
+          const h = await historicoDaSeguranca.historico(A, { grupo: 'O próprio Mister' });
+          expect(h.avisos.filter((a: any) => a.titulo.endsWith('ligado ao Mister')).map((a: any) => a.grupo)).toContain('O próprio Mister');
+        } finally {
+          avisos.ligados = [];
+        }
+      });
+
+      it('o console vê só o final do número e desliga com o motivo, que fica fora da auditoria da empresa', async () => {
+        const tel = telefone();
+        await ligar('carlos', tel, A, 'gerente');
+        const r = await seguranca.pessoasDaEmpresa(A);
+        expect(r.empresa).toBe(NOME_A);
+        expect(r.pessoas.find((p) => p.colaboradorId === pessoa.carlos)).toMatchObject({ nome: 'Carlos Lima', nivel: 'gerente', final: tel.slice(-4), situacao: 'ligado' });
+        expect(JSON.stringify(r)).not.toContain(tel);
+        await expect(seguranca.pessoasDaEmpresa('nao-e-uuid')).rejects.toThrow('Empresa inválida');
+        await expect(seguranca.desligarPelaDms(A, pessoa.carlos, 'curto')).rejects.toThrow('Escreva o motivo');
+        auditados.length = 0;
+        expect(await seguranca.desligarPelaDms(A, pessoa.carlos, 'o presidente perdeu o celular e ligou para o suporte')).toEqual({ desligado: true, final: tel.slice(-4) });
+        expect(await linha('carlos')).toMatchObject({ telefone: null, desligado_motivo: 'dms' });
+        expect(auditados).toEqual([expect.objectContaining({ tenantId: A, acao: 'mister_whatsapp_desligado', origem: 'distribuicao' })]);
+        expect(JSON.stringify(auditados)).not.toContain('perdeu o celular');
+        expect(await seguranca.desligarPelaDms(A, pessoa.carlos, 'de novo, sem nada ligado')).toEqual({ desligado: false, final: null });
+        expect((await seguranca.pessoasDaEmpresa(A)).pessoas.find((p) => p.colaboradorId === pessoa.carlos)).toMatchObject({
+          situacao: 'desligado',
+          desligado: { motivo: 'desligado pelo suporte da DMS' },
+        });
       });
     });
   });

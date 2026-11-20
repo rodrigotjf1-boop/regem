@@ -17,6 +17,13 @@
   o código PDV fica); a mudança desce à loja pela sincronização do cadastro. Junto: o "seu de sempre" do cardápio não
   aponta mais para produto excluído. No `.zip` só por acompanhar o código.
 
+- **Mister versão 6, M6a — a segurança do vínculo (20/11; mig 468 SÓ NUVEM — o motivo do desligamento em
+  `mister_vinculo` e `mister_conversa`).** O WhatsApp de quem fica 60 dias sem conversar com o Mister sai sozinho (volta
+  diária); todo telefone ligado avisa os presidentes, com "Não reconheço"; o console da DMS desliga o WhatsApp de uma
+  pessoa, com o motivo na auditoria; a troca de celular diz o final do número antigo; quem escreve de um telefone que saiu
+  ouve o motivo; a instrução do que nunca sai pelo WhatsApp. Tudo só na nuvem → vai no `.zip` sem efeito na loja (as
+  tabelas já são SO_NUVEM; só colunas novas).
+
 - **Perfil do cliente — "Recomendações do meu jeito" vem ligada (20/11; SEM migration; D16, decisão do dono).** Legítimo
   interesse no lugar do consentimento: vale ligada para quem nunca mexeu, a entrada do cardápio mostra o aviso (não é mais
   caixa) e o Perfil desliga; desligar devolve os cliques ao anônimo. Só na nuvem; no `.zip` só por acompanhar o código.

@@ -675,6 +675,10 @@ export const distApi = {
   // O Mister (mig 417): o número de WhatsApp da distribuição, a chave geral e as empresas com o módulo.
   misterPainel: () => distReq('/distribuicao/mister'),
   misterEmpresas: (busca = '') => distReq(`/distribuicao/mister/empresas${busca ? `?busca=${encodeURIComponent(busca)}` : ''}`),
+  // Versão 6, M6a (mig 468): quem fala com o Mister numa empresa (só o final do número) e o desligamento pela Diretoria.
+  misterPessoas: (empresa: string) => distReq(`/distribuicao/mister/pessoas?empresa=${encodeURIComponent(empresa)}`),
+  misterDesligarPessoa: (empresa: string, colaborador: string, motivo: string) =>
+    distReq('/distribuicao/mister/pessoas/desligar', { method: 'POST', body: JSON.stringify({ empresa, colaborador, motivo }) }),
   misterConectar: (dto: { code: string; phoneNumberId: string; wabaId: string; forma: 'coexistencia' | 'api'; pin?: string }) =>
     distReq('/distribuicao/mister/numero/conectar', { method: 'POST', body: JSON.stringify(dto) }),
   misterDesconectar: () => distReq('/distribuicao/mister/numero/desconectar', { method: 'POST', body: '{}' }),
