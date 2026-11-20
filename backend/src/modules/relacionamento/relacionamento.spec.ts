@@ -73,6 +73,8 @@ describe('automáticas — regras puras', () => {
       voltaPeloRitmo: false,
       // o grupo de controle das campanhas (F7 parte 3, mig 465): sem a coluna, desligado
       grupoControle: false,
+      // "viu e não pediu" na conversa (F7 parte 4d, mig 481): sem a coluna, desligado
+      viuAtivo: false,
     });
   });
 
