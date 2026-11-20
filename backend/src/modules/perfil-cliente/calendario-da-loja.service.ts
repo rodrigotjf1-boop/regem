@@ -5,7 +5,7 @@ import { hojeISO } from '../../common/data';
 import { FUSO_SQL, instanteDe } from '../../common/fuso-sql';
 import { sqlUnidade } from '../../common/filtro-unidade';
 import { REGRAS_DO_PERFIL } from './calculo-do-perfil';
-import { Efeito, REFERENCIA, familiaDe, medirEfeito } from './efeito-do-evento';
+import { Efeito, REFERENCIA, comReservaDoTipo, familiaDe, medirEfeito } from './efeito-do-evento';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { AuthUser } from '../../auth/auth-user';
 import {
@@ -122,19 +122,30 @@ export class CalendarioDaLojaService {
       ]);
       const comEvento = new Set(passado.map((e) => e.dia));
       const porFamilia = new Map<string, Set<string>>();
+      // Os dias de cada TIPO da regra fixa (feriado, ponto facultativo, comemorativa, dinheiro): a reserva do evento que
+      // ainda não aconteceu nenhuma vez com dados (`comReservaDoTipo`).
+      const porTipo = new Map<string, Set<string>>();
+      const juntar = (m: Map<string, Set<string>>, k: string, dia: string) => {
+        if (!m.has(k)) m.set(k, new Set());
+        m.get(k)!.add(dia);
+      };
       for (const e of passado) {
         if (e.dia < inicioHist) continue;
-        const f = familiaDe(e.chave);
-        if (!porFamilia.has(f)) porFamilia.set(f, new Set());
-        porFamilia.get(f)!.add(e.dia);
+        juntar(porFamilia, familiaDe(e.chave), e.dia);
+        if (e.origem === 'regra') juntar(porTipo, e.tipo, e.dia);
       }
       let primeiroDia: string | null = null;
       for (const d of pedidos.keys()) if (!primeiroDia || d < primeiroDia) primeiroDia = d;
       const medidos = new Map<string, Efeito>();
+      const medir = (chave: string, dias: Set<string> | undefined) => {
+        if (!medidos.has(chave)) medidos.set(chave, medirEfeito([...(dias ?? [])].sort(), pedidos, comEvento, primeiroDia));
+        return medidos.get(chave)!;
+      };
       return itens.map((i) => {
         const f = familiaDe(i.chave);
-        if (!medidos.has(f)) medidos.set(f, medirEfeito([...(porFamilia.get(f) ?? [])].sort(), pedidos, comEvento, primeiroDia));
-        return { ...i, efeito: medidos.get(f) };
+        const proprio = medir(`f:${f}`, porFamilia.get(f));
+        const doTipo = i.origem === 'regra' ? medir(`t:${i.tipo}`, porTipo.get(i.tipo)) : undefined;
+        return { ...i, efeito: comReservaDoTipo(proprio, doTipo, i.tipo) };
       });
     } catch (e: any) {
       this.log.warn(`"mexe na sua loja?" não medido (empresa ${tenantId.slice(0, 8)}): ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e}`);

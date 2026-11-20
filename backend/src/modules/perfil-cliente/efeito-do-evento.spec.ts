@@ -1,5 +1,5 @@
 import { somarDias } from './calendario-regra';
-import { familiaDe, medirEfeito } from './efeito-do-evento';
+import { comReservaDoTipo, familiaDe, medirEfeito } from './efeito-do-evento';
 
 // "Mexe na sua loja?" (F3, parte 1, do plano do perfil do cliente): o dia do evento contra o mesmo dia da semana nas 8
 // semanas antes, sem evento.
@@ -43,6 +43,17 @@ describe('o efeito do evento na loja', () => {
     // Sem pedido nenhum nesse dia da semana (a loja não abre): a referência zerada não compara.
     const zerado = semanas(EVENTO, 8).map((d) => [d, 0] as [string, number]);
     expect(medirEfeito([EVENTO], pedidos([[EVENTO, 5], ...zerado, ['2026-01-01', 1]]), new Set([EVENTO]), '2026-01-01')).toMatchObject({ vezes: 0, forca: 'sem_comparacao' });
+  });
+
+  it('a reserva pelo tipo: o feriado sem vez anterior usa os outros feriados, dizendo isso; com medida própria, fica a própria', () => {
+    const doTipo = { vezes: 3, variacao: 1.1, forca: 'medio', texto: '+110% nas últimas 3 vezes' } as const;
+    const semVez = { vezes: 0, variacao: null, forca: 'sem_historico', texto: 'sem histórico ainda' } as const;
+    expect(comReservaDoTipo(semVez, doTipo, 'feriado')).toMatchObject({ escopo: 'tipo', vezes: 3, texto: 'feriados em geral: +110% nas últimas 3 vezes' });
+    const proprio = { vezes: 1, variacao: 0.4, forca: 'fraco', texto: '+40% na última vez · pouco histórico' } as const;
+    expect(comReservaDoTipo(proprio, doTipo, 'feriado')).toMatchObject({ escopo: 'evento', texto: '+40% na última vez · pouco histórico' });
+    // O tipo também sem medida, ou evento da loja (sem tipo da regra): fica o "sem histórico".
+    expect(comReservaDoTipo(semVez, { ...semVez }, 'feriado')).toMatchObject({ escopo: 'evento', texto: 'sem histórico ainda' });
+    expect(comReservaDoTipo(semVez, undefined, 'promocao')).toMatchObject({ escopo: 'evento' });
   });
 
   it('várias vezes: soma as vezes (força média com 3, forte com 6) e a queda aparece com o sinal', () => {

@@ -13,7 +13,27 @@ export type Efeito = {
   variacao: number | null;
   forca: 'sem_historico' | 'sem_comparacao' | 'sem_efeito' | 'fraco' | 'medio' | 'forte';
   texto: string;
+  /** De onde veio a medida: as vezes DESTE evento, ou (sem nenhuma) as do mesmo tipo — "feriados em geral". */
+  escopo?: 'evento' | 'tipo';
 };
+
+/** Como o tipo aparece quando a medida vem dele ("feriados em geral: +80% nas últimas 3 vezes"). */
+export const NOME_DO_TIPO_EM_GERAL: Record<string, string> = {
+  feriado: 'feriados em geral',
+  ponto_facultativo: 'pontos facultativos em geral',
+  comemorativa: 'datas comemorativas em geral',
+  dinheiro: 'dinheiro no bolso em geral',
+};
+
+/**
+ * A reserva pelo tipo: o evento que ainda não aconteceu nenhuma vez com dados (a loja começou no Regem depois do último
+ * 20/11, por exemplo) usa as vezes dos eventos do MESMO tipo (os outros feriados), com o texto dizendo isso. Com medida
+ * própria, fica a própria.
+ */
+export function comReservaDoTipo(proprio: Efeito, doTipo: Efeito | undefined, tipo: string): Efeito {
+  if (proprio.vezes > 0 || !doTipo || doTipo.vezes === 0 || !NOME_DO_TIPO_EM_GERAL[tipo]) return { ...proprio, escopo: 'evento' };
+  return { ...doTipo, escopo: 'tipo', texto: `${NOME_DO_TIPO_EM_GERAL[tipo]}: ${doTipo.texto}` };
+}
 
 /** Semanas de referência antes de cada vez do evento, e o mínimo de dias comuns para comparar. */
 export const REFERENCIA = { semanas: 8, minimoDeDias: 3 } as const;
