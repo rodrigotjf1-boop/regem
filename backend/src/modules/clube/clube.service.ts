@@ -10,12 +10,14 @@ import {
   descricaoDoPremio,
   FERRAMENTAS_PRONTAS,
   FORMAS_DO_SURPRESA,
+  type GatilhoCampanha,
   type GatilhoClassificacao,
   type GatilhoEntregue,
   type GatilhoReclamacao,
   type GatilhosDoSurpresa,
   gatilhosDaLinha,
   lerConfigDoClube,
+  lerGatilhoCampanha,
   lerGatilhoClassificacao,
   lerGatilhoEntregue,
   lerGatilhoReclamacao,
@@ -106,6 +108,7 @@ export class ClubeService {
   async premios(tenantId: string, config?: ConfigDoClube, gatilhosJa?: GatilhosDoSurpresa): Promise<PremioNaLista[]> {
     const c = config ?? (await this.config(tenantId));
     const g = gatilhosJa ?? (await this.gatilhos(tenantId));
+    const emCampanha = await this.premiosEmCampanha(tenantId);
     const linhas = this.rows(
       await this.db.execute(sql`
         select p.id, p.nome, p.tipo, p.valor::float8 as valor, p.teto::float8 as teto, p.produto_id as "produtoId",
@@ -128,7 +131,9 @@ export class ClubeService {
         minimo: Number(l.minimo),
         validadeDias: Number(l.validadeDias),
       };
-      return { ...p, descricao: descricaoDoPremio(p), emUso: ondeEstaEmUso(c, p.id, g) };
+      const emUso = ondeEstaEmUso(c, p.id, g);
+      if (emCampanha.has(p.id)) emUso.push('Campanha que ainda está mandando');
+      return { ...p, descricao: descricaoDoPremio(p), emUso };
     });
   }
 
@@ -328,6 +333,7 @@ export class ClubeService {
   async excluirPremio(user: AuthUser, id: string): Promise<PremioNaLista[]> {
     const antes = await this.premioDaEmpresa(user.tenantId, id);
     const onde = ondeEstaEmUso(await this.config(user.tenantId), String(antes.id), await this.gatilhos(user.tenantId));
+    if ((await this.premiosEmCampanha(user.tenantId)).has(String(antes.id))) onde.push('Campanha que ainda está mandando');
     if (onde.length) throw new BadRequestException(`Este prêmio está em uso em: ${onde.join(', ')}. Troque o prêmio lá antes de excluir.`);
     await this.db.execute(sql`
       update clube_premio set excluido_em = now(), atualizado_por = ${user.colaboradorId}::uuid, atualizado_em = now()
@@ -438,5 +444,60 @@ export class ClubeService {
              atualizado_por = excluded.atualizado_por, atualizado_em = now()`);
     await this.auditar(user, 'clube_gatilho_alterado', user.tenantId, { gatilho: 'classificacao', de: antes, para: depois });
     return this.gatilhos(user.tenantId);
+  }
+
+  /** O gatilho "Em disparo (campanha)" (A1d, mig 477): só liga e desliga. Grava SÓ a chave `campanha` do jsonb (V82). */
+  async salvarGatilhoCampanha(user: AuthUser, dto: unknown): Promise<GatilhosDoSurpresa> {
+    const parcial = lerGatilhoCampanha(dto);
+    const antes = (await this.gatilhos(user.tenantId)).campanha;
+    const depois: GatilhoCampanha = { ...antes, ...parcial };
+    if (JSON.stringify(antes) === JSON.stringify(depois)) return this.gatilhos(user.tenantId);
+    const json = JSON.stringify({ campanha: depois });
+    await this.db.execute(sql`
+      insert into clube_config (tenant_id, surpresa_gatilhos, atualizado_por)
+      values (${user.tenantId}::uuid, ${json}::jsonb, ${user.colaboradorId}::uuid)
+      on conflict (tenant_id) do update
+         set surpresa_gatilhos = coalesce(clube_config.surpresa_gatilhos, '{}'::jsonb) || ${json}::jsonb,
+             atualizado_por = excluded.atualizado_por, atualizado_em = now()`);
+    await this.auditar(user, 'clube_gatilho_alterado', user.tenantId, { gatilho: 'campanha', de: antes, para: depois });
+    return this.gatilhos(user.tenantId);
+  }
+
+  /**
+   * A campanha pode mandar o prêmio surpresa? (Marketing › Campanhas, ao criar). Recusa — antes de criar a campanha (V86) —
+   * com o prêmio surpresa ou o gatilho "Em disparo" desligados, ou o prêmio que não existe nesta empresa ou é produto grátis.
+   */
+  async conferirPremioDaCampanha(tenantId: string, premioId: unknown): Promise<string> {
+    const id = typeof premioId === 'string' ? premioId.trim().toLowerCase() : '';
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) throw new BadRequestException('Escolha o prêmio surpresa da lista.');
+    const config = await this.config(tenantId);
+    const g = await this.gatilhos(tenantId);
+    if (!config.surpresaAtivo || !g.campanha.ativo)
+      throw new BadRequestException('O prêmio surpresa na campanha está desligado: o presidente liga em Marketing › Clube › Prêmio surpresa.');
+    const [p] = this.rows(
+      await this.db.execute(sql`select tipo from clube_premio where id = ${id}::uuid and tenant_id = ${tenantId}::uuid and excluido_em is null`),
+    );
+    if (!p) throw new BadRequestException('O prêmio escolhido não existe mais. Recarregue a página e escolha de novo.');
+    if (p.tipo === 'produto') throw new BadRequestException('O produto grátis no prêmio surpresa chega numa próxima entrega: escolha um desconto ou o frete grátis.');
+    return id;
+  }
+
+  /**
+   * Os prêmios em uso por uma campanha que ainda está mandando (ou pausada) — o "em uso" da lista e a recusa ao excluir.
+   * Sem a coluna da 477 (banco de loja, teste), nenhum.
+   */
+  private async premiosEmCampanha(tenantId: string): Promise<Set<string>> {
+    const [tem] = this.rows(
+      await this.db.execute(sql`
+        select exists (select 1 from information_schema.columns where table_schema = current_schema()
+                        and table_name = 'campanha' and column_name = 'clube_premio_id') as ok`),
+    );
+    if (!tem?.ok) return new Set();
+    const r = this.rows(
+      await this.db.execute(sql`
+        select distinct clube_premio_id as id from campanha
+         where tenant_id = ${tenantId}::uuid and clube_premio_id is not null and status in ('enviando', 'pausada')`),
+    );
+    return new Set(r.map((x) => String(x.id)));
   }
 }

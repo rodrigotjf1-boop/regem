@@ -1,5 +1,5 @@
 import { ehServidorLocal } from '../../common/modo';
-import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { and, eq, sql, type SQL } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -16,6 +16,8 @@ import { inicioDoPeriodo } from '../../common/fuso-sql';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { WhatsappNumeroService } from '../whatsapp/whatsapp-numero.service';
 import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
+import { ClubeService } from '../clube/clube.service';
+import { ClubeSurpresaService } from '../clube/clube-surpresa.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Base pública p/ o link rastreado do clique (redireciona pro link real da campanha).
@@ -38,6 +40,9 @@ export class CampanhaService {
     private readonly whatsapp: WhatsappService,
     private readonly numeros: WhatsappNumeroService,
     private readonly cloud: WhatsappCloudService,
+    // O Clube (A1d, mig 477): o prêmio surpresa na campanha. O módulo do Clube é global e só da nuvem — opcional aqui.
+    @Optional() private readonly clube?: ClubeService,
+    @Optional() private readonly surpresa?: ClubeSurpresaService,
   ) {}
 
   /** O segmento "pelo perfil" (F7 parte 1): recusa fora das regras (nuvem, papel, módulo) antes de qualquer consulta. */
@@ -177,7 +182,7 @@ export class CampanhaService {
     const r: any = await this.db.execute(sql`
       select id, segmento, tipo, mensagem, link, imagem_ref, intervalo_seg, teto_dia, teto_semana,
              teto_mes, agendada, dias_semana, hora_inicio, hora_fim, inicia_em, termina_em, cupom_codigo,
-             total, enviados, falhas, status, criado_em
+             total, enviados, falhas, status, criado_em, clube_premio_id
       from campanha where tenant_id = ${tenantId} order by criado_em desc limit 50`);
     const rows = (r.rows ?? r) as any[];
     // `estado` = status amigável para a lista. 'aguardando' = agendada e fora da janela
@@ -329,6 +334,9 @@ export class CampanhaService {
         await this.db.execute(sql`update campanha_envio set clicou = true, clicado_em = now() where id = ${envioId}`);
         await this.db.execute(sql`update campanha set cliques = cliques + 1, atualizado_em = now() where id = ${row.campanha_id}`);
       }
+      // A campanha com prêmio surpresa (A1d): o clique leva ao link pessoal do prêmio deste destinatário.
+      const doPremio = await this.surpresa?.linkDaCampanha(envioId, String(row.tenant_id)).catch(() => null);
+      if (doPremio) return doPremio;
       // Link vazio → manda pro cardápio digital da loja (nunca pro site genérico).
       return row.link || (await this.cardapioUrl(row.tenant_id));
     }
@@ -342,6 +350,12 @@ export class CampanhaService {
       return `${base}/c/${cfg.token}`;
     }
     return null;
+  }
+
+  /** O prêmio surpresa da campanha (A1d): o Clube confere (ligado, da empresa, sem produto grátis). Sem o Clube, recusa. */
+  private async premioDaCampanha(tenantId: string, premioId: unknown): Promise<string> {
+    if (!this.clube) throw new BadRequestException('O Clube não está disponível agora: crie a campanha sem o prêmio surpresa.');
+    return this.clube.conferirPremioDaCampanha(tenantId, premioId);
   }
 
   // Cria (ou agenda) uma campanha e MATERIALIZA os destinatários numa única query
@@ -372,6 +386,8 @@ export class CampanhaService {
       // cupom automático
       criarCupom?: boolean;
       cupomCodigo?: string | null;
+      /** O prêmio surpresa do Clube (A1d, mig 477): todos os destinatários ganham. */
+      clubePremioId?: string | null;
       cupomTipo?: string; // percentual | valor | fretegratis
       cupomValor?: number;
       cupomDuracaoDias?: number | null;
@@ -429,6 +445,8 @@ export class CampanhaService {
     }
 
     // Cupom automático (frete grátis / cupom): cria se não existir e o lojista pediu.
+    // O prêmio surpresa do Clube (A1d, mig 477): conferido ANTES de gravar qualquer coisa (V86).
+    const clubePremioId = dto.clubePremioId ? await this.premioDaCampanha(tenantId, dto.clubePremioId) : null;
     const cupomCodigo = await this.garantirCupom(tenantId, unidadeId, tipo, dto);
 
     // Link do botão "Peça agora": o que o lojista informou OU, se vazio, o cardápio digital
@@ -458,6 +476,7 @@ export class CampanhaService {
         iniciaEm: dto.iniciaEm ? new Date(dto.iniciaEm) : null,
         terminaEm: dto.terminaEm ? new Date(dto.terminaEm) : null,
         cupomCodigo,
+        clubePremioId,
         templateNome: dto.templateNome || null,
         templateIdioma: dto.templateIdioma || 'pt_BR',
         templateVars: dto.templateVars ?? null,
@@ -713,7 +732,7 @@ export class CampanhaService {
       const prontas: any = await this.db.execute(sql`
         select id, tenant_id, mensagem, mensagem_b, link, imagem_ref, intervalo_seg, teto_dia,
                teto_semana, teto_mes, instancia_tipo, agendada, dias_semana, hora_inicio, hora_fim,
-               inicia_em, termina_em, template_nome, template_idioma, template_vars, cupom_codigo
+               inicia_em, termina_em, template_nome, template_idioma, template_vars, cupom_codigo, clube_premio_id
         from campanha
         where status = 'enviando'
           and (select coalesce(max(enviado_em), to_timestamp(0)) from campanha_envio e
@@ -766,10 +785,16 @@ export class CampanhaService {
         // por envio) p/ medir cliques; sem link, nada é anexado.
         const msgVar =
           envio.variante === 'B' && camp.mensagem_b ? String(camp.mensagem_b) : String(camp.mensagem ?? '');
-        const linkTrack = camp.link ? `${PUB}/publico/campanha/r/${envio.id}` : '';
+        // Com prêmio surpresa (A1d), o link vai sempre: é por ele que o destinatário revela o prêmio.
+        const linkTrack = camp.link || camp.clube_premio_id ? `${PUB}/publico/campanha/r/${envio.id}` : '';
         const caption = [msgVar, linkTrack].filter(Boolean).join('\n');
         try {
           const papel = camp.instancia_tipo === 'marketing' ? 'marketing' : 'principal';
+          // O prêmio surpresa deste destinatário nasce ANTES de a mensagem sair: sem o prêmio, nada sai (o envio fica em falha).
+          if (camp.clube_premio_id) {
+            if (!this.surpresa) throw new Error('o Clube não está disponível para criar o prêmio');
+            await this.surpresa.darPelaCampanha({ tenantId: String(camp.tenant_id), envioId: String(envio.id), clienteId: envio.cliente_id ?? null, telefone: tel, premioId: String(camp.clube_premio_id) });
+          }
           const num = await this.numeros.resolver(camp.tenant_id, papel);
           if (num.provedor === 'cloud') {
             // API oficial: dispara o MODELO aprovado, preenchendo as variáveis.

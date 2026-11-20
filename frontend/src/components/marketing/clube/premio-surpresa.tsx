@@ -60,6 +60,18 @@ export function PremioSurpresa({
   const cl = painel.gatilhos.classificacao;
   const premioCl = painel.premios.find((p) => p.id === cl.premioId) ?? null;
 
+  async function ligarCampanha(ligado: boolean) {
+    setOcupado(true);
+    try {
+      aoMudar((await api.clubeSalvarGatilhoCampanha({ ativo: ligado })) as PainelDoClube);
+      toast.success(ligado ? 'O prêmio surpresa já pode ir nas campanhas.' : 'O prêmio surpresa saiu das campanhas novas.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Não foi possível mudar o gatilho.');
+    } finally {
+      setOcupado(false);
+    }
+  }
+
   async function ligarClassificacao(ligado: boolean) {
     if (ligado && (!cl.segmentos.length || !premioCl)) return setGavetaC({ ligar: true }); // ligar pede os segmentos e o prêmio
     setOcupado(true);
@@ -260,8 +272,23 @@ export function PremioSurpresa({
             </Button>
           )}
         </Gatilho>
-        <Gatilho titulo="Em disparo (campanha)" selo={<Selo>Chega numa próxima entrega</Selo>}>
-          <p>Na hora de criar a campanha, a opção &quot;Mandar um prêmio surpresa&quot;: todos os destinatários ganham.</p>
+        <Gatilho
+          titulo="Em disparo (campanha)"
+          chave={
+            podeMudar ? (
+              <Chave ligada={painel.gatilhos.campanha.ativo} aoMudar={(v) => void ligarCampanha(v)} rotulo="Em disparo (campanha)" ocupada={ocupado} />
+            ) : (
+              <Selo tom={painel.gatilhos.campanha.ativo ? 'ok' : 'neutro'}>{painel.gatilhos.campanha.ativo ? 'Ligado' : 'Desligado'}</Selo>
+            )
+          }
+        >
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <span>Na hora de criar a campanha (Marketing › Campanhas), a opção &quot;🎁 Prêmio surpresa&quot;</span>
+            <span>Todos os destinatários ganham</span>
+          </div>
+          <p className="text-xs text-secondary-foreground">
+            Só quem aceitou mensagens da loja recebe a campanha. O link da campanha leva cada um ao seu prêmio.
+          </p>
         </Gatilho>
         <Gatilho titulo="Depois da avaliação" selo={<Selo tom="aviso">não recomendado</Selo>}>
           <p className="text-secondary-foreground">

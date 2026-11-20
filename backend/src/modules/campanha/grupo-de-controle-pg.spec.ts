@@ -47,7 +47,7 @@ descrever('o grupo de controle das campanhas (Postgres)', () => {
         instancia_tipo text not null default 'loja', tipo text not null default 'avulsa', link text, imagem_ref text,
         dias_semana jsonb, hora_inicio time, hora_fim time, teto_semana integer, teto_mes integer, cupom_codigo text,
         agendada boolean not null default false, inicia_em timestamptz, termina_em timestamptz, template_nome text,
-        template_idioma text, template_vars jsonb, mensagem_b text, cliques integer not null default 0,
+        template_idioma text, template_vars jsonb, mensagem_b text, cliques integer not null default 0, clube_premio_id uuid,
         criado_em timestamptz not null default now(), atualizado_em timestamptz not null default now());
       create table ${SCHEMA}.campanha_envio (
         id uuid primary key default gen_random_uuid(), campanha_id uuid not null, tenant_id uuid not null, cliente_id uuid,

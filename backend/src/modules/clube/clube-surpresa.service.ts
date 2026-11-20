@@ -5,7 +5,7 @@ import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { ehServidorLocal } from '../../common/modo';
 import { dataNoFuso, hojeISO } from '../../common/data';
-import { sqlChaveTelefone } from '../../common/telefone-chave';
+import { chaveTelefone, sqlChaveTelefone, telefoneCadastro } from '../../common/telefone-chave';
 import { sqlPedidoDoRegem } from '../avaliacao-pedido/nota-do-pedido';
 import { validadeDoPresente } from '../aniversario/aniversario.service';
 import { codigoDoCupom } from '../relacionamento/relacionamento';
@@ -65,7 +65,7 @@ export type NovoDireito = {
   tenantId: string;
   clienteId: string;
   chave: string;
-  gatilho: 'entregue' | 'reclamacao' | 'classificacao';
+  gatilho: 'entregue' | 'reclamacao' | 'classificacao' | 'campanha';
   ref: string;
   forma: FormaDoSurpresa;
   premio: { id: string; nome: string; tipo: TipoDePremio; valor: number; teto: number | null; minimo: number; validadeDias: number };
@@ -267,6 +267,78 @@ export class ClubeSurpresaService {
       values (${cupomId}::uuid, ${n.tenantId}::uuid, ${n.clienteId}::uuid, ${n.chave})`);
     await tx.execute(sql`update clube_direito set cupom_id = ${cupomId}::uuid where id = ${d.id}::uuid`);
     return { id: String(d.id), codigo, validoAte };
+  }
+
+  // ───────────────────────── A campanha com prêmio surpresa (A1d, mig 477) ─────────────────────────
+
+  /**
+   * O prêmio de UM destinatário da campanha, na hora de mandar a ele: o direito (gatilho "campanha", referência = o envio)
+   * com o cupom pessoal, na mesma transação. O cadastro do cliente: o do envio; sem ele, o mais recente com a chave do
+   * telefone; sem nenhum, nasce agora (o cupom pessoal pede um). Idempotente pelo envio: mandar de novo não dá outro.
+   * Devolve o link pessoal (`/p/…`), também quando o direito já existia.
+   */
+  async darPelaCampanha(e: { tenantId: string; envioId: string; clienteId: string | null; telefone: string; premioId: string }): Promise<string> {
+    const chave = chaveTelefone(e.telefone);
+    if (!chave) throw new Error('o destinatário não tem um telefone que dê para ligar ao cadastro');
+    const ja = await this.linkDaCampanha(e.envioId, e.tenantId);
+    if (ja) return ja;
+    const [p] = this.rows(
+      await this.db.execute(sql`
+        select id, nome, tipo, valor::float8 as valor, teto::float8 as teto, minimo::float8 as minimo, validade_dias
+          from clube_premio where id = ${e.premioId}::uuid and tenant_id = ${e.tenantId}::uuid and excluido_em is null`),
+    );
+    if (!p || p.tipo === 'produto') throw new Error('o prêmio da campanha não existe mais (ou é produto grátis)');
+    const config = await this.clube.config(e.tenantId);
+    const novo = await this.db.transaction(async (tx: any) => {
+      let cliente = e.clienteId;
+      if (!cliente) {
+        const [c] = this.rows(
+          await tx.execute(sql`
+            select id from cliente where tenant_id = ${e.tenantId}::uuid and ${sqlChaveTelefone(sql`telefone`)} = ${chave}
+             order by ultimo_pedido_em desc nulls last, criado_em limit 1`),
+        );
+        cliente = c?.id ? String(c.id) : null;
+      }
+      if (!cliente) {
+        const [c] = this.rows(
+          await tx.execute(sql`insert into cliente (tenant_id, telefone) values (${e.tenantId}::uuid, ${telefoneCadastro(e.telefone)}) returning id`),
+        );
+        cliente = String(c.id);
+      }
+      return this.criarDireito(tx, {
+        tenantId: e.tenantId,
+        clienteId: cliente,
+        chave,
+        gatilho: 'campanha',
+        ref: e.envioId,
+        forma: config.surpresaForma,
+        premio: {
+          id: String(p.id),
+          nome: String(p.nome),
+          tipo: p.tipo,
+          valor: Number(p.valor),
+          teto: p.teto == null ? null : Number(p.teto),
+          minimo: Number(p.minimo),
+          validadeDias: Number(p.validade_dias),
+        },
+      });
+    });
+    if (novo) return ClubeSurpresaService.linkDoDireito(novo.codigo);
+    const depois = await this.linkDaCampanha(e.envioId, e.tenantId); // outra réplica criou junto
+    if (!depois) throw new Error('o prêmio da campanha não foi criado');
+    return depois;
+  }
+
+  /** O link pessoal do prêmio de um envio de campanha (o clique da campanha leva a ele), ou `null` sem prêmio. */
+  async linkDaCampanha(envioId: string, tenantId?: string): Promise<string | null> {
+    if (!/^[0-9a-f-]{36}$/i.test(String(envioId ?? ''))) return null;
+    const [d] = this.rows(
+      await this.db.execute(sql`
+        select codigo from clube_direito
+         where gatilho = 'campanha' and ref = ${envioId} ${tenantId ? sql`and tenant_id = ${tenantId}::uuid` : sql``}
+         limit 1`),
+    );
+    return d ? ClubeSurpresaService.linkDoDireito(String(d.codigo)) : null;
   }
 
   // ───────────────────────── O link pessoal (`/p/…`) ─────────────────────────

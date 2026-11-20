@@ -12,6 +12,7 @@ import { Automaticas } from '@/components/marketing/automaticas';
 import { CustoDaCampanha } from '@/components/marketing/custo-da-campanha';
 import { ResultadoDoControle } from '@/components/marketing/resultado-do-controle';
 import { ClubeDeRecompra } from '@/components/marketing/clube/clube-de-recompra';
+import { PremioDaCampanha } from '@/components/marketing/premio-da-campanha';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Delivery → Marketing: campanhas de WhatsApp (épico 2 provedores). Público segmentado,
@@ -108,6 +109,8 @@ export default function MarketingPage() {
   const [cupomCodigo, setCupomCodigo] = useState('');
   const [cupomValor, setCupomValor] = useState('10');
   const [cupomDuracao, setCupomDuracao] = useState('7');
+  // O prêmio surpresa do Clube (A1d, mig 477): todos os destinatários ganham.
+  const [clubePremioId, setClubePremioId] = useState('');
   const [previa, setPrevia] = useState<number | null>(null);
   // Quem ficou de fora por ter recebido uma oferta automática no intervalo das Automáticas (decisão do dono 3B).
   const [previaFora, setPreviaFora] = useState<{ n: number; dias: number } | null>(null);
@@ -324,6 +327,7 @@ export default function MarketingPage() {
         horaFim: agendada ? horaFim || null : null,
         criarCupom: ehCupom ? criarCupom : false,
         cupomCodigo: ehCupom ? cupomCodigo.trim().toUpperCase() : null,
+        clubePremioId: clubePremioId || null,
         cupomTipo: tipo === 'frete_gratis' ? 'fretegratis' : 'percentual',
         cupomValor: ehCupom ? Number(cupomValor) || 0 : 0,
         cupomDuracaoDias: ehCupom && cupomDuracao ? Number(cupomDuracao) : null,
@@ -333,6 +337,7 @@ export default function MarketingPage() {
       });
       toast.success(`Campanha criada para ${r?.total ?? 0} contato(s).`);
       setNovo(false);
+      setClubePremioId('');
       resetar();
       carregar();
     } catch (e) {
@@ -678,6 +683,9 @@ export default function MarketingPage() {
                 </div>
               </div>
             )}
+
+            {/* O prêmio surpresa do Clube (A1d): só com o gatilho "Em disparo" ligado no Clube. */}
+            <PremioDaCampanha valor={clubePremioId} aoMudar={setClubePremioId} />
 
             {/* Ritmo e limites de envio (anti-bloqueio) — sempre pelo número de Marketing */}
             <div className="rounded-lg border border-border p-3">
