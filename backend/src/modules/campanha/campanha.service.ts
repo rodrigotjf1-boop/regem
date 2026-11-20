@@ -9,6 +9,7 @@ import { chaveTelefone, sqlChaveTelefone, sqlDigitosTelefone, sqlPodeTerAChave }
 import { AJUSTES_PADRAO } from '../relacionamento/relacionamento';
 import { saiuDoMarketing, sqlRecebeMarketing } from '../../common/marketing-quem-recebe';
 import { conferirSegmentoDoPerfil, sqlAceiteClicado, sqlSegmentoDoPerfil } from '../../common/segmentos-do-perfil';
+import { sqlNoGrupoDeControle } from '../../common/grupo-de-controle';
 import { semanaDe, sqlAniversarioEntre } from '../../common/aniversario';
 import { hojeISO, somarDias } from '../../common/data';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
@@ -138,16 +139,37 @@ export class CampanhaService {
     return (r.rows ?? r).length > 0;
   }
 
+  /**
+   * O grupo de controle das campanhas ligado (F7 parte 3, mig 465 — Delivery › Marketing › Automáticas › "Para todas")?
+   * Lido pelo jsonb da linha: sem a coluna (banco antes da 465) ou sem as automáticas (banco de loja), desligado.
+   */
+  private async controleLigado(tenantId: string): Promise<boolean> {
+    if (!(await this.temAutomaticas())) return false;
+    const r: any = await this.db.execute(sql`
+      select (to_jsonb(rc) ->> 'grupo_controle') = 'true' as ok from relacionamento_config rc where rc.tenant_id = ${tenantId}::uuid`);
+    return !!(r.rows ?? r)[0]?.ok;
+  }
+
   // Público estimado (quem receberia): do segmento, com telefone, exceto excluídos e quem recebeu oferta automática no
-  // intervalo — esses voltam à parte (`foraPorOferta`), para a tela dizer quantos ficaram de fora e por quê.
+  // intervalo — esses voltam à parte (`foraPorOferta`), para a tela dizer quantos ficaram de fora e por quê. Com o grupo de
+  // controle ligado, os do controle também (`foraPorControle` — só aparece com ele ligado).
   async previa(tenantId: string, segmento: string, recuperacaoDias?: number) {
     const oferta = await this.ofertaAutomaticaRecente(tenantId);
+    const controle = await this.controleLigado(tenantId);
     const r: any = await this.db.execute(sql`
-      select count(*) filter (where not x.recente)::int as total, count(*) filter (where x.recente)::int as fora
-        from (select ${oferta ? oferta.expr : sql`false`} as recente from cliente c
+      select count(*) filter (where not x.recente and not x.controle)::int as total,
+             count(*) filter (where x.recente and not x.controle)::int as fora,
+             count(*) filter (where x.controle)::int as fora_controle
+        from (select ${oferta ? oferta.expr : sql`false`} as recente, ${controle ? sqlNoGrupoDeControle() : sql`false`} as controle
+                from cliente c
                where c.tenant_id = ${tenantId} ${this.excluidos()} ${this.segFrag(segmento, recuperacaoDias)}) x`);
     const l = (r.rows ?? r)[0] ?? {};
-    return { total: l.total ?? 0, foraPorOferta: l.fora ?? 0, intervaloOfertasDias: oferta?.dias ?? null };
+    return {
+      total: l.total ?? 0,
+      foraPorOferta: l.fora ?? 0,
+      intervaloOfertasDias: oferta?.dias ?? null,
+      ...(controle ? { foraPorControle: l.fora_controle ?? 0 } : {}),
+    };
   }
 
   async listar(tenantId: string) {
@@ -222,6 +244,34 @@ export class CampanhaService {
         and p.status <> 'cancelado'`);
     const row = (pa.rows ?? pa)[0] ?? {};
 
+    // O GRUPO DE CONTROLE (F7 parte 3): a taxa de quem pediu em até 7 dias — quem recebeu (desde o envio de cada um) × o
+    // controle (desde o primeiro envio da campanha). A diferença em pontos é o efeito da campanha; com menos de 100 no
+    // controle, o número ainda varia muito (a tela avisa).
+    const gc: any = await this.db.execute(sql`
+      with ref as (
+        select coalesce(min(enviado_em), ${camp.criado_em}::timestamptz) as em from campanha_envio
+         where campanha_id = ${campId} and status = 'enviado')
+      select count(*) filter (where e.status = 'controle')::int as controle_base,
+             count(*) filter (where e.status = 'controle' and exists (
+               select 1 from pedido_externo p, ref where p.tenant_id = e.tenant_id and p.cliente_id = e.cliente_id
+                  and p.status <> 'cancelado' and p.criado_em >= ref.em and p.criado_em <= ref.em + interval '7 days'))::int as controle_pediram,
+             count(*) filter (where e.status = 'enviado')::int as recebeu_base,
+             count(*) filter (where e.status = 'enviado' and exists (
+               select 1 from pedido_externo p where p.tenant_id = e.tenant_id and p.cliente_id = e.cliente_id
+                  and p.status <> 'cancelado' and p.criado_em >= e.enviado_em and p.criado_em <= e.enviado_em + interval '7 days'))::int as recebeu_pediram
+        from campanha_envio e
+       where e.campanha_id = ${campId} and e.cliente_id is not null and e.status in ('controle', 'enviado')`);
+    const g = (gc.rows ?? gc)[0] ?? {};
+    const taxa = (p: number, b: number) => (b > 0 ? Math.round((1000 * p) / b) / 10 : null);
+    const controle =
+      Number(g.controle_base) > 0
+        ? {
+            recebeu: { base: Number(g.recebeu_base), pediram: Number(g.recebeu_pediram), taxa: taxa(Number(g.recebeu_pediram), Number(g.recebeu_base)) },
+            controle: { base: Number(g.controle_base), pediram: Number(g.controle_pediram), taxa: taxa(Number(g.controle_pediram), Number(g.controle_base)) },
+            pouco: Number(g.controle_base) < 100,
+          }
+        : null;
+
     // Se houve teste A/B, quebra enviados/cliques/pedidos por variante.
     let ab: any = null;
     if (camp.mensagem_b) {
@@ -249,6 +299,8 @@ export class CampanhaService {
       valor: row.valor ?? 0,
       cliques: camp.cliques ?? 0,
       ab,
+      // O grupo de controle (F7 parte 3): quem recebeu × quem ficou no controle; null sem controle nesta campanha.
+      controle,
     };
   }
 
@@ -416,12 +468,21 @@ export class CampanhaService {
     const varFrag = temAB ? sql`case when random() < 0.5 then 'B' else 'A' end` : sql`'A'`;
     // Quem recebeu oferta automática no intervalo fica fora (3B) — a mesma conta da prévia.
     const oferta = await this.ofertaAutomaticaRecente(tenantId);
+    // O grupo de controle (F7 parte 3): fora do envio; guardado com status 'controle' (nunca enviado, sem variante) para o
+    // resultado comparar quem recebeu × quem ficou de fora — do MESMO público, na mesma hora.
+    const controle = await this.controleLigado(tenantId);
+    const publico = sql`from cliente c
+      where c.tenant_id = ${tenantId} ${this.excluidos()} ${this.segFrag(segmento, dto.recuperacaoDias)}
+        ${oferta ? sql`and not ${oferta.expr}` : sql``}`;
     const ins: any = await this.db.execute(sql`
       insert into campanha_envio (campanha_id, tenant_id, cliente_id, telefone, variante)
       select ${camp.id}, c.tenant_id, c.id, c.telefone, ${varFrag}
-      from cliente c
-      where c.tenant_id = ${tenantId} ${this.excluidos()} ${this.segFrag(segmento, dto.recuperacaoDias)}
-        ${oferta ? sql`and not ${oferta.expr}` : sql``}`);
+      ${publico} ${controle ? sql`and not ${sqlNoGrupoDeControle()}` : sql``}`);
+    if (controle)
+      await this.db.execute(sql`
+        insert into campanha_envio (campanha_id, tenant_id, cliente_id, telefone, variante, status)
+        select ${camp.id}, c.tenant_id, c.id, c.telefone, null, 'controle'
+        ${publico} and ${sqlNoGrupoDeControle()}`);
     const total = ins.rowCount ?? 0;
     await this.db
       .update(campanha)

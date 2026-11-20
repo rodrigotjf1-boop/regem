@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Perfil do cliente F7 parte 3 — o grupo de controle das campanhas (19/11; mig 465 SÓ NUVEM, aplicada —
+  `relacionamento_config.grupo_controle`).** Nasce desligado. Só na nuvem.
+
 - **Perfil do cliente F7 parte 2 — "sentimos sua falta" pelo ritmo de cada cliente (19/11; mig 464 SÓ NUVEM, aplicada —
   `relacionamento_config.volta_pelo_ritmo`).** Nasce desligado; só com o módulo "Perfil do cliente". Só na nuvem.
 

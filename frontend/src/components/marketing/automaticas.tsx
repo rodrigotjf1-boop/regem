@@ -50,6 +50,7 @@ type Painel = {
     voltaValidadeDias: number;
     voltaTentativas: number;
     voltaPeloRitmo?: boolean;
+    grupoControle?: boolean;
   };
   /** O módulo "Perfil do cliente" ligado (mostra "pelo ritmo de cada cliente" — F7 parte 2, mig 464). */
   perfilLigado?: boolean;
@@ -141,6 +142,7 @@ const paraValores = (p: Painel): Valores => ({
   voltaValidadeDias: String(p.ajustes.voltaValidadeDias),
   voltaTentativas: String(p.ajustes.voltaTentativas),
   voltaPeloRitmo: p.ajustes.voltaPeloRitmo === true,
+  grupoControle: p.ajustes.grupoControle === true,
 });
 
 /** "hoje às 17:00", "amanhã às 17:00", "sexta às 17:00". */
@@ -361,6 +363,14 @@ export function Automaticas() {
         opcoes: p.opcoes.intervalos.map((d) => ({ v: String(d), rotulo: `${d} dias` })),
         ajuda: 'Soma o aniversário, o "sentimos sua falta" e as campanhas. O aviso do cashback não conta (se a Meta não o classificar como marketing).',
         palavras: 'frequência intervalo oferta dias',
+      },
+      {
+        id: 'grupoControle',
+        rotulo: 'Grupo de controle das campanhas (10%)',
+        tipo: 'chave',
+        ajuda:
+          '10% dos clientes, sempre os mesmos, não recebem as campanhas. O resultado de cada campanha compara quem recebeu com quem ficou de fora — o efeito de verdade, não só "pediu depois da mensagem". As automáticas não mudam.',
+        palavras: 'grupo de controle medir efeito campanha resultado',
       },
       {
         id: 'maxPorDia',

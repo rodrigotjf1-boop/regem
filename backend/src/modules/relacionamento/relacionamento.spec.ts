@@ -71,6 +71,8 @@ describe('automáticas — regras puras', () => {
       voltaTentativas: 2,
       // "pelo ritmo de cada cliente" (F7 parte 2 do perfil, mig 464): sem a coluna, desligado
       voltaPeloRitmo: false,
+      // o grupo de controle das campanhas (F7 parte 3, mig 465): sem a coluna, desligado
+      grupoControle: false,
     });
   });
 
