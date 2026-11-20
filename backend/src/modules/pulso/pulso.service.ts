@@ -67,26 +67,29 @@ export class PulsoService {
     await this.db.execute(sql`update pulso_estado set erro = ${msg.slice(0, 300)}, erro_em = clock_timestamp() where id = 1`).catch(() => undefined);
   }
 
+  /** A configuração da rotina: só com a ligação (nasce desligado). Quem chama já conferiu o lado (só nuvem). */
   private configDaRotina(): ConfigPulso | null {
-    if (ehServidorLocal()) return null;
     const cfg = lerConfigPulso();
     return cfg.ligado ? cfg : null;
   }
 
   @Cron('0 15 */6 * * *', { timeZone: 'America/Sao_Paulo' })
   async rotinaEventos(): Promise<void> {
+    if (ehServidorLocal()) return; // só a nuvem lê o Pulso
     const cfg = this.configDaRotina();
     if (cfg) await this.lerEventos(cfg);
   }
 
   @Cron('0 20 5 * * *', { timeZone: 'America/Sao_Paulo' })
   async rotinaInteresses(): Promise<void> {
+    if (ehServidorLocal()) return; // só a nuvem lê o Pulso
     const cfg = this.configDaRotina();
     if (cfg) await this.mandarInteresses(cfg);
   }
 
   @Cron('0 10 7 * * *', { timeZone: 'America/Sao_Paulo' })
   async rotinaClima(): Promise<void> {
+    if (ehServidorLocal()) return; // só a nuvem lê o Pulso
     const cfg = this.configDaRotina();
     if (cfg) await this.lerClimaDosMunicipios(cfg);
   }
