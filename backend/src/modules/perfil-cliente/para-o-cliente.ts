@@ -44,14 +44,15 @@ export async function paraOCliente(db: any, token: string, clienteToken: unknown
                order by x.em desc limit 1) as nao`));
     if (e?.nao === true) return VAZIO;
 
-    // "Seu de sempre": a chave gravada pelo cálculo do perfil → o produto do cadastro (id, código PDV ou nome igual).
+    // "Seu de sempre": a chave gravada pelo cálculo do perfil → o produto do cadastro (id, código PDV ou nome igual), nunca
+    // um produto excluído (o pedido antigo pode apontar para um cadastro que saiu — achado na 1ª volta, 20/11).
     const [s] = rows(await db.execute(sql`
       with ds as (
         select camadas -> 'gosto' -> 'de_sempre' as d from cliente_perfil
          where cliente_id = ${clienteId}::uuid and tenant_id = ${tenantId}::uuid
       )
       select p.id
-        from ds join produto p on p.tenant_id = ${tenantId}::uuid
+        from ds join produto p on p.tenant_id = ${tenantId}::uuid and p.deleted_at is null
        where ds.d is not null
          and (p.id::text = ds.d ->> 'chave' or (p.codigo is not null and p.codigo = ds.d ->> 'chave')
               or lower(trim(p.nome)) = lower(trim(ds.d ->> 'nome')))

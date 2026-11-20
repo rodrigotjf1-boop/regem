@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Catálogo: as cópias duplicadas dos trios inativas (20/11; mig 467 SÓ NUVEM, aplicada — decisão do dono).** As três
+  cópias "cw…" que a importação do Cardápio Web criou ficam inativas e fora do balcão e do cardápio digital (o original com
+  o código PDV fica); a mudança desce à loja pela sincronização do cadastro. Junto: o "seu de sempre" do cardápio não
+  aponta mais para produto excluído. No `.zip` só por acompanhar o código.
+
 - **Perfil do cliente — "Recomendações do meu jeito" vem ligada (20/11; SEM migration; D16, decisão do dono).** Legítimo
   interesse no lugar do consentimento: vale ligada para quem nunca mexeu, a entrada do cardápio mostra o aviso (não é mais
   caixa) e o Perfil desliga; desligar devolve os cliques ao anônimo. Só na nuvem; no `.zip` só por acompanhar o código.

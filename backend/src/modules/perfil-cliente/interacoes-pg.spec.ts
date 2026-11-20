@@ -258,6 +258,12 @@ descrever('os cliques do cardápio (Postgres)', () => {
       expect(await paraOCliente(db, on.token, ct)).toEqual({ deSempre: xbacon, voceViu: [], ordemCategorias: [] });
       await q(`insert into cliente_escolha (tenant_id, cliente_id, escolha, valor, origem) values ($1,$2,'recomendacoes',true,'cardapio_perfil')`, [on.t, ana]);
 
+      // O de sempre num produto EXCLUÍDO (o pedido antigo aponta para um cadastro que saiu): não vale — nem pelo id, nem
+      // pelo nome; sem outro igual, fica sem "de sempre".
+      await q(`update produto set deleted_at = now() where id = $1`, [xbacon]);
+      expect((await paraOCliente(db, on.token, ct)).deSempre).toBeNull();
+      await q(`update produto set deleted_at = null where id = $1`, [xbacon]);
+
       // O de sempre sem chave (perfil antigo): pelo nome igual.
       await q(`update cliente_perfil set camadas = $2::jsonb where cliente_id = $1`, [ana, JSON.stringify({ gosto: { de_sempre: { nome: 'x-bacon da casa ', pedidos: 5 } } })]);
       expect((await paraOCliente(db, on.token, ct)).deSempre).toBe(xbacon);
