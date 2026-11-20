@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { Ajustes, alterados, type GrupoDeAjustes, type Valor, type Valores } from '@/components/ui/ajustes';
 import { Selo } from '@/components/ui/lista';
-import { Gaveta } from '@/components/ui/sobreposto';
+import { GavetaPremiosDeEscolha } from './gaveta-premios-de-escolha';
 import type { PainelDoClube } from './tipos';
 
 // Marketing › Clube › Álbum de selos (fase A2, mig 479; protótipo `mockups/regem-clube-banner.html`, "Marketing › Clube" ›
@@ -20,64 +20,6 @@ function valoresDe(p: PainelDoClube): Valores {
     albumValidadeMeses: String(p.config.albumValidadeMeses),
     albumPremios: p.config.albumPremios.join(','),
   };
-}
-
-function GavetaDosPremios({
-  painel,
-  valor,
-  aoFechar,
-  aoEscolher,
-  aoIrParaPremios,
-}: {
-  painel: PainelDoClube;
-  valor: string[];
-  aoFechar: () => void;
-  aoEscolher: (ids: string[]) => void;
-  aoIrParaPremios: () => void;
-}) {
-  const id = useId();
-  const opcoes = painel.premios.filter((p) => p.tipo !== 'produto');
-  const max = painel.opcoes.premiosPorEscolhaMax;
-  const [marcados, setMarcados] = useState<string[]>(valor.filter((x) => opcoes.some((p) => p.id === x)));
-  const alternar = (p: string) => setMarcados((x) => (x.includes(p) ? x.filter((y) => y !== p) : x.length >= max ? x : [...x, p]));
-  return (
-    <Gaveta
-      titulo="Prêmio de quem completa o álbum"
-      aoFechar={aoFechar}
-      rodape={
-        <>
-          <Button type="button" variant="outline" onClick={aoFechar}>Cancelar</Button>
-          <Button type="button" onClick={() => aoEscolher(marcados)}>Usar estes prêmios</Button>
-        </>
-      }
-    >
-      <div className="space-y-3">
-        <p className="text-sm text-secondary-foreground">O cliente escolhe um da lista quando completa o álbum; vira cupom para o próximo pedido.</p>
-        {opcoes.length ? (
-          <div className="grid grid-cols-1 gap-1.5" role="group" aria-label="Prêmios do álbum">
-            {opcoes.map((p) => {
-              const marcado = marcados.includes(p.id);
-              return (
-                <label key={p.id} htmlFor={`${id}-p-${p.id}`} className="flex min-h-10 cursor-pointer items-start gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm">
-                  <input id={`${id}-p-${p.id}`} type="checkbox" className="mt-0.5 h-4 w-4" checked={marcado} disabled={!marcado && marcados.length >= max} onChange={() => alternar(p.id)} />
-                  <span className="min-w-0">
-                    <b>{p.nome}</b>
-                    <span className="block text-xs text-secondary-foreground">{p.descricao}</span>
-                  </span>
-                </label>
-              );
-            })}
-          </div>
-        ) : (
-          <p className="text-sm">Nenhum prêmio de desconto ou de frete grátis ainda.</p>
-        )}
-        <p className="text-xs text-secondary-foreground">Até {max} prêmios. O produto grátis no álbum chega numa próxima entrega.</p>
-        <Button type="button" variant="outline" size="sm" onClick={aoIrParaPremios}>
-          ＋ Cadastrar novo prêmio
-        </Button>
-      </div>
-    </Gaveta>
-  );
 }
 
 export function AlbumDeSelos({
@@ -192,8 +134,11 @@ export function AlbumDeSelos({
         antes={!podeMudar ? <p className="text-sm text-secondary-foreground">Só o presidente muda o Clube; aqui você vê como está.</p> : undefined}
       />
       {gaveta && (
-        <GavetaDosPremios
+        <GavetaPremiosDeEscolha
           painel={painel}
+          titulo="Prêmio de quem completa o álbum"
+          ajuda="O cliente escolhe um da lista quando completa o álbum; vira cupom para o próximo pedido."
+          rotuloDoGrupo="Prêmios do álbum"
           valor={escolhidos}
           aoFechar={() => setGaveta(false)}
           aoEscolher={(ids) => {

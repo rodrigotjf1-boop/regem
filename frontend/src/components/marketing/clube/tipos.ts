@@ -56,6 +56,8 @@ export type PainelDoClube = {
     premiosMax: number;
     premiosPorEscolhaMax: number;
     validadesDoSelo: number[];
+    validadesDaMeta: number[];
+    niveisMax: number;
     limitesDaReclamacao: Opcao[];
     quemMandaDesculpas: Opcao[];
     segmentosDaClassificacao: Opcao[];

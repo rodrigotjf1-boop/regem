@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { AniversarioService } from '../aniversario/aniversario.service';
 import { ClubeAlbumService } from '../clube/clube-album.service';
+import { ClubeMetaService } from '../clube/clube-meta.service';
 import { createHmac, createHash, randomBytes, randomInt } from 'crypto';
 
 // SHA-256 do código OTP (o banco só guarda o hash; comparação hash-com-hash).
@@ -182,6 +183,7 @@ export class ClienteService {
     @Optional() private readonly aniversarioInj?: AniversarioService,
     // O álbum de selos do Clube (A2, mig 479): o módulo do Clube é global e só da nuvem — opcional aqui.
     @Optional() private readonly album?: ClubeAlbumService,
+    @Optional() private readonly meta?: ClubeMetaService,
   ) {}
 
   /** O teto de códigos novos por telefone (por loja): quem chama de vários IPs não passa dele. */
@@ -1330,7 +1332,16 @@ export class ClienteService {
       paraRevelar: await this.aniversario.premiosParaRevelar(c.tenantId, c.id),
       // O álbum de selos (A2): sem o Clube ou com erro, desligado (a conta abre do mesmo jeito).
       album: this.album ? await this.album.doCliente(c.tenantId, c.id).catch(() => ({ ativo: false as const })) : { ativo: false as const },
+      // A meta do mês (A3): idem.
+      meta: this.meta ? await this.meta.doCliente(c.tenantId, c.id).catch(() => ({ ativo: false as const })) : { ativo: false as const },
     };
+  }
+
+  /** O cliente escolhe o prêmio de um nível da meta do mês que bateu (A3) — só ele, pelo token de Sua conta. */
+  async escolherDaMeta(cardapioToken: string, clienteToken: string | undefined, entrada: { mes?: unknown; nivel?: unknown; premioId?: unknown }) {
+    const c = await this.clienteDoToken(cardapioToken, clienteToken);
+    if (!this.meta) throw new BadRequestException('A meta do mês não está disponível agora.');
+    return this.meta.escolher(c.tenantId, c.id, entrada);
   }
 
   /** O cliente escolhe o prêmio do álbum completo (A2) — só ele, pelo token de Sua conta. */

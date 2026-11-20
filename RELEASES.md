@@ -15,6 +15,12 @@
 - **Mister versão 6, M6k lote 2 — o guia "como faço" em mais 8 telas, com imagem (20/11; SEM migration).** O guia e as
   imagens são da nuvem: vai no `.zip` sem efeito na loja.
 
+- **Clube — a meta do mês (20/11; SEM migration — usa a `meta_desde` da 479; fase A3 do `docs/plano-clube-e-banner.md`).**
+  Marketing › Clube › "Meta do mês" (até 3 níveis com os pedidos e os prêmios em gaveta, a validade 15 ou 30 dias) e a
+  chave em Visão geral. Os pedidos do mês do cardápio online ou do robô, a partir do mínimo, depois de ligar; cada nível
+  batido dá um prêmio no mês, que o cliente escolhe em Sua conta › Benefícios (o do mês anterior até o dia 7); a página
+  do pedido mostra a barra. Só na nuvem: no `.zip` só por acompanhar o código. Nasce desligada.
+
 - **Mister versão 6, M6k lote 1 — o guia "como faço" em mais 8 telas, com imagem (20/11; SEM migration).** O guia é da
   nuvem; vai no `.zip` a correção do React #418 (hidratação) do Mural & clima e das Contas a pagar (ERR-547), que a loja
   também serve.

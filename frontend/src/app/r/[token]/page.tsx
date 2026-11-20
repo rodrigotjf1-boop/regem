@@ -6,6 +6,7 @@ import 'leaflet/dist/leaflet.css';
 import { ComoFoiOPedido } from '@/components/rastreio/como-foi-o-pedido';
 import { PremioDoPedido } from '@/components/rastreio/premio-do-pedido';
 import { SeloDoPedido } from '@/components/rastreio/selo-do-pedido';
+import { MetaDoPedido } from '@/components/rastreio/meta-do-pedido';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Rastreio PÚBLICO do cliente (sem login) — consome GET /rastreio/:token.
@@ -304,6 +305,8 @@ export default function RastreioPage() {
                 <PremioDoPedido caminho={`/rastreio/${encodeURIComponent(token)}/premio`} />
                 {/* O selo do álbum do Clube (mig 479): "Você ganhou o selo de novembro — 3 de 4". */}
                 <SeloDoPedido token={token} />
+                {/* A meta do mês do Clube (A3): a barra dos pedidos do mês. */}
+                <MetaDoPedido token={token} />
                 <ComoFoiOPedido token={token} />
               </>
             ) : (
