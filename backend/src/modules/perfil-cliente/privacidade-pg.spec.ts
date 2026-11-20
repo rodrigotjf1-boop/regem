@@ -76,8 +76,11 @@ descrever('gravar e ler a privacidade (Postgres)', () => {
       await q(`insert into cliente_perfil (cliente_id, tenant_id) values ($1,$2)`, [id, t]);
       const db = drizzle(c as any);
       const cli = { tenantId: t, id };
-      // Nunca respondeu: a entrada do cardápio pergunta.
-      expect((await lerPrivacidade(db, t, id)).jaRespondeu).toBe(false);
+      // Nunca respondeu: a entrada do cardápio pergunta; as recomendações valem LIGADAS (legítimo interesse — D16), com o aviso.
+      const nunca = await lerPrivacidade(db, t, id);
+      expect(nunca.jaRespondeu).toBe(false);
+      expect(nunca.escolhas).toEqual({ recomendacoes: true, atendimento_personalizado: false, nao_analisar: false, maior_de_18: false });
+      expect(nunca.avisoRecomendacoes).toMatch(/desliga quando quiser/);
 
       // "Continuar sem marcar" na entrada grava o "não" com a origem — e a entrada não pergunta de novo.
       const outro = (await q(`insert into cliente (tenant_id, nome, telefone) values ($1,'Bia','21966660002') returning id`, [t]))[0].id as string;
@@ -97,7 +100,7 @@ descrever('gravar e ler a privacidade (Postgres)', () => {
         { escolha: 'recomendacoes', valor: true, origem: 'cardapio_perfil' },
       ]);
       const [txt] = await q(`select texto from cliente_escolha where cliente_id = $1`, [id]);
-      expect(txt.texto).toMatch(/^Recomendações do meu jeito .*\(textos de 2026-11-19\)$/);
+      expect(txt.texto).toMatch(/^Recomendações do meu jeito .*\(textos de 2026-11-20\)$/);
 
       await q(`insert into cliente_evento_sensibilidade (cliente_id, tipo, tenant_id, rr, prob, pedidos, esperado, dias_com_pedido, selo)
                values ($1,'dinheiro',$2,1.8,0.95,6,3.2,4,true)`, [id, t]);

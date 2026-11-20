@@ -7,8 +7,8 @@ import { getClienteToken } from '@/components/loja/tipos';
 // OS CLIQUES DO CARDÁPIO (F4 do docs/plano-perfil-cliente.md, §4.3; mig 466). O que a pessoa faz no cardápio, em lotes:
 // produto aberto (com o tempo aberto — só aparecer na tela não conta), produto posto no carrinho e busca (o termo, depois
 // de 1,5 s parada, e quantos itens achou). Só com o módulo "Perfil do cliente" ligado (`loja.interesse`). A sessão é a da
-// visita (a mesma do funil). Vai junto o `clienteToken` de quem entrou — o SERVIDOR decide se liga ao cliente (só com as
-// "Recomendações personalizadas" ligadas). Nunca atrapalha a tela: fila na memória, lote a cada 15 s, ao sair da página
+// visita (a mesma do funil). Vai junto o `clienteToken` de quem entrou — o SERVIDOR decide se liga ao cliente (se ele não
+// desligou as "Recomendações", que valem ligadas por padrão — D16). Nunca atrapalha a tela: fila na memória, lote a cada 15 s, ao sair da página
 // e a cada 25; erro ignorado.
 
 type Evento = { tipo: 'produto_aberto' | 'produto_adicionado' | 'busca'; produtoId?: string; ms?: number; termo?: string; resultados?: number };

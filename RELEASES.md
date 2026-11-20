@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Perfil do cliente — "Recomendações do meu jeito" vem ligada (20/11; SEM migration; D16, decisão do dono).** Legítimo
+  interesse no lugar do consentimento: vale ligada para quem nunca mexeu, a entrada do cardápio mostra o aviso (não é mais
+  caixa) e o Perfil desliga; desligar devolve os cliques ao anônimo. Só na nuvem; no `.zip` só por acompanhar o código.
+
 - **Perfil do cliente F8 — o cardápio para o cliente identificado (20/11; SEM migration).** No cardápio Regem, para quem
   entrou com o código do WhatsApp: "seu de sempre" no topo e, com as recomendações ligadas, "Você viu" e as categorias na
   ordem do que ele mais abre (rota pública `/publico/cardapio/:token/para-voce`); o cálculo do perfil guarda a chave do

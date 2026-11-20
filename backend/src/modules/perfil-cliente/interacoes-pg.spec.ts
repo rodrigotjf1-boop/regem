@@ -128,29 +128,30 @@ descrever('os cliques do cardápio (Postgres)', () => {
       expect(await registrarInteracoes(db, `tok-${randomUUID()}`, { sessao: 'sessao02', eventos: [{ tipo: 'busca', termo: 'pizza' }] })).toEqual({ gravadas: 0 });
     }));
 
-  it('o cliente só entra com a prova (token do código) E o "sim" das recomendações — e só dali em diante', () =>
+  it('o cliente só entra com a prova (token do código) e sem ter desligado as recomendações (ligadas por padrão — D16)', () =>
     naTransacao(async (c, q) => {
       const db = drizzle(c as any);
       const on = await loja(q, true);
       const ana = (await q(`insert into cliente (tenant_id, nome, telefone) values ($1,'Ana','21988880001') returning id`, [on.t]))[0].id as string;
       const clienteToken = assinarCliente(ana, on.t);
       const ev = (ms: number) => ({ sessao: 'sessao03', clienteToken, eventos: [{ tipo: 'produto_aberto', produtoId: on.produto, ms }] });
-      await registrarInteracoes(db, on.token, ev(1000)); // ainda sem o "sim": anônimo
+      await registrarInteracoes(db, on.token, ev(1000)); // nunca mexeu: as recomendações valem ligadas (legítimo interesse) — dela
       await q(`insert into cliente_escolha (tenant_id, cliente_id, escolha, valor, origem) values ($1,$2,'recomendacoes',true,'cardapio_perfil')`, [on.t, ana]);
-      await registrarInteracoes(db, on.token, ev(2000)); // com o "sim": dela
+      await registrarInteracoes(db, on.token, ev(2000)); // ligou de novo: dela
       await registrarInteracoes(db, on.token, { ...ev(2500), clienteToken: `${clienteToken}x` }); // token adulterado: anônimo
       // O token de uma empresa não serve no cardápio de OUTRA.
       const outra = await loja(q, true);
       await registrarInteracoes(db, outra.token, { sessao: 'sessao04', clienteToken, eventos: [{ tipo: 'produto_aberto', produtoId: outra.produto, ms: 3000 }] });
       expect(await q(`select ms, cliente_id from cardapio_interacao where tenant_id = $1 order by id`, [on.t])).toEqual([
-        { ms: 1000, cliente_id: null },
+        { ms: 1000, cliente_id: ana },
         { ms: 2000, cliente_id: ana },
         { ms: 2500, cliente_id: null },
       ]);
       expect(await q(`select cliente_id from cardapio_interacao where tenant_id = $1`, [outra.t])).toEqual([{ cliente_id: null }]);
-      // Desligou as recomendações: volta a ser anônimo.
-      await q(`insert into cliente_escolha (tenant_id, cliente_id, escolha, valor, origem) values ($1,$2,'recomendacoes',false,'cardapio_perfil')`, [on.t, ana]);
+      // Desligou as recomendações (pela gravação de verdade): o que era dela volta ao anônimo, e o novo já chega anônimo.
+      await gravarPrivacidade(db, { tenantId: on.t, id: ana }, { origem: 'cardapio_perfil', escolhas: [{ escolha: 'recomendacoes', valor: false }], declarado: [] });
       await registrarInteracoes(db, on.token, ev(3000));
+      expect(await q(`select count(*)::int as n from cardapio_interacao where cliente_id = $1`, [ana])).toEqual([{ n: 0 }]);
       expect(await q(`select cliente_id from cardapio_interacao where tenant_id = $1 and ms = 3000`, [on.t])).toEqual([{ cliente_id: null }]);
     }));
 
@@ -231,7 +232,7 @@ descrever('os cliques do cardápio (Postgres)', () => {
       expect(await paraOCliente(db, on.token, ct)).toEqual(VAZIO);
       process.env.PERFIL_CARDAPIO_PARA_VOCE = '1';
 
-      // Sem as recomendações: só o de sempre (vem dos pedidos), achado pelo código PDV.
+      // Nunca mexeu (recomendações ligadas por padrão) e ainda sem clique: só o de sempre, achado pelo código PDV.
       expect(await paraOCliente(db, on.token, ct)).toEqual({ deSempre: xbacon, voceViu: [], ordemCategorias: [] });
       // Sem prova, com token de outra empresa ou cardápio desconhecido: nada.
       expect(await paraOCliente(db, on.token, undefined)).toEqual(VAZIO);
@@ -251,6 +252,11 @@ descrever('os cliques do cardápio (Postgres)', () => {
         ],
       });
       expect(await paraOCliente(db, on.token, ct)).toEqual({ deSempre: xbacon, voceViu: [costela], ordemCategorias: [doces, burgers] });
+
+      // Desligou as recomendações: o de sempre continua (vem dos pedidos); o "você viu" e a ordem saem.
+      await q(`insert into cliente_escolha (tenant_id, cliente_id, escolha, valor, origem) values ($1,$2,'recomendacoes',false,'cardapio_perfil')`, [on.t, ana]);
+      expect(await paraOCliente(db, on.token, ct)).toEqual({ deSempre: xbacon, voceViu: [], ordemCategorias: [] });
+      await q(`insert into cliente_escolha (tenant_id, cliente_id, escolha, valor, origem) values ($1,$2,'recomendacoes',true,'cardapio_perfil')`, [on.t, ana]);
 
       // O de sempre sem chave (perfil antigo): pelo nome igual.
       await q(`update cliente_perfil set camadas = $2::jsonb where cliente_id = $1`, [ana, JSON.stringify({ gosto: { de_sempre: { nome: 'x-bacon da casa ', pedidos: 5 } } })]);

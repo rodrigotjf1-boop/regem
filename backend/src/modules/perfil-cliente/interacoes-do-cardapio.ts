@@ -9,9 +9,9 @@ import { INTERESSE, sqlNaoPediuDesde, sqlPontosDoClique } from '../../common/int
 // OS CLIQUES NO CARDÁPIO (F4 do docs/plano-perfil-cliente.md, §4.3; mig 466). O cardápio manda, em lotes, o que a pessoa
 // fez: produto aberto (com o tempo aberto), produto posto no carrinho e busca (o termo e quantos itens achou). Regras:
 //  • só com o módulo "Perfil do cliente" ligado (sem ele, nada é gravado);
-//  • ANÔNIMO por padrão (a sessão da visita, a mesma do funil); o cliente só entra se provou que é ele (o `clienteToken`
-//    do código do WhatsApp — V79) E ligou "Recomendações personalizadas" — e só dali em diante, porque só se grava o que
-//    chega depois do "sim";
+//  • ANÔNIMO para quem não entrou (a sessão da visita, a mesma do funil); o cliente só entra se provou que é ele (o
+//    `clienteToken` do código do WhatsApp — V79) e NÃO desligou "Recomendações" (ligada por padrão — legítimo interesse,
+//    D16); quem desliga volta ao anônimo na hora, inclusive o que já tinha;
 //  • telemetria: o evento torto é descartado (nunca erro para a tela), no máximo 25 por lote, e o produto tem de ser da
 //    própria empresa;
 //  • apagado aos 90 dias (`expurgarInteracoes`).
@@ -79,7 +79,8 @@ export async function registrarInteracoes(db: any, token: string, dto: any): Pro
     let clienteId: string | null = null;
     const v = verificarCliente(lido.clienteToken);
     if (v && v.tenant === tenantId) {
-      // A última de cada escolha: "recomendações" ligada E sem "não quero ser analisado".
+      // A última de cada escolha: "recomendações" não desligada (ligada por padrão — legítimo interesse, D16) E sem "não
+      // quero ser analisado".
       const [e] = rows(await db.execute(sql`
         select (select x.valor from cliente_escolha x
                  where x.cliente_id = ${v.cli}::uuid and x.tenant_id = ${tenantId}::uuid and x.escolha = 'recomendacoes'
@@ -87,7 +88,7 @@ export async function registrarInteracoes(db: any, token: string, dto: any): Pro
                (select x.valor from cliente_escolha x
                  where x.cliente_id = ${v.cli}::uuid and x.tenant_id = ${tenantId}::uuid and x.escolha = 'nao_analisar'
                  order by x.em desc limit 1) as nao`));
-      if (e?.rec === true && e?.nao !== true) clienteId = v.cli;
+      if (e?.rec !== false && e?.nao !== true) clienteId = v.cli;
     }
     const r: any = await db.execute(sql`
       insert into cardapio_interacao (tenant_id, sessao, cliente_id, tipo, produto_id, ms, termo, resultados)

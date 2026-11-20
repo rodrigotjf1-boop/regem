@@ -171,7 +171,7 @@ export function FichaDoPerfil({ clienteId, nome, aoFechar }: { clienteId: string
           </Camada>
 
           <Camada n={3} titulo="O que olha no cardápio" etiqueta={dados.olha?.desde ? `desde ${dataBr(dados.olha.desde).slice(0, 5)}` : null}>
-            <OQueOlha olha={dados.olha} recomendacoes={dados.escolhas?.some((e: any) => e.escolha === 'recomendacoes' && e.valor) === true} />
+            <OQueOlha olha={dados.olha} recomendacoes={dados.escolhas?.find((e: any) => e.escolha === 'recomendacoes')?.valor !== false} />
           </Camada>
 
           <Camada n={4} titulo="Quando pede" conf={p.confianca}>
