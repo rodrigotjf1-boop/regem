@@ -75,6 +75,18 @@ export class MisterController {
     return this.vinculo.desligarPessoa(user, colaboradorId);
   }
 
+  /**
+   * "Perdi o celular" (versão 6, M6c; mig 473): corta todas as sessões do Regem da pessoa, em todos os aparelhos, e desliga
+   * o WhatsApp dela do Mister. O próprio, ou — só o presidente — o de outra pessoa da empresa dele.
+   */
+  @Post('pessoas/:colaboradorId/perdi-o-celular')
+  @CloudOnly()
+  @Roles('presidente', 'gerente')
+  @RequireModulo('mister')
+  perdiOCelular(@CurrentUser() user: AuthUser, @Param('colaboradorId') colaboradorId: string) {
+    return this.vinculo.perdiOCelular(user, colaboradorId);
+  }
+
   /** Para onde vai cada aviso (mig 419): a escolha da empresa ou o padrão. Só o presidente. */
   @Get('avisos')
   @CloudOnly()

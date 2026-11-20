@@ -1,5 +1,7 @@
-import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Optional } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { sql } from 'drizzle-orm';
+import { cortarSessoes } from '../../auth/sessao-corte';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { AuthUser } from '../../auth/auth-user';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -74,6 +76,7 @@ export class MisterVinculoService {
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly numero: MisterNumeroService,
     @Optional() private readonly auditoria?: AuditoriaService,
+    @Optional() private readonly eventos?: EventEmitter2,
   ) {}
 
   private async podeFalar(user: AuthUser): Promise<boolean> {
@@ -229,6 +232,47 @@ export class MisterVinculoService {
     const r = await desligarVinculo(this.db, { tenantId: user.tenantId, colaboradorId: alvo, motivo: proprio ? 'pessoa' : 'presidente' });
     if (r) await this.auditar(user, 'mister_whatsapp_desligado', proprio ? { por: 'a própria pessoa' } : { por: 'presidente', colaboradorId: alvo }, alvo);
     return { desligado: !!r };
+  }
+
+  /**
+   * "PERDI O CELULAR" (versão 6, M6c; mig 473; `mockups/regem-mister-v6.html`, Mister › Pessoas): corta TODAS as sessões do
+   * Regem da pessoa, em todos os aparelhos (o token emitido antes do corte deixa de valer na guarda e no tempo real, também
+   * no servidor da loja quando o corte desce), e desliga o WhatsApp dela do Mister. Cada um no próprio; o presidente, em
+   * qualquer pessoa da empresa dele. Os presidentes recebem o aviso de segurança (`acesso_encerrado`) e fica na auditoria.
+   * Quem corta o próprio sai também deste computador e entra de novo com a senha.
+   *
+   * O corte vem PRIMEIRO (é a parte de segurança): se o desligamento do WhatsApp falhar depois, as sessões já caíram.
+   */
+  async perdiOCelular(user: AuthUser, colaboradorId: string): Promise<{ encerradas: true; whatsappDesligado: boolean; voce: boolean; desde: string }> {
+    const alvo = String(colaboradorId ?? '').trim().toLowerCase();
+    if (!UUID.test(alvo)) throw new BadRequestException('Pessoa inválida.');
+    const proprio = alvo === String(user.colaboradorId).toLowerCase();
+    if (!proprio && (await this.nivelDe(user)) !== 'presidente') throw new ForbiddenException('Só o presidente encerra as sessões de outra pessoa.');
+    const [pessoa] = linhas(
+      await this.db.execute(sql`select 1 from colaborador where id = ${alvo}::uuid and tenant_id = ${user.tenantId}::uuid and deleted_at is null`),
+    );
+    if (!pessoa) throw new NotFoundException('Pessoa não encontrada nesta empresa.');
+    const por = proprio ? 'pessoa' : 'presidente';
+    const desde = await cortarSessoes(this.db, {
+      tenantId: user.tenantId,
+      colaboradorId: alvo,
+      motivo: 'perdi_celular',
+      por,
+      porColaboradorId: proprio ? null : user.colaboradorId,
+    });
+    this.eventos?.emit('sessao.cortada', { colaboradorId: alvo });
+    const d = await desligarVinculo(this.db, { tenantId: user.tenantId, colaboradorId: alvo, motivo: por });
+    await this.auditoria?.registrar({
+      tenantId: user.tenantId,
+      atorId: user.colaboradorId,
+      atorPerfil: user.categoria,
+      tipo: 'auth',
+      acao: 'sessoes_encerradas',
+      entidadeTipo: 'colaborador',
+      entidadeId: alvo,
+      detalhe: { motivo: 'perdi_celular', por: proprio ? 'a própria pessoa' : 'presidente', whatsapp: d?.telefone ? `final ${d.telefone.slice(-4)}` : null },
+    });
+    return { encerradas: true, whatsappDesligado: !!d?.telefone, voce: proprio, desde };
   }
 
   private async auditar(user: AuthUser, acao: string, detalhe: Record<string, unknown>, deQuem: string = user.colaboradorId): Promise<void> {

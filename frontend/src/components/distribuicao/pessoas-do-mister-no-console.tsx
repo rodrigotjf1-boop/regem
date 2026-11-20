@@ -212,6 +212,9 @@ function DesligarPeloConsole(p: {
   const caixa = useRef<HTMLDivElement>(null);
   const campo = useRef<HTMLTextAreaElement>(null);
   const [motivo, setMotivo] = useState('');
+  // Versão 6, M6c (mig 473): o "Perdi o celular" de quem não consegue entrar no Regem — nasce desmarcado.
+  const [sessoes, setSessoes] = useState(false);
+  const idSessoes = useId();
   const [ocupado, setOcupado] = useState(false);
   const [erro, setErro] = useState('');
   const { onFechar } = p;
@@ -226,7 +229,7 @@ function DesligarPeloConsole(p: {
         onFechar();
       } else if (e.key === 'Tab' && caixa.current) {
         // O foco não sai do diálogo: do último volta ao primeiro (e o contrário com Shift).
-        const focos = [...caixa.current.querySelectorAll<HTMLElement>('textarea, button:not([disabled])')];
+        const focos = [...caixa.current.querySelectorAll<HTMLElement>('textarea, input, button:not([disabled])')];
         if (!focos.length) return;
         const i = focos.indexOf(document.activeElement as HTMLElement);
         if (e.shiftKey && i <= 0) {
@@ -249,8 +252,12 @@ function DesligarPeloConsole(p: {
     setOcupado(true);
     setErro('');
     try {
-      const r = (await distApi.misterDesligarPessoa(p.empresa.id, p.pessoa.colaboradorId, motivo)) as { desligado: boolean; final: string | null };
-      if (!r.desligado) {
+      const r = (await distApi.misterDesligarPessoa(p.empresa.id, p.pessoa.colaboradorId, motivo, sessoes)) as {
+        desligado: boolean;
+        final: string | null;
+        sessoesEncerradas?: boolean;
+      };
+      if (!r.desligado && !r.sessoesEncerradas) {
         setErro('Esta pessoa já não estava ligada ao Mister.');
         return;
       }
@@ -288,6 +295,18 @@ function DesligarPeloConsole(p: {
         <p id={idAjuda} className="mt-1 text-xs text-slate-400">
           Pelo menos {MOTIVO_MIN} letras. Ex.: o presidente informou a perda do celular por telefone.
         </p>
+        <div className="mt-3 flex items-start gap-2">
+          <input
+            id={idSessoes}
+            type="checkbox"
+            checked={sessoes}
+            onChange={(e) => setSessoes(e.target.checked)}
+            className="mt-1 h-4 w-4 shrink-0 accent-amber-500"
+          />
+          <label htmlFor={idSessoes} className="text-sm text-slate-200">
+            Encerrar também todas as sessões do Regem desta pessoa, em todos os aparelhos (celular perdido). Ela entra de novo com a senha.
+          </label>
+        </div>
         {erro && (
           <p className="mt-2 text-sm text-red-300" role="alert">
             {erro}

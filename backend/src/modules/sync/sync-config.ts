@@ -93,6 +93,10 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // Módulos ligados/desligados pelo presidente: o edge LÊ para cortar acesso offline e
   // nunca escreve — se subisse, reativaria por última-escrita o que a nuvem desligou.
   { tabela: 'modulo_ativacao', direcao: 'desce', cursor: 'updated_at' },
+  // "Perdi o celular" (Mister v6, M6c, mig 473): o corte das sessões de uma pessoa. Só a NUVEM escreve (Mister › Pessoas e
+  // o console) → só DESCE; a guarda do servidor da loja recusa ali também o token emitido antes do corte. À parte de
+  // `colaborador` pelo motivo da `pedido_chegada`: a última-escrita da linha da pessoa apagaria o corte.
+  { tabela: 'sessao_corte', direcao: 'desce', cursor: 'updated_at' },
   // Configuração e cadastro da própria loja, editáveis dos dois lados.
   { tabela: 'entitlement', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'janela_pico', direcao: 'ambos', cursor: 'updated_at' },

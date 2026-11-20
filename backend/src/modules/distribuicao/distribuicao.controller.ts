@@ -166,11 +166,13 @@ export class DistribuicaoController {
   @UseGuards(DistribuicaoGuard, PerfilDistGuard)
   @PerfilDist('diretoria')
   async desligarPessoaDoMister(@DistUser() u: DistCtx, @Body() dto: any) {
-    const r = await this.segurancaDoVinculo.desligarPelaDms(dto?.empresa, dto?.colaborador, dto?.motivo);
-    if (r.desligado) {
-      await this.service.auditar(u, 'desligou_whatsapp_mister', String(dto.empresa), {
+    // Versão 6, M6c (mig 473): `encerrarSessoes` — o "Perdi o celular" de quem não consegue entrar no Regem. Só `true` vale.
+    const r = await this.segurancaDoVinculo.desligarPelaDms(dto?.empresa, dto?.colaborador, dto?.motivo, dto?.encerrarSessoes === true);
+    if (r.desligado || r.sessoesEncerradas) {
+      await this.service.auditar(u, r.sessoesEncerradas ? 'encerrou_sessoes_e_whatsapp_mister' : 'desligou_whatsapp_mister', String(dto.empresa), {
         colaborador: String(dto.colaborador),
         final: r.final,
+        sessoesEncerradas: r.sessoesEncerradas,
         motivo: String(dto.motivo).replace(/\s+/g, ' ').trim().slice(0, 300),
       });
     }

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { anotarEncerrada } from '../../auth/sessao-encerrada';
+import { anotarCorte } from '../../auth/sessao-corte';
 import { RealtimeGateway } from './realtime.gateway';
 
 // W1 (Bloco 7) — o kds:alerta broadcasta para TODO o tenant: precisa de RBAC (só gestor),
@@ -324,6 +325,37 @@ describe('RealtimeGateway — só a sessão geral abre o tempo real (B-01)', () 
     expect(derrubadas).toEqual([`sessao:${jti}`]);
     expect(emits).toEqual([{ room: `sessao:${jti}`, ev: 'erro', p: { motivo: 'sessão encerrada' } }]);
     g.onSessaoEncerrada({ jti: 'nao-e-uuid' }); // lixo: não derruba nada
+    expect(derrubadas).toHaveLength(1);
+  });
+
+  // Mister v6, M6c (mig 473, V97): o token emitido antes do "Perdi o celular" da pessoa não abre o tempo real.
+  it('"Perdi o celular": o token emitido antes do corte é recusado na entrada; o emitido depois entra e fica na sala da pessoa', async () => {
+    const cortada = '66666666-6666-4666-8666-666666666666';
+    const agoraSeg = Math.floor(Date.now() / 1000);
+    anotarCorte(cortada, Date.now());
+    const antes = await conectar({ ...base, sub: cortada, iat: agoraSeg - 120 });
+    expect([antes.salas, antes.derrubado()]).toEqual([[], true]);
+    expect(antes.erros).toEqual([['erro', { motivo: 'sessão encerrada' }]]);
+    const depois = await conectar({ ...base, sub: cortada, iat: agoraSeg + 2 });
+    expect(depois.derrubado()).toBe(false);
+    expect(depois.salas).toEqual(expect.arrayContaining(['tenant:t1', `pessoa:${cortada}`]));
+    // outra pessoa, com token antigo, segue entrando
+    const outra = await conectar({ ...base, iat: agoraSeg - 120 });
+    expect(outra.derrubado()).toBe(false);
+  });
+
+  it('o aviso "sessao.cortada" derruba os sockets da sala daquela pessoa (e só ela)', () => {
+    const g = new RealtimeGateway({} as any, {} as any);
+    const emits: any[] = [];
+    const derrubadas: string[] = [];
+    (g as any).server = {
+      to: (room: string) => ({ emit: (ev: string, p: any) => emits.push({ room, ev, p }) }),
+      in: (room: string) => ({ disconnectSockets: () => derrubadas.push(room) }),
+    };
+    g.onSessaoCortada({ colaboradorId: PESSOA });
+    expect(derrubadas).toEqual([`pessoa:${PESSOA}`]);
+    expect(emits).toEqual([{ room: `pessoa:${PESSOA}`, ev: 'erro', p: { motivo: 'sessão encerrada' } }]);
+    g.onSessaoCortada({ colaboradorId: 'nao-e-uuid' }); // lixo: não derruba nada
     expect(derrubadas).toHaveLength(1);
   });
 });

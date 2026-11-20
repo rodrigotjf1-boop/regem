@@ -17,6 +17,8 @@ import {
   AVISOS_DA_DISTRIBUICAO,
   AVISOS_DE_SEGURANCA,
   TELEFONE_LIGADO_ABERTO_H,
+  ACESSO_ENCERRADO_ABERTO_H,
+  situacaoDoAcessoEncerrado,
   botoesDoTelefoneLigado,
   ehAvisoDeSeguranca,
   situacaoDoTelefoneLigado,
@@ -117,7 +119,7 @@ const MODULO = 'mister';
  * (o resumo não fala do que mudou depois), o arquivo do ponto do mês (mandado à contabilidade, ou passou o dia 5) e os do
  * gasto do WhatsApp (G2: fecham na virada do mês — não há o que resolver).
  */
-const SEM_RESOLVIDO: string[] = ['boleto_vencendo', 'ponto_esquecido', 'ponto_do_mes', 'gasto_whatsapp', 'franquia_atendimento', 'telefone_ligado'];
+const SEM_RESOLVIDO: string[] = ['boleto_vencendo', 'ponto_esquecido', 'ponto_do_mes', 'gasto_whatsapp', 'franquia_atendimento', 'telefone_ligado', 'acesso_encerrado'];
 /** Pedido "esperando" para o aviso do servidor sem sinal: aceito ou por aceitar, das últimas 3 horas. */
 const PEDIDO_ESPERANDO_H = 3;
 
@@ -330,6 +332,10 @@ export class MisterAvisosService implements OnModuleInit {
     // 3c) Versão 6, M6a: os telefones ligados ao Mister nas últimas 24 horas (o aviso de SEGURANÇA aos presidentes, com
     //     "Não reconheço"). Um por ligação; fecha calado quando passa das 24 horas.
     for (const l of await this.telefonesLigados(soEmpresas)) fora.push(situacaoDoTelefoneLigado({ ...l, loja: l.loja ?? null }));
+    //     Versão 6, M6c: o "Perdi o celular" (as sessões encerradas) e o WhatsApp desligado pelo suporte da DMS, nas
+    //     últimas 24 horas — aos presidentes, sem botão; fecha calado.
+    for (const l of await this.acessosEncerrados(soEmpresas))
+      fora.push(situacaoDoAcessoEncerrado({ ...l, loja: l.loja ?? null, por: l.por ?? null, final: l.telefone ? String(l.telefone).slice(-4) : null }));
 
     // 4) O certificado digital da nota perto de vencer, só onde a emissão está LIGADA. A mesma régua do fiscal: a
     //    configuração da loja (senão a da empresa — `configRaw`) e o certificado da loja (senão o da empresa —
@@ -790,6 +796,52 @@ export class MisterAvisosService implements OnModuleInit {
   }
 
   /**
+   * Versão 6, M6c (mig 473): os acessos encerrados nas últimas 24 horas — os cortes das sessões ("Perdi o celular") e o
+   * WhatsApp desligado pelo suporte da DMS sem corte junto (o mesmo pedido do console, com e sem "encerrar as sessões",
+   * vira um aviso só). Trocável nos testes. Banco sem a tabela do corte = só os desligados pela DMS.
+   */
+  protected async acessosEncerrados(soEmpresas?: string[]): Promise<any[]> {
+    const so = (col: string) =>
+      soEmpresas?.length ? sql`and ${sql.raw(col)} in (${sql.join(soEmpresas.map((t) => sql`${t}::uuid`), sql`, `)})` : sql``;
+    const janela = sql`clock_timestamp() - make_interval(hours => ${ACESSO_ENCERRADO_ABERTO_H}::int)`;
+    const pessoa = (col: string) => sql`
+          join colaborador c on c.id = ${sql.raw(col)} and c.tenant_id = x.tenant_id
+          left join funcao f on f.id = c.funcao_id
+          left join perfil_acesso p on p.id = c.perfil_acesso_id
+          left join unidade u on u.id = c.unidade_id and u.tenant_id = c.tenant_id`;
+    let cortes: any[] = [];
+    try {
+      cortes = linhas(
+        await this.db.execute(sql`
+          select 'corte' as origem, x.tenant_id::text as "tenantId", x.id::text as "colaboradorId", c.nome,
+                 coalesce(p.nivel, f.categoria::text) as nivel, u.nome as loja, x.por, null::text as telefone,
+                 to_char(x.desde at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as em,
+                 to_char(x.desde at time zone ${FUSO_SQL}, 'HH24:MI') as hora
+            from sessao_corte x ${pessoa('x.id')}
+           where x.desde > ${janela} ${so('x.tenant_id')}
+           order by x.desde desc
+           limit 500`),
+      );
+    } catch (e: any) {
+      if (!semTabela(e)) throw e;
+    }
+    const comCorte = cortes.length ? sql`and not exists (select 1 from sessao_corte s where s.id = x.colaborador_id
+                         and s.desde between x.desligado_em - interval '5 minutes' and x.desligado_em + interval '5 minutes')` : sql``;
+    const dms = linhas(
+      await this.db.execute(sql`
+        select 'dms' as origem, x.tenant_id::text as "tenantId", x.colaborador_id::text as "colaboradorId", c.nome,
+               coalesce(p.nivel, f.categoria::text) as nivel, u.nome as loja, null::text as por, null::text as telefone,
+               to_char(x.desligado_em at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as em,
+               to_char(x.desligado_em at time zone ${FUSO_SQL}, 'HH24:MI') as hora
+          from mister_vinculo x ${pessoa('x.colaborador_id')}
+         where x.desligado_motivo = 'dms' and x.desligado_em > ${janela} ${comCorte} ${so('x.tenant_id')}
+         order by x.desligado_em desc
+         limit 500`),
+    );
+    return [...cortes, ...dms];
+  }
+
+  /**
    * Os incidentes ABERTOS do vigia (mig 414), com o nome da loja, os pedidos esperando (para o servidor sem sinal) e se o
    * aviso já está aberto. Banco sem a tabela do vigia = nenhum incidente.
    */
@@ -1116,7 +1168,8 @@ export class MisterAvisosService implements OnModuleInit {
         // O arquivo do ponto do mês (M3e parte 2): o presidente recebe "Enviar ao contador" e "Ver antes", e o PDF logo depois.
         const doPonto = a.tipo === 'ponto_do_mes' && l.nivel === 'presidente' ? botoesDoPontoDoMes(a.id, !!(a.dados as any)?.contadorId) : [];
         // Versão 6, M6a: o telefone ligado — o presidente recebe "Não reconheço" (desliga na hora).
-        const doLigado = ehAvisoDeSeguranca(a.tipo) && l.nivel === 'presidente' ? botoesDoTelefoneLigado(a.dados) : [];
+        // Só o telefone ligado tem botão; o acesso encerrado (M6c) vai sem botão.
+        const doLigado = ehAvisoDeSeguranca(a.tipo) && (a.tipo as string) === 'telefone_ligado' && l.nivel === 'presidente' ? botoesDoTelefoneLigado(a.dados) : [];
         const botoes = doBoleto.length ? doBoleto : doPonto.length ? doPonto : doLigado;
         await this.numero.enviar(
           l.telefone,
