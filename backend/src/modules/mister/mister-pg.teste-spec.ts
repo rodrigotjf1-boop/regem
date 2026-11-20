@@ -44,6 +44,7 @@ import { MisterVigiaService } from './mister-vigia.service';
 import { fimDaNoite } from './mister-vigia';
 import { FinanceiroService } from '../financeiro/financeiro.service';
 import { FRASES_DO_DOCUMENTO } from '../../common/documento-por-foto';
+import { botoesDoComoLancar } from '../../common/nota-por-foto';
 import { crc16Pix } from '../../common/boleto';
 import { custosMediosNaLoja } from '../../common/custo-loja';
 import { VendasService } from '../vendas/vendas.service';
@@ -7691,6 +7692,159 @@ export function testesDoMisterComPostgres(): void {
           expect((await docs())[2]).toMatchObject({ tipo: 'nota', situacao: 'recusado', motivo: 'itens_nao_somam' });
         } finally {
           delete process.env.MISTER_NOTAS;
+          for (const t of ['movimento_estoque', 'lote', 'recebimento_item', 'recebimento', 'mister_de_para', 'item_estoque_unidade', 'item_conversao', 'item_fornecedor', 'item_estoque'])
+            await q(`delete from ${t} where tenant_id = $1`, [A]).catch(() => undefined);
+        }
+      });
+
+      // ─────────── versão 6, M6h: o cupom fiscal de compra ("Como deseja lançar?") ───────────
+
+      it('o cupom fiscal (M6h): "Como deseja lançar?" — só despesa (já paga, sem estoque, com o desfazer), estoque e despesa (os itens pelo caminho da nota, a categoria pela memória) e não lançar; desligado, segue como nota', async () => {
+        const CNPJ_DO_CUPOM = '11222333000181';
+        const NFCE = montarChave({ codigoUf: 33, ano2: '26', mes2: '11', cnpj: CNPJ_DO_CUPOM, modelo: '65', serie: 1, numero: 98765, tpEmis: 1, cNF: '87654321' });
+        const doCupom = (o: Record<string, unknown> = {}) =>
+          falar(
+            JSON.stringify({
+              especie: 'cupom',
+              chave: NFCE,
+              emitenteNome: 'Atacadão Centro',
+              emitenteCnpj: CNPJ_DO_CUPOM,
+              numero: '98765',
+              dataEmissao: '2026-11-19',
+              valorTotal: '95,00',
+              desconto: '5,00',
+              formaPagamento: 'debito',
+              itens: [
+                { descricao: 'OLEO SOJA 900ML', quantidade: '10', unidade: 'UN', valorUnitario: '7,00', valorTotal: '70,00' },
+                { descricao: 'SAL REFINADO 1KG', quantidade: '10', unidade: 'UN', valorUnitario: '3,00', valorTotal: '30,00' },
+              ],
+              legivel: true,
+              ...o,
+            }),
+          );
+        const ultimo = async () => (await docs()).slice(-1)[0];
+        const textos = () => numero.enviadas.map((m) => m.texto);
+        const [{ id: oleo }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, 'Óleo de soja 900 ml', 'unidade') returning id`, [A]);
+        process.env.MISTER_NOTAS = '1';
+        process.env.MISTER_CUPOM = '1';
+        try {
+          // ── 1) Só despesa ──
+          ia.roteiro = [leitura({ tipo: 'nota' }), doCupom()];
+          numero.pedidos.length = 0;
+          expect(await foto(telAna, novaMidia())).toBe('documento');
+          const c1 = await ultimo();
+          expect(c1).toMatchObject({ tipo: 'nota', situacao: 'falta', motivo: 'como_lancar', beneficiario: 'Atacadão Centro', valor_centavos: '9500' });
+          expect(ia.pedidos.at(-2)!.system).toContain('cupom fiscal de uma compra');
+          const pergunta = numero.enviadas.at(-1)!;
+          expect(pergunta.texto).toContain('🧾 Cupom · Atacadão Centro · 19/11 · R$ 95,00, pago no débito');
+          expect(pergunta.texto).toContain('Como deseja lançar?');
+          expect(pergunta.botoes).toEqual(botoesDoComoLancar(c1.id));
+          // o gerente não escolhe; o item antes do "como lançar" também não
+          numero.pedidos.length = 0;
+          expect(await tocar(telCarlos, `doc:cl:${c1.id}:d`)).toBe('respondeu_proposta');
+          expect(textos()).toEqual(['Lançar cupom por foto, por enquanto, é só com o presidente.']);
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:ni:${c1.id}:0:n`)).toBe('respondeu_proposta');
+          expect(textos()).toEqual(['Responda antes como deseja lançar este cupom.']);
+          // "Só despesa": o resumo com "Lançar", sem perguntar os itens; o toque repetido não muda nada
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:cl:${c1.id}:d`)).toBe('respondeu_proposta');
+          expect(numero.enviadas.at(-1)!.texto).toContain('Lanço a despesa de R$ 95,00 como já paga no débito em 19/11? O estoque não muda.');
+          expect(numero.enviadas.at(-1)!.botoes).toEqual([
+            { id: `doc:lancar:${c1.id}`, titulo: 'Lançar' },
+            { id: `doc:outra:${c1.id}`, titulo: 'Cancelar' },
+          ]);
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:cl:${c1.id}:e`)).toBe('respondeu_proposta');
+          expect(textos()).toEqual(['Este cupom já foi respondido.']);
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:lancar:${c1.id}`)).toBe('respondeu_proposta');
+          expect(numero.enviadas.at(-1)).toEqual({
+            para: telAna,
+            texto: 'Lancei a despesa de R$ 95,00 já paga, em Financeiro › Contas a pagar. O estoque não mudou.',
+            botoes: [{ id: `doc:desfazer:${c1.id}`, titulo: 'Desfazer' }],
+          });
+          const [conta1] = await q(`select id, valor::float as v, vencimento::text as venc, status, categoria, descricao, origem from titulo_financeiro where tenant_id = $1 and descricao = 'Cupom 98765 · Atacadão Centro'`, [A]);
+          expect(conta1).toMatchObject({ v: 95, venc: '2026-11-19', status: 'pago', categoria: 'compras', origem: 'mister' });
+          expect(await q(`select forma, data::text as data, tipo from lancamento_caixa where titulo_id = $1`, [conta1.id])).toEqual([{ forma: 'cartao', data: '2026-11-19', tipo: 'saida' }]);
+          expect(await q(`select count(*)::int as n from recebimento where tenant_id = $1`, [A])).toEqual([{ n: 0 }]);
+          expect((await documentos.listar(A, '30')).documentos.find((x: any) => x.id === c1.id)).toMatchObject({
+            tipo: 'nota',
+            podeDesfazer: true,
+            nota: { especie: 'cupom', comoLancar: 'despesa' },
+          });
+          // a pessoa muda a categoria na tela: é a memória do emitente para o próximo cupom
+          await q(`update titulo_financeiro set categoria = 'mercado' where id = $1`, [conta1.id]);
+
+          // ── 2) Estoque e despesa ──
+          ia.roteiro = [leitura({ tipo: 'nota' }), doCupom({ numero: '98800', chave: null })];
+          numero.pedidos.length = 0;
+          expect(await foto(telAna, novaMidia())).toBe('documento');
+          const c2 = await ultimo();
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:cl:${c2.id}:e`)).toBe('respondeu_proposta');
+          expect(numero.enviadas.at(-1)!.texto).toContain('O "OLEO SOJA 900ML" (10 UN) é o "Óleo de soja 900 ml"');
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:ni:${c2.id}:0:0`)).toBe('respondeu_proposta');
+          expect(numero.enviadas.at(-1)!.texto).toContain('Não achei o "SAL REFINADO 1KG"');
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:ni:${c2.id}:1:f`)).toBe('respondeu_proposta');
+          expect(numero.enviadas.at(-1)!.texto).toContain('• OLEO SOJA 900ML, 10 UN → Óleo de soja 900 ml');
+          expect(numero.enviadas.at(-1)!.texto).toContain('Lanço a entrada no estoque e a despesa de R$ 95,00 como já paga no débito?');
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:lancar:${c2.id}`)).toBe('respondeu_proposta');
+          expect(numero.enviadas.at(-1)).toEqual({
+            para: telAna,
+            texto: 'Lancei em Estoque › Recebimento (1 item) e a despesa de R$ 95,00 já paga, em Financeiro › Contas a pagar.',
+            botoes: [],
+          });
+          const [rec] = await q(`select id, status, nota_ref, fornecedor_id, unidade_id, data::text as data from recebimento where tenant_id = $1`, [A]);
+          expect(rec).toMatchObject({ status: 'conferido', nota_ref: '98800', fornecedor_id: null, unidade_id: lojaDeA, data: '2026-11-19' });
+          expect(await q(`select item_id, quantidade::float as q, custo_unitario::float as c from movimento_estoque where tenant_id = $1 and ref_tipo = 'recebimento_item'`, [A])).toEqual([
+            { item_id: oleo, q: 10, c: 7 },
+          ]);
+          // uma conta só (a do cupom, já paga, com a categoria da memória): o recebimento não cria a conta pela soma
+          expect(await q(`select descricao, status, categoria from titulo_financeiro where tenant_id = $1 and descricao like '%98800%'`, [A])).toEqual([
+            { descricao: 'Cupom 98800 · Atacadão Centro', status: 'pago', categoria: 'mercado' },
+          ]);
+          // a entrada no estoque não se desfaz pela conversa (V6-8)
+          expect((await documentos.listar(A, '30')).documentos.find((x: any) => x.id === c2.id)).toMatchObject({ podeDesfazer: false });
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:desfazer:${c2.id}`)).toBe('respondeu_proposta');
+          expect(textos()).toEqual(['A nota entrou pelo Estoque › Recebimento: o que mudar nela é por lá.']);
+
+          // ── o desfazer do "Só despesa": o pagamento estornado e a conta cancelada ──
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:desfazer:${c1.id}`)).toBe('respondeu_proposta');
+          expect(textos()).toEqual(['Desfeito: a despesa do cupom saiu das contas.']);
+          expect(await q(`select status from titulo_financeiro where id = $1`, [conta1.id])).toEqual([{ status: 'cancelado' }]);
+          expect((await docs()).find((x: any) => x.id === c1.id)).toMatchObject({ situacao: 'desfeito' });
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:desfazer:${c1.id}`)).toBe('respondeu_proposta');
+          expect(textos()).toEqual([FRASES_DO_DOCUMENTO.jaRespondido]);
+
+          // ── 3) Não lançar ──
+          ia.roteiro = [leitura({ tipo: 'nota' }), doCupom({ numero: '98900', chave: null })];
+          expect(await foto(telAna, novaMidia())).toBe('documento');
+          const c3 = await ultimo();
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:cl:${c3.id}:n`)).toBe('respondeu_proposta');
+          expect(textos()).toEqual(['Certo: não lancei o cupom. Ele fica em Mister › Documentos, como recusado.']);
+          expect(await ultimo()).toMatchObject({ situacao: 'recusado', motivo: 'nao_lancar' });
+
+          // ── desligado (sem MISTER_CUPOM): o cupom segue pelo caminho da nota, como antes ──
+          delete process.env.MISTER_CUPOM;
+          ia.roteiro = [leitura({ tipo: 'nota' }), doCupom({ numero: '99000', chave: null })];
+          expect(await foto(telAna, novaMidia())).toBe('documento');
+          expect(ia.pedidos.at(-2)!.system).not.toContain('cupom fiscal de uma compra');
+          // (os itens já vêm resolvidos pela memória do emitente, gravada no cupom 2: o resumo da NOTA, como antes)
+          expect(await ultimo()).toMatchObject({ tipo: 'nota', situacao: 'confirmar', motivo: 'itens_ligados' });
+          expect(numero.enviadas.at(-1)!.texto).toContain('🧾 Nota 99000 · Atacadão Centro');
+        } finally {
+          delete process.env.MISTER_NOTAS;
+          delete process.env.MISTER_CUPOM;
+          await q(`delete from lancamento_caixa where tenant_id = $1 and titulo_id in (select id from titulo_financeiro where tenant_id = $1 and descricao like 'Cupom %')`, [A]).catch(() => undefined);
+          await q(`delete from titulo_financeiro where tenant_id = $1 and descricao like 'Cupom %'`, [A]).catch(() => undefined);
           for (const t of ['movimento_estoque', 'lote', 'recebimento_item', 'recebimento', 'mister_de_para', 'item_estoque_unidade', 'item_conversao', 'item_fornecedor', 'item_estoque'])
             await q(`delete from ${t} where tenant_id = $1`, [A]).catch(() => undefined);
         }

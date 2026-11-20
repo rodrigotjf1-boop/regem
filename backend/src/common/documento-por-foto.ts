@@ -24,6 +24,11 @@ import { ehServidorLocal } from './modo';
 export const documentosNaInstalacao = (): boolean => !ehServidorLocal() && process.env.MISTER_DOCUMENTOS === '1';
 /** A nota do fornecedor por foto (M3b): a variável própria `MISTER_NOTAS=1`, além dos documentos. */
 export const notasNaInstalacao = (): boolean => documentosNaInstalacao() && process.env.MISTER_NOTAS === '1';
+/**
+ * Versão 6, M6h: o cupom fiscal de compra (NFC-e) com o "Como deseja lançar?". NASCE DESLIGADO: só com `MISTER_CUPOM=1`
+ * (além das notas); desligado, o cupom segue pelo caminho da nota, como antes.
+ */
+export const cupomNaInstalacao = (): boolean => notasNaInstalacao() && process.env.MISTER_CUPOM === '1';
 
 export const RECURSO_DO_DOCUMENTO = 'mister_documento';
 /** O modelo mais forte lê o documento (decisão do protótipo: a leitura pede precisão; o custo é de centavo por foto). */
@@ -52,7 +57,8 @@ export interface LeituraDaFoto {
   pix: string | null;
 }
 
-export function instrucoesDoDocumento(): string {
+/** `comCupom` (M6h, `cupomNaInstalacao()`): o cupom fiscal de compra conta como "nota" — desligado, a frase é a de antes. */
+export function instrucoesDoDocumento(comCupom = false): string {
   return [
     'Você lê a foto de um documento que o dono de um restaurante mandou para o assistente de gestão dele.',
     'Responda SÓ com um JSON, sem texto antes ou depois, neste formato:',
@@ -60,7 +66,7 @@ export function instrucoesDoDocumento(): string {
     ' "cnpj": string|null, "valor": string|null, "vencimento": "AAAA-MM-DD"|null, "legivel": true|false, "pixCopiaECola": string|null}',
     'Regras:',
     '- pixCopiaECola: SÓ se o documento traz impresso, em texto, o código "Pix copia e cola" (começa com 000201): transcreva-o inteiro, exatamente como está. Não tente ler o QR code. Sem o texto impresso, ou sem ler tudo com certeza, null.',
-    '- "boleto": boleto bancário de cobrança (linha digitável de 47 dígitos). "conta": conta de consumo ou tributo (luz, gás, água, telefone, prefeitura; linha de 48 dígitos começando com 8). "nota": nota fiscal ou DANFE de fornecedor. "outro": qualquer outra coisa.',
+    `- "boleto": boleto bancário de cobrança (linha digitável de 47 dígitos). "conta": conta de consumo ou tributo (luz, gás, água, telefone, prefeitura; linha de 48 dígitos começando com 8). "nota": nota fiscal ou DANFE de fornecedor${comCupom ? ', ou o cupom fiscal de uma compra (DANFE NFC-e, o do supermercado)' : ''}. "outro": qualquer outra coisa.`,
     '- linhaDigitavel: transcreva os DÍGITOS da linha digitável impressa (a sequência numérica longa perto do código de barras), só os números, na ordem. Se não conseguir ler TODOS os dígitos com certeza, use null. Nunca complete nem invente dígito.',
     '- beneficiario: o nome de quem recebe (o cedente/beneficiário ou a empresa da conta). cnpj: o CNPJ dele, só números.',
     '- valor: o valor do documento como está impresso (ex.: "1.284,90"). vencimento: a data de vencimento impressa, em AAAA-MM-DD.',

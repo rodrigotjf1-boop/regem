@@ -41,8 +41,12 @@ type Documento = {
     noEstoque: number;
     itens: { descricao: string; quanto: string; destino: string; estado: 'ligado' | 'fora' | 'item' | 'fator' }[];
     recebimentoId: string | null;
+    /** Versão 6, M6h (ausente num servidor antigo = nota): o cupom fiscal de compra e a resposta ao "Como deseja lançar?". */
+    especie?: 'nota' | 'cupom';
+    comoLancar?: 'despesa' | 'estoque' | null;
   } | null;
 };
+const ehCupom = (d: Documento) => d.tipo === 'nota' && d.nota?.especie === 'cupom';
 type Resposta = { dias: number; limite: number; documentos: Documento[] };
 
 const PERIODOS = [
@@ -76,6 +80,9 @@ const MOTIVO: Record<string, string> = {
   duplicatas_nao_somam: 'as parcelas lidas não somam o total da nota',
   chave_de_outro_emitente: 'a chave de acesso não é do emitente da nota',
   sem_itens: 'não deu para ler os itens',
+  // O cupom fiscal de compra (versão 6, M6h).
+  como_lancar: 'esperando a resposta de "Como deseja lançar?" na conversa',
+  nao_lancar: 'você respondeu "Não lançar"',
   sem_total: 'não deu para ler o total da nota',
   cancelado: 'você cancelou na conversa',
   item: 'esperando você dizer a que insumo vai um item',
@@ -97,7 +104,7 @@ const quando = (iso: string) => {
 const numeroDaNota = (n: string | null | undefined) => (n && /^\d+$/.test(n) ? Number(n).toLocaleString('pt-BR') : (n ?? ''));
 const nomeDoDocumento = (d: Documento) =>
   d.tipo === 'nota'
-    ? `Nota${d.nota?.numero ? ` ${numeroDaNota(d.nota.numero)}` : ''} · ${d.beneficiario ?? 'sem nome lido'}`
+    ? `${ehCupom(d) ? 'Cupom' : 'Nota'}${d.nota?.numero ? ` ${numeroDaNota(d.nota.numero)}` : ''} · ${d.beneficiario ?? 'sem nome lido'}`
     : `${d.tipo === 'conta' ? 'Conta' : d.tipo === 'outro' ? 'Imagem' : 'Boleto'} · ${d.beneficiario ?? 'sem nome lido'}`;
 const plural = (n: number, um: string, varios: string) => `${n} ${n === 1 ? um : varios}`;
 const comoFoiLido = (d: Documento) => {
@@ -108,6 +115,10 @@ const comoFoiLido = (d: Documento) => {
   if (d.situacao === 'recusado' || d.situacao === 'falta') return d.motivo ? (MOTIVO[d.motivo.split(/[,:]/)[0]] ?? 'não deu para ler tudo') : 'não deu para ler tudo';
   if (d.tipo === 'nota') {
     if (d.situacao === 'confirmar') return 'esperando o "Lançar" na conversa';
+    // M6h: o cupom — a despesa já paga, com ou sem a entrada no estoque.
+    if (ehCupom(d) && d.nota) {
+      return d.nota.comoLancar === 'estoque' ? `${plural(d.nota.noEstoque, 'item', 'itens')} no estoque e a despesa já paga` : 'a despesa já paga, sem mexer no estoque';
+    }
     // "3 itens no estoque e a conta a pagar" (o protótipo); com parcelas, "e 2 contas a pagar".
     return d.nota
       ? `${plural(d.nota.noEstoque, 'item', 'itens')} no estoque e ${d.nota.parcelas > 1 ? `${d.nota.parcelas} contas` : 'a conta'} a pagar`
@@ -236,8 +247,9 @@ export function DocumentosDoMister() {
             />
           )}
           <p className="text-sm text-muted-foreground">
-            O boleto vai para as contas a pagar; a nota do fornecedor vai para Estoque › Recebimento e para as contas a pagar. Desfazer um lançamento por
-            aqui vale até o boleto ser pago.
+            O boleto vai para as contas a pagar; a nota do fornecedor vai para Estoque › Recebimento e para as contas a pagar; o cupom fiscal de uma compra entra como
+            despesa já paga (e no estoque, se você pedir). Desfazer um lançamento por aqui vale até o boleto ser pago; no cupom lançado só como despesa, a qualquer
+            momento.
           </p>
         </>
       )}
@@ -376,9 +388,13 @@ function GavetaDoDocumento({ d, aoFechar, aoDesfazer }: { d: Documento; aoFechar
               ? 'lançamento desfeito'
               : d.situacao === 'recusado'
                 ? 'fechado sem lançar'
-                : d.tipo === 'nota'
-                  ? 'lançada em Estoque › Recebimento e nas contas a pagar'
-                  : 'lançado nas contas a pagar'}
+                : ehCupom(d)
+                  ? d.nota?.comoLancar === 'estoque'
+                    ? 'lançado em Estoque › Recebimento e nas contas a pagar, já pago'
+                    : 'lançado nas contas a pagar, já pago'
+                  : d.tipo === 'nota'
+                    ? 'lançada em Estoque › Recebimento e nas contas a pagar'
+                    : 'lançado nas contas a pagar'}
           </li>
         )}
       </ol>
@@ -424,8 +440,18 @@ function DialogoDesfazer({ d, aoFechar, aoDesfazer }: { d: Documento; aoFechar: 
     >
       <div className="space-y-3 text-sm">
         <p className="rounded-md border-l-4 border-destructive bg-destructive/10 px-3 py-2">
-          A conta a pagar de {d.valorCentavos != null ? reais(d.valorCentavos) : 'valor não lido'} ({d.beneficiario ?? 'sem nome'}) é cancelada e sai das contas a
-          pagar. Só dá enquanto ela não foi paga.
+          {ehCupom(d) ? (
+            // M6h: o cupom do "Só despesa" — `desfazerCupom` estorna o pagamento e cancela a conta.
+            <>
+              A despesa de {d.valorCentavos != null ? reais(d.valorCentavos) : 'valor não lido'} ({d.beneficiario ?? 'sem nome'}) tem o pagamento estornado e sai das
+              contas a pagar. O estoque não muda.
+            </>
+          ) : (
+            <>
+              A conta a pagar de {d.valorCentavos != null ? reais(d.valorCentavos) : 'valor não lido'} ({d.beneficiario ?? 'sem nome'}) é cancelada e sai das contas a
+              pagar. Só dá enquanto ela não foi paga.
+            </>
+          )}
         </p>
         {erro && (
           <p role="alert" className="font-medium">

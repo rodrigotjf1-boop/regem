@@ -1803,6 +1803,26 @@ regressão de novo quando as instruções mudam; a Meta pela doc oficial (V20); 
 - Limite conhecido: o relógio é o de quem emitiu o token — num servidor da loja com o relógio adiantado, um token anterior
   ao corte pode passar; o bloqueio da pessoa continua valendo para os dois lados.
 
+**M6h implementada (20/11/2026; SEM migration; nasce desligado — `MISTER_CUPOM=1`, além de `MISTER_NOTAS=1`):**
+- **Divergência do plano (para menos passos do dono):** o plano previa a 473 (o tipo `cupom` na trava de
+  `mister_documento`, com `drop constraint`, aplicada pelo SQL Editor). O cupom entra como `tipo = 'nota'` com
+  `dados.nota.especie = 'cupom'` — nenhuma migration e nada à mão.
+- **A leitura** (`common/nota-por-foto.ts`): as instruções da nota leem também o DANFE NFC-e (a espécie, o dia da emissão,
+  a forma de pagamento e o desconto); a chave do modelo 65 entra pela leitura da nota (`lerChaveDaNfe(…, ['55','65'])`) e
+  decide a espécie; a conferência desconta o desconto do total. A primeira leitura da foto só cita o cupom com a chave
+  ligada (`instrucoesDoDocumento(cupomNaInstalacao())`).
+- **"Como deseja lançar?"** (botões `doc:cl:<id>:d|e|n`, só o presidente, o toque repetido não muda nada): "Só despesa" →
+  o resumo e "Lançar" — a conta entra JÁ PAGA (`financeiro.pagar` com a forma do cupom e o dia dele), sem estoque, com o
+  "Desfazer" (estorno e cancelamento) na conversa e na tela; "Estoque e despesa" → os itens pelo caminho da nota (a
+  memória pelo CNPJ do emitente), a entrada sem a conta pela soma (`semConta`) e a conta paga — a entrada não se desfaz
+  pela conversa (V6-8); "Não lançar" → recusado. A categoria da despesa pela memória do emitente (a da última conta do mesmo
+  CNPJ); sem memória, "compras" ou "fornecedor". A baixa que falhar depois da conta criada não volta a "confirmar" (o
+  "Lançar" de novo criaria outra conta).
+- **ERR-544** (achado no teste): a unidade impressa ("UN", "PCT") passa pelos apelidos do estoque antes da conversão — a
+  nota do fornecedor perguntava "1 UN tem quantos unidade?".
+- **Tela de Documentos:** "Cupom" no nome, o que foi feito ("a despesa já paga…"), os motivos novos e o texto do desfazer
+  do cupom.
+
 #### 8. Custos
 
 | Parte | Como começa | Se ligar ou usar |
