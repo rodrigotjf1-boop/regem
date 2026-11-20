@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister versão 6, M6k lote 3 — o guia "como faço" em mais 8 telas, com imagem (20/11; SEM migration).** O guia e as
+  imagens são da nuvem: vai no `.zip` sem efeito na loja.
+
 - **Mister versão 6, M6k lote 2 — o guia "como faço" em mais 8 telas, com imagem (20/11; SEM migration).** O guia e as
   imagens são da nuvem: vai no `.zip` sem efeito na loja.
 
