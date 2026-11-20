@@ -39,15 +39,29 @@ export interface ConversaDoMister {
   /** M4d (mig 452): o "fica de olho" e os lembretes pela conversa — nasce desligado. */
   ficaDeOlho: boolean;
   /**
-   * Versão 5, M5e (mig 461): "Como mandar o resumo" — o texto vai sempre; os botões "📄 PDF" e "📊 Ver gráficos" (o
+   * Versão 5, M5e (mig 462): "Como mandar o resumo" — o texto vai sempre; os botões "📄 PDF" e "📊 Ver gráficos" (o
    * padrão do protótipo), o PDF junto, o link junto, ou só o texto. Só vale com a versão 5 ligada (`MISTER_MIDIA`).
    */
   resumoEntrega: FormaDeEntregaDoResumo;
+  /**
+   * Versão 5, M5c (mig 462): "Responder em áudio" — quando a pessoa manda áudio, a resposta vai em texto e também numa nota
+   * de voz (a voz do Google, pelo DMS Graph). Nasce desligado; só vale com a versão 5 ligada (`MISTER_MIDIA`).
+   */
+  responderAudio: boolean;
 }
-/** As formas de mandar o resumo (a mesma lista da restrição da mig 461). */
+/** As formas de mandar o resumo (a mesma lista da restrição da mig 462). */
 export const FORMAS_DE_ENTREGA_DO_RESUMO = ['botoes', 'pdf', 'link', 'texto'] as const;
 export type FormaDeEntregaDoResumo = (typeof FORMAS_DE_ENTREGA_DO_RESUMO)[number];
-export const CONVERSA_PADRAO: ConversaDoMister = { documentosLigado: true, documentosModo: 'sozinho', perfil: 'hoje', jeito: null, avisosEscritos: [], ficaDeOlho: false, resumoEntrega: 'botoes' };
+export const CONVERSA_PADRAO: ConversaDoMister = {
+  documentosLigado: true,
+  documentosModo: 'sozinho',
+  perfil: 'hoje',
+  jeito: null,
+  avisosEscritos: [],
+  ficaDeOlho: false,
+  resumoEntrega: 'botoes',
+  responderAudio: false,
+};
 
 /** O jeito como vai ao banco e às instruções: uma linha, espaços apertados; vazio vira null. */
 export const jeitoLimpo = (v: unknown): string | null => {
@@ -91,6 +105,11 @@ export function conferirConversa(dto: unknown): Partial<ConversaDoMister> | { er
     if (!(FORMAS_DE_ENTREGA_DO_RESUMO as readonly unknown[]).includes(d.resumoEntrega)) return { erro: 'Escolha como mandar o resumo.' };
     fora.resumoEntrega = d.resumoEntrega;
   }
+  if (d.responderAudio !== undefined) {
+    // V15: liga/desliga só com booleano de verdade.
+    if (typeof d.responderAudio !== 'boolean') return { erro: 'Responder em áudio: diga se fica ligado ou desligado.' };
+    fora.responderAudio = d.responderAudio;
+  }
   if (!Object.keys(fora).length) return { erro: 'Nada para salvar.' };
   return fora;
 }
@@ -106,6 +125,7 @@ const COLUNA: Record<keyof ConversaDoMister, { coluna: string; valor: (v: any) =
   avisosEscritos: { coluna: 'avisos_escritos', valor: (v) => sql`${sql.param(v)}::text[]` },
   ficaDeOlho: { coluna: 'fica_de_olho', valor: (v) => sql`${v}` },
   resumoEntrega: { coluna: 'resumo_entrega', valor: (v) => sql`${v}` },
+  responderAudio: { coluna: 'responder_audio', valor: (v) => sql`${v}` },
 };
 
 /**
@@ -113,7 +133,7 @@ const COLUNA: Record<keyof ConversaDoMister, { coluna: string; valor: (v: any) =
  * lê as da anterior. Nunca devolver o padrão de um campo que está salvo (o "perguntar" dos documentos, o perfil).
  */
 const LEITURAS = [
-  sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega"`,
+  sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio"`,
   sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho"`,
   sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos"`,
   sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo"`,
@@ -150,6 +170,7 @@ export class MisterConversaConfigService {
         avisosEscritos: GRUPOS_DE_AVISO_ESCRITO.filter((g) => avisos.includes(g)),
         ficaDeOlho: l.ficaDeOlho === true,
         resumoEntrega: (FORMAS_DE_ENTREGA_DO_RESUMO as readonly unknown[]).includes(l.resumoEntrega) ? l.resumoEntrega : CONVERSA_PADRAO.resumoEntrega,
+        responderAudio: l.responderAudio === true,
       };
     } catch (e: any) {
       // Sem a 440 (a migration ainda não entrou, ou o servidor da loja): o padrão, que não muda nada.

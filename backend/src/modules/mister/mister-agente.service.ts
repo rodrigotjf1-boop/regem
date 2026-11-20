@@ -18,7 +18,8 @@ import { GraficoDaConversa, imagemDoGrafico } from './grafico/grafico-do-insumo'
 import { imagemDoPlano } from './grafico/imagem-do-plano';
 import type { PlanoDoGrafico } from './grafico/plano-do-grafico';
 import { linhaDoLinkNaConversa } from './mister-link-publico';
-import { linhaDaMidia } from './mister-midia.regras';
+import { linhaDaMidia, veioDeAudio } from './mister-midia.regras';
+import { MisterMidiaService } from './mister-midia.service';
 
 /** M3c.2: o balão da resposta leva o botão "PDF" só quando cabe no corpo de uma mensagem com botões (1024 na Meta). */
 const CABE_COM_BOTAO = 1000;
@@ -66,6 +67,8 @@ export class MisterAgenteService implements OnModuleInit {
     @Optional() private readonly conversaConfig?: MisterConversaConfigService,
     // Versão 4, M4b (mig 449): a memória da empresa e da pessoa. Sem o serviço (ou sem a migration), sem memória.
     @Optional() private readonly memoria?: MisterMemoriaService,
+    // Versão 5, M5c: a resposta em áudio (a nota de voz pelo DMS Graph). Sem o serviço, só o texto, como antes.
+    @Optional() private readonly midia?: MisterMidiaService,
   ) {}
 
   /** O perfil e o jeito da empresa para o bloco da conversa. A leitura que falha não segura a resposta: vai sem eles. */
@@ -223,6 +226,10 @@ export class MisterAgenteService implements OnModuleInit {
       const enviada = await this.dizer(ultima.telefone, texto, comBotao);
       if (!enviada) return await fechar('envio', trilha);
       for (const a of pdfs) await enviarPdfDoInsumo(this.ferramentas, this.numero, escopo, a.pedido, ultima.telefone, this.logger);
+      // Versão 5, M5c: a pergunta que veio por áudio, com "Responder em áudio" ligado na empresa: o principal da resposta
+      // vira a nota de voz e vai DEPOIS do texto (decisão 2 — o texto vai sempre). O que não deu fica no log.
+      if (veioDeAudio(pergunta) && this.midia && (await this.conversaConfig?.daEmpresa(escopo.tenantId).catch(() => null))?.responderAudio)
+        await this.midia.responderEmAudio(escopo.tenantId, ultima.telefone, resposta);
       // F4.3: a proposta que a pergunta criou sai logo depois da resposta, com os botões da F4.1 (só o presidente chega
       // aqui com proposta: a ferramenta recusa os outros). Falhou o envio: a proposta vence sozinha no prazo.
       for (const p of fim.propostas) {

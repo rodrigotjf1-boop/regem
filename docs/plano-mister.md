@@ -1421,6 +1421,28 @@ o resumo em arquivo e no link.**
   - a página do link segue o tema claro do app, não o do aparelho;
   - o texto acima de 1.000 letras manda os botões numa mensagem curta logo depois.
 
+**M5c implementada (19/11/2026; a coluna `responder_audio` vai na mesma mig 462; Graph #7, contrato 1.2.0): a resposta
+em áudio.**
+- **No DMS Graph:** a ferramenta nova `falar`. O texto vira a nota de voz OGG/Opus pelo Cloud Text-to-Speech do Google,
+  na voz `pt-BR-Neural2-B`.
+  - A franquia é a mesma (cada fala conta uma), e a idempotência e o caminho são os da `ouvir_audio`.
+  - A voz desligada no Google responde `integracao-parada`.
+  - **Para funcionar, o dono liga a API "Cloud Text-to-Speech"** no projeto da chave do Gemini (ou põe uma chave própria
+    em `GRAPH_VOZ_CHAVE`) e clica "Implantar" no Graph.
+- **No Regem:**
+  - O ajuste "Responder em áudio" fica em Avisos e relatórios › Conversa e nasce desligado.
+  - Quando a pergunta veio por áudio e o ajuste está ligado, o agente manda o texto (como sempre) e DEPOIS a nota de voz.
+    Ela leva o principal da resposta, uns 40 s: sem o "🎧 Entendi", sem link, sem emoji e sem marcadores, cortado no fim
+    de uma frase.
+  - A pergunta escrita recebe só o texto.
+  - A voz que não deu (desligada, franquia, demora) não muda nada para a pessoa: ela já leu o texto, e o motivo vai ao
+    log.
+  - A chave da fala é a empresa mais o texto: a mesma resposta repetida não gasta a franquia de novo.
+  - Pela API oficial, a nota sai com `voice: true` (até 512 KB). Pelo Evolution, sai pelo `sendWhatsAppAudio`.
+- **Nasce desligado em duas chaves:** a da instalação (`MISTER_MIDIA`) e a da empresa ("Responder em áudio").
+- **Diferença do protótipo:** só o "Responder em áudio" virou ajuste. O "Ouvir áudios" e o "Ler fotos" seguem pela chave
+  da instalação (`MISTER_MIDIA`), como na M5a e na M5b.
+
 **Fica para depois (pedido do dono em 19/11):** quando a base de eventos do plano do perfil do cliente estiver pronta, o
 Mister usa o clima e os eventos para avisar de chuva e programar entregadores e funcionários em feriados e eventos
 grandes. A fonte do clima precisa de licença comercial.

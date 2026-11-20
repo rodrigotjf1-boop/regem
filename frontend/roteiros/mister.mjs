@@ -1054,7 +1054,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t0 = await page.locator('main').innerText();
-    ok(/19 ajustes em 8 grupos/.test(t0), "avisos: os nove avisos em quatro grupos, o do boleto (M3a), os dois do ponto (M3e), os dois do gasto do WhatsApp (G2), os três relatórios e o 'Como mandar o resumo' (M5e) e a conversa (M3a)");
+    ok(/20 ajustes em 8 grupos/.test(t0), "avisos: os nove avisos em quatro grupos, o do boleto (M3a), os dois do ponto (M3e), os dois do gasto do WhatsApp (G2), os três relatórios e o 'Como mandar o resumo' (M5e) e a conversa (M3a e o 'Responder em áudio', M5c)");
     ok(/Fichas novas de candidatos[\s\S]*Vai para: o presidente e quem tem a permissão Candidatos, cada um só das lojas que vê\./.test(t0), 'relatórios: o das fichas novas diz para quem vai (F4c)');
     ok(t0.includes('O de fichas novas só conta: não usa a IA.'), 'relatórios: a nota diz que o das fichas novas não usa a IA');
     ok(['Na loja', 'Servidor da loja', 'Fiscal', 'O próprio Mister'].every((g) => t0.includes(g)), 'avisos: os quatro grupos do protótipo');
@@ -1214,7 +1214,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t = await page.locator('main').innerText();
-    ok(/19 ajustes em 8 grupos/.test(t), "conversa: o grupo Conversa entra com um ajuste, Documentos e dinheiro com o do boleto e os dois do gasto (G2), Pessoas e ponto com os dois do ponto, e Relatórios com o 'Como mandar o resumo' (M5e)");
+    ok(/20 ajustes em 8 grupos/.test(t), "conversa: o grupo Conversa entra com dois ajustes (o do boleto e o 'Responder em áudio', M5c), Documentos e dinheiro com o do boleto e os dois do gasto (G2), Pessoas e ponto com os dois do ponto, e Relatórios com o 'Como mandar o resumo' (M5e)");
     ok(/Documentos e dinheiro[\s\S]*Boleto perto de vencer[\s\S]*Já paguei/.test(t), 'boleto: o aviso novo no grupo "Documentos e dinheiro", com o "Já paguei"');
     ok(/Lançar boletos por foto/.test(t) && /só o presidente manda/.test(t) && /a leitura da nota do fornecedor vem numa próxima entrega/.test(t), 'conversa: o ajuste diz o que faz, quem manda e que a nota vem depois');
     const sel = page.locator('select:has(option:text-is("boleto: pergunta antes"))');
@@ -1238,6 +1238,14 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/conversa') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
     ok(JSON.stringify(S.salvamentosConv.at(-1)) === JSON.stringify({ resumoEntrega: 'pdf' }), `resumo: salvar manda só a forma (${JSON.stringify(S.salvamentosConv.at(-1))})`);
     ok((await comoMandar.inputValue()) === 'pdf', 'resumo: a forma salva fica marcada');
+    // Versão 5, M5c: "Responder em áudio" no grupo Conversa — nasce desligado; ligar manda SÓ ele.
+    ok(/Responder em áudio[\s\S]*responde em texto e também numa nota de voz/.test(t), 'voz: o ajuste "Responder em áudio" diz que o texto vai junto');
+    const voz = page.locator('button[role="switch"][aria-label*="Responder em áudio"]');
+    ok((await voz.getAttribute('aria-checked')) === 'false', 'voz: nasce desligado');
+    await voz.click();
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/conversa') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
+    ok(JSON.stringify(S.salvamentosConv.at(-1)) === JSON.stringify({ responderAudio: true }), `voz: ligar manda só ele (${JSON.stringify(S.salvamentosConv.at(-1))})`);
+    ok((await voz.getAttribute('aria-checked')) === 'true', 'voz: fica ligado depois de salvar');
     // M3a parte 4: "Quando avisar do boleto" — o padrão (3 dias antes e no dia) e "só no dia", salvo pela mesma barra.
     const quando = page.locator('select:has(option:text-is("só no dia"))');
     ok((await quando.inputValue()) === '3', 'boleto: o padrão é "3 dias antes e no dia"');

@@ -60,7 +60,7 @@ import { EvolutionEntradaService } from '../whatsapp/evolution-entrada.service';
 import { MisterFerramentasService } from './mister-ferramentas.service';
 import { GraphFotoService } from '../graph/graph-foto.service';
 import { MisterMidiaService } from './mister-midia.service';
-import { TEXTOS_DA_MIDIA, primeiroDoMesQueVem } from './mister-midia.regras';
+import { TEXTOS_DA_MIDIA, chaveDaFala, primeiroDoMesQueVem } from './mister-midia.regras';
 import { MisterFilaService } from './mister-fila.service';
 import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
 import { MisterResumoArquivoService, TEXTOS_DO_RESUMO_EM_ARQUIVO } from './mister-resumo-arquivo.service';
@@ -185,6 +185,8 @@ class NumeroDeMentira extends MisterNumeroService {
         // O documento (M3a parte 4b): "documento:<arquivo>|<legenda>", pelo id que a Meta devolveu no `/media`.
         if (p.corpo.type === 'document')
           return { para: p.corpo.to, texto: `documento:${p.corpo.document.filename}|${p.corpo.document.caption ?? ''}|${p.corpo.document.id}`, botoes: [] };
+        // Versão 5, M5c: a nota de voz — "audio:<id da mídia>|voz" (com `voice: true`, a bolinha com a onda).
+        if (p.corpo.type === 'audio') return { para: p.corpo.to, texto: `audio:${p.corpo.audio.id}${p.corpo.audio.voice ? '|voz' : ''}`, botoes: [] };
         // A imagem (M3c.3, o gráfico): "imagem:<id da mídia>".
         // M3d: a imagem pelo endereço público: "imagem:<link>".
         if (p.corpo.type === 'image') return { para: p.corpo.to, texto: `imagem:${p.corpo.image.id ?? p.corpo.image.link}`, botoes: [] };
@@ -7078,7 +7080,7 @@ export function testesDoMisterComPostgres(): void {
 
       it('o ajuste da empresa: "pergunta antes" segura o boleto que lançaria sozinho; desligado, a foto segue como antes; o salvar confere', async () => {
         // Versão 4 (mig 447): o jeito vem junto, no padrão (nada muda). M4d (mig 452): o "fica de olho" nasce desligado.
-        const SEM_JEITO = { perfil: 'hoje', jeito: null, avisosEscritos: [], ficaDeOlho: false, resumoEntrega: 'botoes' };
+        const SEM_JEITO = { perfil: 'hoje', jeito: null, avisosEscritos: [], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false };
         expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: true, documentosModo: 'sozinho', ...SEM_JEITO });
         await expect(conversa.salvar(usuario('ana'), { documentosModo: 'sempre' })).rejects.toBeInstanceOf(BadRequestException);
         await expect(conversa.salvar(usuario('ana'), { documentosLigado: 'sim' })).rejects.toBeInstanceOf(BadRequestException);
@@ -7132,12 +7134,12 @@ export function testesDoMisterComPostgres(): void {
         await expect(conversa.salvar(usuario('ana'), { avisosEscritos: 'loja' })).rejects.toBeInstanceOf(BadRequestException);
         // O jeito vira uma linha só, com os espaços apertados; os grupos saem na ordem da tela, sem repetir.
         const r = await conversa.salvar(usuario('ana'), { perfil: 'descontraido', jeito: '  Fale como sócio,\n sem formalidade.  ', avisosEscritos: ['fiscal', 'loja', 'loja'] });
-        expect(r.conversa).toEqual({ documentosLigado: true, documentosModo: 'sozinho', perfil: 'descontraido', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes' });
+        expect(r.conversa).toEqual({ documentosLigado: true, documentosModo: 'sozinho', perfil: 'descontraido', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false });
         expect(auditados.filter((a) => a.acao === 'mister_conversa_alterada').at(-1)).toMatchObject({ detalhe: { antes: { perfil: 'hoje', jeito: null }, depois: { perfil: 'descontraido' } } });
         // Salvar só o perfil não apaga o jeito, os grupos nem o ajuste dos documentos.
         await conversa.salvar(usuario('ana'), { documentosModo: 'perguntar' });
         await conversa.salvar(usuario('ana'), { perfil: 'objetivo' });
-        expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: true, documentosModo: 'perguntar', perfil: 'objetivo', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes' });
+        expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: true, documentosModo: 'perguntar', perfil: 'objetivo', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false });
         // M4d (mig 452): o "fica de olho" liga e desliga só com booleano (V15), sem mexer no resto.
         await expect(conversa.salvar(usuario('ana'), { ficaDeOlho: 'sim' })).rejects.toBeInstanceOf(BadRequestException);
         expect((await conversa.salvar(usuario('ana'), { ficaDeOlho: true })).conversa).toMatchObject({ ficaDeOlho: true, perfil: 'objetivo', avisosEscritos: ['loja', 'fiscal'] });
@@ -7709,6 +7711,15 @@ export function testesDoMisterComPostgres(): void {
           if (r == null) opcoes.aoFalhar?.(this.resposta == null ? this.motivo : 'fora-do-formato');
           return r;
         }
+        /** M5c: a nota de voz que a `falar` devolve; null = não falou (o motivo vai a `aoFalhar`, como no real). */
+        voz: Buffer | null = null;
+        motivoDaFala = 'voz-desligada';
+        falas: Array<{ tenantId: string; texto: string; chave: string }> = [];
+        async falar(tenantId: string, _lig: any, texto: string, chave: string, _prazoMs: number, aoFalhar?: (m: string) => void): Promise<Buffer | null> {
+          this.falas.push({ tenantId, texto, chave });
+          if (!this.voz) aoFalhar?.(this.motivoDaFala);
+          return this.voz;
+        }
       }
       const graph = new GraphDeMentira(db);
       const midiaDoMister = new MisterMidiaService(numero, ia, entrada, graph);
@@ -7918,6 +7929,53 @@ export function testesDoMisterComPostgres(): void {
         ia.roteiro = [falar('Ontem, no *iFood*: 38 pedidos.')];
         expect(await agente.esvaziar()).toBe(1);
         expect(numero.enviadas.map((m) => m.texto)).toEqual(['🎧 _Entendi:_ "Quanto vendeu ontem no iFood?"\n\nOntem, no *iFood*: 38 pedidos.']);
+      });
+
+      // ─────────── M5c: a resposta em áudio ───────────
+      it('a resposta em áudio (M5c): ligada, o texto e DEPOIS a nota de voz com o principal; desligada, pergunta escrita ou a voz fora, só o texto', async () => {
+        const conversaCfg = new MisterConversaConfigService(db, auditoria);
+        const comVoz = new MisterAgenteService(fila, ferramentas, ia, numero, undefined, conversaCfg, undefined, midiaDoMister);
+        const VOZ = Buffer.concat([Buffer.from('OggS'), Buffer.alloc(40, 5)]);
+        const ENTENDI = '🎧 _Entendi:_ "Quanto vendeu ontem no iFood?"\n\nOntem, no *iFood*: 38 pedidos.';
+        const perguntarPorAudio = async () => {
+          expect(await audio(telAna, novoAudio())).toBe('pergunta');
+          ia.roteiro = [falar('Ontem, no *iFood*: 38 pedidos.')];
+          numero.pedidos.length = 0;
+          expect(await comVoz.esvaziar()).toBe(1);
+        };
+        graph.resposta = OUVIDO;
+        graph.voz = VOZ;
+        graph.falas.length = 0;
+        try {
+          // Desligado (o padrão): só o texto, e a voz nem é chamada.
+          await perguntarPorAudio();
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([ENTENDI]);
+          expect(graph.falas).toEqual([]);
+          // Ligado: o texto e DEPOIS a nota de voz, com o principal (sem o "Entendi" e sem o negrito), pela chave da fala.
+          await conversaCfg.salvar(usuario('ana'), { responderAudio: true });
+          expect((await conversaCfg.daEmpresa(A)).responderAudio).toBe(true);
+          await perguntarPorAudio();
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([ENTENDI, expect.stringMatching(/^audio:\d+\|voz$/)]);
+          expect(numero.pedidos.some((p) => p.url.endsWith('/media') && p.corpo?.type === 'audio/ogg')).toBe(true);
+          expect(graph.falas).toEqual([{ tenantId: A, texto: 'Ontem, no iFood: 38 pedidos.', chave: chaveDaFala(A, 'Ontem, no iFood: 38 pedidos.') }]);
+          // A pergunta escrita (não veio por áudio): só o texto, mesmo ligado.
+          expect(await mandar(telAna, 'quanto vendeu ontem no iFood?')).toBe('pergunta');
+          ia.roteiro = [falar('Ontem, no *iFood*: 38 pedidos.')];
+          numero.pedidos.length = 0;
+          expect(await comVoz.esvaziar()).toBe(1);
+          expect(numero.enviadas.map((m) => m.texto)).toEqual(['Ontem, no *iFood*: 38 pedidos.']);
+          expect(graph.falas).toHaveLength(1);
+          // A voz desligada no Graph (o Google recusou): só o texto, sem erro para a pessoa.
+          graph.voz = null;
+          await perguntarPorAudio();
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([ENTENDI]);
+          expect(graph.falas).toHaveLength(2);
+          // O "Responder em áudio" só aceita ligado ou desligado de verdade (V15).
+          await expect(conversaCfg.salvar(usuario('ana'), { responderAudio: 'sim' })).rejects.toThrow('Responder em áudio: diga se fica ligado ou desligado.');
+        } finally {
+          graph.voz = null;
+          await q(`delete from mister_conversa_config where tenant_id = $1`, [A]);
+        }
       });
 
       it('o áudio (M5b) que não dá: inaudível, a franquia acabou (volta no dia 1º), acima de 3 min e o tipo que o Gemini não lê', async () => {
