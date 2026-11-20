@@ -600,5 +600,37 @@ descrever('o DMS Graph no Regem (Postgres real, Graph e DMS ID de mentira)', () 
       expect(chamadasMcp).toHaveLength(n);
       expect(motivos.at(-1)).toBe('tipo-nao-aceito');
     });
+
+    // M5c: a resposta em áudio — o texto vai à `falar` (contrato 1.2.0 do Graph) e volta a nota de voz OGG.
+    it('o Mister (M5c): `falar` manda o texto e a chave, devolve o OGG e guarda a franquia; voz desligada, fora do formato e franquia chegam em `aoFalhar`', async () => {
+      const { t, ana } = await empresa();
+      await ligar(ana);
+      const lig = (await graphFoto.ligacaoParaFoto(t))!;
+      const OGG = Buffer.concat([Buffer.from('OggS'), randomBytes(60)]);
+      const falado = { tipoArquivo: 'audio', mimeType: 'audio/ogg', audioBase64: OGG.toString('base64'), caracteres: 24, franquia: { mes: MES, usados: 91, total: 500 } };
+      porta = () => ({ content: [{ type: 'text', text: '{}' }], structuredContent: falado });
+      const motivos: string[] = [];
+      const aoFalhar = (m: string) => motivos.push(m);
+      const r = await graphFoto.falar(t, lig, 'Ontem a loja vendeu bem.', 'regem-falar-abc12345', 1_500, aoFalhar);
+      expect(r?.equals(OGG)).toBe(true);
+      const c = chamadasMcp.at(-1)!;
+      expect(c.nome).toBe('falar');
+      expect(c.args).toEqual({ texto: 'Ontem a loja vendeu bem.', chaveIdempotencia: 'regem-falar-abc12345' });
+      expect(motivos).toEqual([]);
+      expect((await ligacaoDe(t)).franquia_usados).toBe(91);
+      // A voz ainda não ligada no Graph (o Google recusou): `integracao-parada` vira "voz-desligada", e a ligação segue.
+      porta = () => recusa('integracao-parada', {});
+      expect(await graphFoto.falar(t, lig, 'Outra resposta.', 'regem-falar-def12345', 1_500, aoFalhar)).toBeNull();
+      expect(motivos).toEqual(['voz-desligada']);
+      expect((await ligacaoDe(t)).revogada_em).toBeNull();
+      // O que não é OGG: fora do formato.
+      porta = () => ({ content: [{ type: 'text', text: '{}' }], structuredContent: { ...falado, audioBase64: Buffer.from('não é ogg').toString('base64') } });
+      expect(await graphFoto.falar(t, lig, 'Mais uma.', 'regem-falar-ghi12345', 1_500, aoFalhar)).toBeNull();
+      expect(motivos.at(-1)).toBe('fora-do-formato');
+      // A franquia esgotada: o motivo de sempre.
+      porta = () => recusa('limite-de-chamadas', { limite: 'franquia_mensal', franquia: { mes: MES, usados: 500, total: 500 }, volta_em: '2026-12-01' });
+      expect(await graphFoto.falar(t, lig, 'E outra.', 'regem-falar-jkl12345', 1_500, aoFalhar)).toBeNull();
+      expect(motivos.at(-1)).toBe('franquia-esgotada');
+    });
   });
 });

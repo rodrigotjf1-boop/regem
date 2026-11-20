@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { semDadoPessoal } from '../graph/graph.regras';
 
 // A FOTO NO MISTER (versão 5, fase M5a; protótipo `mockups/regem-mister-ouve-ve-mostra.html`, aprovado em 19/11/2026).
@@ -242,4 +243,46 @@ export function veioDeFoto(pergunta: unknown): boolean {
 /** A pergunta veio de um áudio? */
 export function veioDeAudio(pergunta: unknown): boolean {
   return String(pergunta ?? '').startsWith(MARCA_DO_AUDIO);
+}
+
+// ── Versão 5, M5c: a resposta em áudio (decisão 2: "o áudio fala o principal, ~40 s, sempre com o texto junto") ──
+
+/** O que a voz fala: ~40 segundos (o português falado anda perto de 15 letras por segundo). */
+export const FALA_MAX_LETRAS = 600;
+/** O prazo da voz (o Graph e o Google): a resposta já saiu em texto, e o áudio que demorar fica de fora. */
+export const PRAZO_DA_VOZ_MS = 20_000;
+
+/**
+ * O principal da resposta para a voz: sem as linhas que o código escreve ("🎧 Entendi", "📷 Vi", "Ver no Regem", o link
+ * para encaminhar), sem endereço, sem emoji e sem os marcadores do WhatsApp; até ~40 s, cortado no fim de uma frase (ou
+ * de uma palavra, com reticências). Vazio = nada a falar.
+ */
+export function principalParaFalar(resposta: unknown): string {
+  const linhas = String(resposta ?? '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l && !/^(🎧|📷)/u.test(l) && !/^(Ver no Regem|Link para encaminhar)\b/i.test(l));
+  const limpo = linhas
+    .join('\n')
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/\p{Extended_Pictographic}|\u{FE0F}|\u{200D}/gu, '')
+    .replace(/[*_~`]/g, '')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/ +([,.;:!?])/g, '$1')
+    .replace(/ *\n */g, '\n')
+    .trim();
+  if (limpo.length <= FALA_MAX_LETRAS) return limpo;
+  const corte = limpo.slice(0, FALA_MAX_LETRAS);
+  const fimDeFrase = Math.max(corte.lastIndexOf('. '), corte.lastIndexOf('! '), corte.lastIndexOf('? '), corte.lastIndexOf('.\n'));
+  if (fimDeFrase >= FALA_MAX_LETRAS / 2) return corte.slice(0, fimDeFrase + 1).trim();
+  const fimDePalavra = corte.lastIndexOf(' ');
+  return `${(fimDePalavra > 0 ? corte.slice(0, fimDePalavra) : corte).trim()}…`;
+}
+
+/**
+ * A chave de idempotência da fala no Graph: a empresa e o texto falado (a mesma resposta repetida não gasta a franquia de
+ * novo; outra empresa ou outro texto, outra chave). Só caracteres visíveis, até 100.
+ */
+export function chaveDaFala(tenantId: string, texto: string): string {
+  return `regem-falar-${createHash('sha256').update(`${tenantId}\n${texto}`).digest('hex').slice(0, 48)}`;
 }

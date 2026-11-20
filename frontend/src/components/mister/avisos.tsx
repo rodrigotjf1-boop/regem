@@ -48,9 +48,10 @@ type RelatorioNaTela = {
 type ModoDoBoleto = 'sozinho' | 'perguntar';
 /** Versão 5, M5e (mig 462): "Como mandar o resumo" — a mesma lista do servidor (`FORMAS_DE_ENTREGA_DO_RESUMO`). */
 type FormaDoResumo = 'botoes' | 'pdf' | 'link' | 'texto';
-type Conversa = { documentosLigado: boolean; documentosModo: ModoDoBoleto; resumoEntrega?: FormaDoResumo };
+type Conversa = { documentosLigado: boolean; documentosModo: ModoDoBoleto; resumoEntrega?: FormaDoResumo; responderAudio?: boolean };
 const CONV = 'conversa:documentos';
 const CONV_RESUMO = 'conversa:resumo';
+const CONV_VOZ = 'conversa:voz';
 const FORMAS_DO_RESUMO: { v: FormaDoResumo; rotulo: string }[] = [
   { v: 'botoes', rotulo: 'texto com os botões PDF e link' },
   { v: 'pdf', rotulo: 'texto e o PDF junto' },
@@ -282,8 +283,9 @@ export function AvisosDoMister() {
     const r = formaDoResumo(c.resumoEntrega);
     setConversa(c);
     if (disponivel) setResumoLigado(disponivel.resumoEmArquivo === true);
-    setSalvos((s) => ({ ...s, [CONV]: v, [CONV_RESUMO]: r }));
-    setValores((x) => ({ ...x, [CONV]: v, [CONV_RESUMO]: r }));
+    const voz = c.responderAudio === true ? '1' : '0';
+    setSalvos((s) => ({ ...s, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz }));
+    setValores((x) => ({ ...x, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz }));
   }, []);
 
   const ler = useCallback(async () => {
@@ -588,6 +590,31 @@ export function AvisosDoMister() {
                 );
               },
             },
+            // Versão 5, M5c (mig 462): "Responder em áudio" — nasce desligado; a voz do Google pelo DMS Graph.
+            {
+              id: CONV_VOZ,
+              rotulo: 'Responder em áudio',
+              tipo: 'livre' as const,
+              palavras: 'áudio voz nota de voz falar responder ouvir',
+              ajuda: (
+                <>
+                  <span className="block">
+                    Quando a pessoa manda áudio, o Mister responde em texto e também numa nota de voz com o principal (uns 40 segundos). A voz é a do Google,
+                    pelo DMS Graph. Cada resposta em áudio conta uma na franquia de fotos e áudios do Graph.
+                  </span>
+                  {resumoLigado === false && (
+                    <span className="mt-1 block" data-resposta-em-audio-desligada>
+                      <Selo tom="info">ainda não ligado no Regem: a resposta segue só em texto</Selo>
+                    </span>
+                  )}
+                </>
+              ),
+              desenhar: (v: Valor, mudar: (x: Valor) => void) => (
+                <span className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
+                  <Chave ligada={v === '1'} rotulo="Responder em áudio" aoMudar={(l) => mudar(l ? '1' : '0')} />
+                </span>
+              ),
+            },
           ],
         };
     return [...dosAvisos, ...(doGrupo ? [doGrupo] : []), ...(daConversa ? [daConversa] : [])];
@@ -606,6 +633,7 @@ export function AvisosDoMister() {
       const partesDaConversa = {
         ...(conversa && valores[CONV] !== salvos[CONV] ? deValorDaConversa(valores[CONV]) : {}),
         ...(conversa && valores[CONV_RESUMO] !== salvos[CONV_RESUMO] ? { resumoEntrega: formaDoResumo(valores[CONV_RESUMO]) } : {}),
+        ...(conversa && valores[CONV_VOZ] !== salvos[CONV_VOZ] ? { responderAudio: valores[CONV_VOZ] === '1' } : {}),
       };
       const conv = Object.keys(partesDaConversa).length ? partesDaConversa : null;
       if (regras.length) aplicar((await api.patch('/mister/avisos', { regras })) as DaTela);

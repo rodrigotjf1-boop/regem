@@ -388,11 +388,22 @@ export class MisterNumeroService {
     return { wamid: j?.messages?.[0]?.id ?? null };
   }
 
-  /** O documento e a imagem: as mesmas conferências do `enviar`, a mídia subida e a mensagem pelo id. */
+  /**
+   * Versão 5, M5c: a NOTA DE VOZ da resposta (OGG/Opus, da voz do Google pelo DMS Graph). Pela API oficial sobe à Meta e
+   * vai com `voice: true` (a bolinha com a onda, não um arquivo; a Meta só mostra o tocar até 512 KB — acima, recusa
+   * aqui); pelo Evolution, `sendWhatsAppAudio` (a nota de voz). O mesmo jeito da nota de voz do WhatsApp das lojas.
+   */
+  async enviarAudio(para: string, ogg: Buffer): Promise<{ wamid: string | null }> {
+    if (!ogg?.length) throw new FalhaDoEnvioDoMister('meta', null, 'áudio vazio');
+    if (ogg.length > 512 * 1024) throw new FalhaDoEnvioDoMister('meta', null, 'áudio acima de 512 KB');
+    return this.enviarMidia(para, ogg, { tipo: 'audio', mime: 'audio/ogg', arquivo: 'resposta.ogg', legenda: '' });
+  }
+
+  /** O documento, a imagem e a nota de voz: as mesmas conferências do `enviar`, a mídia subida e a mensagem pelo id. */
   private async enviarMidia(
     para: string,
     bytes: Buffer,
-    m: { tipo: 'document' | 'image'; mime: string; arquivo: string; legenda: string },
+    m: { tipo: 'document' | 'image' | 'audio'; mime: string; arquivo: string; legenda: string },
   ): Promise<{ wamid: string | null }> {
     const destino = soDigitos(para);
     const n = await this.ler();
@@ -402,11 +413,18 @@ export class MisterNumeroService {
       const ev = this.evolution();
       if (!ev) throw new FalhaDoEnvioDoMister('sem_acesso');
       await this.vezNoEvolution();
-      const res = await this.buscar(`${ev.url}/message/sendMedia/${encodeURIComponent(n.instancia)}`, {
-        method: 'POST',
-        headers: { apikey: ev.chave, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ number: destino, mediatype: m.tipo, mimetype: m.mime, media: bytes.toString('base64'), fileName: m.arquivo, caption: cortar(m.legenda, 1024) }),
-      }).catch(() => null);
+      const res =
+        m.tipo === 'audio'
+          ? await this.buscar(`${ev.url}/message/sendWhatsAppAudio/${encodeURIComponent(n.instancia)}`, {
+              method: 'POST',
+              headers: { apikey: ev.chave, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ number: destino, audio: bytes.toString('base64'), encoding: true }),
+            }).catch(() => null)
+          : await this.buscar(`${ev.url}/message/sendMedia/${encodeURIComponent(n.instancia)}`, {
+              method: 'POST',
+              headers: { apikey: ev.chave, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ number: destino, mediatype: m.tipo, mimetype: m.mime, media: bytes.toString('base64'), fileName: m.arquivo, caption: cortar(m.legenda, 1024) }),
+            }).catch(() => null);
       if (!res || !res.ok) throw new FalhaDoEnvioDoMister('evolution', res?.status ?? null, res ? (await res.text().catch(() => '')).slice(0, 200) || null : null);
       const j: any = await res.json().catch(() => ({}));
       return { wamid: j?.key?.id ? String(j.key.id) : null };
@@ -423,18 +441,19 @@ export class MisterNumeroService {
     const midia: any = up?.ok ? await up.json().catch(() => ({})) : null;
     if (!midia?.id) {
       const j: any = up ? await up.json().catch(() => ({})) : {};
-      throw new FalhaDoEnvioDoMister('meta', up?.status ?? null, String(j?.error?.message ?? `a Meta não devolveu o id ${m.tipo === 'image' ? 'da imagem' : 'do documento'}`).slice(0, 200));
+      throw new FalhaDoEnvioDoMister('meta', up?.status ?? null, String(j?.error?.message ?? `a Meta não devolveu o id ${m.tipo === 'image' ? 'da imagem' : m.tipo === 'audio' ? 'do áudio' : 'do documento'}`).slice(0, 200));
     }
     const legenda = m.legenda ? { caption: cortar(m.legenda, 1024) } : {};
+    const conteudo =
+      m.tipo === 'document'
+        ? { document: { id: String(midia.id), filename: m.arquivo, ...legenda } }
+        : m.tipo === 'audio'
+          ? { audio: { id: String(midia.id), voice: true } }
+          : { image: { id: String(midia.id), ...legenda } };
     const res = await this.buscar(`${GRAPH}/${n.phoneId}/messages`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        to: destino,
-        type: m.tipo,
-        ...(m.tipo === 'document' ? { document: { id: String(midia.id), filename: m.arquivo, ...legenda } } : { image: { id: String(midia.id), ...legenda } }),
-      }),
+      body: JSON.stringify({ messaging_product: 'whatsapp', to: destino, type: m.tipo, ...conteudo }),
     }).catch(() => null);
     if (!res || !res.ok) {
       const j: any = res ? await res.json().catch(() => ({})) : {};
