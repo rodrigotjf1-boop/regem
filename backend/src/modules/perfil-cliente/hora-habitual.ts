@@ -75,9 +75,21 @@ export function agoraDaOperacao(agora: Date = new Date()): { dia: number; minuto
 const mediaCircular = (m: SQL) =>
   sql`((((atan2(avg(sin(2 * pi() * ${m} / 1440.0)), avg(cos(2 * pi() * ${m} / 1440.0))) * 1440 / (2 * pi()))::numeric + 1440) % 1440)::int)`;
 
+/** A hora de cada faixa quando a loja não tem pedido nenhum nela (a do meio da faixa, mais ou menos). */
+const HORA_DA_FAIXA: [string, number][] = [
+  ['madrugada', 30],
+  ['manha', 600],
+  ['almoco', 720],
+  ['tarde', 960],
+  ['inicio_noite', 1140],
+  ['noite', 1290],
+];
+
 /**
  * O começo `with …` do comando: o pico da loja por dia de operação e faixa (pedidos diretos — sem iFood e 99, sem
- * cancelados — dos últimos 90 dias). `hh_loja` (dia, faixa, n, minuto), `hh_faixa` (faixa, minuto), `hh_pico` (dia, faixa).
+ * cancelados — dos últimos 90 dias). `hh_pico` (dia, faixa: a faixa de mais pedidos em cada dia) e `hh_ref` (dia, faixa,
+ * minuto: as 7 × 6 combinações já resolvidas — a hora média da loja naquele dia e faixa, senão na faixa, senão a do meio
+ * da faixa). Os dois MATERIALIZADOS (pequenos, calculados uma vez — sem isso o banco os refaz a cada cliente e dia).
  * Quem chama continua com `, outra as (…)` ou com o `insert`/`select`.
  */
 export function sqlPicoDaLoja(tenantId: string): SQL {
@@ -92,9 +104,19 @@ hh_q as (
      and coalesce(p.canal, '') not in ('ifood', '99food')
      and p.criado_em >= now() - make_interval(days => ${HORA_HABITUAL.diasDaLoja}::int)
 ),
-hh_loja as (select dia, faixa, count(*)::int as n, ${mediaCircular(sql`m`)} as minuto from hh_q group by 1, 2),
+hh_loja as materialized (select dia, faixa, count(*)::int as n, ${mediaCircular(sql`m`)} as minuto from hh_q group by 1, 2),
 hh_faixa as (select faixa, ${mediaCircular(sql`m`)} as minuto from hh_q group by 1),
-hh_pico as (select distinct on (dia) dia, faixa from hh_loja order by dia, n desc, faixa)`;
+hh_pico as materialized (select distinct on (dia) dia, faixa from hh_loja order by dia, n desc, faixa),
+hh_ref as materialized (
+  select d.d as dia, f.faixa, coalesce(l.minuto, hf.minuto, f.padrao) as minuto
+    from generate_series(1, 7) d(d)
+    cross join (values ${sql.join(
+      HORA_DA_FAIXA.map(([f, m]) => sql`(${f}, ${m}::int)`),
+      sql`, `,
+    )}) f(faixa, padrao)
+    left join hh_loja l on l.dia = d.d and l.faixa = f.faixa
+    left join hh_faixa hf on hf.faixa = f.faixa
+)`;
 }
 
 /**
@@ -105,6 +127,8 @@ export function sqlJuntasDoAlvo(limites: { de: number; ate: number }): SQL {
   const H = HORA_HABITUAL;
   const grade = sql`(cp.camadas -> 'ritmo' -> 'grade' -> (d.d::text))`;
   const hora = sql`(cp.camadas -> 'ritmo' ->> 'hora_habitual')`;
+  // A faixa de cada dia sai UMA vez (o `offset 0` impede o banco de repetir a conta em cada uso dela); a hora da loja vem
+  // da tabela pronta `hh_ref` por junção.
   return sql`
     left join cliente_perfil cp on cp.cliente_id = c.id and cp.tenant_id = c.tenant_id
     cross join lateral (
@@ -113,6 +137,7 @@ export function sqlJuntasDoAlvo(limites: { de: number; ate: number }): SQL {
                  - (${H.antesMin}::int + mod(abs(hashtext(c.id::text || ':' || d.d::text)::bigint), ${H.antesMax - H.antesMin + 1}::bigint)::int),
                ${limites.de}::int), ${limites.ate}::int)::smallint order by d.d) as minutos
         from generate_series(1, 7) d(d)
+        left join hh_pico pk on pk.dia = d.d
         cross join lateral (
           select coalesce(
             (select g.key
@@ -121,16 +146,15 @@ export function sqlJuntasDoAlvo(limites: { de: number; ate: number }): SQL {
                        coalesce(g.key = cp.faixa_habitual, false) desc, g.key
               limit 1),
             cp.faixa_habitual,
-            (select pk.faixa from hh_pico pk where pk.dia = d.d)) as faixa
+            pk.faixa) as faixa
+          offset 0
         ) fx
+        left join hh_ref r on r.dia = d.d and r.faixa = fx.faixa
         cross join lateral (
           select coalesce(
             case when fx.faixa = cp.faixa_habitual and ${hora} ~ '^[0-9]{1,2}:[0-9]{2}$'
                  then split_part(${hora}, ':', 1)::int * 60 + split_part(${hora}, ':', 2)::int end,
-            (select l.minuto from hh_loja l where l.dia = d.d and l.faixa = fx.faixa),
-            (select f.minuto from hh_faixa f where f.faixa = fx.faixa),
-            case fx.faixa when 'madrugada' then 30 when 'manha' then 600 when 'almoco' then 720 when 'tarde' then 960
-                          when 'inicio_noite' then 1140 when 'noite' then 1290 end,
+            r.minuto,
             ${H.padrao}::int) as m
         ) h
     ) alvo`;
