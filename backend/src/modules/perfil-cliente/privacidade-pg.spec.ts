@@ -57,6 +57,8 @@ descrever('gravar e ler a privacidade (Postgres)', () => {
     await admin.query(`create schema ${SCHEMA}`);
     await pool.query(semFkCompartilhada(readFileSync(MIG_459, 'utf8')));
     await pool.query(semFkCompartilhada(readFileSync(MIG_459.replace('459_perfil_do_cliente', '463_cliente_evento_sensibilidade'), 'utf8')));
+    // A 466 (os cliques): desligar as recomendações devolve os cliques ao anônimo (F4b).
+    await pool.query(semFkCompartilhada(readFileSync(MIG_459.replace('459_perfil_do_cliente', '466_cardapio_interacao'), 'utf8')));
   }, 60_000);
   afterAll(async () => {
     await pool.end();
