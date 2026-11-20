@@ -34,6 +34,7 @@ import { MisterVigiaService } from './mister-vigia.service';
 import { MisterRegrasService } from './mister-regras.service';
 import { MisterRegrasController } from './mister-regras.controller';
 import { MisterListaService } from './mister-lista.service';
+import { MisterPadroesService } from './mister-padroes.service';
 import { ComprasModule } from '../compras/compras.module';
 import { MisterPropostasService } from './mister-propostas.service';
 import { MisterRecadosService } from './mister-recados.service';
@@ -117,6 +118,8 @@ import { MisterModule } from './mister.module';
     MisterRegrasService,
     // Versão 6, M6g (mig 475): a lista de compras pela conversa e pela planilha, até o pedido em Estoque › Pedidos.
     MisterListaService,
+    // Versão 6, M6f parte 2 (mig 478): os padrões que o Mister percebe e as sugestões (nasce desligada: MISTER_PADROES).
+    MisterPadroesService,
     // Versão 5, M5a: a foto (e o PDF) que a equipe manda — o DMS Graph lê, a IA da empresa de reserva; vira a pergunta.
     MisterMidiaService,
     // Versão 5, M5e (mig 461): o resumo com "📄 PDF" e "📊 Ver gráficos" e o toque nesses botões.

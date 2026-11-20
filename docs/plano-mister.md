@@ -1870,6 +1870,35 @@ regressão de novo quando as instruções mudam; a Meta pela doc oficial (V20); 
 - Fica para a parte 2: os formatos de cada pessoa, os padrões da noite (a impressora desligada antes do fechamento, os
   avisos que ninguém responde, os atrasos na mesma faixa) e as sugestões com "Não, deixa assim" (1 migration).
 
+**M6f, parte 2 implementada (20/11/2026; mig 478 SÓ NUVEM — `mister_padrao`; nasce DESLIGADA, `MISTER_PADROES=1` no
+`regem-api`) — os padrões e as sugestões:**
+- **Pelo código e sem IA** (`mister-padroes.ts`, as regras puras; `mister-padroes.service.ts`, a volta e os botões): uma
+  volta por hora, das 9h às 20h de São Paulo, com o que aconteceu ATÉ ONTEM. Três padrões:
+  - **a impressora desligada antes do fechamento** — os incidentes `impressora_parada` do vigia × o horário do cardápio da
+    loja: a parada que começou dentro do horário e não voltou até fechar, em 3 ou mais dos últimos 14 dias (cada parada
+    conta uma vez, no dia em que a loja abriu — o horário que vira a noite não conta dobrado; a faixa sai na ordem do
+    expediente). Sem horário cadastrado não há padrão. Botões: "Escrever o recado" (só a quem abre o Mural & clima; o
+    rascunho do mural com "Publicar", o mesmo da M3g), "Avisar na hora" e "Não, deixa assim";
+  - **os avisos de pedido parado sem resposta** — ontem chegaram 10 ou mais ao WhatsApp da pessoa (o final do telefone
+    gravado na trilha, só quando é único na empresa) e ela não mandou nenhuma mensagem ao Mister depois do primeiro. A
+    sugestão: "só avise quando forem 3 ou mais ao mesmo tempo, numa mensagem só" — a regra junta e SUBSTITUI o aviso;
+  - **os atrasos na mesma faixa** — os pedidos que levaram mais que o tempo do pedido parado do aceite até ficar pronto
+    (sem o agendado): a hora que teve 2 ou mais em 3 ou mais dos últimos 14 dias; a faixa de até 3 horas seguidas com mais
+    dias. A sugestão: nessa faixa, avisar na hora o pedido aceito que passar do tempo sem ficar pronto.
+- **A sugestão** vai uma vez por padrão e por pessoa; "Não, deixa assim" (e a que ficou sem resposta) cala por 30 dias
+  (decisão V6-12). UMA sugestão por pessoa por dia. Só vai a quem poderia aceitar (a regra passa pela mesma conferência da
+  conversa: o gerente sem o Delivery no perfil não recebe a dos pedidos) e a quem já não tem regra que cobre.
+- **"Avisar na hora" / "Quero"** propõe a regra pelo MESMO caminho da conversa (o teto, a conferência e o "Confirmar"): o
+  Mister nunca muda uma regra sozinho. O "Não, deixa assim" vai à auditoria.
+- **Divergências do plano e do protótipo:**
+  - a sugestão só sai DENTRO da janela de 24 horas da Meta (texto com botões, sem custo — a regra do custo mínimo); fora
+    dela espera a pessoa voltar a falar com o Mister (por isso a volta é de hora em hora, não só às 9h). Pela conexão por QR
+    Code (Evolution) não há botões e a sugestão não sai;
+  - "não abriu nenhum" virou "**não respondeu a nenhum**": o Regem não guarda a confirmação de leitura da Meta;
+  - a "tarefa de fechamento" do plano ficou de fora (o protótipo aprovado traz o recado e o aviso na hora);
+  - **os formatos de cada pessoa** ("sempre em lista", "sem centavos", "responda em áudio") seguem na memória de cada pessoa
+    (M4b, `mister_memoria`), que o Mister já lê em toda conversa — não viraram outra tabela.
+
 **M6d implementada (20/11/2026; mig 476 SÓ NUVEM — `mister_conversa_config.pin_a_cada_h` e `mister_vinculo.pin_ate`;
 nasce desligada):**
 - **O ajuste** (Mister › Regras › "Segurança · só o presidente muda", pelo `PATCH /mister/conversa`): pedir o PIN a cada

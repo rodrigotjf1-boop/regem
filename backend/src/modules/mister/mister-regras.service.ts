@@ -36,6 +36,7 @@ import {
   olhaAgora,
   textoDoDisparo,
 } from './mister-regra';
+import { nomeDaImpressora } from './mister-padroes';
 import { pessoaVale } from './mister-vinculo.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -212,6 +213,25 @@ export class MisterRegrasService implements OnModuleInit {
       },
       botoes: botoesDaProposta(p.id),
     };
+  }
+
+  /**
+   * Versão 6, M6f parte 2: a regra que um padrão sugere (o botão "Avisar na hora" ou "Quero") — o MESMO caminho da conversa:
+   * o teto de regras, a conferência e a proposta que só liga no "Confirmar". Nunca lança.
+   */
+  async proporDoPadrao(e: EscopoDoMister, regra: Record<string, unknown>): Promise<ResultadoDaFerramenta> {
+    try {
+      return await this.propor(e, { regra });
+    } catch (err: any) {
+      if (semTabela(err)) return { ok: false, dados: { erro: 'As regras de aviso ainda não estão disponíveis neste servidor.' } };
+      this.logger.error(`a regra do padrão não foi proposta: ${String(err?.message ?? err).slice(0, 300)}`, err?.stack);
+      return { ok: false, dados: { erro: 'Não consegui preparar a regra agora.' } };
+    }
+  }
+
+  /** A pessoa pode ter esta regra? (a conferência do `propor`, sem gravar): a sugestão só vai a quem pode aceitá-la. */
+  cabe(e: EscopoDoMister, regra: Record<string, unknown>): boolean {
+    return !('erro' in conferirRegra(regra, this.quemFaz(e), (t) => ehTipoDeAviso(t) && !(AVISOS_QUE_NAO_SE_CALAM as readonly string[]).includes(t)));
   }
 
   /** O nome do item escolhido (a conta, a tarefa), se ele está no escopo da pessoa — ou null. */
@@ -696,7 +716,7 @@ export class MisterRegrasService implements OnModuleInit {
             horarios.set(`${h.t}|${h.u ?? ''}`, h.horarios);
           return incidentes.map((i) => {
             const impressora = i.regra === 'impressora_parada';
-            const nome = impressora ? String(i.evidencia?.impressora ?? i.evidencia?.nome ?? 'impressora').trim() : 'servidor da loja';
+            const nome = impressora ? nomeDaImpressora(i.evidencia) : 'servidor da loja';
             const h = horarios.get(`${i.tenantId}|${i.unidadeId ?? ''}`) ?? horarios.get(`${i.tenantId}|`);
             return {
               id: i.id,
