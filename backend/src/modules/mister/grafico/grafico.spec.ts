@@ -95,6 +95,8 @@ describe('a imagem do gráfico do insumo', () => {
     // A segunda barra (a de 71) fica na metade direita, logo acima da base.
     const base = TAMANHO_DA_IMAGEM.altura - 74;
     expect(pixel(p, Math.round(40 + 1.5 * ((TAMANHO_DA_IMAGEM.largura - 80) / 2)), base - 20)).toEqual(rgb('#E2A340'));
+    // Versão 5 (M5d.1): as outras barras em azul-marinho (a de 12, na metade esquerda) — o mesmo desenho da página e do PDF.
+    expect(pixel(p, Math.round(40 + 0.5 * ((TAMANHO_DA_IMAGEM.largura - 80) / 2)), base - 10)).toEqual(rgb('#2F4A60'));
   });
   it('com a linha da média e muitas barras, também sai (a legenda numa linha própria)', () => {
     const muitas = Array.from({ length: 31 }, (_, i) => ({ rotulo: String(i + 1).padStart(2, '0'), valor: 50 + i, texto: String(50 + i) }));
