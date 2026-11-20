@@ -2157,6 +2157,15 @@ export const api = {
     req(`/marketing/automaticas/modelo/${encodeURIComponent(tipo)}`, { method: 'POST' }),
   // "Quem voltou" de uma automática (últimos 30 dias): pediu em até 7 dias depois da mensagem.
   marketingQuemVoltou: (tipo: 'cashback' | 'aniversario' | 'volta') => req(`/marketing/automaticas/voltaram/${encodeURIComponent(tipo)}`),
+  // Delivery › Marketing › Clube (mig 471, fase A0): a configuração e o catálogo de prêmios. Presidente e gerente leem;
+  // só o presidente muda (o servidor confere). Cada rota que muda devolve o painel inteiro.
+  clubePainel: () => req('/marketing/clube'),
+  clubeSalvarConfig: (body: Record<string, unknown>) => req('/marketing/clube/config', { method: 'PUT', body: JSON.stringify(body) }),
+  clubeProdutos: () => req('/marketing/clube/produtos'),
+  clubeCriarPremio: (body: Record<string, unknown>) => req('/marketing/clube/premios', { method: 'POST', body: JSON.stringify(body) }),
+  clubeEditarPremio: (id: string, body: Record<string, unknown>) =>
+    req(`/marketing/clube/premios/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  clubeExcluirPremio: (id: string) => req(`/marketing/clube/premios/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   // O aniversário na gaveta do cliente (Delivery › Clientes): ver e corrigir (gerente e presidente, com o motivo).
   crmAniversario: (id: string) => req(`/clientes/crm/${encodeURIComponent(id)}/aniversario`),
   crmCorrigirAniversario: (id: string, body: { dia: number; mes: number; motivo?: string }) =>
