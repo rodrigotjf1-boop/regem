@@ -67,30 +67,36 @@ export class PulsoService {
     await this.db.execute(sql`update pulso_estado set erro = ${msg.slice(0, 300)}, erro_em = clock_timestamp() where id = 1`).catch(() => undefined);
   }
 
-  /** A configuração da rotina: só com a ligação (nasce desligado). Quem chama já conferiu o lado (só nuvem). */
-  private configDaRotina(): ConfigPulso | null {
-    const cfg = lerConfigPulso();
-    return cfg.ligado ? cfg : null;
+  /**
+   * A configuração da rotina: só com a ligação (nasce desligado). Quem chama já conferiu o lado (só nuvem). Sem a
+   * `PULSO_LIGACAO`, desligado e calado (de propósito). COM ela e algo errado (o segredo colado pela metade, a credencial do
+   * DMS ID faltando), o motivo fica anotado no estado e no log — nunca o valor —, para o dono saber que precisa corrigir.
+   */
+  async configDaRotina(onde: string, env: Record<string, string | undefined> = process.env): Promise<ConfigPulso | null> {
+    const cfg = lerConfigPulso(env);
+    if (cfg.ligado) return cfg;
+    if ((env.PULSO_LIGACAO ?? '').trim()) await this.anotarErro(`configuração (${onde})`, new Error(cfg.motivo ?? 'desligado'));
+    return null;
   }
 
   @Cron('0 15 */6 * * *', { timeZone: 'America/Sao_Paulo' })
   async rotinaEventos(): Promise<void> {
     if (ehServidorLocal()) return; // só a nuvem lê o Pulso
-    const cfg = this.configDaRotina();
+    const cfg = await this.configDaRotina('eventos');
     if (cfg) await this.lerEventos(cfg);
   }
 
   @Cron('0 20 5 * * *', { timeZone: 'America/Sao_Paulo' })
   async rotinaInteresses(): Promise<void> {
     if (ehServidorLocal()) return; // só a nuvem lê o Pulso
-    const cfg = this.configDaRotina();
+    const cfg = await this.configDaRotina('interesses');
     if (cfg) await this.mandarInteresses(cfg);
   }
 
   @Cron('0 10 7 * * *', { timeZone: 'America/Sao_Paulo' })
   async rotinaClima(): Promise<void> {
     if (ehServidorLocal()) return; // só a nuvem lê o Pulso
-    const cfg = this.configDaRotina();
+    const cfg = await this.configDaRotina('clima');
     if (cfg) await this.lerClimaDosMunicipios(cfg);
   }
 
