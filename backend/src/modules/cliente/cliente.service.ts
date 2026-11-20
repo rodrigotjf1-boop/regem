@@ -1,4 +1,5 @@
 import { ehServidorLocal } from '../../common/modo';
+import { inicioDoPeriodo } from '../../common/fuso-sql';
 import {
   BadRequestException,
   ConflictException,
@@ -697,7 +698,7 @@ export class ClienteService {
       )
       select
         count(*)::int as total,
-        count(*) filter (where c.ultimo_pedido_em >= date_trunc('month', now() at time zone 'America/Sao_Paulo'))::int as mes,
+        count(*) filter (where c.ultimo_pedido_em >= ${inicioDoPeriodo('month')})::int as mes,
         count(*) filter (where c.ultimo_pedido_em >= now() - interval '30 days')::int as d30,
         count(*) filter (where c.ultimo_pedido_em < now() - interval '30 days')::int as sem30,
         count(*) filter (where c.ultimo_pedido_em < now() - interval '60 days')::int as sem60,
@@ -726,7 +727,7 @@ export class ClienteService {
     ids?: string[];
   }) {
     const seg: Record<string, any> = {
-      mes: sql`and c.ultimo_pedido_em >= date_trunc('month', now() at time zone 'America/Sao_Paulo')`,
+      mes: sql`and c.ultimo_pedido_em >= ${inicioDoPeriodo('month')}`,
       '30d': sql`and c.ultimo_pedido_em >= now() - interval '30 days'`,
       sem_30: sql`and c.ultimo_pedido_em < now() - interval '30 days'`,
       sem_60: sql`and c.ultimo_pedido_em < now() - interval '60 days'`,

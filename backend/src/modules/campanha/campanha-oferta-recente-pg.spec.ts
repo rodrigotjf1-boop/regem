@@ -37,7 +37,7 @@ descrever('a campanha pula quem recebeu oferta automática (3B)', () => {
   beforeAll(async () => {
     admin = new Pool({ connectionString: URL_PG });
     await admin.query(`create schema ${SCHEMA}`);
-    pool = new Pool({ connectionString: URL_PG, options: `-c search_path=${SCHEMA},public` });
+    pool = new Pool({ connectionString: URL_PG, options: `-c search_path=${SCHEMA},public -c timezone=UTC` }); // a sessão em UTC, como a nuvem (ERR-542)
     await pool.query(`
       create table ${SCHEMA}.marketing_optout (
         id uuid primary key default gen_random_uuid(), tenant_id uuid not null, telefone text not null,
@@ -166,7 +166,7 @@ descrever('a campanha pula quem recebeu oferta automática (3B)', () => {
     await campanhaCom(c1, t, '21987673001', { agendada: true, inicia_em: amanha }); // fora da janela
     await campanhaCom(c2, t, '21987673002', { agendada: true, inicia_em: amanha }); // fora da janela
     await campanhaCom(c3, t, '21987673003', { teto_dia: 1 }); // o teto do dia já foi
-    await q(`insert into campanha_envio (campanha_id, tenant_id, telefone, status, enviado_em) values ($1, $2, '21987673009', 'enviado', now() - interval '1 hour')`, [c3, t]);
+    await q(`insert into campanha_envio (campanha_id, tenant_id, telefone, status, enviado_em) values ($1, $2, '21987673009', 'enviado', now())`, [c3, t]);
     await campanhaCom(c4, t, '21987673004');
     await campanhaCom(c5, t, '21987673005');
     const antes = saidas.length;
@@ -206,5 +206,24 @@ descrever('a campanha pula quem recebeu oferta automática (3B)', () => {
     expect([empresaDoEnvio, numero, modelo, opcoes.cupom, opcoes.phoneId]).toEqual([t, '5521987674001', 'promo_com_cupom', 'VOLTA10', 'numero-de-marketing']);
     expect(await q(`select status from campanha_envio where campanha_id = $1`, [id])).toEqual([{ status: 'enviado' }]);
     await q(`update campanha set status = 'concluida' where tenant_id = $1`, [t]);
+  });
+
+  it('o teto do dia começa à meia-noite de Brasília, em qualquer fuso da sessão (ERR-542)', async () => {
+    const t = await empresa();
+    const c = randomUUID();
+    await campanhaCom(c, t, '21987674001', { teto_dia: 1 });
+    // Enviado às 23h30 de ONTEM em Brasília: não conta no teto de hoje. Antes, com a sessão em UTC (a nuvem), o "hoje"
+    // começava às 21h da véspera e este envio contava.
+    await q(
+      `insert into campanha_envio (campanha_id, tenant_id, telefone, status, enviado_em)
+       values ($1, $2, '21987674009', 'enviado',
+               (date_trunc('day', now() at time zone 'America/Sao_Paulo') at time zone 'America/Sao_Paulo') - interval '30 minutes')`,
+      [c, t],
+    );
+    // A sessão desta spec está em UTC, como a nuvem (o pool, lá em cima).
+    expect(await (svc as any).enviadosNoPeriodo(c, 'day')).toBe(0);
+    // E o envio de agora conta.
+    await q(`insert into campanha_envio (campanha_id, tenant_id, telefone, status, enviado_em) values ($1, $2, '21987674010', 'enviado', now())`, [c, t]);
+    expect(await (svc as any).enviadosNoPeriodo(c, 'day')).toBe(1);
   });
 });
