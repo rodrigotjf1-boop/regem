@@ -1447,7 +1447,12 @@ em áudio.**
 Mister usa o clima e os eventos para avisar de chuva e programar entregadores e funcionários em feriados e eventos
 grandes. A fonte do clima precisa de licença comercial.
 
-### Versão 6 — o Mister no comando, com segurança e as regras de cada pessoa (PLANO, espera a aprovação do dono)
+### Versão 6 — o Mister no comando, com segurança e as regras de cada pessoa (aprovada pelo dono em 20/11/2026)
+
+**Aprovação (20/11/2026):** "1 plano aprovado, 3 pode, 2 ok" — o plano com as 12 decisões recomendadas; o "pode" para
+criar imagem e criar vídeo no DMS Graph (`criar_imagem` e `criar_video` do plano "recursos por produto", com as
+recomendadas GR-9 a GR-19; editar foto e ajustar ou editar vídeo seguem esperando); e o dono faz a conferência A1.0 com o
+celular dele. Reforço do dono no mesmo dia: as regras são dinâmicas (§4).
 
 Pedido do dono (20/11/2026), resumido nas palavras dele. Os exemplos que ele deu servem para tirar o padrão, não para
 virar regra fixa.
@@ -1543,7 +1548,8 @@ virar regra fixa.
 
 #### 2. Princípios (valem para todas as fases)
 
-1. **A IA entende e propõe; o código confere e executa.** Número só de consulta; regra só do catálogo; ação só pelo
+1. **A IA entende e propõe; o código confere e executa.** Número só de consulta; regra só com as fontes e os campos que o
+   Mister lê; ação só pelo
    MESMO serviço da tela (V43), com auditoria `origem: 'mister'`, chave idempotente (V42) e "Desfazer" onde a tela
    permite. A IA nunca escreve código que roda.
 2. **"Acesso completo" = completo dentro do perfil de quem fala**, decidido no servidor. O presidente vê e faz tudo o que
@@ -1575,44 +1581,69 @@ virar regra fixa.
 | **A5 · "Perdi o celular"** | Em Mister › Pessoas, para a própria pessoa (e o presidente para qualquer um): desliga o WhatsApp do Mister E encerra todas as sessões do Regem dela (o app logado no celular perdido), com auditoria e aviso aos presidentes. Se ninguém consegue entrar no Regem (não há "esqueci a senha"), o suporte da DMS desliga pelo Console › Mister, com auditoria. | Pessoas; Console › Mister; `JwtAuthGuard` e `RealtimeGateway` (V97) | 1 (468); toca o servidor da loja → `.zip` |
 | **A6 · Trocar de celular** | Mesmo número (chip novo, celular consertado): A1 pede o PIN e segue. Número novo: o código gerado no Regem e mandado do celular novo (já existe; o antigo sai sozinho). PIN esquecido: troca no cadastro. | guia de uso + Pessoas | não |
 
-#### 4. Frente B — as regras de cada pessoa (a parte adaptativa)
+#### 4. Frente B — as regras de cada pessoa (dinâmicas)
 
-**Como funciona**
+**O princípio (reforço do dono, 20/11):** os exemplos são exemplos; a instrução é livre. O Mister monta a regra a partir
+da instrução do presidente e dos DADOS a que ele tem acesso. Não existe lista fixa de regras: existe a lista do que o
+Mister consegue ler (as fontes), e qualquer combinação delas vira regra.
+
+**Como uma instrução vira regra**
 1. A pessoa fala, por texto ou áudio (o áudio já vira texto pela M5b).
-2. A IA traduz para UMA regra do catálogo, por uma ferramenta com o formato de cada sinal (uso estrito do schema,
-   `strict: true`). Nunca código.
-3. O código confere: o sinal existe, os números estão nos limites, a pessoa pode ver aquele dado e o alvo existe (o
-   boleto "X", a tarefa, a impressora). Se faltar algo, o Mister pergunta. Ex.: o boleto vence num DIA, então "uma hora
-   antes de que horário?".
-4. O Mister repete o que entendeu e o que muda no que ela já recebe, e pede "Confirmar". Ex.: "Vou te avisar quando 3 ou
-   mais pedidos passarem de 20 min aceitos sem ficar prontos, numa mensagem só. Os avisos de pedido parado um a um param
-   de chegar para você (o KDS e a tela continuam). Confirma?"
-5. Grava. Uma rotina a cada minuto avalia as regras ativas, em lote por sinal; cada envio leva a chave idempotente da
-   regra, dos itens e da janela.
-6. "Não quero mais…": a IA acha a regra entre as da pessoa (com dúvida, mostra a lista curta), o Mister confirma e
-   apaga. O histórico fica.
-7. "Muda para 25 min", "só de noite": altera a regra que existe.
+2. A IA escreve a regra numa linguagem estruturada (JSON com schema, `strict: true`), com seis partes:
+   - **fonte**: o que observar, uma das fontes de dados do Mister (pedidos, cozinha, contas, tarefas, equipamentos,
+     caixas, canais, vendas, estoque, equipe, cancelamentos, atendimento…);
+   - **filtro**: quais itens, por campo, comparação e valor ("situação = em preparo", "minutos desde o aceite > 20",
+     "a conta da Distribuidora X", "a tarefa de limpar a chapa");
+   - **medida**: o que contar ou medir (quantos itens, a soma, o maior, o tempo, a mudança de situação);
+   - **condição**: quando dispara ("3 ou mais", "acima de 30 min", "abaixo de R$ 2.000 até as 20h", "uma hora antes do
+     vencimento, às 17h");
+   - **quando olhar**: horário, dias, só no expediente, uma vez ou sempre;
+   - **como avisar**: uma mensagem com a lista, o jeito que a pessoa pediu, agrupar, não repetir o mesmo item, e qual
+     aviso da empresa ela deixa de receber.
+3. O código confere tudo: a fonte existe e a pessoa tem a permissão dela; cada campo existe na fonte e tem o tipo certo;
+   os números estão nos limites; o alvo existe no banco. Se faltar algo, o Mister pergunta (ex.: o boleto vence num DIA,
+   então "uma hora antes de que horário?"). O que não dá para montar com os dados que existem, ele diz que ainda não
+   consegue e anota (F5.2), nunca inventa. A IA nunca escreve código.
+4. O Mister repete a regra em português, com o que muda no que a pessoa já recebe, e pede "Confirmar". Ex.: "Vou te
+   avisar quando 3 ou mais pedidos passarem de 20 min aceitos sem ficar prontos, numa mensagem só. Os avisos de pedido
+   parado um a um param de chegar para você (o KDS e a tela continuam). Confirma?"
+5. Um motor só avalia todas as regras: agrupa por empresa e por fonte, lê cada fonte UMA vez por volta (em lote) e
+   aplica o filtro e a condição de cada regra no resultado. Cada envio leva a chave idempotente da regra, dos itens e da
+   janela.
+6. "Muda para 25 min", "só de noite": altera a regra que existe. "Não quero mais…": a IA acha a regra entre as da pessoa
+   (com dúvida, mostra a lista curta), o Mister confirma e apaga. O histórico fica.
 
-**O que uma regra guarda:** de quem é; o sinal; o alvo (todos ou um item); a condição (minutos, quantidade mínima,
-antecedência); o agrupamento (uma mensagem com a lista, a janela); o silêncio (horário, não repetir o mesmo item); o
-formato (curto ou em lista); a validade (até apagar, até uma data ou uma vez); e o aviso da empresa que ela substitui
-para a pessoa.
+**O que uma regra guarda:** de quem é; a frase da pessoa (30 dias, como as perguntas); as seis partes acima; a validade
+(até apagar, até uma data ou uma vez); e a versão das fontes com que foi montada.
 
-**Catálogo de sinais, versão 1 (só com dado que existe):**
+**As fontes (o que o Mister lê), versão 1.** Cada fonte declara os campos (nome, tipo, o que significa), a permissão e
+a cadência mínima de leitura. São as mesmas consultas do Mister, com os campos que a regra pode usar, mais os campos
+derivados que faltam hoje:
 
-| Sinal | O que mede | Dados | Observação |
+| Fonte | Campos de exemplo | Base | Observação |
 |---|---|---|---|
-| `pedidos_em_producao` | pedidos dos canais aceitos e não prontos há mais de N min, com mínimo de M pedidos | `pedido_externo` (`confirmado_em`, situação `confirmado`) | o exemplo dos "Pedidos 22, 24 e 28" |
-| `pedido_para_despachar` | do aceite ao despacho acima de N min | `confirmado_em` → `despachado_em` (ou agora) | trecho novo; vale para entrega |
-| `pedido_sem_aceite` | pedido novo há mais de N min | `criado_em` | |
-| `conta_vence` | conta a pagar (qualquer uma, não só a do Mister), N dias ou horas antes de uma hora | `titulo_financeiro` | a data não tem hora: a hora vem da pessoa ("às 17h") e fica na regra |
-| `tarefa_nao_feita` | a tarefa (uma ou todas) marcada "não feita", OU ainda pendente N min depois do horário de fim | `tarefa_instancia` + `tarefa_def.horario_fim` | a tarefa não tem número: o Mister acha pelo nome ou lista as de hoje pela hora e pergunta qual; só enxerga as tarefas que existem no dia |
-| `impressora_no_expediente` | impressora parada dentro do horário da loja | `vigia_incidente` + `cardapio_config.horarios` | |
-| `caixa_aberto` | caixa aberto há mais de N h | `caixa_sessao` | |
-| `canal_pausado` | canal pausado há mais de N min | a pausa do canal | |
+| pedidos dos canais | número, canal, loja, situação, minutos desde a chegada, desde o aceite, até o pronto, do aceite ao despacho, valor | `pedido_externo` | "do aceite ao despacho" é campo novo, das colunas que existem |
+| cozinha (KDS) | pedido, estação, situação, minutos na fila e em preparo | `producao_pedido` | |
+| contas a pagar | descrição, fornecedor, valor, vencimento (dia), situação | `titulo_financeiro` | o vencimento não tem hora: a regra guarda a hora que a pessoa disser |
+| tarefas do dia | título, horário, horário de fim, situação, quem | `tarefa_instancia` + `tarefa_def` | sem número: a tarefa se acha pelo nome ou pela lista do dia; só as que existem no dia |
+| equipamentos | impressora, servidor, parado desde, dentro do horário da loja | `vigia_incidente` + `cardapio_config.horarios` | |
+| caixas | caixa, aberto desde | `caixa_sessao` | |
+| canais | canal, pausado desde, motivo | a pausa do canal | |
+| vendas | total do dia até agora, por canal, por hora, comparação com as semanas anteriores | os relatórios | só quem vê valores |
+| estoque | item, saldo, mínimo, validade | `item_estoque` | |
+| equipe | escalados, presentes, faltas | escala e ponto | |
+| cancelamentos e atendimento | quantidade, motivo, casos abertos | as consultas que existem | |
 
-Nas versões seguintes, pelo que as pessoas pedirem (a F5.2 já anota o que falta): estoque de um item abaixo de X,
-venda do dia abaixo da meta, cancelamentos acima de N, avaliação ruim.
+Cada fonte nova que o Mister ganha (frentes C e D) entra nesta lista e passa a valer para as regras, sem mudar o motor.
+
+**Os exemplos do dono nesta linguagem** (só para provar que cabem; não são a lista):
+- "3 pedidos há mais de 20 min sem ficar prontos, numa mensagem só" → pedidos; filtro situação = em preparo e minutos
+  desde o aceite > 20; medida quantidade; condição ≥ 3; avisa a lista dos números; substitui o pedido parado.
+- "o despacho, do aceite até sair, acima de 30 min" → pedidos; filtro do aceite ao despacho > 30; avisa cada pedido uma
+  vez.
+- "o boleto X uma hora antes" → contas; alvo a conta X; condição o vencimento às 17h (a hora que a pessoa disse) menos 1 h.
+- "se a tarefa 5 não for feita" → tarefas; alvo a tarefa (o Mister mostra a lista do dia e pergunta qual é a "5").
+- "a impressora desligada antes do fechamento" → equipamentos; filtro parado dentro do horário da loja.
 
 **Junto com o aviso da empresa:** a regra pessoal só muda o que chega à PRÓPRIA pessoa pelo WhatsApp; o KDS, a tela e os
 outros seguem a regra da empresa. O encaixe é pequeno, em `pelosWhatsapps`: pula quem tem regra que substitui aquele tipo.
@@ -1691,7 +1722,7 @@ todos (decisão V6-5). Pede o protótipo.
 | **M6b · Identidade** | A1.0, A1 e A6 no guia | 467 |
 | **M6c · Perdi o celular** | A5: as sessões por pessoa (a guarda e o tempo real); vai no `.zip` | 468 |
 | **M6d · Sessão com PIN** | A2, nascendo desligada | na 467 |
-| **M6e · Regras 1** | o catálogo v1, criar, mudar e apagar pela conversa, a rotina e o encaixe nos avisos da empresa | 469 (`mister_regra`, `mister_regra_envio`) |
+| **M6e · Regras 1** | a linguagem da regra, o motor, as fontes v1, criar, mudar e apagar pela conversa e o encaixe nos avisos da empresa | 469 (`mister_regra`, `mister_regra_envio`) |
 | **M6f · Regras 2** | a tela Regras, os formatos da pessoa, os padrões e as sugestões | 470 (as decisões das sugestões) |
 | **M6g · Lista de compras** | foto, planilha, texto e mínimo → `createLista` | não |
 | **M6h · Cupom fiscal** | a leitura, a conferência da chave 65 e os três jeitos de lançar | 471 (o tipo `cupom` na trava de `mister_documento`: tem `drop constraint`, então o dono aplica pelo SQL Editor — LIC-171) |
