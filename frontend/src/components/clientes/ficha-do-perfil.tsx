@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Gaveta } from '@/components/ui/sobreposto';
 import { Button } from '@/components/ui/button';
+import { OQueMove } from './o-que-move';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -268,6 +269,13 @@ export function FichaDoPerfil({ clienteId, nome, aoFechar }: { clienteId: string
             ) : (
               <p className="mt-1 text-sm text-muted-foreground">Ainda sem avaliação.</p>
             )}
+          </Camada>
+
+          <Camada n={5} titulo="O que move o cliente">
+            <OQueMove linhas={dados.sensibilidade} />
+            <p className="mt-2 text-xs text-muted-foreground">
+              Comparado com ele mesmo, no mesmo dia da semana sem evento, nos últimos 400 dias — e só nos tipos de dia que mexem na loja.
+            </p>
           </Camada>
 
           <p className="text-xs text-muted-foreground">

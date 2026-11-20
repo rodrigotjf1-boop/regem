@@ -56,6 +56,7 @@ descrever('gravar e ler a privacidade (Postgres)', () => {
   beforeAll(async () => {
     await admin.query(`create schema ${SCHEMA}`);
     await pool.query(semFkCompartilhada(readFileSync(MIG_459, 'utf8')));
+    await pool.query(semFkCompartilhada(readFileSync(MIG_459.replace('459_perfil_do_cliente', '463_cliente_evento_sensibilidade'), 'utf8')));
   }, 60_000);
   afterAll(async () => {
     await pool.end();
@@ -96,8 +97,12 @@ descrever('gravar e ler a privacidade (Postgres)', () => {
       const [txt] = await q(`select texto from cliente_escolha where cliente_id = $1`, [id]);
       expect(txt.texto).toMatch(/^Recomendações do meu jeito .*\(textos de 2026-11-19\)$/);
 
+      await q(`insert into cliente_evento_sensibilidade (cliente_id, tipo, tenant_id, rr, prob, pedidos, esperado, dias_com_pedido, selo)
+               values ($1,'dinheiro',$2,1.8,0.95,6,3.2,4,true)`, [id, t]);
       await gravarPrivacidade(db, cli, lerPedidoDePrivacidade({ escolhas: { nao_analisar: true }, declarado: { time: null } }));
       expect(await q(`select 1 from cliente_perfil where cliente_id = $1`, [id])).toEqual([]);
+      // O que move o cliente (mig 463) sai junto, na hora.
+      expect(await q(`select 1 from cliente_evento_sensibilidade where cliente_id = $1`, [id])).toEqual([]);
       const estado = await lerPrivacidade(db, t, id);
       expect(estado.escolhas).toEqual({ recomendacoes: true, atendimento_personalizado: false, nao_analisar: true, maior_de_18: false });
       expect(estado.ativo).toBe(false); // o módulo nasce desligado: o cardápio não mostra a seção
