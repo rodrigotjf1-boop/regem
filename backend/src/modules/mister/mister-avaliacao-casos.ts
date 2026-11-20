@@ -18,6 +18,7 @@ import { conferirMemoria } from './mister-memoria';
 import { canalDito, conferirTextoDoLembrete, lerQuando, quandoNaConversa } from './mister-vigia';
 import { AVISOS_QUE_NAO_SE_CALAM, conferirRegra, descreverRegra } from './mister-regra';
 import { lerPedidos } from './mister-lista';
+import { conferirAcao, resumoDoPedido } from './mister-acoes';
 import { ehTipoDeAviso } from './mister-avisos.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -293,6 +294,14 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
     case 'refazer_grafico':
       // Versão 6, M6i: na avaliação não há gráfico guardado — a resposta é a de quem não tem o que refazer.
       return recusa('Não tenho um gráfico desta conversa nos últimos 30 minutos: peça o gráfico de novo (mostrar_grafico).');
+    case 'propor_acao': {
+      // Versão 6, M6j: a mesma conferência da de verdade (os motivos e os tempos da tela); na avaliação nada é proposto nem feito.
+      const c = conferirAcao(en.acao, en);
+      if ('erro' in c) return recusa(c.erro);
+      const p = c.parametros;
+      const resumo = p.acao === 'aceitar_pedido' || p.acao === 'pedido_pronto' || p.acao === 'despachar_pedido' ? resumoDoPedido(p.acao, `#${p.numero}`) : c.resumo;
+      return ok({ oQueVouFazer: resumo, siga: 'Mostre o "oQueVouFazer" como veio e diga que os botões "Autorizar" e "Não agora" chegam logo abaixo. Nada é feito sem o "Autorizar". Não diga que fez.' });
+    }
     case 'lista_de_compras': {
       // Versão 6, M6g: a mesma leitura das linhas da de verdade; na avaliação nenhuma lista é guardada nem pedida.
       if (en.acao === 'do_minimo') return ok({ vazia: true, mensagem: 'Nada está abaixo do mínimo no estoque agora: não há o que pôr na lista.' });

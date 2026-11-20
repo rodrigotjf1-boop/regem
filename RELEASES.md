@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister versão 6, M6j lote 1 — a porta `propor_acao` e as ações do Delivery (20/11; SEM migration).** Só na nuvem (o
+  Mister): vai no `.zip` sem efeito na loja.
+
 - **Mister versão 6, M6f parte 2 — os padrões que o Mister percebe e as sugestões (20/11; mig 478 SÓ NUVEM —
   `mister_padrao`; nasce desligada, `MISTER_PADROES=1`).** Só na nuvem → vai no `.zip` sem efeito na loja; a tabela =
   SO_NUVEM no `sync-daemon.mjs` (o daemon mudou → o `.exe` da próxima release leva).

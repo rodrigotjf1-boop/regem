@@ -49,6 +49,7 @@ import {
   TEXTOS_DA_SESSAO,
 } from './mister-procedimentos';
 import { estadoDaSessao } from './mister-sessao';
+import { TEXTOS_DAS_ACOES, ehAcaoDoMister } from './mister-acoes';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -128,6 +129,13 @@ export class MisterPropostasService implements OnModuleInit {
     // F4.2b: o cancelamento é o MESMO do botão "Cancelar" do painel do Delivery.
     @Optional() private readonly delivery?: DeliveryService,
   ) {}
+
+  // Versão 6, M6j: as ações da porta `propor_acao` moram no `MisterAcoesService`, que se apresenta (nenhum injeta o outro
+  // nos dois sentidos). Ele executa pelo serviço da tela, confere o efeito e devolve o desfecho — o "feito" sai daqui.
+  private acao: ((p: { id: string; tenantId: string; unidadeId: string | null; procedimento: string; parametros: any; autorizadaPor: string | null }) => Promise<{ feita: boolean; texto: string }>) | null = null;
+  registrarAcao(f: (p: { id: string; tenantId: string; unidadeId: string | null; procedimento: string; parametros: any; autorizadaPor: string | null }) => Promise<{ feita: boolean; texto: string }>): void {
+    this.acao = f;
+  }
 
   /** O toque num botão de proposta chega pela entrada do WhatsApp, que mora no módulo de baixo. */
   onModuleInit(): void {
@@ -309,7 +317,7 @@ export class MisterPropostasService implements OnModuleInit {
     if (!b || !empresas.length) return false;
     const [p] = linhas(
       await this.db.execute(sql`
-        select id::text as id, tenant_id::text as "tenantId", procedimento, situacao, vence_em as "venceEm", nivel
+        select id::text as id, tenant_id::text as "tenantId", procedimento, situacao, vence_em as "venceEm", nivel, parametros
           from mister_proposta
          where id = ${b.propostaId}::uuid and tenant_id in (${sql.join(empresas.map((t) => sql`${t}::uuid`), sql`, `)})`),
     );
@@ -321,7 +329,14 @@ export class MisterPropostasService implements OnModuleInit {
       await this.falar(quem.telefone, TEXTOS_DO_LINK.soPeloLink(primeiroNome(c?.nome)));
       return true;
     }
-    if (v.nivel !== 'presidente') {
+    // Versão 6, M6j: a ação da porta `propor_acao` é de QUEM pediu — só essa pessoa autoriza (o presidente ou o gerente com
+    // a permissão do perfil, conferida ao propor e de novo ao executar). As outras propostas seguem só do presidente.
+    const acao = ehAcaoDoMister(p.procedimento);
+    if (acao && v.colaboradorId !== String(p.parametros?.colaboradorId ?? '')) {
+      await this.falar(quem.telefone, TEXTOS_DAS_ACOES.naoDisponivel);
+      return true;
+    }
+    if (!acao && v.nivel !== 'presidente') {
       await this.falar(quem.telefone, TEXTOS_DA_PROPOSTA.soPresidente);
       return true;
     }
@@ -343,7 +358,7 @@ export class MisterPropostasService implements OnModuleInit {
         update mister_proposta
            set situacao = ${b.autorizar ? 'autorizada' : 'recusada'}, respondida_em = now(), autorizada_por = ${v.colaboradorId}::uuid,
                telefone_final = ${final}, concluida_em = case when ${b.autorizar} then null else now() end,
-               resultado = case when ${b.autorizar} then null else 'recusada pelo presidente' end
+               resultado = case when ${b.autorizar} then null else ${acao ? 'não autorizada por quem pediu' : 'recusada pelo presidente'} end
          where id = ${p.id}::uuid and situacao = 'proposta' and vence_em > now() and nivel = 'botao'
         returning id`),
     );
@@ -352,8 +367,8 @@ export class MisterPropostasService implements OnModuleInit {
       await this.falar(quem.telefone, vencida ? TEXTOS_DA_PROPOSTA.vencida(horaNoFuso(new Date(p.venceEm))) : TEXTOS_DA_PROPOSTA.jaRespondida);
       return true;
     }
-    await this.auditar(p.tenantId, v.colaboradorId, b.autorizar ? 'mister_proposta_autorizada' : 'mister_proposta_recusada', p.id, { procedimento: p.procedimento, final });
-    await this.falar(quem.telefone, b.autorizar ? TEXTOS_DA_PROPOSTA.autorizada(p.procedimento) : TEXTOS_DA_PROPOSTA.recusada);
+    await this.auditar(p.tenantId, v.colaboradorId, b.autorizar ? 'mister_proposta_autorizada' : 'mister_proposta_recusada', p.id, { procedimento: p.procedimento, final }, 'whatsapp', v.nivel);
+    await this.falar(quem.telefone, b.autorizar ? TEXTOS_DA_PROPOSTA.autorizada(p.procedimento) : acao ? TEXTOS_DA_PROPOSTA.recusadaAcao : TEXTOS_DA_PROPOSTA.recusada);
     // A execução não segura a resposta ao WhatsApp: segue sozinha (e a rotina pega a que ficar para trás).
     if (b.autorizar) void this.executar(p.id).catch((e) => this.logger.error(`a proposta ${p.id} não executou — ${e?.message ?? e}`));
     return true;
@@ -382,7 +397,18 @@ export class MisterPropostasService implements OnModuleInit {
                   autorizada_por::text as "autorizadaPor"`),
     );
     if (!p) return null;
-    await this.auditar(p.tenantId, p.autorizadaPor, 'mister_proposta_executada', p.id, { procedimento: p.procedimento });
+    await this.auditar(p.tenantId, p.autorizadaPor, 'mister_proposta_executada', p.id, { procedimento: p.procedimento }, 'whatsapp', perfilDe(p));
+    if (ehAcaoDoMister(p.procedimento)) {
+      // M6j: pelo serviço da tela, com a permissão conferida de novo; a frase diz o que foi FEITO (o efeito conferido).
+      if (!this.acao) return this.concluir(p, false, 'as ações do Mister não estão disponíveis agora. Nada foi feito.');
+      try {
+        const r = await this.acao(p);
+        return this.concluir(p, r.feita, r.texto);
+      } catch (e: any) {
+        this.logger.error(`a ação ${p.procedimento} da proposta ${p.id} falhou — ${e?.message ?? e}`, e?.stack);
+        return this.concluir(p, false, 'a ação falhou no Regem. Confira no painel do Delivery.');
+      }
+    }
     if (p.procedimento === 'consultar_nota') {
       if (!this.fiscal) return this.concluir(p, false, 'a consulta à SEFAZ não está disponível agora. Consulte pelo Regem.');
       try {
@@ -549,7 +575,7 @@ export class MisterPropostasService implements OnModuleInit {
    * Fecha a proposta que está executando (condicional: uma vez só) e avisa quem autorizou. Devolve a situação final, ou
    * null quando outra volta já fechou.
    */
-  private async concluir(p: { id: string; tenantId: string; autorizadaPor: string | null }, feita: boolean, resultado: string): Promise<string | null> {
+  private async concluir(p: { id: string; tenantId: string; autorizadaPor: string | null; parametros?: any }, feita: boolean, resultado: string): Promise<string | null> {
     const situacao = feita ? 'feita' : 'nao_deu';
     const [fechou] = linhas(
       await this.db.execute(sql`
@@ -558,7 +584,7 @@ export class MisterPropostasService implements OnModuleInit {
         returning concluida_em as "concluidaEm"`),
     );
     if (!fechou) return null;
-    await this.auditar(p.tenantId, p.autorizadaPor, feita ? 'mister_proposta_feita' : 'mister_proposta_nao_deu', p.id, { resultado: resultado.slice(0, 200) });
+    await this.auditar(p.tenantId, p.autorizadaPor, feita ? 'mister_proposta_feita' : 'mister_proposta_nao_deu', p.id, { resultado: resultado.slice(0, 200) }, 'whatsapp', perfilDe(p));
     const [quem] = p.autorizadaPor
       ? linhas(
           await this.db.execute(sql`
@@ -814,9 +840,14 @@ export class MisterPropostasService implements OnModuleInit {
     detalhe: Record<string, unknown>,
     // F4.2a: 'link' = pela página `/m/<código>` com o PIN.
     origem: 'whatsapp' | 'link' = 'whatsapp',
+    // M6j: o perfil de quem autorizou (o gerente nas ações dele); as outras propostas são do presidente.
+    atorPerfil: string = 'presidente',
   ): Promise<void> {
     await this.auditoria
-      ?.registrar({ tenantId, atorId, atorPerfil: 'presidente', tipo: 'mister', acao, entidadeTipo: 'mister_proposta', entidadeId: propostaId, detalhe, origem } as any)
+      ?.registrar({ tenantId, atorId, atorPerfil, tipo: 'mister', acao, entidadeTipo: 'mister_proposta', entidadeId: propostaId, detalhe, origem } as any)
       .catch((e: any) => this.logger.warn(`a auditoria da proposta ${propostaId} falhou — ${e?.message ?? e}`));
   }
 }
+
+/** M6j: o perfil gravado com a ação (quem pediu); as outras propostas são do presidente. */
+const perfilDe = (p: { parametros?: any }): string => (p.parametros?.nivel === 'gerente' ? 'gerente' : 'presidente');

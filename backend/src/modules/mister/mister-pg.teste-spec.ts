@@ -92,6 +92,8 @@ import { MisterRegrasService } from './mister-regras.service';
 import { TEXTOS_DAS_REGRAS } from './mister-regra';
 import { MisterPadroesService, padroesNaInstalacao } from './mister-padroes.service';
 import { TEXTOS_DOS_PADROES } from './mister-padroes';
+import { MisterAcoesService } from './mister-acoes.service';
+import { TEXTOS_DAS_ACOES } from './mister-acoes';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -9244,6 +9246,159 @@ export function testesDoMisterComPostgres(): void {
           await q(`delete from pedido_externo where tenant_id = $1 and display_id like 'P6F-%'`, [A]);
           if (antes) await q(`update cardapio_config set horarios = $2 where id = $1`, [antes.id, antes.horarios === null ? null : JSON.stringify(antes.horarios)]);
           else await q(`delete from cardapio_config where tenant_id = $1 and unidade_id is null`, [A]);
+        }
+      });
+    });
+
+    // ───────────── versão 6, M6j: as ações pela porta propor_acao (lote 1, o Delivery) ─────────────
+    describe('as ações pela porta propor_acao (versão 6, M6j)', () => {
+      // O painel do Delivery é um dublê que ANOTA as chamadas e anda o pedido como o serviço de verdade; a pausa é o serviço
+      // de verdade (só SQL). O serviço das propostas é o de sempre, com o executor das ações registrado.
+      const movidos: any[][] = [];
+      let avancarFazNada = false;
+      const deliveryDasAcoes = {
+        aceitar: async (t: string, ator: string, id: string) => {
+          movidos.push(['aceitar', t, ator, id]);
+          await q(`update pedido_externo set status = 'confirmado', confirmado_em = now() where id = $1 and status = 'novo'`, [id]);
+        },
+        avancar: async (t: string, id: string, dados: any) => {
+          movidos.push(['avancar', t, id, dados?.de]);
+          if (!avancarFazNada) await q(`update pedido_externo set status = 'pronto', pronto_em = now() where id = $1 and status = 'confirmado'`, [id]);
+        },
+        despachar: async (t: string, id: string) => {
+          movidos.push(['despachar', t, id]);
+          await q(`update pedido_externo set status = 'despachado', despachado_em = now() where id = $1`, [id]);
+        },
+      };
+      const propostasDasAcoes = new MisterPropostasService(db, numero, entrada, fiscalDeMentira as any, auditoria, modulos);
+      const acoes = new MisterAcoesService(db, ferramentas, propostasDasAcoes, numero, deliveryDasAcoes as any, new PausaDoCanalService(db, auditoria), auditoria);
+      beforeAll(() => acoes.onModuleInit());
+      const quem = (tel: string, nome: string, nivel: 'presidente' | 'gerente') => ({
+        telefone: tel,
+        vinculos: [{ tenantId: A, colaboradorId: pessoa[nome], unidadeId: nivel === 'gerente' ? lojaDeA : null, nivel, empresa: NOME_A }],
+        wamid: null,
+      });
+      const esperarFim = async (id: string) => {
+        for (let i = 0; i < 60; i++) {
+          const [p] = await q(`select situacao, resultado from mister_proposta where id = $1`, [id]);
+          if (p && ['feita', 'nao_deu'].includes(p.situacao)) return p;
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        return (await q(`select situacao, resultado from mister_proposta where id = $1`, [id]))[0];
+      };
+      const idDaProposta = (r: any) => /^prop:([0-9a-f-]{36}):sim$/.exec(r.mensagens?.[0]?.botoes?.[0]?.id ?? '')?.[1] ?? '';
+
+      it('pausar e reabrir o cardápio, aceitar, despachar e marcar pronto — só no "Autorizar" de quem pediu, pelo serviço da tela, com o efeito conferido', async () => {
+        const tel = telefone();
+        const telCarlos = telefone();
+        await ligar('ana', tel);
+        await ligar('carlos', telCarlos, A, 'gerente');
+        await modulo(A, true);
+        const [antes] = await q(`select id from cardapio_config where tenant_id = $1 and unidade_id is null`, [A]);
+        if (!antes) await q(`insert into cardapio_config (tenant_id, token, ativo) values ($1, $2, true)`, [A, `tok-${randomUUID()}`]);
+        try {
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+          // 1) A pausa: a pergunta com o "o que vou fazer" e os botões; nada muda antes do "Autorizar".
+          const r = await ferramentas.executar(e, 'propor_acao', { acao: 'pausar_canal', canais: ['cardapio'], motivo: 'pedidos', minutos: 30 });
+          expect(r.ok).toBe(true);
+          expect(r.dados.oQueVouFazer).toMatch(/^Pausar o cardápio digital \(motivo: Muitos pedidos agora\)\. Volta: o cardápio digital às \d{2}:\d{2}\.$/);
+          expect(r.mensagens![0].botoes!.map((b) => b.titulo)).toEqual(['Autorizar', 'Não agora']);
+          const id = idDaProposta(r);
+          expect((await q(`select procedimento, nivel, parametros->>'colaboradorId' as quem from mister_proposta where id = $1`, [id]))[0]).toEqual({ procedimento: 'pausar_canal', nivel: 'botao', quem: pessoa.ana });
+          expect(await q(`select 1 from pausa_canal where tenant_id = $1 and canal = 'cardapio' and ate > now()`, [A])).toEqual([]);
+          // O Carlos não autoriza a ação da Ana.
+          numero.pedidos.length = 0;
+          await propostasDasAcoes.responder(`prop:${id}:sim`, quem(telCarlos, 'carlos', 'gerente'));
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DAS_ACOES.naoDisponivel]);
+          // O "Autorizar" da Ana: pelo serviço da tela (a auditoria dele), o efeito conferido e o "feito" com a hora da volta.
+          numero.pedidos.length = 0;
+          auditados.length = 0;
+          await propostasDasAcoes.responder(`prop:${id}:sim`, quem(tel, 'ana', 'presidente'));
+          expect(await esperarFim(id)).toMatchObject({ situacao: 'feita' });
+          expect(await q(`select motivo from pausa_canal where tenant_id = $1 and canal = 'cardapio' and ate > now()`, [A])).toEqual([{ motivo: 'pedidos' }]);
+          const textos = numero.enviadas.map((m) => m.texto);
+          expect(textos[0]).toBe('Autorizado. Fazendo agora…');
+          expect(textos[1]).toMatch(/^✅ Feito às \d{2}:\d{2}\. o cardápio digital pausado\(s\) no Regem; .* \(o cardápio digital até as \d{2}:\d{2}\)\.$/);
+          expect(auditados.map((a) => a.acao)).toEqual(expect.arrayContaining(['mister_proposta_autorizada', 'pausou_canal', 'mister_proposta_feita', 'mister_acao']));
+          expect(auditados.find((a) => a.acao === 'pausou_canal')).toMatchObject({ atorId: pessoa.ana });
+          // Reabrir.
+          const re = await ferramentas.executar(e, 'propor_acao', { acao: 'reabrir_canal', canais: ['cardapio'] });
+          expect(re.dados.oQueVouFazer).toBe('Reabrir o cardápio digital agora.');
+          const idRe = idDaProposta(re);
+          await propostasDasAcoes.responder(`prop:${idRe}:sim`, quem(tel, 'ana', 'presidente'));
+          expect(await esperarFim(idRe)).toMatchObject({ situacao: 'feita', resultado: 'o cardápio digital reaberto(s).' });
+          expect(await q(`select 1 from pausa_canal where tenant_id = $1 and canal = 'cardapio' and ate > now()`, [A])).toEqual([]);
+          // "Não agora": nada é feito.
+          const nao = await ferramentas.executar(e, 'propor_acao', { acao: 'pausar_canal', canais: ['cardapio'], motivo: 'cozinha', minutos: 15 });
+          numero.pedidos.length = 0;
+          await propostasDasAcoes.responder(`prop:${idDaProposta(nao)}:nao`, quem(tel, 'ana', 'presidente'));
+          expect(numero.enviadas.map((m) => m.texto)).toEqual(['Certo, não faço nada.']);
+          expect(await q(`select 1 from pausa_canal where tenant_id = $1 and canal = 'cardapio' and ate > now()`, [A])).toEqual([]);
+
+          // 2) Os pedidos: aceitar, a situação que não serve, despachar.
+          const [{ id: ped }] = await q(
+            `insert into pedido_externo (tenant_id, unidade_id, canal, status, tipo, total, valor_bruto, taxa_entrega, taxa_entrega_dono, display_id, numero, criado_em)
+             values ($1, $2, 'ifood', 'novo', 'entrega', 50, 50, 0, 'marketplace', 'M6J-1', 777, now()) returning id::text as id`,
+            [A, lojaDeA],
+          );
+          const ac = await ferramentas.executar(e, 'propor_acao', { acao: 'aceitar_pedido', numero: '777' });
+          expect(ac.dados.oQueVouFazer).toBe('Aceitar o pedido #777 · iFood M6J-1.');
+          await propostasDasAcoes.responder(`prop:${idDaProposta(ac)}:sim`, quem(tel, 'ana', 'presidente'));
+          expect(await esperarFim(idDaProposta(ac))).toMatchObject({ situacao: 'feita', resultado: 'O pedido #777 · iFood M6J-1 foi aceito.' });
+          expect(movidos).toContainEqual(['aceitar', A, pessoa.ana, ped]);
+          expect(await ferramentas.executar(e, 'propor_acao', { acao: 'aceitar_pedido', numero: '777' })).toEqual({ ok: false, dados: { erro: 'Esse pedido já foi aceito.' } });
+          // Marcar pronto quando o serviço não anda o pedido: "não deu", dizendo a situação em que ele ficou.
+          avancarFazNada = true;
+          const pr = await ferramentas.executar(e, 'propor_acao', { acao: 'pedido_pronto', numero: '777' });
+          await propostasDasAcoes.responder(`prop:${idDaProposta(pr)}:sim`, quem(tel, 'ana', 'presidente'));
+          expect(await esperarFim(idDaProposta(pr))).toMatchObject({ situacao: 'nao_deu', resultado: 'o pedido #777 · iFood M6J-1 continua "em preparo". Confira no painel do Delivery.' });
+          expect(movidos).toContainEqual(['avancar', A, ped, 'confirmado']);
+          avancarFazNada = false;
+          const de = await ferramentas.executar(e, 'propor_acao', { acao: 'despachar_pedido', numero: 'M6J-1' });
+          await propostasDasAcoes.responder(`prop:${idDaProposta(de)}:sim`, quem(tel, 'ana', 'presidente'));
+          expect(await esperarFim(idDaProposta(de))).toMatchObject({ situacao: 'feita', resultado: 'O pedido #777 · iFood M6J-1 saiu para a entrega.' });
+          expect(await ferramentas.executar(e, 'propor_acao', { acao: 'aceitar_pedido', numero: '999999' })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.naoAchado } });
+
+          // 3) O gerente: com o Delivery no perfil, propõe e autoriza a dele; sem ele, não propõe; e quem perdeu a permissão
+          //    depois da pergunta não executa (a régua é conferida de novo na hora).
+          const eCarlos = (await ferramentas.escopo(A, pessoa.carlos, telCarlos))!;
+          expect(await ferramentas.executar({ ...eCarlos, permissoes: { delivery: false } as any }, 'propor_acao', { acao: 'reabrir_canal', canais: ['cardapio'] })).toEqual({
+            ok: false,
+            dados: { erro: TEXTOS_DAS_ACOES.semPermissao },
+          });
+          const pc = await ferramentas.executar(eCarlos, 'propor_acao', { acao: 'reabrir_canal', canais: ['cardapio'] });
+          expect(pc.ok).toBe(true);
+          const [{ id: semDelivery }] = await q(`insert into perfil_acesso (tenant_id, nome, nivel, login_web, permissoes) values ($1, 'Gerente sem Delivery', 'gerente', true, $2::jsonb) returning id`, [
+            A,
+            JSON.stringify({ delivery: false }),
+          ]);
+          await q(`update colaborador set perfil_acesso_id = $2 where id = $1`, [pessoa.carlos, semDelivery]);
+          numero.pedidos.length = 0;
+          auditados.length = 0;
+          try {
+            await propostasDasAcoes.responder(`prop:${idDaProposta(pc)}:sim`, quem(telCarlos, 'carlos', 'gerente'));
+            expect(await esperarFim(idDaProposta(pc))).toMatchObject({ situacao: 'nao_deu', resultado: 'o seu perfil não dá mais acesso ao Delivery. Nada foi feito.' });
+          } finally {
+            await q(`update colaborador set perfil_acesso_id = null where id = $1`, [pessoa.carlos]);
+            await q(`delete from perfil_acesso where id = $1`, [semDelivery]);
+          }
+          expect(auditados.find((a) => a.acao === 'mister_proposta_autorizada')).toMatchObject({ atorId: pessoa.carlos, atorPerfil: 'gerente' });
+          // A execução, de qualquer jeito, só com o "Autorizar" de quem pediu (o id montado à mão não passa).
+          const [{ id: torta }] = await q(
+            `insert into mister_proposta (tenant_id, unidade_id, aviso_id, procedimento, parametros, nivel, vence_em, situacao, autorizada_por)
+             values ($1, null, $2, 'reabrir_canal', $3::jsonb, 'botao', now() + interval '5 minutes', 'autorizada', $4) returning id::text as id`,
+            [A, randomUUID(), JSON.stringify({ acao: 'reabrir_canal', canais: ['cardapio'], colaboradorId: pessoa.ana, nivel: 'presidente' }), pessoa.carlos],
+          );
+          await propostasDasAcoes.executar(torta);
+          expect((await q(`select situacao, resultado from mister_proposta where id = $1`, [torta]))[0]).toEqual({
+            situacao: 'nao_deu',
+            resultado: 'a ação só vale com o "Autorizar" de quem pediu. Nada foi feito.',
+          });
+        } finally {
+          await q(`delete from mister_proposta where tenant_id = $1 and procedimento in ('pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido')`, [A]);
+          await q(`delete from pausa_canal where tenant_id = $1`, [A]);
+          await q(`delete from pedido_externo where tenant_id = $1 and display_id like 'M6J-%'`, [A]);
+          if (!antes) await q(`delete from cardapio_config where tenant_id = $1 and unidade_id is null`, [A]);
         }
       });
     });
