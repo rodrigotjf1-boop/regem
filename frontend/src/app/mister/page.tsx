@@ -16,6 +16,7 @@ import { IaEUso } from '@/components/mister/ia-e-uso';
 import { JeitoDoMister } from '@/components/mister/jeito';
 import { MemoriaDoMister } from '@/components/mister/memoria';
 import { PessoasDoMister } from '@/components/mister/pessoas';
+import { RegrasDoMister } from '@/components/mister/regras';
 import { ResumoDoMister } from '@/components/mister/resumo';
 
 // MISTER — o administrador virtual da loja (protótipo `mockups/regem-mister.html`, aprovado em 13/11/2026).
@@ -30,10 +31,13 @@ import { ResumoDoMister } from '@/components/mister/resumo';
 // "Jeito e memória" (versão 4, `mockups/regem-mister-jeito-memoria.html`, aprovado em 18/11/2026): o perfil e o jeito da
 // empresa (M4a) e "O que o Mister sabe" (M4b, mig 449); os avisos escritos e o "fica de olho" entram na mesma parte, cada
 // um na sua fase. Só o presidente.
-type Parte = 'resumo' | 'pessoas' | 'ia' | 'avisos' | 'documentos' | 'historico' | 'jeito';
+// "Regras" (versão 6, M6f, `mockups/regem-mister-v6.html`, aprovado em 20/11/2026): as regras de aviso de cada pessoa. O
+// presidente vê as de todos; o gerente, as dele — por isso o gerente também tem as partes (Pessoas e Regras).
+type Parte = 'resumo' | 'pessoas' | 'regras' | 'ia' | 'avisos' | 'documentos' | 'historico' | 'jeito';
 const TITULO: Record<Parte, string> = {
   resumo: 'Resumo',
   pessoas: 'Pessoas',
+  regras: 'Regras',
   ia: 'IA e uso',
   avisos: 'Avisos e relatórios',
   documentos: 'Documentos',
@@ -73,12 +77,13 @@ export default function MisterPage() {
     setCat(c);
     // Um link pode abrir direto numa parte (`/mister?parte=ia`). Só o presidente tem a parte da IA.
     const pedida = new URLSearchParams(window.location.search).get('parte');
-    if (c === 'presidente' && (pedida === 'pessoas' || pedida === 'ia' || pedida === 'avisos' || pedida === 'documentos' || pedida === 'historico' || pedida === 'jeito')) setParte(pedida);
+    if (c === 'presidente' && (pedida === 'pessoas' || pedida === 'regras' || pedida === 'ia' || pedida === 'avisos' || pedida === 'documentos' || pedida === 'historico' || pedida === 'jeito')) setParte(pedida);
+    if (c === 'gerente' && pedida === 'regras') setParte('regras');
     if ((c === 'presidente' || c === 'gerente') && !NO_SERVIDOR_DA_LOJA) void lerModulo();
   }, [lerModulo]);
 
   const presidente = cat === 'presidente';
-  const aberta: Parte = presidente ? parte : 'pessoas';
+  const aberta: Parte = presidente ? parte : parte === 'regras' ? 'regras' : 'pessoas';
 
   let corpo: React.ReactNode;
   if (cat && !presidente && cat !== 'gerente') {
@@ -114,12 +119,24 @@ export default function MisterPage() {
             ? 'O administrador virtual da sua loja. Aqui cada gestor liga o próprio WhatsApp ao Mister, e você cuida da chave de IA da empresa. Com o WhatsApp ligado, é só perguntar a ele sobre a loja: as vendas, os pedidos, o estoque. Em "Avisos e relatórios" você escolhe para onde vai cada aviso.'
             : 'O administrador virtual da loja. Ligue aqui o seu WhatsApp ao Mister e pergunte a ele sobre a loja: as vendas, os pedidos, o estoque. Os avisos chegam nas próximas entregas.'}
         </p>
+        {!presidente && (
+          <Partes
+            rotulo="Partes do Mister"
+            partes={[
+              { key: 'pessoas', label: TITULO.pessoas },
+              { key: 'regras', label: TITULO.regras },
+            ]}
+            ativa={aberta}
+            aoEscolher={setParte}
+          />
+        )}
         {presidente && (
           <Partes
             rotulo="Partes do Mister"
             partes={[
               { key: 'resumo', label: TITULO.resumo },
               { key: 'pessoas', label: TITULO.pessoas },
+              { key: 'regras', label: TITULO.regras },
               { key: 'ia', label: TITULO.ia },
               { key: 'avisos', label: TITULO.avisos },
               { key: 'documentos', label: TITULO.documentos },
@@ -132,6 +149,8 @@ export default function MisterPage() {
         )}
         {aberta === 'resumo' ? (
           <ResumoDoMister aoAbrir={setParte} />
+        ) : aberta === 'regras' ? (
+          <RegrasDoMister />
         ) : aberta === 'ia' ? (
           <IaEUso />
         ) : aberta === 'avisos' ? (

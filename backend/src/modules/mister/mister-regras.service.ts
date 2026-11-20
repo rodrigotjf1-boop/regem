@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -305,6 +305,68 @@ export class MisterRegrasService implements OnModuleInit {
         ...(lidas.length ? {} : { aviso: 'Nenhuma regra ainda.' }),
       },
     };
+  }
+
+  // ───────────────────────────── a tela (M6f) ─────────────────────────────
+
+  /**
+   * Mister › Regras (versão 6, M6f): as regras ativas e pausadas — as de todos para o presidente, só as dele para o gerente
+   * (decisão V6-5; a régua é a da conversa). O nome da fonte vem do catálogo; nada da regra crua (o JSON) vai à tela.
+   */
+  async daTela(e: EscopoDoMister): Promise<{ souPresidente: boolean; regras: any[] }> {
+    const deQuem = e.nivel === 'presidente' ? sql`` : sql`and r.colaborador_id = ${e.colaboradorId}::uuid`;
+    const lidas = linhas(
+      await this.db.execute(sql`
+        select r.id::text as id, r.titulo, r.situacao, r.resumo, r.fonte, r.substitui, c.nome as dono,
+               r.colaborador_id::text as "colaboradorId",
+               to_char(r.ultimo_envio_em at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as "ultimoAviso",
+               to_char(r.criada_em at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as "criadaEm"
+          from mister_regra r join colaborador c on c.id = r.colaborador_id and c.tenant_id = r.tenant_id
+         where r.tenant_id = ${e.tenantId}::uuid and r.situacao in ('ativa', 'pausada') ${deQuem}
+         order by (r.colaborador_id = ${e.colaboradorId}::uuid) desc, c.nome, r.criada_em
+         limit 300`),
+    );
+    return {
+      souPresidente: e.nivel === 'presidente',
+      regras: lidas.map((l) => ({
+        id: l.id,
+        titulo: l.titulo,
+        resumo: l.resumo,
+        situacao: l.situacao,
+        fonte: ((r) => (r ? r.charAt(0).toUpperCase() + r.slice(1) : String(l.fonte)))(FONTES_DA_REGRA.find((f) => f.nome === l.fonte)?.rotulo),
+        de: String(l.dono ?? ''),
+        voce: l.colaboradorId === e.colaboradorId,
+        ultimoAviso: l.ultimoAviso ?? null,
+        criadaEm: l.criadaEm,
+        deixaDeReceber: Array.isArray(l.substitui) ? l.substitui : [],
+      })),
+    };
+  }
+
+  /** Pausar, retomar ou apagar pela tela — a mesma régua de quem mexe (a dele, ou qualquer uma para o presidente). */
+  async mudarPelaTela(e: EscopoDoMister, id: string, acao: 'pausar' | 'retomar' | 'apagar'): Promise<{ titulo: string; situacao: string }> {
+    const r = await this.regraDaPessoa(e, String(id ?? ''));
+    if (!r) throw new NotFoundException(TEXTOS_DAS_REGRAS.naoAchada);
+    const nova = acao === 'apagar' ? 'apagada' : acao === 'pausar' ? 'pausada' : 'ativa';
+    const [m] = linhas(
+      await this.db.execute(sql`
+        update mister_regra set situacao = ${nova}, atualizada_em = clock_timestamp(),
+               apagada_em = case when ${nova} = 'apagada' then clock_timestamp() else apagada_em end
+         where id = ${r.id}::uuid and situacao in ('ativa', 'pausada') returning id`),
+    );
+    if (!m) throw new NotFoundException(TEXTOS_DAS_REGRAS.naoAchada);
+    await this.auditoria?.registrar({
+      tenantId: e.tenantId,
+      atorId: e.colaboradorId,
+      atorPerfil: e.nivel,
+      tipo: 'config',
+      acao: `mister_regra_${acao === 'apagar' ? 'apagada' : acao === 'pausar' ? 'pausada' : 'retomada'}`,
+      entidadeTipo: 'mister_regra',
+      entidadeId: r.id,
+      origem: 'web',
+      detalhe: { titulo: r.titulo },
+    });
+    return { titulo: r.titulo, situacao: nova };
   }
 
   /** A regra que esta pessoa pode mexer: a dela, ou qualquer uma da empresa se for o presidente. */
