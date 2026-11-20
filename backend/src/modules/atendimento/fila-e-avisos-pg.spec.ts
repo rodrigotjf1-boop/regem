@@ -7,7 +7,7 @@ import * as schema from '../../db/schema';
 import { BadRequestException } from '@nestjs/common';
 import { comTravaDaEmpresa, migrationJaCriada, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { lerAjusteDaPonte } from '../ponte-chat/ajustes-da-ponte.service';
-import { AJUSTE_DA_FILA_PADRAO, FilaEAvisosService, lerAjusteDaFila } from './fila-e-avisos.service';
+import { AJUSTE_DA_FILA_PADRAO, FilaEAvisosService, lerAjusteDaFila, tempoEstimadoDaFila } from './fila-e-avisos.service';
 import { AtendimentoService } from './atendimento.service';
 import { AtendimentoController } from './atendimento.controller';
 import { guardarDescricaoDaFoto, reservarLeituraDaFoto, ultimaFotoParaOCaso } from '../cardapio/foto-lida';
@@ -33,6 +33,34 @@ describe('o que a tela manda em "Fila e avisos"', () => {
     for (const ruim of [7, '5', true, null, 2.5, -3])
       expect(() => lerAjusteDaFila({ avisarGerenteMin: ruim })).toThrow('Avisar o gerente: escolha 2, 3, 5 ou 10 minutos, ou "Não avisar".');
     expect(() => lerAjusteDaFila({ dizerPosicao: 'sim' })).toThrow('dizerPosicao');
+  });
+
+  it('o tempo médio (mig 469): inteiro de 1 a 240, ou vazio/null para apagar; o resto recusa', () => {
+    expect(lerAjusteDaFila({ tempoMedioMin: 15 })).toEqual({ tempoMedioMin: 15 });
+    expect(lerAjusteDaFila({ tempoMedioMin: 1 })).toEqual({ tempoMedioMin: 1 });
+    expect(lerAjusteDaFila({ tempoMedioMin: 240 })).toEqual({ tempoMedioMin: 240 });
+    expect(lerAjusteDaFila({ tempoMedioMin: null })).toEqual({ tempoMedioMin: null });
+    expect(lerAjusteDaFila({ tempoMedioMin: '' })).toEqual({ tempoMedioMin: null });
+    for (const ruim of [0, 241, -5, 12.5, '15', true, NaN])
+      expect(() => lerAjusteDaFila({ tempoMedioMin: ruim })).toThrow('Tempo médio para resolver um caso: de 1 a 240 minutos, ou vazio.');
+  });
+});
+
+describe('o tempo que o robô diz (posição × tempo médio, em faixas)', () => {
+  it('as faixas: até 10, cerca de 15/20/30/40, mais de 40', () => {
+    expect(tempoEstimadoDaFila(1, 5)).toBe('até 10 minutos');
+    expect(tempoEstimadoDaFila(2, 5)).toBe('até 10 minutos');
+    expect(tempoEstimadoDaFila(1, 11)).toBe('cerca de 15 minutos');
+    expect(tempoEstimadoDaFila(1, 15)).toBe('cerca de 15 minutos');
+    expect(tempoEstimadoDaFila(1, 16)).toBe('cerca de 20 minutos');
+    expect(tempoEstimadoDaFila(2, 15)).toBe('cerca de 30 minutos'); // o exemplo do protótipo
+    expect(tempoEstimadoDaFila(4, 10)).toBe('cerca de 40 minutos');
+    expect(tempoEstimadoDaFila(3, 15)).toBe('mais de 40 minutos');
+    expect(tempoEstimadoDaFila(1, 240)).toBe('mais de 40 minutos');
+  });
+  it('sem posição (já tem alguém, fora do horário) ou sem o tempo definido: nada — o robô não fala de tempo', () => {
+    for (const [p, t] of [[null, 15], [undefined, 15], [0, 15], [1.5, 15], [1, null], [1, undefined], [1, 0]] as const)
+      expect(tempoEstimadoDaFila(p as any, t as any)).toBeNull();
   });
 });
 
@@ -101,6 +129,7 @@ descrever('fila e avisos (Postgres)', () => {
       '380_perfis_do_atendente.sql',
       '381_assuntos_do_atendente.sql',
       '442_fotos_do_cliente.sql', // "Fotos do cliente" (`robo_config.fotos_ler`, `robo_foto_lida`) — o GET dos ajustes lê
+      '469_tempo_medio_da_fila.sql', // "Tempo médio para resolver um caso" (`robo_config.tempo_medio_min`) — ERR-273
     ])
       await aplicar(m);
     A = await empresa('teste aviso ao gerente A');
@@ -190,14 +219,14 @@ descrever('fila e avisos (Postgres)', () => {
     const C = await empresa('teste ajustes da fila');
     const user = { tenantId: C, colaboradorId: null, categoria: 'gerente' } as any;
     expect(await svc.ajustes(C)).toEqual(AJUSTE_DA_FILA_PADRAO);
-    expect(await svc.salvar(user, { avisarGerenteMin: 5 })).toEqual({ avisarGerenteMin: 5, dizerPosicao: true });
+    expect(await svc.salvar(user, { avisarGerenteMin: 5 })).toEqual({ avisarGerenteMin: 5, dizerPosicao: true, tempoMedioMin: null });
     await q(`update robo_config set pausa_minutos = 120 where tenant_id = $1`, [C]); // o outro escritor da linha
-    expect(await svc.salvar(user, { dizerPosicao: false })).toEqual({ avisarGerenteMin: 5, dizerPosicao: false });
+    expect(await svc.salvar(user, { dizerPosicao: false })).toEqual({ avisarGerenteMin: 5, dizerPosicao: false, tempoMedioMin: null });
     expect((await q(`select pausa_minutos from robo_config where tenant_id = $1`, [C]))[0].pausa_minutos).toBe(120);
-    expect(await svc.salvar(user, {})).toEqual({ avisarGerenteMin: 5, dizerPosicao: false });
+    expect(await svc.salvar(user, {})).toEqual({ avisarGerenteMin: 5, dizerPosicao: false, tempoMedioMin: null });
     await expect(svc.salvar(user, { avisarGerenteMin: 4 })).rejects.toThrow('Avisar o gerente');
     await expect(svc.salvar(user, { dizerPosicao: 'nao' })).rejects.toThrow('dizerPosicao');
-    expect(await svc.ajustes(C)).toEqual({ avisarGerenteMin: 5, dizerPosicao: false });
+    expect(await svc.ajustes(C)).toEqual({ avisarGerenteMin: 5, dizerPosicao: false, tempoMedioMin: null });
     expect(auditados.map((a) => a.acao)).toEqual(['aviso_ao_gerente_alterado', 'dizer_posicao_desligado']);
     expect(auditados[0]).toMatchObject({ entidadeTipo: 'robo_config', detalhe: { de: 3, para: 5 } });
   });
@@ -458,5 +487,66 @@ descrever('fila e avisos (Postgres)', () => {
     } finally {
       delete process.env.EDGE_MODE;
     }
+  });
+
+  describe('tempo médio para resolver um caso (mig 469)', () => {
+    it('salva só a coluna dele, quando muda; os outros ajustes não regravam; vazio apaga; fica na auditoria', async () => {
+      const T = await empresa('teste tempo médio da fila');
+      const user = { tenantId: T, colaboradorId: null, categoria: 'gerente' } as any;
+      expect((await svc.ajustes(T)).tempoMedioMin).toBeNull();
+      expect(await svc.salvar(user, { tempoMedioMin: 15 })).toEqual({ avisarGerenteMin: 3, dizerPosicao: true, tempoMedioMin: 15 });
+      // salvar outro ajuste do grupo não mexe no tempo (o `insert ... on conflict` não leva a coluna)
+      expect(await svc.salvar(user, { avisarGerenteMin: 5 })).toEqual({ avisarGerenteMin: 5, dizerPosicao: true, tempoMedioMin: 15 });
+      // o mesmo valor de novo não grava nem audita
+      await svc.salvar(user, { tempoMedioMin: 15 });
+      expect(await svc.salvar(user, { tempoMedioMin: null })).toMatchObject({ tempoMedioMin: null });
+      expect(auditados.filter((a) => a.acao === 'tempo_medio_da_fila_alterado').map((a) => a.detalhe)).toEqual([
+        { de: null, para: 15 },
+        { de: 15, para: null },
+      ]);
+      // o banco também recusa fora da faixa (o `check` da 469), mesmo sem passar pela conferência
+      await expect(q(`update robo_config set tempo_medio_min = 0 where tenant_id = $1`, [T])).rejects.toThrow(/robo_config_tempo_medio_min_faixa/);
+      await expect(svc.salvar(user, { tempoMedioMin: 300 })).rejects.toThrow('Tempo médio para resolver um caso');
+    });
+
+    it('o robô recebe o tempoEstimado com a posição (2º da fila × 15 min = "cerca de 30 minutos"); sem tempo ou sem posição, nada', async () => {
+      const T = await empresa('teste tempo estimado no robô');
+      const user = { tenantId: T, colaboradorId: null, categoria: 'gerente' } as any;
+      const atendimento = new AtendimentoService(db, eventos, {} as any, undefined, svc);
+      const dados = (tel: string) => ({ tipo: 'humano', telefone: tel, mensagem: 'quero falar com alguém' }) as any;
+      // sem o tempo definido: como sempre foi, sem a chave
+      const semTempo = await atendimento.abrirPeloRobo(T, null, dados('21911110001'));
+      expect(semTempo.posicao).toBe(1);
+      expect(semTempo).not.toHaveProperty('tempoEstimado');
+      await svc.salvar(user, { tempoMedioMin: 15 });
+      const segundo = await atendimento.abrirPeloRobo(T, null, dados('21911110002'));
+      expect(segundo).toMatchObject({ ok: true, posicao: 2, tempoEstimado: 'cerca de 30 minutos' });
+      // já tem alguém com o caso: posição nula, nada de tempo
+      await q(`update atendimento_chamado set responsavel_id = $2 where id = $1`, [segundo.id, gerente]);
+      const comAlguem = await atendimento.abrirPeloRobo(T, null, dados('21911110002'));
+      expect(comAlguem).toMatchObject({ comAlguem: true, posicao: null });
+      expect(comAlguem).not.toHaveProperty('tempoEstimado');
+      // "Dizer a posição" desligado: nem posição nem tempo
+      await svc.salvar(user, { dizerPosicao: false });
+      const desligado = await atendimento.abrirPeloRobo(T, null, dados('21911110003'));
+      expect(desligado).toMatchObject({ posicao: null });
+      expect(desligado).not.toHaveProperty('tempoEstimado');
+    });
+
+    it('o tempo medido: casos resolvidos dos últimos 30 dias, mediana e 80%; sem casos, nulos', async () => {
+      const T = await empresa('teste tempo medido da fila');
+      expect(await svc.tempoMedido(T)).toEqual({ dias: 30, casos: 0, medianaMin: null, p80Min: null });
+      const resolvido = (criadoHaMin: number, levouMin: number) =>
+        q(
+          `insert into atendimento_chamado (tenant_id, tipo, canal, prioridade, status, criado_em, resolvido_em)
+           values ($1, 'humano', 'whatsapp', 'normal', 'resolvido', now() - make_interval(mins => $2),
+                   now() - make_interval(mins => $2) + make_interval(mins => $3))`,
+          [T, criadoHaMin, levouMin],
+        );
+      for (const levou of [10, 20, 30, 40, 100]) await resolvido(600, levou);
+      await resolvido(60 * 24 * 31, 5); // de mais de 30 dias: fora
+      await caso(T, 120); // aberto, sem resolver: fora
+      expect(await svc.tempoMedido(T)).toEqual({ dias: 30, casos: 5, medianaMin: 30, p80Min: 52 });
+    });
   });
 });
