@@ -197,6 +197,23 @@ export class DistribuicaoController {
     return r;
   }
 
+  // Versão 6, M6b (A1.0, mig 484): a conferência do aparelho, que só observa. O hash nunca sai daqui: só o final do número.
+  @Get('mister/aparelho')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  aparelhoDoMister() {
+    return this.mister.aparelho();
+  }
+
+  @Post('mister/aparelho')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  async mudarAparelhoDoMister(@DistUser() u: DistCtx, @Body() dto: any) {
+    const r = await this.mister.mudarAparelho(dto, u);
+    await this.service.auditar(u, r.ligado ? 'ligou_conferencia_aparelho_mister' : 'desligou_conferencia_aparelho_mister', undefined, {});
+    return r;
+  }
+
   @Post('mister/liberacao')
   @UseGuards(DistribuicaoGuard, PerfilDistGuard)
   @PerfilDist('diretoria')

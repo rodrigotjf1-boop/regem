@@ -1951,6 +1951,19 @@ pergunta (a resposta estava certa; o caso foi atualizado, e a **c49** nova cobre
 (ERR-553: corrigido no `numerosDosResultados`; na loja de verdade era um falso "valor sem origem" na Segurança a cada
 gráfico). A avaliação passa a 49 perguntas.
 
+**M6b, peça A1.0 (21/11/2026; mig 484) — a ferramenta do teste, que SÓ OBSERVA:**
+- O que a doc oficial da Meta confirma (página "Phone Numbers", lida em 21/11): o bloqueio (status `failed`, código 137000)
+  vale para o envio com `recipient_identity_key_hash` DIFERENTE; a saída é reenviar SEM o hash. O Regem não manda o hash em
+  envio nenhum. A doc não diz: quais ações mudam o hash, o que acontece com o envio sem hash depois da troca, e tem duas
+  formas do corpo (`enable_identity_key_check` na página, `enabled` na referência de `/settings`). A leitura de `/settings`
+  não devolve a situação do recurso, por isso quem ligou e quando ficam em `mister_numero`.
+- Console › Mister › **Conferência do aparelho** (só Diretoria, com auditoria): liga e desliga o recurso na Meta (tenta as
+  duas formas; passa à segunda só com HTTP 400; grava só depois de a Meta aceitar) e mostra os telefones vistos pelo FINAL,
+  quando e se mudou. O hash não sai na API. Este bloco não está no protótipo: é a ferramenta do teste da A1.0.
+- A entrada anota `contacts[].identity_key_hash` no vínculo (`mister-aparelho.ts`, `anotarAparelho`, uma instrução) e segue
+  igual: nenhuma resposta depende disso. **O bloqueio com PIN (A1) só começa depois do teste do dono:** ligar, mandar
+  mensagem, reinstalar o WhatsApp do celular de teste, mandar de novo e anotar se o hash mudou e se a resposta chegou.
+
 **M6k, lote 1 (20/11/2026; SEM migration) — o guia "como faço" em mais 8 itens do menu, com imagem:**
 - Eram 31 itens do menu sem assunto no guia (a conta sai do `shell.tsx` × os caminhos do `mister-guia-de-uso.ts`). O lote 1
   cobre 8: Dashboard (`painel-do-dia`), Tarefas › Tarefas (`criar-tarefa`), Mural & clima (`mural`), Delivery › Clientes
