@@ -29,6 +29,8 @@ export const ACOES_DO_MISTER = [
   'concluir_tarefa',
   'pausar_produto',
   'reativar_produto',
+  // Lote 3: criar a tarefa de hoje.
+  'criar_tarefa',
 ] as const;
 export type AcaoDoMister = (typeof ACOES_DO_MISTER)[number];
 export const ehAcaoDoMister = (p: unknown): p is AcaoDoMister => (ACOES_DO_MISTER as readonly string[]).includes(String(p));
@@ -38,7 +40,7 @@ export interface DefinicaoDaAcao {
   /** O tamanho do risco (decisão do plano): o botão de quem pediu. As de PIN (preço, horário, pagar) são os lotes seguintes. */
   nivel: 'botao';
   /** A permissão do perfil — a MESMA da rota da tela. O presidente pode tudo. */
-  permissao: 'delivery' | 'meu_dia' | 'loja';
+  permissao: 'delivery' | 'meu_dia' | 'loja' | 'checklist';
   /** Por quanto tempo a pergunta vale. */
   prazoMin: number;
   /** O nome curto, para a auditoria e o histórico das propostas. */
@@ -56,6 +58,8 @@ export const ACOES: Record<AcaoDoMister, DefinicaoDaAcao> = {
   concluir_tarefa: { id: 'concluir_tarefa', nivel: 'botao', permissao: 'meu_dia', prazoMin: 10, nome: 'marcar uma tarefa do dia' },
   pausar_produto: { id: 'pausar_produto', nivel: 'botao', permissao: 'loja', prazoMin: 10, nome: 'pausar um produto' },
   reativar_produto: { id: 'reativar_produto', nivel: 'botao', permissao: 'loja', prazoMin: 10, nome: 'reativar um produto' },
+  // Lote 3: a permissão das rotas `POST /tarefas` e `POST /tarefas-instancias/instanciar` (Checklist & registros).
+  criar_tarefa: { id: 'criar_tarefa', nivel: 'botao', permissao: 'checklist', prazoMin: 10, nome: 'criar uma tarefa para hoje' },
 };
 
 // ───────────────────────────── lote 2: a tarefa e o produto ─────────────────────────────
@@ -113,7 +117,8 @@ export type ParametrosDaAcao =
   | { acao: 'reabrir_canal'; canais: CanalDaPausa[] }
   | { acao: 'aceitar_pedido' | 'pedido_pronto' | 'despachar_pedido'; numero: string }
   | { acao: 'concluir_tarefa'; tarefa: string; estado: EstadoDaTarefa; justificativa: string | null }
-  | { acao: 'pausar_produto' | 'reativar_produto'; produto: string; canais: CanalDoProduto[] | null };
+  | { acao: 'pausar_produto' | 'reativar_produto'; produto: string; canais: CanalDoProduto[] | null }
+  | { acao: 'criar_tarefa'; titulo: string; funcao: string; horario: string | null; responsavel: string | null };
 
 const TEMPOS_TEXTO = `cardápio digital e iFood: ${TEMPOS_DO_CARDAPIO.join(', ')} min ou "até HH:MM"; 99: ${TEMPOS_DA_99.join(', ')} min ou até o fim do dia`;
 
@@ -168,6 +173,20 @@ export function conferirAcao(acao: unknown, en: Record<string, unknown>, agora: 
     const canais = lidos.length ? (CANAIS_DO_PRODUTO as readonly CanalDoProduto[]).filter((c) => lidos.includes(c)) : null;
     const verbo = acao === 'pausar_produto' ? 'Pausar' : 'Reativar';
     return { parametros: { acao, produto, canais }, resumo: `${verbo} "${produto}" ${canais ? ondeOProduto(canais) : 'em todos os canais em que ele está'}.` };
+  }
+  if (acao === 'criar_tarefa') {
+    // A MESMA exigência da tela (`TarefaDefService.create`): o título e a função ("Selecione a função da tarefa.").
+    const titulo = String(en.titulo ?? '').trim().replace(/\s+/g, ' ');
+    if (titulo.length < 2 || titulo.length > 120) return { erro: 'Diga o título da tarefa (de 2 a 120 letras).' };
+    const funcao = String(en.funcao ?? '').trim().replace(/\s+/g, ' ');
+    if (funcao.length < 2 || funcao.length > 60) return { erro: 'Diga a função da tarefa (quem faz: a cozinha, o caixa, a limpeza…), como está no cadastro das funções.' };
+    const horario = typeof en.horario === 'string' && en.horario.trim() ? en.horario.trim() : null;
+    if (horario !== null && !/^([01]\d|2[0-3]):[0-5]\d$/.test(horario)) return { erro: 'O horário da tarefa vai em HH:MM (por exemplo 15:30).' };
+    const responsavel = typeof en.responsavel === 'string' && en.responsavel.trim() ? en.responsavel.trim().slice(0, 80) : null;
+    return {
+      parametros: { acao, titulo, funcao, horario, responsavel },
+      resumo: `Criar para hoje a tarefa "${titulo}"${horario ? ` às ${horario}` : ''}, da função ${funcao}${responsavel ? `, para ${responsavel}` : ''}.`,
+    };
   }
   const numero = String(en.numero ?? '').trim().replace(/^#/, '');
   if (!numero || numero.length > 40) return { erro: 'Diga o número do pedido como aparece no painel do Delivery.' };
@@ -229,4 +248,13 @@ export const TEXTOS_DAS_ACOES = {
   produtosDemais: (nomes: string) => `Achei mais de um produto com esse nome: ${nomes}. Diga qual.`,
   produtoFeito: (nome: string, pausado: boolean, onde: string) => `"${nome}" ${pausado ? 'pausado' : 'reativado'} ${onde}.`,
   produtoNaoFicou: (nome: string, onde: string) => `"${nome}" não ficou como pedido ${onde}. Confira no cardápio.`,
+  // Lote 3.
+  semPermissaoChecklist: 'O seu perfil no Regem não dá acesso aos checklists e tarefas: essa ação não sai por aqui. Quem muda o perfil é o presidente.',
+  lojaDaTarefa: 'A empresa tem mais de uma loja: diga de qual loja é a tarefa.',
+  funcaoNaoAchada: 'Não achei essa função no cadastro das funções. Diga o nome como está cadastrado.',
+  funcoesDemais: (nomes: string) => `Achei mais de uma função com esse nome: ${nomes}. Diga qual.`,
+  responsavelNaoAchado: 'Não achei essa pessoa entre os colaboradores ativos da loja. Diga o nome como está no cadastro, ou crie sem responsável.',
+  responsaveisDemais: (nomes: string) => `Achei mais de uma pessoa com esse nome: ${nomes}. Diga qual.`,
+  tarefaCriada: (titulo: string) => `A tarefa "${titulo}" foi criada para hoje.`,
+  tarefaNaoCriada: (titulo: string) => `a tarefa "${titulo}" não apareceu na lista de hoje. Confira na lista de tarefas.`,
 } as const;

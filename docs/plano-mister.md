@@ -1932,6 +1932,17 @@ regressão de novo quando as instruções mudam; a Meta pela doc oficial (V20); 
   tela Tarefas usava o dia em UTC e, depois das 21h, mostrava as tarefas de amanhã.
 - As instruções mudaram (a regra "Fazer pelo WhatsApp" com as ações novas): rodar a avaliação.
 
+**M6j, lote 3 (20/11/2026; SEM migration) — criar a tarefa de hoje:**
+- `criar_tarefa` — título, a função de quem faz (pelo nome, como no cadastro das funções: a tela exige), e, se a pessoa
+  disser, o horário (HH:MM) e o responsável (pelo nome, entre os colaboradores ativos da loja). As DUAS etapas do "Nova
+  tarefa" da tela: `TarefaDefService.create` (com quem criou — o nível que trava editar e excluir depois) e
+  `TarefaInstanciaService.instanciar` para hoje (o responsável dito; senão o escalado ou em aberto). A permissão é a das
+  rotas (Checklist & registros). A conferência é a tarefa na lista de hoje.
+- A `propor_acao` passou a receber `loja` (como as consultas): a ação de uma loja (criar tarefa, pausar o cardápio) na
+  empresa de várias lojas diz qual.
+- Ficam para os próximos lotes: preço por canal e horário da loja (de PIN), pagar conta (de PIN), estoque (movimento e
+  contagem), as consultas de escala e ponto e os números dos clientes.
+
 **M6k, lote 1 (20/11/2026; SEM migration) — o guia "como faço" em mais 8 itens do menu, com imagem:**
 - Eram 31 itens do menu sem assunto no guia (a conta sai do `shell.tsx` × os caminhos do `mister-guia-de-uso.ts`). O lote 1
   cobre 8: Dashboard (`painel-do-dia`), Tarefas › Tarefas (`criar-tarefa`), Mural & clima (`mural`), Delivery › Clientes

@@ -94,6 +94,7 @@ import { MisterPadroesService, padroesNaInstalacao } from './mister-padroes.serv
 import { TEXTOS_DOS_PADROES } from './mister-padroes';
 import { MisterAcoesService } from './mister-acoes.service';
 import { TarefaInstanciaService } from '../tarefa/tarefa-instancia.service';
+import { TarefaDefService } from '../tarefa/tarefa-def.service';
 import { ProdutoService } from '../produto/produto.service';
 import { TEXTOS_DAS_ACOES } from './mister-acoes';
 
@@ -9278,6 +9279,7 @@ export function testesDoMisterComPostgres(): void {
       const produtosDeVerdade = new ProdutoService(db, auditoria, { flashProdutos: async () => undefined } as any, undefined as any);
       const acoes = new MisterAcoesService(
         db, ferramentas, propostasDasAcoes, numero, deliveryDasAcoes as any, new PausaDoCanalService(db, auditoria), auditoria, tarefasDeVerdade, produtosDeVerdade,
+        new TarefaDefService(db),
       );
       beforeAll(() => acoes.onModuleInit());
       const quem = (tel: string, nome: string, nivel: 'presidente' | 'gerente') => ({
@@ -9481,6 +9483,46 @@ export function testesDoMisterComPostgres(): void {
           await q(`delete from tarefa_instancia where id = $1`, [inst]);
           await q(`delete from tarefa_def where id = $1`, [def]);
           await q(`delete from produto where id = $1`, [prod]);
+        }
+      });
+
+      it('lote 3: criar a tarefa de hoje — a função pelo nome, o responsável entre os ativos da loja, as duas etapas da tela', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        await modulo(A, true);
+        const hoje = dataNoFuso(new Date());
+        const quemAna = { telefone: tel, vinculos: [{ tenantId: A, colaboradorId: pessoa.ana, unidadeId: null, nivel: 'presidente' as const, empresa: NOME_A }], wamid: null };
+        try {
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+          const r = await ferramentas.executar(e, 'propor_acao', {
+            acao: 'criar_tarefa',
+            titulo: 'M6J Repor os guardanapos',
+            funcao: 'f execucao',
+            horario: '18:30',
+            responsavel: 'edu',
+            loja: 'Loja Centro',
+          });
+          expect(r.dados.oQueVouFazer).toBe('Criar para hoje a tarefa "M6J Repor os guardanapos" às 18:30, da função F execucao, para Edu Balcão.');
+          await propostasDasAcoes.responder(`prop:${idDaProposta(r)}:sim`, quemAna);
+          expect(await esperarFim(idDaProposta(r))).toMatchObject({ situacao: 'feita', resultado: 'A tarefa "M6J Repor os guardanapos" foi criada para hoje.' });
+          const [t] = await q(
+            `select d.titulo, d.horario, d.criado_por_id::text as quem, d.unidade_id::text as loja, i.estado, i.colaborador_resolvido_id::text as resp
+               from tarefa_def d join tarefa_instancia i on i.tarefa_def_id = d.id
+              where d.tenant_id = $1 and d.titulo = 'M6J Repor os guardanapos' and i.data = $2::date`,
+            [A, hoje],
+          );
+          expect(t).toMatchObject({ titulo: 'M6J Repor os guardanapos', quem: pessoa.ana, loja: lojaDeA, estado: 'pendente', resp: pessoa.edu });
+          expect(String(t.horario).slice(0, 5)).toBe('18:30');
+          // Sem a função, a pergunta volta; a função que não existe, também.
+          expect(await ferramentas.executar(e, 'propor_acao', { acao: 'criar_tarefa', titulo: 'M6J Outra', loja: 'Loja Centro' })).toMatchObject({ ok: false });
+          expect(await ferramentas.executar(e, 'propor_acao', { acao: 'criar_tarefa', titulo: 'M6J Outra', funcao: 'astronauta', loja: 'Loja Centro' })).toEqual({
+            ok: false,
+            dados: { erro: TEXTOS_DAS_ACOES.funcaoNaoAchada },
+          });
+        } finally {
+          await q(`delete from mister_proposta where tenant_id = $1 and procedimento = 'criar_tarefa'`, [A]);
+          await q(`delete from tarefa_instancia where tenant_id = $1 and tarefa_def_id in (select id from tarefa_def where tenant_id = $1 and titulo like 'M6J %')`, [A]);
+          await q(`delete from tarefa_def where tenant_id = $1 and titulo like 'M6J %'`, [A]);
         }
       });
     });
