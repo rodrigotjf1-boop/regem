@@ -16,6 +16,7 @@ import {
   situacaoDoModelo,
 } from './mister-modelos';
 import { Resposta, corpoDaReacaoDoMister, soDigitos, textoParaOEvolution } from './mister.regras';
+import { corposDaConferencia } from './mister-aparelho';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -883,9 +884,87 @@ export class MisterNumeroService {
     await this.db.execute(sql`
       update mister_numero
          set phone_id = null, waba_id = null, numero = null, nome_exibido = null, forma = null, situacao = 'sem', motivo = null,
-             conectado_em = null, situacao_em = now(), alterado_por = ${autor.nome}, atualizado_em = now()
+             conectado_em = null, situacao_em = now(), alterado_por = ${autor.nome}, atualizado_em = now(),
+             conferir_aparelho = false
        where id = 1`);
     return this.ler();
+  }
+
+  // ───────────────────────────── a conferência do aparelho (M6b, A1.0; mig 484) ─────────────────────────────
+  // Só OBSERVA: anota o hash que a Meta manda e quando ele mudou. Nenhuma resposta depende disto até a A1.0 medir o que
+  // muda o hash. O hash nunca sai pela API: o console vê o final do número e as horas.
+
+  /** Anota o hash do aparelho nos vínculos deste telefone, numa instrução só (o `set` lê os valores de antes). */
+  async anotarAparelho(tel: string, hash: string): Promise<void> {
+    await this.db.execute(sql`
+      update mister_vinculo
+         set aparelho_anterior_hash = case when aparelho_hash is not null and aparelho_hash <> ${hash} then aparelho_hash else aparelho_anterior_hash end,
+             aparelho_mudou_em = case when aparelho_hash is not null and aparelho_hash <> ${hash} then now() else aparelho_mudou_em end,
+             aparelho_hash = ${hash},
+             aparelho_visto_em = now()
+       where telefone = ${tel} and ligado_em is not null`);
+  }
+
+  /** O que o console mostra: se está ligado, quem ligou e os telefones vistos (só o final do número). */
+  async conferenciaDoAparelho() {
+    const n = await this.ler();
+    const [c] = linhas(
+      await this.db.execute(sql`
+        select conferir_aparelho as ligado, ${iso('conferir_aparelho_em')} as em, conferir_aparelho_por as por
+          from mister_numero where id = 1`),
+    );
+    const vistos = linhas(
+      await this.db.execute(sql`
+        with t as (
+          select telefone, max(aparelho_visto_em) as visto, max(aparelho_mudou_em) as mudou
+            from mister_vinculo
+           where telefone is not null and ligado_em is not null and aparelho_visto_em is not null
+           group by telefone
+        )
+        select right(telefone, 4) as final, ${iso('visto')} as "vistoEm", ${iso('mudou')} as "mudouEm",
+               (select count(*) from t)::int as total, (select count(*) from t where mudou is not null)::int as mudaram
+          from t order by visto desc limit 20`),
+    );
+    return {
+      disponivel: n.provedor === 'oficial' && n.situacao !== 'sem' && !!n.phoneId,
+      ligado: c?.ligado === true,
+      em: c?.em ?? null,
+      por: c?.por ?? null,
+      vistos: Number(vistos[0]?.total) || 0,
+      mudaram: Number(vistos[0]?.mudaram) || 0,
+      telefones: vistos.map((v) => ({ final: String(v.final), vistoEm: String(v.vistoEm), mudouEm: v.mudouEm ? String(v.mudouEm) : null })),
+    };
+  }
+
+  /** Liga ou desliga o recurso na Meta; só grava depois de a Meta aceitar. */
+  async mudarConferenciaDoAparelho(dto: unknown, autor: Autor) {
+    const ligado = exigirBooleano((dto as any)?.ligado, 'ligado');
+    const n = await this.ler();
+    if (n.provedor === 'evolution') throw new BadRequestException('A conferência do aparelho só existe na API oficial: pela conexão por QR Code a Meta não manda o hash.');
+    const token = this.token();
+    if (!n.phoneId || n.situacao === 'sem' || !token) throw new BadRequestException('Conecte o número do Mister antes de mudar a conferência do aparelho.');
+    let dito = '';
+    for (const corpo of corposDaConferencia(ligado)) {
+      const res = await this.buscar(`${GRAPH}/${n.phoneId}/settings`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(corpo),
+      }).catch(() => null);
+      if (!res) throw new BadRequestException('A Meta não respondeu. Nada mudou: tente de novo.');
+      const j: any = await res.json().catch(() => ({}));
+      if (res.ok && j?.success !== false) {
+        this.logger.log(`conferência do aparelho ${ligado ? 'ligada' : 'desligada'}: a Meta aceitou "${Object.keys(corpo.user_identity_change)[0]}"`);
+        await this.db.execute(sql`
+          update mister_numero
+             set conferir_aparelho = ${ligado}, conferir_aparelho_em = now(), conferir_aparelho_por = ${autor.nome}, atualizado_em = now()
+           where id = 1`);
+        return this.conferenciaDoAparelho();
+      }
+      dito = String(j?.error?.error_user_msg || j?.error?.message || `HTTP ${res.status}`).slice(0, 200);
+      this.logger.warn(`conferência do aparelho: a Meta recusou "${Object.keys(corpo.user_identity_change)[0]}" (${res.status}) ${dito}`);
+      if (res.status !== 400) break;
+    }
+    throw new BadRequestException(`A Meta não aceitou a mudança: ${dito}. Nada mudou.`);
   }
 
   /** A chave geral "Mister nesta nuvem". */

@@ -477,7 +477,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -9251,6 +9251,85 @@ export function testesDoMisterComPostgres(): void {
           if (antes) await q(`update cardapio_config set horarios = $2 where id = $1`, [antes.id, antes.horarios === null ? null : JSON.stringify(antes.horarios)]);
           else await q(`delete from cardapio_config where tenant_id = $1 and unidade_id is null`, [A]);
         }
+      });
+    });
+
+    // ───────────── versão 6, M6b (A1.0, mig 484): a conferência do aparelho, que só observa ─────────────
+    describe('a conferência do aparelho (versão 6, M6b, A1.0)', () => {
+      const comHash = (tel: string, hash?: string) =>
+        entrada.receberDaMeta(PHONE_ID, {
+          ...(hash ? { contacts: [{ wa_id: tel, identity_key_hash: hash }] } : {}),
+          messages: [{ from: tel, id: wamid(), type: 'text', text: { body: 'PARAR AVISOS' } }],
+        });
+      const nosAjustes = (p: Pedido) => p.url === `${GRAPH}/${PHONE_ID}/settings`;
+      const zerar = () => q(`update mister_numero set conferir_aparelho = false, conferir_aparelho_em = null, conferir_aparelho_por = null where id = 1`);
+      afterEach(async () => {
+        numero.responder = () => undefined;
+        await zerar();
+      });
+
+      it('anota o hash, percebe a troca, a pessoa continua sendo atendida e o hash não sai na leitura do console', async () => {
+        await limparConversas();
+        await numeroConectado(true);
+        const tel = telefone();
+        await ligar('ana', tel);
+        // Sem o recurso ligado, o webhook não traz o campo: nada é anotado.
+        await comHash(tel);
+        expect(await linha('ana')).toMatchObject({ aparelho_hash: null, aparelho_visto_em: null });
+        await comHash(tel, 'hash-um');
+        expect(await linha('ana')).toMatchObject({ aparelho_hash: 'hash-um', aparelho_anterior_hash: null, aparelho_mudou_em: null });
+        // O mesmo hash não é troca.
+        await comHash(tel, 'hash-um');
+        expect((await linha('ana')).aparelho_mudou_em).toBeNull();
+        numero.pedidos.length = 0;
+        await comHash(tel, 'hash-dois');
+        const l = await linha('ana');
+        expect(l).toMatchObject({ aparelho_hash: 'hash-dois', aparelho_anterior_hash: 'hash-um' });
+        expect(l.aparelho_mudou_em).not.toBeNull();
+        // Só observa: a resposta sai, e sem o hash no envio.
+        const envios = numero.pedidos.filter((p) => p.url.endsWith('/messages'));
+        expect(envios.length).toBeGreaterThan(0);
+        expect(envios.every((p) => !('recipient_identity_key_hash' in p.corpo))).toBe(true);
+        const c = await numero.conferenciaDoAparelho();
+        expect(c).toMatchObject({ disponivel: true, vistos: 1, mudaram: 1 });
+        expect(c.telefones).toEqual([{ final: tel.slice(-4), vistoEm: expect.stringMatching(ISO), mudouEm: expect.stringMatching(ISO) }]);
+        expect(JSON.stringify(c)).not.toContain('hash-');
+        await limparConversas();
+      });
+
+      it('ligar: a forma da página e, com 400, a da referência; só grava com a Meta aceitando; 500 não tenta a segunda', async () => {
+        await numeroConectado(true);
+        numero.pedidos.length = 0;
+        numero.responder = (p) =>
+          nosAjustes(p) && p.corpo?.user_identity_change?.enable_identity_key_check !== undefined ? { status: 400, corpo: { error: { message: 'campo desconhecido' } } } : undefined;
+        expect(await numero.mudarConferenciaDoAparelho({ ligado: true }, { nome: 'Diretoria' })).toMatchObject({ ligado: true, por: 'Diretoria', em: expect.stringMatching(ISO) });
+        expect(numero.pedidos.filter(nosAjustes).map((p) => p.corpo)).toEqual([
+          { user_identity_change: { enable_identity_key_check: true } },
+          { user_identity_change: { enabled: true } },
+        ]);
+        // A Meta recusa as duas formas: nada muda.
+        numero.responder = (p) => (nosAjustes(p) ? { status: 400, corpo: { error: { message: 'não' } } } : undefined);
+        await expect(numero.mudarConferenciaDoAparelho({ ligado: false }, { nome: 'Diretoria' })).rejects.toThrow('Nada mudou');
+        expect((await numero.conferenciaDoAparelho()).ligado).toBe(true);
+        // Erro que não é do corpo: não insiste com a outra forma.
+        numero.pedidos.length = 0;
+        numero.responder = (p) => (nosAjustes(p) ? { status: 500, corpo: {} } : undefined);
+        await expect(numero.mudarConferenciaDoAparelho({ ligado: false }, { nome: 'Diretoria' })).rejects.toThrow('Nada mudou');
+        expect(numero.pedidos.filter(nosAjustes)).toHaveLength(1);
+        numero.responder = () => undefined;
+        expect(await numero.mudarConferenciaDoAparelho({ ligado: false }, { nome: 'Diretoria' })).toMatchObject({ ligado: false });
+        await expect(numero.mudarConferenciaDoAparelho({ ligado: 'sim' }, { nome: 'Diretoria' })).rejects.toThrow();
+      });
+
+      it('com o número desconectado não chama a Meta, e desconectar desliga a marca', async () => {
+        await numeroConectado(true);
+        await q(`update mister_numero set conferir_aparelho = true where id = 1`);
+        await numero.desconectar({ nome: 'Diretoria' });
+        expect(await numero.conferenciaDoAparelho()).toMatchObject({ disponivel: false, ligado: false });
+        numero.pedidos.length = 0;
+        await expect(numero.mudarConferenciaDoAparelho({ ligado: true }, { nome: 'Diretoria' })).rejects.toThrow('Conecte o número');
+        expect(numero.pedidos.filter((p) => p.url.endsWith('/settings'))).toHaveLength(0);
+        await numeroConectado(true);
       });
     });
 

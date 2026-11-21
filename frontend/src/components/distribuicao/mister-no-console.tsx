@@ -9,6 +9,7 @@ import { InstrucoesDoMister } from '@/components/distribuicao/instrucoes-do-mist
 import { Confirmar } from '@/components/distribuicao/confirmar-no-console';
 import { FormaDoMister, type QrNoPainel } from '@/components/distribuicao/forma-do-mister';
 import { PessoasDoMisterNoConsole } from '@/components/distribuicao/pessoas-do-mister-no-console';
+import { AparelhoDoMisterNoConsole } from '@/components/distribuicao/aparelho-do-mister-no-console';
 
 // Console da distribuição → aba "Mister" (mig 417; só Diretoria). Protótipo aprovado: `mockups/regem-mister.html`, aba
 // "Console da distribuição". Três blocos: o NÚMERO do Mister (um só, da distribuição, para todas as empresas), a CHAVE
@@ -565,6 +566,9 @@ export function MisterNoConsole() {
 
       {/* Versão 6, M6a (mig 468): quem fala com o Mister numa empresa e o desligamento pela Diretoria, com o motivo. */}
       <PessoasDoMisterNoConsole empresas={lista?.empresas ?? []} />
+
+      {/* Versão 6, M6b (A1.0, mig 484): o teste do que muda o hash do aparelho. Só observa. */}
+      <AparelhoDoMisterNoConsole />
 
       <QualidadeDoMister />
 
