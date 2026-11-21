@@ -2174,6 +2174,8 @@ export const api = {
   // só o presidente muda (o servidor confere). Cada rota que muda devolve o painel inteiro.
   clubePainel: () => req('/marketing/clube'),
   clubeSalvarConfig: (body: Record<string, unknown>) => req('/marketing/clube/config', { method: 'PUT', body: JSON.stringify(body) }),
+  /** Os resultados do clube (A4): `periodo` = mes | mes_passado | 90d. */
+  clubeResultados: (periodo: string) => req(`/marketing/clube/resultados?periodo=${encodeURIComponent(periodo)}`),
   clubeProdutos: () => req('/marketing/clube/produtos'),
   clubeCriarPremio: (body: Record<string, unknown>) => req('/marketing/clube/premios', { method: 'POST', body: JSON.stringify(body) }),
   clubeEditarPremio: (id: string, body: Record<string, unknown>) =>

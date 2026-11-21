@@ -13,6 +13,7 @@ import { lerConfigDoClube, lerGatilhoCampanha, lerGatilhoClassificacao, lerGatil
 import { ClubeService } from './clube.service';
 import { ClubeAlbumService } from './clube-album.service';
 import { ClubeMetaService } from './clube-meta.service';
+import { ClubeResultadosService } from './clube-resultados.service';
 import { ClubeDesculpasService } from './clube-desculpas.service';
 import { ClubeSurpresaService } from './clube-surpresa.service';
 
@@ -27,7 +28,16 @@ import { ClubeSurpresaService } from './clube-surpresa.service';
 @RequirePerm('delivery')
 @Roles('presidente', 'gerente')
 export class ClubeController {
-  constructor(private readonly service: ClubeService) {}
+  constructor(
+    private readonly service: ClubeService,
+    private readonly resultadosSvc: ClubeResultadosService,
+  ) {}
+
+  /** Os resultados do clube (A4): os prêmios dados no período, revelados, usados, o desconto e o vendido. Só leitura. */
+  @Get('resultados')
+  resultados(@CurrentUser() user: AuthUser, @Query('periodo') periodo?: string) {
+    return this.resultadosSvc.resultados(user.tenantId, periodo);
+  }
 
   @Get()
   painel(@CurrentUser() user: AuthUser) {
