@@ -73,7 +73,7 @@ describe('escopos', () => {
     expect(validarEscopos(['cupons.ler', 'pedidos.ler', 'cupons.ler'])).toEqual(['pedidos.ler', 'cupons.ler']);
   });
 
-  it('são os 7 do contrato do Liame + os 2 do RegemCast + os 3 do Farol + os 3 do totem (GoGeM) + o do iFood (Orzuni) + os canais da Central (Liame) + a disponibilidade (RegeMBoard)', () => {
+  it('são os 7 do contrato do Liame + os 2 do RegemCast + os 3 do Farol + os 3 do totem (GoGeM) + o do iFood (Orzuni) + os canais da Central (Liame) + a disponibilidade (RegeMBoard) + os públicos do perfil (Liame)', () => {
     expect([...ESCOPOS_INTEGRACAO]).toEqual([
       'pedidos.ler',
       'clientes.telefone.ler',
@@ -93,12 +93,13 @@ describe('escopos', () => {
       'catalogo.ifood.ler',
       'atendimento.canais.ler',
       'catalogo.disponibilidade.ler',
+      'clientes.audiencias.ler',
     ]);
   });
 
-  it('a lista do código é a do `check` das duas tabelas na migration 429 (escopo fora dela nem é gravado)', () => {
+  it('a lista do código é a do `check` das duas tabelas na migration 483 (escopo fora dela nem é gravado)', () => {
     const mig = readFileSync(
-      join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '429_integracao_disponibilidade.sql'),
+      join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '483_integracao_audiencias.sql'),
       'utf8',
     );
     const listas = [...mig.matchAll(/escopos <@ array\[([^\]]+)\]::text\[\]/g)].map((m) =>
@@ -108,7 +109,7 @@ describe('escopos', () => {
     for (const lista of listas) expect(lista).toEqual([...ESCOPOS_INTEGRACAO]);
   });
 
-  it('os escopos de leitura na hora (Farol, Orzuni, canais da Central, RegeMBoard) e os do totem (GoGeM) não ligam o carimbador; todos os outros ligam', () => {
+  it('os escopos de leitura na hora (Farol, Orzuni, canais da Central, RegeMBoard, públicos do perfil) e os do totem (GoGeM) não ligam o carimbador; todos os outros ligam', () => {
     expect([...ESCOPOS_SEM_CARIMBO]).toEqual([
       'catalogo.ler',
       'fichas.ler',
@@ -119,6 +120,7 @@ describe('escopos', () => {
       'catalogo.ifood.ler',
       'atendimento.canais.ler',
       'catalogo.disponibilidade.ler',
+      'clientes.audiencias.ler',
     ]);
     expect([...ESCOPOS_COM_CARIMBO]).toEqual([
       'pedidos.ler',

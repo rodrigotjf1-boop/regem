@@ -33,6 +33,8 @@ import { ProducaoIntegracaoService } from './producao-integracao.service';
 import { ProducaoIntegracao } from './dto/producao-integracao.dto';
 import { AtendimentoIntegracaoService } from './atendimento-integracao.service';
 import { CanaisAtendimentoIntegracao } from './dto/atendimento-integracao.dto';
+import { AudienciasIntegracaoService } from './audiencias-integracao.service';
+import { AudienciasIntegracao } from './dto/audiencias-integracao.dto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -73,6 +75,7 @@ export class IntegracaoApiController {
     private readonly catalogoSvc: CatalogoIntegracaoService,
     private readonly producaoSvc: ProducaoIntegracaoService,
     private readonly atendimentoSvc: AtendimentoIntegracaoService,
+    private readonly audienciasSvc: AudienciasIntegracaoService,
   ) {}
 
   // Quem é a loja do token — qualquer escopo.
@@ -214,6 +217,24 @@ export class IntegracaoApiController {
     @Query('limite') limite?: string,
   ) {
     return this.clientesSvc.clientes(ctx, { cursor, limite });
+  }
+
+  // Os públicos do perfil do cliente (Liame — mig 483, F9 parte 1): só o tamanho de cada um, lido na hora.
+  @Get('clientes/audiencias')
+  @Escopos('clientes.audiencias.ler')
+  @ApiOperation({
+    summary: 'O tamanho de cada público do perfil do cliente na loja do token — só os números, nenhum cliente.',
+    description:
+      'Lida na hora. Os públicos são os mesmos da campanha "pelo perfil" do Regem: o segmento pela recência, frequência e ' +
+      'valor, "atrasado no ritmo", o que move o cliente (dinheiro no bolso, feriado, data comemorativa, eventos da loja) e ' +
+      '"olhou e não pediu". Conta só o cliente DIRETO com perfil: quem só pediu por aplicativo de entrega, quem pediu para ' +
+      'não ser analisado e quem foi esquecido ficam de fora. Na empresa de várias lojas, os clientes que têm esta loja como ' +
+      'a principal. aceitaram_ofertas = quem receberia hoje uma campanha montada com o perfil (aceite clicado, sem SAIR). ' +
+      'Contagem de 1 a 4 sai como null. perfil_ligado: false = o módulo "Perfil do cliente" está desligado (lista vazia).',
+  })
+  @ApiOkResponse({ type: AudienciasIntegracao })
+  audienciasDoPerfil(@IntegracaoCtx() ctx: IntegracaoCtxData) {
+    return this.audienciasSvc.audiencias(ctx);
   }
 
   // ───────────────────────────── catálogo e fichas (Farol — mig 315) ─────────────────────────────

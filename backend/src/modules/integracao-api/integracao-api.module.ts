@@ -10,6 +10,7 @@ import { WebhookIntegracaoService } from './webhook-integracao.service';
 import { CatalogoIntegracaoService } from './catalogo-integracao.service';
 import { ProducaoIntegracaoService } from './producao-integracao.service';
 import { AtendimentoIntegracaoService } from './atendimento-integracao.service';
+import { AudienciasIntegracaoService } from './audiencias-integracao.service';
 import { DmsIdController } from './dms-id.controller';
 import { ManifestoController } from './manifesto.controller';
 import { DmsIdService } from './dms-id.service';
@@ -56,6 +57,8 @@ import { RegistroDaIntegracao } from './registro-da-integracao.middleware';
     ProducaoIntegracaoService,
     // Liame (mig 398): os canais da Central de atendimento (Instagram e Messenger), lidos na hora.
     AtendimentoIntegracaoService,
+    // Liame (mig 483, F9 do perfil do cliente): o tamanho dos públicos do perfil, contado na hora.
+    AudienciasIntegracaoService,
     // Hub DMS (F3, mig 329): o DMS ID e a troca automática do `rgm_it_` pela ligação.
     DmsIdService,
     LigacaoIntegracaoService,

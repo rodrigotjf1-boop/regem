@@ -9,6 +9,7 @@ import { UnauthorizedException } from '@nestjs/common';
 import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { AtendimentoIntegracaoService } from './atendimento-integracao.service';
+import { AudienciasIntegracaoService } from './audiencias-integracao.service';
 import { ESCOPOS_COM_CARIMBO } from './escopos';
 import { IntegracaoApiController } from './integracao-api.controller';
 import { ESCOPOS_KEY, IntegracaoTokenGuard, type IntegracaoCtxData } from './integracao-token.guard';
@@ -145,6 +146,12 @@ descrever('API de integração — canais da Central de atendimento (Liame)', ()
     expect(conferencia).toHaveLength(4);
     if (conferencia.some((l: any) => !l.ok)) throw new Error(`conferência da 398: ${JSON.stringify(conferencia)}`);
     await aplicar(mig('398_integracao_canais_atendimento.sql'));
+    // A 483 (os públicos do perfil, F9): só as duas travas de escopo, sem tabela quente — a conferência dela e de novo.
+    const r483 = (await aplicar(mig('483_integracao_audiencias.sql'))) as unknown as any[];
+    const conferencia483 = r483[r483.length - 1].rows;
+    expect(conferencia483).toHaveLength(2);
+    if (conferencia483.some((l: any) => !l.ok)) throw new Error(`conferência da 483: ${JSON.stringify(conferencia483)}`);
+    await aplicar(mig('483_integracao_audiencias.sql'));
     // As contas da Meta, com as colunas como estão na nuvem.
     await aplicar(tabelaDaMigration('377_instagram_direct.sql', 'instagram_conta'));
     await aplicar(tabelaDaMigration('386_messenger.sql', 'messenger_conta'));
@@ -229,6 +236,35 @@ descrever('API de integração — canais da Central de atendimento (Liame)', ()
     expect(ESCOPOS_COM_CARIMBO).not.toContain('atendimento.canais.ler');
     const [c] = await q(`select escopos && $2::text[] as liga from integracao_token_loja where id = $1`, [soEle.id, [...ESCOPOS_COM_CARIMBO]]);
     expect(c.liga).toBe(false);
+  });
+
+  // F9 parte 1 do perfil do cliente (mig 483): o tamanho dos públicos. A contagem em si se prova na
+  // `campanha/segmentos-do-perfil-pg.spec.ts` (a spec que já monta as tabelas do perfil — ERR-451); aqui, a porta.
+  it('os públicos do perfil (F9): só o Liame recebe o escopo; sozinho ele abre só a rota dele, sem carimbador; módulo desligado = lista vazia', async () => {
+    const soEle = await emitir(E, 'liame', ['clientes.audiencias.ler']);
+    const [t] = await q(`select escopos from integracao_token_loja where id = $1`, [soEle.id]);
+    expect(t.escopos).toEqual(['clientes.audiencias.ler']); // a trava da 483 aceita
+    await expect(emitir(E, 'farol', ['catalogo.ler', 'clientes.audiencias.ler'])).rejects.toThrow(/não vale para o Farol: clientes\.audiencias\.ler/);
+    await expect(emitir(E, 'orzuni', ['catalogo.ler', 'clientes.audiencias.ler'])).rejects.toThrow(/não vale para o Orzuni: clientes\.audiencias\.ler/);
+
+    const leituras = Object.getOwnPropertyNames(IntegracaoApiController.prototype).filter(
+      (m) => m !== 'constructor' && (Reflect.getMetadata(ESCOPOS_KEY, (IntegracaoApiController.prototype as any)[m]) ?? []).length > 0,
+    );
+    expect(leituras).toContain('audienciasDoPerfil');
+    for (const m of leituras) {
+      expect([m, await recusa(guarda.canActivate(contexto(m, soEle.token).ctx))]).toEqual([m, m === 'audienciasDoPerfil' ? 'passou' : 403]);
+    }
+    // sem o escopo (o acesso de sempre do Liame): 403
+    const semEle = (await emitir(E, 'liame', ESCOPOS_LIAME)).token;
+    expect(await recusa(guarda.canActivate(contexto('audienciasDoPerfil', semEle).ctx))).toBe(403);
+    // não liga o carimbador das vendas (V51)
+    expect(ESCOPOS_COM_CARIMBO).not.toContain('clientes.audiencias.ler');
+
+    // A empresa sem o módulo "Perfil do cliente": a guarda de verdade monta o acesso; nenhum público.
+    const { ctx, req } = contexto('audienciasDoPerfil', soEle.token);
+    await guarda.canActivate(ctx);
+    const r = await new AudienciasIntegracaoService(db).audiencias(req.integracao as IntegracaoCtxData);
+    expect(r).toEqual({ perfil_ligado: false, calculado_em: null, minimo: 5, clientes_com_perfil: null, aceitaram_ofertas: null, publicos: [] });
   });
 
   it('a loja apagada e o acesso revogado não leem nada (V75)', async () => {
