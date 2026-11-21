@@ -83,10 +83,11 @@ export class EscalaController {
   @Roles('presidente', 'gerente')
   faltas(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() unidadeId: string | null,
     @Query('de') de?: string,
     @Query('ate') ate?: string,
   ) {
-    return this.service.faltas(user.tenantId, de, ate);
+    return this.service.faltas(user.tenantId, de, ate, unidadeId);
   }
 
   // Marca a presença de uma alocação (presente / falta justificada / injustificada).

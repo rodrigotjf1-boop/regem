@@ -15,6 +15,9 @@
 - **Mister versão 6, M6j lote 4 — consultar as contas a pagar e a receber (21/11; SEM migration).** Só na nuvem (o Mister):
   vai no `.zip` sem efeito na loja.
 
+- **Escala: o relatório de faltas respeita a loja (21/11; SEM migration; ERR-555).** O gerente de uma loja via quem faltou
+  nas outras. Vai no `.zip` e **tem efeito na loja** (a rota também roda no servidor local); não toca o sync.
+
 - **Mister versão 6, M6b (A1.0) — a conferência do aparelho, só observando (21/11; mig 484 só nuvem, JÁ APLICADA).** Só na
   nuvem (o Mister e o console): vai no `.zip` sem efeito na loja. `mister_numero` e `mister_vinculo` já estão em `SO_NUVEM`.
 
