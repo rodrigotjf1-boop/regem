@@ -33,6 +33,8 @@ export const ACOES_DO_MISTER = [
   'criar_tarefa',
   // M6l: uma imagem pelo DMS Graph (cartaz, post), com o pedido mostrado antes.
   'criar_imagem',
+  // Lote 7: entrada, saída ou o saldo contado de um produto do estoque.
+  'movimentar_estoque',
 ] as const;
 export type AcaoDoMister = (typeof ACOES_DO_MISTER)[number];
 export const ehAcaoDoMister = (p: unknown): p is AcaoDoMister => (ACOES_DO_MISTER as readonly string[]).includes(String(p));
@@ -42,7 +44,7 @@ export interface DefinicaoDaAcao {
   /** O tamanho do risco (decisão do plano): o botão de quem pediu. As de PIN (preço, horário, pagar) são os lotes seguintes. */
   nivel: 'botao';
   /** A permissão do perfil — a MESMA da rota da tela. O presidente pode tudo. */
-  permissao: 'delivery' | 'meu_dia' | 'loja' | 'checklist';
+  permissao: 'delivery' | 'meu_dia' | 'loja' | 'checklist' | 'estoque';
   /** Por quanto tempo a pergunta vale. */
   prazoMin: number;
   /** O nome curto, para a auditoria e o histórico das propostas. */
@@ -64,6 +66,8 @@ export const ACOES: Record<AcaoDoMister, DefinicaoDaAcao> = {
   criar_tarefa: { id: 'criar_tarefa', nivel: 'botao', permissao: 'checklist', prazoMin: 10, nome: 'criar uma tarefa para hoje' },
   // M6l: quem cuida do Delivery e do Marketing; vale por 30 minutos, para dar tempo de ler o pedido.
   criar_imagem: { id: 'criar_imagem', nivel: 'botao', permissao: 'delivery', prazoMin: 30, nome: 'criar uma imagem' },
+  // Lote 7: a permissão da rota `POST /estoque/movimentos` é `estoque.editar` (a conferência é a `temAPermissao` do serviço).
+  movimentar_estoque: { id: 'movimentar_estoque', nivel: 'botao', permissao: 'estoque', prazoMin: 10, nome: 'lançar um movimento de estoque' },
 };
 
 // ───────────────────────────── M6l: a imagem ─────────────────────────────
@@ -132,6 +136,47 @@ export function nomesDosCanais(canais: readonly CanalDaPausa[]): string {
   return n.length <= 1 ? (n[0] ?? '') : `${n.slice(0, -1).join(', ')} e ${n[n.length - 1]}`;
 }
 
+// ───────────────────────────── lote 7: o movimento de estoque ─────────────────────────────
+
+export const TIPOS_DO_MOVIMENTO = ['entrada', 'saida', 'ajuste'] as const;
+export type TipoDoMovimento = (typeof TIPOS_DO_MOVIMENTO)[number];
+const ESTOQUE_MAX = 1_000_000;
+/** Número de estoque vindo da IA: só número de verdade, dentro do teto, com até 3 casas (V109). */
+const numeroDoEstoque = (v: unknown): number | null =>
+  typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= ESTOQUE_MAX ? Math.round(v * 1000) / 1000 : null;
+const NOMES_DA_UNIDADE: Record<string, string> = {
+  kg: 'kg', kgs: 'kg', quilo: 'kg', quilos: 'kg', kilo: 'kg', kilos: 'kg', quilograma: 'kg', quilogramas: 'kg',
+  g: 'g', gr: 'g', grs: 'g', grama: 'g', gramas: 'g',
+  l: 'l', lt: 'l', lts: 'l', litro: 'l', litros: 'l',
+  ml: 'ml', mililitro: 'ml', mililitros: 'ml',
+  un: 'un', und: 'un', unid: 'un', unidade: 'un', unidades: 'un',
+};
+const unidadeNormal = (u: unknown): string => {
+  const t = String(u ?? '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f.]/g, '');
+  return NOMES_DA_UNIDADE[t] ?? t;
+};
+/** A unidade que a pessoa disse é a do item? ("2 caixas" num item em kg não se lança: a conta seria errada.) */
+export const mesmaUnidade = (dita: unknown, doItem: unknown): boolean => unidadeNormal(dita) === unidadeNormal(doItem);
+export const quantidadeBr = (n: number): string => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+/** O "o que vou fazer" do movimento: o item, a loja, e o saldo antes e depois. */
+export function resumoDoMovimento(
+  m: { tipo: TipoDoMovimento; quantidade: number | null; saldoContado: number | null; motivo: string | null },
+  a: { nome: string; unidade: string; saldo: number; loja: string | null },
+): string {
+  const un = (x: number) => `${quantidadeBr(x)} ${a.unidade}`;
+  const naLoja = a.loja ? ` na ${a.loja}` : '';
+  const porque = m.motivo ? ` (motivo: ${m.motivo})` : '';
+  const q = m.quantidade ?? 0;
+  const depois = Math.round((m.tipo === 'entrada' ? a.saldo + q : m.tipo === 'saida' ? a.saldo - q : (m.saldoContado ?? 0)) * 1000) / 1000;
+  const oQue =
+    m.tipo === 'entrada'
+      ? `Dar entrada de ${un(q)} em "${a.nome}"${naLoja}${porque}.`
+      : m.tipo === 'saida'
+        ? `Dar saída de ${un(q)} em "${a.nome}"${naLoja}${porque}.`
+        : `Acertar o saldo de "${a.nome}"${naLoja} pelo que foi contado${porque}.`;
+  return `${oQue} Saldo: ${un(a.saldo)} → ${un(depois)}.${depois < 0 ? ' O saldo fica negativo.' : ''}`;
+}
+
 /** O que a ação leva, já conferido (vai em `mister_proposta.parametros`, junto com quem pediu). */
 export type ParametrosDaAcao =
   | { acao: 'pausar_canal'; canais: CanalDaPausa[]; motivo: string; motivoTexto: string | null; minutos: number | null; ate: string | null; fimDoDia: boolean }
@@ -140,7 +185,8 @@ export type ParametrosDaAcao =
   | { acao: 'concluir_tarefa'; tarefa: string; estado: EstadoDaTarefa; justificativa: string | null }
   | { acao: 'pausar_produto' | 'reativar_produto'; produto: string; canais: CanalDoProduto[] | null }
   | { acao: 'criar_tarefa'; titulo: string; funcao: string; horario: string | null; responsavel: string | null }
-  | { acao: 'criar_imagem'; pedido: string; proporcao: ProporcaoDaImagem };
+  | { acao: 'criar_imagem'; pedido: string; proporcao: ProporcaoDaImagem }
+  | { acao: 'movimentar_estoque'; item: string; tipo: TipoDoMovimento; quantidade: number | null; saldoContado: number | null; motivo: string | null };
 
 const TEMPOS_TEXTO = `cardápio digital e iFood: ${TEMPOS_DO_CARDAPIO.join(', ')} min ou "até HH:MM"; 99: ${TEMPOS_DA_99.join(', ')} min ou até o fim do dia`;
 
@@ -219,6 +265,21 @@ export function conferirAcao(acao: unknown, en: Record<string, unknown>, agora: 
     if (!PROPORCOES_DA_IMAGEM.includes(proporcao)) return { erro: 'A proporção é 1:1 (feed), 9:16 (story ou cartaz vertical) ou 16:9 (horizontal).' };
     return { parametros: { acao, pedido, proporcao }, resumo: pedido };
   }
+  if (acao === 'movimentar_estoque') {
+    const item = String(en.item ?? '').trim().replace(/\s+/g, ' ');
+    if (item.length < 2 || item.length > 80) return { erro: 'Diga o produto do estoque como ele aparece em Estoque › Produtos.' };
+    const tipo = String(en.tipo ?? '') as TipoDoMovimento;
+    if (!TIPOS_DO_MOVIMENTO.includes(tipo)) return { erro: 'O movimento é entrada, saida ou ajuste (o saldo que a pessoa contou).' };
+    const motivo = typeof en.motivoDoMovimento === 'string' && en.motivoDoMovimento.trim() ? en.motivoDoMovimento.trim().replace(/\s+/g, ' ').slice(0, 120) : null;
+    if (tipo === 'ajuste') {
+      const saldoContado = numeroDoEstoque(en.saldoContado);
+      if (saldoContado === null) return { erro: 'Para acertar o saldo, diga quanto foi contado (zero ou mais), na unidade do produto.' };
+      return { parametros: { acao, item, tipo, quantidade: null, saldoContado, motivo }, resumo: `Acertar o saldo de "${item}" para ${quantidadeBr(saldoContado)}.` };
+    }
+    const quantidade = numeroDoEstoque(en.quantidade);
+    if (quantidade === null || quantidade <= 0) return { erro: 'Diga a quantidade (maior que zero), na unidade do produto.' };
+    return { parametros: { acao, item, tipo, quantidade, saldoContado: null, motivo }, resumo: `${tipo === 'entrada' ? 'Dar entrada de' : 'Dar saída de'} ${quantidadeBr(quantidade)} em "${item}".` };
+  }
   const numero = String(en.numero ?? '').trim().replace(/^#/, '');
   if (!numero || numero.length > 40) return { erro: 'Diga o número do pedido como aparece no painel do Delivery.' };
   return { parametros: { acao, numero }, resumo: '' };
@@ -255,6 +316,11 @@ export const TEXTOS_DAS_ACOES = {
   pergunta: (resumo: string, prazo: number) => `${resumo}\n\nAutorizo? A pergunta vale por ${prazo} minutos.`,
   autorizada: 'Autorizado. Fazendo agora…',
   perguntaDaImagem: (pedido: string, prazo: number) => `Vou pedir assim:\n\n${pedido}\n\nGero assim? Usa 1 da franquia de imagens do mês. A pergunta vale por ${prazo} minutos.`,
+  semPermissaoEstoque: 'O seu perfil no Regem não permite lançar no estoque: essa ação não sai por aqui. Quem muda o perfil é o presidente.',
+  itemNaoAchado: 'Não achei esse produto no estoque. Diga o nome como aparece em Estoque › Produtos.',
+  itensDemais: (nomes: string) => `Achei mais de um produto com esse nome: ${nomes}. Diga qual.`,
+  estoquePedeLoja: 'Cada loja tem o próprio estoque: diga de qual loja é esse lançamento.',
+  estoqueOutraUnidade: (item: string, unidade: string) => `"${item}" é controlado em ${unidade}. Diga a quantidade em ${unidade}.`,
   imagemDesligada: 'A criação de imagem ainda não está ligada nesta instalação.',
   imagemGerando: 'Gerando a imagem. Pode levar até um minuto, e ela chega aqui.',
   imagemMudar: 'Certo, não gerei. Me diga o que mudar no pedido.',

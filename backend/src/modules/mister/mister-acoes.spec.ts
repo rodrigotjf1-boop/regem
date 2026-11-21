@@ -5,6 +5,8 @@ import {
   canaisDoProduto,
   PEDIDO_DA_IMAGEM_MAX,
   conferirAcao,
+  mesmaUnidade,
+  resumoDoMovimento,
   pareceDadoPessoal,
   sigaDaAcao,
   ehAcaoDoMister,
@@ -26,7 +28,7 @@ const AGORA = instanteDeSaoPaulo('2026-11-20T20:00')!;
 describe('Mister · ações — o catálogo e os canais', () => {
   it('os lotes 1 e 2: de botão, cada uma pela permissão da rota da tela', () => {
     expect([...ACOES_DO_MISTER]).toEqual([
-      'pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido', 'concluir_tarefa', 'pausar_produto', 'reativar_produto', 'criar_tarefa', 'criar_imagem',
+      'pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido', 'concluir_tarefa', 'pausar_produto', 'reativar_produto', 'criar_tarefa', 'criar_imagem', 'movimentar_estoque',
     ]);
     expect(ACOES.criar_tarefa).toMatchObject({ nivel: 'botao', permissao: 'checklist' });
     for (const a of ['pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido'] as const)
@@ -180,5 +182,35 @@ describe('Mister · ações (M6l) — a imagem', () => {
   it('a instrução para a IA diz os botões certos de cada ação', () => {
     expect(sigaDaAcao('criar_imagem')).toContain('"Gerar" e "Mudar"');
     expect(sigaDaAcao('pausar_canal')).toContain('"Autorizar" e "Não agora"');
+  });
+});
+
+describe('Mister · ações (lote 7) — o movimento de estoque', () => {
+  it('entrada e saída pedem a quantidade; o ajuste pede o saldo contado', () => {
+    expect(conferirAcao('movimentar_estoque', { item: 'Bacon', tipo: 'entrada', quantidade: 2.5 }, AGORA)).toMatchObject({ parametros: { acao: 'movimentar_estoque', item: 'Bacon', tipo: 'entrada', quantidade: 2.5, saldoContado: null, motivo: null } });
+    expect(conferirAcao('movimentar_estoque', { item: 'Bacon', tipo: 'ajuste', saldoContado: 0, motivoDoMovimento: 'acabou' }, AGORA)).toMatchObject({ parametros: { tipo: 'ajuste', quantidade: null, saldoContado: 0, motivo: 'acabou' } });
+    for (const en of [
+      { item: 'Bacon', tipo: 'entrada' },
+      { item: 'Bacon', tipo: 'entrada', quantidade: 0 },
+      { item: 'Bacon', tipo: 'saida', quantidade: -1 },
+      { item: 'Bacon', tipo: 'saida', quantidade: '3' },
+      { item: 'Bacon', tipo: 'entrada', quantidade: 1_000_001 },
+      { item: 'Bacon', tipo: 'entrada', quantidade: Number.NaN },
+      { item: 'Bacon', tipo: 'ajuste' },
+      { item: 'Bacon', tipo: 'ajuste', saldoContado: -2 },
+      { item: 'Bacon', tipo: 'troca', quantidade: 1 },
+      { item: 'B', tipo: 'entrada', quantidade: 1 },
+    ])
+      expect(conferirAcao('movimentar_estoque', en, AGORA)).toHaveProperty('erro');
+    expect(ACOES.movimentar_estoque).toMatchObject({ nivel: 'botao', permissao: 'estoque' });
+  });
+  it('a unidade dita confere com a do item, pelas formas de dizer', () => {
+    for (const [dita, doItem] of [['quilos', 'kg'], ['Kg', 'KG'], ['litro', 'L'], ['unidades', 'un'], ['gramas', 'g'], ['ml', 'ML']]) expect(mesmaUnidade(dita, doItem)).toBe(true);
+    for (const [dita, doItem] of [['caixas', 'kg'], ['g', 'kg'], ['l', 'ml']]) expect(mesmaUnidade(dita, doItem)).toBe(false);
+  });
+  it('o resumo diz o saldo antes e depois, em centésimos sem erro de vírgula, e avisa do negativo', () => {
+    expect(resumoDoMovimento({ tipo: 'entrada', quantidade: 0.1, saldoContado: null, motivo: null }, { nome: 'Sal', unidade: 'kg', saldo: 0.2, loja: null })).toBe('Dar entrada de 0,1 kg em "Sal". Saldo: 0,2 kg → 0,3 kg.');
+    expect(resumoDoMovimento({ tipo: 'saida', quantidade: 5, saldoContado: null, motivo: 'perda' }, { nome: 'Sal', unidade: 'kg', saldo: 2, loja: 'Loja Centro' })).toBe('Dar saída de 5 kg em "Sal" na Loja Centro (motivo: perda). Saldo: 2 kg → -3 kg. O saldo fica negativo.');
+    expect(resumoDoMovimento({ tipo: 'ajuste', quantidade: null, saldoContado: 12, motivo: null }, { nome: 'Sal', unidade: 'kg', saldo: 13, loja: null })).toBe('Acertar o saldo de "Sal" pelo que foi contado. Saldo: 13 kg → 12 kg.');
   });
 });

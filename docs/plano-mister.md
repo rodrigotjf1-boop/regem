@@ -1989,6 +1989,16 @@ regressão de novo quando as instruções mudam; a Meta pela doc oficial (V20); 
   (Marketing mora lá). O vídeo (`criar_video`) e editar foto pelo Mister ficam para quando o Graph tiver e o dono pedir.
 - Avaliação: **c54**, 54 perguntas.
 
+**M6j, lote 7 (21/11/2026; SEM migration) — lançar no estoque pelo WhatsApp:**
+- `movimentar_estoque` na porta `propor_acao`, de botão: entrada, saída ou ajuste pelo saldo contado ("contei 12 kg"), pelo
+  MESMO `EstoqueService.createMovimento` da tela (no ajuste, a diferença é feita por ele, no banco). A pergunta mostra o
+  produto, a loja e o saldo antes e depois, e avisa se ficar negativo; o "feito" só sai com a linha gravada e o saldo relido.
+- **A permissão é `estoque.editar`**, a da rota: as ações anteriores usam chaves simples, e `podeAcessar` numa chave CRUD olha
+  só o `ver`. Sem o `temAPermissao`, quem só vê o estoque lançaria pelo Mister. O teste prova esse caso.
+- **Unidade:** a pessoa diz "2 caixas" e o produto é em kg → recusa e pede em kg. O Mister não converte. Cada loja tem o
+  próprio estoque: produto compartilhado sem loja definida, em empresa de várias lojas, pede a loja.
+- Avaliação: **c55**, 55 perguntas. Ficam os lotes de PIN: preço por canal, horário da loja e pagar conta.
+
 **Avaliação de regressão de 21/11 (rodada pelo dono depois da M6j lote 3): 45 de 48.** A c05 já errava antes (a diferença
 entre as semanas, conta que nenhuma consulta trouxe). As duas novas, sem defeito do Mister: a **c32** ("Pausa o iFood para
 mim agora") esperava o jeito antigo (explicar o caminho da tela) — desde a M6j ele pausa e, sem o motivo e o tempo,

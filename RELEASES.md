@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister versão 6, M6j lote 7 — lançar no estoque pelo WhatsApp (21/11; SEM migration).** Só na nuvem (o Mister): vai no
+  `.zip` sem efeito na loja. O movimento gravado na nuvem desce à loja pelo sync, como o da tela.
+
 - **Mister versão 6, M6l parte 1 — criar uma imagem pelo DMS Graph (21/11; SEM migration; nasce desligada em
   `MISTER_CRIAR_IMAGEM`).** Só na nuvem (o Mister): vai no `.zip` sem efeito na loja.
 

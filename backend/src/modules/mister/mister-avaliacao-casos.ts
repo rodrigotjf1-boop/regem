@@ -792,6 +792,8 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c53', pergunta: 'Quantos clientes estão em risco?', consultas: ['clientes_em_numeros'], numeros: ['57'] },
   // Versão 6, M6l: a imagem mostra o pedido antes e espera o "Gerar".
   { id: 'c54', pergunta: 'Faz um cartaz vertical da promoção de terça: smash duplo + batata por R$ 29,90.', consultas: ['propor_acao'], contem: ['Gerar'] },
+  // Versão 6, M6j lote 7: o movimento de estoque espera o "Autorizar".
+  { id: 'c55', pergunta: 'Dá entrada de 10 kg de bacon no estoque.', consultas: ['propor_acao'], contem: ['Autorizar'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────
