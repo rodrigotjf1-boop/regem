@@ -94,6 +94,8 @@ export function GavetaBannerIa({
   const pronto = !!imagem;
   const bloqueado = criando || melhorando;
   const faltaFoto = !!situacao && !situacao.podeCriar && situacao.podeEditar && !foto;
+  // A mesma regra do servidor (`conferirPedidoDoBanner`): sem texto, a IA não teria o que escrever e a imagem seria gasta.
+  const faltaTexto = textoPelaIa && !titulo.trim() && !chamada.trim();
 
   function escolherFoto(f: File | undefined) {
     if (arquivo.current) arquivo.current.value = '';
@@ -124,6 +126,7 @@ export function GavetaBannerIa({
     const atual = pedido.trim();
     if (!atual) return setErro('Escreva o que você quer no banner.');
     if (faltaFoto) return setErro('Esta empresa só pode criar a partir de uma foto. Envie uma foto.');
+    if (faltaTexto) return setErro('Para a IA escrever na imagem, preencha o Título ou a Chamada.');
     setErro('');
     const assinatura = JSON.stringify([atual, foto?.name, foto?.size, foto?.lastModified, textoPelaIa, textoPelaIa ? titulo.trim() : '', textoPelaIa ? chamada.trim() : '']);
     if (tentativa.current?.assinatura !== assinatura) tentativa.current = { assinatura, chave: novaChave() };
@@ -187,7 +190,7 @@ export function GavetaBannerIa({
             </>
           ) : (
             situacao?.pode && (
-              <Button type="button" onClick={criar} disabled={bloqueado || !pedido.trim()}>{criando ? 'Criando…' : 'Criar banner'}</Button>
+              <Button type="button" onClick={criar} disabled={bloqueado || !pedido.trim() || faltaTexto}>{criando ? 'Criando…' : 'Criar banner'}</Button>
             )
           )}
         </>
@@ -273,7 +276,11 @@ export function GavetaBannerIa({
                   A IA escreve na imagem
                 </Button>
               </div>
-              {textoPelaIa && <p className="text-xs text-secondary-foreground">A IA pode errar letras. Para mudar o texto depois, é preciso criar outra imagem.</p>}
+              {textoPelaIa && (
+                <p aria-live="polite" className={`text-xs text-secondary-foreground ${faltaTexto ? 'font-semibold' : ''}`}>
+                  {faltaTexto ? 'Preencha o Título ou a Chamada: é o que a IA vai escrever na imagem.' : 'A IA pode errar letras. Para mudar o texto depois, é preciso criar outra imagem.'}
+                </p>
+              )}
             </div>
           </>
         )}
