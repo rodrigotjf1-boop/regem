@@ -29,6 +29,8 @@ export type BannerCriado =
   | { ok: true; imagemRef: string; franquia: { usados: number; total: number } | null }
   | { ok: false; motivo: MotivoDaImagem; mensagem: string };
 
+export type BannerAnimado = { ok: true; imagemAnimadaRef: string } | { ok: false; motivo: MotivoDaImagem; mensagem: string };
+
 /**
  * O "CRIAR COM IA" DOS BANNERS (fase B2 do `docs/plano-clube-e-banner.md`; mig 485). A imagem sai do DMS Graph, pela franquia
  * de imagem da empresa (zero até a DMS liberar), e é guardada na mídia da empresa; o banner só muda quando a pessoa clica em
@@ -123,5 +125,39 @@ export class BannerIaService {
       })
       .catch((e: any) => this.log.warn(`a auditoria do banner não foi gravada: ${String(e?.code ?? e?.message ?? e).slice(0, 80)}`));
     return { ok: true, imagemRef, franquia: r.franquia ? { usados: r.franquia.usados, total: r.franquia.total } : null };
+  }
+
+  /**
+   * "Animar (GIF)": faz o GIF da imagem que já está na mídia DA EMPRESA e o guarda ao lado dela (D8, mig 487). Não usa IA nem
+   * franquia. O banner só muda quando a pessoa clica em "Usar este banner"; a imagem parada continua valendo para quem pediu
+   * menos movimento.
+   */
+  async animar(user: AuthUser, corpo: any): Promise<BannerAnimado> {
+    if (ehServidorLocal() || !this.graph) return { ok: false, motivo: 'desligado', mensagem: fraseDaImagem('desligado') };
+    const foto = await this.midia.lerDaEmpresa(user.tenantId, corpo?.imagemRef, FOTO_DO_BANNER_MAX_BYTES);
+    if (!foto) throw new BadRequestException('Esta imagem não está na mídia da empresa.');
+    const r = await this.graph.animarImagem(user.tenantId, foto);
+    if (!r.ok) return r;
+    let imagemAnimadaRef: string;
+    try {
+      imagemAnimadaRef = (await this.midia.uploadBuffer(user.tenantId, r.bytes)).url;
+    } catch (e: any) {
+      this.log.error(`o GIF do banner foi feito e não foi guardado (${String(e?.status ?? e?.message ?? 'erro').slice(0, 60)})`);
+      throw new ServiceUnavailableException('O GIF ficou pronto, mas não deu para guardar. Clique em "Animar (GIF)" de novo.');
+    }
+    await this.auditoria
+      ?.registrar({
+        tenantId: user.tenantId,
+        atorId: user.colaboradorId,
+        atorPerfil: user.categoria,
+        atorTipo: 'colaborador',
+        tipo: 'cardapio',
+        acao: 'animou_imagem_de_banner',
+        entidadeTipo: 'banner',
+        origem: 'painel',
+        detalhe: { bytes: r.bytes.length },
+      })
+      .catch((e: any) => this.log.warn(`a auditoria do GIF não foi gravada: ${String(e?.code ?? e?.message ?? e).slice(0, 80)}`));
+    return { ok: true, imagemAnimadaRef };
   }
 }

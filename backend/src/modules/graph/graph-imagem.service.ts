@@ -3,12 +3,14 @@ import { ErroMcp, montarChaveIdempotencia } from '../../dms/integracao-dms';
 import { ehServidorLocal } from '../../common/modo';
 import { GraphFotoService } from './graph-foto.service';
 import {
+  FERRAMENTA_ANIMAR_IMAGEM,
   FERRAMENTA_CRIAR_IMAGEM,
   FERRAMENTA_EDITAR_IMAGEM,
   type Franquia,
   type MotivoDaImagem,
   franquiaDe,
   fraseDaImagem,
+  fraseDoGif,
   graphLigadoParaEmpresa,
   lerConfigGraph,
   mimeDoGraph,
@@ -43,11 +45,16 @@ export type ResultadoDaImagem =
   | { ok: false; motivo: MotivoDaImagem; mensagem: string };
 
 export type SituacaoDaImagem =
-  | { ok: true; podeCriar: boolean; podeEditar: boolean; franquia: { usados: number; total: number } }
+  | { ok: true; podeCriar: boolean; podeEditar: boolean; podeAnimar: boolean; franquia: { usados: number; total: number } }
   | { ok: false; motivo: MotivoDaImagem; mensagem: string };
+
+export type ResultadoDoGif = { ok: true; bytes: Buffer } | { ok: false; motivo: MotivoDaImagem; mensagem: string };
 
 /** O Graph tem 60 s para a imagem; aqui, a ida e a volta a mais. */
 const PRAZO_MS = 70_000;
+/** O Graph tem 30 s para o GIF; aqui, a ida e a volta a mais. */
+const PRAZO_DO_GIF_MS = 40_000;
+const GIF_MAX_BYTES = 1024 * 1024;
 const PRAZO_DA_SITUACAO_MS = 8_000;
 const MIMES_DA_RESPOSTA = ['image/jpeg', 'image/png'] as const;
 
@@ -91,6 +98,38 @@ export class GraphImagemService {
   }
 
   /**
+   * O GIF de uma imagem pronta (`animar_imagem`, contrato 1.5.0): sem IA e sem franquia, e o mesmo arquivo dá sempre o mesmo
+   * GIF, por isso não leva chave e pode repetir como uma leitura. Nunca lança.
+   */
+  async animarImagem(tenantId: string, foto: { buffer: Buffer; mime: string }): Promise<ResultadoDoGif> {
+    const falhou = (motivo: MotivoDaImagem): ResultadoDoGif => ({ ok: false, motivo, mensagem: fraseDoGif(motivo) });
+    const mimeType = mimeDoGraph(foto.mime);
+    if (!mimeType) return falhou('pedido-invalido');
+    const cfg = lerConfigGraph();
+    if (ehServidorLocal() || !cfg.ligado || !graphLigadoParaEmpresa(tenantId)) return falhou('desligado');
+    const lig = await this.graph.ligacaoParaFoto(tenantId);
+    if (!lig) return falhou('sem-ligacao');
+    try {
+      const r: any = await this.graph
+        .cliente(cfg, lig.segredo, PRAZO_DO_GIF_MS)
+        .chamar(FERRAMENTA_ANIMAR_IMAGEM, { foto: { mimeType, arquivoBase64: foto.buffer.toString('base64') } }, { leitura: true });
+      const bytes = r?.mimeType === 'image/gif' && typeof r?.imagemBase64 === 'string' ? Buffer.from(r.imagemBase64, 'base64') : null;
+      if (!bytes?.length || bytes.length > GIF_MAX_BYTES || bytes.toString('ascii', 0, 3) !== 'GIF') {
+        this.log.warn(`o DMS Graph respondeu fora do formato em ${FERRAMENTA_ANIMAR_IMAGEM}`);
+        return falhou('fora-do-formato');
+      }
+      return { ok: true, bytes };
+    } catch (e: any) {
+      const motivo = motivoDaImagem(e);
+      if (motivo === 'ligacao-desfeita') {
+        await this.graph.marcarDesligadaPeloGraph(tenantId, lig.id).catch((erro: any) => this.log.warn(`não marquei a ligação desfeita: ${String(erro?.code ?? erro?.message).slice(0, 80)}`));
+      }
+      this.log.warn(`${FERRAMENTA_ANIMAR_IMAGEM} não fez o GIF (${motivo}${e instanceof ErroMcp ? `, ${e.tipo}` : ''})`);
+      return falhou(motivo);
+    }
+  }
+
+  /**
    * O que a empresa pode fazer de imagem agora (a ferramenta `capacidades`, que só lê e não gasta franquia): a tela mostra
    * a franquia e o motivo antes de a pessoa escrever o pedido. Nunca lança.
    */
@@ -106,7 +145,10 @@ export class GraphImagemService {
       const f = r?.franquias?.imagem;
       const inteiro = (n: unknown) => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0;
       if (!inteiro(f?.usados) || !inteiro(f?.total)) return falha('fora-do-formato') as SituacaoDaImagem;
-      return { ok: true, podeCriar: concedida('imagens.criar'), podeEditar: concedida('imagens.editar'), franquia: { usados: f.usados, total: f.total } };
+      // Só com o Graph 0.10.0 ou mais novo a ferramenta aparece: antes do deploy dele, a tela simplesmente não oferece o GIF.
+      const ferramentas: any[] = Array.isArray(r?.ferramentas) ? r.ferramentas : [];
+      const podeAnimar = ferramentas.some((x) => x?.nome === FERRAMENTA_ANIMAR_IMAGEM && x?.pode === true);
+      return { ok: true, podeCriar: concedida('imagens.criar'), podeEditar: concedida('imagens.editar'), podeAnimar, franquia: { usados: f.usados, total: f.total } };
     } catch (e: any) {
       const motivo = motivoDaImagem(e);
       if (motivo === 'ligacao-desfeita') {

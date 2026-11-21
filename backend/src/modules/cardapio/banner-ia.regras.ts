@@ -27,6 +27,8 @@ export type SituacaoDoBanner = {
   pode: boolean;
   podeCriar: boolean;
   podeEditar: boolean;
+  /** Dá para fazer o GIF: não depende da franquia, só da permissão de editar e do Graph 0.10.0 ou mais novo. */
+  podeAnimar: boolean;
   podeMelhorar: boolean;
   motivo: MotivoDaImagem | null;
   mensagem: string | null;
@@ -35,7 +37,7 @@ export type SituacaoDoBanner = {
 
 /** O que a tela mostra antes do pedido: a regra de "pode criar" mora aqui, a tela só recebe a decisão (V80). */
 export function situacaoDoBanner(s: SituacaoDaImagem, podeMelhorar: boolean): SituacaoDoBanner {
-  if (!s.ok) return { pode: false, podeCriar: false, podeEditar: false, podeMelhorar, motivo: s.motivo, mensagem: s.mensagem, franquia: null };
+  if (!s.ok) return { pode: false, podeCriar: false, podeEditar: false, podeAnimar: false, podeMelhorar, motivo: s.motivo, mensagem: s.mensagem, franquia: null };
   const motivo: MotivoDaImagem | null =
     !s.podeCriar && !s.podeEditar
       ? 'sem-permissao'
@@ -48,6 +50,7 @@ export function situacaoDoBanner(s: SituacaoDaImagem, podeMelhorar: boolean): Si
     pode: !motivo,
     podeCriar: s.podeCriar,
     podeEditar: s.podeEditar,
+    podeAnimar: s.podeAnimar,
     podeMelhorar,
     motivo,
     mensagem: motivo ? fraseDaImagem(motivo) : null,

@@ -84,6 +84,14 @@ export function lerTextoDoBanner(
   };
 }
 
+/** O GIF do banner (mig 487): vazio = sem animação; só um endereço https de um `.gif`, porque vai direto ao cardápio público. */
+export function lerImagemAnimadaDoBanner(v: unknown, n: number): string | null {
+  const s = typeof v === 'string' ? v.trim() : '';
+  if (!s) return null;
+  if (s.length > LINK_MAX || !/^https:\/\/\S+\.gif$/i.test(s)) throw new BadRequestException(`Banner ${n}: a animação precisa ser um GIF guardado na mídia.`);
+  return s;
+}
+
 /** O banner aparece hoje (AAAA-MM-DD da operação)? Sem período, sempre. */
 export function bannerNoPeriodo(b: { apareceDe?: string | Date | null; apareceAte?: string | Date | null }, hoje: string): boolean {
   // O Drizzle entrega a coluna `date` como texto; a data vinda de fora do Drizzle chega como Date.

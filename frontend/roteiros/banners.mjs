@@ -13,10 +13,11 @@ const TOKEN = tokenFalso({ cat: 'presidente', perfil: 'presidente', perm: { loja
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
 const IMG = 'https://imagens.exemplo.test/banner-1.png';
 const IMG_IA = 'https://imagens.exemplo.test/banner-ia.png';
+const GIF_IA = 'https://imagens.exemplo.test/banner-ia.gif';
 const MELHORADO = 'Foto de um hambúrguer duplo com bacon crocante, no centro, sobre fundo escuro com luz quente.';
 const TITULO_LONGO = 'Sextou com bacon duplo e queijo derretendo no pão da casa!!'; // 59 letras: perto do limite de 60
 const CHAMADA_LONGA = 'Duplo bacon, batata e bebida para fechar a semana com tudo, só nesta sexta à noite aqui!'; // perto do limite de 90
-const SITUACAO_IA = { pode: true, podeCriar: true, podeEditar: true, podeMelhorar: true, motivo: null, mensagem: null, franquia: { usados: 2, total: 20 } };
+const SITUACAO_IA = { pode: true, podeCriar: true, podeEditar: true, podeAnimar: true, podeMelhorar: true, motivo: null, mensagem: null, franquia: { usados: 2, total: 20 } };
 const P1 = '11111111-1111-4111-8111-111111111111';
 const C1 = '55555555-5555-4555-8555-555555555555';
 const BANNERS = () => [
@@ -55,6 +56,7 @@ export default async function roteiroBanners({ nav, base, ok, foto: arquivoFoto,
   async function abrir(w, situacaoIa = SITUACAO_IA) {
     const enviados = [];
     const criados = [];
+    const animados = [];
     let lista = BANNERS();
     const ctx = await nav.newContext({ viewport: { width: w, height: 900 }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
     await ctx.addInitScript((jwt) => localStorage.setItem('regen_token', jwt), TOKEN);
@@ -68,6 +70,10 @@ export default async function roteiroBanners({ nav, base, ok, foto: arquivoFoto,
       const p = new URL(req.url()).pathname.replace(/^.*\/api\/v1/, '');
       if (p === '/cardapio/banners/ia/situacao') return situacaoIa ? responder(route, situacaoIa) : responder(route, { message: 'O servidor não respondeu.' }, 503);
       if (p === '/cardapio/banners/ia/melhorar') return responder(route, { pedido: MELHORADO });
+      if (p === '/cardapio/banners/ia/animar') {
+        animados.push(JSON.parse(req.postData() || '{}'));
+        return responder(route, { ok: true, imagemAnimadaRef: GIF_IA });
+      }
       if (p === '/cardapio/banners/ia/criar') {
         criados.push(req.postDataBuffer()?.toString('utf8') ?? '');
         return responder(route, { ok: true, imagemRef: IMG_IA, franquia: { usados: 3, total: 20 } });
@@ -87,13 +93,13 @@ export default async function roteiroBanners({ nav, base, ok, foto: arquivoFoto,
     });
     await page.goto(base + '/delivery/configuracoes?aba=banners');
     await page.waitForSelector('text=Ao tocar, abre:', { timeout: 30000 });
-    return { ctx, page, erros, enviados, criados };
+    return { ctx, page, erros, enviados, criados, animados };
   }
   const dialogo = (page) => page.waitForSelector('[role="dialog"]', { timeout: 10000 });
   const fechou = (page) => page.waitForSelector('[role="dialog"]', { state: 'detached', timeout: 5000 });
 
   for (const w of larguras) {
-    const { ctx, page, erros, enviados, criados } = await abrir(w);
+    const { ctx, page, erros, enviados, criados, animados } = await abrir(w);
     try {
       let achados = await medir(page);
       const t = await texto(page, 'main');
@@ -161,6 +167,16 @@ export default async function roteiroBanners({ nav, base, ok, foto: arquivoFoto,
       achados = await medir(page);
       ok(achados.length === 0 && (await g.getByText('3 de 20').isVisible()) && (await g.getByRole('button', { name: 'Criar outra' }).isVisible()), `${w}px · pronto: a prévia, a franquia nova e "Criar outra", sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
       ok(/name="chave"/.test(criados[0] ?? '') && criados[0].includes(MELHORADO) && /name="textoPelaIa"\r\n\r\nfalse/.test(criados[0]) && !/name="file"/.test(criados[0]), `${w}px · "Criar banner" manda o pedido, a chave do clique e nenhuma foto`);
+      // O GIF: fica na prévia, dá para tirar e pôr de novo, e não gasta a franquia.
+      await g.getByRole('button', { name: 'Animar (GIF)' }).click();
+      await g.getByRole('button', { name: 'Tirar a animação' }).waitFor({ timeout: 5000 });
+      const srcs = () => g.locator('figure img').evaluateAll((l) => l.map((i) => i.getAttribute('src')));
+      achados = await medir(page);
+      ok(achados.length === 0 && animados[0]?.imagemRef === IMG_IA && (await srcs()).every((s) => s === GIF_IA) && (await g.getByText('3 de 20').isVisible()), `${w}px · "Animar (GIF)": a prévia anima, a franquia não muda, sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+      await g.getByRole('button', { name: 'Tirar a animação' }).click();
+      ok((await srcs()).every((s) => s === IMG_IA), `${w}px · "Tirar a animação" volta à imagem parada`);
+      await g.getByRole('button', { name: 'Animar (GIF)' }).click();
+      await g.getByRole('button', { name: 'Tirar a animação' }).waitFor({ timeout: 5000 });
       if (w === 390 || w === 1440) await g.screenshot({ path: arquivoFoto(`gaveta-ia-${w}.png`) });
       const antesDeUsar = enviados.length;
       await g.getByRole('button', { name: 'Usar este banner' }).click();
@@ -168,9 +184,10 @@ export default async function roteiroBanners({ nav, base, ok, foto: arquivoFoto,
       await page.getByLabel('Texto por cima do banner 3: título').waitFor({ timeout: 5000 });
       const novo = enviados[antesDeUsar]?.banners?.[2] ?? {};
       ok(
-        enviados.length === antesDeUsar + 1 && novo.imagemRef === IMG_IA && novo.textoTitulo === TITULO_LONGO && novo.textoChamada === CHAMADA_LONGA && novo.descricao === MELHORADO.slice(0, 200) && novo.feitoComIa === true,
-        `${w}px · "Usar este banner" salva a imagem, o texto por cima e a descrição (${umaLinha(JSON.stringify(novo))})`,
+        enviados.length === antesDeUsar + 1 && novo.imagemRef === IMG_IA && novo.imagemAnimadaRef === GIF_IA && novo.textoTitulo === TITULO_LONGO && novo.textoChamada === CHAMADA_LONGA && novo.descricao === MELHORADO.slice(0, 200) && novo.feitoComIa === true,
+        `${w}px · "Usar este banner" salva a imagem, o GIF, o texto por cima e a descrição (${umaLinha(JSON.stringify(novo))})`,
       );
+      ok(await page.getByRole('button', { name: 'Tirar a animação do banner 3' }).isVisible(), `${w}px · a linha do banner diz que o GIF está ligado e deixa tirar`);
       ok((await page.getByRole('button', { name: '✨ Criar com IA' }).count()) === 0, `${w}px · com 3 banners o "Criar com IA" sai`);
       achados = await medir(page);
       ok(achados.length === 0, `${w}px · a linha do banner com o texto por cima, sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
@@ -209,8 +226,8 @@ export default async function roteiroBanners({ nav, base, ok, foto: arquivoFoto,
   }
 
   // ───────────────────────── o cardápio: o banner abre as regras do clube e Sua conta ─────────────────────────
-  async function abrirCardapio(w, link, regras, banner = { imagemRef: IMG, titulo: 'Banner do clube', link }, tema = 'oferta', espera = 'button[aria-label="Banner do clube"]') {
-    const ctx = await nav.newContext({ viewport: { width: w, height: 900 }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900, reducedMotion: 'reduce' });
+  async function abrirCardapio(w, link, regras, banner = { imagemRef: IMG, titulo: 'Banner do clube', link }, tema = 'oferta', espera = 'button[aria-label="Banner do clube"]', movimento = 'reduce') {
+    const ctx = await nav.newContext({ viewport: { width: w, height: 900 }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900, reducedMotion: movimento });
     await ctx.addInitScript((t) => localStorage.setItem(`regem_loja_clientetoken_${t}`, 'ct-falso-do-roteiro'), TOKEN_CARDAPIO);
     const page = await ctx.newPage();
     const erros = [];
@@ -256,6 +273,34 @@ export default async function roteiroBanners({ nav, base, ok, foto: arquivoFoto,
         ok(false, `${w}px · ${tema}: o texto por cima (${umaLinha(String(e?.message ?? e))})`);
       } finally {
         await ctx.close();
+      }
+    }
+  }
+
+  // O GIF no cardápio: toca para quem não pediu menos movimento; quem pediu vê a imagem parada. Nos 4 modelos, sem mudar o tamanho.
+  const COM_GIF = { ...COM_TEXTO, imagemAnimadaRef: GIF_IA };
+  for (const w of [320, 390, 1366]) {
+    for (const tema of ['oferta', 'balcao', 'fluxo', 'galeria']) {
+      for (const [movimento, esperado] of [['no-preference', GIF_IA], ['reduce', IMG]]) {
+        const { ctx, page, erros } = await abrirCardapio(w, null, [], COM_GIF, tema, tema === 'galeria' ? '.g-cap' : '.p-ban-txt', movimento);
+        try {
+          await page.waitForFunction(() => {
+            const i = document.querySelector('.p-ban img, .g-slide img');
+            return i && i.currentSrc && i.complete;
+          }, null, { timeout: 8000 });
+          const r = await page.evaluate(() => {
+            const i = document.querySelector('.p-ban img, .g-slide img');
+            const a = i.getBoundingClientRect();
+            const pai = i.closest('.p-ban, .g-slide').getBoundingClientRect();
+            return { src: i.currentSrc, cobre: Math.abs(a.width - pai.width) <= 1 && Math.abs(a.height - pai.height) <= 1, alt: i.alt };
+          });
+          const achados = await medir(page);
+          ok(r.src === esperado && r.cobre && r.alt === COM_TEXTO.descricao && achados.length === 0 && erros.length === 0, `${w}px · ${tema} · ${movimento}: mostra ${esperado === GIF_IA ? 'o GIF' : 'a imagem parada'}, cobrindo o banner (${umaLinha(JSON.stringify(r))})`);
+        } catch (e) {
+          ok(false, `${w}px · ${tema} · ${movimento}: o GIF no cardápio (${umaLinha(String(e?.message ?? e))})`);
+        } finally {
+          await ctx.close();
+        }
       }
     }
   }

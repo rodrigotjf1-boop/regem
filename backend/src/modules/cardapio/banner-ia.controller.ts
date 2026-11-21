@@ -50,4 +50,15 @@ export class BannerIaController {
   criar(@CurrentUser() user: AuthUser, @Body() corpo: any, @UploadedFile() foto?: { buffer?: Buffer; size?: number }) {
     return this.service.criar(user, corpo, foto);
   }
+
+  // O GIF da imagem que já está na mídia da empresa (mig 487): sem IA e sem franquia, mas é CPU do Graph, por isso o limite.
+  @Post('animar')
+  @HttpCode(200)
+  @CloudOnly()
+  @Throttle({ default: { ttl: 60000, limit: 6 } })
+  @Roles('presidente', 'gerente')
+  @RequirePerm('loja')
+  animar(@CurrentUser() user: AuthUser, @Body() corpo: any) {
+    return this.service.animar(user, corpo);
+  }
 }

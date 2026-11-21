@@ -3593,6 +3593,8 @@ export const banner = pgTable('banner', {
   textoChamada: text('texto_chamada'),
   descricao: text('descricao'),
   feitoComIa: boolean('feito_com_ia').notNull().default(false),
+  // O GIF feito a partir da imagem (mig 487); a `imagemRef` segue sendo a parada, para quem pediu menos movimento.
+  imagemAnimadaRef: text('imagem_animada_ref'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

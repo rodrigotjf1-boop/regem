@@ -336,6 +336,8 @@ export function motivoDaFalha(e: unknown): string {
 
 export const FERRAMENTA_EDITAR_IMAGEM = 'editar_imagem';
 export const FERRAMENTA_CRIAR_IMAGEM = 'criar_imagem';
+/** Contrato 1.5.0: o GIF a partir de uma imagem pronta, sem IA e sem franquia; a permissão é a de editar. */
+export const FERRAMENTA_ANIMAR_IMAGEM = 'animar_imagem';
 
 export type MotivoDaImagem =
   | 'desligado'
@@ -370,6 +372,16 @@ export function motivoDaImagem(e: unknown): MotivoDaImagem {
   if (d.codigo === 'parametro-invalido') return 'pedido-invalido';
   if (d.codigo === 'integracao-parada') return 'indisponivel';
   return 'erro';
+}
+
+/** A frase do GIF: o que muda em relação à imagem é que aqui o Google não entra. */
+export function fraseDoGif(motivo: MotivoDaImagem): string {
+  if (motivo === 'recusada') return 'Esta imagem tem detalhe demais para um GIF de até 1 MB. Use a imagem parada.';
+  if (motivo === 'pedido-invalido') return 'Não deu para animar esta imagem. Use a imagem parada ou crie outra.';
+  if (motivo === 'ocupado') return 'Muitos GIFs ao mesmo tempo. Tente de novo em alguns segundos.';
+  if (motivo === 'demora') return 'O GIF demorou além do prazo. Tente de novo.';
+  if (motivo === 'erro' || motivo === 'fora-do-formato') return 'O GIF não ficou pronto agora. Tente de novo em instantes.';
+  return fraseDaImagem(motivo);
 }
 
 /** A frase para a pessoa, por motivo. */
