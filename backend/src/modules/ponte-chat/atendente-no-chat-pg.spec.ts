@@ -13,6 +13,7 @@ import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corr
 import { chaveDoChat, chaveDoTeste } from '../../common/conversa-do-robo';
 import { PonteChatGuard, type PonteCtx } from './ponte-chat.guard';
 import { ERRO_A_LOJA_FALOU, PonteChatService } from './ponte-chat.service';
+import { semRespostaDoAtendente } from './atendente-no-chat';
 import { AjustesDaPonteService } from './ajustes-da-ponte.service';
 import { CHAMEI_A_EQUIPE, FALAS_DO_ATENDENTE_POR_HORA } from './robo-do-chat';
 import { TEXTO_MAX, temContatoProibido } from './texto-do-chat';
@@ -614,6 +615,32 @@ descrever('o atendente virtual no chat do iFood e da 99 (Postgres + n8n de menti
     expect(a + b).toBe(1);
     expect(await casosDo('ro-1b')).toHaveLength(1);
     expect((await doRobo('ro-1b')).map((d) => d.texto)).toEqual([CHAMEI_A_EQUIPE]);
+  });
+
+  it('a rotina: o impasse do banco desfaz a transação, ela repete inteira e abre UM caso com UM "já chamei" (V93)', async () => {
+    await pedido('ro-imp');
+    await fala('ro-imp', 'Quero falar com alguém');
+    await q(`update chat_plataforma_msg set robo_entregue_em = now() - interval '3 minutes' where tenant_id = $1 and pedido_externo = 'ro-imp' and robo_entregue_em is not null`, [T]);
+    // A 1ª transação faz TODO o trabalho e cai no fim, como o Postgres derruba a vítima: nada dela pode ficar gravado.
+    let caiu = false;
+    const avisos: string[] = [];
+    const comImpasse = Object.create(db);
+    comImpasse.transaction = (fn: any) =>
+      db.transaction(async (tx: any) => {
+        const r = await fn(tx);
+        if (!caiu) {
+          caiu = true;
+          throw Object.assign(new Error('deadlock detected'), { code: '40P01' });
+        }
+        return r;
+      });
+    const abertos = await semRespostaDoAtendente(comImpasse, undefined, { warn: (m: string) => void avisos.push(m) });
+    expect(caiu).toBe(true);
+    expect(abertos).toBeGreaterThanOrEqual(1);
+    expect(await casosDo('ro-imp')).toHaveLength(1);
+    expect((await doRobo('ro-imp')).map((d) => d.texto)).toEqual([CHAMEI_A_EQUIPE]);
+    expect(await marcas('ro-imp')).toHaveLength(0);
+    expect(avisos.some((a) => a.includes('impasse no banco'))).toBe(true);
   });
 
   it('a rotina pega a fala que espera mesmo com mais de 100 marcas que NÃO esperam na frente (V84), e limpa todas', async () => {

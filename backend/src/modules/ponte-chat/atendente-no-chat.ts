@@ -3,6 +3,7 @@ import { sql, type SQL } from 'drizzle-orm';
 import { ehServidorLocal } from '../../common/modo';
 import { chaveDoChat, ehChaveDoChat, idDaChaveDoChat } from '../../common/conversa-do-robo';
 import { uuidDeChave } from '../../common/id-deterministico';
+import { repetirNoImpasse } from '../../common/repetir-no-impasse';
 import { type CanalDaPonte, type PonteCandidata, VIVA_POR_MS, ehCanalDaPonte, quemResponde } from './lideranca';
 import { type MensagemDoCliente, type RoboNoCaso, casosDoChat, chaveDaConversa, chaveDoMapa, chaveSql } from './casos-do-chat';
 import { NOME_DO_MOTIVO_DA_TRAVA, travaDaPlataforma, primeiroNome } from './texto-do-chat';
@@ -700,15 +701,24 @@ const marcaQueEspera = (m: string): SQL => {
  * equipe" quando algum PC envia pelo canal. Primeiro a limpeza (set-based) tira da frente as marcas que não esperam mais
  * nada; a leitura pega só as que esperam (o índice parcial da 383 guarda só as marcas vivas — V84). Cada uma na trava da
  * empresa, conferida de novo; o id do caso vem da fala (`uuidDeChave` — duas rodadas ou duas réplicas = um caso, V42); a
- * marca sai em todo caso. Nunca rejeita (V3): a falha de uma não derruba as outras; o motivo vai para o log.
+ * marca sai em todo caso. Nunca rejeita (V3): a falha de uma não derruba as outras; o motivo vai para o log. O impasse do
+ * banco (uma migration cruzando a trava da empresa — V93) repete a limpeza e a transação: as duas são idempotentes e nada
+ * sai para fora antes do commit (os eventos vêm depois).
  */
 export async function semRespostaDoAtendente(db: any, emitir: Emitir | undefined, log: Log): Promise<number> {
   if (ehServidorLocal()) return 0;
+  const noImpasse = {
+    aoRepetir: (tentativa: number) => log.warn(`atendente virtual no chat: impasse no banco na rotina "não respondeu"; repetindo (${tentativa})`),
+  };
   let candidatas: any[];
   try {
-    await db.execute(sql`
+    await repetirNoImpasse(
+      () =>
+        db.execute(sql`
       update chat_plataforma_msg m set robo_entregue_em = null
-       where m.robo_entregue_em is not null and not ${marcaQueEspera('m')}`);
+       where m.robo_entregue_em is not null and not ${marcaQueEspera('m')}`),
+      noImpasse,
+    );
     candidatas = linhas(
       await db.execute(sql`
         select m.id from chat_plataforma_msg m
@@ -731,7 +741,7 @@ export async function semRespostaDoAtendente(db: any, emitir: Emitir | undefined
       const c = await conversaDaChave(db, chaveDoChat(String(id)));
       if (!c) continue;
       const [envia, equipe] = await Promise.all([alguemEnviaPeloCanal(db, c.tenantId, c.unidadeId, c.canal), situacoesPorLoja(db, c.tenantId, [c.unidadeId])]);
-      const r = await db.transaction(async (tx: any) => {
+      const r: any = await repetirNoImpasse(() => db.transaction(async (tx: any) => {
         await tx.execute(sql`select 1 from robo_config where tenant_id = ${c.tenantId}::uuid for update`);
         const [ainda] = linhas(
           await tx.execute(sql`
@@ -763,7 +773,7 @@ export async function semRespostaDoAtendente(db: any, emitir: Emitir | undefined
         if (envia) await enfileirarNoChat(tx, c.tenantId, casos.novos.map((n) => naFila(c, fraseDoChamado(n, equipe))));
         await limparMarcas(tx, c);
         return casos;
-      });
+      }), noImpasse);
       for (const chamado of r.novos) {
         abertos++;
         log.log?.(`atendente virtual no chat sem resposta virou caso (empresa ${c.tenantId}).`);
