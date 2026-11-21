@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister versão 6, M6j lote 3 — criar a tarefa de hoje pelo WhatsApp (20/11; SEM migration).** Só na nuvem (o Mister):
+  vai no `.zip` sem efeito na loja.
+
 - **Mister versão 6, M6j lote 2 — a tarefa do dia e a pausa do produto pelo WhatsApp (20/11; SEM migration).** Só na
   nuvem (o Mister): vai no `.zip` sem efeito na loja.
 
