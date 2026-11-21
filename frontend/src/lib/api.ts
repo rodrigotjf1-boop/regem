@@ -1634,7 +1634,9 @@ export const api = {
   orzuniCliqueDesligar: () => req('/orzuni/clique/desligar', { method: 'POST' }) as Promise<{ desligada: boolean }>,
   // O clique Regem → DMS Graph (mig 450, G5): a situação da EMPRESA, ligar (devolve a página do Graph), a volta e desligar.
   graphCliqueSituacao: () => req('/graph/clique/situacao'),
-  graphCliqueIniciar: () => req('/graph/clique/iniciar', { method: 'POST' }) as Promise<{ url: string }>,
+  // `pedir` = os recursos novos do "Pedir mais"; sem ele, a primeira ligação.
+  graphCliqueIniciar: (pedir?: string[]) =>
+    req('/graph/clique/iniciar', { method: 'POST', body: JSON.stringify(pedir?.length ? { pedir } : {}) }) as Promise<{ url: string }>,
   graphCliqueConcluir: (volta: { code: string | null; state: string | null; iss: string | null; error: string | null }) =>
     req('/graph/clique/concluir', { method: 'POST', body: JSON.stringify(volta) }),
   graphCliqueDesligar: () => req('/graph/clique/desligar', { method: 'POST' }) as Promise<{ desligada: boolean }>,

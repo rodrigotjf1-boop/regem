@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **DMS Graph: "Pedir mais" e o serviço de imagem (21/11; SEM migration).** Só na nuvem (o módulo graph): vai no `.zip` sem
+  efeito na loja.
+
 - **Mister versão 6, M6j lote 5 — as faltas e as horas de um período (21/11; SEM migration).** Só na nuvem (o Mister): vai
   no `.zip` sem efeito na loja.
 

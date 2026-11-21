@@ -17,12 +17,15 @@ import {
   chaveDaFoto,
   codigoValido,
   empresasDoPiloto,
+  escopoDoPedido,
   franquiaDe,
+  fraseDaImagem,
   fraseDaVolta,
   graphLigadoParaEmpresa,
   lerConfigGraph,
   mimeDoGraph,
   motivoDaFalha,
+  motivoDaImagem,
   numeroValido,
   segredoValido,
   semDadoPessoal,
@@ -31,6 +34,51 @@ import {
 } from './graph.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+describe('os recursos do DMS Graph (contrato 1.4.0)', () => {
+  const TUDO = ['arquivos.analisar', 'audio.ouvir', 'audio.falar', 'imagens.editar', 'imagens.criar'];
+
+  it('o conjunto do pedido: sem ligação, tudo; com ligação, o que ela tem mais o novo, na ordem do catálogo', () => {
+    expect(escopoDoPedido(null, undefined)).toEqual({ escopo: TUDO });
+    expect(escopoDoPedido(['arquivos.analisar'], undefined)).toEqual({ escopo: ['arquivos.analisar'] });
+    expect(escopoDoPedido(['arquivos.analisar'], ['imagens.criar', 'audio.ouvir'])).toEqual({ escopo: ['arquivos.analisar', 'audio.ouvir', 'imagens.criar'] });
+    expect(escopoDoPedido(['arquivos.analisar', 'audio.falar'], ['imagens.editar'])).toEqual({ escopo: ['arquivos.analisar', 'audio.falar', 'imagens.editar'] });
+    // a necessária nunca sai, mesmo que a ligação gravada não a traga
+    expect(escopoDoPedido([], ['audio.ouvir'])).toEqual({ escopo: ['arquivos.analisar', 'audio.ouvir'] });
+  });
+
+  it('o conjunto do pedido recusa o que não existe, o que já tem e o que não é lista', () => {
+    for (const torto of [['videos.criar'], ['arquivos.analisar'], [1], 'audio.ouvir', {}]) {
+      expect(escopoDoPedido(['arquivos.analisar'], torto)).toEqual({ erro: expect.any(String) });
+    }
+    expect(escopoDoPedido(['arquivos.analisar', 'audio.ouvir'], ['audio.ouvir'])).toEqual({ erro: expect.stringMatching(/já está liberado/) });
+  });
+
+  it('cada falha da imagem vira um motivo, e todo motivo tem frase', () => {
+    const erro = (tipo: any, dados?: unknown) => new ErroMcp({ tipo, ferramenta: 'criar_imagem', dados } as any);
+    const franquia = (usados: number, total: number) => ({ mes: '2026-11', usados, total });
+    const casos: Array<[unknown, string]> = [
+      [erro('ligacao'), 'ligacao-desfeita'],
+      [erro('permissao'), 'sem-permissao'],
+      [erro('limite'), 'ocupado'],
+      [erro('indisponivel'), 'indisponivel'],
+      [erro('sem-resposta'), 'demora'],
+      [erro('protocolo'), 'erro'],
+      [erro('ferramenta', { codigo: 'limite-de-chamadas', limite: 'franquia_imagem', franquia: franquia(0, 0) }), 'sem-franquia'],
+      [erro('ferramenta', { codigo: 'limite-de-chamadas', limite: 'franquia_imagem', franquia: franquia(30, 30) }), 'franquia-esgotada'],
+      [erro('ferramenta', { codigo: 'limite-de-chamadas', limite: 'imagens_simultaneas' }), 'ocupado'],
+      [erro('ferramenta', { codigo: 'regra-invalida' }), 'recusada'],
+      [erro('ferramenta', { codigo: 'parametro-invalido' }), 'pedido-invalido'],
+      [erro('ferramenta', { codigo: 'integracao-parada' }), 'indisponivel'],
+      [erro('ferramenta', { codigo: 'erro-interno' }), 'erro'],
+      [new Error('qualquer'), 'erro'],
+    ];
+    for (const [e, motivo] of casos) {
+      expect(motivoDaImagem(e)).toBe(motivo);
+      expect(fraseDaImagem(motivo as any).length).toBeGreaterThan(10);
+    }
+  });
+});
 
 // O DMS GRAPH NO REGEM (G5a; mig 450) — as peças sem banco: a configuração (nasce DESLIGADA), as formas do Graph (gph_),
 // a chave de idempotência da foto (G-5), a tradução do resultado para a análise de hoje, e as rotas do clique com o RBAC
