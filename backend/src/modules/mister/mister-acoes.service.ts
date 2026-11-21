@@ -4,7 +4,7 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { uuidDeChave } from '../../common/id-deterministico';
 import { hojeISO, horaNoFuso } from '../../common/data';
 import { pausaVigenteDoCanal, type CanalDaPausa } from '../../common/pausa-do-canal';
-import { podeAcessar } from '../../auth/permissoes';
+import { pode, podeAcessar, type Permissoes } from '../../auth/permissoes';
 import type { AuthUser } from '../../auth/auth-user';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { DeliveryService } from '../delivery/delivery.service';
@@ -25,6 +25,9 @@ import {
   conferirAcao,
   ehAcaoDoMister,
   imagemLigada,
+  mesmaUnidade,
+  quantidadeBr,
+  resumoDoMovimento,
   sigaDaAcao,
   nomeDoEstadoDaTarefa,
   nomesDosCanais,
@@ -39,6 +42,7 @@ import { MisterNumeroService } from './mister-numero.service';
 import { botoesDaProposta } from './mister-procedimentos';
 import { MisterPropostasService } from './mister-propostas.service';
 import { GraphImagemService } from '../graph/graph-imagem.service';
+import { EstoqueService } from '../estoque/estoque.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -63,14 +67,19 @@ function escolherUm<T>(achados: any[], dito: string, nome: (a: any) => string, n
   return { erro: varios(achados.map((a) => `"${nome(a)}"`).join(', ')) };
 }
 /** A frase de quem não tem a permissão da ação (a mesma da rota da tela). */
-const semPermissaoDe = (p: 'delivery' | 'meu_dia' | 'loja' | 'checklist') =>
-  p === 'meu_dia'
+const semPermissaoDe = (p: 'delivery' | 'meu_dia' | 'loja' | 'checklist' | 'estoque') =>
+  p === 'estoque'
+    ? TEXTOS_DAS_ACOES.semPermissaoEstoque
+    : p === 'meu_dia'
     ? TEXTOS_DAS_ACOES.semPermissaoTarefas
     : p === 'loja'
       ? TEXTOS_DAS_ACOES.semPermissaoLoja
       : p === 'checklist'
         ? TEXTOS_DAS_ACOES.semPermissaoChecklist
         : TEXTOS_DAS_ACOES.semPermissao;
+/** A MESMA conta do `PermissoesGuard`: o estoque é CRUD (a rota do movimento pede `editar`), os outros são chaves simples. */
+const temAPermissao = (perm: Permissoes | undefined | null, p: 'delivery' | 'meu_dia' | 'loja' | 'checklist' | 'estoque') =>
+  p === 'estoque' ? pode(perm, 'estoque', 'editar') : podeAcessar(perm, p);
 const NOME_DA_SITUACAO: Record<string, string> = { novo: 'aguardando aceite', confirmado: 'em preparo', pronto: 'pronto', despachado: 'a caminho', concluido: 'concluído', entregue: 'entregue', cancelado: 'cancelado' };
 
 @Injectable()
@@ -92,6 +101,8 @@ export class MisterAcoesService implements OnModuleInit {
     @Optional() private readonly defs?: TarefaDefService,
     // M6l: a imagem pelo DMS Graph (módulo só da nuvem).
     @Optional() private readonly imagens?: GraphImagemService,
+    // Lote 7: o movimento pelo MESMO serviço de Estoque › Produtos.
+    @Optional() private readonly estoque?: EstoqueService,
   ) {}
 
   onModuleInit(): void {
@@ -108,7 +119,7 @@ export class MisterAcoesService implements OnModuleInit {
       const c = conferirAcao(en.acao, en);
       if ('erro' in c) return recusa(c.erro);
       const def = ACOES[c.parametros.acao];
-      if (e.nivel !== 'presidente' && !podeAcessar(e.permissoes, def.permissao)) return recusa(semPermissaoDe(def.permissao));
+      if (e.nivel !== 'presidente' && !temAPermissao(e.permissoes, def.permissao)) return recusa(semPermissaoDe(def.permissao));
       if (c.parametros.acao === 'criar_imagem' && !imagemLigada()) return recusa(TEXTOS_DAS_ACOES.imagemDesligada);
       if (this.numero && (await this.numero.ler()).provedor === 'evolution') return recusa(TEXTOS_DAS_ACOES.semBotao);
       // A loja: a da conversa (o gerente, a dele); a empresa de uma loja só, ela.
@@ -181,6 +192,22 @@ export class MisterAcoesService implements OnModuleInit {
         } catch {
           return recusa('A empresa tem mais de um cardápio digital: diga de qual loja é a pausa.');
         }
+      }
+      if (c.parametros.acao === 'movimentar_estoque') {
+        // Lote 7: o produto pelo nome, a unidade que a pessoa disse e a loja do lançamento (cada loja tem o próprio estoque).
+        const it = await this.acharItem(e.tenantId, c.parametros.item, e.lojaUnica && !loja.atual ? null : lojas);
+        if ('erro' in it) return recusa(it.erro);
+        if (typeof en.medidaDita === 'string' && en.medidaDita.trim() && !mesmaUnidade(en.medidaDita, it.unidade))
+          return recusa(TEXTOS_DAS_ACOES.estoqueOutraUnidade(it.nome, it.unidade));
+        const daLoja = loja.atual ?? it.unidadeId ?? (e.lojaUnica ? (e.lojas[0]?.id ?? null) : null);
+        if (!daLoja && !e.lojaUnica) return recusa(TEXTOS_DAS_ACOES.estoquePedeLoja);
+        const saldo = await this.saldoDoItem(e.tenantId, it.id, daLoja);
+        unidadeId = daLoja;
+        parametros.itemId = it.id;
+        parametros.nomeDoItem = it.nome;
+        parametros.unidadeDeMedida = it.unidade;
+        resumo = resumoDoMovimento(c.parametros, { nome: it.nome, unidade: it.unidade, saldo, loja: e.lojaUnica ? null : (e.lojas.find((l) => l.id === daLoja)?.nome ?? null) });
+        alvo = `${it.id}:${c.parametros.tipo}:${c.parametros.quantidade ?? c.parametros.saldoContado}`;
       }
       // M6l: cada pedido de imagem é um alvo (o mesmo pedido repetido é a mesma proposta e não paga de novo).
       if (c.parametros.acao === 'criar_imagem') alvo = `${c.parametros.proporcao}:${c.parametros.pedido}`;
@@ -320,6 +347,75 @@ export class MisterAcoesService implements OnModuleInit {
   }
 
   /**
+   * Lote 7: o movimento pelo MESMO `createMovimento` da tela (no ajuste, a diferença é feita por ele, no banco). O "feito" só
+   * com a linha gravada e o saldo lido de novo.
+   */
+  private async lancarEstoque(
+    p: { tenantId: string; unidadeId: string | null },
+    a: { tipo: string; quantidade: number | null; saldoContado: number | null; motivo: string | null; itemId?: string; nomeDoItem?: string; unidadeDeMedida?: string },
+    user: AuthUser,
+  ): Promise<{ feita: boolean; texto: string }> {
+    if (!this.estoque || !a.itemId) return { feita: false, texto: 'o estoque não está disponível agora. Nada foi lançado.' };
+    const nome = String(a.nomeDoItem ?? 'o produto');
+    try {
+      const r: any = await this.estoque.createMovimento(
+        p.tenantId,
+        {
+          itemId: a.itemId,
+          tipo: a.tipo,
+          ...(a.tipo === 'ajuste' ? { saldoContado: a.saldoContado as number } : { quantidade: a.quantidade as number }),
+          motivo: a.motivo ? `Pelo Mister: ${a.motivo}` : 'Pelo Mister',
+        },
+        p.unidadeId,
+        { colaboradorId: user.colaboradorId, categoria: user.categoria },
+      );
+      if (r?.semMudanca) return { feita: true, texto: `o saldo de "${nome}" já era esse. Nada foi lançado.` };
+      const [gravado] = r?.id
+        ? linhas(await this.db.execute(sql`select 1 as ok from movimento_estoque where id = ${r.id}::uuid and tenant_id = ${p.tenantId}::uuid`))
+        : [];
+      if (!gravado) return { feita: false, texto: 'o movimento não apareceu no estoque. Confira em Estoque › Produtos.' };
+      const saldo = await this.saldoDoItem(p.tenantId, a.itemId, p.unidadeId);
+      return { feita: true, texto: `"${nome}" agora tem ${quantidadeBr(saldo)} ${a.unidadeDeMedida ?? ''}.`.replace(' .', '.') };
+    } catch (err: any) {
+      const motivo = String(err?.response?.message ?? err?.message ?? 'o serviço recusou').slice(0, 200).replace(/[.\s]+$/, '');
+      this.logger.warn(`o movimento de estoque não foi lançado: ${motivo}`);
+      return { feita: false, texto: `o estoque recusou: ${motivo}. Nada foi lançado.` };
+    }
+  }
+
+  /** Lote 7: o item de estoque pelo nome (o da ficha ou o comercial), da empresa ou das lojas da pessoa. */
+  private async acharItem(tenantId: string, dito: string, lojas: string[] | null): Promise<{ id: string; nome: string; unidadeId: string | null; unidade: string } | { erro: string }> {
+    const achados = linhas(
+      await this.db.execute(sql`
+        select i.id::text as id, i.nome, i.unidade_id::text as "unidadeId", i.unidade_medida as unidade
+          from item_estoque i
+         where i.tenant_id = ${tenantId}::uuid and i.deleted_at is null
+           ${lojas ? sql`and (i.unidade_id is null or i.unidade_id in (${sql.join(lojas.map((l) => sql`${l}::uuid`), sql`, `)}))` : sql``}
+           and (i.nome ilike ${comoTexto(dito)} or i.nome_comercial ilike ${comoTexto(dito)})
+         order by i.nome
+         limit 6`),
+    );
+    return escolherUm(achados, dito, (a) => String(a.nome), TEXTOS_DAS_ACOES.itemNaoAchado, TEXTOS_DAS_ACOES.itensDemais, (a) => ({
+      id: a.id,
+      nome: String(a.nome),
+      unidadeId: a.unidadeId ?? null,
+      unidade: String(a.unidade ?? 'un'),
+    }));
+  }
+
+  /** Lote 7: o saldo do item na loja, pela MESMA conta do `createMovimento`. */
+  private async saldoDoItem(tenantId: string, itemId: string, unidadeId: string | null): Promise<number> {
+    const [s] = linhas(
+      await this.db.execute(sql`
+        select coalesce(sum(case m.tipo when 'entrada' then m.quantidade when 'saida' then -m.quantidade else m.quantidade end), 0)::text as saldo
+          from movimento_estoque m
+         where m.tenant_id = ${tenantId}::uuid and m.item_id = ${itemId}::uuid
+           ${unidadeId ? sql`and m.unidade_id = ${unidadeId}::uuid` : sql``}`),
+    );
+    return Math.round(Number(s?.saldo ?? 0) * 1000) / 1000;
+  }
+
+  /**
    * M6l: a imagem pelo DMS Graph (a porta única do Regem, `GraphImagemService`, que nunca lança). A chave é a proposta: repetir
    * não paga de novo. Só é "feito" com a imagem ENTREGUE na conversa de quem pediu.
    */
@@ -359,15 +455,22 @@ export class MisterAcoesService implements OnModuleInit {
     if (!quem || quem !== String(p.parametros?.colaboradorId ?? '')) return { feita: false, texto: 'a ação só vale com o "Autorizar" de quem pediu. Nada foi feito.' };
     const e = await this.ferramentas.escopoDaTela(p.tenantId, quem);
     const def = ACOES[p.procedimento];
-    if (!e || (e.nivel !== 'presidente' && !podeAcessar(e.permissoes, def.permissao))) {
-      const a = def.permissao === 'meu_dia' ? 'às Tarefas' : def.permissao === 'loja' ? 'ao cadastro dos produtos' : 'ao Delivery';
+    if (!e || (e.nivel !== 'presidente' && !temAPermissao(e.permissoes, def.permissao))) {
+      const a = def.permissao === 'meu_dia' ? 'às Tarefas' : def.permissao === 'loja' ? 'ao cadastro dos produtos' : def.permissao === 'estoque' ? 'ao lançamento do estoque' : 'ao Delivery';
       return { feita: false, texto: `o seu perfil não dá mais acesso ${a}. Nada foi feito.` };
     }
     const parametros = p.parametros as ParametrosDaAcao & { pedidoId?: string; pedido?: string; instanciaId?: string; titulo?: string; produtoId?: string; nome?: string };
     const user: AuthUser = { tenantId: p.tenantId, colaboradorId: quem, categoria: e.nivel, unidadeId: e.nivel === 'presidente' ? null : (p.unidadeId ?? null), nome: e.nome ?? null } as AuthUser;
     const motivo = (err: any) => String(err?.response?.message ?? err?.message ?? 'o serviço recusou').slice(0, 240);
+    // M6l e lote 7 cuidam da própria falha: o `catch` abaixo confere pedido, canal e tarefa, que aqui não existem.
+    if (parametros.acao === 'criar_imagem') {
+      return this.gerarImagem(p, parametros).catch((err: any) => {
+        this.logger.error(`a imagem da proposta ${p.id} falhou: ${String(err?.message ?? err).slice(0, 200)}`, err?.stack);
+        return { feita: false, texto: 'não consegui gerar a imagem agora. Tente de novo.' };
+      });
+    }
+    if (parametros.acao === 'movimentar_estoque') return this.lancarEstoque(p, parametros as any, user);
     try {
-      if (parametros.acao === 'criar_imagem') return await this.gerarImagem(p, parametros);
       if (parametros.acao === 'pausar_canal' || parametros.acao === 'reabrir_canal') {
         if (!this.pausa) return { feita: false, texto: 'a pausa dos canais não está disponível agora. Nada foi feito.' };
         if (parametros.acao === 'pausar_canal') {

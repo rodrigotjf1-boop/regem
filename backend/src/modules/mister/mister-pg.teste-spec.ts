@@ -4146,6 +4146,7 @@ export function testesDoMisterComPostgres(): void {
         c49: { acao: 'pausar_canal', canais: ['ifood'], motivo: 'pedidos', minutos: 30 },
         c51: { periodo: 'este_mes' },
         c52: { periodo: 'este_mes', pessoa: 'Bruna' },
+        c55: { acao: 'movimentar_estoque', item: 'bacon', tipo: 'entrada', quantidade: 10, medidaDita: 'kg' },
         c54: { acao: 'criar_imagem', proporcao: '9:16', pedidoDaImagem: "Cartaz vertical da terça do smash. Foto de um smash duplo com batata, fundo escuro, luz quente. Texto exato: \"TERÇA DO SMASH\" e \"Smash duplo + batata · R$ 29,90\"." },
       };
       const EXTRAS: Record<string, string[]> = { c37: ['produtos_mais_vendidos'], c38: ['servidor_e_incidentes'] };
@@ -4199,18 +4200,18 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_avaliacao`);
       });
 
-      it('a rodada inteira com as respostas certas: 54 de 54, o andamento, o custo, a lista e as perguntas na ordem', async () => {
+      it('a rodada inteira com as respostas certas: 55 de 55, o andamento, o custo, a lista e as perguntas na ordem', async () => {
         const ia = iaDeMentira();
         const servico = new MisterAvaliacaoService(db, ia as any);
         const r = await servico.rodar('Rita da DMS');
-        expect(r.total).toBe(54);
+        expect(r.total).toBe(55);
         const fim = await terminar(r.id);
-        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 54, acertos: 54, motivo: null });
+        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 55, acertos: 55, motivo: null });
         // O mesmo laço do agente: as instruções e as ferramentas de verdade, e o recurso da avaliação.
         expect(ia.pedidos.every((p) => p.recurso === 'mister_avaliacao' && p.tools === FERRAMENTAS && p.system[0].text === INSTRUCOES_DO_MISTER)).toBe(true);
         const lista = await servico.lista();
-        expect(lista).toMatchObject({ disponivel: true, total: 54, chaveDaDistribuicao: true });
-        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 54, acertos: 54, falhas: 0, oQueFalhou: [] });
+        expect(lista).toMatchObject({ disponivel: true, total: 55, chaveDaDistribuicao: true });
+        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 55, acertos: 55, falhas: 0, oQueFalhou: [] });
         // O custo pela tabela de preços do modelo, sobre os tokens somados de todas as chamadas.
         expect(lista.rodadas[0].custoUsd).toBeGreaterThan(0);
         const [tok] = await q(`select tokens_entrada, tokens_cache_leitura, tokens_saida from mister_avaliacao where id = $1`, [r.id]);
@@ -4230,7 +4231,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
         expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
         const r = await servico.rodar('Rita');
-        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 53 });
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 54 });
         const [velha] = await q(`select situacao, motivo from mister_avaliacao where id = $1`, [parada]);
         expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
         const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);
@@ -9693,6 +9694,62 @@ export function testesDoMisterComPostgres(): void {
           delete (acoes as any).imagens;
           if (antes === undefined) delete process.env.MISTER_CRIAR_IMAGEM;
           else process.env.MISTER_CRIAR_IMAGEM = antes;
+        }
+      });
+
+      it('lote 7: o movimento de estoque — o saldo antes e depois, a permissão de editar, a unidade do item e o efeito conferido', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const [{ id: item }] = await q(`insert into item_estoque (tenant_id, unidade_id, nome, unidade_medida) values ($1, $2, 'Bacon em tiras', 'kg') returning id`, [A, lojaDeA]);
+        await q(`insert into movimento_estoque (tenant_id, unidade_id, item_id, tipo, quantidade, data) values ($1, $2, $3, 'entrada', 3, $4)`, [A, lojaDeA, item, hojeISO()]);
+        (acoes as any).estoque = new EstoqueService(db, auditoria as AuditoriaService);
+        const saldo = async () => Number((await q(`select coalesce(sum(case tipo when 'saida' then -quantidade else quantidade end), 0) as s from movimento_estoque where item_id = $1`, [item]))[0].s);
+        try {
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+          // A entrada: o saldo antes e depois na pergunta; nada muda antes do "Autorizar".
+          const r = await ferramentas.executar(e, 'propor_acao', { acao: 'movimentar_estoque', item: 'bacon', tipo: 'entrada', quantidade: 10, medidaDita: 'quilos' });
+          expect(r.ok).toBe(true);
+          expect(r.dados.oQueVouFazer).toContain('Dar entrada de 10 kg em "Bacon em tiras"');
+          expect(r.dados.oQueVouFazer).toContain('Saldo: 3 kg → 13 kg.');
+          expect(await saldo()).toBe(3);
+          const id = idDaProposta(r);
+          await propostasDasAcoes.responder(`prop:${id}:sim`, quem(tel, 'ana', 'presidente'));
+          const fim = await esperarFim(id);
+          expect(fim.situacao).toBe('feita');
+          expect(fim.resultado).toBe('"Bacon em tiras" agora tem 13 kg.');
+          expect(await saldo()).toBe(13);
+          expect((await q(`select motivo from movimento_estoque where item_id = $1 order by created_at desc limit 1`, [item]))[0].motivo).toBe('Pelo Mister');
+
+          // "Contei 12 kg": o ajuste pelo saldo contado, com a conta feita pelo serviço da tela.
+          const r2 = await ferramentas.executar(e, 'propor_acao', { acao: 'movimentar_estoque', item: 'bacon', tipo: 'ajuste', saldoContado: 12, motivoDoMovimento: 'contagem da noite' });
+          expect(r2.dados.oQueVouFazer).toContain('13 kg → 12 kg');
+          const id2 = idDaProposta(r2);
+          await propostasDasAcoes.responder(`prop:${id2}:sim`, quem(tel, 'ana', 'presidente'));
+          expect((await esperarFim(id2)).resultado).toBe('"Bacon em tiras" agora tem 12 kg.');
+          expect(await saldo()).toBe(12);
+
+          // Contou e bateu: nada é lançado.
+          const r3 = await ferramentas.executar(e, 'propor_acao', { acao: 'movimentar_estoque', item: 'bacon', tipo: 'ajuste', saldoContado: 12.0, motivoDoMovimento: 'conferi de novo' });
+          const id3 = idDaProposta(r3);
+          const antes = Number((await q(`select count(*) as n from movimento_estoque where item_id = $1`, [item]))[0].n);
+          await propostasDasAcoes.responder(`prop:${id3}:sim`, quem(tel, 'ana', 'presidente'));
+          expect(await esperarFim(id3)).toMatchObject({ situacao: 'feita', resultado: 'o saldo de "Bacon em tiras" já era esse. Nada foi lançado.' });
+          expect(Number((await q(`select count(*) as n from movimento_estoque where item_id = $1`, [item]))[0].n)).toBe(antes);
+
+          // A unidade dita diferente da do item volta à pessoa, sem proposta.
+          const outra = await ferramentas.executar(e, 'propor_acao', { acao: 'movimentar_estoque', item: 'bacon', tipo: 'entrada', quantidade: 2, medidaDita: 'caixas' });
+          expect(outra).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.estoqueOutraUnidade('Bacon em tiras', 'kg') } });
+
+          // A permissão é a da rota: ver o estoque não basta, precisa de editar.
+          const telC = telefone();
+          await ligar('carlos', telC, A, 'gerente');
+          const c = (await ferramentas.escopo(A, pessoa.carlos, telC))!;
+          const soVer = { ...c, permissoes: { ...c.permissoes, estoque: { ver: true, criar: false, editar: false, excluir: false } } } as any;
+          expect(await ferramentas.executar(soVer, 'propor_acao', { acao: 'movimentar_estoque', item: 'bacon', tipo: 'saida', quantidade: 1 })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoEstoque } });
+        } finally {
+          delete (acoes as any).estoque;
+          await q(`delete from movimento_estoque where item_id = $1`, [item]);
+          await q(`delete from item_estoque where id = $1`, [item]);
         }
       });
 
