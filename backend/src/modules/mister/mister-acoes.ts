@@ -11,6 +11,7 @@ import {
   lerMotivo,
   voltaDaPausa,
 } from '../../common/pausa-do-canal';
+import { dataNoFuso } from '../../common/data';
 import { NOMES_DOS_DIAS, ehHoraDoDia, horasDaJanela, lerDiaDaSemana, textoDaJanela, type JanelaDoDia } from '../../common/horarios-da-loja';
 
 // AS AÇÕES DO MISTER — a porta `propor_acao` (versão 6, M6j; plano aprovado em 20/11/2026, `docs/plano-mister.md` § "Versão
@@ -40,6 +41,8 @@ export const ACOES_DO_MISTER = [
   'mudar_preco',
   // Lote 9 (de PIN): o horário da semana da loja.
   'mudar_horario',
+  // Lote 10 (de PIN): marcar uma conta a pagar como paga.
+  'pagar_conta',
 ] as const;
 export type AcaoDoMister = (typeof ACOES_DO_MISTER)[number];
 export const ehAcaoDoMister = (p: unknown): p is AcaoDoMister => (ACOES_DO_MISTER as readonly string[]).includes(String(p));
@@ -49,7 +52,7 @@ export interface DefinicaoDaAcao {
   /** O tamanho do risco (decisão do plano): o botão de quem pediu, ou o PIN pelo link para preço, horário e dinheiro. */
   nivel: 'botao' | 'pin';
   /** A permissão do perfil — a MESMA da rota da tela. O presidente pode tudo. */
-  permissao: 'delivery' | 'meu_dia' | 'loja' | 'checklist' | 'estoque';
+  permissao: 'delivery' | 'meu_dia' | 'loja' | 'checklist' | 'estoque' | 'financeiro';
   /** Por quanto tempo a pergunta vale. */
   prazoMin: number;
   /** O nome curto, para a auditoria e o histórico das propostas. */
@@ -79,6 +82,8 @@ export const ACOES: Record<AcaoDoMister, DefinicaoDaAcao> = {
   mudar_preco: { id: 'mudar_preco', nivel: 'pin', permissao: 'loja', prazoMin: 15, nome: 'mudar o preço de um produto', pedeVerValores: true },
   // Lote 9: a rota `PUT /cardapio/config` pede presidente ou gerente com a Loja; muda quando a loja recebe pedido, então é de PIN.
   mudar_horario: { id: 'mudar_horario', nivel: 'pin', permissao: 'loja', prazoMin: 15, nome: 'mudar o horário da loja' },
+  // Lote 10: a rota `POST /financeiro/titulos/:id/pagar` pede o Financeiro; a pessoa precisa VER o valor que autoriza.
+  pagar_conta: { id: 'pagar_conta', nivel: 'pin', permissao: 'financeiro', prazoMin: 15, nome: 'marcar uma conta como paga', pedeVerValores: true },
 };
 
 /** As ações de PIN: o link vai a quem pediu (o presidente ou o gerente com a permissão), e o PIN é o dessa pessoa. */
@@ -97,7 +102,9 @@ export const BOTOES_DA_IMAGEM = { autorizar: 'Gerar', naoAgora: 'Mudar' } as con
 export const pareceDadoPessoal = (t: string): boolean => /[^\s@]+@[^\s@]+\.[^\s@]+/.test(t) || /(?:\d[\s().\/-]*){10,}/.test(t);
 /** O que a IA faz com a resposta da ação. */
 export const sigaDaAcao = (acao: AcaoDoMister): string =>
-  ACOES[acao].nivel === 'pin'
+  acao === 'pagar_conta'
+    ? 'Mostre o "oQueVouFazer" como veio e diga que o link "Abrir no Regem" chega logo abaixo e pede o PIN. O Regem só registra a baixa: nunca diga que pagou, transferiu ou fez Pix, e nunca peça o PIN na conversa.'
+    : ACOES[acao].nivel === 'pin'
     ? 'Mostre o "oQueVouFazer" como veio e diga que o link "Abrir no Regem" chega logo abaixo e pede o PIN. Nada muda sem o PIN; nunca peça o PIN na conversa. Não diga que mudou.'
     : acao === 'criar_imagem'
     ? 'Mostre o "oQueVouFazer" como veio, entre aspas, e diga que os botões "Gerar" e "Mudar" chegam logo abaixo e que usa 1 da franquia de imagens do mês. Nada é gerado sem o "Gerar". Não diga que gerou.'
@@ -290,6 +297,66 @@ export function apresentacaoDoHorario(m: MudancaDeHorario): { titulo: string; it
   };
 }
 
+// ───────────────────────────── lote 10: marcar a conta como paga (de PIN) ─────────────────────────────
+
+export const FORMAS_DA_BAIXA = ['dinheiro', 'pix', 'cartao', 'transferencia'] as const;
+export type FormaDaBaixa = (typeof FORMAS_DA_BAIXA)[number];
+const NOME_DA_FORMA: Record<FormaDaBaixa, string> = { dinheiro: 'dinheiro', pix: 'Pix', cartao: 'cartão', transferencia: 'transferência' };
+export function lerFormaDaBaixa(v: unknown): FormaDaBaixa | null {
+  const t = String(v ?? '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return (FORMAS_DA_BAIXA as readonly string[]).includes(t) ? (t as FormaDaBaixa) : null;
+}
+export const dataBr = (iso: string): string => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+const diaMesBr = (iso: string): string => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+/** A data do pagamento: um dia de verdade, de hoje para trás, até 60 dias. Qualquer outra coisa é null. */
+export function lerDataDoPagamento(v: unknown, hoje: string): string | null {
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+  const d = new Date(`${v}T12:00:00Z`);
+  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== v || v > hoje) return null;
+  const limite = new Date(`${hoje}T12:00:00Z`);
+  limite.setUTCDate(limite.getUTCDate() - 60);
+  return v < limite.toISOString().slice(0, 10) ? null : v;
+}
+/** O que a baixa vai gravar (vai na proposta; a página do link mostra daqui). */
+export interface BaixaDeConta {
+  descricao: string;
+  fornecedor: string | null;
+  valor: number;
+  vencimento: string | null;
+  forma: FormaDaBaixa;
+  pagoEm: string;
+  recorrente: boolean;
+}
+/** O Regem registra a baixa; ele não movimenta dinheiro no banco. A frase vai sempre, antes do PIN. */
+const SO_REGISTRA = 'Isso só registra no Regem a saída do caixa: o pagamento no banco não sai daqui.';
+const NOTA_RECORRENTE = 'É uma conta recorrente: a próxima é criada em aberto.';
+/** O "o que vou fazer" da conversa. */
+export function resumoDaBaixa(b: BaixaDeConta): string {
+  const quem = b.fornecedor ? ` (${b.fornecedor})` : '';
+  const vence = b.vencimento ? `, vencimento ${diaMesBr(b.vencimento)}` : '';
+  return [
+    `Marcar como paga a conta "${b.descricao}"${quem} de ${reaisDaAcao(b.valor)}${vence}, em ${NOME_DA_FORMA[b.forma]}, com data de ${dataBr(b.pagoEm)}.`,
+    SO_REGISTRA,
+    ...(b.recorrente ? [NOTA_RECORRENTE] : []),
+  ].join(' ');
+}
+/** O que a página do link mostra antes do PIN. */
+export function apresentacaoDaBaixa(b: BaixaDeConta): { titulo: string; itens: string[]; detalhe: string | null; valor: number | null; botao: string } {
+  return {
+    titulo: `Marcar como paga a conta "${b.descricao}"?`,
+    detalhe: [b.fornecedor, b.vencimento ? `vence ${diaMesBr(b.vencimento)}` : null].filter(Boolean).join(' · ') || null,
+    valor: b.valor,
+    itens: [`Forma: ${NOME_DA_FORMA[b.forma]}.`, `Data do pagamento: ${dataBr(b.pagoEm)}.`, SO_REGISTRA, ...(b.recorrente ? [NOTA_RECORRENTE] : [])],
+    botao: 'Marcar como paga',
+  };
+}
+/** Uma conta na lista de "qual delas?". */
+export const linhaDaConta = (c: { descricao: string; valor: number; vencimento: string | null }): string =>
+  `"${c.descricao}" (${c.vencimento ? `vence ${diaMesBr(c.vencimento)}` : 'sem vencimento'}, ${reaisDaAcao(c.valor)})`;
+/** O desfecho, com a forma e a data que ficaram gravadas. */
+export const textoDaBaixaFeita = (b: BaixaDeConta, proxima: string | null): string =>
+  `A conta "${b.descricao}" ficou paga: saída de ${reaisDaAcao(b.valor)} em ${NOME_DA_FORMA[b.forma]}, com data de ${dataBr(b.pagoEm)}.${proxima ? ` A próxima vence em ${dataBr(proxima)}.` : ''} Para desfazer, use "Estornar" em Financeiro › Contas a pagar.`;
+
 /** O que a ação leva, já conferido (vai em `mister_proposta.parametros`, junto com quem pediu). */
 export type ParametrosDaAcao =
   | { acao: 'pausar_canal'; canais: CanalDaPausa[]; motivo: string; motivoTexto: string | null; minutos: number | null; ate: string | null; fimDoDia: boolean }
@@ -301,7 +368,8 @@ export type ParametrosDaAcao =
   | { acao: 'criar_imagem'; pedido: string; proporcao: ProporcaoDaImagem }
   | { acao: 'movimentar_estoque'; item: string; tipo: TipoDoMovimento; quantidade: number | null; saldoContado: number | null; motivo: string | null }
   | { acao: 'mudar_preco'; produto: string; canais: CanalDoProduto[]; precoNovo: number }
-  | { acao: 'mudar_horario'; dias: number[]; janela: JanelaDoDia | null; horarioDe: 'entrega' | 'retirada' | null };
+  | { acao: 'mudar_horario'; dias: number[]; janela: JanelaDoDia | null; horarioDe: 'entrega' | 'retirada' | null }
+  | { acao: 'pagar_conta'; conta: string; venceEm: string | null; forma: FormaDaBaixa; pagoEm: string | null; valorPago: number | null };
 
 const TEMPOS_TEXTO = `cardápio digital e iFood: ${TEMPOS_DO_CARDAPIO.join(', ')} min ou "até HH:MM"; 99: ${TEMPOS_DA_99.join(', ')} min ou até o fim do dia`;
 
@@ -426,6 +494,21 @@ export function conferirAcao(acao: unknown, en: Record<string, unknown>, agora: 
     const lista = nomes.length <= 1 ? nomes[0] : `${nomes.slice(0, -1).join(', ')} e ${nomes[nomes.length - 1]}`;
     return { parametros: { acao, dias, janela, horarioDe }, resumo: `Mudar o horário de ${lista} para ${textoDaJanela(janela)}.` };
   }
+  if (acao === 'pagar_conta') {
+    // Sem os curingas do ILIKE: "%" sozinho acharia todas as contas.
+    const conta = String(en.conta ?? '').replace(/[%_\\]/g, '').trim().replace(/\s+/g, ' ');
+    if (conta.length < 2 || conta.length > 60) return { erro: 'Diga qual conta: a descrição ou o fornecedor, como aparece em Contas a pagar.' };
+    const forma = lerFormaDaBaixa(en.formaDePagamento);
+    if (!forma) return { erro: 'Diga como foi pago: dinheiro, pix, cartao ou transferencia.' };
+    const vazio = (v: unknown) => v === undefined || v === null || v === '';
+    if (!vazio(en.venceEm) && !(typeof en.venceEm === 'string' && /^\d{2}\/\d{2}$/.test(en.venceEm))) return { erro: 'O vencimento vai em DD/MM (por exemplo 10/12).' };
+    const venceEm = vazio(en.venceEm) ? null : String(en.venceEm);
+    const pagoEm = vazio(en.pagoEm) ? null : lerDataDoPagamento(en.pagoEm, dataNoFuso(agora));
+    if (!vazio(en.pagoEm) && !pagoEm) return { erro: 'A data do pagamento vai em AAAA-MM-DD, de hoje para trás, até 60 dias.' };
+    const valorPago = vazio(en.valorPago) ? null : precoDaAcao(en.valorPago);
+    if (!vazio(en.valorPago) && valorPago === null) return { erro: 'O valor pago vai em reais, maior que zero e com até 2 casas.' };
+    return { parametros: { acao, conta, venceEm, forma, pagoEm, valorPago }, resumo: `Marcar como paga a conta "${conta}", em ${NOME_DA_FORMA[forma]}. ${SO_REGISTRA}` };
+  }
   const numero = String(en.numero ?? '').trim().replace(/^#/, '');
   if (!numero || numero.length > 40) return { erro: 'Diga o número do pedido como aparece no painel do Delivery.' };
   return { parametros: { acao, numero }, resumo: '' };
@@ -524,4 +607,16 @@ export const TEXTOS_DAS_ACOES = {
   horarioIgual: 'O horário já é esse. Nada muda.',
   horarioFeito: (dias: string) => `O horário ficou assim: ${dias}. Vale no cardápio digital.`,
   horarioNaoFicou: 'o horário não ficou como pedido. Confira em Delivery › Configurações › Horários.',
+  // Lote 10.
+  semPermissaoConta: 'O seu perfil no Regem não permite marcar conta como paga: falta o acesso ao Financeiro ou "Ver valores em R$". Quem muda o perfil é o presidente.',
+  contaPedePin: 'Para marcar uma conta como paga, confirme antes o seu PIN: o link vai logo depois desta resposta.',
+  contaNaoAchada: 'Não achei essa conta em aberto nas contas a pagar. Diga a descrição ou o fornecedor como aparece em Financeiro › Contas a pagar.',
+  contasDemais: (lista: string) => `Achei mais de uma conta em aberto: ${lista}. Diga qual pelo vencimento (DD/MM).`,
+  contaRepetida: 'Há mais de uma conta com esse nome e esse vencimento: marque em Financeiro › Contas a pagar.',
+  contaSemValor: 'Essa conta está sem valor: corrija em Financeiro › Contas a pagar.',
+  contaOutroValor: (valor: string) => `Essa conta é de ${valor}. Para registrar um valor diferente, faça em Financeiro › Contas a pagar.`,
+  contaNaoAberta: 'essa conta já não está em aberto. Nada foi lançado.',
+  contaMudouDeValor: (valor: string) => `o valor da conta mudou para ${valor} depois do pedido. Nada foi lançado: me peça de novo.`,
+  contaRecusada: (motivo: string) => `o financeiro recusou: ${motivo}. Nada foi lançado.`,
+  contaNaoFicou: 'a baixa não apareceu no caixa. Confira em Financeiro › Contas a pagar.',
 } as const;

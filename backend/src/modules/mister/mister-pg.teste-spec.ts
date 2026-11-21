@@ -4149,6 +4149,7 @@ export function testesDoMisterComPostgres(): void {
         c55: { acao: 'movimentar_estoque', item: 'bacon', tipo: 'entrada', quantidade: 10, medidaDita: 'kg' },
         c56: { acao: 'mudar_preco', produto: 'X-Bacon', canais: ['ifood'], precoNovo: 39.9 },
         c57: { acao: 'mudar_horario', dias: ['domingo'], abre: '19:00', fecha: '23:30' },
+        c58: { acao: 'pagar_conta', conta: 'Distribuidora Boa Carne', formaDePagamento: 'pix' },
         c54: { acao: 'criar_imagem', proporcao: '9:16', pedidoDaImagem: "Cartaz vertical da terça do smash. Foto de um smash duplo com batata, fundo escuro, luz quente. Texto exato: \"TERÇA DO SMASH\" e \"Smash duplo + batata · R$ 29,90\"." },
       };
       const EXTRAS: Record<string, string[]> = { c37: ['produtos_mais_vendidos'], c38: ['servidor_e_incidentes'] };
@@ -4202,18 +4203,18 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_avaliacao`);
       });
 
-      it('a rodada inteira com as respostas certas: 57 de 57, o andamento, o custo, a lista e as perguntas na ordem', async () => {
+      it('a rodada inteira com as respostas certas: 58 de 58, o andamento, o custo, a lista e as perguntas na ordem', async () => {
         const ia = iaDeMentira();
         const servico = new MisterAvaliacaoService(db, ia as any);
         const r = await servico.rodar('Rita da DMS');
-        expect(r.total).toBe(57);
+        expect(r.total).toBe(58);
         const fim = await terminar(r.id);
-        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 57, acertos: 57, motivo: null });
+        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 58, acertos: 58, motivo: null });
         // O mesmo laço do agente: as instruções e as ferramentas de verdade, e o recurso da avaliação.
         expect(ia.pedidos.every((p) => p.recurso === 'mister_avaliacao' && p.tools === FERRAMENTAS && p.system[0].text === INSTRUCOES_DO_MISTER)).toBe(true);
         const lista = await servico.lista();
-        expect(lista).toMatchObject({ disponivel: true, total: 57, chaveDaDistribuicao: true });
-        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 57, acertos: 57, falhas: 0, oQueFalhou: [] });
+        expect(lista).toMatchObject({ disponivel: true, total: 58, chaveDaDistribuicao: true });
+        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 58, acertos: 58, falhas: 0, oQueFalhou: [] });
         // O custo pela tabela de preços do modelo, sobre os tokens somados de todas as chamadas.
         expect(lista.rodadas[0].custoUsd).toBeGreaterThan(0);
         const [tok] = await q(`select tokens_entrada, tokens_cache_leitura, tokens_saida from mister_avaliacao where id = $1`, [r.id]);
@@ -4233,7 +4234,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
         expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
         const r = await servico.rodar('Rita');
-        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 56 });
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 57 });
         const [velha] = await q(`select situacao, motivo from mister_avaliacao where id = $1`, [parada]);
         expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
         const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);
@@ -9937,6 +9938,103 @@ export function testesDoMisterComPostgres(): void {
           for (const x of pinsAntes) await q(`update colaborador set pin_hash = $2 where id = $1`, [x.id, x.pin_hash]);
           if (criada) await q(`delete from cardapio_config where id = $1`, [criada]);
           else await q(`update cardapio_config set horarios = $2::jsonb, horarios_retirada = $3::jsonb, horario_unico = $4, subtitulo = $5 where id = $1`, [idDaConfig, JSON.stringify(antes.horarios), JSON.stringify(antes.horarios_retirada), antes.horario_unico, antes.subtitulo]);
+        }
+      });
+
+      it('lote 10: marcar a conta como paga — só com o PIN, uma conta só, o valor que a pessoa viu, e a saída no caixa uma vez', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const pinsAntes = await q(`select id, pin_hash from colaborador where id = $1`, [pessoa.ana]);
+        await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.ana, bcrypt.hashSync('2580', 4)]);
+        (acoes as any).financeiro = new FinanceiroService(db, auditoria, {} as any);
+        const conta = async (descricao: string, valor: number, vencimento: string, recorrencia = 'nenhuma', tipo = 'pagar', t = A, u: string | null = lojaDeA) =>
+          (await q(`insert into titulo_financeiro (tenant_id, unidade_id, tipo, descricao, valor, vencimento, recorrencia) values ($1, $2, $3, $4, $5, $6, $7) returning id::text as id`, [t, u, tipo, descricao, valor, vencimento, recorrencia]))[0].id as string;
+        const situacao = async (id: string) => (await q(`select status from titulo_financeiro where id = $1`, [id]))[0].status;
+        const saidas = (id: string) => q(`select valor::float as valor, forma, data::text as data, tipo from lancamento_caixa where titulo_id = $1`, [id]);
+        const codigo = (url: string | null) => /\/m\/([A-Za-z0-9_-]{32})$/.exec(String(url))?.[1] ?? '';
+        const en = { acao: 'pagar_conta', conta: 'Lote10 Aluguel', formaDePagamento: 'pix' };
+        try {
+          const alu1 = await conta('Lote10 Aluguel', 1200.5, '2026-12-10', 'mensal');
+          const alu2 = await conta('Lote10 Aluguel', 1200.5, '2027-01-10', 'mensal');
+          const gas = await conta('Lote10 Gás', 100, '2026-12-05');
+          await conta('Lote10 Receber', 50, '2026-12-05', 'nenhuma', 'receber');
+          await conta('Lote10 De fora', 77, '2026-12-05', 'nenhuma', 'pagar', B, null);
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+          // Conta recorrente repete o nome: o nome igual não decide, a pessoa escolhe pelo vencimento.
+          const dupla = await ferramentas.executar(e, 'propor_acao', en);
+          expect(dupla.ok).toBe(false);
+          expect(String(dupla.dados.erro)).toContain('vence 10/12, R$ 1.200,50');
+          expect(String(dupla.dados.erro)).toContain('vence 10/01, R$ 1.200,50');
+          // O valor dito diferente do da conta não vira baixa.
+          expect((await ferramentas.executar(e, 'propor_acao', { ...en, venceEm: '10/12', valorPago: 1300 })).dados.erro).toBe(TEXTOS_DAS_ACOES.contaOutroValor('R$ 1.200,50'));
+          const r = await ferramentas.executar(e, 'propor_acao', { ...en, venceEm: '10/12', valorPago: 1200.5 });
+          expect(r.ok).toBe(true);
+          expect(r.dados.oQueVouFazer).toContain('Marcar como paga a conta "Lote10 Aluguel" de R$ 1.200,50, vencimento 10/12, em Pix');
+          expect(r.dados.oQueVouFazer).toContain('o pagamento no banco não sai daqui');
+          expect(r.mensagens).toBeUndefined();
+          expect(r.proposta).toMatchObject({ procedimento: 'pagar_conta', nivel: 'pin', botoes: [] });
+          // O botão montado à mão não autoriza; nada é lançado antes do PIN.
+          await propostasDasAcoes.responder(`prop:${r.proposta!.id}:sim`, quem(tel, 'ana', 'presidente'));
+          expect(await situacao(alu1)).toBe('aberto');
+          expect(await saidas(alu1)).toEqual([]);
+          const c = codigo(await propostasDasAcoes.enviarLink(r.proposta!.id, pessoa.ana, tel, r.proposta!.pergunta));
+          const vista = await propostasDasAcoes.verPeloLink(c);
+          expect(vista).toMatchObject({ titulo: 'Marcar como paga a conta "Lote10 Aluguel"?', valor: 1200.5, botao: 'Marcar como paga', detalhe: 'vence 10/12' });
+          expect(vista.itens).toEqual(expect.arrayContaining(['Forma: Pix.', 'É uma conta recorrente: a próxima é criada em aberto.']));
+          expect((await propostasDasAcoes.autorizarPeloLink(c, '0000')).erro).toBe('O PIN não confere. Restam 4 tentativas.');
+          expect(await saidas(alu1)).toEqual([]);
+          await propostasDasAcoes.autorizarPeloLink(c, '2580');
+          const fim = await esperarFim(r.proposta!.id);
+          expect(fim.situacao).toBe('feita');
+          expect(fim.resultado).toContain('A conta "Lote10 Aluguel" ficou paga: saída de R$ 1.200,50 em Pix');
+          expect(fim.resultado).toContain('A próxima vence em 10/01/2027.');
+          expect(await situacao(alu1)).toBe('pago');
+          expect(await situacao(alu2)).toBe('aberto');
+          expect(await saidas(alu1)).toEqual([{ valor: 1200.5, forma: 'pix', data: hojeISO(), tipo: 'saida' }]);
+          expect(auditados.find((x) => x.acao === 'pagou_titulo' && x.entidadeId === alu1)).toMatchObject({ atorId: pessoa.ana, atorPerfil: 'presidente' });
+          // O valor mudou entre a pergunta e o PIN: nada é lançado.
+          const r2 = await ferramentas.executar(e, 'propor_acao', { acao: 'pagar_conta', conta: 'Lote10 Gás', formaDePagamento: 'dinheiro' });
+          const c2 = codigo(await propostasDasAcoes.enviarLink(r2.proposta!.id, pessoa.ana, tel, r2.proposta!.pergunta));
+          await q(`update titulo_financeiro set valor = 150 where id = $1`, [gas]);
+          await propostasDasAcoes.autorizarPeloLink(c2, '2580');
+          expect(await esperarFim(r2.proposta!.id)).toMatchObject({ situacao: 'nao_deu', resultado: TEXTOS_DAS_ACOES.contaMudouDeValor('R$ 150,00') });
+          expect(await saidas(gas)).toEqual([]);
+          // Pagou pela tela entre a pergunta e o PIN: não lança de novo.
+          const r3 = await ferramentas.executar(e, 'propor_acao', { acao: 'pagar_conta', conta: 'Lote10 Gás', formaDePagamento: 'dinheiro' });
+          const c3 = codigo(await propostasDasAcoes.enviarLink(r3.proposta!.id, pessoa.ana, tel, r3.proposta!.pergunta));
+          await q(`update titulo_financeiro set status = 'pago' where id = $1`, [gas]);
+          await propostasDasAcoes.autorizarPeloLink(c3, '2580');
+          expect(await esperarFim(r3.proposta!.id)).toMatchObject({ situacao: 'nao_deu', resultado: TEXTOS_DAS_ACOES.contaNaoAberta });
+          expect(await saidas(gas)).toEqual([]);
+          await q(`update titulo_financeiro set status = 'aberto' where id = $1`, [gas]);
+          // "Paguei ontem": a data dita fica no lançamento; no futuro, não.
+          const ontem = new Date(`${hojeISO()}T12:00:00Z`);
+          ontem.setUTCDate(ontem.getUTCDate() - 1);
+          const diaOntem = ontem.toISOString().slice(0, 10);
+          expect(await ferramentas.executar(e, 'propor_acao', { acao: 'pagar_conta', conta: 'Lote10 Gás', formaDePagamento: 'dinheiro', pagoEm: '2099-01-01' })).toMatchObject({ ok: false });
+          const r4 = await ferramentas.executar(e, 'propor_acao', { acao: 'pagar_conta', conta: 'Lote10 Gás', formaDePagamento: 'dinheiro', pagoEm: diaOntem });
+          const c4 = codigo(await propostasDasAcoes.enviarLink(r4.proposta!.id, pessoa.ana, tel, r4.proposta!.pergunta));
+          await propostasDasAcoes.autorizarPeloLink(c4, '2580');
+          expect((await esperarFim(r4.proposta!.id)).situacao).toBe('feita');
+          expect(await saidas(gas)).toEqual([{ valor: 150, forma: 'dinheiro', data: diaOntem, tipo: 'saida' }]);
+          // Conta a receber e conta de outra empresa não se acham.
+          for (const nome of ['Lote10 Receber', 'Lote10 De fora'])
+            expect((await ferramentas.executar(e, 'propor_acao', { acao: 'pagar_conta', conta: nome, formaDePagamento: 'pix' })).dados.erro).toBe(TEXTOS_DAS_ACOES.contaNaoAchada);
+          // O curinga não acha "todas".
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'pagar_conta', conta: '%%', formaDePagamento: 'pix' })).ok).toBe(false);
+          // A permissão: o Financeiro e "Ver valores em R$"; com o PIN da sessão vencido, espera o PIN.
+          const telC = telefone();
+          await ligar('carlos', telC, A, 'gerente');
+          const g = (await ferramentas.escopo(A, pessoa.carlos, telC))!;
+          const enG = { ...en, venceEm: '10/01' };
+          for (const perm of [{ financeiro: false, ver_financeiro: true }, { financeiro: true, ver_financeiro: false }])
+            expect(await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, ...perm } } as any, 'propor_acao', enG)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoConta } });
+          expect(await ferramentas.executar({ ...e, verValores: false } as any, 'propor_acao', enG)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.contaPedePin } });
+        } finally {
+          delete (acoes as any).financeiro;
+          for (const x of pinsAntes) await q(`update colaborador set pin_hash = $2 where id = $1`, [x.id, x.pin_hash]);
+          await q(`delete from lancamento_caixa where titulo_id in (select id from titulo_financeiro where tenant_id = any($1::uuid[]) and descricao like 'Lote10 %')`, [[A, B]]);
+          await q(`delete from titulo_financeiro where tenant_id = any($1::uuid[]) and descricao like 'Lote10 %'`, [[A, B]]);
         }
       });
 

@@ -2030,6 +2030,19 @@ regressão de novo quando as instruções mudam; a Meta pela doc oficial (V20); 
 - **Só a semana:** "fechar só hoje" é a pausa do canal; a instrução manda perguntar quando a pessoa fala de um dia só.
 - Avaliação: **c57**, 57 perguntas. Fica o último lote de PIN: pagar conta.
 
+**M6j, lote 10 (21/11/2026; SEM migration) — marcar uma conta a pagar como paga, com o PIN pelo link. Fecha os lotes de PIN:**
+- `pagar_conta` na porta `propor_acao`, pelo MESMO `FinanceiroService.pagar` da tela (uma vez só, pela troca condicional; lança
+  a saída, cria a próxima recorrente e audita). Quem autoriza é quem pediu, com o PIN dele: o presidente ou o gerente com o
+  Financeiro e "Ver valores em R$". Com o PIN da sessão vencido, espera o PIN: quem autoriza dinheiro vê o valor.
+- **O Regem só registra a baixa.** A conversa e a página dizem, antes do PIN, que o pagamento no banco não sai daqui; a
+  instrução proíbe dizer que pagou, transferiu ou fez Pix.
+- **Uma conta só:** conta recorrente repete o nome, então o nome igual não decide. Com mais de uma, a pessoa escolhe pelo
+  vencimento (DD/MM). Conta a receber, de outra empresa ou de outra loja não se acha; o curinga do ILIKE não vira "todas".
+- **O valor que a pessoa viu:** valor dito diferente do da conta é recusado (valor diferente é pela tela). Se a conta mudar de
+  valor ou for paga entre a pergunta e o PIN, nada é lançado. O "feito" só sai com a conta paga E a saída no caixa.
+- A forma é obrigatória; a data é a de hoje ou a dita (até 60 dias para trás, nunca no futuro), fixa na proposta.
+- Avaliação: **c58**, 58 perguntas. **Com este lote, os três lotes de PIN estão no ar** (preço, horário, pagar conta).
+
 **Avaliação de regressão de 21/11 (rodada pelo dono depois da M6j lote 3): 45 de 48.** A c05 já errava antes (a diferença
 entre as semanas, conta que nenhuma consulta trouxe). As duas novas, sem defeito do Mister: a **c32** ("Pausa o iFood para
 mim agora") esperava o jeito antigo (explicar o caminho da tela) — desde a M6j ele pausa e, sem o motivo e o tempo,

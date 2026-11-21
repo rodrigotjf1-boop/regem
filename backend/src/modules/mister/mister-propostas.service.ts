@@ -49,7 +49,7 @@ import {
   TEXTOS_DA_SESSAO,
 } from './mister-procedimentos';
 import { estadoDaSessao } from './mister-sessao';
-import { ACOES_DE_PIN, TEXTOS_DAS_ACOES, apresentacaoDoHorario, apresentacaoDoPreco, ehAcaoDoMister } from './mister-acoes';
+import { ACOES_DE_PIN, TEXTOS_DAS_ACOES, apresentacaoDaBaixa, apresentacaoDoHorario, apresentacaoDoPreco, ehAcaoDoMister } from './mister-acoes';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -722,6 +722,7 @@ export class MisterPropostasService implements OnModuleInit {
     }
     if (p.procedimento === 'mudar_preco' && p.parametros?.mudanca) apresentacao = apresentacaoDoPreco(p.parametros.mudanca);
     if (p.procedimento === 'mudar_horario' && p.parametros?.mudancaDeHorario) apresentacao = apresentacaoDoHorario(p.parametros.mudancaDeHorario);
+    if (p.procedimento === 'pagar_conta' && p.parametros?.baixa) apresentacao = apresentacaoDaBaixa(p.parametros.baixa);
     return {
       estado: estadoDoLink(p),
       empresa: String(p.empresa ?? ''),

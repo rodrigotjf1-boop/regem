@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister versão 6, M6j lote 10 — marcar uma conta como paga, com o PIN pelo link (21/11; SEM migration).** Só na nuvem (o
+  Mister): vai no `.zip` sem efeito na loja. O título e o lançamento gravados na nuvem descem à loja pelo sync, como os da tela.
+
 - **Mister versão 6, M6j lote 9 — mudar o horário da loja, com o PIN pelo link (21/11; SEM migration).** Só na nuvem (o
   Mister): vai no `.zip` sem efeito na loja. O horário gravado na nuvem desce à loja pelo sync de `cardapio_config`.
 

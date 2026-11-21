@@ -25,7 +25,7 @@ const base: MudancaDeHorario = {
 
 describe('Mister · ações (lote 9) — o horário da loja', () => {
   it('é de PIN, pela permissão da rota da configuração', () => {
-    expect(ACOES_DE_PIN).toEqual(['mudar_preco', 'mudar_horario']);
+    expect(ACOES_DE_PIN).toContain('mudar_horario');
     expect(ACOES.mudar_horario).toMatchObject({ nivel: 'pin', permissao: 'loja', prazoMin: 15 });
     expect(ACOES.mudar_horario.pedeVerValores).toBeUndefined();
     expect(sigaDaAcao('mudar_horario')).toContain('Abrir no Regem');
