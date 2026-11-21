@@ -162,6 +162,27 @@
         }
       }
     },
+    "/api/v1/empresas/cnpj": {
+      "patch": {
+        "operationId": "EmpresaController_informarCnpj",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InformarCnpjDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/publico/workspace": {
       "get": {
         "operationId": "WorkspaceController_resolver",
@@ -4264,6 +4285,17 @@
         }
       }
     },
+    "/api/v1/whatsapp/nota-do-pedido": {
+      "post": {
+        "operationId": "WhatsappController_salvarNotaDoPedido",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/whatsapp/cloud/templates": {
       "get": {
         "operationId": "WhatsappController_cloudTemplates",
@@ -4588,6 +4620,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "x-regem-conversa",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -4642,6 +4682,14 @@
           },
           {
             "name": "x-regem-robo-segredo",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-regem-conversa",
             "required": true,
             "in": "header",
             "schema": {
@@ -5369,6 +5417,143 @@
         }
       }
     },
+    "/api/v1/whatsapp/gasto": {
+      "get": {
+        "operationId": "WhatsappGastoController_resumo",
+        "parameters": [
+          {
+            "name": "periodo",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "de",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ate",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "numero",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/whatsapp/gasto/estimativa": {
+      "get": {
+        "operationId": "WhatsappGastoController_estimativa",
+        "parameters": [
+          {
+            "name": "mensagens",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "categoria",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/whatsapp/gasto/ler": {
+      "post": {
+        "operationId": "WhatsappGastoController_lerAgora",
+        "parameters": [
+          {
+            "name": "periodo",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "de",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ate",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "numero",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/publico/instagram/webhook": {
       "get": {
         "operationId": "InstagramPublicoController_verificar",
@@ -5971,6 +6156,26 @@
         }
       }
     },
+    "/api/v1/mister/pessoas/{colaboradorId}/perdi-o-celular": {
+      "post": {
+        "operationId": "MisterController_perdiOCelular",
+        "parameters": [
+          {
+            "name": "colaboradorId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/mister/avisos": {
       "get": {
         "operationId": "MisterController_avisosDaTela",
@@ -6048,6 +6253,84 @@
       "patch": {
         "operationId": "MisterController_salvarRelatorios",
         "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/mister/conversa": {
+      "get": {
+        "operationId": "MisterController_conversaDaTela",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "patch": {
+        "operationId": "MisterController_salvarConversa",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/mister/memoria": {
+      "get": {
+        "operationId": "MisterController_memoriaDaTela",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "operationId": "MisterController_anotar",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/mister/memoria/{id}": {
+      "patch": {
+        "operationId": "MisterController_trocarMemoria",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "delete": {
+        "operationId": "MisterController_esquecerMemoria",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": ""
@@ -7079,6 +7362,73 @@
         "parameters": [],
         "responses": {
           "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/producao/aparelho/fila": {
+      "get": {
+        "operationId": "ProducaoAparelhoController_fila",
+        "parameters": [
+          {
+            "name": "canal",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/producao/aparelho/pedidos/{id}/avancar": {
+      "post": {
+        "operationId": "ProducaoAparelhoController_avancar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/producao/aparelho/pedidos/{id}/visto": {
+      "post": {
+        "operationId": "ProducaoAparelhoController_visto",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
             "description": ""
           }
         }
@@ -8296,6 +8646,37 @@
       },
       "put": {
         "operationId": "ProdutoController_setProdutoComplementos",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/produtos/alergenos": {
+      "get": {
+        "operationId": "ProdutoController_alergenos",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/produtos/{id}/alergenos": {
+      "get": {
+        "operationId": "ProdutoController_alergenosDoProduto",
         "parameters": [
           {
             "name": "id",
@@ -11177,7 +11558,14 @@
         "parameters": [],
         "responses": {
           "201": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -11215,7 +11603,14 @@
         "parameters": [],
         "responses": {
           "201": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -11969,7 +12364,14 @@
         "parameters": [],
         "responses": {
           "201": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -13266,6 +13668,96 @@
         }
       }
     },
+    "/api/v1/delivery/avaliacoes": {
+      "get": {
+        "operationId": "NotaDoPedidoController_lista",
+        "parameters": [
+          {
+            "name": "periodo",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/delivery/avaliacoes-da-loja": {
+      "get": {
+        "operationId": "NotaDoPedidoController_daLoja",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/rastreio/{token}/avaliacao": {
+      "get": {
+        "operationId": "NotaDoPedidoPublicaController_estado",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "NotaDoPedidoPublicaController_avaliar",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/impressao/pendentes": {
       "get": {
         "operationId": "ImpressaoController_pendentes",
@@ -13789,6 +14281,58 @@
         "responses": {
           "201": {
             "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/{id}/premio-desculpas": {
+      "get": {
+        "operationId": "AtendimentoController_premioDesculpas",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "AtendimentoController_mandarPremioDesculpas",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -17137,6 +17681,76 @@
         }
       }
     },
+    "/api/v1/cardapio/agendado/janelas": {
+      "get": {
+        "operationId": "CardapioController_janelasDoAgendado",
+        "parameters": [
+          {
+            "name": "dia",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tipo",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pedidoId",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cardapio/agendado/{id}/horario": {
+      "patch": {
+        "operationId": "CardapioController_mudarHorarioDoAgendado",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/cardapio/encomenda/regras-sinal": {
       "get": {
         "operationId": "CardapioController_regrasSinal",
@@ -17380,6 +17994,49 @@
         }
       }
     },
+    "/api/v1/publico/cardapio/{token}/agendado/janelas": {
+      "get": {
+        "operationId": "CardapioPublicoController_janelasDoAgendado",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dia",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tipo",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/publico/cardapio/{token}/pedido": {
       "post": {
         "operationId": "CardapioPublicoController_pedido",
@@ -17557,6 +18214,41 @@
     "/api/v1/publico/cardapio/{token}/pedido/{id}/pagar": {
       "post": {
         "operationId": "CardapioPublicoController_pagar",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/publico/cardapio/{token}/pedido/{id}/horario": {
+      "post": {
+        "operationId": "CardapioPublicoController_mudarHorario",
         "parameters": [
           {
             "name": "token",
@@ -17997,6 +18689,14 @@
           },
           {
             "name": "x-regem-robo-segredo",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-regem-conversa",
             "required": true,
             "in": "header",
             "schema": {
@@ -18490,6 +19190,74 @@
         }
       }
     },
+    "/api/v1/graph/clique/situacao": {
+      "get": {
+        "operationId": "GraphCliqueController_situacao",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/graph/clique/iniciar": {
+      "post": {
+        "operationId": "GraphCliqueController_iniciar",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/graph/clique/concluir": {
+      "post": {
+        "operationId": "GraphCliqueController_concluir",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConcluirGraphDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/graph/clique/desligar": {
+      "post": {
+        "operationId": "GraphCliqueController_desligar",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/publico/cardapio/{token}/cliente/identificar": {
       "post": {
         "operationId": "ClientePublicoController_identificar",
@@ -18786,6 +19554,52 @@
         }
       }
     },
+    "/api/v1/publico/cardapio/{token}/cliente/privacidade": {
+      "get": {
+        "operationId": "ClientePublicoController_privacidade",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "clienteToken",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "operationId": "ClientePublicoController_definirPrivacidade",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/publico/cardapio/{token}/cliente/aniversario": {
       "post": {
         "operationId": "ClientePublicoController_aniversario",
@@ -18849,6 +19663,46 @@
         ],
         "responses": {
           "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/publico/cardapio/{token}/cliente/clube/album": {
+      "post": {
+        "operationId": "ClientePublicoController_escolherDoAlbum",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/publico/cardapio/{token}/cliente/clube/meta": {
+      "post": {
+        "operationId": "ClientePublicoController_escolherDaMeta",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
             "description": ""
           }
         }
@@ -19355,11 +20209,42 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "habitual",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "horaInicio",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "horaFim",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -20378,6 +21263,37 @@
         }
       }
     },
+    "/api/v1/distribuicao/mister/pessoas": {
+      "get": {
+        "operationId": "DistribuicaoController_pessoasDoMister",
+        "parameters": [
+          {
+            "name": "empresa",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/pessoas/desligar": {
+      "post": {
+        "operationId": "DistribuicaoController_desligarPessoaDoMister",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/distribuicao/mister/numero/conectar": {
       "post": {
         "operationId": "DistribuicaoController_conectarNumeroDoMister",
@@ -20410,6 +21326,61 @@
     "/api/v1/distribuicao/mister/liberacao": {
       "post": {
         "operationId": "DistribuicaoController_liberacaoDoMister",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/qr/aceite": {
+      "post": {
+        "operationId": "DistribuicaoController_aceiteDoQrDoMister",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/qr/gerar": {
+      "post": {
+        "operationId": "DistribuicaoController_gerarQrDoMister",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/qr/conferir": {
+      "post": {
+        "operationId": "DistribuicaoController_conferirQrDoMister",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/qr/trocar": {
+      "post": {
+        "operationId": "DistribuicaoController_trocarFormaDoMister",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/qr/desconectar": {
+      "post": {
+        "operationId": "DistribuicaoController_desconectarQrDoMister",
         "parameters": [],
         "responses": {
           "201": {
@@ -20530,6 +21501,35 @@
         }
       }
     },
+    "/api/v1/distribuicao/mister/qualidade/decisao": {
+      "post": {
+        "operationId": "DistribuicaoController_decidirPadraoDoMister",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/qualidade/desfazer": {
+      "post": {
+        "operationId": "DistribuicaoController_desfazerDecisaoDoMister",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/distribuicao/mister/seguranca": {
       "get": {
         "operationId": "DistribuicaoController_segurancaDoMisterNoConsole",
@@ -20546,6 +21546,145 @@
         "responses": {
           "200": {
             "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/seguranca/analise": {
+      "get": {
+        "operationId": "DistribuicaoController_analiseDoSentinela",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "DistribuicaoController_rodarAnaliseDoSentinela",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/instrucoes": {
+      "get": {
+        "operationId": "DistribuicaoController_instrucoesDoMisterNoConsole",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/instrucoes/candidata": {
+      "post": {
+        "operationId": "DistribuicaoController_pedirCandidataAoMentor",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/instrucoes/volta": {
+      "post": {
+        "operationId": "DistribuicaoController_pedirVoltaDasInstrucoes",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/instrucoes/avaliar": {
+      "post": {
+        "operationId": "DistribuicaoController_avaliarCandidataDoMister",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/instrucoes/publicar": {
+      "post": {
+        "operationId": "DistribuicaoController_publicarCandidataDoMister",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/instrucoes/descartar": {
+      "post": {
+        "operationId": "DistribuicaoController_descartarCandidataDoMister",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/seguranca/analise/decisao": {
+      "post": {
+        "operationId": "DistribuicaoController_decidirPropostaDoSentinela",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -21432,6 +22571,34 @@
         "responses": {
           "200": {
             "description": ""
+          }
+        },
+        "tags": [
+          "Integração (token por loja)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/integracao/clientes/audiencias": {
+      "get": {
+        "operationId": "IntegracaoApiController_audienciasDoPerfil",
+        "summary": "O tamanho de cada público do perfil do cliente na loja do token — só os números, nenhum cliente.",
+        "description": "Lida na hora. Os públicos são os mesmos da campanha \"pelo perfil\" do Regem: o segmento pela recência, frequência e valor, \"atrasado no ritmo\", o que move o cliente (dinheiro no bolso, feriado, data comemorativa, eventos da loja) e \"olhou e não pediu\". Conta só o cliente DIRETO com perfil: quem só pediu por aplicativo de entrega, quem pediu para não ser analisado e quem foi esquecido ficam de fora. Na empresa de várias lojas, os clientes que têm esta loja como a principal. aceitaram_ofertas = quem receberia hoje uma campanha montada com o perfil (aceite clicado, sem SAIR). Contagem de 1 a 4 sai como null. perfil_ligado: false = o módulo \"Perfil do cliente\" está desligado (lista vazia).",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudienciasIntegracao"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -22395,6 +23562,26 @@
         }
       }
     },
+    "/api/v1/publico/vagas/{codigo}/abertura": {
+      "post": {
+        "operationId": "VagasPublicoController_abertura",
+        "parameters": [
+          {
+            "name": "codigo",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/vagas/candidatos": {
       "get": {
         "operationId": "VagasController_lista",
@@ -22412,6 +23599,17 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/vagas/candidatos/conducao": {
+      "get": {
+        "operationId": "VagasController_conducao",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
           }
         }
       }
@@ -22611,9 +23809,937 @@
         }
       }
     },
+    "/api/v1/vagas/aberturas": {
+      "get": {
+        "operationId": "VagasController_aberturas",
+        "parameters": [
+          {
+            "name": "dias",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/vagas/banco/aviso": {
+      "get": {
+        "operationId": "VagasController_avisoDoBanco",
+        "parameters": [
+          {
+            "name": "funcao",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "VagasController_marcarAvisado",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/vagas/banco/aviso/fila": {
+      "post": {
+        "operationId": "VagasController_avisarPeloMarketing",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/vagas/banco/aviso/modelo": {
+      "post": {
+        "operationId": "VagasController_pedirModeloDaVaga",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/vagas/qr/{id}": {
       "delete": {
         "operationId": "VagasController_apagarQr",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/perfil-cliente/resumo": {
+      "get": {
+        "operationId": "PerfilClienteController_resumo",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/perfil-cliente/saude": {
+      "get": {
+        "operationId": "PerfilClienteController_saude",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/perfil-cliente/{clienteId}": {
+      "get": {
+        "operationId": "PerfilClienteController_ficha",
+        "parameters": [
+          {
+            "name": "clienteId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/perfil-cliente/recalcular": {
+      "post": {
+        "operationId": "PerfilClienteController_recalcular",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/perfil-cliente/caso/{casoId}": {
+      "get": {
+        "operationId": "CartaoDoCasoController_cartao",
+        "parameters": [
+          {
+            "name": "casoId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/calendario-da-loja": {
+      "get": {
+        "operationId": "CalendarioDaLojaController_listar",
+        "parameters": [
+          {
+            "name": "de",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ate",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/calendario-da-loja/eventos": {
+      "post": {
+        "operationId": "CalendarioDaLojaController_criar",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/calendario-da-loja/eventos/{id}": {
+      "patch": {
+        "operationId": "CalendarioDaLojaController_editar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "delete": {
+        "operationId": "CalendarioDaLojaController_excluir",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/publico/cardapio/{token}/interacoes": {
+      "post": {
+        "operationId": "InteracoesDoCardapioController_registrar",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/publico/cardapio/{token}/para-voce": {
+      "get": {
+        "operationId": "InteracoesDoCardapioController_paraVoce",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ct",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/marketing/clube": {
+      "get": {
+        "operationId": "ClubeController_painel",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/marketing/clube/produtos": {
+      "get": {
+        "operationId": "ClubeController_produtos",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/marketing/clube/config": {
+      "put": {
+        "operationId": "ClubeController_salvarConfig",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/marketing/clube/premios": {
+      "post": {
+        "operationId": "ClubeController_criarPremio",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/marketing/clube/premios/{id}": {
+      "put": {
+        "operationId": "ClubeController_editarPremio",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "delete": {
+        "operationId": "ClubeController_excluirPremio",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/marketing/clube/gatilhos/entregue": {
+      "put": {
+        "operationId": "ClubeController_salvarGatilhoEntregue",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/marketing/clube/gatilhos/reclamacao": {
+      "put": {
+        "operationId": "ClubeController_salvarGatilhoReclamacao",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/marketing/clube/gatilhos/classificacao": {
+      "put": {
+        "operationId": "ClubeController_salvarGatilhoClassificacao",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/marketing/clube/gatilhos/campanha": {
+      "put": {
+        "operationId": "ClubeController_salvarGatilhoCampanha",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/rastreio/{token}/premio": {
+      "get": {
+        "operationId": "ClubePublicoController_premio",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/rastreio/{token}/selo": {
+      "get": {
+        "operationId": "ClubePublicoController_selo",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/rastreio/{token}/meta": {
+      "get": {
+        "operationId": "ClubePublicoController_metaDoPedido",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/rastreio/{token}/premio/revelar": {
+      "post": {
+        "operationId": "ClubePublicoController_revelar",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clube/premio/{codigo}": {
+      "get": {
+        "operationId": "ClubeLinkController_premio",
+        "parameters": [
+          {
+            "name": "codigo",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clube/premio/{codigo}/revelar": {
+      "post": {
+        "operationId": "ClubeLinkController_revelar",
+        "parameters": [
+          {
+            "name": "codigo",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clube/da-loja/desculpas/{id}": {
+      "get": {
+        "operationId": "ClubeDaLojaController_estado",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "perfil",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-regem-usuario",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "ClubeDaLojaController_mandar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-regem-usuario",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/publico/mister/link/{codigo}": {
+      "get": {
+        "operationId": "MisterLinkController_ver",
+        "parameters": [
+          {
+            "name": "codigo",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/publico/mister/link/{codigo}/autorizar": {
+      "post": {
+        "operationId": "MisterLinkController_autorizar",
+        "parameters": [
+          {
+            "name": "codigo",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/publico/mister/link/{codigo}/nao-autorizar": {
+      "post": {
+        "operationId": "MisterLinkController_naoAutorizar",
+        "parameters": [
+          {
+            "name": "codigo",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mister/documentos": {
+      "get": {
+        "operationId": "MisterDocumentosController_listar",
+        "parameters": [
+          {
+            "name": "dias",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/mister/documentos/{id}/pdf": {
+      "get": {
+        "operationId": "MisterDocumentosController_pdf",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/mister/documentos/{id}/desfazer": {
+      "post": {
+        "operationId": "MisterDocumentosController_desfazer",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/mister/relatorio/insumo": {
+      "get": {
+        "operationId": "MisterRelatorioController_insumo",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/mister/relatorio/insumo/pdf": {
+      "get": {
+        "operationId": "MisterRelatorioController_pdf",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/publico/mister/relatorio/{codigo}": {
+      "get": {
+        "operationId": "MisterLinkPublicoController_ver",
+        "parameters": [
+          {
+            "name": "codigo",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/publico/mister/relatorio/{codigo}/pdf": {
+      "get": {
+        "operationId": "MisterLinkPublicoController_pdf",
+        "parameters": [
+          {
+            "name": "codigo",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/mister/regras": {
+      "get": {
+        "operationId": "MisterRegrasController_listar",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/mister/regras/{id}/pausar": {
+      "post": {
+        "operationId": "MisterRegrasController_pausar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/mister/regras/{id}/retomar": {
+      "post": {
+        "operationId": "MisterRegrasController_retomar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/mister/regras/{id}": {
+      "delete": {
+        "operationId": "MisterRegrasController_apagar",
         "parameters": [
           {
             "name": "id",
@@ -22738,6 +24864,18 @@
             "pattern": "/^([01]\\d|2[0-3]):[0-5]\\d$/"
           }
         }
+      },
+      "InformarCnpjDto": {
+        "type": "object",
+        "properties": {
+          "cnpj": {
+            "type": "string",
+            "maxLength": 20
+          }
+        },
+        "required": [
+          "cnpj"
+        ]
       },
       "CreateUnidadeDto": {
         "type": "object",
@@ -22904,6 +25042,20 @@
             "enum": [
               "left",
               "right"
+            ]
+          },
+          "pdvOrdemCategorias": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "pdvCartoes": {
+            "type": "string",
+            "enum": [
+              "grande",
+              "compacto"
             ]
           }
         }
@@ -23696,6 +25848,10 @@
               "type": "string",
               "maxLength": 60
             }
+          },
+          "alergenos": {
+            "type": "object",
+            "nullable": true
           },
           "fichaId": {
             "type": "string",
@@ -24744,6 +26900,10 @@
               "type": "string"
             }
           },
+          "alergenosAjuste": {
+            "type": "object",
+            "nullable": true
+          },
           "canaisPausados": {
             "type": "array",
             "items": {
@@ -24925,6 +27085,10 @@
             "items": {
               "type": "string"
             }
+          },
+          "alergenosAjuste": {
+            "type": "object",
+            "nullable": true
           },
           "canaisPausados": {
             "type": "array",
@@ -25445,6 +27609,27 @@
         "required": [
           "unidadeId"
         ]
+      },
+      "ConcluirGraphDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "maxLength": 400
+          },
+          "state": {
+            "type": "string",
+            "maxLength": 400
+          },
+          "iss": {
+            "type": "string",
+            "maxLength": 400
+          },
+          "error": {
+            "type": "string",
+            "maxLength": 400
+          }
+        }
       },
       "CreateRegraDto": {
         "type": "object",
@@ -25979,6 +28164,92 @@
           "itens",
           "proximo_cursor",
           "tem_mais"
+        ]
+      },
+      "PublicoIntegracao": {
+        "type": "object",
+        "properties": {
+          "chave": {
+            "type": "string",
+            "description": "A chave do público, estável: campeoes, leais, recentes, atencao, em_risco, inativos (o segmento pela recência, frequência e valor), atrasado (passou do próprio ritmo de pedir), dinheiro, feriado, comemorativa, loja (o que move o cliente: o dinheiro no bolso, feriado, data comemorativa, os eventos da loja) e olhou (olhou um produto e não pediu).",
+            "example": "campeoes"
+          },
+          "rotulo": {
+            "type": "string",
+            "description": "O nome do público em pt-BR, como a loja vê no Regem.",
+            "example": "Campeões"
+          },
+          "grupo": {
+            "type": "string",
+            "enum": [
+              "segmento",
+              "ritmo",
+              "evento",
+              "interesse"
+            ],
+            "description": "O grupo do público."
+          },
+          "clientes": {
+            "type": "number",
+            "nullable": true,
+            "description": "Quantos clientes estão no público. null = de 1 a 4 (não se informa, para ninguém ser reconhecido); 0 = nenhum."
+          },
+          "aceitaram_ofertas": {
+            "type": "number",
+            "nullable": true,
+            "description": "Quantos deles receberiam hoje uma campanha montada com o perfil: aceitaram ofertas clicando (no cardápio ou no WhatsApp), não pediram para sair e têm telefone. null = de 1 a 4; 0 = nenhum."
+          }
+        },
+        "required": [
+          "chave",
+          "rotulo",
+          "grupo",
+          "clientes",
+          "aceitaram_ofertas"
+        ]
+      },
+      "AudienciasIntegracao": {
+        "type": "object",
+        "properties": {
+          "perfil_ligado": {
+            "type": "boolean",
+            "description": "O módulo \"Perfil do cliente\" está ligado na empresa. false = nenhum público (a lista vem vazia)."
+          },
+          "calculado_em": {
+            "type": "string",
+            "nullable": true,
+            "description": "Quando o perfil foi calculado pela última vez (ISO 8601 UTC; o Regem recalcula toda manhã). null = nunca."
+          },
+          "minimo": {
+            "type": "number",
+            "description": "O menor número informado: abaixo dele (e acima de zero) a contagem sai como null.",
+            "example": 5
+          },
+          "clientes_com_perfil": {
+            "type": "number",
+            "nullable": true,
+            "description": "Quantos clientes diretos da loja têm perfil (quem só pediu por aplicativo de entrega e quem pediu para não ser analisado ficam de fora). null = de 1 a 4."
+          },
+          "aceitaram_ofertas": {
+            "type": "number",
+            "nullable": true,
+            "description": "Quantos desses aceitaram ofertas clicando. null = de 1 a 4."
+          },
+          "publicos": {
+            "description": "Os públicos, sempre na mesma ordem.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublicoIntegracao"
+            }
+          }
+        },
+        "required": [
+          "perfil_ligado",
+          "calculado_em",
+          "minimo",
+          "clientes_com_perfil",
+          "aceitaram_ofertas",
+          "publicos"
         ]
       },
       "CategoriaCatalogoIntegracao": {

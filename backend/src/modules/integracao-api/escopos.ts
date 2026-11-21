@@ -34,6 +34,9 @@ export const ESCOPOS_INTEGRACAO = [
   // RegeMBoard (mig 429, Hub DMS F6): se cada produto e adicional está à venda AGORA na loja do token — esgotado,
   // pausado ou fora do cardápio — no MESMO catálogo do `catalogo.ler`. Sozinho não abre rota: só acrescenta os campos.
   'catalogo.disponibilidade.ler',
+  // Liame (mig 483, F9 parte 1 do plano do perfil do cliente): o TAMANHO de cada público do perfil — quantos clientes em
+  // cada segmento e quantos aceitaram ofertas. Só os números: nenhum cliente, nenhum código. Lido na hora.
+  'clientes.audiencias.ler',
 ] as const;
 
 export type EscopoIntegracao = (typeof ESCOPOS_INTEGRACAO)[number];
@@ -57,6 +60,8 @@ export const ESCOPOS_SEM_CARIMBO: readonly EscopoIntegracao[] = [
   'atendimento.canais.ler',
   // RegeMBoard (mig 429): a disponibilidade no catálogo, lida na hora como o resto do catálogo.
   'catalogo.disponibilidade.ler',
+  // Liame (mig 483): os públicos do perfil, contados na hora — sem versão nem cursor; não liga o carimbador das vendas.
+  'clientes.audiencias.ler',
 ];
 
 /** Os escopos cuja leitura depende do carimbador (todos os outros). */
@@ -86,6 +91,8 @@ export const ROTULO_ESCOPO: Record<EscopoIntegracao, string> = {
     'As contas do Instagram e as páginas do Facebook que a Central de atendimento atende (sem mensagens nem dados de cliente)',
   'catalogo.disponibilidade.ler':
     'Se cada produto e adicional está à venda agora na loja (esgotado, pausado ou fora do cardápio), no catálogo (junto de catalogo.ler)',
+  'clientes.audiencias.ler':
+    'Quantos clientes há em cada público do perfil do cliente e quantos aceitaram ofertas (só os números, nenhum cliente)',
 };
 
 /**
@@ -112,7 +119,14 @@ export const ESCOPOS_DO_PARCEIRO: readonly EscopoIntegracao[] = [
  * manifesto as publica como sensíveis, e o aplicativo de parceiro só as recebe na produção com dado pessoal aprovado
  * (F4-6; `permissoesDoParceiro`). Uma lista só para os dois.
  */
-export const ESCOPOS_SENSIVEIS: readonly EscopoIntegracao[] = ['clientes.telefone.ler', 'clientes.ler', 'vendas.99food.ler', 'custos.ler'];
+export const ESCOPOS_SENSIVEIS: readonly EscopoIntegracao[] = [
+  'clientes.telefone.ler',
+  'clientes.ler',
+  'vendas.99food.ler',
+  'custos.ler',
+  // mig 483: só contagens, mas tiradas do perfil do cliente — o plano (§11) as quer como permissão sensível que a loja aceita.
+  'clientes.audiencias.ler',
+];
 
 /**
  * Clientes de integração conhecidos (o console emite só para eles). `abrangencia`: `loja` = o
@@ -132,6 +146,8 @@ export const CLIENTES_INTEGRACAO: Record<
       'pedidos.ler', 'clientes.telefone.ler', 'custos.ler', 'clientes.anonimizacao.ler', 'cupons.ler', 'cupons.uso.ler', 'cupons.criar',
       // mig 398: o Direct do Liame desliga onde a Central do Regem já atende.
       'atendimento.canais.ler',
+      // mig 483: o tamanho dos públicos do perfil, para planejar campanha e mídia (opcional no clique, nasce desligado).
+      'clientes.audiencias.ler',
     ],
     cargaDias: null,
   },

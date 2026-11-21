@@ -627,6 +627,55 @@
         }
       }
     },
+    "/api/v1/integracao/clientes/audiencias": {
+      "get": {
+        "operationId": "get_api_v1_integracao_clientes_audiencias",
+        "summary": "O tamanho de cada público do perfil do cliente na loja, lido na hora: quantos clientes e quantos aceitaram ofertas, sem nenhum cliente. De 1 a 4 sai null; perfil_ligado false = o módulo está desligado (lista vazia).",
+        "x-dms-permissao": "clientes.audiencias.ler",
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "example": {
+                  "perfil_ligado": true,
+                  "calculado_em": "2026-10-23T12:00:00.000Z",
+                  "minimo": 5,
+                  "clientes_com_perfil": 1840,
+                  "aceitaram_ofertas": 212,
+                  "publicos": [
+                    {
+                      "chave": "campeoes",
+                      "rotulo": "Campeões",
+                      "grupo": "segmento",
+                      "clientes": 312,
+                      "aceitaram_ofertas": 41
+                    },
+                    {
+                      "chave": "dinheiro",
+                      "rotulo": "Pedem no dinheiro no bolso",
+                      "grupo": "evento",
+                      "clientes": 88,
+                      "aceitaram_ofertas": null
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro no formato do Padrão (§7)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/integracao/cupons": {
       "get": {
         "operationId": "get_api_v1_integracao_cupons",
@@ -1035,6 +1084,13 @@
         "dms"
       ],
       "sensivel": false
+    },
+    "clientes.audiencias.ler": {
+      "frase": "Quantos clientes há em cada público do perfil (campeões, em risco, pedem no dinheiro no bolso…) e quantos aceitaram ofertas. Só os números: nenhum cliente, nome ou telefone sai.",
+      "classes": [
+        "dms"
+      ],
+      "sensivel": true
     }
   },
   "x-dms-limite": [

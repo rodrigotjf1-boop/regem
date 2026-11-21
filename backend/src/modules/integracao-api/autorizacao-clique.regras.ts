@@ -117,6 +117,15 @@ export const PERMISSAO_NA_TELA: Partial<
     naFrase: 'o que está esgotado agora',
     curta: 'o que está esgotado',
   },
+  // Liame (mig 483, F9 parte 1 do plano do perfil do cliente): só os números de cada público. Só de produto da DMS.
+  'clientes.audiencias.ler': {
+    rotulo: 'Tamanho dos públicos do perfil',
+    frase:
+      'Quantos clientes há em cada público do perfil (campeões, em risco, pedem no dinheiro no bolso…) e quantos aceitaram ' +
+      'ofertas. Só os números: nenhum cliente, nome ou telefone sai.',
+    naFrase: 'o tamanho dos públicos do perfil',
+    curta: 'os públicos',
+  },
   // Farol (F6 do hub, 15/11/2026): as fichas e a fila da cozinha, com as frases que o parceiro já lê
   // (`FRASES_DO_PARCEIRO`, aprovadas em 10/10/2026). Nenhuma leva preço, custo ou cliente.
   'fichas.ler': { rotulo: 'Fichas técnicas', frase: 'Os ingredientes de cada ficha, com quantidade e unidade. Sem custo.', naFrase: 'as fichas técnicas', curta: 'as fichas' },
@@ -236,7 +245,7 @@ export const APLICATIVOS_DO_CLIQUE: Record<string, AplicativoDoClique> = {
     faz: 'mede quais anúncios viraram pedido no caixa',
     inicio: 'https://app.agencialiame.com',
     necessarias: ['pedidos.ler', 'clientes.anonimizacao.ler', 'cupons.ler', 'cupons.uso.ler', 'atendimento.canais.ler'],
-    opcionais: ['custos.ler', 'cupons.criar', 'clientes.telefone.ler'],
+    opcionais: ['custos.ler', 'cupons.criar', 'clientes.telefone.ler', 'clientes.audiencias.ler'],
     dadoPessoal: ['clientes.telefone.ler'],
     financeiras: ['custos.ler'],
     motivos: {
@@ -248,11 +257,13 @@ export const APLICATIVOS_DO_CLIQUE: Record<string, AplicativoDoClique> = {
       'cupons.criar': 'Para criar o cupom de uma campanha que alguém da sua empresa aprovou no Liame, sem digitar de novo no Regem.',
       'clientes.telefone.ler': 'Para ligar a conversa do WhatsApp aberta por um anúncio ao pedido que veio dela.',
       'atendimento.canais.ler': 'Para o Liame não responder o Direct nem o Messenger que a Central do Regem já atende.',
+      'clientes.audiencias.ler': 'Para planejar cada campanha e anúncio pelo tamanho do público, sem saber quem são os clientes.',
     },
     semElas: {
       'custos.ler': 'Desligado: a margem fica desconhecida, nunca zero. O resto funciona.',
       'cupons.criar': 'Desligado: o Liame não cria cupom na loja. O resto funciona.',
       'clientes.telefone.ler': 'Desligado: o Liame não liga a conversa ao pedido. O resto funciona.',
+      'clientes.audiencias.ler': 'Desligado: o Liame não vê o tamanho dos públicos do perfil. O resto funciona.',
     },
     naoPode: [
       { rotulo: 'Mudar pedido, preço ou cardápio', frase: 'A integração não tem nenhuma rota que mude a venda ou o cardápio.' },
