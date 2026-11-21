@@ -122,6 +122,40 @@ async function responder(dbg, url, corpo, type = 'XHR', postData) {
 const POLL = 'https://lion.didiglobal.com/im/polling/?ts=1';
 const BROKER = 'https://lion.didiglobal.com/im/broker/';
 
+test('o que o IM da 99 respondeu de errado vai ao diagnóstico (ERR-556): só o código, uma linha por falha a cada 30 s', async () => {
+  const dbg = depuradorFalso();
+  const notas = [];
+  let t = 1000;
+  ligarLeitor99({ debugger: dbg }, { aoChegar: () => {}, anotar: (o) => notas.push(o), env: {}, agora: () => t });
+  const doIm = () => notas.filter((n) => n.ev === 'im_99_falhou');
+  // o HTTP de erro, repetido: uma linha só; 30 s depois, outra
+  dbg.emitir('Network.responseReceived', { requestId: 'e1', type: 'XHR', response: { url: POLL, status: 502 } });
+  dbg.emitir('Network.responseReceived', { requestId: 'e2', type: 'XHR', response: { url: POLL, status: 502 } });
+  assert.deepEqual(doIm(), [{ ev: 'im_99_falhou', tipo: 'polling', status: 502 }]);
+  t += 30000;
+  dbg.emitir('Network.responseReceived', { requestId: 'e3', type: 'XHR', response: { url: POLL, status: 502 } });
+  assert.equal(doIm().length, 2);
+  // a resposta com errno, no polling e no broker (sem o corpo)
+  await responder(dbg, POLL, '{"errno":1005,"errmsg":"texto que nao vai","body":{}}');
+  await responder(dbg, BROKER, '{"errno":2001,"errmsg":"texto que nao vai","body":{}}');
+  assert.deepEqual(doIm().slice(2), [
+    { ev: 'im_99_falhou', tipo: 'polling', errno: '1005' },
+    { ev: 'im_99_falhou', tipo: 'broker', errno: '2001' },
+  ]);
+  assert.ok(!JSON.stringify(notas).includes('texto que nao vai'));
+  // a chamada que caiu sem resposta conta; a que a própria página cancelou, não
+  dbg.emitir('Network.requestWillBeSent', { requestId: 'f1', type: 'XHR', request: { url: BROKER, method: 'POST' } });
+  dbg.emitir('Network.loadingFailed', { requestId: 'f1', errorText: 'net::ERR_TIMED_OUT' });
+  dbg.emitir('Network.requestWillBeSent', { requestId: 'f2', type: 'XHR', request: { url: POLL, method: 'POST' } });
+  dbg.emitir('Network.loadingFailed', { requestId: 'f2', errorText: 'net::ERR_ABORTED', canceled: true });
+  assert.deepEqual(doIm().slice(4), [{ ev: 'im_99_falhou', tipo: 'broker', erro: 'net::ERR_TIMED_OUT' }]);
+  // a resposta certa não anota nada
+  const antes = doIm().length;
+  await responder(dbg, POLL, polling([]));
+  await responder(dbg, BROKER, '{"errno":0,"body":{}}');
+  assert.equal(doIm().length, antes);
+});
+
 test('a escuta: lê o polling, uma vez por mensagem, com o cliente e o pedido da conversa', async () => {
   const dbg = depuradorFalso();
   const chegaram = [];

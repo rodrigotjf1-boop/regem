@@ -6,6 +6,7 @@ import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { hora, type CasoDaFila } from '@/lib/atendimento';
 import { TEXTO_MAX_DO_CHAT, temContatoProibido } from '@/lib/texto-do-chat';
+import { CHAT_DA_99_FORA_30_MIN, CHAT_DA_99_NAO_ABRIU, LOJA_JA_FALOU_PELO_APP } from '@/lib/ponte-do-chat';
 import { perguntaAntes } from '@/lib/treino-do-atendente';
 import { BotaoCopiloto } from '@/components/atendimento/botao-copiloto';
 import { CorrigirResposta } from '@/components/atendimento/corrigir-resposta';
@@ -56,8 +57,11 @@ function SituacaoDoEnvio({ m, ponteResponde }: { m: Mensagem; ponteResponde: boo
   // A cor da tinta (não o verde de "ok", fraco em 11 px sobre fundo claro): o ✓ e a palavra dizem o estado.
   if (m.estado === 'enviada') return <span className="font-semibold text-foreground">✓ enviada</span>;
   if (m.estado === 'enviando') return <span className="font-semibold">⏳ saindo pela ponte…</span>;
+  // a 99 fora do ar (ERR-556): a mensagem não morreu, está esperando o chat voltar
+  if (m.estado === 'pendente' && m.erro === CHAT_DA_99_NAO_ABRIU) return <span className="font-semibold">⏳ {m.erro}</span>;
   if (m.estado === 'pendente') return <span className="font-semibold">{ponteResponde ? '⏳ na fila da ponte' : '⏳ esperando a ponte'}</span>;
-  const porque = m.estado === 'cancelada' ? 'passou da hora (30 min)' : m.erro;
+  const motivoProprio = m.erro === CHAT_DA_99_FORA_30_MIN || m.erro === LOJA_JA_FALOU_PELO_APP;
+  const porque = m.estado === 'cancelada' && !motivoProprio ? 'passou da hora (30 min)' : m.erro;
   return <span className="font-semibold text-destructive">✕ não saiu{porque ? `: ${porque}` : ''}</span>;
 }
 
