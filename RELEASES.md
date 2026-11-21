@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Ponte do chat: a rotina "o atendente virtual não respondeu" repete no impasse do banco (21/11; ERR-559; SEM migration).** Só
+  na nuvem: vai no `.zip` sem efeito na loja (no servidor da loja a rotina não roda).
+
 - **Mister versão 6, M6j lote 10 — marcar uma conta como paga, com o PIN pelo link (21/11; SEM migration).** Só na nuvem (o
   Mister): vai no `.zip` sem efeito na loja. O título e o lançamento gravados na nuvem descem à loja pelo sync, como os da tela.
 
