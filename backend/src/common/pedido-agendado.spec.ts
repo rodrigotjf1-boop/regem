@@ -11,6 +11,7 @@ import {
   janelasMaisPerto,
   preparoDoTipo,
   quandoDoAgendado,
+  trechosContinuos,
   trechosDoDia,
 } from './pedido-agendado';
 
@@ -168,5 +169,28 @@ describe('pedido agendado pelo atendente (D4c): o horário que o cliente disse',
     expect(rotuloDaJanela('2026-11-18T19:30', agora)).toBe('Hoje 19:30');
     expect(rotuloDaJanela('2026-11-19T12:00', agora)).toBe('Amanhã 12:00');
     expect(rotuloDaJanela('2026-11-22T12:00', agora)).toBe('22/11 12:00');
+  });
+});
+
+describe('pedido agendado: o atendimento que atravessa a meia-noite (ERR-552)', () => {
+  it('a véspera e o dia se juntam num trecho só quando se encostam ou se cruzam', () => {
+    // quinta 19:00 → sexta 02:00: a madrugada de sexta é a continuação da quinta
+    const sexta = trechosContinuos(HORARIOS, '2026-11-20');
+    expect(sexta.map((t) => [emSaoPaulo(t.inicio).diaHora, emSaoPaulo(t.fim).diaHora])).toEqual([['2026-11-19T19:00', '2026-11-20T02:00']]);
+    // sem horário: o dia inteiro encosta no anterior
+    const semHorario = trechosContinuos([], '2026-11-21');
+    expect(semHorario.map((t) => [emSaoPaulo(t.inicio).diaHora, emSaoPaulo(t.fim).diaHora])).toEqual([['2026-11-20T00:00', '2026-11-22T00:00']]);
+  });
+
+  it('a loja das 19:00 às 02:00 oferece as janelas da madrugada desde 00:00 (o preparo começa antes da meia-noite)', () => {
+    const j = janelasDoDia({ horarios: HORARIOS, dia: '2026-11-20', agora: sp('2026-11-19T12:00'), antecedenciaMin: 45, preparoMin: 30, limite: null });
+    expect(j.slice(0, 2).map((x) => x.valor)).toEqual(['2026-11-20T00:00', '2026-11-20T00:15']);
+    expect(j[j.length - 1].valor).toBe('2026-11-20T01:45'); // a última termina às 02:00
+  });
+
+  it('sem horário cadastrado, a janela das 00:00 existe (antes, o preparo de 30 min a empurrava para as 00:30)', () => {
+    const j = janelasDoDia({ horarios: [], dia: '2026-11-21', agora: sp('2026-11-20T12:00'), antecedenciaMin: 45, preparoMin: 30, limite: null });
+    expect(j[0].valor).toBe('2026-11-21T00:00');
+    expect(j).toHaveLength(96); // as 96 janelas de 15 min do dia
   });
 });
