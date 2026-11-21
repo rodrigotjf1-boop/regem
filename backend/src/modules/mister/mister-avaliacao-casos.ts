@@ -11,6 +11,7 @@ import {
   ehFerramenta,
   filtrarSaida,
 } from './mister-agente.regras';
+import { diferencaEmReais } from './mister-agente.regras';
 import type { ResultadoDaFerramenta } from './mister-ferramentas.service';
 import type { FimDaPergunta } from './mister-laco';
 import { GUIA_DE_USO, buscarNoGuia, quemAbre } from './mister-guia-de-uso';
@@ -166,6 +167,9 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
                   faturamento: v(a.faturado),
                   ticketMedio: v(a.ticket),
                   variacaoPct: { vendas: pct(d.vendas, a.vendas), faturamento: v(pct(d.faturado, a.faturado)), ticketMedio: v(pct(d.ticket, a.ticket)) },
+                  diferencaDeVendas: d.vendas - a.vendas,
+                  diferencaDeFaturamento: perfil.verValores ? diferencaEmReais(d.faturado, a.faturado) : null,
+                  comoComparar: 'Para dizer quanto mudou em reais, use diferencaDeFaturamento (valor e sentido); não faça a conta.',
                 },
               };
             })()
@@ -631,8 +635,15 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
         aPagar: { ...f(9, 3240.55), vencidas: f(2, 420), venceHoje: f(0, 0), proximos7Dias: f(3, 1150.55), restoDoMes: f(2, 870), depois: f(2, 800), semData: f(0, 0), ateOFimDoMes: f(7, 2440.55) },
         aReceber: { ...f(1, 310), vencidas: f(0, 0), venceHoje: f(0, 0), proximos7Dias: f(1, 310), restoDoMes: f(0, 0), depois: f(0, 0), semData: f(0, 0), ateOFimDoMes: f(1, 310) },
         proximasAPagar: [
-          { descricao: 'Boleto de carnes', fornecedor: 'Distribuidora Boi Bom', valor: v(420), vencimento: '10/11', situacao: 'vencida' },
+          { descricao: 'Boleto de carnes', fornecedor: 'Distribuidora Boi Bom', valor: v(300), vencimento: '10/11', situacao: 'vencida' },
+          { descricao: 'Gás', fornecedor: 'Gás Rio', valor: v(120), vencimento: '12/11', situacao: 'vencida' },
           { descricao: 'Embalagens', fornecedor: 'Papel & Cia', valor: v(650.55), vencimento: '16/11', situacao: 'a vencer' },
+          { descricao: 'Bebidas', fornecedor: 'Distribuidora Gelada', valor: v(300), vencimento: '18/11', situacao: 'a vencer' },
+          { descricao: 'Internet', fornecedor: 'Rede Rio', valor: v(200), vencimento: '20/11', situacao: 'a vencer' },
+          { descricao: 'Hortifruti', fornecedor: 'Horta Viva', valor: v(500), vencimento: '25/11', situacao: 'a vencer' },
+          { descricao: 'Energia', fornecedor: 'Companhia de Luz', valor: v(370), vencimento: '28/11', situacao: 'a vencer' },
+          { descricao: 'Aluguel', fornecedor: null, valor: v(450), vencimento: '05/12', situacao: 'a vencer' },
+          { descricao: 'Contador', fornecedor: null, valor: v(350), vencimento: '10/12', situacao: 'a vencer' },
         ],
         ...(perfil.verValores ? {} : { aviso: SEM_VALORES }),
       });
