@@ -1959,8 +1959,15 @@ regressão de novo quando as instruções mudam; a Meta pela doc oficial (V20); 
   abonos, previsto, extra, noturno, saldo), como prévia gerencial. Para um dia só continua a `equipe_do_dia`.
 - **O motivo da falta, a justificativa e o atestado não saem da consulta** (são dado de saúde ou da vida da pessoa), e ela
   entra em `FERRAMENTAS_DE_PESSOAS`: com a sessão com PIN pendente, espera o PIN.
-- Avaliação: **c51** e **c52**, 52 perguntas. Ficam para os próximos lotes: os números dos clientes, estoque (movimento e
-  contagem), preço por canal e horário da loja (de PIN), pagar conta (de PIN).
+- Avaliação: **c51** e **c52**, 52 perguntas.
+
+**M6j, lote 6 (21/11/2026; SEM migration) — os clientes em números:**
+- `clientes_em_numeros` (só leitura; a permissão `delivery` e o módulo `perfil_cliente` da rota): o total, os seis grupos
+  com os nomes de Delivery › Clientes e quantos olharam e não pediram, pelo MESMO `PerfilClienteService.resumo` da tela.
+  Vale para a empresa inteira, como a tela, e a resposta diz isso. **Nome, telefone e endereço não passam por aqui**;
+  pedir QUEM é o cliente continua sendo "não sai pelo WhatsApp" (c34).
+- Avaliação: **c53**, 53 perguntas. Ficam para os próximos lotes: estoque (movimento e contagem), preço por canal e horário
+  da loja (de PIN), pagar conta (de PIN).
 
 **Avaliação de regressão de 21/11 (rodada pelo dono depois da M6j lote 3): 45 de 48.** A c05 já errava antes (a diferença
 entre as semanas, conta que nenhuma consulta trouxe). As duas novas, sem defeito do Mister: a **c32** ("Pausa o iFood para

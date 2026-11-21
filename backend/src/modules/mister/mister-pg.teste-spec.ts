@@ -2082,6 +2082,49 @@ export function testesDoMisterComPostgres(): void {
       expect((await ferramentas.executar(semNada, 'faltas_e_horas', {})).dados.erro).toContain('não dá acesso');
     });
 
+    it('clientes em números (M6j lote 6): só as contas, com a permissão e o módulo da tela', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+      const lidosDoPerfil: string[] = [];
+      // O resumo real devolve só contagens; o dublê põe um nome para provar que a consulta escolhe os campos.
+      (ferramentas as any).perfisDeClientes = {
+        resumo: async (t: string) => {
+          lidosDoPerfil.push(t);
+          return { total: 10, segmentos: { campeoes: 2, em_risco: 3, inativos: 5 }, etiquetas: { atrasado: 1 }, selos: { feriado: 1 }, olharam: 4, ultimaVolta: { rodou_em: '2026-11-13T07:10:00Z' }, nome: 'Fulano de Tal', telefone: '5521999990000' };
+        },
+      };
+      const ligarOPerfil = async (ativo: boolean) => {
+        await q(`delete from modulo_ativacao where tenant_id = $1 and modulo = 'perfil_cliente'`, [A]);
+        await q(`insert into modulo_ativacao (tenant_id, unidade_id, modulo, ativo) values ($1, null, 'perfil_cliente', $2)`, [A, ativo]);
+      };
+      try {
+        await ligarOPerfil(true);
+        const r = await ferramentas.executar(e, 'clientes_em_numeros', {});
+        expect(lidosDoPerfil).toEqual([A]);
+        expect(r.dados).toMatchObject({ ligado: true, abrangencia: 'a empresa inteira', total: 10, olharamENaoPediram: 4, atualizadoEm: '13/11, 04:10' });
+        expect((r.dados.grupos as any[]).map((g) => [g.grupo, g.clientes])).toEqual([
+          ['Campeões', 2],
+          ['Leais', 0],
+          ['Recentes', 0],
+          ['Precisam de atenção', 0],
+          ['Em risco', 3],
+          ['Inativos', 5],
+        ]);
+        expect(JSON.stringify(r.dados)).not.toMatch(/Fulano|5521999990000/);
+        // Sem a permissão de Delivery, nada; com o módulo desligado, diz que não está ligado e não lê.
+        const semDelivery = { ...e, nivel: 'gerente' as const, permissoes: { dashboard: true } as any };
+        expect((await ferramentas.executar(semDelivery, 'clientes_em_numeros', {})).dados.erro).toContain('não dá acesso');
+        await ligarOPerfil(false);
+        lidosDoPerfil.length = 0;
+        expect((await ferramentas.executar(e, 'clientes_em_numeros', {})).dados).toMatchObject({ ligado: false });
+        expect(lidosDoPerfil).toEqual([]);
+      } finally {
+        delete (ferramentas as any).perfisDeClientes;
+        await q(`delete from modulo_ativacao where tenant_id = $1 and modulo = 'perfil_cliente'`, [A]);
+      }
+    });
+
     it('o estoque abaixo do mínimo sai em páginas de 15 e dá para procurar pelo nome', async () => {
       const tel = telefone();
       await ligar('ana', tel);
@@ -4155,18 +4198,18 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_avaliacao`);
       });
 
-      it('a rodada inteira com as respostas certas: 52 de 52, o andamento, o custo, a lista e as perguntas na ordem', async () => {
+      it('a rodada inteira com as respostas certas: 53 de 53, o andamento, o custo, a lista e as perguntas na ordem', async () => {
         const ia = iaDeMentira();
         const servico = new MisterAvaliacaoService(db, ia as any);
         const r = await servico.rodar('Rita da DMS');
-        expect(r.total).toBe(52);
+        expect(r.total).toBe(53);
         const fim = await terminar(r.id);
-        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 52, acertos: 52, motivo: null });
+        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 53, acertos: 53, motivo: null });
         // O mesmo laço do agente: as instruções e as ferramentas de verdade, e o recurso da avaliação.
         expect(ia.pedidos.every((p) => p.recurso === 'mister_avaliacao' && p.tools === FERRAMENTAS && p.system[0].text === INSTRUCOES_DO_MISTER)).toBe(true);
         const lista = await servico.lista();
-        expect(lista).toMatchObject({ disponivel: true, total: 52, chaveDaDistribuicao: true });
-        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 52, acertos: 52, falhas: 0, oQueFalhou: [] });
+        expect(lista).toMatchObject({ disponivel: true, total: 53, chaveDaDistribuicao: true });
+        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 53, acertos: 53, falhas: 0, oQueFalhou: [] });
         // O custo pela tabela de preços do modelo, sobre os tokens somados de todas as chamadas.
         expect(lista.rodadas[0].custoUsd).toBeGreaterThan(0);
         const [tok] = await q(`select tokens_entrada, tokens_cache_leitura, tokens_saida from mister_avaliacao where id = $1`, [r.id]);
@@ -4186,7 +4229,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
         expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
         const r = await servico.rodar('Rita');
-        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 51 });
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 52 });
         const [velha] = await q(`select situacao, motivo from mister_avaliacao where id = $1`, [parada]);
         expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
         const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);

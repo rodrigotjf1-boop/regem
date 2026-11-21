@@ -296,6 +296,7 @@ export type NomeDaFerramenta =
   | 'conciliacao_do_periodo'
   | 'contas_a_pagar_e_receber'
   | 'faltas_e_horas'
+  | 'clientes_em_numeros'
   | 'vencimentos_e_versoes'
   | 'como_usar_o_regem'
   | 'conversas_anteriores'
@@ -618,6 +619,12 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
       properties: { ...PERIODO, pessoa: { type: 'string', description: 'Parte do nome de uma pessoa da equipe.' }, loja: LOJA },
       additionalProperties: false,
     },
+  },
+  {
+    name: 'clientes_em_numeros',
+    description:
+      'Os clientes em NÚMEROS somados, da empresa inteira (nunca nome, telefone ou endereço): quantos há na base, quantos em cada grupo (campeões, leais, recentes, precisam de atenção, em risco, inativos) e quantos olharam o cardápio e não pediram. Use para "quantos clientes estão em risco", "como está a minha base". Se a pessoa pedir QUEM é o cliente, diga que dado de cliente não sai pelo WhatsApp, aponte Delivery › Clientes e chame anotar_o_que_falta.',
+    input_schema: { type: 'object', properties: { loja: LOJA }, additionalProperties: false },
   },
   {
     name: 'vencimentos_e_versoes',
