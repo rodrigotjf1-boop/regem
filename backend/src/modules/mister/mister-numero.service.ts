@@ -344,9 +344,9 @@ export class MisterNumeroService {
    * M3c.3: manda uma IMAGEM (o gráfico do relatório, um PNG feito pelo código) pelo número do Mister, com a legenda. O
    * mesmo caminho do documento: pela API oficial sobe à Meta (`/media`) e manda pelo id; pelo Evolution, `sendMedia`.
    */
-  async enviarImagem(para: string, png: Buffer, legenda = ''): Promise<{ wamid: string | null }> {
+  async enviarImagem(para: string, png: Buffer, legenda = '', mime: 'image/png' | 'image/jpeg' = 'image/png'): Promise<{ wamid: string | null }> {
     if (!png?.length) throw new FalhaDoEnvioDoMister('meta', null, 'imagem vazia');
-    return this.enviarMidia(para, png, { tipo: 'image', mime: 'image/png', arquivo: 'grafico.png', legenda });
+    return this.enviarMidia(para, png, { tipo: 'image', mime, arquivo: mime === 'image/jpeg' ? 'imagem.jpg' : 'grafico.png', legenda });
   }
 
   /**

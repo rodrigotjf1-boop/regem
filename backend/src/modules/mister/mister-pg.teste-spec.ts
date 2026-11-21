@@ -4146,6 +4146,7 @@ export function testesDoMisterComPostgres(): void {
         c49: { acao: 'pausar_canal', canais: ['ifood'], motivo: 'pedidos', minutos: 30 },
         c51: { periodo: 'este_mes' },
         c52: { periodo: 'este_mes', pessoa: 'Bruna' },
+        c54: { acao: 'criar_imagem', proporcao: '9:16', pedidoDaImagem: "Cartaz vertical da terça do smash. Foto de um smash duplo com batata, fundo escuro, luz quente. Texto exato: \"TERÇA DO SMASH\" e \"Smash duplo + batata · R$ 29,90\"." },
       };
       const EXTRAS: Record<string, string[]> = { c37: ['produtos_mais_vendidos'], c38: ['servidor_e_incidentes'] };
       const entradaDe = (c: CasoDaAvaliacao, nome: string): Record<string, unknown> =>
@@ -4198,18 +4199,18 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_avaliacao`);
       });
 
-      it('a rodada inteira com as respostas certas: 53 de 53, o andamento, o custo, a lista e as perguntas na ordem', async () => {
+      it('a rodada inteira com as respostas certas: 54 de 54, o andamento, o custo, a lista e as perguntas na ordem', async () => {
         const ia = iaDeMentira();
         const servico = new MisterAvaliacaoService(db, ia as any);
         const r = await servico.rodar('Rita da DMS');
-        expect(r.total).toBe(53);
+        expect(r.total).toBe(54);
         const fim = await terminar(r.id);
-        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 53, acertos: 53, motivo: null });
+        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 54, acertos: 54, motivo: null });
         // O mesmo laço do agente: as instruções e as ferramentas de verdade, e o recurso da avaliação.
         expect(ia.pedidos.every((p) => p.recurso === 'mister_avaliacao' && p.tools === FERRAMENTAS && p.system[0].text === INSTRUCOES_DO_MISTER)).toBe(true);
         const lista = await servico.lista();
-        expect(lista).toMatchObject({ disponivel: true, total: 53, chaveDaDistribuicao: true });
-        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 53, acertos: 53, falhas: 0, oQueFalhou: [] });
+        expect(lista).toMatchObject({ disponivel: true, total: 54, chaveDaDistribuicao: true });
+        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 54, acertos: 54, falhas: 0, oQueFalhou: [] });
         // O custo pela tabela de preços do modelo, sobre os tokens somados de todas as chamadas.
         expect(lista.rodadas[0].custoUsd).toBeGreaterThan(0);
         const [tok] = await q(`select tokens_entrada, tokens_cache_leitura, tokens_saida from mister_avaliacao where id = $1`, [r.id]);
@@ -4229,7 +4230,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
         expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
         const r = await servico.rodar('Rita');
-        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 52 });
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 53 });
         const [velha] = await q(`select situacao, motivo from mister_avaliacao where id = $1`, [parada]);
         expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
         const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);
@@ -9628,6 +9629,72 @@ export function testesDoMisterComPostgres(): void {
       const esperarMensagens = async (n: number) => {
         for (let i = 0; i < 100 && numero.enviadas.length < n; i++) await new Promise((r) => setTimeout(r, 50));
       };
+
+      it('M6l: a imagem — o pedido antes, "Gerar" de quem pediu, a imagem na conversa; "Mudar" não gera; desligada, nada', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+        const pedido = "Cartaz vertical da terça do smash. Foto de um smash duplo com batata, fundo escuro, luz quente. Texto exato: \"TERÇA DO SMASH\" e \"Smash duplo + batata · R$ 29,90\".";
+        const en = { acao: 'criar_imagem', pedidoDaImagem: pedido, proporcao: '9:16' };
+        const antes = process.env.MISTER_CRIAR_IMAGEM;
+        const chamadas: any[] = [];
+        let resposta: any = { ok: true, bytes: Buffer.from('jpeg de mentira'), mimeType: 'image/jpeg', franquia: { mes: '2026-11', usados: 3, total: 20 } };
+        (acoes as any).imagens = { criarImagem: async (t: string, p: any) => (chamadas.push([t, p]), resposta) };
+        try {
+          // Nasce desligada: nem a pergunta sai.
+          delete process.env.MISTER_CRIAR_IMAGEM;
+          expect(await ferramentas.executar(e, 'propor_acao', en)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.imagemDesligada } });
+          process.env.MISTER_CRIAR_IMAGEM = '1';
+
+          // O pedido inteiro antes, com "Gerar" e "Mudar"; nada foi ao Graph.
+          const r = await ferramentas.executar(e, 'propor_acao', en);
+          expect(r.ok).toBe(true);
+          expect(r.dados.oQueVouFazer).toBe(pedido);
+          expect(r.mensagens![0].texto).toBe(TEXTOS_DAS_ACOES.perguntaDaImagem(pedido, 30));
+          expect(r.mensagens![0].botoes!.map((b) => b.titulo)).toEqual(['Gerar', 'Mudar']);
+          expect(chamadas).toEqual([]);
+
+          // "Mudar": não gera e pergunta o que mudar.
+          numero.pedidos.length = 0;
+          await propostasDasAcoes.responder(`prop:${idDaProposta(r)}:nao`, quem(tel, 'ana', 'presidente'));
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DAS_ACOES.imagemMudar]);
+          expect(chamadas).toEqual([]);
+
+          // "Gerar": a imagem vai ao telefone de quem pediu, em JPEG, e o "feito" diz a franquia.
+          const r2 = await ferramentas.executar(e, 'propor_acao', en);
+          const id = idDaProposta(r2);
+          numero.pedidos.length = 0;
+          await propostasDasAcoes.responder(`prop:${id}:sim`, quem(tel, 'ana', 'presidente'));
+          const fim = await esperarFim(id);
+          expect(fim.situacao).toBe('feita');
+          expect(fim.resultado).toContain('3 de 20');
+          expect(chamadas).toEqual([[A, { descricao: pedido, proporcao: '9:16', formato: 'jpeg', chave: `mister:${id}` }]]);
+          expect(numero.pedidos.find((p) => p.url.endsWith('/media'))?.corpo).toMatchObject({ formulario: true, type: 'image/jpeg', arquivo: 'imagem.jpg' });
+          expect(numero.pedidos.filter((p) => p.url.endsWith('/messages') && p.corpo?.type === 'image').map((p) => p.corpo.to)).toEqual([tel]);
+
+          // O Graph recusa (sem franquia): a frase dele, nenhuma imagem sai.
+          resposta = { ok: false, motivo: 'sem-franquia', mensagem: 'A empresa ainda não tem franquia de imagem. Fale com a DMS para liberar.' };
+          const r3 = await ferramentas.executar(e, 'propor_acao', { ...en, pedidoDaImagem: `${pedido} Com borda dourada.` });
+          const id3 = idDaProposta(r3);
+          numero.pedidos.length = 0;
+          await propostasDasAcoes.responder(`prop:${id3}:sim`, quem(tel, 'ana', 'presidente'));
+          expect(await esperarFim(id3)).toMatchObject({ situacao: 'nao_deu', resultado: 'a empresa ainda não tem franquia de imagem. Fale com a DMS para liberar.' });
+          expect(numero.pedidos.filter((p) => p.url.endsWith('/media'))).toEqual([]);
+
+          // A imagem pronta que não sai pelo WhatsApp não vira "feito".
+          resposta = { ok: true, bytes: Buffer.from('jpeg'), mimeType: 'image/jpeg', franquia: null };
+          numero.responder = (p) => (p.url.endsWith('/media') ? { status: 500, corpo: { error: { message: 'fora do ar' } } } : undefined);
+          const r4 = await ferramentas.executar(e, 'propor_acao', { ...en, pedidoDaImagem: `${pedido} Com borda prata.` });
+          const id4 = idDaProposta(r4);
+          await propostasDasAcoes.responder(`prop:${id4}:sim`, quem(tel, 'ana', 'presidente'));
+          expect((await esperarFim(id4)).situacao).toBe('nao_deu');
+        } finally {
+          numero.responder = () => undefined;
+          delete (acoes as any).imagens;
+          if (antes === undefined) delete process.env.MISTER_CRIAR_IMAGEM;
+          else process.env.MISTER_CRIAR_IMAGEM = antes;
+        }
+      });
 
       it('pausar e reabrir o cardápio, aceitar, despachar e marcar pronto — só no "Autorizar" de quem pediu, pelo serviço da tela, com o efeito conferido', async () => {
         const tel = telefone();

@@ -1976,6 +1976,19 @@ regressão de novo quando as instruções mudam; a Meta pela doc oficial (V20); 
   diferença com uma conta. A lista de teste passou a fechar com as faixas. Na consulta de verdade, com mais contas do que
   cabem na lista, a resposta agora avisa que a lista é parcial e que a soma vem dos totais de cada faixa.
 
+**M6l, parte 1 (21/11/2026; SEM migration) — criar uma imagem pelo DMS Graph, a conversa 7 do protótipo:**
+- A ação `criar_imagem` entra na porta `propor_acao`: a IA monta o pedido completo (objetivo, o que aparece, o texto exato,
+  estilo, cores, proporção 1:1, 9:16 ou 16:9), o Mister mostra "Vou pedir assim", com "Gerar" e "Mudar" e o aviso de que usa
+  1 da franquia. Só o "Gerar" de quem pediu chama o `GraphImagemService.criarImagem`, a imagem vai para a conversa e só
+  então sai o "feito", com a franquia do mês. "Mudar" não gera nada e pergunta o que trocar.
+- **Nasce desligada:** `MISTER_CRIAR_IMAGEM=1` no `regem-api`, e a empresa precisa ter `imagens.criar` no cartão do DMS Graph
+  e franquia de imagem liberada (sem isso, a resposta é a frase do Graph). Ainda não saiu nenhuma imagem real.
+- O código recusa pedido com telefone, e-mail, CPF ou CNPJ. "Número de relatório não vai à imagem" é instrução para a IA,
+  porque a ferramenta não vê a fala da pessoa: a garantia é o pedido inteiro mostrado antes do "Gerar".
+- A chave do Graph é a proposta, e o mesmo pedido repetido é a mesma proposta: não paga de novo. Permissão: a do Delivery
+  (Marketing mora lá). O vídeo (`criar_video`) e editar foto pelo Mister ficam para quando o Graph tiver e o dono pedir.
+- Avaliação: **c54**, 54 perguntas.
+
 **Avaliação de regressão de 21/11 (rodada pelo dono depois da M6j lote 3): 45 de 48.** A c05 já errava antes (a diferença
 entre as semanas, conta que nenhuma consulta trouxe). As duas novas, sem defeito do Mister: a **c32** ("Pausa o iFood para
 mim agora") esperava o jeito antigo (explicar o caminho da tela) — desde a M6j ele pausa e, sem o motivo e o tempo,

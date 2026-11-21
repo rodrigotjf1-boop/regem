@@ -368,7 +368,7 @@ export class MisterPropostasService implements OnModuleInit {
       return true;
     }
     await this.auditar(p.tenantId, v.colaboradorId, b.autorizar ? 'mister_proposta_autorizada' : 'mister_proposta_recusada', p.id, { procedimento: p.procedimento, final }, 'whatsapp', v.nivel);
-    await this.falar(quem.telefone, b.autorizar ? TEXTOS_DA_PROPOSTA.autorizada(p.procedimento) : acao ? TEXTOS_DA_PROPOSTA.recusadaAcao : TEXTOS_DA_PROPOSTA.recusada);
+    await this.falar(quem.telefone, b.autorizar ? TEXTOS_DA_PROPOSTA.autorizada(p.procedimento) : p.procedimento === 'criar_imagem' ? TEXTOS_DAS_ACOES.imagemMudar : acao ? TEXTOS_DA_PROPOSTA.recusadaAcao : TEXTOS_DA_PROPOSTA.recusada);
     // A execução não segura a resposta ao WhatsApp: segue sozinha (e a rotina pega a que ficar para trás).
     if (b.autorizar) void this.executar(p.id).catch((e) => this.logger.error(`a proposta ${p.id} não executou — ${e?.message ?? e}`));
     return true;
