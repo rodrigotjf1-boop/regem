@@ -12,6 +12,11 @@ import { MENU, TOKEN as TOKEN_CARDAPIO } from './cardapio-para-voce.mjs';
 const TOKEN = tokenFalso({ cat: 'presidente', perfil: 'presidente', perm: { loja: { ver: true, editar: true }, delivery: { ver: true } } });
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
 const IMG = 'https://imagens.exemplo.test/banner-1.png';
+const IMG_IA = 'https://imagens.exemplo.test/banner-ia.png';
+const MELHORADO = 'Foto de um hambúrguer duplo com bacon crocante, no centro, sobre fundo escuro com luz quente.';
+const TITULO_LONGO = 'Sextou com bacon duplo e queijo derretendo no pão da casa!!'; // 59 letras: perto do limite de 60
+const CHAMADA_LONGA = 'Duplo bacon, batata e bebida para fechar a semana com tudo, só nesta sexta à noite aqui!'; // perto do limite de 90
+const SITUACAO_IA = { pode: true, podeCriar: true, podeEditar: true, podeMelhorar: true, motivo: null, mensagem: null, franquia: { usados: 2, total: 20 } };
 const P1 = '11111111-1111-4111-8111-111111111111';
 const C1 = '55555555-5555-4555-8555-555555555555';
 const BANNERS = () => [
@@ -47,8 +52,9 @@ const medir = (page) =>
 const texto = (page, sel = 'body') => page.evaluate((s) => document.querySelector(s)?.innerText.replace(/\s+/g, ' ') ?? '', sel);
 
 export default async function roteiroBanners({ nav, base, ok, foto: arquivoFoto, larguras }) {
-  async function abrir(w) {
+  async function abrir(w, situacaoIa = SITUACAO_IA) {
     const enviados = [];
+    const criados = [];
     let lista = BANNERS();
     const ctx = await nav.newContext({ viewport: { width: w, height: 900 }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
     await ctx.addInitScript((jwt) => localStorage.setItem('regen_token', jwt), TOKEN);
@@ -60,6 +66,12 @@ export default async function roteiroBanners({ nav, base, ok, foto: arquivoFoto,
     await page.route('**/api/v1/**', async (route) => {
       const req = route.request();
       const p = new URL(req.url()).pathname.replace(/^.*\/api\/v1/, '');
+      if (p === '/cardapio/banners/ia/situacao') return situacaoIa ? responder(route, situacaoIa) : responder(route, { message: 'O servidor não respondeu.' }, 503);
+      if (p === '/cardapio/banners/ia/melhorar') return responder(route, { pedido: MELHORADO });
+      if (p === '/cardapio/banners/ia/criar') {
+        criados.push(req.postDataBuffer()?.toString('utf8') ?? '');
+        return responder(route, { ok: true, imagemRef: IMG_IA, franquia: { usados: 3, total: 20 } });
+      }
       if (p === '/cardapio/banners' && req.method() === 'PUT') {
         const corpo = JSON.parse(req.postData() || '{}');
         enviados.push(corpo);
@@ -75,13 +87,13 @@ export default async function roteiroBanners({ nav, base, ok, foto: arquivoFoto,
     });
     await page.goto(base + '/delivery/configuracoes?aba=banners');
     await page.waitForSelector('text=Ao tocar, abre:', { timeout: 30000 });
-    return { ctx, page, erros, enviados };
+    return { ctx, page, erros, enviados, criados };
   }
   const dialogo = (page) => page.waitForSelector('[role="dialog"]', { timeout: 10000 });
   const fechou = (page) => page.waitForSelector('[role="dialog"]', { state: 'detached', timeout: 5000 });
 
   for (const w of larguras) {
-    const { ctx, page, erros, enviados } = await abrir(w);
+    const { ctx, page, erros, enviados, criados } = await abrir(w);
     try {
       let achados = await medir(page);
       const t = await texto(page, 'main');
@@ -120,6 +132,38 @@ export default async function roteiroBanners({ nav, base, ok, foto: arquivoFoto,
       ok((await g.getByText('O link externo precisa começar com https://').isVisible()) && achados.length === 0, `${w}px · o link externo sem https avisa, sem barra para o lado`);
       await page.keyboard.press('Escape');
       await fechou(page);
+      // B2: "✨ Criar com IA" — o pedido, melhorar, criar, a prévia e "Usar este banner"
+      await page.getByRole('button', { name: '✨ Criar com IA' }).click();
+      await dialogo(page);
+      await g.getByText('2 de 20').waitFor({ timeout: 8000 });
+      achados = await medir(page);
+      ok(achados.length === 0 && (await g.getByRole('button', { name: 'Por cima, escrito pelo Regem', pressed: true }).count()) === 1, `${w}px · a gaveta da IA: a franquia, o texto por cima marcado, sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+      await g.getByLabel('O que você quer no banner').fill('hamburguer duplo');
+      await g.getByRole('button', { name: 'Melhorar o pedido' }).click();
+      await g.getByText('Você escreveu:').waitFor({ timeout: 5000 });
+      ok((await g.getByLabel('O que você quer no banner').inputValue()) === MELHORADO, `${w}px · "Melhorar o pedido" troca o texto e mostra o que a pessoa escreveu`);
+      await g.getByLabel('Título', { exact: true }).fill(TITULO_LONGO);
+      await g.getByLabel('Chamada', { exact: true }).fill(CHAMADA_LONGA);
+      achados = await medir(page);
+      ok(achados.length === 0, `${w}px · a gaveta da IA preenchida, sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+      await g.getByRole('button', { name: 'Criar banner' }).click();
+      await g.getByLabel('Texto para leitor de tela').waitFor({ timeout: 8000 });
+      achados = await medir(page);
+      ok(achados.length === 0 && (await g.getByText('3 de 20').isVisible()) && (await g.getByRole('button', { name: 'Criar outra' }).isVisible()), `${w}px · pronto: a prévia, a franquia nova e "Criar outra", sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+      ok(/name="chave"/.test(criados[0] ?? '') && criados[0].includes(MELHORADO) && /name="textoPelaIa"\r\n\r\nfalse/.test(criados[0]) && !/name="file"/.test(criados[0]), `${w}px · "Criar banner" manda o pedido, a chave do clique e nenhuma foto`);
+      if (w === 390 || w === 1440) await g.screenshot({ path: arquivoFoto(`gaveta-ia-${w}.png`) });
+      const antesDeUsar = enviados.length;
+      await g.getByRole('button', { name: 'Usar este banner' }).click();
+      await fechou(page);
+      await page.getByLabel('Texto por cima do banner 3: título').waitFor({ timeout: 5000 });
+      const novo = enviados[antesDeUsar]?.banners?.[2] ?? {};
+      ok(
+        enviados.length === antesDeUsar + 1 && novo.imagemRef === IMG_IA && novo.textoTitulo === TITULO_LONGO && novo.textoChamada === CHAMADA_LONGA && novo.descricao === MELHORADO.slice(0, 200) && novo.feitoComIa === true,
+        `${w}px · "Usar este banner" salva a imagem, o texto por cima e a descrição (${umaLinha(JSON.stringify(novo))})`,
+      );
+      ok((await page.getByRole('button', { name: '✨ Criar com IA' }).count()) === 0, `${w}px · com 3 banners o "Criar com IA" sai`);
+      achados = await medir(page);
+      ok(achados.length === 0, `${w}px · a linha do banner com o texto por cima, sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
       ok(erros.length === 0, `${w}px · Banners: nenhum erro de script${erros.length ? ` (${umaLinha(erros.join(' | '))})` : ''}`);
     } catch (e) {
       ok(false, `${w}px · Banners (${umaLinha(String(e?.message ?? e))})`);
@@ -129,8 +173,33 @@ export default async function roteiroBanners({ nav, base, ok, foto: arquivoFoto,
     }
   }
 
+  // B2: quem não pode criar vê o motivo e nenhum "Criar banner"; a leitura que falha oferece "Tentar de novo".
+  for (const w of [320, 390, 1366]) {
+    for (const [rotulo, situacao, frase] of [
+      ['sem franquia', { pode: false, podeCriar: true, podeEditar: true, podeMelhorar: true, motivo: 'sem-franquia', mensagem: 'A empresa ainda não tem franquia de imagem. Fale com a DMS para liberar.', franquia: { usados: 0, total: 0 } }, 'ainda não tem franquia'],
+      ['franquia acabou', { pode: false, podeCriar: true, podeEditar: true, podeMelhorar: true, motivo: 'franquia-esgotada', mensagem: 'A franquia de imagem deste mês acabou. Ela volta no dia 1º.', franquia: { usados: 20, total: 20 } }, 'deste mês acabou'],
+      ['desligado', { pode: false, podeCriar: false, podeEditar: false, podeMelhorar: false, motivo: 'desligado', mensagem: 'O DMS Graph não está ligado nesta empresa. O presidente liga em Delivery › Configurações › Integrações.', franquia: null }, 'não está ligado'],
+      ['leitura falhou', null, 'O servidor não respondeu.'],
+    ]) {
+      const { ctx, page } = await abrir(w, situacao);
+      try {
+        await page.getByRole('button', { name: '✨ Criar com IA' }).click();
+        await dialogo(page);
+        const g = page.locator('[role="dialog"]');
+        await g.getByText(frase).waitFor({ timeout: 8000 });
+        const achados = await medir(page);
+        const tentar = await g.getByRole('button', { name: 'Tentar de novo' }).count();
+        ok(achados.length === 0 && (await g.getByRole('button', { name: 'Criar banner' }).count()) === 0 && tentar === (situacao ? 0 : 1), `${w}px · ${rotulo}: o motivo, sem "Criar banner"${situacao ? '' : ', com "Tentar de novo"'}${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+      } catch (e) {
+        ok(false, `${w}px · ${rotulo} (${umaLinha(String(e?.message ?? e))})`);
+      } finally {
+        await ctx.close();
+      }
+    }
+  }
+
   // ───────────────────────── o cardápio: o banner abre as regras do clube e Sua conta ─────────────────────────
-  async function abrirCardapio(w, link, regras) {
+  async function abrirCardapio(w, link, regras, banner = { imagemRef: IMG, titulo: 'Banner do clube', link }, tema = 'oferta', espera = 'button[aria-label="Banner do clube"]') {
     const ctx = await nav.newContext({ viewport: { width: w, height: 900 }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900, reducedMotion: 'reduce' });
     await ctx.addInitScript((t) => localStorage.setItem(`regem_loja_clientetoken_${t}`, 'ct-falso-do-roteiro'), TOKEN_CARDAPIO);
     const page = await ctx.newPage();
@@ -142,7 +211,7 @@ export default async function roteiroBanners({ nav, base, ok, foto: arquivoFoto,
       const req = route.request();
       const p = new URL(req.url()).pathname.replace(/^.*\/api\/v1/, '');
       const raiz = `/publico/cardapio/${TOKEN_CARDAPIO}`;
-      if (p === raiz) return responder(route, { ...MENU, banners: [{ imagemRef: IMG, titulo: 'Banner do clube', link }] });
+      if (p === raiz) return responder(route, { ...MENU, banners: [banner] });
       if (p === `${raiz}/clube/regras`) return responder(route, { regras });
       if (p === `${raiz}/cliente`)
         return responder(route, { nome: 'Ana Souza', telefone: '21900000000', cliente: { nome: 'Ana Souza', telefone: '21900000000' }, enderecos: [], historico: [] });
@@ -151,9 +220,34 @@ export default async function roteiroBanners({ nav, base, ok, foto: arquivoFoto,
       if (req.method() === 'POST') return responder(route, { ok: true });
       return responder(route, {});
     });
-    await page.goto(`${base}/c/${TOKEN_CARDAPIO}?tema=oferta`);
-    await page.waitForSelector('button[aria-label="Banner do clube"]', { timeout: 30000 });
+    await page.goto(`${base}/c/${TOKEN_CARDAPIO}?tema=${tema}`);
+    await page.waitForSelector(espera, { timeout: 30000 });
     return { ctx, page, erros };
+  }
+
+  // B2: o texto por cima, no maior tamanho aceito, nos 4 modelos: dentro do banner, fora do logo e dos botões da capa.
+  const COM_TEXTO = { imagemRef: IMG, titulo: null, link: null, textoTitulo: TITULO_LONGO, textoChamada: CHAMADA_LONGA, descricao: 'Hambúrguer duplo com bacon' };
+  for (const w of larguras) {
+    for (const tema of ['oferta', 'balcao', 'fluxo', 'galeria']) {
+      const { ctx, page, erros } = await abrirCardapio(w, null, [], COM_TEXTO, tema, tema === 'galeria' ? '.g-cap' : '.p-ban-txt');
+      try {
+        const r = await page.evaluate(() => {
+          const caixa = document.querySelector('.p-ban-txt, .g-cap');
+          const pai = caixa.closest('.p-ban, .g-slide').getBoundingClientRect();
+          const partes = [...caixa.querySelectorAll('b, span')].map((e) => e.getBoundingClientRect());
+          const bate = (a, c) => a.left < c.right && a.right > c.left && a.top < c.bottom && a.bottom > c.top;
+          const batem = [...document.querySelectorAll('.b-logo, .o-logo, .ac-fab')].filter((o) => partes.some((p) => bate(p, o.getBoundingClientRect()))).map((o) => o.className);
+          return { batem, fora: partes.filter((p) => p.bottom > pai.bottom + 1 || p.top < pai.top - 1 || p.right > pai.right + 1 || p.left < pai.left - 1).length, alt: document.querySelector('.p-ban img, .g-slide img')?.alt, texto: caixa.innerText };
+        });
+        const achados = await medir(page);
+        ok(r.batem.length === 0 && r.fora === 0 && r.alt === COM_TEXTO.descricao && r.texto.includes('Sextou') && achados.length === 0 && erros.length === 0, `${w}px · ${tema}: o texto por cima dentro do banner, fora do logo e dos botões (${umaLinha(JSON.stringify({ batem: r.batem, fora: r.fora, alt: r.alt, achados, erros }))})`);
+        if (w === 390 || w === 1440) await page.screenshot({ path: arquivoFoto(`cardapio-texto-${tema}-${w}.png`) });
+      } catch (e) {
+        ok(false, `${w}px · ${tema}: o texto por cima (${umaLinha(String(e?.message ?? e))})`);
+      } finally {
+        await ctx.close();
+      }
+    }
   }
 
   for (const w of larguras) {

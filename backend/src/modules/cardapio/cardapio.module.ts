@@ -31,6 +31,9 @@ import { InstagramModule } from '../instagram/instagram.module';
 import { MessengerModule } from '../messenger/messenger.module';
 import { ModuloModule } from '../modulo/modulo.module';
 import { GraphModule } from '../graph/graph.module';
+import { MidiaModule } from '../midia/midia.module';
+import { BannerIaController } from './banner-ia.controller';
+import { BannerIaService } from './banner-ia.service';
 
 @Module({
   // WhatsappModule: o resumo do pedido feito pelo robô sai por escrito pela via da loja (robo-pedido.service.ts).
@@ -41,8 +44,8 @@ import { GraphModule } from '../graph/graph.module';
   // ModuloModule (F3 de Vagas): o robô só manda o link da página de vagas com o módulo "vagas" ligado na loja.
   // IaModule: a leitura da foto do cliente fala com o modelo pela porta única da IA da empresa (o medidor de uso).
   // GraphModule (mig 450): a foto vai primeiro ao DMS Graph, com a ligação da empresa; a IA da empresa fica de reserva.
-  imports: [VendasModule, DeliveryModule, AtendimentoModule, FidelidadeModule, CashbackModule, WhatsappModule, ChegadaModule, AniversarioModule, InstagramModule, MessengerModule, ModuloModule, IaModule, GraphModule],
-  controllers: [CardapioController, CardapioPublicoController, EventosCardapioController, RoboConsultasController, RoboPedidoController],
+  imports: [VendasModule, DeliveryModule, AtendimentoModule, FidelidadeModule, CashbackModule, WhatsappModule, ChegadaModule, AniversarioModule, InstagramModule, MessengerModule, ModuloModule, IaModule, GraphModule, MidiaModule],
+  controllers: [CardapioController, BannerIaController, CardapioPublicoController, EventosCardapioController, RoboConsultasController, RoboPedidoController],
   // LembreteDoCarrinhoProcessor: o lembrete do pedido que ficou pela metade no robô (mig 349; só nuvem).
   // AvisoDaMudancaProcessor: a decisão do servidor da loja sobre a mudança pedida pelo robô chega ao cliente (mig 363; só nuvem).
   // EstornoPixService/Processor: o estorno do Pix no cancelamento do pedido pago online (mig 372; só nuvem).
@@ -50,6 +53,8 @@ import { GraphModule } from '../graph/graph.module';
   // Central lê a tabela direto (`adicional-pix-alertas.ts`) — o Atendimento não importa este módulo (ele importa o dele).
   providers: [
     CardapioService,
+    // O "Criar com IA" dos banners (B2, mig 485): a imagem pelo DMS Graph, guardada na mídia da empresa.
+    BannerIaService,
     OrigemPedidoService,
     EventosCardapioService,
     RoboPedidoService,

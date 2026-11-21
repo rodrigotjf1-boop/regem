@@ -99,6 +99,31 @@ descrever('o destino e o período do banner (Postgres)', () => {
     }
   });
 
+  it('B2 (mig 485): o texto por cima e a descrição gravam, voltam na lista e chegam ao cardápio; vazio não vai', async () => {
+    const l = await loja();
+    const lista = await cardapio.setBanners(l.t, l.u, [
+      { imagemRef: IMG, textoTitulo: '  Sextou   com bacon ', textoChamada: 'Duplo bacon', descricao: 'Hambúrguer duplo', feitoComIa: true },
+      { imagemRef: IMG, titulo: 'Sem texto', textoTitulo: '   ' },
+    ]);
+    expect(lista.map((b: any) => [b.textoTitulo, b.textoChamada, b.descricao, b.feitoComIa])).toEqual([
+      ['Sextou com bacon', 'Duplo bacon', 'Hambúrguer duplo', true],
+      [null, null, null, false],
+    ]);
+    const m: any = await cardapio.menu(l.token);
+    expect(m.banners).toEqual([
+      { imagemRef: IMG, titulo: null, link: null, textoTitulo: 'Sextou com bacon', textoChamada: 'Duplo bacon', descricao: 'Hambúrguer duplo' },
+      { imagemRef: IMG, titulo: 'Sem texto', link: null },
+    ]);
+  });
+
+  it('B2: o texto longo demais é recusado antes de apagar os banners de hoje', async () => {
+    const l = await loja();
+    await cardapio.setBanners(l.t, l.u, [{ imagemRef: IMG, textoTitulo: 'Fica' }]);
+    await expect(cardapio.setBanners(l.t, l.u, [{ imagemRef: IMG, textoTitulo: 'x'.repeat(61) }])).rejects.toThrow('Banner 1: o título passa de 60 letras.');
+    await expect(cardapio.setBanners(l.t, l.u, [{ imagemRef: IMG, descricao: 'x'.repeat(201) }])).rejects.toThrow('Banner 1: o texto para leitor de tela passa de 200 letras.');
+    expect(await q(`select texto_titulo from banner where tenant_id = $1`, [l.t])).toEqual([{ texto_titulo: 'Fica' }]);
+  });
+
   it('o período que já passou some do cardápio; o banner desligado também', async () => {
     const l = await loja();
     const hoje = hojeISO();

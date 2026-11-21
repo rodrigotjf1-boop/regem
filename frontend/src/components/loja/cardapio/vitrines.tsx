@@ -184,17 +184,28 @@ function Banners({ c, classe, onAbrir }: { c: Cardapio; classe: string; onAbrir:
   return (
     <div className={`p-ban ${classe}`}>
       <div className="p-ban-t" style={{ transform: `translateX(-${idx * 100}%)` }}>
-        {banners.map((b, k) =>
-          b.link || b.deepLink ? (
-            <button key={k} type="button" onClick={() => onAbrir(b)} aria-label={b.titulo ?? 'Abrir banner'} tabIndex={k === idx ? 0 : -1}>
-              <img src={b.imagemRef} alt={b.titulo ?? ''} loading={k === 0 ? 'eager' : 'lazy'} />
+        {banners.map((b, k) => {
+          // O texto por cima (B2) é texto de verdade; a descrição é o que o leitor de tela lê da imagem.
+          const nome = [b.textoTitulo, b.textoChamada].filter(Boolean).join('. ') || b.titulo || b.descricao;
+          const imagem = <img src={b.imagemRef} alt={b.descricao || b.titulo || ''} loading={k === 0 ? 'eager' : 'lazy'} />;
+          const texto = (b.textoTitulo || b.textoChamada) && (
+            <span className="p-ban-txt">
+              {b.textoTitulo && <b>{b.textoTitulo}</b>}
+              {b.textoChamada && <span>{b.textoChamada}</span>}
+            </span>
+          );
+          return b.link || b.deepLink ? (
+            <button key={k} type="button" onClick={() => onAbrir(b)} aria-label={nome ?? 'Abrir banner'} tabIndex={k === idx ? 0 : -1}>
+              {imagem}
+              {texto}
             </button>
           ) : (
             <div key={k}>
-              <img src={b.imagemRef} alt={b.titulo ?? ''} loading={k === 0 ? 'eager' : 'lazy'} />
+              {imagem}
+              {texto}
             </div>
-          ),
-        )}
+          );
+        })}
       </div>
       {n > 1 && (
         <div className="p-ban-d">
@@ -292,14 +303,15 @@ export function VitrineGaleria({ c }: { c: Cardapio }) {
     if (banners.length) {
       return banners.map((b) => {
         const p = c.produtoDoBanner(b);
-        return { img: b.imagemRef, k: p ? seloDe(p) : null, t: b.titulo || p?.nome || '', s: p ? brl(p.precoVenda) : '', acao: () => abrirBanner(b), toque: !!(b.link || b.deepLink) };
+        const t = b.textoTitulo || b.titulo || p?.nome || '';
+        return { img: b.imagemRef, alt: b.descricao || t, k: p ? seloDe(p) : null, t, s: b.textoChamada || (p ? brl(p.precoVenda) : ''), acao: () => abrirBanner(b), toque: !!(b.link || b.deepLink) };
       });
     }
     if (!c.showDestaques) return [];
     return c.destaques
       .filter((p: any) => p.imagemRef)
       .slice(0, 3)
-      .map((p: any) => ({ img: p.imagemRef, k: seloDe(p), t: p.nome, s: brl(p.precoVenda), acao: () => c.abrirProduto(p), toque: true }));
+      .map((p: any) => ({ img: p.imagemRef, alt: p.nome, k: seloDe(p), t: p.nome, s: brl(p.precoVenda), acao: () => c.abrirProduto(p), toque: true }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [c.menu, c.destaques, c.showBanner, c.showDestaques]);
   const [slide, setSlide] = useState(0);
@@ -377,7 +389,7 @@ export function VitrineGaleria({ c }: { c: Cardapio }) {
           >
             {slides.map((h, i) => (
               <button key={i} type="button" className="g-slide" onClick={h.acao} disabled={!h.toque}>
-                <img src={h.img} alt={h.t} loading={i === 0 ? 'eager' : 'lazy'} />
+                <img src={h.img} alt={h.alt} loading={i === 0 ? 'eager' : 'lazy'} />
                 {(h.t || h.s) && (
                   <div className="g-cap">
                     {h.k && <small>{h.k}</small>}

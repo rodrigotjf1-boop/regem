@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Banners, B2 — "Criar com IA" e o texto por cima da imagem (21/11; mig 485, JÁ APLICADA na nuvem; vai à loja no próximo
+  `.zip`).** Criar a imagem é só da nuvem (rotas `@CloudOnly`). Na loja entram as 4 colunas de `banner`; o sync copia só as
+  colunas que a loja tem, então a loja sem a 485 segue igual e passa a mostrar o texto por cima depois do `.zip`. Não toca
+  em `sync` nem em `edge`: não pede `.exe`.
+
 - **Mister versão 6, M6j lote 7 — lançar no estoque pelo WhatsApp (21/11; SEM migration).** Só na nuvem (o Mister): vai no
   `.zip` sem efeito na loja. O movimento gravado na nuvem desce à loja pelo sync, como o da tela.
 
