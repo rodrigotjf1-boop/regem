@@ -1999,6 +1999,24 @@ regressão de novo quando as instruções mudam; a Meta pela doc oficial (V20); 
   próprio estoque: produto compartilhado sem loja definida, em empresa de várias lojas, pede a loja.
 - Avaliação: **c55**, 55 perguntas. Ficam os lotes de PIN: preço por canal, horário da loja e pagar conta.
 
+**Avaliação de 21/11, terceira rodada (depois dos lotes 4 a 7): 55 de 55, 24 consultas.** Liberou os lotes de PIN.
+
+**M6j, lote 8 (21/11/2026; SEM migration) — mudar o preço por canal, com o PIN pelo link:**
+- `mudar_preco` na porta `propor_acao`, a primeira ação de **PIN**: a mensagem vai com o link "Abrir no Regem", nunca com
+  botões, e o preço muda pelo MESMO `ProdutoService.precoDoCanal` da Gestão do catálogo (que audita o "de → para" e põe o
+  app na fila). O "feito" sai do que ficou gravado, canal a canal; um canal que recusa vira "não deu", dizendo o que ficou.
+- **Quem autoriza:** quem pediu, com o PIN dele: o presidente ou o gerente com a Loja e "Ver valores em R$" (a regra da rota),
+  conferidos ao propor e de novo ao executar.
+- **Antes do PIN** a pessoa vê o preço de hoje e o novo em cada canal, e o aviso de salto (o dobro ou a metade), de promoção
+  (o cardápio digital segue cobrando a promoção) e de produto da empresa (vale em todas as lojas). Com o PIN da sessão
+  vencido, o preço de hoje não aparece.
+- **Recusa na pergunta:** produto com variações (cada uma tem o próprio preço: fica na tela), canal desligado, canal em que o
+  produto não está e preço igual. O canal nunca se supõe; "aumenta 10%" pede o preço final.
+- **Um pedido por produto:** pedir outro preço troca a proposta e mata o link anterior. A autorização confere o resumo do
+  código na própria gravação, para o PIN valer só para o que aquele link mostrou.
+- Junto: a auditoria do link passa o perfil de quem autorizou (ERR-558).
+- Avaliação: **c56**, 56 perguntas. Ficam os lotes de PIN: horário da loja e pagar conta.
+
 **Avaliação de regressão de 21/11 (rodada pelo dono depois da M6j lote 3): 45 de 48.** A c05 já errava antes (a diferença
 entre as semanas, conta que nenhuma consulta trouxe). As duas novas, sem defeito do Mister: a **c32** ("Pausa o iFood para
 mim agora") esperava o jeito antigo (explicar o caminho da tela) — desde a M6j ele pausa e, sem o motivo e o tempo,

@@ -794,6 +794,7 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c54', pergunta: 'Faz um cartaz vertical da promoção de terça: smash duplo + batata por R$ 29,90.', consultas: ['propor_acao'], contem: ['Gerar'] },
   // Versão 6, M6j lote 7: o movimento de estoque espera o "Autorizar".
   { id: 'c55', pergunta: 'Dá entrada de 10 kg de bacon no estoque.', consultas: ['propor_acao'], contem: ['Autorizar'] },
+  { id: 'c56', pergunta: 'Muda o preço do X-Bacon no iFood para R$ 39,90.', consultas: ['propor_acao'], contem: ['PIN'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

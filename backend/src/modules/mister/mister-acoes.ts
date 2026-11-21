@@ -35,20 +35,24 @@ export const ACOES_DO_MISTER = [
   'criar_imagem',
   // Lote 7: entrada, saída ou o saldo contado de um produto do estoque.
   'movimentar_estoque',
+  // Lote 8 (de PIN): o preço de um produto, canal por canal.
+  'mudar_preco',
 ] as const;
 export type AcaoDoMister = (typeof ACOES_DO_MISTER)[number];
 export const ehAcaoDoMister = (p: unknown): p is AcaoDoMister => (ACOES_DO_MISTER as readonly string[]).includes(String(p));
 
 export interface DefinicaoDaAcao {
   id: AcaoDoMister;
-  /** O tamanho do risco (decisão do plano): o botão de quem pediu. As de PIN (preço, horário, pagar) são os lotes seguintes. */
-  nivel: 'botao';
+  /** O tamanho do risco (decisão do plano): o botão de quem pediu, ou o PIN pelo link para preço, horário e dinheiro. */
+  nivel: 'botao' | 'pin';
   /** A permissão do perfil — a MESMA da rota da tela. O presidente pode tudo. */
   permissao: 'delivery' | 'meu_dia' | 'loja' | 'checklist' | 'estoque';
   /** Por quanto tempo a pergunta vale. */
   prazoMin: number;
   /** O nome curto, para a auditoria e o histórico das propostas. */
   nome: string;
+  /** A rota da tela também pede "Ver valores em R$" (o presidente sempre pode). */
+  pedeVerValores?: boolean;
 }
 
 export const ACOES: Record<AcaoDoMister, DefinicaoDaAcao> = {
@@ -68,7 +72,12 @@ export const ACOES: Record<AcaoDoMister, DefinicaoDaAcao> = {
   criar_imagem: { id: 'criar_imagem', nivel: 'botao', permissao: 'delivery', prazoMin: 30, nome: 'criar uma imagem' },
   // Lote 7: a permissão da rota `POST /estoque/movimentos` é `estoque.editar` (a conferência é a `temAPermissao` do serviço).
   movimentar_estoque: { id: 'movimentar_estoque', nivel: 'botao', permissao: 'estoque', prazoMin: 10, nome: 'lançar um movimento de estoque' },
+  // Lote 8: a rota `PUT /produtos/:id/preco-canal` pede a Loja e "Ver valores em R$"; muda o que o cliente paga, então é de PIN.
+  mudar_preco: { id: 'mudar_preco', nivel: 'pin', permissao: 'loja', prazoMin: 15, nome: 'mudar o preço de um produto', pedeVerValores: true },
 };
+
+/** As ações de PIN: o link vai a quem pediu (o presidente ou o gerente com a permissão), e o PIN é o dessa pessoa. */
+export const ACOES_DE_PIN: readonly AcaoDoMister[] = ACOES_DO_MISTER.filter((a) => ACOES[a].nivel === 'pin');
 
 // ───────────────────────────── M6l: a imagem ─────────────────────────────
 
@@ -83,7 +92,9 @@ export const BOTOES_DA_IMAGEM = { autorizar: 'Gerar', naoAgora: 'Mudar' } as con
 export const pareceDadoPessoal = (t: string): boolean => /[^\s@]+@[^\s@]+\.[^\s@]+/.test(t) || /(?:\d[\s().\/-]*){10,}/.test(t);
 /** O que a IA faz com a resposta da ação. */
 export const sigaDaAcao = (acao: AcaoDoMister): string =>
-  acao === 'criar_imagem'
+  ACOES[acao].nivel === 'pin'
+    ? 'Mostre o "oQueVouFazer" como veio e diga que o link "Abrir no Regem" chega logo abaixo e pede o PIN. Nada muda sem o PIN; nunca peça o PIN na conversa. Não diga que mudou.'
+    : acao === 'criar_imagem'
     ? 'Mostre o "oQueVouFazer" como veio, entre aspas, e diga que os botões "Gerar" e "Mudar" chegam logo abaixo e que usa 1 da franquia de imagens do mês. Nada é gerado sem o "Gerar". Não diga que gerou.'
     : 'Mostre o "oQueVouFazer" como veio e diga que os botões "Autorizar" e "Não agora" chegam logo abaixo. Nada é feito sem o "Autorizar". Não diga que fez.';
 
@@ -177,6 +188,64 @@ export function resumoDoMovimento(
   return `${oQue} Saldo: ${un(a.saldo)} → ${un(depois)}.${depois < 0 ? ' O saldo fica negativo.' : ''}`;
 }
 
+// ───────────────────────────── lote 8: o preço do produto (de PIN) ─────────────────────────────
+
+const PRECO_MAXIMO_DA_ACAO = 999_999.99;
+/** O preço vindo da IA (V109): número de verdade, maior que zero, no teto da tela e em centavos; senão, null. */
+export function precoDaAcao(v: unknown): number | null {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0 || v > PRECO_MAXIMO_DA_ACAO) return null;
+  const centavos = v * 100;
+  return Math.abs(Math.round(centavos) - centavos) > 1e-6 ? null : Math.round(centavos) / 100;
+}
+export const reaisDaAcao = (v: number): string => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+/** O preço de hoje em cada canal. `de` null: a pessoa não pode ver agora (PIN da sessão vencido) ou o canal não tem preço próprio. */
+export interface PrecoNoCanal {
+  canal: CanalDoProduto;
+  de: number | null;
+}
+export interface MudancaDePreco {
+  nome: string;
+  para: number;
+  canais: PrecoNoCanal[];
+  /** O produto tem preço de promoção (o cardápio digital cobra a promoção, não o preço de venda). */
+  temPromocao: boolean;
+  /** O valor da promoção, quando a pessoa pode ver. */
+  promocao: number | null;
+  /** O produto é da empresa, e ela tem mais de uma loja: o preço vale em todas. */
+  todasAsLojas: boolean;
+}
+const comMaiuscula = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+/** O que a pessoa precisa saber antes do PIN: o salto grande (um zero a mais, a vírgula errada), a promoção e as outras lojas. */
+function notasDoPreco(m: MudancaDePreco): string[] {
+  const notas: string[] = [];
+  const hoje = m.canais.map((c) => c.de).filter((d): d is number => d !== null && d > 0);
+  if (hoje.some((d) => m.para >= d * 2)) notas.push('Atenção: é o dobro ou mais do preço de hoje.');
+  else if (hoje.some((d) => m.para <= d / 2)) notas.push('Atenção: é a metade ou menos do preço de hoje.');
+  if (m.temPromocao && m.canais.some((c) => c.canal === 'regem'))
+    notas.push(`Ele está em promoção${m.promocao !== null ? ` por ${reaisDaAcao(m.promocao)}` : ''}: no cardápio digital o cliente continua pagando a promoção.`);
+  if (m.todasAsLojas) notas.push('O produto é da empresa: o preço novo vale em todas as lojas.');
+  return notas;
+}
+/** O "o que vou fazer" da conversa. */
+export function resumoDoPreco(m: MudancaDePreco): string {
+  const onde = m.canais.map((c) => `${ondeOProduto([c.canal])}${c.de !== null ? ` (hoje ${reaisDaAcao(c.de)})` : ''}`);
+  const lista = onde.length <= 1 ? (onde[0] ?? '') : `${onde.slice(0, -1).join(', ')} e ${onde[onde.length - 1]}`;
+  return [`Mudar o preço de "${m.nome}" para ${reaisDaAcao(m.para)} ${lista}.`, ...notasDoPreco(m)].join(' ');
+}
+/** O que a página do link mostra antes do PIN. */
+export function apresentacaoDoPreco(m: MudancaDePreco): { titulo: string; itens: string[]; detalhe: string | null; valor: number | null; botao: string } {
+  const porCanal = m.canais.map((c) => `${comMaiuscula(ondeOProduto([c.canal]))}: ${c.de !== null ? `de ${reaisDaAcao(c.de)} para` : 'passa a'} ${reaisDaAcao(m.para)}.`);
+  return { titulo: `Mudar o preço de "${m.nome}"?`, detalhe: null, valor: m.para, itens: [...porCanal, ...notasDoPreco(m)], botao: 'Autorizar a mudança' };
+}
+/** Os canais em que o preço gravado é o pedido (a conferência do efeito, em centavos). */
+export function canaisComOPreco(l: { precoVenda?: unknown; precoIfood?: unknown; preco99?: unknown }, canais: readonly CanalDoProduto[], para: number): CanalDoProduto[] {
+  const gravado = (c: CanalDoProduto) => (c === 'regem' ? l.precoVenda : c === 'ifood' ? l.precoIfood : l.preco99);
+  return canais.filter((c) => {
+    const v = gravado(c);
+    return v !== null && v !== undefined && Math.round(Number(v) * 100) === Math.round(para * 100);
+  });
+}
+
 /** O que a ação leva, já conferido (vai em `mister_proposta.parametros`, junto com quem pediu). */
 export type ParametrosDaAcao =
   | { acao: 'pausar_canal'; canais: CanalDaPausa[]; motivo: string; motivoTexto: string | null; minutos: number | null; ate: string | null; fimDoDia: boolean }
@@ -186,7 +255,8 @@ export type ParametrosDaAcao =
   | { acao: 'pausar_produto' | 'reativar_produto'; produto: string; canais: CanalDoProduto[] | null }
   | { acao: 'criar_tarefa'; titulo: string; funcao: string; horario: string | null; responsavel: string | null }
   | { acao: 'criar_imagem'; pedido: string; proporcao: ProporcaoDaImagem }
-  | { acao: 'movimentar_estoque'; item: string; tipo: TipoDoMovimento; quantidade: number | null; saldoContado: number | null; motivo: string | null };
+  | { acao: 'movimentar_estoque'; item: string; tipo: TipoDoMovimento; quantidade: number | null; saldoContado: number | null; motivo: string | null }
+  | { acao: 'mudar_preco'; produto: string; canais: CanalDoProduto[]; precoNovo: number };
 
 const TEMPOS_TEXTO = `cardápio digital e iFood: ${TEMPOS_DO_CARDAPIO.join(', ')} min ou "até HH:MM"; 99: ${TEMPOS_DA_99.join(', ')} min ou até o fim do dia`;
 
@@ -280,6 +350,18 @@ export function conferirAcao(acao: unknown, en: Record<string, unknown>, agora: 
     if (quantidade === null || quantidade <= 0) return { erro: 'Diga a quantidade (maior que zero), na unidade do produto.' };
     return { parametros: { acao, item, tipo, quantidade, saldoContado: null, motivo }, resumo: `${tipo === 'entrada' ? 'Dar entrada de' : 'Dar saída de'} ${quantidadeBr(quantidade)} em "${item}".` };
   }
+  if (acao === 'mudar_preco') {
+    const produto = String(en.produto ?? '').trim().replace(/\s+/g, ' ');
+    if (produto.length < 2 || produto.length > 80) return { erro: 'Diga o produto como ele aparece no cardápio.' };
+    // O canal nunca se supõe: o preço de cada canal é um valor diferente.
+    const brutos = Array.isArray(en.canais) ? en.canais : en.canal !== undefined ? [en.canal] : [];
+    const lidos = [...new Set(brutos.map(lerCanalDoProduto))];
+    if (!lidos.length || lidos.some((c) => c === null)) return { erro: 'Diga em qual canal muda o preço: regem (balcão e cardápio digital), ifood ou 99.' };
+    const canais = (CANAIS_DO_PRODUTO as readonly CanalDoProduto[]).filter((c) => lidos.includes(c));
+    const precoNovo = precoDaAcao(en.precoNovo);
+    if (precoNovo === null) return { erro: 'Diga o preço final em reais, maior que zero e com até 2 casas (por exemplo 39,90).' };
+    return { parametros: { acao, produto, canais, precoNovo }, resumo: `Mudar o preço de "${produto}" para ${reaisDaAcao(precoNovo)} ${ondeOProduto(canais)}.` };
+  }
   const numero = String(en.numero ?? '').trim().replace(/^#/, '');
   if (!numero || numero.length > 40) return { erro: 'Diga o número do pedido como aparece no painel do Delivery.' };
   return { parametros: { acao, numero }, resumo: '' };
@@ -358,4 +440,16 @@ export const TEXTOS_DAS_ACOES = {
   responsaveisDemais: (nomes: string) => `Achei mais de uma pessoa com esse nome: ${nomes}. Diga qual.`,
   tarefaCriada: (titulo: string) => `A tarefa "${titulo}" foi criada para hoje.`,
   tarefaNaoCriada: (titulo: string) => `a tarefa "${titulo}" não apareceu na lista de hoje. Confira na lista de tarefas.`,
+  // Lote 8.
+  semPermissaoPreco: 'O seu perfil no Regem não permite mudar preço: falta o acesso ao cadastro dos produtos ou "Ver valores em R$". Quem muda o perfil é o presidente.',
+  precoComVariacao: (nome: string) => `"${nome}" tem variações, cada uma com o próprio preço: por aqui eu não mudo. Mude em Cadastros › Cardápio.`,
+  precoForaDoCanal: (nome: string, onde: string) => `"${nome}" não está ${onde}: lá não há preço para mudar.`,
+  precoCanalDesligado: (onde: string) => `O preço ${onde} não está ligado nesta empresa: ele não muda pelo Regem.`,
+  precoIgual: (nome: string, preco: string) => `"${nome}" já custa ${preco} nesse canal. Nada muda.`,
+  linkDoPreco: (resumo: string, hora: string) => `${resumo}\n\nPara valer, autorize no Regem com o seu PIN. O pedido vale até ${hora}.`,
+  precoFeito: (nome: string, preco: string, onde: string, temApp: boolean) =>
+    `"${nome}" agora custa ${preco} ${onde}.${temApp ? ' O app recebe o preço novo pela fila de envio.' : ''}`,
+  precoEmParte: (nome: string, preco: string, feito: string, falta: string, motivo: string | null) =>
+    `"${nome}" ficou com ${preco} ${feito}, mas não mudou ${falta}${motivo ? ` (${motivo})` : ''}. Confira em Delivery › Gestão do catálogo.`,
+  precoNaoMudou: (nome: string, motivo: string | null) => `o preço de "${nome}" não mudou${motivo ? `: ${motivo}` : ''}. Nada foi feito.`,
 } as const;

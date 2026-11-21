@@ -28,6 +28,10 @@ import {
   mesmaUnidade,
   quantidadeBr,
   resumoDoMovimento,
+  resumoDoPreco,
+  reaisDaAcao,
+  canaisComOPreco,
+  type MudancaDePreco,
   sigaDaAcao,
   nomeDoEstadoDaTarefa,
   nomesDosCanais,
@@ -40,9 +44,11 @@ import {
 import { EscopoDoMister, MisterFerramentasService, ResultadoDaFerramenta } from './mister-ferramentas.service';
 import { MisterNumeroService } from './mister-numero.service';
 import { botoesDaProposta } from './mister-procedimentos';
-import { MisterPropostasService } from './mister-propostas.service';
+import { MisterPropostasService, type PropostaPendente } from './mister-propostas.service';
 import { GraphImagemService } from '../graph/graph-imagem.service';
 import { EstoqueService } from '../estoque/estoque.service';
+import { ifoodPeloOrzuniLigado } from '../../common/ifood-pelo-orzuni';
+import { precosNa99Ligado } from '../../common/precos-na-99';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -80,6 +86,9 @@ const semPermissaoDe = (p: 'delivery' | 'meu_dia' | 'loja' | 'checklist' | 'esto
 /** A MESMA conta do `PermissoesGuard`: o estoque é CRUD (a rota do movimento pede `editar`), os outros são chaves simples. */
 const temAPermissao = (perm: Permissoes | undefined | null, p: 'delivery' | 'meu_dia' | 'loja' | 'checklist' | 'estoque') =>
   p === 'estoque' ? pode(perm, 'estoque', 'editar') : podeAcessar(perm, p);
+/** A permissão da ação: a da rota e, no preço, "Ver valores em R$" (o `exigirVerValores` da rota). O presidente pode tudo. */
+const podeFazer = (e: { nivel: string; permissoes?: Permissoes | null }, def: (typeof ACOES)[AcaoDoMister]) =>
+  e.nivel === 'presidente' || (temAPermissao(e.permissoes, def.permissao) && (!def.pedeVerValores || !!e.permissoes?.ver_financeiro));
 const NOME_DA_SITUACAO: Record<string, string> = { novo: 'aguardando aceite', confirmado: 'em preparo', pronto: 'pronto', despachado: 'a caminho', concluido: 'concluído', entregue: 'entregue', cancelado: 'cancelado' };
 
 @Injectable()
@@ -119,9 +128,10 @@ export class MisterAcoesService implements OnModuleInit {
       const c = conferirAcao(en.acao, en);
       if ('erro' in c) return recusa(c.erro);
       const def = ACOES[c.parametros.acao];
-      if (e.nivel !== 'presidente' && !temAPermissao(e.permissoes, def.permissao)) return recusa(semPermissaoDe(def.permissao));
+      if (!podeFazer(e, def)) return recusa(def.pedeVerValores ? TEXTOS_DAS_ACOES.semPermissaoPreco : semPermissaoDe(def.permissao));
       if (c.parametros.acao === 'criar_imagem' && !imagemLigada()) return recusa(TEXTOS_DAS_ACOES.imagemDesligada);
-      if (this.numero && (await this.numero.ler()).provedor === 'evolution') return recusa(TEXTOS_DAS_ACOES.semBotao);
+      // A de PIN vai pelo link, que também sai pela conexão por QR Code (escrito na mensagem).
+      if (def.nivel === 'botao' && this.numero && (await this.numero.ler()).provedor === 'evolution') return recusa(TEXTOS_DAS_ACOES.semBotao);
       // A loja: a da conversa (o gerente, a dele); a empresa de uma loja só, ela.
       const lojas = loja.atual ? [loja.atual] : e.lojas.map((l) => l.id);
       if (!lojas.length && !e.lojaUnica) return recusa(TEXTOS_DAS_ACOES.semPermissao);
@@ -209,10 +219,25 @@ export class MisterAcoesService implements OnModuleInit {
         resumo = resumoDoMovimento(c.parametros, { nome: it.nome, unidade: it.unidade, saldo, loja: e.lojaUnica ? null : (e.lojas.find((l) => l.id === daLoja)?.nome ?? null) });
         alvo = `${it.id}:${c.parametros.tipo}:${c.parametros.quantidade ?? c.parametros.saldoContado}`;
       }
+      if (c.parametros.acao === 'mudar_preco') {
+        // Lote 8: uma proposta por produto. Pedir outro preço troca a anterior, e o link dela para de valer.
+        const m = await this.prepararPreco(e, c.parametros, e.lojaUnica && !loja.atual ? null : lojas);
+        if ('erro' in m) return recusa(m.erro);
+        unidadeId = m.unidadeId ?? unidadeId;
+        parametros.produtoId = m.id;
+        parametros.mudanca = m.mudanca;
+        resumo = resumoDoPreco(m.mudanca);
+        alvo = m.id;
+      }
       // M6l: cada pedido de imagem é um alvo (o mesmo pedido repetido é a mesma proposta e não paga de novo).
       if (c.parametros.acao === 'criar_imagem') alvo = `${c.parametros.proporcao}:${c.parametros.pedido}`;
       const p = await this.gravar(e, c.parametros.acao, unidadeId, parametros, `${alvo}:${unidadeId ?? 'empresa'}`);
       if (!p) return recusa('Essa mesma ação já foi autorizada e está em andamento; o resultado chega na conversa.');
+      if (def.nivel === 'pin') {
+        // A de PIN sai com o link "Abrir no Regem", depois da resposta (o agente chama `enviarLinkDaProposta`), nunca com botões.
+        const proposta: PropostaPendente = { id: p.id, procedimento: c.parametros.acao, nivel: 'pin', pergunta: TEXTOS_DAS_ACOES.linkDoPreco(resumo, horaNoFuso(new Date(p.venceEm))), botoes: [] };
+        return { ok: true, dados: { oQueVouFazer: resumo, siga: sigaDaAcao(c.parametros.acao) }, proposta };
+      }
       return {
         ok: true,
         dados: {
@@ -221,8 +246,8 @@ export class MisterAcoesService implements OnModuleInit {
         },
         mensagens: [
           c.parametros.acao === 'criar_imagem'
-            ? { texto: TEXTOS_DAS_ACOES.perguntaDaImagem(resumo, def.prazoMin), botoes: botoesDaProposta(p, BOTOES_DA_IMAGEM) }
-            : { texto: TEXTOS_DAS_ACOES.pergunta(resumo, def.prazoMin), botoes: botoesDaProposta(p) },
+            ? { texto: TEXTOS_DAS_ACOES.perguntaDaImagem(resumo, def.prazoMin), botoes: botoesDaProposta(p.id, BOTOES_DA_IMAGEM) }
+            : { texto: TEXTOS_DAS_ACOES.pergunta(resumo, def.prazoMin), botoes: botoesDaProposta(p.id) },
         ],
       };
     } catch (err: any) {
@@ -326,7 +351,7 @@ export class MisterAcoesService implements OnModuleInit {
    * não deixa duas). Renova a que acabou (vencida, não autorizada, não deu ou feita: a mesma ação pode ser pedida de novo
    * depois); a autorizada e a executando não renovam (null).
    */
-  private async gravar(e: EscopoDoMister, acao: AcaoDoMister, unidadeId: string | null, parametros: Record<string, unknown>, alvo: string): Promise<string | null> {
+  private async gravar(e: EscopoDoMister, acao: AcaoDoMister, unidadeId: string | null, parametros: Record<string, unknown>, alvo: string): Promise<{ id: string; venceEm: string | Date } | null> {
     const def = ACOES[acao];
     const avisoId = uuidDeChave('mister:acao:', e.tenantId, ':', e.colaboradorId, ':', acao, ':', alvo);
     await this.db.execute(sql`
@@ -336,14 +361,15 @@ export class MisterAcoesService implements OnModuleInit {
       on conflict (aviso_id, procedimento) do update
         set situacao = 'proposta', criada_em = clock_timestamp(), vence_em = excluded.vence_em, parametros = excluded.parametros,
             unidade_id = excluded.unidade_id, respondida_em = null, autorizada_por = null, telefone_final = null, executada_em = null,
-            conferir_ate = null, concluida_em = null, resultado = null
+            conferir_ate = null, concluida_em = null, resultado = null,
+            link_hash = null, link_para = null, link_criado_em = null, link_aberto_em = null, pin_erros = 0, bloqueada_em = null
         where mister_proposta.situacao in ('vencida', 'recusada', 'nao_deu', 'feita', 'proposta')`);
     const [p] = linhas(
       await this.db.execute(sql`
-        select id::text as id from mister_proposta
+        select id::text as id, vence_em as "venceEm" from mister_proposta
          where aviso_id = ${avisoId}::uuid and procedimento = ${acao} and situacao = 'proposta' and vence_em > now()`),
     );
-    return p?.id ?? null;
+    return p ? { id: p.id, venceEm: p.venceEm } : null;
   }
 
   /**
@@ -381,6 +407,90 @@ export class MisterAcoesService implements OnModuleInit {
       this.logger.warn(`o movimento de estoque não foi lançado: ${motivo}`);
       return { feita: false, texto: `o estoque recusou: ${motivo}. Nada foi lançado.` };
     }
+  }
+
+  /**
+   * Lote 8: o produto, o preço de hoje em cada canal e o que a pessoa precisa saber antes do PIN. Recusa aqui o que a tela
+   * recusaria ao gravar (o canal desligado) e o que daria efeito errado (produto com variações, canal em que ele não está).
+   */
+  private async prepararPreco(
+    e: EscopoDoMister,
+    a: { produto: string; canais: CanalDoProduto[]; precoNovo: number },
+    lojas: string[] | null,
+  ): Promise<{ id: string; unidadeId: string | null; mudanca: MudancaDePreco } | { erro: string }> {
+    const pr = await this.acharProduto(e.tenantId, a.produto, lojas);
+    if ('erro' in pr) return pr;
+    const [l] = linhas(
+      await this.db.execute(sql`
+        select p.unidade_id::text as "unidadeId", p.preco_venda::text as "precoVenda", p.preco_ifood::text as "precoIfood", p.preco_99::text as "preco99",
+               p.preco_promocional::text as promocao,
+               exists (select 1 from produto_variacao v where v.tenant_id = p.tenant_id and v.produto_id = p.id and v.deleted_at is null and v.ativo) as "temVariacao",
+               (select count(*)::int from unidade u where u.tenant_id = p.tenant_id and u.deleted_at is null) as "quantasLojas"
+          from produto p
+         where p.id = ${pr.id}::uuid and p.tenant_id = ${e.tenantId}::uuid and p.deleted_at is null`),
+    );
+    if (!l) return { erro: TEXTOS_DAS_ACOES.produtoNaoAchado };
+    if (l.temVariacao) return { erro: TEXTOS_DAS_ACOES.precoComVariacao(pr.nome) };
+    if (a.canais.includes('ifood')) {
+      if (!(await ifoodPeloOrzuniLigado(this.db, e.tenantId))) return { erro: TEXTOS_DAS_ACOES.precoCanalDesligado('no iFood') };
+      if (!pr.noIfood) return { erro: TEXTOS_DAS_ACOES.precoForaDoCanal(pr.nome, 'no iFood') };
+    }
+    if (a.canais.includes('99food')) {
+      if (!(await precosNa99Ligado(this.db, e.tenantId))) return { erro: TEXTOS_DAS_ACOES.precoCanalDesligado('na 99') };
+      if (!pr.na99) return { erro: TEXTOS_DAS_ACOES.precoForaDoCanal(pr.nome, 'na 99') };
+    }
+    const hoje = (c: CanalDoProduto): number | null => {
+      const v = c === 'regem' ? l.precoVenda : c === 'ifood' ? l.precoIfood : l.preco99;
+      return v === null || v === undefined ? null : Number(v);
+    };
+    // Com o PIN da sessão vencido, o preço de hoje não aparece: nem na pergunta, nem na recusa de "já custa isso".
+    if (e.verValores && canaisComOPreco(l, a.canais, a.precoNovo).length === a.canais.length) return { erro: TEXTOS_DAS_ACOES.precoIgual(pr.nome, reaisDaAcao(a.precoNovo)) };
+    return {
+      id: pr.id,
+      unidadeId: l.unidadeId ?? null,
+      mudanca: {
+        nome: pr.nome,
+        para: a.precoNovo,
+        canais: a.canais.map((canal) => ({ canal, de: e.verValores ? hoje(canal) : null })),
+        temPromocao: l.promocao !== null && l.promocao !== undefined,
+        promocao: e.verValores && l.promocao !== null && l.promocao !== undefined ? Number(l.promocao) : null,
+        todasAsLojas: !l.unidadeId && Number(l.quantasLojas) > 1,
+      },
+    };
+  }
+
+  /**
+   * Lote 8: o preço pelo MESMO `ProdutoService.precoDoCanal` da Gestão do catálogo (ele audita o "de → para" e o gatilho põe o
+   * app na fila), um canal por vez. O desfecho sai do que ficou gravado, canal a canal.
+   */
+  private async aplicarPreco(
+    p: { tenantId: string },
+    a: { produto: string; canais: CanalDoProduto[]; precoNovo: number; produtoId?: string; mudanca?: MudancaDePreco },
+    ator: { id: string; perfil: string },
+  ): Promise<{ feita: boolean; texto: string }> {
+    if (!this.produtos || !a.produtoId) return { feita: false, texto: 'o cadastro dos produtos não está disponível agora. Nada foi feito.' };
+    const nome = a.mudanca?.nome ?? a.produto;
+    let motivo: string | null = null;
+    for (const canal of a.canais) {
+      try {
+        await this.produtos.precoDoCanal(p.tenantId, a.produtoId, canal, a.precoNovo, ator);
+      } catch (err: any) {
+        motivo = String(err?.response?.message ?? err?.message ?? 'o serviço recusou').slice(0, 200).replace(/[.\s]+$/, '');
+        this.logger.warn(`o preço do canal ${canal} não mudou: ${motivo}`);
+        break;
+      }
+    }
+    const [l] = linhas(
+      await this.db.execute(sql`
+        select preco_venda::text as "precoVenda", preco_ifood::text as "precoIfood", preco_99::text as "preco99"
+          from produto where id = ${a.produtoId}::uuid and tenant_id = ${p.tenantId}::uuid and deleted_at is null`),
+    );
+    if (!l) return { feita: false, texto: 'o produto não foi encontrado. Nada foi feito.' };
+    const certos = canaisComOPreco(l, a.canais, a.precoNovo);
+    const preco = reaisDaAcao(a.precoNovo);
+    if (certos.length === a.canais.length) return { feita: true, texto: TEXTOS_DAS_ACOES.precoFeito(nome, preco, ondeOProduto(a.canais), a.canais.some((c) => c !== 'regem')) };
+    if (!certos.length) return { feita: false, texto: TEXTOS_DAS_ACOES.precoNaoMudou(nome, motivo) };
+    return { feita: false, texto: TEXTOS_DAS_ACOES.precoEmParte(nome, preco, ondeOProduto(certos), ondeOProduto(a.canais.filter((c) => !certos.includes(c))), motivo) };
   }
 
   /** Lote 7: o item de estoque pelo nome (o da ficha ou o comercial), da empresa ou das lojas da pessoa. */
@@ -455,8 +565,8 @@ export class MisterAcoesService implements OnModuleInit {
     if (!quem || quem !== String(p.parametros?.colaboradorId ?? '')) return { feita: false, texto: 'a ação só vale com o "Autorizar" de quem pediu. Nada foi feito.' };
     const e = await this.ferramentas.escopoDaTela(p.tenantId, quem);
     const def = ACOES[p.procedimento];
-    if (!e || (e.nivel !== 'presidente' && !temAPermissao(e.permissoes, def.permissao))) {
-      const a = def.permissao === 'meu_dia' ? 'às Tarefas' : def.permissao === 'loja' ? 'ao cadastro dos produtos' : def.permissao === 'estoque' ? 'ao lançamento do estoque' : 'ao Delivery';
+    if (!e || !podeFazer(e, def)) {
+      const a = def.pedeVerValores ? 'à mudança de preço' : def.permissao === 'meu_dia' ? 'às Tarefas' : def.permissao === 'loja' ? 'ao cadastro dos produtos' : def.permissao === 'estoque' ? 'ao lançamento do estoque' : 'ao Delivery';
       return { feita: false, texto: `o seu perfil não dá mais acesso ${a}. Nada foi feito.` };
     }
     const parametros = p.parametros as ParametrosDaAcao & { pedidoId?: string; pedido?: string; instanciaId?: string; titulo?: string; produtoId?: string; nome?: string };
@@ -470,6 +580,7 @@ export class MisterAcoesService implements OnModuleInit {
       });
     }
     if (parametros.acao === 'movimentar_estoque') return this.lancarEstoque(p, parametros as any, user);
+    if (parametros.acao === 'mudar_preco') return this.aplicarPreco(p, parametros as any, { id: quem, perfil: e.nivel });
     try {
       if (parametros.acao === 'pausar_canal' || parametros.acao === 'reabrir_canal') {
         if (!this.pausa) return { feita: false, texto: 'a pausa dos canais não está disponível agora. Nada foi feito.' };
